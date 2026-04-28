@@ -149,6 +149,9 @@ export default function Navbar() {
               <Link href="/dashboard" className="text-gray-700 hover:text-primary whitespace-nowrap">
                 仪表盘
               </Link>
+              <Link href="/admin/settings" className="text-gray-700 hover:text-primary whitespace-nowrap">
+                系统设置
+              </Link>
             </div>
             <div className="flex items-center space-x-2 flex-nowrap">
               {isLoggedIn ? (
