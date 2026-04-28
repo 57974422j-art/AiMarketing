@@ -124,4 +124,3 @@ export async function DELETE(request: Request) {
   });
 }
 
-export { platforms, triggerTypes };
