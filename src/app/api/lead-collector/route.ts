@@ -84,7 +84,7 @@ const mockLeads = [
     taskId: 4,
     taskName: '快手直播弹幕采集',
     username: '创业青年阿杰',
-    avatar: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=young%20asian%20man%20business%20casual%20avatar&image_size=square',
+    avatar: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=young%20asian%20man%20business%20casual%20avatar%20portrait&image_size=square',
     content: '我想报名参加这个课程',
     contact: 'wechat: chuangyejie',
     platform: '快手',
@@ -106,7 +106,7 @@ const mockLeads = [
     taskId: 2,
     taskName: '小红书笔记互动采集',
     username: '宝妈朵朵',
-    avatar: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=young%20asian%20mother%20warm%20smile%20avatar&image_size=square',
+    avatar: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=young%20asian%20mother%20warm%20smile%20avatar%20portrait&image_size=square',
     content: '求分享链接，太喜欢了',
     contact: 'wechat: baoma_duoduo',
     platform: '小红书',
@@ -196,5 +196,3 @@ export async function DELETE(request: Request) {
     headers: { 'Content-Type': 'application/json' }
   });
 }
-
-export { platforms };
