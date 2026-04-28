@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
     const outputFileName = `output_${taskId}_${timestamp}.mp4`
     const outputPath = join(outputDir, outputFileName)
     const outputUrl = `/outputs/${outputFileName}`
+    const downloadUrl = `http://121.199.164.168:3000/outputs/${outputFileName}`
 
     switch (template) {
       case 'mix':
@@ -98,7 +99,8 @@ export async function POST(request: NextRequest) {
       success: true,
       message: '视频剪辑任务已完成',
       taskId,
-      outputUrl
+      outputUrl,
+      downloadUrl
     })
   } catch (error) {
     console.error('视频剪辑错误:', error)

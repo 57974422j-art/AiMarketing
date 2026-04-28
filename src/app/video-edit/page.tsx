@@ -51,7 +51,7 @@ export default function VideoEditPage() {
 
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files) return;
-    
+
     setErrorMessage('');
     const newVideos: VideoFile[] = [];
 
@@ -59,7 +59,7 @@ export default function VideoEditPage() {
       const file = files[i];
       const validExtensions = ['.mp4', '.mov', '.avi'];
       const extension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-      
+
       if (!validExtensions.includes(extension)) {
         setErrorMessage(`文件 ${file.name} 格式不支持，仅支持 mp4、mov、avi 格式`);
         continue;
@@ -118,7 +118,7 @@ export default function VideoEditPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (videos.length === 0) {
       setErrorMessage('请至少上传一个视频文件');
       return;
@@ -156,8 +156,8 @@ export default function VideoEditPage() {
       const data = await response.json();
 
       if (data.success) {
-        setOutputUrl(data.outputUrl);
-        setTimeout(() => setIsProcessing(false), 500);
+        setOutputUrl(data.downloadUrl);
+        setIsProcessing(false);
       } else {
         setErrorMessage(data.message || '视频处理失败');
         setIsProcessing(false);
@@ -340,6 +340,8 @@ export default function VideoEditPage() {
               <a
                 href={outputUrl}
                 download
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center px-6 py-2 bg-primary text-white rounded-md hover:bg-primary-dark transition-colors"
               >
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
