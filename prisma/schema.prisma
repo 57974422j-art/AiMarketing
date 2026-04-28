@@ -1,0 +1,122 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // 关联
+  accounts      Account[]
+  videoTasks    VideoTask[]
+  copyTasks     CopyTask[]
+  publishingTasks PublishingTask[]
+  dashboardStats DashboardStat[]
+}
+
+model Account {
+  id          Int      @id @default(autoincrement())
+  platform    String   // 抖音、快手等
+  accountId   String
+  accountName String   // 账号昵称
+  isBound     Boolean  @default(false) // 绑定状态
+  userId      Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  user User @relation(fields: [userId], references: [id])
+  publishingTasks PublishingTask[]
+}
+
+model VideoTask {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  originalFile String   // 原始文件名
+  template     String   // 混剪、快剪等
+  duration     Int      // 时长（秒）
+  style        String   // 风格参数
+  status       String   // 处理状态
+  outputPath   String?  // 输出路径
+  progress     Int      @default(0) // 进度百分比
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  user User @relation(fields: [userId], references: [id])
+  publishingTasks PublishingTask[]
+}
+
+model CopyTask {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  keywords    String
+  platform    String   // 抖音、小红书等
+  style       String   // 风格
+  resultJson  String   // 生成结果 JSON
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  user User @relation(fields: [userId], references: [id])
+}
+
+model PublishingTask {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  accountId   Int
+  videoTaskId Int
+  publishTime DateTime? // 发布时间
+  status      String   // 发布状态
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  user       User      @relation(fields: [userId], references: [id])
+  account    Account   @relation(fields: [accountId], references: [id])
+  videoTask  VideoTask @relation(fields: [videoTaskId], references: [id])
+}
+
+model DashboardStat {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  platform        String
+  followers       Int      @default(0)
+  publishCount    Int      @default(0)
+  engagementRate  Float    @default(0)
+  date            DateTime @default(now())
+  
+  user User @relation(fields: [userId], references: [id])
+}
+
+model AIAgent {
+  id             Int               @id @default(autoincrement())
+  name           String
+  welcomeMessage String
+  replyStyle     String
+  promptTemplate String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  
+  trainingDocuments TrainingDocument[]
+}
+
+model TrainingDocument {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String
+  type      String
+  agentId   Int
+  createdAt DateTime @default(now())
+  
+  agent AIAgent @relation(fields: [agentId], references: [id])
+}
