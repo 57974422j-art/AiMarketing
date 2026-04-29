@@ -1,14 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
+import { randomBytes, scrypt, timingSafeEqual, createHmac } from 'crypto'
+import { promisify } from 'util'
 
 const prisma = new PrismaClient()
+const scryptAsync = promisify(scrypt)
+
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  const [salt, hash] = storedHash.split(':')
+  const hashed = await scryptAsync(password, salt, 64) as Buffer
+  const storedHashBuffer = Buffer.from(hash, 'hex')
+  return timingSafeEqual(hashed, storedHashBuffer)
+}
+
+function createJWT(payload: { userId: number; username: string; role: string }, secret: string): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  const signature = createHmac('sha256', secret)
+    .update(`${header}.${payloadStr}`)
+    .digest('base64url')
+  return `${header}.${payloadStr}.${signature}`
+}
+
+function verifyJWT(token: string, secret: string): { userId: number; username: string; role: string } | null {
+  try {
+    const [header, payload, signature] = token.split('.')
+    const expectedSignature = createHmac('sha256', secret)
+      .update(`${header}.${payload}`)
+      .digest('base64url')
+    if (signature !== expectedSignature) return null
+    return JSON.parse(Buffer.from(payload, 'base64url').toString())
+  } catch {
+    return null
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { username, password } = body
+    const JWT_SECRET = process.env.JWT_SECRET || 'aimarketing-secret-key-2024'
     
-    // 验证参数
     if (!username || !password) {
       return NextResponse.json(
         { success: false, message: '缺少必要参数' },
@@ -16,11 +48,8 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // 查找用户
     const user = await prisma.user.findFirst({
-      where: {
-        username
-      }
+      where: { username }
     })
     
     if (!user) {
@@ -30,8 +59,7 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // 验证密码（这里使用模拟验证，实际项目中应使用 bcrypt）
-    const isPasswordValid = password === user.passwordHash // 实际项目中：await bcrypt.compare(password, user.passwordHash)
+    const isPasswordValid = await verifyPassword(password, user.passwordHash)
     
     if (!isPasswordValid) {
       return NextResponse.json(
@@ -40,10 +68,11 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // 生成 JWT token（这里使用模拟 token，实际项目中应使用 jsonwebtoken）
-    const token = `mock-token-${user.id}` // 实际项目中：jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' })
+    const token = createJWT(
+      { userId: user.id, username: user.username, role: user.role },
+      JWT_SECRET
+    )
     
-    // 设置 cookie
     const response = NextResponse.json({
       success: true,
       message: '登录成功',
@@ -51,12 +80,11 @@ export async function POST(request: NextRequest) {
         id: user.id,
         username: user.username,
         email: user.email,
-        name: user.name
-      },
-      token
+        name: user.name,
+        role: user.role
+      }
     })
     
-    // 设置 cookie
     response.cookies.set('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -77,4 +105,27 @@ export async function POST(request: NextRequest) {
   } finally {
     await prisma.$disconnect()
   }
+}
+
+export async function GET(request: NextRequest) {
+  const token = request.cookies.get('token')?.value
+  const JWT_SECRET = process.env.JWT_SECRET || 'aimarketing-secret-key-2024'
+  
+  if (!token) {
+    return NextResponse.json({ authenticated: false })
+  }
+  
+  const payload = verifyJWT(token, JWT_SECRET)
+  if (!payload) {
+    return NextResponse.json({ authenticated: false })
+  }
+  
+  return NextResponse.json({
+    authenticated: true,
+    user: {
+      id: payload.userId,
+      username: payload.username,
+      role: payload.role
+    }
+  })
 }

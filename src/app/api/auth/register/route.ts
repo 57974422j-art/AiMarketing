@@ -1,22 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
+import { randomBytes, scrypt } from 'crypto'
+import { promisify } from 'util'
 
 const prisma = new PrismaClient()
+const scryptAsync = promisify(scrypt)
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString('hex')
+  const hashed = await scryptAsync(password, salt, 64) as Buffer
+  return `${salt}:${hashed.toString('hex')}`
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { username, email, password, name } = body
+    const { username, email, password, name, inviteCode } = body
     
-    // 验证参数
-    if (!username || !email || !password) {
+    if (!username || !email || !password || !inviteCode) {
       return NextResponse.json(
-        { success: false, message: '缺少必要参数' },
+        { success: false, message: '缺少必要参数（需包含邀请码）' },
         { status: 400 }
       )
     }
     
-    // 检查用户名是否已存在
+    const inviteCodeRecord = await prisma.inviteCode.findUnique({
+      where: { code: inviteCode }
+    })
+    
+    if (!inviteCodeRecord) {
+      return NextResponse.json(
+        { success: false, message: '邀请码不存在' },
+        { status: 403 }
+      )
+    }
+    
+    if (inviteCodeRecord.isUsed) {
+      return NextResponse.json(
+        { success: false, message: '邀请码已被使用' },
+        { status: 403 }
+      )
+    }
+    
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
@@ -33,16 +58,24 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // 加密密码（这里使用模拟加密，实际项目中应使用 bcrypt）
-    const passwordHash = password // 实际项目中：await bcrypt.hash(password, 10)
+    const passwordHash = await hashPassword(password)
     
-    // 创建用户
     const user = await prisma.user.create({
       data: {
         username,
         email,
         passwordHash,
-        name
+        name,
+        role: 'viewer',
+        inviteCode
+      }
+    })
+    
+    await prisma.inviteCode.update({
+      where: { id: inviteCodeRecord.id },
+      data: {
+        isUsed: true,
+        usedBy: user.id
       }
     })
     
@@ -53,7 +86,8 @@ export async function POST(request: NextRequest) {
         id: user.id,
         username: user.username,
         email: user.email,
-        name: user.name
+        name: user.name,
+        role: user.role
       }
     })
   } catch (error) {
