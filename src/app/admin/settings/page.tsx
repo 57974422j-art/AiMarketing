@@ -33,51 +33,64 @@ export default function SettingsPage() {
  const [activeTab, setActiveTab] = useState<'providers' | 'knowledge' | 'global'>('providers');
  const [saveMessage, setSaveMessage] = useState('');
  useEffect(() => {
- loadSettings();
- }, []);
- const loadSettings = () => {
- const savedProviders = localStorage.getItem('aiProviders');
- if (savedProviders) {
- setProviders(JSON.parse(savedProviders));
- }
- else {
- setProviders([]);
- }
- const savedDefaultProvider = localStorage.getItem('defaultAIProvider');
- if (savedDefaultProvider) {
- setSelectedProvider(savedDefaultProvider);
- }
- const savedKnowledge = localStorage.getItem('knowledgeBase');
- if (savedKnowledge) {
- setKnowledgeBase(JSON.parse(savedKnowledge));
- }
- else {
- setKnowledgeBase({
- content: '',
- updatedAt: '',
- });
- }
- };
- const saveProviders = () => {
- localStorage.setItem('aiProviders', JSON.stringify(providers));
- setSaveMessage('API配置已保存');
- setTimeout(() => setSaveMessage(''), 3000);
- };
- const saveDefaultProvider = () => {
- localStorage.setItem('defaultAIProvider', selectedProvider);
- setSaveMessage('默认模型已设置');
- setTimeout(() => setSaveMessage(''), 3000);
- };
- const saveKnowledgeBase = () => {
- const updatedKnowledge: KnowledgeBase = {
- content: knowledgeBase.content,
- updatedAt: new Date().toISOString(),
- };
- setKnowledgeBase(updatedKnowledge);
- localStorage.setItem('knowledgeBase', JSON.stringify(updatedKnowledge));
- setSaveMessage('知识库已保存');
- setTimeout(() => setSaveMessage(''), 3000);
- };
+    loadSettings();
+  }, []);
+  const loadSettings = async () => {
+    try {
+      const response = await fetch('/api/config');
+      const result = await response.json();
+      if (result.success && result.data) {
+        setProviders(result.data.providers || []);
+        setSelectedProvider(result.data.defaultProvider || '');
+        setKnowledgeBase(result.data.knowledgeBase || { content: '', updatedAt: '' });
+      }
+    } catch (error) {
+      console.error('加载配置失败:', error);
+      // 降级到 localStorage
+      const savedProviders = localStorage.getItem('aiProviders');
+      setProviders(savedProviders ? JSON.parse(savedProviders) : []);
+      setSelectedProvider(localStorage.getItem('defaultAIProvider') || '');
+      const savedKnowledge = localStorage.getItem('knowledgeBase');
+      setKnowledgeBase(savedKnowledge ? JSON.parse(savedKnowledge) : { content: '', updatedAt: '' });
+    }
+  };
+  const saveAllSettings = async () => {
+    try {
+      const response = await fetch('/api/config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          providers,
+          defaultProvider: selectedProvider,
+          knowledgeBase
+        }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setSaveMessage(result.message);
+        // 同步保存到 localStorage 作为备份
+        localStorage.setItem('aiProviders', JSON.stringify(providers));
+        localStorage.setItem('defaultAIProvider', selectedProvider);
+        localStorage.setItem('knowledgeBase', JSON.stringify(knowledgeBase));
+      } else {
+        setSaveMessage('保存失败: ' + result.message);
+      }
+    } catch (error) {
+      console.error('保存配置失败:', error);
+      setSaveMessage('保存失败，请检查网络连接');
+    }
+    setTimeout(() => setSaveMessage(''), 3000);
+  };
+  const saveKnowledgeBase = () => {
+    const updatedKnowledge: KnowledgeBase = {
+      content: knowledgeBase.content,
+      updatedAt: new Date().toISOString(),
+    };
+    setKnowledgeBase(updatedKnowledge);
+    saveAllSettings();
+  };
  const addProvider = () => {
  if (!newProvider.apiKey.trim()) {
  setSaveMessage('请填写API Key');
@@ -91,22 +104,22 @@ export default function SettingsPage() {
  model: newProvider.model || getDefaultModel(newProvider.provider),
  };
  setProviders([...providers, config]);
- setNewProvider({
- provider: 'openai',
- apiKey: '',
- baseUrl: '',
- model: '',
- });
- saveProviders();
- };
+    setNewProvider({
+      provider: 'openai',
+      apiKey: '',
+      baseUrl: '',
+      model: '',
+    });
+    saveAllSettings();
+  };
  const removeProvider = (index: number) => {
  const newProviders = providers.filter((_, i) => i !== index);
  setProviders(newProviders);
- if (selectedProvider === index.toString()) {
- setSelectedProvider(newProviders.length > 0 ? '0' : '');
- }
- saveProviders();
- };
+    if (selectedProvider === index.toString()) {
+      setSelectedProvider(newProviders.length > 0 ? '0' : '');
+    }
+    saveAllSettings();
+  };
  const getDefaultBaseUrl = (provider: string): string => {
  switch (provider) {
  case 'openai':
@@ -289,9 +302,9 @@ export default function SettingsPage() {
  </option>))}
  </select>
  </div>
- <button onClick={saveDefaultProvider} className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark transition-colors">
- 设置为默认模型
- </button>
+ <button onClick={saveAllSettings} className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark transition-colors">
+        设置为默认模型
+      </button>
  
  <div className="mt-6 p-4 bg-blue-50 rounded-lg">
  <h4 className="font-medium text-blue-900 mb-2">当前配置状态</h4>

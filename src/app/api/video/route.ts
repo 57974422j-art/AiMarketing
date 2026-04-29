@@ -75,7 +75,16 @@ export async function POST(request: NextRequest) {
         }
         break
       case 'quick':
-        trimVideo(inputPaths[0], 0, duration, outputPath)
+        if (inputPaths.length > 1) {
+          const tempOutput = join(outputDir, `temp_${taskId}_${timestamp}.mp4`)
+          concatVideos(inputPaths, tempOutput)
+          trimVideo(tempOutput, 0, duration, outputPath)
+          if (existsSync(tempOutput)) {
+            unlinkSync(tempOutput)
+          }
+        } else {
+          trimVideo(inputPaths[0], 0, duration, outputPath)
+        }
         addTextOverlay(outputPath, 'AiMarketing', 'bottom-right', outputPath)
         break
       case 'story':
