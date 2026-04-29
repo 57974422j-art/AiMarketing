@@ -6,8 +6,9 @@ const prisma = new PrismaClient()
 function getUserContext(request: NextRequest) {
   const userId = request.headers.get('X-User-Id')
   const role = request.headers.get('X-User-Role')
+  const teamId = request.headers.get('X-User-Team-Id')
   if (!userId || !role) return null
-  return { userId: parseInt(userId), role }
+  return { userId: parseInt(userId), role, teamId: teamId ? parseInt(teamId) : null }
 }
 
 function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boolean {
@@ -29,16 +30,36 @@ export async function GET(request: NextRequest) {
     if (!checkPermission(user.role, 'read')) {
       return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
     }
-    
+
+    let whereClause: any = {}
+    if (user.role === 'admin') {
+      whereClause = {}
+    } else if (user.teamId) {
+      whereClause = { user: { teamId: user.teamId } }
+    } else {
+      whereClause = { userId: user.userId }
+    }
+
     const dashboardStats = await prisma.dashboardStat.findMany({
-      where: user.role === 'admin' ? {} : { userId: user.userId }
+      where: whereClause
     })
 
     if (dashboardStats.length === 0) {
+      let mockUserId = user.userId
+      if (user.teamId) {
+        const teamMembers = await prisma.user.findMany({
+          where: { teamId: user.teamId },
+          take: 1
+        })
+        if (teamMembers.length > 0) {
+          mockUserId = teamMembers[0].id
+        }
+      }
+
       const mockStats = [
-        { platform: '抖音', followers: 12500, publishCount: 156, engagementRate: 4.8, userId: user.userId },
-        { platform: '快手', followers: 8900, publishCount: 98, engagementRate: 3.2, userId: user.userId },
-        { platform: '小红书', followers: 5600, publishCount: 72, engagementRate: 6.5, userId: user.userId }
+        { platform: '抖音', followers: 12500, publishCount: 156, engagementRate: 4.8, userId: mockUserId },
+        { platform: '快手', followers: 8900, publishCount: 98, engagementRate: 3.2, userId: mockUserId },
+        { platform: '小红书', followers: 5600, publishCount: 72, engagementRate: 6.5, userId: mockUserId }
       ]
 
       for (const stat of mockStats) {
@@ -46,7 +67,7 @@ export async function GET(request: NextRequest) {
       }
 
       const updatedStats = await prisma.dashboardStat.findMany({
-        where: user.role === 'admin' ? {} : { userId: user.userId }
+        where: whereClause
       })
       
       return NextResponse.json({

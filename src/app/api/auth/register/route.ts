@@ -27,15 +27,23 @@ export async function POST(request: NextRequest) {
     const inviteCodeRecord = await prisma.inviteCode.findUnique({
       where: { code: inviteCode }
     })
-    
+
+    let teamIdToJoin: number | null = null
+
     if (!inviteCodeRecord) {
-      return NextResponse.json(
-        { success: false, message: '邀请码不存在' },
-        { status: 403 }
-      )
-    }
-    
-    if (inviteCodeRecord.isUsed) {
+      const agentUser = await prisma.user.findFirst({
+        where: { agentInviteCode: inviteCode }
+      })
+
+      if (agentUser && agentUser.teamId) {
+        teamIdToJoin = agentUser.teamId
+      } else {
+        return NextResponse.json(
+          { success: false, message: '邀请码不存在' },
+          { status: 403 }
+        )
+      }
+    } else if (inviteCodeRecord.isUsed) {
       return NextResponse.json(
         { success: false, message: '邀请码已被使用' },
         { status: 403 }
@@ -59,7 +67,7 @@ export async function POST(request: NextRequest) {
     }
     
     const passwordHash = await hashPassword(password)
-    
+
     const user = await prisma.user.create({
       data: {
         username,
@@ -67,17 +75,28 @@ export async function POST(request: NextRequest) {
         passwordHash,
         name,
         role: 'viewer',
-        inviteCode
+        inviteCode,
+        teamId: teamIdToJoin
       }
     })
-    
-    await prisma.inviteCode.update({
-      where: { id: inviteCodeRecord.id },
-      data: {
-        isUsed: true,
-        usedBy: user.id
-      }
-    })
+
+    if (teamIdToJoin) {
+      await prisma.teamMember.create({
+        data: {
+          teamId: teamIdToJoin,
+          userId: user.id,
+          role: 'viewer'
+        }
+      })
+    } else if (inviteCodeRecord) {
+      await prisma.inviteCode.update({
+        where: { id: inviteCodeRecord.id },
+        data: {
+          isUsed: true,
+          usedBy: user.id
+        }
+      })
+    }
     
     return NextResponse.json({
       success: true,

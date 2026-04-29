@@ -13,7 +13,7 @@ async function verifyPassword(password: string, storedHash: string): Promise<boo
   return timingSafeEqual(hashed, storedHashBuffer)
 }
 
-function createJWT(payload: { userId: number; username: string; role: string }, secret: string): string {
+function createJWT(payload: { userId: number; username: string; role: string; teamId: number | null }, secret: string): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
   const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url')
   const signature = createHmac('sha256', secret)
@@ -22,7 +22,7 @@ function createJWT(payload: { userId: number; username: string; role: string }, 
   return `${header}.${payloadStr}.${signature}`
 }
 
-function verifyJWT(token: string, secret: string): { userId: number; username: string; role: string } | null {
+function verifyJWT(token: string, secret: string): { userId: number; username: string; role: string; teamId: number | null } | null {
   try {
     const [header, payload, signature] = token.split('.')
     const expectedSignature = createHmac('sha256', secret)
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     }
     
     const token = createJWT(
-      { userId: user.id, username: user.username, role: user.role },
+      { userId: user.id, username: user.username, role: user.role, teamId: user.teamId },
       JWT_SECRET
     )
     

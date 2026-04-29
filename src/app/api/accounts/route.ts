@@ -3,12 +3,35 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+function getUserContext(request: NextRequest) {
+  const userId = request.headers.get('X-User-Id')
+  const role = request.headers.get('X-User-Role')
+  const teamId = request.headers.get('X-User-Team-Id')
+  if (!userId || !role) return null
+  return { userId: parseInt(userId), role, teamId: teamId ? parseInt(teamId) : null }
+}
+
 export async function GET(request: NextRequest) {
   try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+
+    let whereClause: any = {}
+    if (user.role === 'admin') {
+      whereClause = {}
+    } else if (user.teamId) {
+      whereClause = { user: { teamId: user.teamId } }
+    } else {
+      whereClause = { userId: user.userId }
+    }
+
     const accounts = await prisma.account.findMany({
+      where: whereClause,
       orderBy: { createdAt: 'desc' }
     })
-    
+
     return NextResponse.json(accounts)
   } catch (error) {
     console.error('获取账号列表错误:', error)
@@ -23,26 +46,31 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+
     const body = await request.json()
-    const { accountName, platform, accountId, userId } = body
-    
-    if (!accountName || !platform || !userId) {
+    const { accountName, platform, accountId } = body
+
+    if (!accountName || !platform) {
       return NextResponse.json(
         { success: false, message: '缺少必要参数' },
         { status: 400 }
       )
     }
-    
+
     const account = await prisma.account.create({
       data: {
         accountName,
         platform,
         accountId: accountId || '',
-        userId,
+        userId: user.userId,
         isBound: true
       }
     })
-    
+
     return NextResponse.json({
       success: true,
       message: '账号添加成功',

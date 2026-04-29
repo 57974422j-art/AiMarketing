@@ -11,18 +11,21 @@ datasource db {
 }
 
 model User {
-  id            Int      @id @default(autoincrement())
-  email         String   @unique
-  username      String   @unique
-  passwordHash  String
-  name          String?
-  role          String   @default("viewer")
-  inviteCode    String?
-  plan          String   @default("free")
-  monthlyQuota  Int      @default(100)
-  usedThisMonth Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              Int      @id @default(autoincrement())
+  email           String   @unique
+  username        String   @unique
+  passwordHash    String
+  name            String?
+  role            String   @default("viewer")
+  inviteCode      String?
+  plan            String   @default("free")
+  monthlyQuota    Int      @default(100)
+  usedThisMonth   Int      @default(0)
+  teamId          Int?
+  isAgent         Boolean  @default(false)
+  agentInviteCode String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   accounts        Account[]
   videoTasks      VideoTask[]
@@ -32,6 +35,29 @@ model User {
   projects        Project[]
   createdInvites  InviteCode[]     @relation("InviteCodeCreator")
   usageLogs       UsageLog[]
+  teamMembers     TeamMember[]
+  createdTeams    Team[]     @relation("TeamOwner")
+}
+
+model Team {
+  id        Int      @id @default(autoincrement())
+  name      String
+  ownerId   Int
+  createdAt DateTime @default(now())
+
+  owner     User          @relation("TeamOwner", fields: [ownerId], references: [id])
+  members   TeamMember[]
+}
+
+model TeamMember {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  userId    Int
+  role      String   @default("viewer")
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 }
 
 model Account {

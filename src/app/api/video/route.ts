@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
+import { PrismaClient } from '@prisma/client'
 import { trimVideo, concatVideos, addTextOverlay, resizeVideo, checkFFmpeg } from '@/lib/ffmpeg'
 import { checkQuota, incrementUsage } from '@/lib/quota'
+
+const prisma = new PrismaClient()
 
 function ensureDirectories() {
   const uploadDir = join(process.cwd(), 'public', 'uploads')
@@ -21,8 +24,9 @@ function ensureDirectories() {
 function getUserContext(request: NextRequest) {
   const userId = request.headers.get('X-User-Id')
   const role = request.headers.get('X-User-Role')
+  const teamId = request.headers.get('X-User-Team-Id')
   if (!userId || !role) return null
-  return { userId: parseInt(userId), role }
+  return { userId: parseInt(userId), role, teamId: teamId ? parseInt(teamId) : null }
 }
 
 function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boolean {
@@ -157,20 +161,36 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const user = getUserContext(request)
-  if (!user) {
-    return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
-  }
-  
-  if (!checkPermission(user.role, 'read')) {
-    return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
-  }
-  
-  const tasks = [
-    { id: 1, status: 'completed', progress: 100, template: '混剪', duration: 30 },
-    { id: 2, status: 'processing', progress: 50, template: '快剪', duration: 15 },
-    { id: 3, status: 'pending', progress: 0, template: '故事板', duration: 60 }
-  ]
+  try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
 
-  return NextResponse.json(tasks)
+    if (!checkPermission(user.role, 'read')) {
+      return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+    }
+
+    let whereClause: any = {}
+    if (user.role === 'admin') {
+      whereClause = {}
+    } else if (user.teamId) {
+      whereClause = { user: { teamId: user.teamId } }
+    } else {
+      whereClause = { userId: user.userId }
+    }
+
+    const tasks = await prisma.videoTask.findMany({
+      where: whereClause,
+      orderBy: { createdAt: 'desc' },
+      take: 50
+    })
+
+    return NextResponse.json(tasks)
+  } catch (error) {
+    console.error('获取视频任务错误:', error)
+    return NextResponse.json({ success: false, message: '获取失败' }, { status: 500 })
+  } finally {
+    await prisma.$disconnect()
+  }
 }

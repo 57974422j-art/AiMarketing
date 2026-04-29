@@ -15,7 +15,7 @@ const PUBLIC_PREFIXES = [
   '/public',
 ]
 
-function verifyJWT(token: string, secret: string): { userId: number; username: string; role: string } | null {
+function verifyJWT(token: string, secret: string): { userId: number; username: string; role: string; teamId: number | null } | null {
   try {
     const [header, payload, signature] = token.split('.')
     const expectedSignature = createHmac('sha256', secret)
@@ -80,6 +80,7 @@ export function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('X-User-Id', payload.userId.toString())
   requestHeaders.set('X-User-Role', payload.role)
+  requestHeaders.set('X-User-Team-Id', payload.teamId?.toString() || '')
 
   return NextResponse.next({
     request: {

@@ -7,6 +7,7 @@ interface Account {
   accountName: string
   accountId: string
   isBound: boolean
+  bindType: 'official' | 'manual' | 'device'
   createdAt: string
 }
 
@@ -22,6 +23,7 @@ export default function AccountsPage() {
     accountName: '',
     platform: 'douyin',
     accountId: '',
+    bindType: 'official' as 'official' | 'manual' | 'device',
     remark: ''
   })
 
@@ -84,7 +86,7 @@ export default function AccountsPage() {
 
       if (data.success) {
         setShowAddModal(false)
-        setNewAccount({ accountName: '', platform: 'douyin', accountId: '', remark: '' })
+        setNewAccount({ accountName: '', platform: 'douyin', accountId: '', bindType: 'official', remark: '' })
         loadAccounts()
         alert('账号添加成功')
       } else {
@@ -133,6 +135,24 @@ export default function AccountsPage() {
       'xiaohongshu': '小红书'
     }
     return map[platform] || platform
+  }
+
+  const getBindTypeName = (bindType: string) => {
+    const map: Record<string, string> = {
+      'official': '官方API',
+      'manual': '指纹浏览器',
+      'device': '真机群控'
+    }
+    return map[bindType] || bindType
+  }
+
+  const getBindTypeColor = (bindType: string) => {
+    const map: Record<string, string> = {
+      'official': 'bg-blue-100 text-blue-800',
+      'manual': 'bg-yellow-100 text-yellow-800',
+      'device': 'bg-green-100 text-green-800'
+    }
+    return map[bindType] || 'bg-gray-100 text-gray-800'
   }
 
   if (loading) {
@@ -191,6 +211,9 @@ export default function AccountsPage() {
                       账号名称
                     </th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      对接方式
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       状态
                     </th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -214,6 +237,11 @@ export default function AccountsPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {account.accountName}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getBindTypeColor(account.bindType || 'official')}`}>
+                          {getBindTypeName(account.bindType || 'official')}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${account.isBound ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
@@ -278,6 +306,21 @@ export default function AccountsPage() {
                   <option value="douyin">抖音</option>
                   <option value="kuaishou">快手</option>
                   <option value="xiaohongshu">小红书</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  对接方式 *
+                </label>
+                <select
+                  value={newAccount.bindType}
+                  onChange={(e) => setNewAccount({ ...newAccount, bindType: e.target.value as 'official' | 'manual' | 'device' })}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="official">官方API</option>
+                  <option value="manual">指纹浏览器</option>
+                  <option value="device">真机群控</option>
                 </select>
               </div>
               

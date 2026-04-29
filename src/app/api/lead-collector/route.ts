@@ -7,8 +7,9 @@ const prisma = new PrismaClient()
 function getUserContext(request: NextRequest) {
   const userId = request.headers.get('X-User-Id')
   const role = request.headers.get('X-User-Role')
+  const teamId = request.headers.get('X-User-Team-Id')
   if (!userId || !role) return null
-  return { userId: parseInt(userId), role }
+  return { userId: parseInt(userId), role, teamId: teamId ? parseInt(teamId) : null }
 }
 
 function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boolean {
@@ -30,19 +31,28 @@ export async function GET(request: NextRequest) {
     if (!checkPermission(user.role, 'read')) {
       return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
     }
-    
+
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type') || 'tasks'
-    
+
+    let whereClause: any = {}
+    if (user.role === 'admin') {
+      whereClause = {}
+    } else if (user.teamId) {
+      whereClause = { user: { teamId: user.teamId } }
+    } else {
+      whereClause = { userId: user.userId }
+    }
+
     if (type === 'leads') {
       const leads = await prisma.leadCollector.findMany({
-        where: user.role === 'admin' ? {} : { userId: user.userId },
+        where: whereClause,
         orderBy: { createdAt: 'desc' }
       })
       return NextResponse.json({ success: true, data: leads })
     } else {
       const tasks = await prisma.leadTask.findMany({
-        where: user.role === 'admin' ? {} : { userId: user.userId },
+        where: whereClause,
         orderBy: { createdAt: 'desc' }
       })
       return NextResponse.json({ success: true, data: tasks })
