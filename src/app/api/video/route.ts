@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { trimVideo, concatVideos, addTextOverlay, resizeVideo, checkFFmpeg } from '@/lib/ffmpeg'
+import { checkQuota, incrementUsage } from '@/lib/quota'
 
 function ensureDirectories() {
   const uploadDir = join(process.cwd(), 'public', 'uploads')
@@ -17,8 +18,38 @@ function ensureDirectories() {
   return { uploadDir, outputDir }
 }
 
+function getUserContext(request: NextRequest) {
+  const userId = request.headers.get('X-User-Id')
+  const role = request.headers.get('X-User-Role')
+  if (!userId || !role) return null
+  return { userId: parseInt(userId), role }
+}
+
+function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boolean {
+  switch (action) {
+    case 'read': return ['viewer', 'editor', 'admin'].includes(role)
+    case 'write': return ['editor', 'admin'].includes(role)
+    case 'delete': return role === 'admin'
+    default: return false
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+    
+    if (!checkPermission(user.role, 'write')) {
+      return NextResponse.json({ success: false, message: '没有权限创建视频任务' }, { status: 403 })
+    }
+    
+    const quotaResult = await checkQuota(user.userId, '视频剪辑')
+    if (!quotaResult.allowed) {
+      return NextResponse.json({ success: false, message: quotaResult.message }, { status: 403 })
+    }
+    
     if (!checkFFmpeg()) {
       return NextResponse.json(
         {
@@ -104,6 +135,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    await incrementUsage(user.userId, '视频剪辑', 1)
+
     return NextResponse.json({
       success: true,
       message: '视频剪辑任务已完成',
@@ -124,6 +157,15 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const user = getUserContext(request)
+  if (!user) {
+    return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+  }
+  
+  if (!checkPermission(user.role, 'read')) {
+    return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+  }
+  
   const tasks = [
     { id: 1, status: 'completed', progress: 100, template: '混剪', duration: 30 },
     { id: 2, status: 'processing', progress: 50, template: '快剪', duration: 15 },

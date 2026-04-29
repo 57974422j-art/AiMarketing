@@ -11,15 +11,18 @@ datasource db {
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
-  username     String   @unique
-  passwordHash String
-  name         String?
-  role         String   @default("viewer")
-  inviteCode   String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            Int      @id @default(autoincrement())
+  email         String   @unique
+  username      String   @unique
+  passwordHash  String
+  name          String?
+  role          String   @default("viewer")
+  inviteCode    String?
+  plan          String   @default("free")
+  monthlyQuota  Int      @default(100)
+  usedThisMonth Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   accounts        Account[]
   videoTasks      VideoTask[]
@@ -28,6 +31,7 @@ model User {
   dashboardStats  DashboardStat[]
   projects        Project[]
   createdInvites  InviteCode[]     @relation("InviteCodeCreator")
+  usageLogs       UsageLog[]
 }
 
 model Account {
@@ -156,4 +160,14 @@ model InviteCode {
   createdAt DateTime @default(now())
 
   creator User @relation("InviteCodeCreator", fields: [createdBy], references: [id])
+}
+
+model UsageLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  action    String
+  count     Int      @default(1)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
 }

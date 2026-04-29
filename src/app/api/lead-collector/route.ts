@@ -1,198 +1,206 @@
-const mockTasks = [
-  {
-    id: 1,
-    name: '抖音评论区采集',
-    platform: '抖音',
-    targetUrl: 'https://www.douyin.com/video/xxxxxx',
-    keywords: ['想了解', '多少钱', '怎么买', '联系方式'],
-    status: 'running',
-    collectedCount: 156,
-    createdAt: '2026-04-25T09:00:00Z',
-    updatedAt: '2026-04-28T14:30:00Z'
-  },
-  {
-    id: 2,
-    name: '小红书笔记互动采集',
-    platform: '小红书',
-    targetUrl: 'https://www.xiaohongshu.com/discovery/item/xxxxxx',
-    keywords: ['求链接', '求分享', '哪里买', '好想要'],
-    status: 'completed',
-    collectedCount: 89,
-    createdAt: '2026-04-23T10:00:00Z',
-    updatedAt: '2026-04-27T16:00:00Z'
-  },
-  {
-    id: 3,
-    name: 'B站视频评论采集',
-    platform: 'B站',
-    targetUrl: 'https://www.bilibili.com/video/xxxxxx',
-    keywords: ['求资源', '教程', '学习', '分享'],
-    status: 'pending',
-    collectedCount: 0,
-    createdAt: '2026-04-28T08:00:00Z',
-    updatedAt: '2026-04-28T08:00:00Z'
-  },
-  {
-    id: 4,
-    name: '快手直播弹幕采集',
-    platform: '快手',
-    targetUrl: 'https://live.kuaishou.com/xxxxxx',
-    keywords: ['报名', '参加', '咨询', '了解'],
-    status: 'running',
-    collectedCount: 234,
-    createdAt: '2026-04-26T14:00:00Z',
-    updatedAt: '2026-04-28T15:00:00Z'
-  }
-];
+import { NextRequest, NextResponse } from 'next/server'
+import { PrismaClient } from '@prisma/client'
+import { checkQuota, incrementUsage } from '@/lib/quota'
 
-const mockLeads = [
-  {
-    id: 1,
-    taskId: 1,
-    taskName: '抖音评论区采集',
-    username: '美妆达人小美',
-    avatar: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=beautiful%20asian%20woman%20avatar%20professional%20portrait&image_size=square',
-    content: '想了解这个产品怎么买，多少钱呀？',
-    contact: 'wechat: meizhuangxiaomei',
-    platform: '抖音',
-    createdAt: '2026-04-28T14:25:00Z'
-  },
-  {
-    id: 2,
-    taskId: 1,
-    taskName: '抖音评论区采集',
-    username: '爱购物的小王',
-    avatar: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=young%20asian%20man%20casual%20avatar%20portrait&image_size=square',
-    content: '这个看起来不错，联系方式是什么？',
-    contact: 'phone: 138****8888',
-    platform: '抖音',
-    createdAt: '2026-04-28T14:18:00Z'
-  },
-  {
-    id: 3,
-    taskId: 2,
-    taskName: '小红书笔记互动采集',
-    username: '时尚辣妈',
-    avatar: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=elegant%20asian%20woman%20mother%20avatar%20portrait&image_size=square',
-    content: '求链接！好喜欢这个包包',
-    contact: 'wechat: fashionshuma',
-    platform: '小红书',
-    createdAt: '2026-04-27T15:30:00Z'
-  },
-  {
-    id: 4,
-    taskId: 4,
-    taskName: '快手直播弹幕采集',
-    username: '创业青年阿杰',
-    avatar: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=young%20asian%20man%20business%20casual%20avatar%20portrait&image_size=square',
-    content: '我想报名参加这个课程',
-    contact: 'wechat: chuangyejie',
-    platform: '快手',
-    createdAt: '2026-04-28T15:05:00Z'
-  },
-  {
-    id: 5,
-    taskId: 1,
-    taskName: '抖音评论区采集',
-    username: '精致女孩Lisa',
-    avatar: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=beautiful%20asian%20girl%20kawaii%20avatar%20portrait&image_size=square',
-    content: '多少钱呀？看起来很好用',
-    contact: 'wechat: lisa_jingzhi',
-    platform: '抖音',
-    createdAt: '2026-04-28T13:45:00Z'
-  },
-  {
-    id: 6,
-    taskId: 2,
-    taskName: '小红书笔记互动采集',
-    username: '宝妈朵朵',
-    avatar: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=young%20asian%20mother%20warm%20smile%20avatar%20portrait&image_size=square',
-    content: '求分享链接，太喜欢了',
-    contact: 'wechat: baoma_duoduo',
-    platform: '小红书',
-    createdAt: '2026-04-27T14:20:00Z'
-  }
-];
+const prisma = new PrismaClient()
 
-const platforms = ['抖音', '快手', '小红书', 'B站', '微博', '视频号'];
-
-export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const type = url.searchParams.get('type') || 'tasks';
-  const taskId = url.searchParams.get('taskId');
-  
-  let data = type === 'leads' ? mockLeads : mockTasks;
-  
-  if (taskId && type === 'leads') {
-    data = mockLeads.filter((lead: any) => lead.taskId === parseInt(taskId));
-  }
-  
-  return new Response(JSON.stringify({ success: true, data }), {
-    headers: { 'Content-Type': 'application/json' }
-  });
+function getUserContext(request: NextRequest) {
+  const userId = request.headers.get('X-User-Id')
+  const role = request.headers.get('X-User-Role')
+  if (!userId || !role) return null
+  return { userId: parseInt(userId), role }
 }
 
-export async function POST(request: Request) {
-  const url = new URL(request.url);
-  const type = url.searchParams.get('type') || 'tasks';
-  const body = await request.json();
-  
-  if (type === 'leads') {
-    const newId = Math.max(...mockLeads.map((l: any) => l.id)) + 1;
-    const newLead = {
-      id: newId,
-      ...body,
-      createdAt: new Date().toISOString()
-    };
-    return new Response(JSON.stringify({ success: true, data: newLead }), {
-      status: 201,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } else {
-    const newId = Math.max(...mockTasks.map((t: any) => t.id)) + 1;
-    const newTask = {
-      id: newId,
-      ...body,
-      status: 'pending',
-      collectedCount: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    return new Response(JSON.stringify({ success: true, data: newTask }), {
-      status: 201,
-      headers: { 'Content-Type': 'application/json' }
-    });
+function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boolean {
+  switch (action) {
+    case 'read': return ['viewer', 'editor', 'admin'].includes(role)
+    case 'write': return ['editor', 'admin'].includes(role)
+    case 'delete': return role === 'admin'
+    default: return false
   }
 }
 
-export async function PUT(request: Request) {
-  const body = await request.json();
-  const { id, ...updateData } = body;
-  
-  const mockIndex = mockTasks.findIndex((t: any) => t.id === id);
-  if (mockIndex !== -1) {
-    mockTasks[mockIndex] = {
-      ...mockTasks[mockIndex],
-      ...updateData,
-      updatedAt: new Date().toISOString()
-    };
+export async function GET(request: NextRequest) {
+  try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+    
+    if (!checkPermission(user.role, 'read')) {
+      return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+    }
+    
+    const { searchParams } = new URL(request.url)
+    const type = searchParams.get('type') || 'tasks'
+    
+    if (type === 'leads') {
+      const leads = await prisma.leadCollector.findMany({
+        where: user.role === 'admin' ? {} : { userId: user.userId },
+        orderBy: { createdAt: 'desc' }
+      })
+      return NextResponse.json({ success: true, data: leads })
+    } else {
+      const tasks = await prisma.leadTask.findMany({
+        where: user.role === 'admin' ? {} : { userId: user.userId },
+        orderBy: { createdAt: 'desc' }
+      })
+      return NextResponse.json({ success: true, data: tasks })
+    }
+  } catch (error) {
+    console.error('获取数据失败:', error)
+    return NextResponse.json({ success: false, message: '获取失败' }, { status: 500 })
   }
-  
-  return new Response(JSON.stringify({ success: true, data: mockTasks.find((t: any) => t.id === id) }), {
-    headers: { 'Content-Type': 'application/json' }
-  });
 }
 
-export async function DELETE(request: Request) {
-  const url = new URL(request.url);
-  const id = parseInt(url.searchParams.get('id') || '0');
-  
-  const index = mockTasks.findIndex((t: any) => t.id === id);
-  if (index !== -1) {
-    mockTasks.splice(index, 1);
+export async function POST(request: NextRequest) {
+  try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+    
+    if (!checkPermission(user.role, 'write')) {
+      return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+    }
+    
+    const { searchParams } = new URL(request.url)
+    const type = searchParams.get('type') || 'tasks'
+    const body = await request.json()
+    
+    if (type === 'leads') {
+      const { keyword, platform } = body
+      if (!keyword) {
+        return NextResponse.json({ success: false, message: '缺少关键词' }, { status: 400 })
+      }
+      
+      const quotaResult = await checkQuota(user.userId, '意向采集')
+      if (!quotaResult.allowed) {
+        return NextResponse.json({ success: false, message: quotaResult.message }, { status: 403 })
+      }
+      
+      const lead = await prisma.leadCollector.create({
+        data: {
+          keyword,
+          platform: platform || 'all',
+          status: 'active',
+          userId: user.userId
+        }
+      })
+      
+      await incrementUsage(user.userId, '意向采集', 1)
+      
+      return NextResponse.json({ success: true, data: lead }, { status: 201 })
+    } else {
+      const { name, platform, targetUrl, keywords } = body
+      if (!name || !platform) {
+        return NextResponse.json({ success: false, message: '缺少必要参数' }, { status: 400 })
+      }
+      
+      const task = await prisma.leadTask.create({
+        data: {
+          name,
+          platform,
+          targetUrl: targetUrl || '',
+          keywords: keywords || [],
+          status: 'pending',
+          collectedCount: 0,
+          userId: user.userId
+        }
+      })
+      return NextResponse.json({ success: true, data: task }, { status: 201 })
+    }
+  } catch (error) {
+    console.error('创建数据失败:', error)
+    return NextResponse.json({ success: false, message: '创建失败' }, { status: 500 })
   }
-  
-  return new Response(JSON.stringify({ success: true, message: '删除成功' }), {
-    headers: { 'Content-Type': 'application/json' }
-  });
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+    
+    if (!checkPermission(user.role, 'write')) {
+      return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+    }
+    
+    const { searchParams } = new URL(request.url)
+    const type = searchParams.get('type') || 'tasks'
+    const body = await request.json()
+    const { id, ...updateData } = body
+    
+    if (type === 'leads') {
+      const existing = await prisma.leadCollector.findUnique({ where: { id } })
+      if (!existing) {
+        return NextResponse.json({ success: false, message: '不存在' }, { status: 404 })
+      }
+      if (existing.userId !== user.userId && user.role !== 'admin') {
+        return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+      }
+      const lead = await prisma.leadCollector.update({ where: { id }, data: updateData })
+      return NextResponse.json({ success: true, data: lead })
+    } else {
+      const existing = await prisma.leadTask.findUnique({ where: { id } })
+      if (!existing) {
+        return NextResponse.json({ success: false, message: '不存在' }, { status: 404 })
+      }
+      if (existing.userId !== user.userId && user.role !== 'admin') {
+        return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+      }
+      const task = await prisma.leadTask.update({ where: { id }, data: updateData })
+      return NextResponse.json({ success: true, data: task })
+    }
+  } catch (error) {
+    console.error('更新失败:', error)
+    return NextResponse.json({ success: false, message: '更新失败' }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+    
+    if (!checkPermission(user.role, 'delete')) {
+      return NextResponse.json({ success: false, message: '只有管理员可以删除' }, { status: 403 })
+    }
+    
+    const { searchParams } = new URL(request.url)
+    const type = searchParams.get('type') || 'tasks'
+    const id = parseInt(searchParams.get('id') || '0')
+    
+    if (!id) {
+      return NextResponse.json({ success: false, message: '缺少ID' }, { status: 400 })
+    }
+    
+    if (type === 'leads') {
+      const existing = await prisma.leadCollector.findUnique({ where: { id } })
+      if (!existing) {
+        return NextResponse.json({ success: false, message: '不存在' }, { status: 404 })
+      }
+      if (existing.userId !== user.userId && user.role !== 'admin') {
+        return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+      }
+      await prisma.leadCollector.delete({ where: { id } })
+    } else {
+      const existing = await prisma.leadTask.findUnique({ where: { id } })
+      if (!existing) {
+        return NextResponse.json({ success: false, message: '不存在' }, { status: 404 })
+      }
+      if (existing.userId !== user.userId && user.role !== 'admin') {
+        return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+      }
+      await prisma.leadTask.delete({ where: { id } })
+    }
+    
+    return NextResponse.json({ success: true, message: '删除成功' })
+  } catch (error) {
+    console.error('删除失败:', error)
+    return NextResponse.json({ success: false, message: '删除失败' }, { status: 500 })
+  }
 }

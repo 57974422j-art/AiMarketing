@@ -1,29 +1,78 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { PrismaClient } from '@prisma/client'
 import { generateText, isAIConfigured } from '@/lib/ai-providers'
+import { checkQuota, incrementUsage } from '@/lib/quota'
+
+const prisma = new PrismaClient()
+
+function getUserContext(request: NextRequest) {
+  const userId = request.headers.get('X-User-Id')
+  const role = request.headers.get('X-User-Role')
+  if (!userId || !role) return null
+  return { userId: parseInt(userId), role }
+}
+
+function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boolean {
+  switch (action) {
+    case 'read': return ['viewer', 'editor', 'admin'].includes(role)
+    case 'write': return ['editor', 'admin'].includes(role)
+    case 'delete': return role === 'admin'
+    default: return false
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+    
+    if (!checkPermission(user.role, 'read')) {
+      return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+    }
+    
+    const copyTasks = await prisma.copyTask.findMany({
+      where: user.role === 'admin' ? {} : { userId: user.userId },
+      orderBy: { createdAt: 'desc' }
+    })
+    
+    return NextResponse.json(copyTasks)
+  } catch (error) {
+    console.error('获取文案历史错误:', error)
+    return NextResponse.json({ success: false, message: '获取失败' }, { status: 500 })
+  } finally {
+    await prisma.$disconnect()
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+    
+    if (!checkPermission(user.role, 'write')) {
+      return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+    }
+    
     const body = await request.json()
     const { keywords, platform, style } = body
     
     if (!keywords || !platform || !style) {
-      return NextResponse.json(
-        { success: false, message: '缺少必要参数' },
-        { status: 400 }
-      )
+      return NextResponse.json({ success: false, message: '缺少必要参数' }, { status: 400 })
     }
     
     if (!isAIConfigured()) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'AI 接口未配置，请在 .env.local 文件中设置 AI_PROVIDER 和 AI_API_KEY'
-        },
-        { status: 400 }
-      )
+      return NextResponse.json({ success: false, message: 'AI 接口未配置' }, { status: 400 })
     }
     
-    // 设计专业的营销文案提示词模板
+    const quotaResult = await checkQuota(user.userId, '文案生成')
+    if (!quotaResult.allowed) {
+      return NextResponse.json({ success: false, message: quotaResult.message }, { status: 403 })
+    }
+    
     const prompt = `请为以下产品生成 5 条适合 ${platform} 平台的营销文案，风格为 ${style}：
 
 产品关键词：${keywords}
@@ -45,44 +94,67 @@ export async function POST(request: NextRequest) {
       maxTokens: 2000
     })
     
-    // 解析生成的文案
-    const copies = result.split('\n')
-      .filter(line => line.trim() !== '')
-      .map(copy => {
-        // 提取字数和场景信息
-        const wordCountMatch = copy.match(/\[字数:(\d+)\]/)
-        const sceneMatch = copy.match(/\[场景:(.+?)\]/)
-        
-        return {
+    const copies = result.split('\n').filter(line => line.trim() !== '')
+    
+    const createdTasks = []
+    for (const copy of copies) {
+      const copyTask = await prisma.copyTask.create({
+        data: {
+          title: `${platform}营销文案`,
           content: copy,
-          wordCount: wordCountMatch ? parseInt(wordCountMatch[1]) : copy.length,
-          scene: sceneMatch ? sceneMatch[1] : '通用'
+          type: 'product',
+          status: 'completed',
+          userId: user.userId
         }
       })
+      createdTasks.push(copyTask)
+    }
     
-    return NextResponse.json({
-      success: true,
-      copies
-    })
+    await incrementUsage(user.userId, '文案生成', 1)
+    
+    return NextResponse.json({ success: true, copies: createdTasks })
   } catch (error) {
     console.error('AI 文案生成错误:', error)
-    return NextResponse.json(
-      {
-        success: false,
-        message: error instanceof Error ? error.message : '生成文案时发生错误'
-      },
-      { status: 500 }
-    )
+    return NextResponse.json({ success: false, message: error instanceof Error ? error.message : '生成失败' }, { status: 500 })
+  } finally {
+    await prisma.$disconnect()
   }
 }
 
-export async function GET(request: NextRequest) {
-  // 模拟获取文案历史
-  const history = [
-    { id: 1, keywords: '口红', platform: '抖音', style: '吸引人', createdAt: new Date().toISOString() },
-    { id: 2, keywords: '健身', platform: '小红书', style: '专业', createdAt: new Date().toISOString() },
-    { id: 3, keywords: '美食', platform: '快手', style: '幽默', createdAt: new Date().toISOString() }
-  ]
-  
-  return NextResponse.json(history)
+export async function DELETE(request: NextRequest) {
+  try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+    
+    if (!checkPermission(user.role, 'delete')) {
+      return NextResponse.json({ success: false, message: '只有管理员可以删除' }, { status: 403 })
+    }
+    
+    const { searchParams } = new URL(request.url)
+    const id = parseInt(searchParams.get('id') || '0')
+    
+    if (!id) {
+      return NextResponse.json({ success: false, message: '缺少ID' }, { status: 400 })
+    }
+    
+    const existing = await prisma.copyTask.findUnique({ where: { id } })
+    if (!existing) {
+      return NextResponse.json({ success: false, message: '不存在' }, { status: 404 })
+    }
+    
+    if (existing.userId !== user.userId && user.role !== 'admin') {
+      return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+    }
+    
+    await prisma.copyTask.delete({ where: { id } })
+    
+    return NextResponse.json({ success: true, message: '删除成功' })
+  } catch (error) {
+    console.error('删除错误:', error)
+    return NextResponse.json({ success: false, message: '删除失败' }, { status: 500 })
+  } finally {
+    await prisma.$disconnect()
+  }
 }

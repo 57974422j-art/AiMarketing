@@ -1,10 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { checkQuota, incrementUsage } from '@/lib/quota';
 
 const prisma = new PrismaClient();
 
+function getUserContext(request: NextRequest) {
+  const userId = request.headers.get('X-User-Id');
+  const role = request.headers.get('X-User-Role');
+  if (!userId || !role) return null;
+  return { userId: parseInt(userId), role };
+}
+
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const user = getUserContext(request);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: '未登录' },
+        { status: 401 }
+      );
+    }
+
     const { message } = await request.json();
     const agentId = parseInt(params.id);
 
@@ -12,6 +28,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json(
         { success: false, message: '缺少消息内容' },
         { status: 400 }
+      );
+    }
+
+    const quotaResult = await checkQuota(user.userId, 'AI对话');
+    if (!quotaResult.allowed) {
+      return NextResponse.json(
+        { success: false, message: quotaResult.message },
+        { status: 403 }
       );
     }
 
@@ -66,6 +90,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     } else {
       reply = `${prefix}\n\n关于您的问题："${message}"\n\n这是我的回答内容。由于目前没有配置知识库，我将根据我的训练数据为您提供帮助。`;
     }
+
+    await incrementUsage(user.userId, 'AI对话', 1);
 
     return NextResponse.json({
       success: true,
