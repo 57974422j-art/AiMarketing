@@ -26,11 +26,14 @@ const documentTypes = ['话术', '产品资料', 'FAQ'];
 export default function AIAgentPage() {
   const [agents, setAgents] = useState<AIAgent[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [showNLModal, setShowNLModal] = useState(false);
   const [showDocumentModal, setShowDocumentModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<number | null>(null);
   const [editingAgent, setEditingAgent] = useState<AIAgent | null>(null);
   const [currentAgentId, setCurrentAgentId] = useState<number | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [nlInput, setNlInput] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -76,6 +79,11 @@ export default function AIAgentPage() {
     setShowModal(true);
   };
 
+  const handleOpenNLModal = () => {
+    setNlInput('');
+    setShowNLModal(true);
+  };
+
   const handleOpenEditModal = (agent: AIAgent) => {
     setEditingAgent(agent);
     setFormData({
@@ -110,6 +118,50 @@ export default function AIAgentPage() {
     if (data.success) {
       fetchAgents();
       setShowModal(false);
+    }
+  };
+
+  const handleNLCreate = async () => {
+    if (!nlInput.trim()) {
+      alert('请输入您的需求描述');
+      return;
+    }
+
+    setIsGenerating(true);
+
+    try {
+      const response = await fetch('/api/ai-agent/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: nlInput })
+      });
+
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        const generated = data.data;
+        
+        setFormData({
+          name: generated.name || '智能客服',
+          welcomeMessage: generated.welcomeMessage || '您好！很高兴为您服务！',
+          replyStyle: generated.replyStyle || '亲切',
+          promptTemplate: generated.promptTemplate || '你是一个专业的客服助手，请根据提供的上下文信息回复用户的问题。'
+        });
+        
+        setShowNLModal(false);
+        setShowModal(true);
+        
+        if (generated.trainingDocuments && generated.trainingDocuments.length > 0) {
+          alert('AI已帮您解析需求！请检查并确认生成的员工信息。');
+        }
+      } else {
+        alert(data.message || 'AI解析失败，请重试');
+      }
+    } catch (error) {
+      console.error('NL create error:', error);
+      alert('创建失败，请稍后重试');
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -154,12 +206,20 @@ export default function AIAgentPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">AI 员工管理</h1>
-        <button
-          onClick={handleOpenAddModal}
-          className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
-        >
-          添加员工
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={handleOpenNLModal}
+            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-md hover:from-purple-600 hover:to-pink-600 transition-all"
+          >
+            ✨ 智能创建
+          </button>
+          <button
+            onClick={handleOpenAddModal}
+            className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
+          >
+            添加员工
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -302,6 +362,64 @@ export default function AIAgentPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showNLModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900">✨ 智能创建AI员工</h2>
+              <button
+                onClick={() => setShowNLModal(false)}
+                className="px-3 py-1 text-gray-600 hover:bg-gray-100 rounded"
+              >
+                ×
+              </button>
+            </div>
+            
+            <p className="text-gray-600 mb-4">
+              用自然语言描述您想要创建的AI员工，AI会自动帮您生成配置！
+            </p>
+            
+            <div className="space-y-3 mb-4">
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">示例：</p>
+                <p className="text-sm text-gray-800 mt-1">
+                  "我想让客服在客户问价格时引导加微信"
+                </p>
+              </div>
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-800">
+                  "创建一个专业的销售客服，当用户询问产品时能详细介绍并引导下单"
+                </p>
+              </div>
+            </div>
+            
+            <textarea
+              value={nlInput}
+              onChange={(e) => setNlInput(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+              rows={4}
+              placeholder="请输入您的需求描述..."
+            />
+            
+            <div className="flex justify-end gap-3 mt-4">
+              <button
+                onClick={() => setShowNLModal(false)}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleNLCreate}
+                disabled={isGenerating || !nlInput.trim()}
+                className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-md hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isGenerating ? 'AI思考中...' : '智能生成'}
+              </button>
+            </div>
           </div>
         </div>
       )}
