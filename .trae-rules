@@ -1,0 +1,7 @@
+# Builder 作战手册
+1. 永远不读取、不搜索 .next、node_modules、.git 三个目录
+2. 工作区只有 src/ 和 prisma/ 两个目录
+3. 每次任务只改我指定的文件，不多看不多动
+4. 所有数据模型修改后，提醒我执行 npx prisma db push
+5. 每完成一个任务，输出“任务X完成”，然后等我下一条指令
+6. 技术栈：Next.js 14 App Router + TypeScript + Prisma 5.22.0 + SQLite + Tailwind CSS

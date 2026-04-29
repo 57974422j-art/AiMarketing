@@ -74,6 +74,8 @@ export default function SettingsPage() {
         localStorage.setItem('aiProviders', JSON.stringify(providers));
         localStorage.setItem('defaultAIProvider', selectedProvider);
         localStorage.setItem('knowledgeBase', JSON.stringify(knowledgeBase));
+        // 重新加载配置以刷新页面状态
+        await loadSettings();
       } else {
         setSaveMessage('保存失败: ' + result.message);
       }
