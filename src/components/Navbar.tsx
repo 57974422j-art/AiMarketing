@@ -1,75 +1,92 @@
 'use client';
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+
+interface User {
+  id: number
+  username: string
+  role: string
+}
 
 export default function Navbar() {
+  const [user, setUser] = useState<User | null>(null)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [username, setUsername] = useState('')
-  const [showLoginModal, setShowLoginModal] = useState(false)
-  const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [showAIMenu, setShowAIMenu] = useState(false)
   const [showVideoMenu, setShowVideoMenu] = useState(false)
+  const [showUserMenu, setShowUserMenu] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const router = useRouter()
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
+  useEffect(() => {
+    setMounted(true)
+    checkAuth()
+  }, [])
 
+  const checkAuth = async () => {
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ username, password: '123456' })
-      })
-
+      const response = await fetch('/api/auth/login')
       const data = await response.json()
-
-      if (data.success) {
+      if (data.authenticated && data.user) {
+        setUser(data.user)
         setIsLoggedIn(true)
-        setShowLoginModal(false)
       } else {
-        alert(data.message)
+        setIsLoggedIn(false)
+        setUser(null)
       }
     } catch (error) {
-      console.error('登录错误:', error)
-      alert('登录失败，请稍后重试')
+      setIsLoggedIn(false)
+      setUser(null)
     }
   }
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          username,
-          email: `${username}@example.com`,
-          password: '123456',
-          name: username
-        })
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        setIsLoggedIn(true)
-        setShowRegisterModal(false)
-      } else {
-        alert(data.message)
-      }
-    } catch (error) {
-      console.error('注册错误:', error)
-      alert('注册失败，请稍后重试')
-    }
-  }
-
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
     setIsLoggedIn(false)
-    setUsername('')
+    setUser(null)
+    router.push('/login')
+  }
+
+  const getRoleName = (role: string) => {
+    switch (role) {
+      case 'admin': return '管理员'
+      case 'editor': return '编辑'
+      default: return '普通用户'
+    }
+  }
+
+  if (!mounted) {
+    return null
+  }
+
+  if (!isLoggedIn) {
+    return (
+      <nav className="bg-white shadow-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16 flex-nowrap">
+            <div className="flex items-center flex-shrink-0">
+              <Link href="/" className="text-xl font-bold text-primary">
+                AiMarketing
+              </Link>
+            </div>
+            <div className="flex items-center space-x-2 flex-nowrap">
+              <Link
+                href="/login"
+                className="px-3 py-1 bg-primary text-white rounded-md hover:bg-primary-dark whitespace-nowrap"
+              >
+                登录
+              </Link>
+              <Link
+                href="/register"
+                className="px-3 py-1 border border-primary text-primary rounded-md hover:bg-blue-50 whitespace-nowrap"
+              >
+                注册
+              </Link>
+            </div>
+          </div>
+        </div>
+      </nav>
+    )
   }
 
   return (
@@ -77,14 +94,14 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16 flex-nowrap">
           <div className="flex items-center flex-shrink-0">
-            <Link href="/" className="text-xl font-bold text-primary">
+            <Link href="/projects" className="text-xl font-bold text-primary">
               AiMarketing
             </Link>
           </div>
           <div className="flex items-center space-x-4 flex-nowrap">
             <div className="hidden md:flex items-center space-x-4 flex-nowrap">
-              <Link href="/" className="text-gray-700 hover:text-primary whitespace-nowrap">
-                首页
+              <Link href="/projects" className="text-gray-700 hover:text-primary whitespace-nowrap">
+                项目
               </Link>
               <Link href="/video-edit" className="text-gray-700 hover:text-primary whitespace-nowrap">
                 视频剪辑
@@ -153,131 +170,37 @@ export default function Navbar() {
                 系统设置
               </Link>
             </div>
-            <div className="flex items-center space-x-2 flex-nowrap">
-              {isLoggedIn ? (
-                <div className="flex items-center space-x-2 flex-nowrap">
-                  <span className="text-gray-700 whitespace-nowrap">{username || '用户'}</span>
+            <div className="relative" onMouseEnter={() => setShowUserMenu(true)} onMouseLeave={() => setShowUserMenu(false)}>
+              <button className="flex items-center space-x-2 px-3 py-1 border border-gray-300 rounded-md hover:bg-gray-50">
+                <span className="text-gray-700">{user?.username || '用户'}</span>
+                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {showUserMenu && (
+                <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-2 z-50">
+                  <div className="px-4 py-2 border-b border-gray-100">
+                    <p className="font-medium text-gray-900">{user?.username}</p>
+                    <p className="text-sm text-gray-500">{getRoleName(user?.role || 'viewer')}</p>
+                  </div>
+                  <Link href="/projects" className="block px-4 py-2 text-gray-700 hover:bg-gray-50">
+                    我的项目
+                  </Link>
+                  <Link href="/admin/settings" className="block px-4 py-2 text-gray-700 hover:bg-gray-50">
+                    系统设置
+                  </Link>
                   <button
                     onClick={handleLogout}
-                    className="px-3 py-1 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 whitespace-nowrap"
+                    className="w-full text-left px-4 py-2 text-red-600 hover:bg-red-50"
                   >
-                    退出
+                    退出登录
                   </button>
                 </div>
-              ) : (
-                <>
-                  <button
-                    onClick={() => setShowLoginModal(true)}
-                    className="px-3 py-1 bg-primary text-white rounded-md hover:bg-primary-dark whitespace-nowrap"
-                  >
-                    登录
-                  </button>
-                  <button
-                    onClick={() => setShowRegisterModal(true)}
-                    className="px-3 py-1 border border-primary text-primary rounded-md hover:bg-blue-50 whitespace-nowrap"
-                  >
-                    注册
-                  </button>
-                </>
               )}
             </div>
           </div>
         </div>
       </div>
-
-      {showLoginModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">登录</h2>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  用户名
-                </label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  密码
-                </label>
-                <input
-                  type="password"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setShowLoginModal(false)}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
-                >
-                  登录
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showRegisterModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">注册</h2>
-            <form onSubmit={handleRegister} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  用户名
-                </label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  密码
-                </label>
-                <input
-                  type="password"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setShowRegisterModal(false)}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
-                >
-                  注册
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </nav>
   )
 }
