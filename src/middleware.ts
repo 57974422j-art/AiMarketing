@@ -8,9 +8,7 @@ const API_WHITELIST = [
   '/api/ai-copy',
   '/api/video',
   '/api/ai-agent/generate',
-  '/api/ai-agent',
-  '/api/projects',
-  '/api/projects/create-with-ai'
+  '/api/ai-agent'
 ]
 
 function base64UrlDecode(str: string): string {

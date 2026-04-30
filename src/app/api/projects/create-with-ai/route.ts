@@ -13,12 +13,20 @@ function getUserContext(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = getUserContext(request)
+    const body = await request.json()
+    
+    // 优先从 header 获取用户信息
+    let user = getUserContext(request)
+    
+    // 如果 header 没有，尝试从请求体获取
+    if (!user && body.userId) {
+      user = { userId: body.userId, role: 'user', teamId: null }
+    }
+    
     if (!user) {
       return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
     }
 
-    const body = await request.json()
     const { industry, goals, projectName, projectDescription } = body
 
     if (!projectName) {
