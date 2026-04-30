@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
     }
     
-    const quotaInfo = await getQuotaInfo(user.userId)
+    const quotaInfo = await getQuotaInfo(user.userId as any)
     
     if (!quotaInfo) {
       return NextResponse.json({ success: false, message: '获取配额信息失败' }, { status: 500 })

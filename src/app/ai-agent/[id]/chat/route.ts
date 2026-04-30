@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client/edge';
+import { PrismaClient } from '@prisma/client';
 import { checkQuota, incrementUsage } from '@/lib/quota';
 
 const prisma = new PrismaClient();

@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     } else if (user.teamId) {
       whereClause = { user: { teamId: user.teamId } }
     } else {
-      whereClause = { userId: user.userId }
+      whereClause = { user: { id: user.userId as any } }
     }
 
     const dashboardStats = await prisma.dashboardStat.findMany({
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     })
 
     if (dashboardStats.length === 0) {
-      let mockUserId = user.userId
+      let mockUserId = user.userId as any
       if (user.teamId) {
         const teamMembers = await prisma.user.findMany({
           where: { teamId: user.teamId },

@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     } else if (user.teamId) {
       whereClause = { user: { teamId: user.teamId } }
     } else {
-      whereClause = { userId: user.userId }
+      whereClause = { user: { id: user.userId as any } }
     }
 
     const copyTasks = await prisma.copyTask.findMany({
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'AI 接口未配置' }, { status: 400 })
     }
     
-    const quotaResult = await checkQuota(user.userId, '文案生成')
+    const quotaResult = await checkQuota(user.userId as any, '文案生成')
     if (!quotaResult.allowed) {
       return NextResponse.json({ success: false, message: quotaResult.message }, { status: 403 })
     }
@@ -110,17 +110,16 @@ export async function POST(request: NextRequest) {
     for (const copy of copies) {
       const copyTask = await prisma.copyTask.create({
         data: {
-          title: `${platform}营销文案`,
-          content: copy,
-          type: 'product',
-          status: 'completed',
-          userId: user.userId
+          keywords: body.keywords || '',
+          platform: body.platform || '通用',
+          style: body.style || '标准',
+          resultJson: JSON.stringify({ copies: [copy] }),
+          user: { connect: { id: user.userId } }
         }
       })
-      createdTasks.push(copyTask)
     }
     
-    await incrementUsage(user.userId, '文案生成', 1)
+    await incrementUsage(user.userId as any, '文案生成', 1)
     
     return NextResponse.json({ success: true, copies: createdTasks })
   } catch (error) {
@@ -154,7 +153,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, message: '不存在' }, { status: 404 })
     }
     
-    if (existing.userId !== user.userId && user.role !== 'admin') {
+    if (existing.userId as any !== user.userId as any && user.role !== 'admin') {
       return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
     }
     

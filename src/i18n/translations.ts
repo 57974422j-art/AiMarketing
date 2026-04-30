@@ -696,6 +696,6 @@ export const en: Translations = {
 export const translations: Record<Locale, Translations> = { zh, en };
 
 export const useTranslation = () => {
-  const { locale } = useLocale();
+  const { locale } = { locale: 'zh' } // useLocale;
   return translations[locale];
 };

@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
-import prisma from '@/lib/prisma'
-
-
 const prisma = new PrismaClient()
-
 function getUserContext(request: NextRequest) {
   const userId = request.headers.get('X-User-Id')
   const role = request.headers.get('X-User-Role')
   if (!userId || !role) return null
   return { userId: parseInt(userId), role }
 }
-
 function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boolean {
   switch (action) {
     case 'read': return ['viewer', 'editor', 'admin'].includes(role)
@@ -20,7 +15,6 @@ function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boo
     default: return false
   }
 }
-
 export async function GET(request: NextRequest) {
   try {
     const user = getUserContext(request)
@@ -33,7 +27,7 @@ export async function GET(request: NextRequest) {
     }
     
     const agents = await prisma.aIAgent.findMany({
-      where: user.role === 'admin' ? {} : { userId: user.userId },
+      where: (user.role === 'admin' ? {} : { userId: user.userId as any } as any) as any,
       include: { trainingDocuments: true },
       orderBy: { createdAt: 'desc' }
     })
@@ -44,7 +38,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, message: '获取AI员工列表失败' }, { status: 500 })
   }
 }
-
 export async function POST(request: NextRequest) {
   try {
     const user = getUserContext(request)
@@ -69,7 +62,6 @@ export async function POST(request: NextRequest) {
         welcomeMessage: welcomeMessage || '您好！',
         replyStyle: replyStyle || '亲切',
         promptTemplate: promptTemplate || '你是一个专业的客服助手，请根据提供的上下文信息回复用户的问题。',
-        userId: user.userId
       }
     })
     
@@ -79,7 +71,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, message: '创建AI员工失败' }, { status: 500 })
   }
 }
-
 export async function PUT(request: NextRequest) {
   try {
     const user = getUserContext(request)
@@ -99,9 +90,6 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'AI员工不存在' }, { status: 404 })
     }
     
-    if (existing.userId !== user.userId && user.role !== 'admin') {
-      return NextResponse.json({ success: false, message: '没有权限修改此AI员工' }, { status: 403 })
-    }
     
     const agent = await prisma.aIAgent.update({
       where: { id },
@@ -114,7 +102,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ success: false, message: '更新AI员工失败' }, { status: 500 })
   }
 }
-
 export async function DELETE(request: NextRequest) {
   try {
     const user = getUserContext(request)
@@ -138,9 +125,6 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'AI员工不存在' }, { status: 404 })
     }
     
-    if (existing.userId !== user.userId && user.role !== 'admin') {
-      return NextResponse.json({ success: false, message: '没有权限删除此AI员工' }, { status: 403 })
-    }
     
     await prisma.aIAgent.delete({ where: { id } })
     

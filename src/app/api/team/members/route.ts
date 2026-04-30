@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '团队不存在' }, { status: 404 })
     }
 
-    const isLeader = team.members.some(m => m.userId === user.userId && m.role === 'leader')
+    const isLeader = team.members.some(m => m.userId as any === user.userId as any && m.role === 'leader')
     const isAdmin = user.role === 'admin'
 
     if (!isLeader && !isAdmin) {
@@ -146,7 +146,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const currentUserMember = await prisma.teamMember.findFirst({
-      where: { teamId: member.teamId, userId: user.userId }
+      where: { teamId: member.teamId, userId: user.userId as any }
     })
 
     const isLeader = currentUserMember?.role === 'leader'
@@ -196,7 +196,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const currentUserMember = await prisma.teamMember.findFirst({
-      where: { teamId: member.teamId, userId: user.userId }
+      where: { teamId: member.teamId, userId: user.userId as any }
     })
 
     const isLeader = currentUserMember?.role === 'leader'
@@ -211,7 +211,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     await prisma.user.update({
-      where: { id: member.userId },
+      where: { id: member.userId as any },
       data: { teamId: null }
     })
 

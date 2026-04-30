@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     } else if (user.teamId) {
       whereClause = { user: { teamId: user.teamId } }
     } else {
-      whereClause = { userId: user.userId }
+      whereClause = { user: { id: user.userId as any } }
     }
 
     const projects = await prisma.project.findMany({
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         description: description || null,
-        userId: user.userId
+        userId: user.userId as any
       }
     })
     
@@ -114,7 +114,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, message: '项目不存在' }, { status: 404 })
     }
     
-    if (existing.userId !== user.userId && user.role !== 'admin') {
+    if (existing.userId as any !== user.userId as any && user.role !== 'admin') {
       return NextResponse.json({ success: false, message: '没有权限修改此项目' }, { status: 403 })
     }
     
@@ -155,7 +155,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, message: '项目不存在' }, { status: 404 })
     }
     
-    if (existing.userId !== user.userId && user.role !== 'admin') {
+    if (existing.userId as any !== user.userId as any && user.role !== 'admin') {
       return NextResponse.json({ success: false, message: '没有权限删除此项目' }, { status: 403 })
     }
     

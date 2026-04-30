@@ -305,8 +305,7 @@ export default function ProjectsPage() {
                       }`}
                     >
                       <div className="text-3xl mb-2">{industry.icon}</div>
-                      <div className="font-medium text-sm">{industry.name}</div>
-                      <div className="text-xs opacity-50">{industry.nameEn}</div>
+                      <div className="font-medium text-sm">{String(industry.name.zh)}</div>
                     </button>
                   ))}
                 </div>
@@ -330,8 +329,7 @@ export default function ProjectsPage() {
                         }`}
                       >
                         <div className="text-3xl mb-2">{goal.icon}</div>
-                        <div className="font-medium text-sm">{goal.name}</div>
-                        <div className="text-xs opacity-50">{goal.nameEn}</div>
+                        <div className="font-medium text-sm">{String(goal.name.zh)}</div>
                       </button>
                     ))}
                   </div>
@@ -375,8 +373,8 @@ export default function ProjectsPage() {
                       <span className="text-xs opacity-70 ml-1">/ AI WILL AUTO-GENERATE:</span>
                     </h5>
                     <ul className="text-sm text-gray-400 space-y-1">
-                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name} <span className="opacity-50">industry</span> 营销文案模板</li>
-                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name} <span className="opacity-50">industry</span> 专业AI员工</li>
+                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name?.zh || ""} <span className="opacity-50">industry</span> 营销文案模板</li>
+                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name?.zh || ""} <span className="opacity-50">industry</span> 专业AI员工</li>
                       <li>✅ {formData.goals.length} 个意向客户关键词 <span className="opacity-50">keywords</span></li>
                     </ul>
                   </div>

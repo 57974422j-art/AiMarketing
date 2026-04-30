@@ -60,7 +60,7 @@ export async function getAccountStatus(platform: string, account: AccountInfo): 
   return engine.getAccountStatus(platform, account)
 }
 
-export { AccountInfo, LoginResult, PublishResult, MessageResult, LeadResult, StatusResult }
+export type { AccountInfo, LoginResult, PublishResult, MessageResult, LeadResult, StatusResult }
 
 export function getCurrentEngineType(): string {
   const config = getAutomationConfig()

@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     authenticated: true,
     user: {
-      id: payload.userId,
+      id: payload.userId as any,
       username: payload.username,
       role: payload.role
     }

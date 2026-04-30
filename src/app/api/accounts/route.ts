@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     } else if (user.teamId) {
       whereClause = { user: { teamId: user.teamId } }
     } else {
-      whereClause = { userId: user.userId }
+      whereClause = { user: { id: user.userId as any } }
     }
 
     const accounts = await prisma.account.findMany({
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
         accountName,
         platform,
         accountId: accountId || '',
-        userId: user.userId,
+        userId: user.userId as any,
         isBound: true
       }
     })

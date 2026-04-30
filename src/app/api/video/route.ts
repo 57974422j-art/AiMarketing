@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '没有权限创建视频任务' }, { status: 403 })
     }
     
-    const quotaResult = await checkQuota(user.userId, '视频剪辑')
+    const quotaResult = await checkQuota(user.userId as any, '视频剪辑')
     if (!quotaResult.allowed) {
       return NextResponse.json({ success: false, message: quotaResult.message }, { status: 403 })
     }
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await incrementUsage(user.userId, '视频剪辑', 1)
+    await incrementUsage(user.userId as any, '视频剪辑', 1)
 
     return NextResponse.json({
       success: true,
@@ -177,7 +177,7 @@ export async function GET(request: NextRequest) {
     } else if (user.teamId) {
       whereClause = { user: { teamId: user.teamId } }
     } else {
-      whereClause = { userId: user.userId }
+      whereClause = { user: { id: user.userId as any } }
     }
 
     const tasks = await prisma.videoTask.findMany({
