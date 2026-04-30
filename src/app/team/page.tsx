@@ -22,6 +22,13 @@ interface Team {
   members: TeamMember[]
 }
 
+const roleLabels: Record<string, { cn: string; en: string }> = {
+  leader: { cn: '团长', en: 'LEADER' },
+  manager: { cn: '管理员', en: 'MANAGER' },
+  operator: { cn: '运营', en: 'OPERATOR' },
+  viewer: { cn: '观察者', en: 'VIEWER' }
+}
+
 export default function TeamPage() {
   const [team, setTeam] = useState<Team | null>(null)
   const [loading, setLoading] = useState(true)
@@ -32,7 +39,6 @@ export default function TeamPage() {
   const [newMemberRole, setNewMemberRole] = useState('viewer')
   const [agentCode, setAgentCode] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
-  const [currentUserId, setCurrentUserId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchTeam()
@@ -128,7 +134,7 @@ export default function TeamPage() {
   }
 
   const removeMember = async (memberId: number) => {
-    if (!confirm('确定要移除该成员吗？')) return
+    if (!confirm('确定要移除该成员吗？/ Remove this member?')) return
     try {
       const res = await fetch(`/api/team/members?memberId=${memberId}`, {
         method: 'DELETE',
@@ -168,69 +174,80 @@ export default function TeamPage() {
   const copyAgentCode = () => {
     if (agentCode) {
       navigator.clipboard.writeText(agentCode)
-      alert('代理邀请码已复制')
+      alert('代理邀请码已复制 / Agent code copied')
     }
   }
 
   const getRoleLabel = (role: string) => {
-    const labels: Record<string, string> = {
-      leader: '团长',
-      manager: '管理员',
-      operator: '运营',
-      viewer: '观察者'
-    }
-    return labels[role] || role
+    const r = roleLabels[role]
+    return r ? <><span>{r.cn}</span><span className="text-xs opacity-50 ml-1">{r.en}</span></> : role
   }
 
   const canManage = userRole === 'leader' || userRole === 'manager'
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-500">加载中...</div>
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400"></div>
+          <p className="mt-2 text-gray-400 text-sm">
+            <span>加载中</span>
+            <span className="text-xs opacity-50 ml-1">/ LOADING...</span>
+          </p>
+        </div>
       </div>
     )
   }
 
   if (!team) {
     return (
-      <div className="p-8">
+      <div className="min-h-screen bg-gray-950 p-8">
         <div className="max-w-2xl mx-auto">
-          <h1 className="text-2xl font-bold mb-8">团队管理</h1>
-          <div className="bg-white rounded-lg shadow p-8 text-center">
-            <p className="text-gray-500 mb-6">您还没有创建或加入团队</p>
+          <p className="text-label mb-2">团队管理 / TEAM MANAGEMENT</p>
+          <h1 className="text-mono-lg text-white mb-8">团队 / TEAM</h1>
+          <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-8 text-center">
+            <p className="text-gray-400 mb-2">
+              <span>暂无团队</span>
+              <span className="opacity-50 ml-1">/ NO TEAM YET</span>
+            </p>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-6 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600"
             >
-              创建团队
+              <span>创建团队</span>
+              <span className="text-xs opacity-70 ml-1">CREATE TEAM</span>
             </button>
           </div>
         </div>
 
         {showCreateModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white rounded-lg p-6 w-96">
-              <h2 className="text-xl font-bold mb-4">创建团队</h2>
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+            <div className="bg-gray-900 rounded-2xl p-6 w-96 border border-white/10">
+              <h2 className="text-xl font-bold text-white mb-4">
+                <span>创建团队</span>
+                <span className="text-sm opacity-50 ml-1">CREATE TEAM</span>
+              </h2>
               <input
                 type="text"
                 value={newTeamName}
                 onChange={(e) => setNewTeamName(e.target.value)}
-                placeholder="请输入团队名称"
-                className="w-full px-3 py-2 border rounded-lg mb-4"
+                placeholder="团队名称... / Team name..."
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white mb-4 focus:outline-none focus:border-emerald-500/50"
               />
               <div className="flex justify-end gap-3">
                 <button
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                  className="px-4 py-2 text-gray-400 hover:bg-white/10 rounded-xl"
                 >
-                  取消
+                  <span>取消</span>
+                  <span className="text-xs opacity-50 ml-1">CANCEL</span>
                 </button>
                 <button
                   onClick={createTeam}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className="px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600"
                 >
-                  创建
+                  <span>创建</span>
+                  <span className="text-xs opacity-70 ml-1">CREATE</span>
                 </button>
               </div>
             </div>
@@ -241,10 +258,16 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="min-h-screen bg-gray-950 p-8">
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-2xl font-bold">团队管理 - {team.name}</h1>
+          <div>
+            <p className="text-label mb-2">团队管理 / TEAM MANAGEMENT</p>
+            <h1 className="text-mono-lg text-white">
+              <span>团队</span>
+              <span className="text-sm opacity-50 ml-1">/ TEAM</span> - {team.name}
+            </h1>
+          </div>
           <div className="flex gap-3">
             <button
               onClick={() => {
@@ -252,59 +275,86 @@ export default function TeamPage() {
                 setNewMemberUsername('')
                 setNewMemberRole('viewer')
               }}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              className="px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600"
             >
-              添加成员
+              <span>+ 添加成员</span>
+              <span className="text-xs opacity-70 ml-1">ADD MEMBER</span>
             </button>
             {canManage && (
               <button
                 onClick={generateAgentCode}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                className="px-4 py-2 bg-purple-500 text-white rounded-xl hover:bg-purple-600"
               >
-                生成代理邀请码
+                <span>生成邀请码</span>
+                <span className="text-xs opacity-70 ml-1">CODE</span>
               </button>
             )}
           </div>
         </div>
 
         {agentCode && (
-          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-6">
-            <p className="text-purple-800 font-medium mb-2">代理邀请码</p>
+          <div className="bg-purple-500/10 border border-purple-500/20 rounded-2xl p-4 mb-6">
+            <p className="text-purple-400 font-medium mb-2">
+              <span>代理邀请码</span>
+              <span className="text-sm opacity-70 ml-1">/ AGENT INVITE CODE</span>
+            </p>
             <div className="flex items-center gap-3">
-              <code className="text-2xl font-bold text-purple-600">{agentCode}</code>
+              <code className="text-2xl font-bold text-purple-400">{agentCode}</code>
               <button
                 onClick={copyAgentCode}
-                className="px-3 py-1 text-sm bg-purple-200 text-purple-800 rounded hover:bg-purple-300"
+                className="px-3 py-1 text-sm bg-purple-500/20 text-purple-300 rounded-lg hover:bg-purple-500/30"
               >
-                复制
+                <span>复制</span>
+                <span className="text-xs opacity-50 ml-1">COPY</span>
               </button>
               <button
                 onClick={() => setAgentCode(null)}
-                className="text-purple-600 hover:text-purple-800"
+                className="text-purple-400 hover:text-purple-300"
               >
-                关闭
+                <span>关闭</span>
+                <span className="text-xs opacity-50 ml-1">CLOSE</span>
               </button>
             </div>
-            <p className="text-purple-600 text-sm mt-2">使用此邀请码注册的用户将自动加入您的团队</p>
+            <p className="text-purple-400 text-sm mt-2">
+              <span>使用此码注册的用户将加入您的团队</span>
+              <span className="opacity-70 ml-1">/ USERS WITH THIS CODE WILL JOIN YOUR TEAM</span>
+            </p>
           </div>
         )}
 
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
           <table className="w-full">
-            <thead className="bg-gray-50">
+            <thead className="bg-white/5">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">成员</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">角色</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">邮箱</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">加入时间</th>
-                {canManage && <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>}
+                <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <span>成员</span>
+                  <span className="opacity-50 ml-1">MEMBER</span>
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <span>角色</span>
+                  <span className="opacity-50 ml-1">ROLE</span>
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <span>邮箱</span>
+                  <span className="opacity-50 ml-1">EMAIL</span>
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <span>加入日期</span>
+                  <span className="opacity-50 ml-1">JOIN DATE</span>
+                </th>
+                {canManage && (
+                  <th className="px-6 py-4 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    <span>操作</span>
+                    <span className="opacity-50 ml-1">ACTION</span>
+                  </th>
+                )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-white/10">
               {team.members?.map((member) => (
-                <tr key={member.id}>
+                <tr key={member.id} className="hover:bg-white/5">
                   <td className="px-6 py-4">
-                    <div className="font-medium">{member.user.name || member.user.username}</div>
+                    <div className="font-medium text-white">{member.user.name || member.user.username}</div>
                     <div className="text-sm text-gray-500">@{member.user.username}</div>
                   </td>
                   <td className="px-6 py-4">
@@ -312,24 +362,24 @@ export default function TeamPage() {
                       <select
                         value={member.role}
                         onChange={(e) => updateMemberRole(member.id, e.target.value)}
-                        className="px-2 py-1 border rounded"
+                        className="px-2 py-1 bg-white/5 border border-white/10 rounded text-white text-sm"
                       >
-                        <option value="viewer">观察者</option>
-                        <option value="operator">运营</option>
-                        <option value="manager">管理员</option>
+                        <option value="viewer" className="bg-gray-900">观察者 / VIEWER</option>
+                        <option value="operator" className="bg-gray-900">运营 / OPERATOR</option>
+                        <option value="manager" className="bg-gray-900">管理员 / MANAGER</option>
                       </select>
                     ) : (
                       <span className={`px-2 py-1 rounded text-sm ${
-                        member.role === 'leader' ? 'bg-blue-100 text-blue-800' :
-                        member.role === 'manager' ? 'bg-green-100 text-green-800' :
-                        'bg-gray-100 text-gray-800'
+                        member.role === 'leader' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                        member.role === 'manager' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                        'bg-gray-500/20 text-gray-400 border border-gray-500/30'
                       }`}>
                         {getRoleLabel(member.role)}
                       </span>
                     )}
                   </td>
-                  <td className="px-6 py-4 text-gray-500">{member.user.email}</td>
-                  <td className="px-6 py-4 text-gray-500">
+                  <td className="px-6 py-4 text-gray-400">{member.user.email}</td>
+                  <td className="px-6 py-4 text-gray-400">
                     {new Date(member.user.createdAt).toLocaleDateString()}
                   </td>
                   {canManage && (
@@ -337,9 +387,10 @@ export default function TeamPage() {
                       {member.role !== 'leader' && (
                         <button
                           onClick={() => removeMember(member.id)}
-                          className="text-red-600 hover:text-red-800"
+                          className="text-red-400 hover:text-red-300"
                         >
-                          移除
+                          <span>移除</span>
+                          <span className="text-xs opacity-50 ml-1">REMOVE</span>
                         </button>
                       )}
                     </td>
@@ -352,43 +403,54 @@ export default function TeamPage() {
       </div>
 
       {showAddMemberModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white rounded-lg p-6 w-96">
-            <h2 className="text-xl font-bold mb-4">添加团队成员</h2>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-gray-900 rounded-2xl p-6 w-96 border border-white/10">
+            <h2 className="text-xl font-bold text-white mb-4">
+              <span>添加团队成员</span>
+              <span className="text-sm opacity-50 ml-1">ADD MEMBER</span>
+            </h2>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+              <label className="block text-sm text-gray-400 mb-1">
+                <span>用户名</span>
+                <span className="opacity-50 ml-1">USERNAME</span>
+              </label>
               <input
                 type="text"
                 value={newMemberUsername}
                 onChange={(e) => setNewMemberUsername(e.target.value)}
-                placeholder="请输入用户名"
-                className="w-full px-3 py-2 border rounded-lg"
+                placeholder="输入用户名... / Enter username..."
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-emerald-500/50"
               />
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">角色</label>
+              <label className="block text-sm text-gray-400 mb-1">
+                <span>角色</span>
+                <span className="opacity-50 ml-1">ROLE</span>
+              </label>
               <select
                 value={newMemberRole}
                 onChange={(e) => setNewMemberRole(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-emerald-500/50"
               >
-                <option value="viewer">观察者</option>
-                <option value="operator">运营</option>
-                <option value="manager">管理员</option>
+                <option value="viewer" className="bg-gray-900">观察者 / VIEWER</option>
+                <option value="operator" className="bg-gray-900">运营 / OPERATOR</option>
+                <option value="manager" className="bg-gray-900">管理员 / MANAGER</option>
               </select>
             </div>
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowAddMemberModal(false)}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                className="px-4 py-2 text-gray-400 hover:bg-white/10 rounded-xl"
               >
-                取消
+                <span>取消</span>
+                <span className="text-xs opacity-50 ml-1">CANCEL</span>
               </button>
               <button
                 onClick={addMember}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                className="px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600"
               >
-                添加
+                <span>添加</span>
+                <span className="text-xs opacity-70 ml-1">ADD</span>
               </button>
             </div>
           </div>

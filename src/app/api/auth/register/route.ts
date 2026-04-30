@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     
     if (!username || !email || !password || !inviteCode) {
       return NextResponse.json(
-        { success: false, message: '缺少必要参数（需包含邀请码）' },
+        { success: false, message: '请填写完整信息（包含邀请码）' },
         { status: 400 }
       )
     }
@@ -39,13 +39,13 @@ export async function POST(request: NextRequest) {
         teamIdToJoin = agentUser.teamId
       } else {
         return NextResponse.json(
-          { success: false, message: '邀请码不存在' },
+          { success: false, message: '邀请码无效' },
           { status: 403 }
         )
       }
     } else if (inviteCodeRecord.isUsed) {
       return NextResponse.json(
-        { success: false, message: '邀请码已被使用' },
+        { success: false, message: '邀请码已使用' },
         { status: 403 }
       )
     }
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     
     if (existingUser) {
       return NextResponse.json(
-        { success: false, message: '用户名或邮箱已存在' },
+        { success: false, message: '用户名或邮箱已注册' },
         { status: 400 }
       )
     }

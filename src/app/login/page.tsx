@@ -1,9 +1,12 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useLocale } from '@/i18n/context';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t } = useLocale();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -18,81 +21,108 @@ export default function LoginPage() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ username, password })
       });
 
       const data = await response.json();
 
       if (data.success) {
-        router.push('/projects');
+        setTimeout(() => {
+          window.location.href = '/projects';
+        }, 100);
       } else {
-        setError(data.message || '登录失败');
+        setError(data.message || t.auth.loginSuccess);
       }
     } catch (err) {
-      setError('登录失败，请稍后重试');
+      setError(t.common.error);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">AiMarketing</h1>
-          <p className="text-gray-600 mt-1">登录您的账号</p>
+    <div className="min-h-screen flex items-center justify-center bg-gray-950 relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-transparent"></div>
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl"></div>
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl"></div>
+
+      <div className="relative z-10 w-full max-w-md px-4">
+        <div className="text-center mb-8">
+          <Link href="/" className="text-mono text-2xl font-bold tracking-wider">
+            <span className="text-emerald-400">AI</span>
+            <span className="text-white">MARKETING</span>
+          </Link>
+          <p className="text-mono-sm text-gray-500 mt-2">// {t.auth.signIn}</p>
         </div>
 
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-red-700 text-sm">
-            {error}
+        <div className="card-glass p-8">
+          <h2 className="text-mono text-xl text-white mb-6 text-center">
+            {t.auth.welcome}
+          </h2>
+
+          {error && (
+            <div className="mb-6 p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm text-center">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">
+                {t.auth.email}
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="input-dark font-mono"
+                placeholder={t.auth.emailRequired}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">
+                {t.auth.password}
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="input-dark font-mono"
+                placeholder={t.auth.passwordRequired}
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-mono tracking-wider rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? (
+                <span>{t.common.loading}</span>
+              ) : (
+                <span>{t.auth.signIn} →</span>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-500">
+              {t.auth.dontHaveAccount}
+              <br />
+              <Link href="/register" className="text-emerald-400 hover:text-emerald-300">
+                {t.auth.signUp} →
+              </Link>
+            </p>
           </div>
-        )}
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              用户名
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="请输入用户名"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              密码
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="请输入密码"
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2 bg-primary text-white rounded-md hover:bg-primary-dark disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? '登录中...' : '登录'}
-          </button>
-        </form>
-
-        <p className="mt-4 text-center text-sm text-gray-600">
-          还没有账号？{' '}
-          <a href="/register" className="text-primary hover:text-primary-dark">
-            立即注册
-          </a>
-        </p>
+        <div className="mt-8 text-center">
+          <p className="text-xs text-gray-600">© 2026 AIMARKETING SYSTEM</p>
+        </div>
       </div>
     </div>
   );

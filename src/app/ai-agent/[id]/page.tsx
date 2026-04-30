@@ -96,7 +96,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
 
   const fetchAgent = async () => {
     try {
-      const response = await fetch(`/api/ai-agent/${params.id}`);
+      const response = await fetch(`/api/ai-agent/${params.id}`, { credentials: 'include' });
       const data = await response.json();
       if (data.success && data.data) {
         setAgent(data.data);
@@ -124,7 +124,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
 
   const fetchDocuments = async () => {
     try {
-      const response = await fetch(`/api/ai-agent/${params.id}/documents`);
+      const response = await fetch(`/api/ai-agent/${params.id}/documents`, { credentials: 'include' });
       const data = await response.json();
       if (data.success) {
         setDocuments(data.data);
@@ -153,6 +153,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     try {
       const response = await fetch(`/api/ai-agent/${params.id}/chat`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMessage.content })
       });
@@ -192,6 +193,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     try {
       const response = await fetch(`/api/ai-agent/${params.id}/documents`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(documentFormData)
       });
@@ -216,7 +218,8 @@ export default function ChatPage({ params }: { params: { id: string } }) {
 
     try {
       await fetch(`/api/ai-agent/${params.id}/documents/${documentId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       });
       fetchDocuments();
     } catch (error) {
@@ -226,177 +229,179 @@ export default function ChatPage({ params }: { params: { id: string } }) {
 
   if (!agent) {
     return (
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        <div className="flex items-center gap-4 mb-4">
-          <Link href="/ai-agent" className="text-primary hover:underline">
-            ← 返回列表
+      <div className="min-h-screen bg-gray-950 p-8">
+        <div className="max-w-5xl mx-auto">
+          <Link href="/ai-agent" className="text-emerald-400 hover:text-emerald-300 font-mono">
+            ← BACK TO LIST
           </Link>
-        </div>
-        <div className="text-center py-12">
-          <p className="text-gray-500">加载中...</p>
+          <div className="text-center py-12">
+            <p className="text-gray-400 font-mono">LOADING...</p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
-          <Link href="/ai-agent" className="text-primary hover:underline">
-            ← 返回列表
-          </Link>
-          <h1 className="text-xl font-bold text-gray-900">{agent.name}</h1>
-          <span className={`inline-block px-2 py-0.5 rounded-full text-xs ${
-            agent.replyStyle === '专业' ? 'bg-blue-100 text-blue-800' :
-            agent.replyStyle === '亲切' ? 'bg-green-100 text-green-800' :
-            'bg-yellow-100 text-yellow-800'
-          }`}>
-            {agent.replyStyle}风格
-          </span>
+    <div className="min-h-screen bg-gray-950">
+      <div className="max-w-5xl mx-auto px-4 py-8">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-4">
+            <Link href="/ai-agent" className="text-emerald-400 hover:text-emerald-300 font-mono">
+              ← BACK
+            </Link>
+            <h1 className="text-xl font-bold text-white font-mono">{agent.name}</h1>
+            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-mono ${
+              agent.replyStyle === '专业' ? 'bg-blue-500/20 text-blue-400' :
+              agent.replyStyle === '亲切' ? 'bg-emerald-500/20 text-emerald-400' :
+              'bg-yellow-500/20 text-yellow-400'
+            }`}>
+              {agent.replyStyle} STYLE
+            </span>
+          </div>
+          <button
+            onClick={() => setShowKnowledgePanel(!showKnowledgePanel)}
+            className={`px-4 py-2 rounded-xl transition-colors font-mono ${
+              showKnowledgePanel 
+                ? 'bg-emerald-500 text-white' 
+                : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+            }`}
+          >
+            {showKnowledgePanel ? 'HIDE KB' : `KB (${documents.length})`}
+          </button>
         </div>
-        <button
-          onClick={() => setShowKnowledgePanel(!showKnowledgePanel)}
-          className={`px-4 py-2 rounded-md transition-colors ${
-            showKnowledgePanel 
-              ? 'bg-primary text-white' 
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          }`}
-        >
-          {showKnowledgePanel ? '隐藏知识库' : `知识库(${documents.length})`}
-        </button>
-      </div>
 
-      <div className="flex gap-6">
-        <div className={`flex-1 transition-all duration-300 ${showKnowledgePanel ? 'max-w-md' : 'max-w-none'}`}>
-          <div className="bg-white rounded-lg shadow-md h-[500px] flex flex-col">
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map(message => (
-                <div key={message.id} className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[70%] ${
-                    message.type === 'user' 
-                      ? 'bg-primary text-white rounded-2xl rounded-tr-sm' 
-                      : 'bg-gray-100 text-gray-900 rounded-2xl rounded-tl-sm'
-                  } p-3`}>
-                    <p className="text-sm">{message.content}</p>
-                    <span className={`text-xs mt-1 block ${
-                      message.type === 'user' ? 'text-blue-200' : 'text-gray-400'
-                    }`}>
-                      {message.timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                </div>
-              ))}
-              {isLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-gray-100 rounded-2xl rounded-tl-sm p-3">
-                    <div className="flex space-x-1">
-                      <span className="animate-bounce w-2 h-2 bg-gray-400 rounded-full"></span>
-                      <span className="animate-bounce w-2 h-2 bg-gray-400 rounded-full" style={{ animationDelay: '0.1s' }}></span>
-                      <span className="animate-bounce w-2 h-2 bg-gray-400 rounded-full" style={{ animationDelay: '0.2s' }}></span>
+        <div className="flex gap-6">
+          <div className={`flex-1 transition-all duration-300 ${showKnowledgePanel ? 'max-w-2xl' : 'max-w-none'}`}>
+            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 h-[600px] flex flex-col">
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.map(message => (
+                  <div key={message.id} className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[70%] ${
+                      message.type === 'user' 
+                        ? 'bg-emerald-500 text-white rounded-2xl rounded-tr-sm' 
+                        : 'bg-white/10 text-gray-100 rounded-2xl rounded-tl-sm border border-white/10'
+                    } p-3`}>
+                      <p className="text-sm font-mono">{message.content}</p>
+                      <span className={`text-xs mt-1 block font-mono ${
+                        message.type === 'user' ? 'text-emerald-200' : 'text-gray-500'
+                      }`}>
+                        {message.timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
                   </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
+                ))}
+                {isLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-white/10 rounded-2xl rounded-tl-sm p-3 border border-white/10">
+                      <div className="flex space-x-1">
+                        <span className="animate-bounce w-2 h-2 bg-gray-400 rounded-full"></span>
+                        <span className="animate-bounce w-2 h-2 bg-gray-400 rounded-full" style={{ animationDelay: '0.1s' }}></span>
+                        <span className="animate-bounce w-2 h-2 bg-gray-400 rounded-full" style={{ animationDelay: '0.2s' }}></span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
 
-            <div className="p-4 border-t">
-              <div className="flex gap-2">
-                <textarea
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="输入消息..."
-                  className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-                  rows={2}
-                  disabled={isLoading}
-                />
-                <button
-                  onClick={handleSend}
-                  disabled={isLoading || !inputValue.trim()}
-                  className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  {isLoading ? '发送中...' : '发送'}
-                </button>
+              <div className="p-4 border-t border-white/10">
+                <div className="flex gap-2">
+                  <textarea
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="ENTER MESSAGE..."
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 resize-none font-mono"
+                    rows={2}
+                    disabled={isLoading}
+                  />
+                  <button
+                    onClick={handleSend}
+                    disabled={isLoading || !inputValue.trim()}
+                    className="px-6 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-mono"
+                  >
+                    {isLoading ? 'SENDING...' : 'SEND'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {showKnowledgePanel && (
-          <div className="w-80 bg-white rounded-lg shadow-md p-4">
-            <h3 className="font-semibold text-gray-900 mb-4">知识库管理</h3>
-            
-            <form onSubmit={handleAddDocument} className="space-y-3 mb-4">
-              <input
-                type="text"
-                value={documentFormData.title}
-                onChange={(e) => setDocumentFormData({ ...documentFormData, title: e.target.value })}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                placeholder="文档标题"
-                required
-              />
-              <select
-                value={documentFormData.type}
-                onChange={(e) => setDocumentFormData({ ...documentFormData, type: e.target.value })}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              >
-                {documentTypes.map(type => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
-              <textarea
-                value={documentFormData.content}
-                onChange={(e) => setDocumentFormData({ ...documentFormData, content: e.target.value })}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                rows={3}
-                placeholder="粘贴文本内容（产品话术、FAQ、品牌资料等）"
-                required
-              />
-              <button
-                type="submit"
-                disabled={isSubmittingDoc}
-                className="w-full px-3 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-dark disabled:bg-gray-400"
-              >
-                {isSubmittingDoc ? '保存中...' : '添加文档'}
-              </button>
-            </form>
-
-            <div className="border-t pt-4">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">已添加文档 ({documents.length})</h4>
-              {documents.length === 0 ? (
-                <p className="text-gray-500 text-sm text-center py-4">暂无文档</p>
-              ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {documents.map(doc => (
-                    <div key={doc.id} className="p-2 bg-gray-50 rounded-md">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-1.5 py-0.5 rounded text-xs ${
-                            doc.type === '话术' ? 'bg-purple-100 text-purple-800' :
-                            doc.type === '产品资料' ? 'bg-indigo-100 text-indigo-800' :
-                            'bg-pink-100 text-pink-800'
-                          }`}>
-                            {doc.type}
-                          </span>
-                          <span className="text-sm font-medium">{doc.title}</span>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteDocument(doc.id)}
-                          className="text-red-500 hover:text-red-700 text-xs"
-                        >
-                          删除
-                        </button>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{doc.content}</p>
-                    </div>
+          {showKnowledgePanel && (
+            <div className="w-96 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-4">
+              <h3 className="font-semibold text-white mb-4 font-mono">KNOWLEDGE BASE</h3>
+              
+              <form onSubmit={handleAddDocument} className="space-y-3 mb-4">
+                <input
+                  type="text"
+                  value={documentFormData.title}
+                  onChange={(e) => setDocumentFormData({ ...documentFormData, title: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono"
+                  placeholder="DOCUMENT TITLE"
+                  required
+                />
+                <select
+                  value={documentFormData.type}
+                  onChange={(e) => setDocumentFormData({ ...documentFormData, type: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500/50 font-mono"
+                >
+                  {documentTypes.map(type => (
+                    <option key={type} value={type} className="bg-gray-900">{type}</option>
                   ))}
-                </div>
-              )}
+                </select>
+                <textarea
+                  value={documentFormData.content}
+                  onChange={(e) => setDocumentFormData({ ...documentFormData, content: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono"
+                  rows={3}
+                  placeholder="PASTE CONTENT (SCRIPTS, FAQ, PRODUCT INFO...)"
+                  required
+                />
+                <button
+                  type="submit"
+                  disabled={isSubmittingDoc}
+                  className="w-full px-3 py-2 bg-emerald-500 text-white rounded-xl text-sm hover:bg-emerald-600 disabled:bg-gray-700 font-mono"
+                >
+                  {isSubmittingDoc ? 'SAVING...' : 'ADD DOCUMENT'}
+                </button>
+              </form>
+
+              <div className="border-t border-white/10 pt-4">
+                <h4 className="text-sm font-medium text-gray-400 mb-2 font-mono">DOCUMENTS ({documents.length})</h4>
+                {documents.length === 0 ? (
+                  <p className="text-gray-500 text-sm text-center py-4 font-mono">NO DOCUMENTS</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {documents.map(doc => (
+                      <div key={doc.id} className="p-2 bg-white/5 rounded-xl border border-white/10">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-mono ${
+                              doc.type === '话术' ? 'bg-purple-500/20 text-purple-400' :
+                              doc.type === '产品资料' ? 'bg-indigo-500/20 text-indigo-400' :
+                              'bg-pink-500/20 text-pink-400'
+                            }`}>
+                              {doc.type}
+                            </span>
+                            <span className="text-sm font-medium text-white font-mono">{doc.title}</span>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteDocument(doc.id)}
+                            className="text-red-400 hover:text-red-300 text-xs font-mono"
+                          >
+                            DEL
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1 line-clamp-2 font-mono">{doc.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

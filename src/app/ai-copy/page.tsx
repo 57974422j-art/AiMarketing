@@ -11,8 +11,7 @@ export default function AICopyPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setIsGenerating(true)
-    
-    // 模拟 AI 生成过程
+
     setTimeout(() => {
       const mockCopies = [
         `🔥 ${keywords} 太绝了！我不允许你还不知道这个秘密... #${keywords} #好物推荐`,
@@ -25,84 +24,98 @@ export default function AICopyPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">AI 文案生成</h1>
-      
-      <div className="bg-white shadow rounded-lg p-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              关键词
-            </label>
-            <input 
-              type="text" 
-              value={keywords} 
-              onChange={(e) => setKeywords(e.target.value)}
-              placeholder="输入关键词，如：口红、健身、美食"
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="min-h-screen bg-gray-950">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <p className="text-label mb-2">AI 工作区 / AI WORKSPACE</p>
+          <h1 className="text-mono-lg text-white">文案生成 / COPY WRITER</h1>
+        </div>
+
+        <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                平台
+              <label className="block text-label mb-2">
+                <span>关键词</span>
+                <span className="opacity-50 ml-1">KEYWORDS</span>
               </label>
-              <select 
-                value={platform} 
-                onChange={(e) => setPlatform(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-              >
-                <option value="douyin">抖音</option>
-                <option value="xiaohongshu">小红书</option>
-                <option value="kuaishou">快手</option>
-                <option value="weibo">微博</option>
-              </select>
+              <input
+                type="text"
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+                placeholder="输入关键词... / Input keywords..."
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
+              />
             </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                风格
-              </label>
-              <select 
-                value={style} 
-                onChange={(e) => setStyle(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-              >
-                <option value="catchy">吸引人</option>
-                <option value="professional">专业</option>
-                <option value="humorous">幽默</option>
-                <option value="emotional">情感</option>
-              </select>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-label mb-2">
+                  <span>平台</span>
+                  <span className="opacity-50 ml-1">PLATFORM</span>
+                </label>
+                <select
+                  value={platform}
+                  onChange={(e) => setPlatform(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50"
+                >
+                  <option value="douyin" className="bg-gray-900">抖音 / DOUYIN</option>
+                  <option value="xiaohongshu" className="bg-gray-900">小红书 / XIAOHONGSHU</option>
+                  <option value="kuaishou" className="bg-gray-900">快手 / KUAISHOU</option>
+                  <option value="weibo" className="bg-gray-900">微博 / WEIBO</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-label mb-2">
+                  <span>风格</span>
+                  <span className="opacity-50 ml-1">STYLE</span>
+                </label>
+                <select
+                  value={style}
+                  onChange={(e) => setStyle(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50"
+                >
+                  <option value="catchy" className="bg-gray-900">吸睛 / CATCHY</option>
+                  <option value="professional" className="bg-gray-900">专业 / PROFESSIONAL</option>
+                  <option value="humorous" className="bg-gray-900">幽默 / HUMOROUS</option>
+                  <option value="emotional" className="bg-gray-900">情感 / EMOTIONAL</option>
+                </select>
+              </div>
             </div>
-          </div>
-          
-          <div>
-            <button 
-              type="submit" 
+
+            <button
+              type="submit"
               disabled={isGenerating}
-              className="w-full py-3 bg-primary text-white rounded-md hover:bg-primary-dark disabled:bg-gray-400 disabled:cursor-not-allowed"
+              className="w-full py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors"
             >
-              {isGenerating ? '生成中...' : '生成文案'}
+              {isGenerating ? (
+                <span>生成中... / GENERATING...</span>
+              ) : (
+                <span>生成文案 / GENERATE COPY</span>
+              )}
             </button>
-          </div>
-        </form>
-        
-        {copyContent.length > 0 && (
-          <div className="mt-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">生成的文案</h2>
-            <div className="space-y-4">
-              {copyContent.map((copy, index) => (
-                <div key={index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                  <p className="text-gray-800">{copy}</p>
-                  <button className="mt-2 text-sm text-primary hover:text-primary-dark">
-                    复制
-                  </button>
-                </div>
-              ))}
+          </form>
+
+          {copyContent.length > 0 && (
+            <div className="mt-8">
+              <h2 className="text-label mb-4">
+                <span>生成结果</span>
+                <span className="opacity-50 ml-1">/ GENERATED COPY</span>
+              </h2>
+              <div className="space-y-4">
+                {copyContent.map((copy, index) => (
+                  <div key={index} className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4">
+                    <p className="text-gray-300 font-mono text-sm">{copy}</p>
+                    <button className="mt-2 text-sm text-emerald-400 hover:text-emerald-300">
+                      <span>复制到剪贴板</span>
+                      <span className="opacity-50 ml-1">/ COPY</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )

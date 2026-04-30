@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client/edge'
 
 const prisma = new PrismaClient()
 
@@ -154,7 +154,6 @@ export async function POST(request: NextRequest) {
     for (const template of config.copyTemplates) {
       const copyTask = await prisma.copyTask.create({
         data: {
-          title: `${industry}营销文案`,
           content: template,
           type: 'product',
           status: 'completed',

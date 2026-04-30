@@ -169,240 +169,243 @@ export default function NFCPromoPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">碰一碰实体推广</h1>
-        <p className="text-gray-600">NFC 碰一碰触发规则配置，管理推广效果数据。适配门店物料、线下活动等多种场景。</p>
-      </div>
+    <div className="min-h-screen bg-gray-950">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <p className="text-label mb-2">NFC 推广 / NFC PROMO</p>
+          <h1 className="text-mono-lg text-white">碰一碰推广 / NFC TAP PROMO</h1>
+          <p className="text-gray-400 mt-2 font-mono">NFC TAP TRIGGER CONFIG, MANAGE PROMO EFFECT DATA.</p>
+        </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="text-3xl font-bold text-primary mb-1">{totalStats.touches.toLocaleString()}</div>
-          <div className="text-sm text-gray-500">总触碰次数</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-4">
+            <div className="text-3xl font-bold text-emerald-400 mb-1 font-mono">{totalStats.touches.toLocaleString()}</div>
+            <div className="text-xs text-gray-500 font-mono">TOTAL TOUCHES</div>
+          </div>
+          <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-4">
+            <div className="text-3xl font-bold text-blue-400 mb-1 font-mono">{totalStats.uniqueUsers.toLocaleString()}</div>
+            <div className="text-xs text-gray-500 font-mono">UNIQUE USERS</div>
+          </div>
+          <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-4">
+            <div className="text-3xl font-bold text-green-400 mb-1 font-mono">{totalStats.conversions.toLocaleString()}</div>
+            <div className="text-xs text-gray-500 font-mono">CONVERSIONS</div>
+          </div>
+          <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-4">
+            <div className="text-3xl font-bold text-orange-400 mb-1 font-mono">{totalStats.todayTouches.toLocaleString()}</div>
+            <div className="text-xs text-gray-500 font-mono">TODAY TOUCHES</div>
+          </div>
         </div>
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="text-3xl font-bold text-blue-600 mb-1">{totalStats.uniqueUsers.toLocaleString()}</div>
-          <div className="text-sm text-gray-500">独立用户数</div>
-        </div>
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="text-3xl font-bold text-green-600 mb-1">{totalStats.conversions.toLocaleString()}</div>
-          <div className="text-sm text-gray-500">转化人数</div>
-        </div>
-        <div className="bg-white rounded-lg shadow-md p-4">
-          <div className="text-3xl font-bold text-orange-500 mb-1">{totalStats.todayTouches.toLocaleString()}</div>
-          <div className="text-sm text-gray-500">今日触碰</div>
-        </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">触发规则配置</h2>
-              <button
-                onClick={handleOpenAddModal}
-                className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
-              >
-                添加规则
-              </button>
-            </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="lg:col-span-2">
+            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-label">TRIGGER RULES</h2>
+                <button
+                  onClick={handleOpenAddModal}
+                  className="px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 font-mono text-sm"
+                >
+                  + ADD RULE
+                </button>
+              </div>
 
-            <div className="space-y-4">
-              {rules.map(rule => (
-                <div key={rule.id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{triggerTypes.find(t => t.id === rule.triggerType)?.icon}</span>
-                      <div>
-                        <h3 className="font-semibold text-gray-900">{rule.name}</h3>
-                        <p className="text-sm text-gray-500">{rule.description}</p>
+              <div className="space-y-4">
+                {rules.map(rule => (
+                  <div key={rule.id} className="bg-white/5 rounded-xl p-4 border border-white/10">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{triggerTypes.find(t => t.id === rule.triggerType)?.icon}</span>
+                        <div>
+                          <h3 className="font-semibold text-white font-mono">{rule.name}</h3>
+                          <p className="text-xs text-gray-500 font-mono">{rule.description}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleToggleStatus(rule.id)}
+                          className={`px-3 py-1 text-xs font-medium rounded-full font-mono ${
+                            rule.status === 'active'
+                              ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
+                              : 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30'
+                          }`}
+                        >
+                          {rule.status === 'active' ? 'ACTIVE' : 'PAUSED'}
+                        </button>
+                        <button
+                          onClick={() => handleOpenEditModal(rule)}
+                          className="text-gray-400 hover:text-gray-300 text-sm font-mono"
+                        >
+                          EDIT
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+
+                    <div className="grid grid-cols-4 gap-3 text-center">
+                      <div className="bg-white/5 rounded-lg p-2">
+                        <div className="text-lg font-semibold text-white font-mono">{rule.stats.touches.toLocaleString()}</div>
+                        <div className="text-xs text-gray-500 font-mono">TOUCHES</div>
+                      </div>
+                      <div className="bg-white/5 rounded-lg p-2">
+                        <div className="text-lg font-semibold text-white font-mono">{rule.stats.uniqueUsers.toLocaleString()}</div>
+                        <div className="text-xs text-gray-500 font-mono">UNIQUE</div>
+                      </div>
+                      <div className="bg-white/5 rounded-lg p-2">
+                        <div className="text-lg font-semibold text-white font-mono">{rule.stats.conversions.toLocaleString()}</div>
+                        <div className="text-xs text-gray-500 font-mono">CONVERT</div>
+                      </div>
+                      <div className="bg-white/5 rounded-lg p-2">
+                        <div className="text-lg font-semibold text-orange-400 font-mono">{rule.stats.todayTouches}</div>
+                        <div className="text-xs text-gray-500 font-mono">TODAY</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between text-xs">
+                      <span className="text-gray-500 font-mono">
+                        CREATED {new Date(rule.createdAt).toLocaleDateString('zh-CN')}
+                      </span>
+                      <div className="flex gap-2">
+                        <button className="text-emerald-400 hover:text-emerald-300 font-mono">DETAILS</button>
+                        <button className="text-emerald-400 hover:text-emerald-300 font-mono">REPORTS</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+              <h3 className="text-label mb-4">TRIGGER TYPES</h3>
+              <div className="space-y-3">
+                {triggerTypes.map(type => (
+                  <div key={type.id} className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
+                    <span className="text-2xl">{type.icon}</span>
+                    <div>
+                      <div className="font-medium text-white text-sm font-mono">{type.name}</div>
+                      <div className="text-xs text-gray-500 font-mono">{type.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+              <h3 className="text-label mb-4">USE CASES</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {scenarios.map(scenario => (
+                  <div key={scenario.id} className="text-center p-3 bg-white/5 rounded-xl">
+                    <div className="text-2xl mb-1">{scenario.icon}</div>
+                    <div className="font-medium text-white text-xs font-mono">{scenario.name}</div>
+                    <div className="text-xs text-gray-500 mt-1 font-mono">{scenario.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 rounded-2xl border border-emerald-500/20 p-6">
+              <h3 className="font-semibold text-white mb-3 font-mono">NFC ADVANTAGES</h3>
+              <ul className="text-sm space-y-2 text-gray-300">
+                <li>✓ ZERO BARRIER - TAP TO GET CONTENT</li>
+                <li>✓ ONLINE/OFFLINE - PHYSICAL → TRAFFIC</li>
+                <li>✓ DATA TRACKING - REAL-TIME STATS</li>
+                <li>✓ ALL SCENARIOS - STORE/EVENT/PACK</li>
+                <li>✓ PLUG & PLAY - QUICK DEPLOY</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {showModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-gray-900 rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto border border-white/10">
+              <h2 className="text-xl font-bold text-white mb-4 font-mono">
+                {editingRule ? 'EDIT RULE' : 'ADD RULE'}
+              </h2>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1 font-mono">RULE NAME</label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 font-mono"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2 font-mono">TRIGGER TYPE</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {triggerTypes.map(type => (
                       <button
-                        onClick={() => handleToggleStatus(rule.id)}
-                        className={`px-3 py-1 text-xs font-medium rounded-full ${
-                          rule.status === 'active'
-                            ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        key={type.id}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, triggerType: type.id as NFCRule['triggerType'] })}
+                        className={`p-3 rounded-xl border text-left ${
+                          formData.triggerType === type.id
+                            ? 'border-emerald-500/50 bg-emerald-500/10'
+                            : 'border-white/10 bg-white/5 hover:bg-white/10'
                         }`}
                       >
-                        {rule.status === 'active' ? '运行中' : '已暂停'}
+                        <span className="text-xl">{type.icon}</span>
+                        <div className="font-medium text-sm mt-1 text-white font-mono">{type.name}</div>
                       </button>
-                      <button
-                        onClick={() => handleOpenEditModal(rule)}
-                        className="text-gray-400 hover:text-gray-600"
-                      >
-                        编辑
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-4 gap-3 text-center">
-                    <div className="bg-gray-50 rounded-lg p-2">
-                      <div className="text-lg font-semibold text-gray-900">{rule.stats.touches.toLocaleString()}</div>
-                      <div className="text-xs text-gray-500">触碰次数</div>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-2">
-                      <div className="text-lg font-semibold text-gray-900">{rule.stats.uniqueUsers.toLocaleString()}</div>
-                      <div className="text-xs text-gray-500">独立用户</div>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-2">
-                      <div className="text-lg font-semibold text-gray-900">{rule.stats.conversions.toLocaleString()}</div>
-                      <div className="text-xs text-gray-500">转化数</div>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-2">
-                      <div className="text-lg font-semibold text-orange-500">{rule.stats.todayTouches}</div>
-                      <div className="text-xs text-gray-500">今日触碰</div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between text-sm">
-                    <span className="text-gray-400">
-                      创建于 {new Date(rule.createdAt).toLocaleDateString('zh-CN')}
-                    </span>
-                    <div className="flex gap-2">
-                      <button className="text-primary hover:underline">查看详情</button>
-                      <button className="text-primary hover:underline">数据报表</button>
-                    </div>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
 
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">触发类型</h3>
-            <div className="space-y-3">
-              {triggerTypes.map(type => (
-                <div key={type.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <span className="text-2xl">{type.icon}</span>
-                  <div>
-                    <div className="font-medium text-gray-900">{type.name}</div>
-                    <div className="text-xs text-gray-500">{type.desc}</div>
-                  </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1 font-mono">
+                    {formData.triggerType === 'video' ? 'VIDEO TITLE' :
+                     formData.triggerType === 'wechat' ? 'GUIDE TEXT' :
+                     formData.triggerType === 'review' ? 'REVIEW GUIDE' : 'LINK TITLE'}
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 font-mono"
+                    required
+                  />
                 </div>
-              ))}
-            </div>
-          </div>
 
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">适用场景</h3>
-            <div className="grid grid-cols-2 gap-3">
-              {scenarios.map(scenario => (
-                <div key={scenario.id} className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="text-2xl mb-1">{scenario.icon}</div>
-                  <div className="font-medium text-gray-900 text-sm">{scenario.name}</div>
-                  <div className="text-xs text-gray-500 mt-1">{scenario.desc}</div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1 font-mono">
+                    {formData.triggerType === 'video' ? 'VIDEO URL' :
+                     formData.triggerType === 'wechat' ? 'WECHAT ID' :
+                     formData.triggerType === 'review' ? 'REVIEW LINK' : 'TARGET LINK'}
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.content}
+                    onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono"
+                    placeholder={formData.triggerType === 'wechat' ? 'WECHAT ID' : 'https://...'}
+                    required
+                  />
                 </div>
-              ))}
+
+                <div className="flex items-center justify-between pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    className="px-4 py-2 text-gray-400 hover:bg-white/10 rounded-xl font-mono"
+                  >
+                    CANCEL
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 font-mono"
+                  >
+                    {editingRule ? 'UPDATE' : 'CREATE'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
-
-          <div className="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-lg shadow-md p-6 text-white">
-            <h3 className="font-semibold mb-3">NFC 碰一碰优势</h3>
-            <ul className="text-sm space-y-2 opacity-90">
-              <li>✅ 零门槛触达 - 碰一碰即可获取内容</li>
-              <li>✅ 线下线上联动 - 实体物料变流量入口</li>
-              <li>✅ 数据追踪 - 实时统计触碰和转化</li>
-              <li>✅ 多场景适配 - 门店/展会/包装全覆盖</li>
-              <li>✅ 即装即用 - 快速部署灵活配置</li>
-            </ul>
-          </div>
-        </div>
+        )}
       </div>
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              {editingRule ? '编辑规则' : '添加规则'}
-            </h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">规则名称</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">触发类型</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {triggerTypes.map(type => (
-                    <button
-                      key={type.id}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, triggerType: type.id as NFCRule['triggerType'] })}
-                      className={`p-3 rounded-lg border-2 text-left ${
-                        formData.triggerType === type.id
-                          ? 'border-primary bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <span className="text-xl">{type.icon}</span>
-                      <div className="font-medium text-sm mt-1">{type.name}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {formData.triggerType === 'video' ? '视频标题' : 
-                   formData.triggerType === 'wechat' ? '引导文案' : 
-                   formData.triggerType === 'review' ? '点评引导文案' : '链接标题'}
-                </label>
-                <input
-                  type="text"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {formData.triggerType === 'video' ? '视频URL' : 
-                   formData.triggerType === 'wechat' ? '微信号/二维码' : 
-                   formData.triggerType === 'review' ? '点评链接' : '跳转链接'}
-                </label>
-                <input
-                  type="text"
-                  value={formData.content}
-                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder={formData.triggerType === 'wechat' ? '输入微信号' : 'https://...'}
-                  required
-                />
-              </div>
-
-              <div className="flex items-center justify-between pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
-                >
-                  {editingRule ? '更新' : '创建'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

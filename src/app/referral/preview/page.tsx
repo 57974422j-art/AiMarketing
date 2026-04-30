@@ -32,7 +32,7 @@ export default function ReferralPreviewPage() {
   const [showQRCode, setShowQRCode] = useState(false);
 
   useEffect(() => {
-    fetch('/api/referral')
+    fetch('/api/referral', { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         if (data.success) {
@@ -71,135 +71,140 @@ export default function ReferralPreviewPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="flex items-center gap-4 mb-6">
-        <Link href="/referral" className="text-primary hover:underline">
-          ← 返回管理
-        </Link>
-        <h1 className="text-2xl font-bold text-gray-900">导流触发模拟测试</h1>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">选择导流配置</h2>
-          <div className="space-y-3">
-            {referrals.map(config => (
-              <button
-                key={config.id}
-                onClick={() => setSelectedConfig(config)}
-                className={`w-full text-left p-4 rounded-lg border-2 transition-colors ${
-                  selectedConfig?.id === config.id
-                    ? 'border-primary bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex justify-between items-center">
-                  <span className="font-medium">{config.name}</span>
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    config.status === 'active' 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    {config.status === 'active' ? '运行中' : '已暂停'}
-                  </span>
-                </div>
-                <div className="text-sm text-gray-500 mt-1">
-                  {config.platform} · {config.triggerType}
-                </div>
-                {config.keyword && (
-                  <div className="text-xs text-gray-400 mt-1">
-                    关键词: {config.keyword}
-                  </div>
-                )}
-              </button>
-            ))}
+    <div className="min-h-screen bg-gray-950">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center gap-4 mb-8">
+          <Link href="/referral" className="text-emerald-400 hover:text-emerald-300 font-mono">
+            ← BACK
+          </Link>
+          <div>
+            <p className="text-label mb-1">SIMULATION</p>
+            <h1 className="text-mono-lg text-white">导流触发测试 / REFERRAL TRIGGER TEST</h1>
           </div>
         </div>
 
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">模拟用户输入</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  用户消息（模拟评论/私信内容）
-                </label>
-                <textarea
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  placeholder="输入测试消息，如：福利、加群、666 等"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  rows={4}
-                />
-              </div>
-              <button
-                onClick={handleTrigger}
-                disabled={!selectedConfig || !inputMessage.trim()}
-                className="w-full px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                模拟触发
-              </button>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+            <h2 className="text-label mb-4">SELECT CONFIG</h2>
+            <div className="space-y-3">
+              {referrals.map(config => (
+                <button
+                  key={config.id}
+                  onClick={() => setSelectedConfig(config)}
+                  className={`w-full text-left p-4 rounded-xl border transition-all ${
+                    selectedConfig?.id === config.id
+                      ? 'border-emerald-500/50 bg-emerald-500/10'
+                      : 'border-white/10 bg-white/5 hover:bg-white/10'
+                  }`}
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium text-white font-mono">{config.name}</span>
+                    <span className={`text-xs px-2 py-1 rounded-full font-mono ${
+                      config.status === 'active'
+                        ? 'bg-emerald-500/20 text-emerald-400'
+                        : 'bg-gray-500/20 text-gray-400'
+                    }`}>
+                      {config.status === 'active' ? 'ACTIVE' : 'PAUSED'}
+                    </span>
+                  </div>
+                  <div className="text-sm text-gray-400 mt-1 font-mono">
+                    {config.platform} · {config.triggerType}
+                  </div>
+                  {config.keyword && (
+                    <div className="text-xs text-gray-500 mt-1 font-mono">
+                      KW: {config.keyword}
+                    </div>
+                  )}
+                </button>
+              ))}
             </div>
           </div>
 
-          {showQRCode && selectedConfig && (
-            <div className="bg-white rounded-lg shadow-md p-6 text-center">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">自动回复内容</h3>
-              <p className="text-gray-600 mb-4">{selectedConfig.responseMessage}</p>
-              <div className="flex justify-center">
-                <div className="w-40 h-40 bg-gray-100 rounded-lg flex items-center justify-center">
-                  <img 
-                    src={selectedConfig.qrcodeUrl} 
-                    alt="二维码" 
-                    className="w-full h-full object-contain rounded-lg"
+          <div className="space-y-6">
+            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+              <h2 className="text-label mb-4">SIMULATE INPUT</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs text-gray-400 uppercase tracking-wider font-mono mb-2">
+                    USER MESSAGE (TEST)
+                  </label>
+                  <textarea
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    placeholder="INPUT TEST MESSAGE..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono"
+                    rows={4}
                   />
                 </div>
+                <button
+                  onClick={handleTrigger}
+                  disabled={!selectedConfig || !inputMessage.trim()}
+                  className="w-full px-4 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors font-mono"
+                >
+                  TRIGGER SIMULATION
+                </button>
               </div>
-              <p className="text-sm text-gray-500 mt-2">扫码加入社群</p>
+            </div>
+
+            {showQRCode && selectedConfig && (
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6 text-center">
+                <h3 className="text-label mb-4">AUTO REPLY</h3>
+                <p className="text-gray-300 mb-4 font-mono">{selectedConfig.responseMessage}</p>
+                <div className="flex justify-center">
+                  <div className="w-40 h-40 bg-white/10 rounded-xl flex items-center justify-center p-2">
+                    <img
+                      src={selectedConfig.qrcodeUrl}
+                      alt="QR CODE"
+                      className="w-full h-full object-contain rounded-lg"
+                    />
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500 mt-2 font-mono">SCAN TO JOIN</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+          <h2 className="text-label mb-4">TRIGGER LOGS</h2>
+          {triggerLogs.length === 0 ? (
+            <p className="text-gray-500 text-center py-8 font-mono">NO LOGS YET</p>
+          ) : (
+            <div className="space-y-3">
+              {triggerLogs.map(log => (
+                <div key={log.id} className={`p-4 rounded-xl border ${
+                  log.matched ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'
+                }`}>
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-white font-mono">
+                        {log.platform} · {log.triggerType}
+                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-mono ${
+                        log.matched
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : 'bg-red-500/20 text-red-400'
+                      }`}>
+                        {log.matched ? 'MATCHED' : 'NO MATCH'}
+                      </span>
+                    </div>
+                    <span className="text-xs text-gray-500 font-mono">
+                      {log.timestamp.toLocaleString('zh-CN')}
+                    </span>
+                  </div>
+                  {log.keyword && (
+                    <div className="text-xs text-gray-500 mt-1 font-mono">
+                      DETECT KW: {log.keyword}
+                    </div>
+                  )}
+                  <div className="text-sm text-gray-300 mt-2 font-mono">
+                    {log.message}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
-      </div>
-
-      <div className="mt-6 bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">触发日志</h2>
-        {triggerLogs.length === 0 ? (
-          <p className="text-gray-500 text-center py-8">暂无触发记录</p>
-        ) : (
-          <div className="space-y-3">
-            {triggerLogs.map(log => (
-              <div key={log.id} className={`p-4 rounded-lg ${
-                log.matched ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'
-              }`}>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="text-sm font-medium text-gray-900">
-                      {log.platform} · {log.triggerType}
-                    </span>
-                    <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                      log.matched 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {log.matched ? '已匹配' : '未匹配'}
-                    </span>
-                  </div>
-                  <span className="text-xs text-gray-400">
-                    {log.timestamp.toLocaleString('zh-CN')}
-                  </span>
-                </div>
-                {log.keyword && (
-                  <div className="text-xs text-gray-500 mt-1">
-                    检测关键词: {log.keyword}
-                  </div>
-                )}
-                <div className="text-sm text-gray-700 mt-2">
-                  {log.message}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

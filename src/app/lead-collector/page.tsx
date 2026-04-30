@@ -50,7 +50,7 @@ export default function LeadCollectorPage() {
 
   const fetchTasks = async () => {
     try {
-      const response = await fetch('/api/lead-collector?type=tasks');
+      const response = await fetch('/api/lead-collector?type=tasks', { credentials: 'include' });
       const data = await response.json();
       if (data.success) {
         setTasks(data.data.map((task: any) => {
@@ -70,7 +70,7 @@ export default function LeadCollectorPage() {
       const url = taskId 
         ? `/api/lead-collector?type=leads&taskId=${taskId}`
         : '/api/lead-collector?type=leads';
-      const response = await fetch(url);
+      const response = await fetch(url, { credentials: 'include' });
       const data = await response.json();
       if (data.success) {
         setLeads(data.data);
@@ -115,6 +115,7 @@ export default function LeadCollectorPage() {
     try {
       const response = await fetch(url, {
         method,
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
@@ -133,6 +134,7 @@ export default function LeadCollectorPage() {
     try {
       const response = await fetch('/api/lead-collector', {
         method: 'PUT',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: taskId, status: 'running' })
       });
@@ -150,6 +152,7 @@ export default function LeadCollectorPage() {
     try {
       const response = await fetch('/api/lead-collector', {
         method: 'PUT',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: taskId, status: 'completed' })
       });
@@ -165,7 +168,7 @@ export default function LeadCollectorPage() {
 
   const handleDeleteTask = async (taskId: number) => {
     try {
-      const response = await fetch(`/api/lead-collector?id=${taskId}`, { method: 'DELETE' });
+      const response = await fetch(`/api/lead-collector?id=${taskId}`, { method: 'DELETE', credentials: 'include' });
       const data = await response.json();
       if (data.success) {
         fetchTasks();
@@ -184,259 +187,267 @@ export default function LeadCollectorPage() {
     : leads;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">意向客户采集</h1>
-        {activeTab === 'tasks' && (
+    <div className="min-h-screen bg-gray-950">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <p className="text-label mb-2">意向客户管理 / LEAD MANAGEMENT</p>
+            <h1 className="text-mono-lg text-white">客户采集 / LEAD COLLECTOR</h1>
+          </div>
+          {activeTab === 'tasks' && (
+            <button
+              onClick={handleOpenAddModal}
+              className="px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 font-mono"
+            >
+              <span>+ 添加任务</span>
+            <span className="text-xs opacity-70 ml-1">ADD TASK</span>
+            </button>
+          )}
+        </div>
+
+        <div className="flex gap-2 mb-6">
           <button
-            onClick={handleOpenAddModal}
-            className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
+            onClick={() => setActiveTab('tasks')}
+            className={`px-4 py-2 rounded-xl font-medium font-mono transition-colors ${
+              activeTab === 'tasks'
+                ? 'bg-emerald-500 text-white'
+                : 'bg-white/5 text-gray-400 hover:bg-white/10 border border-white/10'
+            }`}
           >
-            添加采集任务
+            <span>任务</span>
+            <span className="text-xs opacity-50 ml-1">TASKS</span>
           </button>
-        )}
-      </div>
+          <button
+            onClick={() => setActiveTab('leads')}
+            className={`px-4 py-2 rounded-xl font-medium font-mono transition-colors ${
+              activeTab === 'leads'
+                ? 'bg-emerald-500 text-white'
+                : 'bg-white/5 text-gray-400 hover:bg-white/10 border border-white/10'
+            }`}
+          >
+            <span>客户 ({leads.length})</span>
+            <span className="text-xs opacity-50 ml-1">LEADS</span>
+          </button>
+        </div>
 
-      <div className="flex gap-2 mb-6">
-        <button
-          onClick={() => setActiveTab('tasks')}
-          className={`px-4 py-2 rounded-md font-medium ${
-            activeTab === 'tasks'
-              ? 'bg-primary text-white'
-              : 'bg-white text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          采集任务
-        </button>
-        <button
-          onClick={() => setActiveTab('leads')}
-          className={`px-4 py-2 rounded-md font-medium ${
-            activeTab === 'leads'
-              ? 'bg-primary text-white'
-              : 'bg-white text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          意向客户 ({leads.length})
-        </button>
-      </div>
-
-      {activeTab === 'tasks' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {tasks.map(task => (
-            <div key={task.id} className="bg-white rounded-lg shadow-md p-6">
-              <div className="flex justify-between items-start mb-3">
-                <h3 className="text-lg font-semibold text-gray-900">{task.name}</h3>
-                <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                  task.status === 'running' ? 'bg-green-100 text-green-800' :
-                  task.status === 'completed' ? 'bg-gray-100 text-gray-600' :
-                  'bg-yellow-100 text-yellow-800'
-                }`}>
-                  {task.status === 'running' ? '采集ing' :
-                   task.status === 'completed' ? '已完成' : '待启动'}
-                </span>
-              </div>
-              
-              <div className="flex items-center gap-2 mb-3">
-                <span className="px-2 py-0.5 bg-purple-100 text-purple-800 text-xs rounded">
-                  {task.platform}
-                </span>
-                <span className="text-sm text-gray-500">{task.collectedCount} 个意向客户</span>
-              </div>
-              
-              <div className="text-sm text-gray-600 mb-3">
-                <div className="truncate" title={task.targetUrl}>{task.targetUrl}</div>
-              </div>
-              
-              <div className="flex flex-wrap gap-1 mb-4">
-                {task.keywords.map((kw, idx) => (
-                  <span key={idx} className="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded">
-                    {kw}
+        {activeTab === 'tasks' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {tasks.map(task => (
+              <div key={task.id} className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                <div className="flex justify-between items-start mb-3">
+                  <h3 className="text-lg font-semibold text-white font-mono">{task.name}</h3>
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full font-mono ${
+                    task.status === 'running' ? 'bg-emerald-500/20 text-emerald-400' :
+                    task.status === 'completed' ? 'bg-gray-500/20 text-gray-400' :
+                    'bg-yellow-500/20 text-yellow-400'
+                  }`}>
+                    {task.status === 'running' ? 'RUNNING' :
+                     task.status === 'completed' ? 'DONE' : 'PENDING'}
                   </span>
-                ))}
-              </div>
-              
-              <div className="flex space-x-2">
-                {task.status === 'pending' && (
-                  <button
-                    onClick={() => handleStartTask(task.id)}
-                    className="flex-1 px-3 py-1.5 text-sm bg-green-500 text-white rounded hover:bg-green-600"
-                  >
-                    启动采集
-                  </button>
-                )}
-                {task.status === 'running' && (
-                  <button
-                    onClick={() => handleStopTask(task.id)}
-                    className="flex-1 px-3 py-1.5 text-sm bg-orange-500 text-white rounded hover:bg-orange-600"
-                  >
-                    停止采集
-                  </button>
-                )}
-                <button
-                  onClick={() => handleOpenEditModal(task)}
-                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-                >
-                  编辑
-                </button>
-                <button
-                  onClick={() => handleDeleteTask(task.id)}
-                  className="px-3 py-1.5 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
-                >
-                  删除
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {activeTab === 'leads' && (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="p-4 border-b">
-            <div className="flex gap-3">
-              <select
-                value={selectedTaskId || ''}
-                onChange={(e) => {
-                  const id = e.target.value ? parseInt(e.target.value) : null;
-                  setSelectedTaskId(id);
-                  fetchLeads(id || undefined);
-                }}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-              >
-                <option value="">全部任务</option>
-                {tasks.map(task => (
-                  <option key={task.id} value={task.id}>{task.name}</option>
-                ))}
-              </select>
-              <button
-                onClick={() => {
-                  setSelectedTaskId(null);
-                  fetchLeads();
-                }}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-              >
-                重置筛选
-              </button>
-            </div>
-          </div>
-          
-          <div className="divide-y divide-gray-200">
-            {filteredLeads.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500">暂无意向客户数据</p>
-              </div>
-            ) : (
-              filteredLeads.map(lead => (
-                <div key={lead.id} className="p-4 hover:bg-gray-50">
-                  <div className="flex gap-4">
-                    <img 
-                      src={lead.avatar} 
-                      alt={lead.username}
-                      className="w-12 h-12 rounded-full object-cover"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-gray-900">{lead.username}</span>
-                        <span className="px-2 py-0.5 bg-purple-100 text-purple-800 text-xs rounded">
-                          {lead.platform}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {new Date(lead.createdAt).toLocaleString('zh-CN')}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-600 mb-2">{lead.content}</p>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-500">联系方式:</span>
-                        <span className="text-sm text-primary font-medium">{lead.contact}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">
-                        查看详情
-                      </button>
-                      <button className="px-3 py-1 text-sm bg-primary text-white rounded hover:bg-primary-dark">
-                        联系客户
-                      </button>
-                    </div>
-                  </div>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
 
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              {editingTask ? '编辑采集任务' : '添加采集任务'}
-            </h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">任务名称</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                />
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded font-mono">
+                    {task.platform}
+                  </span>
+                  <span className="text-sm text-gray-400 font-mono">{task.collectedCount} LEADS</span>
+                </div>
+
+                <div className="text-sm text-gray-500 mb-3 font-mono truncate" title={task.targetUrl}>
+                  {task.targetUrl}
+                </div>
+
+                <div className="flex flex-wrap gap-1 mb-4">
+                  {task.keywords.map((kw, idx) => (
+                    <span key={idx} className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded font-mono">
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="flex space-x-2">
+                  {task.status === 'pending' && (
+                    <button
+                      onClick={() => handleStartTask(task.id)}
+                      className="flex-1 px-3 py-1.5 text-sm bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 font-mono"
+                    >
+                      START
+                    </button>
+                  )}
+                  {task.status === 'running' && (
+                    <button
+                      onClick={() => handleStopTask(task.id)}
+                      className="flex-1 px-3 py-1.5 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-mono"
+                    >
+                      STOP
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleOpenEditModal(task)}
+                    className="px-3 py-1.5 text-sm bg-white/10 text-gray-300 rounded-lg hover:bg-white/20 font-mono"
+                  >
+                    EDIT
+                  </button>
+                  <button
+                    onClick={() => handleDeleteTask(task.id)}
+                    className="px-3 py-1.5 text-sm bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 font-mono"
+                  >
+                    DEL
+                  </button>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">平台</label>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'leads' && (
+          <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
+            <div className="p-4 border-b border-white/10">
+              <div className="flex gap-3">
                 <select
-                  value={formData.platform}
-                  onChange={(e) => setFormData({ ...formData, platform: e.target.value })}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={selectedTaskId || ''}
+                  onChange={(e) => {
+                    const id = e.target.value ? parseInt(e.target.value) : null;
+                    setSelectedTaskId(id);
+                    fetchLeads(id || undefined);
+                  }}
+                  className="px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-emerald-500/50 font-mono"
                 >
-                  {platforms.map(p => (
-                    <option key={p} value={p}>{p}</option>
+                  <option value="" className="bg-gray-900">ALL TASKS</option>
+                  {tasks.map(task => (
+                    <option key={task.id} value={task.id} className="bg-gray-900">{task.name}</option>
                   ))}
                 </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">目标链接</label>
-                <input
-                  type="text"
-                  value={formData.targetUrl}
-                  onChange={(e) => setFormData({ ...formData, targetUrl: e.target.value })}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="https://..."
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  关键词（用逗号分隔，匹配到任一关键词即采集）
-                </label>
-                <textarea
-                  value={formData.keywords}
-                  onChange={(e) => setFormData({ ...formData, keywords: e.target.value })}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                  rows={2}
-                  placeholder="想了解,多少钱,怎么买,联系方式"
-                />
-              </div>
-              <div className="flex items-center justify-between">
                 <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
+                  onClick={() => {
+                    setSelectedTaskId(null);
+                    fetchLeads();
+                  }}
+                  className="px-4 py-2 bg-white/5 text-gray-400 rounded-xl hover:bg-white/10 border border-white/10 font-mono"
                 >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
-                >
-                  {editingTask ? '更新' : '创建'}
+                  RESET
                 </button>
               </div>
-            </form>
+            </div>
+
+            <div className="divide-y divide-white/10">
+              {filteredLeads.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-gray-500 font-mono">NO LEADS DATA</p>
+                </div>
+              ) : (
+                filteredLeads.map(lead => (
+                  <div key={lead.id} className="p-4 hover:bg-white/5">
+                    <div className="flex gap-4">
+                      <img
+                        src={lead.avatar}
+                        alt={lead.username}
+                        className="w-12 h-12 rounded-full object-cover"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-white font-mono">{lead.username}</span>
+                          <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded font-mono">
+                            {lead.platform}
+                          </span>
+                          <span className="text-xs text-gray-500 font-mono">
+                            {new Date(lead.createdAt).toLocaleString('zh-CN')}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-400 mb-2 font-mono">{lead.content}</p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-500 font-mono">CONTACT:</span>
+                          <span className="text-sm text-emerald-400 font-mono">{lead.contact}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button className="px-3 py-1 text-sm border border-white/10 text-gray-300 rounded hover:bg-white/10 font-mono">
+                          VIEW
+                        </button>
+                        <button className="px-3 py-1 text-sm bg-emerald-500 text-white rounded hover:bg-emerald-600 font-mono">
+                          CONTACT
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {showModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-gray-900 rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto border border-white/10">
+              <h2 className="text-xl font-bold text-white mb-4 font-mono">
+                {editingTask ? 'EDIT TASK' : 'ADD TASK'}
+              </h2>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1 font-mono">TASK NAME</label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 font-mono"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1 font-mono">PLATFORM</label>
+                  <select
+                    value={formData.platform}
+                    onChange={(e) => setFormData({ ...formData, platform: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 font-mono"
+                  >
+                    {platforms.map(p => (
+                      <option key={p} value={p} className="bg-gray-900">{p}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1 font-mono">TARGET URL</label>
+                  <input
+                    type="text"
+                    value={formData.targetUrl}
+                    onChange={(e) => setFormData({ ...formData, targetUrl: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono"
+                    placeholder="https://..."
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1 font-mono">
+                    KEYWORDS (COMMA SEPARATED)
+                  </label>
+                  <textarea
+                    value={formData.keywords}
+                    onChange={(e) => setFormData({ ...formData, keywords: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono"
+                    rows={2}
+                    placeholder="想了解,多少钱,怎么买,联系方式"
+                  />
+                </div>
+                <div className="flex items-center justify-between pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    className="px-4 py-2 text-gray-400 hover:bg-white/10 rounded-xl font-mono"
+                  >
+                    CANCEL
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 font-mono"
+                  >
+                    {editingTask ? 'UPDATE' : 'CREATE'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

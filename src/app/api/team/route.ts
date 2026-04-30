@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client/edge'
 
 const prisma = new PrismaClient()
 
@@ -41,19 +41,23 @@ export async function GET(request: NextRequest) {
       const userData = await prisma.user.findUnique({
         where: { id: user.userId },
         include: {
-          team: {
+          teamMembers: {
             include: {
-              owner: { select: { id: true, username: true, name: true } },
-              members: {
+              team: {
                 include: {
-                  user: { select: { id: true, username: true, name: true, email: true, role: true } }
+                  owner: { select: { id: true, username: true, name: true } },
+                  members: {
+                    include: {
+                      user: { select: { id: true, username: true, name: true, email: true, role: true } }
+                    }
+                  }
                 }
               }
             }
           }
         }
       })
-      team = userData?.team
+      team = userData?.teamMembers?.[0]?.team || null
     }
 
     return NextResponse.json({ success: true, data: team })

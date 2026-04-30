@@ -1,6 +1,8 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useAuth } from '@/app/providers';
+import { useLocale } from '@/i18n/context';
 
 interface Project {
   id: number;
@@ -11,28 +13,29 @@ interface Project {
 }
 
 const INDUSTRIES = [
-  { id: '茶叶', name: '茶叶', icon: '🍵', description: '茶叶销售、茶馆服务' },
-  { id: '服装', name: '服装', icon: '👕', description: '服装零售、定制服务' },
-  { id: '餐饮', name: '餐饮', icon: '🍜', description: '餐厅、咖啡厅、小吃店' },
-  { id: '美妆', name: '美妆', icon: '💄', description: '化妆品、护肤品、美容院' },
-  { id: '教育', name: '教育', icon: '📚', description: '培训、辅导、教育机构' },
-  { id: '家居', name: '家居', icon: '🏠', description: '家具、家纺、装饰品' },
-  { id: '数码', name: '数码', icon: '📱', description: '手机、电脑、数码配件' },
-  { id: '其他', name: '其他', icon: '✨', description: '其他行业' }
+  { id: 'tea', name: { zh: '茶叶', en: 'Tea' }, icon: '🍵', description: { zh: '茶叶销售、茶馆服务', en: 'Tea sales, tea house services' } },
+  { id: 'clothing', name: { zh: '服装', en: 'Clothing' }, icon: '👕', description: { zh: '服装零售、定制服务', en: 'Clothing retail, custom services' } },
+  { id: 'food', name: { zh: '餐饮', en: 'Food' }, icon: '🍜', description: { zh: '餐厅、咖啡厅、小吃店', en: 'Restaurants, cafes, snack shops' } },
+  { id: 'beauty', name: { zh: '美妆', en: 'Beauty' }, icon: '💄', description: { zh: '化妆品、护肤品、美容院', en: 'Cosmetics, skincare, beauty salons' } },
+  { id: 'education', name: { zh: '教育', en: 'Education' }, icon: '📚', description: { zh: '培训、辅导、教育机构', en: 'Training, tutoring, education institutions' } },
+  { id: 'home', name: { zh: '家居', en: 'Home' }, icon: '🏠', description: { zh: '家具、家纺、装饰品', en: 'Furniture, home textiles, decorations' } },
+  { id: 'digital', name: { zh: '数码', en: 'Digital' }, icon: '📱', description: { zh: '手机、电脑、数码配件', en: 'Phones, computers, digital accessories' } },
+  { id: 'other', name: { zh: '其他', en: 'Other' }, icon: '✨', description: { zh: '其他行业', en: 'Other industries' } }
 ];
 
 const MARKETING_GOALS = [
-  { id: '短视频推广', name: '短视频推广', icon: '🎬', description: '抖音、快手等平台短视频营销' },
-  { id: '直播引流', name: '直播引流', icon: '📺', description: '通过直播吸引潜在客户' },
-  { id: '私域转化', name: '私域转化', icon: '💬', description: '微信私域流量运营转化' },
-  { id: '品牌宣传', name: '品牌宣传', icon: '📢', description: '提升品牌知名度和美誉度' }
+  { id: 'short-video', name: { zh: '短视频推广', en: 'Short Video' }, icon: '🎬', description: { zh: '抖音、快手等平台短视频营销', en: 'Short video marketing on Douyin, Kuaishou' } },
+  { id: 'live-stream', name: { zh: '直播引流', en: 'Live Stream' }, icon: '📺', description: { zh: '通过直播吸引潜在客户', en: 'Attract potential customers through live streaming' } },
+  { id: 'private-domain', name: { zh: '私域转化', en: 'Private Domain' }, icon: '💬', description: { zh: '微信私域流量运营转化', en: 'WeChat private domain traffic conversion' } },
+  { id: 'branding', name: { zh: '品牌宣传', en: 'Branding' }, icon: '📢', description: { zh: '提升品牌知名度和美誉度', en: 'Enhance brand awareness and reputation' } }
 ];
 
 export default function ProjectsPage() {
+  const { user } = useAuth();
+  const { t } = useLocale();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [user, setUser] = useState<{ id: number; username: string; role: string } | null>(null);
   const [step, setStep] = useState(1);
   const [isCreating, setIsCreating] = useState(false);
 
@@ -44,27 +47,12 @@ export default function ProjectsPage() {
   });
 
   useEffect(() => {
-    checkAuth();
     loadProjects();
   }, []);
 
-  const checkAuth = async () => {
-    try {
-      const response = await fetch('/api/auth/login');
-      const data = await response.json();
-      if (data.authenticated && data.user) {
-        setUser(data.user);
-      } else {
-        window.location.href = '/login';
-      }
-    } catch (error) {
-      window.location.href = '/login';
-    }
-  };
-
   const loadProjects = async () => {
     try {
-      const response = await fetch('/api/projects');
+      const response = await fetch('/api/projects', { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
         setProjects(data);
@@ -109,11 +97,11 @@ export default function ProjectsPage() {
 
   const handleNextStep = () => {
     if (step === 1 && !formData.industry) {
-      alert('请选择一个行业');
+      alert('请选择一个行业 / Please select an industry');
       return;
     }
     if (step === 2 && formData.goals.length === 0) {
-      alert('请至少选择一个营销目标');
+      alert('请至少选择一个营销目标 / Please select at least one goal');
       return;
     }
     if (step === 2) {
@@ -133,13 +121,13 @@ export default function ProjectsPage() {
   };
 
   const handleCreateProject = async () => {
-    if (!user) {
-      alert('请先登录');
+    if (!user?.id) {
+      alert('请先登录 / Please login');
       return;
     }
 
     if (!formData.projectName.trim()) {
-      alert('请输入项目名称');
+      alert('请输入项目名称 / Please enter project name');
       return;
     }
 
@@ -148,6 +136,7 @@ export default function ProjectsPage() {
     try {
       const response = await fetch('/api/projects/create-with-ai', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           industry: formData.industry,
@@ -163,113 +152,85 @@ export default function ProjectsPage() {
       if (data.success) {
         handleCloseModal();
         loadProjects();
-        alert(`项目创建成功！\n\n已自动生成：\n- ${data.data.copyTasks} 条营销文案\n- 1 个AI员工"${data.data.agent.name}"\n- ${data.data.keywords} 个意向关键词`);
+        alert(`项目创建成功！Project created successfully!\n\n已自动生成 Auto-generated:\n- ${data.data.copyTasks} 条营销文案 marketing copies\n- 1 个AI员工 AI agent "${data.data.agent.name}"\n- ${data.data.keywords} 个意向关键词 keywords`);
       } else {
-        alert(data.message || '创建失败');
+        alert(data.message || '创建失败 / Creation failed');
       }
     } catch (error) {
       console.error('创建项目失败:', error);
-      alert('创建失败，请稍后重试');
+      alert('创建失败 / Creation failed');
     } finally {
       setIsCreating(false);
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/login');
-      document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-      window.location.href = '/login';
-    } catch (error) {
-      window.location.href = '/login';
-    }
-  };
-
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="min-h-screen flex items-center justify-center bg-gray-950">
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          <p className="mt-2 text-gray-600">加载中...</p>
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400"></div>
+          <p className="mt-4 text-sm text-gray-500">{t.common.loading}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <nav className="bg-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/projects" className="text-xl font-bold text-primary">
-              AiMarketing
-            </Link>
-            <div className="flex items-center space-x-4">
-              <span className="text-gray-700">
-                {user?.username || '用户'} ({user?.role === 'admin' ? '管理员' : user?.role === 'editor' ? '编辑' : '普通用户'})
-              </span>
-              <button
-                onClick={handleLogout}
-                className="px-3 py-1 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-              >
-                退出
-              </button>
-            </div>
+    <div className="min-h-screen bg-gray-950">
+      <div className="container-main max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <p className="text-label mb-2">{t.projects.workspace}</p>
+            <h1 className="text-mono-lg text-white">{t.projects.title}</h1>
           </div>
-        </div>
-      </nav>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">项目管理</h1>
           <button
             onClick={handleOpenModal}
-            className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
+            className="btn-primary"
           >
-            创建项目
+            {t.common.add} {t.projects.newProject}
           </button>
         </div>
 
         {projects.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-12 text-center">
-            <div className="text-6xl mb-4">📁</div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">暂无项目</h3>
-            <p className="text-gray-500 mb-4">创建您的第一个项目，开始使用 AiMarketing</p>
+          <div className="card-bento text-center py-16">
+            <div className="text-6xl mb-4 opacity-50">📁</div>
+            <h3 className="text-xl font-semibold text-white mb-2">{t.projects.projectList}</h3>
+            <p className="text-sm text-gray-500 mb-6">{t.common.noData}</p>
             <button
               onClick={handleOpenModal}
-              className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
+              className="btn-primary"
             >
-              创建项目
+              {t.common.create} {t.projects.newProject}
             </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map((project) => (
-              <div key={project.id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow p-6">
-                <div className="flex items-start justify-between">
+              <div key={project.id} className="card-bento hover:border-emerald-500/30">
+                <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{project.name}</h3>
-                    <p className="text-sm text-gray-500 mt-1">
-                      创建于 {new Date(project.createdAt).toLocaleDateString('zh-CN')}
+                    <h3 className="text-lg font-semibold text-white">{project.name}</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {new Date(project.createdAt).toLocaleDateString()}
                     </p>
                   </div>
-                  <span className="text-2xl">📁</span>
+                  <span className="text-2xl opacity-50">📁</span>
                 </div>
                 {project.description && (
-                  <p className="mt-3 text-gray-600 text-sm">{project.description}</p>
+                  <p className="text-sm text-gray-400 mb-4">{project.description}</p>
                 )}
-                <div className="mt-4 flex gap-2">
+                <div className="flex gap-3 mt-auto">
                   <Link
                     href={`/projects/${project.id}/assets`}
-                    className="flex-1 px-3 py-2 text-center text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                    className="flex-1 px-3 py-2 text-center text-sm bg-white/5 border border-white/10 text-gray-300 rounded-lg hover:bg-white/10"
                   >
-                    素材管理
+                    {t.common.edit}
                   </Link>
                   <Link
                     href={`/projects/${project.id}/edit`}
-                    className="flex-1 px-3 py-2 text-center text-sm bg-primary text-white rounded-md hover:bg-primary-dark"
+                    className="flex-1 px-3 py-2 text-center text-sm bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-500/30"
                   >
-                    进入项目
+                    {t.common.open} →
                   </Link>
                 </div>
               </div>
@@ -279,34 +240,39 @@ export default function ProjectsPage() {
       </div>
 
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-900/95 border border-white/10 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-gray-900">创建新项目</h3>
+              <h3 className="text-lg text-white">
+                <span>创建新项目</span>
+                <span className="text-xs opacity-50 ml-1">CREATE NEW PROJECT</span>
+              </h3>
               <button
                 onClick={handleCloseModal}
-                className="px-3 py-1 text-gray-600 hover:bg-gray-100 rounded"
+                className="text-gray-500 hover:text-white transition-colors"
               >
-                ×
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
-            <div className="flex items-center justify-center mb-6">
+            <div className="flex items-center justify-center mb-8">
               <div className="flex items-center">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                  step >= 1 ? 'bg-primary text-white' : 'bg-gray-200 text-gray-500'
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
+                  step >= 1 ? 'bg-emerald-500 text-white' : 'bg-white/10 text-gray-500'
                 }`}>
                   1
                 </div>
-                <div className={`w-16 h-0.5 ${step >= 2 ? 'bg-primary' : 'bg-gray-200'}`} />
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                  step >= 2 ? 'bg-primary text-white' : 'bg-gray-200 text-gray-500'
+                <div className={`w-16 h-0.5 ${step >= 2 ? 'bg-emerald-500' : 'bg-white/10'}`} />
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
+                  step >= 2 ? 'bg-emerald-500 text-white' : 'bg-white/10 text-gray-500'
                 }`}>
                   2
                 </div>
-                <div className={`w-16 h-0.5 ${step >= 3 ? 'bg-primary' : 'bg-gray-200'}`} />
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                  step >= 3 ? 'bg-primary text-white' : 'bg-gray-200 text-gray-500'
+                <div className={`w-16 h-0.5 ${step >= 3 ? 'bg-emerald-500' : 'bg-white/10'}`} />
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
+                  step >= 3 ? 'bg-emerald-500 text-white' : 'bg-white/10 text-gray-500'
                 }`}>
                   3
                 </div>
@@ -314,10 +280,16 @@ export default function ProjectsPage() {
             </div>
 
             <div className="mb-6">
-              <h4 className="text-center text-lg font-medium text-gray-900 mb-4">
-                {step === 1 && '第一步：选择您的行业'}
-                {step === 2 && '第二步：选择营销目标'}
-                {step === 3 && '第三步：确认项目信息'}
+              <h4 className="text-center text-lg text-white mb-4">
+                {step === 1 && (
+                  <><span>步骤 1：选择行业</span><span className="text-xs opacity-50 ml-1">/ SELECT INDUSTRY</span></>
+                )}
+                {step === 2 && (
+                  <><span>步骤 2：选择营销目标</span><span className="text-xs opacity-50 ml-1">/ SELECT GOALS</span></>
+                )}
+                {step === 3 && (
+                  <><span>步骤 3：确认项目信息</span><span className="text-xs opacity-50 ml-1">/ CONFIRM INFO</span></>
+                )}
               </h4>
 
               {step === 1 && (
@@ -326,15 +298,15 @@ export default function ProjectsPage() {
                     <button
                       key={industry.id}
                       onClick={() => handleIndustrySelect(industry.id)}
-                      className={`p-4 rounded-lg border-2 text-center transition-all ${
+                      className={`p-4 rounded-xl border text-center transition-all ${
                         formData.industry === industry.id
-                          ? 'border-primary bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300'
+                          ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
+                          : 'border-white/10 bg-white/5 text-gray-300 hover:border-white/30'
                       }`}
                     >
                       <div className="text-3xl mb-2">{industry.icon}</div>
-                      <div className="font-medium text-gray-900">{industry.name}</div>
-                      <div className="text-xs text-gray-500 mt-1">{industry.description}</div>
+                      <div className="font-medium text-sm">{industry.name}</div>
+                      <div className="text-xs opacity-50">{industry.nameEn}</div>
                     </button>
                   ))}
                 </div>
@@ -342,21 +314,24 @@ export default function ProjectsPage() {
 
               {step === 2 && (
                 <div>
-                  <p className="text-center text-gray-600 mb-4">可多选，选择您想要的营销效果</p>
+                  <p className="text-center text-gray-500 mb-4 text-sm">
+                    <span>支持多选</span>
+                    <span className="text-xs opacity-50 ml-1">/ MULTI-SELECT</span>
+                  </p>
                   <div className="grid grid-cols-2 gap-4">
                     {MARKETING_GOALS.map((goal) => (
                       <button
                         key={goal.id}
                         onClick={() => handleGoalToggle(goal.id)}
-                        className={`p-4 rounded-lg border-2 text-center transition-all ${
+                        className={`p-4 rounded-xl border text-center transition-all ${
                           formData.goals.includes(goal.id)
-                            ? 'border-primary bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
+                            ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
+                            : 'border-white/10 bg-white/5 text-gray-300 hover:border-white/30'
                         }`}
                       >
                         <div className="text-3xl mb-2">{goal.icon}</div>
-                        <div className="font-medium text-gray-900">{goal.name}</div>
-                        <div className="text-xs text-gray-500 mt-1">{goal.description}</div>
+                        <div className="font-medium text-sm">{goal.name}</div>
+                        <div className="text-xs opacity-50">{goal.nameEn}</div>
                       </button>
                     ))}
                   </div>
@@ -366,38 +341,43 @@ export default function ProjectsPage() {
               {step === 3 && (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      项目名称 *
+                    <label className="block text-sm text-gray-400 mb-2">
+                      <span>项目名称</span>
+                      <span className="text-xs opacity-50 ml-1">PROJECT NAME *</span>
                     </label>
                     <input
                       type="text"
                       value={formData.projectName}
                       onChange={(e) => setFormData({ ...formData, projectName: e.target.value })}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                      placeholder="请输入项目名称"
+                      className="input-dark font-mono"
+                      placeholder="输入项目名称 / Enter project name"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      项目描述
+                    <label className="block text-sm text-gray-400 mb-2">
+                      <span>项目描述</span>
+                      <span className="text-xs opacity-50 ml-1">DESCRIPTION</span>
                     </label>
                     <textarea
                       value={formData.projectDescription}
                       onChange={(e) => setFormData({ ...formData, projectDescription: e.target.value })}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="input-dark font-mono"
                       rows={3}
-                      placeholder="可选的项目描述"
+                      placeholder="可选描述 / Optional description"
                     />
                   </div>
 
-                  <div className="bg-blue-50 rounded-lg p-4">
-                    <h5 className="font-medium text-gray-900 mb-2">AI 将自动创建以下内容：</h5>
-                    <ul className="text-sm text-gray-600 space-y-1">
-                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name}行业营销文案模板</li>
-                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name}专业AI员工</li>
-                      <li>✅ {formData.goals.length} 个意向客户关键词</li>
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+                    <h5 className="text-emerald-400 mb-3">
+                      <span>AI将自动生成</span>
+                      <span className="text-xs opacity-70 ml-1">/ AI WILL AUTO-GENERATE:</span>
+                    </h5>
+                    <ul className="text-sm text-gray-400 space-y-1">
+                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name} <span className="opacity-50">industry</span> 营销文案模板</li>
+                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name} <span className="opacity-50">industry</span> 专业AI员工</li>
+                      <li>✅ {formData.goals.length} 个意向客户关键词 <span className="opacity-50">keywords</span></li>
                     </ul>
                   </div>
                 </div>
@@ -408,26 +388,32 @@ export default function ProjectsPage() {
               {step > 1 && (
                 <button
                   onClick={handlePrevStep}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  className="flex-1 px-4 py-3 border border-white/10 text-gray-300 rounded-lg hover:bg-white/5"
                 >
-                  上一步
+                  <span>← 上一步</span>
+                  <span className="text-xs opacity-50 ml-1">PREV</span>
                 </button>
               )}
               {step < 3 && (
                 <button
                   onClick={handleNextStep}
-                  className="flex-1 px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark"
+                  className="flex-1 px-4 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600"
                 >
-                  下一步
+                  <span>下一步 →</span>
+                  <span className="text-xs opacity-70 ml-1">NEXT</span>
                 </button>
               )}
               {step === 3 && (
                 <button
                   onClick={handleCreateProject}
                   disabled={isCreating}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-md hover:from-purple-600 hover:to-pink-600 disabled:opacity-50"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-lg hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50"
                 >
-                  {isCreating ? '创建中...' : '✨ 一键创建项目'}
+                  {isCreating ? (
+                    <span>创建中... / CREATING...</span>
+                  ) : (
+                    <span>✨ 创建项目 / CREATE</span>
+                  )}
                 </button>
               )}
             </div>
