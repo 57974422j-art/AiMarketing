@@ -10,7 +10,7 @@ async function verifyPassword(password: string, storedHash: string): Promise<boo
   const [salt, hash] = storedHash.split(':')
   const hashed = await scryptAsync(password, salt, 64) as Buffer
   const storedHashBuffer = Buffer.from(hash, 'hex')
-  return timingSafeEqual(hashed, storedHashBuffer)
+  return timingSafeEqual(new Uint8Array(hashed), new Uint8Array(storedHashBuffer))
 }
 
 function createJWT(payload: { userId: number; username: string; role: string; teamId: number | null }, secret: string): string {
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     
     response.cookies.set('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: false,
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60,
       path: '/'
@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     authenticated: true,
     user: {
-      id: payload.userId as any,
+      id: payload.userId,
       username: payload.username,
       role: payload.role
     }

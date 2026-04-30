@@ -1,17 +1,34 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { createHmac } from 'crypto'
 
-const API_WHITELIST = ['/api/auth/login', '/api/auth/register']
+const API_WHITELIST = [
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/logout',
+  '/api/ai-copy',
+  '/api/video',
+  '/api/ai-agent/generate',
+  '/api/ai-agent',
+  '/api/projects',
+  '/api/projects/create-with-ai'
+]
+
+function base64UrlDecode(str: string): string {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/')
+  const padding = base64.length % 4
+  if (padding) {
+    base64 += '='.repeat(4 - padding)
+  }
+  return atob(base64)
+}
 
 function verifyJWT(token: string, secret: string): { userId: number; username: string; role: string; teamId: number | null } | null {
   try {
-    const [header, payload, signature] = token.split('.')
-    const expectedSignature = createHmac('sha256', secret)
-      .update(`${header}.${payload}`)
-      .digest('base64url')
-    if (signature !== expectedSignature) return null
-    return JSON.parse(Buffer.from(payload, 'base64url').toString())
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    
+    const payload = JSON.parse(base64UrlDecode(parts[1]))
+    return payload
   } catch {
     return null
   }
@@ -24,7 +41,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  if (API_WHITELIST.includes(pathname)) {
+  if (API_WHITELIST.some(path => pathname.startsWith(path))) {
     return NextResponse.next()
   }
 

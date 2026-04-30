@@ -25,9 +25,11 @@ export interface Translations {
     noData: string;
   };
   auth: {
+    account: string;
     email: string;
     password: string;
     confirmPassword: string;
+    inviteCode: string;
     rememberMe: string;
     forgotPassword: string;
     dontHaveAccount: string;
@@ -256,9 +258,11 @@ export const zh: Translations = {
     noData: '暂无数据',
   },
   auth: {
+    account: '账号',
     email: '邮箱',
     password: '密码',
     confirmPassword: '确认密码',
+    inviteCode: '邀请码',
     rememberMe: '记住我',
     forgotPassword: '忘记密码',
     dontHaveAccount: '还没有账号？',
@@ -487,9 +491,11 @@ export const en: Translations = {
     noData: 'No data',
   },
   auth: {
+    account: 'Account',
     email: 'Email',
     password: 'Password',
     confirmPassword: 'Confirm Password',
+    inviteCode: 'Invite Code',
     rememberMe: 'Remember Me',
     forgotPassword: 'Forgot Password',
     dontHaveAccount: "Don't have an account?",

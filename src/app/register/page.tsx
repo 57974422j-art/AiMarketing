@@ -2,9 +2,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useLocale } from '@/i18n/context';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { t } = useLocale();
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -81,7 +83,7 @@ export default function RegisterPage() {
             <span className="text-emerald-400">AI</span>
             <span className="text-white">MARKETING</span>
           </Link>
-          <p className="text-mono-sm text-gray-500 mt-2">// 新用户注册 / NEW USER REGISTRATION</p>
+          <p className="text-mono-sm text-gray-500 mt-2">// {t.auth.signUp}</p>
         </div>
 
         <div className="card-glass p-8">
@@ -99,8 +101,7 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm text-gray-400 mb-2">
-                <span>用户名</span>
-                <span className="text-xs opacity-50 ml-1">USERNAME</span>
+                {t.auth.signUp}
               </label>
               <input
                 type="text"
@@ -108,15 +109,14 @@ export default function RegisterPage() {
                 value={formData.username}
                 onChange={handleChange}
                 className="input-dark font-mono"
-                placeholder="请输入用户名 / Enter username"
+                placeholder={t.auth.signUp}
                 required
               />
             </div>
 
             <div>
               <label className="block text-sm text-gray-400 mb-2">
-                <span>邮箱</span>
-                <span className="text-xs opacity-50 ml-1">EMAIL</span>
+                {t.auth.email}
               </label>
               <input
                 type="email"
@@ -124,15 +124,14 @@ export default function RegisterPage() {
                 value={formData.email}
                 onChange={handleChange}
                 className="input-dark font-mono"
-                placeholder="请输入邮箱 / Enter email"
+                placeholder={t.auth.email}
                 required
               />
             </div>
 
             <div>
               <label className="block text-sm text-gray-400 mb-2">
-                <span>密码</span>
-                <span className="text-xs opacity-50 ml-1">PASSWORD</span>
+                {t.auth.password}
               </label>
               <input
                 type="password"
@@ -140,15 +139,14 @@ export default function RegisterPage() {
                 value={formData.password}
                 onChange={handleChange}
                 className="input-dark font-mono"
-                placeholder="至少6位 / Min 6 chars"
+                placeholder={t.auth.password}
                 required
               />
             </div>
 
             <div>
               <label className="block text-sm text-gray-400 mb-2">
-                <span>确认密码</span>
-                <span className="text-xs opacity-50 ml-1">CONFIRM PASSWORD</span>
+                {t.auth.confirmPassword}
               </label>
               <input
                 type="password"
@@ -156,15 +154,14 @@ export default function RegisterPage() {
                 value={formData.confirmPassword}
                 onChange={handleChange}
                 className="input-dark font-mono"
-                placeholder="再次输入密码 / Confirm password"
+                placeholder={t.auth.confirmPassword}
                 required
               />
             </div>
 
             <div>
               <label className="block text-sm text-gray-400 mb-2">
-                <span>邀请码</span>
-                <span className="text-xs opacity-50 ml-1">INVITE CODE</span>
+                {t.auth.inviteCode}
               </label>
               <input
                 type="text"
@@ -172,7 +169,7 @@ export default function RegisterPage() {
                 value={formData.inviteCode}
                 onChange={handleChange}
                 className="input-dark font-mono"
-                placeholder="请输入邀请码 / Enter invite code"
+                placeholder={t.auth.inviteCode}
                 required
               />
             </div>
@@ -183,17 +180,16 @@ export default function RegisterPage() {
               className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-mono tracking-wider rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
-                <span>创建中... / Creating...</span>
+                <span>{t.common.loading}</span>
               ) : (
-                <span>创建账号 → / CREATE →</span>
+                <span>{t.auth.signUp} →</span>
               )}
             </button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-500">
-              <span>已有账号？</span>
-              <span className="text-xs opacity-50 ml-1">Have account?</span>
+              {t.auth.alreadyHaveAccount}
               <br />
               <Link href="/login" className="text-emerald-400 hover:text-emerald-300">
                 <span>立即登录 → / LOGIN →</span>
@@ -203,7 +199,7 @@ export default function RegisterPage() {
         </div>
 
         <div className="mt-8 text-center">
-          <p className="text-xs text-gray-600">© 2026 AIMARKETING SYSTEM / 系统</p>
+          <p className="text-xs text-gray-600">© 2026 AIMARKETING</p>
         </div>
       </div>
     </div>

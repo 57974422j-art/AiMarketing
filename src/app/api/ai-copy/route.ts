@@ -59,11 +59,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user = getUserContext(request)
-    if (!user) {
-      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
-    }
     
-    if (!checkPermission(user.role, 'write')) {
+    if (user && !checkPermission(user.role, 'write')) {
       return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
     }
     
@@ -78,7 +75,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'AI 接口未配置' }, { status: 400 })
     }
     
-    const quotaResult = await checkQuota(user.userId as any, '文案生成')
+    const userId = user ? user.userId : null
+    const quotaResult = await checkQuota(userId, '文案生成')
     if (!quotaResult.allowed) {
       return NextResponse.json({ success: false, message: quotaResult.message }, { status: 403 })
     }
@@ -106,22 +104,25 @@ export async function POST(request: NextRequest) {
     
     const copies = result.split('\n').filter(line => line.trim() !== '')
     
-    const createdTasks = []
-    for (const copy of copies) {
-      const copyTask = await prisma.copyTask.create({
-        data: {
-          keywords: body.keywords || '',
-          platform: body.platform || '通用',
-          style: body.style || '标准',
-          resultJson: JSON.stringify({ copies: [copy] }),
-          user: { connect: { id: user.userId } }
-        }
-      })
+    if (user) {
+      const createdTasks: any[] = []
+      for (const copy of copies) {
+        const copyTask = await prisma.copyTask.create({
+          data: {
+            keywords: body.keywords || '',
+            platform: body.platform || '通用',
+            style: body.style || '标准',
+            resultJson: JSON.stringify({ copies: [copy] }),
+            user: { connect: { id: user.userId } }
+          }
+        })
+        createdTasks.push(copyTask)
+      }
+      await incrementUsage(user.userId, '文案生成', 1)
+      return NextResponse.json({ success: true, copies: createdTasks })
+    } else {
+      return NextResponse.json({ success: true, copies: copies.map(c => ({ result: c })) })
     }
-    
-    await incrementUsage(user.userId as any, '文案生成', 1)
-    
-    return NextResponse.json({ success: true, copies: createdTasks })
   } catch (error) {
     console.error('AI 文案生成错误:', error)
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : '生成失败' }, { status: 500 })

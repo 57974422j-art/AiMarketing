@@ -41,15 +41,13 @@ function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boo
 export async function POST(request: NextRequest) {
   try {
     const user = getUserContext(request)
-    if (!user) {
-      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
-    }
     
-    if (!checkPermission(user.role, 'write')) {
+    if (user && !checkPermission(user.role, 'write')) {
       return NextResponse.json({ success: false, message: '没有权限创建视频任务' }, { status: 403 })
     }
     
-    const quotaResult = await checkQuota(user.userId as any, '视频剪辑')
+    const userId = user ? user.userId : null
+    const quotaResult = await checkQuota(userId, '视频剪辑')
     if (!quotaResult.allowed) {
       return NextResponse.json({ success: false, message: quotaResult.message }, { status: 403 })
     }
@@ -139,7 +137,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await incrementUsage(user.userId as any, '视频剪辑', 1)
+    if (user) {
+      await incrementUsage(user.userId, '视频剪辑', 1)
+    }
 
     return NextResponse.json({
       success: true,

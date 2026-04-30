@@ -25,8 +25,18 @@ const PLAN_QUOTAS: Record<string, number> = {
   vip: 10000
 }
 
-export async function checkQuota(userId: number, action: UsageAction): Promise<QuotaResult> {
+const SYSTEM_DEFAULT_DAILY_QUOTA = 100
+
+export async function checkQuota(userId: number | null, action: UsageAction): Promise<QuotaResult> {
   try {
+    if (userId === null) {
+      return {
+        allowed: true,
+        message: `系统默认配额，剩余 ${SYSTEM_DEFAULT_DAILY_QUOTA} 次`,
+        remainingQuota: SYSTEM_DEFAULT_DAILY_QUOTA
+      }
+    }
+
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     

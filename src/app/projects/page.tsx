@@ -31,7 +31,7 @@ const MARKETING_GOALS = [
 ];
 
 export default function ProjectsPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { t } = useLocale();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,8 +47,10 @@ export default function ProjectsPage() {
   });
 
   useEffect(() => {
-    loadProjects();
-  }, []);
+    if (!authLoading) {
+      loadProjects();
+    }
+  }, [authLoading]);
 
   const loadProjects = async () => {
     try {
@@ -152,7 +154,7 @@ export default function ProjectsPage() {
       if (data.success) {
         handleCloseModal();
         loadProjects();
-        alert(`项目创建成功！Project created successfully!\n\n已自动生成 Auto-generated:\n- ${data.data.copyTasks} 条营销文案 marketing copies\n- 1 个AI员工 AI agent "${data.data.agent.name}"\n- ${data.data.keywords} 个意向关键词 keywords`);
+        alert(`项目创建成功！\n项目名称: ${formData.projectName || data.project?.name || ''}`);
       } else {
         alert(data.message || '创建失败 / Creation failed');
       }
