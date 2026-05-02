@@ -15,7 +15,7 @@ function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boo
   switch (action) {
     case 'read': return ['viewer', 'editor', 'admin'].includes(role)
     case 'write': return ['editor', 'admin'].includes(role)
-    case 'delete': return role === 'admin'
+    case 'delete': return ['editor', 'admin'].includes(role)  // editor 和 admin 都能删除
     default: return false
   }
 }
@@ -140,7 +140,7 @@ export async function DELETE(request: NextRequest) {
     }
     
     if (!checkPermission(user.role, 'delete')) {
-      return NextResponse.json({ success: false, message: '只有管理员可以删除项目' }, { status: 403 })
+      return NextResponse.json({ success: false, message: '没有删除权限' }, { status: 403 })
     }
     
     const { searchParams } = new URL(request.url)

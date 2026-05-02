@@ -198,3 +198,65 @@ model UsageLog {
 
   user User @relation(fields: [userId], references: [id])
 }
+
+// 视频生成模板
+model VideoTemplate {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?
+  prompt      String
+  duration    Int      @default(30)
+  style       String
+  thumbnail   String?
+  videoUrl    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 数字人模板
+model DigitalHumanTemplate {
+  id          Int      @id @default(autoincrement())
+  title       String
+  script      String?
+  humanId     Int?
+  humanName   String?
+  humanAvatar String?
+  humanGender String?
+  humanVoice  String?
+  background  String?
+  duration    Int      @default(30)
+  thumbnail   String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// NFC推广规则模板
+model NFCRuleTemplate {
+  id           Int      @id @default(autoincrement())
+  name         String
+  triggerType  String
+  description  String?
+  contentTitle String?
+  contentUrl   String?
+  contentValue String?
+  status       String   @default("active")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// 文案模板
+model CopyTemplate {
+  id        Int       @id @default(autoincrement())
+  title     String
+  content   String
+  platform  String
+  style     String?
+  tags      String?
+  status    String    @default("pending") // pending=待审核, approved=已通过, rejected=已拒绝
+  userId    Int?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}

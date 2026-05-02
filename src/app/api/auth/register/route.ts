@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
         email,
         passwordHash,
         name,
-        role: 'viewer',
+        role: 'editor',
         inviteCode,
         teamId: teamIdToJoin
       }

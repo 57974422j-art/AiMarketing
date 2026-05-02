@@ -2,13 +2,10 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 const API_WHITELIST = [
+  '/login',
+  '/register',
   '/api/auth/login',
-  '/api/auth/register',
-  '/api/auth/logout',
-  '/api/ai-copy',
-  '/api/video',
-  '/api/ai-agent/generate',
-  '/api/ai-agent'
+  '/api/auth/register'
 ]
 
 function base64UrlDecode(str: string): string {

@@ -1,11 +1,140 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
+import { execSync } from 'child_process'
 import { PrismaClient } from '@prisma/client'
-import { trimVideo, concatVideos, addTextOverlay, resizeVideo, checkFFmpeg } from '@/lib/ffmpeg'
 import { checkQuota, incrementUsage } from '@/lib/quota'
 
 const prisma = new PrismaClient()
+
+// 常见 FFmpeg 安装路径
+const commonFFmpegPaths = process.platform === 'win32' ? [
+  process.env.LOCALAPPDATA + '\\Microsoft\\WinGet\\Links\\ffmpeg.exe',
+  'C:\\ffmpeg\\bin\\ffmpeg.exe',
+  'C:\\ProgramData\\winget\\Packages\\Gyan.FFmpeg\\bin\\ffmpeg.exe',
+  'C:\\Users\\Admin\\AppData\\Local\\Microsoft\\WinGet\\Links\\ffmpeg.exe',
+  'ffmpeg',
+] : [
+  '/usr/bin/ffmpeg',
+  '/usr/local/bin/ffmpeg',
+  '/opt/homebrew/bin/ffmpeg',
+  'ffmpeg',
+];
+
+// 获取 FFmpeg 路径
+function getFFmpegPath(): string {
+  // 优先使用环境变量
+  if (process.env.FFMPEG_PATH) {
+    console.log('FFmpeg from env:', process.env.FFMPEG_PATH);
+    return process.env.FFMPEG_PATH;
+  }
+  
+  console.log('Checking FFmpeg paths...');
+  // 遍历常见路径
+  for (const path of commonFFmpegPaths) {
+    if (!path) continue;
+    console.log('  Checking:', path, 'exists:', existsSync(path));
+    if (existsSync(path)) {
+      console.log('FFmpeg found at:', path);
+      return path;
+    }
+  }
+  
+  console.log('FFmpeg not found in common paths, returning default');
+  return 'ffmpeg';
+}
+
+// 构建 FFmpeg 命令（兼容 Windows）
+function buildFFmpegCommand(...args: string[]): string {
+  const ffmpegPath = getFFmpegPath();
+  
+  // 检查是否是完整路径（包含 \ 或 / 或 :）
+  const isFullPath = /[\\/:]/.test(ffmpegPath);
+  
+  if (process.platform === 'win32' && isFullPath) {
+    // Windows + 完整路径：需要引号
+    return `"${ffmpegPath}" ${args.join(' ')}`;
+  } else if (process.platform === 'win32') {
+    // Windows + 命令名（ffmpeg）：直接用，不加引号
+    return `ffmpeg ${args.join(' ')}`;
+  } else {
+    // macOS/Linux: 需要引号
+    return `"${ffmpegPath}" ${args.join(' ')}`;
+  }
+}
+
+// FFmpeg 检测函数 - 使用完整路径测试
+function isFFmpegInstalled(): boolean {
+  try {
+    const command = buildFFmpegCommand('-version');
+    console.log('Testing FFmpeg:', command);
+    execSync(command, { stdio: 'ignore', timeout: 5000 });
+    return true;
+  } catch (error: any) {
+    console.error('FFmpeg not found:', error.message);
+    return false;
+  }
+}
+function getDownloadUrl(request: NextRequest, outputFileName: string): string {
+  const host = request.headers.get('host') || 'localhost:3000'
+  const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'http'
+  return `${protocol}://${host}/outputs/${outputFileName}`
+}
+
+// 视频裁剪
+function trimVideo(input: string, startTime: number, duration: number, output: string): void {
+  const command = buildFFmpegCommand(`-i "${input}"`, `-ss ${startTime}`, `-t ${duration}`, '-c copy', `"${output}"`)
+  console.log('[FFmpeg] Running trim command:', command);
+  try {
+    execSync(command, { stdio: 'inherit' })
+    console.log('[FFmpeg] Trim completed successfully');
+  } catch (error: any) {
+    console.error('[FFmpeg] Trim failed:', error.message);
+    throw error;
+  }
+}
+
+// 添加文字水印
+function addTextOverlay(input: string, text: string, position: string, output: string): void {
+  // FFmpeg drawtext positions - 使用 main_h/main_w 避免被 shell 解析为选项
+  const positionMap: Record<string, string> = {
+    'top-left': '10:10',
+    'top-center': '(w-text_w)/2:10',
+    'top-right': 'main_w-text_w-10:10',
+    'bottom-left': '10:main_h-text_h-10',
+    'bottom-center': '(w-text_w)/2:main_h-text_h-10',
+    'bottom-right': 'main_w-text_w-10:main_h-text_h-10',
+    'center': '(w-text_w)/2:(h-text_h)/2'
+  }
+  const pos = positionMap[position] || positionMap['bottom-center']
+  const command = buildFFmpegCommand(
+    `-i "${input}"`,
+    `-vf "drawtext=text='${text}':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=${pos}"`,
+    '-c:a copy',
+    `"${output}"`
+  )
+  console.log('[FFmpeg] Running text overlay command:', command);
+  try {
+    execSync(command, { stdio: 'inherit' })
+    console.log('[FFmpeg] Text overlay completed successfully');
+  } catch (error: any) {
+    console.error('[FFmpeg] Text overlay failed:', error.message);
+    throw error;
+  }
+}
+
+// 调整分辨率
+function resizeVideo(input: string, width: number, height: number, output: string): void {
+  const command = buildFFmpegCommand(`-i "${input}"`, `-vf "scale=${width}:${height}"`, `"${output}"`)
+  console.log('[FFmpeg] Running resize command:', command);
+  try {
+    execSync(command, { stdio: 'inherit' })
+    console.log('[FFmpeg] Resize completed successfully');
+  } catch (error: any) {
+    console.error('[FFmpeg] Resize failed:', error.message);
+    throw error;
+  }
+}
 
 function ensureDirectories() {
   const uploadDir = join(process.cwd(), 'public', 'uploads')
@@ -21,6 +150,43 @@ function ensureDirectories() {
   return { uploadDir, outputDir }
 }
 
+// 使用 concat 协议拼接多个视频
+function concatVideosWithProtocol(inputPaths: string[], outputPath: string): void {
+  const tempDir = join(process.cwd(), 'temp')
+  if (!existsSync(tempDir)) {
+    mkdirSync(tempDir, { recursive: true })
+  }
+  
+  const concatListPath = join(tempDir, `concatList_${Date.now()}.txt`)
+  
+  // 生成 concat 列表文件，格式：file 'xxx.mp4'
+  const concatContent = inputPaths.map(p => `file '${p}'`).join('\n')
+  console.log('[FFmpeg] Concat list content:', concatContent);
+  writeFileSync(concatListPath, concatContent, 'utf-8')
+  
+  try {
+    // 使用 concat 协议拼接
+    const command = buildFFmpegCommand(
+      '-f concat',
+      '-safe 0',
+      `-i "${concatListPath}"`,
+      '-c copy',
+      `"${outputPath}"`
+    )
+    console.log('[FFmpeg] Running concat command:', command);
+    execSync(command, { stdio: 'inherit' })
+    console.log('[FFmpeg] Concat completed successfully');
+  } catch (error: any) {
+    console.error('[FFmpeg] Concat failed:', error.message);
+    throw error;
+  } finally {
+    // 清理临时文件
+    if (existsSync(concatListPath)) {
+      unlinkSync(concatListPath)
+    }
+  }
+}
+
 function getUserContext(request: NextRequest) {
   const userId = request.headers.get('X-User-Id')
   const role = request.headers.get('X-User-Role')
@@ -33,7 +199,7 @@ function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boo
   switch (action) {
     case 'read': return ['viewer', 'editor', 'admin'].includes(role)
     case 'write': return ['editor', 'admin'].includes(role)
-    case 'delete': return role === 'admin'
+    case 'delete': return ['editor', 'admin'].includes(role)  // editor 和 admin 都能删除
     default: return false
   }
 }
@@ -52,7 +218,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: quotaResult.message }, { status: 403 })
     }
     
-    if (!checkFFmpeg()) {
+    if (!isFFmpegInstalled()) {
       return NextResponse.json(
         {
           success: false,
@@ -67,6 +233,22 @@ export async function POST(request: NextRequest) {
     const template = formData.get('template') as string
     const duration = parseInt(formData.get('duration') as string) || 30
     const style = formData.get('style') as string
+    const resolution = formData.get('resolution') as string || 'original'
+
+    // 解析分辨率
+    const resolutionMap: Record<string, { width: number; height: number }> = {
+      '720p': { width: 1280, height: 720 },
+      '1080p': { width: 1920, height: 1080 },
+      '4k': { width: 3840, height: 2160 },
+      '9:16': { width: 1080, height: 1920 },
+      '1:1': { width: 1080, height: 1080 },
+      '4:3': { width: 1440, height: 1080 },
+      '16:9': { width: 1920, height: 1080 },
+    }
+    const resConfig = resolutionMap[resolution] || null
+
+    // 将分辨率信息合并到 style 中存储
+    const styleWithResolution = resolution !== 'original' ? `${style}|${resolution}` : style
 
     if (videos.length === 0) {
       return NextResponse.json(
@@ -92,43 +274,83 @@ export async function POST(request: NextRequest) {
     const outputFileName = `output_${taskId}_${timestamp}.mp4`
     const outputPath = join(outputDir, outputFileName)
     const outputUrl = `/outputs/${outputFileName}`
-    const downloadUrl = `http://121.199.164.168:3000/outputs/${outputFileName}`
+    const downloadUrl = getDownloadUrl(request, outputFileName)
+
+    console.log('[Video] Processing:', { template, duration, resolution, inputCount: inputPaths.length, inputPaths });
+
+    // 临时文件路径（处理完成后会清理）
+    let tempOutput = outputPath
+    let needsResize = false
 
     switch (template) {
       case 'mix':
         if (inputPaths.length > 1) {
-          const tempOutput = join(outputDir, `temp_${taskId}_${timestamp}.mp4`)
-          concatVideos(inputPaths, tempOutput)
-          trimVideo(tempOutput, 0, duration, outputPath)
-          if (existsSync(tempOutput)) {
-            unlinkSync(tempOutput)
+          // 先拼接所有视频
+          const tempMerged = join(outputDir, `temp_merged_${taskId}_${timestamp}.mp4`)
+          concatVideosWithProtocol(inputPaths, tempMerged)
+          // 再裁剪到指定时长
+          trimVideo(tempMerged, 0, duration, tempOutput)
+          if (existsSync(tempMerged)) {
+            unlinkSync(tempMerged)
           }
         } else {
-          trimVideo(inputPaths[0], 0, duration, outputPath)
+          trimVideo(inputPaths[0], 0, duration, tempOutput)
+        }
+        // 需要根据分辨率调整
+        if (resolution !== 'original') {
+          needsResize = true
         }
         break
       case 'quick':
         if (inputPaths.length > 1) {
-          const tempOutput = join(outputDir, `temp_${taskId}_${timestamp}.mp4`)
-          concatVideos(inputPaths, tempOutput)
-          trimVideo(tempOutput, 0, duration, outputPath)
-          if (existsSync(tempOutput)) {
-            unlinkSync(tempOutput)
+          // 先拼接所有视频
+          const tempMerged = join(outputDir, `temp_merged_${taskId}_${timestamp}.mp4`)
+          concatVideosWithProtocol(inputPaths, tempMerged)
+          // 再裁剪到指定时长
+          trimVideo(tempMerged, 0, duration, tempOutput)
+          if (existsSync(tempMerged)) {
+            unlinkSync(tempMerged)
           }
         } else {
-          trimVideo(inputPaths[0], 0, duration, outputPath)
+          trimVideo(inputPaths[0], 0, duration, tempOutput)
         }
-        addTextOverlay(outputPath, 'AiMarketing', 'bottom-right', outputPath)
+        addTextOverlay(tempOutput, 'AiMarketing', 'bottom-right', tempOutput)
+        // 需要根据分辨率调整
+        if (resolution !== 'original') {
+          needsResize = true
+        }
         break
       case 'story':
-        resizeVideo(inputPaths[0], 1080, 1920, outputPath)
-        addTextOverlay(outputPath, '故事板视频', 'top-center', outputPath)
+        // 故事板模式直接使用指定分辨率
+        tempOutput = join(outputDir, `temp_story_${taskId}_${timestamp}.mp4`)
+        trimVideo(inputPaths[0], 0, duration, tempOutput)
+        addTextOverlay(tempOutput, '故事板视频', 'top-center', tempOutput)
+        needsResize = true
         break
       case 'loop':
-        trimVideo(inputPaths[0], 0, duration, outputPath)
+        trimVideo(inputPaths[0], 0, duration, tempOutput)
+        // 需要根据分辨率调整
+        if (resolution !== 'original') {
+          needsResize = true
+        }
         break
       default:
-        trimVideo(inputPaths[0], 0, duration, outputPath)
+        trimVideo(inputPaths[0], 0, duration, tempOutput)
+        // 需要根据分辨率调整
+        if (resolution !== 'original') {
+          needsResize = true
+        }
+    }
+
+    // 如果需要调整分辨率
+    if (needsResize) {
+      const finalOutput = join(outputDir, `output_resized_${taskId}_${timestamp}.mp4`)
+      resizeVideo(tempOutput, resConfig.width, resConfig.height, finalOutput)
+      // 清理临时未调整分辨率的文件
+      if (tempOutput !== outputPath && existsSync(tempOutput)) {
+        unlinkSync(tempOutput)
+      }
+      tempOutput = finalOutput
     }
 
     for (const inputPath of inputPaths) {
@@ -139,6 +361,21 @@ export async function POST(request: NextRequest) {
 
     if (user) {
       await incrementUsage(user.userId, '视频剪辑', 1)
+
+      // 保存视频任务到数据库
+      const videoTask = await prisma.videoTask.create({
+        data: {
+          userId: user.userId,
+          originalFile: videos.map(v => v.name).join(', '),
+          template,
+          duration,
+          style: styleWithResolution,
+          status: 'completed',
+          outputPath: tempOutput.replace(join(process.cwd(), 'public'), ''),
+          progress: 100
+        }
+      })
+      console.log('[Video] Task saved to database:', videoTask.id)
     }
 
     return NextResponse.json({
@@ -190,6 +427,72 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('获取视频任务错误:', error)
     return NextResponse.json({ success: false, message: '获取失败' }, { status: 500 })
+  } finally {
+    await prisma.$disconnect()
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+    }
+
+    if (!checkPermission(user.role, 'delete')) {
+      return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const taskId = searchParams.get('id')
+
+    if (!taskId) {
+      return NextResponse.json({ success: false, message: '缺少任务ID' }, { status: 400 })
+    }
+
+    // 检查任务是否存在且属于当前用户
+    const task = await prisma.videoTask.findUnique({
+      where: { id: parseInt(taskId) }
+    })
+
+    if (!task) {
+      return NextResponse.json({ success: false, message: '任务不存在' }, { status: 404 })
+    }
+
+    // 检查权限：管理员可以删除任何任务，团队成员可以删除团队任务，个人用户只能删除自己的任务
+    if (user.role !== 'admin') {
+      if (user.teamId) {
+        const taskUser = await prisma.user.findUnique({ where: { id: task.userId } })
+        if (taskUser?.teamId !== user.teamId) {
+          return NextResponse.json({ success: false, message: '没有权限删除此任务' }, { status: 403 })
+        }
+      } else if (task.userId !== user.userId) {
+        return NextResponse.json({ success: false, message: '没有权限删除此任务' }, { status: 403 })
+      }
+    }
+
+    // 删除关联的发布任务
+    await prisma.publishingTask.deleteMany({
+      where: { videoTaskId: parseInt(taskId) }
+    })
+
+    // 删除视频任务
+    await prisma.videoTask.delete({
+      where: { id: parseInt(taskId) }
+    })
+
+    // 清理视频文件
+    if (task.outputPath) {
+      const filePath = join(process.cwd(), 'public', task.outputPath)
+      if (existsSync(filePath)) {
+        unlinkSync(filePath)
+      }
+    }
+
+    return NextResponse.json({ success: true, message: '删除成功' })
+  } catch (error) {
+    console.error('删除视频任务错误:', error)
+    return NextResponse.json({ success: false, message: '删除失败' }, { status: 500 })
   } finally {
     await prisma.$disconnect()
   }

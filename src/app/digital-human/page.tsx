@@ -24,14 +24,21 @@ interface VideoItem {
   createdAt: string;
 }
 
-const mockHumans: DigitalHuman[] = [
-  { id: 1, name: '知性姐姐小雅', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=face', gender: 'female', voice: '温柔女声', description: '适合知识分享、美妆教程、生活分享' },
-  { id: 2, name: '商务型男阿峰', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=face', gender: 'male', voice: '磁性男声', description: '适合商务演讲、专业分享、产品介绍' },
-  { id: 3, name: '可爱萌妹小糖', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop&crop=face', gender: 'female', voice: '甜美女声', description: '适合才艺展示、搞笑段子、萌宠内容' },
-  { id: 4, name: '成熟女神苏雅', avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&h=200&fit=crop&crop=face', gender: 'female', voice: '知性女声', description: '适合情感话题、女性成长、生活方式' },
-  { id: 5, name: '阳光男孩小杰', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop&crop=face', gender: 'male', voice: '活力男声', description: '适合运动健身、科技数码、游戏电竞' },
-  { id: 6, name: '卡通形象小AI', avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&h=200&fit=crop', gender: 'cartoon', voice: '可爱AI音', description: '适合品牌代言、吉祥物、虚拟主播' }
-];
+interface DigitalHumanTemplate {
+  id: number;
+  title: string;
+  script?: string;
+  humanId?: number;
+  humanName?: string;
+  humanAvatar?: string;
+  humanGender?: string;
+  humanVoice?: string;
+  background?: string;
+  duration: number;
+  thumbnail?: string;
+  isActive: boolean;
+  createdAt: string;
+}
 
 const backgrounds = [
   { id: 1, name: '简约纯色', url: 'https://images.unsplash.com/photo-1557683316-973673baf926?w=600&h=400&fit=crop', color: '渐变蓝' },
@@ -42,44 +49,9 @@ const backgrounds = [
   { id: 6, name: '科技感', url: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&h=400&fit=crop', color: '科技' }
 ];
 
-const mockVideos: VideoItem[] = [
-  {
-    id: 1,
-    title: '夏季护肤指南',
-    script: '夏天到了，皮肤容易出油脱妆。今天来教大家几个控油小技巧...',
-    human: mockHumans[0],
-    background: backgrounds[0].url,
-    duration: 45,
-    status: 'completed',
-    thumbnail: 'https://images.unsplash.com/photo-1558628217-9d2c9e6b0e77?w=400&h=225&fit=crop',
-    createdAt: '2026-04-28T11:00:00Z'
-  },
-  {
-    id: 2,
-    title: '新品发布会预告',
-    script: '各位粉丝朋友们，期待已久的新品即将发布...',
-    human: mockHumans[1],
-    background: backgrounds[1].url,
-    duration: 30,
-    status: 'completed',
-    thumbnail: 'https://images.unsplash.com/photo-1505236858219-8359eb29e329?w=400&h=225&fit=crop',
-    createdAt: '2026-04-27T14:30:00Z'
-  },
-  {
-    id: 3,
-    title: '职场沟通技巧',
-    script: '职场中，高效沟通是成功的关键。今天分享三个实用技巧...',
-    human: mockHumans[3],
-    background: backgrounds[2].url,
-    duration: 60,
-    status: 'completed',
-    thumbnail: 'https://images.unsplash.com/photo-1552664730-d307ca884978?w=400&h=225&fit=crop',
-    createdAt: '2026-04-26T09:15:00Z'
-  }
-];
-
 export default function DigitalHumanPage() {
-  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [templates, setTemplates] = useState<DigitalHumanTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
   const [script, setScript] = useState('');
   const [title, setTitle] = useState('');
   const [selectedHuman, setSelectedHuman] = useState<DigitalHuman | null>(null);
@@ -89,8 +61,22 @@ export default function DigitalHumanPage() {
   const [generatingId, setGeneratingId] = useState<number | null>(null);
 
   useEffect(() => {
-    setVideos(mockVideos);
+    fetchTemplates();
   }, []);
+
+  const fetchTemplates = async () => {
+    try {
+      const res = await fetch('/api/templates/digital-human');
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data);
+      }
+    } catch (error) {
+      console.error('获取模板失败:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGenerate = async () => {
     if (!script.trim()) {
@@ -193,11 +179,18 @@ export default function DigitalHumanPage() {
                 <div>
                   <label className="block text-label mb-2">SELECT HUMAN</label>
                   <div className="grid grid-cols-3 gap-3">
-                    {mockHumans.map(human => (
+                    {[
+                      { id: 1, name: '知性姐姐小雅', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=face', gender: 'female' as const, voice: '温柔女声', description: '适合知识分享、美妆教程、生活分享' },
+                      { id: 2, name: '商务型男阿峰', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=face', gender: 'male' as const, voice: '磁性男声', description: '适合商务演讲、专业分享、产品介绍' },
+                      { id: 3, name: '可爱萌妹小糖', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop&crop=face', gender: 'female' as const, voice: '甜美女声', description: '适合才艺展示、搞笑段子、萌宠内容' },
+                      { id: 4, name: '成熟女神苏雅', avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&h=200&fit=crop&crop=face', gender: 'female' as const, voice: '知性女声', description: '适合情感话题、女性成长、生活方式' },
+                      { id: 5, name: '阳光男孩小杰', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop&crop=face', gender: 'male' as const, voice: '活力男声', description: '适合运动健身、科技数码、游戏电竞' },
+                      { id: 6, name: '卡通形象小AI', avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&h=200&fit=crop', gender: 'cartoon' as const, voice: '可爱AI音', description: '适合品牌代言、吉祥物、虚拟主播' }
+                    ].map(human => (
                       <button
                         key={human.id}
                         onClick={() => setSelectedHuman(human)}
-                        className={`p-3 rounded-xl border-2 transition-all ${
+                        className={`p-3 rounded-xl border-2 transition-colors ${
                           selectedHuman?.id === human.id
                             ? 'border-emerald-500 bg-emerald-500/10'
                             : 'border-white/10 hover:border-white/20'
@@ -222,7 +215,7 @@ export default function DigitalHumanPage() {
                       <button
                         key={bg.id}
                         onClick={() => setSelectedBg(bg)}
-                        className={`relative rounded-xl overflow-hidden border-2 transition-all ${
+                        className={`relative rounded-xl overflow-hidden border-2 transition-colors ${
                           selectedBg?.id === bg.id
                             ? 'border-emerald-500'
                             : 'border-white/10 hover:border-white/20'
@@ -313,60 +306,73 @@ export default function DigitalHumanPage() {
         </div>
 
         <div className="mt-8">
-          <h2 className="text-label mb-4">HISTORY RECORDS</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {videos.map(video => (
-              <div key={video.id} className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
-                <div className="relative">
-                  <img
-                    src={video.thumbnail}
-                    alt={video.title}
-                    className="w-full h-40 object-cover"
-                  />
-                  {video.human && (
+          <h2 className="text-label mb-4">TEMPLATE LIBRARY</h2>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full" />
+            </div>
+          ) : templates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10">
+              <div className="text-4xl mb-4">🎭</div>
+              <p className="text-gray-400 font-mono text-center">暂无模板，去模板库看看</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {templates.map(template => (
+                <div key={template.id} className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
+                  <div className="relative">
                     <img
-                      src={video.human.avatar}
-                      alt={video.human.name}
-                      className="absolute bottom-2 right-2 w-12 h-12 rounded-full border-2 border-white object-cover"
+                      src={template.thumbnail || template.background || 'https://images.unsplash.com/photo-1558628217-9d2c9e6b0e77?w=400&h=225&fit=crop'}
+                      alt={template.title}
+                      className="w-full h-40 object-cover"
                     />
-                  )}
-                  {video.status === 'generating' && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                      <div className="text-center text-white">
-                        <div className="animate-spin w-8 h-8 border-2 border-white border-t-transparent rounded-full mx-auto mb-2" />
-                        <span className="text-sm font-mono">{video.progress ? Math.round(video.progress) : 0}%</span>
-                      </div>
-                    </div>
-                  )}
-                  <span className="absolute top-2 right-2 px-2 py-1 bg-black/50 text-white text-xs font-mono rounded">
-                    {video.duration}S
-                  </span>
-                </div>
-                <div className="p-4">
-                  <h3 className="font-semibold text-white mb-1 truncate font-mono text-sm">{video.title}</h3>
-                  <p className="text-xs text-gray-500 mb-2 line-clamp-2">{video.script}</p>
-                  {video.human && (
-                    <div className="text-xs text-emerald-400 mb-2 font-mono">
-                      {video.human.name} · {video.human.voice}
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500 font-mono">
-                      {new Date(video.createdAt).toLocaleDateString('zh-CN')}
+                    {template.humanAvatar && (
+                      <img
+                        src={template.humanAvatar}
+                        alt={template.humanName || ''}
+                        className="absolute bottom-2 right-2 w-12 h-12 rounded-full border-2 border-white object-cover"
+                      />
+                    )}
+                    <span className="absolute top-2 right-2 px-2 py-1 bg-black/50 text-white text-xs font-mono rounded">
+                      {template.duration}S
                     </span>
-                    <div className="flex gap-2">
-                      <button className="text-xs px-2 py-1 bg-white/10 text-gray-300 rounded hover:bg-white/20">
-                        PREVIEW
-                      </button>
-                      <button className="text-xs px-2 py-1 bg-emerald-500 text-white rounded hover:bg-emerald-600">
-                        DOWNLOAD
+                  </div>
+                  <div className="p-4">
+                    <h3 className="font-semibold text-white mb-1 truncate font-mono text-sm">{template.title}</h3>
+                    {template.script && (
+                      <p className="text-xs text-gray-500 mb-2 line-clamp-2">{template.script}</p>
+                    )}
+                    {template.humanName && (
+                      <div className="text-xs text-emerald-400 mb-2 font-mono">
+                        {template.humanName} · {template.humanVoice}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-end">
+                      <button 
+                        onClick={() => {
+                          if (template.script) setScript(template.script);
+                          if (template.title) setTitle(template.title);
+                          if (template.humanName && template.humanAvatar) {
+                            setSelectedHuman({
+                              id: template.humanId || 0,
+                              name: template.humanName,
+                              avatar: template.humanAvatar,
+                              gender: (template.humanGender as 'male' | 'female' | 'cartoon') || 'female',
+                              voice: template.humanVoice || '',
+                              description: ''
+                            });
+                          }
+                        }}
+                        className="text-xs px-3 py-1.5 bg-emerald-500 text-white rounded hover:bg-emerald-600"
+                      >
+                        使用模板
                       </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

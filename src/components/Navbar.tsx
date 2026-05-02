@@ -156,6 +156,11 @@ export default function Navbar() {
             <Link href="/admin/settings" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
               {t.nav.settings}
             </Link>
+            {user?.role === 'admin' && (
+              <Link href="/admin/review" className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm">
+                审核管理
+              </Link>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -184,6 +189,11 @@ export default function Navbar() {
                   <Link href="/admin/settings" className="block px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">
                     {t.nav.settings}
                   </Link>
+                  {user?.role === 'admin' && (
+                    <Link href="/admin/review" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      审核管理
+                    </Link>
+                  )}
                   <button
                     onClick={logout}
                     className="w-full text-left px-4 py-2 text-red-400 hover:bg-red-500/10 text-sm"

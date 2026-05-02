@@ -11,7 +11,8 @@ export function getAIConfig(): AIConfig {
   return {
     provider: process.env.AI_PROVIDER || 'openai',
     apiKey: process.env.AI_API_KEY || '',
-    baseUrl: process.env.AI_BASE_URL || '',
+    // 移除末尾的 /v1，避免路径重复
+    baseUrl: (process.env.AI_BASE_URL || '').replace(/\/$/, ''),
     model: process.env.AI_MODEL || 'gpt-3.5-turbo'
   };
 }

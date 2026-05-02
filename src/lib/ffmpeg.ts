@@ -4,10 +4,42 @@ import { execSync } from 'child_process';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
+// 常见 FFmpeg 安装路径
+const commonFFmpegPaths = process.platform === 'win32' ? [
+  'C:\\ffmpeg\\bin\\ffmpeg.exe',
+  'C:\\ProgramData\\winget\\Packages\\Gyan.FFmpeg\\bin\\ffmpeg.exe',
+  'C:\\Users\\Admin\\AppData\\Local\\Microsoft\\WinGet\\Links\\ffmpeg.exe',
+  process.env.LOCALAPPDATA + '\\Microsoft\\WinGet\\Links\\ffmpeg.exe',
+  'ffmpeg', // PATH 中的 ffmpeg
+] : [
+  '/usr/bin/ffmpeg',
+  '/usr/local/bin/ffmpeg',
+  '/opt/homebrew/bin/ffmpeg', // macOS ARM
+  'ffmpeg',
+];
+
+// 获取 FFmpeg 路径
+function getFFmpegPath(): string {
+  // 优先使用环境变量
+  if (process.env.FFMPEG_PATH) {
+    return process.env.FFMPEG_PATH;
+  }
+  
+  // 遍历常见路径
+  for (const path of commonFFmpegPaths) {
+    if (path && existsSync(path)) {
+      return path;
+    }
+  }
+  
+  return 'ffmpeg'; // 默认返回
+}
+
 // 检查 FFmpeg 是否安装
-function checkFFmpeg(): boolean {
+export function checkFFmpeg(): boolean {
   try {
-    execSync('ffmpeg -version', { stdio: 'ignore' });
+    const ffmpegPath = getFFmpegPath();
+    execSync(`"${ffmpegPath}" -version`, { stdio: 'ignore', timeout: 5000 });
     return true;
   } catch {
     return false;
@@ -24,22 +56,15 @@ function ensureOutputDir(outputPath: string) {
 
 // 视频裁剪
 export function trimVideo(input: string, startTime: number, duration: number, output: string): void {
-  if (!checkFFmpeg()) {
-    throw new Error('FFmpeg 未安装，请先安装 FFmpeg。安装命令：\nWindows: winget install Gyan.FFmpeg\nmacOS: brew install ffmpeg\nLinux: apt install ffmpeg');
-  }
-
+  const ffmpegPath = getFFmpegPath();
   ensureOutputDir(output);
-  
-  const command = `ffmpeg -i "${input}" -ss ${startTime} -t ${duration} -c copy "${output}"`;
+  const command = `"${ffmpegPath}" -i "${input}" -ss ${startTime} -t ${duration} -c copy "${output}"`;
   execSync(command, { stdio: 'inherit' });
 }
 
 // 视频拼接/混剪
 export function concatVideos(inputs: string[], output: string): void {
-  if (!checkFFmpeg()) {
-    throw new Error('FFmpeg 未安装，请先安装 FFmpeg。安装命令：\nWindows: winget install Gyan.FFmpeg\nmacOS: brew install ffmpeg\nLinux: apt install ffmpeg');
-  }
-
+  const ffmpegPath = getFFmpegPath();
   ensureOutputDir(output);
   
   // 创建输入文件列表
@@ -51,7 +76,7 @@ export function concatVideos(inputs: string[], output: string): void {
   const inputListContent = inputs.map(input => `file '${input}'`).join('\n');
   fs.writeFileSync(inputListPath, inputListContent);
   
-  const command = `ffmpeg -f concat -safe 0 -i "${inputListPath}" -c copy "${output}"`;
+  const command = `"${ffmpegPath}" -f concat -safe 0 -i "${inputListPath}" -c copy "${output}"`;
   execSync(command, { stdio: 'inherit' });
   
   // 清理临时文件
@@ -60,10 +85,7 @@ export function concatVideos(inputs: string[], output: string): void {
 
 // 添加字幕
 export function addTextOverlay(input: string, text: string, position: string, output: string): void {
-  if (!checkFFmpeg()) {
-    throw new Error('FFmpeg 未安装，请先安装 FFmpeg。安装命令：\nWindows: winget install Gyan.FFmpeg\nmacOS: brew install ffmpeg\nLinux: apt install ffmpeg');
-  }
-
+  const ffmpegPath = getFFmpegPath();
   ensureOutputDir(output);
   
   // 位置映射
@@ -78,21 +100,16 @@ export function addTextOverlay(input: string, text: string, position: string, ou
   };
   
   const pos = positionMap[position] || positionMap['bottom-center'];
-  
-  const command = `ffmpeg -i "${input}" -vf "drawtext=text='${text}':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=${pos}" -c:a copy "${output}"`;
+  const command = `"${ffmpegPath}" -i "${input}" -vf "drawtext=text='${text}':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=${pos}" -c:a copy "${output}"`;
   execSync(command, { stdio: 'inherit' });
 }
 
 // 调整分辨率
 export function resizeVideo(input: string, width: number, height: number, output: string): void {
-  if (!checkFFmpeg()) {
-    throw new Error('FFmpeg 未安装，请先安装 FFmpeg。安装命令：\nWindows: winget install Gyan.FFmpeg\nmacOS: brew install ffmpeg\nLinux: apt install ffmpeg');
-  }
-
+  const ffmpegPath = getFFmpegPath();
   ensureOutputDir(output);
-  
-  const command = `ffmpeg -i "${input}" -vf "scale=${width}:${height}" "${output}"`;
+  const command = `"${ffmpegPath}" -i "${input}" -vf "scale=${width}:${height}" "${output}"`;
   execSync(command, { stdio: 'inherit' });
 }
 
-export { checkFFmpeg };
+

@@ -122,6 +122,28 @@ export default function ProjectsPage() {
     setStep(step - 1);
   };
 
+  const handleDeleteProject = async (projectId: number) => {
+    if (!confirm('确定要删除此项目吗？删除后将无法恢复。')) return
+
+    try {
+      const response = await fetch(`/api/projects?id=${projectId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        setProjects(projects.filter(p => p.id !== projectId))
+        alert('项目已删除')
+      } else {
+        const data = await response.json()
+        alert(data.message || '删除失败')
+      }
+    } catch (error) {
+      console.error('删除项目失败:', error)
+      alert('删除失败')
+    }
+  };
+
   const handleCreateProject = async () => {
     if (!user?.id) {
       alert('请先登录 / Please login');
@@ -234,6 +256,15 @@ export default function ProjectsPage() {
                   >
                     {t.common.open} →
                   </Link>
+                  <button
+                    onClick={() => handleDeleteProject(project.id)}
+                    className="px-3 py-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg hover:bg-red-500/20"
+                    title="删除项目"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
                 </div>
               </div>
             ))}

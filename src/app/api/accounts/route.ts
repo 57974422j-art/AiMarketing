@@ -89,6 +89,22 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const user = getUserContext(request)
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: '未登录' },
+        { status: 401 }
+      )
+    }
+
+    // editor 和 admin 都能删除
+    if (!['editor', 'admin'].includes(user.role)) {
+      return NextResponse.json(
+        { success: false, message: '没有删除权限' },
+        { status: 403 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
     
@@ -97,6 +113,25 @@ export async function DELETE(request: NextRequest) {
         { success: false, message: '缺少账号ID' },
         { status: 400 }
       )
+    }
+
+    // 非管理员只能删除自己的账号
+    if (user.role !== 'admin') {
+      const account = await prisma.account.findUnique({
+        where: { id: parseInt(id) }
+      })
+      if (!account) {
+        return NextResponse.json(
+          { success: false, message: '账号不存在' },
+          { status: 404 }
+        )
+      }
+      if (account.userId !== user.userId) {
+        return NextResponse.json(
+          { success: false, message: '只能删除自己的账号' },
+          { status: 403 }
+        )
+      }
     }
     
     await prisma.account.delete({

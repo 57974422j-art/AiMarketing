@@ -24,80 +24,18 @@ interface NFCRule {
   createdAt: string;
 }
 
-const mockRules: NFCRule[] = [
-  {
-    id: 1,
-    name: '门店引流 - 爆款视频',
-    triggerType: 'video',
-    description: '客户碰一碰 NFC 标签，自动播放产品介绍视频，引导加粉',
-    content: {
-      title: '夏季新品发布会精彩回顾',
-      videoUrl: 'https://www.example.com/video1.mp4'
-    },
-    status: 'active',
-    stats: {
-      touches: 12580,
-      uniqueUsers: 8960,
-      conversions: 2340,
-      todayTouches: 156
-    },
-    createdAt: '2026-04-20T10:00:00Z'
-  },
-  {
-    id: 2,
-    name: '加微导流 - 客服号',
-    triggerType: 'wechat',
-    description: '碰一碰直接弹出微信二维码，引导添加客服微信号',
-    content: {
-      title: '添加客服领取专属福利',
-      wechatId: 'ai_marketing001'
-    },
-    status: 'active',
-    stats: {
-      touches: 8920,
-      uniqueUsers: 7650,
-      conversions: 4560,
-      todayTouches: 89
-    },
-    createdAt: '2026-04-22T14:30:00Z'
-  },
-  {
-    id: 3,
-    name: '大众点评导流',
-    triggerType: 'review',
-    description: '引导客户到大众点评写好评，提升店铺评分',
-    content: {
-      title: '感谢您的支持！点击写点评',
-      reviewLink: 'https://www.dianping.com/shop/xxxxx'
-    },
-    status: 'active',
-    stats: {
-      touches: 4560,
-      uniqueUsers: 3890,
-      conversions: 890,
-      todayTouches: 45
-    },
-    createdAt: '2026-04-25T09:00:00Z'
-  },
-  {
-    id: 4,
-    name: '活动页导流',
-    triggerType: 'link',
-    description: '新品上市活动页面，引导参与互动',
-    content: {
-      title: '618大促活动页',
-      linkUrl: 'https://www.example.com/activity618'
-    },
-    status: 'paused',
-    stats: {
-      touches: 2100,
-      uniqueUsers: 1890,
-      conversions: 420,
-      todayTouches: 0
-    },
-    createdAt: '2026-04-15T11:00:00Z'
-  }
-];
+interface NFCRuleTemplate {
+  id: number;
+  name: string;
+  triggerType: string;
+  description?: string;
+  contentTitle?: string;
+  contentUrl?: string;
+  contentValue?: string;
+  status: string;
+  isActive: boolean;
+  createdAt: string;
+}
 
 const triggerTypes = [
   { id: 'video', name: '视频分享', icon: '🎬', desc: '自动播放产品/活动视频' },
@@ -116,7 +54,8 @@ const scenarios = [
 ];
 
 export default function NFCPromoPage() {
-  const [rules, setRules] = useState<NFCRule[]>([]);
+  const [templates, setTemplates] = useState<NFCRuleTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingRule, setEditingRule] = useState<NFCRule | null>(null);
   
@@ -128,8 +67,22 @@ export default function NFCPromoPage() {
   });
 
   useEffect(() => {
-    setRules(mockRules);
+    fetchTemplates();
   }, []);
+
+  const fetchTemplates = async () => {
+    try {
+      const res = await fetch('/api/templates/nfc');
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data);
+      }
+    } catch (error) {
+      console.error('获取模板失败:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const totalStats = {
     touches: rules.reduce((sum, r) => sum + r.stats.touches, 0),
@@ -209,68 +162,70 @@ export default function NFCPromoPage() {
                 </button>
               </div>
 
-              <div className="space-y-4">
-                {rules.map(rule => (
-                  <div key={rule.id} className="bg-white/5 rounded-xl p-4 border border-white/10">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">{triggerTypes.find(t => t.id === rule.triggerType)?.icon}</span>
-                        <div>
-                          <h3 className="font-semibold text-white font-mono">{rule.name}</h3>
-                          <p className="text-xs text-gray-500 font-mono">{rule.description}</p>
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full" />
+                </div>
+              ) : templates.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 bg-white/5 rounded-xl">
+                  <div className="text-4xl mb-4">📱</div>
+                  <p className="text-gray-400 font-mono text-center">暂无模板，去模板库看看</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {templates.map(template => {
+                    const triggerType = triggerTypes.find(t => t.id === template.triggerType);
+                    return (
+                      <div key={template.id} className="bg-white/5 rounded-xl p-4 border border-white/10">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-2xl">{triggerType?.icon || '📱'}</span>
+                            <div>
+                              <h3 className="font-semibold text-white font-mono">{template.name}</h3>
+                              <p className="text-xs text-gray-500 font-mono">{template.description}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-3 py-1 text-xs font-medium rounded-full font-mono ${
+                              template.status === 'active'
+                                ? 'bg-emerald-500/20 text-emerald-400'
+                                : 'bg-gray-500/20 text-gray-400'
+                            }`}>
+                              {template.status === 'active' ? 'ACTIVE' : 'PAUSED'}
+                            </span>
+                            <button
+                              onClick={() => {
+                                setFormData({
+                                  name: template.name,
+                                  triggerType: template.triggerType as NFCRule['triggerType'],
+                                  title: template.contentTitle || '',
+                                  content: template.contentValue || template.contentUrl || ''
+                                });
+                                setShowModal(true);
+                              }}
+                              className="text-emerald-400 hover:text-emerald-300 text-sm font-mono"
+                            >
+                              使用模板
+                            </button>
+                          </div>
+                        </div>
+
+                        {template.contentTitle && (
+                          <div className="bg-white/5 rounded-lg p-3 mb-3">
+                            <p className="text-sm text-gray-300 font-mono">{template.contentTitle}</p>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-end text-xs">
+                          <span className="text-gray-500 font-mono">
+                            CREATED {new Date(template.createdAt).toLocaleDateString('zh-CN')}
+                          </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleToggleStatus(rule.id)}
-                          className={`px-3 py-1 text-xs font-medium rounded-full font-mono ${
-                            rule.status === 'active'
-                              ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
-                              : 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30'
-                          }`}
-                        >
-                          {rule.status === 'active' ? 'ACTIVE' : 'PAUSED'}
-                        </button>
-                        <button
-                          onClick={() => handleOpenEditModal(rule)}
-                          className="text-gray-400 hover:text-gray-300 text-sm font-mono"
-                        >
-                          EDIT
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-3 text-center">
-                      <div className="bg-white/5 rounded-lg p-2">
-                        <div className="text-lg font-semibold text-white font-mono">{rule.stats.touches.toLocaleString()}</div>
-                        <div className="text-xs text-gray-500 font-mono">TOUCHES</div>
-                      </div>
-                      <div className="bg-white/5 rounded-lg p-2">
-                        <div className="text-lg font-semibold text-white font-mono">{rule.stats.uniqueUsers.toLocaleString()}</div>
-                        <div className="text-xs text-gray-500 font-mono">UNIQUE</div>
-                      </div>
-                      <div className="bg-white/5 rounded-lg p-2">
-                        <div className="text-lg font-semibold text-white font-mono">{rule.stats.conversions.toLocaleString()}</div>
-                        <div className="text-xs text-gray-500 font-mono">CONVERT</div>
-                      </div>
-                      <div className="bg-white/5 rounded-lg p-2">
-                        <div className="text-lg font-semibold text-orange-400 font-mono">{rule.stats.todayTouches}</div>
-                        <div className="text-xs text-gray-500 font-mono">TODAY</div>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-between text-xs">
-                      <span className="text-gray-500 font-mono">
-                        CREATED {new Date(rule.createdAt).toLocaleDateString('zh-CN')}
-                      </span>
-                      <div className="flex gap-2">
-                        <button className="text-emerald-400 hover:text-emerald-300 font-mono">DETAILS</button>
-                        <button className="text-emerald-400 hover:text-emerald-300 font-mono">REPORTS</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 

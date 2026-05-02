@@ -7,6 +7,10 @@ import { AuthProvider } from './providers'
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#6366f1" />
+      </head>
       <body className="min-h-screen bg-gray-950 text-gray-100">
         <AuthProvider>
           <Navbar />

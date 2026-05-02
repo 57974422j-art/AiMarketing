@@ -2,6 +2,7 @@ export type Locale = 'zh' | 'en';
 
 export interface Translations {
   common: {
+    locale: 'zh' | 'en';
     login: string;
     register: string;
     logout: string;
@@ -192,6 +193,47 @@ export interface Translations {
     workspace: string;
     title: string;
     batchEdit: string;
+    uploadVideo: string;
+    dragOrClick: string;
+    clearAll: string;
+    uploadedFiles: string;
+    template: string;
+    duration: string;
+    style: string;
+    resolution: string;
+    startProcessing: string;
+    processing: string;
+    progress: string;
+    outputResult: string;
+    processingComplete: string;
+    downloadVideo: string;
+    shareToLibrary: string;
+    shareSuccess: string;
+    shareFailed: string;
+    history: string;
+    noHistory: string;
+    delete: string;
+    deleteSuccess: string;
+    deleteFailed: string;
+    confirmDelete: string;
+    backToGenerator: string;
+    viewHistory: string;
+    mix: string;
+    quickCut: string;
+    storyboard: string;
+    loop: string;
+    dynamic: string;
+    elegant: string;
+    vintage: string;
+    minimal: string;
+    seconds: string;
+    unsupportedFormat: string;
+    pleaseUploadVideo: string;
+    uploadFailed: string;
+    processingFailed: string;
+    unknown: string;
+    videoTemplate: string;
+    processedVideo: string;
   };
   nfcPromo: {
     title: string;
@@ -204,6 +246,46 @@ export interface Translations {
   textToVideo: {
     workspace: string;
     title: string;
+    createNew: string;
+    titleOptional: string;
+    promptRequired: string;
+    describeVideo: string;
+    duration: string;
+    style: string;
+    cameraMovement: string;
+    generate: string;
+    generating: string;
+    generatingProgress: string;
+    analyzingPrompt: string;
+    renderingFrames: string;
+    processingLight: string;
+    synthesizingAudio: string;
+    promptTips: string;
+    describeScene: string;
+    specifyCamera: string;
+    describeMotion: string;
+    specifyStyle: string;
+    sceneSuggestions: string;
+    citySkyline: string;
+    citySkylineDesc: string;
+    productDisplay: string;
+    productDisplayDesc: string;
+    natureScenery: string;
+    natureSceneryDesc: string;
+    foodCloseUp: string;
+    foodCloseUpDesc: string;
+    useCases: string;
+    socialMedia: string;
+    ecommerce: string;
+    brandPromotion: string;
+    educational: string;
+    personalIp: string;
+    historyRecords: string;
+    preview: string;
+    download: string;
+    seconds: string;
+    pleaseInputPrompt: string;
+    videoGenerated: string;
   };
   team: {
     management: string;
@@ -235,6 +317,7 @@ export interface Translations {
 
 export const zh: Translations = {
   common: {
+    locale: 'zh',
     login: '登录',
     register: '注册',
     logout: '退出登录',
@@ -425,6 +508,47 @@ export const zh: Translations = {
     workspace: '工作区',
     title: '视频批量编辑',
     batchEdit: '批量编辑',
+    uploadVideo: '上传视频',
+    dragOrClick: '拖拽文件或点击上传',
+    clearAll: '清除全部',
+    uploadedFiles: '已上传 {count} 个文件',
+    template: '模板',
+    duration: '时长',
+    style: '风格',
+    resolution: '分辨率',
+    startProcessing: '开始处理',
+    processing: '处理中...',
+    progress: '进度',
+    outputResult: '输出结果',
+    processingComplete: '处理完成',
+    downloadVideo: '下载视频',
+    shareToLibrary: '分享到创意库',
+    shareSuccess: '已提交到创意库，待审核后展示',
+    shareFailed: '分享失败',
+    history: '历史记录',
+    noHistory: '暂无历史记录',
+    delete: '删除',
+    deleteSuccess: '删除成功',
+    deleteFailed: '删除失败',
+    confirmDelete: '确定要删除这个视频吗？',
+    backToGenerator: '返回生成',
+    viewHistory: '查看历史',
+    mix: '混剪',
+    quickCut: '快剪',
+    storyboard: '故事板',
+    loop: '循环',
+    dynamic: '动感',
+    elegant: '优雅',
+    vintage: '复古',
+    minimal: '简约',
+    seconds: '秒',
+    unsupportedFormat: '文件 {name} 格式不支持，仅支持 mp4、mov、avi 格式',
+    pleaseUploadVideo: '请至少上传一个视频文件',
+    uploadFailed: '上传失败，请检查网络连接或服务器状态',
+    processingFailed: '视频处理失败',
+    unknown: '未知',
+    videoTemplate: '视频模板',
+    processedVideo: '使用{type}模板处理的视频',
   },
   nfcPromo: {
     title: 'NFC推广',
@@ -437,6 +561,46 @@ export const zh: Translations = {
   textToVideo: {
     workspace: 'AI工作区',
     title: '文生视频',
+    createNew: '创建新视频',
+    titleOptional: '标题（选填）',
+    promptRequired: '视频描述（必填）',
+    describeVideo: '描述你的视频场景...',
+    duration: '时长',
+    style: '风格',
+    cameraMovement: '镜头运动',
+    generate: '生成视频',
+    generating: '生成中...',
+    generatingProgress: '生成进度',
+    analyzingPrompt: '分析提示词内容...',
+    renderingFrames: '渲染关键帧...',
+    processingLight: '处理光影效果...',
+    synthesizingAudio: '合成音频...',
+    promptTips: '提示词技巧',
+    describeScene: '描述场景：地点、时间、天气、光线',
+    specifyCamera: '指定镜头：航拍、特写、平移等',
+    describeMotion: '描述主体运动：移动和变化',
+    specifyStyle: '指定风格：电影感、纪录片、动画',
+    sceneSuggestions: '场景推荐',
+    citySkyline: '城市天际线',
+    citySkylineDesc: '日落时分的城市航拍',
+    productDisplay: '产品展示',
+    productDisplayDesc: '3D产品360度旋转',
+    natureScenery: '自然风光',
+    natureSceneryDesc: '日出云海',
+    foodCloseUp: '美食特写',
+    foodCloseUpDesc: '慢动作烹饪过程',
+    useCases: '使用场景',
+    socialMedia: '社交媒体内容',
+    ecommerce: '电商产品视频',
+    brandPromotion: '品牌宣传片',
+    educational: '在线教育课程',
+    personalIp: '个人IP视频',
+    historyRecords: '历史记录',
+    preview: '预览',
+    download: '下载',
+    seconds: '秒',
+    pleaseInputPrompt: '请输入视频描述',
+    videoGenerated: '视频已生成',
   },
   team: {
     management: '团队管理',
@@ -468,6 +632,7 @@ export const zh: Translations = {
 
 export const en: Translations = {
   common: {
+    locale: 'en',
     login: 'Login',
     register: 'Register',
     logout: 'Logout',
@@ -658,6 +823,47 @@ export const en: Translations = {
     workspace: 'Workspace',
     title: 'Video Batch Editor',
     batchEdit: 'Batch Edit',
+    uploadVideo: 'Upload Video',
+    dragOrClick: 'Drop files or click to upload',
+    clearAll: 'Clear All',
+    uploadedFiles: '{count} files uploaded',
+    template: 'Template',
+    duration: 'Duration',
+    style: 'Style',
+    resolution: 'Resolution',
+    startProcessing: 'Start Processing',
+    processing: 'Processing...',
+    progress: 'Progress',
+    outputResult: 'Output Result',
+    processingComplete: 'Processing Complete',
+    downloadVideo: 'Download Video',
+    shareToLibrary: 'Share to Library',
+    shareSuccess: 'Submitted to library, pending review',
+    shareFailed: 'Share failed',
+    history: 'History',
+    noHistory: 'No history records',
+    delete: 'Delete',
+    deleteSuccess: 'Deleted successfully',
+    deleteFailed: 'Delete failed',
+    confirmDelete: 'Are you sure you want to delete this video?',
+    backToGenerator: 'Back to Generator',
+    viewHistory: 'View History',
+    mix: 'Mix',
+    quickCut: 'Quick Cut',
+    storyboard: 'Storyboard',
+    loop: 'Loop',
+    dynamic: 'Dynamic',
+    elegant: 'Elegant',
+    vintage: 'Vintage',
+    minimal: 'Minimal',
+    seconds: 's',
+    unsupportedFormat: 'File {name} format not supported. Only MP4, MOV, AVI formats are allowed',
+    pleaseUploadVideo: 'Please upload at least one video file',
+    uploadFailed: 'Upload failed, please check network connection or server status',
+    processingFailed: 'Video processing failed',
+    unknown: 'Unknown',
+    videoTemplate: 'Video Template',
+    processedVideo: 'Video processed with {type} template',
   },
   nfcPromo: {
     title: 'NFC Promo',
@@ -670,6 +876,46 @@ export const en: Translations = {
   textToVideo: {
     workspace: 'AI Workspace',
     title: 'Text to Video',
+    createNew: 'Create New Video',
+    titleOptional: 'Title (Optional)',
+    promptRequired: 'Prompt (Required)',
+    describeVideo: 'Describe your video scene...',
+    duration: 'Duration',
+    style: 'Style',
+    cameraMovement: 'Camera Movement',
+    generate: 'Generate Video',
+    generating: 'Generating...',
+    generatingProgress: 'Generating Progress',
+    analyzingPrompt: 'Analyzing prompt content...',
+    renderingFrames: 'Rendering key frames...',
+    processingLight: 'Processing light and shadow...',
+    synthesizingAudio: 'Synthesizing audio...',
+    promptTips: 'Prompt Tips',
+    describeScene: 'Describe scene: location, time, weather, lighting',
+    specifyCamera: 'Specify camera: aerial, close-up, pan, etc.',
+    describeMotion: 'Describe subject motion: movement and changes',
+    specifyStyle: 'Specify style: cinematic, documentary, animation',
+    sceneSuggestions: 'Scene Suggestions',
+    citySkyline: 'City Skyline',
+    citySkylineDesc: 'Aerial view of city at sunset',
+    productDisplay: 'Product Display',
+    productDisplayDesc: '3D product 360 rotation',
+    natureScenery: 'Nature Scenery',
+    natureSceneryDesc: 'Sea of clouds at sunrise',
+    foodCloseUp: 'Food Close-Up',
+    foodCloseUpDesc: 'Slow motion cooking process',
+    useCases: 'Use Cases',
+    socialMedia: 'Social Media Content',
+    ecommerce: 'E-commerce Product Video',
+    brandPromotion: 'Brand Promotion',
+    educational: 'Educational Courses',
+    personalIp: 'Personal IP Video',
+    historyRecords: 'History Records',
+    preview: 'Preview',
+    download: 'Download',
+    seconds: 's',
+    pleaseInputPrompt: 'Please input video description',
+    videoGenerated: 'Video generated',
   },
   team: {
     management: 'Team Management',
