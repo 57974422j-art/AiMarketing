@@ -203,16 +203,21 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Transcribe] 使用 FFmpeg: ${ffmpegPath}`);
 
-    // 先用 ffprobe 检查视频是否有音频轨道
+    // 6. 使用 ffprobe 检查视频是否有音频轨道
     const ffprobePath = ffmpegPath.replace('ffmpeg', 'ffprobe').replace('ffmpeg.exe', 'ffprobe.exe');
     let hasAudio = false;
     try {
       const probeCmd = `"${ffprobePath}" -v error -show_entries stream=codec_type -of csv=p=0 "${uploadVideoPath}"`;
+      console.log(`[Transcribe] 检测音频轨道: ${probeCmd}`);
       const probeOutput = execSync(probeCmd, { encoding: 'utf-8', timeout: 30 });
       hasAudio = probeOutput.includes('audio');
       console.log(`[Transcribe] 视频流信息: ${probeOutput.trim()}`);
-    } catch (probeError) {
-      console.warn('[Transcribe] 无法探测视频流:', probeError);
+    } catch (error) {
+      console.error('[Transcribe] ffprobe 执行失败:', error);
+      return NextResponse.json({
+        success: false,
+        message: '无法检测视频音轨，ffprobe 执行失败'
+      }, { status: 400 });
     }
 
     if (!hasAudio) {
