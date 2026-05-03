@@ -17,6 +17,33 @@ function isDevelopment(): boolean {
   return process.env.NODE_ENV === 'development';
 }
 
+// 支持的语言列表
+const SUPPORTED_LANGUAGES: Record<string, string> = {
+  'zh': '中文',
+  'en': '英语',
+  'ja': '日语',
+  'ko': '韩语',
+  'es': '西班牙语',
+  'fr': '法语',
+  'de': '德语',
+  'pt': '葡萄牙语',
+  'ru': '俄语',
+  'ar': '阿拉伯语',
+  'it': '意大利语',
+  'hi': '印地语',
+  'th': '泰语',
+  'vi': '越南语',
+  'id': '印尼语',
+  'ms': '马来语',
+  'nl': '荷兰语',
+  'pl': '波兰语',
+  'tr': '土耳其语',
+  'uk': '乌克兰语',
+};
+
+// 自动检测时使用的语言列表
+const AUTO_DETECT_LANGUAGES = ['zh', 'en', 'ja', 'ko', 'es', 'fr', 'de', 'pt', 'ru', 'ar', 'hi'];
+
 // 生成模拟识别文本
 function generateMockText(): string {
   const mockTexts = [
@@ -30,9 +57,24 @@ function generateMockText(): string {
 }
 
 // 调用阿里云 Paraformer ASR 语音识别
-async function callParaformerASR(audioUrl: string, apiKey: string): Promise<{ text: string; success: boolean; error?: string }> {
+async function callParaformerASR(audioUrl: string, apiKey: string, language?: string): Promise<{ text: string; success: boolean; error?: string }> {
   try {
+    // 确定语言 hints
+    let languageHints: string[];
+    let languageDisplay: string;
+
+    if (language && SUPPORTED_LANGUAGES[language]) {
+      // 指定了特定语言
+      languageHints = [language];
+      languageDisplay = SUPPORTED_LANGUAGES[language];
+    } else {
+      // 未指定或不支持的语言，使用自动检测
+      languageHints = AUTO_DETECT_LANGUAGES;
+      languageDisplay = '自动检测';
+    }
+
     console.log(`[Paraformer] 开始调用 ASR API，音频 URL: ${audioUrl}`);
+    console.log(`[Paraformer] 识别语言: ${languageDisplay} (${languageHints.join(', ')})`);
 
     // 阿里云百炼 Paraformer API 调用
     const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/asr/text/paraformer', {
@@ -49,7 +91,7 @@ async function callParaformerASR(audioUrl: string, apiKey: string): Promise<{ te
         parameters: {
           audio_format: 'wav',
           sample_rate: 16000,
-          language_type: 'zh'
+          language_hints: languageHints
         }
       })
     });
@@ -102,6 +144,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const video = formData.get('video') as File;
+    const language = formData.get('language') as string | null;
 
     if (!video) {
       return NextResponse.json({
@@ -109,6 +152,8 @@ export async function POST(request: NextRequest) {
         message: '请上传视频文件'
       }, { status: 400 });
     }
+
+    console.log(`[Transcribe] 接收语言参数: ${language || '未指定（自动检测）'}`);
 
     const timestamp = Date.now();
 
@@ -235,8 +280,8 @@ export async function POST(request: NextRequest) {
     const audioUrl = `${baseUrl}/uploads/asr/audio_${timestamp}.wav`;
     console.log(`[Transcribe] 音频公网 URL: ${audioUrl}`);
 
-    // 10. 调用阿里云 Paraformer ASR
-    const asrResult = await callParaformerASR(audioUrl, apiKey);
+    // 10. 调用阿里云 Paraformer ASR（传递语言参数）
+    const asrResult = await callParaformerASR(audioUrl, apiKey, language || undefined);
 
     // 11. 清理临时文件和上传的音频
     await Promise.all([
