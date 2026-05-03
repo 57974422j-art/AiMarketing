@@ -204,16 +204,64 @@ export async function POST(request: NextRequest) {
     console.log(`[Transcribe] 使用 FFmpeg: ${ffmpegPath}`);
 
     // 6. 使用 ffprobe 检查视频是否有音频轨道
-    const ffprobePath = ffmpegPath.replace('ffmpeg', 'ffprobe').replace('ffmpeg.exe', 'ffprobe.exe');
+    // ffprobe 通常与 ffmpeg 在同一目录
+    let ffprobePath = '';
+    
+    // 方法1：从 ffmpeg 路径推断 ffprobe 路径
+    if (ffmpegPath.includes('ffmpeg')) {
+      ffprobePath = ffmpegPath.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1');
+      if (existsSync(ffprobePath)) {
+        console.log(`[Transcribe] 使用 ffprobe (从 ffmpeg 推断): ${ffprobePath}`);
+      } else {
+        ffprobePath = '';
+      }
+    }
+    
+    // 方法2：查找常见的 ffprobe 路径
+    if (!ffprobePath) {
+      const commonFfprobePaths = process.platform === 'win32' ? [
+        process.env.LOCALAPPDATA + '\\Microsoft\\WinGet\\Links\\ffprobe.exe',
+        'C:\\ffmpeg\\bin\\ffprobe.exe',
+        'C:\\ProgramData\\winget\\Packages\\Gyan.FFmpeg\\Tools\\ffprobe.exe',
+        'ffprobe',
+      ] : ['/usr/bin/ffprobe', '/usr/local/bin/ffprobe', '/opt/homebrew/bin/ffprobe', 'ffprobe'];
+      
+      for (const p of commonFfprobePaths) {
+        if (p && (existsSync(p) || p === 'ffprobe' || p === 'ffprobe.exe')) {
+          ffprobePath = p;
+          console.log(`[Transcribe] 使用 ffprobe (常见路径): ${ffprobePath}`);
+          break;
+        }
+      }
+    }
+    
+    // 方法3：使用 which 命令查找
+    if (!ffprobePath) {
+      try {
+        const whichCmd = process.platform === 'win32' ? 'where ffprobe' : 'which ffprobe';
+        const result = execSync(whichCmd, { encoding: 'utf-8', timeout: 5 }).trim();
+        if (result) {
+          ffprobePath = result.split('\n')[0];
+          console.log(`[Transcribe] 使用 ffprobe (which): ${ffprobePath}`);
+        }
+      } catch {
+        console.log('[Transcribe] which 命令未找到 ffprobe');
+      }
+    }
+    
+    ffprobePath = ffprobePath || 'ffprobe';
+    console.log(`[Transcribe] 最终 ffprobe 路径: ${ffprobePath}`);
+    
     let hasAudio = false;
     try {
       const probeCmd = `"${ffprobePath}" -v error -show_entries stream=codec_type -of csv=p=0 "${uploadVideoPath}"`;
-      console.log(`[Transcribe] 检测音频轨道: ${probeCmd}`);
+      console.log(`[Transcribe] 检测音频轨道命令: ${probeCmd}`);
       const probeOutput = execSync(probeCmd, { encoding: 'utf-8', timeout: 30 });
       hasAudio = probeOutput.includes('audio');
       console.log(`[Transcribe] 视频流信息: ${probeOutput.trim()}`);
     } catch (error) {
       console.error('[Transcribe] ffprobe 执行失败:', error);
+      console.error('[Transcribe] 错误类型:', error instanceof Error ? error.message : '未知错误');
       return NextResponse.json({
         success: false,
         message: '无法检测视频音轨，ffprobe 执行失败'
