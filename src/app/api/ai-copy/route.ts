@@ -108,6 +108,10 @@ export async function POST(request: NextRequest) {
     console.log('=== AI 生成结果 ===')
     console.log(result)
     
+    if (!result) {
+      return NextResponse.json({ success: false, message: 'AI 生成失败，请重试' }, { status: 500 })
+    }
+    
     // 解析 AI 返回的文案（提取标题、正文、标签）
     function parseCopyBlocks(text: string): { title: string; content: string; tags: string[] }[] {
       const blocks: { title: string; content: string; tags: string[] }[] = []
