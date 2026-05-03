@@ -223,8 +223,8 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      // 提取音频命令
-      const extractCmd = `"${ffmpegPath}" -i "${tempVideoPath}" -vn -ar 16000 -ac 1 -acodec pcm_s16le "${tempAudioPath}" -y`;
+      // 提取音频命令（使用经过验证的参数格式）
+      const extractCmd = `"${ffmpegPath}" -i "${tempVideoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${tempAudioPath}"`;
       console.log(`[Transcribe] 执行: ${extractCmd}`);
 
       execSync(extractCmd, {
