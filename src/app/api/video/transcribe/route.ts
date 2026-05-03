@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { join } from 'path';
 import { writeFile, mkdir, unlink, copyFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, statSync } from 'fs';
 import { execFileSync } from 'child_process';
 
 // 获取公网访问的基础 URL
@@ -203,18 +203,40 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Transcribe] 使用 FFmpeg: ${ffmpegPath}`);
 
+    // 验证文件存在
+    if (!existsSync(uploadVideoPath)) {
+      console.error('[Transcribe] 视频文件不存在:', uploadVideoPath);
+      return NextResponse.json({
+        success: false,
+        message: '视频文件保存失败'
+      }, { status: 500 });
+    }
+    
+    const videoStats = statSync(uploadVideoPath);
+    console.log(`[Transcribe] 视频文件大小: ${videoStats.size} bytes`);
+    
+    // 确保 temp 目录可写
+    if (!existsSync(tempDir)) {
+      await mkdir(tempDir, { recursive: true });
+    }
+    console.log(`[Transcribe] 临时目录: ${tempDir}`);
+
     try {
       // 使用 execFileSync 直接执行命令，避免 shell 超时问题
       const extractArgs = ['-i', uploadVideoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tempAudioPath];
       console.log(`[Transcribe] 提取音频: ffmpeg ${extractArgs.join(' ')}`);
-
+      console.log(`[Transcribe] 开始时间: ${new Date().toISOString()}`);
+      
       execFileSync(ffmpegPath, extractArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],
         timeout: 120,
         encoding: 'utf-8'
       });
+      
+      console.log(`[Transcribe] 结束时间: ${new Date().toISOString()}`);
       console.log(`[Transcribe] 音频提取成功: ${tempAudioPath}`);
     } catch (ffmpegError: unknown) {
+      console.log(`[Transcribe] 失败时间: ${new Date().toISOString()}`);
       const errorObj = ffmpegError as { stderr?: string; message?: string };
       const errorOutput = errorObj.stderr || errorObj.message || '未知错误';
       console.error('[Transcribe] FFmpeg 错误输出:', errorOutput);
