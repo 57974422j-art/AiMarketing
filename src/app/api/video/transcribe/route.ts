@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { join } from 'path';
 import { writeFile, mkdir, unlink, copyFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { execSync, execFileSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 // 获取公网访问的基础 URL
 function getPublicBaseUrl(): string {
@@ -203,81 +203,6 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Transcribe] 使用 FFmpeg: ${ffmpegPath}`);
 
-    // 6. 使用 ffprobe 检查视频是否有音频轨道
-    // ffprobe 通常与 ffmpeg 在同一目录
-    let ffprobePath = '';
-    
-    // 方法1：从 ffmpeg 路径推断 ffprobe 路径
-    if (ffmpegPath.includes('ffmpeg')) {
-      ffprobePath = ffmpegPath.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1');
-      if (existsSync(ffprobePath)) {
-        console.log(`[Transcribe] 使用 ffprobe (从 ffmpeg 推断): ${ffprobePath}`);
-      } else {
-        ffprobePath = '';
-      }
-    }
-    
-    // 方法2：查找常见的 ffprobe 路径
-    if (!ffprobePath) {
-      const commonFfprobePaths = process.platform === 'win32' ? [
-        process.env.LOCALAPPDATA + '\\Microsoft\\WinGet\\Links\\ffprobe.exe',
-        'C:\\ffmpeg\\bin\\ffprobe.exe',
-        'C:\\ProgramData\\winget\\Packages\\Gyan.FFmpeg\\Tools\\ffprobe.exe',
-        'ffprobe',
-      ] : ['/usr/bin/ffprobe', '/usr/local/bin/ffprobe', '/opt/homebrew/bin/ffprobe', 'ffprobe'];
-      
-      for (const p of commonFfprobePaths) {
-        if (p && (existsSync(p) || p === 'ffprobe' || p === 'ffprobe.exe')) {
-          ffprobePath = p;
-          console.log(`[Transcribe] 使用 ffprobe (常见路径): ${ffprobePath}`);
-          break;
-        }
-      }
-    }
-    
-    // 方法3：使用 which 命令查找
-    if (!ffprobePath) {
-      try {
-        const whichCmd = process.platform === 'win32' ? 'where' : 'which';
-        const whichArgs = process.platform === 'win32' ? ['ffprobe'] : ['ffprobe'];
-        const result = execFileSync(whichCmd, whichArgs, { encoding: 'utf-8', timeout: 5 }).trim();
-        if (result) {
-          ffprobePath = result.split('\n')[0];
-          console.log(`[Transcribe] 使用 ffprobe (which): ${ffprobePath}`);
-        }
-      } catch {
-        console.log('[Transcribe] which 命令未找到 ffprobe');
-      }
-    }
-    
-    ffprobePath = ffprobePath || 'ffprobe';
-    console.log(`[Transcribe] 最终 ffprobe 路径: ${ffprobePath}`);
-    
-    let hasAudio = false;
-    try {
-      // 使用 execFileSync 直接执行命令，避免 shell 超时问题
-      const probeArgs = ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', uploadVideoPath];
-      console.log(`[Transcribe] 检测音频轨道: ffprobe ${probeArgs.join(' ')}`);
-      const probeOutput = execFileSync(ffprobePath, probeArgs, { encoding: 'utf-8', timeout: 30 });
-      hasAudio = probeOutput.includes('audio');
-      console.log(`[Transcribe] 视频流信息: ${probeOutput.trim()}`);
-    } catch (error) {
-      console.error('[Transcribe] ffprobe 执行失败:', error);
-      console.error('[Transcribe] 错误类型:', error instanceof Error ? error.message : '未知错误');
-      return NextResponse.json({
-        success: false,
-        message: '无法检测视频音轨，ffprobe 执行失败'
-      }, { status: 400 });
-    }
-
-    if (!hasAudio) {
-      console.warn('[Transcribe] 视频不包含音频轨道，文件已保存到:', uploadVideoPath);
-      return NextResponse.json({
-        success: false,
-        message: '视频不包含音频轨道，无法进行语音识别'
-      }, { status: 400 });
-    }
-
     try {
       // 使用 execFileSync 直接执行命令，避免 shell 超时问题
       const extractArgs = ['-i', uploadVideoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tempAudioPath];
@@ -293,6 +218,18 @@ export async function POST(request: NextRequest) {
       const errorObj = ffmpegError as { stderr?: string; message?: string };
       const errorOutput = errorObj.stderr || errorObj.message || '未知错误';
       console.error('[Transcribe] FFmpeg 错误输出:', errorOutput);
+      
+      // 检查是否是没有音频轨道
+      if (errorOutput.includes('No audio stream') || 
+          errorOutput.includes('does not contain any stream') ||
+          errorOutput.includes('does not have any stream')) {
+        console.warn('[Transcribe] 视频不包含音频轨道，文件已保存到:', uploadVideoPath);
+        return NextResponse.json({
+          success: false,
+          message: '视频不包含音频轨道，无法进行语音识别'
+        }, { status: 400 });
+      }
+      
       console.log(`[Transcribe] 视频文件已保留: ${uploadVideoPath}`);
       return NextResponse.json({
         success: false,
