@@ -85,10 +85,10 @@ export default function NFCPromoPage() {
   };
 
   const totalStats = {
-    touches: rules.reduce((sum, r) => sum + r.stats.touches, 0),
-    uniqueUsers: rules.reduce((sum, r) => sum + r.stats.uniqueUsers, 0),
-    conversions: rules.reduce((sum, r) => sum + r.stats.conversions, 0),
-    todayTouches: rules.reduce((sum, r) => sum + r.stats.todayTouches, 0)
+    touches: templates.reduce((sum, r) => sum + (r as any).stats?.touches || 0, 0),
+    uniqueUsers: templates.reduce((sum, r) => sum + (r as any).stats?.uniqueUsers || 0, 0),
+    conversions: templates.reduce((sum, r) => sum + (r as any).stats?.conversions || 0, 0),
+    todayTouches: templates.reduce((sum, r) => sum + (r as any).stats?.todayTouches || 0, 0)
   };
 
   const handleOpenAddModal = () => {
