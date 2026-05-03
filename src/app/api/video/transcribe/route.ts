@@ -137,9 +137,9 @@ async function callParaformerASR(audioUrl: string, apiKey: string, language?: st
 
 // 阿里云百炼 Paraformer ASR 语音识别
 export async function POST(request: NextRequest) {
-  let tempVideoPath = '';
   let tempAudioPath = '';
   let uploadAudioPath = '';
+  let uploadVideoPath = ''; // 保留视频文件用于调试
 
   try {
     const formData = await request.formData();
@@ -156,28 +156,30 @@ export async function POST(request: NextRequest) {
     console.log(`[Transcribe] 接收语言参数: ${language || '未指定（自动检测）'}`);
 
     const timestamp = Date.now();
+    const videoFileName = `video_${timestamp}.mp4`;
+    const audioFileName = `audio_${timestamp}.wav`;
 
-    // 1. 确保临时目录存在
-    const tempDir = join(process.cwd(), 'temp');
-    if (!existsSync(tempDir)) {
-      await mkdir(tempDir, { recursive: true });
-    }
-
-    // 2. 确保 public/uploads 目录存在（用于公网访问）
+    // 1. 确保 public/uploads/asr 目录存在（视频和音频都保存在这里用于调试）
     const uploadsDir = join(process.cwd(), 'public', 'uploads', 'asr');
     if (!existsSync(uploadsDir)) {
       await mkdir(uploadsDir, { recursive: true });
     }
 
-    // 3. 设置文件路径
-    tempVideoPath = join(tempDir, `video_${timestamp}.mp4`);
-    tempAudioPath = join(tempDir, `audio_${timestamp}.wav`);
-    uploadAudioPath = join(uploadsDir, `audio_${timestamp}.wav`);
+    // 2. 确保临时目录存在
+    const tempDir = join(process.cwd(), 'temp');
+    if (!existsSync(tempDir)) {
+      await mkdir(tempDir, { recursive: true });
+    }
 
-    // 4. 保存上传的视频文件
+    // 3. 设置文件路径
+    tempAudioPath = join(tempDir, audioFileName);
+    uploadAudioPath = join(uploadsDir, audioFileName);
+    uploadVideoPath = join(uploadsDir, videoFileName); // 视频也保存在 uploads
+
+    // 4. 保存上传的视频文件（同时保存到 uploads 用于调试）
     const videoBuffer = Buffer.from(await video.arrayBuffer());
-    await writeFile(tempVideoPath, videoBuffer);
-    console.log(`[Transcribe] 视频文件已保存: ${tempVideoPath} (${video.size} bytes)`);
+    await writeFile(uploadVideoPath, videoBuffer); // 保存到 uploads
+    console.log(`[Transcribe] 视频文件已保存: ${uploadVideoPath} (${video.size} bytes)`);
 
     // 5. 使用 FFmpeg 从视频提取音频并转换为 16kHz WAV
     // 常见 FFmpeg 路径
@@ -205,7 +207,7 @@ export async function POST(request: NextRequest) {
     const ffprobePath = ffmpegPath.replace('ffmpeg', 'ffprobe').replace('ffmpeg.exe', 'ffprobe.exe');
     let hasAudio = false;
     try {
-      const probeCmd = `"${ffprobePath}" -v error -show_entries stream=codec_type -of csv=p=0 "${tempVideoPath}"`;
+      const probeCmd = `"${ffprobePath}" -v error -show_entries stream=codec_type -of csv=p=0 "${uploadVideoPath}"`;
       const probeOutput = execSync(probeCmd, { encoding: 'utf-8', timeout: 30 });
       hasAudio = probeOutput.includes('audio');
       console.log(`[Transcribe] 视频流信息: ${probeOutput.trim()}`);
@@ -214,8 +216,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!hasAudio) {
-      console.warn('[Transcribe] 视频不包含音频轨道');
-      await unlink(tempVideoPath).catch(() => {});
+      console.warn('[Transcribe] 视频不包含音频轨道，文件已保存到:', uploadVideoPath);
       return NextResponse.json({
         success: false,
         message: '视频不包含音频轨道，无法进行语音识别'
@@ -224,7 +225,7 @@ export async function POST(request: NextRequest) {
 
     try {
       // 提取音频命令（使用经过验证的参数格式）
-      const extractCmd = `"${ffmpegPath}" -i "${tempVideoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${tempAudioPath}"`;
+      const extractCmd = `"${ffmpegPath}" -i "${uploadVideoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${tempAudioPath}"`;
       console.log(`[Transcribe] 执行: ${extractCmd}`);
 
       execSync(extractCmd, {
@@ -237,7 +238,7 @@ export async function POST(request: NextRequest) {
       const errorObj = ffmpegError as { stderr?: string; message?: string };
       const errorOutput = errorObj.stderr || errorObj.message || '未知错误';
       console.error('[Transcribe] FFmpeg 错误输出:', errorOutput);
-      await unlink(tempVideoPath).catch(() => {});
+      console.log(`[Transcribe] 视频文件已保留: ${uploadVideoPath}`);
       return NextResponse.json({
         success: false,
         message: `音频提取失败: ${errorOutput.substring(0, 200)}`
@@ -247,7 +248,7 @@ export async function POST(request: NextRequest) {
     // 6. 开发环境：直接返回模拟文本
     if (isDevelopment()) {
       console.log('[Transcribe] 开发环境：跳过 ASR 调用，返回模拟识别文本');
-      await unlink(tempVideoPath).catch(() => {});
+      // 清理临时音频文件，保留上传的视频用于调试
       await unlink(tempAudioPath).catch(() => {});
 
       return NextResponse.json({
@@ -262,7 +263,7 @@ export async function POST(request: NextRequest) {
 
     if (!apiKey) {
       console.warn('[Transcribe] 生产环境：未配置 DASHSCOPE_API_KEY');
-      await unlink(tempVideoPath).catch(() => {});
+      // 清理临时音频文件，保留上传的视频用于调试
       await unlink(tempAudioPath).catch(() => {});
 
       return NextResponse.json({
@@ -283,12 +284,12 @@ export async function POST(request: NextRequest) {
     // 10. 调用阿里云 Paraformer ASR（传递语言参数）
     const asrResult = await callParaformerASR(audioUrl, apiKey, language || undefined);
 
-    // 11. 清理临时文件和上传的音频
+    // 11. 清理临时文件，保留上传的视频和音频用于调试
     await Promise.all([
-      unlink(tempVideoPath).catch(() => {}),
       unlink(tempAudioPath).catch(() => {}),
       unlink(uploadAudioPath).catch(() => {})
     ]);
+    console.log(`[Transcribe] 临时音频已清理，视频保留在: ${uploadVideoPath}`);
 
     if (!asrResult.success) {
       return NextResponse.json({
@@ -315,10 +316,10 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('[Transcribe] 处理异常:', error);
+    console.log(`[Transcribe] 视频文件已保留: ${uploadVideoPath}`);
 
-    // 清理所有临时文件
+    // 只清理临时文件，保留上传的视频用于调试
     await Promise.all([
-      tempVideoPath ? unlink(tempVideoPath).catch(() => {}) : Promise.resolve(),
       tempAudioPath ? unlink(tempAudioPath).catch(() => {}) : Promise.resolve(),
       uploadAudioPath ? unlink(uploadAudioPath).catch(() => {}) : Promise.resolve()
     ]);
