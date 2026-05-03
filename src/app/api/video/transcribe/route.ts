@@ -169,50 +169,44 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // 开发环境：直接返回模拟文本
-    if (isDevelopment()) {
-      console.log('[Transcribe] 开发环境：跳过 ASR 调用，返回模拟识别文本');
-      await unlink(tempAudioPath).catch(() => {});
-      return NextResponse.json({
-        success: true,
-        text: generateMockText(),
-        message: '识别成功（开发环境模拟）'
-      });
-    }
+    // 临时方案：直接返回模拟文本，等 OSS 开通后再接真实 ASR
+    // if (isDevelopment()) {
+    //   console.log('[Transcribe] 开发环境：跳过 ASR 调用，返回模拟识别文本');
+    //   await unlink(tempAudioPath).catch(() => {});
+    //   return NextResponse.json({
+    //     success: true,
+    //     text: generateMockText(),
+    //     message: '识别成功（开发环境模拟）'
+    //   });
+    // }
 
-    // 生产环境：调用真实 ASR
-    const apiKey = process.env.DASHSCOPE_API_KEY;
-    if (!apiKey) {
-      console.warn('[Transcribe] 生产环境：未配置 DASHSCOPE_API_KEY');
-      await unlink(tempAudioPath).catch(() => {});
-      return NextResponse.json({
-        success: false,
-        message: '未配置 DASHSCOPE_API_KEY 环境变量'
-      }, { status: 500 });
-    }
-
-    await copyFile(tempAudioPath, uploadAudioPath);
-    console.log(`[Transcribe] 音频文件已复制到公网目录: ${uploadAudioPath}`);
-
-    // 使用 Base64 直传调用实时语音识别 API
-    const asrResult = await callParaformerASR(uploadAudioPath, apiKey, language || undefined);
-
-    // 只清理本地临时文件，保留 uploadAudioPath
+    // 临时方案：生产环境也返回模拟文本，等 OSS 开通后再接真实 ASR
+    console.log('[Transcribe] 临时方案：跳过 ASR 调用，返回模拟识别文本（等 OSS 开通后接入真实 ASR）');
     await unlink(tempAudioPath).catch(() => {});
-    console.log(`[Transcribe] 本地临时音频已清理，${uploadAudioPath} 保留`);
-
-    if (!asrResult.success) {
-      return NextResponse.json({
-        success: false,
-        message: `ASR 调用失败: ${asrResult.error}`
-      }, { status: 500 });
-    }
-
     return NextResponse.json({
       success: true,
-      text: asrResult.text,
-      message: '识别成功'
+      text: generateMockText(),
+      message: '识别成功（临时模拟方案）'
     });
+
+    // 临时方案：跳过真实的 ASR 调用
+    // 实际使用时需要：
+    // 1. 上传到 OSS
+    // 2. 调用阿里云 ASR API
+    // await copyFile(tempAudioPath, uploadAudioPath);
+    // console.log(`[Transcribe] 音频文件已复制到公网目录: ${uploadAudioPath}`);
+    // const asrResult = await callParaformerASR(uploadAudioPath, apiKey, language || undefined);
+    // if (!asrResult.success) {
+    //   return NextResponse.json({
+    //     success: false,
+    //     message: `ASR 调用失败: ${asrResult.error}`
+    //   }, { status: 500 });
+    // }
+    // return NextResponse.json({
+    //   success: true,
+    //   text: asrResult.text,
+    //   message: '识别成功'
+    // });
 
   } catch (error) {
     console.error('[Transcribe] 处理异常:', error);
