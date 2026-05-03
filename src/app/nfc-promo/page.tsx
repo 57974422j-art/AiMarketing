@@ -116,8 +116,8 @@ export default function NFCPromoPage() {
   };
 
   const handleToggleStatus = (ruleId: number) => {
-    setRules(prev => prev.map(r => 
-      r.id === ruleId ? { ...r, status: r.status === 'active' ? 'paused' : 'active' } : r
+    setTemplates(prev => prev.map(r => 
+      (r as any).id === ruleId ? { ...r, status: (r as any).status === 'active' ? 'paused' : 'active' } : r
     ));
   };
 
