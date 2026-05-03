@@ -50,6 +50,7 @@ const backgrounds = [
 ];
 
 export default function DigitalHumanPage() {
+  const [videos, setVideos] = useState<VideoItem[]>([]);
   const [templates, setTemplates] = useState<DigitalHumanTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [script, setScript] = useState('');

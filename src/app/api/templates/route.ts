@@ -126,11 +126,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (!type || type === 'copy') {
-      templates.copy = await prisma.copyTemplate.findMany({
+      templates.copy = await (prisma.copyTemplate.findMany({
         where: status ? { status } : undefined,
         include: { user: { select: { username: true } } },
         orderBy: { createdAt: 'desc' }
-      })
+      }) as any)
     }
     if (!type || type === 'video') {
       templates.video = await prisma.videoTemplate.findMany({
