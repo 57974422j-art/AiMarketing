@@ -44,6 +44,7 @@ export default function VideoEditPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [outputUrl, setOutputUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [historyList, setHistoryList] = useState<VideoTask[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   
@@ -368,23 +369,36 @@ export default function VideoEditPage() {
       const formData = new FormData();
       formData.append('video', videos[0].file);
 
+      console.log('=== 开始语音识别 ===');
+      console.log('上传文件:', videos[0].file.name, videos[0].file.size, 'bytes');
+
       const response = await fetch('/api/video/transcribe', {
         method: 'POST',
         credentials: 'include',
         body: formData,
       });
 
+      console.log('响应状态:', response.status);
       const data = await response.json();
+      console.log('完整响应数据:', JSON.stringify(data, null, 2));
 
-      if (data.success && data.text) {
-        setTtsScript(data.text);
+      // 兼容多种返回格式
+      const recognizedText = data.text || data.content || data.result || data.transcription || '';
+      
+      if (recognizedText) {
+        console.log('提取到的识别文本:', recognizedText.substring(0, 100) + '...');
+        setTtsScript(recognizedText);
         setErrorMessage('');
+        setSuccessMessage('✅ 识别完成，已填入配音文案');
+        // 3秒后清除成功提示
+        setTimeout(() => setSuccessMessage(''), 3000);
       } else {
-        setErrorMessage(data.message || '语音识别失败');
+        console.warn('未获取到识别文本，响应数据:', data);
+        setErrorMessage(data.message || '未识别到语音内容');
       }
     } catch (error) {
-      console.error('Transcribe error:', error);
-      setErrorMessage('语音识别失败，请重试');
+      console.error('识别失败:', error);
+      setErrorMessage('语音识别失败: ' + (error instanceof Error ? error.message : '未知错误'));
     } finally {
       setIsTranscribing(false);
       setCurrentProcessStep('');
@@ -471,6 +485,12 @@ export default function VideoEditPage() {
         {errorMessage && (
           <div className="mb-6 p-4 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 text-red-400">
             {errorMessage}
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="mb-6 p-4 bg-green-500/10 backdrop-blur-sm rounded-2xl border border-green-500/30 text-green-400">
+            {successMessage}
           </div>
         )}
 
