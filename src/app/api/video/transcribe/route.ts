@@ -135,21 +135,67 @@ export async function POST(request: NextRequest) {
     console.log(`[Transcribe] 视频文件已保存: ${tempVideoPath} (${video.size} bytes)`);
 
     // 5. 使用 FFmpeg 从视频提取音频并转换为 16kHz WAV
-    const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
+    // 常见 FFmpeg 路径
+    const commonFFmpegPaths = process.platform === 'win32' ? [
+      process.env.LOCALAPPDATA + '\\Microsoft\\WinGet\\Links\\ffmpeg.exe',
+      'C:\\ffmpeg\\bin\\ffmpeg.exe',
+      'C:\\ProgramData\\winget\\Packages\\Gyan.FFmpeg\\Tools\\ffmpeg.exe',
+      'ffmpeg',
+    ] : ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg', 'ffmpeg'];
+
+    let ffmpegPath = process.env.FFMPEG_PATH;
+    if (!ffmpegPath) {
+      for (const p of commonFFmpegPaths) {
+        if (p && existsSync(p)) {
+          ffmpegPath = p;
+          break;
+        }
+      }
+      ffmpegPath = ffmpegPath || 'ffmpeg';
+    }
+
     console.log(`[Transcribe] 使用 FFmpeg: ${ffmpegPath}`);
 
+    // 先用 ffprobe 检查视频是否有音频轨道
+    const ffprobePath = ffmpegPath.replace('ffmpeg', 'ffprobe').replace('ffmpeg.exe', 'ffprobe.exe');
+    let hasAudio = false;
     try {
-      execSync(`"${ffmpegPath}" -i "${tempVideoPath}" -ar 16000 -ac 1 -acodec pcm_s16le "${tempAudioPath}" -y`, {
-        stdio: 'pipe',
-        timeout: 120 // 2分钟超时
-      });
-      console.log(`[Transcribe] 音频提取成功: ${tempAudioPath}`);
-    } catch (ffmpegError) {
-      console.error('[Transcribe] FFmpeg 提取音频失败:', ffmpegError);
+      const probeCmd = `"${ffprobePath}" -v error -show_entries stream=codec_type -of csv=p=0 "${tempVideoPath}"`;
+      const probeOutput = execSync(probeCmd, { encoding: 'utf-8', timeout: 30 });
+      hasAudio = probeOutput.includes('audio');
+      console.log(`[Transcribe] 视频流信息: ${probeOutput.trim()}`);
+    } catch (probeError) {
+      console.warn('[Transcribe] 无法探测视频流:', probeError);
+    }
+
+    if (!hasAudio) {
+      console.warn('[Transcribe] 视频不包含音频轨道');
       await unlink(tempVideoPath).catch(() => {});
       return NextResponse.json({
         success: false,
-        message: '音频提取失败，请确保视频包含音频轨道'
+        message: '视频不包含音频轨道，无法进行语音识别'
+      }, { status: 400 });
+    }
+
+    try {
+      // 提取音频命令
+      const extractCmd = `"${ffmpegPath}" -i "${tempVideoPath}" -vn -ar 16000 -ac 1 -acodec pcm_s16le "${tempAudioPath}" -y`;
+      console.log(`[Transcribe] 执行: ${extractCmd}`);
+
+      execSync(extractCmd, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 120,
+        encoding: 'utf-8'
+      });
+      console.log(`[Transcribe] 音频提取成功: ${tempAudioPath}`);
+    } catch (ffmpegError: unknown) {
+      const errorObj = ffmpegError as { stderr?: string; message?: string };
+      const errorOutput = errorObj.stderr || errorObj.message || '未知错误';
+      console.error('[Transcribe] FFmpeg 错误输出:', errorOutput);
+      await unlink(tempVideoPath).catch(() => {});
+      return NextResponse.json({
+        success: false,
+        message: `音频提取失败: ${errorOutput.substring(0, 200)}`
       }, { status: 400 });
     }
 
