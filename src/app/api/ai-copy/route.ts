@@ -109,8 +109,8 @@ export async function POST(request: NextRequest) {
     console.log(result)
     
     // 解析 AI 返回的文案（提取标题、正文、标签）
-    function parseCopyBlocks(text: string) {
-      const blocks = []
+    function parseCopyBlocks(text: string): { title: string; content: string; tags: string[] }[] {
+      const blocks: { title: string; content: string; tags: string[] }[] = []
       // 按 【标题】 分割
       const parts = text.split(/【标题】/).filter(Boolean)
       
