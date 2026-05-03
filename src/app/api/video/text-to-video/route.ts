@@ -26,6 +26,14 @@ export async function POST(request: NextRequest) {
     // 调用通义万相 API
     const result = await dashscopeGenerateVideo(prompt, aspectRatio || '16:9')
     
+    // API 未配置
+    if (!result) {
+      return NextResponse.json(
+        { success: false, message: '视频生成服务未配置' },
+        { status: 500 }
+      )
+    }
+    
     // 如果返回了视频 URL（同步模式），直接返回
     if (result.videoUrl) {
       return NextResponse.json({
