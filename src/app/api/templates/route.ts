@@ -121,7 +121,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, message: '需要管理员权限' }, { status: 403 })
     }
 
-    let templates: any = { copy: [], video: [], digitalHuman: [], nfc: [] }
+    let templates: { copy: any[]; video: any[]; digitalHuman: any[]; nfc: any[] } = {
+      copy: [], video: [], digitalHuman: [], nfc: []
+    }
 
     if (!type || type === 'copy') {
       templates.copy = await prisma.copyTemplate.findMany({
