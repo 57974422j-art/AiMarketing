@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { join } from 'path';
-import { writeFile, mkdir, unlink, copyFile } from 'fs/promises';
-import { existsSync, statSync } from 'fs';
+import { writeFile, mkdir, unlink, copyFile, readFile } from 'fs/promises';
+import { existsSync } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
-
-// 获取公网访问的基础 URL
-function getPublicBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_BASE_URL) {
-    return process.env.NEXT_PUBLIC_BASE_URL;
-  }
-  return 'http://121.199.164.168:3000';
-}
 
 // 判断是否为开发环境
 function isDevelopment(): boolean {
@@ -32,40 +24,30 @@ function generateMockText(): string {
   return mockTexts[Math.floor(Math.random() * mockTexts.length)];
 }
 
-// 调用阿里云 Paraformer ASR 语音识别
-async function callParaformerASR(audioUrl: string, apiKey: string, language?: string): Promise<{ text: string; success: boolean; error?: string }> {
+// 调用阿里云 Paraformer 实时语音识别 API（Base64 直传）
+async function callParaformerASR(audioFilePath: string, apiKey: string, language?: string): Promise<{ text: string; success: boolean; error?: string }> {
   try {
-    let languageHints: string[];
-    let languageDisplay: string;
+    // 读取音频文件并转换为 Base64
+    const audioBuffer = await readFile(audioFilePath);
+    const base64Audio = audioBuffer.toString('base64');
+    console.log(`[Paraformer] 音频文件大小: ${audioBuffer.length} bytes, Base64 长度: ${base64Audio.length}`);
 
-    const AUTO_DETECT_LANGUAGES = ['zh', 'en', 'ja', 'ko', 'es', 'fr', 'de', 'pt', 'ru', 'ar', 'hi'];
+    console.log(`[Paraformer] 开始调用实时语音识别 API...`);
 
-    if (language && AUTO_DETECT_LANGUAGES.includes(language)) {
-      languageHints = [language];
-      languageDisplay = language;
-    } else {
-      languageHints = AUTO_DETECT_LANGUAGES;
-      languageDisplay = '自动检测';
-    }
-
-    console.log(`[Paraformer] 开始调用 ASR API，音频 URL: ${audioUrl}`);
-    console.log(`[Paraformer] 识别语言: ${languageDisplay} (${languageHints.join(', ')})`);
-
-    const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/asr/text/paraformer', {
+    const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/audio/asr/paraformer-realtime', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'paraformer-v2',
+        model: 'paraformer-realtime-v2',
         input: {
-          file_urls: [audioUrl]
+          audio: base64Audio
         },
         parameters: {
-          audio_format: 'wav',
-          sample_rate: 16000,
-          language_hints: languageHints
+          format: 'wav',
+          sample_rate: 16000
         }
       })
     });
@@ -75,21 +57,13 @@ async function callParaformerASR(audioUrl: string, apiKey: string, language?: st
 
     if (!response.ok) {
       console.error(`[Paraformer] API 调用失败: ${response.status}`, responseText);
-      return { text: '', success: false, error: `API 错误: ${response.status}` };
+      return { text: '', success: false, error: `API 错误: ${response.status} - ${responseText.substring(0, 200)}` };
     }
 
     const data = JSON.parse(responseText);
 
-    let text = '';
-    if (data.output?.text) {
-      text = data.output.text;
-    } else if (data.output?.sentences?.length > 0) {
-      text = data.output.sentences.map((s: { text: string }) => s.text).join(' ');
-    } else if (data.result) {
-      text = typeof data.result === 'string' ? data.result : data.result.text || data.result.transcription || '';
-    } else if (data.data?.text) {
-      text = data.data.text;
-    }
+    // 从 output.text 提取识别结果
+    let text = data.output?.text || '';
 
     console.log(`[Paraformer] 识别文本长度: ${text.length} 字符`);
     return { text, success: true };
@@ -218,15 +192,14 @@ export async function POST(request: NextRequest) {
     }
 
     await copyFile(tempAudioPath, uploadAudioPath);
-    const baseUrl = getPublicBaseUrl();
-    const audioUrl = `${baseUrl}/uploads/asr/audio_${timestamp}.wav`;
+    console.log(`[Transcribe] 音频文件已复制到公网目录: ${uploadAudioPath}`);
 
-    const asrResult = await callParaformerASR(audioUrl, apiKey, language || undefined);
+    // 使用 Base64 直传调用实时语音识别 API
+    const asrResult = await callParaformerASR(uploadAudioPath, apiKey, language || undefined);
 
-    await Promise.all([
-      unlink(tempAudioPath).catch(() => {}),
-      unlink(uploadAudioPath).catch(() => {})
-    ]);
+    // 只清理本地临时文件，保留 uploadAudioPath
+    await unlink(tempAudioPath).catch(() => {});
+    console.log(`[Transcribe] 本地临时音频已清理，${uploadAudioPath} 保留`);
 
     if (!asrResult.success) {
       return NextResponse.json({
@@ -243,10 +216,8 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('[Transcribe] 处理异常:', error);
-    await Promise.all([
-      tempAudioPath ? unlink(tempAudioPath).catch(() => {}) : Promise.resolve(),
-      uploadAudioPath ? unlink(uploadAudioPath).catch(() => {}) : Promise.resolve()
-    ]);
+    // 只清理本地临时文件，保留上传的文件用于调试
+    await unlink(tempAudioPath).catch(() => {});
     return NextResponse.json({
       success: false,
       message: `处理失败: ${error instanceof Error ? error.message : '未知错误'}`
