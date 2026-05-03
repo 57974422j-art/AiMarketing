@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { join } from 'path';
 import { writeFile, mkdir, unlink, copyFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 
 // 获取公网访问的基础 URL
 function getPublicBaseUrl(): string {
@@ -238,8 +238,9 @@ export async function POST(request: NextRequest) {
     // 方法3：使用 which 命令查找
     if (!ffprobePath) {
       try {
-        const whichCmd = process.platform === 'win32' ? 'where ffprobe' : 'which ffprobe';
-        const result = execSync(whichCmd, { encoding: 'utf-8', timeout: 5 }).trim();
+        const whichCmd = process.platform === 'win32' ? 'where' : 'which';
+        const whichArgs = process.platform === 'win32' ? ['ffprobe'] : ['ffprobe'];
+        const result = execFileSync(whichCmd, whichArgs, { encoding: 'utf-8', timeout: 5 }).trim();
         if (result) {
           ffprobePath = result.split('\n')[0];
           console.log(`[Transcribe] 使用 ffprobe (which): ${ffprobePath}`);
@@ -254,9 +255,10 @@ export async function POST(request: NextRequest) {
     
     let hasAudio = false;
     try {
-      const probeCmd = `"${ffprobePath}" -v error -show_entries stream=codec_type -of csv=p=0 "${uploadVideoPath}"`;
-      console.log(`[Transcribe] 检测音频轨道命令: ${probeCmd}`);
-      const probeOutput = execSync(probeCmd, { encoding: 'utf-8', timeout: 30 });
+      // 使用 execFileSync 直接执行命令，避免 shell 超时问题
+      const probeArgs = ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', uploadVideoPath];
+      console.log(`[Transcribe] 检测音频轨道: ffprobe ${probeArgs.join(' ')}`);
+      const probeOutput = execFileSync(ffprobePath, probeArgs, { encoding: 'utf-8', timeout: 30 });
       hasAudio = probeOutput.includes('audio');
       console.log(`[Transcribe] 视频流信息: ${probeOutput.trim()}`);
     } catch (error) {
@@ -277,11 +279,11 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      // 提取音频命令（使用经过验证的参数格式）
-      const extractCmd = `"${ffmpegPath}" -i "${uploadVideoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${tempAudioPath}"`;
-      console.log(`[Transcribe] 执行: ${extractCmd}`);
+      // 使用 execFileSync 直接执行命令，避免 shell 超时问题
+      const extractArgs = ['-i', uploadVideoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tempAudioPath];
+      console.log(`[Transcribe] 提取音频: ffmpeg ${extractArgs.join(' ')}`);
 
-      execSync(extractCmd, {
+      execFileSync(ffmpegPath, extractArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],
         timeout: 120,
         encoding: 'utf-8'
