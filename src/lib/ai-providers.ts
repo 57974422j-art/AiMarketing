@@ -7,6 +7,13 @@ interface GenerateTextOptions {
   maxTokens?: number;
 }
 
+// 视频生成结果
+interface VideoGenerationResult {
+  taskId: string;
+  status: string;
+  videoUrl?: string;
+}
+
 // 通用 AI 提供商接口
 interface AIProvider {
   generateText(prompt: string, options?: GenerateTextOptions): Promise<string>;
