@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { join } from 'path';
-import { writeFile, mkdir, unlink, readFile } from 'fs/promises';
+import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -234,12 +234,36 @@ export async function POST(request: NextRequest) {
 
     // 1. 上传音频到 OSS
     console.log('[Transcribe] 开始上传音频到 OSS...');
+    
+    // 检查音频文件是否存在
+    if (!existsSync(tempAudioPath)) {
+      return NextResponse.json({
+        success: false,
+        message: `音频文件不存在: ${tempAudioPath}`
+      }, { status: 500 });
+    }
+    
+    // 使用 fs.readFileSync 读取音频文件
+    const fs = require('fs');
+    const audioData = fs.readFileSync(tempAudioPath);
+    const fileSize = audioData.length;
+    
+    console.log(`[Transcribe] 音频文件大小: ${fileSize} bytes`);
+    
+    if (fileSize === 0) {
+      return NextResponse.json({
+        success: false,
+        message: '音频文件为空，FFmpeg 提取音频失败'
+      }, { status: 500 });
+    }
+    
     const client = createOSSClient();
     ossObjectName = generateUniqueFileName();
-
-    const audioBuffer = await readFile(tempAudioPath);
+    
     // 将 Buffer 转换为 Uint8Array 以符合 ali-oss 的类型要求
-    const uint8Array = new Uint8Array(audioBuffer);
+    const uint8Array = new Uint8Array(audioData);
+    console.log(`[Transcribe] 上传 OSS 对象: ${ossObjectName}, 大小: ${uint8Array.length} bytes`);
+    
     await client.put(ossObjectName, uint8Array);
     
     // 构建 OSS 公网访问 URL
