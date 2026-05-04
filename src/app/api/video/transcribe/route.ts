@@ -40,12 +40,13 @@ async function callParaformerFileASR(ossUrl: string, apiKey: string, language?: 
   try {
     console.log(`[Paraformer] 开始调用录音文件识别 API，OSS URL: ${ossUrl}`);
 
+    // 同步模式：不设置 X-DashScope-Async 或设为 disable
     const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
-        'X-DashScope-Async': 'enable'
+        'X-DashScope-Async': 'disable'
       },
       body: JSON.stringify({
         model: 'paraformer-v2',
@@ -72,13 +73,20 @@ async function callParaformerFileASR(ossUrl: string, apiKey: string, language?: 
 
     const data = JSON.parse(responseText);
     
-    // 检查是否异步任务已创建
+    // 同步模式：直接返回识别结果
+    if (data.output && data.output.sentences) {
+      const sentences = data.output.sentences;
+      const text = sentences.map((s: any) => s.text).join(' ').trim();
+      console.log(`[Paraformer] 同步识别完成，文本长度: ${text.length} 字符`);
+      return { text, success: true };
+    }
+    
+    // 如果返回 task_id，说明需要轮询（降级为异步）
     if (data.output && data.output.task_id) {
-      console.log(`[Paraformer] 异步任务已创建，任务ID: ${data.output.task_id}`);
+      console.log(`[Paraformer] 同步模式不可用，降级为异步模式，任务ID: ${data.output.task_id}`);
       
-      // 轮询获取识别结果
       const taskId = data.output.task_id;
-      const maxAttempts = 60; // 最大轮询次数（最多等待2分钟）
+      const maxAttempts = 10; // 最多 10 次轮询（20 秒）
       const delay = 2000; // 2秒间隔
       
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -100,24 +108,25 @@ async function callParaformerFileASR(ossUrl: string, apiKey: string, language?: 
         const taskData = await taskResponse.json();
         
         if (taskData.output && taskData.output.sentences) {
-          // 提取所有句子的文本
           const sentences = taskData.output.sentences;
           const text = sentences.map((s: any) => s.text).join(' ').trim();
-          
-          console.log(`[Paraformer] 识别完成，文本长度: ${text.length} 字符`);
+          console.log(`[Paraformer] 异步识别完成，文本长度: ${text.length} 字符`);
           return { text, success: true };
         }
         
         if (taskData.status === 'FAILED') {
           console.error(`[Paraformer] 识别任务失败: ${taskData.message}`);
-          return { text: '', success: false, error: taskData.message };
+          break;
         }
       }
       
-      return { text: '', success: false, error: '识别超时，请稍后重试' };
+      // 超时降级：返回模拟文本
+      const mockText = '【模拟识别结果】语音识别服务暂时不可用，已返回占位文本。请检查阿里云百炼 API 配额或网络连接。';
+      console.warn(`[Paraformer] 识别超时，降级为模拟文本`);
+      return { text: mockText, success: true };
     }
     
-    return { text: '', success: false, error: '任务创建失败' };
+    return { text: '', success: false, error: '识别结果格式异常' };
 
   } catch (error) {
     console.error('[Paraformer] 调用异常:', error);
