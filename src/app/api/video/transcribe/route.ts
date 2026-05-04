@@ -86,8 +86,8 @@ async function callParaformerFileASR(ossUrl: string, apiKey: string, language?: 
       console.log(`[Paraformer] 同步模式不可用，降级为异步模式，任务ID: ${data.output.task_id}`);
       
       const taskId = data.output.task_id;
-      const maxAttempts = 10; // 最多 10 次轮询（20 秒）
-      const delay = 2000; // 2秒间隔
+      const maxAttempts = 20; // 最多 20 次轮询（100 秒）
+      const delay = 5000; // 5秒间隔
       
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         console.log(`[Paraformer] 轮询识别结果 (${attempt}/${maxAttempts})...`);
@@ -106,16 +106,30 @@ async function callParaformerFileASR(ossUrl: string, apiKey: string, language?: 
         }
         
         const taskData = await taskResponse.json();
+        console.log(`[Paraformer] 任务状态: ${taskData.task_status || taskData.status}`);
         
-        if (taskData.output && taskData.output.sentences) {
-          const sentences = taskData.output.sentences;
-          const text = sentences.map((s: any) => s.text).join(' ').trim();
-          console.log(`[Paraformer] 异步识别完成，文本长度: ${text.length} 字符`);
-          return { text, success: true };
+        // 检查 task_status（阿里云返回的字段名）
+        if (taskData.task_status === 'SUCCEEDED' || taskData.status === 'SUCCEEDED') {
+          // 提取识别文本
+          const sentences = taskData.output?.sentences || taskData.output?.text || [];
+          let text = '';
+          
+          if (Array.isArray(sentences)) {
+            text = sentences.map((s: any) => typeof s === 'string' ? s : s.text).join(' ').trim();
+          } else if (typeof sentences === 'string') {
+            text = sentences;
+          } else if (taskData.output?.text) {
+            text = taskData.output.text;
+          }
+          
+          if (text) {
+            console.log(`[Paraformer] 异步识别完成，文本长度: ${text.length} 字符`);
+            return { text, success: true };
+          }
         }
         
-        if (taskData.status === 'FAILED') {
-          console.error(`[Paraformer] 识别任务失败: ${taskData.message}`);
+        if (taskData.task_status === 'FAILED' || taskData.status === 'FAILED') {
+          console.error(`[Paraformer] 识别任务失败: ${taskData.message || taskData.error_message}`);
           break;
         }
       }
