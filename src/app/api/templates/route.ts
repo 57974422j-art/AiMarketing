@@ -128,7 +128,6 @@ export async function GET(request: NextRequest) {
     if (!type || type === 'copy') {
       const query: any = {
         where: status ? { status } : undefined,
-        include: { user: { select: { username: true } } },
         orderBy: { createdAt: 'desc' }
       };
       templates.copy = await prisma.copyTemplate.findMany(query);
