@@ -260,11 +260,10 @@ export async function POST(request: NextRequest) {
     const client = createOSSClient();
     ossObjectName = generateUniqueFileName();
     
-    // 将 Buffer 转换为 Uint8Array 以符合 ali-oss 的类型要求
-    const uint8Array = new Uint8Array(audioData);
-    console.log(`[Transcribe] 上传 OSS 对象: ${ossObjectName}, 大小: ${uint8Array.length} bytes`);
+    // ali-oss 的 put 方法直接接受 Buffer
+    console.log(`[Transcribe] 上传 OSS 对象: ${ossObjectName}, 大小: ${fileSize} bytes, Buffer类型: ${Buffer.isBuffer(audioData)}`);
     
-    await client.put(ossObjectName, uint8Array);
+    await client.put(ossObjectName, audioData);
     
     // 构建 OSS 公网访问 URL
     ossUrl = `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION}.aliyuncs.com/${ossObjectName}`;
