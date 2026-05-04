@@ -4,63 +4,175 @@ import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import OSS from 'ali-oss';
 
 const execAsync = promisify(exec);
 
-// 调用阿里云百炼 Qwen-Audio 语音识别
-async function callQwenAudioASR(audioBase64: string, apiKey: string): Promise<{ text: string; success: boolean; error?: string }> {
-  try {
-    console.log('[Qwen-Audio] 开始调用语音识别 API');
+// 创建 OSS 客户端
+function createOSSClient() {
+  return new OSS({
+    region: process.env.OSS_REGION || 'oss-cn-shanghai',
+    accessKeyId: process.env.OSS_ACCESS_KEY_ID || '',
+    accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET || '',
+    bucket: process.env.OSS_BUCKET || '',
+  });
+}
 
-    const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+// 生成唯一文件名
+function generateUniqueFileName(originalName: string): string {
+  const timestamp = Date.now();
+  const randomStr = Math.random().toString(36).substring(2, 8);
+  const ext = originalName.substring(originalName.lastIndexOf('.')) || '.wav';
+  return `asr/${timestamp}_${randomStr}${ext}`;
+}
+
+// 删除 OSS 文件
+async function deleteOSSFile(objectKey: string): Promise<void> {
+  try {
+    const client = createOSSClient();
+    await client.delete(objectKey);
+    console.log(`[OSS] 已删除文件: ${objectKey}`);
+  } catch (error) {
+    console.error(`[OSS] 删除文件失败: ${objectKey}`, error);
+  }
+}
+
+// 上传到 OSS
+async function uploadToOSS(filePath: string, objectKey: string): Promise<string> {
+  const client = createOSSClient();
+  const result = await client.put(objectKey, filePath);
+  console.log(`[OSS] 上传成功: ${result.url}`);
+  return result.url;
+}
+
+// 调用 Paraformer 录音文件识别 API
+async function callParaformerASR(ossUrl: string, apiKey: string): Promise<{ text: string; success: boolean; error?: string }> {
+  try {
+    console.log('[Paraformer] 开始调用录音文件识别 API');
+
+    const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/asr/text/paraformer', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'qwen2.5-omni-7b',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'audio_url', audio_url: { url: `data:audio/wav;base64,${audioBase64}` } },
-              { type: 'text', text: '请识别音频中的文字，直接输出文字内容。' }
-            ]
-          }
-        ]
+        model: 'paraformer-v2',
+        input: {
+          file_urls: [ossUrl]
+        },
+        parameters: {
+          sample_rate: 16000
+        }
       })
     });
 
     const responseText = await response.text();
-    console.log(`[Qwen-Audio] API 响应状态: ${response.status}`);
+    console.log(`[Paraformer] API 响应状态: ${response.status}`);
 
     if (!response.ok) {
-      console.error(`[Qwen-Audio] API 调用失败: ${response.status}`, responseText);
+      console.error(`[Paraformer] API 调用失败: ${response.status}`, responseText);
       return { text: '', success: false, error: `API 错误: ${response.status} - ${responseText.substring(0, 200)}` };
     }
 
     const data = JSON.parse(responseText);
-    
-    // 提取识别文本
-    if (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) {
-      const text = data.choices[0].message.content.trim();
-      console.log(`[Qwen-Audio] 识别完成，文本长度: ${text.length} 字符`);
+    console.log('[Paraformer] 响应数据:', JSON.stringify(data).substring(0, 500));
+
+    // 检查是否有 task_id，需要轮询
+    if (data.output && data.output.task_id) {
+      const taskId = data.output.task_id;
+      console.log(`[Paraformer] 获取到任务 ID: ${taskId}，开始轮询...`);
+
+      // 轮询任务状态
+      const pollResult = await pollTaskStatus(taskId, apiKey);
+      if (pollResult.success) {
+        return pollResult;
+      } else {
+        return { text: '', success: false, error: pollResult.error };
+      }
+    }
+
+    // 直接返回结果（同步模式）
+    if (data.output && data.output.results && data.output.results[0] && data.output.results[0].transcription) {
+      const text = data.output.results[0].transcription.trim();
+      console.log(`[Paraformer] 识别完成，文本长度: ${text.length} 字符`);
       return { text, success: true };
     }
 
-    console.error('[Qwen-Audio] 响应格式异常:', JSON.stringify(data).substring(0, 300));
+    console.error('[Paraformer] 响应格式异常:', JSON.stringify(data).substring(0, 300));
     return { text: '', success: false, error: '响应格式异常' };
 
   } catch (error) {
-    console.error('[Qwen-Audio] 调用异常:', error);
+    console.error('[Paraformer] 调用异常:', error);
     return { text: '', success: false, error: error instanceof Error ? error.message : '未知错误' };
   }
+}
+
+// 轮询任务状态
+async function pollTaskStatus(taskId: string, apiKey: string): Promise<{ text: string; success: boolean; error?: string }> {
+  const maxRetries = 40;
+  const pollInterval = 3000; // 3 秒
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      console.log(`[Paraformer] 轮询第 ${i + 1}/${maxRetries} 次...`);
+
+      const response = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`
+        }
+      });
+
+      const responseText = await response.text();
+      console.log(`[Paraformer] 轮询响应状态: ${response.status}`);
+
+      if (!response.ok) {
+        console.error(`[Paraformer] 轮询请求失败: ${response.status}`, responseText);
+        // 继续重试，不直接返回错误
+        await sleep(pollInterval);
+        continue;
+      }
+
+      const data = JSON.parse(responseText);
+      console.log(`[Paraformer] 任务状态: ${data.output?.task_status}`);
+
+      if (data.output?.task_status === 'SUCCEEDED') {
+        if (data.output.results && data.output.results[0] && data.output.results[0].transcription) {
+          const text = data.output.results[0].transcription.trim();
+          console.log(`[Paraformer] 识别完成，文本长度: ${text.length} 字符`);
+          return { text, success: true };
+        }
+        return { text: '', success: false, error: '任务成功但无识别结果' };
+      }
+
+      if (data.output?.task_status === 'FAILED') {
+        const errorMsg = data.output?.error_message || '任务失败';
+        console.error(`[Paraformer] 任务失败: ${errorMsg}`);
+        return { text: '', success: false, error: errorMsg };
+      }
+
+      // 任务进行中，等待后继续轮询
+      await sleep(pollInterval);
+
+    } catch (error) {
+      console.error(`[Paraformer] 轮询异常:`, error);
+      await sleep(pollInterval);
+    }
+  }
+
+  return { text: '', success: false, error: `轮询超时（${maxRetries} 次后仍无结果）` };
+}
+
+// 延迟函数
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export async function POST(request: NextRequest) {
   let tempAudioPath = '';
   let uploadVideoPath = '';
+  let ossObjectKey = '';
 
   try {
     const formData = await request.formData();
@@ -158,33 +270,42 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // 读取音频文件并转为 Base64
+    // 检查音频文件大小
     const fs = require('fs');
-    const audioData = fs.readFileSync(tempAudioPath);
-    const fileSize = audioData.length;
-    console.log(`[Transcribe] 音频文件大小: ${fileSize} bytes`);
-
-    if (fileSize === 0) {
+    const stats = fs.statSync(tempAudioPath);
+    if (stats.size === 0) {
       return NextResponse.json({
         success: false,
         message: '音频文件为空，FFmpeg 提取音频失败'
       }, { status: 500 });
     }
+    console.log(`[Transcribe] 音频文件大小: ${stats.size} bytes`);
 
-    const audioBase64 = audioData.toString('base64');
+    // 生成 OSS 文件名并上传
+    const audioFileNameForOSS = `audio_${timestamp}.wav`;
+    ossObjectKey = generateUniqueFileName(audioFileNameForOSS);
+
+    console.log('[Transcribe] 开始上传音频到 OSS...');
+    const ossUrl = await uploadToOSS(tempAudioPath, ossObjectKey);
+    console.log(`[Transcribe] OSS 公网 URL: ${ossUrl}`);
 
     // 获取 API Key
     const apiKey = process.env.DASHSCOPE_API_KEY;
     if (!apiKey) {
+      // 清理 OSS 文件
+      await deleteOSSFile(ossObjectKey);
       return NextResponse.json({
         success: false,
         message: '未配置 DASHSCOPE_API_KEY 环境变量'
       }, { status: 500 });
     }
 
-    // 调用 Qwen-Audio 语音识别
-    console.log('[Transcribe] 开始调用 Qwen-Audio 语音识别 API...');
-    const asrResult = await callQwenAudioASR(audioBase64, apiKey);
+    // 调用 Paraformer 录音文件识别
+    console.log('[Transcribe] 开始调用 Paraformer 录音文件识别 API...');
+    const asrResult = await callParaformerASR(ossUrl, apiKey);
+
+    // 识别完成后删除 OSS 临时文件
+    await deleteOSSFile(ossObjectKey);
 
     // 清理本地临时文件
     await unlink(tempAudioPath).catch(() => {});
@@ -205,6 +326,11 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('[Transcribe] 处理异常:', error);
+
+    // 清理 OSS 文件
+    if (ossObjectKey) {
+      await deleteOSSFile(ossObjectKey);
+    }
 
     // 清理本地临时文件
     await unlink(tempAudioPath).catch(() => {});
