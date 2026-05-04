@@ -5,7 +5,7 @@ import { join } from 'path';
 // 保存配置到 .env.local
 export async function POST(request: NextRequest) {
   try {
-    const { deepseekKey, dashscopeKey, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket } = await request.json();
+    const { deepseekKey, dashscopeKey, siliconflowKey, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -36,6 +36,16 @@ export async function POST(request: NextRequest) {
         envContent = envContent.replace(dashscopePattern, `DASHSCOPE_API_KEY=${dashscopeKey}`);
       } else {
         envContent += `\nDASHSCOPE_API_KEY=${dashscopeKey}`;
+      }
+    }
+
+    // 更新或添加 SiliconFlow API Key
+    if (siliconflowKey !== undefined) {
+      const siliconflowPattern = /^SILICONFLOW_API_KEY=.*$/m;
+      if (siliconflowPattern.test(envContent)) {
+        envContent = envContent.replace(siliconflowPattern, `SILICONFLOW_API_KEY=${siliconflowKey}`);
+      } else {
+        envContent += `\nSILICONFLOW_API_KEY=${siliconflowKey}`;
       }
     }
 
@@ -103,6 +113,7 @@ export async function GET() {
   try {
     const deepseekKey = process.env.DEEPSEEK_API_KEY;
     const dashscopeKey = process.env.DASHSCOPE_API_KEY;
+    const siliconflowKey = process.env.SILICONFLOW_API_KEY;
     const ossRegion = process.env.OSS_REGION;
     const ossBucket = process.env.OSS_BUCKET;
 
@@ -114,6 +125,7 @@ export async function GET() {
       data: {
         deepseekConfigured: !!deepseekKey,
         dashscopeConfigured: !!dashscopeKey,
+        siliconflowConfigured: !!siliconflowKey,
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''
