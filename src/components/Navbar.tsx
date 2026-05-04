@@ -153,13 +153,28 @@ export default function Navbar() {
             <Link href="/dashboard" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
               {t.nav.dashboard}
             </Link>
-            <Link href="/admin/settings" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
-              {t.nav.settings}
-            </Link>
             {user?.role === 'admin' && (
-              <Link href="/admin/review" className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm">
-                审核管理
-              </Link>
+              <div className="relative"
+                onMouseEnter={() => setShowAIMenu(true)}
+                onMouseLeave={() => setShowAIMenu(false)}
+              >
+                <button className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm flex items-center gap-1">
+                  管理员
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {showAIMenu && (
+                  <div className="absolute top-full left-0 mt-1 w-48 bg-gray-900/95 backdrop-blur-md border border-white/10 rounded-xl shadow-xl py-2 z-50">
+                    <Link href="/admin/review" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      审核管理
+                    </Link>
+                    <Link href="/admin/api-keys" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      API 管理
+                    </Link>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -186,13 +201,15 @@ export default function Navbar() {
                   <Link href="/projects" className="block px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">
                     {t.projects.title}
                   </Link>
-                  <Link href="/admin/settings" className="block px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">
-                    {t.nav.settings}
-                  </Link>
                   {user?.role === 'admin' && (
-                    <Link href="/admin/review" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
-                      审核管理
-                    </Link>
+                    <>
+                      <Link href="/admin/review" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                        审核管理
+                      </Link>
+                      <Link href="/admin/api-keys" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                        API 管理
+                      </Link>
+                    </>
                   )}
                   <button
                     onClick={logout}
