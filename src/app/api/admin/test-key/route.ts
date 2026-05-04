@@ -122,11 +122,11 @@ export async function POST(request: NextRequest) {
           });
 
           // 测试列出 buckets
-          const result = await client.listBuckets();
-          console.log('[Test-Key] OSS 连接成功，当前账号 buckets:', result.buckets?.length);
+          const buckets = await client.listBuckets({ 'max-keys': 1 });
+          console.log('[Test-Key] OSS 连接成功，当前账号 buckets:', buckets?.length);
 
           // 检查指定的 bucket 是否存在
-          const targetBucket = result.buckets?.find(b => b.name === bucket);
+          const targetBucket = buckets?.find(b => b.name === bucket);
           if (targetBucket) {
             return NextResponse.json({
               valid: true,
