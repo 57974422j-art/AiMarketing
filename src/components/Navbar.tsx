@@ -11,6 +11,7 @@ export default function Navbar() {
   const [showAIMenu, setShowAIMenu] = useState(false)
   const [showVideoMenu, setShowVideoMenu] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showAdminMenu, setShowAdminMenu] = useState(false)
 
   const getRoleName = (role: string) => {
     switch (role) {
@@ -155,8 +156,8 @@ export default function Navbar() {
             </Link>
             {user?.role === 'admin' && (
               <div className="relative"
-                onMouseEnter={() => setShowAIMenu(true)}
-                onMouseLeave={() => setShowAIMenu(false)}
+                onMouseEnter={() => setShowAdminMenu(true)}
+                onMouseLeave={() => setShowAdminMenu(false)}
               >
                 <button className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm flex items-center gap-1">
                   管理员
@@ -164,7 +165,7 @@ export default function Navbar() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
-                {showAIMenu && (
+                {showAdminMenu && (
                   <div className="absolute top-full left-0 mt-1 w-48 bg-gray-900/95 backdrop-blur-md border border-white/10 rounded-xl shadow-xl py-2 z-50">
                     <Link href="/admin/review" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
                       审核管理
