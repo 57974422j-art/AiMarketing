@@ -103,6 +103,42 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      case 'siliconflow': {
+        if (!key) {
+          return NextResponse.json({ valid: false, message: '缺少 key 参数' }, { status: 400 });
+        }
+
+        // 测试硅基流动 API - 使用 models 接口验证 Key
+        const response = await fetch('https://api.siliconflow.cn/v1/models', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${key}`
+          },
+          signal: AbortSignal.timeout(15000)
+        });
+
+        if (response.ok) {
+          return NextResponse.json({
+            valid: true,
+            message: '硅基流动 API Key 有效'
+          });
+        } else {
+          const responseText = await response.text();
+          try {
+            const error = JSON.parse(responseText);
+            return NextResponse.json({
+              valid: false,
+              message: `API 错误: ${error.error?.message || responseText.substring(0, 100)}`
+            });
+          } catch {
+            return NextResponse.json({
+              valid: false,
+              message: `HTTP ${response.status}: ${responseText.substring(0, 100)}`
+            });
+          }
+        }
+      }
+
       case 'oss': {
         // 测试 OSS 连接
         if (!region || !accessKeyId || !accessKeySecret || !bucket) {
