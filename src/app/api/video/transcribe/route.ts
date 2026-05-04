@@ -50,9 +50,10 @@ async function callParaformerFileASR(ossUrl: string, apiKey: string, language?: 
       body: JSON.stringify({
         model: 'paraformer-v2',
         input: {
-          audio_url: ossUrl
+          file_urls: [ossUrl]
         },
         parameters: {
+          sample_rate: 16000,
           language: language || 'zh',
           enable_timestamp: false,
           enable_punctuation_prediction: true,
