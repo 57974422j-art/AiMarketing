@@ -173,6 +173,9 @@ export default function Navbar() {
                     <Link href="/admin/api-keys" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
                       API 管理
                     </Link>
+                    <Link href="/admin/settings" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      设置
+                    </Link>
                   </div>
                 )}
               </div>
@@ -209,6 +212,9 @@ export default function Navbar() {
                       </Link>
                       <Link href="/admin/api-keys" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
                         API 管理
+                      </Link>
+                      <Link href="/admin/settings" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                        设置
                       </Link>
                     </>
                   )}

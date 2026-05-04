@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, readFile } from 'fs/promises';
 import { join } from 'path';
 
-// 保存 API Key 到 .env.local
+// 保存配置到 .env.local
 export async function POST(request: NextRequest) {
   try {
-    const { deepseekKey, dashscopeKey } = await request.json();
+    const { deepseekKey, dashscopeKey, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -39,14 +39,54 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 更新或添加 OSS Region
+    if (ossRegion !== undefined) {
+      const regionPattern = /^OSS_REGION=.*$/m;
+      if (regionPattern.test(envContent)) {
+        envContent = envContent.replace(regionPattern, `OSS_REGION=${ossRegion}`);
+      } else {
+        envContent += `\nOSS_REGION=${ossRegion}`;
+      }
+    }
+
+    // 更新或添加 OSS AccessKey ID
+    if (ossAccessKeyId !== undefined) {
+      const akPattern = /^OSS_ACCESS_KEY_ID=.*$/m;
+      if (akPattern.test(envContent)) {
+        envContent = envContent.replace(akPattern, `OSS_ACCESS_KEY_ID=${ossAccessKeyId}`);
+      } else {
+        envContent += `\nOSS_ACCESS_KEY_ID=${ossAccessKeyId}`;
+      }
+    }
+
+    // 更新或添加 OSS AccessKey Secret
+    if (ossAccessKeySecret !== undefined) {
+      const skPattern = /^OSS_ACCESS_KEY_SECRET=.*$/m;
+      if (skPattern.test(envContent)) {
+        envContent = envContent.replace(skPattern, `OSS_ACCESS_KEY_SECRET=${ossAccessKeySecret}`);
+      } else {
+        envContent += `\nOSS_ACCESS_KEY_SECRET=${ossAccessKeySecret}`;
+      }
+    }
+
+    // 更新或添加 OSS Bucket
+    if (ossBucket !== undefined) {
+      const bucketPattern = /^OSS_BUCKET=.*$/m;
+      if (bucketPattern.test(envContent)) {
+        envContent = envContent.replace(bucketPattern, `OSS_BUCKET=${ossBucket}`);
+      } else {
+        envContent += `\nOSS_BUCKET=${ossBucket}`;
+      }
+    }
+
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
 
-    console.log('[Admin-Config] API Key 已保存到 .env.local');
+    console.log('[Admin-Config] 配置已保存到 .env.local');
 
     return NextResponse.json({
       success: true,
-      message: 'API Key 保存成功，重启服务后生效'
+      message: '配置保存成功，重启服务后生效'
     });
 
   } catch (error) {
@@ -58,17 +98,25 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// 获取当前 API Key 配置状态（不返回实际 Key，只返回是否已配置）
+// 获取当前配置状态（不返回实际 Key，只返回是否已配置）
 export async function GET() {
   try {
     const deepseekKey = process.env.DEEPSEEK_API_KEY;
     const dashscopeKey = process.env.DASHSCOPE_API_KEY;
+    const ossRegion = process.env.OSS_REGION;
+    const ossBucket = process.env.OSS_BUCKET;
+
+    // 检查 OSS 是否完整配置
+    const ossConfigured = !!(ossRegion && process.env.OSS_ACCESS_KEY_ID && process.env.OSS_ACCESS_KEY_SECRET && ossBucket);
 
     return NextResponse.json({
       success: true,
       data: {
         deepseekConfigured: !!deepseekKey,
-        dashscopeConfigured: !!dashscopeKey
+        dashscopeConfigured: !!dashscopeKey,
+        ossConfigured,
+        ossRegion: ossRegion || '',
+        ossBucket: ossBucket || ''
       }
     });
   } catch (error) {
