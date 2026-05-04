@@ -21,7 +21,7 @@ export default function SettingsPage() {
   const [ossBucket, setOssBucket] = useState('');
   const [showOssSecret, setShowOssSecret] = useState(false);
   const [testingOSS, setTestingOSS] = useState(false);
-  const [saveMessage, setSaveMessage] = useState('');
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     loadApiKeyStatus();
@@ -214,16 +214,18 @@ export default function SettingsPage() {
       });
 
       const result = await response.json();
-      setSaveMessage(result.message);
 
       if (result.success) {
+        setSaveMessage({ type: 'success', text: '✅ 配置已保存，服务重启中' });
         await loadApiKeyStatus();
         await loadOSSStatus();
+      } else {
+        setSaveMessage({ type: 'error', text: `❌ 保存失败：${result.message}` });
       }
     } catch (error) {
-      setSaveMessage('保存失败，请重试');
+      setSaveMessage({ type: 'error', text: '❌ 保存失败：网络错误' });
     }
-    setTimeout(() => setSaveMessage(''), 3000);
+    setTimeout(() => setSaveMessage(null), 5000);
   };
 
   return (
@@ -235,8 +237,12 @@ export default function SettingsPage() {
             <h1 className="text-mono-lg text-white">设置 / SETTINGS</h1>
           </div>
           {saveMessage && (
-            <div className="px-4 py-2 bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-mono">
-              {saveMessage}
+            <div className={`px-4 py-2 rounded-xl text-sm font-mono ${
+              saveMessage.type === 'success'
+                ? 'bg-emerald-500/20 text-emerald-400'
+                : 'bg-red-500/20 text-red-400'
+            }`}>
+              {saveMessage.text}
             </div>
           )}
         </div>
