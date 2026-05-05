@@ -776,6 +776,14 @@ export default function VideoEditPage() {
         // 3秒后清除成功提示
         setTimeout(() => setSuccessMessage(''), 3000);
         
+        // 更新步骤链状态
+        setStepStates(prev => ({
+          ...prev,
+          transcribe: { status: 'completed', completed: true, message: '识别完成' },
+        }));
+        // 解锁后续步骤
+        setStepStates(prev => ({ ...prev, translate: { ...prev.translate, status: 'active' } }));
+        
         // 如果启用了说话人分离，处理分离结果
         if (postProcessing.enableSpeakerDiarization && data.speakers) {
           const speakers = data.speakers;
