@@ -1273,3 +1273,21 @@ export default function VideoEditPage() {
     </div>
   );
 }
+
+// 解析 style 中的分辨率信息
+function parseStyleWithResolution(styleStr: string): { style: string; resolution: string } {
+  // 检查是否包含常见分辨率标识
+  const resolutionPatterns = ['1080p', '720p', '4k', '9:16', '1:1', '4:3', '16:9', 'original'];
+  const parts = styleStr.split('|');
+  
+  // 如果 style 中包含分辨率信息
+  for (const part of parts) {
+    if (resolutionPatterns.includes(part)) {
+      const style = parts.filter(p => !resolutionPatterns.includes(p)).join('|') || '标准';
+      return { style, resolution: part };
+    }
+  }
+  
+  // 如果没有分辨率信息，返回默认值
+  return { style: '标准', resolution: '1080p' };
+}
