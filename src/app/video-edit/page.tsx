@@ -443,6 +443,21 @@ export default function VideoEditPage() {
       return;
     }
 
+    // 检查是否启用了任何后期处理选项
+    const hasAnyOptionEnabled = postProcessing.enableTTS || 
+                               postProcessing.enableSubtitle || 
+                               postProcessing.enableTranslateSubtitle || 
+                               postProcessing.enableFaceSwap || 
+                               postProcessing.enableLipSync;
+    
+    if (!hasAnyOptionEnabled) {
+      setErrorMessage('请至少选择一个后期处理选项（配音、字幕、翻译、换脸、对口型）');
+      console.error('错误: 没有启用任何后期处理选项');
+      return;
+    }
+
+    console.log('已启用的选项检查通过');
+
     // 重置步骤状态
     const initialSteps: Record<PostProcessStepKey, StepState> = {
       transcribe: { status: 'active', completed: false },
