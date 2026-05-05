@@ -986,7 +986,7 @@ export default function VideoEditPage() {
     </div>
   );
 
-  // 渲染后期处理选项（两个模式共用）
+  // 渲染后期处理选项（仅后期处理模式使用）
   const renderPostProcessingOptions = () => (
     <div className="border-t border-white/10 pt-6">
       <h3 className="text-label mb-4 flex items-center gap-2">
@@ -994,487 +994,123 @@ export default function VideoEditPage() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
-        {pageMode === 'postProcess' ? '后期处理选项' : '后期处理选项（可选）'}
+        后期处理选项
       </h3>
 
-      {/* 后期处理模式：功能开关 */}
-      {pageMode === 'postProcess' && (
-        <div className="mb-4">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTTS ? 'bg-purple-500/20 border border-purple-500/50' : 'bg-white/5 border border-white/10 hover:border-purple-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableTTS}
-                onChange={(e) => updatePostProcessing('enableTTS', e.target.checked)}
-                className="w-4 h-4 rounded accent-purple-500"
-              />
-              <span className={`text-sm ${postProcessing.enableTTS ? 'text-purple-300' : 'text-gray-300'}`}>配音</span>
-            </label>
+      {/* 功能开关 */}
+      <div className="mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTTS ? 'bg-purple-500/20 border border-purple-500/50' : 'bg-white/5 border border-white/10 hover:border-purple-500/30'}`}>
+            <input
+              type="checkbox"
+              checked={postProcessing.enableTTS}
+              onChange={(e) => updatePostProcessing('enableTTS', e.target.checked)}
+              className="w-4 h-4 rounded accent-purple-500"
+            />
+            <span className={`text-sm ${postProcessing.enableTTS ? 'text-purple-300' : 'text-gray-300'}`}>配音</span>
+          </label>
 
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSubtitle ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5 border border-white/10 hover:border-blue-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableSubtitle}
-                onChange={(e) => updatePostProcessing('enableSubtitle', e.target.checked)}
-                className="w-4 h-4 rounded accent-blue-500"
-              />
-              <span className={`text-sm ${postProcessing.enableSubtitle ? 'text-blue-300' : 'text-gray-300'}`}>字幕生成</span>
-            </label>
+          <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSubtitle ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5 border border-white/10 hover:border-blue-500/30'}`}>
+            <input
+              type="checkbox"
+              checked={postProcessing.enableSubtitle}
+              onChange={(e) => updatePostProcessing('enableSubtitle', e.target.checked)}
+              className="w-4 h-4 rounded accent-blue-500"
+            />
+            <span className={`text-sm ${postProcessing.enableSubtitle ? 'text-blue-300' : 'text-gray-300'}`}>字幕生成</span>
+          </label>
 
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTranslateSubtitle ? 'bg-cyan-500/20 border border-cyan-500/50' : 'bg-white/5 border border-white/10 hover:border-cyan-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableTranslateSubtitle}
-                onChange={(e) => updatePostProcessing('enableTranslateSubtitle', e.target.checked)}
-                className="w-4 h-4 rounded accent-cyan-500"
-              />
-              <span className={`text-sm ${postProcessing.enableTranslateSubtitle ? 'text-cyan-300' : 'text-gray-300'}`}>翻译字幕</span>
-            </label>
+          <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTranslateSubtitle ? 'bg-cyan-500/20 border border-cyan-500/50' : 'bg-white/5 border border-white/10 hover:border-cyan-500/30'}`}>
+            <input
+              type="checkbox"
+              checked={postProcessing.enableTranslateSubtitle}
+              onChange={(e) => updatePostProcessing('enableTranslateSubtitle', e.target.checked)}
+              className="w-4 h-4 rounded accent-cyan-500"
+            />
+            <span className={`text-sm ${postProcessing.enableTranslateSubtitle ? 'text-cyan-300' : 'text-gray-300'}`}>翻译字幕</span>
+          </label>
 
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSpeakerDiarization ? 'bg-orange-500/20 border border-orange-500/50' : 'bg-white/5 border border-white/10 hover:border-orange-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableSpeakerDiarization}
-                onChange={(e) => updatePostProcessing('enableSpeakerDiarization', e.target.checked)}
-                className="w-4 h-4 rounded accent-orange-500"
-              />
-              <span className={`text-sm ${postProcessing.enableSpeakerDiarization ? 'text-orange-300' : 'text-gray-300'}`}>说话人分离</span>
-            </label>
+          <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSpeakerDiarization ? 'bg-orange-500/20 border border-orange-500/50' : 'bg-white/5 border border-white/10 hover:border-orange-500/30'}`}>
+            <input
+              type="checkbox"
+              checked={postProcessing.enableSpeakerDiarization}
+              onChange={(e) => updatePostProcessing('enableSpeakerDiarization', e.target.checked)}
+              className="w-4 h-4 rounded accent-orange-500"
+            />
+            <span className={`text-sm ${postProcessing.enableSpeakerDiarization ? 'text-orange-300' : 'text-gray-300'}`}>说话人分离</span>
+          </label>
 
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableFaceSwap ? 'bg-pink-500/20 border border-pink-500/50' : 'bg-white/5 border border-white/10 hover:border-pink-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableFaceSwap}
-                onChange={(e) => updatePostProcessing('enableFaceSwap', e.target.checked)}
-                className="w-4 h-4 rounded accent-pink-500"
-              />
-              <span className={`text-sm ${postProcessing.enableFaceSwap ? 'text-pink-300' : 'text-gray-300'}`}>换脸</span>
-            </label>
+          <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableFaceSwap ? 'bg-pink-500/20 border border-pink-500/50' : 'bg-white/5 border border-white/10 hover:border-pink-500/30'}`}>
+            <input
+              type="checkbox"
+              checked={postProcessing.enableFaceSwap}
+              onChange={(e) => updatePostProcessing('enableFaceSwap', e.target.checked)}
+              className="w-4 h-4 rounded accent-pink-500"
+            />
+            <span className={`text-sm ${postProcessing.enableFaceSwap ? 'text-pink-300' : 'text-gray-300'}`}>换脸</span>
+          </label>
 
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableLipSync ? 'bg-amber-500/20 border border-amber-500/50' : 'bg-white/5 border border-white/10 hover:border-amber-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableLipSync}
-                onChange={(e) => updatePostProcessing('enableLipSync', e.target.checked)}
-                className="w-4 h-4 rounded accent-amber-500"
-              />
-              <span className={`text-sm ${postProcessing.enableLipSync ? 'text-amber-300' : 'text-gray-300'}`}>对口型</span>
-            </label>
-          </div>
+          <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableLipSync ? 'bg-amber-500/20 border border-amber-500/50' : 'bg-white/5 border border-white/10 hover:border-amber-500/30'}`}>
+            <input
+              type="checkbox"
+              checked={postProcessing.enableLipSync}
+              onChange={(e) => updatePostProcessing('enableLipSync', e.target.checked)}
+              className="w-4 h-4 rounded accent-amber-500"
+            />
+            <span className={`text-sm ${postProcessing.enableLipSync ? 'text-amber-300' : 'text-gray-300'}`}>对口型</span>
+          </label>
         </div>
-      )}
+      </div>
 
-      {/* 步骤链（显示进度）- 仅在后期处理模式显示 */}
-      {pageMode === 'postProcess' && (
-        <div className="mb-4">
-          <h4 className="text-sm text-gray-400 mb-2">处理进度</h4>
-          <div className="flex flex-wrap gap-2">
-            {POST_PROCESS_STEPS.map((step, index) => {
-              const state = stepStates[step.key];
-              const isActive = currentStepKey === step.key;
-              const isCompleted = state.status === 'completed';
-              const isSkipped = state.status === 'skipped';
-              
-              const colorClasses: Record<string, string> = {
-                orange: isActive ? 'bg-orange-500 border-orange-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
-                cyan: isActive ? 'bg-cyan-500 border-cyan-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
-                blue: isActive ? 'bg-blue-500 border-blue-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
-                purple: isActive ? 'bg-purple-500 border-purple-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
-                amber: isActive ? 'bg-amber-500 border-amber-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
-                pink: isActive ? 'bg-pink-500 border-pink-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
-              };
+      {/* 步骤链（显示进度） */}
+      <div className="mb-4">
+        <h4 className="text-sm text-gray-400 mb-2">处理进度</h4>
+        <div className="flex flex-wrap gap-2">
+          {POST_PROCESS_STEPS.map((step, index) => {
+            const state = stepStates[step.key];
+            const isActive = currentStepKey === step.key;
+            const isCompleted = state.status === 'completed';
+            const isSkipped = state.status === 'skipped';
+            
+            const colorClasses: Record<string, string> = {
+              orange: isActive ? 'bg-orange-500 border-orange-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
+              cyan: isActive ? 'bg-cyan-500 border-cyan-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
+              blue: isActive ? 'bg-blue-500 border-blue-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
+              purple: isActive ? 'bg-purple-500 border-purple-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
+              amber: isActive ? 'bg-amber-500 border-amber-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
+              pink: isActive ? 'bg-pink-500 border-pink-500 text-white' : isCompleted ? 'bg-green-500/20 border-green-500 text-green-400' : isSkipped ? 'bg-gray-500/20 border-gray-500 text-gray-400' : 'bg-white/5 border-white/20 text-gray-400',
+            };
 
-              return (
-                <div key={step.key} className="flex items-center">
-                  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${colorClasses[step.color]}`}>
-                    {isActive && (
-                      <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    )}
-                    {isCompleted && (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                    {isSkipped && (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                      </svg>
-                    )}
-                    <span className="text-sm font-medium">{step.label}</span>
-                  </div>
-                  {index < POST_PROCESS_STEPS.length - 1 && (
-                    <svg className="w-4 h-4 text-gray-500 mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            return (
+              <div key={step.key} className="flex items-center">
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${colorClasses[step.color]}`}>
+                  {isActive && (
+                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                   )}
+                  {isCompleted && (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                  {isSkipped && (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                  )}
+                  <span className="text-sm font-medium">{step.label}</span>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 剪辑模式：功能开关和配置 */}
-      {pageMode !== 'postProcess' && (
-        <>
-          {/* 功能开关 */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTTS ? 'bg-purple-500/20 border border-purple-500/50' : 'bg-white/5 border border-white/10 hover:border-purple-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableTTS}
-                onChange={(e) => updatePostProcessing('enableTTS', e.target.checked)}
-                className="w-4 h-4 rounded accent-purple-500"
-              />
-              <span className={`text-sm ${postProcessing.enableTTS ? 'text-purple-300' : 'text-gray-300'}`}>配音</span>
-            </label>
-
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSubtitle ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5 border border-white/10 hover:border-blue-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableSubtitle}
-                onChange={(e) => updatePostProcessing('enableSubtitle', e.target.checked)}
-                className="w-4 h-4 rounded accent-blue-500"
-              />
-              <span className={`text-sm ${postProcessing.enableSubtitle ? 'text-blue-300' : 'text-gray-300'}`}>字幕生成</span>
-            </label>
-
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTranslateSubtitle ? 'bg-cyan-500/20 border border-cyan-500/50' : 'bg-white/5 border border-white/10 hover:border-cyan-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableTranslateSubtitle}
-                onChange={(e) => updatePostProcessing('enableTranslateSubtitle', e.target.checked)}
-                className="w-4 h-4 rounded accent-cyan-500"
-              />
-              <span className={`text-sm ${postProcessing.enableTranslateSubtitle ? 'text-cyan-300' : 'text-gray-300'}`}>翻译字幕</span>
-            </label>
-
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSpeakerDiarization ? 'bg-orange-500/20 border border-orange-500/50' : 'bg-white/5 border border-white/10 hover:border-orange-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableSpeakerDiarization}
-                onChange={(e) => updatePostProcessing('enableSpeakerDiarization', e.target.checked)}
-                className="w-4 h-4 rounded accent-orange-500"
-              />
-              <span className={`text-sm ${postProcessing.enableSpeakerDiarization ? 'text-orange-300' : 'text-gray-300'}`}>说话人分离</span>
-            </label>
-
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableFaceSwap ? 'bg-pink-500/20 border border-pink-500/50' : 'bg-white/5 border border-white/10 hover:border-pink-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableFaceSwap}
-                onChange={(e) => updatePostProcessing('enableFaceSwap', e.target.checked)}
-                className="w-4 h-4 rounded accent-pink-500"
-              />
-              <span className={`text-sm ${postProcessing.enableFaceSwap ? 'text-pink-300' : 'text-gray-300'}`}>换脸</span>
-            </label>
-
-            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableLipSync ? 'bg-amber-500/20 border border-amber-500/50' : 'bg-white/5 border border-white/10 hover:border-amber-500/30'}`}>
-              <input
-                type="checkbox"
-                checked={postProcessing.enableLipSync}
-                onChange={(e) => updatePostProcessing('enableLipSync', e.target.checked)}
-                className="w-4 h-4 rounded accent-amber-500"
-              />
-              <span className={`text-sm ${postProcessing.enableLipSync ? 'text-amber-300' : 'text-gray-300'}`}>对口型</span>
-            </label>
-          </div>
-
-          {/* 步骤说明和配置 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* 目标语言 */}
-            <div className="p-4 bg-white/5 border border-white/10 rounded-xl">
-              <label className="block text-sm text-gray-300 mb-2">目标语言</label>
-              <select
-                value={targetLanguage}
-                onChange={(e) => setTargetLanguage(e.target.value)}
-                className="w-full bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-white focus:outline-none"
-              >
-                {languageOptions.map(lang => (
-                  <option key={lang.value} value={lang.value} className="bg-gray-900">
-                    {lang.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 说话人分离 */}
-            <div className="p-4 bg-orange-500/10 border border-orange-500/20 rounded-xl">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={postProcessing.enableSpeakerDiarization}
-                  onChange={(e) => updatePostProcessing('enableSpeakerDiarization', e.target.checked)}
-                  className="w-4 h-4 rounded accent-orange-500"
-                />
-                <span className="text-sm text-orange-300">说话人分离</span>
-              </label>
-              <p className="text-xs text-orange-400/60 mt-2">自动识别不同说话人，为每个人分配不同音色</p>
-            </div>
-          </div>
-
-          {/* 说话人分离结果 */}
-          {speakerDiarization.length > 0 && (
-            <div className="p-4 bg-orange-500/10 border border-orange-500/20 rounded-xl">
-              <h4 className="text-sm text-orange-300 mb-3">说话人分离结果</h4>
-              <div className="space-y-2">
-                {speakerDiarization.map((item, idx) => (
-                  <div key={idx} className="flex items-start gap-3 p-2 bg-white/5 rounded-lg">
-                    <span className="px-2 py-0.5 bg-orange-500/30 text-orange-300 text-xs rounded">{item.speaker}</span>
-                    <span className="flex-1 text-sm text-gray-300">{item.text}</span>
-                    <select
-                      value={item.voice}
-                      onChange={(e) => {
-                        const newAssignments = [...speakerDiarization];
-                        newAssignments[idx].voice = e.target.value;
-                        setSpeakerDiarization(newAssignments);
-                      }}
-                      className="bg-white/5 border border-orange-500/30 rounded px-2 py-1 text-xs text-white"
-                    >
-                      {voicePresets.map(preset => (
-                        <option key={preset.id} value={preset.voice} className="bg-gray-900">
-                          {preset.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 配音文案 */}
-          <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl">
-            <label className="block text-sm text-purple-300 mb-2">配音文案</label>
-            <textarea
-              value={ttsScript}
-              onChange={(e) => setTtsScript(e.target.value)}
-              placeholder="输入要配音的文案，或先进行语音识别自动填充..."
-              className="w-full bg-white/5 border border-purple-500/30 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none h-24 resize-none"
-            />
-          </div>
-
-          {/* 换脸选项 */}
-          <div className="p-4 bg-pink-500/10 border border-pink-500/20 rounded-xl">
-            <label className="block text-sm text-pink-300 mb-2">上传目标人脸照片</label>
-            <div className="flex items-center gap-4">
-              <input
-                ref={faceInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFaceImageSelect}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => faceInputRef.current?.click()}
-                className="px-4 py-2 bg-pink-500/20 border border-pink-500/30 text-pink-300 rounded-lg hover:bg-pink-500/30"
-              >
-                选择图片
-              </button>
-              {faceImagePreview && (
-                <div className="flex items-center gap-2">
-                  <img src={faceImagePreview} alt="人脸预览" className="w-16 h-16 object-cover rounded-lg border border-pink-500/30" />
-                  <button
-                    type="button"
-                    onClick={() => { setFaceImage(null); setFaceImagePreview(''); }}
-                    className="text-pink-400 hover:text-pink-300"
-                  >
-                    移除
-                  </button>
-                </div>
-              )}
-            </div>
-            <p className="text-xs text-pink-400/60 mt-2">支持 JPG、PNG 格式，建议使用正面清晰的证件照或自拍</p>
-          </div>
-
-          {/* 步骤状态提示 */}
-          {Object.values(stepStates).some(s => s.status === 'completed') && (
-            <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-xl">
-              <p className="text-sm text-green-400">
-                {stepStates.transcribe.completed && '✅ 语音识别已完成，识别文本已填入上方配音文案'}
-                {stepStates.translate.completed && '，翻译字幕已完成'}
-                {stepStates.subtitle.completed && '，字幕已生成'}
-                {stepStates.tts.completed && '，配音已生成'}
-                {stepStates.lipsync.completed && '，对口型已调整'}
-                {stepStates.faceswap.completed && '，换脸已完成'}
-              </p>
-            </div>
-          )}
-        </>
-      )}
-
-          {/* 说话人分离结果 */}
-          {speakerDiarization.length > 0 && (
-            <div className="mb-4 p-4 bg-orange-500/10 border border-orange-500/20 rounded-xl">
-              <h4 className="text-sm text-orange-300 mb-3">说话人分离结果</h4>
-              <div className="space-y-2">
-                {speakerDiarization.map((item, idx) => (
-                  <div key={idx} className="flex items-start gap-3 p-2 bg-white/5 rounded-lg">
-                    <span className="px-2 py-0.5 bg-orange-500/30 text-orange-300 text-xs rounded">{item.speaker}</span>
-                    <span className="flex-1 text-sm text-gray-300">{item.text}</span>
-                    <select
-                      value={item.voice}
-                      onChange={(e) => {
-                        const newAssignments = [...speakerDiarization];
-                        newAssignments[idx].voice = e.target.value;
-                        setSpeakerDiarization(newAssignments);
-                      }}
-                      className="bg-white/5 border border-orange-500/30 rounded px-2 py-1 text-xs text-white"
-                    >
-                      {voicePresets.map(preset => (
-                        <option key={preset.id} value={preset.voice} className="bg-gray-900">
-                          {preset.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 配音选项 */}
-          {postProcessing.enableTTS && (
-            <div className="mb-4 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-purple-300 mb-2">配音角色</label>
-                  <select
-                    value={voiceAssignments[0]?.voice || 'aixia'}
-                    onChange={(e) => {
-                      if (voiceAssignments.length > 0) {
-                        setVoiceAssignments([{ ...voiceAssignments[0], voice: e.target.value }]);
-                      }
-                    }}
-                    className="w-full bg-white/5 border border-purple-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
-                  >
-                    {voicePresets.map(voice => (
-                      <option key={voice.id} value={voice.voice} className="bg-gray-900">
-                        {voice.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-purple-300 mb-2">目标语言</label>
-                  <select
-                    value={targetLanguage}
-                    onChange={(e) => setTargetLanguage(e.target.value)}
-                    className="w-full bg-white/5 border border-purple-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
-                  >
-                    {languageOptions.map(lang => (
-                      <option key={lang.value} value={lang.value} className="bg-gray-900">
-                        {lang.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-purple-300 mb-2">配音文案</label>
-                  <textarea
-                    value={ttsScript}
-                    onChange={(e) => setTtsScript(e.target.value)}
-                    placeholder="输入要配音的文案内容..."
-                    className="w-full bg-white/5 border border-purple-500/30 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none h-24 resize-none"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 字幕选项 */}
-          {postProcessing.enableSubtitle && !postProcessing.enableTTS && (
-            <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-              <label className="block text-sm text-blue-300 mb-2">目标语言</label>
-              <select
-                value={targetLanguage}
-                onChange={(e) => setTargetLanguage(e.target.value)}
-                className="w-full bg-white/5 border border-blue-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
-              >
-                {languageOptions.map(lang => (
-                  <option key={lang.value} value={lang.value} className="bg-gray-900">
-                    {lang.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* 翻译字幕选项 */}
-          {postProcessing.enableTranslateSubtitle && !postProcessing.enableSubtitle && (
-            <div className="mb-4 p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-xl">
-              <label className="block text-sm text-cyan-300 mb-2">翻译目标语言</label>
-              <select
-                value={targetLanguage}
-                onChange={(e) => setTargetLanguage(e.target.value)}
-                className="w-full bg-white/5 border border-cyan-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
-              >
-                {languageOptions.map(lang => (
-                  <option key={lang.value} value={lang.value} className="bg-gray-900">
-                    {lang.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* 换脸选项 */}
-          {postProcessing.enableFaceSwap && (
-            <div className="mb-4 p-4 bg-pink-500/10 border border-pink-500/20 rounded-xl">
-              <label className="block text-sm text-pink-300 mb-2">上传目标人脸照片</label>
-              <div className="flex items-center gap-4">
-                <input
-                  ref={faceInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFaceImageSelect}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => faceInputRef.current?.click()}
-                  className="px-4 py-2 bg-pink-500/20 border border-pink-500/30 text-pink-300 rounded-lg hover:bg-pink-500/30"
-                >
-                  选择图片
-                </button>
-                {faceImagePreview && (
-                  <div className="flex items-center gap-2">
-                    <img src={faceImagePreview} alt="人脸预览" className="w-16 h-16 object-cover rounded-lg border border-pink-500/30" />
-                    <button
-                      type="button"
-                      onClick={() => { setFaceImage(null); setFaceImagePreview(''); }}
-                      className="text-pink-400 hover:text-pink-300"
-                    >
-                      移除
-                    </button>
-                  </div>
+                {index < POST_PROCESS_STEPS.length - 1 && (
+                  <svg className="w-4 h-4 text-gray-500 mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                 )}
               </div>
-              <p className="text-xs text-pink-400/60 mt-2">支持 JPG、PNG 格式，建议使用正面清晰的证件照或自拍</p>
-            </div>
-          )}
-
-          {/* 对口型说明 */}
-          {postProcessing.enableLipSync && (
-            <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-              <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-amber-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div>
-                  <p className="text-sm text-amber-300">对口型功能说明</p>
-                  <p className="text-xs text-amber-400/60 mt-1">
-                    此功能会根据配音自动调整视频中人物的口型匹配度。当前版本会返回模拟处理结果，实际效果取决于视频内容质量。
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 
@@ -1727,8 +1363,6 @@ export default function VideoEditPage() {
                       </select>
                     </div>
                   </div>
-
-                  {renderPostProcessingOptions()}
 
                   {/* 提交按钮 */}
                   <div className="flex items-center gap-4">
