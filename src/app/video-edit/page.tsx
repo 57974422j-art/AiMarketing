@@ -156,13 +156,14 @@ export default function VideoEditPage() {
     { value: 'ar', label: '阿拉伯语' },
   ]
 
-  // 配音角色选项
+  // 配音角色选项 (Sambert TTS)
   const voiceOptions = [
-    { value: 'aixia', label: '艾夏 (女声)' },
-    { value: 'aiobtn', label: '艾奥 (男声)' },
-    { value: 'xiaomeng', label: '小梦 (活泼女声)' },
-    { value: 'yina', label: '依娜 (温柔女声)' },
-    { value: 'aibai', label: '艾白 (成熟女声)' },
+    { value: 'sambert-zhijia-v1', label: '知佳 (女声)' },
+    { value: 'sambert-zhuopu-v1', label: '卓璞 (男声)' },
+    { value: 'sambert-zhiru-v1', label: '知柔 (温柔女声)' },
+    { value: 'sambert-zhibei-v1', label: '知贝 (甜美女声)' },
+    { value: 'sambert-zhiqi-v1', label: '知琪 (成熟女声)' },
+    { value: 'sambert-zhida-v1', label: '知达 (磁性男声)' },
   ]
 
   useEffect(() => {

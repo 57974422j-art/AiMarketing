@@ -379,36 +379,55 @@ export async function dashscopeQueryVideoTask(taskId: string): Promise<VideoGene
   };
 }
 
-// 阿里云百炼语音合成 TTS API
-export async function dashscopeTTS(text: string, voice: string = 'aixia'): Promise<ArrayBuffer | null> {
+// 阿里云百炼语音合成 TTS API (Sambert)
+export async function dashscopeTTS(text: string, voice: string = 'sambert-zhijia-v1'): Promise<ArrayBuffer | null> {
+  if (!text?.trim()) return null;
+
   const apiKey = process.env.DASHSCOPE_API_KEY;
   if (!apiKey) {
-    return null; // 静默降级
+    console.warn('[DashScope TTS] 未配置 DASHSCOPE_API_KEY，跳过 TTS');
+    return null;
   }
 
-  const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/tts/cosyvoice', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: 'cosyvoice-v1',
-      input: {
-        text: text
+  // 语音名称清洗，防止意外传入路径导致 API 报 url error
+  const cleanVoice = voice.replace(/[^a-zA-Z0-9-_]/g, '');
+  console.log(`[DashScope TTS] 开始合成: voice=${cleanVoice}, text_len=${text.length}`);
+
+  try {
+    const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/audio/tts/speech-synthesis', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-DashScope-Async': 'disable'
       },
-      parameters: {
-        voice: voice
-      }
-    })
-  });
+      body: JSON.stringify({
+        model: 'sambert-zhijia-v1',
+        input: {
+          text: text.trim()
+        },
+        parameters: {
+          voice: cleanVoice,
+          format: 'wav',
+          sample_rate: 16000
+        }
+      })
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`DashScope TTS API error ${response.status}: ${errorText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[DashScope TTS] API 错误 ${response.status}:`, errorText);
+      return null;
+    }
+
+    // Sambert 成功时返回二进制音频流
+    const arrayBuffer = await response.arrayBuffer();
+    console.log(`[DashScope TTS] 合成成功, 大小: ${arrayBuffer.byteLength} bytes`);
+    return arrayBuffer;
+  } catch (error) {
+    console.error('[DashScope TTS] 网络或解析异常:', error);
+    return null;
   }
-
-  return response.arrayBuffer();
 }
 
 // 提供商工厂

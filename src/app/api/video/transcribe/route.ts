@@ -63,9 +63,16 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      await execFileAsync(ffmpegPath, ['-i', uploadVideoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tempAudioPath], { timeout: 60000 });
+      const { stderr } = await execFileAsync(ffmpegPath, ['-i', uploadVideoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tempAudioPath], { timeout: 60000 });
+      // 过滤 FFmpeg 版本信息，只在实际错误时打印
+      const realWarning = stderr && 
+        !stderr.includes('ffmpeg version') && 
+        !stderr.includes('built with') &&
+        !stderr.includes('configuration') &&
+        !stderr.includes('libav');
+      if (realWarning) console.warn(`[Transcribe] FFmpeg 警告:`, stderr.substring(0, 300));
     } catch (e: any) {
-      return NextResponse.json({ success: false, message: '音频提取失败' }, { status: 400 });
+      return NextResponse.json({ success: false, message: `音频提取失败: ${e.stderr || e.message}` }, { status: 400 });
     }
 
     const stats = statSync(tempAudioPath);
