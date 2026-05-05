@@ -402,12 +402,16 @@ export async function POST(request: NextRequest) {
       console.log('[Video] OSS 上传成功:', ossUrl);
     } catch (ossError) {
       console.error('[Video] OSS 上传失败:', ossError);
-      // OSS 上传失败不影响任务完成，只是返回本地路径
+      // OSS 上传失败，保留本地文件，返回本地路径
     }
 
-    // 清理本地临时文件
-    if (existsSync(tempOutput)) {
-      unlinkSync(tempOutput)
+    // 如果 OSS 上传成功，清理本地临时文件；否则保留供下载
+    if (ossUrl) {
+      if (existsSync(tempOutput)) {
+        unlinkSync(tempOutput)
+      }
+    } else {
+      console.log('[Video] OSS 未上传成功，保留本地文件:', tempOutput)
     }
 
     if (user) {
@@ -429,12 +433,14 @@ export async function POST(request: NextRequest) {
       console.log('[Video] Task saved to database:', videoTask.id)
     }
 
+    const localOutputUrl = tempOutput.replace(join(process.cwd(), 'public'), '').replace(/\\/g, '/');
+
     return NextResponse.json({
       success: true,
       message: '视频剪辑任务已完成',
       taskId,
-      outputUrl: ossUrl,
-      downloadUrl: ossUrl
+      outputUrl: ossUrl || localOutputUrl,
+      downloadUrl: ossUrl || localOutputUrl
     })
   } catch (error) {
     console.error('视频剪辑错误:', error)

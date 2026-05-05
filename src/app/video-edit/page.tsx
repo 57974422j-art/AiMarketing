@@ -103,6 +103,7 @@ export default function VideoEditPage() {
   const [faceImagePreview, setFaceImagePreview] = useState<string>('');
   const [currentProcessStep, setCurrentProcessStep] = useState('');
   const [isTranscribing, setIsTranscribing] = useState(false); // 语音识别中
+  const [transcribedVideoUrl, setTranscribedVideoUrl] = useState<string>(''); // 语音识别后返回的视频URL
   
   // 后期处理步骤链状态
   const [stepStates, setStepStates] = useState<Record<PostProcessStepKey, StepState>>({
@@ -475,56 +476,68 @@ export default function VideoEditPage() {
     setErrorMessage('');
     setSuccessMessage('');
 
+    // 用本地变量避免 React 异步 state 问题
+    let currentVideoUrl = transcribedVideoUrl || '';
+    let currentScript = ttsScript || '';
+
     try {
-      // 步骤1: 先上传视频获取URL
-      console.log('=== 步骤1: 上传视频 ===');
-      setCurrentStepKey('transcribe');
-      setCurrentProcessStep('上传视频中...');
-      setProgress(10);
+      // 如果没有视频URL（未手动识别），先上传+识别获取URL
+      if (!currentVideoUrl) {
+        console.log('=== 步骤1: 上传视频+语音识别 ===');
+        setCurrentStepKey('transcribe');
+        setCurrentProcessStep('上传并识别语音中...');
+        setProgress(10);
 
-      const uploadFormData = new FormData();
-      uploadFormData.append('video', videos[0].file);
-      
-      // 调用transcribe API上传视频（它会上传文件到服务器）
-      const uploadRes = await fetch('/api/video/transcribe', {
-        method: 'POST',
-        credentials: 'include',
-        body: uploadFormData,
-      });
-      
-      console.log('上传响应状态:', uploadRes.status);
-      const uploadData = await uploadRes.json();
-      console.log('上传响应数据:', uploadData);
-      
-      if (!uploadData.success) {
-        throw new Error('视频上传失败: ' + (uploadData.message || '未知错误'));
+        const uploadFormData = new FormData();
+        uploadFormData.append('video', videos[0].file);
+        
+        const uploadRes = await fetch('/api/video/transcribe', {
+          method: 'POST',
+          credentials: 'include',
+          body: uploadFormData,
+        });
+        
+        console.log('上传响应状态:', uploadRes.status);
+        const uploadData = await uploadRes.json();
+        console.log('上传响应数据:', uploadData);
+        
+        if (!uploadData.success) {
+          throw new Error('视频上传失败: ' + (uploadData.message || '未知错误'));
+        }
+        
+        currentVideoUrl = uploadData.videoUrl || '';
+        currentScript = uploadData.text || '';
+        console.log('视频URL:', currentVideoUrl);
+        console.log('识别文本长度:', currentScript.length);
+        
+        // 更新state供UI显示
+        setTranscribedVideoUrl(currentVideoUrl);
+        if (currentScript) setTtsScript(currentScript);
+        
+        setProgress(20);
+        setStepStates(prev => ({ 
+          ...prev, 
+          transcribe: { status: 'completed', completed: true, message: '识别完成' } 
+        }));
+      } else {
+        console.log('使用已有视频URL:', currentVideoUrl);
+        console.log('使用已有文案，长度:', currentScript.length);
+        setProgress(20);
+        setStepStates(prev => ({ 
+          ...prev, 
+          transcribe: { status: 'completed', completed: true, message: '已识别' } 
+        }));
       }
-      
-      // 使用API返回的videoUrl（语音识别API现在会返回视频URL）
-      const videoUrl = uploadData.videoUrl || `/uploads/asr/video_${Date.now()}.mp4`;
-      console.log('视频URL（来自API）:', videoUrl);
-      
-      // 保存识别文本供后续使用
-      if (uploadData.text) {
-        setTtsScript(uploadData.text);
-        console.log('保存识别文本，长度:', uploadData.text.length);
-      }
-      
-      setProgress(20);
-      setStepStates(prev => ({ 
-        ...prev, 
-        transcribe: { status: 'completed', completed: true, message: '上传完成' } 
-      }));
 
-      // 步骤2: 一次调用API处理所有启用的选项
+      // 步骤2: 调用后期处理API
       console.log('=== 步骤2: 调用后期处理API ===');
       setCurrentStepKey('translate');
       setCurrentProcessStep('处理中...');
       setProgress(30);
       
-      // 构造API请求体
+      // 构造API请求体（使用本地变量，避免React异步state问题）
       const postBody: Record<string, unknown> = {
-        videoUrl: videoUrl,
+        videoUrl: currentVideoUrl,
         options: {
           enableTTS: postProcessing.enableTTS,
           enableSubtitle: postProcessing.enableSubtitle,
@@ -535,9 +548,10 @@ export default function VideoEditPage() {
         },
       };
       
-      // 如果有配音文本，传递进去
-      if (ttsScript) {
-        postBody.ttsScript = ttsScript;
+      // 如果有配音文本，传递进去（使用本地变量）
+      if (currentScript) {
+        postBody.ttsScript = currentScript;
+        console.log('传递ttsScript，长度:', currentScript.length);
       }
       
       // 如果目标语言，传递进去
@@ -565,19 +579,32 @@ export default function VideoEditPage() {
       
       if (postData.success && postData.videoUrl) {
         console.log('后期处理成功，视频URL:', postData.videoUrl);
+        console.log('实际执行的步骤:', postData.processSteps);
         setOutputUrl(postData.videoUrl);
         setProgress(100);
-        setSuccessMessage('✅ 后期处理完成');
         
-        // 更新所有步骤状态为完成
-        setStepStates({
+        const stepsDone = postData.processSteps?.length > 0 
+          ? `✅ ${postData.processSteps.join('、')}处理完成` 
+          : '✅ 后期处理完成';
+        setSuccessMessage(stepsDone);
+        
+        // 更新步骤状态
+        const newStepStates: Record<string, StepState> = {
           transcribe: { status: 'completed', completed: true, message: '上传完成' },
-          translate: { status: 'completed', completed: true, message: '处理完成' },
-          subtitle: { status: 'completed', completed: true, message: '处理完成' },
-          tts: { status: 'completed', completed: true, message: '处理完成' },
-          lipsync: { status: 'completed', completed: true, message: '处理完成' },
-          faceswap: { status: 'completed', completed: true, message: '处理完成' },
-        });
+          translate: { status: 'pending', completed: false },
+          subtitle: { status: 'pending', completed: false },
+          tts: { status: 'pending', completed: false },
+          lipsync: { status: 'pending', completed: false },
+          faceswap: { status: 'pending', completed: false },
+        };
+        if (postData.processSteps?.includes('配音')) {
+          newStepStates.tts = { status: 'completed', completed: true, message: '配音完成' };
+        }
+        if (postData.processSteps?.includes('字幕生成') || postData.processSteps?.includes('字幕翻译')) {
+          newStepStates.subtitle = { status: 'completed', completed: true, message: '字幕完成' };
+          newStepStates.translate = { status: 'completed', completed: true, message: '翻译完成' };
+        }
+        setStepStates(newStepStates);
       } else {
         throw new Error(postData.message || '后期处理失败');
       }
@@ -632,6 +659,12 @@ export default function VideoEditPage() {
         setSuccessMessage('✅ 识别完成，已填入配音文案');
         // 3秒后清除成功提示
         setTimeout(() => setSuccessMessage(''), 3000);
+        
+        // 保存视频URL（供后续后期处理使用）
+        if (data.videoUrl) {
+          setTranscribedVideoUrl(data.videoUrl);
+          console.log('保存视频URL:', data.videoUrl);
+        }
         
         // 更新步骤链状态
         setStepStates(prev => ({
@@ -836,6 +869,29 @@ export default function VideoEditPage() {
           </label>
         </div>
       </div>
+
+      {/* 翻译语言选择 */}
+      {postProcessing.enableTranslateSubtitle && (
+        <div className="mb-4 p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-xl">
+          <label className="flex items-center gap-3">
+            <svg className="w-5 h-5 text-cyan-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+            </svg>
+            <span className="text-sm text-cyan-300">目标翻译语言</span>
+            <select
+              value={targetLanguage}
+              onChange={(e) => setTargetLanguage(e.target.value)}
+              className="ml-auto bg-white/10 border border-cyan-500/30 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-cyan-400"
+            >
+              {languageOptions.map(lang => (
+                <option key={lang.value} value={lang.value} className="bg-gray-900">
+                  {lang.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       {/* 步骤链（显示进度） */}
       <div className="mb-4">
@@ -1045,6 +1101,27 @@ export default function VideoEditPage() {
                   {renderVideoUpload()}
                   {renderVideoList()}
                   {renderTranscribeButton()}
+
+                  {/* 文案编辑框（识别后显示） */}
+                  {pageMode === 'postProcess' && ttsScript && (
+                    <div className="border-t border-white/10 pt-6">
+                      <h3 className="text-label mb-4 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        识别文案（可编辑）
+                      </h3>
+                      <textarea
+                        value={ttsScript}
+                        onChange={(e) => setTtsScript(e.target.value)}
+                        rows={5}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-orange-500/50 resize-y"
+                        placeholder="语音识别后的文案将显示在这里，您可以编辑修改..."
+                      />
+                      <p className="text-xs text-gray-500 mt-2">已识别 {ttsScript.length} 个字符，可编辑后用于配音和字幕翻译</p>
+                    </div>
+                  )}
+
                   {renderPostProcessingOptions()}
                   
                   {/* 提交按钮 */}
@@ -1174,9 +1251,14 @@ export default function VideoEditPage() {
                 <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
                   <div>
                     <p className="text-emerald-400 font-mono">{t.videoEdit.processingComplete.toUpperCase()}</p>
-                    <a href={outputUrl} className="text-white hover:text-emerald-400 mt-1 inline-block">
-                      {t.videoEdit.downloadVideo.toUpperCase()}
-                    </a>
+                <a
+                  href={outputUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-emerald-400 hover:text-emerald-300 mt-1 inline-block"
+                >
+                  {t.videoEdit.downloadVideo.toUpperCase()} ↗
+                </a>
                   </div>
                   <div className="flex items-center gap-4">
                     <button
