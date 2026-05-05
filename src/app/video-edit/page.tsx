@@ -28,11 +28,32 @@ interface PostProcessingOptions {
   enableTranslateSubtitle: boolean; // 翻译字幕
   enableFaceSwap: boolean;   // 换脸
   enableLipSync: boolean;    // 对口型
+  enableSpeakerDiarization: boolean; // 说话人分离
 }
+
+// 配音角色选项（支持多人配音）
+interface VoiceAssignment {
+  speakerId: string;
+  voice: string;
+  label: string;
+}
+
+// 配音角色预设
+const voicePresets = [
+  { id: 'young_male', label: '青年男声', voice: 'aiobtn' },
+  { id: 'young_female', label: '青年女声', voice: 'aixia' },
+  { id: 'middle_male', label: '中年男声', voice: 'aibai' },
+  { id: 'middle_female', label: '中年女声', voice: 'yina' },
+  { id: 'elderly_male', label: '老年男声', voice: 'aibai' },
+  { id: 'elderly_female', label: '老年女声', voice: 'xiaomeng' },
+];
 
 export default function VideoEditPage() {
   const { user, loading: authLoading } = useAuth()
   const { t } = useLocale()
+  
+  // 页面模式切换
+  const [pageMode, setPageMode] = useState<'edit' | 'postProcess'>('edit');
   
   // 基础视频剪辑状态
   const [videos, setVideos] = useState<VideoFile[]>([]);
@@ -55,6 +76,7 @@ export default function VideoEditPage() {
     enableTranslateSubtitle: false,
     enableFaceSwap: false,
     enableLipSync: false,
+    enableSpeakerDiarization: false,
   });
   const [targetLanguage, setTargetLanguage] = useState('zh');
   const [ttsScript, setTtsScript] = useState('');        // 配音文案
@@ -62,6 +84,10 @@ export default function VideoEditPage() {
   const [faceImagePreview, setFaceImagePreview] = useState<string>('');
   const [currentProcessStep, setCurrentProcessStep] = useState('');
   const [isTranscribing, setIsTranscribing] = useState(false); // 语音识别中
+  
+  // 说话人分离结果
+  const [speakerDiarization, setSpeakerDiarization] = useState<Array<{speaker: string; text: string; voice: string}>>([]);
+  const [voiceAssignments, setVoiceAssignments] = useState<VoiceAssignment[]>([]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
@@ -107,16 +133,6 @@ export default function VideoEditPage() {
     { value: 'yina', label: '依娜 (温柔女声)' },
     { value: 'aibai', label: '艾白 (成熟女声)' },
   ]
-  const [selectedVoice, setSelectedVoice] = useState('aixia');
-
-  // 解析 style 中的分辨率信息
-  const parseStyleWithResolution = (styleStr: string) => {
-    const parts = styleStr.split('|')
-    return {
-      style: parts[0] || styleStr,
-      resolution: parts[1] || 'original'
-    }
-  }
 
   useEffect(() => {
     if (!authLoading && user) {
@@ -242,10 +258,24 @@ export default function VideoEditPage() {
   // 更新后期处理选项
   const updatePostProcessing = (key: keyof PostProcessingOptions, value: boolean) => {
     setPostProcessing(prev => ({ ...prev, [key]: value }))
+    // 如果开启说话人分离，重置配音分配
+    if (key === 'enableSpeakerDiarization' && value) {
+      setPostProcessing(prev => ({ ...prev, enableTTS: true }))
+    }
   }
 
-  // 处理视频（包括后期处理）
-  const handleSubmit = async (e: React.FormEvent) => {
+  // 模式切换时重置状态
+  const handleModeSwitch = (mode: 'edit' | 'postProcess') => {
+    if (mode !== pageMode) {
+      setPageMode(mode);
+      setOutputUrl('');
+      setErrorMessage('');
+      setSuccessMessage('');
+    }
+  }
+
+  // 剪辑模式提交
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (videos.length === 0) {
@@ -254,8 +284,8 @@ export default function VideoEditPage() {
     }
 
     // 验证后期处理选项
-    if (postProcessing.enableTTS && !ttsScript.trim()) {
-      setErrorMessage('请输入配音文案');
+    if (postProcessing.enableTTS && !ttsScript.trim() && speakerDiarization.length === 0) {
+      setErrorMessage('请输入配音文案或先进行语音识别');
       return;
     }
     if (postProcessing.enableFaceSwap && !faceImage) {
@@ -282,7 +312,7 @@ export default function VideoEditPage() {
     formData.append('postProcessing', JSON.stringify(postProcessing));
     if (postProcessing.enableTTS) {
       formData.append('ttsScript', ttsScript);
-      formData.append('ttsVoice', selectedVoice);
+      formData.append('voiceAssignments', JSON.stringify(voiceAssignments));
     }
     if (postProcessing.enableTranslateSubtitle) {
       formData.append('subtitleLanguage', targetLanguage);
@@ -292,7 +322,6 @@ export default function VideoEditPage() {
     }
 
     try {
-      // 第一步：基础视频处理
       setCurrentProcessStep('正在处理视频...');
       const progressInterval = setInterval(() => {
         setProgress(prev => {
@@ -324,7 +353,7 @@ export default function VideoEditPage() {
               videoUrl: data.downloadUrl,
               options: postProcessing,
               ttsScript: postProcessing.enableTTS ? ttsScript : undefined,
-              ttsVoice: postProcessing.enableTTS ? selectedVoice : undefined,
+              voiceAssignments: postProcessing.enableTTS ? voiceAssignments : undefined,
               subtitleLanguage: postProcessing.enableTranslateSubtitle ? targetLanguage : undefined,
             })
           });
@@ -351,6 +380,134 @@ export default function VideoEditPage() {
     } catch (error) {
       setErrorMessage(t.videoEdit.uploadFailed);
       setIsProcessing(false);
+    }
+  };
+
+  // 后期处理模式提交
+  const handlePostProcessSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (videos.length === 0) {
+      setErrorMessage('请上传视频文件');
+      return;
+    }
+
+    // 验证后期处理选项
+    if (postProcessing.enableTTS && !ttsScript.trim() && speakerDiarization.length === 0) {
+      setErrorMessage('请先进行语音识别或输入配音文案');
+      return;
+    }
+    if (postProcessing.enableFaceSwap && !faceImage) {
+      setErrorMessage('请上传人脸照片');
+      return;
+    }
+
+    // 检查是否至少选择了一个后期处理选项
+    const hasProcessingOption = Object.entries(postProcessing).some(([key, value]) => value && key !== 'enableSpeakerDiarization');
+    if (!hasProcessingOption) {
+      setErrorMessage('请至少选择一项后期处理功能');
+      return;
+    }
+
+    setIsProcessing(true);
+    setProgress(0);
+    setOutputUrl('');
+    setErrorMessage('');
+    setCurrentProcessStep('');
+
+    try {
+      // 构建后期处理请求
+      const requestBody: any = {
+        videoFile: videos[0].file,
+        options: postProcessing,
+      };
+
+      // 如果启用了说话人分离或字幕生成，先进行语音识别
+      if (postProcessing.enableSubtitle || postProcessing.enableSpeakerDiarization || postProcessing.enableTTS) {
+        setCurrentProcessStep('正在识别语音...');
+        setProgress(20);
+
+        const transcribeFormData = new FormData();
+        transcribeFormData.append('video', videos[0].file);
+
+        const transcribeRes = await fetch('/api/video/transcribe', {
+          method: 'POST',
+          credentials: 'include',
+          body: transcribeFormData,
+        });
+
+        const transcribeData = await transcribeRes.json();
+        const recognizedText = transcribeData.text || transcribeData.content || transcribeData.result || '';
+
+        if (recognizedText) {
+          setTtsScript(recognizedText);
+          
+          // 如果启用了说话人分离，处理分离结果
+          if (postProcessing.enableSpeakerDiarization) {
+            setCurrentProcessStep('正在进行说话人分离...');
+            setProgress(40);
+            // TODO: 调用说话人分离API，这里暂时用模拟数据
+            const speakers = transcribeData.speakers || ['speaker_1', 'speaker_2'];
+            const segments = recognizedText.split(/[。！？.!?]/).filter(Boolean);
+            const assignments: VoiceAssignment[] = speakers.map((speaker: string, idx: number) => ({
+              speakerId: speaker,
+              voice: voicePresets[idx % voicePresets.length].voice,
+              label: voicePresets[idx % voicePresets.length].label,
+            }));
+            setVoiceAssignments(assignments);
+            setSpeakerDiarization(segments.map((text: string, idx: number) => ({
+              speaker: speakers[idx % speakers.length],
+              text: text.trim(),
+              voice: assignments[idx % assignments.length].voice,
+            })));
+          }
+        } else {
+          setProgress(40);
+        }
+      }
+
+      // 调用后期处理API
+      setCurrentProcessStep('正在处理后期效果...');
+      setProgress(60);
+
+      const postFormData = new FormData();
+      postFormData.append('video', videos[0].file);
+      postFormData.append('options', JSON.stringify(postProcessing));
+      
+      if (postProcessing.enableTTS) {
+        postFormData.append('ttsScript', ttsScript);
+        postFormData.append('voiceAssignments', JSON.stringify(voiceAssignments));
+      }
+      if (postProcessing.enableTranslateSubtitle) {
+        postFormData.append('subtitleLanguage', targetLanguage);
+      }
+      if (postProcessing.enableFaceSwap && faceImage) {
+        postFormData.append('faceImage', faceImage);
+      }
+
+      const response = await fetch('/api/video/post-process', {
+        method: 'POST',
+        credentials: 'include',
+        body: postFormData,
+      });
+
+      setProgress(90);
+      const data = await response.json();
+
+      if (data.success) {
+        setOutputUrl(data.videoUrl);
+        setSuccessMessage('✅ 后期处理完成！');
+        setTimeout(() => setSuccessMessage(''), 5000);
+      } else {
+        setErrorMessage(data.message || '后期处理失败');
+      }
+    } catch (error) {
+      console.error('Post process error:', error);
+      setErrorMessage('后期处理失败: ' + (error instanceof Error ? error.message : '未知错误'));
+    } finally {
+      setIsProcessing(false);
+      setProgress(100);
+      setCurrentProcessStep('');
     }
   };
 
@@ -392,6 +549,17 @@ export default function VideoEditPage() {
         setSuccessMessage('✅ 识别完成，已填入配音文案');
         // 3秒后清除成功提示
         setTimeout(() => setSuccessMessage(''), 3000);
+        
+        // 如果启用了说话人分离，处理分离结果
+        if (postProcessing.enableSpeakerDiarization && data.speakers) {
+          const speakers = data.speakers;
+          const assignments: VoiceAssignment[] = speakers.map((speaker: string, idx: number) => ({
+            speakerId: speaker,
+            voice: voicePresets[idx % voicePresets.length].voice,
+            label: voicePresets[idx % voicePresets.length].label,
+          }));
+          setVoiceAssignments(assignments);
+        }
       } else {
         console.warn('未获取到识别文本，响应数据:', data);
         setErrorMessage(data.message || '未识别到语音内容');
@@ -464,6 +632,402 @@ export default function VideoEditPage() {
   // 判断是否有启用的后期处理
   const hasPostProcessingEnabled = Object.values(postProcessing).some(v => v);
 
+  // 渲染模式切换开关
+  const renderModeSwitch = () => (
+    <div className="mb-6 flex items-center justify-center">
+      <div className="inline-flex bg-white/5 rounded-xl p-1 border border-white/10">
+        <button
+          onClick={() => handleModeSwitch('edit')}
+          className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${
+            pageMode === 'edit'
+              ? 'bg-emerald-500 text-white shadow-lg'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+            剪辑模式
+          </span>
+        </button>
+        <button
+          onClick={() => handleModeSwitch('postProcess')}
+          className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${
+            pageMode === 'postProcess'
+              ? 'bg-purple-500 text-white shadow-lg'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+            </svg>
+            后期处理
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+
+  // 渲染后期处理选项（两个模式共用）
+  const renderPostProcessingOptions = () => (
+    <div className="border-t border-white/10 pt-6">
+      <h3 className="text-label mb-4 flex items-center gap-2">
+        <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+        {pageMode === 'postProcess' ? '后期处理选项' : '后期处理选项（可选）'}
+      </h3>
+
+      {/* 功能开关 */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+        <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTTS ? 'bg-purple-500/20 border border-purple-500/50' : 'bg-white/5 border border-white/10 hover:border-purple-500/30'}`}>
+          <input
+            type="checkbox"
+            checked={postProcessing.enableTTS}
+            onChange={(e) => updatePostProcessing('enableTTS', e.target.checked)}
+            className="w-4 h-4 rounded accent-purple-500"
+          />
+          <span className={`text-sm ${postProcessing.enableTTS ? 'text-purple-300' : 'text-gray-300'}`}>配音</span>
+        </label>
+
+        <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSubtitle ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5 border border-white/10 hover:border-blue-500/30'}`}>
+          <input
+            type="checkbox"
+            checked={postProcessing.enableSubtitle}
+            onChange={(e) => updatePostProcessing('enableSubtitle', e.target.checked)}
+            className="w-4 h-4 rounded accent-blue-500"
+          />
+          <span className={`text-sm ${postProcessing.enableSubtitle ? 'text-blue-300' : 'text-gray-300'}`}>字幕生成</span>
+        </label>
+
+        <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTranslateSubtitle ? 'bg-cyan-500/20 border border-cyan-500/50' : 'bg-white/5 border border-white/10 hover:border-cyan-500/30'}`}>
+          <input
+            type="checkbox"
+            checked={postProcessing.enableTranslateSubtitle}
+            onChange={(e) => updatePostProcessing('enableTranslateSubtitle', e.target.checked)}
+            className="w-4 h-4 rounded accent-cyan-500"
+          />
+          <span className={`text-sm ${postProcessing.enableTranslateSubtitle ? 'text-cyan-300' : 'text-gray-300'}`}>翻译字幕</span>
+        </label>
+
+        <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSpeakerDiarization ? 'bg-orange-500/20 border border-orange-500/50' : 'bg-white/5 border border-white/10 hover:border-orange-500/30'}`}>
+          <input
+            type="checkbox"
+            checked={postProcessing.enableSpeakerDiarization}
+            onChange={(e) => updatePostProcessing('enableSpeakerDiarization', e.target.checked)}
+            className="w-4 h-4 rounded accent-orange-500"
+          />
+          <span className={`text-sm ${postProcessing.enableSpeakerDiarization ? 'text-orange-300' : 'text-gray-300'}`}>说话人分离</span>
+        </label>
+
+        <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableFaceSwap ? 'bg-pink-500/20 border border-pink-500/50' : 'bg-white/5 border border-white/10 hover:border-pink-500/30'}`}>
+          <input
+            type="checkbox"
+            checked={postProcessing.enableFaceSwap}
+            onChange={(e) => updatePostProcessing('enableFaceSwap', e.target.checked)}
+            className="w-4 h-4 rounded accent-pink-500"
+          />
+          <span className={`text-sm ${postProcessing.enableFaceSwap ? 'text-pink-300' : 'text-gray-300'}`}>换脸</span>
+        </label>
+
+        <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableLipSync ? 'bg-amber-500/20 border border-amber-500/50' : 'bg-white/5 border border-white/10 hover:border-amber-500/30'}`}>
+          <input
+            type="checkbox"
+            checked={postProcessing.enableLipSync}
+            onChange={(e) => updatePostProcessing('enableLipSync', e.target.checked)}
+            className="w-4 h-4 rounded accent-amber-500"
+          />
+          <span className={`text-sm ${postProcessing.enableLipSync ? 'text-amber-300' : 'text-gray-300'}`}>对口型</span>
+        </label>
+      </div>
+
+      {/* 说话人分离结果 */}
+      {speakerDiarization.length > 0 && (
+        <div className="mb-4 p-4 bg-orange-500/10 border border-orange-500/20 rounded-xl">
+          <h4 className="text-sm text-orange-300 mb-3">说话人分离结果</h4>
+          <div className="space-y-2">
+            {speakerDiarization.map((item, idx) => (
+              <div key={idx} className="flex items-start gap-3 p-2 bg-white/5 rounded-lg">
+                <span className="px-2 py-0.5 bg-orange-500/30 text-orange-300 text-xs rounded">{item.speaker}</span>
+                <span className="flex-1 text-sm text-gray-300">{item.text}</span>
+                <select
+                  value={item.voice}
+                  onChange={(e) => {
+                    const newAssignments = [...speakerDiarization];
+                    newAssignments[idx].voice = e.target.value;
+                    setSpeakerDiarization(newAssignments);
+                  }}
+                  className="bg-white/5 border border-orange-500/30 rounded px-2 py-1 text-xs text-white"
+                >
+                  {voicePresets.map(preset => (
+                    <option key={preset.id} value={preset.voice} className="bg-gray-900">
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 配音选项 */}
+      {postProcessing.enableTTS && (
+        <div className="mb-4 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-purple-300 mb-2">配音角色</label>
+              <select
+                value={voiceAssignments[0]?.voice || 'aixia'}
+                onChange={(e) => {
+                  if (voiceAssignments.length > 0) {
+                    setVoiceAssignments([{ ...voiceAssignments[0], voice: e.target.value }]);
+                  }
+                }}
+                className="w-full bg-white/5 border border-purple-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
+              >
+                {voicePresets.map(voice => (
+                  <option key={voice.id} value={voice.voice} className="bg-gray-900">
+                    {voice.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-purple-300 mb-2">目标语言</label>
+              <select
+                value={targetLanguage}
+                onChange={(e) => setTargetLanguage(e.target.value)}
+                className="w-full bg-white/5 border border-purple-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
+              >
+                {languageOptions.map(lang => (
+                  <option key={lang.value} value={lang.value} className="bg-gray-900">
+                    {lang.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm text-purple-300 mb-2">配音文案</label>
+              <textarea
+                value={ttsScript}
+                onChange={(e) => setTtsScript(e.target.value)}
+                placeholder="输入要配音的文案内容..."
+                className="w-full bg-white/5 border border-purple-500/30 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none h-24 resize-none"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 字幕选项 */}
+      {postProcessing.enableSubtitle && !postProcessing.enableTTS && (
+        <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+          <label className="block text-sm text-blue-300 mb-2">目标语言</label>
+          <select
+            value={targetLanguage}
+            onChange={(e) => setTargetLanguage(e.target.value)}
+            className="w-full bg-white/5 border border-blue-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
+          >
+            {languageOptions.map(lang => (
+              <option key={lang.value} value={lang.value} className="bg-gray-900">
+                {lang.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 翻译字幕选项 */}
+      {postProcessing.enableTranslateSubtitle && !postProcessing.enableSubtitle && (
+        <div className="mb-4 p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-xl">
+          <label className="block text-sm text-cyan-300 mb-2">翻译目标语言</label>
+          <select
+            value={targetLanguage}
+            onChange={(e) => setTargetLanguage(e.target.value)}
+            className="w-full bg-white/5 border border-cyan-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
+          >
+            {languageOptions.map(lang => (
+              <option key={lang.value} value={lang.value} className="bg-gray-900">
+                {lang.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 换脸选项 */}
+      {postProcessing.enableFaceSwap && (
+        <div className="mb-4 p-4 bg-pink-500/10 border border-pink-500/20 rounded-xl">
+          <label className="block text-sm text-pink-300 mb-2">上传目标人脸照片</label>
+          <div className="flex items-center gap-4">
+            <input
+              ref={faceInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFaceImageSelect}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => faceInputRef.current?.click()}
+              className="px-4 py-2 bg-pink-500/20 border border-pink-500/30 text-pink-300 rounded-lg hover:bg-pink-500/30"
+            >
+              选择图片
+            </button>
+            {faceImagePreview && (
+              <div className="flex items-center gap-2">
+                <img src={faceImagePreview} alt="人脸预览" className="w-16 h-16 object-cover rounded-lg border border-pink-500/30" />
+                <button
+                  type="button"
+                  onClick={() => { setFaceImage(null); setFaceImagePreview(''); }}
+                  className="text-pink-400 hover:text-pink-300"
+                >
+                  移除
+                </button>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-pink-400/60 mt-2">支持 JPG、PNG 格式，建议使用正面清晰的证件照或自拍</p>
+        </div>
+      )}
+
+      {/* 对口型说明 */}
+      {postProcessing.enableLipSync && (
+        <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-amber-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p className="text-sm text-amber-300">对口型功能说明</p>
+              <p className="text-xs text-amber-400/60 mt-1">
+                此功能会根据配音自动调整视频中人物的口型匹配度。当前版本会返回模拟处理结果，实际效果取决于视频内容质量。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // 渲染视频上传区域（两个模式共用）
+  const renderVideoUpload = () => (
+    <div>
+      <label className="block text-label mb-2">
+        {t.videoEdit.uploadVideo.toUpperCase()}
+        <span className="text-gray-500 ml-2">MP4/MOV/AVI</span>
+      </label>
+      <div
+        ref={dropZoneRef}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center hover:border-emerald-500/50 transition-colors cursor-pointer bg-white/5"
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".mp4,.mov,.avi"
+          className="hidden"
+          id="video-upload"
+          onChange={(e) => handleFileSelect(e.target.files)}
+        />
+        <label htmlFor="video-upload" className="cursor-pointer">
+          <div className="flex flex-col items-center">
+            <svg className="w-12 h-12 text-emerald-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+            <span className="text-gray-400">{t.videoEdit.dragOrClick.toUpperCase()}</span>
+          </div>
+        </label>
+      </div>
+    </div>
+  );
+
+  // 渲染已上传视频列表（两个模式共用）
+  const renderVideoList = () => (
+    videos.length > 0 && (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-label">{t.videoEdit.uploadedFiles.replace('{count}', videos.length.toString()).toUpperCase()}</h3>
+          <button
+            type="button"
+            onClick={clearAllVideos}
+            className="text-sm text-red-400 hover:text-red-300"
+          >
+            {t.videoEdit.clearAll.toUpperCase()}
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {videos.map((video, index) => (
+            <div key={index} className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex items-center gap-4">
+              <video
+                src={video.preview}
+                className="w-20 h-12 object-cover rounded-lg"
+                controls={false}
+                muted
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white font-mono truncate">{video.name}</p>
+                <p className="text-xs text-gray-500 font-mono">
+                  {video.size} · {video.duration}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => removeVideo(index)}
+                className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  );
+
+  // 渲染语音识别按钮（两个模式共用）
+  const renderTranscribeButton = () => (
+    videos.length > 0 && (
+      <div className="flex items-center justify-between p-4 bg-orange-500/10 border border-orange-500/20 rounded-xl">
+        <div className="flex items-center gap-3">
+          <svg className="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+          </svg>
+          <div>
+            <p className="text-sm text-orange-300">自动识别语音</p>
+            <p className="text-xs text-orange-400/60">将视频中的语音转为文字，可用于字幕、配音、翻译</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleTranscribe}
+          disabled={isTranscribing}
+          className="px-4 py-2 bg-orange-500/20 border border-orange-500/30 text-orange-300 rounded-lg hover:bg-orange-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {isTranscribing ? (
+            <span className="flex items-center gap-2">
+              <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              识别中...
+            </span>
+          ) : (
+            '开始识别'
+          )}
+        </button>
+      </div>
+    )
+  );
+
   return (
     <div className="min-h-screen bg-gray-950">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -496,399 +1060,139 @@ export default function VideoEditPage() {
 
         {!showHistory ? (
           <>
+            {/* 模式切换开关 */}
+            {renderModeSwitch()}
+
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6 mb-6">
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* 视频上传 */}
-                <div>
-                  <label className="block text-label mb-2">
-                    {t.videoEdit.uploadVideo.toUpperCase()}
-                    <span className="text-gray-500 ml-2">MP4/MOV/AVI</span>
-                  </label>
-                  <div
-                    ref={dropZoneRef}
-                    onDrop={handleDrop}
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center hover:border-emerald-500/50 transition-colors cursor-pointer bg-white/5"
-                  >
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      accept=".mp4,.mov,.avi"
-                      className="hidden"
-                      id="video-upload"
-                      onChange={(e) => handleFileSelect(e.target.files)}
-                    />
-                    <label htmlFor="video-upload" className="cursor-pointer">
-                      <div className="flex flex-col items-center">
-                        <svg className="w-12 h-12 text-emerald-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                        </svg>
-                        <span className="text-gray-400">{t.videoEdit.dragOrClick.toUpperCase()}</span>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-
-                {videos.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-label">{t.videoEdit.uploadedFiles.replace('{count}', videos.length.toString()).toUpperCase()}</h3>
-                      <button
-                        type="button"
-                        onClick={clearAllVideos}
-                        className="text-sm text-red-400 hover:text-red-300"
-                      >
-                        {t.videoEdit.clearAll.toUpperCase()}
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {videos.map((video, index) => (
-                        <div key={index} className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex items-center gap-4">
-                          <video
-                            src={video.preview}
-                            className="w-20 h-12 object-cover rounded-lg"
-                            controls={false}
-                            muted
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-white font-mono truncate">{video.name}</p>
-                            <p className="text-xs text-gray-500 font-mono">
-                              {video.size} · {video.duration}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeVideo(index)}
-                            className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 自动识别语音按钮 */}
-                {videos.length > 0 && (
-                  <div className="flex items-center justify-between p-4 bg-orange-500/10 border border-orange-500/20 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <svg className="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                      </svg>
-                      <div>
-                        <p className="text-sm text-orange-300">自动识别语音</p>
-                        <p className="text-xs text-orange-400/60">将视频中的语音转为文字，可用于字幕、配音、翻译</p>
-                      </div>
-                    </div>
+              {/* 后期处理模式 */}
+              {pageMode === 'postProcess' ? (
+                <form onSubmit={handlePostProcessSubmit} className="space-y-6">
+                  {renderVideoUpload()}
+                  {renderVideoList()}
+                  {renderTranscribeButton()}
+                  {renderPostProcessingOptions()}
+                  
+                  {/* 提交按钮 */}
+                  <div className="flex items-center gap-4">
                     <button
-                      type="button"
-                      onClick={handleTranscribe}
-                      disabled={isTranscribing}
-                      className="px-4 py-2 bg-orange-500/20 border border-orange-500/30 text-orange-300 rounded-lg hover:bg-orange-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      type="submit"
+                      disabled={isProcessing || videos.length === 0}
+                      className="flex-1 py-3 bg-purple-500 text-white rounded-xl hover:bg-purple-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors"
                     >
-                      {isTranscribing ? (
-                        <span className="flex items-center gap-2">
-                          <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
-                          识别中...
-                        </span>
-                      ) : (
-                        '开始识别'
-                      )}
+                      {isProcessing ? (currentProcessStep || '处理中...') : '开始后期处理'}
                     </button>
-                  </div>
-                )}
-
-                {/* 基础剪辑选项 */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-label mb-2">{t.videoEdit.template.toUpperCase()}</label>
-                    <select
-                      value={template}
-                      onChange={(e) => setTemplate(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50"
-                    >
-                      <option value="mix" className="bg-gray-900">{t.videoEdit.mix}</option>
-                      <option value="quick" className="bg-gray-900">{t.videoEdit.quickCut}</option>
-                      <option value="story" className="bg-gray-900">{t.videoEdit.storyboard}</option>
-                      <option value="loop" className="bg-gray-900">{t.videoEdit.loop}</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-label mb-2">{t.videoEdit.duration.toUpperCase()} ({t.videoEdit.seconds})</label>
-                    <input
-                      type="number"
-                      value={duration}
-                      onChange={(e) => setDuration(Math.max(1, Math.min(300, Number(e.target.value))))}
-                      min="1"
-                      max="300"
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white font-mono focus:outline-none focus:border-emerald-500/50"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-label mb-2">{t.videoEdit.resolution.toUpperCase()}</label>
-                    <select
-                      value={resolution}
-                      onChange={(e) => setResolution(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50"
-                    >
-                      <option value="original" className="bg-gray-900">原始</option>
-                      <option value="720p" className="bg-gray-900">720p (1280×720)</option>
-                      <option value="1080p" className="bg-gray-900">1080p (1920×1080)</option>
-                      <option value="4k" className="bg-gray-900">4K (3840×2160)</option>
-                      <option value="9:16" className="bg-gray-900">竖屏 (1080×1920)</option>
-                      <option value="1:1" className="bg-gray-900">方形 (1080×1080)</option>
-                      <option value="4:3" className="bg-gray-900">4:3 (1440×1080)</option>
-                      <option value="16:9" className="bg-gray-900">宽屏 (1920×1080)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-label mb-2">{t.videoEdit.style.toUpperCase()}</label>
-                    <select
-                      value={style}
-                      onChange={(e) => setStyle(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50"
-                    >
-                      <option value="dynamic" className="bg-gray-900">{t.videoEdit.dynamic}</option>
-                      <option value="elegant" className="bg-gray-900">{t.videoEdit.elegant}</option>
-                      <option value="vintage" className="bg-gray-900">{t.videoEdit.vintage}</option>
-                      <option value="minimal" className="bg-gray-900">{t.videoEdit.minimal}</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* 后期处理选项 */}
-                <div className="border-t border-white/10 pt-6">
-                  <h3 className="text-label mb-4 flex items-center gap-2">
-                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    后期处理选项
-                  </h3>
-
-                  {/* 功能开关 */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
-                    <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTTS ? 'bg-purple-500/20 border border-purple-500/50' : 'bg-white/5 border border-white/10 hover:border-purple-500/30'}`}>
-                      <input
-                        type="checkbox"
-                        checked={postProcessing.enableTTS}
-                        onChange={(e) => updatePostProcessing('enableTTS', e.target.checked)}
-                        className="w-4 h-4 rounded accent-purple-500"
-                      />
-                      <span className={`text-sm ${postProcessing.enableTTS ? 'text-purple-300' : 'text-gray-300'}`}>配音 (TTS)</span>
-                    </label>
-
-                    <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSubtitle ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5 border border-white/10 hover:border-blue-500/30'}`}>
-                      <input
-                        type="checkbox"
-                        checked={postProcessing.enableSubtitle}
-                        onChange={(e) => updatePostProcessing('enableSubtitle', e.target.checked)}
-                        className="w-4 h-4 rounded accent-blue-500"
-                      />
-                      <span className={`text-sm ${postProcessing.enableSubtitle ? 'text-blue-300' : 'text-gray-300'}`}>字幕生成</span>
-                    </label>
-
-                    <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTranslateSubtitle ? 'bg-cyan-500/20 border border-cyan-500/50' : 'bg-white/5 border border-white/10 hover:border-cyan-500/30'}`}>
-                      <input
-                        type="checkbox"
-                        checked={postProcessing.enableTranslateSubtitle}
-                        onChange={(e) => updatePostProcessing('enableTranslateSubtitle', e.target.checked)}
-                        className="w-4 h-4 rounded accent-cyan-500"
-                      />
-                      <span className={`text-sm ${postProcessing.enableTranslateSubtitle ? 'text-cyan-300' : 'text-gray-300'}`}>翻译字幕</span>
-                    </label>
-
-                    <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableFaceSwap ? 'bg-pink-500/20 border border-pink-500/50' : 'bg-white/5 border border-white/10 hover:border-pink-500/30'}`}>
-                      <input
-                        type="checkbox"
-                        checked={postProcessing.enableFaceSwap}
-                        onChange={(e) => updatePostProcessing('enableFaceSwap', e.target.checked)}
-                        className="w-4 h-4 rounded accent-pink-500"
-                      />
-                      <span className={`text-sm ${postProcessing.enableFaceSwap ? 'text-pink-300' : 'text-gray-300'}`}>换脸</span>
-                    </label>
-
-                    <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableLipSync ? 'bg-amber-500/20 border border-amber-500/50' : 'bg-white/5 border border-white/10 hover:border-amber-500/30'}`}>
-                      <input
-                        type="checkbox"
-                        checked={postProcessing.enableLipSync}
-                        onChange={(e) => updatePostProcessing('enableLipSync', e.target.checked)}
-                        className="w-4 h-4 rounded accent-amber-500"
-                      />
-                      <span className={`text-sm ${postProcessing.enableLipSync ? 'text-amber-300' : 'text-gray-300'}`}>对口型</span>
-                    </label>
-                  </div>
-
-                  {/* 配音选项 */}
-                  {postProcessing.enableTTS && (
-                    <div className="mb-4 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm text-purple-300 mb-2">配音角色</label>
-                          <select
-                            value={selectedVoice}
-                            onChange={(e) => setSelectedVoice(e.target.value)}
-                            className="w-full bg-white/5 border border-purple-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
-                          >
-                            {voiceOptions.map(voice => (
-                              <option key={voice.value} value={voice.value} className="bg-gray-900">
-                                {voice.label}
-                              </option>
-                            ))}
-                          </select>
+                    {isProcessing && (
+                      <div className="flex-1">
+                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                          <span>{currentProcessStep || '进度'}</span>
+                          <span className="font-mono">{Math.round(progress)}%</span>
                         </div>
-                        <div>
-                          <label className="block text-sm text-purple-300 mb-2">目标语言</label>
-                          <select
-                            value={targetLanguage}
-                            onChange={(e) => setTargetLanguage(e.target.value)}
-                            className="w-full bg-white/5 border border-purple-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
-                          >
-                            {languageOptions.map(lang => (
-                              <option key={lang.value} value={lang.value} className="bg-gray-900">
-                                {lang.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className="block text-sm text-purple-300 mb-2">配音文案</label>
-                          <textarea
-                            value={ttsScript}
-                            onChange={(e) => setTtsScript(e.target.value)}
-                            placeholder="输入要配音的文案内容..."
-                            className="w-full bg-white/5 border border-purple-500/30 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none h-24 resize-none"
+                        <div className="w-full bg-white/10 rounded-full h-2">
+                          <div
+                            className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${progress}%` }}
                           />
                         </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                </form>
+              ) : (
+                /* 剪辑模式 */
+                <form onSubmit={handleEditSubmit} className="space-y-6">
+                  {renderVideoUpload()}
+                  {renderVideoList()}
+                  {renderTranscribeButton()}
 
-                  {/* 字幕选项 */}
-                  {postProcessing.enableSubtitle && !postProcessing.enableTTS && (
-                    <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-                      <label className="block text-sm text-blue-300 mb-2">目标语言</label>
+                  {/* 基础剪辑选项 */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-label mb-2">{t.videoEdit.template.toUpperCase()}</label>
                       <select
-                        value={targetLanguage}
-                        onChange={(e) => setTargetLanguage(e.target.value)}
-                        className="w-full bg-white/5 border border-blue-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
+                        value={template}
+                        onChange={(e) => setTemplate(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50"
                       >
-                        {languageOptions.map(lang => (
-                          <option key={lang.value} value={lang.value} className="bg-gray-900">
-                            {lang.label}
-                          </option>
-                        ))}
+                        <option value="mix" className="bg-gray-900">{t.videoEdit.mix}</option>
+                        <option value="quick" className="bg-gray-900">{t.videoEdit.quickCut}</option>
+                        <option value="story" className="bg-gray-900">{t.videoEdit.storyboard}</option>
+                        <option value="loop" className="bg-gray-900">{t.videoEdit.loop}</option>
                       </select>
                     </div>
-                  )}
 
-                  {/* 翻译字幕选项 */}
-                  {postProcessing.enableTranslateSubtitle && !postProcessing.enableSubtitle && (
-                    <div className="mb-4 p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-xl">
-                      <label className="block text-sm text-cyan-300 mb-2">翻译目标语言</label>
+                    <div>
+                      <label className="block text-label mb-2">{t.videoEdit.duration.toUpperCase()} ({t.videoEdit.seconds})</label>
+                      <input
+                        type="number"
+                        value={duration}
+                        onChange={(e) => setDuration(Math.max(1, Math.min(300, Number(e.target.value))))}
+                        min="1"
+                        max="300"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white font-mono focus:outline-none focus:border-emerald-500/50"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-label mb-2">{t.videoEdit.resolution.toUpperCase()}</label>
                       <select
-                        value={targetLanguage}
-                        onChange={(e) => setTargetLanguage(e.target.value)}
-                        className="w-full bg-white/5 border border-cyan-500/30 rounded-lg px-3 py-2 text-white focus:outline-none"
+                        value={resolution}
+                        onChange={(e) => setResolution(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50"
                       >
-                        {languageOptions.map(lang => (
-                          <option key={lang.value} value={lang.value} className="bg-gray-900">
-                            {lang.label}
-                          </option>
-                        ))}
+                        <option value="original" className="bg-gray-900">原始</option>
+                        <option value="720p" className="bg-gray-900">720p (1280×720)</option>
+                        <option value="1080p" className="bg-gray-900">1080p (1920×1080)</option>
+                        <option value="4k" className="bg-gray-900">4K (3840×2160)</option>
+                        <option value="9:16" className="bg-gray-900">竖屏 (1080×1920)</option>
+                        <option value="1:1" className="bg-gray-900">方形 (1080×1080)</option>
+                        <option value="4:3" className="bg-gray-900">4:3 (1440×1080)</option>
+                        <option value="16:9" className="bg-gray-900">宽屏 (1920×1080)</option>
                       </select>
                     </div>
-                  )}
 
-                  {/* 换脸选项 */}
-                  {postProcessing.enableFaceSwap && (
-                    <div className="mb-4 p-4 bg-pink-500/10 border border-pink-500/20 rounded-xl">
-                      <label className="block text-sm text-pink-300 mb-2">上传目标人脸照片</label>
-                      <div className="flex items-center gap-4">
-                        <input
-                          ref={faceInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={handleFaceImageSelect}
-                          className="hidden"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => faceInputRef.current?.click()}
-                          className="px-4 py-2 bg-pink-500/20 border border-pink-500/30 text-pink-300 rounded-lg hover:bg-pink-500/30"
-                        >
-                          选择图片
-                        </button>
-                        {faceImagePreview && (
-                          <div className="flex items-center gap-2">
-                            <img src={faceImagePreview} alt="人脸预览" className="w-16 h-16 object-cover rounded-lg border border-pink-500/30" />
-                            <button
-                              type="button"
-                              onClick={() => { setFaceImage(null); setFaceImagePreview(''); }}
-                              className="text-pink-400 hover:text-pink-300"
-                            >
-                              移除
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-xs text-pink-400/60 mt-2">支持 JPG、PNG 格式，建议使用正面清晰的证件照或自拍</p>
+                    <div>
+                      <label className="block text-label mb-2">{t.videoEdit.style.toUpperCase()}</label>
+                      <select
+                        value={style}
+                        onChange={(e) => setStyle(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50"
+                      >
+                        <option value="dynamic" className="bg-gray-900">{t.videoEdit.dynamic}</option>
+                        <option value="elegant" className="bg-gray-900">{t.videoEdit.elegant}</option>
+                        <option value="vintage" className="bg-gray-900">{t.videoEdit.vintage}</option>
+                        <option value="minimal" className="bg-gray-900">{t.videoEdit.minimal}</option>
+                      </select>
                     </div>
-                  )}
+                  </div>
 
-                  {/* 对口型说明 */}
-                  {postProcessing.enableLipSync && (
-                    <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                      <div className="flex items-start gap-3">
-                        <svg className="w-5 h-5 text-amber-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <div>
-                          <p className="text-sm text-amber-300">对口型功能说明</p>
-                          <p className="text-xs text-amber-400/60 mt-1">
-                            此功能会根据配音自动调整视频中人物的口型匹配度。当前版本会返回模拟处理结果，实际效果取决于视频内容质量。
-                          </p>
+                  {renderPostProcessingOptions()}
+
+                  {/* 提交按钮 */}
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="submit"
+                      disabled={isProcessing || videos.length === 0}
+                      className="flex-1 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors"
+                    >
+                      {isProcessing ? (currentProcessStep || t.videoEdit.processing.toUpperCase()) : (hasPostProcessingEnabled ? '开始处理' : t.videoEdit.startProcessing.toUpperCase())}
+                    </button>
+                    {isProcessing && (
+                      <div className="flex-1">
+                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                          <span>{currentProcessStep || t.videoEdit.progress.toUpperCase()}</span>
+                          <span className="font-mono">{Math.round(progress)}%</span>
+                        </div>
+                        <div className="w-full bg-white/10 rounded-full h-2">
+                          <div
+                            className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${progress}%` }}
+                          />
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* 提交按钮 */}
-                <div className="flex items-center gap-4">
-                  <button
-                    type="submit"
-                    disabled={isProcessing || videos.length === 0}
-                    className="flex-1 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors"
-                  >
-                    {isProcessing ? (currentProcessStep || t.videoEdit.processing.toUpperCase()) : (hasPostProcessingEnabled ? '开始处理' : t.videoEdit.startProcessing.toUpperCase())}
-                  </button>
-                  {isProcessing && (
-                    <div className="flex-1">
-                      <div className="flex justify-between text-xs text-gray-400 mb-1">
-                        <span>{currentProcessStep || t.videoEdit.progress.toUpperCase()}</span>
-                        <span className="font-mono">{Math.round(progress)}%</span>
-                      </div>
-                      <div className="w-full bg-white/10 rounded-full h-2">
-                        <div
-                          className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </form>
+                    )}
+                  </div>
+                </form>
+              )}
             </div>
 
             {outputUrl && (

@@ -109,7 +109,9 @@ async function uploadToOSSAndGetUrl(filePath: string, objectName: string): Promi
   const client = createOSSClient();
   const bucket = process.env.OSS_BUCKET || '';
   
-  await client.put(objectName, filePath);
+  await client.put(objectName, filePath, {
+    headers: { 'x-oss-object-acl': 'public-read' }
+  });
   console.log('[OSS] 上传成功:', objectName);
   
   // 返回 OSS 公网直链
