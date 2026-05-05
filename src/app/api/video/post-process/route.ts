@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { dashscopeTranslate, dashscopeTTS } from '@/lib/ai-providers'
 import { join } from 'path'
-import { writeFile, mkdir, copyFile, unlink } from 'fs/promises'
+import { writeFile, mkdir, copyFile, unlink, readFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { execSync } from 'child_process'
 
@@ -118,33 +118,45 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 2. 字幕生成 (使用 Paraformer 语音识别)
+    // 2. 字幕生成 (调用语音识别 API)
     if (options.enableSubtitle) {
       processSteps.push('字幕生成')
       try {
-        // 注意：Paraformer 是语音识别模型，需要音频输入
-        // 这里我们假设视频已经有音频，进行 ASR 识别
-        // 实际实现需要调用 Paraformer API 进行语音识别生成字幕
-        
-        // 模拟：生成 SRT 字幕文件
-        const srtPath = join(tempDir, `subtitle_${timestamp}.srt`)
         const subtitleLang = subtitleLanguage || 'zh'
         
-        // 这里应该调用实际的语音识别 API
-        // 由于没有视频音频提取和 ASR 的完整实现，生成模拟字幕
-        const mockSubtitleContent = `1
-00:00:00,000 --> 00:00:05,000
-[自动生成的字幕]
-
-2
-00:00:05,000 --> 00:00:10,000
-这是一段模拟字幕内容
-
-3
-00:00:10,000 --> 00:00:15,000
-实际使用时将调用语音识别 API
-`
-        await writeFile(srtPath, mockSubtitleContent)
+        // 调用 /api/video/transcribe 获取识别文本
+        const videoFileName = `video_${timestamp}.mp4`
+        const uploadsDir = join(process.cwd(), 'public', 'uploads', 'asr')
+        if (!existsSync(uploadsDir)) {
+          await mkdir(uploadsDir, { recursive: true })
+        }
+        const uploadVideoPath = join(uploadsDir, videoFileName)
+        
+        // 复制视频文件用于识别
+        await copyFile(currentVideoPath, uploadVideoPath)
+        
+        // 调用转写 API
+        const transcribeFormData = new FormData()
+        transcribeFormData.append('video', new Blob([await readFile(uploadVideoPath)]), videoFileName)
+        
+        const transcribeRes = await fetch(new URL('/api/video/transcribe', request.url), {
+          method: 'POST',
+          body: transcribeFormData,
+        })
+        
+        const transcribeData = await transcribeRes.json()
+        
+        if (!transcribeData.success || !transcribeData.text) {
+          console.error('语音识别失败:', transcribeData.message)
+        } else {
+          console.log('[PostProcess] 识别文本:', transcribeData.text)
+        }
+        
+        // 生成 SRT 字幕文件
+        const srtPath = join(tempDir, `subtitle_${timestamp}.srt`)
+        const recognizedText = transcribeData.text || ''
+        const subtitleContent = generateSRTFromText(recognizedText)
+        await writeFile(srtPath, subtitleContent)
         
         // 将字幕烧录到视频
         const outputPath = join(outputDir, `output_subtitle_${timestamp}.mp4`)
@@ -155,25 +167,51 @@ export async function POST(request: NextRequest) {
         try {
           execSync(command, { stdio: 'pipe' })
           await unlink(srtPath).catch(() => {})
+          await unlink(uploadVideoPath).catch(() => {})
           currentVideoPath = outputPath
           finalVideoUrl = `/outputs/output_subtitle_${timestamp}.mp4`
         } catch (subError) {
           console.error('字幕烧录失败，使用原视频:', subError)
-          // 字幕处理失败，继续使用当前视频
         }
         
       } catch (error) {
         console.error('字幕生成失败:', error)
-        // 字幕处理失败不影响后续流程
       }
     }
 
-    // 3. 翻译字幕
+    // 3. 翻译字幕 (调用阿里云百炼 Qwen 翻译)
     if (options.enableTranslateSubtitle && subtitleLanguage) {
       processSteps.push('字幕翻译')
-      // 注意：翻译字幕需要先有原字幕，再翻译
-      // 实际实现需要先提取原字幕 -> 翻译 -> 烧录新字幕
-      console.log('翻译字幕功能待实现，需要先完成字幕生成')
+      try {
+        const originalText = body.originalText || ttsScript || ''
+        if (originalText) {
+          const translatedText = await dashscopeTranslate(originalText, 'zh', subtitleLanguage)
+          if (translatedText) {
+            console.log('[PostProcess] 翻译结果:', translatedText)
+            // 生成翻译后的 SRT 并烧录
+            const srtPath = join(tempDir, `subtitle_translated_${timestamp}.srt`)
+            const subtitleContent = generateSRTFromText(translatedText)
+            await writeFile(srtPath, subtitleContent)
+            
+            const outputPath = join(outputDir, `output_translated_${timestamp}.mp4`)
+            const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
+            const command = `"${ffmpegPath}" -i "${currentVideoPath}" -vf "subtitles='${srtPath.replace(/\\/g, '/')}'" -c:a copy "${outputPath}"`
+            
+            try {
+              execSync(command, { stdio: 'pipe' })
+              await unlink(srtPath).catch(() => {})
+              currentVideoPath = outputPath
+              finalVideoUrl = `/outputs/output_translated_${timestamp}.mp4`
+            } catch (subError) {
+              console.error('翻译字幕烧录失败:', subError)
+            }
+          } else {
+            console.log('翻译 API 未配置，跳过翻译')
+          }
+        }
+      } catch (error) {
+        console.error('翻译字幕失败:', error)
+      }
     }
 
     // 4. 换脸处理 (人脸融合)
@@ -228,4 +266,39 @@ export async function POST(request: NextRequest) {
       message: error instanceof Error ? error.message : '后期处理失败' 
     }, { status: 500 })
   }
+}
+
+// 将文本转换为 SRT 字幕格式（每段 5 秒）
+function generateSRTFromText(text: string): string {
+  const maxCharsPerLine = 20
+  const charsPerSecond = 10
+  const lines: string[] = []
+  
+  // 简单分句
+  const sentences = text.split(/[。！？；\n]+/).filter(s => s.trim())
+  let currentTime = 0
+  let index = 1
+  
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim()
+    if (!trimmed) continue
+    
+    const duration = Math.max(2, Math.ceil(trimmed.length / charsPerSecond))
+    const startTime = formatSRTTime(currentTime)
+    const endTime = formatSRTTime(currentTime + duration)
+    
+    lines.push(`${index}\n${startTime} --> ${endTime}\n${trimmed}\n`)
+    currentTime += duration
+    index++
+  }
+  
+  return lines.join('\n')
+}
+
+function formatSRTTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  const ms = 0
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`
 }

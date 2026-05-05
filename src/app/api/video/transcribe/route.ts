@@ -19,7 +19,7 @@ async function callSiliconFlowWhisper(audioFilePath: string, apiKey: string): Pr
     // 创建 FormData
     const formData = new FormData();
     formData.append('file', new Blob([audioData]), 'audio.wav');
-    formData.append('model', 'FunAudioLLM/SenseVoiceLarge');
+    formData.append('model', 'FunAudioLLM/SenseVoiceSmall');
 
     const response = await fetch('https://api.siliconflow.cn/v1/audio/transcriptions', {
       method: 'POST',
