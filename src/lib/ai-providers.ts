@@ -250,7 +250,7 @@ export async function generateImage(prompt: string): Promise<string | null> {
 }
 
 // 6. 文生视频
-export async function generateVideo(prompt: string, _aspectRatio = '16:9'): Promise<{ taskId: string; status: string } | null> {
+export async function generateVideo(prompt: string, _aspectRatio = '16:9'): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
   // 火山方舟视频生成 → Mock
   const key = getVolcanoKey();
   if (key) {
