@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
             '-map', '1:a:0',
             '-shortest',
             outputPath
-          ], { stdio: 'pipe' })
+          ])
           
           // 清理临时音频文件
           await unlink(audioPath).catch(() => {})
@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
             '-vf', `subtitles=${srtPath.replace(/\\/g, '/')}`,
             '-c:a', 'copy',
             outputPath
-          ], { stdio: 'pipe' })
+          ])
           await unlink(srtPath).catch(() => {})
           await unlink(uploadVideoPath).catch(() => {})
           currentVideoPath = outputPath
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
                 '-vf', `subtitles=${srtPath.replace(/\\/g, '/')}`,
                 '-c:a', 'copy',
                 outputPath
-              ], { stdio: 'pipe' })
+              ])
               await unlink(srtPath).catch(() => {})
               currentVideoPath = outputPath
               finalVideoUrl = `/outputs/output_translated_${timestamp}.mp4`
