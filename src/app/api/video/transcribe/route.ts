@@ -1,23 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { join } from 'path';
-import { writeFile, mkdir, unlink, readFile } from 'fs/promises';
+import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import OSS from 'ali-oss';
-import CryptoJS from 'crypto-js';
+import RPC from '@alicloud/nls-filetrans-2018-08-17';
 
 const execAsync = promisify(exec);
 
 // NLS 应用配置
 const NLS_APPKEY = 'airiirGFYdru0LGV4mHM';
-const NLS_SUBMIT_URL = 'https://nls-gateway.cn-shanghai.aliyuncs.com/filetrans/submit';
-const NLS_QUERY_URL = 'https://nls-gateway.cn-shanghai.aliyuncs.com/filetrans/query';
-
-// 生成阿里云 API 签名
-function generateSignature(accessKeySecret: string, stringToSign: string): string {
-  return CryptoJS.enc.Base64.stringify(CryptoJS.HmacSHA1(stringToSign, accessKeySecret));
-}
+const NLS_ENDPOINT = 'https://filetrans.cn-shanghai.aliyuncs.com';
 
 // 创建 OSS 客户端
 function createOSSClient() {
@@ -65,115 +59,73 @@ async function deleteOSSFile(objectName: string): Promise<void> {
   }
 }
 
+// 创建 NLS 客户端
+function createNLSClient(accessKeyId: string, accessKeySecret: string) {
+  return new RPC({
+    accessKeyId,
+    accessKeySecret,
+    endpoint: NLS_ENDPOINT,
+    apiVersion: '2018-08-17'
+  });
+}
+
 // 提交 NLS 识别任务
 async function submitNLSTask(fileLink: string, accessKeyId: string, accessKeySecret: string): Promise<string> {
-  const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-  const random = Math.random().toString(36).substring(2, 10);
-
-  // 构造签名字符串
-  const stringToSign = `POST\napplication/json\n${timestamp}\n/filetrans/submit`;
-  const signature = generateSignature(accessKeySecret, stringToSign);
-  const signatureHeader = `Dataplus ${accessKeyId}:${signature}`;
-
-  const body = JSON.stringify({
-    appkey: NLS_APPKEY,
-    file_link: fileLink,
-    version: '4.0',
-    enable_words: false
-  });
+  const client = createNLSClient(accessKeyId, accessKeySecret);
 
   console.log('[NLS] 提交识别任务:', { file_link: fileLink });
 
-  const response = await fetch(NLS_SUBMIT_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': signatureHeader,
-      'X-NLS-Architecture': 'Dataplus',
-      'X-NLS-Timestamp': timestamp,
-      'X-NLS-Nonce': random
-    },
-    body
+  const result = await client.submitFileTrans({
+    AppKey: NLS_APPKEY,
+    FileLink: fileLink,
+    Version: '4.0',
+    EnableWords: false
   });
 
-  const responseText = await response.text();
-  console.log('[NLS] 提交响应:', response.status, responseText.substring(0, 300));
+  console.log('[NLS] 提交响应:', JSON.stringify(result).substring(0, 300));
 
-  if (!response.ok) {
-    throw new Error(`NLS 提交失败: ${response.status} - ${responseText.substring(0, 200)}`);
+  if (result.TaskId) {
+    console.log('[NLS] 任务已提交，TaskId:', result.TaskId);
+    return result.TaskId;
   }
 
-  const data = JSON.parse(responseText);
-  if (data.data?.task_id) {
-    console.log('[NLS] 任务已提交，TaskId:', data.data.task_id);
-    return data.data.task_id;
-  }
-
-  throw new Error(`NLS 提交响应格式异常: ${responseText.substring(0, 200)}`);
+  throw new Error(`NLS 提交失败: ${JSON.stringify(result).substring(0, 200)}`);
 }
 
 // 轮询 NLS 任务状态
 async function pollNLSResult(taskId: string, accessKeyId: string, accessKeySecret: string): Promise<string> {
+  const client = createNLSClient(accessKeyId, accessKeySecret);
   const maxAttempts = 40;
   const intervalMs = 5000;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     console.log(`[NLS] 轮询进度: ${attempt}/${maxAttempts}`);
 
-    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-    const random = Math.random().toString(36).substring(2, 10);
-
-    // 构造签名
-    const stringToSign = `POST\napplication/json\n${timestamp}\n/filetrans/query`;
-    const signature = generateSignature(accessKeySecret, stringToSign);
-    const signatureHeader = `Dataplus ${accessKeyId}:${signature}`;
-
-    const body = JSON.stringify({
-      appkey: NLS_APPKEY,
-      taskid: taskId
+    const result = await client.getFileTransResult({
+      TaskId: taskId,
+      AppKey: NLS_APPKEY
     });
 
-    const response = await fetch(NLS_QUERY_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': signatureHeader,
-        'X-NLS-Architecture': 'Dataplus',
-        'X-NLS-Timestamp': timestamp,
-        'X-NLS-Nonce': random
-      },
-      body
-    });
-
-    const responseText = await response.text();
-    console.log(`[NLS] 查询响应 (${attempt}):`, response.status, responseText.substring(0, 300));
-
-    if (!response.ok) {
-      console.error(`[NLS] 查询失败，${intervalMs / 1000}秒后重试...`);
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
-      continue;
-    }
-
-    const data = JSON.parse(responseText);
+    console.log(`[NLS] 查询响应 (${attempt}):`, JSON.stringify(result).substring(0, 300));
 
     // 检查状态
-    if (data.data?.status_text === 'SUCCESS') {
+    if (result.StatusText === 'SUCCESS') {
       console.log('[NLS] 识别成功');
-      return data.data.result || '';
+      return result.Result || '';
     }
 
-    if (data.data?.status_text === 'RUNNING' || data.data?.status_text === 'QUEUEING') {
-      console.log(`[NLS] 任务进行中 (${data.data.status_text})，等待 ${intervalMs / 1000} 秒...`);
+    if (result.StatusText === 'RUNNING' || result.StatusText === 'QUEUEING') {
+      console.log(`[NLS] 任务进行中 (${result.StatusText})，等待 ${intervalMs / 1000} 秒...`);
       await new Promise(resolve => setTimeout(resolve, intervalMs));
       continue;
     }
 
-    if (data.data?.status_text === 'FAILED') {
-      throw new Error(`NLS 识别失败: ${data.data.failed_reason || '未知错误'}`);
+    if (result.StatusText === 'FAILED') {
+      throw new Error(`NLS 识别失败: ${result.FailedReason || '未知错误'}`);
     }
 
     // 未知状态，等待后重试
-    console.log(`[NLS] 未知状态: ${data.data?.status_text}，等待 ${intervalMs / 1000} 秒...`);
+    console.log(`[NLS] 未知状态: ${result.StatusText}，等待 ${intervalMs / 1000} 秒...`);
     await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
 

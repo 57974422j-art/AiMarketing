@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@alicloud/nls-filetrans-2018-08-17": "^1.0.0",
     "@prisma/client": "5.22.0",
     "ali-oss": "^6.23.0",
     "crypto-js": "^4.2.0",
