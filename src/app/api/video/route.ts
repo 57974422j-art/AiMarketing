@@ -4,6 +4,7 @@ import { join } from 'path'
 import { execSync } from 'child_process'
 import { PrismaClient } from '@prisma/client'
 import { checkQuota, incrementUsage } from '@/lib/quota'
+import OSS from 'ali-oss'
 
 const prisma = new PrismaClient()
 
@@ -75,10 +76,44 @@ function isFFmpegInstalled(): boolean {
     return false;
   }
 }
-function getDownloadUrl(request: NextRequest, outputFileName: string): string {
-  const host = request.headers.get('host') || 'localhost:3000'
-  const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'http'
-  return `${protocol}://${host}/outputs/${outputFileName}`
+
+// 创建 OSS 客户端
+function createOSSClient() {
+  const region = process.env.OSS_REGION || 'oss-cn-hangzhou';
+  const accessKeyId = process.env.OSS_ACCESS_KEY_ID;
+  const accessKeySecret = process.env.OSS_ACCESS_KEY_SECRET;
+  const bucket = process.env.OSS_BUCKET;
+
+  if (!accessKeyId || !accessKeySecret || !bucket) {
+    throw new Error('OSS 配置不完整');
+  }
+
+  return new OSS({
+    region,
+    accessKeyId,
+    accessKeySecret,
+    bucket,
+    secure: true
+  });
+}
+
+// 生成唯一文件名
+function generateUniqueFileName(ext: string): string {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 8);
+  return `outputs/${timestamp}_${random}.${ext}`;
+}
+
+// 上传文件到 OSS 并返回公网直链
+async function uploadToOSSAndGetUrl(filePath: string, objectName: string): Promise<string> {
+  const client = createOSSClient();
+  const bucket = process.env.OSS_BUCKET || '';
+  
+  await client.put(objectName, filePath);
+  console.log('[OSS] 上传成功:', objectName);
+  
+  // 返回 OSS 公网直链
+  return `https://${bucket}.oss-cn-hangzhou.aliyuncs.com/${objectName}`;
 }
 
 // 视频裁剪
@@ -273,8 +308,6 @@ export async function POST(request: NextRequest) {
 
     const outputFileName = `output_${taskId}_${timestamp}.mp4`
     const outputPath = join(outputDir, outputFileName)
-    const outputUrl = `/outputs/${outputFileName}`
-    const downloadUrl = getDownloadUrl(request, outputFileName)
 
     console.log('[Video] Processing:', { template, duration, resolution, inputCount: inputPaths.length, inputPaths });
 
@@ -359,6 +392,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 上传到 OSS
+    let ossUrl = '';
+    try {
+      const ossFileName = generateUniqueFileName('mp4');
+      ossUrl = await uploadToOSSAndGetUrl(tempOutput, ossFileName);
+      console.log('[Video] OSS 上传成功:', ossUrl);
+    } catch (ossError) {
+      console.error('[Video] OSS 上传失败:', ossError);
+      // OSS 上传失败不影响任务完成，只是返回本地路径
+    }
+
+    // 清理本地临时文件
+    if (existsSync(tempOutput)) {
+      unlinkSync(tempOutput)
+    }
+
     if (user) {
       await incrementUsage(user.userId, '视频剪辑', 1)
 
@@ -371,7 +420,7 @@ export async function POST(request: NextRequest) {
           duration,
           style: styleWithResolution,
           status: 'completed',
-          outputPath: tempOutput.replace(join(process.cwd(), 'public'), ''),
+          outputPath: ossUrl || tempOutput.replace(join(process.cwd(), 'public'), ''),
           progress: 100
         }
       })
@@ -382,8 +431,8 @@ export async function POST(request: NextRequest) {
       success: true,
       message: '视频剪辑任务已完成',
       taskId,
-      outputUrl,
-      downloadUrl
+      outputUrl: ossUrl,
+      downloadUrl: ossUrl
     })
   } catch (error) {
     console.error('视频剪辑错误:', error)
@@ -481,7 +530,7 @@ export async function DELETE(request: NextRequest) {
       where: { id: parseInt(taskId) }
     })
 
-    // 清理视频文件
+    // 清理本地视频文件
     if (task.outputPath) {
       const filePath = join(process.cwd(), 'public', task.outputPath)
       if (existsSync(filePath)) {
