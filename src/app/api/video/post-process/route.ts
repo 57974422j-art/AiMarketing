@@ -28,25 +28,33 @@ const langCodeMap: Record<string, string> = {
 }
 
 export async function POST(request: NextRequest) {
+  let body;
   try {
-    const body = await request.json()
-    const { 
-      videoUrl, 
-      options, 
-      ttsScript, 
-      ttsVoice, 
-      subtitleLanguage 
-    } = body as {
-      videoUrl: string
-      options: PostProcessingOptions
-      ttsScript?: string
-      ttsVoice?: string
-      subtitleLanguage?: string
-    }
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, message: '参数格式错误' }, { status: 400 });
+  }
+  
+  const { 
+    videoUrl, 
+    options, 
+    ttsScript, 
+    ttsVoice, 
+    subtitleLanguage 
+  } = body as {
+    videoUrl?: string;
+    options: PostProcessingOptions;
+    ttsScript?: string;
+    ttsVoice?: string;
+    subtitleLanguage?: string;
+  }
 
-    if (!videoUrl) {
-      return NextResponse.json({ success: false, message: '缺少视频URL' }, { status: 400 })
-    }
+  // 兜底逻辑：videoUrl -> ossUrl -> file_url
+  const actualVideoUrl = videoUrl || body.ossUrl || body.file_url;
+
+  if (!actualVideoUrl) {
+    return NextResponse.json({ success: false, message: '缺少视频URL' }, { status: 400 });
+  }
 
     // 确保输出目录存在
     const outputDir = join(process.cwd(), 'public', 'outputs')
@@ -61,10 +69,10 @@ export async function POST(request: NextRequest) {
 
     // 生成输出文件名
     const timestamp = Date.now()
-    const inputFileName = videoUrl.split('/').pop() || `input_${timestamp}.mp4`
-    const inputPath = join(process.cwd(), 'public', videoUrl.replace(/^\//, ''))
+    const inputFileName = actualVideoUrl.split('/').pop() || `input_${timestamp}.mp4`
+    const inputPath = join(process.cwd(), 'public', actualVideoUrl.replace(/^\//, ''))
     let currentVideoPath = inputPath
-    let finalVideoUrl = videoUrl
+    let finalVideoUrl = actualVideoUrl
 
     // 处理流程
     const processSteps: string[] = []
