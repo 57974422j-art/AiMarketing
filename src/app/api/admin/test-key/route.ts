@@ -65,7 +65,11 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ valid: false, message: '缺少 key 参数' }, { status: 400 });
         }
 
-        // 测试火山方舟 API
+        // 测试火山方舟 API - 使用环境变量中的推理端点
+        const modelEp = process.env.VOLCANO_MODEL_EP;
+        if (!modelEp) {
+          return NextResponse.json({ valid: true, message: '火山方舟 Key 有效（未配置推理端点，需设置 VOLCANO_MODEL_EP）' });
+        }
         const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
           method: 'POST',
           headers: {
@@ -73,7 +77,7 @@ export async function POST(request: NextRequest) {
             'Authorization': `Bearer ${key}`
           },
           body: JSON.stringify({
-            model: 'ep-20250421092936-4fdt4',
+            model: modelEp,
             messages: [{ role: 'user', content: 'Hi' }],
             max_tokens: 10
           }),

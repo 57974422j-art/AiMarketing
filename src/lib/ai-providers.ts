@@ -49,7 +49,11 @@ function callChatAPI(baseUrl: string, apiKey: string, model: string, prompt: str
 // ==================== 火山方舟 (Volcano Engine) ====================
 
 const VOLCANO_BASE = 'https://ark.cn-beijing.volces.com';
-const VOLCANO_CHAT_MODEL = 'ep-20250421092936-4fdt4'; // 豆包 doubao-pro-32k 推理端点
+// 火山方舟推理端点 ID，需要在控制台创建后填入环境变量 VOLCANO_MODEL_EP
+// 参考: https://console.volcengine.com/ark/region:ark+cn-beijing/endpoint
+function getVolcanoModelEp(): string | null {
+  return process.env.VOLCANO_MODEL_EP || null;
+}
 
 function getVolcanoKey(): string | null {
   return process.env.VOLCANO_API_KEY || null;
@@ -57,9 +61,10 @@ function getVolcanoKey(): string | null {
 
 async function volcanoChat(prompt: string, maxTokens = 1000): Promise<string | null> {
   const key = getVolcanoKey();
-  if (!key) return null;
+  const ep = getVolcanoModelEp();
+  if (!key || !ep) return null;
   try {
-    const data = await callChatAPI(VOLCANO_BASE, key, VOLCANO_CHAT_MODEL, prompt, maxTokens);
+    const data = await callChatAPI(VOLCANO_BASE, key, ep, prompt, maxTokens);
     return data.choices?.[0]?.message?.content?.trim() || null;
   } catch (e) {
     console.error('[Volcano] 对话失败:', e);
