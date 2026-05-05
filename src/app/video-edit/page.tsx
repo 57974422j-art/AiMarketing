@@ -462,6 +462,7 @@ export default function VideoEditPage() {
       // ========== 步骤 1: 语音识别 ==========
       // 如果已有识别结果，跳过
       let recognizedText = ttsScript;
+      let fromCache = false;
       
       if (!recognizedText) {
         setCurrentStepKey('transcribe');
@@ -483,6 +484,7 @@ export default function VideoEditPage() {
         }
       } else {
         // 已有结果，直接标记完成
+        fromCache = true;
         setCurrentStepKey('transcribe');
         setStepStates(prev => ({
           ...prev,
@@ -492,29 +494,13 @@ export default function VideoEditPage() {
       }
 
       if (recognizedText) {
-        setTtsScript(recognizedText);
-        setStepStates(prev => ({
-          ...prev,
-          transcribe: { status: 'completed', completed: true, message: '识别完成' },
-        }));
-        stepResults.push('语音识别');
-        
-        // 如果启用了说话人分离，处理分离结果
-        if (postProcessing.enableSpeakerDiarization && transcribeData.speakers) {
-          const speakers = transcribeData.speakers;
-          const segments = recognizedText.split(/[。！？.!?]/).filter(Boolean);
-          const assignments: VoiceAssignment[] = speakers.map((speaker: string, idx: number) => ({
-            speakerId: speaker,
-            voice: voicePresets[idx % voicePresets.length].voice,
-            label: voicePresets[idx % voicePresets.length].label,
+        if (!fromCache) {
+          setStepStates(prev => ({
+            ...prev,
+            transcribe: { status: 'completed', completed: true, message: '识别完成' },
           }));
-          setVoiceAssignments(assignments);
-          setSpeakerDiarization(segments.map((text: string, idx: number) => ({
-            speaker: speakers[idx % speakers.length],
-            text: text.trim(),
-            voice: assignments[idx % assignments.length].voice,
-          })));
         }
+        stepResults.push('语音识别');
       } else {
         setStepStates(prev => ({
           ...prev,
