@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, message: '缺少视频URL' }, { status: 400 });
   }
 
+  try {
     // 确保输出目录存在
     const outputDir = join(process.cwd(), 'public', 'outputs')
     if (!existsSync(outputDir)) {
