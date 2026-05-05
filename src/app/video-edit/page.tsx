@@ -429,7 +429,7 @@ export default function VideoEditPage() {
     }
   };
 
-  // 后期处理模式提交 - 步骤链执行
+  // 后期处理模式提交 - 一次调用API处理所有启用的选项
   const handlePostProcessSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -475,161 +475,124 @@ export default function VideoEditPage() {
     setErrorMessage('');
     setSuccessMessage('');
 
-    let currentVideoUrl = '';
-    let stepResults: string[] = [];
-    let stopped = false;
-
     try {
-      // ========== 步骤 1: 语音识别 ==========
-      console.log('=== 步骤1: 语音识别 ===');
-      // 如果已有识别结果，跳过
-      let recognizedText = ttsScript;
-      let fromCache = false;
-      
-      console.log('当前ttsScript:', recognizedText ? recognizedText.substring(0, 50) + '...' : '空');
-      
-      if (!recognizedText) {
-        console.log('开始语音识别API调用...');
-        setCurrentStepKey('transcribe');
-        setCurrentProcessStep('步骤 1/6：语音识别中...');
-        setProgress(15);
+      // 步骤1: 先上传视频获取URL
+      console.log('=== 步骤1: 上传视频 ===');
+      setCurrentStepKey('transcribe');
+      setCurrentProcessStep('上传视频中...');
+      setProgress(10);
 
-        const transcribeFormData = new FormData();
-        transcribeFormData.append('video', videos[0].file);
-        console.log('发送语音识别请求，文件:', videos[0].file.name);
-        
-        const transcribeRes = await fetch('/api/video/transcribe', {
-          method: 'POST',
-          credentials: 'include',
-          body: transcribeFormData,
-        });
-        
-        console.log('语音识别响应状态:', transcribeRes.status);
-        const transcribeData = await transcribeRes.json();
-        console.log('语音识别响应数据:', transcribeData);
-        
-        recognizedText = transcribeData.text || '';
-        console.log('提取的识别文本:', recognizedText ? recognizedText.substring(0, 50) + '...' : '空');
-        
-        if (recognizedText) {
-          console.log('识别成功，更新ttsScript');
-          setTtsScript(recognizedText);
-        } else {
-          console.warn('未识别到文本');
-        }
-      } else {
-        // 已有结果，直接标记完成
-        console.log('使用缓存的识别结果，跳过API调用');
-        fromCache = true;
-        setCurrentStepKey('transcribe');
-        setStepStates(prev => ({
-          ...prev,
-          transcribe: { status: 'completed', completed: true, message: '识别完成（已缓存）' },
-        }));
-        setProgress(15);
+      const uploadFormData = new FormData();
+      uploadFormData.append('video', videos[0].file);
+      
+      // 调用transcribe API上传视频（它会上传文件到服务器）
+      const uploadRes = await fetch('/api/video/transcribe', {
+        method: 'POST',
+        credentials: 'include',
+        body: uploadFormData,
+      });
+      
+      console.log('上传响应状态:', uploadRes.status);
+      const uploadData = await uploadRes.json();
+      console.log('上传响应数据:', uploadData);
+      
+      if (!uploadData.success) {
+        throw new Error('视频上传失败: ' + (uploadData.message || '未知错误'));
       }
-
-      if (recognizedText) {
-        console.log('语音识别步骤完成');
-        if (!fromCache) {
-          setStepStates(prev => ({
-            ...prev,
-            transcribe: { status: 'completed', completed: true, message: '识别完成' },
-          }));
-        }
-        stepResults.push('语音识别');
-      } else {
-        console.log('语音识别步骤跳过（未识别到语音）');
-        setStepStates(prev => ({
-          ...prev,
-          transcribe: { status: 'skipped', completed: false, message: '未识别到语音，跳过' },
-        }));
-      }
-
-      // 完成后解锁后续步骤
-      console.log('解锁翻译步骤');
-      setStepStates(prev => ({ ...prev, translate: { ...prev.translate, status: 'active' } }));
-      console.log('当前步骤状态:', stepStates);
-
-      // ========== 步骤 2: 翻译字幕 ==========
-      console.log('=== 步骤2: 翻译字幕 ===');
-      console.log('翻译选项:', postProcessing.enableTranslateSubtitle);
-      console.log('停止标志:', stopped);
       
-      if (postProcessing.enableTranslateSubtitle && !stopped) {
-        console.log('开始翻译字幕...');
-        setCurrentStepKey('translate');
-        setCurrentProcessStep('步骤 2/6：翻译字幕中...');
-        setProgress(30);
-
-        const postBody: Record<string, unknown> = {
-          options: { enableTranslateSubtitle: true, enableSubtitle: false, enableTTS: false, enableFaceSwap: false, enableLipSync: false, enableSpeakerDiarization: false },
-        };
-        if (recognizedText) postBody.originalText = recognizedText;
-        if (targetLanguage) postBody.subtitleLanguage = targetLanguage;
-        
-        console.log('翻译请求体:', JSON.stringify(postBody));
-        const translateRes = await fetch('/api/video/post-process', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(postBody),
-        });
-        console.log('翻译响应状态:', translateRes.status);
-        
-        const translateData = await translateRes.json();
-        console.log('翻译响应数据:', translateData);
-
-        if (translateData.success && translateData.videoUrl) {
-          console.log('翻译成功，视频URL:', translateData.videoUrl);
-          currentVideoUrl = translateData.videoUrl;
-          setStepStates(prev => ({
-            ...prev,
-            translate: { status: 'completed', completed: true, message: '翻译完成' },
-          }));
-          stepResults.push('翻译字幕');
-        } else {
-          console.warn('翻译失败:', translateData.message);
-          setStepStates(prev => ({
-            ...prev,
-            translate: { status: 'skipped', completed: false, message: translateData.message || '翻译失败，跳过' },
-          }));
-        }
-        console.log('解锁字幕生成步骤');
-        setStepStates(prev => ({ ...prev, subtitle: { ...prev.subtitle, status: 'active' } }));
-      } else {
-        console.log('翻译步骤跳过');
-        setStepStates(prev => ({ ...prev, translate: { status: 'skipped', completed: false } }));
-        setStepStates(prev => ({ ...prev, subtitle: { ...prev.subtitle, status: 'active' } }));
-      }
-
-      // ========== 步骤 3: 字幕生成 ==========
-      console.log('=== 步骤3: 字幕生成 ===');
-      console.log('字幕选项:', postProcessing.enableSubtitle);
-      console.log('停止标志:', stopped);
-      console.log('当前视频URL:', currentVideoUrl);
+      // 使用API返回的videoUrl（语音识别API现在会返回视频URL）
+      const videoUrl = uploadData.videoUrl || `/uploads/asr/video_${Date.now()}.mp4`;
+      console.log('视频URL（来自API）:', videoUrl);
       
-      if (postProcessing.enableSubtitle && !stopped) {
-        console.log('开始生成字幕...');
-        setCurrentStepKey('subtitle');
-        setCurrentProcessStep('步骤 3/6：生成字幕中...');
-        setProgress(50);
+      // 保存识别文本供后续使用
+      if (uploadData.text) {
+        setTtsScript(uploadData.text);
+        console.log('保存识别文本，长度:', uploadData.text.length);
+      }
+      
+      setProgress(20);
+      setStepStates(prev => ({ 
+        ...prev, 
+        transcribe: { status: 'completed', completed: true, message: '上传完成' } 
+      }));
 
-        const subtitleBody: Record<string, unknown> = {
-          options: { enableSubtitle: true, enableTTS: false, enableTranslateSubtitle: false, enableFaceSwap: false, enableLipSync: false, enableSpeakerDiarization: false },
-          videoUrl: currentVideoUrl || undefined,
-        };
-        if (recognizedText) subtitleBody.originalText = recognizedText;
-        if (targetLanguage) subtitleBody.subtitleLanguage = targetLanguage;
+      // 步骤2: 一次调用API处理所有启用的选项
+      console.log('=== 步骤2: 调用后期处理API ===');
+      setCurrentStepKey('translate');
+      setCurrentProcessStep('处理中...');
+      setProgress(30);
+      
+      // 构造API请求体
+      const postBody: Record<string, unknown> = {
+        videoUrl: videoUrl,
+        options: {
+          enableTTS: postProcessing.enableTTS,
+          enableSubtitle: postProcessing.enableSubtitle,
+          enableTranslateSubtitle: postProcessing.enableTranslateSubtitle,
+          enableFaceSwap: postProcessing.enableFaceSwap,
+          enableLipSync: postProcessing.enableLipSync,
+          enableSpeakerDiarization: false,
+        },
+      };
+      
+      // 如果有配音文本，传递进去
+      if (ttsScript) {
+        postBody.ttsScript = ttsScript;
+      }
+      
+      // 如果目标语言，传递进去
+      if (targetLanguage) {
+        postBody.subtitleLanguage = targetLanguage;
+      }
+      
+      console.log('后期处理请求体:', JSON.stringify(postBody));
+      
+      setProgress(50);
+      setCurrentProcessStep('AI处理中...');
+      
+      const postRes = await fetch('/api/video/post-process', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(postBody),
+      });
+      
+      console.log('后期处理响应状态:', postRes.status);
+      const postData = await postRes.json();
+      console.log('后期处理响应数据:', postData);
+      
+      setProgress(80);
+      
+      if (postData.success && postData.videoUrl) {
+        console.log('后期处理成功，视频URL:', postData.videoUrl);
+        setOutputUrl(postData.videoUrl);
+        setProgress(100);
+        setSuccessMessage('✅ 后期处理完成');
         
-        console.log('字幕请求体:', JSON.stringify(subtitleBody));
-        const subtitleRes = await fetch('/api/video/post-process', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(subtitleBody),
+        // 更新所有步骤状态为完成
+        setStepStates({
+          transcribe: { status: 'completed', completed: true, message: '上传完成' },
+          translate: { status: 'completed', completed: true, message: '处理完成' },
+          subtitle: { status: 'completed', completed: true, message: '处理完成' },
+          tts: { status: 'completed', completed: true, message: '处理完成' },
+          lipsync: { status: 'completed', completed: true, message: '处理完成' },
+          faceswap: { status: 'completed', completed: true, message: '处理完成' },
         });
-        const subtitleData = await subtitleRes.json();
+      } else {
+        throw new Error(postData.message || '后期处理失败');
+      }
+      
+    } catch (error) {
+      console.error('Post process error:', error);
+      setErrorMessage('后期处理失败: ' + (error instanceof Error ? error.message : '未知错误'));
+    } finally {
+      console.log('=== handlePostProcessSubmit 结束 ===');
+      setIsProcessing(false);
+      setProgress(100);
+      setCurrentProcessStep('');
+      setCurrentStepKey(null);
+    }
+  };
 
         if (subtitleData.success && subtitleData.videoUrl) {
           currentVideoUrl = subtitleData.videoUrl;

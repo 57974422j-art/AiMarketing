@@ -75,11 +75,25 @@ export async function POST(request: NextRequest) {
     if (!apiKey) return NextResponse.json({ success: false, message: '未配置 SILICONFLOW_API_KEY' }, { status: 500 });
 
     const asrResult = await callSiliconFlowWhisper(tempAudioPath, apiKey);
-    await Promise.all([unlink(tempAudioPath), unlink(uploadVideoPath)]).catch(() => { });
-
-    if (!asrResult.success) return NextResponse.json({ success: false, message: `语音识别失败: ${asrResult.error}` }, { status: 500 });
-    return NextResponse.json({ success: true, text: asrResult.text, message: '识别成功' });
+    // 只删除临时音频文件，保留上传的视频文件供后续处理
+    await unlink(tempAudioPath).catch(() => {});
+    
+    if (!asrResult.success) {
+      // 识别失败时删除上传的视频文件
+      await unlink(uploadVideoPath).catch(() => {});
+      return NextResponse.json({ success: false, message: `语音识别失败: ${asrResult.error}` }, { status: 500 });
+    }
+    
+    // 返回识别结果和视频URL（相对路径）
+    const videoUrl = `/uploads/asr/video_${timestamp}.mp4`;
+    return NextResponse.json({ 
+      success: true, 
+      text: asrResult.text, 
+      message: '识别成功',
+      videoUrl: videoUrl  // 返回视频URL供后续处理使用
+    });
   } catch (error) {
+    // 出错时清理临时文件
     await Promise.all([unlink(tempAudioPath), unlink(uploadVideoPath)]).catch(() => {});
     return NextResponse.json({ success: false, message: '处理失败' }, { status: 500 });
   }
