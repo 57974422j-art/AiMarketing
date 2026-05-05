@@ -997,12 +997,77 @@ export default function VideoEditPage() {
         {pageMode === 'postProcess' ? '后期处理选项' : '后期处理选项（可选）'}
       </h3>
 
-      {/* 后期处理模式：步骤链 */}
+      {/* 后期处理模式：功能开关 + 步骤链 */}
       {pageMode === 'postProcess' ? (
         <div className="space-y-4">
-          {/* 步骤链 */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {POST_PROCESS_STEPS.map((step, index) => {
+          {/* 功能开关 */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTTS ? 'bg-purple-500/20 border border-purple-500/50' : 'bg-white/5 border border-white/10 hover:border-purple-500/30'}`}>
+              <input
+                type="checkbox"
+                checked={postProcessing.enableTTS}
+                onChange={(e) => updatePostProcessing('enableTTS', e.target.checked)}
+                className="w-4 h-4 rounded accent-purple-500"
+              />
+              <span className={`text-sm ${postProcessing.enableTTS ? 'text-purple-300' : 'text-gray-300'}`}>配音</span>
+            </label>
+
+            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSubtitle ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5 border border-white/10 hover:border-blue-500/30'}`}>
+              <input
+                type="checkbox"
+                checked={postProcessing.enableSubtitle}
+                onChange={(e) => updatePostProcessing('enableSubtitle', e.target.checked)}
+                className="w-4 h-4 rounded accent-blue-500"
+              />
+              <span className={`text-sm ${postProcessing.enableSubtitle ? 'text-blue-300' : 'text-gray-300'}`}>字幕生成</span>
+            </label>
+
+            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableTranslateSubtitle ? 'bg-cyan-500/20 border border-cyan-500/50' : 'bg-white/5 border border-white/10 hover:border-cyan-500/30'}`}>
+              <input
+                type="checkbox"
+                checked={postProcessing.enableTranslateSubtitle}
+                onChange={(e) => updatePostProcessing('enableTranslateSubtitle', e.target.checked)}
+                className="w-4 h-4 rounded accent-cyan-500"
+              />
+              <span className={`text-sm ${postProcessing.enableTranslateSubtitle ? 'text-cyan-300' : 'text-gray-300'}`}>翻译字幕</span>
+            </label>
+
+            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableSpeakerDiarization ? 'bg-orange-500/20 border border-orange-500/50' : 'bg-white/5 border border-white/10 hover:border-orange-500/30'}`}>
+              <input
+                type="checkbox"
+                checked={postProcessing.enableSpeakerDiarization}
+                onChange={(e) => updatePostProcessing('enableSpeakerDiarization', e.target.checked)}
+                className="w-4 h-4 rounded accent-orange-500"
+              />
+              <span className={`text-sm ${postProcessing.enableSpeakerDiarization ? 'text-orange-300' : 'text-gray-300'}`}>说话人分离</span>
+            </label>
+
+            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableFaceSwap ? 'bg-pink-500/20 border border-pink-500/50' : 'bg-white/5 border border-white/10 hover:border-pink-500/30'}`}>
+              <input
+                type="checkbox"
+                checked={postProcessing.enableFaceSwap}
+                onChange={(e) => updatePostProcessing('enableFaceSwap', e.target.checked)}
+                className="w-4 h-4 rounded accent-pink-500"
+              />
+              <span className={`text-sm ${postProcessing.enableFaceSwap ? 'text-pink-300' : 'text-gray-300'}`}>换脸</span>
+            </label>
+
+            <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableLipSync ? 'bg-amber-500/20 border border-amber-500/50' : 'bg-white/5 border border-white/10 hover:border-amber-500/30'}`}>
+              <input
+                type="checkbox"
+                checked={postProcessing.enableLipSync}
+                onChange={(e) => updatePostProcessing('enableLipSync', e.target.checked)}
+                className="w-4 h-4 rounded accent-amber-500"
+              />
+              <span className={`text-sm ${postProcessing.enableLipSync ? 'text-amber-300' : 'text-gray-300'}`}>对口型</span>
+            </label>
+          </div>
+
+          {/* 步骤链（显示进度） */}
+          <div className="mb-4">
+            <h4 className="text-sm text-gray-400 mb-2">处理进度</h4>
+            <div className="flex flex-wrap gap-2">
+              {POST_PROCESS_STEPS.map((step, index) => {
               const state = stepStates[step.key];
               const isActive = currentStepKey === step.key;
               const isCompleted = state.status === 'completed';
