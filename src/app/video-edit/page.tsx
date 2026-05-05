@@ -460,19 +460,36 @@ export default function VideoEditPage() {
 
     try {
       // ========== 步骤 1: 语音识别 ==========
-      setCurrentStepKey('transcribe');
-      setCurrentProcessStep('步骤 1/6：语音识别中...');
-      setProgress(15);
+      // 如果已有识别结果，跳过
+      let recognizedText = ttsScript;
+      
+      if (!recognizedText) {
+        setCurrentStepKey('transcribe');
+        setCurrentProcessStep('步骤 1/6：语音识别中...');
+        setProgress(15);
 
-      const transcribeFormData = new FormData();
-      transcribeFormData.append('video', videos[0].file);
-      const transcribeRes = await fetch('/api/video/transcribe', {
-        method: 'POST',
-        credentials: 'include',
-        body: transcribeFormData,
-      });
-      const transcribeData = await transcribeRes.json();
-      const recognizedText = transcribeData.text || '';
+        const transcribeFormData = new FormData();
+        transcribeFormData.append('video', videos[0].file);
+        const transcribeRes = await fetch('/api/video/transcribe', {
+          method: 'POST',
+          credentials: 'include',
+          body: transcribeFormData,
+        });
+        const transcribeData = await transcribeRes.json();
+        recognizedText = transcribeData.text || '';
+        
+        if (recognizedText) {
+          setTtsScript(recognizedText);
+        }
+      } else {
+        // 已有结果，直接标记完成
+        setCurrentStepKey('transcribe');
+        setStepStates(prev => ({
+          ...prev,
+          transcribe: { status: 'completed', completed: true, message: '识别完成（已缓存）' },
+        }));
+        setProgress(15);
+      }
 
       if (recognizedText) {
         setTtsScript(recognizedText);
@@ -1480,7 +1497,6 @@ export default function VideoEditPage() {
                 <form onSubmit={handlePostProcessSubmit} className="space-y-6">
                   {renderVideoUpload()}
                   {renderVideoList()}
-                  {renderTranscribeButton()}
                   {renderPostProcessingOptions()}
                   
                   {/* 提交按钮 */}
