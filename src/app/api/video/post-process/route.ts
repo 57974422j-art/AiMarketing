@@ -3,7 +3,12 @@ import { dashscopeTranslate, dashscopeTTS } from '@/lib/ai-providers'
 import { join } from 'path'
 import { writeFile, mkdir, copyFile, unlink, readFile } from 'fs/promises'
 import { existsSync } from 'fs'
-import { execSync } from 'child_process'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+
+export const runtime = 'nodejs'
+
+const execFileAsync = promisify(execFile)
 
 interface PostProcessingOptions {
   enableTTS: boolean
@@ -101,9 +106,16 @@ export async function POST(request: NextRequest) {
           const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
           const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
           
-          const command = `"${ffmpegPath}" -i "${currentVideoPath}" -i "${audioPath}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest "${outputPath}"`
-          
-          execSync(command, { stdio: 'pipe' })
+          await execFileAsync(ffmpegPath, [
+            '-i', currentVideoPath,
+            '-i', audioPath,
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-map', '0:v:0',
+            '-map', '1:a:0',
+            '-shortest',
+            outputPath
+          ], { stdio: 'pipe' })
           
           // 清理临时音频文件
           await unlink(audioPath).catch(() => {})
@@ -162,10 +174,13 @@ export async function POST(request: NextRequest) {
         const outputPath = join(outputDir, `output_subtitle_${timestamp}.mp4`)
         const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
         
-        const command = `"${ffmpegPath}" -i "${currentVideoPath}" -vf "subtitles='${srtPath.replace(/\\/g, '/')}'" -c:a copy "${outputPath}"`
-        
         try {
-          execSync(command, { stdio: 'pipe' })
+          await execFileAsync(ffmpegPath, [
+            '-i', currentVideoPath,
+            '-vf', `subtitles=${srtPath.replace(/\\/g, '/')}`,
+            '-c:a', 'copy',
+            outputPath
+          ], { stdio: 'pipe' })
           await unlink(srtPath).catch(() => {})
           await unlink(uploadVideoPath).catch(() => {})
           currentVideoPath = outputPath
@@ -195,10 +210,14 @@ export async function POST(request: NextRequest) {
             
             const outputPath = join(outputDir, `output_translated_${timestamp}.mp4`)
             const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
-            const command = `"${ffmpegPath}" -i "${currentVideoPath}" -vf "subtitles='${srtPath.replace(/\\/g, '/')}'" -c:a copy "${outputPath}"`
             
             try {
-              execSync(command, { stdio: 'pipe' })
+              await execFileAsync(ffmpegPath, [
+                '-i', currentVideoPath,
+                '-vf', `subtitles=${srtPath.replace(/\\/g, '/')}`,
+                '-c:a', 'copy',
+                outputPath
+              ], { stdio: 'pipe' })
               await unlink(srtPath).catch(() => {})
               currentVideoPath = outputPath
               finalVideoUrl = `/outputs/output_translated_${timestamp}.mp4`
