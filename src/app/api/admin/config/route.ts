@@ -5,7 +5,7 @@ import { join } from 'path';
 // 保存配置到 .env.local
 export async function POST(request: NextRequest) {
   try {
-    const { deepseekKey, dashscopeKey, siliconflowKey, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -29,13 +29,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 更新或添加 DashScope API Key
-    if (dashscopeKey !== undefined) {
-      const dashscopePattern = /^DASHSCOPE_API_KEY=.*$/m;
-      if (dashscopePattern.test(envContent)) {
-        envContent = envContent.replace(dashscopePattern, `DASHSCOPE_API_KEY=${dashscopeKey}`);
+    // 更新或添加 火山方舟 API Key
+    if (volcanoKey !== undefined) {
+      const volcanoPattern = /^VOLCANO_API_KEY=.*$/m;
+      if (volcanoPattern.test(envContent)) {
+        envContent = envContent.replace(volcanoPattern, `VOLCANO_API_KEY=${volcanoKey}`);
       } else {
-        envContent += `\nDASHSCOPE_API_KEY=${dashscopeKey}`;
+        envContent += `\nVOLCANO_API_KEY=${volcanoKey}`;
       }
     }
 
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   try {
     const deepseekKey = process.env.DEEPSEEK_API_KEY;
-    const dashscopeKey = process.env.DASHSCOPE_API_KEY;
+    const volcanoKey = process.env.VOLCANO_API_KEY;
     const siliconflowKey = process.env.SILICONFLOW_API_KEY;
     const ossRegion = process.env.OSS_REGION;
     const ossBucket = process.env.OSS_BUCKET;
@@ -124,7 +124,7 @@ export async function GET() {
       success: true,
       data: {
         deepseekConfigured: !!deepseekKey,
-        dashscopeConfigured: !!dashscopeKey,
+        volcanoConfigured: !!volcanoKey,
         siliconflowConfigured: !!siliconflowKey,
         ossConfigured,
         ossRegion: ossRegion || '',

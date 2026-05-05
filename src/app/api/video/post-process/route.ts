@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { dashscopeTranslate, dashscopeTTS } from '@/lib/ai-providers'
+import { translate, textToSpeech } from '@/lib/ai-providers'
 import { join } from 'path'
 import { writeFile, mkdir, unlink, readFile } from 'fs/promises'
 import { existsSync } from 'fs'
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
         const cleanText = cleanSpecialChars(ttsScript)
         console.log('[PostProcess] 步骤1: 翻译文案 (zh → ' + subtitleLanguage + ')')
         console.log('[PostProcess] 待翻译文本:', cleanText.substring(0, 80) + '...')
-        const result = await dashscopeTranslate(cleanText, 'zh', subtitleLanguage!)
+        const result = await translate(cleanText, subtitleLanguage!)
         if (result) {
           translatedText = cleanSpecialChars(result)
           console.log('[PostProcess] 翻译成功:', translatedText.substring(0, 80) + '...')
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
         const voiceLangCode = langCodeMap[ttsLang] || 'zh-CN'
         console.log('[PostProcess] 步骤2: TTS配音, 语言:', voiceLangCode)
 
-        const ttsAudioBuffer = await dashscopeTTS(finalText, ttsVoice || 'sambert-zhijia-v1')
+        const ttsAudioBuffer = await textToSpeech(finalText, ttsVoice || 'zh_female_common')
         if (!ttsAudioBuffer) {
           console.log('[PostProcess] TTS 无返回, 跳过配音')
         } else {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { dashscopeGenerateVideo, dashscopeQueryVideoTask } from '@/lib/ai-providers'
+import { generateVideo, queryVideoTask } from '@/lib/ai-providers'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { existsSync } from 'fs'
@@ -23,8 +23,8 @@ export async function POST(request: NextRequest) {
       await mkdir(outputDir, { recursive: true })
     }
 
-    // 调用通义万相 API
-    const result = await dashscopeGenerateVideo(prompt, aspectRatio || '16:9')
+    // 调用火山方舟文生视频 API
+    const result = await generateVideo(prompt, aspectRatio || '16:9')
     
     // API 未配置
     if (!result) {
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const result = await dashscopeQueryVideoTask(taskId)
+    const result = await queryVideoTask(taskId)
     
     return NextResponse.json({
       success: true,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { dashscopeTranslate, dashscopeGenerateVideo, dashscopeQueryVideoTask } from '@/lib/ai-providers'
+import { translate } from '@/lib/ai-providers'
 
 // 翻译 API
 export async function POST(request: NextRequest) {
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = await dashscopeTranslate(text, from || 'zh', to)
+    const result = await translate(text, to)
     
     return NextResponse.json({
       success: true,

@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '缺少必要参数' }, { status: 400 })
     }
     
-    if (!isAIConfigured()) {
+    if (!await isAIConfigured()) {
       // 静默降级：返回空数组，不打扰用户
       return NextResponse.json({ success: true, copies: [] })
     }
@@ -100,10 +100,7 @@ export async function POST(request: NextRequest) {
 
 开始生成 5 条文案：`
     
-    const result = await generateText(prompt, {
-      temperature: 0.8,
-      maxTokens: 2000
-    }, provider)
+    const result = await generateText(prompt)
     
     console.log('=== AI 生成结果 ===')
     console.log(result)

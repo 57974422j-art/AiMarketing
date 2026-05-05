@@ -34,7 +34,7 @@ export default function SettingsPage() {
       const result = await response.json();
       if (result.success) {
         setDeepseekKey(result.data.deepseekConfigured ? '********' : '');
-        setDashscopeKey(result.data.dashscopeConfigured ? '********' : '');
+        setVolcanoKey(result.data.volcanoConfigured ? '********' : '');
         setSiliconflowKey(result.data.siliconflowConfigured ? '********' : '');
         setOssRegion(result.data.ossConfigured ? '********' : '');
         setOssBucket(result.data.ossConfigured ? '********' : '');

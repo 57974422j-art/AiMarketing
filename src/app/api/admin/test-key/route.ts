@@ -60,20 +60,20 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      case 'dashscope': {
+      case 'volcano': {
         if (!key) {
           return NextResponse.json({ valid: false, message: '缺少 key 参数' }, { status: 400 });
         }
 
-        // 测试阿里云百炼 API
-        const response = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+        // 测试火山方舟 API
+        const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${key}`
           },
           body: JSON.stringify({
-            model: 'qwen-plus',
+            model: 'ep-20250421092936-4fdt4',
             messages: [{ role: 'user', content: 'Hi' }],
             max_tokens: 10
           }),
@@ -85,14 +85,14 @@ export async function POST(request: NextRequest) {
         if (response.ok) {
           return NextResponse.json({
             valid: true,
-            message: '阿里云百炼 API Key 有效'
+            message: '火山方舟 API Key 有效'
           });
         } else {
           try {
             const error = JSON.parse(responseText);
             return NextResponse.json({
               valid: false,
-              message: `API 错误: ${error.error?.message || error.message || responseText.substring(0, 100)}`
+              message: `API 错误: ${error.error?.message || responseText.substring(0, 100)}`
             });
           } catch {
             return NextResponse.json({
