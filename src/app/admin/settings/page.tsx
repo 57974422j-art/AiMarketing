@@ -4,13 +4,13 @@ import { useState, useEffect } from 'react';
 export default function SettingsPage() {
   // API Key 配置状态
   const [deepseekKey, setDeepseekKey] = useState('');
-  const [dashscopeKey, setDashscopeKey] = useState('');
+  const [volcanoKey, setVolcanoKey] = useState('');
   const [siliconflowKey, setSiliconflowKey] = useState('');
   const [showDeepseekKey, setShowDeepseekKey] = useState(false);
-  const [showDashscopeKey, setShowDashscopeKey] = useState(false);
+  const [showVolcanoKey, setShowVolcanoKey] = useState(false);
   const [showSiliconflowKey, setShowSiliconflowKey] = useState(false);
   const [testingDeepseek, setTestingDeepseek] = useState(false);
-  const [testingDashscope, setTestingDashscope] = useState(false);
+  const [testingVolcano, setTestingVolcano] = useState(false);
   const [testingSiliconflow, setTestingSiliconflow] = useState(false);
   const [testResult, setTestResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -87,14 +87,14 @@ export default function SettingsPage() {
     }
   };
 
-  // 测试阿里云百炼 API Key
-  const testDashscopeKey = async () => {
-    if (!dashscopeKey || dashscopeKey === '********') {
-      setTestResult({ type: 'error', message: '请输入有效的阿里云百炼 API Key' });
+  // 测试火山方舟 API Key
+  const testVolcanoKey = async () => {
+    if (!volcanoKey || volcanoKey === '********') {
+      setTestResult({ type: 'error', message: '请输入有效的火山方舟 API Key' });
       return;
     }
 
-    setTestingDashscope(true);
+    setTestingVolcano(true);
     setTestResult(null);
 
     try {
@@ -102,7 +102,7 @@ export default function SettingsPage() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: 'dashscope', key: dashscopeKey })
+        body: JSON.stringify({ provider: 'volcano', key: volcanoKey })
       });
 
       const result = await response.json();
@@ -113,7 +113,7 @@ export default function SettingsPage() {
     } catch (error) {
       setTestResult({ type: 'error', message: '测试请求失败' });
     } finally {
-      setTestingDashscope(false);
+      setTestingVolcano(false);
     }
   };
 
@@ -193,7 +193,7 @@ export default function SettingsPage() {
   const saveAllSettings = async () => {
     try {
       const actualDeepseekKey = deepseekKey === '********' ? undefined : deepseekKey;
-      const actualDashscopeKey = dashscopeKey === '********' ? undefined : dashscopeKey;
+      const actualVolcanoKey = volcanoKey === '********' ? undefined : volcanoKey;
       const actualSiliconflowKey = siliconflowKey === '********' ? undefined : siliconflowKey;
       const actualOssAccessKeyId = ossAccessKeyId === '********' ? undefined : ossAccessKeyId;
       const actualOssAccessKeySecret = ossAccessKeySecret === '********' ? undefined : ossAccessKeySecret;
@@ -204,7 +204,7 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           deepseekKey: actualDeepseekKey || undefined,
-          dashscopeKey: actualDashscopeKey || undefined,
+          volcanoKey: actualVolcanoKey || undefined,
           siliconflowKey: actualSiliconflowKey || undefined,
           ossRegion: ossRegion || undefined,
           ossAccessKeyId: actualOssAccessKeyId || undefined,
@@ -361,27 +361,27 @@ export default function SettingsPage() {
                 </p>
               </div>
 
-              {/* 阿里云百炼 API Key */}
+              {/* 火山方舟 API Key */}
               <div>
                 <label className="block text-label mb-2">
-                  <span>阿里云百炼 API Key</span>
-                  <span className="opacity-50 ml-1">DASHSCOPE</span>
+                  <span>火山方舟 API Key</span>
+                  <span className="opacity-50 ml-1">VOLCANO</span>
                 </label>
                 <div className="flex gap-3">
                   <div className="flex-1 relative">
                     <input
-                      type={showDashscopeKey ? 'text' : 'password'}
-                      value={dashscopeKey}
-                      onChange={(e) => setDashscopeKey(e.target.value)}
+                      type={showVolcanoKey ? 'text' : 'password'}
+                      value={volcanoKey}
+                      onChange={(e) => setVolcanoKey(e.target.value)}
                       placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-20"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowDashscopeKey(!showDashscopeKey)}
+                      onClick={() => setShowVolcanoKey(!showVolcanoKey)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
                     >
-                      {showDashscopeKey ? (
+                      {showVolcanoKey ? (
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                         </svg>
@@ -395,15 +395,15 @@ export default function SettingsPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={testDashscopeKey}
-                    disabled={testingDashscope || !dashscopeKey || dashscopeKey === '********'}
+                    onClick={testVolcanoKey}
+                    disabled={testingVolcano || !volcanoKey || volcanoKey === '********'}
                     className="px-4 py-3 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-xl hover:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-sm whitespace-nowrap"
                   >
-                    {testingDashscope ? '测试中...' : '测试连接'}
+                    {testingVolcano ? '测试中...' : '测试连接'}
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-2 font-mono">
-                  阿里云百炼 API Key，用于文生视频、数字人等功能
+                  火山方舟 API Key，用于文案生成、翻译、配音等功能
                 </p>
               </div>
             </div>
