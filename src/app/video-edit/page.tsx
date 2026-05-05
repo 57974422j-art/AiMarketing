@@ -345,14 +345,18 @@ export default function VideoEditPage() {
         // 如果有后期处理，调用后期处理API
         if (Object.values(postProcessing).some(v => v)) {
           setCurrentProcessStep('正在处理后期效果...');
-          const postBody = {
+          const postBody: Record<string, unknown> = {
             videoUrl: data.downloadUrl,
             options: postProcessing,
-            ttsScript: postProcessing.enableTTS ? ttsScript : undefined,
-            voiceAssignments: postProcessing.enableTTS ? voiceAssignments : undefined,
-            subtitleLanguage: postProcessing.enableTranslateSubtitle ? targetLanguage : undefined,
           };
-          console.log('发送参数:', JSON.stringify(postBody));
+          if (postProcessing.enableTTS && ttsScript) {
+            postBody.ttsScript = ttsScript;
+            if (voiceAssignments) postBody.voiceAssignments = voiceAssignments;
+          }
+          if (postProcessing.enableTranslateSubtitle && targetLanguage) {
+            postBody.subtitleLanguage = targetLanguage;
+          }
+          console.log('postBody:', JSON.stringify(postBody));
           const postRes = await fetch('/api/video/post-process', {
             method: 'POST',
             credentials: 'include',
@@ -493,17 +497,17 @@ export default function VideoEditPage() {
       };
       if (data.ossUrl) postBody.videoUrl = data.ossUrl;
       else if (data.file_url) postBody.videoUrl = data.file_url;
-      else postBody.videoUrl = data.downloadUrl;
+      else if (data.downloadUrl) postBody.videoUrl = data.downloadUrl;
       
-      if (postProcessing.enableTTS) {
+      if (postProcessing.enableTTS && ttsScript) {
         postBody.ttsScript = ttsScript;
-        postBody.voiceAssignments = voiceAssignments;
+        if (voiceAssignments) postBody.voiceAssignments = voiceAssignments;
       }
-      if (postProcessing.enableTranslateSubtitle) {
+      if (postProcessing.enableTranslateSubtitle && targetLanguage) {
         postBody.subtitleLanguage = targetLanguage;
       }
       
-      console.log('发送参数:', JSON.stringify(postBody));
+      console.log('postBody:', JSON.stringify(postBody));
       const response = await fetch('/api/video/post-process', {
         method: 'POST',
         credentials: 'include',
