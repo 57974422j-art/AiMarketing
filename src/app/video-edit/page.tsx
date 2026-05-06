@@ -1097,26 +1097,6 @@ export default function VideoEditPage() {
                   {renderVideoUpload()}
                   {renderVideoList()}
 
-                  {/* 文案编辑框（识别后显示） */}
-                  {pageMode === 'postProcess' && ttsScript && (
-                    <div className="border-t border-white/10 pt-6">
-                      <h3 className="text-label mb-4 flex items-center gap-2">
-                        <svg className="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                        识别文案（可编辑）
-                      </h3>
-                      <textarea
-                        value={ttsScript}
-                        onChange={(e) => setTtsScript(e.target.value)}
-                        rows={5}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-orange-500/50 resize-y"
-                        placeholder="语音识别后的文案将显示在这里，您可以编辑修改..."
-                      />
-                      <p className="text-xs text-gray-500 mt-2">已识别 {ttsScript.length} 个字符，可编辑后用于配音和字幕翻译</p>
-                    </div>
-                  )}
-
                   {/* 配音音色选择（启用配音时显示） */}
                   {pageMode === 'postProcess' && postProcessing.enableTTS && (
                     <div className="border-t border-white/10 pt-6">

@@ -158,22 +158,17 @@ export async function POST(request: NextRequest) {
 
             // 步骤 2a: 消掉视频原声，只保留画面
             const mutedPath = join(tempDir, `muted_${timestamp}.mp4`)
-            console.log('[PostProcess] FFmpeg 消除原声中...')
-            await execFileAsync(ffmpegPath, [
-              '-i', currentVideoPath,
-              '-c:v', 'copy', '-an',
-              mutedPath
-            ])
+            const muteArgs = ['-i', currentVideoPath, '-c:v', 'copy', '-an', mutedPath]
+            console.log('[PostProcess] FFmpeg 消除原声, 命令:', ffmpegPath, muteArgs.join(' '))
+            const muteResult = await execFileAsync(ffmpegPath, muteArgs)
+            console.log('[PostProcess] FFmpeg 消除原声完成, stdout:', muteResult.stdout?.substring(0, 200), 'stderr:', muteResult.stderr?.substring(0, 200))
 
             // 步骤 2b: 将 TTS 音频合并到无声视频上
             const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
-            console.log('[PostProcess] FFmpeg 合并 TTS 音频中...')
-            await execFileAsync(ffmpegPath, [
-              '-i', mutedPath, '-i', audioPath,
-              '-c:v', 'copy', '-c:a', 'aac',
-              '-map', '0:v:0', '-map', '1:a:0', '-shortest',
-              outputPath
-            ])
+            const mergeArgs = ['-i', mutedPath, '-i', audioPath, '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0', '-shortest', outputPath]
+            console.log('[PostProcess] FFmpeg 合并 TTS 音频, 命令:', ffmpegPath, mergeArgs.join(' '))
+            const mergeResult = await execFileAsync(ffmpegPath, mergeArgs)
+            console.log('[PostProcess] FFmpeg 合并 TTS 完成, stdout:', mergeResult.stdout?.substring(0, 200), 'stderr:', mergeResult.stderr?.substring(0, 200))
 
             // 清理临时文件
             await unlink(audioPath).catch(() => {})
@@ -201,19 +196,17 @@ export async function POST(request: NextRequest) {
         console.log('[PostProcess] 步骤3: 生成字幕, 文本长度:', finalText.length)
         const srtPath = join(tempDir, `subtitle_${timestamp}.srt`)
         const subtitleContent = generateSRTFromText(finalText, subtitleLanguage || 'zh')
+        console.log('[PostProcess] SRT 内容预览:\n', subtitleContent.substring(0, 500))
         await writeFile(srtPath, subtitleContent)
         console.log('[PostProcess] SRT 文件已生成:', srtPath)
 
         const outputPath = join(outputDir, `output_subtitle_${timestamp}.mp4`)
         const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
-        console.log('[PostProcess] FFmpeg 烧录字幕中...')
-        
-        await execFileAsync(ffmpegPath, [
-          '-i', currentVideoPath,
-          '-vf', `subtitles=${srtPath.replace(/\\/g, '/').replace(/(:)/g, '\\$1')}`,
-          '-c:a', 'copy',
-          outputPath
-        ])
+        const subtitleFilter = `subtitles=${srtPath.replace(/\\/g, '/').replace(/(:)/g, '\\$1')}`
+        const subtitleArgs = ['-i', currentVideoPath, '-vf', subtitleFilter, '-c:a', 'copy', outputPath]
+        console.log('[PostProcess] FFmpeg 烧录字幕, 命令:', ffmpegPath, subtitleArgs.join(' '))
+        const subResult = await execFileAsync(ffmpegPath, subtitleArgs)
+        console.log('[PostProcess] FFmpeg 字幕烧录完成, stdout:', subResult.stdout?.substring(0, 200), 'stderr:', subResult.stderr?.substring(0, 200))
         
         await unlink(srtPath).catch(() => {})
         currentVideoPath = outputPath
@@ -263,10 +256,12 @@ export async function POST(request: NextRequest) {
 // 生成 SRT 字幕（支持多语言文本）
 function generateSRTFromText(text: string, lang: string = 'zh'): string {
   const charsPerSecond = lang === 'zh' ? 8 : 5
+  console.log('[SRT] 生成参数: lang=' + lang + ', charsPerSecond=' + charsPerSecond + ', textLen=' + text.length)
   const lines: string[] = []
   // 根据语言使用不同的分句符
   const sentenceDelimiter = lang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/
   const sentences = text.split(sentenceDelimiter).filter(s => s.trim())
+  console.log('[SRT] 分句数量:', sentences.length)
   let currentTime = 0
   let index = 1
 
@@ -274,11 +269,15 @@ function generateSRTFromText(text: string, lang: string = 'zh'): string {
     const trimmed = sentence.trim()
     if (!trimmed) continue
     const duration = Math.max(2, Math.ceil(trimmed.length / charsPerSecond))
-    lines.push(`${index}\n${formatSRTTime(currentTime)} --> ${formatSRTTime(currentTime + duration)}\n${trimmed}\n`)
+    const srtLine = `${index}\n${formatSRTTime(currentTime)} --> ${formatSRTTime(currentTime + duration)}\n${trimmed}\n`
+    lines.push(srtLine)
+    console.log(`[SRT] #${index}: ${formatSRTTime(currentTime)} --> ${formatSRTTime(currentTime + duration)} | "${trimmed.substring(0, 30)}${trimmed.length > 30 ? '...' : ''}" (${trimmed.length}字, ${duration}s)`)
     currentTime += duration
     index++
   }
-  return lines.join('\n')
+  const result = lines.join('\n')
+  console.log('[SRT] 生成完成: 共' + (index - 1) + '条字幕, 总时长' + currentTime + 's')
+  return result
 }
 
 function formatSRTTime(seconds: number): string {
