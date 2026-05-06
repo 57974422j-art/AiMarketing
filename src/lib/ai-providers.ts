@@ -128,7 +128,6 @@ export function cleanText(text: string, language = 'zh'): string {
 
 const VOLCANO_BASE = 'https://ark.cn-beijing.volces.com';
 const VOLCANO_CHAT_MODEL = 'doubao-seed-1-6-flash-250828';
-const VOLCANO_TTS_MODEL = 'volcano-tts-1';
 
 function getVolcanoKey(): string | null {
   return process.env.VOLCANO_API_KEY || null;
@@ -165,22 +164,15 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
   if (!cleanText) return null;
   try {
     const body = JSON.stringify({
-      app: { appid: appId, cluster: 'volcano_tts' },
       user: { uid: appId },
-      audio: {
-        voice_type: speaker,
-        encoding: 'mp3',
-        speed_ratio: 1.0,
-      },
-      request: {
-        reqid: `tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      req_params: {
         text: cleanText,
-        text_type: 'plain',
-        operation: 'query',
+        speaker,
+        audio_params: { format: 'mp3', sample_rate: 24000 },
       },
     });
-    console.log(`[Volcano TTS] 请求: speaker=${speaker}, text_len=${cleanText.length}`);
-    const res = await fetch('https://openspeech.bytedance.com/api/v1/tts', {
+    console.log(`[Volcano TTS V3] 请求: speaker=${speaker}, text_len=${cleanText.length}`);
+    const res = await fetch('https://openspeech.bytedance.com/api/v3/tts/unidirectional', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -263,7 +255,7 @@ async function siliconTranscribe(audioBuffer: ArrayBuffer, fileName = 'audio.wav
 }
 
 // 硅基流动 TTS (CosyVoice2) — 先清洗文本
-async function siliconTTS(text: string, voice = 'cosyvoice-v1'): Promise<ArrayBuffer | null> {
+async function siliconTTS(text: string, voice = 'FunAudioLLM/CosyVoice2-0.5B:alex'): Promise<ArrayBuffer | null> {
   const key = getSiliconFlowKey();
   const cleanText = prepareTextForTTS(text);
   if (!key || !cleanText) return null;
@@ -272,8 +264,8 @@ async function siliconTTS(text: string, voice = 'cosyvoice-v1'): Promise<ArrayBu
       model: 'FunAudioLLM/CosyVoice2-0.5B',
       input: cleanText,
       voice,
-      response_format: 'wav',
-      sample_rate: 16000,
+      response_format: 'mp3',
+      sample_rate: 24000,
     });
     return await fetchBuffer(`${SILICONFLOW_BASE}/v1/audio/speech`, {
       method: 'POST',
@@ -401,7 +393,7 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
     return volcanoResult;
   }
   console.log(`[TTS] 火山失败, 尝试硅基...`);
-  const siliconResult = await siliconTTS(cleaned, 'cosyvoice-v1');
+  const siliconResult = await siliconTTS(cleaned, 'FunAudioLLM/CosyVoice2-0.5B:alex');
   if (siliconResult && siliconResult.byteLength > 100) {
     console.log(`[TTS] 硅基成功: ${siliconResult.byteLength} bytes`);
     return siliconResult;
