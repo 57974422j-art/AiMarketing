@@ -59,12 +59,16 @@ interface VoiceAssignment {
 
 // 配音角色预设（火山方舟 TTS speaker 名）
 const voicePresets = [
-  { id: 'zh_female_vv_uranus_bigtts', label: '通用女声', voice: 'zh_female_vv_uranus_bigtts' },
-  { id: 'zh_male_vv_uranus_bigtts', label: '通用男声', voice: 'zh_male_vv_uranus_bigtts' },
-  { id: 'zh_female_vv_magic_bigtts', label: '温柔女声', voice: 'zh_female_vv_magic_bigtts' },
-  { id: 'zh_female_vv_yuheng_bigtts', label: '甜美女生', voice: 'zh_female_vv_yuheng_bigtts' },
-  { id: 'zh_male_vv_yezhu_bigtts', label: '磁性男声', voice: 'zh_male_vv_yezhu_bigtts' },
-  { id: 'zh_male_vv_shuhao_bigtts', label: '沉稳男声', voice: 'zh_male_vv_shuhao_bigtts' },
+  // 青年女声
+  { id: 'zh_female_vv_uranus_bigtts', label: '青年女声-通用', voice: 'zh_female_vv_uranus_bigtts', category: '青年女声' },
+  { id: 'zh_female_vv_yuheng_bigtts', label: '青年女声-甜美', voice: 'zh_female_vv_yuheng_bigtts', category: '青年女声' },
+  { id: 'zh_female_vv_magic_bigtts', label: '青年女声-温柔', voice: 'zh_female_vv_magic_bigtts', category: '青年女声' },
+  // 青年男声
+  { id: 'zh_male_vv_uranus_bigtts', label: '青年男声-通用', voice: 'zh_male_vv_uranus_bigtts', category: '青年男声' },
+  { id: 'zh_male_vv_yezhu_bigtts', label: '青年男声-磁性', voice: 'zh_male_vv_yezhu_bigtts', category: '青年男声' },
+  { id: 'zh_male_vv_shuhao_bigtts', label: '青年男声-沉稳', voice: 'zh_male_vv_shuhao_bigtts', category: '青年男声' },
+  // 英文
+  { id: 'en_male_alex_uranus_bigtts', label: '英文男声(Alex)', voice: 'en_male_alex_uranus_bigtts', category: '英文' },
 ];
 
 export default function VideoEditPage() {
@@ -99,6 +103,7 @@ export default function VideoEditPage() {
   });
   const [targetLanguage, setTargetLanguage] = useState('zh');
   const [ttsScript, setTtsScript] = useState('');        // 配音文案
+  const [ttsVoice, setTtsVoice] = useState('zh_female_vv_uranus_bigtts'); // 配音音色
   const [faceImage, setFaceImage] = useState<File | null>(null);
   const [faceImagePreview, setFaceImagePreview] = useState<string>('');
   const [currentProcessStep, setCurrentProcessStep] = useState('');
@@ -157,15 +162,8 @@ export default function VideoEditPage() {
     { value: 'ar', label: '阿拉伯语' },
   ]
 
-  // 配音角色选项 (Sambert TTS)
-  const voiceOptions = [
-    { value: 'sambert-zhijia-v1', label: '知佳 (女声)' },
-    { value: 'sambert-zhuopu-v1', label: '卓璞 (男声)' },
-    { value: 'sambert-zhiru-v1', label: '知柔 (温柔女声)' },
-    { value: 'sambert-zhibei-v1', label: '知贝 (甜美女声)' },
-    { value: 'sambert-zhiqi-v1', label: '知琪 (成熟女声)' },
-    { value: 'sambert-zhida-v1', label: '知达 (磁性男声)' },
-  ]
+  // 配音角色选项 (火山方舟 TTS)
+  const voiceOptions = voicePresets.map(p => ({ value: p.voice, label: p.label }))
 
   useEffect(() => {
     if (!authLoading && user) {
@@ -394,7 +392,8 @@ export default function VideoEditPage() {
           };
           if (postProcessing.enableTTS && ttsScript) {
             postBody.ttsScript = ttsScript;
-            if (voiceAssignments) postBody.voiceAssignments = voiceAssignments;
+            postBody.ttsVoice = ttsVoice;
+            if (voiceAssignments.length > 0) postBody.voiceAssignments = voiceAssignments;
           }
           if (postProcessing.enableTranslateSubtitle && targetLanguage) {
             postBody.subtitleLanguage = targetLanguage;
@@ -538,10 +537,12 @@ export default function VideoEditPage() {
           enableTranslateSubtitle: postProcessing.enableTranslateSubtitle,
           enableFaceSwap: postProcessing.enableFaceSwap,
           enableLipSync: postProcessing.enableLipSync,
-          enableSpeakerDiarization: false,
+          enableSpeakerDiarization: postProcessing.enableSpeakerDiarization,
         },
         ttsScript: currentScript,
+        ttsVoice,
       };
+      if (voiceAssignments.length > 0) postBody.voiceAssignments = voiceAssignments;
       if (targetLanguage) postBody.subtitleLanguage = targetLanguage;
 
       // 显示第一个步骤的进度
@@ -1089,6 +1090,51 @@ export default function VideoEditPage() {
                         placeholder="语音识别后的文案将显示在这里，您可以编辑修改..."
                       />
                       <p className="text-xs text-gray-500 mt-2">已识别 {ttsScript.length} 个字符，可编辑后用于配音和字幕翻译</p>
+                    </div>
+                  )}
+
+                  {/* 配音音色选择（启用配音时显示） */}
+                  {pageMode === 'postProcess' && postProcessing.enableTTS && (
+                    <div className="border-t border-white/10 pt-6">
+                      <h3 className="text-label mb-4 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                        </svg>
+                        配音音色
+                      </h3>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {(() => {
+                          // 按 category 分组
+                          const categories = [...new Set(voicePresets.map(v => v.category))];
+                          return categories.map(cat => (
+                            <div key={cat}>
+                              <p className="text-xs text-gray-500 mb-2">{cat}</p>
+                              <div className="space-y-2">
+                                {voicePresets.filter(v => v.category === cat).map(preset => (
+                                  <label
+                                    key={preset.id}
+                                    className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-all text-sm ${
+                                      ttsVoice === preset.voice
+                                        ? 'bg-purple-500/20 border border-purple-500/50 text-purple-300'
+                                        : 'bg-white/5 border border-white/10 text-gray-400 hover:border-purple-500/30'
+                                    }`}
+                                  >
+                                    <input
+                                      type="radio"
+                                      name="ttsVoice"
+                                      value={preset.voice}
+                                      checked={ttsVoice === preset.voice}
+                                      onChange={(e) => setTtsVoice(e.target.value)}
+                                      className="accent-purple-500"
+                                    />
+                                    {preset.label}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ));
+                        })()}
+                      </div>
                     </div>
                   )}
 

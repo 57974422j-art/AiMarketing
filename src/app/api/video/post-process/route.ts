@@ -62,12 +62,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, message: '参数格式错误' }, { status: 400 })
   }
 
-  const { videoUrl, options, ttsScript, ttsVoice, subtitleLanguage } = body as {
+  const { videoUrl, options, ttsScript, ttsVoice, subtitleLanguage, voiceAssignments } = body as {
     videoUrl?: string
     options: PostProcessingOptions
     ttsScript?: string
     ttsVoice?: string
     subtitleLanguage?: string
+    voiceAssignments?: Array<{ speakerId: string; voice: string; label: string }>
   }
 
   const actualVideoUrl = videoUrl || body.ossUrl || body.file_url
@@ -136,26 +137,47 @@ export async function POST(request: NextRequest) {
           'VOLCANO_TTS_RESOURCE_ID=', !!process.env.VOLCANO_TTS_RESOURCE_ID,
           'SILICONFLOW_API_KEY=', !!process.env.SILICONFLOW_API_KEY)
 
-        const ttsAudioBuffer = await textToSpeech(finalText, ttsVoice || 'zh_female_vv_uranus_bigtts')
+        // 确定使用的音色
+        const selectedVoice = ttsVoice || 'zh_female_vv_uranus_bigtts'
+        console.log('[PostProcess] TTS 音色:', selectedVoice)
+        if (voiceAssignments && voiceAssignments.length > 0) {
+          console.log('[PostProcess] 多人配音分配:', voiceAssignments.map(v => `${v.speakerId}->${v.voice}`).join(', '))
+        }
+
+        const ttsAudioBuffer = await textToSpeech(finalText, selectedVoice)
         if (!ttsAudioBuffer) {
           console.log('[PostProcess] TTS 返回空 (火山+硅基均失败), 跳过配音')
         } else {
-          const audioPath = join(tempDir, `tts_${timestamp}.wav`)
+          const audioPath = join(tempDir, `tts_${timestamp}.mp3`)
           await writeFile(audioPath, Buffer.from(ttsAudioBuffer))
           const audioStats = await import('fs').then(fs => fs.promises.stat(audioPath).catch(() => ({ size: 0 })))
           console.log('[PostProcess] TTS 音频文件大小:', audioStats.size, 'bytes')
 
           if (audioStats.size > 100) {
-            const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
             const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
-            console.log('[PostProcess] FFmpeg 替换音频中...')
+
+            // 步骤 2a: 消掉视频原声，只保留画面
+            const mutedPath = join(tempDir, `muted_${timestamp}.mp4`)
+            console.log('[PostProcess] FFmpeg 消除原声中...')
             await execFileAsync(ffmpegPath, [
-              '-i', currentVideoPath, '-i', audioPath,
+              '-i', currentVideoPath,
+              '-c:v', 'copy', '-an',
+              mutedPath
+            ])
+
+            // 步骤 2b: 将 TTS 音频合并到无声视频上
+            const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
+            console.log('[PostProcess] FFmpeg 合并 TTS 音频中...')
+            await execFileAsync(ffmpegPath, [
+              '-i', mutedPath, '-i', audioPath,
               '-c:v', 'copy', '-c:a', 'aac',
               '-map', '0:v:0', '-map', '1:a:0', '-shortest',
               outputPath
             ])
+
+            // 清理临时文件
             await unlink(audioPath).catch(() => {})
+            await unlink(mutedPath).catch(() => {})
             currentVideoPath = outputPath
             finalVideoUrl = `/outputs/output_tts_${timestamp}.mp4`
             processSteps.push('配音')
