@@ -187,11 +187,11 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
       console.error(`[Volcano TTS] HTTP ${res.status}:`, errText.substring(0, 500));
       return null;
     }
-    // 火山 TTS V3 返回多行 JSON 流，遍历所有非空行，找到含音频数据的行
+    // 火山 TTS V3 返回多行 JSON 流，音频分散在多行中，需拼接所有 data 再解码
     const resText = await res.text();
     const lines = resText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    let foundData: string | null = null;
-    let foundSentenceText: string | null = null;
+    const dataChunks: string[] = [];
+    const sentenceTexts: string[] = [];
 
     for (const line of lines) {
       let parsed: any;
@@ -201,23 +201,25 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
         continue; // 跳过无法解析的行
       }
       if (parsed.code === 0 && parsed.data) {
-        foundData = parsed.data;
-        foundSentenceText = parsed.sentence?.text || null;
-        break; // 找到第一个含音频数据的行即停止
+        dataChunks.push(parsed.data);
+      }
+      if (parsed.sentence?.text) {
+        sentenceTexts.push(parsed.sentence.text);
       }
     }
 
-    if (!foundData) {
+    if (dataChunks.length === 0) {
       console.error('[Volcano TTS] 所有行均无音频 data, 行数:', lines.length);
       console.error('[Volcano TTS] 完整响应:', resText.substring(0, 500));
       return null;
     }
 
-    // Base64 解码 data 字段为 mp3 音频
-    const audioBuffer = Buffer.from(foundData, 'base64');
-    console.log(`[Volcano TTS] 成功, 音频大小: ${audioBuffer.byteLength} bytes`);
-    if (foundSentenceText) {
-      console.log(`[Volcano TTS] sentence.text: ${foundSentenceText.substring(0, 80)}`);
+    // 拼接所有 Base64 数据，一次性解码为完整 mp3
+    const combinedBase64 = dataChunks.join('');
+    const audioBuffer = Buffer.from(combinedBase64, 'base64');
+    console.log(`[Volcano TTS] 成功, 拼接 ${dataChunks.length} 段 data, 音频大小: ${audioBuffer.byteLength} bytes`);
+    if (sentenceTexts.length > 0) {
+      console.log(`[Volcano TTS] sentence.text 拼接: ${sentenceTexts.join('').substring(0, 80)}`);
     }
     return audioBuffer.buffer.slice(audioBuffer.byteOffset, audioBuffer.byteOffset + audioBuffer.byteLength) as ArrayBuffer;
   } catch (e) {
