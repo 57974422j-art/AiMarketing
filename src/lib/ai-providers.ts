@@ -167,9 +167,17 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
     const body = JSON.stringify({
       app: { appid: appId, cluster: 'volcano_tts' },
       user: { uid: appId },
-      speaker,
-      text: cleanText,
-      audio_params: '{"sample_rate":24000,"volume":1.0}',
+      audio: {
+        voice_type: speaker,
+        encoding: 'mp3',
+        speed_ratio: 1.0,
+      },
+      request: {
+        reqid: `tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        text: cleanText,
+        text_type: 'plain',
+        operation: 'query',
+      },
     });
     console.log(`[Volcano TTS] 请求: speaker=${speaker}, text_len=${cleanText.length}`);
     const res = await fetch('https://openspeech.bytedance.com/api/v1/tts', {
