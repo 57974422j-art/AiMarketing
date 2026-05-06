@@ -187,37 +187,78 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
       console.error(`[Volcano TTS] HTTP ${res.status}:`, errText.substring(0, 500));
       return null;
     }
-    // 火山 TTS V3 返回多行 JSON 流，音频分散在多行中，需拼接所有 data 再解码
-    const resText = await res.text();
-    const lines = resText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+    // 流式读取 chunked 响应，逐行解析 JSON
+    const reader = res.body?.getReader();
+    if (!reader) {
+      console.error('[Volcano TTS] 无法获取 response body reader');
+      return null;
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
     const dataChunks: string[] = [];
     const sentenceTexts: string[] = [];
+    let chunkCount = 0;
 
-    for (const line of lines) {
-      let parsed: any;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        continue; // 跳过无法解析的行
-      }
-      if (parsed.code === 0 && parsed.data) {
-        dataChunks.push(parsed.data);
-      }
-      if (parsed.sentence?.text) {
-        sentenceTexts.push(parsed.sentence.text);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      // 按换行分割，逐行处理
+      const lines = buffer.split('\n');
+      // 最后一段可能不完整，保留到下次拼接
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let parsed: any;
+        try {
+          parsed = JSON.parse(trimmed);
+        } catch {
+          continue;
+        }
+        chunkCount++;
+
+        // code === 0 且有 data：音频数据片段
+        if (parsed.code === 0 && parsed.data) {
+          dataChunks.push(parsed.data);
+        }
+        if (parsed.sentence?.text) {
+          sentenceTexts.push(parsed.sentence.text);
+        }
+        // code === 20000000：流结束标记
+        if (parsed.code === 20000000) {
+          console.log(`[Volcano TTS] 收到结束标记 code=20000000, 已收集 ${dataChunks.length} 段音频`);
+        }
       }
     }
 
+    // 处理 buffer 中剩余内容
+    if (buffer.trim()) {
+      try {
+        const parsed = JSON.parse(buffer.trim());
+        chunkCount++;
+        if (parsed.code === 0 && parsed.data) {
+          dataChunks.push(parsed.data);
+        }
+        if (parsed.sentence?.text) {
+          sentenceTexts.push(parsed.sentence.text);
+        }
+      } catch { /* 忽略 */ }
+    }
+
     if (dataChunks.length === 0) {
-      console.error('[Volcano TTS] 所有行均无音频 data, 行数:', lines.length);
-      console.error('[Volcano TTS] 完整响应:', resText.substring(0, 500));
+      console.error('[Volcano TTS] 流式读取完成但无音频 data, JSON 块数:', chunkCount);
       return null;
     }
 
     // 拼接所有 Base64 数据，一次性解码为完整 mp3
     const combinedBase64 = dataChunks.join('');
     const audioBuffer = Buffer.from(combinedBase64, 'base64');
-    console.log(`[Volcano TTS] 成功, 拼接 ${dataChunks.length} 段 data, 音频大小: ${audioBuffer.byteLength} bytes`);
+    console.log(`[Volcano TTS] 成功, 拼接 ${dataChunks.length} 段 data, JSON 块数: ${chunkCount}, 音频大小: ${audioBuffer.byteLength} bytes`);
     if (sentenceTexts.length > 0) {
       console.log(`[Volcano TTS] sentence.text 拼接: ${sentenceTexts.join('').substring(0, 80)}`);
     }
