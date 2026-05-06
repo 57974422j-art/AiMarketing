@@ -165,7 +165,7 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
   if (!cleanText) return null;
   try {
     const body = JSON.stringify({
-      app_id: parseInt(appId),
+      app: { appid: appId },
       speaker,
       text: cleanText,
       audio_params: '{"sample_rate":24000,"volume":1.0}',
