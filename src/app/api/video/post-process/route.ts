@@ -11,6 +11,8 @@ export const runtime = 'nodejs'
 
 const execFileAsync = promisify(execFile)
 
+const TEMP_FILE_RETENTION = 60 * 60 * 1000 // 临时文件保留 1 小时
+
 interface PostProcessingOptions {
   enableTTS: boolean
   enableSubtitle: boolean
@@ -93,6 +95,7 @@ export async function POST(request: NextRequest) {
     const inputPath = join(process.cwd(), 'public', actualVideoUrl.replace(/^\//, ''))
     let currentVideoPath = inputPath
     let finalVideoUrl = actualVideoUrl
+    let ttsVideoPath = '' // 配音后的视频路径，字幕步骤用此获取时长
     const processSteps: string[] = []
 
     if (!existsSync(inputPath)) {
@@ -188,18 +191,17 @@ export async function POST(request: NextRequest) {
             console.log('[PostProcess] 合并输出文件存在:', outputExists, '大小:', outputSize, 'bytes')
 
             if (outputExists && outputSize > 0) {
-              // 清理临时文件
+              // 清理 TTS 音频临时文件（muted_ 保留 1 小时，由定时清理处理）
               await unlink(audioPath).catch(() => {})
-              await unlink(mutedPath).catch(() => {})
               currentVideoPath = outputPath
+              ttsVideoPath = outputPath
               finalVideoUrl = `/outputs/output_tts_${timestamp}.mp4`
               processSteps.push('配音')
               console.log('[PostProcess] 配音完成:', outputPath)
             } else {
               console.error('[PostProcess] 合并音频输出文件无效(大小=' + outputSize + '), 使用原视频继续后续步骤:', currentVideoPath)
-              // 清理临时文件
+              // 清理 TTS 音频临时文件
               await unlink(audioPath).catch(() => {})
-              await unlink(mutedPath).catch(() => {})
               // 删除 0 字节的输出文件
               if (outputExists) await unlink(outputPath).catch(() => {})
             }
@@ -220,9 +222,10 @@ export async function POST(request: NextRequest) {
     if (needsSubtitle && finalText) {
       try {
         console.log('[PostProcess] 步骤3: 生成字幕, 文本长度:', finalText.length)
-        // 获取当前视频实际时长，用于精确分配字幕时间戳
-        const mediaDuration = await getMediaDuration(currentVideoPath)
-        console.log('[PostProcess] 当前视频时长:', mediaDuration, 's')
+        // 获取配音后视频的实际时长，用于精确分配字幕时间戳
+        const durationSource = ttsVideoPath || currentVideoPath
+        const mediaDuration = await getMediaDuration(durationSource)
+        console.log('[PostProcess] 字幕时长来源:', durationSource, '时长:', mediaDuration, 's')
         const srtPath = join(tempDir, `subtitle_${timestamp}.srt`)
         const subtitleContent = generateSRTFromText(finalText, subtitleLanguage || 'zh', mediaDuration > 0 ? mediaDuration : undefined)
         console.log('[PostProcess] SRT 内容预览:\n', subtitleContent.substring(0, 500))
@@ -259,6 +262,24 @@ export async function POST(request: NextRequest) {
         const ossName = generateUniqueFileName('mp4')
         ossFinalUrl = await uploadToOSS(localFilePath, ossName)
       }
+    }
+
+    // 清理超过 1 小时的临时文件（muted_、subtitle_ 等）
+    try {
+      const tempFiles = await import('fs').then(fs => fs.promises.readdir(tempDir))
+      const now = Date.now()
+      for (const file of tempFiles) {
+        const filePath = join(tempDir, file)
+        try {
+          const stat = await import('fs').then(fs => fs.promises.stat(filePath))
+          if (now - stat.mtimeMs > TEMP_FILE_RETENTION) {
+            await unlink(filePath).catch(() => {})
+            console.log('[PostProcess] 清理过期临时文件:', filePath)
+          }
+        } catch {}
+      }
+    } catch (error) {
+      console.error('[PostProcess] 清理临时文件失败:', error)
     }
 
     const elapsed = Date.now() - startTime
