@@ -376,13 +376,28 @@ export async function transcribeAudio(audioBuffer: ArrayBuffer, fileName = 'audi
 
 // 4. 配音 TTS（火山→硅基，先清洗文本防 Bad control character）
 export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_bigtts'): Promise<ArrayBuffer | null> {
-  if (!text?.trim()) return null;
+  if (!text?.trim()) {
+    console.warn('[TTS] 文本为空');
+    return null;
+  }
   const cleaned = prepareTextForTTS(text);
-  if (!cleaned) return null;
-  // 火山 TTS → 硅基 CosyVoice2
-  const result = await volcanoTTS(cleaned, speaker) || await siliconTTS(cleaned, 'cosyvoice-v1');
-  if (result && result.byteLength > 100) return result;
-  console.warn('[TTS] 所有 TTS 服务均不可用');
+  if (!cleaned) {
+    console.warn('[TTS] 清洗后文本为空, 原文:', text.substring(0, 50));
+    return null;
+  }
+  console.log(`[TTS] 尝试火山: speaker=${speaker}, text_len=${cleaned.length}`);
+  const volcanoResult = await volcanoTTS(cleaned, speaker);
+  if (volcanoResult && volcanoResult.byteLength > 100) {
+    console.log(`[TTS] 火山成功: ${volcanoResult.byteLength} bytes`);
+    return volcanoResult;
+  }
+  console.log(`[TTS] 火山失败, 尝试硅基...`);
+  const siliconResult = await siliconTTS(cleaned, 'cosyvoice-v1');
+  if (siliconResult && siliconResult.byteLength > 100) {
+    console.log(`[TTS] 硅基成功: ${siliconResult.byteLength} bytes`);
+    return siliconResult;
+  }
+  console.warn('[TTS] 火山+硅基均失败');
   return null;
 }
 

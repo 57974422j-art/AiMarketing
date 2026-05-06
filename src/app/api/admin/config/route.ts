@@ -5,7 +5,7 @@ import { join } from 'path';
 // 保存配置到 .env.local
 export async function POST(request: NextRequest) {
   try {
-    const { deepseekKey, volcanoKey, siliconflowKey, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -89,6 +89,36 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 更新或添加 TTS App ID
+    if (ttsAppId !== undefined) {
+      const pattern = /^VOLCANO_TTS_APP_ID=.*$/m;
+      if (pattern.test(envContent)) {
+        envContent = envContent.replace(pattern, `VOLCANO_TTS_APP_ID=${ttsAppId}`);
+      } else {
+        envContent += `\nVOLCANO_TTS_APP_ID=${ttsAppId}`;
+      }
+    }
+
+    // 更新或添加 TTS Access Key
+    if (ttsAccessKey !== undefined) {
+      const pattern = /^VOLCANO_TTS_ACCESS_KEY=.*$/m;
+      if (pattern.test(envContent)) {
+        envContent = envContent.replace(pattern, `VOLCANO_TTS_ACCESS_KEY=${ttsAccessKey}`);
+      } else {
+        envContent += `\nVOLCANO_TTS_ACCESS_KEY=${ttsAccessKey}`;
+      }
+    }
+
+    // 更新或添加 TTS Resource ID
+    if (ttsResourceId !== undefined) {
+      const pattern = /^VOLCANO_TTS_RESOURCE_ID=.*$/m;
+      if (pattern.test(envContent)) {
+        envContent = envContent.replace(pattern, `VOLCANO_TTS_RESOURCE_ID=${ttsResourceId}`);
+      } else {
+        envContent += `\nVOLCANO_TTS_RESOURCE_ID=${ttsResourceId}`;
+      }
+    }
+
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
 
@@ -116,6 +146,9 @@ export async function GET() {
     const siliconflowKey = process.env.SILICONFLOW_API_KEY;
     const ossRegion = process.env.OSS_REGION;
     const ossBucket = process.env.OSS_BUCKET;
+    const ttsAppId = process.env.VOLCANO_TTS_APP_ID;
+    const ttsAccessKey = process.env.VOLCANO_TTS_ACCESS_KEY;
+    const ttsResourceId = process.env.VOLCANO_TTS_RESOURCE_ID;
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && process.env.OSS_ACCESS_KEY_ID && process.env.OSS_ACCESS_KEY_SECRET && ossBucket);
@@ -126,6 +159,9 @@ export async function GET() {
         deepseekConfigured: !!deepseekKey,
         volcanoConfigured: !!volcanoKey,
         siliconflowConfigured: !!siliconflowKey,
+        ttsAppIdConfigured: !!ttsAppId,
+        ttsAccessKeyConfigured: !!ttsAccessKey,
+        ttsResourceIdConfigured: !!ttsResourceId,
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''

@@ -130,17 +130,22 @@ export async function POST(request: NextRequest) {
         const ttsLang = subtitleLanguage || 'zh'
         const voiceLangCode = langCodeMap[ttsLang] || 'zh-CN'
         console.log('[PostProcess] 步骤2: TTS配音, 语言:', voiceLangCode)
+        console.log('[PostProcess] TTS 环境变量检查:',
+          'VOLCANO_TTS_APP_ID=', !!process.env.VOLCANO_TTS_APP_ID,
+          'VOLCANO_TTS_ACCESS_KEY=', !!process.env.VOLCANO_TTS_ACCESS_KEY,
+          'VOLCANO_TTS_RESOURCE_ID=', !!process.env.VOLCANO_TTS_RESOURCE_ID,
+          'SILICONFLOW_API_KEY=', !!process.env.SILICONFLOW_API_KEY)
 
         const ttsAudioBuffer = await textToSpeech(finalText, ttsVoice || 'zh_female_vv_uranus_bigtts')
         if (!ttsAudioBuffer) {
-          console.log('[PostProcess] TTS 无返回, 跳过配音')
+          console.log('[PostProcess] TTS 返回空 (火山+硅基均失败), 跳过配音')
         } else {
           const audioPath = join(tempDir, `tts_${timestamp}.wav`)
           await writeFile(audioPath, Buffer.from(ttsAudioBuffer))
-          const stats = await import('fs').then(fs => fs.promises.stat(audioPath).catch(() => ({ size: 0 })))
-          console.log('[PostProcess] TTS 音频文件大小:', stats.size, 'bytes')
+          const audioStats = await import('fs').then(fs => fs.promises.stat(audioPath).catch(() => ({ size: 0 })))
+          console.log('[PostProcess] TTS 音频文件大小:', audioStats.size, 'bytes')
 
-          if (stats.size > 100) {
+          if (audioStats.size > 100) {
             const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
             const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
             console.log('[PostProcess] FFmpeg 替换音频中...')
@@ -156,7 +161,7 @@ export async function POST(request: NextRequest) {
             processSteps.push('配音')
             console.log('[PostProcess] 配音完成:', outputPath)
           } else {
-            console.log('[PostProcess] TTS 音频太小, 跳过')
+            console.log('[PostProcess] TTS 音频太小(' + audioStats.size + '字节), 跳过')
             await unlink(audioPath).catch(() => {})
           }
         }
