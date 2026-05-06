@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
             // 步骤 2b: 将 TTS 音频合并到视频上
             const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
             const mergeArgs = [
-              '-i', currentVideoPath, '-i', audioPath,
+              '-i', mutedPath, '-i', audioPath,
               '-c:v', 'copy', '-map', '0:v:0', '-map', '1:a:0', '-shortest', '-y',
               outputPath
             ]
