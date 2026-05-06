@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { translate, textToSpeech, cleanText, prepareTextForTTS } from '@/lib/ai-providers'
+import { translate, textToSpeech, cleanText } from '@/lib/ai-providers'
 import { join } from 'path'
-import { writeFile, mkdir, unlink, readFile } from 'fs/promises'
+import { writeFile, mkdir, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -19,6 +19,8 @@ interface PostProcessingOptions {
   enableTranslateSubtitle: boolean
   enableFaceSwap: boolean
   enableLipSync: boolean
+  enableBackgroundAudio?: boolean   // 保留背景音
+  enableOriginalSubtitle?: boolean   // 删除原字幕（占位）
 }
 
 // 语言代码映射
@@ -127,35 +129,88 @@ export async function POST(request: NextRequest) {
     const finalText = translatedText || (ttsScript ? cleanText(ttsScript, subtitleLanguage || 'zh') : '')
     console.log('[PostProcess] 最终文案（长度:', finalText.length, '）:', finalText.substring(0, 50) + '...')
 
+    // 语言 → 默认音色映射（多语言配音支持）
+    const langToVoice: Record<string, string> = {
+      'zh': 'zh_female_vv_uranus_bigtts',
+      'en': 'en_male_tim_uranus_bigtts',
+      'ja': 'zh_female_vv_uranus_bigtts',
+      'ko': 'zh_female_vv_uranus_bigtts',
+      'fr': 'zh_female_vv_uranus_bigtts',
+      'de': 'zh_female_vv_uranus_bigtts',
+      'es': 'zh_female_vv_uranus_bigtts',
+      'pt': 'zh_female_vv_uranus_bigtts',
+      'ru': 'zh_female_vv_uranus_bigtts',
+      'ar': 'zh_female_vv_uranus_bigtts',
+    }
+
     // ========== 2. TTS 配音 ==========
     if (options.enableTTS && finalText) {
       try {
         const ttsLang = subtitleLanguage || 'zh'
         const voiceLangCode = langCodeMap[ttsLang] || 'zh-CN'
         console.log('[PostProcess] 步骤2: TTS配音, 语言:', voiceLangCode)
+        console.log('[PostProcess] 背景音保留:', !!options.enableBackgroundAudio)
         console.log('[PostProcess] TTS 环境变量检查:',
           'VOLCANO_TTS_APP_ID=', !!process.env.VOLCANO_TTS_APP_ID,
           'VOLCANO_TTS_ACCESS_KEY=', !!process.env.VOLCANO_TTS_ACCESS_KEY,
           'VOLCANO_TTS_RESOURCE_ID=', !!process.env.VOLCANO_TTS_RESOURCE_ID,
           'SILICONFLOW_API_KEY=', !!process.env.SILICONFLOW_API_KEY)
 
-        // 确定使用的音色
-        const selectedVoice = ttsVoice || 'zh_female_vv_uranus_bigtts'
-        console.log('[PostProcess] TTS 音色:', selectedVoice)
+        // 确定默认音色（根据语言自动匹配）
+        const langDefaultVoice = langToVoice[ttsLang] || 'zh_female_vv_uranus_bigtts'
+        const selectedVoice = ttsVoice || langDefaultVoice
+        console.log('[PostProcess] TTS 音色:', selectedVoice, '(语言映射:', ttsLang, '→', langDefaultVoice, ')')
         if (voiceAssignments && voiceAssignments.length > 0) {
-          console.log('[PostProcess] 多人配音分配:', voiceAssignments.map(v => `${v.speakerId}->${v.voice}`).join(', '))
+          console.log('[PostProcess] 多人配音分配:', voiceAssignments.map(v => `${v.speakerId}->${v.voice})`).join(', '))
         }
 
         const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
 
-        // 步骤 2a: 消除原声（-an 彻底删除所有音频轨）
+        // 步骤 2a: 提取背景音（如果启用）
+        let bgAudioPath = ''
+        if (options.enableBackgroundAudio) {
+          bgAudioPath = join(tempDir, `bg_${timestamp}.aac`)
+          const bgArgs = ['-i', currentVideoPath, '-af', 'highpass=f=200,lowpass=f=3000', '-vn', '-y', bgAudioPath]
+          console.log('[PostProcess] FFmpeg 提取背景音, 命令:', ffmpegPath, bgArgs.join(' '))
+          try {
+            await execFileAsync(ffmpegPath, bgArgs)
+            if (existsSync(bgAudioPath) && (await import('fs')).statSync(bgAudioPath).size > 100) {
+              console.log('[PostProcess] 背景音提取成功')
+            } else {
+              bgAudioPath = ''
+              console.log('[PostProcess] 背景音提取为空, 跳过')
+            }
+          } catch (bgErr: any) {
+            bgAudioPath = ''
+            console.error('[PostProcess] 背景音提取失败:', bgErr.stderr || bgErr.message)
+          }
+        }
+
+        // 检测原视频中第一句人声开始时间（用于 TTS 对齐）
+        let speechStartTime = 0
+        try {
+          const detectArgs = ['-i', currentVideoPath, '-af', 'silencedetect=noise=-40dB:d=0.3', '-f', 'null', '-']
+          const detectResult = await execFileAsync(ffmpegPath, detectArgs)
+          const stderr = detectResult.stderr || ''
+          const endMatch = stderr.match(/silence_end:\s*([\d.]+)/)
+          if (endMatch && endMatch[1]) {
+            speechStartTime = parseFloat(endMatch[1])
+            console.log('[PostProcess] 检测到语音开始时间:', speechStartTime.toFixed(2), 's')
+          } else {
+            console.log('[PostProcess] 未检测到静音段, speechStartTime=0 (可能无音轨或从头说话)')
+          }
+        } catch (detectErr: any) {
+          console.warn('[PostProcess] 语音起始检测失败:', detectErr.message)
+        }
+
+        // 步骤 2b: 消除原声（-an 彻底删除所有音频轨）
         const mutedPath = join(tempDir, `muted_${timestamp}.mp4`)
         const muteArgs = ['-i', currentVideoPath, '-c:v', 'copy', '-an', '-y', mutedPath]
         console.log('[PostProcess] FFmpeg 消除原声, 命令:', ffmpegPath, muteArgs.join(' '))
         const muteResult = await execFileAsync(ffmpegPath, muteArgs)
-        console.log('[PostProcess] FFmpeg 消除原声完成, stdout:', muteResult.stdout?.substring(0, 200), 'stderr:', muteResult.stderr?.substring(0, 200))
+        console.log('[PostProcess] FFmpeg 消除原声完成')
 
-        // 步骤 2b: 逐句 TTS 生成配音
+        // 步骤 2c: 逐句 TTS 生成配音（支持多人音色分配）
         const sentenceDelimiter = ttsLang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/
         const sentences = finalText.split(sentenceDelimiter).filter(s => s.trim()).map(s => s.trim())
         console.log('[PostProcess] 分句数量:', sentences.length)
@@ -163,9 +218,16 @@ export async function POST(request: NextRequest) {
         const segmentFiles: string[] = []
         for (let i = 0; i < sentences.length; i++) {
           const sentence = sentences[i]
-          console.log(`[PostProcess] TTS 第 ${i + 1}/${sentences.length} 句: "${sentence.substring(0, 40)}${sentence.length > 40 ? '...' : ''}"`)
+          // 多人配音：按 voiceAssignments 循环分配不同音色
+          let sentenceVoice = selectedVoice
+          if (voiceAssignments && voiceAssignments.length > 0) {
+            const assignment = voiceAssignments[i % voiceAssignments.length]
+            sentenceVoice = assignment.voice || selectedVoice
+            console.log(`[PostProcess] 第 ${i + 1} 句 使用音色: ${assignment.label || sentenceVoice}`)
+          }
+          console.log(`[PostProcess] TTS 第 ${i + 1}/${sentences.length} 句 voice=${sentenceVoice}`)
           try {
-            const segBuffer = await textToSpeech(sentence, selectedVoice)
+            const segBuffer = await textToSpeech(sentence, sentenceVoice, ttsLang)
             if (segBuffer && segBuffer.byteLength > 100) {
               const segPath = join(tempDir, `tts_seg_${timestamp}_${i}.mp3`)
               await writeFile(segPath, new Uint8Array(segBuffer))
@@ -182,69 +244,85 @@ export async function POST(request: NextRequest) {
         if (segmentFiles.length === 0) {
           console.log('[PostProcess] 所有句子 TTS 均失败, 跳过配音')
         } else {
-          // 步骤 2c: 拼接所有 TTS 片段
+          // 步骤 2d: 拼接所有 TTS 片段
           const concatListPath = join(tempDir, `concat_${timestamp}.txt`)
           const concatContent = segmentFiles.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n')
           await writeFile(concatListPath, concatContent)
 
-          // 步骤 2d: FFmpeg 转码修复火山流式 MP3 元数据错误，输出标准 AAC
+          // 步骤 2e: FFmpeg 转码修复火山流式 MP3 元数据错误 → 标准 AAC
           const fixedAudioPath = join(tempDir, `tts_fixed_${timestamp}.mp4`)
           const fixArgs = ['-f', 'concat', '-safe', '0', '-i', concatListPath, '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', '-y', fixedAudioPath]
           console.log('[PostProcess] FFmpeg 转码修复 TTS, 命令:', ffmpegPath, fixArgs.join(' '))
           try {
-            const fixResult = await execFileAsync(ffmpegPath, fixArgs)
-            console.log('[PostProcess] FFmpeg 转码完成, stdout:', fixResult.stdout?.substring(0, 200), 'stderr:', fixResult.stderr?.substring(0, 200))
+            await execFileAsync(ffmpegPath, fixArgs)
+            console.log('[PostProcess] FFmpeg 转码完成')
           } catch (fixError: any) {
             console.error('[PostProcess] 转码 TTS 失败:', fixError.stderr || fixError.message)
           }
           await unlink(concatListPath).catch(() => {})
 
-          // 获取转码后 TTS 音频时长
-          const ttsAudioDuration = await getMediaDuration(fixedAudioPath)
-          console.log('[PostProcess] TTS 转码音频时长:', ttsAudioDuration, 's')
+          const ttsDur = await getMediaDuration(fixedAudioPath)
+          console.log('[PostProcess] TTS 转码音频时长:', ttsDur, 's')
 
-          // 步骤 2e: 合并消声视频 + TTS 配音（TTS 音量放大 3 倍）
-          const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
-          const mergeArgs = [
-            '-i', mutedPath, '-i', fixedAudioPath,
-            '-c:v', 'copy',
-            '-map', '0:v:0',
-            '-filter_complex', '[1:a]volume=3.0[aout]',
-            '-map', '[aout]', '-y',
-            outputPath
-          ]
-          console.log('[PostProcess] FFmpeg 合并音频, 命令:', ffmpegPath, mergeArgs.join(' '))
-          try {
-            const mergeResult = await execFileAsync(ffmpegPath, mergeArgs)
-            console.log('[PostProcess] FFmpeg 合并完成, stdout:', mergeResult.stdout?.substring(0, 200))
-            console.log('[PostProcess] FFmpeg 合并 stderr:', mergeResult.stderr?.substring(0, 500))
-          } catch (mergeError: any) {
-            console.error('[PostProcess] 合并音频失败:', mergeError.stderr || mergeError.message)
-            if (mergeError.stderr) {
-              console.error('[PostProcess] FFmpeg 完整 stderr:', mergeError.stderr)
+          // 步骤 2f: 加前导静音对齐原视频语音开始时间（用户说"配音从头就开始了" → 修复）
+          let alignedAudioPath = fixedAudioPath
+          if (speechStartTime > 0.1) {
+            alignedAudioPath = join(tempDir, `tts_aligned_${timestamp}.mp4`)
+            const delayMs = Math.round(speechStartTime * 1000)
+            const alignArgs = ['-i', fixedAudioPath, '-af', `adelay=${delayMs}|${delayMs}`, '-y', alignedAudioPath]
+            console.log('[PostProcess] TTS 对齐语音开始: delay=', delayMs, 'ms')
+            try {
+              await execFileAsync(ffmpegPath, alignArgs)
+              console.log('[PostProcess] TTS 对齐完成')
+            } catch (alignErr: any) {
+              console.error('[PostProcess] TTS 对齐失败:', alignErr.message)
+              alignedAudioPath = fixedAudioPath
             }
           }
 
-          // 检查合并后的输出文件
+          // 步骤 2g: 合并消声视频 + TTS 配音 [+ 背景音]
+          const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
+          let mergeArgs: string[]
+          if (bgAudioPath) {
+            mergeArgs = [
+              '-i', mutedPath, '-i', alignedAudioPath, '-i', bgAudioPath,
+              '-c:v', 'copy',
+              '-filter_complex', '[1:a]volume=3.0[tts_vol];[tts_vol][2:a]amix=inputs=2:duration=first:dropout_transition=2[aout]',
+              '-map', '0:v:0', '-map', '[aout]', '-y', outputPath
+            ]
+          } else {
+            mergeArgs = [
+              '-i', mutedPath, '-i', alignedAudioPath,
+              '-c:v', 'copy',
+              '-filter_complex', '[1:a]volume=3.0[aout]',
+              '-map', '0:v:0', '-map', '[aout]', '-y', outputPath
+            ]
+          }
+          console.log('[PostProcess] FFmpeg 合并音频:', ffmpegPath, mergeArgs.join(' '))
+          try {
+            await execFileAsync(ffmpegPath, mergeArgs)
+          } catch (mergeError: any) {
+            console.error('[PostProcess] 合并音频失败:', mergeError.stderr || mergeError.message)
+          }
+
           const outputExists = existsSync(outputPath)
           const outputSize = outputExists ? (await import('fs')).statSync(outputPath).size : 0
-          console.log('[PostProcess] 合并输出文件存在:', outputExists, '大小:', outputSize, 'bytes')
+          console.log('[PostProcess] 合并输出文件:', outputExists, outputSize, 'bytes')
 
           if (outputExists && outputSize > 0) {
             currentVideoPath = outputPath
             finalVideoUrl = `/outputs/output_tts_${timestamp}.mp4`
             processSteps.push('配音')
-            console.log('[PostProcess] 配音完成:', outputPath)
           } else {
-            console.error('[PostProcess] 合并输出文件无效(大小=' + outputSize + '), 使用原视频继续:', currentVideoPath)
+            console.error('[PostProcess] 合并输出无效, 使用原视频:', currentVideoPath)
             if (outputExists) await unlink(outputPath).catch(() => {})
           }
 
-          // 清理 TTS 片段和转码音频临时文件
-          for (const segPath of segmentFiles) {
-            await unlink(segPath).catch(() => {})
-          }
+          // 清理
+          for (const segPath of segmentFiles) await unlink(segPath).catch(() => {})
           await unlink(fixedAudioPath).catch(() => {})
+          if (alignedAudioPath !== fixedAudioPath) await unlink(alignedAudioPath).catch(() => {})
+          if (bgAudioPath) await unlink(bgAudioPath).catch(() => {})
         }
       } catch (error) {
         console.error('[PostProcess] TTS/FFmpeg 失败:', error)
@@ -253,17 +331,23 @@ export async function POST(request: NextRequest) {
       console.log('[PostProcess] 跳过TTS: 无文案')
     }
 
-    // ========== 3. 字幕生成（按语速估算时长） ==========
+    // ========== 3. 字幕生成（用视频总时长做时间轴，解决"字幕从0秒开始"问题） ==========
     const needsSubtitle = options.enableSubtitle || options.enableTranslateSubtitle
     if (needsSubtitle && finalText) {
       try {
         console.log('[PostProcess] 步骤3: 生成字幕, 文本长度:', finalText.length)
+        const videoDurationForSub = await getMediaDuration(currentVideoPath)
+        console.log('[PostProcess] 字幕参考视频时长:', videoDurationForSub, 's')
+
         const srtPath = join(tempDir, `subtitle_${timestamp}.srt`)
-        const subtitleContent = generateSRTFromText(finalText, subtitleLanguage || 'zh')
-        console.log('[PostProcess] 字幕按语速估算生成, 语言:', subtitleLanguage || 'zh')
-        console.log('[PostProcess] SRT 内容预览:\n', subtitleContent.substring(0, 500))
+        const subtitleContent = generateSRTFromText(
+          finalText,
+          subtitleLanguage || 'zh',
+          videoDurationForSub > 0 ? videoDurationForSub : undefined
+        )
+        console.log('[PostProcess] 字幕生成完成, 时长参考:', videoDurationForSub > 0 ? videoDurationForSub.toFixed(2) + 's' : '无')
+        console.log('[PostProcess] SRT 预览:\n', subtitleContent.substring(0, 500))
         await writeFile(srtPath, subtitleContent)
-        console.log('[PostProcess] SRT 文件已生成:', srtPath)
 
         const outputPath = join(outputDir, `output_subtitle_${timestamp}.mp4`)
         const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'

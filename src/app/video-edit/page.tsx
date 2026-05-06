@@ -29,6 +29,8 @@ interface PostProcessingOptions {
   enableFaceSwap: boolean;   // 换脸
   enableLipSync: boolean;    // 对口型
   enableSpeakerDiarization: boolean; // 说话人分离
+  enableBackgroundAudio?: boolean; // 保留背景音
+  enableOriginalSubtitle?: boolean; // 删除原字幕
 }
 
 // 后期处理步骤类型
@@ -549,6 +551,8 @@ export default function VideoEditPage() {
           enableFaceSwap: postProcessing.enableFaceSwap,
           enableLipSync: postProcessing.enableLipSync,
           enableSpeakerDiarization: postProcessing.enableSpeakerDiarization,
+          enableBackgroundAudio: postProcessing.enableBackgroundAudio,
+          enableOriginalSubtitle: postProcessing.enableOriginalSubtitle,
         },
         ttsScript: currentScript,
         ttsVoice,
@@ -862,6 +866,26 @@ export default function VideoEditPage() {
               className="w-4 h-4 rounded accent-amber-500"
             />
             <span className={`text-sm ${postProcessing.enableLipSync ? 'text-amber-300' : 'text-gray-300'}`}>对口型</span>
+          </label>
+
+          <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableBackgroundAudio ? 'bg-emerald-500/20 border border-emerald-500/50' : 'bg-white/5 border border-white/10 hover:border-emerald-500/30'}`}>
+            <input
+              type="checkbox"
+              checked={!!postProcessing.enableBackgroundAudio}
+              onChange={(e) => updatePostProcessing('enableBackgroundAudio', e.target.checked)}
+              className="w-4 h-4 rounded accent-emerald-500"
+            />
+            <span className={`text-sm ${postProcessing.enableBackgroundAudio ? 'text-emerald-300' : 'text-gray-300'}`}>保留背景音</span>
+          </label>
+
+          <label className={`flex items-center gap-2 p-3 rounded-xl cursor-pointer transition-all ${postProcessing.enableOriginalSubtitle ? 'bg-red-500/20 border border-red-500/50' : 'bg-white/5 border border-white/10 hover:border-red-500/30'}`}>
+            <input
+              type="checkbox"
+              checked={!!postProcessing.enableOriginalSubtitle}
+              onChange={(e) => updatePostProcessing('enableOriginalSubtitle', e.target.checked)}
+              className="w-4 h-4 rounded accent-red-500"
+            />
+            <span className={`text-sm ${postProcessing.enableOriginalSubtitle ? 'text-red-300' : 'text-gray-300'}`}>删除原字幕</span>
           </label>
         </div>
       </div>

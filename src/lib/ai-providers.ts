@@ -450,7 +450,8 @@ export async function transcribeAudio(audioBuffer: ArrayBuffer, fileName = 'audi
 }
 
 // 4. 配音 TTS（火山→硅基，先清洗文本防 Bad control character）
-export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_bigtts'): Promise<ArrayBuffer | null> {
+// 语言参数用于路由：zh/en 走火山+硅基；其他语言直接走硅基 CosyVoice2（多语言）
+export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_bigtts', language = 'zh'): Promise<ArrayBuffer | null> {
   if (!text?.trim()) {
     console.warn('[TTS] 文本为空');
     return null;
@@ -460,13 +461,21 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
     console.warn('[TTS] 清洗后文本为空, 原文:', text.substring(0, 50));
     return null;
   }
-  console.log(`[TTS] 尝试火山: speaker=${speaker}, text_len=${cleaned.length}`);
-  const volcanoResult = await volcanoTTS(cleaned, speaker);
-  if (volcanoResult && volcanoResult.byteLength > 100) {
-    console.log(`[TTS] 火山成功: ${volcanoResult.byteLength} bytes`);
-    return volcanoResult;
+
+  // 中文/英文：优先火山 TTS（支持中/英语音的高质量音色），失败后降级硅基
+  if (language === 'zh' || language === 'en') {
+    console.log(`[TTS] 尝试火山: speaker=${speaker}, lang=${language}, text_len=${cleaned.length}`);
+    const volcanoResult = await volcanoTTS(cleaned, speaker);
+    if (volcanoResult && volcanoResult.byteLength > 100) {
+      console.log(`[TTS] 火山成功: ${volcanoResult.byteLength} bytes`);
+      return volcanoResult;
+    }
+    console.log(`[TTS] 火山失败, 尝试硅基...`);
+  } else {
+    console.log(`[TTS] 非中/英文(${language}), 跳过火山, 直接走硅基 CosyVoice2`);
   }
-  console.log(`[TTS] 火山失败, 尝试硅基...`);
+
+  // 硅基 CosyVoice2（多语言模型，支持中/英/日/韩/法/德等）
   const siliconResult = await siliconTTS(cleaned, 'FunAudioLLM/CosyVoice2-0.5B:alex');
   if (siliconResult && siliconResult.byteLength > 100) {
     console.log(`[TTS] 硅基成功: ${siliconResult.byteLength} bytes`);
