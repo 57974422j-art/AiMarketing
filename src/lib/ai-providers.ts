@@ -49,11 +49,8 @@ function callChatAPI(baseUrl: string, apiKey: string, model: string, prompt: str
 // ==================== 火山方舟 (Volcano Engine) ====================
 
 const VOLCANO_BASE = 'https://ark.cn-beijing.volces.com';
-// 火山方舟推理端点 ID，需要在控制台创建后填入环境变量 VOLCANO_MODEL_EP
-// 参考: https://console.volcengine.com/ark/region:ark+cn-beijing/endpoint
-function getVolcanoModelEp(): string | null {
-  return process.env.VOLCANO_MODEL_EP || null;
-}
+const VOLCANO_CHAT_MODEL = 'doubao-seed-1-6-flash-250828';
+const VOLCANO_TTS_MODEL = 'volcano-tts-1';
 
 function getVolcanoKey(): string | null {
   return process.env.VOLCANO_API_KEY || null;
@@ -61,10 +58,9 @@ function getVolcanoKey(): string | null {
 
 async function volcanoChat(prompt: string, maxTokens = 1000): Promise<string | null> {
   const key = getVolcanoKey();
-  const ep = getVolcanoModelEp();
-  if (!key || !ep) return null;
+  if (!key) return null;
   try {
-    const data = await callChatAPI(VOLCANO_BASE, key, ep, prompt, maxTokens);
+    const data = await callChatAPI(VOLCANO_BASE, key, VOLCANO_CHAT_MODEL, prompt, maxTokens);
     return data.choices?.[0]?.message?.content?.trim() || null;
   } catch (e) {
     console.error('[Volcano] 对话失败:', e);
@@ -77,7 +73,7 @@ async function volcanoTranslate(text: string, toLang: string): Promise<string | 
   return volcanoChat(prompt, 2000);
 }
 
-// 火山方舟 TTS（通过 OpenAI 兼容的 TTS 端点）
+// 火山方舟 TTS
 async function volcanoTTS(text: string, voice = 'zh_female_common'): Promise<ArrayBuffer | null> {
   const key = getVolcanoKey();
   if (!key || !text?.trim()) return null;
@@ -86,7 +82,7 @@ async function volcanoTTS(text: string, voice = 'zh_female_common'): Promise<Arr
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'volcano-tts-1',
+        model: VOLCANO_TTS_MODEL,
         input: { text: text.trim() },
         parameters: { voice, format: 'wav', sample_rate: 16000 },
       }),
@@ -113,7 +109,7 @@ async function siliconChat(prompt: string, maxTokens = 1000): Promise<string | n
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'Qwen/Qwen2.5-14B-Instruct',
+        model: 'Qwen/Qwen2.5-7B-Instruct',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
         max_tokens: maxTokens,
@@ -198,6 +194,38 @@ async function siliconGenerateImage(prompt: string): Promise<string | null> {
   }
 }
 
+// ==================== DeepSeek (三级降级) ====================
+
+function getDeepSeekKey(): string | null {
+  return process.env.DEEPSEEK_API_KEY || null;
+}
+
+async function deepSeekChat(prompt: string, maxTokens = 1000): Promise<string | null> {
+  const key = getDeepSeekKey();
+  if (!key) return null;
+  try {
+    const data = await fetchJSON('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_tokens: maxTokens,
+      }),
+    });
+    return data.choices?.[0]?.message?.content?.trim() || null;
+  } catch (e) {
+    console.error('[DeepSeek] 对话失败:', e);
+    return null;
+  }
+}
+
+async function deepSeekTranslate(text: string, toLang: string): Promise<string | null> {
+  const prompt = `请将以下中文翻译成${toLang}，只返回翻译结果：\n\n${text}`;
+  return deepSeekChat(prompt, 2000);
+}
+
 // ==================== 模拟兜底 (Mock) ====================
 
 function mockResult(category: string, input: string): string {
@@ -211,8 +239,8 @@ function mockResult(category: string, input: string): string {
 
 // 1. 文案生成 / 文本生成
 export async function generateText(prompt: string): Promise<string | null> {
-  // 火山(豆包) → 硅基(Qwen) → Mock
-  const result = await volcanoChat(prompt, 2000) || await siliconChat(prompt, 2000);
+  // 火山(豆包) → 硅基(Qwen) → DeepSeek → Mock
+  const result = await volcanoChat(prompt, 2000) || await siliconChat(prompt, 2000) || await deepSeekChat(prompt, 2000);
   if (result) return result;
   return mockResult('generateText', prompt);
 }
@@ -220,8 +248,8 @@ export async function generateText(prompt: string): Promise<string | null> {
 // 2. 翻译
 export async function translate(text: string, toLang: string): Promise<string | null> {
   if (!text?.trim()) return null;
-  // 火山(豆包) → 硅基(Qwen) → Mock
-  const result = await volcanoTranslate(text, toLang) || await siliconTranslate(text, toLang);
+  // 火山(豆包) → 硅基(Qwen) → DeepSeek → Mock
+  const result = await volcanoTranslate(text, toLang) || await siliconTranslate(text, toLang) || await deepSeekTranslate(text, toLang);
   if (result) return result;
   return mockResult('translate', text);
 }
