@@ -153,27 +153,12 @@ export async function POST(request: NextRequest) {
 
         const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
 
-        // 步骤 2a: 提取原视频背景音轨
-        const bgAudioPath = join(tempDir, `bg_audio_${timestamp}.aac`)
-        const bgExtractArgs = ['-i', currentVideoPath, '-vn', '-acodec', 'copy', '-y', bgAudioPath]
-        console.log('[PostProcess] FFmpeg 提取背景音轨, 命令:', ffmpegPath, bgExtractArgs.join(' '))
-        let bgAudioExists = false
-        try {
-          const bgResult = await execFileAsync(ffmpegPath, bgExtractArgs)
-          console.log('[PostProcess] FFmpeg 提取背景音完成, stdout:', bgResult.stdout?.substring(0, 200), 'stderr:', bgResult.stderr?.substring(0, 200))
-          bgAudioExists = existsSync(bgAudioPath) && (await import('fs')).statSync(bgAudioPath).size > 0
-        } catch (bgError: any) {
-          console.error('[PostProcess] 提取背景音失败:', bgError.stderr || bgError.message)
-          bgAudioExists = false
-        }
-        console.log('[PostProcess] 背景音轨存在:', bgAudioExists)
-
-        // 步骤 2b: 消除原视频原声（-an 完全移除音轨）
+        // 步骤 2a: 用高通+低通滤波器消除人声频段（保留背景音）
         const mutedPath = join(tempDir, `muted_${timestamp}.mp4`)
-        const muteArgs = ['-i', currentVideoPath, '-c:v', 'copy', '-an', '-y', mutedPath]
-        console.log('[PostProcess] FFmpeg 消除原声, 命令:', ffmpegPath, muteArgs.join(' '))
+        const muteArgs = ['-i', currentVideoPath, '-af', 'highpass=f=200,lowpass=f=3000', '-c:v', 'copy', '-y', mutedPath]
+        console.log('[PostProcess] FFmpeg 滤波消除人声, 命令:', ffmpegPath, muteArgs.join(' '))
         const muteResult = await execFileAsync(ffmpegPath, muteArgs)
-        console.log('[PostProcess] FFmpeg 消除原声完成, stdout:', muteResult.stdout?.substring(0, 200), 'stderr:', muteResult.stderr?.substring(0, 200))
+        console.log('[PostProcess] FFmpeg 滤波完成, stdout:', muteResult.stdout?.substring(0, 200), 'stderr:', muteResult.stderr?.substring(0, 200))
 
         // 步骤 2c: 逐句 TTS 生成配音
         const sentenceDelimiter = ttsLang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/
@@ -188,7 +173,7 @@ export async function POST(request: NextRequest) {
             const segBuffer = await textToSpeech(sentence, selectedVoice)
             if (segBuffer && segBuffer.byteLength > 100) {
               const segPath = join(tempDir, `tts_seg_${timestamp}_${i}.mp3`)
-              await writeFile(segPath, Buffer.from(segBuffer))
+              await writeFile(segPath, new Uint8Array(segBuffer))
               const segDuration = await getMediaDuration(segPath)
               sentenceTimings.push({ text: sentence, duration: segDuration })
               segmentFiles.push(segPath)
@@ -230,26 +215,23 @@ export async function POST(request: NextRequest) {
           ttsAudioDuration = await getMediaDuration(combinedAudioPath)
           console.log('[PostProcess] TTS 合并音频时长:', ttsAudioDuration, 's')
 
-          // 步骤 2e: 合并消声视频 + TTS 配音 + 背景音轨
-          const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
-          let mergeArgs: string[]
-          if (bgAudioExists) {
-            // 三路合并：消声视频 + TTS + 背景音轨（amix 混音）
-            mergeArgs = [
-              '-i', mutedPath, '-i', combinedAudioPath, '-i', bgAudioPath,
-              '-c:v', 'copy',
-              '-filter_complex', '[1:a][2:a]amix=inputs=2:duration=first:dropout_transition=0[aout]',
-              '-map', '0:v:0', '-map', '[aout]', '-y',
-              outputPath
-            ]
-          } else {
-            // 无背景音轨：消声视频 + TTS 配音
-            mergeArgs = [
-              '-i', mutedPath, '-i', combinedAudioPath,
-              '-c:v', 'copy', '-map', '0:v:0', '-map', '1:a:0', '-y',
-              outputPath
-            ]
+          // 步骤 2d-2: TTS 音频前加静音，对齐原视频开头时间
+          const videoDuration = await getMediaDuration(currentVideoPath)
+          let finalAudioPath = combinedAudioPath
+          if (videoDuration > 0 && ttsAudioDuration > 0 && ttsAudioDuration < videoDuration) {
+            // 配音比视频短：配音从头开始，amix 会以 duration=first 为准
+            console.log('[PostProcess] 视频时长:', videoDuration.toFixed(2), 's, TTS音频时长:', ttsAudioDuration.toFixed(2), 's')
           }
+
+          // 步骤 2e: 合并滤波视频（已保留背景音）+ TTS 配音（amix 混音）
+          const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
+          const mergeArgs = [
+            '-i', mutedPath, '-i', finalAudioPath,
+            '-c:v', 'copy',
+            '-filter_complex', '[0:a][1:a]amix=inputs=2:duration=first[aout]',
+            '-map', '0:v:0', '-map', '[aout]', '-y',
+            outputPath
+          ]
           console.log('[PostProcess] FFmpeg 合并音频, 命令:', ffmpegPath, mergeArgs.join(' '))
           try {
             const mergeResult = await execFileAsync(ffmpegPath, mergeArgs)

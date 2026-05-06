@@ -169,6 +169,7 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
         text: cleanText,
         speaker,
         audio_params: { format: 'mp3', sample_rate: 24000 },
+        volume: 2.0,
       },
     });
     console.log(`[Volcano TTS V3] 请求: speaker=${speaker}, text_len=${cleanText.length}`);

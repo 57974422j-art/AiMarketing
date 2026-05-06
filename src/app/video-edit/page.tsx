@@ -1191,12 +1191,45 @@ export default function VideoEditPage() {
                         <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
                           <p className="text-sm text-amber-300 mb-2">📝 请确认识别文案是否正确，可编辑修改后继续</p>
                           {ttsScript && (
-                            <textarea
-                              value={ttsScript}
-                              onChange={(e) => setTtsScript(e.target.value)}
-                              rows={5}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-amber-500/50 resize-y mb-3"
-                            />
+                            <>
+                              {/* 按时间戳列表显示识别文字 */}
+                              <div className="mb-3 max-h-60 overflow-y-auto space-y-1 pr-1">
+                                {(() => {
+                                  const lang = targetLanguage || 'zh'
+                                  const delimiter = lang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/
+                                  const sentences = ttsScript.split(delimiter).filter(s => s.trim()).map(s => s.trim())
+                                  const totalChars = sentences.reduce((sum, s) => sum + s.length, 0)
+                                  const gap = 0.15
+                                  const totalGap = gap * Math.max(0, sentences.length - 1)
+                                  const availableDur = Math.max(1, 30 - totalGap) // 默认估算30秒
+                                  let currentTime = 0
+                                  return sentences.map((sentence, idx) => {
+                                    const proportion = sentence.length / Math.max(1, totalChars)
+                                    const dur = Math.max(1, availableDur * proportion)
+                                    const start = currentTime
+                                    currentTime += dur + gap
+                                    const fmtTime = (s: number) => {
+                                      const m = Math.floor(s / 60)
+                                      const sec = Math.floor(s % 60)
+                                      return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
+                                    }
+                                    return (
+                                      <div key={idx} className="flex items-start gap-2 py-1.5 px-2 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
+                                        <span className="text-xs text-amber-400 font-mono whitespace-nowrap mt-0.5 min-w-[52px]">{fmtTime(start)}</span>
+                                        <span className="text-sm text-gray-300">{sentence}</span>
+                                      </div>
+                                    )
+                                  })
+                                })()}
+                              </div>
+                              <textarea
+                                value={ttsScript}
+                                onChange={(e) => setTtsScript(e.target.value)}
+                                rows={5}
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-amber-500/50 resize-y"
+                                placeholder="编辑文案..."
+                              />
+                            </>
                           )}
                           <div className="flex gap-3">
                             <button
