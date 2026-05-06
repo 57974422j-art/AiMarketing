@@ -167,16 +167,32 @@ export async function POST(request: NextRequest) {
             const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
             const mergeArgs = ['-i', mutedPath, '-i', audioPath, '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0', '-shortest', outputPath]
             console.log('[PostProcess] FFmpeg 合并 TTS 音频, 命令:', ffmpegPath, mergeArgs.join(' '))
-            const mergeResult = await execFileAsync(ffmpegPath, mergeArgs)
-            console.log('[PostProcess] FFmpeg 合并 TTS 完成, stdout:', mergeResult.stdout?.substring(0, 200), 'stderr:', mergeResult.stderr?.substring(0, 200))
+            try {
+              const mergeResult = await execFileAsync(ffmpegPath, mergeArgs)
+              console.log('[PostProcess] FFmpeg 合并 TTS 完成, stdout:', mergeResult.stdout?.substring(0, 200))
+              console.log('[PostProcess] FFmpeg 合并 TTS stderr:', mergeResult.stderr)
+            } catch (mergeError: any) {
+              console.error('[PostProcess] 合并音频失败:', mergeError.stderr || mergeError.message)
+              if (mergeError.stderr) {
+                console.error('[PostProcess] FFmpeg 完整 stderr:', mergeError.stderr)
+              }
+            }
 
-            // 清理临时文件
-            await unlink(audioPath).catch(() => {})
-            await unlink(mutedPath).catch(() => {})
-            currentVideoPath = outputPath
-            finalVideoUrl = `/outputs/output_tts_${timestamp}.mp4`
-            processSteps.push('配音')
-            console.log('[PostProcess] 配音完成:', outputPath)
+            // 检查合并后的输出文件是否存在
+            if (existsSync(outputPath)) {
+              // 清理临时文件
+              await unlink(audioPath).catch(() => {})
+              await unlink(mutedPath).catch(() => {})
+              currentVideoPath = outputPath
+              finalVideoUrl = `/outputs/output_tts_${timestamp}.mp4`
+              processSteps.push('配音')
+              console.log('[PostProcess] 配音完成:', outputPath)
+            } else {
+              console.error('[PostProcess] 合并音频输出文件不存在, 使用原视频继续后续步骤:', currentVideoPath)
+              // 清理临时文件
+              await unlink(audioPath).catch(() => {})
+              await unlink(mutedPath).catch(() => {})
+            }
           } else {
             console.log('[PostProcess] TTS 音频太小(' + audioStats.size + '字节), 跳过')
             await unlink(audioPath).catch(() => {})
@@ -194,8 +210,11 @@ export async function POST(request: NextRequest) {
     if (needsSubtitle && finalText) {
       try {
         console.log('[PostProcess] 步骤3: 生成字幕, 文本长度:', finalText.length)
+        // 获取当前视频实际时长，用于精确分配字幕时间戳
+        const mediaDuration = await getMediaDuration(currentVideoPath)
+        console.log('[PostProcess] 当前视频时长:', mediaDuration, 's')
         const srtPath = join(tempDir, `subtitle_${timestamp}.srt`)
-        const subtitleContent = generateSRTFromText(finalText, subtitleLanguage || 'zh')
+        const subtitleContent = generateSRTFromText(finalText, subtitleLanguage || 'zh', mediaDuration > 0 ? mediaDuration : undefined)
         console.log('[PostProcess] SRT 内容预览:\n', subtitleContent.substring(0, 500))
         await writeFile(srtPath, subtitleContent)
         console.log('[PostProcess] SRT 文件已生成:', srtPath)
@@ -253,40 +272,89 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// 生成 SRT 字幕（支持多语言文本）
-function generateSRTFromText(text: string, lang: string = 'zh'): string {
+// 生成 SRT 字幕（支持多语言文本，按实际媒体时长精确分配时间戳）
+function generateSRTFromText(text: string, lang: string = 'zh', totalDuration?: number): string {
   const charsPerSecond = lang === 'zh' ? 8 : 5
-  console.log('[SRT] 生成参数: lang=' + lang + ', charsPerSecond=' + charsPerSecond + ', textLen=' + text.length)
-  const lines: string[] = []
-  // 根据语言使用不同的分句符
-  const sentenceDelimiter = lang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/
-  const sentences = text.split(sentenceDelimiter).filter(s => s.trim())
-  console.log('[SRT] 分句数量:', sentences.length)
-  let currentTime = 0
-  let index = 1
+  console.log('[SRT] 生成参数: lang=' + lang + ', charsPerSecond=' + charsPerSecond + ', textLen=' + text.length + ', totalDuration=' + (totalDuration ? totalDuration.toFixed(2) + 's' : '未提供'))
 
-  for (const sentence of sentences) {
-    const trimmed = sentence.trim()
-    if (!trimmed) continue
-    const duration = Math.max(2, Math.ceil(trimmed.length / charsPerSecond))
-    const srtLine = `${index}\n${formatSRTTime(currentTime)} --> ${formatSRTTime(currentTime + duration)}\n${trimmed}\n`
-    lines.push(srtLine)
-    console.log(`[SRT] #${index}: ${formatSRTTime(currentTime)} --> ${formatSRTTime(currentTime + duration)} | "${trimmed.substring(0, 30)}${trimmed.length > 30 ? '...' : ''}" (${trimmed.length}字, ${duration}s)`)
-    currentTime += duration
-    index++
+  const sentenceDelimiter = lang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/
+  const sentences = text.split(sentenceDelimiter).filter(s => s.trim()).map(s => s.trim())
+  console.log('[SRT] 分句数量:', sentences.length)
+
+  if (sentences.length === 0) return ''
+
+  const lines: string[] = []
+  const totalChars = sentences.reduce((sum, s) => sum + s.length, 0)
+
+  if (totalDuration && totalDuration > 0) {
+    // 有实际媒体时长：按字数比例分配时间戳，确保总时长与音频/视频一致
+    const gapSeconds = 0.15 // 句间短暂间隔
+    const totalGapTime = gapSeconds * (sentences.length - 1)
+    const availableDuration = totalDuration - totalGapTime
+
+    let currentTime = 0
+    for (let i = 0; i < sentences.length; i++) {
+      const sentence = sentences[i]
+      const proportion = sentence.length / totalChars
+      const sentenceDuration = Math.max(1.0, availableDuration * proportion)
+
+      const srtLine = `${i + 1}\n${formatSRTTime(currentTime)} --> ${formatSRTTime(currentTime + sentenceDuration)}\n${sentence}\n`
+      lines.push(srtLine)
+      console.log(`[SRT] #${i + 1}: ${formatSRTTime(currentTime)} --> ${formatSRTTime(currentTime + sentenceDuration)} | "${sentence.substring(0, 30)}${sentence.length > 30 ? '...' : ''}" (${sentence.length}字, ${sentenceDuration.toFixed(2)}s)`)
+
+      currentTime += sentenceDuration + gapSeconds
+    }
+    console.log('[SRT] 生成完成: 共' + lines.length + '条字幕, 总分配时长' + currentTime.toFixed(2) + 's (媒体时长' + totalDuration.toFixed(2) + 's)')
+  } else {
+    // 无实际时长：用 charsPerSecond 估算
+    let currentTime = 0
+    for (let i = 0; i < sentences.length; i++) {
+      const sentence = sentences[i]
+      const duration = Math.max(2, Math.ceil(sentence.length / charsPerSecond))
+      const srtLine = `${i + 1}\n${formatSRTTime(currentTime)} --> ${formatSRTTime(currentTime + duration)}\n${sentence}\n`
+      lines.push(srtLine)
+      console.log(`[SRT] #${i + 1}: ${formatSRTTime(currentTime)} --> ${formatSRTTime(currentTime + duration)} | "${sentence.substring(0, 30)}${sentence.length > 30 ? '...' : ''}" (${sentence.length}字, ${duration}s)`)
+      currentTime += duration
+    }
+    console.log('[SRT] 生成完成: 共' + lines.length + '条字幕, 估算总时长' + currentTime + 's')
   }
-  const result = lines.join('\n')
-  console.log('[SRT] 生成完成: 共' + (index - 1) + '条字幕, 总时长' + currentTime + 's')
-  return result
+
+  return lines.join('\n')
 }
 
 function formatSRTTime(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   const s = Math.floor(seconds % 60)
-  return `${pad(h)}:${pad(m)}:${pad(s)},000`
+  const ms = Math.round((seconds % 1) * 1000)
+  return `${pad(h)}:${pad(m)}:${pad(s)},${pad3(ms)}`
 }
 
 function pad(n: number): string {
   return n.toString().padStart(2, '0')
+}
+
+function pad3(n: number): string {
+  return n.toString().padStart(3, '0')
+}
+
+async function getMediaDuration(filePath: string): Promise<number> {
+  const ffprobePath = process.env.FFPROBE_PATH || 'ffprobe'
+  try {
+    const { stdout } = await execFileAsync(ffprobePath, [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filePath
+    ])
+    const duration = parseFloat(stdout.trim())
+    if (!isNaN(duration) && duration > 0) {
+      console.log('[FFprobe] 媒体时长:', duration.toFixed(2), 's, 文件:', filePath)
+      return duration
+    }
+    return 0
+  } catch (error) {
+    console.error('[FFprobe] 获取时长失败:', error)
+    return 0
+  }
 }
