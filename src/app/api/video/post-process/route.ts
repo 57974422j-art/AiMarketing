@@ -95,7 +95,8 @@ export async function POST(request: NextRequest) {
     const inputPath = join(process.cwd(), 'public', actualVideoUrl.replace(/^\//, ''))
     let currentVideoPath = inputPath
     let finalVideoUrl = actualVideoUrl
-    let ttsVideoPath = '' // 配音后的视频路径，字幕步骤用此获取时长
+    let ttsVideoPath = '' // 配音后的视频路径
+    let ttsAudioDuration = 0 // TTS 音频真实时长，字幕步骤优先使用
     const processSteps: string[] = []
 
     if (!existsSync(inputPath)) {
@@ -157,6 +158,10 @@ export async function POST(request: NextRequest) {
           console.log('[PostProcess] TTS 音频文件大小:', audioStats.size, 'bytes')
 
           if (audioStats.size > 100) {
+            // 获取 TTS 音频真实时长，用于字幕时间轴
+            ttsAudioDuration = await getMediaDuration(audioPath)
+            console.log('[PostProcess] TTS 音频时长:', ttsAudioDuration, 's')
+
             const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
 
             // 步骤 2a: 消掉视频原声，只保留画面
@@ -222,12 +227,17 @@ export async function POST(request: NextRequest) {
     if (needsSubtitle && finalText) {
       try {
         console.log('[PostProcess] 步骤3: 生成字幕, 文本长度:', finalText.length)
-        // 获取配音后视频的实际时长，用于精确分配字幕时间戳
-        const durationSource = ttsVideoPath || currentVideoPath
-        const mediaDuration = await getMediaDuration(durationSource)
-        console.log('[PostProcess] 字幕时长来源:', durationSource, '时长:', mediaDuration, 's')
+        // 获取时长用于精确分配字幕时间戳，优先使用 TTS 音频真实时长
+        let subtitleDuration = ttsAudioDuration
+        let durationSource = 'TTS音频'
+        if (!subtitleDuration || subtitleDuration <= 0) {
+          const videoSource = ttsVideoPath || currentVideoPath
+          subtitleDuration = await getMediaDuration(videoSource)
+          durationSource = videoSource
+        }
+        console.log('[PostProcess] 字幕时长来源:', durationSource, '时长:', subtitleDuration, 's')
         const srtPath = join(tempDir, `subtitle_${timestamp}.srt`)
-        const subtitleContent = generateSRTFromText(finalText, subtitleLanguage || 'zh', mediaDuration > 0 ? mediaDuration : undefined)
+        const subtitleContent = generateSRTFromText(finalText, subtitleLanguage || 'zh', subtitleDuration > 0 ? subtitleDuration : undefined)
         console.log('[PostProcess] SRT 内容预览:\n', subtitleContent.substring(0, 500))
         await writeFile(srtPath, subtitleContent)
         console.log('[PostProcess] SRT 文件已生成:', srtPath)
