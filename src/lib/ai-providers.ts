@@ -184,27 +184,35 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
     });
     if (!res.ok) {
       const errText = await res.text();
-      console.error(`[Volcano TTS] HTTP ${res.status}:`, errText.substring(0, 200));
+      console.error(`[Volcano TTS] HTTP ${res.status}:`, errText.substring(0, 500));
       return null;
     }
-    // 火山 TTS V3 返回 JSON: { code: 0, message: '', data: 'Base64音频', sentence: { text: '...' } }
+    // 火山 TTS V3 返回多行 JSON 流，每行一个 JSON，取最后一行非空行
     const resText = await res.text();
+    const lines = resText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const lastLine = lines[lines.length - 1];
+    if (!lastLine) {
+      console.error('[Volcano TTS] 返回为空, 完整响应:', resText.substring(0, 500));
+      return null;
+    }
     let parsed: any;
     try {
-      parsed = JSON.parse(resText);
+      parsed = JSON.parse(lastLine);
     } catch {
-      console.error('[Volcano TTS] JSON 解析失败, 原始响应:', resText.substring(0, 200));
+      console.error('[Volcano TTS] JSON 解析失败, 最后一行:', lastLine.substring(0, 200));
+      console.error('[Volcano TTS] 完整响应:', resText.substring(0, 500));
       return null;
     }
-    if (parsed.code !== 0) {
+    if (parsed.code !== 20000000) {
       console.error(`[Volcano TTS] 业务错误: code=${parsed.code}, message=${parsed.message}`);
+      console.error('[Volcano TTS] 完整响应:', resText.substring(0, 500));
       return null;
     }
     if (!parsed.data) {
       console.error('[Volcano TTS] 返回无 data 字段:', JSON.stringify(parsed).substring(0, 200));
       return null;
     }
-    // Base64 解码 data 字段
+    // Base64 解码 data 字段为 mp3 音频
     const audioBuffer = Buffer.from(parsed.data, 'base64');
     console.log(`[Volcano TTS] 成功, 音频大小: ${audioBuffer.byteLength} bytes`);
     if (parsed.sentence?.text) {
