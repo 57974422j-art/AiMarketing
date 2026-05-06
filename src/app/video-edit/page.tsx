@@ -104,6 +104,7 @@ export default function VideoEditPage() {
   const [currentProcessStep, setCurrentProcessStep] = useState('');
   const [isTranscribing, setIsTranscribing] = useState(false); // 语音识别中
   const [transcribedVideoUrl, setTranscribedVideoUrl] = useState<string>(''); // 语音识别后返回的视频URL
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false); // 等待用户确认识别文案
   
   // 后期处理步骤链状态
   const [stepStates, setStepStates] = useState<Record<PostProcessStepKey, StepState>>({
@@ -431,112 +432,104 @@ export default function VideoEditPage() {
     }
   };
 
-  // 后期处理模式提交 - 一次调用API处理所有启用的选项
+  // 阶段1: 上传+语音识别 → 暂停让用户确认文案
   const handlePostProcessSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    console.log('=== handlePostProcessSubmit 开始 ===');
-    console.log('视频数量:', videos.length);
-    console.log('后期处理选项:', postProcessing);
-
     if (videos.length === 0) {
       setErrorMessage('请上传视频文件');
-      console.error('错误: 没有上传视频');
+      return;
+    }
+    const hasAnyOption = postProcessing.enableTTS || postProcessing.enableSubtitle || 
+                         postProcessing.enableTranslateSubtitle || postProcessing.enableFaceSwap || postProcessing.enableLipSync;
+    if (!hasAnyOption) {
+      setErrorMessage('请至少选择一个后期处理选项');
       return;
     }
 
-    // 检查是否启用了任何后期处理选项
-    const hasAnyOptionEnabled = postProcessing.enableTTS || 
-                               postProcessing.enableSubtitle || 
-                               postProcessing.enableTranslateSubtitle || 
-                               postProcessing.enableFaceSwap || 
-                               postProcessing.enableLipSync;
-    
-    if (!hasAnyOptionEnabled) {
-      setErrorMessage('请至少选择一个后期处理选项（配音、字幕、翻译、换脸、对口型）');
-      console.error('错误: 没有启用任何后期处理选项');
-      return;
-    }
+    setIsProcessing(true);
+    setProgress(0);
+    setOutputUrl('');
+    setErrorMessage('');
+    setSuccessMessage('');
+    setAwaitingConfirmation(false);
 
-    console.log('已启用的选项检查通过');
-
-    // 重置步骤状态
-    const initialSteps: Record<PostProcessStepKey, StepState> = {
+    setStepStates({
       transcribe: { status: 'active', completed: false },
       translate: { status: 'pending', completed: false },
       subtitle: { status: 'pending', completed: false },
       tts: { status: 'pending', completed: false },
       lipsync: { status: 'pending', completed: false },
       faceswap: { status: 'pending', completed: false },
-    };
-    console.log('重置步骤状态:', initialSteps);
-    setStepStates(initialSteps);
-    setIsProcessing(true);
-    setProgress(0);
-    setOutputUrl('');
-    setErrorMessage('');
-    setSuccessMessage('');
-
-    // 用本地变量避免 React 异步 state 问题
-    let currentVideoUrl = transcribedVideoUrl || '';
-    let currentScript = ttsScript || '';
+    });
 
     try {
-      // 如果没有视频URL（未手动识别），先上传+识别获取URL
-      if (!currentVideoUrl) {
-        console.log('=== 步骤1: 上传视频+语音识别 ===');
+      let videoUrl = transcribedVideoUrl || '';
+      let script = ttsScript || '';
+
+      // 只有没有视频URL时才做语音识别
+      if (!videoUrl) {
         setCurrentStepKey('transcribe');
-        setCurrentProcessStep('上传并识别语音中...');
+        setCurrentProcessStep('🎤 正在语音识别...');
         setProgress(10);
 
-        const uploadFormData = new FormData();
-        uploadFormData.append('video', videos[0].file);
-        
-        const uploadRes = await fetch('/api/video/transcribe', {
-          method: 'POST',
-          credentials: 'include',
-          body: uploadFormData,
+        const formData = new FormData();
+        formData.append('video', videos[0].file);
+        const res = await fetch('/api/video/transcribe', {
+          method: 'POST', credentials: 'include', body: formData,
         });
-        
-        console.log('上传响应状态:', uploadRes.status);
-        const uploadData = await uploadRes.json();
-        console.log('上传响应数据:', uploadData);
-        
-        if (!uploadData.success) {
-          throw new Error('视频上传失败: ' + (uploadData.message || '未知错误'));
-        }
-        
-        currentVideoUrl = uploadData.videoUrl || '';
-        currentScript = uploadData.text || '';
-        console.log('视频URL:', currentVideoUrl);
-        console.log('识别文本长度:', currentScript.length);
-        
-        // 更新state供UI显示
-        setTranscribedVideoUrl(currentVideoUrl);
-        if (currentScript) setTtsScript(currentScript);
-        
-        setProgress(20);
-        setStepStates(prev => ({ 
-          ...prev, 
-          transcribe: { status: 'completed', completed: true, message: '识别完成' } 
-        }));
-      } else {
-        console.log('使用已有视频URL:', currentVideoUrl);
-        console.log('使用已有文案，长度:', currentScript.length);
-        setProgress(20);
-        setStepStates(prev => ({ 
-          ...prev, 
-          transcribe: { status: 'completed', completed: true, message: '已识别' } 
-        }));
+        const data = await res.json();
+        if (!data.success) throw new Error('语音识别失败: ' + (data.message || '未知错误'));
+
+        videoUrl = data.videoUrl || '';
+        script = data.text || '';
+        setTranscribedVideoUrl(videoUrl);
+        if (script) setTtsScript(script);
       }
 
-      // 步骤2: 调用后期处理API
-      console.log('=== 步骤2: 调用后期处理API ===');
-      setCurrentStepKey('translate');
-      setCurrentProcessStep('处理中...');
-      setProgress(30);
-      
-      // 构造API请求体（使用本地变量，避免React异步state问题）
+      setProgress(20);
+      setStepStates(prev => ({ ...prev, transcribe: { status: 'completed', completed: true, message: '识别完成 ✓' } }));
+
+      // 暂停，等待用户确认文案
+      setCurrentProcessStep('📝 请确认或编辑识别文案，然后点击「确认并继续处理」');
+      setAwaitingConfirmation(true);
+      setIsProcessing(false);
+
+    } catch (error) {
+      setErrorMessage('识别失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      setIsProcessing(false);
+      setCurrentProcessStep('');
+      setCurrentStepKey(null);
+    }
+  };
+
+  // 阶段2: 用户确认文案后，执行所有后期处理步骤
+  const handleContinuePostProcess = async () => {
+    const currentScript = ttsScript || '';
+    const currentVideoUrl = transcribedVideoUrl;
+    if (!currentVideoUrl || !currentScript) {
+      setErrorMessage('缺少视频URL或文案，请重新开始');
+      return;
+    }
+
+    setAwaitingConfirmation(false);
+    setIsProcessing(true);
+    setProgress(30);
+    setErrorMessage('');
+
+    try {
+      const steps: { key: PostProcessStepKey; label: string; enabled: boolean; progressMsg: string; doneMsg: string }[] = [];
+
+      if (postProcessing.enableTranslateSubtitle && targetLanguage && targetLanguage !== 'zh') {
+        steps.push({ key: 'translate', label: '字幕翻译', enabled: true, progressMsg: '🌐 正在翻译字幕...', doneMsg: '翻译完成 ✓' });
+      }
+      if (postProcessing.enableTTS) {
+        steps.push({ key: 'tts', label: '配音', enabled: true, progressMsg: '🎤 正在生成配音...', doneMsg: '配音完成 ✓' });
+      }
+      if (postProcessing.enableSubtitle) {
+        steps.push({ key: 'subtitle', label: '字幕生成', enabled: true, progressMsg: '📄 正在生成字幕...', doneMsg: '字幕完成 ✓' });
+      }
+
+      // 构造请求体
       const postBody: Record<string, unknown> = {
         videoUrl: currentVideoUrl,
         options: {
@@ -547,77 +540,54 @@ export default function VideoEditPage() {
           enableLipSync: postProcessing.enableLipSync,
           enableSpeakerDiarization: false,
         },
+        ttsScript: currentScript,
       };
-      
-      // 如果有配音文本，传递进去（使用本地变量）
-      if (currentScript) {
-        postBody.ttsScript = currentScript;
-        console.log('传递ttsScript，长度:', currentScript.length);
+      if (targetLanguage) postBody.subtitleLanguage = targetLanguage;
+
+      // 显示第一个步骤的进度
+      if (steps.length > 0) {
+        setCurrentStepKey(steps[0].key);
+        setCurrentProcessStep(steps[0].progressMsg);
       }
-      
-      // 如果目标语言，传递进去
-      if (targetLanguage) {
-        postBody.subtitleLanguage = targetLanguage;
-      }
-      
-      console.log('后期处理请求体:', JSON.stringify(postBody));
-      
-      setProgress(50);
-      setCurrentProcessStep('AI处理中...');
-      
+      setProgress(40);
+
+      console.log('[Continue] 请求体:', JSON.stringify(postBody));
       const postRes = await fetch('/api/video/post-process', {
-        method: 'POST',
-        credentials: 'include',
+        method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(postBody),
       });
-      
-      console.log('后期处理响应状态:', postRes.status);
       const postData = await postRes.json();
-      console.log('后期处理响应数据:', postData);
-      
+      console.log('[Continue] 响应:', postData);
+
       setProgress(80);
-      
+
       if (postData.success && postData.videoUrl) {
-        console.log('后期处理成功，视频URL:', postData.videoUrl);
-        console.log('实际执行的步骤:', postData.processSteps);
         setOutputUrl(postData.videoUrl);
         setProgress(100);
-        
-        const stepsDone = postData.processSteps?.length > 0 
-          ? `✅ ${postData.processSteps.join('、')}处理完成` 
-          : '✅ 后期处理完成';
-        setSuccessMessage(stepsDone);
-        
-        // 更新步骤状态
-        const newStepStates: Record<string, StepState> = {
-          transcribe: { status: 'completed', completed: true, message: '上传完成' },
-          translate: { status: 'pending', completed: false },
-          subtitle: { status: 'pending', completed: false },
-          tts: { status: 'pending', completed: false },
-          lipsync: { status: 'pending', completed: false },
-          faceswap: { status: 'pending', completed: false },
+
+        // 根据后端实际执行的步骤更新状态
+        const done = postData.processSteps || [];
+        const newSteps: Record<string, StepState> = {
+          transcribe: { status: 'completed', completed: true, message: '识别完成 ✓' },
+          translate: { status: done.includes('字幕翻译') ? 'completed' : 'skipped', completed: done.includes('字幕翻译'), message: done.includes('字幕翻译') ? '翻译完成 ✓' : '' },
+          subtitle: { status: done.includes('字幕生成') ? 'completed' : 'skipped', completed: done.includes('字幕生成'), message: done.includes('字幕生成') ? '字幕完成 ✓' : '' },
+          tts: { status: done.includes('配音') ? 'completed' : 'skipped', completed: done.includes('配音'), message: done.includes('配音') ? '配音完成 ✓' : '' },
+          lipsync: { status: 'skipped', completed: false },
+          faceswap: { status: 'skipped', completed: false },
         };
-        if (postData.processSteps?.includes('配音')) {
-          newStepStates.tts = { status: 'completed', completed: true, message: '配音完成' };
-        }
-        if (postData.processSteps?.includes('字幕生成') || postData.processSteps?.includes('字幕翻译')) {
-          newStepStates.subtitle = { status: 'completed', completed: true, message: '字幕完成' };
-          newStepStates.translate = { status: 'completed', completed: true, message: '翻译完成' };
-        }
-        setStepStates(newStepStates);
+        setStepStates(newSteps);
+
+        const msg = done.length > 0 ? `✅ ${done.join('、')}处理完成` : '✅ 后期处理完成';
+        setSuccessMessage(msg);
+        setCurrentProcessStep(msg);
       } else {
         throw new Error(postData.message || '后期处理失败');
       }
-      
     } catch (error) {
-      console.error('Post process error:', error);
-      setErrorMessage('后期处理失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      setErrorMessage('处理失败: ' + (error instanceof Error ? error.message : '未知错误'));
     } finally {
-      console.log('=== handlePostProcessSubmit 结束 ===');
       setIsProcessing(false);
-      setProgress(100);
-      setCurrentProcessStep('');
       setCurrentStepKey(null);
     }
   };
@@ -1101,7 +1071,6 @@ export default function VideoEditPage() {
                 <form onSubmit={handlePostProcessSubmit} className="space-y-6">
                   {renderVideoUpload()}
                   {renderVideoList()}
-                  {renderTranscribeButton()}
 
                   {/* 文案编辑框（识别后显示） */}
                   {pageMode === 'postProcess' && ttsScript && (
@@ -1165,27 +1134,62 @@ export default function VideoEditPage() {
 
                   {renderPostProcessingOptions()}
                   
-                  {/* 提交按钮 */}
-                  <div className="flex items-center gap-4">
-                    <button
-                      type="submit"
-                      disabled={isProcessing || videos.length === 0}
-                      className="flex-1 py-3 bg-purple-500 text-white rounded-xl hover:bg-purple-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors"
-                    >
-                      {isProcessing ? (currentProcessStep || '处理中...') : '开始后期处理'}
-                    </button>
-                    {isProcessing && (
-                      <div className="flex-1">
-                        <div className="flex justify-between text-xs text-gray-400 mb-1">
-                          <span>{currentProcessStep || '进度'}</span>
-                          <span className="font-mono">{Math.round(progress)}%</span>
+                  {/* 提交/确认按钮区域 */}
+                  <div className="space-y-4">
+                    {awaitingConfirmation ? (
+                      <div className="flex flex-col gap-4">
+                        <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+                          <p className="text-sm text-amber-300 mb-2">📝 请确认识别文案是否正确，可编辑修改后继续</p>
+                          {ttsScript && (
+                            <textarea
+                              value={ttsScript}
+                              onChange={(e) => setTtsScript(e.target.value)}
+                              rows={5}
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-amber-500/50 resize-y mb-3"
+                            />
+                          )}
+                          <div className="flex gap-3">
+                            <button
+                              type="button"
+                              onClick={handleContinuePostProcess}
+                              disabled={isProcessing}
+                              className="flex-1 py-3 bg-amber-500 text-white rounded-xl hover:bg-amber-600 disabled:bg-gray-700 font-medium transition-colors"
+                            >
+                              ✅ 确认并继续处理
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setAwaitingConfirmation(false); setIsProcessing(false); setCurrentProcessStep(''); }}
+                              className="px-6 py-3 bg-white/10 text-gray-300 rounded-xl hover:bg-white/20 font-medium transition-colors"
+                            >
+                              取消
+                            </button>
+                          </div>
                         </div>
-                        <div className="w-full bg-white/10 rounded-full h-2">
-                          <div
-                            className="bg-purple-500 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${progress}%` }}
-                          />
-                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-4">
+                        <button
+                          type="submit"
+                          disabled={isProcessing || videos.length === 0}
+                          className="flex-1 py-3 bg-purple-500 text-white rounded-xl hover:bg-purple-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors"
+                        >
+                          {isProcessing ? (currentProcessStep || '处理中...') : '🚀 开始后期处理'}
+                        </button>
+                        {isProcessing && (
+                          <div className="flex-1">
+                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                              <span className="truncate max-w-[200px]">{currentProcessStep || '进度'}</span>
+                              <span className="font-mono ml-2">{Math.round(progress)}%</span>
+                            </div>
+                            <div className="w-full bg-white/10 rounded-full h-2">
+                              <div
+                                className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${progress}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
