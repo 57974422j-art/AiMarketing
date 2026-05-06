@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { translate, textToSpeech } from '@/lib/ai-providers'
+import { translate, textToSpeech, cleanText, prepareTextForTTS } from '@/lib/ai-providers'
 import { join } from 'path'
 import { writeFile, mkdir, unlink, readFile } from 'fs/promises'
 import { existsSync } from 'fs'
@@ -54,10 +54,6 @@ async function uploadToOSS(filePath: string, objectName: string): Promise<string
   }
 }
 
-function cleanSpecialChars(text: string): string {
-  return text.replace(/[\uD800-\uDBFF\uDC00-\uDFFF]/gu, '').trim()
-}
-
 export async function POST(request: NextRequest) {
   let body: any
   try {
@@ -109,12 +105,12 @@ export async function POST(request: NextRequest) {
     const needsTranslation = options.enableTranslateSubtitle && subtitleLanguage && subtitleLanguage !== 'zh'
     if (needsTranslation && ttsScript) {
       try {
-        const cleanText = cleanSpecialChars(ttsScript)
+        const cleanedInput = cleanText(ttsScript, 'zh')
         console.log('[PostProcess] 步骤1: 翻译文案 (zh → ' + subtitleLanguage + ')')
-        console.log('[PostProcess] 待翻译文本:', cleanText.substring(0, 80) + '...')
-        const result = await translate(cleanText, subtitleLanguage!)
+        console.log('[PostProcess] 待翻译文本:', cleanedInput.substring(0, 80) + '...')
+        const result = await translate(cleanedInput, subtitleLanguage!, 'zh')
         if (result) {
-          translatedText = cleanSpecialChars(result)
+          translatedText = cleanText(result, subtitleLanguage!)
           console.log('[PostProcess] 翻译成功:', translatedText.substring(0, 80) + '...')
         } else {
           console.log('[PostProcess] 翻译 API 未返回结果')
@@ -125,7 +121,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 确定最终用于配音和字幕的文案
-    const finalText = translatedText || (ttsScript ? cleanSpecialChars(ttsScript) : '')
+    const finalText = translatedText || (ttsScript ? cleanText(ttsScript, subtitleLanguage || 'zh') : '')
     console.log('[PostProcess] 最终文案（长度:', finalText.length, '）:', finalText.substring(0, 50) + '...')
 
     // ========== 2. TTS 配音（使用翻译后的文案） ==========

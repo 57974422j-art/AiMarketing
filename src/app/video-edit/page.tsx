@@ -57,14 +57,14 @@ interface VoiceAssignment {
   label: string;
 }
 
-// 配音角色预设
+// 配音角色预设（火山 TTS 兼容）
 const voicePresets = [
-  { id: 'young_male', label: '青年男声', voice: 'aiobtn' },
-  { id: 'young_female', label: '青年女声', voice: 'aixia' },
-  { id: 'middle_male', label: '中年男声', voice: 'aibai' },
-  { id: 'middle_female', label: '中年女声', voice: 'yina' },
-  { id: 'elderly_male', label: '老年男声', voice: 'aibai' },
-  { id: 'elderly_female', label: '老年女声', voice: 'xiaomeng' },
+  { id: 'zh_female_common', label: '通用女声', voice: 'zh_female_common' },
+  { id: 'zh_male_common', label: '通用男声', voice: 'zh_male_common' },
+  { id: 'zh_female_warm', label: '温柔女声', voice: 'zh_female_warm' },
+  { id: 'zh_male_gentle', label: '温和男声', voice: 'zh_male_gentle' },
+  { id: 'zh_female_sweet', label: '甜美女生', voice: 'zh_female_sweet' },
+  { id: 'zh_male_serious', label: '沉稳男声', voice: 'zh_male_serious' },
 ];
 
 export default function VideoEditPage() {
@@ -1120,6 +1120,46 @@ export default function VideoEditPage() {
                         placeholder="语音识别后的文案将显示在这里，您可以编辑修改..."
                       />
                       <p className="text-xs text-gray-500 mt-2">已识别 {ttsScript.length} 个字符，可编辑后用于配音和字幕翻译</p>
+                    </div>
+                  )}
+
+                  {/* 多人配音配置（说话人分离后显示） */}
+                  {pageMode === 'postProcess' && voiceAssignments.length > 0 && (
+                    <div className="border-t border-white/10 pt-6">
+                      <h3 className="text-label mb-4 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                        多人配音分配
+                      </h3>
+                      <div className="space-y-3">
+                        {voiceAssignments.map((assignment, idx) => (
+                          <div key={idx} className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
+                            <span className="text-sm text-gray-400 min-w-[80px]">{assignment.speakerId}</span>
+                            <select
+                              value={assignment.voice}
+                              onChange={(e) => {
+                                const newAssignments = [...voiceAssignments];
+                                const preset = voicePresets.find(p => p.voice === e.target.value);
+                                newAssignments[idx] = {
+                                  ...assignment,
+                                  voice: e.target.value,
+                                  label: preset?.label || e.target.value,
+                                };
+                                setVoiceAssignments(newAssignments);
+                              }}
+                              className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500/50"
+                            >
+                              {voicePresets.map(preset => (
+                                <option key={preset.voice} value={preset.voice} className="bg-gray-900">
+                                  {preset.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">已检测到 {voiceAssignments.length} 个说话人，可为每个角色分配不同音色</p>
                     </div>
                   )}
 

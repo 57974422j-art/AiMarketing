@@ -46,6 +46,84 @@ function callChatAPI(baseUrl: string, apiKey: string, model: string, prompt: str
   });
 }
 
+// ==================== 文本清洗工具 ====================
+
+// Emoji → 情绪描述词映射（支持中英文）
+const EMOJI_MAP: Record<string, string> = {
+  '😡': '（愤怒地）', '😠': '（愤怒地）', '🤬': '（愤怒地）',
+  '😊': '（开心地）', '😄': '（开心地）', '😁': '（开心地）', '😀': '（开心地）', '🙂': '（微笑）',
+  '😂': '（笑着）', '🤣': '（大笑着）', '😅': '（尴尬地笑）',
+  '😢': '（伤心地）', '😭': '（哭泣着）', '😞': '（失望地）', '😔': '（忧郁地）',
+  '😍': '（喜爱地）', '😘': '（亲昵地）', '🥰': '（充满爱意地）',
+  '😮': '（惊讶地）', '😱': '（惊恐地）', '😨': '（害怕地）', '😰': '（焦虑地）',
+  '😎': '（得意地）', '🤩': '（兴奋地）', '😏': '（狡黠地）',
+  '🤔': '（思考着）', '🧐': '（审视地）',
+  '👍': '（赞许地）', '👎': '（反对地）', '🙏': '（恳求地）', '👏': '（鼓掌）',
+  '❤️': '（深情地）', '💔': '（心痛地）', '💕': '（温柔地）',
+  '🎉': '（欢呼）', '🎊': '（庆祝）', '🥳': '（欢庆地）',
+  '😴': '（困倦地）', '🥱': '（打着哈欠）',
+  '😤': '（不服气地）', '😩': '（无奈地）', '😫': '（疲惫地）',
+  '🤗': '（热情地）', '🤝': '（握手）',
+  '👀': '（注视着）', '🙄': '（翻白眼）',
+  '💪': '（坚定地）', '✊': '（握拳）',
+  '🎵': '', '🎶': '', '🎼': '',  // 音乐符号直接删除
+  '✨': '', '🌟': '', '⭐': '',   // 星星符号直接删除
+};
+
+// 替换 Emoji 为情绪描述词（用于 TTS 配音前处理）
+export function replaceEmoji(text: string): string {
+  let result = text;
+  for (const [emoji, desc] of Object.entries(EMOJI_MAP)) {
+    result = result.split(emoji).join(desc);
+  }
+  // 删除剩余的未映射 Emoji
+  result = result.replace(
+    /[\u{1F000}-\u{1FFFF}\u{2700}-\u{27BF}\u{2600}-\u{26FF}\u{FE00}-\u{FE0F}\u{200D}\u{23CF}\u{23E9}-\u{23F3}\u{231A}-\u{231B}\u{2328}\u{23F0}\u{23F8}-\u{23FA}\u{24C2}\u{25AA}-\u{25FE}\u{2B05}-\u{2B55}\u{2934}-\u{2935}\u{3030}\u{303D}\u{3297}\u{3299}\u{D83C}-\u{DBFF}\u{DC00}-\u{DFFF}]/gu,
+    ''
+  );
+  return result;
+}
+
+// 移除控制字符（修复 "Bad control character" 错误）
+function removeControlChars(text: string): string {
+  // 保留 \t \n \r，移除其他 0x00-0x1F 控制字符
+  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+
+// 准备 TTS 文本：替换 Emoji → 清理控制字符 → 合并空格
+export function prepareTextForTTS(text: string): string {
+  if (!text?.trim()) return '';
+  const withEmotion = replaceEmoji(text);
+  const noControl = removeControlChars(withEmotion);
+  return noControl.replace(/\s+/g, ' ').trim();
+}
+
+// 清除 Emoji 和杂项符号，根据目标语言保留对应字符集
+export function cleanText(text: string, language = 'zh'): string {
+  // 1. 替换/移除 Emoji
+  const noEmoji = replaceEmoji(text);
+  
+  // 2. 根据语言保留合法字符
+  const langPatterns: Record<string, RegExp> = {
+    zh: /[^\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uFF00-\uFFEF\u0020-\u007E\u2000-\u206F\u0021-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u007E]/g,
+    en: /[^\u0020-\u007E\u2000-\u206F\u00A0-\u00FF\u0100-\u017F]/g,
+    ja: /[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\uFF00-\uFFEF\u0020-\u007E\u2000-\u206F]/g,
+    ko: /[^\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\u3000-\u303F\u0020-\u007E\u2000-\u206F]/g,
+    fr: /[^\u0020-\u007E\u00C0-\u00FF\u0152-\u0153\u0178\u2000-\u206F]/g,
+    de: /[^\u0020-\u007E\u00C0-\u00FF\u1E9E\u2000-\u206F]/g,
+    es: /[^\u0020-\u007E\u00C0-\u00FF\u00D1\u00F1\u2000-\u206F]/g,
+    pt: /[^\u0020-\u007E\u00C0-\u00FF\u2000-\u206F]/g,
+    ru: /[^\u0020-\u007E\u0400-\u04FF\u0500-\u052F\u2000-\u206F]/g,
+    ar: /[^\u0020-\u007E\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u2000-\u206F]/g,
+  };
+  
+  const pattern = langPatterns[language] || langPatterns.en;
+  const cleaned = noEmoji.replace(pattern, ' ');
+  
+  // 3. 移除控制字符 + 合并空格
+  return removeControlChars(cleaned).replace(/\s+/g, ' ').trim();
+}
+
 // ==================== 火山方舟 (Volcano Engine) ====================
 
 const VOLCANO_BASE = 'https://ark.cn-beijing.volces.com';
@@ -68,24 +146,27 @@ async function volcanoChat(prompt: string, maxTokens = 1000): Promise<string | n
   }
 }
 
-async function volcanoTranslate(text: string, toLang: string): Promise<string | null> {
-  const prompt = `请将以下中文翻译成${toLang}，只返回翻译结果，不要带任何解释：\n\n${text}`;
+async function volcanoTranslate(text: string, toLang: string, fromLang = 'zh'): Promise<string | null> {
+  const sourceLabel = fromLang === 'zh' ? '中文' : fromLang;
+  const prompt = `请将以下${sourceLabel}翻译成${toLang}，只返回翻译结果，不要带任何解释：\n\n${text}`;
   return volcanoChat(prompt, 2000);
 }
 
-// 火山方舟 TTS
+// 火山方舟 TTS（先清洗文本，修复 Bad control character）
 async function volcanoTTS(text: string, voice = 'zh_female_common'): Promise<ArrayBuffer | null> {
   const key = getVolcanoKey();
-  if (!key || !text?.trim()) return null;
+  const cleanText = prepareTextForTTS(text);
+  if (!key || !cleanText) return null;
   try {
+    const body = JSON.stringify({
+      model: VOLCANO_TTS_MODEL,
+      input: { text: cleanText },
+      parameters: { voice, format: 'wav', sample_rate: 16000 },
+    });
     return await fetchBuffer(`${VOLCANO_BASE}/api/v1/audio/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({
-        model: VOLCANO_TTS_MODEL,
-        input: { text: text.trim() },
-        parameters: { voice, format: 'wav', sample_rate: 16000 },
-      }),
+      body,
     });
   } catch (e) {
     console.error('[Volcano TTS] 失败:', e);
@@ -122,8 +203,9 @@ async function siliconChat(prompt: string, maxTokens = 1000): Promise<string | n
   }
 }
 
-async function siliconTranslate(text: string, toLang: string): Promise<string | null> {
-  const prompt = `请将以下中文翻译成${toLang}，只返回翻译结果：\n\n${text}`;
+async function siliconTranslate(text: string, toLang: string, fromLang = 'zh'): Promise<string | null> {
+  const sourceLabel = fromLang === 'zh' ? '中文' : fromLang;
+  const prompt = `请将以下${sourceLabel}翻译成${toLang}，只返回翻译结果：\n\n${text}`;
   return siliconChat(prompt, 2000);
 }
 
@@ -150,21 +232,23 @@ async function siliconTranscribe(audioBuffer: ArrayBuffer, fileName = 'audio.wav
   }
 }
 
-// 硅基流动 TTS (CosyVoice2)
+// 硅基流动 TTS (CosyVoice2) — 先清洗文本
 async function siliconTTS(text: string, voice = 'cosyvoice-v1'): Promise<ArrayBuffer | null> {
   const key = getSiliconFlowKey();
-  if (!key || !text?.trim()) return null;
+  const cleanText = prepareTextForTTS(text);
+  if (!key || !cleanText) return null;
   try {
+    const body = JSON.stringify({
+      model: 'FunAudioLLM/CosyVoice2-0.5B',
+      input: cleanText,
+      voice,
+      response_format: 'wav',
+      sample_rate: 16000,
+    });
     return await fetchBuffer(`${SILICONFLOW_BASE}/v1/audio/speech`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({
-        model: 'FunAudioLLM/CosyVoice2-0.5B',
-        input: text.trim(),
-        voice,
-        response_format: 'wav',
-        sample_rate: 16000,
-      }),
+      body,
     });
   } catch (e) {
     console.error('[SiliconFlow TTS] 失败:', e);
@@ -221,8 +305,9 @@ async function deepSeekChat(prompt: string, maxTokens = 1000): Promise<string | 
   }
 }
 
-async function deepSeekTranslate(text: string, toLang: string): Promise<string | null> {
-  const prompt = `请将以下中文翻译成${toLang}，只返回翻译结果：\n\n${text}`;
+async function deepSeekTranslate(text: string, toLang: string, fromLang = 'zh'): Promise<string | null> {
+  const sourceLabel = fromLang === 'zh' ? '中文' : fromLang;
+  const prompt = `请将以下${sourceLabel}翻译成${toLang}，只返回翻译结果：\n\n${text}`;
   return deepSeekChat(prompt, 2000);
 }
 
@@ -246,11 +331,16 @@ export async function generateText(prompt: string): Promise<string | null> {
 }
 
 // 2. 翻译
-export async function translate(text: string, toLang: string): Promise<string | null> {
+export async function translate(text: string, toLang: string, fromLang = 'zh'): Promise<string | null> {
   if (!text?.trim()) return null;
+  // 先清洗文本
+  const cleanedText = cleanText(text, fromLang);
+  if (!cleanedText) return null;
   // 火山(豆包) → 硅基(Qwen) → DeepSeek → Mock
-  const result = await volcanoTranslate(text, toLang) || await siliconTranslate(text, toLang) || await deepSeekTranslate(text, toLang);
-  if (result) return result;
+  const result = await volcanoTranslate(cleanedText, toLang, fromLang) 
+    || await siliconTranslate(cleanedText, toLang, fromLang) 
+    || await deepSeekTranslate(cleanedText, toLang, fromLang);
+  if (result) return cleanText(result, toLang);
   return mockResult('translate', text);
 }
 
@@ -263,11 +353,14 @@ export async function transcribeAudio(audioBuffer: ArrayBuffer, fileName = 'audi
   return null;
 }
 
-// 4. 配音 TTS
+// 4. 配音 TTS（火山→硅基，先清洗文本防 Bad control character）
 export async function textToSpeech(text: string, voice = 'zh_female_common'): Promise<ArrayBuffer | null> {
   if (!text?.trim()) return null;
-  // 火山 TTS → 硅基 CosyVoice2 → Mock
-  const result = await volcanoTTS(text, voice) || await siliconTTS(text, voice.replace('zh_female_common', 'cosyvoice-v1'));
+  // 先用 prepareTextForTTS 清洗
+  const cleaned = prepareTextForTTS(text);
+  if (!cleaned) return null;
+  // 火山 TTS → 硅基 CosyVoice2
+  const result = await volcanoTTS(cleaned, voice) || await siliconTTS(cleaned, voice.replace('zh_female_common', 'cosyvoice-v1'));
   if (result && result.byteLength > 100) return result;
   console.warn('[TTS] 所有 TTS 服务均不可用');
   return null;
