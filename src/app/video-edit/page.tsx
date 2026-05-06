@@ -40,12 +40,12 @@ interface StepState {
   message?: string;
 }
 
-// 步骤定义
+// 步骤定义（顺序与实际处理流程一致：识别→翻译→配音→字幕烧录）
 const POST_PROCESS_STEPS: Array<{ key: PostProcessStepKey; label: string; color: string }> = [
   { key: 'transcribe', label: '语音识别', color: 'orange' },
   { key: 'translate', label: '翻译字幕', color: 'cyan' },
-  { key: 'subtitle', label: '字幕生成', color: 'blue' },
   { key: 'tts', label: '配音', color: 'purple' },
+  { key: 'subtitle', label: '字幕烧录', color: 'blue' },
   { key: 'lipsync', label: '对口型', color: 'amber' },
   { key: 'faceswap', label: '换脸', color: 'pink' },
 ];
@@ -68,7 +68,9 @@ const voicePresets = [
   { id: 'zh_male_vv_yezhu_bigtts', label: '青年男声-磁性', voice: 'zh_male_vv_yezhu_bigtts', category: '青年男声' },
   { id: 'zh_male_vv_shuhao_bigtts', label: '青年男声-沉稳', voice: 'zh_male_vv_shuhao_bigtts', category: '青年男声' },
   // 英文
-  { id: 'en_male_alex_uranus_bigtts', label: '英文男声(Alex)', voice: 'en_male_alex_uranus_bigtts', category: '英文' },
+  { id: 'en_male_tim_uranus_bigtts', label: '英文男声(Tim)', voice: 'en_male_tim_uranus_bigtts', category: '英文' },
+  { id: 'en_female_dacey_uranus_bigtts', label: '英文女声(Dacey)', voice: 'en_female_dacey_uranus_bigtts', category: '英文' },
+  { id: 'en_female_stokie_uranus_bigtts', label: '英文女声(Stokie)', voice: 'en_female_stokie_uranus_bigtts', category: '英文' },
 ];
 
 export default function VideoEditPage() {
@@ -104,6 +106,15 @@ export default function VideoEditPage() {
   const [targetLanguage, setTargetLanguage] = useState('zh');
   const [ttsScript, setTtsScript] = useState('');        // 配音文案
   const [ttsVoice, setTtsVoice] = useState('zh_female_vv_uranus_bigtts'); // 配音音色
+
+  // 根据目标语言自动匹配默认音色（仅切换语言时触发）
+  useEffect(() => {
+    if (targetLanguage === 'en') {
+      setTtsVoice('en_male_tim_uranus_bigtts');
+    } else {
+      setTtsVoice('zh_female_vv_uranus_bigtts');
+    }
+  }, [targetLanguage]);
   const [faceImage, setFaceImage] = useState<File | null>(null);
   const [faceImagePreview, setFaceImagePreview] = useState<string>('');
   const [currentProcessStep, setCurrentProcessStep] = useState('');
@@ -524,8 +535,8 @@ export default function VideoEditPage() {
       if (postProcessing.enableTTS) {
         steps.push({ key: 'tts', label: '配音', enabled: true, progressMsg: '🎤 正在生成配音...', doneMsg: '配音完成 ✓' });
       }
-      if (postProcessing.enableSubtitle) {
-        steps.push({ key: 'subtitle', label: '字幕生成', enabled: true, progressMsg: '📄 正在生成字幕...', doneMsg: '字幕完成 ✓' });
+      if (postProcessing.enableSubtitle || postProcessing.enableTranslateSubtitle) {
+        steps.push({ key: 'subtitle', label: '字幕烧录', enabled: true, progressMsg: '📄 正在烧录字幕...', doneMsg: '字幕完成 ✓' });
       }
 
       // 构造请求体
@@ -545,10 +556,18 @@ export default function VideoEditPage() {
       if (voiceAssignments.length > 0) postBody.voiceAssignments = voiceAssignments;
       if (targetLanguage) postBody.subtitleLanguage = targetLanguage;
 
-      // 显示第一个步骤的进度
+      // 将所有启用的步骤标记为 active（正在处理中），让用户看到完整处理链
+      setStepStates(prev => {
+        const updated = { ...prev };
+        updated.transcribe = { status: 'completed', completed: true, message: '识别完成 ✓' };
+        for (const step of steps) {
+          updated[step.key] = { status: 'active', completed: false, message: step.progressMsg };
+        }
+        return updated;
+      });
       if (steps.length > 0) {
         setCurrentStepKey(steps[0].key);
-        setCurrentProcessStep(steps[0].progressMsg);
+        setCurrentProcessStep(`⏳ 正在处理: ${steps.map(s => s.label).join(' → ')}`);
       }
       setProgress(40);
 
@@ -568,12 +587,17 @@ export default function VideoEditPage() {
         setProgress(100);
 
         // 根据后端实际执行的步骤更新状态
+        // 后端 processSteps: '配音'、'字幕翻译'、'字幕生成'
         const done = postData.processSteps || [];
+        const hasTranslate = done.includes('字幕翻译');
+        const hasSubtitle = done.includes('字幕生成') || done.includes('字幕翻译'); // 翻译字幕也包含字幕烧录
+        const hasTTS = done.includes('配音');
+
         const newSteps: Record<string, StepState> = {
           transcribe: { status: 'completed', completed: true, message: '识别完成 ✓' },
-          translate: { status: done.includes('字幕翻译') ? 'completed' : 'skipped', completed: done.includes('字幕翻译'), message: done.includes('字幕翻译') ? '翻译完成 ✓' : '' },
-          subtitle: { status: done.includes('字幕生成') ? 'completed' : 'skipped', completed: done.includes('字幕生成'), message: done.includes('字幕生成') ? '字幕完成 ✓' : '' },
-          tts: { status: done.includes('配音') ? 'completed' : 'skipped', completed: done.includes('配音'), message: done.includes('配音') ? '配音完成 ✓' : '' },
+          translate: { status: hasTranslate ? 'completed' : 'skipped', completed: hasTranslate, message: hasTranslate ? '翻译完成 ✓' : '' },
+          tts: { status: hasTTS ? 'completed' : 'skipped', completed: hasTTS, message: hasTTS ? '配音完成 ✓' : '' },
+          subtitle: { status: hasSubtitle ? 'completed' : 'skipped', completed: hasSubtitle, message: hasSubtitle ? '字幕完成 ✓' : '' },
           lipsync: { status: 'skipped', completed: false },
           faceswap: { status: 'skipped', completed: false },
         };
