@@ -187,9 +187,30 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
       console.error(`[Volcano TTS] HTTP ${res.status}:`, errText.substring(0, 200));
       return null;
     }
-    const ab = await res.arrayBuffer();
-    console.log(`[Volcano TTS] 成功, 大小: ${ab.byteLength} bytes`);
-    return ab;
+    // 火山 TTS V3 返回 JSON: { code: 0, message: '', data: 'Base64音频', sentence: { text: '...' } }
+    const resText = await res.text();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(resText);
+    } catch {
+      console.error('[Volcano TTS] JSON 解析失败, 原始响应:', resText.substring(0, 200));
+      return null;
+    }
+    if (parsed.code !== 0) {
+      console.error(`[Volcano TTS] 业务错误: code=${parsed.code}, message=${parsed.message}`);
+      return null;
+    }
+    if (!parsed.data) {
+      console.error('[Volcano TTS] 返回无 data 字段:', JSON.stringify(parsed).substring(0, 200));
+      return null;
+    }
+    // Base64 解码 data 字段
+    const audioBuffer = Buffer.from(parsed.data, 'base64');
+    console.log(`[Volcano TTS] 成功, 音频大小: ${audioBuffer.byteLength} bytes`);
+    if (parsed.sentence?.text) {
+      console.log(`[Volcano TTS] sentence.text: ${parsed.sentence.text.substring(0, 80)}`);
+    }
+    return audioBuffer.buffer.slice(audioBuffer.byteOffset, audioBuffer.byteOffset + audioBuffer.byteLength) as ArrayBuffer;
   } catch (e) {
     console.error('[Volcano TTS] 失败:', e);
     return null;
