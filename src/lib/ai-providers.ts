@@ -166,6 +166,7 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
   try {
     const body = JSON.stringify({
       app: { appid: appId, cluster: 'volcano_tts' },
+      user: { uid: appId },
       speaker,
       text: cleanText,
       audio_params: '{"sample_rate":24000,"volume":1.0}',
