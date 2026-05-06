@@ -164,18 +164,20 @@ export async function POST(request: NextRequest) {
 
             const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
 
-            // 步骤 2a: 消掉视频原声，只保留画面
+            // 步骤 2a: 降低原声音量（保留背景音），-48dB 近乎静音但不丢失音轨
             const mutedPath = join(tempDir, `muted_${timestamp}.mp4`)
-            const muteArgs = ['-i', currentVideoPath, '-c:v', 'copy', '-an', mutedPath]
-            console.log('[PostProcess] FFmpeg 消除原声, 命令:', ffmpegPath, muteArgs.join(' '))
+            const muteArgs = ['-i', currentVideoPath, '-c:v', 'copy', '-af', 'volume=-48dB', mutedPath]
+            console.log('[PostProcess] FFmpeg 降低原声, 命令:', ffmpegPath, muteArgs.join(' '))
             const muteResult = await execFileAsync(ffmpegPath, muteArgs)
             console.log('[PostProcess] FFmpeg 消除原声完成, stdout:', muteResult.stdout?.substring(0, 200), 'stderr:', muteResult.stderr?.substring(0, 200))
 
-            // 步骤 2b: 将 TTS 音频合并到视频上
+            // 步骤 2b: 将 TTS 音频与降低后的原声混合
             const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
             const mergeArgs = [
               '-i', mutedPath, '-i', audioPath,
-              '-c:v', 'copy', '-map', '0:v:0', '-map', '1:a:0', '-shortest', '-y',
+              '-c:v', 'copy',
+              '-filter_complex', '[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0[aout]',
+              '-map', '0:v:0', '-map', '[aout]', '-y',
               outputPath
             ]
             console.log('[PostProcess] FFmpeg 合并 TTS 音频, 命令:', ffmpegPath, mergeArgs.join(' '))
