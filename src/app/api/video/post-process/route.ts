@@ -163,9 +163,13 @@ export async function POST(request: NextRequest) {
             const muteResult = await execFileAsync(ffmpegPath, muteArgs)
             console.log('[PostProcess] FFmpeg 消除原声完成, stdout:', muteResult.stdout?.substring(0, 200), 'stderr:', muteResult.stderr?.substring(0, 200))
 
-            // 步骤 2b: 将 TTS 音频合并到无声视频上
+            // 步骤 2b: 将 TTS 音频合并到视频上
             const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
-            const mergeArgs = ['-i', mutedPath, '-i', audioPath, '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0', '-shortest', outputPath]
+            const mergeArgs = [
+              '-i', currentVideoPath, '-i', audioPath,
+              '-c:v', 'copy', '-map', '0:v:0', '-map', '1:a:0', '-shortest', '-y',
+              outputPath
+            ]
             console.log('[PostProcess] FFmpeg 合并 TTS 音频, 命令:', ffmpegPath, mergeArgs.join(' '))
             try {
               const mergeResult = await execFileAsync(ffmpegPath, mergeArgs)
@@ -178,8 +182,12 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // 检查合并后的输出文件是否存在
-            if (existsSync(outputPath)) {
+            // 检查合并后的输出文件是否存在及大小
+            const outputExists = existsSync(outputPath)
+            const outputSize = outputExists ? (await import('fs')).statSync(outputPath).size : 0
+            console.log('[PostProcess] 合并输出文件存在:', outputExists, '大小:', outputSize, 'bytes')
+
+            if (outputExists && outputSize > 0) {
               // 清理临时文件
               await unlink(audioPath).catch(() => {})
               await unlink(mutedPath).catch(() => {})
@@ -188,10 +196,12 @@ export async function POST(request: NextRequest) {
               processSteps.push('配音')
               console.log('[PostProcess] 配音完成:', outputPath)
             } else {
-              console.error('[PostProcess] 合并音频输出文件不存在, 使用原视频继续后续步骤:', currentVideoPath)
+              console.error('[PostProcess] 合并音频输出文件无效(大小=' + outputSize + '), 使用原视频继续后续步骤:', currentVideoPath)
               // 清理临时文件
               await unlink(audioPath).catch(() => {})
               await unlink(mutedPath).catch(() => {})
+              // 删除 0 字节的输出文件
+              if (outputExists) await unlink(outputPath).catch(() => {})
             }
           } else {
             console.log('[PostProcess] TTS 音频太小(' + audioStats.size + '字节), 跳过')
