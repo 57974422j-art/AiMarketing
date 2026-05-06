@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
         const voiceLangCode = langCodeMap[ttsLang] || 'zh-CN'
         console.log('[PostProcess] 步骤2: TTS配音, 语言:', voiceLangCode)
 
-        const ttsAudioBuffer = await textToSpeech(finalText, ttsVoice || 'zh_female_common')
+        const ttsAudioBuffer = await textToSpeech(finalText, ttsVoice || 'zh_female_vv_uranus_bigtts')
         if (!ttsAudioBuffer) {
           console.log('[PostProcess] TTS 无返回, 跳过配音')
         } else {

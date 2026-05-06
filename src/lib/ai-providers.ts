@@ -152,22 +152,43 @@ async function volcanoTranslate(text: string, toLang: string, fromLang = 'zh'): 
   return volcanoChat(prompt, 2000);
 }
 
-// 火山方舟 TTS（先清洗文本，修复 Bad control character）
-async function volcanoTTS(text: string, voice = 'zh_female_common'): Promise<ArrayBuffer | null> {
-  const key = getVolcanoKey();
+// 火山方舟 TTS（从环境变量读取凭据，未配置时返回 null 自动降级）
+async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'): Promise<ArrayBuffer | null> {
+  const appId = process.env.VOLCANO_TTS_APP_ID;
+  const accessKey = process.env.VOLCANO_TTS_ACCESS_KEY;
+  const resourceId = process.env.VOLCANO_TTS_RESOURCE_ID;
+  if (!appId || !accessKey || !resourceId) {
+    console.warn('[Volcano TTS] 未配置 TTS 环境变量，跳过');
+    return null;
+  }
   const cleanText = prepareTextForTTS(text);
-  if (!key || !cleanText) return null;
+  if (!cleanText) return null;
   try {
     const body = JSON.stringify({
-      model: VOLCANO_TTS_MODEL,
-      input: { text: cleanText },
-      parameters: { voice, format: 'wav', sample_rate: 16000 },
+      app_id: parseInt(appId),
+      speaker,
+      text: cleanText,
+      audio_params: '{"sample_rate":24000,"volume":1.0}',
     });
-    return await fetchBuffer(`${VOLCANO_BASE}/api/v1/audio/tts`, {
+    console.log(`[Volcano TTS] 请求: speaker=${speaker}, text_len=${cleanText.length}`);
+    const res = await fetch('https://openspeech.bytedance.com/api/v1/tts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-App-Id': appId,
+        'X-Api-Access-Key': accessKey,
+        'X-Api-Resource-Id': resourceId,
+      },
       body,
     });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`[Volcano TTS] HTTP ${res.status}:`, errText.substring(0, 200));
+      return null;
+    }
+    const ab = await res.arrayBuffer();
+    console.log(`[Volcano TTS] 成功, 大小: ${ab.byteLength} bytes`);
+    return ab;
   } catch (e) {
     console.error('[Volcano TTS] 失败:', e);
     return null;
@@ -354,13 +375,12 @@ export async function transcribeAudio(audioBuffer: ArrayBuffer, fileName = 'audi
 }
 
 // 4. 配音 TTS（火山→硅基，先清洗文本防 Bad control character）
-export async function textToSpeech(text: string, voice = 'zh_female_common'): Promise<ArrayBuffer | null> {
+export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_bigtts'): Promise<ArrayBuffer | null> {
   if (!text?.trim()) return null;
-  // 先用 prepareTextForTTS 清洗
   const cleaned = prepareTextForTTS(text);
   if (!cleaned) return null;
   // 火山 TTS → 硅基 CosyVoice2
-  const result = await volcanoTTS(cleaned, voice) || await siliconTTS(cleaned, voice.replace('zh_female_common', 'cosyvoice-v1'));
+  const result = await volcanoTTS(cleaned, speaker) || await siliconTTS(cleaned, 'cosyvoice-v1');
   if (result && result.byteLength > 100) return result;
   console.warn('[TTS] 所有 TTS 服务均不可用');
   return null;

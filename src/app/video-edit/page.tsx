@@ -57,14 +57,14 @@ interface VoiceAssignment {
   label: string;
 }
 
-// 配音角色预设（火山 TTS 兼容）
+// 配音角色预设（火山方舟 TTS speaker 名）
 const voicePresets = [
-  { id: 'zh_female_common', label: '通用女声', voice: 'zh_female_common' },
-  { id: 'zh_male_common', label: '通用男声', voice: 'zh_male_common' },
-  { id: 'zh_female_warm', label: '温柔女声', voice: 'zh_female_warm' },
-  { id: 'zh_male_gentle', label: '温和男声', voice: 'zh_male_gentle' },
-  { id: 'zh_female_sweet', label: '甜美女生', voice: 'zh_female_sweet' },
-  { id: 'zh_male_serious', label: '沉稳男声', voice: 'zh_male_serious' },
+  { id: 'zh_female_vv_uranus_bigtts', label: '通用女声', voice: 'zh_female_vv_uranus_bigtts' },
+  { id: 'zh_male_vv_uranus_bigtts', label: '通用男声', voice: 'zh_male_vv_uranus_bigtts' },
+  { id: 'zh_female_vv_magic_bigtts', label: '温柔女声', voice: 'zh_female_vv_magic_bigtts' },
+  { id: 'zh_female_vv_yuheng_bigtts', label: '甜美女生', voice: 'zh_female_vv_yuheng_bigtts' },
+  { id: 'zh_male_vv_yezhu_bigtts', label: '磁性男声', voice: 'zh_male_vv_yezhu_bigtts' },
+  { id: 'zh_male_vv_shuhao_bigtts', label: '沉稳男声', voice: 'zh_male_vv_shuhao_bigtts' },
 ];
 
 export default function VideoEditPage() {
