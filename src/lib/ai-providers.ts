@@ -187,36 +187,37 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
       console.error(`[Volcano TTS] HTTP ${res.status}:`, errText.substring(0, 500));
       return null;
     }
-    // 火山 TTS V3 返回多行 JSON 流，每行一个 JSON，取最后一行非空行
+    // 火山 TTS V3 返回多行 JSON 流，遍历所有非空行，找到含音频数据的行
     const resText = await res.text();
     const lines = resText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const lastLine = lines[lines.length - 1];
-    if (!lastLine) {
-      console.error('[Volcano TTS] 返回为空, 完整响应:', resText.substring(0, 500));
-      return null;
+    let foundData: string | null = null;
+    let foundSentenceText: string | null = null;
+
+    for (const line of lines) {
+      let parsed: any;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue; // 跳过无法解析的行
+      }
+      if (parsed.code === 0 && parsed.data) {
+        foundData = parsed.data;
+        foundSentenceText = parsed.sentence?.text || null;
+        break; // 找到第一个含音频数据的行即停止
+      }
     }
-    let parsed: any;
-    try {
-      parsed = JSON.parse(lastLine);
-    } catch {
-      console.error('[Volcano TTS] JSON 解析失败, 最后一行:', lastLine.substring(0, 200));
+
+    if (!foundData) {
+      console.error('[Volcano TTS] 所有行均无音频 data, 行数:', lines.length);
       console.error('[Volcano TTS] 完整响应:', resText.substring(0, 500));
       return null;
     }
-    if (parsed.code !== 20000000) {
-      console.error(`[Volcano TTS] 业务错误: code=${parsed.code}, message=${parsed.message}`);
-      console.error('[Volcano TTS] 完整响应:', resText.substring(0, 500));
-      return null;
-    }
-    if (!parsed.data) {
-      console.error('[Volcano TTS] 返回无 data 字段:', JSON.stringify(parsed).substring(0, 200));
-      return null;
-    }
+
     // Base64 解码 data 字段为 mp3 音频
-    const audioBuffer = Buffer.from(parsed.data, 'base64');
+    const audioBuffer = Buffer.from(foundData, 'base64');
     console.log(`[Volcano TTS] 成功, 音频大小: ${audioBuffer.byteLength} bytes`);
-    if (parsed.sentence?.text) {
-      console.log(`[Volcano TTS] sentence.text: ${parsed.sentence.text.substring(0, 80)}`);
+    if (foundSentenceText) {
+      console.log(`[Volcano TTS] sentence.text: ${foundSentenceText.substring(0, 80)}`);
     }
     return audioBuffer.buffer.slice(audioBuffer.byteOffset, audioBuffer.byteOffset + audioBuffer.byteLength) as ArrayBuffer;
   } catch (e) {
