@@ -5,7 +5,8 @@ const API_WHITELIST = [
   '/login',
   '/register',
   '/api/auth/login',
-  '/api/auth/register'
+  '/api/auth/register',
+  '/api/devices/heartbeat'
 ]
 
 function base64UrlDecode(str: string): string {

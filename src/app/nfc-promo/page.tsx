@@ -182,7 +182,7 @@ export default function NFCPromoPage() {
                             <span className="text-2xl">{triggerType?.icon || '📱'}</span>
                             <div>
                               <h3 className="font-semibold text-white font-mono">{template.name}</h3>
-                              <p className="text-xs text-gray-500 font-mono">{template.description}</p>
+                              <p className="text-xs text-gray-500 font-mono truncate">{template.description}</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">

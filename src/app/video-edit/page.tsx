@@ -108,6 +108,8 @@ export default function VideoEditPage() {
   const [targetLanguage, setTargetLanguage] = useState('zh');
   const [ttsScript, setTtsScript] = useState('');        // 配音文案
   const [ttsVoice, setTtsVoice] = useState('zh_female_vv_uranus_bigtts'); // 配音音色
+  // ASR 时间戳结果（segments: {text, start, end, speaker}）
+  const [asrSegments, setAsrSegments] = useState<Array<{text: string; start: number; end: number; speaker: string}>>([]);
 
   // 根据目标语言自动匹配默认音色（仅切换语言时触发）
   useEffect(() => {
@@ -123,6 +125,7 @@ export default function VideoEditPage() {
   const [isTranscribing, setIsTranscribing] = useState(false); // 语音识别中
   const [transcribedVideoUrl, setTranscribedVideoUrl] = useState<string>(''); // 语音识别后返回的视频URL
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false); // 等待用户确认识别文案
+  const [useCloudProcessing, setUseCloudProcessing] = useState(false); // false=本地处理, true=阿里云处理
   
   // 后期处理步骤链状态
   const [stepStates, setStepStates] = useState<Record<PostProcessStepKey, StepState>>({
@@ -402,6 +405,7 @@ export default function VideoEditPage() {
           const postBody: Record<string, unknown> = {
             videoUrl: data.downloadUrl,
             options: postProcessing,
+            useCloud: useCloudProcessing,
           };
           if (postProcessing.enableTTS && ttsScript) {
             postBody.ttsScript = ttsScript;
@@ -410,6 +414,9 @@ export default function VideoEditPage() {
           }
           if (postProcessing.enableTranslateSubtitle && targetLanguage) {
             postBody.subtitleLanguage = targetLanguage;
+          }
+          if (asrSegments.length > 0) {
+            postBody.segments = asrSegments;
           }
           console.log('postBody:', JSON.stringify(postBody));
           const postRes = await fetch('/api/video/post-process', {
@@ -496,6 +503,13 @@ export default function VideoEditPage() {
         script = data.text || '';
         setTranscribedVideoUrl(videoUrl);
         if (script) setTtsScript(script);
+        // 保存 ASR 时间戳
+        if (data.segments && Array.isArray(data.segments) && data.segments.length > 0) {
+          setAsrSegments(data.segments);
+          console.log(`保存 ASR 时间戳: ${data.segments.length} 段`);
+        } else {
+          setAsrSegments([]);
+        }
       }
 
       setProgress(20);
@@ -518,8 +532,13 @@ export default function VideoEditPage() {
   const handleContinuePostProcess = async () => {
     const currentScript = ttsScript || '';
     const currentVideoUrl = transcribedVideoUrl;
-    if (!currentVideoUrl || !currentScript) {
-      setErrorMessage('缺少视频URL或文案，请重新开始');
+    if (!currentVideoUrl) {
+      setErrorMessage('缺少视频URL，请重新开始');
+      return;
+    }
+    // 仅当配音启用时才需要文案
+    if (postProcessing.enableTTS && !currentScript) {
+      setErrorMessage('配音启用但缺少文案，请先进行语音识别或输入文案');
       return;
     }
 
@@ -541,7 +560,7 @@ export default function VideoEditPage() {
         steps.push({ key: 'subtitle', label: '字幕烧录', enabled: true, progressMsg: '📄 正在烧录字幕...', doneMsg: '字幕完成 ✓' });
       }
 
-      // 构造请求体
+      // 构造请求体（字幕独立：即使无文案也可由 FunASR 自行识别）
       const postBody: Record<string, unknown> = {
         videoUrl: currentVideoUrl,
         options: {
@@ -554,11 +573,18 @@ export default function VideoEditPage() {
           enableBackgroundAudio: postProcessing.enableBackgroundAudio,
           enableOriginalSubtitle: postProcessing.enableOriginalSubtitle,
         },
-        ttsScript: currentScript,
         ttsVoice,
+        useCloud: useCloudProcessing,
       };
+      // 仅配音启用时传文案，字幕可独立用 FunASR 自行识别
+      if (postProcessing.enableTTS && currentScript) {
+        postBody.ttsScript = currentScript;
+      }
       if (voiceAssignments.length > 0) postBody.voiceAssignments = voiceAssignments;
       if (targetLanguage) postBody.subtitleLanguage = targetLanguage;
+      if (asrSegments.length > 0) {
+        postBody.segments = asrSegments;
+      }
 
       // 将所有启用的步骤标记为 active（正在处理中），让用户看到完整处理链
       setStepStates(prev => {
@@ -660,6 +686,14 @@ export default function VideoEditPage() {
         // 3秒后清除成功提示
         setTimeout(() => setSuccessMessage(''), 3000);
         
+        // 保存 ASR 时间戳（segments）
+        if (data.segments && Array.isArray(data.segments) && data.segments.length > 0) {
+          setAsrSegments(data.segments);
+          console.log(`保存 ASR 时间戳: ${data.segments.length} 段`);
+        } else {
+          setAsrSegments([]);
+        }
+        
         // 保存视频URL（供后续后期处理使用）
         if (data.videoUrl) {
           setTranscribedVideoUrl(data.videoUrl);
@@ -675,8 +709,9 @@ export default function VideoEditPage() {
         setStepStates(prev => ({ ...prev, translate: { ...prev.translate, status: 'active' } }));
         
         // 如果启用了说话人分离，处理分离结果
-        if (postProcessing.enableSpeakerDiarization && data.speakers) {
-          const speakers = data.speakers;
+        const speakerList = data.speaker_labels || data.speakers || [];
+        if (postProcessing.enableSpeakerDiarization && speakerList.length > 0) {
+          const speakers = speakerList;
           const assignments: VoiceAssignment[] = speakers.map((speaker: string, idx: number) => ({
             speakerId: speaker,
             voice: voicePresets[idx % voicePresets.length].voice,
@@ -797,13 +832,28 @@ export default function VideoEditPage() {
   // 渲染后期处理选项（仅后期处理模式使用）
   const renderPostProcessingOptions = () => (
     <div className="border-t border-white/10 pt-6">
-      <h3 className="text-label mb-4 flex items-center gap-2">
+        <h3 className="text-label mb-4 flex items-center gap-2">
         <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
         后期处理选项
       </h3>
+
+      {/* 本地/云端切换 */}
+      <div className="mb-4 p-4 bg-white/5 rounded-xl border border-white/10 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <span className="text-white text-sm font-medium whitespace-nowrap"><span>处理引擎</span><span className="text-xs opacity-50 ml-1">/ ENGINE</span></span>
+          <p className="text-gray-500 text-xs mt-0.5 truncate">{useCloudProcessing ? '阿里云 / CLOUD' : '本地 / LOCAL'}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setUseCloudProcessing(!useCloudProcessing)}
+          className={`relative w-14 h-7 rounded-full transition-colors shrink-0 ${useCloudProcessing ? 'bg-emerald-500' : 'bg-gray-600'}`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${useCloudProcessing ? 'translate-x-7' : ''}`} />
+        </button>
+      </div>
 
       {/* 功能开关 */}
       <div className="mb-4">
@@ -1087,14 +1137,19 @@ export default function VideoEditPage() {
             <p className="text-label mb-2">{t.videoEdit.workspace.toUpperCase()}</p>
             <h1 className="text-mono-lg text-white">{t.videoEdit.title}</h1>
           </div>
-          {user && (
-            <button
-              onClick={() => setShowHistory(!showHistory)}
-              className="px-4 py-2 text-sm bg-white/5 border border-white/10 text-gray-300 rounded-lg hover:bg-white/10"
-            >
-              {showHistory ? t.videoEdit.backToGenerator : t.videoEdit.viewHistory}
-            </button>
-          )}
+          <div className="flex gap-2">
+            {user && (
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="px-4 py-2 text-sm bg-white/5 border border-white/10 text-gray-300 rounded-lg hover:bg-white/10"
+              >
+                {showHistory ? t.videoEdit.backToGenerator : t.videoEdit.viewHistory}
+              </button>
+            )}
+            <a href="/image-generator" className="px-4 py-2 text-sm bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-500/30 inline-block">
+              🖼️ 生成封面
+            </a>
+          </div>
         </div>
 
         {errorMessage && (
@@ -1216,43 +1271,61 @@ export default function VideoEditPage() {
                           <p className="text-sm text-amber-300 mb-2">📝 请确认识别文案是否正确，可编辑修改后继续</p>
                           {ttsScript && (
                             <>
-                              {/* 按时间戳列表显示识别文字 */}
-                              <div className="mb-3 max-h-60 overflow-y-auto space-y-1 pr-1">
+                              {/* 每个时间戳行可直接编辑 */}
+                              <div className="mb-2 max-h-80 overflow-y-auto space-y-2 pr-1">
                                 {(() => {
-                                  const lang = targetLanguage || 'zh'
-                                  const delimiter = lang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/
-                                  const sentences = ttsScript.split(delimiter).filter(s => s.trim()).map(s => s.trim())
-                                  const totalChars = sentences.reduce((sum, s) => sum + s.length, 0)
-                                  const gap = 0.15
-                                  const totalGap = gap * Math.max(0, sentences.length - 1)
-                                  const availableDur = Math.max(1, 30 - totalGap) // 默认估算30秒
-                                  let currentTime = 0
-                                  return sentences.map((sentence, idx) => {
-                                    const proportion = sentence.length / Math.max(1, totalChars)
-                                    const dur = Math.max(1, availableDur * proportion)
-                                    const start = currentTime
-                                    currentTime += dur + gap
-                                    const fmtTime = (s: number) => {
-                                      const m = Math.floor(s / 60)
-                                      const sec = Math.floor(s % 60)
-                                      return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
-                                    }
-                                    return (
-                                      <div key={idx} className="flex items-start gap-2 py-1.5 px-2 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
-                                        <span className="text-xs text-amber-400 font-mono whitespace-nowrap mt-0.5 min-w-[52px]">{fmtTime(start)}</span>
-                                        <span className="text-sm text-gray-300">{sentence}</span>
-                                      </div>
-                                    )
-                                  })
+                                  const segments = asrSegments.length > 0 ? asrSegments : null
+                                  const fmtTime = (s: number) => {
+                                    const m = Math.floor(s / 60)
+                                    const sec = Math.floor(s % 60)
+                                    return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
+                                  }
+                                  if (segments) {
+                                    return segments.map((seg, idx) => {
+                                      // 实时取当前可编辑的文本
+                                      const segValue = asrSegments[idx]?.text || ''
+                                      return (
+                                        <div key={idx} className="flex items-start gap-2 p-1.5 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
+                                          <span className="text-xs text-amber-400 font-mono whitespace-nowrap mt-1.5 min-w-[100px]">
+                                            {fmtTime(seg.start)} → {fmtTime(seg.end)}
+                                          </span>
+                                          {seg.speaker && (
+                                            <span className="text-xs text-gray-500 font-mono mt-1.5 min-w-[70px]">[{seg.speaker}]</span>
+                                          )}
+                                          <input
+                                            type="text"
+                                            value={segValue}
+                                            onChange={(e) => {
+                                              const newVal = e.target.value
+                                              setAsrSegments(prev => {
+                                                const updated = prev.map((s, i) =>
+                                                  i === idx ? { ...s, text: newVal } : s
+                                                )
+                                                // 修改任意段后自动拼接到 ttsScript
+                                                const combined = updated.map(s => s.text).join('')
+                                                setTtsScript(combined)
+                                                return updated
+                                              })
+                                            }}
+                                            className="flex-1 bg-transparent border-b border-transparent hover:border-amber-500/30 focus:border-amber-500/50 focus:outline-none text-sm text-gray-200 px-1 py-1 transition-colors"
+                                            placeholder="编辑此段..."
+                                          />
+                                        </div>
+                                      )
+                                    })
+                                  }
+                                  // 降级：无声时间戳时显示完整文本
+                                  return (
+                                    <textarea
+                                      value={ttsScript}
+                                      onChange={(e) => setTtsScript(e.target.value)}
+                                      rows={5}
+                                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-amber-500/50 resize-y"
+                                      placeholder="编辑文案..."
+                                    />
+                                  )
                                 })()}
                               </div>
-                              <textarea
-                                value={ttsScript}
-                                onChange={(e) => setTtsScript(e.target.value)}
-                                rows={5}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-amber-500/50 resize-y"
-                                placeholder="编辑文案..."
-                              />
                             </>
                           )}
                           <div className="flex gap-3">

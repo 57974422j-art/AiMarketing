@@ -2,7 +2,13 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
-export type UsageAction = '文案生成' | '视频剪辑' | 'AI对话' | '意向采集'
+export const UsageActions = {
+  COPY: '文案生成',
+  VIDEO: '视频剪辑',
+  AI_CHAT: 'AI对话',
+  LEAD: '意向采集',
+} as const
+export type UsageAction = typeof UsageActions[keyof typeof UsageActions]
 
 export interface QuotaResult {
   allowed: boolean
@@ -89,12 +95,7 @@ export async function incrementUsage(userId: number, action: UsageAction, count:
         }
       })
       
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          usedThisMonth: { increment: count }
-        }
-      })
+      // usedThisMonth 字段已移除，配额通过 UsageLog 实时计算
     })
   } catch (error) {
     console.error('Increment usage error:', error)

@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/app/providers'
+import { showToast } from '@/components/Toast'
 
 interface CopyTemplateItem {
   id: number
@@ -31,7 +32,7 @@ export default function AdminReviewPage() {
 
   const loadPendingTemplates = async () => {
     try {
-      const res = await fetch('/api/templates?status=pending', { credentials: 'include' })
+      const res = await fetch('/api/templates?type=copy&status=pending', { credentials: 'include' })
       if (res.ok) {
         const data = await res.json()
         setPendingTemplates(data)
@@ -55,14 +56,14 @@ export default function AdminReviewPage() {
       
       if (res.ok) {
         setPendingTemplates(pendingTemplates.filter(t => t.id !== id))
-        alert('已通过审核')
+        showToast('已通过审核')
       } else {
         const data = await res.json()
-        alert(data.message || '操作失败')
+        showToast(data.message || '操作失败', 'error')
       }
     } catch (error) {
       console.error('审核失败:', error)
-      alert('操作失败')
+      showToast('操作失败', 'error')
     } finally {
       setProcessing(null)
     }
@@ -82,14 +83,14 @@ export default function AdminReviewPage() {
       
       if (res.ok) {
         setPendingTemplates(pendingTemplates.filter(t => t.id !== id))
-        alert('已拒绝')
+        showToast('已拒绝')
       } else {
         const data = await res.json()
-        alert(data.message || '操作失败')
+        showToast(data.message || '操作失败', 'error')
       }
     } catch (error) {
       console.error('审核失败:', error)
-      alert('操作失败')
+      showToast('操作失败', 'error')
     } finally {
       setProcessing(null)
     }

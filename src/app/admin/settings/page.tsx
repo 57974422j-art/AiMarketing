@@ -6,13 +6,28 @@ export default function SettingsPage() {
   const [deepseekKey, setDeepseekKey] = useState('');
   const [volcanoKey, setVolcanoKey] = useState('');
   const [siliconflowKey, setSiliconflowKey] = useState('');
+  const [dashscopeKey, setDashscopeKey] = useState('');
   const [showDeepseekKey, setShowDeepseekKey] = useState(false);
   const [showVolcanoKey, setShowVolcanoKey] = useState(false);
   const [showSiliconflowKey, setShowSiliconflowKey] = useState(false);
+  const [showDashscopeKey, setShowDashscopeKey] = useState(false);
   const [testingDeepseek, setTestingDeepseek] = useState(false);
   const [testingVolcano, setTestingVolcano] = useState(false);
   const [testingSiliconflow, setTestingSiliconflow] = useState(false);
+  const [testingDashscope, setTestingDashscope] = useState(false);
   const [testResult, setTestResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // 各服务连接状态：null=未配置, 'config'=已配置待测试, 'ok'=连接成功, 'fail'=连接失败
+  const [statusMap, setStatusMap] = useState<Record<string, string | null>>({})
+
+  function StatusDot({ name }: { name: string }) {
+    const s = statusMap[name]
+    if (!s) return <span className="inline-flex items-center gap-1 text-xs text-gray-500 ml-2 px-2 py-0.5 rounded-full bg-white/5"><span className="w-1.5 h-1.5 rounded-full bg-gray-500" /><span>未配置</span><span className="text-[10px] opacity-50 ml-1">/ OFF</span></span>
+    if (s === 'config') return <span className="inline-flex items-center gap-1 text-xs text-yellow-400 ml-2 px-2 py-0.5 rounded-full bg-yellow-500/10"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400" /><span>待测试</span><span className="text-[10px] opacity-50 ml-1">/ PENDING</span></span>
+    if (s === 'ok') return <span className="inline-flex items-center gap-1 text-xs text-emerald-400 ml-2 px-2 py-0.5 rounded-full bg-emerald-500/10"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /><span>已连接</span><span className="text-[10px] opacity-50 ml-1">/ OK</span></span>
+    if (s === 'fail') return <span className="inline-flex items-center gap-1 text-xs text-red-400 ml-2 px-2 py-0.5 rounded-full bg-red-500/10"><span className="w-1.5 h-1.5 rounded-full bg-red-400" /><span>连接失败</span><span className="text-[10px] opacity-50 ml-1">/ FAIL</span></span>
+    return null
+  }
 
   // OSS 配置状态
   const [ossRegion, setOssRegion] = useState('');
@@ -22,14 +37,6 @@ export default function SettingsPage() {
   const [showOssSecret, setShowOssSecret] = useState(false);
   const [testingOSS, setTestingOSS] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  // TTS 配置状态
-  const [ttsAppId, setTtsAppId] = useState('');
-  const [showTtsAppId, setShowTtsAppId] = useState(false);
-  const [ttsAccessKey, setTtsAccessKey] = useState('');
-  const [showTtsAccessKey, setShowTtsAccessKey] = useState(false);
-  const [ttsResourceId, setTtsResourceId] = useState('');
-  const [showTtsResourceId, setShowTtsResourceId] = useState(false);
 
   useEffect(() => {
     loadApiKeyStatus();
@@ -41,14 +48,21 @@ export default function SettingsPage() {
       const response = await fetch('/api/admin/config', { credentials: 'include' });
       const result = await response.json();
       if (result.success) {
-        setDeepseekKey(result.data.deepseekConfigured ? '********' : '');
-        setVolcanoKey(result.data.volcanoConfigured ? '********' : '');
-        setSiliconflowKey(result.data.siliconflowConfigured ? '********' : '');
-        setOssRegion(result.data.ossConfigured ? '********' : '');
-        setOssBucket(result.data.ossConfigured ? '********' : '');
-        setTtsAppId(result.data.ttsAppIdConfigured ? '********' : '');
-        setTtsAccessKey(result.data.ttsAccessKeyConfigured ? '********' : '');
-        setTtsResourceId(result.data.ttsResourceIdConfigured ? '********' : '');
+        const d = result.data
+        setDeepseekKey(d.deepseekConfigured ? '********' : '');
+        setVolcanoKey(d.volcanoConfigured ? '********' : '');
+        setSiliconflowKey(d.siliconflowConfigured ? '********' : '');
+        setDashscopeKey(d.dashscopeConfigured ? '********' : '');
+        setOssRegion(d.ossConfigured ? '********' : '');
+        setOssBucket(d.ossConfigured ? '********' : '');
+        // 更新状态灯（保留已测试通过的状态）
+        setStatusMap(prev => ({
+          deepseek: prev.deepseek === 'ok' && d.deepseekConfigured ? 'ok' : d.deepseekConfigured ? 'config' : null,
+          siliconflow: prev.siliconflow === 'ok' && d.siliconflowConfigured ? 'ok' : d.siliconflowConfigured ? 'config' : null,
+          dashscope: prev.dashscope === 'ok' && d.dashscopeConfigured ? 'ok' : d.dashscopeConfigured ? 'config' : null,
+          volcano: prev.volcano === 'ok' && d.volcanoConfigured ? 'ok' : d.volcanoConfigured ? 'config' : null,
+          oss: prev.oss === 'ok' && d.ossConfigured ? 'ok' : d.ossConfigured ? 'config' : null,
+        }))
       }
     } catch (error) {
       console.error('加载配置状态失败:', error);
@@ -68,136 +82,117 @@ export default function SettingsPage() {
     }
   };
 
-  // 测试 DeepSeek API Key
-  const testDeepseekKey = async () => {
-    if (!deepseekKey || deepseekKey === '********') {
-      setTestResult({ type: 'error', message: '请输入有效的 DeepSeek API Key' });
-      return;
+  // 通用：保存单个 Key 到服务器（用 setStatusKey 匹配配置路由的字段名）
+  const saveSingleKey = async (statusKey: string, key: string): Promise<boolean> => {
+    try {
+      const body: Record<string, unknown> = {}
+      body[`${statusKey}Key`] = key
+      const r = await fetch('/api/admin/config', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const d = await r.json()
+      return d.success
+    } catch { return false }
+  }
+
+  // 通用：测试并保存 Key
+  const testAndSave = async (provider: string, key: string, setTesting: (v: boolean) => void, setStatusKey: string) => {
+    if (!key) { setTestResult({ type: 'error', message: `请输入 ${provider} API Key` }); return }
+    if (key === '********') {
+      setTestResult({ type: 'error', message: 'Key 已配置，如需重测请先修改 Key 值' })
+      return
     }
 
-    setTestingDeepseek(true);
-    setTestResult(null);
+    setTesting(true)
+    setTestResult(null)
 
     try {
+      // 先保存到服务器
+      const saved = await saveSingleKey(setStatusKey, key)
+      if (!saved) { setTestResult({ type: 'error', message: '保存失败' }); setTesting(false); return }
+
+      // 再测试
       const response = await fetch('/api/admin/test-key', {
-        method: 'POST',
-        credentials: 'include',
+        method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: 'deepseek', key: deepseekKey })
-      });
+        body: JSON.stringify({ provider: setStatusKey, key }),
+      })
+      const result = await response.json()
+      setTestResult({ type: result.valid ? 'success' : 'error', message: result.message })
+      setStatusMap(prev => ({ ...prev, [setStatusKey]: result.valid ? 'ok' : 'fail' }))
+    } catch {
+      setTestResult({ type: 'error', message: '测试请求失败' })
+      setStatusMap(prev => ({ ...prev, [setStatusKey]: 'fail' }))
+    } finally { setTesting(false) }
+  }
 
-      const result = await response.json();
-      setTestResult({
-        type: result.valid ? 'success' : 'error',
-        message: result.message
-      });
-    } catch (error) {
-      setTestResult({ type: 'error', message: '测试请求失败' });
-    } finally {
-      setTestingDeepseek(false);
-    }
-  };
+  // 各个测试函数
+  const testDeepseekKey = () => testAndSave('DeepSeek', deepseekKey, setTestingDeepseek, 'deepseek')
+  const testVolcanoKey = () => testAndSave('Volcano', volcanoKey, setTestingVolcano, 'volcano')
+  const testDashscopeKey = () => testAndSave('DashScope', dashscopeKey, setTestingDashscope, 'dashscope')
 
-  // 测试火山方舟 API Key
-  const testVolcanoKey = async () => {
-    if (!volcanoKey || volcanoKey === '********') {
-      setTestResult({ type: 'error', message: '请输入有效的火山方舟 API Key' });
-      return;
-    }
-
-    setTestingVolcano(true);
-    setTestResult(null);
-
-    try {
-      const response = await fetch('/api/admin/test-key', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: 'volcano', key: volcanoKey })
-      });
-
-      const result = await response.json();
-      setTestResult({
-        type: result.valid ? 'success' : 'error',
-        message: result.message
-      });
-    } catch (error) {
-      setTestResult({ type: 'error', message: '测试请求失败' });
-    } finally {
-      setTestingVolcano(false);
-    }
-  };
-
-  // 测试硅基流动 API Key
   const testSiliconflowKey = async () => {
-    if (!siliconflowKey || siliconflowKey === '********') {
-      setTestResult({ type: 'error', message: '请输入有效的硅基流动 API Key' });
-      return;
-    }
+    if (!siliconflowKey) { setTestResult({ type: 'error', message: '请输入硅基流动 API Key' }); return }
+    if (siliconflowKey === '********') { setTestResult({ type: 'error', message: 'Key 已配置，如需重测请先修改 Key 值' }); return }
 
-    setTestingSiliconflow(true);
-    setTestResult(null);
+    setTestingSiliconflow(true)
+    setTestResult(null)
 
     try {
-      const response = await fetch('https://api.siliconflow.cn/v1/models', {
-        headers: {
-          'Authorization': `Bearer ${siliconflowKey}`
-        }
-      });
+      const saved = await saveSingleKey('siliconflow', siliconflowKey)
+      if (!saved) { setTestResult({ type: 'error', message: '保存失败' }); setTestingSiliconflow(false); return }
 
+      const response = await fetch('https://api.siliconflow.cn/v1/models', {
+        headers: { 'Authorization': `Bearer ${siliconflowKey}` }
+      })
       if (response.ok) {
-        setTestResult({
-          type: 'success',
-          message: '硅基流动 API Key 有效'
-        });
+        setTestResult({ type: 'success', message: '硅基流动 API Key 有效' })
+        setStatusMap(prev => ({ ...prev, siliconflow: 'ok' }))
       } else {
-        const errorData = await response.json().catch(() => ({}));
-        setTestResult({
-          type: 'error',
-          message: errorData.error?.message || 'API Key 无效'
-        });
+        const errorData = await response.json().catch(() => ({}))
+        setTestResult({ type: 'error', message: errorData.error?.message || 'API Key 无效' })
+        setStatusMap(prev => ({ ...prev, siliconflow: 'fail' }))
       }
-    } catch (error) {
-      setTestResult({ type: 'error', message: '测试请求失败' });
-    } finally {
-      setTestingSiliconflow(false);
-    }
-  };
+    } catch {
+      setTestResult({ type: 'error', message: '测试请求失败' })
+      setStatusMap(prev => ({ ...prev, siliconflow: 'fail' }))
+    } finally { setTestingSiliconflow(false) }
+  }
 
   // 测试 OSS 配置
   const testOSSConnection = async () => {
     if (!ossRegion || !ossAccessKeyId || !ossAccessKeySecret || !ossBucket) {
-      setTestResult({ type: 'error', message: '请填写完整的 OSS 配置' });
-      return;
+      setTestResult({ type: 'error', message: '请填写完整的 OSS 配置' })
+      return
     }
 
-    setTestingOSS(true);
-    setTestResult(null);
+    setTestingOSS(true)
+    setTestResult(null)
 
     try {
-      const response = await fetch('/api/admin/test-key', {
-        method: 'POST',
-        credentials: 'include',
+      const saveBody = { ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket }
+      const sr = await fetch('/api/admin/config', {
+        method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: 'oss',
-          region: ossRegion,
-          accessKeyId: ossAccessKeyId,
-          accessKeySecret: ossAccessKeySecret,
-          bucket: ossBucket
-        })
-      });
+        body: JSON.stringify(saveBody),
+      })
+      const sd = await sr.json()
+      if (!sd.success) { setTestResult({ type: 'error', message: 'OSS 保存失败' }); setTestingOSS(false); return }
 
-      const result = await response.json();
-      setTestResult({
-        type: result.valid ? 'success' : 'error',
-        message: result.message
-      });
-    } catch (error) {
-      setTestResult({ type: 'error', message: '测试请求失败' });
-    } finally {
-      setTestingOSS(false);
-    }
+      const response = await fetch('/api/admin/test-key', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'oss', region: ossRegion, accessKeyId: ossAccessKeyId, accessKeySecret: ossAccessKeySecret, bucket: ossBucket })
+      })
+      const result = await response.json()
+      setTestResult({ type: result.valid ? 'success' : 'error', message: result.message })
+      setStatusMap(prev => ({ ...prev, oss: result.valid ? 'ok' : 'fail' }))
+    } catch {
+      setTestResult({ type: 'error', message: '测试请求失败' })
+      setStatusMap(prev => ({ ...prev, oss: 'fail' }))
+    } finally { setTestingOSS(false) }
   };
 
   // 保存所有配置
@@ -206,11 +201,9 @@ export default function SettingsPage() {
       const actualDeepseekKey = deepseekKey === '********' ? undefined : deepseekKey;
       const actualVolcanoKey = volcanoKey === '********' ? undefined : volcanoKey;
       const actualSiliconflowKey = siliconflowKey === '********' ? undefined : siliconflowKey;
+      const actualDashscopeKey = dashscopeKey === '********' ? undefined : dashscopeKey;
       const actualOssAccessKeyId = ossAccessKeyId === '********' ? undefined : ossAccessKeyId;
       const actualOssAccessKeySecret = ossAccessKeySecret === '********' ? undefined : ossAccessKeySecret;
-      const actualTtsAppId = ttsAppId === '********' ? undefined : ttsAppId;
-      const actualTtsAccessKey = ttsAccessKey === '********' ? undefined : ttsAccessKey;
-      const actualTtsResourceId = ttsResourceId === '********' ? undefined : ttsResourceId;
 
       const response = await fetch('/api/admin/config', {
         method: 'POST',
@@ -220,24 +213,22 @@ export default function SettingsPage() {
           deepseekKey: actualDeepseekKey || undefined,
           volcanoKey: actualVolcanoKey || undefined,
           siliconflowKey: actualSiliconflowKey || undefined,
+          dashscopeKey: actualDashscopeKey || undefined,
           ossRegion: ossRegion || undefined,
           ossAccessKeyId: actualOssAccessKeyId || undefined,
           ossAccessKeySecret: actualOssAccessKeySecret || undefined,
           ossBucket: ossBucket || undefined,
-          ttsAppId: actualTtsAppId || undefined,
-          ttsAccessKey: actualTtsAccessKey || undefined,
-          ttsResourceId: actualTtsResourceId || undefined
         })
       });
 
-      const result = await response.json();
+      const configResult = await response.json();
 
-      if (result.success) {
+      if (configResult.success) {
         setSaveMessage({ type: 'success', text: '✅ 配置已保存，服务重启中' });
         await loadApiKeyStatus();
         await loadOSSStatus();
       } else {
-        setSaveMessage({ type: 'error', text: `❌ 保存失败：${result.message}` });
+        setSaveMessage({ type: 'error', text: `❌ 保存失败：${configResult.message}` });
       }
     } catch (error) {
       setSaveMessage({ type: 'error', text: '❌ 保存失败：网络错误' });
@@ -291,6 +282,7 @@ export default function SettingsPage() {
                 <label className="block text-label mb-2">
                   <span>DeepSeek API Key</span>
                   <span className="opacity-50 ml-1">DEEPSEEK</span>
+                  <StatusDot name="deepseek" />
                 </label>
                 <div className="flex gap-3">
                   <div className="flex-1 relative">
@@ -321,14 +313,14 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={testDeepseekKey}
-                    disabled={testingDeepseek || !deepseekKey || deepseekKey === '********'}
+                    disabled={testingDeepseek}
                     className="px-4 py-3 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-xl hover:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-sm whitespace-nowrap"
                   >
-                    {testingDeepseek ? '测试中...' : '测试连接'}
+                    {testingDeepseek ? <><span>测试中</span><span className="text-[10px] opacity-50 ml-1">/ TESTING</span></> : <><span>测试</span><span className="text-[10px] opacity-50 ml-1">/ TEST</span></>}
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-2 font-mono">
-                  DeepSeek API Key，用于 AI 文案生成等功能
+                  <span>DeepSeek，AI 文案生成</span><span className="text-[10px] opacity-50 ml-1">/ AI COPY GENERATION</span>
                 </p>
               </div>
 
@@ -337,6 +329,7 @@ export default function SettingsPage() {
                 <label className="block text-label mb-2">
                   <span>硅基流动 API Key</span>
                   <span className="opacity-50 ml-1">SILICONFLOW</span>
+                  <StatusDot name="siliconflow" />
                 </label>
                 <div className="flex gap-3">
                   <div className="flex-1 relative">
@@ -367,15 +360,63 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={testSiliconflowKey}
-                    disabled={testingSiliconflow || !siliconflowKey || siliconflowKey === '********'}
+                    disabled={testingSiliconflow}
                     className="px-4 py-3 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-xl hover:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-sm whitespace-nowrap"
                   >
-                    {testingSiliconflow ? '测试中...' : '测试连接'}
+                    {testingSiliconflow ? <><span>测试中</span><span className="text-[10px] opacity-50 ml-1">/ TESTING</span></> : <><span>测试</span><span className="text-[10px] opacity-50 ml-1">/ TEST</span></>}
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-2 font-mono">
-                  硅基流动 API Key，用于语音识别（Whisper/SenseVoice）等功能
+                  <span>硅基流动，语音识别/文生图</span><span className="text-[10px] opacity-50 ml-1">/ ASR & IMAGE</span>
                 </p>
+              </div>
+
+              {/* 阿里云百炼 API Key */}
+              <div className="mt-6 pt-6 border-t border-white/10">
+                <h4 className="text-label mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  </svg>
+                  阿里云百炼（DashScope）配置
+                </h4>
+                <p className="text-sm text-gray-500 mb-4 font-mono">
+                  用于语音识别（Paraformer 文件转写），需先在百炼控制台开通 Paraformer 模型
+                </p>
+
+                <div>
+                  <label className="block text-label mb-2">
+                    <span>API Key</span>
+                    <span className="opacity-50 ml-1">DASHSCOPE_API_KEY</span>
+                    <StatusDot name="dashscope" />
+                  </label>
+                  <div className="flex gap-3">
+                    <div className="flex-1 relative">
+                      <input
+                        type={showDashscopeKey ? 'text' : 'password'}
+                        value={dashscopeKey}
+                        onChange={(e) => setDashscopeKey(e.target.value)}
+                        placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-20"
+                      />
+                      <button type="button" onClick={() => setShowDashscopeKey(!showDashscopeKey)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                        {showDashscopeKey ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                        )}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={testDashscopeKey}
+                      disabled={testingDashscope}
+                      className="px-4 py-3 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-xl hover:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-sm whitespace-nowrap"
+                    >
+                      {testingDashscope ? <><span>测试中</span><span className="text-[10px] opacity-50 ml-1">/ TESTING</span></> : <><span>测试</span><span className="text-[10px] opacity-50 ml-1">/ TEST</span></>}
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* 火山方舟 API Key */}
@@ -383,6 +424,7 @@ export default function SettingsPage() {
                 <label className="block text-label mb-2">
                   <span>火山方舟 API Key</span>
                   <span className="opacity-50 ml-1">VOLCANO</span>
+                  <StatusDot name="volcano" />
                 </label>
                 <div className="flex gap-3">
                   <div className="flex-1 relative">
@@ -413,125 +455,17 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={testVolcanoKey}
-                    disabled={testingVolcano || !volcanoKey || volcanoKey === '********'}
+                    disabled={testingVolcano}
                     className="px-4 py-3 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-xl hover:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-sm whitespace-nowrap"
                   >
-                    {testingVolcano ? '测试中...' : '测试连接'}
+                    {testingVolcano ? <><span>测试中</span><span className="text-[10px] opacity-50 ml-1">/ TESTING</span></> : <><span>测试</span><span className="text-[10px] opacity-50 ml-1">/ TEST</span></>}
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-2 font-mono">
-                  火山方舟 API Key，用于文案生成、翻译、配音等功能
+                  <span>火山方舟，文案/翻译/配音</span><span className="text-[10px] opacity-50 ml-1">/ TEXT & TTS</span>
                 </p>
               </div>
 
-              {/* 火山方舟 TTS 配置 */}
-              <div className="mt-6 pt-6 border-t border-white/10">
-                <h4 className="text-label mb-4 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                  </svg>
-                  火山方舟 TTS 配置
-                </h4>
-
-                {/* TTS App ID */}
-                <div className="mb-3">
-                  <label className="block text-label mb-2">
-                    <span>App ID</span>
-                    <span className="opacity-50 ml-1">VOLCANO_TTS_APP_ID</span>
-                  </label>
-                  <div className="flex gap-3">
-                    <div className="flex-1 relative">
-                      <input
-                        type={showTtsAppId ? 'text' : 'password'}
-                        value={ttsAppId}
-                        onChange={(e) => setTtsAppId(e.target.value)}
-                        placeholder="4878062339"
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-20"
-                      />
-                      <button type="button" onClick={() => setShowTtsAppId(!showTtsAppId)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
-                        {showTtsAppId ? (
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                          </svg>
-                        ) : (
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* TTS Access Key */}
-                <div className="mb-3">
-                  <label className="block text-label mb-2">
-                    <span>Access Key</span>
-                    <span className="opacity-50 ml-1">VOLCANO_TTS_ACCESS_KEY</span>
-                  </label>
-                  <div className="flex gap-3">
-                    <div className="flex-1 relative">
-                      <input
-                        type={showTtsAccessKey ? 'text' : 'password'}
-                        value={ttsAccessKey}
-                        onChange={(e) => setTtsAccessKey(e.target.value)}
-                        placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-20"
-                      />
-                      <button type="button" onClick={() => setShowTtsAccessKey(!showTtsAccessKey)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
-                        {showTtsAccessKey ? (
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                          </svg>
-                        ) : (
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* TTS Resource ID */}
-                <div className="mb-3">
-                  <label className="block text-label mb-2">
-                    <span>Resource ID</span>
-                    <span className="opacity-50 ml-1">VOLCANO_TTS_RESOURCE_ID</span>
-                  </label>
-                  <div className="flex gap-3">
-                    <div className="flex-1 relative">
-                      <input
-                        type={showTtsResourceId ? 'text' : 'password'}
-                        value={ttsResourceId}
-                        onChange={(e) => setTtsResourceId(e.target.value)}
-                        placeholder="seed-tts-2.0"
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-20"
-                      />
-                      <button type="button" onClick={() => setShowTtsResourceId(!showTtsResourceId)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
-                        {showTtsResourceId ? (
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                          </svg>
-                        ) : (
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500 mt-2 font-mono">
-                  火山方舟 TTS 配置，用于视频配音功能。需要在火山引擎控制台开通语音合成服务。
-                </p>
-              </div>
             </div>
           </div>
         </div>
@@ -541,7 +475,7 @@ export default function SettingsPage() {
           <div className="p-6">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="font-medium text-white font-mono">阿里云 OSS 配置</h3>
+                <h3 className="font-medium text-white font-mono">阿里云 OSS 配置 <StatusDot name="oss" /></h3>
                 <p className="text-sm text-gray-500 mt-1">配置 OSS 用于文件存储（可选）</p>
               </div>
             </div>
@@ -621,7 +555,7 @@ export default function SettingsPage() {
                 disabled={testingOSS}
                 className="px-4 py-3 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-xl hover:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-sm"
               >
-                {testingOSS ? '测试中...' : '测试连接'}
+                {testingOSS ? <><span>测试中</span><span className="text-[10px] opacity-50 ml-1">/ TESTING</span></> : <><span>测试连接</span><span className="text-[10px] opacity-50 ml-1">/ TEST</span></>}
               </button>
             </div>
           </div>
@@ -633,7 +567,7 @@ export default function SettingsPage() {
             onClick={saveAllSettings}
             className="px-6 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-colors font-mono"
           >
-            保存所有配置
+            <span>保存配置</span><span className="text-xs opacity-50 ml-1">/ SAVE</span>
           </button>
         </div>
       </div>

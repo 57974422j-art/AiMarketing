@@ -97,9 +97,11 @@ export default function Navbar() {
             <Link href="/ai-copy" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
               {t.nav.aiCopy}
             </Link>
-            <Link href="/accounts" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
-              {t.nav.accounts}
-            </Link>
+            {user?.role !== 'end-user' && (
+              <Link href="/accounts" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
+                {t.nav.accounts}
+              </Link>
+            )}
 
             <div className="relative"
               onMouseEnter={() => setShowVideoMenu(true)}
@@ -154,28 +156,78 @@ export default function Navbar() {
             <Link href="/dashboard" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
               {t.nav.dashboard}
             </Link>
-            {user?.role === 'admin' && (
+            <Link href="/image-generator" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
+              AI 生图
+            </Link>
+            {(user?.role === 'admin' || user?.role === 'editor') && (
               <div className="relative"
                 onMouseEnter={() => setShowAdminMenu(true)}
                 onMouseLeave={() => setShowAdminMenu(false)}
               >
                 <button className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm flex items-center gap-1">
-                  管理员
+                  管理中心
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 {showAdminMenu && (
-                  <div className="absolute top-full left-0 mt-1 w-48 bg-gray-900/95 backdrop-blur-md border border-white/10 rounded-xl shadow-xl py-2 z-50">
-                    <Link href="/admin/review" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
-                      审核管理
+                  <div className="absolute top-full left-0 mt-1 w-52 bg-gray-900/95 backdrop-blur-md border border-white/10 rounded-xl shadow-xl py-2 z-50">
+                    {user?.role === 'admin' && (
+                      <Link href="/admin/" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm font-bold border-b border-white/10">
+                        📊 管理后台首页
+                      </Link>
+                    )}
+                    <Link href="/admin/devices" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      🖥️ 设备管理
                     </Link>
-                    <Link href="/admin/api-keys" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
-                      API 管理
+                    <Link href="/admin/social-accounts" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      🔗 社交账号
                     </Link>
-                    <Link href="/admin/settings" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
-                      设置
+                    <Link href="/admin/content-submissions" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      📋 素材审核
                     </Link>
+                    <Link href="/admin/automation" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      ⚡ 任务中心
+                    </Link>
+                    <Link href="/admin/poi-addresses" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      📍 POI 地址
+                    </Link>
+                    <Link href="/admin/script-templates" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      💬 话术模板
+                    </Link>
+                    <Link href="/admin/account-groups" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      📁 账号分组
+                    </Link>
+                    <div className="border-t border-white/10 my-1"></div>
+                        <Link href="/admin/invite-codes" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                          🔑 邀请码管理
+                        </Link>
+                        <Link href="/admin/dashboard" className="block px-4 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 text-sm font-bold">
+                          📊 数据看板
+                        </Link>
+                    <Link href="/admin/media-library" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      🎬 素材库
+                    </Link>
+                    <Link href="/admin/automation-templates" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      📋 任务模板
+                    </Link>
+                    <Link href="/admin/prompt-templates" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                      🖼️ 提示词模板
+                    </Link>
+                    {user?.role === 'admin' && (
+                      <>
+                        <div className="border-t border-white/10 my-1"></div>
+                        <Link href="/admin/users" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                          👥 客户管理
+                        </Link>
+                        <Link href="/admin/review" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                          模板审核
+                        </Link>
+                        <Link href="/admin/settings" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                          系统设置
+                        </Link>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -205,16 +257,10 @@ export default function Navbar() {
                   <Link href="/projects" className="block px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">
                     {t.projects.title}
                   </Link>
-                  {user?.role === 'admin' && (
+                  {(user?.role === 'admin' || user?.role === 'editor') && (
                     <>
-                      <Link href="/admin/review" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
-                        审核管理
-                      </Link>
-                      <Link href="/admin/api-keys" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
-                        API 管理
-                      </Link>
-                      <Link href="/admin/settings" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
-                        设置
+                      <Link href="/admin/" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">
+                        🖥️ 管理中心
                       </Link>
                     </>
                   )}

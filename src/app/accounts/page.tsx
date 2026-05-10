@@ -13,7 +13,7 @@ interface Account {
 }
 
 export default function AccountsPage() {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [selectedAccounts, setSelectedAccounts] = useState<number[]>([])
   const [isPublishing, setIsPublishing] = useState(false)
@@ -29,8 +29,14 @@ export default function AccountsPage() {
   })
 
   useEffect(() => {
+    if (authLoading) return // 等待认证完成
+    if (user?.role === 'end-user') {
+      setLoading(false) // 确保loading结束，显示权限提示
+      return
+    }
+
     loadAccounts()
-  }, [])
+  }, [authLoading, user])
 
   const loadAccounts = async () => {
     try {
@@ -157,6 +163,17 @@ export default function AccountsPage() {
             <span>加载中</span>
             <span className="text-xs opacity-50 ml-1">LOADING...</span>
           </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (user?.role === 'end-user') {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-red-400 text-center">
+          <p className="text-xl mb-2">无权限访问</p>
+          <p className="text-gray-500 text-sm">终端客户无权查看账号管理</p>
         </div>
       </div>
     )

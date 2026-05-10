@@ -60,7 +60,6 @@ export async function runCleanup() {
   return result
 }
 
-// 如果直接运行此脚本，执行清理
-if (require.main === module) {
-  runCleanup()
-}
+// 直接运行此脚本时执行清理（仅限 ESM: node --loader ts-node/esm src/lib/cleanup.ts）
+// 原 CommonJS require.main 检查已在 ESM 项目中移除
+

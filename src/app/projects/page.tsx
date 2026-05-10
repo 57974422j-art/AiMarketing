@@ -240,9 +240,9 @@ export default function ProjectsPage() {
                   </div>
                   <span className="text-2xl opacity-50">📁</span>
                 </div>
-                {project.description && (
-                  <p className="text-sm text-gray-400 mb-4">{project.description}</p>
-                )}
+              {project.description && (
+                <p className="text-sm text-gray-400 mb-4 truncate">{project.description}</p>
+              )}
                 <div className="flex gap-3 mt-auto">
                   <Link
                     href={`/projects/${project.id}/assets`}

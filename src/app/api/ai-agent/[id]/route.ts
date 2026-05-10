@@ -11,6 +11,13 @@ function getUserContext(request: Request) {
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
+    const user = getUserContext(request)
+    if (!user) {
+      return new Response(JSON.stringify({ success: false, message: '请先登录' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
     const agent = await prisma.aIAgent.findUnique({
       where: { id: parseInt(params.id) },
       include: {

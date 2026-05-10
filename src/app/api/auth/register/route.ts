@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
 
     let teamIdToJoin: number | null = null
 
+    let targetRole = 'editor'
+
     if (!inviteCodeRecord) {
       const agentUser = await prisma.user.findFirst({
         where: { agentInviteCode: inviteCode }
@@ -43,11 +45,21 @@ export async function POST(request: NextRequest) {
           { status: 403 }
         )
       }
-    } else if (inviteCodeRecord.isUsed) {
-      return NextResponse.json(
-        { success: false, message: '邀请码已使用' },
-        { status: 403 }
-      )
+    } else {
+      if (inviteCodeRecord.isUsed) {
+        return NextResponse.json(
+          { success: false, message: '邀请码已使用' },
+          { status: 403 }
+        )
+      }
+      if (!inviteCodeRecord.isActive) {
+        return NextResponse.json(
+          { success: false, message: '邀请码已被禁用' },
+          { status: 403 }
+        )
+      }
+      // 从邀请码读取角色
+      targetRole = inviteCodeRecord.role
     }
     
     const existingUser = await prisma.user.findFirst({
@@ -74,7 +86,7 @@ export async function POST(request: NextRequest) {
         email,
         passwordHash,
         name,
-        role: 'editor',
+        role: targetRole,
         inviteCode,
         teamId: teamIdToJoin
       }

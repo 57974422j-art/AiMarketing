@@ -17,11 +17,10 @@ model User {
   username        String   @unique
   passwordHash    String
   name            String?
-  role            String   @default("viewer")
+  role            String   @default("viewer") // admin / editor / end-user / viewer
+  parentId        Int?                          // 上级ID：editor指向admin，end-user指向editor
   inviteCode      String?
   plan            String   @default("free")
-  monthlyQuota    Int      @default(100)
-  usedThisMonth   Int      @default(0)
   teamId          Int?
   isAgent         Boolean  @default(false)
   agentInviteCode String?
@@ -34,10 +33,106 @@ model User {
   publishingTasks PublishingTask[]
   dashboardStats  DashboardStat[]
   projects        Project[]
-  createdInvites  InviteCode[]     @relation("InviteCodeCreator")
+  createdInvites  InviteCode[]          @relation("InviteCodeCreator")
+  usedInvite      InviteCode?           @relation("InviteCodeUsed")
   usageLogs       UsageLog[]
   teamMembers     TeamMember[]
-  createdTeams    Team[]     @relation("TeamOwner")
+  createdTeams    Team[]                @relation("TeamOwner")
+
+  // 三层管理关联
+  parent                  User?               @relation("UserParent", fields: [parentId], references: [id])
+  children                User[]              @relation("UserParent")
+  devicePools             DevicePool[]
+  devices                 Device[]
+  socialAccounts          SocialAccount[]
+  submittedSubmissions    ContentSubmission[] @relation("Submitter")
+  reviewedSubmissions     ContentSubmission[] @relation("Reviewer")
+  createdTasks            AutomationTask[]
+  poiAddresses            PoiAddress[]
+  scriptTemplates         ScriptTemplate[]
+  accountGroups           AccountGroup[]
+  mediaAssets             MediaAsset[]
+  automationTemplates     AutomationTemplate[]
+  copyTemplates           CopyTemplate[]
+}
+
+model DevicePool {
+  id           Int      @id @default(autoincrement())
+  ownerId      Int                           // 所属二级客户
+  totalWindows Int      @default(0)
+  usedWindows  Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id])
+}
+
+model Device {
+  id            Int      @id @default(autoincrement())
+  name          String
+  status        String   @default("offline") // online / offline / busy
+  lastHeartbeat DateTime @default(now())
+  groupId       String?
+  ownerId       Int
+  createdAt     DateTime @default(now())
+
+  owner           User              @relation(fields: [ownerId], references: [id])
+  socialAccounts  SocialAccount[]
+  automationTasks AutomationTask[]
+}
+
+model SocialAccount {
+  id        Int      @id @default(autoincrement())
+  platform  String                       // 抖音/快手/小红书等
+  username  String
+  password  String                       // 加密存储
+  deviceId  Int?
+  userId    Int
+  status    String   @default("未绑定")   // 未绑定/已绑定/已封禁
+  createdAt DateTime @default(now())
+
+  user            User              @relation(fields: [userId], references: [id])
+  device          Device?           @relation(fields: [deviceId], references: [id])
+  accountGroupItems AccountGroupItem[]
+  publishingTasks   PublishingTask[]
+}
+
+model ContentSubmission {
+  id             Int      @id @default(autoincrement())
+  videoUrl       String                       // OSS地址
+  caption        String                       // 文案标题
+  targetPlatform String
+  status         String   @default("待审核")   // 待审核/已通过/已拒绝/已发布
+  submitterId    Int
+  reviewerId     Int?
+  createdAt      DateTime @default(now())
+
+  submitter User  @relation("Submitter", fields: [submitterId], references: [id])
+  reviewer  User? @relation("Reviewer", fields: [reviewerId], references: [id])
+}
+
+model AutomationTask {
+  id               Int      @id @default(autoincrement())
+  type             String                       // 互关/点赞/评论/转发/发布视频
+  status           String   @default("等待中")    // 等待中/执行中/已完成/失败
+  params           String   @default("{}")       // JSON
+  assignedDeviceId Int?
+  createdBy        Int
+  createdAt        DateTime @default(now())
+
+  device      Device?    @relation(fields: [assignedDeviceId], references: [id])
+  creator     User       @relation(fields: [createdBy], references: [id])
+  taskLogs    TaskLog[]
+}
+
+model TaskLog {
+  id           Int      @id @default(autoincrement())
+  taskId       Int
+  action       String
+  result       String
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  task AutomationTask @relation(fields: [taskId], references: [id])
 }
 
 model Team {
@@ -106,18 +201,20 @@ model CopyTask {
 }
 
 model PublishingTask {
-  id          Int       @id @default(autoincrement())
-  userId      Int
-  accountId   Int
-  videoTaskId Int
-  publishTime DateTime?
-  status      String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              Int       @id @default(autoincrement())
+  userId          Int
+  accountId       Int
+  socialAccountId Int?                          // 关联 SocialAccount，桥接设备+分组系统
+  videoTaskId     Int
+  publishTime     DateTime?
+  status          String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  user      User      @relation(fields: [userId], references: [id])
-  account   Account   @relation(fields: [accountId], references: [id])
-  videoTask VideoTask @relation(fields: [videoTaskId], references: [id])
+  user          User          @relation(fields: [userId], references: [id])
+  account       Account       @relation(fields: [accountId], references: [id])
+  socialAccount SocialAccount? @relation(fields: [socialAccountId], references: [id])
+  videoTask     VideoTask     @relation(fields: [videoTaskId], references: [id])
 }
 
 model DashboardStat {
@@ -182,11 +279,14 @@ model InviteCode {
   id        Int      @id @default(autoincrement())
   code      String   @unique
   createdBy Int
+  role      String   @default("editor") // editor 或 end-user
   isUsed    Boolean  @default(false)
+  isActive  Boolean  @default(true)
   usedBy    Int?     @unique
   createdAt DateTime @default(now())
 
-  creator User @relation("InviteCodeCreator", fields: [createdBy], references: [id])
+  creator User   @relation("InviteCodeCreator", fields: [createdBy], references: [id])
+  user    User?  @relation("InviteCodeUsed", fields: [usedBy], references: [id])
 }
 
 model UsageLog {
@@ -241,8 +341,7 @@ model NFCRuleTemplate {
   contentTitle String?
   contentUrl   String?
   contentValue String?
-  status       String   @default("active")
-  isActive     Boolean  @default(true)
+  isActive     Boolean  @default(true)       // true=启用, false=禁用 (已合并原status字段)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -259,4 +358,99 @@ model CopyTemplate {
   userId    Int?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+// POI 地址库
+model PoiAddress {
+  id       Int    @id @default(autoincrement())
+  name     String
+  address  String
+  lat      Float
+  lng      Float
+  platform String
+  ownerId  Int
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId])
+}
+
+// 话术模板
+model ScriptTemplate {
+  id        Int      @id @default(autoincrement())
+  title     String
+  type      String   // 评论/私信/直播互动
+  content   String
+  tags      String   @default("[]") // JSON
+  ownerId   Int
+  createdAt DateTime @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId])
+}
+
+// 账号分组
+model AccountGroup {
+  id        Int      @id @default(autoincrement())
+  name      String
+  ownerId   Int
+  createdAt DateTime @default(now())
+
+  owner User              @relation(fields: [ownerId], references: [id])
+  items AccountGroupItem[]
+
+  @@index([ownerId])
+}
+
+// 账号分组条目
+model AccountGroupItem {
+  id        Int          @id @default(autoincrement())
+  groupId   Int
+  accountId Int
+
+  group   AccountGroup  @relation(fields: [groupId], references: [id])
+  account SocialAccount @relation(fields: [accountId], references: [id])
+
+  @@unique([groupId, accountId])
+}
+
+// 视频素材库
+model MediaAsset {
+  id        Int      @id @default(autoincrement())
+  ossUrl    String
+  title     String
+  ownerId   Int
+  createdAt DateTime @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId])
+}
+
+// 自动化任务模板
+model AutomationTemplate {
+  id        Int      @id @default(autoincrement())
+  name      String
+  type      String   // 互关/点赞/评论/转发/发布视频
+  params    String   @default("{}") // JSON
+  ownerId   Int
+  createdAt DateTime @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId])
+}
+
+// 提示词模板库
+model PromptTemplate {
+  id         Int      @id @default(autoincrement())
+  title      String
+  category   String   // 海报封面/产品展示/品牌宣传/节日营销/短视频封面
+  prompt     String
+  previewUrl String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }

@@ -86,7 +86,6 @@ export async function POST(request: NextRequest) {
             contentTitle: data.contentTitle,
             contentUrl: data.contentUrl,
             contentValue: data.contentValue,
-            status: data.status || 'active'
           }
         })
         break;

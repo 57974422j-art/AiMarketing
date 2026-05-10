@@ -3,10 +3,13 @@ import { generateVideo, queryVideoTask } from '@/lib/ai-providers'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { existsSync } from 'fs'
+import { getAuthFromHeaders } from '@/lib/api-auth'
 
 // 文生视频 API
 export async function POST(request: NextRequest) {
   try {
+    const auth = getAuthFromHeaders(request)
+    if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     const body = await request.json()
     const { prompt, aspectRatio } = body
 
@@ -61,6 +64,8 @@ export async function POST(request: NextRequest) {
 // 查询视频生成任务状态
 export async function GET(request: NextRequest) {
   try {
+    const auth = getAuthFromHeaders(request)
+    if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     const { searchParams } = new URL(request.url)
     const taskId = searchParams.get('taskId')
 

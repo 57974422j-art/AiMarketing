@@ -1,7 +1,7 @@
 // FFmpeg 视频处理模块
 
 import { execSync } from 'child_process';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
 // 常见 FFmpeg 安装路径
@@ -72,15 +72,14 @@ export function concatVideos(inputs: string[], output: string): void {
   ensureOutputDir(inputListPath);
   
   // 生成输入列表文件
-  const fs = require('fs');
   const inputListContent = inputs.map(input => `file '${input}'`).join('\n');
-  fs.writeFileSync(inputListPath, inputListContent);
+  writeFileSync(inputListPath, inputListContent);
   
   const command = `"${ffmpegPath}" -f concat -safe 0 -i "${inputListPath}" -c copy "${output}"`;
   execSync(command, { stdio: 'inherit' });
   
   // 清理临时文件
-  fs.unlinkSync(inputListPath);
+  unlinkSync(inputListPath);
 }
 
 // 添加字幕

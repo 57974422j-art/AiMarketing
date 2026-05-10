@@ -2,6 +2,7 @@
 
 import './globals.css'
 import Navbar from '@/components/Navbar'
+import ToastContainer from '@/components/Toast'
 import { AuthProvider } from './providers'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -14,6 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen bg-gray-950 text-gray-100">
         <AuthProvider>
           <Navbar />
+          <ToastContainer />
           <main className="flex-grow">
             {children}
           </main>

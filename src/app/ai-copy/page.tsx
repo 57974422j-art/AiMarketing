@@ -252,7 +252,7 @@ export default function AICopyPage() {
                 {copyContent.map((copy, index) => (
                   <div key={index} className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-5">
                     {/* 标题 - 加粗放大 */}
-                    <h3 className="text-lg font-bold text-white mb-3 leading-tight">
+                    <h3 className="text-lg font-bold text-white mb-3 leading-tight truncate">
                       {copy.title}
                     </h3>
                     {/* 正文 - 正常显示 */}
@@ -327,7 +327,7 @@ export default function AICopyPage() {
                       {copies.map((copy, index) => (
                         <div key={index} className="bg-white/5 rounded-lg p-3">
                           <div className="flex justify-between items-start">
-                            <p className="text-gray-300 text-sm">{copy.content}</p>
+                            <p className="text-gray-300 text-sm line-clamp-2">{copy.content}</p>
                             <button
                               onClick={() => handleCopy(copy.content)}
                               className="text-emerald-400 hover:text-emerald-300 text-xs ml-2 shrink-0"

@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, readFile } from 'fs/promises';
 import { join } from 'path';
+import { getAuthFromHeaders } from '@/lib/api-auth';
 
 // 保存配置到 .env.local
 export async function POST(request: NextRequest) {
   try {
-    const { deepseekKey, volcanoKey, siliconflowKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket } = await request.json();
+    const auth = getAuthFromHeaders(request)
+    if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
+    if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -46,6 +50,16 @@ export async function POST(request: NextRequest) {
         envContent = envContent.replace(siliconflowPattern, `SILICONFLOW_API_KEY=${siliconflowKey}`);
       } else {
         envContent += `\nSILICONFLOW_API_KEY=${siliconflowKey}`;
+      }
+    }
+
+    // 更新或添加阿里云百炼 API Key
+    if (dashscopeKey !== undefined) {
+      const pattern = /^DASHSCOPE_API_KEY=.*$/m;
+      if (pattern.test(envContent)) {
+        envContent = envContent.replace(pattern, `DASHSCOPE_API_KEY=${dashscopeKey}`);
+      } else {
+        envContent += `\nDASHSCOPE_API_KEY=${dashscopeKey}`;
       }
     }
 
@@ -121,12 +135,21 @@ export async function POST(request: NextRequest) {
 
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
-
     console.log('[Admin-Config] 配置已保存到 .env.local');
+
+    // 同步到 process.env，立即生效无需重启
+    if (deepseekKey !== undefined) process.env.DEEPSEEK_API_KEY = deepseekKey
+    if (volcanoKey !== undefined) process.env.VOLCANO_API_KEY = volcanoKey
+    if (siliconflowKey !== undefined) process.env.SILICONFLOW_API_KEY = siliconflowKey
+    if (dashscopeKey !== undefined) process.env.DASHSCOPE_API_KEY = dashscopeKey
+    if (ossRegion !== undefined) process.env.OSS_REGION = ossRegion
+    if (ossAccessKeyId !== undefined) process.env.OSS_ACCESS_KEY_ID = ossAccessKeyId
+    if (ossAccessKeySecret !== undefined) process.env.OSS_ACCESS_KEY_SECRET = ossAccessKeySecret
+    if (ossBucket !== undefined) process.env.OSS_BUCKET = ossBucket
 
     return NextResponse.json({
       success: true,
-      message: '配置保存成功，重启服务后生效'
+      message: '配置已保存，立即生效'
     });
 
   } catch (error) {
@@ -138,20 +161,38 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// 获取当前配置状态（不返回实际 Key，只返回是否已配置）
-export async function GET() {
+// 从 .env.local 读取环境变量（补充 process.env，热重载后不会丢失）
+async function readEnv(key: string): Promise<string | undefined> {
+  if (process.env[key]) return process.env[key]
   try {
-    const deepseekKey = process.env.DEEPSEEK_API_KEY;
-    const volcanoKey = process.env.VOLCANO_API_KEY;
-    const siliconflowKey = process.env.SILICONFLOW_API_KEY;
-    const ossRegion = process.env.OSS_REGION;
-    const ossBucket = process.env.OSS_BUCKET;
-    const ttsAppId = process.env.VOLCANO_TTS_APP_ID;
-    const ttsAccessKey = process.env.VOLCANO_TTS_ACCESS_KEY;
-    const ttsResourceId = process.env.VOLCANO_TTS_RESOURCE_ID;
+    const { readFile } = await import('fs/promises')
+    const { join } = await import('path')
+    const content = await readFile(join(process.cwd(), '.env.local'), 'utf-8')
+    const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'))
+    return match?.[1] || undefined
+  } catch { return undefined }
+}
+
+// 获取当前配置状态（不返回实际 Key，只返回是否已配置）
+export async function GET(request: NextRequest) {
+  try {
+    const auth = getAuthFromHeaders(request)
+    if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
+    if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
+    const deepseekKey = await readEnv('DEEPSEEK_API_KEY');
+    const volcanoKey = await readEnv('VOLCANO_API_KEY');
+    const siliconflowKey = await readEnv('SILICONFLOW_API_KEY');
+    const dashscopeKey = await readEnv('DASHSCOPE_API_KEY');
+    const ossRegion = await readEnv('OSS_REGION');
+    const ossBucket = await readEnv('OSS_BUCKET');
+    const ossAkId = await readEnv('OSS_ACCESS_KEY_ID');
+    const ossAkSecret = await readEnv('OSS_ACCESS_KEY_SECRET');
+    const ttsAppId = await readEnv('VOLCANO_TTS_APP_ID');
+    const ttsAccessKey = await readEnv('VOLCANO_TTS_ACCESS_KEY');
+    const ttsResourceId = await readEnv('VOLCANO_TTS_RESOURCE_ID');
 
     // 检查 OSS 是否完整配置
-    const ossConfigured = !!(ossRegion && process.env.OSS_ACCESS_KEY_ID && process.env.OSS_ACCESS_KEY_SECRET && ossBucket);
+    const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
 
     return NextResponse.json({
       success: true,
@@ -159,6 +200,7 @@ export async function GET() {
         deepseekConfigured: !!deepseekKey,
         volcanoConfigured: !!volcanoKey,
         siliconflowConfigured: !!siliconflowKey,
+        dashscopeConfigured: !!dashscopeKey,
         ttsAppIdConfigured: !!ttsAppId,
         ttsAccessKeyConfigured: !!ttsAccessKey,
         ttsResourceIdConfigured: !!ttsResourceId,

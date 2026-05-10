@@ -2,6 +2,7 @@ import { AutomationEngine, AccountInfo, LoginResult, PublishResult, MessageResul
 import { OfficialApiEngine } from './automation/official-api'
 import { FingerprintBrowserEngine } from './automation/fingerprint-browser'
 import { RealDeviceEngine } from './automation/real-device'
+import { MockEngine } from './automation/mock-engine'
 import { getAutomationConfig } from './automation/config'
 
 let engineInstance: AutomationEngine | null = null
@@ -28,7 +29,7 @@ function getEngine(): AutomationEngine {
       break
     case 'mock':
     default:
-      engineInstance = new OfficialApiEngine()
+      engineInstance = new MockEngine()
       break
   }
 

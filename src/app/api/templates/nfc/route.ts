@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, triggerType, description, contentTitle, contentUrl, contentValue, status } = body
+    const { name, triggerType, description, contentTitle, contentUrl, contentValue } = body
     
     const template = await prisma.nFCRuleTemplate.create({
       data: {
@@ -44,7 +44,6 @@ export async function POST(request: NextRequest) {
         contentTitle,
         contentUrl,
         contentValue,
-        status: status || 'active'
       }
     })
     

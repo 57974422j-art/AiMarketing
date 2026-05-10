@@ -245,7 +245,7 @@ export async function POST(request: NextRequest) {
   try {
     const user = getUserContext(request)
     
-    if (user && !checkPermission(user.role, 'write')) {
+    if (!user || !checkPermission(user.role, 'write')) {
       return NextResponse.json({ success: false, message: '没有权限创建视频任务' }, { status: 403 })
     }
     

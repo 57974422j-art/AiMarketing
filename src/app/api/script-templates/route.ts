@@ -1,0 +1,104 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { PrismaClient } from '@prisma/client'
+import { getAuthFromHeaders } from '@/lib/api-auth'
+
+const prisma = new PrismaClient()
+
+async function getVisibleScripts(auth: { userId: number; role: string }) {
+  if (auth.role === 'admin') {
+    return prisma.scriptTemplate.findMany({
+      include: { owner: { select: { id: true, username: true } } },
+      orderBy: { id: 'desc' },
+    })
+  }
+  return prisma.scriptTemplate.findMany({
+    where: { ownerId: auth.userId },
+    orderBy: { id: 'desc' },
+  })
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const auth = getAuthFromHeaders(request)
+    if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权访问' }, { status: 403 })
+    const data = await getVisibleScripts(auth)
+    return NextResponse.json({ success: true, data })
+  } catch (e) {
+    console.error(e)
+    return NextResponse.json({ success: false, message: '服务器错误' }, { status: 500 })
+  } finally {
+    await prisma.$disconnect()
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const auth = getAuthFromHeaders(request)
+    if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
+    const body = await request.json()
+    const { title, type, content, tags } = body
+    if (!title || !type || !content) {
+      return NextResponse.json({ success: false, message: '缺少必要参数' }, { status: 400 })
+    }
+    const script = await prisma.scriptTemplate.create({
+      data: { title, type, content, tags: JSON.stringify(tags || []), ownerId: auth.userId },
+    })
+    return NextResponse.json({ success: true, data: script }, { status: 201 })
+  } catch (e) {
+    console.error(e)
+    return NextResponse.json({ success: false, message: '服务器错误' }, { status: 500 })
+  } finally {
+    await prisma.$disconnect()
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const auth = getAuthFromHeaders(request)
+    if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
+    const body = await request.json()
+    const { id, title, type, content, tags } = body
+    if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
+    const st = await prisma.scriptTemplate.findUnique({ where: { id } })
+    if (!st) return NextResponse.json({ success: false, message: '话术不存在' }, { status: 404 })
+    if (auth.role !== 'admin' && st.ownerId !== auth.userId) {
+      return NextResponse.json({ success: false, message: '无权修改' }, { status: 403 })
+    }
+    const updated = await prisma.scriptTemplate.update({
+      where: { id },
+      data: { title, type, content, tags: tags ? JSON.stringify(tags) : undefined },
+    })
+    return NextResponse.json({ success: true, data: updated })
+  } catch (e) {
+    console.error(e)
+    return NextResponse.json({ success: false, message: '服务器错误' }, { status: 500 })
+  } finally {
+    await prisma.$disconnect()
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const auth = getAuthFromHeaders(request)
+    if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
+    const { searchParams } = new URL(request.url)
+    const id = parseInt(searchParams.get('id') || '', 10)
+    if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
+    const st = await prisma.scriptTemplate.findUnique({ where: { id } })
+    if (!st) return NextResponse.json({ success: false, message: '话术不存在' }, { status: 404 })
+    if (auth.role !== 'admin' && st.ownerId !== auth.userId) {
+      return NextResponse.json({ success: false, message: '无权删除' }, { status: 403 })
+    }
+    await prisma.scriptTemplate.delete({ where: { id } })
+    return NextResponse.json({ success: true, message: '已删除' })
+  } catch (e) {
+    console.error(e)
+    return NextResponse.json({ success: false, message: '服务器错误' }, { status: 500 })
+  } finally {
+    await prisma.$disconnect()
+  }
+}

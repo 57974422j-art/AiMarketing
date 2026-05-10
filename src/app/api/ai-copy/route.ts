@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     const user = getUserContext(request)
     console.log('user:', user)
     
-    if (user && !checkPermission(user.role, 'write')) {
+    if (!user || !checkPermission(user.role, 'write')) {
       return NextResponse.json({ success: false, message: '没有权限' }, { status: 403 })
     }
     

@@ -1,8 +1,16 @@
 import { PrismaClient } from '@prisma/client';
+import { getAuthFromHeaders } from '@/lib/api-auth';
 
 const prisma = new PrismaClient();
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
+  const auth = getAuthFromHeaders(request)
+  if (!auth) {
+    return new Response(JSON.stringify({ success: false, message: '请先登录' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
   try {
     const documents = await prisma.trainingDocument.findMany({
       where: { agentId: parseInt(params.id) },
@@ -21,6 +29,13 @@ export async function GET(request: Request, { params }: { params: { id: string }
 }
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
+  const auth = getAuthFromHeaders(request)
+  if (!auth) {
+    return new Response(JSON.stringify({ success: false, message: '请先登录' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
   try {
     const body = await request.json();
     const { title, content, type } = body;

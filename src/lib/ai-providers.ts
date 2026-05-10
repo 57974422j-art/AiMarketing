@@ -1,5 +1,5 @@
-// AI 提供商统一接口 — 双保险模式
-// 优先级：火山方舟(Volcano) > 硅基流动(SiliconFlow) > 模拟兜底(Mock)
+// AI 提供商统一接口 — 多级降级模式
+// 优先级：百炼DashScope(通义千问) > 火山方舟(Volcano) > 硅基流动(SiliconFlow) > DeepSeek > 模拟兜底(Mock)
 // 每个函数内部 try-catch，失败自动切换到下一个
 
 // ==================== 基础工具 ====================
@@ -130,7 +130,7 @@ const VOLCANO_BASE = 'https://ark.cn-beijing.volces.com';
 const VOLCANO_CHAT_MODEL = 'doubao-seed-1-6-flash-250828';
 
 function getVolcanoKey(): string | null {
-  return process.env.VOLCANO_API_KEY || null;
+  return process.env.VOLCANO_API_KEY || readEnvFile('VOLCANO_API_KEY') || null;
 }
 
 async function volcanoChat(prompt: string, maxTokens = 1000): Promise<string | null> {
@@ -273,7 +273,7 @@ async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'):
 // ==================== 硅基流动 (SiliconFlow) ====================
 
 function getSiliconFlowKey(): string | null {
-  return process.env.SILICONFLOW_API_KEY || null;
+  return process.env.SILICONFLOW_API_KEY || readEnvFile('SILICONFLOW_API_KEY') || null;
 }
 
 const SILICONFLOW_BASE = 'https://api.siliconflow.cn';
@@ -339,7 +339,7 @@ async function siliconTTS(text: string, voice = 'FunAudioLLM/CosyVoice2-0.5B:ale
       input: cleanText,
       voice,
       response_format: 'mp3',
-      sample_rate: 24000,
+      sample_rate: 44100,
     });
     return await fetchBuffer(`${SILICONFLOW_BASE}/v1/audio/speech`, {
       method: 'POST',
@@ -361,7 +361,7 @@ async function siliconGenerateImage(prompt: string): Promise<string | null> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'black-forest-labs/FLUX.1-dev',
+        model: 'DataCanvas/Z-Image',
         prompt,
         image_size: '1024x1024',
         batch_size: 1,
@@ -374,10 +374,104 @@ async function siliconGenerateImage(prompt: string): Promise<string | null> {
   }
 }
 
-// ==================== DeepSeek (三级降级) ====================
+// ==================== 阿里云百炼 DashScope（通义千问）====================
+
+function getDashScopeKey(): string | null {
+  return process.env.DASHSCOPE_API_KEY || readEnvFile('DASHSCOPE_API_KEY') || null;
+}
+
+const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+
+async function dashscopeChat(prompt: string, maxTokens = 2000): Promise<string | null> {
+  const key = getDashScopeKey();
+  if (!key) return null;
+  try {
+    const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'qwen-plus',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_tokens: maxTokens,
+      }),
+    });
+    return data.choices?.[0]?.message?.content?.trim() || null;
+  } catch (e) {
+    console.error('[DashScope] 对话失败:', e);
+    return null;
+  }
+}
+
+async function dashscopeTranslate(text: string, toLang: string, fromLang = 'zh'): Promise<string | null> {
+  const sourceLabel = fromLang === 'zh' ? '中文' : fromLang;
+  const prompt = `请将以下${sourceLabel}翻译成${toLang}，只返回翻译结果，不要带任何解释：\n\n${text}`;
+  return dashscopeChat(prompt, 2000);
+}
+
+// 百炼通义万相文生视频
+async function dashscopeGenerateVideo(prompt: string, _aspectRatio = '16:9'): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  const key = getDashScopeKey();
+  if (!key) return null;
+  try {
+    const ratio = _aspectRatio === '16:9' ? '1280:720' : '720:1280';
+    const data = await fetchJSON('https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'wan2.1-t2v-turbo',
+        input: { prompt },
+        parameters: { size: ratio, duration: 5 },
+      }),
+    });
+    if (data?.output?.task_id) return { taskId: data.output.task_id, status: 'running' };
+    return null;
+  } catch (e) {
+    console.error('[DashScope 文生视频] 失败:', e);
+    return null;
+  }
+}
+
+async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  const key = getDashScopeKey();
+  if (!key) return null;
+  try {
+    const data = await fetchJSON(`https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis/${taskId}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${key}` },
+    });
+    const status = data?.output?.task_status || 'unknown';
+    return { taskId, status, videoUrl: data?.output?.video_url };
+  } catch (e) {
+    console.error('[DashScope 查询视频] 失败:', e);
+    return null;
+  }
+}
+
+// 百炼通义万相数字人视频生成
+async function dashscopeDigitalHuman(text: string, _avatar = 'default'): Promise<{ videoUrl?: string; status: string } | null> {
+  const key = getDashScopeKey();
+  if (!key) return null;
+  try {
+    const data = await fetchJSON('https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/person/video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'wan.2.1-i2v-turbo',
+        input: { text },
+        parameters: { duration: 30 },
+      }),
+    });
+    if (data?.output?.task_id) return { status: 'running', videoUrl: data.output.video_url };
+    return null;
+  } catch (e) {
+    console.error('[DashScope 数字人] 失败:', e);
+    return null;
+  }
+}
 
 function getDeepSeekKey(): string | null {
-  return process.env.DEEPSEEK_API_KEY || null;
+  return process.env.DEEPSEEK_API_KEY || readEnvFile('DEEPSEEK_API_KEY') || null;
 }
 
 async function deepSeekChat(prompt: string, maxTokens = 1000): Promise<string | null> {
@@ -409,6 +503,17 @@ async function deepSeekTranslate(text: string, toLang: string, fromLang = 'zh'):
 
 // ==================== 模拟兜底 (Mock) ====================
 
+// 同步从 .env.local 读取环境变量（热重载后 process.env 丢失时的兜底）
+function readEnvFile(key: string): string | undefined {
+  try {
+    const fs = require('fs')
+    const path = require('path')
+    const content = fs.readFileSync(path.join(process.cwd(), '.env.local'), 'utf-8')
+    const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'))
+    return match?.[1]
+  } catch { return undefined }
+}
+
 function mockResult(category: string, input: string): string {
   console.warn(`[Mock] ${category} 返回模拟数据 (未配置 API Key)`);
   if (category === 'translate') return `[Mock Translation of: ${input.substring(0, 50)}]`;
@@ -420,8 +525,11 @@ function mockResult(category: string, input: string): string {
 
 // 1. 文案生成 / 文本生成
 export async function generateText(prompt: string): Promise<string | null> {
-  // 火山(豆包) → 硅基(Qwen) → DeepSeek → Mock
-  const result = await volcanoChat(prompt, 2000) || await siliconChat(prompt, 2000) || await deepSeekChat(prompt, 2000);
+  // 百炼(通义千问) → 火山(豆包) → 硅基(Qwen) → DeepSeek → Mock
+  const result = await dashscopeChat(prompt, 2000)
+    || await volcanoChat(prompt, 2000)
+    || await siliconChat(prompt, 2000)
+    || await deepSeekChat(prompt, 2000);
   if (result) return result;
   return mockResult('generateText', prompt);
 }
@@ -429,11 +537,11 @@ export async function generateText(prompt: string): Promise<string | null> {
 // 2. 翻译
 export async function translate(text: string, toLang: string, fromLang = 'zh'): Promise<string | null> {
   if (!text?.trim()) return null;
-  // 先清洗文本
   const cleanedText = cleanText(text, fromLang);
   if (!cleanedText) return null;
-  // 火山(豆包) → 硅基(Qwen) → DeepSeek → Mock
-  const result = await volcanoTranslate(cleanedText, toLang, fromLang) 
+  // 百炼(通义千问) → 火山(豆包) → 硅基(Qwen) → DeepSeek → Mock
+  const result = await dashscopeTranslate(cleanedText, toLang, fromLang)
+    || await volcanoTranslate(cleanedText, toLang, fromLang) 
     || await siliconTranslate(cleanedText, toLang, fromLang) 
     || await deepSeekTranslate(cleanedText, toLang, fromLang);
   if (result) return cleanText(result, toLang);
@@ -485,9 +593,52 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
   return null;
 }
 
+// 百炼通义万相文生图
+async function dashscopeGenerateImage(prompt: string): Promise<string | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  try {
+    // 提交异步任务（加 X-DashScope-Async 头）
+    const submitRes = await fetchJSON('https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
+      body: JSON.stringify({
+        model: 'wanx2.1-t2i-turbo',
+        input: { prompt },
+        parameters: { size: '1024x1024', n: 1 },
+      }),
+    })
+
+    const taskId = submitRes?.output?.task_id
+    if (!taskId) return null
+
+    // 轮询直到完成（最多 60 秒）
+    const baseUrl = 'https://dashscope.aliyuncs.com/api/v1/tasks'
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 2000))
+      const pollRes = await fetchJSON(`${baseUrl}/${taskId}`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${key}` },
+      })
+      const status = pollRes?.output?.task_status
+      if (status === 'SUCCEEDED') {
+        return pollRes?.output?.results?.[0]?.url || null
+      }
+      if (status === 'FAILED') break
+    }
+    return null
+  } catch (e) {
+    console.error('[DashScope 文生图] 失败:', e)
+    return null
+  }
+}
+
 // 5. 文生图
 export async function generateImage(prompt: string): Promise<string | null> {
-  // 硅基流动(SD/FLUX) → Mock
+  // 百炼(通义万相) → 硅基流动(SD/FLUX) → Mock
+  const dashResult = await dashscopeGenerateImage(prompt)
+  if (dashResult) return dashResult
+
   const result = await siliconGenerateImage(prompt);
   if (result) return result;
   console.warn('[文生图] 服务不可用');
@@ -496,7 +647,10 @@ export async function generateImage(prompt: string): Promise<string | null> {
 
 // 6. 文生视频
 export async function generateVideo(prompt: string, _aspectRatio = '16:9'): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
-  // 火山方舟视频生成 → Mock
+  // 百炼(通义万相) → 火山方舟 → Mock
+  const dashResult = await dashscopeGenerateVideo(prompt, _aspectRatio);
+  if (dashResult) return dashResult;
+  
   const key = getVolcanoKey();
   if (key) {
     try {
@@ -520,6 +674,10 @@ export async function generateVideo(prompt: string, _aspectRatio = '16:9'): Prom
 
 // 7. 查询视频任务状态
 export async function queryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  // 百炼(通义万相) → 火山方舟
+  const dashResult = await dashscopeQueryVideoTask(taskId);
+  if (dashResult) return dashResult;
+  
   const key = getVolcanoKey();
   if (key) {
     try {
@@ -537,6 +695,10 @@ export async function queryVideoTask(taskId: string): Promise<{ taskId: string; 
 
 // 8. 数字人
 export async function digitalHuman(text: string, _avatar = 'default'): Promise<{ videoUrl?: string; status: string } | null> {
+  // 百炼(通义万相) → 火山方舟 → Mock
+  const dashResult = await dashscopeDigitalHuman(text, _avatar);
+  if (dashResult) return dashResult;
+
   const key = getVolcanoKey();
   if (key) {
     try {
@@ -557,5 +719,5 @@ export async function digitalHuman(text: string, _avatar = 'default'): Promise<{
 }
 
 export async function isAIConfigured(): Promise<boolean> {
-  return !!(process.env.VOLCANO_API_KEY || process.env.SILICONFLOW_API_KEY);
+  return !!(process.env.DASHSCOPE_API_KEY || process.env.VOLCANO_API_KEY || process.env.SILICONFLOW_API_KEY);
 }
