@@ -41,7 +41,6 @@ export async function GET(request: NextRequest) {
     },
   }
 
-  // 测试连接
   try {
     const start = Date.now()
     const testPayload = {
@@ -54,18 +53,11 @@ export async function GET(request: NextRequest) {
     if (apiKey) {
       const res = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify(testPayload),
         signal: AbortSignal.timeout(10000),
       })
-      results.apiTest = {
-        success: res.ok,
-        status: res.status,
-        latency: Date.now() - start,
-      }
+      results.apiTest = { success: res.ok, status: res.status, latency: Date.now() - start }
     } else {
       results.apiTest = { success: false, message: '未配置任何 API Key' }
     }

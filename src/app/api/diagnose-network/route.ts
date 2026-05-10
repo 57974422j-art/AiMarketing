@@ -15,15 +15,9 @@ export async function GET(request: NextRequest) {
   try {
     const start = Date.now()
     const res = await fetch('https://www.google.com', { signal: AbortSignal.timeout(5000) })
-    results.tests = {
-      ...(results.tests as Record<string, unknown>),
-      google: { success: res.ok, latency: Date.now() - start, status: res.status },
-    }
+    results.tests = { ...(results.tests as Record<string, unknown>), google: { success: res.ok, latency: Date.now() - start, status: res.status } }
   } catch (e) {
-    results.tests = {
-      ...(results.tests as Record<string, unknown>),
-      google: { success: false, error: e instanceof Error ? e.message : '未知错误' },
-    }
+    results.tests = { ...(results.tests as Record<string, unknown>), google: { success: false, error: e instanceof Error ? e.message : '未知错误' } }
   }
 
   // 测试 2: AI API
@@ -32,15 +26,9 @@ export async function GET(request: NextRequest) {
     const start = Date.now()
     const testUrl = aiBaseUrl ? `${aiBaseUrl}/v1/models` : 'https://api.deepseek.com/v1/models'
     const res = await fetch(testUrl, { signal: AbortSignal.timeout(5000) })
-    results.tests = {
-      ...(results.tests as Record<string, unknown>),
-      aiApi: { success: res.ok, latency: Date.now() - start, url: testUrl, status: res.status },
-    }
+    results.tests = { ...(results.tests as Record<string, unknown>), aiApi: { success: res.ok, latency: Date.now() - start, url: testUrl, status: res.status } }
   } catch (e) {
-    results.tests = {
-      ...(results.tests as Record<string, unknown>),
-      aiApi: { success: false, error: e instanceof Error ? e.message : '未知错误', url: aiBaseUrl || '未配置' },
-    }
+    results.tests = { ...(results.tests as Record<string, unknown>), aiApi: { success: false, error: e instanceof Error ? e.message : '未知错误', url: aiBaseUrl || '未配置' } }
   }
 
   // 测试 3: OSS
@@ -48,15 +36,9 @@ export async function GET(request: NextRequest) {
   try {
     const start = Date.now()
     const res = await fetch(ossEndpoint, { signal: AbortSignal.timeout(5000) })
-    results.tests = {
-      ...(results.tests as Record<string, unknown>),
-      oss: { success: res.ok, latency: Date.now() - start, status: res.status, endpoint: ossEndpoint },
-    }
+    results.tests = { ...(results.tests as Record<string, unknown>), oss: { success: res.ok, latency: Date.now() - start, status: res.status, endpoint: ossEndpoint } }
   } catch (e) {
-    results.tests = {
-      ...(results.tests as Record<string, unknown>),
-      oss: { success: false, error: e instanceof Error ? e.message : '未知错误', endpoint: ossEndpoint },
-    }
+    results.tests = { ...(results.tests as Record<string, unknown>), oss: { success: false, error: e instanceof Error ? e.message : '未知错误', endpoint: ossEndpoint } }
   }
 
   results.tests = {
