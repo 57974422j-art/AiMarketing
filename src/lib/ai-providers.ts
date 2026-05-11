@@ -594,7 +594,7 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
 }
 
 // 百炼通义万相文生图
-async function dashscopeGenerateImage(prompt: string): Promise<string | null> {
+async function dashscopeGenerateImage(prompt: string, size = '1024*1024'): Promise<string | null> {
   const key = getDashScopeKey()
   if (!key) { console.log('[文生图] DashScope Key 未设置，跳过'); return null }
   console.log('[文生图] 尝试百炼通义万相...')
@@ -606,7 +606,7 @@ async function dashscopeGenerateImage(prompt: string): Promise<string | null> {
       body: JSON.stringify({
         model: 'wanx2.1-t2i-turbo',
         input: { prompt },
-        parameters: { size: '1024x1024', n: 1 },
+        parameters: { size, n: 1 },
       }),
     })
 
@@ -640,9 +640,9 @@ async function dashscopeGenerateImage(prompt: string): Promise<string | null> {
 }
 
 // 5. 文生图
-export async function generateImage(prompt: string): Promise<string | null> {
+export async function generateImage(prompt: string, size = '1024*1024'): Promise<string | null> {
   // 百炼(通义万相) → 硅基流动(SD/FLUX) → Mock
-  const dashResult = await dashscopeGenerateImage(prompt)
+  const dashResult = await dashscopeGenerateImage(prompt, size)
   if (dashResult) return dashResult
 
   const result = await siliconGenerateImage(prompt);

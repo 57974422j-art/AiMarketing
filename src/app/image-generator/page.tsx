@@ -22,6 +22,14 @@ export default function ImageGeneratorPage() {
   const [generating, setGenerating] = useState(false)
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [imageSize, setImageSize] = useState('1024*1024')
+  const SIZE_OPTIONS = [
+    { value: '1024*1024', label: '1:1 正方形' },
+    { value: '1344*768', label: '16:9 横版' },
+    { value: '768*1344', label: '9:16 竖版' },
+    { value: '1024*768', label: '4:3 横版' },
+    { value: '768*1024', label: '3:4 竖版' },
+  ]
 
   useEffect(() => {
     if (!authLoading) loadTemplates()
@@ -51,7 +59,7 @@ export default function ImageGeneratorPage() {
       const r = await fetch('/api/generate-image', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: prompt.trim() }),
+        body: JSON.stringify({ prompt: prompt.trim(), size: imageSize }),
       })
       const d = await r.json()
       if (d.success) {
@@ -144,6 +152,17 @@ export default function ImageGeneratorPage() {
                 value={prompt}
                 onChange={e => { setPrompt(e.target.value); setGeneratedUrl(null); setError('') }}
               />
+              <div className="mb-3">
+                <span className="text-gray-500 text-xs block mb-1"><span>尺寸</span><span className="text-[10px] opacity-50 ml-1">/ SIZE</span></span>
+                <div className="flex gap-1 flex-wrap">
+                  {SIZE_OPTIONS.map(opt => (
+                    <button key={opt.value} type="button" onClick={() => setImageSize(opt.value)}
+                      className={`px-2 py-1 rounded text-xs ${imageSize === opt.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button
                 onClick={handleGenerate}
                 disabled={generating || !prompt.trim()}
