@@ -361,7 +361,7 @@ async function siliconGenerateImage(prompt: string): Promise<string | null> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'DataCanvas/Z-Image',
+        model: 'Z-Image-Turbo',
         prompt,
         image_size: '1024x1024',
         batch_size: 1,
@@ -628,7 +628,7 @@ async function dashscopeGenerateImage(prompt: string): Promise<string | null> {
       const status = pollRes?.output?.task_status
       if (status === 'SUCCEEDED') return pollRes?.output?.results?.[0]?.url || null
       if (status === 'FAILED') {
-        console.log('[文生图] 百炼任务失败:', JSON.stringify(pollRes?.output).substring(0, 200))
+        console.log('[文生图] 百炼任务失败完整:', JSON.stringify(pollRes))
         break
       }
     }
