@@ -23,12 +23,19 @@ export default function ImageGeneratorPage() {
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [imageSize, setImageSize] = useState('1024*1024')
+  const [usingModel, setUsingModel] = useState('')
   const SIZE_OPTIONS = [
     { value: '1024*1024', label: '1:1 正方形' },
-    { value: '1344*768', label: '16:9 横版' },
-    { value: '768*1344', label: '9:16 竖版' },
+    { value: '1280*720', label: '16:9 横版' },
+    { value: '720*1280', label: '9:16 竖版' },
+    { value: '1344*768', label: '16:9 横版(大)' },
+    { value: '768*1344', label: '9:16 竖版(大)' },
     { value: '1024*768', label: '4:3 横版' },
     { value: '768*1024', label: '3:4 竖版' },
+    { value: '640*640', label: '1:1 小图' },
+    { value: '1280*1280', label: '1:1 大图' },
+    { value: '1440*720', label: '2:1 横版' },
+    { value: '720*1440', label: '1:2 竖版' },
   ]
 
   useEffect(() => {
@@ -55,6 +62,7 @@ export default function ImageGeneratorPage() {
     setGenerating(true)
     setGeneratedUrl(null)
     setError('')
+    setUsingModel('百炼通义万相...')
     try {
       const r = await fetch('/api/generate-image', {
         method: 'POST', credentials: 'include',
@@ -64,13 +72,16 @@ export default function ImageGeneratorPage() {
       const d = await r.json()
       if (d.success) {
         setGeneratedUrl(d.data.url)
+        setUsingModel(d.data.model || '百炼通义万相')
         showToast('图片生成成功')
       } else {
         setError(d.message || '生成失败')
+        setUsingModel('')
         showToast(d.message || '生成失败', 'error')
       }
     } catch {
       setError('网络错误')
+      setUsingModel('')
       showToast('网络错误', 'error')
     } finally { setGenerating(false) }
   }
@@ -191,9 +202,13 @@ export default function ImageGeneratorPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                     <p className="text-gray-400 text-xs"><span>AI 创作中</span><span className="text-[10px] opacity-50 ml-1">/ CREATING</span></p>
+                    {usingModel && <p className="text-emerald-400 text-[10px] mt-1">{usingModel}</p>}
                   </div>
                 ) : generatedUrl ? (
-                  <img src={generatedUrl} alt="generated image" className="w-full h-full object-contain" />
+                  <div className="w-full h-full flex flex-col">
+                    <img src={generatedUrl} alt="generated image" className="flex-1 w-full object-contain" />
+                    {usingModel && <p className="text-gray-500 text-[10px] text-center mt-1"><span>模型</span><span className="opacity-50 ml-1">/ MODEL</span>: {usingModel}</p>}
+                  </div>
                 ) : error ? (
                   <div className="text-center p-4">
                     <p className="text-red-400 text-xs mb-1"><span>生成失败</span><span className="text-[10px] opacity-50 ml-1">/ FAILED</span></p>

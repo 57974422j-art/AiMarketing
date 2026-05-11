@@ -639,16 +639,17 @@ async function dashscopeGenerateImage(prompt: string, size = '1024*1024'): Promi
   }
 }
 
-// 5. 文生图
-export async function generateImage(prompt: string, size = '1024*1024'): Promise<string | null> {
-  // 百炼(通义万相) → 硅基流动(SD/FLUX) → Mock
-  const dashResult = await dashscopeGenerateImage(prompt, size)
-  if (dashResult) return dashResult
+// 5. 文生图（返回 {url, model}，model 标明实际使用的模型）
+export async function generateImage(prompt: string, size = '1024*1024'): Promise<{ url: string; model: string } | null> {
+  // 百炼(通义万相) → 硅基流动 → Mock
+  const dashUrl = await dashscopeGenerateImage(prompt, size)
+  if (dashUrl) return { url: dashUrl, model: '百炼通义万相 wanx2.1-t2i-turbo' }
 
-  const result = await siliconGenerateImage(prompt);
-  if (result) return result;
+  const siliconUrl = await siliconGenerateImage(prompt)
+  if (siliconUrl) return { url: siliconUrl, model: '硅基流动 Z-Image' }
+
   console.warn('[文生图] 服务不可用');
-  return '[Mock Image URL]';
+  return null
 }
 
 // 6. 文生视频
