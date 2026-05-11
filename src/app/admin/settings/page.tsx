@@ -106,12 +106,11 @@ export default function SettingsPage() {
       });
 
       const result = await response.json();
-      setTestResult({
-        type: result.valid ? 'success' : 'error',
-        message: result.message
-      });
+      setTestResult({ type: result.valid ? 'success' : 'error', message: result.message });
+      setStatusMap(prev => ({ ...prev, deepseek: result.valid ? 'ok' : 'fail' }));
     } catch (error) {
       setTestResult({ type: 'error', message: '测试请求失败' });
+      setStatusMap(prev => ({ ...prev, deepseek: 'fail' }));
     } finally {
       setTestingDeepseek(false);
     }
@@ -136,12 +135,11 @@ export default function SettingsPage() {
       });
 
       const result = await response.json();
-      setTestResult({
-        type: result.valid ? 'success' : 'error',
-        message: result.message
-      });
+      setTestResult({ type: result.valid ? 'success' : 'error', message: result.message });
+      setStatusMap(prev => ({ ...prev, volcano: result.valid ? 'ok' : 'fail' }));
     } catch (error) {
       setTestResult({ type: 'error', message: '测试请求失败' });
+      setStatusMap(prev => ({ ...prev, volcano: 'fail' }));
     } finally {
       setTestingVolcano(false);
     }
@@ -202,12 +200,11 @@ export default function SettingsPage() {
       });
 
       const result = await response.json();
-      setTestResult({
-        type: result.valid ? 'success' : 'error',
-        message: result.message
-      });
+      setTestResult({ type: result.valid ? 'success' : 'error', message: result.message });
+      setStatusMap(prev => ({ ...prev, dashscope: result.valid ? 'ok' : 'fail' }))
     } catch (error) {
       setTestResult({ type: 'error', message: '测试请求失败' });
+      setStatusMap(prev => ({ ...prev, dashscope: 'fail' }))
     } finally {
       setTestingDashscope(false);
     }
@@ -238,12 +235,11 @@ export default function SettingsPage() {
       });
 
       const result = await response.json();
-      setTestResult({
-        type: result.valid ? 'success' : 'error',
-        message: result.message
-      });
+      setTestResult({ type: result.valid ? 'success' : 'error', message: result.message });
+      setStatusMap(prev => ({ ...prev, oss: result.valid ? 'ok' : 'fail' }))
     } catch (error) {
-      setTestResult({ type: 'error', message: '测试请求失败' });
+      setTestResult({ type: 'error', message: '测试请求 failed' });
+      setStatusMap(prev => ({ ...prev, oss: 'fail' }))
     } finally {
       setTestingOSS(false);
     }
