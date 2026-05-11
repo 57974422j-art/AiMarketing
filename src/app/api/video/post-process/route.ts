@@ -254,12 +254,7 @@ export async function POST(request: NextRequest) {
         }
         console.log('[PostProcess] 最终语音开始时间:', speechStartTime.toFixed(2), 's')
 
-        // 步骤 2b: 消除原声（-an 彻底删除所有音频轨）
-        const mutedPath = join(tempDir, `muted_${timestamp}.mp4`)
-        const muteArgs = ['-i', currentVideoPath, '-c:v', 'copy', '-an', '-y', mutedPath]
-        console.log('[PostProcess] FFmpeg 消除原声, 命令:', ffmpegPath, muteArgs.join(' '))
-        const muteResult = await execFileAsync(ffmpegPath, muteArgs)
-        console.log('[PostProcess] FFmpeg 消除原声完成')
+        // 步骤 2b: 无需单独消除原声 — 后面 merge 时直接用 -map 0:v:0 只取视频流
 
         // 步骤 2c: 逐句 TTS 生成配音（支持多人音色分配）
         const sentenceDelimiter = ttsLang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/
@@ -315,37 +310,29 @@ export async function POST(request: NextRequest) {
           const ttsDur = await getMediaDuration(fixedAudioPath)
           console.log('[PostProcess] TTS 转码音频时长:', ttsDur, 's')
 
-          // 步骤 2f: 加前导静音对齐原视频语音开始时间（用户说"配音从头就开始了" → 修复）
-          let alignedAudioPath = fixedAudioPath
-          if (speechStartTime > 0.1) {
-            alignedAudioPath = join(tempDir, `tts_aligned_${timestamp}.mp4`)
-            const delayMs = Math.round(speechStartTime * 1000)
-            const alignArgs = ['-i', fixedAudioPath, '-af', `adelay=${delayMs}|${delayMs}`, '-y', alignedAudioPath]
-            console.log('[PostProcess] TTS 对齐语音开始: delay=', delayMs, 'ms')
-            try {
-              await execFileAsync(ffmpegPath, alignArgs)
-              console.log('[PostProcess] TTS 对齐完成')
-            } catch (alignErr: any) {
-              console.error('[PostProcess] TTS 对齐失败:', alignErr.message)
-              alignedAudioPath = fixedAudioPath
-            }
-          }
-
-          // 步骤 2g: 合并消声视频 + TTS 配音 [+ 背景音]
+          // 步骤 2f: 合并视频 + TTS 配音 [+ 背景音]（合并到一次 FFmpeg 调用，消除中间文件）
+          // 用 adelay 在 filter_complex 中直接对齐，避免单独写对齐文件
           const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
+          const delayMs = Math.round(Math.max(0, speechStartTime) * 1000)
           let mergeArgs: string[]
           if (bgAudioPath) {
             mergeArgs = [
-              '-i', mutedPath, '-i', alignedAudioPath, '-i', bgAudioPath,
+              '-i', currentVideoPath, '-i', fixedAudioPath, '-i', bgAudioPath,
               '-c:v', 'copy',
-              '-filter_complex', '[1:a]volume=3.0[tts_vol];[tts_vol][2:a]amix=inputs=2:duration=longest:dropout_transition=2[aout]',
+              '-filter_complex',
+                delayMs > 100
+                  ? `[1:a]adelay=${delayMs}|${delayMs},volume=3.0[tts_vol];[tts_vol][2:a]amix=inputs=2:duration=longest:dropout_transition=2[aout]`
+                  : `[1:a]volume=3.0[tts_vol];[tts_vol][2:a]amix=inputs=2:duration=longest:dropout_transition=2[aout]`,
               '-map', '0:v:0', '-map', '[aout]', '-y', outputPath
             ]
           } else {
             mergeArgs = [
-              '-i', mutedPath, '-i', alignedAudioPath,
+              '-i', currentVideoPath, '-i', fixedAudioPath,
               '-c:v', 'copy',
-              '-filter_complex', '[1:a]volume=3.0[aout]',
+              '-filter_complex',
+                delayMs > 100
+                  ? `[1:a]adelay=${delayMs}|${delayMs},volume=3.0[aout]`
+                  : `[1:a]volume=3.0[aout]`,
               '-map', '0:v:0', '-map', '[aout]', '-y', outputPath
             ]
           }
@@ -373,10 +360,9 @@ export async function POST(request: NextRequest) {
             if (outputExists) await unlink(outputPath).catch(() => {})
           }
 
-          // 清理
+          // 清理（mutedPath/alignedAudioPath 已消除，无需清理）
           for (const segPath of segmentFiles) await unlink(segPath).catch(() => {})
           await unlink(fixedAudioPath).catch(() => {})
-          if (alignedAudioPath !== fixedAudioPath) await unlink(alignedAudioPath).catch(() => {})
           if (bgAudioPath) await unlink(bgAudioPath).catch(() => {})
         }
       } catch (error) {
@@ -480,18 +466,14 @@ export async function POST(request: NextRequest) {
         }
 
         console.log('[PostProcess] SRT 预览:\n', subtitleContent.substring(0, 500))
-        await writeFile(srtPath, subtitleContent)
 
+        // 单次写入 SRT，Linux 服务器直接用绝对路径
+        await writeFile(srtPath, subtitleContent)
+        const subtitleFilter = `subtitles=${srtPath.replace(/\\/g, '/').replace(':', '\\:')}`
         const outputPath = join(outputDir, `output_subtitle_${timestamp}.mp4`)
-        // Windows: 不能用带盘符的绝对路径，FFmpeg 会误解析；用简短文件名
-        const srtSimpleName = `sub_${timestamp}.srt`
-        const srtSimplePath = join(process.cwd(), srtSimpleName)
-        await writeFile(srtSimplePath, subtitleContent)
-        const subtitleFilter = `subtitles=${srtSimpleName}`
         const subtitleArgs = ['-i', currentVideoPath, '-vf', subtitleFilter, '-c:a', 'copy', outputPath]
         console.log('[PostProcess] FFmpeg 烧录字幕, 命令:', ffmpegPath, subtitleArgs.join(' '))
         const subResult = await execFileAsync(ffmpegPath, subtitleArgs)
-        await unlink(srtSimplePath).catch(() => {})
         console.log('[PostProcess] FFmpeg 字幕烧录完成, stdout:', subResult.stdout?.substring(0, 200), 'stderr:', subResult.stderr?.substring(0, 200))
         
         await unlink(srtPath).catch(() => {})
