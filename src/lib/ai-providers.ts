@@ -353,7 +353,7 @@ async function siliconTTS(text: string, voice = 'FunAudioLLM/CosyVoice2-0.5B:ale
 }
 
 // 硅基流动文生图
-async function siliconGenerateImage(prompt: string): Promise<string | null> {
+async function siliconGenerateImage(prompt: string, size = '1024x1024'): Promise<string | null> {
   const key = getSiliconFlowKey();
   if (!key) { console.log('[文生图] 硅基 Key 未设置，跳过'); return null; }
   try {
@@ -361,9 +361,9 @@ async function siliconGenerateImage(prompt: string): Promise<string | null> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'Z-Image-Turbo',
+        model: 'Tongyi-MAI/Z-Image-Turbo',
         prompt,
-        image_size: '1024x1024',
+        image_size: size,
         batch_size: 1,
       }),
     });
@@ -645,8 +645,8 @@ export async function generateImage(prompt: string, size = '1024*1024'): Promise
   const dashUrl = await dashscopeGenerateImage(prompt, size)
   if (dashUrl) return { url: dashUrl, model: '百炼通义万相 wanx2.1-t2i-turbo' }
 
-  const siliconUrl = await siliconGenerateImage(prompt)
-  if (siliconUrl) return { url: siliconUrl, model: '硅基流动 Z-Image' }
+  const siliconUrl = await siliconGenerateImage(prompt, size.replace(/\*/g, 'x'))
+  if (siliconUrl) return { url: siliconUrl, model: '硅基流动 Tongyi-MAI/Z-Image-Turbo' }
 
   console.warn('[文生图] 服务不可用');
   return null
