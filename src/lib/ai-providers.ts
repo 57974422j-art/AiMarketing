@@ -355,7 +355,7 @@ async function siliconTTS(text: string, voice = 'FunAudioLLM/CosyVoice2-0.5B:ale
 // 硅基流动文生图
 async function siliconGenerateImage(prompt: string): Promise<string | null> {
   const key = getSiliconFlowKey();
-  if (!key) return null;
+  if (!key) { console.log('[文生图] 硅基 Key 未设置，跳过'); return null; }
   try {
     const data = await fetchJSON(`${SILICONFLOW_BASE}/v1/images/generations`, {
       method: 'POST',
@@ -596,7 +596,8 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
 // 百炼通义万相文生图
 async function dashscopeGenerateImage(prompt: string): Promise<string | null> {
   const key = getDashScopeKey()
-  if (!key) return null
+  if (!key) { console.log('[文生图] DashScope Key 未设置，跳过'); return null }
+  console.log('[文生图] 尝试百炼通义万相...')
   try {
     // 提交异步任务（加 X-DashScope-Async 头）
     const submitRes = await fetchJSON('https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis', {
