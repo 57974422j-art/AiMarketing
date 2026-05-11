@@ -324,6 +324,7 @@ export default function SettingsPage() {
                 <label className="block text-label mb-2">
                   <span>DeepSeek API Key</span>
                   <span className="opacity-50 ml-1">DEEPSEEK</span>
+                  <StatusDot name="deepseek" />
                 </label>
                 <div className="flex gap-3">
                   <div className="flex-1 relative">
@@ -370,6 +371,7 @@ export default function SettingsPage() {
                 <label className="block text-label mb-2">
                   <span>硅基流动 API Key</span>
                   <span className="opacity-50 ml-1">SILICONFLOW</span>
+                  <StatusDot name="siliconflow" />
                 </label>
                 <div className="flex gap-3">
                   <div className="flex-1 relative">
@@ -427,6 +429,7 @@ export default function SettingsPage() {
                   <label className="block text-label mb-2">
                     <span>API Key</span>
                     <span className="opacity-50 ml-1">DASHSCOPE_API_KEY</span>
+                    <StatusDot name="dashscope" />
                   </label>
                   <div className="flex gap-3">
                     <div className="flex-1 relative">
@@ -463,6 +466,7 @@ export default function SettingsPage() {
                 <label className="block text-label mb-2">
                   <span>火山方舟 API Key</span>
                   <span className="opacity-50 ml-1">VOLCANO</span>
+                  <StatusDot name="volcano" />
                 </label>
                 <div className="flex gap-3">
                   <div className="flex-1 relative">
@@ -512,7 +516,7 @@ export default function SettingsPage() {
           <div className="p-6">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="font-medium text-white font-mono">阿里云 OSS 配置</h3>
+                <h3 className="font-medium text-white font-mono">阿里云 OSS 配置 <StatusDot name="oss" /></h3>
                 <p className="text-sm text-gray-500 mt-1">配置 OSS 用于文件存储（可选）</p>
               </div>
             </div>
