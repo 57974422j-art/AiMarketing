@@ -610,8 +610,12 @@ async function dashscopeGenerateImage(prompt: string): Promise<string | null> {
       }),
     })
 
+    console.log('[文生图] 百炼提交响应:', JSON.stringify(submitRes).substring(0, 300))
     const taskId = submitRes?.output?.task_id
-    if (!taskId) return null
+    if (!taskId) {
+      console.log('[文生图] 百炼未返回 task_id，code:', submitRes?.code, 'message:', submitRes?.message)
+      return null
+    }
 
     // 轮询直到完成（最多 60 秒）
     const baseUrl = 'https://dashscope.aliyuncs.com/api/v1/tasks'
@@ -622,10 +626,11 @@ async function dashscopeGenerateImage(prompt: string): Promise<string | null> {
         headers: { 'Authorization': `Bearer ${key}` },
       })
       const status = pollRes?.output?.task_status
-      if (status === 'SUCCEEDED') {
-        return pollRes?.output?.results?.[0]?.url || null
+      if (status === 'SUCCEEDED') return pollRes?.output?.results?.[0]?.url || null
+      if (status === 'FAILED') {
+        console.log('[文生图] 百炼任务失败:', JSON.stringify(pollRes?.output).substring(0, 200))
+        break
       }
-      if (status === 'FAILED') break
     }
     return null
   } catch (e) {
