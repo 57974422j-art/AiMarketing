@@ -37,14 +37,14 @@ export async function POST(request: NextRequest) {
         const enhancedPrompt = t.prompt + '，高清画质、电商展示风格、专业打光、干净背景、8K细节'
         const imageUrl = await generateImage(enhancedPrompt)
 
-        if (imageUrl && !imageUrl.startsWith('[Mock')) {
+        if (imageUrl?.url) {
           // 更新 previewUrl
           await prisma.$executeRawUnsafe(
             'UPDATE PromptTemplate SET previewUrl = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
-            imageUrl, t.id
+            imageUrl.url, t.id
           )
-          results.push({ id: t.id, title: t.title, success: true, url: imageUrl })
-          console.log(`[${i + 1}/${total}] ✅ ${t.title} -> ${imageUrl.substring(0, 60)}...`)
+          results.push({ id: t.id, title: t.title, success: true, url: imageUrl.url })
+          console.log(`[${i + 1}/${total}] ✅ ${t.title} -> ${imageUrl.url.substring(0, 60)}...`)
         } else {
           results.push({ id: t.id, title: t.title, success: false, error: 'AI 服务不可用，请检查硅基流动 API Key' })
           console.warn(`[${i + 1}/${total}] ❌ ${t.title} -> AI 服务不可用`)
