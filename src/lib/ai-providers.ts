@@ -448,24 +448,101 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
   }
 }
 
-// 百炼通义万相数字人视频生成
-async function dashscopeDigitalHuman(text: string, _avatar = 'default'): Promise<{ videoUrl?: string; status: string } | null> {
+// ==================== 百炼千寻数字人 ====================
+
+const DH_MODEL = process.env.DASHSCOPE_DIGITALHUMAN_MODEL || 'qwen-avatar'
+const DH_BASE = process.env.DASHSCOPE_DIGITALHUMAN_BASE_URL || 'https://dashscope.aliyuncs.com/api/v1'
+
+/** 提交形象克隆任务 */
+async function dashscopeCreateDigitalHuman(
+  audioFileUrl: string,
+  videoFileUrl: string,
+  mode: 'fast' | 'pro' = 'fast'
+): Promise<{ taskId: string } | null> {
   const key = getDashScopeKey();
   if (!key) return null;
   try {
-    const data = await fetchJSON('https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/person/video', {
+    const body = JSON.stringify({
+      model: DH_MODEL,
+      input: {
+        audio_file_url: audioFileUrl,
+        video_file_url: videoFileUrl,
+      },
+      parameters: {
+        mode,
+        // fast: 极速版 ~3分钟, pro: 精品版 ~24小时
+        // 上传的文件需先存到 OSS 并传 URL
+      },
+    });
+    console.log('[千寻] 提交形象克隆, mode:', mode);
+    const data = await fetchJSON(`${DH_BASE}/services/avatar/training`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
+      body,
+    });
+    const taskId = data?.output?.task_id || data?.task_id;
+    if (!taskId) {
+      console.error('[千寻] 创建失败, 响应:', JSON.stringify(data).substring(0, 300));
+      return null;
+    }
+    return { taskId };
+  } catch (e) {
+    console.error('[千寻] 创建形象克隆失败:', e);
+    return null;
+  }
+}
+
+/** 查询训练进度 */
+async function dashscopeQueryDigitalHumanTask(taskId: string): Promise<{
+  status: string;
+  progress: number;
+  avatarUrl?: string;
+} | null> {
+  const key = getDashScopeKey();
+  if (!key) return null;
+  try {
+    const data = await fetchJSON(`${DH_BASE}/tasks/${taskId}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${key}` },
+    });
+    const status = data?.output?.task_status || data?.output?.status || 'unknown';
+    const progress = data?.output?.task_progress ?? data?.output?.progress ?? 0;
+    const avatarUrl = data?.output?.avatar_id || data?.output?.result?.avatar_id || data?.output?.avatar_url;
+    return { status, progress, avatarUrl };
+  } catch (e) {
+    console.error('[千寻] 查询任务失败:', e);
+    return null;
+  }
+}
+
+/** 用训练好的数字人生成口播视频 */
+async function dashscopeGenerateDigitalHumanVideo(
+  avatarId: string,
+  text: string,
+  background?: string
+): Promise<{ taskId: string } | null> {
+  const key = getDashScopeKey();
+  if (!key) return null;
+  try {
+    const input: Record<string, any> = { avatar_id: avatarId, text };
+    const params: Record<string, any> = {};
+    if (background) {
+      params.background_url = background;
+    }
+    const data = await fetchJSON(`${DH_BASE}/services/avatar/video/generation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body: JSON.stringify({
-        model: 'wan.2.1-i2v-turbo',
-        input: { text },
-        parameters: { duration: 30 },
+        model: DH_MODEL,
+        input,
+        parameters: params,
       }),
     });
-    if (data?.output?.task_id) return { status: 'running', videoUrl: data.output.video_url };
-    return null;
+    const taskId = data?.output?.task_id || data?.task_id;
+    if (!taskId) return null;
+    return { taskId };
   } catch (e) {
-    console.error('[DashScope 数字人] 失败:', e);
+    console.error('[千寻] 生成口播视频失败:', e);
     return null;
   }
 }
@@ -700,12 +777,35 @@ export async function queryVideoTask(taskId: string): Promise<{ taskId: string; 
   return { taskId, status: 'completed', videoUrl: undefined };
 }
 
-// 8. 数字人
-export async function digitalHuman(text: string, _avatar = 'default'): Promise<{ videoUrl?: string; status: string } | null> {
-  // 百炼(通义万相) → 火山方舟 → Mock
-  const dashResult = await dashscopeDigitalHuman(text, _avatar);
-  if (dashResult) return dashResult;
+// 8. 数字人 — 形象克隆
+export async function createDigitalHuman(
+  audioFileUrl: string,
+  videoFileUrl: string,
+  mode: 'fast' | 'pro' = 'fast'
+): Promise<{ taskId: string } | null> {
+  return dashscopeCreateDigitalHuman(audioFileUrl, videoFileUrl, mode);
+}
 
+// 9. 查询数字人训练进度
+export async function queryDigitalHumanTask(taskId: string): Promise<{
+  status: string;
+  progress: number;
+  avatarUrl?: string;
+} | null> {
+  return dashscopeQueryDigitalHumanTask(taskId);
+}
+
+// 10. 用数字人生成口播视频（返回挂起视频播放页面的 URL）
+export async function generateDigitalHumanVideo(
+  avatarId: string,
+  text: string,
+  background?: string
+): Promise<{ taskId: string } | null> {
+  return dashscopeGenerateDigitalHumanVideo(avatarId, text, background);
+}
+
+// 保留原 digitalHuman 签名兼容（直接生成口播，不经过形象克隆）
+export async function digitalHuman(text: string, _avatar = 'default'): Promise<{ videoUrl?: string; status: string } | null> {
   const key = getVolcanoKey();
   if (key) {
     try {

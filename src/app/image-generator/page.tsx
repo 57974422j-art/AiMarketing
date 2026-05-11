@@ -86,17 +86,15 @@ export default function ImageGeneratorPage() {
     } finally { setGenerating(false) }
   }
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (!generatedUrl) return
-    try {
-      const r = await fetch(generatedUrl)
-      const blob = await r.blob()
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = `ai-image-${Date.now()}.png`
-      a.click()
-      URL.revokeObjectURL(a.href)
-    } catch { showToast('下载失败', 'error') }
+    // 尝试直接下载（同域/OSS配置了CORS时可工作）
+    const a = document.createElement('a')
+    a.href = `/api/proxy-download?url=${encodeURIComponent(generatedUrl)}`
+    a.download = `ai-image-${Date.now()}.png`
+    document.body.appendChild(a)
+    a.click()
+    setTimeout(() => document.body.removeChild(a), 2000)
   }
 
   if (authLoading) return (

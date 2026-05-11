@@ -1,381 +1,609 @@
-'use client';
+'use client'
 
-import { useState, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react'
 
-interface DigitalHuman {
-  id: number;
-  name: string;
-  avatar: string;
-  gender: 'male' | 'female' | 'cartoon';
-  voice: string;
-  description: string;
+type CloningMode = 'fast' | 'pro'
+type PageStep = 'upload' | 'training' | 'generation'
+
+const MODE_LABELS: Record<CloningMode, { label: string; desc: string; time: string }> = {
+  fast: { label: '极速版', desc: '快速生成数字人形象', time: '约 3 分钟' },
+  pro: { label: '精品版', desc: '高质量数字人形象克隆', time: '约 24 小时' },
 }
 
-interface VideoItem {
-  id: number;
-  title: string;
-  script: string;
-  human: DigitalHuman | null;
-  background: string;
-  duration: number;
-  status: 'completed' | 'generating' | 'failed';
-  progress?: number;
-  thumbnail: string;
-  createdAt: string;
-}
-
-interface DigitalHumanTemplate {
-  id: number;
-  title: string;
-  script?: string;
-  humanId?: number;
-  humanName?: string;
-  humanAvatar?: string;
-  humanGender?: string;
-  humanVoice?: string;
-  background?: string;
-  duration: number;
-  thumbnail?: string;
-  isActive: boolean;
-  createdAt: string;
-}
-
-const backgrounds = [
-  { id: 1, name: '简约纯色', url: 'https://images.unsplash.com/photo-1557683316-973673baf926?w=600&h=400&fit=crop', color: '渐变蓝' },
-  { id: 2, name: '办公场景', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&h=400&fit=crop', color: '办公室' },
-  { id: 3, name: '咖啡厅', url: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=600&h=400&fit=crop', color: '咖啡馆' },
-  { id: 4, name: '城市天台', url: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&h=400&fit=crop', color: '天台夜景' },
-  { id: 5, name: '自然风光', url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&h=400&fit=crop', color: '山川' },
-  { id: 6, name: '科技感', url: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&h=400&fit=crop', color: '科技' }
-];
+const PRESET_BG_COLORS = [
+  { name: '纯白', value: '#ffffff' },
+  { name: '浅灰', value: '#f0f0f0' },
+  { name: '商务蓝', value: '#1e3a5f' },
+  { name: '墨绿', value: '#1a3c34' },
+  { name: '深空', value: '#0d1117' },
+  { name: '暖橙', value: '#d47b3a' },
+]
 
 export default function DigitalHumanPage() {
-  const [videos, setVideos] = useState<VideoItem[]>([]);
-  const [templates, setTemplates] = useState<DigitalHumanTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [script, setScript] = useState('');
-  const [title, setTitle] = useState('');
-  const [selectedHuman, setSelectedHuman] = useState<DigitalHuman | null>(null);
-  const [selectedBg, setSelectedBg] = useState<typeof backgrounds[0] | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [generatingId, setGeneratingId] = useState<number | null>(null);
+  const [step, setStep] = useState<PageStep>('upload')
+  const [mode, setMode] = useState<CloningMode>('fast')
+  const [modeTooltip, setModeTooltip] = useState(false)
 
-  useEffect(() => {
-    fetchTemplates();
-  }, []);
+  // 上传
+  const videoRef = useRef<HTMLInputElement>(null)
+  const audioRef = useRef<HTMLInputElement>(null)
+  const [videoFile, setVideoFile] = useState<File | null>(null)
+  const [audioFile, setAudioFile] = useState<File | null>(null)
+  const [videoPreview, setVideoPreview] = useState<string>('')
+  const [uploading, setUploading] = useState(false)
 
-  const fetchTemplates = async () => {
+  // 训练
+  const [taskId, setTaskId] = useState<string>('')
+  const [trainProgress, setTrainProgress] = useState(0)
+  const [trainStatus, setTrainStatus] = useState('')
+  const [trainText, setTrainText] = useState('')
+  const [avatarId, setAvatarId] = useState<string>('')
+
+  // 口播生成
+  const [script, setScript] = useState('')
+  const [bgType, setBgType] = useState<'preset' | 'custom'>('preset')
+  const [selectedBgColor, setSelectedBgColor] = useState(PRESET_BG_COLORS[0].value)
+  const [customBg, setCustomBg] = useState<File | null>(null)
+  const [customBgPreview, setCustomBgPreview] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [genProgress, setGenProgress] = useState(0)
+  const [genTaskId, setGenTaskId] = useState('')
+  const [videoUrl, setVideoUrl] = useState('')
+  const [genError, setGenError] = useState('')
+
+  // Toast
+  const [toast, setToast] = useState('')
+  useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
+
+  // 视频文件选取
+  const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('video/')) { setToast('请上传视频文件'); return }
+    if (file.size > 200 * 1024 * 1024) { setToast('视频不能超过 200MB'); return }
+    setVideoFile(file)
+    setVideoPreview(URL.createObjectURL(file))
+  }
+
+  const handleAudioChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setAudioFile(file)
+  }
+
+  // 提交训练
+  const handleSubmitTraining = async () => {
+    if (!videoFile) { setToast('请上传真人视频'); return }
+    setUploading(true)
+    setTrainStatus('正在上传素材至 OSS...')
+    setTrainText('上传中...')
     try {
-      const res = await fetch('/api/templates/digital-human');
-      if (res.ok) {
-        const data = await res.json();
-        setTemplates(data);
-      }
-    } catch (error) {
-      console.error('获取模板失败:', error);
-    } finally {
-      setLoading(false);
+      const fd = new FormData()
+      fd.append('video', videoFile)
+      if (audioFile) fd.append('audio', audioFile)
+      fd.append('mode', mode)
+
+      const res = await fetch('/api/digital-human', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!data.success) { setToast(data.message || '提交失败'); setUploading(false); return }
+
+      setTaskId(data.taskId)
+      setStep('training')
+      setTrainProgress(0)
+      setTrainStatus('任务已提交，等待处理...')
+      setTrainText('排队中')
+      setUploading(false)
+    } catch (e: any) {
+      setToast(e.message || '提交失败')
+      setUploading(false)
     }
-  };
+  }
 
-  const handleGenerate = async () => {
-    if (!script.trim()) {
-      alert('请输入口播文案');
-      return;
-    }
-    if (!selectedHuman) {
-      alert('请选择数字人形象');
-      return;
-    }
+  // 轮询训练进度
+  useEffect(() => {
+    if (step !== 'training' || !taskId) return
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/digital-human', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'query', taskId }),
+        })
+        const data = await res.json()
+        if (!data.success) return
 
-    setIsGenerating(true);
-    const newId = Date.now();
+        const status = data.status || ''
+        const progress = data.progress ?? 0
 
-    const newVideo: VideoItem = {
-      id: newId,
-      title: title || `口播视频_${new Date().toLocaleTimeString('zh-CN')}`,
-      script,
-      human: selectedHuman,
-      background: selectedBg?.url || backgrounds[0].url,
-      duration: Math.max(15, Math.ceil(script.length / 5)),
-      status: 'generating',
-      progress: 0,
-      thumbnail: selectedBg?.url || backgrounds[0].url,
-      createdAt: new Date().toISOString()
-    };
+        setTrainProgress(progress)
+        setTrainStatus(status)
+        setTrainText(getStatusText(status, progress, mode))
 
-    setVideos(prev => [newVideo, ...prev]);
-    setGeneratingId(newId);
-    setProgress(0);
-
-    const progressInterval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 95) {
-          clearInterval(progressInterval);
-          return prev;
+        if (status === 'SUCCEEDED' && data.avatarUrl) {
+          clearInterval(interval)
+          setAvatarId(data.avatarUrl)
+          setStep('generation')
+          setToast('形象克隆完成！')
         }
-        return prev + Math.random() * 12;
-      });
-    }, 400);
+        if (status === 'FAILED') {
+          clearInterval(interval)
+          setToast('训练失败，请重试')
+          setStep('upload')
+        }
+      } catch { /* ignore */ }
+    }, mode === 'fast' ? 3000 : 15000)
 
-    await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 3000));
+    return () => clearInterval(interval)
+  }, [step, taskId, mode])
 
-    clearInterval(progressInterval);
-    setProgress(100);
+  function getStatusText(status: string, p: number, m: CloningMode): string {
+    if (!status || status === 'PENDING') return '排队中'
+    if (status === 'RUNNING') {
+      if (p < 20) return '分析视频素材中...'
+      if (p < 50) return '训练形象模型中...'
+      if (p < 80) return '优化细节中...'
+      return '即将完成...'
+    }
+    if (status === 'SUCCEEDED') return '训练完成 ✓'
+    if (status === 'FAILED') return '训练失败 ✗'
+    return status
+  }
 
-    setVideos(prev => prev.map(v =>
-      v.id === newId
-        ? { ...v, status: 'completed', progress: undefined }
-        : v
-    ));
+  // 生成口播视频
+  const handleGenerateVideo = async () => {
+    if (!script.trim()) { setToast('请输入口播文案'); return }
+    setGenerating(true)
+    setGenProgress(0)
+    setGenError('')
+    setVideoUrl('')
 
-    setGeneratingId(null);
-    setIsGenerating(false);
-    setScript('');
-    setTitle('');
-    setSelectedHuman(null);
-    setSelectedBg(null);
-  };
+    const bgUrl = bgType === 'custom' && customBgPreview ? customBgPreview : selectedBgColor
+
+    try {
+      const res = await fetch('/api/digital-human', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate',
+          avatarId,
+          text: script.trim(),
+          background: bgType === 'preset' ? undefined : bgUrl,
+        }),
+      })
+      const data = await res.json()
+      if (!data.success) { setToast(data.message || '生成失败'); setGenerating(false); return }
+
+      setGenTaskId(data.taskId)
+      pollVideoResult(data.taskId)
+    } catch (e: any) {
+      setGenError(e.message || '生成失败')
+      setGenerating(false)
+    }
+  }
+
+  const pollVideoResult = async (tid: string) => {
+    let attempts = 0
+    const maxAttempts = 300
+    const interval = setInterval(async () => {
+      attempts++
+      setGenProgress(Math.min(95, Math.floor(attempts / 3)))
+      try {
+        const res = await fetch('/api/digital-human', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'query', taskId: tid }),
+        })
+        const data = await res.json()
+        if (data.status === 'SUCCEEDED' && data.avatarUrl) {
+          clearInterval(interval)
+          setVideoUrl(data.avatarUrl)
+          setGenProgress(100)
+          setGenerating(false)
+          setToast('口播视频生成完成！')
+        }
+        if (data.status === 'FAILED') {
+          clearInterval(interval)
+          setGenError('生成失败')
+          setGenerating(false)
+        }
+      } catch { /* ignore */ }
+      if (attempts >= maxAttempts) {
+        clearInterval(interval)
+        setGenError('生成超时')
+        setGenerating(false)
+      }
+    }, 2000)
+  }
+
+  const handleDownload = () => {
+    if (videoUrl) {
+      const a = document.createElement('a')
+      a.href = videoUrl
+      a.download = `digital_human_${Date.now()}.mp4`
+      a.click()
+    }
+  }
+
+  const handleReset = () => {
+    setStep('upload')
+    setTaskId('')
+    setAvatarId('')
+    setVideoUrl('')
+    setVideoFile(null)
+    setAudioFile(null)
+    setVideoPreview('')
+    setScript('')
+    setGenTaskId('')
+    setGenError('')
+    setTrainProgress(0)
+  }
 
   return (
     <div className="min-h-screen bg-gray-950">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 bg-gray-900 border border-gray-700 text-white px-4 py-3 rounded-xl shadow-2xl font-mono text-sm animate-slide-in">
+          {toast}
+        </div>
+      )}
+
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* Header */}
         <div className="mb-8">
-          <p className="text-label mb-2">AI 工作区 / AI WORKSPACE</p>
-          <h1 className="text-mono-lg text-white">数字人视频 / DIGITAL HUMAN</h1>
+          <p className="text-xs tracking-[0.2em] text-gray-500 mb-1 font-mono">AI 工作区 / AI WORKSPACE</p>
+          <h1 className="text-2xl font-bold text-white font-mono">数字人形象克隆 / DIGITAL HUMAN</h1>
+          <p className="text-sm text-gray-500 mt-1 font-mono">
+            上传真人视频，克隆专属数字人形象，一键生成口播视频
+          </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <h2 className="text-label mb-4">CREATE VIDEO</h2>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-label mb-1">TITLE (OPTIONAL)</label>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="VIDEO TITLE..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-label mb-1">SCRIPT (REQUIRED)</label>
-                  <textarea
-                    value={script}
-                    onChange={(e) => setScript(e.target.value)}
-                    placeholder="INPUT YOUR SCRIPT..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
-                    rows={6}
-                  />
-                  <div className="text-xs text-gray-500 mt-1 font-mono">
-                    ~{Math.max(15, Math.ceil(script.length / 5))} SEC / {script.length} CHARS
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-label mb-2">SELECT HUMAN</label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      { id: 1, name: '知性姐姐小雅', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=face', gender: 'female' as const, voice: '温柔女声', description: '适合知识分享、美妆教程、生活分享' },
-                      { id: 2, name: '商务型男阿峰', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=face', gender: 'male' as const, voice: '磁性男声', description: '适合商务演讲、专业分享、产品介绍' },
-                      { id: 3, name: '可爱萌妹小糖', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop&crop=face', gender: 'female' as const, voice: '甜美女声', description: '适合才艺展示、搞笑段子、萌宠内容' },
-                      { id: 4, name: '成熟女神苏雅', avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&h=200&fit=crop&crop=face', gender: 'female' as const, voice: '知性女声', description: '适合情感话题、女性成长、生活方式' },
-                      { id: 5, name: '阳光男孩小杰', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop&crop=face', gender: 'male' as const, voice: '活力男声', description: '适合运动健身、科技数码、游戏电竞' },
-                      { id: 6, name: '卡通形象小AI', avatar: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=200&h=200&fit=crop', gender: 'cartoon' as const, voice: '可爱AI音', description: '适合品牌代言、吉祥物、虚拟主播' }
-                    ].map(human => (
-                      <button
-                        key={human.id}
-                        onClick={() => setSelectedHuman(human)}
-                        className={`p-3 rounded-xl border-2 transition-colors ${
-                          selectedHuman?.id === human.id
-                            ? 'border-emerald-500 bg-emerald-500/10'
-                            : 'border-white/10 hover:border-white/20'
-                        }`}
-                      >
-                        <img
-                          src={human.avatar}
-                          alt={human.name}
-                          className="w-16 h-16 rounded-full mx-auto mb-2 object-cover"
-                        />
-                        <div className="text-sm font-medium text-white text-center">{human.name}</div>
-                        <div className="text-xs text-gray-500 text-center font-mono">{human.voice}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-label mb-2">SELECT BACKGROUND</label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {backgrounds.map(bg => (
-                      <button
-                        key={bg.id}
-                        onClick={() => setSelectedBg(bg)}
-                        className={`relative rounded-xl overflow-hidden border-2 transition-colors ${
-                          selectedBg?.id === bg.id
-                            ? 'border-emerald-500'
-                            : 'border-white/10 hover:border-white/20'
-                        }`}
-                      >
-                        <img
-                          src={bg.url}
-                          alt={bg.name}
-                          className="w-full h-20 object-cover"
-                        />
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1">
-                          <span className="text-white text-xs font-mono">{bg.color}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleGenerate}
-                  disabled={isGenerating || !script.trim() || !selectedHuman}
-                  className="w-full px-4 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors"
-                >
-                  {isGenerating ? 'GENERATING...' : 'GENERATE VIDEO'}
-                </button>
-              </div>
-            </div>
-
-            {generatingId && (
+            {/* ===== 模式选择 ===== */}
+            {step === 'upload' && (
               <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-                <h3 className="text-label mb-4">GENERATING PROGRESS</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between text-sm text-gray-400">
-                    <span>GENERATING VIDEO...</span>
-                    <span className="font-mono">{Math.round(progress)}%</span>
-                  </div>
-                  <div className="w-full bg-white/10 rounded-full h-3">
-                    <div
-                      className="bg-emerald-500 h-3 rounded-full transition-all duration-300"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                  <div className="text-xs text-gray-500 font-mono">
-                    {progress < 20 && 'UPLOADING SCRIPT...'}
-                    {progress >= 20 && progress < 50 && 'SYNCING LIP MOVEMENT...'}
-                    {progress >= 50 && progress < 80 && 'RENDERING BACKGROUND...'}
-                    {progress >= 80 && 'SYNTHESIZING AUDIO...'}
-                  </div>
+                <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">选择克隆模式 / MODE</h2>
+                <div className="grid grid-cols-2 gap-4">
+                  {(['fast', 'pro'] as CloningMode[]).map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setMode(m)}
+                      className={`relative p-4 rounded-xl border-2 text-left transition-all ${
+                        mode === m
+                          ? 'border-emerald-500 bg-emerald-500/10'
+                          : 'border-white/10 hover:border-white/20 bg-white/5'
+                      }`}
+                    >
+                      <div className="text-sm font-bold text-white font-mono">{MODE_LABELS[m].label}</div>
+                      <div className="text-xs text-gray-400 mt-1">{MODE_LABELS[m].desc}</div>
+                      <div className="text-xs text-emerald-400 mt-1 font-mono">{MODE_LABELS[m].time}</div>
+                      {m === 'fast' && (
+                        <span className="absolute -top-2 -right-2 px-2 py-0.5 bg-emerald-500 text-white text-[10px] font-bold rounded-full">
+                          推荐
+                        </span>
+                      )}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
+
+            {/* ===== 上传区 ===== */}
+            {step === 'upload' && (
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">素材上传 / UPLOAD</h2>
+
+                <div className="space-y-4">
+                  {/* 视频上传 */}
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-2 font-mono">
+                      真人视频 <span className="text-red-400">*</span>
+                      <span className="text-gray-600 ml-2">（建议 30-120 秒，正面露脸）</span>
+                    </label>
+                    <input ref={videoRef} type="file" accept="video/*" onChange={handleVideoChange} className="hidden" />
+                    <div
+                      onClick={() => videoRef.current?.click()}
+                      className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
+                        videoPreview ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      {videoPreview ? (
+                        <div>
+                          <video src={videoPreview} className="mx-auto max-h-40 rounded-lg" controls />
+                          <p className="text-xs text-gray-400 mt-2 font-mono">{videoFile?.name} ({(videoFile!.size / 1024 / 1024).toFixed(1)}MB)</p>
+                          <p className="text-xs text-emerald-400 mt-1 font-mono">点击重新选择</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="text-3xl mb-2">🎬</div>
+                          <p className="text-sm text-gray-400 font-mono">点击上传真人视频</p>
+                          <p className="text-xs text-gray-600 mt-1">MP4 / MOV / AVI · 最大 200MB</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 音频上传（可选） */}
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-2 font-mono">
+                      录音音频 <span className="text-gray-600">（可选，用于声音克隆）</span>
+                    </label>
+                    <input ref={audioRef} type="file" accept="audio/*" onChange={handleAudioChange} className="hidden" />
+                    <div
+                      onClick={() => audioRef.current?.click()}
+                      className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors ${
+                        audioFile ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      {audioFile ? (
+                        <div>
+                          <p className="text-xs text-gray-300 font-mono">{audioFile.name}</p>
+                          <p className="text-xs text-emerald-400 mt-1 font-mono">点击重新选择</p>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="text-lg">🎤</span>
+                          <span className="text-sm text-gray-400 font-mono">可选 - 上传录音用于声音克隆</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleSubmitTraining}
+                    disabled={uploading || !videoFile}
+                    className="w-full px-4 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors font-mono"
+                  >
+                    {uploading ? '上传中...' : `开始 ${MODE_LABELS[mode].label} 训练`}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ===== 训练进度 ===== */}
+            {step === 'training' && (
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">训练进度 / TRAINING</h2>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-sm text-white font-mono">
+                        {MODE_LABELS[mode].label}训练中
+                      </span>
+                    </div>
+                    <span className="text-lg font-bold text-emerald-400 font-mono">{trainProgress}%</span>
+                  </div>
+
+                  <div className="w-full bg-white/10 rounded-full h-4 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300 transition-all duration-700"
+                      style={{ width: `${Math.min(100, trainProgress)}%` }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-gray-500 font-mono">
+                    <span>任务状态: {trainStatus}</span>
+                    <span>{trainText}</span>
+                  </div>
+
+                  <div className="text-xs text-gray-600 font-mono">
+                    {mode === 'fast'
+                      ? '极速版预计 3 分钟左右完成'
+                      : '精品版预计 24 小时内完成，请勿关闭页面'}
+                  </div>
+
+                  {trainProgress > 0 && (
+                    <div className="flex items-center gap-1 text-xs text-gray-600 font-mono">
+                      <div className="flex gap-0.5">
+                        {[...Array(5)].map((_, i) => (
+                          <div
+                            key={i}
+                            className={`w-2 h-2 rounded-full transition-all duration-500 ${
+                              trainProgress > i * 20 ? 'bg-emerald-500' : 'bg-gray-700'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ===== 口播视频生成 ===== */}
+            {step === 'generation' && (
+              <>
+                <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                  <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">口播文案 / SCRIPT</h2>
+                  <textarea
+                    value={script}
+                    onChange={(e) => setScript(e.target.value)}
+                    placeholder="输入口播文案..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono text-sm"
+                    rows={5}
+                  />
+                  <div className="text-xs text-gray-600 mt-1 font-mono">
+                    约 {Math.max(10, Math.ceil(script.length / 5))} 秒 / {script.length} 字
+                  </div>
+                </div>
+
+                {/* 背景选择 */}
+                <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                  <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">背景设置 / BACKGROUND</h2>
+
+                  <div className="flex gap-4 mb-4">
+                    <button
+                      onClick={() => setBgType('preset')}
+                      className={`px-4 py-2 rounded-lg text-xs font-mono transition-colors ${
+                        bgType === 'preset' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-gray-400 border border-white/10'
+                      }`}
+                    >
+                      纯色背景
+                    </button>
+                    <button
+                      onClick={() => setBgType('custom')}
+                      className={`px-4 py-2 rounded-lg text-xs font-mono transition-colors ${
+                        bgType === 'custom' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-gray-400 border border-white/10'
+                      }`}
+                    >
+                      自定义图片
+                    </button>
+                  </div>
+
+                  {bgType === 'preset' ? (
+                    <div className="grid grid-cols-6 gap-3">
+                      {PRESET_BG_COLORS.map(c => (
+                        <button
+                          key={c.value}
+                          onClick={() => setSelectedBgColor(c.value)}
+                          className={`w-full aspect-square rounded-xl border-2 transition-all ${
+                            selectedBgColor === c.value ? 'border-emerald-500 scale-105' : 'border-white/10'
+                          }`}
+                          style={{ backgroundColor: c.value }}
+                        >
+                          <span className="text-[10px] text-gray-400 block text-center mt-1">{c.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0]
+                          if (f) { setCustomBg(f); setCustomBgPreview(URL.createObjectURL(f)) }
+                        }}
+                        className="hidden"
+                        id="bg-upload"
+                      />
+                      <label
+                        htmlFor="bg-upload"
+                        className={`block border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
+                          customBgPreview ? 'border-emerald-500/50' : 'border-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        {customBgPreview ? (
+                          <div>
+                            <img src={customBgPreview} alt="背景" className="mx-auto max-h-24 rounded-lg" />
+                            <p className="text-xs text-gray-400 mt-1 font-mono">{customBg?.name}</p>
+                          </div>
+                        ) : (
+                          <div>
+                            <span className="text-2xl">🖼️</span>
+                            <p className="text-xs text-gray-400 mt-1 font-mono">点击上传背景图片</p>
+                          </div>
+                        )}
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                {/* 生成按钮 */}
+                <button
+                  onClick={handleGenerateVideo}
+                  disabled={generating || !script.trim()}
+                  className="w-full px-4 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors font-mono"
+                >
+                  {generating ? '生成中...' : '生成口播视频'}
+                </button>
+
+                {/* 生成进度 */}
+                {generating && (
+                  <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                    <h3 className="text-xs tracking-[0.2em] text-gray-400 mb-3 font-mono">生成进度 / PROGRESS</h3>
+                    <div className="w-full bg-white/10 rounded-full h-3">
+                      <div className="bg-gradient-to-r from-emerald-500 to-cyan-400 h-3 rounded-full transition-all duration-500" style={{ width: `${genProgress}%` }} />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2 font-mono">{genProgress}%</p>
+                  </div>
+                )}
+
+                {genError && (
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                    <p className="text-sm text-red-400 font-mono">生成失败: {genError}</p>
+                  </div>
+                )}
+
+                {/* 结果预览 */}
+                {videoUrl && (
+                  <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                    <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">生成结果 / RESULT</h2>
+                    <video src={videoUrl} controls className="w-full rounded-xl max-h-[500px]" />
+                    <div className="flex gap-3 mt-4">
+                      <button
+                        onClick={handleDownload}
+                        className="flex-1 px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 font-mono text-sm"
+                      >
+                        下载视频
+                      </button>
+                      <button
+                        onClick={handleReset}
+                        className="px-4 py-2 bg-white/10 text-gray-300 rounded-xl hover:bg-white/20 font-mono text-sm"
+                      >
+                        继续制作
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
+          {/* ===== 右侧信息面板 ===== */}
           <div className="space-y-6">
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <h3 className="text-label mb-4">HUMAN TYPES</h3>
-              <div className="space-y-4">
+              <h3 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">克隆说明 / GUIDE</h3>
+              <div className="space-y-3 text-xs text-gray-500 font-mono leading-relaxed">
                 <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
-                  <div className="font-medium text-blue-400 mb-1">IP CREATION</div>
-                  <p className="text-sm text-gray-400">BUILD PERSONAL IP, 24/7 ONLINE</p>
+                  <p className="text-blue-400 font-medium mb-1">📹 视频要求</p>
+                  <p>正面露脸 · 自然光线 · 30-120秒</p>
+                  <p className="text-gray-600">避免遮挡面部 / 大幅度运动</p>
                 </div>
-                <div className="p-3 bg-green-500/10 rounded-xl border border-green-500/20">
-                  <div className="font-medium text-green-400 mb-1">KNOWLEDGE SHARING</div>
-                  <p className="text-sm text-gray-400">EDUCATION, TRAINING CONTENT</p>
+                <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                  <p className="text-emerald-400 font-medium mb-1">⚡ 极速版</p>
+                  <p>快速生成 · 约3分钟</p>
+                  <p className="text-gray-600">适合快速测试效果</p>
                 </div>
                 <div className="p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
-                  <div className="font-medium text-purple-400 mb-1">E-COMMERCE</div>
-                  <p className="text-sm text-gray-400">PRODUCT INTRODUCTION, LIVE CLIPS</p>
+                  <p className="text-purple-400 font-medium mb-1">✨ 精品版</p>
+                  <p>高质量克隆 · 约24小时</p>
+                  <p className="text-gray-600">适合正式商用场景</p>
                 </div>
                 <div className="p-3 bg-orange-500/10 rounded-xl border border-orange-500/20">
-                  <div className="font-medium text-orange-400 mb-1">BRAND PROMO</div>
-                  <p className="text-sm text-gray-400">BRAND VIDEO, LOWER COST</p>
+                  <p className="text-orange-400 font-medium mb-1">🔊 声音克隆</p>
+                  <p>上传录音可克隆声音</p>
+                  <p className="text-gray-600">可选，不传则用默认音色</p>
                 </div>
               </div>
             </div>
 
             <div className="bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 rounded-2xl border border-emerald-500/20 p-6 text-white">
-              <h3 className="font-semibold mb-3">WHY DIGITAL HUMAN?</h3>
-              <ul className="text-sm space-y-2 text-gray-300">
-                <li>✓ NO FILMING TEAM NEEDED</li>
-                <li>✓ BREAK TIME LIMITS</li>
-                <li>✓ CONSISTENT IP IMAGE</li>
-                <li>✓ MULTI-LANGUAGE SUPPORT</li>
-                <li>✓ 80% COST REDUCTION</li>
+              <h3 className="font-semibold mb-3 font-mono text-sm">数字人优势</h3>
+              <ul className="text-xs space-y-2 text-gray-300 font-mono">
+                <li>✓ 无需真人出镜拍摄</li>
+                <li>✓ 突破时间空间限制</li>
+                <li>✓ 保持形象一致性</li>
+                <li>✓ 多语言口播支持</li>
+                <li>✓ 降低 80% 制作成本</li>
               </ul>
             </div>
-          </div>
-        </div>
 
-        <div className="mt-8">
-          <h2 className="text-label mb-4">TEMPLATE LIBRARY</h2>
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full" />
-            </div>
-          ) : templates.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10">
-              <div className="text-4xl mb-4">🎭</div>
-              <p className="text-gray-400 font-mono text-center">暂无模板，去模板库看看</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {templates.map(template => (
-                <div key={template.id} className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
-                  <div className="relative">
-                    <img
-                      src={template.thumbnail || template.background || 'https://images.unsplash.com/photo-1558628217-9d2c9e6b0e77?w=400&h=225&fit=crop'}
-                      alt={template.title}
-                      className="w-full h-40 object-cover"
-                    />
-                    {template.humanAvatar && (
-                      <img
-                        src={template.humanAvatar}
-                        alt={template.humanName || ''}
-                        className="absolute bottom-2 right-2 w-12 h-12 rounded-full border-2 border-white object-cover"
-                      />
-                    )}
-                    <span className="absolute top-2 right-2 px-2 py-1 bg-black/50 text-white text-xs font-mono rounded">
-                      {template.duration}S
-                    </span>
-                  </div>
-                  <div className="p-4">
-                    <h3 className="font-semibold text-white mb-1 truncate font-mono text-sm">{template.title}</h3>
-                    {template.script && (
-                      <p className="text-xs text-gray-500 mb-2 line-clamp-2">{template.script}</p>
-                    )}
-                    {template.humanName && (
-                      <div className="text-xs text-emerald-400 mb-2 font-mono">
-                        {template.humanName} · {template.humanVoice}
-                      </div>
-                    )}
-                    <div className="flex items-center justify-end">
-                      <button 
-                        onClick={() => {
-                          if (template.script) setScript(template.script);
-                          if (template.title) setTitle(template.title);
-                          if (template.humanName && template.humanAvatar) {
-                            setSelectedHuman({
-                              id: template.humanId || 0,
-                              name: template.humanName,
-                              avatar: template.humanAvatar,
-                              gender: (template.humanGender as 'male' | 'female' | 'cartoon') || 'female',
-                              voice: template.humanVoice || '',
-                              description: ''
-                            });
-                          }
-                        }}
-                        className="text-xs px-3 py-1.5 bg-emerald-500 text-white rounded hover:bg-emerald-600"
-                      >
-                        使用模板
-                      </button>
-                    </div>
-                  </div>
+            {/* 训练状态摘要 */}
+            {step === 'training' && taskId && (
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-4">
+                <h4 className="text-xs text-gray-400 mb-2 font-mono">任务信息</h4>
+                <div className="text-[10px] text-gray-600 font-mono break-all">
+                  <p>ID: {taskId}</p>
+                  <p>模式: {MODE_LABELS[mode].label}</p>
+                  <p>状态: {trainStatus}</p>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
-  );
+  )
 }
