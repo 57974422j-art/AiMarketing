@@ -505,6 +505,7 @@ export default function SettingsPage() {
               </div>
           </div>
         </div>
+      </div>
 
         {/* OSS 配置区域 */}
         <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 mb-6">
