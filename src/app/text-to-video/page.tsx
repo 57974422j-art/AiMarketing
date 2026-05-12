@@ -1,32 +1,53 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useLocale } from '@/i18n/context'
 
-const RATIO_OPTIONS = [
-  { value: '16:9', label: '横屏 16:9' },
-  { value: '9:16', label: '竖屏 9:16' },
-  { value: '1:1', label: '方形 1:1' },
-]
-const DURATION_OPTIONS = [5, 10, 15]
-const RES_OPTIONS = ['720P', '1080P']
+interface VideoTemplate {
+  id: number
+  title: string
+  description?: string
+  prompt: string
+  duration: number
+  style: string
+  thumbnail?: string
+  videoUrl?: string
+  isActive: boolean
+  createdAt: string
+}
+
+const durations = [5, 10, 15]
+const styles = ['电影感', '自然风光', '3D产品', '美食', '动画风', '广告感']
 
 export default function TextToVideoPage() {
+  const { t } = useLocale()
+  const [templates, setTemplates] = useState<VideoTemplate[]>([])
+  const [loading, setLoading] = useState(true)
   const [prompt, setPrompt] = useState('')
-  const [ratio, setRatio] = useState('16:9')
   const [duration, setDuration] = useState(5)
+  const [style, setStyle] = useState('电影感')
   const [resolution, setResolution] = useState('720P')
+  const [ratio, setRatio] = useState('16:9')
   const [generating, setGenerating] = useState(false)
   const [taskId, setTaskId] = useState('')
+  const [progress, setProgress] = useState(0)
   const [videoUrl, setVideoUrl] = useState('')
-  const [statusMsg, setStatusMsg] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
+  useEffect(() => { fetchTemplates() }, [])
+
+  const fetchTemplates = async () => {
+    try {
+      const r = await fetch('/api/templates/video')
+      if (r.ok) setTemplates((await r.json()).data || [])
+    } catch {} finally { setLoading(false) }
+  }
 
   const handleGenerate = async () => {
     if (!prompt.trim()) { setToast('请输入视频描述'); return }
-    setGenerating(true); setTaskId(''); setVideoUrl(''); setError(''); setStatusMsg('提交中...')
+    setGenerating(true); setTaskId(''); setVideoUrl(''); setError(''); setProgress(0)
     try {
       const r = await fetch('/api/video/text-to-video', {
         method: 'POST', credentials: 'include',
@@ -35,15 +56,15 @@ export default function TextToVideoPage() {
       })
       const d = await r.json()
       if (!d.success) { setError(d.message || '提交失败'); setGenerating(false); return }
-      if (d.videoUrl) { setVideoUrl(d.videoUrl); setStatusMsg('✅ 生成完成'); setGenerating(false); return }
+      if (d.videoUrl) { setVideoUrl(d.videoUrl); setProgress(100); setGenerating(false); return }
 
       setTaskId(d.taskId)
       for (let i = 0; i < 120; i++) {
         await new Promise(r => setTimeout(r, 3000))
-        setStatusMsg(`⏳ 生成中 (${Math.min(95, (i + 1) * 3)}%)`)
+        setProgress(Math.min(95, (i + 1) * 3))
         const q = await fetch(`/api/video/text-to-video?taskId=${d.taskId}`, { credentials: 'include' })
         const qd = await q.json()
-        if (qd.videoUrl) { setVideoUrl(qd.videoUrl); setStatusMsg('✅ 生成完成'); setGenerating(false); return }
+        if (qd.videoUrl) { setVideoUrl(qd.videoUrl); setProgress(100); setGenerating(false); return }
         if (qd.status === 'FAILED') { setError('视频生成失败'); setGenerating(false); return }
       }
       setError('生成超时，请稍后重试')
@@ -59,120 +80,213 @@ export default function TextToVideoPage() {
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <p className="text-xs tracking-[0.2em] text-gray-500 mb-1 font-mono">AI 工作区 / AI WORKSPACE</p>
-          <h1 className="text-2xl font-bold text-white font-mono">文生视频 / TEXT TO VIDEO</h1>
-          <p className="text-sm text-gray-500 mt-1 font-mono">输入描述，AI 自动生成短视频（Doubao-Seedance / wan2.7 / happyhorse）</p>
+          <p className="text-label mb-2">AI 工作区 / AI WORKSPACE</p>
+          <h1 className="text-mono-lg text-white">{t.textToVideo.title} / TEXT-TO-VIDEO</h1>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            {/* 提示词 */}
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">视频描述 / PROMPT</h2>
-              <textarea value={prompt} onChange={e => { setPrompt(e.target.value); setVideoUrl('') }}
-                placeholder="描述你想生成的视频内容，如：一只橘猫在花园里追蝴蝶，阳光明媚，慢动作"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono text-sm min-h-[120px] resize-y" rows={4} />
+              <h2 className="text-label mb-4">{t.textToVideo.createNew}</h2>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-label mb-1">{t.textToVideo.promptRequired}</label>
+                  <textarea value={prompt} onChange={e => { setPrompt(e.target.value); setVideoUrl('') }}
+                    placeholder={t.textToVideo.describeVideo}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
+                    rows={4} />
+                </div>
+
+                {/* 参数行：时长、风格、比例、分辨率 */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-label mb-1">{t.textToVideo.duration}</label>
+                    <div className="flex gap-1 flex-wrap">
+                      {durations.map(d => (
+                        <button key={d} type="button" onClick={() => setDuration(d)}
+                          className={`px-2 py-1.5 rounded text-xs ${duration === d ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+                          {d}{t.textToVideo.seconds}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-label mb-1">{t.textToVideo.style}</label>
+                    <select value={style} onChange={e => setStyle(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50">
+                      {styles.map(s => <option key={s} value={s} className="bg-gray-900">{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-label mb-1">画面比例</label>
+                    <div className="flex gap-1 flex-wrap">
+                      {['16:9', '9:16', '1:1'].map(r => (
+                        <button key={r} type="button" onClick={() => setRatio(r)}
+                          className={`px-2 py-1.5 rounded text-xs ${ratio === r ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-label mb-1">分辨率</label>
+                    <div className="flex gap-1 flex-wrap">
+                      {['720P', '1080P'].map(r => (
+                        <button key={r} type="button" onClick={() => setResolution(r)}
+                          className={`px-2 py-1.5 rounded text-xs ${resolution === r ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 错误 */}
+                {error && (
+                  <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20 text-sm text-red-400 font-mono">
+                    ❌ {error}
+                  </div>
+                )}
+
+                {/* 进度 */}
+                {taskId && !videoUrl && (
+                  <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                    <h3 className="text-label mb-4">{t.textToVideo.generatingProgress}</h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm text-gray-400">
+                        <span>⏳ {t.textToVideo.generating}...</span>
+                        <span className="font-mono">{progress}%</span>
+                      </div>
+                      <div className="w-full bg-white/10 rounded-full h-3">
+                        <div className="bg-gradient-to-r from-emerald-500 to-cyan-400 h-3 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
+                      </div>
+                      <div className="text-xs text-gray-500 font-mono">
+                        {progress < 30 && '🎬 ' + t.textToVideo.analyzingPrompt}
+                        {progress >= 30 && progress < 60 && '🎞️ ' + t.textToVideo.renderingFrames}
+                        {progress >= 60 && progress < 90 && '💡 ' + t.textToVideo.processingLight}
+                        {progress >= 90 && '🔊 ' + t.textToVideo.synthesizingAudio}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 结果 */}
+                {videoUrl && (
+                  <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                    <h2 className="text-label mb-4">生成结果 / RESULT</h2>
+                    <video src={videoUrl} controls className="w-full rounded-xl max-h-[500px]" />
+                    <p className="text-xs text-gray-500 mt-2 font-mono">链接 24 小时内有效，可右键下载保存</p>
+                  </div>
+                )}
+
+                <button onClick={handleGenerate}
+                  disabled={generating || !prompt.trim()}
+                  className="w-full px-4 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors">
+                  {generating ? `${t.textToVideo.generating} ${progress}%` : t.textToVideo.generate}
+                </button>
+              </div>
             </div>
 
-            {/* 参数设置 */}
+            {/* 提示词技巧 */}
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">参数设置 / SETTINGS</h2>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-2 font-mono">画面比例</label>
-                  <div className="flex gap-2 flex-wrap">
-                    {RATIO_OPTIONS.map(r => (
-                      <button key={r.value} type="button" onClick={() => setRatio(r.value)}
-                        className={`px-3 py-1.5 rounded-lg text-xs ${ratio === r.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
-                        {r.label}
-                      </button>
-                    ))}
-                  </div>
+              <h2 className="text-label mb-4">{t.textToVideo.promptTips}</h2>
+              <div className="space-y-3 text-sm text-gray-400">
+                <div className="flex items-start gap-2">
+                  <span className="text-emerald-400 font-bold">1.</span>
+                  <span>{t.textToVideo.describeScene}</span>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-2 font-mono">时长</label>
-                  <div className="flex gap-2 flex-wrap">
-                    {DURATION_OPTIONS.map(d => (
-                      <button key={d} type="button" onClick={() => setDuration(d)}
-                        className={`px-3 py-1.5 rounded-lg text-xs ${duration === d ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
-                        {d}秒
-                      </button>
-                    ))}
-                  </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-emerald-400 font-bold">2.</span>
+                  <span>{t.textToVideo.specifyCamera}</span>
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-2 font-mono">分辨率</label>
-                  <div className="flex gap-2 flex-wrap">
-                    {RES_OPTIONS.map(r => (
-                      <button key={r} type="button" onClick={() => setResolution(r)}
-                        className={`px-3 py-1.5 rounded-lg text-xs ${resolution === r ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
-                        {r}
-                      </button>
-                    ))}
-                  </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-emerald-400 font-bold">3.</span>
+                  <span>{t.textToVideo.describeMotion}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-emerald-400 font-bold">4.</span>
+                  <span>{t.textToVideo.specifyStyle}</span>
                 </div>
               </div>
             </div>
-
-            {/* 错误提示 */}
-            {error && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4">
-                <p className="text-sm text-red-400 font-mono">❌ {error}</p>
-              </div>
-            )}
-
-            {/* 生成进度 */}
-            {taskId && !videoUrl && (
-              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm text-gray-300 font-mono">{statusMsg}</span>
-                  <span className="text-xs text-gray-500">任务: {taskId.substring(0, 8)}...</span>
-                </div>
-                <div className="w-full bg-white/10 rounded-full h-3">
-                  <div className="bg-gradient-to-r from-emerald-500 to-cyan-400 h-3 rounded-full transition-all duration-500" style={{ width: `${Math.min(95, parseInt(statusMsg.match(/\d+/)?.[0] || '0'))}%` }} />
-                </div>
-              </div>
-            )}
-
-            {/* 结果 */}
-            {videoUrl && (
-              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-                <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">生成结果 / RESULT</h2>
-                <video src={videoUrl} controls className="w-full rounded-xl max-h-[500px]" />
-                <p className="text-xs text-gray-500 mt-2 font-mono">链接 24 小时内有效，可右键下载保存</p>
-              </div>
-            )}
           </div>
 
-          {/* 右侧面板 */}
+          {/* 右侧 */}
           <div className="space-y-6">
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <h3 className="text-xs tracking-[0.2em] text-gray-400 mb-3 font-mono">模型说明 / MODELS</h3>
-              <div className="space-y-2 text-xs text-gray-500 font-mono">
-                <div className="p-2.5 bg-blue-500/10 rounded-xl border border-blue-500/20">
-                  <p className="text-blue-400 font-medium mb-0.5">1. Doubao-Seedance 2.0</p>
-                  <p>火山引擎 · 15s · 720P/1080P · 支持自定义音频</p>
-                </div>
-                <div className="p-2.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
-                  <p className="text-emerald-400 font-medium mb-0.5">2. wan2.7-t2v</p>
-                  <p>阿里百炼 · 15s · 720P/1080P · 30fps</p>
-                </div>
-                <div className="p-2.5 bg-purple-500/10 rounded-xl border border-purple-500/20">
-                  <p className="text-purple-400 font-medium mb-0.5">3. happyhorse-1.0-t2v</p>
-                  <p>阿里百炼 · 15s · 720P · 自动配音（兜底）</p>
-                </div>
+              <h2 className="text-label mb-4">{t.textToVideo.sceneSuggestions}</h2>
+              <div className="space-y-3">
+                {[
+                  { title: t.textToVideo.citySkyline, desc: t.textToVideo.citySkylineDesc },
+                  { title: t.textToVideo.productDisplay, desc: t.textToVideo.productDisplayDesc },
+                  { title: t.textToVideo.natureScenery, desc: t.textToVideo.natureSceneryDesc },
+                  { title: t.textToVideo.foodCloseUp, desc: t.textToVideo.foodCloseUpDesc }
+                ].map((item, idx) => (
+                  <button key={idx} onClick={() => setPrompt(item.desc)}
+                    className="w-full text-left p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
+                    <div className="font-medium text-white text-sm">{item.title}</div>
+                    <div className="text-xs text-gray-500 mt-1">{item.desc}</div>
+                  </button>
+                ))}
               </div>
             </div>
 
-            {!generating && !videoUrl && (
-              <button onClick={handleGenerate} disabled={!prompt.trim()}
-                className="w-full px-4 py-3 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white rounded-xl hover:opacity-90 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-all font-mono">
-                ✨ 生成视频
-              </button>
-            )}
+            <div className="bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 rounded-2xl border border-emerald-500/20 p-6 text-white">
+              <h3 className="font-semibold mb-2">{t.textToVideo.useCases}</h3>
+              <ul className="text-sm space-y-2 text-gray-300">
+                <li>• {t.textToVideo.socialMedia}</li>
+                <li>• {t.textToVideo.ecommerce}</li>
+                <li>• {t.textToVideo.brandPromotion}</li>
+                <li>• {t.textToVideo.educational}</li>
+                <li>• {t.textToVideo.personalIp}</li>
+              </ul>
+            </div>
           </div>
+        </div>
+
+        {/* 底部模板库 */}
+        <div className="mt-8">
+          <h2 className="text-label mb-4">{t.textToVideo.historyRecords}</h2>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full" />
+            </div>
+          ) : templates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10">
+              <div className="text-4xl mb-4">📽️</div>
+              <p className="text-gray-400 font-mono text-center">暂无模板，去模板库看看</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {templates.map(template => (
+                <div key={template.id} className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
+                  <div className="relative">
+                    <img src={template.thumbnail || 'https://images.unsplash.com/photo-1536240478700-b869ad10e128?w=400&h=225&fit=crop'}
+                      alt={template.title} className="w-full h-40 object-cover" />
+                    <span className="absolute top-2 right-2 px-2 py-1 bg-black/50 text-white text-xs font-mono rounded">
+                      {template.duration}S
+                    </span>
+                    <span className="absolute bottom-2 left-2 px-2 py-1 bg-emerald-500 text-white text-xs rounded">
+                      {template.style}
+                    </span>
+                  </div>
+                  <div className="p-4">
+                    <h3 className="font-semibold text-white mb-1 truncate font-mono text-sm">{template.title}</h3>
+                    <p className="text-xs text-gray-500 mb-2 line-clamp-2">{template.description || template.prompt}</p>
+                    <div className="flex items-center justify-end">
+                      <button onClick={() => { setPrompt(template.prompt); setStyle(template.style); setDuration(Math.min(15, Math.max(5, template.duration))) }}
+                        className="text-xs px-3 py-1.5 bg-emerald-500 text-white rounded hover:bg-emerald-600">
+                        使用模板
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
