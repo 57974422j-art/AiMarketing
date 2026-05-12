@@ -80,7 +80,7 @@ export default function VideoEditPage() {
   const { t } = useLocale()
   
   // 页面模式切换
-  const [pageMode, setPageMode] = useState<'edit' | 'postProcess' | 'textToVideo'>('edit');
+  const [pageMode, setPageMode] = useState<'edit' | 'postProcess'>('edit');
   
   // 基础视频剪辑状态
   const [videos, setVideos] = useState<VideoFile[]>([]);
