@@ -50,7 +50,7 @@ function createOSSClient() {
   const accessKeySecret = process.env.OSS_ACCESS_KEY_SECRET
   const bucket = process.env.OSS_BUCKET
   if (!accessKeyId || !accessKeySecret || !bucket) throw new Error('OSS 配置不完整')
-  return new OSS({ region, accessKeyId, accessKeySecret, bucket, secure: true })
+  return new OSS({ region, accessKeyId, accessKeySecret, bucket, secure: true, timeout: '300s' })
 }
 
 function generateUniqueFileName(ext: string): string {
@@ -61,14 +61,20 @@ function generateUniqueFileName(ext: string): string {
 
 async function uploadToOSS(filePath: string, objectName: string): Promise<string | null> {
   try {
+    console.log('[OSS] 开始上传:', objectName, '本地路径:', filePath)
     const client = createOSSClient()
     const bucket = process.env.OSS_BUCKET || ''
     await client.put(objectName, filePath, { headers: { 'x-oss-object-acl': 'public-read' } })
     console.log('[OSS] 上传成功:', objectName)
     const region = process.env.OSS_REGION || 'oss-cn-hangzhou'
     return `https://${bucket}.${region}.aliyuncs.com/${objectName}`
-  } catch (error) {
-    console.error('[OSS] 上传失败:', error)
+  } catch (error: any) {
+    const errMsg = error?.name === 'ConnectionTimeoutError' ? 'OSS 连接超时，请检查网络/OSS 配置'
+      : error?.code === 'NoSuchBucket' ? `OSS 存储桶不存在: ${process.env.OSS_BUCKET}`
+      : error?.code === 'InvalidAccessKeyId' ? 'OSS AccessKey 无效'
+      : error?.code === 'SignatureDoesNotMatch' ? 'OSS 密钥签名不匹配'
+      : error?.message || '未知 OSS 错误'
+    console.error('[OSS] 上传失败:', errMsg, error)
     return null
   }
 }
@@ -498,7 +504,7 @@ export async function POST(request: NextRequest) {
         const ossName = generateUniqueFileName('mp4')
         ossFinalUrl = await uploadToOSS(localFilePath, ossName)
         if (!ossFinalUrl) {
-          throw new Error('OSS 上传失败，请检查 OSS 配置')
+          throw new Error('OSS 上传失败，详情请查看服务器日志 (pm2 logs)')
         }
         // 上传成功，删除本地成品文件
         await unlink(localFilePath).catch(() => {})

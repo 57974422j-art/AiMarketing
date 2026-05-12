@@ -93,7 +93,8 @@ function createOSSClient() {
     accessKeyId,
     accessKeySecret,
     bucket,
-    secure: true
+    secure: true,
+    timeout: '300s',
   });
 }
 

@@ -551,13 +551,13 @@ export default function VideoEditPage() {
       const steps: { key: PostProcessStepKey; label: string; enabled: boolean; progressMsg: string; doneMsg: string }[] = [];
 
       if (postProcessing.enableTranslateSubtitle && targetLanguage && targetLanguage !== 'zh') {
-        steps.push({ key: 'translate', label: '字幕翻译', enabled: true, progressMsg: '🌐 正在翻译字幕...', doneMsg: '翻译完成 ✓' });
+        steps.push({ key: 'translate', label: '字幕翻译', enabled: true, progressMsg: '🌐 正在翻译字幕 (AI)...', doneMsg: '翻译完成 ✓' });
       }
       if (postProcessing.enableTTS) {
-        steps.push({ key: 'tts', label: '配音', enabled: true, progressMsg: '🎤 正在生成配音...', doneMsg: '配音完成 ✓' });
+        steps.push({ key: 'tts', label: '配音', enabled: true, progressMsg: '🎤 正在生成配音 (TTS)...', doneMsg: '配音完成 ✓' });
       }
       if (postProcessing.enableSubtitle || postProcessing.enableTranslateSubtitle) {
-        steps.push({ key: 'subtitle', label: '字幕烧录', enabled: true, progressMsg: '📄 正在烧录字幕...', doneMsg: '字幕完成 ✓' });
+        steps.push({ key: 'subtitle', label: '字幕烧录', enabled: true, progressMsg: '📄 正在烧录字幕 (FFmpeg)...', doneMsg: '字幕完成 ✓' });
       }
 
       // 构造请求体（字幕独立：即使无文案也可由 FunASR 自行识别）
@@ -600,6 +600,12 @@ export default function VideoEditPage() {
         setCurrentProcessStep(`⏳ 正在处理: ${steps.map(s => s.label).join(' → ')}`);
       }
       setProgress(40);
+      // 模拟步骤进度，让用户看到动态变化
+      const simInterval = setInterval(() => {
+        setProgress(prev => prev < 75 ? prev + Math.random() * 5 : prev)
+      }, 2000)
+      // 在 API 返回前持续更新
+      Promise.resolve().then(() => { setTimeout(() => clearInterval(simInterval), 120000) })
 
       console.log('[Continue] 请求体:', JSON.stringify(postBody));
       const postRes = await fetch('/api/video/post-process', {
@@ -640,7 +646,9 @@ export default function VideoEditPage() {
         throw new Error(postData.message || '后期处理失败');
       }
     } catch (error) {
-      setErrorMessage('处理失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      const errMsg = error instanceof Error ? error.message : '未知错误';
+      setErrorMessage('❌ ' + errMsg);
+      setCurrentProcessStep('⚠️ 出错: ' + errMsg);
     } finally {
       setIsProcessing(false);
       setCurrentStepKey(null);
