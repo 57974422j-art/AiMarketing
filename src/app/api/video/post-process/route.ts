@@ -490,17 +490,22 @@ export async function POST(request: NextRequest) {
     if (options.enableFaceSwap) console.log('[PostProcess] 换脸暂未实现')
     if (options.enableLipSync) console.log('[PostProcess] 对口型暂未实现')
 
-    // 上传 OSS
+    // 上传 OSS（必选，失败则任务失败）
     let ossFinalUrl: string | null = null
     if (processSteps.length > 0 && finalVideoUrl !== actualVideoUrl) {
       const localFilePath = join(process.cwd(), 'public', finalVideoUrl.replace(/^\//, ''))
       if (existsSync(localFilePath)) {
         const ossName = generateUniqueFileName('mp4')
         ossFinalUrl = await uploadToOSS(localFilePath, ossName)
+        if (!ossFinalUrl) {
+          throw new Error('OSS 上传失败，请检查 OSS 配置')
+        }
+        // 上传成功，删除本地成品文件
+        await unlink(localFilePath).catch(() => {})
       }
     }
 
-    // 清理超过 1 小时的临时文件（muted_、subtitle_ 等）
+    // 清理超过 1 小时的临时文件
     try {
       const tempFiles = await import('fs').then(fs => fs.promises.readdir(tempDir))
       const now = Date.now()
@@ -510,26 +515,22 @@ export async function POST(request: NextRequest) {
           const stat = await import('fs').then(fs => fs.promises.stat(filePath))
           if (now - stat.mtimeMs > TEMP_FILE_RETENTION) {
             await unlink(filePath).catch(() => {})
-            console.log('[PostProcess] 清理过期临时文件:', filePath)
           }
         } catch {}
       }
-    } catch (error) {
-      console.error('[PostProcess] 清理临时文件失败:', error)
-    }
+    } catch {}
 
     const elapsed = Date.now() - startTime
     console.log('[PostProcess] ====== 处理完成 ======')
     console.log('[PostProcess] 耗时:', elapsed, 'ms')
     console.log('[PostProcess] 执行步骤:', processSteps)
-    console.log('[PostProcess] 输出URL:', ossFinalUrl || finalVideoUrl)
+    console.log('[PostProcess] 输出OSS URL:', ossFinalUrl)
 
-    // 清理 FunASR 缓存
     funasrCache = undefined
 
     return NextResponse.json({
       success: true,
-      videoUrl: ossFinalUrl || finalVideoUrl,
+      videoUrl: ossFinalUrl,
       processSteps,
       debug: { elapsed_ms: elapsed, steps: processSteps }
     })

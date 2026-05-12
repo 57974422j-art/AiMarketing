@@ -1475,12 +1475,7 @@ export default function VideoEditPage() {
                 <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
                   <div>
                     <p className="text-emerald-400 font-mono">{t.videoEdit.processingComplete.toUpperCase()}</p>
-                <a
-                  href={outputUrl.startsWith('/') ? outputUrl : `/api/proxy-download?url=${encodeURIComponent(outputUrl)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-emerald-400 hover:text-emerald-300 mt-1 inline-block"
-                >
+                <a href={outputUrl} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300 mt-1 inline-block">
                   {t.videoEdit.downloadVideo.toUpperCase()} ↗
                 </a>
                   </div>
@@ -1521,14 +1516,8 @@ export default function VideoEditPage() {
                         </div>
                         <div className="flex items-center gap-3">
                           {(task.downloadUrl || task.outputPath) && (
-                            <a
-                              href={(task.downloadUrl || task.outputPath || '').startsWith('/')
-                                ? (task.downloadUrl || task.outputPath)
-                                : `/api/proxy-download?url=${encodeURIComponent(task.downloadUrl || task.outputPath || '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-3 py-1 text-sm bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30"
-                            >
+                            <a href={task.downloadUrl || task.outputPath} target="_blank" rel="noopener noreferrer"
+                              className="px-3 py-1 text-sm bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30">
                               {t.videoEdit.downloadVideo}
                             </a>
                           )}

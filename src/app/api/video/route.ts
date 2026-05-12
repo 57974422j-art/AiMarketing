@@ -394,7 +394,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 上传到 OSS
+    // 上传到 OSS（必选，上传失败则任务失败）
     let ossUrl = '';
     try {
       const ossFileName = generateUniqueFileName('mp4');
@@ -402,16 +402,14 @@ export async function POST(request: NextRequest) {
       console.log('[Video] OSS 上传成功:', ossUrl);
     } catch (ossError) {
       console.error('[Video] OSS 上传失败:', ossError);
-      // OSS 上传失败，保留本地文件，返回本地路径
+      // 清理临时文件
+      if (existsSync(tempOutput)) unlinkSync(tempOutput)
+      return NextResponse.json({ success: false, message: 'OSS 上传失败，请检查 OSS 配置' }, { status: 500 })
     }
 
-    // 如果 OSS 上传成功，清理本地临时文件；否则保留供下载
-    if (ossUrl) {
-      if (existsSync(tempOutput)) {
-        unlinkSync(tempOutput)
-      }
-    } else {
-      console.log('[Video] OSS 未上传成功，保留本地文件:', tempOutput)
+    // 清理本地临时文件
+    if (existsSync(tempOutput)) {
+      unlinkSync(tempOutput)
     }
 
     if (user) {
@@ -426,21 +424,19 @@ export async function POST(request: NextRequest) {
           duration,
           style: styleWithResolution,
           status: 'completed',
-          outputPath: ossUrl || tempOutput.replace(join(process.cwd(), 'public'), ''),
+          outputPath: ossUrl,
           progress: 100
         }
       })
-      console.log('[Video] Task saved to database:', videoTask.id)
+      console.log('[Video] Task saved to database:', videoTask.id, 'OSS:', ossUrl)
     }
-
-    const localOutputUrl = tempOutput.replace(join(process.cwd(), 'public'), '').replace(/\\/g, '/');
 
     return NextResponse.json({
       success: true,
       message: '视频剪辑任务已完成',
       taskId,
-      outputUrl: ossUrl || localOutputUrl,
-      downloadUrl: ossUrl || localOutputUrl
+      outputUrl: ossUrl,
+      downloadUrl: ossUrl
     })
   } catch (error) {
     console.error('视频剪辑错误:', error)
