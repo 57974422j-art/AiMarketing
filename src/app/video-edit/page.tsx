@@ -311,18 +311,8 @@ export default function VideoEditPage() {
     }
   }
 
-  // 文生视频状态
-  const [t2vPrompt, setT2vPrompt] = useState('')
-  const [t2vAspectRatio, setT2vAspectRatio] = useState('16:9')
-  const [t2vDuration, setT2vDuration] = useState(5)
-  const [t2vResolution, setT2vResolution] = useState('720P')
-  const [t2vTaskId, setT2vTaskId] = useState('')
-  const [t2vVideoUrl, setT2vVideoUrl] = useState('')
-  const [t2vPolling, setT2vPolling] = useState(false)
-  const [t2vMessage, setT2vMessage] = useState('')
-
   // 模式切换时重置状态
-  const handleModeSwitch = (mode: 'edit' | 'postProcess' | 'textToVideo') => {
+  const handleModeSwitch = (mode: 'edit' | 'postProcess') => {
     if (mode !== pageMode) {
       setPageMode(mode);
       setOutputUrl('');
@@ -338,7 +328,6 @@ export default function VideoEditPage() {
         faceswap: { status: 'pending', completed: false },
       });
       setCurrentStepKey(null);
-      setT2vTaskId(''); setT2vVideoUrl(''); setT2vPolling(false); setT2vMessage('');
     }
   }
 
@@ -666,51 +655,6 @@ export default function VideoEditPage() {
     }
   };
 
-  // 文生视频提交
-  const handleTextToVideo = async () => {
-    if (!t2vPrompt.trim()) { setErrorMessage('请输入视频描述'); return }
-    setT2vPolling(true)
-    setT2vTaskId('')
-    setT2vVideoUrl('')
-    setT2vMessage('提交中...')
-    setErrorMessage('')
-    try {
-      const res = await fetch('/api/video/text-to-video', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: t2vPrompt.trim(), aspectRatio: t2vAspectRatio, duration: t2vDuration, resolution: t2vResolution }),
-      })
-      const data = await res.json()
-      if (!data.success) { setErrorMessage(data.message || '提交失败'); setT2vPolling(false); return }
-
-      if (data.videoUrl) {
-        setT2vVideoUrl(data.videoUrl)
-        setT2vMessage('✅ 生成完成')
-        setT2vPolling(false)
-        setSuccessMessage('视频生成完成，24 小时内有效')
-        return
-      }
-
-      setT2vTaskId(data.taskId)
-      setT2vMessage('⏳ 任务已提交，轮询中...')
-      // 轮询结果
-      for (let i = 0; i < 120; i++) {
-        await new Promise(r => setTimeout(r, 3000))
-        const qRes = await fetch(`/api/video/text-to-video?taskId=${data.taskId}`, { credentials: 'include' })
-        const qData = await qRes.json()
-        if (qData.videoUrl) {
-          setT2vVideoUrl(qData.videoUrl)
-          setT2vMessage('✅ 生成完成')
-          setSuccessMessage('视频生成完成，24 小时内有效')
-          break
-        }
-        if (qData.status === 'FAILED') { setErrorMessage('视频生成失败'); break }
-        setT2vMessage(`⏳ 生成中... (${i + 1}/120)`)
-      }
-    } catch (e: any) { setErrorMessage(e.message || '请求失败') }
-    finally { setT2vPolling(false) }
-  };
-
   // 自动识别语音
   const handleTranscribe = async () => {
     if (videos.length === 0) {
@@ -889,21 +833,7 @@ export default function VideoEditPage() {
             后期处理
           </span>
         </button>
-        <button
-          onClick={() => handleModeSwitch('textToVideo')}
-          className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${
-            pageMode === 'textToVideo'
-              ? 'bg-cyan-500 text-white shadow-lg'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-            </svg>
-            文生视频
-          </span>
-        </button>
+
       </div>
     </div>
   );
@@ -1453,70 +1383,6 @@ export default function VideoEditPage() {
                     )}
                   </div>
                 </form>
-              ) : pageMode === 'textToVideo' ? (
-                /* 文生视频模式 */
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-label mb-2">视频描述 / PROMPT</label>
-                    <textarea value={t2vPrompt} onChange={e => { setT2vPrompt(e.target.value); setT2vVideoUrl('') }}
-                      placeholder="描述你想生成的视频内容..."
-                      className="input-dark min-h-[120px] resize-y" rows={4} />
-                  </div>
-                  <div>
-                    <label className="block text-label mb-2">画面比例 / ASPECT RATIO</label>
-                    <div className="flex gap-2 flex-wrap">
-                      {[
-                        { value: '16:9', label: '横屏 16:9' },
-                        { value: '9:16', label: '竖屏 9:16' },
-                        { value: '1:1', label: '方形 1:1' },
-                      ].map(opt => (
-                        <button key={opt.value} type="button" onClick={() => setT2vAspectRatio(opt.value)}
-                          className={`px-3 py-1.5 rounded-lg text-xs ${t2vAspectRatio === opt.value ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-label mb-2">时长 / DURATION</label>
-                      <div className="flex gap-2 flex-wrap">
-                        {[5, 10, 15].map(d => (
-                          <button key={d} type="button" onClick={() => setT2vDuration(d)}
-                            className={`px-3 py-1.5 rounded-lg text-xs ${t2vDuration === d ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
-                            {d}s
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-label mb-2">分辨率 / RESOLUTION</label>
-                      <div className="flex gap-2 flex-wrap">
-                        {[{ v: '720P', l: '720P' }, { v: '1080P', l: '1080P' }].map(r => (
-                          <button key={r.v} type="button" onClick={() => setT2vResolution(r.v)}
-                            className={`px-3 py-1.5 rounded-lg text-xs ${t2vResolution === r.v ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
-                            {r.l}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <button onClick={handleTextToVideo} disabled={t2vPolling || !t2vPrompt.trim()}
-                    className="w-full px-4 py-3 bg-cyan-500 text-white rounded-xl hover:bg-cyan-600 disabled:bg-gray-700 disabled:cursor-not-allowed transition-colors font-mono text-sm">
-                    {t2vPolling ? t2vMessage || '提交中...' : '✨ 生成视频'}
-                  </button>
-                  {t2vTaskId && (
-                    <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-xs text-cyan-400 font-mono break-all">
-                      任务 ID: {t2vTaskId}<br />{t2vMessage}
-                    </div>
-                  )}
-                  {t2vVideoUrl && (
-                    <div>
-                      <video src={t2vVideoUrl} controls className="w-full rounded-xl max-h-[400px]" />
-                      <p className="text-xs text-gray-500 mt-2 font-mono">链接 24 小时内有效，可右键下载</p>
-                    </div>
-                  )}
-                </div>
               ) : (
                 /* 剪辑模式 */
                 <form onSubmit={handleEditSubmit} className="space-y-6">
