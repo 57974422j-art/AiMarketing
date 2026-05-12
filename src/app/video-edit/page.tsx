@@ -1476,7 +1476,7 @@ export default function VideoEditPage() {
                   <div>
                     <p className="text-emerald-400 font-mono">{t.videoEdit.processingComplete.toUpperCase()}</p>
                 <a
-                  href={outputUrl.startsWith('http') ? outputUrl : `/api/proxy-download?url=${encodeURIComponent(window.location.origin + outputUrl)}`}
+                  href={outputUrl.startsWith('/') ? outputUrl : `/api/proxy-download?url=${encodeURIComponent(outputUrl)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-emerald-400 hover:text-emerald-300 mt-1 inline-block"
@@ -1522,9 +1522,9 @@ export default function VideoEditPage() {
                         <div className="flex items-center gap-3">
                           {(task.downloadUrl || task.outputPath) && (
                             <a
-                              href={(task.downloadUrl || task.outputPath || '').startsWith('http')
+                              href={(task.downloadUrl || task.outputPath || '').startsWith('/')
                                 ? (task.downloadUrl || task.outputPath)
-                                : `/api/proxy-download?url=${encodeURIComponent(window.location.origin + (task.downloadUrl || task.outputPath))}`}
+                                : `/api/proxy-download?url=${encodeURIComponent(task.downloadUrl || task.outputPath || '')}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="px-3 py-1 text-sm bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30"
