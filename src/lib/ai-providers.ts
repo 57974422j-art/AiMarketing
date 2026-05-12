@@ -410,24 +410,24 @@ async function dashscopeTranslate(text: string, toLang: string, fromLang = 'zh')
 }
 
 // 百炼通义万相文生视频
-async function dashscopeGenerateVideo(prompt: string, _aspectRatio = '16:9'): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+async function dashscopeGenerateVideo(prompt: string, _duration = 5, _resolution = '720P', _ratio = '16:9', _model?: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
   const key = getDashScopeKey();
   if (!key) return null;
+  const model = _model || 'wan2.7-t2v-2026-04-25'
   try {
-    const ratio = _aspectRatio === '16:9' ? '1280:720' : '720:1280';
     const data = await fetchJSON('https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body: JSON.stringify({
-        model: 'wan2.1-t2v-turbo',
+        model,
         input: { prompt },
-        parameters: { size: ratio, duration: 5 },
+        parameters: { resolution: _resolution, ratio: _ratio, duration: _duration },
       }),
     });
     if (data?.output?.task_id) return { taskId: data.output.task_id, status: 'running' };
     return null;
   } catch (e) {
-    console.error('[DashScope 文生视频] 失败:', e);
+    console.error(`[DashScope 文生视频 ${model}] 失败:`, e);
     return null;
   }
 }
@@ -436,7 +436,7 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
   const key = getDashScopeKey();
   if (!key) return null;
   try {
-    const data = await fetchJSON(`https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis/${taskId}`, {
+    const data = await fetchJSON(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${key}` },
     });
@@ -812,39 +812,47 @@ export async function generateImage(prompt: string, size = '1280*1280', provider
   return null
 }
 
-// 6. 文生视频
-export async function generateVideo(prompt: string, _aspectRatio = '16:9'): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
-  // 百炼(通义万相) → 火山方舟 → Mock
-  const dashResult = await dashscopeGenerateVideo(prompt, _aspectRatio);
-  if (dashResult) return dashResult;
-  
-  const key = getVolcanoKey();
-  if (key) {
+// 6. 文生视频 — 降级链：Doubao-Seedance 2.0 → wan2.7-t2v → happyhorse-1.0-t2v → Mock
+export async function generateVideo(prompt: string, _duration = 5, _resolution = '720P', _ratio = '16:9'): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  // ① 火山 Doubao-Seedance 2.0
+  const volcanoKey = getVolcanoKey();
+  if (volcanoKey) {
     try {
+      console.log(`[文生视频] 尝试火山 Doubao-Seedance 2.0, duration=${_duration}, resolution=${_resolution}, ratio=${_ratio}`);
       const data = await fetchJSON(`${VOLCANO_BASE}/api/v1/video/generation`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${volcanoKey}` },
         body: JSON.stringify({
-          model: 'volcano-video-v1',
+          model: 'doubao-seedance-2.0',
           input: { prompt },
-          parameters: { duration: 5, aspect_ratio: _aspectRatio },
+          parameters: { duration: _duration, resolution: _resolution, aspect_ratio: _ratio },
         }),
       });
       if (data?.output?.task_id) return { taskId: data.output.task_id, status: data.output.task_status || 'running' };
     } catch (e) {
-      console.error('[Volcano 文生视频] 失败:', e);
+      console.error('[Volcano Doubao-Seedance] 失败:', e);
     }
   }
-  console.warn('[文生视频] 服务不可用');
+
+  // ② 百炼 wan2.7-t2v
+  const dash27Result = await dashscopeGenerateVideo(prompt, _duration, _resolution, _ratio, 'wan2.7-t2v-2026-04-25');
+  if (dash27Result) return dash27Result;
+
+  // ③ 百炼 happyhorse-1.0-t2v（自动配音兜底）
+  const dashHhResult = await dashscopeGenerateVideo(prompt, _duration, '720P', _ratio, 'happyhorse-1.0-t2v');
+  if (dashHhResult) return dashHhResult;
+
+  console.warn('[文生视频] 所有服务均不可用');
   return { taskId: 'mock', status: 'completed' };
 }
 
 // 7. 查询视频任务状态
 export async function queryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
-  // 百炼(通义万相) → 火山方舟
+  // 先查百炼
   const dashResult = await dashscopeQueryVideoTask(taskId);
-  if (dashResult) return dashResult;
+  if (dashResult && dashResult.status !== 'unknown') return dashResult;
   
+  // 再查火山
   const key = getVolcanoKey();
   if (key) {
     try {

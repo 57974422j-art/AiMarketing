@@ -314,6 +314,8 @@ export default function VideoEditPage() {
   // 文生视频状态
   const [t2vPrompt, setT2vPrompt] = useState('')
   const [t2vAspectRatio, setT2vAspectRatio] = useState('16:9')
+  const [t2vDuration, setT2vDuration] = useState(5)
+  const [t2vResolution, setT2vResolution] = useState('720P')
   const [t2vTaskId, setT2vTaskId] = useState('')
   const [t2vVideoUrl, setT2vVideoUrl] = useState('')
   const [t2vPolling, setT2vPolling] = useState(false)
@@ -676,7 +678,7 @@ export default function VideoEditPage() {
       const res = await fetch('/api/video/text-to-video', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: t2vPrompt.trim(), aspectRatio: t2vAspectRatio }),
+        body: JSON.stringify({ prompt: t2vPrompt.trim(), aspectRatio: t2vAspectRatio, duration: t2vDuration, resolution: t2vResolution }),
       })
       const data = await res.json()
       if (!data.success) { setErrorMessage(data.message || '提交失败'); setT2vPolling(false); return }
@@ -1473,6 +1475,30 @@ export default function VideoEditPage() {
                           {opt.label}
                         </button>
                       ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-label mb-2">时长 / DURATION</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {[5, 10, 15].map(d => (
+                          <button key={d} type="button" onClick={() => setT2vDuration(d)}
+                            className={`px-3 py-1.5 rounded-lg text-xs ${t2vDuration === d ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+                            {d}s
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-label mb-2">分辨率 / RESOLUTION</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {[{ v: '720P', l: '720P' }, { v: '1080P', l: '1080P' }].map(r => (
+                          <button key={r.v} type="button" onClick={() => setT2vResolution(r.v)}
+                            className={`px-3 py-1.5 rounded-lg text-xs ${t2vResolution === r.v ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+                            {r.l}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                   <button onClick={handleTextToVideo} disabled={t2vPolling || !t2vPrompt.trim()}

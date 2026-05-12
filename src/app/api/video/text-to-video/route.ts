@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateVideo, queryVideoTask } from '@/lib/ai-providers'
-import { writeFile, mkdir } from 'fs/promises'
-import { join } from 'path'
-import { existsSync } from 'fs'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 
 // 文生视频 API
@@ -11,7 +8,8 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     const body = await request.json()
-    const { prompt, aspectRatio } = body
+    const { prompt, aspectRatio, duration, resolution } = body
+    const videoDuration = Math.min(15, Math.max(2, parseInt(duration) || 5))
 
     if (!prompt) {
       return NextResponse.json(
@@ -20,14 +18,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 确保输出目录存在
-    const outputDir = join(process.cwd(), 'public', 'outputs')
-    if (!existsSync(outputDir)) {
-      await mkdir(outputDir, { recursive: true })
-    }
+    console.log('[文生视频] 参数:', { prompt: prompt.substring(0, 50), ratio: aspectRatio, duration: videoDuration, resolution })
 
-    // 调用火山方舟文生视频 API
-    const result = await generateVideo(prompt, aspectRatio || '16:9')
+    const result = await generateVideo(prompt, videoDuration, resolution || '720P', aspectRatio || '16:9')
     
     // API 未配置
     if (!result) {
