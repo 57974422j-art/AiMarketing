@@ -187,7 +187,7 @@ export default function TextToVideoPage() {
                   </label>
                   <div>
                     <span className="text-sm text-gray-300 font-mono">自动拼接长视频（最长 60 秒）</span>
-                    <p className="text-[10px] text-gray-600">>15s 自动拆分多段，用尾帧保证连贯</p>
+                    <p className="text-[10px] text-gray-600">{'>'}15s 自动拆分多段，用尾帧保证连贯</p>
                   </div>
                 </div>
 
