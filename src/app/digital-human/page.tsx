@@ -20,7 +20,6 @@ const PRESET_BG_COLORS = [
 ]
 
 export default function DigitalHumanPage() {
-  const [pageMode, setPageMode] = useState<'digitalHuman' | 'textToVideo'>('digitalHuman')
   const [step, setStep] = useState<PageStep>('upload')
   const [mode, setMode] = useState<CloningMode>('fast')
   const [modeTooltip, setModeTooltip] = useState(false)
@@ -51,16 +50,6 @@ export default function DigitalHumanPage() {
   const [genTaskId, setGenTaskId] = useState('')
   const [videoUrl, setVideoUrl] = useState('')
   const [genError, setGenError] = useState('')
-
-  // 文生视频
-  const [t2vPrompt, setT2vPrompt] = useState('')
-  const [t2vRatio, setT2vRatio] = useState('16:9')
-  const [t2vDuration, setT2vDuration] = useState(5)
-  const [t2vRes, setT2vRes] = useState('720P')
-  const [t2vTaskId, setT2vTaskId] = useState('')
-  const [t2vVideoUrl, setT2vVideoUrl] = useState('')
-  const [t2vPolling, setT2vPolling] = useState(false)
-  const [t2vMsg, setT2vMsg] = useState('')
 
   // Toast
   const [toast, setToast] = useState('')
@@ -226,32 +215,6 @@ export default function DigitalHumanPage() {
     }, 2000)
   }
 
-  // 文生视频
-  const handleT2V = async () => {
-    if (!t2vPrompt.trim()) { setToast('请输入视频描述'); return }
-    setT2vPolling(true); setT2vTaskId(''); setT2vVideoUrl(''); setT2vMsg('提交中...')
-    try {
-      const r = await fetch('/api/video/text-to-video', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: t2vPrompt.trim(), aspectRatio: t2vRatio, duration: t2vDuration, resolution: t2vRes }),
-      })
-      const d = await r.json()
-      if (!d.success) { setToast(d.message || '提交失败'); setT2vPolling(false); return }
-      if (d.videoUrl) { setT2vVideoUrl(d.videoUrl); setT2vMsg('✅ 完成'); setT2vPolling(false); return }
-      setT2vTaskId(d.taskId)
-      for (let i = 0; i < 120; i++) {
-        await new Promise(r => setTimeout(r, 3000))
-        const q = await fetch(`/api/video/text-to-video?taskId=${d.taskId}`, { credentials: 'include' })
-        const qd = await q.json()
-        if (qd.videoUrl) { setT2vVideoUrl(qd.videoUrl); setT2vMsg('✅ 完成'); break }
-        if (qd.status === 'FAILED') { setToast('生成失败'); break }
-        setT2vMsg(`⏳ 生成中 (${i + 1}/120)`)
-      }
-    } catch { setToast('请求失败') }
-    finally { setT2vPolling(false) }
-  }
-
   const handleDownload = () => {
     if (videoUrl) {
       const a = document.createElement('a')
@@ -288,27 +251,12 @@ export default function DigitalHumanPage() {
         {/* Header */}
         <div className="mb-8">
           <p className="text-xs tracking-[0.2em] text-gray-500 mb-1 font-mono">AI 工作区 / AI WORKSPACE</p>
-          <div className="flex items-center gap-4 mb-2">
-            <h1 className="text-2xl font-bold text-white font-mono">
-              {pageMode === 'digitalHuman' ? '数字人形象克隆 / DIGITAL HUMAN' : '文生视频 / TEXT TO VIDEO'}
-            </h1>
-            <div className="inline-flex bg-white/5 rounded-lg p-0.5 border border-white/10">
-              <button onClick={() => setPageMode('digitalHuman')}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${pageMode === 'digitalHuman' ? 'bg-emerald-500 text-white' : 'text-gray-400 hover:text-white'}`}>
-                数字人
-              </button>
-              <button onClick={() => setPageMode('textToVideo')}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${pageMode === 'textToVideo' ? 'bg-cyan-500 text-white' : 'text-gray-400 hover:text-white'}`}>
-                文生视频
-              </button>
-            </div>
-          </div>
+          <h1 className="text-2xl font-bold text-white font-mono">数字人形象克隆 / DIGITAL HUMAN</h1>
           <p className="text-sm text-gray-500 mt-1 font-mono">
-            {pageMode === 'digitalHuman' ? '上传真人视频，克隆专属数字人形象，一键生成口播视频' : '输入描述，AI 自动生成短视频（Doubao/wan2.7/happyhorse）'}
+            上传真人视频，克隆专属数字人形象，一键生成口播视频
           </p>
         </div>
 
-        {pageMode === 'digitalHuman' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             {/* ===== 模式选择 ===== */}
@@ -655,70 +603,6 @@ export default function DigitalHumanPage() {
             )}
           </div>
         </div>
-        ) : (
-        /* 文生视频模式 */
-        <div className="max-w-3xl mx-auto space-y-6">
-          <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-            <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">视频描述 / PROMPT</h2>
-            <textarea value={t2vPrompt} onChange={e => { setT2vPrompt(e.target.value); setT2vVideoUrl('') }}
-              placeholder="描述你想生成的视频内容，如：一只橘猫在花园里追蝴蝶，阳光明媚"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono text-sm min-h-[120px] resize-y" rows={4} />
-          </div>
-
-          <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-            <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">参数设置 / SETTINGS</h2>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs text-gray-500 mb-2 font-mono">画面比例</label>
-                <div className="flex gap-2 flex-wrap">
-                  {['16:9', '9:16', '1:1'].map(r => (
-                    <button key={r} type="button" onClick={() => setT2vRatio(r)}
-                      className={`px-3 py-1.5 rounded-lg text-xs ${t2vRatio === r ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>{r}</button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-2 font-mono">时长</label>
-                <div className="flex gap-2 flex-wrap">
-                  {[5, 10, 15].map(d => (
-                    <button key={d} type="button" onClick={() => setT2vDuration(d)}
-                      className={`px-3 py-1.5 rounded-lg text-xs ${t2vDuration === d ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>{d}s</button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-2 font-mono">分辨率</label>
-                <div className="flex gap-2 flex-wrap">
-                  {[{ v: '720P', l: '720P' }, { v: '1080P', l: '1080P' }].map(r => (
-                    <button key={r.v} type="button" onClick={() => setT2vRes(r.v)}
-                      className={`px-3 py-1.5 rounded-lg text-xs ${t2vRes === r.v ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>{r.l}</button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <button onClick={handleT2V} disabled={t2vPolling || !t2vPrompt.trim()}
-            className="w-full px-4 py-3 bg-gradient-to-r from-cyan-500 to-emerald-500 text-white rounded-xl hover:opacity-90 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-all font-mono">
-            {t2vPolling ? t2vMsg : '✨ 生成视频'}
-          </button>
-
-          {t2vTaskId && (
-            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-4 text-center">
-              <div className="text-xs text-cyan-400 font-mono break-all">任务 ID: {t2vTaskId}</div>
-              <div className="text-xs text-gray-500 mt-1 font-mono">{t2vMsg}</div>
-            </div>
-          )}
-
-          {t2vVideoUrl && (
-            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">生成结果 / RESULT</h2>
-              <video src={t2vVideoUrl} controls className="w-full rounded-xl max-h-[500px]" />
-              <p className="text-xs text-gray-500 mt-2 font-mono">链接 24 小时内有效，可右键下载保存</p>
-            </div>
-          )}
-        </div>
-        )}
       </div>
     </div>
   )
