@@ -647,7 +647,7 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
     return null;
   }
 
-  // 中文/英文：优先火山 TTS（支持中/英语音的高质量音色），失败后降级硅基
+  // 中文/英文：火山 → 百炼(CosyVoice) → 硅基
   if (language === 'zh' || language === 'en') {
     console.log(`[TTS] 尝试火山: speaker=${speaker}, lang=${language}, text_len=${cleaned.length}`);
     const volcanoResult = await volcanoTTS(cleaned, speaker);
@@ -655,9 +655,22 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
       console.log(`[TTS] 火山成功: ${volcanoResult.byteLength} bytes`);
       return volcanoResult;
     }
-    console.log(`[TTS] 火山失败, 尝试硅基...`);
+    console.log(`[TTS] 火山失败, 尝试百炼...`);
+
+    // 百炼 CosyVoice（需要开通百炼 CosyVoice 服务）
+    const dashResult = await dashscopeTTS(cleaned);
+    if (dashResult && dashResult.byteLength > 100) {
+      console.log(`[TTS] 百炼成功: ${dashResult.byteLength} bytes`);
+      return dashResult;
+    }
+    console.log(`[TTS] 百炼失败, 尝试硅基...`);
   } else {
-    console.log(`[TTS] 非中/英文(${language}), 跳过火山, 直接走硅基 CosyVoice2`);
+    console.log(`[TTS] 非中/英文(${language}), 跳过火山, 直接走百炼→硅基`);
+    const dashResult = await dashscopeTTS(cleaned);
+    if (dashResult && dashResult.byteLength > 100) {
+      console.log(`[TTS] 百炼成功: ${dashResult.byteLength} bytes`);
+      return dashResult;
+    }
   }
 
   // 硅基 CosyVoice2（多语言模型，支持中/英/日/韩/法/德等）
@@ -666,7 +679,7 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
     console.log(`[TTS] 硅基成功: ${siliconResult.byteLength} bytes`);
     return siliconResult;
   }
-  console.warn('[TTS] 火山+硅基均失败');
+  console.warn('[TTS] 火山+百炼+硅基均失败');
   return null;
 }
 
@@ -716,6 +729,61 @@ async function dashscopeGenerateImage(prompt: string, size = '1280*1280'): Promi
     return imageUrl
   } catch (e) {
     console.error('[DashScope 文生图] 失败:', e)
+    return null
+  }
+}
+
+// ==================== 百炼 CosyVoice TTS ====================
+
+async function dashscopeTTS(text: string, voice = 'longxiaochun'): Promise<ArrayBuffer | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  console.log(`[DashScope TTS] 请求: voice=${voice}, text_len=${text.length}`)
+  try {
+    const res = await fetch('https://dashscope.aliyuncs.com/api/v1/services/tts/generation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
+      body: JSON.stringify({
+        model: 'cosyvoice-v1',
+        input: { text },
+        parameters: { voice, format: 'mp3' },
+      }),
+      signal: AbortSignal.timeout(30000),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      console.log('[DashScope TTS] 创建任务失败:', res.status, err.substring(0, 200))
+      return null
+    }
+    const data = await res.json()
+    const taskId = data?.output?.task_id
+    if (!taskId) {
+      console.log('[DashScope TTS] 未返回 task_id')
+      return null
+    }
+    // 轮询结果
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 2000))
+      const pollRes = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
+        headers: { 'Authorization': `Bearer ${key}` },
+        signal: AbortSignal.timeout(10000),
+      })
+      if (!pollRes.ok) continue
+      const pollData = await pollRes.json()
+      const status = pollData?.output?.task_status
+      if (status === 'SUCCEEDED') {
+        const audioUrl = pollData?.output?.results?.[0]?.url
+        if (audioUrl) {
+          const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(30000) })
+          return await audioRes.arrayBuffer()
+        }
+        return null
+      }
+      if (status === 'FAILED') break
+    }
+    return null
+  } catch (e) {
+    console.error('[DashScope TTS] 失败:', e)
     return null
   }
 }

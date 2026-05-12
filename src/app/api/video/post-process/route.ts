@@ -263,17 +263,37 @@ export async function POST(request: NextRequest) {
         // 步骤 2b: 无需单独消除原声 — 后面 merge 时直接用 -map 0:v:0 只取视频流
 
         // 步骤 2c: 逐句 TTS 生成配音 + 按 ASR 时间戳精确对齐
-        // 优先使用前端 ASR segments 时间戳，降级用 punctuation 分句
+        // 文本始终用 finalText（翻译后的文案），时间戳用 ASR segments 按比例分配
         const usingSegments = segments && segments.length > 0
-        const sentences = usingSegments
-          ? segments.map(s => s.text.trim()).filter(t => t)
-          : finalText.split(ttsLang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/).filter(s => s.trim()).map(s => s.trim())
-        console.log('[PostProcess] 分句数量:', sentences.length, usingSegments ? '(使用 ASR 时间戳)' : '')
+        const rawSentences = finalText.split(ttsLang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/).filter(s => s.trim()).map(s => s.trim())
+        // 将文案句子按比例分配到 ASR 时间段
+        let sentences: { text: string; start: number; end: number }[] = []
+        if (usingSegments) {
+          const totalSegs = segments.length
+          const totalSentences = rawSentences.length
+          let sentIdx = 0
+          for (let i = 0; i < totalSegs && sentIdx < totalSentences; i++) {
+            const baseCount = Math.floor(totalSentences / totalSegs)
+            const extra = i < totalSentences % totalSegs ? 1 : 0
+            const countForThisSeg = baseCount + extra
+            const segText = rawSentences.slice(sentIdx, sentIdx + countForThisSeg).join(' ').trim()
+            sentences.push({ text: segText, start: segments[i].start, end: segments[i].end })
+            sentIdx += countForThisSeg
+          }
+          if (sentIdx < totalSentences && sentences.length > 0) {
+            sentences[sentences.length - 1].text += ' ' + rawSentences.slice(sentIdx).join(' ')
+          }
+          console.log(`[PostProcess] 分句: ${sentences.length} 段 (${totalSentences} 句文案 → ${totalSegs} 个时间槽)`)
+        } else {
+          sentences = rawSentences.map((t, i) => ({ text: t, start: 0, end: 0 }))
+          console.log('[PostProcess] 分句数量:', sentences.length, '(无 ASR 时间戳)')
+        }
 
         const paddedSegments: string[] = []
         let accumulatedEnd = 0
         for (let i = 0; i < sentences.length; i++) {
-          const sentence = sentences[i]
+          const seg = sentences[i]
+          const segText = seg.text
           let sentenceVoice = selectedVoice
           if (voiceAssignments && voiceAssignments.length > 0) {
             const assignment = voiceAssignments[i % voiceAssignments.length]
@@ -281,7 +301,7 @@ export async function POST(request: NextRequest) {
           }
           console.log(`[PostProcess] TTS 第 ${i + 1}/${sentences.length} 句 voice=${sentenceVoice}`)
           try {
-            const segBuffer = await textToSpeech(sentence, sentenceVoice, ttsLang)
+            const segBuffer = await textToSpeech(segText, sentenceVoice, ttsLang)
             if (!segBuffer || segBuffer.byteLength <= 100) {
               console.warn(`[PostProcess] 第 ${i + 1} 句 TTS 返回空, 跳过`)
               continue
@@ -292,7 +312,7 @@ export async function POST(request: NextRequest) {
 
             // 根据 ASR 时间戳插入前导静音实现逐句对齐
             if (usingSegments) {
-              const segStart = segments[i]?.start ?? 0
+              const segStart = seg.start ?? 0
               const silenceNeeded = Math.max(0, segStart - accumulatedEnd)
               if (silenceNeeded > 0.05) {
                 const silencePath = join(tempDir, `silence_${timestamp}_${i}.mp3`)
