@@ -22,6 +22,7 @@ export default function AdminPromptTemplatesPage() {
   const [submitting, setSubmitting] = useState(false)
   const [filterCat, setFilterCat] = useState('')
   const [generatingPreviews, setGeneratingPreviews] = useState(false)
+  const [genProgress, setGenProgress] = useState({ current: 0, total: 0, text: '' })
 
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState(CATEGORIES[0])
@@ -84,14 +85,18 @@ export default function AdminPromptTemplatesPage() {
   const handleGeneratePreviews = async () => {
     if (!confirm('AI 生成预览图（需配置 API Key）？ / GENERATE PREVIEW IMAGES?')) return
     setGeneratingPreviews(true)
-    showToast('开始生成... / GENERATING...')
+    setGenProgress({ current: 0, total: 0, text: '正在获取模板列表...' })
     try {
       const r = await fetch('/api/generate-prompt-previews', { method: 'POST', credentials: 'include' })
       const d = await r.json()
+      if (d?.data?.total) {
+        setGenProgress({ current: d.data.total, total: d.data.total, text: `完成 ${d.data.success}/${d.data.total}` })
+        setTimeout(() => { setGeneratingPreviews(false); setGenProgress({ current: 0, total: 0, text: '' }) }, 2000)
+      }
       showToast(d.message, d.success ? 'success' : 'error')
       loadItems()
     } catch { showToast('生成失败 / FAILED', 'error') }
-    finally { setGeneratingPreviews(false) }
+    finally { setTimeout(() => { if (!genProgress.total) { setGeneratingPreviews(false) } }, 500) }
   }
 
   if (authLoading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-gray-400"><span>加载中</span><span className="text-xs opacity-50 ml-1">/ LOADING</span></div></div>
@@ -171,6 +176,30 @@ export default function AdminPromptTemplatesPage() {
               </div>
             ))}
           </div>}
+
+        {/* 生成进度弹窗 */}
+        {generatingPreviews && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+            <div className="bg-gray-900 border border-white/10 rounded-2xl p-8 max-w-sm w-full mx-4 text-center">
+              {genProgress.total > 0 && genProgress.current >= genProgress.total ? (
+                <div>
+                  <div className="text-4xl mb-3">✅</div>
+                  <p className="text-white font-bold text-sm mb-1">生成完成</p>
+                  <p className="text-gray-400 text-xs font-mono">{genProgress.text}</p>
+                </div>
+              ) : (
+                <div>
+                  <svg className="w-10 h-10 animate-spin text-emerald-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <p className="text-white font-bold text-sm mb-1">正在生成预览图...</p>
+                  <p className="text-gray-400 text-xs font-mono">{genProgress.text || 'AI 正在创作中，请耐心等待'}</p>
+                  <p className="text-gray-600 text-[10px] mt-2">生成完成后页面将自动更新</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
