@@ -262,83 +262,103 @@ export async function POST(request: NextRequest) {
 
         // 步骤 2b: 无需单独消除原声 — 后面 merge 时直接用 -map 0:v:0 只取视频流
 
-        // 步骤 2c: 逐句 TTS 生成配音（支持多人音色分配）
-        const sentenceDelimiter = ttsLang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/
-        const sentences = finalText.split(sentenceDelimiter).filter(s => s.trim()).map(s => s.trim())
-        console.log('[PostProcess] 分句数量:', sentences.length)
+        // 步骤 2c: 逐句 TTS 生成配音 + 按 ASR 时间戳精确对齐
+        // 优先使用前端 ASR segments 时间戳，降级用 punctuation 分句
+        const usingSegments = segments && segments.length > 0
+        const sentences = usingSegments
+          ? segments.map(s => s.text.trim()).filter(t => t)
+          : finalText.split(ttsLang === 'zh' ? /[。！？；\n]+/ : /[.!?;\n]+/).filter(s => s.trim()).map(s => s.trim())
+        console.log('[PostProcess] 分句数量:', sentences.length, usingSegments ? '(使用 ASR 时间戳)' : '')
 
-        const segmentFiles: string[] = []
+        const paddedSegments: string[] = []
+        let accumulatedEnd = 0
         for (let i = 0; i < sentences.length; i++) {
           const sentence = sentences[i]
-          // 多人配音：按 voiceAssignments 循环分配不同音色
           let sentenceVoice = selectedVoice
           if (voiceAssignments && voiceAssignments.length > 0) {
             const assignment = voiceAssignments[i % voiceAssignments.length]
             sentenceVoice = assignment.voice || selectedVoice
-            console.log(`[PostProcess] 第 ${i + 1} 句 使用音色: ${assignment.label || sentenceVoice}`)
           }
           console.log(`[PostProcess] TTS 第 ${i + 1}/${sentences.length} 句 voice=${sentenceVoice}`)
           try {
             const segBuffer = await textToSpeech(sentence, sentenceVoice, ttsLang)
-            if (segBuffer && segBuffer.byteLength > 100) {
-              const segPath = join(tempDir, `tts_seg_${timestamp}_${i}.mp3`)
-              await writeFile(segPath, new Uint8Array(segBuffer))
-              segmentFiles.push(segPath)
-              console.log(`[PostProcess] 第 ${i + 1} 句 TTS 完成: ${segBuffer.byteLength} bytes`)
+            if (!segBuffer || segBuffer.byteLength <= 100) {
+              console.warn(`[PostProcess] 第 ${i + 1} 句 TTS 返回空, 跳过`)
+              continue
+            }
+            const segPath = join(tempDir, `tts_seg_${timestamp}_${i}.mp3`)
+            await writeFile(segPath, new Uint8Array(segBuffer))
+            console.log(`[PostProcess] 第 ${i + 1} 句 TTS 完成: ${segBuffer.byteLength} bytes`)
+
+            // 根据 ASR 时间戳插入前导静音实现逐句对齐
+            if (usingSegments) {
+              const segStart = segments[i]?.start ?? 0
+              const silenceNeeded = Math.max(0, segStart - accumulatedEnd)
+              if (silenceNeeded > 0.05) {
+                const silencePath = join(tempDir, `silence_${timestamp}_${i}.mp3`)
+                console.log(`[PostProcess] 第 ${i + 1} 句 插入静音: ${silenceNeeded.toFixed(2)}s (start=${segStart.toFixed(2)}s, accEnd=${accumulatedEnd.toFixed(2)}s)`)
+                try {
+                  await execFileAsync(ffmpegPath, [
+                    '-f', 'lavfi', '-i', `aevalsrc=0:d=${silenceNeeded}`,
+                    '-ac', '1', '-ar', '44100', '-y', silencePath,
+                  ], { timeout: 10000 })
+                  paddedSegments.push(silencePath)
+                  accumulatedEnd = segStart // 静音结束后 = segStart
+                } catch (silenceErr: any) {
+                  console.warn('[PostProcess] 生成静音失败:', silenceErr.message)
+                }
+              }
+              paddedSegments.push(segPath)
+              // 获取本句时长，更新累计位置
+              const segDur = await getMediaDuration(segPath)
+              accumulatedEnd = (accumulatedEnd || segStart) + Math.max(0.2, segDur)
             } else {
-              console.warn(`[PostProcess] 第 ${i + 1} 句 TTS 返回空或太小, 跳过`)
+              paddedSegments.push(segPath)
             }
           } catch (segError) {
             console.error(`[PostProcess] 第 ${i + 1} 句 TTS 失败:`, segError)
           }
         }
 
-        if (segmentFiles.length === 0) {
+        if (paddedSegments.length === 0) {
           console.log('[PostProcess] 所有句子 TTS 均失败, 跳过配音')
         } else {
-          // 步骤 2d: 拼接所有 TTS 片段
+          // 步骤 2d: 拼接所有带静音填充的片段
           const concatListPath = join(tempDir, `concat_${timestamp}.txt`)
-          const concatContent = segmentFiles.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n')
+          const concatContent = paddedSegments.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n')
           await writeFile(concatListPath, concatContent)
 
-          // 步骤 2e: FFmpeg 转码修复火山流式 MP3 元数据错误 → 标准 AAC
+          // 步骤 2e: FFmpeg 转码拼接 → 标准 AAC
           const fixedAudioPath = join(tempDir, `tts_fixed_${timestamp}.mp4`)
           const fixArgs = ['-f', 'concat', '-safe', '0', '-i', concatListPath, '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', '-y', fixedAudioPath]
-          console.log('[PostProcess] FFmpeg 转码修复 TTS, 命令:', ffmpegPath, fixArgs.join(' '))
+          console.log('[PostProcess] FFmpeg 转码拼接 TTS, 命令:', ffmpegPath, fixArgs.join(' '))
           try {
             await execFileAsync(ffmpegPath, fixArgs)
-            console.log('[PostProcess] FFmpeg 转码完成')
+            console.log('[PostProcess] FFmpeg 转码拼接完成')
           } catch (fixError: any) {
-            console.error('[PostProcess] 转码 TTS 失败:', fixError.stderr || fixError.message)
+            console.error('[PostProcess] 转码拼接 TTS 失败:', fixError.stderr || fixError.message)
           }
           await unlink(concatListPath).catch(() => {})
 
           const ttsDur = await getMediaDuration(fixedAudioPath)
-          console.log('[PostProcess] TTS 转码音频时长:', ttsDur, 's')
+          console.log('[PostProcess] TTS 拼接音频时长:', ttsDur, 's')
 
-          // 步骤 2f: 合并视频 + TTS 配音 [+ 背景音]（合并到一次 FFmpeg 调用，消除中间文件）
-          // 用 adelay 在 filter_complex 中直接对齐，避免单独写对齐文件
+          // 步骤 2f: 合并视频 + 已对齐的 TTS 配音 [+ 背景音]
+          // 已逐句对齐，不再需要 adelay
           const outputPath = join(outputDir, `output_tts_${timestamp}.mp4`)
-          const delayMs = Math.round(Math.max(0, speechStartTime) * 1000)
           let mergeArgs: string[]
           if (bgAudioPath) {
             mergeArgs = [
               '-i', currentVideoPath, '-i', fixedAudioPath, '-i', bgAudioPath,
               '-c:v', 'copy',
-              '-filter_complex',
-                delayMs > 100
-                  ? `[1:a]adelay=${delayMs}|${delayMs},volume=3.0[tts_vol];[tts_vol][2:a]amix=inputs=2:duration=longest:dropout_transition=2[aout]`
-                  : `[1:a]volume=3.0[tts_vol];[tts_vol][2:a]amix=inputs=2:duration=longest:dropout_transition=2[aout]`,
+              '-filter_complex', '[1:a]volume=3.0[tts_vol];[tts_vol][2:a]amix=inputs=2:duration=longest:dropout_transition=2[aout]',
               '-map', '0:v:0', '-map', '[aout]', '-y', outputPath
             ]
           } else {
             mergeArgs = [
               '-i', currentVideoPath, '-i', fixedAudioPath,
               '-c:v', 'copy',
-              '-filter_complex',
-                delayMs > 100
-                  ? `[1:a]adelay=${delayMs}|${delayMs},volume=3.0[aout]`
-                  : `[1:a]volume=3.0[aout]`,
+              '-filter_complex', '[1:a]volume=3.0[aout]',
               '-map', '0:v:0', '-map', '[aout]', '-y', outputPath
             ]
           }
@@ -366,8 +386,8 @@ export async function POST(request: NextRequest) {
             if (outputExists) await unlink(outputPath).catch(() => {})
           }
 
-          // 清理（mutedPath/alignedAudioPath 已消除，无需清理）
-          for (const segPath of segmentFiles) await unlink(segPath).catch(() => {})
+          // 清理（mutedPath 已消除；静音文件和分段文件一并删除）
+          for (const segPath of paddedSegments) await unlink(segPath).catch(() => {})
           await unlink(fixedAudioPath).catch(() => {})
           if (bgAudioPath) await unlink(bgAudioPath).catch(() => {})
         }
