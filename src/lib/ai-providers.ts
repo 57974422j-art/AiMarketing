@@ -2,6 +2,13 @@
 // 优先级：百炼DashScope(通义千问) > 火山方舟(Volcano) > 硅基流动(SiliconFlow) > DeepSeek > 模拟兜底(Mock)
 // 每个函数内部 try-catch，失败自动切换到下一个
 
+import { join } from 'path'
+import { existsSync } from 'fs'
+import { mkdir, writeFile, unlink } from 'fs/promises'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+const execFileAsync = promisify(execFile)
+
 // ==================== 基础工具 ====================
 
 async function fetchJSON(url: string, options: RequestInit, retries = 1): Promise<any> {
