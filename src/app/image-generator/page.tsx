@@ -22,21 +22,20 @@ export default function ImageGeneratorPage() {
   const [generating, setGenerating] = useState(false)
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const [imageSize, setImageSize] = useState('1024*1024')
+  const [imageSize, setImageSize] = useState('1280*1280')
   const [usingModel, setUsingModel] = useState('')
   const [provider, setProvider] = useState<'auto' | 'dashscope' | 'siliconflow'>('auto')
+  const [referenceImage, setReferenceImage] = useState<File | null>(null)
+  const [referencePreview, setReferencePreview] = useState('')
   const SIZE_OPTIONS = [
-    { value: '1024*1024', label: '1:1 正方形' },
-    { value: '1280*720', label: '16:9 横版' },
-    { value: '720*1280', label: '9:16 竖版' },
-    { value: '1344*768', label: '16:9 横版(大)' },
-    { value: '768*1344', label: '9:16 竖版(大)' },
-    { value: '1024*768', label: '4:3 横版' },
-    { value: '768*1024', label: '3:4 竖版' },
-    { value: '640*640', label: '1:1 小图' },
-    { value: '1280*1280', label: '1:1 大图' },
+    { value: '1280*1280', label: '1:1 正方形' },
+    { value: '1696*960', label: '16:9 横版' },
+    { value: '960*1696', label: '9:16 竖版' },
+    { value: '1472*1104', label: '4:3 横版' },
+    { value: '1104*1472', label: '3:4 竖版' },
     { value: '1440*720', label: '2:1 横版' },
     { value: '720*1440', label: '1:2 竖版' },
+    { value: '768*2700', label: '1:3.5 长竖版' },
   ]
 
   useEffect(() => {
@@ -162,6 +161,30 @@ export default function ImageGeneratorPage() {
                 value={prompt}
                 onChange={e => { setPrompt(e.target.value); setGeneratedUrl(null); setError('') }}
               />
+
+              {/* 参考图片上传 */}
+              <div className="mb-3">
+                <span className="text-gray-500 text-xs block mb-1"><span>参考图片</span><span className="text-[10px] opacity-50 ml-1">/ REFERENCE</span><span className="text-[10px] text-gray-600 ml-2">可选</span></span>
+                <div className="flex items-center gap-3">
+                  <label className="cursor-pointer px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-400 hover:bg-white/10 transition-colors">
+                    选择图片
+                    <input type="file" accept="image/*" className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0]
+                        if (f) { setReferenceImage(f); setReferencePreview(URL.createObjectURL(f)) }
+                      }}
+                    />
+                  </label>
+                  {referencePreview && (
+                    <div className="flex items-center gap-2">
+                      <img src={referencePreview} alt="ref" className="w-10 h-10 rounded-lg object-cover border border-white/10" />
+                      <button onClick={() => { setReferenceImage(null); setReferencePreview('') }}
+                        className="text-xs text-red-400 hover:text-red-300">移除</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="mb-3">
                 <span className="text-gray-500 text-xs block mb-1"><span>尺寸</span><span className="text-[10px] opacity-50 ml-1">/ SIZE</span></span>
                 <div className="flex gap-1 flex-wrap">
@@ -184,8 +207,8 @@ export default function ImageGeneratorPage() {
                   <div className="flex gap-1 flex-wrap">
                     {[
                       { value: 'auto' as const, label: '自动(Auto)', desc: '百炼→硅基' },
-                      { value: 'dashscope' as const, label: '百炼通义万相', desc: 'DashScope' },
-                      { value: 'siliconflow' as const, label: '硅基流动', desc: 'Z-Image' },
+                      { value: 'dashscope' as const, label: '百炼 wan2.6-t2i', desc: '推荐' },
+                      { value: 'siliconflow' as const, label: '硅基 Z-Image', desc: '备选' },
                     ].map(opt => (
                       <button key={opt.value} type="button" onClick={() => setProvider(opt.value)}
                         className={`px-3 py-1.5 rounded text-xs ${provider === opt.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>

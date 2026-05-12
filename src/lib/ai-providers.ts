@@ -671,45 +671,49 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
 }
 
 // 百炼通义万相文生图
-async function dashscopeGenerateImage(prompt: string, size = '1024*1024'): Promise<string | null> {
+async function dashscopeGenerateImage(prompt: string, size = '1280*1280'): Promise<string | null> {
   const key = getDashScopeKey()
   if (!key) { console.log('[文生图] DashScope Key 未设置，跳过'); return null }
-  console.log('[文生图] 尝试百炼通义万相...')
+  console.log('[文生图] 尝试百炼通义万相 wan2.6-t2i (同步调用)...')
   try {
-    // 提交异步任务（加 X-DashScope-Async 头）
-    const submitRes = await fetchJSON('https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis', {
+    // wan2.6 支持 HTTP 同步调用，无需异步+轮询
+    const res = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'wanx2.1-t2i-turbo',
-        input: { prompt },
-        parameters: { size, n: 1 },
+        model: 'wan2.6-t2i',
+        input: {
+          messages: [
+            {
+              role: 'user',
+              content: [{ text: prompt }],
+            },
+          ],
+        },
+        parameters: {
+          size,
+          n: 1,
+          prompt_extend: true,
+          watermark: false,
+          negative_prompt: '',
+        },
       }),
+      signal: AbortSignal.timeout(120000),
     })
 
-    console.log('[文生图] 百炼提交响应:', JSON.stringify(submitRes).substring(0, 300))
-    const taskId = submitRes?.output?.task_id
-    if (!taskId) {
-      console.log('[文生图] 百炼未返回 task_id，code:', submitRes?.code, 'message:', submitRes?.message)
+    if (!res.ok) {
+      const err = await res.text()
+      console.log('[文生图] 百炼同步调用失败:', res.status, err.substring(0, 300))
       return null
     }
 
-    // 轮询直到完成（最多 60 秒）
-    const baseUrl = 'https://dashscope.aliyuncs.com/api/v1/tasks'
-    for (let i = 0; i < 30; i++) {
-      await new Promise(r => setTimeout(r, 2000))
-      const pollRes = await fetchJSON(`${baseUrl}/${taskId}`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${key}` },
-      })
-      const status = pollRes?.output?.task_status
-      if (status === 'SUCCEEDED') return pollRes?.output?.results?.[0]?.url || null
-      if (status === 'FAILED') {
-        console.log('[文生图] 百炼任务失败完整:', JSON.stringify(pollRes))
-        break
-      }
+    const data = await res.json()
+    const imageUrl = data?.output?.choices?.[0]?.message?.content?.[0]?.image
+    if (!imageUrl) {
+      console.log('[文生图] 百炼未返回图片URL:', JSON.stringify(data).substring(0, 300))
+      return null
     }
-    return null
+    return imageUrl
   } catch (e) {
     console.error('[DashScope 文生图] 失败:', e)
     return null
@@ -717,11 +721,11 @@ async function dashscopeGenerateImage(prompt: string, size = '1024*1024'): Promi
 }
 
 // 5. 文生图（返回 {url, model}，model 标明实际使用的模型）
-export async function generateImage(prompt: string, size = '1024*1024', provider?: 'auto' | 'dashscope' | 'siliconflow'): Promise<{ url: string; model: string } | null> {
+export async function generateImage(prompt: string, size = '1280*1280', provider?: 'auto' | 'dashscope' | 'siliconflow'): Promise<{ url: string; model: string } | null> {
   // provider 参数：auto=自动降级, dashscope=强制百炼, siliconflow=强制硅基
   if (provider === 'dashscope') {
     const url = await dashscopeGenerateImage(prompt, size)
-    if (url) return { url, model: '百炼通义万相 wanx2.1-t2i-turbo' }
+    if (url) return { url, model: '百炼通义万相 wan2.6-t2i' }
     return null
   }
   if (provider === 'siliconflow') {
@@ -729,9 +733,9 @@ export async function generateImage(prompt: string, size = '1024*1024', provider
     if (url) return { url, model: '硅基流动 Tongyi-MAI/Z-Image-Turbo' }
     return null
   }
-  // auto: 百炼(通义万相) → 硅基流动 → null
+  // auto: 百炼(wan2.6-t2i) → 硅基流动 → null
   const dashUrl = await dashscopeGenerateImage(prompt, size)
-  if (dashUrl) return { url: dashUrl, model: '百炼通义万相 wanx2.1-t2i-turbo' }
+  if (dashUrl) return { url: dashUrl, model: '百炼通义万相 wan2.6-t2i' }
 
   const siliconUrl = await siliconGenerateImage(prompt, size.replace(/\*/g, 'x'))
   if (siliconUrl) return { url: siliconUrl, model: '硅基流动 Tongyi-MAI/Z-Image-Turbo' }

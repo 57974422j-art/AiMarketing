@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     if (!prompt?.trim()) {
       return NextResponse.json({ success: false, message: '请提供提示词' }, { status: 400 })
     }
-    const imageSize = size || '1024*1024'
+    const imageSize = size || '1280*1280'
 
     console.log('[生成图片] ====== 开始诊断 ======')
     console.log('[生成图片] DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? '已设置(len=' + process.env.DASHSCOPE_API_KEY.length + ')' : '未设置')
