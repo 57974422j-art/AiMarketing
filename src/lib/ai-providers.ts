@@ -432,6 +432,170 @@ async function dashscopeGenerateVideo(prompt: string, _duration = 5, _resolution
   }
 }
 
+/** 百炼图生视频（用参考图保证画面连贯） */
+async function dashscopeImageToVideo(prompt: string, refImageUrl: string, _duration = 15, _resolution = '720P', _ratio = '16:9'): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  try {
+    const data = await fetchJSON('https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
+      body: JSON.stringify({
+        model: 'wan2.7-t2v-2026-04-25',
+        input: { prompt, image_url: refImageUrl },
+        parameters: { resolution: _resolution, ratio: _ratio, duration: _duration },
+      }),
+    })
+    if (data?.output?.task_id) return { taskId: data.output.task_id, status: 'running' }
+    return null
+  } catch (e) {
+    console.error('[DashScope 图生视频] 失败:', e)
+    return null
+  }
+}
+
+/** 下载视频文件并返回 ArrayBuffer */
+async function downloadVideo(url: string): Promise<ArrayBuffer | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(120000) })
+    if (!res.ok) return null
+    return await res.arrayBuffer()
+  } catch { return null }
+}
+
+/** 长视频自动拼接（>15s 拆分为多段，每段用上一段尾帧做参考） */
+export async function generateLongVideo(prompt: string, totalDuration: number, _resolution = '720P', _ratio = '16:9'): Promise<{ videoUrl?: string; status: string } | null> {
+  const segDuration = 15
+  const segments = Math.ceil(totalDuration / segDuration)
+  const actualDurations: number[] = []
+  // 每段时长：前 N-1 段 15s，最后一段剩余
+  for (let i = 0; i < segments; i++) {
+    actualDurations.push(Math.min(segDuration, totalDuration - i * segDuration))
+  }
+  console.log(`[LongVideo] 拆分 ${segments} 段:`, actualDurations)
+
+  const tempDir = join(process.cwd(), 'temp')
+  if (!existsSync(tempDir)) await mkdir(tempDir, { recursive: true })
+
+  const videoPaths: string[] = []
+  const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
+  const fs = await import('fs/promises')
+
+  for (let i = 0; i < segments; i++) {
+    const segPrompt = i === 0 ? prompt : `${prompt}，延续上一段画面风格`
+    console.log(`[LongVideo] 第 ${i + 1}/${segments} 段 (${actualDurations[i]}s)`)
+
+    let taskId = ''
+    if (i === 0 || !videoPaths[i - 1]) {
+      // 第一段或无上一段视频：文生视频
+      const model = 'wan2.7-t2v-2026-04-25'
+      const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, model)
+      if (!result?.taskId) return null
+      taskId = result.taskId
+    } else {
+      // 用上一段尾帧做参考 → 图生视频
+      const prevVideo = videoPaths[i - 1]
+      // 提取尾帧
+      const lastFramePath = join(tempDir, `lastframe_${Date.now()}_${i}.png`)
+      try {
+        await execFileAsync(ffmpegPath, ['-i', prevVideo, '-sseof', '-1', '-update', '1', '-q:v', '1', '-y', lastFramePath], { timeout: 15000 })
+      } catch { /* ignore */ }
+      // 上传尾帧到 OSS 或直接用本地路径
+      let refUrl = lastFramePath
+      // 如果 OSS 配置完整，上传到 OSS
+      if (process.env.OSS_ACCESS_KEY_ID && process.env.OSS_BUCKET) {
+        const OSS = (await import('ali-oss')).default
+        const client = new OSS({
+          region: process.env.OSS_REGION || 'oss-cn-hangzhou',
+          accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
+          accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
+          bucket: process.env.OSS_BUCKET!,
+          secure: true,
+        })
+        const ossName = `long-video/frame_${Date.now()}_${i}.png`
+        await client.put(ossName, lastFramePath, { headers: { 'x-oss-object-acl': 'public-read' } })
+        refUrl = `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION || 'oss-cn-hangzhou'}.aliyuncs.com/${ossName}`
+      } else {
+        // 无 OSS 时跳过尾帧参考（兜底）
+        const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, 'wan2.7-t2v-2026-04-25')
+        if (!result?.taskId) return null
+        taskId = result.taskId
+        // 跳过下面的轮询
+        const segResult = await pollVideoTask(taskId)
+        if (!segResult?.videoUrl) return null
+        const buf = await downloadVideo(segResult.videoUrl)
+        if (!buf) return null
+        const segPath = join(tempDir, `longseg_${Date.now()}_${i}.mp4`)
+        await fs.writeFile(segPath, new Uint8Array(buf))
+        videoPaths.push(segPath)
+        continue
+      }
+      // 图生视频
+      const i2vResult = await dashscopeImageToVideo(segPrompt, refUrl, actualDurations[i], _resolution, _ratio)
+      if (!i2vResult?.taskId) return null
+      taskId = i2vResult.taskId
+      // 清理临时尾帧
+      await fs.unlink(lastFramePath).catch(() => {})
+    }
+
+    // 轮询等待本段完成
+    const segResult = await pollVideoTask(taskId)
+    if (!segResult?.videoUrl) return null
+    const buf = await downloadVideo(segResult.videoUrl)
+    if (!buf) return null
+    const segPath = join(tempDir, `longseg_${Date.now()}_${i}.mp4`)
+    await fs.writeFile(segPath, new Uint8Array(buf))
+    videoPaths.push(segPath)
+  }
+
+  // FFmpeg concat 所有段
+  if (videoPaths.length === 0) return null
+  const concatList = videoPaths.map(p => `file '${p.replace(/\\/g, '/')}'`).join('\n')
+  const concatListPath = join(tempDir, `long_concat_${Date.now()}.txt`)
+  await fs.writeFile(concatListPath, concatList)
+  const outputPath = join(tempDir, `long_output_${Date.now()}.mp4`)
+  try {
+    await execFileAsync(ffmpegPath, ['-f', 'concat', '-safe', '0', '-i', concatListPath, '-c', 'copy', '-y', outputPath], { timeout: 120000 })
+  } catch (e) {
+    console.error('[LongVideo] FFmpeg concat 失败:', e)
+    return null
+  }
+  await fs.unlink(concatListPath).catch(() => {})
+
+  // 上传成品到 OSS
+  if (process.env.OSS_ACCESS_KEY_ID && process.env.OSS_BUCKET) {
+    const OSS = (await import('ali-oss')).default
+    const client = new OSS({
+      region: process.env.OSS_REGION || 'oss-cn-hangzhou',
+      accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
+      accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
+      bucket: process.env.OSS_BUCKET!,
+      secure: true, timeout: '300s',
+    })
+    const ossName = `long-video/output_${Date.now()}.mp4`
+    await client.put(ossName, outputPath, { headers: { 'x-oss-object-acl': 'public-read' } })
+    const bucket = process.env.OSS_BUCKET!
+    const region = process.env.OSS_REGION || 'oss-cn-hangzhou'
+    await fs.unlink(outputPath).catch(() => {})
+    for (const p of videoPaths) await fs.unlink(p).catch(() => {})
+    return { videoUrl: `https://${bucket}.${region}.aliyuncs.com/${ossName}`, status: 'completed' }
+  }
+  // 无 OSS 时返回本地临时路径
+  return { videoUrl: outputPath, status: 'completed' }
+}
+
+/** 轮询视频任务直到完成 */
+async function pollVideoTask(taskId: string, maxWait = 300000): Promise<{ videoUrl?: string; status: string } | null> {
+  const start = Date.now()
+  while (Date.now() - start < maxWait) {
+    await new Promise(r => setTimeout(r, 3000))
+    const result = await dashscopeQueryVideoTask(taskId)
+    if (result?.videoUrl) return result
+    if (result?.status === 'FAILED') return { status: 'failed' }
+  }
+  return null
+}
+
 async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
   const key = getDashScopeKey();
   if (!key) return null;
