@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     }
 
     const editors = await prisma.user.findMany({
-      where: { role: 'editor' },
+      where: { role: { in: ['editor', 'end-user'] } },
       select: {
         id: true, username: true, name: true, email: true, createdAt: true, role: true,
         devicePools: { select: { totalWindows: true, usedWindows: true } },
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
 
     const passwordHash = await hashPassword(password)
     const user = await prisma.user.create({
-      data: { username, email, passwordHash, name, role, parentId: 1 }, // parentId 指向 admin
+      data: { username, email, passwordHash, name, role, parentId: auth.userId },
     })
 
     // 如果是 editor，创建设备池

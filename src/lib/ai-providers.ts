@@ -717,8 +717,19 @@ async function dashscopeGenerateImage(prompt: string, size = '1024*1024'): Promi
 }
 
 // 5. 文生图（返回 {url, model}，model 标明实际使用的模型）
-export async function generateImage(prompt: string, size = '1024*1024'): Promise<{ url: string; model: string } | null> {
-  // 百炼(通义万相) → 硅基流动 → Mock
+export async function generateImage(prompt: string, size = '1024*1024', provider?: 'auto' | 'dashscope' | 'siliconflow'): Promise<{ url: string; model: string } | null> {
+  // provider 参数：auto=自动降级, dashscope=强制百炼, siliconflow=强制硅基
+  if (provider === 'dashscope') {
+    const url = await dashscopeGenerateImage(prompt, size)
+    if (url) return { url, model: '百炼通义万相 wanx2.1-t2i-turbo' }
+    return null
+  }
+  if (provider === 'siliconflow') {
+    const url = await siliconGenerateImage(prompt, size.replace(/\*/g, 'x'))
+    if (url) return { url, model: '硅基流动 Tongyi-MAI/Z-Image-Turbo' }
+    return null
+  }
+  // auto: 百炼(通义万相) → 硅基流动 → null
   const dashUrl = await dashscopeGenerateImage(prompt, size)
   if (dashUrl) return { url: dashUrl, model: '百炼通义万相 wanx2.1-t2i-turbo' }
 

@@ -24,6 +24,7 @@ export default function ImageGeneratorPage() {
   const [error, setError] = useState('')
   const [imageSize, setImageSize] = useState('1024*1024')
   const [usingModel, setUsingModel] = useState('')
+  const [provider, setProvider] = useState<'auto' | 'dashscope' | 'siliconflow'>('auto')
   const SIZE_OPTIONS = [
     { value: '1024*1024', label: '1:1 正方形' },
     { value: '1280*720', label: '16:9 横版' },
@@ -67,7 +68,7 @@ export default function ImageGeneratorPage() {
       const r = await fetch('/api/generate-image', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: prompt.trim(), size: imageSize }),
+        body: JSON.stringify({ prompt: prompt.trim(), size: imageSize, provider }),
       })
       const d = await r.json()
       if (d.success) {
@@ -172,6 +173,30 @@ export default function ImageGeneratorPage() {
                   ))}
                 </div>
               </div>
+
+              {/* 模型选择（仅 admin 可见） */}
+              {user?.role === 'admin' && (
+                <div className="mb-3">
+                  <span className="text-gray-500 text-xs block mb-1">
+                    <span>模型引擎</span><span className="text-[10px] opacity-50 ml-1">/ MODEL</span>
+                    <span className="text-[10px] text-emerald-400 ml-2">管理员</span>
+                  </span>
+                  <div className="flex gap-1 flex-wrap">
+                    {[
+                      { value: 'auto' as const, label: '自动(Auto)', desc: '百炼→硅基' },
+                      { value: 'dashscope' as const, label: '百炼通义万相', desc: 'DashScope' },
+                      { value: 'siliconflow' as const, label: '硅基流动', desc: 'Z-Image' },
+                    ].map(opt => (
+                      <button key={opt.value} type="button" onClick={() => setProvider(opt.value)}
+                        className={`px-3 py-1.5 rounded text-xs ${provider === opt.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+                        {opt.label}
+                        <span className="text-[10px] ml-1 opacity-60">{opt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={handleGenerate}
                 disabled={generating || !prompt.trim()}
