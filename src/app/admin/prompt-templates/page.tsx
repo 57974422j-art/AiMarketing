@@ -23,6 +23,8 @@ export default function AdminPromptTemplatesPage() {
   const [filterCat, setFilterCat] = useState('')
   const [generatingPreviews, setGeneratingPreviews] = useState(false)
   const [genProgress, setGenProgress] = useState({ current: 0, total: 0, text: '' })
+  const [fetchingPrompts, setFetchingPrompts] = useState(false)
+  const [generatingVideos, setGeneratingVideos] = useState(false)
 
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState(CATEGORIES[0])
@@ -82,6 +84,37 @@ export default function AdminPromptTemplatesPage() {
     if (d.success) loadItems()
   }
 
+  const handleFetchPrompts = async () => {
+    if (!confirm('从外部源抓取热门提示词？/ FETCH HOT PROMPTS?')) return
+    setFetchingPrompts(true)
+    showToast('开始抓取... / FETCHING...')
+    try {
+      const r = await fetch('/api/fetch-prompts', { method: 'POST', credentials: 'include' })
+      const d = await r.json()
+      showToast(d.message, d.success ? 'success' : 'error')
+      if (d.success) loadItems()
+    } catch { showToast('抓取失败 / FAILED', 'error') }
+    finally { setFetchingPrompts(false) }
+  }
+
+  const handleGenerateVideos = async () => {
+    if (!confirm('批量生成视频预览（需火山 Key）？/ GENERATE VIDEO PREVIEWS?')) return
+    setGeneratingVideos(true)
+    setGenProgress({ current: 0, total: 0, text: '正在处理...' })
+    showToast('开始生成... / GENERATING...')
+    try {
+      const r = await fetch('/api/batch-generate-video-previews', { method: 'POST', credentials: 'include' })
+      const d = await r.json()
+      if (d?.data?.total) {
+        setGenProgress({ current: d.data.total, total: d.data.total, text: `完成 ${d.data.success}/${d.data.total}` })
+        setTimeout(() => { setGeneratingVideos(false); setGenProgress({ current: 0, total: 0, text: '' }) }, 2000)
+      }
+      showToast(d.message, d.success ? 'success' : 'error')
+      loadItems()
+    } catch { showToast('生成失败 / FAILED', 'error') }
+    finally { setTimeout(() => { if (!genProgress.total) setGeneratingVideos(false) }, 500) }
+  }
+
   const handleGeneratePreviews = async () => {
     if (!confirm('AI 生成预览图（需配置 API Key）？ / GENERATE PREVIEW IMAGES?')) return
     setGeneratingPreviews(true)
@@ -112,6 +145,12 @@ export default function AdminPromptTemplatesPage() {
             <p className="text-gray-400 text-sm mt-2"><span>总数</span><span className="text-xs opacity-50 ml-1">/ TOTAL</span>：<span className="text-emerald-400 font-bold">{items.length}</span></p>
           </div>
           <div className="flex gap-2">
+            <button onClick={handleFetchPrompts} disabled={fetchingPrompts} className="btn-secondary text-sm">
+              {fetchingPrompts ? <><span>抓取中</span><span className="text-xs opacity-50 ml-1">/ BUSY</span></> : <><span>🌐 抓取热门提示词</span><span className="text-xs opacity-50 ml-1">/ FETCH</span></>}
+            </button>
+            <button onClick={handleGenerateVideos} disabled={generatingVideos} className="btn-secondary text-sm">
+              {generatingVideos ? <><span>生成中</span><span className="text-xs opacity-50 ml-1">/ BUSY</span></> : <><span>🎬 批量生成视频预览</span><span className="text-xs opacity-50 ml-1">/ VIDEO</span></>}
+            </button>
             <button onClick={handleGeneratePreviews} disabled={generatingPreviews} className="btn-secondary text-sm">
               {generatingPreviews ? <><span>生成中</span><span className="text-xs opacity-50 ml-1">/ BUSY</span></> : <><span>🎨 生成预览图</span><span className="text-xs opacity-50 ml-1">/ PREVIEW</span></>}
             </button>
