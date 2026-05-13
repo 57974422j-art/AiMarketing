@@ -94,19 +94,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '需要管理员权限' }, { status: 403 })
     }
 
-    // 获取所有 previewUrl 为空的视频类模板
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, title, prompt FROM PromptTemplate WHERE category = '文生视频' AND (previewUrl IS NULL OR previewUrl = '') ORDER BY id ASC`
-    ) as { id: number; title: string; prompt: string }[]
+    const body = await request.json().catch(() => ({}))
+    const { ids, limit, model } = body
+
+    // 获取需要生成的视频模板
+    let rows: { id: number; title: string; prompt: string }[]
+    if (Array.isArray(ids) && ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',')
+      rows = await prisma.$queryRawUnsafe(
+        `SELECT id, title, prompt FROM PromptTemplate WHERE id IN (${placeholders}) AND (previewUrl IS NULL OR previewUrl = '') ORDER BY id ASC`,
+        ...ids
+      ) as any[]
+    } else {
+      rows = await prisma.$queryRawUnsafe(
+        `SELECT id, title, prompt FROM PromptTemplate WHERE category = '文生视频' AND (previewUrl IS NULL OR previewUrl = '') ORDER BY id ASC`
+      ) as any[]
+    }
 
     if (!Array.isArray(rows) || rows.length === 0) {
       return NextResponse.json({ success: true, message: '没有待生成的视频模板' })
     }
 
-    const total = rows.length
+    const maxLimit = Math.min(limit || rows.length, rows.length)
+    const targetRows = rows.slice(0, maxLimit)
+    const total = targetRows.length
     const results: { id: number; title: string; success: boolean; url?: string; error?: string }[] = []
 
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = 0; i < targetRows.length; i++) {
       const t = rows[i]
       console.log(`[BatchVideo] ${i + 1}/${total} 生成: ${t.title}`)
       try {

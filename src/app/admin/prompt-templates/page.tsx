@@ -11,7 +11,21 @@ interface PromptItem {
   previewUrl: string | null
 }
 
-const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面']
+const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频']
+
+const IMG_MODELS = [
+  { value: 'auto', label: '自动(Auto)', desc: '百炼→硅基' },
+  { value: 'dashscope', label: '百炼 wan2.6', desc: '推荐' },
+  { value: 'siliconflow', label: '硅基 Z-Image', desc: '备选' },
+]
+const VID_MODELS = [
+  { value: '', label: '自动', desc: 'Doubao→wan2.7' },
+  { value: 'doubao', label: 'Doubao', desc: '火山' },
+  { value: 'wan2.7', label: 'wan2.7', desc: '百炼' },
+  { value: 'happyhorse', label: '快乐小马', desc: '自动配音' },
+]
+
+type ModeTab = 'image' | 'video' | 'all'
 
 export default function AdminPromptTemplatesPage() {
   const { user, loading: authLoading } = useAuth()
@@ -21,10 +35,23 @@ export default function AdminPromptTemplatesPage() {
   const [editItem, setEditItem] = useState<PromptItem | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [filterCat, setFilterCat] = useState('')
-  const [generatingPreviews, setGeneratingPreviews] = useState(false)
-  const [genProgress, setGenProgress] = useState({ current: 0, total: 0, text: '' })
-  const [fetchingPrompts, setFetchingPrompts] = useState(false)
-  const [generatingVideos, setGeneratingVideos] = useState(false)
+  const [modeTab, setModeTab] = useState<ModeTab>('image')
+
+  // 选中项
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+
+  // 批量操作状态
+  const [busy, setBusy] = useState({ fetch: false, imgPreview: false, vidPreview: false, preseeding: false })
+  const [progress, setProgress] = useState({ show: false, text: '' })
+
+  // 生成控制参数
+  const [batchLimit, setBatchLimit] = useState(10)
+  const [imgModel, setImgModel] = useState('auto')
+  const [vidModel, setVidModel] = useState('')
+
+  // 场景生成
+  const [sceneInput, setSceneInput] = useState('')
+  const [sceneGenerating, setSceneGenerating] = useState(false)
 
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState(CATEGORIES[0])
@@ -38,15 +65,38 @@ export default function AdminPromptTemplatesPage() {
 
   const loadItems = async () => {
     try {
-      const url = filterCat ? `/api/prompt-templates?category=${encodeURIComponent(filterCat)}` : '/api/prompt-templates'
+      const params = new URLSearchParams()
+      if (filterCat) params.set('category', filterCat)
+      if (modeTab === 'image') params.set('type', 'image')
+      else if (modeTab === 'video') params.set('type', 'video')
+      const url = '/api/prompt-templates?' + params.toString()
       const r = await fetch(url, { credentials: 'include' })
-      if (r.ok) setItems((await r.json()).data || [])
+      if (r.ok) {
+        const data = await r.json()
+        setItems(data.data || [])
+      }
     } catch { console.error('load failed') }
     finally { setLoading(false) }
   }
 
-  useEffect(() => { if (!authLoading && user && user.role !== 'end-user') loadItems() }, [filterCat])
+  useEffect(() => { if (!authLoading && user && user.role !== 'end-user') loadItems() }, [filterCat, modeTab])
 
+  const filteredItems = items
+
+  // ===== 选择 =====
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredItems.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(filteredItems.map(i => i.id)))
+  }
+
+  // ===== CRUD =====
   const resetForm = () => { setTitle(''); setCategory(CATEGORIES[0]); setPrompt(''); setPreviewUrl('') }
   const openCreate = () => { resetForm(); setEditItem(null); setShowForm(true) }
   const openEdit = (item: PromptItem) => {
@@ -55,7 +105,7 @@ export default function AdminPromptTemplatesPage() {
   }
 
   const handleSubmit = async () => {
-    if (!title || !prompt) { showToast('请填写标题和提示词 / TITLE & PROMPT REQUIRED', 'error'); return }
+    if (!title || !prompt) { showToast('请填写标题和提示词', 'error'); return }
     setSubmitting(true)
     try {
       const url = '/api/prompt-templates'
@@ -64,178 +114,276 @@ export default function AdminPromptTemplatesPage() {
         ? { id: editItem.id, title, category, prompt, previewUrl: previewUrl || null }
         : { title, category, prompt, previewUrl: previewUrl || null }
       const r = await fetch(url, { method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      if (r.ok) { setShowForm(false); loadItems(); showToast(editItem ? '已更新 / UPDATED' : '已创建 / CREATED') }
-      else { const d = await r.json(); showToast(d.message || '操作失败 / FAILED', 'error') }
-    } catch { showToast('操作失败 / FAILED', 'error') }
+      if (r.ok) { setShowForm(false); loadItems(); showToast(editItem ? '已更新' : '已创建') }
+      else { const d = await r.json(); showToast(d.message || '操作失败', 'error') }
+    } catch { showToast('操作失败', 'error') }
     finally { setSubmitting(false) }
   }
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确定删除此模板？ / DELETE THIS TEMPLATE?')) return
+    if (!confirm('确定删除？')) return
     const r = await fetch(`/api/prompt-templates?id=${id}`, { method: 'DELETE', credentials: 'include' })
-    if (r.ok) { loadItems(); showToast('已删除 / DELETED') } else showToast('删除失败 / DELETE FAILED', 'error')
+    if (r.ok) { loadItems(); showToast('已删除') } else showToast('删除失败', 'error')
   }
 
+  // ===== 预设 / 抓取 =====
   const handlePreseed = async () => {
-    if (!confirm('预设 20 条营销提示词模板？ / PRESET 20 TEMPLATES?')) return
+    if (!confirm('预设 20 条营销提示词模板？')) return
+    setBusy(p => ({ ...p, preseeding: true }))
     const r = await fetch('/api/seed-prompt-templates', { method: 'POST', credentials: 'include' })
     const d = await r.json()
     showToast(d.message, d.success ? 'success' : 'error')
     if (d.success) loadItems()
+    setBusy(p => ({ ...p, preseeding: false }))
   }
 
-  const handleFetchPrompts = async () => {
-    if (!confirm('从外部源抓取热门提示词？/ FETCH HOT PROMPTS?')) return
-    setFetchingPrompts(true)
-    showToast('开始抓取... / FETCHING...')
+  const handleFetch = async () => {
+    if (!confirm('从外部源抓取热门提示词？')) return
+    setBusy(p => ({ ...p, fetch: true }))
     try {
       const r = await fetch('/api/fetch-prompts', { method: 'POST', credentials: 'include' })
       const d = await r.json()
       showToast(d.message, d.success ? 'success' : 'error')
       if (d.success) loadItems()
-    } catch { showToast('抓取失败 / FAILED', 'error') }
-    finally { setFetchingPrompts(false) }
+    } catch { showToast('抓取失败', 'error') }
+    finally { setBusy(p => ({ ...p, fetch: false })) }
   }
 
-  const handleGenerateVideos = async () => {
-    if (!confirm('批量生成视频预览（需火山 Key）？/ GENERATE VIDEO PREVIEWS?')) return
-    setGeneratingVideos(true)
-    setGenProgress({ current: 0, total: 0, text: '正在处理...' })
-    showToast('开始生成... / GENERATING...')
+  // ===== 批量生成 =====
+  const runBatch = async (endpoint: string, mode: 'imgPreview' | 'vidPreview') => {
+    const targetIds = selectedIds.size > 0 ? Array.from(selectedIds) : null
+    if (targetIds && targetIds.length === 0) { showToast('请先选择模板', 'error'); return }
+    const label = mode === 'imgPreview' ? '预览图' : '视频预览'
+    if (!confirm(`批量生成 ${label}（${targetIds ? `已选 ${targetIds.length} 个` : `最多 ${batchLimit} 个` }）？`)) return
+    setBusy(p => ({ ...p, [mode]: true }))
+    setProgress({ show: true, text: `正在生成 ${label}...` })
     try {
-      const r = await fetch('/api/batch-generate-video-previews', { method: 'POST', credentials: 'include' })
+      const r = await fetch(endpoint, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ids: targetIds,
+          limit: targetIds ? targetIds.length : batchLimit,
+          model: mode === 'imgPreview' ? imgModel : vidModel,
+        }),
+      })
       const d = await r.json()
-      if (d?.data?.total) {
-        setGenProgress({ current: d.data.total, total: d.data.total, text: `完成 ${d.data.success}/${d.data.total}` })
-        setTimeout(() => { setGeneratingVideos(false); setGenProgress({ current: 0, total: 0, text: '' }) }, 2000)
-      }
+      if (d?.data?.total) setProgress({ show: true, text: `完成 ${d.data.success}/${d.data.total}` })
       showToast(d.message, d.success ? 'success' : 'error')
       loadItems()
-    } catch { showToast('生成失败 / FAILED', 'error') }
-    finally { setTimeout(() => { if (!genProgress.total) setGeneratingVideos(false) }, 500) }
+    } catch { showToast('生成失败', 'error') }
+    finally { setBusy(p => ({ ...p, [mode]: false })); setTimeout(() => setProgress(p => ({ ...p, show: false })), 2000) }
   }
 
-  const handleGeneratePreviews = async () => {
-    if (!confirm('AI 生成预览图（需配置 API Key）？ / GENERATE PREVIEW IMAGES?')) return
-    setGeneratingPreviews(true)
-    setGenProgress({ current: 0, total: 0, text: '正在获取模板列表...' })
+  // ===== 场景生成 =====
+  const handleSceneGen = async () => {
+    if (!sceneInput.trim()) { showToast('请输入场景描述', 'error'); return }
+    setSceneGenerating(true)
     try {
-      const r = await fetch('/api/generate-prompt-previews', { method: 'POST', credentials: 'include' })
+      const r = await fetch('/api/ai-guide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'scene-prompts',
+          scene: sceneInput.trim(),
+          language: 'zh',
+        }),
+      })
       const d = await r.json()
-      if (d?.data?.total) {
-        setGenProgress({ current: d.data.total, total: d.data.total, text: `完成 ${d.data.success}/${d.data.total}` })
-        setTimeout(() => { setGeneratingPreviews(false); setGenProgress({ current: 0, total: 0, text: '' }) }, 2000)
+      if (d.success && d.prompts) {
+        for (const p of d.prompts) {
+          await fetch('/api/prompt-templates', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: p.title, category: p.category, prompt: p.prompt }),
+          })
+        }
+        showToast(`已生成 ${d.prompts.length} 条模板`)
+        loadItems()
+        setSceneInput('')
+      } else {
+        showToast(d.message || '生成失败', 'error')
       }
-      showToast(d.message, d.success ? 'success' : 'error')
-      loadItems()
-    } catch { showToast('生成失败 / FAILED', 'error') }
-    finally { setTimeout(() => { if (!genProgress.total) { setGeneratingPreviews(false) } }, 500) }
+    } catch { showToast('请求失败', 'error') }
+    finally { setSceneGenerating(false) }
   }
 
-  if (authLoading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-gray-400"><span>加载中</span><span className="text-xs opacity-50 ml-1">/ LOADING</span></div></div>
-  if (!user || user.role === 'end-user') return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-red-400 text-center"><p className="text-xl mb-2"><span>无权限</span><span className="text-xs opacity-50 ml-1">/ ACCESS DENIED</span></p></div></div>
+  if (authLoading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-gray-400">加载中...</div></div>
+  if (!user || user.role === 'end-user') return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-red-400 text-center"><p className="text-xl mb-2">无权限</p></div></div>
 
   return (
     <div className="min-h-screen bg-gray-950">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between mb-8">
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* 头部 */}
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <p className="text-label mb-2"><span>管理后台</span><span className="text-xs opacity-50 ml-1">/ ADMIN</span></p>
-            <h1 className="text-mono-lg text-white"><span>提示词模板库</span><span className="text-sm opacity-50 ml-2">/ PROMPT TEMPLATES</span></h1>
-            <p className="text-gray-400 text-sm mt-2"><span>总数</span><span className="text-xs opacity-50 ml-1">/ TOTAL</span>：<span className="text-emerald-400 font-bold">{items.length}</span></p>
+            <p className="text-label mb-2">管理后台 / ADMIN</p>
+            <h1 className="text-mono-lg text-white">提示词模板库 / PROMPT TEMPLATES</h1>
+            <p className="text-gray-400 text-sm mt-1">总数：<span className="text-emerald-400 font-bold">{items.length}</span> / 已选：<span className="text-cyan-400 font-bold">{selectedIds.size}</span></p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={handleFetchPrompts} disabled={fetchingPrompts} className="btn-secondary text-sm">
-              {fetchingPrompts ? <><span>抓取中</span><span className="text-xs opacity-50 ml-1">/ BUSY</span></> : <><span>🌐 抓取热门提示词</span><span className="text-xs opacity-50 ml-1">/ FETCH</span></>}
+          <div className="flex gap-2 flex-wrap justify-end">
+            <button onClick={handleFetch} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🌐 抓取'}</button>
+            <button onClick={handlePreseed} disabled={busy.preseeding} className="btn-secondary text-xs py-2">{busy.preseeding ? '填充中' : '📦 预设'}</button>
+            <button onClick={openCreate} className="btn-primary text-xs py-2">+ 新建</button>
+          </div>
+        </div>
+
+        {/* Tab：文生图 / 文生视频 / 全部 */}
+        <div className="flex gap-1 mb-4 bg-white/5 rounded-xl p-1 border border-white/10 w-fit">
+          {([
+            { key: 'image' as const, label: '🖼️ 文生图' },
+            { key: 'video' as const, label: '🎬 文生视频' },
+            { key: 'all' as const, label: '📋 全部' },
+          ]).map(tab => (
+            <button key={tab.key} onClick={() => { setModeTab(tab.key); setFilterCat(''); setSelectedIds(new Set()) }}
+              className={`px-4 py-1.5 rounded-lg text-xs font-mono transition-all ${modeTab === tab.key ? 'bg-emerald-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}>
+              {tab.label}
             </button>
-            <button onClick={handleGenerateVideos} disabled={generatingVideos} className="btn-secondary text-sm">
-              {generatingVideos ? <><span>生成中</span><span className="text-xs opacity-50 ml-1">/ BUSY</span></> : <><span>🎬 批量生成视频预览</span><span className="text-xs opacity-50 ml-1">/ VIDEO</span></>}
+          ))}
+        </div>
+
+        {/* 批量操作控制栏 */}
+        <div className="bg-white/5 rounded-2xl border border-white/10 p-4 mb-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 font-mono">批量:</span>
+              <input type="number" min={1} max={100} value={batchLimit} onChange={e => setBatchLimit(parseInt(e.target.value) || 10)}
+                className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs text-center" />
+              <span className="text-[10px] text-gray-600">条/次</span>
+            </div>
+
+            {/* 文生图模型 */}
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-gray-500">图模型:</span>
+              {IMG_MODELS.map(m => (
+                <button key={m.value} onClick={() => setImgModel(m.value)}
+                  className={`px-2 py-1 rounded text-[10px] ${imgModel === m.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            {/* 文生视频模型 */}
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-gray-500">视频模型:</span>
+              {VID_MODELS.map(m => (
+                <button key={m.value} onClick={() => setVidModel(m.value)}
+                  className={`px-2 py-1 rounded text-[10px] ${vidModel === m.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2 ml-auto">
+              <button onClick={() => runBatch('/api/generate-prompt-previews', 'imgPreview')} disabled={busy.imgPreview || busy.vidPreview}
+                className="px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs hover:bg-emerald-500/30 disabled:opacity-50">
+                {busy.imgPreview ? '生成中...' : '🎨 生成预览图'}
+              </button>
+              <button onClick={() => runBatch('/api/batch-generate-video-previews', 'vidPreview')} disabled={busy.vidPreview || busy.imgPreview}
+                className="px-3 py-1.5 bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs hover:bg-cyan-500/30 disabled:opacity-50">
+                {busy.vidPreview ? '生成中...' : '🎬 生成视频预览'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 场景生成 */}
+        <div className="bg-gradient-to-r from-emerald-500/5 to-cyan-500/5 rounded-2xl border border-emerald-500/20 p-4 mb-4">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-emerald-400 font-mono shrink-0">🏞️ 场景生模板</span>
+            <input value={sceneInput} onChange={e => setSceneInput(e.target.value)}
+              placeholder="输入场景描述，如：夏日海滩度假产品推广"
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-emerald-500/50" />
+            <button onClick={handleSceneGen} disabled={sceneGenerating || !sceneInput.trim()}
+              className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-xs hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed shrink-0">
+              {sceneGenerating ? '生成中...' : 'AI 生成'}
             </button>
-            <button onClick={handleGeneratePreviews} disabled={generatingPreviews} className="btn-secondary text-sm">
-              {generatingPreviews ? <><span>生成中</span><span className="text-xs opacity-50 ml-1">/ BUSY</span></> : <><span>🎨 生成预览图</span><span className="text-xs opacity-50 ml-1">/ PREVIEW</span></>}
-            </button>
-            <button onClick={handlePreseed} className="btn-secondary text-sm"><span>预设模板</span><span className="text-xs opacity-50 ml-1">/ PRESET</span></button>
-            <button onClick={openCreate} className="btn-primary"><span>+ 新建</span><span className="text-xs opacity-50 ml-1">/ NEW</span></button>
           </div>
         </div>
 
         {/* 分类筛选 */}
-        <div className="flex gap-2 mb-6 flex-wrap">
+        <div className="flex gap-2 mb-4 flex-wrap">
           <button onClick={() => setFilterCat('')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono ${!filterCat ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
-            <span>全部</span><span className="text-[10px] opacity-50 ml-1">/ ALL</span>
+            className={`px-2 py-1 rounded text-xs ${!filterCat ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+            全部
           </button>
           {CATEGORIES.map(c => (
             <button key={c} onClick={() => setFilterCat(c)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono ${filterCat === c ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+              className={`px-2 py-1 rounded text-xs ${filterCat === c ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
               {c}
             </button>
           ))}
         </div>
 
+        {/* 表单 */}
         {showForm && (
           <div className="card-glass p-6 mb-6">
-            <h3 className="text-white font-bold mb-4">{editItem ? <><span>编辑模板</span><span className="text-xs opacity-50 ml-1">/ EDIT</span></> : <><span>新建模板</span><span className="text-xs opacity-50 ml-1">/ NEW</span></>}</h3>
+            <h3 className="text-white font-bold mb-4">{editItem ? '编辑模板 / EDIT' : '新建模板 / NEW'}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <input className="input-dark" placeholder="标题 / TITLE *" value={title} onChange={e => setTitle(e.target.value)} />
               <select className="input-dark" value={category} onChange={e => setCategory(e.target.value)}>
                 {CATEGORIES.map(c => <option key={c} value={c} className="bg-gray-900">{c}</option>)}
               </select>
-              <input className="input-dark md:col-span-2" placeholder="预览图 URL / PREVIEW URL（可选）" value={previewUrl} onChange={e => setPreviewUrl(e.target.value)} />
+              <input className="input-dark md:col-span-2" placeholder="预览图 URL（可选）" value={previewUrl} onChange={e => setPreviewUrl(e.target.value)} />
             </div>
             <textarea className="input-dark mb-4 h-32 resize-y" placeholder="提示词内容 / PROMPT *" value={prompt} onChange={e => setPrompt(e.target.value)} />
             <div className="flex gap-3">
-              <button onClick={handleSubmit} disabled={submitting} className="btn-primary disabled:opacity-50">{submitting ? <><span>保存中</span><span className="text-xs opacity-50 ml-1">/ SAVING</span></> : <><span>保存</span><span className="text-xs opacity-50 ml-1">/ SAVE</span></>}</button>
-              <button onClick={() => setShowForm(false)} className="btn-secondary"><span>取消</span><span className="text-xs opacity-50 ml-1">/ CANCEL</span></button>
+              <button onClick={handleSubmit} disabled={submitting} className="btn-primary disabled:opacity-50">{submitting ? '保存中...' : '保存'}</button>
+              <button onClick={() => setShowForm(false)} className="btn-secondary">取消</button>
             </div>
           </div>
         )}
 
-        {loading ? <div className="text-center text-gray-400 py-12"><span>加载中</span><span className="text-xs opacity-50 ml-1">/ LOADING</span></div>
-        : items.length === 0 ? <div className="card-glass p-12 text-center"><p className="text-gray-400"><span>暂无提示词模板</span><span className="text-xs opacity-50 ml-1">/ EMPTY</span></p></div>
-        : <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {items.map(item => (
-              <div key={item.id} className="card-glass p-5">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1 min-w-0 mr-3">
-                    <h3 className="text-white font-bold text-sm truncate">{item.title}</h3>
-                    <span className="inline-block mt-1 px-2 py-0.5 rounded text-xs bg-emerald-500/20 text-emerald-400">{item.category}</span>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <button onClick={() => openEdit(item)} className="px-2 py-1 text-xs bg-white/10 text-gray-300 rounded hover:bg-white/20"><span>编辑</span><span className="text-[10px] opacity-50 ml-1">/ EDIT</span></button>
-                    <button onClick={() => handleDelete(item.id)} className="px-2 py-1 text-xs bg-red-500/20 text-red-400 rounded hover:bg-red-500/30"><span>删除</span><span className="text-[10px] opacity-50 ml-1">/ DEL</span></button>
+        {/* 列表 */}
+        {loading ? <div className="text-center text-gray-400 py-12">加载中...</div>
+        : items.length === 0 ? <div className="card-glass p-12 text-center"><p className="text-gray-400">暂无模板</p></div>
+        : <div className="space-y-3">
+            <div className="flex items-center gap-2 mb-2">
+              <input type="checkbox" checked={selectedIds.size === filteredItems.length && filteredItems.length > 0} onChange={toggleSelectAll}
+                className="w-4 h-4 rounded border-white/20 bg-white/5 accent-emerald-500" />
+              <span className="text-xs text-gray-500 font-mono">全选</span>
+              {selectedIds.size > 0 && (
+                <span className="text-xs text-cyan-400 font-mono">已选 {selectedIds.size} 项</span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {items.map(item => (
+                <div key={item.id} className={`card-glass p-4 border-2 transition-all ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-transparent'}`}>
+                  <div className="flex items-start gap-2">
+                    <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)}
+                      className="w-4 h-4 mt-0.5 rounded border-white/20 bg-white/5 accent-emerald-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="text-white font-bold text-xs truncate">{item.title}</h3>
+                        <div className="flex gap-1 shrink-0">
+                          <button onClick={() => openEdit(item)} className="px-1.5 py-0.5 text-[10px] bg-white/10 text-gray-300 rounded hover:bg-white/20">编辑</button>
+                          <button onClick={() => handleDelete(item.id)} className="px-1.5 py-0.5 text-[10px] bg-red-500/20 text-red-400 rounded hover:bg-red-500/30">删</button>
+                        </div>
+                      </div>
+                      <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                        {item.category}
+                      </span>
+                      <p className="text-gray-500 text-[10px] mt-1 line-clamp-2">{item.prompt}</p>
+                      {item.previewUrl && (
+                        item.previewUrl.endsWith('.mp4')
+                          ? <video src={item.previewUrl} className="mt-2 rounded-lg w-full h-28 object-cover" controls />
+                          : <img src={item.previewUrl} alt="" className="mt-2 rounded-lg w-full h-28 object-cover" />
+                      )}
+                    </div>
                   </div>
                 </div>
-                <div className="bg-black/30 rounded-lg p-3 mt-2">
-                  <p className="text-gray-400 text-xs truncate">{item.prompt}</p>
-                </div>
-                {item.previewUrl && (
-                  <img src={item.previewUrl} alt={item.title} className="mt-2 rounded-lg w-full h-32 object-cover" />
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>}
 
-        {/* 生成进度弹窗 */}
-        {generatingPreviews && (
+        {/* 进度弹窗 */}
+        {progress.show && (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-gray-900 border border-white/10 rounded-2xl p-8 max-w-sm w-full mx-4 text-center">
-              {genProgress.total > 0 && genProgress.current >= genProgress.total ? (
-                <div>
-                  <div className="text-4xl mb-3">✅</div>
-                  <p className="text-white font-bold text-sm mb-1">生成完成</p>
-                  <p className="text-gray-400 text-xs font-mono">{genProgress.text}</p>
-                </div>
-              ) : (
-                <div>
-                  <svg className="w-10 h-10 animate-spin text-emerald-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  <p className="text-white font-bold text-sm mb-1">正在生成预览图...</p>
-                  <p className="text-gray-400 text-xs font-mono">{genProgress.text || 'AI 正在创作中，请耐心等待'}</p>
-                  <p className="text-gray-600 text-[10px] mt-2">生成完成后页面将自动更新</p>
-                </div>
-              )}
+              <svg className="w-10 h-10 animate-spin text-emerald-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <p className="text-white text-sm font-mono">{progress.text}</p>
             </div>
           </div>
         )}

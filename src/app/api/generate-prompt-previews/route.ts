@@ -17,25 +17,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '需要管理员权限' }, { status: 403 })
     }
 
-    // 获取所有没有预览图的模板
-    const rows = await prisma.$queryRawUnsafe(
-      'SELECT id, title, prompt FROM PromptTemplate WHERE (previewUrl IS NULL OR previewUrl = ?) ORDER BY id ASC',
-      ''
-    ) as { id: number; title: string; prompt: string }[]
+    const body = await request.json().catch(() => ({}))
+    const { ids, limit, model } = body
 
-    if (!Array.isArray(rows) || rows.length === 0) {
-      return NextResponse.json({ success: false, message: '所有模板已有预览图，无需生成' })
+    // 获取需要生成的模板
+    let rows: { id: number; title: string; prompt: string }[]
+    if (Array.isArray(ids) && ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',')
+      rows = await prisma.$queryRawUnsafe(
+        `SELECT id, title, prompt FROM PromptTemplate WHERE id IN (${placeholders}) ORDER BY id ASC`,
+        ...ids
+      ) as any[]
+    } else {
+      rows = await prisma.$queryRawUnsafe(
+        'SELECT id, title, prompt FROM PromptTemplate WHERE (previewUrl IS NULL OR previewUrl = ?) ORDER BY id ASC',
+        ''
+      ) as any[]
     }
 
-    const total = rows.length
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return NextResponse.json({ success: false, message: '没有待生成的模板' })
+    }
+
+    // 按 limit 截取
+    const maxLimit = Math.min(limit || rows.length, rows.length)
+    const targetRows = rows.slice(0, maxLimit)
+    const total = targetRows.length
     const results: { id: number; title: string; success: boolean; url?: string; error?: string }[] = []
 
-    for (let i = 0; i < rows.length; i++) {
-      const t = rows[i]
+    for (let i = 0; i < targetRows.length; i++) {
+      const t = targetRows[i]
       try {
-        // 在提示词末尾追加质量关键词
         const enhancedPrompt = t.prompt + '，高清画质、电商展示风格、专业打光、干净背景、8K细节'
-        const imageUrl = await generateImage(enhancedPrompt)
+        const imageUrl = await generateImage(enhancedPrompt, '1280*1280', model as any)
 
         if (imageUrl?.url) {
           // 更新 previewUrl

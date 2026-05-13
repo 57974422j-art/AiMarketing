@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS PromptTemplate (
 )
 `
 
-const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面']
+const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频']
 
 async function ensureTable() {
   await prisma.$executeRawUnsafe(CREATE_TABLE_SQL)
@@ -29,14 +29,23 @@ export async function GET(request: NextRequest) {
     await ensureTable()
     const { searchParams } = new URL(request.url)
     const category = searchParams.get('category')
+    const type = searchParams.get('type') // 'image' | 'video'
+    let sql = 'SELECT * FROM PromptTemplate'
+    const params: any[] = []
+    const conditions: string[] = []
+
+    if (category) { conditions.push('category = ?'); params.push(category) }
+    if (type === 'image') { conditions.push("(category = '文生图' OR category NOT IN ('文生视频'))") }
+    if (type === 'video') { conditions.push("category = '文生视频'") }
+
+    if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ')
+    sql += ' ORDER BY id ASC'
+
     let rows: any[]
-    if (category) {
-      rows = await prisma.$queryRawUnsafe(
-        'SELECT * FROM PromptTemplate WHERE category = ? ORDER BY id ASC',
-        category
-      )
+    if (params.length > 0) {
+      rows = await prisma.$queryRawUnsafe(sql, ...params)
     } else {
-      rows = await prisma.$queryRawUnsafe('SELECT * FROM PromptTemplate ORDER BY id ASC')
+      rows = await prisma.$queryRawUnsafe(sql)
     }
     return NextResponse.json({ success: true, data: rows })
   } catch (e) {
