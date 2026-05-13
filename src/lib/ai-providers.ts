@@ -1076,28 +1076,37 @@ export async function generateImage(prompt: string, size = '1280*1280', provider
 
 // 6. 文生视频 — 降级链：Doubao-Seedance 2.0 → wan2.7-t2v → happyhorse-1.0-t2v → Mock
 export async function generateVideo(prompt: string, _duration = 5, _resolution = '720P', _ratio = '16:9'): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
-  // ① 火山 Doubao-Seedance 2.0
+  // ① 火山 Doubao-Seedance 2.0（API 路径: /api/v3/video/generation）
   const volcanoKey = getVolcanoKey();
   if (volcanoKey) {
     try {
-      console.log(`[火山视频] 创建: model=doubao-seedance-2.0, duration=${_duration}s, resolution=${_resolution}, ratio=${_ratio}, prompt_len=${prompt.length}`);
-      const data = await fetchJSON(`${VOLCANO_BASE}/api/v1/video/generation`, {
+      const volcanoModel = 'doubao-seedance-2-0-fast-260128' // 可用: seedance-2.0-vd, doubao-seedance-2-0-fast-260128
+      const resolutionMap: Record<string, string> = { '720P': '720p', '1080P': '1080p', '480P': '480p' }
+      const rs = resolutionMap[_resolution] || '720p'
+      console.log(`[火山视频] 创建: model=${volcanoModel}, duration=${_duration}s, resolution=${rs}, ratio=${_ratio}, prompt_len=${prompt.length}`);
+      const data = await fetchJSON(`${VOLCANO_BASE}/api/v3/video/generation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${volcanoKey}` },
         body: JSON.stringify({
-          model: 'doubao-seedance-2.0',
-          input: { prompt },
-          parameters: { duration: _duration, resolution: _resolution, aspect_ratio: _ratio },
+          model: volcanoModel,
+          prompt,
+          duration: _duration,
+          resolution: rs,
+          ratio: _ratio,
+          watermark: false,
         }),
       });
-      if (data?.output?.task_id) {
-        console.log(`[火山视频] 创建成功: task_id=${data.output.task_id.substring(0, 12)}..., task_status=${data.output.task_status || '-'}`);
-        return { taskId: data.output.task_id, status: data.output.task_status || 'running' };
+      // 火山 API 响应格式: { task_id, status, video_url, last_frame_url }
+      const taskId = data?.task_id || data?.output?.task_id || ''
+      const taskStatus = data?.status || data?.output?.task_status || ''
+      const videoUrl = data?.video_url || data?.output?.video_url || ''
+      if (taskId) {
+        console.log(`[火山视频] 创建成功: task_id=${taskId.substring(0, 12)}..., status=${taskStatus || '-'}`);
+        return { taskId, status: taskStatus || 'running' };
       }
-      // 检查是否直接返回了视频URL（同步模式）
-      if (data?.output?.video_url) {
-        console.log(`[火山视频] 同步返回视频: url_len=${data.output.video_url.length}`);
-        return { taskId: 'volcano_sync', status: 'completed', videoUrl: data.output.video_url };
+      if (videoUrl) {
+        console.log(`[火山视频] 同步返回视频: url_len=${videoUrl.length}`);
+        return { taskId: 'volcano_sync', status: 'completed', videoUrl };
       }
       console.log(`[火山视频] 创建失败: 未返回task_id, 完整响应: ${JSON.stringify(data).substring(0, 300)}`);
     } catch (e) {
@@ -1134,14 +1143,14 @@ export async function queryVideoTask(taskId: string): Promise<{ taskId: string; 
     try {
       const shortId = taskId.substring(0, 12)
       console.log(`[火山查询] 开始: task=${shortId}...`)
-      const data = await fetchJSON(`${VOLCANO_BASE}/api/v1/video/generation/${taskId}`, {
+      const data = await fetchJSON(`${VOLCANO_BASE}/api/v3/video/generation/${taskId}`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${key}` },
       });
-      const status = data?.output?.task_status || 'unknown'
-      const videoUrl = data?.output?.video_url || data?.output?.results?.[0]?.url || ''
+      const status = data?.status || data?.output?.task_status || 'unknown'
+      const videoUrl = data?.video_url || data?.output?.video_url || data?.output?.results?.[0]?.url || ''
       const rawOutput = data?.output || {}
-      const errCode = rawOutput.code || data?.code
+      const errCode = rawOutput.code || data?.code || ''
       const errMsg = rawOutput.message || data?.message || ''
       console.log(
         '[火山查询] task=' + shortId + '... status=' + status +
