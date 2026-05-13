@@ -99,6 +99,7 @@ const [generating, setGenerating] = useState(false)
 
       // 长视频走 SSE 流式
       if (longVideo && duration > 15) {
+        setTaskId('long_video') // 让进度条显示
         const reader = r.body!.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -367,11 +368,10 @@ const [generating, setGenerating] = useState(false)
                 )}
 
                 {/* 错误 */}
-                {error && (
-                  <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20 text-sm text-red-400 font-mono">
-                    ❌ {error}
-                  </div>
-                )}
+                {error && (error.startsWith('第 ') || error.startsWith('正在') || error.startsWith('等待'))
+                  ? <div className="p-3 bg-cyan-500/10 rounded-xl border border-cyan-500/20 text-sm text-cyan-400 font-mono">{error}</div>
+                  : <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20 text-sm text-red-400 font-mono">❌ {error}</div>
+                }
 
                 {/* 进度 */}
                 {taskId && !videoUrl && (
