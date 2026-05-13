@@ -431,7 +431,11 @@ async function dashscopeGenerateVideo(prompt: string, _duration = 5, _resolution
         parameters: { resolution: _resolution, ratio: _ratio, duration: _duration },
       }),
     });
-    if (data?.output?.task_id) return { taskId: data.output.task_id, status: 'running' };
+    if (data?.output?.task_id) {
+      console.log(`[文生视频] ${model} 任务创建成功, task_id: ${data.output.task_id}`);
+      return { taskId: data.output.task_id, status: 'running' };
+    }
+    console.log(`[文生视频] ${model} 未返回 task_id, code:`, data?.code, 'msg:', data?.message?.substring(0, 100));
     return null;
   } catch (e) {
     console.error(`[DashScope 文生视频 ${model}] 失败:`, e);
@@ -490,44 +494,47 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
 
   for (let i = 0; i < segments; i++) {
     const segPrompt = i === 0 ? prompt : `${prompt}，延续上一段画面风格`
-    console.log(`[LongVideo] 第 ${i + 1}/${segments} 段 (${actualDurations[i]}s)`)
+    console.log(`[文生视频] 长视频第 ${i + 1}/${segments} 段开始 (${actualDurations[i]}s)`)
 
     let taskId = ''
     if (i === 0 || !videoPaths[i - 1]) {
       // 第一段或无上一段视频：文生视频
       const model = 'wan2.7-t2v-2026-04-25'
       const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, model)
-      if (!result?.taskId) return null
+      if (!result?.taskId) {
+        console.log(`[文生视频] 第 ${i + 1} 段创建失败, 终止`)
+        return null
+      }
       taskId = result.taskId
     } else {
       // 用上一段尾帧做参考 → 图生视频
       const prevVideo = videoPaths[i - 1]
-      // 提取尾帧
       const lastFramePath = join(tempDir, `lastframe_${Date.now()}_${i}.png`)
       try {
         await execFileAsync(ffmpegPath, ['-i', prevVideo, '-sseof', '-1', '-update', '1', '-q:v', '1', '-y', lastFramePath], { timeout: 15000 })
-      } catch { /* ignore */ }
-      // 上传尾帧到 OSS 或直接用本地路径
+        const frameSize = existsSync(lastFramePath) ? (await import('fs')).statSync(lastFramePath).size : 0
+        if (frameSize < 100) throw new Error(`尾帧文件过小: ${frameSize} bytes`)
+        console.log(`[文生视频] 第 ${i + 1}/${segments} 段, 尾帧保存到 ${lastFramePath} (${frameSize} bytes)`)
+      } catch (e: any) {
+        console.log(`[文生视频] 第 ${i + 1} 段尾帧提取失败: ${e.message}, 终止`)
+        return null
+      }
       let refUrl = lastFramePath
-      // 如果 OSS 配置完整，上传到 OSS
       if (process.env.OSS_ACCESS_KEY_ID && process.env.OSS_BUCKET) {
         const OSS = (await import('ali-oss')).default
         const client = new OSS({
           region: process.env.OSS_REGION || 'oss-cn-hangzhou',
           accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
           accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
-          bucket: process.env.OSS_BUCKET!,
-          secure: true,
+          bucket: process.env.OSS_BUCKET!, secure: true,
         })
         const ossName = `long-video/frame_${Date.now()}_${i}.png`
         await client.put(ossName, lastFramePath, { headers: { 'x-oss-object-acl': 'public-read' } })
         refUrl = `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION || 'oss-cn-hangzhou'}.aliyuncs.com/${ossName}`
       } else {
-        // 无 OSS 时跳过尾帧参考（兜底）
         const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, 'wan2.7-t2v-2026-04-25')
         if (!result?.taskId) return null
         taskId = result.taskId
-        // 跳过下面的轮询
         const segResult = await pollVideoTask(taskId)
         if (!segResult?.videoUrl) return null
         const buf = await downloadVideo(segResult.videoUrl)
@@ -535,28 +542,37 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
         const segPath = join(tempDir, `longseg_${Date.now()}_${i}.mp4`)
         await fs.writeFile(segPath, new Uint8Array(buf))
         videoPaths.push(segPath)
+        console.log(`[文生视频] 第 ${i + 1}/${segments} 段完成, 保存到 ${segPath}`)
         continue
       }
-      // 图生视频
       const i2vResult = await dashscopeImageToVideo(segPrompt, refUrl, actualDurations[i], _resolution, _ratio)
-      if (!i2vResult?.taskId) return null
+      if (!i2vResult?.taskId) {
+        console.log(`[文生视频] 第 ${i + 1} 段图生视频创建失败, 终止`)
+        return null
+      }
       taskId = i2vResult.taskId
-      // 清理临时尾帧
       await fs.unlink(lastFramePath).catch(() => {})
     }
 
-    // 轮询等待本段完成
     const segResult = await pollVideoTask(taskId)
-    if (!segResult?.videoUrl) return null
+    if (!segResult?.videoUrl) {
+      console.log(`[文生视频] 第 ${i + 1} 段轮询失败, 终止`)
+      return null
+    }
     const buf = await downloadVideo(segResult.videoUrl)
-    if (!buf) return null
+    if (!buf) {
+      console.log(`[文生视频] 第 ${i + 1} 段下载失败, 终止`)
+      return null
+    }
     const segPath = join(tempDir, `longseg_${Date.now()}_${i}.mp4`)
     await fs.writeFile(segPath, new Uint8Array(buf))
     videoPaths.push(segPath)
+    console.log(`[文生视频] 第 ${i + 1}/${segments} 段生成完成, task_id: ${taskId.substring(0, 8)}..., 保存尾帧到 ${segPath}`)
   }
 
   // FFmpeg concat 所有段
   if (videoPaths.length === 0) return null
+  console.log(`[文生视频] 所有段生成完成, 待拼接: ${videoPaths.join(', ')}`)
   const concatList = videoPaths.map(p => `file '${p.replace(/\\/g, '/')}'`).join('\n')
   const concatListPath = join(tempDir, `long_concat_${Date.now()}.txt`)
   await fs.writeFile(concatListPath, concatList)
@@ -564,10 +580,19 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
   try {
     await execFileAsync(ffmpegPath, ['-f', 'concat', '-safe', '0', '-i', concatListPath, '-c', 'copy', '-y', outputPath], { timeout: 120000 })
   } catch (e) {
-    console.error('[LongVideo] FFmpeg concat 失败:', e)
+    console.error('[文生视频] FFmpeg concat 失败:', e)
     return null
   }
   await fs.unlink(concatListPath).catch(() => {})
+
+  // 检查输出文件大小
+  let outputSize = 0
+  try { outputSize = (await import('fs')).statSync(outputPath).size } catch {}
+  if (outputSize < 1024 * 1024) {
+    console.log(`[文生视频] concat 输出文件过小: ${outputSize} bytes, 终止`)
+    return null
+  }
+  console.log(`[文生视频] concat 成功, 输出文件: ${outputPath} (${Math.round(outputSize / 1024 / 1024 * 100) / 100} MB)`)
 
   // 上传成品到 OSS
   if (process.env.OSS_ACCESS_KEY_ID && process.env.OSS_BUCKET) {
@@ -594,12 +619,24 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
 /** 轮询视频任务直到完成 */
 async function pollVideoTask(taskId: string, maxWait = 300000): Promise<{ videoUrl?: string; status: string } | null> {
   const start = Date.now()
-  while (Date.now() - start < maxWait) {
+  const maxAttempts = Math.floor(maxWait / 3000)
+  for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 3000))
     const result = await dashscopeQueryVideoTask(taskId)
-    if (result?.videoUrl) return result
-    if (result?.status === 'FAILED') return { status: 'failed' }
+    const elapsed = Math.round((Date.now() - start) / 1000)
+    if (result?.videoUrl) {
+      console.log(`[文生视频] 轮询完成 task=${taskId.substring(0, 8)}... status=SUCCEEDED, 耗时=${elapsed}s`)
+      return result
+    }
+    if (result?.status === 'FAILED') {
+      console.log(`[文生视频] 轮询失败 task=${taskId.substring(0, 8)}... status=FAILED, 耗时=${elapsed}s`)
+      return { status: 'failed' }
+    }
+    if (i % 5 === 0 || i === maxAttempts - 1) {
+      console.log(`[文生视频] 轮询中 task=${taskId.substring(0, 8)}... status=${result?.status || 'unknown'}, ${i + 1}/${maxAttempts}, 耗时=${elapsed}s`)
+    }
   }
+  console.log(`[文生视频] 轮询超时 task=${taskId.substring(0, 8)}...`)
   return null
 }
 
@@ -999,7 +1036,11 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
           parameters: { duration: _duration, resolution: _resolution, aspect_ratio: _ratio },
         }),
       });
-      if (data?.output?.task_id) return { taskId: data.output.task_id, status: data.output.task_status || 'running' };
+      if (data?.output?.task_id) {
+        console.log(`[文生视频] Doubao-Seedance 任务创建成功, task_id: ${data.output.task_id}`);
+        return { taskId: data.output.task_id, status: data.output.task_status || 'running' };
+      }
+      console.log(`[文生视频] Doubao-Seedance 未返回 task_id`);
     } catch (e) {
       console.error('[Volcano Doubao-Seedance] 失败:', e);
     }
