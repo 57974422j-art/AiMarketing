@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     const body = await request.json()
-    const { prompt, aspectRatio, duration, resolution, model, refImage, longVideo } = body
+    const { prompt, aspectRatio, duration, resolution, model, refImage, longVideo, segmentPrompts } = body
     const rawDuration = Math.max(2, parseInt(duration) || 5)
     const videoDuration = longVideo ? Math.min(60, rawDuration) : Math.min(15, rawDuration)
     const requestStart = Date.now()
@@ -20,8 +20,9 @@ export async function POST(request: NextRequest) {
 
     // 长视频模式（>15s 自动拼接）
     if (videoDuration > 15 && longVideo) {
-      console.log(`[文生视频API] 进入长视频模式, target=${videoDuration}s, 将拆多段拼接`)
-      const result = await generateLongVideo(prompt, videoDuration, resolution || '720P', aspectRatio || '16:9')
+      const segPrompts = segmentPrompts || [prompt]
+      console.log(`[文生视频API] 进入长视频模式, target=${videoDuration}s, 段数=${segPrompts.length}`)
+      const result = await generateLongVideo(segPrompts, videoDuration, resolution || '720P', aspectRatio || '16:9')
       const cost = Math.round((Date.now() - requestStart) / 1000)
       if (!result?.videoUrl) {
         console.log(`[文生视频API] 长视频失败, 耗时=${cost}s, result=`, JSON.stringify(result))

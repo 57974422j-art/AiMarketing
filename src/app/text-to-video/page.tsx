@@ -40,9 +40,11 @@ export default function TextToVideoPage() {
   const [ratio, setRatio] = useState('16:9')
   const [model, setModel] = useState('')
   const [longVideo, setLongVideo] = useState(false)
-  const [refImage, setRefImage] = useState<File | null>(null)
-  const [refPreview, setRefPreview] = useState('')
-  const [generating, setGenerating] = useState(false)
+const [refImage, setRefImage] = useState<File | null>(null)
+const [refPreview, setRefPreview] = useState('')
+const [segmentPrompts, setSegmentPrompts] = useState<string[]>([])
+const [editSegments, setEditSegments] = useState(false)
+const [generating, setGenerating] = useState(false)
   const [taskId, setTaskId] = useState('')
   const [progress, setProgress] = useState(0)
   const [videoUrl, setVideoUrl] = useState('')
@@ -70,6 +72,9 @@ export default function TextToVideoPage() {
         aspectRatio: ratio, duration, resolution, longVideo,
       }
       if (model) body.model = model
+      if (longVideo && segmentPrompts.length > 0) {
+        body.segmentPrompts = segmentPrompts
+      }
       if (refImage) {
         const buf = await refImage.arrayBuffer()
         body.refImage = Buffer.from(buf).toString('base64')
@@ -143,7 +148,13 @@ export default function TextToVideoPage() {
                     <label className="block text-label mb-1">{t.textToVideo.duration}</label>
                     <div className="flex gap-1 flex-wrap">
                       {allDurations.map(d => (
-                        <button key={d} type="button" onClick={() => setDuration(d)}
+                        <button key={d} type="button" onClick={() => { 
+                          setDuration(d)
+                          if (longVideo) {
+                            const segCount = Math.ceil(d / 15)
+                            setSegmentPrompts(Array(segCount).fill(prompt))
+                          }
+                        }}
                           className={`px-2 py-1.5 rounded text-xs ${duration === d ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
                           {d}{t.textToVideo.seconds}
                         </button>
@@ -184,7 +195,17 @@ export default function TextToVideoPage() {
                 {/* 长视频开关 */}
                 <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
                   <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" checked={longVideo} onChange={e => { setLongVideo(e.target.checked); setDuration(e.target.checked ? 20 : 5) }} className="sr-only peer" />
+                    <input type="checkbox" checked={longVideo} onChange={e => { 
+                      const v = e.target.checked
+                      setLongVideo(v)
+                      const d = v ? 20 : 5
+                      setDuration(d)
+                      if (v) {
+                        const segCount = Math.ceil(d / 15)
+                        setSegmentPrompts(Array(segCount).fill(prompt))
+                        setEditSegments(false)
+                      }
+                    }} className="sr-only peer" />
                     <div className="w-9 h-5 bg-white/10 rounded-full peer peer-checked:bg-emerald-500 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
                   </label>
                   <div>
@@ -192,6 +213,49 @@ export default function TextToVideoPage() {
                     <p className="text-[10px] text-gray-600">{'>'}15s 自动拆分多段，用尾帧保证连贯</p>
                   </div>
                 </div>
+
+                {/* 分段提示词（长视频） */}
+                {longVideo && (
+                  <div className="bg-white/5 rounded-xl border border-white/10 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="text-label text-sm">分段提示词 / SEGMENT PROMPTS</label>
+                      <button type="button" onClick={() => { 
+                        const newVal = !editSegments
+                        setEditSegments(newVal)
+                        if (newVal && segmentPrompts.length === 0) {
+                          const segCount = Math.ceil(duration / 15)
+                          setSegmentPrompts(Array(segCount).fill(prompt))
+                        }
+                      }}
+                        className={`text-xs px-2 py-1 rounded ${editSegments ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                        {editSegments ? '自定义' : '统一提示词'}
+                      </button>
+                    </div>
+                    {editSegments && segmentPrompts.map((sp, idx) => {
+                      const basePerSeg = 15
+                      const isLast = idx === segmentPrompts.length - 1
+                      const segDur = isLast ? duration - idx * basePerSeg : basePerSeg
+                      return (
+                      <div key={idx} className="mb-2">
+                        <label className="block text-[10px] text-gray-500 mb-1 font-mono">
+                          片段 {idx + 1}/{segmentPrompts.length} ({segDur}s)
+                        </label>
+                        <textarea value={sp} onChange={e => {
+                          const copy = [...segmentPrompts]
+                          copy[idx] = e.target.value
+                          setSegmentPrompts(copy)
+                        }}
+                          placeholder={`第 ${idx + 1} 段视频描述...`}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs placeholder-gray-600 focus:outline-none focus:border-emerald-500/50"
+                          rows={2} />
+                      </div>
+                      )
+                    })}
+                    {!editSegments && (
+                      <p className="text-[11px] text-gray-500">所有段使用同一提示词，点击「自定义」可单独编辑每段</p>
+                    )}
+                  </div>
+                )}
 
                 {/* 参考图上传 */}
                 <div>

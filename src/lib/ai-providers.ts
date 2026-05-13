@@ -483,16 +483,32 @@ async function downloadVideo(url: string): Promise<ArrayBuffer | null> {
   } catch { return null }
 }
 
-/** 长视频自动拼接（>15s 拆分为多段，每段用上一段尾帧做参考） */
-export async function generateLongVideo(prompt: string, totalDuration: number, _resolution = '720P', _ratio = '16:9'): Promise<{ videoUrl?: string; status: string } | null> {
+/** 长视频自动拼接（>15s 拆分为多段，每段用上一段尾帧做参考）
+ *  @param prompts - 每段的提示词数组，长度必须等于 segments 数
+ */
+export async function generateLongVideo(
+  prompts: string[],
+  totalDuration?: number,
+  _resolution = '720P',
+  _ratio = '16:9'
+): Promise<{ videoUrl?: string; status: string } | null> {
+  const totalStartTime = Date.now()
   const segDuration = 15
-  const segments = Math.ceil(totalDuration / segDuration)
-  const actualDurations: number[] = []
-  // 每段时长：前 N-1 段 15s，最后一段剩余
-  for (let i = 0; i < segments; i++) {
-    actualDurations.push(Math.min(segDuration, totalDuration - i * segDuration))
+  // 如果传了 totalDuration，用总时长计算段数；否则直接用 prompts 长度
+  const segments = totalDuration ? Math.ceil(totalDuration / segDuration) : prompts.length
+  if (prompts.length === 1 && segments > 1) {
+    // 只有一个提示词时，复制给所有段
+    prompts = Array(segments).fill(prompts[0])
   }
-  console.log(`[LongVideo] 拆分 ${segments} 段:`, actualDurations)
+  if (prompts.length !== segments) {
+    console.error(`[LongVideo] 提示词数(${prompts.length})与段数(${segments})不匹配`)
+    return null
+  }
+  const actualDurations: number[] = []
+  for (let i = 0; i < segments; i++) {
+    actualDurations.push(totalDuration ? Math.min(segDuration, totalDuration - i * segDuration) : segDuration)
+  }
+  console.log(`[LongVideo] 拆分 ${segments} 段:`, actualDurations, `prompts=${prompts.map(p => p.substring(0, 20)).join('|')}`)
 
   const tempDir = join(process.cwd(), 'temp')
   if (!existsSync(tempDir)) await mkdir(tempDir, { recursive: true })
@@ -502,8 +518,9 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
   const fs = await import('fs/promises')
 
   for (let i = 0; i < segments; i++) {
-    const segPrompt = i === 0 ? prompt : `${prompt}，延续上一段画面风格`
-    console.log(`[文生视频] 长视频第 ${i + 1}/${segments} 段开始 (${actualDurations[i]}s)`)
+    const segPrompt = prompts[i]
+    const segStart = Date.now()
+    console.log(`[LongVideo] 第 ${i + 1}/${segments} 段开始 (${actualDurations[i]}s), prompt: "${segPrompt.substring(0, 40)}..."`)
 
     let taskId = ''
     if (i === 0 || !videoPaths[i - 1]) {
@@ -577,12 +594,13 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
     const segPath = join(tempDir, `longseg_${Date.now()}_${i}.mp4`)
     await fs.writeFile(segPath, new Uint8Array(buf))
     videoPaths.push(segPath)
-    console.log(`[文生视频] 第 ${i + 1}/${segments} 段生成完成, task_id: ${taskId.substring(0, 8)}..., 保存尾帧到 ${segPath}`)
+    const segCost = Math.round((Date.now() - segStart) / 1000)
+    console.log(`[LongVideo] 第 ${i + 1}/${segments} 段完成, 耗时=${segCost}s, task=${taskId.substring(0, 8)}..., 保存到 ${segPath}`)
   }
 
   // FFmpeg concat 所有段
   if (videoPaths.length === 0) return null
-  console.log(`[文生视频] 所有段生成完成, 待拼接: ${videoPaths.join(', ')}`)
+  console.log(`[LongVideo] 所有 ${segments} 段生成完成, 总耗时=${Math.round((Date.now()-totalStartTime)/1000)}s, 待拼接: ${videoPaths.join(', ')}`)
   const concatList = videoPaths.map(p => `file '${p.replace(/\\/g, '/')}'`).join('\n')
   const concatListPath = join(tempDir, `long_concat_${Date.now()}.txt`)
   await fs.writeFile(concatListPath, concatList)
