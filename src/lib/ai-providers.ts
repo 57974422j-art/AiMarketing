@@ -627,11 +627,11 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
 }
 
 /** 轮询视频任务直到完成 */
-async function pollVideoTask(taskId: string, maxWait = 600000): Promise<{ videoUrl?: string; status: string } | null> {
+async function pollVideoTask(taskId: string, maxWait = 900000): Promise<{ videoUrl?: string; status: string } | null> {
   const start = Date.now()
-  const maxAttempts = Math.floor(maxWait / 3000)
+  const maxAttempts = Math.floor(maxWait / 15000)
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 3000))
+    await new Promise(r => setTimeout(r, 15000))
     const result = await dashscopeQueryVideoTask(taskId)
     const elapsed = Math.round((Date.now() - start) / 1000)
     if (result?.videoUrl) {

@@ -85,9 +85,11 @@ export default function TextToVideoPage() {
       if (d.videoUrl) { setVideoUrl(d.videoUrl); setProgress(100); setGenerating(false); return }
 
       setTaskId(d.taskId)
-      for (let i = 0; i < (longVideo ? 300 : 120); i++) {
-        await new Promise(r => setTimeout(r, 3000))
-        setProgress(Math.min(95, (i + 1) * 2))
+      const interval = longVideo ? 15000 : 15000
+      const maxAttempts = longVideo ? 120 : 60
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(r => setTimeout(r, interval))
+        setProgress(Math.min(95, Math.round((i + 1) / maxAttempts * 100)))
         const q = await fetch(`/api/video/text-to-video?taskId=${d.taskId}`, { credentials: 'include' })
         const qd = await q.json()
         if (qd.videoUrl) { setVideoUrl(qd.videoUrl); setProgress(100); setGenerating(false); return }
