@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     await ensureTable()
     const body = await request.json()
     const items = Array.isArray(body) ? body : [body]
-    const created = []
+    const created: { ossUrl: string; title: string; type: string }[] = []
     for (const item of items) {
       const { ossUrl, title } = item
       if (!ossUrl || !title) continue
