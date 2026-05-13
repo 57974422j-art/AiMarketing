@@ -4,14 +4,30 @@ import { getAuthFromHeaders } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
 
+// 确保 type 列存在
+async function ensureTypeColumn() {
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE MediaAsset ADD COLUMN type TEXT NOT NULL DEFAULT 'video'`)
+  } catch { /* 列已存在则忽略 */ }
+}
+
+function detectType(url: string): 'video' | 'image' {
+  const ext = url.split('?')[0].split('.').pop()?.toLowerCase() || ''
+  return ['mp4', 'mov', 'avi', 'webm'].includes(ext) ? 'video' : 'image'
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
-    const data = await prisma.mediaAsset.findMany({
-      where: auth.role === 'admin' ? {} : { ownerId: auth.userId },
-      orderBy: { createdAt: 'desc' },
-    })
+    await ensureTypeColumn()
+    const { searchParams } = new URL(request.url)
+    const type = searchParams.get('type') // video | image | all
+
+    const where: any = auth.role === 'admin' ? {} : { ownerId: auth.userId }
+    if (type && type !== 'all') where.type = type
+
+    const data = await prisma.mediaAsset.findMany({ where, orderBy: { createdAt: 'desc' } })
     return NextResponse.json({ success: true, data })
   } catch (e) {
     console.error(e)
@@ -23,12 +39,21 @@ export async function POST(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
-    const { ossUrl, title } = await request.json()
-    if (!ossUrl || !title) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
-    const asset = await prisma.mediaAsset.create({
-      data: { ossUrl, title, ownerId: auth.userId },
-    })
-    return NextResponse.json({ success: true, data: asset }, { status: 201 })
+    await ensureTypeColumn()
+    const body = await request.json()
+    // 支持单条和批量
+    const items = Array.isArray(body) ? body : [body]
+    const created = []
+    for (const item of items) {
+      const { ossUrl, title } = item
+      if (!ossUrl || !title) continue
+      const type = detectType(ossUrl)
+      const asset = await prisma.mediaAsset.create({
+        data: { ossUrl, title, type, ownerId: auth.userId },
+      })
+      created.push(asset)
+    }
+    return NextResponse.json({ success: true, data: created, message: `已添加 ${created.length} 个素材` }, { status: 201 })
   } catch (e) {
     console.error(e)
     return NextResponse.json({ success: false, message: '服务器错误' }, { status: 500 })

@@ -59,7 +59,7 @@ export default function AdminPromptTemplatesPage() {
   const [previewUrl, setPreviewUrl] = useState('')
 
   useEffect(() => {
-    if (!authLoading && user && user.role !== 'end-user') loadItems()
+    if (!authLoading && user && user.role === 'admin') loadItems()
     else if (!authLoading) setLoading(false)
   }, [authLoading, user])
 
@@ -79,7 +79,7 @@ export default function AdminPromptTemplatesPage() {
     finally { setLoading(false) }
   }
 
-  useEffect(() => { if (!authLoading && user && user.role !== 'end-user') loadItems() }, [filterCat, modeTab])
+  useEffect(() => { if (!authLoading && user && user.role === 'admin') loadItems() }, [filterCat, modeTab])
 
   const filteredItems = items
 
@@ -179,6 +179,29 @@ export default function AdminPromptTemplatesPage() {
     finally { setBusy(p => ({ ...p, [mode]: false })); setTimeout(() => setProgress(p => ({ ...p, show: false })), 2000) }
   }
 
+  // ===== 导入素材库 =====
+  const handleImportToMedia = async () => {
+    const targetIds = selectedIds.size > 0 ? Array.from(selectedIds) : items.map(i => i.id)
+    if (targetIds.length === 0) { showToast('没有可选模板', 'error'); return }
+    // 筛选有预览图的
+    const withPreview = items.filter(i => targetIds.includes(i.id) && i.previewUrl)
+    if (withPreview.length === 0) { showToast('所选模板没有预览图，请先生成', 'error'); return }
+    if (!confirm(`将 ${withPreview.length} 个模板预览图导入素材库？`)) return
+    try {
+      const batch = withPreview.map(item => ({
+        title: `模板-${item.title}`,
+        ossUrl: item.previewUrl!,
+      }))
+      const r = await fetch('/api/media-library', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(batch),
+      })
+      const d = await r.json()
+      showToast(d.message || `已导入 ${batch.length} 个`, d.success ? 'success' : 'error')
+    } catch { showToast('导入失败', 'error') }
+  }
+
   // ===== 场景生成 =====
   const handleSceneGen = async () => {
     if (!sceneInput.trim()) { showToast('请输入场景描述', 'error'); return }
@@ -213,7 +236,7 @@ export default function AdminPromptTemplatesPage() {
   }
 
   if (authLoading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-gray-400">加载中...</div></div>
-  if (!user || user.role === 'end-user') return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-red-400 text-center"><p className="text-xl mb-2">无权限</p></div></div>
+  if (!user || user.role !== 'admin') return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-red-400 text-center"><p className="text-xl mb-2">仅管理员可访问</p><p className="text-xs text-gray-500 mt-1">二级客户请到素材库选择模板</p></div></div>
 
   return (
     <div className="min-h-screen bg-gray-950">
@@ -292,6 +315,10 @@ export default function AdminPromptTemplatesPage() {
               <button onClick={() => runBatch('/api/batch-generate-video-previews', 'vidPreview')} disabled={busy.vidPreview || busy.imgPreview}
                 className="px-3 py-1.5 bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs hover:bg-cyan-500/30 disabled:opacity-50">
                 {busy.vidPreview ? '生成中...' : '🎬 生成视频预览'}
+              </button>
+              <button onClick={handleImportToMedia}
+                className="px-3 py-1.5 bg-purple-500/20 border border-purple-500/30 text-purple-400 rounded-lg text-xs hover:bg-purple-500/30">
+                📦 导入素材库
               </button>
             </div>
           </div>
