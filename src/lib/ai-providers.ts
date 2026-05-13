@@ -420,7 +420,7 @@ async function dashscopeTranslate(text: string, toLang: string, fromLang = 'zh')
 async function dashscopeGenerateVideo(prompt: string, _duration = 5, _resolution = '720P', _ratio = '16:9', _model?: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
   const key = getDashScopeKey();
   if (!key) return null;
-  const model = _model || 'wan2.7-t2v-2026-04-25'
+  const model = _model || 'wan2.7-t2v'
   const shortModel = model.replace(/^wan2\.7/, 'wan').replace(/^happyhorse/, 'hh')
   console.log(`[百炼创建] model=${shortModel}, duration=${_duration}s, prompt_len=${prompt.length}`)
   try {
@@ -461,7 +461,7 @@ async function dashscopeImageToVideo(prompt: string, refImageUrl: string, _durat
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body: JSON.stringify({
-        model: 'wan2.7-t2v-2026-04-25',
+        model: 'wan2.7-t2v',
         input: { prompt, image_url: refImageUrl },
         parameters: { resolution: _resolution, ratio: _ratio, duration: _duration },
       }),
@@ -508,7 +508,7 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
     let taskId = ''
     if (i === 0 || !videoPaths[i - 1]) {
       // 第一段或无上一段视频：文生视频
-      const model = 'wan2.7-t2v-2026-04-25'
+      const model = 'wan2.7-t2v'
       const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, model)
       if (!result?.taskId) {
         console.log(`[文生视频] 第 ${i + 1} 段创建失败, 终止`)
@@ -541,7 +541,7 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
         await client.put(ossName, lastFramePath, { headers: { 'x-oss-object-acl': 'public-read' } })
         refUrl = `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION || 'oss-cn-hangzhou'}.aliyuncs.com/${ossName}`
       } else {
-        const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, 'wan2.7-t2v-2026-04-25')
+        const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, 'wan2.7-t2v')
         if (!result?.taskId) return null
         taskId = result.taskId
         const segResult = await pollVideoTask(taskId)
@@ -1088,60 +1088,29 @@ export async function generateImage(prompt: string, size = '1280*1280', provider
 }
 
 // 6. 文生视频 — 降级链：Doubao-Seedance 2.0 → wan2.7-t2v → happyhorse-1.0-t2v → Mock
-// 如果指定了 model 参数，直接使用指定模型，不走降级链
+// 如果指定了 model 参数（前端缩写名），直接使用对应模型，不走降级链
+const MODEL_MAP: Record<string, string> = {
+  wan2.7: 'wan2.7-t2v',
+  happyhorse: 'happyhorse-1.0-t2v',
+  doubao: 'doubao-seedance-2-0-260128',
+}
 export async function generateVideo(prompt: string, _duration = 5, _resolution = '720P', _ratio = '16:9', _model?: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
   // 指定了模型 → 直接调用百炼对应模型
   if (_model) {
-    console.log(`[文生视频] 指定模型: ${_model}, duration=${_duration}s`)
-    const result = await dashscopeGenerateVideo(prompt, _duration, _resolution, _ratio, _model)
+    const realModel = MODEL_MAP[_model] || _model
+    console.log(`[文生视频] 指定模型: ${_model} → ${realModel}, duration=${_duration}s`)
+    const result = await dashscopeGenerateVideo(prompt, _duration, _resolution, _ratio, realModel)
     if (result) return result
-    console.log(`[文生视频] 指定模型 ${_model} 失败, 无降级`)
+    console.log(`[文生视频] 指定模型 ${realModel} 失败, 无降级`)
     return null
   }
 
-  // ① 火山 Doubao-Seedance 2.0（API 路径: /api/v3/video/generation）
-  const volcanoKey = getVolcanoKey();
-  if (volcanoKey) {
-    try {
-      const volcanoModel = 'doubao-seedance-2-0-260128'
-      const resolutionMap: Record<string, string> = { '720P': '720p', '1080P': '1080p', '480P': '480p' }
-      const rs = resolutionMap[_resolution] || '720p'
-      console.log(`[火山视频] 创建: model=${volcanoModel}, duration=${_duration}s, resolution=${rs}, ratio=${_ratio}, prompt_len=${prompt.length}`);
-      const data = await fetchJSON(`${VOLCANO_BASE}/api/v3/contents/generations/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${volcanoKey}` },
-        body: JSON.stringify({
-          model: volcanoModel,
-          content: [{ type: 'text', text: prompt }],
-          duration: _duration,
-          resolution: rs,
-          ratio: _ratio,
-          seed: -1,
-          generate_audio: true,
-          watermark: false,
-        }),
-      });
-      // 火山 v3 创建返回格式: { id: "task_uuid", status: "running", ... }
-      const taskId = data?.id || data?.task_id || data?.output?.task_id || ''
-      const taskStatus = data?.status || data?.output?.task_status || ''
-      const videoUrl = data?.video_url || data?.content?.video_url || data?.output?.video_url || ''
-      if (taskId) {
-        console.log(`[火山视频] 创建成功: task_id=${taskId.substring(0, 12)}..., status=${taskStatus || '-'}`);
-        return { taskId, status: taskStatus || 'running' };
-      }
-      if (videoUrl) {
-        console.log(`[火山视频] 同步返回视频: url_len=${videoUrl.length}`);
-        return { taskId: 'volcano_sync', status: 'completed', videoUrl };
-      }
-      console.log(`[火山视频] 创建失败: 未返回task_id, 完整响应: ${JSON.stringify(data).substring(0, 300)}`);
-    } catch (e) {
-      console.error(`[火山视频] 创建异常: ${e?.name || typeof e}, ${e?.message || e}`);
-    }
-  }
+  // 自动模式（未指定模型）：百炼 wan2.7 → happyhorse
+  // [火山 doubao] 暂未开通，开通后加回来
 
   // ② 百炼 wan2.7-t2v
   console.log(`[文生视频] 火山失败, 降级到百炼 wan2.7-t2v`)
-  const dash27Result = await dashscopeGenerateVideo(prompt, _duration, _resolution, _ratio, 'wan2.7-t2v-2026-04-25');
+  const dash27Result = await dashscopeGenerateVideo(prompt, _duration, _resolution, _ratio, 'wan2.7-t2v');
   if (dash27Result) return dash27Result;
 
   // ③ 百炼 happyhorse-1.0-t2v（自动配音兜底）
