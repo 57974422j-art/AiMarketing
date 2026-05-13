@@ -1090,7 +1090,7 @@ export async function generateImage(prompt: string, size = '1280*1280', provider
 // 6. 文生视频 — 降级链：Doubao-Seedance 2.0 → wan2.7-t2v → happyhorse-1.0-t2v → Mock
 // 如果指定了 model 参数（前端缩写名），直接使用对应模型，不走降级链
 const MODEL_MAP: Record<string, string> = {
-  wan2.7: 'wan2.7-t2v',
+  'wan2.7': 'wan2.7-t2v',
   happyhorse: 'happyhorse-1.0-t2v',
   doubao: 'doubao-seedance-2-0-260128',
 }
