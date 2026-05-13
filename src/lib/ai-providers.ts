@@ -1080,7 +1080,7 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
   const volcanoKey = getVolcanoKey();
   if (volcanoKey) {
     try {
-      console.log(`[文生视频] 尝试火山 Doubao-Seedance 2.0, duration=${_duration}, resolution=${_resolution}, ratio=${_ratio}`);
+      console.log(`[火山视频] 创建: model=doubao-seedance-2.0, duration=${_duration}s, resolution=${_resolution}, ratio=${_ratio}, prompt_len=${prompt.length}`);
       const data = await fetchJSON(`${VOLCANO_BASE}/api/v1/video/generation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${volcanoKey}` },
@@ -1091,20 +1091,27 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
         }),
       });
       if (data?.output?.task_id) {
-        console.log(`[文生视频] Doubao-Seedance 任务创建成功, task_id: ${data.output.task_id}`);
+        console.log(`[火山视频] 创建成功: task_id=${data.output.task_id.substring(0, 12)}..., task_status=${data.output.task_status || '-'}`);
         return { taskId: data.output.task_id, status: data.output.task_status || 'running' };
       }
-      console.log(`[文生视频] Doubao-Seedance 未返回 task_id`);
+      // 检查是否直接返回了视频URL（同步模式）
+      if (data?.output?.video_url) {
+        console.log(`[火山视频] 同步返回视频: url_len=${data.output.video_url.length}`);
+        return { taskId: 'volcano_sync', status: 'completed', videoUrl: data.output.video_url };
+      }
+      console.log(`[火山视频] 创建失败: 未返回task_id, 完整响应: ${JSON.stringify(data).substring(0, 300)}`);
     } catch (e) {
-      console.error('[Volcano Doubao-Seedance] 失败:', e);
+      console.error(`[火山视频] 创建异常: ${e?.name || typeof e}, ${e?.message || e}`);
     }
   }
 
   // ② 百炼 wan2.7-t2v
+  console.log(`[文生视频] 火山失败, 降级到百炼 wan2.7-t2v`)
   const dash27Result = await dashscopeGenerateVideo(prompt, _duration, _resolution, _ratio, 'wan2.7-t2v-2026-04-25');
   if (dash27Result) return dash27Result;
 
   // ③ 百炼 happyhorse-1.0-t2v（自动配音兜底）
+  console.log(`[文生视频] 百炼wan降级到 happyhorse-1.0-t2v`)
   const dashHhResult = await dashscopeGenerateVideo(prompt, _duration, '720P', _ratio, 'happyhorse-1.0-t2v');
   if (dashHhResult) return dashHhResult;
 
@@ -1116,21 +1123,47 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
 export async function queryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
   // 先查百炼
   const dashResult = await dashscopeQueryVideoTask(taskId);
-  if (dashResult && dashResult.status !== 'unknown') return dashResult;
-  
-  // 再查火山
+  // 百炼明确成功/失败 → 直接用（只有 RUNNING 不确定来源时，继续查火山）
+  if (dashResult && (dashResult.status === 'SUCCEEDED' || dashResult.status === 'FAILED')) {
+    return dashResult;
+  }
+
+  // 再查火山（无论百炼返回 RUNNING/unknown，都查火山确认）
   const key = getVolcanoKey();
   if (key) {
     try {
+      const shortId = taskId.substring(0, 12)
+      console.log(`[火山查询] 开始: task=${shortId}...`)
       const data = await fetchJSON(`${VOLCANO_BASE}/api/v1/video/generation/${taskId}`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${key}` },
       });
-      return { taskId, status: data?.output?.task_status || 'unknown', videoUrl: data?.output?.video_url };
+      const status = data?.output?.task_status || 'unknown'
+      const videoUrl = data?.output?.video_url || data?.output?.results?.[0]?.url || ''
+      const rawOutput = data?.output || {}
+      const errCode = rawOutput.code || data?.code
+      const errMsg = rawOutput.message || data?.message || ''
+      console.log(
+        `[火山查询] task=${shortId}... status=${status}` +
+        (errCode ? ` code=${errCode}` : '') +
+        (errMsg ? ` msg="${errMsg.substring(0, 200)}"` : '') +
+        (videoUrl ? ` hasUrl=true` : ' hasUrl=false`)
+      )
+      if (status === 'FAILED') {
+        console.log(`[火山查询][失败] task=${shortId}..., 响应摘要: ${JSON.stringify({ code: errCode, message: errMsg, request_id: data?.request_id }).substring(0, 500)}`)
+      }
+      // 火山有明确结果（非unknown）→ 用火山的结果
+      if (status !== 'unknown' || videoUrl) {
+        return { taskId, status, videoUrl };
+      }
     } catch (e) {
-      console.error('[Volcano 查询视频] 失败:', e);
+      console.error(`[火山查询] 网络异常: ${e?.name || typeof e}, ${e?.message || e}`);
     }
   }
+
+  // 如果火山也查不到明确结果，回退到百炼的状态
+  if (dashResult) return dashResult;
+  console.log(`[火山查询] 两路都无返回, 兜底`)
   return { taskId, status: 'completed', videoUrl: undefined };
 }
 
