@@ -96,16 +96,54 @@ const [generating, setGenerating] = useState(false)
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
+
+      // 长视频走 SSE 流式
+      if (longVideo && duration > 15) {
+        const reader = r.body!.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const evt = JSON.parse(line.slice(6))
+              if (evt.type === 'segment_start') {
+                setProgress(Math.round((evt.segment - 1) / evt.total * 80))
+                setError(evt.message || '')
+              } else if (evt.type === 'segment_done') {
+                setProgress(Math.round(evt.segment / evt.total * 80))
+                setError(evt.message || '')
+              } else if (evt.type === 'segment_poll') {
+                setError(evt.message || '')
+              } else if (evt.type === 'concat') {
+                setProgress(85); setError('正在拼接视频...')
+              } else if (evt.type === 'upload') {
+                setProgress(90); setError('正在上传...')
+              } else if (evt.type === 'complete' && evt.success && evt.videoUrl) {
+                setVideoUrl(evt.videoUrl); setProgress(100); setError(''); setGenerating(false); return
+              } else if (evt.type === 'error') {
+                setError(evt.message || '生成失败'); setGenerating(false); return
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+        setError('生成超时或无响应'); setGenerating(false); return
+      }
+
+      // 短视频：JSON 响应
       const d = await r.json()
       if (!d.success) { setError(d.message || '提交失败'); setGenerating(false); return }
       if (d.videoUrl) { setVideoUrl(d.videoUrl); setProgress(100); setGenerating(false); return }
 
       setTaskId(d.taskId)
-      const interval = longVideo ? 15000 : 15000
-      const maxAttempts = longVideo ? 120 : 60
-      for (let i = 0; i < maxAttempts; i++) {
-        await new Promise(r => setTimeout(r, interval))
-        setProgress(Math.min(95, Math.round((i + 1) / maxAttempts * 100)))
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 15000))
+        setProgress(Math.min(95, Math.round((i + 1) / 60 * 100)))
         const q = await fetch(`/api/video/text-to-video?taskId=${d.taskId}`, { credentials: 'include' })
         const qd = await q.json()
         if (qd.videoUrl) { setVideoUrl(qd.videoUrl); setProgress(100); setGenerating(false); return }
