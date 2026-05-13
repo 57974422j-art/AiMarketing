@@ -627,7 +627,7 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
 }
 
 /** 轮询视频任务直到完成 */
-async function pollVideoTask(taskId: string, maxWait = 300000): Promise<{ videoUrl?: string; status: string } | null> {
+async function pollVideoTask(taskId: string, maxWait = 600000): Promise<{ videoUrl?: string; status: string } | null> {
   const start = Date.now()
   const maxAttempts = Math.floor(maxWait / 3000)
   for (let i = 0; i < maxAttempts; i++) {
@@ -671,7 +671,11 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
     const videoUrl = data?.output?.video_url
       || data?.output?.results?.[0]?.url
       || data?.output?.result?.video_url
-      || data?.output?.output?.video_url;
+      || data?.output?.output?.video_url
+      || data?.output?.url
+      || data?.output?.video_urls?.[0]
+      || data?.url
+      || data?.video_url;
 
     // 详细日志：每次查询都打印关键诊断信息
     console.log(
@@ -682,6 +686,15 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
       (taskMetrics ? ' metrics=' + (typeof taskMetrics === 'object' ? JSON.stringify(taskMetrics).substring(0, 100) : taskMetrics) : '') +
       (videoUrl ? ' hasUrl=true urlLen=' + videoUrl.length : ' hasUrl=false')
     )
+    // [调试] 每隔 20 次打印一次百炼原始响应，排查字段变化
+    if (status === 'RUNNING') {
+      const queryKey = `_dq_${shortId}`
+      const _g = globalThis as any
+      _g[queryKey] = (_g[queryKey] || 0) + 1
+      if (_g[queryKey] === 1 || _g[queryKey] % 20 === 0) {
+        console.log('[百炼原始] task=' + shortId + '... raw=' + JSON.stringify(data).substring(0, 800))
+      }
+    }
 
     // FAILED 时补充打印更详细的完整响应（用于排查模型端错误）
     if (status === 'FAILED') {
