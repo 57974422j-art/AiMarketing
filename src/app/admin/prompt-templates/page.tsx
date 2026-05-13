@@ -154,7 +154,11 @@ export default function AdminPromptTemplatesPage() {
     const targetIds = selectedIds.size > 0 ? Array.from(selectedIds) : null
     if (targetIds && targetIds.length === 0) { showToast('请先选择模板', 'error'); return }
     const label = mode === 'imgPreview' ? '预览图' : '视频预览'
-    if (!confirm(`批量生成 ${label}（${targetIds ? `已选 ${targetIds.length} 个` : `最多 ${batchLimit} 个` }）？`)) return
+    if (targetIds) {
+      if (!confirm(`为已选 ${targetIds.length} 个模板生成 ${label}？`)) return
+    } else {
+      if (!confirm(`为全部模板生成 ${label}（最多 ${batchLimit} 个）？`)) return
+    }
     setBusy(p => ({ ...p, [mode]: true }))
     setProgress({ show: true, text: `正在生成 ${label}...` })
     try {
@@ -246,10 +250,16 @@ export default function AdminPromptTemplatesPage() {
         <div className="bg-white/5 rounded-2xl border border-white/10 p-4 mb-4">
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 font-mono">批量:</span>
-              <input type="number" min={1} max={100} value={batchLimit} onChange={e => setBatchLimit(parseInt(e.target.value) || 10)}
-                className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs text-center" />
-              <span className="text-[10px] text-gray-600">条/次</span>
+              {selectedIds.size > 0 ? (
+                <span className="text-xs text-cyan-400 font-mono">已选 {selectedIds.size} 项</span>
+              ) : (
+                <>
+                  <span className="text-xs text-gray-500 font-mono">批量:</span>
+                  <input type="number" min={1} max={100} value={batchLimit} onChange={e => setBatchLimit(parseInt(e.target.value) || 10)}
+                    className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs text-center" />
+                  <span className="text-[10px] text-gray-600">条/次</span>
+                </>
+              )}
             </div>
 
             {/* 文生图模型 */}
