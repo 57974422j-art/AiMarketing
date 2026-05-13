@@ -675,12 +675,12 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
 
     // 详细日志：每次查询都打印关键诊断信息
     console.log(
-      `[百炼查询] task=${shortId}... status=${status}` +
-      (errCode ? ` code=${errCode}` : '') +
-      (errMsg ? ` msg="${errMsg.substring(0, 200)}"` : '') +
-      ` progress=${progress}` +
-      (taskMetrics ? ` metrics=${typeof taskMetrics === 'object' ? JSON.stringify(taskMetrics).substring(0, 100) : taskMetrics}` : '') +
-      (videoUrl ? ` hasUrl=true urlLen=${videoUrl.length}` : ' hasUrl=false')
+      '[百炼查询] task=' + shortId + '... status=' + status +
+      (errCode ? ' code=' + errCode : '') +
+      (errMsg ? ' msg="' + errMsg.substring(0, 200) + '"' : '') +
+      ' progress=' + progress +
+      (taskMetrics ? ' metrics=' + (typeof taskMetrics === 'object' ? JSON.stringify(taskMetrics).substring(0, 100) : taskMetrics) : '') +
+      (videoUrl ? ' hasUrl=true urlLen=' + videoUrl.length : ' hasUrl=false')
     )
 
     // FAILED 时补充打印更详细的完整响应（用于排查模型端错误）
@@ -1144,10 +1144,10 @@ export async function queryVideoTask(taskId: string): Promise<{ taskId: string; 
       const errCode = rawOutput.code || data?.code
       const errMsg = rawOutput.message || data?.message || ''
       console.log(
-        `[火山查询] task=${shortId}... status=${status}` +
-        (errCode ? ` code=${errCode}` : '') +
-        (errMsg ? ` msg="${errMsg.substring(0, 200)}"` : '') +
-        (videoUrl ? ` hasUrl=true` : ' hasUrl=false`)
+        '[火山查询] task=' + shortId + '... status=' + status +
+        (errCode ? ' code=' + errCode : '') +
+        (errMsg ? ' msg="' + errMsg.substring(0, 200) + '"' : '') +
+        (videoUrl ? ' hasUrl=true' : ' hasUrl=false')
       )
       if (status === 'FAILED') {
         console.log(`[火山查询][失败] task=${shortId}..., 响应摘要: ${JSON.stringify({ code: errCode, message: errMsg, request_id: data?.request_id }).substring(0, 500)}`)
