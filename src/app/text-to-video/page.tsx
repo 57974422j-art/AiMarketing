@@ -64,7 +64,18 @@ const [generating, setGenerating] = useState(false)
   const allDurations = longVideo ? longDurations : durations
 
   const handleGenerate = async () => {
-    if (!prompt.trim()) { setToast('请输入视频描述'); return }
+    const effectivePrompts = longVideo && editSegments && segmentPrompts.length > 0
+      ? segmentPrompts
+      : longVideo && segmentPrompts.length > 0
+        ? segmentPrompts
+        : null
+    const needPrompt = !longVideo || (!effectivePrompts && !prompt.trim())
+    if (needPrompt) {
+      if (!prompt.trim()) { setToast('请输入视频描述'); return }
+    }
+    if (longVideo && effectivePrompts && effectivePrompts.some(p => !p.trim())) {
+      setToast('请填写所有分段提示词'); return
+    }
     setGenerating(true); setTaskId(''); setVideoUrl(''); setError(''); setProgress(0)
     try {
       const body: Record<string, unknown> = {
@@ -219,26 +230,49 @@ const [generating, setGenerating] = useState(false)
                   <div className="bg-white/5 rounded-xl border border-white/10 p-4">
                     <div className="flex items-center justify-between mb-3">
                       <label className="text-label text-sm">分段提示词 / SEGMENT PROMPTS</label>
-                      <button type="button" onClick={() => { 
-                        const newVal = !editSegments
-                        setEditSegments(newVal)
-                        if (newVal && segmentPrompts.length === 0) {
+                      <div className="flex gap-2">
+                        <button type="button" onClick={async () => {
+                          if (!prompt.trim()) { setToast('请先在视频描述中输入完整内容'); return }
                           const segCount = Math.ceil(duration / 15)
-                          setSegmentPrompts(Array(segCount).fill(prompt))
-                        }
-                      }}
-                        className={`text-xs px-2 py-1 rounded ${editSegments ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
-                        {editSegments ? '自定义' : '统一提示词'}
-                      </button>
+                          setEditSegments(true)
+                          setProgress(0)
+                          try {
+                            const r = await fetch('/api/video/split-prompt', {
+                              method: 'POST', credentials: 'include',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ prompt: prompt.trim(), segments: segCount }),
+                            })
+                            const d = await r.json()
+                            if (d.success && d.data) {
+                              setSegmentPrompts(d.data)
+                              setToast('AI 智能拆分完成')
+                            } else { setToast('拆分失败，已使用默认分段') }
+                          } catch { setToast('拆分失败') }
+                        }}
+                          className="text-xs px-2 py-1 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30">
+                          AI 智能拆分
+                        </button>
+                        <button type="button" onClick={() => { 
+                          const newVal = !editSegments
+                          setEditSegments(newVal)
+                          if (newVal && segmentPrompts.length === 0) {
+                            const segCount = Math.ceil(duration / 15)
+                            setSegmentPrompts(Array(segCount).fill(prompt))
+                          }
+                        }}
+                          className={`text-xs px-2 py-1 rounded ${editSegments ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                          {editSegments ? '收起' : '手动编辑'}
+                        </button>
+                      </div>
                     </div>
                     {editSegments && segmentPrompts.map((sp, idx) => {
                       const basePerSeg = 15
                       const isLast = idx === segmentPrompts.length - 1
-                      const segDur = isLast ? duration - idx * basePerSeg : basePerSeg
+                      const segDur = isLast && duration ? duration - idx * basePerSeg : basePerSeg
                       return (
                       <div key={idx} className="mb-2">
                         <label className="block text-[10px] text-gray-500 mb-1 font-mono">
-                          片段 {idx + 1}/{segmentPrompts.length} ({segDur}s)
+                          片段 {idx + 1}/{segmentPrompts.length} ({segDur || basePerSeg}s)
                         </label>
                         <textarea value={sp} onChange={e => {
                           const copy = [...segmentPrompts]

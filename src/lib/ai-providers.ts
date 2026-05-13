@@ -483,6 +483,39 @@ async function downloadVideo(url: string): Promise<ArrayBuffer | null> {
   } catch { return null }
 }
 
+/** AI 智能拆分长视频提示词为多段 */
+export async function splitPromptForSegments(prompt: string, segmentCount: number): Promise<string[]> {
+  try {
+    const resp = await dashscopeChat(
+      `你是一个视频编剧。请将以下视频描述拆分成 ${segmentCount} 段，每段对应一个15秒的视频片段描述。` +
+      `要求：1.保持叙事连贯性 2.每段包含具体的视觉元素和运镜 3.每段独立成句 ` +
+      `4.严格按照第一段到第${segmentCount}段的顺序 5.只返回分段内容，每段一行，不要序号和额外说明。\n\n${prompt}`,
+      2000
+    )
+    if (!resp) return fallbackSplit(prompt, segmentCount)
+    const lines = resp.split('\n').filter(l => l.trim().length > 10)
+    if (lines.length < segmentCount) return fallbackSplit(prompt, segmentCount)
+    return lines.slice(0, segmentCount)
+  } catch {
+    return fallbackSplit(prompt, segmentCount)
+  }
+}
+
+/** 兜底拆分：按句号/换行切割，不足则均分 */
+function fallbackSplit(prompt: string, count: number): string[] {
+  const sentences = prompt.split(/[。！？\n]+/).filter(s => s.trim().length > 5)
+  if (sentences.length >= count) return sentences.slice(0, count)
+  // 句子不够，均分字符
+  const charsPerSeg = Math.floor(prompt.length / count)
+  const result: string[] = []
+  for (let i = 0; i < count; i++) {
+    const start = i * charsPerSeg
+    const end = i === count - 1 ? prompt.length : (i + 1) * charsPerSeg
+    result.push(prompt.slice(start, end).trim())
+  }
+  return result
+}
+
 /** 长视频自动拼接（>15s 拆分为多段，每段用上一段尾帧做参考）
  *  @param prompts - 每段的提示词数组，长度必须等于 segments 数
  */
