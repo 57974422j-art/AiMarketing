@@ -32,8 +32,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 短文本模式（≤15s）
-    console.log(`[文生视频API] 进入短视频模式, duration=${videoDuration}s`)
-    const result = await generateVideo(prompt, videoDuration, resolution || '720P', aspectRatio || '16:9')
+    console.log(`[文生视频API] 进入短视频模式, duration=${videoDuration}s` + (model ? `, model=${model}` : ''))
+    const result = await generateVideo(prompt, videoDuration, resolution || '720P', aspectRatio || '16:9', model)
     const cost = Math.round((Date.now() - requestStart) / 1000)
 
     if (!result) {

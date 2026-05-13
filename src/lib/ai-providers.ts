@@ -1088,7 +1088,17 @@ export async function generateImage(prompt: string, size = '1280*1280', provider
 }
 
 // 6. 文生视频 — 降级链：Doubao-Seedance 2.0 → wan2.7-t2v → happyhorse-1.0-t2v → Mock
-export async function generateVideo(prompt: string, _duration = 5, _resolution = '720P', _ratio = '16:9'): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+// 如果指定了 model 参数，直接使用指定模型，不走降级链
+export async function generateVideo(prompt: string, _duration = 5, _resolution = '720P', _ratio = '16:9', _model?: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  // 指定了模型 → 直接调用百炼对应模型
+  if (_model) {
+    console.log(`[文生视频] 指定模型: ${_model}, duration=${_duration}s`)
+    const result = await dashscopeGenerateVideo(prompt, _duration, _resolution, _ratio, _model)
+    if (result) return result
+    console.log(`[文生视频] 指定模型 ${_model} 失败, 无降级`)
+    return null
+  }
+
   // ① 火山 Doubao-Seedance 2.0（API 路径: /api/v3/video/generation）
   const volcanoKey = getVolcanoKey();
   if (volcanoKey) {
@@ -1147,12 +1157,12 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
 export async function queryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
   // 先查百炼
   const dashResult = await dashscopeQueryVideoTask(taskId);
-  // 百炼明确成功/失败 → 直接用（只有 RUNNING 不确定来源时，继续查火山）
-  if (dashResult && (dashResult.status === 'SUCCEEDED' || dashResult.status === 'FAILED')) {
+  // 百炼有结果（SUCCEEDED/FAILED/RUNNING 都算）→ 直接用
+  if (dashResult && dashResult.status !== 'unknown') {
     return dashResult;
   }
 
-  // 再查火山（无论百炼返回 RUNNING/unknown，都查火山确认）
+  // 百炼查不到 → 再查火山
   const key = getVolcanoKey();
   if (key) {
     try {
