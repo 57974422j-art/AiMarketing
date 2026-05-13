@@ -421,6 +421,8 @@ async function dashscopeGenerateVideo(prompt: string, _duration = 5, _resolution
   const key = getDashScopeKey();
   if (!key) return null;
   const model = _model || 'wan2.7-t2v-2026-04-25'
+  const shortModel = model.replace(/^wan2\.7/, 'wan').replace(/^happyhorse/, 'hh')
+  console.log(`[百炼创建] model=${shortModel}, duration=${_duration}s, prompt_len=${prompt.length}`)
   try {
     const data = await fetchJSON('https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis', {
       method: 'POST',
@@ -432,13 +434,20 @@ async function dashscopeGenerateVideo(prompt: string, _duration = 5, _resolution
       }),
     });
     if (data?.output?.task_id) {
-      console.log(`[文生视频] ${model} 任务创建成功, task_id: ${data.output.task_id}`);
+      console.log(`[百炼创建] task_id=${data.output.task_id.substring(0, 8)}..., request_id=${data?.request_id?.substring(0, 12) || '-'}`);
       return { taskId: data.output.task_id, status: 'running' };
     }
-    console.log(`[文生视频] ${model} 未返回 task_id, code:`, data?.code, 'msg:', data?.message?.substring(0, 100));
+    // 创建失败——记录百炼返回的完整诊断信息
+    const errInfo = JSON.stringify({
+      code: data?.code,
+      message: data?.message?.substring(0, 300),
+      request_id: data?.request_id,
+      output: data?.output,
+    })
+    console.log(`[百炼创建][失败] model=${shortModel}, 响应: ${errInfo}`)
     return null;
   } catch (e) {
-    console.error(`[DashScope 文生视频 ${model}] 失败:`, e);
+    console.error(`[百炼创建][网络异常] model=${shortModel}, 类型=${e?.name || typeof e}, 消息=${e?.message || e}`);
     return null;
   }
 }
@@ -556,7 +565,8 @@ export async function generateLongVideo(prompt: string, totalDuration: number, _
 
     const segResult = await pollVideoTask(taskId)
     if (!segResult?.videoUrl) {
-      console.log(`[文生视频] 第 ${i + 1} 段轮询失败, 终止`)
+      const failReason = segResult?.status === 'failed' ? '模型端FAILED' : '轮询无结果(超时/网络问题)'
+      console.log(`[文生视频] 第 ${i + 1} 段 ${failReason}, task_id=${taskId.substring(0, 8)}..., 终止`)
       return null
     }
     const buf = await downloadVideo(segResult.videoUrl)
@@ -629,29 +639,73 @@ async function pollVideoTask(taskId: string, maxWait = 300000): Promise<{ videoU
       return result
     }
     if (result?.status === 'FAILED') {
-      console.log(`[文生视频] 轮询失败 task=${taskId.substring(0, 8)}... status=FAILED, 耗时=${elapsed}s`)
+      console.log(`[文生视频] 轮询失败 task=${taskId.substring(0, 8)}... status=FAILED, 耗时=${elapsed}s, 请检查上方[百炼查询]日志中的详细错误`)
       return { status: 'failed' }
     }
     if (i % 5 === 0 || i === maxAttempts - 1) {
       console.log(`[文生视频] 轮询中 task=${taskId.substring(0, 8)}... status=${result?.status || 'unknown'}, ${i + 1}/${maxAttempts}, 耗时=${elapsed}s`)
     }
   }
-  console.log(`[文生视频] 轮询超时 task=${taskId.substring(0, 8)}...`)
+  console.log(`[文生视频] 轮询超时 task=${taskId.substring(0, 8)}..., 总等待=${Math.round((Date.now()-start)/1000)}s, 最大尝试=${maxAttempts}次`)
   return null
 }
 
 async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
   const key = getDashScopeKey();
   if (!key) return null;
+  const shortId = taskId.substring(0, 8)
   try {
     const data = await fetchJSON(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${key}` },
     });
-    const status = data?.output?.task_status || 'unknown';
-    return { taskId, status, videoUrl: data?.output?.video_url };
-  } catch (e) {
-    console.error('[DashScope 查询视频] 失败:', e);
+    const status = data?.output?.task_status || data?.output?.status || 'unknown';
+    // 收集百炼返回的完整诊断信息
+    const rawOutput = data?.output || {}
+    const errCode = rawOutput.code || data?.code
+    const errMsg = rawOutput.message || data?.message || rawOutput.error_message || ''
+    const taskMetrics = rawOutput.task_metrics || ''
+    const progress = rawOutput.task_progress !== undefined ? `${rawOutput.task_progress}%` : '-'
+
+    // 尝试多种可能的 video_url 字段
+    const videoUrl = data?.output?.video_url
+      || data?.output?.results?.[0]?.url
+      || data?.output?.result?.video_url
+      || data?.output?.output?.video_url;
+
+    // 详细日志：每次查询都打印关键诊断信息
+    console.log(
+      `[百炼查询] task=${shortId}... status=${status}` +
+      (errCode ? ` code=${errCode}` : '') +
+      (errMsg ? ` msg="${errMsg.substring(0, 200)}"` : '') +
+      ` progress=${progress}` +
+      (taskMetrics ? ` metrics=${typeof taskMetrics === 'object' ? JSON.stringify(taskMetrics).substring(0, 100) : taskMetrics}` : '') +
+      (videoUrl ? ` hasUrl=true urlLen=${videoUrl.length}` : ' hasUrl=false')
+    )
+
+    // FAILED 时补充打印更详细的完整响应（用于排查模型端错误）
+    if (status === 'FAILED') {
+      const responseSummary = JSON.stringify({
+        request_id: data?.request_id,
+        code: errCode,
+        message: errMsg,
+        status: rawOutput.task_status,
+        progress: rawOutput.task_progress,
+      })
+      console.log(`[百炼查询][失败详情] task=${shortId}... 响应摘要: ${responseSummary}`)
+      // 额外输出 rawOutput 中可能有的所有字段（方便发现新字段）
+      const allKeys = Object.keys(rawOutput).join(', ')
+      if (allKeys) console.log(`[百炼查询][失败详情] output字段列表: ${allKeys}`)
+    }
+
+    // SUCCEEDED 但无 URL 也打印警告
+    if (status === 'SUCCEEDED' && !videoUrl) {
+      console.log(`[百炼查询][警告] task=${shortId}... SUCCEEDED 但未找到 video_url, 完整output: ${JSON.stringify(rawOutput).substring(0, 500)}`)
+    }
+
+    return { taskId, status, videoUrl };
+  } catch (e: any) {
+    console.error(`[百炼查询][网络异常] task=${shortId}..., 类型=${e?.name || typeof e}, 消息=${e?.message || e}`);
     return null;
   }
 }
