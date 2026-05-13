@@ -1143,12 +1143,13 @@ export async function queryVideoTask(taskId: string): Promise<{ taskId: string; 
     try {
       const shortId = taskId.substring(0, 12)
       console.log(`[火山查询] 开始: task=${shortId}...`)
-      const data = await fetchJSON(`${VOLCANO_BASE}/api/v3/video/generation/${taskId}`, {
+      const data = await fetchJSON(`${VOLCANO_BASE}/api/v3/contents/generations/tasks/${taskId}`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${key}` },
       });
       const status = data?.status || data?.output?.task_status || 'unknown'
-      const videoUrl = data?.video_url || data?.output?.video_url || data?.output?.results?.[0]?.url || ''
+      // 火山 v3 查询返回格式: { status: "succeeded"/"running"/"failed", content: { video_url }, model, usage }
+      const videoUrl = data?.content?.video_url || data?.video_url || data?.output?.video_url || data?.output?.results?.[0]?.url || ''
       const rawOutput = data?.output || {}
       const errCode = rawOutput.code || data?.code || ''
       const errMsg = rawOutput.message || data?.message || ''
