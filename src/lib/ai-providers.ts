@@ -1080,26 +1080,28 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
   const volcanoKey = getVolcanoKey();
   if (volcanoKey) {
     try {
-      const volcanoModel = 'doubao-seedance-2-0-fast-260128' // 可用: seedance-2.0-vd, doubao-seedance-2-0-fast-260128
+      const volcanoModel = 'doubao-seedance-2-0-260128'
       const resolutionMap: Record<string, string> = { '720P': '720p', '1080P': '1080p', '480P': '480p' }
       const rs = resolutionMap[_resolution] || '720p'
       console.log(`[火山视频] 创建: model=${volcanoModel}, duration=${_duration}s, resolution=${rs}, ratio=${_ratio}, prompt_len=${prompt.length}`);
-      const data = await fetchJSON(`${VOLCANO_BASE}/api/v3/video/generation`, {
+      const data = await fetchJSON(`${VOLCANO_BASE}/api/v3/contents/generations/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${volcanoKey}` },
         body: JSON.stringify({
           model: volcanoModel,
-          prompt,
+          content: [{ type: 'text', text: prompt }],
           duration: _duration,
           resolution: rs,
           ratio: _ratio,
+          seed: -1,
+          generate_audio: true,
           watermark: false,
         }),
       });
-      // 火山 API 响应格式: { task_id, status, video_url, last_frame_url }
-      const taskId = data?.task_id || data?.output?.task_id || ''
+      // 火山 v3 创建返回格式: { id: "task_uuid", status: "running", ... }
+      const taskId = data?.id || data?.task_id || data?.output?.task_id || ''
       const taskStatus = data?.status || data?.output?.task_status || ''
-      const videoUrl = data?.video_url || data?.output?.video_url || ''
+      const videoUrl = data?.video_url || data?.content?.video_url || data?.output?.video_url || ''
       if (taskId) {
         console.log(`[火山视频] 创建成功: task_id=${taskId.substring(0, 12)}..., status=${taskStatus || '-'}`);
         return { taskId, status: taskStatus || 'running' };
