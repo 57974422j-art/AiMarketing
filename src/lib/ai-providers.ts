@@ -461,7 +461,7 @@ async function dashscopeImageToVideo(prompt: string, refImageUrl: string, _durat
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body: JSON.stringify({
-        model: 'wan2.7-t2v',
+        model: 'happyhorse-1.0-i2v',
         input: { prompt, image_url: refImageUrl },
         parameters: { resolution: _resolution, ratio: _ratio, duration: _duration },
       }),
@@ -516,14 +516,25 @@ function fallbackSplit(prompt: string, count: number): string[] {
   return result
 }
 
+/** 长视频进度事件 */
+export type LongVideoProgress = {
+  type: 'segment_start' | 'segment_done' | 'segment_poll' | 'concat' | 'upload' | 'error' | 'complete'
+  segment?: number
+  total?: number
+  elapsed?: number
+  message?: string
+}
+
 /** 长视频自动拼接（>15s 拆分为多段，每段用上一段尾帧做参考）
- *  @param prompts - 每段的提示词数组，长度必须等于 segments 数
+ *  @param prompts - 每段的提示词数组
+ *  @param onProgress - 进度回调（用于 SSE 推送）
  */
 export async function generateLongVideo(
   prompts: string[],
   totalDuration?: number,
   _resolution = '720P',
-  _ratio = '16:9'
+  _ratio = '16:9',
+  onProgress?: (evt: LongVideoProgress) => void
 ): Promise<{ videoUrl?: string; status: string } | null> {
   const totalStartTime = Date.now()
   const segDuration = 15
@@ -553,7 +564,9 @@ export async function generateLongVideo(
   for (let i = 0; i < segments; i++) {
     const segPrompt = prompts[i]
     const segStart = Date.now()
-    console.log(`[LongVideo] 第 ${i + 1}/${segments} 段开始 (${actualDurations[i]}s), prompt: "${segPrompt.substring(0, 40)}..."`)
+    const segNum = i + 1
+    onProgress?.({ type: 'segment_start', segment: segNum, total: segments, message: `第 ${segNum}/${segments} 段生成中...` })
+    console.log(`[LongVideo] 第 ${segNum}/${segments} 段开始 (${actualDurations[i]}s), prompt: "${segPrompt.substring(0, 40)}..."`)
 
     let taskId = ''
     if (i === 0 || !videoPaths[i - 1]) {
@@ -561,78 +574,95 @@ export async function generateLongVideo(
       const model = 'wan2.7-t2v'
       const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, model)
       if (!result?.taskId) {
-        console.log(`[文生视频] 第 ${i + 1} 段创建失败, 终止`)
+        onProgress?.({ type: 'error', message: `第 ${segNum} 段创建失败` })
+        console.log(`[LongVideo] 第 ${segNum} 段创建失败, 终止`)
         return null
       }
       taskId = result.taskId
     } else {
-      // 用上一段尾帧做参考 → 图生视频
+      // 用上一段尾帧做参考，FFmpeg 提取尾帧
       const prevVideo = videoPaths[i - 1]
       const lastFramePath = join(tempDir, `lastframe_${Date.now()}_${i}.png`)
+      let useImageToVideo = false
       try {
-        await execFileAsync(ffmpegPath, ['-i', prevVideo, '-sseof', '-1', '-update', '1', '-q:v', '1', '-y', lastFramePath], { timeout: 15000 })
+        await execFileAsync(ffmpegPath, ['-sseof', '-1', '-i', prevVideo, '-update', '1', '-q:v', '1', '-y', lastFramePath], { timeout: 15000 })
         const frameSize = existsSync(lastFramePath) ? (await import('fs')).statSync(lastFramePath).size : 0
         if (frameSize < 100) throw new Error(`尾帧文件过小: ${frameSize} bytes`)
-        console.log(`[文生视频] 第 ${i + 1}/${segments} 段, 尾帧保存到 ${lastFramePath} (${frameSize} bytes)`)
+        console.log(`[LongVideo] 第 ${segNum} 段尾帧提取成功 (${frameSize} bytes)`)
+        useImageToVideo = true
       } catch (e: any) {
-        console.log(`[文生视频] 第 ${i + 1} 段尾帧提取失败: ${e.message}, 终止`)
-        return null
+        console.log(`[LongVideo] 第 ${segNum} 段尾帧提取失败: ${e.message}, 降级为文生视频`)
+        // FFmpeg 失败时降级为文生视频
       }
-      let refUrl = lastFramePath
-      if (process.env.OSS_ACCESS_KEY_ID && process.env.OSS_BUCKET) {
-        const OSS = (await import('ali-oss')).default
-        const client = new OSS({
-          region: process.env.OSS_REGION || 'oss-cn-hangzhou',
-          accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
-          accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
-          bucket: process.env.OSS_BUCKET!, secure: true,
-        })
-        const ossName = `long-video/frame_${Date.now()}_${i}.png`
-        await client.put(ossName, lastFramePath, { headers: { 'x-oss-object-acl': 'public-read' } })
-        refUrl = `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION || 'oss-cn-hangzhou'}.aliyuncs.com/${ossName}`
-      } else {
+      if (useImageToVideo) {
+        let refUrl = lastFramePath
+        if (process.env.OSS_ACCESS_KEY_ID && process.env.OSS_BUCKET) {
+          onProgress?.({ type: 'segment_poll', message: '上传尾帧到 OSS...' })
+          try {
+            const OSS = (await import('ali-oss')).default
+            const client = new OSS({
+              region: process.env.OSS_REGION || 'oss-cn-hangzhou',
+              accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
+              accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
+              bucket: process.env.OSS_BUCKET!, secure: true,
+            })
+            const ossName = `long-video/frame_${Date.now()}_${i}.png`
+            await client.put(ossName, lastFramePath, { headers: { 'x-oss-object-acl': 'public-read' } })
+            refUrl = `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION || 'oss-cn-hangzhou'}.aliyuncs.com/${ossName}`
+          } catch {
+            console.log(`[LongVideo] OSS 上传尾帧失败, 降级为文生视频`)
+            useImageToVideo = false
+          }
+          await fs.unlink(lastFramePath).catch(() => {})
+        }
+        if (useImageToVideo) {
+          const i2vResult = await dashscopeImageToVideo(segPrompt, refUrl, actualDurations[i], _resolution, _ratio)
+          if (!i2vResult?.taskId) {
+            console.log(`[LongVideo] 第 ${segNum} 段图生视频失败, 降级为文生视频`)
+            useImageToVideo = false
+          } else {
+            taskId = i2vResult.taskId
+          }
+          if (!useImageToVideo && lastFramePath) await fs.unlink(lastFramePath).catch(() => {})
+        }
+      }
+      if (!useImageToVideo) {
+        // 降级为文生视频
+        onProgress?.({ type: 'segment_poll', message: `第 ${segNum}/${segments} 段(文生视频)` })
         const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, 'wan2.7-t2v')
-        if (!result?.taskId) return null
+        if (!result?.taskId) {
+          onProgress?.({ type: 'error', message: `第 ${segNum} 段创建失败` })
+          return null
+        }
         taskId = result.taskId
-        const segResult = await pollVideoTask(taskId)
-        if (!segResult?.videoUrl) return null
-        const buf = await downloadVideo(segResult.videoUrl)
-        if (!buf) return null
-        const segPath = join(tempDir, `longseg_${Date.now()}_${i}.mp4`)
-        await fs.writeFile(segPath, new Uint8Array(buf))
-        videoPaths.push(segPath)
-        console.log(`[文生视频] 第 ${i + 1}/${segments} 段完成, 保存到 ${segPath}`)
-        continue
       }
-      const i2vResult = await dashscopeImageToVideo(segPrompt, refUrl, actualDurations[i], _resolution, _ratio)
-      if (!i2vResult?.taskId) {
-        console.log(`[文生视频] 第 ${i + 1} 段图生视频创建失败, 终止`)
-        return null
-      }
-      taskId = i2vResult.taskId
-      await fs.unlink(lastFramePath).catch(() => {})
     }
 
+    onProgress?.({ type: 'segment_poll', message: `等待第 ${segNum}/${segments} 段生成...` })
     const segResult = await pollVideoTask(taskId)
     if (!segResult?.videoUrl) {
       const failReason = segResult?.status === 'failed' ? '模型端FAILED' : '轮询无结果(超时/网络问题)'
-      console.log(`[文生视频] 第 ${i + 1} 段 ${failReason}, task_id=${taskId.substring(0, 8)}..., 终止`)
+      onProgress?.({ type: 'error', message: `第 ${segNum} 段${failReason}` })
+      console.log(`[LongVideo] 第 ${segNum} 段 ${failReason}, task_id=${taskId.substring(0, 8)}..., 终止`)
       return null
     }
     const buf = await downloadVideo(segResult.videoUrl)
     if (!buf) {
-      console.log(`[文生视频] 第 ${i + 1} 段下载失败, 终止`)
+      onProgress?.({ type: 'error', message: `第 ${segNum} 段下载失败` })
+      console.log(`[LongVideo] 第 ${segNum} 段下载失败, 终止`)
       return null
     }
     const segPath = join(tempDir, `longseg_${Date.now()}_${i}.mp4`)
     await fs.writeFile(segPath, new Uint8Array(buf))
     videoPaths.push(segPath)
     const segCost = Math.round((Date.now() - segStart) / 1000)
-    console.log(`[LongVideo] 第 ${i + 1}/${segments} 段完成, 耗时=${segCost}s, task=${taskId.substring(0, 8)}..., 保存到 ${segPath}`)
+    onProgress?.({ type: 'segment_done', segment: segNum, total: segments, elapsed: segCost, message: `第 ${segNum}/${segments} 段完成 (${segCost}s)` })
+    console.log(`[LongVideo] 第 ${segNum}/${segments} 段完成, 耗时=${segCost}s, task=${taskId.substring(0, 8)}..., 保存到 ${segPath}`)
   }
 
   // FFmpeg concat 所有段
   if (videoPaths.length === 0) return null
+  onProgress?.({ type: 'concat', message: `正在拼接 ${segments} 段视频...` })
   console.log(`[LongVideo] 所有 ${segments} 段生成完成, 总耗时=${Math.round((Date.now()-totalStartTime)/1000)}s, 待拼接: ${videoPaths.join(', ')}`)
   const concatList = videoPaths.map(p => `file '${p.replace(/\\/g, '/')}'`).join('\n')
   const concatListPath = join(tempDir, `long_concat_${Date.now()}.txt`)
@@ -641,7 +671,8 @@ export async function generateLongVideo(
   try {
     await execFileAsync(ffmpegPath, ['-f', 'concat', '-safe', '0', '-i', concatListPath, '-c', 'copy', '-y', outputPath], { timeout: 120000 })
   } catch (e) {
-    console.error('[文生视频] FFmpeg concat 失败:', e)
+    onProgress?.({ type: 'error', message: '视频拼接失败' })
+    console.error('[LongVideo] FFmpeg concat 失败:', e)
     return null
   }
   await fs.unlink(concatListPath).catch(() => {})
@@ -650,30 +681,40 @@ export async function generateLongVideo(
   let outputSize = 0
   try { outputSize = (await import('fs')).statSync(outputPath).size } catch {}
   if (outputSize < 1024 * 1024) {
-    console.log(`[文生视频] concat 输出文件过小: ${outputSize} bytes, 终止`)
+    onProgress?.({ type: 'error', message: '拼接结果文件过小' })
+    console.log(`[LongVideo] concat 输出文件过小: ${outputSize} bytes, 终止`)
     return null
   }
-  console.log(`[文生视频] concat 成功, 输出文件: ${outputPath} (${Math.round(outputSize / 1024 / 1024 * 100) / 100} MB)`)
+  console.log(`[LongVideo] concat 成功, 输出文件: ${outputPath} (${Math.round(outputSize / 1024 / 1024 * 100) / 100} MB)`)
 
   // 上传成品到 OSS
   if (process.env.OSS_ACCESS_KEY_ID && process.env.OSS_BUCKET) {
-    const OSS = (await import('ali-oss')).default
-    const client = new OSS({
-      region: process.env.OSS_REGION || 'oss-cn-hangzhou',
-      accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
-      accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
-      bucket: process.env.OSS_BUCKET!,
-      secure: true, timeout: '300s',
-    })
-    const ossName = `long-video/output_${Date.now()}.mp4`
-    await client.put(ossName, outputPath, { headers: { 'x-oss-object-acl': 'public-read' } })
-    const bucket = process.env.OSS_BUCKET!
-    const region = process.env.OSS_REGION || 'oss-cn-hangzhou'
-    await fs.unlink(outputPath).catch(() => {})
-    for (const p of videoPaths) await fs.unlink(p).catch(() => {})
-    return { videoUrl: `https://${bucket}.${region}.aliyuncs.com/${ossName}`, status: 'completed' }
+    onProgress?.({ type: 'upload', message: '上传成品到 OSS...' })
+    try {
+      const OSS = (await import('ali-oss')).default
+      const client = new OSS({
+        region: process.env.OSS_REGION || 'oss-cn-hangzhou',
+        accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
+        accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
+        bucket: process.env.OSS_BUCKET!,
+        secure: true, timeout: '300s',
+      })
+      const ossName = `long-video/output_${Date.now()}.mp4`
+      await client.put(ossName, outputPath, { headers: { 'x-oss-object-acl': 'public-read' } })
+      const bucket = process.env.OSS_BUCKET!
+      const region = process.env.OSS_REGION || 'oss-cn-hangzhou'
+      await fs.unlink(outputPath).catch(() => {})
+      for (const p of videoPaths) await fs.unlink(p).catch(() => {})
+      onProgress?.({ type: 'complete', message: '生成完成' })
+      return { videoUrl: `https://${bucket}.${region}.aliyuncs.com/${ossName}`, status: 'completed' }
+    } catch (e) {
+      onProgress?.({ type: 'error', message: 'OSS 上传失败' })
+      console.error('[LongVideo] OSS 上传失败:', e)
+      return null
+    }
   }
   // 无 OSS 时返回本地临时路径
+  onProgress?.({ type: 'complete', message: '生成完成' })
   return { videoUrl: outputPath, status: 'completed' }
 }
 
