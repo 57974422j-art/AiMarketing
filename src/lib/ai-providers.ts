@@ -461,7 +461,7 @@ async function dashscopeImageToVideo(prompt: string, refImageUrl: string, _durat
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body: JSON.stringify({
-        model: 'happyhorse-1.0-i2v',
+        model: 'wan2.7-t2v',
         input: { prompt, image_url: refImageUrl },
         parameters: { resolution: _resolution, ratio: _ratio, duration: _duration },
       }),
@@ -639,7 +639,16 @@ export async function generateLongVideo(
     }
 
     onProgress?.({ type: 'segment_poll', message: `等待第 ${segNum}/${segments} 段生成...` })
-    const segResult = await pollVideoTask(taskId)
+    let segResult = await pollVideoTask(taskId)
+    // 图生视频失败时降级为文生视频
+    if (!segResult?.videoUrl && i > 0) {
+      console.log(`[LongVideo] 第 ${segNum} 段 ${segResult?.status === 'failed' ? '模型FAILED' : '超时'}, 降级为文生视频`)
+      onProgress?.({ type: 'segment_poll', message: `第 ${segNum} 段降级为文生视频...` })
+      const retryResult = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, 'wan2.7-t2v')
+      if (retryResult?.taskId) {
+        segResult = await pollVideoTask(retryResult.taskId)
+      }
+    }
     if (!segResult?.videoUrl) {
       const failReason = segResult?.status === 'failed' ? '模型端FAILED' : '轮询无结果(超时/网络问题)'
       onProgress?.({ type: 'error', message: `第 ${segNum} 段${failReason}` })
