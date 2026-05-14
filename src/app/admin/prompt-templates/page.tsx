@@ -402,15 +402,15 @@ export default function AdminPromptTemplatesPage() {
                       </span>
                       <p className="text-gray-500 text-[10px] mt-1 line-clamp-2">{item.prompt}</p>
                       {item.previewUrl && (
-                        <div className="relative mt-2 rounded-lg overflow-hidden bg-gray-800 w-full" style={{ height: '130px' }}>
+                        <div className="relative mt-2 rounded-lg overflow-hidden w-full h-32">
                           {item.previewUrl.endsWith('.mp4')
-                            ? <video src={item.previewUrl} className="w-full h-full object-contain" controls />
-                            : <img src={item.previewUrl} alt="" className="w-full h-full object-contain" />
+                            ? <video src={item.previewUrl} className="w-full h-full object-cover" controls />
+                            : <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
                           }
-                          {/* 底部信息压图 */}
-                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-2">
-                            <span className="text-white text-xs font-medium truncate block">{item.title}</span>
-                            <span className="text-gray-300 text-[10px]">{item.category}</span>
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5">
+                            <div className="text-white text-xs font-semibold truncate">{item.title}</div>
+                            <div className="text-gray-300 text-[10px]">{item.category}</div>
                           </div>
                         </div>
                       )}
