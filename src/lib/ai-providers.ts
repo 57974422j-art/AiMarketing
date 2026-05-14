@@ -422,7 +422,11 @@ async function dashscopeGenerateVideo(prompt: string, _duration = 5, _resolution
   if (!key) return null;
   const model = _model || 'wan2.7-t2v'
   const shortModel = model.replace(/^wan2\.7/, 'wan').replace(/^happyhorse/, 'hh')
-  console.log(`[百炼创建] model=${shortModel}, duration=${_duration}s, prompt_len=${prompt.length}`)
+  // 百炼视频模型只支持 720P/1080P，480P 降级为 720P
+  const supportedResolutions: Record<string, string> = { '480P': '720P', '720P': '720P', '1080P': '1080P' }
+  const rs = supportedResolutions[_resolution] || '720P'
+  if (rs !== _resolution) console.log(`[百炼创建] 分辨率 ${_resolution} 不支持, 降级为 ${rs}`)
+  console.log(`[百炼创建] model=${shortModel}, duration=${_duration}s, resolution=${rs}, prompt_len=${prompt.length}`)
   try {
     const data = await fetchJSON('https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis', {
       method: 'POST',
@@ -430,7 +434,7 @@ async function dashscopeGenerateVideo(prompt: string, _duration = 5, _resolution
       body: JSON.stringify({
         model,
         input: { prompt },
-        parameters: { resolution: _resolution, ratio: _ratio, duration: _duration },
+        parameters: { resolution: rs, ratio: _ratio, duration: _duration },
       }),
     });
     if (data?.output?.task_id) {
