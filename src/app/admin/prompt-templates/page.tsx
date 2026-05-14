@@ -148,7 +148,7 @@ export default function AdminPromptTemplatesPage() {
     setBusy(p => ({ ...p, preseeding: false }))
   }
 
-  const handleFetch = async (type: 'image' | 'video') => {
+  const handleFetch = async (type: 'image' | 'video' | 'scene') => {
     if (!confirm(`从外部源抓取${type === 'image' ? '文生图' : '文生视频'}提示词？`)) return
     setBusy(p => ({ ...p, fetch: true }))
     try {
