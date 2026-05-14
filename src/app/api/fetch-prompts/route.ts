@@ -10,21 +10,32 @@ interface FetchedPrompt {
   category: string
 }
 
-// Civitai API
+// 质量门槛：过滤过短的提示词
+function qualityFilter(prompt: string): boolean {
+  return prompt.length > 20 && !prompt.includes('http') && !prompt.includes('{') && !prompt.includes('<')
+}
+
+// Civitai API — 按最高热度排序
 async function fetchFromCivitai(): Promise<FetchedPrompt[]> {
   const results: FetchedPrompt[] = []
   try {
-    const res = await fetch('https://civitai.com/api/v1/images?limit=20&sort=Newest&nsfw=false', { signal: AbortSignal.timeout(15000) })
+    const res = await fetch('https://civitai.com/api/v1/images?limit=30&sort=Most Reactions&period=Week&nsfw=false', { signal: AbortSignal.timeout(15000) })
     if (!res.ok) return results
     const data: any = await res.json()
     const items = data.items || []
-    for (const item of items.slice(0, 15)) {
+    const unique = new Set<string>()
+    for (const item of items) {
+      if (results.length >= 12) break
       const meta = item.meta || {}
-      const prompt = meta.prompt || ''
-      if (!prompt) continue
+      const prompt = (meta.prompt || '').trim()
+      if (!prompt || !qualityFilter(prompt)) continue
+      const key = prompt.substring(0, 60)
+      if (unique.has(key)) continue
+      unique.add(key)
+      const reactions = (item.stats?.reactionCount || 0)
       results.push({
-        title: `Civitai ${item.id}`,
-        prompt: prompt.substring(0, 2000),
+        title: `Civitai ⭐${reactions}`,
+        prompt: prompt.substring(0, 1500),
         category: meta.negativePrompt ? '文生图' : '文生视频',
       })
     }
@@ -32,22 +43,27 @@ async function fetchFromCivitai(): Promise<FetchedPrompt[]> {
   return results
 }
 
-// Lexica API
+// Lexica API — 取搜索前几名
 async function fetchFromLexica(): Promise<FetchedPrompt[]> {
   const results: FetchedPrompt[] = []
   const queries = ['marketing', 'product showcase', 'social media', 'advertising', 'e-commerce']
+  const unique = new Set<string>()
   for (const q of queries) {
     try {
       const res = await fetch(`https://lexica.art/api/v1/search?q=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(10000) })
       if (!res.ok) continue
       const data: any = await res.json()
       const images = data.images || []
-      for (const img of images.slice(0, 5)) {
-        const prompt = img.prompt || ''
-        if (!prompt) continue
+      for (const img of images) {
+        if (results.length >= 15) break
+        const prompt = (img.prompt || '').trim()
+        if (!prompt || !qualityFilter(prompt)) continue
+        const key = prompt.substring(0, 60)
+        if (unique.has(key)) continue
+        unique.add(key)
         results.push({
           title: `Lexica ${q}`,
-          prompt: prompt.substring(0, 2000),
+          prompt: prompt.substring(0, 1500),
           category: '文生图',
         })
       }
@@ -56,7 +72,7 @@ async function fetchFromLexica(): Promise<FetchedPrompt[]> {
   return results
 }
 
-// PromptHero：尝试抓取，返回抓取到的内容，不给兜底
+// PromptHero（React 渲染页面，能抓多少算多少）
 async function fetchFromPromptHero(): Promise<FetchedPrompt[]> {
   const results: FetchedPrompt[] = []
   try {
@@ -65,9 +81,9 @@ async function fetchFromPromptHero(): Promise<FetchedPrompt[]> {
       const html = await res.text()
       const matches = html.match(/"prompt":"([^"]+)"/g) || html.match(/<div[^>]*class="[^"]*prompt[^"]*"[^>]*>([^<]+)</g)
       if (matches) {
-        for (let i = 0; i < Math.min(matches.length, 5); i++) {
+        for (let i = 0; i < Math.min(matches.length, 8); i++) {
           const text = matches[i].replace(/^.*?"prompt":"|"$|<[^>]*>/g, '').trim()
-          if (text.length > 10) results.push({ title: `PromptHero ${i + 1}`, prompt: text, category: '文生图' })
+          if (qualityFilter(text)) results.push({ title: `PromptHero ${i + 1}`, prompt: text, category: '文生图' })
         }
       }
     }
