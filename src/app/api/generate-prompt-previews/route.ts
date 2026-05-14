@@ -35,8 +35,6 @@ async function saveToOSS(url: string, ext: string): Promise<string | null> {
   }
 }
 
-const prisma = new PrismaClient()
-
 /**
  * POST /api/generate-prompt-previews
  * 为 PromptTemplate 表中所有 previewUrl 为空的记录逐个生成预览图
