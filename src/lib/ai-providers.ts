@@ -1067,17 +1067,22 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
 }
 
 // 百炼通义万相文生图
-async function dashscopeGenerateImage(prompt: string, size = '1280*1280'): Promise<string | null> {
+async function dashscopeGenerateImage(prompt: string, size = '1280*1280', _model?: string): Promise<string | null> {
   const key = getDashScopeKey()
   if (!key) { console.log('[文生图] DashScope Key 未设置，跳过'); return null }
-  console.log('[文生图] 尝试百炼通义万相 wan2.6-t2i (同步调用)...')
+  const modelMap: Record<string, string> = {
+    'qwen-image-2.0': 'qwen-image-2.0-2026-03-03',
+    'qwen-image-2.0-pro': 'qwen-image-2.0-pro-2026-04-22',
+  }
+  const model = _model ? (modelMap[_model] || _model) : 'wan2.6-t2i'
+  console.log(`[文生图] 尝试百炼 ${model} (同步调用)...`)
   try {
-    // wan2.6 支持 HTTP 同步调用，无需异步+轮询
+    // wan2.6/qwen-image 支持 HTTP 同步调用，无需异步+轮询
     const res = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'wan2.6-t2i',
+        model,
         input: {
           messages: [
             {
@@ -1172,24 +1177,34 @@ async function dashscopeTTS(text: string, voice = 'longxiaochun'): Promise<Array
 }
 
 // 5. 文生图（返回 {url, model}，model 标明实际使用的模型）
-export async function generateImage(prompt: string, size = '1280*1280', provider?: 'auto' | 'dashscope' | 'siliconflow'): Promise<{ url: string; model: string } | null> {
-  // provider 参数：auto=自动降级, dashscope=强制百炼, siliconflow=强制硅基
+export async function generateImage(prompt: string, size = '1280*1280', provider?: string): Promise<{ url: string; model: string } | null> {
+  const labelMap: Record<string, string> = {
+    'qwen-image-2.0': '通义千问 2.0',
+    'qwen-image-2.0-pro': '通义千问 2.0 Pro',
+    'dashscope': '百炼 wan2.6',
+    'siliconflow': '硅基 Z-Image',
+  }
   if (provider === 'dashscope') {
-    const url = await dashscopeGenerateImage(prompt, size)
-    if (url) return { url, model: '百炼通义万相 wan2.6-t2i' }
+    const url = await dashscopeGenerateImage(prompt, size, 'wan2.6-t2i')
+    if (url) return { url, model: labelMap['dashscope'] || '百炼' }
     return null
   }
   if (provider === 'siliconflow') {
     const url = await siliconGenerateImage(prompt, size.replace(/\*/g, 'x'))
-    if (url) return { url, model: '硅基流动 Tongyi-MAI/Z-Image-Turbo' }
+    if (url) return { url, model: labelMap['siliconflow'] || '硅基流动' }
+    return null
+  }
+  if (provider && provider.startsWith('qwen-image')) {
+    const url = await dashscopeGenerateImage(prompt, size, provider)
+    if (url) return { url, model: labelMap[provider] || provider }
     return null
   }
   // auto: 百炼(wan2.6-t2i) → 硅基流动 → null
   const dashUrl = await dashscopeGenerateImage(prompt, size)
-  if (dashUrl) return { url: dashUrl, model: '百炼通义万相 wan2.6-t2i' }
+  if (dashUrl) return { url: dashUrl, model: '百炼 wan2.6' }
 
   const siliconUrl = await siliconGenerateImage(prompt, size.replace(/\*/g, 'x'))
-  if (siliconUrl) return { url: siliconUrl, model: '硅基流动 Tongyi-MAI/Z-Image-Turbo' }
+  if (siliconUrl) return { url: siliconUrl, model: '硅基 Z-Image' }
 
   console.warn('[文生图] 服务不可用');
   return null

@@ -15,7 +15,9 @@ const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营�
 
 const IMG_MODELS = [
   { value: 'auto', label: '自动(Auto)', desc: '百炼→硅基' },
-  { value: 'dashscope', label: '百炼 wan2.6', desc: '推荐' },
+  { value: 'dashscope', label: '百炼 wan2.6', desc: '图文生图' },
+  { value: 'qwen-image-2.0', label: '通义千问 2.0', desc: '最新轻量' },
+  { value: 'qwen-image-2.0-pro', label: '通义千问 2.0 Pro', desc: '最新高质' },
   { value: 'siliconflow', label: '硅基 Z-Image', desc: '备选' },
 ]
 const VID_MODELS = [
