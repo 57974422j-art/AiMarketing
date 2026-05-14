@@ -26,6 +26,8 @@ export default function ImageGeneratorPage() {
   const [usingModel, setUsingModel] = useState('')
   const [provider, setProvider] = useState<'auto' | 'dashscope' | 'siliconflow'>('auto')
   const [referenceImage, setReferenceImage] = useState<File | null>(null)
+  const [showFav, setShowFav] = useState(false)
+  const [favItems, setFavItems] = useState<any[]>([])
   const [referencePreview, setReferencePreview] = useState('')
   const SIZE_OPTIONS = [
     { value: '1280*1280', label: '1:1 正方形' },
@@ -46,6 +48,11 @@ export default function ImageGeneratorPage() {
   useEffect(() => {
     const sp = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
     if (sp?.get('prompt')) setPrompt(decodeURIComponent(sp.get('prompt')!))
+  }, [])
+
+  // 获取用户收藏
+  useEffect(() => {
+    fetch('/api/media-library?source=private', { credentials: 'include' }).then(r => r.json()).then(d => { if (d.data) setFavItems(d.data) }).catch(() => {})
   }, [])
 
   const loadTemplates = async () => {
@@ -125,35 +132,65 @@ export default function ImageGeneratorPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* 左侧模板列表 */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-4">
             <div className="card-glass p-4">
-              <h2 className="text-white font-bold text-sm mb-3"><span>提示词模板</span><span className="text-xs opacity-50 ml-1">/ PROMPT TEMPLATES</span></h2>
-              <div className="flex gap-1 mb-3 flex-wrap">
-                <button onClick={() => setFilterCat('')}
-                  className={`px-2 py-1 rounded text-xs ${!filterCat ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
-                  <span>全部</span><span className="text-[10px] opacity-50 ml-1">/ ALL</span>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-white font-bold text-sm"><span>提示词模板</span><span className="text-xs opacity-50 ml-1">/ PROMPT TEMPLATES</span></h2>
+                <button onClick={() => setShowFav(!showFav)}
+                  className={`px-2 py-1 rounded text-xs ${showFav ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+                  {showFav ? '📁 模板' : '⭐ 收藏'}
                 </button>
-                {CATEGORIES.map(c => (
-                  <button key={c} onClick={() => setFilterCat(c)}
-                    className={`px-2 py-1 rounded text-xs ${filterCat === c ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
-                    {c}
-                  </button>
-                ))}
               </div>
-              <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-                {templatesLoading ? (
-                  <div className="text-gray-500 text-xs text-center py-4"><span>加载中</span><span className="text-[10px] opacity-50 ml-1">/ LOADING</span></div>
-                ) : templates.length === 0 ? (
-                  <div className="text-gray-500 text-xs text-center py-4"><span>暂无模板</span><span className="text-[10px] opacity-50 ml-1">/ EMPTY</span></div>
-                ) : templates.map(t => (
-                  <button key={t.id} onClick={() => applyTemplate(t)}
-                    className="w-full text-left p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-emerald-500/30 transition-all">
-                    <div className="text-white text-xs font-bold truncate">{t.title}</div>
-                    <div className="text-gray-500 text-[10px] mt-0.5 truncate">{t.category}</div>
-                    <div className="text-gray-600 text-[10px] mt-0.5 truncate">{t.prompt}</div>
+              {!showFav ? (<>
+                <div className="flex gap-1 mb-3 flex-wrap">
+                  <button onClick={() => setFilterCat('')}
+                    className={`px-2 py-1 rounded text-xs ${!filterCat ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+                    <span>全部</span><span className="text-[10px] opacity-50 ml-1">/ ALL</span>
                   </button>
-                ))}
-              </div>
+                  {CATEGORIES.map(c => (
+                    <button key={c} onClick={() => setFilterCat(c)}
+                      className={`px-2 py-1 rounded text-xs ${filterCat === c ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+                <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                  {templatesLoading ? (
+                    <div className="text-gray-500 text-xs text-center py-4"><span>加载中</span></div>
+                  ) : templates.length === 0 ? (
+                    <div className="text-gray-500 text-xs text-center py-4"><span>暂无模板</span></div>
+                  ) : templates.map(t => (
+                    <button key={t.id} onClick={() => applyTemplate(t)}
+                      className="w-full text-left p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-emerald-500/30 transition-all">
+                      <div className="text-white text-xs font-bold truncate">{t.title}</div>
+                      <div className="text-gray-500 text-[10px] mt-0.5 truncate">{t.category}</div>
+                      <div className="text-gray-600 text-[10px] mt-0.5 truncate">{t.prompt}</div>
+                    </button>
+                  ))}
+                </div>
+              </>) : (
+                <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                  {favItems.length === 0 ? (
+                    <div className="text-gray-500 text-xs text-center py-4">去素材库收藏素材后显示在这里</div>
+                  ) : favItems.map((fav: any) => (
+                    <button key={fav.id} onClick={() => { setPrompt(fav.prompt || fav.title); setShowFav(false) }}
+                      className="w-full text-left p-2.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/30 transition-all">
+                      <div className="flex items-center gap-2">
+                        <div className="w-9 h-9 rounded bg-black/40 flex-shrink-0 overflow-hidden">
+                          {fav.ossUrl?.endsWith('.mp4')
+                            ? <video src={fav.ossUrl} className="w-full h-full object-cover" />
+                            : <img src={fav.ossUrl} alt="" className="w-full h-full object-cover" />
+                          }
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-white text-xs font-medium truncate">{fav.title}</div>
+                          <div className="text-gray-500 text-[10px] truncate">{fav.prompt || ''}</div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

@@ -56,6 +56,8 @@ const [generatingSegment, setGeneratingSegment] = useState(-1)
 const [previewUrl, setPreviewUrl] = useState('')
 const [segDuration, setSegDuration] = useState(5)
 const [splitting, setSplitting] = useState(false)
+const [favorites, setFavorites] = useState<any[]>([])
+const [sceneLib, setSceneLib] = useState<any[]>([])
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
   useEffect(() => { fetchTemplates() }, [])
@@ -67,6 +69,12 @@ const [splitting, setSplitting] = useState(false)
   // sessionStorage 持久化：生成好的分段视频切换页面不丢失
   useEffect(() => { const saved = sessionStorage.getItem('segVideos'); if (saved) setSegmentVideos(JSON.parse(saved)) }, [])
   useEffect(() => { if (segmentVideos.length > 0) sessionStorage.setItem('segVideos', JSON.stringify(segmentVideos)) }, [segmentVideos])
+  // 获取用户收藏和场景库
+  useEffect(() => {
+    if (!user) return
+    fetch('/api/media-library?source=private', { credentials: 'include' }).then(r => r.json()).then(d => { if (d.data) setFavorites(d.data) }).catch(() => {})
+    fetch('/api/media-library?source=private&category=场景', { credentials: 'include' }).then(r => r.json()).then(d => { if (d.data) setSceneLib(d.data) }).catch(() => {})
+  }, [user])
 
   const fetchTemplates = async () => {
     try {
@@ -521,26 +529,29 @@ const [splitting, setSplitting] = useState(false)
               </div>
             </div>
 
-            {/* 提示词技巧 */}
+            {/* 我的收藏 */}
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <h2 className="text-label mb-4">{t.textToVideo.promptTips}</h2>
-              <div className="space-y-3 text-sm text-gray-400">
-                <div className="flex items-start gap-2">
-                  <span className="text-emerald-400 font-bold">1.</span>
-                  <span>{t.textToVideo.describeScene}</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="text-emerald-400 font-bold">2.</span>
-                  <span>{t.textToVideo.specifyCamera}</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="text-emerald-400 font-bold">3.</span>
-                  <span>{t.textToVideo.describeMotion}</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="text-emerald-400 font-bold">4.</span>
-                  <span>{t.textToVideo.specifyStyle}</span>
-                </div>
+              <h2 className="text-label mb-4">我的收藏 / MY FAVORITES</h2>
+              <div className="space-y-2">
+                {favorites.length === 0 ? <p className="text-gray-500 text-xs">去素材库收藏素材后显示在这里</p>
+                : favorites.slice(0, 6).map((fav: any) => (
+                  <button key={fav.id} onClick={() => setPrompt(fav.prompt || fav.title)}
+                    className="w-full text-left p-2.5 bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded bg-black/40 flex-shrink-0 overflow-hidden">
+                        {fav.ossUrl?.endsWith('.mp4')
+                          ? <video src={fav.ossUrl} className="w-full h-full object-cover" />
+                          : <img src={fav.ossUrl} alt="" className="w-full h-full object-cover" />
+                        }
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-white text-xs font-medium truncate">{fav.title}</div>
+                        <div className="text-gray-500 text-[10px] truncate">{fav.prompt || ''}</div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+                {favorites.length > 6 && <p className="text-[10px] text-gray-500 text-center mt-1">+{favorites.length - 6} 更多</p>}
               </div>
             </div>
           </div>
@@ -548,20 +559,27 @@ const [splitting, setSplitting] = useState(false)
           {/* 右侧 */}
           <div className="space-y-6">
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <h2 className="text-label mb-4">{t.textToVideo.sceneSuggestions}</h2>
-              <div className="space-y-3">
-                {[
-                  { title: t.textToVideo.citySkyline, desc: t.textToVideo.citySkylineDesc },
-                  { title: t.textToVideo.productDisplay, desc: t.textToVideo.productDisplayDesc },
-                  { title: t.textToVideo.natureScenery, desc: t.textToVideo.natureSceneryDesc },
-                  { title: t.textToVideo.foodCloseUp, desc: t.textToVideo.foodCloseUpDesc }
-                ].map((item, idx) => (
-                  <button key={idx} onClick={() => setPrompt(item.desc)}
-                    className="w-full text-left p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
-                    <div className="font-medium text-white text-sm">{item.title}</div>
-                    <div className="text-xs text-gray-500 mt-1">{item.desc}</div>
+              <h2 className="text-label mb-4">场景库 / SCENE LIBRARY</h2>
+              <div className="space-y-2">
+                {sceneLib.length === 0 ? <p className="text-gray-500 text-xs">收藏场景素材后显示在这里</p>
+                : sceneLib.slice(0, 6).map((s: any) => (
+                  <button key={s.id} onClick={() => setPrompt(s.prompt || s.title)}
+                    className="w-full text-left p-2.5 bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded bg-black/40 flex-shrink-0 overflow-hidden">
+                        {s.ossUrl?.endsWith('.mp4')
+                          ? <video src={s.ossUrl} className="w-full h-full object-cover" />
+                          : <img src={s.ossUrl} alt="" className="w-full h-full object-cover" />
+                        }
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-white text-xs font-medium truncate">{s.title}</div>
+                        <div className="text-gray-500 text-[10px] truncate">{s.prompt || ''}</div>
+                      </div>
+                    </div>
                   </button>
                 ))}
+                {sceneLib.length > 6 && <p className="text-[10px] text-gray-500 text-center mt-1">+{sceneLib.length - 6} 更多</p>}
               </div>
             </div>
 
