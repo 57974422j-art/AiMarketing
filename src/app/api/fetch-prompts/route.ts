@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     let allPrompts: FetchedPrompt[] = []
 
     // 如果需要按类型筛选后插入
-    const targetCategory = fetchType === 'video' ? '文生视频' : fetchType === 'image' ? '文生图' : null
+    const targetCategory = fetchType === 'video' ? '文生视频' : fetchType === 'image' ? '文生图' : fetchType === 'scene' ? '场景' : null
 
     // 按配置顺序抓取
     for (const source of sources) {

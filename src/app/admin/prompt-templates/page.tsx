@@ -49,7 +49,7 @@ export default function AdminPromptTemplatesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   // 批量操作状态
-  const [busy, setBusy] = useState({ fetch: false, imgPreview: false, vidPreview: false, preseeding: false })
+  const [busy, setBusy] = useState({ fetch: false, imgPreview: false, vidPreview: false, genDigital: false, preseeding: false })
   const [progress, setProgress] = useState({ show: false, text: '' })
 
   // 生成控制参数
@@ -264,6 +264,7 @@ export default function AdminPromptTemplatesPage() {
           <div className="flex gap-2 flex-wrap justify-end">
             <button onClick={() => handleFetch('image')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🌄 抓取文生图'}</button>
             <button onClick={() => handleFetch('video')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🎬 抓取文生视频'}</button>
+            <button onClick={() => handleFetch('scene')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🏞️ 抓取场景'}</button>
             <button onClick={handlePreseed} disabled={busy.preseeding} className="btn-secondary text-xs py-2">{busy.preseeding ? '填充中' : '📦 预设'}</button>
             <button onClick={openCreate} className="btn-primary text-xs py-2">+ 新建</button>
           </div>
@@ -323,17 +324,31 @@ export default function AdminPromptTemplatesPage() {
               ))}
             </div>
 
-            <div className="flex gap-2 ml-auto">
+            <div className="flex gap-2 ml-auto flex-wrap">
               <button onClick={() => runBatch('/api/generate-prompt-previews', 'imgPreview')} disabled={busy.imgPreview || busy.vidPreview}
                 className="px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs hover:bg-emerald-500/30 disabled:opacity-50">
-                {busy.imgPreview ? '生成中...' : '🎨 生成预览图'}
+                {busy.imgPreview ? '生成中...' : '🎨 预览图'}
               </button>
               <button onClick={() => runBatch('/api/batch-generate-video-previews', 'vidPreview')} disabled={busy.vidPreview || busy.imgPreview}
                 className="px-3 py-1.5 bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs hover:bg-cyan-500/30 disabled:opacity-50">
-                {busy.vidPreview ? '生成中...' : '🎬 生成视频预览'}
+                {busy.vidPreview ? '生成中...' : '🎬 视频预览'}
+              </button>
+              <button onClick={async () => {
+                if (!confirm('生成 6 个数字人口播模板？')) return
+                setBusy(p => ({ ...p, genDigital: true }))
+                try {
+                  const r = await fetch('/api/generate-digital-prompts', { method: 'POST', credentials: 'include' })
+                  const d = await r.json()
+                  showToast(d.message, d.success ? 'success' : 'error')
+                  if (d.success) loadItems()
+                } catch { showToast('生成失败', 'error') }
+                finally { setBusy(p => ({ ...p, genDigital: false })) }
+              }} disabled={busy.genDigital}
+                className="px-3 py-1.5 bg-purple-500/20 border border-purple-500/30 text-purple-400 rounded-lg text-xs hover:bg-purple-500/30 disabled:opacity-50">
+                {busy.genDigital ? '生成中...' : '🤖 数字人模板'}
               </button>
               <button onClick={handleImportToMedia}
-                className="px-3 py-1.5 bg-purple-500/20 border border-purple-500/30 text-purple-400 rounded-lg text-xs hover:bg-purple-500/30">
+                className="px-3 py-1.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-lg text-xs hover:bg-blue-500/30">
                 📦 导入素材库
               </button>
             </div>
