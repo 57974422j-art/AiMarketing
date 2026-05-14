@@ -526,18 +526,22 @@ export type LongVideoProgress = {
 }
 
 /** 长视频自动拼接（>15s 拆分为多段，每段用上一段尾帧做参考）
- *  @param prompts - 每段的提示词数组
- *  @param onProgress - 进度回调（用于 SSE 推送）
+ *  @param prompts - 每段的提示词数组（直接用，不再拼接原始prompt）
+ *  @param segDuration - 每段时长（秒，默认15）
+ *  @param segModel - 每段使用的模型（默认happyhorse-1.0-t2v）
  */
 export async function generateLongVideo(
   prompts: string[],
   totalDuration?: number,
   _resolution = '720P',
   _ratio = '16:9',
-  onProgress?: (evt: LongVideoProgress) => void
+  onProgress?: (evt: LongVideoProgress) => void,
+  segDuration = 15,
+  segModel = 'happyhorse-1.0-t2v'
 ): Promise<{ videoUrl?: string; status: string } | null> {
   const totalStartTime = Date.now()
-  const segDuration = 15
+  const resolutionMap: Record<string, string> = { '720P': '720p', '1080P': '1080p', '480P': '480p' }
+  const rs = resolutionMap[_resolution] || '720p'
   // 如果传了 totalDuration，用总时长计算段数；否则直接用 prompts 长度
   const segments = totalDuration ? Math.ceil(totalDuration / segDuration) : prompts.length
   if (prompts.length === 1 && segments > 1) {
@@ -571,8 +575,7 @@ export async function generateLongVideo(
     let taskId = ''
     if (i === 0 || !videoPaths[i - 1]) {
       // 第一段或无上一段视频：文生视频
-      const model = 'wan2.7-t2v'
-      const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, model)
+      const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], rs, _ratio, segModel)
       if (!result?.taskId) {
         onProgress?.({ type: 'error', message: `第 ${segNum} 段创建失败` })
         console.log(`[LongVideo] 第 ${segNum} 段创建失败, 终止`)
@@ -616,7 +619,7 @@ export async function generateLongVideo(
           await fs.unlink(lastFramePath).catch(() => {})
         }
         if (useImageToVideo) {
-          const i2vResult = await dashscopeImageToVideo(segPrompt, refUrl, actualDurations[i], _resolution, _ratio)
+          const i2vResult = await dashscopeImageToVideo(segPrompt, refUrl, actualDurations[i], rs, _ratio)
           if (!i2vResult?.taskId) {
             console.log(`[LongVideo] 第 ${segNum} 段图生视频失败, 降级为文生视频`)
             useImageToVideo = false
@@ -629,12 +632,12 @@ export async function generateLongVideo(
       if (!useImageToVideo) {
         // 降级为文生视频
         onProgress?.({ type: 'segment_poll', message: `第 ${segNum}/${segments} 段(文生视频)` })
-        const result = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, 'wan2.7-t2v')
-        if (!result?.taskId) {
+        const fallbackResult = await dashscopeGenerateVideo(segPrompt, actualDurations[i], rs, _ratio, segModel)
+        if (!fallbackResult?.taskId) {
           onProgress?.({ type: 'error', message: `第 ${segNum} 段创建失败` })
           return null
         }
-        taskId = result.taskId
+        taskId = fallbackResult.taskId
       }
     }
 
@@ -644,7 +647,7 @@ export async function generateLongVideo(
     if (!segResult?.videoUrl && i > 0) {
       console.log(`[LongVideo] 第 ${segNum} 段 ${segResult?.status === 'failed' ? '模型FAILED' : '超时'}, 降级为文生视频`)
       onProgress?.({ type: 'segment_poll', message: `第 ${segNum} 段降级为文生视频...` })
-      const retryResult = await dashscopeGenerateVideo(segPrompt, actualDurations[i], _resolution, _ratio, 'wan2.7-t2v')
+      const retryResult = await dashscopeGenerateVideo(segPrompt, actualDurations[i], rs, _ratio, segModel)
       if (retryResult?.taskId) {
         segResult = await pollVideoTask(retryResult.taskId)
       }

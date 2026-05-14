@@ -18,7 +18,7 @@ interface VideoTemplate {
 }
 
 const durations = [5, 10, 15]
-const longDurations = [20, 30, 45, 60]
+const longDurations = [10, 15, 20, 30, 45, 60]
 const styles = ['电影感', '自然风光', '3D产品', '美食', '动画风', '广告感']
 const MODELS = [
   { value: '', label: '自动(Auto)', desc: 'Doubao→wan2.7→happyhorse' },
@@ -50,6 +50,10 @@ const [generating, setGenerating] = useState(false)
   const [videoUrl, setVideoUrl] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
+  const [manualMode, setManualMode] = useState(false)
+  const [segmentVideos, setSegmentVideos] = useState<string[]>([])
+  const [generatingSegment, setGeneratingSegment] = useState(-1)
+  const [previewUrl, setPreviewUrl] = useState('')
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
   useEffect(() => { fetchTemplates() }, [])
@@ -192,7 +196,7 @@ const [generating, setGenerating] = useState(false)
                   <div>
                     <label className="block text-label mb-1">分辨率</label>
                     <div className="flex gap-1 flex-wrap">
-                      {['720P', '1080P'].map(r => (
+                      {['480P', '720P', '1080P'].map(r => (
                         <button key={r} type="button" onClick={() => setResolution(r)}
                           className={`px-2 py-1.5 rounded text-xs ${resolution === r ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
                           {r}
@@ -203,25 +207,42 @@ const [generating, setGenerating] = useState(false)
                 </div>
 
                 {/* 长视频开关 */}
-                <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" checked={longVideo} onChange={e => { 
-                      const v = e.target.checked
-                      setLongVideo(v)
-                      const d = v ? 20 : 5
-                      setDuration(d)
-                      if (v) {
-                        const segCount = Math.ceil(d / 15)
-                        setSegmentPrompts(Array(segCount).fill(prompt))
-                        setEditSegments(false)
-                      }
-                    }} className="sr-only peer" />
-                    <div className="w-9 h-5 bg-white/10 rounded-full peer peer-checked:bg-emerald-500 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
-                  </label>
-                  <div>
-                    <span className="text-sm text-gray-300 font-mono">自动拼接长视频（最长 60 秒）</span>
-                    <p className="text-[10px] text-gray-600">{'>'}15s 自动拆分多段，用尾帧保证连贯</p>
+                <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                  <div className="flex items-center gap-3">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={longVideo} onChange={e => { 
+                        const v = e.target.checked
+                        setLongVideo(v)
+                        setManualMode(false)
+                        setSegmentVideos([])
+                        setPreviewUrl('')
+                        const d = v ? 20 : 5
+                        setDuration(d)
+                        if (v) {
+                          const segCount = Math.ceil(d / 15)
+                          setSegmentPrompts(Array(segCount).fill(prompt))
+                          setEditSegments(false)
+                        }
+                      }} className="sr-only peer" />
+                      <div className="w-9 h-5 bg-white/10 rounded-full peer peer-checked:bg-emerald-500 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
+                    </label>
+                    <div>
+                      <span className="text-sm text-gray-300 font-mono">长视频模式</span>
+                      <p className="text-[10px] text-gray-600">{'>'}15s 自动拆分多段</p>
+                    </div>
                   </div>
+                  {longVideo && (
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => { setManualMode(false); setSegmentVideos([]) }}
+                        className={`text-xs px-3 py-1.5 rounded ${!manualMode ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                        自动合成
+                      </button>
+                      <button type="button" onClick={() => { setManualMode(true); setSegmentVideos([]) }}
+                        className={`text-xs px-3 py-1.5 rounded ${manualMode ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                        手动预览
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* 分段提示词（长视频） */}
@@ -290,6 +311,89 @@ const [generating, setGenerating] = useState(false)
                   </div>
                 )}
 
+                {/* 手动模式：逐段生成 + 预览 */}
+                {longVideo && manualMode && segmentPrompts.length > 0 && (
+                  <div className="bg-white/5 rounded-xl border border-white/10 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="text-label text-sm">分段生成 / SEGMENT GENERATION</label>
+                      {segmentVideos.length === segmentPrompts.length ? (
+                        <button type="button" onClick={async () => {
+                          setGenerating(true); setError('')
+                          try {
+                            const r = await fetch('/api/video/text-to-video', {
+                              method: 'POST', credentials: 'include',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ prompt: segmentPrompts.join(' '), duration, resolution, aspectRatio: ratio, longVideo: true, segmentPrompts, segmentDuration: 5, model: model || 'happyhorse' }),
+                            })
+                            const d = await r.json()
+                            if (d.videoUrl) { setVideoUrl(d.videoUrl); setProgress(100); setGenerating(false) }
+                            else { setError('合成失败'); setGenerating(false) }
+                          } catch { setError('合成失败'); setGenerating(false) }
+                        }}
+                          className="text-xs px-3 py-1.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30">
+                          🎬 合成完整视频
+                        </button>
+                      ) : (
+                        <button type="button" disabled={generatingSegment >= 0} onClick={async () => {
+                          const segCount = segmentPrompts.length
+                          const segDur = Math.ceil(duration / segCount)
+                          const vids: string[] = []
+                          for (let i = 0; i < segCount; i++) {
+                            setGeneratingSegment(i)
+                            setError(`正在生成第 ${i + 1}/${segCount} 段...`)
+                            try {
+                              const r = await fetch('/api/video/generate-segment', {
+                                method: 'POST', credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ prompt: segmentPrompts[i], duration: segDur, resolution, aspectRatio: ratio, model: model || 'happyhorse' }),
+                              })
+                              const d = await r.json()
+                              if (d.videoUrl) { vids.push(d.videoUrl); setSegmentVideos([...vids]) }
+                              else if (d.taskId) {
+                                // 异步轮询
+                                for (let j = 0; j < 60; j++) {
+                                  await new Promise(r => setTimeout(r, 3000))
+                                  setError(`第 ${i + 1}/${segCount} 段生成中...`)
+                                  const q = await fetch(`/api/video/text-to-video?taskId=${d.taskId}`, { credentials: 'include' })
+                                  const qd = await q.json()
+                                  if (qd.videoUrl) { vids.push(qd.videoUrl); setSegmentVideos([...vids]); break }
+                                  if (qd.status === 'FAILED') throw new Error('生成失败')
+                                }
+                              }
+                            } catch { setError(`第 ${i + 1} 段生成失败`); setGeneratingSegment(-1); return }
+                          }
+                          setError('')
+                          setGeneratingSegment(-1)
+                        }}
+                          className={`text-xs px-3 py-1.5 rounded ${generatingSegment >= 0 ? 'bg-white/5 text-gray-500' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30'}`}>
+                          {generatingSegment >= 0 ? `生成中 (${generatingSegment + 1}/${segmentPrompts.length})` : '▶ 逐段生成'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 预览窗格 — 横排 */}
+                    {segmentVideos.length > 0 && (
+                      <div className="flex gap-3 overflow-x-auto pb-2">
+                        {segmentVideos.map((sv, idx) => (
+                          <div key={idx} className="flex-shrink-0 w-48">
+                            <div className="text-[10px] text-gray-500 mb-1 font-mono text-center">片段 {idx + 1}</div>
+                            <video src={sv} className="w-48 h-28 rounded-lg object-cover cursor-pointer border border-white/10 hover:border-emerald-500/50 transition-colors"
+                              onDoubleClick={() => setPreviewUrl(sv)} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 全屏预览 */}
+                {previewUrl && (
+                  <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center" onClick={() => setPreviewUrl('')}>
+                    <video src={previewUrl} controls autoPlay className="max-w-[90vw] max-h-[90vh] rounded-xl"
+                      onClick={e => e.stopPropagation()} />
+                  </div>
+                )}
+
                 {/* 参考图上传 */}
                 <div>
                   <label className="block text-label mb-1">参考图片 / REF IMAGE (OPTIONAL)</label>
@@ -333,7 +437,20 @@ const [generating, setGenerating] = useState(false)
                   : typeof error === 'string' && error.trim().length > 0 && <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20 text-sm text-red-400 font-mono">❌ {error}</div>
                 }
 
-                {/* 进度 */}
+                {/* 等待中（长视频提交后、拿到taskId前） */}
+                {generating && !taskId && !videoUrl && (
+                  <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                    <div className="flex items-center gap-3">
+                      <div className="animate-spin w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full" />
+                      <div>
+                        <p className="text-sm text-gray-300 font-mono">长视频生成中...（约 10-15 分钟）</p>
+                        <p className="text-xs text-gray-500 mt-1">请勿关闭页面，各段分别生成后自动拼接</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 进度（拿到taskId后的轮询阶段） */}
                 {taskId && !videoUrl && (
                   <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
                     <h3 className="text-label mb-4">{t.textToVideo.generatingProgress}</h3>

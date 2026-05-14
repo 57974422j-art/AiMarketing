@@ -12,27 +12,29 @@ export async function POST(request: NextRequest) {
     const videoDuration = longVideo ? Math.min(60, rawDuration) : Math.min(15, rawDuration)
     const requestStart = Date.now()
 
-    if (!prompt) {
+    if (!prompt && !longVideo) {
       return NextResponse.json({ success: false, message: '缺少必要参数: prompt' }, { status: 400 })
     }
 
-    console.log(`[文生视频API] 开始, params=${JSON.stringify({ prompt: prompt.substring(0, 50), ratio: aspectRatio, duration: videoDuration, resolution, model, longVideo, hasRef: !!refImage })}`)
+    console.log(`[文生视频API] 开始, params=${JSON.stringify({ prompt: (prompt||'').substring(0, 50), ratio: aspectRatio, duration: videoDuration, resolution, model, longVideo, hasRef: !!refImage })}`)
 
-    // 长视频模式（>15s 自动拼接）
+    // 长视频模式
     if (videoDuration > 15 && longVideo) {
-      const segPrompts = segmentPrompts || [prompt]
-      console.log(`[文生视频API] 进入长视频模式, target=${videoDuration}s, 段数=${segPrompts.length}`)
-      const result = await generateLongVideo(segPrompts, videoDuration, resolution || '720P', aspectRatio || '16:9')
+      const segPrompts = segmentPrompts || (prompt ? [prompt] : [])
+      const segDuration = body.segmentDuration || 15
+      const segModel = model === 'happyhorse' ? 'happyhorse-1.0-t2v' : model || 'happyhorse-1.0-t2v'
+      console.log(`[文生视频API] 进入长视频模式, target=${videoDuration}s, 段数=${segPrompts.length}, 每段=${segDuration}s, 模型=${segModel}`)
+      const result = await generateLongVideo(segPrompts, videoDuration, resolution || '720P', aspectRatio || '16:9', undefined, segDuration, segModel)
       const cost = Math.round((Date.now() - requestStart) / 1000)
       if (!result?.videoUrl) {
-        console.log(`[文生视频API] 长视频失败, 耗时=${cost}s, result=`, JSON.stringify(result))
+        console.log(`[文生视频API] 长视频失败, 耗时=${cost}s`)
         return NextResponse.json({ success: false, message: '长视频生成失败' }, { status: 500 })
       }
-      console.log(`[文生视频API] 长视频成功, 耗时=${cost}s, videoUrl_len=${result.videoUrl.length}`)
+      console.log(`[文生视频API] 长视频成功, 耗时=${cost}s`)
       return NextResponse.json({ success: true, taskId: 'long_video', videoUrl: result.videoUrl })
     }
 
-    // 短文本模式（≤15s）
+    // 短视频模式（≤15s）
     console.log(`[文生视频API] 进入短视频模式, duration=${videoDuration}s` + (model ? `, model=${model}` : ''))
     const result = await generateVideo(prompt, videoDuration, resolution || '720P', aspectRatio || '16:9', model)
     const cost = Math.round((Date.now() - requestStart) / 1000)
@@ -47,8 +49,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, taskId: result.taskId, videoUrl: result.videoUrl })
     }
 
-    // 异步模式（只有 taskId，需要前端轮询）
-    console.log(`[文生视频API] 异步提交, 耗时=${cost}s, taskId=${result.taskId?.substring(0, 8)}..., 前端需轮询`)
+    // 异步模式（只有 taskId，前端轮询）
+    console.log(`[文生视频API] 异步提交, 耗时=${cost}s, taskId=${result.taskId?.substring(0, 8)}...`)
     return NextResponse.json({ success: true, taskId: result.taskId, message: '视频生成任务已提交，请稍后查询结果' })
   } catch (error) {
     console.error('[文生视频API] 异常:', error instanceof Error ? `${error.name}: ${error.message}\n${error.stack?.substring(0, 200)}` : error)
