@@ -55,9 +55,13 @@ const [segmentVideos, setSegmentVideos] = useState<string[]>([])
 const [generatingSegment, setGeneratingSegment] = useState(-1)
 const [previewUrl, setPreviewUrl] = useState('')
 const [segDuration, setSegDuration] = useState(5)
+const [splitting, setSplitting] = useState(false)
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
   useEffect(() => { fetchTemplates() }, [])
+  // sessionStorage 持久化：生成好的分段视频切换页面不丢失
+  useEffect(() => { const saved = sessionStorage.getItem('segVideos'); if (saved) setSegmentVideos(JSON.parse(saved)) }, [])
+  useEffect(() => { if (segmentVideos.length > 0) sessionStorage.setItem('segVideos', JSON.stringify(segmentVideos)) }, [segmentVideos])
 
   const fetchTemplates = async () => {
     try {
@@ -273,11 +277,12 @@ const [segDuration, setSegDuration] = useState(5)
                     <div className="flex items-center justify-between mb-3">
                       <label className="text-label text-sm">分段提示词 / SEGMENT PROMPTS</label>
                       <div className="flex gap-2">
-                        <button type="button" onClick={async () => {
+                        <button type="button" disabled={splitting} onClick={async () => {
+                          if (splitting) return
                           if (!prompt.trim()) { setToast('请先在视频描述中输入完整内容'); return }
+                          setSplitting(true)
                           const segCount = Math.ceil(duration / segDuration)
                           setEditSegments(true)
-                          setProgress(0)
                           try {
                             const r = await fetch('/api/video/split-prompt', {
                               method: 'POST', credentials: 'include',
@@ -290,9 +295,10 @@ const [segDuration, setSegDuration] = useState(5)
                               setToast('AI 智能拆分完成')
                             } else { setToast('拆分失败，已使用默认分段') }
                           } catch { setToast('拆分失败') }
+                          finally { setSplitting(false) }
                         }}
-                          className="text-xs px-2 py-1 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30">
-                          AI 智能拆分
+                          className={`text-xs px-2 py-1 rounded ${splitting ? 'bg-white/5 text-gray-500 cursor-not-allowed' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30'}`}>
+                          {splitting ? '拆解中...' : 'AI 智能拆分'}
                         </button>
                         <button type="button" onClick={() => { 
                           const newVal = !editSegments
