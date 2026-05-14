@@ -81,11 +81,16 @@ export async function POST(request: NextRequest) {
     if (!auth || auth.role !== 'admin') {
       return NextResponse.json({ success: false, message: '需要管理员权限' }, { status: 403 })
     }
+    const { searchParams } = new URL(request.url)
+    const fetchType = searchParams.get('type') || 'image' // 'image' | 'video'
 
     const sources = (process.env.PROMPT_SOURCES || 'civitai,lexica,prompthero').split(',').map(s => s.trim())
     console.log('[FetchPrompts] 抓取来源:', sources)
 
     let allPrompts: FetchedPrompt[] = []
+
+    // 如果需要按类型筛选后插入
+    const targetCategory = fetchType === 'video' ? '文生视频' : fetchType === 'image' ? '文生图' : null
 
     // 按配置顺序抓取
     for (const source of sources) {
@@ -119,6 +124,8 @@ export async function POST(request: NextRequest) {
     // 批量写入数据库
     let inserted = 0
     for (const item of unique) {
+      // 按类型筛选：image→只存文生图, video→只存文生视频, 空→所有
+      if (targetCategory && item.category !== targetCategory) continue
       const existing = await prisma.promptTemplate.findFirst({
         where: { prompt: item.prompt.substring(0, 200) },
       })

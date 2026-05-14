@@ -59,6 +59,7 @@ export default function AdminPromptTemplatesPage() {
   const [category, setCategory] = useState(CATEGORIES[0])
   const [prompt, setPrompt] = useState('')
   const [previewUrl, setPreviewUrl] = useState('')
+  const [playVideo, setPlayVideo] = useState('')
 
   useEffect(() => {
     if (!authLoading && user && user.role === 'admin') loadItems()
@@ -139,11 +140,11 @@ export default function AdminPromptTemplatesPage() {
     setBusy(p => ({ ...p, preseeding: false }))
   }
 
-  const handleFetch = async () => {
-    if (!confirm('从外部源抓取热门提示词？')) return
+  const handleFetch = async (type: 'image' | 'video') => {
+    if (!confirm(`从外部源抓取${type === 'image' ? '文生图' : '文生视频'}提示词？`)) return
     setBusy(p => ({ ...p, fetch: true }))
     try {
-      const r = await fetch('/api/fetch-prompts', { method: 'POST', credentials: 'include' })
+      const r = await fetch(`/api/fetch-prompts?type=${type}`, { method: 'POST', credentials: 'include' })
       const d = await r.json()
       showToast(d.message, d.success ? 'success' : 'error')
       if (d.success) loadItems()
@@ -251,7 +252,8 @@ export default function AdminPromptTemplatesPage() {
             <p className="text-gray-400 text-sm mt-1">总数：<span className="text-emerald-400 font-bold">{items.length}</span> / 已选：<span className="text-cyan-400 font-bold">{selectedIds.size}</span></p>
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
-            <button onClick={handleFetch} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🌐 抓取'}</button>
+            <button onClick={() => handleFetch('image')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🌄 抓取文生图'}</button>
+            <button onClick={() => handleFetch('video')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🎬 抓取文生视频'}</button>
             <button onClick={handlePreseed} disabled={busy.preseeding} className="btn-secondary text-xs py-2">{busy.preseeding ? '填充中' : '📦 预设'}</button>
             <button onClick={openCreate} className="btn-primary text-xs py-2">+ 新建</button>
           </div>
@@ -389,11 +391,17 @@ export default function AdminPromptTemplatesPage() {
               {items.map(item => (
                 <div key={item.id} className={`card-glass border-2 transition-all overflow-hidden ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-transparent'}`} style={{ height: '200px' }}>
                   {item.previewUrl ? (
-                    <div className="relative w-full h-full">
+                    <div className="relative w-full h-full group">
                       {item.previewUrl.endsWith('.mp4')
-                        ? <video src={item.previewUrl} className="w-full h-full object-cover" />
+                        ? <video src={item.previewUrl} className="w-full h-full object-cover cursor-pointer" onClick={() => setPlayVideo(item.previewUrl!)} />
                         : <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
                       }
+                      {/* 图片 hover 放大预览 */}
+                      {!item.previewUrl.endsWith('.mp4') && (
+                        <div className="hidden group-hover:block fixed z-40 pointer-events-none" style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)', maxWidth: '60vw', maxHeight: '80vh' }}>
+                          <img src={item.previewUrl} alt="" className="max-w-[60vw] max-h-[80vh] rounded-xl shadow-2xl border border-white/20" />
+                        </div>
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                       {/* 顶部：复选框 + 操作按钮 */}
                       <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-2">
@@ -440,6 +448,13 @@ export default function AdminPromptTemplatesPage() {
               </svg>
               <p className="text-white text-sm font-mono">{progress.text}</p>
             </div>
+          </div>
+        )}
+
+        {/* 视频播放弹窗 */}
+        {playVideo && (
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center" onClick={() => setPlayVideo('')}>
+            <video src={playVideo} controls autoPlay className="max-w-[80vw] max-h-[80vh] rounded-xl" onClick={e => e.stopPropagation()} />
           </div>
         )}
       </div>

@@ -2,6 +2,38 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { generateImage } from '@/lib/ai-providers'
+import { existsSync, writeFileSync, unlinkSync } from 'fs'
+import { join } from 'path'
+
+const prisma = new PrismaClient()
+
+/** 下载并转存到 OSS，返回永久链接 */
+async function saveToOSS(url: string, ext: string): Promise<string | null> {
+  if (!process.env.OSS_ACCESS_KEY_ID || !process.env.OSS_BUCKET) return null
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(120000) })
+    if (!resp.ok) return null
+    const buf = await resp.arrayBuffer()
+    const tempPath = join(process.cwd(), 'temp', `preview_${Date.now()}.${ext}`)
+    writeFileSync(tempPath, new Uint8Array(buf))
+
+    const OSS = (await import('ali-oss')).default
+    const client = new OSS({
+      region: process.env.OSS_REGION || 'oss-cn-hangzhou',
+      accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
+      accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
+      bucket: process.env.OSS_BUCKET!,
+      secure: true,
+    })
+    const ossName = `previews/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
+    await client.put(ossName, tempPath, { headers: { 'x-oss-object-acl': 'public-read' } })
+    unlinkSync(tempPath)
+    return `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION || 'oss-cn-hangzhou'}.aliyuncs.com/${ossName}`
+  } catch (e) {
+    console.error('[转存OSS] 失败:', e)
+    return null
+  }
+}
 
 const prisma = new PrismaClient()
 
@@ -52,13 +84,16 @@ export async function POST(request: NextRequest) {
         const imageUrl = await generateImage(enhancedPrompt, '1280*1280', model as any)
 
         if (imageUrl?.url) {
-          // 更新 previewUrl
+          // 转存到自己的 OSS（临时链接会过期）
+          const ext = imageUrl.url.endsWith('.png') ? 'png' : 'jpg'
+          const ossUrl = await saveToOSS(imageUrl.url, ext)
+          const finalUrl = ossUrl || imageUrl.url
           await prisma.$executeRawUnsafe(
             'UPDATE PromptTemplate SET previewUrl = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
-            imageUrl.url, t.id
+            finalUrl, t.id
           )
-          results.push({ id: t.id, title: t.title, success: true, url: imageUrl.url })
-          console.log(`[${i + 1}/${total}] ✅ ${t.title} -> ${imageUrl.url.substring(0, 60)}...`)
+          results.push({ id: t.id, title: t.title, success: true, url: finalUrl })
+          console.log(`[${i + 1}/${total}] ✅ ${t.title} -> ${finalUrl.substring(0, 60)}...`)
         } else {
           results.push({ id: t.id, title: t.title, success: false, error: 'AI 服务不可用，请检查硅基流动 API Key' })
           console.warn(`[${i + 1}/${total}] ❌ ${t.title} -> AI 服务不可用`)
