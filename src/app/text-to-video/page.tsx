@@ -313,7 +313,7 @@ const [segDuration, setSegDuration] = useState(5)
                       return (
                       <div key={idx} className="mb-2">
                         <label className="block text-[10px] text-gray-500 mb-1 font-mono">
-                          片段 {idx + 1}/{segmentPrompts.length} ({segDur || basePerSeg}s)
+                          片段 {idx + 1}/{segmentPrompts.length} ({segDur || segDuration}s)
                         </label>
                         <textarea value={sp} onChange={e => {
                           const copy = [...segmentPrompts]
