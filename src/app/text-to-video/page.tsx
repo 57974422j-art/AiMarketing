@@ -59,6 +59,11 @@ const [splitting, setSplitting] = useState(false)
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
   useEffect(() => { fetchTemplates() }, [])
+  // 从素材库跳转过来时读取 URL 参数
+  useEffect(() => {
+    const sp = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+    if (sp?.get('prompt')) setPrompt(decodeURIComponent(sp.get('prompt')!))
+  }, [])
   // sessionStorage 持久化：生成好的分段视频切换页面不丢失
   useEffect(() => { const saved = sessionStorage.getItem('segVideos'); if (saved) setSegmentVideos(JSON.parse(saved)) }, [])
   useEffect(() => { if (segmentVideos.length > 0) sessionStorage.setItem('segVideos', JSON.stringify(segmentVideos)) }, [segmentVideos])

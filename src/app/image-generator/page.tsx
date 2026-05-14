@@ -42,6 +42,12 @@ export default function ImageGeneratorPage() {
     if (!authLoading) loadTemplates()
   }, [authLoading, filterCat])
 
+  // 从素材库跳转过来时读取 URL 参数
+  useEffect(() => {
+    const sp = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+    if (sp?.get('prompt')) setPrompt(decodeURIComponent(sp.get('prompt')!))
+  }, [])
+
   const loadTemplates = async () => {
     setTemplatesLoading(true)
     try {
