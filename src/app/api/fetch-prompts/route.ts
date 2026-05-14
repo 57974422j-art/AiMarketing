@@ -100,8 +100,8 @@ export async function POST(request: NextRequest) {
         allPrompts.push(...r)
       }
       if (source === 'prompthero') {
-        const r = fetchFromPromptHero()
-        console.log(`[FetchPrompts] PromptHero(模拟): ${r.length} 条`)
+        const r = await fetchFromPromptHero()
+        console.log(`[FetchPrompts] PromptHero: ${r.length} 条`)
         allPrompts.push(...r)
       }
     }
