@@ -11,7 +11,7 @@ interface PromptItem {
   previewUrl: string | null
 }
 
-const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面']
+const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '场景', '数字人']
 
 export default function ImageGeneratorPage() {
   const { user, loading: authLoading } = useAuth()

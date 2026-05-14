@@ -48,21 +48,25 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}))
-    const { ids, limit, model } = body
+    const { ids, limit, model, category } = body
 
     // 获取需要生成的模板
-    let rows: { id: number; title: string; prompt: string }[]
+    let rows: { id: number; title: string; prompt: string; category: string }[]
     if (Array.isArray(ids) && ids.length > 0) {
       const placeholders = ids.map(() => '?').join(',')
-      rows = await prisma.$queryRawUnsafe(
-        `SELECT id, title, prompt FROM PromptTemplate WHERE id IN (${placeholders}) ORDER BY id ASC`,
-        ...ids
-      ) as any[]
+      let sql = `SELECT id, title, prompt, category FROM PromptTemplate WHERE id IN (${placeholders})`
+      if (category) sql += ' AND category = ?'
+      sql += ' ORDER BY id ASC'
+      rows = category
+        ? await prisma.$queryRawUnsafe(sql, ...ids, category) as any[]
+        : await prisma.$queryRawUnsafe(sql, ...ids) as any[]
     } else {
-      rows = await prisma.$queryRawUnsafe(
-        'SELECT id, title, prompt FROM PromptTemplate WHERE (previewUrl IS NULL OR previewUrl = ?) ORDER BY id ASC',
-        ''
-      ) as any[]
+      let sql = 'SELECT id, title, prompt, category FROM PromptTemplate WHERE (previewUrl IS NULL OR previewUrl = ?)'
+      if (category) sql += ' AND category = ?'
+      sql += ' ORDER BY id ASC'
+      rows = category
+        ? await prisma.$queryRawUnsafe(sql, '', category) as any[]
+        : await prisma.$queryRawUnsafe(sql, '') as any[]
     }
 
     if (!Array.isArray(rows) || rows.length === 0) {
