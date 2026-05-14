@@ -527,7 +527,7 @@ export type LongVideoProgress = {
 
 /** 长视频自动拼接（>15s 拆分为多段，每段用上一段尾帧做参考）
  *  @param prompts - 每段的提示词数组（直接用，不再拼接原始prompt）
- *  @param segDuration - 每段时长（秒，默认15）
+ *  @param segDuration - 每段时长（秒，默认5）
  *  @param segModel - 每段使用的模型（默认happyhorse-1.0-t2v）
  */
 export async function generateLongVideo(
@@ -536,7 +536,7 @@ export async function generateLongVideo(
   _resolution = '720P',
   _ratio = '16:9',
   onProgress?: (evt: LongVideoProgress) => void,
-  segDuration = 15,
+  segDuration = 5,
   segModel = 'happyhorse-1.0-t2v'
 ): Promise<{ videoUrl?: string; status: string } | null> {
   const totalStartTime = Date.now()

@@ -50,10 +50,11 @@ const [generating, setGenerating] = useState(false)
   const [videoUrl, setVideoUrl] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
-  const [manualMode, setManualMode] = useState(false)
-  const [segmentVideos, setSegmentVideos] = useState<string[]>([])
-  const [generatingSegment, setGeneratingSegment] = useState(-1)
-  const [previewUrl, setPreviewUrl] = useState('')
+const [manualMode, setManualMode] = useState(false)
+const [segmentVideos, setSegmentVideos] = useState<string[]>([])
+const [generatingSegment, setGeneratingSegment] = useState(-1)
+const [previewUrl, setPreviewUrl] = useState('')
+const [segDuration, setSegDuration] = useState(5)
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
   useEffect(() => { fetchTemplates() }, [])
@@ -89,6 +90,7 @@ const [generating, setGenerating] = useState(false)
       if (model) body.model = model
       if (longVideo && segmentPrompts.length > 0) {
         body.segmentPrompts = segmentPrompts
+        body.segmentDuration = segDuration
       }
       if (refImage) {
         const buf = await refImage.arrayBuffer()
@@ -165,7 +167,7 @@ const [generating, setGenerating] = useState(false)
                         <button key={d} type="button" onClick={() => { 
                           setDuration(d)
                           if (longVideo) {
-                            const segCount = Math.ceil(d / 15)
+                            const segCount = Math.ceil(d / segDuration)
                             setSegmentPrompts(Array(segCount).fill(prompt))
                           }
                         }}
@@ -219,16 +221,16 @@ const [generating, setGenerating] = useState(false)
                         const d = v ? 20 : 5
                         setDuration(d)
                         if (v) {
-                          const segCount = Math.ceil(d / 15)
-                          setSegmentPrompts(Array(segCount).fill(prompt))
-                          setEditSegments(false)
+                            const segCount = Math.ceil(d / segDuration)
+                            setSegmentPrompts(Array(segCount).fill(prompt))
+                            setEditSegments(false)
                         }
                       }} className="sr-only peer" />
                       <div className="w-9 h-5 bg-white/10 rounded-full peer peer-checked:bg-emerald-500 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
                     </label>
                     <div>
                       <span className="text-sm text-gray-300 font-mono">长视频模式</span>
-                      <p className="text-[10px] text-gray-600">{'>'}15s 自动拆分多段</p>
+                      <p className="text-[10px] text-gray-600">{'>'}5s 一段自动拆分</p>
                     </div>
                   </div>
                   {longVideo && (
@@ -245,6 +247,26 @@ const [generating, setGenerating] = useState(false)
                   )}
                 </div>
 
+                {/* 分段时长（长视频） */}
+                {longVideo && (
+                  <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10">
+                    <label className="text-label text-sm">每段时长</label>
+                    <div className="flex gap-1">
+                      {[5, 10, 15].map(s => (
+                        <button key={s} type="button" onClick={() => {
+                          setSegDuration(s)
+                          const segCount = Math.ceil(duration / s)
+                          setSegmentPrompts(Array(segCount).fill(prompt))
+                        }}
+                          className={`px-2 py-1 rounded text-xs ${segDuration === s ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                          {s}s
+                        </button>
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-gray-500">{Math.ceil(duration / segDuration)}段</span>
+                  </div>
+                )}
+
                 {/* 分段提示词（长视频） */}
                 {longVideo && (
                   <div className="bg-white/5 rounded-xl border border-white/10 p-4">
@@ -253,7 +275,7 @@ const [generating, setGenerating] = useState(false)
                       <div className="flex gap-2">
                         <button type="button" onClick={async () => {
                           if (!prompt.trim()) { setToast('请先在视频描述中输入完整内容'); return }
-                          const segCount = Math.ceil(duration / 15)
+                          const segCount = Math.ceil(duration / segDuration)
                           setEditSegments(true)
                           setProgress(0)
                           try {
@@ -276,8 +298,8 @@ const [generating, setGenerating] = useState(false)
                           const newVal = !editSegments
                           setEditSegments(newVal)
                           if (newVal && segmentPrompts.length === 0) {
-                            const segCount = Math.ceil(duration / 15)
-                            setSegmentPrompts(Array(segCount).fill(prompt))
+                          const segCount = Math.ceil(duration / segDuration)
+                          setSegmentPrompts(Array(segCount).fill(prompt))
                           }
                         }}
                           className={`text-xs px-2 py-1 rounded ${editSegments ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
@@ -286,9 +308,8 @@ const [generating, setGenerating] = useState(false)
                       </div>
                     </div>
                     {editSegments && segmentPrompts.map((sp, idx) => {
-                      const basePerSeg = 15
                       const isLast = idx === segmentPrompts.length - 1
-                      const segDur = isLast && duration ? duration - idx * basePerSeg : basePerSeg
+                      const segDur = isLast && duration ? duration - idx * segDuration : segDuration
                       return (
                       <div key={idx} className="mb-2">
                         <label className="block text-[10px] text-gray-500 mb-1 font-mono">
@@ -323,7 +344,7 @@ const [generating, setGenerating] = useState(false)
                             const r = await fetch('/api/video/text-to-video', {
                               method: 'POST', credentials: 'include',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ prompt: segmentPrompts.join(' '), duration, resolution, aspectRatio: ratio, longVideo: true, segmentPrompts, segmentDuration: 5, model: model || 'happyhorse' }),
+                              body: JSON.stringify({ prompt: segmentPrompts.join(' '), duration, resolution, aspectRatio: ratio, longVideo: true, segmentPrompts, segmentDuration: segDuration, model: model || 'happyhorse' }),
                             })
                             const d = await r.json()
                             if (d.videoUrl) { setVideoUrl(d.videoUrl); setProgress(100); setGenerating(false) }
@@ -345,7 +366,7 @@ const [generating, setGenerating] = useState(false)
                               const r = await fetch('/api/video/generate-segment', {
                                 method: 'POST', credentials: 'include',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ prompt: segmentPrompts[i], duration: segDur, resolution, aspectRatio: ratio, model: model || 'happyhorse' }),
+                                body: JSON.stringify({ prompt: segmentPrompts[i], duration: segDur, resolution, aspectRatio: ratio, model: model || 'happyhorse', segmentDuration: segDuration }),
                               })
                               const d = await r.json()
                               if (d.videoUrl) { vids.push(d.videoUrl); setSegmentVideos([...vids]) }
