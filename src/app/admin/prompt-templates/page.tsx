@@ -385,37 +385,45 @@ export default function AdminPromptTemplatesPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               {items.map(item => (
-                <div key={item.id} className={`card-glass p-4 border-2 transition-all ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-transparent'}`}>
-                  <div className="flex items-start gap-2">
-                    <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)}
-                      className="w-4 h-4 mt-0.5 rounded border-white/20 bg-white/5 accent-emerald-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="text-white font-bold text-xs truncate">{item.title}</h3>
-                        <div className="flex gap-1 shrink-0">
-                          <button onClick={() => openEdit(item)} className="px-1.5 py-0.5 text-[10px] bg-white/10 text-gray-300 rounded hover:bg-white/20">编辑</button>
-                          <button onClick={() => handleDelete(item.id)} className="px-1.5 py-0.5 text-[10px] bg-red-500/20 text-red-400 rounded hover:bg-red-500/30">删</button>
+                <div key={item.id} className={`card-glass border-2 transition-all overflow-hidden ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-transparent'}`} style={{ height: '200px' }}>
+                  {item.previewUrl ? (
+                    <div className="relative w-full h-full">
+                      {item.previewUrl.endsWith('.mp4')
+                        ? <video src={item.previewUrl} className="w-full h-full object-cover" />
+                        : <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
+                      }
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                      {/* 顶部：复选框 + 操作按钮 */}
+                      <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-2">
+                        <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)}
+                          className="w-4 h-4 rounded border-white/40 bg-black/30 accent-emerald-500" />
+                        <div className="flex gap-1">
+                          <button onClick={() => openEdit(item)} className="px-1.5 py-0.5 text-[10px] bg-black/50 text-gray-200 rounded hover:bg-black/70">编辑</button>
+                          <button onClick={() => handleDelete(item.id)} className="px-1.5 py-0.5 text-[10px] bg-red-500/50 text-white rounded hover:bg-red-500/70">删</button>
                         </div>
                       </div>
-                      <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
-                        {item.category}
-                      </span>
-                      <p className="text-gray-500 text-[10px] mt-1 line-clamp-2">{item.prompt}</p>
-                      {item.previewUrl && (
-                        <div className="relative mt-2 rounded-lg overflow-hidden w-full h-32">
-                          {item.previewUrl.endsWith('.mp4')
-                            ? <video src={item.previewUrl} className="w-full h-full object-cover" controls />
-                            : <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
-                          }
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-                          <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5">
-                            <div className="text-white text-xs font-semibold truncate">{item.title}</div>
-                            <div className="text-gray-300 text-[10px]">{item.category}</div>
-                          </div>
-                        </div>
-                      )}
+                      {/* 底部：标题 + 分类 + 提示词 */}
+                      <div className="absolute bottom-0 left-0 right-0 p-2">
+                        <h3 className="text-white text-xs font-bold truncate">{item.title}</h3>
+                        <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/40 text-cyan-200' : 'bg-emerald-500/40 text-emerald-200'}`}>
+                          {item.category}
+                        </span>
+                        <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-1">{item.prompt}</p>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full p-4 text-center">
+                      <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)}
+                        className="w-4 h-4 mb-2 rounded border-white/20 bg-white/5 accent-emerald-500" />
+                      <h3 className="text-white font-bold text-xs">{item.title}</h3>
+                      <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-emerald-500/20 text-emerald-400'}`}>{item.category}</span>
+                      <p className="text-gray-500 text-[10px] mt-1 line-clamp-2">{item.prompt}</p>
+                      <div className="flex gap-2 mt-2">
+                        <button onClick={() => openEdit(item)} className="px-2 py-1 text-[10px] bg-white/10 text-gray-300 rounded">编辑</button>
+                        <button onClick={() => handleDelete(item.id)} className="px-2 py-1 text-[10px] bg-red-500/20 text-red-400 rounded">删</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
