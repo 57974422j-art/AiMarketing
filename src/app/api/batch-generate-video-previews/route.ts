@@ -37,15 +37,39 @@ function getVolcanoKey(): string | null {
   return process.env.VOLCANO_API_KEY || null
 }
 
-/** 调用 Doubao-Seedance 生成 5 秒视频 */
-async function generatePreviewVideo(prompt: string): Promise<string | null> {
+/** 调用 AI 生成 5 秒视频，支持选择模型 */
+async function generatePreviewVideo(prompt: string, model: string): Promise<string | null> {
+  // 使用百炼 happyhorse 或 wan2.7
+  if (model === 'happyhorse' || model === 'wan2.7' || model === '') {
+    try {
+      const { generateVideo: genVid } = await import('@/lib/ai-providers')
+      const modelName = model === 'wan2.7' ? 'wan2.7' : 'happyhorse'
+      const result = await genVid(prompt, 5, '720P', '16:9', modelName)
+      if (result?.taskId) {
+        // 轮询结果（generateVideo 异步模式下只返回 taskId）
+        for (let i = 0; i < 60; i++) {
+          await new Promise(r => setTimeout(r, 3000))
+          const { queryVideoTask } = await import('@/lib/ai-providers')
+          const segResult = await queryVideoTask(result.taskId)
+          if (segResult?.videoUrl) return segResult.videoUrl
+          if (segResult?.status === 'FAILED') return null
+        }
+      } else if (result?.videoUrl) {
+        return result.videoUrl
+      }
+      return null
+    } catch (e) {
+      console.log(`[BatchVideo] ${model} 失败:`, e)
+      return null
+    }
+  }
+  // 火山 doubao（旧路径）
   const key = getVolcanoKey()
   if (!key) {
     console.warn('[BatchVideo] 火山 Key 未配置，跳过')
     return null
   }
   try {
-    // 提交任务
     const submitRes = await fetch('https://ark.cn-beijing.volces.com/api/v1/video/generation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
@@ -58,7 +82,7 @@ async function generatePreviewVideo(prompt: string): Promise<string | null> {
     })
     if (!submitRes.ok) {
       const err = await submitRes.text()
-      console.log(`[BatchVideo] 提交失败: ${err.substring(0, 200)}`)
+      console.log(`[BatchVideo] 火山提交失败: ${err.substring(0, 200)}`)
       return null
     }
     const submitData = await submitRes.json()
@@ -124,7 +148,7 @@ export async function POST(request: NextRequest) {
       const t = rows[i]
       console.log(`[BatchVideo] ${i + 1}/${total} 生成: ${t.title}`)
       try {
-        const videoUrl = await generatePreviewVideo(t.prompt)
+        const videoUrl = await generatePreviewVideo(t.prompt, model || '')
         if (videoUrl) {
           // 下载视频到临时文件，上传 OSS
           const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(60000) })
