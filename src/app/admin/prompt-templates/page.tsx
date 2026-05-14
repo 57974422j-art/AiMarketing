@@ -194,6 +194,8 @@ export default function AdminPromptTemplatesPage() {
       const batch = withPreview.map(item => ({
         title: `模板-${item.title}`,
         ossUrl: item.previewUrl!,
+        prompt: item.prompt,
+        category: item.category,
       }))
       const r = await fetch('/api/media-library', {
         method: 'POST', credentials: 'include',
