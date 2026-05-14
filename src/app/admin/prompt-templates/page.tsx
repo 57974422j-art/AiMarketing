@@ -11,7 +11,7 @@ interface PromptItem {
   previewUrl: string | null
 }
 
-const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频']
+const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频', '场景', '数字人']
 
 const IMG_MODELS = [
   { value: 'auto', label: '自动(Auto)', desc: '百炼→硅基' },

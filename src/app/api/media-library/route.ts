@@ -27,12 +27,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type')
     const source = searchParams.get('source')
+    const category = searchParams.get('category')
 
     let sql = 'SELECT * FROM MediaAsset'
     const params: any[] = []
     const conds: string[] = []
     if (auth.role === 'end-user') { conds.push('(ownerId = ? OR source = ?)'); params.push(auth.userId, 'public') }
     if (type && type !== 'all') { conds.push('type = ?'); params.push(type) }
+    if (category) { conds.push('category = ?'); params.push(category) }
     if (source) { conds.push('source = ?'); params.push(source) }
     if (conds.length > 0) sql += ' WHERE ' + conds.join(' AND ')
     sql += ' ORDER BY createdAt DESC'

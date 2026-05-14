@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS PromptTemplate (
 )
 `
 
-const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频']
+const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频', '场景', '数字人']
 
 async function ensureTable() {
   await prisma.$executeRawUnsafe(CREATE_TABLE_SQL)

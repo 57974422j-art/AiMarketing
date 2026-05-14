@@ -26,6 +26,8 @@ export default function AdminMediaLibraryPage() {
   const TABS = [
     { key: 'video', label: '🎬 视频' },
     { key: 'image', label: '🖼️ 图片' },
+    { key: 'scene', label: '🏞️ 场景' },
+    { key: 'digital', label: '🤖 数字人' },
     { key: 'all', label: '📋 全部' },
   ]
 
@@ -36,8 +38,11 @@ export default function AdminMediaLibraryPage() {
 
   const loadItems = async () => {
     try {
-      const url = `/api/media-library?type=${typeTab}`
-      const r = await fetch(url, { credentials: 'include' })
+      const params = new URLSearchParams()
+      if (typeTab === 'scene') params.set('category', '场景')
+      else if (typeTab === 'digital') params.set('category', '数字人')
+      else params.set('type', typeTab)
+      const r = await fetch(`/api/media-library?${params}`, { credentials: 'include' })
       if (r.ok) setItems((await r.json()).data || [])
     } catch {} finally { setLoading(false) }
   }
