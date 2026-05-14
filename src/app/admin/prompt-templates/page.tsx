@@ -29,12 +29,12 @@ const VID_MODELS = [
 
 type ModeTab = 'image' | 'video' | 'scene' | 'digital' | 'all'
 
-const SUB_CATS = {
+const SUB_CATS: { [key: string]: string[] } = {
   image: ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面'],
   video: ['商业广告', '产品介绍', '品牌故事', '场景宣传'],
   scene: ['商场超市', '乡间地头', '海滩度假', '咖啡书店', '城市街头', '户外露营'],
   digital: ['男性青年', '女性青年', '商务正装', '休闲日常', '古风国潮'],
-} as Record<string, string[]>
+}
 
 export default function AdminPromptTemplatesPage() {
   const { user, loading: authLoading } = useAuth()
