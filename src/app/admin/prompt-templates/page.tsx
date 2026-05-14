@@ -27,15 +27,15 @@ const VID_MODELS = [
   { value: 'happyhorse', label: '快乐小马', desc: '自动配音' },
 ]
 
-type ModeTab = string
+type ModeTab = 'image' | 'video' | 'scene' | 'digital' | 'all'
+const SUB_CATS: any = {
+  image: ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面'],
+  video: ['商业广告', '产品介绍', '品牌故事', '场景宣传'],
+  scene: ['商场超市', '乡间地头', '海滩度假', '咖啡书店', '城市街头', '户外露营'],
+  digital: ['男性青年', '女性青年', '商务正装', '休闲日常', '古风国潮'],
+}
 
 export default function AdminPromptTemplatesPage() {
-  const SUB_CATS: any = {
-    image: ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面'],
-    video: ['商业广告', '产品介绍', '品牌故事', '场景宣传'],
-    scene: ['商场超市', '乡间地头', '海滩度假', '咖啡书店', '城市街头', '户外露营'],
-    digital: ['男性青年', '女性青年', '商务正装', '休闲日常', '古风国潮'],
-  }
   const { user, loading: authLoading } = useAuth()
   const [items, setItems] = useState<PromptItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -49,7 +49,7 @@ export default function AdminPromptTemplatesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   // 批量操作状态
-  const [busy, setBusy] = useState({ fetch: false, imgPreview: false, imgScene: false, imgDigital: false, vidPreview: false, preseeding: false })
+  const [busy, setBusy] = useState({ fetch: false, imgPreview: false, vidPreview: false, preseeding: false })
   const [progress, setProgress] = useState({ show: false, text: '' })
 
   // 生成控制参数
@@ -161,22 +161,14 @@ export default function AdminPromptTemplatesPage() {
   }
 
   // ===== 批量生成 =====
-  const runBatch = async (endpoint: string, mode: string, category?: string) => {
-    let targetIds = selectedIds.size > 0 ? Array.from(selectedIds) : null
+  const runBatch = async (endpoint: string, mode: 'imgPreview' | 'vidPreview') => {
+    const targetIds = selectedIds.size > 0 ? Array.from(selectedIds) : null
     if (targetIds && targetIds.length === 0) { showToast('请先选择模板', 'error'); return }
-    // 如果指定了分类，只处理该分类的模板
-    if (category && targetIds) {
-      targetIds = targetIds.filter(id => items.find(i => i.id === id)?.category === category)
-      if (targetIds.length === 0) { showToast(`所选中没有${category}分类`, 'error'); return }
-    } else if (category) {
-      const ids = items.filter(i => i.category === category).map(i => i.id).slice(0, batchLimit)
-      if (ids.length === 0) { showToast(`没有${category}分类模板`, 'error'); return }
-      targetIds = ids
-    }
-    const isImg = endpoint.includes('generate-prompt-previews')
-    const label = category ? `${category}预览` : (isImg ? '预览图' : '视频预览')
+    const label = mode === 'imgPreview' ? '预览图' : '视频预览'
     if (targetIds) {
-      if (!confirm(`为 ${targetIds.length} 个${category || ''}模板生成 ${label}？`)) return
+      if (!confirm(`为已选 ${targetIds.length} 个模板生成 ${label}？`)) return
+    } else {
+      if (!confirm(`为全部模板生成 ${label}（最多 ${batchLimit} 个）？`)) return
     }
     setBusy(p => ({ ...p, [mode]: true }))
     setProgress({ show: true, text: `正在生成 ${label}...` })
@@ -187,7 +179,7 @@ export default function AdminPromptTemplatesPage() {
         body: JSON.stringify({
           ids: targetIds,
           limit: targetIds ? targetIds.length : batchLimit,
-          model: isImg ? imgModel : vidModel,
+          model: mode === 'imgPreview' ? imgModel : vidModel,
         }),
       })
       const d = await r.json()
@@ -277,29 +269,14 @@ export default function AdminPromptTemplatesPage() {
           </div>
         </div>
 
-        {/* 大分类 */}
+        {/* Tab：大分类 */}
         <div className="flex gap-1 mb-4 bg-white/5 rounded-xl p-1 border border-white/10 w-fit">
           {([
-            { key: 'all' as ModeTab, label: '📋 全部' },
-            { key: 'image' as ModeTab, label: '🎨 文生图' },
-            { key: 'video' as ModeTab, label: '🎬 文生视频' },
-            { key: 'scene' as ModeTab, label: '🏞️ 场景' },
-            { key: 'digital' as ModeTab, label: '🤖 数字人' },
-          ]).map(tab => (
-            <button key={tab.key} onClick={() => { setModeTab(tab.key); setFilterCat(''); setSelectedIds(new Set()) }}
-              className={`px-4 py-1.5 rounded-lg text-xs font-mono transition-all ${modeTab === tab.key ? 'bg-emerald-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        </div>
-
-        {/* Tab：文生图 / 文生视频 / 全部 */}
-        <div className="flex gap-1 mb-4 bg-white/5 rounded-xl p-1 border border-white/10 w-fit">
-          {([
-            { key: 'image' as const, label: '🖼️ 文生图' },
-            { key: 'video' as const, label: '🎬 文生视频' },
             { key: 'all' as const, label: '📋 全部' },
+            { key: 'image' as const, label: '🎨 文生图' },
+            { key: 'video' as const, label: '🎬 文生视频' },
+            { key: 'scene' as const, label: '🏞️ 场景' },
+            { key: 'digital' as const, label: '🤖 数字人' },
           ]).map(tab => (
             <button key={tab.key} onClick={() => { setModeTab(tab.key); setFilterCat(''); setSelectedIds(new Set()) }}
               className={`px-4 py-1.5 rounded-lg text-xs font-mono transition-all ${modeTab === tab.key ? 'bg-emerald-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}>
@@ -346,25 +323,17 @@ export default function AdminPromptTemplatesPage() {
               ))}
             </div>
 
-            <div className="flex gap-2 ml-auto flex-wrap">
+            <div className="flex gap-2 ml-auto">
               <button onClick={() => runBatch('/api/generate-prompt-previews', 'imgPreview')} disabled={busy.imgPreview || busy.vidPreview}
                 className="px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs hover:bg-emerald-500/30 disabled:opacity-50">
-                {busy.imgPreview ? '生成中...' : '🎨 预览图'}
-              </button>
-              <button onClick={() => runBatch('/api/generate-prompt-previews', 'imgScene', '场景')} disabled={busy.imgScene || busy.vidScene}
-                className="px-3 py-1.5 bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 rounded-lg text-xs hover:bg-yellow-500/30 disabled:opacity-50">
-                {busy.imgScene ? '生成中...' : '🏞️ 场景预览'}
-              </button>
-              <button onClick={() => runBatch('/api/generate-prompt-previews', 'imgDigital', '数字人')} disabled={busy.imgDigital || busy.vidDigital}
-                className="px-3 py-1.5 bg-purple-500/20 border border-purple-500/30 text-purple-400 rounded-lg text-xs hover:bg-purple-500/30 disabled:opacity-50">
-                {busy.imgDigital ? '生成中...' : '🤖 数字人预览'}
+                {busy.imgPreview ? '生成中...' : '🎨 生成预览图'}
               </button>
               <button onClick={() => runBatch('/api/batch-generate-video-previews', 'vidPreview')} disabled={busy.vidPreview || busy.imgPreview}
                 className="px-3 py-1.5 bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs hover:bg-cyan-500/30 disabled:opacity-50">
-                {busy.vidPreview ? '生成中...' : '🎬 视频预览'}
+                {busy.vidPreview ? '生成中...' : '🎬 生成视频预览'}
               </button>
               <button onClick={handleImportToMedia}
-                className="px-3 py-1.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-lg text-xs hover:bg-blue-500/30">
+                className="px-3 py-1.5 bg-purple-500/20 border border-purple-500/30 text-purple-400 rounded-lg text-xs hover:bg-purple-500/30">
                 📦 导入素材库
               </button>
             </div>
@@ -391,7 +360,7 @@ export default function AdminPromptTemplatesPage() {
             className={`px-2 py-1 rounded text-xs ${!filterCat ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
             全部
           </button>
-          {(SUB_CATS[modeTab] || []).map(c => (
+          {(SUB_CATS[modeTab] || []).map((c: string) => (
             <button key={c} onClick={() => setFilterCat(c)}
               className={`px-2 py-1 rounded text-xs ${filterCat === c ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
               {c}
