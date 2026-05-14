@@ -27,10 +27,10 @@ const VID_MODELS = [
   { value: 'happyhorse', label: '快乐小马', desc: '自动配音' },
 ]
 
-type ModeTab = 'image' | 'video' | 'scene' | 'digital' | 'all'
+type ModeTab = string
 
 export default function AdminPromptTemplatesPage() {
-  const SUB_CATS = {
+  const SUB_CATS: any = {
     image: ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面'],
     video: ['商业广告', '产品介绍', '品牌故事', '场景宣传'],
     scene: ['商场超市', '乡间地头', '海滩度假', '咖啡书店', '城市街头', '户外露营'],
