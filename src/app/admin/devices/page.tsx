@@ -30,9 +30,9 @@ export default function AdminDevicesPage() {
         fetch('/api/devices', { credentials: 'include' }),
         user?.role === 'admin' ? fetch('/api/admin/users', { credentials: 'include' }) : Promise.resolve(null),
       ])
-      if (dRes?.ok) setDevices((await dRes.json()).data || [])
-      if (uRes?.ok) setEditors((await uRes.json()).data || [])
-    } catch {} finally { setLoading(false) }
+      if (dRes?.ok) { const d = await dRes.json(); setDevices(d.data || []); console.log('[设备] 列表:', d.data?.length) }
+      if (uRes?.ok) { const d = await uRes.json(); setEditors(d.data || []); console.log('[设备] 用户列表:', d.data?.map((u: any) => u.username)) }
+    } catch (e) { console.error('[设备] 加载失败:', e) } finally { setLoading(false) }
   }
 
   const openEdit = (d: DeviceItem) => {
