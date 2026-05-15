@@ -62,28 +62,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, groupId } = body
 
-    if (!name) {
+    if (!body.name) {
       return NextResponse.json({ success: false, message: '缺少设备名称' }, { status: 400 })
-    }
-
-    const device = await prisma.device.create({
-      data: {
-        name,
-        groupId: groupId || null,
-        ownerId: auth.userId,
-        status: 'offline',
-      },
-    })
-
-    // 更新设备池
-    const pool = await prisma.devicePool.findFirst({ where: { ownerId: auth.userId } })
-    if (pool) {
-      await prisma.devicePool.update({
-        where: { id: pool.id },
-        data: { totalWindows: { increment: 1 } },
-      })
     }
 
     const device = await prisma.device.create({
