@@ -427,6 +427,10 @@ model MediaAsset {
   id        Int      @id @default(autoincrement())
   ossUrl    String
   title     String
+  prompt    String   @default("")
+  type      String   @default("video")
+  category  String   @default("")
+  source    String   @default("public")
   ownerId   Int
   createdAt DateTime @default(now())
 
