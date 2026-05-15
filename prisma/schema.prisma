@@ -73,6 +73,11 @@ model Device {
   lastHeartbeat DateTime @default(now())
   groupId       String?
   ownerId       Int
+  ip            String?  // Q1容器IP
+  apiPort       Int?     // 安卓管理API端口
+  rpaPort       Int?     // RPA触控端口
+  adbPort       Int?     // ADB端口
+  type          String   @default("mock") // "mock" | "q1"
   createdAt     DateTime @default(now())
 
   owner           User              @relation(fields: [ownerId], references: [id])
