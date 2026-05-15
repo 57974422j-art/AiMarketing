@@ -28,7 +28,7 @@ export default function AdminDevicesPage() {
     try {
       const [dRes, uRes] = await Promise.all([
         fetch('/api/devices', { credentials: 'include' }),
-        user?.role === 'admin' ? fetch('/api/users?role=editor', { credentials: 'include' }) : Promise.resolve(null),
+        user?.role === 'admin' ? fetch('/api/admin/users', { credentials: 'include' }) : Promise.resolve(null),
       ])
       if (dRes?.ok) setDevices((await dRes.json()).data || [])
       if (uRes?.ok) setEditors((await uRes.json()).data || [])
