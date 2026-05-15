@@ -103,7 +103,7 @@ export default function AdminDevicesPage() {
               {user?.role === 'admin' && (
                 <select className="input-dark" value={form.ownerId} onChange={e => setForm(p => ({ ...p, ownerId: e.target.value }))}>
                   <option value="">选择所属用户</option>
-                  {editors.map(e => <option key={e.id} value={e.id}>{e.name || e.username}</option>)}
+                  {editors.map(e => <option key={e.id} value={e.id} className="bg-gray-900">{e.name || e.username}</option>)}
                 </select>
               )}
               <input className="input-dark" placeholder="容器 IP（Q1 必填）" value={form.ip} onChange={e => setForm(p => ({ ...p, ip: e.target.value }))} />
