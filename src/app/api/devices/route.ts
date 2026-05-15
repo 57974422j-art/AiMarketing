@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
 
     const device = await prisma.device.create({
       data: {
-        name,
-        groupId: groupId || null,
+        name: body.name,
+        groupId: body.groupId || null,
         ownerId: body.ownerId || auth.userId,
         status: 'offline',
         ip: body.ip || null,
