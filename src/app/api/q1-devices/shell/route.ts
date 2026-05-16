@@ -13,12 +13,12 @@ export async function POST(request: NextRequest) {
     const { deviceId, command } = body
     if (!deviceId || !command) return NextResponse.json({ success: false, message: '缺少 deviceId 或 command' }, { status: 400 })
 
-    const device: any = await prisma.device.findUnique({ where: { id: parseInt(deviceId) } })
-    if (!device || device.type !== 'q1' || !device.ip || !device.apiPort) {
+    const row: any = await prisma.device.findUnique({ where: { id: parseInt(deviceId) } })
+    if (!row || row.type !== 'q1' || !row.apiPort) {
       return NextResponse.json({ success: false, message: '设备不可用' }, { status: 400 })
     }
 
-    const res = await fetch(`http://${device.ip}:${device.apiPort}/modifydev?cmd=6&cmdline=${encodeURIComponent(command)}`, { signal: AbortSignal.timeout(30000) })
+    const res = await fetch(`http://localhost:${row.apiPort}/modifydev?cmd=6&cmdline=${encodeURIComponent(command)}`, { signal: AbortSignal.timeout(30000) })
     const text = await res.text()
     return NextResponse.json({ success: res.ok, output: text.substring(0, 2000) })
   } catch (e: any) {

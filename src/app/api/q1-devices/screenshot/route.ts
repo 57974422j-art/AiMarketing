@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { getAuthFromHeaders } from '@/lib/api-auth'
+import { q1Info } from '@/lib/device-engine'
 
 const prisma = new PrismaClient()
 
@@ -13,16 +14,14 @@ export async function GET(request: NextRequest) {
     const deviceId = parseInt(searchParams.get('deviceId') || '')
     if (!deviceId) return NextResponse.json({ success: false, message: '缺少 deviceId' }, { status: 400 })
 
-    const device: any = await prisma.device.findUnique({ where: { id: deviceId } })
-    if (!device) return NextResponse.json({ success: false, message: '设备不存在' }, { status: 404 })
-    if (device.type !== 'q1') return NextResponse.json({ success: false, message: '非 Q1 设备' }, { status: 400 })
-    if (!device.ip || !device.apiPort) return NextResponse.json({ success: false, message: '设备 IP/端口未配置' }, { status: 400 })
+    const row: any = await prisma.device.findUnique({ where: { id: deviceId } })
+    if (!row) return NextResponse.json({ success: false, message: '设备不存在' }, { status: 404 })
+    if (row.type !== 'q1' || !row.apiPort) return NextResponse.json({ success: false, message: '非 Q1 或端口未配置' }, { status: 400 })
 
-    // 调用 Q1 截图 API
-    const snapRes = await fetch(`http://${device.ip}:${device.apiPort}/task=snap&level=3`, { signal: AbortSignal.timeout(10000) })
+    // 通过 FRP 隧道调用截图
+    const snapRes = await fetch(`http://localhost:${row.apiPort}/task=snap&level=3`, { signal: AbortSignal.timeout(10000) })
     if (!snapRes.ok) return NextResponse.json({ success: false, message: `截图失败: ${snapRes.status}` }, { status: 502 })
 
-    // 返回图片
     const buf = await snapRes.arrayBuffer()
     return new NextResponse(Buffer.from(buf), {
       headers: { 'Content-Type': snapRes.headers.get('content-type') || 'image/png' },

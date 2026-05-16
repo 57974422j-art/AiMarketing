@@ -4,13 +4,16 @@
  * 职责：单设备级别的指令下发（心跳、锁定、截图、Shell、账号绑定、互动任务）
  * 支持两种模式：
  *   type=mock：返回模拟数据（无真机时调试用）
- *   type=q1：直接调用摩云腾 Q1 设备 API
+ *   type=q1：通过 FRP 隧道调用摩云腾 Q1 设备 API（localhost:{apiPort}）
  *
- * Q1 容器 API 地址格式：http://{ip}:{apiPort}
- *   - 截图：  /task=snap&level=3
- *   - Shell： /modifydev?cmd=6&cmdline=...
- *   - RPA：   http://{ip}:{rpaPort}/tap?x=...&y=...
- *   - ADB：   {ip}:{adbPort}（直连，无密码）
+ * Q1 API 路径（均通过 localhost:apiPort 访问）：
+ *   - 截图：    /task=snap&level=3
+ *   - Shell：   /modifydev?cmd=6&cmdline=...
+ *   - 点击：    /autoclick?action=tap&id=1&x=...&y=...
+ *   - 设备信息： /info
+ *   - 上传：    POST /upload (multipart/form-data)
+ *   - 下载：    /download?path=...
+ *   - 代理：    /proxy?cmd=2&port=...&usr=...&pwd=...
  */
 
 /* ------------------------------------------------------------------ */
@@ -38,10 +41,17 @@ export interface DeviceActionResult {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Q1 原始 API 调用                                                   */
+/*  Q1 辅助函数                                                       */
 /* ------------------------------------------------------------------ */
 
-/** 从数据库查设备详情（包含 ip/port） */
+/** FRP 隧道基址：Q1 设备全部走 localhost + apiPort */
+function q1Base(dev: DeviceInfo): string | null {
+  if (dev.type !== 'q1') return null
+  if (!dev.apiPort) return null
+  return `http://localhost:${dev.apiPort}`
+}
+
+/** 从数据库查设备详情 */
 async function getDevice(id: string): Promise<DeviceInfo | null> {
   try {
     const { PrismaClient } = await import('@prisma/client')
@@ -64,44 +74,127 @@ async function getDevice(id: string): Promise<DeviceInfo | null> {
   } catch { return null }
 }
 
-/** Q1：安卓容器截图 */
-export async function q1Screenshot(ip: string, apiPort: number): Promise<string | null> {
+/* ------------------------------------------------------------------ */
+/*  Q1 原始 API 调用（通过 FRP 隧道 localhost:apiPort）               */
+/* ------------------------------------------------------------------ */
+
+/** 先验证设备在线状态，offline 直接返回错误 */
+async function ensureOnline(dev: DeviceInfo): Promise<DeviceActionResult | null> {
+  const base = q1Base(dev)
+  if (!base) return { success: false, message: '设备非 Q1 类型' }
   try {
-    const res = await fetch(`http://${ip}:${apiPort}/task=snap&level=3`, { signal: AbortSignal.timeout(10000) })
+    const res = await fetch(`${base}/info`, { signal: AbortSignal.timeout(5000) })
+    if (!res.ok) return { success: false, message: `设备离线 (HTTP ${res.status})` }
+    return null // 在线，正常继续
+  } catch (e: any) {
+    return { success: false, message: `设备离线: ${e?.message || '连接超时'}` }
+  }
+}
+
+/** Q1：获取设备详细信息 */
+export async function q1Info(dev: DeviceInfo): Promise<DeviceActionResult> {
+  const base = q1Base(dev)
+  if (!base) return { success: false, message: '设备非 Q1 类型' }
+  try {
+    const res = await fetch(`${base}/info`, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return { success: false, message: `info 失败: ${res.status}` }
+    const text = await res.text()
+    return { success: true, data: { raw: text.substring(0, 2000) } }
+  } catch (e: any) {
+    return { success: false, message: e?.message || '获取设备信息失败' }
+  }
+}
+
+/** Q1：安卓容器截图 */
+export async function q1Screenshot(dev: DeviceInfo): Promise<string | null> {
+  const base = q1Base(dev)
+  if (!base) return null
+  try {
+    const res = await fetch(`${base}/task=snap&level=3`, { signal: AbortSignal.timeout(10000) })
     if (!res.ok) return null
     const blob = await res.blob()
-    // 返回 base64 或直接图片 URL（由调用方决定如何处理）
     return URL.createObjectURL(blob)
   } catch { return null }
 }
 
 /** Q1：执行 Shell 命令 */
-export async function q1ExecShell(ip: string, apiPort: number, cmdline: string): Promise<DeviceActionResult> {
+export async function q1ExecShell(dev: DeviceInfo, cmdline: string): Promise<DeviceActionResult> {
+  const base = q1Base(dev)
+  if (!base) return { success: false, message: '设备非 Q1 类型' }
   try {
-    const res = await fetch(`http://${ip}:${apiPort}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmdline)}`, { signal: AbortSignal.timeout(30000) })
+    const res = await fetch(`${base}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmdline)}`, { signal: AbortSignal.timeout(30000) })
     const text = await res.text()
-    return { success: res.ok, message: text.substring(0, 500) }
+    return { success: res.ok, message: text.substring(0, 500), data: { output: text.substring(0, 2000) } }
   } catch (e: any) {
     return { success: false, message: e?.message || 'Shell 执行失败' }
   }
 }
 
-/** Q1：RPA 触摸/点击 */
-export async function q1Tap(ip: string, rpaPort: number, x: number, y: number): Promise<DeviceActionResult> {
+/** Q1：模拟点击 */
+export async function q1Click(dev: DeviceInfo, x: number, y: number): Promise<DeviceActionResult> {
+  const base = q1Base(dev)
+  if (!base) return { success: false, message: '设备非 Q1 类型' }
   try {
-    const res = await fetch(`http://${ip}:${rpaPort}/tap?x=${x}&y=${y}`, { signal: AbortSignal.timeout(5000) })
-    return { success: res.ok, message: `tap(${x},${y}) => ${res.status}` }
+    const res = await fetch(`${base}/autoclick?action=tap&id=1&x=${x}&y=${y}`, { signal: AbortSignal.timeout(5000) })
+    return { success: res.ok, message: `点击 (${x},${y}) => ${res.status}` }
   } catch (e: any) {
-    return { success: false, message: e?.message || 'RPA 点击失败' }
+    return { success: false, message: e?.message || '点击失败' }
   }
 }
 
-/** Q1：心跳检查（调截图接口看是否在线） */
-export async function q1Heartbeat(ip: string, apiPort: number): Promise<boolean> {
+/** Q1：心跳检查（调 info 接口判断在线） */
+export async function q1Heartbeat(dev: DeviceInfo): Promise<boolean> {
+  const base = q1Base(dev)
+  if (!base) return false
   try {
-    const res = await fetch(`http://${ip}:${apiPort}/task=snap&level=1`, { signal: AbortSignal.timeout(5000) })
+    const res = await fetch(`${base}/info`, { signal: AbortSignal.timeout(5000) })
     return res.ok
   } catch { return false }
+}
+
+/** Q1：文件上传 */
+export async function q1Upload(dev: DeviceInfo, fileUrl: string, remotePath: string): Promise<DeviceActionResult> {
+  const base = q1Base(dev)
+  if (!base) return { success: false, message: '设备非 Q1 类型' }
+  try {
+    // 先下载文件
+    const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(60000) })
+    if (!fileRes.ok) return { success: false, message: '文件下载失败' }
+    const buf = await fileRes.arrayBuffer()
+    // 上传到 Q1
+    const form = new FormData()
+    const fileName = remotePath.split('/').pop() || 'upload.bin'
+    form.append('file', new Blob([buf]), fileName)
+    const upRes = await fetch(`${base}/upload`, { method: 'POST', body: form, signal: AbortSignal.timeout(120000) })
+    const text = await upRes.text()
+    return { success: upRes.ok, message: text.substring(0, 200) }
+  } catch (e: any) {
+    return { success: false, message: e?.message || '上传失败' }
+  }
+}
+
+/** Q1：文件下载 */
+export async function q1Download(dev: DeviceInfo, path: string): Promise<ArrayBuffer | null> {
+  const base = q1Base(dev)
+  if (!base) return null
+  try {
+    const res = await fetch(`${base}/download?path=${encodeURIComponent(path)}`, { signal: AbortSignal.timeout(60000) })
+    if (!res.ok) return null
+    return res.arrayBuffer()
+  } catch { return null }
+}
+
+/** Q1：设置代理 */
+export async function q1Proxy(dev: DeviceInfo, port: number, usr: string, pwd: string): Promise<DeviceActionResult> {
+  const base = q1Base(dev)
+  if (!base) return { success: false, message: '设备非 Q1 类型' }
+  try {
+    const res = await fetch(`${base}/proxy?cmd=2&port=${port}&usr=${encodeURIComponent(usr)}&pwd=${encodeURIComponent(pwd)}`, { signal: AbortSignal.timeout(10000) })
+    const text = await res.text()
+    return { success: res.ok, message: text.substring(0, 200) }
+  } catch (e: any) {
+    return { success: false, message: e?.message || '设置代理失败' }
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -132,12 +225,11 @@ export async function fetchDevices(): Promise<DeviceInfo[]> {
   }
 }
 
-/** 设备心跳上报（Q1：调截图接口；Mock：返回模拟） */
+/** 设备心跳上报（Q1：调 info 接口；Mock：返回模拟） */
 export async function reportHeartbeat(deviceId: string): Promise<DeviceActionResult> {
   const dev = await getDevice(deviceId)
-  if (dev?.type === 'q1' && dev.ip && dev.apiPort) {
-    const online = await q1Heartbeat(dev.ip, dev.apiPort)
-    // 更新数据库状态
+  if (dev?.type === 'q1') {
+    const online = await q1Heartbeat(dev)
     try {
       const { PrismaClient } = await import('@prisma/client')
       const prisma = new PrismaClient()
@@ -149,7 +241,6 @@ export async function reportHeartbeat(deviceId: string): Promise<DeviceActionRes
     } catch {}
     return { success: online, message: online ? '设备在线' : '设备离线' }
   }
-  // Mock
   await delay(300)
   return { success: true, message: `设备 ${deviceId} 心跳已上报` }
 }
@@ -157,11 +248,10 @@ export async function reportHeartbeat(deviceId: string): Promise<DeviceActionRes
 /** 远程锁定/解锁设备 */
 export async function lockDevice(deviceId: string, locked: boolean): Promise<DeviceActionResult> {
   const dev = await getDevice(deviceId)
-  if (dev?.type === 'q1' && dev.ip && dev.rpaPort) {
-    // Q1：通过 RPA 模拟锁屏（点击屏幕边缘外或发锁定指令）
-    // 暂时用 Shell 实现
-    const r = await q1ExecShell(dev.ip, dev.apiPort!, locked ? 'input keyevent 26' : 'input keyevent 82')
-    return r
+  if (dev?.type === 'q1') {
+    const err = await ensureOnline(dev)
+    if (err) return err
+    return q1ExecShell(dev, locked ? 'input keyevent 26' : 'input keyevent 82')
   }
   await delay(400)
   return { success: true, message: `设备 ${deviceId} 已${locked ? '锁定' : '解锁'}` }
@@ -174,10 +264,11 @@ export async function lockDevice(deviceId: string, locked: boolean): Promise<Dev
 /** 绑定社交账号到设备 */
 export async function bindAccount(deviceId: string, platform: string, username: string, password: string): Promise<DeviceActionResult> {
   const dev = await getDevice(deviceId)
-  if (dev?.type === 'q1' && dev.ip && dev.apiPort) {
-    // 通过 Shell 在 Android 上打开应用并填写账号
+  if (dev?.type === 'q1') {
+    const err = await ensureOnline(dev)
+    if (err) return err
     const cmd = `am start -a android.intent.action.VIEW -d "${platform}://login" && input text "${username}"`
-    return q1ExecShell(dev.ip, dev.apiPort, cmd)
+    return q1ExecShell(dev, cmd)
   }
   await delay(800)
   return { success: true, message: `已在设备 ${deviceId} 上绑定 ${platform} 账号 ${username}` }
@@ -186,9 +277,10 @@ export async function bindAccount(deviceId: string, platform: string, username: 
 /** 解绑社交账号 */
 export async function unbindAccount(deviceId: string, platform: string, username: string): Promise<DeviceActionResult> {
   const dev = await getDevice(deviceId)
-  if (dev?.type === 'q1' && dev.ip && dev.apiPort) {
-    const cmd = `pm clear com.${platform}.app`
-    return q1ExecShell(dev.ip, dev.apiPort, cmd)
+  if (dev?.type === 'q1') {
+    const err = await ensureOnline(dev)
+    if (err) return err
+    return q1ExecShell(dev, `pm clear com.${platform}.app`)
   }
   await delay(600)
   return { success: true, message: `已解绑 ${platform} 账号 ${username}` }
@@ -200,18 +292,22 @@ export async function unbindAccount(deviceId: string, platform: string, username
 
 async function execQ1Task(deviceId: string, cmd: string): Promise<DeviceActionResult> {
   const dev = await getDevice(deviceId)
-  if (!dev?.ip || !dev.apiPort) return { success: false, message: '设备信息不完整' }
-  return q1ExecShell(dev.ip, dev.apiPort, cmd)
+  if (!dev) return { success: false, message: '设备不存在' }
+  const err = await ensureOnline(dev)
+  if (err) return err
+  return q1ExecShell(dev, cmd)
 }
 
 /** 互关任务 */
 export async function executeFollowEachOther(deviceId: string, targetAccounts: string[]): Promise<DeviceActionResult> {
-  if (await isQ1(deviceId)) {
-    // 逐个打开账号页并点击关注
+  const dev = await getDevice(deviceId)
+  if (dev?.type === 'q1') {
+    const err = await ensureOnline(dev)
+    if (err) return err
     for (const acc of targetAccounts) {
-      await execQ1Task(deviceId, `am start -a android.intent.action.VIEW -d "https://www.example.com/user/${acc}"`)
+      await q1ExecShell(dev, `am start -a android.intent.action.VIEW -d "https://www.example.com/user/${acc}"`)
       await delay(2000)
-      await q1TapFromId(deviceId, 500, 800) // 假设关注按钮位置
+      await q1Click(dev, 500, 800)
     }
     return { success: true, message: `互关任务完成`, data: { processed: targetAccounts.length } }
   }
@@ -221,11 +317,14 @@ export async function executeFollowEachOther(deviceId: string, targetAccounts: s
 
 /** 点赞任务 */
 export async function executeLike(deviceId: string, targetUrls: string[]): Promise<DeviceActionResult> {
-  if (await isQ1(deviceId)) {
+  const dev = await getDevice(deviceId)
+  if (dev?.type === 'q1') {
+    const err = await ensureOnline(dev)
+    if (err) return err
     for (const url of targetUrls) {
-      await execQ1Task(deviceId, `am start -a android.intent.action.VIEW -d "${url}"`)
+      await q1ExecShell(dev, `am start -a android.intent.action.VIEW -d "${url}"`)
       await delay(2000)
-      await q1TapFromId(deviceId, 300, 600) // 假设点赞按钮位置
+      await q1Click(dev, 300, 600)
     }
     return { success: true, message: `点赞任务完成`, data: { liked: targetUrls.length } }
   }
@@ -235,14 +334,17 @@ export async function executeLike(deviceId: string, targetUrls: string[]): Promi
 
 /** 评论任务 */
 export async function executeComment(deviceId: string, targetUrl: string, comment: string): Promise<DeviceActionResult> {
-  if (await isQ1(deviceId)) {
-    await execQ1Task(deviceId, `am start -a android.intent.action.VIEW -d "${targetUrl}"`)
+  const dev = await getDevice(deviceId)
+  if (dev?.type === 'q1') {
+    const err = await ensureOnline(dev)
+    if (err) return err
+    await q1ExecShell(dev, `am start -a android.intent.action.VIEW -d "${targetUrl}"`)
     await delay(2000)
-    await q1TapFromId(deviceId, 400, 700) // 点击评论区
+    await q1Click(dev, 400, 700)
     await delay(1000)
-    await execQ1Task(deviceId, `input text "${comment.replace(/"/g, '\\"')}"`)
+    await q1ExecShell(dev, `input text "${comment.replace(/"/g, '\\"')}"`)
     await delay(500)
-    await q1TapFromId(deviceId, 600, 900) // 点击发送
+    await q1Click(dev, 600, 900)
     return { success: true, message: `评论已发布`, data: { comment } }
   }
   await delay(2000)
@@ -251,10 +353,13 @@ export async function executeComment(deviceId: string, targetUrl: string, commen
 
 /** 转发任务 */
 export async function executeRepost(deviceId: string, targetUrl: string): Promise<DeviceActionResult> {
-  if (await isQ1(deviceId)) {
-    await execQ1Task(deviceId, `am start -a android.intent.action.VIEW -d "${targetUrl}"`)
+  const dev = await getDevice(deviceId)
+  if (dev?.type === 'q1') {
+    const err = await ensureOnline(dev)
+    if (err) return err
+    await q1ExecShell(dev, `am start -a android.intent.action.VIEW -d "${targetUrl}"`)
     await delay(2000)
-    await q1TapFromId(deviceId, 550, 50) // 点击转发按钮
+    await q1Click(dev, 550, 50)
     return { success: true, message: `转发完成` }
   }
   await delay(1800)
@@ -263,12 +368,15 @@ export async function executeRepost(deviceId: string, targetUrl: string): Promis
 
 /** 发布视频 */
 export async function publishVideo(deviceId: string, videoUrl: string, caption: string, platform: string): Promise<DeviceActionResult> {
-  if (await isQ1(deviceId)) {
-    // 通过 ADB 推送视频文件到设备，再用 am start 打开应用发布
-    // 简化：先用 Shell 下载视频
-    await execQ1Task(deviceId, `curl -o /sdcard/Download/publish.mp4 "${videoUrl}"`)
-    await delay(5000)
-    await execQ1Task(deviceId, `am start -a android.intent.action.VIEW -d "${platform}://publish"`)
+  const dev = await getDevice(deviceId)
+  if (dev?.type === 'q1') {
+    const err = await ensureOnline(dev)
+    if (err) return err
+    // 通过 q1Upload 上传视频到 Q1 设备
+    const up = await q1Upload(dev, videoUrl, '/sdcard/Download/publish.mp4')
+    if (!up.success) return up
+    await delay(3000)
+    await q1ExecShell(dev, `am start -a android.intent.action.VIEW -d "${platform}://publish"`)
     return { success: true, message: `视频已推送到设备，请在 ${platform} 应用中完成发布` }
   }
   await delay(3000)
@@ -278,17 +386,6 @@ export async function publishVideo(deviceId: string, videoUrl: string, caption: 
 /* ------------------------------------------------------------------ */
 /*  辅助                                                               */
 /* ------------------------------------------------------------------ */
-
-async function isQ1(deviceId: string): Promise<boolean> {
-  const dev = await getDevice(deviceId)
-  return dev?.type === 'q1' && !!dev.ip && !!dev.apiPort
-}
-
-async function q1TapFromId(deviceId: string, x: number, y: number): Promise<DeviceActionResult> {
-  const dev = await getDevice(deviceId)
-  if (dev?.ip && dev.rpaPort) return q1Tap(dev.ip, dev.rpaPort, x, y)
-  return { success: false, message: 'RPA 端口未配置' }
-}
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
