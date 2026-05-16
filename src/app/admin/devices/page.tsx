@@ -102,8 +102,8 @@ export default function AdminDevicesPage() {
         body: JSON.stringify({ command: 'am start -n com.ss.android.ugc.aweme/.main.MainActivity' }),
       })
       await new Promise(r => setTimeout(r, 5000))
-      // 2. 用 autoclick API（走服务端 proxy）点击附近 5 个点
-      const taps = [[162,130],[162,135],[162,140],[158,135],[166,135]]
+      // 2. 用 autoclick API（走服务端 proxy）点击附近 5 个点（1080×2376 坐标）
+      const taps = [[972,990],[972,1002],[972,1014],[960,1002],[984,1002]]
       for (const [tx, ty] of taps) {
         await fetch(`/api/devices/${id}/tap`, {
           method: 'POST', credentials: 'include',
