@@ -16,6 +16,12 @@ export default function AdminDevicesPage() {
   const [editors, setEditors] = useState<UserItem[]>([])
   const [loading, setLoading] = useState(true)
   const [editId, setEditId] = useState<number | null>(null)
+  const [snapUrl, setSnapUrl] = useState('')
+  const [shellOut, setShellOut] = useState('')
+  const [execCmd, setExecCmd] = useState('')
+  const [shellDevId, setShellDevId] = useState<number | null>(null)
+  const [snapLoading, setSnapLoading] = useState(false)
+  const [shellLoading, setShellLoading] = useState(false)
 
   // 表单
   const [form, setForm] = useState({ name: '', groupId: '', ownerId: '', ip: '', apiPort: '', rpaPort: '', adbPort: '', type: 'mock' })
@@ -74,6 +80,32 @@ export default function AdminDevicesPage() {
     if (r.ok) { loadData(); showToast('已删除') } else showToast('删除失败', 'error')
   }
 
+  const handleScreenshot = async (id: number) => {
+    setSnapLoading(true); setSnapUrl('')
+    try {
+      const r = await fetch(`/api/devices/${id}/screenshot`, { credentials: 'include' })
+      if (!r.ok) { showToast('截图失败', 'error'); return }
+      const blob = await r.blob()
+      setSnapUrl(URL.createObjectURL(blob))
+    } catch { showToast('截图失败', 'error') }
+    finally { setSnapLoading(false) }
+  }
+
+  const handleShell = async (id: number, cmd: string) => {
+    if (!cmd.trim()) { showToast('请输入命令', 'error'); return }
+    setShellLoading(true); setShellOut('')
+    try {
+      const r = await fetch(`/api/devices/${id}/shell`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd }),
+      })
+      const d = await r.json()
+      setShellOut(d.output || d.message || '无输出')
+    } catch { showToast('Shell 执行失败', 'error') }
+    finally { setShellLoading(false) }
+  }
+
   const statusColor = (s: string) => {
     switch (s) { case 'online': return 'text-emerald-400'; case 'busy': return 'text-yellow-400'; default: return 'text-gray-500' }
   }
@@ -122,6 +154,33 @@ export default function AdminDevicesPage() {
           </div>
         )}
 
+        {/* 截图弹窗 */}
+        {snapUrl && (
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center" onClick={() => setSnapUrl('')}>
+            <img src={snapUrl} alt="截图" className="max-w-[80vw] max-h-[80vh] rounded-xl border border-white/20" onClick={e => e.stopPropagation()} />
+          </div>
+        )}
+
+        {/* Shell 弹窗 */}
+        {shellDevId !== null && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center" onClick={() => setShellDevId(null)}>
+            <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+              <h3 className="text-white font-bold mb-3">Shell 执行</h3>
+              <div className="flex gap-2 mb-3">
+                <input className="input-dark flex-1" placeholder="输入命令" value={execCmd} onChange={e => setExecCmd(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleShell(shellDevId, execCmd)} />
+                <button onClick={() => handleShell(shellDevId, execCmd)} disabled={shellLoading || !execCmd.trim()}
+                  className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-sm hover:bg-emerald-600 disabled:opacity-50">
+                  {shellLoading ? '执行中...' : '执行'}
+                </button>
+              </div>
+              {shellOut && (
+                <pre className="bg-black/40 rounded-lg p-3 text-xs text-green-400 font-mono max-h-60 overflow-auto whitespace-pre-wrap">{shellOut}</pre>
+              )}
+            </div>
+          </div>
+        )}
+
         {loading ? <div className="text-center text-gray-400 py-12">加载中...</div>
         : devices.length === 0 ? <div className="card-glass p-12 text-center"><p className="text-gray-400">暂无设备</p></div>
         : <div className="overflow-x-auto">
@@ -148,8 +207,14 @@ export default function AdminDevicesPage() {
                     <td className="py-3 pr-3 text-gray-400 text-xs font-mono">{d.ip ? `${d.ip}:${d.apiPort||'-'}:${d.rpaPort||'-'}:${d.adbPort||'-'}` : '-'}</td>
                     <td className="py-3 pr-3 text-gray-400">{d.owner?.username || '-'}</td>
                     <td className="py-3 pr-3 text-gray-500 text-[10px]">{new Date(d.lastHeartbeat).toLocaleString()}</td>
-                    <td className="py-3 pr-3">
-                      <button onClick={() => openEdit(d)} className="text-[10px] text-cyan-400 hover:text-cyan-300 mr-2">编辑</button>
+                    <td className="py-3 pr-3 whitespace-nowrap">
+                      {d.type === 'q1' && (<>
+                        <button onClick={() => { handleScreenshot(d.id); setShellDevId(d.id) }} disabled={snapLoading}
+                          className="text-[10px] text-emerald-400 hover:text-emerald-300 mr-1 disabled:opacity-50">截图</button>
+                        <button onClick={() => { setShellDevId(d.id); setExecCmd(''); setShellOut('') }}
+                          className="text-[10px] text-yellow-400 hover:text-yellow-300 mr-1">Shell</button>
+                      </>)}
+                      <button onClick={() => openEdit(d)} className="text-[10px] text-cyan-400 hover:text-cyan-300 mr-1">编辑</button>
                       <button onClick={() => handleDelete(d.id)} className="text-[10px] text-red-400 hover:text-red-300">删除</button>
                     </td>
                   </tr>
