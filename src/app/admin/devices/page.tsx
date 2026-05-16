@@ -95,11 +95,17 @@ export default function AdminDevicesPage() {
     setSnapLoading(true); setSnapUrl('')
     showToast('开始测试坐标映射...')
     try {
-      // 启动抖音 → 等 → 点赞 (972,1002) → 截图
+      // 唤醒屏幕 → 启动抖音 → 等 → 点赞 → 截图
       await fetch(`/api/devices/${id}/shell`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'am start -n com.ss.android.ugc.aweme/.main.MainActivity' }),
+        body: JSON.stringify({ command: 'input keyevent 26; input keyevent 82' }),
+      })
+      await new Promise(r => setTimeout(r, 2000))
+      await fetch(`/api/devices/${id}/shell`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'monkey -p com.ss.android.ugc.aweme 1' }),
       })
       await new Promise(r => setTimeout(r, 5000))
       await fetch(`/api/devices/${id}/tap`, {
