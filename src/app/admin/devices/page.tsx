@@ -101,25 +101,23 @@ export default function AdminDevicesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: 'am start -n com.ss.android.ugc.aweme/.main.MainActivity' }),
       })
-      // 2. 等 6 秒让抖音完全加载
+      // 2. 等 6 秒
       await new Promise(r => setTimeout(r, 6000))
-      // 3. 先用 Shell 截图看看当前画面
-      await fetch(`/api/devices/${id}/shell`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'screencap -p /sdcard/before.png' }),
-      })
-      // 4. 直接点点赞（不滑动）
-      await fetch(`/api/devices/${id}/shell`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'input tap 162 135' }),
-      })
+      // 3. 靠近按钮三个不同坐标轮着点
+      const taps = [[162, 130], [162, 135], [162, 140], [158, 135], [166, 135]]
+      for (const [tx, ty] of taps) {
+        await fetch(`/api/devices/${id}/shell`, {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: `input tap ${tx} ${ty}` }),
+        })
+        await new Promise(r => setTimeout(r, 600))
+      }
       await new Promise(r => setTimeout(r, 2000))
-      // 5. 截图
+      // 4. 截图
       const r = await fetch(`/api/devices/${id}/screenshot`, { credentials: 'include' })
       if (r.ok) { const blob = await r.blob(); setSnapUrl(URL.createObjectURL(blob)) }
-      showToast('已完成，看截图确认点赞按钮是否变色')
+      showToast('5个坐标点已点完，看截图是否变红')
     } catch { showToast('测试失败', 'error') }
     finally { setSnapLoading(false) }
   }
