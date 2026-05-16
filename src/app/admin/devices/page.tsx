@@ -95,7 +95,13 @@ export default function AdminDevicesPage() {
     setSnapLoading(true); setSnapUrl('')
     showToast('开始测试坐标映射...')
     try {
-      // 只点一次：点赞 (972, 1002)
+      // 启动抖音 → 等 → 点赞 (972,1002) → 截图
+      await fetch(`/api/devices/${id}/shell`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'am start -n com.ss.android.ugc.aweme/.main.MainActivity' }),
+      })
+      await new Promise(r => setTimeout(r, 5000))
       await fetch(`/api/devices/${id}/tap`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -104,7 +110,7 @@ export default function AdminDevicesPage() {
       await new Promise(r => setTimeout(r, 2000))
       const r = await fetch(`/api/devices/${id}/screenshot`, { credentials: 'include' })
       if (r.ok) { const blob = await r.blob(); setSnapUrl(URL.createObjectURL(blob)) }
-      showToast('已点击 (972,1002)，看赞红了没')
+      showToast('完整点赞测试完成，看截图')
     } catch (e) { showToast('测试失败', 'error'); console.error(e) }
     finally { setSnapLoading(false) }
   }
