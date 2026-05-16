@@ -17,6 +17,20 @@
  */
 
 /* ------------------------------------------------------------------ */
+/*  抖音 180×320 按钮坐标（2026-05-16 采集）                           */
+/* ------------------------------------------------------------------ */
+
+const DOUYIN = {
+  SEARCH:   { x: 164, y: 23 },
+  FOLLOW:   { x: 162, y: 115 },
+  LIKE:     { x: 162, y: 135 },
+  COMMENT:  { x: 161, y: 169 },
+  FAVORITE: { x: 161, y: 202 },
+  SHARE:    { x: 164, y: 232 },
+  PUBLISH:  { x: 91,  y: 306 },
+} as const
+
+/* ------------------------------------------------------------------ */
 /*  类型定义                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -262,6 +276,85 @@ export async function publishTikTokVideo(deviceId: string, videoUrl: string, cap
   }
 }
 
+/** 打开并进入抖音视频（共用于所有互动操作） */
+async function douyinOpenVideo(dev: DeviceInfo, url?: string): Promise<DeviceActionResult | null> {
+  const r1 = await q1ExecShell(dev, 'am start -n com.ss.android.ugc.aweme/.main.MainActivity')
+  if (!r1.success) return r1
+  await delay(3000)
+  if (url) {
+    await q1ExecShell(dev, `am start -a android.intent.action.VIEW -d "${url}"`)
+    await delay(2000)
+  }
+  return null
+}
+
+/** 抖音关注 */
+export async function douyinFollow(deviceId: string, targetUrl?: string): Promise<DeviceActionResult> {
+  const dev = await getDevice(deviceId)
+  if (!dev || dev.type !== 'q1') return { success: false, message: '仅 Q1 设备支持' }
+  const err = await ensureOnline(dev); if (err) return err
+  const r = await douyinOpenVideo(dev, targetUrl); if (r) return r
+  await q1Click(dev, DOUYIN.FOLLOW.x, DOUYIN.FOLLOW.y)
+  return { success: true, message: '已点击关注' }
+}
+
+/** 抖音点赞 */
+export async function douyinLike(deviceId: string, targetUrl?: string): Promise<DeviceActionResult> {
+  const dev = await getDevice(deviceId)
+  if (!dev || dev.type !== 'q1') return { success: false, message: '仅 Q1 设备支持' }
+  const err = await ensureOnline(dev); if (err) return err
+  const r = await douyinOpenVideo(dev, targetUrl); if (r) return r
+  await q1Click(dev, DOUYIN.LIKE.x, DOUYIN.LIKE.y)
+  return { success: true, message: '已点击点赞' }
+}
+
+/** 抖音评论 */
+export async function douyinComment(deviceId: string, comment: string, targetUrl?: string): Promise<DeviceActionResult> {
+  const dev = await getDevice(deviceId)
+  if (!dev || dev.type !== 'q1') return { success: false, message: '仅 Q1 设备支持' }
+  const err = await ensureOnline(dev); if (err) return err
+  const r = await douyinOpenVideo(dev, targetUrl); if (r) return r
+  await q1Click(dev, DOUYIN.COMMENT.x, DOUYIN.COMMENT.y)
+  await delay(2000)
+  await q1Clipboard(dev, comment)
+  await delay(500)
+  await q1ExecShell(dev, 'input keyevent 279') // paste
+  await delay(1000)
+  // 发送按钮（评论区底部）
+  await q1Click(dev, 140, 300)
+  return { success: true, message: '评论已发送', data: { comment } }
+}
+
+/** 抖音转发 */
+export async function douyinShare(deviceId: string, targetUrl?: string): Promise<DeviceActionResult> {
+  const dev = await getDevice(deviceId)
+  if (!dev || dev.type !== 'q1') return { success: false, message: '仅 Q1 设备支持' }
+  const err = await ensureOnline(dev); if (err) return err
+  const r = await douyinOpenVideo(dev, targetUrl); if (r) return r
+  await q1Click(dev, DOUYIN.SHARE.x, DOUYIN.SHARE.y)
+  await delay(1500)
+  // 分享弹窗中第一个选项
+  await q1Click(dev, 90, 90)
+  return { success: true, message: '已点击分享' }
+}
+
+/** 抖音搜索 */
+export async function douyinSearch(deviceId: string, keyword: string): Promise<DeviceActionResult> {
+  const dev = await getDevice(deviceId)
+  if (!dev || dev.type !== 'q1') return { success: false, message: '仅 Q1 设备支持' }
+  const err = await ensureOnline(dev); if (err) return err
+  await q1ExecShell(dev, 'am start -n com.ss.android.ugc.aweme/.main.MainActivity')
+  await delay(3000)
+  await q1Click(dev, DOUYIN.SEARCH.x, DOUYIN.SEARCH.y)
+  await delay(1500)
+  await q1Clipboard(dev, keyword)
+  await delay(500)
+  await q1ExecShell(dev, 'input keyevent 279') // paste
+  await delay(1000)
+  await q1ExecShell(dev, 'input keyevent 66')  // enter
+  return { success: true, message: `已搜索: ${keyword}` }
+}
+
 /* ------------------------------------------------------------------ */
 /*  设备管理                                                           */
 /* ------------------------------------------------------------------ */
@@ -370,9 +463,9 @@ export async function executeFollowEachOther(deviceId: string, targetAccounts: s
     const err = await ensureOnline(dev)
     if (err) return err
     for (const acc of targetAccounts) {
-      await q1ExecShell(dev, `am start -a android.intent.action.VIEW -d "https://www.example.com/user/${acc}"`)
+      await q1ExecShell(dev, `am start -a android.intent.action.VIEW -d "https://www.douyin.com/user/${acc}"`)
       await delay(2000)
-      await q1Click(dev, 500, 800)
+      await q1Click(dev, DOUYIN.FOLLOW.x, DOUYIN.FOLLOW.y)
     }
     return { success: true, message: `互关任务完成`, data: { processed: targetAccounts.length } }
   }
@@ -389,7 +482,7 @@ export async function executeLike(deviceId: string, targetUrls: string[]): Promi
     for (const url of targetUrls) {
       await q1ExecShell(dev, `am start -a android.intent.action.VIEW -d "${url}"`)
       await delay(2000)
-      await q1Click(dev, 300, 600)
+      await q1Click(dev, DOUYIN.LIKE.x, DOUYIN.LIKE.y)
     }
     return { success: true, message: `点赞任务完成`, data: { liked: targetUrls.length } }
   }
