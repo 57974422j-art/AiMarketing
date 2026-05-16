@@ -95,25 +95,16 @@ export default function AdminDevicesPage() {
     setSnapLoading(true); setSnapUrl('')
     showToast('开始测试坐标映射...')
     try {
-      // 在 9 宫格位置各点一下（1080×2376 坐标）
-      const grid = [
-        [540, 1188], // 屏幕中心
-        [972, 1002], // 点赞位置
-        [100, 100],  // 左上角
-      ]
-      for (const [gx, gy] of grid) {
-        // 直接用 180×320 试试，不打映射
-        await fetch(`/api/devices/${id}/tap`, {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ x: gx, y: gy }),
-        })
-        await new Promise(r => setTimeout(r, 800))
-      }
-      await new Promise(r => setTimeout(r, 1000))
+      // 只点一次：点赞 (972, 1002)
+      await fetch(`/api/devices/${id}/tap`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x: 972, y: 1002 }),
+      })
+      await new Promise(r => setTimeout(r, 2000))
       const r = await fetch(`/api/devices/${id}/screenshot`, { credentials: 'include' })
       if (r.ok) { const blob = await r.blob(); setSnapUrl(URL.createObjectURL(blob)) }
-      showToast('已在三条线上各点一下，看落点位置')
+      showToast('已点击 (972,1002)，看赞红了没')
     } catch (e) { showToast('测试失败', 'error'); console.error(e) }
     finally { setSnapLoading(false) }
   }
