@@ -91,6 +91,40 @@ export default function AdminDevicesPage() {
     finally { setSnapLoading(false) }
   }
 
+  const testLike = async (id: number) => {
+    setSnapLoading(true); setSnapUrl('')
+    showToast('开始测试点赞...')
+    try {
+      // 1. 启动抖音
+      await fetch(`/api/devices/${id}/shell`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'am start -n com.ss.android.ugc.aweme/.main.MainActivity' }),
+      })
+      // 2. 等待 4 秒
+      await new Promise(r => setTimeout(r, 4000))
+      // 3. 向下滑动
+      await fetch(`/api/devices/${id}/shell`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'input swipe 90 250 90 50 500' }),
+      })
+      await new Promise(r => setTimeout(r, 2000))
+      // 4. 点击点赞
+      await fetch(`http://localhost:3000/api/devices/${id}/shell`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'input tap 162 135' }),
+      })
+      await new Promise(r => setTimeout(r, 1500))
+      // 5. 截图
+      const r = await fetch(`/api/devices/${id}/screenshot`, { credentials: 'include' })
+      if (r.ok) { const blob = await r.blob(); setSnapUrl(URL.createObjectURL(blob)) }
+      showToast('点赞测试完成，看截图确认')
+    } catch { showToast('测试失败', 'error') }
+    finally { setSnapLoading(false) }
+  }
+
   const handleShell = async (id: number, cmd: string) => {
     if (!cmd.trim()) { showToast('请输入命令', 'error'); return }
     setShellLoading(true); setShellOut('')
@@ -211,6 +245,8 @@ export default function AdminDevicesPage() {
                       {d.type === 'q1' && (<>
                         <button onClick={() => handleScreenshot(d.id)} disabled={snapLoading}
                           className="text-[10px] text-emerald-400 hover:text-emerald-300 mr-1 disabled:opacity-50">截图</button>
+                        <button onClick={() => testLike(d.id)} disabled={snapLoading}
+                          className="text-[10px] text-pink-400 hover:text-pink-300 mr-1 disabled:opacity-50">测试点赞</button>
                         <button onClick={() => { setShellDevId(d.id); setExecCmd(''); setShellOut('') }}
                           className="text-[10px] text-yellow-400 hover:text-yellow-300 mr-1">Shell</button>
                       </>)}
