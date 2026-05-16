@@ -101,26 +101,25 @@ export default function AdminDevicesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: 'am start -n com.ss.android.ugc.aweme/.main.MainActivity' }),
       })
-      // 2. 等待 4 秒
-      await new Promise(r => setTimeout(r, 4000))
-      // 3. 向下滑动
+      // 2. 等 6 秒让抖音完全加载
+      await new Promise(r => setTimeout(r, 6000))
+      // 3. 先用 Shell 截图看看当前画面
       await fetch(`/api/devices/${id}/shell`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'input swipe 90 250 90 50 500' }),
+        body: JSON.stringify({ command: 'screencap -p /sdcard/before.png' }),
       })
-      await new Promise(r => setTimeout(r, 2000))
-      // 4. 点击点赞
-      await fetch(`http://localhost:3000/api/devices/${id}/shell`, {
+      // 4. 直接点点赞（不滑动）
+      await fetch(`/api/devices/${id}/shell`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: 'input tap 162 135' }),
       })
-      await new Promise(r => setTimeout(r, 1500))
+      await new Promise(r => setTimeout(r, 2000))
       // 5. 截图
       const r = await fetch(`/api/devices/${id}/screenshot`, { credentials: 'include' })
       if (r.ok) { const blob = await r.blob(); setSnapUrl(URL.createObjectURL(blob)) }
-      showToast('点赞测试完成，看截图确认')
+      showToast('已完成，看截图确认点赞按钮是否变色')
     } catch { showToast('测试失败', 'error') }
     finally { setSnapLoading(false) }
   }
