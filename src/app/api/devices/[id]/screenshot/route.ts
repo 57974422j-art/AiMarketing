@@ -29,7 +29,12 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     console.log(`[截图] 设备${params.id} level=${usedLevel} size=${bestBuf.byteLength}B`)
 
     return new NextResponse(Buffer.from(bestBuf), {
-      headers: { 'Content-Type': bestCtype },
+      headers: {
+        'Content-Type': bestCtype,
+        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
     })
   } catch (e: any) {
     console.error('[截图] 失败:', e?.message || e)
