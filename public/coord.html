@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html><head><title>坐标获取</title>
+<style>
+body{margin:0;background:#111;display:flex;flex-direction:column;align-items:center;color:#fff;font-family:monospace}
+h2{color:#10b981;margin:10px}
+#info{position:fixed;top:10px;right:10px;background:#000c;color:#0f0;padding:8px 14px;border-radius:8px;font-size:14px;z-index:99}
+img{max-width:95vw;cursor:crosshair;border:1px solid #333;border-radius:8px}
+</style></head>
+<body>
+<h2>点击图片获取坐标</h2>
+<div id="info">x: 0, y: 0</div>
+<img id="pic" src="/douyin_play.png" crossorigin="anonymous" />
+<script>
+const img=document.getElementById('pic')
+const info=document.getElementById('info')
+img.onclick=function(e){
+  const rect=img.getBoundingClientRect()
+  const scaleX=img.naturalWidth/rect.width
+  const scaleY=img.naturalHeight/rect.height
+  const x=Math.round((e.clientX-rect.left)*scaleX)
+  const y=Math.round((e.clientY-rect.top)*scaleY)
+  info.textContent=`x: ${x}, y: ${y} | ${img.naturalWidth}×${img.naturalHeight}`
+  navigator.clipboard.writeText(`${x},${y}`).catch(()=>{})
+}
+</script>
+</body></html>
