@@ -148,11 +148,11 @@ export async function q1ExecShell(dev: DeviceInfo, cmdline: string): Promise<Dev
 
 /** Q1：模拟点击 */
 export async function q1Click(dev: DeviceInfo, x: number, y: number): Promise<DeviceActionResult> {
-  const base = q1Base(dev)
-  if (!base) return { success: false, message: '设备非 Q1 类型' }
+  if (!dev.apiPort) return { success: false, message: '设备未配置 API 端口' }
   try {
-    const res = await fetch(`${base}/autoclick?action=tap&id=1&x=${x}&y=${y}`, { signal: AbortSignal.timeout(5000) })
-    return { success: res.ok, message: `点击 (${x},${y}) => ${res.status}` }
+    const res = await fetch(`http://localhost:${dev.apiPort}/modifydev?cmd=6&cmdline=${encodeURIComponent(`input tap ${x} ${y}`)}`, { signal: AbortSignal.timeout(8000) })
+    const text = await res.text()
+    return { success: res.ok, message: `点击 (${x},${y}) => ${text.substring(0, 100)}` }
   } catch (e: any) {
     return { success: false, message: e?.message || '点击失败' }
   }

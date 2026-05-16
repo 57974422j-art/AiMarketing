@@ -16,7 +16,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const row: any = await prisma.device.findUnique({ where: { id: parseInt(params.id) } })
     if (!row || row.type !== 'q1' || !row.apiPort) return NextResponse.json({ success: false, message: '仅 Q1 设备支持' }, { status: 400 })
 
-    const res = await fetch(`http://localhost:${row.apiPort}/autoclick?action=tap&id=1&x=${x}&y=${y}`, { signal: AbortSignal.timeout(8000) })
+    // 通过 Shell input tap 走 FRP 隧道 localhost:apiPort
+    const res = await fetch(`http://localhost:${row.apiPort}/modifydev?cmd=6&cmdline=${encodeURIComponent(`input tap ${x} ${y}`)}`, { signal: AbortSignal.timeout(8000) })
     const text = await res.text()
     return NextResponse.json({ success: res.ok, output: text.substring(0, 500) })
   } catch (e: any) {

@@ -95,11 +95,11 @@ export default function AdminDevicesPage() {
     setSnapLoading(true); setSnapUrl('')
     showToast('开始测试坐标映射...')
     try {
-      // 在 9 宫格位置各点一下，看实际落点
+      // 在 9 宫格位置各点一下（1080×2376 坐标）
       const grid = [
-        [90,   55],  // 左上
-        [90,  160],  // 中上
-        [90,  265],  // 右上
+        [540, 1188], // 屏幕中心
+        [972, 1002], // 点赞位置
+        [100, 100],  // 左上角
       ]
       for (const [gx, gy] of grid) {
         // 直接用 180×320 试试，不打映射
