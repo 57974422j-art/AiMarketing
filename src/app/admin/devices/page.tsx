@@ -157,7 +157,7 @@ export default function AdminDevicesPage() {
         {/* 截图弹窗 */}
         {snapUrl && (
           <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center" onClick={() => setSnapUrl('')}>
-            <img src={snapUrl + '?t=' + Date.now()} alt="截图" className="max-w-[80vw] max-h-[80vh] rounded-xl border border-white/20" onClick={e => e.stopPropagation()} />
+            <img src={snapUrl} alt="截图" className="max-w-[80vw] max-h-[80vh] rounded-xl border border-white/20" onClick={e => e.stopPropagation()} />
           </div>
         )}
 
