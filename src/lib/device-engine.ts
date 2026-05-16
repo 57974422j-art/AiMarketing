@@ -99,7 +99,7 @@ export async function q1Info(dev: DeviceInfo): Promise<DeviceActionResult> {
     const res = await fetch(`${base}/info`, { signal: AbortSignal.timeout(8000) })
     if (!res.ok) return { success: false, message: `info 失败: ${res.status}` }
     const text = await res.text()
-    return { success: true, data: { raw: text.substring(0, 2000) } }
+    return { success: true, message: 'ok', data: { raw: text.substring(0, 2000) } }
   } catch (e: any) {
     return { success: false, message: e?.message || '获取设备信息失败' }
   }
