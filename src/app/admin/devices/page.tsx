@@ -209,7 +209,7 @@ export default function AdminDevicesPage() {
                     <td className="py-3 pr-3 text-gray-500 text-[10px]">{new Date(d.lastHeartbeat).toLocaleString()}</td>
                     <td className="py-3 pr-3 whitespace-nowrap">
                       {d.type === 'q1' && (<>
-                        <button onClick={() => { handleScreenshot(d.id); setShellDevId(d.id) }} disabled={snapLoading}
+                        <button onClick={() => handleScreenshot(d.id)} disabled={snapLoading}
                           className="text-[10px] text-emerald-400 hover:text-emerald-300 mr-1 disabled:opacity-50">截图</button>
                         <button onClick={() => { setShellDevId(d.id); setExecCmd(''); setShellOut('') }}
                           className="text-[10px] text-yellow-400 hover:text-yellow-300 mr-1">Shell</button>
