@@ -93,30 +93,27 @@ export default function AdminDevicesPage() {
 
   const testLike = async (id: number) => {
     setSnapLoading(true); setSnapUrl('')
-    showToast('正在启动抖音...')
+    showToast('开始测试坐标映射...')
     try {
-      // 1. 启动抖音
-      await fetch(`/api/devices/${id}/shell`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'am start -n com.ss.android.ugc.aweme/.main.MainActivity' }),
-      })
-      await new Promise(r => setTimeout(r, 5000))
-      // 2. 用 autoclick API（走服务端 proxy）点击附近 5 个点（1080×2376 坐标）
-      const taps = [[972,990],[972,1002],[972,1014],[960,1002],[984,1002]]
-      for (const [tx, ty] of taps) {
+      // 在 9 宫格位置各点一下，看实际落点
+      const grid = [
+        [90,   55],  // 左上
+        [90,  160],  // 中上
+        [90,  265],  // 右上
+      ]
+      for (const [gx, gy] of grid) {
+        // 直接用 180×320 试试，不打映射
         await fetch(`/api/devices/${id}/tap`, {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ x: tx, y: ty }),
+          body: JSON.stringify({ x: gx, y: gy }),
         })
-        await new Promise(r => setTimeout(r, 500))
+        await new Promise(r => setTimeout(r, 800))
       }
-      await new Promise(r => setTimeout(r, 2000))
-      // 3. 截图
+      await new Promise(r => setTimeout(r, 1000))
       const r = await fetch(`/api/devices/${id}/screenshot`, { credentials: 'include' })
       if (r.ok) { const blob = await r.blob(); setSnapUrl(URL.createObjectURL(blob)) }
-      showToast('已用 autoclick 点击，看截图')
+      showToast('已在三条线上各点一下，看落点位置')
     } catch (e) { showToast('测试失败', 'error'); console.error(e) }
     finally { setSnapLoading(false) }
   }
