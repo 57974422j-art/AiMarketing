@@ -39,7 +39,7 @@ export default function AdminAutomationPage() {
   const [selectedMediaId, setSelectedMediaId] = useState('')
   const [selectedTmplId, setSelectedTmplId] = useState('')
 
-  const taskTypes = ['互关', '点赞', '评论', '转发', '发布视频']
+  const taskTypes = ['互关', '点赞', '评论', '转发', '发布视频', '发抖音视频']
 
   const typeParamExamples: Record<string, string> = {
     '互关': JSON.stringify({ targetAccounts: ['user1', 'user2'] }, null, 2),
@@ -47,6 +47,7 @@ export default function AdminAutomationPage() {
     '评论': JSON.stringify({ targetUrl: 'https://example.com/post/1', comment: '好内容！' }, null, 2),
     '转发': JSON.stringify({ targetUrl: 'https://example.com/post/1' }, null, 2),
     '发布视频': JSON.stringify({ videoUrl: 'https://oss.example.com/video.mp4', caption: '视频标题', platform: '抖音' }, null, 2),
+    '发抖音视频': JSON.stringify({ videoUrl: 'https://oss.example.com/video.mp4', caption: '视频标题' }, null, 2),
   }
 
   useEffect(() => {
@@ -89,8 +90,8 @@ export default function AdminAutomationPage() {
       let params
       try { params = JSON.parse(taskParamsJson) } catch { alert('参数格式错误'); return }
       // 发布视频必须提供 videoUrl
-      if (taskType === '发布视频' && !selectedMediaId && !params.videoUrl) {
-        alert('发布视频任务必须填写 videoUrl 参数或从素材库选择视频')
+      if (['发布视频', '发抖音视频'].includes(taskType) && !selectedMediaId && !params.videoUrl) {
+        alert(`${taskType}任务必须填写 videoUrl 参数或从素材库选择视频`)
         return
       }
       // 评论任务必须提供 comment
@@ -105,7 +106,7 @@ export default function AdminAutomationPage() {
         if (group) body.params = { ...params, accountGroupId: group.id, accountIds: group.items.map(i => i.accountId) }
       }
       // 发布视频时自动填充选中的素材
-      if (selectedMediaId && taskType === '发布视频') {
+      if (selectedMediaId && ['发布视频', '发抖音视频'].includes(taskType)) {
         const asset = mediaList.find(m => m.id === parseInt(selectedMediaId))
         if (asset) body.params = { ...(body.params as Record<string, unknown>), videoUrl: asset.ossUrl, caption: asset.title }
       }

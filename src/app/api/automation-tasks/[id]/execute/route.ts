@@ -8,6 +8,7 @@ import {
   executeComment,
   executeRepost,
   publishVideo,
+  publishTikTokVideo,
 } from '@/lib/device-engine'
 
 const prisma = new PrismaClient()
@@ -71,6 +72,9 @@ export async function POST(
           break
         case '发布视频':
           result = await publishVideo(deviceId, taskParams.videoUrl || '', taskParams.caption || '', taskParams.platform || '')
+          break
+        case '发抖音视频':
+          result = await publishTikTokVideo(deviceId, taskParams.videoUrl || '', taskParams.caption || '')
           break
         default:
           throw new Error(`不支持的任务类型: ${task.type}`)

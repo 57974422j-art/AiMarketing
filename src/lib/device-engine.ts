@@ -197,6 +197,71 @@ export async function q1Proxy(dev: DeviceInfo, port: number, usr: string, pwd: s
   }
 }
 
+/** Q1：设置剪贴板 */
+export async function q1Clipboard(dev: DeviceInfo, text: string): Promise<DeviceActionResult> {
+  const base = q1Base(dev)
+  if (!base) return { success: false, message: '设备非 Q1 类型' }
+  try {
+    const res = await fetch(`${base}/clipboard?cmd=2&text=${encodeURIComponent(text)}`, { signal: AbortSignal.timeout(5000) })
+    const out = await res.text()
+    return { success: res.ok, message: out.substring(0, 200) }
+  } catch (e: any) {
+    return { success: false, message: e?.message || '设置剪贴板失败' }
+  }
+}
+
+/** 发布抖音视频（按顺序执行操作链） */
+export async function publishTikTokVideo(deviceId: string, videoUrl: string, caption: string): Promise<DeviceActionResult> {
+  const dev = await getDevice(deviceId)
+  if (!dev) return { success: false, message: '设备不存在' }
+  if (dev.type !== 'q1') return { success: false, message: '仅 Q1 设备支持' }
+  const base = q1Base(dev)
+  if (!base) return { success: false, message: '设备配置不完整' }
+
+  // 0. 检查在线
+  const err = await ensureOnline(dev)
+  if (err) return err
+
+  // 1. 启动抖音
+  await q1ExecShell(dev, 'am start -n com.ss.android.ugc.aweme/.main.MainActivity')
+  await delay(3000)
+
+  // 2. 截图确认已打开
+  const snap = await q1Screenshot(dev)
+  if (!snap) return { success: false, message: '抖音启动后截图失败' }
+
+  // 3. 点击发布按钮（坐标需根据实际截图调整）
+  await q1Click(dev, 500, 800)
+  await delay(2000)
+
+  // 4. 上传视频到设备
+  const up = await q1Upload(dev, videoUrl, '/sdcard/Download/publish_video.mp4')
+  if (!up.success) return { success: false, message: `视频上传失败: ${up.message}` }
+  await delay(2000)
+
+  // 5. 设置标题到剪贴板并粘贴
+  const clip = await q1Clipboard(dev, caption)
+  if (!clip.success) return { success: false, message: `设置标题失败: ${clip.message}` }
+  await delay(500)
+
+  // 6. 长按输入框弹出粘贴（用 Shell 模拟）
+  await q1ExecShell(dev, 'input keyevent 279') // KEYCODE_PASTE
+  await delay(1000)
+
+  // 7. 点击发布
+  await q1Click(dev, 600, 900)
+  await delay(3000)
+
+  // 8. 再次截图确认
+  const finalSnap = await q1Screenshot(dev)
+
+  return {
+    success: true,
+    message: '抖音发布流程已完成',
+    data: { videoUrl, caption, finalSnapshot: finalSnap || '' },
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  设备管理                                                           */
 /* ------------------------------------------------------------------ */
