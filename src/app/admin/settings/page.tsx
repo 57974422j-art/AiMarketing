@@ -1,7 +1,14 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/app/providers';
 
 export default function SettingsPage() {
+  const { user, loading: authLoading } = useAuth()
+  const [authorized, setAuthorized] = useState(false)
+
+  useEffect(() => {
+    if (!authLoading) setAuthorized(user?.role === 'admin')
+  }, [authLoading, user])
   // API Key 配置状态
   const [deepseekKey, setDeepseekKey] = useState('');
   const [volcanoKey, setVolcanoKey] = useState('');
@@ -304,6 +311,9 @@ export default function SettingsPage() {
     }
     setTimeout(() => setSaveMessage(null), 5000);
   };
+
+  if (authLoading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><p className="text-gray-400">加载中...</p></div>
+  if (!authorized) return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><p className="text-red-400">仅管理员可访问</p></div>
 
   return (
     <div className="min-h-screen bg-gray-950">
