@@ -93,24 +93,25 @@ export default function AdminDevicesPage() {
 
   const testLike = async (id: number) => {
     setSnapLoading(true); setSnapUrl('')
-    showToast('开始测试坐标映射...')
+    showToast('开始测试...')
     try {
-      // 用 monkey 启动抖音
-      await fetch(`/api/devices/${id}/shell`, {
+      const launchRes = await fetch('/api/devices/' + id + '/shell', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'monkey -p com.ss.android.ugc.aweme 1' }),
+        body: JSON.stringify({ command: 'am start -n com.ss.android.ugc.aweme/.main.MainActivity' }),
       })
-      await new Promise(r => setTimeout(r, 5000))
-      await fetch(`/api/devices/${id}/tap`, {
+      const waitMs = 20000 + Math.floor(Math.random() * 10000)
+      showToast('等待' + Math.round(waitMs/1000) + '秒后点赞...')
+      await new Promise(r => setTimeout(r, waitMs))
+      await fetch('/api/devices/' + id + '/tap', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ x: 972, y: 1002 }),
       })
-      await new Promise(r => setTimeout(r, 2000))
-      const r = await fetch(`/api/devices/${id}/screenshot`, { credentials: 'include' })
+      await new Promise(r => setTimeout(r, 3000))
+      const r = await fetch('/api/devices/' + id + '/screenshot', { credentials: 'include' })
       if (r.ok) { const blob = await r.blob(); setSnapUrl(URL.createObjectURL(blob)) }
-      showToast('完整点赞测试完成，看截图')
+      showToast('点赞完成')
     } catch (e) { showToast('测试失败', 'error'); console.error(e) }
     finally { setSnapLoading(false) }
   }

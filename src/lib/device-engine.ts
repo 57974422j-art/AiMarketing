@@ -239,7 +239,7 @@ export async function publishTikTokVideo(deviceId: string, videoUrl: string, cap
   if (err) return err
 
   // 1. 启动抖音（monkey 比 am start 更可靠）
-  await q1ExecShell(dev, 'monkey -p com.ss.android.ugc.aweme 1')
+  await q1ExecShell(dev, 'am start -n com.ss.android.ugc.aweme/.main.MainActivity')
   await delay(3000)
 
   // 2. 截图确认已打开
@@ -281,7 +281,7 @@ export async function publishTikTokVideo(deviceId: string, videoUrl: string, cap
 /** 打开并进入抖音视频（共用于所有互动操作） */
 async function douyinOpenVideo(dev: DeviceInfo, url?: string): Promise<DeviceActionResult | null> {
   // 用 monkey 启动比 am start 更可靠
-  const r1 = await q1ExecShell(dev, 'monkey -p com.ss.android.ugc.aweme 1')
+  const r1 = await q1ExecShell(dev, 'am start -n com.ss.android.ugc.aweme/.main.MainActivity')
   if (!r1.success) return r1
   await delay(3000)
   if (url) {
@@ -346,7 +346,7 @@ export async function douyinSearch(deviceId: string, keyword: string): Promise<D
   const dev = await getDevice(deviceId)
   if (!dev || dev.type !== 'q1') return { success: false, message: '仅 Q1 设备支持' }
   const err = await ensureOnline(dev); if (err) return err
-  await q1ExecShell(dev, 'monkey -p com.ss.android.ugc.aweme 1')
+  await q1ExecShell(dev, 'am start -n com.ss.android.ugc.aweme/.main.MainActivity')
   await delay(3000)
   await q1Click(dev, DOUYIN.SEARCH.x, DOUYIN.SEARCH.y)
   await delay(1500)
