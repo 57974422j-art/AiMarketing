@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, justoneToken, automationEngine } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -133,6 +133,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // justoneapi Token
+    if (justoneToken !== undefined) {
+      const p = /^JUSTONEAPI_TOKEN=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `JUSTONEAPI_TOKEN=${justoneToken}`);
+      else envContent += `\nJUSTONEAPI_TOKEN=${justoneToken}`;
+    }
+
+    // 自动化引擎选择
+    if (automationEngine !== undefined) {
+      const p = /^AUTOMATION_ENGINE=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `AUTOMATION_ENGINE=${automationEngine}`);
+      else envContent += `\nAUTOMATION_ENGINE=${automationEngine}`;
+    }
+
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
     console.log('[Admin-Config] 配置已保存到 .env.local');
@@ -190,6 +204,8 @@ export async function GET(request: NextRequest) {
     const ttsAppId = await readEnv('VOLCANO_TTS_APP_ID');
     const ttsAccessKey = await readEnv('VOLCANO_TTS_ACCESS_KEY');
     const ttsResourceId = await readEnv('VOLCANO_TTS_RESOURCE_ID');
+    const justoneToken = await readEnv('JUSTONEAPI_TOKEN');
+    const automationEngine = await readEnv('AUTOMATION_ENGINE');
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -204,6 +220,8 @@ export async function GET(request: NextRequest) {
         ttsAppIdConfigured: !!ttsAppId,
         ttsAccessKeyConfigured: !!ttsAccessKey,
         ttsResourceIdConfigured: !!ttsResourceId,
+        justoneConfigured: !!justoneToken,
+        automationEngine: automationEngine || 'justoneapi',
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''

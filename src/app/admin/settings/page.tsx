@@ -41,6 +41,9 @@ export default function SettingsPage() {
   const [showTtsAppId, setShowTtsAppId] = useState(false);
   const [showTtsAccessKey, setShowTtsAccessKey] = useState(false);
   const [showTtsResourceId, setShowTtsResourceId] = useState(false);
+  const [justoneToken, setJustoneToken] = useState('');
+  const [showJustoneToken, setShowJustoneToken] = useState(false);
+  const [automationEngine, setAutomationEngine] = useState('justoneapi');
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -58,6 +61,8 @@ export default function SettingsPage() {
         setVolcanoKey(d.volcanoConfigured ? '********' : '');
         setSiliconflowKey(d.siliconflowConfigured ? '********' : '');
         setDashscopeKey(d.dashscopeConfigured ? '********' : '');
+        setJustoneToken(d.justoneConfigured ? '********' : '');
+        setAutomationEngine(d.automationEngine || 'justoneapi');
         setOssRegion(d.ossConfigured ? '********' : '');
         setOssBucket(d.ossConfigured ? '********' : '');
         // 已配置即显示 🟢已连接，测试失败才变 🔴
@@ -69,6 +74,7 @@ export default function SettingsPage() {
           siliconflow: d.siliconflowConfigured ? 'ok' : null,
           dashscope: d.dashscopeConfigured ? 'ok' : null,
           volcano: d.volcanoConfigured ? 'ok' : null,
+          justone: d.justoneConfigured ? 'ok' : null,
           tts: (d.ttsAppIdConfigured && d.ttsAccessKeyConfigured && d.ttsResourceIdConfigured) ? 'ok' : null,
           oss: d.ossConfigured ? 'ok' : null,
         })
@@ -261,6 +267,7 @@ export default function SettingsPage() {
       const actualTtsAppId = ttsAppId === '********' ? undefined : ttsAppId;
       const actualTtsAccessKey = ttsAccessKey === '********' ? undefined : ttsAccessKey;
       const actualTtsResourceId = ttsResourceId === '********' ? undefined : ttsResourceId;
+      const actualJustoneToken = justoneToken === '********' ? undefined : justoneToken;
 
       const response = await fetch('/api/admin/config', {
         method: 'POST',
@@ -278,6 +285,8 @@ export default function SettingsPage() {
           ttsAppId: actualTtsAppId || undefined,
           ttsAccessKey: actualTtsAccessKey || undefined,
           ttsResourceId: actualTtsResourceId || undefined,
+          justoneToken: actualJustoneToken || undefined,
+          automationEngine: automationEngine || undefined,
         })
       });
 
@@ -669,8 +678,53 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* 自动化引擎 */}
+        <div className="card-glass p-6 mt-6">
+          <h3 className="text-white font-bold mb-2"><span className="text-blue-400">//</span> 自动化引擎</h3>
+          <p className="text-gray-400 text-xs mb-4">选择自动化操作使用的引擎，写入操作（点赞/评论/发布）走 Q1 ADB，justoneapi 用于数据查询</p>
+
+          {/* justoneapi Token */}
+          <div className="mb-4">
+            <label className="text-gray-400 text-xs mb-1 block">JUSTONEAPI_TOKEN</label>
+            <div className="relative">
+              <input
+                type={showJustoneToken ? 'text' : 'password'}
+                value={justoneToken}
+                onChange={(e) => setJustoneToken(e.target.value)}
+                placeholder="输入 justoneapi Token 或留空"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-10"
+              />
+              <button type="button" onClick={() => setShowJustoneToken(!showJustoneToken)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                {showJustoneToken ? (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                )}
+              </button>
+            </div>
+            <StatusDot name="justone" />
+          </div>
+
+          {/* 引擎选择 */}
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">AUTOMATION_ENGINE</label>
+            <select
+              value={automationEngine}
+              onChange={(e) => setAutomationEngine(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50"
+            >
+              <option value="justoneapi" className="bg-gray-900">justoneapi（优先）</option>
+              <option value="justoneapi,q1-coordinates" className="bg-gray-900">justoneapi + Q1 降级</option>
+              <option value="q1-coordinates" className="bg-gray-900">Q1 截图+坐标</option>
+              <option value="tiktokdownloader" className="bg-gray-900">TikTokDownloader</option>
+            </select>
+            <p className="text-gray-500 text-xs mt-1">多个引擎用逗号分隔，按优先级依次尝试</p>
+          </div>
+        </div>
+
         {/* 保存按钮 */}
-        <div className="flex justify-end">
+        <div className="flex justify-end mt-6">
           <button
             onClick={saveAllSettings}
             className="px-6 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-colors font-mono"
