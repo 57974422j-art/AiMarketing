@@ -1,13 +1,11 @@
 /**
- * uiautomator 驱动 — 通过 Q1 HTTP API 获取界面控件树
+ * uiautomator 驱动 v2 — 完整版
  * 
- * 原理：
- *   1. cmd=6 执行 uiautomator dump /sdcard/ui.xml
- *   2. download API 下载 ui.xml
- *   3. 解析 XML 按文字/ID/content-desc 查找控件坐标
- *   4. cmd=6 执行 input tap x y 或 input text
- * 
- * 优势：不依赖固定坐标，UI 微调后只要按钮文字不变就能用
+ * 通过 Q1 HTTP API + uiautomator dump 实现：
+ *   - 按文字查找按钮并点击（不需坐标）
+ *   - 输入文字（不需剪贴板）
+ *   - 提取界面文字内容
+ *   - 滑动查找元素
  */
 
 export type UIResult = {
@@ -17,6 +15,7 @@ export type UIResult = {
   center?: { x: number; y: number }
   node?: UINode
   data?: any
+  nodes?: UINode[]
 }
 
 export interface UINode {
@@ -25,26 +24,29 @@ export interface UINode {
   className: string
   packageName: string
   contentDesc: string
-  bounds: string  // "[x1,y1][x2,y2]"
+  bounds: string
   clickable: boolean
   enabled: boolean
   checkable: boolean
   checked: boolean
-  children: UINode[]
 }
 
-/** 解析 bounds 字符串 "[x1,y1][x2,y2]" → center */
+// ============================================================
+// 内部工具
+// ============================================================
+
 function parseBounds(bounds: string): { x: number; y: number; width: number; height: number } | null {
   const m = bounds.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/)
   if (!m) return null
-  const x1 = parseInt(m[1]), y1 = parseInt(m[2]), x2 = parseInt(m[3]), y2 = parseInt(m[4])
-  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 }
+  return {
+    x: parseInt(m[1]), y: parseInt(m[2]),
+    width: parseInt(m[3]) - parseInt(m[1]), height: parseInt(m[4]) - parseInt(m[2]),
+  }
 }
 
-/** 通过 Q1 API 执行 Shell 命令 */
 async function execShell(apiPort: number, cmd: string): Promise<UIResult> {
   try {
-    const r = await fetch(`http://localhost:${apiPort}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmd)}`, { signal: AbortSignal.timeout(15000) })
+    const r = await fetch(`http://localhost:${apiPort}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmd)}`, { signal: AbortSignal.timeout(20000) })
     const d = await r.json()
     return { success: d.code === 200, message: d.ret || '' }
   } catch (e: any) {
@@ -52,110 +54,186 @@ async function execShell(apiPort: number, cmd: string): Promise<UIResult> {
   }
 }
 
-/** 从 Q1 下载文件 */
 async function downloadFile(apiPort: number, path: string): Promise<string | null> {
   try {
     const r = await fetch(`http://localhost:${apiPort}/download?path=${encodeURIComponent(path)}`, { signal: AbortSignal.timeout(10000) })
-    if (!r.ok) return null
-    return await r.text()
+    return r.ok ? await r.text() : null
   } catch { return null }
 }
 
-/** 解析 uiautomator XML → 扁平的节点列表 */
+// ============================================================
+// XML 解析 & Dump
+// ============================================================
+
 function parseUiXml(xml: string): UINode[] {
   const flat: UINode[] = []
   const regex = /<node\s+([^>]*?)\/?>/gi
   let match: RegExpExecArray | null
   while ((match = regex.exec(xml)) !== null) {
-    const attrs = match[1]
-    const node: UINode = {
-      text: (attrs.match(/text="([^"]*)"/) || ['', ''])[1],
-      resourceId: (attrs.match(/resource-id="([^"]*)"/) || ['', ''])[1],
-      className: (attrs.match(/class="([^"]*)"/) || ['', ''])[1],
-      packageName: (attrs.match(/package="([^"]*)"/) || ['', ''])[1],
-      contentDesc: (attrs.match(/content-desc="([^"]*)"/) || ['', ''])[1],
-      bounds: (attrs.match(/bounds="([^"]*)"/) || ['', ''])[1],
-      clickable: attrs.includes('clickable="true"'),
-      enabled: attrs.includes('enabled="true"'),
-      checkable: attrs.includes('checkable="true"'),
-      checked: attrs.includes('checked="true"'),
-      children: [],
-    }
-    flat.push(node)
+    const a = match[1]
+    flat.push({
+      text: (a.match(/text="([^"]*)"/) || ['', ''])[1],
+      resourceId: (a.match(/resource-id="([^"]*)"/) || ['', ''])[1],
+      className: (a.match(/class="([^"]*)"/) || ['', ''])[1],
+      packageName: (a.match(/package="([^"]*)"/) || ['', ''])[1],
+      contentDesc: (a.match(/content-desc="([^"]*)"/) || ['', ''])[1],
+      bounds: (a.match(/bounds="([^"]*)"/) || ['', ''])[1],
+      clickable: a.includes('clickable="true"'),
+      enabled: a.includes('enabled="true"'),
+      checkable: a.includes('checkable="true"'),
+      checked: a.includes('checked="true"'),
+    })
   }
   return flat
 }
 
-/**
- * dump 当前界面控件树
- */
 export async function dumpXml(apiPort: number): Promise<UIResult> {
-  const dumpRes = await execShell(apiPort, 'uiautomator dump /sdcard/ui.xml')
-  if (!dumpRes.success) return { success: false, message: 'dump 失败: ' + dumpRes.message }
-  await new Promise(r => setTimeout(r, 500))
+  const r = await execShell(apiPort, 'uiautomator dump /sdcard/ui.xml')
+  if (!r.success) return { success: false, message: 'dump 失败: ' + r.message }
+  await sleep(500)
   const xml = await downloadFile(apiPort, '/sdcard/ui.xml')
   if (!xml) return { success: false, message: '下载 XML 失败' }
   return { success: true, message: 'OK', data: xml }
 }
 
-/**
- * 按文字查找按钮 — 核心函数！
- */
+function getNodes(apiPort: number): Promise<UINode[]> {
+  return dumpXml(apiPort).then(r => r.success ? parseUiXml(r.data) : [])
+}
+
+// ============================================================
+// 查找
+// ============================================================
+
+/** 按文字查找可点击元素 */
 export async function findByText(apiPort: number, text: string): Promise<UIResult> {
-  const dumpResult = await dumpXml(apiPort)
-  if (!dumpResult.success) return dumpResult
-  const xml = dumpResult.data as string
-  const nodes = parseUiXml(xml)
+  const nodes = await getNodes(apiPort)
   for (const node of nodes) {
     if (!node.clickable || !node.enabled) continue
-    if (node.text.includes(text) || node.contentDesc.includes(text) ||
-        node.text === text || node.contentDesc.includes(text.replace(/[#@]/g, ''))) {
+    if (node.text.includes(text) || node.contentDesc.includes(text)) {
       const b = parseBounds(node.bounds)
-      if (b) {
-        return {
-          success: true,
-          message: `找到 "${text}"`,
-          bounds: b,
-          center: { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) },
-          node,
-        }
+      if (b) return {
+        success: true, message: `找到 "${text}"`, bounds: b,
+        center: { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }, node,
       }
     }
   }
-  return { success: false, message: `未找到含"${text}"的按钮` }
+  return { success: false, message: `未找到"${text}"` }
 }
 
-/**
- * 按文字查找并点击 — 最常用的功能
- */
+/** 精确匹配查找（更严格） */
+export async function findByExactText(apiPort: number, text: string): Promise<UIResult> {
+  const nodes = await getNodes(apiPort)
+  for (const node of nodes) {
+    if (!node.clickable || !node.enabled) continue
+    if (node.text === text || node.contentDesc.startsWith(text) || node.contentDesc === text) {
+      const b = parseBounds(node.bounds)
+      if (b) return { success: true, message: `找到 "${text}"`, bounds: b,
+        center: { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }, node }
+    }
+  }
+  return findByText(apiPort, text) // 降级
+}
+
+/** 按 resourceId 查找 */
+export async function findById(apiPort: number, id: string): Promise<UIResult> {
+  const nodes = await getNodes(apiPort)
+  for (const node of nodes) {
+    if (!node.clickable || !node.enabled) continue
+    if (node.resourceId.endsWith(id) || node.resourceId === id) {
+      const b = parseBounds(node.bounds)
+      if (b) return { success: true, message: `找到 ${id}`, bounds: b,
+        center: { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }, node }
+    }
+  }
+  return { success: false, message: `未找到 ${id}` }
+}
+
+// ============================================================
+// 提取数据
+// ============================================================
+
+export interface ExtractedData {
+  texts: string[]          // 所有可见文字
+  clickableTexts: string[] // 可点击按钮的文字
+  inputFields: UINode[]    // 输入框
+  images: UINode[]         // 图片
+  scrollableViews: boolean  // 是否可滚动
+}
+
+/** 提取当前界面所有数据 */
+export async function extractScreenData(apiPort: number): Promise<UIResult> {
+  const nodes = await getNodes(apiPort)
+  const data: ExtractedData = {
+    texts: nodes.filter(n => n.text).map(n => n.text),
+    clickableTexts: nodes.filter(n => n.clickable && (n.text || n.contentDesc))
+      .map(n => n.text || n.contentDesc),
+    inputFields: nodes.filter(n => n.className.includes('EditText')),
+    images: nodes.filter(n => n.className.includes('ImageView')),
+    scrollableViews: nodes.some(n => n.className.includes('ScrollView') || n.className.includes('ViewPager')),
+  }
+  return { success: true, message: `提取到 ${data.texts.length} 个文字, ${data.clickableTexts.length} 个按钮`, data }
+}
+
+// ============================================================
+// 执行操作
+// ============================================================
+
 export async function findAndClick(apiPort: number, text: string): Promise<UIResult> {
   const found = await findByText(apiPort, text)
-  if (!found.success) return found
-  if (!found.center) return { success: false, message: '找不到坐标' }
-  const tapRes = await execShell(apiPort, `input tap ${found.center.x} ${found.center.y}`)
-  if (!tapRes.success) return { success: false, message: `点击失败: ${tapRes.message}` }
-  return { ...found, message: `已点击 "${text}" 在 (${found.center.x}, ${found.center.y})` }
+  if (!found.success) {
+    // 也试试 content-desc 匹配
+    const found2 = await findByExactText(apiPort, text)
+    if (!found2.success) return found2
+    if (!found2.center) return { success: false, message: '无坐标' }
+    const r = await execShell(apiPort, `input tap ${found2.center.x} ${found2.center.y}`)
+    return r.success ? { ...found2, message: `已点击 (desc) "${text}"` } : { success: false, message: `点击失败: ${r.message}` }
+  }
+  if (!found.center) return { success: false, message: '无坐标' }
+  const r = await execShell(apiPort, `input tap ${found.center.x} ${found.center.y}`)
+  return r.success ? { ...found, message: `已点击 "${text}"` } : { success: false, message: `点击失败: ${r.message}` }
 }
 
-/**
- * 输入文字（不需要剪贴板！）
- */
+/** 输入文字 */
 export async function inputText(apiPort: number, text: string): Promise<UIResult> {
-  const inputRes = await findByText(apiPort, '添加标题')
-  if (inputRes.success && inputRes.center) {
-    await execShell(apiPort, `input tap ${inputRes.center.x} ${inputRes.center.y}`)
-    await new Promise(r => setTimeout(r, 300))
-  }
-  await execShell(apiPort, 'input keyevent KEYCODE_MOVE_END')
-  for (let i = 0; i < 20; i++) await execShell(apiPort, 'input keyevent KEYCODE_DEL')
-  await new Promise(r => setTimeout(r, 200))
-  const r = await execShell(apiPort, `input text "${text.replace(/"/g, '\\"').replace(/ /g, '\\ ')}"`)
+  await sleep(500)
+  const r = await execShell(apiPort, `input text "${text.replace(/"/g, '\\"')}"`)
   return r
 }
 
+/** 点击输入框并输入文字 */
+export async function tapAndInput(apiPort: number, fieldText: string, input: string): Promise<UIResult> {
+  const found = await findByText(apiPort, fieldText)
+  if (found.center) {
+    await execShell(apiPort, `input tap ${found.center.x} ${found.center.y}`)
+    await sleep(500)
+  }
+  return inputText(apiPort, input)
+}
+
 /** 滑动 */
-export async function swipe(apiPort: number, x1: number, y1: number, x2: number, y2: number, duration = 2000): Promise<UIResult> {
-  return execShell(apiPort, `input swipe ${x1} ${y1} ${x2} ${y2} ${duration}`)
+export async function swipe(apiPort: number, x1: number, y1: number, x2: number, y2: number, dur = 2000): Promise<UIResult> {
+  return execShell(apiPort, `input swipe ${x1} ${y1} ${x2} ${y2} ${dur}`)
+}
+
+/** 上滑（翻页） */
+export async function scrollUp(apiPort: number): Promise<UIResult> {
+  return execShell(apiPort, 'input swipe 540 1800 540 400 2000')
+}
+
+/** 下滑 */
+export async function scrollDown(apiPort: number): Promise<UIResult> {
+  return execShell(apiPort, 'input swipe 540 400 540 1800 2000')
+}
+
+/** 滑动直到找到某个文字 */
+export async function swipeToFind(apiPort: number, text: string, maxSwipes = 10): Promise<UIResult> {
+  for (let i = 0; i < maxSwipes; i++) {
+    const found = await findByText(apiPort, text)
+    if (found.success) return found
+    await scrollUp(apiPort)
+    await sleep(1500)
+  }
+  return { success: false, message: `滑动 ${maxSwipes} 次未找到"${text}"` }
 }
 
 /** 点击坐标 */
@@ -163,15 +241,19 @@ export async function tap(apiPort: number, x: number, y: number): Promise<UIResu
   return execShell(apiPort, `input tap ${x} ${y}`)
 }
 
-/** 启动应用 */
-export async function openApp(apiPort: number, packageName: string, activity?: string): Promise<UIResult> {
-  const intent = activity ? `${packageName}/${activity}` : packageName
-  return execShell(apiPort, `am start -n ${intent}`)
+/** 长按 */
+export async function longPress(apiPort: number, x: number, y: number, ms = 1500): Promise<UIResult> {
+  return execShell(apiPort, `input swipe ${x} ${y} ${x} ${y} ${ms}`)
 }
 
 /** 返回 */
 export async function goBack(apiPort: number): Promise<UIResult> {
   return execShell(apiPort, 'input keyevent KEYCODE_BACK')
+}
+
+/** 启动应用 */
+export async function openApp(apiPort: number, pkg: string, act?: string): Promise<UIResult> {
+  return execShell(apiPort, `am start -n ${act ? `${pkg}/${act}` : pkg}`)
 }
 
 /** 等待 */

@@ -116,6 +116,24 @@ export default function AdminDevicesPage() {
     finally { setSnapLoading(false) }
   }
 
+  const doUIAction = async (id: number, action: string, extra = {}) => {
+    setSnapLoading(true)
+    try {
+      const r = await fetch(`/api/devices/${id}/ui`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...extra }),
+      })
+      const d = await r.json()
+      showToast(d.message || action)
+      if (d.data?.data) {
+        const text = typeof d.data.data === 'string' ? d.data.data : JSON.stringify(d.data.data).slice(0, 200)
+        setShellOut(text)
+      }
+    } catch (e: any) { showToast('操作失败', 'error') }
+    finally { setSnapLoading(false) }
+  }
+
   const handleShell = async (id: number, cmd: string) => {
     if (!cmd.trim()) { showToast('请输入命令', 'error'); return }
     setShellLoading(true); setShellOut('')
@@ -237,9 +255,17 @@ export default function AdminDevicesPage() {
                         <button onClick={() => handleScreenshot(d.id)} disabled={snapLoading}
                           className="text-[10px] text-emerald-400 hover:text-emerald-300 mr-1 disabled:opacity-50">截图</button>
                         <button onClick={() => testLike(d.id)} disabled={snapLoading}
-                          className="text-[10px] text-pink-400 hover:text-pink-300 mr-1 disabled:opacity-50">测试点赞</button>
+                          className="text-[10px] text-pink-400 hover:text-pink-300 mr-1 disabled:opacity-50">点赞</button>
+                        <button onClick={() => doUIAction(d.id, 'share')}
+                          className="text-[10px] text-purple-400 hover:text-purple-300 mr-1">转发</button>
+                        <button onClick={() => doUIAction(d.id, 'extractScreen')}
+                          className="text-[10px] text-cyan-400 hover:text-cyan-300 mr-1">提取</button>
                         <button onClick={() => { setShellDevId(d.id); setExecCmd(''); setShellOut('') }}
                           className="text-[10px] text-yellow-400 hover:text-yellow-300 mr-1">Shell</button>
+                        <button onClick={() => doUIAction(d.id, 'extractVideo')}
+                          className="text-[10px] text-orange-400 hover:text-orange-300 mr-1">视频信息</button>
+                        <button onClick={() => doUIAction(d.id, 'extractComments')}
+                          className="text-[10px] text-blue-400 hover:text-blue-300 mr-1">评论</button>
                       </>)}
                       <button onClick={() => openEdit(d)} className="text-[10px] text-cyan-400 hover:text-cyan-300 mr-1">编辑</button>
                       <button onClick={() => handleDelete(d.id)} className="text-[10px] text-red-400 hover:text-red-300">删除</button>
