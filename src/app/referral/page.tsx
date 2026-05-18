@@ -45,7 +45,7 @@ export default function ReferralPage() {
       const response = await fetch('/api/referral', { credentials: 'include' });
       const data = await response.json();
       if (data.success) {
-        setReferrals(data.data);
+        setReferrals(data.data?.referrals || []);
       }
     } catch (error) {
       console.error('获取导流配置失败:', error);
