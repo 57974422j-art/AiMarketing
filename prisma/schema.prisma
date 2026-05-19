@@ -67,13 +67,7 @@ model DevicePool {
   owner    User            @relation(fields: [ownerId], references: [id])
   sessions WindowSession[]
 }
-
-/**
- * 窗口使用记录
- * Q1设备支持"用完一批关掉→再开一批"，每条记录代表一次窗口生命周期的使用。
- * 用于统计：今日窗口消耗、每日刷新次数、窗口利用率。
- * 未来 AI 接入：读取此表可分析窗口使用效率，优化发布策略。
- */
+// 窗口使用记录：Q1多窗口可后续查询分析
 model WindowSession {
   id        Int      @id @default(autoincrement())
   poolId    Int                           // 关联的 DevicePool
@@ -275,7 +269,7 @@ model InviteCode {
   id        Int      @id @default(autoincrement())
   code      String   @unique
   role      String
-  usedBy    Int?
+  usedBy    Int?     @unique
   createdBy Int
   createdAt DateTime @default(now())
   usedAt    DateTime?
@@ -380,7 +374,7 @@ model AccountGroupItem {
 model MediaAsset {
   id        Int      @id @default(autoincrement())
   title     String
-  url       String
+  url       String?
   type      String   @default("video")  // video / image / audio
   duration  Int?
   size      Int?
