@@ -363,13 +363,15 @@ model AccountGroup {
 }
 
 model AccountGroupItem {
-  id             Int      @id @default(autoincrement())
-  groupId        Int
+  id              Int      @id @default(autoincrement())
+  groupId         Int
   socialAccountId Int
-  createdAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
 
   group         AccountGroup  @relation(fields: [groupId], references: [id])
   socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id])
+
+  @@unique([groupId, socialAccountId])
 }
 
 model MediaAsset {

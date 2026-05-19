@@ -56,12 +56,12 @@ export default function AdminAccountGroupsPage() {
 
   const addToGroup = async () => {
     if (!addingTo || !selectedAccount) return
-    const r = await fetch('/api/account-groups', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId: addingTo, accountId: parseInt(selectedAccount) }) })
+    const r = await fetch('/api/account-groups', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId: addingTo, socialAccountId: parseInt(selectedAccount) }) })
     if (r.ok) { setAddingTo(null); setSelectedAccount(''); loadGroups() } else { const d = await r.json(); showToast(d.message || '添加失败', 'error') }
   }
 
-  const removeFromGroup = async (groupId: number, accountId: number) => {
-    const r = await fetch(`/api/account-groups?groupId=${groupId}&accountId=${accountId}`, { method: 'DELETE', credentials: 'include' })
+  const removeFromGroup = async (groupId: number, socialAccountId: number) => {
+    const r = await fetch(`/api/account-groups?groupId=${groupId}&socialAccountId=${socialAccountId}`, { method: 'DELETE', credentials: 'include' })
     if (r.ok) loadGroups(); else showToast('移除失败', 'error')
   }
 
@@ -109,7 +109,7 @@ export default function AdminAccountGroupsPage() {
                   <div className="flex gap-2 mb-3 p-3 bg-black/30 rounded-lg">
                     <select className="input-dark text-sm" value={selectedAccount} onChange={e => setSelectedAccount(e.target.value)}>
                       <option value="" className="bg-gray-900">选择账号...</option>
-                      {accounts.filter(a => !g.items?.some(i => i.accountId === a.id)).map(a => (
+                      {accounts.filter(a => !g.items?.some(i => i.socialAccountId === a.id)).map(a => (
                         <option key={a.id} value={a.id} className="bg-gray-900">{a.platform} - {a.username}</option>
                       ))}
                     </select>
@@ -128,7 +128,7 @@ export default function AdminAccountGroupsPage() {
                             ({item.socialAccount.status})
                           </span>
                         </span>
-                        <button onClick={() => removeFromGroup(g.id, item.accountId)} className="text-xs text-red-400 hover:text-red-300">移除</button>
+                        <button onClick={() => removeFromGroup(g.id, item.socialAccountId)} className="text-xs text-red-400 hover:text-red-300">移除</button>
                       </div>
                     ))}
                   </div>
