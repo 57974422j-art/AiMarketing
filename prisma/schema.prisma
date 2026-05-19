@@ -272,6 +272,7 @@ model InviteCode {
   role      String
   usedBy    Int?     @unique
   createdBy Int
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   usedAt    DateTime?
 
