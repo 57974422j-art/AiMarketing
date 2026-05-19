@@ -402,3 +402,28 @@ model AutomationTemplate {
   // TODO: AutomationTask 增加 templateId 字段后，可实现"从模板创建任务"。
   // 当前阶段：模板为预设参考，未被任务系统自动引用。
 }
+
+model AIAgent {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  systemPrompt String?
+  status      String   @default("active")
+  userId      Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user              User                    @relation(fields: [userId], references: [id])
+  trainingDocuments TrainingDocument[]
+}
+
+model TrainingDocument {
+  id       Int    @id @default(autoincrement())
+  agentId  Int
+  title    String
+  type     String @default("text")
+  content  String?
+  fileUrl  String?
+
+  agent AIAgent @relation(fields: [agentId], references: [id])
+}
