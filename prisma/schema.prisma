@@ -311,6 +311,7 @@ model VideoTemplate {
   thumbnail   String?
   videoUrl    String?
   isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
 
   // 【视频模板】
   // 预置视频编辑模板，用于快速生成视频。
