@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     if (!body.name || !body.ip) return NextResponse.json({ success: false, message: '名称和 IP 必填' }, { status: 400 })
 
     const device = await prisma.phyDevice.create({
-      data: { name: body.name, ip: body.ip, port: body.port || 8000, note: body.note || null, ownerId: auth.userId },
+      data: { name: body.name, ip: body.ip, port: parseInt(body.port) || 8000, note: body.note || null, ownerId: auth.userId },
     })
     return NextResponse.json({ success: true, data: device }, { status: 201 })
   } catch (e) { console.error(e); return NextResponse.json({ success: false, message: '创建失败' }, { status: 500 })
