@@ -241,15 +241,16 @@ model PublishingTask {
 }
 
 model DashboardStat {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  date      DateTime
-  followers Int      @default(0)
-  publish   Int      @default(0)
-  likes     Int      @default(0)
-  comments  Int      @default(0)
-  shares    Int      @default(0)
-  platform  String   @default("抖音")
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  date            DateTime
+  platform        String   @default("抖音")
+  followers       Int      @default(0)
+  publishCount    Int      @default(0)
+  likes           Int      @default(0)
+  comments        Int      @default(0)
+  shares          Int      @default(0)
+  engagementRate  Float    @default(0)
 
   user User @relation(fields: [userId], references: [id])
 }
