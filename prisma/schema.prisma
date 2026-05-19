@@ -243,7 +243,7 @@ model PublishingTask {
 model DashboardStat {
   id              Int      @id @default(autoincrement())
   userId          Int
-  date            DateTime
+  date            DateTime @default(now())
   platform        String   @default("抖音")
   followers       Int      @default(0)
   publishCount    Int      @default(0)
