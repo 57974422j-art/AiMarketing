@@ -409,6 +409,8 @@ model AIAgent {
   name        String
   description String?
   systemPrompt String?
+  replyStyle  String   @default("亲切")  // 亲切/专业/幽默
+  welcomeMessage String?                // 欢迎语
   status      String   @default("active")
   userId      Int
   createdAt   DateTime @default(now())
@@ -427,4 +429,39 @@ model TrainingDocument {
   fileUrl  String?
 
   agent AIAgent @relation(fields: [agentId], references: [id])
+}
+
+model DigitalHumanTemplate {
+  id          Int      @id @default(autoincrement())
+  title       String
+  script      String?
+  humanId     String?
+  humanName   String?
+  humanAvatar String?
+  humanGender String?
+  humanVoice  String?
+  background  String?
+  duration    Int      @default(30)
+  thumbnail   String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model NFCRuleTemplate {
+  id          Int      @id @default(autoincrement())
+  title       String
+  content     String?
+  nfcType     String?
+  triggerType String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model PromptTemplate {
+  id       Int      @id @default(autoincrement())
+  title    String?
+  prompt   String
+  category String?
+  isActive Boolean  @default(true)
+  createdAt DateTime @default(now())
 }
