@@ -411,8 +411,9 @@ model AIAgent {
   id          Int      @id @default(autoincrement())
   name        String
   description String?
-  systemPrompt String?
-  replyStyle  String   @default("亲切")  // 亲切/专业/幽默
+  systemPrompt   String?
+  promptTemplate String?                 // 客服prompt模板（兼容旧数据）
+  replyStyle     String   @default("亲切")  // 亲切/专业/幽默
   welcomeMessage String?                // 欢迎语
   status      String   @default("active")
   userId      Int
