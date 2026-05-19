@@ -348,9 +348,11 @@ model PoiAddress {
 
 model ScriptTemplate {
   id        Int      @id @default(autoincrement())
-  name      String
+  title     String
   content   String
   platform  String   @default("抖音")
+  type      String?
+  tags      String?                    // JSON 数组
   ownerId   Int
   createdAt DateTime @default(now())
 
