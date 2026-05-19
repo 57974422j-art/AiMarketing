@@ -55,7 +55,8 @@ export async function POST(request: NextRequest) {
     const phy = await prisma.phyDevice.findUnique({ where: { id: body.phyDeviceId } })
     if (!phy) return NextResponse.json({ success: false, message: 'Q1 设备不存在' }, { status: 404 })
 
-    const targetIP = phy.ip
+    // 通过 FRP 隧道扫描（服务器 127.0.0.1 映射到 Q1 内网）
+    const targetIP = '127.0.0.1'
 
     // 1. 并发探测所有容器
     const probes = Array.from({ length: MAX_INSTANCES }, (_, i) => probe(targetIP, i + 1))
