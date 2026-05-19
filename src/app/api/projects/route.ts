@@ -43,12 +43,11 @@ export async function GET(request: NextRequest) {
     const projects = await prisma.project.findMany({
       where: whereClause,
       orderBy: { createdAt: 'desc' },
-      include: { assets: true }
     })
     
     const projectsWithCount = projects.map(project => ({
       ...project,
-      assetCount: project.assets.length
+      assetCount: 0
     }))
     
     return NextResponse.json(projectsWithCount)
