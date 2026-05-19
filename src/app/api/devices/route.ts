@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       data: {
         name: body.name,
         groupId: body.groupId || null,
-        ownerId: body.ownerId || auth.userId,
+        ownerId: parseInt(body.ownerId) || auth.userId,
         status: 'offline',
         ip: body.ip || null,
         apiPort: body.apiPort ? parseInt(body.apiPort) : null,
