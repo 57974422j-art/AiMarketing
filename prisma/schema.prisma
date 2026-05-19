@@ -273,6 +273,7 @@ model InviteCode {
   usedBy    Int?     @unique
   createdBy Int
   isActive  Boolean  @default(true)
+  isUsed    Boolean  @default(false)
   createdAt DateTime @default(now())
   usedAt    DateTime?
 
@@ -317,14 +318,16 @@ model VideoTemplate {
 
 model CopyTemplate {
   id        Int      @id @default(autoincrement())
-  name      String
-  platform  String   @default("抖音")   // 适用平台
-  style     String   @default("种草")   // 风格：种草/带货/知识/剧情/搞笑
-  prompt    String                      // 生成提示词
-  ownerId   Int
+  title     String
+  content   String
+  platform  String   @default("抖音")
+  style     String   @default("种草")
+  tags      String?                       // JSON 数组
+  status    String   @default("pending")  // pending / approved / rejected
+  userId    Int
   createdAt DateTime @default(now())
 
-  owner User @relation(fields: [ownerId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 }
 
 model PoiAddress {
@@ -425,12 +428,13 @@ model AIAgent {
 }
 
 model TrainingDocument {
-  id       Int    @id @default(autoincrement())
-  agentId  Int
-  title    String
-  type     String @default("text")
-  content  String?
-  fileUrl  String?
+  id        Int      @id @default(autoincrement())
+  agentId   Int
+  title     String
+  type      String   @default("text")
+  content   String?
+  fileUrl   String?
+  createdAt DateTime @default(now())
 
   agent AIAgent @relation(fields: [agentId], references: [id])
 }
@@ -452,13 +456,16 @@ model DigitalHumanTemplate {
 }
 
 model NFCRuleTemplate {
-  id          Int      @id @default(autoincrement())
-  title       String
-  content     String?
-  nfcType     String?
-  triggerType String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  name          String
+  description   String?
+  contentTitle  String?
+  contentUrl    String?
+  contentValue  String?
+  nfcType       String?
+  triggerType   String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
 }
 
 model PromptTemplate {

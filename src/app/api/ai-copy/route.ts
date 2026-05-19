@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
             keywords: body.keywords || '',
             platform: body.platform || '通用',
             style: body.style || '标准',
-            resultJson: JSON.stringify(copy), // 存储解析后的对象
+            result: JSON.stringify(copy), // 存储解析后的对象
             user: { connect: { id: user.userId } }
           }
         })
