@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
     const agent = await prisma.aIAgent.create({
       data: {
         name,
+        userId: user.userId,
         welcomeMessage: welcomeMessage || '您好！',
         replyStyle: replyStyle || '亲切',
         promptTemplate: promptTemplate || '你是一个专业的客服助手，请根据提供的上下文信息回复用户的问题。',
