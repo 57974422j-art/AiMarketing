@@ -22,6 +22,7 @@ export default function AdminDevicesPage() {
   const [shellDevId, setShellDevId] = useState<number | null>(null)
   const [snapLoading, setSnapLoading] = useState(false)
   const [shellLoading, setShellLoading] = useState(false)
+  const [scanLoading, setScanLoading] = useState(false)
 
   // 表单
   const [form, setForm] = useState({ name: '', groupId: '', ownerId: '', ip: '', apiPort: '', rpaPort: '', adbPort: '', type: 'mock' })
@@ -39,6 +40,18 @@ export default function AdminDevicesPage() {
       if (dRes?.ok) { const d = await dRes.json(); setDevices(d.data || []); console.log('[设备] 列表:', d.data?.length) }
       if (uRes?.ok) { const d = await uRes.json(); setEditors(d.data || []); console.log('[设备] 用户列表:', d.data?.map((u: any) => u.username)) }
     } catch (e) { console.error('[设备] 加载失败:', e) } finally { setLoading(false) }
+  }
+
+  const scanQ1 = async () => {
+    setScanLoading(true)
+    try {
+      const r = await fetch('/api/q1-devices/scan', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+      const d = await r.json()
+      if (d.success) {
+        showToast(`扫描完成：在线 ${d.data.online} 个，新建 ${d.data.created} 个，更新 ${d.data.updated} 个`, 'success')
+        loadData()
+      } else showToast(d.message || '扫描失败', 'error')
+    } catch (e) { showToast('扫描异常', 'error') } finally { setScanLoading(false) }
   }
 
   const openEdit = (d: DeviceItem) => {
@@ -165,7 +178,12 @@ export default function AdminDevicesPage() {
             <h1 className="text-mono-lg text-white">设备管理 / DEVICES</h1>
             <p className="text-gray-400 text-sm mt-1">设备总数：<span className="text-emerald-400 font-bold">{devices.length}</span></p>
           </div>
-          <button onClick={() => { resetForm(); setEditId(0) }} className="btn-primary text-sm py-2">+ 新增设备</button>
+          <div className="flex gap-2">
+            <button onClick={scanQ1} disabled={scanLoading} className="text-sm py-2 px-4 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/30 transition disabled:opacity-50">
+              {scanLoading ? '扫描中...' : '📡 从 Q1 扫描'}
+            </button>
+            <button onClick={() => { resetForm(); setEditId(0) }} className="btn-primary text-sm py-2">+ 新增设备</button>
+          </div>
         </div>
 
         {/* 新增/编辑表单 */}
