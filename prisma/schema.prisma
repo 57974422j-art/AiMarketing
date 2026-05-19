@@ -58,12 +58,34 @@ model User {
 
 model DevicePool {
   id           Int      @id @default(autoincrement())
-  ownerId      Int                           // 所属二级客户
-  totalWindows Int      @default(0)
-  usedWindows  Int      @default(0)
+  ownerId      Int                           // 所属二级客户 (editor)
+  totalWindows Int      @default(0)          // 总窗口配额（一共可用多少个窗口）
+  usedWindows  Int      @default(0)          // 已绑定账号的窗口数
+  dailyQuota   Int      @default(12)         // 每日可刷新窗口数（Q1单次12个，关窗后可再开一批）
   createdAt    DateTime @default(now())
 
-  owner User @relation(fields: [ownerId], references: [id])
+  owner    User            @relation(fields: [ownerId], references: [id])
+  sessions WindowSession[]
+}
+
+/**
+ * 窗口使用记录
+ * Q1设备支持"用完一批关掉→再开一批"，每条记录代表一次窗口生命周期的使用。
+ * 用于统计：今日窗口消耗、每日刷新次数、窗口利用率。
+ * 未来 AI 接入：读取此表可分析窗口使用效率，优化发布策略。
+ */
+model WindowSession {
+  id        Int      @id @default(autoincrement())
+  poolId    Int                           // 关联的 DevicePool
+  deviceId  Int?                          // 关联的物理Q1设备
+  status    String   @default("active")   // active(进行中) / closed(已关闭) / expired(超时)
+  openedAt  DateTime @default(now())      // 窗口开启时间
+  closedAt  DateTime?                     // 窗口关闭时间
+  taskCount Int      @default(0)          // 此窗口执行了多少个任务
+  note      String?                       // 备注（绑定的账号、执行内容等）
+
+  pool   DevicePool @relation(fields: [poolId], references: [id])
+  device Device?    @relation(fields: [deviceId], references: [id])
 }
 
 model Device {
@@ -78,11 +100,13 @@ model Device {
   rpaPort       Int?     // RPA触控端口
   adbPort       Int?     // ADB端口
   type          String   @default("mock") // "mock" | "q1"
+  phyDeviceName String?                    // Q1物理机名称，多窗口共享同一台Q1时相同
   createdAt     DateTime @default(now())
 
   owner           User              @relation(fields: [ownerId], references: [id])
   socialAccounts  SocialAccount[]
   automationTasks AutomationTask[]
+  windowSessions  WindowSession[]
 }
 
 model SocialAccount {
@@ -198,23 +222,22 @@ model CopyTask {
   keywords   String
   platform   String
   style      String
-  resultJson String
+  result     String
   createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
 }
 
 model PublishingTask {
-  id              Int       @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   userId          Int
   accountId       Int
-  socialAccountId Int?                          // 关联 SocialAccount，桥接设备+分组系统
+  socialAccountId Int?
   videoTaskId     Int
   publishTime     DateTime?
   status          String
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   user          User          @relation(fields: [userId], references: [id])
   account       Account       @relation(fields: [accountId], references: [id])
@@ -223,88 +246,63 @@ model PublishingTask {
 }
 
 model DashboardStat {
-  id             Int      @id @default(autoincrement())
-  userId         Int
-  platform       String
-  followers      Int      @default(0)
-  publishCount   Int      @default(0)
-  engagementRate Float    @default(0)
-  date           DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  date      DateTime
+  followers Int      @default(0)
+  publish   Int      @default(0)
+  likes     Int      @default(0)
+  comments  Int      @default(0)
+  shares    Int      @default(0)
+  platform  String   @default("抖音")
 
   user User @relation(fields: [userId], references: [id])
-}
-
-model AIAgent {
-  id             Int      @id @default(autoincrement())
-  name           String
-  welcomeMessage String
-  replyStyle     String
-  promptTemplate String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  trainingDocuments TrainingDocument[]
-}
-
-model TrainingDocument {
-  id        Int      @id @default(autoincrement())
-  title     String
-  content   String
-  type      String
-  agentId   Int
-  createdAt DateTime @default(now())
-
-  agent AIAgent @relation(fields: [agentId], references: [id])
 }
 
 model Project {
   id          Int      @id @default(autoincrement())
   name        String
   description String?
+  status      String   @default("active")
   userId      Int
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  user   User    @relation(fields: [userId], references: [id])
-  assets Asset[]
-}
-
-model Asset {
-  id        Int      @id @default(autoincrement())
-  fileName  String
-  fileType  String
-  content   String?
-  url       String?
-  projectId Int
-  createdAt DateTime @default(now())
-
-  project Project @relation(fields: [projectId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 }
 
 model InviteCode {
   id        Int      @id @default(autoincrement())
   code      String   @unique
+  role      String
+  usedBy    Int?
   createdBy Int
-  role      String   @default("editor") // editor 或 end-user
-  isUsed    Boolean  @default(false)
-  isActive  Boolean  @default(true)
-  usedBy    Int?     @unique
   createdAt DateTime @default(now())
+  usedAt    DateTime?
 
-  creator User   @relation("InviteCodeCreator", fields: [createdBy], references: [id])
-  user    User?  @relation("InviteCodeUsed", fields: [usedBy], references: [id])
+  usedByUser User?  @relation("InviteCodeUsed", fields: [usedBy], references: [id])
+  creator    User   @relation("InviteCodeCreator", fields: [createdBy], references: [id])
 }
 
 model UsageLog {
   id        Int      @id @default(autoincrement())
   userId    Int
-  action    String
+  action    String   // "ai_copy" / "ai_image" / "video_edit" / "ai_chat" / "text_to_video" / "digital_human"
   count     Int      @default(1)
+  tokens    Int?     // AI消耗的token数（如使用AI文案/AI生图等）
+  model     String?  // 使用的AI模型名称（如 GPT-4o / Qwen / StableDiffusion）
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
+
+  // 【AI工具使用统计】
+  // 此表记录所有AI功能的使用情况，包括：
+  // - action: 功能类型（ai_copy=文案, ai_image=生图, video_edit=剪辑, etc.）
+  // - tokens: 每次调用的token消耗（用于统计成本）
+  // - model: 使用的模型（用于区分不同模型成本）
+  // Dashboard 通过此表计算：总使用量、Token消耗、各功能使用分布
 }
 
-// 视频生成模板
 model VideoTemplate {
   id          Int      @id @default(autoincrement())
   title       String
@@ -315,131 +313,86 @@ model VideoTemplate {
   thumbnail   String?
   videoUrl    String?
   isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+
+  // 【视频模板】
+  // 预置视频编辑模板，用于快速生成视频。
+  // 前端/AI通过此表获取可用模板列表。
 }
 
-// 数字人模板
-model DigitalHumanTemplate {
-  id          Int      @id @default(autoincrement())
-  title       String
-  script      String?
-  humanId     Int?
-  humanName   String?
-  humanAvatar String?
-  humanGender String?
-  humanVoice  String?
-  background  String?
-  duration    Int      @default(30)
-  thumbnail   String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-// NFC推广规则模板
-model NFCRuleTemplate {
-  id           Int      @id @default(autoincrement())
-  name         String
-  triggerType  String
-  description  String?
-  contentTitle String?
-  contentUrl   String?
-  contentValue String?
-  isActive     Boolean  @default(true)       // true=启用, false=禁用 (已合并原status字段)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-}
-
-// 文案模板
 model CopyTemplate {
-  id        Int       @id @default(autoincrement())
-  title     String
-  content   String
-  platform  String
-  style     String?
-  tags      String?
-  status    String    @default("pending") // pending=待审核, approved=已通过, rejected=已拒绝
-  userId    Int?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  user User? @relation(fields: [userId], references: [id])
-}
-
-// POI 地址库
-model PoiAddress {
-  id       Int    @id @default(autoincrement())
-  name     String
-  address  String
-  lat      Float
-  lng      Float
-  platform String
-  ownerId  Int
-
-  owner User @relation(fields: [ownerId], references: [id])
-
-  @@index([ownerId])
-}
-
-// 话术模板
-model ScriptTemplate {
   id        Int      @id @default(autoincrement())
-  title     String
-  type      String   // 评论/私信/直播互动
-  content   String
-  tags      String   @default("[]") // JSON
+  name      String
+  platform  String   @default("抖音")   // 适用平台
+  style     String   @default("种草")   // 风格：种草/带货/知识/剧情/搞笑
+  prompt    String                      // 生成提示词
   ownerId   Int
   createdAt DateTime @default(now())
 
   owner User @relation(fields: [ownerId], references: [id])
-
-  @@index([ownerId])
 }
 
-// 账号分组
+model PoiAddress {
+  id         Int      @id @default(autoincrement())
+  name       String
+  platform   String   @default("抖音")
+  address    String
+  lat        Float
+  lng        Float
+  category   String?
+  status     String   @default("active")
+  ownerId    Int
+  createdAt  DateTime @default(now())
+
+  owner      User              @relation(fields: [ownerId], references: [id])
+}
+
+model ScriptTemplate {
+  id        Int      @id @default(autoincrement())
+  name      String
+  content   String
+  platform  String   @default("抖音")
+  ownerId   Int
+  createdAt DateTime @default(now())
+
+  owner           User              @relation(fields: [ownerId], references: [id])
+}
+
 model AccountGroup {
   id        Int      @id @default(autoincrement())
   name      String
   ownerId   Int
   createdAt DateTime @default(now())
 
-  owner User              @relation(fields: [ownerId], references: [id])
-  items AccountGroupItem[]
-
-  @@index([ownerId])
+  owner  User               @relation(fields: [ownerId], references: [id])
+  items  AccountGroupItem[]
 }
 
-// 账号分组条目
 model AccountGroupItem {
-  id        Int          @id @default(autoincrement())
-  groupId   Int
-  accountId Int
+  id             Int      @id @default(autoincrement())
+  groupId        Int
+  socialAccountId Int
+  createdAt      DateTime @default(now())
 
-  group   AccountGroup  @relation(fields: [groupId], references: [id])
-  account SocialAccount @relation(fields: [accountId], references: [id])
-
-  @@unique([groupId, accountId])
+  group         AccountGroup  @relation(fields: [groupId], references: [id])
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id])
 }
 
-// 视频素材库
 model MediaAsset {
   id        Int      @id @default(autoincrement())
-  ossUrl    String
   title     String
-  prompt    String   @default("")
-  type      String   @default("video")
-  category  String   @default("")
-  source    String   @default("public")
+  url       String
+  type      String   @default("video")  // video / image / audio
+  duration  Int?
+  size      Int?
   ownerId   Int
   createdAt DateTime @default(now())
 
   owner User @relation(fields: [ownerId], references: [id])
 
-  @@index([ownerId])
+  // 【素材库】
+  // 存放上传的视频/图片/音频素材，供AI调用于视频合成。
 }
 
-// 自动化任务模板
 model AutomationTemplate {
   id        Int      @id @default(autoincrement())
   name      String
@@ -450,16 +403,8 @@ model AutomationTemplate {
 
   owner User @relation(fields: [ownerId], references: [id])
 
-  @@index([ownerId])
-}
-
-// 提示词模板库
-model PromptTemplate {
-  id         Int      @id @default(autoincrement())
-  title      String
-  category   String   // 海报封面/产品展示/品牌宣传/节日营销/短视频封面
-  prompt     String
-  previewUrl String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  // 【自动化任务模板】
+  // 预设任务模板，可被 AutomationTask 引用。
+  // TODO: AutomationTask 增加 templateId 字段后，可实现"从模板创建任务"。
+  // 当前阶段：模板为预设参考，未被任务系统自动引用。
 }
