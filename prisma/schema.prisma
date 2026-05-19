@@ -54,6 +54,7 @@ model User {
   mediaAssets             MediaAsset[]
   automationTemplates     AutomationTemplate[]
   copyTemplates           CopyTemplate[]
+  aiAgents                AIAgent[]
 }
 
 model DevicePool {
