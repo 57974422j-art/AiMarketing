@@ -8,8 +8,8 @@ interface SocialAccount {
 }
 
 interface GroupItem {
-  id: number; accountId: number
-  account: SocialAccount
+  id: number; socialAccountId: number
+  socialAccount: SocialAccount
 }
 
 interface AccountGroup {
@@ -122,10 +122,10 @@ export default function AdminAccountGroupsPage() {
                     {g.items.map(item => (
                       <div key={item.id} className="flex items-center justify-between bg-black/30 rounded px-3 py-2 text-sm">
                         <span className="text-gray-300">
-                          <span className="bg-white/5 px-1.5 py-0.5 rounded text-xs mr-2">{item.account.platform}</span>
-                          {item.account.username}
-                          <span className={`ml-2 text-xs ${item.account.status === '已绑定' ? 'text-emerald-400' : item.account.status === '已封禁' ? 'text-red-400' : 'text-gray-500'}`}>
-                            ({item.account.status})
+                          <span className="bg-white/5 px-1.5 py-0.5 rounded text-xs mr-2">{item.socialAccount.platform}</span>
+                          {item.socialAccount.username}
+                          <span className={`ml-2 text-xs ${item.socialAccount.status === '已绑定' ? 'text-emerald-400' : item.socialAccount.status === '已封禁' ? 'text-red-400' : 'text-gray-500'}`}>
+                            ({item.socialAccount.status})
                           </span>
                         </span>
                         <button onClick={() => removeFromGroup(g.id, item.accountId)} className="text-xs text-red-400 hover:text-red-300">移除</button>

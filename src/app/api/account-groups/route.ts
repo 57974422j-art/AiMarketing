@@ -9,7 +9,7 @@ async function getVisibleGroups(auth: { userId: number; role: string }) {
     return prisma.accountGroup.findMany({
       include: {
         owner: { select: { id: true, username: true } },
-        items: { include: { account: { select: { id: true, platform: true, username: true, status: true } } } },
+      items: { include: { socialAccount: { select: { id: true, platform: true, username: true, status: true } } } },
       },
       orderBy: { id: 'desc' },
     })
@@ -17,7 +17,7 @@ async function getVisibleGroups(auth: { userId: number; role: string }) {
   return prisma.accountGroup.findMany({
     where: { ownerId: auth.userId },
     include: {
-      items: { include: { account: { select: { id: true, platform: true, username: true, status: true } } } },
+      items: { include: { socialAccount: { select: { id: true, platform: true, username: true, status: true } } } },
     },
     orderBy: { id: 'desc' },
   })
