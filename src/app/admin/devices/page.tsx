@@ -179,9 +179,6 @@ export default function AdminDevicesPage() {
             <p className="text-gray-400 text-sm mt-1">设备总数：<span className="text-emerald-400 font-bold">{devices.length}</span></p>
           </div>
           <div className="flex gap-2">
-            <button onClick={scanQ1} disabled={scanLoading} className="text-sm py-2 px-4 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/30 transition disabled:opacity-50">
-              {scanLoading ? '扫描中...' : '📡 从 Q1 扫描'}
-            </button>
             <button onClick={() => { resetForm(); setEditId(0) }} className="btn-primary text-sm py-2">+ 新增设备</button>
           </div>
         </div>

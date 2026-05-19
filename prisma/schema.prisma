@@ -55,6 +55,7 @@ model User {
   automationTemplates     AutomationTemplate[]
   copyTemplates           CopyTemplate[]
   aiAgents                AIAgent[]
+  phyDevices              PhyDevice[]
 }
 
 model DevicePool {
@@ -96,12 +97,30 @@ model Device {
   adbPort       Int?     // ADB端口
   type          String   @default("mock") // "mock" | "q1"
   phyDeviceName String?                    // Q1物理机名称，多窗口共享同一台Q1时相同
+  phyDeviceId   Int?                       // 关联的 Q1 物理机
   createdAt     DateTime @default(now())
 
   owner           User              @relation(fields: [ownerId], references: [id])
+  phyDevice       PhyDevice?        @relation(fields: [phyDeviceId], references: [id])
   socialAccounts  SocialAccount[]
   automationTasks AutomationTask[]
   windowSessions  WindowSession[]
+}
+
+// Q1 物理机，一台 Q1 设备对应多条 Device 容器记录
+model PhyDevice {
+  id        Int      @id @default(autoincrement())
+  name      String                       // 如 "办公室Q1"
+  ip        String                       // 192.168.1.14
+  port      Int      @default(8000)      // 管理端口
+  note      String?                      // 备注
+  status    String   @default("online")  // online / offline
+  ownerId   Int                          // 管理员 ID
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User     @relation(fields: [ownerId], references: [id])
+  devices Device[]
 }
 
 model SocialAccount {
