@@ -5,7 +5,7 @@ import { showToast } from '@/components/Toast'
 
 interface InviteItem {
   id: number; code: string; role: string; isUsed: boolean; isActive: boolean
-  createdAt: string; user: { username: string } | null
+  createdAt: string; usedByUser: { username: string } | null; creator: { username: string } | null
 }
 
 export default function AdminInviteCodesPage() {
@@ -96,7 +96,7 @@ export default function AdminInviteCodesPage() {
                       : item.isActive ? <span className="text-emerald-400 text-xs">有效</span>
                       : <span className="text-red-400 text-xs">已禁用</span>}
                     </td>
-                    <td className="py-3 pr-4 text-gray-400">{item.user?.username || '-'}</td>
+                    <td className="py-3 pr-4 text-gray-400">{item.usedByUser?.username || (item.isUsed ? '未知' : '-')}</td>
                     <td className="py-3 pr-4 text-gray-500 text-xs">{new Date(item.createdAt).toLocaleString()}</td>
                     <td className="py-3 pr-4">
                       {!item.isUsed && (

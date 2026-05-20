@@ -178,6 +178,25 @@ model TaskLog {
   task AutomationTask @relation(fields: [taskId], references: [id])
 }
 
+// 每账号每设备独立任务配置
+model TaskConfig {
+  id          Int      @id @default(autoincrement())
+  accountId   Int
+  deviceId    Int?
+  platform    String
+  keywords    String   @default("[]")     // ["火锅","美业","减肥"]
+  timeStart   String   @default("09:00")
+  timeEnd     String   @default("23:00")
+  actions     String   @default("[]")     // ["search","like","comment","follow","dm"]
+  leadGen     String   @default("{}")     // 获客配置（预留）
+  isActive    Boolean  @default(true)
+  createdBy   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator User @relation(fields: [createdBy], references: [id])
+}
+
 model Team {
   id        Int      @id @default(autoincrement())
   name      String
