@@ -94,29 +94,33 @@ export default function AutomationExecPage() {
                         <span className="text-xs text-gray-500">端口: {dev.apiPort}</span>
                       </div>
 
-                      {/* 绑定账号 */}
-                      {boundAccounts.map(acct => {
-                        const tmpl = templates.find((t: any) => {
-                          try { const p = JSON.parse(t.params || '{}'); return p.accountId === acct.id } catch { return false }
-                        })
-                        const tmplActions = tmpl ? (() => { try { return JSON.parse(tmpl.params).actions } catch { return [] } })() : []
-                        return (
-                          <div key={acct.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2 mb-1.5">
-                            <div className="flex items-center gap-2 text-xs">
-                              <span className="text-gray-300">{acct.platform === '抖音' ? '🎵' : acct.platform === '快手' ? '📹' : '📱'}</span>
-                              <span className="text-white">{acct.username}</span>
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] ${acct.status === '已绑定' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-500/20 text-gray-500'}`}>{acct.status}</span>
-                              {tmplActions.length > 0 && <span className="text-gray-500">| {tmplActions.length} 个动作</span>}
-                            </div>
-                            <button onClick={() => execute(dev.id, acct.id, tmplActions)}
-                              disabled={executing.size > 0 || tmplActions.length === 0}
-                              className="text-xs px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 disabled:opacity-30">
-                              {executing.size > 0 ? '执行中...' : '▶ 执行'}
-                            </button>
+                      {/* 平台状态芯片 */}
+                      {boundAccounts.length > 0 && (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {boundAccounts.map(acct => {
+                              const st = acct.status
+                              const stColor = st === '已绑定' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                : st === '登录异常' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                                : st === '已封禁' ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                                : 'bg-gray-500/20 text-gray-500 border-gray-500/30'
+                              const icon = acct.platform === '抖音' ? '🎵' : acct.platform === '快手' ? '📹' : acct.platform === '小红书' ? '📕' : acct.platform === '视频号' ? '💚' : acct.platform === '微博' ? '📢' : '📺'
+                              return (
+                                <span key={acct.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border ${stColor}`} title={`${acct.platform} / ${acct.username}`}>
+                                  {icon} {acct.platform}
+                                </span>
+                              )
+                            })}
                           </div>
-                        )
-                      })}
-                      {boundAccounts.length === 0 && <p className="text-xs text-gray-600 text-center py-1">暂无绑定账号</p>}
+                          <button onClick={() => {
+                            const first = boundAccounts[0]
+                            execute(dev.id, first.id, [])
+                          }} disabled={executing.size > 0}
+                            className="text-xs px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 disabled:opacity-30">
+                            ▶ 执行
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
