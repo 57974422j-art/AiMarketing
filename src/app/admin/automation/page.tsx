@@ -4,7 +4,7 @@ import { useAuth } from '@/app/providers'
 import { showToast } from '@/components/Toast'
 
 interface DeviceItem { id: number; name: string; status: string; apiPort?: number; type?: string }
-interface AccountItem { id: number; platform: string; username: string; status: string; deviceId: number | null }
+interface AccountItem { id: number; platform: string; accountName: string; status: string; deviceId: number | null; device?: { id: number; name: string } | null; user?: { username: string } | null }
 
 interface ExecRecord {
   id: number; deviceName: string; username: string; platform: string
