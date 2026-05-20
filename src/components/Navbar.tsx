@@ -91,11 +91,9 @@ export default function Navbar() {
             <Link href="/ai-tools" className="px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-all text-sm font-medium">
               🛠 AI 工具
             </Link>
-            {user?.role !== 'end-user' && (
-              <Link href="/accounts" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
-                {t.nav.accounts}
-              </Link>
-            )}
+            <Link href="/accounts" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
+              {t.nav.accounts}
+            </Link>
             {(user?.role === 'admin' || user?.role === 'editor') && (
               <Link href="/admin/" className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm font-bold">
                 ⚙ 管理中心
