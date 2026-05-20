@@ -51,7 +51,7 @@ export default function AutomationExecPage() {
       // 记录执行结果
       setRecords(prev => [{
         id: Date.now(), deviceName: devices.find(d => d.id === deviceId)?.name || '',
-        username: accounts.find(a => a.id === accountId)?.username || '',
+        username: accounts.find(a => a.id === accountId)?.accountName || '',
         platform: accounts.find(a => a.id === accountId)?.platform || '',
         actions, result: d.success ? 'success' : 'fail', time: new Date().toLocaleTimeString(),
       }, ...prev])
