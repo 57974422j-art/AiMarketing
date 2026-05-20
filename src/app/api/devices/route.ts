@@ -112,7 +112,7 @@ export async function PUT(request: NextRequest) {
     const data: any = {}
     if (name !== undefined) data.name = name
     if (groupId !== undefined) data.groupId = groupId
-    if (ownerId !== undefined) data.ownerId = ownerId
+    if (ownerId !== undefined) data.ownerId = parseInt(ownerId)
     if (ip !== undefined) data.ip = ip
     if (apiPort !== undefined) data.apiPort = parseInt(apiPort)
     if (rpaPort !== undefined) data.rpaPort = parseInt(rpaPort)
