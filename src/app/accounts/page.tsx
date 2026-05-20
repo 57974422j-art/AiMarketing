@@ -1,422 +1,272 @@
-'use client';
+'use client'
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/app/providers'
+import { showToast } from '@/components/Toast'
+
+const PLATFORMS = [
+  { key: 'douyin',    label: '抖音',       icon: '🎵', color: 'from-pink-500/10 to-purple-500/10', border: 'border-pink-500/30', hover: 'hover:bg-pink-500/10' },
+  { key: 'kuaishou',  label: '快手',       icon: '📹', color: 'from-yellow-500/10 to-orange-500/10', border: 'border-yellow-500/30', hover: 'hover:bg-yellow-500/10' },
+  { key: 'xiaohongshu', label: '小红书',    icon: '📕', color: 'from-red-500/10 to-orange-500/10', border: 'border-red-500/30', hover: 'hover:bg-red-500/10' },
+  { key: 'shipinhao', label: '视频号',      icon: '💚', color: 'from-green-500/10 to-emerald-500/10', border: 'border-green-500/30', hover: 'hover:bg-green-500/10' },
+  { key: 'weibo',     label: '微博',       icon: '📢', color: 'from-orange-500/10 to-red-500/10', border: 'border-orange-500/30', hover: 'hover:bg-orange-500/10' },
+  { key: 'bilibili',  label: 'B站',        icon: '📺', color: 'from-blue-500/10 to-cyan-500/10', border: 'border-blue-500/30', hover: 'hover:bg-blue-500/10' },
+]
+
+const BIND_TYPES = [
+  { key: 'device',    label: '真机群控',     desc: 'Q1 手机群控',     icon: '📱', color: 'from-green-500/20 to-emerald-500/20', border: 'border-green-500/30', accent: 'text-green-400' },
+  { key: 'manual',    label: '指纹浏览器',   desc: '模拟器/云手机',   icon: '🖥️', color: 'from-yellow-500/20 to-orange-500/20', border: 'border-yellow-500/30', accent: 'text-yellow-400' },
+  { key: 'official',  label: '官方API',      desc: '平台开放接口',   icon: '🔗', color: 'from-blue-500/20 to-cyan-500/20', border: 'border-blue-500/30', accent: 'text-blue-400' },
+]
 
 interface Account {
-  id: number
-  platform: string
-  accountName: string
-  accountId: string
-  isBound: boolean
-  bindType: 'official' | 'manual' | 'device'
-  createdAt: string
+  id: number; platform: string; accountName: string; accountId: string
+  isBound: boolean; bindType: string; remark: string; createdAt: string
 }
 
 export default function AccountsPage() {
   const { user, loading: authLoading } = useAuth()
   const [accounts, setAccounts] = useState<Account[]>([])
-  const [selectedAccounts, setSelectedAccounts] = useState<number[]>([])
-  const [isPublishing, setIsPublishing] = useState(false)
-  const [showAddModal, setShowAddModal] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [showAdd, setShowAdd] = useState(false)
 
-  const [newAccount, setNewAccount] = useState({
-    accountName: '',
-    platform: 'douyin',
-    accountId: '',
-    bindType: 'official' as 'official' | 'manual' | 'device',
-    remark: ''
-  })
+  // 表单
+  const [nickname, setNickname] = useState('')
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
+  const [bindType, setBindType] = useState('device')
+  const [profileLink, setProfileLink] = useState('')
+  const [remark, setRemark] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  // 工作台弹窗
+  const [workbench, setWorkbench] = useState<Account | null>(null)
 
   useEffect(() => {
-    if (authLoading) return // 等待认证完成
-    if (user?.role === 'end-user') {
-      setLoading(false) // 确保loading结束，显示权限提示
-      return
-    }
-
-    loadAccounts()
+    if (!authLoading && user) load()
+    else if (!authLoading) setLoading(false)
   }, [authLoading, user])
 
-  const loadAccounts = async () => {
-    try {
-      const response = await fetch('/api/accounts', { credentials: 'include' })
-      const data = await response.json()
-      setAccounts(Array.isArray(data) ? data : [])
-    } catch (error) {
-      console.error('加载账号列表失败:', error)
-      setAccounts([])
-    } finally {
-      setLoading(false)
-    }
+  const load = async () => {
+    try { const r = await fetch('/api/accounts', { credentials: 'include' }); if (r.ok) setAccounts(Array.isArray(await r.json()) ? await r.json() : (await r.json()).data || []) }
+    catch {} finally { setLoading(false) }
   }
 
-  const handleToggleAccount = (id: number) => {
-    setSelectedAccounts(prev => 
-      prev.includes(id) 
-        ? prev.filter(accountId => accountId !== id)
-        : [...prev, id]
-    )
+  const togglePlatform = (key: string) => {
+    setSelectedPlatforms(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
   }
 
-  const handleAddAccount = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!user?.id) {
-      alert('请先登录 / Please login')
-      return
-    }
+  const handleSubmit = async () => {
+    if (!nickname.trim()) { showToast('请输入账号昵称', 'error'); return }
+    if (selectedPlatforms.length === 0) { showToast('请选择至少一个平台', 'error'); return }
+    setSubmitting(true)
 
-    try {
-      const response = await fetch('/api/accounts', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newAccount,
-          userId: user.id
+    for (const platform of selectedPlatforms) {
+      try {
+        await fetch('/api/accounts', {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountName: nickname.trim(), platform, accountId: profileLink.trim(), bindType, remark: remark.trim() }),
         })
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        setShowAddModal(false)
-        setNewAccount({ accountName: '', platform: 'douyin', accountId: '', bindType: 'official', remark: '' })
-        loadAccounts()
-        alert('账号添加成功 / Account added successfully')
-      } else {
-        alert(data.message || '添加失败 / Add failed')
-      }
-    } catch (error) {
-      console.error('添加账号失败:', error)
-      alert('添加失败 / Add failed')
+      } catch {}
     }
+
+    showToast(`已登记 ${selectedPlatforms.length} 个账号`, 'success')
+    setShowAdd(false); setNickname(''); setSelectedPlatforms([]); setBindType('device'); setProfileLink(''); setRemark('')
+    load()
+    setSubmitting(false)
   }
 
-  const handleDeleteAccount = async (id: number) => {
-    if (!confirm('确定要解绑此账号吗？/ Unbind this account?')) return
+  const handleDelete = async (id: number) => {
+    if (!confirm('确定删除此账号？')) return
+    const r = await fetch(`/api/accounts?id=${id}`, { method: 'DELETE', credentials: 'include' })
+    if (r.ok) { showToast('已删除', 'success'); load() }
+    else showToast('删除失败', 'error')
+  }
 
-    try {
-      const response = await fetch(`/api/accounts?id=${id}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        loadAccounts()
-        alert('账号解绑成功 / Account unbound successfully')
-      } else {
-        alert(data.message || '解绑失败 / Unbind failed')
-      }
-    } catch (error) {
-      console.error('解绑账号失败:', error)
-      alert('解绑失败 / Unbind failed')
+  // 快捷登录链接
+  const getLoginUrl = (platform: string) => {
+    const urls: Record<string, string> = {
+      douyin: 'https://www.douyin.com/login',
+      kuaishou: 'https://www.kuaishou.com/login',
+      xiaohongshu: 'https://www.xiaohongshu.com/login',
+      shipinhao: 'https://channels.weixin.qq.com/login',
+      weibo: 'https://weibo.com/login',
+      bilibili: 'https://www.bilibili.com/login',
     }
+    return urls[platform] || '#'
   }
 
-  const handlePublish = () => {
-    setIsPublishing(true)
-    setTimeout(() => {
-      setIsPublishing(false)
-      alert('发布成功！/ Published successfully!')
-    }, 1500)
-  }
+  const platformMeta = (key: string) => PLATFORMS.find(p => p.key === key)
 
-  const getPlatformName = (platform: string) => {
-    const map: Record<string, { cn: string; en: string }> = {
-      'douyin': { cn: '抖音', en: 'DOUYIN' },
-      'kuaishou': { cn: '快手', en: 'KUAISHOU' },
-      'xiaohongshu': { cn: '小红书', en: 'XIAOHONGSHU' }
-    }
-    const p = map[platform] || { cn: platform, en: platform }
-    return <><span>{p.cn}</span><span className="text-xs opacity-50 ml-1">{p.en}</span></>
-  }
-
-  const getBindTypeName = (bindType: string) => {
-    const map: Record<string, { cn: string; en: string }> = {
-      'official': { cn: '官方API', en: 'OFFICIAL API' },
-      'manual': { cn: '指纹浏览器', en: 'FINGERPRINT' },
-      'device': { cn: '真机群控', en: 'DEVICE' }
-    }
-    const t = map[bindType] || { cn: bindType, en: bindType }
-    return <><span className="text-xs">{t.cn}</span><span className="opacity-60 ml-1">{t.en}</span></>
-  }
-
-  const getBindTypeColor = (bindType: string) => {
-    const map: Record<string, string> = {
-      'official': 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
-      'manual': 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
-      'device': 'bg-green-500/20 text-green-400 border border-green-500/30'
-    }
-    return map[bindType] || 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400"></div>
-          <p className="mt-2 text-gray-400 text-sm">
-            <span>加载中</span>
-            <span className="text-xs opacity-50 ml-1">LOADING...</span>
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  if (user?.role === 'end-user') {
-    return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-red-400 text-center">
-          <p className="text-xl mb-2">无权限访问</p>
-          <p className="text-gray-500 text-sm">终端客户无权查看账号管理</p>
-        </div>
-      </div>
-    )
-  }
+  if (authLoading || loading) return <Loading />
 
   return (
     <div className="min-h-screen bg-gray-950">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-8">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* 标题 */}
+        <div className="flex items-center justify-between mb-8">
           <div>
-            <p className="text-label mb-2">平台管理 / PLATFORM MANAGEMENT</p>
-            <h1 className="text-mono-lg text-white">账号管理 / ACCOUNTS</h1>
+            <p className="text-label mb-2">平台管理 / ACCOUNTS</p>
+            <h1 className="text-mono-lg text-white">
+              {user?.role === 'end-user' ? '我的账号 / MY ACCOUNTS' : '账号管理 / ACCOUNTS'}
+            </h1>
+            <p className="text-gray-400 text-sm mt-1">
+              共 <span className="text-emerald-400">{accounts.length}</span> 个账号
+              {user?.role === 'end-user' && ' · 登记后管理员会帮你绑定设备'}
+            </p>
           </div>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600"
-          >
-            <span>+ 添加账号</span>
-            <span className="text-xs opacity-70 ml-1">ADD ACCOUNT</span>
+          <button onClick={() => setShowAdd(true)} className="btn-primary text-sm py-2">
+            + 登记账号
           </button>
         </div>
 
-        <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-label">已绑定账号 / BOUND ACCOUNTS</h2>
+        {/* 账号列表 */}
+        {accounts.length === 0 ? (
+          <div className="card-glass p-12 text-center text-gray-500">
+            <p className="text-lg mb-2">暂无账号</p>
+            <p className="text-xs">点击右上角「登记账号」添加</p>
           </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {accounts.map(acct => {
+              const pm = platformMeta(acct.platform)
+              const bindLabel = BIND_TYPES.find(b => b.key === acct.bindType)
+              return (
+                <div key={acct.id} className={`card-glass p-4 border-l-4 ${acct.isBound ? 'border-l-emerald-500' : 'border-l-gray-500'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{pm?.icon || '📱'}</span>
+                      <div>
+                        <span className="text-white font-medium text-sm">{acct.accountName}</span>
+                        <span className="text-xs text-gray-500 ml-2">{pm?.label || acct.platform}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => handleDelete(acct.id)} className="text-xs text-red-400 hover:text-red-300">删除</button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${bindLabel?.border || 'border-gray-500/30'} ${bindLabel?.accent || 'text-gray-500'} border`}>
+                      {bindLabel?.label || acct.bindType}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${acct.isBound ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-500/20 text-gray-500'}`}>
+                      {acct.isBound ? '已绑定' : '未绑定'}
+                    </span>
+                  </div>
+                  {acct.accountId && <p className="text-[10px] text-gray-600 truncate mb-2">🔗 {acct.accountId}</p>}
+                  {acct.remark && <p className="text-[10px] text-gray-600 italic mb-2">📝 {acct.remark}</p>}
 
-          {accounts.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <p className="text-sm">
-                <span>暂无绑定账号</span>
-                <span className="text-xs opacity-50 ml-1">/ NO BOUND ACCOUNTS</span>
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-white/10">
-                  <thead className="bg-white/5">
-                    <tr>
-                      <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                        <input
-                          type="checkbox"
-                          className="rounded border-white/10 text-emerald-500 focus:ring-emerald-500 bg-transparent"
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedAccounts(accounts.map(account => account.id))
-                            } else {
-                              setSelectedAccounts([])
-                            }
-                          }}
-                        />
-                      </th>
-                      <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                        <span>平台</span>
-                        <span className="opacity-50 ml-1">PLATFORM</span>
-                      </th>
-                      <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                        <span>账号名称</span>
-                        <span className="opacity-50 ml-1">ACCOUNT</span>
-                      </th>
-                      <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                        <span>绑定类型</span>
-                        <span className="opacity-50 ml-1">TYPE</span>
-                      </th>
-                      <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                        <span>状态</span>
-                        <span className="opacity-50 ml-1">STATUS</span>
-                      </th>
-                      <th scope="col" className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                        <span>操作</span>
-                        <span className="opacity-50 ml-1">ACTION</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/10">
-                    {accounts.map((account) => (
-                      <tr key={account.id} className="hover:bg-white/5">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <input
-                            type="checkbox"
-                            checked={selectedAccounts.includes(account.id)}
-                            onChange={() => handleToggleAccount(account.id)}
-                            className="rounded border-white/10 text-emerald-500 focus:ring-emerald-500 bg-transparent"
-                          />
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
-                          {getPlatformName(account.platform)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                          {account.accountName}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getBindTypeColor(account.bindType || 'official')}`}>
-                            {getBindTypeName(account.bindType || 'official')}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${account.isBound ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'}`}>
-                            {account.isBound ? (
-                              <><span>已绑定</span><span className="opacity-60 ml-1">BOUND</span></>
-                            ) : (
-                              <><span>未绑定</span><span className="opacity-60 ml-1">UNBOUND</span></>
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <button
-                            onClick={() => handleDeleteAccount(account.id)}
-                            className="text-red-400 hover:text-red-300"
-                          >
-                            <span>解绑</span>
-                            <span className="text-xs opacity-50 ml-1">UNBIND</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  {/* 工作台入口 */}
+                  <button onClick={() => setWorkbench(acct)}
+                    className={`w-full text-xs py-1.5 mt-1 rounded-lg border transition ${
+                      acct.isBound
+                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30'
+                        : 'bg-white/5 text-gray-500 border-white/10 cursor-not-allowed'
+                    }`}
+                    disabled={!acct.isBound}>
+                    🚀 进入工作台
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── 登记弹窗 ── */}
+        {showAdd && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowAdd(false)}>
+            <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <h3 className="text-white font-bold text-lg mb-1">📝 登记账号</h3>
+              <p className="text-xs text-gray-500 mb-5">登记后管理员会帮你绑定设备并填密码</p>
+
+              {/* 昵称 */}
+              <label className="block text-xs text-gray-400 mb-1">昵称 <span className="text-red-400">*</span></label>
+              <input className="input-dark w-full text-sm mb-4" placeholder="如：我的抖音号" value={nickname} onChange={e => setNickname(e.target.value)} />
+
+              {/* 平台多选 */}
+              <label className="block text-xs text-gray-400 mb-2">选择平台 <span className="text-red-400">*</span> <span className="text-gray-600">（可多选）</span></label>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {PLATFORMS.map(p => (
+                  <button key={p.key} onClick={() => togglePlatform(p.key)}
+                    className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-xs transition bg-gradient-to-br ${
+                      selectedPlatforms.includes(p.key)
+                        ? `${p.color} ${p.border} text-white`
+                        : 'border-white/10 text-gray-500 hover:bg-white/5'
+                    }`}>
+                    <span className="text-lg">{p.icon}</span>
+                    <span>{p.label}</span>
+                  </button>
+                ))}
               </div>
 
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={handlePublish}
-                  disabled={isPublishing || selectedAccounts.length === 0}
-                  className="px-6 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed"
-                >
-                  {isPublishing ? (
-                    <span>发布中... / PUBLISHING...</span>
-                  ) : (
-                    <span>发布到 {selectedAccounts.length} 个账号 / PUBLISH TO {selectedAccounts.length} ACCOUNTS</span>
-                  )}
+              {/* 绑定类型 */}
+              <label className="block text-xs text-gray-400 mb-2">绑定方式</label>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {BIND_TYPES.map(bt => (
+                  <button key={bt.key} onClick={() => setBindType(bt.key)}
+                    className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-xs transition ${
+                      bindType === bt.key
+                        ? `${bt.color} ${bt.border} ${bt.accent}`
+                        : 'border-white/10 text-gray-500 hover:bg-white/5'
+                    }`}>
+                    <span className="text-lg">{bt.icon}</span>
+                    <span className="font-medium">{bt.label}</span>
+                    <span className="text-[10px] opacity-60">{bt.desc}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* 主页链接 */}
+              <label className="block text-xs text-gray-400 mb-1">主页链接</label>
+              <input className="input-dark w-full text-sm mb-4" type="url" placeholder="https://www.douyin.com/user/..." value={profileLink} onChange={e => setProfileLink(e.target.value)} />
+
+              {/* 备注 */}
+              <label className="block text-xs text-gray-400 mb-1">备注</label>
+              <textarea className="input-dark w-full text-sm mb-5 h-16" placeholder="可选，如：引流号、客服号" value={remark} onChange={e => setRemark(e.target.value)} />
+
+              <div className="flex gap-3">
+                <button onClick={() => setShowAdd(false)} className="flex-1 py-2.5 border border-white/10 text-gray-400 rounded-xl hover:bg-white/10 text-sm">取消</button>
+                <button onClick={handleSubmit} disabled={submitting || !nickname.trim() || selectedPlatforms.length === 0}
+                  className="flex-1 py-2.5 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 text-sm font-medium">
+                  {submitting ? '提交中...' : `✅ 登记 (${selectedPlatforms.length}个平台)`}
                 </button>
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
 
-        {showAddModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-            <div className="bg-gray-900 rounded-2xl p-6 w-full max-w-md border border-white/10">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                <span>添加账号</span>
-                <span className="text-xs opacity-50 ml-1">ADD ACCOUNT</span>
-              </h3>
-              <form onSubmit={handleAddAccount} className="space-y-4">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    <span>昵称</span>
-                    <span className="text-xs opacity-50 ml-1">NICKNAME *</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newAccount.accountName}
-                    onChange={(e) => setNewAccount({ ...newAccount, accountName: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50"
-                    placeholder="账号昵称 / Account nickname..."
-                  />
+        {/* ── 工作台弹窗 ── */}
+        {workbench && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setWorkbench(null)}>
+            <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">{platformMeta(workbench.platform)?.icon || '📱'}</span>
+                  <div>
+                    <h3 className="text-white font-bold">{workbench.accountName}</h3>
+                    <p className="text-xs text-gray-500">{platformMeta(workbench.platform)?.label || workbench.platform}</p>
+                  </div>
                 </div>
+                <button onClick={() => setWorkbench(null)} className="text-gray-500 hover:text-white text-xl">&times;</button>
+              </div>
 
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    <span>平台</span>
-                    <span className="text-xs opacity-50 ml-1">PLATFORM *</span>
-                  </label>
-                  <select
-                    value={newAccount.platform}
-                    onChange={(e) => setNewAccount({ ...newAccount, platform: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50"
-                  >
-                    <option value="douyin" className="bg-gray-900">抖音 / DOUYIN</option>
-                    <option value="kuaishou" className="bg-gray-900">快手 / KUAISHOU</option>
-                    <option value="xiaohongshu" className="bg-gray-900">小红书 / XIAOHONGSHU</option>
-                  </select>
-                </div>
+              <div className="space-y-2">
+                <a href={getLoginUrl(workbench.platform)} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 px-4 py-3 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-sm hover:bg-emerald-500/30 transition block text-center">
+                  🔑 前往 {platformMeta(workbench.platform)?.label || workbench.platform} 登录
+                </a>
+                <a href="/admin/social-accounts" className="flex items-center gap-3 px-4 py-3 bg-white/5 text-gray-400 border border-white/10 rounded-xl text-sm hover:bg-white/10 transition block text-center">
+                  ⚙️ 账号设置（管理员用）
+                </a>
+              </div>
 
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    <span>绑定类型</span>
-                    <span className="text-xs opacity-50 ml-1">BIND TYPE *</span>
-                  </label>
-                  <select
-                    value={newAccount.bindType}
-                    onChange={(e) => setNewAccount({ ...newAccount, bindType: e.target.value as 'official' | 'manual' | 'device' })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50"
-                  >
-                    <option value="official" className="bg-gray-900">官方API / OFFICIAL API</option>
-                    <option value="manual" className="bg-gray-900">指纹浏览器 / FINGERPRINT</option>
-                    <option value="device" className="bg-gray-900">真机群控 / DEVICE</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    <span>主页链接</span>
-                    <span className="text-xs opacity-50 ml-1">PROFILE LINK</span>
-                  </label>
-                  <input
-                    type="url"
-                    value={newAccount.accountId}
-                    onChange={(e) => setNewAccount({ ...newAccount, accountId: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
-                    placeholder="https://..."
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    <span>备注</span>
-                    <span className="text-xs opacity-50 ml-1">REMARK</span>
-                  </label>
-                  <textarea
-                    value={newAccount.remark}
-                    onChange={(e) => setNewAccount({ ...newAccount, remark: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
-                    rows={3}
-                    placeholder="可选备注 / Optional remark..."
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddModal(false)}
-                    className="flex-1 px-4 py-2 border border-white/10 text-gray-400 rounded-xl hover:bg-white/10"
-                  >
-                    <span>取消</span>
-                    <span className="text-xs opacity-50 ml-1">CANCEL</span>
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600"
-                  >
-                    <span>添加</span>
-                    <span className="text-xs opacity-70 ml-1">ADD</span>
-                  </button>
-                </div>
-              </form>
+              <p className="text-[10px] text-gray-600 text-center mt-4">
+                登录后通知管理员绑定设备即可使用
+              </p>
             </div>
           </div>
         )}
       </div>
     </div>
   )
+}
+
+function Loading() {
+  return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400" /></div>
 }

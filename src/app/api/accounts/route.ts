@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { accountName, platform, accountId } = body
+    const { accountName, platform, accountId, bindType, remark } = body
 
     if (!accountName || !platform) {
       return NextResponse.json(
@@ -66,6 +66,8 @@ export async function POST(request: NextRequest) {
         accountName,
         platform,
         accountId: accountId || '',
+        bindType: bindType || 'device',
+        remark: remark || '',
         userId: user.userId as any,
         isBound: true
       }
@@ -97,8 +99,8 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // editor 和 admin 都能删除
-    if (!['editor', 'admin'].includes(user.role)) {
+    // 所有角色都能删除自己登记的账号（end-user 也可删除）
+    if (!['editor', 'admin', 'end-user'].includes(user.role)) {
       return NextResponse.json(
         { success: false, message: '没有删除权限' },
         { status: 403 }
