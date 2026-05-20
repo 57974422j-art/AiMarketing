@@ -103,6 +103,7 @@ model Device {
 
   owner           User              @relation(fields: [ownerId], references: [id])
   phyDevice       PhyDevice?        @relation(fields: [phyDeviceId], references: [id])
+  accounts        Account[]
   socialAccounts  SocialAccount[]
   automationTasks AutomationTask[]
   windowSessions  WindowSession[]
@@ -228,12 +229,15 @@ model Account {
   bindType    String   @default("device")  // device(真机群控) / manual(指纹浏览器) / official(官方API)
   password    String   @default("")
   mobile      String   @default("")          // 手机号（绑定用）
+  deviceId    Int?                           // 绑定的设备
+  status      String   @default("未绑定")    // 未绑定/已绑定/登录异常/已封禁
   remark      String   @default("")
   userId      Int
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   user            User             @relation(fields: [userId], references: [id])
+  device          Device?          @relation(fields: [deviceId], references: [id])
   publishingTasks PublishingTask[]
 }
 

@@ -29,11 +29,11 @@ export default function AutomationExecPage() {
     try {
       const [dRes, aRes, tRes] = await Promise.all([
         fetch('/api/devices', { credentials: 'include' }),
-        fetch('/api/social-accounts', { credentials: 'include' }),
+        fetch('/api/accounts', { credentials: 'include' }),
         fetch('/api/automation-templates', { credentials: 'include' }),
       ])
       if (dRes.ok) setDevices(((await dRes.json()).data || []).filter((d: any) => d.type === 'q1'))
-      if (aRes.ok) setAccounts((await aRes.json()).data || [])
+      if (aRes.ok) { const d = await aRes.json(); setAccounts(d.data || []) }
       if (tRes.ok) setTemplates((await tRes.json()).data || [])
     } catch {} finally { setLoading(false) }
   }
@@ -82,7 +82,7 @@ export default function AutomationExecPage() {
             ) : (
               <div className="grid grid-cols-1 gap-3">
                 {devices.map(dev => {
-                  const boundAccounts = accounts.filter(a => a.deviceId === dev.id)
+                  const boundAccounts = accounts.filter((a: any) => a.device?.id === dev.id || a.deviceId === dev.id)
                   return (
                     <div key={dev.id} className={`card-glass p-4 border-l-4 ${dev.status === 'online' ? 'border-l-emerald-500' : 'border-l-gray-500'}`}>
                       <div className="flex items-center justify-between mb-3">
@@ -95,19 +95,19 @@ export default function AutomationExecPage() {
                       </div>
 
                       {/* 平台状态芯片 */}
-                      {boundAccounts.length > 0 && (
+                      {boundAccounts.filter(a => a.status === '已绑定').length > 0 && (
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            {boundAccounts.map(acct => {
-                              const st = acct.status
-                              const stColor = st === '已绑定' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                : st === '登录异常' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-                                : st === '已封禁' ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                            {boundAccounts.filter(a => a.status === '已绑定').map(acct => {
+                              const platformLabel: Record<string, string> = { douyin: '抖音', kuaishou: '快手', xiaohongshu: '小红书', shipinhao: '视频号', weibo: '微博', bilibili: 'B站' }
+                              const platformIcon: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
+                              const stColor = acct.status === '已绑定' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                : acct.status === '登录异常' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                                : acct.status === '已封禁' ? 'bg-red-500/20 text-red-400 border-red-500/30'
                                 : 'bg-gray-500/20 text-gray-500 border-gray-500/30'
-                              const icon = acct.platform === '抖音' ? '🎵' : acct.platform === '快手' ? '📹' : acct.platform === '小红书' ? '📕' : acct.platform === '视频号' ? '💚' : acct.platform === '微博' ? '📢' : '📺'
                               return (
-                                <span key={acct.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border ${stColor}`} title={`${acct.platform} / ${acct.username}`}>
-                                  {icon} {acct.platform}
+                                <span key={acct.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border ${stColor}`} title={`${platformLabel[acct.platform] || acct.platform} / ${acct.accountName}`}>
+                                  {platformIcon[acct.platform] || '📱'} {platformLabel[acct.platform] || acct.platform}
                                 </span>
                               )
                             })}
