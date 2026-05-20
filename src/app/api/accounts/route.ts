@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { accountName, platform, accountId, bindType, remark } = body
+    const { accountName, platform, accountId, bindType, password, mobile, remark } = body
 
     if (!accountName || !platform) {
       return NextResponse.json(
@@ -67,6 +67,8 @@ export async function POST(request: NextRequest) {
         platform,
         accountId: accountId || '',
         bindType: bindType || 'device',
+        password: password || '',
+        mobile: mobile || '',
         remark: remark || '',
         userId: user.userId as any,
         isBound: true

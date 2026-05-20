@@ -20,7 +20,7 @@ const BIND_TYPES = [
 
 interface Account {
   id: number; platform: string; accountName: string; accountId: string
-  isBound: boolean; bindType: string; remark: string; createdAt: string
+  isBound: boolean; bindType: string; password: string; mobile: string; remark: string; createdAt: string
 }
 
 export default function AccountsPage() {
@@ -34,6 +34,8 @@ export default function AccountsPage() {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [bindType, setBindType] = useState('device')
   const [profileLink, setProfileLink] = useState('')
+  const [accountPassword, setAccountPassword] = useState('')
+  const [accountMobile, setAccountMobile] = useState('')
   const [remark, setRemark] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -46,7 +48,7 @@ export default function AccountsPage() {
   }, [authLoading, user])
 
   const load = async () => {
-    try { const r = await fetch('/api/accounts', { credentials: 'include' }); if (r.ok) setAccounts(Array.isArray(await r.json()) ? await r.json() : (await r.json()).data || []) }
+    try { const r = await fetch('/api/accounts', { credentials: 'include' }); if (r.ok) { const d = await r.json(); setAccounts(Array.isArray(d) ? d : d.data || []) } }
     catch {} finally { setLoading(false) }
   }
 
@@ -63,13 +65,13 @@ export default function AccountsPage() {
       try {
         await fetch('/api/accounts', {
           method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accountName: nickname.trim(), platform, accountId: profileLink.trim(), bindType, remark: remark.trim() }),
+          body: JSON.stringify({ accountName: nickname.trim(), platform, accountId: profileLink.trim(), bindType, password: accountPassword.trim(), mobile: accountMobile.trim(), remark: remark.trim() }),
         })
       } catch {}
     }
 
     showToast(`已登记 ${selectedPlatforms.length} 个账号`, 'success')
-    setShowAdd(false); setNickname(''); setSelectedPlatforms([]); setBindType('device'); setProfileLink(''); setRemark('')
+    setShowAdd(false); setNickname(''); setSelectedPlatforms([]); setBindType('device'); setProfileLink(''); setAccountPassword(''); setAccountMobile(''); setRemark('')
     load()
     setSubmitting(false)
   }
@@ -149,8 +151,12 @@ export default function AccountsPage() {
                       {acct.isBound ? '已绑定' : '未绑定'}
                     </span>
                   </div>
-                  {acct.accountId && <p className="text-[10px] text-gray-600 truncate mb-2">🔗 {acct.accountId}</p>}
-                  {acct.remark && <p className="text-[10px] text-gray-600 italic mb-2">📝 {acct.remark}</p>}
+                  <div className="text-[10px] text-gray-600 space-y-0.5 mb-2">
+                    {acct.mobile && <p>📱 {acct.mobile}</p>}
+                    {acct.password && <p>🔑 ****{acct.password.slice(-3)}</p>}
+                    {acct.accountId && <p className="truncate">🔗 {acct.accountId}</p>}
+                    {acct.remark && <p className="italic">📝 {acct.remark}</p>}
+                  </div>
 
                   {/* 工作台入口 */}
                   <button onClick={() => setWorkbench(acct)}
@@ -210,6 +216,18 @@ export default function AccountsPage() {
                     <span className="text-[10px] opacity-60">{bt.desc}</span>
                   </button>
                 ))}
+              </div>
+
+              {/* 登录信息 */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">手机号</label>
+                  <input className="input-dark w-full text-sm" type="tel" placeholder="绑定手机号" value={accountMobile} onChange={e => setAccountMobile(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">密码</label>
+                  <input className="input-dark w-full text-sm" type="password" placeholder="账号密码" value={accountPassword} onChange={e => setAccountPassword(e.target.value)} />
+                </div>
               </div>
 
               {/* 主页链接 */}
