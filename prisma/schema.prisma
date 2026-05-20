@@ -225,6 +225,8 @@ model Account {
   accountId   String
   accountName String
   isBound     Boolean  @default(false)
+  bindType    String   @default("device")  // device(真机群控) / manual(指纹浏览器) / official(官方API)
+  remark      String   @default("")
   userId      Int
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
