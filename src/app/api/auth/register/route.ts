@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
         passwordHash,
         name,
         role: targetRole,
+        parentId: inviteCodeRecord?.createdBy || null,
         inviteCode,
         teamId: teamIdToJoin
       }

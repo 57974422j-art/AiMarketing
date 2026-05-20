@@ -12,8 +12,10 @@ function generateCode(): string {
 export async function GET(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
-    if (!auth || auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
+    if (!auth || auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权查看' }, { status: 403 })
+    const where = auth.role === 'admin' ? {} : { createdBy: auth.userId }
     const codes = await prisma.inviteCode.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       include: { usedByUser: { select: { username: true } }, creator: { select: { username: true } } },
     })
@@ -25,8 +27,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
-    if (!auth || auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { role, count } = await request.json()
+    if (!auth || auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
+    let { role, count } = await request.json()
+    // admin 可生成任意角色，editor 只能生成 end-user
+    if (auth.role === 'editor') role = 'end-user'
     if (!['editor', 'end-user'].includes(role)) return NextResponse.json({ success: false, message: '角色无效' }, { status: 400 })
     const num = Math.min(Math.max(count || 1, 1), 50)
     const codes: { code: string; createdBy: number; role: string }[] = []
