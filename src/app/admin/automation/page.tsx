@@ -4,21 +4,28 @@ import { useAuth } from '@/app/providers'
 import { showToast } from '@/components/Toast'
 
 interface DeviceItem { id: number; name: string; status: string; apiPort?: number; type?: string }
-interface AccountItem { id: number; platform: string; accountName: string; status: string; deviceId: number | null; device?: { id: number; name: string } | null; user?: { username: string } | null }
+interface AccountItem {
+  id: number; platform: string; accountName: string; status: string; deviceId: number | null
+  device?: { id: number; name: string } | null; user?: { username: string } | null
+}
 
+interface ExecStep { action: string; success: boolean; message: string }
 interface ExecRecord {
   id: number; deviceName: string; username: string; platform: string
-  actions: string[]; result: 'success' | 'fail'; time: string
+  results: ExecStep[]; time: string
 }
+
+const PLATFORM_ICON: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
+const PLATFORM_LABEL: Record<string, string> = { douyin: '抖音', kuaishou: '快手', xiaohongshu: '小红书', shipinhao: '视频号', weibo: '微博', bilibili: 'B站' }
 
 export default function AutomationExecPage() {
   const { user, loading: authLoading } = useAuth()
   const [devices, setDevices] = useState<DeviceItem[]>([])
   const [accounts, setAccounts] = useState<AccountItem[]>([])
-  const [templates, setTemplates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [executing, setExecuting] = useState<Set<string>>(new Set())
+  const [executing, setExecuting] = useState(false)
   const [records, setRecords] = useState<ExecRecord[]>([])
+  const [selected, setSelected] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     if (!authLoading && user && user.role !== 'end-user') loadAll()
@@ -27,37 +34,45 @@ export default function AutomationExecPage() {
 
   const loadAll = async () => {
     try {
-      const [dRes, aRes, tRes] = await Promise.all([
+      const [dRes, aRes] = await Promise.all([
         fetch('/api/devices', { credentials: 'include' }),
         fetch('/api/accounts', { credentials: 'include' }),
-        fetch('/api/automation-templates', { credentials: 'include' }),
       ])
       if (dRes.ok) setDevices(((await dRes.json()).data || []).filter((d: any) => d.type === 'q1'))
       if (aRes.ok) { const d = await aRes.json(); setAccounts(d.data || []) }
-      if (tRes.ok) setTemplates((await tRes.json()).data || [])
     } catch {} finally { setLoading(false) }
   }
 
-  // 执行任务
-  const execute = async (deviceId: number, accountId: number, actions: string[]) => {
-    const key = `${deviceId}-${Date.now()}`
-    setExecuting(prev => new Set(prev).add(key))
-    try {
-      const r = await fetch(`/api/devices/${deviceId}/execute`, {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId, actions }),
-      })
-      const d = await r.json()
-      // 记录执行结果
-      setRecords(prev => [{
-        id: Date.now(), deviceName: devices.find(d => d.id === deviceId)?.name || '',
-        username: accounts.find(a => a.id === accountId)?.accountName || '',
-        platform: accounts.find(a => a.id === accountId)?.platform || '',
-        actions, result: d.success ? 'success' : 'fail', time: new Date().toLocaleTimeString(),
-      }, ...prev])
-      if (d.success) showToast('执行成功', 'success')
-      else showToast(d.message || '执行失败', 'error')
-    } catch { showToast('执行失败', 'error') } finally { setExecuting(prev => { const n = new Set(prev); n.delete(key); return n }) }
+  const toggle = (id: number) => {
+    setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
+
+  const execute = async () => {
+    const selectedAccounts = accounts.filter(a => selected.has(a.id) && a.status === '已绑定')
+    if (selectedAccounts.length === 0) { showToast('请先勾选要执行的平台', 'error'); return }
+
+    setExecuting(true)
+    for (const acct of selectedAccounts) {
+      const device = devices.find(d => d.id === acct.deviceId)
+      if (!device) { showToast(`${acct.accountName} 无绑定设备`, 'error'); continue }
+
+      try {
+        const r = await fetch(`/api/devices/${device.id}/execute`, {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountId: acct.id, platform: acct.platform, actions: ['search', 'like', 'comment', 'follow'] }),
+        })
+        const d = await r.json()
+        const results: ExecStep[] = d.data?.results || []
+        setRecords(prev => [{
+          id: Date.now(), deviceName: device.name,
+          username: acct.accountName,
+          platform: PLATFORM_LABEL[acct.platform] || acct.platform,
+          results, time: new Date().toLocaleTimeString(),
+        }, ...prev])
+        showToast(`${acct.accountName} ${d.success ? '✅' : '❌'}`, d.success ? 'success' : 'error')
+      } catch { showToast(`${acct.accountName} 执行异常`, 'error') }
+    }
+    setExecuting(false)
   }
 
   if (authLoading || loading) return <Loading />
@@ -66,71 +81,75 @@ export default function AutomationExecPage() {
   return (
     <div className="min-h-screen bg-gray-950">
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-8">
+        <div className="mb-6">
           <p className="text-label mb-2">管理后台 / EXECUTION</p>
           <h1 className="text-mono-lg text-white">任务执行中心 / AUTOMATION</h1>
-          <p className="text-gray-400 text-sm mt-1">查看设备状态、执行已配置的任务模板</p>
+          <p className="text-gray-400 text-sm mt-1">勾选平台 → 一键执行（自动打开App + 运行动作）</p>
+        </div>
+
+        {/* ── 全部执行按钮 ── */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex gap-2">
+            <button onClick={() => setSelected(new Set(accounts.filter(a => a.status === '已绑定').map(a => a.id)))} className="text-xs px-3 py-1 bg-white/5 text-gray-400 rounded-lg hover:bg-white/10">全选</button>
+            <button onClick={() => setSelected(new Set())} className="text-xs px-3 py-1 bg-white/5 text-gray-400 rounded-lg hover:bg-white/10">取消</button>
+          </div>
+          <button onClick={execute} disabled={executing || selected.size === 0}
+            className="text-sm px-6 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 font-medium">
+            {executing ? `执行中 (${selected.size}个)...` : `▶ 执行选中 (${selected.size}个)`}
+          </button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 设备面板 */}
-          <div className="lg:col-span-2 space-y-4">
-            <h2 className="text-white font-semibold flex items-center gap-2"><span>📱</span> 在线设备 / DEVICES</h2>
-
+          {/* ── 设备面板 ── */}
+          <div className="lg:col-span-2 space-y-3">
             {devices.length === 0 ? (
               <div className="card-glass p-8 text-center text-gray-500">暂无 Q1 设备</div>
             ) : (
-              <div className="grid grid-cols-1 gap-3">
-                {devices.map(dev => {
-                  const boundAccounts = accounts.filter((a: any) => a.device?.id === dev.id || a.deviceId === dev.id)
-                  return (
-                    <div key={dev.id} className={`card-glass p-4 border-l-4 ${dev.status === 'online' ? 'border-l-emerald-500' : 'border-l-gray-500'}`}>
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${dev.status === 'online' ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
-                          <span className="text-white font-medium">{dev.name}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded ${dev.status === 'online' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-500/20 text-gray-500'}`}>{dev.status}</span>
-                        </div>
-                        <span className="text-xs text-gray-500">端口: {dev.apiPort}</span>
-                      </div>
-
-                      {/* 平台状态芯片 */}
-                      {boundAccounts.filter(a => a.status === '已绑定').length > 0 && (
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            {boundAccounts.filter(a => a.status === '已绑定').map(acct => {
-                              const platformLabel: Record<string, string> = { douyin: '抖音', kuaishou: '快手', xiaohongshu: '小红书', shipinhao: '视频号', weibo: '微博', bilibili: 'B站' }
-                              const platformIcon: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
-                              const stColor = acct.status === '已绑定' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                : acct.status === '登录异常' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-                                : acct.status === '已封禁' ? 'bg-red-500/20 text-red-400 border-red-500/30'
-                                : 'bg-gray-500/20 text-gray-500 border-gray-500/30'
-                              return (
-                                <span key={acct.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border ${stColor}`} title={`${platformLabel[acct.platform] || acct.platform} / ${acct.accountName}`}>
-                                  {platformIcon[acct.platform] || '📱'} {platformLabel[acct.platform] || acct.platform}
-                                </span>
-                              )
-                            })}
-                          </div>
-                          <button onClick={() => {
-                            const first = boundAccounts[0]
-                            execute(dev.id, first.id, [])
-                          }} disabled={executing.size > 0}
-                            className="text-xs px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 disabled:opacity-30">
-                            ▶ 执行
-                          </button>
-                        </div>
-                      )}
+              devices.map(dev => {
+                const boundAccounts = accounts.filter((a: any) => (a.device?.id === dev.id || a.deviceId === dev.id) && a.status === '已绑定')
+                return (
+                  <div key={dev.id} className={`card-glass p-4 border-l-4 ${dev.status === 'online' ? 'border-l-emerald-500' : 'border-l-gray-500'}`}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className={`w-2 h-2 rounded-full ${dev.status === 'online' ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
+                      <span className="text-white font-medium text-sm">{dev.name}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${dev.status === 'online' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-500/20 text-gray-500'}`}>{dev.status}</span>
+                      <span className="text-[10px] text-gray-600 ml-auto">端口 {dev.apiPort}</span>
                     </div>
-                  )
-                })}
-              </div>
+                    {/* 可选平台芯片 */}
+                    {boundAccounts.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {boundAccounts.map(acct => {
+                          const checked = selected.has(acct.id)
+                          const icon = PLATFORM_ICON[acct.platform] || '📱'
+                          const label = PLATFORM_LABEL[acct.platform] || acct.platform
+                          return (
+                            <button key={acct.id} onClick={() => toggle(acct.id)}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition ${
+                                checked
+                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 ring-1 ring-emerald-500/40'
+                                  : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
+                              }`}
+                              title={`${label} / ${acct.accountName}`}>
+                              <span className={`w-2 h-2 rounded-full ${checked ? 'bg-emerald-400' : 'bg-gray-500'}`} />
+                              {icon} {label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-gray-600">暂无已绑定账号</p>
+                    )}
+                  </div>
+                )
+              })
             )}
           </div>
 
-          {/* 执行记录 */}
+          {/* ── 执行记录 ── */}
           <div>
-            <h2 className="text-white font-semibold mb-3 flex items-center gap-2"><span>📋</span> 执行记录 / LOGS</h2>
+            <h2 className="text-white font-semibold mb-3 flex items-center gap-2 text-sm">
+              <span>📋</span> 执行记录 / LOGS
+            </h2>
             <div className="card-glass p-4 max-h-[70vh] overflow-y-auto">
               {records.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-8">暂无执行记录</p>
@@ -138,14 +157,23 @@ export default function AutomationExecPage() {
                 <div className="space-y-2">
                   {records.map(r => (
                     <div key={r.id} className="border border-white/5 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center justify-between mb-1.5">
                         <span className="text-xs text-gray-300">{r.deviceName} / {r.username}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${r.result === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{r.result}</span>
+                        <span className="text-[10px] text-gray-500">{r.platform} · {r.time}</span>
                       </div>
-                      <div className="flex flex-wrap gap-1 mb-1">
-                        {r.actions.map((a, i) => <span key={i} className="text-[10px] bg-white/5 px-1.5 py-0.5 rounded text-gray-400">{a}</span>)}
+                      <div className="space-y-1">
+                        {r.results.map((step, i) => (
+                          <div key={i} className="flex items-center gap-2 text-[10px]">
+                            <span className={step.success ? 'text-emerald-400' : 'text-red-400'}>
+                              {step.success ? '✓' : '✗'}
+                            </span>
+                            <span className="text-gray-400 w-12">{step.action}</span>
+                            <span className={`${step.success ? 'text-gray-500' : 'text-red-400'} truncate`}>
+                              {step.message}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                      <div className="text-[10px] text-gray-600">{r.platform} · {r.time}</div>
                     </div>
                   ))}
                 </div>
