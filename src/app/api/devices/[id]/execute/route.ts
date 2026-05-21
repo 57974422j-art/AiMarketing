@@ -19,6 +19,32 @@ const APP_PACKAGES: Record<string, { pkg: string; act: string }> = {
 // 全局中止信号
 const abortMap = new Map<number, AbortController>()
 
+// ── 页面检测 ──
+async function detectPage(port: number): Promise<string> {
+  const screen = await UI.extractScreenData(port)
+  if (!screen.success) return 'unknown'
+  const texts = (screen.data as any)?.texts || []
+  // 按优先级判断
+  if (texts.some((t: string) => t.includes('首页') || t === '推荐')) return 'feed'
+  if (texts.some((t: string) => t.includes('搜索热点') || t.includes('大家都在搜'))) return 'search_page'
+  if (texts.some((t: string) => t.includes('直播'))) return 'live'
+  if (texts.some((t: string) => t === '消息')) return 'messages'
+  if (texts.some((t: string) => t.includes('我') && texts.some((tt: string) => tt.includes('获赞')))) return 'profile'
+  return 'unknown'
+}
+
+async function navigateTo(port: number, target: string, retry = 3): Promise<boolean> {
+  for (let i = 0; i < retry; i++) {
+    const page = await detectPage(port)
+    if (page === target) return true
+    if (i === retry - 1) return false
+    // 回退一步再试
+    await UI.goBack(port)
+    await UI.sleep(1000)
+  }
+  return false
+}
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const deviceId = parseInt(id)
@@ -93,16 +119,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         let r: any
         switch (action) {
           case 'search': {
-            // 点底部"搜索"Tab
-            await UI.tap(port, 540, 1850)
+            // 确保在首页
+            const onFeed = await navigateTo(port, 'feed')
+            if (!onFeed) { r = { success: false, message: '无法回到首页' }; break }
+            // 点"搜索"Tab（底部文字按钮）
+            r = await UI.findAndClick(port, '搜索')
+            if (!r.success) { r = { success: false, message: '找不到搜索Tab' }; break }
             await UI.sleep(2000)
-            // 点顶部的搜索输入框区域
-            await UI.tap(port, 540, 120)
+            // 确认在搜索页了
+            const onSearch = await detectPage(port)
+            if (onSearch !== 'search_page') {
+              // 没进搜索页，可能搜索Tab没点到，试第二次
+              r = await UI.findAndClick(port, '搜索')
+              await UI.sleep(2000)
+            }
+            // 找输入框输入
+            r = await UI.tapAndInput(port, '搜索', searchKeyword)
             await UI.sleep(1000)
-            // 输入关键词
-            r = await UI.inputText(port, searchKeyword)
-            await UI.sleep(1000)
-            // 键盘搜索
+            // 点键盘搜索
             await UI.execShell(port, 'input keyevent KEYCODE_SEARCH')
             await UI.sleep(1000)
             await UI.tap(port, 540, 400)
