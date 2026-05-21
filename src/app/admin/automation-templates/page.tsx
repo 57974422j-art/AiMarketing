@@ -329,8 +329,6 @@ export default function AutomationTemplatesPage() {
             </div>
           </div>
         )}
-
-      )}
     </div>
   )
 }
