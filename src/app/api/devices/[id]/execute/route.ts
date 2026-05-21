@@ -22,6 +22,17 @@ const APP_PACKAGES: Record<string, { pkg: string; act: string }> = {
 
 const abortMap = new Map<number, AbortController>()
 
+// ── Q1 shell（正确 API 路径） ──
+async function q1Shell(port: number, cmd: string): Promise<UI.UIResult> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmd)}`, { signal: AbortSignal.timeout(30000) })
+    const d = await r.json()
+    return { success: d.code === 200, message: d.ret || '' }
+  } catch (e: any) {
+    return { success: false, message: e.message || 'shell 失败' }
+  }
+}
+
 // ── ADB 或 HTTP shell ──
 async function shell(port: number, adbPort: number): Promise<ADB | null> {
   if (ADB.isAvailable()) {
@@ -121,10 +132,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (adb) {
         adb.forceStop(app.pkg)
       } else {
-        await fetch(`http://127.0.0.1:${port}/shell`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ command: `am force-stop ${app.pkg}` }),
-        })
+        await q1Shell(port, `am force-stop ${app.pkg}`)
       }
       await UI.sleep(1500)
 
@@ -187,12 +195,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               // 全选 + 删除旧内容
               const sendCmd = async (cmd: string) => {
                 if (adb) { adb.keyEvent(cmd) }
-                else {
-                  await fetch(`http://127.0.0.1:${port}/shell`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ command: cmd }),
-                  })
-                }
+                else { await q1Shell(port, cmd) }
               }
               await sendCmd('KEYCODE_A')
               await UI.sleep(300)
@@ -201,17 +204,28 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
               // 输入关键词
               log('input', true, `正在输入"${searchKeyword}"...`)
-              const inputOk = adb ? adb.inputText(searchKeyword).success : (await UI.inputText(port, searchKeyword)).success
+              if (adb) {
+                // ADB 输入（中文需要走剪贴板）
+                adb.keyEvent('KEYCODE_A')
+                adb.keyEvent('KEYCODE_DEL')
+                await q1Shell(port, `am broadcast -a clipper.set -e text "${searchKeyword}"`)
+                await UI.sleep(500)
+                adb.keyEvent('KEYCODE_PASTE') // 279
+              } else {
+                // HTTP shell: 剪贴板 → 粘贴
+                await q1Shell(port, `am broadcast -a clipper.set -e text "${searchKeyword}"`)
+                await UI.sleep(500)
+                await q1Shell(port, 'input keyevent 279') // KEYCODE_PASTE
+              }
               await UI.sleep(2000)
 
-              // 验证：再 dump 一次，看输入框是否有内容
+              // 验证
               const verify = await UI.extractScreenData(port)
               const verifyTexts = (verify.data as any)?.texts || []
               const hasKeyword = verifyTexts.some((t: string) => t.includes(searchKeyword.slice(0, 2)))
-              if (!hasKeyword && !inputOk) {
-                // ADB 输入失败，降级用 input 命令
-                log('input', false, 'ADB 输入失败，降级...')
-                await sendCmd(`text "${searchKeyword}"`)
+              if (!hasKeyword) {
+                log('input', false, `输入未生效，尝试直接 input text...`)
+                await q1Shell(port, `input text ${searchKeyword}`)
                 await UI.sleep(2000)
               }
 
