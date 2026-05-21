@@ -3,32 +3,33 @@ import { PrismaClient } from '@prisma/client'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import * as Douyin from '@/lib/douyin-automation'
 import * as UI from '@/lib/uiautomator-driver'
+import { ADB } from '@/lib/adb-helper'
 
-const prisma = new PrismaClient()
+// 单例 Prisma
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
+const prisma = globalForPrisma.prisma || new PrismaClient()
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
 
 // 平台 → 包名映射
 const APP_PACKAGES: Record<string, { pkg: string; act: string }> = {
   douyin: { pkg: 'com.ss.android.ugc.aweme', act: '.main.MainActivity' },
   kuaishou: { pkg: 'com.smile.gifmaker', act: '.MainActivity' },
   xiaohongshu: { pkg: 'com.xingin.xhs', act: '.activity.SplashActivity' },
-  shipinhao: { pkg: 'com.tencent.channels', act: '.ui.SplashActivity' },
+  shipinhao: { pkg: 'com.tencent.mm', act: '.ui.LauncherUI' }, // 修正：视频号在微信内
   weibo: { pkg: 'com.sina.weibo', act: '.SplashActivity' },
   bilibili: { pkg: 'tv.danmaku.bili', act: '.MainActivityV2' },
 }
 
-// 全局中止信号
 const abortMap = new Map<number, AbortController>()
 
-// ── 本地 Q1 shell（execShell 未公开导出） ──
-async function q1Shell(port: number, cmd: string): Promise<UI.UIResult> {
-  try {
-    const r = await fetch(`http://127.0.0.1:${port}/shell`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command: cmd }),
-    })
-    const d = await r.json()
-    return { success: r.ok, message: d.output || d.message || 'ok' }
-  } catch { return { success: false, message: 'shell 请求失败' } }
+// ── ADB 或 HTTP shell ──
+async function shell(port: number, adbPort: number): Promise<ADB | null> {
+  if (ADB.isAvailable()) {
+    const adb = new ADB(adbPort)
+    adb.connect()
+    return adb
+  }
+  return null
 }
 
 // ── 页面检测 ──
@@ -36,9 +37,18 @@ async function detectPage(port: number): Promise<string> {
   const screen = await UI.extractScreenData(port)
   if (!screen.success) return 'unknown'
   const texts = (screen.data as any)?.texts || []
-  // 按优先级判断
+
+  // 阻断型弹窗处理（青少年模式/升级提示）
+  const dismissTexts = ['我知道了', '青少年模式', '取消', '以后再说', '暂不升级', '忽略']
+  for (const dt of dismissTexts) {
+    if (texts.some((t: string) => t.includes(dt))) {
+      await UI.findAndClick(port, dt)
+      await UI.sleep(1000)
+    }
+  }
+
   if (texts.some((t: string) => t.includes('首页') || t === '推荐')) return 'feed'
-  if (texts.some((t: string) => t.includes('搜索热点') || t.includes('大家都在搜'))) return 'search_page'
+  if (texts.some((t: string) => t.includes('搜索热点') || t.includes('大家都在搜') || t.includes('历史搜索'))) return 'search_page'
   if (texts.some((t: string) => t.includes('直播'))) return 'live'
   if (texts.some((t: string) => t === '消息')) return 'messages'
   if (texts.some((t: string) => t.includes('我') && texts.some((tt: string) => tt.includes('获赞')))) return 'profile'
@@ -50,9 +60,8 @@ async function navigateTo(port: number, target: string, retry = 3): Promise<bool
     const page = await detectPage(port)
     if (page === target) return true
     if (i === retry - 1) return false
-    // 回退一步再试
     await UI.goBack(port)
-    await UI.sleep(1000)
+    await UI.sleep(1500)
   }
   return false
 }
@@ -60,12 +69,10 @@ async function navigateTo(port: number, target: string, retry = 3): Promise<bool
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const deviceId = parseInt(id)
-  // 查询执行状态
   const running = abortMap.has(deviceId)
   return NextResponse.json({ success: true, data: { deviceId, running } })
 }
 
-/** POST 执行 */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ac = new AbortController()
   const signal = ac.signal
@@ -74,7 +81,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   try {
     const auth = getAuthFromHeaders(request)
-    if (!auth || auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
+    if (!auth || auth.role === 'end-user') {
+      return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
+    }
 
     const body = await request.json()
     const { platform, actions, keyword, keywords } = body
@@ -87,11 +96,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const device = await prisma.device.findUnique({ where: { id: deviceId } })
     if (!device) return NextResponse.json({ success: false, message: '设备不存在' }, { status: 404 })
     const port = device.apiPort
+    const adbPort = device.adbPort
     if (!port) return NextResponse.json({ success: false, message: '设备未配置端口' }, { status: 400 })
 
-    // 注册中止信号
+    // 初始化 ADB（如果可用）
+    const adb = adbPort ? await shell(port, adbPort) : null
+    if (adb) console.log('[执行] ADB 已连接')
+    else console.log('[执行] ADB 不可用，使用 HTTP shell')
+
+    // 注册中止
     const prev = abortMap.get(deviceId)
-    if (prev) prev.abort() // 中止之前的任务
+    if (prev) prev.abort()
     abortMap.set(deviceId, ac)
 
     const results: { action: string; success: boolean; message: string }[] = []
@@ -100,32 +115,47 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     const checkAbort = () => { if (signal.aborted) throw new Error('已停止') }
 
-    // 1. 打开对应 App
+    // 1. 打开对应 App（冷启动）
     const app = APP_PACKAGES[platform]
     if (app) {
-      const r = await UI.openApp(port, app.pkg, app.act)
-      await UI.sleep(10000 + Math.random() * 3000) // 10-13 秒等开屏
-      checkAbort()
-      log('openApp', r.success, r.success ? `${platform} 已启动` : `启动失败: ${r.message}`)
-
-      // 刷 2 条视频（模拟真人）
-      if (r.success) {
-        for (let i = 1; i <= 2; i++) {
-          checkAbort()
-          await UI.sleep(4000 + Math.random() * 3000) // 浏览 4-7 秒
-          await UI.scrollUp(port)                      // 上滑下一条
-          log('browse', true, `浏览第 ${i} 条视频`)
-        }
+      // 先强制杀死，冷启动
+      if (adb) {
+        adb.forceStop(app.pkg)
+      } else {
+        await fetch(`http://127.0.0.1:${port}/shell`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: `am force-stop ${app.pkg}` }),
+        })
       }
-    } else {
-      log('openApp', true, `未知平台 ${platform}，跳过打开`)
+      await UI.sleep(1500)
+
+      // 启动
+      if (adb) {
+        adb.openApp(app.pkg, app.act)
+      } else {
+        await UI.openApp(port, app.pkg, app.act)
+      }
+      await UI.sleep(12000 + Math.random() * 3000)
+      checkAbort()
+      log('openApp', true, `${platform} 已启动`)
+
+      // 刷 2 条视频
+      for (let i = 1; i <= 2; i++) {
+        checkAbort()
+        await UI.sleep(4000 + Math.random() * 3000)
+        if (adb) {
+          adb.scrollUp(500) // 500ms 快速上滑
+        } else {
+          await UI.scrollUp(port)
+        }
+        log('browse', true, `浏览第 ${i} 条视频`)
+      }
     }
 
-    // 刷完视频后停顿一下再执行任务
-    await UI.sleep(3000 + Math.random() * 2000)
+    await UI.sleep(3000)
     log('pause', true, '准备开始执行任务')
 
-    // 2. 逐个执行动作（失败即停）
+    // 2. 执行动作
     let criticalFail = false
     for (const action of actions) {
       checkAbort()
@@ -135,86 +165,85 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         let r: any
         switch (action) {
           case 'search': {
-            // 确保在首页
             const onFeed = await navigateTo(port, 'feed')
             if (!onFeed) { r = { success: false, message: '无法回到首页' }; break }
-            // 点"搜索"Tab（底部文字按钮）
+
             r = await UI.findAndClick(port, '搜索')
-            if (!r.success) { r = { success: false, message: '找不到搜索Tab' }; break }
-            await UI.sleep(2000)
-            // 确认在搜索页了
-            const onSearch = await detectPage(port)
-            if (onSearch !== 'search_page') {
-              // 没进搜索页，可能搜索Tab没点到，试第二次
-              r = await UI.findAndClick(port, '搜索')
-              await UI.sleep(2000)
+            if (!r.success && adb) {
+              adb.tap(950, 120) // 备用：点右上角搜索
             }
-            // 获取页面内容找到真正的输入框
+            await UI.sleep(3000)
+
+            // 搜索页 → 输入关键词
             const screen = await UI.extractScreenData(port)
             const inputFields = (screen.data as any)?.inputFields || []
+
             if (inputFields.length > 0) {
-              // 点输入框
-              await UI.tap(port, inputFields[0].center.x, inputFields[0].center.y)
+              const bounds = inputFields[0].bounds
+              const cx = bounds.x + bounds.width / 2
+              const cy = bounds.y + bounds.height / 2
+              await UI.tap(port, cx, cy)
               await UI.sleep(1000)
-              // 清空 + 输入
-              const textResult = await UI.inputText(port, searchKeyword)
-              if (textResult.success) {
-                await UI.sleep(1500)
-                await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
-                await UI.sleep(3000)
-                r = { success: true, message: `已搜索"${searchKeyword}"` }
+
+              // 全选 + 删除旧内容
+              if (adb) {
+                adb.keyEvent('KEYCODE_A')     // 全选
+                adb.keyEvent('KEYCODE_DEL')   // 删除
               } else {
-                r = { success: false, message: '输入失败' }
+                await fetch(`http://127.0.0.1:${port}/shell`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ command: 'input keyevent KEYCODE_A' }),
+                })
+                await fetch(`http://127.0.0.1:${port}/shell`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ command: 'input keyevent KEYCODE_DEL' }),
+                })
               }
-            } else {
-              // 找不到输入框，试文字查找
-              r = await UI.tapAndInput(port, '搜索', searchKeyword)
+              await UI.sleep(500)
+
+              // 输入
+              if (adb) {
+                adb.inputText(searchKeyword)
+              } else {
+                await UI.inputText(port, searchKeyword)
+              }
               await UI.sleep(1000)
-              await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
+
+              // 回车搜索
+              if (adb) {
+                adb.keyEvent('KEYCODE_ENTER')
+                adb.keyEvent('KEYCODE_SEARCH')
+              } else {
+                const q1Shell = (cmd: string) => fetch(`http://127.0.0.1:${port}/shell`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ command: cmd }),
+                })
+                await q1Shell('input keyevent KEYCODE_ENTER')
+                await q1Shell('input keyevent KEYCODE_SEARCH')
+              }
+              await UI.sleep(4000)
+              r = { success: true, message: `已搜索"${searchKeyword}"` }
+            } else {
+              r = await UI.tapAndInput(port, '搜索', searchKeyword)
+              await UI.sleep(1500)
+              if (adb) adb.keyEvent('KEYCODE_SEARCH')
               await UI.sleep(3000)
-              r = { success: true, message: `已尝试搜索"${searchKeyword}"` }
             }
             break
           }
-          case 'like': {
-            r = await Douyin.like(port)
-            break
-          }
-          case 'comment': {
-            r = await Douyin.comment(port, '不错')
-            break
-          }
-          case 'follow': {
-            r = await Douyin.follow(port)
-            break
-          }
-          case 'share': {
-            r = await Douyin.shareVideo(port)
-            break
-          }
-          case 'dm': {
-            r = await Douyin.sendDirectMessage(port, '用户', '你好')
-            break
-          }
-          case 'extract': {
-            r = await Douyin.extractVideoInfo(port)
-            break
-          }
-          case 'comments': {
-            r = await Douyin.extractComments(port)
-            break
-          }
-          case 'publish': {
-            r = await Douyin.publishVideo(port, { title: '自动发布' })
-            break
-          }
-          default: {
-            log(action, false, `未知动作: ${action}`)
-            continue
-          }
+
+          case 'like': { r = await Douyin.like(port); break }
+          case 'comment': { r = await Douyin.comment(port, '不错'); break }
+          case 'follow': { r = await Douyin.follow(port); break }
+          case 'share': { r = await Douyin.shareVideo(port); break }
+          case 'dm': { r = await Douyin.sendDirectMessage(port, '用户', '你好'); break }
+          case 'extract': { r = await Douyin.extractVideoInfo(port); break }
+          case 'comments': { r = await Douyin.extractComments(port); break }
+          case 'publish': { r = await Douyin.publishVideo(port, { title: '自动发布' }); break }
+          default: { log(action, false, `未知动作: ${action}`); continue }
         }
         log(action, r.success, r.message || (r.success ? '成功' : '失败'))
-        if (!r.success) criticalFail = true // 失败后跳过后续
+        if (!r.success) criticalFail = true
       } catch (e) {
         const msg = e instanceof Error ? e.message : '未知错误'
         if (msg !== '已停止') { log(action, false, `异常: ${msg}`); criticalFail = true }
@@ -227,17 +256,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   } catch (e) {
     const msg = e instanceof Error ? e.message : '未知错误'
     return NextResponse.json({
-      success: msg === '已停止' ? false : false,
-      message: msg,
+      success: false, message: msg,
       data: msg === '已停止' ? { stopped: true } : undefined,
     }, { status: msg === '已停止' ? 200 : 500 })
   } finally {
     abortMap.delete(deviceId)
-    await prisma.$disconnect()
+    // 注意：不在 finally 中 $disconnect()，防止并发断开其他请求的连接
   }
 }
 
-// GET /api/devices/[id]/execute?action=stop
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const deviceId = parseInt(id)

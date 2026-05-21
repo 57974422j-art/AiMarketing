@@ -217,7 +217,7 @@ export async function swipe(apiPort: number, x1: number, y1: number, x2: number,
 
 /** 上滑（翻页） */
 export async function scrollUp(apiPort: number): Promise<UIResult> {
-  return execShell(apiPort, 'input swipe 540 1800 540 400 2000')
+  return execShell(apiPort, 'input swipe 540 1600 540 400 500')
 }
 
 /** 下滑 */

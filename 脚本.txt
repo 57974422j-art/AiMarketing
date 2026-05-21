@@ -1,0 +1,259 @@
+从你上传的 Next.js 路由脚本来看，这是一个结合了 UIAutomator 驱动（通过控制 Android 设备的 HTTP 代理端口）和特定平台（如抖音）自动化 SDK 的群控/单控执行脚本 。  针对你提到的“目前搜索无法输入”的核心痛点，以及隐藏的“整体运行错误”与“并发/资源死锁”隐患，我为你做了深度排查，并整理出了最佳运行方案。一、 为什么“搜索无法输入”？（痛点排查）在 case 'search' 分支中，逻辑存在三个致命的机械性设计冲突：1. 元素误触：抖音的“搜索”Tab 与“搜索框”混淆代码逻辑：脚本先通过 UI.findAndClick(port, '搜索') 。  实际表现：在抖音（国内版）中，底部的 Tab 分别是 首页、商城、+、消息、我，根本没有名为“搜索”的底部 Tab。顶部的“放大镜”或“搜索框”确实写着“搜索”，但如果调用 MapsTo(port, 'feed') 强制回到了首页 ，此时调用 findAndClick('搜索') ，由于首页顶部可能有“搜索”提示词，直接触发点击后，页面其实已经进入了搜索主页。  错误引发：紧接着代码执行了判断 if (onSearch !== 'search_page') 。如果 detectPage 判断失误（比如误以为还在 feed 流），它会再次点击 findAndClick('搜索') 。而在搜索页中再次点击“搜索”按钮，常常会触发“搜索历史清除”或者“返回”，导致页面错乱，输入框失焦。  2. 坐标点击与清空机制缺失代码逻辑：await UI.tap(port, inputFields[0].center.x, inputFields[0].center.y) 。  实际表现：UIAutomator 在获取到 inputFields 后直接点击中心点，这会唤起软键盘。但此时输入框内通常有占位符（Placeholder）或上一次的搜索历史词。核心问题：随后的 UI.inputText(port, searchKeyword) 如果只是单纯的 sendText，在部分定制系统或输入法拦截下，无法激活输入焦点，或者会把词追加到占位符后面，导致 KEYCODE_SEARCH 搜索失败 。  3. 未处理系统软键盘拦截代码逻辑：q1Shell(port, 'input keyevent KEYCODE_SEARCH') 。  实际表现：通过 ADB 发送搜索键值时，如果系统自带输入法（如搜狗、百度、手机自带输入法）拦截了焦点，该事件只会让软键盘收起，而不会触发抖音内部的搜索请求。二、 脚本中隐藏的其它运行错误除了搜索问题，整套脚本在生产环境下运行还存在以下严重隐患：1. PrismaClient 频繁实例化导致数据库连接暴死致命代码：在文件顶部直接 const prisma = new PrismaClient() 。  后果：这是 Next.js 开发中的典型雷区。Next.js 的路由（App Router）在开发环境下会频繁热重载（Fast Refresh），或者每次处理 API 请求时都会重复执行该文件。这会导致在短时间内创建数百个 Prisma 实例，迅速耗尽 PostgreSQL/MySQL 的连接池，引发 Timeout waiting for a database connection 错误。2. APP_PACKAGES 包名映射不准确代码隐患：shipinhao: { pkg: 'com.tencent.channels', ... }   实际表现：微信视频号不是一个独立的 App，它的包名就是微信 com.tencent.mm。你无法通过 openApp 直接启动一个不存在的 com.tencent.channels 包 ，这会导致视频号渠道直接卡死在启动阶段。  3. 强依赖 texts 文本匹配的“页面检测”极易失效代码隐患：detectPage 中通过 t.includes('首页') || t === '推荐' 来判断是否在 Feed 流 。  实际表现：App 的开屏广告弹窗、青少年模式弹窗、更新提示等，都会包含类似的文本，或者干扰组件层级。一旦弹出这类窗口，detectPage 会返回 'unknown' ，导致 MapsTo 陷入无限 goBack 的死循环 ，把 App 直接退出了。  三、 最佳运行方案与脚本优化重构为了解决以上问题，我们需要对脚本进行局部重构。最佳优化方案（修改后的完整代码）请重点关注我对 prisma 实例化、search 分支的清理与聚焦逻辑、以及视频号包名的修复。TypeScriptimport { NextRequest, NextResponse } from 'next/server'
+import { PrismaClient } from '@prisma/client'
+import { getAuthFromHeaders } from '@/lib/api-auth'
+import * as Douyin from '@/lib/douyin-automation'
+import * as UI from '@/lib/uiautomator-driver'
+
+// 【修复 1】单例模式防止 Prisma 连接池爆满
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
+const prisma = globalForPrisma.prisma || new PrismaClient()
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+
+// 平台 → 包名映射
+const APP_PACKAGES: Record<string, { pkg: string; act: string }> = {
+  douyin: { pkg: 'com.ss.android.ugc.aweme', act: '.main.MainActivity' },
+  kuaishou: { pkg: 'com.smile.gifmaker', act: '.MainActivity' },
+  xiaohongshu: { pkg: 'com.xingin.xhs', act: '.activity.SplashActivity' },
+  // 【修复 2】微信视频号依赖微信主程序
+  shipinhao: { pkg: 'com.tencent.mm', act: '.ui.LauncherUI' }, 
+  weibo: { pkg: 'com.sina.weibo', act: '.SplashActivity' },
+  bilibili: { pkg: 'tv.danmaku.bili', act: '.MainActivityV2' },
+}
+
+const abortMap = new Map<number, AbortController>()
+
+async function q1Shell(port: number, cmd: string): Promise<UI.UIResult> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/shell`, {
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: cmd }),
+    })
+    const d = await r.json()
+    return { success: r.ok, message: d.output || d.message || 'ok' }
+  } catch { 
+    return { success: false, message: 'shell 请求失败' } 
+  }
+}
+
+async function detectPage(port: number): Promise<string> {
+  const screen = await UI.extractScreenData(port)
+  if (!screen.success) return 'unknown'
+  const texts = (screen.data as any)?.texts || []
+  
+  // 增加阻断型弹窗检测（如青少年模式、升级提示），避免误判
+  if (texts.some((t: string) => t.includes('我知道了') || t.includes('青少年模式'))) {
+    // 尝试点击取消弹窗
+    await UI.findAndClick(port, '我知道了')
+    await UI.findAndClick(port, '取消')
+  }
+
+  if (texts.some((t: string) => t.includes('首页') || t === '推荐')) return 'feed'
+  if (texts.some((t: string) => t.includes('搜索热点') || t.includes('大家都在搜') || t.includes('历史搜索'))) return 'search_page'
+  if (texts.some((t: string) => t.includes('直播'))) return 'live'
+  if (texts.some((t: string) => t === '消息')) return 'messages'
+  if (texts.some((t: string) => t.includes('我') && texts.some((tt: string) => tt.includes('获赞')))) return 'profile'
+  return 'unknown'
+}
+
+async function navigateTo(port: number, target: string, retry = 3): Promise<boolean> {
+  for (let i = 0; i < retry; i++) {
+    const page = await detectPage(port)
+    if (page === target) return true
+    if (i === retry - 1) return false
+    await UI.goBack(port)
+    await UI.sleep(1500) // 增加回退等待时间，确保页面渲染完成
+  }
+  return false
+}
+
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const deviceId = parseInt(id)
+  const running = abortMap.has(deviceId)
+  return NextResponse.json({ success: true, data: { deviceId, running } })
+}
+
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ac = new AbortController()
+  const signal = ac.signal
+  const { id } = await params
+  const deviceId = parseInt(id)
+
+  try {
+    const auth = getAuthFromHeaders(request)
+    if (!auth || auth.role === 'end-user') {
+      return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
+    }
+
+    const body = await request.json()
+    const { platform, actions, keyword, keywords } = body
+    if (!deviceId || !platform || !actions?.length) {
+      return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
+    }
+
+    const searchKeyword = keyword || (Array.isArray(keywords) && keywords.length > 0 ? keywords[0] : '热门')
+
+    const device = await prisma.device.findUnique({ where: { id: deviceId } })
+    if (!device) return NextResponse.json({ success: false, message: '设备不存在' }, { status: 404 })
+    const port = device.apiPort
+    if (!port) return NextResponse.json({ success: false, message: '设备未配置端口' }, { status: 400 })
+
+    const prev = abortMap.get(deviceId)
+    if (prev) prev.abort() 
+    abortMap.set(deviceId, ac)
+
+    const results: { action: string; success: boolean; message: string }[] = []
+    const log = (action: string, success: boolean, message: string) => {
+      if (!signal.aborted) results.push({ action, success, message })
+    }
+    const checkAbort = () => { if (signal.aborted) throw new Error('已停止') }
+
+    // 1. 打开对应 App
+    const app = APP_PACKAGES[platform]
+    if (app) {
+      // 启动前先强杀进程，确保从冷启动开始，规避复杂的历史残留页面
+      await q1Shell(port, `am force-stop ${app.pkg}`)
+      await UI.sleep(1000)
+
+      const r = await UI.openApp(port, app.pkg, app.act)
+      await UI.sleep(12000 + Math.random() * 3000) // 稳妥起见，预留 12-15 秒加载时间
+      checkAbort()
+      log('openApp', r.success, r.success ? `${platform} 已启动` : `启动失败: ${r.message}`)
+
+      if (r.success) {
+        for (let i = 1; i <= 2; i++) {
+          checkAbort()
+          await UI.sleep(5000 + Math.random() * 2000)
+          await UI.scrollUp(port)         
+          log('browse', true, `浏览第 ${i} 条视频`)
+        }
+      }
+    } else {
+      log('openApp', true, `未知平台 ${platform}，跳过打开`)
+    }
+
+    await UI.sleep(3000 + Math.random() * 2000)
+    log('pause', true, '准备开始执行任务')
+
+    let criticalFail = false
+    for (const action of actions) {
+      checkAbort()
+      if (criticalFail) { 
+        log(action, false, '前序动作失败已跳过')
+        continue 
+      }
+
+      try {
+        let r: any
+        switch (action) {
+          // 【修复 3】重构 Search 搜索逻辑
+          case 'search': {
+            // 确保回到首页
+            const onFeed = await navigateTo(port, 'feed')
+            if (!onFeed) { 
+              r = { success: false, message: '无法回到首页' }
+              break 
+            }
+            
+            // 点击右上角放大镜（抖音标准 UI）
+            // 如果 findAndClick 失败，改用通用坐标或描述查找
+            r = await UI.findAndClick(port, '搜索')
+            if (!r.success) {
+              // 备用方案：通过坐标点击右上角（大部分短视频 App 搜索框都在右上角）
+              await UI.tap(port, 950, 120) 
+            }
+            await UI.sleep(3000) // 等待搜索页拉起
+
+            // 精准抓取搜索页输入框
+            const screen = await UI.extractScreenData(port)
+            const inputFields = (screen.data as any)?.inputFields || []
+            
+            if (inputFields.length > 0) {
+              // 1. 点击输入框激活焦点
+              await UI.tap(port, inputFields[0].center.x, inputFields[0].center.y)
+              await UI.sleep(1000)
+              
+              // 2. 强行清空旧内容：ADB 全选并删除（规避占位符干扰）
+              await q1Shell(port, 'input keyevent 29') // KEYCODE_A 全选
+              await q1Shell(port, 'input keyevent 67') // KEYCODE_DEL 删除
+              
+              // 3. 使用输入法写入文本
+              const textResult = await UI.inputText(port, searchKeyword)
+              if (textResult.success) {
+                await UI.sleep(1500)
+                // 4. 双保险触发搜索：先发回车事件，再发标准搜索事件
+                await q1Shell(port, 'input keyevent KEYCODE_ENTER')
+                await q1Shell(port, 'input keyevent 66') // KEYCODE_ENTER 备用码
+                await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
+                await UI.sleep(4000) // 等待搜索结果承载页加载
+                r = { success: true, message: `已完成搜索"${searchKeyword}"` }
+              } else {
+                r = { success: false, message: '输入框注入文本失败' }
+              }
+            } else {
+              // 备用兜底：直接依靠封装好的 tapAndInput 盲投
+              r = await UI.tapAndInput(port, '搜索', searchKeyword)
+              await UI.sleep(1500)
+              await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
+              await UI.sleep(3000)
+            }
+            break
+          }
+    
+          case 'like': { r = await Douyin.like(port); break }
+          case 'comment': { r = await Douyin.comment(port, '不错'); break }
+          case 'follow': { r = await Douyin.follow(port); break }
+          case 'share': { r = await Douyin.shareVideo(port); break }
+          case 'dm': { r = await Douyin.sendDirectMessage(port, '用户', '你好'); break }
+          case 'extract': { r = await Douyin.extractVideoInfo(port); break }
+          case 'comments': { r = await Douyin.extractComments(port); break }
+          case 'publish': { r = await Douyin.publishVideo(port, { title: '自动发布' }); break }
+          default: {
+            log(action, false, `未知动作: ${action}`)
+            continue
+          }
+        }
+        log(action, r.success, r.message || (r.success ? '成功' : '失败'))
+        if (!r.success) criticalFail = true 
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : '未知错误'
+        if (msg !== '已停止') { 
+          log(action, false, `异常: ${msg}`)
+          criticalFail = true 
+        }
+      }
+      await new Promise(r => setTimeout(r, 3000 + Math.random() * 5000))
+      checkAbort()
+    }
+
+    return NextResponse.json({ success: true, data: { deviceId, platform, results } })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '未知错误'
+    return NextResponse.json({
+      success: false,
+      message: msg,
+      data: msg === '已停止' ? { stopped: true } : undefined,
+    }, { status: msg === '已停止' ? 200 : 500 })
+  } finally {
+    abortMap.delete(deviceId)
+    // 【修复 4】不要在这里手动调用 $disconnect()。Next.js 路由并发时，
+    // 某个请求执行 finally 会把全局连接断开，导致其它同时运行的请求直接崩溃。
+    // prisma.$disconnect() 
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const deviceId = parseInt(id)
+  const ac = abortMap.get(deviceId)
+  if (ac) { 
+    ac.abort()
+    abortMap.delete(deviceId) 
+  }
+  return NextResponse.json({ success: true, message: '已发送停止信号' })
+}
+四、 工业级自动化运行最佳建议更换 ADB 专属输入法（核心治本方案）
+标准的手机输入法（如原生键盘、搜狗等）会强行拦截 UI.inputText 和 KEYCODE_SEARCH 。建议在受控手机上安装 ADBKeyBoard（开源项目）。  安装后在手机设置中将其设为默认输入法。它没有实体界面，专门接收 ADB 文本流，能 100% 解决文本无法输入、回车无法响应搜索的问题。执行前引入 am force-stop 冷启动
+如我在重构代码中所加，在 openApp 之前先强制杀死该 App 。这样能确保每次任务开始时，App 都处于干净的首页广告开屏状态，而不是卡在上次未关闭的某个私信界面或评论弹窗里。  部署常驻代理
+脚本中使用的 http://127.0.0.1:${port}/shell 说明你的 Next.js 服务与手机控制端（可能是个中转 Python 脚本或 Go 工具）部署在同一台机器上 。请确保该中转工具的 HTTP 超时时间大于 30 秒，否则大动作（如 openApp 等待 10 秒）会导致 Next.js 侧主动断开连接 。  
