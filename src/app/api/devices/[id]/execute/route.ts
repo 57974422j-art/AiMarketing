@@ -175,72 +175,45 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             const onFeed = await navigateTo(port, 'feed')
             if (!onFeed) { r = { success: false, message: '无法回到首页' }; break }
 
+            // 点搜索 Tab
             r = await UI.findAndClick(port, '搜索')
-            if (!r.success && adb) {
-              adb.tap(950, 120) // 备用：点右上角搜索
-            }
+            if (!r.success && adb) adb.tap(950, 120)
             await UI.sleep(3000)
 
-            // 搜索页 → 输入关键词
-            const screen = await UI.extractScreenData(port)
-            const inputFields = (screen.data as any)?.inputFields || []
+            log('input', true, `正在输入"${searchKeyword}"...`)
 
-            if (inputFields.length > 0) {
-              const bounds = inputFields[0].bounds
-              const cx = bounds.x + bounds.width / 2
-              const cy = bounds.y + bounds.height / 2
-              await UI.tap(port, cx, cy)
-              await UI.sleep(2000) // 等键盘完全弹出
+            // 方案：直接通过 Q1 API 执行 input text（URL 编码，支持中文）
+            // 先清理旧内容
+            await q1Shell(port, 'input keyevent KEYCODE_A')
+            await UI.sleep(300)
+            await q1Shell(port, 'input keyevent KEYCODE_DEL')
+            await UI.sleep(500)
+            // 点击搜索框区域（固定坐标：顶部中间）
+            await q1Shell(port, `input tap 540 150`)
+            await UI.sleep(1000)
+            // 输入中文（Q1 API 的 URL 编码会自动处理 UTF-8）
+            await q1Shell(port, `input text ${searchKeyword}`)
+            await UI.sleep(2000)
 
-              // 全选 + 删除旧内容
-              const sendCmd = async (cmd: string) => {
-                if (adb) { adb.keyEvent(cmd) }
-                else { await q1Shell(port, cmd) }
-              }
-              await sendCmd('KEYCODE_A')
-              await UI.sleep(300)
-              await sendCmd('KEYCODE_DEL')
-              await UI.sleep(500)
-
-              // 输入关键词
-              log('input', true, `正在输入"${searchKeyword}"...`)
-              if (adb) {
-                // ADB 输入（中文需要走剪贴板）
-                adb.keyEvent('KEYCODE_A')
-                adb.keyEvent('KEYCODE_DEL')
-                await q1Shell(port, `am broadcast -a clipper.set -e text "${searchKeyword}"`)
-                await UI.sleep(500)
-                adb.keyEvent('KEYCODE_PASTE') // 279
-              } else {
-                // HTTP shell: 剪贴板 → 粘贴
-                await q1Shell(port, `am broadcast -a clipper.set -e text "${searchKeyword}"`)
-                await UI.sleep(500)
-                await q1Shell(port, 'input keyevent 279') // KEYCODE_PASTE
-              }
-              await UI.sleep(2000)
-
-              // 验证
-              const verify = await UI.extractScreenData(port)
-              const verifyTexts = (verify.data as any)?.texts || []
-              const hasKeyword = verifyTexts.some((t: string) => t.includes(searchKeyword.slice(0, 2)))
-              if (!hasKeyword) {
-                log('input', false, `输入未生效，尝试直接 input text...`)
-                await q1Shell(port, `input text ${searchKeyword}`)
-                await UI.sleep(2000)
-              }
-
-              // 回车搜索
-              await sendCmd('KEYCODE_ENTER')
-              await UI.sleep(1000)
-              await sendCmd('KEYCODE_SEARCH')
-              await UI.sleep(4000)
-              r = { success: true, message: `已搜索"${searchKeyword}"` }
-            } else {
-              r = await UI.tapAndInput(port, '搜索', searchKeyword)
+            // 验证输入是否生效
+            const verify = await UI.extractScreenData(port)
+            const vtexts = (verify.data as any)?.texts || []
+            if (!vtexts.some((t: string) => t.includes(searchKeyword.slice(0, 2)))) {
+              log('input', false, '输入未生效，回退关闭弹窗后重试')
+              await q1Shell(port, 'input keyevent KEYCODE_BACK')
               await UI.sleep(1500)
-              if (adb) adb.keyEvent('KEYCODE_SEARCH')
-              await UI.sleep(3000)
+              await q1Shell(port, `input tap 540 150`)
+              await UI.sleep(1000)
+              await q1Shell(port, `input text ${searchKeyword}`)
+              await UI.sleep(2000)
             }
+
+            // 回车搜索
+            await q1Shell(port, 'input keyevent KEYCODE_ENTER')
+            await UI.sleep(1000)
+            await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
+            await UI.sleep(4000)
+            r = { success: true, message: `已搜索"${searchKeyword}"` }
             break
           }
 
