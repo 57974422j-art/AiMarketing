@@ -121,6 +121,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       log('openApp', true, `未知平台 ${platform}，跳过打开`)
     }
 
+    // 刷完视频后停顿一下再执行任务
+    await UI.sleep(3000 + Math.random() * 2000)
+    log('pause', true, '准备开始执行任务')
+
     // 2. 逐个执行动作（失败即停）
     let criticalFail = false
     for (const action of actions) {
