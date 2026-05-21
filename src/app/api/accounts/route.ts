@@ -20,18 +20,17 @@ export async function GET(request: NextRequest) {
     if (!user) return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
 
     let where: any = {}
-    const include = { user: { select: { id: true, username: true, name: true } }, device: { select: { id: true, name: true } } }
+    const baseInclude: any = { user: { select: { id: true, username: true, name: true, parentId: true, parent: { select: { id: true, username: true, name: true } } } }, device: { select: { id: true, name: true } } }
 
     if (user.role === 'admin') {
       where = {}
     } else if (user.role === 'editor') {
-      // editor 看到 parentId=自己的所有终端用户登记的账号
       where = { user: { parentId: user.userId } }
     } else {
       where = { userId: user.userId }
     }
 
-    const accounts = await prisma.account.findMany({ where, include, orderBy: { createdAt: 'desc' } })
+    const accounts = await prisma.account.findMany({ where, include: baseInclude, orderBy: { createdAt: 'desc' } })
     return NextResponse.json({ success: true, data: accounts })
   } catch (e) { console.error(e); return NextResponse.json({ success: false, message: '服务器错误' }, { status: 500 })
   } finally { await prisma.$disconnect() }

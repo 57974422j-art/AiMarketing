@@ -7,7 +7,7 @@ interface DeviceItem { id: number; name: string; status: string; apiPort?: numbe
 interface AccountItem {
   id: number; platform: string; accountName: string; mobile: string; password: string
   accountId: string; status: string; bindType: string; deviceId: number | null; remark: string
-  user: { id: number; username: string; name: string | null }
+  user: { id: number; username: string; name: string | null; parentId: number | null; parent: { id: number; username: string; name: string | null } | null }
   device: { id: number; name: string } | null; createdAt: string
 }
 
@@ -67,10 +67,11 @@ export default function SocialAccountsPage() {
 
   const isAdmin = user.role === 'admin'
 
-  // admin 按用户名分组
+  // admin 按 editor（user.parent）分组
   const grouped = isAdmin
     ? accounts.reduce<Record<string, AccountItem[]>>((acc, a) => {
-        const key = a.user?.username || '未知'
+        const editor = (a as any).user?.parent
+        const key = editor?.username || '未归属'
         if (!acc[key]) acc[key] = []
         acc[key].push(a)
         return acc
