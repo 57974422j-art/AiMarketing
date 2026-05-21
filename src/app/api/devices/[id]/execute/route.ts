@@ -149,21 +149,31 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               r = await UI.findAndClick(port, '搜索')
               await UI.sleep(2000)
             }
-            // 找输入框输入
-            r = await UI.tapAndInput(port, '搜索', searchKeyword)
-            await UI.sleep(1000)
-            // 键盘搜索 → 点第一个结果
-            await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
-            await UI.sleep(2000)
-            // 找"视频"Tab或第一个结果点击
-            const videoTab = await UI.findAndClick(port, '视频')
-            if (!videoTab.success) await UI.findAndClick(port, '综合')
-            await UI.sleep(2000)
-            // 点第一个搜索结果
-            const firstResult = await UI.findByText(port, searchKeyword)
-            if (firstResult.success) await UI.tap(port, firstResult.center!.x, firstResult.center!.y)
-            await UI.sleep(3000)
-            r = { success: true, message: `已搜索"${searchKeyword}"` }
+            // 获取页面内容找到真正的输入框
+            const screen = await UI.extractScreenData(port)
+            const inputFields = (screen.data as any)?.inputFields || []
+            if (inputFields.length > 0) {
+              // 点输入框
+              await UI.tap(port, inputFields[0].center.x, inputFields[0].center.y)
+              await UI.sleep(1000)
+              // 清空 + 输入
+              const textResult = await UI.inputText(port, searchKeyword)
+              if (textResult.success) {
+                await UI.sleep(1500)
+                await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
+                await UI.sleep(3000)
+                r = { success: true, message: `已搜索"${searchKeyword}"` }
+              } else {
+                r = { success: false, message: '输入失败' }
+              }
+            } else {
+              // 找不到输入框，试文字查找
+              r = await UI.tapAndInput(port, '搜索', searchKeyword)
+              await UI.sleep(1000)
+              await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
+              await UI.sleep(3000)
+              r = { success: true, message: `已尝试搜索"${searchKeyword}"` }
+            }
             break
           }
           case 'like': {
