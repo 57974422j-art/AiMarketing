@@ -55,24 +55,45 @@ export default function AutomationExecPage() {
     for (const acct of selectedAccounts) {
       const device = devices.find(d => d.id === acct.deviceId)
       if (!device) { showToast(`${acct.accountName} 无绑定设备`, 'error'); continue }
+      if ((window as any).__execAborted) break
 
       try {
+        // 从模板取关键词（取第一个）
+        const kw = ['引流获客', '火锅', '美业', '减肥']
+
         const r = await fetch(`/api/devices/${device.id}/execute`, {
           method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accountId: acct.id, platform: acct.platform, actions: ['search', 'like', 'comment', 'follow'] }),
+          body: JSON.stringify({
+            accountId: acct.id, platform: acct.platform,
+            actions: ['search', 'like', 'comment', 'follow'],
+            keyword: kw[0], keywords: kw,
+          }),
         })
         const d = await r.json()
-        const results: ExecStep[] = d.data?.results || []
+        const isStop = d.data?.stopped
+        const results: ExecStep[] = d.data?.results || (isStop ? [{ action: 'stop', success: true, message: '已停止' }] : [])
         setRecords(prev => [{
           id: Date.now(), deviceName: device.name,
           username: acct.accountName,
           platform: PLATFORM_LABEL[acct.platform] || acct.platform,
           results, time: new Date().toLocaleTimeString(),
         }, ...prev])
-        showToast(`${acct.accountName} ${d.success ? '✅' : '❌'}`, d.success ? 'success' : 'error')
+        if (!isStop) showToast(`${acct.accountName} ${d.success ? '✅' : '❌'}`, d.success ? 'success' : 'error')
       } catch { showToast(`${acct.accountName} 执行异常`, 'error') }
     }
-    setExecuting(false)
+    setExecuting(false);
+    (window as any).__execAborted = false
+  }
+
+  const stopAll = () => {
+    (window as any).__execAborted = true
+    // 发停止信号到当前执行中的设备
+    const selectedAccounts = accounts.filter(a => selected.has(a.id) && a.status === '已绑定')
+    selectedAccounts.forEach(acct => {
+      const device = devices.find(d => d.id === acct.deviceId)
+      if (device) fetch(`/api/devices/${device.id}/execute`, { method: 'DELETE', credentials: 'include' })
+    })
+    showToast('已发送停止信号', 'info')
   }
 
   if (authLoading || loading) return <Loading />
@@ -93,10 +114,18 @@ export default function AutomationExecPage() {
             <button onClick={() => setSelected(new Set(accounts.filter(a => a.status === '已绑定').map(a => a.id)))} className="text-xs px-3 py-1 bg-white/5 text-gray-400 rounded-lg hover:bg-white/10">全选</button>
             <button onClick={() => setSelected(new Set())} className="text-xs px-3 py-1 bg-white/5 text-gray-400 rounded-lg hover:bg-white/10">取消</button>
           </div>
-          <button onClick={execute} disabled={executing || selected.size === 0}
-            className="text-sm px-6 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 font-medium">
-            {executing ? `执行中 (${selected.size}个)...` : `▶ 执行选中 (${selected.size}个)`}
-          </button>
+          <div className="flex gap-2">
+            {executing && (
+              <button onClick={stopAll}
+                className="text-sm px-6 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl hover:bg-red-500/30 font-medium">
+                ⏹ 停止
+              </button>
+            )}
+            <button onClick={execute} disabled={executing || selected.size === 0}
+              className="text-sm px-6 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 font-medium">
+              {executing ? `执行中 (${selected.size}个)...` : `▶ 执行选中 (${selected.size}个)`}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
