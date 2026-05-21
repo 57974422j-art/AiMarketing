@@ -38,7 +38,7 @@ const sections: CardSection[] = [
   {
     title: '系统管理',
     items: [
-      { title: 'Q1 管理', desc: '管理 Q1 物理机、扫描窗口容器', href: '/admin/phy-devices', icon: '📡', roles: ['admin'] },
+      { title: 'Q1 管理', desc: '管理 Q1 物理机、扫描窗口容器', href: '/admin/phy-devices', icon: '📡', roles: ['admin', 'editor'] },
       { title: '客户管理', desc: '管理二级客户、分配窗口配额', href: '/admin/users', icon: '👥', roles: ['admin'] },
       { title: '邀请码管理', desc: '生成和管理注册邀请码', href: '/admin/invite-codes', icon: '🔑', roles: ['admin', 'editor'] },
       { title: '模板审核', desc: '审核文案模板的提交', href: '/admin/review', icon: '📝', roles: ['admin'] },

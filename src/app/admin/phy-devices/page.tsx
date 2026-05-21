@@ -5,17 +5,21 @@ import { showToast } from '@/components/Toast'
 
 interface PhyDevice {
   id: number; name: string; ip: string; port: number; note: string | null
-  status: string; createdAt: string
+  status: string; createdAt: string; owner: { id: number; username: string; name: string | null } | null
   devices: { id: number; name: string; status: string; apiPort: number | null; ownerId: number; owner: { username: string } | null }[]
 }
 
 export default function PhyDevicesPage() {
   const { user, loading: authLoading } = useAuth()
   const [items, setItems] = useState<PhyDevice[]>([])
+  const [editors, setEditors] = useState<{ id: number; username: string; name: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [scanningIds, setScanningIds] = useState<Set<number>>(new Set())
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', ip: '', port: '8000', note: '' })
+  const [assignId, setAssignId] = useState<number | null>(null)
+  const [assignUserId, setAssignUserId] = useState('')
+  const [assigning, setAssigning] = useState(false)
 
   useEffect(() => {
     if (!authLoading && user && user.role !== 'end-user') load()
@@ -23,8 +27,23 @@ export default function PhyDevicesPage() {
   }, [authLoading, user])
 
   const load = async () => {
-    try { const r = await fetch('/api/phy-devices', { credentials: 'include' }); if (r.ok) setItems((await r.json()).data || []) }
-    catch {} finally { setLoading(false) }
+    try {
+      const [r, uR] = await Promise.all([
+        fetch('/api/phy-devices', { credentials: 'include' }),
+        user?.role === 'admin' ? fetch('/api/admin/users', { credentials: 'include' }) : Promise.resolve(null),
+      ])
+      if (r.ok) setItems((await r.json()).data || [])
+      if (uR?.ok) { const d = await uR.json(); setEditors(d.data || []) }
+    } catch {} finally { setLoading(false) }
+  }
+
+  const assign = async () => {
+    if (!assignId || !assignUserId) return
+    setAssigning(true)
+    const r = await fetch('/api/phy-devices', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: assignId, ownerId: parseInt(assignUserId) }) })
+    if (r.ok) { showToast('已分配', 'success'); setAssignId(null); load() }
+    else { const d = await r.json(); showToast(d.message || '失败', 'error') }
+    setAssigning(false)
   }
 
   const handleAdd = async () => {
@@ -81,6 +100,24 @@ export default function PhyDevicesPage() {
           </div>
         )}
 
+        {/* 分配弹窗 */}
+        {assignId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setAssignId(null)}>
+            <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+              <h3 className="text-white font-bold mb-1">分配 Q1 设备</h3>
+              <p className="text-xs text-gray-500 mb-4">选择接收的二级客户</p>
+              <select className="input-dark w-full mb-4" value={assignUserId} onChange={e => setAssignUserId(e.target.value)}>
+                <option value="">选择用户...</option>
+                {editors.map(e => <option key={e.id} value={e.id} className="bg-gray-900">{e.name || e.username}</option>)}
+              </select>
+              <div className="flex gap-3">
+                <button onClick={() => setAssignId(null)} className="flex-1 py-2 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 text-sm">取消</button>
+                <button onClick={assign} disabled={assigning || !assignUserId} className="flex-1 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 text-sm">{assigning ? '分配中...' : '确认分配'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Q1 设备卡片列表 */}
         <div className="space-y-4">
           {items.map(phy => {
@@ -93,13 +130,21 @@ export default function PhyDevicesPage() {
                     <div className={`w-2.5 h-2.5 rounded-full ${phy.status === 'online' ? 'bg-emerald-400' : 'bg-gray-500'}`} />
                     <div>
                       <h3 className="text-white font-bold">{phy.name}</h3>
-                      <p className="text-xs text-gray-400">{phy.ip}:{phy.port} {phy.note && `— ${phy.note}`}</p>
+                      <p className="text-xs text-gray-400">{phy.ip}:{phy.port} {phy.owner && `· 归属: ${phy.owner.name || phy.owner.username}`} {phy.note && `— ${phy.note}`}</p>
                     </div>
                   </div>
-                  <button onClick={() => scan(phy.id)} disabled={scanningIds.has(phy.id)}
-                    className="text-xs px-3 py-1.5 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/30 transition disabled:opacity-50">
-                    {scanningIds.has(phy.id) ? '扫描中...' : '📡 扫描窗口'}
-                  </button>
+                  <div className="flex gap-2">
+                    {user?.role === 'admin' && (
+                      <button onClick={() => { setAssignId(phy.id); setAssignUserId('') }}
+                        className="text-xs px-3 py-1.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-lg hover:bg-yellow-500/30 transition">
+                        📤 分给
+                      </button>
+                    )}
+                    <button onClick={() => scan(phy.id)} disabled={scanningIds.has(phy.id)}
+                      className="text-xs px-3 py-1.5 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/30 transition disabled:opacity-50">
+                      {scanningIds.has(phy.id) ? '扫描中...' : '📡 扫描窗口'}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="text-xs text-gray-500 mb-2">容器窗口：{phy.devices.length} 个（在线 {onlineDevices.length}）</div>

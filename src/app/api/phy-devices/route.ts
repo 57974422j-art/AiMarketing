@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
       where,
       include: {
         devices: { select: { id: true, name: true, status: true, apiPort: true, ownerId: true, owner: { select: { username: true } } } },
+        owner: { select: { id: true, username: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
     })
@@ -50,5 +51,19 @@ export async function POST(request: NextRequest) {
     })
     return NextResponse.json({ success: true, data: device }, { status: 201 })
   } catch (e) { console.error(e); return NextResponse.json({ success: false, message: '创建失败' }, { status: 500 })
+  } finally { await prisma.$disconnect() }
+}
+
+// PUT /api/phy-devices — 分配 Q1 给 editor
+export async function PUT(request: NextRequest) {
+  try {
+    const auth = getAuthFromHeaders(request)
+    if (!auth || auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
+    const body = await request.json()
+    const { id, ownerId } = body
+    if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
+    await prisma.phyDevice.update({ where: { id: parseInt(id) }, data: { ownerId: ownerId ? parseInt(ownerId) : auth.userId } })
+    return NextResponse.json({ success: true, message: '已更新' })
+  } catch (e) { console.error(e); return NextResponse.json({ success: false, message: '更新失败' }, { status: 500 })
   } finally { await prisma.$disconnect() }
 }
