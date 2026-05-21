@@ -182,38 +182,49 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
             log('input', true, `正在输入"${searchKeyword}"...`)
 
-            // 方案：直接通过 Q1 API 执行 input text（URL 编码，支持中文）
-            // 先清理旧内容
-            await q1Shell(port, 'input keyevent KEYCODE_A')
-            await UI.sleep(300)
-            await q1Shell(port, 'input keyevent KEYCODE_DEL')
+            // Android: 用 service call clipboard 设置剪贴板 → 粘贴
+            // 方法1: service call clipboard 1 i32 1 s16 "引流获客"
+            // 方法2: am broadcast (需要 ADBKeyBoard)
+            // 方法3: input text (不支持中文)
+            // 先尝试方法1
+            await q1Shell(port, `service call clipboard 1 i32 1 s16 "${searchKeyword}"`)
             await UI.sleep(500)
-            // 点击搜索框区域（固定坐标：顶部中间）
+            // 点搜索框 → 粘贴
             await q1Shell(port, `input tap 540 150`)
             await UI.sleep(1000)
-            // 输入中文（Q1 API 的 URL 编码会自动处理 UTF-8）
-            await q1Shell(port, `input text ${searchKeyword}`)
+            await q1Shell(port, 'input keyevent 279') // KEYCODE_PASTE
             await UI.sleep(2000)
 
-            // 验证输入是否生效
+            // 验证
             const verify = await UI.extractScreenData(port)
             const vtexts = (verify.data as any)?.texts || []
             if (!vtexts.some((t: string) => t.includes(searchKeyword.slice(0, 2)))) {
-              log('input', false, '输入未生效，回退关闭弹窗后重试')
-              await q1Shell(port, 'input keyevent KEYCODE_BACK')
-              await UI.sleep(1500)
+              log('input', false, 'service call 未生效 → 试 am broadcast')
+              await q1Shell(port, `am broadcast -a clipper.set -e text "${searchKeyword}"`)
+              await UI.sleep(500)
               await q1Shell(port, `input tap 540 150`)
               await UI.sleep(1000)
-              await q1Shell(port, `input text ${searchKeyword}`)
+              await q1Shell(port, 'input keyevent 279')
               await UI.sleep(2000)
+
+              // 第二次验证
+              const verify2 = await UI.extractScreenData(port)
+              const v2 = (verify2.data as any)?.texts || []
+              if (!v2.some((t: string) => t.includes(searchKeyword.slice(0, 2)))) {
+                log('input', false, '所有中文输入方法均失败')
+                r = { success: false, message: `无法输入"${searchKeyword}"` }
+                break
+              }
             }
 
-            // 回车搜索
-            await q1Shell(port, 'input keyevent KEYCODE_ENTER')
-            await UI.sleep(1000)
-            await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
-            await UI.sleep(4000)
-            r = { success: true, message: `已搜索"${searchKeyword}"` }
+            if (r?.success !== false) {
+              // 回车搜索
+              await q1Shell(port, 'input keyevent KEYCODE_ENTER')
+              await UI.sleep(1000)
+              await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
+              await UI.sleep(4000)
+              r = { success: true, message: `已搜索"${searchKeyword}"` }
+            }
             break
           }
 
