@@ -99,6 +99,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const adbPort = device.adbPort
     if (!port) return NextResponse.json({ success: false, message: '设备未配置端口' }, { status: 400 })
 
+    const results: { action: string; success: boolean; message: string }[] = []
+    const log = (action: string, success: boolean, message: string) => {
+      if (!signal.aborted) results.push({ action, success, message })
+    }
+    const checkAbort = () => { if (signal.aborted) throw new Error('已停止') }
+
     // 初始化 ADB（如果可用）
     const adb = adbPort ? await shell(port, adbPort) : null
     log('adb', !!adb, adb ? 'ADB 直连模式' : 'HTTP shell 模式（ADB 未安装）')
@@ -107,12 +113,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const prev = abortMap.get(deviceId)
     if (prev) prev.abort()
     abortMap.set(deviceId, ac)
-
-    const results: { action: string; success: boolean; message: string }[] = []
-    const log = (action: string, success: boolean, message: string) => {
-      if (!signal.aborted) results.push({ action, success, message })
-    }
-    const checkAbort = () => { if (signal.aborted) throw new Error('已停止') }
 
     // 1. 打开对应 App（冷启动）
     const app = APP_PACKAGES[platform]
