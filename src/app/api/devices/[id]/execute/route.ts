@@ -101,8 +101,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // 初始化 ADB（如果可用）
     const adb = adbPort ? await shell(port, adbPort) : null
-    if (adb) console.log('[执行] ADB 已连接')
-    else console.log('[执行] ADB 不可用，使用 HTTP shell')
+    log('adb', !!adb, adb ? 'ADB 直连模式' : 'HTTP shell 模式（ADB 未安装）')
 
     // 注册中止
     const prev = abortMap.get(deviceId)
@@ -183,44 +182,43 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               const cx = bounds.x + bounds.width / 2
               const cy = bounds.y + bounds.height / 2
               await UI.tap(port, cx, cy)
-              await UI.sleep(1000)
+              await UI.sleep(2000) // 等键盘完全弹出
 
               // 全选 + 删除旧内容
-              if (adb) {
-                adb.keyEvent('KEYCODE_A')     // 全选
-                adb.keyEvent('KEYCODE_DEL')   // 删除
-              } else {
-                await fetch(`http://127.0.0.1:${port}/shell`, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ command: 'input keyevent KEYCODE_A' }),
-                })
-                await fetch(`http://127.0.0.1:${port}/shell`, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ command: 'input keyevent KEYCODE_DEL' }),
-                })
+              const sendCmd = async (cmd: string) => {
+                if (adb) { adb.keyEvent(cmd) }
+                else {
+                  await fetch(`http://127.0.0.1:${port}/shell`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command }),
+                  })
+                }
               }
+              await sendCmd('KEYCODE_A')
+              await UI.sleep(300)
+              await sendCmd('KEYCODE_DEL')
               await UI.sleep(500)
 
-              // 输入
-              if (adb) {
-                adb.inputText(searchKeyword)
-              } else {
-                await UI.inputText(port, searchKeyword)
+              // 输入关键词
+              log('input', true, `正在输入"${searchKeyword}"...`)
+              const inputOk = adb ? adb.inputText(searchKeyword).success : (await UI.inputText(port, searchKeyword)).success
+              await UI.sleep(2000)
+
+              // 验证：再 dump 一次，看输入框是否有内容
+              const verify = await UI.extractScreenData(port)
+              const verifyTexts = (verify.data as any)?.texts || []
+              const hasKeyword = verifyTexts.some((t: string) => t.includes(searchKeyword.slice(0, 2)))
+              if (!hasKeyword && !inputOk) {
+                // ADB 输入失败，降级用 input 命令
+                log('input', false, 'ADB 输入失败，降级...')
+                await sendCmd(`text "${searchKeyword}"`)
+                await UI.sleep(2000)
               }
-              await UI.sleep(1000)
 
               // 回车搜索
-              if (adb) {
-                adb.keyEvent('KEYCODE_ENTER')
-                adb.keyEvent('KEYCODE_SEARCH')
-              } else {
-                const q1Shell = (cmd: string) => fetch(`http://127.0.0.1:${port}/shell`, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ command: cmd }),
-                })
-                await q1Shell('input keyevent KEYCODE_ENTER')
-                await q1Shell('input keyevent KEYCODE_SEARCH')
-              }
+              await sendCmd('KEYCODE_ENTER')
+              await UI.sleep(1000)
+              await sendCmd('KEYCODE_SEARCH')
               await UI.sleep(4000)
               r = { success: true, message: `已搜索"${searchKeyword}"` }
             } else {
