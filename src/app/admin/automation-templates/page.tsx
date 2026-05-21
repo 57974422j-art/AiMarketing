@@ -283,10 +283,6 @@ export default function AutomationTemplatesPage() {
             </div>
           </div>
         )}
-      </div>
-    </div>
-  )
-}
 
         {/* ── 测试弹窗 ── */}
         {testOpen && (
