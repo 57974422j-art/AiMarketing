@@ -16,6 +16,7 @@ export default function AdminDevicesPage() {
   const [editors, setEditors] = useState<UserItem[]>([])
   const [loading, setLoading] = useState(true)
   const [editId, setEditId] = useState<number | null>(null)
+  const [boundAccounts, setBoundAccounts] = useState<Record<number, string[]>>({})
   const [snapUrl, setSnapUrl] = useState('')
   const [shellOut, setShellOut] = useState('')
   const [execCmd, setExecCmd] = useState('')
@@ -33,12 +34,23 @@ export default function AdminDevicesPage() {
 
   const loadData = async () => {
     try {
-      const [dRes, uRes] = await Promise.all([
+      const [dRes, uRes, aRes] = await Promise.all([
         fetch('/api/devices', { credentials: 'include' }),
         user?.role === 'admin' ? fetch('/api/admin/users', { credentials: 'include' }) : Promise.resolve(null),
+        fetch('/api/accounts', { credentials: 'include' }),
       ])
-      if (dRes?.ok) { const d = await dRes.json(); setDevices(d.data || []); console.log('[设备] 列表:', d.data?.length) }
-      if (uRes?.ok) { const d = await uRes.json(); setEditors(d.data || []); console.log('[设备] 用户列表:', d.data?.map((u: any) => u.username)) }
+      if (dRes?.ok) { const d = await dRes.json(); setDevices(d.data || []) }
+      if (uRes?.ok) { const d = await uRes.json(); setEditors(d.data || []) }
+      if (aRes?.ok) {
+        const d = await aRes.json()
+        const raw = Array.isArray(d) ? d : d.data || []
+        const map: Record<number, string[]> = {}
+        raw.forEach((a: any) => {
+          const did = a.deviceId || a.device?.id
+          if (did) { if (!map[did]) map[did] = []; map[did].push(a.accountName) }
+        })
+        setBoundAccounts(map)
+      }
     } catch (e) { console.error('[设备] 加载失败:', e) } finally { setLoading(false) }
   }
 
@@ -265,25 +277,14 @@ export default function AdminDevicesPage() {
                     <td className="py-3 pr-3 text-gray-400 text-xs font-mono">{d.ip ? `${d.ip}:${d.apiPort||'-'}:${d.rpaPort||'-'}:${d.adbPort||'-'}` : '-'}</td>
                     <td className="py-3 pr-3 text-gray-400">{d.owner?.username || '-'}</td>
                     <td className="py-3 pr-3 text-gray-500 text-[10px]">{new Date(d.lastHeartbeat).toLocaleString()}</td>
-                    <td className="py-3 pr-3 whitespace-nowrap">
-                      {d.type === 'q1' && (<>
-                        <button onClick={() => handleScreenshot(d.id)} disabled={snapLoading}
-                          className="text-[10px] text-emerald-400 hover:text-emerald-300 mr-1 disabled:opacity-50">截图</button>
-                        <button onClick={() => testLike(d.id)} disabled={snapLoading}
-                          className="text-[10px] text-pink-400 hover:text-pink-300 mr-1 disabled:opacity-50">点赞</button>
-                        <button onClick={() => doUIAction(d.id, 'share')}
-                          className="text-[10px] text-purple-400 hover:text-purple-300 mr-1">转发</button>
-                        <button onClick={() => doUIAction(d.id, 'extractScreen')}
-                          className="text-[10px] text-cyan-400 hover:text-cyan-300 mr-1">提取</button>
-                        <button onClick={() => { setShellDevId(d.id); setExecCmd(''); setShellOut('') }}
-                          className="text-[10px] text-yellow-400 hover:text-yellow-300 mr-1">Shell</button>
-                        <button onClick={() => doUIAction(d.id, 'extractVideo')}
-                          className="text-[10px] text-orange-400 hover:text-orange-300 mr-1">视频信息</button>
-                        <button onClick={() => doUIAction(d.id, 'extractComments')}
-                          className="text-[10px] text-blue-400 hover:text-blue-300 mr-1">评论</button>
-                      </>)}
-                      <button onClick={() => openEdit(d)} className="text-[10px] text-cyan-400 hover:text-cyan-300 mr-1">编辑</button>
-                      <button onClick={() => handleDelete(d.id)} className="text-[10px] text-red-400 hover:text-red-300">删除</button>
+                    <td className="py-3 pr-3">
+                      <div className="text-[10px] text-gray-500 mb-1">
+                        {boundAccounts[d.id]?.join('、') || <span className="text-gray-600">未绑定</span>}
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={() => openEdit(d)} className="text-[10px] px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 rounded hover:bg-cyan-500/30">编辑</button>
+                        <button onClick={() => handleDelete(d.id)} className="text-[10px] px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30">删除</button>
+                      </div>
                     </td>
                   </tr>
                 ))}
