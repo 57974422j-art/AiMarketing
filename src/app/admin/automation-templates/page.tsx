@@ -5,7 +5,8 @@ import { showToast } from '@/components/Toast'
 
 // ── 类型 ──
 interface AccountItem {
-  id: number; platform: string; username: string; status: string; deviceId: number | null
+  id: number; platform: string; accountName: string; status: string; deviceId: number | null
+  device?: { id: number; name: string } | null
 }
 interface DeviceItem { id: number; name: string; status: string; apiPort?: number }
 type TaskAction = 'search' | 'like' | 'comment' | 'follow' | 'dm' | 'share' | 'publish' | 'extract' | 'comments'
@@ -67,11 +68,11 @@ export default function AutomationTemplatesPage() {
   const loadAll = async () => {
     try {
       const [aRes, dRes, tRes] = await Promise.all([
-        fetch('/api/social-accounts', { credentials: 'include' }),
+        fetch('/api/accounts', { credentials: 'include' }),
         fetch('/api/devices', { credentials: 'include' }),
         fetch('/api/automation-templates', { credentials: 'include' }),
       ])
-      if (aRes.ok) setAccounts((await aRes.json()).data || [])
+      if (aRes.ok) { const d = await aRes.json(); setAccounts((d.data || []).filter((a: any) => a.status === '已绑定')) }
       if (dRes.ok) setDevices(((await dRes.json()).data || []).filter((d: any) => d.type === 'q1'))
       if (tRes.ok) {
         const list = (await tRes.json()).data || []
@@ -204,15 +205,21 @@ export default function AutomationTemplatesPage() {
                 </Section>
 
                 {/* 关联账号 */}
-                <Section title="关联账号" icon="👤" desc="此模板应用到哪个账号（可选，可在执行时调整）">
-                  <div className="flex flex-wrap gap-2">
-                    {accounts.filter(a => a.platform === drawerPlatform).map(acct => (
-                      <button key={acct.id} onClick={() => setCfg(prev => ({ ...prev, accountId: acct.id, deviceId: acct.deviceId }))}
-                        className={`px-3 py-1.5 text-xs rounded-lg border ${cfg.accountId === acct.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
-                        {acct.username}
-                      </button>
-                    ))}
-                    {accounts.filter(a => a.platform === drawerPlatform).length === 0 && <p className="text-xs text-gray-500">暂无账号，请先在「社交账号」绑定</p>}
+                <Section title="关联账号" icon="👤" desc="选择此模板要执行哪个账号">
+                  <div className="space-y-2">
+                    {accounts.filter(a => a.platform === drawerPlatform.toLowerCase()).map(acct => {
+                      const platformIcon: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
+                      return (
+                        <button key={acct.id} onClick={() => setCfg(prev => ({ ...prev, accountId: acct.id, deviceId: acct.deviceId }))}
+                          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-xs transition ${cfg.accountId === acct.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
+                          <span>{platformIcon[acct.platform] || '📱'}</span>
+                          <span className="font-medium">{acct.accountName}</span>
+                          <span className="text-gray-500">· {acct.device?.name || '待绑定'}</span>
+                          {cfg.accountId === acct.id && <span className="ml-auto text-emerald-400">✓</span>}
+                        </button>
+                      )
+                    })}
+                    {accounts.filter(a => a.platform === drawerPlatform.toLowerCase()).length === 0 && <p className="text-xs text-gray-500 text-center py-2">暂无已绑定的{drawerPlatform}账号，请先在社交账号绑定</p>}
                   </div>
                 </Section>
 
