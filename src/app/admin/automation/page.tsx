@@ -93,7 +93,7 @@ export default function AutomationExecPage() {
       const device = devices.find(d => d.id === acct.deviceId)
       if (device) fetch(`/api/devices/${device.id}/execute`, { method: 'DELETE', credentials: 'include' })
     })
-    showToast('已发送停止信号', 'info')
+    showToast('已发送停止信号')
   }
 
   if (authLoading || loading) return <Loading />
