@@ -93,21 +93,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         let r: any
         switch (action) {
           case 'search': {
-            // 先尝试文字搜索
-            r = await Douyin.search(port, searchKeyword)
-            if (!r.success) {
-              // 回退：直接点搜索 Tab → 点输入框 → 输入
-              await UI.findAndClick(port, '搜索')
-              await UI.sleep(2000)
-              // 点搜索框区域
-              await UI.tap(port, 540, 120)
-              await UI.sleep(1000)
-              r = await UI.inputText(port, searchKeyword)
-              await UI.sleep(1500)
-              await UI.tap(port, 540, 200)
-              await UI.sleep(3000)
-              r = { success: true, message: `已搜索"${searchKeyword}"` }
-            }
+            // 点底部"搜索"Tab
+            await UI.tap(port, 540, 1850)
+            await UI.sleep(2000)
+            // 点顶部的搜索输入框区域
+            await UI.tap(port, 540, 120)
+            await UI.sleep(1000)
+            // 输入关键词
+            r = await UI.inputText(port, searchKeyword)
+            await UI.sleep(1000)
+            // 键盘搜索
+            await UI.execShell(port, 'input keyevent KEYCODE_SEARCH')
+            await UI.sleep(1000)
+            await UI.tap(port, 540, 400)
+            await UI.sleep(3000)
+            r = { success: true, message: `已搜索"${searchKeyword}"` }
             break
           }
           case 'like': {
