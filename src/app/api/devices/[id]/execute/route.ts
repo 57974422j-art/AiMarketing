@@ -190,7 +190,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
                 else {
                   await fetch(`http://127.0.0.1:${port}/shell`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ command }),
+                    body: JSON.stringify({ command: cmd }),
                   })
                 }
               }
