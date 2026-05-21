@@ -19,6 +19,18 @@ const APP_PACKAGES: Record<string, { pkg: string; act: string }> = {
 // 全局中止信号
 const abortMap = new Map<number, AbortController>()
 
+// ── 本地 Q1 shell（execShell 未公开导出） ──
+async function q1Shell(port: number, cmd: string): Promise<UI.UIResult> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/shell`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: cmd }),
+    })
+    const d = await r.json()
+    return { success: r.ok, message: d.output || d.message || 'ok' }
+  } catch { return { success: false, message: 'shell 请求失败' } }
+}
+
 // ── 页面检测 ──
 async function detectPage(port: number): Promise<string> {
   const screen = await UI.extractScreenData(port)
@@ -137,7 +149,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             r = await UI.tapAndInput(port, '搜索', searchKeyword)
             await UI.sleep(1000)
             // 键盘搜索 → 点第一个结果
-            await UI.execShell(port, 'input keyevent KEYCODE_SEARCH')
+            await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
             await UI.sleep(2000)
             // 找"视频"Tab或第一个结果点击
             const videoTab = await UI.findAndClick(port, '视频')
