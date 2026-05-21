@@ -207,7 +207,10 @@ export default function AutomationTemplatesPage() {
                 {/* 关联账号 */}
                 <Section title="关联账号" icon="👤" desc="选择此模板要执行哪个账号">
                   <div className="space-y-2">
-                    {accounts.filter(a => a.platform === drawerPlatform.toLowerCase()).map(acct => {
+                    {(() => {
+                      const platformKey: Record<string, string> = { '抖音': 'douyin', '快手': 'kuaishou', '小红书': 'xiaohongshu', '视频号': 'shipinhao', '微博': 'weibo', 'B站': 'bilibili' }
+                      return accounts.filter(a => a.platform === platformKey[drawerPlatform])
+                    })().map(acct => {
                       const platformIcon: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
                       return (
                         <button key={acct.id} onClick={() => setCfg(prev => ({ ...prev, accountId: acct.id, deviceId: acct.deviceId }))}
@@ -219,7 +222,10 @@ export default function AutomationTemplatesPage() {
                         </button>
                       )
                     })}
-                    {accounts.filter(a => a.platform === drawerPlatform.toLowerCase()).length === 0 && <p className="text-xs text-gray-500 text-center py-2">暂无已绑定的{drawerPlatform}账号，请先在社交账号绑定</p>}
+                    {(() => {
+                      const platformKey: Record<string, string> = { '抖音': 'douyin', '快手': 'kuaishou', '小红书': 'xiaohongshu', '视频号': 'shipinhao', '微博': 'weibo', 'B站': 'bilibili' }
+                      return accounts.filter(a => a.platform === platformKey[drawerPlatform]).length === 0
+                    })() && <p className="text-xs text-gray-500 text-center py-2">暂无已绑定的{drawerPlatform}账号，请先在社交账号绑定</p>}
                   </div>
                 </Section>
 
