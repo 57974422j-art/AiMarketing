@@ -7,6 +7,7 @@ import { showToast } from '@/components/Toast'
 interface AccountItem {
   id: number; platform: string; username: string; status: string; deviceId: number | null
 }
+interface DeviceItem { id: number; name: string; status: string; apiPort?: number }
 type TaskAction = 'search' | 'like' | 'comment' | 'follow' | 'dm' | 'share' | 'publish' | 'extract' | 'comments'
 interface TaskConfig {
   id?: number; accountId: number; deviceId: number | null; platform: string; name: string
@@ -40,6 +41,7 @@ const DEFAULT_CONFIG = { keywords: ['火锅', '美业', '减肥'], timeStart: '0
 export default function AutomationTemplatesPage() {
   const { user, loading: authLoading } = useAuth()
   const [accounts, setAccounts] = useState<AccountItem[]>([])
+  const [devices, setDevices] = useState<DeviceItem[]>([])
   const [templates, setTemplates] = useState<TaskConfig[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -50,6 +52,13 @@ export default function AutomationTemplatesPage() {
   const [cfgLoading, setCfgLoading] = useState(false)
   const [cfgSaving, setCfgSaving] = useState(false)
 
+  // 测试
+  const [testOpen, setTestOpen] = useState<TaskConfig | null>(null)
+  const [testAction, setTestAction] = useState<TaskAction>('search')
+  const [testDevId, setTestDevId] = useState('')
+  const [testResult, setTestResult] = useState('')
+  const [testLoading, setTestLoading] = useState(false)
+
   useEffect(() => {
     if (!authLoading && user && user.role !== 'end-user') loadAll()
     else if (!authLoading) setLoading(false)
@@ -57,11 +66,13 @@ export default function AutomationTemplatesPage() {
 
   const loadAll = async () => {
     try {
-      const [aRes, tRes] = await Promise.all([
+      const [aRes, dRes, tRes] = await Promise.all([
         fetch('/api/social-accounts', { credentials: 'include' }),
+        fetch('/api/devices', { credentials: 'include' }),
         fetch('/api/automation-templates', { credentials: 'include' }),
       ])
       if (aRes.ok) setAccounts((await aRes.json()).data || [])
+      if (dRes.ok) setDevices(((await dRes.json()).data || []).filter((d: any) => d.type === 'q1'))
       if (tRes.ok) {
         const list = (await tRes.json()).data || []
         // 将 AutomationTemplate 转为 TaskConfig 结构
@@ -151,6 +162,7 @@ export default function AutomationTemplatesPage() {
                       <span className="text-white font-medium text-sm">{t.name}</span>
                     </div>
                     <div className="flex gap-1">
+                      <button onClick={() => { setTestOpen(t); setTestAction(t.actions[0] || 'search'); setTestDevId(''); setTestResult('') }} className="text-xs px-2 py-1 bg-emerald-500/20 text-emerald-400 rounded hover:bg-emerald-500/30">▶ 测试</button>
                       <button onClick={() => editTemplate(t)} className="text-xs px-2 py-1 bg-cyan-500/20 text-cyan-400 rounded hover:bg-cyan-500/30">编辑</button>
                       <button onClick={() => deleteTemplate(t.id!)} className="text-xs px-2 py-1 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30">删除</button>
                     </div>
@@ -272,6 +284,54 @@ export default function AutomationTemplatesPage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+        {/* ── 测试弹窗 ── */}
+        {testOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setTestOpen(null)}>
+            <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+              <h3 className="text-white font-bold mb-1">▶ 测试模板</h3>
+              <p className="text-xs text-gray-500 mb-4">{testOpen.name} · 选择一个动作和设备执行测试</p>
+
+              <label className="text-xs text-gray-400 mb-1 block">动作</label>
+              <select className="input-dark w-full mb-3 text-sm" value={testAction} onChange={e => setTestAction(e.target.value as TaskAction)}>
+                {testOpen.actions.map(a => {
+                  const meta = ALL_ACTIONS.find(aa => aa.key === a)
+                  return <option key={a} value={a} className="bg-gray-900">{meta?.icon} {meta?.label || a}</option>
+                })}
+              </select>
+
+              <label className="text-xs text-gray-400 mb-1 block">设备</label>
+              <select className="input-dark w-full mb-4 text-sm" value={testDevId} onChange={e => setTestDevId(e.target.value)}>
+                <option value="">选择设备...</option>
+                {devices.filter(d => d.status === 'online').map(d => <option key={d.id} value={d.id} className="bg-gray-900">{d.name}</option>)}
+              </select>
+
+              <button onClick={async () => {
+                if (!testDevId) { showToast('请选择设备', 'error'); return }
+                setTestLoading(true); setTestResult('')
+                try {
+                  const r = await fetch(`/api/devices/${testDevId}/ui`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: testAction }) })
+                  const d = await r.json()
+                  setTestResult(d.message || d.output || (r.ok ? '✅ 执行成功' : '❌ 失败'))
+                  if (r.ok) showToast('✅ 测试完成', 'success')
+                  else showToast('测试失败:' + (d.message || ''), 'error')
+                } catch { setTestResult('❌ 请求失败') }
+                finally { setTestLoading(false) }
+              }} disabled={testLoading || !testDevId}
+                className="w-full py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 text-sm mb-2">
+                {testLoading ? '执行中...' : '▶ 执行测试'}
+              </button>
+
+              {testResult && <pre className="bg-black/30 rounded-lg p-3 text-[10px] text-green-400 font-mono max-h-32 overflow-auto">{testResult}</pre>}
+            </div>
+          </div>
+        )}
+
+        </>
+      )}
     </div>
   )
 }
