@@ -136,10 +136,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             // 找输入框输入
             r = await UI.tapAndInput(port, '搜索', searchKeyword)
             await UI.sleep(1000)
-            // 点键盘搜索
+            // 键盘搜索 → 点第一个结果
             await UI.execShell(port, 'input keyevent KEYCODE_SEARCH')
-            await UI.sleep(1000)
-            await UI.tap(port, 540, 400)
+            await UI.sleep(2000)
+            // 找"视频"Tab或第一个结果点击
+            const videoTab = await UI.findAndClick(port, '视频')
+            if (!videoTab.success) await UI.findAndClick(port, '综合')
+            await UI.sleep(2000)
+            // 点第一个搜索结果
+            const firstResult = await UI.findByText(port, searchKeyword)
+            if (firstResult.success) await UI.tap(port, firstResult.center!.x, firstResult.center!.y)
             await UI.sleep(3000)
             r = { success: true, message: `已搜索"${searchKeyword}"` }
             break
