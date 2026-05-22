@@ -301,21 +301,21 @@ export default function AutomationTemplatesPage() {
           </div>
         )}
 
-        {/* ── 配置抽屉 ── 已迁移到内联 ── */}
+        {/* ── 配置抽屉 ── 已弃用，保留仅供历史参考 ── */}
         {false && (
-          <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setDrawerOpen(false)}>
+          <div className="fixed inset-0 z-50 flex justify-end" onClick={() => {}}>
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
             <div className="relative w-full max-w-lg bg-gray-900 border-l border-white/10 h-full overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="sticky top-0 bg-gray-900/95 border-b border-white/10 p-6 z-10">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">{PLATFORMS.find(p => p.key === drawerPlatform)?.icon}</span>
+                    <span className="text-2xl">{PLATFORMS.find(p => p.key === '')?.icon}</span>
                     <div>
-                      <h2 className="text-white text-lg font-bold">{drawerPlatform} 任务模板</h2>
+                      <h2 className="text-white text-lg font-bold">{''} 任务模板</h2>
                       <p className="text-xs text-gray-500">配置模板后，分配到账号即可自动执行</p>
                     </div>
                   </div>
-                  <button onClick={() => setDrawerOpen(false)} className="text-gray-500 hover:text-white text-2xl">&times;</button>
+                  <button onClick={() => {}} className="text-gray-500 hover:text-white text-2xl">&times;</button>
                 </div>
               </div>
 
