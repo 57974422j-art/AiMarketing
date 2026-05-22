@@ -330,7 +330,7 @@ export default function AutomationTemplatesPage() {
                   <div className="space-y-2">
                     {(() => {
                       const platformKey: Record<string, string> = { '抖音': 'douyin', '快手': 'kuaishou', '小红书': 'xiaohongshu', '视频号': 'shipinhao', '微博': 'weibo', 'B站': 'bilibili' }
-                      return accounts.filter(a => a.platform === platformKey[drawerPlatform])
+                      return accounts.filter(a => a.platform === platformKey[activePlatform])
                     })().map(acct => {
                       const platformIcon: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
                       return (
@@ -345,8 +345,8 @@ export default function AutomationTemplatesPage() {
                     })}
                     {(() => {
                       const platformKey: Record<string, string> = { '抖音': 'douyin', '快手': 'kuaishou', '小红书': 'xiaohongshu', '视频号': 'shipinhao', '微博': 'weibo', 'B站': 'bilibili' }
-                      return accounts.filter(a => a.platform === platformKey[drawerPlatform]).length === 0
-                    })() && <p className="text-xs text-gray-500 text-center py-2">暂无已绑定的{drawerPlatform}账号，请先在社交账号绑定</p>}
+                      return accounts.filter(a => a.platform === platformKey[activePlatform]).length === 0
+                    })() && <p className="text-xs text-gray-500 text-center py-2">暂无已绑定的{activePlatform}账号</p>}
                   </div>
                 </Section>
 
