@@ -92,16 +92,14 @@ export default function AutomationTemplatesPage() {
     } catch {} finally { setLoading(false) }
   }
 
-  const openDrawer = (platform: string) => {
-    setDrawerPlatform(platform)
-    setCfg({ name: `${platform}自动任务`, accountId: 0, deviceId: null, platform, keywords: [...DEFAULT_CONFIG.keywords], timeStart: DEFAULT_CONFIG.timeStart, timeEnd: DEFAULT_CONFIG.timeEnd, actions: [...DEFAULT_CONFIG.actions], leadGen: {} })
-    setDrawerOpen(true)
+  const openPlatform = (platform: string) => {
+    setActivePlatform(platform)
+    setCfg({ name: `${platform}自动任务`, accountId: 0, deviceId: null, platform, keywords: [...DEFAULT_CONFIG.keywords], timeStart: DEFAULT_CONFIG.timeStart, timeEnd: DEFAULT_CONFIG.timeEnd, actions: [...DEFAULT_CONFIG.actions], leadGen: {}, browseDuration: 30 })
   }
 
   const editTemplate = (tmpl: TaskConfig) => {
-    setDrawerPlatform(tmpl.platform)
-    setCfg({ ...tmpl })
-    setDrawerOpen(true)
+    setActivePlatform(tmpl.platform)
+    setCfg({ name: tmpl.name, accountId: tmpl.accountId || 0, deviceId: tmpl.deviceId, platform: tmpl.platform, keywords: tmpl.keywords || [...DEFAULT_CONFIG.keywords], timeStart: tmpl.timeStart || DEFAULT_CONFIG.timeStart, timeEnd: tmpl.timeEnd || DEFAULT_CONFIG.timeEnd, actions: tmpl.actions || [...DEFAULT_CONFIG.actions], leadGen: tmpl.leadGen || {}, browseDuration: tmpl.browseDuration || 30 })
   }
 
   const toggleAction = (action: TaskAction) => {
