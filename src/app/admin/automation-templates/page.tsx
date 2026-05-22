@@ -14,6 +14,7 @@ interface TaskConfig {
   id?: number; accountId: number; deviceId: number | null; platform: string; name: string
   keywords: string[]; timeStart: string; timeEnd: string
   actions: TaskAction[]; leadGen: Record<string, unknown>
+  browseDuration?: number // 浏览/完播时长（秒）
 }
 
 const PLATFORMS = [
@@ -46,11 +47,15 @@ export default function AutomationTemplatesPage() {
   const [templates, setTemplates] = useState<TaskConfig[]>([])
   const [loading, setLoading] = useState(true)
 
-  // 抽屉
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [drawerPlatform, setDrawerPlatform] = useState('')
-  const [cfg, setCfg] = useState<TaskConfig>({ name: '', accountId: 0, deviceId: null, platform: '', keywords: [...DEFAULT_CONFIG.keywords], timeStart: DEFAULT_CONFIG.timeStart, timeEnd: DEFAULT_CONFIG.timeEnd, actions: [...DEFAULT_CONFIG.actions], leadGen: {} })
-  const [cfgLoading, setCfgLoading] = useState(false)
+  // 当前编辑的平台（内联显示配置）
+  const [activePlatform, setActivePlatform] = useState('')
+  const [cfg, setCfg] = useState<TaskConfig>({
+    name: '', accountId: 0, deviceId: null, platform: '',
+    keywords: [...DEFAULT_CONFIG.keywords],
+    timeStart: DEFAULT_CONFIG.timeStart, timeEnd: DEFAULT_CONFIG.timeEnd,
+    actions: [...DEFAULT_CONFIG.actions], leadGen: {},
+    browseDuration: 30,
+  })
   const [cfgSaving, setCfgSaving] = useState(false)
 
   // 测试
@@ -109,9 +114,9 @@ export default function AutomationTemplatesPage() {
     try {
       const r = await fetch('/api/automation-templates', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: cfg.name, type: cfg.platform + '任务', params: cfg }),
+        body: JSON.stringify({ name: cfg.name, type: activePlatform + '任务', params: cfg }),
       })
-      if (r.ok) { showToast('模板已保存', 'success'); setDrawerOpen(false); loadAll() }
+      if (r.ok) { showToast('模板已保存', 'success'); setActivePlatform(''); loadAll() }
       else { const d = await r.json(); showToast(d.message || '保存失败', 'error') }
     } catch { showToast('保存失败', 'error') } finally { setCfgSaving(false) }
   }
@@ -136,16 +141,134 @@ export default function AutomationTemplatesPage() {
 
         {/* 平台卡片 */}
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-8">
-          {PLATFORMS.map(p => (
-            <button key={p.key} onClick={() => openDrawer(p.key)}
-              className="card-glass p-4 text-center hover:scale-[1.03] transition-all cursor-pointer border group"
+          {PLATFORMS.map(p => {
+            const isActive = activePlatform === p.key
+            return (
+            <button key={p.key} onClick={() => setActivePlatform(isActive ? '' : p.key)}
+              className={`card-glass p-4 text-center hover:scale-[1.03] transition-all cursor-pointer border group ${isActive ? 'ring-2 ring-emerald-500/50 border-emerald-500/40' : ''}`}
               style={{ borderColor: p.border.replace('border-', '') }}>
               <div className="text-3xl mb-1">{p.icon}</div>
               <div className="text-sm font-medium text-white">{p.key}</div>
-              <div className="text-[10px] text-gray-500 mt-0.5">新建模板</div>
+              <div className="text-[10px] text-gray-500 mt-0.5">{isActive ? '编辑中...' : '新建模板'}</div>
             </button>
-          ))}
+          )})}
         </div>
+
+        {/* ── 内联配置面板 ── */}
+        {activePlatform && (
+          <div className="card-glass p-6 mb-8">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{PLATFORMS.find(p => p.key === activePlatform)?.icon}</span>
+                <div>
+                  <h2 className="text-white text-lg font-bold">{activePlatform} 任务模板</h2>
+                  <p className="text-xs text-gray-500">配置模板后，分配到账号即可自动执行</p>
+                </div>
+              </div>
+              <button onClick={() => setActivePlatform('')} className="text-gray-500 hover:text-white text-2xl">&times;</button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* 左列 */}
+              <div className="space-y-4">
+                {/* 模板名称 */}
+                <Section title="模板名称" icon="📝">
+                  <input className="input-dark w-full text-sm" placeholder="如：抖音日常运营" value={cfg.name} onChange={e => setCfg(prev => ({ ...prev, name: e.target.value }))} />
+                </Section>
+
+                {/* 关联账号 */}
+                <Section title="关联账号" icon="👤" desc="选择此模板要执行哪个账号">
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {(() => {
+                      const pk: Record<string, string> = { '抖音': 'douyin', '快手': 'kuaishou', '小红书': 'xiaohongshu', '视频号': 'shipinhao', '微博': 'weibo', 'B站': 'bilibili' }
+                      return accounts.filter(a => a.platform === pk[activePlatform])
+                    })().map(acct => (
+                      <button key={acct.id} onClick={() => setCfg(prev => ({ ...prev, accountId: acct.id, deviceId: acct.deviceId }))}
+                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-xs transition ${cfg.accountId === acct.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
+                        <span>🎵</span>
+                        <span className="font-medium">{acct.accountName}</span>
+                        <span className="text-gray-500">· {acct.device?.name || '待绑定'}</span>
+                        {cfg.accountId === acct.id && <span className="ml-auto text-emerald-400">✓</span>}
+                      </button>
+                    ))}
+                    {(() => {
+                      const pk: Record<string, string> = { '抖音': 'douyin', '快手': 'kuaishou', '小红书': 'xiaohongshu', '视频号': 'shipinhao', '微博': 'weibo', 'B站': 'bilibili' }
+                      return accounts.filter(a => a.platform === pk[activePlatform]).length === 0
+                    })() && <p className="text-xs text-gray-500 text-center py-2">暂无已绑定的{activePlatform}账号</p>}
+                  </div>
+                </Section>
+
+                {/* 关键词 */}
+                <Section title="搜索关键词" icon="🔑" desc="用于搜索内容和创作灵感">
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {cfg.keywords.map((kw, i) => (
+                      <span key={i} className="px-2 py-1 bg-cyan-500/20 text-cyan-400 rounded text-xs flex items-center gap-1.5 border border-cyan-500/30">{kw}
+                        <button onClick={() => setCfg(prev => ({ ...prev, keywords: prev.keywords.filter((_, j) => j !== i) }))} className="hover:text-red-400">&times;</button>
+                      </span>
+                    ))}
+                  </div>
+                  <input className="input-dark w-full text-sm" placeholder="输入关键词按回车，如：火锅、美业"
+                    onKeyDown={e => { if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                      setCfg(prev => ({ ...prev, keywords: [...prev.keywords, (e.target as HTMLInputElement).value.trim()] }))
+                      ;(e.target as HTMLInputElement).value = ''
+                    }}} />
+                </Section>
+              </div>
+
+              {/* 右列 */}
+              <div className="space-y-4">
+                {/* 运行时间 */}
+                <Section title="运行时间段" icon="⏰">
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs text-gray-400">开始</label>
+                    <input type="time" value={cfg.timeStart} onChange={e => setCfg(prev => ({ ...prev, timeStart: e.target.value }))} className="input-dark text-sm w-28" />
+                    <label className="text-xs text-gray-400">结束</label>
+                    <input type="time" value={cfg.timeEnd} onChange={e => setCfg(prev => ({ ...prev, timeEnd: e.target.value }))} className="input-dark text-sm w-28" />
+                  </div>
+                </Section>
+
+                {/* 浏览时长 */}
+                <Section title="浏览时长" icon="⏱️" desc="每个视频观看秒数，完播后再操作">
+                  <div className="flex items-center gap-3">
+                    <input type="number" min={5} max={300} value={cfg.browseDuration || 30}
+                      onChange={e => setCfg(prev => ({ ...prev, browseDuration: parseInt(e.target.value) || 30 }))}
+                      className="input-dark text-sm w-20" />
+                    <span className="text-xs text-gray-500">秒</span>
+                    <span className="text-[10px] text-gray-600 ml-2">建议：和视频时长一致</span>
+                  </div>
+                </Section>
+
+                {/* 执行项目 */}
+                <Section title="执行项目" icon="🎯" desc="勾选此模板要自动执行的操作（单项测试）">
+                  <div className="flex flex-wrap gap-2">
+                    {ALL_ACTIONS.map(a => {
+                      const checked = cfg.actions.includes(a.key)
+                      return (
+                        <button key={a.key} onClick={() => setCfg(prev => ({
+                          ...prev,
+                          actions: checked ? prev.actions.filter(x => x !== a.key) : [...prev.actions, a.key],
+                        }))}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border transition ${
+                            checked ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
+                          }`}>
+                          <span className={checked ? 'text-emerald-400' : 'text-gray-600'}>{checked ? '✓' : '○'}</span>
+                          <span>{a.icon}</span>
+                          <span>{a.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </Section>
+
+                {/* 保存按钮 */}
+                <button onClick={saveConfig} disabled={cfgSaving || !cfg.name.trim() || !cfg.accountId}
+                  className="w-full py-3 bg-emerald-500 text-white font-medium rounded-xl hover:bg-emerald-600 disabled:opacity-50">
+                  {cfgSaving ? '保存中...' : '💾 保存模板'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 已有模板列表 */}
         <h2 className="text-white font-semibold mb-3">已保存模板 / SAVED</h2>
