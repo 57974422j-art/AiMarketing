@@ -30,6 +30,11 @@ export class ADB {
     }
   }
 
+  /** 执行任意 ADB shell 命令 */
+  shell(cmd: string): { success: boolean; output: string } {
+    return this.run(`shell ${cmd}`)
+  }
+
   /** 连接设备 */
   connect(): { success: boolean; output: string } {
     return this.run('connect')

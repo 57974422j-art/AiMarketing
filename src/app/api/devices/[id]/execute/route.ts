@@ -182,49 +182,38 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
             log('input', true, `正在输入"${searchKeyword}"...`)
 
-            // Android: 用 service call clipboard 设置剪贴板 → 粘贴
-            // 方法1: service call clipboard 1 i32 1 s16 "引流获客"
-            // 方法2: am broadcast (需要 ADBKeyBoard)
-            // 方法3: input text (不支持中文)
-            // 先尝试方法1
-            await q1Shell(port, `service call clipboard 1 i32 1 s16 "${searchKeyword}"`)
-            await UI.sleep(500)
-            // 点搜索框 → 粘贴
-            await q1Shell(port, `input tap 540 150`)
-            await UI.sleep(1000)
-            await q1Shell(port, 'input keyevent 279') // KEYCODE_PASTE
+            // 用 ADBKeyBoard 输入中文
+            if (adb) {
+              // 切到 ADBKeyBoard → 输入 → 切回系统输入法
+              adb.shell('settings put secure default_input_method com.android.adbkeyboard/.AdbIME')
+              await UI.sleep(500)
+              adb.shell(`am broadcast -a ADB_INPUT_TEXT --es msg "${searchKeyword}"`)
+              await UI.sleep(500)
+              // 切回 Android 原生输入法
+              adb.shell('settings put secure default_input_method com.android.inputmethod.latin/.LatinIME')
+            } else {
+              // 无 ADB: 用 Q1 API input text（仅英文）
+              await q1Shell(port, `input tap 540 150`)
+              await UI.sleep(1000)
+              await q1Shell(port, `input text ${searchKeyword}`)
+            }
             await UI.sleep(2000)
 
             // 验证
             const verify = await UI.extractScreenData(port)
             const vtexts = (verify.data as any)?.texts || []
             if (!vtexts.some((t: string) => t.includes(searchKeyword.slice(0, 2)))) {
-              log('input', false, 'service call 未生效 → 试 am broadcast')
-              await q1Shell(port, `am broadcast -a clipper.set -e text "${searchKeyword}"`)
-              await UI.sleep(500)
-              await q1Shell(port, `input tap 540 150`)
-              await UI.sleep(1000)
-              await q1Shell(port, 'input keyevent 279')
-              await UI.sleep(2000)
-
-              // 第二次验证
-              const verify2 = await UI.extractScreenData(port)
-              const v2 = (verify2.data as any)?.texts || []
-              if (!v2.some((t: string) => t.includes(searchKeyword.slice(0, 2)))) {
-                log('input', false, '所有中文输入方法均失败')
-                r = { success: false, message: `无法输入"${searchKeyword}"` }
-                break
-              }
+              log('input', false, '输入未生效')
+              r = { success: false, message: `无法输入"${searchKeyword}"` }
+              break
             }
 
-            if (r?.success !== false) {
-              // 回车搜索
-              await q1Shell(port, 'input keyevent KEYCODE_ENTER')
-              await UI.sleep(1000)
-              await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
-              await UI.sleep(4000)
-              r = { success: true, message: `已搜索"${searchKeyword}"` }
-            }
+            // 回车搜索
+            await q1Shell(port, 'input keyevent KEYCODE_ENTER')
+            await UI.sleep(1000)
+            await q1Shell(port, 'input keyevent KEYCODE_SEARCH')
+            await UI.sleep(4000)
+            r = { success: true, message: `已搜索"${searchKeyword}"` }
             break
           }
 
