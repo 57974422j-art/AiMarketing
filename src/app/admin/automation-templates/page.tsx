@@ -301,8 +301,8 @@ export default function AutomationTemplatesPage() {
           </div>
         )}
 
-        {/* ── 配置抽屉 ── */}
-        {drawerOpen && (
+        {/* ── 配置抽屉 ── 已迁移到内联 ── */}
+        {false && (
           <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setDrawerOpen(false)}>
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
             <div className="relative w-full max-w-lg bg-gray-900 border-l border-white/10 h-full overflow-y-auto" onClick={e => e.stopPropagation()}>
