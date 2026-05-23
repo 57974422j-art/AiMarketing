@@ -267,9 +267,17 @@ function PlatformRow({ account, devices, onBind }: { account: AccountItem; devic
         <span className={`px-1.5 py-0.5 rounded text-[10px] border ${STATUS_COLOR[account.status] || 'bg-gray-500/20 text-gray-500'}`}>{account.status}</span>
         {account.device && <span className="text-gray-600">({account.device.name})</span>}
       </div>
-      {account.status !== '已绑定' && (
-        <button onClick={onBind} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑定</button>
-      )}
+      <div className="flex items-center gap-2">
+        {account.status === '已绑定' && account.device && (
+          <a href={`http://120.55.43.195:${devices.find(d => d.id === account.device?.id)?.apiPort || ''}/`} target="_blank" rel="noopener noreferrer"
+            className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">
+            🖥️ 远程
+          </a>
+        )}
+        {account.status !== '已绑定' && (
+          <button onClick={onBind} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑定</button>
+        )}
+      </div>
     </div>
   )
 }

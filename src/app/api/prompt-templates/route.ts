@@ -8,7 +8,7 @@ const prisma = new PrismaClient()
 
 /** 判断是否为外部临时链接（需要转存到自己的 OSS） */
 function isTempUrl(url: string): boolean {
-  return url.includes('dashscope') || url.includes('Expires=') || url.includes('OSSAccessKeyId=')
+  return url.includes('dashscope') || url.includes('siliconflow') || url.includes('Expires=') || url.includes('OSSAccessKeyId=') || !url.includes(process.env.OSS_BUCKET || 'aitrader-marketing')
 }
 
 /** 下载临时链接文件并转存到自己的 OSS，返回永久链接 */
