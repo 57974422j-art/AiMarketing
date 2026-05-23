@@ -43,8 +43,15 @@ lerna-debug.log*
 
 # Logs
 logs
-*.log*.mp4
+*.log
+*.mp4
 *.mov
 *.avi
 *.mkv
 *.webm
+
+# Electron
+dist-electron/
+
+# ADB platform-tools (local machine only)
+/scripts/platform-tools/
