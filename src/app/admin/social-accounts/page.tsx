@@ -268,9 +268,10 @@ function PlatformRow({ account, devices, onBind }: { account: AccountItem; devic
         {account.device && <span className="text-gray-600">({account.device.name})</span>}
       </div>
       <div className="flex items-center gap-2">
-        {account.status === '已绑定' && account.device && (
+        {account.device && (
           <a href={`http://120.55.43.195:${devices.find(d => d.id === account.device?.id)?.apiPort || ''}/`} target="_blank" rel="noopener noreferrer"
-            className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">
+            className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30"
+            title="在 Q1 容器中打开抖音/快手等应用进行登录">
             🖥️ 远程
           </a>
         )}
