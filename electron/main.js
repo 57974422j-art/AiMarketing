@@ -26,11 +26,12 @@ function createWindow() {
   })
 
   const isDev = process.env.NODE_ENV !== 'production'
+  const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000')
+    mainWindow.loadURL(serverUrl)
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadURL('http://localhost:3000')
+    mainWindow.loadURL(serverUrl)
   }
 }
 
