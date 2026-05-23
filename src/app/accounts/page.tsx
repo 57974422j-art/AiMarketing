@@ -234,14 +234,10 @@ export default function AccountsPage() {
                             📸 截图
                           </button>
                           <button onClick={async () => {
-                            try {
-                              const res = await (window as any).electronAPI.adbShell(dev.id, 'echo 1')
-                              showToast('ADB 测试: ' + (res?.success ? '通' : '不通'), res?.success ? 'success' : 'error')
-                            } catch (e: any) {
-                              showToast('ADB异常: ' + e.message, 'error')
-                            }
-                          }} className="flex-1 text-[10px] py-1 bg-white/5 text-gray-400 border border-white/10 rounded hover:bg-white/10">
-                            🔌 测试
+                            const r = await (window as any).electronAPI.adbMirror(dev.id)
+                            if (!r.success) showToast('投屏失败: ' + (r.error || ''), 'error')
+                          }} className="flex-1 text-[10px] py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30">
+                            🖥️ 投屏
                           </button>
                         </>
                       )}

@@ -117,6 +117,25 @@ ipcMain.handle('adb:swipe', async (_event, { deviceId, x1, y1, x2, y2, duration 
   }
 })
 
+// ── IPC: 投屏（启动 scrcpy） ──
+ipcMain.handle('adb:mirror', async (_event, { deviceId }) => {
+  try {
+    const scrcpyPath = path.join(__dirname, '..', 'scripts', 'scrcpy', 'scrcpy.exe')
+    if (!fs.existsSync(scrcpyPath)) {
+      return { success: false, error: '未找到 scrcpy，请先下载' }
+    }
+    const { spawn } = require('child_process')
+    spawn(`"${scrcpyPath}"`, ['-s', deviceId, '--max-size', '1080', '--window-title', deviceId, '--always-on-top'], {
+      cwd: path.dirname(scrcpyPath),
+      detached: true,
+      stdio: 'ignore',
+    }).unref()
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
 app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
