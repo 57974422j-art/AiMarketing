@@ -220,19 +220,29 @@ export default function AccountsPage() {
                       {dev.status === 'device' && (
                         <>
                           <button onClick={async () => {
-                            const snap = await (window as any).electronAPI.adbScreenshotDataUrl(dev.id)
-                            if (snap.success) window.open(snap.data)
+                            try {
+                              const snap = await (window as any).electronAPI.adbScreenshotDataUrl(dev.id)
+                              if (snap?.success) {
+                                const w = window.open('', '_blank')
+                                if (w) { w.document.write('<img src="' + snap.data + '" style="max-width:100%"/><p style="color:white;background:#111;padding:8px">' + dev.id + '</p>'); w.document.title = dev.name }
+                              } else {
+                                showToast('截图失败: ' + JSON.stringify(snap?.error || snap), 'error')
+                              }
+                            } catch (e: any) {
+                              showToast('截图异常: ' + e.message, 'error')
+                            }
                           }} className="flex-1 text-[10px] py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">
                             📸 截图
                           </button>
                           <button onClick={async () => {
-                            if (dev.status === 'device') {
-                              const snap = await (window as any).electronAPI.adbScreenshotDataUrl(dev.id)
-                              if (snap.success) window.open(snap.data)
-                              else showToast('截图失败: ' + (snap.error || '未知错误'), 'error')
+                            try {
+                              const res = await (window as any).electronAPI.adbShell(dev.id, 'echo 1')
+                              showToast('ADB 测试: ' + (res?.success ? '通' : '不通'), res?.success ? 'success' : 'error')
+                            } catch (e: any) {
+                              showToast('ADB异常: ' + e.message, 'error')
                             }
-                          }} className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">
-                            📸 截图
+                          }} className="flex-1 text-[10px] py-1 bg-white/5 text-gray-400 border border-white/10 rounded hover:bg-white/10">
+                            🔌 测试
                           </button>
                         </>
                       )}

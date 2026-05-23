@@ -110,15 +110,16 @@ ipcMain.handle('adb:screenshot', async (_event, { deviceId }) => {
   }
 })
 
-// ── IPC: 截图转 base64 数据 URL
+// ── IPC: 截图转 base64 数据 URL（使用 adb 二进制）
 ipcMain.handle('adb:screenshotDataUrl', async (_event, { deviceId }) => {
   try {
-    const tmpPath = `/sdcard/screen_${Date.now()}.png`
-    await adbClient.shell(deviceId, `screencap -p ${tmpPath}`)
-    const transfer = await adbClient.pull(deviceId, tmpPath)
-    const buf = await AdbKit.util.readAll(transfer)
-    await adbClient.shell(deviceId, `rm ${tmpPath}`)
-    const b64 = buf.toString('base64')
+    const { execSync } = require('child_process')
+    // 找 adb.exe：优先脚本目录，其次 PATH
+    const scriptAdb = path.join(__dirname, '..', 'scripts', 'platform-tools', 'adb.exe')
+    const fs = require('fs')
+    const adbPath = fs.existsSync(scriptAdb) ? scriptAdb : (process.platform === 'win32' ? 'adb.exe' : 'adb')
+    const output = execSync(`"${adbPath}" -s ${deviceId} exec-out screencap -p`, { timeout: 15000, maxBuffer: 50 * 1024 * 1024 })
+    const b64 = Buffer.from(output).toString('base64')
     return { success: true, data: `data:image/png;base64,${b64}` }
   } catch (e) {
     return { success: false, error: e.message }
