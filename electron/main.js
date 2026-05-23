@@ -1,14 +1,17 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
-const Adb = require('@devicefarmer/adbkit')
+const AdbKit = require('@devicefarmer/adbkit')
+const Adb = AdbKit.default || AdbKit
 
 let mainWindow
-let adbClient = Adb.createClient()
+let adbClient
 
-// 尝试创建 ADB 客户端（找不到 adb 时 fallback）
 try {
   adbClient = Adb.createClient()
-} catch { adbClient = null }
+} catch (e) {
+  console.error('[ADB] 初始化失败:', e.message)
+  adbClient = null
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -55,7 +58,7 @@ ipcMain.handle('adb:shell', async (_event, { deviceId, command }) => {
   try {
     if (!adbClient) return { success: false, error: 'ADB 未就绪' }
     const result = await adbClient.shell(deviceId, command)
-    const output = await Adb.util.readAll(result)
+    const output = await AdbKit.util.readAll(result)
     return { success: true, data: output.toString().trim() }
   } catch (e) {
     return { success: false, error: e.message }
@@ -98,7 +101,7 @@ ipcMain.handle('adb:screenshot', async (_event, { deviceId }) => {
     const tmpPath = `/sdcard/screen_${Date.now()}.png`
     await adbClient.shell(deviceId, `screencap -p ${tmpPath}`)
     const transfer = await adbClient.pull(deviceId, tmpPath)
-    const buf = await Adb.util.readAll(transfer)
+    const buf = await AdbKit.util.readAll(transfer)
     await adbClient.shell(deviceId, `rm ${tmpPath}`)
     return { success: true, data: buf.toString('base64') }
   } catch (e) {
@@ -106,13 +109,13 @@ ipcMain.handle('adb:screenshot', async (_event, { deviceId }) => {
   }
 })
 
-// ── IPC: 截图转 base64 数据 URL ──
+// ── IPC: 截图转 base64 数据 URL
 ipcMain.handle('adb:screenshotDataUrl', async (_event, { deviceId }) => {
   try {
     const tmpPath = `/sdcard/screen_${Date.now()}.png`
     await adbClient.shell(deviceId, `screencap -p ${tmpPath}`)
     const transfer = await adbClient.pull(deviceId, tmpPath)
-    const buf = await Adb.util.readAll(transfer)
+    const buf = await AdbKit.util.readAll(transfer)
     await adbClient.shell(deviceId, `rm ${tmpPath}`)
     const b64 = buf.toString('base64')
     return { success: true, data: `data:image/png;base64,${b64}` }
@@ -121,13 +124,13 @@ ipcMain.handle('adb:screenshotDataUrl', async (_event, { deviceId }) => {
   }
 })
 
-// ── IPC: 截图转 ArrayBuffer（用于 im  g 标签） ──
+// ── IPC: 截图转 ArrayBuffer
 ipcMain.handle('adb:screenshotFile', async (_event, { deviceId }) => {
   try {
     const tmpPath = `/sdcard/screen_${Date.now()}.png`
     await adbClient.shell(deviceId, `screencap -p ${tmpPath}`)
     const transfer = await adbClient.pull(deviceId, tmpPath)
-    const buf = await Adb.util.readAll(transfer)
+    const buf = await AdbKit.util.readAll(transfer)
     await adbClient.shell(deviceId, `rm ${tmpPath}`)
     return { success: true, data: Buffer.from(buf).toJSON() }
   } catch (e) {
