@@ -19,7 +19,6 @@ interface TaskConfig {
   publishTopics?: string   // 逗号分隔的话题标签
   publishDesc?: string    // 视频内容描述（AI据此生成标题）
 }
-}
 
 const PLATFORMS = [
   { key: '抖音', color: 'from-pink-500/20 to-purple-500/20', border: 'border-pink-500/30', icon: '🎵' },
