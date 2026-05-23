@@ -120,15 +120,16 @@ ipcMain.handle('adb:swipe', async (_event, { deviceId, x1, y1, x2, y2, duration 
 // ── IPC: 投屏（启动 scrcpy） ──
 ipcMain.handle('adb:mirror', async (_event, { deviceId }) => {
   try {
-    const scrcpyPath = path.join(__dirname, '..', 'scripts', 'scrcpy', 'scrcpy.exe')
+    const scrcpyPath = path.join(__dirname, '..', 'scripts', 'scrcpy', 'scrcpy-noconsole.vbs')
     if (!fs.existsSync(scrcpyPath)) {
       return { success: false, error: '未找到 scrcpy，请先下载' }
     }
     const { spawn } = require('child_process')
-    spawn(scrcpyPath, ['-s', deviceId, '--max-size', '1080', '--window-title', deviceId, '--always-on-top'], {
+    spawn(scrcpyPath, ['-s', deviceId, '--max-size', '1080', '--window-title', deviceId, '--always-on-top', '--no-console'], {
       cwd: path.dirname(scrcpyPath),
       detached: true,
       stdio: 'ignore',
+      windowsHide: true,
     }).unref()
     return { success: true }
   } catch (e) {
