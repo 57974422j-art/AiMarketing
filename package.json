@@ -23,6 +23,7 @@
     "react-dom": "18.2.0"
   },
   "devDependencies": {
+    "@devicefarmer/adbkit": "^3.3.8",
     "@types/ali-oss": "^6.23.3",
     "@types/crypto-js": "^4.2.2",
     "@types/node": "20.11.0",
