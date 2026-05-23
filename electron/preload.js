@@ -13,9 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   adbSwipe: (deviceId, x1, y1, x2, y2, duration) =>
     ipcRenderer.invoke('adb:swipe', { deviceId, x1, y1, x2, y2, duration }),
 
-  // 截图
+  // 截图（pull到本地临时文件）
   adbScreenshot: (deviceId) => ipcRenderer.invoke('adb:screenshot', { deviceId }),
-  adbScreenshotDataUrl: (deviceId) => ipcRenderer.invoke('adb:screenshotDataUrl', { deviceId }),
 
   // 环境检测
   isElectron: true,

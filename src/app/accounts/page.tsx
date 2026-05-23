@@ -221,7 +221,7 @@ export default function AccountsPage() {
                         <>
                           <button onClick={async () => {
                             try {
-                              const snap = await (window as any).electronAPI.adbScreenshotDataUrl(dev.id)
+                              const snap = await (window as any).electronAPI.adbScreenshot(dev.id)
                               if (snap?.success) {
                                 window.open(snap.data, '_blank')
                               } else {
