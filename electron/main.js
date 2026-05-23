@@ -1,17 +1,10 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
-const AdbKit = require('@devicefarmer/adbkit')
-const Adb = AdbKit.default || AdbKit
+const fs = require('fs')
+const os = require('os')
+const { execSync } = require('child_process')
 
 let mainWindow
-let adbClient
-
-try {
-  adbClient = Adb.createClient()
-} catch (e) {
-  console.error('[ADB] 初始化失败:', e.message)
-  adbClient = null
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -27,40 +20,63 @@ function createWindow() {
 
   const isDev = process.env.NODE_ENV !== 'production'
   const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
-  if (isDev) {
-    mainWindow.loadURL(serverUrl)
-    mainWindow.webContents.openDevTools()
-  } else {
-    mainWindow.loadURL(serverUrl)
+  mainWindow.loadURL(serverUrl)
+  if (isDev) mainWindow.webContents.openDevTools()
+}
+
+// ── 找 adb.exe ──
+function findAdb() {
+  const candidates = [
+    path.join(__dirname, '..', 'scripts', 'platform-tools', 'adb.exe'),
+    path.join(__dirname, '..', 'scripts', 'platform-tools', 'adb'),
+    'adb.exe',
+    'adb',
+  ]
+  for (const c of candidates) {
+    if (c === 'adb.exe' || c === 'adb') return c // rely on PATH
+    if (fs.existsSync(c)) return c
   }
+  return process.platform === 'win32' ? 'adb.exe' : 'adb'
 }
 
 // ── IPC: 获取本地设备列表 ──
 ipcMain.handle('adb:devices', async () => {
   try {
-    if (!adbClient) return { success: false, error: 'ADB 未就绪', data: [] }
-    const devices = await adbClient.listDevices()
-    const mapped = devices.map(d => ({
-      id: d.id,
-      status: d.type === 'device' ? 'device' : d.type,
-      type: d.id.includes(':') ? 'wifi' : 'usb',
-      name: d.id.includes(':')
-        ? `WiFi-${d.id.split(':')[0].slice(-4)}`
-        : `USB-${d.id.slice(0, 6)}`,
-    }))
-    return { success: true, data: mapped }
+    const adb = findAdb()
+    const out = execSync(`"${adb}" devices`, { timeout: 5000, encoding: 'utf-8' })
+    const lines = out.trim().split('\n').slice(1)
+    const devices = lines.filter(l => l.trim() && !l.includes('adb')).map(l => {
+      const [id, status] = l.split('\t')
+      const isWifi = id.includes(':')
+      return { id: id.trim(), status: status?.trim() || 'unknown', type: isWifi ? 'wifi' : 'usb', name: isWifi ? `WiFi-${id.split(':')[0].slice(-4)}` : `USB-${id.slice(0, 6)}` }
+    })
+    return { success: true, data: devices }
   } catch (e) {
     return { success: false, error: e.message, data: [] }
   }
 })
 
-// ── IPC: 执行 shell 命令 ──
+// ── IPC: shell 命令 ──
 ipcMain.handle('adb:shell', async (_event, { deviceId, command }) => {
   try {
-    if (!adbClient) return { success: false, error: 'ADB 未就绪' }
-    const result = await adbClient.shell(deviceId, command)
-    const output = await AdbKit.util.readAll(result)
-    return { success: true, data: output.toString().trim() }
+    const adb = findAdb()
+    const out = execSync(`"${adb}" -s ${deviceId} shell ${command}`, { timeout: 15000, encoding: 'utf-8' })
+    return { success: true, data: out.trim() }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
+// ── IPC: 截图 ──
+ipcMain.handle('adb:screenshot', async (_event, { deviceId }) => {
+  try {
+    const adb = findAdb()
+    const tmpFile = path.join(os.tmpdir(), `screenshot_${deviceId.replace(/[^a-zA-Z0-9]/g, '_')}.png`)
+    execSync(`"${adb}" -s ${deviceId} shell screencap -p /sdcard/screen_tmp.png`, { timeout: 15000 })
+    execSync(`"${adb}" -s ${deviceId} pull /sdcard/screen_tmp.png "${tmpFile}"`, { timeout: 15000 })
+    execSync(`"${adb}" -s ${deviceId} shell rm /sdcard/screen_tmp.png`, { timeout: 5000 })
+    const buf = fs.readFileSync(tmpFile)
+    return { success: true, data: `data:image/png;base64,${buf.toString('base64')}` }
   } catch (e) {
     return { success: false, error: e.message }
   }
@@ -69,17 +85,19 @@ ipcMain.handle('adb:shell', async (_event, { deviceId, command }) => {
 // ── IPC: 点击 ──
 ipcMain.handle('adb:tap', async (_event, { deviceId, x, y }) => {
   try {
-    await adbClient.shell(deviceId, `input tap ${x} ${y}`)
+    const adb = findAdb()
+    execSync(`"${adb}" -s ${deviceId} shell input tap ${x} ${y}`, { timeout: 5000 })
     return { success: true }
   } catch (e) {
     return { success: false, error: e.message }
   }
 })
 
-// ── IPC: 输入文本 ──
+// ── IPC: 输入 ──
 ipcMain.handle('adb:input', async (_event, { deviceId, text }) => {
   try {
-    await adbClient.shell(deviceId, `input text ${text.replace(/ /g, '%s').replace(/"/g, '\\"')}`)
+    const adb = findAdb()
+    execSync(`"${adb}" -s ${deviceId} shell input text "${text.replace(/"/g, '\\"').replace(/ /g, '%s')}"`, { timeout: 5000 })
     return { success: true }
   } catch (e) {
     return { success: false, error: e.message }
@@ -89,61 +107,9 @@ ipcMain.handle('adb:input', async (_event, { deviceId, text }) => {
 // ── IPC: 滑动 ──
 ipcMain.handle('adb:swipe', async (_event, { deviceId, x1, y1, x2, y2, duration }) => {
   try {
-    await adbClient.shell(deviceId, `input swipe ${x1} ${y1} ${x2} ${y2}${duration ? ` ${duration}` : ''}`)
+    const adb = findAdb()
+    execSync(`"${adb}" -s ${deviceId} shell input swipe ${x1} ${y1} ${x2} ${y2}${duration ? ` ${duration}` : ''}`, { timeout: 5000 })
     return { success: true }
-  } catch (e) {
-    return { success: false, error: e.message }
-  }
-})
-
-// ── IPC: 截图 ──
-ipcMain.handle('adb:screenshot', async (_event, { deviceId }) => {
-  try {
-    const tmpPath = `/sdcard/screen_${Date.now()}.png`
-    await adbClient.shell(deviceId, `screencap -p ${tmpPath}`)
-    const transfer = await adbClient.pull(deviceId, tmpPath)
-    const buf = await AdbKit.util.readAll(transfer)
-    await adbClient.shell(deviceId, `rm ${tmpPath}`)
-    return { success: true, data: buf.toString('base64') }
-  } catch (e) {
-    return { success: false, error: e.message }
-  }
-})
-
-// ── IPC: 截图存本地临时文件，返回本地路径
-ipcMain.handle('adb:screenshot', async (_event, { deviceId }) => {
-  const { execSync } = require('child_process')
-  const fs = require('fs')
-  const os = require('os')
-  try {
-    const scriptAdb = path.join(__dirname, '..', 'scripts', 'platform-tools', 'adb.exe')
-    const adbPath = fs.existsSync(scriptAdb) ? scriptAdb : (process.platform === 'win32' ? 'adb.exe' : 'adb')
-    const tmpFile = path.join(os.tmpdir(), `screenshot_${deviceId.replace(/[^a-zA-Z0-9]/g, '_')}.png`)
-
-    // 1. screencap
-    execSync(`"${adbPath}" -s ${deviceId} shell screencap -p /sdcard/screen_tmp.png`, { timeout: 15000 })
-    // 2. pull
-    execSync(`"${adbPath}" -s ${deviceId} pull /sdcard/screen_tmp.png "${tmpFile}"`, { timeout: 15000 })
-    // 3. 清理手机
-    execSync(`"${adbPath}" -s ${deviceId} shell rm /sdcard/screen_tmp.png`, { timeout: 5000 })
-
-    // 读文件
-    const buf = fs.readFileSync(tmpFile)
-    return { success: true, localPath: tmpFile, data: `data:image/png;base64,${buf.toString('base64')}` }
-  } catch (e) {
-    return { success: false, error: e.message }
-  }
-})
-
-// ── IPC: 截图转 ArrayBuffer
-ipcMain.handle('adb:screenshotFile', async (_event, { deviceId }) => {
-  try {
-    const tmpPath = `/sdcard/screen_${Date.now()}.png`
-    await adbClient.shell(deviceId, `screencap -p ${tmpPath}`)
-    const transfer = await adbClient.pull(deviceId, tmpPath)
-    const buf = await AdbKit.util.readAll(transfer)
-    await adbClient.shell(deviceId, `rm ${tmpPath}`)
-    return { success: true, data: Buffer.from(buf).toJSON() }
   } catch (e) {
     return { success: false, error: e.message }
   }
