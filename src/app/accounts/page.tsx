@@ -229,11 +229,8 @@ export default function AccountsPage() {
                           <button onClick={async () => {
                             try {
                               const snap = await (window as any).electronAPI.adbScreenshot(dev.id)
-                              if (snap?.success) {
-                                window.open('file://' + snap.localPath.replace(/\\/g, '/'), '_blank')
-                              } else {
-                                showToast('截图失败: ' + JSON.stringify(snap?.error || snap), 'error')
-                              }
+                              if (snap?.success) showToast('截图已保存到系统临时目录', 'success')
+                              else showToast('截图失败: ' + JSON.stringify(snap?.error || snap), 'error')
                             } catch (e: any) {
                               showToast('截图异常: ' + e.message, 'error')
                             }
@@ -257,6 +254,77 @@ export default function AccountsPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── 运行脚本弹窗 ── */}
+        {runScript && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setRunScript(null)}>
+            <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+              <h3 className="text-white font-bold mb-1">▶ 运行脚本</h3>
+              <p className="text-xs text-gray-500 mb-4">{runScript.deviceName} · {runScript.deviceId}</p>
+
+              <select className="input-dark w-full text-sm mb-3" value={scriptAction} onChange={e => setScriptAction(e.target.value)}>
+                <option className="bg-gray-900">打开抖音</option>
+                <option className="bg-gray-900">打开快手</option>
+                <option className="bg-gray-900">打开小红书</option>
+                <option className="bg-gray-900">返回桌面</option>
+                <option className="bg-gray-900">输入文字</option>
+                <option className="bg-gray-900">点击坐标</option>
+                <option className="bg-gray-900">上滑</option>
+                <option className="bg-gray-900">自定义 Shell</option>
+              </select>
+
+              {scriptAction === '输入文字' && (
+                <input className="input-dark w-full text-sm mb-3" placeholder="要输入的文字..." value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
+              )}
+              {scriptAction === '点击坐标' && (
+                <div className="flex gap-2 mb-3">
+                  <input className="input-dark flex-1 text-sm" placeholder="X Y (如 500 800)" value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
+                </div>
+              )}
+              {scriptAction === '自定义 Shell' && (
+                <input className="input-dark w-full text-sm mb-3" placeholder="adb shell 命令（如 input tap 500 800）" value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
+              )}
+
+              <div className="flex gap-3 mb-3">
+                <button onClick={async () => {
+                  setScriptRunning(true); setScriptLog([])
+                  const api = (window as any).electronAPI
+                  const log = (msg: string) => setScriptLog(p => [...p, msg])
+                  try {
+                    const actions: Record<string, string> = {
+                      '打开抖音': 'am start -n com.ss.android.ugc.aweme/.main.MainActivity',
+                      '打开快手': 'am start -n com.smile.gifmaker/.MainActivity',
+                      '打开小红书': 'am start -n com.xingin.xhs/.activity.SplashActivity',
+                      '返回桌面': 'input keyevent 3',
+                      '上滑': 'input swipe 540 1500 540 500',
+                    }
+                    const cmd = actions[scriptAction] || scriptCustomInput || ''
+                    if (cmd) {
+                      log(`执行: ${cmd}`)
+                      const r = await api.adbShell(runScript.deviceId, cmd)
+                      log(r.success ? '✅ 成功' : '❌ 失败: ' + (r.error || ''))
+                    }
+                    if (scriptAction === '输入文字' && scriptCustomInput) {
+                      log(`输入: ${scriptCustomInput}`)
+                      const r = await api.adbShell(runScript.deviceId, `input text "${scriptCustomInput.replace(/ /g, '%s')}"`)
+                      log(r.success ? '✅ 成功' : '❌ 失败: ' + (r.error || ''))
+                    }
+                  } catch (e: any) { log('❌ 异常: ' + e.message) }
+                  setScriptRunning(false)
+                }} disabled={scriptRunning} className="flex-1 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 text-sm">
+                  {scriptRunning ? '⏳ 执行中...' : '▶ 执行'}
+                </button>
+                <button onClick={() => setRunScript(null)} className="flex-1 py-2 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 text-sm">关闭</button>
+              </div>
+
+              {scriptLog.length > 0 && (
+                <div className="bg-black/30 rounded-lg p-3 max-h-32 overflow-y-auto text-[10px] text-gray-400 font-mono space-y-1">
+                  {scriptLog.map((l, i) => <p key={i}>{l}</p>)}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -370,77 +438,6 @@ export default function AccountsPage() {
     </div>
   )
 }
-
-        {/* ── 运行脚本弹窗 ── */}
-        {runScript && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setRunScript(null)}>
-            <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
-              <h3 className="text-white font-bold mb-1">▶ 运行脚本</h3>
-              <p className="text-xs text-gray-500 mb-4">{runScript.deviceName} · {runScript.deviceId}</p>
-
-              <select className="input-dark w-full text-sm mb-3" value={scriptAction} onChange={e => setScriptAction(e.target.value)}>
-                <option className="bg-gray-900">打开抖音</option>
-                <option className="bg-gray-900">打开快手</option>
-                <option className="bg-gray-900">打开小红书</option>
-                <option className="bg-gray-900">返回桌面</option>
-                <option className="bg-gray-900">输入文字</option>
-                <option className="bg-gray-900">点击坐标</option>
-                <option className="bg-gray-900">上滑</option>
-                <option className="bg-gray-900">自定义 Shell</option>
-              </select>
-
-              {scriptAction === '输入文字' && (
-                <input className="input-dark w-full text-sm mb-3" placeholder="要输入的文字..." value={scriptCustomInput || ''} onChange={e => setScriptCustomInput(e.target.value)} />
-              )}
-              {scriptAction === '点击坐标' && (
-                <div className="flex gap-2 mb-3">
-                  <input className="input-dark flex-1 text-sm" placeholder="X (如 500)" value={scriptCustomInput || ''} onChange={e => setScriptCustomInput(e.target.value)} />
-                </div>
-              )}
-              {scriptAction === '自定义 Shell' && (
-                <input className="input-dark w-full text-sm mb-3" placeholder="adb shell 命令（如 input tap 500 800）" value={scriptCustomInput || ''} onChange={e => setScriptCustomInput(e.target.value)} />
-              )}
-
-              <div className="flex gap-3 mb-3">
-                <button onClick={async () => {
-                  setScriptRunning(true); setScriptLog([])
-                  const api = (window as any).electronAPI
-                  const log = (msg: string) => setScriptLog(p => [...p, msg])
-                  try {
-                    const actions: Record<string, string> = {
-                      '打开抖音': 'am start -n com.ss.android.ugc.aweme/.main.MainActivity',
-                      '打开快手': 'am start -n com.smile.gifmaker/.MainActivity',
-                      '打开小红书': 'am start -n com.xingin.xhs/.activity.SplashActivity',
-                      '返回桌面': 'input keyevent 3',
-                      '上滑': 'input swipe 540 1500 540 500',
-                    }
-                    const cmd = actions[scriptAction] || scriptCustomInput || ''
-                    if (cmd) {
-                      log(`执行: ${cmd}`)
-                      const r = await api.adbShell(runScript.deviceId, cmd)
-                      log(r.success ? '✅ 成功' : '❌ 失败: ' + (r.error || ''))
-                    }
-                    if (scriptAction === '输入文字' && scriptCustomInput) {
-                      log(`输入: ${scriptCustomInput}`)
-                      const r = await api.adbShell(runScript.deviceId, `input text "${scriptCustomInput.replace(/ /g, '%s')}"`)
-                      log(r.success ? '✅ 成功' : '❌ 失败: ' + (r.error || ''))
-                    }
-                  } catch (e: any) { log('❌ 异常: ' + e.message) }
-                  setScriptRunning(false)
-                }} disabled={scriptRunning} className="flex-1 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 text-sm">
-                  {scriptRunning ? '⏳ 执行中...' : '▶ 执行'}
-                </button>
-                <button onClick={() => setRunScript(null)} className="flex-1 py-2 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 text-sm">关闭</button>
-              </div>
-
-              {scriptLog.length > 0 && (
-                <div className="bg-black/30 rounded-lg p-3 max-h-32 overflow-y-auto text-[10px] text-gray-400 font-mono space-y-1">
-                  {scriptLog.map((l, i) => <p key={i}>{l}</p>)}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
 function Loading() {
   return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400" /></div>
