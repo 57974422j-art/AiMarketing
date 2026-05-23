@@ -15,6 +15,8 @@ interface TaskConfig {
   keywords: string[]; timeStart: string; timeEnd: string
   actions: TaskAction[]; leadGen: Record<string, unknown>
   browseDuration?: number // 浏览/完播时长（秒）
+  publishTitle?: string   // 发布标题（AI生成或手动填写）
+  publishTopics?: string   // 逗号分隔的话题标签
 }
 
 const PLATFORMS = [

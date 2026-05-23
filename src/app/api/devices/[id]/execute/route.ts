@@ -97,12 +97,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const body = await request.json()
-    const { platform, actions, keyword, keywords } = body
+    const { platform, actions, keyword, keywords, publishTitle, publishTopics } = body
     if (!deviceId || !platform || !actions?.length) {
       return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
     }
 
     const searchKeyword = keyword || (Array.isArray(keywords) && keywords.length > 0 ? keywords[0] : '热门')
+
+    // AI 标题生成
+    async function generatePublishTitle(keyword: string): Promise<{ title: string; topics: string[] }> {
+      try {
+        const { generateText } = await import('@/lib/ai-providers')
+        const result = await generateText(`你是一个抖音短视频运营专家。请为一个关于"${keyword}"的短视频生成：1个吸引人的标题（带钩子，20字以内），3个话题标签。格式：标题|#话题1 #话题2 #话题3`)
+        if (result && result.includes('|')) {
+          const parts = result.split('|')
+          const titlePart = parts[0].trim()
+          const topicPart = parts.slice(1).join('|').trim()
+          const topics = topicPart.split('#').filter(t => t.trim()).map(t => `#${t.trim()}`)
+          return { title: titlePart, topics: topics.length > 0 ? topics : [`#${keyword}`] }
+        }
+        if (result) return { title: result.trim(), topics: [`#${keyword}`] }
+      } catch {}
+      return { title: keyword, topics: [`#${keyword}`] }
+    }
 
     const device = await prisma.device.findUnique({ where: { id: deviceId } })
     if (!device) return NextResponse.json({ success: false, message: '设备不存在' }, { status: 404 })
@@ -224,7 +241,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           case 'dm': { r = await Douyin.sendDirectMessage(port, '用户', '你好'); break }
           case 'extract': { r = await Douyin.extractVideoInfo(port); break }
           case 'comments': { r = await Douyin.extractComments(port); break }
-          case 'publish': { r = await Douyin.publishVideo(port, { title: '自动发布' }); break }
+          case 'publish': {
+            const pubTitle = publishTitle || (searchKeyword ? (await generatePublishTitle(searchKeyword)).title : '自动发布')
+            const pubTopics = Array.isArray(publishTopics) && publishTopics.length > 0 ? publishTopics : [`#${searchKeyword}`]
+            r = await Douyin.publishVideo(port, { title: pubTitle, topics: pubTopics })
+            log('title', true, `标题: ${pubTitle}`)
+            break
+          }
           default: { log(action, false, `未知动作: ${action}`); continue }
         }
         log(action, r.success, r.message || (r.success ? '成功' : '失败'))
