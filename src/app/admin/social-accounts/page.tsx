@@ -269,7 +269,7 @@ function PlatformRow({ account, devices, onBind }: { account: AccountItem; devic
       </div>
       <div className="flex items-center gap-2">
         {account.device && (
-          <button onClick={() => window.open(`http://120.55.43.195:${devices.find(d => d.id === account.device?.id)?.apiPort || ''}/snap`, '_blank')}
+          <button onClick={() => window.open(`/api/devices/${account.device?.id}/snap`, '_blank')}
             className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30"
             title="查看 Q1 容器屏幕截图">
             🖥️ 远程
