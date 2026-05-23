@@ -18,6 +18,16 @@ const PLATFORM_LABEL: Record<string, string> = {
   douyin: '抖音', kuaishou: '快手', xiaohongshu: '小红书', shipinhao: '视频号', weibo: '微博', bilibili: 'B站',
 }
 
+const BIND_TYPE_LABEL: Record<string, string> = {
+  device: 'Q1 群控',
+  imai: 'IMAI WORK',
+  official: '官方API',
+}
+const BIND_TYPE_COLOR: Record<string, string> = {
+  device: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  imai: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  official: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+}
 const STATUS_COLOR: Record<string, string> = {
   '未绑定': 'bg-gray-500/20 text-gray-400 border-gray-500/30',
   '已绑定': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
@@ -31,6 +41,11 @@ export default function SocialAccountsPage() {
   const [devices, setDevices] = useState<DeviceItem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+
+  // 新建账号
+  const [showCreate, setShowCreate] = useState(false)
+  const [createForm, setCreateForm] = useState({ accountName: '', platform: 'douyin', accountId: '', bindType: 'device', password: '', mobile: '', remark: '' })
+  const [createLoading, setCreateLoading] = useState(false)
 
   // 绑定弹窗
   const [bindId, setBindId] = useState<number | null>(null)
@@ -55,6 +70,19 @@ export default function SocialAccountsPage() {
       if (dRes?.ok) { const d = await dRes.json(); setDevices((d.data || []).filter((dev: any) => dev.type === 'q1')) }
     } catch {} finally { setLoading(false) }
   }, [user])
+
+  const handleCreate = async () => {
+    if (!createForm.accountName.trim()) { showToast('请输入账号名', 'error'); return }
+    setCreateLoading(true)
+    try {
+      const r = await fetch('/api/accounts', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createForm),
+      })
+      if (r.ok) { showToast('账号已创建'); setShowCreate(false); load() }
+      else { const d = await r.json(); showToast(d.message || '创建失败', 'error') }
+    } catch { showToast('创建失败', 'error') } finally { setCreateLoading(false) }
+  }
 
   const handleBind = async () => {
     if (!bindId || !bindDeviceId) { showToast('请选择设备', 'error'); return }
@@ -115,11 +143,65 @@ export default function SocialAccountsPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6">
           <p className="text-label mb-2">管理后台 / ACCOUNTS</p>
-          <h1 className="text-mono-lg text-white">{isAdmin ? '账号总览 / ALL ACCOUNTS' : '社交账号 / SOCIAL ACCOUNTS'}</h1>
-          <p className="text-gray-400 text-sm mt-1">{accounts.length} 个账号 · {accounts.filter(a => a.status === '已绑定').length} 已绑定</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-mono-lg text-white">{isAdmin ? '账号总览 / ALL ACCOUNTS' : '社交账号 / SOCIAL ACCOUNTS'}</h1>
+              <p className="text-gray-400 text-sm mt-1">{accounts.length} 个账号 · {accounts.filter(a => a.status === '已绑定').length} 已绑定</p>
+            </div>
+            <button onClick={() => setShowCreate(true)} className="btn-primary text-xs py-2">+ 新建账号</button>
+          </div>
           {/* 搜索 */}
           <input className="input-dark mt-3 w-full max-w-md text-sm" placeholder="🔍 搜索账号名/用户名/手机号..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+
+        {/* 新建账号弹窗 */}
+        {showCreate && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowCreate(false)}>
+            <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+              <h3 className="text-white font-bold mb-1">新建账号</h3>
+              <p className="text-xs text-gray-500 mb-4">选择绑定方式：Q1 群控 / IMAI WORK / 官方API</p>
+              <div className="space-y-3">
+                <select className="input-dark w-full text-sm" value={createForm.platform} onChange={e => setCreateForm(p => ({ ...p, platform: e.target.value }))}>
+                  <option value="douyin" className="bg-gray-900">🎵 抖音</option>
+                  <option value="kuaishou" className="bg-gray-900">📹 快手</option>
+                  <option value="xiaohongshu" className="bg-gray-900">📕 小红书</option>
+                  <option value="shipinhao" className="bg-gray-900">💚 视频号</option>
+                  <option value="weibo" className="bg-gray-900">📢 微博</option>
+                  <option value="bilibili" className="bg-gray-900">📺 B站</option>
+                </select>
+                <input className="input-dark w-full text-sm" placeholder="账号名称（如：火锅店官方号）" value={createForm.accountName} onChange={e => setCreateForm(p => ({ ...p, accountName: e.target.value }))} />
+                <input className="input-dark w-full text-sm" placeholder="抖音号 / 唯一标识" value={createForm.accountId} onChange={e => setCreateForm(p => ({ ...p, accountId: e.target.value }))} />
+                <div className="flex gap-2">
+                  <input className="input-dark flex-1 text-sm" placeholder="手机号" value={createForm.mobile} onChange={e => setCreateForm(p => ({ ...p, mobile: e.target.value }))} />
+                  <input className="input-dark flex-1 text-sm" type="password" placeholder="密码" value={createForm.password} onChange={e => setCreateForm(p => ({ ...p, password: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">绑定方式</label>
+                  <div className="flex gap-2">
+                    {[
+                      { value: 'device', label: '📱 Q1 群控', desc: '真机自动化' },
+                      { value: 'imai', label: '🚀 IMAI WORK', desc: 'AI云手机' },
+                      { value: 'official', label: '🔌 官方API', desc: '开放平台' },
+                    ].map(opt => (
+                      <button key={opt.value} onClick={() => setCreateForm(p => ({ ...p, bindType: opt.value }))}
+                        className={`flex-1 p-2 rounded-lg border text-xs transition ${createForm.bindType === opt.value ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
+                        <div className="font-medium">{opt.label}</div>
+                        <div className="text-[10px] opacity-60">{opt.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {createForm.bindType === 'imai' && (
+                  <input className="input-dark w-full text-sm" placeholder="IMAI WORK 工作台地址" value={createForm.remark} onChange={e => setCreateForm(p => ({ ...p, remark: e.target.value }))} />
+                )}
+              </div>
+              <div className="flex gap-3 mt-5">
+                <button onClick={() => setShowCreate(false)} className="flex-1 py-2 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 text-sm">取消</button>
+                <button onClick={handleCreate} disabled={createLoading} className="flex-1 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 text-sm">{createLoading ? '创建中...' : '确认创建'}</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 绑定弹窗 */}
         {bindId && (
@@ -265,10 +347,20 @@ function PlatformRow({ account, devices, onBind }: { account: AccountItem; devic
         <span className="text-gray-400">· {account.accountName}</span>
         {account.mobile && <span className="text-gray-600">📱{account.mobile}</span>}
         <span className={`px-1.5 py-0.5 rounded text-[10px] border ${STATUS_COLOR[account.status] || 'bg-gray-500/20 text-gray-500'}`}>{account.status}</span>
+        <span className={`px-1.5 py-0.5 rounded text-[10px] border ${BIND_TYPE_COLOR[account.bindType] || 'bg-gray-500/20 text-gray-500'}`}>
+          {BIND_TYPE_LABEL[account.bindType] || account.bindType}
+        </span>
         {account.device && <span className="text-gray-600">({account.device.name})</span>}
       </div>
       <div className="flex items-center gap-2">
-        {account.device && (
+        {account.bindType === 'imai' && (
+          <button onClick={() => window.open(account.remark || 'http://imai-demo', '_blank')}
+            className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30"
+            title="打开 IMAI WORK 工作台">
+            🚀 工作台
+          </button>
+        )}
+        {account.bindType === 'device' && account.device && (
           <button onClick={() => window.open(`/api/devices/${account.device?.id}/snap`, '_blank')}
             className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30"
             title="查看 Q1 容器屏幕截图">
