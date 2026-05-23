@@ -6,8 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:build": "next build && electron-builder",
+    "electron:start": "electron ."
   },
+  "main": "electron/main.js",
   "dependencies": {
     "@alicloud/nls-filetrans-2018-08-17": "^1.0.0",
     "@prisma/client": "5.22.0",
@@ -25,12 +29,37 @@
     "@types/react": "18.2.43",
     "@types/react-dom": "18.2.17",
     "autoprefixer": "10.4.16",
+    "concurrently": "^8.2.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.0.0",
     "eslint": "8.55.0",
     "eslint-config-next": "14.0.4",
     "postcss": "8.4.32",
     "tailwindcss": "3.4.0",
     "ts-node": "^10.9.2",
-    "typescript": "5.5.4"
+    "typescript": "5.5.4",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.aimarketing.app",
+    "productName": "AI营销助手",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      ".next/**/*",
+      "electron/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
