@@ -16,15 +16,23 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ success: false, message: '设备不存在或未配置端口' }, { status: 404 })
     }
 
-    const snapRes = await fetch(`http://127.0.0.1:${device.apiPort}/snap`, { signal: AbortSignal.timeout(10000) })
-    if (!snapRes.ok) {
-      return NextResponse.json({ success: false, message: '截图失败' }, { status: 502 })
+    // screencap + download
+    const shellRes = await fetch(`http://127.0.0.1:${device.apiPort}/modifydev?cmd=6&cmdline=screencap%20-p%20/sdcard/screen.png`, { signal: AbortSignal.timeout(15000) })
+    const shellData = await shellRes.json()
+    if (shellData.code !== 200) {
+      return NextResponse.json({ success: false, message: '截图命令失败' }, { status: 502 })
+    }
+    await new Promise(r => setTimeout(r, 500))
+
+    const dlRes = await fetch(`http://127.0.0.1:${device.apiPort}/download?path=/sdcard/screen.png`, { signal: AbortSignal.timeout(10000) })
+    if (!dlRes.ok) {
+      return NextResponse.json({ success: false, message: '下载截图失败' }, { status: 502 })
     }
 
-    const buf = await snapRes.arrayBuffer()
+    const buf = await dlRes.arrayBuffer()
     return new NextResponse(buf, {
       headers: {
-        'Content-Type': snapRes.headers.get('Content-Type') || 'image/png',
+        'Content-Type': 'image/png',
         'Cache-Control': 'no-cache, max-age=0',
       },
     })
