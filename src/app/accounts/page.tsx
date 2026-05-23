@@ -13,8 +13,8 @@ const PLATFORMS = [
 ]
 
 const BIND_TYPES = [
-  { key: 'device',    label: '真机群控',     desc: 'Q1 手机群控',     icon: '📱', color: 'from-green-500/20 to-emerald-500/20', border: 'border-green-500/30', accent: 'text-green-400' },
-  { key: 'manual',    label: '指纹浏览器',   desc: '模拟器/云手机',   icon: '🖥️', color: 'from-yellow-500/20 to-orange-500/20', border: 'border-yellow-500/30', accent: 'text-yellow-400' },
+  { key: 'device',    label: 'Q1 群控',     desc: 'Q1 手机自动化',     icon: '📱', color: 'from-green-500/20 to-emerald-500/20', border: 'border-green-500/30', accent: 'text-green-400' },
+  { key: 'imai',      label: 'IMAI WORK',   desc: 'AI云手机/浏览器',   icon: '🚀', color: 'from-purple-500/20 to-violet-500/20', border: 'border-purple-500/30', accent: 'text-purple-400' },
   { key: 'official',  label: '官方API',      desc: '平台开放接口',   icon: '🔗', color: 'from-blue-500/20 to-cyan-500/20', border: 'border-blue-500/30', accent: 'text-blue-400' },
 ]
 
