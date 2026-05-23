@@ -17,6 +17,8 @@ interface TaskConfig {
   browseDuration?: number // 浏览/完播时长（秒）
   publishTitle?: string   // 发布标题（AI生成或手动填写）
   publishTopics?: string   // 逗号分隔的话题标签
+  publishDesc?: string    // 视频内容描述（AI据此生成标题）
+}
 }
 
 const PLATFORMS = [
@@ -259,6 +261,21 @@ export default function AutomationTemplatesPage() {
                     })}
                   </div>
                 </Section>
+
+                {/* 发布配置（仅勾选发布时显示） */}
+                {cfg.actions.includes('publish') && (
+                  <Section title="发布设置" icon="📤" desc="选填：描述今天视频内容，AI自动生成标题+话题">
+                    <textarea value={cfg.publishDesc || ''} onChange={e => setCfg(prev => ({ ...prev, publishDesc: e.target.value }))}
+                      placeholder="描述今天视频想表达的内容，如：夏季新出的清凉锅底配冰镇酸梅汤（不填则AI根据关键词自动生成）"
+                      className="input-dark w-full h-16 resize-y text-sm mb-2"
+                      rows={3} />
+                    {cfg.publishDesc && (
+                      <p className="text-[10px] text-gray-500">
+                        ✅ AI将根据你的描述生成标题 ｜ 不填则AI根据关键词自动生成
+                      </p>
+                    )}
+                  </Section>
+                )}
 
                 {/* 保存按钮 */}
                 <button onClick={saveConfig} disabled={cfgSaving || !cfg.name.trim() || !cfg.accountId}
