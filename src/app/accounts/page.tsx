@@ -225,9 +225,15 @@ export default function AccountsPage() {
                           }} className="flex-1 text-[10px] py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">
                             📸 截图
                           </button>
-                          <a href={`/admin/devices?local=${dev.id}`} className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30 text-center block">
-                            🚀 工作台
-                          </a>
+                          <button onClick={async () => {
+                            if (dev.status === 'device') {
+                              const snap = await (window as any).electronAPI.adbScreenshotDataUrl(dev.id)
+                              if (snap.success) window.open(snap.data)
+                              else showToast('截图失败: ' + (snap.error || '未知错误'), 'error')
+                            }
+                          }} className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">
+                            📸 截图
+                          </button>
                         </>
                       )}
                     </div>
