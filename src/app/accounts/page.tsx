@@ -96,6 +96,20 @@ export default function AccountsPage() {
     return urls[platform] || '#'
   }
 
+  // ── Electron 本地设备 ──
+  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron
+  const [localDevices, setLocalDevices] = useState<any[]>([])
+  useEffect(() => {
+    if (!isElectron) return
+    const poll = async () => {
+      const res = await (window as any).electronAPI.adbDevices()
+      if (res.success) setLocalDevices(res.data)
+    }
+    poll()
+    const timer = setInterval(poll, 5000)
+    return () => clearInterval(timer)
+  }, [isElectron])
+
   const platformMeta = (key: string) => PLATFORMS.find(p => p.key === key)
 
   if (authLoading || loading) return <Loading />
@@ -171,6 +185,56 @@ export default function AccountsPage() {
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {/* ── Electron 本地设备 ── */}
+        {isElectron && (
+          <div className="card-glass p-4 mt-6">
+            <h3 className="text-white text-sm font-bold mb-3 flex items-center gap-2">
+              💻 本地设备 <span className="text-[10px] text-gray-500 font-normal">客户端直连 · 自动刷新</span>
+            </h3>
+            {localDevices.length === 0 ? (
+              <div className="text-center text-gray-500 text-xs py-6">
+                <p>未检测到设备</p>
+                <p className="mt-1">请通过 USB 或 WiFi ADB 连接手机</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {localDevices.map((dev: any) => (
+                  <div key={dev.id} className="bg-white/5 rounded-xl p-3 border border-white/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">📱</span>
+                        <div>
+                          <span className="text-white text-xs font-medium">{dev.name}</span>
+                          <span className={`text-[10px] ml-2 ${dev.status === 'device' ? 'text-emerald-400' : 'text-yellow-400'}`}>
+                            {dev.status === 'device' ? '已连接' : '未授权'}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-gray-500">{dev.type === 'usb' ? '🔌 USB' : '📶 WiFi'}</span>
+                    </div>
+                    <p className="text-[10px] text-gray-600 truncate">{dev.id}</p>
+                    <div className="flex gap-2 mt-2">
+                      {dev.status === 'device' && (
+                        <>
+                          <button onClick={async () => {
+                            const snap = await (window as any).electronAPI.adbScreenshotDataUrl(dev.id)
+                            if (snap.success) window.open(snap.data)
+                          }} className="flex-1 text-[10px] py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">
+                            📸 截图
+                          </button>
+                          <a href={`/admin/devices?local=${dev.id}`} className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30 text-center block">
+                            🚀 工作台
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
