@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     if (user.role === 'admin') {
       where = {}
     } else if (user.role === 'editor') {
-      where = { user: { parentId: user.userId } }
+      where = { OR: [{ user: { parentId: user.userId } }, { userId: user.userId }] }
     } else {
       where = { userId: user.userId }
     }
