@@ -75,8 +75,8 @@ ipcMain.handle('adb:screenshot', async (_event, { deviceId }) => {
     execSync(`"${adb}" -s ${deviceId} shell screencap -p /sdcard/screen_tmp.png`, { timeout: 15000 })
     execSync(`"${adb}" -s ${deviceId} pull /sdcard/screen_tmp.png "${tmpFile}"`, { timeout: 15000 })
     execSync(`"${adb}" -s ${deviceId} shell rm /sdcard/screen_tmp.png`, { timeout: 5000 })
-    const buf = fs.readFileSync(tmpFile)
-    return { success: true, data: `data:image/png;base64,${buf.toString('base64')}` }
+    // 返回本地文件路径，由前端用 file:// 协议打开
+    return { success: true, localPath: tmpFile }
   } catch (e) {
     return { success: false, error: e.message }
   }

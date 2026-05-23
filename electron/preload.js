@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 截图（pull到本地临时文件）
   adbScreenshot: (deviceId) => ipcRenderer.invoke('adb:screenshot', { deviceId }),
+  adbScreenshotDataUrl: (deviceId) => ipcRenderer.invoke('adb:screenshot', { deviceId }), // alias
 
   // 环境检测
   isElectron: true,

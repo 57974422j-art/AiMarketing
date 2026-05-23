@@ -223,7 +223,7 @@ export default function AccountsPage() {
                             try {
                               const snap = await (window as any).electronAPI.adbScreenshot(dev.id)
                               if (snap?.success) {
-                                window.open(snap.data, '_blank')
+                                window.open('file://' + snap.localPath.replace(/\\/g, '/'), '_blank')
                               } else {
                                 showToast('截图失败: ' + JSON.stringify(snap?.error || snap), 'error')
                               }
