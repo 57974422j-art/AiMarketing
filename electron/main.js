@@ -125,11 +125,10 @@ ipcMain.handle('adb:mirror', async (_event, { deviceId }) => {
       return { success: false, error: '未找到 scrcpy，请先下载' }
     }
     const { spawn } = require('child_process')
-    spawn(scrcpyPath, ['-s', deviceId, '--max-size', '1080', '--window-title', deviceId, '--always-on-top', '--no-console'], {
+    spawn(scrcpyPath, ['-s', deviceId, '--max-size', '1080', '--window-title', deviceId, '--always-on-top'], {
       cwd: path.dirname(scrcpyPath),
       detached: true,
       stdio: 'ignore',
-      windowsHide: true,
     }).unref()
     return { success: true }
   } catch (e) {
