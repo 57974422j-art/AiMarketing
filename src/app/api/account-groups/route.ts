@@ -10,10 +10,11 @@ async function getVisibleGroups(auth: { userId: number; role: string }) {
   // 手动加载关联
   for (const g of groups) {
     ;(g as any).owner = await prisma.user.findUnique({ where: { id: g.ownerId }, select: { id: true, username: true } })
-    ;(g as any).items = await prisma.accountGroupItem.findMany({
-      where: { groupId: g.id },
-      include: { socialAccount: true },
-    })
+    const items: any[] = await prisma.accountGroupItem.findMany({ where: { groupId: g.id } })
+    for (const item of items) {
+      item.socialAccount = await (prisma as any).socialAccount.findUnique({ where: { id: item.socialAccountId } })
+    }
+    ;(g as any).items = items
   }
   return groups
 }

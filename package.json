@@ -23,7 +23,6 @@
     "react-dom": "18.2.0"
   },
   "devDependencies": {
-    "@devicefarmer/adbkit": "^3.3.8",
     "@types/ali-oss": "^6.23.3",
     "@types/crypto-js": "^4.2.2",
     "@types/node": "20.11.0",
@@ -31,7 +30,7 @@
     "@types/react-dom": "18.2.17",
     "autoprefixer": "10.4.16",
     "concurrently": "^8.2.2",
-    "electron": "^33.4.11",
+    "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "eslint": "8.55.0",
     "eslint-config-next": "14.0.4",
@@ -44,23 +43,14 @@
   "build": {
     "appId": "com.aimarketing.app",
     "productName": "AI营销助手",
-    "directories": {
-      "output": "dist-electron"
-    },
-    "files": [
-      ".next/**/*",
-      "electron/**/*",
-      "public/**/*",
-      "package.json"
+    "directories": { "output": "dist-electron" },
+    "files": [".next/**/*","electron/**/*","public/**/*","package.json"],
+    "extraResources": [
+      {"from": "scripts/platform-tools", "to": "scripts/platform-tools"},
+      {"from": "scripts/scrcpy", "to": "scripts/scrcpy"}
     ],
-    "win": {
-      "target": "nsis",
-      "icon": "public/icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+    "win": { "target": "nsis", "icon": "public/icon.png" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

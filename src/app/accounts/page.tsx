@@ -29,7 +29,6 @@ export default function AccountsPage() {
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
 
-  // 表单
   const [nickname, setNickname] = useState('')
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [bindType, setBindType] = useState('device')
@@ -39,7 +38,6 @@ export default function AccountsPage() {
   const [remark, setRemark] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // 工作台弹窗
   const [workbench, setWorkbench] = useState<Account | null>(null)
 
   useEffect(() => {
@@ -60,7 +58,6 @@ export default function AccountsPage() {
     if (!nickname.trim()) { showToast('请输入账号昵称', 'error'); return }
     if (selectedPlatforms.length === 0) { showToast('请选择至少一个平台', 'error'); return }
     setSubmitting(true)
-
     for (const platform of selectedPlatforms) {
       try {
         await fetch('/api/accounts', {
@@ -69,7 +66,6 @@ export default function AccountsPage() {
         })
       } catch {}
     }
-
     showToast(`已登记 ${selectedPlatforms.length} 个账号`, 'success')
     setShowAdd(false); setNickname(''); setSelectedPlatforms([]); setBindType('device'); setProfileLink(''); setAccountPassword(''); setAccountMobile(''); setRemark('')
     load()
@@ -83,7 +79,6 @@ export default function AccountsPage() {
     else showToast('删除失败', 'error')
   }
 
-  // 快捷登录链接
   const getLoginUrl = (platform: string) => {
     const urls: Record<string, string> = {
       douyin: 'https://www.douyin.com/login',
@@ -103,9 +98,12 @@ export default function AccountsPage() {
   const [scriptLog, setScriptLog] = useState<string[]>([])
   const [scriptCustomInput, setScriptCustomInput] = useState('')
 
-  // ── Electron 本地设备 ──
+  // ── Electron 本地设备 + 权限 ──
   const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron
   const [localDevices, setLocalDevices] = useState<any[]>([])
+  const [mySerials, setMySerials] = useState<string[]>([])
+  const [regLoading, setRegLoading] = useState<string | null>(null)
+
   useEffect(() => {
     if (!isElectron) return
     const poll = async () => {
@@ -116,6 +114,43 @@ export default function AccountsPage() {
     const timer = setInterval(poll, 5000)
     return () => clearInterval(timer)
   }, [isElectron])
+
+  // 加载当前用户已登记的本地设备序列号
+  useEffect(() => {
+    if (!user) return
+    fetch('/api/accounts', { credentials: 'include' }).then(r => r.json()).then(d => {
+      const list = Array.isArray(d) ? d : d.data || []
+      setMySerials(list.filter((a: any) => a.bindType === 'imai' && a.platform === 'local-device').map((a: any) => a.accountId).filter(Boolean))
+    }).catch(() => {})
+  }, [user])
+
+  const isRegistered = (serial: string) => mySerials.includes(serial)
+
+  const registerDevice = async (serial: string, name: string) => {
+    setRegLoading(serial)
+    try {
+      const r = await fetch('/api/accounts', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountName: name,
+          platform: 'local-device',
+          bindType: 'imai',
+          accountId: serial,
+          remark: 'Electron本地设备',
+        }),
+      })
+      const data = await r.json()
+      if (data.success) {
+        showToast('登记成功，等待管理员审核', 'success')
+        setMySerials(prev => [...prev, serial])
+      } else {
+        showToast('登记失败: ' + (data.message || ''), 'error')
+      }
+    } catch (e: any) {
+      showToast('登记异常: ' + e.message, 'error')
+    }
+    setRegLoading(null)
+  }
 
   const platformMeta = (key: string) => PLATFORMS.find(p => p.key === key)
 
@@ -178,8 +213,6 @@ export default function AccountsPage() {
                     {acct.accountId && <p className="truncate">🔗 {acct.accountId}</p>}
                     {acct.remark && <p className="italic">📝 {acct.remark}</p>}
                   </div>
-
-                  {/* 工作台入口 */}
                   <button onClick={() => setWorkbench(acct)}
                     className={`w-full text-xs py-1.5 mt-1 rounded-lg border transition ${
                       acct.isBound
@@ -208,50 +241,59 @@ export default function AccountsPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {localDevices.map((dev: any) => (
-                  <div key={dev.id} className="bg-white/5 rounded-xl p-3 border border-white/10">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">📱</span>
-                        <div>
-                          <span className="text-white text-xs font-medium">{dev.name}</span>
-                          <span className={`text-[10px] ml-2 ${dev.status === 'device' ? 'text-emerald-400' : 'text-yellow-400'}`}>
-                            {dev.status === 'device' ? '已连接' : '未授权'}
-                          </span>
+                {localDevices.map((dev: any) => {
+                  const regged = isRegistered(dev.id)
+                  return (
+                    <div key={dev.id} className="bg-white/5 rounded-xl p-3 border border-white/10">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">📱</span>
+                          <div>
+                            <span className="text-white text-xs font-medium">{dev.name}</span>
+                            <span className={`text-[10px] ml-2 ${dev.status === 'device' ? 'text-emerald-400' : 'text-yellow-400'}`}>
+                              {dev.status === 'device' ? '已连接' : '未授权'}
+                            </span>
+                          </div>
                         </div>
+                        <span className="text-[10px] text-gray-500">{dev.type === 'usb' ? '🔌 USB' : '📶 WiFi'}</span>
                       </div>
-                      <span className="text-[10px] text-gray-500">{dev.type === 'usb' ? '🔌 USB' : '📶 WiFi'}</span>
+                      <p className="text-[10px] text-gray-600 truncate">{dev.id}</p>
+                      <div className="flex gap-2 mt-2">
+                        {dev.status === 'device' && !regged && (
+                          <button onClick={() => registerDevice(dev.id, dev.name)} disabled={regLoading === dev.id}
+                            className="w-full text-[10px] py-1.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded hover:bg-yellow-500/30 disabled:opacity-50">
+                            {regLoading === dev.id ? '登记中...' : '📋 登记设备'}
+                          </button>
+                        )}
+                        {dev.status === 'device' && regged && (
+                          <>
+                            <button onClick={async () => {
+                              try {
+                                const snap = await (window as any).electronAPI.adbScreenshot(dev.id)
+                                if (snap?.success) showToast('截图已保存', 'success')
+                                else showToast('截图失败', 'error')
+                              } catch (e: any) {
+                                showToast('截图异常: ' + e.message, 'error')
+                              }
+                            }} className="flex-1 text-[10px] py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">
+                              📸 截图
+                            </button>
+                            <button onClick={async () => {
+                              const r = await (window as any).electronAPI.adbMirror(dev.id)
+                              if (!r.success) showToast('投屏失败: ' + (r.error || ''), 'error')
+                            }} className="flex-1 text-[10px] py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30">
+                              🖥️ 投屏
+                            </button>
+                            <button onClick={() => setRunScript({ deviceId: dev.id, deviceName: dev.name })}
+                              className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">
+                              ▶ 运行
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-[10px] text-gray-600 truncate">{dev.id}</p>
-                    <div className="flex gap-2 mt-2">
-                      {dev.status === 'device' && (
-                        <>
-                          <button onClick={async () => {
-                            try {
-                              const snap = await (window as any).electronAPI.adbScreenshot(dev.id)
-                              if (snap?.success) showToast('截图已保存到系统临时目录', 'success')
-                              else showToast('截图失败: ' + JSON.stringify(snap?.error || snap), 'error')
-                            } catch (e: any) {
-                              showToast('截图异常: ' + e.message, 'error')
-                            }
-                          }} className="flex-1 text-[10px] py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">
-                            📸 截图
-                          </button>
-                          <button onClick={async () => {
-                            const r = await (window as any).electronAPI.adbMirror(dev.id)
-                            if (!r.success) showToast('投屏失败: ' + (r.error || ''), 'error')
-                          }} className="flex-1 text-[10px] py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30">
-                            🖥️ 投屏
-                          </button>
-                          <button onClick={() => setRunScript({ deviceId: dev.id, deviceName: dev.name })}
-                            className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">
-                            ▶ 运行
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -263,7 +305,6 @@ export default function AccountsPage() {
             <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
               <h3 className="text-white font-bold mb-1">▶ 运行脚本</h3>
               <p className="text-xs text-gray-500 mb-4">{runScript.deviceName} · {runScript.deviceId}</p>
-
               <select className="input-dark w-full text-sm mb-3" value={scriptAction} onChange={e => setScriptAction(e.target.value)}>
                 <option className="bg-gray-900">打开抖音</option>
                 <option className="bg-gray-900">打开快手</option>
@@ -274,7 +315,6 @@ export default function AccountsPage() {
                 <option className="bg-gray-900">上滑</option>
                 <option className="bg-gray-900">自定义 Shell</option>
               </select>
-
               {scriptAction === '输入文字' && (
                 <input className="input-dark w-full text-sm mb-3" placeholder="要输入的文字..." value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
               )}
@@ -286,7 +326,6 @@ export default function AccountsPage() {
               {scriptAction === '自定义 Shell' && (
                 <input className="input-dark w-full text-sm mb-3" placeholder="adb shell 命令（如 input tap 500 800）" value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
               )}
-
               <div className="flex gap-3 mb-3">
                 <button onClick={async () => {
                   setScriptRunning(true); setScriptLog([])
@@ -318,7 +357,6 @@ export default function AccountsPage() {
                 </button>
                 <button onClick={() => setRunScript(null)} className="flex-1 py-2 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 text-sm">关闭</button>
               </div>
-
               {scriptLog.length > 0 && (
                 <div className="bg-black/30 rounded-lg p-3 max-h-32 overflow-y-auto text-[10px] text-gray-400 font-mono space-y-1">
                   {scriptLog.map((l, i) => <p key={i}>{l}</p>)}
@@ -334,12 +372,8 @@ export default function AccountsPage() {
             <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <h3 className="text-white font-bold text-lg mb-1">📝 登记账号</h3>
               <p className="text-xs text-gray-500 mb-5">登记后管理员会帮你绑定设备并填密码</p>
-
-              {/* 昵称 */}
               <label className="block text-xs text-gray-400 mb-1">昵称 <span className="text-red-400">*</span></label>
               <input className="input-dark w-full text-sm mb-4" placeholder="如：我的抖音号" value={nickname} onChange={e => setNickname(e.target.value)} />
-
-              {/* 平台多选 */}
               <label className="block text-xs text-gray-400 mb-2">选择平台 <span className="text-red-400">*</span> <span className="text-gray-600">（可多选）</span></label>
               <div className="grid grid-cols-3 gap-2 mb-4">
                 {PLATFORMS.map(p => (
@@ -354,8 +388,6 @@ export default function AccountsPage() {
                   </button>
                 ))}
               </div>
-
-              {/* 绑定类型 */}
               <label className="block text-xs text-gray-400 mb-2">绑定方式</label>
               <div className="grid grid-cols-3 gap-2 mb-4">
                 {BIND_TYPES.map(bt => (
@@ -371,8 +403,6 @@ export default function AccountsPage() {
                   </button>
                 ))}
               </div>
-
-              {/* 登录信息 */}
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">手机号</label>
@@ -383,15 +413,10 @@ export default function AccountsPage() {
                   <input className="input-dark w-full text-sm" type="password" placeholder="账号密码" value={accountPassword} onChange={e => setAccountPassword(e.target.value)} />
                 </div>
               </div>
-
-              {/* 主页链接 */}
               <label className="block text-xs text-gray-400 mb-1">主页链接</label>
               <input className="input-dark w-full text-sm mb-4" type="url" placeholder="https://www.douyin.com/user/..." value={profileLink} onChange={e => setProfileLink(e.target.value)} />
-
-              {/* 备注 */}
               <label className="block text-xs text-gray-400 mb-1">备注</label>
               <textarea className="input-dark w-full text-sm mb-5 h-16" placeholder="可选，如：引流号、客服号" value={remark} onChange={e => setRemark(e.target.value)} />
-
               <div className="flex gap-3">
                 <button onClick={() => setShowAdd(false)} className="flex-1 py-2.5 border border-white/10 text-gray-400 rounded-xl hover:bg-white/10 text-sm">取消</button>
                 <button onClick={handleSubmit} disabled={submitting || !nickname.trim() || selectedPlatforms.length === 0}
@@ -417,7 +442,6 @@ export default function AccountsPage() {
                 </div>
                 <button onClick={() => setWorkbench(null)} className="text-gray-500 hover:text-white text-xl">&times;</button>
               </div>
-
               <div className="space-y-2">
                 <a href={getLoginUrl(workbench.platform)} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-3 px-4 py-3 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-sm hover:bg-emerald-500/30 transition block text-center">
@@ -427,7 +451,6 @@ export default function AccountsPage() {
                   ⚙️ 账号设置（管理员用）
                 </a>
               </div>
-
               <p className="text-[10px] text-gray-600 text-center mt-4">
                 登录后通知管理员绑定设备即可使用
               </p>
