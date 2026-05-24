@@ -12,7 +12,7 @@ function getUserContext(request: NextRequest) {
 
 // GET /api/accounts
 //   admin  → 全部（含 device + user）
-//   editor → 自己下属终端登记的
+//   editor → 自己 + 下属终端登记的
 //   end-user → 自己的
 export async function GET(request: NextRequest) {
   try {
@@ -53,19 +53,31 @@ export async function POST(request: NextRequest) {
   } finally { await prisma.$disconnect() }
 }
 
-// PUT /api/accounts — 绑定设备（仅 editor/admin）
+// PUT /api/accounts — 绑定设备（仅 editor/admin），支持 remark 更新
 export async function PUT(request: NextRequest) {
   try {
     const user = getUserContext(request)
     if (!user || user.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
     const body = await request.json()
-    const { id, deviceId } = body
+    const { id, deviceId, remark } = body
     if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
 
-    await prisma.account.update({
-      where: { id: parseInt(id) },
-      data: { deviceId: deviceId ? parseInt(deviceId) : null, status: deviceId ? '已绑定' : '未绑定', isBound: !!deviceId },
-    })
+    const data: any = {}
+    // 如果有 deviceId 且不是 'local' 占位，绑定 Q1 设备
+    if (deviceId && deviceId !== 'local') {
+      data.deviceId = parseInt(deviceId)
+      data.status = '已绑定'
+      data.isBound = true
+    } else if (deviceId === 'local') {
+      // 本地设备标记（无 Q1 设备 ID）
+      data.deviceId = null
+      data.status = '已绑定'
+      data.isBound = true
+    }
+    // remark 更新（存 ADB 序列号等）
+    if (remark !== undefined) data.remark = remark
+
+    await prisma.account.update({ where: { id: parseInt(id) }, data })
     return NextResponse.json({ success: true, message: '绑定成功' })
   } catch (e) { console.error(e); return NextResponse.json({ success: false, message: '绑定失败' }, { status: 500 })
   } finally { await prisma.$disconnect() }

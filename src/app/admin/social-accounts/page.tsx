@@ -50,6 +50,7 @@ export default function SocialAccountsPage() {
   // 绑定弹窗
   const [bindId, setBindId] = useState<number | null>(null)
   const [bindDeviceId, setBindDeviceId] = useState('')
+  const [bindAdbSerial, setBindAdbSerial] = useState('')
   const [binding, setBinding] = useState(false)
 
   // 展开状态: Set<`editor_${id}`|`user_${id}`>
@@ -85,10 +86,19 @@ export default function SocialAccountsPage() {
   }
 
   const handleBind = async () => {
-    if (!bindId || !bindDeviceId) { showToast('请选择设备', 'error'); return }
+    // 本地设备只需序列号，Q1设备需选设备
+    const isLocal = bindDeviceId === 'local'
+    if (!bindId || (!bindDeviceId && !bindAdbSerial)) { showToast('请选择设备或输入ADB序列号', 'error'); return }
     setBinding(true)
     try {
-      const r = await fetch('/api/accounts', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: bindId, deviceId: parseInt(bindDeviceId) }) })
+      const body: any = { id: bindId }
+      if (isLocal) {
+        body.deviceId = 'local'
+        body.remark = `adb:${bindAdbSerial}`
+      } else if (bindDeviceId) {
+        body.deviceId = parseInt(bindDeviceId)
+      }
+      const r = await fetch('/api/accounts', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (r.ok) { showToast('绑定成功', 'success'); setBindId(null); setBindDeviceId(''); load() }
       else { const d = await r.json(); showToast(d.message || '失败', 'error') }
     } catch { showToast('绑定失败', 'error') } finally { setBinding(false) }
@@ -208,11 +218,15 @@ export default function SocialAccountsPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setBindId(null)}>
             <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
               <h3 className="text-white font-bold mb-1">绑定设备</h3>
-              <p className="text-xs text-gray-500 mb-4">选择要绑定的 Q1 设备容器</p>
-              <select className="input-dark w-full mb-4" value={bindDeviceId} onChange={e => setBindDeviceId(e.target.value)}>
+              <p className="text-xs text-gray-500 mb-4">选择 Q1 设备或填写本地 ADB 序列号</p>
+              <select className="input-dark w-full mb-3" value={bindDeviceId} onChange={e => setBindDeviceId(e.target.value)}>
                 <option value="">选择设备...</option>
+                <option value="local" className="bg-gray-900 text-purple-400">📱 本地设备（ADB直连）</option>
                 {devices.filter(d => d.status === 'online').map(d => <option key={d.id} value={d.id} className="bg-gray-900">{d.name} (端口{d.apiPort})</option>)}
               </select>
+              {bindDeviceId === 'local' && (
+                <input className="input-dark w-full mb-3 text-sm" placeholder="ADB 设备序列号（如 10CF3G0YDS003AD）" value={bindAdbSerial} onChange={e => setBindAdbSerial(e.target.value)} />
+              )}
               <div className="flex gap-3">
                 <button onClick={() => setBindId(null)} className="flex-1 py-2 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 text-sm">取消</button>
                 <button onClick={handleBind} disabled={binding || !bindDeviceId} className="flex-1 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 text-sm">{binding ? '绑定中...' : '确认绑定'}</button>

@@ -136,6 +136,64 @@ ipcMain.handle('adb:mirror', async (_event, { deviceId }) => {
   }
 })
 
+// ── 本地 ADB HTTP 桥接服务 ──
+// 把 localhost:59001~59099 映射到 ADB 设备 shell 命令
+// 让现有 uiautomator-driver.ts 不改代码就能用
+const http = require('http')
+/** @type {Object.<string, import('http').Server>} */
+const adbBridges = {}
+
+function startAdbBridge(deviceId, port) {
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url!, `http://localhost:${port}`)
+    if (url.pathname === '/modifydev' && url.searchParams.get('cmd') === '6') {
+      const cmdline = url.searchParams.get('cmdline') || ''
+      try {
+        const adb = findAdb()
+        const out = execSync(`"${adb}" -s ${deviceId} shell ${cmdline}`, { timeout: 30000, encoding: 'utf-8' })
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end(out)
+      } catch (e: any) {
+        res.writeHead(500)
+        res.end(e.message)
+      }
+    } else if (url.pathname === '/health') {
+      res.writeHead(200)
+      res.end('ok')
+    } else {
+      res.writeHead(404)
+      res.end()
+    }
+  })
+  server.listen(port, () => {
+    console.log(`[ADB Bridge] 设备 ${deviceId} → localhost:${port}`)
+  })
+  return server
+}
+
+ipcMain.handle('adb:bridge', async (_event, { deviceId, port }) => {
+  try {
+    const key = `${deviceId}:${port}`
+    if (adbBridges[key]) return { success: true, port, message: '已在运行' }
+    const server = startAdbBridge(deviceId, port)
+    adbBridges[key] = server
+    return { success: true, port }
+  } catch (e: any) {
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('adb:bridge:stop', async (_event, { port }) => {
+  for (const key of Object.keys(adbBridges)) {
+    if (key.endsWith(`:${port}`)) {
+      adbBridges[key].close()
+      delete adbBridges[key]
+      break
+    }
+  }
+  return { success: true }
+})
+
 app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
