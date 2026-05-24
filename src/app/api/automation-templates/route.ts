@@ -8,7 +8,6 @@ export async function GET(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
-    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权访问' }, { status: 403 })
     const data = await prisma.automationTemplate.findMany({
       where: auth.role === 'admin' ? {} : { ownerId: auth.userId },
       orderBy: { createdAt: 'desc' },
@@ -24,7 +23,6 @@ export async function POST(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
-    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
     const { name, type, params } = await request.json()
     if (!name || !type) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
     const tmpl = await prisma.automationTemplate.create({
@@ -41,7 +39,6 @@ export async function DELETE(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
-    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
     const { searchParams } = new URL(request.url)
     const id = parseInt(searchParams.get('id') || '', 10)
     if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })

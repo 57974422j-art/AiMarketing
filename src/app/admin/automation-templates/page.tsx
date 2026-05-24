@@ -69,7 +69,7 @@ export default function AutomationTemplatesPage() {
   const [testLoading, setTestLoading] = useState(false)
 
   useEffect(() => {
-    if (!authLoading && user && user.role !== 'end-user') loadAll()
+    if (!authLoading && user) loadAll()
     else if (!authLoading) setLoading(false)
   }, [authLoading, user])
 
@@ -129,7 +129,7 @@ export default function AutomationTemplatesPage() {
   }
 
   if (authLoading || loading) return <Loading />
-  if (!user || user.role === 'end-user') return <NoAccess />
+  if (!user) return <NoAccess />
 
   return (
     <div className="min-h-screen bg-gray-950">
