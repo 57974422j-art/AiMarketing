@@ -5,14 +5,17 @@ import { getAuthFromHeaders } from '@/lib/api-auth'
 const prisma = new PrismaClient()
 
 async function getVisibleGroups(auth: { userId: number; role: string }) {
-  const include = {
-    owner: { select: { id: true, username: true } },
-    items: { include: { socialAccount: { select: { id: true, platform: true, username: true, status: true } } } },
+  const where = auth.role !== 'admin' ? { ownerId: auth.userId } : {}
+  const groups = await prisma.accountGroup.findMany({ where, orderBy: { id: 'desc' } })
+  // 手动加载关联
+  for (const g of groups) {
+    ;(g as any).owner = await prisma.user.findUnique({ where: { id: g.ownerId }, select: { id: true, username: true } })
+    ;(g as any).items = await prisma.accountGroupItem.findMany({
+      where: { groupId: g.id },
+      include: { socialAccount: true },
+    })
   }
-  if (auth.role === 'admin') {
-    return prisma.accountGroup.findMany({ include, orderBy: { id: 'desc' } })
-  }
-  return prisma.accountGroup.findMany({ where: { ownerId: auth.userId }, include, orderBy: { id: 'desc' } })
+  return groups
 }
 
 export async function GET(request: NextRequest) {
