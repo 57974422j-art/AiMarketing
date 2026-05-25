@@ -15,7 +15,8 @@ export async function GET(request: NextRequest) {
     ) as any[]
 
     return NextResponse.json({ success: true, data: rows || [] })
-  } catch (e) {
-    return NextResponse.json({ success: true, data: [] })
+  } catch (e: any) {
+    console.error('tasks/mine error:', e.message)
+    return NextResponse.json({ success: false, error: e.message })
   } finally { await prisma.$disconnect() }
 }
