@@ -517,7 +517,23 @@ const [sceneLib, setSceneLib] = useState<any[]>([])
                   <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
                     <h2 className="text-label mb-4">生成结果 / RESULT</h2>
                     <video src={videoUrl} controls className="w-full rounded-xl max-h-[500px]" />
-                    <p className="text-xs text-gray-500 mt-2 font-mono">链接 24 小时内有效，可右键下载保存</p>
+                    <p className="text-xs text-gray-500 mt-2 font-mono">链接 24 小时内有效</p>
+                    <div className="flex gap-2 mt-3">
+                      <button onClick={async () => {
+                        const now = new Date()
+                        const dateStr = now.getFullYear() + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0')
+                        const r = await fetch('/api/media-library?source=private', { credentials: 'include' })
+                        const d = await r.json()
+                        const list = Array.isArray(d?.data) ? d.data : []
+                        const todayItems = list.filter((m: any) => m.title && String(m.title).startsWith(dateStr))
+                        const num = String(todayItems.length + 1).padStart(2, '0')
+                        const title = dateStr + '-' + num
+                        await fetch('/api/media-library', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ossUrl: videoUrl, title, prompt, category: 'AI生成', source: 'private' }) })
+                        setToast(`已保存到媒体库: ${title}`, 'success')
+                      }} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 text-xs">
+                        💾 保存到媒体库
+                      </button>
+                    </div>
                   </div>
                 )}
 

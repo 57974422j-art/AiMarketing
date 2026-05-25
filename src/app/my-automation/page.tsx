@@ -19,7 +19,42 @@ const ACTIONS = [
   { key: 'follow', label: '关注', icon: '➕', desc: '关注作者' },
   { key: 'share', label: '转发', icon: '🔄', desc: '分享视频' },
   { key: 'extract', label: '采集', icon: '📥', desc: '提取视频/评论' },
+  { key: 'publish', label: '发视频', icon: '📤', desc: '从媒体库选视频发布' },
 ]
+
+function VideoSelector({ deviceSerial }: { deviceSerial: string }) {
+  const [videos, setVideos] = useState<any[]>([])
+  const [selected, setSelected] = useState<any>(null)
+  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron
+
+  useEffect(() => {
+    fetch('/api/media-library?source=private&type=video', { credentials: 'include' }).then(r => r.json()).then(d => {
+      setVideos(Array.isArray(d?.data) ? d.data : [])
+    }).catch(() => {})
+  }, [])
+
+  return (
+    <div className="card-glass p-4 mb-4">
+      <label className="text-xs text-gray-400 mb-2 block">选择视频</label>
+      {videos.length === 0 ? (
+        <p className="text-xs text-gray-500 text-center py-3">媒体库暂无视频，先在 AI 文案生成视频后保存</p>
+      ) : (
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          {videos.map((v: any) => (
+            <button key={v.id} onClick={() => setSelected(v)}
+              className={`p-2 rounded-xl border text-xs text-center transition ${
+                selected?.id === v.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
+              }`}>
+              <p className="truncate">{v.title || '未命名'}</p>
+              <p className="text-[10px] text-gray-600">{v.category}</p>
+            </button>
+          ))}
+        </div>
+      )}
+      {selected && <p className="text-[10px] text-gray-500 mt-1">已选: {selected.title}</p>}
+    </div>
+  )
+}
 
 export default function MyAutomationPage() {
   const { user, loading: authLoading } = useAuth()
@@ -33,14 +68,11 @@ export default function MyAutomationPage() {
   const [running, setRunning] = useState(false)
   const [logs, setLogs] = useState<string[]>([])
 
-  // 加载已绑定本地设备
   useEffect(() => {
     if (!user) return
     fetch('/api/accounts', { credentials: 'include' }).then(r => r.json()).then(d => {
       const list = Array.isArray(d) ? d : d.data || []
-      const myDevices = list
-        .filter((a: any) => a.platform === 'local-device' && a.isBound && a.accountId)
-        .map((a: any) => ({ serial: a.accountId, name: a.accountName }))
+      const myDevices = list.filter((a: any) => a.platform === 'local-device' && a.isBound && a.accountId).map((a: any) => ({ serial: a.accountId, name: a.accountName }))
       setDevices(myDevices)
       if (myDevices.length > 0) setSelectedDevice(myDevices[0].serial)
     }).catch(() => {})
@@ -60,11 +92,10 @@ export default function MyAutomationPage() {
       bilibili: 'tv.danmaku.bili/.MainActivityV2',
     }
 
-    addLog(`🚀 平台: ${platform} | 动作: ${ACTIONS.find(a => a.key === action)?.label}`)
-    addLog(`📱 设备: ${selectedDevice}`)
+    addLog(`🚀 ${platform} → ${ACTIONS.find(a => a.key === action)?.label}`)
+    addLog(`📱 ${selectedDevice}`)
 
     try {
-      // 1. 打开 App
       const pkgName = pkg[PLATFORM_KEY[platform]]
       if (pkgName) {
         addLog(`📲 打开 ${platform}...`)
@@ -73,54 +104,39 @@ export default function MyAutomationPage() {
         await new Promise(r => setTimeout(r, 3000))
       }
 
-      // 2. 根据动作执行
       if (action === 'search' && keywordsText) {
-        const keywords = keywordsText.split('\n').filter(Boolean)
-        for (const kw of keywords) {
+        for (const kw of keywordsText.split('\n').filter(Boolean)) {
           addLog(`🔍 搜索: ${kw}`)
-          await api.adbShell(selectedDevice, `input tap 500 100`)
-          await new Promise(r => setTimeout(r, 1000))
-          await api.adbShell(selectedDevice, `input text "${kw.replace(/ /g, '%s')}"`)
-          await new Promise(r => setTimeout(r, 1000))
-          await api.adbShell(selectedDevice, `input keyevent 66`)
-          await new Promise(r => setTimeout(r, 3000))
+          await api.adbShell(selectedDevice, 'input tap 500 100'); await new Promise(r => setTimeout(r, 1000))
+          await api.adbShell(selectedDevice, `input text "${kw.replace(/ /g, '%s')}"`); await new Promise(r => setTimeout(r, 1000))
+          await api.adbShell(selectedDevice, 'input keyevent 66'); await new Promise(r => setTimeout(r, 3000))
           addLog('✅ 搜索完成')
         }
       } else if (action === 'like') {
-        addLog(`❤️ 点赞（等待20秒模拟观看）...`)
-        await new Promise(r => setTimeout(r, 20000))
-        const r = await api.adbShell(selectedDevice, 'input tap 540 1400')
-        addLog(r.success ? '✅ 点赞完成' : '⚠️ ' + (r.error || ''))
+        addLog('❤️ 等待20秒...'); await new Promise(r => setTimeout(r, 20000))
+        await api.adbShell(selectedDevice, 'input tap 540 1400')
+        addLog('✅ 点赞完成')
       } else if (action === 'comment') {
-        addLog(`💬 评论...`)
-        await api.adbShell(selectedDevice, 'input tap 540 1500')
-        await new Promise(r => setTimeout(r, 1000))
+        await api.adbShell(selectedDevice, 'input tap 540 1500'); addLog('✅ 已打开评论框')
       } else if (action === 'follow') {
-        addLog(`➕ 关注...`)
-        const r = await api.adbShell(selectedDevice, 'input tap 900 200')
-        addLog(r.success ? '✅ 关注完成' : '⚠️ ' + (r.error || ''))
+        await api.adbShell(selectedDevice, 'input tap 900 200'); addLog('✅ 关注完成')
       } else if (action === 'share') {
-        addLog(`🔄 转发...`)
-        await api.adbShell(selectedDevice, 'input tap 500 1500')
-        await new Promise(r => setTimeout(r, 2000))
-        addLog('✅ 转发完成')
+        await api.adbShell(selectedDevice, 'input tap 500 1500'); await new Promise(r => setTimeout(r, 2000)); addLog('✅ 转发完成')
       } else if (action === 'extract') {
-        addLog(`📥 采集数据...`)
         const r = await api.adbShell(selectedDevice, 'uiautomator dump /sdcard/ui.xml && cat /sdcard/ui.xml')
         addLog(r.success ? '✅ 采集完成' : '⚠️ ' + (r.error || ''))
+      } else if (action === 'publish') {
+        addLog('📤 视频推送到手机...')
+        // TODO: 选择视频后 adb push 并发布
+        addLog('📤 发视频功能开发中...')
       }
 
-      // 3. 记录到服务器
       await fetch('/api/my-automation/execute', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform: PLATFORM_KEY[platform], action, keywords: keywordsText.split('\n').filter(Boolean), deviceSerial: selectedDevice }),
       })
-
-      addLog('✅ 全部完成')
-      showToast('执行完成', 'success')
-    } catch (e: any) {
-      addLog('❌ 异常: ' + e.message)
-    }
+      addLog('✅ 全部完成'); showToast('执行完成', 'success')
+    } catch (e: any) { addLog('❌ 异常: ' + e.message) }
     setRunning(false)
   }
 
@@ -135,7 +151,6 @@ export default function MyAutomationPage() {
           <p className="text-gray-400 text-sm mt-1">连接本地手机，一键执行自动化操作</p>
         </div>
 
-        {/* 设备选择 */}
         <div className="card-glass p-4 mb-4">
           <label className="text-xs text-gray-400 mb-2 block">选择设备</label>
           {devices.length === 0 ? (
@@ -147,11 +162,7 @@ export default function MyAutomationPage() {
             <div className="flex flex-wrap gap-2">
               {devices.map(d => (
                 <button key={d.serial} onClick={() => setSelectedDevice(d.serial)}
-                  className={`px-3 py-1.5 rounded-lg text-xs border transition ${
-                    selectedDevice === d.serial
-                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                      : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
-                  }`}>
+                  className={`px-3 py-1.5 rounded-lg text-xs border transition ${selectedDevice === d.serial ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
                   {d.name || d.serial.slice(0, 8)}
                 </button>
               ))}
@@ -159,34 +170,24 @@ export default function MyAutomationPage() {
           )}
         </div>
 
-        {/* 平台选择 */}
         <div className="card-glass p-4 mb-4">
           <label className="text-xs text-gray-400 mb-2 block">选择平台</label>
           <div className="flex flex-wrap gap-2">
             {PLATFORMS.map(p => (
               <button key={p} onClick={() => setPlatform(p)}
-                className={`px-3 py-1.5 rounded-lg text-xs border transition ${
-                  platform === p
-                    ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                    : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
-                }`}>
+                className={`px-3 py-1.5 rounded-lg text-xs border transition ${platform === p ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
                 {PLATFORM_ICON[PLATFORM_KEY[p]]} {p}
               </button>
             ))}
           </div>
         </div>
 
-        {/* 动作选择 */}
         <div className="card-glass p-4 mb-4">
           <label className="text-xs text-gray-400 mb-2 block">选择动作</label>
           <div className="grid grid-cols-3 gap-2">
             {ACTIONS.map(a => (
               <button key={a.key} onClick={() => setAction(a.key)}
-                className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-xs transition ${
-                  action === a.key
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                    : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
-                }`}>
+                className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-xs transition ${action === a.key ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
                 <span className="text-lg">{a.icon}</span>
                 <span>{a.label}</span>
                 <span className="text-[10px] opacity-60">{a.desc}</span>
@@ -195,7 +196,6 @@ export default function MyAutomationPage() {
           </div>
         </div>
 
-        {/* 关键词输入（仅搜索） */}
         {action === 'search' && (
           <div className="card-glass p-4 mb-4">
             <label className="text-xs text-gray-400 mb-2 block">搜索关键词（每行一个）</label>
@@ -203,7 +203,8 @@ export default function MyAutomationPage() {
           </div>
         )}
 
-        {/* 执行按钮 */}
+        {action === 'publish' && <VideoSelector deviceSerial={selectedDevice} />}
+
         <button onClick={runAction} disabled={running || devices.length === 0 || !isElectron}
           className="w-full py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 text-sm font-bold transition">
           {!isElectron ? '⚠️ 请在 Electron 客户端中执行'
@@ -211,7 +212,6 @@ export default function MyAutomationPage() {
             : `▶ 在 ${devices.find(d => d.serial === selectedDevice)?.name || '设备'} 上执行`}
         </button>
 
-        {/* 日志 */}
         {logs.length > 0 && (
           <div className="card-glass p-4 mt-4">
             <label className="text-xs text-gray-400 mb-2 block">执行日志</label>

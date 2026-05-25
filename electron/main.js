@@ -136,7 +136,7 @@ ipcMain.handle('adb:swipe', async (_event, { deviceId, x1, y1, x2, y2, duration 
 ipcMain.handle('adb:mirror', async (_event, { deviceId }) => {
   try {
     const scriptsDir = getScriptsDir()
-    const scrcpyPath = path.join(scriptsDir, 'scrcpy', 'scrcpy-noconsole.vbs')
+    const scrcpyPath = path.join(scriptsDir, 'scrcpy', 'scrcpy.exe')
     if (!fs.existsSync(scrcpyPath)) {
       return { success: false, error: '未找到 scrcpy，请先下载' }
     }
@@ -146,6 +146,18 @@ ipcMain.handle('adb:mirror', async (_event, { deviceId }) => {
       detached: true,
       stdio: 'ignore',
     }).unref()
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
+// ── IPC: 推文件到设备 ──
+ipcMain.handle('adb:push', async (_event, { deviceId, localPath, remotePath }) => {
+  try {
+    const adb = findAdb()
+    const dest = remotePath || '/sdcard/'
+    execSync('"' + adb + '" -s ' + deviceId + ' push "' + localPath + '" ' + dest, { timeout: 30000 })
     return { success: true }
   } catch (e) {
     return { success: false, error: e.message }
