@@ -284,7 +284,7 @@ export default function AccountsPage() {
                             }} className="flex-1 text-[10px] py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30">
                               🖥️ 投屏
                             </button>
-                            <button onClick={() => { window.open('/run-task?serial=' + dev.id + '&name=' + dev.name, '_blank') }}
+                            <button onClick={() => setRunScript({ deviceId: dev.id, deviceName: dev.name })}
                               className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">
                               ▶ 运行
                             </button>
@@ -305,6 +305,7 @@ export default function AccountsPage() {
             <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
               <h3 className="text-white font-bold mb-1">▶ 运行脚本</h3>
               <p className="text-xs text-gray-500 mb-4">{runScript.deviceName} · {runScript.deviceId}</p>
+              <PushedTasks deviceId={runScript.deviceId} />
               <select className="input-dark w-full text-sm mb-3" value={scriptAction} onChange={e => setScriptAction(e.target.value)}>
                 <option className="bg-gray-900">打开抖音</option>
                 <option className="bg-gray-900">打开快手</option>
@@ -464,4 +465,65 @@ export default function AccountsPage() {
 
 function Loading() {
   return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400" /></div>
+}
+
+// ── 推送任务列表（内嵌在运行弹窗中） ──
+function PushedTasks({ deviceId }: { deviceId: string }) {
+  const [tasks, setTasks] = useState<any[]>([])
+  const [execId, setExecId] = useState<number | null>(null)
+  const [logs, setLogs] = useState<Record<number, string[]>>({})
+
+  useEffect(() => {
+    fetch('/api/tasks/mine?serial=' + deviceId, { credentials: 'include' }).then(r => r.json()).then(d => {
+      setTasks(Array.isArray(d?.data) ? d.data.filter((t: any) => t.status === '待执行') : [])
+    }).catch(() => {})
+  }, [deviceId])
+
+  if (tasks.length === 0) return null
+
+  return (
+    <div className="mb-3 bg-emerald-500/5 rounded-xl p-3 border border-emerald-500/20">
+      <p className="text-[10px] text-emerald-400 font-bold mb-2">📋 推送任务 ({tasks.length})</p>
+      <div className="space-y-1.5">
+        {tasks.map(t => {
+          const executing = execId === t.id
+          return (
+            <div key={t.id} className="bg-white/5 rounded-lg p-2 border border-white/10">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] text-white truncate">{t.title || t.action}</p>
+                  <p className="text-[9px] text-gray-500">{t.platform} · {t.action}{t.hook ? ' · ' + t.hook : ''}</p>
+                </div>
+                <button onClick={async () => {
+                  setExecId(t.id)
+                  const api = (window as any).electronAPI
+                  const log = (m: string) => setLogs(p => ({ ...p, [t.id]: [...(p[t.id] || []), m] }))
+                  try {
+                    log('📲 打开应用...')
+                    await api.adbShell(deviceId, 'am start -n com.ss.android.ugc.aweme/.main.MainActivity')
+                    await new Promise(r => setTimeout(r, 3000))
+                    if (t.action === 'publish') log('📤 发布: ' + (t.title || ''))
+                    else if (t.action === 'like') { await new Promise(r => setTimeout(r, 5000)); await api.adbShell(deviceId, 'input tap 540 1400') }
+                    else if (t.action === 'follow') await api.adbShell(deviceId, 'input tap 900 200')
+                    log('✅ 完成')
+                    await fetch('/api/tasks/' + t.id + '/execute', { method: 'POST', credentials: 'include' })
+                    setTasks(p => p.filter(x => x.id !== t.id))
+                  } catch (e: any) { log('❌ ' + e.message) }
+                  setExecId(null)
+                }} disabled={executing}
+                  className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded hover:bg-emerald-500/30 disabled:opacity-50 shrink-0 ml-2">
+                  {executing ? '⏳' : '▶'}
+                </button>
+              </div>
+              {logs[t.id]?.length > 0 && (
+                <div className="text-[9px] text-gray-400 font-mono mt-1 space-y-0.5">
+                  {logs[t.id].map((l, i) => <p key={i}>{l}</p>)}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }

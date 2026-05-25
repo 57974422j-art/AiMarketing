@@ -4,12 +4,11 @@ import { useState, useEffect } from 'react'
 export default function RunTaskPage({ searchParams }: { searchParams: { serial?: string; name?: string } }) {
   const serial = searchParams.serial || ''
   const name = searchParams.name || serial
+  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron
 
   const [tasks, setTasks] = useState<any[]>([])
   const [execTaskId, setExecTaskId] = useState<number | null>(null)
   const [logs, setLogs] = useState<Record<number, string[]>>({})
-
-  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron
 
   useEffect(() => {
     if (!serial) return
@@ -23,6 +22,7 @@ export default function RunTaskPage({ searchParams }: { searchParams: { serial?:
   }
 
   const executeTask = async (task: any) => {
+    if (!isElectron) return
     setExecTaskId(task.id)
     const api = (window as any).electronAPI
     const log = (m: string) => addLog(task.id, m)
@@ -51,22 +51,16 @@ export default function RunTaskPage({ searchParams }: { searchParams: { serial?:
     setExecTaskId(null)
   }
 
-  const runQuick = async (cmd: string, label: string) => {
-    const api = (window as any).electronAPI
-    const r = await api.adbShell(serial, cmd)
-    setLogs(p => ({ ...p, [-1]: [...(p[-1] || []), '[' + new Date().toLocaleTimeString() + '] ' + label + ': ' + (r.success ? '✅' : '❌ ' + (r.error || ''))] }))
-  }
-
-  if (!isElectron) return <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center text-sm">请在 Electron 客户端中打开</div>
-
   return (
     <div className="min-h-screen bg-gray-950 p-4">
       <div className="max-w-lg mx-auto">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-white font-bold text-lg">📱 {name}</h1>
+            <a href="/accounts" className="text-[10px] text-gray-500 hover:text-white">&larr; 返回账号管理</a>
+            <h1 className="text-white font-bold text-lg mt-1">📱 {name}</h1>
             <p className="text-[10px] text-gray-500">{serial}</p>
           </div>
+          {!isElectron && <span className="text-[10px] text-yellow-400">浏览器模式</span>}
         </div>
 
         <div className="flex flex-wrap gap-1.5 mb-4">
@@ -75,7 +69,15 @@ export default function RunTaskPage({ searchParams }: { searchParams: { serial?:
             { label: '🏠 桌面', cmd: 'input keyevent 3' },
             { label: '⬆️ 上滑', cmd: 'input swipe 540 1500 540 500' },
           ].map(b => (
-            <button key={b.label} onClick={() => runQuick(b.cmd, b.label)} className="text-[10px] px-2.5 py-1.5 bg-white/5 text-gray-400 border border-white/10 rounded-lg hover:bg-white/10">{b.label}</button>
+            <button key={b.label} onClick={async () => {
+              if (!isElectron) return
+              const api = (window as any).electronAPI
+              const r = await api.adbShell(serial, b.cmd)
+              addLog(-1, b.label + ': ' + (r.success ? '✅' : '❌'))
+            }} disabled={!isElectron}
+              className="text-[10px] px-2.5 py-1.5 bg-white/5 text-gray-400 border border-white/10 rounded-lg hover:bg-white/10 disabled:opacity-30">
+              {b.label}
+            </button>
           ))}
         </div>
 
@@ -94,7 +96,7 @@ export default function RunTaskPage({ searchParams }: { searchParams: { serial?:
                     <p className="text-white text-xs font-medium">{t.title || t.action}</p>
                     <p className="text-[10px] text-gray-500">{t.platform} · {t.action}{t.hook ? ' · ' + t.hook : ''}</p>
                   </div>
-                  <button onClick={() => executeTask(t)} disabled={execTaskId === t.id}
+                  <button onClick={() => executeTask(t)} disabled={execTaskId === t.id || !isElectron}
                     className="text-[10px] px-2.5 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 disabled:opacity-50">
                     {execTaskId === t.id ? '⏳' : '▶ 执行'}
                   </button>
@@ -109,7 +111,6 @@ export default function RunTaskPage({ searchParams }: { searchParams: { serial?:
           </div>
         )}
 
-        {/* 日志汇总 */}
         {logs[-1] && logs[-1].length > 0 && (
           <div className="bg-black/30 rounded p-2 mt-4 text-[10px] text-gray-400 font-mono space-y-0.5 max-h-32 overflow-y-auto">
             {logs[-1].map((l, i) => <p key={i}>{l}</p>)}
