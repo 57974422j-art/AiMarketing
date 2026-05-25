@@ -529,7 +529,7 @@ const [sceneLib, setSceneLib] = useState<any[]>([])
                         const num = String(todayItems.length + 1).padStart(2, '0')
                         const title = dateStr + '-' + num
                         await fetch('/api/media-library', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ossUrl: videoUrl, title, prompt, category: 'AI生成', source: 'private' }) })
-                        setToast(`已保存到媒体库: ${title}`, 'success')
+                        setToast(`已保存到媒体库: ${title}`)
                       }} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 text-xs">
                         💾 保存到媒体库
                       </button>
