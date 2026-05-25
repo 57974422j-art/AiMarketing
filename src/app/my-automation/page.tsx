@@ -19,14 +19,11 @@ const ACTIONS = [
   { key: 'follow', label: '关注', icon: '➕', desc: '关注作者' },
   { key: 'share', label: '转发', icon: '🔄', desc: '分享视频' },
   { key: 'extract', label: '采集', icon: '📥', desc: '提取视频/评论' },
-  { key: 'publish', label: '发视频', icon: '📤', desc: '从媒体库选视频发布' },
+  { key: 'publish', label: '发视频', icon: '📤', desc: '推送到手机执行发布' },
 ]
 
-function VideoSelector({ deviceSerial }: { deviceSerial: string }) {
+function VideoSelector({ deviceSerial, selected, onSelect }: { deviceSerial: string; selected: any; onSelect: (v: any) => void }) {
   const [videos, setVideos] = useState<any[]>([])
-  const [selected, setSelected] = useState<any>(null)
-  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron
-
   useEffect(() => {
     fetch('/api/media-library?source=private', { credentials: 'include' }).then(r => r.json()).then(d => {
       setVideos(Array.isArray(d?.data) ? d.data : [])
@@ -37,14 +34,12 @@ function VideoSelector({ deviceSerial }: { deviceSerial: string }) {
     <div className="card-glass p-4 mb-4">
       <label className="text-xs text-gray-400 mb-2 block">选择视频</label>
       {videos.length === 0 ? (
-        <p className="text-xs text-gray-500 text-center py-3">媒体库暂无视频，先在 AI 文案生成视频后保存</p>
+        <p className="text-xs text-gray-500 text-center py-3">媒体库暂无视频，先在AI工具生成视频后保存</p>
       ) : (
         <div className="grid grid-cols-3 gap-2 mb-3">
           {videos.map((v: any) => (
-            <button key={v.id} onClick={() => setSelected(v)}
-              className={`p-2 rounded-xl border text-xs text-center transition ${
-                selected?.id === v.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
-              }`}>
+            <button key={v.id} onClick={() => onSelect(v)}
+              className={`p-2 rounded-xl border text-xs text-center transition ${selected?.id === v.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
               <p className="truncate">{v.title || '未命名'}</p>
               <p className="text-[10px] text-gray-600">{v.category}</p>
             </button>
@@ -58,15 +53,18 @@ function VideoSelector({ deviceSerial }: { deviceSerial: string }) {
 
 export default function MyAutomationPage() {
   const { user, loading: authLoading } = useAuth()
-  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron
 
   const [devices, setDevices] = useState<any[]>([])
   const [selectedDevice, setSelectedDevice] = useState('')
   const [platform, setPlatform] = useState('抖音')
   const [action, setAction] = useState('like')
   const [keywordsText, setKeywordsText] = useState('')
-  const [running, setRunning] = useState(false)
-  const [logs, setLogs] = useState<string[]>([])
+  const [pushing, setPushing] = useState(false)
+
+  // 发视频专用
+  const [publishTitle, setPublishTitle] = useState('')
+  const [publishHook, setPublishHook] = useState('')
+  const [selectedVideo, setSelectedVideo] = useState<any>(null)
 
   useEffect(() => {
     if (!user) return
@@ -78,66 +76,34 @@ export default function MyAutomationPage() {
     }).catch(() => {})
   }, [user])
 
-  const addLog = (msg: string) => setLogs(p => [...p, `[${new Date().toLocaleTimeString()}] ${msg}`])
+  const handlePush = async () => {
+    if (!selectedDevice) { showToast('请选择设备', 'error'); return }
+    if (action === 'publish' && !selectedVideo) { showToast('请选择视频', 'error'); return }
 
-  const runAction = async () => {
-    if (!selectedDevice) { showToast('请先绑定本地设备', 'error'); return }
-    setRunning(true); setLogs([])
-    const api = (window as any).electronAPI
-    const pkg: Record<string, string> = {
-      douyin: 'com.ss.android.ugc.aweme/.main.MainActivity',
-      kuaishou: 'com.smile.gifmaker/.MainActivity',
-      xiaohongshu: 'com.xingin.xhs/.activity.SplashActivity',
-      weibo: 'com.sina.weibo/.SplashActivity',
-      bilibili: 'tv.danmaku.bili/.MainActivityV2',
-    }
-
-    addLog(`🚀 ${platform} → ${ACTIONS.find(a => a.key === action)?.label}`)
-    addLog(`📱 ${selectedDevice}`)
-
+    setPushing(true)
     try {
-      const pkgName = pkg[PLATFORM_KEY[platform]]
-      if (pkgName) {
-        addLog(`📲 打开 ${platform}...`)
-        const r = await api.adbShell(selectedDevice, `am start -n ${pkgName}`)
-        addLog(r.success ? '✅ 打开成功' : '⚠️ ' + (r.error || ''))
-        await new Promise(r => setTimeout(r, 3000))
-      }
-
-      if (action === 'search' && keywordsText) {
-        for (const kw of keywordsText.split('\n').filter(Boolean)) {
-          addLog(`🔍 搜索: ${kw}`)
-          await api.adbShell(selectedDevice, 'input tap 500 100'); await new Promise(r => setTimeout(r, 1000))
-          await api.adbShell(selectedDevice, `input text "${kw.replace(/ /g, '%s')}"`); await new Promise(r => setTimeout(r, 1000))
-          await api.adbShell(selectedDevice, 'input keyevent 66'); await new Promise(r => setTimeout(r, 3000))
-          addLog('✅ 搜索完成')
-        }
-      } else if (action === 'like') {
-        addLog('❤️ 等待20秒...'); await new Promise(r => setTimeout(r, 20000))
-        await api.adbShell(selectedDevice, 'input tap 540 1400')
-        addLog('✅ 点赞完成')
-      } else if (action === 'comment') {
-        await api.adbShell(selectedDevice, 'input tap 540 1500'); addLog('✅ 已打开评论框')
-      } else if (action === 'follow') {
-        await api.adbShell(selectedDevice, 'input tap 900 200'); addLog('✅ 关注完成')
-      } else if (action === 'share') {
-        await api.adbShell(selectedDevice, 'input tap 500 1500'); await new Promise(r => setTimeout(r, 2000)); addLog('✅ 转发完成')
-      } else if (action === 'extract') {
-        const r = await api.adbShell(selectedDevice, 'uiautomator dump /sdcard/ui.xml && cat /sdcard/ui.xml')
-        addLog(r.success ? '✅ 采集完成' : '⚠️ ' + (r.error || ''))
-      } else if (action === 'publish') {
-        addLog('📤 视频推送到手机...')
-        // TODO: 选择视频后 adb push 并发布
-        addLog('📤 发视频功能开发中...')
-      }
-
-      await fetch('/api/my-automation/execute', {
+      const r = await fetch('/api/tasks/push', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform: PLATFORM_KEY[platform], action, keywords: keywordsText.split('\n').filter(Boolean), deviceSerial: selectedDevice }),
+        body: JSON.stringify({
+          deviceSerial: selectedDevice,
+          platform: PLATFORM_KEY[platform],
+          action,
+          videoUrl: selectedVideo?.ossUrl || '',
+          title: publishTitle,
+          hook: publishHook,
+        }),
       })
-      addLog('✅ 全部完成'); showToast('执行完成', 'success')
-    } catch (e: any) { addLog('❌ 异常: ' + e.message) }
-    setRunning(false)
+      const d = await r.json()
+      if (d.success) {
+        showToast('✅ 已推送到设备，去运行页面执行', 'success')
+        setPublishTitle(''); setPublishHook(''); setSelectedVideo(null)
+      } else {
+        showToast('推送失败: ' + (d.message || ''), 'error')
+      }
+    } catch (e: any) {
+      showToast('异常: ' + e.message, 'error')
+    }
+    setPushing(false)
   }
 
   if (authLoading) return <Loading />
@@ -147,8 +113,8 @@ export default function MyAutomationPage() {
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="mb-8">
           <p className="text-label mb-2">个人自动化 / MY AUTOMATION</p>
-          <h1 className="text-mono-lg text-white">本地设备自动化</h1>
-          <p className="text-gray-400 text-sm mt-1">连接本地手机，一键执行自动化操作</p>
+          <h1 className="text-mono-lg text-white">创建推送任务</h1>
+          <p className="text-gray-400 text-sm mt-1">配置任务后推送到本地设备，再到运行页面执行</p>
         </div>
 
         <div className="card-glass p-4 mb-4">
@@ -156,7 +122,7 @@ export default function MyAutomationPage() {
           {devices.length === 0 ? (
             <div className="text-center text-gray-500 text-xs py-4">
               <p>暂无已绑定的本地设备</p>
-              <p className="mt-1">请在 Electron 客户端中点击「登记设备」申请</p>
+              <p className="mt-1">请先登记并等待审核</p>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -203,23 +169,26 @@ export default function MyAutomationPage() {
           </div>
         )}
 
-        {action === 'publish' && <VideoSelector deviceSerial={selectedDevice} />}
+        {action === 'publish' && (
+          <>
+            <div className="card-glass p-4 mb-4">
+              <label className="text-xs text-gray-400 mb-2 block">视频标题 <span className="text-gray-600">（发布时的文案）</span></label>
+              <input className="input-dark w-full text-sm mb-3" placeholder="如：双十一必买清单！错过等一年！" value={publishTitle} onChange={e => setPublishTitle(e.target.value)} />
+              <label className="text-xs text-gray-400 mb-2 block">勾子 <span className="text-gray-600">（引导互动的结尾文案）</span></label>
+              <input className="input-dark w-full text-sm" placeholder="如：评论区告诉我你想看什么" value={publishHook} onChange={e => setPublishHook(e.target.value)} />
+            </div>
+            <VideoSelector deviceSerial={selectedDevice} selected={selectedVideo} onSelect={setSelectedVideo} />
+          </>
+        )}
 
-        <button onClick={runAction} disabled={running || devices.length === 0 || !isElectron}
+        <button onClick={handlePush} disabled={pushing || devices.length === 0}
           className="w-full py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 text-sm font-bold transition">
-          {!isElectron ? '⚠️ 请在 Electron 客户端中执行'
-            : running ? '⏳ 执行中...'
-            : `▶ 在 ${devices.find(d => d.serial === selectedDevice)?.name || '设备'} 上执行`}
+          {pushing ? '⏳ 推送中...' : `📤 推送到设备`}
         </button>
 
-        {logs.length > 0 && (
-          <div className="card-glass p-4 mt-4">
-            <label className="text-xs text-gray-400 mb-2 block">执行日志</label>
-            <div className="bg-black/30 rounded-lg p-3 max-h-48 overflow-y-auto text-[10px] text-gray-400 font-mono space-y-1">
-              {logs.map((l, i) => <p key={i}>{l}</p>)}
-            </div>
-          </div>
-        )}
+        <p className="text-[10px] text-gray-600 text-center mt-2">
+          推送后请到「账号管理」→ 本地设备 → 点「运行」执行
+        </p>
       </div>
     </div>
   )
