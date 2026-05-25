@@ -284,7 +284,10 @@ export default function AccountsPage() {
                             }} className="flex-1 text-[10px] py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30">
                               🖥️ 投屏
                             </button>
-                            <button onClick={() => setRunScript({ deviceId: dev.id, deviceName: dev.name })}
+                            <button onClick={() => {
+                              const w = window.open('/run-task?serial=' + dev.id + '&name=' + dev.name, '_blank')
+                              if (!w) window.location.href = '/run-task?serial=' + dev.id + '&name=' + dev.name
+                            }}
                               className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">
                               ▶ 运行
                             </button>
