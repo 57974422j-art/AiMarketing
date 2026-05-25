@@ -5,6 +5,7 @@ import { getAuthFromHeaders } from '@/lib/api-auth'
 const prisma = new PrismaClient()
 
 async function ensureTable() {
+  try { await prisma.$executeRawUnsafe('CREATE TABLE IF NOT EXISTS MediaAsset (id INTEGER PRIMARY KEY AUTOINCREMENT, ossUrl TEXT NOT NULL, title TEXT NOT NULL, type TEXT NOT NULL DEFAULT \'video\', prompt TEXT DEFAULT \'\', category TEXT DEFAULT \'\', source TEXT DEFAULT \'public\', ownerId INTEGER, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)') } catch {}
   const migrations = [
     `ALTER TABLE MediaAsset ADD COLUMN type TEXT NOT NULL DEFAULT 'video'`,
     `ALTER TABLE MediaAsset ADD COLUMN prompt TEXT DEFAULT ''`,
