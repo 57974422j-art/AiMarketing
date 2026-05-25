@@ -136,7 +136,7 @@ ipcMain.handle('adb:swipe', async (_event, { deviceId, x1, y1, x2, y2, duration 
 ipcMain.handle('adb:mirror', async (_event, { deviceId }) => {
   try {
     const scriptsDir = getScriptsDir()
-    const scrcpyPath = path.join(scriptsDir, 'scrcpy', 'scrcpy.exe')
+    const scrcpyPath = path.join(scriptsDir, 'scrcpy', 'scrcpy-noconsole.vbs')
     if (!fs.existsSync(scrcpyPath)) {
       return { success: false, error: '未找到 scrcpy，请先下载' }
     }
