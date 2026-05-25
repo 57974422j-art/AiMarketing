@@ -28,7 +28,7 @@ function VideoSelector({ deviceSerial }: { deviceSerial: string }) {
   const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron
 
   useEffect(() => {
-    fetch('/api/media-library?source=private&type=video', { credentials: 'include' }).then(r => r.json()).then(d => {
+    fetch('/api/media-library?source=private', { credentials: 'include' }).then(r => r.json()).then(d => {
       setVideos(Array.isArray(d?.data) ? d.data : [])
     }).catch(() => {})
   }, [])

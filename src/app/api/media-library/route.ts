@@ -15,7 +15,8 @@ async function ensureTable() {
 }
 
 function detectType(url: string): 'video' | 'image' {
-  const ext = url.split('?')[0].split('.').pop()?.toLowerCase() || ''
+  const clean = url.split('?')[0].split('#')[0]
+  const ext = clean.split('.').pop()?.toLowerCase() || ''
   return ['mp4', 'mov', 'avi', 'webm'].includes(ext) ? 'video' : 'image'
 }
 
