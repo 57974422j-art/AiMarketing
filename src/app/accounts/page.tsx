@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/app/providers'
 import { showToast } from '@/components/Toast'
+import PushedTasks from './PushedTasks'
 
 const PLATFORMS = [
   { key: 'douyin',    label: '抖音',       icon: '🎵', color: 'from-pink-500/10 to-purple-500/10', border: 'border-pink-500/30', hover: 'hover:bg-pink-500/10' },
