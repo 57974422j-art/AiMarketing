@@ -64,7 +64,7 @@ export default function AiToolsPage() {
             内容创作
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {cards.filter(c => ['AI 文案', 'AI 生图', 'AI 智能体'].includes(c.title)).map(card => (
+            {cards.filter(c => ['AI 文案', 'AI 生图', 'AI 智能体', '自动化脚本', '本地自动化'].includes(c.title)).map(card => (
               <Link key={card.href} href={card.href} className="card-bento group cursor-pointer block">
                 <div className="text-3xl mb-3">{card.icon}</div>
                 <h3 className="text-white font-bold mb-1 group-hover:text-emerald-400 transition-colors">{card.title}</h3>
