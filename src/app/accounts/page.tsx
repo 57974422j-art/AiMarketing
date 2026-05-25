@@ -284,10 +284,7 @@ export default function AccountsPage() {
                             }} className="flex-1 text-[10px] py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30">
                               🖥️ 投屏
                             </button>
-                            <button onClick={() => {
-                              const w = window.open('/run-task?serial=' + dev.id + '&name=' + dev.name, '_blank')
-                              if (!w) window.location.href = '/run-task?serial=' + dev.id + '&name=' + dev.name
-                            }}
+                            <button onClick={() => { window.open('/run-task?serial=' + dev.id + '&name=' + dev.name, '_blank') }}
                               className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">
                               ▶ 运行
                             </button>
@@ -302,8 +299,11 @@ export default function AccountsPage() {
           </div>
         )}
 
-        {/* ── 运行推送任务弹窗 ── */}
-        {runScript && <RunDialog runScript={runScript} setRunScript={setRunScript} />}
+        {/* ── 运行脚本弹窗 ── */}
+        {runScript && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setRunScript(null)}>
+            <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+              <h3 className="text-white font-bold mb-1">▶ 运行脚本</h3>
               <p className="text-xs text-gray-500 mb-4">{runScript.deviceName} · {runScript.deviceId}</p>
               <select className="input-dark w-full text-sm mb-3" value={scriptAction} onChange={e => setScriptAction(e.target.value)}>
                 <option className="bg-gray-900">打开抖音</option>
@@ -464,128 +464,4 @@ export default function AccountsPage() {
 
 function Loading() {
   return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400" /></div>
-}
-
-// ── 运行推送任务弹窗 ──
-function RunDialog({ runScript, setRunScript }: { runScript: { deviceId: string; deviceName: string }; setRunScript: (v: any) => void }) {
-  const [tasks, setTasks] = useState<any[]>([])
-  const [execTaskId, setExecTaskId] = useState<number | null>(null)
-  const [logs, setLogs] = useState<string[]>([])
-  const [showQuick, setShowQuick] = useState(false)
-
-  useEffect(() => {
-    fetch('/api/tasks/mine?serial=' + runScript.deviceId, { credentials: 'include' }).then(r => r.json()).then(d => {
-      setTasks(Array.isArray(d?.data) ? d.data.filter((t: any) => t.status === '待执行') : [])
-    }).catch(() => {})
-  }, [runScript.deviceId])
-
-  const executeTask = async (task: any) => {
-    setExecTaskId(task.id); setLogs([])
-    const api = (window as any).electronAPI
-    const log = (m: string) => setLogs(p => [...p, '[' + new Date().toLocaleTimeString() + '] ' + m])
-    try {
-      const pkg: Record<string, string> = { douyin: 'com.ss.android.ugc.aweme/.main.MainActivity', kuaishou: 'com.smile.gifmaker/.MainActivity', xiaohongshu: 'com.xingin.xhs/.activity.SplashActivity' }
-      log('🚀 ' + task.action + ' on ' + task.platform)
-      log('📲 打开 ' + (task.platform) + '...')
-      const r = await api.adbShell(runScript.deviceId, 'am start -n ' + (pkg[task.platform] || pkg.douyin))
-      log(r.success ? '✅ 打开成功' : '⚠️ ' + (r.error || ''))
-      await new Promise(r => setTimeout(r, 3000))
-      if (task.action === 'publish') {
-        log('📤 发布: ' + (task.title || ''))
-        log('📤 勾子: ' + (task.hook || ''))
-        await new Promise(r => setTimeout(r, 5000))
-        log('✅ 发布完成')
-      } else if (task.action === 'like') {
-        await new Promise(r => setTimeout(r, 5000))
-        await api.adbShell(runScript.deviceId, 'input tap 540 1400')
-      } else if (task.action === 'follow') {
-        await api.adbShell(runScript.deviceId, 'input tap 900 200')
-      }
-      log('✅ 完成')
-      await fetch('/api/tasks/' + task.id + '/execute', { method: 'POST', credentials: 'include' })
-      setTasks(p => p.filter(x => x.id !== task.id))
-    } catch (e: any) { log('❌ ' + e.message) }
-    setExecTaskId(null)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setRunScript(null)}>
-      <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-white font-bold mb-1">▶ 执行任务</h3>
-            <p className="text-xs text-gray-500">{runScript.deviceName} · {runScript.deviceId}</p>
-          </div>
-          <button onClick={() => setRunScript(null)} className="text-gray-500 hover:text-white text-xl">&times;</button>
-        </div>
-        <div className="flex gap-2 mb-3">
-          <button onClick={() => setShowQuick(false)}
-            className={'text-[10px] px-3 py-1.5 rounded-lg border ' + (!showQuick ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10')}>
-            📋 推送任务 ({tasks.length})
-          </button>
-          <button onClick={() => setShowQuick(true)}
-            className={'text-[10px] px-3 py-1.5 rounded-lg border ' + (showQuick ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10')}>
-            ⚡ 快速命令
-          </button>
-        </div>
-        {showQuick ? <QuickCommands deviceId={runScript.deviceId} /> : (
-          tasks.length === 0 ? (
-            <div className="text-center text-gray-500 text-xs py-6">
-              <p>暂无待执行的推送任务</p>
-              <p className="mt-1">请先在「本地自动化」创建并推送</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {tasks.map((t: any) => (
-                <div key={t.id} className="bg-white/5 rounded-xl p-3 border border-white/10">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-white text-xs font-medium">{t.title || t.action}</p>
-                      <p className="text-[10px] text-gray-500">{t.platform} · {t.action}{t.hook ? ' · ' + t.hook : ''}</p>
-                    </div>
-                    <button onClick={() => executeTask(t)} disabled={execTaskId === t.id}
-                      className="text-[10px] px-2.5 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 disabled:opacity-50">
-                      {execTaskId === t.id ? '⏳' : '▶ 执行'}
-                    </button>
-                  </div>
-                  {logs.length > 0 && execTaskId === t.id && (
-                    <div className="bg-black/30 rounded p-2 mt-2 text-[10px] text-gray-400 font-mono space-y-0.5 max-h-24 overflow-y-auto">
-                      {logs.map((l, i) => <p key={i}>{l}</p>)}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )
-        )}
-      </div>
-    </div>
-  )
-}
-
-function QuickCommands({ deviceId }: { deviceId: string }) {
-  const [running, setRunning] = useState(false)
-  const [log, setLog] = useState('')
-  const api = (window as any).electronAPI
-  const run = async (cmd: string) => {
-    setRunning(true); setLog('执行: ' + cmd)
-    const r = await api.adbShell(deviceId, cmd)
-    setLog(r.success ? '✅ 成功' : '❌ ' + (r.error || ''))
-    setRunning(false)
-  }
-  return (
-    <div className="space-y-2">
-      {[
-        { label: '📲 打开抖音', cmd: 'am start -n com.ss.android.ugc.aweme/.main.MainActivity' },
-        { label: '🏠 返回桌面', cmd: 'input keyevent 3' },
-        { label: '⬆️ 上滑', cmd: 'input swipe 540 1500 540 500' },
-      ].map(b => (
-        <button key={b.label} onClick={() => run(b.cmd)} disabled={running}
-          className="w-full text-left text-xs px-3 py-2 bg-white/5 text-gray-400 border border-white/10 rounded-lg hover:bg-white/10 disabled:opacity-50">
-          {b.label}
-        </button>
-      ))}
-      {log && <p className="text-[10px] text-gray-500 mt-1">{log}</p>}
-    </div>
-  )
 }
