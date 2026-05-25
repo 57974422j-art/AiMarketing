@@ -7,7 +7,8 @@ const API_WHITELIST = [
   '/api/auth/login',
   '/api/auth/register',
   '/api/devices/heartbeat',
-  '/api/migrate-template-urls'
+  '/api/migrate-template-urls',
+  '/api/tasks/mine'
 ]
 
 function base64UrlDecode(str: string): string {
