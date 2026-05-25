@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 
+export const dynamic = 'force-dynamic'
+
 const prisma = new PrismaClient()
 
 export async function GET(request: NextRequest) {
@@ -16,7 +18,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: rows || [] })
   } catch (e: any) {
-    console.error('tasks/mine error:', e.message)
+    console.error('tasks/mine error:', e)
     return NextResponse.json({ success: false, error: e.message })
   } finally { await prisma.$disconnect() }
 }
