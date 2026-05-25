@@ -23,6 +23,7 @@ const cards = [
   { icon: '📡', title: '仪表盘', desc: '数据统计 / 粉丝增长 / 互动分析', href: '/dashboard', color: 'from-teal-500/20' },
   { icon: '🔑', title: '账号管理', desc: '多平台账号绑定 / 状态管理', href: '/accounts', color: 'from-violet-500/20' },
   { icon: '🤖', title: '自动化脚本', desc: '脚本模板 / 任务编排 / 一键执行', href: '/admin/automation-templates', color: 'from-emerald-500/20' },
+  { icon: '📱', title: '本地自动化', desc: '本地设备一键执行 / 点赞评论搜索', href: '/my-automation', color: 'from-cyan-500/20' },
 ]
 
 export default function AiToolsPage() {
