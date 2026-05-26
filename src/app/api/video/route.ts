@@ -54,13 +54,13 @@ function buildFFmpegCommand(...args: string[]): string {
   
   if (process.platform === 'win32' && isFullPath) {
     // Windows + 完整路径：需要引号
-    return `"${ffmpegPath}" ${args.join(' ')}`;
+    return `"${ffmpegPath}" -y ${args.join(' ')}`;
   } else if (process.platform === 'win32') {
     // Windows + 命令名（ffmpeg）：直接用，不加引号
-    return `ffmpeg ${args.join(' ')}`;
+    return `ffmpeg -y ${args.join(' ')}`;
   } else {
     // macOS/Linux: 需要引号
-    return `"${ffmpegPath}" ${args.join(' ')}`;
+    return `"${ffmpegPath}" -y ${args.join(' ')}`;
   }
 }
 
