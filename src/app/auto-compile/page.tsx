@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { showToast } from '@/components/Toast'
 
 export default function AutoCompilePage() {
@@ -7,10 +7,21 @@ export default function AutoCompilePage() {
   const [text, setText] = useState('')
   const [images, setImages] = useState<File[]>([])
   const [voice, setVoice] = useState('zh_female_vv_uranus_bigtts')
-  const [bgm, setBgm] = useState<File | null>(null)
+  const [ratio, setRatio] = useState('16:9')
+  const [resolution, setResolution] = useState('1080p')
+  const [subtitleSize, setSubtitleSize] = useState(36)
+  const [bgm, setBgm] = useState<{name:string;url:string;custom?:boolean} | null>(null)
+  const [bgmFile, setBgmFile] = useState<File | null>(null)
+  const [musicList, setMusicList] = useState<Array<{name:string;url:string;duration:string;mood:string}>>([])
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [videoUrl, setVideoUrl] = useState('')
+
+  useEffect(() => {
+    fetch('/api/music-library').then(r=>r.json()).then(d => {
+      if (d.success) setMusicList(d.data)
+    }).catch(() => {})
+  }, [])
 
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<Record<number, Array<{url:string;thumb:string;title:string}>>>({})
@@ -54,7 +65,9 @@ export default function AutoCompilePage() {
       setProgress(20)
       const fd = new FormData()
       fd.append('text', text); fd.append('voice', voice)
-      if (bgm) fd.append('bgm', bgm)
+      fd.append('ratio', ratio); fd.append('resolution', resolution); fd.append('subtitleSize', String(subtitleSize))
+      if (bgmFile) fd.append('bgm', bgmFile)
+      else if (bgm?.url) fd.append('bgmUrl', bgm.url)
       if (mode === 'free') images.forEach(img => fd.append('media', img))
       else fd.append('imageUrls', JSON.stringify(Object.values(selectedImages).map(v => v.url)))
 
@@ -104,6 +117,13 @@ export default function AutoCompilePage() {
               </select>
             </div>
 
+            {/* 输出设置 */}
+            <div className="card-glass p-4 grid grid-cols-3 gap-3">
+              <div><label className="text-[10px] text-gray-400 mb-1 block">画面比例</label><select className="input-dark w-full text-xs" value={ratio} onChange={e=>setRatio(e.target.value)}><option value="16:9">横屏 16:9</option><option value="9:16">竖屏 9:16</option><option value="1:1">方形 1:1</option><option value="4:3">4:3</option></select></div>
+              <div><label className="text-[10px] text-gray-400 mb-1 block">分辨率</label><select className="input-dark w-full text-xs" value={resolution} onChange={e=>setResolution(e.target.value)}><option value="1080p">1080p</option><option value="720p">720p</option></select></div>
+              <div><label className="text-[10px] text-gray-400 mb-1 block">字幕大小</label><select className="input-dark w-full text-xs" value={subtitleSize} onChange={e=>setSubtitleSize(Number(e.target.value))}><option value={28}>小</option><option value={36}>中</option><option value={44}>大</option></select></div>
+            </div>
+
             {mode === 'free' && (
               <div className="card-glass p-4">
                 <label className="text-xs text-gray-400 mb-2 block">素材</label>
@@ -137,10 +157,26 @@ export default function AutoCompilePage() {
             )}
 
             <div className="card-glass p-4">
-              <label className="text-xs text-gray-400 mb-2 block">背景音乐（可选）</label>
-              <input ref={bgmRef} type="file" accept="audio/*" className="hidden" onChange={e=>setBgm(e.target.files?.[0]||null)} />
-              <button onClick={()=>bgmRef.current?.click()} className="w-full py-2 border border-dashed border-white/20 text-gray-400 rounded-xl hover:border-emerald-500/50 text-xs transition">{bgm?'🎵 '+bgm.name:'+ BGM'}</button>
-              {bgm && <button onClick={()=>setBgm(null)} className="text-[10px] text-red-400 mt-1">移除</button>}
+              <label className="text-xs text-gray-400 mb-2 block">背景音乐</label>
+              <select className="input-dark w-full text-sm mb-2" value={bgm?.url||''} onChange={e => {
+                if (!e.target.value) { setBgm(null); setBgmFile(null); return }
+                const found = musicList.find(m => m.url === e.target.value)
+                if (found) setBgm({name: found.name, url: found.url})
+              }}>
+                <option value="">无背景音乐</option>
+                {musicList.map((m,i) => <option key={i} value={m.url}>🎵 {m.name} ({m.duration})</option>)}
+              </select>
+              <div className="flex items-center gap-2">
+                <input ref={bgmRef} type="file" accept="audio/*" className="hidden" onChange={e => {
+                  const f = e.target.files?.[0]
+                  if (f) { setBgmFile(f); setBgm({name: f.name, url: '', custom: true}) }
+                }} />
+                <button onClick={() => bgmRef.current?.click()} className="text-[10px] text-gray-400 hover:text-white transition px-2 py-1 border border-white/10 rounded">
+                  📁 自定义上传
+                </button>
+                {bgm?.custom && <span className="text-[10px] text-emerald-400">{bgm.name}</span>}
+                {bgm && <button onClick={() => { setBgm(null); setBgmFile(null) }} className="text-[10px] text-red-400 ml-auto">移除</button>}
+              </div>
             </div>
 
             <button onClick={handleSubmit} disabled={processing}
