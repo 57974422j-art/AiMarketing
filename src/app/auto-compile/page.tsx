@@ -74,11 +74,25 @@ export default function AutoCompilePage() {
       if (mode === 'free') images.forEach(img => fd.append('media', img))
       else fd.append('imageUrls', JSON.stringify(Object.values(selectedImages).map(v => v.url)))
 
-      setProgress(40)
+      // 提交任务 - 立即返回 taskId
       const r = await fetch('/api/video/auto-compile', { method: 'POST', body: fd })
       const d = await r.json()
-      if (d.success) { setVideoUrl(d.data.videoUrl); setProgress(100); showToast('✅ 成功', 'success') }
-      else showToast('失败: ' + (d.error || d.message || ''), 'error')
+      if (!d.success) { showToast('失败: ' + (d.error || d.message || ''), 'error'); setProcessing(false); return }
+
+      const taskId = d.data.taskId
+      setProgress(30)
+
+      // 轮询任务进度（不阻塞服务器）
+      while (true) {
+        await new Promise(r => setTimeout(r, 1500))
+        const q = await fetch('/api/video/auto-compile?taskId=' + taskId)
+        const qd = await q.json()
+        if (!qd.success) break
+        const t = qd.data
+        setProgress(t.progress || 30)
+        if (t.status === 'completed') { setVideoUrl(t.videoUrl); setProgress(100); showToast('✅ 成功', 'success'); break }
+        if (t.status === 'failed') { showToast('失败: ' + (t.error || '合成失败'), 'error'); break }
+      }
     } catch (e: any) { showToast('异常: ' + e.message, 'error') }
     setProcessing(false)
   }
