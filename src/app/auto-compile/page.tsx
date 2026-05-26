@@ -9,6 +9,7 @@ export default function AutoCompilePage() {
   const [voice, setVoice] = useState('zh_female_vv_uranus_bigtts')
   const [ratio, setRatio] = useState('16:9')
   const [resolution, setResolution] = useState('1080p')
+  const [duration, setDuration] = useState(30)
   const [subtitleSize, setSubtitleSize] = useState(36)
   const [bgm, setBgm] = useState<{name:string;url:string;custom?:boolean} | null>(null)
   const [bgmFile, setBgmFile] = useState<File | null>(null)
@@ -68,6 +69,7 @@ export default function AutoCompilePage() {
       setProgress(20)
       const fd = new FormData()
       fd.append('text', text); fd.append('voice', voice)
+      fd.append('duration', String(duration))
       fd.append('ratio', ratio); fd.append('resolution', resolution); fd.append('subtitleSize', String(subtitleSize))
       if (bgmFile) fd.append('bgm', bgmFile)
       else if (bgm?.url) fd.append('bgmUrl', bgm.url)
@@ -145,7 +147,7 @@ export default function AutoCompilePage() {
             <div className="card-glass p-4 grid grid-cols-3 gap-3">
               <div><label className="text-[10px] text-gray-400 mb-1 block">画面比例</label><select className="input-dark w-full text-xs" value={ratio} onChange={e=>setRatio(e.target.value)}><option value="16:9">横屏 16:9</option><option value="9:16">竖屏 9:16</option><option value="1:1">方形 1:1</option><option value="4:3">4:3</option></select></div>
               <div><label className="text-[10px] text-gray-400 mb-1 block">分辨率</label><select className="input-dark w-full text-xs" value={resolution} onChange={e=>setResolution(e.target.value)}><option value="1080p">1080p</option><option value="720p">720p</option></select></div>
-              <div><label className="text-[10px] text-gray-400 mb-1 block">字幕大小</label><select className="input-dark w-full text-xs" value={subtitleSize} onChange={e=>setSubtitleSize(Number(e.target.value))}><option value={28}>小</option><option value={36}>中</option><option value={44}>大</option></select></div>
+              <div><label className="text-[10px] text-gray-400 mb-1 block">字幕大小</label></div><div><label className="text-[10px] text-gray-400 mb-1 block">视频时长</label><select className="input-dark w-full text-xs" value={duration} onChange={e=>setDuration(Number(e.target.value))}><option value={15}>15秒</option><option value={30}>30秒</option><option value={45}>45秒</option><option value={60}>60秒</option></select><select className="input-dark w-full text-xs" value={subtitleSize} onChange={e=>setSubtitleSize(Number(e.target.value))}><option value={28}>小</option><option value={36}>中</option><option value={44}>大</option></select></div>
             </div>
 
             {mode === 'free' && (
