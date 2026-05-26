@@ -84,7 +84,6 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
 
     // ---- Subtitles ----
     const ln = text.split('\n').filter(Boolean)
-    const perLineTime = totalDur / Math.max(ln.length, 1)
     const ft = (t: number) => { const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = Math.floor(t % 60), ms = Math.floor((t % 1) * 1000); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}` }
         const sp = path.join(wd, 's.srt')
     const wrapMax: Record<string, number> = { '16:9': 22, '9:16': 6, '1:1': 12, '4:3': 18 }
