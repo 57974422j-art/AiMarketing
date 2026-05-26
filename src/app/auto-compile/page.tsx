@@ -10,6 +10,7 @@ export default function AutoCompilePage() {
   const [ratio, setRatio] = useState('16:9')
   const [resolution, setResolution] = useState('1080p')
   const [duration, setDuration] = useState(30)
+  const [duration, setDuration] = useState(30)
   const [subtitleSize, setSubtitleSize] = useState(36)
   const [bgm, setBgm] = useState<{name:string;url:string;custom?:boolean} | null>(null)
   const [bgmFile, setBgmFile] = useState<File | null>(null)
@@ -70,6 +71,7 @@ export default function AutoCompilePage() {
       const fd = new FormData()
       fd.append('text', text); fd.append('voice', voice)
       fd.append('duration', String(duration))
+      fd.append('duration', String(duration))
       fd.append('ratio', ratio); fd.append('resolution', resolution); fd.append('subtitleSize', String(subtitleSize))
       if (bgmFile) fd.append('bgm', bgmFile)
       else if (bgm?.url) fd.append('bgmUrl', bgm.url)
@@ -99,7 +101,31 @@ export default function AutoCompilePage() {
     setProcessing(false)
   }
 
-<button onClick={()=>{  if(!genIndustry)return;fetch('/api/generate-script',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({industry:d,style:''})}).then(r=>r.json()).then(r=>{if(r.success)setText(r.data.script);else showToast(r.error||'生成失败','error')})}} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">
+
+  return (
+    <div className="min-h-screen bg-gray-950 p-4">
+      <div className="max-w-5xl mx-auto">
+        <div className="mb-6">
+          <p className="text-label mb-2">AI 工具 / AUTO COMPILE</p>
+          <h1 className="text-mono-lg text-white">一键成片</h1>
+          <p className="text-gray-400 text-sm mt-1">输入文案，自动合成配音字幕视频</p>
+        </div>
+
+        <div className="flex gap-2 mb-4">
+          <button onClick={() => setMode('free')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='free'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>
+            🆓 免费模式
+          </button>
+          <button onClick={() => setMode('smart')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='smart'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>
+            🤖 智能模式
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="space-y-4">
+            <div className="card-glass p-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-gray-400">文案</label>
+                <button onClick={()=>{const d=genIndustry;if(!genIndustry)return;fetch('/api/generate-script',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({industry:d,style:''})}).then(r=>r.json()).then(r=>{if(r.success)setText(r.data.script);else showToast(r.error||'生成失败','error')})}} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">
                   ✨ AI 生成
                 </button>
               </div>
@@ -121,10 +147,6 @@ export default function AutoCompilePage() {
             {/* 输出设置 */}
             <div className="card-glass p-4 grid grid-cols-2 gap-2">
               <div><label className="text-[10px] text-gray-400 mb-1 block">画面比例</label><select className="input-dark w-full text-xs" value={ratio} onChange={e=>setRatio(e.target.value)}><option value="16:9">横屏 16:9</option><option value="9:16">竖屏 9:16</option><option value="1:1">方形 1:1</option><option value="4:3">4:3</option></select></div>
-              <div><label className="text-[10px] text-gray-400 mb-1 block">分辨率</label><select className="input-dark w-full text-xs" value={resolution} onChange={e=>setResolution(e.target.value)}><option value="1080p">1080p</option><option value="720p">720p</option></select></div>
-              <div><label className="text-[10px] text-gray-400 mb-1 block">字幕大小</label><select className="input-dark w-full text-xs" value={subtitleSize} onChange={e=>setSubtitleSize(Number(e.target.value))}><option value={28}>小</option><option value={36}>中</option><option value={44}>大</option></select></div>
-              <div><label className="text-[10px] text-gray-400 mb-1 block">视频时长</label><select className="input-dark w-full text-xs" value={duration} onChange={e=>setDuration(Number(e.target.value))}><option value={15}>15秒</option><option value={30}>30秒</option><option value={45}>45秒</option><option value={60}>60秒</option></select></div>
-            </div>
               <div><label className="text-[10px] text-gray-400 mb-1 block">分辨率</label><select className="input-dark w-full text-xs" value={resolution} onChange={e=>setResolution(e.target.value)}><option value="1080p">1080p</option><option value="720p">720p</option></select></div>
               <div><label className="text-[10px] text-gray-400 mb-1 block">字幕大小</label></div><div><label className="text-[10px] text-gray-400 mb-1 block">视频时长</label><select className="input-dark w-full text-xs" value={duration} onChange={e=>setDuration(Number(e.target.value))}><option value={15}>15秒</option><option value={30}>30秒</option><option value={45}>45秒</option><option value={60}>60秒</option></select><select className="input-dark w-full text-xs" value={subtitleSize} onChange={e=>setSubtitleSize(Number(e.target.value))}><option value={28}>小</option><option value={36}>中</option><option value={44}>大</option></select></div>
             </div>
