@@ -80,6 +80,8 @@ export default function AutoCompilePage() {
     setProcessing(false)
   }
 
+  const Sel = ({children,...p}:any)=><select {...p} className="input-dark w-full text-sm text-gray-200 bg-gray-800">{children}</select>
+
   return (
     <div className="min-h-screen bg-gray-950 p-4">
       <div className="max-w-5xl mx-auto">
@@ -158,7 +160,7 @@ export default function AutoCompilePage() {
 
             <div className="card-glass p-4">
               <label className="text-xs text-gray-400 mb-2 block">背景音乐</label>
-              <select className="input-dark w-full text-sm mb-2" value={bgm?.url||''} onChange={e => {
+              <select className="input-dark w-full text-sm mb-2 text-gray-200 bg-gray-800" value={bgm?.url||''} onChange={e => {
                 if (!e.target.value) { setBgm(null); setBgmFile(null); return }
                 const found = musicList.find(m => m.url === e.target.value)
                 if (found) setBgm({name: found.name, url: found.url})
