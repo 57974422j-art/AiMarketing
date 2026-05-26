@@ -1,5 +1,6 @@
 'use client';
-import { useState } , showToast from 'react';
+import { useState } } from 'react';
+import { showToast } from '@/components/Toast'
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useLocale } from '@/i18n/context';

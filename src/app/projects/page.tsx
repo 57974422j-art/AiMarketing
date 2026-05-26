@@ -1,5 +1,6 @@
 'use client';
-import { useState, useEffect } , showToast from 'react';
+import { useState, useEffect } } from 'react';
+import { showToast } from '@/components/Toast'
 import Link from 'next/link';
 import { useAuth } from '@/app/providers';
 import { useLocale } from '@/i18n/context';

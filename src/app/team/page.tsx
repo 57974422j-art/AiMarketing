@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } , showToast from 'react'
+import { useState, useEffect } } from 'react'
 
 interface TeamMember {
   id: number
@@ -18,7 +18,8 @@ interface Team {
   id: number
   name: string
   ownerId: number
-  owner: { id: number; username: string; name: string | null }
+  owner: { id: number;
+import { showToast } from '@/components/Toast' username: string; name: string | null }
   members: TeamMember[]
 }
 
