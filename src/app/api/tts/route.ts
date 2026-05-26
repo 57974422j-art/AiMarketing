@@ -31,9 +31,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, audioUrl: publicUrl })
     }
 
-    // edge-tts with stdin to avoid shell escaping issues
-    const safeText = text.replace(/"/g, '').replace(/`/g, '').replace(/\$/g, '').replace(/\\/g, '')
-    execSync(`echo "${safeText}" | edge-tts --voice "${voiceName}" --rate=0% --volume=+50% --write-media "${outputPath}"`, { timeout: 30000, shell: '/bin/bash' })
+    // Write text to temp file, pass to edge-tts via stdin redirect
+    const textFile = outputPath + '.txt'
+    fs.writeFileSync(textFile, text, 'utf-8')
+    execSync(`edge-tts --voice "${voiceName}" --text "$(cat ${textFile})" --write-media "${outputPath}"`, { timeout: 30000 })
+    fs.unlinkSync(textFile)
 
     if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 1000) {
       return NextResponse.json({ success: false, message: 'TTS失败' }, { status: 500 })
