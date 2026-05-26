@@ -181,26 +181,15 @@ export default function AutoCompilePage() {
             )}
 
             <div className="card-glass p-4">
-              <label className="text-xs text-gray-400 mb-2 block">背景音乐</label>
-              <select className="input-dark w-full text-sm mb-2 text-gray-200 bg-gray-800" value={bgm?.url||''} onChange={e => {
-                if (!e.target.value) { setBgm(null); setBgmFile(null); return }
-                const found = musicList.find(m => m.url === e.target.value)
-                if (found) setBgm({name: found.name, url: found.url})
-              }}>
-                <option value="">无背景音乐</option>
-                {musicList.map((m,i) => <option key={i} value={m.url}>🎵 {m.name} ({m.duration})</option>)}
-              </select>
-              <div className="flex items-center gap-2">
-                <input ref={bgmRef} type="file" accept="audio/*" className="hidden" onChange={e => {
-                  const f = e.target.files?.[0]
-                  if (f) { setBgmFile(f); setBgm({name: f.name, url: '', custom: true}) }
-                }} />
-                <button onClick={() => bgmRef.current?.click()} className="text-[10px] text-gray-400 hover:text-white transition px-2 py-1 border border-white/10 rounded">
-                  📁 自定义上传
-                </button>
-                {bgm?.custom && <span className="text-[10px] text-emerald-400">{bgm.name}</span>}
-                {bgm && <button onClick={() => { setBgm(null); setBgmFile(null) }} className="text-[10px] text-red-400 ml-auto">移除</button>}
-              </div>
+              <label className="text-xs text-gray-400 mb-2 block">背景音乐（可选，未上传则无BGM）</label>
+              <input ref={bgmRef} type="file" accept="audio/*" className="hidden" onChange={e => {
+                const f = e.target.files?.[0]
+                if (f) { setBgmFile(f); setBgm({name: f.name, url: '', custom: true}) }
+              }} />
+              <button onClick={() => bgmRef.current?.click()} className="w-full py-2 border border-dashed border-white/20 text-gray-400 rounded-xl hover:border-emerald-500/50 hover:text-emerald-400 text-xs transition">
+                {bgm?.custom ? '🎵 ' + bgm.name : '+ 上传背景音乐'}
+              </button>
+              {bgm && <button onClick={() => { setBgm(null); setBgmFile(null) }} className="text-[10px] text-red-400 mt-1">移除</button>}
             </div>
 
             <button onClick={handleSubmit} disabled={processing}
