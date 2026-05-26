@@ -99,7 +99,7 @@ export default function AutoCompilePage() {
     setProcessing(false)
   }
 
-  const Sel = ({children,...p}:any)=><select {...p} className="input-dark w-full text-sm text-gray-200 bg-gray-800">{children}</select>
+  const Sel = ({children,...p}:any)=> (<select {...p} className="input-dark w-full text-sm text-gray-200 bg-gray-800">{children}</select>)
 
   return (
     <div className="min-h-screen bg-gray-950 p-4">
