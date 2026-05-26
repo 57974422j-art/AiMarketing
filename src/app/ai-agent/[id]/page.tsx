@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { showToast } from '@/components/Toast'
 import Link from 'next/link';
 
