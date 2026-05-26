@@ -86,18 +86,31 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
     const ln = text.split('\n').filter(Boolean)
     const perLineTime = totalDur / Math.max(ln.length, 1)
     const ft = (t: number) => { const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = Math.floor(t % 60), ms = Math.floor((t % 1) * 1000); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}` }
-    const sp = path.join(wd, 's.srt')
+        const sp = path.join(wd, 's.srt')
     const wrapMax: Record<string, number> = { '16:9': 22, '9:16': 6, '1:1': 12, '4:3': 18 }
     const maxW = wrapMax[ratio] || 16
-    function wrap(l: string): string {
-      if (l.length <= maxW) return l
+    function splitLine(l: string): string[] {
+      if (l.length <= maxW) return [l]
       const r: string[] = []; let cur = ''
-      for (const ch of l) { if (cur.length >= maxW) { r.push(cur); cur = ch } else cur += ch }
+      for (const ch of l) {
+        if (cur.length >= maxW) { r.push(cur); cur = ch } else cur += ch
+      }
       if (cur) r.push(cur)
-      return r.join('\\N')
+      return r
     }
-    fs.writeFileSync(sp, ln.map((l, i) => { const st = i * perLineTime, et = Math.min((i + 1) * perLineTime, totalDur); return `${i + 1}\n${ft(st)} --> ${ft(et)}\n${wrap(l)}\n\n` }).join(''))
-    task.progress = 30
+    const perLineTime = totalDur / Math.max(ln.length, 1)
+    let srtLines: string[] = [], entryIdx = 1
+    for (let i = 0; i < ln.length; i++) {
+      const chunks = splitLine(ln[i])
+      const chunkTime = perLineTime / chunks.length
+      for (let j = 0; j < chunks.length; j++) {
+        const st = i * perLineTime + j * chunkTime
+        const et = Math.min(st + chunkTime, totalDur)
+        srtLines.push(entryIdx + '\n' + ft(st) + ' --> ' + ft(et) + '\n' + chunks[j] + '\n')
+        entryIdx++
+      }
+    }
+    fs.writeFileSync(sp, srtLines.join('\n'))task.progress = 30
 
     // ---- Encode segments with Ken Burns (images) or loop (videos) ----
     for (let b = 0; b < mp.length; b += 2) {
