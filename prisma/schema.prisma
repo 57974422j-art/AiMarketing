@@ -17,7 +17,7 @@ model User {
   username        String   @unique
   passwordHash    String
   name            String?
-  role            String   @default("viewer") // admin / editor / end-user / viewer
+  role            String   @default("end-user") // admin / editor / end-user / viewer
   parentId        Int?                          // 上级ID：editor指向admin，end-user指向editor
   inviteCode      String?
   plan            String   @default("free")

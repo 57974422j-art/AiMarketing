@@ -7,6 +7,7 @@ const cards = [
   { icon: '🎬', title: '视频剪辑', desc: '1080P 视频剪辑引擎 / 混剪 / 拼接 / 故事板', href: '/video-edit', color: 'from-purple-500/20' },
   { icon: '🎤', title: '文字转视频', desc: 'AI 文生视频 / 长视频 / 分段生成', href: '/text-to-video', color: 'from-blue-500/20' },
   { icon: '🧑', title: '数字人', desc: '数字人训练 / 口播生成 / 上传录音', href: '/digital-human', color: 'from-cyan-500/20' },
+  { icon: '🎬', title: '一键成片', desc: '输入文案+图片自动合成视频', href: '/auto-compile', color: 'from-emerald-500/20' },
 
   // 内容创作区
   { icon: '✍️', title: 'AI 文案', desc: '智能文案生成 / 多风格 / 批量写作', href: '/ai-copy', color: 'from-emerald-500/20' },
@@ -48,7 +49,7 @@ export default function AiToolsPage() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {cards.filter(c => ['视频剪辑', '文字转视频', '数字人'].includes(c.title)).map(card => (
-              <Link key={card.href} href={card.href} className="card-bento group cursor-pointer block bg-gradient-to-br ${card.color} to-transparent">
+              <Link key={card.href} href={card.href} className={`card-bento group cursor-pointer block bg-gradient-to-br ${card.color} to-transparent`}>
                 <div className="text-3xl mb-3">{card.icon}</div>
                 <h3 className="text-white font-bold mb-1 group-hover:text-emerald-400 transition-colors">{card.title}</h3>
                 <p className="text-gray-400 text-sm">{card.desc}</p>

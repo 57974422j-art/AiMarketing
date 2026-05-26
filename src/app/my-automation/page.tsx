@@ -88,6 +88,7 @@ export default function MyAutomationPage() {
           deviceSerial: selectedDevice,
           platform: PLATFORM_KEY[platform],
           action,
+          keywords: keywordsText.split('\n').filter(Boolean),
           videoUrl: selectedVideo?.ossUrl || '',
           title: publishTitle,
           hook: publishHook,
