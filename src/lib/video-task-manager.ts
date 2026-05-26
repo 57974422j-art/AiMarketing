@@ -110,7 +110,8 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
         entryIdx++
       }
     }
-    fs.writeFileSync(sp, srtLines.join('\n'))task.progress = 30
+    fs.writeFileSync(sp, srtLines.join('\n'))
+    task.progress = 30
 
     // ---- Encode segments with Ken Burns (images) or loop (videos) ----
     for (let b = 0; b < mp.length; b += 2) {
