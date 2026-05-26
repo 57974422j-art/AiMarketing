@@ -1,8 +1,6 @@
 'use client';
+import { showToast } from '@/components/Toast'
 import { useState, useEffect } from 'react';
-
-
-
 import Link from 'next/link';
 import { useAuth } from '@/app/providers';
 import { useLocale } from '@/i18n/context';
@@ -16,21 +14,21 @@ interface Project {
 }
 
 const INDUSTRIES = [
-  { id: 'tea', name: { zh: '茶叶', en: 'Tea' }, icon: '🍵', description: { zh: '茶叶销售、茶馆服务', en: 'Tea sales, tea house services' },
-  { id: 'clothing', name: { zh: '服装', en: 'Clothing' }, icon: '👕', description: { zh: '服装零售、定制服务', en: 'Clothing retail, custom services' },
-  { id: 'food', name: { zh: '餐饮', en: 'Food' }, icon: '🍜', description: { zh: '餐厅、咖啡厅、小吃店', en: 'Restaurants, cafes, snack shops' },
-  { id: 'beauty', name: { zh: '美妆', en: 'Beauty' }, icon: '💄', description: { zh: '化妆品、护肤品、美容院', en: 'Cosmetics, skincare, beauty salons' },
-  { id: 'education', name: { zh: '教育', en: 'Education' }, icon: '📚', description: { zh: '培训、辅导、教育机构', en: 'Training, tutoring, education institutions' },
-  { id: 'home', name: { zh: '家居', en: 'Home' }, icon: '🏠', description: { zh: '家具、家纺、装饰品', en: 'Furniture, home textiles, decorations' },
-  { id: 'digital', name: { zh: '数码', en: 'Digital' }, icon: '📱', description: { zh: '手机、电脑、数码配件', en: 'Phones, computers, digital accessories' },
-  { id: 'other', name: { zh: '其他', en: 'Other' }, icon: '✨', description: { zh: '其他行业', en: 'Other industries' }
+  { id: 'tea', name: { zh: '茶叶', en: 'Tea' }, icon: '🍵', description: { zh: '茶叶销售、茶馆服务', en: 'Tea sales, tea house services' } },
+  { id: 'clothing', name: { zh: '服装', en: 'Clothing' }, icon: '👕', description: { zh: '服装零售、定制服务', en: 'Clothing retail, custom services' } },
+  { id: 'food', name: { zh: '餐饮', en: 'Food' }, icon: '🍜', description: { zh: '餐厅、咖啡厅、小吃店', en: 'Restaurants, cafes, snack shops' } },
+  { id: 'beauty', name: { zh: '美妆', en: 'Beauty' }, icon: '💄', description: { zh: '化妆品、护肤品、美容院', en: 'Cosmetics, skincare, beauty salons' } },
+  { id: 'education', name: { zh: '教育', en: 'Education' }, icon: '📚', description: { zh: '培训、辅导、教育机构', en: 'Training, tutoring, education institutions' } },
+  { id: 'home', name: { zh: '家居', en: 'Home' }, icon: '🏠', description: { zh: '家具、家纺、装饰品', en: 'Furniture, home textiles, decorations' } },
+  { id: 'digital', name: { zh: '数码', en: 'Digital' }, icon: '📱', description: { zh: '手机、电脑、数码配件', en: 'Phones, computers, digital accessories' } },
+  { id: 'other', name: { zh: '其他', en: 'Other' }, icon: '✨', description: { zh: '其他行业', en: 'Other industries' } }
 ];
 
 const MARKETING_GOALS = [
-  { id: 'short-video', name: { zh: '短视频推广', en: 'Short Video' }, icon: '🎬', description: { zh: '抖音、快手等平台短视频营销', en: 'Short video marketing on Douyin, Kuaishou' },
-  { id: 'live-stream', name: { zh: '直播引流', en: 'Live Stream' }, icon: '📺', description: { zh: '通过直播吸引潜在客户', en: 'Attract potential customers through live streaming' },
-  { id: 'private-domain', name: { zh: '私域转化', en: 'Private Domain' }, icon: '💬', description: { zh: '微信私域流量运营转化', en: 'WeChat private domain traffic conversion' },
-  { id: 'branding', name: { zh: '品牌宣传', en: 'Branding' }, icon: '📢', description: { zh: '提升品牌知名度和美誉度', en: 'Enhance brand awareness and reputation' }
+  { id: 'short-video', name: { zh: '短视频推广', en: 'Short Video' }, icon: '🎬', description: { zh: '抖音、快手等平台短视频营销', en: 'Short video marketing on Douyin, Kuaishou' } },
+  { id: 'live-stream', name: { zh: '直播引流', en: 'Live Stream' }, icon: '📺', description: { zh: '通过直播吸引潜在客户', en: 'Attract potential customers through live streaming' } },
+  { id: 'private-domain', name: { zh: '私域转化', en: 'Private Domain' }, icon: '💬', description: { zh: '微信私域流量运营转化', en: 'WeChat private domain traffic conversion' } },
+  { id: 'branding', name: { zh: '品牌宣传', en: 'Branding' }, icon: '📢', description: { zh: '提升品牌知名度和美誉度', en: 'Enhance brand awareness and reputation' } }
 ];
 
 export default function ProjectsPage() {
@@ -52,7 +50,8 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (!authLoading) {
       loadProjects();
-    }, [authLoading]);
+    }
+  }, [authLoading]);
 
   const loadProjects = async () => {
     try {
@@ -60,11 +59,13 @@ export default function ProjectsPage() {
       if (response.ok) {
         const data = await response.json();
         setProjects(data);
-      } catch (error) {
+      }
+    } catch (error) {
       console.error('加载项目失败:', error);
     } finally {
       setLoading(false);
-    };
+    }
+  };
 
   const resetForm = () => {
     setStep(1);
@@ -137,10 +138,12 @@ export default function ProjectsPage() {
       } else {
         const data = await response.json()
         showToast(data.message || '删除失败')
-      } catch (error) {
+      }
+    } catch (error) {
       console.error('删除项目失败:', error)
       showToast('删除失败')
-    };
+    }
+  };
 
   const handleCreateProject = async () => {
     if (!user?.id) {
@@ -177,12 +180,14 @@ export default function ProjectsPage() {
         showToast(`项目创建成功！\n项目名称: ${formData.projectName || data.project?.name || ''}`);
       } else {
         showToast(data.message || '创建失败 / Creation failed');
-      } catch (error) {
+      }
+    } catch (error) {
       console.error('创建项目失败:', error);
       showToast('创建失败 / Creation failed');
     } finally {
       setIsCreating(false);
-    };
+    }
+  };
 
   if (loading) {
     return (

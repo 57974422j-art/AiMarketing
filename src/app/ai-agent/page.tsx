@@ -1,9 +1,7 @@
 'use client';
 
+import { showToast } from '@/components/Toast'
 import { useState, useEffect } from 'react';
-
-
-
 import Link from 'next/link';
 
 interface AIAgent {
@@ -69,14 +67,16 @@ export default function AIAgentPage() {
     const data = await response.json();
     if (data.success) {
       setAgents(data.data);
-    };
+    }
+  };
 
   const fetchDocuments = async (agentId: number) => {
     const response = await fetch(`/api/ai-agent/${agentId}/documents`, { credentials: 'include' });
     const data = await response.json();
     if (data.success) {
       setDocuments(data.data);
-    };
+    }
+  };
 
   const handleOpenAddModal = () => {
     setEditingAgent(null);
@@ -129,7 +129,8 @@ export default function AIAgentPage() {
     if (data.success) {
       fetchAgents();
       setShowModal(false);
-    };
+    }
+  };
 
   const handleNLCreate = async () => {
     if (!nlInput.trim()) {
@@ -164,14 +165,17 @@ export default function AIAgentPage() {
         
         if (generated.trainingDocuments && generated.trainingDocuments.length > 0) {
           showToast('AI已帮您解析需求！请检查并确认生成的员工信息。/ AI has parsed your requirements!');
-        } else {
+        }
+      } else {
         showToast(data.message || 'AI解析失败，请重试 / AI parsing failed');
-      } catch (error) {
+      }
+    } catch (error) {
       console.error('NL create error:', error);
       showToast('创建失败，请稍后重试 / Create failed');
     } finally {
       setIsGenerating(false);
-    };
+    }
+  };
 
   const handleDelete = async (id: number) => {
     const response = await fetch(`/api/ai-agent/${id}`, { method: 'DELETE', credentials: 'include' });
@@ -179,7 +183,8 @@ export default function AIAgentPage() {
     if (data.success) {
       fetchAgents();
       setShowDeleteConfirm(null);
-    };
+    }
+  };
 
   const handleAddDocument = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,7 +202,8 @@ export default function AIAgentPage() {
     if (data.success) {
       fetchDocuments(currentAgentId);
       setDocumentFormData({ title: '', content: '', type: '话术' });
-    };
+    }
+  };
 
   const handleDeleteDocument = async (documentId: number) => {
     if (!currentAgentId) return;
@@ -221,7 +227,8 @@ export default function AIAgentPage() {
       case '亲切': return 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
       case '幽默': return 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30';
       default: return 'bg-gray-500/20 text-gray-400 border border-gray-500/30';
-    };
+    }
+  };
 
   const getDocTypeColor = (type: string) => {
     switch(type) {
@@ -229,7 +236,8 @@ export default function AIAgentPage() {
       case '产品资料': return 'bg-indigo-500/20 text-indigo-400';
       case 'FAQ': return 'bg-pink-500/20 text-pink-400';
       default: return 'bg-gray-500/20 text-gray-400';
-    };
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-950">

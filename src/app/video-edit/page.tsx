@@ -1,8 +1,6 @@
 'use client';
+import { showToast } from '@/components/Toast'
 import { useState, useRef, useCallback, useEffect } from 'react';
-
-
-
 import { useAuth } from '@/app/providers';
 import { useLocale } from '@/i18n/context';
 
@@ -120,7 +118,8 @@ export default function VideoEditPage() {
       setTtsVoice('en_male_tim_uranus_bigtts');
     } else {
       setTtsVoice('zh_female_vv_uranus_bigtts');
-    }, [targetLanguage]);
+    }
+  }, [targetLanguage]);
   const [faceImage, setFaceImage] = useState<File | null>(null);
   const [faceImagePreview, setFaceImagePreview] = useState<string>('');
   const [currentProcessStep, setCurrentProcessStep] = useState('');
@@ -186,7 +185,8 @@ export default function VideoEditPage() {
   useEffect(() => {
     if (!authLoading && user) {
       loadHistory()
-    }, [authLoading, user])
+    }
+  }, [authLoading, user])
 
   const loadHistory = async () => {
     try {
@@ -194,9 +194,11 @@ export default function VideoEditPage() {
       if (res.ok) {
         const data = await res.json()
         setHistoryList(data)
-      } catch (error) {
+      }
+    } catch (error) {
       console.error('Load history failed:', error)
     }
+  }
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return bytes + ' B';
@@ -263,6 +265,7 @@ export default function VideoEditPage() {
       setFaceImage(file)
       setFaceImagePreview(URL.createObjectURL(file))
     }
+  }
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -278,14 +281,16 @@ export default function VideoEditPage() {
     e.stopPropagation();
     if (dropZoneRef.current) {
       dropZoneRef.current.classList.add('border-primary');
-    }, []);
+    }
+  }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (dropZoneRef.current) {
       dropZoneRef.current.classList.remove('border-primary');
-    }, []);
+    }
+  }, []);
 
   const removeVideo = (index: number) => {
     const videoToRemove = videos[index];
@@ -305,6 +310,7 @@ export default function VideoEditPage() {
     if (key === 'enableSpeakerDiarization' && value) {
       setPostProcessing(prev => ({ ...prev, enableTTS: true }))
     }
+  }
 
   // 模式切换时重置状态
   const handleModeSwitch = (mode: 'edit' | 'postProcess') => {
@@ -324,6 +330,7 @@ export default function VideoEditPage() {
       });
       setCurrentStepKey(null);
     }
+  }
 
   // 剪辑模式提交
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -427,7 +434,9 @@ export default function VideoEditPage() {
             setOutputUrl(data.downloadUrl);
             if (postData.message) {
               setErrorMessage(postData.message);
-            } else {
+            }
+          }
+        } else {
           setOutputUrl(data.downloadUrl);
         }
         loadHistory();
@@ -436,10 +445,12 @@ export default function VideoEditPage() {
       } else {
         setErrorMessage(data.message || t.videoEdit.processingFailed);
         setIsProcessing(false);
-      } catch (error) {
+      }
+    } catch (error) {
       setErrorMessage(t.videoEdit.uploadFailed);
       setIsProcessing(false);
-    };
+    }
+  };
 
   // 阶段1: 上传+语音识别 → 暂停让用户确认文案
   const handlePostProcessSubmit = async (e: React.FormEvent) => {
@@ -500,9 +511,10 @@ export default function VideoEditPage() {
         } else {
           setAsrSegments([]);
         }
+      }
 
       setProgress(20);
-      setStepStates(prev => ({ ...prev, transcribe: { status: 'completed', completed: true, message: '识别完成 ✓' }));
+      setStepStates(prev => ({ ...prev, transcribe: { status: 'completed', completed: true, message: '识别完成 ✓' } }));
 
       // 暂停，等待用户确认文案
       setCurrentProcessStep('📝 请确认或编辑识别文案，然后点击「确认并继续处理」');
@@ -514,7 +526,8 @@ export default function VideoEditPage() {
       setIsProcessing(false);
       setCurrentProcessStep('');
       setCurrentStepKey(null);
-    };
+    }
+  };
 
   // 阶段2: 用户确认文案后，执行所有后期处理步骤
   const handleContinuePostProcess = async () => {
@@ -632,14 +645,16 @@ export default function VideoEditPage() {
         setCurrentProcessStep(msg);
       } else {
         throw new Error(postData.message || '后期处理失败');
-      } catch (error) {
+      }
+    } catch (error) {
       const errMsg = error instanceof Error ? error.message : '未知错误';
       setErrorMessage('❌ ' + errMsg);
       setCurrentProcessStep('⚠️ 出错: ' + errMsg);
     } finally {
       setIsProcessing(false);
       setCurrentStepKey(null);
-    };
+    }
+  };
 
   // 自动识别语音
   const handleTranscribe = async () => {
@@ -700,7 +715,7 @@ export default function VideoEditPage() {
           transcribe: { status: 'completed', completed: true, message: '识别完成' },
         }));
         // 解锁后续步骤
-        setStepStates(prev => ({ ...prev, translate: { ...prev.translate, status: 'active' }));
+        setStepStates(prev => ({ ...prev, translate: { ...prev.translate, status: 'active' } }));
         
         // 如果启用了说话人分离，处理分离结果
         const speakerList = data.speaker_labels || data.speakers || [];
@@ -712,16 +727,19 @@ export default function VideoEditPage() {
             label: voicePresets[idx % voicePresets.length].label,
           }));
           setVoiceAssignments(assignments);
-        } else {
+        }
+      } else {
         console.warn('未获取到识别文本，响应数据:', data);
         setErrorMessage(data.message || '未识别到语音内容');
-      } catch (error) {
+      }
+    } catch (error) {
       console.error('识别失败:', error);
       setErrorMessage('语音识别失败: ' + (error instanceof Error ? error.message : '未知错误'));
     } finally {
       setIsTranscribing(false);
       setCurrentProcessStep('');
-    };
+    }
+  };
 
   const handleDeleteHistory = async (task: VideoTask) => {
     if (!confirm(t.videoEdit.confirmDelete)) return
@@ -737,10 +755,12 @@ export default function VideoEditPage() {
         showToast(t.videoEdit.deleteSuccess)
       } else {
         showToast(t.videoEdit.deleteFailed)
-      } catch (error) {
+      }
+    } catch (error) {
       console.error('Delete failed:', error)
       showToast(t.videoEdit.deleteFailed)
     }
+  }
 
   const handleShareToLibrary = async () => {
     if (!outputUrl) return
@@ -761,7 +781,8 @@ export default function VideoEditPage() {
             style,
             resolution,
             videoUrl: outputUrl
-          })
+          }
+        })
       })
 
       const data = await res.json()
@@ -769,10 +790,12 @@ export default function VideoEditPage() {
         showToast(t.videoEdit.shareSuccess)
       } else {
         showToast(data.message || t.videoEdit.shareFailed)
-      } catch (error) {
+      }
+    } catch (error) {
       console.error('Share failed:', error)
       showToast(t.videoEdit.shareFailed)
     }
+  }
 
   // 判断是否有启用的后期处理
   const hasPostProcessingEnabled = Object.values(postProcessing).some(v => v);
@@ -1543,6 +1566,7 @@ function parseStyleWithResolution(styleStr: string): { style: string; resolution
       const style = parts.filter(p => !resolutionPatterns.includes(p)).join('|') || '标准';
       return { style, resolution: part };
     }
+  }
   
   // 如果没有分辨率信息，返回默认值
   return { style: '标准', resolution: '1080p' };

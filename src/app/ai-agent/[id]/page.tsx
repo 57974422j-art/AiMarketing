@@ -1,9 +1,7 @@
 'use client';
 
+import { showToast } from '@/components/Toast'
 import { useState, useEffect, useRef } from 'react';
-
-
-
 import Link from 'next/link';
 
 interface Message {
@@ -73,7 +71,7 @@ const mockAgents: AIAgent[] = [
 
 const documentTypes = ['话术', '产品资料', 'FAQ'];
 
-export default function ChatPage({ params }: { params: { id: string }) {
+export default function ChatPage({ params }: { params: { id: string } }) {
   const [agent, setAgent] = useState<AIAgent | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -110,7 +108,8 @@ export default function ChatPage({ params }: { params: { id: string }) {
           timestamp: new Date()
         }]);
         return;
-      } catch (error) {
+      }
+    } catch (error) {
       console.warn('API调用失败，使用模拟数据:', error);
     }
     
@@ -130,9 +129,11 @@ export default function ChatPage({ params }: { params: { id: string }) {
       const data = await response.json();
       if (data.success) {
         setDocuments(data.data);
-      } catch (error) {
+      }
+    } catch (error) {
       console.warn('获取文档失败:', error);
-    };
+    }
+  };
 
   const handleSend = async () => {
     if (!inputValue.trim() || isLoading) return;
@@ -163,7 +164,8 @@ export default function ChatPage({ params }: { params: { id: string }) {
         replyContent = data.data.reply;
       } else {
         throw new Error('API返回数据无效');
-      } catch (error) {
+      }
+    } catch (error) {
       console.warn('API调用失败，使用模拟回复:', error);
       replyContent = getRandomReply(agent?.replyStyle || '亲切');
     }
@@ -182,7 +184,8 @@ export default function ChatPage({ params }: { params: { id: string }) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
-    };
+    }
+  };
 
   const handleAddDocument = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -203,11 +206,13 @@ export default function ChatPage({ params }: { params: { id: string }) {
         showToast('文档添加成功！');
       } else {
         showToast(data.message || '添加失败');
-      } catch (error) {
+      }
+    } catch (error) {
       showToast('添加失败，请稍后重试');
     } finally {
       setIsSubmittingDoc(false);
-    };
+    }
+  };
 
   const handleDeleteDocument = async (documentId: number) => {
     if (!confirm('确定要删除这个文档吗？')) return;
@@ -220,7 +225,8 @@ export default function ChatPage({ params }: { params: { id: string }) {
       fetchDocuments();
     } catch (error) {
       showToast('删除失败');
-    };
+    }
+  };
 
   if (!agent) {
     return (
