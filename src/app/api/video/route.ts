@@ -360,7 +360,9 @@ export async function POST(request: NextRequest) {
         // 故事板模式直接使用指定分辨率
         tempOutput = join(outputDir, `temp_story_${taskId}_${timestamp}.mp4`)
         trimVideo(inputPaths[0], 0, duration, tempOutput)
-        addTextOverlay(tempOutput, '故事板视频', 'top-center', tempOutput)
+        const storyTemp = join(outputDir, `story_text_${taskId}_${timestamp}.mp4`)
+        addTextOverlay(tempOutput, '故事板视频', 'top-center', storyTemp)
+        tempOutput = storyTemp
         needsResize = true
         break
       case 'loop':
