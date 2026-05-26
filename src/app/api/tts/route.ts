@@ -31,14 +31,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, audioUrl: publicUrl })
     }
 
-    // Write text to temp file, pass to edge-tts via stdin redirect
-    const textFile = outputPath + '.txt'
-    fs.writeFileSync(textFile, text, 'utf-8')
-    execSync(`edge-tts --voice "${voiceName}" --text "$(cat ${textFile})" --write-media "${outputPath}"`, { timeout: 30000 })
-    fs.unlinkSync(textFile)
+    // Use Python directly to call edge_tts - avoids all shell escaping
+    const pyFile = outputPath + '.py'
+    const safeText = text.replace(/"/g, '\\"').replace(/`/g, '').replace(/\$/g, '')
+    const pyCode = `import asyncio, edge_tts
+async def main():
+    t = edge_tts.Communicate("${safeText}", "${voiceName}")
+    await t.save("${outputPath}")
+asyncio.run(main())`
+    fs.writeFileSync(pyFile, pyCode, 'utf-8')
+    execSync(`python3 ${pyFile}`, { timeout: 30000 })
+    fs.unlinkSync(pyFile)
 
     if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 1000) {
-      return NextResponse.json({ success: false, message: 'TTS失败' }, { status: 500 })
+      return NextResponse.json({ success: false, message: 'TTS文件无效' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true, audioUrl: publicUrl })
