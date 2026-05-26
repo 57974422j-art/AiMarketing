@@ -59,8 +59,7 @@ export async function POST(request: NextRequest) {
     if (!auth) {
       return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
     }
-    if (auth.role === 'end-user') {
-      return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
+    if (, { status: 403 })
     }
 
     const body = await request.json()

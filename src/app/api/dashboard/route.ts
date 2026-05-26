@@ -13,7 +13,7 @@ function getUserContext(request: NextRequest) {
 
 function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boolean {
   switch (action) {
-    case 'read': return ['viewer', 'editor', 'admin'].includes(role)
+    case 'read': return ['end-user', 'viewer', 'editor', 'admin'].includes(role)
     case 'write': return ['editor', 'admin'].includes(role)
     case 'delete': return role === 'admin'
     default: return false
