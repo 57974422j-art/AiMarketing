@@ -236,7 +236,7 @@ function getUserContext(request: NextRequest) {
 function checkPermission(role: string, action: 'read' | 'write' | 'delete'): boolean {
   switch (action) {
     case 'read': return ['viewer', 'editor', 'admin'].includes(role)
-    case 'write': return ['editor', 'admin'].includes(role)
+    case 'write': return ['end-user', 'editor', 'admin'].includes(role)
     case 'delete': return ['editor', 'admin'].includes(role)  // editor 和 admin 都能删除
     default: return false
   }
