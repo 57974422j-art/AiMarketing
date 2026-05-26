@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
     if (!text) return NextResponse.json({ success: false, message: '缺少文本' }, { status: 400 })
 
     ensureDir()
+    const voiceName = VOICE_MAP[voice] || 'zh-CN-XiaoxiaoNeural'
     const hash = crypto.createHash('md5').update(text + voice).digest('hex').slice(0, 12)
     const filename = hash + '.mp3'
     const outputPath = path.join(TTS_DIR, filename)
