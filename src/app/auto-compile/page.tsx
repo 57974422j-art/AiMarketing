@@ -103,7 +103,12 @@ export default function AutoCompilePage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="space-y-4">
             <div className="card-glass p-4">
-              <label className="text-xs text-gray-400 mb-2 block">文案</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-gray-400">文案</label>
+                <button onClick={()=>{const d=prompt('输入产品/行业描述');if(!d)return;fetch('/api/generate-script',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({industry:d,style:''})}).then(r=>r.json()).then(r=>{if(r.success)setText(r.data.script);else alert(r.error)})}} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">
+                  ✨ AI 生成
+                </button>
+              </div>
               <textarea className="input-dark w-full text-sm h-36 resize-none"
                 placeholder={mode==='free'?'每行对应一个素材':'每行动态搜相关图片'}
                 value={text} onChange={e => setText(e.target.value)} />
