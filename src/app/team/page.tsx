@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } } from 'react'
+import { useState, useEffect } from 'react'
+import { showToast } from '@/components/Toast'
 
 interface TeamMember {
   id: number
