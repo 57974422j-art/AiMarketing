@@ -48,7 +48,7 @@ export default function AiToolsPage() {
             视频创作
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {cards.filter(c => ['视频剪辑', '文字转视频', '数字人'].includes(c.title)).map(card => (
+            {cards.filter(c => ['视频剪辑', '文字转视频', '数字人', '一键成片'].includes(c.title)).map(card => (
               <Link key={card.href} href={card.href} className={`card-bento group cursor-pointer block bg-gradient-to-br ${card.color} to-transparent`}>
                 <div className="text-3xl mb-3">{card.icon}</div>
                 <h3 className="text-white font-bold mb-1 group-hover:text-emerald-400 transition-colors">{card.title}</h3>
