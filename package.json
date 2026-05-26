@@ -9,7 +9,8 @@
     "lint": "next lint",
     "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "next build && electron-builder",
-    "electron:start": "electron ."
+    "electron:start": "electron .",
+    "postinstall": "npx prisma db push; true"
   },
   "main": "electron/main.js",
   "dependencies": {
@@ -43,14 +44,33 @@
   "build": {
     "appId": "com.aimarketing.app",
     "productName": "AI营销助手",
-    "directories": { "output": "dist-electron" },
-    "files": [".next/**/*","electron/**/*","public/**/*","package.json"],
-    "extraResources": [
-      {"from": "scripts/platform-tools", "to": "scripts/platform-tools"},
-      {"from": "scripts/scrcpy", "to": "scripts/scrcpy"}
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      ".next/**/*",
+      "electron/**/*",
+      "public/**/*",
+      "package.json"
     ],
-    "win": { "target": "nsis", "icon": "public/icon.png" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "extraResources": [
+      {
+        "from": "scripts/platform-tools",
+        "to": "scripts/platform-tools"
+      },
+      {
+        "from": "scripts/scrcpy",
+        "to": "scripts/scrcpy"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
