@@ -36,6 +36,12 @@ export default function AutoCompilePage() {
   const bgmRef = useRef<HTMLInputElement>(null)
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const MAX_FILES = 20; const MAX_SIZE = 100 * 1024 * 1024
+    const newFiles = Array.from(e.target.files || [])
+    const allFiles = [...images, ...newFiles]
+    if (allFiles.length > MAX_FILES) { showToast("素材最多20个，当前共" + allFiles.length + "个", "error"); return }
+    const totalSize = allFiles.reduce((s, f) => s + f.size, 0)
+    if (totalSize > MAX_SIZE) { showToast("素材超过100MB，请压缩后再试", "error"); return }
     const files = Array.from(e.target.files || [])
     setImages(prev => [...prev, ...files].slice(0, 20))
   }
@@ -125,13 +131,14 @@ export default function AutoCompilePage() {
             <div className="card-glass p-4">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs text-gray-400">文案</label>
-                <button onClick={()=>{const d=genIndustry;if(!genIndustry)return;fetch('/api/generate-script',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({industry:d,style:''})}).then(r=>r.json()).then(r=>{if(r.success)setText(r.data.script);else showToast(r.error||'生成失败','error')})}} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">
+                <button onClick={()=>{const d=genIndustry;if(!genIndustry)return;fetch('/api/generate-script',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({industry:d,style:'',duration:duration})}).then(r=>r.json()).then(r=>{if(r.success)setText(r.data.script);else showToast(r.error||'生成失败','error')})}} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">
                   ✨ AI 生成
                 </button>
               </div>
               <textarea className="input-dark w-full text-sm h-36 resize-none"
                 placeholder={mode==='free'?'每行对应一个素材':'每行动态搜相关图片'}
                 value={text} onChange={e => setText(e.target.value)} />
+              <p className="text-[10px] text-gray-500 mt-1">文案约 {text.replace(/\s/g,'').length} 字，预计配音 ~{Math.round(text.replace(/\s/g,'').length * 0.3)} 秒</p>
             </div>
 
             <div className="card-glass p-4">
