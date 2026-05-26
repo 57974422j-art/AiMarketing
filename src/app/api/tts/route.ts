@@ -19,9 +19,7 @@ export async function POST(request: NextRequest) {
     const { text, voice } = await request.json()
     if (!text) return NextResponse.json({ success: false, message: '缺少文本' }, { status: 400 })
 
-    const voiceName = VOICE_MAP[voice] || 'zh-CN-XiaoxiaoNeural'
     ensureDir()
-
     const hash = crypto.createHash('md5').update(text + voice).digest('hex').slice(0, 12)
     const filename = hash + '.mp3'
     const outputPath = path.join(TTS_DIR, filename)
@@ -31,24 +29,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, audioUrl: publicUrl })
     }
 
-    // Write Python script as temp file to call edge_tts
-    const pyFile = outputPath + '.py'
+    // Write text to temp file, then use edge-tts via piped stdin
     const textFile = outputPath + '.txt'
-    fs.writeFileSync(textFile, text, 'utf8')
-
-    const pyCode = [
-      'import asyncio, sys',
-      'import edge_tts',
-      'async def main():',
-      '    with open(sys.argv[1], "r", encoding="utf-8") as f:',
-      '        t = f.read()',
-      '    await edge_tts.Communicate(t, sys.argv[2]).save(sys.argv[3])',
-      'asyncio.run(main())',
-    ].join('\n')
-
-    fs.writeFileSync(pyFile, pyCode, 'utf8')
-    execSync('python3 ' + pyFile + ' ' + textFile + ' ' + voiceName + ' ' + outputPath, { timeout: 30000 })
-    try { fs.unlinkSync(pyFile); fs.unlinkSync(textFile) } catch {}
+    fs.writeFileSync(textFile, text.replace(/\n/g, ' ').slice(0, 500), 'utf8')
+    execSync('edge-tts --voice ' + voiceName + ' --text "$(cat ' + textFile + ')" --write-media ' + outputPath, { timeout: 30000, shell: '/bin/bash' })
+    try { fs.unlinkSync(textFile) } catch {}
 
     if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 1000) {
       return NextResponse.json({ success: false, message: 'TTS失败' }, { status: 500 })
