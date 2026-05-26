@@ -93,7 +93,7 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
     await run(`ffmpeg -y -i "${mv}" -i "${ai}" -vf "subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2'" -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -shortest -threads 2 "${op}"`, 180000)
     task.progress = 100
     task.status = 'completed'
-    task.videoUrl = `/generated/${task.id}.mp4`
+    task.videoUrl = `/api/video/get?id=${task.id}.mp4`
 
     // 清理
     fs.rmSync(wd, { recursive: true, force: true })
