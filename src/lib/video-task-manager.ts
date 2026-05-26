@@ -107,7 +107,7 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
 
     // Burn subtitles
     const op = path.join('/root/AiMarketing/public/generated', `${task.id}.mp4`)
-    await run(`ffmpeg -y -i "${mv}" -i "${ai}" -vf "subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2'" -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -shortest -threads 2 "${op}"`, 180000)
+    await run(`ffmpeg -y -i "${mv}" -i "${ai}" -vf "subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2'" -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} -threads 2 "${op}"`, 180000)
     task.progress = 100
     task.status = 'completed'
     task.videoUrl = `/api/video/get?id=${task.id}.mp4`
