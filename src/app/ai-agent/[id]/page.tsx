@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } , showToast from 'react';
 import Link from 'next/link';
 
 interface Message {
@@ -202,12 +202,12 @@ export default function ChatPage({ params }: { params: { id: string } }) {
       if (data.success) {
         fetchDocuments();
         setDocumentFormData({ title: '', content: '', type: '话术' });
-        alert('文档添加成功！');
+        showToast('文档添加成功！', "info");
       } else {
-        alert(data.message || '添加失败');
+        showToast(data.message || '添加失败', "info");
       }
     } catch (error) {
-      alert('添加失败，请稍后重试');
+      showToast('添加失败，请稍后重试', "info");
     } finally {
       setIsSubmittingDoc(false);
     }
@@ -223,7 +223,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
       });
       fetchDocuments();
     } catch (error) {
-      alert('删除失败');
+      showToast('删除失败', "info");
     }
   };
 

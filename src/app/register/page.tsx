@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState } , showToast from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useLocale } from '@/i18n/context';
@@ -59,7 +59,7 @@ export default function RegisterPage() {
       const data = await response.json();
 
       if (data.success) {
-        alert('注册成功 / Registration Successful');
+        showToast('注册成功 / Registration Successful', "info");
         router.push('/login');
       } else {
         setError(data.message || '注册失败 / Registration Failed');

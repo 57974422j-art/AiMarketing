@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect } , showToast from 'react';
 import Link from 'next/link';
 
 interface AIAgent {
@@ -133,7 +133,7 @@ export default function AIAgentPage() {
 
   const handleNLCreate = async () => {
     if (!nlInput.trim()) {
-      alert('请输入您的需求描述 / Please describe your requirements');
+      showToast('请输入您的需求描述 / Please describe your requirements', "info");
       return;
     }
 
@@ -163,14 +163,14 @@ export default function AIAgentPage() {
         setShowModal(true);
         
         if (generated.trainingDocuments && generated.trainingDocuments.length > 0) {
-          alert('AI已帮您解析需求！请检查并确认生成的员工信息。/ AI has parsed your requirements!');
+          showToast('AI已帮您解析需求！请检查并确认生成的员工信息。/ AI has parsed your requirements!', "info");
         }
       } else {
-        alert(data.message || 'AI解析失败，请重试 / AI parsing failed');
+        showToast(data.message || 'AI解析失败，请重试 / AI parsing failed', "info");
       }
     } catch (error) {
       console.error('NL create error:', error);
-      alert('创建失败，请稍后重试 / Create failed');
+      showToast('创建失败，请稍后重试 / Create failed', "info");
     } finally {
       setIsGenerating(false);
     }

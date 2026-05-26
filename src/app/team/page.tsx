@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect } , showToast from 'react'
 
 interface TeamMember {
   id: number
@@ -80,7 +80,7 @@ export default function TeamPage() {
         setNewTeamName('')
         fetchTeam()
       } else {
-        alert(data.message)
+        showToast(data.message, "info")
       }
     } catch (error) {
       console.error('创建团队失败:', error)
@@ -107,7 +107,7 @@ export default function TeamPage() {
         setNewMemberRole('viewer')
         fetchTeam()
       } else {
-        alert(data.message)
+        showToast(data.message, "info")
       }
     } catch (error) {
       console.error('添加成员失败:', error)
@@ -126,7 +126,7 @@ export default function TeamPage() {
       if (data.success) {
         fetchTeam()
       } else {
-        alert(data.message)
+        showToast(data.message, "info")
       }
     } catch (error) {
       console.error('修改角色失败:', error)
@@ -144,7 +144,7 @@ export default function TeamPage() {
       if (data.success) {
         fetchTeam()
       } else {
-        alert(data.message)
+        showToast(data.message, "info")
       }
     } catch (error) {
       console.error('移除成员失败:', error)
@@ -164,7 +164,7 @@ export default function TeamPage() {
       if (data.success) {
         setAgentCode(data.agentCode)
       } else {
-        alert(data.message)
+        showToast(data.message, "info")
       }
     } catch (error) {
       console.error('生成代理码失败:', error)
@@ -174,7 +174,7 @@ export default function TeamPage() {
   const copyAgentCode = () => {
     if (agentCode) {
       navigator.clipboard.writeText(agentCode)
-      alert('代理邀请码已复制 / Agent code copied')
+      showToast('代理邀请码已复制 / Agent code copied', "info")
     }
   }
 

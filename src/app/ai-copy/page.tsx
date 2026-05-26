@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react'
+import { useState, useEffect } , showToast from 'react'
 import { useAuth } from '@/app/providers'
 
 interface CopyItem {
@@ -81,11 +81,11 @@ export default function AICopyPage() {
         setCopyContent(parsedCopies)
         loadHistory()
       } else {
-        alert(data.message || '生成失败')
+        showToast(data.message || '生成失败', "info")
       }
     } catch (error) {
       console.error('生成失败:', error)
-      alert('生成失败，请重试')
+      showToast('生成失败，请重试', "info")
     } finally {
       setIsGenerating(false)
     }
@@ -93,7 +93,7 @@ export default function AICopyPage() {
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text)
-    alert('已复制到剪贴板')
+    showToast('已复制到剪贴板', "info")
   }
 
   const handleDelete = async (taskId: number) => {
@@ -107,13 +107,13 @@ export default function AICopyPage() {
 
       if (res.ok) {
         setHistoryList(historyList.filter(item => item.id !== taskId))
-        alert('删除成功')
+        showToast('删除成功', "info")
       } else {
-        alert('删除失败')
+        showToast('删除失败', "info")
       }
     } catch (error) {
       console.error('删除失败:', error)
-      alert('删除失败')
+      showToast('删除失败', "info")
     }
   }
 
@@ -139,13 +139,13 @@ export default function AICopyPage() {
 
       const data = await res.json()
       if (data.success) {
-        alert('已提交到创意库，待审核后展示')
+        showToast('已提交到创意库，待审核后展示', "info")
       } else {
-        alert(data.message || '分享失败')
+        showToast(data.message || '分享失败', "info")
       }
     } catch (error) {
       console.error('分享失败:', error)
-      alert('分享失败，请重试')
+      showToast('分享失败，请重试', "info")
     }
   }
 

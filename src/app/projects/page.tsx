@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect } , showToast from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/app/providers';
 import { useLocale } from '@/i18n/context';
@@ -99,11 +99,11 @@ export default function ProjectsPage() {
 
   const handleNextStep = () => {
     if (step === 1 && !formData.industry) {
-      alert('请选择一个行业 / Please select an industry');
+      showToast('请选择一个行业 / Please select an industry', "info");
       return;
     }
     if (step === 2 && formData.goals.length === 0) {
-      alert('请至少选择一个营销目标 / Please select at least one goal');
+      showToast('请至少选择一个营销目标 / Please select at least one goal', "info");
       return;
     }
     if (step === 2) {
@@ -133,25 +133,25 @@ export default function ProjectsPage() {
 
       if (response.ok) {
         setProjects(projects.filter(p => p.id !== projectId))
-        alert('项目已删除')
+        showToast('项目已删除', "info")
       } else {
         const data = await response.json()
-        alert(data.message || '删除失败')
+        showToast(data.message || '删除失败', "info")
       }
     } catch (error) {
       console.error('删除项目失败:', error)
-      alert('删除失败')
+      showToast('删除失败', "info")
     }
   };
 
   const handleCreateProject = async () => {
     if (!user?.id) {
-      alert('请先登录 / Please login');
+      showToast('请先登录 / Please login', "info");
       return;
     }
 
     if (!formData.projectName.trim()) {
-      alert('请输入项目名称 / Please enter project name');
+      showToast('请输入项目名称 / Please enter project name', "info");
       return;
     }
 
@@ -176,13 +176,13 @@ export default function ProjectsPage() {
       if (data.success) {
         handleCloseModal();
         loadProjects();
-        alert(`项目创建成功！\n项目名称: ${formData.projectName || data.project?.name || ''}`);
+        showToast(`项目创建成功！\n项目名称: ${formData.projectName || data.project?.name || ''}`, "info");
       } else {
-        alert(data.message || '创建失败 / Creation failed');
+        showToast(data.message || '创建失败 / Creation failed', "info");
       }
     } catch (error) {
       console.error('创建项目失败:', error);
-      alert('创建失败 / Creation failed');
+      showToast('创建失败 / Creation failed', "info");
     } finally {
       setIsCreating(false);
     }

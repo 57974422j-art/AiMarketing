@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect } , showToast from 'react';
 import { useAuth } from '@/app/providers';
 import { useLocale } from '@/i18n/context';
 
@@ -751,13 +751,13 @@ export default function VideoEditPage() {
 
       if (res.ok) {
         setHistoryList(historyList.filter(item => item.id !== task.id))
-        alert(t.videoEdit.deleteSuccess)
+        showToast(t.videoEdit.deleteSuccess, "info")
       } else {
-        alert(t.videoEdit.deleteFailed)
+        showToast(t.videoEdit.deleteFailed, "info")
       }
     } catch (error) {
       console.error('Delete failed:', error)
-      alert(t.videoEdit.deleteFailed)
+      showToast(t.videoEdit.deleteFailed, "info")
     }
   }
 
@@ -786,13 +786,13 @@ export default function VideoEditPage() {
 
       const data = await res.json()
       if (data.success) {
-        alert(t.videoEdit.shareSuccess)
+        showToast(t.videoEdit.shareSuccess, "info")
       } else {
-        alert(data.message || t.videoEdit.shareFailed)
+        showToast(data.message || t.videoEdit.shareFailed, "info")
       }
     } catch (error) {
       console.error('Share failed:', error)
-      alert(t.videoEdit.shareFailed)
+      showToast(t.videoEdit.shareFailed, "info")
     }
   }
 
