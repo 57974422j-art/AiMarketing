@@ -124,3 +124,4 @@ body {
 .grid-bento-tall {
   grid-row: span 2;
 }
+select.input-dark option, select option { background-color:#1f2937; color:#e5e7eb; }
