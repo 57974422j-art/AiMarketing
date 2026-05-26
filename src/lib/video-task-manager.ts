@@ -87,7 +87,16 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
     const perLineTime = totalDur / Math.max(ln.length, 1)
     const ft = (t: number) => { const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = Math.floor(t % 60), ms = Math.floor((t % 1) * 1000); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}` }
     const sp = path.join(wd, 's.srt')
-    fs.writeFileSync(sp, ln.map((l, i) => { const st = i * perLineTime, et = Math.min((i + 1) * perLineTime, totalDur); return `${i + 1}\n${ft(st)} --> ${ft(et)}\n${l}\n\n` }).join(''))
+    const wrapMax: Record<string, number> = { '16:9': 22, '9:16': 6, '1:1': 12, '4:3': 18 }
+    const maxW = wrapMax[ratio] || 16
+    function wrap(l: string): string {
+      if (l.length <= maxW) return l
+      const r: string[] = []; let cur = ''
+      for (const ch of l) { if (cur.length >= maxW) { r.push(cur); cur = ch } else cur += ch }
+      if (cur) r.push(cur)
+      return r.join('\\N')
+    }
+    fs.writeFileSync(sp, ln.map((l, i) => { const st = i * perLineTime, et = Math.min((i + 1) * perLineTime, totalDur); return `${i + 1}\n${ft(st)} --> ${ft(et)}\n${wrap(l)}\n\n` }).join(''))
     task.progress = 30
 
     // ---- Encode segments with Ken Burns (images) or loop (videos) ----
