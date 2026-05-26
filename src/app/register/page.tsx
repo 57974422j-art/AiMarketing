@@ -1,6 +1,8 @@
 'use client';
 import { useState } from 'react';
 import { showToast } from '@/components/Toast'
+
+
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useLocale } from '@/i18n/context';
@@ -60,17 +62,15 @@ export default function RegisterPage() {
       const data = await response.json();
 
       if (data.success) {
-        showToast('注册成功 / Registration Successful', "info");
+        showToast('注册成功 / Registration Successful');
         router.push('/login');
       } else {
         setError(data.message || '注册失败 / Registration Failed');
-      }
-    } catch (err) {
+      } catch (err) {
       setError('连接错误 / Connection Error');
     } finally {
       setLoading(false);
-    }
-  };
+    };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-950 relative overflow-hidden">

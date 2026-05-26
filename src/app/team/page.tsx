@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { showToast } from '@/components/Toast'
+
 
 interface TeamMember {
   id: number
@@ -13,13 +13,14 @@ interface TeamMember {
     email: string
     createdAt: string
   }
-}
 
 interface Team {
   id: number
   name: string
   ownerId: number
   owner: { id: number;
+import { showToast } from '@/components/Toast'
+
  username: string; name: string | null }
   members: TeamMember[]
 }
@@ -29,7 +30,6 @@ const roleLabels: Record<string, { cn: string; en: string }> = {
   manager: { cn: '管理员', en: 'MANAGER' },
   operator: { cn: '运营', en: 'OPERATOR' },
   viewer: { cn: '观察者', en: 'VIEWER' }
-}
 
 export default function TeamPage() {
   const [team, setTeam] = useState<Team | null>(null)
@@ -50,22 +50,18 @@ export default function TeamPage() {
     try {
       const res = await fetch('/api/team', {
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }
-      })
+        headers: { 'Content-Type': 'application/json' })
       const data = await res.json()
       if (data.success) {
         setTeam(data.data)
         if (data.data?.members) {
           const currentMember = data.data.members.find((m: any) => m.user?.id)
           setUserRole(currentMember?.role || null)
-        }
-      }
-    } catch (error) {
+        } catch (error) {
       console.error('获取团队失败:', error)
     } finally {
       setLoading(false)
     }
-  }
 
   const createTeam = async () => {
     if (!newTeamName.trim()) return
@@ -82,12 +78,10 @@ export default function TeamPage() {
         setNewTeamName('')
         fetchTeam()
       } else {
-        showToast(data.message, "info")
-      }
-    } catch (error) {
+        showToast(data.message)
+      } catch (error) {
       console.error('创建团队失败:', error)
     }
-  }
 
   const addMember = async () => {
     if (!newMemberUsername.trim() || !team) return
@@ -109,12 +103,10 @@ export default function TeamPage() {
         setNewMemberRole('viewer')
         fetchTeam()
       } else {
-        showToast(data.message, "info")
-      }
-    } catch (error) {
+        showToast(data.message)
+      } catch (error) {
       console.error('添加成员失败:', error)
     }
-  }
 
   const updateMemberRole = async (memberId: number, newRole: string) => {
     try {
@@ -128,12 +120,10 @@ export default function TeamPage() {
       if (data.success) {
         fetchTeam()
       } else {
-        showToast(data.message, "info")
-      }
-    } catch (error) {
+        showToast(data.message)
+      } catch (error) {
       console.error('修改角色失败:', error)
     }
-  }
 
   const removeMember = async (memberId: number) => {
     if (!confirm('确定要移除该成员吗？/ Remove this member?')) return
@@ -146,12 +136,10 @@ export default function TeamPage() {
       if (data.success) {
         fetchTeam()
       } else {
-        showToast(data.message, "info")
-      }
-    } catch (error) {
+        showToast(data.message)
+      } catch (error) {
       console.error('移除成员失败:', error)
     }
-  }
 
   const generateAgentCode = async () => {
     if (!team) return
@@ -166,19 +154,16 @@ export default function TeamPage() {
       if (data.success) {
         setAgentCode(data.agentCode)
       } else {
-        showToast(data.message, "info")
-      }
-    } catch (error) {
+        showToast(data.message)
+      } catch (error) {
       console.error('生成代理码失败:', error)
     }
-  }
 
   const copyAgentCode = () => {
     if (agentCode) {
       navigator.clipboard.writeText(agentCode)
-      showToast('代理邀请码已复制 / Agent code copied', "info")
+      showToast('代理邀请码已复制 / Agent code copied')
     }
-  }
 
   const getRoleLabel = (role: string) => {
     const r = roleLabels[role]

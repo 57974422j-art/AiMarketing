@@ -37,8 +37,7 @@ export default function AICopyPage() {
   useEffect(() => {
     if (!authLoading && user) {
       loadHistory()
-    }
-  }, [authLoading, user])
+    }, [authLoading, user])
 
   const loadHistory = async () => {
     try {
@@ -46,11 +45,9 @@ export default function AICopyPage() {
       if (res.ok) {
         const data = await res.json()
         setHistoryList(data)
-      }
-    } catch (error) {
+      } catch (error) {
       console.error('加载历史失败:', error)
     }
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -81,19 +78,17 @@ export default function AICopyPage() {
         setCopyContent(parsedCopies)
         loadHistory()
       } else {
-        showToast(data.message || '生成失败', "info")
-      }
-    } catch (error) {
+        showToast(data.message || '生成失败')
+      } catch (error) {
       console.error('生成失败:', error)
-      showToast('生成失败，请重试', "info")
+      showToast('生成失败，请重试')
     } finally {
       setIsGenerating(false)
     }
-  }
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text)
-    showToast('已复制到剪贴板', "info")
+    showToast('已复制到剪贴板')
   }
 
   const handleDelete = async (taskId: number) => {
@@ -107,15 +102,13 @@ export default function AICopyPage() {
 
       if (res.ok) {
         setHistoryList(historyList.filter(item => item.id !== taskId))
-        showToast('删除成功', "info")
+        showToast('删除成功')
       } else {
-        showToast('删除失败', "info")
-      }
-    } catch (error) {
+        showToast('删除失败')
+      } catch (error) {
       console.error('删除失败:', error)
-      showToast('删除失败', "info")
+      showToast('删除失败')
     }
-  }
 
   const handleShareToLibrary = async (copy: CopyItem) => {
     if (!confirm('确定要将此文案分享到创意库吗？')) return
@@ -133,21 +126,18 @@ export default function AICopyPage() {
             platform: copy.platform,
             style: copy.tags?.[0] || style,
             tags: copy.tags
-          }
-        })
+          })
       })
 
       const data = await res.json()
       if (data.success) {
-        showToast('已提交到创意库，待审核后展示', "info")
+        showToast('已提交到创意库，待审核后展示')
       } else {
-        showToast(data.message || '分享失败', "info")
-      }
-    } catch (error) {
+        showToast(data.message || '分享失败')
+      } catch (error) {
       console.error('分享失败:', error)
-      showToast('分享失败，请重试', "info")
+      showToast('分享失败，请重试')
     }
-  }
 
   const parseResultJson = (jsonStr: string | null): CopyItem[] => {
     if (!jsonStr) return []
@@ -157,7 +147,6 @@ export default function AICopyPage() {
     } catch {
       return []
     }
-  }
 
   return (
     <div className="min-h-screen bg-gray-950">
