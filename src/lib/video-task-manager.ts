@@ -67,7 +67,7 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
     for (let b = 0; b < mp.length; b += 2) {
       await Promise.all(mp.slice(b, b + 2).map(async (src, bi) => {
         const c = path.join(wd, `c${b + bi}.mp4`)
-        await run(`nice -n 19 ffmpeg -y -loop 1 -i "${src}" -vf "scale=${W}:${H}:force_original_aspect_ratio=1,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,fade=t=in:st=0:d=0.5,fade=t=out:st=${(sd - 0.5).toFixed(2)}:d=0.5" -t ${sd.toFixed(2)} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${c}"`, 60000)
+        await run(`nice -n 19 ffmpeg -y -framerate 25 -i "${src}" -vf "scale=${W}:${H}:force_original_aspect_ratio=1,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,fade=t=in:st=0:d=0.5,fade=t=out:st=${(sd - 0.5).toFixed(2)}:d=0.5" -t ${sd.toFixed(2)} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${c}"`, 60000)
       }))
       task.progress = 30 + Math.round((b + 2) / mp.length * 30)
     }
