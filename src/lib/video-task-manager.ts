@@ -1,4 +1,4 @@
-import { exec } from 'child_process'
+import { exec, execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 
@@ -23,6 +23,17 @@ function run(cmd: string, t = 120000): Promise<string> {
   })
 }
 
+function isVideoFile(file: string): boolean {
+  return /\.(mp4|mov|avi|mkv|webm)$/i.test(file)
+}
+
+function getDuration(file: string): number {
+  try {
+    const out = execSync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${file}"`, { timeout: 10000, encoding: 'utf8' })
+    return parseFloat(out.trim()) || 0
+  } catch { return 0 }
+}
+
 export function startTask(taskId: string, workDir: string, mediaPaths: string[], text: string, voice: string, ratio: string, resolution: string, subtitleSize: number, bgmPath: string, duration: number) {
   const task: VideoTask = { id: taskId, status: 'processing', progress: 0 }
   tasks.set(taskId, task)
@@ -36,11 +47,13 @@ export function startTask(taskId: string, workDir: string, mediaPaths: string[],
 async function runTask(task: VideoTask, wd: string, mp: string[], text: string, voice: string, ratio: string, res: string, fs2: number, bgp: string, dur: number) {
   try {
     const dim = { '16:9': { w: 1920, h: 1080 }, '9:16': { w: 1080, h: 1920 }, '1:1': { w: 1080, h: 1080 }, '4:3': { w: 1440, h: 1080 } }[ratio] || { w: 1920, h: 1080 }
-    const sc = res === '720p' ? 0.5 : 1; const W = Math.round(dim.w * sc), H = Math.round(dim.h * sc)
+    const sc = res === '720p' ? 0.5 : 1
+    const W = Math.round(dim.w * sc), H = Math.round(dim.h * sc)
+    const sf = `scale=${W}:${H}:force_original_aspect_ratio=1,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`
 
     task.progress = 10
 
-    // TTS - still generate audio for soundtrack
+    // ---- TTS ----
     const r = await fetch('http://localhost:3000/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice }) })
     const d = await r.json()
     if (!d.audioUrl) throw new Error('TTS失败')
@@ -48,32 +61,28 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
     await run(`curl -s -o "${ap}" "http://localhost:3000${d.audioUrl}"`, 30000)
     task.progress = 20
 
-    // Fixed duration instead of audio duration
     const totalDur = dur || 30
     const segDuration = totalDur / mp.length
 
-    // Adjust audio to match total duration
+    // ---- Audio ----
     const adjAudio = path.join(wd, 'ta.mp3')
     try {
       const origDur = await run(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${ap}"`, 10000)
       const audioDur = parseFloat(origDur.trim()) || 0
       if (audioDur > totalDur) {
-        // Trim audio
         await run(`ffmpeg -y -i "${ap}" -t ${totalDur} -c copy "${adjAudio}"`, 30000)
       } else if (audioDur > 0 && audioDur < totalDur) {
-        // Pad with silence
         const padFile = path.join(wd, 'silence.mp3')
         await run(`ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t ${(totalDur - audioDur).toFixed(1)} "${padFile}"`, 10000)
         await run(`ffmpeg -y -i "${ap}" -i "${padFile}" -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" -ac 1 "${adjAudio}"`, 30000)
       } else {
-        // Fallback: just copy
         await run(`cp "${ap}" "${adjAudio}"`, 5000)
       }
     } catch {
       await run(`cp "${ap}" "${adjAudio}"`, 5000)
     }
 
-    // Subtitles
+    // ---- Subtitles ----
     const ln = text.split('\n').filter(Boolean)
     const perLineTime = totalDur / Math.max(ln.length, 1)
     const ft = (t: number) => { const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = Math.floor(t % 60), ms = Math.floor((t % 1) * 1000); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}` }
@@ -81,33 +90,56 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
     fs.writeFileSync(sp, ln.map((l, i) => { const st = i * perLineTime, et = Math.min((i + 1) * perLineTime, totalDur); return `${i + 1}\n${ft(st)} --> ${ft(et)}\n${l}\n\n` }).join(''))
     task.progress = 30
 
-    // Encode segments
+    // ---- Encode segments with Ken Burns (images) or loop (videos) ----
     for (let b = 0; b < mp.length; b += 2) {
       await Promise.all(mp.slice(b, b + 2).map(async (src, bi) => {
-        const c = path.join(wd, `c${b + bi}.mp4`)
-        await run(`nice -n 19 ffmpeg -y -i "${src}" -vf "scale=${W}:${H}:force_original_aspect_ratio=1,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segDuration.toFixed(2)} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${c}"`, 60000)
+        const idx = b + bi
+        const out = path.join(wd, `c${idx}.mp4`)
+        const isVideo = isVideoFile(src)
+
+        if (isVideo) {
+          // Video: loop if shorter than segment duration
+          const srcDur = getDuration(src)
+          if (srcDur >= segDuration) {
+            // Just trim
+            await run(`nice -n 19 ffmpeg -y -i "${src}" -vf "${sf}" -t ${segDuration.toFixed(2)} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, 60000)
+          } else {
+            // Loop to fill
+            await run(`nice -n 19 ffmpeg -y -stream_loop -1 -i "${src}" -vf "${sf}" -t ${segDuration.toFixed(2)} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, 60000)
+          }
+        } else {
+          // Image: Ken Burns zoompan effect
+          const zoom = `zoompan=z='if(lte(zoom,1.0),1.1,max(1.1,zoom-0.002))':d=${Math.round(segDuration * 25)}:s=${W}x${H}:fps=25,fade=t=in:st=0:d=0.5`
+          await run(`nice -n 19 ffmpeg -y -i "${src}" -vf "${sf},${zoom}" -t ${segDuration.toFixed(2)} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, 60000)
+        }
       }))
       task.progress = 30 + Math.round((b + 2) / mp.length * 30)
     }
 
-    // Concat
-    const ct = path.join(wd, 'c.txt')
-    fs.writeFileSync(ct, mp.map((_, i) => `file '${wd}/c${i}.mp4'`).join('\n'))
-    const mv = path.join(wd, 'm.mp4')
-    await run(`ffmpeg -y -f concat -safe 0 -i "${ct}" -c copy "${mv}"`, 120000)
-    task.progress = 70
+    // ---- xfade transitions between segments ----
+    let prevFile = path.join(wd, 'c0.mp4')
+    for (let i = 1; i < mp.length; i++) {
+      const currFile = path.join(wd, `c${i}.mp4`)
+      const mergedFile = path.join(wd, `m${i}.mp4`)
+      // xfade: transition starts segDuration-1s into prev, lasts 1s
+      const offset = Math.max(0, segDuration - 1)
+      await run(`ffmpeg -y -i "${prevFile}" -i "${currFile}" -filter_complex "xfade=transition=fade:duration=1:offset=${offset.toFixed(1)}" -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${mergedFile}"`, 120000)
+      prevFile = mergedFile
+    }
+    const mv = prevFile // Final merged video (last m file or c0 if only 1)
 
-    // Mix BGM
+    // ---- Mix BGM ----
     let ai = adjAudio
     if (bgp) {
       const mx = path.join(wd, 'x.mp3')
       await run(`ffmpeg -y -i "${adjAudio}" -i "${bgp}" -filter_complex "[0:a]volume=1[a1];[1:a]volume=0.25[a2];[a1][a2]amix=inputs=2:duration=first" -ac 2 "${mx}"`, 30000)
       ai = mx
     }
+    task.progress = 85
 
-    // Burn subtitles
+    // ---- Burn subtitles ----
     const op = path.join('/root/AiMarketing/public/generated', `${task.id}.mp4`)
-    await run(`ffmpeg -y -i "${mv}" -i "${ai}" -vf "subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2'" -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} -threads 2 "${op}"`, 180000)
+    await run(`ffmpeg -y -i "${mv}" -i "${ai}" -vf "subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2,MarginV=40'" -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} -threads 2 "${op}"`, 180000)
     task.progress = 100
     task.status = 'completed'
     task.videoUrl = `/api/video/get?id=${task.id}.mp4`
