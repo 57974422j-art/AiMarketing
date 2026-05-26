@@ -48,7 +48,7 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
     const d = await r.json()
     if (!d.audioUrl) throw new Error('TTS失败')
     const ap = path.join(wd, 't.mp3')
-    await run(`curl -s -o "${ap}" "${d.audioUrl}"`, 30000)
+    await run(`curl -s -o "${ap}" "http://localhost:3000${d.audioUrl}"`, 30000)
     task.progress = 20
 
     // 音频时长
