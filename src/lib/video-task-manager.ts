@@ -34,17 +34,17 @@ function getDuration(file: string): number {
   } catch { return 0 }
 }
 
-export function startTask(taskId: string, workDir: string, mediaPaths: string[], text: string, voice: string, ratio: string, resolution: string, subtitleSize: number, bgmPath: string, duration: number) {
+export function startTask(taskId: string, workDir: string, mediaPaths: string[], text: string, voice: string, ratio: string, resolution: string, subtitleSize: number, bgmPath: string, duration: number, showSubs: boolean = true) {
   const task: VideoTask = { id: taskId, status: 'processing', progress: 0 }
   tasks.set(taskId, task)
-  runTask(task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize, bgmPath, duration).catch(e => {
+  runTask(task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize, bgmPath, duration, showSubs).catch(e => {
     task.status = 'failed'
     task.error = e.message
   })
   return task
 }
 
-async function runTask(task: VideoTask, wd: string, mp: string[], text: string, voice: string, ratio: string, res: string, fs2: number, bgp: string, dur: number) {
+async function runTask(task: VideoTask, wd: string, mp: string[], text: string, voice: string, ratio: string, res: string, fs2: number, bgp: string, dur: number, showSubs: boolean = true) {
   try {
     const dim = { '16:9': { w: 1920, h: 1080 }, '9:16': { w: 1080, h: 1920 }, '1:1': { w: 1080, h: 1080 }, '4:3': { w: 1440, h: 1080 } }[ratio] || { w: 1920, h: 1080 }
     const sc = res === '720p' ? 0.5 : 1
@@ -161,7 +161,11 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
 
     // ---- Burn subtitles ----
     const op = path.join('/root/AiMarketing/public/generated', `${task.id}.mp4`)
-    await run(`ffmpeg -y -i "${mv}" -i "${ai}" -vf "subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2,MarginV=40'" -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} -threads 2 "${op}"`, 180000)
+    if (showSubs) {
+      await run(`ffmpeg -y -i "${mv}" -i "${ai}" -vf "subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2,MarginV=40'" -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} -threads 2 "${op}"`, 180000)
+    } else {
+      await run(`ffmpeg -y -i "${mv}" -i "${ai}" -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} -threads 2 "${op}"`, 180000)
+    }
     task.progress = 100
     task.status = 'completed'
     task.videoUrl = `/api/video/get?id=${task.id}.mp4`

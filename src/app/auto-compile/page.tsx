@@ -10,6 +10,7 @@ export default function AutoCompilePage() {
   const [ratio, setRatio] = useState('16:9')
   const [resolution, setResolution] = useState('1080p')
   const [duration, setDuration] = useState(30)
+  const [showSubs, setShowSubs] = useState(true)
   const [subtitleSize, setSubtitleSize] = useState(36)
   const [bgm, setBgm] = useState<{name:string;url:string;custom?:boolean} | null>(null)
   const [bgmFile, setBgmFile] = useState<File | null>(null)
@@ -35,7 +36,7 @@ export default function AutoCompilePage() {
   const bgmRef = useRef<HTMLInputElement>(null)
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'))
+    const files = Array.from(e.target.files || [])
     setImages(prev => [...prev, ...files].slice(0, 20))
   }
   const removeFile = (i: number) => setImages(prev => prev.filter((_, idx) => idx !== i))
@@ -71,6 +72,7 @@ export default function AutoCompilePage() {
       fd.append('text', text); fd.append('voice', voice)
       fd.append('duration', String(duration))
       fd.append('ratio', ratio); fd.append('resolution', resolution); fd.append('subtitleSize', String(subtitleSize))
+      fd.append('showSubs', String(showSubs))
       if (bgmFile) fd.append('bgm', bgmFile)
       else if (bgm?.url) fd.append('bgmUrl', bgm.url)
       if (mode === 'free') images.forEach(img => fd.append('media', img))

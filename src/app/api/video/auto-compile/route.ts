@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
     const resolution = (f.get('resolution') as string) || '1080p'
     const subtitleSize = parseInt((f.get('subtitleSize') as string) || '36')
     const duration = parseInt((f.get('duration') as string) || '30')
+    const showSubs = (f.get('showSubs') as string) !== 'false'
 
     if (!text) return NextResponse.json({ success: false, message: '缺少文案' }, { status: 400 })
     dir()
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 启动异步任务（立即返回，不阻塞）
-    startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration)
+    startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs)
     return NextResponse.json({ success: true, data: { taskId } })
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message })
