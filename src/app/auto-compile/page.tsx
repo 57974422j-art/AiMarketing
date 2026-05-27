@@ -131,7 +131,7 @@ export default function AutoCompilePage() {
             <div className="card-glass p-4">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs text-gray-400">文案</label>
-                <button onClick={()=>{const d=genIndustry;if(!genIndustry)return;fetch('/api/generate-script',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({industry:d,style:'',duration:duration})}).then(r=>r.json()).then(r=>{if(r.success)setText(r.data.script);else showToast(r.error||'生成失败','error')})}} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">
+                <button onClick={()=>{const inp=prompt('请输入行业描述（如：餐饮、旅游）');if(!inp||!inp.trim())return;fetch('/api/generate-script',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({industry:inp.trim(),style:'',duration:duration})}).then(r=>r.json()).then(r=>{if(r.success)setText(r.data.script);else showToast(r.error||'生成失败','error')})}} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">
                   ✨ AI 生成
                 </button>
               </div>
