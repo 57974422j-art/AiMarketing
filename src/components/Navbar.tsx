@@ -77,7 +77,7 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
-            <Link href="/storage" className="text-mono text-xl font-bold tracking-wider">
+            <Link href="/" className="text-mono text-xl font-bold tracking-wider">
               <span className="text-emerald-400">AI</span>
               <span className="text-white">MARKETING</span>
             </Link>
@@ -85,7 +85,7 @@ export default function Navbar() {
           </div>
 
           <div className="hidden md:flex items-center space-x-1">
-            <Link href="/projects" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
+            <Link href="/storage" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">
               📁 仓库
             </Link>
             <Link href="/ai-tools" className="px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-all text-sm font-medium">
@@ -121,7 +121,7 @@ export default function Navbar() {
                     <p className="text-sm text-white">{user?.username?.toUpperCase()}</p>
                     <p className="text-xs text-emerald-400 mt-1">{roleInfo}</p>
                   </div>
-                  <Link href="/projects" className="block px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">
+                  <Link href="/storage" className="block px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">
                     {t.projects.title}
                   </Link>
                   {(user?.role === 'admin' || user?.role === 'editor') && (
