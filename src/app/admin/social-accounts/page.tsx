@@ -80,7 +80,7 @@ export default function SocialAccountsPage() {
 
   const handleUnbind = async (id: number) => {
     try {
-      const r = await fetch('/api/accounts', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, deviceId: 'local' }) })
+      const r = await fetch('/api/accounts', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, deviceId: '' }) })
       if (r.ok) { showToast('已解绑', 'success'); load() }
       else { const d = await r.json(); showToast(d.message || '解绑失败', 'error') }
     } catch { showToast('解绑失败', 'error') }
