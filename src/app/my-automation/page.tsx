@@ -71,7 +71,7 @@ export default function MyAutomationPage() {
     if (!user) return
     fetch('/api/accounts', { credentials: 'include' }).then(r => r.json()).then(d => {
       const list = Array.isArray(d) ? d : d.data || []
-      const myDevices = list.filter((a: any) => a.platform === 'local-device' && a.isBound && a.accountId).map((a: any) => ({ serial: a.accountId, name: a.accountName }))
+      const myDevices = list.filter((a: any) => a.isBound && a.accountId).map((a: any) => ({ serial: a.accountId, name: a.accountName }))
       setDevices(myDevices)
       if (myDevices.length > 0) setSelectedDevice(myDevices[0].serial)
     }).catch(() => {})
