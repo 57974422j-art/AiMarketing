@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     }
 
     const device = await prisma.account.findFirst({
-      where: { userId: auth.userId, accountId: deviceSerial, isBound: true },
+      where: { userId: auth.userId, accountId: deviceSerial },
     })
     if (!device) return NextResponse.json({ success: false, message: '设备未绑定' }, { status: 403 })
 
