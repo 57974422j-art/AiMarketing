@@ -169,7 +169,7 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
         } else {
           let vf = sf
           if (cf) vf = vf + ',' + cf
-          await run(`nice -n 19 ffmpeg -y -framerate 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, 60000)
+          await run(`nice -n 19 ffmpeg -y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, 60000)
         }
       }))
       console.log(`[合成] 片段编码 batch=${b+2}/${mp.length} task=${task.id}`)
