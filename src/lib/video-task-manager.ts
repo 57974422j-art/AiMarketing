@@ -178,9 +178,9 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
     const mv = path.join(wd, 'm.mp4')
     await run(`ffmpeg -y -f concat -safe 0 -i "${ct}" -c copy "${mv}"`, 120000)
 
-    // ---- Mix BGM with format conversion ----
+    // ---- BGM (skip if fails) ----
     let ai = adjAudio
-    if (bgp) {
+    if (bgp && fs.existsSync(bgp) && fs.statSync(bgp).size > 1000) {
       const bgpNorm = path.join(wd, 'b_norm.mp3')
       try {
         // Convert BGM to standardized format first
@@ -189,7 +189,8 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
         await run(`ffmpeg -y -i "${adjAudio}" -i "${bgpNorm}" -filter_complex "[0:a]volume=1[a1];[1:a]volume=0.25[a2];[a1][a2]amix=inputs=2:duration=first" -ac 2 "${mx}"`, 30000)
         ai = mx
       } catch (e) {
-        console.error('[BGM] mix failed, using TTS only:', (e as any).message?.slice(0, 100))
+        console.error('[BGM] mix failed, skip:', (e as any).message?.slice(0, 100))
+        ai = adjAudio
       }
     }
     task.progress = 85
