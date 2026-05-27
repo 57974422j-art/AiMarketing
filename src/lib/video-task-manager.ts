@@ -184,50 +184,26 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
     await run(`ffmpeg -y -f concat -safe 0 -i "${ct}" -c copy "${mv}"`, 120000)
     console.log(`[合成] 合并完成 task=${task.id}`)
 
-    // ---- BGM (skip if fails) ----
+    // ---- BGM (loop if short) ----
     let ai = adjAudio
     if (bgp && fs.existsSync(bgp) && fs.statSync(bgp).size > 1000) {
       const bgpNorm = path.join(wd, 'b_norm.mp3')
+      const bgpLoop = path.join(wd, 'b_loop.mp3')
       try {
-        // Convert BGM to standardized format first
         await run(`ffmpeg -y -i "${bgp}" -ac 2 -ar 44100 -b:a 128k "${bgpNorm}"`, 30000)
+        let bgmSrc = bgpNorm
+        try {
+          const durOut = await run(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${bgpNorm}"`, 10000)
+          if (parseFloat(durOut.trim()) || 0 < totalDur) {
+            await run(`ffmpeg -y -stream_loop -1 -i "${bgpNorm}" -t ${totalDur} -c copy "${bgpLoop}"`, 30000)
+            bgmSrc = bgpLoop
+          }
+        } catch {}
         const mx = path.join(wd, 'x.mp3')
-        await run(`ffmpeg -y -i "${adjAudio}" -i "${bgpNorm}" -filter_complex "[0:a]volume=1[a1];[1:a]volume=0.25[a2];[a1][a2]amix=inputs=2:duration=first" -ac 2 "${mx}"`, 30000)
+        await run(`ffmpeg -y -i "${adjAudio}" -i "${bgmSrc}" -filter_complex "[0:a]volume=1[a1];[1:a]volume=0.25[a2];[a1][a2]amix=inputs=2:duration=first" -ac 2 "${mx}"`, 30000)
         ai = mx
       } catch (e) {
         console.log(`[合成] BGM跳过 task=${task.id}`)
-      console.error('[BGM] mix failed, skip:', (e as any).message?.slice(0, 100))
+        console.error('[BGM] mix failed, skip:', (e as any).message?.slice(0, 100))
         ai = adjAudio
       }
-    }
-    task.progress = 85
-
-    // ---- Build final vf ----
-    let finalVf = ''
-    if (showSubs) finalVf = `subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2,MarginV=40'`
-    if (stickerText) {
-      const pos = posXY(stickerPos, W, H, 28)
-      finalVf = finalVf ? finalVf + `,drawtext=text='${stickerText.slice(0, 12)}':fontsize=28:fontcolor=white:${pos}:shadowx=2:shadowy=2:shadowcolor=black@0.5` : `drawtext=text='${stickerText.slice(0, 12)}':fontsize=28:fontcolor=white:${pos}:shadowx=2:shadowy=2:shadowcolor=black@0.5`
-    }
-    if (titleText) {
-      const title = `drawtext=text='${titleText.slice(0, 20)}':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:shadowx=2:shadowy=2:shadowcolor=black@0.6:enable='between(t,0,3)'`
-      finalVf = finalVf ? finalVf + ',' + title : title
-    }
-
-    // ---- Final ----
-    const op = path.join('/root/AiMarketing/public/generated', `${task.id}.mp4`)
-    const vfArg = finalVf ? `-vf "${finalVf}"` : ''
-    console.log(`[合成] 最终渲染 task=${task.id} 时长=${totalDur}s`)
-    await run(`ffmpeg -y -i "${mv}" -i "${ai}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} -threads 2 "${op}"`, 300000)
-    console.log(`[合成] 渲染完成 task=${task.id}`)
-    task.progress = 100
-    console.log(`[合成] 完成 task=${task.id}`)
-    task.status = 'completed'
-    task.videoUrl = `/api/video/get?id=${task.id}.mp4`
-
-    fs.rmSync(wd, { recursive: true, force: true })
-  } catch (e: any) {
-    task.status = 'failed'
-    task.error = e.message
-  }
-}
