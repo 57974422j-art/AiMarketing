@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { showToast } from '@/components/Toast'
+import { useAuth } from '@/app/providers'
 
 export default function AutoCompilePage() {
   const [mode, setMode] = useState<'free' | 'smart'>('free')
@@ -17,6 +18,11 @@ export default function AutoCompilePage() {
   const [titleText, setTitleText] = useState('')
   const [titleOn, setTitleOn] = useState(false)
   const [colorFilter, setColorFilter] = useState('')
+  const { user } = useAuth()
+  const [showPushDlg, setShowPushDlg] = useState(false)
+  const [clients, setClients] = useState<any[]>([])
+  const [pushClient, setPushClient] = useState<any>(null)
+  const [pushLoading, setPushLoading] = useState(false)
   const [subtitleSize, setSubtitleSize] = useState(36)
   const [bgm, setBgm] = useState<{name:string;url:string;custom?:boolean} | null>(null)
   const [bgmFile, setBgmFile] = useState<File | null>(null)
@@ -203,7 +209,8 @@ export default function AutoCompilePage() {
               </div>
             )}
 
-            {mode === 'smart' && (
+            {showPushDlg && <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={()=>setShowPushDlg(false)}><div className="card-glass p-6 rounded-xl max-w-md w-full mx-4" onClick={e=>e.stopPropagation()}><h3 className="text-sm font-bold text-white mb-4">选择终端客户</h3>{clients.length===0?<p className="text-xs text-gray-500 py-4">暂无终端客户</p>:<div className="max-h-60 overflow-y-auto space-y-2 mb-4">{clients.map(cl=><button key={cl.id} onClick={()=>setPushClient(cl)} className={`w-full text-left p-3 rounded-lg border text-xs transition ${pushClient?.id===cl.id?"bg-emerald-500/20 border-emerald-500/30 text-emerald-400":"bg-white/5 border-white/10 text-gray-300 hover:bg-white/10"`}>{cl.name||cl.username}<span className="text-gray-500 ml-2">(#{cl.id})</span></button>)}</div>}<div className="flex gap-2"><button onClick={()=>{setShowPushDlg(false);setPushClient(null)}} className="flex-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs">取消</button><button disabled={!pushClient||pushLoading} onClick={async()=>{if(!pushClient)return;setPushLoading(true);try{const r=await fetch('/api/video/push-to-account',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:videoUrl.split("id=")[1]||videoUrl,endUserId:pushClient.id,remark:pushClient.name||pushClient.username})});const d=await r.json();if(d.success)showToast(`已推送 ${d.data.pushed}/${d.data.total} 台设备`,'success');else showToast(d.message||'推送失败','error')}catch{}setShowPushDlg(false);setPushClient(null);setPushLoading(false)}} className={`flex-1 py-2 rounded-lg text-xs ${pushClient?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-500"`}>{pushLoading?'推送中...':'确认推送'}</button></div></div></div>}
+          {mode === 'smart' && (
               <div className="card-glass p-4">
                 <label className="text-xs text-gray-400 mb-2 block">自动搜图 {Object.keys(selectedImages).length > 0 && <span className="text-emerald-400 ml-2">✅ {Object.keys(selectedImages).length} 张</span>}</label>
                 <button onClick={handleAutoSearch} disabled={searching||!text.trim()}
@@ -246,7 +253,8 @@ export default function AutoCompilePage() {
 
           <div className="card-glass p-4 h-fit sticky top-4">
             <label className="text-xs text-gray-400 mb-2 block">预览</label>
-            {videoUrl ? (<div><video src={videoUrl} controls className="w-full rounded-xl" /><div className="flex gap-2 mt-3"><a href={videoUrl} download className="flex-1 block text-center py-2 bg-white/5 text-gray-400 border border-white/10 rounded-lg hover:bg-white/10 text-xs">⬇ 下载</a><button onClick={()=>saveToStorage(videoUrl)} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 text-xs">📦 保存到仓库</button></div></div>)
+            {videoUrl ? (<div><video src={videoUrl} controls className="w-full rounded-xl" /><div className="flex gap-2 mt-3"><a href={videoUrl} download className="flex-1 block text-center py-2 bg-white/5 text-gray-400 border border-white/10 rounded-lg hover:bg-white/10 text-xs">⬇ 下载</a><button onClick={()=>saveToStorage(videoUrl)} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 text-xs">📦 保存到仓库</button>
+            {user?.role !== 'end-user' && <button onClick={()=>{fetch('/api/clients').then(r=>r.json()).then(d=>{if(d.success){setClients(d.data);setShowPushDlg(true)}}).catch(()=>showToast('获取客户列表失败','error'))}} className="flex-1 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 text-xs">📤 推送到账号</button>}</div></div>)
               : <div className="aspect-video bg-white/5 rounded-xl flex items-center justify-center text-gray-600 text-xs">{processing?'⏳ 合成中...':'预览区'}</div>}
           </div>
         </div>
