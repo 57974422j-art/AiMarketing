@@ -90,7 +90,7 @@ export default function MyAutomationPage() {
           platform: PLATFORM_KEY[platform],
           action,
           keywords: keywordsText.split('\n').filter(Boolean),
-          videoUrl: selectedVideo?.name ? '/api/storage/file?userId=' + stUserId + '&name=' + encodeURIComponent(selectedVideo.name) : '',
+          videoUrl: selectedVideo?.videoUrl || '',
           title: publishTitle,
           hook: publishHook,
         }),
