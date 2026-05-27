@@ -138,19 +138,11 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
       task.progress = 30 + Math.round((b + 2) / mp.length * 30)
     }
 
-    // ---- xfade transitions between segments ----
-    let prevFile = path.join(wd, 'c0.mp4')
-    for (let i = 1; i < mp.length; i++) {
-      const currFile = path.join(wd, `c${i}.mp4`)
-      const mergedFile = path.join(wd, `m${i}.mp4`)
-      // xfade: transition starts segDuration-1s into prev, lasts 1s
-      const offset = Math.max(0, segDuration - 1)
-      await run(`ffmpeg -y -i "${prevFile}" -i "${currFile}" -filter_complex "xfade=transition=fade:duration=1:offset=${offset.toFixed(1)}" -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${mergedFile}"`, 120000)
-      prevFile = mergedFile
-    }
-    const mv = prevFile // Final merged video (last m file or c0 if only 1)
-
-    // ---- Mix BGM ----
+    // ---- Concat all segments ----
+    const ct = path.join(wd, 'c.txt')
+    fs.writeFileSync(ct, mp.map((_, i) => `file '${wd}/c${i}.mp4'`).join('\n'))
+    const mv = path.join(wd, 'm.mp4')
+    await run(`ffmpeg -y -f concat -safe 0 -i "${ct}" -c copy "${mv}"`, 120000)// ---- Mix BGM ----
     let ai = adjAudio
     if (bgp) {
       const mx = path.join(wd, 'x.mp3')
