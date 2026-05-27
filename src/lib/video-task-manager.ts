@@ -47,7 +47,7 @@ function getDuration(file: string): number {
 
 function getVideoSize(file: string): { w: number; h: number } | null {
   try {
-    const out = execSync(`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${file}"`, { timeout: 10000, encoding: 'utf8' })
+    const out = execSync(`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s:x=p:0 "${file}"`, { timeout: 10000, encoding: 'utf8' })
     const [w, h] = out.trim().split('x').map(Number)
     if (w && h) return { w, h }
   } catch {}
@@ -67,11 +67,9 @@ function posXY(pos: string, W: number, H: number, fontSize: number): string {
 export function startTask(taskId: string, workDir: string, mediaPaths: string[], text: string, voice: string, ratio: string, resolution: string, subtitleSize: number, bgmPath: string, duration: number, showSubs: boolean = true, stickerText: string = '', stickerPos: string = 'tl', titleText: string = '', colorFilter: string = '') {
   const task: VideoTask = { id: taskId, status: 'queued', progress: 0 }
   tasks.set(taskId, task)
-
   const runFn = () => runTask(task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize, bgmPath, duration, showSubs, stickerText, stickerPos, titleText, colorFilter)
   const onDone = () => {}
-  const onError = (e: any) => { task.status = 'failed'; task.error = e.message; console.error(`[合成] 失败 task=${task.id}`, e.message.slice(0, 300)) }
-
+  const onError = (e: any) => { task.status = 'failed'; task.error = e.message }
   taskQueue.push({ fn: runFn, onDone, onError })
   processQueue()
   return task
@@ -85,7 +83,6 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
     const sc = res === '720p' ? 0.5 : 1
     const W = Math.round(dim.w * sc), H = Math.round(dim.h * sc)
     const sf = `scale=${W}:${H}:force_original_aspect_ratio=1,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`
-
     const cfMap: Record<string, string> = { warm: 'colorchannelmixer=rr=1.2:rg=0.1:rb=0.1', cool: 'colorchannelmixer=rr=0.8:gg=1.2:bb=1.2', bw: 'colorchannelmixer=.3:.6:.1:0:.3:.6:.1:0:.3:.6:.1:0' }
     const cf = cfMap[colorFilter] || ''
 
@@ -194,7 +191,7 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
         let bgmSrc = bgpNorm
         try {
           const durOut = await run(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${bgpNorm}"`, 10000)
-          if (parseFloat(durOut.trim()) || 0 < totalDur) {
+          if ((parseFloat(durOut.trim()) || 0) < totalDur) {
             await run(`ffmpeg -y -stream_loop -1 -i "${bgpNorm}" -t ${totalDur} -c copy "${bgpLoop}"`, 30000)
             bgmSrc = bgpLoop
           }
@@ -207,3 +204,36 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
         console.error('[BGM] mix failed, skip:', (e as any).message?.slice(0, 100))
         ai = adjAudio
       }
+    }
+
+    task.progress = 85
+
+    // ---- Build final vf ----
+    let finalVf = ''
+    if (showSubs) finalVf = `subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2,MarginV=40'`
+    if (stickerText) {
+      const pos = posXY(stickerPos, W, H, 28)
+      finalVf = finalVf ? finalVf + `,drawtext=text='${stickerText.slice(0, 12)}':fontsize=28:fontcolor=white:${pos}:shadowx=2:shadowy=2:shadowcolor=black@0.5` : `drawtext=text='${stickerText.slice(0, 12)}':fontsize=28:fontcolor=white:${pos}:shadowx=2:shadowy=2:shadowcolor=black@0.5`
+    }
+    if (titleText) {
+      const title = `drawtext=text='${titleText.slice(0, 20)}':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:shadowx=2:shadowy=2:shadowcolor=black@0.6:enable='between(t,0,3)'`
+      finalVf = finalVf ? finalVf + ',' + title : title
+    }
+
+    // ---- Final ----
+    const op = path.join('/root/AiMarketing/public/generated', `${task.id}.mp4`)
+    const vfArg = finalVf ? `-vf "${finalVf}"` : ''
+    console.log(`[合成] 最终渲染 task=${task.id} 时长=${totalDur}s`)
+    await run(`ffmpeg -y -i "${mv}" -i "${ai}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} -threads 2 "${op}"`, 300000)
+    console.log(`[合成] 渲染完成 task=${task.id}`)
+    task.progress = 100
+    console.log(`[合成] 完成 task=${task.id}`)
+    task.status = 'completed'
+    task.videoUrl = `/api/video/get?id=${task.id}.mp4`
+
+    fs.rmSync(wd, { recursive: true, force: true })
+  } catch (e: any) {
+    task.status = 'failed'; task.error = e.message
+    console.error(`[合成] 失败 task=${task.id}`, e.message.slice(0, 300))
+  }
+}
