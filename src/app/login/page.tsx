@@ -30,7 +30,7 @@ export default function LoginPage() {
 
       if (data.success) {
         setTimeout(() => {
-          window.location.href = '/projects';
+          window.location.href = '/ai-tools';
         }, 100);
       } else {
         setError(data.message || t.auth.loginSuccess);
