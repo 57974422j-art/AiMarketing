@@ -25,28 +25,28 @@ const ACTIONS = [
 function VideoSelector({ deviceSerial, selected, onSelect }: { deviceSerial: string; selected: any; onSelect: (v: any) => void }) {
   const [videos, setVideos] = useState<any[]>([])
   useEffect(() => {
-    fetch('/api/media-library?source=private', { credentials: 'include' }).then(r => r.json()).then(d => {
-      setVideos(Array.isArray(d?.data) ? d.data : [])
+    fetch('/api/storage/files', { credentials: 'include' }).then(r => r.json()).then(d => {
+      setVideos(d?.success ? d.data.files : [])
     }).catch(() => {})
   }, [])
 
   return (
     <div className="card-glass p-4 mb-4">
-      <label className="text-xs text-gray-400 mb-2 block">选择视频</label>
+      <label className="text-xs text-gray-400 mb-2 block">从仓库选择视频</label>
       {videos.length === 0 ? (
-        <p className="text-xs text-gray-500 text-center py-3">媒体库暂无视频，先在AI工具生成视频后保存</p>
+        <p className="text-xs text-gray-500 text-center py-3">仓库暂无视频，先在AI工具生成视频后保存</p>
       ) : (
         <div className="grid grid-cols-3 gap-2 mb-3">
           {videos.map((v: any) => (
-            <button key={v.id} onClick={() => onSelect(v)}
-              className={`p-2 rounded-xl border text-xs text-center transition ${selected?.id === v.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
-              <p className="truncate">{v.title || '未命名'}</p>
-              <p className="text-[10px] text-gray-600">{v.category}</p>
+            <button key={v.name} onClick={() => onSelect(v)}
+              className={`p-2 rounded-xl border text-xs text-center transition ${selected?.name === v.name ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
+              <p className="truncate">{v.name}</p>
+              <p className="text-[10px] text-gray-600">{(v.size / 1024 / 1024).toFixed(1) + 'MB'}</p>
             </button>
           ))}
         </div>
       )}
-      {selected && <p className="text-[10px] text-gray-500 mt-1">已选: {selected.title}</p>}
+      {selected && <p className="text-[10px] text-gray-500 mt-1">已选: {selected.name}</p>}
     </div>
   )
 }
