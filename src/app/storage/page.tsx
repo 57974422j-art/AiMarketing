@@ -7,6 +7,7 @@ interface Quota { used: number; total: number }
 
 export default function StoragePage() {
   const [files, setFiles] = useState<FileInfo[]>([])
+  const [userId, setUserId] = useState<string>('')
   const [quota, setQuota] = useState<Quota>({ used: 0, total: 500 * 1024 * 1024 })
   const [loading, setLoading] = useState(true)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -77,7 +78,7 @@ export default function StoragePage() {
                 <div className="aspect-video bg-white/5 rounded mb-1 flex items-center justify-center text-gray-600 text-[10px]">
                   {f.name.endsWith('.mp4') ? '🎬' : '🖼️'}
                 </div>
-                <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={()=>{const u="/api/storage/file?name="+encodeURIComponent(f.name);window.open(u,'_blank')}}>{f.name}</p>
+                <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={()=>{const u="/api/storage/file?userId="+userId+"&name="+encodeURIComponent(f.name);window.open(u,'_blank')}}>{f.name}</p>
                 <p className="text-[9px] text-gray-500">{fmt(f.size)}</p>
                 <button onClick={() => del(f.name)} className="absolute top-1 right-1 w-5 h-5 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition">×</button>
               </div>
