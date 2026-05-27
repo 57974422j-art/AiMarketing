@@ -11,29 +11,14 @@ interface AccountItem {
   device: { id: number; name: string } | null; createdAt: string
 }
 
-const PLATFORM_ICON: Record<string, string> = {
-  douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺',
-}
-const PLATFORM_LABEL: Record<string, string> = {
-  douyin: '抖音', kuaishou: '快手', xiaohongshu: '小红书', shipinhao: '视频号', weibo: '微博', bilibili: 'B站',
-}
+const PLATFORM_ICON: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
+const PLATFORM_LABEL: Record<string, string> = { douyin: '抖音', kuaishou: '快手', xiaohongshu: '小红书', shipinhao: '视频号', weibo: '微博', bilibili: 'B站' }
+const BIND_TYPE_LABEL: Record<string, string> = { device: 'Q1 群控', imai: 'IMAI WORK', official: '官方API' }
+const BIND_TYPE_COLOR: Record<string, string> = { device: 'bg-blue-500/20 text-blue-400 border-blue-500/30', imai: 'bg-purple-500/20 text-purple-400 border-purple-500/30', official: 'bg-orange-500/20 text-orange-400 border-orange-500/30' }
+const STATUS_COLOR: Record<string, string> = { '未绑定': 'bg-gray-500/20 text-gray-400 border-gray-500/30', '已绑定': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', '登录异常': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', '已封禁': 'bg-red-500/20 text-red-400 border-red-500/30' }
 
-const BIND_TYPE_LABEL: Record<string, string> = {
-  device: 'Q1 群控',
-  imai: 'IMAI WORK',
-  official: '官方API',
-}
-const BIND_TYPE_COLOR: Record<string, string> = {
-  device: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  imai: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-  official: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-}
-const STATUS_COLOR: Record<string, string> = {
-  '未绑定': 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-  '已绑定': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-  '登录异常': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  '已封禁': 'bg-red-500/20 text-red-400 border-red-500/30',
-}
+function NoAccess() { return <div className="bg-gray-950 p-4 text-gray-400 text-sm">无权访问</div> }
+function Loading() { return <div className="bg-gray-950 p-4 text-gray-400 text-sm">加载中...</div> }
 
 export default function SocialAccountsPage() {
   const { user, loading: authLoading } = useAuth()
@@ -42,18 +27,15 @@ export default function SocialAccountsPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
 
-  // 新建账号
   const [showCreate, setShowCreate] = useState(false)
   const [createForm, setCreateForm] = useState({ accountName: '', platform: 'douyin', accountId: '', bindType: 'device', password: '', mobile: '', remark: '' })
   const [createLoading, setCreateLoading] = useState(false)
 
-  // 绑定弹窗
   const [bindId, setBindId] = useState<number | null>(null)
   const [bindDeviceId, setBindDeviceId] = useState('')
   const [bindAdbSerial, setBindAdbSerial] = useState('')
   const [binding, setBinding] = useState(false)
 
-  // 展开状态: Set<`editor_${id}`|`user_${id}`>
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   useEffect(() => {
@@ -76,69 +58,62 @@ export default function SocialAccountsPage() {
     if (!createForm.accountName.trim()) { showToast('请输入账号名', 'error'); return }
     setCreateLoading(true)
     try {
-      const r = await fetch('/api/accounts', {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(createForm),
-      })
+      const r = await fetch('/api/accounts', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(createForm) })
       if (r.ok) { showToast('账号已创建'); setShowCreate(false); load() }
       else { const d = await r.json(); showToast(d.message || '创建失败', 'error') }
     } catch { showToast('创建失败', 'error') } finally { setCreateLoading(false) }
   }
 
   const handleBind = async () => {
-    // 本地设备只需序列号，Q1设备需选设备
     const isLocal = bindDeviceId === 'local'
     if (!bindId || (!bindDeviceId && !bindAdbSerial)) { showToast('请选择设备或输入ADB序列号', 'error'); return }
     setBinding(true)
     try {
       const body: any = { id: bindId }
-      if (isLocal) {
-        body.deviceId = 'local'
-        body.remark = `adb:${bindAdbSerial}`
-      } else if (bindDeviceId) {
-        body.deviceId = parseInt(bindDeviceId)
-      }
+      if (isLocal) { body.deviceId = 'local'; body.remark = `adb:${bindAdbSerial}` }
+      else if (bindDeviceId) { body.deviceId = parseInt(bindDeviceId) }
       const r = await fetch('/api/accounts', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (r.ok) { showToast('绑定成功', 'success'); setBindId(null); setBindDeviceId(''); load() }
       else { const d = await r.json(); showToast(d.message || '失败', 'error') }
     } catch { showToast('绑定失败', 'error') } finally { setBinding(false) }
   }
 
+  const handleUnbind = async (id: number) => {
+    try {
+      const r = await fetch('/api/accounts', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, deviceId: 'local' }) })
+      if (r.ok) { showToast('已解绑', 'success'); load() }
+      else { const d = await r.json(); showToast(d.message || '解绑失败', 'error') }
+    } catch { showToast('解绑失败', 'error') }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('确认删除此账号？')) return
+    try {
+      const r = await fetch('/api/accounts?id=' + id, { method: 'DELETE', credentials: 'include' })
+      if (r.ok) { showToast('已删除', 'success'); load() }
+      else showToast('删除失败', 'error')
+    } catch { showToast('删除失败', 'error') }
+  }
+
   const toggle = (key: string) => {
     setExpanded(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
   }
 
-  // 搜索过滤
   const filtered = useMemo(() => {
     if (!search.trim()) return accounts
     const s = search.toLowerCase()
-    return accounts.filter(a =>
-      a.accountName.toLowerCase().includes(s) ||
-      a.user?.username?.toLowerCase().includes(s) ||
-      a.platform.toLowerCase().includes(s) ||
-      a.mobile.includes(s)
-    )
+    return accounts.filter(a => a.accountName.toLowerCase().includes(s) || a.user?.username?.toLowerCase().includes(s) || a.platform.toLowerCase().includes(s) || a.mobile.includes(s))
   }, [accounts, search])
 
-  // admin: 按 editor → user 分组
   const adminGroups = useMemo(() => {
     const map: Record<string, AccountItem[]> = {}
-    filtered.forEach(a => {
-      const editorKey = a.user?.parent?.username || '未归属'
-      if (!map[editorKey]) map[editorKey] = []
-      map[editorKey].push(a)
-    })
+    filtered.forEach(a => { const k = a.user?.parent?.username || '未归属'; if (!map[k]) map[k] = []; map[k].push(a) })
     return Object.entries(map).sort(([a], [b]) => a === '未归属' ? 1 : b === '未归属' ? -1 : a.localeCompare(b))
   }, [filtered])
 
-  // editor: 按 user 分组
   const userGroups = useMemo(() => {
     const map: Record<string, AccountItem[]> = {}
-    filtered.forEach(a => {
-      const key = a.user?.username || '未知'
-      if (!map[key]) map[key] = []
-      map[key].push(a)
-    })
+    filtered.forEach(a => { const k = a.user?.username || '未知'; if (!map[k]) map[k] = []; map[k].push(a) })
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
   }, [filtered])
 
@@ -160,11 +135,9 @@ export default function SocialAccountsPage() {
             </div>
             <button onClick={() => setShowCreate(true)} className="btn-primary text-xs py-2">+ 新建账号</button>
           </div>
-          {/* 搜索 */}
           <input className="input-dark mt-3 w-full max-w-md text-sm" placeholder="🔍 搜索账号名/用户名/手机号..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
 
-        {/* 新建账号弹窗 */}
         {showCreate && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowCreate(false)}>
             <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
@@ -213,7 +186,6 @@ export default function SocialAccountsPage() {
           </div>
         )}
 
-        {/* 绑定弹窗 */}
         {bindId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setBindId(null)}>
             <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
@@ -235,46 +207,30 @@ export default function SocialAccountsPage() {
           </div>
         )}
 
-        {/* ── Admin 视图：Editor → 用户 → 平台 ── */}
         {isAdmin ? (
           <div className="space-y-3">
             {adminGroups.map(([editorName, editorAccounts]) => (
               <div key={editorName} className="card-glass overflow-hidden">
-                {/* Editor 级 */}
                 <button onClick={() => toggle(`editor_${editorName}`)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/5 transition">
                   <div className="flex items-center gap-3">
                     <span className="text-lg">👤</span>
                     <span className="text-white font-semibold">{editorName}</span>
-                    <span className="text-xs text-gray-500">
-                      {editorAccounts.length} 个记录 · {statusCount(editorAccounts, '已绑定')} 已绑定 · {statusCount(editorAccounts, '未绑定')} 待绑
-                    </span>
+                    <span className="text-xs text-gray-500">{editorAccounts.length} 个记录 · {statusCount(editorAccounts, '已绑定')} 已绑定 · {statusCount(editorAccounts, '未绑定')} 待绑</span>
                   </div>
                   <span className={`text-gray-500 transition text-xs ${expanded.has(`editor_${editorName}`) ? 'rotate-180' : ''}`}>▼</span>
                 </button>
-                {/* 用户级 */}
                 {expanded.has(`editor_${editorName}`) && (
                   <div className="border-t border-white/5 px-5 pb-4 pt-2 space-y-1">
-                    {Object.entries(
-                      editorAccounts.reduce<Record<string, AccountItem[]>>((acc, a) => {
-                        const key = a.user?.username || '未知'
-                        if (!acc[key]) acc[key] = []
-                        acc[key].push(a)
-                        return acc
-                      }, {})
-                    ).map(([userName, userAccounts]) => (
+                    {Object.entries(editorAccounts.reduce<Record<string, AccountItem[]>>((acc, a) => { const k = a.user?.username || '未知'; if (!acc[k]) acc[k] = []; acc[k].push(a); return acc }, {})).map(([userName, userAccounts]) => (
                       <div key={userName}>
-                        <button onClick={() => toggle(`user_${editorName}_${userName}`)}
-                          className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/5 rounded-lg transition">
+                        <button onClick={() => toggle(`user_${editorName}_${userName}`)} className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/5 rounded-lg transition">
                           <div className="flex items-center gap-2 text-sm">
                             <span className="text-gray-400">└─</span>
                             <span className="text-gray-300">{userName}</span>
-                            <span className="text-[10px] text-gray-500">
-                              · {userAccounts.length} 平台 · {statusCount(userAccounts, '已绑定')} 已绑
-                            </span>
+                            <span className="text-[10px] text-gray-500">· {userAccounts.length} 平台 · {statusCount(userAccounts, '已绑定')} 已绑</span>
                           </div>
                           <span className={`text-gray-600 text-[10px] transition ${expanded.has(`user_${editorName}_${userName}`) ? 'rotate-180' : ''}`}>▾</span>
                         </button>
-                        {/* 平台级 */}
                         {expanded.has(`user_${editorName}_${userName}`) && (
                           <div className="ml-8 mt-1 space-y-1">
                             {userAccounts.map(a => (
@@ -288,10 +244,12 @@ export default function SocialAccountsPage() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                   {a.device && <span className="text-gray-600">{a.device.name}</span>}
-                                  {a.status !== '已绑定' && (
-                                    <button onClick={() => { setBindId(a.id); setBindDeviceId('') }}
-                                      className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑</button>
+                                  {a.status !== '已绑定' ? (
+                                    <button onClick={() => { setBindId(a.id); setBindDeviceId('') }} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑</button>
+                                  ) : (
+                                    <button onClick={() => handleUnbind(a.id)} className="text-[10px] px-2 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded hover:bg-yellow-500/30">🔓 解绑</button>
                                   )}
+                                  <button onClick={() => handleDelete(a.id)} className="text-[10px] px-2 py-1 bg-red-500/20 text-red-400 border border-red-500/30 rounded hover:bg-red-500/30" title="删除此账号">🗑️</button>
                                 </div>
                               </div>
                             ))}
@@ -303,93 +261,47 @@ export default function SocialAccountsPage() {
                 )}
               </div>
             ))}
-            {adminGroups.length === 0 && <div className="card-glass p-8 text-center text-gray-500">暂无数据</div>}
           </div>
         ) : (
-          /* ── Editor 视图：用户 → 平台 ── */
           <div className="space-y-3">
-            {/* 待绑定区域置顶 */}
-            {filtered.some(a => a.status !== '已绑定') && (
-              <div className="card-glass p-4">
-                <h3 className="text-yellow-400 text-xs font-medium mb-2 flex items-center gap-2">⏳ 待绑定</h3>
-                <div className="space-y-1">
-                  {filtered.filter(a => a.status !== '已绑定').map(a => (
-                    <PlatformRow key={a.id} account={a} devices={devices} onBind={() => { setBindId(a.id); setBindDeviceId('') }} />
-                  ))}
-                </div>
-              </div>
-            )}
-            {/* 已绑定按用户分组折叠 */}
-            <div className="space-y-1">
-              {userGroups.map(([userName, userAccounts]) => {
-                const boundItems = userAccounts.filter(a => a.status === '已绑定')
-                if (boundItems.length === 0) return null
-                return (
-                  <div key={userName} className="card-glass overflow-hidden">
-                    <button onClick={() => toggle(`editor_${userName}`)} className="w-full flex items-center justify-between px-5 py-3 hover:bg-white/5 transition">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-400">👤</span>
-                        <span className="text-white text-sm font-medium">{userName}</span>
-                        <span className="text-[10px] text-gray-500">· {boundItems.length} 平台</span>
-                      </div>
-                      <span className={`text-gray-500 text-xs transition ${expanded.has(`editor_${userName}`) ? 'rotate-180' : ''}`}>▼</span>
-                    </button>
-                    {expanded.has(`editor_${userName}`) && (
-                      <div className="border-t border-white/5 px-5 pb-3 pt-1 space-y-1">
-                        {boundItems.map(a => <PlatformRow key={a.id} account={a} devices={devices} onBind={() => { setBindId(a.id); setBindDeviceId('') }} />)}
-                      </div>
-                    )}
+            {userGroups.map(([userName, userAccounts]) => (
+              <div key={userName} className="card-glass overflow-hidden">
+                <button onClick={() => toggle(`user_${userName}`)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/5 transition">
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg">👤</span>
+                    <span className="text-white font-semibold">{userName}</span>
+                    <span className="text-xs text-gray-500">{userAccounts.length} 个记录 · {statusCount(userAccounts, '已绑定')} 已绑定 · {statusCount(userAccounts, '未绑定')} 待绑</span>
                   </div>
-                )
-              })}
-              {userGroups.length === 0 && <div className="card-glass p-6 text-center text-gray-500 text-sm">暂无已绑定账号</div>}
-            </div>
+                  <span className={`text-gray-500 transition text-xs ${expanded.has(`user_${userName}`) ? 'rotate-180' : ''}`}>▼</span>
+                </button>
+                {expanded.has(`user_${userName}`) && (
+                  <div className="border-t border-white/5 px-5 pb-4 pt-2 space-y-1">
+                    {userAccounts.map(a => (
+                      <div key={a.id} className="flex items-center justify-between px-3 py-2 bg-white/5 rounded-lg text-xs">
+                        <div className="flex items-center gap-2">
+                          <span>{PLATFORM_ICON[a.platform] || '📱'}</span>
+                          <span className="text-white">{PLATFORM_LABEL[a.platform] || a.platform}</span>
+                          <span className="text-gray-400">· {a.accountName}</span>
+                          {a.mobile && <span className="text-gray-600">📱{a.mobile}</span>}
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] border ${STATUS_COLOR[a.status] || 'bg-gray-500/20 text-gray-500'}`}>{a.status}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {a.device && <span className="text-gray-600">{a.device.name}</span>}
+                          {a.status !== '已绑定' ? (
+                            <button onClick={() => { setBindId(a.id); setBindDeviceId('') }} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑</button>
+                          ) : (
+                            <button onClick={() => handleUnbind(a.id)} className="text-[10px] px-2 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded hover:bg-yellow-500/30">🔓 解绑</button>
+                          )}
+                          <button onClick={() => handleDelete(a.id)} className="text-[10px] px-2 py-1 bg-red-500/20 text-red-400 border border-red-500/30 rounded hover:bg-red-500/30" title="删除此账号">🗑️</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
-      </div>
-    </div>
-  )
-}
-
-// 单行平台显示组件
-function PlatformRow({ account, devices, onBind }: { account: AccountItem; devices: DeviceItem[]; onBind: () => void }) {
-  const handleUnbind = async () => {
-    try {
-      const r = await fetch('/api/accounts', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: account.id, deviceId: 'local' }) })
-      if (r.ok) { showToast('已解绑', 'success'); onBind() } else { const d = await r.json(); showToast(d.message || '解绑失败', 'error') }
-    } catch { showToast('解绑失败', 'error') }
-  }
-  const handleDelete = async () => {
-    if (!confirm('确认删除此账号？')) return
-    try {
-      const r = await fetch('/api/accounts?id=' + account.id, { method: 'DELETE', credentials: 'include' })
-      if (r.ok) { showToast('已删除', 'success'); onBind() } else showToast('删除失败', 'error')
-    } catch { showToast('删除失败', 'error') }
-  }
-  return (
-    <div className="flex items-center justify-between px-3 py-2 bg-white/5 rounded-lg text-xs">
-      <div className="flex items-center gap-2">
-        <span>{PLATFORM_ICON[account.platform] || '📱'}</span>
-        <span className="text-white">{PLATFORM_LABEL[account.platform] || account.platform}</span>
-        <span className="text-gray-400">· {account.accountName}</span>
-        {account.mobile && <span className="text-gray-600">📱{account.mobile}</span>}
-        <span className={`px-1.5 py-0.5 rounded text-[10px] border ${STATUS_COLOR[account.status] || 'bg-gray-500/20 text-gray-500'}`}>{account.status}</span>
-        <span className={`px-1.5 py-0.5 rounded text-[10px] border ${BIND_TYPE_COLOR[account.bindType] || 'bg-gray-500/20 text-gray-500'}`}>{BIND_TYPE_LABEL[account.bindType] || account.bindType}</span>
-        {account.device && <span className="text-gray-600">({account.device.name})</span>}
-      </div>
-      <div className="flex items-center gap-2">
-        {account.bindType === 'imai' && (
-          <button onClick={() => window.open(account.remark || 'http://imai-demo', '_blank')} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30">🚀 工作台</button>
-        )}
-        {account.bindType === 'device' && account.device && (
-          <button onClick={() => window.open(`/api/devices/${account.device?.id}/snap`, '_blank')} className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">🖥️ 远程</button>
-        )}
-        {account.status === '未绑定' ? (
-          <button onClick={onBind} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑定</button>
-        ) : (
-          <button onClick={handleUnbind} className="text-[10px] px-2 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded hover:bg-yellow-500/30">🔓 解绑</button>
-        )}
-        <button onClick={handleDelete} className="text-[10px] px-2 py-1 bg-red-500/20 text-red-400 border border-red-500/30 rounded hover:bg-red-500/30" title="删除此账号">🗑️</button>
       </div>
     </div>
   )
