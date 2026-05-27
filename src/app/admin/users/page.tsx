@@ -3,158 +3,171 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/app/providers'
 import { showToast } from '@/components/Toast'
 
-interface EditorUser {
-  id: number; username: string; name: string | null; email: string; role: string
-  createdAt: string; totalWindows: number; usedWindows: number
-  boundAccounts: number; taskCompleted: number
+interface UserInfo {
+  id: number; username: string; name: string | null; email: string; role: string; plan: string
+  createdAt: string; parentId: number | null
+  parent: { id: number; username: string; name: string | null } | null
+  childrenCount: number; totalWindows: number; usedWindows: number
+  boundAccounts: number; socialAccounts: { platform: string; status: string }[]
 }
 
-export default function AdminUsersPage() {
-  const { user, loading: authLoading } = useAuth()
-  const [editors, setEditors] = useState<EditorUser[]>([])
-  const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState<EditorUser | null>(null)
-  const [newQuota, setNewQuota] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [showCreate, setShowCreate] = useState(false)
+const PLATFORM_ICON: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
+const PLATFORM_LABEL: Record<string, string> = { douyin: '抖音', kuaishou: '快手', xiaohongshu: '小红书', shipinhao: '视频号', weibo: '微博', bilibili: 'B站' }
+const STATUS_COLOR: Record<string, string> = { '未绑定': 'text-gray-500', '已绑定': 'text-emerald-400', '登录异常': 'text-yellow-400', '已封禁': 'text-red-400' }
+const fmtDate = (s: string) => s?.slice(0, 10) || '-'
 
-  // 创建表单
+export default function AccountInfoPage() {
+  const { user, loading: authLoading } = useAuth()
+  const [users, setUsers] = useState<UserInfo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filterRole, setFilterRole] = useState('')
+  const [search, setSearch] = useState('')
+  const [showCreate, setShowCreate] = useState(false)
   const [cuUsername, setCuUsername] = useState('')
   const [cuEmail, setCuEmail] = useState('')
   const [cuPassword, setCuPassword] = useState('')
   const [cuName, setCuName] = useState('')
   const [cuRole, setCuRole] = useState('editor')
   const [cuWindows, setCuWindows] = useState('10')
+  const [submitting, setSubmitting] = useState(false)
+  const [editUser, setEditUser] = useState<UserInfo | null>(null)
+  const [newQuota, setNewQuota] = useState('')
 
   useEffect(() => {
-    if (!authLoading && user?.role === 'admin') { loadEditors() }
-    else if (!authLoading) { setLoading(false) }
+    if (!authLoading && user?.role === 'admin') loadUsers()
+    else if (!authLoading) setLoading(false)
   }, [authLoading, user])
 
-  const loadEditors = async () => {
-    try { const r = await fetch('/api/admin/users', { credentials: 'include' }); if (r.ok) setEditors((await r.json()).data || []) }
+  const loadUsers = async () => {
+    try { const r = await fetch('/api/admin/users', { credentials: 'include' }); if (r.ok) setUsers((await r.json()).data || []) }
     catch {} finally { setLoading(false) }
-  }
-
-  const handleEdit = (editor: EditorUser) => { setEditing(editor); setNewQuota(editor.totalWindows.toString()) }
-
-  const handleSave = async () => {
-    const quota = parseInt(newQuota, 10)
-    if (isNaN(quota) || quota < 0) { showToast('请输入有效的窗口数', 'error'); return }
-    if (quota < editing!.usedWindows) {
-      if (!confirm(`新配额(${quota})低于已使用量(${editing!.usedWindows})，确认？`)) return
-    }
-    setSubmitting(true)
-    try {
-      const res = await fetch('/api/admin/users', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: editing!.id, totalWindows: quota }) })
-      if (res.ok) { setEditing(null); loadEditors(); showToast('配额已更新') } else { const d = await res.json(); showToast(d.message || '更新失败', 'error') }
-    } catch { showToast('更新失败', 'error') }
-    finally { setSubmitting(false) }
   }
 
   const handleCreate = async () => {
     if (!cuUsername || !cuEmail || !cuPassword) { showToast('请填写完整信息', 'error'); return }
-    if (cuRole === 'editor' && !cuWindows) { showToast('请输入窗口配额', 'error'); return }
     setSubmitting(true)
     try {
-      const body: Record<string, unknown> = { username: cuUsername, email: cuEmail, password: cuPassword, name: cuName || null, role: cuRole }
-      if (cuRole === 'editor') body.totalWindows = parseInt(cuWindows, 10) || 10
-      const res = await fetch('/api/admin/users', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      if (res.ok) { setShowCreate(false); setCuUsername(''); setCuEmail(''); setCuPassword(''); setCuName(''); setCuWindows('10'); loadEditors(); showToast('账号创建成功') }
-      else { const d = await res.json(); showToast(d.message || '创建失败', 'error') }
+      const body = { username: cuUsername, email: cuEmail, password: cuPassword, name: cuName || null, role: cuRole, totalWindows: cuRole === 'editor' ? parseInt(cuWindows) : undefined }
+      const r = await fetch('/api/admin/users', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const d = await r.json()
+      if (r.ok) { showToast('创建成功', 'success'); setShowCreate(false); setCuUsername(''); setCuEmail(''); setCuPassword(''); setCuName(''); loadUsers() }
+      else showToast(d.message || '创建失败', 'error')
     } catch { showToast('创建失败', 'error') }
     finally { setSubmitting(false) }
   }
 
-  if (authLoading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-gray-400">加载中...</div></div>
-  if (!user || user.role !== 'admin') return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-red-400 text-center"><p className="text-xl mb-2">无权限访问</p></div></div>
+  const handleQuotaSave = async () => {
+    if (!editUser) return
+    const q = parseInt(newQuota, 10)
+    if (isNaN(q) || q < 0) { showToast('无效数值', 'error'); return }
+    setSubmitting(true)
+    try {
+      const r = await fetch('/api/admin/users', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: editUser.id, totalWindows: q }) })
+      const d = await r.json()
+      if (r.ok) { showToast('配额已更新', 'success'); setEditUser(null); loadUsers() }
+      else showToast(d.message || '更新失败', 'error')
+    } catch { showToast('更新失败', 'error') }
+    finally { setSubmitting(false) }
+  }
+
+  const filtered = users.filter(u => {
+    if (filterRole && u.role !== filterRole) return false
+    if (search) { const q = search.toLowerCase(); return u.username.toLowerCase().includes(q) || (u.name?.toLowerCase()||'').includes(q) || u.email.toLowerCase().includes(q) }
+    return true
+  })
+
+  if (authLoading) return <div className="min-h-screen bg-gray-950 p-4"><p className="text-gray-400 text-sm">加载中...</p></div>
+  if (!user || user.role !== 'admin') return <div className="min-h-screen bg-gray-950 p-4"><p className="text-gray-400 text-sm">无权访问</p></div>
 
   return (
-    <div className="min-h-screen bg-gray-950">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between mb-8">
+    <div className="min-h-screen bg-gray-950 p-4">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <p className="text-label mb-2">管理后台 / ADMIN</p>
-            <h1 className="text-mono-lg text-white">客户管理 / USERS</h1>
-            <p className="text-gray-400 text-sm mt-2">总数：<span className="text-emerald-400 font-bold">{editors.length}</span></p>
+            <p className="text-label mb-1">管理中心 / ACCOUNT INFO</p>
+            <h1 className="text-mono-lg text-white">账号信息</h1>
           </div>
-          <button onClick={() => setShowCreate(!showCreate)} className="btn-primary">
-            {showCreate ? '取消' : '+ 创建账号'}
-          </button>
+          <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs hover:bg-emerald-500/30">+ 创建账号</button>
         </div>
 
-        {showCreate && (
-          <div className="card-glass p-6 mb-6">
-            <h3 className="text-white font-bold mb-4">直接创建账号（无需邀请码）</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <div>
-                <label className="text-gray-500 text-xs block mb-1">角色</label>
-                <select className="input-dark" value={cuRole} onChange={e => setCuRole(e.target.value)}>
-                  <option value="editor" className="bg-gray-900">二级客户 (editor)</option>
-                  <option value="end-user" className="bg-gray-900">终端客户 (end-user)</option>
-                </select>
+        <div className="flex gap-2 mb-4 flex-wrap">
+          {['', 'editor', 'end-user'].map(r => (
+            <button key={r} onClick={() => setFilterRole(r)} className={`px-3 py-1.5 rounded-lg text-xs border transition ${filterRole===r?'bg-emerald-500/20 text-emerald-400 border-emerald-500/30':'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>{r||'全部'}</button>
+          ))}
+          <input className="input-dark text-xs flex-1 min-w-[200px]" placeholder="搜索用户名/姓名/邮箱" value={search} onChange={e=>setSearch(e.target.value)} />
+          <span className="text-xs text-gray-500 self-center">{filtered.length} 人</span>
+        </div>
+
+        {loading ? <p className="text-gray-400 text-xs">加载中...</p> : filtered.length === 0 ? (
+          <p className="text-gray-500 text-xs text-center py-10">暂无数据</p>
+        ) : (
+          <div className="space-y-3">
+            {filtered.map(u => (
+              <div key={u.id} className="card-glass p-4 rounded-xl">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <span className="text-sm font-bold text-white">{u.name || u.username}</span>
+                    <span className="text-[10px] text-gray-500 ml-2">#{u.id}</span>
+                    <span className={`ml-2 px-2 py-0.5 text-[10px] rounded ${u.role==='editor'?'bg-blue-500/20 text-blue-400':'bg-gray-500/20 text-gray-400'}`}>{u.role==='editor'?'代理商':'终端客户'}</span>
+                    <span className={`ml-2 px-2 py-0.5 text-[10px] rounded ${u.plan==='pro'?'bg-purple-500/20 text-purple-400':'bg-white/5 text-gray-400'}`}>{u.plan === 'pro' ? '专业版' : u.plan === 'enterprise' ? '企业版' : '免费版'}</span>
+                  </div>
+                  {u.role === 'editor' && (
+                    <button onClick={() => { setEditUser(u); setNewQuota(String(u.totalWindows)) }} className="text-[10px] px-2 py-1 bg-white/5 text-gray-400 rounded hover:bg-white/10">编辑配额</button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[10px]">
+                  <div><span className="text-gray-500">用户名</span><p className="text-gray-300">{u.username}</p></div>
+                  <div><span className="text-gray-500">注册日期</span><p className="text-gray-300">{fmtDate(u.createdAt)}</p></div>
+                  <div><span className="text-gray-500">上级代理</span><p className="text-gray-300">{u.parent ? `${u.parent.name||u.parent.username} (#${u.parent.id})` : '-'}</p></div>
+                  <div><span className="text-gray-500">下级客户</span><p className="text-gray-300">{u.childrenCount} 人</p></div>
+                  {u.role === 'editor' && <div><span className="text-gray-500">窗口配额</span><p className="text-gray-300">{u.usedWindows} / {u.totalWindows}</p></div>}
+                  <div><span className="text-gray-500">已绑定平台</span><p className="text-gray-300">{u.socialAccounts.length === 0 ? <span className="text-gray-600">未绑定</span> : u.socialAccounts.slice(0,4).map(a=>`${PLATFORM_ICON[a.platform]||''}${PLATFORM_LABEL[a.platform]||a.platform}`).join('、')}{u.socialAccounts.length>4 ? ` 等${u.socialAccounts.length}个` : ''}</p></div>
+                </div>
+
+                {u.socialAccounts.length > 0 && (
+                  <div className="flex gap-1.5 mt-2 flex-wrap">
+                    {u.socialAccounts.map((a, i) => (
+                      <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded ${STATUS_COLOR[a.status]||'text-gray-500'} bg-white/5`}>
+                        {PLATFORM_ICON[a.platform]||''} {PLATFORM_LABEL[a.platform]||a.platform}{a.status!=='未绑定'?` (${a.status})`:''}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <input className="input-dark" placeholder="用户名 *" value={cuUsername} onChange={e => setCuUsername(e.target.value)} />
-              <input className="input-dark" placeholder="邮箱 *" value={cuEmail} onChange={e => setCuEmail(e.target.value)} />
-              <input className="input-dark" type="password" placeholder="密码 *" value={cuPassword} onChange={e => setCuPassword(e.target.value)} />
-              <input className="input-dark" placeholder="姓名（可选）" value={cuName} onChange={e => setCuName(e.target.value)} />
-              {cuRole === 'editor' && (
-                <input className="input-dark" type="number" min="0" placeholder="窗口配额" value={cuWindows} onChange={e => setCuWindows(e.target.value)} />
-              )}
-            </div>
-            <button onClick={handleCreate} disabled={submitting} className="btn-primary disabled:opacity-50">
-              {submitting ? '创建中...' : '确认创建'}
-            </button>
+            ))}
           </div>
         )}
 
-        {loading ? <div className="text-center text-gray-400 py-12">加载中...</div>
-        : editors.length === 0 ? <div className="card-glass p-12 text-center"><p className="text-gray-400">暂无客户</p></div>
-        : <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead>
-                <tr className="border-b border-white/10 text-gray-500 text-mono-sm">
-                  <th className="pb-3 pr-4">ID</th>
-                  <th className="pb-3 pr-4">用户名</th>
-                  <th className="pb-3 pr-4">姓名</th>
-                  <th className="pb-3 pr-4">窗口配额</th>
-                  <th className="pb-3 pr-4">已绑定账号</th>
-                  <th className="pb-3 pr-4">任务完成</th>
-                  <th className="pb-3 pr-4">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {editors.map((e) => (
-                  <tr key={e.id} className="border-b border-white/5 hover:bg-white/5">
-                    <td className="py-3 pr-4 text-gray-400">{e.id}</td>
-                    <td className="py-3 pr-4 text-white font-medium">{e.username}</td>
-                    <td className="py-3 pr-4 text-gray-400">{e.name || '-'}</td>
-                    <td className="py-3 pr-4"><span className="text-emerald-400">{e.usedWindows}</span><span className="text-gray-500"> / {e.totalWindows}</span></td>
-                    <td className="py-3 pr-4 text-gray-300">{e.boundAccounts}</td>
-                    <td className="py-3 pr-4 text-gray-300">{e.taskCompleted}</td>
-                    <td className="py-3 pr-4">
-                      <button onClick={() => handleEdit(e)} className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs hover:bg-emerald-500/30">编辑配额</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>}
-
-        {editing && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="card-glass p-6 w-full max-w-md mx-4">
-              <h3 className="text-white font-bold mb-2">编辑窗口配额</h3>
-              <p className="text-gray-400 text-sm mb-4">用户：<span className="text-white">{editing.username}</span> · 当前：<span className="text-emerald-400">{editing.usedWindows}</span>/<span className="text-gray-400">{editing.totalWindows}</span></p>
-              <label className="text-gray-500 text-xs block mb-1">总窗口数</label>
-              <input className="input-dark mb-4" type="number" min="0" value={newQuota} onChange={e => setNewQuota(e.target.value)} />
-              <div className="flex justify-end gap-3">
-                <button onClick={() => setEditing(null)} className="px-4 py-2 bg-white/10 text-gray-300 rounded-lg hover:bg-white/20">取消</button>
-                <button onClick={handleSave} disabled={submitting} className="btn-primary disabled:opacity-50">{submitting ? '保存中...' : '保存'}</button>
-              </div>
+        {showCreate && <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={()=>setShowCreate(false)}>
+          <div className="card-glass p-6 rounded-xl max-w-md w-full mx-4" onClick={e=>e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-white mb-4">创建账号</h3>
+            <div className="space-y-3">
+              <div><label className="text-[10px] text-gray-400">角色</label><select className="input-dark w-full text-xs" value={cuRole} onChange={e=>setCuRole(e.target.value)}><option value="editor">代理商</option><option value="end-user">终端客户</option></select></div>
+              <div><label className="text-[10px] text-gray-400">用户名</label><input className="input-dark w-full text-xs" value={cuUsername} onChange={e=>setCuUsername(e.target.value)} /></div>
+              <div><label className="text-[10px] text-gray-400">邮箱</label><input className="input-dark w-full text-xs" value={cuEmail} onChange={e=>setCuEmail(e.target.value)} /></div>
+              <div><label className="text-[10px] text-gray-400">密码</label><input type="password" className="input-dark w-full text-xs" value={cuPassword} onChange={e=>setCuPassword(e.target.value)} /></div>
+              <div><label className="text-[10px] text-gray-400">姓名</label><input className="input-dark w-full text-xs" value={cuName} onChange={e=>setCuName(e.target.value)} /></div>
+              {cuRole==='editor'&&<div><label className="text-[10px] text-gray-400">窗口配额</label><input type="number" className="input-dark w-full text-xs" value={cuWindows} onChange={e=>setCuWindows(e.target.value)} /></div>}
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={()=>setShowCreate(false)} className="flex-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs">取消</button>
+              <button disabled={submitting} onClick={handleCreate} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs">{submitting?'创建中...':'确认创建'}</button>
             </div>
           </div>
-        )}
+        </div>}
+
+        {editUser && <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={()=>setEditUser(null)}>
+          <div className="card-glass p-6 rounded-xl max-w-sm w-full mx-4" onClick={e=>e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-white mb-2">编辑窗口配额</h3>
+            <p className="text-[10px] text-gray-500 mb-3">{editUser.name||editUser.username} 当前: {editUser.usedWindows} / {editUser.totalWindows}</p>
+            <input type="number" className="input-dark w-full text-xs" value={newQuota} onChange={e=>setNewQuota(e.target.value)} />
+            <div className="flex gap-2 mt-4">
+              <button onClick={()=>setEditUser(null)} className="flex-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs">取消</button>
+              <button disabled={submitting} onClick={handleQuotaSave} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs">{submitting?'保存中...':'保存'}</button>
+            </div>
+          </div>
+        </div>}
       </div>
     </div>
   )

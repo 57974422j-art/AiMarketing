@@ -20,29 +20,40 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, message: '无权访问' }, { status: 403 })
     }
 
-    const editors = await prisma.user.findMany({
+    const users = await prisma.user.findMany({
       where: { role: { in: ['editor', 'end-user'] } },
       select: {
-        id: true, username: true, name: true, email: true, createdAt: true, role: true,
+        id: true, username: true, name: true, email: true, createdAt: true, role: true, plan: true, parentId: true,
         devicePools: { select: { totalWindows: true, usedWindows: true } },
-        _count: { select: { socialAccounts: true, createdTasks: true } },
+        parent: { select: { id: true, username: true, name: true } },
+        _count: { select: { children: true, socialAccounts: true } },
       },
       orderBy: { createdAt: 'desc' },
     })
 
-    const data = editors.map((e) => ({
+    // Get social accounts for all users
+    const userIds = users.map(u => u.id)
+    const allAccounts = await prisma.account.findMany({
+      where: { userId: { in: userIds } },
+      select: { userId: true, platform: true, status: true },
+    })
+    const accountsByUser: Record<number, { platform: string; status: string }[]> = {}
+    for (const a of allAccounts) {
+      if (!accountsByUser[a.userId]) accountsByUser[a.userId] = []
+      accountsByUser[a.userId].push({ platform: a.platform, status: a.status })
+    }
+
+    const data = users.map((e) => ({
       id: e.id, username: e.username, name: e.name, email: e.email,
-      createdAt: e.createdAt, role: e.role,
+      createdAt: e.createdAt, role: e.role, plan: e.plan || 'free',
+      parentId: e.parentId,
+      parent: e.parent ? { id: e.parent.id, username: e.parent.username, name: e.parent.name } : null,
+      childrenCount: e._count.children,
       totalWindows: e.devicePools[0]?.totalWindows ?? 0,
       usedWindows: e.devicePools[0]?.usedWindows ?? 0,
       boundAccounts: e._count.socialAccounts,
-      taskCompleted: 0,
+      socialAccounts: accountsByUser[e.id] || [],
     }))
-
-    for (const item of data) {
-      const count = await prisma.automationTask.count({ where: { createdBy: item.id, status: '已完成' } })
-      item.taskCompleted = count
-    }
 
     return NextResponse.json({ success: true, data })
   } catch (error) {
