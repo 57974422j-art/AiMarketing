@@ -109,6 +109,7 @@ export default function AutoCompilePage() {
         if (!qd.success) break
         const t = qd.data
         setProgress(t.progress || 30)
+        if (t.status === 'queued') { setProgress(5); continue }
         if (t.status === 'completed') { setVideoUrl(t.videoUrl); setProgress(100); showToast('✅ 成功', 'success'); break }
         if (t.status === 'failed') { showToast('失败: ' + (t.error || '合成失败'), 'error'); break }
       }

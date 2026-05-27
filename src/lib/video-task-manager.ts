@@ -11,8 +11,19 @@ export interface VideoTask {
 }
 
 const tasks = new Map<string, VideoTask>()
+let processing = false
+const taskQueue: Array<{ fn: () => Promise<void>; onDone: () => void; onError: (e: any) => void }> = []
 
 export function getTask(id: string) { return tasks.get(id) }
+
+function processQueue() {
+  if (processing || taskQueue.length === 0) return
+  processing = true
+  const next = taskQueue.shift()!
+  next.fn()
+    .then(() => { processing = false; next.onDone(); processQueue() })
+    .catch((e) => { processing = false; next.onError(e); processQueue() })
+}
 
 function run(cmd: string, t = 120000): Promise<string> {
   return new Promise((res, rej) => {
@@ -43,40 +54,38 @@ function getVideoSize(file: string): { w: number; h: number } | null {
   return null
 }
 
-// Drawtext position helpers
 function posXY(pos: string, W: number, H: number, fontSize: number): string {
-  const m = fontSize * 0.6 // margin
+  const m = fontSize * 0.6
   switch (pos) {
     case 'tr': return `x=w-tw-${m}:y=${m}`
     case 'bl': return `x=${m}:y=h-th-${m}`
     case 'br': return `x=w-tw-${m}:y=h-th-${m}`
-    default: return `x=${m}:y=${m}` // tl
+    default: return `x=${m}:y=${m}`
   }
 }
 
 export function startTask(taskId: string, workDir: string, mediaPaths: string[], text: string, voice: string, ratio: string, resolution: string, subtitleSize: number, bgmPath: string, duration: number, showSubs: boolean = true, stickerText: string = '', stickerPos: string = 'tl', titleText: string = '', colorFilter: string = '') {
-  const task: VideoTask = { id: taskId, status: 'processing', progress: 0 }
+  const task: VideoTask = { id: taskId, status: 'queued', progress: 0 }
   tasks.set(taskId, task)
-  runTask(task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize, bgmPath, duration, showSubs, stickerText, stickerPos, titleText, colorFilter).catch(e => {
-    task.status = 'failed'
-    task.error = e.message
-  })
+
+  const runFn = () => runTask(task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize, bgmPath, duration, showSubs, stickerText, stickerPos, titleText, colorFilter)
+  const onDone = () => {}
+  const onError = (e: any) => { task.status = 'failed'; task.error = e.message }
+
+  taskQueue.push({ fn: runFn, onDone, onError })
+  processQueue()
   return task
 }
 
 async function runTask(task: VideoTask, wd: string, mp: string[], text: string, voice: string, ratio: string, res: string, fs2: number, bgp: string, dur: number, showSubs: boolean = true, stickerText: string = '', stickerPos: string = 'tl', titleText: string = '', colorFilter: string = '') {
   try {
+    task.status = 'processing'
     const dim = { '16:9': { w: 1920, h: 1080 }, '9:16': { w: 1080, h: 1920 }, '1:1': { w: 1080, h: 1080 }, '4:3': { w: 1440, h: 1080 } }[ratio] || { w: 1920, h: 1080 }
     const sc = res === '720p' ? 0.5 : 1
     const W = Math.round(dim.w * sc), H = Math.round(dim.h * sc)
     const sf = `scale=${W}:${H}:force_original_aspect_ratio=1,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`
 
-    // Color filter map
-    const cfMap: Record<string, string> = {
-      warm: 'colorchannelmixer=rr=1.2:rg=0.1:rb=0.1',
-      cool: 'colorchannelmixer=rr=0.8:gg=1.2:bb=1.2',
-      bw: 'colorchannelmixer=.3:.6:.1:0:.3:.6:.1:0:.3:.6:.1:0',
-    }
+    const cfMap: Record<string, string> = { warm: 'colorchannelmixer=rr=1.2:rg=0.1:rb=0.1', cool: 'colorchannelmixer=rr=0.8:gg=1.2:bb=1.2', bw: 'colorchannelmixer=.3:.6:.1:0:.3:.6:.1:0:.3:.6:.1:0' }
     const cf = cfMap[colorFilter] || ''
 
     task.progress = 10
@@ -145,64 +154,59 @@ async function runTask(task: VideoTask, wd: string, mp: string[], text: string, 
         const out = path.join(wd, `c${idx}.mp4`)
         const isVideo = isVideoFile(src)
         const segT = segDuration.toFixed(2)
-        const timeout = isVideo ? 180000 : 60000 // longer for video encoding
 
         if (isVideo) {
           const srcDur = getDuration(src)
           const srcSize = getVideoSize(src)
-          // Smart resolution: only scale if source < target
           let vf = sf
-          if (srcSize && srcSize.w >= W && srcSize.h >= H) {
-            // Source already >= target, don't scale up, just pad
-            vf = `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`
-          }
+          if (srcSize && srcSize.w >= W && srcSize.h >= H) vf = `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`
           if (cf) vf = vf + ',' + cf
           const loop = srcDur < segDuration ? '-stream_loop -1 ' : ''
-          await run(`nice -n 19 ffmpeg -y ${loop}-i "${src}" -vf "${vf}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, timeout)
+          await run(`nice -n 19 ffmpeg -y ${loop}-i "${src}" -vf "${vf}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, 180000)
         } else {
           let vf = sf
           if (cf) vf = vf + ',' + cf
-          await run(`nice -n 19 ffmpeg -y -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, timeout)
+          await run(`nice -n 19 ffmpeg -y -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, 60000)
         }
       }))
       task.progress = 30 + Math.round((b + 2) / mp.length * 30)
     }
 
-    // ---- Concat all segments ----
+    // ---- Concat ----
     const ct = path.join(wd, 'c.txt')
     fs.writeFileSync(ct, mp.map((_, i) => `file '${wd}/c${i}.mp4'`).join('\n'))
     const mv = path.join(wd, 'm.mp4')
     await run(`ffmpeg -y -f concat -safe 0 -i "${ct}" -c copy "${mv}"`, 120000)
 
-    // ---- Mix BGM ----
+    // ---- Mix BGM with format conversion ----
     let ai = adjAudio
     if (bgp) {
-      const mx = path.join(wd, 'x.mp3')
-      await run(`ffmpeg -y -i "${adjAudio}" -i "${bgp}" -filter_complex "[0:a]volume=1[a1];[1:a]volume=0.25[a2];[a1][a2]amix=inputs=2:duration=first" -ac 2 "${mx}"`, 30000)
-      ai = mx
+      const bgpNorm = path.join(wd, 'b_norm.mp3')
+      try {
+        // Convert BGM to standardized format first
+        await run(`ffmpeg -y -i "${bgp}" -ac 2 -ar 44100 -b:a 128k "${bgpNorm}"`, 30000)
+        const mx = path.join(wd, 'x.mp3')
+        await run(`ffmpeg -y -i "${adjAudio}" -i "${bgpNorm}" -filter_complex "[0:a]volume=1[a1];[1:a]volume=0.25[a2];[a1][a2]amix=inputs=2:duration=first" -ac 2 "${mx}"`, 30000)
+        ai = mx
+      } catch (e) {
+        console.error('[BGM] mix failed, using TTS only:', (e as any).message?.slice(0, 100))
+      }
     }
     task.progress = 85
 
-    // ---- Build final vf string ----
+    // ---- Build final vf ----
     let finalVf = ''
-    if (showSubs) {
-      finalVf = `subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2,MarginV=40'`
-    }
-    // Sticker
+    if (showSubs) finalVf = `subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2,MarginV=40'`
     if (stickerText) {
-      const st = stickerText.replace(/'/g, '\\\'').slice(0, 20)
-      const spXY = posXY(stickerPos, W, H, 28)
-      const sticker = `drawtext=text='${st}':fontsize=28:fontcolor=white:${spXY}:shadowx=2:shadowy=2:shadowcolor=black@0.5`
-      finalVf = finalVf ? finalVf + ',' + sticker : sticker
+      const pos = posXY(stickerPos, W, H, 28)
+      finalVf = finalVf ? finalVf + `,drawtext=text='${stickerText.slice(0, 12)}':fontsize=28:fontcolor=white:${pos}:shadowx=2:shadowy=2:shadowcolor=black@0.5` : `drawtext=text='${stickerText.slice(0, 12)}':fontsize=28:fontcolor=white:${pos}:shadowx=2:shadowy=2:shadowcolor=black@0.5`
     }
-    // Title (first 3s)
     if (titleText) {
-      const tt = titleText.replace(/'/g, '\\\'').slice(0, 30)
-      const title = `drawtext=text='${tt}':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:shadowx=2:shadowy=2:shadowcolor=black@0.6:enable='between(t,0,3)'`
+      const title = `drawtext=text='${titleText.slice(0, 20)}':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:shadowx=2:shadowy=2:shadowcolor=black@0.6:enable='between(t,0,3)'`
       finalVf = finalVf ? finalVf + ',' + title : title
     }
 
-    // ---- Final output ----
+    // ---- Final ----
     const op = path.join('/root/AiMarketing/public/generated', `${task.id}.mp4`)
     const vfArg = finalVf ? `-vf "${finalVf}"` : ''
     await run(`ffmpeg -y -i "${mv}" -i "${ai}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} -threads 2 "${op}"`, 300000)
