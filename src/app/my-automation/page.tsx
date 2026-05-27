@@ -24,9 +24,10 @@ const ACTIONS = [
 
 function VideoSelector({ deviceSerial, selected, onSelect }: { deviceSerial: string; selected: any; onSelect: (v: any) => void }) {
   const [videos, setVideos] = useState<any[]>([])
+  const [userId, setUserId] = useState('')
   useEffect(() => {
     fetch('/api/storage/files', { credentials: 'include' }).then(r => r.json()).then(d => {
-      setVideos(d?.success ? d.data.files : [])
+      setVideos(d?.success ? d.data.files : []); if (d?.success) setStUserId(d.data.userId)
     }).catch(() => {})
   }, [])
 
@@ -38,7 +39,7 @@ function VideoSelector({ deviceSerial, selected, onSelect }: { deviceSerial: str
       ) : (
         <div className="grid grid-cols-3 gap-2 mb-3">
           {videos.map((v: any) => (
-            <button key={v.name} onClick={() => onSelect(v)}
+            <button key={v.name} onClick={() => onSelect({...v, videoUrl: "/api/storage/file?userId="+userId+"&name="+encodeURIComponent(v.name)})}
               className={`p-2 rounded-xl border text-xs text-center transition ${selected?.name === v.name ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
               <p className="truncate">{v.name}</p>
               <p className="text-[10px] text-gray-600">{(v.size / 1024 / 1024).toFixed(1) + 'MB'}</p>
@@ -89,7 +90,7 @@ export default function MyAutomationPage() {
           platform: PLATFORM_KEY[platform],
           action,
           keywords: keywordsText.split('\n').filter(Boolean),
-          videoUrl: selectedVideo?.ossUrl || '',
+          videoUrl: selectedVideo?.name ? '/api/storage/file?userId=' + stUserId + '&name=' + encodeURIComponent(selectedVideo.name) : '',
           title: publishTitle,
           hook: publishHook,
         }),
