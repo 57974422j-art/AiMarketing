@@ -27,7 +27,7 @@ function VideoSelector({ deviceSerial, selected, onSelect }: { deviceSerial: str
   const [userId, setUserId] = useState('')
   useEffect(() => {
     fetch('/api/storage/files', { credentials: 'include' }).then(r => r.json()).then(d => {
-      setVideos(d?.success ? d.data.files : []); if (d?.success) setStUserId(d.data.userId)
+      setVideos(d?.success ? d.data.files : []); if (d?.success) setUserId(d.data.userId)
     }).catch(() => {})
   }, [])
 
