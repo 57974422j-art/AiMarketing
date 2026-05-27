@@ -1,16 +1,9 @@
 /**
- * ================================================================
  * Q1 物理机管理 API
- * ================================================================
- * 
  * GET    /api/phy-devices         - 获取所有 Q1 物理机
  * POST   /api/phy-devices         - 新增 Q1 物理机
- * PUT    /api/phy-devices/[id]    - 更新 Q1 信息
+ * PUT    /api/phy-devices/[id]    - 分配 Q1 给 editor
  * DELETE /api/phy-devices/[id]    - 删除 Q1
- * 
- * 一台 Q1 物理机 = 一个物理设备（如办公室的 Q1 盒子）
- * 一台 Q1 下挂多个容器窗口（Device 记录）
- * ================================================================
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -24,7 +17,6 @@ export async function GET(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
     if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权访问' }, { status: 403 })
-
     const where = auth.role === 'admin' ? {} : { ownerId: auth.userId }
     const data = await prisma.phyDevice.findMany({
       where,
@@ -45,7 +37,6 @@ export async function POST(request: NextRequest) {
     if (!auth || auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
     const body = await request.json()
     if (!body.name || !body.ip) return NextResponse.json({ success: false, message: '名称和 IP 必填' }, { status: 400 })
-
     const device = await prisma.phyDevice.create({
       data: { name: body.name, ip: body.ip, port: parseInt(body.port) || 8000, note: body.note || null, ownerId: auth.userId },
     })
@@ -54,7 +45,7 @@ export async function POST(request: NextRequest) {
   } finally { await prisma.$disconnect() }
 }
 
-// PUT /api/phy-devices — 分配 Q1 给 editor
+// PUT — 分配 Q1 给 editor（同时同步容器设备归属）
 export async function PUT(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
@@ -62,7 +53,9 @@ export async function PUT(request: NextRequest) {
     const body = await request.json()
     const { id, ownerId } = body
     if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
-    await prisma.phyDevice.update({ where: { id: parseInt(id) }, data: { ownerId: ownerId ? parseInt(ownerId) : auth.userId } })
+    const newOwnerId = ownerId ? parseInt(ownerId) : auth.userId
+    await prisma.phyDevice.update({ where: { id: parseInt(id) }, data: { ownerId: newOwnerId } })
+    await prisma.device.updateMany({ where: { phyDeviceId: parseInt(id) }, data: { ownerId: newOwnerId } })
     return NextResponse.json({ success: true, message: '已更新' })
   } catch (e) { console.error(e); return NextResponse.json({ success: false, message: '更新失败' }, { status: 500 })
   } finally { await prisma.$disconnect() }
