@@ -11,6 +11,12 @@ export default function AutoCompilePage() {
   const [resolution, setResolution] = useState('1080p')
   const [duration, setDuration] = useState(30)
   const [showSubs, setShowSubs] = useState(true)
+  const [stickerText, setStickerText] = useState('')
+  const [stickerPos, setStickerPos] = useState('tl')
+  const [stickerOn, setStickerOn] = useState(false)
+  const [titleText, setTitleText] = useState('')
+  const [titleOn, setTitleOn] = useState(false)
+  const [colorFilter, setColorFilter] = useState('')
   const [subtitleSize, setSubtitleSize] = useState(36)
   const [bgm, setBgm] = useState<{name:string;url:string;custom?:boolean} | null>(null)
   const [bgmFile, setBgmFile] = useState<File | null>(null)
@@ -79,6 +85,9 @@ export default function AutoCompilePage() {
       fd.append('duration', String(duration))
       fd.append('ratio', ratio); fd.append('resolution', resolution); fd.append('subtitleSize', String(subtitleSize))
       fd.append('showSubs', String(showSubs))
+      if (stickerOn) { fd.append('stickerText', stickerText); fd.append('stickerPos', stickerPos) }
+      if (titleOn) fd.append('titleText', titleText)
+      fd.append('colorFilter', colorFilter)
       if (bgmFile) fd.append('bgm', bgmFile)
       else if (bgm?.url) fd.append('bgmUrl', bgm.url)
       if (mode === 'free') images.forEach(img => fd.append('media', img))
@@ -161,7 +170,18 @@ export default function AutoCompilePage() {
               <div><label className="text-[10px] text-gray-400 mb-1 block">视频时长</label><select className="input-dark w-full text-xs" value={duration} onChange={e=>setDuration(Number(e.target.value))}><option value={15}>15秒</option><option value={30}>30秒</option><option value={45}>45秒</option><option value={60}>60秒</option></select></div>
             </div>
 
-            {mode === 'free' && (
+            <div className="card-glass p-4">
+<label className="text-xs text-gray-400 mb-2 flex items-center gap-2">贴纸标签<button onClick={()=>setStickerOn(!stickerOn)} className={`px-2 py-0.5 text-[10px] rounded ${stickerOn?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-400 border border-white/10"}`}>{stickerOn?"ON":"OFF"}</button></label>
+{stickerOn&&<div className="flex gap-2"><input className="input-dark text-xs flex-1" placeholder="如：好可爱啊" value={stickerText} onChange={e=>setStickerText(e.target.value)} maxLength={12}/><select className="input-dark text-xs w-20" value={stickerPos} onChange={e=>setStickerPos(e.target.value)}><option value="tl">左上</option><option value="tr">右上</option><option value="bl">左下</option><option value="br">右下</option></select></div>}
+</div>
+<div className="card-glass p-4">
+<label className="text-xs text-gray-400 mb-2 flex items-center gap-2">片头标题<button onClick={()=>setTitleOn(!titleOn)} className={`px-2 py-0.5 text-[10px] rounded ${titleOn?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-400 border border-white/10"}`}>{titleOn?"ON":"OFF"}</button></label>
+{titleOn&&<input className="input-dark text-xs w-full" placeholder="默认文案第一句" value={titleText} onChange={e=>setTitleText(e.target.value)} maxLength={20}/>}
+</div>
+<div className="card-glass p-4">
+<label className="text-xs text-gray-400 mb-2 block">色调滤镜</label>
+<div className="flex gap-2">{["原色","暖色","冷色","黑白"].map((l,i)=><button key={i} onClick={()=>setColorFilter(colorFilter===["","warm","cool","bw"][i]?"":["","warm","cool","bw"][i])} className={`px-3 py-1.5 text-[10px] rounded-lg ${colorFilter===["","warm","cool","bw"][i]?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-400 border border-white/10"}`}>{l}</button>)}</div>
+</div>{mode === 'free' && (
               <div className="card-glass p-4">
                 <label className="text-xs text-gray-400 mb-2 block">素材</label>
                 <input ref={fileRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleFiles} />

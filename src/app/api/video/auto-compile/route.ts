@@ -23,6 +23,10 @@ export async function POST(req: NextRequest) {
     const subtitleSize = parseInt((f.get('subtitleSize') as string) || '36')
     const duration = parseInt((f.get('duration') as string) || '30')
     const showSubs = (f.get('showSubs') as string) !== 'false'
+    const stickerText = (f.get('stickerText') as string) || ''
+    const stickerPos = (f.get('stickerPos') as string) || 'tl'
+    const titleText = (f.get('titleText') as string) || ''
+    const colorFilter = (f.get('colorFilter') as string) || ''
 
     if (!text) return NextResponse.json({ success: false, message: '缺少文案' }, { status: 400 })
     dir()
@@ -60,8 +64,8 @@ export async function POST(req: NextRequest) {
       execSync(`curl -s -L -o "${bgp}" "${bgmUrl}"`, { timeout: 15000 })
     }
 
-    // 启动异步任务（立即返回，不阻塞）
-    startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs)
+    // 启动异步任务
+    startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter)
     return NextResponse.json({ success: true, data: { taskId } })
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message })
