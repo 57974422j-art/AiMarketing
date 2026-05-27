@@ -353,6 +353,19 @@ export default function SocialAccountsPage() {
 
 // 单行平台显示组件
 function PlatformRow({ account, devices, onBind }: { account: AccountItem; devices: DeviceItem[]; onBind: () => void }) {
+  const handleUnbind = async () => {
+    try {
+      const r = await fetch('/api/accounts', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: account.id, deviceId: 'local' }) })
+      if (r.ok) { showToast('已解绑', 'success'); onBind() } else { const d = await r.json(); showToast(d.message || '解绑失败', 'error') }
+    } catch { showToast('解绑失败', 'error') }
+  }
+  const handleDelete = async () => {
+    if (!confirm('确认删除此账号？')) return
+    try {
+      const r = await fetch('/api/accounts?id=' + account.id, { method: 'DELETE', credentials: 'include' })
+      if (r.ok) { showToast('已删除', 'success'); onBind() } else showToast('删除失败', 'error')
+    } catch { showToast('删除失败', 'error') }
+  }
   return (
     <div className="flex items-center justify-between px-3 py-2 bg-white/5 rounded-lg text-xs">
       <div className="flex items-center gap-2">
@@ -361,33 +374,23 @@ function PlatformRow({ account, devices, onBind }: { account: AccountItem; devic
         <span className="text-gray-400">· {account.accountName}</span>
         {account.mobile && <span className="text-gray-600">📱{account.mobile}</span>}
         <span className={`px-1.5 py-0.5 rounded text-[10px] border ${STATUS_COLOR[account.status] || 'bg-gray-500/20 text-gray-500'}`}>{account.status}</span>
-        <span className={`px-1.5 py-0.5 rounded text-[10px] border ${BIND_TYPE_COLOR[account.bindType] || 'bg-gray-500/20 text-gray-500'}`}>
-          {BIND_TYPE_LABEL[account.bindType] || account.bindType}
-        </span>
+        <span className={`px-1.5 py-0.5 rounded text-[10px] border ${BIND_TYPE_COLOR[account.bindType] || 'bg-gray-500/20 text-gray-500'}`}>{BIND_TYPE_LABEL[account.bindType] || account.bindType}</span>
         {account.device && <span className="text-gray-600">({account.device.name})</span>}
       </div>
       <div className="flex items-center gap-2">
         {account.bindType === 'imai' && (
-          <button onClick={() => window.open(account.remark || 'http://imai-demo', '_blank')}
-            className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30"
-            title="打开 IMAI WORK 工作台">
-            🚀 工作台
-          </button>
+          <button onClick={() => window.open(account.remark || 'http://imai-demo', '_blank')} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30">🚀 工作台</button>
         )}
         {account.bindType === 'device' && account.device && (
-          <button onClick={() => window.open(`/api/devices/${account.device?.id}/snap`, '_blank')}
-            className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30"
-            title="查看 Q1 容器屏幕截图">
-            🖥️ 远程
-          </button>
+          <button onClick={() => window.open(`/api/devices/${account.device?.id}/snap`, '_blank')} className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">🖥️ 远程</button>
         )}
-        {account.status !== '已绑定' && (
+        {account.status === '未绑定' ? (
           <button onClick={onBind} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑定</button>
+        ) : (
+          <button onClick={handleUnbind} className="text-[10px] px-2 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded hover:bg-yellow-500/30">🔓 解绑</button>
         )}
+        <button onClick={handleDelete} className="text-[10px] px-2 py-1 bg-red-500/20 text-red-400 border border-red-500/30 rounded hover:bg-red-500/30" title="删除此账号">🗑️</button>
       </div>
     </div>
   )
 }
-
-function Loading() { return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400" /></div> }
-function NoAccess() { return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><p className="text-red-400">无权限</p></div> }
