@@ -215,39 +215,14 @@ export async function swipe(apiPort: number, x1: number, y1: number, x2: number,
   return execShell(apiPort, `input swipe ${x1} ${y1} ${x2} ${y2} ${dur}`)
 }
 
-// ============================================================
-// 动态屏幕尺寸（适配不同分辨率）
-// ============================================================
-
-const screenSizeCache = new Map<number, { width: number; height: number }>()
-
-/** 获取屏幕分辨率（缓存结果，避免重复查询） */
-export async function getScreenSize(apiPort: number): Promise<{ width: number; height: number }> {
-  const cached = screenSizeCache.get(apiPort)
-  if (cached) return cached
-  const r = await execShell(apiPort, 'wm size')
-  const m = r.message.match(/(\d+)x(\d+)/)
-  const size = m ? { width: parseInt(m[1]), height: parseInt(m[2]) } : { width: 1080, height: 1920 }
-  screenSizeCache.set(apiPort, size)
-  return size
-}
-
-/** 按屏幕比例点击（xRatio / yRatio 范围 0~1） */
-export async function tapRatio(apiPort: number, xRatio: number, yRatio: number): Promise<UIResult> {
-  const { width, height } = await getScreenSize(apiPort)
-  return tap(apiPort, Math.round(width * xRatio), Math.round(height * yRatio))
-}
-
-/** 上滑（翻页）— 动态坐标 */
+/** 上滑（翻页） */
 export async function scrollUp(apiPort: number): Promise<UIResult> {
-  const { width, height } = await getScreenSize(apiPort)
-  return execShell(apiPort, `input swipe ${Math.round(width * 0.5)} ${Math.round(height * 0.833)} ${Math.round(width * 0.5)} ${Math.round(height * 0.208)} 500`)
+  return execShell(apiPort, 'input swipe 540 1600 540 400 500')
 }
 
-/** 下滑 — 动态坐标 */
+/** 下滑 */
 export async function scrollDown(apiPort: number): Promise<UIResult> {
-  const { width, height } = await getScreenSize(apiPort)
-  return execShell(apiPort, `input swipe ${Math.round(width * 0.5)} ${Math.round(height * 0.208)} ${Math.round(width * 0.5)} ${Math.round(height * 0.938)} 2000`)
+  return execShell(apiPort, 'input swipe 540 400 540 1800 2000')
 }
 
 /** 滑动直到找到某个文字 */
