@@ -156,8 +156,15 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   let publishBtn = await UI.findByText(apiPort, '发布')
   if (!publishBtn.success) publishBtn = await UI.findByText(apiPort, '添加')
   if (!publishBtn.success) {
-    // 坐标兜底：底部居中区域
-    await UI.tap(apiPort, 540, 1830)
+    // 通过UI元素动态定位底部导航栏
+    const sd = await UI.extractScreenData(apiPort)
+    const texts = (sd.data as any)?.clickableTexts || []
+    let navY = 0; let tapX = 540
+    for (const t of texts) {
+      if (t.includes('首页')) { const f = await UI.findByText(apiPort, t); if (f?.center) navY = f.center.y }
+      if (t === '消息' || t === '我') { const f = await UI.findByText(apiPort, t); if (f?.center) tapX = Math.round(f.center.x * 0.45) }
+    }
+    await UI.tap(apiPort, tapX, navY || 1830)
     await randomDelay(2000, 3000)
     // 检查是否弹出了选择菜单
     const menuCheck = await UI.findByText(apiPort, '相册')
