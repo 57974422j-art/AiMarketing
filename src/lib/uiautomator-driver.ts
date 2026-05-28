@@ -35,7 +35,7 @@ export interface UINode {
 // 内部工具
 // ============================================================
 
-function parseBounds(bounds: string): { x: number; y: number; width: number; height: number } | null {
+export function parseBounds(bounds: string): { x: number; y: number; width: number; height: number } | null {
   const m = bounds.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/)
   if (!m) return null
   return {
@@ -65,7 +65,7 @@ async function downloadFile(apiPort: number, path: string): Promise<string | nul
 // XML 解析 & Dump
 // ============================================================
 
-function parseUiXml(xml: string): UINode[] {
+export function parseUiXml(xml: string): UINode[] {
   const flat: UINode[] = []
   const regex = /<node\s+([^>]*?)\/?>/gi
   let match: RegExpExecArray | null
