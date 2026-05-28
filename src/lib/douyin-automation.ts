@@ -145,25 +145,41 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   }
   await randomDelay(2000, 3000)
 
-  // 4. 选视频：dumpXml 全节点找缩略图 → 点右上角圆圈
+  // 4. 选视频：优先找 checkable=true 的勾选框（视频缩略图上的圆圈）
   let vs = false
   const x1 = await UI.dumpXml(apiPort)
   if (x1.success) {
-    const ts = UI.parseUiXml(x1.data).filter(n => {
-      const b = UI.parseBounds(n.bounds)
-      return b && b.y > 300 && b.y < 1000 && b.width > 60 && b.height > 60
-    }).sort((a, b) => {
-      const ba = UI.parseBounds(a.bounds)!; const bb = UI.parseBounds(b.bounds)!
-      return (ba.y - bb.y) || (ba.x - bb.x)
-    })
-    if (ts.length > 0) {
-      const f = UI.parseBounds(ts[0].bounds)!
-      await UI.tap(apiPort, f.x + f.width - 25, f.y + 25)
-      await randomDelay(2500, 3500)
-      vs = true
+    const allNodes = UI.parseUiXml(x1.data)
+
+    // 优先：找 checkable=true 的节点（视频缩略图上的勾选框）
+    const checkboxes = allNodes.filter(n => n.checkable && n.enabled)
+    if (checkboxes.length > 0) {
+      const c = UI.parseBounds(checkboxes[0].bounds)
+      if (c) {
+        await UI.tap(apiPort, Math.round(c.x + c.width / 2), Math.round(c.y + c.height / 2))
+        await randomDelay(2500, 3500)
+        vs = true
+      }
+    }
+
+    // 次优：找缩略图节点点右上角（勾选框位置）
+    if (!vs) {
+      const ts = allNodes.filter(n => {
+        const b = UI.parseBounds(n.bounds)
+        return b && b.y > 300 && b.y < 1000 && b.width > 60 && b.height > 60
+      }).sort((a, b) => {
+        const ba = UI.parseBounds(a.bounds)!; const bb = UI.parseBounds(b.bounds)!
+        return (ba.y - bb.y) || (ba.x - bb.x)
+      })
+      if (ts.length > 0) {
+        const f = UI.parseBounds(ts[0].bounds)!
+        await UI.tap(apiPort, f.x + f.width - 25, f.y + 25)
+        await randomDelay(2500, 3500)
+        vs = true
+      }
     }
   }
-  if (!vs) { await UI.tap(apiPort, 540, 800); await randomDelay(2500, 3500) }
+  if (!vs) { await UI.tap(apiPort, 540, 480); await randomDelay(2500, 3500) }
 
   // 5+6. 两次"下一步"（全节点找文字，不限 clickable）
   for (let i = 0; i < 2; i++) {
