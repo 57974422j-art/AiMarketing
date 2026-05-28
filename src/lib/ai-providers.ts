@@ -981,6 +981,88 @@ function mockResult(category: string, input: string): string {
   return '';
 }
 
+// ==================== VL 视觉定位（百炼 → 硅基） ====================
+
+interface VLResult { x: number; y: number; width?: number; height?: number }
+
+/** 调用百炼 VL 识别按钮坐标 */
+async function dashscopeLocateButton(base64Image: string, buttonDesc: string): Promise<VLResult | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  try {
+    const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'qwen-vl-plus',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: `这是一张手机截图。请找到"${buttonDesc}"按钮的中心坐标。只返回 JSON: {"x":数字,"y":数字}，不要其他文字。` },
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } },
+          ],
+        }],
+        temperature: 0.1,
+        max_tokens: 200,
+      }),
+    })
+    const text = data?.choices?.[0]?.message?.content?.trim()
+    if (!text) return null
+    const m = text.match(/\{\s*"x"\s*:\s*(\d+)\s*,\s*"y"\s*:\s*(\d+)\s*\}/)
+    if (m) return { x: parseInt(m[1]), y: parseInt(m[2]) }
+    // 试试非 JSON 格式
+    const m2 = text.match(/(\d+)[,\s]+(\d+)/)
+    if (m2) return { x: parseInt(m2[1]), y: parseInt(m2[2]) }
+    return null
+  } catch (e) {
+    console.error('[百炼VL] 定位失败:', e)
+    return null
+  }
+}
+
+/** 调用硅基 VL 识别按钮坐标 */
+async function siliconLocateButton(base64Image: string, buttonDesc: string): Promise<VLResult | null> {
+  const key = getSiliconFlowKey()
+  if (!key) return null
+  try {
+    const data = await fetchJSON(`${SILICONFLOW_BASE}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'Qwen/Qwen2-VL-7B-Instruct',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: `这是一张手机截图。请找到"${buttonDesc}"按钮的中心坐标。只返回 JSON: {"x":数字,"y":数字}，不要其他文字。` },
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } },
+          ],
+        }],
+        temperature: 0.1,
+        max_tokens: 200,
+      }),
+    })
+    const text = data?.choices?.[0]?.message?.content?.trim()
+    if (!text) return null
+    const m = text.match(/\{\s*"x"\s*:\s*(\d+)\s*,\s*"y"\s*:\s*(\d+)\s*\}/)
+    if (m) return { x: parseInt(m[1]), y: parseInt(m[2]) }
+    const m2 = text.match(/(\d+)[,\s]+(\d+)/)
+    if (m2) return { x: parseInt(m2[1]), y: parseInt(m2[2]) }
+    return null
+  } catch (e) {
+    console.error('[硅基VL] 定位失败:', e)
+    return null
+  }
+}
+
+/** AI 视觉定位：截屏 → 识别按钮 → 返回坐标（百炼 → 硅基 → null） */
+export async function aiLocateButton(apiPort: number, buttonDesc: string): Promise<VLResult | null> {
+  // 截图由调用方传入，或在此获取
+  const { takeScreenshot } = await import('./uiautomator-driver')
+  const b64 = await takeScreenshot(apiPort)
+  if (!b64) return null
+  return await dashscopeLocateButton(b64, buttonDesc) || await siliconLocateButton(b64, buttonDesc)
+}
+
 // ==================== 导出函数 — 双保险模式 ====================
 
 // 1. 文案生成 / 文本生成

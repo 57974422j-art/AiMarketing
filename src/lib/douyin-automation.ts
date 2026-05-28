@@ -1,4 +1,5 @@
 import * as UI from './uiautomator-driver'
+import { aiLocateButton } from './ai-providers'
 
 export const DOUYIN_PKG = 'com.ss.android.ugc.aweme'
 export const DOUYIN_ACT = '.main.MainActivity'
@@ -129,13 +130,23 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     if (menuCheck.success) publishBtn = { success: true, message: '已点击 + 号' }
   }
   if (!publishBtn.success) {
-    // 兜底：也试试文字匹配（可能某些版本有文字）
+    // 兜底：文字匹配
     let textBtn = await UI.findByText(apiPort, '发布')
     if (!textBtn.success) textBtn = await UI.findByText(apiPort, '添加')
     if (textBtn.success && textBtn.center) {
       await UI.tap(apiPort, textBtn.center.x, textBtn.center.y)
       await randomDelay(2000, 3000)
       if ((await UI.findByText(apiPort, '相册')).success) publishBtn = textBtn
+    }
+  }
+  if (!publishBtn.success) {
+    // 终极兜底：AI 视觉识别
+    console.log('[AI定位] 尝试 AI 识别 "+" 按钮...')
+    const aiCoord = await aiLocateButton(apiPort, '底部导航栏中间的加号发布按钮')
+    if (aiCoord) {
+      await UI.tap(apiPort, aiCoord.x, aiCoord.y)
+      await randomDelay(2000, 3000)
+      if ((await UI.findByText(apiPort, '相册')).success) publishBtn = { success: true, message: 'AI 定位 + 号成功' }
     }
   }
   if (!publishBtn.success) return { success: false, message: '找不到发布按钮' }
@@ -230,9 +241,31 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   // 7. AI封面（默认关闭，用户可手动添加）
   // 预留：后续用户手动填写时统一处理
 
-  // 8. 写标题
+  // 8. 写标题（兼容多种占位文字）
   if (title) {
-    await UI.tapAndInput(apiPort, '添加标题', title)
+    let tapped = false
+    for (const hint of ['添加标题', '写标题', '标题', '请输入标题', '说点什么']) {
+      const f = await UI.findByText(apiPort, hint)
+      if (f.center) {
+        await UI.tap(apiPort, f.center.x, f.center.y)
+        await UI.sleep(500)
+        tapped = true
+        break
+      }
+    }
+    // 兜底：找第一个 EditText 输入框
+    if (!tapped) {
+      const nodes = UI.parseUiXml((await UI.dumpXml(apiPort)).data || '')
+      const et = nodes.find(n => n.className.includes('EditText') && n.enabled)
+      if (et) {
+        const b = UI.parseBounds(et.bounds)
+        if (b) {
+          await UI.tap(apiPort, Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2))
+          await UI.sleep(500)
+        }
+      }
+    }
+    await UI.inputText(apiPort, title)
     await randomDelay(1000, 1500)
   }
 
@@ -262,6 +295,14 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
       await UI.tap(apiPort, best.x, best.y)
       await randomDelay(3000, 5000)
       return { success: true, message: `视频已发布: ${title || '无标题'}` }
+    }
+    // 终极兜底：AI 视觉识别
+    console.log('[AI定位] 尝试 AI 识别最终发布按钮...')
+    const aiCoord = await aiLocateButton(apiPort, '发布作品的按钮，通常在页面底部或右上角')
+    if (aiCoord) {
+      await UI.tap(apiPort, aiCoord.x, aiCoord.y)
+      await randomDelay(3000, 5000)
+      return { success: true, message: `AI 定位发布成功: ${title || '无标题'}` }
     }
   }
   if (pub.success && pub.center) {

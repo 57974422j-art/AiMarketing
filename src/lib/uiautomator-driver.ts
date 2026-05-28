@@ -285,3 +285,21 @@ export async function openApp(apiPort: number, pkg: string, act?: string): Promi
 export function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
 }
+
+// ============================================================
+// 截图（用于 AI 视觉兜底）
+// ============================================================
+
+/** 截取当前屏幕，返回 base64 PNG */
+export async function takeScreenshot(apiPort: number): Promise<string | null> {
+  try {
+    // Q1 截图 API
+    const res = await fetch(`http://localhost:${apiPort}/task=snap&level=3`, { signal: AbortSignal.timeout(15000) })
+    if (!res.ok) return null
+    const buf = await res.arrayBuffer()
+    return Buffer.from(buf).toString('base64')
+  } catch (e) {
+    console.error('[截图] 失败:', e)
+    return null
+  }
+}
