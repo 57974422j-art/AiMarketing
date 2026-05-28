@@ -119,6 +119,16 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   const { title, videoIndex = 1, aiCover = false, delayBeforePublish = 3000 } = options
   const { width: SW, height: SH } = await UI.getScreenSize(apiPort)
 
+  // 详细步骤日志
+  const stepLog = (step: string, detail: string) => console.log(`[publish:${step}] ${detail}`)
+  const dumpScreenTexts = async () => {
+    const r = await UI.extractScreenData(apiPort)
+    if (r.success) {
+      const texts = (r.data as UI.ExtractedData)?.texts?.slice(0, 10) || []
+      stepLog('screen', `可见文字: ${texts.join(' | ') || '(空)'}`)
+    }
+  }
+
   // 1. 找初始"+"发布按钮 → 进入上传菜单
   // 注意：不通过文字搜索，+ 号是 ImageView 图标，文字匹配会误点别处
   let publishBtn: any = { success: false, message: '' }
@@ -150,12 +160,18 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     }
   }
   if (!publishBtn.success) return { success: false, message: '找不到发布按钮' }
+  stepLog('post_plus', `+ 号点击后页面文字:`)
+  await dumpScreenTexts()
 
   // 2. 点击"相册"进入相册
+  stepLog('album', '尝试点击"相册"')
   if (!(await UI.findAndClick(apiPort, '相册')).success) await UI.findAndClick(apiPort, '视频')
   await randomDelay(3000, 4000)
+  stepLog('album', '相册点击后可见文字:')
+  await dumpScreenTexts()
 
   // 3. 选"视频"Tab切换到视频列表（dumpXml全节点扫描，不限clickable）
+  stepLog('video_tab', '找"视频"Tab')
   const tabXml = await UI.dumpXml(apiPort)
   if (tabXml.success) {
     for (const n of UI.parseUiXml(tabXml.data)) {
@@ -163,12 +179,15 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
         const b = UI.parseBounds(n.bounds)
         if (b) {
           await UI.tap(apiPort, Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2))
+          stepLog('video_tab', `已点击"视频"Tab: ${b.x},${b.y}`)
           break
         }
       }
     }
   }
   await randomDelay(2000, 3000)
+  stepLog('video_tab', 'Tab点击后可见文字:')
+  await dumpScreenTexts()
 
   // 4. 选视频：点第一个视频缩略图中心（勾选框是纯视觉绘制，XML 中不存在）
   let vs = false
@@ -200,16 +219,24 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
 
     if (thumbs.length > 0) {
       const t = UI.parseBounds(thumbs[0].bounds)!
+      stepLog('pick_video', `选第1个缩略图: [${t.x},${t.y},${t.width},${t.height}]`)
       await UI.tap(apiPort, Math.round(t.x + t.width / 2), Math.round(t.y + t.height / 2))
       await randomDelay(2500, 3500)
       vs = true
+    } else {
+      stepLog('pick_video', '未找到符合条件的缩略图')
     }
   }
-  if (!vs) { await UI.tapRatio(apiPort, 0.5, 0.25); await randomDelay(2500, 3500) }
+  if (!vs) {
+    stepLog('pick_video', '缩略图选择失败，使用坐标兜底 tapRatio(0.5,0.25)')
+    await UI.tapRatio(apiPort, 0.5, 0.25); await randomDelay(2500, 3500)
+  }
 
   // 5+6. 两次"下一步"（优先文字，兜底扫底部右侧图标）
   for (let i = 0; i < 2; i++) {
     await UI.sleep(1000 + Math.random() * 1000) // 等页面加载
+    stepLog('next_step', `第${i+1}次"下一步"`)
+    await dumpScreenTexts()
     const x2 = await UI.dumpXml(apiPort); let done = false
     if (x2.success) {
       const allN = UI.parseUiXml(x2.data)
@@ -234,15 +261,25 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
         }
       }
     }
-    if (!done) await UI.tapRatio(apiPort, 0.85, 0.92) // 兜底：底部偏右
+    if (!done) {
+      await UI.tapRatio(apiPort, 0.85, 0.92) // 兜底：底部偏右
+      stepLog('next_step', `第${i+1}次"下一步"用坐标兜底 tapRatio(0.85,0.92)`)
+    } else {
+      stepLog('next_step', `第${i+1}次"下一步"点击成功`)
+    }
     await randomDelay(2000, 3000)
   }
+
+  stepLog('after_next', '两次"下一步"完成后当前页面文字:')
+  await dumpScreenTexts()
 
   // 7. AI封面（默认关闭，用户可手动添加）
   // 预留：后续用户手动填写时统一处理
 
   // 8. 写标题（兼容多种占位文字）
   if (title) {
+    stepLog('title', `准备输入标题: "${title.substring(0, 30)}"`)
+    await dumpScreenTexts()
     let tapped = false
     for (const hint of ['添加标题', '写标题', '标题', '请输入标题', '说点什么']) {
       const f = await UI.findByText(apiPort, hint)
@@ -266,10 +303,11 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
       }
     }
     await UI.inputText(apiPort, title)
+    stepLog('title', `标题已输入: "${tapped ? '点击输入框成功' : 'EditText兜底'}"`)
     await randomDelay(1000, 1500)
+  } else {
+    stepLog('title', '未传入标题，跳过输入')
   }
-
-  // 9. 添加话题
   if (options.topics && options.topics.length > 0) {
     for (const topic of options.topics) {
       await UI.findAndClick(apiPort, '话题')
@@ -283,6 +321,8 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
 
   // 10. 最终发布（可能是文字按钮或 "+" 图标按钮）
   await UI.sleep(delayBeforePublish)
+  stepLog('publish', '最终发布前页面文字:')
+  await dumpScreenTexts()
   let pub = await UI.findByText(apiPort, '发作品')
   if (!pub.success) pub = await UI.findByText(apiPort, '发布')
   if (!pub.success) {
