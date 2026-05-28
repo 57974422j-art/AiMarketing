@@ -97,7 +97,7 @@ export interface PublishOptions {
 }
 
 /** 扫描 XML 找 ImageView/FrameLayout 图标按钮（用于定位 "+" 等无文字按钮） */
-async function scanIconButton(apiPort: number, SW: number, SH: number, areaFilter: (b: { x: number; y: number; width: number; height: number }) => boolean): Promise<{ x: number; y: number } | null> {
+async function scanIconButton(apiPort: number, SW: number, SH: number, areaFilter: (b: { x: number; y: number; width: number; height: number }, cx: number, cy: number) => boolean): Promise<{ x: number; y: number } | null> {
   const xmlR = await UI.dumpXml(apiPort)
   if (!xmlR.success) return null
   const allNodes = UI.parseUiXml(xmlR.data)
@@ -106,8 +106,9 @@ async function scanIconButton(apiPort: number, SW: number, SH: number, areaFilte
     if (!n.className.includes('ImageView') && !n.className.includes('FrameLayout')) continue
     const b = UI.parseBounds(n.bounds)
     if (!b) continue
-    if (!areaFilter(b)) continue
     const cx = Math.round(b.x + b.width / 2)
+    const cy = Math.round(b.y + b.height / 2)
+    if (!areaFilter(b, cx, cy)) continue
     if (!best || b.y > best.y) best = { x: cx, y: Math.round(b.y + 5) }
   }
   return best
@@ -122,7 +123,7 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   if (!publishBtn.success) publishBtn = await UI.findByText(apiPort, '添加')
   if (!publishBtn.success) {
     // "+" 图标：底部导航栏中间区域的 ImageView
-    const best = await scanIconButton(apiPort, SW, SH, b => b.y < SH * 0.73 && b.x > SW * 0.2 && b.x < SW * 0.8)
+    const best = await scanIconButton(apiPort, SW, SH, (b, cx) => b.y >= SH * 0.73 && cx >= SW * 0.278 && cx <= SW * 0.685)
     if (best) {
       await UI.tap(apiPort, best.x, best.y)
       await randomDelay(2000, 3000)
@@ -233,9 +234,9 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   if (!pub.success) pub = await UI.findByText(apiPort, '发布')
   if (!pub.success) {
     // 非文字按钮：扫描 ImageView（"+"/图标）— 顶栏右侧或底部区域
-    const best = await scanIconButton(apiPort, SW, SH, b =>
-      (b.y < SH * 0.12 && b.x > SW * 0.6) || // 顶栏右侧
-      (b.y > SH * 0.85 && b.x > SW * 0.5)    // 底部偏右
+    const best = await scanIconButton(apiPort, SW, SH, (b, cx) =>
+      (b.y < SH * 0.12 && cx > SW * 0.6) || // 顶栏右侧
+      (b.y > SH * 0.85 && cx > SW * 0.5)    // 底部偏右
     )
     if (best) {
       await UI.tap(apiPort, best.x, best.y)
