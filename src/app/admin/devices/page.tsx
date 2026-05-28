@@ -283,6 +283,7 @@ export default function AdminDevicesPage() {
                       </div>
                       <div className="flex gap-1">
                         <button onClick={() => openEdit(d)} className="text-[10px] px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 rounded hover:bg-cyan-500/30">编辑</button>
+                        <button onClick={()=>window.open(`/api/devices/${d.id}/snap`,"_blank")} className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30" title="远程截图">🖥️</button>
                         <button onClick={() => handleDelete(d.id)} className="text-[10px] px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30">删除</button>
                       </div>
                     </td>
