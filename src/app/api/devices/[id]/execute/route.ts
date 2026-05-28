@@ -247,6 +247,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             const { title: genTitle } = await generatePublishTitle(searchKeyword, publishDesc)
             const pubTitle = publishTitle || genTitle
             const pubTopics = Array.isArray(publishTopics) && publishTopics.length > 0 ? publishTopics : [`#${searchKeyword}`]
+            // 先回到首页确保底部发布按钮可见
+            await Douyin.goHome(port)
+            await UI.sleep(2000)
             r = await Douyin.publishVideo(port, { title: pubTitle, topics: pubTopics })
             log('title', true, `标题: ${pubTitle}`)
             break
