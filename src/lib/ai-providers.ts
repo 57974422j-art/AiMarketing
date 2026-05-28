@@ -994,7 +994,7 @@ async function dashscopeLocateButton(base64Image: string, buttonDesc: string): P
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'qwen-vl-plus',
+        model: 'qwen-vl-max',
         messages: [{
           role: 'user',
           content: [
@@ -1056,11 +1056,46 @@ async function siliconLocateButton(base64Image: string, buttonDesc: string): Pro
 
 /** AI 视觉定位：截屏 → 识别按钮 → 返回坐标（百炼 → 硅基 → null） */
 export async function aiLocateButton(apiPort: number, buttonDesc: string): Promise<VLResult | null> {
-  // 截图由调用方传入，或在此获取
   const { takeScreenshot } = await import('./uiautomator-driver')
   const b64 = await takeScreenshot(apiPort)
   if (!b64) return null
   return await dashscopeLocateButton(b64, buttonDesc) || await siliconLocateButton(b64, buttonDesc)
+}
+
+/** 调用百炼 VL 分析页面内容 */
+async function dashscopeDescribeScreen(base64Image: string): Promise<string | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  try {
+    const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'qwen-vl-max',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: '你是抖音自动化测试助手。分析这张截图，用一句话告诉我：当前是什么页面？页面上能看到哪些关键按钮或文字？' },
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } },
+          ],
+        }],
+        temperature: 0.1,
+        max_tokens: 200,
+      }),
+    })
+    return data?.choices?.[0]?.message?.content?.trim() || null
+  } catch (e) {
+    console.error('[百炼VL] 页面分析失败:', e)
+    return null
+  }
+}
+
+/** AI 页面分析：截屏 → 百炼回答当前页面是什么 */
+export async function aiDescribeScreen(apiPort: number): Promise<string | null> {
+  const { takeScreenshot } = await import('./uiautomator-driver')
+  const b64 = await takeScreenshot(apiPort)
+  if (!b64) return null
+  return await dashscopeDescribeScreen(b64)
 }
 
 // ==================== 导出函数 — 双保险模式 ====================

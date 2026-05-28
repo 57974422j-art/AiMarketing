@@ -1,5 +1,5 @@
 import * as UI from './uiautomator-driver'
-import { aiLocateButton } from './ai-providers'
+import { aiLocateButton, aiDescribeScreen } from './ai-providers'
 
 export const DOUYIN_PKG = 'com.ss.android.ugc.aweme'
 export const DOUYIN_ACT = '.main.MainActivity'
@@ -128,6 +128,11 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
       stepLog('screen', `可见文字: ${texts.join(' | ') || '(空)'}`)
     }
   }
+  const aiCheck = async (step: string) => {
+    stepLog(step, 'AI 页面分析中...')
+    const desc = await aiDescribeScreen(apiPort)
+    stepLog(step, `AI: ${desc || '(分析超时或无返回)'}`)
+  }
 
   // 1. 找初始"+"发布按钮 → 进入上传菜单
   // 注意：不通过文字搜索，+ 号是 ImageView 图标，文字匹配会误点别处
@@ -160,8 +165,7 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     }
   }
   if (!publishBtn.success) return { success: false, message: '找不到发布按钮' }
-  stepLog('post_plus', `+ 号点击后页面文字:`)
-  await dumpScreenTexts()
+  await aiCheck('post_plus')
 
   // 2. 点击"相册"进入相册
   stepLog('album', '尝试点击"相册"')
@@ -231,6 +235,7 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     stepLog('pick_video', '缩略图选择失败，使用坐标兜底 tapRatio(0.5,0.25)')
     await UI.tapRatio(apiPort, 0.5, 0.25); await randomDelay(2500, 3500)
   }
+  await aiCheck('post_pick')
 
   // 5+6. 两次"下一步"（优先文字，兜底扫底部右侧图标）
   for (let i = 0; i < 2; i++) {
@@ -270,8 +275,7 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     await randomDelay(2000, 3000)
   }
 
-  stepLog('after_next', '两次"下一步"完成后当前页面文字:')
-  await dumpScreenTexts()
+  await aiCheck('after_next')
 
   // 7. AI封面（默认关闭，用户可手动添加）
   // 预留：后续用户手动填写时统一处理
@@ -302,6 +306,14 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
         }
       }
     }
+    // 强制呼出键盘 + 剪贴板预备
+    if (tapped) {
+      await UI.shell(apiPort, 'settings put global show_ime_with_hard_keyboard 1')
+      await UI.sleep(300)
+      // 把标题写到系统剪贴板（备用，以防 input text 不生效）
+      await UI.shell(apiPort, `service call clipboard 1 i32 1 s16 "${title.replace(/"/g, '\\"')}"`).catch(() => {})
+      await UI.sleep(200)
+    }
     await UI.inputText(apiPort, title)
     stepLog('title', `标题已输入: "${tapped ? '点击输入框成功' : 'EditText兜底'}"`)
     await randomDelay(1000, 1500)
@@ -321,8 +333,7 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
 
   // 10. 最终发布（可能是文字按钮或 "+" 图标按钮）
   await UI.sleep(delayBeforePublish)
-  stepLog('publish', '最终发布前页面文字:')
-  await dumpScreenTexts()
+  await aiCheck('publish')
   let pub = await UI.findByText(apiPort, '发作品')
   if (!pub.success) pub = await UI.findByText(apiPort, '发布')
   if (!pub.success) {

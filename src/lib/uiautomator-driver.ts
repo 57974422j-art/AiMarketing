@@ -281,6 +281,11 @@ export async function openApp(apiPort: number, pkg: string, act?: string): Promi
   return execShell(apiPort, `am start -n ${act ? `${pkg}/${act}` : pkg}`)
 }
 
+/** 执行任意 Shell 命令（通过 Q1 API） */
+export async function shell(apiPort: number, cmd: string): Promise<UIResult> {
+  return execShell(apiPort, cmd)
+}
+
 /** 等待 */
 export function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
