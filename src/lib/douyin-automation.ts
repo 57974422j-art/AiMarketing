@@ -97,7 +97,7 @@ export interface PublishOptions {
 }
 
 export async function publishVideo(apiPort: number, options: PublishOptions = {}): Promise<UI.UIResult> {
-  const { title, videoIndex = 1, aiCover = true, delayBeforePublish = 3000 } = options
+  const { title, videoIndex = 1, aiCover = false, delayBeforePublish = 3000 } = options
 
   let publishBtn = await UI.findByText(apiPort, '发布')
   if (!publishBtn.success) publishBtn = await UI.findByText(apiPort, '添加')
@@ -130,7 +130,22 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   if (!(await UI.findAndClick(apiPort, '相册')).success) await UI.findAndClick(apiPort, '视频')
   await randomDelay(3000, 4000)
 
-  // 3. 选视频：dumpXml 全节点找缩略图 → 点右上角圆圈
+  // 3. 选"视频"Tab切换到视频列表（dumpXml全节点扫描，不限clickable）
+  const tabXml = await UI.dumpXml(apiPort)
+  if (tabXml.success) {
+    for (const n of UI.parseUiXml(tabXml.data)) {
+      if ((n.text === '视频' || n.contentDesc === '视频') && n.enabled) {
+        const b = UI.parseBounds(n.bounds)
+        if (b) {
+          await UI.tap(apiPort, Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2))
+          break
+        }
+      }
+    }
+  }
+  await randomDelay(2000, 3000)
+
+  // 4. 选视频：dumpXml 全节点找缩略图 → 点右上角圆圈
   let vs = false
   const x1 = await UI.dumpXml(apiPort)
   if (x1.success) {
@@ -148,9 +163,9 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
       vs = true
     }
   }
-  if (!vs) { await UI.tap(apiPort, 540, 480); await randomDelay(2500, 3500) }
+  if (!vs) { await UI.tap(apiPort, 540, 800); await randomDelay(2500, 3500) }
 
-  // 4+5. 两次"下一步"（全节点找文字，不限 clickable）
+  // 5+6. 两次"下一步"（全节点找文字，不限 clickable）
   for (let i = 0; i < 2; i++) {
     const x2 = await UI.dumpXml(apiPort); let done = false
     if (x2.success) {
@@ -165,18 +180,16 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     await randomDelay(2000, 3000)
   }
 
-  if (aiCover) {
-    await UI.findAndClick(apiPort, '编辑封面')
-    await randomDelay(1000, 1500)
-    await UI.goBack(apiPort)
-    await randomDelay(1000, 1500)
-  }
+  // 7. AI封面（默认关闭，用户可手动添加）
+  // 预留：后续用户手动填写时统一处理
 
+  // 8. 写标题
   if (title) {
     await UI.tapAndInput(apiPort, '添加标题', title)
     await randomDelay(1000, 1500)
   }
 
+  // 9. 添加话题
   if (options.topics && options.topics.length > 0) {
     for (const topic of options.topics) {
       await UI.findAndClick(apiPort, '话题')
@@ -188,6 +201,7 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     }
   }
 
+  // 10. 发作品
   await UI.sleep(delayBeforePublish)
   const result = await UI.findAndClick(apiPort, '发作品')
   await randomDelay(3000, 5000)
