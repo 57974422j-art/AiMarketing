@@ -1,12 +1,3 @@
-/**
- * 抖音自动化操作 v2 — 基于 uiautomator 文字查找
- * 
- * 平台: 抖音 (com.ss.android.ugc.aweme)
- * 所有操作通过文字查找按钮，不依赖固定坐标
- * 
- * 扩展: 后续加其他平台（快手/小红书/视频号）按相同模式写对应的文件
- */
-
 import * as UI from './uiautomator-driver'
 
 export const DOUYIN_PKG = 'com.ss.android.ugc.aweme'
@@ -16,10 +7,6 @@ function randomDelay(min: number, max: number) {
   return UI.sleep(min + Math.random() * (max - min))
 }
 
-// ============================================================
-// 启动 / 导航
-// ============================================================
-
 export async function ensureDouyinOpen(apiPort: number): Promise<boolean> {
   for (let i = 0; i < 3; i++) await UI.goBack(apiPort)
   await randomDelay(500, 1000)
@@ -28,28 +15,20 @@ export async function ensureDouyinOpen(apiPort: number): Promise<boolean> {
   return r.success
 }
 
-/** 回到抖音首页 */
 export async function goHome(apiPort: number): Promise<UI.UIResult> {
   return UI.findAndClick(apiPort, '首页')
 }
 
-/** 打开"我"的个人主页 */
 export async function goProfile(apiPort: number): Promise<UI.UIResult> {
   return UI.findAndClick(apiPort, '我')
 }
 
-// ============================================================
-// 互动
-// ============================================================
-
-/** 点赞当前视频（随机延迟 20-30 秒模拟真人） */
 export async function like(apiPort: number): Promise<UI.UIResult> {
   const waitMs = 20000 + Math.floor(Math.random() * 10000)
   await UI.sleep(waitMs)
   return UI.findAndClick(apiPort, '赞')
 }
 
-/** 评论当前视频 */
 export async function comment(apiPort: number, text: string): Promise<UI.UIResult> {
   const r = await UI.findAndClick(apiPort, '评论')
   if (!r.success) return r
@@ -59,20 +38,14 @@ export async function comment(apiPort: number, text: string): Promise<UI.UIResul
   return UI.findAndClick(apiPort, '发送')
 }
 
-/** 关注作者 */
 export async function follow(apiPort: number): Promise<UI.UIResult> {
   await randomDelay(3000, 6000)
   return UI.findAndClick(apiPort, '关注')
 }
 
-/** 收藏视频 */
 export async function favorite(apiPort: number): Promise<UI.UIResult> {
   return UI.findAndClick(apiPort, '收藏')
 }
-
-// ============================================================
-// 转发 / 分享
-// ============================================================
 
 export async function shareVideo(apiPort: number, target?: string): Promise<UI.UIResult> {
   const clickRes = await UI.findAndClick(apiPort, '分享')
@@ -85,10 +58,6 @@ export async function shareVideo(apiPort: number, target?: string): Promise<UI.U
   }
   return { success: true, message: '分享面板已打开' }
 }
-
-// ============================================================
-// 搜索
-// ============================================================
 
 export async function search(apiPort: number, keyword: string): Promise<UI.UIResult> {
   const s = await UI.findAndClick(apiPort, '搜索')
@@ -103,16 +72,11 @@ export async function search(apiPort: number, keyword: string): Promise<UI.UIRes
   return { success: true, message: `已搜索"${keyword}"` }
 }
 
-// ============================================================
-// 私信
-// ============================================================
-
 export async function sendDirectMessage(apiPort: number, username: string, message: string): Promise<UI.UIResult> {
   let r = await UI.findAndClick(apiPort, '消息')
   if (!r.success) { for (let i = 0; i < 3; i++) await UI.goBack(apiPort); await randomDelay(1000, 1500); r = await UI.findAndClick(apiPort, '消息') }
   if (!r.success) return { success: false, message: '找不到消息' }
   await randomDelay(2000, 3000)
-
   let userR = await UI.findAndClick(apiPort, username)
   if (!userR.success) {
     await UI.findAndClick(apiPort, '搜索'); await randomDelay(1000, 1500)
@@ -128,35 +92,16 @@ export async function sendDirectMessage(apiPort: number, username: string, messa
   return { success: sendR.success, message: `已私信 ${username}` }
 }
 
-// ============================================================
-// 发布视频（核心）
-// ============================================================
-
 export interface PublishOptions {
-  /** 视频标题 */
-  title?: string
-  /** 相册里选第几个视频（1=第一个） */
-  videoIndex?: number
-  /** 是否开启 AI 封面 */
-  aiCover?: boolean
-  /** 添加话题标签 */
-  topics?: string[]
-  /** 发布前等待秒数 */
-  delayBeforePublish?: number
+  title?: string; videoIndex?: number; aiCover?: boolean; topics?: string[]; delayBeforePublish?: number
 }
 
-/**
- * 完整发布视频流程
- * 路径: + → 选视频 → 下一步 → AI封面/标题 → 发作品
- */
 export async function publishVideo(apiPort: number, options: PublishOptions = {}): Promise<UI.UIResult> {
   const { title, videoIndex = 1, aiCover = true, delayBeforePublish = 3000 } = options
 
-  // 1. 点击底部 "+" 发布
   let publishBtn = await UI.findByText(apiPort, '发布')
   if (!publishBtn.success) publishBtn = await UI.findByText(apiPort, '添加')
   if (!publishBtn.success) {
-    // 从完整节点列表找底部居中 ImageView（不限制 clickable）
     const xmlR = await UI.dumpXml(apiPort)
     const allNodes = xmlR.success ? UI.parseUiXml(xmlR.data) : []
     let best: { x: number; y: number } | null = null
@@ -171,50 +116,67 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     if (best) {
       await UI.tap(apiPort, best.x, best.y)
       await randomDelay(2000, 3000)
+      const menuCheck = await UI.findByText(apiPort, '相册')
+      if (menuCheck.success) publishBtn = { success: true, message: '坐标点击成功' } as any
     }
-    // 检查是否弹出了选择菜单
-    const menuCheck = await UI.findByText(apiPort, '相册')
-    if (menuCheck.success) { publishBtn = { success: true, message: '坐标点击成功' } as any }
-  } else {
-    await UI.tap(apiPort, publishBtn.center!.x, publishBtn.center!.y)
+  }
+  if (publishBtn.success && publishBtn.center) {
+    await UI.tap(apiPort, publishBtn.center.x, publishBtn.center.y)
     await randomDelay(2000, 3000)
   }
   if (!publishBtn.success) return { success: false, message: '找不到发布按钮' }
 
-  // 2. 点击"相册"或"视频"
-  const videoBtn = await UI.findAndClick(apiPort, '视频')
-  if (!videoBtn.success) await UI.findAndClick(apiPort, '相册')
+  // 2. 点击"相册"进入相册
+  if (!(await UI.findAndClick(apiPort, '相册')).success) await UI.findAndClick(apiPort, '视频')
   await randomDelay(3000, 4000)
 
-  // 3. 选视频（默认第一个）
-  const firstVideo = await UI.findByText(apiPort, '图片') // 找图片类元素
-  if (!firstVideo.success) await UI.tap(apiPort, 375, 600) // 默认位置
-  else { const x = 200 + (videoIndex - 1) * 250; await UI.tap(apiPort, x, 500) }
-  await randomDelay(1500, 2000)
+  // 3. 选视频：dumpXml 全节点找缩略图 → 点右上角圆圈
+  let vs = false
+  const x1 = await UI.dumpXml(apiPort)
+  if (x1.success) {
+    const ts = UI.parseUiXml(x1.data).filter(n => {
+      const b = UI.parseBounds(n.bounds)
+      return b && b.y > 300 && b.y < 1000 && b.width > 60 && b.height > 60
+    }).sort((a, b) => {
+      const ba = UI.parseBounds(a.bounds)!; const bb = UI.parseBounds(b.bounds)!
+      return (ba.y - bb.y) || (ba.x - bb.x)
+    })
+    if (ts.length > 0) {
+      const f = UI.parseBounds(ts[0].bounds)!
+      await UI.tap(apiPort, f.x + f.width - 25, f.y + 25)
+      await randomDelay(2500, 3500)
+      vs = true
+    }
+  }
+  if (!vs) { await UI.tap(apiPort, 540, 480); await randomDelay(2500, 3500) }
 
-  // 4. 下一步（裁剪页面）
-  await UI.findAndClick(apiPort, '下一步')
-  await randomDelay(1500, 2000)
+  // 4+5. 两次"下一步"（全节点找文字，不限 clickable）
+  for (let i = 0; i < 2; i++) {
+    const x2 = await UI.dumpXml(apiPort); let done = false
+    if (x2.success) {
+      for (const n of UI.parseUiXml(x2.data)) {
+        if ((n.text === '下一步' || n.contentDesc === '下一步') && n.enabled) {
+          const b = UI.parseBounds(n.bounds)
+          if (b) { await UI.tap(apiPort, Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2)); done = true; break }
+        }
+      }
+    }
+    if (!done) await UI.tap(apiPort, 540, 1800)
+    await randomDelay(2000, 3000)
+  }
 
-  // 5. 再下一步（编辑页面）
-  await UI.findAndClick(apiPort, '下一步')
-  await randomDelay(2000, 3000)
-
-  // 6. AI 编辑封面（可选）
   if (aiCover) {
     await UI.findAndClick(apiPort, '编辑封面')
     await randomDelay(1000, 1500)
-    await UI.goBack(apiPort) // 回到编辑页
+    await UI.goBack(apiPort)
     await randomDelay(1000, 1500)
   }
 
-  // 7. 写标题
   if (title) {
     await UI.tapAndInput(apiPort, '添加标题', title)
     await randomDelay(1000, 1500)
   }
 
-  // 8. 添加话题（可选）
   if (options.topics && options.topics.length > 0) {
     for (const topic of options.topics) {
       await UI.findAndClick(apiPort, '话题')
@@ -226,88 +188,65 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     }
   }
 
-  // 9. 等待 + 发布
   await UI.sleep(delayBeforePublish)
   const result = await UI.findAndClick(apiPort, '发作品')
-
   await randomDelay(3000, 5000)
   return { ...result, message: result.success ? `视频已发布: ${title || '无标题'}` : `发布失败: ${result.message}` }
 }
 
-// ============================================================
-// 数据提取
-// ============================================================
-
 export interface VideoInfo {
-  title: string; author: string; likeCount: string;
-  commentCount: string; shareCount: string; allTexts: string[]
+  title: string; author: string; likeCount: string; commentCount: string; shareCount: string; allTexts: string[]
 }
 export interface UserProfile {
-  nickname: string; douyinId: string; followerCount: string;
-  followingCount: string; likeCount: string; bio: string
+  nickname: string; douyinId: string; followerCount: string; followingCount: string; likeCount: string; bio: string
 }
 
 export async function extractVideoInfo(apiPort: number): Promise<UI.UIResult & { info?: VideoInfo }> {
-  const screen = await UI.extractScreenData(apiPort)
-  if (!screen.success) return { ...screen, message: '提取失败' }
-  const data = screen.data as UI.ExtractedData
-  const info: VideoInfo = { title: '', author: '', likeCount: '', commentCount: '', shareCount: '', allTexts: data.texts }
-  for (const t of data.texts) {
-    if (t.includes('万') || t.includes('赞')) info.likeCount = t
-    if (t.includes('评论')) info.commentCount = t
-    if (t.includes('分享')) info.shareCount = t
-    if (t.includes('@')) info.author = t
+  const r = await UI.extractScreenData(apiPort)
+  if (!r.success) return { success: false, message: '提取失败', info: undefined }
+  const texts = (r.data as UI.ExtractedData)?.texts || []
+  const info: VideoInfo = {
+    title: texts[0] || '', author: texts.find(t => t.includes('@')) || '',
+    likeCount: texts.find(t => t.includes('万') || t.includes('赞')) || '0',
+    commentCount: texts.find(t => t.includes('评'))?.replace('评论', '') || '0',
+    shareCount: texts.find(t => t.includes('分享'))?.replace('分享', '') || '0',
+    allTexts: texts,
   }
-  return { success: true, message: '提取完成', info, data: screen.data }
+  return { success: true, message: '提取成功', info }
 }
 
 export async function extractProfile(apiPort: number): Promise<UI.UIResult & { profile?: UserProfile }> {
-  const screen = await UI.extractScreenData(apiPort)
-  if (!screen.success) return { ...screen, message: '提取失败' }
-  const data = screen.data as UI.ExtractedData
-  const profile: UserProfile = { nickname: '', douyinId: '', followerCount: '', followingCount: '', likeCount: '', bio: '' }
-  for (const t of data.texts) {
-    if (t.startsWith('抖音号')) profile.douyinId = t.replace('抖音号', '').trim()
-    else if (t.includes('粉丝')) profile.followerCount = t
-    else if (t.includes('关注')) profile.followingCount = t
-    else if (t.includes('获赞')) profile.likeCount = t
-    else if (t.length > 2 && t.length < 30 && !profile.nickname) profile.nickname = t
+  const r = await UI.extractScreenData(apiPort)
+  if (!r.success) return { success: false, message: '提取失败', profile: undefined }
+  const texts = (r.data as UI.ExtractedData)?.texts || []
+  const profile: UserProfile = {
+    nickname: texts[0] || '', douyinId: texts.find(t => t.includes('抖音号'))?.replace('抖音号:', '').trim() || '',
+    followerCount: texts.find(t => t.includes('获赞')) || '0',
+    followingCount: texts.find(t => t.includes('关注'))?.split('关注')[0] || '0',
+    likeCount: texts.find(t => t.includes('获赞'))?.replace('获赞', '').trim() || '0',
+    bio: texts.find(t => t.includes('简介'))?.replace('简介', '').trim() || '',
   }
-  return { success: true, message: '提取完成', profile, data: screen.data }
+  return { success: true, message: '提取成功', profile }
 }
 
 export async function extractComments(apiPort: number, max = 10): Promise<UI.UIResult> {
-  const r = await UI.findAndClick(apiPort, '评论')
-  if (!r.success) return r
-  await randomDelay(2000, 3000)
-  const comments: string[] = []
-  for (let i = 0; i < 5 && comments.length < max; i++) {
-    const screen = await UI.extractScreenData(apiPort)
-    const data = screen.data as UI.ExtractedData
-    for (const t of data.texts) {
-      if (t.length > 3 && !comments.includes(t) && !t.includes('回复') && !t.includes('点赞')) comments.push(t)
-    }
-    await UI.scrollUp(apiPort); await randomDelay(1500, 2000)
-  }
-  await UI.goBack(apiPort)
-  return { success: true, message: `提取到 ${comments.length} 条评论`, data: comments.slice(0, max) }
+  const r = await UI.extractScreenData(apiPort)
+  if (!r.success) return { success: false, message: '提取失败' }
+  const texts = (r.data as UI.ExtractedData)?.texts || []
+  return { success: true, message: `提取到 ${texts.length} 条评论`, data: texts.slice(0, max) }
 }
 
-// ============================================================
-// 综合任务（一次跑多个操作）
-// ============================================================
-
 export interface InteractionOptions {
-  like?: boolean; comment?: string; follow?: boolean; share?: boolean
-  delay?: { min: number; max: number }
+  actions: string[]; keyword?: string; maxResults?: number
 }
 
 export async function interact(apiPort: number, opts: InteractionOptions): Promise<UI.UIResult[]> {
-  const d = opts.delay || { min: 3000, max: 8000 }
   const results: UI.UIResult[] = []
-  if (opts.like) { await randomDelay(d.min, d.max); results.push(await like(apiPort)) }
-  if (opts.comment) { await randomDelay(d.min, d.max); results.push(await comment(apiPort, opts.comment)) }
-  if (opts.follow) { await randomDelay(d.min, d.max); results.push(await follow(apiPort)) }
-  if (opts.share) { await randomDelay(d.min, d.max); results.push(await shareVideo(apiPort)) }
+  for (const action of opts.actions) {
+    if (action === 'like') results.push(await like(apiPort))
+    else if (action === 'comment') results.push(await comment(apiPort, opts.keyword || '不错'))
+    else if (action === 'follow') results.push(await follow(apiPort))
+    else results.push({ success: false, message: `未知操作: ${action}` })
+  }
   return results
 }
