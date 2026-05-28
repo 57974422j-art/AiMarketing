@@ -96,24 +96,33 @@ export interface PublishOptions {
   title?: string; videoIndex?: number; aiCover?: boolean; topics?: string[]; delayBeforePublish?: number
 }
 
+/** 扫描 XML 找 ImageView/FrameLayout 图标按钮（用于定位 "+" 等无文字按钮） */
+async function scanIconButton(apiPort: number, SW: number, SH: number, areaFilter: (b: { x: number; y: number; width: number; height: number }) => boolean): Promise<{ x: number; y: number } | null> {
+  const xmlR = await UI.dumpXml(apiPort)
+  if (!xmlR.success) return null
+  const allNodes = UI.parseUiXml(xmlR.data)
+  let best: { x: number; y: number } | null = null
+  for (const n of allNodes) {
+    if (!n.className.includes('ImageView') && !n.className.includes('FrameLayout')) continue
+    const b = UI.parseBounds(n.bounds)
+    if (!b) continue
+    if (!areaFilter(b)) continue
+    const cx = Math.round(b.x + b.width / 2)
+    if (!best || b.y > best.y) best = { x: cx, y: Math.round(b.y + 5) }
+  }
+  return best
+}
+
 export async function publishVideo(apiPort: number, options: PublishOptions = {}): Promise<UI.UIResult> {
   const { title, videoIndex = 1, aiCover = false, delayBeforePublish = 3000 } = options
   const { width: SW, height: SH } = await UI.getScreenSize(apiPort)
 
+  // 1. 找初始"+"发布按钮 → 进入上传菜单
   let publishBtn = await UI.findByText(apiPort, '发布')
   if (!publishBtn.success) publishBtn = await UI.findByText(apiPort, '添加')
   if (!publishBtn.success) {
-    const xmlR = await UI.dumpXml(apiPort)
-    const allNodes = xmlR.success ? UI.parseUiXml(xmlR.data) : []
-    let best: { x: number; y: number } | null = null
-    for (const n of allNodes) {
-      if (!n.className.includes('ImageView') && !n.className.includes('FrameLayout')) continue
-      const b = UI.parseBounds(n.bounds)
-      if (!b) continue
-      const cx = Math.round(b.x + b.width / 2)
-      if (b.y < SH * 0.73 || cx < SW * 0.278 || cx > SW * 0.685) continue
-      if (!best || b.y > best.y) best = { x: cx, y: Math.round(b.y + 5) }
-    }
+    // "+" 图标：底部导航栏中间区域的 ImageView
+    const best = await scanIconButton(apiPort, SW, SH, b => b.y < SH * 0.73 && b.x > SW * 0.2 && b.x < SW * 0.8)
     if (best) {
       await UI.tap(apiPort, best.x, best.y)
       await randomDelay(2000, 3000)
@@ -218,11 +227,27 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     }
   }
 
-  // 10. 发作品
+  // 10. 最终发布（可能是文字按钮或 "+" 图标按钮）
   await UI.sleep(delayBeforePublish)
-  const result = await UI.findAndClick(apiPort, '发作品')
+  let pub = await UI.findByText(apiPort, '发作品')
+  if (!pub.success) pub = await UI.findByText(apiPort, '发布')
+  if (!pub.success) {
+    // 非文字按钮：扫描 ImageView（"+"/图标）— 顶栏右侧或底部区域
+    const best = await scanIconButton(apiPort, SW, SH, b =>
+      (b.y < SH * 0.12 && b.x > SW * 0.6) || // 顶栏右侧
+      (b.y > SH * 0.85 && b.x > SW * 0.5)    // 底部偏右
+    )
+    if (best) {
+      await UI.tap(apiPort, best.x, best.y)
+      await randomDelay(3000, 5000)
+      return { success: true, message: `视频已发布: ${title || '无标题'}` }
+    }
+  }
+  if (pub.success && pub.center) {
+    await UI.tap(apiPort, pub.center.x, pub.center.y)
+  }
   await randomDelay(3000, 5000)
-  return { ...result, message: result.success ? `视频已发布: ${title || '无标题'}` : `发布失败: ${result.message}` }
+  return { ...pub, message: pub.success ? `视频已发布: ${title || '无标题'}` : `发布失败: ${pub.message}` }
 }
 
 export interface VideoInfo {
