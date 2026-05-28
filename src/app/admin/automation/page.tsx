@@ -8,6 +8,8 @@ interface AccountItem {
   id: number; platform: string; accountName: string; status: string; deviceId: number | null
   device?: { id: number; name: string } | null; user?: { username: string } | null
 }
+interface TemplateItem { id: number; name: string; type: string; params: string }
+interface TemplateParams { actions?: string[]; keywords?: string[]; accountId?: number }
 
 interface ExecStep { action: string; success: boolean; message: string }
 interface ExecRecord {
@@ -17,11 +19,14 @@ interface ExecRecord {
 
 const PLATFORM_ICON: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
 const PLATFORM_LABEL: Record<string, string> = { douyin: '抖音', kuaishou: '快手', xiaohongshu: '小红书', shipinhao: '视频号', weibo: '微博', bilibili: 'B站' }
+const ACTION_LABEL: Record<string, string> = { search: '搜索浏览', like: '点赞', comment: '评论', follow: '关注', share: '转发', dm: '私信触达', publish: '发布视频', extract: '提取数据', comments: '抓评论' }
 
 export default function AutomationExecPage() {
   const { user, loading: authLoading } = useAuth()
   const [devices, setDevices] = useState<DeviceItem[]>([])
   const [accounts, setAccounts] = useState<AccountItem[]>([])
+  const [templates, setTemplates] = useState<TemplateItem[]>([])
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateItem | null>(null)
   const [loading, setLoading] = useState(true)
   const [executing, setExecuting] = useState(false)
   const [records, setRecords] = useState<ExecRecord[]>([])
@@ -34,12 +39,14 @@ export default function AutomationExecPage() {
 
   const loadAll = async () => {
     try {
-      const [dRes, aRes] = await Promise.all([
+      const [dRes, aRes, tRes] = await Promise.all([
         fetch('/api/devices', { credentials: 'include' }),
         fetch('/api/accounts', { credentials: 'include' }),
+        fetch('/api/automation-templates', { credentials: 'include' }),
       ])
       if (dRes.ok) setDevices(((await dRes.json()).data || []).filter((d: any) => d.type === 'q1'))
       if (aRes.ok) { const d = await aRes.json(); setAccounts(d.data || []) }
+      if (tRes.ok) { const d = await tRes.json(); setTemplates(d.data || []) }
     } catch {} finally { setLoading(false) }
   }
 
@@ -47,7 +54,16 @@ export default function AutomationExecPage() {
     setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   }
 
+  const parseParams = (tmpl: TemplateItem | null): TemplateParams => {
+    try { return tmpl ? JSON.parse(tmpl.params) : {} } catch { return {} }
+  }
+
   const execute = async () => {
+    if (!selectedTemplate) { showToast('请先选择模板', 'error'); return }
+    const tpl = parseParams(selectedTemplate)
+    const actions = tpl.actions || []
+    if (actions.length === 0) { showToast('模板中未勾选任何动作', 'error'); return }
+
     const selectedAccounts = accounts.filter(a => selected.has(a.id) && a.status === '已绑定')
     if (selectedAccounts.length === 0) { showToast('请先勾选要执行的平台', 'error'); return }
 
@@ -58,15 +74,12 @@ export default function AutomationExecPage() {
       if ((window as any).__execAborted) break
 
       try {
-        // 从模板取关键词（取第一个）
-        const kw = ['引流获客', '火锅', '美业', '减肥']
-
+        const kw = tpl.keywords || ['默认']
         const r = await fetch(`/api/devices/${device.id}/execute`, {
           method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             accountId: acct.id, platform: acct.platform,
-            actions: ['search', 'like', 'comment', 'follow'],
-            keyword: kw[0], keywords: kw,
+            actions, keyword: kw[0], keywords: kw,
           }),
         })
         const d = await r.json()
@@ -87,7 +100,6 @@ export default function AutomationExecPage() {
 
   const stopAll = () => {
     (window as any).__execAborted = true
-    // 发停止信号到当前执行中的设备
     const selectedAccounts = accounts.filter(a => selected.has(a.id) && a.status === '已绑定')
     selectedAccounts.forEach(acct => {
       const device = devices.find(d => d.id === acct.deviceId)
@@ -105,10 +117,34 @@ export default function AutomationExecPage() {
         <div className="mb-6">
           <p className="text-label mb-2">管理后台 / EXECUTION</p>
           <h1 className="text-mono-lg text-white">任务执行中心 / AUTOMATION</h1>
-          <p className="text-gray-400 text-sm mt-1">勾选平台 → 一键执行（自动打开App + 运行动作）</p>
+          <p className="text-gray-400 text-sm mt-1">选择模板 → 勾选平台 → 一键执行</p>
         </div>
 
-        {/* ── 全部执行按钮 ── */}
+        {/* Template selector */}
+        <div className="card-glass p-4 mb-4">
+          <label className="text-xs text-gray-400 mb-2 block">选择任务模板</label>
+          <div className="flex gap-2 flex-wrap">
+            {templates.map(t => (
+              <button key={t.id} onClick={() => setSelectedTemplate(t)}
+                className={`px-3 py-1.5 rounded-lg text-xs border transition ${selectedTemplate?.id === t.id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
+                {t.name}
+              </button>
+            ))}
+            {templates.length === 0 && <p className="text-xs text-gray-500">暂无模板，请先去任务模板页面创建</p>}
+          </div>
+          {selectedTemplate && (() => {
+            const tpl = parseParams(selectedTemplate)
+            return (
+              <div className="mt-2 flex gap-1.5 flex-wrap">
+                {(tpl.actions || []).map((a: string) => (
+                  <span key={a} className="text-[10px] px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 rounded">{ACTION_LABEL[a] || a}</span>
+                ))}
+                <span className="text-[10px] text-gray-500 ml-2">关键词: {(tpl.keywords || []).join(', ')}</span>
+              </div>
+            )
+          })()}
+        </div>
+
         <div className="flex items-center justify-between mb-4">
           <div className="flex gap-2">
             <button onClick={() => setSelected(new Set(accounts.filter(a => a.status === '已绑定').map(a => a.id)))} className="text-xs px-3 py-1 bg-white/5 text-gray-400 rounded-lg hover:bg-white/10">全选</button>
@@ -116,12 +152,9 @@ export default function AutomationExecPage() {
           </div>
           <div className="flex gap-2">
             {executing && (
-              <button onClick={stopAll}
-                className="text-sm px-6 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl hover:bg-red-500/30 font-medium">
-                ⏹ 停止
-              </button>
+              <button onClick={stopAll} className="text-sm px-6 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl hover:bg-red-500/30 font-medium">⏹ 停止</button>
             )}
-            <button onClick={execute} disabled={executing || selected.size === 0}
+            <button onClick={execute} disabled={executing || selected.size === 0 || !selectedTemplate}
               className="text-sm px-6 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 font-medium">
               {executing ? `执行中 (${selected.size}个)...` : `▶ 执行选中 (${selected.size}个)`}
             </button>
@@ -129,7 +162,6 @@ export default function AutomationExecPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* ── 设备面板 ── */}
           <div className="lg:col-span-2 space-y-3">
             {devices.length === 0 ? (
               <div className="card-glass p-8 text-center text-gray-500">暂无 Q1 设备</div>
@@ -144,41 +176,29 @@ export default function AutomationExecPage() {
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${dev.status === 'online' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-500/20 text-gray-500'}`}>{dev.status}</span>
                       <span className="text-[10px] text-gray-600 ml-auto">端口 {dev.apiPort}</span>
                     </div>
-                    {/* 可选平台芯片 */}
                     {boundAccounts.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {boundAccounts.map(acct => {
                           const checked = selected.has(acct.id)
-                          const icon = PLATFORM_ICON[acct.platform] || '📱'
-                          const label = PLATFORM_LABEL[acct.platform] || acct.platform
                           return (
                             <button key={acct.id} onClick={() => toggle(acct.id)}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition ${
-                                checked
-                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 ring-1 ring-emerald-500/40'
-                                  : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
-                              }`}
-                              title={`${label} / ${acct.accountName}`}>
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition ${checked ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 ring-1 ring-emerald-500/40' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}
+                              title={`${PLATFORM_LABEL[acct.platform] || acct.platform} / ${acct.accountName}`}>
                               <span className={`w-2 h-2 rounded-full ${checked ? 'bg-emerald-400' : 'bg-gray-500'}`} />
-                              {icon} {label}
+                              {PLATFORM_ICON[acct.platform] || '📱'} {PLATFORM_LABEL[acct.platform] || acct.platform}
                             </button>
                           )
                         })}
                       </div>
-                    ) : (
-                      <p className="text-[10px] text-gray-600">暂无已绑定账号</p>
-                    )}
+                    ) : <p className="text-[10px] text-gray-600">暂无已绑定账号</p>}
                   </div>
                 )
               })
             )}
           </div>
 
-          {/* ── 执行记录 ── */}
           <div>
-            <h2 className="text-white font-semibold mb-3 flex items-center gap-2 text-sm">
-              <span>📋</span> 执行记录 / LOGS
-            </h2>
+            <h2 className="text-white font-semibold mb-3 flex items-center gap-2 text-sm"><span>📋</span> 执行记录 / LOGS</h2>
             <div className="card-glass p-4 max-h-[70vh] overflow-y-auto">
               {records.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-8">暂无执行记录</p>
@@ -193,13 +213,9 @@ export default function AutomationExecPage() {
                       <div className="space-y-1">
                         {r.results.map((step, i) => (
                           <div key={i} className="flex items-center gap-2 text-[10px]">
-                            <span className={step.success ? 'text-emerald-400' : 'text-red-400'}>
-                              {step.success ? '✓' : '✗'}
-                            </span>
+                            <span className={step.success ? 'text-emerald-400' : 'text-red-400'}>{step.success ? '✓' : '✗'}</span>
                             <span className="text-gray-400 w-12">{step.action}</span>
-                            <span className={`${step.success ? 'text-gray-500' : 'text-red-400'} truncate`}>
-                              {step.message}
-                            </span>
+                            <span className={`${step.success ? 'text-gray-500' : 'text-red-400'} truncate`}>{step.message}</span>
                           </div>
                         ))}
                       </div>
