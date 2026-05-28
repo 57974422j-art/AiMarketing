@@ -159,6 +159,14 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   // 4. 选视频：优先找 checkable=true 的勾选框（视频缩略图上的圆圈）
   let vs = false
   const x1 = await UI.dumpXml(apiPort)
+
+  // 调试日志：打到 pm2 控制台
+  if (x1.success) {
+    const allNodes = UI.parseUiXml(x1.data)
+    const debugNodes = allNodes.filter(n => n.checkable || n.className.includes('CheckBox') || n.className.includes('ImageView') || (n.text && n.enabled))
+    console.log('[选区-DEBUG] checkable/ImageView/按钮 节点（前30）:', JSON.stringify(debugNodes.slice(0, 30).map(n => ({ t: n.text.slice(0,15), cd: n.contentDesc.slice(0,20), cls: n.className, ck: n.checkable, en: n.enabled, cl: n.clickable, b: n.bounds })), null, 2))
+  }
+
   if (x1.success) {
     const allNodes = UI.parseUiXml(x1.data)
 
