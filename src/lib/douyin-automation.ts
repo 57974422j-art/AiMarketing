@@ -153,10 +153,20 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   const { title, videoIndex = 1, aiCover = true, delayBeforePublish = 3000 } = options
 
   // 1. 点击底部 "+" 发布
-  const publishBtn = await UI.findByText(apiPort, '发布')
-  if (!publishBtn.success) return { success: false, message: '找不到发布按钮"' }
-  await UI.tap(apiPort, publishBtn.center!.x, publishBtn.center!.y)
-  await randomDelay(2000, 3000)
+  let publishBtn = await UI.findByText(apiPort, '发布')
+  if (!publishBtn.success) publishBtn = await UI.findByText(apiPort, '添加')
+  if (!publishBtn.success) {
+    // 坐标兜底：底部居中区域
+    await UI.tap(apiPort, 540, 1830)
+    await randomDelay(2000, 3000)
+    // 检查是否弹出了选择菜单
+    const menuCheck = await UI.findByText(apiPort, '相册')
+    if (menuCheck.success) { publishBtn = { success: true, message: '坐标点击成功' } as any }
+  } else {
+    await UI.tap(apiPort, publishBtn.center!.x, publishBtn.center!.y)
+    await randomDelay(2000, 3000)
+  }
+  if (!publishBtn.success) return { success: false, message: '找不到发布按钮' }
 
   // 2. 点击"相册"或"视频"
   const videoBtn = await UI.findAndClick(apiPort, '视频')

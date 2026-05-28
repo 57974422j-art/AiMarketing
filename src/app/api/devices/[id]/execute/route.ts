@@ -109,11 +109,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       try {
         const { generateText } = await import('@/lib/ai-providers')
         const context = desc || `关于"${keyword}"`
-        const prompt = `你是一个抖音短视频运营专家。请为以下视频内容生成：1个吸引人的标题（带钩子，20字以内），3个话题标签。\n视频内容：${context}\n格式：标题|#话题1 #话题2 #话题3`
+        const prompt = `你是一个抖音短视频运营专家。请为以下视频内容生成：1个吸引人的标题（带钩子，20字以内），3个话题标签。\n视频内容：${context}\n格式：标题文字|#话题1 #话题2 #话题3`
         const result = await generateText(prompt)
         if (result && result.includes('|')) {
           const parts = result.split('|')
-          const titlePart = parts[0].trim()
+          let titlePart = parts[0].trim().replace(/^[「『""]|[」』""]$/g, '').replace(/^标题[：:]\s*/i, '')
           const topicPart = parts.slice(1).join('|').trim()
           const topics = topicPart.split('#').filter(t => t.trim()).map(t => `#${t.trim()}`)
           return { title: titlePart, topics: topics.length > 0 ? topics : [`#${keyword}`] }

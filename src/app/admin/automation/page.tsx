@@ -80,6 +80,7 @@ export default function AutomationExecPage() {
           body: JSON.stringify({
             accountId: acct.id, platform: acct.platform,
             actions, keyword: kw[0], keywords: kw,
+            publishDesc: tpl.publishDesc,
           }),
         })
         const d = await r.json()
