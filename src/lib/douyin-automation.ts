@@ -119,21 +119,24 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   const { width: SW, height: SH } = await UI.getScreenSize(apiPort)
 
   // 1. 找初始"+"发布按钮 → 进入上传菜单
-  let publishBtn = await UI.findByText(apiPort, '发布')
-  if (!publishBtn.success) publishBtn = await UI.findByText(apiPort, '添加')
-  if (!publishBtn.success) {
-    // "+" 图标：底部导航栏中间区域的 ImageView
-    const best = await scanIconButton(apiPort, SW, SH, (b, cx) => b.y >= SH * 0.73 && cx >= SW * 0.278 && cx <= SW * 0.685)
-    if (best) {
-      await UI.tap(apiPort, best.x, best.y)
-      await randomDelay(2000, 3000)
-      const menuCheck = await UI.findByText(apiPort, '相册')
-      if (menuCheck.success) publishBtn = { success: true, message: '坐标点击成功' } as any
-    }
-  }
-  if (publishBtn.success && publishBtn.center) {
-    await UI.tap(apiPort, publishBtn.center.x, publishBtn.center.y)
+  // 注意：不通过文字搜索，+ 号是 ImageView 图标，文字匹配会误点别处
+  let publishBtn: any = { success: false, message: '' }
+  const plusBtn = await scanIconButton(apiPort, SW, SH, (b, cx) => b.y >= SH * 0.73 && cx >= SW * 0.278 && cx <= SW * 0.685)
+  if (plusBtn) {
+    await UI.tap(apiPort, plusBtn.x, plusBtn.y)
     await randomDelay(2000, 3000)
+    const menuCheck = await UI.findByText(apiPort, '相册')
+    if (menuCheck.success) publishBtn = { success: true, message: '已点击 + 号' }
+  }
+  if (!publishBtn.success) {
+    // 兜底：也试试文字匹配（可能某些版本有文字）
+    let textBtn = await UI.findByText(apiPort, '发布')
+    if (!textBtn.success) textBtn = await UI.findByText(apiPort, '添加')
+    if (textBtn.success && textBtn.center) {
+      await UI.tap(apiPort, textBtn.center.x, textBtn.center.y)
+      await randomDelay(2000, 3000)
+      if ((await UI.findByText(apiPort, '相册')).success) publishBtn = textBtn
+    }
   }
   if (!publishBtn.success) return { success: false, message: '找不到发布按钮' }
 
@@ -193,18 +196,34 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   }
   if (!vs) { await UI.tapRatio(apiPort, 0.5, 0.25); await randomDelay(2500, 3500) }
 
-  // 5+6. 两次"下一步"（全节点找文字，不限 clickable）
+  // 5+6. 两次"下一步"（优先文字，兜底扫底部右侧图标）
   for (let i = 0; i < 2; i++) {
+    await UI.sleep(1000 + Math.random() * 1000) // 等页面加载
     const x2 = await UI.dumpXml(apiPort); let done = false
     if (x2.success) {
-      for (const n of UI.parseUiXml(x2.data)) {
+      const allN = UI.parseUiXml(x2.data)
+      // 优先：文字匹配 "下一步"
+      for (const n of allN) {
         if ((n.text === '下一步' || n.contentDesc === '下一步') && n.enabled) {
           const b = UI.parseBounds(n.bounds)
           if (b) { await UI.tap(apiPort, Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2)); done = true; break }
         }
       }
+      // 兜底：找底部右侧可点击图标（箭头 ImageView/Button）
+      if (!done) {
+        const nextIcon = allN.find(n => {
+          if (!n.enabled || !n.clickable) return false
+          const b = UI.parseBounds(n.bounds)
+          return b && b.x > SW * 0.7 && b.y > SH * 0.8
+        })
+        if (nextIcon) {
+          const b = UI.parseBounds(nextIcon.bounds)!
+          await UI.tap(apiPort, Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2))
+          done = true
+        }
+      }
     }
-    if (!done) await UI.tapRatio(apiPort, 0.5, 0.938)
+    if (!done) await UI.tapRatio(apiPort, 0.85, 0.92) // 兜底：底部偏右
     await randomDelay(2000, 3000)
   }
 
