@@ -156,46 +156,39 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   }
   await randomDelay(2000, 3000)
 
-  // 4. 选视频：优先找 checkable=true 的勾选框（视频缩略图上的圆圈）
+  // 4. 选视频：点第一个视频缩略图中心（勾选框是纯视觉绘制，XML 中不存在）
   let vs = false
   const x1 = await UI.dumpXml(apiPort)
-
-  // 调试日志：打到 pm2 控制台
-  if (x1.success) {
-    const allNodes = UI.parseUiXml(x1.data)
-    const debugNodes = allNodes.filter(n => n.checkable || n.className.includes('CheckBox') || n.className.includes('ImageView') || (n.text && n.enabled))
-    console.log('[选区-DEBUG] checkable/ImageView/按钮 节点（前30）:', JSON.stringify(debugNodes.slice(0, 30).map(n => ({ t: n.text.slice(0,15), cd: n.contentDesc.slice(0,20), cls: n.className, ck: n.checkable, en: n.enabled, cl: n.clickable, b: n.bounds })), null, 2))
-  }
-
   if (x1.success) {
     const allNodes = UI.parseUiXml(x1.data)
 
-    // 优先：找 checkable=true 的节点（视频缩略图上的勾选框）
-    const checkboxes = allNodes.filter(n => n.checkable && n.enabled)
-    if (checkboxes.length > 0) {
-      const c = UI.parseBounds(checkboxes[0].bounds)
-      if (c) {
-        await UI.tap(apiPort, Math.round(c.x + c.width / 2), Math.round(c.y + c.height / 2))
-        await randomDelay(2500, 3500)
-        vs = true
-      }
-    }
-
-    // 次优：找缩略图节点点右上角（勾选框位置）
-    if (!vs) {
-      const ts = allNodes.filter(n => {
+    // 找 tab 栏底部的 Y 坐标（视频/图片/动图这一行）
+    const tabBarBottom = allNodes
+      .filter(n => n.text === '全部' || n.text === '视频' || n.text === '图片')
+      .reduce((maxY, n) => {
         const b = UI.parseBounds(n.bounds)
-        return b && b.y > SH * 0.156 && b.y < SH * 0.521 && b.width > SW * 0.056 && b.height > SH * 0.031
-      }).sort((a, b) => {
-        const ba = UI.parseBounds(a.bounds)!; const bb = UI.parseBounds(b.bounds)!
+        return b ? Math.max(maxY, b.y + b.height) : maxY
+      }, 0)
+
+    // 筛选：tab 栏下方的 ImageView，尺寸符合缩略图（宽度 > 100* 方形）
+    const thumbs = allNodes
+      .filter(n => {
+        if (!n.className.includes('ImageView')) return false
+        const b = UI.parseBounds(n.bounds)
+        if (!b) return false
+        return b.y >= tabBarBottom && b.width > SW * 0.1 && b.width < SW * 0.5
+      })
+      .sort((a, b) => {
+        const ba = UI.parseBounds(a.bounds)!
+        const bb = UI.parseBounds(b.bounds)!
         return (ba.y - bb.y) || (ba.x - bb.x)
       })
-      if (ts.length > 0) {
-        const f = UI.parseBounds(ts[0].bounds)!
-        await UI.tap(apiPort, f.x + f.width - Math.round(SW * 0.023), f.y + Math.round(SH * 0.013))
-        await randomDelay(2500, 3500)
-        vs = true
-      }
+
+    if (thumbs.length > 0) {
+      const t = UI.parseBounds(thumbs[0].bounds)!
+      await UI.tap(apiPort, Math.round(t.x + t.width / 2), Math.round(t.y + t.height / 2))
+      await randomDelay(2500, 3500)
+      vs = true
     }
   }
   if (!vs) { await UI.tapRatio(apiPort, 0.5, 0.25); await randomDelay(2500, 3500) }
