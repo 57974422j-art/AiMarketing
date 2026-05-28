@@ -170,13 +170,13 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
         return b ? Math.max(maxY, b.y + b.height) : maxY
       }, 0)
 
-    // 筛选：tab 栏下方的 ImageView，尺寸符合缩略图（宽度 > 100* 方形）
+    // 筛选：tab 栏下方的 ImageView，尺寸符合缩略图（方形，宽高均 > 屏幕 8%）
     const thumbs = allNodes
       .filter(n => {
         if (!n.className.includes('ImageView')) return false
         const b = UI.parseBounds(n.bounds)
         if (!b) return false
-        return b.y >= tabBarBottom && b.width > SW * 0.1 && b.width < SW * 0.5
+        return b.y >= tabBarBottom && b.width > SW * 0.08 && b.height > SH * 0.03 && b.width < SW * 0.5
       })
       .sort((a, b) => {
         const ba = UI.parseBounds(a.bounds)!
