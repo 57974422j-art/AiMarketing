@@ -1126,35 +1126,32 @@ export interface AIDecision {
   analysis: string
   status: 'CONTINUE' | 'DONE'
   action: 'click' | 'input' | 'wait' | 'none'
-  target_desc?: string        // 要点击的按钮描述
-  coordinates?: { x: number; y: number }  // 点击坐标
-  text_content?: string       // 要输入的文字
+  target_desc: string
+  coordinates: { x: number; y: number }
+  text_content: string
 }
 
 /** 调用百炼 VL 做 ReAct 决策 */
 async function dashscopeDecide(milestone: string, goal: string, base64Image: string): Promise<AIDecision | null> {
   const key = getDashScopeKey()
   if (!key) return null
-  const prompt = `你是一个熟练操作安卓手机发抖音的AI助手。
+  const prompt = `你是视觉定位专家。截图是手机全分辨率，你需要看图找到目标位置并返回像素坐标。
 
 【总目标】${goal}
 
-请分析当前截图，判断现在在什么页面，然后给出下一步操作。
+看图判断当前页面，然后执行以下规则：
 
-规则：
-1. 看到首页 → 点击底部加号（坐标）
-2. 看到拍摄页 → 点击相册（坐标）
-3. 看到相册（有"全部/视频/图片"标签） → 点击左上角第一个视频缩略图（坐标）
-4. 看到编辑页（有"添加标题"输入框） → 先点击添加标题输入框，再输入标题文字
-5. 看到弹窗 → 点击对应按钮关闭
-6. 看到"发布"/"发作品"按钮 → 点击发布
-7. 全部完成 → status输出"DONE"
+1. 首页底部 → 找到"+"加号图标中心坐标
+2. 拍摄页 → 找到"相册"二字中心坐标，点击
+3. 相册页（有"全部/视频/图片"） → 找到左上角第一个视频缩略图中心坐标，点击
+4. 编辑页 → 找到"添加标题"灰色文字中心坐标，点击它（下一步再输入文字）
+5. 发布页 → 找到"发布"/"发作品"按钮中心坐标，点击
+6. 弹窗 → 找到"去编辑"/"我知道了"文字中心坐标，点击
+7. 全部完成 → status="DONE"
 
-坐标用比例值（0.0~1.0），x=宽度比例，y=高度比例。
-每一步都必须给出具体操作（click带坐标 或 input带文字），不能等待。
-
+坐标用像素值（不是比例），从截图左上角原点量起。
 只返回 JSON：
-{"analysis":"当前页面分析","status":"CONTINUE|DONE","action":"click|input","target_desc":"操作描述","coordinates":{"x":0.0,"y":0.0},"text_content":""}`
+{"analysis":"当前页面","status":"CONTINUE|DONE","action":"click|input","target_desc":"操作","coordinates":{"x":像素,"y":像素},"text_content":""}`
 
   try {
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {

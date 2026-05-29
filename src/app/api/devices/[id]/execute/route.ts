@@ -234,25 +234,28 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             break
           }
 
-          case 'like': { r = await Douyin.like(port); break }
-          case 'comment': { r = await Douyin.comment(port, '不错'); break }
-          case 'follow': { r = await Douyin.follow(port); break }
-          case 'share': { r = await Douyin.shareVideo(port); break }
-          case 'dm': { r = await Douyin.sendDirectMessage(port, '用户', '你好'); break }
-          case 'extract': { r = await Douyin.extractVideoInfo(port); break }
-          case 'comments': { r = await Douyin.extractComments(port); break }
+          case 'like': { await q1Shell(port, `input tap 540 1700`); await UI.sleep(20000 + Math.random()*10000); r = await UI.findAndClick(port, '赞'); break }
+          case 'comment': { const cr = await UI.findAndClick(port, '评论'); if (cr.success) { await UI.sleep(2000); await UI.tapAndInput(port, '消息', '不错'); await UI.sleep(1000); r = await UI.findAndClick(port, '发送') } else r = cr; break }
+          case 'follow': { await UI.sleep(3000); r = await UI.findAndClick(port, '关注'); break }
+          case 'share': { r = await UI.findAndClick(port, '分享'); break }
+          case 'dm': { let dr = await UI.findAndClick(port, '消息'); if (!dr.success) { for (let i=0;i<3;i++){ await q1Shell(port,'input keyevent KEYCODE_BACK'); await UI.sleep(500)}; dr = await UI.findAndClick(port, '消息') }; if (dr.success) { await UI.sleep(2000); const ur = await UI.findAndClick(port, '用户'); if (ur.success) { await UI.sleep(2000); await UI.tapAndInput(port, '消息', '你好'); await UI.sleep(1000); r = await UI.findAndClick(port, '发送') } else r = ur } else r = dr; break }
+          case 'extract': { r = await UI.extractScreenData(port); break }
+          case 'comments': { r = await UI.extractScreenData(port); break }
           case 'publish': {
             const { title: genTitle } = await generatePublishTitle(searchKeyword, publishDesc)
             const pubTitle = publishTitle || genTitle
             const pubTopics = Array.isArray(publishTopics) && publishTopics.length > 0 ? publishTopics : [`#${searchKeyword}`]
-            // RPA 模式（如有 RPA 端口）：AI ReAct 驱动，不需要脚本编排
-            if (rpaPort) {
-              r = await Douyin.aiPublishVideo(port, rpaPort, { title: pubTitle, topics: pubTopics })
-            } else {
-              await Douyin.goHome(port)
-              await UI.sleep(2000)
-              r = await Douyin.publishVideo(port, { title: pubTitle, topics: pubTopics })
-            }
+            // AI ReAct 模式（需要 RPA 端口）
+            if (!rpaPort) { r = { success: false, message: '发布需要 RPA 端口' }; break }
+            const { RPAClient } = await import('@/lib/rpa-client')
+            const rpa = new RPAClient()
+            try {
+              await rpa.connect(rpaPort)
+              const wr = await Douyin.aiPublishVideoWorkflow(rpa, pubTitle, pubTopics)
+              r = { success: wr.success, message: wr.message }
+            } catch (e: any) {
+              r = { success: false, message: `RPA 错误: ${e.message}` }
+            } finally { rpa.closeDevice().catch(() => {}) }
             log('title', true, `标题: ${pubTitle}`)
             break
           }

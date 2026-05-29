@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import * as UI from '@/lib/uiautomator-driver'
-import * as Douyin from '@/lib/douyin-automation'
 
 const prisma = new PrismaClient()
 
@@ -35,18 +34,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     else if (act === 'tapshell') { const r = await UI.tap(port, body.x || 0, body.y || 0); result = r }
     else if (act === 'back') result = await UI.goBack(port)
 
-    // --- 抖音自动化 ---
-    else if (act === 'share') result = await Douyin.shareVideo(port, body.target)
-    else if (act === 'search') result = await Douyin.search(port, body.keyword || '')
-    else if (act === 'like') result = await Douyin.like(port)
-    else if (act === 'comment') result = await Douyin.comment(port, body.text || body.message || '')
-    else if (act === 'follow') result = await Douyin.follow(port)
-    else if (act === 'dm') result = await Douyin.sendDirectMessage(port, body.username || '', body.message || '')
-    else if (act === 'publish') result = await Douyin.publishVideo(port, body.options || {})
-    else if (act === 'videoinfo') result = await Douyin.extractVideoInfo(port)
-    else if (act === 'profile') result = await Douyin.extractProfile(port)
-    else if (act === 'comments') result = await Douyin.extractComments(port)
-    else if (act === 'interact') result = await Douyin.interact(port, body.options || {})
+    // --- 抖音自动化（均已内联，无需 Douyin 模块） ---
+    else if (act === 'share') { await UI.sleep(2000); result = await UI.findAndClick(port, '分享') }
+    else if (act === 'search') { const s = await UI.findAndClick(port, '搜索'); if (!s.success) { await UI.goBack(port); await UI.sleep(500); await UI.findAndClick(port, '搜索') }; await UI.sleep(1500); await UI.tapAndInput(port, '搜索', body.keyword || ''); await UI.sleep(1000); await UI.tapRatio(port, 0.5, 0.104); await UI.sleep(3000); result = { success: true, message: `已搜索"${body.keyword || ''}"` } }
+    else if (act === 'like') { await UI.sleep(20000 + Math.random()*10000); result = await UI.findAndClick(port, '赞') }
+    else if (act === 'comment') { const cr = await UI.findAndClick(port, '评论'); if (cr.success) { await UI.sleep(2000); await UI.tapAndInput(port, '消息', body.text || body.message || ''); await UI.sleep(1000); result = await UI.findAndClick(port, '发送') } else result = cr }
+    else if (act === 'follow') { await UI.sleep(3000); result = await UI.findAndClick(port, '关注') }
+    else if (act === 'dm') { let dr = await UI.findAndClick(port, '消息'); if (!dr.success) { for (let i=0;i<3;i++){ await UI.goBack(port); await UI.sleep(500)}; dr = await UI.findAndClick(port, '消息') }; if (dr.success) { await UI.sleep(2000); const ur = await UI.findAndClick(port, body.username || ''); if (ur.success) { await UI.sleep(2000); await UI.tapAndInput(port, '消息', body.message || ''); await UI.sleep(1000); result = await UI.findAndClick(port, '发送') } else result = ur } else result = dr }
+    else if (act === 'videoinfo' || act === 'profile' || act === 'comments') { result = await UI.extractScreenData(port) }
     else return NextResponse.json({ success: false, message: `未知操作: ${action}` }, { status: 400 })
 
     return NextResponse.json({ success: result.success ?? true, message: result.message || 'OK', data: result })
