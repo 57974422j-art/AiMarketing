@@ -343,7 +343,16 @@ export async function aiPublishVideo(
   const { width: SW, height: SH } = await (await import('./uiautomator-driver')).getScreenSize(apiPort)
   console.log(`[aiPublish] 屏幕 ${SW}x${SH}`)
 
-  const milestones = ['打开抖音首页', '点击加号进入上传', '进入相册选视频', '点击下一步(第1次)', '点击下一步(第2次)', '填写标题和话题', '点击发布', '完成']
+  const milestones = [
+    '打开抖音首页',
+    '点击加号进入上传',
+    '进入相册并点击第一个视频缩略图（左上角第一个带勾选框的）',
+    '点击下一步按钮进入编辑',
+    '点击下一步按钮进入发布页',
+    '填写标题和话题',
+    '点击发布',
+    '完成',
+  ]
   let current = 0
   let lastAction = ''
   let stuckCount = 0
