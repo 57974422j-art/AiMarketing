@@ -240,40 +240,22 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   }
   await aiCheck('post_pick')
 
-  // 5+6. 两次"下一步"（优先文字，兜底扫底部右侧图标）
+  // 5+6. 两次"下一步"（AI 图像识别主驱 + 坐标兜底）
+  // "下一步"在弹窗/覆盖层上，dumpXml 抓不到文字，靠截图 AI 识别
   for (let i = 0; i < 2; i++) {
-    await UI.sleep(1000 + Math.random() * 1000) // 等页面加载
+    await UI.sleep(1000 + Math.random() * 1000)
     stepLog('next_step', `第${i+1}次"下一步"`)
-    await dumpScreenTexts()
-    const x2 = await UI.dumpXml(apiPort); let done = false
-    if (x2.success) {
-      const allN = UI.parseUiXml(x2.data)
-      // 优先：文字匹配 "下一步"
-      for (const n of allN) {
-        if ((n.text === '下一步' || n.contentDesc === '下一步') && n.enabled) {
-          const b = UI.parseBounds(n.bounds)
-          if (b) { await UI.tap(apiPort, Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2)); done = true; break }
-        }
-      }
-      // 兜底：找底部右侧可点击图标（箭头 ImageView/Button）
-      if (!done) {
-        const nextIcon = allN.find(n => {
-          if (!n.enabled || !n.clickable) return false
-          const b = UI.parseBounds(n.bounds)
-          return b && b.x > SW * 0.7 && b.y > SH * 0.8
-        })
-        if (nextIcon) {
-          const b = UI.parseBounds(nextIcon.bounds)!
-          await UI.tap(apiPort, Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2))
-          done = true
-        }
-      }
-    }
-    if (!done) {
-      await UI.tapRatio(apiPort, 0.85, 0.92) // 兜底：底部偏右
-      stepLog('next_step', `第${i+1}次"下一步"用坐标兜底 tapRatio(0.85,0.92)`)
+    // AI 截图定位（8 秒超时）
+    const aiLoc = await Promise.race([
+      aiLocateButton(apiPort, '视频编辑页面右下角的"下一步"按钮'),
+      new Promise<null>(r => setTimeout(() => r(null), 8000)),
+    ])
+    if (aiLoc) {
+      await UI.tap(apiPort, aiLoc.x, aiLoc.y)
+      stepLog('next_step', `第${i+1}次"下一步" AI 定位 (${aiLoc.x},${aiLoc.y})`)
     } else {
-      stepLog('next_step', `第${i+1}次"下一步"点击成功`)
+      await UI.tapRatio(apiPort, 0.85, 0.92)
+      stepLog('next_step', `第${i+1}次"下一步" 坐标兜底`)
     }
     await randomDelay(2000, 3000)
   }
