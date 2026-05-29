@@ -48,7 +48,10 @@ export async function GET(request: NextRequest) {
     .map(f => {
       const fp = path.join(dir, f)
       const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(f)
-      const thumbPath = path.join(dir, '.thumbs', f.replace(/\.(mp4|mov|avi|mkv|webm)$/i, '.jpg'))
+      const thumbDir = path.join(dir, '.thumbs')
+      const thumbPath = path.join(thumbDir, f.replace(/\.(mp4|mov|avi|mkv|webm)$/i, '.jpg'))
+      // 没有缩略图的视频，按需生成
+      if (isVideo && !fs.existsSync(thumbPath)) generateThumb(fp, thumbDir, f)
       return {
         name: f, size: fs.statSync(fp).size, mtime: fs.statSync(fp).mtime.toISOString(),
         isVideo,

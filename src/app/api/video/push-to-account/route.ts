@@ -6,6 +6,7 @@ import { getAuthFromHeaders } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
 const GENERATED = '/root/AiMarketing/public/generated'
+const STORAGE_BASE = '/root/AiMarketing/public/storage'
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,7 +18,9 @@ export async function POST(request: NextRequest) {
     if (!taskId || !endUserId) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
 
     const videoFile = taskId.includes('.') ? taskId : taskId + '.mp4'
-    const src = path.join(GENERATED, videoFile)
+    // 优先查 generated/，再查 storage/{userId}/
+    let src = path.join(GENERATED, videoFile)
+    if (!fs.existsSync(src)) src = path.join(STORAGE_BASE, String(auth.userId), videoFile)
     if (!fs.existsSync(src)) return NextResponse.json({ success: false, message: '视频文件不存在' }, { status: 404 })
 
     if (auth.role === 'editor') {

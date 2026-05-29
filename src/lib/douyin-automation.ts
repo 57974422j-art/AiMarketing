@@ -307,10 +307,18 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
         }
       }
     }
-    // 直接 input text 注入（不依赖输入法，Android 系统级命令）
-    await UI.shell(apiPort, `input text "${title.replace(/"/g, '\\"')}"`)
-    await UI.sleep(500)
-    stepLog('title', `标题已通过 input text 注入: "${title.substring(0, 30)}"`)
+    // 先设置剪贴板，再模拟粘贴（Ctrl+V 在 Q1 上已验证有效）
+    const safeTitle = title.replace(/'/g, "'\\''")
+    // 剪贴板：尝试多个 service call 版本号
+    await UI.shell(apiPort, `service call clipboard 2 i32 1 s16 '${safeTitle}'`).catch(() => {})
+    await UI.shell(apiPort, `service call clipboard 7 i32 1 s16 '${safeTitle}'`).catch(() => {})
+    await UI.sleep(300)
+    // 尝试 KEYCODE_PASTE
+    await UI.shell(apiPort, 'input keyevent 279').catch(() => {})
+    await UI.sleep(200)
+    // 兜底：input text
+    await UI.shell(apiPort, `input text "${title.replace(/"/g, '\\"')}"`).catch(() => {})
+    stepLog('title', `标题已设置剪贴板+粘贴: "${title.substring(0, 30)}"`)
     await randomDelay(1000, 1500)
   } else {
     stepLog('title', '未传入标题，跳过输入')
