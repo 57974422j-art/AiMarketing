@@ -10,6 +10,7 @@ export default function StoragePage() {
   const [quota, setQuota] = useState<Quota>({ used: 0, total: 500 * 1024 * 1024 })
   const [loading, setLoading] = useState(true)
   const [pushing, setPushing] = useState<string | null>(null)
+  const [userId, setUserId] = useState<number>(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -17,7 +18,7 @@ export default function StoragePage() {
     try {
       const r = await fetch('/api/storage/files')
       const d = await r.json()
-      if (d.success) { setFiles(d.data.files); setQuota({ used: d.data.used, total: d.data.total }) }
+      if (d.success) { setFiles(d.data.files); setQuota({ used: d.data.used, total: d.data.total }); setUserId(d.data.userId) }
     } catch {}
     setLoading(false)
   }
@@ -95,12 +96,12 @@ export default function StoragePage() {
                   {f.thumbUrl ? (
                     <img src={f.thumbUrl} alt={f.name} className="w-full h-full object-cover" />
                   ) : !f.isVideo && /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name) ? (
-                    <img src={`/api/storage/file?name=${encodeURIComponent(f.name)}`} alt={f.name} className="w-full h-full object-cover" />
+                    <img src={`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}`} alt={f.name} className="w-full h-full object-cover" />
                   ) : (
                     <span className="text-2xl">{f.isVideo ? '🎬' : '📄'}</span>
                   )}
                 </div>
-                <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={()=>{window.open('/api/storage/file?name='+encodeURIComponent(f.name),'_blank')}}>{f.name}</p>
+                <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={()=>{window.open('/api/storage/file?userId='+userId+'&name='+encodeURIComponent(f.name),'_blank')}}>{f.name}</p>
                 <p className="text-[9px] text-gray-500">{fmt(f.size)}</p>
                 <div className="flex gap-1 mt-1">
                   {f.isVideo && (

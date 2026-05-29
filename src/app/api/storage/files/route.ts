@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     })
     .sort((a, b) => b.mtime.localeCompare(a.mtime))
 
-  return NextResponse.json({ success: true, data: { files, used: usedQuota(auth.userId), total: MAX_QUOTA } })
+  return NextResponse.json({ success: true, data: { files, used: usedQuota(auth.userId), total: MAX_QUOTA, userId: auth.userId } })
 }
 
 export async function POST(request: NextRequest) {
