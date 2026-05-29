@@ -1145,8 +1145,9 @@ async function dashscopeDecide(milestone: string, goal: string, base64Image: str
 2. 如果遇到弹窗阻挡输出 "ERROR_BLOCKED"
 3. 否则继续当前阶段，给出下一步操作
 
+坐标请用比例值（0.0~1.0），x=画面宽度比例，y=画面高度比例。
 只返回以下 JSON 格式，不要其他文字：
-{"analysis":"分析","status":"CONTINUE|STAGE_CHANGED|ERROR_BLOCKED","action":"click|input|wait|none","target_desc":"","coordinates":{"x":0,"y":0},"text_content":""}`
+{"analysis":"分析","status":"CONTINUE|STAGE_CHANGED|ERROR_BLOCKED","action":"click|input|wait|none","target_desc":"","coordinates":{"x":0.0,"y":0.0},"text_content":""}`
 
   try {
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {

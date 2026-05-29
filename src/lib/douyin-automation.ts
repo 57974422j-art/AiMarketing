@@ -339,6 +339,9 @@ export async function aiPublishVideo(
   const goal = `在抖音发布视频，标题"${title}"${topics.length ? `，话题${topics.join('')}` : ''}`
   const SLEEP = (ms: number) => new Promise(r => setTimeout(r, ms))
   const q1 = (cmd: string) => fetch(`http://127.0.0.1:${apiPort}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmd)}`, { signal: AbortSignal.timeout(10000) }).catch(() => {})
+  // 获取实际屏幕分辨率，用于换算比例坐标
+  const { width: SW, height: SH } = await (await import('./uiautomator-driver')).getScreenSize(apiPort)
+  console.log(`[aiPublish] 屏幕 ${SW}x${SH}`)
 
   const milestones = ['打开抖音首页', '点击加号进入上传', '进入相册选视频', '点击下一步(第1次)', '点击下一步(第2次)', '填写标题和话题', '点击发布', '完成']
   let current = 0
@@ -373,8 +376,10 @@ export async function aiPublishVideo(
 
     try {
       if (dec.action === 'click' && dec.coordinates) {
-        const { x, y } = dec.coordinates
-        await q1(`input tap ${x + Math.round(Math.random() * 6 - 3)} ${y + Math.round(Math.random() * 6 - 3)}`)
+        // 比例坐标 → 实际像素
+        const px = Math.round(dec.coordinates.x * SW)
+        const py = Math.round(dec.coordinates.y * SH)
+        await q1(`input tap ${px + Math.round(Math.random() * 6 - 3)} ${py + Math.round(Math.random() * 6 - 3)}`)
       } else if (dec.action === 'input' && dec.text_content) {
         await q1(`input text "${dec.text_content.replace(/"/g, '\\"')}"`)
       } else if (dec.action === 'wait') {
