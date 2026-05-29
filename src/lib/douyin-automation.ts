@@ -354,8 +354,8 @@ export async function aiPublishVideo(
   const SLEEP = (ms: number) => new Promise(r => setTimeout(r, ms))
 
   for (let loop = 0; loop < 40; loop++) {
-    // 截图
-    const b64 = await rpa.takeScreenshot()
+    // 截图（走 HTTP API，RPA 的 takeCaptrue 返回格式未知）
+    const b64 = await takeScreenshot(apiPort)
     if (!b64) { console.log('[aiPublish] 截图失败'); await SLEEP(2000); continue }
 
     // AI 决策
