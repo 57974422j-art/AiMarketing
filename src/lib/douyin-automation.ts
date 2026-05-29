@@ -333,67 +333,50 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
  * 完全由 AI 视觉决策驱动，脚本只做截图和执行
  */
 export async function aiPublishVideo(
-  apiPort: number, rpaPort: number, options: PublishOptions = {}
+  apiPort: number, _rpaPort: number, options: PublishOptions = {}
 ): Promise<UI.UIResult> {
-  const { takeScreenshot } = await import('./uiautomator-driver')
   const { title = '', topics = [] } = options
   const goal = `在抖音发布视频，标题"${title}"${topics.length ? `，话题${topics.join('')}` : ''}`
-
-  const rpa = new (await import('./rpa-client')).RPAClient()
-  try {
-    await rpa.connect(rpaPort)
-    console.log('[aiPublish] RPA 已连接')
-  } catch (e: any) {
-    return { success: false, message: `RPA 连接失败: ${e.message}` }
-  }
+  const SLEEP = (ms: number) => new Promise(r => setTimeout(r, ms))
+  const q1 = (cmd: string) => fetch(`http://127.0.0.1:${apiPort}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmd)}`, { signal: AbortSignal.timeout(10000) }).catch(() => {})
 
   const milestones = ['打开抖音首页', '点击加号进入上传', '进入相册选视频', '点击下一步(第1次)', '点击下一步(第2次)', '填写标题和话题', '点击发布', '完成']
   let current = 0
   let lastAction = ''
   let stuckCount = 0
-  const SLEEP = (ms: number) => new Promise(r => setTimeout(r, ms))
+  const { aiDecideNext } = await import('./ai-providers')
 
   for (let loop = 0; loop < 40; loop++) {
-    // 截图（走 HTTP API，RPA 的 takeCaptrue 返回格式未知）
-    const b64 = await takeScreenshot(apiPort)
+    const b64 = await (await import('./uiautomator-driver')).takeScreenshot(apiPort)
     if (!b64) { console.log('[aiPublish] 截图失败'); await SLEEP(2000); continue }
 
-    // AI 决策
-    const { aiDecideNext } = await import('./ai-providers')
     const dec = await aiDecideNext(b64, milestones[current], goal)
     if (!dec) { console.log('[aiPublish] AI 决策失败'); await SLEEP(2000); continue }
 
     console.log(`[aiPublish] [${milestones[current]}] ${dec.analysis}`)
 
-    // 状态推进
     if (dec.status === 'STAGE_CHANGED') {
-      current++
-      console.log(`[aiPublish] → 进入阶段: ${milestones[current]}`)
+      current++; console.log(`[aiPublish] → 进入阶段: ${milestones[current]}`)
       if (current >= milestones.length - 1) break
-      stuckCount = 0
-      continue
+      stuckCount = 0; continue
     }
 
-    // 死循环检测
     const actionKey = `${dec.action}|${dec.target_desc}`
-    if (actionKey === lastAction) { stuckCount++ } else { stuckCount = 0; lastAction = actionKey }
+    if (actionKey === lastAction) stuckCount++; else { stuckCount = 0; lastAction = actionKey }
     if (stuckCount > 3) {
-      console.log('[aiPublish] 死循环，重置到第一步')
+      console.log('[aiPublish] 死循环，重置')
       current = 0; stuckCount = 0
-      await rpa.execCmd(`am force-stop com.ss.android.ugc.aweme`)
-      await SLEEP(2000)
-      await rpa.openApp('com.ss.android.ugc.aweme', '.main.MainActivity')
-      await SLEEP(10000)
+      await q1(`am force-stop com.ss.android.ugc.aweme`); await SLEEP(2000)
+      await q1(`am start -n com.ss.android.ugc.aweme/.main.MainActivity`); await SLEEP(10000)
       continue
     }
 
-    // 执行动作
     try {
       if (dec.action === 'click' && dec.coordinates) {
         const { x, y } = dec.coordinates
-        await rpa.touchClick(x + Math.round(Math.random() * 6 - 3), y + Math.round(Math.random() * 6 - 3))
+        await q1(`input tap ${x + Math.round(Math.random() * 6 - 3)} ${y + Math.round(Math.random() * 6 - 3)}`)
       } else if (dec.action === 'input' && dec.text_content) {
-        await rpa.sendText(dec.text_content)
+        await q1(`input text "${dec.text_content.replace(/"/g, '\\"')}"`)
       } else if (dec.action === 'wait') {
         await SLEEP(3000)
       }
@@ -403,7 +386,6 @@ export async function aiPublishVideo(
     await SLEEP(1500 + Math.random() * 1000)
   }
 
-  await rpa.closeDevice().catch(() => {})
   return {
     success: current >= milestones.length - 2,
     message: current >= milestones.length - 2 ? `AI 发布成功: ${goal}` : `AI 超时未完成(阶段${current})`,

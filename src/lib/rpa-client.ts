@@ -52,17 +52,24 @@ export class RPAClient {
     })
   }
 
+  /** 发送指令但不等待响应（用于触控等不需要返回的命令） */
+  private fire(cmd: string, params: Record<string, any> = {}): void {
+    if (!this.socket) return
+    const payload = JSON.stringify({ cmd, ...params }) + '\n'
+    this.socket.write(payload)
+  }
+
   /** 打开设备会话 */
   async openDevice(): Promise<void> { await this.send('openDevice') }
 
   /** 关闭设备会话 */
   async closeDevice(): Promise<void> { await this.send('closeDevice'); this.socket?.destroy(); this.socket = null }
 
-  /** 硬件级点击（按下+保持+抬起，模拟真实手指） */
+  /** 硬件级点击（一发即忘，不等响应） */
   async touchClick(x: number, y: number): Promise<void> {
-    await this.send('touchDown', { x, y })
-    await new Promise(r => setTimeout(r, 50 + Math.random() * 80)) // 50-130ms 随机按压
-    await this.send('touchUp')
+    this.fire('touchDown', { x, y })
+    await new Promise(r => setTimeout(r, 50 + Math.random() * 80))
+    this.fire('touchUp')
   }
 
   /** 输入文字 */

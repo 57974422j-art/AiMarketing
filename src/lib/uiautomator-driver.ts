@@ -315,7 +315,6 @@ export function sleep(ms: number): Promise<void> {
 /** 截取当前屏幕，返回 base64 PNG */
 export async function takeScreenshot(apiPort: number): Promise<string | null> {
   try {
-    // Q1 截图 API
     const res = await fetch(`http://localhost:${apiPort}/task=snap&level=3`, { signal: AbortSignal.timeout(15000) })
     if (!res.ok) return null
     const buf = await res.arrayBuffer()
