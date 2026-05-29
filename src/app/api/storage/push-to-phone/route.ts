@@ -47,32 +47,10 @@ export async function POST(request: NextRequest) {
           method: 'POST', body: form, signal: AbortSignal.timeout(120000),
         })
         if (!upRes.ok) continue
-        const upText = await upRes.text()
-
-        // 上传成功后，查找文件位置（魔云腾通常存到 /sdcard/ 下）
-        const findCmd = `find /sdcard -maxdepth 3 -name "${fileName}" 2>/dev/null | head -1`
-        const findR = await q1Exec(port, findCmd)
-        let srcPath = findR.ret?.trim()
-
-        if (srcPath) {
-          // 找到文件，复制到 DCIM
-          await q1Exec(port, `cp "${srcPath}" "${dest}"`)
-        } else {
-          // 找不到，用 upload API 的 response 做参考
-          // 尝试直接写到 DCIM：先用 base64 管道写入
-          const b64 = buf.toString('base64')
-          // 分批写入
-          await q1Exec(port, `echo -n > "${dest}"`)
-          for (let i = 0; i < b64.length; i += 8000) {
-            const chunk = b64.substring(i, i + 8000)
-            const safe = chunk.replace(/'/g, "'\\''")
-            await q1Exec(port, `echo -n '${safe}' >> "${dest}.b64"`)
-            await new Promise(r => setTimeout(r, 100))
-          }
-          await q1Exec(port, `base64 -d "${dest}.b64" > "${dest}" && rm "${dest}.b64"`)
-        }
-
-        // 通知系统扫描
+        // 魔云腾 upload API 固定存到 /sdcard/upload/
+        // 复制到 DCIM 目录（系统相册能识别）
+        await q1Exec(port, `cp "/sdcard/upload/${fileName}" "${dest}"`)
+        // 通知系统扫描，立刻出现在相册
         await q1Exec(port, `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://${dest}"`)
         pushed++
       } catch (e) {
