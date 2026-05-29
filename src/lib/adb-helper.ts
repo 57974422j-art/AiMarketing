@@ -31,7 +31,12 @@ export class ADB {
   }
 
   connect(): { success: boolean; output: string } {
-    return this.run('connect', 3000) // 连接只等 3 秒，不通就快速降级
+    try {
+      const out = execSync(`adb connect ${this.serial}`, { timeout: 3000, encoding: 'utf-8' })
+      return { success: true, output: out.trim() }
+    } catch (e: any) {
+      return { success: false, output: e.stderr?.trim() || e.message || 'adb 错误' }
+    }
   }
 
   /** 执行任意 ADB shell 命令 */
