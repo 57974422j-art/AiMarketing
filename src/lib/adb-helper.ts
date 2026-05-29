@@ -34,6 +34,11 @@ export class ADB {
     return this.run('connect', 3000) // 连接只等 3 秒，不通就快速降级
   }
 
+  /** 执行任意 ADB shell 命令 */
+  shell(cmd: string): { success: boolean; output: string } {
+    return this.run(`shell ${cmd}`)
+  }
+
   /** 输入文本（自动处理特殊字符） */
   inputText(text: string): { success: boolean; output: string } {
     const escaped = text
