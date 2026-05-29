@@ -33,7 +33,9 @@ export async function POST(request: NextRequest) {
     })
     if (!accounts.length) return NextResponse.json({ success: false, message: '该客户没有绑定设备' }, { status: 400 })
 
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const now = new Date()
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '')
+    const timeStr = String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0')
     const label = (remark || 'video').replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, '_').slice(0, 20)
     let success = 0
 
@@ -41,20 +43,27 @@ export async function POST(request: NextRequest) {
       const device = accounts[i].device
       if (!device || !device.apiPort) continue
 
-      const fileName = `${dateStr}_${label}_${String(i + 1).padStart(2, '0')}.mp4`
+      const fileName = `${dateStr}_${timeStr}_${label}_${String(i + 1).padStart(2, '0')}.mp4`
       try {
         const buf = fs.readFileSync(src)
         const port = device.apiPort
-        const uploadUrl = `http://127.0.0.1:${port}/upload`
-        const form = new FormData()
-        form.append('file', new Blob([buf], { type: 'video/mp4' }), fileName)
-        const upRes = await fetch(uploadUrl, { method: 'POST', body: form, signal: AbortSignal.timeout(120000) })
-        if (!upRes.ok) continue
 
-        // 复制到 DCIM（无引号，Q1 shell 处理 URL 编码时引号会出错）
-        const shell = (cmd: string) => fetch(`http://127.0.0.1:${port}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmd)}`, { signal: AbortSignal.timeout(10000) }).catch(() => {})
-        await shell(`cp /sdcard/upload/${fileName} /sdcard/DCIM/${fileName}`)
-        await shell(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/DCIM/${fileName}`)
+        // 直接 base64 管道写入 DCIM（Q1 v0.8.0 shell 无法读取 /sdcard/upload/）
+        const b64 = buf.toString('base64')
+        const dest = `/sdcard/DCIM/${fileName}`
+        const tmp = `/sdcard/DCIM/_b64_${Date.now()}.tmp`
+        const shell = (cmd: string) => fetch(`http://127.0.0.1:${port}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmd)}`, { signal: AbortSignal.timeout(60000) }).catch(() => {})
+
+        // 分块写入（android shell 命令行有限长，每段最大 8000 字符）
+        for (let j = 0; j < b64.length; j += 8000) {
+          const chunk = b64.substring(j, j + 8000)
+          await shell(`printf '%s' '${chunk}' >> ${tmp}`)
+          await new Promise(r => setTimeout(r, 100))
+        }
+        // 解码到目标文件
+        await shell(`base64 -d ${tmp} > ${dest} && rm ${tmp}`)
+        // 刷新相册
+        await shell(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://${dest}`)
         success++
       } catch (e) {
         console.error(`[push] device ${device.id}:`, (e as any).message?.slice(0, 100))
