@@ -261,14 +261,31 @@ export async function swipeToFind(apiPort: number, text: string, maxSwipes = 10)
   return { success: false, message: `滑动 ${maxSwipes} 次未找到"${text}"` }
 }
 
-/** 点击坐标 */
+/** 随机偏移（±3px，防止风控识别固定坐标） */
+function jitter(base: number): number {
+  return base + Math.round(Math.random() * 6 - 3)
+}
+
+/** 硬件级点击（魔云腾 autoclick API + 随机偏移 + 按下-保持-抬起） */
 export async function tap(apiPort: number, x: number, y: number): Promise<UIResult> {
-  return execShell(apiPort, `input tap ${x} ${y}`)
+  const cx = jitter(x)
+  const cy = jitter(y)
+  try {
+    // 魔云腾硬件级 touchDown + 随机延迟 + touchUp
+    await fetch(`http://127.0.0.1:${apiPort}/autoclick?action=down&id=1&x=${cx}&y=${cy}`, { signal: AbortSignal.timeout(5000) })
+    await sleep(50 + Math.random() * 80) // 50-130ms 随机按压时间
+    await fetch(`http://127.0.0.1:${apiPort}/autoclick?action=up&id=1`, { signal: AbortSignal.timeout(5000) })
+    return { success: true, message: `硬件点击 (${cx},${cy})` }
+  } catch {
+    // 降级到 input tap
+    return execShell(apiPort, `input tap ${cx} ${cy}`)
+  }
 }
 
 /** 长按 */
 export async function longPress(apiPort: number, x: number, y: number, ms = 1500): Promise<UIResult> {
-  return execShell(apiPort, `input swipe ${x} ${y} ${x} ${y} ${ms}`)
+  const cx = jitter(x); const cy = jitter(y)
+  return execShell(apiPort, `input swipe ${cx} ${cy} ${cx} ${cy} ${ms}`)
 }
 
 /** 返回 */

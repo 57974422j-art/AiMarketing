@@ -1,5 +1,5 @@
 import * as UI from './uiautomator-driver'
-import { aiLocateButton, aiDescribeScreen } from './ai-providers'
+import { aiLocateButton, aiDescribeScreen, pickInBox } from './ai-providers'
 
 export const DOUYIN_PKG = 'com.ss.android.ugc.aweme'
 export const DOUYIN_ACT = '.main.MainActivity'
@@ -162,7 +162,8 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
       new Promise<null>(r => setTimeout(() => r(null), 8000)),
     ])
     if (aiCoord) {
-      await UI.tap(apiPort, aiCoord.x, aiCoord.y)
+      const pt = pickInBox(aiCoord)
+      await UI.tap(apiPort, pt.x, pt.y)
       await randomDelay(2000, 3000)
       if ((await UI.findByText(apiPort, '相册')).success) publishBtn = { success: true, message: 'AI 定位 + 号成功' }
     }
@@ -245,14 +246,15 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
   for (let i = 0; i < 2; i++) {
     await UI.sleep(1000 + Math.random() * 1000)
     stepLog('next_step', `第${i+1}次"下一步"`)
-    // AI 截图定位（8 秒超时）
+    // AI 截图定位（8 秒超时，框内随机取点）
     const aiLoc = await Promise.race([
       aiLocateButton(apiPort, '视频编辑页面右下角的"下一步"按钮'),
       new Promise<null>(r => setTimeout(() => r(null), 8000)),
     ])
     if (aiLoc) {
-      await UI.tap(apiPort, aiLoc.x, aiLoc.y)
-      stepLog('next_step', `第${i+1}次"下一步" AI 定位 (${aiLoc.x},${aiLoc.y})`)
+      const pt = pickInBox(aiLoc)
+      await UI.tap(apiPort, pt.x, pt.y)
+      stepLog('next_step', `第${i+1}次"下一步" AI 定位 (${pt.x},${pt.y})`)
     } else {
       await UI.tapRatio(apiPort, 0.85, 0.92)
       stepLog('next_step', `第${i+1}次"下一步" 坐标兜底`)

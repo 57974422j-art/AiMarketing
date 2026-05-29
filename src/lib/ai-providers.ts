@@ -1,3 +1,16 @@
+/** ButtonBox 含随机偏移（点击时在框内随机取点，防风控） */
+export interface ButtonBox { x: number; y: number; x2?: number; y2?: number }
+export function pickInBox(b: ButtonBox): { x: number; y: number } {
+  if (b.x2 && b.y2) {
+    return {
+      x: b.x + Math.round(Math.random() * (b.x2 - b.x)),
+      y: b.y + Math.round(Math.random() * (b.y2 - b.y)),
+    }
+  }
+  // 只有单点时加 ±3px 抖动
+  return { x: b.x + Math.round(Math.random() * 6 - 3), y: b.y + Math.round(Math.random() * 6 - 3) }
+}
+
 // AI 提供商统一接口 — 多级降级模式
 // 优先级：百炼DashScope(通义千问) > 火山方舟(Volcano) > 硅基流动(SiliconFlow) > DeepSeek > 模拟兜底(Mock)
 // 每个函数内部 try-catch，失败自动切换到下一个
@@ -998,7 +1011,7 @@ async function dashscopeLocateButton(base64Image: string, buttonDesc: string): P
         messages: [{
           role: 'user',
           content: [
-            { type: 'text', text: `这是一张手机截图。请找到"${buttonDesc}"按钮的中心坐标。只返回 JSON: {"x":数字,"y":数字}，不要其他文字。` },
+            { type: 'text', text: `这是一张手机截图。请找到"${buttonDesc}"按钮。返回它的包围框坐标 JSON: {"x":左,"y":上,"x2":右,"y2":下}。范围要准确包住按钮。不要其他文字。` },
             { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } },
           ],
         }],
@@ -1033,7 +1046,7 @@ async function siliconLocateButton(base64Image: string, buttonDesc: string): Pro
         messages: [{
           role: 'user',
           content: [
-            { type: 'text', text: `这是一张手机截图。请找到"${buttonDesc}"按钮的中心坐标。只返回 JSON: {"x":数字,"y":数字}，不要其他文字。` },
+            { type: 'text', text: `这是一张手机截图。请找到"${buttonDesc}"按钮。返回它的包围框坐标 JSON: {"x":左,"y":上,"x2":右,"y2":下}。不要其他文字。` },
             { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } },
           ],
         }],
@@ -1043,7 +1056,11 @@ async function siliconLocateButton(base64Image: string, buttonDesc: string): Pro
     })
     const text = data?.choices?.[0]?.message?.content?.trim()
     if (!text) return null
-    const m = text.match(/\{\s*"x"\s*:\s*(\d+)\s*,\s*"y"\s*:\s*(\d+)\s*\}/)
+    // 优先解析包围框 {x,y,x2,y2}
+    let m = text.match(/\{\s*"x"\s*:\s*(\d+)\s*,\s*"y"\s*:\s*(\d+)\s*,\s*"x2"\s*:\s*(\d+)\s*,\s*"y2"\s*:\s*(\d+)\s*\}/)
+    if (m) return { x: parseInt(m[1]), y: parseInt(m[2]), x2: parseInt(m[3]), y2: parseInt(m[4]) }
+    // 兼容旧格式 {x,y}
+    m = text.match(/\{\s*"x"\s*:\s*(\d+)\s*,\s*"y"\s*:\s*(\d+)\s*\}/)
     if (m) return { x: parseInt(m[1]), y: parseInt(m[2]) }
     const m2 = text.match(/(\d+)[,\s]+(\d+)/)
     if (m2) return { x: parseInt(m2[1]), y: parseInt(m2[2]) }
@@ -1055,11 +1072,15 @@ async function siliconLocateButton(base64Image: string, buttonDesc: string): Pro
 }
 
 /** AI 视觉定位：截屏 → 识别按钮 → 返回坐标（百炼 → 硅基 → null） */
-export async function aiLocateButton(apiPort: number, buttonDesc: string): Promise<VLResult | null> {
+export async function aiLocateButton(apiPort: number, buttonDesc: string): Promise<ButtonBox | null> {
   const { takeScreenshot } = await import('./uiautomator-driver')
   const b64 = await takeScreenshot(apiPort)
   if (!b64) return null
-  return await dashscopeLocateButton(b64, buttonDesc) || await siliconLocateButton(b64, buttonDesc)
+  const box = await dashscopeLocateButton(b64, buttonDesc) || await siliconLocateButton(b64, buttonDesc)
+  if (!box) return null
+  // 单点 → 转为包围框推定 30x30
+  if (!box.x2) { box.x2 = box.x + 30; box.y2 = box.y + 30 }
+  return box
 }
 
 /** 调用百炼 VL 分析页面内容 */
