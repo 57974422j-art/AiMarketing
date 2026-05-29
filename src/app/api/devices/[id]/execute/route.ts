@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import * as Douyin from '@/lib/douyin-automation'
 import * as UI from '@/lib/uiautomator-driver'
+import { ADB } from '@/lib/adb-helper'
 
 
 
@@ -32,6 +33,20 @@ async function q1Shell(port: number, cmd: string): Promise<UI.UIResult> {
   } catch (e: any) {
     return { success: false, message: e.message || 'shell 失败' }
   }
+}
+
+// ── ADB 或 HTTP shell ──
+async function shell(port: number, adbPort: number): Promise<ADB | null> {
+  if (ADB.isAvailable()) {
+    const adb = new ADB(adbPort)
+    // 连接测试（短超时，失败则用 HTTP shell 兜底）
+    const conn = adb.connect()
+    if (!conn.success) return null
+    const test = adb.shell('echo ok')
+    if (!test.success) return null
+    return adb
+  }
+  return null
 }
 
 // ── 页面检测 ──
@@ -131,16 +146,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (prev) prev.abort()
     abortMap.set(deviceId, ac)
 
-    log('adb', true, 'HTTP shell 模式（不依赖 ADB 隧道，支持任意数量设备）')
+    // 初始化 ADB（连接失败自动降级到 HTTP shell）
+    let adb: ADB | null = null
+    if (adbPort) {
+      adb = await shell(port, adbPort)
+      if (!adb) log('adb', false, `ADB 端口 ${adbPort} 不可用，切换 HTTP shell`)
+    }
+    if (adb) log('adb', true, 'ADB 直连模式')
+    else log('adb', false, 'HTTP shell 模式')
 
     // 1. 打开对应 App（冷启动）
     const app = APP_PACKAGES[platform]
     if (app) {
       // 先强制杀死，冷启动
-      await q1Shell(port, `am force-stop ${app.pkg}`)
+      if (adb) adb.forceStop(app.pkg)
+      else await q1Shell(port, `am force-stop ${app.pkg}`)
       await UI.sleep(1500)
       // 启动
-      await UI.openApp(port, app.pkg, app.act)
+      if (adb) adb.openApp(app.pkg, app.act)
+      else await UI.openApp(port, app.pkg, app.act)
       await UI.sleep(12000 + Math.random() * 3000)
       checkAbort()
       log('openApp', true, `${platform} 已启动`)
@@ -149,7 +173,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       for (let i = 1; i <= 2; i++) {
         checkAbort()
         await UI.sleep(4000 + Math.random() * 3000)
-        await UI.scrollUp(port)
+        if (adb) adb.scrollUp(500)
+        else await UI.scrollUp(port)
         log('browse', true, `浏览第 ${i} 条视频`)
       }
     }
@@ -172,15 +197,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
             // 点搜索 Tab
             r = await UI.findAndClick(port, '搜索')
-            if (!r.success && adb) adb.tap(950, 120)
             await UI.sleep(3000)
 
             log('input', true, `正在输入"${searchKeyword}"...`)
 
-            // 通过 Q1 API 输入（不依赖 ADB/ADBKeyBoard）
-            await q1Shell(port, `input tap 540 150`)
-            await UI.sleep(1000)
-            await q1Shell(port, `input text ${searchKeyword}`)
+            // 用 ADBKeyBoard 输入中文（优先），失败则降级到 Q1 API
+            if (adb) {
+              adb.shell('settings put secure default_input_method com.android.adbkeyboard/.AdbIME')
+              await UI.sleep(500)
+              adb.shell(`am broadcast -a ADB_INPUT_TEXT --es msg "${searchKeyword}"`)
+              await UI.sleep(500)
+              adb.shell('settings put secure default_input_method com.android.inputmethod.latin/.LatinIME')
+            } else {
+              await q1Shell(port, `input tap 540 150`)
+              await UI.sleep(1000)
+              await q1Shell(port, `input text ${searchKeyword}`)
+            }
             await UI.sleep(2000)
 
             // 验证

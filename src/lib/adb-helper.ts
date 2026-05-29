@@ -18,10 +18,10 @@ export class ADB {
     this.serial = `127.0.0.1:${adbPort}`
   }
 
-  private run(cmd: string): { success: boolean; output: string } {
+  private run(cmd: string, timeoutMs = 15000): { success: boolean; output: string } {
     try {
       const out = execSync(`adb -s ${this.serial} ${cmd}`, {
-        timeout: 15000,
+        timeout: timeoutMs,
         encoding: 'utf-8',
       })
       return { success: true, output: out.trim() }
@@ -30,14 +30,8 @@ export class ADB {
     }
   }
 
-  /** 执行任意 ADB shell 命令 */
-  shell(cmd: string): { success: boolean; output: string } {
-    return this.run(`shell ${cmd}`)
-  }
-
-  /** 连接设备 */
   connect(): { success: boolean; output: string } {
-    return this.run('connect')
+    return this.run('connect', 3000) // 连接只等 3 秒，不通就快速降级
   }
 
   /** 输入文本（自动处理特殊字符） */
