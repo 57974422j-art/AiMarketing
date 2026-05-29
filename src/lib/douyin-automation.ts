@@ -116,7 +116,7 @@ async function scanIconButton(apiPort: number, SW: number, SH: number, areaFilte
 }
 
 export async function publishVideo(apiPort: number, options: PublishOptions = {}): Promise<UI.UIResult> {
-  const { title, videoIndex = 1, aiCover = false, delayBeforePublish = 3000, dryRun = false } = options
+  const { title, videoIndex = 1, aiCover = false, delayBeforePublish = 3000 } = options
   const { width: SW, height: SH } = await UI.getScreenSize(apiPort)
 
   // 详细步骤日志
@@ -331,41 +331,11 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     }
   }
 
-  // 10. 最终发布（dryRun=true 时跳过，仅测试到标题页面）
-  if (dryRun) {
-    await aiCheck('publish')
-    stepLog('publish', 'dryRun 模式，跳过发布')
-    return { success: true, message: `测试通过: 已填写标题"${title || '无标题'}"，未发布` }
-  }
-  await UI.sleep(delayBeforePublish)
+  // 10. 测试模式：不发布，只看 AI 分析
+  await UI.sleep(2000)
   await aiCheck('publish')
-  let pub = await UI.findByText(apiPort, '发作品')
-  if (!pub.success) pub = await UI.findByText(apiPort, '发布')
-  if (!pub.success) {
-    // 非文字按钮：扫描 ImageView（"+"/图标）— 顶栏右侧或底部区域
-    const best = await scanIconButton(apiPort, SW, SH, (b, cx) =>
-      (b.y < SH * 0.12 && cx > SW * 0.6) || // 顶栏右侧
-      (b.y > SH * 0.85 && cx > SW * 0.5)    // 底部偏右
-    )
-    if (best) {
-      await UI.tap(apiPort, best.x, best.y)
-      await randomDelay(3000, 5000)
-      return { success: true, message: `视频已发布: ${title || '无标题'}` }
-    }
-    // 终极兜底：AI 视觉识别
-    console.log('[AI定位] 尝试 AI 识别最终发布按钮...')
-    const aiCoord = await aiLocateButton(apiPort, '发布作品的按钮，通常在页面底部或右上角')
-    if (aiCoord) {
-      await UI.tap(apiPort, aiCoord.x, aiCoord.y)
-      await randomDelay(3000, 5000)
-      return { success: true, message: `AI 定位发布成功: ${title || '无标题'}` }
-    }
-  }
-  if (pub.success && pub.center) {
-    await UI.tap(apiPort, pub.center.x, pub.center.y)
-  }
-  await randomDelay(3000, 5000)
-  return { ...pub, message: pub.success ? `视频已发布: ${title || '无标题'}` : `发布失败: ${pub.message}` }
+  stepLog('publish', '测试模式完成 — 未点击发布按钮，未实际发布')
+  return { success: true, message: `测试通过: 标题"${title || '无标题'}"已尝试输入，未发布` }
 }
 
 export interface VideoInfo {
