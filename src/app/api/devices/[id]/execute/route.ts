@@ -133,6 +133,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!device) return NextResponse.json({ success: false, message: '设备不存在' }, { status: 404 })
     const port = device.apiPort
     const adbPort = device.adbPort
+    const rpaPort = device.rpaPort
     if (!port) return NextResponse.json({ success: false, message: '设备未配置端口' }, { status: 400 })
 
     const results: { action: string; success: boolean; message: string }[] = []
@@ -244,10 +245,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             const { title: genTitle } = await generatePublishTitle(searchKeyword, publishDesc)
             const pubTitle = publishTitle || genTitle
             const pubTopics = Array.isArray(publishTopics) && publishTopics.length > 0 ? publishTopics : [`#${searchKeyword}`]
-            // 先回到首页确保底部发布按钮可见
-            await Douyin.goHome(port)
-            await UI.sleep(2000)
-            r = await Douyin.publishVideo(port, { title: pubTitle, topics: pubTopics, dryRun: dryRun === true })
+            // RPA 模式（如有 RPA 端口）：AI ReAct 驱动，不需要脚本编排
+            if (rpaPort) {
+              r = await Douyin.aiPublishVideo(port, rpaPort, { title: pubTitle, topics: pubTopics })
+            } else {
+              await Douyin.goHome(port)
+              await UI.sleep(2000)
+              r = await Douyin.publishVideo(port, { title: pubTitle, topics: pubTopics })
+            }
             log('title', true, `标题: ${pubTitle}`)
             break
           }

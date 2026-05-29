@@ -1119,6 +1119,67 @@ export async function aiDescribeScreen(apiPort: number): Promise<string | null> 
   return await dashscopeDescribeScreen(b64)
 }
 
+// ==================== AI ReAct 决策 ====================
+
+/** 结构化决策响应 */
+export interface AIDecision {
+  analysis: string            // 对当前页面的分析
+  status: 'CONTINUE' | 'STAGE_CHANGED' | 'ERROR_BLOCKED'
+  action: 'click' | 'input' | 'wait' | 'none'
+  target_desc?: string        // 要点击的按钮描述
+  coordinates?: { x: number; y: number }  // 点击坐标
+  text_content?: string       // 要输入的文字
+}
+
+/** 调用百炼 VL 做 ReAct 决策 */
+async function dashscopeDecide(milestone: string, goal: string, base64Image: string): Promise<AIDecision | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  const prompt = `你是一个熟练操作安卓手机发抖音的AI助手。
+
+【当前大阶段】${milestone}
+【总目标】${goal}
+
+请分析当前截图：
+1. 判断是否已完成【${milestone}】？如果是输出 "STAGE_CHANGED"
+2. 如果遇到弹窗阻挡输出 "ERROR_BLOCKED"
+3. 否则继续当前阶段，给出下一步操作
+
+只返回以下 JSON 格式，不要其他文字：
+{"analysis":"分析","status":"CONTINUE|STAGE_CHANGED|ERROR_BLOCKED","action":"click|input|wait|none","target_desc":"","coordinates":{"x":0,"y":0},"text_content":""}`
+
+  try {
+    const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'qwen-vl-max',
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }] }],
+        temperature: 0.1,
+        max_tokens: 500,
+      }),
+    })
+    const text = data?.choices?.[0]?.message?.content?.trim()
+    if (!text) return null
+    // 尝试解析 JSON（模型可能返回额外文字）
+    const m = text.match(/\{[\s\S]*"analysis"[\s\S]*"status"[\s\S]*"action"[\s\S]*\}/)
+    if (m) return JSON.parse(m[0])
+    return null
+  } catch (e) {
+    console.error('[百炼决策] 失败:', e)
+    return null
+  }
+}
+
+/** AI ReAct 决策：截图 + 里程碑 → 返回下一步操作 */
+export async function aiDecideNext(
+  base64Image: string,
+  milestone: string,
+  goal: string
+): Promise<AIDecision | null> {
+  return await dashscopeDecide(milestone, goal, base64Image)
+}
+
 // ==================== 导出函数 — 双保险模式 ====================
 
 // 1. 文案生成 / 文本生成
