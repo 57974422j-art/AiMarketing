@@ -97,7 +97,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const body = await request.json()
-    const { platform, actions, keyword, keywords, publishTitle, publishTopics, publishDesc } = body
+    const { platform, actions, keyword, keywords, publishTitle, publishTopics, publishDesc, dryRun } = body
     if (!deviceId || !platform || !actions?.length) {
       return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
     }
@@ -250,7 +250,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             // 先回到首页确保底部发布按钮可见
             await Douyin.goHome(port)
             await UI.sleep(2000)
-            r = await Douyin.publishVideo(port, { title: pubTitle, topics: pubTopics })
+            r = await Douyin.publishVideo(port, { title: pubTitle, topics: pubTopics, dryRun: dryRun === true })
             log('title', true, `标题: ${pubTitle}`)
             break
           }

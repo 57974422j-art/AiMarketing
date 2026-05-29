@@ -94,7 +94,7 @@ export async function sendDirectMessage(apiPort: number, username: string, messa
 }
 
 export interface PublishOptions {
-  title?: string; videoIndex?: number; aiCover?: boolean; topics?: string[]; delayBeforePublish?: number
+  title?: string; videoIndex?: number; aiCover?: boolean; topics?: string[]; delayBeforePublish?: number; dryRun?: boolean
 }
 
 /** 扫描 XML 找 ImageView/FrameLayout 图标按钮（用于定位 "+" 等无文字按钮） */
@@ -116,7 +116,7 @@ async function scanIconButton(apiPort: number, SW: number, SH: number, areaFilte
 }
 
 export async function publishVideo(apiPort: number, options: PublishOptions = {}): Promise<UI.UIResult> {
-  const { title, videoIndex = 1, aiCover = false, delayBeforePublish = 3000 } = options
+  const { title, videoIndex = 1, aiCover = false, delayBeforePublish = 3000, dryRun = false } = options
   const { width: SW, height: SH } = await UI.getScreenSize(apiPort)
 
   // 详细步骤日志
@@ -303,19 +303,19 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
         if (b) {
           await UI.tap(apiPort, Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2))
           await UI.sleep(500)
+          tapped = true
         }
       }
     }
-    // 强制呼出键盘 + 剪贴板预备
+    // 用 ADBKeyBoard 广播输入（绕过键盘）
     if (tapped) {
-      await UI.shell(apiPort, 'settings put global show_ime_with_hard_keyboard 1')
-      await UI.sleep(300)
-      // 把标题写到系统剪贴板（备用，以防 input text 不生效）
-      await UI.shell(apiPort, `service call clipboard 1 i32 1 s16 "${title.replace(/"/g, '\\"')}"`).catch(() => {})
-      await UI.sleep(200)
+      await UI.shell(apiPort, 'settings put secure default_input_method com.android.adbkeyboard/.AdbIME')
+      await UI.sleep(500)
+      await UI.shell(apiPort, `am broadcast -a ADB_INPUT_TEXT --es msg "${title.replace(/"/g, '\\"')}"`)
+      await UI.sleep(500)
+      await UI.shell(apiPort, 'settings put secure default_input_method com.android.inputmethod.latin/.LatinIME')
+      stepLog('title', `标题已通过 ADBKeyBoard 广播输入: "${title.substring(0, 30)}"`)
     }
-    await UI.inputText(apiPort, title)
-    stepLog('title', `标题已输入: "${tapped ? '点击输入框成功' : 'EditText兜底'}"`)
     await randomDelay(1000, 1500)
   } else {
     stepLog('title', '未传入标题，跳过输入')
@@ -331,7 +331,12 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     }
   }
 
-  // 10. 最终发布（可能是文字按钮或 "+" 图标按钮）
+  // 10. 最终发布（dryRun=true 时跳过，仅测试到标题页面）
+  if (dryRun) {
+    await aiCheck('publish')
+    stepLog('publish', 'dryRun 模式，跳过发布')
+    return { success: true, message: `测试通过: 已填写标题"${title || '无标题'}"，未发布` }
+  }
   await UI.sleep(delayBeforePublish)
   await aiCheck('publish')
   let pub = await UI.findByText(apiPort, '发作品')
