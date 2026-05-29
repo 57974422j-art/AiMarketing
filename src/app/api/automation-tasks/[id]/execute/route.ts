@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { getAuthFromHeaders } from '@/lib/api-auth'
-import { findByText, findAndClick, tapAndInput, scrollUp, tap, swipeToFind } from '@/lib/uiautomator-driver'
-import { like, comment, shareVideo, publishVideo, follow } from '@/lib/douyin-automation'
+import { findByText, findAndClick, tapAndInput, scrollUp, tap, swipeToFind, sleep, goBack } from '@/lib/uiautomator-driver'
 
 const prisma = new PrismaClient()
 
@@ -37,41 +36,39 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     switch (task.type) {
       case '抖音点赞':
       case '点赞': {
-        await new Promise(r => setTimeout(r, 20000 + Math.random() * 10000)) // 随机等待
-        result = await like(port)
+        await new Promise(r => setTimeout(r, 20000 + Math.random() * 10000))
+        result = await findAndClick(port, '赞')
         break
       }
 
       case '抖音评论':
       case '评论': {
         const text = taskParams.comment || taskParams.text || '不错'
-        result = await comment(port, text)
+        const cr = await findAndClick(port, '评论')
+        if (cr.success) { await new Promise(r => setTimeout(r, 2000)); await tapAndInput(port, '消息', text); await new Promise(r => setTimeout(r, 1000)); result = await findAndClick(port, '发送') }
+        else result = cr
         break
       }
 
       case '抖音转发':
       case '转发': {
-        result = await shareVideo(port, taskParams.target || '复制链接')
+        await new Promise(r => setTimeout(r, 2000))
+        result = await findAndClick(port, '分享')
         break
       }
 
       case '抖音发布':
       case '发抖音视频':
       case '发布视频': {
-        const caption = taskParams.caption || taskParams.title || ''
-        // 如有视频 URL，先下载到 Q1
-        if (taskParams.videoUrl) {
-          await execShell(port, `curl -L -o /sdcard/DCIM/Camera/pub_${Date.now()}.mp4 "${taskParams.videoUrl}"`)
-          await sleep(5000)
-        }
-        result = await publishVideo(port, { title: caption, videoIndex: 1, aiCover: true })
+        result = { success: false, message: '发布功能已迁移至 RPA AI 模式' }
         break
       }
 
       case '抖音关注':
       case '互关':
       case '关注': {
-        result = await follow(port)
+        await new Promise(r => setTimeout(r, 3000))
+        result = await findAndClick(port, '关注')
         break
       }
 
