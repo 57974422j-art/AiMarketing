@@ -98,4 +98,4 @@ async function execShell(port: number, cmd: string) {
   return r.json()
 }
 
-function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+
