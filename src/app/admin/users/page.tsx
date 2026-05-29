@@ -32,6 +32,9 @@ export default function AccountInfoPage() {
   const [submitting, setSubmitting] = useState(false)
   const [editUser, setEditUser] = useState<UserInfo | null>(null)
   const [newQuota, setNewQuota] = useState('')
+  const [storageUser, setStorageUser] = useState<{ id: number; name: string } | null>(null)
+  const [storageFiles, setStorageFiles] = useState<any[]>([])
+  const [storageLoading, setStorageLoading] = useState(false)
 
   useEffect(() => {
     if (!authLoading && user?.role === 'admin') loadUsers()
@@ -114,6 +117,12 @@ export default function AccountInfoPage() {
                   {u.role === 'editor' && (
                     <button onClick={() => { setEditUser(u); setNewQuota(String(u.totalWindows)) }} className="text-[10px] px-2 py-1 bg-white/5 text-gray-400 rounded hover:bg-white/10">编辑配额</button>
                   )}
+                  <button onClick={async () => {
+                    setStorageUser({ id: u.id, name: u.name || u.username })
+                    setStorageLoading(true)
+                    try { const r = await fetch(`/api/admin/users/${u.id}/storage`, { credentials: 'include' }); if (r.ok) setStorageFiles((await r.json()).data?.files || []) }
+                    catch {} finally { setStorageLoading(false) }
+                  }} className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30 ml-1">仓库</button>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[10px]">
@@ -166,6 +175,33 @@ export default function AccountInfoPage() {
               <button onClick={()=>setEditUser(null)} className="flex-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs">取消</button>
               <button disabled={submitting} onClick={handleQuotaSave} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs">{submitting?'保存中...':'保存'}</button>
             </div>
+          </div>
+        </div>}
+
+        {storageUser && <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={()=>setStorageUser(null)}>
+          <div className="card-glass p-6 rounded-xl max-w-3xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-white">{storageUser.name} 的仓库</h3>
+              <button onClick={()=>setStorageUser(null)} className="text-gray-400 hover:text-white text-xs">关闭</button>
+            </div>
+            {storageLoading ? <p className="text-gray-400 text-xs">加载中...</p> : storageFiles.length === 0 ? (
+              <p className="text-gray-500 text-xs text-center py-8">暂无文件</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {storageFiles.map(f => (
+                  <div key={f.name} className="bg-white/5 rounded-lg overflow-hidden">
+                    {f.isVideo && f.thumbUrl ? (
+                      <img src={f.thumbUrl} alt={f.name} className="w-full aspect-video object-cover" />
+                    ) : f.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                      <img src={`/storage/${storageUser.id}/${f.name}`} alt={f.name} className="w-full aspect-video object-cover" />
+                    ) : (
+                      <div className="w-full aspect-video flex items-center justify-center text-3xl bg-white/5">{f.isVideo ? '🎬' : '📄'}</div>
+                    )}
+                    <p className="text-[10px] text-gray-400 truncate px-2 py-1">{f.name}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>}
       </div>

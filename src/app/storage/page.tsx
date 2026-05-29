@@ -2,14 +2,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { showToast } from '@/components/Toast'
 
-interface FileInfo { name: string; size: number; mtime: string }
+interface FileInfo { name: string; size: number; mtime: string; isVideo?: boolean; thumbUrl?: string | null }
 interface Quota { used: number; total: number }
 
 export default function StoragePage() {
   const [files, setFiles] = useState<FileInfo[]>([])
-  const [userId, setUserId] = useState<string>('')
   const [quota, setQuota] = useState<Quota>({ used: 0, total: 500 * 1024 * 1024 })
   const [loading, setLoading] = useState(true)
+  const [pushing, setPushing] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -45,6 +45,21 @@ export default function StoragePage() {
     } catch {}
   }
 
+  const pushToPhone = async (name: string) => {
+    setPushing(name)
+    try {
+      const r = await fetch('/api/storage/push-to-phone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: name }),
+      })
+      const d = await r.json()
+      if (r.ok) showToast(d.message || '推送成功', 'success')
+      else showToast(d.message || '推送失败', 'error')
+    } catch { showToast('推送失败', 'error') }
+    finally { setPushing(null) }
+  }
+
   const pct = Math.round(quota.used / quota.total * 100)
   const fmt = (b: number) => (b / 1024 / 1024).toFixed(1) + 'MB'
 
@@ -75,12 +90,27 @@ export default function StoragePage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {files.map(f => (
               <div key={f.name} className="card-glass p-2 rounded-lg relative group">
-                <div className="aspect-video bg-white/5 rounded mb-1 flex items-center justify-center text-gray-600 text-[10px]">
-                  {f.name.endsWith('.mp4') ? '🎬' : '🖼️'}
+                {/* 缩略图 */}
+                <div className="aspect-video bg-white/5 rounded mb-1 overflow-hidden flex items-center justify-center">
+                  {f.thumbUrl ? (
+                    <img src={f.thumbUrl} alt={f.name} className="w-full h-full object-cover" />
+                  ) : !f.isVideo && /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name) ? (
+                    <img src={`/api/storage/file?name=${encodeURIComponent(f.name)}`} alt={f.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-2xl">{f.isVideo ? '🎬' : '📄'}</span>
+                  )}
                 </div>
-                <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={()=>{const u="/api/storage/file?userId="+userId+"&name="+encodeURIComponent(f.name);window.open(u,'_blank')}}>{f.name}</p>
+                <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={()=>{window.open('/api/storage/file?name='+encodeURIComponent(f.name),'_blank')}}>{f.name}</p>
                 <p className="text-[9px] text-gray-500">{fmt(f.size)}</p>
-                <button onClick={() => del(f.name)} className="absolute top-1 right-1 w-5 h-5 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition">×</button>
+                <div className="flex gap-1 mt-1">
+                  {f.isVideo && (
+                    <button onClick={() => pushToPhone(f.name)} disabled={pushing === f.name}
+                      className="flex-1 text-[9px] py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30 disabled:opacity-50">
+                      {pushing === f.name ? '推送中...' : '推送到手机'}
+                    </button>
+                  )}
+                  <button onClick={() => del(f.name)} className="w-6 h-6 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition">×</button>
+                </div>
               </div>
             ))}
           </div>

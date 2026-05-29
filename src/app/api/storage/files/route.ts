@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import fs from 'fs'
+import { execSync } from 'child_process'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 
 const STORAGE_BASE = '/root/AiMarketing/public/storage'
@@ -24,6 +25,19 @@ function usedQuota(userId: number): number {
   return total
 }
 
+/** 为视频生成缩略图（FFmpeg 截第1秒关键帧） */
+function generateThumb(videoPath: string, thumbDir: string, fileName: string) {
+  const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(fileName)
+  if (!isVideo) return
+  if (!fs.existsSync(thumbDir)) fs.mkdirSync(thumbDir, { recursive: true })
+  const thumbName = fileName.replace(/\.(mp4|mov|avi|mkv|webm)$/i, '.jpg')
+  const thumbPath = path.join(thumbDir, thumbName)
+  if (fs.existsSync(thumbPath)) return
+  try {
+    execSync(`ffmpeg -i "${videoPath}" -ss 00:00:01 -vframes 1 -s 320x180 -y "${thumbPath}" 2>/dev/null`, { timeout: 15000 })
+  } catch {}
+}
+
 export async function GET(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
   if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
@@ -33,7 +47,13 @@ export async function GET(request: NextRequest) {
     .filter(f => fs.statSync(path.join(dir, f)).isFile())
     .map(f => {
       const fp = path.join(dir, f)
-      return { name: f, size: fs.statSync(fp).size, mtime: fs.statSync(fp).mtime.toISOString() }
+      const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(f)
+      const thumbPath = path.join(dir, '.thumbs', f.replace(/\.(mp4|mov|avi|mkv|webm)$/i, '.jpg'))
+      return {
+        name: f, size: fs.statSync(fp).size, mtime: fs.statSync(fp).mtime.toISOString(),
+        isVideo,
+        thumbUrl: isVideo && fs.existsSync(thumbPath) ? `/storage/${auth.userId}/.thumbs/${f.replace(/\.(mp4|mov|avi|mkv|webm)$/i, '.jpg')}` : null,
+      }
     })
     .sort((a, b) => b.mtime.localeCompare(a.mtime))
 
@@ -58,6 +78,9 @@ export async function POST(request: NextRequest) {
   const name = Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
   const fp = path.join(dir, name)
   fs.writeFileSync(fp, Buffer.from(await file.arrayBuffer()))
+
+  // 视频文件自动生成缩略图
+  generateThumb(fp, path.join(dir, '.thumbs'), name)
 
   return NextResponse.json({ success: true, data: { name, size: file.size } })
 }

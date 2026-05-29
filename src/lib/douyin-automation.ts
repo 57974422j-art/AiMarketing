@@ -307,15 +307,10 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
         }
       }
     }
-    // 用 ADBKeyBoard 广播输入（绕过键盘）
-    if (tapped) {
-      await UI.shell(apiPort, 'settings put secure default_input_method com.android.adbkeyboard/.AdbIME')
-      await UI.sleep(500)
-      await UI.shell(apiPort, `am broadcast -a ADB_INPUT_TEXT --es msg "${title.replace(/"/g, '\\"')}"`)
-      await UI.sleep(500)
-      await UI.shell(apiPort, 'settings put secure default_input_method com.android.inputmethod.latin/.LatinIME')
-      stepLog('title', `标题已通过 ADBKeyBoard 广播输入: "${title.substring(0, 30)}"`)
-    }
+    // 直接 input text 注入（不依赖输入法，Android 系统级命令）
+    await UI.shell(apiPort, `input text "${title.replace(/"/g, '\\"')}"`)
+    await UI.sleep(500)
+    stepLog('title', `标题已通过 input text 注入: "${title.substring(0, 30)}"`)
     await randomDelay(1000, 1500)
   } else {
     stepLog('title', '未传入标题，跳过输入')
