@@ -51,10 +51,10 @@ export async function POST(request: NextRequest) {
         const upRes = await fetch(uploadUrl, { method: 'POST', body: form, signal: AbortSignal.timeout(120000) })
         if (!upRes.ok) continue
 
-        // 上传到 /sdcard/upload/ 后，复制到 DCIM 并刷新相册
-        const shellBase = `http://127.0.0.1:${port}/modifydev?cmd=6&cmdline=`
-        await fetch(`${shellBase}${encodeURIComponent(`cp "/sdcard/upload/${fileName}" "/sdcard/DCIM/${fileName}"`)}`, { signal: AbortSignal.timeout(10000) }).catch(() => {})
-        await fetch(`${shellBase}${encodeURIComponent(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file:///sdcard/DCIM/${fileName}"`)}`, { signal: AbortSignal.timeout(5000) }).catch(() => {})
+        // 复制到 DCIM（无引号，Q1 shell 处理 URL 编码时引号会出错）
+        const shell = (cmd: string) => fetch(`http://127.0.0.1:${port}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmd)}`, { signal: AbortSignal.timeout(10000) }).catch(() => {})
+        await shell(`cp /sdcard/upload/${fileName} /sdcard/DCIM/${fileName}`)
+        await shell(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/DCIM/${fileName}`)
         success++
       } catch (e) {
         console.error(`[push] device ${device.id}:`, (e as any).message?.slice(0, 100))
