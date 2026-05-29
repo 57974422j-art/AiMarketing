@@ -44,11 +44,18 @@ export async function POST(request: NextRequest) {
       const fileName = `${dateStr}_${label}_${String(i + 1).padStart(2, '0')}.mp4`
       try {
         const buf = fs.readFileSync(src)
-        const uploadUrl = `http://127.0.0.1:${device.apiPort}/upload`
+        const port = device.apiPort
+        const uploadUrl = `http://127.0.0.1:${port}/upload`
         const form = new FormData()
         form.append('file', new Blob([buf], { type: 'video/mp4' }), fileName)
         const upRes = await fetch(uploadUrl, { method: 'POST', body: form, signal: AbortSignal.timeout(120000) })
-        if (upRes.ok) success++
+        if (!upRes.ok) continue
+
+        // 上传到 /sdcard/upload/ 后，复制到 DCIM 并刷新相册
+        const shellBase = `http://127.0.0.1:${port}/modifydev?cmd=6&cmdline=`
+        await fetch(`${shellBase}${encodeURIComponent(`cp "/sdcard/upload/${fileName}" "/sdcard/DCIM/${fileName}"`)}`, { signal: AbortSignal.timeout(10000) }).catch(() => {})
+        await fetch(`${shellBase}${encodeURIComponent(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file:///sdcard/DCIM/${fileName}"`)}`, { signal: AbortSignal.timeout(5000) }).catch(() => {})
+        success++
       } catch (e) {
         console.error(`[push] device ${device.id}:`, (e as any).message?.slice(0, 100))
       }

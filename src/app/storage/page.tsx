@@ -9,8 +9,12 @@ export default function StoragePage() {
   const [files, setFiles] = useState<FileInfo[]>([])
   const [quota, setQuota] = useState<Quota>({ used: 0, total: 500 * 1024 * 1024 })
   const [loading, setLoading] = useState(true)
-  const [pushing, setPushing] = useState<string | null>(null)
   const [userId, setUserId] = useState<number>(0)
+  const [pushFile, setPushFile] = useState<string | null>(null)
+  const [pushLoading, setPushLoading] = useState(false)
+  const [showPushDlg, setShowPushDlg] = useState(false)
+  const [clients, setClients] = useState<any[]>([])
+  const [pushClient, setPushClient] = useState<any>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -46,19 +50,20 @@ export default function StoragePage() {
     } catch {}
   }
 
-  const pushToPhone = async (name: string) => {
-    setPushing(name)
+  const doPush = async () => {
+    if (!pushFile || !pushClient) return
+    setPushLoading(true)
     try {
-      const r = await fetch('/api/storage/push-to-phone', {
+      const r = await fetch('/api/video/push-to-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: name }),
+        body: JSON.stringify({ taskId: pushFile, endUserId: pushClient.id, remark: pushClient.name || pushClient.username }),
       })
       const d = await r.json()
-      if (r.ok) showToast(d.message || '推送成功', 'success')
+      if (d.success) showToast(`已推送 ${d.data.pushed}/${d.data.total} 台设备`, 'success')
       else showToast(d.message || '推送失败', 'error')
     } catch { showToast('推送失败', 'error') }
-    finally { setPushing(null) }
+    finally { setShowPushDlg(false); setPushFile(null); setPushClient(null); setPushLoading(false) }
   }
 
   const pct = Math.round(quota.used / quota.total * 100)
@@ -105,10 +110,13 @@ export default function StoragePage() {
                 <p className="text-[9px] text-gray-500">{fmt(f.size)}</p>
                 <div className="flex gap-1 mt-1">
                   {f.isVideo && (
-                    <button onClick={() => pushToPhone(f.name)} disabled={pushing === f.name}
-                      className="flex-1 text-[9px] py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30 disabled:opacity-50">
-                      {pushing === f.name ? '推送中...' : '推送到手机'}
-                    </button>
+                    <button onClick={async () => {
+                      setPushFile(f.name)
+                      const r = await fetch('/api/clients', { credentials: 'include' })
+                      const d = await r.json()
+                      if (d.success) { setClients(d.data); setShowPushDlg(true) }
+                      else showToast('获取客户列表失败', 'error')
+                    }} className="flex-1 text-[9px] py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30">📤 推送</button>
                   )}
                   <button onClick={() => del(f.name)} className="w-6 h-6 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition">×</button>
                 </div>
@@ -116,6 +124,27 @@ export default function StoragePage() {
             ))}
           </div>
         )}
+
+        {showPushDlg && <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={()=>{setShowPushDlg(false);setPushFile(null);setPushClient(null)}}>
+          <div className="card-glass p-6 rounded-xl max-w-sm w-full mx-4" onClick={e=>e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-white mb-3">选择推送客户</h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto mb-4">
+              {clients.map((cl: any) => (
+                <button key={cl.id} onClick={()=>setPushClient(cl)}
+                  className={`w-full text-left p-3 rounded-lg border text-xs transition ${pushClient?.id===cl.id?"bg-emerald-500/20 border-emerald-500/30 text-emerald-400":"bg-white/5 border-white/10 text-gray-300 hover:bg-white/10"}`}>
+                  {cl.name||cl.username} <span className="text-gray-500 ml-1">(#{cl.id})</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={()=>{setShowPushDlg(false);setPushFile(null);setPushClient(null)}} className="flex-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs">取消</button>
+              <button disabled={!pushClient||pushLoading} onClick={doPush}
+                className={`flex-1 py-2 rounded-lg text-xs ${pushClient&&!pushLoading?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-500"}`}>
+                {pushLoading?'推送中...':'确认推送'}
+              </button>
+            </div>
+          </div>
+        </div>}
       </div>
     </div>
   )
