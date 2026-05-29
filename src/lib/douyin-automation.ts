@@ -155,9 +155,12 @@ export async function publishVideo(apiPort: number, options: PublishOptions = {}
     }
   }
   if (!publishBtn.success) {
-    // 终极兜底：AI 视觉识别
+    // 终极兜底：AI 视觉识别（超时 8 秒，超了就跳过不卡流程）
     console.log('[AI定位] 尝试 AI 识别 "+" 按钮...')
-    const aiCoord = await aiLocateButton(apiPort, '底部导航栏中间的加号发布按钮')
+    const aiCoord = await Promise.race([
+      aiLocateButton(apiPort, '底部导航栏中间的加号发布按钮'),
+      new Promise<null>(r => setTimeout(() => r(null), 8000)),
+    ])
     if (aiCoord) {
       await UI.tap(apiPort, aiCoord.x, aiCoord.y)
       await randomDelay(2000, 3000)
