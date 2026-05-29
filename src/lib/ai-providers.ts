@@ -996,7 +996,7 @@ function mockResult(category: string, input: string): string {
 
 // ==================== VL 视觉定位（百炼 → 硅基） ====================
 
-interface VLResult { x: number; y: number; width?: number; height?: number }
+interface VLResult { x: number; y: number; x2?: number; y2?: number }
 
 /** 调用百炼 VL 识别按钮坐标 */
 async function dashscopeLocateButton(base64Image: string, buttonDesc: string): Promise<VLResult | null> {
