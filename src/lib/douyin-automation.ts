@@ -336,48 +336,46 @@ export async function aiPublishVideo(
   apiPort: number, _rpaPort: number, options: PublishOptions = {}
 ): Promise<UI.UIResult> {
   const { title = '', topics = [] } = options
-  const goal = `在抖音发布视频，标题"${title}"${topics.length ? `，话题${topics.join('')}` : ''}`
+  const goal = `在抖音发布视频，标题"${title}"${topics.length ? `，话题${topics.join('')}` : ''}。`
+    + `说明：你可能在任何阶段（首页/拍摄页/相册/编辑页/发布页），请根据截图自行判断当前位置，直接决定下一步操作。`
+    + `如果遇到弹窗先关弹窗。每一步都必须给出具体操作。完成所有步骤后 status 输出"DONE"。`
   const SLEEP = (ms: number) => new Promise(r => setTimeout(r, ms))
   const q1 = (cmd: string) => fetch(`http://127.0.0.1:${apiPort}/modifydev?cmd=6&cmdline=${encodeURIComponent(cmd)}`, { signal: AbortSignal.timeout(10000) }).catch(() => {})
-  // 获取实际屏幕分辨率，用于换算比例坐标
   const { width: SW, height: SH } = await (await import('./uiautomator-driver')).getScreenSize(apiPort)
   console.log(`[aiPublish] 屏幕 ${SW}x${SH}`)
 
-  const milestones = [
-    '阶段0:验证当前是否是抖音首页（底部有首页/朋友/+/消息/我等导航栏）',
-    '阶段1:点击底部导航栏中间的加号按钮',
-    '阶段2:看到"所有照片"和"全部/视频/图片"标签时，点击左上角第一个视频缩略图（找到带"00:15"时长文字的区域，点它正中间，缩略图是黑的也要点）',
-    '阶段3:点击右下角的"下一步"按钮',
-    '阶段4:再次点击右下角的"下一步"按钮',
-    '阶段5:在发布页输入标题和话题',
-    '阶段6:点击"发作品"或"发布"',
-    '完成',
-  ]
-  let current = 0
-  let lastAction = ''
-  let stuckCount = 0
   const { aiDecideNext } = await import('./ai-providers')
+  let lastAnalysis = ''
+  let stuckCount = 0
+  let noClickCount = 0
 
   for (let loop = 0; loop < 40; loop++) {
     const b64 = await (await import('./uiautomator-driver')).takeScreenshot(apiPort)
     if (!b64) { console.log('[aiPublish] 截图失败'); await SLEEP(2000); continue }
 
-    const dec = await aiDecideNext(b64, milestones[current], goal)
+    const dec = await aiDecideNext(b64, '', goal)
     if (!dec) { console.log('[aiPublish] AI 决策失败'); await SLEEP(2000); continue }
 
-    console.log(`[aiPublish] [${milestones[current]}] ${dec.analysis}`)
+    console.log(`[aiPublish] [第${loop+1}步] ${dec.analysis}`)
 
-    if (dec.status === 'STAGE_CHANGED') {
-      current++; console.log(`[aiPublish] → 进入阶段: ${milestones[current]}`)
-      if (current >= milestones.length - 1) break
-      stuckCount = 0; continue
+    if ((dec.status as string) === 'DONE') {
+      console.log('[aiPublish] 完成')
+      return { success: true, message: `AI 发布成功: ${goal}` }
     }
 
-    const actionKey = `${dec.action}|${dec.target_desc}`
-    if (actionKey === lastAction) stuckCount++; else { stuckCount = 0; lastAction = actionKey }
+    // 死循环：AI 连续说一样的话
+    if (dec.analysis === lastAnalysis) stuckCount++; else { stuckCount = 0; lastAnalysis = dec.analysis }
     if (stuckCount > 3) {
-      console.log('[aiPublish] 死循环，重置')
-      current = 0; stuckCount = 0
+      console.log('[aiPublish] 死循环，重启抖音'); stuckCount = 0; lastAnalysis = ''
+      await q1(`am force-stop com.ss.android.ugc.aweme`); await SLEEP(2000)
+      await q1(`am start -n com.ss.android.ugc.aweme/.main.MainActivity`); await SLEEP(10000)
+      continue
+    }
+
+    // AI 不操作：连续 3 次不给坐标
+    if (!dec.coordinates || dec.action === 'none') noClickCount++; else noClickCount = 0
+    if (noClickCount > 3) {
+      console.log('[aiPublish] AI 连续不操作，重启抖音'); noClickCount = 0
       await q1(`am force-stop com.ss.android.ugc.aweme`); await SLEEP(2000)
       await q1(`am start -n com.ss.android.ugc.aweme/.main.MainActivity`); await SLEEP(10000)
       continue
@@ -385,25 +383,16 @@ export async function aiPublishVideo(
 
     try {
       if (dec.action === 'click' && dec.coordinates) {
-        // 比例坐标 → 实际像素
-        const px = Math.round(dec.coordinates.x * SW)
-        const py = Math.round(dec.coordinates.y * SH)
+        const px = Math.round(dec.coordinates.x * SW); const py = Math.round(dec.coordinates.y * SH)
         await q1(`input tap ${px + Math.round(Math.random() * 6 - 3)} ${py + Math.round(Math.random() * 6 - 3)}`)
+        console.log(`[aiPublish] 点击 (${px},${py})`)
       } else if (dec.action === 'input' && dec.text_content) {
         await q1(`input text "${dec.text_content.replace(/"/g, '\\"')}"`)
-      } else if (dec.action === 'wait') {
-        await SLEEP(3000)
       }
-    } catch (e: any) {
-      console.log(`[aiPublish] 执行失败: ${e.message}`)
-    }
+    } catch (e: any) { console.log(`[aiPublish] 执行失败: ${e.message}`) }
     await SLEEP(1500 + Math.random() * 1000)
   }
-
-  return {
-    success: current >= milestones.length - 2,
-    message: current >= milestones.length - 2 ? `AI 发布成功: ${goal}` : `AI 超时未完成(阶段${current})`,
-  }
+  return { success: false, message: 'AI 超时未完成(40步用完)' }
 }
 
 export interface VideoInfo {
