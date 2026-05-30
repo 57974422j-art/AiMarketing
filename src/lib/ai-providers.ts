@@ -1135,23 +1135,23 @@ export interface AIDecision {
 async function dashscopeDecide(milestone: string, goal: string, base64Image: string): Promise<AIDecision | null> {
   const key = getDashScopeKey()
   if (!key) return null
-  const prompt = `你是视觉定位专家。截图是手机全分辨率，你需要看图找到目标位置并返回像素坐标。
+  const prompt = `你是视觉定位专家。看图找到目标位置并返回比例坐标。
 
 【总目标】${goal}
 
-看图判断当前页面，然后执行以下规则：
+看图判断当前页面，执行以下规则：
 
-1. 首页底部 → 找到"+"加号图标中心坐标
-2. 拍摄页 → 找到"相册"二字中心坐标，点击
-3. 相册页（有"全部/视频/图片"） → 找到左上角第一个视频缩略图中心坐标，点击
-4. 编辑页 → 找到"添加标题"灰色文字中心坐标，点击它（下一步再输入文字）
-5. 发布页 → 找到"发布"/"发作品"按钮中心坐标，点击
-6. 弹窗 → 找到"去编辑"/"我知道了"文字中心坐标，点击
+1. 首页底部 → 找到"+"加号图标中心
+2. 拍摄页 → 找到"相册"二字中心
+3. 相册页（有"全部/视频/图片"） → 找到左上角第一个视频缩略图中心
+4. 编辑页 → 找到"添加标题"灰色文字中心
+5. 发布页 → 找到"发布"/"发作品"按钮中心
+6. 弹窗 → 找到"去编辑"/"我知道了"文字中心
 7. 全部完成 → status="DONE"
 
-坐标用像素值（不是比例），从截图左上角原点量起。
+坐标用比例值（0.0~1.0），x=截图宽度比例，y=截图高度比例。
 只返回 JSON：
-{"analysis":"当前页面","status":"CONTINUE|DONE","action":"click|input","target_desc":"操作","coordinates":{"x":像素,"y":像素},"text_content":""}`
+{"analysis":"当前页面","status":"CONTINUE|DONE","action":"click|input","target_desc":"操作","coordinates":{"x":0.0,"y":0.0},"text_content":""}`
 
   try {
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {

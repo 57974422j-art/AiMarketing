@@ -19,6 +19,13 @@ export async function aiPublishVideoWorkflow(
 ): Promise<{ success: boolean; message: string }> {
 
   const goal = `发布视频到抖音，标题："${title}"，话题：${topics.join(',')}。`
+  const { width: SW, height: SH } = await UI.getScreenSize(apiPort)
+  console.log(`[AI-Decide] 屏幕 ${SW}x${SH}`)
+
+  let lastCoord = { x: 0, y: 0 }
+  let sameClickCount = 0
+  let samePageCount = 0
+  let lastAnalysis = ''
 
   for (let loop = 0; loop < 60; loop++) {
     const b64 = await UI.takeScreenshot(apiPort)
@@ -31,16 +38,40 @@ export async function aiPublishVideoWorkflow(
 
     if (dec.status === 'DONE') return { success: true, message: '视频已发布' }
 
-    // 点击（用 HTTP shell input tap）
-    if (dec.action === 'click' && dec.coordinates) {
-      const x = Math.round(dec.coordinates.x + (Math.random() * 6 - 3))
-      const y = Math.round(dec.coordinates.y + (Math.random() * 6 - 3))
-      await sh(apiPort, `input tap ${x} ${y}`)
-      console.log(`[AI-Decide] tap (${x},${y}) ${dec.target_desc || ''}`)
+    // 死循环检测：连续相同分析结果
+    if (dec.analysis === lastAnalysis) samePageCount++; else { samePageCount = 0; lastAnalysis = dec.analysis }
+    if (samePageCount > 6) {
+      console.log('[AI-Decide] 死循环重启')
+      await sh(apiPort, `am force-stop ${DOUYIN_PKG}`)
       await new Promise(r => setTimeout(r, 2000))
+      await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`)
+      await new Promise(r => setTimeout(r, 12000))
+      samePageCount = 0; continue
     }
 
-    // 输入文字（用 HTTP shell input text）
+    // 比例坐标 → 实际像素
+    if (dec.action === 'click' && dec.coordinates) {
+      let px = Math.round(dec.coordinates.x * SW)
+      let py = Math.round(dec.coordinates.y * SH)
+
+      // 同坐标检测：连续 3 次相同则偏移
+      if (Math.abs(px - lastCoord.x) < 10 && Math.abs(py - lastCoord.y) < 10) {
+        sameClickCount++
+      } else {
+        sameClickCount = 0
+      }
+      if (sameClickCount >= 3) {
+        py = Math.round(py + 60) // 向下偏移避免遮挡
+        sameClickCount = 0
+        console.log('[AI-Decide] 同坐标 3 次，偏移 +60px')
+      }
+
+      lastCoord = { x: px, y: py }
+      await sh(apiPort, `input tap ${px + Math.round(Math.random() * 6 - 3)} ${py + Math.round(Math.random() * 6 - 3)}`)
+      console.log(`[AI-Decide] tap (${px},${py}) ${dec.target_desc || ''}`)
+      await new Promise(r => setTimeout(r, 2500))
+    }
+
     if (dec.action === 'input' && dec.text_content) {
       const safe = dec.text_content.replace(/"/g, '\\"')
       await sh(apiPort, `input text "${safe}"`)
