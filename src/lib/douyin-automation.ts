@@ -57,13 +57,10 @@ export async function aiPublishVideoWorkflow(
 
     if (dec.status === 'DONE') return { success: true, message: '视频已发布' }
 
-    // 更新状态
-    if (dec.pageType && dec.pageType !== 'unknown') {
-      const next = stateMachine[dec.pageType]?.nextState
-      if (next && next !== 'done' && next !== currentState) {
-        currentState = next as PageType
-        console.log(`[${TS()}] [AI-Decide] 状态流转: ${dec.pageType} → ${currentState}`)
-      }
+    // 状态同步：用 AI 实际识别到的页面覆盖
+    if (dec.pageType && dec.pageType !== 'unknown' && dec.pageType !== currentState) {
+      console.log(`[${TS()}] [AI-Decide] 状态同步: ${currentState} → ${dec.pageType}`)
+      currentState = dec.pageType
     }
 
     // 死循环检测

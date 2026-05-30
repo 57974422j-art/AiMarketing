@@ -1173,11 +1173,12 @@ const stateMachine: Record<PageType, {
   },
   shoot: {
     targetDesc: '相册',
-    findPrompt: `找到"相册"二字中心坐标。
+    findPrompt: `在截图上找到"相册"这两个文字所在的位置，返回文字中心的坐标。
+注意：必须在截图上找到实际的"相册"文字位置，不要猜。
 特征：
-- 位于屏幕底部
-- 白色拍摄按钮附近
-- 文字清晰可见
+- 白色或浅色文字
+- 位于屏幕底部区域
+- 是两个字：相、册
 返回坐标。`,
     nextState: 'album'
   },
@@ -1412,21 +1413,9 @@ export async function aiDecideNext(
 
   if (currentState !== actualPage && actualPage !== 'unknown') {
     console.log(`[AI决策] 状态不匹配: 期望 ${currentState}, 实际 ${actualPage}`)
-    if (currentState === 'home' && actualPage === 'shoot') {
-      console.log(`[AI决策] 已在拍摄页，继续流程`)
-    } else if (currentState === 'shoot' && actualPage === 'album') {
-      console.log(`[AI决策] 已在相册页，继续流程`)
-    } else {
-      return {
-        analysis: `状态不匹配，期望${currentState}，实际${actualPage}，等待同步`,
-        status: 'CONTINUE',
-        action: 'wait',
-        target_desc: '等待页面同步',
-        coordinates: { x: 0, y: 0 },
-        text_content: '',
-        pageType: actualPage
-      }
-    }
+    // 状态已推进但页面没变 → 把状态拉回实际页面，重新找元素
+    // 状态没变但页面变了 → 说明点击成功，用实际页面继续
+    console.log(`[AI决策] 修正状态: ${currentState} → ${actualPage}`)
   }
 
   const targetPage = actualPage === 'unknown' ? currentState : actualPage
