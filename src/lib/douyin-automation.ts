@@ -364,10 +364,10 @@ export async function aiPublishVideoWorkflow(
     const failure = failTracker.check()
 
     // ============================================================
-    // ★★ 首页点"+" — 用专门的 VL 定位器精确定位（不用 AI 盲猜坐标）
+    // ★★ 首页点"+" — 不用 AI 坐标也不用 VL（两者都不准）
     //
-    // 问题：AI workflow prompt 给的 "+" 坐标 (540,~2170) 不准确
-    // 解决：用 locateElement('加号') 专门定位底部导航栏的 + 号
+    // 日志证据：AI 给 (540,2170) 不准 / VL 给 (48,136) 点到左上角设置按钮
+    // 解决：XML 定位 + 固定比例坐标兜底
     // ============================================================
     const isHomeWantingPlus =
       pageType === 'home' &&
@@ -375,17 +375,28 @@ export async function aiPublishVideoWorkflow(
       (dec.target_desc.includes('+') || dec.target_desc.includes('加号') || dec.target_desc.includes('号'))
 
     if (isHomeWantingPlus) {
-      console.log(`[VL定位] 首页→加号, 调用 VL 专门定位...`)
-      const plusCoord = await locateElement(b64, '加号')
-      if (plusCoord) {
-        console.log(`[VL✓] 加号 → (${plusCoord.x},${plusCoord.y})`)
-        await doTap(apiPort, plusCoord.x, plusCoord.y, signal, adb)
+      console.log(`[定位] 首页→加号, 先尝试 XML...`)
+
+      // 策略A: XML 定位（找底部导航栏的 + 号）
+      const xmlPlus = await locateByText(apiPort, ['+', '发布'], 3000)
+      if (xmlPlus) {
+        console.log(`[定位✓] XML 加号 → (${xmlPlus.x},${xmlPlus.y})`)
+        await doTap(apiPort, xmlPlus.x, xmlPlus.y, signal, adb)
         failTracker.clear()
         await sleep(4000, signal)
         continue
       }
-      console.log(`[VL✗] 加号未找到, 降级使用 AI 坐标 (${Math.round(dec.coordinates?.x || 0)},${Math.round(dec.coordinates?.y || 0)})`)
-      // VL 找不到时继续走下面的常规流程（用 AI 坐标）
+
+      // 策略B: XML 失败 → 用固定比例坐标（底部导航栏正中间）
+      // 抖音首页布局：底部导航栏高度约 screenH * 6.5%~7.5%，+ 号在水平居中
+      // 1080x2340 屏幕上约 (540, 2160~2200)
+      const plusY = Math.round(screenH * 0.925)  // 底部 7.5% 位置
+      const plusX = Math.round(screenW * 0.5)     // 水平居中
+      console.log(`[定位] XML未找到, 用比例坐标 → (${plusX},${plusY})`)
+      await doTap(apiPort, plusX, plusY, signal, adb)
+      failTracker.clear()
+      await sleep(4000, signal)
+      continue
     }
 
     // ============================================================
