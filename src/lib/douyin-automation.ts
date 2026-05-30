@@ -7,12 +7,17 @@ export const DOUYIN_ACT = '.main.MainActivity'
 
 const TS = () => new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 
-/** 可中止的延迟 */
+/** 可中止的延迟（每 200ms 轮询一次 signal，不加监听器避免泄漏） */
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve()
   return new Promise(r => {
-    if (signal?.aborted) return r()
-    const timer = setTimeout(r, ms)
-    if (signal) signal.addEventListener('abort', () => { clearTimeout(timer); r() }, { once: true })
+    const start = Date.now()
+    const tick = () => {
+      if (signal?.aborted) return r()
+      if (Date.now() - start >= ms) return r()
+      setTimeout(tick, 200)
+    }
+    tick()
   })
 }
 
