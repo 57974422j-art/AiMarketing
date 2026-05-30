@@ -1460,7 +1460,8 @@ export async function aiDecideNext(
   }
 }
 
-export { stateMachine, PageType }
+export { stateMachine }
+export type { PageType }
 
 // ==================== 导出函数 — 双保险模式 ====================
 
