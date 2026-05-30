@@ -1,6 +1,6 @@
 import * as UI from './uiautomator-driver'
 import { ADB } from './adb-helper'
-import { aiDecideNext } from './ai-providers'
+import { aiDecideNext, locateElement } from './ai-providers'
 
 export const DOUYIN_PKG = 'com.ss.android.ugc.aweme'
 export const DOUYIN_ACT = '.main.MainActivity'
@@ -364,18 +364,32 @@ export async function aiPublishVideoWorkflow(
     const failure = failTracker.check()
 
     // ============================================================
-    // ★★ 核心 fix：shoot 页找"相册"的特殊处理
+    // ★★ 首页点"+" — 用专门的 VL 定位器精确定位（不用 AI 盲猜坐标）
     //
-    // 问题根因（日志证据）：
-    //   1. AI 判断为 shoot 页 + 要点"相册"
-    //   2. XML findByText("相册") 找不到（拍摄页的"相册"不在标准 View 树中）
-    //   3. 代码降级用 AI 坐标 → AI 给的是拍照按钮位置(y~1870) ❌
-    //   4. 点了拍照按钮 → 进入纯相机模式 → 更找不到相册 → 死循环 💀
-    //
-    // 正确策略：
-    //   - 如果是 shoot 页 + 目标是相册 → 不用 AI 坐标！
-    //   - 直接用固定相对坐标点击"相册"文字区域
-    //   - 或者：回首页重新走完整流程（更可靠）
+    // 问题：AI workflow prompt 给的 "+" 坐标 (540,~2170) 不准确
+    // 解决：用 locateElement('加号') 专门定位底部导航栏的 + 号
+    // ============================================================
+    const isHomeWantingPlus =
+      pageType === 'home' &&
+      dec.action === 'click' &&
+      (dec.target_desc.includes('+') || dec.target_desc.includes('加号') || dec.target_desc.includes('号'))
+
+    if (isHomeWantingPlus) {
+      console.log(`[VL定位] 首页→加号, 调用 VL 专门定位...`)
+      const plusCoord = await locateElement(b64, '加号')
+      if (plusCoord) {
+        console.log(`[VL✓] 加号 → (${plusCoord.x},${plusCoord.y})`)
+        await doTap(apiPort, plusCoord.x, plusCoord.y, signal, adb)
+        failTracker.clear()
+        await sleep(4000, signal)
+        continue
+      }
+      console.log(`[VL✗] 加号未找到, 降级使用 AI 坐标 (${Math.round(dec.coordinates?.x || 0)},${Math.round(dec.coordinates?.y || 0)})`)
+      // VL 找不到时继续走下面的常规流程（用 AI 坐标）
+    }
+
+    // ============================================================
+    // ★★ 拍摄页找"相册" — 用 VL 定位器精确定位
     // ============================================================
     const isShootWantingAlbum =
       pageType === 'shoot' &&
@@ -390,15 +404,26 @@ export async function aiPublishVideoWorkflow(
       const xmlCoord = await locateByText(apiPort, ['相册', '从相册选择', '相册导入', '从手机相册选择', '相册选择'], 3000)
 
       if (xmlCoord) {
-        console.log(`[策略] XML 找到相册 → 点击 (${xmlCoord.x},${xmlCoord.y})`)
+        console.log(`[策略] XML✓ 相册 → 点击 (${xmlCoord.x},${xmlCoord.y})`)
         await doTap(apiPort, xmlCoord.x, xmlCoord.y, signal, adb)
         await sleep(4000, signal)
         failTracker.clear()
         continue
       }
 
-      // 策略B：XML 也找不到 → 放弃盲猜坐标，直接重启抖音到首页重新走流程
-      // （经验坐标不可靠：日志证明 3 个候选点全部无效）
+      // 策略B：XML 找不到 → 用 VL 视觉定位器精确定位"相册"文字
+      console.log(`[策略] shoot→相册 XML失败, 调用 VL 定位...`)
+      const albumCoord = await locateElement(b64, '相册')
+      if (albumCoord) {
+        console.log(`[策略] VL✓ 相册 → (${albumCoord.x},${albumCoord.y})`)
+        await doTap(apiPort, albumCoord.x, albumCoord.y, signal, adb)
+        await sleep(4000, signal)
+        failTracker.clear()
+        shootAlbumFailCount = 0
+        continue
+      }
+
+      // 策略C：VL 也找不到 → 重启抖音到首页重新走流程
       if (shootAlbumFailCount >= 2) {
         console.log(`[策略] shoot→相册 XML找不到(#${shootAlbumFailCount})，重启抖音到首页...`)
         await launchDouyin(apiPort, signal, adb)
