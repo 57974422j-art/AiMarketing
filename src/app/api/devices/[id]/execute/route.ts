@@ -245,17 +245,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             const { title: genTitle } = await generatePublishTitle(searchKeyword, publishDesc)
             const pubTitle = publishTitle || genTitle
             const pubTopics = Array.isArray(publishTopics) && publishTopics.length > 0 ? publishTopics : [`#${searchKeyword}`]
-            // AI ReAct 模式（需要 RPA 端口）
-            if (!rpaPort) { r = { success: false, message: '发布需要 RPA 端口' }; break }
-            const { RPAClient } = await import('@/lib/rpa-client')
-            const rpa = new RPAClient()
-            try {
-              await rpa.connect(rpaPort)
-              const wr = await Douyin.aiPublishVideoWorkflow(rpa, port, pubTitle, pubTopics)
-              r = { success: wr.success, message: wr.message }
-            } catch (e: any) {
-              r = { success: false, message: `RPA 错误: ${e.message}` }
-            } finally { rpa.closeDevice().catch(() => {}) }
+            // AI ReAct 模式（全 HTTP Shell）
+            const wr = await Douyin.aiPublishVideoWorkflow(port, pubTitle, pubTopics)
+            r = { success: wr.success, message: wr.message }
             log('title', true, `标题: ${pubTitle}`)
             break
           }
