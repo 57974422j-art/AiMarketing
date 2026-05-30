@@ -15,7 +15,8 @@ async function sh(apiPort: number, cmd: string) {
 export async function aiPublishVideoWorkflow(
   apiPort: number,
   title: string,
-  topics: string[]
+  topics: string[],
+  signal?: AbortSignal
 ): Promise<{ success: boolean; message: string }> {
 
   const goal = `发布视频到抖音，标题："${title}"，话题：${topics.join(',')}。`
@@ -28,6 +29,7 @@ export async function aiPublishVideoWorkflow(
   let lastAnalysis = ''
 
   for (let loop = 0; loop < 60; loop++) {
+    if (signal?.aborted) { console.log('[AI-Decide] 已停止'); return { success: false, message: '用户停止' } }
     const b64 = await UI.takeScreenshot(apiPort)
     if (!b64) { await new Promise(r => setTimeout(r, 2000)); continue }
 

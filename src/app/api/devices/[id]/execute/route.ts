@@ -245,8 +245,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             const { title: genTitle } = await generatePublishTitle(searchKeyword, publishDesc)
             const pubTitle = publishTitle || genTitle
             const pubTopics = Array.isArray(publishTopics) && publishTopics.length > 0 ? publishTopics : [`#${searchKeyword}`]
-            // AI ReAct 模式（全 HTTP Shell）
-            const wr = await Douyin.aiPublishVideoWorkflow(port, pubTitle, pubTopics)
+            // AI ReAct 模式（全 HTTP Shell，支持停止）
+            const wr = await Douyin.aiPublishVideoWorkflow(port, pubTitle, pubTopics, signal)
             r = { success: wr.success, message: wr.message }
             log('title', true, `标题: ${pubTitle}`)
             break
