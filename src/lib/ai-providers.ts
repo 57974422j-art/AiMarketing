@@ -947,7 +947,7 @@ function getDeepSeekKey(): string | null {
   return process.env.DEEPSEEK_API_KEY || readEnvFile('DEEPSEEK_API_KEY') || null;
 }
 
-async function deepSeekChat(prompt: string, maxTokens = 1000): Promise<string | null> {
+export async function deepSeekChat(prompt: string, maxTokens = 1000): Promise<string | null> {
   const key = getDeepSeekKey();
   if (!key) return null;
   try {
@@ -1162,65 +1162,32 @@ const stateMachine: Record<PageType, {
 }> = {
   home: {
     targetDesc: '底部加号按钮',
-    findPrompt: `找到底部导航栏正中间的加号（+）按钮坐标。
-特征：
-- 有灰白色圆形背景框
-- 位于屏幕底部中间
-- 左右分别是"朋友"和"消息"文字
-- 忽略视频内容上的任何小加号
-返回按钮中心坐标。`,
+    findPrompt: `找到抖音底部导航栏正中间、有灰白圆形背景框的加号按钮中心坐标。只输出 {"x": 像素, "y": 像素}`,
     nextState: 'shoot'
   },
   shoot: {
     targetDesc: '相册',
-    findPrompt: `在截图上找到"相册"这两个文字所在的位置，返回文字中心的坐标。
-注意：必须在截图上找到实际的"相册"文字位置，不要猜。
-特征：
-- 白色或浅色文字
-- 位于屏幕底部区域
-- 是两个字：相、册
-返回坐标。`,
+    findPrompt: `找到"相册"两个字的中心坐标。只输出 {"x": 像素, "y": 像素}`,
     nextState: 'album'
   },
   album: {
     targetDesc: '第一个视频缩略图',
-    findPrompt: `找到左上角第一个视频缩略图的中心坐标。
-特征：
-- 顶部有"全部/视频/图片"标签页
-- 第一个缩略图在左上角
-- 注意是视频（有时长标记），不是图片
-返回坐标。`,
+    findPrompt: `找到左上角第一个视频缩略图的中心坐标。只输出 {"x": 像素, "y": 像素}`,
     nextState: 'edit'
   },
   edit: {
     targetDesc: '添加标题',
-    findPrompt: `找到灰色占位文字"添加标题"的中心坐标。
-特征：
-- 灰色半透明文字
-- 位于视频预览区域下方
-- 点击后可输入文字
-返回坐标。`,
+    findPrompt: `找到灰色占位文字"添加标题"的中心坐标。只输出 {"x": 像素, "y": 像素}`,
     nextState: 'publish'
   },
   publish: {
     targetDesc: '发布按钮',
-    findPrompt: `找到"发布"或"发作品"按钮的中心坐标。
-特征：
-- 红色或亮色按钮
-- 位于屏幕底部或右下角
-- 文字清晰可见
-返回坐标。`,
+    findPrompt: `找到"发布"或"发作品"按钮的中心坐标。只输出 {"x": 像素, "y": 像素}`,
     nextState: 'done'
   },
   popup: {
     targetDesc: '弹窗按钮',
-    findPrompt: `找到弹窗上按钮的中心坐标。
-优先级：
-1. "我知道了"
-2. "去编辑"
-3. "取消"
-4. "关闭"
-返回找到的第一个按钮坐标。`,
+    findPrompt: `找到"我知道了"或"去编辑"文字的中心坐标。只输出 {"x": 像素, "y": 像素}`,
     nextState: 'popup'
   },
   unknown: {
@@ -1452,6 +1419,34 @@ export async function aiDecideNext(
 
 export { stateMachine }
 export type { PageType }
+
+// ==================== 定位器（qwen-vl-max 坐标定位） ====================
+
+/** 根据元素描述，在截图上找到坐标 */
+export async function locateElement(base64Image: string, elementDesc: string): Promise<{ x: number; y: number } | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  const prompt = `在截图上找到"${elementDesc}"的中心坐标。只输出 JSON：{"x": 整数像素, "y": 整数像素}。如果找不到输出 {"x": -1, "y": -1}。`
+
+  try {
+    const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'qwen-vl-max',
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }] }],
+        temperature: 0.1,
+        max_tokens: 100,
+        response_format: { type: 'json_object' },
+      }),
+    })
+    const text = data?.choices?.[0]?.message?.content?.trim()
+    if (!text) return null
+    const j = JSON.parse(text)
+    if (j.x === -1 || j.y === -1) return null
+    return { x: Math.round(j.x), y: Math.round(j.y) }
+  } catch { return null }
+}
 
 // ==================== 导出函数 — 双保险模式 ====================
 
