@@ -1337,7 +1337,7 @@ async function findElementOnPage(
   base64Image: string,
   screen: ScreenConfig
 ): Promise<{ x: number; y: number } | null> {
-  if (pageType === 'unknown' || pageType === 'done') return null
+  if (pageType === 'unknown') return null
 
   const config = stateMachine[pageType]
   if (!config) return null
