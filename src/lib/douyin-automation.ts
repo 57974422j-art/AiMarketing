@@ -50,7 +50,6 @@ async function doTap(
       return true
     } catch (e) {
       console.warn(`[doTap] adb.tap 失败: (${rx},${ry}), ${e}`)
-      // adb 失败时降级到 HTTP
       return sh(apiPort, `input tap ${rx} ${ry}`, signal)
     }
   }
@@ -90,30 +89,131 @@ async function goBack(apiPort: number, times: number, signal?: AbortSignal, adb?
   }
 }
 
-// ==================== 页面类型 =================---
+// ==================== 页面类型检测（上下文感知）====================
 
 type PageType = 'home' | 'shoot' | 'album' | 'edit' | 'publish' | 'popup' | 'success' | 'unknown'
 
-/** 页面关键词映射（优先级从高到低） */
-const PAGE_KEYWORDS: Array<{ type: PageType; keywords: string[] }> = [
-  { type: 'success', keywords: ['发布成功', '成功发布', '已发布', '上传完成'] },
-  { type: 'publish', keywords: ['发布页', '发布', '发作品', '准备发布'] },
-  { type: 'edit', keywords: ['编辑', '添加标题', '标题输入', '编辑页'] },
-  { type: 'album', keywords: ['相册', '选择视频', '视频列表', '图片列表', '全部'] },
-  { type: 'shoot', keywords: ['拍摄', '相机', '实时画面', '拍摄页'] },
-  { type: 'popup', keywords: ['弹窗', '提示', '警告', '我知道了', '去编辑', '取消', '允许'] },
-  { type: 'home', keywords: ['首页', '推荐', '关注', '朋友', '消息', '我', '底部导航'] },
+/**
+ * 精确页面描述短语（最高优先级）
+ * 这些是 AI 通常输出的"当前页面为xxx"格式的精确匹配
+ * 必须放在关键词之前，因为 "拍摄页...有相册文字" 不能被误判为 album
+ */
+const EXACT_PAGE_PHRASES: Array<{ type: PageType; phrases: string[] }> = [
+  { type: 'success', phrases: ['发布成功', '成功发布', '已发布完成', '上传完成'] },
+  { type: 'publish', phrases: ['当前页面为发布页', '发布准备页', '准备发布视频'] },
+  { type: 'edit',   phrases: ['当前页面为编辑页', '标题编辑页面', '视频编辑页面'] },
+  { type: 'album',  phrases: ['当前页面为相册页', '当前在相册', '视频选择页面', '媒体选择页面', '相册选择页'] },
+  { type: 'shoot',  phrases: ['当前页面为拍摄页', '当前在拍摄界面', '相机拍摄界面', '拍照界面'] },
+  { type: 'popup',  phrases: ['弹窗', '弹出窗口', '提示框', '对话框'] },
+  { type: 'home',   phrases: ['当前页面为首页', '首页信息流', '抖音首页', '推荐信息流'] },
 ]
 
-/** 从 AI 分析文本中提取页面类型 */
+/**
+ * 辅助特征关键词（第二优先级，用于精确短语未命中时的兜底）
+ * 注意：这些关键词可能在不同页面都出现，所以只作为辅助判断
+ */
+const AUX_KEYWORDS: Array<{ type: PageType; keywords: string[] }> = [
+  { type: 'publish', keywords: ['发作品按钮', '发布按钮高亮'] },
+  { type: 'edit',   keywords: ['添加标题', '标题输入框', '编辑工具栏'] },
+  // ⚠️ 关键：只有同时出现"缩略图/列表/标签"等相册特征时才判为 album
+  // 单独的"相册"二字不能判定为 album（因为拍摄页也有"相册"入口文字）
+  { type: 'album',  keywords: ['视频缩略图', '图片缩略图', '媒体列表', '全部标签', '视频标签', '图片标签', '选择视频', '相册网格'] },
+  { type: 'shoot',  keywords: ['取景器', '实时预览', '快门按钮', '拍摄按钮(圆形)', '前后置切换'] },
+  { type: 'home',   phrases: ['底部导航栏', '推荐视频', '关注列表'] },
+]
+
+/**
+ * 从 AI 分析文本中提取页面类型
+ *
+ * 核心改进：
+ * 1. 精确短语优先 → 解决"拍摄页有相册文字"被误判为 album 的问题
+ * 2. 排除性规则 → 如果明确说了"拍摄页"，即使包含"相册"也不判为 album
+ * 3. 特征组合 → album 必须有缩略图/网格等特征，不能仅靠"相册"二字
+ */
 function detectPageType(analysis: string): PageType {
   if (!analysis) return 'unknown'
-  for (const { type, keywords } of PAGE_KEYWORDS) {
+  const lower = analysis.toLowerCase()
+
+  // === 第1层：精确页面描述短语（最可靠）===
+  for (const { type, phrases } of EXACT_PAGE_PHRASES) {
+    for (const phrase of phrases) {
+      if (lower.includes(phrase.toLowerCase())) {
+        return type
+      }
+    }
+  }
+
+  // === 第2层：排除性规则 ===
+  // 如果明确提到"拍摄页/相机界面/拍摄界面"，强制判为 shoot
+  // 这解决了核心 bug：AI 说"拍摄页有相册文字"→ 原版会匹配到 album 的"相册"关键字
+  if (/当前.*拍摄|拍摄界|相机界|拍摄页|相机预览/.test(analysis)) {
+    return 'shoot'
+  }
+
+  // === 第3层：特征组合匹配 ===
+  for (const { type, keywords } of AUX_KEYWORDS) {
     if (keywords.some(kw => analysis.includes(kw))) {
       return type
     }
   }
+
+  // === 第4层：兜底关键词（最低置信度）===
+  // 只有当以上都没匹配到才用这些宽松关键词
+  if (analysis.includes('底部导航') || analysis.includes('首页')) return 'home'
+
   return 'unknown'
+}
+
+// ==================== 操作失败检测器 ====================
+
+/**
+ * 检测"同一操作反复执行但页面不变化"的死循环模式
+ * 例如：连续5次都在拍摄页点击相册但仍在拍摄页 → 需要换策略
+ */
+class ActionFailureTracker {
+  private history: Array<{ pageType: PageType; action: string; target: string; loop: number }> = []
+  private maxHistory = 8
+  /** 连续相同操作多少次后触发 */
+  private threshold = 4
+
+  /** 记录一次操作 */
+  record(pageType: PageType, action: string, target: string, loop: number): void {
+    this.history.push({ pageType, action, target, loop })
+    if (this.history.length > this.maxHistory) {
+      this.history.shift()
+    }
+  }
+
+  /**
+   * 检测是否存在重复失败模式
+   * @returns 触发时返回重复的操作描述，未触发返回 null
+   */
+  check(): { action: string; target: string; pageType: PageType; count: number } | null {
+    if (this.history.length < this.threshold) return null
+
+    // 取最近 threshold 条记录，检查是否都是相同的 (pageType + action + target)
+    const recent = this.history.slice(-this.threshold)
+    const first = recent[0]
+    const allSame = recent.every(h =>
+      h.pageType === first.pageType &&
+      h.action === first.action &&
+      h.target === first.target
+    )
+
+    if (allSame) {
+      return { action: first.action, target: first.target, pageType: first.pageType, count: this.threshold }
+    }
+    return null
+  }
+
+  /** 清空历史（策略切换后调用） */
+  clear(): void {
+    this.history = []
+  }
+
+  getSummary(): string {
+    return this.history.map(h => `${h.pageType}:${h.action}/${h.target.substring(0, 8)}`).join(' → ')
+  }
 }
 
 // ==================== 学习系统 ====================
@@ -121,29 +221,26 @@ function detectPageType(analysis: string): PageType {
 interface LearnedCoord {
   x: number
   y: number
-  successCount: number   // 连续成功次数
-  failCount: number      // 连续失败次数
-  lastUsed: number       // 上次使用时间戳
+  successCount: number
+  failCount: number
+  lastUsed: number
 }
 
 /** 学习记录管理器 */
 class CoordinateLearner {
   private coords: Map<string, LearnedCoord> = new Map()
-  private maxFails = 3   // 连续失败 N 次后废弃该坐标
+  private maxFails = 3
 
-  /** 获取某页面的已学习坐标 */
   get(pageType: PageType): LearnedCoord | null {
     return this.coords.get(pageType) || null
   }
 
-  /** 记录点击成功（页面发生了预期变化） */
   recordSuccess(pageType: PageType, x: number, y: number): void {
     const existing = this.coords.get(pageType)
     if (existing) {
       existing.successCount++
       existing.failCount = 0
       existing.lastUsed = Date.now()
-      // 成功多次后微调坐标（取平均）
       existing.x = Math.round((existing.x * (existing.successCount - 1) + x) / existing.successCount)
       existing.y = Math.round((existing.y * (existing.successCount - 1) + y) / existing.successCount)
     } else {
@@ -151,7 +248,6 @@ class CoordinateLearner {
     }
   }
 
-  /** 记录点击失败（页面没变） */
   recordFail(pageType: PageType): void {
     const coord = this.coords.get(pageType)
     if (coord) {
@@ -163,7 +259,11 @@ class CoordinateLearner {
     }
   }
 
-  /** 获取调试信息 */
+  clearAll(): void {
+    console.log(`[学习] 清空全部学习记录 (${this.coords.size} 条)`)
+    this.coords.clear()
+  }
+
   getSummary(): string {
     const entries: string[] = []
     for (const [type, c] of this.coords) {
@@ -173,11 +273,10 @@ class CoordinateLearner {
   }
 }
 
-// ==================== XML 文字定位 =================---
+// ==================== XML 文字定位 ====================
 
 /**
  * 尝试通过多个候选文字定位元素（短路求值，找到即停）
- * @returns 找到的中心坐标，未找到返回 null
  */
 async function locateByText(
   apiPort: number,
@@ -199,8 +298,8 @@ async function locateByText(
 
 // ==================== 主工作流 ====================
 interface WorkflowOptions {
-  maxLoops?: number       // 最大循环次数（默认 60）
-  totalTimeoutMs?: number // 总超时毫秒数（默认 5 分钟）
+  maxLoops?: number
+  totalTimeoutMs?: number
 }
 
 export async function aiPublishVideoWorkflow(
@@ -214,14 +313,12 @@ export async function aiPublishVideoWorkflow(
 
   const { maxLoops = 60, totalTimeoutMs = 300_000 } = options
 
-  // 构建目标描述（转义特殊字符防止 prompt 注入）
   const safeTitle = title.replace(/"/g, '"').replace(/[{}[\]]/g, '')
   const safeTopics = topics.map(t => t.replace(/[,"]/g, '')).join(',')
   const goal = `发布视频到抖音，标题："${safeTitle}"，话题：${safeTopics}`
 
   const startTime = Date.now()
 
-  // 获取屏幕尺寸
   let screenW = 1080, screenH = 2340
   try {
     const size = await UI.getScreenSize(apiPort)
@@ -234,10 +331,11 @@ export async function aiPublishVideoWorkflow(
 
   // 初始化子系统
   const learner = new CoordinateLearner()
-  let lastAnalysisHash = ''   // 用于卡检测的页面指纹
-  let samePageCount = 0       // 连续相同页面计数
-  let inputDone = false       // 标题是否已输入
-  let doneLoopCount = 0       // 连续检测到 DONE 的次数（需确认多次防误判）
+  const failTracker = new ActionFailureTracker()
+  let lastAnalysisHash = ''
+  let samePageCount = 0
+  let inputDone = false
+  let doneLoopCount = 0
 
   for (let loop = 0; loop < maxLoops; loop++) {
     // ---- 超时检查 ----
@@ -275,10 +373,55 @@ export async function aiPublishVideoWorkflow(
       await sleep(2000, signal)
       continue
     } else {
-      doneLoopCount = 0  // 非 DONE 时重置计数
+      doneLoopCount = 0
     }
 
-    // ---- 卡住检测（基于分析文本的归一化哈希）----
+    // ---- 页面类型识别 ----
+    const pageType = detectPageType(dec.analysis)
+    console.log(`[${TS()}] [页面] ${pageType}${pageType === 'unknown' ? '(' + dec.analysis.substring(0, 30) + ')' : ''}`)
+
+    // ---- 操作失败检测（新增！解决 shoot→相册 循环点击死锁）----
+    failTracker.record(pageType, dec.action, dec.target_desc, loop)
+    const failure = failTracker.check()
+    if (failure) {
+      console.log(`[${TS()}] [⚠️操作循环] 连续 ${failure.count} 次相同操作无效: ${failure.pageType} → ${failure.action}/${failure.target}`)
+      console.log(`[⚠️操作循环] 近期操作历史: ${failTracker.getSummary()}`)
+
+      // 根据失败模式采取恢复策略
+      if (failure.pageType === 'shoot' && failure.target.includes('相册')) {
+        // ★ 核心 fix：拍摄页点"相册"一直失败
+        console.log(`[⚠️恢复] shoot→相册 失败，强制使用 XML 精确定位...`)
+        const xmlCoord = await locateByText(apiPort, ['相册', '从相册选择', '相册导入'])
+        if (xmlCoord) {
+          console.log(`[⚠️恢复] XML 找到相册 → (${xmlCoord.x},${xmlCoord.y})，重试点击`)
+          await doTap(apiPort, xmlCoord.x, xmlCoord.y, signal, adb)
+          await sleep(4000, signal)
+          failTracker.clear()
+          continue
+        } else {
+          console.log(`[⚠️恢复] XML 也找不到"相册"文字，可能不在拍摄页。尝试回首页重新开始...`)
+          await goBack(apiPort, 5, signal, adb)
+          learner.clearAll()
+          await sleep(4000, signal)
+          failTracker.clear()
+          samePageCount = 0
+          lastAnalysisHash = ''
+          continue
+        }
+      }
+
+      // 通用恢复：回退 + 清空状态
+      console.log(`[⚠️恢复] 回退 ${failure.pageType} 并重试`)
+      await goBack(apiPort, 3, signal, adb)
+      learner.clearAll()
+      await sleep(3000, signal)
+      failTracker.clear()
+      samePageCount = 0
+      lastAnalysisHash = ''
+      continue
+    }
+
+    // ---- 卡住检测（基于归一化指纹）----
     const currentHash = normalizeAnalysis(dec.analysis)
     if (currentHash === lastAnalysisHash) {
       samePageCount++
@@ -291,63 +434,55 @@ export async function aiPublishVideoWorkflow(
     }
 
     if (samePageCount > 8) {
-      console.log(`[${TS()}] [卡住] 同一页面连续 ${samePageCount} 次, 学习状态: ${learner.getSummary()}`)
+      console.log(`[${TS()}] [卡住] 同一页面连续 ${samePageCount} 次, 学习: ${learner.getSummary()}, 操作: ${failTracker.getSummary()}`)
       await goBack(apiPort, 5, signal, adb)
-      // 废弃所有学习坐标（回首页后旧坐标可能失效）
-      console.log(`[${TS()}] [卡住] 已清空学习记录，等待页面稳定...`)
+      learner.clearAll()
+      failTracker.clear()
+      console.log(`[${TS()}] [卡住] 已清空所有状态，等待页面稳定...`)
       await sleep(4000, signal)
       samePageCount = 0
       lastAnalysisHash = ''
       continue
     }
 
-    // ---- 页面类型识别 ----
-    const pageType = detectPageType(dec.analysis)
-    console.log(`[${TS()}] [页面] ${pageType}${pageType === 'unknown' ? '(' + dec.analysis.substring(0, 30) + ')' : ''}`)
-
-    // ---- 坐标确定策略：XML 定位优先 → AI 坐标兜底 ----
+    // ---- 坐标确定策略 ----
     let finalX = dec.coordinates?.x ?? null
     let finalY = dec.coordinates?.y ?? null
     let usedXML = false
 
-    // 根据页面类型 + 目标描述，选择最佳定位方式
-    const xmlCoords = await resolveCoordinatesByContext(apiPort, pageType, dec.target_desc, dec.action)
+    // ★ 关键改进：拍摄页找"相册"时，默认优先用 XML 而非 AI 坐标
+    // 因为日志显示 AI 在拍摄页给的"相册"坐标实际是拍照按钮(~y1870)
+    const xmlCoords = await resolveCoordinatesByContext(apiPort, pageType, dec.target_desc, dec.action, {
+      forceXML: failTracker.getSummary().includes('shoot')
+    })
     if (xmlCoords) {
       finalX = xmlCoords.x
       finalY = xmlCoords.y
       usedXML = true
     }
 
-    // ---- 学习记录命中（带验证机制）----
+    // ---- 学习记录命中（带验证）----
     if (pageType !== 'unknown' && pageType !== 'success') {
-      const learned = learner.get(pageType as Exclude<PageType, 'unknown' | 'success'>)
-      if (learned && !usedXML) {
-        // 使用学习坐标前先验证：只有非 click 操作或当前无有效坐标时才用学习记录
-        if (dec.action === 'click') {
-          const tapOk = await doTap(apiPort, learned.x, learned.y, signal, adb)
-          console.log(`[${TS()}] [学习命中] ${pageType} → (${learned.x},${learned.y}) ${tapOk ? '✓' : '✗'}`)
-          await sleep(3500, signal)
+      const learned = learner.get(pageType)
+      if (learned && !usedXML && dec.action === 'click') {
+        const tapOk = await doTap(apiPort, learned.x, learned.y, signal, adb)
+        console.log(`[${TS()}] [学习命中] ${pageType} → (${learned.x},${learned.y}) ${tapOk ? '✓' : '✗'}`)
+        await sleep(3500, signal)
 
-          // 轻量验证：截图检查页面是否变化
-          const verifyB64 = await UI.takeScreenshot(apiPort)
-          if (verifyB64) {
-            const verifyDec = await aiDecideNext(verifyB64, '', goal, { width: screenW, height: screenH })
-            if (verifyDec) {
-              const newPageType = detectPageType(verifyDec.analysis)
-              if (newPageType && newPageType !== pageType) {
-                // 页面确实变了，学习坐标有效
-                console.log(`[${TS()}] [学习确认] ${pageType}→${newPageType} ✓`)
-                learner.recordSuccess(pageType as Exclude<PageType, 'unknown' | 'success'>, learned.x, learned.y)
-                continue  // 进入下一轮循环
-              } else {
-                // 页面没变，学习坐标可能失效
-                console.warn(`[${TS()}] [学习失效] ${pageType} 未变为 ${newPageType}, 坐标可能过期`)
-                learner.recordFail(pageType as Exclude<PageType, 'unknown' | 'success'>)
-                // 不 continue，走下面的正常流程重新决策
-              }
+        const verifyB64 = await UI.takeScreenshot(apiPort)
+        if (verifyB64) {
+          const verifyDec = await aiDecideNext(verifyB64, '', goal, { width: screenW, height: screenH })
+          if (verifyDec) {
+            const newPageType = detectPageType(verifyDec.analysis)
+            if (newPageType && newPageType !== pageType) {
+              console.log(`[${TS()}] [学习确认] ${pageType}→${newPageType} ✓`)
+              learner.recordSuccess(pageType, learned.x, learned.y)
+              continue
+            } else {
+              console.warn(`[${TS()}] [学习失效] ${pageType} 未变为 ${newPageType}`)
+              learner.recordFail(pageType)
             }
           }
-          // 验证失败/无结果，继续走正常流程
         }
       }
     }
@@ -357,11 +492,10 @@ export async function aiPublishVideoWorkflow(
       const tapOk = await doTap(apiPort, finalX, finalY, signal, adb)
       console.log(`[${TS()}] [点击${usedXML ? '/XML' : '/AI'}] (${Math.round(finalX)},${Math.round(finalY)}) ${dec.target_desc}${tapOk ? '' : ' 失败!'}`)
 
-      // 根据操作类型动态调整等待时间
       const waitMs = pageType === 'popup' ? 2000 : pageType === 'publish' ? 3000 : 4000
       await sleep(waitMs, signal)
 
-      // 点击后验证与学习（每 3 次点击验证一次，减少 API 调用）
+      // 每 3 次验证一次（减少 API 调用）
       if (loop % 3 === 0 && pageType && pageType !== 'unknown' && pageType !== 'success') {
         const verifyB64 = await UI.takeScreenshot(apiPort)
         if (verifyB64) {
@@ -369,7 +503,7 @@ export async function aiPublishVideoWorkflow(
           if (verifyDec) {
             const newPageType = detectPageType(verifyDec.analysis)
             if (newPageType && newPageType !== pageType) {
-              learner.recordSuccess(pageType as Exclude<PageType, 'unknown' | 'success'>, Math.round(finalX), Math.round(finalY))
+              learner.recordSuccess(pageType, Math.round(finalX), Math.round(finalY))
               console.log(`[${TS()}] [学习] ${pageType}→${newPageType} (${Math.round(finalX)},${Math.round(finalY)})`)
             }
           }
@@ -378,8 +512,7 @@ export async function aiPublishVideoWorkflow(
 
     } else if (dec.action === 'input' && dec.text_content) {
       if (inputDone) {
-        console.log(`[${TS()}] [输入跳过] 标题已输入过, 当前操作: ${dec.text_content.substring(0, 20)}`)
-        // 标题已输入过，尝试点击发布或其他操作
+        console.log(`[${TS()}] [输入跳过] 标题已输入过`)
         await sleep(1000, signal)
         continue
       }
@@ -389,18 +522,12 @@ export async function aiPublishVideoWorkflow(
       inputDone = true
       await sleep(1500, signal)
 
-      // 输入后验证：检查是否还在编辑页
       const postInputB64 = await UI.takeScreenshot(apiPort)
       if (postInputB64) {
         const postDec = await aiDecideNext(postInputB64, '', goal, { width: screenW, height: screenH })
         if (postDec) {
           const postPageType = detectPageType(postDec.analysis)
           console.log(`[${TS()}] [输入后] 页面: ${postPageType}`)
-          if (postPageType === 'edit' || postPageType === 'publish') {
-            // 正常，仍在编辑/发布流程
-          } else if (postPageType === 'popup') {
-            console.log(`[${TS()}] [输入后] 出现弹窗，下轮处理`)
-          }
         }
       }
 
@@ -414,66 +541,66 @@ export async function aiPublishVideoWorkflow(
     }
   }
 
-  return { success: false, message: `执行超时(${maxLoops}轮), 学习状态: ${learner.getSummary()}` }
+  return { success: false, message: `执行超时(${maxLoops}轮), 学习: ${learner.getSummary()}, 最近操作: ${failTracker.getSummary()}` }
 }
 
-// ==================== 坐标解析策略 =================---
+// ==================== 坐标解析策略 ====================
+
+interface ResolveOptions {
+  forceXML?: boolean  // 是否强制使用 XML 定位（忽略 AI 坐标）
+}
 
 /**
  * 根据页面类型和目标描述，使用 XML 文字定位获取可靠坐标
- * 修复原版多处逻辑 bug：
- *   1. findByText 返回对象不能用 || 短路
- *   2. fallback 查找的结果未被使用
- *   3. 无论是否找到都会执行多余查找
+ *
+ * 关键修复：拍摄页的"相册"文字入口位置固定，AI 经常混淆为拍照按钮坐标
+ * 所以 shoot+相册 组合应该积极使用 XML 定位
  */
 async function resolveCoordinatesByContext(
   apiPort: number,
   pageType: PageType,
   targetDesc: string,
-  action: string
+  action: string,
+  options: ResolveOptions = {}
 ): Promise<{ x: number; y: number } | null> {
 
-  // 只对 click 操作做 XML 增强，input/wait 不需要
   if (action !== 'click') return null
 
   // --- 拍摄页：找"相册"入口 ---
+  // ★★ 这是核心修复点：AI 给的"相册"坐标经常是拍照按钮(y~1870)
+  //    XML findByText 能精确定位"相册"二字的中心位置
   if (pageType === 'shoot' && (targetDesc.includes('相册') || targetDesc.includes(' album'))) {
-    return locateByText(apiPort, ['相册', '从相册选择', '相册导入'])
+    console.log(`[策略] shoot+相册 → 强制 XML 定位（AI 坐标不可靠）`)
+    return locateByText(apiPort, ['相册', '从相册选择', '相册导入', '从手机相册选择'])
   }
 
-  // --- 编辑页：找"添加标题" ---
+  // --- 编辑/发布页：找"添加标题" ---
   if ((pageType === 'edit' || pageType === 'publish') && (targetDesc.includes('标题') || targetDesc.includes('title'))) {
-    return locateByText(apiPort, ['添加标题', '请填写标题', '标题', '描述'])
+    return locateByText(apiPort, ['添加标题', '请填写标题', '标题', '描述', '添加描述'])
   }
 
   // --- 发布页：找"发布"/"发作品"按钮 ---
   if (pageType === 'publish' && (targetDesc.includes('发布') || targetDesc.includes('发作品') || targetDesc.includes(' publish'))) {
-    // 短路：先找"发布"，找到了就不找"发作品"
-    return locateByText(apiPort, ['发布', '发作品', '立即发布'])
+    return locateByText(apiPort, ['发布', '发作品', '立即发布', ' publish'])
   }
 
   // --- 弹窗：找关闭/确认按钮 ---
   if (pageType === 'popup') {
-    return locateByText(apiPort, ['我知道了', '去编辑', '允许', '取消', '确定', '知道了', '下次一定'])
+    return locateByText(apiPort, ['我知道了', '去编辑', '允许', '取消', '确定', '知道了', '下次一定', '我知道'])
   }
 
-  // --- 首页：找加号（纯图标，XML 无法定位）---
-  // 首页的加号是图标按钮，没有文字，只能靠 AI 坐标
+  // --- 首页加号：纯图标，XML 无法帮助 ---
   return null
 }
 
-// ==================== 工具：文本归一化（用于卡检测）====
+// ==================== 工具：文本归一化 ====================
 
-/**
- * 将 AI 分析文本归一化为"指纹"，用于判断页面是否真的没变
- * 解决原版问题：AI 对同一页面可能输出略有不同的描述文本
- */
 function normalizeAnalysis(analysis: string): string {
   if (!analysis) return ''
   return analysis
     .toLowerCase()
-    .replace(/\s+/g, '')           // 去空白
-    .replace(/[，。！？、；：""''（）【】\s]/g, '')  // 去中英文标点
-    .replace(/\d+/g, '')            // 去数字（像素坐标等）
-    .substring(0, 50)              // 取前50字符
+    .replace(/\s+/g, '')
+    .replace(/[，。！？、；：""''（）【】\s]/g, '')
+    .replace(/\d+/g, '')
+    .substring(0, 50)
 }
