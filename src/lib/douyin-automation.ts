@@ -85,6 +85,25 @@ async function goBack(apiPort: number, times: number, signal?: AbortSignal, adb?
   }
 }
 
+/**
+ * ★ 核心函数：通过 am start 命令启动抖音 App 到首页
+ * 比 goBack + 点击图标可靠 100 倍
+ */
+async function launchDouyin(apiPort: number, signal?: AbortSignal, adb?: ADB | null): Promise<boolean> {
+  const cmd = `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`
+  console.log(`[启动抖音] ${cmd}`)
+  if (adb) {
+    try {
+      adb.shell(cmd)
+      return true
+    } catch (e) {
+      console.warn(`[启动抖音] adb 失败, 降级HTTP: ${e}`)
+      return sh(apiPort, cmd, signal)
+    }
+  }
+  return sh(apiPort, cmd, signal)
+}
+
 // ==================== 页面类型检测 ====================
 
 type PageType = 'home' | 'shoot' | 'album' | 'edit' | 'publish' | 'popup' | 'success' | 'unknown'
@@ -368,10 +387,9 @@ export async function aiPublishVideoWorkflow(
 
       // 策略A：先用 XML 快速尝试（有超时保护）
       console.log(`[策略] shoot→相册 #${shootAlbumFailCount}, 先尝试 XML...`)
-      const xmlCoord = await locateByText(apiPort, ['相册', '从相册选择', '相册导入', '从手机相册选择'], 3000)
+      const xmlCoord = await locateByText(apiPort, ['相册', '从相册选择', '相册导入', '从手机相册选择', '相册选择'], 3000)
 
       if (xmlCoord) {
-        // XML 成功找到！使用它
         console.log(`[策略] XML 找到相册 → 点击 (${xmlCoord.x},${xmlCoord.y})`)
         await doTap(apiPort, xmlCoord.x, xmlCoord.y, signal, adb)
         await sleep(4000, signal)
@@ -379,45 +397,12 @@ export async function aiPublishVideoWorkflow(
         continue
       }
 
-      // 策略B：XML 也找不到 → 使用经验坐标（屏幕底部左侧"相册"文字）
-      // 抖音拍摄页布局："相册"文字通常在屏幕左下角区域
-      // 屏幕宽度 1080，"相册"通常在 x: 60~180, y: 屏幕底部往上约 350~450px
-      console.log(`[策略] XML 未找到(#${shootAlbumFailCount})，使用经验坐标...`)
-
-      const fallbackCoords = [
-        { x: screenW * 0.1,  y: screenH - 380 },  // 左下角偏左
-        { x: screenW * 0.15, y: screenH - 360 },  // 左下角
-        { x: screenW * 0.08, y: screenH - 400 },  // 更左更低
-      ]
-
-      const coordIdx = Math.min(shootAlbumFailCount - 1, fallbackCoords.length - 1)
-      const fc = fallbackCoords[coordIdx]
-      console.log(`[策略] 经验坐标 #${coordIdx + 1}: (${Math.round(fc.x)},${Math.round(fc.y)})`)
-      await doTap(apiPort, fc.x, fc.y, signal, adb)
-      await sleep(4000, signal)
-
-      // 验证是否进入了相册页
-      const verifyB64 = await UI.takeScreenshot(apiPort)
-      if (verifyB64) {
-        const vDec = await aiDecideNext(verifyB64, '', goal, { width: screenW, height: screenH })
-        if (vDec) {
-          const vType = detectPageType(vDec.analysis)
-          console.log(`[策略验证] 点击后: ${vType}`)
-          if (vType === 'album') {
-            console.log(`[策略✓] 经验坐标有效! shoot→album 成功`)
-            learner.recordSuccess('shoot', Math.round(fc.x), Math.round(fc.y))
-            shootAlbumFailCount = 0
-            failTracker.clear()
-            continue
-          }
-        }
-      }
-
-      // 策略C：连续失败 N 次 → 可能根本不在拍摄页，或设备状态异常
-      if (shootAlbumFailCount >= 3) {
-        console.log(`[策略] shoot→相册 连续 ${shootAlbumFailCount} 次失败，强制回首页重置...`)
-        await goBack(apiPort, 5, signal, adb)
-        await sleep(3000, signal)
+      // 策略B：XML 也找不到 → 放弃盲猜坐标，直接重启抖音到首页重新走流程
+      // （经验坐标不可靠：日志证明 3 个候选点全部无效）
+      if (shootAlbumFailCount >= 2) {
+        console.log(`[策略] shoot→相册 XML找不到(#${shootAlbumFailCount})，重启抖音到首页...`)
+        await launchDouyin(apiPort, signal, adb)
+        await sleep(5000, signal)  // 等待抖音首页加载
         learner.clearAll()
         failTracker.clear()
         shootAlbumFailCount = 0
@@ -426,7 +411,9 @@ export async function aiPublishVideoWorkflow(
         continue
       }
 
-      // 还没达到重试上限，继续下一轮看看效果
+      // 第1次 XML 失败：再给一次机会（可能页面还在加载）
+      console.log(`[策略] XML 未找到(#${shootAlbumFailCount})，等待重试...`)
+      await sleep(3000, signal)
       continue
     }
 
@@ -440,10 +427,11 @@ export async function aiPublishVideoWorkflow(
       console.log(`[${TS()}] [⚠️循环] 连续 ${failure.count} 次: ${failure.pageType} → ${failure.action}/${failure.target}`)
       console.log(`[⚠️历史] ${failTracker.getSummary()}`)
 
-      // 回退重试
-      await goBack(apiPort, 3, signal, adb)
+      // 重启抖音到首页（比 goBack 可靠）
+      console.log(`[恢复] 重启抖音到首页...`)
+      await launchDouyin(apiPort, signal, adb)
+      await sleep(5000, signal)
       learner.clearAll()
-      await sleep(3000, signal)
       failTracker.clear()
       samePageCount = 0
       lastAnalysisHash = ''
@@ -460,12 +448,24 @@ export async function aiPublishVideoWorkflow(
     }
 
     if (samePageCount > 8) {
-      console.log(`[${TS()}] [卡住] 同页 ${samePageCount} 次, 回首页重置`)
-      await goBack(apiPort, 5, signal, adb)
+      console.log(`[${TS()}] [卡住] 同页 ${samePageCount} 次, 重启抖音到首页`)
+      await launchDouyin(apiPort, signal, adb)
       learner.clearAll(); failTracker.clear()
-      await sleep(4000, signal)
+      await sleep(5000, signal)
       samePageCount = 0; lastAnalysisHash = ''
       continue
+    }
+
+    // ---- 未知页面/桌面 特殊处理 ----
+    if (pageType === 'unknown') {
+      const isDesktop = dec.analysis.includes('主屏幕') || dec.analysis.includes('桌面') || dec.analysis.includes('未进入抖音')
+      if (isDesktop || (dec.action === 'click' && (dec.target_desc.includes('抖音') || dec.target_desc.includes('App')))) {
+        console.log(`[恢复] 检测到桌面/未打开抖音, 用 am start 启动...`)
+        await launchDouyin(apiPort, signal, adb)
+        await sleep(5000, signal)
+        failTracker.clear()
+        continue
+      }
     }
 
     // ---- 常规坐标确定 ----
