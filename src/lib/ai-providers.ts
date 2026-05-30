@@ -1422,11 +1422,34 @@ export type { PageType }
 
 // ==================== 定位器（qwen-vl-max 坐标定位） ====================
 
+/** 元素定位描述库 */
+const locatorPrompts: Record<string, string> = {
+  '加号': `在截图上找到加号按钮的中心坐标。
+特征：位于底部导航栏正中间，有灰白色圆形背景框，左右分别是"朋友"和"消息"文字。
+只输出 JSON：{"x": 整数像素, "y": 整数像素}。找不到输出 {"x": -1, "y": -1}。`,
+  '相册': `在截图上找到"相册"两个字的中心坐标。
+特征：白色文字，位于屏幕底部，拍摄按钮旁边。
+只输出 JSON：{"x": 整数像素, "y": 整数像素}。找不到输出 {"x": -1, "y": -1}。`,
+  '缩略图': `找到左上角第一个视频缩略图的中心坐标。
+特征：顶部有"全部/视频/图片"标签，第一个缩略图在左上角。
+只输出 JSON：{"x": 整数像素, "y": 整数像素}。找不到输出 {"x": -1, "y": -1}。`,
+  '标题': `找到"添加标题"灰色占位文字的中心坐标。
+特征：灰色半透明文字，位于视频预览区域下方。
+只输出 JSON：{"x": 整数像素, "y": 整数像素}。找不到输出 {"x": -1, "y": -1}。`,
+  '发布': `找到"发布"或"发作品"按钮的中心坐标。
+特征：红色或亮色按钮，位于屏幕底部或右下角。
+只输出 JSON：{"x": 整数像素, "y": 整数像素}。找不到输出 {"x": -1, "y": -1}。`,
+  '我知道了': `找到弹窗上"我知道了"或"去编辑"或"取消"文字的中心坐标。
+只输出 JSON：{"x": 整数像素, "y": 整数像素}。找不到输出 {"x": -1, "y": -1}。`,
+}
+
 /** 根据元素描述，在截图上找到坐标 */
 export async function locateElement(base64Image: string, elementDesc: string): Promise<{ x: number; y: number } | null> {
   const key = getDashScopeKey()
   if (!key) return null
-  const prompt = `在截图上找到"${elementDesc}"的中心坐标。只输出 JSON：{"x": 整数像素, "y": 整数像素}。如果找不到输出 {"x": -1, "y": -1}。`
+  // 从描述中匹配已知元素类型
+  const type = Object.keys(locatorPrompts).find(k => elementDesc.includes(k)) || '加号'
+  const prompt = locatorPrompts[type]
 
   try {
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {

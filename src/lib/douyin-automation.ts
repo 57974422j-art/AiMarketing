@@ -123,15 +123,14 @@ export async function aiPublishVideoWorkflow(
     for (let attempt = 0; attempt < 5; attempt++) {
       coord = await locator(b64, cmd.element)
       if (!coord) { await sleep(1000, signal); continue }
-      // 加号校验
+      // 加号校验：y 必须在底部区域
       if (cmd.element.includes('加号') && coord.y < SH * 0.8) {
         console.log(`[${TS()}] [定位] y=${coord.y} 偏低，重试`)
-        await sleep(1000, signal); continue
+        coord = null; await sleep(1000, signal); continue
       }
       break
     }
     if (!coord) { await sleep(2000, signal); continue }
-    console.log(`[${TS()}] [定位] (${coord.x},${coord.y}) ${cmd.element}`)
 
     // === 执行 ===
     await doTap(coord.x, coord.y)
