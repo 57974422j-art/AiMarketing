@@ -119,7 +119,7 @@ const AUX_KEYWORDS: Array<{ type: PageType; keywords: string[] }> = [
   // 单独的"相册"二字不能判定为 album（因为拍摄页也有"相册"入口文字）
   { type: 'album',  keywords: ['视频缩略图', '图片缩略图', '媒体列表', '全部标签', '视频标签', '图片标签', '选择视频', '相册网格'] },
   { type: 'shoot',  keywords: ['取景器', '实时预览', '快门按钮', '拍摄按钮(圆形)', '前后置切换'] },
-  { type: 'home',   phrases: ['底部导航栏', '推荐视频', '关注列表'] },
+  { type: 'home',   keywords: ['底部导航栏', '推荐视频', '关注列表'] },
 ]
 
 /**
