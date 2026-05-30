@@ -1162,10 +1162,10 @@ const stateMachine: Record<PageType, {
 }> = {
   home: {
     targetDesc: '底部加号按钮',
-    findPrompt: `找到抖音首页底部导航栏正中间的加号（+）按钮。
+    findPrompt: `找到底部导航栏正中间的加号（+）按钮坐标。
 特征：
 - 有灰白色圆形背景框
-- 位于屏幕底部中间位置
+- 位于屏幕底部中间
 - 左右分别是"朋友"和"消息"文字
 - 忽略视频内容上的任何小加号
 返回按钮中心坐标。`,
@@ -1173,27 +1173,27 @@ const stateMachine: Record<PageType, {
   },
   shoot: {
     targetDesc: '相册',
-    findPrompt: `找到"相册"两个字的中心位置。
+    findPrompt: `找到"相册"二字中心坐标。
 特征：
 - 位于屏幕底部
-- 通常在白色拍摄按钮的左边或右边
+- 白色拍摄按钮附近
 - 文字清晰可见
 返回坐标。`,
     nextState: 'album'
   },
   album: {
     targetDesc: '第一个视频缩略图',
-    findPrompt: `找到左上角第一个视频缩略图的中心位置。
+    findPrompt: `找到左上角第一个视频缩略图的中心坐标。
 特征：
 - 顶部有"全部/视频/图片"标签页
-- 第一个视频缩略图在左上角
-- 注意是视频（通常有时长标记），不是图片
-返回缩略图中心坐标。`,
+- 第一个缩略图在左上角
+- 注意是视频（有时长标记），不是图片
+返回坐标。`,
     nextState: 'edit'
   },
   edit: {
     targetDesc: '添加标题',
-    findPrompt: `找到灰色占位文字"添加标题"的中心位置。
+    findPrompt: `找到灰色占位文字"添加标题"的中心坐标。
 特征：
 - 灰色半透明文字
 - 位于视频预览区域下方
@@ -1203,9 +1203,9 @@ const stateMachine: Record<PageType, {
   },
   publish: {
     targetDesc: '发布按钮',
-    findPrompt: `找到"发布"或"发作品"按钮的中心位置。
+    findPrompt: `找到"发布"或"发作品"按钮的中心坐标。
 特征：
-- 通常是红色或亮色按钮
+- 红色或亮色按钮
 - 位于屏幕底部或右下角
 - 文字清晰可见
 返回坐标。`,
@@ -1213,13 +1213,13 @@ const stateMachine: Record<PageType, {
   },
   popup: {
     targetDesc: '弹窗按钮',
-    findPrompt: `找到弹窗上的按钮中心位置。
+    findPrompt: `找到弹窗上按钮的中心坐标。
 优先级：
 1. "我知道了"
 2. "去编辑"
 3. "取消"
 4. "关闭"
-返回找到的第一个按钮的中心坐标。`,
+返回找到的第一个按钮坐标。`,
     nextState: 'popup'
   },
   unknown: {
