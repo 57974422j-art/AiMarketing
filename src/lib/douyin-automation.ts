@@ -61,7 +61,14 @@ export async function aiPublishVideoWorkflow(
       if (adb) adb.tap(px, py)
       else await sh(apiPort, `input tap ${px} ${py}`, signal)
       console.log(`[${TS()}] [AI-Decide] ${adb?'ADB':'HTTP'} tap (${px},${py}) ${dec.target_desc || ''}`)
-      await sleep(2500, signal)
+      // 等待页面响应：前 2 秒等动画，再 3 秒确认页面稳定
+      for (let w = 0; w < 5; w++) {
+        await sleep(1000, signal)
+        if (signal?.aborted) break
+        if (w === 4 || loop < 5) continue // 最后一次或前几次等待更久
+      }
+      // 如果 tap 后再次分析仍然是同一页面描述，且已等够时间，让下一轮循环重新判断
+      lastAnalysis = '' // 清空记录，避免连续相同判断
     }
     if (dec.action === 'input' && dec.text_content) {
       if (adb) adb.inputText(dec.text_content)
