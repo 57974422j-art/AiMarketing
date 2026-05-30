@@ -1131,27 +1131,34 @@ export interface AIDecision {
   text_content: string
 }
 
-/** 调用百炼 VL 做 ReAct 决策 */
-async function dashscopeDecide(milestone: string, goal: string, base64Image: string): Promise<AIDecision | null> {
+/** 屏幕尺寸配置 */
+interface ScreenConfig {
+  width: number
+  height: number
+}
+
+/** 决策结果（带调试信息） */
+interface DecisionResult extends AIDecision {
+  rawResponse?: string
+  coordinateSource?: 'pixel' | 'ratio'
+}
+
+/**
+ * 调用百炼 qwen-vl-max 做 ReAct 决策
+ */
+async function dashscopeDecide(
+  milestone: string,
+  goal: string,
+  base64Image: string,
+  screen: ScreenConfig
+): Promise<DecisionResult | null> {
   const key = getDashScopeKey()
-  if (!key) return null
-  const prompt = `你是视觉定位专家。看图找到目标位置并返回比例坐标。
+  if (!key) {
+    console.error('[百炼决策] API Key 未配置')
+    return null
+  }
 
-【总目标】${goal}
-
-看图判断当前页面，执行以下规则：
-
-1. 首页底部 → 抖音底部固定导航栏正中间有一个带灰白圆框的"+"号，左右分别是"朋友"和"消息"两个文字标签。点这个带框的加号。（注意区分：视频内容上的"关注"按钮旁边的小"+"不是这个）
-2. 拍摄页 → 找到"相册"二字中心
-3. 相册页（有"全部/视频/图片"） → 找到左上角第一个视频缩略图中心
-4. 编辑页 → 找到"添加标题"灰色文字中心
-5. 发布页 → 找到"发布"/"发作品"按钮中心
-6. 弹窗 → 找到"去编辑"/"我知道了"文字中心
-7. 全部完成 → status="DONE"
-
-坐标用比例值（0.0~1.0），x=截图宽度比例，y=截图高度比例。
-只返回 JSON：
-{"analysis":"当前页面","status":"CONTINUE|DONE","action":"click|input","target_desc":"操作","coordinates":{"x":0.0,"y":0.0},"text_content":""}`
+  const prompt = buildPrompt(milestone, goal, screen)
 
   try {
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
@@ -1160,29 +1167,194 @@ async function dashscopeDecide(milestone: string, goal: string, base64Image: str
       body: JSON.stringify({
         model: 'qwen-vl-max',
         messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }] }],
-        temperature: 0.1,
-        max_tokens: 500,
+        temperature: 0.2,
+        max_tokens: 1000,
+        response_format: { type: 'json_object' },
       }),
     })
-    const text = data?.choices?.[0]?.message?.content?.trim()
-    if (!text) return null
-    // 尝试解析 JSON（模型可能返回额外文字）
-    const m = text.match(/\{[\s\S]*"analysis"[\s\S]*"status"[\s\S]*"action"[\s\S]*\}/)
-    if (m) return JSON.parse(m[0])
-    return null
-  } catch (e) {
-    console.error('[百炼决策] 失败:', e)
+
+    const rawText = data?.choices?.[0]?.message?.content?.trim()
+    console.log('[百炼原始响应]', rawText)
+
+    if (!rawText) {
+      console.error('[百炼决策] 响应为空')
+      return null
+    }
+
+    const decision = parseDecisionResponse(rawText, screen)
+
+    if (!decision) {
+      console.error('[百炼决策] JSON 解析失败:', rawText)
+      return null
+    }
+
+    console.log('[百炼决策] 结果:', JSON.stringify(decision, null, 2))
+
+    return decision
+  } catch (error) {
+    console.error('[百炼决策] 请求失败:', error)
     return null
   }
 }
 
-/** AI ReAct 决策：截图 + 里程碑 → 返回下一步操作 */
+/**
+ * 构建 Prompt
+ */
+function buildPrompt(milestone: string, goal: string, screen: ScreenConfig): string {
+  return `你是抖音自动化操作的视觉定位专家。请严格按规则输出 JSON。
+
+【屏幕尺寸】${screen.width} x ${screen.height} 像素
+【当前里程碑】${milestone}
+【总目标】${goal}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【重要：符号区分规则】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- 目标加号（+）：位于底部导航栏正中间，有【灰白色圆形背景框】，尺寸较大
+- 井号（#）：通常出现在标题或话题中，【没有圆形背景框】，尺寸很小
+- 如果看到小井号（#），必须忽略，它不是目标
+- 只认【带灰白圆形背景框】的大加号（+）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【页面类型判断与执行规则（按优先级）】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1️⃣ 【首页底部导航】
+   - 特征：底部固定导航栏，正中间有带灰白圆形框的"+"号
+   - 操作：点击该加号中心
+   - 坐标：返回实际像素坐标
+
+2️⃣ 【拍摄页】
+   - 特征：底部有白色圆点拍摄按钮，有"相册"二字
+   - 操作：点击"相册"文字中心
+
+3️⃣ 【相册页】
+   - 特征：顶部有"全部/视频/图片"标签，有视频/图片缩略图列表
+   - 操作：点击左上角第一个视频缩略图的中心
+
+4️⃣ 【编辑页】
+   - 特征：有"添加标题"灰色占位文字
+   - 操作：点击"添加标题"文字中心
+
+5️⃣ 【发布页】
+   - 特征：有"发布"或"发作品"按钮
+   - 操作：点击"发布"或"发作品"按钮中心
+
+6️⃣ 【弹窗】
+   - 特征：屏幕中央悬浮窗口，背景变暗（遮罩层）
+   - 操作：点击"去编辑"或"我知道了"文字中心
+   - 注意：弹窗按钮可能在屏幕中下部
+
+7️⃣ 【完成判断】
+   - 条件：已成功发布，或回到首页且无待操作内容
+   - 状态：status = "DONE"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【输出格式（严格 JSON）】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{
+  "analysis": "当前页面判断依据（一句话说明为什么是这个页面）",
+  "status": "CONTINUE 或 DONE",
+  "action": "click 或 input 或 wait 或 none",
+  "target_desc": "要点击的目标描述（如：底部加号按钮）",
+  "coordinates": { "x": 像素整数, "y": 像素整数 },
+  "text_content": "如果是 input 则填内容，否则空字符串"
+}
+
+⚠️ 重要：
+- coordinates 必须是基于 ${screen.width}x${screen.height} 的实际像素坐标
+- x 范围：0 ~ ${screen.width}，y 范围：0 ~ ${screen.height}
+- 不要在坐标中使用比例值（0.0~1.0）
+
+只输出 JSON，不要有任何额外文字。`
+}
+
+/**
+ * 解析模型的响应（增强容错）
+ */
+function parseDecisionResponse(rawText: string, screen: ScreenConfig): DecisionResult | null {
+  let jsonStr = rawText
+
+  // 策略1：提取 JSON 对象
+  const jsonMatch = rawText.match(/\{[\s\S]*"analysis"[\s\S]*\}/)
+  if (jsonMatch) jsonStr = jsonMatch[0]
+
+  // 策略2：清理 markdown 代码块
+  jsonStr = jsonStr.replace(/```json\n?/g, '').replace(/```\n?/g, '')
+
+  // 策略3：修复常见格式错误
+  jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1').replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":')
+
+  let decision: any
+  try {
+    decision = JSON.parse(jsonStr)
+  } catch (parseError) {
+    console.error('[JSON解析失败]', parseError)
+    console.error('[尝试解析的内容]', jsonStr)
+    return null
+  }
+
+  if (!decision.analysis || !decision.status || !decision.action) {
+    console.error('[决策字段缺失]', decision)
+    return null
+  }
+
+  let coordinates = { x: 0, y: 0 }
+  let coordinateSource: 'pixel' | 'ratio' = 'pixel'
+
+  if (decision.coordinates) {
+    let rawX = decision.coordinates.x
+    let rawY = decision.coordinates.y
+
+    if (rawX >= 0 && rawX <= 1 && rawY >= 0 && rawY <= 1) {
+      coordinates = { x: Math.round(rawX * screen.width), y: Math.round(rawY * screen.height) }
+      coordinateSource = 'ratio'
+      console.log('[坐标转换] 比例 -> 像素:', { raw: { rawX, rawY }, pixel: coordinates })
+    } else {
+      coordinates = { x: Math.min(Math.max(Math.round(rawX), 0), screen.width), y: Math.min(Math.max(Math.round(rawY), 0), screen.height) }
+      coordinateSource = 'pixel'
+      if (rawX < 0 || rawX > screen.width || rawY < 0 || rawY > screen.height) {
+        console.warn('[坐标超出屏幕]', { raw: { rawX, rawY }, screen, clamped: coordinates })
+      }
+    }
+  }
+
+  return {
+    analysis: decision.analysis,
+    status: decision.status === 'DONE' ? 'DONE' : 'CONTINUE',
+    action: decision.action === 'input' ? 'input' : decision.action === 'wait' ? 'wait' : decision.action === 'none' ? 'none' : 'click',
+    target_desc: decision.target_desc || '',
+    coordinates,
+    text_content: decision.text_content || '',
+    rawResponse: rawText,
+    coordinateSource,
+  }
+}
+
+/** AI ReAct 决策主入口 */
 export async function aiDecideNext(
   base64Image: string,
   milestone: string,
-  goal: string
+  goal: string,
+  screen: ScreenConfig = { width: 1080, height: 2340 }
 ): Promise<AIDecision | null> {
-  return await dashscopeDecide(milestone, goal, base64Image)
+  if (!base64Image) { console.error('[aiDecideNext] 截图为空'); return null }
+  if (!goal) { console.error('[aiDecideNext] goal 为空'); return null }
+
+  const result = await dashscopeDecide(milestone, goal, base64Image, screen)
+
+  if (!result) {
+    return {
+      analysis: 'AI决策失败，执行兜底等待',
+      status: 'CONTINUE',
+      action: 'wait',
+      target_desc: '决策失败，等待重试',
+      coordinates: { x: 0, y: 0 },
+      text_content: '',
+    }
+  }
+
+  return result
 }
 
 // ==================== 导出函数 — 双保险模式 ====================

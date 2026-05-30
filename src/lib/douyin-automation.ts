@@ -73,7 +73,7 @@ export async function aiPublishVideoWorkflow(
 
     const b64 = await UI.takeScreenshot(apiPort)
     if (!b64) { await sleep(2000, signal); continue }
-    const dec = await aiDecideNext(b64, '', goal)
+    const dec = await aiDecideNext(b64, '', goal, { width: SW, height: SH })
     if (!dec) { await sleep(2000, signal); continue }
     console.log(`[${TS()}] [AI-Decide] 步骤${loop}: ${dec.analysis}`)
     if (dec.status === 'DONE') return { success: true, message: '视频已发布' }
