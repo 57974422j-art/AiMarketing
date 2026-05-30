@@ -1375,7 +1375,8 @@ async function findElementOnPage(
       x = Math.round(x * screen.width); y = Math.round(y * screen.height)
     }
     if (x === -1 || y === -1) return null
-    x = Math.min(Math.max(x, 0), screen.width); y = Math.min(Math.max(y, 0), screen.height)
+    x = Math.round(Math.min(Math.max(x, 0), screen.width))
+    y = Math.round(Math.min(Math.max(y, 0), screen.height))
     return { x, y }
   } catch (error) {
     console.error(`[找元素-${pageType}] 失败:`, error)

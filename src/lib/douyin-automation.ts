@@ -40,8 +40,9 @@ export async function aiPublishVideoWorkflow(
   let stuckCount = 0
 
   const doTap = (x: number, y: number) => {
-    if (adb) adb.tap(x, y)
-    else sh(apiPort, `input tap ${x} ${y}`, signal)
+    const rx = Math.round(x); const ry = Math.round(y)
+    if (adb) adb.tap(rx, ry)
+    else sh(apiPort, `input tap ${rx} ${ry}`, signal)
   }
 
   for (let loop = 0; loop < 60; loop++) {
@@ -63,14 +64,15 @@ export async function aiPublishVideoWorkflow(
       currentState = dec.pageType
     }
 
-    // 死循环检测
+    // 死循环检测（不再 force-stop，改用 goHome 回到首页重试）
     if (dec.action === 'wait') stuckCount++; else stuckCount = 0
-    if (stuckCount > 8) {
-      console.log(`[${TS()}] [AI-Decide] 死循环重启`)
-      if (adb) adb.shell(`am force-stop ${DOUYIN_PKG}`); else await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
-      await sleep(2000, signal)
-      if (adb) adb.shell(`am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`); else await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
-      await sleep(12000, signal)
+    if (stuckCount > 15) {
+      console.log(`[${TS()}] [AI-Decide] 卡住，回首页重试`)
+      for (let i = 0; i < 5; i++) {
+        if (adb) adb.shell('input keyevent KEYCODE_BACK'); else await sh(apiPort, 'input keyevent KEYCODE_BACK', signal)
+        await sleep(500, signal)
+      }
+      await sleep(3000, signal)
       currentState = 'home'; stuckCount = 0; continue
     }
 
