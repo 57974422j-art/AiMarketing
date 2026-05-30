@@ -56,3 +56,4 @@ dist-electron/
 # ADB platform-tools (local machine only)
 /scripts/platform-tools/
 /scripts/scrcpy/
+"MYT_RPA_SDK_v8.0_20241109/" 
