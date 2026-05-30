@@ -251,7 +251,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             const rpa = new RPAClient()
             try {
               await rpa.connect(rpaPort)
-              const wr = await Douyin.aiPublishVideoWorkflow(rpa, pubTitle, pubTopics)
+              const wr = await Douyin.aiPublishVideoWorkflow(rpa, port, pubTitle, pubTopics)
               r = { success: wr.success, message: wr.message }
             } catch (e: any) {
               r = { success: false, message: `RPA 错误: ${e.message}` }
