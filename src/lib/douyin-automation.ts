@@ -67,9 +67,12 @@ export async function aiPublishVideoWorkflow(
       await sleep(3000, signal); stuckCount = 0; continue
     }
 
+    // 分析页面类型（取前2个字判断）
+    const pageType = dec.analysis.includes('首页') ? 'home' : dec.analysis.includes('拍摄') ? 'shoot' : dec.analysis.includes('相册') ? 'album' : dec.analysis.includes('编辑') ? 'edit' : dec.analysis.includes('发布') ? 'publish' : dec.analysis.includes('弹窗') ? 'popup' : ''
+
     // 查学习记录
-    const cacheKey = `${dec.analysis}|${dec.target_desc}`
-    if (learned[cacheKey]) {
+    const cacheKey = pageType
+    if (pageType && learned[cacheKey]) {
       const c = learned[cacheKey]
       await doTap(c.x, c.y)
       console.log(`[${TS()}] [学习] (${c.x},${c.y}) ${dec.target_desc}`)
@@ -83,13 +86,18 @@ export async function aiPublishVideoWorkflow(
       console.log(`[${TS()}] [点击] (${dec.coordinates.x},${dec.coordinates.y}) ${dec.target_desc}`)
       await sleep(4000, signal)
 
-      // 验证：页面变了才学习
+      // 验证：页面类型变了才学习
       const b64v = await UI.takeScreenshot(apiPort)
-      if (b64v) {
+      if (b64v && pageType) {
         const dec2 = await aiDecideNext(b64v, '', goal, { width: SW, height: SH })
-        if (dec2 && dec2.analysis !== dec.analysis) {
-          learned[cacheKey] = { x: dec.coordinates.x, y: dec.coordinates.y }
-          console.log(`[${TS()}] [成功] 已学习: ${cacheKey}`)
+        if (dec2) {
+          const newType = dec2.analysis.includes('首页') ? 'home' : dec2.analysis.includes('拍摄') ? 'shoot' : dec2.analysis.includes('相册') ? 'album' : dec2.analysis.includes('编辑') ? 'edit' : ''
+          if (newType && newType !== pageType) {
+            learned[cacheKey] = { x: dec.coordinates.x, y: dec.coordinates.y }
+            console.log(`[${TS()}] [成功] ${cacheKey}→${newType} 坐标(${dec.coordinates.x},${dec.coordinates.y})`)
+          } else {
+            console.log(`[${TS()}] [未变] ${cacheKey}→${newType} 不缓存`)
+          }
         }
       }
     } else if (dec.action === 'input' && dec.text_content) {
