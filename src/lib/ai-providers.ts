@@ -1119,19 +1119,8 @@ export async function aiDescribeScreen(apiPort: number): Promise<string | null> 
   return await dashscopeDescribeScreen(b64)
 }
 
-// ==================== AI ReAct 决策（状态机模式） ====================
+// ==================== AI ReAct 决策（原始版） ====================
 
-/** 页面类型 */
-type PageType = 
-  | 'home'      // 首页
-  | 'shoot'     // 拍摄页
-  | 'album'     // 相册页
-  | 'edit'      // 编辑页
-  | 'publish'   // 发布页
-  | 'popup'     // 弹窗
-  | 'unknown'   // 未知
-
-/** 结构化决策响应 */
 export interface AIDecision {
   analysis: string
   status: 'CONTINUE' | 'DONE'
@@ -1139,286 +1128,61 @@ export interface AIDecision {
   target_desc: string
   coordinates: { x: number; y: number }
   text_content: string
-  pageType?: PageType
 }
 
-/** 屏幕尺寸配置 */
-interface ScreenConfig {
-  width: number
-  height: number
-}
+interface SC { width: number; height: number }
+interface DR extends AIDecision { rawResponse?: string }
 
-/** 决策结果（带调试信息） */
-interface DecisionResult extends AIDecision {
-  rawResponse?: string
-  coordinateSource?: 'pixel' | 'ratio'
-}
-
-/** 状态机配置：每个页面应该找什么元素，以及下一个页面是什么 */
-const stateMachine: Record<PageType, {
-  targetDesc: string
-  findPrompt: string
-  nextState: PageType | 'done'
-}> = {
-  home: {
-    targetDesc: '底部加号按钮',
-    findPrompt: `找到抖音底部导航栏正中间、有灰白圆形背景框的加号按钮中心坐标。只输出 {"x": 像素, "y": 像素}`,
-    nextState: 'shoot'
-  },
-  shoot: {
-    targetDesc: '相册',
-    findPrompt: `找到"相册"两个字的中心坐标。只输出 {"x": 像素, "y": 像素}`,
-    nextState: 'album'
-  },
-  album: {
-    targetDesc: '第一个视频缩略图',
-    findPrompt: `找到左上角第一个视频缩略图的中心坐标。只输出 {"x": 像素, "y": 像素}`,
-    nextState: 'edit'
-  },
-  edit: {
-    targetDesc: '添加标题',
-    findPrompt: `找到灰色占位文字"添加标题"的中心坐标。只输出 {"x": 像素, "y": 像素}`,
-    nextState: 'publish'
-  },
-  publish: {
-    targetDesc: '发布按钮',
-    findPrompt: `找到"发布"或"发作品"按钮的中心坐标。只输出 {"x": 像素, "y": 像素}`,
-    nextState: 'done'
-  },
-  popup: {
-    targetDesc: '弹窗按钮',
-    findPrompt: `找到"我知道了"或"去编辑"文字的中心坐标。只输出 {"x": 像素, "y": 像素}`,
-    nextState: 'popup'
-  },
-  unknown: {
-    targetDesc: '',
-    findPrompt: '',
-    nextState: 'unknown'
-  }
-}
-
-/** 构建页面识别的 Prompt */
-function buildPageIdentifyPrompt(screen: ScreenConfig): string {
-  return `你是抖音页面识别专家。只看页面整体布局判断当前是哪个页面，不要找具体按钮。
-
-【页面特征（互斥，只有一个）】
-
-1. home（首页）：
-   - 中间是全屏视频流
-   - 底部有导航栏，正中间是带圆框的加号
-   - 左右分别是"朋友"和"消息"
-   - ❌ 没有相机预览
-   - ❌ 没有"相册"二字
-
-2. shoot（拍摄页）：
-   - 中间是相机实时预览（能看到自己或景物）
-   - 底部有白色圆点拍摄按钮
-   - 有"相册"二字
-   - ✅ 即使底部导航栏还在，只要看到相机预览+相册，就是拍摄页
-
-3. album（相册页）：
-   - 顶部有"全部/视频/图片"标签页
-   - 下方是图片/视频缩略图网格
-
-4. edit（编辑页）：
-   - 有视频预览画面
-   - 有"添加标题"灰色占位文字
-   - 底部有"下一步"或"发布"
-
-5. publish（发布页）：
-   - 有"发布"或"发作品"按钮
-   - 有话题标签、@朋友等选项
-
-6. popup（弹窗）：
-   - 屏幕中央有悬浮窗口
-   - 背景变暗（遮罩层）
-   - 有"我知道了"/"去编辑"等按钮
-
-只输出一个单词：home / shoot / album / edit / publish / popup / unknown
-
-屏幕尺寸：${screen.width}x${screen.height}像素`
-}
-
-/** 构建元素查找的 Prompt */
-function buildElementFindPrompt(pageType: PageType, screen: ScreenConfig): string {
-  const config = stateMachine[pageType]
-  if (!config) return `无法识别当前页面，返回 null`
-
-  return `你是UI元素定位专家。截图分辨率 ${screen.width}x${screen.height} 像素。
-
-任务：${config.findPrompt}
-
-输出格式（只输出JSON）：
-{"x": 整数像素坐标, "y": 整数像素坐标}
-
-如果找不到目标，输出：
-{"x": -1, "y": -1}
-
-⚠️ 注意：
-- x 范围：0 ~ ${screen.width}
-- y 范围：0 ~ ${screen.height}
-- 必须返回像素坐标，不是比例值`
-}
-
-/** 第一步：识别当前页面类型 */
-async function identifyPage(
-  base64Image: string,
-  screen: ScreenConfig
-): Promise<PageType> {
-  const key = getDashScopeKey()
-  if (!key) return 'unknown'
-
-  const prompt = buildPageIdentifyPrompt(screen)
-
-  try {
-    const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({
-        model: 'qwen-vl-max',
-        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }] }],
-        temperature: 0.1,
-        max_tokens: 50,
-      }),
-    })
-
-    const rawText = data?.choices?.[0]?.message?.content?.trim()?.toLowerCase()
-    console.log('[页面识别] 原始响应:', rawText)
-
-    if (rawText?.includes('home')) return 'home'
-    if (rawText?.includes('shoot')) return 'shoot'
-    if (rawText?.includes('album')) return 'album'
-    if (rawText?.includes('edit')) return 'edit'
-    if (rawText?.includes('publish')) return 'publish'
-    if (rawText?.includes('popup')) return 'popup'
-
-    return 'unknown'
-  } catch (error) {
-    console.error('[页面识别] 失败:', error)
-    return 'unknown'
-  }
-}
-
-/** 第二步：在当前页面找到目标元素坐标 */
-async function findElementOnPage(
-  pageType: PageType,
-  base64Image: string,
-  screen: ScreenConfig
-): Promise<{ x: number; y: number } | null> {
-  if (pageType === 'unknown') return null
-
-  const config = stateMachine[pageType]
-  if (!config) return null
-
+async function dd(milestone: string, goal: string, b64: string, scr: SC): Promise<DR | null> {
   const key = getDashScopeKey()
   if (!key) return null
+  const p = `你是抖音自动化操作的视觉定位专家。请严格按规则输出 JSON。
 
-  const prompt = buildElementFindPrompt(pageType, screen)
+【屏幕尺寸】${scr.width} x ${scr.height} 像素
+【总目标】${goal}
+
+【页面规则】
+1️⃣ 首页：底部导航栏正中间有灰白圆形框加号 → 点加号中心
+2️⃣ 拍摄页：相机预览+相册二字 → 点相册中心
+3️⃣ 相册页：全部/视频/图片标签+缩略图 → 点左上角第一个视频缩略图中心
+4️⃣ 编辑页：添加标题灰色文字 → 点添加标题中心
+5️⃣ 发布页：发布/发作品按钮 → 点按钮中心
+6️⃣ 弹窗：悬浮窗口背景变暗 → 点我知道了/去编辑中心
+7️⃣ 完成：status = "DONE"
+
+输出 JSON：
+{"analysis":"分析","status":"CONTINUE|DONE","action":"click|input|wait","target_desc":"描述","coordinates":{"x":整数像素,"y":整数像素},"text_content":""}
+坐标必须是实际像素。只输出 JSON。`
 
   try {
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({
-        model: 'qwen-vl-max',
-        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }] }],
-        temperature: 0.1,
-        max_tokens: 200,
-        response_format: { type: 'json_object' },
-      }),
+      body: JSON.stringify({ model: 'qwen-vl-max', messages: [{ role: 'user', content: [{ type: 'text', text: p }, { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } }] }], temperature: 0.2, max_tokens: 1000, response_format: { type: 'json_object' } }),
     })
-
-    const rawText = data?.choices?.[0]?.message?.content?.trim()
-    console.log(`[找元素-${pageType}] 原始响应:`, rawText)
-    if (!rawText) return null
-
-    let jsonStr = rawText
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/)
-    if (jsonMatch) jsonStr = jsonMatch[0]
-
-    const result = JSON.parse(jsonStr)
-    let x = result.x, y = result.y
-    if (x > 0 && x <= 1 && y > 0 && y <= 1) {
-      x = Math.round(x * screen.width); y = Math.round(y * screen.height)
-    }
-    if (x === -1 || y === -1) return null
-    x = Math.round(Math.min(Math.max(x, 0), screen.width))
-    y = Math.round(Math.min(Math.max(y, 0), screen.height))
-    return { x, y }
-  } catch (error) {
-    console.error(`[找元素-${pageType}] 失败:`, error)
-    return null
-  }
+    const rt = data?.choices?.[0]?.message?.content?.trim()
+    if (!rt) return null
+    return pr(rt, scr)
+  } catch (e) { return null }
 }
 
-/** 第三步：主决策入口（使用状态机） */
-export async function aiDecideNext(
-  base64Image: string,
-  currentState: PageType,
-  goal: string,
-  screen: ScreenConfig = { width: 1080, height: 2340 }
-): Promise<AIDecision | null> {
-  if (!base64Image) { console.error('[aiDecideNext] 截图为空'); return null }
-  console.log(`[AI决策] 当前状态: ${currentState}, 目标: ${goal}`)
-
-  const actualPage = await identifyPage(base64Image, screen)
-  console.log(`[AI决策] 识别到页面: ${actualPage}`)
-
-  if (actualPage === 'popup') {
-    const popupBtn = await findElementOnPage('popup', base64Image, screen)
-    if (popupBtn && popupBtn.x !== -1) {
-      return {
-        analysis: '检测到弹窗，点击关闭',
-        status: 'CONTINUE',
-        action: 'click',
-        target_desc: '弹窗按钮',
-        coordinates: popupBtn,
-        text_content: '',
-        pageType: actualPage
-      }
-    }
-  }
-
-  if (currentState !== actualPage && actualPage !== 'unknown') {
-    console.log(`[AI决策] 状态不匹配: 期望 ${currentState}, 实际 ${actualPage}`)
-    // 状态已推进但页面没变 → 把状态拉回实际页面，重新找元素
-    // 状态没变但页面变了 → 说明点击成功，用实际页面继续
-    console.log(`[AI决策] 修正状态: ${currentState} → ${actualPage}`)
-  }
-
-  const targetPage = actualPage === 'unknown' ? currentState : actualPage
-
-  const element = await findElementOnPage(targetPage, base64Image, screen)
-  if (!element) {
-    return {
-      analysis: `在${targetPage}页未找到${stateMachine[targetPage]?.targetDesc || '目标'}`,
-      status: 'CONTINUE',
-      action: 'wait',
-      target_desc: '等待元素出现',
-      coordinates: { x: 0, y: 0 },
-      text_content: '',
-      pageType: targetPage
-    }
-  }
-
-  const config = stateMachine[targetPage]
-  const nextState = config?.nextState === 'done' ? 'done' : (config?.nextState as PageType) || currentState
-
-  console.log(`[AI决策] 点击 ${config?.targetDesc} at (${element.x}, ${element.y}), 下一个状态: ${nextState}`)
-
-  return {
-    analysis: `在${targetPage}页，点击${config?.targetDesc}`,
-    status: nextState === 'done' ? 'DONE' : 'CONTINUE',
-    action: 'click',
-    target_desc: config?.targetDesc || '目标',
-    coordinates: element,
-    text_content: '',
-    pageType: targetPage
-  }
+function pr(rt: string, scr: SC): DR | null {
+  let js = rt; const m = rt.match(/\{[\s\S]*"analysis"[\s\S]*\}/)
+  if (m) js = m[0]
+  js = js.replace(/\x60\x60\x60json\n?/g, '').replace(/\x60\x60\x60\n?/g, '').replace(/,(\s*[\}\]])/g, '$1')
+  let d; try { d = JSON.parse(js) } catch { return null }
+  if (!d.analysis || !d.status || !d.action) return null
+  let c = { x: 0, y: 0 }
+  if (d.coordinates) { let rx = d.coordinates.x, ry = d.coordinates.y; if (rx > 0 && rx <= 1 && ry > 0 && ry <= 1) { rx = Math.round(rx * scr.width); ry = Math.round(ry * scr.height) } c = { x: Math.min(Math.max(Math.round(rx), 0), scr.width), y: Math.min(Math.max(Math.round(ry), 0), scr.height) } }
+  return { analysis: d.analysis, status: d.status === 'DONE' ? 'DONE' : 'CONTINUE', action: d.action === 'input' ? 'input' : d.action === 'wait' ? 'wait' : 'click', target_desc: d.target_desc || '', coordinates: c, text_content: d.text_content || '' }
 }
 
-export { stateMachine }
-export type { PageType }
+export async function aiDecideNext(b64: string, milestone: string, goal: string, scr: SC = { width: 1080, height: 2340 }): Promise<AIDecision | null> {
+  if (!b64) return null
+  const r = await dd(milestone, goal, b64, scr)
+  if (!r) return { analysis: 'AI决策失败', status: 'CONTINUE', action: 'wait', target_desc: '', coordinates: { x: 0, y: 0 }, text_content: '' }
+  return r
+}
 
 // ==================== 定位器（qwen-vl-max 坐标定位） ====================
 
