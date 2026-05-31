@@ -86,22 +86,31 @@ async function goBack(apiPort: number, times: number, signal?: AbortSignal, adb?
 }
 
 /**
- * ★ 核心函数：通过 am start 命令启动抖音 App 到首页
- * 比 goBack + 点击图标可靠 100 倍
+ * ★ 核心函数：强制启动抖音 App 到首页
+ *
+ * 问题：普通 am start 对已运行 app 无效
+ * 解决：force-stop → 等待 → am start（强制冷启动）
  */
 async function launchDouyin(apiPort: number, signal?: AbortSignal, adb?: ADB | null): Promise<boolean> {
-  const cmd = `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`
-  console.log(`[启动抖音] ${cmd}`)
-  if (adb) {
-    try {
-      adb.shell(cmd)
-      return true
-    } catch (e) {
-      console.warn(`[启动抖音] adb 失败, 降级HTTP: ${e}`)
-      return sh(apiPort, cmd, signal)
+  console.log(`[启动抖音] 强制重启抖音到首页...`)
+  const cmds = [
+    `am force-stop ${DOUYIN_PKG}`,   // 1. 先强制关闭
+    `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`,  // 2. 冷启动
+  ]
+  for (const cmd of cmds) {
+    if (signal?.aborted) return false
+    if (adb) {
+      try { adb.shell(cmd) } catch { console.warn(`[启动] adb失败: ${cmd}`); return sh(apiPort, cmd, signal) }
+    } else {
+      const ok = await sh(apiPort, cmd, signal)
+      if (!ok) console.warn(`[启动] 命令失败: ${cmd}`)
     }
+    await sleep(1500, signal)  // 每步之间等1.5秒
   }
-  return sh(apiPort, cmd, signal)
+  console.log(`[启动抖音] 完成，等待页面加载...`)
+  // 额外等4秒让首页完全加载
+  await sleep(4000, signal)
+  return true
 }
 
 // ==================== 页面类型检测 ====================
@@ -325,6 +334,11 @@ export async function aiPublishVideoWorkflow(
   let inputDone = false
   let doneLoopCount = 0
   let shootAlbumFailCount = 0  // shoot→相册 特殊计数器
+  let desktopRetryCount = 0    // 桌面检测重试计数
+
+  // ★ 注意：不在这里启动抖音！调用方(route.ts)已经负责：
+  //   force-stop → am start → 等12~15秒 → 刷2条视频 → 再调本函数
+  //   此时抖音已在首页稳定状态，直接开始操作即可
 
   for (let loop = 0; loop < maxLoops; loop++) {
     // ---- 超时检查 ----
@@ -434,11 +448,11 @@ export async function aiPublishVideoWorkflow(
         continue
       }
 
-      // 策略C：VL 也找不到 → 重启抖音到首页重新走流程
+      // 策略C：VL 也找不到 → 按 Back 回首页重新走流程（不重启抖音！）
       if (shootAlbumFailCount >= 2) {
-        console.log(`[策略] shoot→相册 XML找不到(#${shootAlbumFailCount})，重启抖音到首页...`)
-        await launchDouyin(apiPort, signal, adb)
-        await sleep(5000, signal)  // 等待抖音首页加载
+        console.log(`[策略] shoot→相册 失败(#${shootAlbumFailCount})，回首页重试...`)
+        await goBack(apiPort, 5, signal, adb)
+        await sleep(4000, signal)
         learner.clearAll()
         failTracker.clear()
         shootAlbumFailCount = 0
@@ -463,10 +477,10 @@ export async function aiPublishVideoWorkflow(
       console.log(`[${TS()}] [⚠️循环] 连续 ${failure.count} 次: ${failure.pageType} → ${failure.action}/${failure.target}`)
       console.log(`[⚠️历史] ${failTracker.getSummary()}`)
 
-      // 重启抖音到首页（比 goBack 可靠）
-      console.log(`[恢复] 重启抖音到首页...`)
-      await launchDouyin(apiPort, signal, adb)
-      await sleep(5000, signal)
+      // 按 Back 回首页（不重启抖音）
+      console.log(`[恢复] 回首页重试...`)
+      await goBack(apiPort, 5, signal, adb)
+      await sleep(4000, signal)
       learner.clearAll()
       failTracker.clear()
       samePageCount = 0
@@ -484,24 +498,37 @@ export async function aiPublishVideoWorkflow(
     }
 
     if (samePageCount > 8) {
-      console.log(`[${TS()}] [卡住] 同页 ${samePageCount} 次, 重启抖音到首页`)
-      await launchDouyin(apiPort, signal, adb)
+      console.log(`[${TS()}] [卡住] 同页 ${samePageCount} 次, 回首页重试`)
+      await goBack(apiPort, 5, signal, adb)
       learner.clearAll(); failTracker.clear()
-      await sleep(5000, signal)
+      await sleep(4000, signal)
       samePageCount = 0; lastAnalysisHash = ''
       continue
     }
 
-    // ---- 未知页面/桌面 特殊处理 ----
+    // ---- 未知页面/桌面 特殊处理（限制重试，防止死循环）----
+    // 注意：不重启抖音！调用方负责启动。这里只做轻量恢复
     if (pageType === 'unknown') {
       const isDesktop = dec.analysis.includes('主屏幕') || dec.analysis.includes('桌面') || dec.analysis.includes('未进入抖音')
       if (isDesktop || (dec.action === 'click' && (dec.target_desc.includes('抖音') || dec.target_desc.includes('App')))) {
-        console.log(`[恢复] 检测到桌面/未打开抖音, 用 am start 启动...`)
-        await launchDouyin(apiPort, signal, adb)
-        await sleep(5000, signal)
-        failTracker.clear()
-        continue
+        desktopRetryCount++
+        console.log(`[恢复] 检测到非抖音页面(#${desktopRetryCount})...`)
+        if (desktopRetryCount <= 2) {
+          // 按 HOME 键回到抖音（抖音应该在后台）
+          if (adb) { try { adb.shell('input keyevent KEYCODE_HOME') } catch {} }
+          else { await sh(apiPort, 'input keyevent KEYCODE_HOME', signal) }
+          await sleep(4000, signal)
+          failTracker.clear()
+          continue
+        }
+        // 超过2次还是异常状态 → 直接返回失败
+        console.log(`[恢复] 异常状态持续, 返回失败`)
+        return { success: false, message: '设备不在抖音App内，无法继续操作' }
       }
+      // unknown 但不是桌面 → 重置计数
+      desktopRetryCount = 0
+    } else {
+      desktopRetryCount = 0  // 正常页面时重置
     }
 
     // ---- 常规坐标确定 ----
