@@ -149,20 +149,21 @@ async function forceClickButton(
 ): Promise<void> {
   console.log(`[forceClick] ${buttonName} → (${x},${y}) 开始三重保险...`)
   
-  // 第一重：smartTap 中心点（250ms 按压，确保触发 TouchDelegate）
-  await smartTap(apiPort, x, y, 250, signal, adb)
-  await sleep(800, signal)  // 等待 UI 响应
+  // 第一重：smartTap 中心点（300ms 按压，确保触发 TouchDelegate）
+  await smartTap(apiPort, x, y, 300, signal, adb)
+  await sleep(1000, signal)  // 等待 UI 响应
   
-  // 第二重：偏移 +30px 再试一次（避开文字 TextView，点父容器实体区域）
-  await smartTap(apiPort, x + 30, y, 250, signal, adb)
-  await sleep(500, signal)
+  // ★★ 第二重：偏移 +30,+20 再试一次（避开文字 TextView，点父容器按钮实体区域）
+  await smartTap(apiPort, x + 30, y + 20, 300, signal, adb)
+  await sleep(800, signal)
   
-  // 第三重：KEYCODE_ENTER 物理键（触发布局焦点默认行为）
+  // 第三重：兜底 — 直接用 input tap 精确点击（绕过 swipe 的可能误判）
   if (adb) {
-    try { adb.shell('input keyevent KEYCODE_ENTER') } catch {}
+    try { adb.shell(`input tap ${Math.round(x)} ${Math.round(y)}`) } catch {}
   } else {
-    await sh(apiPort, 'input keyevent KEYCODE_ENTER', signal)
+    await sh(apiPort, `input tap ${Math.round(x)} ${Math.round(y)}`, signal)
   }
+  await sleep(500, signal)
   
   console.log(`[forceClick] ${buttonName} → 完成！`)
 }
@@ -662,16 +663,25 @@ export async function aiPublishVideoWorkflow(
         console.log(`[${TS()}] [×停留] 页面还是${currentStep}, 未切换，计入重试`)
         stepRetryCount++
         if (stepRetryCount >= MAX_STEP_RETRY) {
-          console.log(`[${TS()}] [重置] ${currentStep} 页面不变${stepRetryCount}次, 重启抖音...`)
-          await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
-          await sleep(1000, signal)
-          await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
-          await sleep(5000, signal)
-          currentStep = 'HOME_PLUS'
-          stepRetryCount = 0
-          _albumSubStep = ''
-          _editSubStep = ''
-          if (loopCount > 15) return { success: false, message: `重试过多,最后:${currentStep}` }
+          // ★★ ALBUM_PICK 特殊策略：不重启App，执行 KEYCODE_BACK 后强制推进到 CLICK_NEXT
+          if (currentStep === 'ALBUM_PICK') {
+            console.log(`[${TS()}] [ALBUM_PICK防死循环] 重试${stepRetryCount}次, 执行BACK后强制推进到"下一步"`)
+            await goBack(apiPort, 1, signal, adb)  // KEYCODE_BACK 一次
+            await sleep(1500, signal)
+            _albumSubStep = 'CLICK_NEXT'  // ★ 强制跳到点下一步！
+            stepRetryCount = 0  // 重置重试计数
+          } else {
+            console.log(`[${TS()}] [重置] ${currentStep} 页面不变${stepRetryCount}次, 重启抖音...`)
+            await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
+            await sleep(1000, signal)
+            await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
+            await sleep(5000, signal)
+            currentStep = 'HOME_PLUS'
+            stepRetryCount = 0
+            _albumSubStep = ''
+            _editSubStep = ''
+            if (loopCount > 15) return { success: false, message: `重试过多,最后:${currentStep}` }
+          }
         }
       } else {
         // 页面跳到了意外步骤
@@ -693,32 +703,51 @@ export async function aiPublishVideoWorkflow(
           console.log(`[${TS()}] [异常] 跳到${verify.step}(顺序异常), 重试${currentStep}`)
           stepRetryCount++
           if (stepRetryCount >= MAX_STEP_RETRY) {
-            console.log(`[${TS()}] [重置] 异常重试耗尽, 重启抖音...`)
-            await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
-            await sleep(1000, signal)
-            await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
-            await sleep(5000, signal)
-          currentStep = 'HOME_PLUS'
-          stepRetryCount = 0
-          _albumSubStep = ''
-          _editSubStep = ''
-        }
+            // ★★ ALBUM_PICK 特殊策略
+            if (currentStep === 'ALBUM_PICK') {
+              console.log(`[${TS()}] [ALBUM_PICK防死循环] 异常重试${stepRetryCount}次, BACK后强制推进到"下一步"`)
+              await goBack(apiPort, 1, signal, adb)
+              await sleep(1500, signal)
+              _albumSubStep = 'CLICK_NEXT'
+              stepRetryCount = 0
+            } else {
+              console.log(`[${TS()}] [重置] 异常重试耗尽, 重启抖音...`)
+              await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
+              await sleep(1000, signal)
+              await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
+              await sleep(5000, signal)
+            currentStep = 'HOME_PLUS'
+            stepRetryCount = 0
+            _albumSubStep = ''
+            _editSubStep = ''
+            }
+          }
         }
       }
     } else {
       stepRetryCount++
       if (stepRetryCount >= MAX_STEP_RETRY) {
-        console.log(`[${TS()}] [重置] ${currentStep} 失败${stepRetryCount}次, 重启抖音...`)
-        await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
-        await sleep(1000, signal)
-        await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
-        await sleep(5000, signal)
-      currentStep = 'HOME_PLUS'
-      stepRetryCount = 0
-      _albumSubStep = ''
-      _editSubStep = ''
-      if (loopCount > 15) {  // 安全保护
-          return { success: false, message: `重试过多,最后步骤:${currentStep}` }
+        // ★★ ALBUM_PICK 特殊策略：不重启App，BACK后强制推进到"下一步"
+        if (currentStep === 'ALBUM_PICK') {
+          console.log(`[${TS()}] [ALBUM_PICK防死循环] 操作失败${stepRetryCount}次, BACK后强制推进到"下一步"`)
+          await goBack(apiPort, 1, signal, adb)
+          await sleep(1500, signal)
+          _albumSubStep = 'CLICK_NEXT'  // ★ 强制跳过选视频，直接点下一步
+          stepRetryCount = 0
+          console.log(`[${TS()}] [重试] 已重置，下一轮将直接执行CLICK_NEXT`)
+        } else {
+          console.log(`[${TS()}] [重置] ${currentStep} 失败${stepRetryCount}次, 重启抖音...`)
+          await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
+          await sleep(1000, signal)
+          await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
+          await sleep(5000, signal)
+        currentStep = 'HOME_PLUS'
+        stepRetryCount = 0
+        _albumSubStep = ''
+        _editSubStep = ''
+        if (loopCount > 15) {  // 安全保护
+            return { success: false, message: `重试过多,最后步骤:${currentStep}` }
+          }
         }
       } else {
         console.log(`[${TS()}] [重试] ${stepRetryCount}/${MAX_STEP_RETRY}`)
@@ -989,7 +1018,7 @@ async function executeStep(
                 console.log(`  #${i} [${c.node.className}] (${c.x},${c.y}) ${c.w}x${c.h} ${marker}`)
               }
 
-              // ★★★ 新策略：固定比例坐标优先（抖音布局稳定）+ 不依赖"未选中"验证 ★★★
+              // ★★★ 新策略：固定比例坐标优先（抖音布局稳定）+ 无脑强制推进 ★★★
               
               // 策略A（首选）：固定比例坐标 - 抖音相册第一个视频缩略图位置稳定
               const fixedCoord = getFixedCoords(screenW, screenH, 'FIRST_VIDEO_THUMB')
@@ -998,48 +1027,18 @@ async function executeStep(
               // 使用 smartDoubleTap 点击（人类模拟模式）
               await smartDoubleTap(apiPort, fixedCoord.x, fixedCoord.y, signal, adb)
               
-              // ★ 关键改变：不检查"未选中"！而是等待后直接检测页面是否有"下一步"
-              await sleep(2500, signal)  // 给足时间让 UI 刷新
+              // ★★★ 关键修改：取消对"选中标志"的等待验证，直接进入下一步！
+              // 抖音的 desc 不会刷新显示"选中"，等待验证只会导致死循环
+              console.log(`[强制推进] 点击后强制尝试点击"下一步"，跳过选中验证`)
+              await sleep(2000, signal)  // 给予 2 秒预留时间给 UI 解析
               
-              // 检测是否出现了"下一步"按钮（这才是真正选中的标志！）
-              try {
-                const nextCheck = await findAnyText(apiPort, ['下一步'], screenH)
-                if (nextCheck) {
-                  console.log(`[选中验证✓] 检测到"下一步"按钮 → (${nextCheck.x},${nextCheck.y}), 视频已选中！`)
-                  _albumSubStep = 'CLICK_NEXT'
-                  return { success: true, action: '固定坐标+smartDoubleTap选视频(成功)', message: `(${fixedCoord.x},${fixedCoord.y}) [${fixedCoord.reason}]`, waitMs: 3000 }
-                }
-                console.log(`[选中验证?] 未检测到"下一步", 可能没选中或UI还在刷新...`)
-              } catch (e) {
-                console.log(`[选中验证] 异常: ${e}`)
+              _albumSubStep = 'CLICK_NEXT'
+              return { 
+                success: true, 
+                action: '选视频(强制推进)', 
+                message: `(${fixedCoord.x},${fixedCoord.y}) [${fixedCoord.reason}]`, 
+                waitMs: 500 
               }
-
-              // 策略B：如果固定坐标失败，尝试 XML 容器中心
-              let fallbackX = 0, fallbackY = 0
-              const clickableOnes = allContainers.filter(c => c.clickable && c.area < screenW * screenH * 0.3)
-              if (clickableOnes.length > 0) {
-                const best = clickableOnes[clickableOnes.length - 1]
-                fallbackX = Math.round(best.x + best.w / 2)
-                fallbackY = Math.round(best.y + best.h / 2)
-                console.log(`[选视频→策略B] 容器中心 → (${fallbackX},${fallbackY})`)
-                
-                await smartDoubleTap(apiPort, fallbackX, fallbackY, signal, adb)
-                await sleep(2500, signal)
-                
-                // 再次检查"下一步"
-                try {
-                  const nextCheck2 = await findAnyText(apiPort, ['下一步'], screenH)
-                  if (nextCheck2) {
-                    console.log(`[选中验证✓] 策略B成功！检测到"下一步" → 视频已选中！`)
-                    _albumSubStep = 'CLICK_NEXT'
-                    return { success: true, action: '策略B选视频(成功)', message: `(${fallbackX},${fallbackY})`, waitMs: 3000 }
-                  }
-                } catch {}
-              }
-              
-              // 所有策略都失败了
-              console.log(`[选中验证✗] 固定坐标和XML容器都未能选中视频, 返回重试`)
-              return { success: false, action: '选视频失败(固定+XML都无效)', message: `固定(${fixedCoord.x},${fixedCoord.y}) + 容器(${fallbackX},${fallbackY})`, waitMs: 2000 }
             } else {
               console.log(`[时长锚点✗] 未找到时长格式文字(如00:15)`)
             }
