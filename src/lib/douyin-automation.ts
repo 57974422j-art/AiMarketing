@@ -233,7 +233,7 @@ async function goBack(apiPort: number, times: number, signal?: AbortSignal, adb?
 
 // ==================== 页面检测（基于XML，不用AI）====================
 
-type WorkflowStep = 'HOME_PLUS' | 'SHOOT_ALBUM' | 'ALBUM_PICK' | 'EDIT_TITLE' | 'SELECT_POI' | 'PUBLISH_BTN' | 'DONE'
+type WorkflowStep = 'HOME_PLUS' | 'SHOOT_ALBUM' | 'ALBUM_PICK' | 'VIDEO_PREVIEW' | 'EDIT_TITLE' | 'SELECT_POI' | 'PUBLISH_BTN' | 'DONE'
 
 /**
  * 通过 XML 文字特征判断当前页面类型
@@ -258,10 +258,16 @@ async function detectCurrentPage(apiPort: number): Promise<{
       t === '首页' || t === '朋友' || t === '消息' || t === '我' ||
       t.includes('推荐') || t.includes('关注') ||
       t === '相册' || t.includes('发布') || t.includes('发作品') ||
-      t.includes('添加标题') || t.includes('确定') || t === '完成'
+      t.includes('添加标题') || t.includes('确定') || t === '完成' ||
+      // ★ 视频预览/编辑页特征（图2/图3）
+      t === '下一步' || t === '一键成片' || t === '推荐特效' || t.includes('限时')
     ) || texts.some(t =>
       t === '全部' || t === '视频' || t === '图片' ||
-      t.includes('发布成功') || t.includes('已发布')
+      t.includes('发布成功') || t.includes('已发布') ||
+      // ★ 视频预览/编辑页独有特征
+      t === '剪辑' || t === '文字' || t === '话题' || t === '贴纸' ||
+      t === '特效' || t === '滤镜' || t === '更多' || t === '设置' ||
+      t.includes('存草稿') || t.includes('继续编辑')
     )
 
     if (!hasDouyinFeature && texts.length > 0) {
@@ -314,6 +320,33 @@ async function detectCurrentPage(apiPort: number): Promise<{
       t.includes('最近视频') || t.includes('选择视频') || t.includes('相册选择')
     )) {
       return { step: 'ALBUM_PICK', evidence: '相册页(有全部/视频/图片标签)', xmlTexts: clickableTexts, isDesktop: false }
+    }
+
+    // ★★ --- 视频预览/编辑页（选视频后的中间页面）★★
+    // 这是 ALBUM_PICK 点"下一步"后进入的页面，有两种形态：
+    //   图2(纯预览): 有暂停按钮 + 进度条 + "下一步" + "一键成片"
+    //   图3(编辑工具): 右侧工具栏(剪辑/文字/话题/滤镜等) + 底部"下一步"
+    // 此页面在 ALBUM_PICK 之后、EDIT_TITLE 之前，需要点"下一步"才能进编辑标题页
+    const editToolFeatures = ['剪辑', '文字', '话题', '贴纸', '特效', '滤镜', '更多', '设置', '推荐特效']
+    const hasEditTools = texts.some(t => editToolFeatures.includes(t))
+    // 通过 XML 节点类型检测 SeekBar/ProgressBar（进度条）和暂停图标
+    let hasVideoPlayerUI = false
+    try {
+      const playerDump = await UI.dumpXml(apiPort)
+      if (playerDump.success && playerDump.data) {
+        const pNodes = UI.parseUiXml(playerDump.data)
+        hasVideoPlayerUI = pNodes.some((n: any) =>
+          n.className?.includes('SeekBar') || n.className?.includes('ProgressBar') ||
+          n.contentDesc?.includes('暂停') || n.contentDesc?.includes('播放')
+        )
+      }
+    } catch {}
+    
+    if (hasEditTools || hasVideoPlayerUI) {
+      const foundFeature = hasEditTools 
+        ? texts.find((t: string) => editToolFeatures.includes(t)) || '编辑工具'
+        : hasVideoPlayerUI ? '视频播放器(暂停/进度条)' : ''
+      return { step: 'VIDEO_PREVIEW', evidence: `视频预览/编辑页(有${foundFeature})`, xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 拍摄页：有"相册"文字（兜底，通过底部按钮判断）---
@@ -1223,8 +1256,51 @@ async function executeStep(
       }
 
       // 兜底
-      _albumSubStep = 'SWITCH_VIDEO_TAB'
+      _albumSubStep = 'SWITCH_VIDEO_TABLE'  // 重置子步骤
       return { success: false, action: '相册未知子步骤', message: String(subStep), waitMs: 2000 }
+    }
+
+    // ========================================
+    // STEP 3.5: 视频预览/编辑页 → 点"下一步"进入标题编辑页
+    // ========================================
+    // 这个页面是 ALBUM_PICK 点"下一步"后进入的中间页面（图2/图3）
+    // 图2 = 纯视频预览(暂停+进度条+下一步)
+    // 图3 = 编辑工具页(剪辑/文字/话题/滤镜等 + 下一步)
+    // 两个页面都有"下一步"按钮，坐标几乎相同！
+    case 'VIDEO_PREVIEW': {
+      // ★ 随机等待 3~8 秒让UI完全渲染（模拟人类浏览）
+      const waitMs = 3000 + Math.floor(Math.random() * 5001)
+      console.log(`[预览页] 等待${(waitMs/1000).toFixed(1)}s...`)
+      await sleep(waitMs, signal)
+
+      // 获取"下一步"按钮坐标 — 固定比例（截图实测校正）
+      const fixedNext = getFixedCoords(screenW, screenH, 'NEXT_BTN')
+      let clickX = fixedNext.x
+      let clickY = fixedNext.y
+
+      // 尝试XML搜索补充确认
+      try {
+        const nextSearch = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
+        if (nextSearch && nextSearch.y > screenH * 0.15) {
+          clickX = nextSearch.x
+          clickY = nextSearch.y
+          console.log(`[预览页✓] 找到"${nextSearch.textHint}" → (${clickX},${clickY})`)
+        } else {
+          console.log(`[预览页] "下一步" → (${clickX},${clickY}) ${fixedNext.reason}`)
+        }
+      } catch {}
+
+      // 第1次点击：随机压持 220~300ms
+      const duration1 = 220 + Math.floor(Math.random() * 81)
+      console.log(`[预览页] 点击"下一步": (${clickX},${clickY}) 压持${duration1}ms`)
+      await smartTap(apiPort, clickX, clickY, duration1, signal, adb)
+
+      return { 
+        success: true, 
+        action: '预览页点"下一步"', 
+        message: `(${clickX},${clickY}) d=${duration1}ms`, 
+        waitMs: 6000  // 给足时间跳转到 EDIT_TITLE
+      }
     }
 
     // ========================================
@@ -1660,8 +1736,9 @@ function getNextStep(current: WorkflowStep): WorkflowStep {
   switch (current) {
     case 'HOME_PLUS': return 'SHOOT_ALBUM'
     case 'SHOOT_ALBUM': return 'ALBUM_PICK'
-    case 'ALBUM_PICK': return 'EDIT_TITLE'
-    case 'EDIT_TITLE': return _safeLocation ? 'SELECT_POI' : 'PUBLISH_BTN'   // 有位置才走SELECT_POI，否则跳过
+    case 'ALBUM_PICK': return 'VIDEO_PREVIEW'      // ★ 选视频后进入视频预览/编辑页
+    case 'VIDEO_PREVIEW': return 'EDIT_TITLE'       // ★ 预览页点"下一步"后进入标题编辑页
+    case 'EDIT_TITLE': return _safeLocation ? 'SELECT_POI' : 'PUBLISH_BTN'
     case 'SELECT_POI': return 'PUBLISH_BTN'
     case 'PUBLISH_BTN': return 'DONE'
     default: return 'HOME_PLUS'
@@ -1674,6 +1751,7 @@ function stepToOrder(step: WorkflowStep): number {
     case 'HOME_PLUS': return 1
     case 'SHOOT_ALBUM': return 2
     case 'ALBUM_PICK': return 3
+    case 'VIDEO_PREVIEW': return 3.5             // ★ 在 ALBUM_PICK 和 EDIT_TITLE 之间
     case 'EDIT_TITLE': return 4
     case 'SELECT_POI': return 5
     case 'PUBLISH_BTN': return 6
