@@ -305,6 +305,8 @@ interface WorkflowOptions {
 /** 模块级变量：安全标题和话题（executeStep 需要访问） */
 let _safeTitle = ''
 let _safeTopics = ''
+/** 模块级变量：ALBUM_PICK 子步骤状态 */
+let _albumSubStep = ''
 
 /**
  * 抖音自动发布视频 — 固定流程版本 v2
@@ -371,6 +373,7 @@ export async function aiPublishVideoWorkflow(
       await sleep(5000, signal)  // 等抖音加载完
       currentStep = 'HOME_PLUS'
       stepRetryCount = 0
+      _albumSubStep = ''
       continue
     }
 
@@ -416,6 +419,7 @@ export async function aiPublishVideoWorkflow(
           await sleep(5000, signal)
           currentStep = 'HOME_PLUS'
           stepRetryCount = 0
+          _albumSubStep = ''
           if (loopCount > 15) return { success: false, message: `重试过多,最后:${currentStep}` }
         }
       } else {
@@ -444,6 +448,7 @@ export async function aiPublishVideoWorkflow(
             await sleep(5000, signal)
             currentStep = 'HOME_PLUS'
             stepRetryCount = 0
+            _albumSubStep = ''
           }
         }
       }
@@ -457,6 +462,7 @@ export async function aiPublishVideoWorkflow(
         await sleep(5000, signal)
         currentStep = 'HOME_PLUS'
         stepRetryCount = 0
+        _albumSubStep = ''
         if (loopCount > 15) {  // 安全保护
           return { success: false, message: `重试过多,最后步骤:${currentStep}` }
         }
@@ -601,125 +607,157 @@ async function executeStep(
     }
 
     // ========================================
-    // STEP 3: 相册页 → 选择视频 + 点下一步
+    // STEP 3: 相册页 → 切"视频"标签 → 选视频(有O播放图标) → 点"下一步"
     // ========================================
     case 'ALBUM_PICK': {
-      // ═══ Layer 1: VL视觉找红色/橙色"下一步""发布""确定"按钮 ═══
-      // 抖音相册页选中视频后，底部会出现红色/橙色的"下一步"或"发布"按钮
-      console.log(`[策略A] VL找红色卡片下一步/发布按钮...`)
-      const vlNext = await locateElement(b64, '抖音相册页面底部红色的"下一步"或"发布"或"确定"按钮，通常是红底白字或橙色的圆角矩形按钮')
-      if (vlNext && isVlCoordValid(vlNext.x, vlNext.y, screenW, screenH) && vlNext.y > screenH * 0.7) {
-        console.log(`[VL✓] 红色下一步/发布 → (${vlNext.x},${vlNext.y})`)
-        await doTap(apiPort, vlNext.x, vlNext.y, signal, adb)
-        return { success: true, action: 'VL找红色下一步', message: `(${vlNext.x},${vlNext.y})`, waitMs: 4000 }
-      }
-      if (vlNext) {
-        console.log(`[VL✗] 下一步坐标不合理 (${vlNext.x},${vlNext.y}), 忽略`)
-      }
+      // 子步骤状态（跨重试保持）
+      let subStep = _albumSubStep || 'SWITCH_VIDEO_TAB'  // 默认从切标签开始
 
-      // ═══ Layer 2: XML dump 找确认/发布类按钮（扩大搜索词）═══
-      const xmlConfirm = await locateByText(apiPort, [
-        '确定', '完成', '下一步', '继续', '确认',
-        '发布', '发作品', '立即发布', '发送',
-        '选好了', '好了', 'OK'
-      ], 2000)
-      if (xmlConfirm) {
-        await doTap(apiPort, xmlConfirm.x, xmlConfirm.y, signal, adb)
-        return { success: true, action: 'XML找确认/发布', message: `(${xmlConfirm.x},${xmlConfirm.y})`, waitMs: 4000 }
-      }
-
-      // ═══ Layer 3: dumpXml 选第一个视频缩略图（严格过滤）═══
-      try {
-        const dumpResult = await UI.dumpXml(apiPort)
-        if (dumpResult.success && dumpResult.data) {
-          const nodes = UI.parseUiXml(dumpResult.data)
-          const candidates: { x: number; y: number; w: number; h: number; info: string }[] = []
-
-          for (const node of nodes) {
-            const b = UI.parseBounds(node.bounds)
-            if (!b) continue
-
-            // 基础过滤
-            if (b.width < 120 || b.height < 120) continue   // 太小的忽略
-            if (b.y < screenH * 0.12) continue               // 排除顶部导航栏/标签栏
-            if (b.y > screenH * 0.80) continue               // 排除底部操作栏
-
-            // ★★ 排除系统无障碍提示的元素（如"点按两次即可激活"）
-            if (node.contentDesc && (
-              node.contentDesc.includes('点按') || node.contentDesc.includes('双击') ||
-              node.contentDesc.includes('激活') || node.contentDesc.includes('double tap')
-            )) continue
-
-            // 排除纯文字节点（不是图片）
-            if (node.text && !node.className.includes('Image') && b.height < 150) continue
-
-            // 优先：RecyclerView/GridView 子容器（相册网格项）
-            if (node.className.includes('RecyclerView') ||
-                node.className.includes('GridView') ||
-                node.className.includes('FrameLayout') && b.width > 180 && b.height > 180) {
-              candidates.push({
-                x: Math.round(b.x + b.width / 2),
-                y: Math.round(b.y + b.height / 2),
-                w: b.width, h: b.height,
-                info: `${node.className} text=${node.text || '-'}`
-              })
-            }
-            // 其次：大的 ImageView 且没有系统desc
-            else if (node.className.includes('ImageView') &&
-                     b.width > 180 && b.height > 180 &&
-                     !node.contentDesc) {
-              candidates.push({
-                x: Math.round(b.x + b.width / 2),
-                y: Math.round(b.y + b.height / 2),
-                w: b.width, h: b.height,
-                info: `ImageView clean desc=空`
-              })
-            }
-          }
-
-          // 取面积最大且位置最靠左上角的（第一个网格项）
-          if (candidates.length > 0) {
-            candidates.sort((a, b) => (b.w * b.h) - (a.w * a.h))
-            // 从面积最大的前3个中取y坐标最小的（最上面的 = 第一个）
-            const topCandidates = candidates.slice(0, Math.min(3, candidates.length))
-            topCandidates.sort((a, b) => a.y - b.y)
-            const pick = topCandidates[0]
-            console.log(`[相册XML✓] ${candidates.length}个候选, 选左上 → (${pick.x},${pick.y}) [${pick.info}]`)
-            await doTap(apiPort, pick.x, pick.y, signal, adb)
-
-            // ★★ 点击完缩略图后，立刻再尝试找"下一步"按钮！
-            await sleep(1500, signal)
-            const afterPick = await locateByText(apiPort, [
-              '确定', '完成', '下一步', '继续', '确认', '发布', '发作品', '好了'
-            ], 2000)
-            if (afterPick) {
-              console.log(`[选中后] 找到确认按钮 → (${afterPick.x},${afterPick.y})`)
-              await doTap(apiPort, afterPick.x, afterPick.y, signal, adb)
-            }
-            return { success: true, action: 'XML选视频+确认', message: `(${pick.x},${pick.y})`, waitMs: 4000 }
-          } else {
-            console.log(`[相册XML✗] 未找到有效缩略图`)
-          }
+      // ════════ Sub-A: 切到"视频"标签 ════════
+      if (subStep === 'SWITCH_VIDEO_TAB') {
+        // 先尝试直接找并点击 "视频" 标签（灰色文字，在"全部"旁边）
+        const videoTab = await locateByText(apiPort, ['视频'], 2000)
+        if (videoTab) {
+          console.log(`[相册-切标签] 找到"视频"标签 → (${videoTab.x},${videoTab.y}), 点击切换`)
+          await doTap(apiPort, videoTab.x, videoTab.y, signal, adb)
+          _albumSubStep = 'PICK_VIDEO'
+          return { success: true, action: '切视频标签', message: `(${videoTab.x},${videoTab.y})`, waitMs: 2000 }
         }
-      } catch (e) {
-        console.log(`[相册XML✗] 异常: ${e}`)
+
+        // 如果没找到"视频"，先点"全部"确保在正确的标签页
+        const allTab = await locateByText(apiPort, ['全部'], 1500)
+        if (allTab) {
+          console.log(`[相册-切标签] 先点"全部" → (${allTab.x},${allTab.y})`)
+          await doTap(apiPort, allTab.x, allTab.y, signal, adb)
+          _albumSubStep = 'SWITCH_VIDEO_TAB'  // 下一轮再找"视频"
+          return { success: true, action: '点全部标签', message: `(${allTab.x},${allTab.y})`, waitMs: 1500 }
+        }
+
+        // 都找不到，可能已经在视频页了，跳到选视频
+        console.log(`[相册-切标签] 未找到标签按钮，可能已选中，进入选视频`)
+        _albumSubStep = 'PICK_VIDEO'
+        // 不return，直接fallthrough到下一步
       }
 
-      // ═══ Layer 4: VL找视频缩略图 ═══
-      console.log(`[策略D] 全部失败, VL找视频缩略图...`)
-      const vlThumb = await locateElement(b64, '相册中左上角第一个视频或图片缩略图')
-      if (vlThumb && isVlCoordValid(vlThumb.x, vlThumb.y, screenW, screenH)) {
-        console.log(`[VL✓] 缩略图 → (${vlThumb.x},${vlThumb.y})`)
-        await doTap(apiPort, vlThumb.x, vlThumb.y, signal, adb)
-        return { success: true, action: 'VL定位缩略图', message: `(${vlThumb.x},${vlThumb.y})`, waitMs: 4000 }
+      // ════════ Sub-B: 选视频缩略图（找带O播放图标的）═══════
+      if (subStep === 'PICK_VIDEO') {
+        // ★★ Layer 1: VL视觉识别 — 告诉AI这是抖音相册页，找带播放图标(O)的视频
+        console.log(`[相册-选视频] VL找带O播放图标的视频...`)
+        const vlThumb = await locateElement(
+          b64,
+          '这是抖音APP的相册选择页面。请找到屏幕中左上角第一个视频缩略图，视频缩略图上通常有一个圆形的O形播放按钮图标覆盖在上面。请点击那个视频缩略图的中心位置。'
+        )
+        if (vlThumb && isVlCoordValid(vlThumb.x, vlThumb.y, screenW, screenH) && vlThumb.y > screenH * 0.15 && vlThumb.y < screenH * 0.80) {
+          console.log(`[VL✓] 视频缩略图(带O) → (${vlThumb.x},${vlThumb.y})`)
+          await doTap(apiPort, vlThumb.x, vlThumb.y, signal, adb)
+          _albumSubStep = 'CLICK_NEXT'
+          return { success: true, action: 'VL选视频(带O)', message: `(${vlThumb.x},${vlThumb.y})`, waitMs: 2000 }
+        }
+        if (vlThumb) {
+          console.log(`[VL✗] 缩略图坐标不合理 (${vlThumb.x},${vlThumb.y})`)
+        } else {
+          console.log(`[VL✗] 未找到视频缩略图`)
+        }
+
+        // ★★ Layer 2: dumpXml 找视频相关元素
+        try {
+          const dumpResult = await UI.dumpXml(apiPort)
+          if (dumpResult.success && dumpResult.data) {
+            const nodes = UI.parseUiXml(dumpResult.data)
+            let bestNode: UI.UINode | null = null
+            let bestScore = 0
+
+            for (const node of nodes) {
+              const b = UI.parseBounds(node.bounds)
+              if (!b) continue
+              // 基础过滤：在内容区域
+              if (b.width < 150 || b.height < 150) continue
+              if (b.y < screenH * 0.14 || b.y > screenH * 0.82) continue
+
+              // ★★ 排除系统无障碍提示
+              if (node.contentDesc && (
+                node.contentDesc.includes('点按') || node.contentDesc.includes('双击') ||
+                node.contentDesc.includes('激活') || node.contentDesc.includes('double tap')
+              )) continue
+
+              // 评分规则：
+              let score = b.width * b.height  // 面积基础分
+              // ImageView 加分（图片/视频容器）
+              if (node.className.includes('ImageView')) score += 50000
+              // FrameLayout/RecyclerView（网格项）加分
+              if (node.className.includes('FrameLayout') || node.className.includes('RecyclerView')) score += 30000
+              // 有时长文字说明是视频（如 "0:05", "00:15" 等）
+              if (node.text && /^\d+:\d+$/.test(node.text)) score += 100000
+              // 有视频相关desc
+              if (node.contentDesc && (
+                node.contentDesc.includes('视频') || node.contentDesc.includes('video') ||
+                node.contentDesc.includes('播放') || node.contentDesc.includes('时长')
+              )) score += 80000
+
+              if (score > bestScore) { bestNode = node; bestScore = score }
+            }
+
+            if (bestNode && bestScore > 0) {
+              const b = UI.parseBounds(bestNode.bounds)!
+              const cx = Math.round(b.x + b.width / 2)
+              const cy = Math.round(b.y + b.height / 2)
+              console.log(`[相册XML✓] 选视频 → (${cx},${cy}) [${bestNode.className} text=${bestNode.text||'-'} desc=${bestNode.contentDesc||'-'} score=${bestScore}]`)
+              await doTap(apiPort, cx, cy, signal, adb)
+              _albumSubStep = 'CLICK_NEXT'
+              return { success: true, action: 'XML选视频', message: `(${cx},${cy})`, waitMs: 2000 }
+            } else {
+              console.log(`[相册XML✗] 未找到有效视频元素`)
+            }
+          }
+        } catch (e) {
+          console.log(`[相册XML✗] 异常: ${e}`)
+        }
+
+        // ★★ Layer 3: 比例坐标点第一个网格位置
+        const thumbX = Math.round(screenW * 0.18)
+        const thumbY = Math.round(screenH * 0.30)
+        console.log(`[相册-选视频] 比例坐标(兜底) → (${thumbX},${thumbY})`)
+        await doTap(apiPort, thumbX, thumbY, signal, adb)
+        _albumSubStep = 'CLICK_NEXT'
+        return { success: true, action: '比例坐标选视频', message: `(${thumbX},${thumbY})`, waitMs: 2000 }
       }
 
-      // ═══ Layer 5: 比例坐标终极兜底 ═══
-      const thumbX = Math.round(screenW * 0.18)
-      const thumbY = Math.round(screenH * 0.28)
-      console.log(`[策略E] 比例坐标(终极兜底) → (${thumbX},${thumbY})`)
-      await doTap(apiPort, thumbX, thumbY, signal, adb)
-      return { success: true, action: '比例坐标(兜底)', message: `(${thumbX},${thumbY})`, waitMs: 4000 }
+      // ════════ Sub-C: 点"下一步"按钮 ════════
+      if (subStep === 'CLICK_NEXT') {
+        // ★★ XML找"下一步"
+        const nextBtn = await locateByText(apiPort, ['下一步', '确定', '完成', '发布', '发作品', '好了'], 2500)
+        if (nextBtn) {
+          console.log(`[相册-下一步] ✓ 找到 → (${nextBtn.x},${nextBtn.y})`)
+          await doTap(apiPort, nextBtn.x, nextBtn.y, signal, adb)
+          _albumSubStep = 'SWITCH_VIDEO_TAB'  // 重置子步骤（如果下次回来）
+          return { success: true, action: '点下一步', message: `(${nextBtn.x},${nextBtn.y})`, waitMs: 4000 }
+        }
+
+        // ★★ VL找红色/橙色"下一步"按钮 — 带APP上下文
+        console.log(`[相册-下一步] VL找红/橙色下一步按钮...`)
+        const vlNext = await locateElement(
+          b64,
+          '这是抖音APP的相册页面。请在屏幕右下角或底部区域找一个红色的"下一步"按钮或者橙色的圆角矩形按钮。这个按钮通常是红底白字或橙底白字，位于屏幕底部操作栏的右侧。点击它继续发布流程。'
+        )
+        if (vlNext && isVlCoordValid(vlNext.x, vlNext.y, screenW, screenH) && vlNext.y > screenH * 0.7) {
+          console.log(`[VL✓] 下一步 → (${vlNext.x},${vlNext.y})`)
+          await doTap(apiPort, vlNext.x, vlNext.y, signal, adb)
+          _albumSubStep = 'SWITCH_VIDEO_TAB'
+          return { success: true, action: 'VL点下一步', message: `(${vlNext.x},${vlNext.y})`, waitMs: 4000 }
+        }
+        if (vlNext) {
+          console.log(`[VL✗] 下一步坐标不合理 (${vlNext.x},${vlNext.y})`)
+        }
+
+        // 没找到下一步按钮 → 可能没选中视频，回到选视频
+        console.log(`[相册-下一步] ✗ 未找到，回退到选视频`)
+        _albumSubStep = 'PICK_VIDEO'
+        return { success: false, action: '下一步未找到', message: '回退重新选视频', waitMs: 2000 }
+      }
+
+      // 兜底
+      _albumSubStep = 'SWITCH_VIDEO_TAB'
+      return { success: false, action: '相册未知子步骤', message: String(subStep), waitMs: 2000 }
     }
 
     // ========================================
