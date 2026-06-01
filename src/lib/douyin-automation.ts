@@ -479,15 +479,34 @@ export async function aiPublishVideoWorkflow(
       console.log(`[${TS()}] [验证] 点击后页面=${verify.step} (期望推进到 ${getNextStep(currentStep)})`)
 
       const expectedNext = getNextStep(currentStep)
-      if (verify.step === expectedNext || verify.step === 'DONE') {
+      // ★★ 关键修复：只有 PUBLISH_BTN → DONE 才算真正完成！
+      //    其他步骤检测到 DONE 是误判（如编辑页被误识别为发布成功），应视为异常
+      const isLegitimateDone = verify.step === 'DONE' && currentStep === 'PUBLISH_BTN'
+      if (verify.step === expectedNext || isLegitimateDone) {
         // 页面正确切换 → 推进步骤
         stepRetryCount = 0
-        if (verify.step === 'DONE') {
+        if (isLegitimateDone) {
           console.log(`[${TS()}] ========== 完成！视频已发布 ==========`)
           return { success: true, message: '视频已发布' }
         }
         console.log(`[${TS()}] [✓推进] ${currentStep} → ${verify.step}`)
         currentStep = verify.step
+      } else if (verify.step === 'DONE') {
+        // ★ 非发布步骤误判为DONE → 当作异常处理，重试当前步
+        console.log(`[${TS()}] [⚠误判DONE] 当前=${currentStep}但检测到DONE, 视为异常, 重试${currentStep}`)
+        stepRetryCount++
+        if (stepRetryCount >= MAX_STEP_RETRY) {
+          console.log(`[${TS()}] [重置] ${currentStep} 误判DONE重试耗尽, 重启抖音...`)
+          await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
+          await sleep(1000, signal)
+          await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
+          await sleep(5000, signal)
+          currentStep = 'HOME_PLUS'
+          stepRetryCount = 0
+          _albumSubStep = ''
+          _editSubStep = ''
+          if (loopCount > 15) return { success: false, message: `重试过多,最后:${currentStep}` }
+        }
       } else if (verify.step === currentStep) {
         // 页面没变 → 不推进，算重试
         console.log(`[${TS()}] [×停留] 页面还是${currentStep}, 未切换，计入重试`)
@@ -839,10 +858,36 @@ async function executeStep(
                 console.log(`[选视频→策略C] 无容器,估算 → (${tapX},${tapY})`)
               }
 
-              console.log(`[连击] (${tapX},${tapX})×2 via ${tapReason} (desc提示需点按两次激活)`)
+              console.log(`[连击] (${tapX},${tapY})×2 via ${tapReason} (desc提示需点按两次激活)`)
               await doTap(apiPort, tapX, tapY, signal, adb)
               await sleep(200, signal)
               await doTap(apiPort, tapX, tapY, signal, adb)
+
+              // ★ 快速验证：等1.5秒后dump XML检查是否已选中
+              await sleep(1500, signal)
+              try {
+                const selCheck = await UI.dumpXml(apiPort)
+                if (selCheck.success && selCheck.data) {
+                  const selNodes = UI.parseUiXml(selCheck.data)
+                  let stillUnselected = false
+                  for (const rawNode of selNodes) {
+                    const node = rawNode as { contentDesc?: string }
+                    if (node.contentDesc && node.contentDesc.includes('未选中')) {
+                      stillUnselected = true
+                      break
+                    }
+                  }
+                  if (stillUnselected) {
+                    console.log(`[选中验证✗] 双击后仍显示"未选中", 重试选视频...`)
+                    // 不推进到CLICK_NEXT，留在这个子步骤下次重试
+                    return { success: false, action: '视频未选中,重试', message: `(${tapX},${tapY})`, waitMs: 2000 }
+                  }
+                  console.log(`[选中验证✓] 视频已选中！`)
+                }
+              } catch (e) {
+                console.log(`[选中验证] 异常: ${e}, 假设已选中继续`)
+              }
+
               _albumSubStep = 'CLICK_NEXT'
               return { success: true, action: '时长锚点选视频(双击)', message: `(${tapX},${tapY})×2 via "${dur.node.text}" [${tapReason}]`, waitMs: 3000 }
             } else {
@@ -864,6 +909,18 @@ async function executeStep(
           await doTap(apiPort, vlThumb.x, vlThumb.y, signal, adb)
           await sleep(200, signal)
           await doTap(apiPort, vlThumb.x, vlThumb.y, signal, adb)
+          // 选中验证
+          await sleep(1500, signal)
+          try {
+            const vlSelCheck = await UI.dumpXml(apiPort)
+            if (vlSelCheck.success && vlSelCheck.data) {
+              const vNodes = UI.parseUiXml(vlSelCheck.data)
+              if (vNodes.some((n: any) => n.contentDesc?.includes('未选中'))) {
+                console.log(`[VL选中验证✗] 仍"未选中", 重试`)
+                return { success: false, action: 'VL视频未选中', message: `(${vlThumb.x},${vlThumb.y})`, waitMs: 2000 }
+              }
+            }
+          } catch {}
           _albumSubStep = 'CLICK_NEXT'
           return { success: true, action: 'VL选视频(双击)', message: `(${vlThumb.x},${vlThumb.y})×2`, waitMs: 3000 }
         }
@@ -880,6 +937,18 @@ async function executeStep(
         await doTap(apiPort, thumbX, thumbY, signal, adb)
         await sleep(200, signal)
         await doTap(apiPort, thumbX, thumbY, signal, adb)
+        // 选中验证
+        await sleep(1500, signal)
+        try {
+          const ratioSelCheck = await UI.dumpXml(apiPort)
+          if (ratioSelCheck.success && ratioSelCheck.data) {
+            const rNodes = UI.parseUiXml(ratioSelCheck.data)
+            if (rNodes.some((n: any) => n.contentDesc?.includes('未选中'))) {
+              console.log(`[比例选中验证✗] 仍"未选中", 重试`)
+              return { success: false, action: '比例视频未选中', message: `(${thumbX},${thumbY})`, waitMs: 2000 }
+            }
+          }
+        } catch {}
         _albumSubStep = 'CLICK_NEXT'
         return { success: true, action: '比例坐标选视频(双击)', message: `(${thumbX},${thumbY})×2`, waitMs: 3000 }
       }
