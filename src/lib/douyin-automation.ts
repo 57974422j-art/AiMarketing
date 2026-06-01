@@ -678,7 +678,7 @@ async function executeStep(
     // ========================================
     case 'ALBUM_PICK': {
       // 子步骤状态（跨重试保持）
-      let subStep = _albumSubStep || 'DIAGNOSE'  // ★ 改为从诊断开始
+      let subStep = _albumSubStep || 'DIAGNOSE'
 
       // ════════ Sub-0: 诊断 — 打印页面所有可见文字（首次进入时执行一次）═══════
       if (subStep === 'DIAGNOSE') {
@@ -686,18 +686,17 @@ async function executeStep(
           const dumpResult = await UI.dumpXml(apiPort)
           if (dumpResult.success && dumpResult.data) {
             const nodes = UI.parseUiXml(dumpResult.data)
-            // 收集屏幕上半部分~80%区域的所有有意义的文字节点（排除太小的）
             const visibleNodes = nodes.filter(n => {
-              if (!n.text || n.text.length > 20) return false  // 太长通常是组合文字
+              if (!n.text || n.text.length > 20) return false
               const b = UI.parseBounds(n.bounds)
               if (!b) return false
-              if (b.width < 20 || b.height < 10) return false   // 太小忽略
-              if (b.y < screenH * 0.03) return false             // 排除状态栏
-              if (b.y > screenH * 0.90) return false             // 排除导航栏
+              if (b.width < 20 || b.height < 10) return false
+              if (b.y < screenH * 0.03) return false
+              if (b.y > screenH * 0.90) return false
               return true
             })
             console.log(`[相册-诊断] 页面共有 ${visibleNodes.length} 个文字节点:`)
-            for (const n of visibleNodes.slice(0, 30)) {  // 最多打印30个
+            for (const n of visibleNodes.slice(0, 30)) {
               const b = UI.parseBounds(n.bounds)!
               console.log(`  "${n.text}" | ${n.className} | clickable=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height}) | desc="${(n.contentDesc||'').substring(0,30)}"`)
             }
@@ -706,16 +705,12 @@ async function executeStep(
           console.log(`[相册-诊断] dump异常: ${e}`)
         }
         _albumSubStep = 'SWITCH_VIDEO_TAB'
-        // 不return，继续往下走
+        subStep = 'SWITCH_VIDEO_TAB'  // ★ 关键修复：同步更新局部变量！
       }
 
       // ════════ Sub-A: 切到"视频"标签 ════════
       if (subStep === 'SWITCH_VIDEO_TAB') {
-        // ★★ 关键修复：用 findAnyText 而不是 locateByText！
-        // 抖音的"全部/视频/图片"标签是 TabLayout 内的文字，clickable=false
-        // findByText 要求 clickable=true 所以永远找不到！
-
-        // Layer 1: 宽松搜索（不限制 clickable）— 找 text 含 "视频" 的任何节点
+        // 用 findAnyText（不限 clickable）找标签
         const videoTab = await findAnyText(apiPort, ['视频'], screenH)
         if (videoTab) {
           console.log(`[相册-切标签✓] 找到"视频" → (${videoTab.x},${videoTab.y}) clickable=${videoTab.clickable}`)
@@ -724,28 +719,100 @@ async function executeStep(
           return { success: true, action: '切视频标签', message: `(${videoTab.x},${videoTab.y})`, waitMs: 2000 }
         }
 
-        // Layer 2: 找 "全部" 标签
         const allTab = await findAnyText(apiPort, ['全部'], screenH)
         if (allTab) {
           console.log(`[相册-切标签] 找到"全部" → (${allTab.x},${allTab.y}), 先点它`)
           await doTap(apiPort, allTab.x, allTab.y, signal, adb)
-          _albumSubStep = 'SWITCH_VIDEO_TAB'  // 下一轮再找"视频"
+          _albumSubStep = 'SWITCH_VIDEO_TAB'
           return { success: true, action: '点全部标签', message: `(${allTab.x},${allTab.y})`, waitMs: 1500 }
         }
 
-        // 都找不到 → 可能已经在视频页了，跳到选视频
-        console.log(`[相册-切标签✗] "视频"和"全部"都未找到(含非clickable节点), 进入选视频`)
+        console.log(`[相册-切标签✗] 都未找到, 进入选视频`)
         _albumSubStep = 'PICK_VIDEO'
-        // 不return，fallthrough
+        subStep = 'PICK_VIDEO'
       }
 
-      // ════════ Sub-B: 选视频缩略图（找带O播放图标的）═══════
+      // ════════ Sub-B: 选视频缩略图 ════════
+      // ★★★ 核心思路：时长锚点反推法 ★★★
+      // 抖音相册的视频缩略图右下角覆盖有时长文字(如"00:15")
+      // 这个时长就是最可靠的定位锚点！找到它 → 向上找包含它的大面积容器 → 点容器中心
       if (subStep === 'PICK_VIDEO') {
-        // ★★ Layer 1: VL视觉识别 — 告诉AI这是抖音相册页，找带播放图标(O)的视频
-        console.log(`[相册-选视频] VL找带O播放图标的视频...`)
+        // Layer 1: 时长锚点反推法（最可靠！）
+        try {
+          const dumpResult = await UI.dumpXml(apiPort)
+          if (dumpResult.success && dumpResult.data) {
+            const nodes = UI.parseUiXml(dumpResult.data)
+
+            // Step 1: 找所有时长格式的文字节点 ("0:05", "00:15", "1:30" 等)
+            const durationNodes: Array<{ node: UI.UINode; x: number; y: number; w: number; h: number }> = []
+            for (const node of nodes) {
+              if (!node.text || !/^\d{1,3}:\d{2}$/.test(node.text)) continue
+              const b = UI.parseBounds(node.bounds)
+              if (!b) continue
+              if (b.y < screenH * 0.14 || b.y > screenH * 0.85) continue
+              durationNodes.push({ node, x: b.x, y: b.y, w: b.width, h: b.height })
+            }
+
+            if (durationNodes.length > 0) {
+              // 取第一个（=左上角的视频）
+              const dur = durationNodes[0]
+              console.log(`[时长锚点✓] "${dur.node.text}" → (${dur.x},${dur.y},${dur.w}x${dur.h})`)
+
+              // Step 2: 找包含此时长节点的大面积容器
+              // 时长TextView是缩略图容器的子元素，父容器bounds应覆盖它
+              const durCenterX = dur.x + dur.w / 2
+              const durCenterY = dur.y + dur.h / 2
+
+              let bestContainer: UI.UINode | null = null
+              let bestArea = 0
+
+              for (const node of nodes) {
+                const b = UI.parseBounds(node.bounds)
+                if (!b) continue
+                if (b.width < 200 || b.height < 200) continue
+                if (b.y < screenH * 0.12 || b.y > screenH * 0.85) continue
+                // ★ 必须包含时长文字的中心点（父子关系判断）
+                if (durCenterX >= b.x && durCenterX <= b.x + b.width &&
+                    durCenterY >= b.y && durCenterY <= b.y + b.height) {
+                  const area = b.width * b.height
+                  // 取最小匹配容器（最紧致的父容器，避免取到整个RecyclerView）
+                  if (!bestContainer || area < bestArea) {
+                    bestContainer = node
+                    bestArea = area
+                  }
+                }
+              }
+
+              if (bestContainer) {
+                const cb = UI.parseBounds(bestContainer.bounds)!
+                const cx = Math.round(cb.x + cb.width / 2)
+                const cy = Math.round(cb.y + cb.height / 2)
+                console.log(`[时长→容器✓] "${dur.node.text}"(${Math.round(durCenterX)},${Math.round(durCenterY)}) → [${bestContainer.className}](${cx},${cy}) ${cb.width}x${cb.height}`)
+                await doTap(apiPort, cx, cy, signal, adb)
+                _albumSubStep = 'CLICK_NEXT'
+                return { success: true, action: '时长锚点选视频', message: `(${cx},${cy}) via "${dur.node.text}"`, waitMs: 2000 }
+              } else {
+                // 无容器 → 用时长位置估算（时长在缩略图右下角）
+                const estCx = Math.round(dur.x)
+                const estCy = Math.round(dur.y - screenH * 0.12)
+                console.log(`[时长→估算✓] 无容器,估算(${estCx},${estCy})`)
+                await doTap(apiPort, estCx, estCy, signal, adb)
+                _albumSubStep = 'CLICK_NEXT'
+                return { success: true, action: '时长估算选视频', message: `(${estCx},${estCy})`, waitMs: 2000 }
+              }
+            } else {
+              console.log(`[时长锚点✗] 未找到时长格式文字(如00:15)`)
+            }
+          }
+        } catch (e) {
+          console.log(`[时长锚点✗] 异常: ${e}`)
+        }
+
+        // Layer 2: VL 视觉识别（兜底）
+        console.log(`[相册-选视频] VL兜底找带O播放图标...`)
         const vlThumb = await locateElement(
           b64,
-          '这是抖音APP的相册选择页面。请找到屏幕中左上角第一个视频缩略图，视频缩略图上通常有一个圆形的O形播放按钮图标覆盖在上面。请点击那个视频缩略图的中心位置。'
+          '这是抖音APP的相册选择页面（已切换到视频标签）。请找到屏幕中左上角第一个视频缩略图，上面有一个圆形O形播放按钮图标覆盖。请点击那个视频缩略图的中心位置。注意不要点整个网格区域中心，要点单个缩略图。'
         )
         if (vlThumb && isVlCoordValid(vlThumb.x, vlThumb.y, screenW, screenH) && vlThumb.y > screenH * 0.15 && vlThumb.y < screenH * 0.80) {
           console.log(`[VL✓] 视频缩略图(带O) → (${vlThumb.x},${vlThumb.y})`)
@@ -754,69 +821,15 @@ async function executeStep(
           return { success: true, action: 'VL选视频(带O)', message: `(${vlThumb.x},${vlThumb.y})`, waitMs: 2000 }
         }
         if (vlThumb) {
-          console.log(`[VL✗] 缩略图坐标不合理 (${vlThumb.x},${vlThumb.y})`)
+          console.log(`[VL✗] 坐标不合理 (${vlThumb.x},${vlThumb.y})`)
         } else {
           console.log(`[VL✗] 未找到视频缩略图`)
         }
 
-        // ★★ Layer 2: dumpXml 找视频相关元素
-        try {
-          const dumpResult = await UI.dumpXml(apiPort)
-          if (dumpResult.success && dumpResult.data) {
-            const nodes = UI.parseUiXml(dumpResult.data)
-            let bestNode: UI.UINode | null = null
-            let bestScore = 0
-
-            for (const node of nodes) {
-              const b = UI.parseBounds(node.bounds)
-              if (!b) continue
-              // 基础过滤：在内容区域
-              if (b.width < 150 || b.height < 150) continue
-              if (b.y < screenH * 0.14 || b.y > screenH * 0.82) continue
-
-              // ★★ 排除系统无障碍提示
-              if (node.contentDesc && (
-                node.contentDesc.includes('点按') || node.contentDesc.includes('双击') ||
-                node.contentDesc.includes('激活') || node.contentDesc.includes('double tap')
-              )) continue
-
-              // 评分规则：
-              let score = b.width * b.height  // 面积基础分
-              // ImageView 加分（图片/视频容器）
-              if (node.className.includes('ImageView')) score += 50000
-              // FrameLayout/RecyclerView（网格项）加分
-              if (node.className.includes('FrameLayout') || node.className.includes('RecyclerView')) score += 30000
-              // 有时长文字说明是视频（如 "0:05", "00:15" 等）
-              if (node.text && /^\d+:\d+$/.test(node.text)) score += 100000
-              // 有视频相关desc
-              if (node.contentDesc && (
-                node.contentDesc.includes('视频') || node.contentDesc.includes('video') ||
-                node.contentDesc.includes('播放') || node.contentDesc.includes('时长')
-              )) score += 80000
-
-              if (score > bestScore) { bestNode = node; bestScore = score }
-            }
-
-            if (bestNode && bestScore > 0) {
-              const b = UI.parseBounds(bestNode.bounds)!
-              const cx = Math.round(b.x + b.width / 2)
-              const cy = Math.round(b.y + b.height / 2)
-              console.log(`[相册XML✓] 选视频 → (${cx},${cy}) [${bestNode.className} text=${bestNode.text||'-'} desc=${bestNode.contentDesc||'-'} score=${bestScore}]`)
-              await doTap(apiPort, cx, cy, signal, adb)
-              _albumSubStep = 'CLICK_NEXT'
-              return { success: true, action: 'XML选视频', message: `(${cx},${cy})`, waitMs: 2000 }
-            } else {
-              console.log(`[相册XML✗] 未找到有效视频元素`)
-            }
-          }
-        } catch (e) {
-          console.log(`[相册XML✗] 异常: ${e}`)
-        }
-
-        // ★★ Layer 3: 比例坐标点第一个网格位置
+        // Layer 3: 比例坐标终极兜底
         const thumbX = Math.round(screenW * 0.18)
-        const thumbY = Math.round(screenH * 0.30)
-        console.log(`[相册-选视频] 比例坐标(兜底) → (${thumbX},${thumbY})`)
+        const thumbY = Math.round(screenH * 0.32)
+        console.log(`[相册-选视频] 比例坐标(终极兜底) → (${thumbX},${thumbY})`)
         await doTap(apiPort, thumbX, thumbY, signal, adb)
         _albumSubStep = 'CLICK_NEXT'
         return { success: true, action: '比例坐标选视频', message: `(${thumbX},${thumbY})`, waitMs: 2000 }
