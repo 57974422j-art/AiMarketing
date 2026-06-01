@@ -901,36 +901,38 @@ async function executeStep(
             // A1: 打印所有文字节点（无任何过滤），诊断到底有什么
             console.log(`[全量XML] 页面共有 ${allNodes.length} 个节点, 其中有文字的:`)
             let textNodeCount = 0
-            for (const node of allNodes) {
+            for (const rawNode of allNodes) {
+              const node = rawNode as { text?: string; contentDesc?: string; className?: string; bounds?: string; clickable?: boolean }
               if (node.text || node.contentDesc) {
                 textNodeCount++
-                const b = UI.parseBounds(node.bounds)
+                const b = UI.parseBounds(node.bounds || '')
                 const pos = b ? `(${Math.round(b.x)},${Math.round(b.y)},${b.width}x${b.height})` : 'no-bounds'
-                const extra = []
+                const extra: string[] = []
                 if (node.clickable) extra.push('clickable')
                 if (node.contentDesc) extra.push(`desc="${node.contentDesc}"`)
-                console.log(`  #${textNodeCount} "${node.text || '(空文本)'}" | ${node.className} | ${pos} | ${extra.join(' ')}`)
+                console.log(`  #${textNodeCount} "${node.text || '(空文本)'}" | ${node.className || '?'} | ${pos} | ${extra.join(' ')}`)
               }
             }
 
             // A2: 检测视频选中标志（右上角数字、勾选框、"下一步"等）
             const selectionIndicators = ['下一步', '确定', '完成', '已选', '发布']
             const foundIndicators: string[] = []
-            for (const node of allNodes) {
+            for (const rawNode of allNodes) {
+              const node = rawNode as { text?: string; contentDesc?: string; className?: string; bounds?: string; clickable?: boolean }
               for (const ind of selectionIndicators) {
                 if ((node.text && node.text.includes(ind)) || (node.contentDesc && node.contentDesc.includes(ind))) {
                   foundIndicators.push(ind)
-                  const b = UI.parseBounds(node.bounds)
-                  const pos = b ? `(${Math.round(b.x)},${Math.round(b.y)})` : '?'
-                  console.log(`[选中标志✓] "${ind}" → ${pos} clickable=${node.clickable} class=${node.className}`)
+                  const b2 = UI.parseBounds(node.bounds || '')
+                  const pos = b2 ? `(${Math.round(b2.x)},${Math.round(b2.y)})` : '?'
+                  console.log(`[选中标志✓] "${ind}" → ${pos} clickable=${!!node.clickable} class=${node.className || '?'}`)
                 }
               }
               // 检测纯数字（可能是右上角角标 "1", "2" 等）
               if (node.text && /^\d$/.test(node.text) && node.text !== '0') {
-                const b = UI.parseBounds(node.bounds)
-                if (b && b.x > screenW * 0.80 && b.y < screenH * 0.15) {
+                const b3 = UI.parseBounds(node.bounds || '')
+                if (b3 && b3.x > screenW * 0.80 && b3.y < screenH * 0.15) {
                   foundIndicators.push(`角标"${node.text}"`)
-                  console.log(`[选中标志✓] 右上角数字角标 "${node.text}" → (${Math.round(b.x)},${Math.round(b.y)})`)
+                  console.log(`[选中标志✓] 右上角数字角标 "${node.text}" → (${Math.round(b3.x)},${Math.round(b3.y)})`)
                 }
               }
             }
