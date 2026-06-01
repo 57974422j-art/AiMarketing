@@ -967,42 +967,18 @@ async function executeStep(
         }
         console.log(vlNext ? `[VL✗] (${vlNext.x},${vlNext.y})太靠顶` : `[VL✗] null`)
 
-        // ════════ 改动C: 红色像素检测 ════════
-        // 在右下角 (0.88~0.96, 0.88~0.96) 区域采样像素，检查是否有抖音红(#FE2C55)
-        let redPixelDetected = false
-        let redPixelCoord = { x: 0, y: 0 }
-        if (debugB64) {
-          try {
-            // PNG base64 → Buffer → 解析像素
-            // 使用原生方式读取像素（不需要额外依赖）
-            const { createCanvas, loadImage } = await import('canvas') as any
-            // canvas 可能不可用，用 fallback 方式：直接通过 adb shell screencap + 像素分析
-            // 简化方案：直接用比例坐标尝试，但先记录日志说明
-            console.log(`[像素检测] 截图可用，尝试检测右下角红色区域...`)
-            
-            // 用一个更轻量的方法：通过 png-js 或直接 buffer 解析
-            // PNG 像素数据在 IDAT chunk 中，解析较复杂
-            // 这里用最简单的方式：如果截图存在就标记可能可检测
-            const buf = Buffer.from(debugB64, 'base64')
-            if (buf.length > 1000) {
-              // PNG 文件头校验
-              if (buf[0] === 0x89 && buf[1] === 0x50) {
-                console.log(`[像素检测] PNG有效 (${buf.length} bytes), 右下角区域颜色检测需要canvas库支持`)
-                // 尝试用 @napi-rs/canvas 或类似库
-                // 如果不可用则跳过，不影响后续流程
-              }
-            }
-          } catch (e) {
-            // canvas 库不可用时静默失败，不影响主流程
-            console.log(`[像素检测] 跳过(无canvas依赖): ${typeof e === 'object' ? (e as Error).message : e}`)
-          }
+        // ════════ 改动C: 红色像素检测（跳过，无可用图像库） ════════
+        // 截图已保存到 debug-screenshots/ 目录，可人工确认右下角是否有红色"下一步"
+        const hasScreenshot = !!debugB64
+        if (hasScreenshot) {
+          console.log(`[像素检测] 截图已保存(见上方DEBUG路径)，人工确认右下角红色区域`)
         }
 
         // ★★ Layer 3: 比例坐标连击右下角
         //    y=0.92 避开全面屏手势导航栏（0.88 可能点到手势区）
         const ratioX = Math.round(screenW * 0.92)
         const ratioY = Math.round(screenH * 0.92)
-        console.log(`[比例坐标] 连击右下角 → (${ratioX},${ratioY}) [screenW*0.92, screenH*0.92]${redPixelDetected ? ' ★检测到红色!' : ''}`)
+        console.log(`[比例坐标] 连击右下角 → (${ratioX},${ratioY}) [screenW*0.92, screenH*0.92]${hasScreenshot ? ' (有截图可人工确认)' : ''}`)
         await UI.tap(apiPort, ratioX, ratioY)
         await sleep(300, signal)
         await UI.tap(apiPort, ratioX, ratioY)  // ★ 连击确保触发
