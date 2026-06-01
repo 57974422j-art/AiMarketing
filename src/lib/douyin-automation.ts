@@ -1305,7 +1305,7 @@ async function executeStep(
       // Layer 1: XML 找"添加位置" / "所在位置" / "位置" 按钮
       const poiBtn = await locateByText(apiPort, ['添加位置', '所在位置', '位置', '添加地理位置'], 3000)
       if (poiBtn) {
-        console.log(`[位置✓] 找到入口 "${poiBtn.textHint}" → (${poiBtn.x},${poiBtn.y})`)
+        console.log(`[位置✓] 找到入口 → (${poiBtn.x},${poiBtn.y})`)
         await doTap(apiPort, poiBtn.x, poiBtn.y, signal, adb)
         await sleep(2000, signal) // 等待搜索页打开
 
