@@ -218,6 +218,73 @@ async function locateByText(
   return null
 }
 
+/**
+ * 宽松文字搜索 — 不限制 clickable！
+ *
+ * 抖音相册页的"全部/视频/图片"标签往往是 TabLayout 内的纯文本，
+ * clickable=false，导致 findByText（要求clickable=true）永远找不到。
+ *
+ * 本函数遍历所有节点（不限 clickable），匹配 text 或 content-desc。
+ * 额外过滤：排除太小的节点、状态栏、底部导航栏区域。
+ */
+async function findAnyText(
+  apiPort: number,
+  candidates: string[],
+  screenH: number,
+  perCandidateTimeoutMs = 3000
+): Promise<{ x: number; y: number; clickable: boolean } | null> {
+  try {
+    const dumpResult = await UI.dumpXml(apiPort)
+    if (!dumpResult.success || !dumpResult.data) return null
+
+    const nodes = UI.parseUiXml(dumpResult.data)
+
+    for (const target of candidates) {
+      let bestMatch: { x: number; y: number; clickable: boolean; area: number } | null = null
+
+      for (const node of nodes) {
+        // ★ 不限制 clickable！只要 node 有文字就行
+        const textMatch = node.text && (
+          node.text === target || node.text.includes(target) || target.includes(node.text)
+        )
+        const descMatch = node.contentDesc && (
+          node.contentDesc.includes(target)
+        )
+        if (!textMatch && !descMatch) continue
+
+        // 排除状态栏区域（顶部3%）和底部导航栏（底部10%）
+        const b = UI.parseBounds(node.bounds)
+        if (!b) continue
+        if (b.y < screenH * 0.03) continue
+        if (b.y > screenH * 0.90) continue
+        // 太小的忽略（红点等）
+        if (b.width < 20 || b.height < 10) continue
+
+        // 取面积最大的（避免命中到小碎片节点）
+        const area = b.width * b.height
+        if (!bestMatch || area > bestMatch.area) {
+          bestMatch = {
+            x: Math.round(b.x + b.width / 2),
+            y: Math.round(b.y + b.height / 2),
+            clickable: node.clickable,
+            area,
+          }
+        }
+      }
+
+      if (bestMatch) {
+        console.log(`[宽松✓] "${target}" → (${bestMatch.x},${bestMatch.y}) clickable=${bestMatch.clickable}`)
+        return { x: bestMatch.x, y: bestMatch.y, clickable: bestMatch.clickable }
+      }
+      console.log(`[宽松✗] "${target}" 未找到(含非clickable节点)`)
+    }
+    return null
+  } catch (e) {
+    console.log(`[宽松✗] 异常: ${e}`)
+    return null
+  }
+}
+
 // ==================== 锚点反推法（定位底部导航栏+号）====================
 
 /**
@@ -611,32 +678,65 @@ async function executeStep(
     // ========================================
     case 'ALBUM_PICK': {
       // 子步骤状态（跨重试保持）
-      let subStep = _albumSubStep || 'SWITCH_VIDEO_TAB'  // 默认从切标签开始
+      let subStep = _albumSubStep || 'DIAGNOSE'  // ★ 改为从诊断开始
+
+      // ════════ Sub-0: 诊断 — 打印页面所有可见文字（首次进入时执行一次）═══════
+      if (subStep === 'DIAGNOSE') {
+        try {
+          const dumpResult = await UI.dumpXml(apiPort)
+          if (dumpResult.success && dumpResult.data) {
+            const nodes = UI.parseUiXml(dumpResult.data)
+            // 收集屏幕上半部分~80%区域的所有有意义的文字节点（排除太小的）
+            const visibleNodes = nodes.filter(n => {
+              if (!n.text || n.text.length > 20) return false  // 太长通常是组合文字
+              const b = UI.parseBounds(n.bounds)
+              if (!b) return false
+              if (b.width < 20 || b.height < 10) return false   // 太小忽略
+              if (b.y < screenH * 0.03) return false             // 排除状态栏
+              if (b.y > screenH * 0.90) return false             // 排除导航栏
+              return true
+            })
+            console.log(`[相册-诊断] 页面共有 ${visibleNodes.length} 个文字节点:`)
+            for (const n of visibleNodes.slice(0, 30)) {  // 最多打印30个
+              const b = UI.parseBounds(n.bounds)!
+              console.log(`  "${n.text}" | ${n.className} | clickable=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height}) | desc="${(n.contentDesc||'').substring(0,30)}"`)
+            }
+          }
+        } catch (e) {
+          console.log(`[相册-诊断] dump异常: ${e}`)
+        }
+        _albumSubStep = 'SWITCH_VIDEO_TAB'
+        // 不return，继续往下走
+      }
 
       // ════════ Sub-A: 切到"视频"标签 ════════
       if (subStep === 'SWITCH_VIDEO_TAB') {
-        // 先尝试直接找并点击 "视频" 标签（灰色文字，在"全部"旁边）
-        const videoTab = await locateByText(apiPort, ['视频'], 2000)
+        // ★★ 关键修复：用 findAnyText 而不是 locateByText！
+        // 抖音的"全部/视频/图片"标签是 TabLayout 内的文字，clickable=false
+        // findByText 要求 clickable=true 所以永远找不到！
+
+        // Layer 1: 宽松搜索（不限制 clickable）— 找 text 含 "视频" 的任何节点
+        const videoTab = await findAnyText(apiPort, ['视频'], screenH)
         if (videoTab) {
-          console.log(`[相册-切标签] 找到"视频"标签 → (${videoTab.x},${videoTab.y}), 点击切换`)
+          console.log(`[相册-切标签✓] 找到"视频" → (${videoTab.x},${videoTab.y}) clickable=${videoTab.clickable}`)
           await doTap(apiPort, videoTab.x, videoTab.y, signal, adb)
           _albumSubStep = 'PICK_VIDEO'
           return { success: true, action: '切视频标签', message: `(${videoTab.x},${videoTab.y})`, waitMs: 2000 }
         }
 
-        // 如果没找到"视频"，先点"全部"确保在正确的标签页
-        const allTab = await locateByText(apiPort, ['全部'], 1500)
+        // Layer 2: 找 "全部" 标签
+        const allTab = await findAnyText(apiPort, ['全部'], screenH)
         if (allTab) {
-          console.log(`[相册-切标签] 先点"全部" → (${allTab.x},${allTab.y})`)
+          console.log(`[相册-切标签] 找到"全部" → (${allTab.x},${allTab.y}), 先点它`)
           await doTap(apiPort, allTab.x, allTab.y, signal, adb)
           _albumSubStep = 'SWITCH_VIDEO_TAB'  // 下一轮再找"视频"
           return { success: true, action: '点全部标签', message: `(${allTab.x},${allTab.y})`, waitMs: 1500 }
         }
 
-        // 都找不到，可能已经在视频页了，跳到选视频
-        console.log(`[相册-切标签] 未找到标签按钮，可能已选中，进入选视频`)
+        // 都找不到 → 可能已经在视频页了，跳到选视频
+        console.log(`[相册-切标签✗] "视频"和"全部"都未找到(含非clickable节点), 进入选视频`)
         _albumSubStep = 'PICK_VIDEO'
-        // 不return，直接fallthrough到下一步
+        // 不return，fallthrough
       }
 
       // ════════ Sub-B: 选视频缩略图（找带O播放图标的）═══════
