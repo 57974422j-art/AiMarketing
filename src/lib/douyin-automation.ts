@@ -863,19 +863,11 @@ async function executeStep(
 
       // ════════ Sub-C: 点"下一步"按钮 ════════
       if (subStep === 'CLICK_NEXT') {
-        // ★★ Layer 0: 底部区域完整扫描诊断（确认"下一步"是否真的存在！）
-        // ★★ Layer 0: 快速诊断
-        console.log(`[相册-下一步] 扫描..."下一步"不在无障碍树中(已确认)`)
-        try {
-          const dr = await UI.dumpXml(apiPort)
-          if (dr?.data) {
-            const bounds = dr.data.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g) || []
-            let bot = 0; for (const b of bounds) { const m = b.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/); if (m && parseInt(m[2]) > 800) bot++ }
-            console.log(`[XML] 总bounds=${bounds.length}, 底区(y>800)=${bot}`)
-          }
-        } catch(e){}
+        // ★★ Layer 0: 强制等待视频选中动画结束 + UI树刷新
+        console.log(`[下一步] 等待UI刷新(1.5s)...`)
+        await sleep(1500, signal)
 
-        // ★★ Layer 1: findAnyText
+        // ★★ Layer 1: XML搜索 text + content-desc（双重保险）
         const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
         if (nextBtn && nextBtn.y > screenH * 0.15) {
           console.log(`[✓] "${nextBtn.textHint}" → (${nextBtn.x},${nextBtn.y}) 用UI.tap(硬件级)`)
@@ -885,7 +877,7 @@ async function executeStep(
         }
         if (nextBtn) console.log(`[跳过] "${nextBtn.textHint}"太靠上`)
 
-        // ★★ Layer 2: VL
+        // ★★ Layer 2: VL 视觉识别（prompt 已修复，不再被"相册"截胡）
         console.log(`[VL] 找红底白字"下一步"...`)
         const vlNext = await locateElement(b64,
           `视频选择界面${screenW}x${screenH}。屏幕底部右侧有【红色圆角矩形】按钮写白色大字"下一步"。返回中心坐标。看不到返回null。禁止y<400!`)
@@ -897,31 +889,14 @@ async function executeStep(
         }
         console.log(vlNext ? `[VL✗] (${vlNext.x},${vlNext.y})太靠顶` : `[VL✗] null`)
 
-        // ★★ Layer 3: 坐标扫射 — 用 UI.tap(硬件级autoclick)!
-        const rcKey = `_nxtRC`
-        const rIdx = (globalThis as any)[rcKey] || 0; (globalThis as any)[rcKey] = rIdx + 1
-
-        // 密集网格覆盖右下角大面积区域 (y=1780~2080, x=780~1070)
-        const grid = [
-          // 导航栏区 y≈2030~2060 — x 扩到 1070 覆盖"下一步"
-          { x:880,y:2058 },{ x:920,y:2058 },{ x:960,y:2058 },{ x:1010,y:2058 },{ x:1040,y:2058 },{ x:1060,y:2058 },
-          { x:880,y:2031 },{ x:920,y:2031 },{ x:960,y:2031 },{ x:1010,y:2031 },{ x:1040,y:2031 },{ x:1060,y:2031 },
-          // 导航栏上方 y≈1900~2000
-          { x:880,y:1950 },{ x:920,y:1950 },{ x:960,y:1950 },{ x:1010,y:1950 },
-          { x:880,y:1900 },{ x:920,y:1900 },{ x:960,y:1900 },{ x:1010,y:1900 },
-          // 更高 y≈1780~1880
-          { x:880,y:1820 },{ x:940,y:1820 },{ x:1000,y:1820 },
-          { x:900,y:1780 },{ x:960,y:1780 },
-          // 最右边缘
-          { x:1040,y:2058 },{ x:1060,y:2058 },{ x:1040,y:1980 },{ x:1060,y:1980 },
-          // 中间偏右(万一不常规)
-          { x:780,y:1850 },{ x:830,y:1850 },{ x:780,y:1920 },{ x:830,y:1920 },
-        ]
-        const g = grid[rIdx % grid.length]
-        console.log(`[扫射#${rIdx}] UI.tap(硬件级) → (${g.x},${g.y}) [共${grid.length}]`)
-        await UI.tap(apiPort, g.x, g.y)   // ★ 硬件级autoclick!
-        _albumSubStep = 'PICK_VIDEO'
-        return { success: true, action: 'UI.tap扫射', message: `(${g.x},${g.y}) #${rIdx}`, waitMs: 3000 }
+        // ★★ Layer 3: 比例坐标直接点右下角（最可靠！不依赖任何识别）
+        //    "下一步"固定在屏幕右下角导航栏区域 ≈ (x=95%, y=88%)
+        const ratioX = Math.round(screenW * 0.92)
+        const ratioY = Math.round(screenH * 0.88)
+        console.log(`[比例坐标] 直接点击右下角 → (${ratioX},${ratioY}) [screenW*0.92, screenH*0.88]`)
+        await UI.tap(apiPort, ratioX, ratioY)
+        _albumSubStep = 'SWITCH_VIDEO_TAB'
+        return { success: true, action: '比例坐标点下一步', message: `(${ratioX},${ratioY})`, waitMs: 4000 }
       }
 
       // 兜底
