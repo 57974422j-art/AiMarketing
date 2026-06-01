@@ -751,7 +751,39 @@ async function executeStep(
         const videoTab = await findAnyText(apiPort, ['视频'], screenH)
         if (videoTab) {
           console.log(`[相册-切标签✓] 找到"视频" → (${videoTab.x},${videoTab.y}) clickable=${videoTab.clickable}`)
-          await doTap(apiPort, videoTab.x, videoTab.y, signal, adb)
+          
+          // ★ 关键修复：如果 clickable=false，必须用 ADB array sweep 确保点击生效
+          if (!videoTab.clickable && adb) {
+            console.log(`[相册-切标签] clickable=false, 使用ADB array sweep...`)
+            // 以目标为中心，5x5网格扫描，确保命中
+            for (let dx = -20; dx <= 20; dx += 10) {
+              for (let dy = -8; dy <= 8; dy += 8) {
+                try { adb.tap(Math.round(videoTab.x + dx), Math.round(videoTab.y + dy)) } catch {}
+                await sleep(30, signal)
+              }
+            }
+          } else {
+            await doTap(apiPort, videoTab.x, videoTab.y, signal, adb)
+          }
+          
+          // ★ 等待标签切换动画完成（至少2秒）
+          await sleep(2500, signal)
+          
+          // ★ 验证是否真的切换了：重新检测页面是否还是 ALBUM_PICK 但有新特征
+          try {
+            const verifyDump = await UI.dumpXml(apiPort)
+            if (verifyDump.success && verifyDump.data) {
+              const vNodes = UI.parseUiXml(verifyDump.data)
+              // 如果还能看到"00:15"时长文字，说明在视频列表中（已切换成功）
+              const hasDuration = vNodes.some((n: any) => n.text && /^\d{1,3}:\d{2}$/.test(n.text))
+              if (hasDuration) {
+                console.log(`[相册-切标签验证✓] 检测到时长格式文字, 已进入视频列表`)
+              } else {
+                console.log(`[相册-切标签验证?] 未检测到时长文字, 继续尝试选视频`)
+              }
+            }
+          } catch {}
+          
           _albumSubStep = 'PICK_VIDEO'
           return { success: true, action: '切视频标签', message: `(${videoTab.x},${videoTab.y})`, waitMs: 2000 }
         }
@@ -858,38 +890,106 @@ async function executeStep(
                 console.log(`[选视频→策略C] 无容器,估算 → (${tapX},${tapY})`)
               }
 
-              console.log(`[连击] (${tapX},${tapY})×2 via ${tapReason} (desc提示需点按两次激活)`)
-              await doTap(apiPort, tapX, tapY, signal, adb)
-              await sleep(200, signal)
-              await doTap(apiPort, tapX, tapY, signal, adb)
-
-              // ★ 快速验证：等1.5秒后dump XML检查是否已选中
-              await sleep(1500, signal)
-              try {
-                const selCheck = await UI.dumpXml(apiPort)
-                if (selCheck.success && selCheck.data) {
-                  const selNodes = UI.parseUiXml(selCheck.data)
-                  let stillUnselected = false
-                  for (const rawNode of selNodes) {
-                    const node = rawNode as { contentDesc?: string }
-                    if (node.contentDesc && node.contentDesc.includes('未选中')) {
-                      stillUnselected = true
-                      break
+              // ★★★ 新策略：ADB array sweep 单击 + 验证 ★★★
+              // 问题：之前双击中心点 (179,633) 一直"未选中"
+              // 原因：可能坐标偏移或需要用 ADB tap 而非 XML click
+              
+              // 生成候选点击点列表（按优先级排序）
+              const candidates: Array<{ x: number; y: number; reason: string }> = []
+              
+              // 候选1: clickable 容器中心（原策略A）
+              if (clickableOnes.length > 0) {
+                const best = clickableOnes[clickableOnes.length - 1]
+                candidates.push({
+                  x: Math.round(best.x + best.w / 2),
+                  y: Math.round(best.y + best.h / 2),
+                  reason: `clickable容器中心`
+                })
+                // 候选2: clickable 容器左上 1/4 处（有时缩略图不在正中心）
+                candidates.push({
+                  x: Math.round(best.x + best.w * 0.25),
+                  y: Math.round(best.y + best.h * 0.30),
+                  reason: `clickable容器左上区域`
+                })
+              }
+              
+              // 候选3: 时长文字上方约100px处（视频缩略图大概位置）
+              candidates.push({
+                x: Math.round(durCx),
+                y: Math.round(dur.y - 120),  // 时长标签通常在右下角，向上偏移
+                reason: `时长上方估算`
+              })
+              
+              // 候选4: 最小容器(#0 FrameLayout) 的真正中心
+              if (allContainers.length > 0) {
+                const smallest = allContainers[0]
+                candidates.push({
+                  x: Math.round(smallest.x + smallest.w * 0.5),
+                  y: Math.round(smallest.y + smallest.h * 0.4),  // 稍微偏上
+                  reason: `最小容器偏上`
+                })
+              }
+              
+              console.log(`[选视频] 生成 ${candidates.length} 个候选点:`)
+              for (let i = 0; i < candidates.length; i++) {
+                console.log(`  #${i} (${candidates[i].x},${candidates[i].y}) - ${candidates[i].reason}`)
+              }
+              
+              // ★ 逐个尝试候选点，每个点都用 ADB array sweep
+              for (let ci = 0; ci < candidates.length; ci++) {
+                const cand = candidates[ci]
+                console.log(`[选视频→尝试#${ci+1}] (${cand.x},${cand.y}) via ${cand.reason}`)
+                
+                if (adb) {
+                  // ADB array sweep：以目标为中心，3x3网格扫描
+                  console.log(`[选视频→尝试#${ci+1}] 使用ADB 3x3 sweep...`)
+                  for (let dx = -25; dx <= 25; dx += 25) {
+                    for (let dy = -25; dy <= 25; dy += 25) {
+                      try { adb.tap(Math.round(cand.x + dx), Math.round(cand.y + dy)) } catch {}
+                      await sleep(40, signal)
                     }
                   }
-                  if (stillUnselected) {
-                    console.log(`[选中验证✗] 双击后仍显示"未选中", 重试选视频...`)
-                    // 不推进到CLICK_NEXT，留在这个子步骤下次重试
-                    return { success: false, action: '视频未选中,重试', message: `(${tapX},${tapY})`, waitMs: 2000 }
-                  }
-                  console.log(`[选中验证✓] 视频已选中！`)
+                } else {
+                  // 无 ADB，用普通 click
+                  await doTap(apiPort, cand.x, cand.y, signal, adb)
+                  await sleep(200, signal)
+                  await doTap(apiPort, cand.x, cand.y, signal, adb)
                 }
-              } catch (e) {
-                console.log(`[选中验证] 异常: ${e}, 假设已选中继续`)
+                
+                // 等待UI响应
+                await sleep(1500, signal)
+                
+                // 验证是否选中
+                try {
+                  const selCheck = await UI.dumpXml(apiPort)
+                  if (selCheck.success && selCheck.data) {
+                    const selNodes = UI.parseUiXml(selCheck.data)
+                    let stillUnselected = false
+                    for (const rawNode of selNodes) {
+                      const node = rawNode as { contentDesc?: string }
+                      if (node.contentDesc && node.contentDesc.includes('未选中')) {
+                        stillUnselected = true
+                        break
+                      }
+                    }
+                    
+                    if (!stillUnselected) {
+                      // ★ 选中成功！
+                      console.log(`[选中验证✓] 候选#${ci+1} (${cand.x},${cand.y}) 视频已选中！`)
+                      _albumSubStep = 'CLICK_NEXT'
+                      return { success: true, action: '时长锚点选视频(成功)', message: `(${cand.x},${cand.y}) [${cand.reason}]`, waitMs: 3000 }
+                    }
+                    console.log(`[选中验证✗] 候选#${ci+1} 仍"未选中", 试下一个...`)
+                  }
+                } catch {}
+                
+                // 等待一下再试下一个点
+                await sleep(500, signal)
               }
-
-              _albumSubStep = 'CLICK_NEXT'
-              return { success: true, action: '时长锚点选视频(双击)', message: `(${tapX},${tapY})×2 via "${dur.node.text}" [${tapReason}]`, waitMs: 3000 }
+              
+              // 所有候选点都失败了
+              console.log(`[选中验证✗] 所有 ${candidates.length} 个候选点都未选中, 返回重试`)
+              return { success: false, action: '所有候选点均未选中', message: `${candidates.length}个点全部失败`, waitMs: 2000 }
             } else {
               console.log(`[时长锚点✗] 未找到时长格式文字(如00:15)`)
             }
