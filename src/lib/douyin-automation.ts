@@ -733,11 +733,8 @@ async function executeStep(
       }
 
       // ════════ Sub-B: 选视频缩略图 ════════
-      // ★★★ 核心思路：时长锚点反推法 ★★★
-      // 抖音相册的视频缩略图右下角覆盖有时长文字(如"00:15")
-      // 这个时长就是最可靠的定位锚点！找到它 → 推算缩略图中心 → 点击
+      // ★★★ 核心思路：时长锚点反推法 + 可交互父容器定位 ★★★
       if (subStep === 'PICK_VIDEO') {
-        // Layer 1: 时长锚点反推法（最可靠！）
         try {
           const dumpResult = await UI.dumpXml(apiPort)
           if (dumpResult.success && dumpResult.data) {
@@ -754,80 +751,80 @@ async function executeStep(
             }
 
             if (durationNodes.length > 0) {
-              // 取第一个（=左上角的视频）
               const dur = durationNodes[0]
               console.log(`[时长锚点✓] "${dur.node.text}" → (${dur.x},${dur.y},${dur.w}x${dur.h})`)
-
               const durCx = dur.x + dur.w / 2
               const durCy = dur.y + dur.h / 2
 
-              // Step 2: 向上查找父容器链 — 找包含时长的大面积节点
-              const candidates: Array<{ node: UI.UINode; x: number; y: number; w: number; h: number; area: number }> = []
+              // Step 2: 找包含时长的所有容器，按面积从小到大排序
+              const allContainers: Array<{ node: UI.UINode; x: number; y: number; w: number; h: number; area: number; clickable: boolean }> = []
               for (const node of nodes) {
                 const b = UI.parseBounds(node.bounds)
                 if (!b) continue
-                if (b.width < 150 || b.height < 150) continue    // 太小的不可能是视频缩略图
+                if (b.width < 100 || b.height < 100) continue
                 if (b.y < screenH * 0.10 || b.y > screenH * 0.85) continue
-                if (b.width > screenW * 0.6 || b.height > screenH * 0.5) continue  // 太大的排除(网格容器)
                 if (durCx >= b.x && durCx <= b.x + b.width &&
                     durCy >= b.y && durCy <= b.y + b.height) {
-                  candidates.push({ node, x: b.x, y: b.y, w: b.width, h: b.height, area: b.width * b.height })
+                  allContainers.push({
+                    node, x: b.x, y: b.y, w: b.width, h: b.height,
+                    area: b.width * b.height, clickable: node.clickable || false
+                  })
+                }
+              }
+              allContainers.sort((a, b) => a.area - b.area)
+
+              // ★ 打印完整的容器链（从最小到最大）
+              console.log(`[选视频-容器链] 包含"${dur.node.text}"的 ${allContainers.length} 个容器(从小到大):`)
+              for (let i = 0; i < allContainers.length; i++) {
+                const c = allContainers[i]
+                const marker = c.clickable ? '★clickable' : '  no-click'
+                console.log(`  #${i} [${c.node.className}] (${c.x},${c.y}) ${c.w}x${c.h} ${marker}`)
+              }
+
+              // Step 3: 选择最佳点击目标
+              let tapX = 0, tapY = 0, tapReason = ''
+
+              // 策略A: 优先找 clickable=true 的中等大小容器
+              const clickableOnes = allContainers.filter(c => c.clickable && c.area < screenW * screenH * 0.3)
+              if (clickableOnes.length > 0) {
+                // 取最大的那个 clickable 容器
+                const best = clickableOnes[clickableOnes.length - 1]
+                tapX = Math.round(best.x + best.w / 2)
+                tapY = Math.round(best.y + best.h / 2)
+                tapReason = `clickable-${best.node.className}`
+                console.log(`[选视频→策略A] clickable容器 → (${tapX},${tapY}) via ${tapReason}`)
+              } else if (allContainers.length > 0) {
+                // 策略B: 无clickable容器 → 取中等面积的容器中心
+                const midIdx = Math.min(Math.floor(allContainers.length / 2), allContainers.length - 1)
+                const mid = allContainers[midIdx]
+                tapX = Math.round(mid.x + mid.w / 2)
+                tapY = Math.round(mid.y + mid.h / 2)
+                tapReason = `mid-${mid.node.className}(#${midIdx}/${allContainers.length})`
+                console.log(`[选视频→策略B] 中等容器(#${midIdx}) → (${tapX},${tapY}) via ${mid.node.className} (无clickable候选!)`)
+
+                // 如果之前已经试过这个位置且失败了（通过检查重试次数），换一个更大的容器
+                // 这里我们直接用最大但不是全屏的容器
+                if (allContainers.length >= 3) {
+                  const bigger = allContainers[Math.min(allContainers.length - 2, allContainers.length - 1)]
+                  tapX = Math.round(bigger.x + bigger.w / 2)
+                  tapY = Math.round(bigger.y + bigger.h / 2)
+                  tapReason = `bigger-${bigger.node.className}(#${allContainers.indexOf(bigger)})`
+                  console.log(`[选视频→策略B+] 换更大容器 → (${tapX},${tapY}) via ${bigger.node.className}`)
                 }
               }
 
-              // 按面积排序，取中等大小的（排除太小的装饰容器和太大的网格容器）
-              candidates.sort((a, b) => a.area - b.area)
-
-              // 策略：取面积排名中间的候选（通常是实际的视频卡片容器）
-              // 备选点击点列表：从最精确到最宽泛
-              const clickPoints: Array<{ x: number; y: number; reason: string }> = []
-
-              if (candidates.length > 0) {
-                // 选面积中位数左右的候选（既不太小也不太大）
-                const midIdx = Math.min(Math.floor(candidates.length / 2), candidates.length - 1)
-                const best = candidates[midIdx]
-                console.log(`[时长→容器✓] "${dur.node.text}"(${Math.round(durCx)},${Math.round(durCy)}) → [${best.node.className}] ${best.x},${best.y} ${best.w}x${best.h} (共${candidates.length}个候选,取#${midIdx})`)
-
-                // 点击点1: 候选容器的正中心
-                clickPoints.push({
-                  x: Math.round(best.x + best.w / 2),
-                  y: Math.round(best.y + best.h / 2),
-                  reason: `${best.node.className}中心`
-                })
-
-                // 点击点2: 时长文字左上方（缩略图视觉中心，避开时长覆盖区）
-                clickPoints.push({
-                  x: Math.round(durCx - best.w * 0.25),
-                  y: Math.round(durCy - best.h * 0.25),
-                  reason: '时长左上偏移'
-                })
-
-                // 点击点3: 时长文字正左方约100px
-                clickPoints.push({
-                  x: Math.round(dur.x - 80),
-                  y: Math.round(durCy),
-                  reason: '时长正左'
-                })
-              } else {
-                // 无容器候选用估算
-                clickPoints.push({
-                  x: Math.round(durCx - 80),
-                  y: Math.round(durCy - 120),
-                  reason: '时长估算(左上)'
-                })
-                clickPoints.push({
-                  x: Math.round(dur.x - 60),
-                  y: Math.round(durCy),
-                  reason: '时长正左(估算)'
-                })
+              // 策略C: 如果有容器就用容器坐标，否则用时长估算
+              if (tapX === 0) {
+                tapX = Math.round(dur.x - 80)
+                tapY = Math.round(durCy - 100)
+                tapReason = '估算(时长左上)'
+                console.log(`[选视频→策略C] 无容器,估算 → (${tapX},${tapY})`)
               }
 
-              // 使用第一个（最佳）点击点
-              const pt = clickPoints[0]
-              console.log(`[点击] (${pt.x},${pt.y}) via ${pt.reason}`)
-              await doTap(apiPort, pt.x, pt.y, signal, adb)
+              console.log(`[点击] (${tapX},${tapY}) via ${tapReason}`)
+              await doTap(apiPort, tapX, tapY, signal, adb)
               _albumSubStep = 'CLICK_NEXT'
-              return { success: true, action: '时长锚点选视频', message: `(${pt.x},${pt.y}) via "${dur.node.text}" [${pt.reason}]`, waitMs: 2500 }
+              return { success: true, action: '时长锚点选视频', message: `(${tapX},${tapY}) via "${dur.node.text}" [${tapReason}]`, waitMs: 2500 }
             } else {
               console.log(`[时长锚点✗] 未找到时长格式文字(如00:15)`)
             }
@@ -866,31 +863,65 @@ async function executeStep(
       // ════════ Sub-C: 点"下一步"按钮 ════════
       if (subStep === 'CLICK_NEXT') {
         // ★★ Layer 0: 底部区域完整扫描诊断（确认"下一步"是否真的存在！）
-        // 抖音相册页：未选视频时"下一步"可能不显示/置灰/文字不同
-        console.log(`[相册-下一步] 扫描屏幕底部(75%~100%)所有节点...`)
+        // ★★ Layer 0: 全页面扫描诊断 — 找"下一步"到底在哪！
+        console.log(`[相册-下一步] 全页面扫描(找"下一步")...`)
         try {
           const dumpResult = await UI.dumpXml(apiPort)
           if (dumpResult.success && dumpResult.data) {
             const nodes = UI.parseUiXml(dumpResult.data)
-            // 扫描屏幕底部75%区域的所有节点 — 不过滤任何内容
-            const bottomNodes = nodes.filter(n => {
+
+            // A: 扫描屏幕下半区(50%~100%)的所有节点 — 完全不过滤大小
+            const lowerHalf = nodes.filter(n => {
               const b = UI.parseBounds(n.bounds)
               if (!b) return false
-              return b.y > screenH * 0.75 && b.width > 30 && b.height > 10
+              return b.y > screenH * 0.50
             })
-            console.log(`[底部扫描] ${bottomNodes.length} 个节点(y > ${Math.round(screenH * 0.75)}):`)
-            for (const n of bottomNodes.slice(0, 20)) {
+            console.log(`[全页扫描] 下半区(${Math.round(screenH * 0.50)}~底部) ${lowerHalf.length} 个节点:`)
+            for (const n of lowerHalf.slice(0, 30)) {
               const b = UI.parseBounds(n.bounds)!
               const txt = n.text || n.contentDesc || ''
-              console.log(`  "${txt.substring(0,20)}" | ${n.className} | clickable=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height})`)
+              const rid = n.resourceId ? n.resourceId.split('/').pop() : ''
+              console.log(`  "${txt.substring(0,25)}" | ${n.className} | click=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height}) | id="${rid}"`)
+            }
+
+            // B: 搜索任何可能包含"下/步/next"关键词的节点
+            const nextLikeNodes = nodes.filter(n => {
+              const txt = (n.text || '') + (n.contentDesc || '') + (n.resourceId || '')
+              if (!txt) return false
+              const lower = txt.toLowerCase()
+              return lower.includes('下') || lower.includes('步') || lower.includes('next') ||
+                     lower.includes('确认') || lower.includes('submit') || lower.includes('confirm')
+            })
+            if (nextLikeNodes.length > 0) {
+              console.log(`[关键词搜索] 找到 ${nextLikeNodes.length} 个含"下/步/next"的节点:`)
+              for (const n of nextLikeNodes) {
+                const b = UI.parseBounds(n.bounds)!
+                console.log(`  text="${n.text}" desc="${n.contentDesc}" id="${n.resourceId}" | ${n.className} | click=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height})`)
+              }
+            } else {
+              console.log(`[关键词搜索] 未找到任何含"下/步/next"的节点!`)
+            }
+
+            // C: 扫描右半侧区域(屏幕右侧60%)的所有节点
+            const rightSide = nodes.filter(n => {
+              const b = UI.parseBounds(n.bounds)
+              if (!b) return false
+              return b.x > screenW * 0.40 && b.y > screenH * 0.40
+            })
+            console.log(`[右侧扫描] 右下区域 ${rightSide.length} 个节点(x>${Math.round(screenW * 0.40)}, y>${Math.round(screenH * 0.40)}):`)
+            for (const n of rightSide.slice(0, 15)) {
+              const b = UI.parseBounds(n.bounds)!
+              const txt = n.text || n.contentDesc || ''
+              console.log(`  "${txt.substring(0,20)}" | ${n.className} | click=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height})`)
             }
           }
         } catch (e) {
-          console.log(`[底部扫描] 异常: ${e}`)
+          console.log(`[全页扫描] 异常: ${e}`)
         }
 
         // ★★ Layer 1: findAnyText 找"下一步"（不限 clickable!）
-        const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成', '发布', '好了', '请选择', '选择视频'], screenH)
+        // ⚠️ 注意：不能用包含"视频"等常见字的搜索词！会被子串匹配误匹配到"视频"标签(405,398)
+        const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成', '发布', '好了'], screenH)
         if (nextBtn) {
           console.log(`[相册-下一步✓] 找到"${nextBtn.textHint || '?'}" → (${nextBtn.x},${nextBtn.y})`)
           await doTap(apiPort, nextBtn.x, nextBtn.y, signal, adb)
