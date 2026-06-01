@@ -168,21 +168,26 @@ function getFixedCoords(
 ): { x: number; y: number; reason: string } {
   switch (target) {
     case 'FIRST_VIDEO_THUMB':
-      // 抖音相册第一个视频缩略图位置（左上角，2列网格的第一格）
-      // 基于日志：容器 FrameLayout (0,454) 357x357，中心约 (178,633)
+      // 抖音相册第一个视频缩略图位置
+      // 容器 FrameLayout bounds=(0,454) 357x357，点击中心区域能选中视频
+      // 注意：点击后会进入视频播放预览页（图2），该页面也有"下一步"按钮
       return {
-        x: Math.round(screenW * 0.165),   // ~178/1080
+        x: Math.round(screenW * 0.165),   // ~178/1080 (缩略图中心)
         y: Math.round(screenH * 0.270),   // ~632/2340
         reason: `固定比例:屏幕${screenW}x${screenH}的第一个视频缩略图`
       }
     
     case 'NEXT_BTN':
-      // "下一步"按钮：右下角红色圆角矩形
-      // 抖音相册页底部，通常在屏幕右下角偏上的位置
+      // "下一步"按钮：粉红色圆角矩形，右下角
+      // ★ 截图实测坐标（4个采样点的中心）:
+      //   (848,2251) (811,2247) (844,2247) (802,2228)
+      //   → X中心 ≈ 828 ≈ screenW * 0.767
+      //   → Y中心 ≈ 2243 ≈ screenH * 0.959
+      // 旧值 y=0.92(2153) 差了约100px！每次都点空了！
       return {
-        x: Math.round(screenW * 0.82),    // 右侧
-        y: Math.round(screenH * 0.92),    // 底部（避开导航条）
-        reason: `固定比例:"下一步"按钮`
+        x: Math.round(screenW * 0.767),    // 右侧偏中
+        y: Math.round(screenH * 0.959),    // ★ 真正的底部（紧贴屏幕底边上方）
+        reason: `固定比例:"下一步"按钮(截图校正)`
       }
     
     case 'PUBLISH_BTN':
