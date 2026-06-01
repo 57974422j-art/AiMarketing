@@ -499,9 +499,10 @@ export async function aiPublishVideoWorkflow(
           currentStep = verify.step
           stepRetryCount = 0
         } else if (verify.step !== 'HOME_PLUS' && stepToOrder(verify.step) > stepToOrder(expectedNext)) {
-          // 超前了超过1步 → 不跳！回退到 expectedNext 继续走流程
-          console.log(`[${TS()}] [!超前] 检测到${verify.step}，但只允许→${expectedNext}，不跨步`)
-          currentStep = expectedNext   // 推进到下一步（不跳步），让流程正常走完每个环节
+          // 超前了超过1步 → 直接跳到检测到的步骤！
+          // 原因：某些版本抖音点"+"号会直接进相册页(跳过拍摄页)，这是正常行为
+          console.log(`[${TS()}] [✓跨步] 检测到${verify.step}(超前${stepToOrder(verify.step)-stepToOrder(expectedNext)}步)，直接推进`)
+          currentStep = verify.step
           stepRetryCount = 0
         } else {
           // 回退了或乱了 → 重试当前步
