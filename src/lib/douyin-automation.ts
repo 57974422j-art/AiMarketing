@@ -863,100 +863,103 @@ async function executeStep(
       // ════════ Sub-C: 点"下一步"按钮 ════════
       if (subStep === 'CLICK_NEXT') {
         // ★★ Layer 0: 底部区域完整扫描诊断（确认"下一步"是否真的存在！）
-        // ★★ Layer 0: 全页面扫描诊断 — 找"下一步"到底在哪！
-        console.log(`[相册-下一步] 全页面扫描(找"下一步")...`)
+        // ★★ Layer 0: 快速诊断 — 确认 dump 数据完整性
+        console.log(`[相册-下一步] 扫描找"下一步"...`)
         try {
           const dumpResult = await UI.dumpXml(apiPort)
           if (dumpResult.success && dumpResult.data) {
             const nodes = UI.parseUiXml(dumpResult.data)
+            console.log(`[XML诊断] dump数据=${dumpResult.data.length}字节, 解析节点=${nodes.length}个`)
 
-            // A: 扫描屏幕下半区(50%~100%)的所有节点 — 完全不过滤大小
-            const lowerHalf = nodes.filter(n => {
+            // 打印所有节点的概览（不过滤！）
+            let visibleCount = 0
+            for (const n of nodes) {
               const b = UI.parseBounds(n.bounds)
-              if (!b) return false
-              return b.y > screenH * 0.50
-            })
-            console.log(`[全页扫描] 下半区(${Math.round(screenH * 0.50)}~底部) ${lowerHalf.length} 个节点:`)
-            for (const n of lowerHalf.slice(0, 30)) {
-              const b = UI.parseBounds(n.bounds)!
-              const txt = n.text || n.contentDesc || ''
-              const rid = n.resourceId ? n.resourceId.split('/').pop() : ''
-              console.log(`  "${txt.substring(0,25)}" | ${n.className} | click=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height}) | id="${rid}"`)
+              if (!b) continue
+              if (b.y > screenH * 0.50 && b.width > 10 && b.height > 10) visibleCount++
+            }
+            console.log(`[XML诊断] 下半区(y>${Math.round(screenH * 0.50)}) 可见节点≈${visibleCount}个`)
+
+            // 如果下半区完全没有节点 → dump可能有问题或页面特殊渲染
+            if (visibleCount === 0) {
+              console.log(`[XML诊断] ⚠️ 下半区无节点!"下一步"可能是纯图片/DRAWABLE渲染, XML不可见!`)
             }
 
-            // B: 搜索任何可能包含"下/步/next"关键词的节点
-            const nextLikeNodes = nodes.filter(n => {
-              const txt = (n.text || '') + (n.contentDesc || '') + (n.resourceId || '')
-              if (!txt) return false
-              const lower = txt.toLowerCase()
-              return lower.includes('下') || lower.includes('步') || lower.includes('next') ||
-                     lower.includes('确认') || lower.includes('submit') || lower.includes('confirm')
-            })
-            if (nextLikeNodes.length > 0) {
-              console.log(`[关键词搜索] 找到 ${nextLikeNodes.length} 个含"下/步/next"的节点:`)
-              for (const n of nextLikeNodes) {
-                const b = UI.parseBounds(n.bounds)!
-                console.log(`  text="${n.text}" desc="${n.contentDesc}" id="${n.resourceId}" | ${n.className} | click=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height})`)
+            // 搜索含"下/步/next/选择/一键"的节点
+            for (const n of nodes) {
+              const combined = ((n.text || '') + ' ' + (n.contentDesc || '') + ' ' + (n.resourceId || '')).toLowerCase()
+              if (/下|步|next|选择|一键|确认|确定|完成|发布/.test(combined)) {
+                const b = UI.parseBounds(n.bounds)
+                if (b) {
+                  console.log(`[命中] text="${n.text}" desc="${n.contentDesc}" id="${n.resourceId}" | ${n.className} click=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height})`)
+                }
               }
-            } else {
-              console.log(`[关键词搜索] 未找到任何含"下/步/next"的节点!`)
             }
-
-            // C: 扫描右半侧区域(屏幕右侧60%)的所有节点
-            const rightSide = nodes.filter(n => {
-              const b = UI.parseBounds(n.bounds)
-              if (!b) return false
-              return b.x > screenW * 0.40 && b.y > screenH * 0.40
-            })
-            console.log(`[右侧扫描] 右下区域 ${rightSide.length} 个节点(x>${Math.round(screenW * 0.40)}, y>${Math.round(screenH * 0.40)}):`)
-            for (const n of rightSide.slice(0, 15)) {
-              const b = UI.parseBounds(n.bounds)!
-              const txt = n.text || n.contentDesc || ''
-              console.log(`  "${txt.substring(0,20)}" | ${n.className} | click=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height})`)
-            }
+          } else {
+            console.log(`[XML诊断] ⚠️ dump失败! success=${dumpResult.success}`)
           }
         } catch (e) {
-          console.log(`[全页扫描] 异常: ${e}`)
+          console.log(`[XML诊断] 异常: ${e}`)
         }
 
         // ★★ Layer 1: findAnyText 找"下一步"（不限 clickable!）
-        // ⚠️ 注意：不能用包含"视频"等常见字的搜索词！会被子串匹配误匹配到"视频"标签(405,398)
         const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成', '发布', '好了'], screenH)
         if (nextBtn) {
-          console.log(`[相册-下一步✓] 找到"${nextBtn.textHint || '?'}" → (${nextBtn.x},${nextBtn.y})`)
-          await doTap(apiPort, nextBtn.x, nextBtn.y, signal, adb)
-          _albumSubStep = 'SWITCH_VIDEO_TAB'
-          return { success: true, action: '点下一步', message: `(${nextBtn.x},${nextBtn.y})`, waitMs: 4000 }
+          // 排除误匹配到顶部标签区域( y < 屏幕的20% )
+          if (nextBtn.y > screenH * 0.20) {
+            console.log(`[相册-下一步✓] 找到"${nextBtn.textHint || '?'}" → (${nextBtn.x},${nextBtn.y})`)
+            await doTap(apiPort, nextBtn.x, nextBtn.y, signal, adb)
+            _albumSubStep = 'SWITCH_VIDEO_TAB'
+            return { success: true, action: '点下一步', message: `(${nextBtn.x},${nextBtn.y})`, waitMs: 4000 }
+          } else {
+            console.log(`[相册-下一步] "${nextBtn.textHint}" 在(${nextBtn.x},${nextBtn.y}) 太靠上, 可能是标签误匹配, 跳过`)
+          }
         }
 
-        // ★★ Layer 2: VL找红底白字"下一步"按钮
-        console.log(`[相册-下一步] VL找红色/橙色"下一步"...`)
+        // ★★ Layer 2: VL视觉识别 — 全力找红色"下一步"按钮
+        // 已知: 页面底部有3个按钮 "选择" "一键成本" "下一步"(红底白字)
+        console.log(`[相册-下一步] VL找红底白字"下一步"...`)
         const vlNext = await locateElement(
           b64,
-          `这是抖音APP的相册选择页面(分辨率${screenW}x${screenH})。
-注意：如果你看不到红色的"下一步"按钮，这说明视频还没有被选中！这种情况下请返回null。
-如果能看到右下角有红色/橙色的圆角矩形按钮上面写着白色"下一步"，请点击它。
-按钮大约在 y=${Math.round(screenH * 0.85)}~${Math.round(screenH * 0.95)}, x靠右侧。`
+          `抖音相册选择页面。页面底部有3个按钮排列在一起，从左到右分别是"选择"、"一键成本"、"下一步"。
+最右侧的"下一步"按钮是【红色/橙红色圆角矩形背景+白色文字】，位于屏幕最底部导航栏紧上方。
+屏幕分辨率 ${screenW}x${screenH}。
+请点击那个红色/橙红色的"下一步"按钮的中心坐标。
+如果看不到任何红色按钮就返回null。
+注意：不要返回屏幕顶部的坐标，按钮一定在屏幕下半部分(y > ${Math.round(screenH * 0.6)}).`
         )
-        if (vlNext && isVlCoordValid(vlNext.x, vlNext.y, screenW, screenH) && vlNext.y > screenH * 0.65) {
-          console.log(`[VL✓] 下一步 → (${vlNext.x},${vlNext.y})`)
-          await doTap(apiPort, vlNext.x, vlNext.y, signal, adb)
-          _albumSubStep = 'SWITCH_VIDEO_TAB'
-          return { success: true, action: 'VL点下一步', message: `(${vlNext.x},${vlNext.y})`, waitMs: 4000 }
+        if (vlNext && isVlCoordValid(vlNext.x, vlNext.y, screenW, screenH)) {
+          // 放宽y阈值 — 只要不是明显在顶部的都试试
+          if (vlNext.y > screenH * 0.15) {  // 从65%降到15%，因为VL可能不准但方向对
+            console.log(`[VL✓] 下一步 → (${vlNext.x},${vlNext.y})`)
+            await doTap(apiPort, vlNext.x, vlNext.y, signal, adb)
+            _albumSubStep = 'SWITCH_VIDEO_TAB'
+            return { success: true, action: 'VL点下一步', message: `(${vlNext.x},${vlNext.y})`, waitMs: 4000 }
+          }
+          console.log(`[VL✗] 坐标(${vlNext.x},${vlNext.y})太靠顶(y<${Math.round(screenH * 0.15)}), 拒绝`)
         }
-        if (vlNext) {
-          console.log(`[VL✗] 下一步坐标不合理 (${vlNext.x},${vlNext.y}), 拒绝`)
+        if (vlNext === null) {
+          console.log(`[VL✗] 返回null(未找到红色按钮)`)
         } else {
-          console.log(`[VL✗] 未找到下一步(很可能视频未被选中导致按钮不显示)`)
+          console.log(`[VL✗] 坐标无效(${vlNext.x},${vlNext.y}), 拒绝`)
         }
 
-        // ★★ Layer 3: 比例坐标兜底 + 回退重选
-        const nextX = Math.round(screenW * 0.82)
-        const nextY = Math.round(screenH * 0.90)
-        console.log(`[相册-下一步] 比例坐标兜底 → (${nextX},${nextY}) (若失败将回退重选视频)`)
-        await doTap(apiPort, nextX, nextY, signal, adb)
-        _albumSubStep = 'PICK_VIDEO'  // ★ 关键修改：失败后回退到PICK_VIDEO重新选！
-        return { success: true, action: '比例坐标点下一步', message: `(${nextX},${nextY})`, waitMs: 3000 }
+        // ★★ Layer 3: 纯坐标策略 — 根据已知布局直接计算
+        // "相册"按钮在(861,2058), 底部导航栏约y=2030~2340
+        // "下一步"红按钮应该在导航栏上方或同行靠右
+        const candidates = [
+          { x: Math.round(screenW * 0.82), y: Math.round(screenH * 0.88), reason: '右下88%高度' },    // 之前的默认
+          { x: Math.round(screenW * 0.85), y: Math.round(screenH * 0.83), reason: '右下83%高度' },    // 稍微往上
+          { x: Math.round(screenW * 0.78), y: 2058,                    reason: '"相册"同行偏左' },     // 和"相册"按钮同一行
+          { x: Math.round(screenW * 0.80), y: 1980,                    reason: '导航栏上方' },
+          { x: 890, y: 2060,                                           reason: '固定坐标(近相册)' },
+        ]
+        // 取第一个候选
+        const c = candidates[0]
+        console.log(`[相册-下一步] 坐标策略 → (${c.x},${c.y}) [${c.reason}] (共${candidates.length}个备选)`)
+        await doTap(apiPort, c.x, c.y, signal, adb)
+        _albumSubStep = 'PICK_VIDEO'
+        return { success: true, action: '坐标点下一步', message: `(${c.x},${c.y}) [${c.reason}]`, waitMs: 3000 }
       }
 
       // 兜底
