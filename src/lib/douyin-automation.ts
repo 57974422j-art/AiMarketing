@@ -274,17 +274,53 @@ export async function aiPublishVideoWorkflow(
     console.log(`[${TS()}] [操作] ${result.action}: ${result.message}`)
 
     if (result.success) {
-      stepRetryCount = 0
-      const nextStep = getNextStep(currentStep)
-      if (nextStep === 'DONE') {
-        console.log(`[${TS()}] ========== 完成！视频已发布 ==========`)
-        return { success: true, message: '视频已发布' }
-      }
-      if (nextStep !== currentStep) {
-        console.log(`[${TS()}] [推进] ${currentStep} → ${nextStep}`)
-        currentStep = nextStep
-      }
+      // ★★ 关键：等页面加载后，验证是否真到了下一步！
       await sleep(result.waitMs, signal)
+      const verify = await detectCurrentPage(apiPort)
+      console.log(`[${TS()}] [验证] 点击后页面=${verify.step} (期望推进到 ${getNextStep(currentStep)})`)
+
+      const expectedNext = getNextStep(currentStep)
+      if (verify.step === expectedNext || verify.step === 'DONE') {
+        // 页面正确切换 → 推进步骤
+        stepRetryCount = 0
+        if (verify.step === 'DONE') {
+          console.log(`[${TS()}] ========== 完成！视频已发布 ==========`)
+          return { success: true, message: '视频已发布' }
+        }
+        console.log(`[${TS()}] [✓推进] ${currentStep} → ${verify.step}`)
+        currentStep = verify.step
+      } else if (verify.step === currentStep) {
+        // 页面没变 → 不推进，算重试
+        console.log(`[${TS()}] [×停留] 页面还是${currentStep}, 未切换，计入重试`)
+        stepRetryCount++
+        if (stepRetryCount >= MAX_STEP_RETRY) {
+          console.log(`[${TS()}] [回首页] ${currentStep} 页面不变${stepRetryCount}次, Back重置...`)
+          await goBack(apiPort, 5, signal, adb)
+          await sleep(3000, signal)
+          currentStep = 'HOME_PLUS'
+          stepRetryCount = 0
+          if (loopCount > 15) return { success: false, message: `重试过多,最后:${currentStep}` }
+        }
+      } else {
+        // 页面跳到了意外步骤（比如从首页直接跳到编辑页？）
+        // 只要不是回退到HOME_PLUS就算成功，同步过去
+        if (verify.step !== 'HOME_PLUS' && stepToOrder(verify.step) > stepToOrder(currentStep)) {
+          console.log(`[${TS()}] [跳步] ${currentStep} → ${verify.step} (超前了)`)
+          currentStep = verify.step
+          stepRetryCount = 0
+        } else {
+          // 回退了或乱了 → 重试当前步
+          console.log(`[${TS()}] [异常] 跳到${verify.step}(顺序异常), 重试${currentStep}`)
+          stepRetryCount++
+          if (stepRetryCount >= MAX_STEP_RETRY) {
+            console.log(`[${TS()}] [回首页] 异常重试耗尽, Back重置...`)
+            await goBack(apiPort, 5, signal, adb)
+            await sleep(3000, signal)
+            currentStep = 'HOME_PLUS'
+            stepRetryCount = 0
+          }
+        }
+      }
     } else {
       stepRetryCount++
       if (stepRetryCount >= MAX_STEP_RETRY) {
@@ -293,7 +329,6 @@ export async function aiPublishVideoWorkflow(
         await sleep(3000, signal)
         currentStep = 'HOME_PLUS'
         stepRetryCount = 0
-        inputDone = false
         if (loopCount > 15) {  // 安全保护
           return { success: false, message: `重试过多,最后步骤:${currentStep}` }
         }
@@ -346,13 +381,13 @@ async function executeStep(
       // 策略B: VL 视觉定位加号
       console.log(`[策略B] XML失败, VL定位加号...`)
       const vlCoord = await locateElement(b64, '加号')
-      if (vlCoord && vlCoord.x > 0 && vlCoord.y > screenH * 0.75) {
-        console.log(`[VL✓] 加号 → (${vlCoord.x},${vlCoord.y})`)
-        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
+      if (isVlCoordValid(vlCoord?.x ?? 0, vlCoord?.y ?? 0, screenW, screenH) && (vlCoord?.y ?? 0) > screenH * 0.75) {
+        console.log(`[VL✓] 加号 → (${vlCoord!.x},${vlCoord!.y})`)
+        await doTap(apiPort, vlCoord!.x, vlCoord!.y, signal, adb)
         return { success: true, action: 'VL定位+号', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 4000 }
       }
       if (vlCoord) {
-        console.log(`[VL✗] 加号坐标异常 y=${vlCoord.y}, 忽略`)
+        console.log(`[VL✗] 加号坐标不合理 (${vlCoord.x},${vlCoord.y}), 忽略`)
       }
 
       // 策略C: 比例坐标（底部导航栏正中间）
@@ -383,10 +418,13 @@ async function executeStep(
       // 策略B: VL 定位 "相册"
       console.log(`[策略B] XML失败, VL定位相册...`)
       const vlCoord = await locateElement(b64, '相册')
-      if (vlCoord && vlCoord.x > 0 && vlCoord.y > 0) {
-        console.log(`[VL✓] 相册 → (${vlCoord.x},${vlCoord.y})`)
-        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
+      if (isVlCoordValid(vlCoord?.x ?? 0, vlCoord?.y ?? 0, screenW, screenH)) {
+        console.log(`[VL✓] 相册 → (${vlCoord!.x},${vlCoord!.y})`)
+        await doTap(apiPort, vlCoord!.x, vlCoord!.y, signal, adb)
         return { success: true, action: 'VL定位相册', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 4000 }
+      }
+      if (vlCoord) {
+        console.log(`[VL✗] 相册坐标不合理 (${vlCoord.x},${vlCoord.y}), 忽略`)
       }
 
       return { success: false, action: '相册定位失败', message: 'XML/VL都未找到', waitMs: 3000 }
@@ -432,12 +470,15 @@ async function executeStep(
       // 策略B: VL 定位
       console.log(`[策略B] XML失败, VL定位标题...`)
       const vlCoord = await locateElement(b64, '标题')
-      if (vlCoord && vlCoord.x > 0 && vlCoord.y > 0) {
-        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
+      if (isVlCoordValid(vlCoord?.x ?? 0, vlCoord?.y ?? 0, screenW, screenH)) {
+        await doTap(apiPort, vlCoord!.x, vlCoord!.y, signal, adb)
         await sleep(1000, signal)
         const fullText = _safeTopics ? `${_safeTitle} ${_safeTopics}` : _safeTitle
         await doInput(apiPort, fullText, signal, adb)
         return { success: true, action: 'VL+输入', message: fullText.substring(0, 30), waitMs: 2000 }
+      }
+      if (vlCoord) {
+        console.log(`[VL✗] 标题坐标不合理 (${vlCoord.x},${vlCoord.y}), 忽略`)
       }
 
       return { success: false, action: '标题框定位失败', message: '未找到', waitMs: 3000 }
@@ -457,9 +498,12 @@ async function executeStep(
       // 策略B: VL 定位
       console.log(`[策略B] XML失败, VL定位发布...`)
       const vlCoord = await locateElement(b64, '发布')
-      if (vlCoord && vlCoord.x > 0 && vlCoord.y > 0) {
-        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
+      if (isVlCoordValid(vlCoord?.x ?? 0, vlCoord?.y ?? 0, screenW, screenH)) {
+        await doTap(apiPort, vlCoord!.x, vlCoord!.y, signal, adb)
         return { success: true, action: 'VL定位发布', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 5000 }
+      }
+      if (vlCoord) {
+        console.log(`[VL✗] 发布坐标不合理 (${vlCoord.x},${vlCoord.y}), 忽略`)
       }
 
       return { success: false, action: '发布按钮定位失败', message: '未找到', waitMs: 3000 }
@@ -480,4 +524,29 @@ function getNextStep(current: WorkflowStep): WorkflowStep {
     case 'PUBLISH_BTN': return 'DONE'
     default: return 'HOME_PLUS'
   }
+}
+
+/** 步骤序号（用于判断是否超前/回退） */
+function stepToOrder(step: WorkflowStep): number {
+  switch (step) {
+    case 'HOME_PLUS': return 1
+    case 'SHOOT_ALBUM': return 2
+    case 'ALBUM_PICK': return 3
+    case 'EDIT_TITLE': return 4
+    case 'PUBLISH_BTN': return 5
+    case 'DONE': return 99
+    default: return 0
+  }
+}
+
+/**
+ * VL 坐标合理性检查
+ * 过滤掉左上角等异常区域（状态栏、导航栏误识别）
+ */
+function isVlCoordValid(x: number, y: number, screenW: number, screenH: number): boolean {
+  if (x <= 0 || y <= 0) return false
+  // 拒绝左上角 10% 区域（通常是状态栏/设置按钮）
+  if (y < screenH * 0.08) { console.log(`[VL✗] y=${y} < 屏幕顶部8%, 拒绝`); return false }
+  if (x < screenW * 0.05 && y < screenH * 0.15) { console.log(`[VL✗] (${x},${y}) 在左上角, 拒绝`); return false }
+  return true
 }
