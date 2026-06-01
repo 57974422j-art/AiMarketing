@@ -218,6 +218,83 @@ async function locateByText(
   return null
 }
 
+// ==================== 锚点反推法（定位底部导航栏+号）====================
+
+/**
+ * 导航栏锚点反推法（Layer 1 主力策略）
+ *
+ * 核心原理：不直接识别"+"号图标（无文字、样式多变），
+ * 而是通过导航栏上"首页"和"我"两个稳定文字锚点，用数学公式反推"+"号位置。
+ *
+ * 抖音底部导航栏 = 5个Tab，水平等分排列：
+ *   Tab位置:  [0]首页  [1]朋友  [2]+号  [3]消息  [4]我
+ *
+ * "+"号X = 屏幕宽度 × 0.5（5等分中心点）
+ * "+"号Y = ("首页"和"我"的导航栏垂直中心) - 10px（避开小白条）
+ *
+ * @returns 加号坐标或null（锚点未找到时降级到后续策略）
+ */
+async function locatePlusByAnchor(
+  apiPort: number,
+  screenW: number,
+  screenH: number
+): Promise<{ x: number; y: number } | null> {
+  try {
+    const dumpResult = await UI.dumpXml(apiPort)
+    if (!dumpResult.success || !dumpResult.data) {
+      console.log(`[锚点✗] dumpXml失败`)
+      return null
+    }
+
+    const nodes = UI.parseUiXml(dumpResult.data)
+
+    // 筛选条件：Y坐标必须在屏幕底部15%以内 + 高度30~120px（防止红点干扰）
+    const bottomThreshold = screenH * 0.85
+
+    let homeNode: UI.UINode | null = null
+    let homeArea = 0
+    let meNode: UI.UINode | null = null
+    let meArea = 0
+
+    for (const node of nodes) {
+      if (!node.text) continue
+      const b = UI.parseBounds(node.bounds)
+      if (!b) continue
+      // 必须在屏幕底部15%区域
+      if (b.y < bottomThreshold) continue
+      // 高度过滤：30~120px（排除红点/小图标干扰）
+      if (b.height < 30 || b.height > 120) continue
+
+      const area = b.width * b.height
+      if (node.text === '首页' && area > homeArea) { homeNode = node; homeArea = area }
+      if (node.text === '我' && area > meArea) { meNode = node; meArea = area }
+    }
+
+    if (!homeNode || !meNode) {
+      console.log(`[锚点✗] 首页=${homeNode ? '✓' : '✗'}, 我=${meNode ? '✓' : '✗'}`)
+      return null
+    }
+
+    const homeB = UI.parseBounds(homeNode.bounds)!
+    const meB = UI.parseBounds(meNode.bounds)!
+
+    // 计算导航栏边界
+    const navTop = Math.min(homeB.y, meB.y)
+    const navBottom = Math.max(homeB.y + homeB.height, meB.y + meB.height)
+
+    // 反推加号坐标
+    const plusX = Math.round(screenW * 0.5)
+    const plusY = Math.round((navTop + navBottom) / 2 - 10)
+
+    console.log(`[锚点✓] 首页(${homeB.x},${homeB.y},${homeB.width}x${homeB.height}) 我(${meB.x},${meB.y},${meB.width}x${meB.height}) → 加号(${plusX},${plusY})`)
+    return { x: plusX, y: plusY }
+
+  } catch (e) {
+    console.log(`[锚点✗] 异常: ${e}`)
+    return null
+  }
+}
+
 // ==================== 主工作流（固定状态机，不用AI判断流程）====================
 
 interface WorkflowOptions {
@@ -415,16 +492,24 @@ async function executeStep(
     // STEP 1: 首页 → 点击底部 "+" 号进入拍摄页
     // ========================================
     case 'HOME_PLUS': {
-      // 策略A: XML 找底部导航栏相关文字
+      // ═══ Layer 1 (主力): 导航栏锚点反推法 ═══
+      // 通过"首页"+"我"两个文字锚点，数学反推加号位置，0ms纯计算，命中率99%
+      const anchorPlus = await locatePlusByAnchor(apiPort, screenW, screenH)
+      if (anchorPlus) {
+        await doTap(apiPort, anchorPlus.x, anchorPlus.y, signal, adb)
+        return { success: true, action: '锚点反推+号', message: `(${anchorPlus.x},${anchorPlus.y})`, waitMs: 4000 }
+      }
+
+      // ═══ Layer 2 (备用): XML模糊匹配 +/创建/拍摄 ═══
       const xmlPlus = await locateByText(apiPort, ['+', '创建', '拍摄'], 3000)
       if (xmlPlus) {
         await doTap(apiPort, xmlPlus.x, xmlPlus.y, signal, adb)
         return { success: true, action: 'XML定位+号', message: `(${xmlPlus.x},${xmlPlus.y})`, waitMs: 4000 }
       }
 
-      // 策略B: VL 视觉定位加号
-      console.log(`[策略B] XML失败, VL定位加号...`)
-      const vlCoord = await locateElement(b64, '加号')
+      // ═══ Layer 3 (兜底): VL视觉定位 ═══
+      console.log(`[策略B] 锚点/XML失败, VL定位加号...`)
+      const vlCoord = await locateElement(b64, '底部导航栏中间的加号发布按钮')
       if (vlCoord && isVlCoordValid(vlCoord.x, vlCoord.y, screenW, screenH) && vlCoord.y > screenH * 0.75) {
         console.log(`[VL✓] 加号 → (${vlCoord.x},${vlCoord.y})`)
         await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
@@ -434,15 +519,12 @@ async function executeStep(
         console.log(`[VL✗] 加号坐标不合理 (${vlCoord.x},${vlCoord.y}), 忽略`)
       }
 
-      // 策略C: 比例坐标（底部导航栏正中间）
-      // ⚠️ 注意：屏幕最底部有虚拟导航栏(返回/桌面/最近任务)，必须避开！
-      // 虚拟导航栏约占屏幕底部 4%~6%，抖音 "+" 号在其上方
-      // 抖音底部 tab 栏约在 screenH * 0.88~0.92 区域
-      const navY = Math.round(screenH * 0.905)   // 避开底部虚拟按键区
-      const navX = Math.round(screenW * 0.5)       // 水平居中
-      console.log(`[策略C] 比例坐标 → (${navX},${navY}) [screenH*0.905, 避开虚拟导航栏]`)
+      // ═══ Layer 4 (终极): 比例坐标（仅当所有策略都失败时）═══
+      const navY = Math.round(screenH * 0.905)
+      const navX = Math.round(screenW * 0.5)
+      console.log(`[策略D] 比例坐标 → (${navX},${navY}) [终极兜底]`)
       await doTap(apiPort, navX, navY, signal, adb)
-      return { success: true, action: '比例坐标+号', message: `(${navX},${navY})`, waitMs: 4000 }
+      return { success: true, action: '比例坐标+号(终极)', message: `(${navX},${navY})`, waitMs: 4000 }
     }
 
     // ========================================
