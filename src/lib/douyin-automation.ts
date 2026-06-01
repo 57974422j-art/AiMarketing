@@ -829,10 +829,12 @@ async function executeStep(
                 console.log(`[选视频→策略C] 无容器,估算 → (${tapX},${tapY})`)
               }
 
-              console.log(`[点击] (${tapX},${tapY}) via ${tapReason}`)
+              console.log(`[连击] (${tapX},${tapX})×2 via ${tapReason} (desc提示需点按两次激活)`)
+              await doTap(apiPort, tapX, tapY, signal, adb)
+              await sleep(200, signal)
               await doTap(apiPort, tapX, tapY, signal, adb)
               _albumSubStep = 'CLICK_NEXT'
-              return { success: true, action: '时长锚点选视频', message: `(${tapX},${tapY}) via "${dur.node.text}" [${tapReason}]`, waitMs: 2500 }
+              return { success: true, action: '时长锚点选视频(双击)', message: `(${tapX},${tapY})×2 via "${dur.node.text}" [${tapReason}]`, waitMs: 3000 }
             } else {
               console.log(`[时长锚点✗] 未找到时长格式文字(如00:15)`)
             }
@@ -848,10 +850,12 @@ async function executeStep(
           '这是抖音APP的相册选择页面（已切换到视频标签）。请找到屏幕中左上角第一个视频缩略图，上面有一个圆形O形播放按钮图标覆盖。请点击那个视频缩略图的中心位置。注意不要点整个网格区域中心，要点单个缩略图。'
         )
         if (vlThumb && isVlCoordValid(vlThumb.x, vlThumb.y, screenW, screenH) && vlThumb.y > screenH * 0.15 && vlThumb.y < screenH * 0.80) {
-          console.log(`[VL✓] 视频缩略图(带O) → (${vlThumb.x},${vlThumb.y})`)
+          console.log(`[VL✓] 视频缩略图(带O) → (${vlThumb.x},${vlThumb.y}) 连击×2`)
+          await doTap(apiPort, vlThumb.x, vlThumb.y, signal, adb)
+          await sleep(200, signal)
           await doTap(apiPort, vlThumb.x, vlThumb.y, signal, adb)
           _albumSubStep = 'CLICK_NEXT'
-          return { success: true, action: 'VL选视频(带O)', message: `(${vlThumb.x},${vlThumb.y})`, waitMs: 2000 }
+          return { success: true, action: 'VL选视频(双击)', message: `(${vlThumb.x},${vlThumb.y})×2`, waitMs: 3000 }
         }
         if (vlThumb) {
           console.log(`[VL✗] 坐标不合理 (${vlThumb.x},${vlThumb.y})`)
@@ -859,13 +863,15 @@ async function executeStep(
           console.log(`[VL✗] 未找到视频缩略图`)
         }
 
-        // Layer 3: 比例坐标终极兜底
+        // Layer 3: 比例坐标终极兜底（也用连击）
         const thumbX = Math.round(screenW * 0.18)
         const thumbY = Math.round(screenH * 0.32)
-        console.log(`[相册-选视频] 比例坐标(终极兜底) → (${thumbX},${thumbY})`)
+        console.log(`[相册-选视频] 比例坐标(终极兜底) → (${thumbX},${thumbY}) 连击×2`)
+        await doTap(apiPort, thumbX, thumbY, signal, adb)
+        await sleep(200, signal)
         await doTap(apiPort, thumbX, thumbY, signal, adb)
         _albumSubStep = 'CLICK_NEXT'
-        return { success: true, action: '比例坐标选视频', message: `(${thumbX},${thumbY})`, waitMs: 3000 }
+        return { success: true, action: '比例坐标选视频(双击)', message: `(${thumbX},${thumbY})×2`, waitMs: 3000 }
       }
 
       // ════════ Sub-C: 点"下一步"按钮 ════════
