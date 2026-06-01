@@ -873,6 +873,23 @@ async function executeStep(
         console.log(`[下一步] 等待UI刷新(3s)...`)
         await sleep(3000, signal)
 
+        // ★★ DEBUG: 重新截图并保存到本地文件（用于人工确认"下一步"位置和视频选中状态）
+        try {
+          const debugB64 = await UI.takeScreenshot(apiPort)
+          if (debugB64) {
+            const fs = await import('fs')
+            const path = await import('path')
+            const debugDir = path.join(process.cwd(), 'debug-screenshots')
+            if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir, { recursive: true })
+            const ts = new Date().toISOString().replace(/[:.]/g, '-')
+            const debugFile = path.join(debugDir, `clicknext-${ts}.png`)
+            fs.writeFileSync(debugFile, Buffer.from(debugB64, 'base64'))
+            console.log(`[DEBUG] 截图已保存 → ${debugFile} （请人工查看"下一步"按钮位置和视频选中状态）`)
+          }
+        } catch (e) {
+          console.log(`[DEBUG] 保存截图失败: ${e}`)
+        }
+
         // ★★ Layer 1: XML搜索 text + content-desc（双重保险）
         const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
         if (nextBtn && nextBtn.y > screenH * 0.15) {
