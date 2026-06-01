@@ -127,6 +127,84 @@ async function smartDoubleTap(
   console.log(`[智能双击] (${rx},${ry}) ✓ 完成`)
 }
 
+// ==================== 暴力点击引擎（用于关键按钮）====================
+
+/**
+ * forceClickButton - 三重保险暴力点击关键按钮
+ * 
+ * 用于："下一步"、"发布"、"确定"等抖音关键按钮
+ * 
+ * 策略：
+ * 1. smartTap 中心点（模拟人类按压）
+ * 2. 偏移点击（避开文字渲染层，点按钮"肉身"）
+ * 3. KEYCODE_ENTER 物理键兜底
+ */
+async function forceClickButton(
+  apiPort: number,
+  x: number,
+  y: number,
+  buttonName: string = '按钮',
+  signal?: AbortSignal,
+  adb?: ADB | null
+): Promise<void> {
+  console.log(`[forceClick] ${buttonName} → (${x},${y}) 开始三重保险...`)
+  
+  // 第一重：smartTap 中心点（250ms 按压，确保触发 TouchDelegate）
+  await smartTap(apiPort, x, y, 250, signal, adb)
+  await sleep(800, signal)  // 等待 UI 响应
+  
+  // 第二重：偏移 +30px 再试一次（避开文字 TextView，点父容器实体区域）
+  await smartTap(apiPort, x + 30, y, 250, signal, adb)
+  await sleep(500, signal)
+  
+  // 第三重：KEYCODE_ENTER 物理键（触发布局焦点默认行为）
+  if (adb) {
+    try { adb.shell('input keyevent KEYCODE_ENTER') } catch {}
+  } else {
+    await sh(apiPort, 'input keyevent KEYCODE_ENTER', signal)
+  }
+  
+  console.log(`[forceClick] ${buttonName} → 完成！`)
+}
+
+/**
+ * 固定比例坐标计算器
+ * 根据屏幕尺寸返回抖音标准布局下的固定坐标
+ */
+function getFixedCoords(
+  screenW: number,
+  screenH: number,
+  target: 'FIRST_VIDEO_THUMB' | 'NEXT_BTN' | 'PUBLISH_BTN'
+): { x: number; y: number; reason: string } {
+  switch (target) {
+    case 'FIRST_VIDEO_THUMB':
+      // 抖音相册第一个视频缩略图位置（左上角，2列网格的第一格）
+      // 基于日志：容器 FrameLayout (0,454) 357x357，中心约 (178,633)
+      return {
+        x: Math.round(screenW * 0.165),   // ~178/1080
+        y: Math.round(screenH * 0.270),   // ~632/2340
+        reason: `固定比例:屏幕${screenW}x${screenH}的第一个视频缩略图`
+      }
+    
+    case 'NEXT_BTN':
+      // "下一步"按钮：右下角红色圆角矩形
+      // 抖音相册页底部，通常在屏幕右下角偏上的位置
+      return {
+        x: Math.round(screenW * 0.82),    // 右侧
+        y: Math.round(screenH * 0.92),    // 底部（避开导航条）
+        reason: `固定比例:"下一步"按钮`
+      }
+    
+    case 'PUBLISH_BTN':
+      // "发布"按钮：编辑页右下角红色卡片
+      return {
+        x: Math.round(screenW * 0.85),
+        y: Math.round(screenH * 0.94),
+        reason: `固定比例:"发布"按钮`
+      }
+  }
+}
+
 async function doInput(
   apiPort: number,
   text: string,
@@ -911,133 +989,57 @@ async function executeStep(
                 console.log(`  #${i} [${c.node.className}] (${c.x},${c.y}) ${c.w}x${c.h} ${marker}`)
               }
 
-              // Step 3: 选择最佳点击目标
-              let tapX = 0, tapY = 0, tapReason = ''
+              // ★★★ 新策略：固定比例坐标优先（抖音布局稳定）+ 不依赖"未选中"验证 ★★★
+              
+              // 策略A（首选）：固定比例坐标 - 抖音相册第一个视频缩略图位置稳定
+              const fixedCoord = getFixedCoords(screenW, screenH, 'FIRST_VIDEO_THUMB')
+              console.log(`[选视频→策略A] 固定比例坐标 → (${fixedCoord.x},${fixedCoord.y}) ${fixedCoord.reason}`)
+              
+              // 使用 smartDoubleTap 点击（人类模拟模式）
+              await smartDoubleTap(apiPort, fixedCoord.x, fixedCoord.y, signal, adb)
+              
+              // ★ 关键改变：不检查"未选中"！而是等待后直接检测页面是否有"下一步"
+              await sleep(2500, signal)  // 给足时间让 UI 刷新
+              
+              // 检测是否出现了"下一步"按钮（这才是真正选中的标志！）
+              try {
+                const nextCheck = await findAnyText(apiPort, ['下一步'], screenH)
+                if (nextCheck) {
+                  console.log(`[选中验证✓] 检测到"下一步"按钮 → (${nextCheck.x},${nextCheck.y}), 视频已选中！`)
+                  _albumSubStep = 'CLICK_NEXT'
+                  return { success: true, action: '固定坐标+smartDoubleTap选视频(成功)', message: `(${fixedCoord.x},${fixedCoord.y}) [${fixedCoord.reason}]`, waitMs: 3000 }
+                }
+                console.log(`[选中验证?] 未检测到"下一步", 可能没选中或UI还在刷新...`)
+              } catch (e) {
+                console.log(`[选中验证] 异常: ${e}`)
+              }
 
-              // 策略A: 优先找 clickable=true 的中等大小容器
+              // 策略B：如果固定坐标失败，尝试 XML 容器中心
+              let fallbackX = 0, fallbackY = 0
               const clickableOnes = allContainers.filter(c => c.clickable && c.area < screenW * screenH * 0.3)
               if (clickableOnes.length > 0) {
-                // 取最大的那个 clickable 容器
                 const best = clickableOnes[clickableOnes.length - 1]
-                tapX = Math.round(best.x + best.w / 2)
-                tapY = Math.round(best.y + best.h / 2)
-                tapReason = `clickable-${best.node.className}`
-                console.log(`[选视频→策略A] clickable容器 → (${tapX},${tapY}) via ${tapReason}`)
-              } else if (allContainers.length > 0) {
-                // 策略B: 无clickable容器 → 取中等面积的容器中心
-                const midIdx = Math.min(Math.floor(allContainers.length / 2), allContainers.length - 1)
-                const mid = allContainers[midIdx]
-                tapX = Math.round(mid.x + mid.w / 2)
-                tapY = Math.round(mid.y + mid.h / 2)
-                tapReason = `mid-${mid.node.className}(#${midIdx}/${allContainers.length})`
-                console.log(`[选视频→策略B] 中等容器(#${midIdx}) → (${tapX},${tapY}) via ${mid.node.className} (无clickable候选!)`)
-
-                // 如果之前已经试过这个位置且失败了（通过检查重试次数），换一个更大的容器
-                // 这里我们直接用最大但不是全屏的容器
-                if (allContainers.length >= 3) {
-                  const bigger = allContainers[Math.min(allContainers.length - 2, allContainers.length - 1)]
-                  tapX = Math.round(bigger.x + bigger.w / 2)
-                  tapY = Math.round(bigger.y + bigger.h / 2)
-                  tapReason = `bigger-${bigger.node.className}(#${allContainers.indexOf(bigger)})`
-                  console.log(`[选视频→策略B+] 换更大容器 → (${tapX},${tapY}) via ${bigger.node.className}`)
-                }
-              }
-
-              // 策略C: 如果有容器就用容器坐标，否则用时长估算
-              if (tapX === 0) {
-                tapX = Math.round(dur.x - 80)
-                tapY = Math.round(durCy - 100)
-                tapReason = '估算(时长左上)'
-                console.log(`[选视频→策略C] 无容器,估算 → (${tapX},${tapY})`)
-              }
-
-              // ★★★ 新策略：单次精确点击 + 验证 ★★★
-              // 问题：之前双击/3x3 sweep 都失败
-              // 关键：抖音相册选视频 = 单击选中，不需要双击！
-              
-              // 生成候选点击点列表（按优先级排序）
-              const candidates: Array<{ x: number; y: number; reason: string }> = []
-              
-              // 候选1: clickable 容器中心（原策略A）
-              if (clickableOnes.length > 0) {
-                const best = clickableOnes[clickableOnes.length - 1]
-                candidates.push({
-                  x: Math.round(best.x + best.w / 2),
-                  y: Math.round(best.y + best.h / 2),
-                  reason: `clickable容器中心`
-                })
-                // 候选2: clickable 容器左上 1/4 处（有时缩略图不在正中心）
-                candidates.push({
-                  x: Math.round(best.x + best.w * 0.25),
-                  y: Math.round(best.y + best.h * 0.30),
-                  reason: `clickable容器左上区域`
-                })
-              }
-              
-              // 候选3: 时长文字上方约100px处（视频缩略图大概位置）
-              candidates.push({
-                x: Math.round(durCx),
-                y: Math.round(dur.y - 120),  // 时长标签通常在右下角，向上偏移
-                reason: `时长上方估算`
-              })
-              
-              // 候选4: 最小容器(#0 FrameLayout) 的真正中心
-              if (allContainers.length > 0) {
-                const smallest = allContainers[0]
-                candidates.push({
-                  x: Math.round(smallest.x + smallest.w * 0.5),
-                  y: Math.round(smallest.y + smallest.h * 0.4),  // 稍微偏上
-                  reason: `最小容器偏上`
-                })
-              }
-              
-              console.log(`[选视频] 生成 ${candidates.length} 个候选点（双击模式）:`)
-              for (let i = 0; i < candidates.length; i++) {
-                console.log(`  #${i} (${candidates[i].x},${candidates[i].y}) - ${candidates[i].reason}`)
-              }
-              
-              // ★ 逐个尝试候选点 - 使用 smartDoubleTap 模拟人类双击！
-              for (let ci = 0; ci < candidates.length; ci++) {
-                const cand = candidates[ci]
-                console.log(`[选视频→尝试#${ci+1}] smartDoubleTap (${cand.x},${cand.y}) via ${cand.reason}`)
+                fallbackX = Math.round(best.x + best.w / 2)
+                fallbackY = Math.round(best.y + best.h / 2)
+                console.log(`[选视频→策略B] 容器中心 → (${fallbackX},${fallbackY})`)
                 
-                // ★ 使用智能双击：150ms按压 + 280ms间隔 + 150ms按压（模拟人类生理特征）★
-                await smartDoubleTap(apiPort, cand.x, cand.y, signal, adb)
+                await smartDoubleTap(apiPort, fallbackX, fallbackY, signal, adb)
+                await sleep(2500, signal)
                 
-                // 等待UI响应（RecyclerView 刷新较慢）
-                await sleep(1800, signal)
-                
-                // 验证是否选中
+                // 再次检查"下一步"
                 try {
-                  const selCheck = await UI.dumpXml(apiPort)
-                  if (selCheck.success && selCheck.data) {
-                    const selNodes = UI.parseUiXml(selCheck.data)
-                    let stillUnselected = false
-                    for (const rawNode of selNodes) {
-                      const node = rawNode as { contentDesc?: string }
-                      if (node.contentDesc && node.contentDesc.includes('未选中')) {
-                        stillUnselected = true
-                        break
-                      }
-                    }
-                    
-                    if (!stillUnselected) {
-                      // ★ 选中成功！
-                      console.log(`[选中验证✓] 候选#${ci+1} (${cand.x},${cand.y}) 视频已选中！`)
-                      _albumSubStep = 'CLICK_NEXT'
-                      return { success: true, action: 'smartDoubleTap选视频(成功)', message: `(${cand.x},${cand.y}) [${cand.reason}]`, waitMs: 3000 }
-                    }
-                    console.log(`[选中验证✗] 候选#${ci+1} 仍"未选中", 试下一个...`)
+                  const nextCheck2 = await findAnyText(apiPort, ['下一步'], screenH)
+                  if (nextCheck2) {
+                    console.log(`[选中验证✓] 策略B成功！检测到"下一步" → 视频已选中！`)
+                    _albumSubStep = 'CLICK_NEXT'
+                    return { success: true, action: '策略B选视频(成功)', message: `(${fallbackX},${fallbackY})`, waitMs: 3000 }
                   }
                 } catch {}
-                
-                // 等待一下再试下一个点
-                await sleep(500, signal)
               }
               
-              // 所有候选点都失败了
-              console.log(`[选中验证✗] 所有 ${candidates.length} 个候选点都未选中, 返回重试`)
-              return { success: false, action: '所有候选点均未选中', message: `${candidates.length}个点全部失败`, waitMs: 2000 }
+              // 所有策略都失败了
+              console.log(`[选中验证✗] 固定坐标和XML容器都未能选中视频, 返回重试`)
+              return { success: false, action: '选视频失败(固定+XML都无效)', message: `固定(${fixedCoord.x},${fixedCoord.y}) + 容器(${fallbackX},${fallbackY})`, waitMs: 2000 }
             } else {
               console.log(`[时长锚点✗] 未找到时长格式文字(如00:15)`)
             }
@@ -1099,143 +1101,34 @@ async function executeStep(
         return { success: true, action: '比例坐标+smartDoubleTap选视频', message: `(${thumbX},${thumbY})`, waitMs: 3000 }
       }
 
-      // ════════ Sub-C: 点"下一步"按钮 ════════
+      // ════════ Sub-C: 点"下一步"按钮（使用 forceClickButton 三重保险）═══════
       if (subStep === 'CLICK_NEXT') {
-        // ★★ Layer 0: 强制等待视频选中动画 + 按钮渲染完成（全面屏手机需要更长）
+        // ★★ 等待视频选中动画 + 按钮渲染完成
         console.log(`[下一步] 等待UI刷新(3s)...`)
         await sleep(3000, signal)
 
-        // ★★ DEBUG: 重新截图并保存到本地文件（用于人工确认"下一步"位置和视频选中状态）
-        let debugB64 = ''
-        try {
-          debugB64 = await UI.takeScreenshot(apiPort) || ''
-          if (debugB64) {
-            const fs = await import('fs')
-            const path = await import('path')
-            const debugDir = path.join(process.cwd(), 'debug-screenshots')
-            if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir, { recursive: true })
-            const ts = new Date().toISOString().replace(/[:.]/g, '-')
-            const debugFile = path.join(debugDir, `clicknext-${ts}.png`)
-            fs.writeFileSync(debugFile, Buffer.from(debugB64, 'base64'))
-            console.log(`[DEBUG] 截图已保存 → ${debugFile}`)
-          }
-        } catch (e) {
-          console.log(`[DEBUG] 保存截图失败: ${e}`)
-        }
-
-        // ════════ 改动A: 视频选中状态验证 + 全量XML诊断 ════════
-        try {
-          const fullDump = await UI.dumpXml(apiPort)
-          if (fullDump.success && fullDump.data) {
-            const allNodes = UI.parseUiXml(fullDump.data)
-
-            // A1: 打印所有文字节点（无任何过滤），诊断到底有什么
-            console.log(`[全量XML] 页面共有 ${allNodes.length} 个节点, 其中有文字的:`)
-            let textNodeCount = 0
-            for (const rawNode of allNodes) {
-              const node = rawNode as { text?: string; contentDesc?: string; className?: string; bounds?: string; clickable?: boolean }
-              if (node.text || node.contentDesc) {
-                textNodeCount++
-                const b = UI.parseBounds(node.bounds || '')
-                const pos = b ? `(${Math.round(b.x)},${Math.round(b.y)},${b.width}x${b.height})` : 'no-bounds'
-                const extra: string[] = []
-                if (node.clickable) extra.push('clickable')
-                if (node.contentDesc) extra.push(`desc="${node.contentDesc}"`)
-                console.log(`  #${textNodeCount} "${node.text || '(空文本)'}" | ${node.className || '?'} | ${pos} | ${extra.join(' ')}`)
-              }
-            }
-
-            // A2: 检测视频选中标志（右上角数字、勾选框、"下一步"等）
-            const selectionIndicators = ['下一步', '确定', '完成', '已选', '发布']
-            const foundIndicators: string[] = []
-            for (const rawNode of allNodes) {
-              const node = rawNode as { text?: string; contentDesc?: string; className?: string; bounds?: string; clickable?: boolean }
-              for (const ind of selectionIndicators) {
-                if ((node.text && node.text.includes(ind)) || (node.contentDesc && node.contentDesc.includes(ind))) {
-                  foundIndicators.push(ind)
-                  const b2 = UI.parseBounds(node.bounds || '')
-                  const pos = b2 ? `(${Math.round(b2.x)},${Math.round(b2.y)})` : '?'
-                  console.log(`[选中标志✓] "${ind}" → ${pos} clickable=${!!node.clickable} class=${node.className || '?'}`)
-                }
-              }
-              // 检测纯数字（可能是右上角角标 "1", "2" 等）
-              if (node.text && /^\d$/.test(node.text) && node.text !== '0') {
-                const b3 = UI.parseBounds(node.bounds || '')
-                if (b3 && b3.x > screenW * 0.80 && b3.y < screenH * 0.15) {
-                  foundIndicators.push(`角标"${node.text}"`)
-                  console.log(`[选中标志✓] 右上角数字角标 "${node.text}" → (${Math.round(b3.x)},${Math.round(b3.y)})`)
-                }
-              }
-            }
-
-            if (foundIndicators.length > 0) {
-              console.log(`[选中验证✓] 检测到 ${foundIndicators.length} 个选中标志: [${foundIndicators.join(', ')}] → 继续找"下一步"`)
-            } else {
-              console.log(`[选中验证✗] 未检测到任何选中标志(下一步/已选/角标/发布)！视频可能未选中，但仍尝试点击...`)
-            }
-          }
-        } catch (e) {
-          console.log(`[全量XML] 异常: ${e}`)
-        }
-
-        // ★★ Layer 1: XML搜索 text + content-desc（Y轴过滤已放宽到0.98）
+        // ★★ Layer 0: XML 搜索 "下一步" 文字获取精确坐标
         const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
+        
+        let clickX = 0, clickY = 0
+        
         if (nextBtn && nextBtn.y > screenH * 0.15) {
-          const nx = nextBtn.x, ny = nextBtn.y
-          console.log(`[✓] "${nextBtn.textHint}" → (${nx},${ny}) clickable=${nextBtn.clickable}`)
-          
-          if (nextBtn.clickable) {
-            // 真正可点击的节点，使用 smartTap 模拟人类点击
-            await smartTap(apiPort, nx, ny, 200, signal, adb)
-            _albumSubStep = 'SWITCH_VIDEO_TAB'
-            return { success: true, action: 'smartTap点下一步(可点击)', message: `(${nx},${ny})`, waitMs: 4000 }
-          }
-          
-          // ★ clickable=false（TextView壳）→ 使用 smartTap + 3次尝试（不用array sweep避免拖拽）★
-          console.log(`[⚠下一步] clickable=false！使用smartTap多次尝试...`)
-          
-          // 尝试1: 中心点 smartTap
-          await smartTap(apiPort, nx, ny, 250, signal, adb)
-          await sleep(500, signal)
-          
-          // 尝试2: 稍微偏移再试
-          await smartTap(apiPort, nx + 30, ny, 250, signal, adb)
-          await sleep(500, signal)
-          
-          _albumSubStep = 'SWITCH_VIDEO_TAB'
-          return { success: true, action: 'smartTap点下一步(clickable=false)', message: `(${nx},${ny})×2次`, waitMs: 5000 }
+          clickX = nextBtn.x
+          clickY = nextBtn.y
+          console.log(`[✓] 找到"${nextBtn.textHint}" → (${clickX},${clickY})`)
+        } else {
+          // ★★ Layer 1: 固定比例坐标（抖音布局稳定）
+          const fixedNext = getFixedCoords(screenW, screenH, 'NEXT_BTN')
+          clickX = fixedNext.x
+          clickY = fixedNext.y
+          console.log(`[固定坐标] "下一步" → (${clickX},${clickY}) ${fixedNext.reason}`)
         }
-        if (nextBtn) console.log(`[跳过] "${nextBtn.textHint}"太靠上`)
-
-        // ★★ Layer 2: VL 视觉识别（prompt 已修复，不再被"相册"截胡）
-        console.log(`[VL] 找红底白字"下一步"...`)
-        const vlNext = await locateElement(b64,
-          `视频选择界面${screenW}x${screenH}。屏幕底部右侧有【红色圆角矩形】按钮写白色大字"下一步"。返回中心坐标。看不到返回null。禁止y<400!`)
-        if (vlNext && vlNext.y > screenH * 0.10) {
-          console.log(`[VL✓] → (${vlNext.x},${vlNext.y}), 用UI.tap(硬件级)`)
-          await UI.tap(apiPort, vlNext.x, vlNext.y)
-          _albumSubStep = 'SWITCH_VIDEO_TAB'
-          return { success: true, action: 'VL+UI.tap点下一步', message: `(${vlNext.x},${vlNext.y})`, waitMs: 4000 }
-        }
-        console.log(vlNext ? `[VL✗] (${vlNext.x},${vlNext.y})太靠顶` : `[VL✗] null`)
-
-        // ════════ 改动C: 红色像素检测（跳过，无可用图像库） ════════
-        // 截图已保存到 debug-screenshots/ 目录，可人工确认右下角是否有红色"下一步"
-        const hasScreenshot = !!debugB64
-        if (hasScreenshot) {
-          console.log(`[像素检测] 截图已保存(见上方DEBUG路径)，人工确认右下角红色区域`)
-        }
-
-        // ★★ Layer 3: 比例坐标连击右下角
-        //    y=0.92 避开全面屏手势导航栏（0.88 可能点到手势区）
-        const ratioX = Math.round(screenW * 0.92)
-        const ratioY = Math.round(screenH * 0.92)
-        console.log(`[比例坐标] 连击右下角 → (${ratioX},${ratioY}) [screenW*0.92, screenH*0.92]${hasScreenshot ? ' (有截图可人工确认)' : ''}`)
-        await UI.tap(apiPort, ratioX, ratioY)
-        await sleep(300, signal)
-        await UI.tap(apiPort, ratioX, ratioY)  // ★ 连击确保触发
+        
+        // ★★ 使用 forceClickButton 三重保险点击！
+        await forceClickButton(apiPort, clickX, clickY, '"下一步"', signal, adb)
+        
         _albumSubStep = 'SWITCH_VIDEO_TAB'
-        return { success: true, action: '比例坐标点下一步', message: `(${ratioX},${ratioY})`, waitMs: 4000 }
+        return { success: true, action: 'forceClickButton点"下一步"(三重保险)', message: `(${clickX},${clickY})`, waitMs: 5000 }
       }
 
       // 兜底
