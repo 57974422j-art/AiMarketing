@@ -735,7 +735,7 @@ async function executeStep(
       // ════════ Sub-B: 选视频缩略图 ════════
       // ★★★ 核心思路：时长锚点反推法 ★★★
       // 抖音相册的视频缩略图右下角覆盖有时长文字(如"00:15")
-      // 这个时长就是最可靠的定位锚点！找到它 → 向上找包含它的大面积容器 → 点容器中心
+      // 这个时长就是最可靠的定位锚点！找到它 → 推算缩略图中心 → 点击
       if (subStep === 'PICK_VIDEO') {
         // Layer 1: 时长锚点反推法（最可靠！）
         try {
@@ -758,46 +758,76 @@ async function executeStep(
               const dur = durationNodes[0]
               console.log(`[时长锚点✓] "${dur.node.text}" → (${dur.x},${dur.y},${dur.w}x${dur.h})`)
 
-              // Step 2: 找包含此时长节点的大面积容器
-              const durCenterX = dur.x + dur.w / 2
-              const durCenterY = dur.y + dur.h / 2
+              const durCx = dur.x + dur.w / 2
+              const durCy = dur.y + dur.h / 2
 
-              let bestContainer: UI.UINode | null = null
-              let bestArea = 0
-
+              // Step 2: 向上查找父容器链 — 找包含时长的大面积节点
+              const candidates: Array<{ node: UI.UINode; x: number; y: number; w: number; h: number; area: number }> = []
               for (const node of nodes) {
                 const b = UI.parseBounds(node.bounds)
                 if (!b) continue
-                if (b.width < 200 || b.height < 200) continue
-                if (b.y < screenH * 0.12 || b.y > screenH * 0.85) continue
-                if (durCenterX >= b.x && durCenterX <= b.x + b.width &&
-                    durCenterY >= b.y && durCenterY <= b.y + b.height) {
-                  const area = b.width * b.height
-                  if (!bestContainer || area < bestArea) {
-                    bestContainer = node
-                    bestArea = area
-                  }
+                if (b.width < 150 || b.height < 150) continue    // 太小的不可能是视频缩略图
+                if (b.y < screenH * 0.10 || b.y > screenH * 0.85) continue
+                if (b.width > screenW * 0.6 || b.height > screenH * 0.5) continue  // 太大的排除(网格容器)
+                if (durCx >= b.x && durCx <= b.x + b.width &&
+                    durCy >= b.y && durCy <= b.y + b.height) {
+                  candidates.push({ node, x: b.x, y: b.y, w: b.width, h: b.height, area: b.width * b.height })
                 }
               }
 
-              if (bestContainer) {
-                const cb = UI.parseBounds(bestContainer.bounds)!
-                // ★ 点击位置：容器中心偏上偏左一点（避开右下角的时长文字区域，点缩略图视觉中心）
-                const cx = Math.round(cb.x + cb.width * 0.4)
-                const cy = Math.round(cb.y + cb.height * 0.4)
-                console.log(`[时长→容器✓] "${dur.node.text}"(${Math.round(durCenterX)},${Math.round(durCenterY)}) → [${bestContainer.className}]点击(${cx},${cy}) 容器=${cb.x},${cb.y} ${cb.width}x${cb.height}`)
-                await doTap(apiPort, cx, cy, signal, adb)
-                _albumSubStep = 'CLICK_NEXT'
-                return { success: true, action: '时长锚点选视频', message: `(${cx},${cy}) via "${dur.node.text}"`, waitMs: 2500 }
+              // 按面积排序，取中等大小的（排除太小的装饰容器和太大的网格容器）
+              candidates.sort((a, b) => a.area - b.area)
+
+              // 策略：取面积排名中间的候选（通常是实际的视频卡片容器）
+              // 备选点击点列表：从最精确到最宽泛
+              const clickPoints: Array<{ x: number; y: number; reason: string }> = []
+
+              if (candidates.length > 0) {
+                // 选面积中位数左右的候选（既不太小也不太大）
+                const midIdx = Math.min(Math.floor(candidates.length / 2), candidates.length - 1)
+                const best = candidates[midIdx]
+                console.log(`[时长→容器✓] "${dur.node.text}"(${Math.round(durCx)},${Math.round(durCy)}) → [${best.node.className}] ${best.x},${best.y} ${best.w}x${best.h} (共${candidates.length}个候选,取#${midIdx})`)
+
+                // 点击点1: 候选容器的正中心
+                clickPoints.push({
+                  x: Math.round(best.x + best.w / 2),
+                  y: Math.round(best.y + best.h / 2),
+                  reason: `${best.node.className}中心`
+                })
+
+                // 点击点2: 时长文字左上方（缩略图视觉中心，避开时长覆盖区）
+                clickPoints.push({
+                  x: Math.round(durCx - best.w * 0.25),
+                  y: Math.round(durCy - best.h * 0.25),
+                  reason: '时长左上偏移'
+                })
+
+                // 点击点3: 时长文字正左方约100px
+                clickPoints.push({
+                  x: Math.round(dur.x - 80),
+                  y: Math.round(durCy),
+                  reason: '时长正左'
+                })
               } else {
-                // 无容器 → 用时长位置估算（时长在缩略图右下角，往左上推算缩略图中心）
-                const estCx = Math.round(dur.x - 50)
-                const estCy = Math.round(dur.y - screenH * 0.10)
-                console.log(`[时长→估算✓] 无容器,估算点击(${estCx},${estCy})`)
-                await doTap(apiPort, estCx, estCy, signal, adb)
-                _albumSubStep = 'CLICK_NEXT'
-                return { success: true, action: '时长估算选视频', message: `(${estCx},${estCy})`, waitMs: 2500 }
+                // 无容器候选用估算
+                clickPoints.push({
+                  x: Math.round(durCx - 80),
+                  y: Math.round(durCy - 120),
+                  reason: '时长估算(左上)'
+                })
+                clickPoints.push({
+                  x: Math.round(dur.x - 60),
+                  y: Math.round(durCy),
+                  reason: '时长正左(估算)'
+                })
               }
+
+              // 使用第一个（最佳）点击点
+              const pt = clickPoints[0]
+              console.log(`[点击] (${pt.x},${pt.y}) via ${pt.reason}`)
+              await doTap(apiPort, pt.x, pt.y, signal, adb)
+              _albumSubStep = 'CLICK_NEXT'
+              return { success: true, action: '时长锚点选视频', message: `(${pt.x},${pt.y}) via "${dur.node.text}" [${pt.reason}]`, waitMs: 2500 }
             } else {
               console.log(`[时长锚点✗] 未找到时长格式文字(如00:15)`)
             }
@@ -835,9 +865,32 @@ async function executeStep(
 
       // ════════ Sub-C: 点"下一步"按钮 ════════
       if (subStep === 'CLICK_NEXT') {
+        // ★★ Layer 0: 底部区域完整扫描诊断（确认"下一步"是否真的存在！）
+        // 抖音相册页：未选视频时"下一步"可能不显示/置灰/文字不同
+        console.log(`[相册-下一步] 扫描屏幕底部(75%~100%)所有节点...`)
+        try {
+          const dumpResult = await UI.dumpXml(apiPort)
+          if (dumpResult.success && dumpResult.data) {
+            const nodes = UI.parseUiXml(dumpResult.data)
+            // 扫描屏幕底部75%区域的所有节点 — 不过滤任何内容
+            const bottomNodes = nodes.filter(n => {
+              const b = UI.parseBounds(n.bounds)
+              if (!b) return false
+              return b.y > screenH * 0.75 && b.width > 30 && b.height > 10
+            })
+            console.log(`[底部扫描] ${bottomNodes.length} 个节点(y > ${Math.round(screenH * 0.75)}):`)
+            for (const n of bottomNodes.slice(0, 20)) {
+              const b = UI.parseBounds(n.bounds)!
+              const txt = n.text || n.contentDesc || ''
+              console.log(`  "${txt.substring(0,20)}" | ${n.className} | clickable=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height})`)
+            }
+          }
+        } catch (e) {
+          console.log(`[底部扫描] 异常: ${e}`)
+        }
+
         // ★★ Layer 1: findAnyText 找"下一步"（不限 clickable!）
-        // 抖音的"下一步"按钮很可能是 Button 但 clickable=false（和标签一样的问题）
-        const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成', '发布', '好了'], screenH)
+        const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成', '发布', '好了', '请选择', '选择视频'], screenH)
         if (nextBtn) {
           console.log(`[相册-下一步✓] 找到"${nextBtn.textHint || '?'}" → (${nextBtn.x},${nextBtn.y})`)
           await doTap(apiPort, nextBtn.x, nextBtn.y, signal, adb)
@@ -845,11 +898,14 @@ async function executeStep(
           return { success: true, action: '点下一步', message: `(${nextBtn.x},${nextBtn.y})`, waitMs: 4000 }
         }
 
-        // ★★ Layer 2: VL找红底白字"下一步"按钮 — 更精确的prompt
-        console.log(`[相册-下一步] VL找红色卡片白字"下一步"...`)
+        // ★★ Layer 2: VL找红底白字"下一步"按钮
+        console.log(`[相册-下一步] VL找红色/橙色"下一步"...`)
         const vlNext = await locateElement(
           b64,
-          '这是抖音APP的相册选择页面。屏幕右下角有一个红色的圆角矩形按钮，上面写着白色的"下一步"三个字。这个按钮位于屏幕最底部导航栏上方一点的位置，大约在屏幕高度的85%~95%区域、水平靠右侧。请找到并点击这个红色"下一步"按钮的中心位置。如果看不到"下一步"文字，找一个橙红色或红色的圆角矩形按钮也可以。'
+          `这是抖音APP的相册选择页面(分辨率${screenW}x${screenH})。
+注意：如果你看不到红色的"下一步"按钮，这说明视频还没有被选中！这种情况下请返回null。
+如果能看到右下角有红色/橙色的圆角矩形按钮上面写着白色"下一步"，请点击它。
+按钮大约在 y=${Math.round(screenH * 0.85)}~${Math.round(screenH * 0.95)}, x靠右侧。`
         )
         if (vlNext && isVlCoordValid(vlNext.x, vlNext.y, screenW, screenH) && vlNext.y > screenH * 0.65) {
           console.log(`[VL✓] 下一步 → (${vlNext.x},${vlNext.y})`)
@@ -858,18 +914,18 @@ async function executeStep(
           return { success: true, action: 'VL点下一步', message: `(${vlNext.x},${vlNext.y})`, waitMs: 4000 }
         }
         if (vlNext) {
-          console.log(`[VL✗] 下一步坐标不合理 y=${vlNext.y} < 屏幕底部35%, 拒绝`)
+          console.log(`[VL✗] 下一步坐标不合理 (${vlNext.x},${vlNext.y}), 拒绝`)
         } else {
-          console.log(`[VL✗] 未找到下一步按钮`)
+          console.log(`[VL✗] 未找到下一步(很可能视频未被选中导致按钮不显示)`)
         }
 
-        // ★★ Layer 3: 比例坐标兜底 — 右下角红色按钮典型位置
+        // ★★ Layer 3: 比例坐标兜底 + 回退重选
         const nextX = Math.round(screenW * 0.82)
         const nextY = Math.round(screenH * 0.90)
-        console.log(`[相册-下一步] 比例坐标兜底(右下红按钮) → (${nextX},${nextY})`)
+        console.log(`[相册-下一步] 比例坐标兜底 → (${nextX},${nextY}) (若失败将回退重选视频)`)
         await doTap(apiPort, nextX, nextY, signal, adb)
-        _albumSubStep = 'SWITCH_VIDEO_TAB'
-        return { success: true, action: '比例坐标点下一步', message: `(${nextX},${nextY})`, waitMs: 4000 }
+        _albumSubStep = 'PICK_VIDEO'  // ★ 关键修改：失败后回退到PICK_VIDEO重新选！
+        return { success: true, action: '比例坐标点下一步', message: `(${nextX},${nextY})`, waitMs: 3000 }
       }
 
       // 兜底
