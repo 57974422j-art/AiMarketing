@@ -601,93 +601,125 @@ async function executeStep(
     }
 
     // ========================================
-    // STEP 3: 相册页 → 选择第一个视频/图片
+    // STEP 3: 相册页 → 选择视频 + 点下一步
     // ========================================
     case 'ALBUM_PICK': {
-      // 先检查是否有"确定"/"完成"按钮（可能已经选中了视频）
-      const confirmBtn = await locateByText(apiPort, ['确定', '完成', '下一步', '继续', '确认'], 2000)
-      if (confirmBtn) {
-        await doTap(apiPort, confirmBtn.x, confirmBtn.y, signal, adb)
-        return { success: true, action: '点确定按钮', message: `(${confirmBtn.x},${confirmBtn.y})`, waitMs: 4000 }
+      // ═══ Layer 1: VL视觉找红色/橙色"下一步""发布""确定"按钮 ═══
+      // 抖音相册页选中视频后，底部会出现红色/橙色的"下一步"或"发布"按钮
+      console.log(`[策略A] VL找红色卡片下一步/发布按钮...`)
+      const vlNext = await locateElement(b64, '抖音相册页面底部红色的"下一步"或"发布"或"确定"按钮，通常是红底白字或橙色的圆角矩形按钮')
+      if (vlNext && isVlCoordValid(vlNext.x, vlNext.y, screenW, screenH) && vlNext.y > screenH * 0.7) {
+        console.log(`[VL✓] 红色下一步/发布 → (${vlNext.x},${vlNext.y})`)
+        await doTap(apiPort, vlNext.x, vlNext.y, signal, adb)
+        return { success: true, action: 'VL找红色下一步', message: `(${vlNext.x},${vlNext.y})`, waitMs: 4000 }
+      }
+      if (vlNext) {
+        console.log(`[VL✗] 下一步坐标不合理 (${vlNext.x},${vlNext.y}), 忽略`)
       }
 
-      // ═══ Layer 1: XML dump 找第一个可点击的图片/视频缩略图 ═══
+      // ═══ Layer 2: XML dump 找确认/发布类按钮（扩大搜索词）═══
+      const xmlConfirm = await locateByText(apiPort, [
+        '确定', '完成', '下一步', '继续', '确认',
+        '发布', '发作品', '立即发布', '发送',
+        '选好了', '好了', 'OK'
+      ], 2000)
+      if (xmlConfirm) {
+        await doTap(apiPort, xmlConfirm.x, xmlConfirm.y, signal, adb)
+        return { success: true, action: 'XML找确认/发布', message: `(${xmlConfirm.x},${xmlConfirm.y})`, waitMs: 4000 }
+      }
+
+      // ═══ Layer 3: dumpXml 选第一个视频缩略图（严格过滤）═══
       try {
         const dumpResult = await UI.dumpXml(apiPort)
         if (dumpResult.success && dumpResult.data) {
           const nodes = UI.parseUiXml(dumpResult.data)
-
-          // 筛选条件：在屏幕上半部分（缩略图区域），找 ImageView 或可点击容器
-          // 排除顶部导航栏区域（<12%屏幕高度）和底部按钮区（>85%）
           const candidates: { x: number; y: number; w: number; h: number; info: string }[] = []
 
           for (const node of nodes) {
             const b = UI.parseBounds(node.bounds)
             if (!b) continue
-            if (b.width < 80 || b.height < 80) continue   // 太小的忽略（图标/红点等）
-            if (b.y < screenH * 0.10) continue             // 排除顶部状态栏/导航栏
-            if (b.y > screenH * 0.85) continue             // 排除底部操作栏
 
-            // 优先：有 content-desc 的 ImageView（通常是缩略图）
-            if ((node.className.includes('ImageView') || node.contentDesc) &&
-                b.width > 150 && b.height > 150) {
+            // 基础过滤
+            if (b.width < 120 || b.height < 120) continue   // 太小的忽略
+            if (b.y < screenH * 0.12) continue               // 排除顶部导航栏/标签栏
+            if (b.y > screenH * 0.80) continue               // 排除底部操作栏
+
+            // ★★ 排除系统无障碍提示的元素（如"点按两次即可激活"）
+            if (node.contentDesc && (
+              node.contentDesc.includes('点按') || node.contentDesc.includes('双击') ||
+              node.contentDesc.includes('激活') || node.contentDesc.includes('double tap')
+            )) continue
+
+            // 排除纯文字节点（不是图片）
+            if (node.text && !node.className.includes('Image') && b.height < 150) continue
+
+            // 优先：RecyclerView/GridView 子容器（相册网格项）
+            if (node.className.includes('RecyclerView') ||
+                node.className.includes('GridView') ||
+                node.className.includes('FrameLayout') && b.width > 180 && b.height > 180) {
               candidates.push({
                 x: Math.round(b.x + b.width / 2),
                 y: Math.round(b.y + b.height / 2),
                 w: b.width, h: b.height,
-                info: `${node.className} desc=${node.contentDesc || '-'}`
+                info: `${node.className} text=${node.text || '-'}`
               })
             }
-          }
-
-          // 如果没找到 ImageView，退而求其次：找大的可点击节点
-          if (candidates.length === 0) {
-            for (const node of nodes) {
-              const b = UI.parseBounds(node.bounds)
-              if (!b) continue
-              if (!node.clickable) continue
-              if (b.y < screenH * 0.15 || b.y > screenH * 0.85) continue
-              if (b.width < 200 || b.height < 200) continue
+            // 其次：大的 ImageView 且没有系统desc
+            else if (node.className.includes('ImageView') &&
+                     b.width > 180 && b.height > 180 &&
+                     !node.contentDesc) {
               candidates.push({
                 x: Math.round(b.x + b.width / 2),
                 y: Math.round(b.y + b.height / 2),
                 w: b.width, h: b.height,
-                info: `clickable:${node.className} text=${node.text || '-'}`
+                info: `ImageView clean desc=空`
               })
             }
           }
 
-          // 取面积最大的候选者（通常是第一个大缩略图）
+          // 取面积最大且位置最靠左上角的（第一个网格项）
           if (candidates.length > 0) {
             candidates.sort((a, b) => (b.w * b.h) - (a.w * a.h))
-            const pick = candidates[0]
-            console.log(`[相册XML✓] 找到${candidates.length}个候选, 选最大 → (${pick.x},${pick.y}) [${pick.info}]`)
+            // 从面积最大的前3个中取y坐标最小的（最上面的 = 第一个）
+            const topCandidates = candidates.slice(0, Math.min(3, candidates.length))
+            topCandidates.sort((a, b) => a.y - b.y)
+            const pick = topCandidates[0]
+            console.log(`[相册XML✓] ${candidates.length}个候选, 选左上 → (${pick.x},${pick.y}) [${pick.info}]`)
             await doTap(apiPort, pick.x, pick.y, signal, adb)
-            return { success: true, action: 'XML定位视频', message: `(${pick.x},${pick.y})`, waitMs: 4000 }
+
+            // ★★ 点击完缩略图后，立刻再尝试找"下一步"按钮！
+            await sleep(1500, signal)
+            const afterPick = await locateByText(apiPort, [
+              '确定', '完成', '下一步', '继续', '确认', '发布', '发作品', '好了'
+            ], 2000)
+            if (afterPick) {
+              console.log(`[选中后] 找到确认按钮 → (${afterPick.x},${afterPick.y})`)
+              await doTap(apiPort, afterPick.x, afterPick.y, signal, adb)
+            }
+            return { success: true, action: 'XML选视频+确认', message: `(${pick.x},${pick.y})`, waitMs: 4000 }
           } else {
-            console.log(`[相册XML✗] 未找到缩略图元素`)
+            console.log(`[相册XML✗] 未找到有效缩略图`)
           }
         }
       } catch (e) {
         console.log(`[相册XML✗] 异常: ${e}`)
       }
 
-      // ═══ Layer 2: VL视觉定位视频缩略图 ═══
-      console.log(`[策略B] XML未找到, VL定位视频缩略图...`)
-      const vlCoord = await locateElement(b64, '相册中第一个视频或图片缩略图')
-      if (vlCoord && isVlCoordValid(vlCoord.x, vlCoord.y, screenW, screenH)) {
-        console.log(`[VL✓] 视频 → (${vlCoord.x},${vlCoord.y})`)
-        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
-        return { success: true, action: 'VL定位视频', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 4000 }
+      // ═══ Layer 4: VL找视频缩略图 ═══
+      console.log(`[策略D] 全部失败, VL找视频缩略图...`)
+      const vlThumb = await locateElement(b64, '相册中左上角第一个视频或图片缩略图')
+      if (vlThumb && isVlCoordValid(vlThumb.x, vlThumb.y, screenW, screenH)) {
+        console.log(`[VL✓] 缩略图 → (${vlThumb.x},${vlThumb.y})`)
+        await doTap(apiPort, vlThumb.x, vlThumb.y, signal, adb)
+        return { success: true, action: 'VL定位缩略图', message: `(${vlThumb.x},${vlThumb.y})`, waitMs: 4000 }
       }
 
-      // ═══ Layer 3: 比例坐标（终极兜底，但用更合理的值）═══
-      // 相册网格通常从左上角开始，第一张在 ~15%W, ~25%H 位置
+      // ═══ Layer 5: 比例坐标终极兜底 ═══
       const thumbX = Math.round(screenW * 0.18)
       const thumbY = Math.round(screenH * 0.28)
-      console.log(`[策略C] 比例坐标(兜底) → (${thumbX},${thumbY})`)
+      console.log(`[策略E] 比例坐标(终极兜底) → (${thumbX},${thumbY})`)
       await doTap(apiPort, thumbX, thumbY, signal, adb)
-      return { success: true, action: '比例坐标视频(兜底)', message: `(${thumbX},${thumbY})`, waitMs: 4000 }
+      return { success: true, action: '比例坐标(兜底)', message: `(${thumbX},${thumbY})`, waitMs: 4000 }
     }
 
     // ========================================
