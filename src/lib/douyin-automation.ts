@@ -864,14 +864,14 @@ async function executeStep(
         console.log(`[相册-选视频] 比例坐标(终极兜底) → (${thumbX},${thumbY})`)
         await doTap(apiPort, thumbX, thumbY, signal, adb)
         _albumSubStep = 'CLICK_NEXT'
-        return { success: true, action: '比例坐标选视频', message: `(${thumbX},${thumbY})`, waitMs: 2000 }
+        return { success: true, action: '比例坐标选视频', message: `(${thumbX},${thumbY})`, waitMs: 3000 }
       }
 
       // ════════ Sub-C: 点"下一步"按钮 ════════
       if (subStep === 'CLICK_NEXT') {
-        // ★★ Layer 0: 强制等待视频选中动画结束 + UI树刷新
-        console.log(`[下一步] 等待UI刷新(1.5s)...`)
-        await sleep(1500, signal)
+        // ★★ Layer 0: 强制等待视频选中动画 + 按钮渲染完成（全面屏手机需要更长）
+        console.log(`[下一步] 等待UI刷新(3s)...`)
+        await sleep(3000, signal)
 
         // ★★ Layer 1: XML搜索 text + content-desc（双重保险）
         const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
@@ -895,12 +895,14 @@ async function executeStep(
         }
         console.log(vlNext ? `[VL✗] (${vlNext.x},${vlNext.y})太靠顶` : `[VL✗] null`)
 
-        // ★★ Layer 3: 比例坐标直接点右下角（最可靠！不依赖任何识别）
-        //    "下一步"固定在屏幕右下角导航栏区域 ≈ (x=95%, y=88%)
+        // ★★ Layer 3: 比例坐标连击右下角
+        //    y=0.92 避开全面屏手势导航栏（0.88 可能点到手势区）
         const ratioX = Math.round(screenW * 0.92)
-        const ratioY = Math.round(screenH * 0.88)
-        console.log(`[比例坐标] 直接点击右下角 → (${ratioX},${ratioY}) [screenW*0.92, screenH*0.88]`)
+        const ratioY = Math.round(screenH * 0.92)
+        console.log(`[比例坐标] 连击右下角 → (${ratioX},${ratioY}) [screenW*0.92, screenH*0.92]`)
         await UI.tap(apiPort, ratioX, ratioY)
+        await sleep(300, signal)
+        await UI.tap(apiPort, ratioX, ratioY)  // ★ 连击确保触发
         _albumSubStep = 'SWITCH_VIDEO_TAB'
         return { success: true, action: '比例坐标点下一步', message: `(${ratioX},${ratioY})`, waitMs: 4000 }
       }
