@@ -55,6 +55,78 @@ async function doTap(
   return sh(apiPort, `input tap ${rx} ${ry}`, signal)
 }
 
+// ==================== 模拟人类点击（防风控）====================
+
+/**
+ * 智能点击 - 模拟真实人类手指按压
+ * 
+ * 核心优化：
+ * 1. 随机偏移 ±3px（模拟手指接触面积）
+ * 2. 使用 input swipe 模拟 150-250ms 按压时长
+ * 3. 避免被抖音识别为脚本"幽灵点击"
+ */
+async function smartTap(
+  apiPort: number,
+  x: number,
+  y: number,
+  duration: number = 200,
+  signal?: AbortSignal,
+  adb?: ADB | null
+): Promise<boolean> {
+  // 随机偏移 ±3px，模拟人手抖动
+  const rx = Math.round(x) + Math.floor(Math.random() * 7 - 3)
+  const ry = Math.round(y) + Math.floor(Math.random() * 7 - 3)
+  
+  console.log(`[智能点击] (${rx},${ry}) 压持${duration}ms`)
+  
+  // ★ 核心：用 input swipe 从 (rx,ry) 到 (rx,ry)，模拟真实按压时长
+  // 格式：input swipe x1 y1 x2 y2 duration(ms)
+  const cmd = `input swipe ${rx} ${ry} ${rx} ${ry} ${duration}`
+  
+  if (adb) {
+    try {
+      adb.shell(cmd)
+      return true
+    } catch (e) {
+      console.warn(`[smartTap] adb.shell 失败: ${cmd}, ${e}`)
+      return sh(apiPort, cmd, signal)
+    }
+  }
+  return sh(apiPort, cmd, signal)
+}
+
+/**
+ * 智能双击 - 用于相册选视频等需要双击确认的场景
+ * 
+ * 关键参数：
+ * - 单次按压 150ms（轻触）
+ * - 双击间隔 280ms（符合人类生理反应）
+ * - 总耗时约 580ms
+ */
+async function smartDoubleTap(
+  apiPort: number,
+  x: number,
+  y: number,
+  signal?: AbortSignal,
+  adb?: ADB | null
+): Promise<void> {
+  const rx = Math.round(x), ry = Math.round(y)
+  console.log(`[智能双击] (${rx},${ry}) → 开始...`)
+  
+  // 第一次点击：150ms 轻压
+  await smartTap(apiPort, x, y, 150, signal, adb)
+  
+  // ★ 关键间隔：280ms（人类双击的自然间隔）
+  // 太短(<100ms)会被系统合并为一次长按
+  // 太长(>500ms)会被系统识别为两次独立点击
+  await sleep(280, signal)
+  
+  // 第二次点击：150ms 轻压
+  await smartTap(apiPort, x, y, 150, signal, adb)
+  
+  console.log(`[智能双击] (${rx},${ry}) ✓ 完成`)
+}
+
 async function doInput(
   apiPort: number,
   text: string,
@@ -919,21 +991,21 @@ async function executeStep(
                 })
               }
               
-              console.log(`[选视频] 生成 ${candidates.length} 个候选点（单击模式）:`)
+              console.log(`[选视频] 生成 ${candidates.length} 个候选点（双击模式）:`)
               for (let i = 0; i < candidates.length; i++) {
                 console.log(`  #${i} (${candidates[i].x},${candidates[i].y}) - ${candidates[i].reason}`)
               }
               
-              // ★ 逐个尝试候选点 - 每个点只单击一次！不用sweep！
+              // ★ 逐个尝试候选点 - 使用 smartDoubleTap 模拟人类双击！
               for (let ci = 0; ci < candidates.length; ci++) {
                 const cand = candidates[ci]
-                console.log(`[选视频→尝试#${ci+1}] 单击 (${cand.x},${cand.y}) via ${cand.reason}`)
+                console.log(`[选视频→尝试#${ci+1}] smartDoubleTap (${cand.x},${cand.y}) via ${cand.reason}`)
                 
-                // ★ 只执行一次单击，不用array sweep（避免拖拽误判）★
-                await doTap(apiPort, cand.x, cand.y, signal, adb)
+                // ★ 使用智能双击：150ms按压 + 280ms间隔 + 150ms按压（模拟人类生理特征）★
+                await smartDoubleTap(apiPort, cand.x, cand.y, signal, adb)
                 
-                // 等待UI响应
-                await sleep(1500, signal)
+                // 等待UI响应（RecyclerView 刷新较慢）
+                await sleep(1800, signal)
                 
                 // 验证是否选中
                 try {
@@ -953,7 +1025,7 @@ async function executeStep(
                       // ★ 选中成功！
                       console.log(`[选中验证✓] 候选#${ci+1} (${cand.x},${cand.y}) 视频已选中！`)
                       _albumSubStep = 'CLICK_NEXT'
-                      return { success: true, action: '时长锚点选视频(成功)', message: `(${cand.x},${cand.y}) [${cand.reason}]`, waitMs: 3000 }
+                      return { success: true, action: 'smartDoubleTap选视频(成功)', message: `(${cand.x},${cand.y}) [${cand.reason}]`, waitMs: 3000 }
                     }
                     console.log(`[选中验证✗] 候选#${ci+1} 仍"未选中", 试下一个...`)
                   }
@@ -981,12 +1053,11 @@ async function executeStep(
           '这是抖音APP的相册选择页面（已切换到视频标签）。请找到屏幕中左上角第一个视频缩略图，上面有一个圆形O形播放按钮图标覆盖。请点击那个视频缩略图的中心位置。注意不要点整个网格区域中心，要点单个缩略图。'
         )
         if (vlThumb && isVlCoordValid(vlThumb.x, vlThumb.y, screenW, screenH) && vlThumb.y > screenH * 0.15 && vlThumb.y < screenH * 0.80) {
-          console.log(`[VL✓] 视频缩略图(带O) → (${vlThumb.x},${vlThumb.y}) 连击×2`)
-          await doTap(apiPort, vlThumb.x, vlThumb.y, signal, adb)
-          await sleep(200, signal)
-          await doTap(apiPort, vlThumb.x, vlThumb.y, signal, adb)
+          console.log(`[VL✓] 视频缩略图(带O) → (${vlThumb.x},${vlThumb.y}) smartDoubleTap`)
+          // ★ 使用智能双击替代普通双击
+          await smartDoubleTap(apiPort, vlThumb.x, vlThumb.y, signal, adb)
           // 选中验证
-          await sleep(1500, signal)
+          await sleep(1800, signal)
           try {
             const vlSelCheck = await UI.dumpXml(apiPort)
             if (vlSelCheck.success && vlSelCheck.data) {
@@ -998,7 +1069,7 @@ async function executeStep(
             }
           } catch {}
           _albumSubStep = 'CLICK_NEXT'
-          return { success: true, action: 'VL选视频(双击)', message: `(${vlThumb.x},${vlThumb.y})×2`, waitMs: 3000 }
+          return { success: true, action: 'VL+smartDoubleTap选视频', message: `(${vlThumb.x},${vlThumb.y})`, waitMs: 3000 }
         }
         if (vlThumb) {
           console.log(`[VL✗] 坐标不合理 (${vlThumb.x},${vlThumb.y})`)
@@ -1006,15 +1077,14 @@ async function executeStep(
           console.log(`[VL✗] 未找到视频缩略图`)
         }
 
-        // Layer 3: 比例坐标终极兜底（也用连击）
+        // Layer 3: 比例坐标终极兜底（使用 smartDoubleTap）
         const thumbX = Math.round(screenW * 0.18)
         const thumbY = Math.round(screenH * 0.32)
-        console.log(`[相册-选视频] 比例坐标(终极兜底) → (${thumbX},${thumbY}) 连击×2`)
-        await doTap(apiPort, thumbX, thumbY, signal, adb)
-        await sleep(200, signal)
-        await doTap(apiPort, thumbX, thumbY, signal, adb)
+        console.log(`[相册-选视频] 比例坐标(终极兜底) → (${thumbX},${thumbY}) smartDoubleTap`)
+        // ★ 使用智能双击
+        await smartDoubleTap(apiPort, thumbX, thumbY, signal, adb)
         // 选中验证
-        await sleep(1500, signal)
+        await sleep(1800, signal)
         try {
           const ratioSelCheck = await UI.dumpXml(apiPort)
           if (ratioSelCheck.success && ratioSelCheck.data) {
@@ -1026,7 +1096,7 @@ async function executeStep(
           }
         } catch {}
         _albumSubStep = 'CLICK_NEXT'
-        return { success: true, action: '比例坐标选视频(双击)', message: `(${thumbX},${thumbY})×2`, waitMs: 3000 }
+        return { success: true, action: '比例坐标+smartDoubleTap选视频', message: `(${thumbX},${thumbY})`, waitMs: 3000 }
       }
 
       // ════════ Sub-C: 点"下一步"按钮 ════════
@@ -1115,33 +1185,25 @@ async function executeStep(
           console.log(`[✓] "${nextBtn.textHint}" → (${nx},${ny}) clickable=${nextBtn.clickable}`)
           
           if (nextBtn.clickable) {
-            // 真正可点击的节点，直接用UI.tap
-            await UI.tap(apiPort, nx, ny)
+            // 真正可点击的节点，使用 smartTap 模拟人类点击
+            await smartTap(apiPort, nx, ny, 200, signal, adb)
             _albumSubStep = 'SWITCH_VIDEO_TAB'
-            return { success: true, action: 'UI.tap点下一步(可点击)', message: `(${nx},${ny})`, waitMs: 4000 }
+            return { success: true, action: 'smartTap点下一步(可点击)', message: `(${nx},${ny})`, waitMs: 4000 }
           }
           
-          // ★ clickable=false（TextView壳）→ 用ADB原生命令 + 连击 + 多点扫射
-          console.log(`[⚠下一步] clickable=false！改用ADB input tap连击+阵列扫射...`)
+          // ★ clickable=false（TextView壳）→ 使用 smartTap + 3次尝试（不用array sweep避免拖拽）★
+          console.log(`[⚠下一步] clickable=false！使用smartTap多次尝试...`)
           
-          // 尝试1: 中心点 ADB tap
-          await sh(apiPort, `input tap ${nx} ${ny}`, signal)
-          await sleep(300, signal)
+          // 尝试1: 中心点 smartTap
+          await smartTap(apiPort, nx, ny, 250, signal, adb)
+          await sleep(500, signal)
           
-          // 尝试2: 中心点再tap一次（连击）
-          await sh(apiPort, `input tap ${nx} ${ny}`, signal)
-          await sleep(300, signal)
-          
-          // 尝试3: 左偏移50px（避开文字渲染层）
-          await sh(apiPort, `input tap ${nx - 50} ${ny}`, signal)
-          await sleep(300, signal)
-          
-          // 尝试4: 右偏移50px
-          await sh(apiPort, `input tap ${nx + 50} ${ny}`, signal)
-          await sleep(300, signal)
+          // 尝试2: 稍微偏移再试
+          await smartTap(apiPort, nx + 30, ny, 250, signal, adb)
+          await sleep(500, signal)
           
           _albumSubStep = 'SWITCH_VIDEO_TAB'
-          return { success: true, action: 'ADB阵列扫射下一步(clickable=false)', message: `(${nx},${ny})×4次`, waitMs: 5000 }
+          return { success: true, action: 'smartTap点下一步(clickable=false)', message: `(${nx},${ny})×2次`, waitMs: 5000 }
         }
         if (nextBtn) console.log(`[跳过] "${nextBtn.textHint}"太靠上`)
 
