@@ -9,7 +9,7 @@ interface AccountItem {
   device?: { id: number; name: string } | null; user?: { username: string } | null
 }
 interface TemplateItem { id: number; name: string; type: string; params: string }
-interface TemplateParams { actions?: string[]; keywords?: string[]; accountId?: number; publishDesc?: string }
+interface TemplateParams { actions?: string[]; keywords?: string[]; accountId?: number; publishDesc?: string; publishLocation?: string; publishTitle?: string; publishTopics?: string }
 
 interface ExecStep { action: string; success: boolean; message: string }
 interface ExecRecord {
@@ -80,7 +80,10 @@ export default function AutomationExecPage() {
           body: JSON.stringify({
             accountId: acct.id, platform: acct.platform,
             actions, keyword: kw[0], keywords: kw,
-            publishDesc: tpl.publishDesc,
+            publishDesc: tpl.publishDesc || '',
+            publishLocation: tpl.publishLocation || '',       // 位置（POI）
+            publishTitle: tpl.publishTitle || '',              // 标题
+            publishTopics: tpl.publishTopics ? (Array.isArray(tpl.publishTopics) ? tpl.publishTopics : tpl.publishTopics.split(',')) : [], // 话题标签
           }),
         })
         const d = await r.json()

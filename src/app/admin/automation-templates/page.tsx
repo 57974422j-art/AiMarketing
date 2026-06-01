@@ -395,7 +395,17 @@ export default function AutomationTemplatesPage() {
                 if (!testDevId) { showToast('请选择设备', 'error'); return }
                 setTestLoading(true); setTestResult('')
                 try {
-                  const r = await fetch(`/api/devices/${testDevId}/ui`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: testAction }) })
+                  // 把完整模板参数传给执行接口（不只是action，还有发布相关配置）
+                  const execBody: Record<string, unknown> = {
+                    platform: testOpen.platform || activePlatform,
+                    actions: [testAction],
+                    keywords: testOpen.keywords || [],
+                    publishDesc: testOpen.publishDesc || '',
+                    publishTitle: testOpen.publishTitle || '',
+                    publishTopics: testOpen.publishTopics ? (Array.isArray(testOpen.publishTopics) ? testOpen.publishTopics : testOpen.publishTopics.split(',')) : [],
+                    publishLocation: testOpen.publishLocation || '',
+                  }
+                  const r = await fetch(`/api/devices/${testDevId}/execute`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(execBody) })
                   const d = await r.json()
                   setTestResult(d.message || d.output || (r.ok ? '✅ 执行成功' : '❌ 失败'))
                   if (r.ok) showToast('✅ 测试完成', 'success')
