@@ -381,9 +381,9 @@ async function executeStep(
       // 策略B: VL 视觉定位加号
       console.log(`[策略B] XML失败, VL定位加号...`)
       const vlCoord = await locateElement(b64, '加号')
-      if (isVlCoordValid(vlCoord?.x ?? 0, vlCoord?.y ?? 0, screenW, screenH) && (vlCoord?.y ?? 0) > screenH * 0.75) {
-        console.log(`[VL✓] 加号 → (${vlCoord!.x},${vlCoord!.y})`)
-        await doTap(apiPort, vlCoord!.x, vlCoord!.y, signal, adb)
+      if (vlCoord && isVlCoordValid(vlCoord.x, vlCoord.y, screenW, screenH) && vlCoord.y > screenH * 0.75) {
+        console.log(`[VL✓] 加号 → (${vlCoord.x},${vlCoord.y})`)
+        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
         return { success: true, action: 'VL定位+号', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 4000 }
       }
       if (vlCoord) {
@@ -418,9 +418,9 @@ async function executeStep(
       // 策略B: VL 定位 "相册"
       console.log(`[策略B] XML失败, VL定位相册...`)
       const vlCoord = await locateElement(b64, '相册')
-      if (isVlCoordValid(vlCoord?.x ?? 0, vlCoord?.y ?? 0, screenW, screenH)) {
-        console.log(`[VL✓] 相册 → (${vlCoord!.x},${vlCoord!.y})`)
-        await doTap(apiPort, vlCoord!.x, vlCoord!.y, signal, adb)
+      if (vlCoord && isVlCoordValid(vlCoord.x, vlCoord.y, screenW, screenH)) {
+        console.log(`[VL✓] 相册 → (${vlCoord.x},${vlCoord.y})`)
+        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
         return { success: true, action: 'VL定位相册', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 4000 }
       }
       if (vlCoord) {
@@ -470,8 +470,8 @@ async function executeStep(
       // 策略B: VL 定位
       console.log(`[策略B] XML失败, VL定位标题...`)
       const vlCoord = await locateElement(b64, '标题')
-      if (isVlCoordValid(vlCoord?.x ?? 0, vlCoord?.y ?? 0, screenW, screenH)) {
-        await doTap(apiPort, vlCoord!.x, vlCoord!.y, signal, adb)
+      if (vlCoord && isVlCoordValid(vlCoord.x, vlCoord.y, screenW, screenH)) {
+        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
         await sleep(1000, signal)
         const fullText = _safeTopics ? `${_safeTitle} ${_safeTopics}` : _safeTitle
         await doInput(apiPort, fullText, signal, adb)
@@ -498,8 +498,8 @@ async function executeStep(
       // 策略B: VL 定位
       console.log(`[策略B] XML失败, VL定位发布...`)
       const vlCoord = await locateElement(b64, '发布')
-      if (isVlCoordValid(vlCoord?.x ?? 0, vlCoord?.y ?? 0, screenW, screenH)) {
-        await doTap(apiPort, vlCoord!.x, vlCoord!.y, signal, adb)
+      if (vlCoord && isVlCoordValid(vlCoord.x, vlCoord.y, screenW, screenH)) {
+        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
         return { success: true, action: 'VL定位发布', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 5000 }
       }
       if (vlCoord) {
