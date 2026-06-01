@@ -956,10 +956,37 @@ async function executeStep(
         // ★★ Layer 1: XML搜索 text + content-desc（Y轴过滤已放宽到0.98）
         const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
         if (nextBtn && nextBtn.y > screenH * 0.15) {
-          console.log(`[✓] "${nextBtn.textHint}" → (${nextBtn.x},${nextBtn.y}) 用UI.tap(硬件级)`)
-          await UI.tap(apiPort, nextBtn.x, nextBtn.y)
+          const nx = nextBtn.x, ny = nextBtn.y
+          console.log(`[✓] "${nextBtn.textHint}" → (${nx},${ny}) clickable=${nextBtn.clickable}`)
+          
+          if (nextBtn.clickable) {
+            // 真正可点击的节点，直接用UI.tap
+            await UI.tap(apiPort, nx, ny)
+            _albumSubStep = 'SWITCH_VIDEO_TAB'
+            return { success: true, action: 'UI.tap点下一步(可点击)', message: `(${nx},${ny})`, waitMs: 4000 }
+          }
+          
+          // ★ clickable=false（TextView壳）→ 用ADB原生命令 + 连击 + 多点扫射
+          console.log(`[⚠下一步] clickable=false！改用ADB input tap连击+阵列扫射...`)
+          
+          // 尝试1: 中心点 ADB tap
+          await sh(apiPort, `input tap ${nx} ${ny}`, signal)
+          await sleep(300, signal)
+          
+          // 尝试2: 中心点再tap一次（连击）
+          await sh(apiPort, `input tap ${nx} ${ny}`, signal)
+          await sleep(300, signal)
+          
+          // 尝试3: 左偏移50px（避开文字渲染层）
+          await sh(apiPort, `input tap ${nx - 50} ${ny}`, signal)
+          await sleep(300, signal)
+          
+          // 尝试4: 右偏移50px
+          await sh(apiPort, `input tap ${nx + 50} ${ny}`, signal)
+          await sleep(300, signal)
+          
           _albumSubStep = 'SWITCH_VIDEO_TAB'
-          return { success: true, action: 'UI.tap点下一步', message: `(${nextBtn.x},${nextBtn.y})`, waitMs: 4000 }
+          return { success: true, action: 'ADB阵列扫射下一步(clickable=false)', message: `(${nx},${ny})×4次`, waitMs: 5000 }
         }
         if (nextBtn) console.log(`[跳过] "${nextBtn.textHint}"太靠上`)
 
