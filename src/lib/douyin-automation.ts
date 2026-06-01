@@ -127,19 +127,21 @@ async function smartDoubleTap(
   console.log(`[智能双击] (${rx},${ry}) ✓ 完成`)
 }
 
-// ==================== 暴力点击引擎（用于关键按钮）====================
+// ==================== 精准点击引擎（关键按钮专用）====================
 
 /**
- * forceClickButton - 三重保险暴力点击关键按钮
+ * safeClickButton - 单次精准点击（防穿屏！）
  * 
- * 用于："下一步"、"发布"、"确定"等抖音关键按钮
+ * 核心原则：**每次只点一次，让主循环验证页面变化后再决定是否重试**
  * 
- * 策略：
- * 1. smartTap 中心点（模拟人类按压）
- * 2. 偏移点击（避开文字渲染层，点按钮"肉身"）
- * 3. KEYCODE_ENTER 物理键兜底
+ * 之前的三连击（3次间隔800ms）导致：
+ *   第1次点中"下一步" → 页面跳到编辑页
+ *   第2次打到编辑页的"下一步" → 页面跳到发布页  
+ *   第3次打到"发布" → 视频直接发出去了！
+ *
+ * 新策略：只做1次 smartTap(220ms)，由主循环的 detectCurrentPage 验证是否成功
  */
-async function forceClickButton(
+async function safeClickButton(
   apiPort: number,
   x: number,
   y: number,
@@ -147,25 +149,12 @@ async function forceClickButton(
   signal?: AbortSignal,
   adb?: ADB | null
 ): Promise<void> {
-  console.log(`[forceClick] ${buttonName} → (${x},${y}) 开始三重保险...`)
+  console.log(`[safeClick] ${buttonName} → (${x},${y}) 单次精准点击...`)
   
-  // 第一重：smartTap 中心点（300ms 按压，确保触发 TouchDelegate）
-  await smartTap(apiPort, x, y, 300, signal, adb)
-  await sleep(1000, signal)  // 等待 UI 响应
+  // ★ 只做一次！220ms 模拟人类按压，±3px 随机偏移
+  await smartTap(apiPort, x, y, 220, signal, adb)
   
-  // ★★ 第二重：偏移 +30,+20 再试一次（避开文字 TextView，点父容器按钮实体区域）
-  await smartTap(apiPort, x + 30, y + 20, 300, signal, adb)
-  await sleep(800, signal)
-  
-  // 第三重：兜底 — 直接用 input tap 精确点击（绕过 swipe 的可能误判）
-  if (adb) {
-    try { adb.shell(`input tap ${Math.round(x)} ${Math.round(y)}`) } catch {}
-  } else {
-    await sh(apiPort, `input tap ${Math.round(x)} ${Math.round(y)}`, signal)
-  }
-  await sleep(500, signal)
-  
-  console.log(`[forceClick] ${buttonName} → 完成！`)
+  console.log(`[safeClick] ${buttonName} → 完成（等待主循环验证页面变化）`)
 }
 
 /**
@@ -1018,19 +1007,19 @@ async function executeStep(
                 console.log(`  #${i} [${c.node.className}] (${c.x},${c.y}) ${c.w}x${c.h} ${marker}`)
               }
 
-              // ★★★ 新策略：固定比例坐标优先（抖音布局稳定）+ 无脑强制推进 ★★★
+              // ★★★ 根治方案：单击 220ms 压持（不是双击！）★★★
+              // 抖音相册交互模型：单击=选中，双击=选中后再取消/进入预览
+              // 之前用 doubleTap 导致第1次选中后被第2次撤销了
               
-              // 策略A（首选）：固定比例坐标 - 抖音相册第一个视频缩略图位置稳定
               const fixedCoord = getFixedCoords(screenW, screenH, 'FIRST_VIDEO_THUMB')
               console.log(`[选视频→策略A] 固定比例坐标 → (${fixedCoord.x},${fixedCoord.y}) ${fixedCoord.reason}`)
               
-              // 使用 smartDoubleTap 点击（人类模拟模式）
-              await smartDoubleTap(apiPort, fixedCoord.x, fixedCoord.y, signal, adb)
+              // ★ 单击！220ms 压持模拟真实手指按压
+              await smartTap(apiPort, fixedCoord.x, fixedCoord.y, 220, signal, adb)
               
-              // ★★★ 关键修改：取消对"选中标志"的等待验证，直接进入下一步！
-              // 抖音的 desc 不会刷新显示"选中"，等待验证只会导致死循环
-              console.log(`[强制推进] 点击后强制尝试点击"下一步"，跳过选中验证`)
-              await sleep(2000, signal)  // 给予 2 秒预留时间给 UI 解析
+              // 等待 UI 解析（给抖音时间渲染"下一步"按钮）
+              console.log(`[强制推进] 单击完成，等待UI刷新后直接进入下一步`)
+              await sleep(2500, signal)
               
               _albumSubStep = 'CLICK_NEXT'
               return { 
@@ -1100,13 +1089,13 @@ async function executeStep(
         return { success: true, action: '比例坐标+smartDoubleTap选视频', message: `(${thumbX},${thumbY})`, waitMs: 3000 }
       }
 
-      // ════════ Sub-C: 点"下一步"按钮（使用 forceClickButton 三重保险）═══════
+      // ════════ Sub-C: 点"下一步"按钮（单次精准点击 + 延时确认）═══════
       if (subStep === 'CLICK_NEXT') {
-        // ★★ 等待视频选中动画 + 按钮渲染完成
+        // ★ 等待视频选中动画 + "下一步"按钮渲染完成（给足时间！）
         console.log(`[下一步] 等待UI刷新(3s)...`)
         await sleep(3000, signal)
 
-        // ★★ Layer 0: XML 搜索 "下一步" 文字获取精确坐标
+        // Layer 0: XML 搜索 "下一步" 文字获取精确坐标
         const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
         
         let clickX = 0, clickY = 0
@@ -1116,18 +1105,23 @@ async function executeStep(
           clickY = nextBtn.y
           console.log(`[✓] 找到"${nextBtn.textHint}" → (${clickX},${clickY})`)
         } else {
-          // ★★ Layer 1: 固定比例坐标（抖音布局稳定）
+          // Layer 1: 固定比例坐标（抖音布局稳定）
           const fixedNext = getFixedCoords(screenW, screenH, 'NEXT_BTN')
           clickX = fixedNext.x
           clickY = fixedNext.y
           console.log(`[固定坐标] "下一步" → (${clickX},${clickY}) ${fixedNext.reason}`)
         }
         
-        // ★★ 使用 forceClickButton 三重保险点击！
-        await forceClickButton(apiPort, clickX, clickY, '"下一步"', signal, adb)
+        // ★★★ 单次精准点击（不再三连！由主循环验证页面变化后再决定是否重试）
+        await safeClickButton(apiPort, clickX, clickY, '"下一步"', signal, adb)
         
         _albumSubStep = 'SWITCH_VIDEO_TAB'
-        return { success: true, action: 'forceClickButton点"下一步"(三重保险)', message: `(${clickX},${clickY})`, waitMs: 5000 }
+        return { 
+          success: true, 
+          action: 'safeClick点"下一步"(单次)', 
+          message: `(${clickX},${clickY})`, 
+          waitMs: 6000  // ★ 给主循环足够时间验证页面跳转
+        }
       }
 
       // 兜底
