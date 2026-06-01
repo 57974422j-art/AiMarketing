@@ -887,7 +887,7 @@ async function executeStep(
         // ★★ Layer 2: VL
         console.log(`[VL] 找红底白字"下一步"...`)
         const vlNext = await locateElement(b64,
-          `抖音相册页面${screenW}x${screenH}。屏幕底部右侧有【红色圆角矩形】按钮写白色大字"下一步"。返回中心坐标。看不到返回null。禁止y<400!`)
+          `视频选择界面${screenW}x${screenH}。屏幕底部右侧有【红色圆角矩形】按钮写白色大字"下一步"。返回中心坐标。看不到返回null。禁止y<400!`)
         if (vlNext && vlNext.y > screenH * 0.10) {
           console.log(`[VL✓] → (${vlNext.x},${vlNext.y}), 用UI.tap(硬件级)`)
           await UI.tap(apiPort, vlNext.x, vlNext.y)
