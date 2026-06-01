@@ -153,7 +153,17 @@ async function detectCurrentPage(apiPort: number): Promise<{
       return { step: 'EDIT_TITLE', evidence: '编辑页(有标题区域)', xmlTexts: clickableTexts, isDesktop: false }
     }
 
+    // --- 拍摄页（相机界面）：优先检测！防止被相册页误判 ---
+    // 拍摄页独有特征：分段拍/翻转/闪光灯/美颜/倒计时/灵感跟拍/选择音乐
+    const cameraFeatures = ['分段拍', '翻转', '闪光灯', '美颜', '倒计时', '灵感跟拍', '选择音乐']
+    const isCameraPage = texts.some(t => cameraFeatures.includes(t))
+    if (isCameraPage) {
+      // 拍摄页也有"相册"按钮在底部
+      return { step: 'SHOOT_ALBUM', evidence: `拍摄页(有${texts.find(t => cameraFeatures.includes(t))})`, xmlTexts: clickableTexts, isDesktop: false }
+    }
+
     // --- 相册页：有"全部"/"视频"/"图片"标签 或 "照片"/"视频" 选择 ---
+    // 注意：此时已排除拍摄页，这里的"视频"是相册标签而非拍摄模式
     if (texts.some(t =>
       t === '全部' || t === '视频' || t === '图片' ||
       t.includes('最近视频') || t.includes('选择视频') || t.includes('相册选择')
@@ -161,12 +171,8 @@ async function detectCurrentPage(apiPort: number): Promise<{
       return { step: 'ALBUM_PICK', evidence: '相册页(有全部/视频/图片标签)', xmlTexts: clickableTexts, isDesktop: false }
     }
 
-    // --- 拍摄页：有"相册"文字（注意排除相册页）---
+    // --- 拍摄页：有"相册"文字（兜底，通过底部按钮判断）---
     if (clickableTexts.some(t => t === '相册' || t.includes('从相册') || t.includes('相册导入'))) {
-      // 如果同时有"全部/视频/图片"标签，说明是相册页而不是拍摄页
-      if (texts.some(t => t === '全部' || t === '视频' || t === '图片')) {
-        return { step: 'ALBUM_PICK', evidence: '相册页(有相册+标签)', xmlTexts: clickableTexts, isDesktop: false }
-      }
       return { step: 'SHOOT_ALBUM', evidence: '拍摄页(有相册入口)', xmlTexts: clickableTexts, isDesktop: false }
     }
 
