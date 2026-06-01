@@ -1089,38 +1089,131 @@ async function executeStep(
         return { success: true, action: '比例坐标+smartDoubleTap选视频', message: `(${thumbX},${thumbY})`, waitMs: 3000 }
       }
 
-      // ════════ Sub-C: 点"下一步"按钮（单次精准点击 + 延时确认）═══════
+      // ════════ Sub-C: 点"下一步"按钮（基于视频预览特征 + 间隔式重试）═══════
+      // 核心改变：
+      //   - 不依赖搜索"下一步"文字（它是图片按钮，XML找不到）
+      //   - 用 暂停图标/进度条 确认是否进入视频预览编辑页
+      //   - 第1次点 → 验证 → 第2次点（间隔5s+，不是双击）
       if (subStep === 'CLICK_NEXT') {
-        // ★ 等待视频选中动画 + "下一步"按钮渲染完成（给足时间！）
-        console.log(`[下一步] 等待UI刷新(3s)...`)
-        await sleep(3000, signal)
+        // ★ 随机等待 3~8 秒让UI完全渲染
+        const waitMs = 3000 + Math.floor(Math.random() * 5001)
+        console.log(`[下一步] 等待${(waitMs/1000).toFixed(1)}s...`)
+        await sleep(waitMs, signal)
 
-        // Layer 0: XML 搜索 "下一步" 文字获取精确坐标
-        const nextBtn = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
-        
-        let clickX = 0, clickY = 0
-        
-        if (nextBtn && nextBtn.y > screenH * 0.15) {
-          clickX = nextBtn.x
-          clickY = nextBtn.y
-          console.log(`[✓] 找到"${nextBtn.textHint}" → (${clickX},${clickY})`)
-        } else {
-          // Layer 1: 固定比例坐标（抖音布局稳定）
-          const fixedNext = getFixedCoords(screenW, screenH, 'NEXT_BTN')
-          clickX = fixedNext.x
-          clickY = fixedNext.y
-          console.log(`[固定坐标] "下一步" → (${clickX},${clickY}) ${fixedNext.reason}`)
+        // ★★ 用视频预览页特征确认当前位置（不搜"下一步"！）★★
+        let onPreviewPage = false
+        try {
+          const previewDump = await UI.dumpXml(apiPort)
+          if (previewDump.success && previewDump.data) {
+            const pNodes = UI.parseUiXml(previewDump.data)
+            
+            // 视频预览/编辑页独有特征（选视频后出现的预览界面）：
+            // 1. SeekBar / ProgressBar（视频进度条）
+            // 2. "暂停" / ImageView（播放控制）
+            // 3. "裁剪"、"滤镜"、"音乐"、"文字" 等编辑工具
+            // 4. 视频时长显示（如 "00:15 / 00:15" 格式）
+            const previewFeatures = ['裁剪', '滤镜', '音乐', '文字', '特效', '贴纸', '调节', '封面']
+            const hasSeekBar = pNodes.some((n: any) => 
+              n.className?.includes('SeekBar') || n.className?.includes('ProgressBar'))
+            const hasPauseIcon = pNodes.some((n: any) => 
+              n.contentDesc?.includes('暂停') || n.contentDesc?.includes('播放'))
+            const hasEditTools = previewFeatures.some(f => 
+              pNodes.some((n: any) => n.text === f))
+            // 时长格式如 "00:15/01:30"
+            const hasDurationFormat = pNodes.some((n: any) =>
+              n.text && /^\d{1,2}:\d{2}\/\d{1,2}:\d{2}$/.test(n.text))
+            
+            if (hasSeekBar || hasPauseIcon || hasEditTools || hasDurationFormat) {
+              onPreviewPage = true
+              console.log(`[下一步-页面✓] 视频预览页已确认！` +
+                ` (seekBar=${hasSeekBar}, pause=${hasPauseIcon}, editTool=${hasEditTools}, duration=${hasDurationFormat})`)
+              // 打印找到的特征帮助调试
+              for (const n of pNodes.slice(0, 20)) {
+                if ((n.className?.includes('Seek') || n.className?.includes('Progress') ||
+                     n.contentDesc?.includes('暂停') || previewFeatures.includes(n.text)) &&
+                    n.text !== '') {
+                  console.log(`  特征节点: "${n.text}" | ${n.className} | desc="${(n.contentDesc||'').substring(0,30)}"`)
+                }
+              }
+            } else {
+              console.log(`[下一步-页面?] 未检测到视频预览特征，继续尝试点击`)
+            }
+          }
+        } catch (e) {
+          console.log(`[下一步-页面] XML异常: ${e}`)
         }
+
+        // 获取点击坐标 — 固定比例优先
+        const fixedNext = getFixedCoords(screenW, screenH, 'NEXT_BTN')
+        let clickX = fixedNext.x
+        let clickY = fixedNext.y
+
+        // 尝试XML搜索作为补充（但不是必须的）
+        try {
+          const nextBtnSearch = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
+          if (nextBtnSearch && nextBtnSearch.y > screenH * 0.15) {
+            clickX = nextBtnSearch.x
+            clickY = nextBtnSearch.y
+            console.log(`[✓] 找到"${nextBtnSearch.textHint}" → (${clickX},${clickY})`)
+          } else {
+            console.log(`[固定坐标] "下一步" → (${clickX},${clickY}) ${fixedNext.reason}`)
+          }
+        } catch {}
+
+        // ★ 第1次点击：随机压持 220~300ms
+        const duration1 = 220 + Math.floor(Math.random() * 81)
+        console.log(`[下一步] 第1次点击: (${clickX},${clickY}) 压持${duration1}ms ${onPreviewPage ? '[已在预览页]' : ''}`)
+        await smartTap(apiPort, clickX, clickY, duration1, signal, adb)
+
+        _albumSubStep = 'CLICK_NEXT_RETRY'
+        return { 
+          success: true, 
+          action: '点"下一步"(第1次)', 
+          message: `(${clickX},${clickY}) d=${duration1}ms`, 
+          waitMs: 5000  // 给主循环5秒验证跳转
+        }
+      }
+
+      // ════════ Sub-C2: 第2次点击（间隔式，非双击）═══════
+      if (subStep === 'CLICK_NEXT_RETRY') {
+        // 先用视频预览特征判断当前页面
+        try {
+          const retryDump = await UI.dumpXml(apiPort)
+          if (retryDump.success && retryDump.data) {
+            const rNodes = UI.parseUiXml(retryDump.data)
+            const previewFeatures = ['裁剪', '滤镜', '音乐', '文字', '特效', '贴纸']
+            const hasFeatures = previewFeatures.some(f => rNodes.some((n: any) => n.text === f))
+            const hasSeekBar = rNodes.some((n: any) => 
+              n.className?.includes('SeekBar') || n.className?.includes('ProgressBar'))
+
+            if (!hasFeatures && !hasSeekBar) {
+              // 已经不在预览页了 → 说明上一次点击成功跳走了！
+              console.log(`[下一步-第2次✓] 页面已离开预览区(无编辑特征)，第1次应该成功了`)
+              _albumSubStep = 'SWITCH_VIDEO_TAB'
+              return { success: true, action: '"下一步"已生效(页面已变)', message: '无需第2次点击', waitMs: 2000 }
+            }
+
+            console.log(`[下一步-第2次] 仍在预览区(seekBar=${hasSeekBar}, tool=${hasFeatures})，执行第2次点击...`)
+          }
+        } catch (e) {
+          console.log(`[下一步-第2次] XML异常: ${e}，直接执行第2次点击`)
+        }
+
+        // ★ 第2次点击：偏移坐标（避开装饰层），随机压持 250~300ms
+        const fixedNext = getFixedCoords(screenW, screenH, 'NEXT_BTN')
+        const offsetX = fixedNext.x + 28 + Math.floor(Math.random() * 11)   // +28~38px
+        const offsetY = fixedNext.y + 18 + Math.floor(Math.random() * 11)   // +18~28px
+        const duration2 = 250 + Math.floor(Math.random() * 51)               // 250~300ms
         
-        // ★★★ 单次精准点击（不再三连！由主循环验证页面变化后再决定是否重试）
-        await safeClickButton(apiPort, clickX, clickY, '"下一步"', signal, adb)
-        
+        console.log(`[下一步] 第2次点击(偏移): (${offsetX},${offsetY}) 压持${duration2}ms [偏移+(${offsetX-fixedNext.x},${offsetY-fixedNext.y})]`)
+        await smartTap(apiPort, offsetX, offsetY, duration2, signal, adb)
+
         _albumSubStep = 'SWITCH_VIDEO_TAB'
         return { 
           success: true, 
-          action: 'safeClick点"下一步"(单次)', 
-          message: `(${clickX},${clickY})`, 
-          waitMs: 6000  // ★ 给主循环足够时间验证页面跳转
+          action: '点"下一步"(第2次偏移)', 
+          message: `(${offsetX},${offsetY}) d=${duration2}ms`, 
+          waitMs: 6000  // 第2次后给足时间验证
         }
       }
 
