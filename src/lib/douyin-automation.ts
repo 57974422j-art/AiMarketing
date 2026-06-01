@@ -752,19 +752,8 @@ async function executeStep(
         if (videoTab) {
           console.log(`[相册-切标签✓] 找到"视频" → (${videoTab.x},${videoTab.y}) clickable=${videoTab.clickable}`)
           
-          // ★ 关键修复：如果 clickable=false，必须用 ADB array sweep 确保点击生效
-          if (!videoTab.clickable && adb) {
-            console.log(`[相册-切标签] clickable=false, 使用ADB array sweep...`)
-            // 以目标为中心，5x5网格扫描，确保命中
-            for (let dx = -20; dx <= 20; dx += 10) {
-              for (let dy = -8; dy <= 8; dy += 8) {
-                try { adb.tap(Math.round(videoTab.x + dx), Math.round(videoTab.y + dy)) } catch {}
-                await sleep(30, signal)
-              }
-            }
-          } else {
-            await doTap(apiPort, videoTab.x, videoTab.y, signal, adb)
-          }
+          // ★ 单次精确点击（不用array sweep，避免拖拽误判）★
+          await doTap(apiPort, videoTab.x, videoTab.y, signal, adb)
           
           // ★ 等待标签切换动画完成（至少2秒）
           await sleep(2500, signal)
@@ -890,9 +879,9 @@ async function executeStep(
                 console.log(`[选视频→策略C] 无容器,估算 → (${tapX},${tapY})`)
               }
 
-              // ★★★ 新策略：ADB array sweep 单击 + 验证 ★★★
-              // 问题：之前双击中心点 (179,633) 一直"未选中"
-              // 原因：可能坐标偏移或需要用 ADB tap 而非 XML click
+              // ★★★ 新策略：单次精确点击 + 验证 ★★★
+              // 问题：之前双击/3x3 sweep 都失败
+              // 关键：抖音相册选视频 = 单击选中，不需要双击！
               
               // 生成候选点击点列表（按优先级排序）
               const candidates: Array<{ x: number; y: number; reason: string }> = []
@@ -930,31 +919,18 @@ async function executeStep(
                 })
               }
               
-              console.log(`[选视频] 生成 ${candidates.length} 个候选点:`)
+              console.log(`[选视频] 生成 ${candidates.length} 个候选点（单击模式）:`)
               for (let i = 0; i < candidates.length; i++) {
                 console.log(`  #${i} (${candidates[i].x},${candidates[i].y}) - ${candidates[i].reason}`)
               }
               
-              // ★ 逐个尝试候选点，每个点都用 ADB array sweep
+              // ★ 逐个尝试候选点 - 每个点只单击一次！不用sweep！
               for (let ci = 0; ci < candidates.length; ci++) {
                 const cand = candidates[ci]
-                console.log(`[选视频→尝试#${ci+1}] (${cand.x},${cand.y}) via ${cand.reason}`)
+                console.log(`[选视频→尝试#${ci+1}] 单击 (${cand.x},${cand.y}) via ${cand.reason}`)
                 
-                if (adb) {
-                  // ADB array sweep：以目标为中心，3x3网格扫描
-                  console.log(`[选视频→尝试#${ci+1}] 使用ADB 3x3 sweep...`)
-                  for (let dx = -25; dx <= 25; dx += 25) {
-                    for (let dy = -25; dy <= 25; dy += 25) {
-                      try { adb.tap(Math.round(cand.x + dx), Math.round(cand.y + dy)) } catch {}
-                      await sleep(40, signal)
-                    }
-                  }
-                } else {
-                  // 无 ADB，用普通 click
-                  await doTap(apiPort, cand.x, cand.y, signal, adb)
-                  await sleep(200, signal)
-                  await doTap(apiPort, cand.x, cand.y, signal, adb)
-                }
+                // ★ 只执行一次单击，不用array sweep（避免拖拽误判）★
+                await doTap(apiPort, cand.x, cand.y, signal, adb)
                 
                 // 等待UI响应
                 await sleep(1500, signal)
