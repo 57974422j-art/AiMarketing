@@ -103,7 +103,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const body = await request.json()
-    const { platform, actions, keyword, keywords, publishTitle, publishTopics, publishDesc, dryRun } = body
+    const { platform, actions, keyword, keywords, publishTitle, publishTopics, publishDesc, publishLocation, dryRun } = body
     if (!deviceId || !platform || !actions?.length) {
       return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
     }
@@ -245,10 +245,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             const { title: genTitle } = await generatePublishTitle(searchKeyword, publishDesc)
             const pubTitle = publishTitle || genTitle
             const pubTopics = Array.isArray(publishTopics) && publishTopics.length > 0 ? publishTopics : [`#${searchKeyword}`]
+            // 位置：逗号分隔多位置时随机取一个，否则原样传入
+            const rawLocation = publishLocation || ''
+            const pubLocation = rawLocation.includes(',')
+              ? rawLocation.split(',').map(s => s.trim()).filter(Boolean)[Math.floor(Math.random() * rawLocation.split(',').filter(s => s.trim()).length)] || ''
+              : rawLocation
             // AI ReAct 模式（ADB 优先，HTTP shell 兜底）
-            const wr = await Douyin.aiPublishVideoWorkflow(port, pubTitle, pubTopics, signal, adb)
+            const wr = await Douyin.aiPublishVideoWorkflow(port, pubTitle, pubTopics, signal, adb, { location: pubLocation })
             r = { success: wr.success, message: wr.message }
-            log('title', true, `标题: ${pubTitle}`)
+            log('title', true, `标题: ${pubTitle}${pubLocation ? ' | 位置: ' + pubLocation : ''}`)
             break
           }
           default: { log(action, false, `未知动作: ${action}`); continue }

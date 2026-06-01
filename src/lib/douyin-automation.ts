@@ -88,7 +88,7 @@ async function goBack(apiPort: number, times: number, signal?: AbortSignal, adb?
 
 // ==================== 页面检测（基于XML，不用AI）====================
 
-type WorkflowStep = 'HOME_PLUS' | 'SHOOT_ALBUM' | 'ALBUM_PICK' | 'EDIT_TITLE' | 'PUBLISH_BTN' | 'DONE'
+type WorkflowStep = 'HOME_PLUS' | 'SHOOT_ALBUM' | 'ALBUM_PICK' | 'EDIT_TITLE' | 'SELECT_POI' | 'PUBLISH_BTN' | 'DONE'
 
 /**
  * 通过 XML 文字特征判断当前页面类型
@@ -374,13 +374,18 @@ async function locatePlusByAnchor(
 interface WorkflowOptions {
   maxLoops?: number
   totalTimeoutMs?: number
+  location?: string       // POI位置名称/地址
 }
 
 /** 模块级变量：安全标题和话题（executeStep 需要访问） */
 let _safeTitle = ''
 let _safeTopics = ''
+/** 模块级变量：POI位置（executeStep 需要访问） */
+let _safeLocation = ''
 /** 模块级变量：ALBUM_PICK 子步骤状态 */
 let _albumSubStep = ''
+/** 模块级变量：EDIT_TITLE 子步骤状态 */
+let _editSubStep = ''
 
 /**
  * 抖音自动发布视频 — 固定流程版本 v2
@@ -407,6 +412,7 @@ export async function aiPublishVideoWorkflow(
 
   _safeTitle = title.replace(/"/g, '"').replace(/[{}[\]]/g, '')
   _safeTopics = topics.map(t => t.replace(/[,"]/g, '')).join(',')
+  _safeLocation = (options.location || '').trim()
 
   let screenW = 1080, screenH = 2340
   try {
@@ -448,6 +454,7 @@ export async function aiPublishVideoWorkflow(
       currentStep = 'HOME_PLUS'
       stepRetryCount = 0
       _albumSubStep = ''
+      _editSubStep = ''
       continue
     }
 
@@ -494,6 +501,7 @@ export async function aiPublishVideoWorkflow(
           currentStep = 'HOME_PLUS'
           stepRetryCount = 0
           _albumSubStep = ''
+          _editSubStep = ''
           if (loopCount > 15) return { success: false, message: `重试过多,最后:${currentStep}` }
         }
       } else {
@@ -521,10 +529,11 @@ export async function aiPublishVideoWorkflow(
             await sleep(1000, signal)
             await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
             await sleep(5000, signal)
-            currentStep = 'HOME_PLUS'
-            stepRetryCount = 0
-            _albumSubStep = ''
-          }
+          currentStep = 'HOME_PLUS'
+          stepRetryCount = 0
+          _albumSubStep = ''
+          _editSubStep = ''
+        }
         }
       }
     } else {
@@ -535,10 +544,11 @@ export async function aiPublishVideoWorkflow(
         await sleep(1000, signal)
         await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
         await sleep(5000, signal)
-        currentStep = 'HOME_PLUS'
-        stepRetryCount = 0
-        _albumSubStep = ''
-        if (loopCount > 15) {  // 安全保护
+      currentStep = 'HOME_PLUS'
+      stepRetryCount = 0
+      _albumSubStep = ''
+      _editSubStep = ''
+      if (loopCount > 15) {  // 安全保护
           return { success: false, message: `重试过多,最后步骤:${currentStep}` }
         }
       } else {
@@ -1027,63 +1037,426 @@ async function executeStep(
     }
 
     // ========================================
-    // STEP 4: 编辑页 → 输入标题
+    // STEP 4: 编辑页 → 完整流程（诊断→输入标题→验证→添加标签→验证）
     // ========================================
     case 'EDIT_TITLE': {
-      // 策略A: XML 找标题输入框
-      const xmlTitle = await locateByText(apiPort, [
-        '添加标题', '请填写标题', '标题', '描述', '#添加话题',
-        '填写作品描述', '添加描述'
-      ], 3000)
-      if (xmlTitle) {
-        await doTap(apiPort, xmlTitle.x, xmlTitle.y, signal, adb)
-        await sleep(1000, signal)
-        const fullText = _safeTopics ? `${_safeTitle} ${_safeTopics}` : _safeTitle
-        await doInput(apiPort, fullText, signal, adb)
-        console.log(`[输入] ${fullText.substring(0, 40)}...`)
-        return { success: true, action: '输入标题', message: fullText.substring(0, 30), waitMs: 2000 }
+      let subStep = _editSubStep || 'DIAGNOSE'
+
+      // ════════ Sub-0: 页面诊断 — 扫描所有功能文字 ════════
+      if (subStep === 'DIAGNOSE') {
+        try {
+          const dumpResult = await UI.dumpXml(apiPort)
+          if (dumpResult.success && dumpResult.data) {
+            const nodes = UI.parseUiXml(dumpResult.data)
+            const visibleNodes = nodes.filter(n => {
+              if (!n.text || n.text.length > 30) return false
+              const b = UI.parseBounds(n.bounds)
+              if (!b) return false
+              if (b.width < 20 || b.height < 10) return false
+              if (b.y < screenH * 0.03) return false
+              if (b.y > screenH * 0.98) return false
+              return true
+            })
+            console.log(`[编辑-诊断] 页面共有 ${visibleNodes.length} 个文字节点:`)
+            for (const n of visibleNodes.slice(0, 40)) {
+              const b = UI.parseBounds(n.bounds)!
+              const desc = (n.contentDesc || '').substring(0, 25)
+              console.log(`  "${n.text}" | ${n.className} | clickable=${n.clickable} | (${b.x},${b.y},${b.width}x${b.height}) | desc="${desc}"`)
+            }
+          }
+        } catch (e) {
+          console.log(`[编辑-诊断] dump异常: ${e}`)
+        }
+        _editSubStep = 'CLICK_INPUT'
+        subStep = 'CLICK_INPUT'
       }
 
-      // 策略B: VL 定位
-      console.log(`[策略B] XML失败, VL定位标题...`)
-      const vlCoord = await locateElement(b64, '标题')
-      if (vlCoord && isVlCoordValid(vlCoord.x, vlCoord.y, screenW, screenH)) {
-        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
-        await sleep(1000, signal)
-        const fullText = _safeTopics ? `${_safeTitle} ${_safeTopics}` : _safeTitle
-        await doInput(apiPort, fullText, signal, adb)
-        return { success: true, action: 'VL+输入', message: fullText.substring(0, 30), waitMs: 2000 }
-      }
-      if (vlCoord) {
-        console.log(`[VL✗] 标题坐标不合理 (${vlCoord.x},${vlCoord.y}), 忽略`)
+      // ════════ Sub-A: 点击标题输入框 ════════
+      if (subStep === 'CLICK_INPUT') {
+        const xmlTitle = await findAnyText(apiPort, [
+          '添加标题', '请填写标题', '填写作品描述', '添加描述',
+          '#添加话题'
+        ], screenH, 3000)
+        if (xmlTitle && xmlTitle.y < screenH * 0.50) {
+          console.log(`[编辑-标题框✓] "${xmlTitle.textHint}" → (${xmlTitle.x},${xmlTitle.y}) clickable=${xmlTitle.clickable}`)
+          await doTap(apiPort, xmlTitle.x, xmlTitle.y, signal, adb)
+          await sleep(1500, signal) // 等待键盘弹出
+          _editSubStep = 'INPUT_TITLE'
+          return { success: true, action: '点击标题框', message: `(${xmlTitle.x},${xmlTitle.y})`, waitMs: 10000 }
+        }
+        // 兜底：用 locateByText（要求clickable=true）
+        const fallbackTitle = await locateByText(apiPort, [
+          '标题', '描述', '请填写'
+        ], 2000)
+        if (fallbackTitle) {
+          console.log(`[编辑-标题框✓] locateByText → (${fallbackTitle.x},${fallbackTitle.y})`)
+          await doTap(apiPort, fallbackTitle.x, fallbackTitle.y, signal, adb)
+          await sleep(1500, signal)
+          _editSubStep = 'INPUT_TITLE'
+          return { success: true, action: '点击标题框(备用)', message: `(${fallbackTitle.x},${fallbackTitle.y})`, waitMs: 10000 }
+        }
+
+        // VL兜底
+        console.log(`[编辑-标题框] XML失败, VL定位...`)
+        const vlCoord = await locateElement(b64, '抖音发布页面的标题输入框或"添加标题"区域')
+        if (vlCoord && isVlCoordValid(vlCoord.x, vlCoord.y, screenW, screenH)) {
+          await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
+          await sleep(1500, signal)
+          _editSubStep = 'INPUT_TITLE'
+          return { success: true, action: 'VL点击标题框', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 10000 }
+        }
+
+        return { success: false, action: '标题框定位失败', message: '未找到', waitMs: 3000 }
       }
 
-      return { success: false, action: '标题框定位失败', message: '未找到', waitMs: 3000 }
+      // ════════ Sub-B: 输入标题文本 ════════
+      if (subStep === 'INPUT_TITLE') {
+        const fullText = _safeTopics ? `${_safeTitle} ${_safeTopics}` : _safeTitle
+        console.log(`[编辑-输入] 准备输入: ${fullText.substring(0, 40)}...`)
+        await doInput(apiPort, fullText, signal, adb)
+        console.log(`[编辑-输入✓] 已发送文本`)
+        // 收起键盘（如果有的话）
+        await sleep(500, signal)
+        if (adb) { try { adb.shell('input keyevent KEYCODE_BACK') } catch {} }
+        else { await sh(apiPort, 'input keyevent KEYCODE_BACK', signal) }
+        await sleep(10000, signal) // ★ 等待10秒让UI刷新
+        _editSubStep = 'VERIFY_TITLE'
+        // 不返回success——下一轮循环会进入VERIFY_TITLE
+        return { success: true, action: '输入标题完成', message: fullText.substring(0, 30), waitMs: 2000 }
+      }
+
+      // ════════ Sub-C: 验证标题是否成功输入 ════════
+      if (subStep === 'VERIFY_TITLE') {
+        try {
+          const verifyDump = await UI.dumpXml(apiPort)
+          if (verifyDump.success && verifyDump.data) {
+            const vNodes = UI.parseUiXml(verifyDump.data)
+            const titlePreview = _safeTitle.substring(0, 10)
+
+            // 搜索所有节点中是否包含我们输入的标题文字
+            let titleFound = false
+            for (const rawNode of vNodes) {
+              const node = rawNode as { text?: string; contentDesc?: string; bounds?: string }
+              const nodeText = node.text || ''
+              const nodeDesc = node.contentDesc || ''
+              if (nodeText.includes(titlePreview) || nodeDesc.includes(titlePreview)) {
+                titleFound = true
+                const b = UI.parseBounds(node.bounds || '')
+                const pos = b ? `(${Math.round(b.x)},${Math.round(b.y)})` : '?'
+                console.log(`[编辑-标题验证✓] 在节点中找到标题内容 "${titlePreview}..." → ${pos}`)
+                break
+              }
+            }
+
+            if (titleFound) {
+              console.log(`[编辑-标题验证✓] 标题已成功输入！准备处理话题标签...`)
+              _editSubStep = 'ADD_TOPICS'
+              return { success: true, action: '标题验证通过', message: '标题已确认输入', waitMs: 10000 }
+            } else {
+              // 标题没找到 — 可能是输入方式问题，重试一次
+              console.log(`[编辑-标题验证✗] 未在页面找到标题内容 "${titlePreview}..."，可能输入失败`)
+              // 重试：回到点击输入框
+              _editSubStep = 'CLICK_INPUT'
+              return { success: false, action: '标题验证失败,重试', message: '未找到标题文字', waitMs: 3000 }
+            }
+          }
+        } catch (e) {
+          console.log(`[编辑-标题验证] 异常: ${e}`)
+        }
+        // XML失败时默认继续（可能是XML解析问题但实际已输入）
+        console.log(`[编辑-标题验证] XML获取失败，假设输入成功，继续...`)
+        _editSubStep = 'ADD_TOPICS'
+        return { success: true, action: '跳过验证(XML失败)', message: '', waitMs: 10000 }
+      }
+
+      // ════════ Sub-D: 添加话题标签 ════════
+      if (subStep === 'ADD_TOPICS') {
+        if (!_safeTopics || _safeTopics.trim().length === 0) {
+          console.log(`[编辑-标签] 无话题配置, 跳过标签步骤`)
+          _editSubStep = '' // 重置子步骤
+          return { success: true, action: '跳过标签(空)', message: '', waitMs: 10000 }
+        }
+
+        // 找"#添加话题"按钮
+        const topicBtn = await findAnyText(apiPort, ['#添加话题', '添加话题', '话题', '#'], screenH, 3000)
+        if (topicBtn) {
+          console.log(`[编辑-标签✓] 找到"${topicBtn.textHint}" → (${topicBtn.x},${topicBtn.y}) clickable=${topicBtn.clickable}`)
+          await doTap(apiPort, topicBtn.x, topicBtn.y, signal, adb)
+          await sleep(2000, signal) // 等待话题选择界面
+
+          // 如果话题是逗号分隔的多个标签，取第一个作为搜索关键词
+          const firstTopic = _safeTopics.split(',')[0].trim().replace(/^#/, '').trim()
+          if (firstTopic) {
+            console.log(`[编辑-标签] 输入话题搜索: ${firstTopic}`)
+            // 尝试找搜索框并输入
+            const searchBox = await locateByText(apiPort, ['搜索', '请输入', '查找'], 2000)
+            if (searchBox) {
+              await doTap(apiPort, searchBox.x, searchBox.y, signal, adb)
+              await sleep(800, signal)
+              await doInput(apiPort, firstTopic, signal, adb)
+              console.log(`[编辑-标签] 已输入: ${firstTopic}`)
+              await sleep(3000, signal) // 等搜索结果
+
+              // 点击第一个结果
+              const firstResult = await findAnyText(apiPort, [firstTopic.substring(0, 4)], screenH * 0.8)
+              if (firstResult && firstResult.y > screenH * 0.15) {
+                console.log(`[编辑-标签✓] 选择话题 → (${firstResult.x},${firstResult.y})`)
+                await doTap(apiPort, firstResult.x, firstResult.y, signal, adb)
+                await sleep(10000, signal) // 等10秒
+                _editSubStep = 'VERIFY_TOPICS'
+                return { success: true, action: '选择话题完成', message: firstTopic, waitMs: 10000 }
+              }
+              // 兜底：点屏幕中部
+              const fallbackY = Math.round(screenH * 0.45)
+              await doTap(apiPort, 540, fallbackY, signal, adb)
+              await sleep(10000, signal)
+              _editSubStep = 'VERIFY_TOPICS'
+              return { success: true, action: '话题兜底点击', message: firstTopic, waitMs: 10000 }
+            }
+            // 无搜索框：直接找包含话题词的节点
+            console.log(`[编辑-标签] 未找到搜索框, 直接匹配...`)
+            const directMatch = await findAnyText(apiPort, [firstTopic.substring(0, 4)], screenH * 0.9)
+            if (directMatch && directMatch.y > screenH * 0.10) {
+              await doTap(apiPort, directMatch.x, directMatch.y, signal, adb)
+              await sleep(10000, signal)
+              _editSubStep = 'VERIFY_TOPICS'
+              return { success: true, action: '直接选择话题', message: firstTopic, waitMs: 10000 }
+            }
+          }
+
+          // 点了话题按钮但没搜/选，等一下再验证
+          await sleep(10000, signal)
+          _editSubStep = 'VERIFY_TOPICS'
+          return { success: true, action: '已点击话题入口', message: '', waitMs: 10000 }
+        }
+
+        // 没有话题按钮，可能已经输入了（标题里带#话题），直接验证
+        console.log(`[编辑-标签✗] 未找到话题按钮，检查是否已有标签...`)
+        _editSubStep = 'VERIFY_TOPICS'
+        return { success: true, action: '跳过添加(无按钮)', message: '', waitMs: 5000 }
+      }
+
+      // ════════ Sub-E: 验证话题标签是否添加成功 ════════
+      if (subStep === 'VERIFY_TOPICS') {
+        try {
+          const topicDump = await UI.dumpXml(apiPort)
+          if (topicDump.success && topicDump.data) {
+            const tNodes = UI.parseUiXml(topicDump.data)
+            const topicKeywords = _safeTopics.split(',').map(t => t.trim().replace(/^#/, '')).filter(t => t.length >= 2)
+
+            let anyTopicFound = false
+            for (const keyword of topicKeywords) {
+              const preview = keyword.substring(0, 6)
+              for (const rawNode of tNodes) {
+                const node = rawNode as { text?: string; contentDesc?: string; bounds?: string }
+                const nodeText = node.text || ''
+                const nodeDesc = node.contentDesc || ''
+                if (nodeText.includes(preview) || nodeDesc.includes(preview)) {
+                  anyTopicFound = true
+                  const b = UI.parseBounds(node.bounds || '')
+                  const pos = b ? `(${Math.round(b.x)},${Math.round(b.y)})` : '?'
+                  console.log(`[编辑-标签验证✓] 找到话题 "${preview}..." → ${pos}`)
+                  break
+                }
+              }
+              if (anyTopicFound) break
+            }
+
+            if (anyTopicFound) {
+              console.log(`[编辑-标签验证✓] 标签已确认！编辑页流程完成 ✅`)
+              _editSubStep = '' // ★ 重置子步骤！下次再进EDIT_TITLE会从头开始
+              return { success: true, action: '编辑流程完成', message: '标题+标签已确认', waitMs: 10000 }
+            } else {
+              console.log(`[编辑-标签验证✗] 未检测到标签内容 [${topicKeywords.join(',')}], 但继续发布...`)
+              // 不阻塞：标签没找到也继续（可能UI格式变了）
+              _editSubStep = ''
+              return { success: true, action: '标签未确认但继续', message: '', waitMs: 10000 }
+            }
+          }
+        } catch (e) {
+          console.log(`[编辑-标签验证] 异常: ${e}`)
+        }
+        _editSubStep = ''
+        return { success: true, action: '编辑完成(异常)', message: '', waitMs: 10000 }
+      }
+
+      // 兜底
+      _editSubStep = ''
+      return { success: false, action: '编辑未知子步骤', message: String(subStep), waitMs: 3000 }
+    }
+
+    // ========================================
+    // STEP 4.5: 编辑页 → 选择/输入位置（POI）
+    // ========================================
+    // 抖音发布编辑页通常有"添加位置"入口，流程：
+    //   1. 点击"添加位置"/"所在位置"按钮
+    //   2. 搜索框输入位置名称
+    //   3. 点击搜索结果中的目标位置
+    //   4. 返回编辑页 → 进入 PUBLISH_BTN
+    //
+    // 如果 _safeLocation 为空，getNextStep 会跳过此步骤直接到 PUBLISH_BTN
+    case 'SELECT_POI': {
+      if (!_safeLocation) {
+        console.log(`[位置] 无位置配置, 跳过`)
+        return { success: true, action: '跳过位置(空)', message: '', waitMs: 0 }
+      }
+      console.log(`[位置] 目标位置: "${_safeLocation}"`)
+
+      // Layer 1: XML 找"添加位置" / "所在位置" / "位置" 按钮
+      const poiBtn = await locateByText(apiPort, ['添加位置', '所在位置', '位置', '添加地理位置'], 3000)
+      if (poiBtn) {
+        console.log(`[位置✓] 找到入口 "${poiBtn.textHint}" → (${poiBtn.x},${poiBtn.y})`)
+        await doTap(apiPort, poiBtn.x, poiBtn.y, signal, adb)
+        await sleep(2000, signal) // 等待搜索页打开
+
+        // 输入位置搜索词
+        const searchBox = await locateByText(apiPort, ['搜索', '查找地点', '请输入', '搜索位置'], 2000)
+        if (searchBox) {
+          await doTap(apiPort, searchBox.x, searchBox.y, signal, adb)
+          await sleep(800, signal)
+          await doInput(apiPort, _safeLocation, signal, adb)
+          console.log(`[位置] 已输入搜索: ${_safeLocation}`)
+          await sleep(2500, signal) // 等待搜索结果
+
+          // 点击第一个搜索结果（通常是最佳匹配）
+          const firstResult = await findAnyText(apiPort, [_safeLocation.substring(0, 3)], screenH * 0.8)
+          if (firstResult && firstResult.y > screenH * 0.15) {
+            console.log(`[位置✓] 选择结果 → (${firstResult.x},${firstResult.y})`)
+            await doTap(apiPort, firstResult.x, firstResult.y, signal, adb)
+            return { success: true, action: '选择POI完成', message: _safeLocation.substring(0, 20), waitMs: 3000 }
+          }
+
+          // 兜底：点击屏幕中部偏下的区域（列表第一项）
+          const fallbackY = Math.round(screenH * 0.45)
+          console.log(`[位置] 未找到精确匹配, 点中部兜底 → (540,${fallbackY})`)
+          await doTap(apiPort, 540, fallbackY, signal, adb)
+          return { success: true, action: 'POI兜底点击', message: _safeLocation.substring(0, 20), waitMs: 3000 }
+        }
+
+        // 没找到搜索框，可能直接在当前位置列表中
+        console.log(`[位置] 未找到搜索框，尝试直接找位置文字...`)
+        const directMatch = await findAnyText(apiPort, [_safeLocation.substring(0, 4)], screenH * 0.9)
+        if (directMatch && directMatch.y > screenH * 0.10) {
+          console.log(`[位置✓] 直接匹配 → (${directMatch.x},${directMatch.y})`)
+          await doTap(apiPort, directMatch.x, directMatch.y, signal, adb)
+          return { success: true, action: 'POI直接选择', message: _safeLocation.substring(0, 20), waitMs: 3000 }
+        }
+
+        // 最终兜底：VL 定位
+        console.log(`[位置] VL定位位置选项...`)
+        const vlPoi = await locateElement(b64, `抖音发布页面，找一个与"${_safeLocation}"相关的位置或地点按钮，点击它。如果找不到就返回null。`)
+        if (vlPoi && isVlCoordValid(vlPoi.x, vlPoi.y, screenW, screenH)) {
+          await doTap(apiPort, vlPoi.x, vlPoi.y, signal, adb)
+          return { success: true, action: 'VL选POI', message: `(${vlPoi.x},${vlPoi.y})`, waitMs: 3000 }
+        }
+      } else {
+        console.log(`[位置✗] 未找到"添加位置"等入口按钮`)
+      }
+
+      // 全部失败：不阻塞主流程，跳过位置继续发布
+      console.log(`[位置⚠] 选择位置失败，跳过继续发布...`)
+      return { success: true, action: '跳过位置(失败)', message: _safeLocation.substring(0, 20), waitMs: 1000 }
     }
 
     // ========================================
     // STEP 5: 发布页 → 点击 "发布" 按钮
     // ========================================
+    // ⚠️ 注意：抖音的"发布/发作品"按钮通常是红色圆角卡片，
+    //    外层是 clickable=false 的 TextView壳，需要用 ADB input tap 触发！
     case 'PUBLISH_BTN': {
-      // 策略A: XML 找发布按钮
-      const xmlPub = await locateByText(apiPort, ['发布', '发作品', '立即发布', '发送'], 3000)
-      if (xmlPub) {
-        await doTap(apiPort, xmlPub.x, xmlPub.y, signal, adb)
-        return { success: true, action: 'XML定位发布', message: `(${xmlPub.x},${xmlPub.y})`, waitMs: 5000 }
+      // ★★ Layer 0: 先诊断发布按钮状态（打印XML信息）★★
+      try {
+        const pubDump = await UI.dumpXml(apiPort)
+        if (pubDump.success && pubDump.data) {
+          const pNodes = UI.parseUiXml(pubDump.data)
+          const pubKeywords = ['发布', '发作品', '立即发布', '发送']
+          for (const rawNode of pNodes) {
+            const node = rawNode as { text?: string; contentDesc?: string; className?: string; bounds?: string; clickable?: boolean }
+            const nodeText = node.text || ''
+            const nodeDesc = node.contentDesc || ''
+            const isPub = pubKeywords.some(k => nodeText.includes(k) || nodeDesc.includes(k))
+            if (isPub) {
+              const b = UI.parseBounds(node.bounds || '')
+              const pos = b ? `(${Math.round(b.x)},${Math.round(b.y)},${b.width}x${b.height})` : '?'
+              console.log(`[发布-诊断] "${nodeText || nodeDesc}" | ${node.className} | clickable=${!!node.clickable} | ${pos}`)
+            }
+          }
+        }
+      } catch (e) {
+        console.log(`[发布-诊断] 异常: ${e}`)
       }
 
-      // 策略B: VL 定位
-      console.log(`[策略B] XML失败, VL定位发布...`)
-      const vlCoord = await locateElement(b64, '发布')
-      if (vlCoord && isVlCoordValid(vlCoord.x, vlCoord.y, screenW, screenH)) {
-        await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
-        return { success: true, action: 'VL定位发布', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 5000 }
+      // ★★ Layer 1: XML 搜索（含clickable=false节点）★★
+      const pubBtn = await findAnyText(apiPort, ['发布', '发作品', '立即发布', '发送'], screenH, 3000)
+      if (pubBtn && pubBtn.y > screenH * 0.10 && pubBtn.y > screenH * 0.50) { // 发布按钮应该在屏幕下半部分
+        const px = pubBtn.x, py = pubBtn.y
+        console.log(`[发布✓] "${pubBtn.textHint}" → (${px},${py}) clickable=${pubBtn.clickable}`)
+
+        if (pubBtn.clickable) {
+          // 真正可点击 — 直接 UI.tap
+          await UI.tap(apiPort, px, py)
+          return { success: true, action: 'UI.tap点发布(可点击)', message: `(${px},${py})`, waitMs: 10000 }
+        }
+
+        // ★ clickable=false（红色卡片壳）→ ADB阵列扫射（和"下一步"一样的策略）
+        console.log(`[⚠发布] clickable=false！改用ADB input tap连击+阵列...`)
+
+        // 尝试1: 中心点 ×2 连击
+        await sh(apiPort, `input tap ${px} ${py}`, signal)
+        await sleep(500, signal)
+        await sh(apiPort, `input tap ${px} ${py}`, signal)
+        await sleep(500, signal)
+
+        // 尝试2: 左偏移80px（避开文字层）
+        await sh(apiPort, `input tap ${px - 80} ${py}`, signal)
+        await sleep(500, signal)
+
+        // 尝试3: 右偏移80px
+        await sh(apiPort, `input tap ${px + 80} ${py}`, signal)
+        await sleep(500, signal)
+
+        return { success: true, action: 'ADB阵列扫射发布(clickable=false)', message: `(${px},${py})×4次`, waitMs: 10000 }
+      }
+      if (pubBtn) console.log(`[跳过] "${pubBtn.textHint}"位置异常 y=${pubBtn.y}`)
+
+      // ★★ Layer 2: locateByText（要求clickable=true）兜底 ★★
+      const xmlPub = await locateByText(apiPort, ['发布', '发作品', '立即发布'], 2000)
+      if (xmlPub) {
+        console.log(`[发布✓] locateByText → (${xmlPub.x},${xmlPub.y})`)
+        // 也用 ADB tap 确保触发
+        await sh(apiPort, `input tap ${xmlPub.x} ${xmlPub.y}`, signal)
+        await sleep(300, signal)
+        await sh(apiPort, `input tap ${xmlPub.x} ${xmlPub.y}`, signal)
+        return { success: true, action: 'locateByText+ADB连击发布', message: `(${xmlPub.x},${xmlPub.y})×2`, waitMs: 10000 }
+      }
+
+      // ★★ Layer 3: VL 视觉定位 ★★
+      console.log(`[发布-VL] XML失败, VL定位红底白字发布按钮...`)
+      const vlCoord = await locateElement(
+        b64,
+        `这是抖音APP的视频发布编辑页面${screenW}x${screenH}。屏幕右下角有一个【红色或橙红色圆角矩形】按钮，上面写着白色的"发布"或"发作品"大字。请找到这个红色按钮的中心坐标并返回。注意这个按钮在屏幕底部区域(y>屏幕高度的60%)。如果看不到就返回null。`
+      )
+      if (vlCoord && vlCoord.y > screenH * 0.50) {
+        console.log(`[发布VL✓] → (${vlCoord.x},${vlCoord.y}), 用ADB tap`)
+        await sh(apiPort, `input tap ${vlCoord.x} ${vlCoord.y}`, signal)
+        await sleep(300, signal)
+        await sh(apiPort, `input tap ${vlCoord.x} ${vlCoord.y}`, signal)
+        return { success: true, action: 'VL+ADB发布', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 10000 }
       }
       if (vlCoord) {
-        console.log(`[VL✗] 发布坐标不合理 (${vlCoord.x},${vlCoord.y}), 忽略`)
+        console.log(`[发布VL✗] 坐标不合理 (${vlCoord.x},${vlCoord.y}), y太靠上`)
+      } else {
+        console.log(`[发布VL✗] null`)
       }
 
-      return { success: false, action: '发布按钮定位失败', message: '未找到', waitMs: 3000 }
+      // ★★ Layer 4: 比例坐标终极兜底（右下角红色按钮区）★★
+      const ratioX = Math.round(screenW * 0.88)
+      const ratioY = Math.round(screenH * 0.92)
+      console.log(`[发布-比例] 终极兜底 → (${ratioX},${ratioY}) [screenW*0.88, screenH*0.92]`)
+      await sh(apiPort, `input tap ${ratioX} ${ratioY}`, signal)
+      await sleep(300, signal)
+      await sh(apiPort, `input tap ${ratioX} ${ratioY}`, signal)
+      return { success: true, action: '比例坐标+ADB发布(终极)', message: `(${ratioX},${ratioY})`, waitMs: 10000 }
     }
 
     default:
@@ -1097,7 +1470,8 @@ function getNextStep(current: WorkflowStep): WorkflowStep {
     case 'HOME_PLUS': return 'SHOOT_ALBUM'
     case 'SHOOT_ALBUM': return 'ALBUM_PICK'
     case 'ALBUM_PICK': return 'EDIT_TITLE'
-    case 'EDIT_TITLE': return 'PUBLISH_BTN'
+    case 'EDIT_TITLE': return _safeLocation ? 'SELECT_POI' : 'PUBLISH_BTN'   // 有位置才走SELECT_POI，否则跳过
+    case 'SELECT_POI': return 'PUBLISH_BTN'
     case 'PUBLISH_BTN': return 'DONE'
     default: return 'HOME_PLUS'
   }
@@ -1110,7 +1484,8 @@ function stepToOrder(step: WorkflowStep): number {
     case 'SHOOT_ALBUM': return 2
     case 'ALBUM_PICK': return 3
     case 'EDIT_TITLE': return 4
-    case 'PUBLISH_BTN': return 5
+    case 'SELECT_POI': return 5
+    case 'PUBLISH_BTN': return 6
     case 'DONE': return 99
     default: return 0
   }

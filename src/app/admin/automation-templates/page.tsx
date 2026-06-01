@@ -22,6 +22,7 @@ interface TaskConfig {
   publishTitle?: string
   publishTopics?: string
   publishDesc?: string
+  publishLocation?: string       // 发布位置（POI名称或地址）
 }
 
 const PLATFORMS = [
@@ -312,12 +313,22 @@ export default function AutomationTemplatesPage() {
                   )}
 
                   {cfg.actions.includes('publish') && (
-                    <div className="border-t border-white/10 pt-3 mt-2">
-                      <label className="text-[10px] text-gray-400 mb-1 block">发布视频设置</label>
-                      <textarea value={cfg.publishDesc || ''} onChange={e => setCfg(prev => ({ ...prev, publishDesc: e.target.value }))}
-                        placeholder="描述今天视频想表达的内容，如：夏季新出的清凉锅底配冰镇酸梅汤（不填则AI根据关键词自动生成）"
-                        className="input-dark w-full h-16 resize-y text-sm mb-2" rows={3} />
-                      <p className="text-[10px] text-gray-500">AI将根据描述生成标题和话题</p>
+                    <div className="border-t border-white/10 pt-3 mt-2 space-y-3">
+                      <div>
+                        <label className="text-[10px] text-gray-400 mb-1 block">视频描述</label>
+                        <textarea value={cfg.publishDesc || ''} onChange={e => setCfg(prev => ({ ...prev, publishDesc: e.target.value }))}
+                          placeholder="描述今天视频想表达的内容，如：夏季新出的清凉锅底配冰镇酸梅汤（不填则AI根据关键词自动生成）"
+                          className="input-dark w-full h-16 resize-y text-sm" rows={3} />
+                        <p className="text-[10px] text-gray-500 mt-0.5">AI将根据描述生成标题和话题</p>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-400 mb-1 block">📍 发布位置 / POI</label>
+                        <input className="input-dark w-full text-sm"
+                          placeholder="输入位置名称或地址，如：成都市太古里（支持逗号分隔多个位置随机选一个）"
+                          value={cfg.publishLocation || ''}
+                          onChange={e => setCfg(prev => ({ ...prev, publishLocation: e.target.value }))} />
+                        <p className="text-[10px] text-gray-500 mt-0.5">留空则不添加位置；多位置用英文逗号分隔，执行时随机选择</p>
+                      </div>
                     </div>
                   )}
                 </Section>
