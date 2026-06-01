@@ -98,33 +98,59 @@ async function detectCurrentPage(apiPort: number): Promise<{
   step: WorkflowStep
   evidence: string       // 判定依据（用于日志）
   xmlTexts: string[]     // XML中的所有可点击文字（调试用）
+  isDesktop: boolean     // 是否在桌面/非抖音页面
 }> {
   try {
     const data = await UI.extractScreenData(apiPort)
     if (!data.success || !data.data) {
-      return { step: 'HOME_PLUS', evidence: 'XML获取失败,默认首页', xmlTexts: [] }
+      return { step: 'HOME_PLUS', evidence: 'XML获取失败,默认首页', xmlTexts: [], isDesktop: false }
     }
     const { texts, clickableTexts } = data.data
+
+    // ★★ 先检测是否在桌面（非抖音页面）— 关键！
+    // 桌面特征：没有抖音特有的文字，或者有系统级UI元素
+    const hasDouyinFeature = clickableTexts.some(t =>
+      t === '首页' || t === '朋友' || t === '消息' || t === '我' ||
+      t.includes('推荐') || t.includes('关注') ||
+      t === '相册' || t.includes('发布') || t.includes('发作品') ||
+      t.includes('添加标题') || t.includes('确定') || t === '完成'
+    ) || texts.some(t =>
+      t === '全部' || t === '视频' || t === '图片' ||
+      t.includes('发布成功') || t.includes('已发布')
+    )
+
+    if (!hasDouyinFeature && texts.length > 0) {
+      // 有UI元素但不是抖音 → 可能是桌面或其他App
+      const allText = texts.join(',').substring(0, 100)
+      console.log(`[桌面检测] 无抖音特征, 界面文字: [${allText}]`)
+      return { step: 'HOME_PLUS', evidence: '非抖音页面(桌面?)', xmlTexts: clickableTexts, isDesktop: true }
+    }
+
+    if (!hasDouyinFeature && texts.length === 0) {
+      // 完全没有文字 → 可能是锁屏或纯图界面
+      console.log(`[桌面检测] 无任何文字, 可能是锁屏或桌面`)
+      return { step: 'HOME_PLUS', evidence: '无文字(可能桌面)', xmlTexts: [], isDesktop: true }
+    }
 
     // 按优先级匹配页面特征
 
     // --- 发布成功 ---
     if (texts.some(t => t.includes('发布成功') || t.includes('已发布') || t.includes('上传完成'))) {
-      return { step: 'DONE', evidence: '检测到"发布成功"', xmlTexts: clickableTexts }
+      return { step: 'DONE', evidence: '检测到"发布成功"', xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 发布页：有"发布"/"发作品" 按钮 ---
     if (clickableTexts.some(t => t.includes('发布') || t.includes('发作品'))) {
       // 确认不是编辑页（编辑页也有"发布"但主要特征是输入框）
       if (texts.some(t => t.includes('添加标题') || t.includes('请填写') || t.includes('标题'))) {
-        return { step: 'EDIT_TITLE', evidence: '编辑页(有标题输入框)', xmlTexts: clickableTexts }
+        return { step: 'EDIT_TITLE', evidence: '编辑页(有标题输入框)', xmlTexts: clickableTexts, isDesktop: false }
       }
-      return { step: 'PUBLISH_BTN', evidence: '发布页(有发布按钮)', xmlTexts: clickableTexts }
+      return { step: 'PUBLISH_BTN', evidence: '发布页(有发布按钮)', xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 编辑页：有标题输入区域 ---
     if (texts.some(t => t.includes('添加标题') || t.includes('请填写标题') || t.includes('描述') || t.includes('#添加话题'))) {
-      return { step: 'EDIT_TITLE', evidence: '编辑页(有标题区域)', xmlTexts: clickableTexts }
+      return { step: 'EDIT_TITLE', evidence: '编辑页(有标题区域)', xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 相册页：有"全部"/"视频"/"图片"标签 或 "照片"/"视频" 选择 ---
@@ -132,16 +158,16 @@ async function detectCurrentPage(apiPort: number): Promise<{
       t === '全部' || t === '视频' || t === '图片' ||
       t.includes('最近视频') || t.includes('选择视频') || t.includes('相册选择')
     )) {
-      return { step: 'ALBUM_PICK', evidence: '相册页(有全部/视频/图片标签)', xmlTexts: clickableTexts }
+      return { step: 'ALBUM_PICK', evidence: '相册页(有全部/视频/图片标签)', xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 拍摄页：有"相册"文字（注意排除相册页）---
     if (clickableTexts.some(t => t === '相册' || t.includes('从相册') || t.includes('相册导入'))) {
       // 如果同时有"全部/视频/图片"标签，说明是相册页而不是拍摄页
       if (texts.some(t => t === '全部' || t === '视频' || t === '图片')) {
-        return { step: 'ALBUM_PICK', evidence: '相册页(有相册+标签)', xmlTexts: clickableTexts }
+        return { step: 'ALBUM_PICK', evidence: '相册页(有相册+标签)', xmlTexts: clickableTexts, isDesktop: false }
       }
-      return { step: 'SHOOT_ALBUM', evidence: '拍摄页(有相册入口)', xmlTexts: clickableTexts }
+      return { step: 'SHOOT_ALBUM', evidence: '拍摄页(有相册入口)', xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 首页：底部导航栏文字 ---
@@ -149,7 +175,7 @@ async function detectCurrentPage(apiPort: number): Promise<{
       t === '首页' || t === '朋友' || t === '消息' || t === '我' ||
       t.includes('推荐') || t.includes('关注')
     ) || texts.some(t => t === '首页' || t === '朋友')) {
-      return { step: 'HOME_PLUS', evidence: '首页(有导航栏)', xmlTexts: clickableTexts }
+      return { step: 'HOME_PLUS', evidence: '首页(有导航栏)', xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 弹窗 ---
@@ -157,13 +183,13 @@ async function detectCurrentPage(apiPort: number): Promise<{
       t.includes('我知道了') || t.includes('去编辑') || t.includes('允许') ||
       t.includes('取消') || t.includes('确定') || t.includes('知道了')
     )) {
-      return { step: 'HOME_PLUS', evidence: '检测到弹窗,回首页处理', xmlTexts: clickableTexts }
+      return { step: 'HOME_PLUS', evidence: '检测到弹窗,回首页处理', xmlTexts: clickableTexts, isDesktop: false }
     }
 
-    // 兜底：默认回首页
-    return { step: 'HOME_PLUS', evidence: '未匹配特征,默认首页', xmlTexts: clickableTexts }
+    // 兜底：默认回首页（不是桌面，只是特征没匹配到但应该在抖音内）
+    return { step: 'HOME_PLUS', evidence: '未匹配特征,默认首页(在抖音内)', xmlTexts: clickableTexts, isDesktop: false }
   } catch (e) {
-    return { step: 'HOME_PLUS', evidence: `异常:${e}`, xmlTexts: [] }
+    return { step: 'HOME_PLUS', evidence: `异常:${e}`, xmlTexts: [], isDesktop: false }
   }
 }
 
@@ -257,7 +283,19 @@ export async function aiPublishVideoWorkflow(
     if (!b64) { await sleep(2000, signal); continue }
 
     const pageDetect = await detectCurrentPage(apiPort)
-    console.log(`[${TS()}] [页面] ${pageDetect.step} (${pageDetect.evidence})`)
+    console.log(`[${TS()}] [页面] ${pageDetect.step} (${pageDetect.evidence})${pageDetect.isDesktop ? ' ⚠️桌面!' : ''}`)
+
+    // ★★ 桌面检测：不在抖音内 → 重新启动抖音！
+    if (pageDetect.isDesktop) {
+      console.log(`[${TS()}] [!恢复] 检测到非抖音页面，重新启动抖音...`)
+      await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
+      await sleep(1000, signal)
+      await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
+      await sleep(5000, signal)  // 等抖音加载完
+      currentStep = 'HOME_PLUS'
+      stepRetryCount = 0
+      continue
+    }
 
     // ---- 2. 先处理弹窗 ----
     if (pageDetect.evidence.includes('弹窗')) {
@@ -294,9 +332,11 @@ export async function aiPublishVideoWorkflow(
         console.log(`[${TS()}] [×停留] 页面还是${currentStep}, 未切换，计入重试`)
         stepRetryCount++
         if (stepRetryCount >= MAX_STEP_RETRY) {
-          console.log(`[${TS()}] [回首页] ${currentStep} 页面不变${stepRetryCount}次, Back重置...`)
-          await goBack(apiPort, 5, signal, adb)
-          await sleep(3000, signal)
+          console.log(`[${TS()}] [重置] ${currentStep} 页面不变${stepRetryCount}次, 重启抖音...`)
+          await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
+          await sleep(1000, signal)
+          await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
+          await sleep(5000, signal)
           currentStep = 'HOME_PLUS'
           stepRetryCount = 0
           if (loopCount > 15) return { success: false, message: `重试过多,最后:${currentStep}` }
@@ -313,9 +353,11 @@ export async function aiPublishVideoWorkflow(
           console.log(`[${TS()}] [异常] 跳到${verify.step}(顺序异常), 重试${currentStep}`)
           stepRetryCount++
           if (stepRetryCount >= MAX_STEP_RETRY) {
-            console.log(`[${TS()}] [回首页] 异常重试耗尽, Back重置...`)
-            await goBack(apiPort, 5, signal, adb)
-            await sleep(3000, signal)
+            console.log(`[${TS()}] [重置] 异常重试耗尽, 重启抖音...`)
+            await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
+            await sleep(1000, signal)
+            await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
+            await sleep(5000, signal)
             currentStep = 'HOME_PLUS'
             stepRetryCount = 0
           }
@@ -324,9 +366,11 @@ export async function aiPublishVideoWorkflow(
     } else {
       stepRetryCount++
       if (stepRetryCount >= MAX_STEP_RETRY) {
-        console.log(`[${TS()}] [回首页] ${currentStep} 失败${stepRetryCount}次, Back重置...`)
-        await goBack(apiPort, 5, signal, adb)
-        await sleep(3000, signal)
+        console.log(`[${TS()}] [重置] ${currentStep} 失败${stepRetryCount}次, 重启抖音...`)
+        await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
+        await sleep(1000, signal)
+        await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
+        await sleep(5000, signal)
         currentStep = 'HOME_PLUS'
         stepRetryCount = 0
         if (loopCount > 15) {  // 安全保护
