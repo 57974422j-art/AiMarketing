@@ -313,21 +313,15 @@ async function detectCurrentPage(apiPort: number): Promise<{
       return { step: 'SHOOT_ALBUM', evidence: `拍摄页(有${texts.find(t => cameraFeatures.includes(t))})`, xmlTexts: clickableTexts, isDesktop: false }
     }
 
-    // --- 相册页：有"全部"/"视频"/"图片"标签 或 "照片"/"视频" 选择 ---
-    // 注意：此时已排除拍摄页，这里的"视频"是相册标签而非拍摄模式
-    if (texts.some(t =>
-      t === '全部' || t === '视频' || t === '图片' ||
-      t.includes('最近视频') || t.includes('选择视频') || t.includes('相册选择')
-    )) {
-      return { step: 'ALBUM_PICK', evidence: '相册页(有全部/视频/图片标签)', xmlTexts: clickableTexts, isDesktop: false }
-    }
-
-    // ★★ --- 视频预览/编辑页（选视频后的中间页面）★★
-    // 这是 ALBUM_PICK 点"下一步"后进入的页面，有两种形态：
-    //   图2(纯预览): 有暂停按钮 + 进度条 + "下一步" + "一键成片"
-    //   图3(编辑工具): 右侧工具栏(剪辑/文字/话题/滤镜等) + 底部"下一步"
-    // 此页面在 ALBUM_PICK 之后、EDIT_TITLE 之前，需要点"下一步"才能进编辑标题页
-    const editToolFeatures = ['剪辑', '文字', '话题', '贴纸', '特效', '滤镜', '更多', '设置', '推荐特效']
+    // ★★ --- 视频预览/编辑页（选视频后的中间页面）--- ★★
+    // ★★★ 关键：必须在 ALBUM_PUT 之前检测！★★★
+    // 原因：某些抖音版本的编辑页XML可能残留"视频"文字，
+    //       如果先检测ALBUM_PICK会误判！
+    //
+    // 这个页面有两种形态：
+    //   图2(纯预览): 暂停按钮 + 进度条 + "下一步" + "一键成片"/"推荐特效"
+    //   图3(编辑工具): 右侧工具栏(剪辑/文字/话题/滤镜/设置/更多等) + 底部"下一步"
+    const editToolFeatures = ['剪辑', '文字', '话题', '贴纸', '特效', '滤镜', '更多', '设置', '推荐特效', '一键成片', '限时']
     const hasEditTools = texts.some(t => editToolFeatures.includes(t))
     // 通过 XML 节点类型检测 SeekBar/ProgressBar（进度条）和暂停图标
     let hasVideoPlayerUI = false
@@ -347,6 +341,15 @@ async function detectCurrentPage(apiPort: number): Promise<{
         ? texts.find((t: string) => editToolFeatures.includes(t)) || '编辑工具'
         : hasVideoPlayerUI ? '视频播放器(暂停/进度条)' : ''
       return { step: 'VIDEO_PREVIEW', evidence: `视频预览/编辑页(有${foundFeature})`, xmlTexts: clickableTexts, isDesktop: false }
+    }
+
+    // --- 相册页：有"全部"/"视频"/"图片"标签 或 "照片"/"视频" 选择 ---
+    // 注意：此时已排除拍摄页和编辑页，这里的"视频"是相册标签而非其他含义
+    if (texts.some(t =>
+      t === '全部' || t === '视频' || t === '图片' ||
+      t.includes('最近视频') || t.includes('选择视频') || t.includes('相册选择')
+    )) {
+      return { step: 'ALBUM_PICK', evidence: '相册页(有全部/视频/图片标签)', xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 拍摄页：有"相册"文字（兜底，通过底部按钮判断）---
@@ -639,7 +642,7 @@ export async function aiPublishVideoWorkflow(
     // ---- 2. 先处理弹窗 ----
     if (pageDetect.evidence.includes('弹窗')) {
       console.log(`[${TS()}] [弹窗] 尝试关闭...`)
-      const popupBtn = await locateByText(apiPort, ['我知道了', '去编辑', '允许', '取消', '确定', '知道了', '下次一定'], 2000)
+      const popupBtn = await locateByText(apiPort, ['我知道了', '去编辑', '允许', '取消', '确定', '知道了', '下次一定', '不保存返回'], 2000)
       if (popupBtn) {
         await doTap(apiPort, popupBtn.x, popupBtn.y, signal, adb)
         await sleep(2000, signal); continue
