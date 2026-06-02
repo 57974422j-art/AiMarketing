@@ -1290,6 +1290,7 @@ async function executeStep(
             console.log(`[固定坐标] "下一步" → (${clickX},${clickY}) ${fixedNext.reason}`)
           }
         } catch {}
+        }  // 关闭 if (!vlNextBtnX)
 
         // ★ 第1次点击：随机压持 220~300ms
         const duration1 = 220 + Math.floor(Math.random() * 81)
