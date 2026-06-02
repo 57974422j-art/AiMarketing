@@ -236,10 +236,13 @@ async function goBack(apiPort: number, times: number, signal?: AbortSignal, adb?
 type WorkflowStep = 'HOME_PLUS' | 'SHOOT_ALBUM' | 'ALBUM_PICK' | 'VIDEO_PREVIEW' | 'EDIT_TITLE' | 'SELECT_POI' | 'PUBLISH_BTN' | 'DONE'
 
 /**
- * 通过 XML 文字特征判断当前页面类型
- * 不依赖 AI，直接从 UI 树提取关键字
+ * 通过 XML 文字特征 + VL视觉 判断当前页面类型
+ * 不依赖 AI (QWEN-VL) 判断该做什么！用固定状态机 + XML/VL 定位元素位置
  */
-async function detectCurrentPage(apiPort: number): Promise<{
+async function detectCurrentPage(
+  apiPort: number,
+  b64?: string       // ★ 可选截图，用于 VL 视觉兜底确认
+): Promise<{
   step: WorkflowStep
   evidence: string       // 判定依据（用于日志）
   xmlTexts: string[]     // XML中的所有可点击文字（调试用）
@@ -314,7 +317,7 @@ async function detectCurrentPage(apiPort: number): Promise<{
     }
 
     // ★★ --- 视频预览/编辑页（选视频后的中间页面）--- ★★
-    // ★★★ 关键：必须在 ALBUM_PUT 之前检测！★★★
+    // ★★★ 关键：必须在 ALBUM_PICK 之前检测！★★★
     // 原因：某些抖音版本的编辑页XML可能残留"视频"文字，
     //       如果先检测ALBUM_PICK会误判！
     //
@@ -341,6 +344,51 @@ async function detectCurrentPage(apiPort: number): Promise<{
         ? texts.find((t: string) => editToolFeatures.includes(t)) || '编辑工具'
         : hasVideoPlayerUI ? '视频播放器(暂停/进度条)' : ''
       return { step: 'VIDEO_PREVIEW', evidence: `视频预览/编辑页(有${foundFeature})`, xmlTexts: clickableTexts, isDesktop: false }
+    }
+
+    // ★★ --- VL视觉兜底：XML全部失败时，让AI看截图确认是否是VIDEO_PREVIEW ---
+    // 抖音某些版本用自定义渲染，编辑工具文字不在标准Android UI 树中，
+    // 导致上面的XML检测永远失败。此时必须用AI视觉识别截图。
+    if (b64 && !hasEditTools && !hasVideoPlayerUI) {
+      try {
+        const vlPageCheck = await locateElement(
+          b64,
+          `这是抖音APP的屏幕截图。请只回答当前是什么页面，选择一个字母：
+A = 相册选视频页（有视频缩略图网格）
+B = 视频预览/编辑页（有视频画面+底部粉红色"下一步"按钮+右侧编辑工具如剪辑/文字/话题/滤镜等）
+C = 首页或其他页面
+
+只返回一个字母 A 或 B 或 C，不要返回其他内容。`
+        )
+        // AI 返回的坐标如果在右下角区域(y > 屏幕高度75%)，说明看到了"下一步"
+        if (vlPageCheck && vlPageCheck.y && vlPageCheck.y > 0) {
+          // 用坐标位置辅助判断：如果 AI 返回的点在屏幕中下部，更可能是 B(预览页)
+          const vlY = vlPageCheck.y
+          // 注意：这里 locateElement 可能会误解 prompt 返回任意坐标
+          // 我们主要用它来判断 AI 是否"看到了"预览页的特征
+          // 通过二次调用来确认
+          console.log(`[detect-VL] AI返回坐标(${vlPageCheck.x},${vlPageCheck.y})，进行精确页面确认...`)
+          
+          // 二次 VL 精确判断（只要文字答案）
+          const vlConfirm = await locateElement(
+            b64,
+            `截图中的页面是否有以下特征？：
+1. 底部右侧有一个【粉红色/玫红色】的"下一步"大按钮？
+2. 右侧或画面上有编辑工具（剪辑、文字、话题、贴纸、特效、滤镜、设置、更多等任一）？
+
+如果有 → 返回坐标 {x:999,y:999}
+如果没有 → 返回坐标 {x:0,y:0}`
+          )
+          if (vlConfirm && vlConfirm.x === 999 && vlConfirm.y === 999) {
+            console.log(`[detect-VL✓] AI视觉确认是VIDEO_PREVIEW页面！(XML未检测到但VL确认)`)
+            return { step: 'VIDEO_PREVIEW', evidence: '视频预览/编辑页(VL视觉确认)', xmlTexts: clickableTexts, isDesktop: false }
+          } else {
+            console.log(`[detect-VL✗] AI视觉确认不是预览页，继续其他检测...`)
+          }
+        }
+      } catch (e) {
+        console.log(`[detect-VL] 异常: ${e}`)
+      }
     }
 
     // --- 相册页：有"全部"/"视频"/"图片"标签 或 "照片"/"视频" 选择 ---
@@ -610,7 +658,7 @@ export async function aiPublishVideoWorkflow(
   let stepRetryCount = 0          // 当前步骤的重试次数
   let loopCount = 0               // 总循环次数
   let inputDone = false           // 标题是否已输入
-  const MAX_STEP_RETRY = 3        // 单步最大重试次数
+  const MAX_STEP_RETRY = 6        // 单步最大重试次数（从3提高到6，给VIDEO_PREVIEW更多机会）
 
   while (loopCount < maxLoops) {
     loopCount++
@@ -622,7 +670,7 @@ export async function aiPublishVideoWorkflow(
     const b64 = await UI.takeScreenshot(apiPort)
     if (!b64) { await sleep(2000, signal); continue }
 
-    const pageDetect = await detectCurrentPage(apiPort)
+    const pageDetect = await detectCurrentPage(apiPort, b64)
     console.log(`[${TS()}] [页面] ${pageDetect.step} (${pageDetect.evidence})${pageDetect.isDesktop ? ' ⚠️桌面!' : ''}`)
 
     // ★★ 桌面检测：不在抖音内 → 重新启动抖音！
@@ -656,7 +704,9 @@ export async function aiPublishVideoWorkflow(
     if (result.success) {
       // ★★ 关键：等页面加载后，验证是否真到了下一步！
       await sleep(result.waitMs, signal)
-      const verify = await detectCurrentPage(apiPort)
+      // 验证时重新截图（页面可能已变化）
+      const verifyB64 = await UI.takeScreenshot(apiPort)
+      const verify = await detectCurrentPage(apiPort, verifyB64 || undefined)
       console.log(`[${TS()}] [验证] 点击后页面=${verify.step} (期望推进到 ${getNextStep(currentStep)})`)
 
       const expectedNext = getNextStep(currentStep)
@@ -693,13 +743,15 @@ export async function aiPublishVideoWorkflow(
         console.log(`[${TS()}] [×停留] 页面还是${currentStep}, 未切换，计入重试`)
         stepRetryCount++
         if (stepRetryCount >= MAX_STEP_RETRY) {
-          // ★★ ALBUM_PICK 特殊策略：不重启App，执行 KEYCODE_BACK 后强制推进到 CLICK_NEXT
+          // ★★ ALBUM_PICK 特殊策略：不BACK！不重启！
+          //    原因：实际可能已在 VIDEO_PREVIEW 页面但 detectCurrentPage 不认识，
+          //    此时 BACK 会触发草稿弹窗导致更复杂的死循环。
+          //    正确做法：继续尝试点"下一步"，让 VL 视觉来确认和定位按钮。
           if (currentStep === 'ALBUM_PICK') {
-            console.log(`[${TS()}] [ALBUM_PICK防死循环] 重试${stepRetryCount}次, 执行BACK后强制推进到"下一步"`)
-            await goBack(apiPort, 1, signal, adb)  // KEYCODE_BACK 一次
-            await sleep(1500, signal)
-            _albumSubStep = 'CLICK_NEXT'  // ★ 强制跳到点下一步！
-            stepRetryCount = 0  // 重置重试计数
+            console.log(`[${TS()}] [ALBUM_PICK-重试] 重试${stepRetryCount}次(已达上限)，不BACK不重启！强制回到CLICK_NEXT继续尝试...`)
+            _albumSubStep = 'CLICK_NEXT'  // ★ 回到点下一步
+            stepRetryCount = 0            // 重置计数，允许再尝试多轮
+            // 不 continue！让下一轮循环自然执行 CLICK_NEXT
           } else {
             console.log(`[${TS()}] [重置] ${currentStep} 页面不变${stepRetryCount}次, 重启抖音...`)
             await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
@@ -710,7 +762,7 @@ export async function aiPublishVideoWorkflow(
             stepRetryCount = 0
             _albumSubStep = ''
             _editSubStep = ''
-            if (loopCount > 15) return { success: false, message: `重试过多,最后:${currentStep}` }
+            if (loopCount > 20) return { success: false, message: `重试过多,最后:${currentStep}` }
           }
         }
       } else {
@@ -733,11 +785,9 @@ export async function aiPublishVideoWorkflow(
           console.log(`[${TS()}] [异常] 跳到${verify.step}(顺序异常), 重试${currentStep}`)
           stepRetryCount++
           if (stepRetryCount >= MAX_STEP_RETRY) {
-            // ★★ ALBUM_PICK 特殊策略
+            // ★★ ALBUM_PICK 特殊策略：不BACK！不重启！继续尝试点下一步
             if (currentStep === 'ALBUM_PICK') {
-              console.log(`[${TS()}] [ALBUM_PICK防死循环] 异常重试${stepRetryCount}次, BACK后强制推进到"下一步"`)
-              await goBack(apiPort, 1, signal, adb)
-              await sleep(1500, signal)
+              console.log(`[${TS()}] [ALBUM_PICK-异常重试] 异常${stepRetryCount}次(达上限)，不BACK不重启，强制回到CLICK_NEXT...`)
               _albumSubStep = 'CLICK_NEXT'
               stepRetryCount = 0
             } else {
@@ -757,13 +807,11 @@ export async function aiPublishVideoWorkflow(
     } else {
       stepRetryCount++
       if (stepRetryCount >= MAX_STEP_RETRY) {
-        // ★★ ALBUM_PICK 特殊策略：不重启App，BACK后强制推进到"下一步"
+        // ★★ ALBUM_PICK 特殊策略：不BACK！不重启！继续尝试
         if (currentStep === 'ALBUM_PICK') {
-          console.log(`[${TS()}] [ALBUM_PICK防死循环] 操作失败${stepRetryCount}次, BACK后强制推进到"下一步"`)
-          await goBack(apiPort, 1, signal, adb)
-          await sleep(1500, signal)
-          _albumSubStep = 'CLICK_NEXT'  // ★ 强制跳过选视频，直接点下一步
-          stepRetryCount = 0
+          console.log(`[${TS()}] [ALBUM_PICK-失败重试] 操作失败${stepRetryCount}次(达上限)，不BACK不重启，强制回到CLICK_NEXT...`)
+          _albumSubStep = 'CLICK_NEXT'  // ★ 强制跳到点下一步
+          stepRetryCount = 0            // 重置计数
           console.log(`[${TS()}] [重试] 已重置，下一轮将直接执行CLICK_NEXT`)
         } else {
           console.log(`[${TS()}] [重置] ${currentStep} 失败${stepRetryCount}次, 重启抖音...`)
@@ -1178,6 +1226,8 @@ async function executeStep(
         }
 
         // ★★ Layer 2: XML 失败时，用 VL(AI) 看截图确认页面类型！★★
+        let vlNextBtnX: number | null = null
+        let vlNextBtnY: number | null = null
         if (!onPreviewPage) {
           try {
             const vlConfirm = await locateElement(
@@ -1188,35 +1238,52 @@ async function executeStep(
    B) 视频预览/编辑页（显示选中视频的预览画面，右侧或底部有编辑工具如"剪辑/文字/话题/滤镜/特效/设置/更多"，底部有粉红色的"下一步"按钮）
    C) 首页/其他页面
 2. 如果是B(视频预览/编辑页)，请返回"下一步"按钮的中心坐标。
-   "下一步"是一个【粉红色/玫红色圆角矩形大按钮】，位于屏幕右下角底部区域。
+   "下一步"是一个【粉红色/玫红色圆角矩形大按钮】，位于屏幕右下角底部区域(y坐标应该接近屏幕底边)。
 
 请严格按以下JSON格式返回（不要返回其他内容）：
 {"page":"A|B|C", "nextBtnX":数字或null, "nextBtnY":数字或null}`
             )
-            if (vlConfirm && vlConfirm.x > 0 && vlConfirm.y > 0) {
-              // VL 返回了坐标 → 说明AI看到了"下一步"按钮 → 在预览页！
+            // ★★ VL 坐标有效性校验："下一步"在屏幕右下角！★★
+            // 拒绝左上角的垃圾坐标(如 10,178)
+            // 合理范围: x > 屏幕宽度的50%, y > 屏幕高度的75%
+            const vlX = vlConfirm?.x || 0
+            const vlY = vlConfirm?.y || 0
+            if (vlConfirm && vlX > screenW * 0.50 && vlY > screenH * 0.75) {
+              // VL 返回了合理坐标 → AI 看到了"下一步"按钮 → 在预览页！
               onPreviewPage = true
-              console.log(`[下一步-VL✓] AI确认是视频预览/编辑页！"下一步"→(${vlConfirm.x},${vlConfirm.y})`)
+              vlNextBtnX = vlX
+              vlNextBtnY = vlY
+              console.log(`[下一步-VL✓] AI确认是视频预览/编辑页！"下一步"→(${vlX},${vlY}) [坐标有效]`)
+            } else if (vlConfirm && (vlX > 0 || vlY > 0)) {
+              // VL 返回了坐标但位置不合理（如(10,178)）→ 坐标无效但可能页面判断对
+              console.log(`[下一步-VL⚠] AI返回坐标(${vlX},${vlY})不合理(应在x>${Math.round(screenW*0.5)},y>${Math.round(screenH*0.75)})，忽略坐标`)
+              // 不设 onPreviewPage=true，让 detectCurrentPage 的 VL 兜底来判断页面
             } else {
-              // VL 没找到坐标，但可能还是在这个页面（只是AI没给坐标）
-              // 不判定为失败，继续用固定坐标尝试
-              console.log(`[下一步-VL?] AI未返回有效坐标(x=${vlConfirm?.x},y=${vlConfirm?.y})，继续用固定坐标尝试`)
+              console.log(`[下一步-VL?] AI未返回有效坐标(x=${vlX},y=${vlY})，继续用固定坐标尝试`)
             }
           } catch (e) {
             console.log(`[下一步-VL] 视觉确认异常: ${e}`)
           }
         }
 
-        // 获取点击坐标 — 优先级：VL坐标 > XML搜索 > 固定比例
+        // 获取点击坐标 — 优先级：VL坐标(有效时) > XML搜索 > 固定比例
         const fixedNext = getFixedCoords(screenW, screenH, 'NEXT_BTN')
         let clickX = fixedNext.x
         let clickY = fixedNext.y
 
-        // 尝试XML搜索作为补充
-        try {
-          const nextBtnSearch = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
-          if (nextBtnSearch && nextBtnSearch.y > screenH * 0.15) {
-            clickX = nextBtnSearch.x
+        // 如果 VL 返回了有效坐标，优先使用
+        if (vlNextBtnX && vlNextBtnY) {
+          clickX = vlNextBtnX
+          clickY = vlNextBtnY
+          console.log(`[VL坐标] 使用AI识别的"下一步"坐标→(${clickX},${clickY})`)
+        }
+
+        // 尝试XML搜索作为补充（仅在VL没有给出有效坐标时）
+        if (!vlNextBtnX) {
+          try {
+            const nextBtnSearch = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
+            if (nextBtnSearch && nextBtnSearch.y > screenH * 0.15) {
+              clickX = nextBtnSearch.x
             clickY = nextBtnSearch.y
             console.log(`[✓] 找到"${nextBtnSearch.textHint}" → (${clickX},${clickY})`)
           } else {
