@@ -231,6 +231,134 @@ async function goBack(apiPort: number, times: number, signal?: AbortSignal, adb?
   }
 }
 
+// ==================== VLM 双图对比验证（仅用于发布页标题/话题/位置）====================
+
+/** 基准图页面类型 — 对应 public/baselines/douyin/ 下的文件名（不含扩展名） */
+type BaselinePage = 'edit_title' | 'topic_list' | 'location_popup' | 'location_city'
+
+interface VerifyResult {
+  /** YES=匹配 / NO=不匹配 / ERROR=异常 */
+  match: 'YES' | 'NO' | 'ERROR'
+  /** AI 的额外描述（如"当前是话题列表页"）*/
+  detail: string
+}
+
+/**
+ * 用 VLM (qwen-vl-max) 对比 当前截图 vs 基准图，判断是否在同一页面
+ * 
+ * @param currentB64  当前设备截图的 base64
+ * @param baseline    基准图页面名称（对应文件 public/baselines/douyin/{name}.png）
+ * @param pageDesc    页面中文描述（用于 prompt 中告诉 AI 这是什么页）
+ */
+async function verifyWithBaseline(
+  currentB64: string,
+  baseline: BaselinePage,
+  pageDesc: string
+): Promise<VerifyResult> {
+  const startTime = Date.now()
+  
+  // 读取基准图文件
+  let baselineB64: string | null = null
+  try {
+    const fs = await import('fs')
+    // 尝试多个可能的路径（开发环境 vs 生产部署）
+    const candidates = [
+      `${process.cwd()}/public/baselines/douyin/${baseline}.png`,
+      `/root/AiMarketing/public/baselines/douyin/${baseline}.png`,
+      `./public/baselines/douyin/${baseline}.png`,
+    ]
+    for (const p of candidates) {
+      try {
+        if (fs.existsSync(p)) {
+          baselineB64 = fs.readFileSync(p).toString('base64')
+          console.log(`[VLM验证] 找到基准图: ${p}`)
+          break
+        }
+      } catch { /* 继续尝试下一个路径 */ }
+    }
+    
+    if (!baselineB64) {
+      console.log(`[VLM验证⚠] 未找到基准图 ${baseline}.png，跳过VLM验证`)
+      return { match: 'ERROR', detail: `基准图不存在: ${baseline}.png` }
+    }
+  } catch (e) {
+    console.log(`[VLM验证⚠] 读取基准图异常: ${e}`)
+    return { match: 'ERROR', detail: String(e) }
+  }
+
+  // 调用 qwen-vl-max 双图对比
+  try {
+    const { getDashScopeKey }: any = await import('./ai-providers')
+    const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    const key = getDashScopeKey?.()
+    if (!key) return { match: 'ERROR', detail: '无API Key' }
+
+    const res = await fetch(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: 'qwen-vl-max',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: `你是一个手机UI页面识别专家。请仔细对比以下两张抖音APP截图：
+
+【图A - 基准图】这是正确的"${pageDesc}"页面。
+【图B - 当前截图】这是脚本刚刚从手机上截取的画面。
+
+请判断：图B 是否和图A 是同一个页面/同一个步骤？
+
+判断标准：
+- 整体布局是否一致（顶部、中部、底部元素）
+- 关键文字/按钮是否存在（如"添加标题"、"#话题"、"所在位置"、"发作品"等）
+
+只回答以下JSON格式，不要返回其他内容：
+{"match":"YES|NO","detail":"一句话说明原因或当前实际页面"}
+
+如果两张图明显是同一个页面 → {"match":"YES","detail":"页面布局和关键元素一致"}
+如果不是同一个页面 → {"match":"NO","detail":"当前实际是XX页面"}` },
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${baselineB64}` } },   // ★ 基准图（图A）
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${currentB64}` } },     // ★ 当前截图（图B）
+          ],
+        }],
+        temperature: 0.05,       // 极低温度，确保稳定
+        max_tokens: 150,
+      }),
+    })
+    
+    if (!res.ok) {
+      console.log(`[VLM验证⚠] API错误: ${res.status}`)
+      return { match: 'ERROR', detail: `HTTP ${res.status}` }
+    }
+
+    const data = await res.json()
+    const text = data?.choices?.[0]?.message?.content?.trim() || ''
+    const elapsed = Date.now() - startTime
+    
+    try {
+      const j = JSON.parse(text)
+      const result: VerifyResult = {
+        match: j.match === 'YES' ? 'YES' : j.match === 'NO' ? 'NO' : 'ERROR',
+        detail: j.detail || text.substring(0, 80),
+      }
+      console.log(`[VLM验证${result.match === 'YES' ? '✓' : result.match === 'NO' ? '✗' : '?'}] ${baseline} → ${result.match} (${elapsed}ms) ${result.detail}`)
+      return result
+    } catch {
+      // AI 返回的不是 JSON，用关键词模糊匹配
+      const isYes = text.toUpperCase().includes('YES') || text.includes('一致') || text.includes('相同')
+      console.log(`[VLM验证${isYes ? '✓(模糊)' : '✗'}] ${baseline} → ${isYes ? 'YES' : 'NO'} (${elapsed}ms) raw="${text.substring(0,60)}"`)
+      return { match: isYes ? 'YES' : 'NO', detail: text.substring(0, 80) }
+    }
+  } catch (e) {
+    const elapsed = Date.now() - startTime
+    console.log(`[VLM验证⚠] 异常 (${elapsed}ms): ${e}`)
+    return { match: 'ERROR', detail: String(e) }
+  }
+}
+
 // ==================== 页面检测（基于XML，不用AI）====================
 
 type WorkflowStep = 'HOME_PLUS' | 'SHOOT_ALBUM' | 'ALBUM_PICK' | 'VIDEO_PREVIEW' | 'EDIT_TITLE' | 'SELECT_POI' | 'PUBLISH_BTN' | 'DONE'
@@ -1456,8 +1584,50 @@ async function executeStep(
         subStep = 'CLICK_INPUT'
       }
 
-      // ════════ Sub-A: 点击标题输入框 ════════
+      // ════════ Sub-A: 点击标题输入框（VLM双图验证）═══════
       if (subStep === 'CLICK_INPUT') {
+        // ★★ Layer 0: VLM 双图对比验证当前是否在编辑主页 ★★
+        console.log(`[标题-VLM] 验证是否在"视频发布编辑页"...`)
+        const vlmCheck = await verifyWithBaseline(b64, 'edit_title', '抖音视频发布编辑页（有添加标题框、#话题按钮、所在位置行、发作品按钮）')
+        
+        if (vlmCheck.match === 'NO') {
+          // VLM 说不是编辑页 → 自愈：追问 AI 当前是什么页
+          console.log(`[标题-自愈] VLM确认不在编辑页: "${vlmCheck.detail}"`)
+          
+          // 判断是否在话题子页面
+          const isTopicPage = vlmCheck.detail.includes('话题') || vlmCheck.detail.includes('标签') || vlmCheck.detail.includes('topic')
+          // 判断是否在位置子页面
+          const isLocationPage = vlmCheck.detail.includes('位置') || vlmCheck.detail.includes('定位') || vlmCheck.detail.includes('location')
+          // 判断是否在首页
+          const isHomePage = vlmCheck.detail.includes('首页') || vlmCheck.detail.includes('HOME')
+          
+          if (isTopicPage || isLocationPage) {
+            // 在子页面了 → 按返回回到编辑主页
+            console.log(`[标题-自愈] 检测到在${isTopicPage ? '话题' : '位置'}子页面，按BACK返回...`)
+            await goBack(apiPort, 1, signal, adb)
+            await sleep(1500, signal)
+            return { success: false, action: '自愈-BACK返回', message: vlmCheck.detail, waitMs: 2000 }
+          }
+          
+          if (isHomePage) {
+            // 跑到首页了 → 严重异常，通知重置
+            console.log(`[标题-自愈] 跑到首页了！需要重新进入发布流程`)
+            return { success: false, action: '自愈-丢失页面', message: '跑到首页', waitMs: 3000 }
+          }
+
+          // 其他情况 → 先 BACK 试试
+          console.log(`[标题-自愈] 尝试BACK回到上一页...`)
+          await goBack(apiPort, 1, signal, adb)
+          await sleep(2000, signal)
+          return { success: false, action: '自愈-BACK尝试', message: vlmCheck.detail, waitMs: 3000 }
+        }
+        
+        if (vlmCheck.match === 'ERROR') {
+          // 基准图不存在或API错误 → 降级为原来的 XML 方式，不阻塞
+          console.log(`[标题-VLM⚠] 验证失败(${vlmCheck.detail})，降级为XML方式继续...`)
+        } else {
+          console.log(`[标题-VLM✓] 确认在编辑主页！开始执行点击...`)
+        }
         const xmlTitle = await findAnyText(apiPort, [
           '添加标题', '请填写标题', '填写作品描述', '添加描述',
           '#添加话题'
@@ -1554,12 +1724,30 @@ async function executeStep(
         return { success: true, action: '跳过验证(XML失败)', message: '', waitMs: 10000 }
       }
 
-      // ════════ Sub-D: 添加话题标签 ════════
+      // ════════ Sub-D: 添加话题标签（VLM双图验证）═══════
       if (subStep === 'ADD_TOPICS') {
         if (!_safeTopics || _safeTopics.trim().length === 0) {
           console.log(`[编辑-标签] 无话题配置, 跳过标签步骤`)
           _editSubStep = '' // 重置子步骤
           return { success: true, action: '跳过标签(空)', message: '', waitMs: 10000 }
+        }
+
+        // ★★ VLM 验证：当前是否在编辑主页（还没点进话题页）★★
+        console.log(`[话题-VLM] 验证是否在"视频发布编辑页"...`)
+        const topicVlm = await verifyWithBaseline(b64, 'edit_title', '抖音视频发布编辑页')
+        
+        if (topicVlm.match === 'NO') {
+          console.log(`[话题-自愈] 不在编辑页: "${topicVlm.detail}"`)
+          // 可能已经在话题列表页了 → 直接进入搜索/选择流程
+          const alreadyInTopic = topicVlm.detail.includes('话题') || topicVlm.detail.includes('标签') || topicVlm.detail.includes('列表')
+          if (alreadyInTopic) {
+            console.log(`[话题-自愈] 已在话题列表页！跳过点#话题按钮，直接搜索...`)
+          } else {
+            // 其他异常页面 → BACK 试试
+            await goBack(apiPort, 1, signal, adb)
+            await sleep(2000, signal)
+            return { success: false, action: '自愈-BACK', message: topicVlm.detail, waitMs: 3000 }
+          }
         }
 
         // 找"#添加话题"按钮
@@ -1686,6 +1874,37 @@ async function executeStep(
         return { success: true, action: '跳过位置(空)', message: '', waitMs: 0 }
       }
       console.log(`[位置] 目标位置: "${_safeLocation}"`)
+
+      // ★★ VLM 双图验证：当前是否在编辑主页（点"所在位置"之前）★★
+      console.log(`[位置-VLM] 验证是否在"视频发布编辑页"...`)
+      const poiVlm = await verifyWithBaseline(b64, 'edit_title', '抖音视频发布编辑页')
+      
+      if (poiVlm.match === 'NO') {
+        // 判断是否已在位置弹窗或城市选择页
+        const isPopup = poiVlm.detail.includes('弹窗') || poiVlm.detail.includes('再想想') || poiVlm.detail.includes('popup')
+        const isCityPage = poiVlm.detail.includes('城市') || poiVlm.detail.includes('搜索位置') || poiVlm.detail.includes('city')
+        
+        if (isPopup) {
+          console.log(`[位置-自愈] 已在位置弹窗！直接点"所在位置"确认...`)
+          // 直接找"所在位置"按钮点击确认
+          const confirmBtn = await findAnyText(apiPort, ['所在位置'], screenH, 2000)
+          if (confirmBtn) {
+            await doTap(apiPort, confirmBtn.x, confirmBtn.y, signal, adb)
+            await sleep(2000, signal)
+            return { success: true, action: '弹窗-点所在位置', message: poiVlm.detail, waitMs: 3000 }
+          }
+        }
+        
+        if (isCityPage) {
+          console.log(`[位置-自愈] 已在城市选择页！直接搜索...`)
+          // 跳过点"所在位置"，直接进入搜索流程
+        } else {
+          console.log(`[位置-自愈] 不在编辑页: "${poiVlm.detail}"，BACK尝试...`)
+          await goBack(apiPort, 1, signal, adb)
+          await sleep(2000, signal)
+          return { success: false, action: '自愈-BACK', message: poiVlm.detail, waitMs: 3000 }
+        }
+      }
 
       // Layer 1: XML 找"添加位置" / "所在位置" / "位置" 按钮
       const poiBtn = await locateByText(apiPort, ['添加位置', '所在位置', '位置', '添加地理位置'], 3000)
