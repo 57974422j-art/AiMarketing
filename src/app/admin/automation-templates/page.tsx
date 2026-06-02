@@ -9,6 +9,8 @@ interface AccountItem {
 }
 interface DeviceItem { id: number; name: string; status: string; apiPort?: number }
 type TaskAction = 'search' | 'like' | 'comment' | 'follow' | 'dm' | 'share' | 'publish' | 'extract' | 'comments'
+type PublishStep = 'video' | 'title' | 'topic' | 'location'
+
 interface TaskConfig {
   id?: number; accountId: number; deviceId: number | null; platform: string; name: string
   keywords: string[]; timeStart: string; timeEnd: string
@@ -19,10 +21,12 @@ interface TaskConfig {
   dmText?: string
   followMode?: 'search' | 'mutual'
   followTargets?: string
-  publishTitle?: string
-  publishTopics?: string
-  publishDesc?: string
-  publishLocation?: string       // 发布位置（POI名称或地址）
+  // ── 发布视频子步骤（可勾选组合）──
+  publishSteps?: PublishStep[]       // 勾选的发布子单元：video/title/topic/location
+  publishTitle?: string              // 标题文案
+  publishTopics?: string             // 话题关键词
+  publishDesc?: string               // 视频描述（AI生成参考）
+  publishLocation?: string           // 所在城市/POI
 }
 
 const PLATFORMS = [
@@ -314,21 +318,85 @@ export default function AutomationTemplatesPage() {
 
                   {cfg.actions.includes('publish') && (
                     <div className="border-t border-white/10 pt-3 mt-2 space-y-3">
+                      {/* ── 发布子步骤勾选 ── */}
                       <div>
-                        <label className="text-[10px] text-gray-400 mb-1 block">视频描述</label>
+                        <label className="text-[10px] text-gray-400 mb-1.5 block">发布步骤（勾选需要执行的步骤）</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { key: 'video' as PublishStep, label: '📹 发布视频', desc: '选视频→预览→下一步' },
+                            { key: 'title' as PublishStep, label: '✏️ 添加标题', desc: '输入/粘贴标题文案' },
+                            { key: 'topic' as PublishStep, label: '# 添加话题', desc: '选择热门话题标签' },
+                            { key: 'location' as PublishStep, label: '📍 所在位置', desc: '添加城市定位' },
+                          ].map(step => {
+                              const checked = (cfg.publishSteps || []).includes(step.key)
+                              return (
+                                <button key={step.key} onClick={() => setCfg(prev => ({
+                                  ...prev,
+                                  publishSteps: checked
+                                    ? (prev.publishSteps || []).filter(s => s !== step.key)
+                                    : [...(prev.publishSteps || []), step.key],
+                                }))}
+                                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs transition ${
+                                    checked ? 'bg-pink-500/15 text-pink-400 border-pink-500/30' : 'bg-white/5 text-gray-500 border-white/10 hover:bg-white/10'
+                                  }`}>
+                                  <span className={checked ? 'text-pink-400' : 'text-gray-600'}>{checked ? '✓' : '○'}</span>
+                                  <div className="text-left">
+                                    <div>{step.label}</div>
+                                    <div className="text-[9px] opacity-50">{step.desc}</div>
+                                  </div>
+                                </button>
+                              )
+                            })}
+                        </div>
+                      </div>
+
+                      {/* ── 标题配置（勾选"添加标题"后显示）── */}
+                      {(cfg.publishSteps || []).includes('title') && (
+                        <div className="pl-2 border-l-2 border-pink-500/20 space-y-2">
+                          <label className="text-[10px] text-gray-400 mb-1 block">✏️ 标题文案</label>
+                          <textarea value={cfg.publishTitle || ''} onChange={e => setCfg(prev => ({ ...prev, publishTitle: e.target.value }))}
+                            placeholder="输入发布标题，如：小狗坐C位吃席，全场笑疯了！&#10;留空则使用AI生成的标题"
+                            className="input-dark w-full h-16 resize-y text-sm" rows={2} />
+                          <p className="text-[9px] text-gray-500">轻触标题框后自动输入，支持直接粘贴</p>
+                        </div>
+                      )}
+
+                      {/* ── 话题配置（勾选"添加话题"后显示）── */}
+                      {(cfg.publishSteps || []).includes('topic') && (
+                        <div className="pl-2 border-l-2 border-pink-500/20 space-y-2">
+                          <label className="text-[10px] text-gray-400 mb-1 block"># 话题关键词</label>
+                          <input className="input-dark w-full text-sm"
+                            placeholder="输入话题关键词，如：萌宠、搞笑（多个用逗号分隔，执行时从热门话题中匹配）"
+                            value={cfg.publishTopics || ''}
+                            onChange={e => setCfg(prev => ({ ...prev, publishTopics: e.target.value }))} />
+                          <p className="text-[9px] text-gray-500"># 话题按钮 → 热门列表 → 按关键词匹配选择 → 返回编辑页</p>
+                        </div>
+                      )}
+
+                      {/* ── 位置配置（勾选"所在位置"后显示）── */}
+                      {(cfg.publishSteps || []).includes('location') && (
+                        <div className="pl-2 border-l-2 border-pink-500/20 space-y-2">
+                          <label className="text-[10px] text-gray-400 mb-1 block">📍 所在城市 / POI</label>
+                          <input className="input-dark w-full text-sm"
+                            placeholder="如：合肥、成都市太古里"
+                            value={cfg.publishLocation || ''}
+                            onChange={e => setCfg(prev => ({ ...prev, publishLocation: e.target.value }))} />
+                          <p className="text-[9px] text-gray-500">点击"所在位置" → 弹窗确认 → 城市搜索选择</p>
+                        </div>
+                      )}
+
+                      {/* ── AI描述（始终显示，作为AI生成参考）── */}
+                      <div className="pt-1 border-t border-white/5">
+                        <label className="text-[10px] text-gray-400 mb-1 block">🤖 视频描述（AI生成参考，可选）</label>
                         <textarea value={cfg.publishDesc || ''} onChange={e => setCfg(prev => ({ ...prev, publishDesc: e.target.value }))}
-                          placeholder="描述今天视频想表达的内容，如：夏季新出的清凉锅底配冰镇酸梅汤（不填则AI根据关键词自动生成）"
-                          className="input-dark w-full h-16 resize-y text-sm" rows={3} />
-                        <p className="text-[10px] text-gray-500 mt-0.5">AI将根据描述生成标题和话题</p>
+                          placeholder="描述今天视频想表达的内容，AI将据此生成标题和话题建议（不填也可正常执行）"
+                          className="input-dark w-full h-14 resize-y text-sm" rows={2} />
                       </div>
-                      <div>
-                        <label className="text-[10px] text-gray-400 mb-1 block">📍 发布位置 / POI</label>
-                        <input className="input-dark w-full text-sm"
-                          placeholder="输入位置名称或地址，如：成都市太古里（支持逗号分隔多个位置随机选一个）"
-                          value={cfg.publishLocation || ''}
-                          onChange={e => setCfg(prev => ({ ...prev, publishLocation: e.target.value }))} />
-                        <p className="text-[10px] text-gray-500 mt-0.5">留空则不添加位置；多位置用英文逗号分隔，执行时随机选择</p>
-                      </div>
+
+                      {/* 默认全选提示 */}
+                      {(cfg.publishSteps || []).length === 0 && (
+                        <p className="text-[10px] text-yellow-400/60 text-center py-1">⚠ 至少勾选一个发布步骤</p>
+                      )}
                     </div>
                   )}
                 </Section>
