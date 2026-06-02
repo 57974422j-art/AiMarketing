@@ -1130,29 +1130,24 @@ async function executeStep(
         return { success: true, action: '比例坐标+smartDoubleTap选视频', message: `(${thumbX},${thumbY})`, waitMs: 3000 }
       }
 
-      // ════════ Sub-C: 点"下一步"按钮（基于视频预览特征 + 间隔式重试）═══════
-      // 核心改变：
-      //   - 不依赖搜索"下一步"文字（它是图片按钮，XML找不到）
-      //   - 用 暂停图标/进度条 确认是否进入视频预览编辑页
-      //   - 第1次点 → 验证 → 第2次点（间隔5s+，不是双击）
+      // ════════ Sub-C: 点"下一步"按钮（XML特征 + VL视觉双重确认 + 间隔式重试）═══════
+      // 三层确认机制：
+      //   Layer 1: XML 文字/节点特征（快，0.5s内）
+      //   Layer 2: VL 视觉识别（准，让AI看截图判断页面）
+      //   Layer 3: 固定坐标盲点（兜底，相信已进入该页面）
       if (subStep === 'CLICK_NEXT') {
         // ★ 随机等待 3~8 秒让UI完全渲染
         const waitMs = 3000 + Math.floor(Math.random() * 5001)
         console.log(`[下一步] 等待${(waitMs/1000).toFixed(1)}s...`)
         await sleep(waitMs, signal)
 
-        // ★★ 用视频预览页特征确认当前位置（不搜"下一步"！）★★
+        // ★★ Layer 1: 用视频预览页特征确认当前位置（不搜"下一步"！）★★
         let onPreviewPage = false
         try {
           const previewDump = await UI.dumpXml(apiPort)
           if (previewDump.success && previewDump.data) {
             const pNodes = UI.parseUiXml(previewDump.data)
             
-            // 视频预览/编辑页独有特征（选视频后出现的预览界面）：
-            // 1. SeekBar / ProgressBar（视频进度条）
-            // 2. "暂停" / ImageView（播放控制）
-            // 3. "裁剪"、"滤镜"、"音乐"、"文字" 等编辑工具
-            // 4. 视频时长显示（如 "00:15 / 00:15" 格式）
             const previewFeatures = ['裁剪', '滤镜', '音乐', '文字', '特效', '贴纸', '调节', '封面']
             const hasSeekBar = pNodes.some((n: any) => 
               n.className?.includes('SeekBar') || n.className?.includes('ProgressBar'))
@@ -1160,15 +1155,13 @@ async function executeStep(
               n.contentDesc?.includes('暂停') || n.contentDesc?.includes('播放'))
             const hasEditTools = previewFeatures.some(f => 
               pNodes.some((n: any) => n.text === f))
-            // 时长格式如 "00:15/01:30"
             const hasDurationFormat = pNodes.some((n: any) =>
               n.text && /^\d{1,2}:\d{2}\/\d{1,2}:\d{2}$/.test(n.text))
             
             if (hasSeekBar || hasPauseIcon || hasEditTools || hasDurationFormat) {
               onPreviewPage = true
-              console.log(`[下一步-页面✓] 视频预览页已确认！` +
+              console.log(`[下一步-XML✓] 视频预览页已确认！` +
                 ` (seekBar=${hasSeekBar}, pause=${hasPauseIcon}, editTool=${hasEditTools}, duration=${hasDurationFormat})`)
-              // 打印找到的特征帮助调试
               for (const n of pNodes.slice(0, 20)) {
                 if ((n.className?.includes('Seek') || n.className?.includes('Progress') ||
                      n.contentDesc?.includes('暂停') || previewFeatures.includes(n.text)) &&
@@ -1177,19 +1170,49 @@ async function executeStep(
                 }
               }
             } else {
-              console.log(`[下一步-页面?] 未检测到视频预览特征，继续尝试点击`)
+              console.log(`[下一步-XML?] 未检测到视频预览特征，尝试VL视觉确认...`)
             }
           }
         } catch (e) {
-          console.log(`[下一步-页面] XML异常: ${e}`)
+          console.log(`[下一步-XML] 异常: ${e}，尝试VL视觉确认...`)
         }
 
-        // 获取点击坐标 — 固定比例优先
+        // ★★ Layer 2: XML 失败时，用 VL(AI) 看截图确认页面类型！★★
+        if (!onPreviewPage) {
+          try {
+            const vlConfirm = await locateElement(
+              b64,
+              `这是抖音APP的屏幕截图(${screenW}x${screenH})。请仔细观察并回答：
+1. 当前是什么页面？选择以下之一：
+   A) 相册选视频页（有视频缩略图网格）
+   B) 视频预览/编辑页（显示选中视频的预览画面，右侧或底部有编辑工具如"剪辑/文字/话题/滤镜/特效/设置/更多"，底部有粉红色的"下一步"按钮）
+   C) 首页/其他页面
+2. 如果是B(视频预览/编辑页)，请返回"下一步"按钮的中心坐标。
+   "下一步"是一个【粉红色/玫红色圆角矩形大按钮】，位于屏幕右下角底部区域。
+
+请严格按以下JSON格式返回（不要返回其他内容）：
+{"page":"A|B|C", "nextBtnX":数字或null, "nextBtnY":数字或null}`
+            )
+            if (vlConfirm && vlConfirm.x > 0 && vlConfirm.y > 0) {
+              // VL 返回了坐标 → 说明AI看到了"下一步"按钮 → 在预览页！
+              onPreviewPage = true
+              console.log(`[下一步-VL✓] AI确认是视频预览/编辑页！"下一步"→(${vlConfirm.x},${vlConfirm.y})`)
+            } else {
+              // VL 没找到坐标，但可能还是在这个页面（只是AI没给坐标）
+              // 不判定为失败，继续用固定坐标尝试
+              console.log(`[下一步-VL?] AI未返回有效坐标(x=${vlConfirm?.x},y=${vlConfirm?.y})，继续用固定坐标尝试`)
+            }
+          } catch (e) {
+            console.log(`[下一步-VL] 视觉确认异常: ${e}`)
+          }
+        }
+
+        // 获取点击坐标 — 优先级：VL坐标 > XML搜索 > 固定比例
         const fixedNext = getFixedCoords(screenW, screenH, 'NEXT_BTN')
         let clickX = fixedNext.x
         let clickY = fixedNext.y
 
-        // 尝试XML搜索作为补充（但不是必须的）
+        // 尝试XML搜索作为补充
         try {
           const nextBtnSearch = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
           if (nextBtnSearch && nextBtnSearch.y > screenH * 0.15) {
@@ -1203,7 +1226,7 @@ async function executeStep(
 
         // ★ 第1次点击：随机压持 220~300ms
         const duration1 = 220 + Math.floor(Math.random() * 81)
-        console.log(`[下一步] 第1次点击: (${clickX},${clickY}) 压持${duration1}ms ${onPreviewPage ? '[已在预览页]' : ''}`)
+        console.log(`[下一步] 第1次点击: (${clickX},${clickY}) 压持${duration1}ms ${onPreviewPage ? '[已确认在预览页]' : '[XML+VL均未确认，强制尝试]'}`)
         await smartTap(apiPort, clickX, clickY, duration1, signal, adb)
 
         _albumSubStep = 'CLICK_NEXT_RETRY'
@@ -1217,7 +1240,10 @@ async function executeStep(
 
       // ════════ Sub-C2: 第2次点击（间隔式，非双击）═══════
       if (subStep === 'CLICK_NEXT_RETRY') {
-        // 先用视频预览特征判断当前页面
+        // ★★ 用 XML + VL 双重确认当前页面状态 ★★
+        let stillOnPreview = true  // 默认假设还在预览页（保守策略）
+        
+        // XML 特征检测
         try {
           const retryDump = await UI.dumpXml(apiPort)
           if (retryDump.success && retryDump.data) {
@@ -1228,16 +1254,37 @@ async function executeStep(
               n.className?.includes('SeekBar') || n.className?.includes('ProgressBar'))
 
             if (!hasFeatures && !hasSeekBar) {
-              // 已经不在预览页了 → 说明上一次点击成功跳走了！
-              console.log(`[下一步-第2次✓] 页面已离开预览区(无编辑特征)，第1次应该成功了`)
+              console.log(`[下一步-第2次-XML✓] 页面已离开预览区(无编辑特征)，第1次应该成功了`)
               _albumSubStep = 'SWITCH_VIDEO_TAB'
               return { success: true, action: '"下一步"已生效(页面已变)', message: '无需第2次点击', waitMs: 2000 }
             }
-
-            console.log(`[下一步-第2次] 仍在预览区(seekBar=${hasSeekBar}, tool=${hasFeatures})，执行第2次点击...`)
+            console.log(`[下一步-第2次-XML] 仍在预览区(seekBar=${hasSeekBar}, tool=${hasFeatures})`)
           }
         } catch (e) {
-          console.log(`[下一步-第2次] XML异常: ${e}，直接执行第2次点击`)
+          console.log(`[下一步-第2次-XML] 异常: ${e}，尝试VL视觉确认...`)
+        }
+
+        // ★★ VL 视觉兜底确认：让AI看截图判断是否还在预览页 ★★
+        try {
+          const vlRetryCheck = await locateElement(
+            b64,
+            `这是抖音APP的屏幕截图(${screenW}x${screenH})。请判断：
+1. 当前是否在"视频预览/编辑页"？（特征：有视频画面+底部粉红色"下一步"按钮+右侧编辑工具栏）
+2. 如果是，返回"下一步"按钮坐标。
+3. 如果不是（已跳转到其他页面如标题编辑页），返回 null。
+
+严格按JSON格式返回：{"onPreview":true/false, "nextBtnX":数字或null, "nextBtnY":数字或null}`
+          )
+          if (vlRetryCheck === null || (vlRetryCheck.x <= 0 && vlRetryCheck.y <= 0)) {
+            // VL 说不在预览页了（或无法判断）→ 第1次点击成功了！
+            console.log(`[下一步-第2次-VL✓] AI确认页面已变化(不在预览页)，第1次点击成功`)
+            _albumSubStep = 'SWITCH_VIDEO_TAB'
+            return { success: true, action: '"下一步"已生效(VL确认页面已变)', message: '无需第2次点击', waitMs: 2000 }
+          } else {
+            console.log(`[下一步-第2次-VL] AI确认仍在预览页，执行第2次点击...`)
+          }
+        } catch (e) {
+          console.log(`[下一步-第2次-VL] 异常: ${e}，继续执行第2次点击`)
         }
 
         // ★ 第2次点击：偏移坐标（避开装饰层），随机压持 250~300ms
