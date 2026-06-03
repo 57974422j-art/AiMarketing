@@ -514,27 +514,8 @@ async function doInput(
       }
     }
   }
-        // 保存当前输入法
-        const prevIme = env.defaultIme
-        // 切换到中文输入法
-        await execShell(apiPort, `ime set ${match}`, signal, adb)
-        await sleep(500, signal)
-        // 尝试发送文字（某些输入法的ADB实现可能支持中文）
-        const r = await execShell(apiPort, `input text "${text.replace(/"/g, '')}"`, signal, adb)
-        if (r.ok && !r.output.toLowerCase().includes('nullpointer') && !isShellError(r.output)) {
-          console.log(`[doInput✓] [2-${ime.name}] 通过${ime.name}输入成功!`)
-          return true
-        }
-        console.log(`[doInput⚠] [2-${ime.name}] 输入失败: ${r.output.trim()}. 恢复原输入法...`)
-        // 恢复原输入法
-        if (prevIme) await execShell(apiPort, `ime set ${prevIme}`, signal, adb)
-      } catch (e) {
-        console.warn(`[doInput⚠] [2-${ime.name}] 异常: ${e}`)
-      }
-    }
-  }
 
-  // ════════ 方法3: cmd clipboard（标准Android 10+）═══════
+  // ════════ 方法3: cmd clipboard（标准Android 10+）════════
   console.log(`[doInput-3] 尝试: cmd clipboard`)
   try {
     const escaped = text.replace(/'/g, "'\\''")
