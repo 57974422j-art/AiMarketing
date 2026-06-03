@@ -85,6 +85,7 @@ export default function AutomationExecPage() {
             publishLocation: tpl.publishLocation || '',       // 位置（POI）
             publishTitle: tpl.publishTitle || '',              // 标题
             publishTopics: tpl.publishTopics ? (Array.isArray(tpl.publishTopics) ? tpl.publishTopics : tpl.publishTopics.split(',')) : [], // 话题标签
+            publishSteps: tpl.publishSteps || [],               // 发布子步骤勾选（video/title/topic/location）
           }),
         })
         const d = await r.json()

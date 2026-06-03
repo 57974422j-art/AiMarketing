@@ -103,7 +103,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const body = await request.json()
-    const { platform, actions, keyword, keywords, publishTitle, publishTopics, publishDesc, publishLocation, dryRun } = body
+    const { platform, actions, keyword, keywords, publishTitle, publishTopics, publishDesc, publishLocation, publishSteps, dryRun } = body
     if (!deviceId || !platform || !actions?.length) {
       return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
     }
@@ -251,7 +251,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               ? rawLocation.split(',').map(s => s.trim()).filter(Boolean)[Math.floor(Math.random() * rawLocation.split(',').filter(s => s.trim()).length)] || ''
               : rawLocation
             // AI ReAct 模式（ADB 优先，HTTP shell 兜底）
-            const wr = await Douyin.aiPublishVideoWorkflow(port, pubTitle, pubTopics, signal, adb, { location: pubLocation })
+            const safePubSteps = Array.isArray(publishSteps) ? publishSteps : undefined
+            const wr = await Douyin.aiPublishVideoWorkflow(port, pubTitle, pubTopics, signal, adb, { location: pubLocation, publishSteps: safePubSteps })
             r = { success: wr.success, message: wr.message }
             log('title', true, `标题: ${pubTitle}${pubLocation ? ' | 位置: ' + pubLocation : ''}`)
             break

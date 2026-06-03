@@ -756,7 +756,7 @@ async function verifyWithBaseline(
 
 // ==================== 页面检测（基于XML，不用AI）====================
 
-type WorkflowStep = 'HOME_PLUS' | 'SHOOT_ALBUM' | 'ALBUM_PICK' | 'VIDEO_PREVIEW' | 'EDIT_TITLE' | 'SELECT_POI' | 'PUBLISH_BTN' | 'DONE'
+type WorkflowStep = 'HOME_PLUS' | 'SHOOT_ALBUM' | 'ALBUM_PICK' | 'VIDEO_PREVIEW' | 'EDIT_TITLE' | 'SELECT_TOPIC' | 'SELECT_POI' | 'PUBLISH_BTN' | 'DONE'
 
 /**
  * 通过 XML 文字特征 + VL视觉 判断当前页面类型
@@ -1172,6 +1172,7 @@ interface WorkflowOptions {
   maxLoops?: number
   totalTimeoutMs?: number
   location?: string       // POI位置名称/地址
+  publishSteps?: string[] // 勾选的发布子步骤：video/title/topic/location（控制哪些步骤执行）
 }
 
 /** 模块级变量：安全标题和话题（executeStep 需要访问） */
@@ -1179,6 +1180,8 @@ let _safeTitle = ''
 let _safeTopics = ''
 /** 模块级变量：POI位置（executeStep 需要访问） */
 let _safeLocation = ''
+/** 模块级变量：勾选的发布子步骤 */
+let _safePublishSteps: string[] = ['video', 'title', 'topic', 'location']  // 默认全执行
 /** 模块级变量：ALBUM_PICK 子步骤状态 */
 let _albumSubStep = ''
 /** 模块级变量：EDIT_TITLE 子步骤状态 */
@@ -1210,6 +1213,7 @@ export async function aiPublishVideoWorkflow(
   _safeTitle = title.replace(/"/g, '"').replace(/[{}[\]]/g, '')
   _safeTopics = topics.map(t => t.replace(/[,"]/g, '')).join(',')
   _safeLocation = (options.location || '').trim()
+  _safePublishSteps = options.publishSteps || ['video', 'title', 'topic', 'location']
 
   let screenW = 1080, screenH = 2340
   try {
@@ -1219,8 +1223,8 @@ export async function aiPublishVideoWorkflow(
     console.warn(`[初始化] 获取屏幕尺寸失败，使用默认值 ${screenW}x${screenH}`)
   }
 
-  console.log(`[${TS()}] ========== 固定流程启动（v2-无AI决策版）==========`)
-  console.log(`[${TS()}] 屏幕 ${screenW}x${screenH}, 目标: ${_safeTitle.substring(0, 30)}`)
+  console.log(`[${TS()}] ========== 固定流程启动（v3-步骤可控版）==========`)
+  console.log(`[${TS()}] 勾选步骤: [${_safePublishSteps.join(', ')}] | 屏幕 ${screenW}x${screenH}, 目标: ${_safeTitle.substring(0, 30)}`)
 
   let currentStep: WorkflowStep = 'HOME_PLUS'
   let stepRetryCount = 0          // 当前步骤的重试次数
@@ -1289,7 +1293,7 @@ export async function aiPublishVideoWorkflow(
       const validFromAlbumPick = (
         currentStep === 'ALBUM_PICK' &&
         (verify.step === 'EDIT_TITLE' || verify.step === 'VIDEO_PREVIEW' ||
-         verify.step === 'SELECT_POI' || verify.step === 'PUBLISH_BTN')
+         verify.step === 'SELECT_TOPIC' || verify.step === 'SELECT_POI' || verify.step === 'PUBLISH_BTN')
       )
 
       if (verify.step === expectedNext || isLegitimateDone || validFromAlbumPick) {
@@ -1305,15 +1309,27 @@ export async function aiPublishVideoWorkflow(
           console.log(`[${TS()}] [✓推进] ${currentStep} → ${verify.step}`)
         }
 
-        // ★★ Fix#3: 禁止跨步跳过 EDIT_TITLE ★★
-        // 如果跳跃目标越过了 EDIT_TITLE，强制在 EDIT_TITLE 停留执行标题输入
+        // ★★ 智能跨步拦截：根据勾选步骤决定是否允许跳过 ★★
         if (currentStep === 'VIDEO_PREVIEW' && verify.step !== 'EDIT_TITLE' &&
             verify.step !== 'DONE' && stepToOrder(verify.step) > stepToOrder('EDIT_TITLE')) {
           console.log(`[${TS()}] [⚠拦截跨步] 检测到${verify.step}但必须先执行EDIT_TITLE，强制停留在EDIT_TITLE`)
           currentStep = 'EDIT_TITLE'
+        } else if (_safePublishSteps.includes('topic') &&
+                   currentStep === 'EDIT_TITLE' && verify.step !== 'SELECT_TOPIC' &&
+                   verify.step !== 'DONE' && stepToOrder(verify.step) > stepToOrder('SELECT_TOPIC')) {
+          // ★ 勾选了topic但跳过了 → 强制停在 SELECT_TOPIC
+          console.log(`[${TS()}] [⚠拦截跨步] 检测到${verify.step}但勾选了话题选择，强制停在SELECT_TOPIC`)
+          currentStep = 'SELECT_TOPIC'
+        } else if (_safePublishSteps.includes('location') && _safeLocation &&
+                   (currentStep === 'EDIT_TITLE' || currentStep === 'SELECT_TOPIC') &&
+                   verify.step !== 'SELECT_POI' && verify.step !== 'DONE' &&
+                   stepToOrder(verify.step) > stepToOrder('SELECT_POI')) {
+          // ★ 勾选了location且有配置但跳过了 → 强制停在 SELECT_POI
+          console.log(`[${TS()}] [⚠拦截跨步] 检测到${verify.step}但勾选了位置选择，强制停在SELECT_POI`)
+          currentStep = 'SELECT_POI'
         } else if (currentStep === 'ALBUM_PICK' && verify.step !== 'VIDEO_PREVIEW' &&
                    stepToOrder(verify.step) >= stepToOrder('EDIT_TITLE')) {
-          // 从ALBUM_PICK跳到EDIT_TITLE或之后时，也要确保经过EDIT_TITLE
+          // 从ALBUM_PICK跳到编辑或之后 → 确保经过 EDIT_TITLE
           console.log(`[${TS()}] [✓推进-ALBUM→编辑] ${currentStep} → EDIT_TITLE (实际检测到${verify.step})`)
           currentStep = 'EDIT_TITLE'
         } else {
@@ -1351,28 +1367,52 @@ export async function aiPublishVideoWorkflow(
         }
       } else {
         // 页面跳到了意外步骤
-        // ★★ 限制：只允许推进到 expectedNext（下一步），禁止跨步跳跃！
-        //    原因：拍摄页(SHOOT_ALBUM)常被误判为相册页(ALBUM_PICK)，跨跳会导致漏执行关键步骤
+        // ★★ 智能跨步判断：未勾选的步骤允许跳过，勾选的不允许跳过 ★★
         if (verify.step === expectedNext) {
           // 刚好是期望的下一步 → 正常推进
           console.log(`[${TS()}] [✓推进] ${currentStep} → ${verify.step}`)
           currentStep = verify.step
           stepRetryCount = 0
         } else if (verify.step !== 'HOME_PLUS' && stepToOrder(verify.step) > stepToOrder(expectedNext)) {
-          // 超前了超过1步 → 检查是否要跳过 EDIT_TITLE
-          const wouldSkipEdit = (
+          // 超前了 → 检查跳过了哪些已勾选的步骤
+          const skippedSteps: WorkflowStep[] = []
+          let order = stepToOrder(currentStep) + 0.1
+          while (order < stepToOrder(verify.step)) {
+            // 找到 order 范围内的步骤
+            for (const [s, o] of Object.entries({ 'EDIT_TITLE': 4, 'SELECT_TOPIC': 4.5, 'SELECT_POI': 5, 'PUBLISH_BTN': 6 } as Record<WorkflowStep, number>)) {
+              if (o > stepToOrder(currentStep) && o < stepToOrder(verify.step) && Math.abs(o - order) < 1) {
+                skippedSteps.push(s as WorkflowStep)
+              }
+            }
+            order += 0.5
+          }
+
+          // 检查是否跳过了必须执行的步骤
+          const mustSkipEdit = (
             stepToOrder(currentStep) <= stepToOrder('VIDEO_PREVIEW') &&
             stepToOrder(verify.step) >= stepToOrder('SELECT_POI') &&
             verify.step !== 'EDIT_TITLE'
           )
-          if (wouldSkipEdit) {
-            // ★★ Fix#3: 禁止跳过 EDIT_TITLE！强制停留在编辑页 ★★
-            console.log(`[${TS()}] [⚠拦截跨步] 检测到${verify.step}(超前${stepToOrder(verify.step)-stepToOrder(expectedNext)}步)，但会跳过EDIT_TITLE，强制停在EDIT_TITLE`)
-            currentStep = 'EDIT_TITLE'
+          const wouldSkipSelectedTopic = _safePublishSteps.includes('topic') &&
+            stepToOrder(currentStep) <= stepToOrder('EDIT_TITLE') &&
+            verify.step !== 'SELECT_TOPIC' &&
+            stepToOrder(verify.step) >= stepToOrder('SELECT_POI')
+          const wouldSkipSelectedLocation = _safePublishSteps.includes('location') && _safeLocation &&
+            stepToOrder(currentStep) <= stepToOrder('SELECT_TOPIC') &&
+            verify.step !== 'SELECT_POI' &&
+            stepToOrder(verify.step) >= stepToOrder('PUBLISH_BTN')
+
+          if (mustSkipEdit || wouldSkipSelectedTopic || wouldSkipSelectedLocation) {
+            // 跳过了已勾选的关键步骤 → 强制停在最早被跳过的步骤
+            const targetStep = mustSkipEdit ? 'EDIT_TITLE'
+              : wouldSkipSelectedTopic ? 'SELECT_TOPIC'
+              : 'SELECT_POI'
+            console.log(`[${TS()}] [⚠拦截跨步] 检测到${verify.step}，但跳过了已勾选的${targetStep}，强制停在该步`)
+            currentStep = targetStep
             stepRetryCount = 0
           } else {
-            // 其他跨步（如 HOME_PLUS→SHOOT_ALBUM 跳过拍摄页）是允许的
-            console.log(`[${TS()}] [✓跨步] 检测到${verify.step}(超前${stepToOrder(verify.step)-stepToOrder(expectedNext)}步)，直接推进`)
+            // 跨步的都是未勾选/可选步骤 → 允许推进
+            console.log(`[${TS()}] [✓跨步] 检测到${verify.step}(超前)，跳过的步骤均未勾选或可选，直接推进`)
             currentStep = verify.step
             stepRetryCount = 0
           }
@@ -2447,9 +2487,97 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
     }
 
     // ========================================
-    // STEP 4.5: 编辑页 → 选择/输入位置（POI）
+    // STEP 4.3: 编辑页 → 选择话题标签
     // ========================================
-    // 抖音发布编辑页通常有"添加位置"入口，流程：
+    // 流程：
+    //   1. 点击编辑页的 "#添加话题" 按钮
+    //   2. 在话题搜索/列表页，按关键词匹配已有热门话题
+    //   3. 点击选择目标话题
+    //   4. 返回编辑页 → 进入下一步（SELECT_POI 或 PUBLISH_BTN）
+    //
+    // 如果 _safeTopics 为空或 topic 未勾选，getNextStep 会跳过此步骤
+    case 'SELECT_TOPIC': {
+      if (!_safePublishSteps.includes('topic')) {
+        console.log(`[话题] 未勾选, 跳过`)
+        return { success: true, action: '跳过话题(未勾选)', message: '', waitMs: 0 }
+      }
+
+      console.log(`[话题] 目标关键词: "${_safeTopics.substring(0, 40)}"`)
+
+      // ★★ Layer 1: 检查是否已在编辑页 → 点"话题"按钮进入话题选择页 ★★
+      try {
+        const editDump = await UI.dumpXml(apiPort)
+        if (editDump.success && editDump.data) {
+          const nodes = UI.parseUiXml(editDump.data)
+          // 找 "话题" 按钮（clickable 的 TextView）
+          for (const rawNode of nodes) {
+            const node = rawNode as { text?: string; className?: string; bounds?: string; clickable?: boolean }
+            if ((node.text === '话题' || node.text === '#添加话题') && node.clickable && node.bounds) {
+              const b = UI.parseBounds(node.bounds)
+              if (!b) continue
+              const tx = Math.round(b.x + b.width / 2), ty = Math.round(b.y + b.height / 2)
+              console.log(`[话题✓] 找到"${node.text}"按钮 (${tx},${ty})`)
+              await doTap(apiPort, tx, ty, signal, adb)
+              return { success: true, action: '点击话题按钮', message: `(${tx},${ty})`, waitMs: 3000 }
+            }
+          }
+          // 如果没找到"话题"按钮但页面有已选中的话题标签，说明可能已经选过了
+          const hasExistingTopic = nodes.some((n: any) =>
+            n.text?.startsWith('#') && n.className === 'android.widget.TextView'
+          )
+          if (hasExistingTopic) {
+            console.log(`[话题⚠] 页面已有话题标签(#开头)，可能已选择过`)
+          }
+        }
+      } catch (e) { console.log(`[话题⚠] XML检测异常: ${e}`) }
+
+      // ★★ Layer 2: 可能已在话题子页面 → 尝试搜索并选择 ★★
+      try {
+        const curPage = await detectCurrentPage(apiPort, b64)
+        if (curPage.step !== 'EDIT_TITLE' || curPage.evidence.includes('话题') || curPage.evidence.includes('标签')) {
+          // 可能在话题选择弹窗/页面中
+          console.log(`[话题-子页] 当前:${curPage.evidence}，尝试搜索...`)
+
+          // 搜索框输入关键词
+          const searchInput = await locateByText(apiPort, ['搜索话题', '搜索', '输入'], 2000)
+          if (searchInput) {
+            console.log(`[话题-搜索] 找到搜索框 (${searchInput.x},${searchInput.y})`)
+            await doTap(apiPort, searchInput.x, searchInput.y, signal, adb)
+            await sleep(1000, signal)
+
+            // 用 AdbKeyboard 输入搜索词（取第一个关键词）
+            const firstKeyword = _safeTopics.split(',')[0].trim()
+            if (firstKeyword) {
+              await doInputText(apiPort, firstKeyword, signal, adb)
+              await sleep(2500, signal)
+
+              // 从结果中选择包含关键词的话题
+              const topicMatch = await findAnyText(apiPort, [firstKeyword], screenH * 0.5, 2000)
+              if (topicMatch && topicMatch.y > screenH * 0.35) {
+                console.log(`[话题✓] 匹配到 "${topicMatch.textHint}" (${topicMatch.x},${topicMatch.y})`)
+                await doTap(apiPort, topicMatch.x, topicMatch.y, signal, adb)
+                return { success: true, action: '选择话题', message: topicMatch.textHint || '', waitMs: 1500 }
+              }
+
+              // 没匹配到 → 按 BACK 返回编辑页
+              console.log(`[话题] 未找到匹配话题，返回编辑页`)
+              await goBack(apiPort, 1, signal, adb)
+            }
+          } else {
+            // 没搜索框 → 直接 BACK 返回
+            console.log(`[话题] 无搜索框，按BACK返回编辑页`)
+            await goBack(apiPort, 1, signal, adb)
+          }
+        }
+      } catch (e) { console.log(`[话题-子页异常] ${e}`) }
+
+      // ★ 兜底：如果已经在编辑页且找不到话题按钮，直接标记完成（可能不需要选话题）★
+      console.log(`[话题] 未执行选择操作，标记完成继续流程`)
+      return { success: true, action: '话题(跳过/已完成)', message: '', waitMs: 1000 }
+    }
+
+    // ========================================
+    // STEP 4.5: 编辑页 → 选择/输入位置（POI）
     //   1. 点击"添加位置"/"所在位置"按钮
     //   2. 搜索框输入位置名称
     //   3. 点击搜索结果中的目标位置
@@ -2646,14 +2774,22 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
   }
 }
 
-/** 步骤推进顺序 */
+/** 步骤推进顺序（根据勾选步骤动态决定下一步） */
 function getNextStep(current: WorkflowStep): WorkflowStep {
   switch (current) {
     case 'HOME_PLUS': return 'SHOOT_ALBUM'
     case 'SHOOT_ALBUM': return 'ALBUM_PICK'
-    case 'ALBUM_PICK': return 'VIDEO_PREVIEW'      // ★ 选视频后进入视频预览/编辑页
-    case 'VIDEO_PREVIEW': return 'EDIT_TITLE'       // ★ 预览页点"下一步"后进入标题编辑页
-    case 'EDIT_TITLE': return _safeLocation ? 'SELECT_POI' : 'PUBLISH_BTN'
+    case 'ALBUM_PICK': return 'VIDEO_PREVIEW'
+    case 'VIDEO_PREVIEW': return 'EDIT_TITLE'
+    case 'EDIT_TITLE':
+      // ★ 根据勾选决定下一步：有topic → topic，否则看location，都没有直接发布
+      if (_safePublishSteps.includes('topic')) return 'SELECT_TOPIC'
+      if (_safePublishSteps.includes('location') && _safeLocation) return 'SELECT_POI'
+      return 'PUBLISH_BTN'
+    case 'SELECT_TOPIC':
+      // ★ 话题完成后：有location且有配置 → location，否则直接发布
+      if (_safePublishSteps.includes('location') && _safeLocation) return 'SELECT_POI'
+      return 'PUBLISH_BTN'
     case 'SELECT_POI': return 'PUBLISH_BTN'
     case 'PUBLISH_BTN': return 'DONE'
     default: return 'HOME_PLUS'
@@ -2668,6 +2804,7 @@ function stepToOrder(step: WorkflowStep): number {
     case 'ALBUM_PICK': return 3
     case 'VIDEO_PREVIEW': return 3.5             // ★ 在 ALBUM_PICK 和 EDIT_TITLE 之间
     case 'EDIT_TITLE': return 4
+    case 'SELECT_TOPIC': return 4.5              // ★ 选话题标签（在编辑和位置之间）
     case 'SELECT_POI': return 5
     case 'PUBLISH_BTN': return 6
     case 'DONE': return 99
