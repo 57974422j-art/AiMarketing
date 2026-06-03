@@ -238,7 +238,7 @@ function isShellError(output: string): boolean {
 //   3. ADB命令（只支持英文/数字）
 
 // 缓存设备探测结果（避免每次都探测）
-let _inputEnvCache: { imeList: string[]; hasAdbKeyboard: boolean; defaultIme: string } | null = null
+let _inputEnvCache: { imeList: string[]; hasAdbKeyboard: boolean; adbKeyboardId: string; defaultIme: string } | null = null
 
 /**
  * 探测设备输入环境（只执行一次，结果缓存）
@@ -270,10 +270,37 @@ async function detectInputEnv(apiPort: number, signal?: AbortSignal, adb?: ADB |
 
   // 3. 检查是否安装了 AdbKeyboard（专门解决ADB中文输入的开源app）
   let hasAdbKeyboard = false
+  let adbKeyboardId = ''
   try {
-    const pkgCheck = await execShell(apiPort, 'pm list packages | grep android.adbkeyboard', signal, adb)
-    hasAdbKeyboard = pkgCheck.ok && pkgCheck.output.includes('android.adbkeyboard')
-    console.log(`[doInput-探测] AdbKeyboard: ${hasAdbKeyboard ? '✓已安装' : '✗未安装'}`)
+    const pkgCheck = await execShell(apiPort, 'pm list packages | grep adbkeyboard', signal, adb)
+    hasAdbKeyboard = pkgCheck.ok && pkgCheck.output.includes('adbkeyboard')
+    // 查找完整的IME组件ID（ime list -s 可能不包含未启用的输入法，所以用多种方式查找）
+    if (hasAdbKeyboard) {
+      // 先从已启用列表中找
+      const fromImeList = imeList.find(i => i.toLowerCase().includes('adbkeyboard'))
+      if (fromImeList) {
+        adbKeyboardId = fromImeList
+      } else {
+        // 尝试用 dumpsys 查找
+        const dumpResult = await execShell(apiPort, 'dumpsys input_method | grep -A5 "mCurMethodId" | head -1', signal, adb)
+        // 常见AdbKeyboard ID备选
+        const knownIds = [
+          'com.android.adbkeyboard/.AdbKeyboard',
+          'android.adbkeyboard/.AdbKeyboard',
+        ]
+        // 尝试从dumpsys输出中匹配
+        for (const kid of knownIds) {
+          const checkResult = await execShell(apiPort, `ime list | grep adbkeyboard`, signal, adb)
+          if (checkResult.ok && checkResult.output.includes('adbkeyboard')) {
+            // 提取完整ID，格式通常是 com.xxx/.Xxx
+            const match = checkResult.output.match(/(com\.[a-z.]+\.adbkeyboard\/\.[A-Za-z]+)/i)
+            if (match) { adbKeyboardId = match[1]; break }
+          }
+        }
+        if (!adbKeyboardId) adbKeyboardId = knownIds[0] // 兜底用最常见ID
+      }
+    }
+    console.log(`[doInput-探测] AdbKeyboard: ${hasAdbKeyboard ? '✓已安装' : '✗未安装'}${adbKeyboardId ? ` (${adbKeyboardId})` : ''}`)
   } catch {}
 
   // 4. 检查常用中文输入法
@@ -283,7 +310,7 @@ async function detectInputEnv(apiPort: number, signal?: AbortSignal, adb?: ADB |
     console.log(`[doInput-探测] 发现中文输入法: ${foundChineseIME} → 可用于中文输入`)
   }
 
-  _inputEnvCache = { imeList, hasAdbKeyboard, defaultIme }
+  _inputEnvCache = { imeList, hasAdbKeyboard, adbKeyboardId, defaultIme }
   return _inputEnvCache
 }
 
@@ -344,13 +371,32 @@ async function doInput(
   // ════════ 方法1: AdbKeyboard App ════════
   // 开源项目 https://github.com/nicehash/AdbKeyboard
   // 用法: am broadcast -a ADB_INPUT_TEXT --es msg "中文"
-  if (env.hasAdbKeyboard) {
-    console.log(`[doInput-1] AdbKeyboard: 发送广播...`)
+  // ★ 关键：必须先将IME切换到AdbKeyboard，否则InputConnection无效，文字无法注入！
+  if (env.hasAdbKeyboard && env.adbKeyboardId) {
+    console.log(`[doInput-1] AdbKeyboard: 切换IME → ${env.adbKeyboardId} → 发送广播...`)
     try {
+      const prevIme = env.defaultIme
+      // ★ 先切换到AdbKeyboard输入法
+      const switchResult = await execShell(apiPort, `ime set ${env.adbKeyboardId}`, signal, adb)
+      if (!switchResult.ok || isShellError(switchResult.output)) {
+        console.warn(`[doInput-⚠] [1-AdbKeyboard] IME切换失败: ${switchResult.output.trim()}，仍尝试广播...`)
+      } else {
+        console.log(`[doInput-1] AdbKeyboard: IME已切换成功，等待300ms让输入法生效...`)
+        await sleep(300, signal)
+      }
+      
+      // 发送文本广播
       const escaped = text.replace(/"/g, '\\"').replace(/'/g, "'\\''")
       const r = await execShell(apiPort, `am broadcast -a ADB_INPUT_TEXT --es msg '${escaped}'`, signal, adb)
+      
+      // 恢复原输入法（不影响已输入的文字）
+      if (prevIme && prevIme !== env.adbKeyboardId) {
+        await sleep(200, signal)
+        await execShell(apiPort, `ime set ${prevIme}`, signal, adb)
+      }
+      
       if (r.ok && r.output.includes('result')) {
-        console.log(`[doInput✓] [1-AdbKeyboard] 成功!`)
+        console.log(`[doInput✓] [1-AdbKeyboard] 成功! (IME切换→广播→恢复)`)
         return true
       }
       console.log(`[doInput⚠] [1-AdbKeyboard] 返回: ${r.output.trim()}`)
@@ -358,7 +404,7 @@ async function doInput(
       console.warn(`[doInput⚠] [1-AdbKeyboard] 异常: ${e}`)
     }
   } else {
-    console.log(`[doInput-1] AdbKeyboard 未安装,跳过`)
+    console.log(`[doInput-1] AdbKeyboard 未安装或无ID,跳过`)
   }
 
   // ════════ 方法2: 切换到中文输入法 ════════
