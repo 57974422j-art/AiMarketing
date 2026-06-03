@@ -2555,275 +2555,176 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
     }
 
     // ========================================
-    // STEP 4.3: 编辑页 → 选择话题标签
+    // STEP 4.3: 编辑页 → 输入话题标签（直接输入法）
     // ========================================
+    // ★ 新策略（v3）：不再尝试进入话题搜索/列表页面
+    //   抖音编辑页点击"话题"按钮不会跳转新页面，只是在编辑区插入 #
+    //   所以直接像输入标题一样，找到输入区域后用 AdbKeyboard 广播输入 #话题文字
+    //
     // 流程：
-    //   1. 点击编辑页的 "#添加话题" 按钮
-    //   2. 在话题搜索/列表页，按关键词匹配已有热门话题
-    //   3. 点击选择目标话题
-    //   4. 返回编辑页 → 进入下一步（SELECT_POI 或 PUBLISH_BTN）
+    //   1. 确认在编辑页
+    //   2. 找输入区域（添加作品描述 / 标题区域 / 话题行）
+    //   3. 点击聚焦 → 用 doInput 直接输入 #话题文字
+    //   4. 完成
     //
     // 如果 _safeTopics 为空或 topic 未勾选，getNextStep 会跳过此步骤
     case 'SELECT_TOPIC': {
-      // ★ 子步骤状态机：CLICK_ENTRY(进话题页) → SEARCH_INPUT(搜关键词) → PICK_RESULT(选结果) ★
-      const topicSub = (_topicSubStep || '') as '' | 'CLICK_ENTRY' | 'SEARCH_INPUT' | 'PICK_RESULT'
-      console.log(`[话题] 子步骤=${topicSub} | 关键词="${_safeTopics.substring(0, 40)}"`)
+      console.log(`[话题-直输] 关键词="${_safeTopics.substring(0, 40)}"`)
 
-      // ════════ Sub-A: 在编辑页 → 点"话题"按钮进入话题选择页 ════════
-      if (!topicSub || topicSub === 'CLICK_ENTRY') {
-        // ★ 用 findAnyText（不限clickable），因为"话题"可能是非clickable的TextView ★
-        const entryBtn = await findAnyText(apiPort, ['话题', '#添加话题', '添加话题'], screenH * 0.7, 2500)
-        if (entryBtn) {
-          console.log(`[话题✓] 点击入口 (${entryBtn.x},${entryBtn.y}) textHint="${entryBtn.textHint}"`)
-          await doTap(apiPort, entryBtn.x, entryBtn.y, signal, adb)
-          _topicSubStep = 'SEARCH_INPUT'   // 下轮进入搜索
-          return { success: true, action: '点击话题入口', message: `(${entryBtn.x},${entryBtn.y})`, waitMs: 3000, internalProgress: true }
-        }
-        // ★ 不再用"已有#标签"来判断是否已完成 — 那些可能是历史残留 ★
-        console.log(`[话题⚠] 编辑页未找到"话题"入口按钮`)
-        _topicSubStep = 'SEARCH_INPUT'  // 可能页面已经切换了，尝试进入搜索模式
-      }
-
-      // ════════ Sub-B: 在话题选择页 → 点搜索框 + 输入关键词 ════════
-      if (topicSub === 'SEARCH_INPUT') {
-        // 先确认不在编辑页（VLM快速判断）
-        const vlmTopic = await verifyWithBaseline(b64, 'edit_title', '视频发布编辑页')
-        if (vlmTopic.match === 'YES') {
-          // 还在编辑页？说明上次的点击没生效，重新点入口
-          console.log(`[话题-VLM] 仍在编辑页，回退重新点入口...`)
-          _topicSubStep = 'CLICK_ENTRY'
-          return { success: false, action: '话题-重新入口', message: 'VLM检测仍在编辑页', waitMs: 1500 }
-        }
-
-        // 找搜索框（话题页面的搜索框文字）
-        const searchBox = await locateByText(apiPort, ['搜索话题', '搜索', '输入关键词', '找话题'], 2000)
-        if (searchBox) {
-          console.log(`[话题-搜索✓] 找到搜索框 (${searchBox.x},${searchBox.y})`)
-          await doTap(apiPort, searchBox.x, searchBox.y, signal, adb)
-          await sleep(1000, signal)
-
-          // 输入第一个关键词
-          const firstKw = _safeTopics.split(',')[0].replace(/#/g, '').trim()
-          if (firstKw) {
-            await doInput(apiPort, firstKw, signal, adb)
-            console.log(`[话题-搜索✓] 输入关键词: "${firstKw}"`)
-            _topicSubStep = 'PICK_RESULT'
-            return { success: true, action: '话题-输入关键词', message: firstKw, waitMs: 3000, internalProgress: true } // 等搜索结果加载
-          }
-        }
-
-        // 没搜索框 → 尝试直接在列表中找匹配的话题
-        console.log(`[话题] 无搜索框，直接尝试从列表中选取...`)
-        _topicSubStep = 'PICK_RESULT'
-      }
-
-      // ════════ Sub-C: 从结果列表中精确选择包含关键词的话题 ════════
-      if (topicSub === 'PICK_RESULT') {
-        const firstKw = _safeTopics.split(',')[0].replace(/#/g, '').trim()
-
-        // XML 精确匹配：找包含关键词且 # 开头的结果
-        const pickDump = await UI.dumpXml(apiPort)
-        if (pickDump.success && pickDump.data) {
-          const nodes = UI.parseUiXml(pickDump.data)
-          let bestMatch: any = null
-          for (const n of nodes) {
-            const txt = (n.text || '')
-            // 匹配 #xxx 格式的话题标签，优先完全包含关键词的
-            if ((txt.startsWith('#') || txt.includes('话题')) &&
-                txt.includes(firstKw) && n.clickable && n.bounds) {
-              const b = UI.parseBounds(n.bounds)
-              if (!b || b.y < screenH * 0.20 || b.y > screenH * 0.90) continue
-              if (!bestMatch || txt.length < bestMatch.text.length) {
-                bestMatch = { ...n, bx: b.x + b.width / 2, by: b.y + b.height / 2 }
-              }
-            }
-          }
-
-          if (bestMatch) {
-            const px = Math.round(bestMatch.bx), py = Math.round(bestMatch.by)
-            console.log(`[话题✓] 精确匹配 "${bestMatch.text}" (${px},${py}) clickable=${bestMatch.clickable}`)
-            await doTap(apiPort, px, py, signal, adb)
-            _topicSubStep = ''   // 重置
-            return { success: true, action: '选择话题完成', message: bestMatch.text, waitMs: 2000 }
-          }
-
-          // 没精确匹配 → 找任意 #开头可点击的话题（至少选一个）
-          for (const n of nodes) {
-            const txt = (n.text || '')
-            if (txt.startsWith('#') && n.clickable && n.bounds) {
-              const b = UI.parseBounds(n.bounds)
-              if (!b || b.y < screenH * 0.20 || b.y > screenH * 0.90) continue
-              const px = Math.round(b.x + b.width / 2), py = Math.round(b.y + b.height / 2)
-              console.log(`[话题~] 无精确匹配，选用 "${txt}" (${px},${py})`)
-              await doTap(apiPort, px, py, signal, adb)
-              _topicSubStep = ''
-              return { success: true, action: '选择话题(近似)', message: txt, waitMs: 2000 }
-            }
-          }
-        }
-
-        // 兜底：宽松搜索
-        const looseMatch = await findAnyText(apiPort, [firstKw], screenH * 0.85, 1500)
-        if (looseMatch && looseMatch.y > screenH * 0.25) {
-          console.log(`[话题✓] 宽松匹配 → (${looseMatch.x},${looseMatch.y})`)
-          await doTap(apiPort, looseMatch.x, looseMatch.y, signal, adb)
+      // ════════ Step 1: VLM确认在编辑页 ════════
+      const vlmTopic = await verifyWithBaseline(b64, 'edit_title', '视频发布编辑页')
+      if (vlmTopic.match === 'NO') {
+        // 不在编辑页，判断是否可以自愈
+        console.log(`[话题-直输] 不在编辑页: "${vlmTopic.detail}"`)
+        const alreadyDone = vlmTopic.detail.includes('位置') || vlmTopic.detail.includes('发布')
+        if (alreadyDone) {
+          // 可能已经过了话题阶段，跳过
+          console.log(`[话题-直输] 已过话题阶段，跳过`)
           _topicSubStep = ''
-          return { success: true, action: '选择话题(宽松)', message: looseMatch.textHint || '', waitMs: 2000 }
+          return { success: true, action: '话题(跳过/已过阶段)', message: '', waitMs: 1000 }
         }
-
-        // 全部失败 → BACK 返回编辑页
-        console.log(`[话题⚠] 未找到任何匹配话题，BACK返回编辑页`)
         await goBack(apiPort, 1, signal, adb)
-        _topicSubStep = ''
-        return { success: true, action: '话题(无匹配/跳过)', message: '', waitMs: 1500 }
+        await sleep(2000, signal)
+        return { success: false, action: '话题-BACK', message: vlmTopic.detail, waitMs: 2000 }
       }
 
-      // 不应该到这里
+      // ════════ Step 2: 找输入区域并点击聚焦 ════════
+      // 优先级：添加作品描述 > 标题区域 > 话题行 > 任意输入区
+      const inputArea = await findAnyText(apiPort, [
+        '添加作品描述', '添加描述', '请填写',
+        '添加标题'
+      ], screenH * 0.6, 3000)
+
+      if (inputArea) {
+        console.log(`[话题-直输入口✓] "${inputArea.textHint}" → (${inputArea.x},${inputArea.y})`)
+        await doTap(apiPort, inputArea.x, inputArea.y, signal, adb)
+        await sleep(1500, signal) // 等待焦点激活
+      } else {
+        // 兜底：VL定位输入区
+        console.log(`[话题-直输] XML未找到输入区, VL兜底...`)
+        const vlInput = await locateElement(b64, '抖音编辑页的标题输入框或作品描述输入框或话题输入区域')
+        if (vlInput && isVlCoordValid(vlInput.x, vlInput.y, screenW, screenH)) {
+          await doTap(apiPort, vlInput.x, vlInput.y, signal, adb)
+          await sleep(1500, signal)
+        } else {
+          console.log(`[话题-直输⚠] 无法定位输入区，尝试屏幕中下部`)
+          // 点屏幕中下部的编辑区域
+          await doTap(apiPort, Math.round(screenW * 0.5), Math.round(screenH * 0.35), signal, adb)
+          await sleep(1000, signal)
+        }
+      }
+
+      // ════════ Step 3: 构造话题文本并直接输入 ════════
+      // 取所有关键词，拼接成 #话题1 #话题2 格式
+      const allTopics = _safeTopics.split(',').map(t => {
+        const trimmed = t.trim().replace(/^#/, '')
+        return trimmed.length >= 2 ? `#${trimmed}` : ''
+      }).filter(t => t.length > 0)
+
+      if (allTopics.length === 0) {
+        console.log(`[话题-直输] 无有效话题词，跳过`)
+        _topicSubStep = ''
+        return { success: true, action: '话题(无有效词)', message: '', waitMs: 1000 }
+      }
+
+      const topicText = allTopics.join(' ')
+      console.log(`[话题-直输] 准备输入: ${topicText}...`)
+
+      const inputOk = await doInput(apiPort, topicText, signal, adb)
+      if (inputOk) {
+        console.log(`[话题-直输入✓] 已发送话题文本: ${topicText}`)
+      } else {
+        console.warn(`[话题-直输入⚠] doInput返回false, 但假设已部分成功继续...`)
+      }
+
+      // 收起键盘
+      await sleep(500, signal)
+      try { adb ? adb.shell('input keyevent KEYCODE_BACK') : await sh(apiPort, 'input keyevent KEYCODE_BACK', signal) } catch {}
+      await sleep(8000, signal) // 等8秒让UI刷新
+
+      // 重置子步骤，标记完成
       _topicSubStep = ''
-      return { success: true, action: '话题(异常退出)', message: '', waitMs: 1000 }
+      return { success: true, action: '话题输入完成', message: topicText.substring(0, 30), waitMs: 5000 }
     }
 
     // ========================================
-    // STEP 4.5: 编辑页 → 选择/输入位置（POI）
-    //   子步骤：CLICK_ENTRY(点添加位置) → SEARCH(搜索城市) → PICK(选结果)
+    // STEP 4.5: 编辑页 → 输入位置（直接输入法）
+    // ========================================
+    // ★ 新策略（v3）：不再进入位置搜索/选择页面
+    //   和话题一样，找到输入区域后用 AdbKeyboard 直接广播输入位置文字
+    //
+    // 流程：
+    //   1. 确认在编辑页
+    //   2. 找输入区域（添加作品描述 / 添加位置行）→ 点击聚焦
+    //   3. 用 doInput 直接输入位置文字
+    //   4. 完成
     //
     // 如果 _safeLocation 为空，getNextStep 会跳过此步骤直接到 PUBLISH_BTN
     case 'SELECT_POI': {
       if (!_safeLocation) {
-        console.log(`[位置] 无位置配置, 跳过`)
+        console.log(`[位置-直输] 无位置配置, 跳过`)
         return { success: true, action: '跳过位置(空)', message: '', waitMs: 0 }
       }
 
-      // ★ 子步骤状态机 ★
-      const poiSub = (_poiSubStep || '') as '' | 'CLICK_ENTRY' | 'SEARCH' | 'PICK'
-      console.log(`[位置] 子步骤=${poiSub} | 目标="${_safeLocation}"`)
+      console.log(`[位置-直输] 目标="${_safeLocation}"`)
 
-      // ════════ Sub-A: 在编辑页 → 点"添加位置"/"所在位置"按钮 ════════
-      if (!poiSub || poiSub === 'CLICK_ENTRY') {
-        // VLM 确认是否在编辑主页
-        const vlmPoi = await verifyWithBaseline(b64, 'edit_title', '视频发布编辑页')
-
-        if (vlmPoi.match === 'NO') {
-          // 不在编辑页，判断是否已在位置选择页面
-          const isCityPage = vlmPoi.detail.includes('城市') || vlmPoi.detail.includes('搜索位置') ||
-                             vlmPoi.detail.includes('city') || vlmPoi.detail.includes('定位')
-          if (isCityPage) {
-            console.log(`[位置-自愈] 已在城市/位置选择页，跳到搜索步骤`)
-            _poiSubStep = 'SEARCH'
-          } else {
-            console.log(`[位置-自愈] 不在编辑页也不在位置页: "${vlmPoi.detail}"，BACK...`)
-            await goBack(apiPort, 1, signal, adb)
-            _poiSubStep = ''
-            return { success: false, action: '位置-BACK', message: vlmPoi.detail, waitMs: 2000 }
-          }
-        } else {
-          // 在编辑页 → 找"添加位置"或"所在位置"按钮
-          // ★ "添加位置" 是 clickable=false(TextView)，必须用 findAnyText！
-          const entryBtn = await findAnyText(apiPort, ['添加位置', '所在位置'], screenH * 0.7, 2500)
-          if (entryBtn) {
-            console.log(`[位置✓] 点击入口 (${entryBtn.x},${entryBtn.y}) textHint="${entryBtn.textHint}"`)
-            await doTap(apiPort, entryBtn.x, entryBtn.y, signal, adb)
-            _poiSubStep = 'SEARCH'
-            return { success: true, action: '点击位置入口', message: `(${entryBtn.x},${entryBtn.y})`, waitMs: 3000, internalProgress: true }
-          }
-
-          console.log(`[位置⚠] 编辑页未找到位置入口按钮，尝试按已在位置页处理...`)
-          _poiSubStep = 'SEARCH'  // 可能已经点过了
-        }
-      }
-
-      // ════════ Sub-B: 在位置选择页 → 点搜索框 + 输入城市名 ════════
-      if (poiSub === 'SEARCH') {
-        // 搜索框关键词列表
-        const searchBox = await locateByText(apiPort, ['搜索', '查找地点', '请输入', '搜索位置', '输入地点名称'], 2000)
-        if (searchBox) {
-          console.log(`[位置-搜索✓] 找到搜索框 (${searchBox.x},${searchBox.y})`)
-          await doTap(apiPort, searchBox.x, searchBox.y, signal, adb)
-          await sleep(800, signal)
-
-          // 取第一个城市名（支持 "合肥、天鹅湖" 格式，只取第一个）
-          const cityName = _safeLocation.split(/[、,，]/)[0].trim()
-          if (cityName) {
-            await doInput(apiPort, cityName, signal, adb)
-            console.log(`[位置-搜索✓] 输入城市: "${cityName}"`)
-            _poiSubStep = 'PICK'
-            return { success: true, action: '位置-输入城市', message: cityName, waitMs: 3000, internalProgress: true } // 等搜索结果
-          }
-        }
-
-        // 没搜索框 → 可能是列表模式，直接尝试选取
-        console.log(`[位置] 无搜索框，进入直接选取模式...`)
-        _poiSubStep = 'PICK'
-      }
-
-      // ════════ Sub-C: 从结果中选取目标城市/POI ════════
-      if (poiSub === 'PICK') {
-        const cityName = _safeLocation.split(/[、,，]/)[0].trim()
-
-        // XML 精确匹配
-        const pickDump = await UI.dumpXml(apiPort)
-        if (pickDump.success && pickDump.data) {
-          const nodes = UI.parseUiXml(pickDump.data)
-
-          // 优先匹配完整城市名
-          for (const n of nodes) {
-            const txt = (n.text || '')
-            if ((txt.includes(cityName) || cityName.includes(txt)) &&
-                txt.length >= 2 && n.clickable && n.bounds) {
-              const b = UI.parseBounds(n.bounds)
-              if (!b || b.y < screenH * 0.15 || b.y > screenH * 0.90) continue
-              // 排除搜索框自身（通常在顶部）
-              if (b.y < screenH * 0.22 && n.className?.includes('Edit')) continue
-              const px = Math.round(b.x + b.width / 2), py = Math.round(b.y + b.height / 2)
-              console.log(`[位置✓] 选择 "${txt}" (${px},${py})`)
-              await doTap(apiPort, px, py, signal, adb)
-              _poiSubStep = ''
-              return { success: true, action: '选择POI完成', message: txt, waitMs: 3000 }
-            }
-          }
-
-          // 宽松匹配：取屏幕中部偏下的第一个可点击项（通常是搜索结果第一项）
-          let bestCandidate: any = null
-          for (const n of nodes) {
-            if (!n.clickable || !n.bounds) continue
-            const b = UI.parseBounds(n.bounds)
-            if (!b) continue
-            // 结果列表通常在屏幕中部偏下
-            if (b.y < screenH * 0.28 || b.y > screenH * 0.85) continue
-            if (b.width < 80 || b.height < 30) continue
-            if (!bestCandidate || b.y < bestCandidate.by) {
-              bestCandidate = { ...n, bx: b.x + b.width / 2, by: b.y + b.height / 2 }
-            }
-          }
-
-          if (bestCandidate) {
-            const px = Math.round(bestCandidate.bx), py = Math.round(bestCandidate.by)
-            console.log(`[位置~] 无精确匹配，选用 "${bestCandidate.text||'?'}" (${px},${py})`)
-            await doTap(apiPort, px, py, signal, adb)
-            _poiSubStep = ''
-            return { success: true, action: '选择POI(近似)', message: bestCandidate.text || '', waitMs: 3000 }
-          }
-        }
-
-        // 兜底：findAnyText 宽松搜索
-        const looseMatch = await findAnyText(apiPort, [cityName.substring(0, 3)], screenH * 0.8, 1500)
-        if (looseMatch && looseMatch.y > screenH * 0.20) {
-          console.log(`[位置✓] 宽松匹配 → (${looseMatch.x},${looseMatch.y})`)
-          await doTap(apiPort, looseMatch.x, looseMatch.y, signal, adb)
+      // ════════ Step 1: VLM确认在编辑页 ════════
+      const vlmPoi = await verifyWithBaseline(b64, 'edit_title', '视频发布编辑页')
+      if (vlmPoi.match === 'NO') {
+        console.log(`[位置-直输] 不在编辑页: "${vlmPoi.detail}"`)
+        const alreadyDone = vlmPoi.detail.includes('发布') || vlmPoi.detail.includes('发布成功')
+        if (alreadyDone) {
+          console.log(`[位置-直输] 已过位置阶段，跳过`)
           _poiSubStep = ''
-          return { success: true, action: '选择POI(宽松)', message: looseMatch.textHint || '', waitMs: 3000 }
+          return { success: true, action: '位置(跳过/已过阶段)', message: '', waitMs: 1000 }
         }
-
-        // 全部失败 → BACK 返回编辑页
-        console.log(`[位置⚠] 未找到匹配位置，BACK返回编辑页`)
         await goBack(apiPort, 1, signal, adb)
-        _poiSubStep = ''
-        return { success: true, action: '位置(无匹配/跳过)', message: '', waitMs: 1500 }
+        await sleep(2000, signal)
+        return { success: false, action: '位置-BACK', message: vlmPoi.detail, waitMs: 2000 }
       }
 
-      // 异常退出
+      // ════════ Step 2: 找输入区域并点击聚焦 ════════
+      // 优先级：添加作品描述 > 添加位置 > 标题区域
+      const inputArea = await findAnyText(apiPort, [
+        '添加作品描述', '添加描述',
+        '添加位置', '所在位置'
+      ], screenH * 0.7, 3000)
+
+      if (inputArea) {
+        console.log(`[位置-直输入口✓] "${inputArea.textHint}" → (${inputArea.x},${inputArea.y})`)
+        await doTap(apiPort, inputArea.x, inputArea.y, signal, adb)
+        await sleep(1500, signal)
+      } else {
+        console.log(`[位置-直输] XML未找到输入区, VL兜底...`)
+        const vlInput = await locateElement(b64, '抖音编辑页的作品描述输入框或添加位置区域')
+        if (vlInput && isVlCoordValid(vlInput.x, vlInput.y, screenW, screenH)) {
+          await doTap(apiPort, vlInput.x, vlInput.y, signal, adb)
+          await sleep(1500, signal)
+        } else {
+          console.log(`[位置-直输⚠] 无法定位，尝试屏幕中下部`)
+          await doTap(apiPort, Math.round(screenW * 0.5), Math.round(screenH * 0.40), signal, adb)
+          await sleep(1000, signal)
+        }
+      }
+
+      // ════════ Step 3: 直接输入位置文字 ════════
+      const locText = _safeLocation.trim()
+      console.log(`[位置-直输] 准备输入: ${locText}...`)
+
+      const inputOk = await doInput(apiPort, locText, signal, adb)
+      if (inputOk) {
+        console.log(`[位置-直输入✓] 已发送位置文本: ${locText}`)
+      } else {
+        console.warn(`[位置-直输入⚠] doInput返回false, 但假设已部分成功继续...`)
+      }
+
+      // 收起键盘
+      await sleep(500, signal)
+      try { adb ? adb.shell('input keyevent KEYCODE_BACK') : await sh(apiPort, 'input keyevent KEYCODE_BACK', signal) } catch {}
+      await sleep(8000, signal) // 等8秒让UI刷新
+
       _poiSubStep = ''
-      return { success: true, action: '位置(异常退出)', message: '', waitMs: 1000 }
+      return { success: true, action: '位置输入完成', message: locText.substring(0, 30), waitMs: 5000 }
     }
 
     // ========================================

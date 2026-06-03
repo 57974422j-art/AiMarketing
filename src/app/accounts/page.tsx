@@ -14,9 +14,10 @@ const PLATFORMS = [
 ]
 
 const BIND_TYPES = [
-  { key: 'device',    label: 'Q1 群控',     desc: 'Q1 手机自动化',     icon: '📱', color: 'from-green-500/20 to-emerald-500/20', border: 'border-green-500/30', accent: 'text-green-400' },
-  { key: 'imai',      label: 'IMAI WORK',   desc: 'AI云手机/浏览器',   icon: '🚀', color: 'from-purple-500/20 to-violet-500/20', border: 'border-purple-500/30', accent: 'text-purple-400' },
-  { key: 'official',  label: '官方API',      desc: '平台开放接口',   icon: '🔗', color: 'from-blue-500/20 to-cyan-500/20', border: 'border-blue-500/30', accent: 'text-blue-400' },
+  { key: 'device',    label: 'Q1 群控',     desc: 'Q1 容器自动化',     icon: '📱', color: 'from-green-500/20 to-emerald-500/20', border: 'border-green-500/30', accent: 'text-green-400' },
+  { key: 'usb',       label: '真手机',       desc: 'USB 直连真机',     icon: '📲', color: 'from-cyan-500/20 to-blue-500/20', border: 'border-cyan-500/30', accent: 'text-cyan-400' },
+  { key: 'manual',    label: '指纹浏览器',   desc: '浏览器脚本发布',   icon: '🌐', color: 'from-purple-500/20 to-violet-500/20', border: 'border-purple-500/30', accent: 'text-purple-400' },
+  { key: 'official',  label: '官方API',      desc: '平台开放接口',     icon: '🔗', color: 'from-blue-500/20 to-cyan-500/20', border: 'border-blue-500/30', accent: 'text-blue-400' },
 ]
 
 interface Account {
@@ -121,7 +122,7 @@ export default function AccountsPage() {
     if (!user) return
     fetch('/api/accounts', { credentials: 'include' }).then(r => r.json()).then(d => {
       const list = Array.isArray(d) ? d : d.data || []
-      setMySerials(list.filter((a: any) => a.bindType === 'imai' && a.platform === 'local-device').map((a: any) => a.accountId).filter(Boolean))
+      setMySerials(list.filter((a: any) => a.bindType === 'manual' && a.platform === 'local-device').map((a: any) => a.accountId).filter(Boolean))
     }).catch(() => {})
   }, [user])
 
@@ -373,7 +374,17 @@ export default function AccountsPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowAdd(false)}>
             <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <h3 className="text-white font-bold text-lg mb-1">📝 登记账号</h3>
-              <p className="text-xs text-gray-500 mb-5">登记后管理员会帮你绑定设备并填密码</p>
+              <p className="text-xs text-gray-500 mb-5">登记后管理员会帮你绑定设备并配置发布参数</p>
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 mb-5">
+                <p className="text-[11px] text-blue-300 font-medium mb-1">📋 填写说明</p>
+                <ul className="text-[10px] text-blue-400/80 space-y-0.5 list-disc list-inside">
+                  <li><span className="text-red-400">*</span> 昵称、平台为必填项</li>
+                  <li>绑定方式决定后续使用哪种设备/方式发布内容</li>
+                  <li>Q1群控 / 真手机：需管理员分配设备后才能使用</li>
+                  <li>指纹浏览器：需在客户端配置浏览器环境</li>
+                  <li>官方API：暂不支持，等待平台开放接口更新</li>
+                </ul>
+              </div>
               <label className="block text-xs text-gray-400 mb-1">昵称 <span className="text-red-400">*</span></label>
               <input className="input-dark w-full text-sm mb-4" placeholder="如：我的抖音号" value={nickname} onChange={e => setNickname(e.target.value)} />
               <label className="block text-xs text-gray-400 mb-2">选择平台 <span className="text-red-400">*</span> <span className="text-gray-600">（可多选）</span></label>

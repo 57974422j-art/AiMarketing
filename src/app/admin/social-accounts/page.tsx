@@ -13,8 +13,8 @@ interface AccountItem {
 
 const PLATFORM_ICON: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
 const PLATFORM_LABEL: Record<string, string> = { douyin: '抖音', kuaishou: '快手', xiaohongshu: '小红书', shipinhao: '视频号', weibo: '微博', bilibili: 'B站' }
-const BIND_TYPE_LABEL: Record<string, string> = { device: 'Q1 群控', imai: 'IMAI WORK', official: '官方API' }
-const BIND_TYPE_COLOR: Record<string, string> = { device: 'bg-blue-500/20 text-blue-400 border-blue-500/30', imai: 'bg-purple-500/20 text-purple-400 border-purple-500/30', official: 'bg-orange-500/20 text-orange-400 border-orange-500/30' }
+const BIND_TYPE_LABEL: Record<string, string> = { device: 'Q1 群控', usb: '真手机', manual: '指纹浏览器', official: '官方API' }
+const BIND_TYPE_COLOR: Record<string, string> = { device: 'bg-blue-500/20 text-blue-400 border-blue-500/30', usb: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30', manual: 'bg-purple-500/20 text-purple-400 border-purple-500/30', official: 'bg-orange-500/20 text-orange-400 border-orange-500/30' }
 const STATUS_COLOR: Record<string, string> = { '未绑定': 'bg-gray-500/20 text-gray-400 border-gray-500/30', '已绑定': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', '登录异常': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', '已封禁': 'bg-red-500/20 text-red-400 border-red-500/30' }
 
 function NoAccess() { return <div className="bg-gray-950 p-4 text-gray-400 text-sm">无权访问</div> }
@@ -142,7 +142,7 @@ export default function SocialAccountsPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowCreate(false)}>
             <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
               <h3 className="text-white font-bold mb-1">新建账号</h3>
-              <p className="text-xs text-gray-500 mb-4">选择绑定方式：Q1 群控 / IMAI WORK / 官方API</p>
+              <p className="text-xs text-gray-500 mb-4">选择绑定方式：Q1 群控 / 真手机 / 指纹浏览器 / 官方API</p>
               <div className="space-y-3">
                 <select className="input-dark w-full text-sm" value={createForm.platform} onChange={e => setCreateForm(p => ({ ...p, platform: e.target.value }))}>
                   <option value="douyin" className="bg-gray-900">🎵 抖音</option>
@@ -162,8 +162,9 @@ export default function SocialAccountsPage() {
                   <label className="text-xs text-gray-500 mb-1 block">绑定方式</label>
                   <div className="flex gap-2">
                     {[
-                      { value: 'device', label: '📱 Q1 群控', desc: '真机自动化' },
-                      { value: 'imai', label: '🚀 IMAI WORK', desc: 'AI云手机' },
+                      { value: 'device', label: '📱 Q1 群控', desc: '容器自动化' },
+                      { value: 'usb', label: '📲 真手机', desc: 'USB直连' },
+                      { value: 'manual', label: '🌐 指纹浏览器', desc: '脚本发布' },
                       { value: 'official', label: '🔌 官方API', desc: '开放平台' },
                     ].map(opt => (
                       <button key={opt.value} onClick={() => setCreateForm(p => ({ ...p, bindType: opt.value }))}
