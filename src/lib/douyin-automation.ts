@@ -1302,6 +1302,13 @@ export async function aiPublishVideoWorkflow(
     console.log(`[${TS()}] [操作] ${result.action}: ${result.message}`)
 
     if (result.success) {
+      // ★★ 内部进展：复合步骤的子步骤完成（页面不切换），跳过验证直接继续 ★★
+      if (result.internalProgress) {
+        console.log(`[${TS()}] [内部进展] ${currentStep}.${_editSubStep || _topicSubStep || _poiSubStep || '?'} → ${result.action}`)
+        await sleep(result.waitMs, signal)
+        continue
+      }
+
       // ★★ 关键：等页面加载后，验证是否真到了下一步！
       await sleep(result.waitMs, signal)
       // 验证时重新截图（页面可能已变化）
@@ -1324,7 +1331,15 @@ export async function aiPublishVideoWorkflow(
          verify.step === 'SELECT_TOPIC' || verify.step === 'SELECT_POI' || verify.step === 'PUBLISH_BTN')
       )
 
-      if (verify.step === expectedNext || isLegitimateDone || validFromAlbumPick) {
+      // ★★ 复合步骤内部完成：EDIT_TITLE/SELECT_TOPIC/SELECT_POI 的所有子步骤已执行完毕，
+      //    页面仍在当前步骤（正常，因为子步骤不跨页），应该直接推送到下一步 ★★
+      const compoundStepDone = !result.internalProgress && (
+        (currentStep === 'EDIT_TITLE' && verify.step === 'EDIT_TITLE') ||
+        (currentStep === 'SELECT_TOPIC' && verify.step === 'SELECT_TOPIC') ||
+        (currentStep === 'SELECT_POI' && verify.step === 'SELECT_POI')
+      )
+
+      if (verify.step === expectedNext || isLegitimateDone || validFromAlbumPick || compoundStepDone) {
         // 页面正确切换 → 推进步骤
         stepRetryCount = 0
         if (isLegitimateDone) {
@@ -1333,6 +1348,8 @@ export async function aiPublishVideoWorkflow(
         }
         if (validFromAlbumPick) {
           console.log(`[${TS()}] [✓推进-ALBUM] ${currentStep} → ${verify.step} (允许从相册页多步跳跃)`)
+        } else if (compoundStepDone) {
+          console.log(`[${TS()}] [✓推进-复合步骤] ${currentStep} → ${expectedNext} (子步骤全部完成，页面不切换)`)
         } else {
           console.log(`[${TS()}] [✓推进] ${currentStep} → ${verify.step}`)
         }
@@ -1360,6 +1377,9 @@ export async function aiPublishVideoWorkflow(
           // 从ALBUM_PICK跳到编辑或之后 → 确保经过 EDIT_TITLE
           console.log(`[${TS()}] [✓推进-ALBUM→编辑] ${currentStep} → EDIT_TITLE (实际检测到${verify.step})`)
           currentStep = 'EDIT_TITLE'
+        } else if (compoundStepDone) {
+          // ★ 复合步骤完成：直接推进到下一步（页面不切换是正常的）
+          currentStep = expectedNext
         } else {
           currentStep = verify.step
         }
@@ -1537,6 +1557,8 @@ interface StepResult {
   action: string
   message: string
   waitMs: number
+  /** ★ 内部进展标记：true = 复合步骤的子步骤完成（页面不切换），主循环应跳过页面验证直接continue */
+  internalProgress?: boolean
 }
 
 /**
@@ -2305,7 +2327,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
           await doTap(apiPort, xmlTitle.x, xmlTitle.y, signal, adb)
           await sleep(1500, signal) // 等待键盘弹出
           _editSubStep = 'INPUT_TITLE'
-          return { success: true, action: '点击标题框', message: `(${xmlTitle.x},${xmlTitle.y})`, waitMs: 10000 }
+          return { success: true, action: '点击标题框', message: `(${xmlTitle.x},${xmlTitle.y})`, waitMs: 10000, internalProgress: true }
         }
         // 兜底：用 locateByText（要求clickable=true）
         const fallbackTitle = await locateByText(apiPort, [
@@ -2316,7 +2338,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
           await doTap(apiPort, fallbackTitle.x, fallbackTitle.y, signal, adb)
           await sleep(1500, signal)
           _editSubStep = 'INPUT_TITLE'
-          return { success: true, action: '点击标题框(备用)', message: `(${fallbackTitle.x},${fallbackTitle.y})`, waitMs: 10000 }
+          return { success: true, action: '点击标题框(备用)', message: `(${fallbackTitle.x},${fallbackTitle.y})`, waitMs: 10000, internalProgress: true }
         }
 
         // VL兜底
@@ -2326,7 +2348,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
           await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
           await sleep(1500, signal)
           _editSubStep = 'INPUT_TITLE'
-          return { success: true, action: 'VL点击标题框', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 10000 }
+          return { success: true, action: 'VL点击标题框', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 10000, internalProgress: true }
         }
 
         return { success: false, action: '标题框定位失败', message: '未找到', waitMs: 3000 }
@@ -2351,7 +2373,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
         await sleep(10000, signal) // ★ 等待10秒让UI刷新
         _editSubStep = 'VERIFY_TITLE'
         // 不返回success——下一轮循环会进入VERIFY_TITLE
-        return { success: true, action: '输入标题完成', message: fullText.substring(0, 30), waitMs: 2000 }
+        return { success: true, action: '输入标题完成', message: fullText.substring(0, 30), waitMs: 2000, internalProgress: true }
       }
 
       // ════════ Sub-C: 验证标题是否成功输入 ════════
@@ -2380,7 +2402,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
             if (titleFound) {
               console.log(`[编辑-标题验证✓] 标题已成功输入！准备处理话题标签...`)
               _editSubStep = 'ADD_TOPICS'
-              return { success: true, action: '标题验证通过', message: '标题已确认输入', waitMs: 10000 }
+              return { success: true, action: '标题验证通过', message: '标题已确认输入', waitMs: 10000, internalProgress: true }
             } else {
               // 标题没找到 — 可能是输入方式问题，重试一次
               console.log(`[编辑-标题验证✗] 未在页面找到标题内容 "${titlePreview}..."，可能输入失败`)
@@ -2395,7 +2417,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
         // XML失败时默认继续（可能是XML解析问题但实际已输入）
         console.log(`[编辑-标题验证] XML获取失败，假设输入成功，继续...`)
         _editSubStep = 'ADD_TOPICS'
-        return { success: true, action: '跳过验证(XML失败)', message: '', waitMs: 10000 }
+        return { success: true, action: '跳过验证(XML失败)', message: '', waitMs: 10000, internalProgress: true }
       }
 
       // ════════ Sub-D: 添加话题标签（VLM双图验证）═══════
@@ -2403,7 +2425,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
         if (!_safeTopics || _safeTopics.trim().length === 0) {
           console.log(`[编辑-标签] 无话题配置, 跳过标签步骤`)
           _editSubStep = '' // 重置子步骤
-          return { success: true, action: '跳过标签(空)', message: '', waitMs: 10000 }
+          return { success: true, action: '跳过标签(空)', message: '', waitMs: 10000, internalProgress: true }
         }
 
         // ★★ VLM 验证：当前是否在编辑主页（还没点进话题页）★★
@@ -2451,14 +2473,14 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
                 await doTap(apiPort, firstResult.x, firstResult.y, signal, adb)
                 await sleep(10000, signal) // 等10秒
                 _editSubStep = 'VERIFY_TOPICS'
-                return { success: true, action: '选择话题完成', message: firstTopic, waitMs: 10000 }
+                return { success: true, action: '选择话题完成', message: firstTopic, waitMs: 10000, internalProgress: true }
               }
               // 兜底：点屏幕中部
               const fallbackY = Math.round(screenH * 0.45)
               await doTap(apiPort, 540, fallbackY, signal, adb)
               await sleep(10000, signal)
               _editSubStep = 'VERIFY_TOPICS'
-              return { success: true, action: '话题兜底点击', message: firstTopic, waitMs: 10000 }
+              return { success: true, action: '话题兜底点击', message: firstTopic, waitMs: 10000, internalProgress: true }
             }
             // 无搜索框：直接找包含话题词的节点
             console.log(`[编辑-标签] 未找到搜索框, 直接匹配...`)
@@ -2467,20 +2489,20 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
               await doTap(apiPort, directMatch.x, directMatch.y, signal, adb)
               await sleep(10000, signal)
               _editSubStep = 'VERIFY_TOPICS'
-              return { success: true, action: '直接选择话题', message: firstTopic, waitMs: 10000 }
+              return { success: true, action: '直接选择话题', message: firstTopic, waitMs: 10000, internalProgress: true }
             }
           }
 
           // 点了话题按钮但没搜/选，等一下再验证
           await sleep(10000, signal)
           _editSubStep = 'VERIFY_TOPICS'
-          return { success: true, action: '已点击话题入口', message: '', waitMs: 10000 }
+          return { success: true, action: '已点击话题入口', message: '', waitMs: 10000, internalProgress: true }
         }
 
         // 没有话题按钮，可能已经输入了（标题里带#话题），直接验证
         console.log(`[编辑-标签✗] 未找到话题按钮，检查是否已有标签...`)
         _editSubStep = 'VERIFY_TOPICS'
-        return { success: true, action: '跳过添加(无按钮)', message: '', waitMs: 5000 }
+        return { success: true, action: '跳过添加(无按钮)', message: '', waitMs: 5000, internalProgress: true }
       }
 
       // ════════ Sub-E: 验证话题标签是否添加成功 ════════
@@ -2555,7 +2577,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
           console.log(`[话题✓] 点击入口 (${entryBtn.x},${entryBtn.y}) textHint="${entryBtn.textHint}"`)
           await doTap(apiPort, entryBtn.x, entryBtn.y, signal, adb)
           _topicSubStep = 'SEARCH_INPUT'   // 下轮进入搜索
-          return { success: true, action: '点击话题入口', message: `(${entryBtn.x},${entryBtn.y})`, waitMs: 3000 }
+          return { success: true, action: '点击话题入口', message: `(${entryBtn.x},${entryBtn.y})`, waitMs: 3000, internalProgress: true }
         }
         // ★ 不再用"已有#标签"来判断是否已完成 — 那些可能是历史残留 ★
         console.log(`[话题⚠] 编辑页未找到"话题"入口按钮`)
@@ -2586,7 +2608,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
             await doInput(apiPort, firstKw, signal, adb)
             console.log(`[话题-搜索✓] 输入关键词: "${firstKw}"`)
             _topicSubStep = 'PICK_RESULT'
-            return { success: true, action: '话题-输入关键词', message: firstKw, waitMs: 3000 } // 等搜索结果加载
+            return { success: true, action: '话题-输入关键词', message: firstKw, waitMs: 3000, internalProgress: true } // 等搜索结果加载
           }
         }
 
@@ -2702,7 +2724,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
             console.log(`[位置✓] 点击入口 (${entryBtn.x},${entryBtn.y}) textHint="${entryBtn.textHint}"`)
             await doTap(apiPort, entryBtn.x, entryBtn.y, signal, adb)
             _poiSubStep = 'SEARCH'
-            return { success: true, action: '点击位置入口', message: `(${entryBtn.x},${entryBtn.y})`, waitMs: 3000 }
+            return { success: true, action: '点击位置入口', message: `(${entryBtn.x},${entryBtn.y})`, waitMs: 3000, internalProgress: true }
           }
 
           console.log(`[位置⚠] 编辑页未找到位置入口按钮，尝试按已在位置页处理...`)
@@ -2725,7 +2747,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
             await doInput(apiPort, cityName, signal, adb)
             console.log(`[位置-搜索✓] 输入城市: "${cityName}"`)
             _poiSubStep = 'PICK'
-            return { success: true, action: '位置-输入城市', message: cityName, waitMs: 3000 } // 等搜索结果
+            return { success: true, action: '位置-输入城市', message: cityName, waitMs: 3000, internalProgress: true } // 等搜索结果
           }
         }
 
