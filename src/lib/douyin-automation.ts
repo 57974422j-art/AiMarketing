@@ -417,11 +417,25 @@ async function detectCurrentPage(
     // 按优先级匹配页面特征
 
     // --- 发布成功 ---
+    // ★★ 关键修复：必须排除编辑页/发布页的提示性文字！
+    // 抖音编辑页底部有 "发布成功后将保存内容至本地" 提示，
+    // 包含 "发布成功" 但实际还在编辑阶段，不是真的发布完成。
+    // 真正的发布成功页面：只有成功提示 + 返回首页按钮，没有编辑功能
     const doneKeywords = ['发布成功', '已发布', '上传完成']
     const doneMatch = texts.find(t => doneKeywords.some(k => t.includes(k)))
     if (doneMatch) {
-      console.log(`[detect-DONE] 匹配到"${doneMatch}" | 全部texts=[${texts.slice(0, 15).join(', ')}] | clickable=[${clickableTexts.slice(0, 10).join(', ')}]`)
-      return { step: 'DONE', evidence: `检测到"${doneMatch}"`, xmlTexts: clickableTexts, isDesktop: false }
+      // ★ 排除法：如果同时存在编辑页/发布页特征 → 不是真正的DONE
+      const editPageHints = ['添加标题', '添加描述', '请填写', '#添加话题', '发作品',
+        '所在位置', '已选标签', '公开', '付费可看', '编辑封面', '拍同款', '分享']
+      const hasEditFeature = texts.some(t => editPageHints.some(h => t.includes(h)))
+      const pubBtnHints = clickableTexts.filter(t => t.includes('发布') || t.includes('发作品'))
+      if (hasEditFeature || pubBtnHints.length > 0) {
+        console.log(`[detect-DONE排除] "${doneMatch}"是编辑页提示(有编辑特征:${texts.find(t => editPageHints.some(h => t.includes(h)))}, 发布按钮:${pubBtnHints.join(',')})，不是真正DONE`)
+        // 不返回 DONE，继续走下面的检测逻辑（应该命中 EDIT_TITLE 或 PUBLISH_BTN）
+      } else {
+        console.log(`[detect-DONE✓] 确认发布完成: "${doneMatch}" | 无编辑特征 | texts=[${texts.slice(0, 15).join(', ')}]`)
+        return { step: 'DONE', evidence: `检测到"${doneMatch}"`, xmlTexts: clickableTexts, isDesktop: false }
+      }
     }
 
     // --- 发布页：有"发布"/"发作品" 按钮 ---
@@ -1580,29 +1594,26 @@ async function executeStep(
         console.log(`[预览页] 使用VL视觉定位"下一步"按钮...`)
         const vlNextBtn = await locateElement(
           b64,
-          `这是抖音APP的【视频预览/编辑页面】(屏幕${screenW}x${screenH})。
-当前页面显示一个已选中的视频预览，可能有编辑工具栏（剪辑/文字/话题/特效/滤镜等）。
-屏幕底部右侧有一个【粉红色/玫红色的圆角矩形大按钮】，上面写着白色的"下一步"三个字。
-这个按钮是整个页面最显眼的可点击元素。
+          `抖音APP视频预览编辑页(${screenW}x${screenH})。
+在屏幕【最底部右侧】有一个【粉红色圆角大按钮】，上面写着白色的"下一步"三个字。
+这是整个屏幕最醒目的按钮。
 
-请返回这个"下一步"按钮的精确中心坐标。注意：
-- 按钮颜色是粉红/玫红色（不是红色、不是灰色）
-- 位置在屏幕右下角区域（底部）
-- 如果看不到这个按钮就返回null
+请返回这个按钮的中心坐标(x,y)。
+重要约束：y坐标必须在 ${Math.round(screenH*0.80)} ~ ${screenH} 之间（屏幕底部20%区域内）！
+x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）！
 
-严格按JSON返回: {"x":数字, "y":数字} 或 null`
+如果找不到就返回null。只返回JSON: {"x":数字,"y":数字}`
         )
-        if (vlNextBtn && vlNextBtn.y > screenH * 0.70) {
-          // VL 返回了合理坐标（在屏幕下70%区域）
+        if (vlNextBtn && vlNextBtn.y > screenH * 0.70 && vlNextBtn.x > screenW * 0.50) {
+          // VL 返回了合理坐标（在屏幕下70%区域，右侧50%）
           clickX = vlNextBtn.x
           clickY = vlNextBtn.y
           coordSource = `VL视觉(${clickX},${clickY})`
-          console.log(`[预览页-VL✓] AI定位到"下一步" → (${clickX},${clickY}) y=${clickY}/${screenH}=底部${((clickY/screenH)*100).toFixed(0)}%`)
+          console.log(`[预览页-VL✓] AI定位到"下一步" → (${clickX},${clickY}) 底部${((clickY/screenH)*100).toFixed(0)}% 右侧${((clickX/screenW)*100).toFixed(0)}%`)
         } else if (vlNextBtn) {
-          // VL 返回了但坐标不合理（太靠上）
-          console.log(`[预览页-VL⚠] AI返回(${vlNextBtn.x},${vlNextBtn.y})但y太靠上(<${Math.round(screenH*0.70)})，忽略`)
+          console.log(`[预览页-VL⚠] AI返回(${vlNextBtn.x},${vlNextBtn.y})不在有效区域(x>${Math.round(screenW*0.50)},y>${Math.round(screenH*0.70)})，忽略`)
         } else {
-          console.log(`[预览页-VL✗] AI未识别到"下一步"按钮，尝试其他方式...`)
+          console.log(`[预览页-VL✗] AI未识别到"下一步"按钮`)
         }
       } catch (e) {
         console.log(`[预览页-VL] 异常: ${e}`)
@@ -1621,6 +1632,52 @@ async function executeStep(
             console.log(`[预览页-XML✗] 未找到"下一步/确定/完成"文字`)
           }
         } catch {}
+      }
+
+      // ★★ Layer 3: 右下角多候选坐标阵列扫描（替代单一固定坐标！）★★
+      // 原因：固定坐标(828,2244)在不同页面可能对应不同按钮，
+      // 用3~5个候选坐标依次尝试，增加命中率
+      if (!coordSource || coordSource === 'unknown') {
+        // 候选坐标列表（从最可能的到备选的），覆盖右下角不同位置
+        const candidates = [
+          { x: Math.round(screenW * 0.77), y: Math.round(screenH * 0.96), desc: '原校正值' },   // (828,2244)
+          { x: Math.round(screenW * 0.85), y: Math.round(screenH * 0.92), desc: '右上移' },       // 更靠上一点
+          { x: Math.round(screenW * 0.72), y: Math.round(screenH * 0.95), desc: '左移' },         // 左移一点
+          { x: Math.round(screenW * 0.80), y: Math.round(screenH * 0.88), desc: '更高' },         // 再高一些
+          { x: Math.round(screenW * 0.65), y: Math.round(screenH * 0.94), desc: '中右' },         // 屏幕中右侧
+        ]
+        console.log(`[预览页] VL+XML均失败，启动多候选坐标扫描(共${candidates.length}个)...`)
+
+        // 逐个尝试候选坐标
+        for (let i = 0; i < candidates.length; i++) {
+          const cand = candidates[i]
+          console.log(`[预览页] 尝试候选#${i + 1}: (${cand.x},${cand.y}) [${cand.desc}]`)
+          await smartTap(apiPort, cand.x, cand.y, 220 + Math.floor(Math.random() * 81), signal, adb)
+
+          // 点击后等2秒检测是否离开了预览页
+          await sleep(2000, signal)
+          try {
+            const postTapCheck = await detectCurrentPage(apiPort)
+            console.log(`[预览页-验证#${i + 1}] 点击后=${postTapCheck.step}`)
+            // 如果离开 VIDEO_PREVIEW（进入 EDIT_TITLE/PUBLISH_BTN/HOME_PLUS 等），说明命中了
+            if (postTapCheck.step !== 'VIDEO_PREVIEW') {
+              console.log(`[预览页-命中✓] 候选#${i + 1} 成功！→ ${postTapCheck.step}`)
+              return {
+                success: true,
+                action: `预览页点"下一步"(候选#${i + 1})`,
+                message: `(${cand.x},${cand.y}) [${cand.desc}]`,
+                waitMs: 5000
+              }
+            }
+          } catch {}
+        }
+
+        // 所有候选坐标都没命中 → 用最后一个作为返回值（让主循环重试）
+        const lastCand = candidates[candidates.length - 1]
+        clickX = lastCand.x
+        clickY = lastCand.y
+        coordSource = `多候选扫描(全部失败,最后:${lastCand.desc})`
+        console.log(`[预览页] ⚠ 全部${candidates.length}个候选坐标都未命中"下一步"`)
       }
 
       // ★★ Layer 3: 固定比例坐标兜底（最后手段）★
