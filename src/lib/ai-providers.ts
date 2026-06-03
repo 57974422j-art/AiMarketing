@@ -1007,7 +1007,7 @@ async function dashscopeLocateButton(base64Image: string, buttonDesc: string): P
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'qwen-vl-max',
+        model: 'qwen-vl-plus',
         messages: [{
           role: 'user',
           content: [
@@ -1092,7 +1092,7 @@ async function dashscopeDescribeScreen(base64Image: string): Promise<string | nu
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'qwen-vl-max',
+        model: 'qwen-vl-plus',
         messages: [{
           role: 'user',
           content: [
@@ -1168,7 +1168,7 @@ async function dd(milestone: string, goal: string, b64: string, scr: SC): Promis
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({ model: 'qwen-vl-max', messages: [{ role: 'user', content: [{ type: 'text', text: p }, { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } }] }], temperature: 0.2, max_tokens: 1000, response_format: { type: 'json_object' } }),
+      body: JSON.stringify({ model: 'qwen-vl-plus', messages: [{ role: 'user', content: [{ type: 'text', text: p }, { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } }] }], temperature: 0.2, max_tokens: 1000, response_format: { type: 'json_object' } }),
     })
     const rt = data?.choices?.[0]?.message?.content?.trim()
     if (!rt) return null
@@ -1236,7 +1236,7 @@ export async function locateElement(base64Image: string, elementDesc: string): P
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'qwen-vl-max',
+        model: 'qwen-vl-plus',
         messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }] }],
         temperature: 0.1,
         max_tokens: 100,

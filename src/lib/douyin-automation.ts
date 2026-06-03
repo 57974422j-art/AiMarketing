@@ -201,10 +201,118 @@ function getFixedCoords(
 }
 
 /**
+ * 执行shell命令并获取完整输出（用于判断是否真正成功）
+ */
+async function execShell(
+  apiPort: number,
+  cmd: string,
+  signal?: AbortSignal,
+  adb?: ADB | null
+): Promise<{ ok: boolean; output: string }> {
+  try {
+    if (adb) {
+      const out = adb.shell(cmd)
+      return { ok: out.success, output: String(out.output || '') }
+    } else {
+      const out = await sh(apiPort, cmd, signal)
+      return { ok: true, output: String(out || '') }
+    }
+  } catch (e) {
+    return { ok: false, output: String(e) }
+  }
+}
+
+/** 检查shell输出是否表示错误 */
+function isShellError(output: string): boolean {
+  const err = ['no shell command', 'not found', 'error', 'failed', 'permission denied',
+    'dead object', 'null', 'exception', 'runtime error']
+  const lower = output.toLowerCase().trim()
+  if (!lower && !output.includes('result') && !output.includes('parcel')) return true
+  return err.some(e => lower.includes(e))
+}
+
+// ==================== 中文输入方案（魔云腾MYTOS容器适配）====================
+// 官方文档3种方式：
+//   1. 虚拟输入法（安装搜狗等）+ 控制端点击
+//   2. PC客户端剪贴板同步/输入法功能
+//   3. ADB命令（只支持英文/数字）
+
+// 缓存设备探测结果（避免每次都探测）
+let _inputEnvCache: { imeList: string[]; hasAdbKeyboard: boolean; defaultIme: string } | null = null
+
+/**
+ * 探测设备输入环境（只执行一次，结果缓存）
+ */
+async function detectInputEnv(apiPort: number, signal?: AbortSignal, adb?: ADB | null): Promise<typeof _inputEnvCache> {
+  if (_inputEnvCache) return _inputEnvCache
+
+  console.log(`[doInput-探测] 正在检测设备输入环境...`)
+
+  // 1. 列出已安装的输入法
+  let imeList: string[] = []
+  try {
+    const imeResult = await execShell(apiPort, 'ime list -s', signal, adb)
+    if (imeResult.ok && imeResult.output) {
+      imeList = imeResult.output.trim().split('\n').filter(s => s.trim())
+      console.log(`[doInput-探测] 已安装输入法(${imeList.length}): ${imeList.join(' / ')}`)
+    }
+  } catch {}
+
+  // 2. 检查默认输入法
+  let defaultIme = ''
+  try {
+    const defResult = await execShell(apiPort, 'settings get secure default_input_method', signal, adb)
+    if (defResult.ok && defResult.output && !isShellError(defResult.output)) {
+      defaultIme = defResult.output.trim()
+      console.log(`[doInput-探测] 当前默认输入法: ${defaultIme}`)
+    }
+  } catch {}
+
+  // 3. 检查是否安装了 AdbKeyboard（专门解决ADB中文输入的开源app）
+  let hasAdbKeyboard = false
+  try {
+    const pkgCheck = await execShell(apiPort, 'pm list packages | grep android.adbkeyboard', signal, adb)
+    hasAdbKeyboard = pkgCheck.ok && pkgCheck.output.includes('android.adbkeyboard')
+    console.log(`[doInput-探测] AdbKeyboard: ${hasAdbKeyboard ? '✓已安装' : '✗未安装'}`)
+  } catch {}
+
+  // 4. 检查常用中文输入法
+  const chineseIMEKeywords = ['sogou', 'baidu', 'iflytek', 'qqinput', 'pinyin', 'google.pinyin']
+  const foundChineseIME = imeList.find(ime => chineseIMEKeywords.some(k => ime.toLowerCase().includes(k)))
+  if (foundChineseIME) {
+    console.log(`[doInput-探测] 发现中文输入法: ${foundChineseIME} → 可用于中文输入`)
+  }
+
+  _inputEnvCache = { imeList, hasAdbKeyboard, defaultIme }
+  return _inputEnvCache
+}
+
+/**
+ * 将中文文本转为Unicode码点序列格式
+ * 某些自定义ROM的 input text 支持 \UXXXXXXXX 格式
+ */
+function toUnicodeEscape(text: string): string {
+  return Array.from(text).map(ch => {
+    const code = ch.codePointAt(0)!
+    return code > 0x7F ? `\\u${code.toString(16).padStart(4, '0')}` : ch
+  }).join('')
+}
+
+/**
  * 通过ADB向设备输入文本。
+ *
  * 纯ASCII文本直接用 `input text`；
- * 包含中文等非ASCII字符时自动切换到「剪贴板+粘贴」方案，
- * 因为 Android 的 input text 不支持 Unicode（传中文会触发 NullPointerException）。
+ * 包含中文等非ASCII字符时使用多级降级策略（针对魔云腾MYTOS容器优化）
+ *
+ * ★ 输入策略优先级：
+ *   0. 纯ASCII → 直接 input text
+ *   1. AdbKeyboard App（最可靠，需预先安装）
+ *   2. 切换到已安装的中文输入法（搜狗/百度/讯飞等）
+ *   3. cmd clipboard（Android 10+ 标准命令）
+ *   4. service call clipboard（旧版兼容）
+ *   5. content insert（部分ROM）
+ *   6. Unicode转义格式（极少数ROM支持）
+ *   7. raw input text（最后尝试）
  */
 async function doInput(
   apiPort: number,
@@ -212,69 +320,173 @@ async function doInput(
   signal?: AbortSignal,
   adb?: ADB | null
 ): Promise<boolean> {
-  // 判断是否包含非ASCII字符（中文、emoji等）
+  // ── 阶段0: 纯ASCII直接输入 ──
   const hasNonAscii = /[^\x00-\x7F]/.test(text)
-
   if (!hasNonAscii) {
-    // ── 纯英文/数字/符号：直接用 input text ──
     const safeText = text.replace(/"/g, '\\"').replace(/\$/g, '\\$')
     if (adb) {
-      try {
-        adb.inputText(text)
-        return true
-      } catch (e) {
-        console.warn(`[doInput] adb.inputText 失败, 降级到HTTP: ${e}`)
-        return sh(apiPort, `input text "${safeText}"`, signal)
-      }
+      try { adb.inputText(text); return true }
+      catch (e) { console.warn(`[doInput] inputText失败,降级HTTP: ${e}`); return sh(apiPort, `input text "${safeText}"`, signal) }
     }
     return sh(apiPort, `input text "${safeText}"`, signal)
   }
 
-  // ── 包含非ASCII字符（中文等）：剪贴板粘贴方案 ──
-  console.log(`[doInput] 检测到非ASCII字符(长度=${text.length})，使用剪贴板方式输入`)
+  // ── 非ASCII字符(中文等)：多级降级策略 ──
+  console.log(`[doInput] 中文文本(长度=${text.length}): "${text.substring(0, 20)}..."`)
 
-  // 方案A: cmd clipboard（Android 10+ / API 29+）
-  const methods: Array<{ name: string; fn: () => Promise<boolean> }> = [
-    {
-      name: 'cmd clipboard',
-      fn: async () => {
-        // 单引号包裹避免shell展开问题；文本内单引号用 '\'' 替代
-        const escaped = text.replace(/'/g, "'\\''")
-        const clipCmd = `cmd clipboard '${escaped}'`
-        if (adb) { adb.shell(clipCmd) } else { await sh(apiPort, clipCmd, signal) }
-        await sleep(150, signal)
-        const pasteCmd = 'input keyevent KEYCODE_PASTE'
-        if (adb) { adb.shell(pasteCmd) } else { await sh(apiPort, pasteCmd, signal) }
-        return true
-      },
-    },
-    {
-      name: 'service call clipboard',
-      fn: async () => {
-        // 兼容旧版Android；s16 后面跟UTF-16字符串
-        const escaped = text.replace(/"/g, '')
-        const svcCmd = `service call clipboard 2 i32 1 s16 "${escaped}" i32 0 i32 0`
-        if (adb) { adb.shell(svcCmd) } else { await sh(apiPort, svcCmd, signal) }
-        await sleep(150, signal)
-        const pasteCmd = 'input keyevent KEYCODE_PASTE'
-        if (adb) { adb.shell(pasteCmd) } else { await sh(apiPort, pasteCmd, signal) }
-        return true
-      },
-    },
-  ]
+  // 先探测设备环境
+  const env = await detectInputEnv(apiPort, signal, adb)
 
-  for (const method of methods) {
+  // ════════ 方法1: AdbKeyboard App ════════
+  // 开源项目 https://github.com/nicehash/AdbKeyboard
+  // 用法: am broadcast -a ADB_INPUT_TEXT --es msg "中文"
+  if (env.hasAdbKeyboard) {
+    console.log(`[doInput-1] AdbKeyboard: 发送广播...`)
     try {
-      console.log(`[doInput] 尝试: ${method.name}`)
-      await method.fn()
-      console.log(`[doInput✓] ${method.name} 输入成功`)
-      return true
+      const escaped = text.replace(/"/g, '\\"').replace(/'/g, "'\\''")
+      const r = await execShell(apiPort, `am broadcast -a ADB_INPUT_TEXT --es msg '${escaped}'`, signal, adb)
+      if (r.ok && r.output.includes('result')) {
+        console.log(`[doInput✓] [1-AdbKeyboard] 成功!`)
+        return true
+      }
+      console.log(`[doInput⚠] [1-AdbKeyboard] 返回: ${r.output.trim()}`)
     } catch (e) {
-      console.warn(`[doInput⚠] ${method.name} 失败: ${e}`)
+      console.warn(`[doInput⚠] [1-AdbKeyboard] 异常: ${e}`)
+    }
+  } else {
+    console.log(`[doInput-1] AdbKeyboard 未安装,跳过`)
+  }
+
+  // ════════ 方法2: 切换到中文输入法 ════════
+  // 如果有搜狗/百度/讯飞等中文输入法，切换过去后用 input text
+  const chineseIMEPatterns = [
+    { pattern: /sogou/i, name: '搜狗输入法' },
+    { pattern: /baidu/i, name: '百度输入法' },
+    { pattern: /iflytek|flyme/i, name: '讯飞输入法' },
+    { pattern: /qqinput|qq/i, name: 'QQ输入法' },
+    { pattern: /pinyin/i, name: '拼音输入法' },
+  ]
+  for (const ime of chineseIMEPatterns) {
+    const match = env.imeList.find(i => i.match(ime.pattern))
+    if (match && match !== env.defaultIme) {
+      console.log(`[doInput-2] 尝试切换到: ${ime.name} (${match})`)
+      try {
+        // 保存当前输入法
+        const prevIme = env.defaultIme
+        // 切换到中文输入法
+        await execShell(apiPort, `ime set ${match}`, signal, adb)
+        await sleep(500, signal)
+        // 尝试发送文字（某些输入法的ADB实现可能支持中文）
+        const r = await execShell(apiPort, `input text "${text.replace(/"/g, '')}"`, signal, adb)
+        if (r.ok && !r.output.toLowerCase().includes('nullpointer') && !isShellError(r.output)) {
+          console.log(`[doInput✓] [2-${ime.name}] 通过${ime.name}输入成功!`)
+          return true
+        }
+        console.log(`[doInput⚠] [2-${ime.name}] 输入失败: ${r.output.trim()}. 恢复原输入法...`)
+        // 恢复原输入法
+        if (prevIme) await execShell(apiPort, `ime set ${prevIme}`, signal, adb)
+      } catch (e) {
+        console.warn(`[doInput⚠] [2-${ime.name}] 异常: ${e}`)
+      }
     }
   }
 
-  console.error(`[doInput✗] 所有输入方式均失败，文本未成功输入`)
+  // ════════ 方法3: cmd clipboard（标准Android 10+）═══════
+  console.log(`[doInput-3] 尝试: cmd clipboard`)
+  try {
+    const escaped = text.replace(/'/g, "'\\''")
+    const r = await execShell(apiPort, `cmd clipboard '${escaped}'`, signal, adb)
+    if (!isShellError(r.output)) {
+      await sleep(200, signal)
+      await execShell(apiPort, 'input keyevent KEYCODE_PASTE', signal, adb)
+      console.log(`[doInput✓] [3-cmd clipboard] 成功`)
+      return true
+    }
+    console.log(`[doInput⚠] [3-cmd clipboard] 失败: ${r.output.trim()}`)
+  } catch (e) {
+    console.warn(`[doInput⚠] [3-cmd clipboard] 异常: ${e}`)
+  }
+
+  // ════════ 方法4: service call clipboard（旧版兼容）═══════
+  console.log(`[doInput-4] 尝试: service call clipboard`)
+  try {
+    const svcCmd = `service call clipboard 2 i32 1 s16 "${text.replace(/[\\"]/g, '')}" i32 0 i32 0`
+    const r = await execShell(apiPort, svcCmd, signal, adb)
+    if (r.output.includes('result') || r.output.includes('Parcel')) {
+      await sleep(200, signal)
+      await execShell(apiPort, 'input keyevent KEYCODE_PASTE', signal, adb)
+      console.log(`[doInput✓] [4-service call] 成功 (${r.output.trim()})`)
+      return true
+    }
+    console.log(`[doInput⚠] [4-service call] 失败: ${r.output.trim()}`)
+  } catch (e) {
+    console.warn(`[doInput⚠] [4-service call] 异常: ${e}`)
+  }
+
+  // ════════ 方法5: content insert（需特殊权限）═══════
+  console.log(`[doInput-5] 尝试: content insert clipboard`)
+  try {
+    const uriEncoded = encodeURIComponent(text)
+    const r = await execShell(apiPort, `content insert --uri content://com.android.clipboard/data --bind text:s:"${uriEncoded}"`, signal, adb)
+    if (!isShellError(r.output)) {
+      await sleep(200, signal)
+      await execShell(apiPort, 'input keyevent KEYCODE_PASTE', signal, adb)
+      console.log(`[doInput✓] [5-content insert] 成功`)
+      return true
+    }
+    console.log(`[doInput⚠] [5-content insert] 失败: ${r.output.trim()}`)
+  } catch (e) {
+    console.warn(`[doInput⚠] [5-content insert] 异常: ${e}`)
+  }
+
+  // ════════ 方法6: Unicode escape 格式（极少数ROM）═══════
+  console.log(`[doInput-6] 尝试: Unicode escape格式`)
+  try {
+    const unicodeStr = toUnicodeEscape(text)
+    const r = await execShell(apiPort, `input text "${unicodeStr}"`, signal, adb)
+    if (r.ok && !r.output.toLowerCase().includes('nullpointer')) {
+      console.log(`[doInput✓] [6-Unicode escape] 完成 (效果待验证)`)
+      return true
+    }
+    console.log(`[doInput⚠] [6-Unicode escape] 失败: ${r.output.trim()}`)
+  } catch (e) {
+    console.warn(`[doInput⚠] [6-Unicode escape] 异常: ${e}`)
+  }
+
+  // ════════ 方法7: raw input text（最后尝试）═══════
+  console.log(`[doInput-7] 最后尝试: raw input text`)
+  try {
+    const safeText = text.replace(/"/g, '\\"').replace(/\$/g, '\\$')
+    const r = await execShell(apiPort, `input text "${safeText}"`, signal, adb)
+    if (r.ok && !r.output.toLowerCase().includes('nullpointer')) {
+      console.log(`[doInput✓] [7-raw] 完成`)
+      return true
+    }
+    console.log(`[doInput⚠] [7-raw] 失败: ${r.output.trim()}`)
+  } catch (e) {
+    console.warn(`[doInput⚠] [7-raw] 异常(NPE?): ${e}`)
+  }
+
+  // ════════ 全部失败：输出诊断信息和建议 ════════
+  console.error(`
+╔══════════════════════════════════════════════════════╗
+║  [doInput✗] 全部7种中文输入方法均失败！              ║
+║                                                      ║
+║  设备环境:                                            ║
+║    已安装输入法: ${env.imeList.length > 0 ? env.imeList.join(', ') : '(无)'}
+║    默认输入法: ${env.defaultIme || '(未知)'}
+║    AdbKeyboard: ${env.hasAdbKeyboard ? '已安装 ✓' : '未安装 ✗'}
+║                                                      ║
+║  建议操作（任选一种）:                                ║
+║  A. 在容器内安装 AdbKeyboard:                        ║
+║     adb push AdbKeyboard.apk /sdcard/                ║
+║     adb install /sdcard/AdbKeyboard.apk              ║
+║     adb shell ime set com.android.adbkeyboard/.AdbIME ║
+║     下载: github.com/nicehash/AdbKeyboard            ║
+║                                                      ║
+║  B. 在容器内安装搜狗/百度输入法                      ║
+║  C. 使用魔云腾PC客户端的剪贴板同步功能               ║
+╚══════════════════════════════════════════════════════╝`)
   return false
 }
 
@@ -359,7 +571,7 @@ async function verifyWithBaseline(
         'Authorization': `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: 'qwen-vl-max',
+        model: 'qwen-vl-plus',
         messages: [{
           role: 'user',
           content: [
@@ -534,6 +746,28 @@ async function detectCurrentPage(
     // 这个页面有两种形态：
     //   图2(纯预览): 暂停按钮 + 进度条 + "下一步" + "一键成片"/"推荐特效"
     //   图3(编辑工具): 右侧工具栏(剪辑/文字/话题/滤镜/设置/更多等) + 底部"下一步"
+    //
+    // ★★★ 检测优先级（从高到低）★★★
+    //   1. "下一步" 按钮 — 最可靠，所有形态的预览页都有
+    //   2. 编辑工具文字 — 剪辑/文字/话题等
+    //   3. 视频播放器UI — SeekBar/ProgressBar/暂停图标
+    //   4. VL视觉兜底 — AI看截图
+
+    // ── Layer 0: "下一步" 按钮检测（最高优先级！）──
+    const nextBtnText = texts.find(t => t === '下一步') || clickableTexts.find(t => t === '下一步')
+    if (nextBtnText) {
+      // 有"下一步"按钮 → 99%是视频预览/编辑页
+      // 排除法：确认不是其他页面（如某些设置弹窗）
+      const notPreviewHints = ['取消', '重试', '登录', '注册', '允许', '拒绝']
+      const hasNotPreview = texts.some(t => notPreviewHints.includes(t))
+      if (!hasNotPreview) {
+        console.log(`[detect-PREVIEW✓] 发现"下一步"按钮 → VIDEO_PREVIEW (最可靠信号) | texts=[${texts.slice(0, 12).join(', ')}]`)
+        return { step: 'VIDEO_PREVIEW', evidence: `视频预览/编辑页(有"下一步"按钮)`, xmlTexts: clickableTexts, isDesktop: false }
+      }
+      console.log(`[detect-PREVIEW?] 有"下一步"但同时有[${texts.find(t => notPreviewHints.includes(t))}]，继续检查...`)
+    }
+
+    // ── Layer 1: 编辑工具特征检测 ──
     const editToolFeatures = ['剪辑', '文字', '话题', '贴纸', '特效', '滤镜', '更多', '设置', '推荐特效', '一键成片', '限时']
     const hasEditTools = texts.some(t => editToolFeatures.includes(t))
     // 通过 XML 节点类型检测 SeekBar/ProgressBar（进度条）和暂停图标
@@ -1028,6 +1262,11 @@ export async function aiPublishVideoWorkflow(
               console.log(`[${TS()}] [ALBUM_PICK-异常重试] 异常${stepRetryCount}次(达上限)，不BACK不重启，强制回到CLICK_NEXT...`)
               _albumSubStep = 'CLICK_NEXT'
               stepRetryCount = 0
+            // ★★ EDIT_TITLE 特殊策略：不重启！重置子步骤继续尝试输入
+            } else if (currentStep === 'EDIT_TITLE') {
+              console.log(`[${TS()}] [EDIT_TITLE-异常重试] 异常${stepRetryCount}次(达上限)，不重启，重置子步骤重新输入...`)
+              _editSubStep = ''          // 回到子步骤起点（重新点击输入框+输入）
+              stepRetryCount = 0
             } else {
               console.log(`[${TS()}] [重置] 异常重试耗尽, 重启抖音...`)
               await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
@@ -1051,6 +1290,12 @@ export async function aiPublishVideoWorkflow(
           _albumSubStep = 'CLICK_NEXT'  // ★ 强制跳到点下一步
           stepRetryCount = 0            // 重置计数
           console.log(`[${TS()}] [重试] 已重置，下一轮将直接执行CLICK_NEXT`)
+        // ★★ EDIT_TITLE 特殊策略：不重启！重置子步骤继续输入
+        } else if (currentStep === 'EDIT_TITLE') {
+          console.log(`[${TS()}] [EDIT_TITLE-失败重试] 操作失败${stepRetryCount}次(达上限)，不重启，重试子步骤...`)
+          _editSubStep = ''           // 回到子步骤起点（重新点击输入框）
+          stepRetryCount = 0
+          console.log(`[${TS()}] [重试] 已重置，下一轮将重新点击标题框并尝试其他输入方法`)
         } else {
           console.log(`[${TS()}] [重置] ${currentStep} 失败${stepRetryCount}次, 重启抖音...`)
           await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
