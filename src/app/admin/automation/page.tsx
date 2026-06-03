@@ -31,6 +31,7 @@ export default function AutomationExecPage() {
   const [executing, setExecuting] = useState(false)
   const [records, setRecords] = useState<ExecRecord[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [stopping, setStopping] = useState(false)
 
   useEffect(() => {
     if (!authLoading && user) loadAll()
@@ -99,17 +100,24 @@ export default function AutomationExecPage() {
       } catch { showToast(`${acct.accountName} 执行异常`, 'error') }
     }
     setExecuting(false);
+    setStopping(false);
     (window as any).__execAborted = false
   }
 
-  const stopAll = () => {
-    (window as any).__execAborted = true
+  const stopAll = async () => {
+    if (stopping) return  // 防止重复点击
+    setStopping(true)
+    ;(window as any).__execAborted = true
     const selectedAccounts = accounts.filter(a => selected.has(a.id) && a.status === '已绑定')
-    selectedAccounts.forEach(acct => {
-      const device = devices.find(d => d.id === acct.deviceId)
-      if (device) fetch(`/api/devices/${device.id}/execute`, { method: 'DELETE', credentials: 'include' })
-    })
-    showToast('已发送停止信号')
+    await Promise.allSettled(
+      selectedAccounts.map(acct => {
+        const device = devices.find(d => d.id === acct.deviceId)
+        if (device) return fetch(`/api/devices/${device.id}/execute`, { method: 'DELETE', credentials: 'include' })
+        return Promise.resolve()
+      })
+    )
+    showToast('已发送停止信号，等待响应...')
+    // 等待执行循环结束（executing 变为 false 时自动恢复）
   }
 
   if (authLoading || loading) return <Loading />
@@ -156,7 +164,10 @@ export default function AutomationExecPage() {
           </div>
           <div className="flex gap-2">
             {executing && (
-              <button onClick={stopAll} className="text-sm px-6 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl hover:bg-red-500/30 font-medium">⏹ 停止</button>
+              <button onClick={stopAll} disabled={stopping}
+                className={`text-sm px-6 py-2 border rounded-xl font-medium transition ${stopping ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-wait' : 'bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30'}`}>
+                {stopping ? '⏳ 停止中...' : '⏹ 停止'}
+              </button>
             )}
             <button onClick={execute} disabled={executing || selected.size === 0 || !selectedTemplate}
               className="text-sm px-6 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 font-medium">

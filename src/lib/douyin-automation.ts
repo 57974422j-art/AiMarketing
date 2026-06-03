@@ -2553,102 +2553,92 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
     // ========================================
     // STEP 5: 发布页 → 点击 "发布" 按钮
     // ========================================
-    // ⚠️ 注意：抖音的"发布/发作品"按钮通常是红色圆角卡片，
-    //    外层是 clickable=false 的 TextView壳，需要用 ADB input tap 触发！
+    // ★ 发布按钮：优先找 clickable=true 的 "发作品" 节点，和点标题框一样简洁直接
     case 'PUBLISH_BTN': {
-      // ★★ Layer 0: 先诊断发布按钮状态（打印XML信息）★★
+      // 抖音发布按钮结构：FrameLayout(clickable=true,"发作品") 包裹 TextView(clickable=false,"发作品")
+      // 必须找到可点击的外层！
+      let tapped = false
+
+      // ── 方式1：从XML中找最佳可点击节点（和标题框一样的策略）──
       try {
-        const pubDump = await UI.dumpXml(apiPort)
-        if (pubDump.success && pubDump.data) {
-          const pNodes = UI.parseUiXml(pubDump.data)
-          const pubKeywords = ['发布', '发作品', '立即发布', '发送']
-          for (const rawNode of pNodes) {
-            const node = rawNode as { text?: string; contentDesc?: string; className?: string; bounds?: string; clickable?: boolean }
-            const nodeText = node.text || ''
-            const nodeDesc = node.contentDesc || ''
-            const isPub = pubKeywords.some(k => nodeText.includes(k) || nodeDesc.includes(k))
-            if (isPub) {
-              const b = UI.parseBounds(node.bounds || '')
-              const pos = b ? `(${Math.round(b.x)},${Math.round(b.y)},${b.width}x${b.height})` : '?'
-              console.log(`[发布-诊断] "${nodeText || nodeDesc}" | ${node.className} | clickable=${!!node.clickable} | ${pos}`)
+        const xmlPub = await locateByText(apiPort, ['发作品', '发布', '立即发布'], 2000)
+        if (xmlPub) {
+          console.log(`[发布✓] locateByText找到 "${xmlPub.textHint}" → (${xmlPub.x},${xmlPub.y}) clickable=${xmlPub.clickable}`)
+          await doTap(apiPort, xmlPub.x, xmlPub.y, signal, adb)
+          tapped = true
+        } else {
+          console.log(`[发布⚠] locateByText未找到可点击节点，尝试宽松搜索...`)
+        }
+      } catch (e) { console.log(`[发布⚠] 方式1异常: ${e}`) }
+
+      // ── 方式2：locateByIdle没找到时，dump XML手动找 clickable 节点 ──
+      if (!tapped) {
+        try {
+          const pubDump = await UI.dumpXml(apiPort)
+          if (pubDump.success && pubDump.data) {
+            const pNodes = UI.parseUiXml(pubDump.data)
+            const pubKeywords = ['发作品', '发布', '立即发布', '发送']
+            let bestNode: { x: number; y: number; text: string; clickable: boolean; className?: string } | null = null
+            for (const rawNode of pNodes) {
+              const node = rawNode as { text?: string; contentDesc?: string; className?: string; bounds?: string; clickable?: boolean }
+              const nodeText = node.text || ''
+              const nodeDesc = node.contentDesc || ''
+              const isPub = pubKeywords.some(k => nodeText.includes(k) || nodeDesc.includes(k))
+              if (isPub && node.bounds) {
+                const b = UI.parseBounds(node.bounds)
+                if (!b || b.y < screenH * 0.50) continue // 太靠上的忽略
+                // 评分：clickable=true 最高分，FrameLayout 次之，y越大越好
+                const score =
+                  (!!node.clickable ? 200 : 0) +
+                  (node.className?.includes('FrameLayout') ? 100 : 0) +
+                  Math.round(b.y)
+                if (!bestNode || score >
+                    ((!!bestNode.clickable ? 200 : 0) +
+                     (bestNode.className?.includes('FrameLayout') ? 100 : 0) +
+                     Math.round(bestNode.y))) {
+                  bestNode = {
+                    x: Math.round(b.x + b.width / 2),
+                    y: Math.round(b.y + b.height / 2),
+                    text: nodeText || nodeDesc,
+                    clickable: !!node.clickable,
+                    className: node.className,
+                  }
+                }
+                console.log(`[发布-候选] "${nodeText || nodeDesc}" | ${node.className} | clickable=${!!node.clickable} | (${Math.round(b.x + b.width / 2)},${Math.round(b.y + b.height / 2)})`)
+              }
+            }
+            if (bestNode) {
+              console.log(`[发布✓] 最佳候选: "${bestNode.text}" (${bestNode.x},${bestNode.y}) clickable=${bestNode.clickable}`)
+              await doTap(apiPort, bestNode.x, bestNode.y, signal, adb)
+              tapped = true
             }
           }
+        } catch (e) { console.log(`[发布⚠] 方式2异常: ${e}`) }
+      }
+
+      // ── 方式3：VL视觉定位兜底 ──
+      if (!tapped) {
+        console.log(`[发布-VL] XML均失败, VL定位红底白字发布按钮...`)
+        const vlCoord = await locateElement(
+          b64,
+          `这是抖音APP的视频发布编辑页面${screenW}x${screenH}。屏幕右下角有一个【红色或橙红色圆角矩形】按钮，上面写着白色的"发布"或"发作品"大字。请找到这个红色按钮的中心坐标并返回。注意这个按钮在屏幕底部区域(y>屏幕高度的60%)。如果看不到就返回null。`
+        )
+        if (vlCoord && vlCoord.y > screenH * 0.50) {
+          console.log(`[发布VL✓] → (${vlCoord.x},${vlCoord.y})`)
+          await doTap(apiPort, vlCoord.x, vlCoord.y, signal, adb)
+          tapped = true
         }
-      } catch (e) {
-        console.log(`[发布-诊断] 异常: ${e}`)
       }
 
-      // ★★ Layer 1: XML 搜索（含clickable=false节点）★★
-      const pubBtn = await findAnyText(apiPort, ['发布', '发作品', '立即发布', '发送'], screenH, 3000)
-      if (pubBtn && pubBtn.y > screenH * 0.10 && pubBtn.y > screenH * 0.50) { // 发布按钮应该在屏幕下半部分
-        const px = pubBtn.x, py = pubBtn.y
-        console.log(`[发布✓] "${pubBtn.textHint}" → (${px},${py}) clickable=${pubBtn.clickable}`)
-
-        if (pubBtn.clickable) {
-          // 真正可点击 — 直接 UI.tap
-          await UI.tap(apiPort, px, py)
-          return { success: true, action: 'UI.tap点发布(可点击)', message: `(${px},${py})`, waitMs: 10000 }
-        }
-
-        // ★ clickable=false（红色卡片壳）→ ADB阵列扫射（和"下一步"一样的策略）
-        console.log(`[⚠发布] clickable=false！改用ADB input tap连击+阵列...`)
-
-        // 尝试1: 中心点 ×2 连击
-        await sh(apiPort, `input tap ${px} ${py}`, signal)
-        await sleep(500, signal)
-        await sh(apiPort, `input tap ${px} ${py}`, signal)
-        await sleep(500, signal)
-
-        // 尝试2: 左偏移80px（避开文字层）
-        await sh(apiPort, `input tap ${px - 80} ${py}`, signal)
-        await sleep(500, signal)
-
-        // 尝试3: 右偏移80px
-        await sh(apiPort, `input tap ${px + 80} ${py}`, signal)
-        await sleep(500, signal)
-
-        return { success: true, action: 'ADB阵列扫射发布(clickable=false)', message: `(${px},${py})×4次`, waitMs: 10000 }
-      }
-      if (pubBtn) console.log(`[跳过] "${pubBtn.textHint}"位置异常 y=${pubBtn.y}`)
-
-      // ★★ Layer 2: locateByText（要求clickable=true）兜底 ★★
-      const xmlPub = await locateByText(apiPort, ['发布', '发作品', '立即发布'], 2000)
-      if (xmlPub) {
-        console.log(`[发布✓] locateByText → (${xmlPub.x},${xmlPub.y})`)
-        // 也用 ADB tap 确保触发
-        await sh(apiPort, `input tap ${xmlPub.x} ${xmlPub.y}`, signal)
-        await sleep(300, signal)
-        await sh(apiPort, `input tap ${xmlPub.x} ${xmlPub.y}`, signal)
-        return { success: true, action: 'locateByText+ADB连击发布', message: `(${xmlPub.x},${xmlPub.y})×2`, waitMs: 10000 }
+      // ── 方式4：比例坐标终极兜底 ──
+      if (!tapped) {
+        const ratioX = Math.round(screenW * 0.88), ratioY = Math.round(screenH * 0.92)
+        console.log(`[发布-比例] 终极兜底 → (${ratioX},${ratioY})`)
+        await doTap(apiPort, ratioX, ratioY, signal, adb)
+        tapped = true
       }
 
-      // ★★ Layer 3: VL 视觉定位 ★★
-      console.log(`[发布-VL] XML失败, VL定位红底白字发布按钮...`)
-      const vlCoord = await locateElement(
-        b64,
-        `这是抖音APP的视频发布编辑页面${screenW}x${screenH}。屏幕右下角有一个【红色或橙红色圆角矩形】按钮，上面写着白色的"发布"或"发作品"大字。请找到这个红色按钮的中心坐标并返回。注意这个按钮在屏幕底部区域(y>屏幕高度的60%)。如果看不到就返回null。`
-      )
-      if (vlCoord && vlCoord.y > screenH * 0.50) {
-        console.log(`[发布VL✓] → (${vlCoord.x},${vlCoord.y}), 用ADB tap`)
-        await sh(apiPort, `input tap ${vlCoord.x} ${vlCoord.y}`, signal)
-        await sleep(300, signal)
-        await sh(apiPort, `input tap ${vlCoord.x} ${vlCoord.y}`, signal)
-        return { success: true, action: 'VL+ADB发布', message: `(${vlCoord.x},${vlCoord.y})`, waitMs: 10000 }
-      }
-      if (vlCoord) {
-        console.log(`[发布VL✗] 坐标不合理 (${vlCoord.x},${vlCoord.y}), y太靠上`)
-      } else {
-        console.log(`[发布VL✗] null`)
-      }
-
-      // ★★ Layer 4: 比例坐标终极兜底（右下角红色按钮区）★★
-      const ratioX = Math.round(screenW * 0.88)
-      const ratioY = Math.round(screenH * 0.92)
-      console.log(`[发布-比例] 终极兜底 → (${ratioX},${ratioY}) [screenW*0.88, screenH*0.92]`)
-      await sh(apiPort, `input tap ${ratioX} ${ratioY}`, signal)
-      await sleep(300, signal)
-      await sh(apiPort, `input tap ${ratioX} ${ratioY}`, signal)
-      return { success: true, action: '比例坐标+ADB发布(终极)', message: `(${ratioX},${ratioY})`, waitMs: 10000 }
+      return { success: true, action: '点击发布按钮', message: tapped ? '已点击' : '兜底完成', waitMs: 12000 }
     }
 
     default:
