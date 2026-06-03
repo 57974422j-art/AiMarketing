@@ -321,9 +321,9 @@ export default function AutomationTemplatesPage() {
                       {/* ── 发布子步骤勾选 ── */}
                       <div>
                         <label className="text-[10px] text-gray-400 mb-1.5 block">发布步骤（勾选需要执行的步骤）</label>
-                        <div className="grid grid-cols-2 gap-2">
+                        <p className="text-[9px] text-gray-500 mb-2">📹 选视频发布将作为前置步骤自动执行</p>
+                        <div className="grid grid-cols-3 gap-2">
                           {[
-                            { key: 'video' as PublishStep, label: '📹 发布视频', desc: '选视频→预览→下一步' },
                             { key: 'title' as PublishStep, label: '✏️ 添加标题', desc: '输入/粘贴标题文案' },
                             { key: 'topic' as PublishStep, label: '# 添加话题', desc: '选择热门话题标签' },
                             { key: 'location' as PublishStep, label: '📍 所在位置', desc: '添加城市定位' },

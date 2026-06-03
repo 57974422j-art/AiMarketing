@@ -1181,7 +1181,7 @@ let _safeTopics = ''
 /** 模块级变量：POI位置（executeStep 需要访问） */
 let _safeLocation = ''
 /** 模块级变量：勾选的发布子步骤 */
-let _safePublishSteps: string[] = ['video', 'title', 'topic', 'location']  // 默认全执行
+let _safePublishSteps: string[] = []  // 由调用方设置，含 video 时隐式自动补充
 /** 模块级变量：ALBUM_PICK 子步骤状态 */
 let _albumSubStep = ''
 /** 模块级变量：EDIT_TITLE 子步骤状态 */
@@ -1213,7 +1213,10 @@ export async function aiPublishVideoWorkflow(
   _safeTitle = title.replace(/"/g, '"').replace(/[{}[\]]/g, '')
   _safeTopics = topics.map(t => t.replace(/[,"]/g, '')).join(',')
   _safeLocation = (options.location || '').trim()
-  _safePublishSteps = options.publishSteps || ['video', 'title', 'topic', 'location']
+  // ★ video 是隐式前置步骤：只要勾选了任一子步骤就自动包含
+  const userSteps = options.publishSteps || []
+  const hasSubStep = userSteps.some(s => ['title','topic','location'].includes(s))
+  _safePublishSteps = hasSubStep ? [...new Set(['video', ...userSteps])] : userSteps
 
   let screenW = 1080, screenH = 2340
   try {
@@ -1411,10 +1414,22 @@ export async function aiPublishVideoWorkflow(
             currentStep = targetStep
             stepRetryCount = 0
           } else {
-            // 跨步的都是未勾选/可选步骤 → 允许推进
-            console.log(`[${TS()}] [✓跨步] 检测到${verify.step}(超前)，跳过的步骤均未勾选或可选，直接推进`)
-            currentStep = verify.step
-            stepRetryCount = 0
+            // ★★ 二次校验：即使上面的单项检查通过了，也要确保到达 PUBLISH_BTN/DONE 时没有遗漏勾选的中间步骤 ★★
+            const reachingPublish = (verify.step === 'PUBLISH_BTN' || verify.step === 'DONE')
+            const missingTopic = _safePublishSteps.includes('topic') && currentStep !== 'SELECT_TOPIC' && !['SELECT_TOPIC','SELECT_POI','PUBLISH_BTN','DONE'].includes(verify.step) === false && stepToOrder(currentStep) <= stepToOrder('SELECT_TOPIC')
+            const missingLocation = _safePublishSteps.includes('location') && _safeLocation && currentStep !== 'SELECT_POI' && stepToOrder(currentStep) <= stepToOrder('SELECT_POI') && (verify.step === 'PUBLISH_BTN' || verify.step === 'DONE')
+
+            if (reachingPublish && (missingTopic || missingLocation)) {
+              const forced = missingTopic ? 'SELECT_TOPIC' : 'SELECT_POI'
+              console.log(`[${TS()}] [⚠二次拦截] 即将到达${verify.step}但还有未执行的子步骤${forced}，强制回退`)
+              currentStep = forced
+              stepRetryCount = 0
+            } else {
+              // 跨步的都是未勾选/可选步骤 → 允许推进
+              console.log(`[${TS()}] [✓跨步] 检测到${verify.step}(超前)，跳过的步骤均未勾选或可选，直接推进`)
+              currentStep = verify.step
+              stepRetryCount = 0
+            }
           }
         } else {
           // 回退了或乱了 → 重试当前步
