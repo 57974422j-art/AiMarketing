@@ -336,6 +336,10 @@ async function doInput(
 
   // 先探测设备环境
   const env = await detectInputEnv(apiPort, signal, adb)
+  if (!env) {
+    console.error(`[doInput✗] 设备环境探测失败`)
+    return false
+  }
 
   // ════════ 方法1: AdbKeyboard App ════════
   // 开源项目 https://github.com/nicehash/AdbKeyboard
