@@ -2532,7 +2532,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
       if (!topicSub || topicSub === 'CLICK_ENTRY') {
         const entryBtn = await locateByText(apiPort, ['话题', '#添加话题', '添加话题'], 2500)
         if (entryBtn) {
-          console.log(`[话题✓] 点击入口 "${entryBtn.text||'话题'}" (${entryBtn.x},${entryBtn.y})`)
+          console.log(`[话题✓] 点击入口 "话题" (${entryBtn.x},${entryBtn.y})`)
           await doTap(apiPort, entryBtn.x, entryBtn.y, signal, adb)
           _topicSubStep = 'SEARCH_INPUT'   // 下轮进入搜索
           return { success: true, action: '点击话题入口', message: `(${entryBtn.x},${entryBtn.y})`, waitMs: 3000 }
@@ -2684,7 +2684,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
           // 在编辑页 → 找"添加位置"或"所在位置"按钮
           const entryBtn = await locateByText(apiPort, ['添加位置', '所在位置'], 2500)
           if (entryBtn) {
-            console.log(`[位置✓] 点击入口 "${entryBtn.text||'位置'}" (${entryBtn.x},${entryBtn.y})`)
+            console.log(`[位置✓] 点击入口 "位置" (${entryBtn.x},${entryBtn.y})`)
             await doTap(apiPort, entryBtn.x, entryBtn.y, signal, adb)
             _poiSubStep = 'SEARCH'
             return { success: true, action: '点击位置入口', message: `(${entryBtn.x},${entryBtn.y})`, waitMs: 3000 }
