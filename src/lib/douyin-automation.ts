@@ -200,23 +200,82 @@ function getFixedCoords(
   }
 }
 
+/**
+ * 通过ADB向设备输入文本。
+ * 纯ASCII文本直接用 `input text`；
+ * 包含中文等非ASCII字符时自动切换到「剪贴板+粘贴」方案，
+ * 因为 Android 的 input text 不支持 Unicode（传中文会触发 NullPointerException）。
+ */
 async function doInput(
   apiPort: number,
   text: string,
   signal?: AbortSignal,
   adb?: ADB | null
 ): Promise<boolean> {
-  const safeText = text.replace(/"/g, '\\"').replace(/\$/g, '\\$')
-  if (adb) {
+  // 判断是否包含非ASCII字符（中文、emoji等）
+  const hasNonAscii = /[^\x00-\x7F]/.test(text)
+
+  if (!hasNonAscii) {
+    // ── 纯英文/数字/符号：直接用 input text ──
+    const safeText = text.replace(/"/g, '\\"').replace(/\$/g, '\\$')
+    if (adb) {
+      try {
+        adb.inputText(text)
+        return true
+      } catch (e) {
+        console.warn(`[doInput] adb.inputText 失败, 降级到HTTP: ${e}`)
+        return sh(apiPort, `input text "${safeText}"`, signal)
+      }
+    }
+    return sh(apiPort, `input text "${safeText}"`, signal)
+  }
+
+  // ── 包含非ASCII字符（中文等）：剪贴板粘贴方案 ──
+  console.log(`[doInput] 检测到非ASCII字符(长度=${text.length})，使用剪贴板方式输入`)
+
+  // 方案A: cmd clipboard（Android 10+ / API 29+）
+  const methods: Array<{ name: string; fn: () => Promise<boolean> }> = [
+    {
+      name: 'cmd clipboard',
+      fn: async () => {
+        // 单引号包裹避免shell展开问题；文本内单引号用 '\'' 替代
+        const escaped = text.replace(/'/g, "'\\''")
+        const clipCmd = `cmd clipboard '${escaped}'`
+        if (adb) { adb.shell(clipCmd) } else { await sh(apiPort, clipCmd, signal) }
+        await sleep(150, signal)
+        const pasteCmd = 'input keyevent KEYCODE_PASTE'
+        if (adb) { adb.shell(pasteCmd) } else { await sh(apiPort, pasteCmd, signal) }
+        return true
+      },
+    },
+    {
+      name: 'service call clipboard',
+      fn: async () => {
+        // 兼容旧版Android；s16 后面跟UTF-16字符串
+        const escaped = text.replace(/"/g, '')
+        const svcCmd = `service call clipboard 2 i32 1 s16 "${escaped}" i32 0 i32 0`
+        if (adb) { adb.shell(svcCmd) } else { await sh(apiPort, svcCmd, signal) }
+        await sleep(150, signal)
+        const pasteCmd = 'input keyevent KEYCODE_PASTE'
+        if (adb) { adb.shell(pasteCmd) } else { await sh(apiPort, pasteCmd, signal) }
+        return true
+      },
+    },
+  ]
+
+  for (const method of methods) {
     try {
-      adb.inputText(text)
+      console.log(`[doInput] 尝试: ${method.name}`)
+      await method.fn()
+      console.log(`[doInput✓] ${method.name} 输入成功`)
       return true
     } catch (e) {
-      console.warn(`[doInput] adb.inputText 失败, 降级到HTTP: ${e}`)
-      return sh(apiPort, `input text "${safeText}"`, signal)
+      console.warn(`[doInput⚠] ${method.name} 失败: ${e}`)
     }
   }
-  return sh(apiPort, `input text "${safeText}"`, signal)
+
+  console.error(`[doInput✗] 所有输入方式均失败，文本未成功输入`)
+  return false
 }
 
 async function goBack(apiPort: number, times: number, signal?: AbortSignal, adb?: ADB | null): Promise<void> {
@@ -1819,11 +1878,17 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
       }
 
       // ════════ Sub-B: 输入标题文本 ════════
+      // ★ 注意：只输入标题 _safeTitle，不要拼接搜索关键词(_safeTopics)
+      //   搜索关键词（如火锅/美业/减肥）仅在 ADD_TOPICS 步骤中用于话题搜索
       if (subStep === 'INPUT_TITLE') {
-        const fullText = _safeTopics ? `${_safeTitle} ${_safeTopics}` : _safeTitle
+        const fullText = _safeTitle
         console.log(`[编辑-输入] 准备输入: ${fullText.substring(0, 40)}...`)
-        await doInput(apiPort, fullText, signal, adb)
-        console.log(`[编辑-输入✓] 已发送文本`)
+        const inputOk = await doInput(apiPort, fullText, signal, adb)
+        if (!inputOk) {
+          console.log(`[编辑-输入✗] 文本输入失败，将在验证阶段重试`)
+        } else {
+          console.log(`[编辑-输入✓] 已发送文本`)
+        }
         // 收起键盘（如果有的话）
         await sleep(500, signal)
         if (adb) { try { adb.shell('input keyevent KEYCODE_BACK') } catch {} }
