@@ -2559,15 +2559,15 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
       // 必须找到可点击的外层！
       let tapped = false
 
-      // ── 方式1：从XML中找最佳可点击节点（和标题框一样的策略）──
+      // ── 方式1：locateByText 找 "发作品"（和点标题框一样）──
       try {
         const xmlPub = await locateByText(apiPort, ['发作品', '发布', '立即发布'], 2000)
         if (xmlPub) {
-          console.log(`[发布✓] locateByText找到 "${xmlPub.textHint}" → (${xmlPub.x},${xmlPub.y}) clickable=${xmlPub.clickable}`)
+          console.log(`[发布✓] locateByText → (${xmlPub.x},${xmlPub.y})`)
           await doTap(apiPort, xmlPub.x, xmlPub.y, signal, adb)
           tapped = true
         } else {
-          console.log(`[发布⚠] locateByText未找到可点击节点，尝试宽松搜索...`)
+          console.log(`[发布⚠] locateByText未找到，尝试XML手动搜索...`)
         }
       } catch (e) { console.log(`[发布⚠] 方式1异常: ${e}`) }
 
