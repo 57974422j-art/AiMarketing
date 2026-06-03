@@ -1569,8 +1569,8 @@ async function executeStep(
       console.log(`[预览页] 等待${(waitMs/1000).toFixed(1)}s...`)
       await sleep(waitMs, signal)
 
-      let clickX: number
-      let clickY: number
+      let clickX: number = getFixedCoords(screenW, screenH, 'NEXT_BTN').x
+      let clickY: number = getFixedCoords(screenW, screenH, 'NEXT_BTN').y
       let coordSource = 'unknown'
 
       // ★★ Layer 1: VL 视觉定位（最高优先级！）★
