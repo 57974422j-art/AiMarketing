@@ -2632,7 +2632,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
           console.log(`[话题✓] 宽松匹配 → (${looseMatch.x},${looseMatch.y})`)
           await doTap(apiPort, looseMatch.x, looseMatch.y, signal, adb)
           _topicSubStep = ''
-          return { success: true, action: '选择话题(宽松)', message: looseMatch.text || '', waitMs: 2000 }
+          return { success: true, action: '选择话题(宽松)', message: looseMatch.textHint || '', waitMs: 2000 }
         }
 
         // 全部失败 → BACK 返回编辑页
@@ -2774,7 +2774,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
           console.log(`[位置✓] 宽松匹配 → (${looseMatch.x},${looseMatch.y})`)
           await doTap(apiPort, looseMatch.x, looseMatch.y, signal, adb)
           _poiSubStep = ''
-          return { success: true, action: '选择POI(宽松)', message: looseMatch.text || '', waitMs: 3000 }
+          return { success: true, action: '选择POI(宽松)', message: looseMatch.textHint || '', waitMs: 3000 }
         }
 
         // 全部失败 → BACK 返回编辑页
