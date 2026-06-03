@@ -417,22 +417,31 @@ async function detectCurrentPage(
     // 按优先级匹配页面特征
 
     // --- 发布成功 ---
-    if (texts.some(t => t.includes('发布成功') || t.includes('已发布') || t.includes('上传完成'))) {
-      return { step: 'DONE', evidence: '检测到"发布成功"', xmlTexts: clickableTexts, isDesktop: false }
+    const doneKeywords = ['发布成功', '已发布', '上传完成']
+    const doneMatch = texts.find(t => doneKeywords.some(k => t.includes(k)))
+    if (doneMatch) {
+      console.log(`[detect-DONE] 匹配到"${doneMatch}" | 全部texts=[${texts.slice(0, 15).join(', ')}] | clickable=[${clickableTexts.slice(0, 10).join(', ')}]`)
+      return { step: 'DONE', evidence: `检测到"${doneMatch}"`, xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 发布页：有"发布"/"发作品" 按钮 ---
-    if (clickableTexts.some(t => t.includes('发布') || t.includes('发作品'))) {
+    const pubBtnMatch = clickableTexts.find(t => t.includes('发布') || t.includes('发作品'))
+    if (pubBtnMatch) {
       // 确认不是编辑页（编辑页也有"发布"但主要特征是输入框）
-      if (texts.some(t => t.includes('添加标题') || t.includes('请填写') || t.includes('标题'))) {
-        return { step: 'EDIT_TITLE', evidence: '编辑页(有标题输入框)', xmlTexts: clickableTexts, isDesktop: false }
+      const titleHint = texts.find(t => t.includes('添加标题') || t.includes('请填写') || t.includes('标题'))
+      if (titleHint) {
+        console.log(`[detect-EDIT] 有发布按钮+标题输入("${titleHint}") → 编辑页 | texts=[${texts.slice(0,12).join(', ')}]`)
+        return { step: 'EDIT_TITLE', evidence: `编辑页(有标题输入框:${titleHint})`, xmlTexts: clickableTexts, isDesktop: false }
       }
-      return { step: 'PUBLISH_BTN', evidence: '发布页(有发布按钮)', xmlTexts: clickableTexts, isDesktop: false }
+      console.log(`[detect-PUB] "${pubBtnMatch}" 无标题特征 → 发布页 | texts=[${texts.slice(0,12).join(', ')}]`)
+      return { step: 'PUBLISH_BTN', evidence: `发布页(有${pubBtnMatch})`, xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 编辑页：有标题输入区域 ---
-    if (texts.some(t => t.includes('添加标题') || t.includes('请填写标题') || t.includes('描述') || t.includes('#添加话题'))) {
-      return { step: 'EDIT_TITLE', evidence: '编辑页(有标题区域)', xmlTexts: clickableTexts, isDesktop: false }
+    const editTitleMatch = texts.find(t => t.includes('添加标题') || t.includes('请填写标题') || t.includes('描述') || t.includes('#添加话题'))
+    if (editTitleMatch) {
+      console.log(`[detect-EDIT2] 标题区"${editTitleMatch}" → 编辑页 | texts=[${texts.slice(0,12).join(', ')}]`)
+      return { step: 'EDIT_TITLE', evidence: `编辑页(有标题区域:${editTitleMatch})`, xmlTexts: clickableTexts, isDesktop: false }
     }
 
     // --- 拍摄页（相机界面）：优先检测！防止被相册页误判 ---
@@ -841,32 +850,48 @@ export async function aiPublishVideoWorkflow(
       // ★★ 关键修复：只有 PUBLISH_BTN → DONE 才算真正完成！
       //    其他步骤检测到 DONE 是误判（如编辑页被误识别为发布成功），应视为异常
       const isLegitimateDone = verify.step === 'DONE' && currentStep === 'PUBLISH_BTN'
-      if (verify.step === expectedNext || isLegitimateDone) {
+
+      // ★★ Fix#1: ALBUM_PICK 的特殊推进规则 ★★
+      // 抖音某些版本：相册页点"下一步"可能直接进入编辑页(跳过VIDEO_PREVIEW)，
+      // 或者经过多次重试后实际已到编辑/发布页。
+      // 因此 ALBOOK_PICK 允许推进到 EDIT_TITLE / PUBLISH_BTN / VIDEO_PREVIEW 任一
+      const validFromAlbumPick = (
+        currentStep === 'ALBUM_PICK' &&
+        (verify.step === 'EDIT_TITLE' || verify.step === 'VIDEO_PREVIEW' ||
+         verify.step === 'SELECT_POI' || verify.step === 'PUBLISH_BTN')
+      )
+
+      if (verify.step === expectedNext || isLegitimateDone || validFromAlbumPick) {
         // 页面正确切换 → 推进步骤
         stepRetryCount = 0
         if (isLegitimateDone) {
           console.log(`[${TS()}] ========== 完成！视频已发布 ==========`)
           return { success: true, message: '视频已发布' }
         }
-        console.log(`[${TS()}] [✓推进] ${currentStep} → ${verify.step}`)
-        currentStep = verify.step
+        if (validFromAlbumPick) {
+          console.log(`[${TS()}] [✓推进-ALBUM] ${currentStep} → ${verify.step} (允许从相册页多步跳跃)`)
+        } else {
+          console.log(`[${TS()}] [✓推进] ${currentStep} → ${verify.step}`)
+        }
+
+        // ★★ Fix#3: 禁止跨步跳过 EDIT_TITLE ★★
+        // 如果跳跃目标越过了 EDIT_TITLE，强制在 EDIT_TITLE 停留执行标题输入
+        if (currentStep === 'VIDEO_PREVIEW' && verify.step !== 'EDIT_TITLE' &&
+            verify.step !== 'DONE' && stepToOrder(verify.step) > stepToOrder('EDIT_TITLE')) {
+          console.log(`[${TS()}] [⚠拦截跨步] 检测到${verify.step}但必须先执行EDIT_TITLE，强制停留在EDIT_TITLE`)
+          currentStep = 'EDIT_TITLE'
+        } else if (currentStep === 'ALBUM_PICK' && verify.step !== 'VIDEO_PREVIEW' &&
+                   stepToOrder(verify.step) >= stepToOrder('EDIT_TITLE')) {
+          // 从ALBUM_PICK跳到EDIT_TITLE或之后时，也要确保经过EDIT_TITLE
+          console.log(`[${TS()}] [✓推进-ALBUM→编辑] ${currentStep} → EDIT_TITLE (实际检测到${verify.step})`)
+          currentStep = 'EDIT_TITLE'
+        } else {
+          currentStep = verify.step
+        }
       } else if (verify.step === 'DONE') {
         // ★ 非发布步骤误判为DONE → 当作异常处理，重试当前步
-        console.log(`[${TS()}] [⚠误判DONE] 当前=${currentStep}但检测到DONE, 视为异常, 重试${currentStep}`)
+        console.log(`[${TS()}] [⚠误判DONE] 当前=${currentStep}但检测到DONE(xmlTexts=[${verify.xmlTexts.slice(0,5).join(',')}]), 视为异常, 重试${currentStep}`)
         stepRetryCount++
-        if (stepRetryCount >= MAX_STEP_RETRY) {
-          console.log(`[${TS()}] [重置] ${currentStep} 误判DONE重试耗尽, 重启抖音...`)
-          await sh(apiPort, `am force-stop ${DOUYIN_PKG}`, signal)
-          await sleep(1000, signal)
-          await sh(apiPort, `am start -n ${DOUYIN_PKG}/${DOUYIN_ACT}`, signal)
-          await sleep(5000, signal)
-          currentStep = 'HOME_PLUS'
-          stepRetryCount = 0
-          _albumSubStep = ''
-          _editSubStep = ''
-          if (loopCount > 15) return { success: false, message: `重试过多,最后:${currentStep}` }
-        }
-      } else if (verify.step === currentStep) {
         // 页面没变 → 不推进，算重试
         console.log(`[${TS()}] [×停留] 页面还是${currentStep}, 未切换，计入重试`)
         stepRetryCount++
@@ -903,11 +928,23 @@ export async function aiPublishVideoWorkflow(
           currentStep = verify.step
           stepRetryCount = 0
         } else if (verify.step !== 'HOME_PLUS' && stepToOrder(verify.step) > stepToOrder(expectedNext)) {
-          // 超前了超过1步 → 直接跳到检测到的步骤！
-          // 原因：某些版本抖音点"+"号会直接进相册页(跳过拍摄页)，这是正常行为
-          console.log(`[${TS()}] [✓跨步] 检测到${verify.step}(超前${stepToOrder(verify.step)-stepToOrder(expectedNext)}步)，直接推进`)
-          currentStep = verify.step
-          stepRetryCount = 0
+          // 超前了超过1步 → 检查是否要跳过 EDIT_TITLE
+          const wouldSkipEdit = (
+            stepToOrder(currentStep) <= stepToOrder('VIDEO_PREVIEW') &&
+            stepToOrder(verify.step) >= stepToOrder('SELECT_POI') &&
+            verify.step !== 'EDIT_TITLE'
+          )
+          if (wouldSkipEdit) {
+            // ★★ Fix#3: 禁止跳过 EDIT_TITLE！强制停留在编辑页 ★★
+            console.log(`[${TS()}] [⚠拦截跨步] 检测到${verify.step}(超前${stepToOrder(verify.step)-stepToOrder(expectedNext)}步)，但会跳过EDIT_TITLE，强制停在EDIT_TITLE`)
+            currentStep = 'EDIT_TITLE'
+            stepRetryCount = 0
+          } else {
+            // 其他跨步（如 HOME_PLUS→SHOOT_ALBUM 跳过拍摄页）是允许的
+            console.log(`[${TS()}] [✓跨步] 检测到${verify.step}(超前${stepToOrder(verify.step)-stepToOrder(expectedNext)}步)，直接推进`)
+            currentStep = verify.step
+            stepRetryCount = 0
+          }
         } else {
           // 回退了或乱了 → 重试当前步
           console.log(`[${TS()}] [异常] 跳到${verify.step}(顺序异常), 重试${currentStep}`)
@@ -1312,6 +1349,19 @@ async function executeStep(
       //   Layer 2: VL 视觉识别（准，让AI看截图判断页面）
       //   Layer 3: 固定坐标盲点（兜底，相信已进入该页面）
       if (subStep === 'CLICK_NEXT') {
+        // ★★ 诊断：打印当前页面所有可见文字（帮助判断实际在哪个页面）★★
+        try {
+          const clickNextDump = await UI.dumpXml(apiPort)
+          if (clickNextDump.success && clickNextDump.data) {
+            const cnNodes = UI.parseUiXml(clickNextDump.data)
+            const cnTexts = cnNodes
+              .filter((n: any) => n.text && n.text.length > 0 && n.text.length <= 20)
+              .map((n: any) => `${n.text}(${n.clickable?'c':'x'})`)
+              .slice(0, 25)
+            console.log(`[下一步-页面文字] [${cnTexts.join(', ')}]`)
+          }
+        } catch {}
+
         // ★ 随机等待 3~8 秒让UI完全渲染
         const waitMs = 3000 + Math.floor(Math.random() * 5001)
         console.log(`[下一步] 等待${(waitMs/1000).toFixed(1)}s...`)
@@ -1519,32 +1569,79 @@ async function executeStep(
       console.log(`[预览页] 等待${(waitMs/1000).toFixed(1)}s...`)
       await sleep(waitMs, signal)
 
-      // 获取"下一步"按钮坐标 — 固定比例（截图实测校正）
-      const fixedNext = getFixedCoords(screenW, screenH, 'NEXT_BTN')
-      let clickX = fixedNext.x
-      let clickY = fixedNext.y
+      let clickX: number
+      let clickY: number
+      let coordSource = 'unknown'
 
-      // 尝试XML搜索补充确认
+      // ★★ Layer 1: VL 视觉定位（最高优先级！）★
+      // 原因：固定坐标(828,2244)在预览页上可能对应返回按钮导致退出桌面！
+      // 必须用 AI 看截图找到真正的"下一步"粉红色按钮位置
       try {
-        const nextSearch = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
-        if (nextSearch && nextSearch.y > screenH * 0.15) {
-          clickX = nextSearch.x
-          clickY = nextSearch.y
-          console.log(`[预览页✓] 找到"${nextSearch.textHint}" → (${clickX},${clickY})`)
+        console.log(`[预览页] 使用VL视觉定位"下一步"按钮...`)
+        const vlNextBtn = await locateElement(
+          b64,
+          `这是抖音APP的【视频预览/编辑页面】(屏幕${screenW}x${screenH})。
+当前页面显示一个已选中的视频预览，可能有编辑工具栏（剪辑/文字/话题/特效/滤镜等）。
+屏幕底部右侧有一个【粉红色/玫红色的圆角矩形大按钮】，上面写着白色的"下一步"三个字。
+这个按钮是整个页面最显眼的可点击元素。
+
+请返回这个"下一步"按钮的精确中心坐标。注意：
+- 按钮颜色是粉红/玫红色（不是红色、不是灰色）
+- 位置在屏幕右下角区域（底部）
+- 如果看不到这个按钮就返回null
+
+严格按JSON返回: {"x":数字, "y":数字} 或 null`
+        )
+        if (vlNextBtn && vlNextBtn.y > screenH * 0.70) {
+          // VL 返回了合理坐标（在屏幕下70%区域）
+          clickX = vlNextBtn.x
+          clickY = vlNextBtn.y
+          coordSource = `VL视觉(${clickX},${clickY})`
+          console.log(`[预览页-VL✓] AI定位到"下一步" → (${clickX},${clickY}) y=${clickY}/${screenH}=底部${((clickY/screenH)*100).toFixed(0)}%`)
+        } else if (vlNextBtn) {
+          // VL 返回了但坐标不合理（太靠上）
+          console.log(`[预览页-VL⚠] AI返回(${vlNextBtn.x},${vlNextBtn.y})但y太靠上(<${Math.round(screenH*0.70)})，忽略`)
         } else {
-          console.log(`[预览页] "下一步" → (${clickX},${clickY}) ${fixedNext.reason}`)
+          console.log(`[预览页-VL✗] AI未识别到"下一步"按钮，尝试其他方式...`)
         }
-      } catch {}
+      } catch (e) {
+        console.log(`[预览页-VL] 异常: ${e}`)
+      }
+
+      // ★★ Layer 2: XML 文字搜索 ★
+      if (!coordSource || coordSource === 'unknown') {
+        try {
+          const nextSearch = await findAnyText(apiPort, ['下一步', '确定', '完成'], screenH)
+          if (nextSearch && nextSearch.y > screenH * 0.15) {
+            clickX = nextSearch.x
+            clickY = nextSearch.y
+            coordSource = `XML搜索("${nextSearch.textHint}")`
+            console.log(`[预览页✓] 找到"${nextSearch.textHint}" → (${clickX},${clickY}) clickable=${nextSearch.clickable}`)
+          } else {
+            console.log(`[预览页-XML✗] 未找到"下一步/确定/完成"文字`)
+          }
+        } catch {}
+      }
+
+      // ★★ Layer 3: 固定比例坐标兜底（最后手段）★
+      if (!coordSource || coordSource === 'unknown') {
+        const fixedNext = getFixedCoords(screenW, screenH, 'NEXT_BTN')
+        clickX = fixedNext.x
+        clickY = fixedNext.y
+        coordSource = `固定比例(${fixedNext.reason})`
+        console.log(`[预览页] ⚠ 兜底使用固定坐标 → (${clickX},${clickY}) ${fixedNext.reason}`)
+        console.log(`[预览页] ⚠ 警告：此坐标可能导致退出桌面（如果抖音UI已更新）`)
+      }
 
       // 第1次点击：随机压持 220~300ms
       const duration1 = 220 + Math.floor(Math.random() * 81)
-      console.log(`[预览页] 点击"下一步": (${clickX},${clickY}) 压持${duration1}ms`)
+      console.log(`[预览页] 点击"下一步": (${clickX},${clickY}) 来源=${coordSource} 压持${duration1}ms`)
       await smartTap(apiPort, clickX, clickY, duration1, signal, adb)
 
       return { 
         success: true, 
         action: '预览页点"下一步"', 
-        message: `(${clickX},${clickY}) d=${duration1}ms`, 
+        message: `(${clickX},${clickY}) src=${coordSource} d=${duration1}ms`, 
         waitMs: 6000  // 给足时间跳转到 EDIT_TITLE
       }
     }
