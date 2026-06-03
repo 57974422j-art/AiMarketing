@@ -9,7 +9,7 @@ interface AccountItem {
   device?: { id: number; name: string } | null; user?: { username: string } | null
 }
 interface TemplateItem { id: number; name: string; type: string; params: string }
-interface TemplateParams { actions?: string[]; keywords?: string[]; accountId?: number; publishDesc?: string; publishLocation?: string; publishTitle?: string; publishTopics?: string }
+interface TemplateParams { actions?: string[]; keywords?: string[]; accountId?: number; publishDesc?: string; publishLocation?: string; publishTitle?: string; publishTopics?: string; publishSteps?: string[] }
 
 interface ExecStep { action: string; success: boolean; message: string }
 interface ExecRecord {
