@@ -1415,9 +1415,9 @@ export async function aiPublishVideoWorkflow(
             stepRetryCount = 0
           } else {
             // ★★ 二次校验：即使上面的单项检查通过了，也要确保到达 PUBLISH_BTN/DONE 时没有遗漏勾选的中间步骤 ★★
-            const reachingPublish = (verify.step === 'PUBLISH_BTN' || verify.step === 'DONE')
-            const missingTopic = _safePublishSteps.includes('topic') && currentStep !== 'SELECT_TOPIC' && !['SELECT_TOPIC','SELECT_POI','PUBLISH_BTN','DONE'].includes(verify.step) === false && stepToOrder(currentStep) <= stepToOrder('SELECT_TOPIC')
-            const missingLocation = _safePublishSteps.includes('location') && _safeLocation && currentStep !== 'SELECT_POI' && stepToOrder(currentStep) <= stepToOrder('SELECT_POI') && (verify.step === 'PUBLISH_BTN' || verify.step === 'DONE')
+            const reachingPublish = stepToOrder(verify.step) >= stepToOrder('PUBLISH_BTN')
+            const missingTopic = _safePublishSteps.includes('topic') && currentStep !== 'SELECT_TOPIC' && stepToOrder(currentStep) <= stepToOrder('SELECT_TOPIC')
+            const missingLocation = _safePublishSteps.includes('location') && _safeLocation && currentStep !== 'SELECT_POI' && stepToOrder(currentStep) <= stepToOrder('SELECT_POI')
 
             if (reachingPublish && (missingTopic || missingLocation)) {
               const forced = missingTopic ? 'SELECT_TOPIC' : 'SELECT_POI'
