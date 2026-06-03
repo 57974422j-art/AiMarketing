@@ -836,13 +836,32 @@ async function detectCurrentPage(
     // --- 发布页：有"发布"/"发作品" 按钮 ---
     const pubBtnMatch = clickableTexts.find(t => t.includes('发布') || t.includes('发作品'))
     if (pubBtnMatch) {
-      // 确认不是编辑页（编辑页也有"发布"但主要特征是输入框）
-      const titleHint = texts.find(t => t.includes('添加标题') || t.includes('请填写') || t.includes('标题'))
-      if (titleHint) {
-        console.log(`[detect-EDIT] 有发布按钮+标题输入("${titleHint}") → 编辑页 | texts=[${texts.slice(0,12).join(', ')}]`)
-        return { step: 'EDIT_TITLE', evidence: `编辑页(有标题输入框:${titleHint})`, xmlTexts: clickableTexts, isDesktop: false }
+      // ★★ 关键修复：区分"编辑页"和真正的"发布页" ★★
+      // 编辑页独有特征（即使标题已填入也存在）：
+      //   - 话题 / 朋友 / @朋友（标签行）
+      //   - 添加位置（位置行）
+      //   - 编辑封面 / 添加作品描述（功能入口）
+      //   - 公开 / 所有人可见（隐私行）
+      // 真正的发布页（点完发布后的确认页）不会有这些编辑功能
+      const editPageExclusiveFeatures = [
+        '话题', '朋友', '@',           // 标签行
+        '添加位置',                     // 位置行
+        '编辑封面', '添加作品描述',      // 功能区
+        '公开', '所有人可见', '仅自己可见', // 隐私设置行
+        '添加标签',                     // 标签管理
+      ]
+      const hasEditFeature = editPageExclusiveFeatures.some(f =>
+        texts.some(t => t.includes(f))
+      )
+      
+      // 原始判断：标题框还是默认提示文字
+      const titleHint = texts.find(t => t === '添加标题' || t.includes('请填写') || t === '添加作品描述')
+      
+      if (hasEditFeature || titleHint) {
+        console.log(`[detect-EDIT] 有发布按钮+编辑页特征(${titleHint||editPageExclusiveFeatures.find(f=>texts.some(t=>t.includes(f)))||'?'}) → 编辑页 | texts=[${texts.slice(0,14).join(', ')}]`)
+        return { step: 'EDIT_TITLE', evidence: `编辑页(有编辑特征:${titleHint||'非标题类'})`, xmlTexts: clickableTexts, isDesktop: false }
       }
-      console.log(`[detect-PUB] "${pubBtnMatch}" 无标题特征 → 发布页 | texts=[${texts.slice(0,12).join(', ')}]`)
+      console.log(`[detect-PUB] "${pubBtnMatch}" 无编辑页特征 → 发布页 | texts=[${texts.slice(0,12).join(', ')}]`)
       return { step: 'PUBLISH_BTN', evidence: `发布页(有${pubBtnMatch})`, xmlTexts: clickableTexts, isDesktop: false }
     }
 
@@ -2530,22 +2549,17 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
 
       // ════════ Sub-A: 在编辑页 → 点"话题"按钮进入话题选择页 ════════
       if (!topicSub || topicSub === 'CLICK_ENTRY') {
-        const entryBtn = await locateByText(apiPort, ['话题', '#添加话题', '添加话题'], 2500)
+        // ★ 用 findAnyText（不限clickable），因为"话题"可能是非clickable的TextView ★
+        const entryBtn = await findAnyText(apiPort, ['话题', '#添加话题', '添加话题'], screenH * 0.7, 2500)
         if (entryBtn) {
-          console.log(`[话题✓] 点击入口 "话题" (${entryBtn.x},${entryBtn.y})`)
+          console.log(`[话题✓] 点击入口 (${entryBtn.x},${entryBtn.y}) textHint="${entryBtn.textHint}"`)
           await doTap(apiPort, entryBtn.x, entryBtn.y, signal, adb)
           _topicSubStep = 'SEARCH_INPUT'   // 下轮进入搜索
           return { success: true, action: '点击话题入口', message: `(${entryBtn.x},${entryBtn.y})`, waitMs: 3000 }
         }
-        // 已有话题标签（#开头）→ 视为已完成
-        const dumpChk = await UI.dumpXml(apiPort)
-        if (dumpChk.success && dumpChk.data) {
-          const hasTag = UI.parseUiXml(dumpChk.data).some((n: any) => n.text?.startsWith('#'))
-          if (hasTag) { console.log(`[话题⚠] 页面已有#标签，可能已选择过`); _topicSubStep = ''; return { success: true, action: '话题(已有标签)', message: '', waitMs: 500 } }
-        }
-        // 没找到按钮也不在话题页 → 可能已经点过了，进入下一子步骤试试
-        console.log(`[话题] 编辑页未找到入口按钮，尝试按已在话题子页面处理...`)
-        _topicSubStep = 'SEARCH_INPUT'
+        // ★ 不再用"已有#标签"来判断是否已完成 — 那些可能是历史残留 ★
+        console.log(`[话题⚠] 编辑页未找到"话题"入口按钮`)
+        _topicSubStep = 'SEARCH_INPUT'  // 可能页面已经切换了，尝试进入搜索模式
       }
 
       // ════════ Sub-B: 在话题选择页 → 点搜索框 + 输入关键词 ════════
@@ -2682,9 +2696,10 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
           }
         } else {
           // 在编辑页 → 找"添加位置"或"所在位置"按钮
-          const entryBtn = await locateByText(apiPort, ['添加位置', '所在位置'], 2500)
+          // ★ "添加位置" 是 clickable=false(TextView)，必须用 findAnyText！
+          const entryBtn = await findAnyText(apiPort, ['添加位置', '所在位置'], screenH * 0.7, 2500)
           if (entryBtn) {
-            console.log(`[位置✓] 点击入口 "位置" (${entryBtn.x},${entryBtn.y})`)
+            console.log(`[位置✓] 点击入口 (${entryBtn.x},${entryBtn.y}) textHint="${entryBtn.textHint}"`)
             await doTap(apiPort, entryBtn.x, entryBtn.y, signal, adb)
             _poiSubStep = 'SEARCH'
             return { success: true, action: '点击位置入口', message: `(${entryBtn.x},${entryBtn.y})`, waitMs: 3000 }
