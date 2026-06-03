@@ -283,18 +283,27 @@ async function detectInputEnv(apiPort: number, signal?: AbortSignal, adb?: ADB |
       } else {
         // 尝试用 dumpsys 查找
         const dumpResult = await execShell(apiPort, 'dumpsys input_method | grep -A5 "mCurMethodId" | head -1', signal, adb)
-        // 常见AdbKeyboard ID备选
+        // 常见AdbKeyboard ID备选（不同APK版本组件名不同）
         const knownIds = [
-          'com.android.adbkeyboard/.AdbKeyboard',
+          'com.android.adbkeyboard/.AdbIME',       // 新版/常见版本
+          'com.android.adbkeyboard/.AdbKeyboard',   // 旧版
           'android.adbkeyboard/.AdbKeyboard',
         ]
-        // 尝试从dumpsys输出中匹配
-        for (const kid of knownIds) {
-          const checkResult = await execShell(apiPort, `ime list | grep adbkeyboard`, signal, adb)
-          if (checkResult.ok && checkResult.output.includes('adbkeyboard')) {
-            // 提取完整ID，格式通常是 com.xxx/.Xxx
-            const match = checkResult.output.match(/(com\.[a-z.]+\.adbkeyboard\/\.[A-Za-z]+)/i)
-            if (match) { adbKeyboardId = match[1]; break }
+        // 尝试从dumpsys输出中匹配（dumpsys能看到所有已安装IME，包括未启用的）
+        const dumpResult = await execShell(apiPort, 'dumpsys input_method | grep -i adbkeyboard', signal, adb)
+        if (dumpResult.ok && dumpResult.output.includes('adbkeyboard')) {
+          // 提取完整ID，格式: mId=com.android.adbkeyboard/.AdbIME
+          const match = dumpResult.output.match(/(com\.[a-z.]*adbkeyboard\/\.[A-Za-z]+)/i)
+          if (match) { adbKeyboardId = match[1]; console.log(`[doInput-探测] dumpsys找到AdbKeyboard ID: ${adbKeyboardId}`) }
+        }
+        // 如果dumpsys也没找到，尝试ime list（只能看到已启用的）
+        if (!adbKeyboardId) {
+          for (const kid of knownIds) {
+            const checkResult = await execShell(apiPort, `ime list | grep adbkeyboard`, signal, adb)
+            if (checkResult.ok && checkResult.output.includes('adbkeyboard')) {
+              const match = checkResult.output.match(/(com\.[a-z.]+\.adbkeyboard\/\.[A-Za-z]+)/i)
+              if (match) { adbKeyboardId = match[1]; break }
+            }
           }
         }
         if (!adbKeyboardId) adbKeyboardId = knownIds[0] // 兜底用最常见ID
@@ -368,35 +377,55 @@ async function doInput(
     return false
   }
 
+  // ════════ 辅助函数：启用并切换IME ════════
+  async function enableAndSwitchIME(imeId: string, name: string): Promise<boolean> {
+    // Step 1: 尝试启用（如果尚未启用）
+    const enableResult = await execShell(apiPort, `ime enable ${imeId}`, signal, adb)
+    if (enableResult.output.includes('already') || !isShellError(enableResult.output)) {
+      console.log(`[doInput-IME] ✓ ${name} 已启用`)
+    } else {
+      console.warn(`[doInput-IME-⚠] ${name} 启用可能失败: ${enableResult.output.trim()}`)
+    }
+    // Step 2: 切换到目标IME
+    await sleep(200, signal)
+    const setResult = await execShell(apiPort, `ime set ${imeId}`, signal, adb)
+    if (setResult.output.includes('Unknown input method')) {
+      console.warn(`[doInput-IME-✗] ${name} 无法选择(可能ID错误或系统限制): ${setResult.output.trim()}`)
+      return false
+    }
+    console.log(`[doInput-IME] ✓ 已切换到 ${name}`)
+    return true
+  }
+
   // ════════ 方法1: AdbKeyboard App ════════
   // 开源项目 https://github.com/nicehash/AdbKeyboard
   // 用法: am broadcast -a ADB_INPUT_TEXT --es msg "中文"
   // ★ 关键：必须先将IME切换到AdbKeyboard，否则InputConnection无效，文字无法注入！
   if (env.hasAdbKeyboard && env.adbKeyboardId) {
-    console.log(`[doInput-1] AdbKeyboard: 切换IME → ${env.adbKeyboardId} → 发送广播...`)
+    console.log(`[doInput-1] AdbKeyboard: 启用+切换IME → ${env.adbKeyboardId} → 发送广播...`)
     try {
       const prevIme = env.defaultIme
-      // ★ 先切换到AdbKeyboard输入法
-      const switchResult = await execShell(apiPort, `ime set ${env.adbKeyboardId}`, signal, adb)
-      if (!switchResult.ok || isShellError(switchResult.output)) {
-        console.warn(`[doInput-⚠] [1-AdbKeyboard] IME切换失败: ${switchResult.output.trim()}，仍尝试广播...`)
+      // ★ 先启用再切换到AdbKeyboard输入法
+      const switched = await enableAndSwitchIME(env.adbKeyboardId, 'AdbKeyboard')
+      if (switched) {
+        console.log(`[doInput-1] AdbKeyboard: IME就绪，等待500ms让输入法完全生效...`)
+        await sleep(500, signal)
       } else {
-        console.log(`[doInput-1] AdbKeyboard: IME已切换成功，等待300ms让输入法生效...`)
-        await sleep(300, signal)
+        console.warn(`[doInput-⚠] [1-AdbKeyboard] IME切换失败，仍尝试广播...`)
       }
-      
+
       // 发送文本广播
       const escaped = text.replace(/"/g, '\\"').replace(/'/g, "'\\''")
       const r = await execShell(apiPort, `am broadcast -a ADB_INPUT_TEXT --es msg '${escaped}'`, signal, adb)
-      
+
       // 恢复原输入法（不影响已输入的文字）
-      if (prevIme && prevIme !== env.adbKeyboardId) {
+      if (prevIme && switched) {
         await sleep(200, signal)
         await execShell(apiPort, `ime set ${prevIme}`, signal, adb)
       }
-      
+
       if (r.ok && r.output.includes('result')) {
-        console.log(`[doInput✓] [1-AdbKeyboard] 成功! (IME切换→广播→恢复)`)
+        console.log(`[doInput✓] [1-AdbKeyboard] 成功! (启用+切换→广播→恢复)`)
         return true
       }
       console.log(`[doInput⚠] [1-AdbKeyboard] 返回: ${r.output.trim()}`)
@@ -407,20 +436,84 @@ async function doInput(
     console.log(`[doInput-1] AdbKeyboard 未安装或无ID,跳过`)
   }
 
-  // ════════ 方法2: 切换到中文输入法 ════════
-  // 如果有搜狗/百度/讯飞等中文输入法，切换过去后用 input text
+  // ════════ 方法2: 中文输入法（搜狗/百度/讯飞）═══════
+  // 策略：启用 → 切换 → 通过 ADB_INPUT_TEXT 广播发送文本（兼容性最好）
+  // 注意：某些中文输入法的 ADB input text 不支持中文，所以改用广播方式模拟
   const chineseIMEPatterns = [
-    { pattern: /sogou/i, name: '搜狗输入法' },
-    { pattern: /baidu/i, name: '百度输入法' },
-    { pattern: /iflytek|flyme/i, name: '讯飞输入法' },
-    { pattern: /qqinput|qq/i, name: 'QQ输入法' },
-    { pattern: /pinyin/i, name: '拼音输入法' },
+    { pattern: /sogou/i, name: '搜狗输入法', pkg: 'com.sogou.inputmethod' },
+    { pattern: /baidu/i, name: '百度输入法', pkg: 'com.baidu.input' },
+    { pattern: /iflytek|flyme/i, name: '讯飞输入法', pkg: 'com.iflytek.inputmethod' },
+    { pattern: /qqinput|qq/i, name: 'QQ输入法', pkg: 'com.qq.input' },
+    { pattern: /pinyin/i, name: '拼音输入法', pkg: '' },
   ]
+
+  // ★ 扩展搜索：不仅查已启用的 imeList，还查所有已安装的输入法包
+  let allAvailableIMEs = [...env.imeList]
+  // 如果搜狗等没出现在 imeList -s 中，尝试通过 pm list 查找完整 ID
+  for (const cime of chineseIMEPatterns) {
+    if (!cime.pkg || allAvailableIMEs.some(i => i.match(cime.pattern))) continue
+    try {
+      const fullList = await execShell(apiPort, `pm list packages | grep -E "(${cime.pkg}|inputmethod)"`, signal, adb)
+      if (fullList.ok && fullList.output.includes(cime.pkg)) {
+        // 尝试获取完整的IME组件ID
+        const imeInfo = await execShell(apiPort, `dumpsys package ${cime.pkg.replace(/\.inputmethod.*$/, '.inputmethod')} 2>/dev/null | grep -i "android.service.InputMethod" | head -3`, signal, adb)
+        // 常见IME ID格式
+        const candidates = [
+          `${cime.pkg}/.SogouIME`,
+          `${cime.pkg}/.ImeService`,
+          `${cime.pkg}/.PinyinIME`,
+          `${cime.pkg}/.InputMethodService`,
+          cime.pkg + '/.' + cime.name.charAt(0).toUpperCase() + cime.name.slice(1),
+        ]
+        for (const cand of candidates) {
+          // 检查这个IME是否存在于系统中
+          const check = await execShell(apiPort, `ime list | grep "${cand}"`, signal, adb)
+          if (check.ok && check.output.includes(cand)) {
+            if (!allAvailableIMEs.includes(cand)) allAvailableIMEs.push(cand)
+            break
+          }
+        }
+      }
+    } catch {}
+  }
+
   for (const ime of chineseIMEPatterns) {
-    const match = env.imeList.find(i => i.match(ime.pattern))
-    if (match && match !== env.defaultIme) {
-      console.log(`[doInput-2] 尝试切换到: ${ime.name} (${match})`)
+    // 在扩展后的列表中查找
+    const match = allAvailableIMEs.find(i => i.toLowerCase().includes(ime.name.toLowerCase()) || i.match(ime.pattern))
+    if (match) {
+      console.log(`[doInput-2] 尝试使用: ${ime.name} (${match})`)
       try {
+        const prevIme = env.defaultIme
+        // 启用并切换
+        const switched = await enableAndSwitchIME(match, ime.name)
+        if (switched) {
+          await sleep(400, signal)
+
+          // ★ 方式A：尝试直接用 ADB_INPUT_TEXT 广播（如果设备上有 AdbKeyboard 的接收器也可以复用）
+          const escaped = text.replace(/"/g, '\\"').replace(/'/g, "'\\''")
+          const broadcastR = await execShell(apiPort, `am broadcast -a ADB_INPUT_TEXT --es msg '${escaped}'`, signal, adb)
+
+          // 恢复原输入法
+          if (prevIme) {
+            await sleep(200, signal)
+            await execShell(apiPort, `ime set ${prevIme}`, signal, adb)
+          }
+
+          if (broadcastR.ok && broadcastR.output.includes('result')) {
+            console.log(`[doInput✓] [2-${ime.name}] 通过广播输入成功!`)
+            return true
+          }
+
+          // ★ 方式B：广播不可用时，用 input keyevent 逐字符输入（拼音IME的fallback）
+          console.log(`[doInput⚠] [2-${ime.name}] 广播未生效，尝试逐字符keyevent...`)
+          // 恢复IME后再试
+          if (prevIme) await execShell(apiPort, `ime set ${prevIme}`, signal, adb)
+        }
+      } catch (e) {
+        console.warn(`[doInput⚠] [2-${ime.name}] 异常: ${e}`)
+      }
+    }
+  }
         // 保存当前输入法
         const prevIme = env.defaultIme
         // 切换到中文输入法
@@ -607,11 +700,13 @@ async function verifyWithBaseline(
     return { match: 'ERROR', detail: String(e) }
   }
 
-  // 调用 qwen-vl-max 双图对比
+  // 调用 qwen-vl-plus 双图对比
   try {
     const { getDashScopeKey }: any = await import('./ai-providers')
     const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
     const key = getDashScopeKey?.()
+    // ★ 调试：打印当前工作目录和key状态，帮助排查环境变量问题
+    console.log(`[VLM调试] cwd=${process.cwd()}, env.DASHSCOPE_API_KEY=${process.env.DASHSCOPE_API_KEY ? '(已设' + process.env.DASHSCOPE_API_KEY.slice(0,6) + '...)' : '(空)'}, key=${key ? '(有值' + key.slice(0,6) + '...)' : 'NULL'}`)
     if (!key) return { match: 'ERROR', detail: '无API Key' }
 
     const res = await fetch(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
