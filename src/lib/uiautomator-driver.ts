@@ -312,15 +312,27 @@ export function sleep(ms: number): Promise<void> {
 // 截图（用于 AI 视觉兜底）
 // ============================================================
 
-/** 截取当前屏幕，返回 base64 PNG */
+/** 截取当前屏幕，返回 base64 PNG
+ *  ★ 超时设为45s：编辑页UI极复杂（视频预览+输入框+话题+位置等），
+ *     设备端screencap渲染可能很慢，15s容易超时导致设备卡死。
+ */
 export async function takeScreenshot(apiPort: number): Promise<string | null> {
+  const t0 = Date.now()
   try {
-    const res = await fetch(`http://localhost:${apiPort}/task=snap&level=0`, { signal: AbortSignal.timeout(15000) })
-    if (!res.ok) return null
+    const res = await fetch(`http://localhost:${apiPort}/task=snap&level=0`, { signal: AbortSignal.timeout(45000) })
+    if (!res.ok) {
+      console.warn('[截图] HTTP非200, status=' + res.status + ' 耗时' + (Date.now() - t0) + 'ms')
+      return null
+    }
     const buf = await res.arrayBuffer()
+    const ms = Date.now() - t0
+    if (ms > 10000) console.log('[截图⚠] 慢截图 ' + ms + 'ms (编辑页/复杂UI)')
     return Buffer.from(buf).toString('base64')
-  } catch (e) {
-    console.error('[截图] 失败:', e)
+  } catch (e: any) {
+    const ms = Date.now() - t0
+    // 区分超时和其他错误，方便诊断
+    const isTimeout = e?.name === 'TimeoutError' || e?.message?.includes('timeout') || ms >= 44000
+    console.error(`[截图] 失败(${isTimeout ? '超时' : '错误'} ${ms}ms): ${e?.message || e}`)
     return null
   }
 }
