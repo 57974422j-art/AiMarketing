@@ -281,8 +281,6 @@ async function detectInputEnv(apiPort: number, signal?: AbortSignal, adb?: ADB |
       if (fromImeList) {
         adbKeyboardId = fromImeList
       } else {
-        // 尝试用 dumpsys 查找
-        const dumpResult = await execShell(apiPort, 'dumpsys input_method | grep -A5 "mCurMethodId" | head -1', signal, adb)
         // 常见AdbKeyboard ID备选（不同APK版本组件名不同）
         const knownIds = [
           'com.android.adbkeyboard/.AdbIME',       // 新版/常见版本
