@@ -2548,7 +2548,7 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
             // 用 AdbKeyboard 输入搜索词（取第一个关键词）
             const firstKeyword = _safeTopics.split(',')[0].trim()
             if (firstKeyword) {
-              await doInputText(apiPort, firstKeyword, signal, adb)
+              await doInput(apiPort, firstKeyword, signal, adb)
               await sleep(2500, signal)
 
               // 从结果中选择包含关键词的话题
