@@ -215,14 +215,20 @@ export default function AccountsPage() {
                     {acct.accountId && <p className="truncate">🔗 {acct.accountId}</p>}
                     {acct.remark && <p className="italic">📝 {acct.remark}</p>}
                   </div>
-                  <button onClick={() => setWorkbench(acct)}
+                  <button onClick={() => {
+                    if (acct.bindType === 'official') {
+                      showToast('官方 API 暂不支持，等待平台开放接口更新', 'warning')
+                      return
+                    }
+                    setWorkbench(acct)
+                  }}
                     className={`w-full text-xs py-1.5 mt-1 rounded-lg border transition ${
                       acct.isBound
                         ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30'
                         : 'bg-white/5 text-gray-500 border-white/10 cursor-not-allowed'
                     }`}
-                    disabled={!acct.isBound}>
-                    🚀 进入工作台
+                    disabled={!acct.isBound || acct.bindType === 'official'}>
+                    🚀 {acct.bindType === 'official' ? '暂不支持' : '进入工作台'}
                   </button>
                 </div>
               )
@@ -441,8 +447,8 @@ export default function AccountsPage() {
           </div>
         )}
 
-        {/* ── 工作台弹窗 ── */}
-        {workbench && (
+        {/* ── 工作台弹窗（按 bindType 区分） ── */}
+        {workbench && workbench.bindType !== 'official' && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setWorkbench(null)}>
             <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4">
@@ -455,17 +461,45 @@ export default function AccountsPage() {
                 </div>
                 <button onClick={() => setWorkbench(null)} className="text-gray-500 hover:text-white text-xl">&times;</button>
               </div>
-              <div className="space-y-2">
-                <a href={getLoginUrl(workbench.platform)} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-3 px-4 py-3 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-sm hover:bg-emerald-500/30 transition block text-center">
-                  🔑 前往 {platformMeta(workbench.platform)?.label || workbench.platform} 登录
-                </a>
-                <a href="/admin/social-accounts" className="flex items-center gap-3 px-4 py-3 bg-white/5 text-gray-400 border border-white/10 rounded-xl text-sm hover:bg-white/10 transition block text-center">
-                  ⚙️ 账号设置（管理员用）
-                </a>
-              </div>
+
+              {/* ── device (Q1群控) / usb (真手机) ── */}
+              {(workbench.bindType === 'device' || workbench.bindType === 'usb') && (
+                <div className="space-y-2">
+                  <a href="/ai-agent" className="flex items-center gap-3 px-4 py-3 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-sm hover:bg-emerald-500/30 transition block text-center">
+                    ▶ AI Agent 自动发布
+                  </a>
+                  <a href={getLoginUrl(workbench.platform)} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-3 px-4 py-3 bg-white/5 text-gray-400 border border-white/10 rounded-xl text-sm hover:bg-white/10 transition block text-center">
+                    🔑 前往 {platformMeta(workbench.platform)?.label || workbench.platform} 登录
+                  </a>
+                  {user?.role === 'admin' || user?.role === 'editor' ? (
+                    <a href="/admin/social-accounts" className="flex items-center gap-3 px-4 py-3 bg-white/5 text-gray-400 border border-white/10 rounded-xl text-sm hover:bg-white/10 transition block text-center">
+                      ⚙️ 账号设置（管理员）
+                    </a>
+                  ) : null}
+                </div>
+              )}
+
+              {/* ── manual (指纹浏览器) ── */}
+              {workbench.bindType === 'manual' && (
+                <div className="space-y-3">
+                  <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 text-center">
+                    <p className="text-purple-300 text-sm font-medium mb-1">🌐 浏览器脚本发布</p>
+                    <p className="text-[11px] text-purple-400/70 mb-3">通过指纹浏览器自动化发布内容</p>
+                    <button disabled
+                      className="w-full py-2 bg-purple-500/30 text-purple-300 rounded-lg text-xs cursor-not-allowed opacity-60">
+                      即将上线 · 敬请期待
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-gray-600 text-center">
+                    功能开发中，届时支持 VirtualBrowser 等指纹浏览器自动发布
+                  </p>
+                </div>
+              )}
+
               <p className="text-[10px] text-gray-600 text-center mt-4">
-                登录后通知管理员绑定设备即可使用
+                绑定方式：{BIND_TYPES.find(b => b.key === workbench.bindType)?.label || workbench.bindType}
+                {workbench.deviceId ? ` · 设备已绑定` : ' · 等待管理员绑定设备'}
               </p>
             </div>
           </div>
