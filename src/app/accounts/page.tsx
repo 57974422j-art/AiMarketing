@@ -493,16 +493,16 @@ export default function AccountsPage() {
                   {/* 端口信息 */}
                   <div className="bg-gray-800/50 rounded-lg p-3 text-center">
                     <p className="text-[11px] text-gray-500 mb-1">CDP 调试端口</p>
-                    <p className={`text-lg font-mono font-bold ${workbench.deviceId ? 'text-cyan-400' : 'text-gray-600'}`}>
-                      {workbench.deviceId || '待分配'}
+                    <p className={`text-lg font-mono font-bold ${workbench.accountId ? 'text-cyan-400' : 'text-gray-600'}`}>
+                      {workbench.accountId || '待分配'}
                     </p>
-                    {!workbench.deviceId && (
+                    {!workbench.accountId && (
                       <p className="text-[10px] text-orange-400/70 mt-1">管理员审核后分配端口</p>
                     )}
                   </div>
 
                   {/* 浏览器状态 + 操作按钮 */}
-                  {!workbench.deviceId ? (
+                  {!workbench.accountId ? (
                     /* 未绑定：提示等待 */
                     <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 text-center">
                       <p className="text-yellow-300 text-sm font-medium mb-1">⏳ 等待管理员绑定</p>
@@ -519,14 +519,14 @@ export default function AccountsPage() {
                           credentials: 'include',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
-                            port: parseInt(workbench.deviceId, 10),
+                            port: parseInt(workbench.accountId, 10),
                             accountId: workbench.id,
                           }),
                         })
                         const data = await res.json()
                         if (!res.ok) throw new Error(data.error || '启动失败')
                         setBrowserStatus('running')
-                        setBrowserMsg(`✅ 浏览器已启动 - 端口 ${workbench.deviceId}`)
+                        setBrowserMsg(`✅ 浏览器已启动 - 端口 ${workbench.accountId}`)
                         if (data.data?.screenshot) setBrowserScreenshot(data.data.screenshot)
                       } catch (e: any) {
                         setBrowserStatus('error')
@@ -554,7 +554,7 @@ export default function AccountsPage() {
                     <>
                       <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-center">
                         <p className="text-emerald-300 text-sm font-medium mb-1">🟢 浏览器运行中</p>
-                        <p className="text-[11px] text-emerald-400/70">端口 {workbench.deviceId} · 已打开抖音创作者中心</p>
+                        <p className="text-[11px] text-emerald-400/70">端口 {workbench.accountId} · 已打开抖音创作者中心</p>
                       </div>
 
                       {/* 截图预览 */}
@@ -571,7 +571,7 @@ export default function AccountsPage() {
                               credentials: 'include',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({
-                                port: parseInt(workbench.deviceId, 10),
+                                port: parseInt(workbench.accountId, 10),
                                 url: 'https://creator.douyin.com/creator-micro/content/publish',
                                 action: 'open',
                               }),
@@ -586,7 +586,7 @@ export default function AccountsPage() {
                         <button onClick={async () => {
                           setBrowserStatus('stopping')
                           try {
-                            const res = await fetch(`/api/browser?port=${workbench.deviceId}`, {
+                            const res = await fetch(`/api/browser?port=${workbench.accountId}`, {
                               method: 'DELETE', credentials: 'include',
                             })
                             if (res.ok) {
