@@ -52,4 +52,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @param {object} params - 模板参数
    */
   fpExecute: (port, templateType, params) => ipcRenderer.invoke('fp:execute', { port, templateType, params }),
+
+  // ── 自动更新 ──
+  updaterCheck: () => ipcRenderer.invoke('updater:check'),
+  updaterInstall: () => ipcRenderer.invoke('updater:install'),
+  onUpdateStatus: (callback) => {
+    const handler = (_event, data) => callback(data)
+    ipcRenderer.on('app:update-status', handler)
+    return () => ipcRenderer.removeListener('app:update-status', handler)
+  },
 })

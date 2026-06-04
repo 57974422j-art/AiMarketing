@@ -21,6 +21,7 @@
     "next": "14.2.0",
     "playwright": "^1.60.0",
     "playwright-extra": "^4.3.6",
+    "electron-updater": "^6.3.0",
     "prisma": "5.22.0",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "react": "18.2.0",
@@ -69,6 +70,10 @@
     "win": {
       "target": "nsis",
       "icon": "public/icon.png"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "http://120.55.43.195:3000/updates"
     },
     "nsis": {
       "oneClick": false,

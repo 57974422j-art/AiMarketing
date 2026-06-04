@@ -4,6 +4,9 @@ const fs = require('fs')
 const os = require('os')
 const { execSync, spawn } = require('child_process')
 
+// ── 自动更新 ──
+const { autoUpdater } = require('electron-updater')
+
 let mainWindow
 
 function createWindow() {
@@ -22,7 +25,78 @@ function createWindow() {
   const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
   mainWindow.loadURL(serverUrl)
   if (isDev) mainWindow.webContents.openDevTools()
+
+  // ── 自动更新检测（生产环境）──
+  if (!isDev) {
+    setupAutoUpdater(mainWindow)
+  }
 }
+
+// ════════════════════════════════════════
+//  自动更新（electron-updater）
+// ════════════════════════════════════════
+
+function setupAutoUpdater(win) {
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  // 检测到有新版本
+  autoUpdater.on('update-available', (info) => {
+    console.log('[Updater] 发现新版本:', info.version)
+    win?.webContents.send('app:update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes })
+  })
+
+  // 新版本下载进度
+  autoUpdater.on('download-progress', (progressObj) => {
+    const pct = Math.floor(progressObj.percent || 0)
+    win?.webContents.send('app:update-status', { status: 'downloading', percent: pct })
+  })
+
+  // 下载完成，提示重启
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[Updater] 下载完成:', info.version)
+    win?.webContents.send('app:update-status', { status: 'ready', version: info.version, releaseNotes: info.releaseNotes })
+  })
+
+  // 没有新版本
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('[Updater] 当前已是最新版:', info.version)
+    win?.webContents.send('app:update-status', { status: 'up-to-date' })
+  })
+
+  // 出错
+  autoUpdater.on('error', (err) => {
+    console.error('[Updater] 错误:', err.message)
+    win?.webContents.send('app:update-status', { status: 'error', error: err.message })
+  })
+
+  // 启动后延迟 5 秒检查更新
+  setTimeout(() => {
+    console.log('[Updater] 正在检查更新...')
+    autoUpdater.checkForUpdates()
+  }, 5000)
+}
+
+// IPC：手动触发检查更新
+ipcMain.handle('updater:check', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates()
+    return { success: true, updateInfo: result.updateInfo }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
+// IPC：立即下载并安装更新
+ipcMain.handle('updater:install', async () => {
+  try {
+    autoUpdater.quitAndInstall(true, true)
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
 
 // ── 找脚本目录 ──
 function getScriptsDir() {
