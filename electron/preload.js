@@ -3,28 +3,53 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
 
-  // 设备列表
+  // ── ADB（原有）──
   adbDevices: () => ipcRenderer.invoke('adb:devices'),
-
-  // Shell 命令
   adbShell: (deviceId, command) => ipcRenderer.invoke('adb:shell', { deviceId, command }),
-
-  // 截图
   adbScreenshot: (deviceId) => ipcRenderer.invoke('adb:screenshot', { deviceId }),
   adbScreenshotDataUrl: (deviceId) => ipcRenderer.invoke('adb:screenshot', { deviceId }),
-
-  // 投屏
   adbMirror: (deviceId) => ipcRenderer.invoke('adb:mirror', { deviceId }),
-
-  // 点击/输入/滑动
   adbTap: (deviceId, x, y) => ipcRenderer.invoke('adb:tap', { deviceId, x, y }),
   adbInput: (deviceId, text) => ipcRenderer.invoke('adb:input', { deviceId, text }),
   adbSwipe: (deviceId, x1, y1, x2, y2, duration) => ipcRenderer.invoke('adb:swipe', { deviceId, x1, y1, x2, y2, duration }),
-
-  // 推文件到设备
   adbPush: (deviceId, localPath, remotePath) => ipcRenderer.invoke('adb:push', { deviceId, localPath, remotePath }),
-
-  // 桥接
   adbBridge: (deviceId, port) => ipcRenderer.invoke('adb:bridge', { deviceId, port }),
   adbBridgeStop: (port) => ipcRenderer.invoke('adb:bridge:stop', { port }),
+
+  // ── 🌐 指纹浏览器（Fingerprint Browser via Playwright）──
+
+  /** 启动浏览器窗口 { port, accountId?, platform?, proxy? } */
+  fpStart: (opts) => ipcRenderer.invoke('fp:start', opts),
+
+  /** 停止指定端口的浏览器 */
+  fpStop: (port) => ipcRenderer.invoke('fp:stop', { port }),
+
+  /** 列出所有活跃的指纹浏览器 */
+  fpList: () => ipcRenderer.invoke('fp:list'),
+
+  /** 截图 */
+  fpScreenshot: (port) => ipcRenderer.invoke('fp:screenshot', { port }),
+
+  /** 点击坐标 */
+  fpClick: (port, x, y) => ipcRenderer.invoke('fp:click', { port, x, y }),
+
+  /** 输入文字 */
+  fpType: (port, x, y, text) => ipcRenderer.invoke('fp:type', { port, x, y, text }),
+
+  /** 按 Enter */
+  fpEnter: (port) => ipcRenderer.invoke('fp:enter', { port }),
+
+  /** 导航到 URL */
+  fpNavigate: (port, url) => ipcRenderer.invoke('fp:navigate', { port, url }),
+
+  /** 获取当前页面信息（URL、Cookie状态等） */
+  fpInfo: (port) => ipcRenderer.invoke('fp:info', { port }),
+
+  /**
+   * 执行自动化模板
+   * @param {number} port
+   * @param {string} templateType - 'douyin-publish' | 'douyin-like' | 'douyin-comment' | 'xiaohongshu-publish'
+   * @param {object} params - 模板参数
+   */
+  fpExecute: (port, templateType, params) => ipcRenderer.invoke('fp:execute', { port, templateType, params }),
 })
