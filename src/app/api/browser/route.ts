@@ -63,17 +63,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: '打开页面需要 url 参数' }, { status: 400 })
       }
       
-      const page = await openPage(port, url)
-      // 截图验证
-      let screenshot = null
-      try {
-        screenshot = await page?.screenshot?.({ encoding: 'base64', fullPage: false })
-      } catch (_) {}
-
+      const result = await openPage(port, url)
       return NextResponse.json({
         success: true,
         message: `已在端口 ${port} 打开 ${url}`,
-        data: { screenshot: screenshot ? `data:image/png;base64,${screenshot}` : null },
+        data: { screenshot: result.screenshot || null },
       })
     }
 
