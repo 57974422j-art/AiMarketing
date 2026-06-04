@@ -9,6 +9,15 @@ const { autoUpdater } = require('electron-updater')
 
 let mainWindow
 
+// ── 让 Playwright 从安装包内找浏览器 ──
+if (app.isPackaged) {
+  const bundledBrowsers = path.join(process.resourcesPath, 'ms-playwright')
+  if (fs.existsSync(bundledBrowsers)) {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = bundledBrowsers
+    console.log('[FP] 使用打包内浏览器:', bundledBrowsers)
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,

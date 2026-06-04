@@ -65,6 +65,11 @@
       {
         "from": "scripts/scrcpy",
         "to": "scripts/scrcpy"
+      },
+      {
+        "from": "../../AppData/Local/ms-playwright",
+        "to": "ms-playwright",
+        "filter": ["**/*"]
       }
     ],
     "win": {
