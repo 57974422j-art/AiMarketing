@@ -240,6 +240,7 @@ export default function MyFingerprintPage() {
       setExecLogs(prev => [...prev, '需要客户端环境'])
       showMsg('需要在客户端中执行模板', 'error')
     }
+  }
 
 
   // ── 渲染 ──
