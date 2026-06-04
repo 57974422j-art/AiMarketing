@@ -45,10 +45,18 @@ export async function PUT(request: NextRequest) {
     const user = getUserContext(request)
     if (!user || user.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
     const body = await request.json()
-    const { id, deviceId, remark } = body
+    const { id, deviceId, remark, accountId: updateAccountId } = body
     if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
     const data: any = {}
-    if (deviceId && deviceId !== 'local') {
+    // ── 指纹浏览器：端口号存入 accountId 字段 ──
+    if (updateAccountId !== undefined && updateAccountId !== '') {
+      data.accountId = String(updateAccountId)
+      data.deviceId = null
+      data.status = '已绑定'
+      data.isBound = true
+    }
+    // ── Q1 设备 / USB 本地设备 ──
+    else if (deviceId && deviceId !== 'local') {
       data.deviceId = parseInt(deviceId)
       data.status = '已绑定'
       data.isBound = true
@@ -56,7 +64,7 @@ export async function PUT(request: NextRequest) {
       data.deviceId = null
       data.status = '已绑定'
       data.isBound = true
-    } else if (deviceId === '') {
+    } else if (deviceId === '' || deviceId === null || deviceId === undefined) {
       data.deviceId = null
       data.status = '未绑定'
       data.isBound = false
