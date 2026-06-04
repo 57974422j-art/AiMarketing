@@ -533,7 +533,6 @@ export default function AccountsPage() {
                         setBrowserMsg(e.message || '启动失败')
                       }
                     }}
-                    disabled={browserStatus === 'starting'}
                     className="w-full py-3 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
                       🌐 启动指纹浏览器
                     </button>
