@@ -75,8 +75,11 @@ export async function POST(request: NextRequest) {
     const instance = await startBrowser(port, accountId)
 
     // 启动后自动打开抖音创作者中心登录页
+    let initialScreenshot: string | null = null
     try {
-      await openPage(port, 'https://creator.douyin.com/creator-micro/content/publish')
+      const pageResult = await openPage(port, 'https://creator.douyin.com/creator-micro/content/publish')
+      initialScreenshot = pageResult.screenshot || null
+      console.log('[BrowserManager] 初始页面加载成功')
     } catch (e) {
       console.warn(`[BrowserManager] 浏览器启动成功但初始页面加载异常:`, e instanceof Error ? e.message : e)
     }
@@ -88,6 +91,7 @@ export async function POST(request: NextRequest) {
         port: instance.port,
         cdpUrl: `http://localhost:${port}`,
         startedAt: instance.startedAt,
+        screenshot: initialScreenshot,
       },
     })
 
