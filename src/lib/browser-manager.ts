@@ -1,22 +1,18 @@
 /**
  * 指纹浏览器管理模块
- * 
+ *
  * 负责：Playwright + Stealth 浏览器的启停、状态管理
  * 仅用于 bindType='manual' (指纹浏览器) 类型的账号
- * 
+ *
  * 与 Q1群控(device) / USB真手机(usb) 完全独立，互不干扰
- * 
+ *
  * 端口规则：
  *   - 一账号一端口，固定绑定
  *   - 由 Admin 在审核时手动分配
  *   - Cookie/登录态持久化在该端口环境中
+ *
+ * 注意：playwright-extra / stealth 使用动态 import，避免 Next.js 构建时 ESM/CJS 冲突
  */
-
-import { chromium } from 'playwright-extra'
-import stealth from 'puppeteer-extra-plugin-stealth'
-
-// 注入 Stealth 反检测插件
-chromium.use(stealth())
 
 // ── 类型定义 ──
 
@@ -40,9 +36,23 @@ const activeBrowsers = new Map<number, BrowserInstance>()
 
 // ── 核心函数 ──
 
+/** 动态加载的 chromium 引用缓存（避免重复 import） */
+let _chromium: any = null
+
+async function getChromium() {
+  if (!_chromium) {
+    const pw = await import('playwright-extra')
+    const st = await import('puppeteer-extra-plugin-stealth')
+    const stealth = st.default || st
+    _chromium = pw.chromium
+    _chromium.use(stealth())
+  }
+  return _chromium
+}
+
 /**
  * 启动指定端口的指纹浏览器实例
- * 
+ *
  * @param port - CDP 调试端口号（由 Admin 分配）
  * @param accountId - 关联的账号ID（可选）
  * @returns 浏览器实例信息
@@ -59,6 +69,7 @@ export async function startBrowser(port: number, accountId?: string): Promise<Br
   }
 
   // 启动浏览器
+  const chromium = await getChromium()
   const browser = await chromium.launch({
     headless: true,
     args: [
