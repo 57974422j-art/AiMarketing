@@ -220,7 +220,7 @@ export default function AccountsPage() {
                   </div>
                   <button onClick={() => {
                     if (acct.bindType === 'official') {
-                      showToast('官方 API 暂不支持，等待平台开放接口更新', 'warning')
+                      showToast('官方 API 暂不支持，等待平台开放接口更新', 'error')
                       return
                     }
                     setWorkbench(acct)
