@@ -50,7 +50,7 @@ export default function AccountsPage() {
 
   /** 发送浏览器交互动作的统一方法 */
   const sendBrowserAction = async (action: string, extra?: Record<string, any>) => {
-    if (!workbench.accountId) return
+    if (!workbench?.accountId) return
     setBrowserActionLoading(true)
     try {
       const res = await fetch('/api/browser', {
