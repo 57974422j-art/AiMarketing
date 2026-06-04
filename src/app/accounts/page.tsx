@@ -41,6 +41,9 @@ export default function AccountsPage() {
   const [submitting, setSubmitting] = useState(false)
 
   const [workbench, setWorkbench] = useState<Account | null>(null)
+  const [browserStatus, setBrowserStatus] = useState<'idle' | 'starting' | 'running' | 'stopping' | 'error'>('idle')
+  const [browserMsg, setBrowserMsg] = useState('')
+  const [browserScreenshot, setBrowserScreenshot] = useState<string | null>(null)
 
   useEffect(() => {
     if (!authLoading && user) load()
@@ -221,6 +224,10 @@ export default function AccountsPage() {
                       return
                     }
                     setWorkbench(acct)
+                    // 重置浏览器状态
+                    setBrowserStatus('idle')
+                    setBrowserMsg('')
+                    setBrowserScreenshot(null)
                   }}
                     className={`w-full text-xs py-1.5 mt-1 rounded-lg border transition ${
                       acct.isBound
@@ -483,17 +490,120 @@ export default function AccountsPage() {
               {/* ── manual (指纹浏览器) ── */}
               {workbench.bindType === 'manual' && (
                 <div className="space-y-3">
-                  <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 text-center">
-                    <p className="text-purple-300 text-sm font-medium mb-1">🌐 浏览器脚本发布</p>
-                    <p className="text-[11px] text-purple-400/70 mb-3">通过指纹浏览器自动化发布内容</p>
-                    <button disabled
-                      className="w-full py-2 bg-purple-500/30 text-purple-300 rounded-lg text-xs cursor-not-allowed opacity-60">
-                      即将上线 · 敬请期待
-                    </button>
+                  {/* 端口信息 */}
+                  <div className="bg-gray-800/50 rounded-lg p-3 text-center">
+                    <p className="text-[11px] text-gray-500 mb-1">CDP 调试端口</p>
+                    <p className={`text-lg font-mono font-bold ${workbench.deviceId ? 'text-cyan-400' : 'text-gray-600'}`}>
+                      {workbench.deviceId || '待分配'}
+                    </p>
+                    {!workbench.deviceId && (
+                      <p className="text-[10px] text-orange-400/70 mt-1">管理员审核后分配端口</p>
+                    )}
                   </div>
-                  <p className="text-[10px] text-gray-600 text-center">
-                    功能开发中，届时支持 VirtualBrowser 等指纹浏览器自动发布
-                  </p>
+
+                  {/* 浏览器状态 + 操作按钮 */}
+                  {!workbench.deviceId ? (
+                    /* 未绑定：提示等待 */
+                    <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 text-center">
+                      <p className="text-yellow-300 text-sm font-medium mb-1">⏳ 等待管理员绑定</p>
+                      <p className="text-[11px] text-yellow-400/60">管理员会为你分配浏览器端口</p>
+                    </div>
+                  ) : browserStatus === 'idle' ? (
+                    /* 已绑定但未启动：启动按钮 */
+                    <button onClick={async () => {
+                      setBrowserStatus('starting')
+                      setBrowserMsg('正在启动指纹浏览器...')
+                      try {
+                        const res = await fetch('/api/browser', {
+                          method: 'POST',
+                          credentials: 'include',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            port: parseInt(workbench.deviceId, 10),
+                            accountId: workbench.id,
+                          }),
+                        })
+                        const data = await res.json()
+                        if (!res.ok) throw new Error(data.error || '启动失败')
+                        setBrowserStatus('running')
+                        setBrowserMsg(`✅ 浏览器已启动 - 端口 ${workbench.deviceId}`)
+                        if (data.data?.screenshot) setBrowserScreenshot(data.data.screenshot)
+                      } catch (e: any) {
+                        setBrowserStatus('error')
+                        setBrowserMsg(e.message || '启动失败')
+                      }
+                    }}
+                    disabled={browserStatus === 'starting'}
+                    className="w-full py-3 bg-purple-500 hover:bg-purple-600 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
+                      🌐 启动指纹浏览器
+                    </button>
+                  ) : browserStatus === 'starting' ? (
+                    /* 启动中 */
+                    <div className="w-full py-3 bg-purple-500/20 border border-purple-500/30 rounded-xl text-center">
+                      <p className="text-purple-300 text-sm animate-pulse">{browserMsg || '启动中...'}</p>
+                    </div>
+                  ) : browserStatus === 'error' ? (
+                    /* 出错 */
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-center">
+                      <p className="text-red-300 text-sm mb-2">{browserMsg}</p>
+                      <button onClick={() => setBrowserStatus('idle')}
+                        className="px-4 py-1.5 bg-red-500/20 text-red-300 rounded-lg text-xs">重试</button>
+                    </div>
+                  ) : (
+                    /* 运行中：控制面板 */
+                    <>
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-center">
+                        <p className="text-emerald-300 text-sm font-medium mb-1">🟢 浏览器运行中</p>
+                        <p className="text-[11px] text-emerald-400/70">端口 {workbench.deviceId} · 已打开抖音创作者中心</p>
+                      </div>
+
+                      {/* 截图预览 */}
+                      {browserScreenshot && (
+                        <img src={browserScreenshot} alt="浏览器截图" className="w-full rounded-lg border border-white/5" />
+                      )}
+
+                      {/* 操作按钮组 */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={async () => {
+                          try {
+                            const res = await fetch('/api/browser', {
+                              method: 'POST',
+                              credentials: 'include',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                port: parseInt(workbench.deviceId, 10),
+                                url: 'https://creator.douyin.com/creator-micro/content/publish',
+                                action: 'open',
+                              }),
+                            })
+                            const data = await res.json()
+                            if (data.data?.screenshot) setBrowserScreenshot(data.data.screenshot)
+                          } catch (_) {}
+                        }}
+                          className="py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg text-xs hover:bg-blue-500/30 transition">
+                          📸 刷新页面
+                        </button>
+                        <button onClick={async () => {
+                          setBrowserStatus('stopping')
+                          try {
+                            const res = await fetch(`/api/browser?port=${workbench.deviceId}`, {
+                              method: 'DELETE', credentials: 'include',
+                            })
+                            if (res.ok) {
+                              setBrowserStatus('idle')
+                              setBrowserMsg('')
+                              setBrowserScreenshot(null)
+                            }
+                          } catch (e: any) {
+                            setBrowserStatus('running')
+                          }
+                        }}
+                          className="py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs hover:bg-red-500/30 transition">
+                          ⏹ 停止浏览器
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
