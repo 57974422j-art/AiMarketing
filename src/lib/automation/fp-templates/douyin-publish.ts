@@ -68,10 +68,22 @@ async function execute(page: any, p: Record<string, any>, log: LogFn): Promise<T
     const currentUrl = page.url()
     if (!currentUrl.includes('creator.douyin.com')) {
       log('导航到抖音创作者中心...')
-      await page.goto('https://creator.douyin.com/publish/video/', { timeout: 30000 })
+      await page.goto('https://creator.douyin.com/creator-micro/content/upload', { timeout: 30000 })
       await page.waitForTimeout(4000)
     } else {
       log('当前已在创作者中心')
+    }
+
+    // ── Step 1.5: 处理可能出现的弹窗 ──
+    for (const popupText of ['我知道了', '知道了', '确定', '关闭']) {
+      try {
+        const btn = await page.$(`text="${popupText}"`)
+        if (btn && await btn.isVisible().catch(() => false)) {
+          await btn.click({ timeout: 2000 })
+          log(`已点击弹窗「${popupText}」`)
+          await page.waitForTimeout(1000)
+        }
+      } catch (_) {}
     }
 
     // ── Step 2: 找到并上传视频 ──
