@@ -112,7 +112,7 @@ export function getBrowserStatus(port: number): { running: boolean; info?: Brows
 
 /** 获取所有活跃浏览器列表 */
 export function getAllBrowsers(): Array<{ port: number; accountId: string | null; startedAt: Date; running: boolean }> {
-  const result = []
+  const result: Array<{ port: number; accountId: string | null; startedAt: Date; running: boolean }> = []
   for (const [port, inst] of activeBrowsers) result.push({ port, accountId: inst.accountId, startedAt: inst.startedAt, running: inst.running })
   return result
 }
