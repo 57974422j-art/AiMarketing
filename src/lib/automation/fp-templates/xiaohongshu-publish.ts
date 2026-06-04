@@ -8,7 +8,7 @@
  *   - caption: 笔记标题+正文内容
  */
 
-import { TemplateResult, LogFn, FingerprintTemplate } from './types'
+import { TemplateResult, LogFn, FingerprintTemplate, TemplateParamDef } from './types'
 
 const meta = {
   key: 'xiaohongshu-publish',
@@ -18,7 +18,7 @@ const meta = {
   version: '1.0.0',
 }
 
-const params = [
+const params: TemplateParamDef[] = [
   {
     key: 'caption',
     label: '笔记内容',
