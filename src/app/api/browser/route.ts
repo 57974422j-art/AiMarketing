@@ -67,9 +67,7 @@ export async function POST(request: NextRequest) {
       // 截图验证
       let screenshot = null
       try {
-        if (page) {
-          screenshot = await page.screenshot({ encoding: 'base64', fullPage: false })
-        }
+        screenshot = await page?.screenshot?.({ encoding: 'base64', fullPage: false })
       } catch (_) {}
 
       return NextResponse.json({
