@@ -11,7 +11,7 @@
  *   - count: 点赞次数（默认3，最多20）
  */
 
-import { TemplateResult, LogFn, FingerprintTemplate } from './types'
+import { TemplateResult, LogFn, FingerprintTemplate, TemplateParamDef } from './types'
 
 const meta = {
   key: 'douyin-like',
@@ -21,7 +21,7 @@ const meta = {
   version: '1.0.0',
 }
 
-const params = [
+const params: TemplateParamDef[] = [
   {
     key: 'targetUrls',
     label: '目标视频URL',
