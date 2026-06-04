@@ -38,7 +38,7 @@ const PLATFORMS = [
 ]
 
 const TEMPLATES = [
-  { key: 'douyin-publish', label: '📝 抖音发帖', platforms: ['douyin'], desc: '填写文案+上传媒体，手动确认发布' },
+  { key: 'douyin-publish', label: '📝 抖音发视频', platforms: ['douyin'], desc: '上传视频+填写文案+话题，自动发布' },
   { key: 'douyin-like',   label: '👍 抖音点赞', platforms: ['douyin'], desc: '批量点赞指定视频或当前页' },
   { key: 'douyin-comment',label: '💬 抖音评论', platforms: ['douyin'], desc: '在目标视频下发表评论' },
   { key: 'xiaohongshu-publish', label: '📝 小红书发帖', platforms: ['xiaohongshu'], desc: '填写小红书文案内容' },
@@ -82,6 +82,9 @@ export default function MyFingerprintPage() {
   const [showTemplatePanel, setShowTemplatePanel] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState<string>('')
   const [templateCaption, setTemplateCaption] = useState('')
+  const [templateVideoPath, setTemplateVideoPath] = useState('')
+  const [templateTopics, setTemplateTopics] = useState('')
+  const [templatePublishNow, setTemplatePublishNow] = useState(true)
   const [templateTargetUrl, setTemplateTargetUrl] = useState('')
   const [templateCount, setTemplateCount] = useState(3)
   const [executing, setExecuting] = useState(false)
@@ -208,6 +211,9 @@ export default function MyFingerprintPage() {
     switch (selectedTemplate) {
       case 'douyin-publish':
         params.caption = templateCaption
+        params.videoPath = templateVideoPath
+        params.topics = templateTopics
+        params.publishNow = String(templatePublishNow)
         break
       case 'douyin-comment':
         params.comment = templateCaption
@@ -429,15 +435,80 @@ export default function MyFingerprintPage() {
                     {TEMPLATES.find(t => t.key === selectedTemplate)?.label} 参数
                   </p>
 
-                  {(selectedTemplate.includes('publish') || selectedTemplate.includes('comment')) && (
+                  {/* 抖音发帖/视频 专属参数 */}
+                  {selectedTemplate === 'douyin-publish' && (
+                    <>
+                      <div>
+                        <label className="text-[11px] text-gray-500 block mb-1">视频文件路径（必填）</label>
+                        <input
+                          type="text"
+                          value={templateVideoPath}
+                          onChange={e => setTemplateVideoPath(e.target.value)}
+                          placeholder="D:\video\test.mp4 或 /home/user/video/test.mp4"
+                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-gray-500 block mb-1">文案/标题</label>
+                        <textarea
+                          value={templateCaption}
+                          onChange={e => setTemplateCaption(e.target.value)}
+                          placeholder="输入作品描述、标题..."
+                          rows={3}
+                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none resize-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-gray-500 block mb-1">话题标签（可选）</label>
+                        <input
+                          type="text"
+                          value={templateTopics}
+                          onChange={e => setTemplateTopics(e.target.value)}
+                          placeholder="#美食 #生活vlog （多个用空格分隔）"
+                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-gray-500 block mb-1">发布方式</label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setTemplatePublishNow(true)}
+                            className={`flex-1 px-3 py-1.5 rounded-lg text-xs transition ${
+                              templatePublishNow
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-gray-800/30 text-gray-500 border border-white/5'
+                            }`}
+                          >
+                            立即发布
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTemplatePublishNow(false)}
+                            className={`flex-1 px-3 py-1.5 rounded-lg text-xs transition ${
+                              !templatePublishNow
+                                ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                                : 'bg-gray-800/30 text-gray-500 border border-white/5'
+                            }`}
+                          >
+                            仅保存草稿
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* 评论模板参数 */}
+                  {(selectedTemplate === 'douyin-comment') && (
                     <div>
-                      <label className="text-[11px] text-gray-500 block mb-1">
-                        {selectedTemplate.includes('comment') ? '评论内容' : '文案/标题'}
-                      </label>
+                      <label className="text-[11px] text-gray-500 block mb-1">评论内容</label>
                       <textarea
                         value={templateCaption}
                         onChange={e => setTemplateCaption(e.target.value)}
-                        placeholder={selectedTemplate.includes('publish') ? '输入发布文案...' : '输入评论内容...'}
+                        placeholder="输入评论内容..."
                         rows={3}
                         className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none resize-none"
                       />

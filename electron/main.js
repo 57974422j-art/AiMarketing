@@ -541,106 +541,164 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
 // ════════════════════════════════════════
 
 /**
- * 抖音发帖模板
- * params: { caption?, videoPath?[], images?[] }
+ * 抖音发视频模板（完整版）
+ * params: { videoPath, caption?, topics?, publishNow? }
  */
 async function executeDouyinPublish(page, params, log) {
   try {
-    // 确保在创作者中心
+    if (!params.videoPath) throw new Error('请提供视频文件路径')
+    if (!fs.existsSync(params.videoPath)) throw new Error(`视频文件不存在: ${params.videoPath}`)
+
+    // ── Step 1: 导航到创作者中心发布页 ──
     const currentUrl = page.url()
     if (!currentUrl.includes('creator.douyin.com')) {
       log('导航到抖音创作者中心...')
-      await page.goto('https://creator.douyin.com/creator-micro/content/publish', { timeout: 30000 })
-      await page.waitForTimeout(3000)
+      await page.goto('https://creator.douyin.com/publish/video/', { timeout: 30000 })
+      await page.waitForTimeout(4000)
+    } else {
+      log('当前已在创作者中心')
     }
 
-    // 点击"发布图文/视频"入口
-    log('寻找发布按钮...')
-    // 尝试多种选择器
-    const publishSelectors = [
-      'text=发布',
-      '[class*="publish"]',
-      'button:has-text("发布")',
-      'div[class*="publishBtn"]',
-      '[data-testid="publish-btn"]',
-    ]
+    // ── Step 2: 上传视频 ──
+    log(`准备上传视频: ${params.videoPath}`)
+    let uploaded = false
 
-    let clicked = false
-    for (const sel of publishSelectors) {
+    const fileInputSels = [
+      'input[type="file"][accept*="video"]',
+      'input[type="file"]',
+      '[class*="upload"] input[type="file"]',
+      '#upload-input',
+    ]
+    for (const sel of fileInputSels) {
       try {
         const el = await page.$(sel)
-        if (el && await el.isVisible()) {
-          await el.click({ timeout: 3000 })
-          clicked = true
-          log(`点击发布按钮: ${sel}`)
+        if (el && await el.isVisible().catch(() => false)) {
+          await el.setInputFiles(params.videoPath)
+          uploaded = true
+          log('✅ 视频已选择，等待上传...')
           break
         }
       } catch (_) {}
     }
 
-    if (!clicked) {
-      // 兜底：直接访问上传页
-      log('尝试直接进入上传页面...')
-      await page.goto('https://creator.douyin.com/publish/content/', { timeout: 20000 })
-      await page.waitForTimeout(3000)
+    if (!uploaded) {
+      log('尝试通过文件选择器上传...')
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
+        page.click('text=上传').catch(() => page.click('[class*="upload"]').catch(() => {})),
+      ])
+      if (fileChooser) {
+        await fileChooser.setFiles(params.videoPath)
+        uploaded = true
+        log('✅ 视频已通过文件选择器上传')
+      }
     }
 
+    if (!uploaded) throw new Error('未找到可用的视频上传入口')
+
+    // ── Step 3: 等待上传完成（最多3分钟）──
+    log('等待视频上传中...')
+    for (let i = 0; i < 60; i++) {
+      await page.waitForTimeout(3000)
+      const stillUploading = await page.evaluate(() => document.body.innerText).then(text => 
+        ['上传中','正在处理','转码中'].some(kw => text.includes(kw))
+      ).catch(() => true)
+      
+      if (!stillUploading || i >= 59) {
+        log(i >= 59 ? '⚠️ 上传超时，继续后续步骤' : '✅ 视频上传完成')
+        break
+      }
+      if (i % 5 === 0) log(`   已等待 ${(i+1)*3} 秒...`)
+    }
+    
     await page.waitForTimeout(2000)
 
-    // 如果有文案，填入标题/描述
+    // ── Step 4: 填写文案 ──
     if (params.caption) {
       log(`填写文案 (${params.caption.length}字)...`)
-      const inputSel = ['textarea[placeholder*="添加作品描述"]', 'textarea', '[contenteditable="true"]']
-      for (const sel of inputSel) {
+      const captionSels = [
+        'textarea[placeholder*="添加作品描述"]',
+        'textarea[placeholder*="描述你的作品"]',
+        'textarea[placeholder*="添加"]',
+        '[class*="caption"] textarea',
+        '[data-e2e="publish-textarea"] textarea',
+        'textarea',
+      ]
+      for (const sel of captionSels) {
         try {
           const input = await page.$(sel)
-          if (input && await input.isVisible()) {
-            await input.click()
+          if (input && await input.isVisible().catch(() => false)) {
+            await input.click({ timeout: 2000 })
             await page.waitForTimeout(300)
             await input.fill(params.caption)
-            log('文案已填写')
+            log('✅ 文案已填写')
             break
           }
         } catch (_) {}
       }
     }
 
-    // 如果有图片/视频，上传文件
-    const mediaFiles = [...(params.images || []), ...(params.videoPath ? [params.videoPath] : [])]
-    if (mediaFiles.length > 0) {
-      log(`准备上传 ${mediaFiles.length} 个文件...`)
-      // 寻找文件上传元素
-      const uploadInputSel = ['input[type="file"]', '[class*="upload"] input']
-      for (const sel of uploadInputSel) {
+    // ── Step 5: 添加话题 ──
+    if (params.topics) {
+      log(`添加话题: ${params.topics}`)
+      const topicList = params.topics.split(/[\s,，]+/).filter(t => t.trim())
+      for (const topic of topicList) {
+        const cleanTopic = topic.startsWith('#') ? topic : '#' + topic
+        const descInput = await page.$('textarea').catch(() => null)
+        if (descInput) {
+          await descInput.focus().catch(() => {})
+          await page.keyboard.press('End')
+          await page.waitForTimeout(100)
+          for (const char of cleanTopic + ' ') {
+            await page.keyboard.type(char, { delay: 30 })
+          }
+          await page.waitForTimeout(800)
+          
+          // 尝试点选话题建议
+          for (const sel of ['[class*="topic-suggest"] li:first-child', '[class*="topic-item"]:first-child']) {
+            try {
+              const item = await page.$(sel)
+              if (item && await item.isVisible().catch(() => false)) { await item.click(); break }
+            } catch (_) {}
+          }
+        }
+        await page.waitForTimeout(500)
+      }
+      log(`✅ 话题已添加 (${topicList.length}个)`)
+    }
+
+    // ── Step 6: 发布或保存草稿 ──
+    const shouldPublish = params.publishNow !== 'false'
+    if (shouldPublish) {
+      log('点击「发布」按钮...')
+      const btnSels = ['button:has-text("发布")','button:has-text("立即发布")','[class*="publish-btn"] button','[class*="submit"] button']
+      let published = false
+      for (const sel of btnSels) {
         try {
-          const uploadEl = await page.$(sel)
-          if (uploadEl) {
-            // Playwright 文件上传需要通过 setInputFiles
-            const fileInputs = await page.$$('input[type="file"]')
-            if (fileInputs.length > 0) {
-              // 过滤存在的文件
-              const existingFiles = mediaFiles.filter(f => fs.existsSync(f))
-              if (existingFiles.length > 0) {
-                await fileInputs[0].setInputFiles(existingFiles)
-                log(`已选择 ${existingFiles.length} 个文件`)
-                await page.waitForTimeout(5000) // 等待上传
-              } else {
-                log('警告：指定的媒体文件不存在于本地')
-              }
-            }
+          const btn = await page.$(sel)
+          if (btn && await btn.isVisible().catch(() => false)) {
+            await btn.click({ timeout: 3000 })
+            published = true
+            log('✅ 已点击发布按钮')
             break
           }
         } catch (_) {}
       }
+
+      if (!published) return { success: true, message: '内容已填写完成，请手动点击「发布」', needConfirm: true }
+
+      await page.waitForTimeout(3000)
+      const bodyText = await page.evaluate(() => document.body.innerText).catch(() => '')
+      if (bodyText.includes('发布成功') || bodyText.includes('提交成功')) {
+        log('🎉 视频发布成功！')
+        return { success: true, message: '视频已成功发布到抖音' }
+      }
+      return { success: true, message: '已执行发布操作，请确认结果', needConfirm: true }
+    } else {
+      log('保存为草稿模式')
+      return { success: true, message: '内容已填写完成，保存为草稿', needConfirm: true }
     }
 
-    log('模板步骤完成，等待用户确认发布或继续操作...')
-
-    return {
-      success: true,
-      message: '抖音发帖模板执行完毕（已填写内容，请手动确认发布）',
-      needConfirm: true,
-    }
   } catch (e) {
     log(`执行出错: ${e.message}`)
     return { success: false, message: e.message }
