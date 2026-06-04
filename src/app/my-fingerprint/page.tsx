@@ -1,0 +1,514 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { useAuth } from '@/app/providers'
+
+// ── 类型 ──
+
+interface Account {
+  id: number
+  platform: string
+  accountName: string
+  accountId: string        // 对于 manual 类型，这里存的是端口号
+  isBound: boolean
+  bindType: string
+  status: string
+  remark: string
+  createdAt: string
+}
+
+interface BrowserInstance {
+  port: number
+  accountId: string | null
+  platform: string
+  proxy: string | null
+  running: boolean
+  startedAt: number
+  currentUrl: string
+}
+
+// ── 平台配置 ──
+
+const PLATFORMS = [
+  { key: 'douyin', label: '抖音', icon: '🎵', url: 'https://creator.douyin.com/creator-micro/content/publish' },
+  { key: 'xiaohongshu', label: '小红书', icon: '📕', url: 'https://creator.xiaohongshu.com/publish/publish' },
+  { key: 'kuaishou', label: '快手', icon: '📹', url: 'https://cp.kuaishou.com/article/publish/video' },
+  { key: 'bilibili', label: 'B站', icon: '📺', url: 'https://member.bilibili.com/platform/upload-video/frame' },
+  { key: 'weibo', label: '微博', icon: '📢', url: 'https://weibo.com' },
+]
+
+const TEMPLATES = [
+  { key: 'douyin-publish', label: '📝 抖音发帖', platforms: ['douyin'], desc: '填写文案+上传媒体，手动确认发布' },
+  { key: 'douyin-like',   label: '👍 抖音点赞', platforms: ['douyin'], desc: '批量点赞指定视频或当前页' },
+  { key: 'douyin-comment',label: '💬 抖音评论', platforms: ['douyin'], desc: '在目标视频下发表评论' },
+  { key: 'xiaohongshu-publish', label: '📝 小红书发帖', platforms: ['xiaohongshu'], desc: '填写小红书文案内容' },
+]
+
+// ── Electron API 类型声明 ──
+
+declare global {
+  interface Window {
+    electronAPI?: {
+      isElectron?: boolean
+      fpStart?: (opts: { port: number; accountId?: string; platform?: string; proxy?: string }) => Promise<{ success: boolean; data?: any; error?: string }>
+      fpStop?: (port: number) => Promise<{ success: boolean; error?: string }>
+      fpList?: () => Promise<{ success: boolean; data?: BrowserInstance[]; error?: string }>
+      fpScreenshot?: (port: number) => Promise<{ success: boolean; data?: string; error?: string }>
+      fpInfo?: (port: number) => Promise<{ success: boolean; data?: any; error?: string }>
+      fpExecute?: (port: number, templateType: string, params: any) => Promise<{ success: boolean; data?: any; error?: string; logs?: string[] }>
+    }
+  }
+}
+
+
+export default function MyFingerprintPage() {
+  const { user } = useAuth()
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron
+
+  // ── 账号列表 ──
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // ── 浏览器实例列表 ──
+  const [browsers, setBrowsers] = useState<BrowserInstance[]>([])
+
+  // ── 选中的账号（工作台）──
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
+
+  // ── 启动参数 ──
+  const [proxyInput, setProxyInput] = useState('')
+
+  // ── 模板执行 ──
+  const [showTemplatePanel, setShowTemplatePanel] = useState(false)
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('')
+  const [templateCaption, setTemplateCaption] = useState('')
+  const [templateTargetUrl, setTemplateTargetUrl] = useState('')
+  const [templateCount, setTemplateCount] = useState(3)
+  const [executing, setExecuting] = useState(false)
+  const [execLogs, setExecLogs] = useState<string[]>([])
+
+  // ── 状态消息 ──
+  const [msgText, setMsgText] = useState('')
+  const [msgType, setMsgType] = useState<'info' | 'error' | 'success'>('info')
+
+
+  // ── 数据加载 ──
+
+  useEffect(() => {
+    loadAccounts()
+    if (isElectron) pollBrowserList()
+  }, [])
+
+  /** 定时轮询浏览器列表 */
+  function pollBrowserList() {
+    refreshBrowserList()
+    const interval = setInterval(refreshBrowserList, 3000)
+    return () => clearInterval(interval)
+  }
+
+  async function loadAccounts() {
+    try {
+      const r = await fetch('/api/accounts', { credentials: 'include' })
+      if (r.ok) {
+        const d = await r.json()
+        const all = Array.isArray(d) ? d : (d.data || [])
+        // 只显示 manual 类型的账号（已绑定且有端口的）
+        setAccounts(all.filter((a: Account) => a.bindType === 'manual'))
+      }
+    } catch (_) {}
+    setLoading(false)
+  }
+
+  async function refreshBrowserList() {
+    if (!window.electronAPI?.fpList) return
+    try {
+      const res = await window.electronAPI.fpList()
+      if (res.success && Array.isArray(res.data)) {
+        setBrowsers(res.data)
+      }
+    } catch (_) {}
+  }
+
+
+  // ── 消息提示 ──
+
+  const showMsg = useCallback((text: string, type: 'info' | 'error' | 'success' = 'info') => {
+    setMsgText(text)
+    setMsgType(type)
+    setTimeout(() => setMsgText(''), 4000)
+  }, [])
+
+
+  // ── 浏览器操作 ──
+
+  /** 启动浏览器 */
+  const handleStart = async (acct: Account) => {
+    if (!isElectron || !window.electronAPI?.fpStart) {
+      showMsg('需要使用桌面客户端才能启动指纹浏览器', 'error')
+      return
+    }
+    if (!acct.accountId) {
+      showMsg('该账号未分配端口，请联系管理员绑定', 'error')
+      return
+    }
+
+    const port = parseInt(acct.accountId, 10)
+    showMsg(`正在启动端口 ${port}...`, 'info')
+
+    const res = await window.electronAPI.fpStart({
+      port,
+      accountId: String(acct.id),
+      platform: acct.platform,
+      proxy: proxyInput.trim(),
+    })
+
+    if (res.success) {
+      showMsg(`✅ 浏览器已启动 - ${PLATFORMS.find(p => p.key === acct.platform)?.icon} ${acct.platform}`, 'success')
+      setSelectedAccount(acct)
+      setShowTemplatePanel(true)
+      refreshBrowserList()
+    } else {
+      showMsg(`❌ 启动失败: ${res.error}`, 'error')
+    }
+  }
+
+  /** 停止浏览器 */
+  const handleStop = async (port: number) => {
+    if (!window.electronAPI?.fpStop) return
+    const res = await window.electronAPI.fpStop(port)
+    if (res.success) {
+      showMsg(`⏹ 端口 ${port} 已停止`, 'success')
+      refreshBrowserList()
+      if (selectedAccount && parseInt(selectedAccount.accountId, 10) === port) {
+        setSelectedAccount(null)
+        setShowTemplatePanel(false)
+        setExecLogs([])
+      }
+    } else {
+      showMsg(`停止失败: ${res.error}`, 'error')
+    }
+  }
+
+  /** 检查某端口的运行状态 */
+  const isRunning = (port: number): boolean => {
+    return browsers.some(b => b.port === port && b.running)
+  }
+
+
+  // ── 模板执行 ──
+
+  const handleExecute = async () => {
+    if (!selectedTemplate) { showMsg('请选择模板', 'error'); return }
+    if (!selectedAccount?.accountId) return
+
+    setExecuting(true)
+    setExecLogs(['开始执行...'])
+
+    const params: Record<string, any> = {}
+    switch (selectedTemplate) {
+      case 'douyin-publish':
+        params.caption = templateCaption
+        break
+      case 'douyin-comment':
+        params.comment = templateCaption
+        params.targetUrl = templateTargetUrl
+        break
+      case 'douyin-like':
+        params.targetUrls = templateTargetUrl ? [templateTargetUrl] : []
+        params.count = templateCount
+        break
+      case 'xiaohongshu-publish':
+        params.caption = templateCaption
+        break
+    }
+
+    const port = parseInt(selectedAccount.accountId, 10)
+
+    if (window.electronAPI?.fpExecute) {
+      try {
+        const res = await window.electronAPI.fpExecute(port, selectedTemplate, params)
+        setExecuting(false)
+        if (res.data?.logs) setExecLogs(res.data.logs)
+        showMsg(res.data?.message || (res.success ? '执行完成' : '执行出错'), res.success ? 'success' : 'error')
+      } catch (e: any) {
+        setExecuting(false)
+        setExecLogs(prev => [...prev, `错误: ${e.message}`])
+        showMsg(`执行出错: ${e.message}`, 'error')
+      }
+    } else {
+      setExecuting(false)
+      setExecLogs(prev => [...prev, '需要客户端环境'])
+      showMsg('需要在客户端中执行模板', 'error')
+    }
+
+
+  // ── 渲染 ──
+
+
+  if (loading) return (
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <p className="text-gray-400">加载中...</p>
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white p-4 md:p-6">
+      {/* 标题 */}
+      <div className="max-w-6xl mx-auto mb-6">
+        <h1 className="text-2xl font-bold flex items-center gap-3">
+          <span className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-xl">🌐</span>
+          指纹浏览器工作台
+          {!isElectron && (
+            <span className="ml-2 text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+              请在客户端中使用
+            </span>
+          )}
+        </h1>
+        <p className="text-sm text-gray-500 mt-2">本地 Chromium 多窗口管理 · 自动化脚本执行</p>
+      </div>
+
+      {/* 全局消息 */}
+      {msgText && (
+        <div className={`max-w-6xl mx-auto mb-4 px-4 py-3 rounded-lg text-sm border ${
+          msgType === 'error' ? 'bg-red-500/10 text-red-400 border-red-500/30' :
+          msgType === 'success' ? 'bg-green-500/10 text-green-400 border-green-500/30' :
+          'bg-blue-500/10 text-blue-400 border-blue-500/30'
+        }`}>
+          {msgText}
+        </div>
+      )}
+
+      {/* 代理设置栏 */}
+      <div className="max-w-6xl mx-auto mb-6">
+        <div className="bg-gray-900/50 border border-white/5 rounded-xl p-4 flex items-center gap-3">
+          <span className="text-sm text-gray-400 whitespace-nowrap">🔀 代理:</span>
+          <input
+            type="text"
+            value={proxyInput}
+            onChange={e => setProxyInput(e.target.value)}
+            placeholder="socks5://user:pass@ip:port （留空则直连）"
+            className="flex-1 bg-gray-800/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-cyan-500/50 focus:outline-none"
+          />
+          <span className="text-[11px] text-gray-600">所有新启动的浏览器共用此代理设置</span>
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* ═══ 左侧：账号列表 ═══ */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-300">我的账号</h2>
+            <span className="text-xs text-gray-600">{accounts.length} 个指纹浏览器账号</span>
+          </div>
+
+          {accounts.length === 0 ? (
+            <div className="bg-gray-900/30 border border-dashed border-white/10 rounded-xl p-8 text-center">
+              <p className="text-gray-500 text-sm mb-2">还没有指纹浏览器类型的账号</p>
+              <p className="text-gray-600 text-xs">去「账号管理」登记一个 bindType=manual 的账号，管理员审核后会分配端口</p>
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {accounts.map(acct => {
+                const plat = PLATFORMS.find(p => p.key === acct.platform) || { icon: '🌐', label: acct.platform }
+                const port = acct.accountId ? parseInt(acct.accountId, 10) : 0
+                const running = port > 0 && isRunning(port)
+                const browserInfo = browsers.find(b => b.port === port)
+
+                return (
+                  <div
+                    key={acct.id}
+                    onClick={() => setSelectedAccount(acct)}
+                    className={`group relative bg-gray-900/40 border rounded-xl p-4 cursor-pointer transition-all ${
+                      selectedAccount?.id === acct.id
+                        ? 'border-purple-500/50 bg-purple-500/5 ring-1 ring-purple-500/20'
+                        : 'border-white/5 hover:border-white/15 hover:bg-gray-900/60'
+                    }`}
+                  >
+                    {/* 状态条 */}
+                    <div className={`absolute left-0 top-4 bottom-4 w-1 rounded-r-full ${
+                      running ? 'bg-emerald-500' : acct.isBound ? 'bg-cyan-500' : 'bg-gray-700'
+                    }`} />
+
+                    <div className="flex items-start justify-between pl-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <span className="text-2xl mt-0.5">{plat.icon}</span>
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm truncate">{acct.accountName}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {plat.label} · 端口 {acct.accountId || '未分配'} · {acct.status}
+                            {running && browserInfo?.currentUrl && (
+                              <span className="ml-2 text-cyan-400 truncate inline-block max-w-[200px]" title={browserInfo.currentUrl}>
+                                🟢 运行中
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 操作按钮 */}
+                      <div className="flex items-center gap-2 shrink-0 ml-3">
+                        {!running ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleStart(acct) }}
+                            disabled={!acct.accountId || !isElectron}
+                            className="px-3 py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-xs hover:bg-purple-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                          >
+                            启动
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleStop(port) }}
+                            className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs hover:bg-red-500/30 transition"
+                          >
+                            停止
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+
+        {/* ═══ 右侧：模板执行面板 ═══ */}
+        <div className="space-y-4">
+          <h2 className="text-sm font-semibold text-gray-300">自动化模板</h2>
+
+          {(!selectedAccount || !selectedAccount.accountId || !isRunning(parseInt(selectedAccount.accountId, 10))) ? (
+            <div className="bg-gray-900/30 border border-dashed border-white/10 rounded-xl p-6 text-center">
+              <p className="text-gray-500 text-sm">先选择并启动一个浏览器</p>
+              <p className="text-gray-600 text-xs mt-1">启动后可在此执行自动化脚本</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* 当前选中信息 */}
+              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
+                <p className="text-xs text-emerald-400 font-medium">
+                  🟢 当前: {selectedAccount.accountName}
+                  ({PLATFORMS.find(p => p.key === selectedAccount.platform)?.label})
+                </p>
+                <p className="text-[11px] text-emerald-400/60 mt-0.5">端口 {selectedAccount.accountId} · 可执行模板</p>
+              </div>
+
+              {/* 模板选择 */}
+              <div>
+                <label className="text-xs text-gray-500 mb-1.5 block">选择模板</label>
+                <div className="space-y-1.5">
+                  {TEMPLATES.map(tmpl => {
+                    const canUse = tmpl.platforms.includes(selectedAccount!.platform)
+                    return (
+                      <button
+                        key={tmpl.key}
+                        onClick={() => setSelectedTemplate(tmpl.key)}
+                        disabled={!canUse}
+                        className={`w-full text-left px-3 py-2.5 rounded-lg text-xs border transition ${
+                          selectedTemplate === tmpl.key
+                            ? 'bg-purple-500/15 border-purple-500/40 text-purple-300'
+                            : canUse
+                              ? 'bg-gray-800/30 border-white/5 text-gray-300 hover:border-white/15 hover:bg-gray-800/50'
+                              : 'bg-gray-800/10 border-white/5 text-gray-600 cursor-not-allowed opacity-40'
+                        }`}
+                      >
+                        <span className="font-medium">{tmpl.label}</span>
+                        <p className="text-[10px] mt-0.5 opacity-60">{tmpl.desc}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* 模板参数 */}
+              {selectedTemplate && (
+                <div className="bg-gray-800/30 border border-white/5 rounded-xl p-3 space-y-2.5">
+                  <p className="text-xs font-medium text-gray-300">
+                    {TEMPLATES.find(t => t.key === selectedTemplate)?.label} 参数
+                  </p>
+
+                  {(selectedTemplate.includes('publish') || selectedTemplate.includes('comment')) && (
+                    <div>
+                      <label className="text-[11px] text-gray-500 block mb-1">
+                        {selectedTemplate.includes('comment') ? '评论内容' : '文案/标题'}
+                      </label>
+                      <textarea
+                        value={templateCaption}
+                        onChange={e => setTemplateCaption(e.target.value)}
+                        placeholder={selectedTemplate.includes('publish') ? '输入发布文案...' : '输入评论内容...'}
+                        rows={3}
+                        className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none resize-none"
+                      />
+                    </div>
+                  )}
+
+                  {(selectedTemplate === 'douyin-comment' || selectedTemplate === 'douyin-like') && (
+                    <div>
+                      <label className="text-[11px] text-gray-500 block mb-1">目标URL（可选）</label>
+                      <input
+                        type="text"
+                        value={templateTargetUrl}
+                        onChange={e => setTemplateTargetUrl(e.target.value)}
+                        placeholder={selectedTemplate === 'douyin-like' ? '留空则在当前页面滚动点赞' : '留空则在当前页面评论'}
+                        className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
+                      />
+                    </div>
+                  )}
+
+                  {selectedTemplate === 'douyin-like' && (
+                    <div>
+                      <label className="text-[11px] text-gray-500 block mb-1">次数</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={templateCount}
+                        onChange={e => setTemplateCount(parseInt(e.target.value) || 3)}
+                        className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-purple-500/30 focus:outline-none"
+                      />
+                    </div>
+                  )}
+
+                  {/* 执行按钮 */}
+                  <button
+                    onClick={handleExecute}
+                    disabled={executing}
+                    className={`w-full py-2.5 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2 ${
+                      executing
+                        ? 'bg-gray-700 text-gray-400 cursor-wait'
+                        : 'bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-400 hover:to-violet-400 text-white'
+                    }`}
+                  >
+                    {executing ? (
+                      <>⏳ 执行中...</>
+                    ) : (
+                      <>▶️ 执行模板</>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+
+          {/* 执行日志 */}
+          {execLogs.length > 0 && (
+            <div className="bg-gray-950 border border-white/5 rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                <span className="text-xs font-medium text-gray-400">📋 执行日志</span>
+                <button onClick={() => setExecLogs([])} className="text-[10px] text-gray-600 hover:text-gray-400">清空</button>
+              </div>
+              <div className="max-h-48 overflow-y-auto p-3 space-y-1 font-mono text-[11px] leading-relaxed">
+                {execLogs.map((log, i) => (
+                  <p key={i} className="text-gray-500">{log}</p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+      </div>
+    </div>
+  )
+}
