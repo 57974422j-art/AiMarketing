@@ -135,25 +135,66 @@ async function execute(page: any, p: Record<string, any>, log: LogFn): Promise<T
     // ── Step 3: 等待上传完成 ──
     log('等待视频上传中（大文件可能较慢）...')
     
-    // 等待上传进度条消失或出现"上传成功"
-    for (let i = 0; i < 60; i++) {
+    // 检测完成标志：文案输入框或发布按钮出现 = 上传完毕进入编辑页
+    const doneSelectors = [
+      'textarea[placeholder*="作品描述"]',
+      'textarea[placeholder*="添加"]',
+      'button:has-text("发布")',
+      '[data-e2e="publish-textarea"]',
+    ]
+    
+    for (let i = 0; i < 90; i++) { // 最多等 4.5 分钟
       await page.waitForTimeout(3000)
       
-      // 检查是否还在上传中
-      const uploadingTexts = ['上传中', '正在处理', '转码中']
-      const stillUploading = await page.evaluate(() => document.body.innerText).then((text: string) => {
-        return uploadingTexts.some(kw => text.includes(kw))
-      }).catch(() => true)
+      // 先处理可能出现的弹窗
+      for (const popupText of ['我知道了', '知道了', '确定', '关闭', '取消']) {
+        try {
+          const btn = await page.$(`text="${popupText}"`)
+          if (btn && await btn.isVisible().catch(() => false)) {
+            await btn.click({ timeout: 1000 })
+            log(`上传过程中点击弹窗「${popupText}」`)
+            await page.waitForTimeout(500)
+          }
+        } catch (_) {}
+      }
 
-      if (!stillUploading || i >= 59) {
-        log('✅ 视频' + (i >= 59 ? '上传超时（继续尝试后续步骤）' : '上传完成'))
+      // 检测是否已进入编辑状态
+      let done = false
+      for (const sel of doneSelectors) {
+        try {
+          const el = await page.$(sel)
+          if (el && await el.isVisible().catch(() => false)) {
+            done = true
+            break
+          }
+        } catch (_) {}
+      }
+
+      if (done) {
+        log('✅ 视频上传完成，已进入编辑页面')
         break
       }
 
-      if (i % 5 === 0) log(`   ... 已等待 ${(i+1)*3} 秒`)
+      if (i === 89) {
+        log('⚠️ 等待超时，继续尝试后续步骤...')
+      } else if (i % 10 === 9) {
+        log(`   ... 已等待 ${(i+1)*3} 秒`)
+      }
     }
 
     await page.waitForTimeout(2000)
+
+    // 再处理一次弹窗（上传完成后可能又弹出）
+    for (const popupText of ['我知道了', '知道了', '确定', '关闭']) {
+      try {
+        const btn = await page.$(`text="${popupText}"`)
+        if (btn && await btn.isVisible().catch(() => false)) {
+          await btn.click({ timeout: 2000 })
+          log(`上传后点击弹窗「${popupText}」`)
+          await page.waitForTimeout(1000)
+        }
+      } catch (_) {}
+    }
 
     // ── Step 4: 填写文案 ──
     if (p.caption) {
