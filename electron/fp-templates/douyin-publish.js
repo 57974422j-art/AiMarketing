@@ -269,9 +269,17 @@ async function step4_fillContent(page, params, log) {
   if (params.title) {
     var titleText = String(params.title).substring(0, 30)
     var titleSels = [
+      // contenteditable 方式
       'div[contenteditable="true"][data-placeholder*="标题"]',
       'div[contenteditable="true"][placeholder*="标题"]',
       '[class*="title-wrap"] div[contenteditable="true"]',
+      // input/textarea 方式（抖音新版常用）
+      'input[placeholder*="作品标题"]',
+      'input[placeholder*="填写作品标题"]',
+      'textarea[placeholder*="作品标题"]',
+      'textarea[placeholder*="标题"]',
+      '*[class*="titleInput"] input',
+      '*[class*="title-input"] input',
     ]
     for (var ti = 0; ti < titleSels.length; ti++) {
       try {
@@ -280,11 +288,17 @@ async function step4_fillContent(page, params, log) {
         log('  [4a] 找到标题框: ' + titleSels[ti])
         await el.click({ timeout: 3000 })
         await page.waitForTimeout(800)
-        await el.evaluate(function(n) { n.innerText = '' })
-        await page.waitForTimeout(200)
-        await page.keyboard.type(titleText, { delay: 60 })
+        // 判断元素类型：input/textarea 用 fill，contenteditable 用 keyboard.type
+        var tag = await el.evaluate(function(n) { return n.tagName.toLowerCase() })
+        if (tag === 'input' || tag === 'textarea') {
+          await el.fill(titleText)
+        } else {
+          await el.evaluate(function(n) { n.innerText = '' })
+          await page.waitForTimeout(200)
+          await page.keyboard.type(titleText, { delay: 60 })
+        }
         await page.waitForTimeout(500)
-        var value = await el.evaluate(function(n) { return n.innerText }).catch(function() { return '' })
+        var value = await el.evaluate(function(n) { return n.value || n.innerText }).catch(function() { return '' })
         if (value.trim().length > 0) {
           log('  ✅ 标题:"' + value + '"')
           titleFilled = true
@@ -405,9 +419,22 @@ async function step6_covers(page, log) {
   await page.waitForTimeout(1500)
   try {
     var covers = []
-    var btns = await page.$$('button, div[role="button"]').catch(function() { return [] })
-    for (var b = 0; b < btns.length; b++) {
-      try { if ((await btns[b].innerText()).trim() === '选择封面') covers.push(btns[b]) } catch (_) {}
+    // 扩大搜索范围：button、可点击div、span等，用 includes 而非严格相等
+    var allClickables = await page.$$('button, div[role="button"], [class*="cover-btn"], [class*="coverBtn"], [class*="upload-cover"]').catch(function() { return [] })
+    for (var b = 0; b < allClickables.length; b++) {
+      try {
+        var t = (await allClickables[b].innerText()).trim()
+        if (t.includes('选择封面')) covers.push(allClickables[b])
+      } catch (_) {}
+    }
+    // 兜底：用 text 选择器直接找
+    if (!covers.length) {
+      try {
+        var textCovers = await page.$$('text=/选择封面/').catch(function() { return [] })
+        for (var tc = 0; tc < textCovers.length; tc++) {
+          covers.push(textCovers[tc])
+        }
+      } catch (_) {}
     }
     log('  找到 ' + covers.length + ' 个选择封面按钮')
 
