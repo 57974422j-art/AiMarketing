@@ -81,10 +81,12 @@ export default function MyFingerprintPage() {
   // ── 模板执行 ──
   const [showTemplatePanel, setShowTemplatePanel] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState<string>('')
-  const [templateCaption, setTemplateCaption] = useState('')
   const [templateVideoPath, setTemplateVideoPath] = useState('')
-  const [templateTopics, setTemplateTopics] = useState('')
+  const [templateTitle, setTemplateTitle] = useState('')
+  const [templateDesc, setTemplateDesc] = useState('')
+  const [templateEnableTopics, setTemplateEnableTopics] = useState(true)
   const [templatePublishNow, setTemplatePublishNow] = useState(true)
+  const [templateCaption, setTemplateCaption] = useState('')
   const [templateTargetUrl, setTemplateTargetUrl] = useState('')
   const [templateCount, setTemplateCount] = useState(3)
   const [executing, setExecuting] = useState(false)
@@ -210,9 +212,10 @@ export default function MyFingerprintPage() {
     const params: Record<string, any> = {}
     switch (selectedTemplate) {
       case 'douyin-publish':
-        params.caption = templateCaption
         params.videoPath = templateVideoPath
-        params.topics = templateTopics
+        params.title = templateTitle
+        params.description = templateDesc
+        params.topics = String(templateEnableTopics)
         params.publishNow = String(templatePublishNow)
         break
       case 'douyin-comment':
@@ -450,25 +453,44 @@ export default function MyFingerprintPage() {
                       </div>
 
                       <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">文案/标题</label>
+                        <label className="text-[11px] text-gray-500 block mb-1">作品标题（最多30字）</label>
+                        <input
+                          type="text"
+                          value={templateTitle}
+                          onChange={e => setTemplateTitle(e.target.value.slice(0, 30))}
+                          placeholder="填写作品标题"
+                          maxLength={30}
+                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-gray-500 block mb-1">作品简介 / 正文</label>
                         <textarea
-                          value={templateCaption}
-                          onChange={e => setTemplateCaption(e.target.value)}
-                          placeholder="输入作品描述、标题..."
+                          value={templateDesc}
+                          onChange={e => setTemplateDesc(e.target.value)}
+                          placeholder="添加作品简介，最多1000字..."
                           rows={3}
                           className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none resize-none"
                         />
                       </div>
 
                       <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">话题标签（可选）</label>
-                        <input
-                          type="text"
-                          value={templateTopics}
-                          onChange={e => setTemplateTopics(e.target.value)}
-                          placeholder="#美食 #生活vlog （多个用空格分隔）"
-                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
-                        />
+                        <label className="text-[11px] text-gray-500 block mb-1 flex items-center gap-2">
+                          勾选推荐话题
+                          <button
+                            type="button"
+                            onClick={() => setTemplateEnableTopics(!templateEnableTopics)}
+                            className={`relative w-9 h-5 rounded-full transition ${
+                              templateEnableTopics ? 'bg-emerald-500/40' : 'bg-gray-700'
+                            }`}
+                          >
+                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                              templateEnableTopics ? 'translate-x-4' : ''
+                            }`} />
+                          </button>
+                          <span className="text-[10px] text-gray-600">{templateEnableTopics ? '自动勾选' : '跳过'}</span>
+                        </label>
                       </div>
 
                       <div>
