@@ -10,7 +10,8 @@ const API_WHITELIST = [
   '/api/migrate-template-urls',
   '/api/tasks/mine',
   '/api/tts',
-  '/api/storage/file'
+  '/api/storage/file',
+  '/api/storage/files'
 ]
 
 function base64UrlDecode(str: string): string {

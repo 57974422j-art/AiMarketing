@@ -39,7 +39,16 @@ function generateThumb(videoPath: string, thumbDir: string, fileName: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = getAuthFromHeaders(request)
+  let auth = getAuthFromHeaders(request)
+  // 兼容白名单模式：Electron 环境可能无法带 Cookie，允许通过 query param 传 userId
+  if (!auth) {
+    const queryUserId = request.nextUrl.searchParams.get('userId')
+    const queryRole = request.nextUrl.searchParams.get('role') || 'end-user'
+    if (queryUserId) {
+      auth = { userId: parseInt(queryUserId, 10), role: queryRole, teamId: null }
+      if (isNaN(auth.userId)) auth = null
+    }
+  }
   if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
 
   const dir = userDir(auth.userId)

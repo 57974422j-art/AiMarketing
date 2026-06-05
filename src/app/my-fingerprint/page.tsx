@@ -219,7 +219,7 @@ export default function MyFingerprintPage() {
         params.storageFileName = storageVideoName
         // 下载视频需要 userId + token（storage API 鉴权）
         try {
-          const sr = await fetch('/api/storage/files', { credentials: 'include' })
+          const sr = await fetch(`/api/storage/files?userId=${user?.id || ''}`, { credentials: 'include' })
           const sd = await sr.json()
           if (sd.success) {
             params.userId = sd.data.userId
@@ -468,7 +468,7 @@ export default function MyFingerprintPage() {
                             type="button"
                             onClick={async () => {
                               try {
-                                const r = await fetch('/api/storage/files', { credentials: 'include' })
+                                const r = await fetch(`/api/storage/files?userId=${user?.id || ''}`, { credentials: 'include' })
                                 const d = await r.json()
                                 if (d.success) {
                                   const videos = d.data.files.filter((f: any) => f.isVideo)
