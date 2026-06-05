@@ -64,14 +64,16 @@ async function execute(page: any, p: Record<string, any>, log: LogFn): Promise<T
   if (!fs.existsSync(p.videoPath)) return { success: false, message: `视频文件不存在: ${p.videoPath}` }
 
   try {
-    // ── Step 1: 导航到创作者中心发布页 ──
+    // ── Step 1: 导航/确认创作者中心发布页 ──
     const currentUrl = page.url()
+    log(`当前页面: ${currentUrl}`)
+    
+    // 只要在创作者中心就行，不强转具体路径
     if (!currentUrl.includes('creator.douyin.com')) {
       log('导航到抖音创作者中心...')
-      await page.goto('https://creator.douyin.com/creator-micro/content/upload', { timeout: 30000 })
-      await page.waitForTimeout(4000)
-    } else {
-      log('当前已在创作者中心')
+      await page.goto('https://creator.douyin.com/creator-micro/content/publish', { timeout: 30000 })
+      await page.waitForTimeout(5000)
+      log(`跳转后页面: ${page.url()}`)
     }
 
     // ── Step 1.5: 处理可能出现的弹窗 ──
@@ -92,18 +94,29 @@ async function execute(page: any, p: Record<string, any>, log: LogFn): Promise<T
     let uploaded = false
 
     // 2a. 探测页面上所有 file input（包括隐藏的）
-    const allFileInputs = await page.evaluate(() => {
-      const inputs = document.querySelectorAll('input[type="file"]')
-      return Array.from(inputs).map((el, i) => ({
-        index: i,
-        accept: el.getAttribute('accept'),
-        id: el.id,
-        className: el.className.substring(0, 80),
-      }))
-    }).catch(() => [])
+    let allFileInputs: any[] = []
+    try {
+      allFileInputs = await page.evaluate(() => {
+        const inputs = document.querySelectorAll('input[type="file"]')
+        return Array.from(inputs).map((el, i) => ({
+          index: i,
+          accept: el.getAttribute('accept'),
+          id: el.id,
+          className: el.className.substring(0, 80),
+          parentTag: el.parentElement?.tagName,
+          parentClass: el.parentElement?.className?.substring(0, 60),
+        }))
+      })
+    } catch (e: any) {
+      log(`探测 file input 出错: ${e.message}`)
+    }
+    
+    log(`探测到 ${allFileInputs.length} 个 file input`)
+    if (allFileInputs.length > 0) {
+      log(JSON.stringify(allFileInputs))
+    }
     
     if (allFileInputs.length > 0) {
-      log(`探测到 ${allFileInputs.length} 个 file input: ${JSON.stringify(allFileInputs)}`)
       // 尝试直接设置文件（file input 经常是隐藏的，不检查可见性）
       for (let i = 0; i < allFileInputs.length; i++) {
         try {
@@ -164,10 +177,13 @@ async function execute(page: any, p: Record<string, any>, log: LogFn): Promise<T
       const debugInfo = await page.evaluate(() => ({
         url: location.href,
         title: document.title,
-        bodySnippet: document.body.innerText.substring(0, 300),
+        bodySnippet: document.body.innerText.substring(0, 500),
       })).catch(() => ({ url: 'unknown' }))
       log(`调试信息: URL=${debugInfo.url}, 标题=${debugInfo.title}`)
-      return { success: false, message: '未找到可用的视频上传入口' }
+      if (debugInfo.bodySnippet) {
+        log(`页面文字: ${debugInfo.bodySnippet.substring(0, 200)}`)
+      }
+      return { success: false, message: '未找到可用的视频上传入口，请检查是否已在抖音发布页' }
     }
 
     // ── Step 3: 等待上传完成 ──
