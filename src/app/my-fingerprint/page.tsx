@@ -57,6 +57,7 @@ declare global {
       fpScreenshot?: (port: number) => Promise<{ success: boolean; data?: string; error?: string }>
       fpInfo?: (port: number) => Promise<{ success: boolean; data?: any; error?: string }>
       fpExecute?: (port: number, templateType: string, params: any) => Promise<{ success: boolean; data?: any; error?: string; logs?: string[] }>
+      fpScriptStop?: () => Promise<{ success: boolean; message?: string }>
     }
   }
 }
