@@ -57,6 +57,13 @@ model User {
   aiAgents                AIAgent[]
   phyDevices              PhyDevice[]
   taskConfigs             TaskConfig[]
+  
+  // V2 升级新增关系 (Phase 0-3)
+  referrals               ReferralConfig[]
+  leads                   Lead[]
+  assignedLeads           Lead[]                @relation("LeadAssignee")
+  collectionTasks         CollectionTask[]
+  liveRooms               LiveRoom[]
 }
 
 model DevicePool {
@@ -526,4 +533,154 @@ model PromptTemplate {
   category String?
   isActive Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+// ====== V2 升级 - Phase 0-3 新增模型 ======
+// 创建日期: 2026-06-06
+// 用途: 支持导流系统、线索采集、直播模块
+
+// ====== 导流系统模型 ======
+
+// 1. 导流配置（替代 referral Stub API）
+model ReferralConfig {
+  id          Int      @id @default(autoincrement())
+  name        String                        // 配置名称（如"抖音导流-美业"）
+  platform    String   @default("抖音")     // 平台
+  keywords    String                        // 目标关键词（JSON 数组）
+  copyText    String?                       // 导流文案模板
+  landingType String   @default("wechat")   // 落地方式: wechat/phone/link/miniapp
+  landingValue String?                     // 落地内容（微信ID/手机号/链接）
+  status      String   @default("draft")    // draft/active/paused/archived
+  ownerId     Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner       User              @relation(fields: [ownerId], references: [id])
+  logs        ReferralLog[]
+}
+
+// 2. 导流效果日志
+model ReferralLog {
+  id            Int      @id @default(autoincrement())
+  configId      Int
+  action        String                      // view/click/convert/contact
+  sourceUser    String?                     // 来源用户 ID
+  targetContent String?                     // 触达的内容
+  metadata      String   @default("{}")     // 扩展字段 JSON
+  createdAt     DateTime @default(now())
+
+  config        ReferralConfig @relation(fields: [configId], references: [id])
+}
+
+// ====== 线索采集模型 ======
+
+// 3. 线索（潜在客户信息）
+model Lead {
+  id            Int      @id @default(autoincrement())
+  taskId        Int?                         // 关联的采集任务
+  platform      String   @default("抖音")    // 来源平台
+  sourceType    String   @default("comment") // comment/dm/search/keyword
+  rawContent    String                       // 原始内容（评论/私信原文）
+  contactInfo   String?                      // 提取的联系信息（手机/微信）
+  intentScore   Float    @default(0)         // AI 打分 0-1（意向度）
+  status        String   @default("new")     // new/contacted/converted/invalid
+  tags          String?                      // 标签 JSON 数组
+  metadata      String   @default("{}")     // 扩展字段
+  ownerId       Int                           // 归属 editor
+  assignedTo    Int?                          // 分配给 end-user
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  task          CollectionTask? @relation(fields: [taskId], references: [id])
+  owner         User             @relation(fields: [ownerId], references: [id])
+  assignee      User?            @relation("LeadAssignee", fields: [assignedTo], references: [id])
+}
+
+// 4. 采集任务
+model CollectionTask {
+  id          Int      @id @default(autoincrement())
+  name        String
+  platform    String   @default("抖音")
+  keywords    String                        // 关键词 JSON 数组
+  sources     String   @default("[]")       // 数据源配置
+  schedule    String   @default("manual")   // manual/hourly/daily
+  status      String   @default("active")   // active/paused/completed
+  ownerId     Int
+  leads       Lead[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+}
+
+// ====== 直播模块模型 ======
+
+// 5. 直播间管理
+model LiveRoom {
+  id              Int      @id @default(autoincrement())
+  name            String                        // 直播间名称
+  platform        String   @default("抖音")      // 平台
+  roomId          String?                       // 平台直播间 ID
+  accountId       Int?                          // 使用的社交账号
+  deviceId        Int?                          // 使用的 Q1 设备
+  status          String   @default("offline")  // offline/live/reconnecting/ended
+  title           String?                       // 直播标题
+  coverImage      String?                       // 封面
+  welcomeMessage  String?                       // 自动欢迎语
+  autoReplyRules  String   @default("[]")       // 自动回复规则 JSON
+  startTime       DateTime?
+  endTime         DateTime?
+  viewerCount     Int      @default(0)          // 当前观看人数
+  totalViewers    Int      @default(0)          // 累计观众
+  likeCount       Int      @default(0)          // 点赞数
+  commentCount    Int      @default(0)          // 评论数
+  productCount    Int      @default(0)          // 上架商品数
+  ownerId         Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  owner           User              @relation(fields: [ownerId], references: [id])
+  products        LiveProduct[]
+  scripts         LiveScript[]
+  logs            LiveLog[]
+}
+
+// 6. 直播商品
+model LiveProduct {
+  id          Int      @id @default(autoincrement())
+  roomId      Int
+  name        String                        // 商品名称
+  price       Float?                        // 价格
+  image       String?                       // 商品图 URL
+  url         String?                       // 商品链接
+  sortOrder   Int      @default(0)          // 排序
+  status      String   @default("active")   // active/sold_out/removed
+  createdAt   DateTime @default(now())
+
+  room        LiveRoom @relation(fields: [roomId], references: [id])
+}
+
+// 7. 直播话术
+model LiveScript {
+  id          Int      @id @default(autoincrement())
+  roomId      Int
+  category    String   @default("welcome")  // welcome/product/intro/qa/close
+  content     String                        // 话术内容
+  triggerKeyword String?                    // 触发关键词
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  room        LiveRoom @relation(fields: [roomId], references: [id])
+}
+
+// 8. 直播日志
+model LiveLog {
+  id          Int      @id @default(autoincrement())
+  roomId      Int
+  eventType   String                       // start/end/viewer_join/comment/like/product_click
+  payload     String   @default("{}")      // 事件数据 JSON
+  createdAt   DateTime @default(now())
+
+  room        LiveRoom @relation(fields: [roomId], references: [id])
 }
