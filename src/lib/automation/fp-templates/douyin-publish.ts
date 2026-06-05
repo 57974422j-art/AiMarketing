@@ -254,32 +254,84 @@ async function execute(page: any, p: Record<string, any>, log: LogFn): Promise<T
       } catch (_) {}
     }
 
-    // ── Step 4: 填写文案 ──
+    // ── Step 4: 填写作品描述（标题+正文）──
     if (p.caption) {
-      log(`填写文案 (${p.caption.length}字)...`)
+      log(`填写作品描述: "${p.caption}"`)
       
-      const captionSelectors = [
-        'textarea[placeholder*="添加作品描述"]',
-        'textarea[placeholder*="描述你的作品"]',
-        'textarea[placeholder*="添加"]',
-        '[class*="caption"] textarea',
-        '[class*="description"] textarea',
-        '[data-e2e="publish-textarea"] textarea',
-        'textarea',
+      // 抖音发布页的文案输入区域结构：
+      // 标题输入：placeholder 含 "标题"，0/30 限制
+      // 正文输入：placeholder 含 "简介" 或 "描述"，0/1000 限制
+      
+      // 4a. 填标题（第一个输入框，0/30）
+      const titleSelectors = [
+        'input[placeholder*="填写作品标题"]',
+        'input[placeholder*="作品标题"]',
+        'input[maxlength="30"]',
+        '[class*="title"] input',
+        '[class*="input-title"] input',
+        '[class*="TitleInput"] input',
       ]
-
-      for (const sel of captionSelectors) {
+      let titleFilled = false
+      for (const sel of titleSelectors) {
         try {
-          const input = await page.$(sel)
-          if (input && await input.isVisible().catch(() => false)) {
-            await input.click({ timeout: 2000 })
-            await page.waitForTimeout(300)
-            await input.fill(p.caption)
-            log('✅ 文案已填写')
+          const el = await page.$(sel)
+          if (el && await el.isVisible().catch(() => false)) {
+            await el.click({ timeout: 2000 })
+            await page.waitForTimeout(500)
+            // 标题取 caption 前30字
+            const titleText = p.caption.substring(0, 30)
+            await el.fill(titleText)
+            log(`✅ 标题已填: ${titleText}`)
+            titleFilled = true
             break
           }
         } catch (_) {}
       }
+      
+      // 如果没找到独立标题框，尝试用通用文案区
+      if (!titleFilled) {
+        log('未找到独立标题框，尝试通用文案区...')
+      }
+      
+      await page.waitForTimeout(800)
+
+      // 4b. 填正文/描述（第二个输入框或大文本区，0/1000）
+      const descSelectors = [
+        'textarea[placeholder*="添加作品简介"]',
+        'textarea[placeholder*="作品简介"]',
+        'textarea[placeholder*="简介"]',
+        'div[contenteditable="true"]', // 抖音可能用 contenteditable
+        '[class*="desc"] textarea',
+        '[class*="description"] textarea',
+        '[class*="content"] textarea',
+        'textarea',
+      ]
+      
+      for (const sel of descSelectors) {
+        try {
+          const els = await page.$$(sel)
+          for (const el of els) {
+            if (await el.isVisible().catch(() => false)) {
+              await el.click({ timeout: 2000 })
+              await page.waitForTimeout(500)
+              
+              // 清空后填入
+              if (sel.includes('contenteditable')) {
+                await el.evaluate((node: any) => node.innerText = '')
+                await page.keyboard.type(p.caption, { delay: 20 })
+              } else {
+                await el.fill(p.caption)
+              }
+              log(`✅ 作品描述已填 (${p.caption.length}字)`)
+              break
+            }
+          }
+          // 如果已经填了就跳出外层循环
+          break
+        } catch (_) {}
+      }
+
+      await page.waitForTimeout(1000)
     }
 
     // ── Step 5: 添加话题 ──
@@ -287,73 +339,218 @@ async function execute(page: any, p: Record<string, any>, log: LogFn): Promise<T
       log(`添加话题: ${p.topics}`)
       const topicList = p.topics.split(/[\s,，]+/).filter((t: string) => t.trim())
       
+      // 方式1：通过 #添加话题 按钮/链接触发话题输入
+      const topicTriggerSels = [
+        'text=#添加话题',
+        'text=添加话题',
+        '[class*="topic-add"]',
+        '[class*="TopicAdd"]',
+        '[class*="hash-tag"]',
+      ]
+
       for (const topic of topicList) {
         const cleanTopic = topic.startsWith('#') ? topic : '#' + topic
         
-        // 在文案框末尾追加话题
-        const descInput = await page.$('textarea').catch(() => null)
-        if (descInput) {
-          await descInput.focus().catch(() => {})
-          await page.keyboard.press('End')
-          await page.waitForTimeout(100)
-          
-          // 输入话题
-          for (const char of cleanTopic + ' ') {
-            await page.keyboard.type(char, { delay: 30 })
-          }
-          await page.waitForTimeout(800)
-        }
-
-        // 等待话题下拉建议出现并回车选中
-        await page.waitForTimeout(600)
-        
-        // 尝试点击第一个话题建议
-        const topicSuggestionSel = [
-          '[class*="topic-suggest"] li:first-child',
-          '[class*="topic-item"]:first-child',
-          '.topic-list .item:first-child',
-        ]
-        for (const sel of topicSuggestionSel) {
+        // 先尝试点击 #添加话题 触发话题输入
+        let topicInputFound = false
+        for (const trigger of topicTriggerSels) {
           try {
-            const item = await page.$(sel)
-            if (item && await item.isVisible().catch(() => false)) {
-              await item.click()
+            const btn = await page.$(trigger)
+            if (btn && await btn.isVisible().catch(() => false)) {
+              await btn.click()
+              await page.waitForTimeout(500)
+              topicInputFound = true
+              log(`已点击话题入口`)
               break
             }
           } catch (_) {}
         }
+        
+        // 输入话题文字
+        if (topicInputFound || true) {
+          // 在话题输入框中输入（通常点击 #添加话题 后会出现输入框）
+          // 也可能是直接在正文后追加
+          
+          // 方式A：找页面上的话题专用输入框
+          const topicInputSels = [
+            'input[placeholder*="#"]',
+            'input[placeholder*="话题"]',
+            '[class*="topic-input"] input',
+            '[class*="TopicInput"] input',
+          ]
+          
+          let typedInTopicBox = false
+          for (const sel of topicInputSels) {
+            try {
+              const ti = await page.$(sel)
+              if (ti && await ti.isVisible().catch(() => false)) {
+                await ti.click()
+                await ti.fill(cleanTopic)
+                typedInTopicBox = true
+                // 回车确认
+                await page.keyboard.press('Enter')
+                await page.waitForTimeout(600)
+                break
+              }
+            } catch (_) {}
+          }
+          
+          // 方式B：如果找不到专用输入框，在文案区追加
+          if (!typedInTopicBox) {
+            // 在最后一个可见的 textarea/contenteditable 追加
+            const lastArea = await page.$$eval('textarea, [contenteditable="true"]', 
+              (els: any[]) => {
+                for (let i = els.length - 1; i >= 0; i--) {
+                  if (els[i].offsetParent !== null) return els[i]
+                }
+                return null
+              }
+            ).catch(() => null)
+            
+            if (lastArea) {
+              await lastArea.focus().catch(() => {})
+              await page.keyboard.press('End')
+              await page.waitForTimeout(200)
+              for (const char of cleanTopic + ' ') {
+                await page.keyboard.type(char, { delay: 30 })
+              }
+              await page.waitForTimeout(800)
+            }
+          }
+        }
 
         await page.waitForTimeout(500)
       }
-      log(`✅ 话题已添加 (${topicList.length}个)`)
+      log(`✅ 话题处理完成 (${topicList.length}个)`)
     }
 
-    // ── Step 6: 发布或保存 ──
+    // ── Step 6: 确认封面（竖版+横版）──
+    log('检查封面设置...')
+    
+    // 封面区域有两个选择按钮：竖封面3:4 和 横封面4:3
+    // 通常系统会自动推荐封面，我们只需点击"选择封面"确认
+    const coverButtons = [
+      { label: '竖封面3:4', sels: [
+        'text=选择封面', // 第一个出现的是竖封面
+      ]},
+      { label: '横封面4:3', sels: [] }, // 第二个选择封面是横封面
+    ]
+    
+    // 找所有"选择封面"按钮并依次点击确认
+    const allCoverBtns = await page.$$(':text("选择封面")').catch(() => [])
+    log(`找到 ${allCoverBtns.length} 个「选择封面」按钮`)
+
+    if (allCoverBtns.length >= 2) {
+      // 有两个封面按钮：竖版 + 横版
+      for (let i = 0; i < Math.min(allCoverBtns.length, 2); i++) {
+        try {
+          const btn = allCoverBtns[i]
+          if (await btn.isVisible().catch(() => false)) {
+            await btn.click({ timeout: 2000 })
+            log(`✅ 已点击${i === 0 ? '竖' : '横'}封面「选择封面」`)
+            await page.waitForTimeout(1000)
+            
+            // 如果弹出封面选择弹窗，选第一个推荐封面
+            const recommendCover = await page.$('[class*="recommend"]').catch(() => null)
+            if (recommendCover && await recommendCover.isVisible().catch(() => false)) {
+              const firstItem = await recommendCover.$('[class*="item"], img, [class*="cover"]')
+              if (firstItem) {
+                await firstItem.click({ timeout: 1500 }).catch(() => {})
+                await page.waitForTimeout(500)
+                
+                // 点确定/使用按钮
+                for (const confirmText of ['使用', '确定', '确认']) {
+                  try {
+                    const cbtn = await page.$(`text="${confirmText}"`)
+                    if (cbtn && await cbtn.isVisible().catch(() => false)) {
+                      await cbtn.click()
+                      log(`  已确认选择封面`)
+                      await page.waitForTimeout(500)
+                      break
+                    }
+                  } catch (_) {}
+                }
+              }
+            }
+          }
+        } catch (e: any) {
+          log(`  封面[${i}] 处理异常: ${e.message}`)
+        }
+      }
+    } else if (allCoverBtns.length === 1) {
+      // 只有一个封面按钮，直接点
+      try {
+        await allCoverBtns[0].click({ timeout: 2000 })
+        log(`✅ 已点击「选择封面」`)
+        await page.waitForTimeout(1000)
+      } catch (_) {}
+    } else {
+      log('⚠️ 未找到封面选择按钮，跳过')
+    }
+
+    await page.waitForTimeout(1000)
+
+    // ── Step 7: 点击发布 ──
     const shouldPublish = p.publishNow !== 'false'
 
     if (shouldPublish) {
-      log('点击「发布」按钮...')
+      log('寻找「发布」按钮...')
       
+      // 关键：抖音编辑页底部有多个按钮，必须精确定位到"发布"
+      // 排除 "展示离开"、"保存草稿" 等干扰按钮
       const publishBtnSels = [
-        'button:has-text("发布")',
+        // 最精确的：底部固定栏的发布按钮
+        'button[data-e2e="publish-btn"]',
+        '[class*="publish-bar"] button:has-text("发布")',
+        '[class*="PublishBar"] button:has-text("发布")',
+        '[class*="bottom-bar"] button:has-text("发布")',
+        '[class*="footer-bar"] button:has-text("发布")",
+        // 通用但排除干扰
         'button:has-text("立即发布")',
-        '[class*="publish-btn"] button',
-        '[class*="submit"] button',
-        '[data-testid="publish-submit"]',
-        'button.publish-btn',
+        // 最后兜底：所有含"发布"文字的按钮，但要验证不是"展示离开"
       ]
 
       let published = false
+      
+      // 方法1：用精确选择器
       for (const sel of publishBtnSels) {
         try {
           const btn = await page.$(sel)
           if (btn && await btn.isVisible().catch(() => false)) {
+            const text = await btn.innerText().catch(() => '')
+            // 排除包含"离开"、"取消"的按钮
+            if (text.includes('离开') || text.includes('取消')) continue
+            
             await btn.click({ timeout: 3000 })
             published = true
-            log('✅ 已点击发布按钮')
+            log(`✅ 已点击发布按钮 (${text.trim()})`)
             break
           }
         } catch (_) {}
+      }
+      
+      // 方法2：遍历所有按钮找"发布"
+      if (!published) {
+        log('精确选择器未命中，遍历所有按钮...')
+        const allBtns = await page.$$eval('button', 
+          (btns: any[]) => btns.map(b => ({ text: b.innerText?.trim(), visible: b.offsetParent !== null }))
+        ).catch(() => [])
+        
+        log(`页面上共 ${allBtns.length} 个按钮: ${JSON.stringify(allBtns.filter(b => b.visible).map(b => b.text))}`)
+        
+        for (const btnInfo of allBtns) {
+          if (!btnInfo.visible) continue
+          const txt = btnInfo.text
+          // 匹配纯"发布"或"立即发布"，排除其他
+          if ((txt === '发布' || txt === '立即发布') && !txt.includes('离开')) {
+            try {
+              await page.click(`button:has-text("${txt}")`, { timeout: 3000 })
+              published = true
+              log(`✅ 已点击发布按钮 [${txt}]`)
+              break
+            } catch (_) {}
+          }
+        }
       }
 
       if (!published) {
@@ -362,19 +559,20 @@ async function execute(page: any, p: Record<string, any>, log: LogFn): Promise<T
       }
 
       // 等待发布结果
-      await page.waitForTimeout(3000)
+      log('等待发布响应...')
+      await page.waitForTimeout(5000)
 
-      // 检查是否发布成功（通常会有成功提示或跳转到管理页）
+      // 检查是否发布成功
       const finalUrl = page.url()
       const bodyText = await page.evaluate(() => document.body.innerText).catch(() => '')
       
       if (bodyText.includes('发布成功') || bodyText.includes('提交成功') || 
-          !finalUrl.includes('/publish')) {
+          finalUrl.includes('/manage') || finalUrl.includes('/content/manage')) {
         log('🎉 视频发布成功！')
         return { success: true, message: '视频已成功发布到抖音' }
       }
 
-      log('⚠️ 请确认发布结果')
+      log('请确认发布结果')
       return { success: true, message: '已执行发布操作，请在页面确认结果', needConfirm: true }
     } else {
       log('保存为草稿模式，跳过发布步骤')
