@@ -508,6 +508,26 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
     let result
     switch (templateType) {
       case 'douyin-publish':
+        // 如果是从素材仓库选择视频，先下载到本地
+        if (params.storageFileName && !params.videoPath) {
+          const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
+          const downloadUrl = `${serverUrl}/api/storage/file?userId=${params.userId || ''}&name=${encodeURIComponent(params.storageFileName)}`
+          const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
+          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+          const localPath = path.join(tmpDir, params.storageFileName)
+          log(`从素材仓库下载: ${params.storageFileName}`)
+          try {
+            const https = require('https') || require('http')
+            const res = await fetch(downloadUrl)
+            const buf = Buffer.from(await res.arrayBuffer())
+            fs.writeFileSync(localPath, buf)
+            log(`✅ 已下载到本地 (${(buf.length / 1024 / 1024).toFixed(1)}MB)`)
+            params.videoPath = localPath
+          } catch (e) {
+            log(`❌ 视频下载失败: ${e.message}`)
+            return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
+          }
+        }
         result = await executeDouyinPublish(instance.page, params, log)
         break
       case 'douyin-like':

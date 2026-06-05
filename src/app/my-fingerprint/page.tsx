@@ -82,6 +82,8 @@ export default function MyFingerprintPage() {
   const [showTemplatePanel, setShowTemplatePanel] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState<string>('')
   const [templateVideoPath, setTemplateVideoPath] = useState('')
+  const [storageVideoName, setStorageVideoName] = useState<string>('')
+  const [storageVideos, setStorageVideos] = useState<any[]>([])
   const [templateTitle, setTemplateTitle] = useState('')
   const [templateDesc, setTemplateDesc] = useState('')
   const [templateEnableTopics, setTemplateEnableTopics] = useState(true)
@@ -212,7 +214,13 @@ export default function MyFingerprintPage() {
     const params: Record<string, any> = {}
     switch (selectedTemplate) {
       case 'douyin-publish':
-        params.videoPath = templateVideoPath
+        params.storageFileName = storageVideoName
+        // 下载视频需要 userId（storage API 用途）
+        try {
+          const sr = await fetch('/api/storage/files', { credentials: 'include' })
+          const sd = await sr.json()
+          if (sd.success) params.userId = sd.data.userId
+        } catch {}
         params.title = templateTitle
         params.description = templateDesc
         params.topics = String(templateEnableTopics)
@@ -441,15 +449,50 @@ export default function MyFingerprintPage() {
                   {/* 抖音发帖/视频 专属参数 */}
                   {selectedTemplate === 'douyin-publish' && (
                     <>
+                      {/* 素材仓库选择视频 */}
                       <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">视频文件路径（必填）</label>
-                        <input
-                          type="text"
-                          value={templateVideoPath}
-                          onChange={e => setTemplateVideoPath(e.target.value)}
-                          placeholder="D:\video\test.mp4 或 /home/user/video/test.mp4"
-                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none font-mono"
-                        />
+                        <label className="text-[11px] text-gray-500 block mb-1">选择视频（从素材仓库）</label>
+                        {storageVideoName ? (
+                          <div className="flex items-center gap-2 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
+                            <span className="text-[10px] text-purple-300 truncate flex-1">{storageVideoName}</span>
+                            <button type="button" onClick={() => setStorageVideoName('')} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const r = await fetch('/api/storage/files', { credentials: 'include' })
+                                const d = await r.json()
+                                if (d.success) {
+                                  const videos = d.data.files.filter((f: any) => f.isVideo)
+                                  if (!videos.length) showToast('素材仓库暂无视频，请先上传', 'error')
+                                  else { setStorageVideos(videos); }
+                                } else showToast(d.message || '加载失败', 'error')
+                              } catch { showToast('加载素材仓库失败', 'error') }
+                            }}
+                            className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-xs text-gray-400 hover:text-white hover:border-purple-500/30 transition"
+                          >📁 从素材仓库选择视频</button>
+                        )}
+
+                        {/* 视频列表弹层 */}
+                        {storageVideos.length > 0 && !storageVideoName && (
+                          <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
+                            {storageVideos.map((v: any) => (
+                              <button key={v.name} type="button" onClick={() => { setStorageVideoName(v.name); setStorageVideos([]) }}
+                                className={`w-full flex items-center gap-2 p-2 rounded-lg text-left transition ${
+                                  storageVideoName === v.name ? 'bg-purple-500/20 border-purple-500/30' : 'bg-white/5 border border-transparent hover:bg-white/10'
+                                }`}
+                              >
+                                <span className="text-sm shrink-0">{v.thumbUrl ? <img src={v.thumbUrl} className="w-10 h-6 object-cover rounded" alt="" /> : '🎬'}</span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[10px] text-gray-200 truncate">{v.name}</p>
+                                  <p className="text-[9px] text-gray-500">{(v.size / 1024 / 1024).toFixed(1)}MB</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       <div>
