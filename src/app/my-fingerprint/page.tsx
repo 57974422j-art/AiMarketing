@@ -89,6 +89,7 @@ export default function MyFingerprintPage() {
   const [templateTitle, setTemplateTitle] = useState('')
   const [templateDesc, setTemplateDesc] = useState('')
   const [templateEnableTopics, setTemplateEnableTopics] = useState(true)
+  const [templateCustomTopics, setTemplateCustomTopics] = useState('')
   const [templatePublishNow, setTemplatePublishNow] = useState(true)
   const [templateCaption, setTemplateCaption] = useState('')
   const [templateTargetUrl, setTemplateTargetUrl] = useState('')
@@ -229,7 +230,7 @@ export default function MyFingerprintPage() {
         } catch {}
         params.title = templateTitle
         params.description = templateDesc
-        params.topics = String(templateEnableTopics)
+        params.topics = templateCustomTopics.trim()
         params.publishNow = String(templatePublishNow)
         break
       case 'douyin-comment':
@@ -525,21 +526,14 @@ export default function MyFingerprintPage() {
                       </div>
 
                       <div>
-                        <label className="text-[11px] text-gray-500 block mb-1 flex items-center gap-2">
-                          勾选推荐话题
-                          <button
-                            type="button"
-                            onClick={() => setTemplateEnableTopics(!templateEnableTopics)}
-                            className={`relative w-9 h-5 rounded-full transition ${
-                              templateEnableTopics ? 'bg-emerald-500/40' : 'bg-gray-700'
-                            }`}
-                          >
-                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                              templateEnableTopics ? 'translate-x-4' : ''
-                            }`} />
-                          </button>
-                          <span className="text-[10px] text-gray-600">{templateEnableTopics ? '自动勾选' : '跳过'}</span>
-                        </label>
+                        <label className="text-[11px] text-gray-500 block mb-1">自定义话题（用逗号或空格分隔，如 #宠物 #萌宠）</label>
+                        <input
+                          type="text"
+                          value={templateCustomTopics}
+                          onChange={e => setTemplateCustomTopics(e.target.value)}
+                          placeholder="#宠物 #萌宠 #日常"
+                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
+                        />
                       </div>
 
                       <div>

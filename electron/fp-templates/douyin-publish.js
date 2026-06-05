@@ -360,53 +360,83 @@ async function step4_fillContent(page, params, log) {
 // ════════════════════════════════════
 
 async function step5_topics(page, params, log) {
-  if (!params.topics || params.topics === 'false') {
-    log('[步骤5] 跳过（话题未开启）')
+  // 支持旧格式布尔值和新格式字符串
+  var topics = ''
+  if (typeof params.topics === 'string') {
+    topics = params.topics.trim()
+  } else if (params.topics && params.topics !== 'false') {
+    // 旧格式 true → 跳过（不再支持推荐点击）
+    log('[步骤5] 旧格式topics=true已废弃，请使用自定义话题')
     return
   }
 
-  log('[步骤5] 勾选推荐话题...')
+  if (!topics) {
+    log('[步骤5] 跳过（无自定义话题）')
+    return
+  }
+
+  log('[步骤5] 添加自定义话题...')
+
+  // 解析话题：支持逗号、空格、#号分隔
+  var topicList = topics.split(/[\s,，]+/).filter(function(t) { return t.trim().length > 0 })
+  if (topicList.length === 0) { log('  ⚠️ 无有效话题'); return }
+  log('  话题列表: ' + JSON.stringify(topicList))
+
   await page.waitForTimeout(1500)
 
-  // 推荐区域的话题标签格式：#xxx #yyy （带#号的span或button）
-  // 从截图看，推荐行显示为：推荐  #变形  #上海陆家嘴建筑特色  #赛博朋克  ...
-  var topicSelectors = [
-    // 推荐行的可点击话题元素
-    '[class*="recommend-topic"] span, [class*="recommend"] span[class*="tag"]',
-    '[class*="topic-list"] span:not([style*="display:none"])',
-    '[class*="topic-tag"]:not([style*="display:none"])',
-    // 更通用的：包含#号的span/button
-    'span[class*="topic"]',
-  ]
+  for (var ti = 0; ti < topicList.length; ti++) {
+    var t = topicList[ti].trim()
+    // 确保有#前缀
+    if (!t.startsWith('#')) t = '#' + t
 
-  var selectedCount = 0
-  const MAX_SELECT = 5 // 最多选5个
-
-  for (var si = 0; si < topicSelectors.length; si++) {
-    if (selectedCount >= MAX_SELECT) break
     try {
-      var items = await page.$$(topicSelectors[si]).catch(function() { return [] })
-      for (var idx = 0; idx < items.length && selectedCount < MAX_SELECT; idx++) {
+      // 方式1：点击 #添加话题 按钮
+      var addBtn = null
+      var addSels = ['text=#添加话题', 'text=添加话题', '[class*="add-topic"]', '[class*="addTopic"]']
+      for (var si = 0; si < addSels.length; si++) {
         try {
-          if (!(await items[idx].isVisible().catch(function() { return false }))) continue
-          var text = (await items[idx].innerText()).trim()
-          // 只选包含#号的话题标签
-          if (text.startsWith('#')) {
-            await items[idx].click({ timeout: 2000 })
-            selectedCount++
-            log('  ✅ 勾选:' + text)
-            await page.waitForTimeout(500)
-          }
+          addBtn = await page.$(addSels[si])
+          if (addBtn && await addBtn.isVisible().catch(function() { return false })) break
+          addBtn = null
         } catch (_) {}
       }
-    } catch (_) {}
+
+      if (addBtn) {
+        await addBtn.click({ timeout: 3000 })
+        log('  点击「添加话题」')
+        await page.waitForTimeout(1000)
+      } else {
+        // 兜底：直接在正文框后输入（部分版本没有独立按钮）
+        log('  未找到「添加话题」按钮，尝试在话题区域输入...')
+      }
+
+      // 输入话题文字并回车确认
+      await page.keyboard.type(t, { delay: 30 })
+      await page.waitForTimeout(500)
+      await page.keyboard.press('Enter')
+      await page.waitForTimeout(1000)
+
+      // 检查是否弹出选择列表，如果有则选第一个
+      try {
+        var suggestions = await page.$$('[class*="topic-suggest"] li, [class*="topic-list"] li, [class*="suggestion"] div').catch(function() { return [] })
+        if (suggestions.length > 0 && await suggestions[0].isVisible().catch(function() { return false })) {
+          await suggestions[0].click({ timeout: 1500 })
+          log('  ✅ 选择推荐: ' + t)
+          await page.waitForTimeout(800)
+        }
+      } catch (_) {}
+
+      log('  ✅ 已输入: ' + t)
+      await page.waitForTimeout(800)
+    } catch (e) {
+      log('  ⚠️ 话题"' + t + '"失败: ' + e.message)
+    }
+
+    // 防止过快
+    if (ti < topicList.length - 1) await page.waitForTimeout(1000)
   }
 
-  if (selectedCount > 0) {
-    log('✅ 步骤5完成（勾选了' + selectedCount + '个话题）')
-  } else {
-    log('⚠️ 未找到推荐话题，跳过')
-  }
+  log('✅ 步骤5完成（添加了' + Math.min(ti, topicList.length) + '个话题）')
   await page.waitForTimeout(1500)
 }
 
