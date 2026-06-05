@@ -378,7 +378,7 @@ async function step5_topics(page, params, log) {
   log('[步骤5] 添加自定义话题...')
 
   // 解析话题：支持逗号、空格、#号分隔
-  var topicList = topics.split(/[\s,，]+/).filter(function(t) { return t.trim().length > 0 })
+  var topicList = topics.split(/[\s,，#]+/).filter(function(t) { return t.trim().length > 0 })
   if (topicList.length === 0) { log('  ⚠️ 无有效话题'); return }
   log('  话题列表: ' + JSON.stringify(topicList))
 
@@ -444,69 +444,217 @@ async function step5_topics(page, params, log) {
 // Step 6: 封面（竖3:4 + 横4:3）
 // ════════════════════════════════════
 
-async function step6_covers(page, log) {
+async function step6_covers(page, params, log) {
   log('[步骤6] 检查封面...')
   await page.waitForTimeout(1500)
   try {
+    // 查找所有「选择封面」按钮
     var covers = []
-    // 扩大搜索范围：button、可点击div、span等，用 includes 而非严格相等
-    var allClickables = await page.$$('button, div[role="button"], [class*="cover-btn"], [class*="coverBtn"], [class*="upload-cover"]').catch(function() { return [] })
+    var allClickables = await page.$$('button, div[role="button"], [class*="cover-btn"], [class*="coverBtn"]').catch(function() { return [] })
     for (var b = 0; b < allClickables.length; b++) {
       try {
         var t = (await allClickables[b].innerText()).trim()
         if (t.includes('选择封面')) covers.push(allClickables[b])
       } catch (_) {}
     }
-    // 兜底：用 text 选择器直接找
     if (!covers.length) {
       try {
         var textCovers = await page.$$('text=/选择封面/').catch(function() { return [] })
-        for (var tc = 0; tc < textCovers.length; tc++) {
-          covers.push(textCovers[tc])
-        }
+        for (var tc = 0; tc < textCovers.length; tc++) covers.push(textCovers[tc])
       } catch (_) {}
     }
     log('  找到 ' + covers.length + ' 个选择封面按钮')
 
+    // 如果有自定义封面图片，先下载到本地
+    var localCoverPath = null
+    if (params.coverImage) {
+      var serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
+      var userId = params.userId || ''
+      var coverDownloadUrl = serverUrl + '/api/storage/file?userId=' + userId + '&name=' + encodeURIComponent(params.coverImage)
+      var osTmpDir = require('os').tmpdir()
+      var coverTmpDir = path.join(osTmpDir, 'aimarketing-covers')
+      if (!require('fs').existsSync(coverTmpDir)) require('fs').mkdirSync(coverTmpDir, { recursive: true })
+      localCoverPath = path.join(coverTmpDir, params.coverImage)
+      log('  下载自定义封面: ' + params.coverImage)
+      try {
+        await new Promise(function(resolve, reject) {
+          var urlObj2 = new URL(coverDownloadUrl)
+          var mod2 = require(urlObj2.protocol === 'https:' ? 'https' : 'http')
+          mod2.get(coverDownloadUrl, { timeout: 60000 }, function(res2) {
+            if (res2.statusCode !== 200) return reject(new Error('HTTP ' + res2.statusCode))
+            var chunks2 = []
+            res2.on('data', function(c) { chunks2.push(c) })
+            res2.on('end', function() {
+              require('fs').writeFileSync(localCoverPath, Buffer.concat(chunks2))
+              resolve()
+            })
+          }).on('error', reject).on('timeout', function() { reject(new Error('下载超时')) })
+        })
+        log('  ✅ 封面已下载 (' + (require('fs').statSync(localCoverPath).size / 1024).toFixed(1) + 'KB)')
+      } catch (e2) {
+        log('  ⚠️ 封面下载失败: ' + e2.message)
+        localCoverPath = null
+      }
+    }
+
     for (var i = 0; i < Math.min(covers.length, 2); i++) {
       var lab = i === 0 ? '竖封面(3:4)' : '横封面(4:3)'
       log('  [6.' + (i+1) + '] 点击' + lab)
+
       try {
+        // 点击打开弹窗
         await covers[i].click({ timeout: 3000 })
         await page.waitForTimeout(2000)
-        // 检查是否有默认选中
-        var selImg = await page.$('[class*="selected"] img, [class*="active"] img').catch(function() { return null })
-        if (selImg) {
-          log('    有默认选中封面')
-        } else {
-          var imgs = await page.$$(
-            '[class*="recommend"] img, [class*="cover-list"] img, [class*="img-item"] img'
-          ).catch(function() { return [] })
-          if (imgs.length) {
-            await imgs[0].click({ timeout: 1500 }).catch(function() {})
-            log('    手动选择第1张')
-            await page.waitForTimeout(500)
+
+        // ── 如果有自定义封面，点击「上传封面」并设置文件 ──
+        if (localCoverPath && require('fs').existsSync(localCoverPath)) {
+          var uploadBtns = ['text=上传封面', 'text=+ 上传封面', '[class*="upload-cover"]']
+          var clickedUpload = false
+          for (var ubi = 0; ubi < uploadBtns.length; ubi++) {
+            try {
+              var ub = await page.$(uploadBtns[ubi])
+              if (ub && await ub.isVisible().catch(function() { return false })) {
+                var fcResult = await Promise.all([
+                  page.waitForEvent('filechooser', { timeout: 5000 }).catch(function() { return null }),
+                  ub.click({ timeout: 2000 }).catch(function() {})
+                ])
+                if (fcResult[0]) {
+                  await fcResult[0].setFiles(localCoverPath)
+                  log('    ✅ 已上传自定义封面')
+                  clickedUpload = true
+                  await page.waitForTimeout(2000)
+                }
+                break
+              }
+            } catch (_) {}
+          }
+          if (!clickedUpload) log('    ⚠️ 未找到上传封面按钮')
+        }
+
+        // 选择默认封面（如果没有自定义封面或上传失败）
+        if (!localCoverPath) {
+          var selImg = await page.$('[class*="selected"] img, [class*="active"] img').catch(function() { return null })
+          if (selImg) {
+            log('    有默认选中封面')
+          } else {
+            var imgs = await page.$$(
+              '[class*="recommend"] img, [class*="cover-list"] img, [class*="img-item"] img'
+            ).catch(function() { return [] })
+            if (imgs.length) {
+              await imgs[0].click({ timeout: 1500 }).catch(function() {})
+              log('    手动选择第1张推荐封面')
+              await page.waitForTimeout(500)
+            }
           }
         }
-        // 点确认
-        var confirmSels = ['text=使用', 'text=确定', 'text=确认', 'text=保存']
-        for (var c = 0; c < confirmSels.length; c++) {
+
+        // 关闭弹窗：优先点「完成」按钮
+        var closeBtns = ['text=完成', 'button:has-text("完成")']
+        var closed = false
+        for (var ci = 0; ci < closeBtns.length; ci++) {
           try {
-            var cb = await page.$(confirmSels[c])
-            if (cb && await cb.isVisible().catch(function() { return false })) {
-              await cb.click()
-              log('    ✅ 确认' + lab)
-              await page.waitForTimeout(1000)
+            var cb2 = await page.$(closeBtns[ci])
+            if (cb2 && await cb2.isVisible().catch(function() { return false })) {
+              await cb2.click({ timeout: 3000 })
+              log('    ✅ 关闭弹窗(' + lab + ')')
+              closed = true
+              await page.waitForTimeout(1500)
               break
             }
           } catch (_) {}
         }
+        // 兜底：点X关闭或按Escape
+        if (!closed) {
+          try {
+            var xBtn = await page.$('[aria-label="关闭"], [class*="close-btn"]')
+            if (xBtn && await xBtn.isVisible().catch(function() { return false })) {
+              await xBtn.click().catch(function() {})
+              closed = true
+              await page.waitForTimeout(1000)
+            }
+          } catch (_) {}
+          if (!closed) {
+            await page.keyboard.press('Escape')
+            await page.waitForTimeout(1000)
+          }
+        }
+
       } catch (e) { log('    ⚠️ ' + lab + ': ' + e.message) }
     }
     if (!covers.length) log('  ⚠️ 未找到封面按钮')
     log('✅ 步骤6完成')
   } catch (e) { log('❌ 步骤6: ' + e.message) }
   await page.waitForTimeout(2000)
+}
+
+// ════════════════════════════════════
+// Step 5.5: 位置标签
+// ════════════════════════════════════
+
+async function step55_location(page, params, log) {
+  if (!params.location || !params.location.trim()) {
+    log('[步骤5.5] 跳过（无位置信息）')
+    return
+  }
+
+  log('[步骤5.5] 填写地理位置: ' + params.location.trim())
+  await page.waitForTimeout(1000)
+
+  var locText = String(params.location).trim()
+
+  // 查找位置输入框
+  var locSels = [
+    'input[placeholder*="地理位置"]',
+    'input[placeholder*="位置"]',
+    '[class*="location"] input',
+    '[class*="geo"] input',
+    '*[class*="locationInput"] input',
+  ]
+
+  var filled = false
+  for (var li = 0; li < locSels.length; li++) {
+    try {
+      var le = await page.$(locSels[li])
+      if (!le || !(await le.isVisible().catch(function() { return false }))) continue
+      log('  找到位置框: ' + locSels[li])
+      await le.click({ timeout: 3000 })
+      await page.waitForTimeout(500)
+      await le.fill(locText)
+      await page.waitForTimeout(1000)
+      // 等待下拉建议出现，选第一个
+      await page.waitForTimeout(1500)
+      try {
+        var suggestions = await page.$$('[class*="location-suggest"] li, [class*="geo-item"] div, [role="option"]').catch(function() { return [] })
+        if (suggestions.length > 0 && await suggestions[0].isVisible().catch(function() { return false })) {
+          await suggestions[0].click({ timeout: 2000 }).catch(function() {})
+          log('  ✅ 选择推荐位置')
+          await page.waitForTimeout(800)
+        }
+      } catch (_) {}
+      filled = true
+      log('  ✅ 位置已填入')
+      break
+    } catch (e) { log('  ⚠️ ' + locSels[li] + ': ' + e.message) }
+  }
+
+  if (!filled) {
+    // 兜底：点击「位置」标签后用 keyboard 输入
+    try {
+      var locLabel = await page.$('text=位置, text=/位置/, [class*="location-label"]')
+      if (locLabel && await locLabel.isVisible().catch(function() { return false })) {
+        await locLabel.click()
+        await page.waitForTimeout(500)
+        await page.keyboard.type(locText, { delay: 30 })
+        await page.waitForTimeout(1500)
+        await page.keyboard.press('Enter')
+        filled = true
+        log('  ✅ 通过键盘输入位置')
+      }
+    } catch (_) {}
+  }
+
+  if (!filled) log('  ⚠️ 未找到位置输入框')
+  await page.waitForTimeout(1000)
 }
 
 // ════════════════════════════════════
@@ -582,7 +730,7 @@ async function step7_publish(page, params, log) {
 /**
  * 执行抖音视频发布
  * @param {import('playwright').Page} page
- * @param {{ videoPath: string, title?: string, description?: string, topics?: string, publishNow?: string }} params
+ * @param {{ videoPath: string, title?: string, description?: string, topics?: string, publishNow?: string, coverImage?: string, location?: string, userId?: string }} params
  * @param {(msg:string)=>void} log
  */
 async function executeDouyinPublish(page, params, log) {
@@ -610,8 +758,11 @@ async function executeDouyinPublish(page, params, log) {
     // Step 5: 话题
     await step5_topics(page, params, log)
 
+    // Step 5.5: 位置
+    await step55_location(page, params, log)
+
     // Step 6: 封面
-    await step6_covers(page, log)
+    await step6_covers(page, params, log)
 
     // Step 7: 发布
     return await step7_publish(page, params, log)

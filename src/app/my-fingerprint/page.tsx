@@ -90,6 +90,9 @@ export default function MyFingerprintPage() {
   const [templateDesc, setTemplateDesc] = useState('')
   const [templateEnableTopics, setTemplateEnableTopics] = useState(true)
   const [templateCustomTopics, setTemplateCustomTopics] = useState('')
+  const [templateCoverImage, setTemplateCoverImage] = useState('')
+  const [storageImages, setStorageImages] = useState<any[]>([])
+  const [templateLocation, setTemplateLocation] = useState('')
   const [templatePublishNow, setTemplatePublishNow] = useState(true)
   const [templateCaption, setTemplateCaption] = useState('')
   const [templateTargetUrl, setTemplateTargetUrl] = useState('')
@@ -231,6 +234,8 @@ export default function MyFingerprintPage() {
         params.title = templateTitle
         params.description = templateDesc
         params.topics = templateCustomTopics.trim()
+        params.coverImage = templateCoverImage
+        params.location = templateLocation
         params.publishNow = String(templatePublishNow)
         break
       case 'douyin-comment':
@@ -532,6 +537,62 @@ export default function MyFingerprintPage() {
                           value={templateCustomTopics}
                           onChange={e => setTemplateCustomTopics(e.target.value)}
                           placeholder="#宠物 #萌宠 #日常"
+                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* 自定义封面（可选） */}
+                      <div>
+                        <label className="text-[11px] text-gray-500 block mb-1">自定义封面图片（可选，留空使用系统默认）</label>
+                        {templateCoverImage ? (
+                          <div className="flex items-center gap-2 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
+                            <span className="text-[10px] text-purple-300 truncate flex-1">{templateCoverImage}</span>
+                            <button type="button" onClick={() => setTemplateCoverImage('')} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const r = await fetch(`/api/storage/files?userId=${user?.id || ''}`, { credentials: 'include' })
+                                const d = await r.json()
+                                if (d.success) {
+                                  const imgs = d.data.files.filter((f: any) => !f.isVideo && /\.(jpg|jpeg|png|webp)$/i.test(f.name))
+                                  if (!imgs.length) showToast('素材仓库暂无图片', 'error')
+                                  else { setStorageImages(imgs); }
+                                } else showToast(d.message || '加载失败', 'error')
+                              } catch { showToast('加载素材仓库失败', 'error') }
+                            }}
+                            className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-xs text-gray-400 hover:text-white hover:border-purple-500/30 transition"
+                          >🖼️ 从素材仓库选择封面</button>
+                        )}
+                        {storageImages.length > 0 && !templateCoverImage && (
+                          <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
+                            {storageImages.map((img: any) => (
+                              <button key={img.name} type="button" onClick={() => { setTemplateCoverImage(img.name); setStorageImages([]) }}
+                                className={`w-full flex items-center gap-2 p-2 rounded-lg text-left transition ${
+                                  templateCoverImage === img.name ? 'bg-purple-500/20 border-purple-500/30' : 'bg-white/5 border border-transparent hover:bg-white/10'
+                                }`}
+                              >
+                                <span className="text-sm shrink-0">🖼️</span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[10px] text-gray-200 truncate">{img.name}</p>
+                                  <p className="text-[9px] text-gray-500">{(img.size / 1024).toFixed(1)}KB</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 位置标签 */}
+                      <div>
+                        <label className="text-[11px] text-gray-500 block mb-1">地理位置（可选）</label>
+                        <input
+                          type="text"
+                          value={templateLocation}
+                          onChange={e => setTemplateLocation(e.target.value)}
+                          placeholder="如：北京市朝阳区、上海市浦东新区"
                           className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
                         />
                       </div>
