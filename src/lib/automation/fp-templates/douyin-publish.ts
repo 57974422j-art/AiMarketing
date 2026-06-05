@@ -89,47 +89,85 @@ async function execute(page: any, p: Record<string, any>, log: LogFn): Promise<T
     // ── Step 2: 找到并上传视频 ──
     log(`准备上传视频: ${p.videoPath}`)
     
-    // 尝试找到文件上传 input
     let uploaded = false
-    const fileInputSels = [
-      'input[type="file"][accept*="video"]',
-      'input[type="file"]',
-      '[class*="upload"] input[type="file"]',
-      '#upload-input',
-    ]
 
-    for (const sel of fileInputSels) {
-      try {
-        const el = await page.$(sel)
-        if (el && await el.isVisible().catch(() => false)) {
-          await el.setInputFiles(p.videoPath)
-          uploaded = true
-          log('✅ 视频已选择，等待上传...')
-          break
+    // 2a. 探测页面上所有 file input（包括隐藏的）
+    const allFileInputs = await page.evaluate(() => {
+      const inputs = document.querySelectorAll('input[type="file"]')
+      return Array.from(inputs).map((el, i) => ({
+        index: i,
+        accept: el.getAttribute('accept'),
+        id: el.id,
+        className: el.className.substring(0, 80),
+      }))
+    }).catch(() => [])
+    
+    if (allFileInputs.length > 0) {
+      log(`探测到 ${allFileInputs.length} 个 file input: ${JSON.stringify(allFileInputs)}`)
+      // 尝试直接设置文件（file input 经常是隐藏的，不检查可见性）
+      for (let i = 0; i < allFileInputs.length; i++) {
+        try {
+          const els = await page.$$('input[type="file"]')
+          if (els[i]) {
+            await els[i].setInputFiles(p.videoPath)
+            uploaded = true
+            log('✅ 视频已通过 file input[' + i + '] 设置')
+            break
+          }
+        } catch (e: any) {
+          log(`  input[${i}] 失败: ${e.message}`)
         }
+      }
+    } else {
+      log('未探测到 file input 元素')
+    }
+
+    // 2b. 兜底：通过点击上传区域触发 file chooser
+    if (!uploaded) {
+      log('尝试通过点击触发文件选择器...')
+      
+      const uploadTriggers = [
+        'text=上传视频', 'text=上传', 'text=选择文件', 'text=拖拽',
+        '[class*="upload-btn"]', '[class*="UploadBtn"]',
+        '[class*="upload-area"]', '[class*="UploadArea"]',
+        'div[role="button"]:has-text("上传")',
+        '[class*="picker"]', '[class*="Picker"]',
+        '[data-e2e="upload"]', '[data-e2e="pc-upload"]',
+      ]
+
+      for (const trigger of uploadTriggers) {
+        try {
+          const [fileChooser] = await Promise.all([
+            page.waitForEvent('filechooser', { timeout: 3000 }).catch(() => null),
+            page.click(trigger, { timeout: 2000 }).catch(() => {}),
+          ])
+          if (fileChooser) {
+            await fileChooser.setFiles(p.videoPath)
+            uploaded = true
+            log('✅ 视频已通过文件选择器上传（触发器: ' + trigger + '）')
+            break
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 2c. 最后兜底：page 级别 setInputFiles
+    if (!uploaded) {
+      try {
+        await page.setInputFiles('input[type="file"]', p.videoPath)
+        uploaded = true
+        log('✅ 视频已通过 page.setInputFiles 上传')
       } catch (_) {}
     }
 
     if (!uploaded) {
-      // 兜底方案：通过 file chooser 监听
-      log('未直接找到上传按钮，尝试触发文件选择器...')
-      const [fileChooser] = await Promise.all([
-        page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
-        page.click('text=上传').catch(() =>
-          page.click('[class*="upload"]').catch(() =>
-            page.click('.upload-btn').catch(() => {})
-          )
-        ),
-      ])
-      if (fileChooser) {
-        await fileChooser.setFiles(p.videoPath)
-        uploaded = true
-        log('✅ 视频已通过文件选择器上传')
-      }
-    }
-
-    if (!uploaded) {
-      return { success: false, message: '未找到可用的视频上传入口，可能页面结构已变化' }
+      const debugInfo = await page.evaluate(() => ({
+        url: location.href,
+        title: document.title,
+        bodySnippet: document.body.innerText.substring(0, 300),
+      })).catch(() => ({ url: 'unknown' }))
+      log(`调试信息: URL=${debugInfo.url}, 标题=${debugInfo.title}`)
+      return { success: false, message: '未找到可用的视频上传入口' }
     }
 
     // ── Step 3: 等待上传完成 ──
