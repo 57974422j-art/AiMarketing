@@ -489,6 +489,12 @@ ipcMain.handle('fp:info', async (_event, { port }) => {
 })
 
 
+// ── 停止当前执行的模板脚本（不是停止浏览器）──
+ipcMain.handle('fp:scriptStop', () => {
+  global.__fpAbort = true
+  return { success: true, message: '已发送停止信号' }
+})
+
 // ── 执行自动化模板脚本（核心）──
 // templateType: 'douyin-publish' | 'douyin-comment' | ...
 // params: 模板所需的参数（文案、目标用户等）
@@ -505,6 +511,8 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
 
     log(`开始执行模板: ${templateType}`)
 
+    // 重置停止标志
+    global.__fpAbort = false
     let result
     switch (templateType) {
       case 'douyin-publish':
@@ -517,11 +525,26 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
           const localPath = path.join(tmpDir, params.storageFileName)
           log(`从素材仓库下载: ${params.storageFileName}`)
           try {
-            const https = require('https') || require('http')
-            const res = await fetch(downloadUrl)
-            const buf = Buffer.from(await res.arrayBuffer())
-            fs.writeFileSync(localPath, buf)
-            log(`✅ 已下载到本地 (${(buf.length / 1024 / 1024).toFixed(1)}MB)`)
+            // 用 stream 方式下载，支持大文件
+            await new Promise((resolve, reject) => {
+              const urlObj = new URL(downloadUrl)
+              const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
+              mod.get(downloadUrl, { timeout: 120000 }, (res) => {
+                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
+                const chunks = []
+                res.on('data', chunk => chunks.push(chunk))
+                res.on('end', () => {
+                  const buf = Buffer.concat(chunks)
+                  fs.writeFileSync(localPath, buf)
+                  resolve()
+                })
+              }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
+            })
+            const stat = fs.statSync(localPath)
+            log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
+            if (stat.size < 10000) {
+              log(`⚠️ 文件过小(${stat.size}B)，可能下载不完整`)
+            }
             params.videoPath = localPath
           } catch (e) {
             log(`❌ 视频下载失败: ${e.message}`)

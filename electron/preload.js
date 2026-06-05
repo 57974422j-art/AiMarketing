@@ -53,6 +53,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   fpExecute: (port, templateType, params) => ipcRenderer.invoke('fp:execute', { port, templateType, params }),
 
+  /** 停止当前正在执行的模板脚本 */
+  fpScriptStop: () => ipcRenderer.invoke('fp:scriptStop'),
+
   // ── 自动更新 ──
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
   updaterInstall: () => ipcRenderer.invoke('updater:install'),

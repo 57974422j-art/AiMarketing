@@ -127,98 +127,133 @@ async function step2_upload(page, params, fs, log) {
 
 // ════════════════════════════════════
 // Step 3: 等待上传完成进入编辑页
+//
+// 判定编辑页就绪的方式（按优先级）：
+//   1. ❌ 页面出现"作品检测失败/快速检测作品失败" → 视频不合格，终止
+//   2. ✅ 页面出现"选择封面"按钮 或 "智能推荐封面"文字 → 编辑页已加载
+//   3. ✅ contenteditable 标题/正文框可见 → 编辑表单已渲染
 // ════════════════════════════════════
 
 async function step3_waitUpload(page, log) {
-  log('═══ Step 3: 等待视频上传+转码 ═══')
+  log('═══ Step 3: 等待视频上传+转码进入编辑页 ═══')
 
   const UPLOAD_WAIT_MS = 3000     // 检测间隔
   const MAX_UPLOAD_SEC = 270      // 最大等待4.5分钟
   const MAX_LOOPS = Math.floor(MAX_UPLOAD_SEC * 1000 / UPLOAD_WAIT_MS)
 
-  // 有效编辑页URL列表（实际URL是 /content/post/video）
+  // 有效编辑页URL列表
   const EDIT_URL_PATTERNS = ['/content/publish', '/content/post/video', '/publish']
 
-  let editPageDetected = false
+  let editPageReady = false
+  let abortReason = ''           // 如果需要终止（如检测失败）
   const uploadStartTime = Date.now()
+  let stableCount = 0            // URL连续稳定在编辑页的次数
 
   for (let i = 0; i < MAX_LOOPS; i++) {
+    // 支持外部停止：检查全局标志
+    if (global.__fpAbort) { abortReason = '用户手动停止'; break }
+
     await page.waitForTimeout(UPLOAD_WAIT_MS)
     const elapsedSec = Math.round((Date.now() - uploadStartTime) / 1000)
     const curUrl = page.url()
 
+    // ── 获取页面关键文字 ──
+    var bodyText = ''
+    try {
+      bodyText = await page.evaluate(function() { return document.body.innerText })
+    } catch (_) {}
+
     // 详细日志（每15秒或前3次）
     if (i % 5 === 4 || i < 3) {
-      var info = await page.evaluate(function() {
-        var body = document.body.innerText
-        var matches = []
-        var keywords = ['上传中', '上传完成', '转码中', '转码完成', '处理中', '%']
-        for (var k = 0; k < keywords.length; k++) {
-          if (body.includes(keywords[k])) matches.push(keywords[k])
-        }
-        return { url: location.href, matches: matches }
-      }).catch(function() { return { url: curUrl, matches: [] } })
+      var snippets = []
+      var kwList = ['封面', '标题', '简介', '上传', '转码', '处理中', '检测', '%']
+      for (var k = 0; k < kwList.length; k++) {
+        if (bodyText.includes(kwList[k])) snippets.push(kwList[k])
+      }
       log('  [' + elapsedSec + 's] URL=' + curUrl.replace('https://creator.douyin.com', '...') +
-          ' | 关键词:' + (info.matches.join(',') || '无'))
+          ' | 关键字:' + (snippets.join(',') || '(空)'))
     }
 
     // 弹窗处理
     await dismissPopups(page, log, '  [' + elapsedSec + 's] ')
 
-    // ── 检测URL是否变为编辑页 ──
-    var urlChanged = false
-    for (var p = 0; p < EDIT_URL_PATTERNS.length; p++) {
-      if (curUrl.includes(EDIT_URL_PATTERNS[p])) { urlChanged = true; break }
+    // ══ 终止条件1: 作品检测失败 ══
+    if (bodyText.includes('作品检测失败') || bodyText.includes('快速检测作品失败')) {
+      abortReason = '⛔ 作品检测失败（视频可能不符合规格）'
+      log('  [' + elapsedSec + '] ' + abortReason)
+      break
     }
 
-    // 检测编辑页元素是否可见
-    var editElementsFound = false
-    if (urlChanged) {
-      var strictSels = [
+    // ══ 判断是否在编辑页URL ══
+    var urlInEdit = false
+    for (var p = 0; p < EDIT_URL_PATTERNS.length; p++) {
+      if (curUrl.includes(EDIT_URL_PATTERNS[p])) { urlInEdit = true; break }
+    }
+
+    if (!urlInEdit) {
+      stableCount = 0
+      // 还在上传页/其他页，继续等
+      continue
+    }
+
+    // URL已在编辑页范围，开始检测页面内容
+    stableCount++
+
+    // ══ 成功条件1: 出现封面相关文字（最可靠） ══
+    if (bodyText.includes('选择封面') || bodyText.includes('智能推荐封面')) {
+      // 再等一下确认不是闪现
+      await page.waitForTimeout(2000)
+      var body2 = await page.evaluate(function() { return document.body.innerText }).catch(function() { return '' })
+      if (body2.includes('选择封面') || body2.includes('智能推荐封面')) {
+        editPageReady = true
+        log('✅ 编辑页就绪 — 检测到封面区域 (' + elapsedSec + 's)')
+        break
+      }
+    }
+
+    // ══ 成功条件2: 表单输入框可见（兜底） ══
+    if (stableCount > 2) {
+      // URL稳定超过6秒后才开始找DOM元素
+      var formSels = [
         'div[contenteditable="true"][data-placeholder*="标题"]',
         'div[contenteditable="true"][data-placeholder*="简介"]',
-        'textarea[placeholder*="作品描述"]',
+        'div[contenteditable="true"][data-placeholder*="添加作品"]',
+        'textarea[placeholder*="作品"]',
       ]
-      for (var s = 0; s < strictSels.length; s++) {
+      for (var s = 0; s < formSels.length; s++) {
         try {
-          var e = await page.$(strictSels[s])
-          if (e && await e.isVisible().catch(function() { return false })) {
-            editElementsFound = true
+          var el = await page.$(formSels[s])
+          if (el && await el.isVisible().catch(function() { return false })) {
+            editPageReady = true
+            log('✅ 编辑页就绪 — 检测到表单元素: ' + formSels[s] + ' (' + elapsedSec + 's)')
             break
           }
         } catch (_) {}
       }
+      if (editPageReady) break
     }
 
-    // 双重确认
-    if (urlChanged && editElementsFound) {
-      log('  [' + elapsedSec + 's] 首次检测到编辑页，二次确认中...')
-      await page.waitForTimeout(5000)
-      var titleBox = await page.$('div[contenteditable="true"][data-placeholder*="标题"]')
-      if (titleBox && await titleBox.isVisible().catch(function() { return false })) {
-        editPageDetected = true
-        log('✅ 视频上传+转码完成 (' + elapsedSec + 's)，已进入编辑页')
-        break
-      } else {
-        log('  [' + elapsedSec + 's] 二次确认失败，继续等待...')
-      }
-    }
-
-    if (urlChanged && !editElementsFound) {
-      log('  [' + elapsedSec + 's] URL已变但编辑元素尚未出现...')
-    }
-    if (i % 10 === 9 && i > 10) {
-      log('  ...仍在等待 (' + elapsedSec + 's/' + MAX_UPLOAD_SEC + 's)')
+    // 进度提示
+    if (stableCount > 3 && !editPageReady) {
+      log('  [' + elapsedSec + 's] 已在编辑页URL但表单未完全渲染，继续等待...')
     }
   }
 
-  if (!editPageDetected) {
-    log('⚠️ 等待超时 (' + Math.round((Date.now() - uploadStartTime) / 1000) + 's)，尝试继续...')
+  // 结果判定
+  if (abortReason) {
+    log('❌ ' + abortReason)
+    return { success: false, message: abortReason }
   }
 
-  log('额外缓冲5秒让页面完全渲染...')
+  if (!editPageReady) {
+    log('⚠️ 等待超时 (' + Math.round((Date.now() - uploadStartTime) / 1000) + 's)，强制继续后续步骤...')
+  }
+
+  // 缓冲让页面完全渲染
+  log('缓冲5秒让页面完全渲染...')
   await page.waitForTimeout(5000)
   await dismissPopups(page, log, '[上传后] ')
+  return null // 继续
 }
 
 // ════════════════════════════════════
@@ -509,7 +544,8 @@ async function executeDouyinPublish(page, params, log) {
     if (uploadErr) return uploadErr
 
     // Step 3: 等待转码完成进入编辑页
-    await step3_waitUpload(page, log)
+    var step3Result = await step3_waitUpload(page, log)
+    if (step3Result && !step3Result.success) return step3Result // 上传失败或作品检测失败
 
     // Step 4: 填写标题+正文
     await step4_fillContent(page, params, log)

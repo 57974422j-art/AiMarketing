@@ -609,21 +609,34 @@ export default function MyFingerprintPage() {
                   )}
 
                   {/* 执行按钮 */}
-                  <button
-                    onClick={handleExecute}
-                    disabled={executing}
-                    className={`w-full py-2.5 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2 ${
-                      executing
-                        ? 'bg-gray-700 text-gray-400 cursor-wait'
-                        : 'bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-400 hover:to-violet-400 text-white'
-                    }`}
-                  >
-                    {executing ? (
-                      <>⏳ 执行中...</>
-                    ) : (
-                      <>▶️ 执行模板</>
+                  <div className="flex gap-2">
+                    {executing && (
+                      <button
+                        onClick={async () => {
+                          if (window.electronAPI?.fpScriptStop) {
+                            await window.electronAPI.fpScriptStop()
+                            setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 用户停止`])
+                          }
+                        }}
+                        className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition flex items-center justify-center gap-2"
+                      >⏹ 停止</button>
                     )}
-                  </button>
+                    <button
+                      onClick={handleExecute}
+                      disabled={executing}
+                      className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2 ${
+                        executing
+                          ? 'bg-gray-700 text-gray-400 cursor-wait'
+                          : 'bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-400 hover:to-violet-400 text-white'
+                      }`}
+                    >
+                      {executing ? (
+                        <>⏳ 执行中...</>
+                      ) : (
+                        <>▶️ 执行模板</>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
