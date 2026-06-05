@@ -64,16 +64,20 @@ async function execute(page: any, p: Record<string, any>, log: LogFn): Promise<T
   if (!fs.existsSync(p.videoPath)) return { success: false, message: `视频文件不存在: ${p.videoPath}` }
 
   try {
-    // ── Step 1: 导航/确认创作者中心发布页 ──
+    // ── Step 1: 导航到抖音创作者中心视频上传页 ──
+    const targetUrl = 'https://creator.douyin.com/creator-micro/content/upload'
     const currentUrl = page.url()
     log(`当前页面: ${currentUrl}`)
     
-    // 只要在创作者中心就行，不强转具体路径
-    if (!currentUrl.includes('creator.douyin.com')) {
-      log('导航到抖音创作者中心...')
-      await page.goto('https://creator.douyin.com/creator-micro/content/publish', { timeout: 30000 })
+    // 强制导航到上传页面
+    if (currentUrl !== targetUrl && !currentUrl.includes('/content/upload')) {
+      log(`导航到视频上传页: ${targetUrl}`)
+      await page.goto(targetUrl, { timeout: 30000, waitUntil: 'networkidle' })
       await page.waitForTimeout(5000)
-      log(`跳转后页面: ${page.url()}`)
+      log(`已到达: ${page.url()}`)
+    } else {
+      log('当前已在视频上传页')
+      await page.waitForTimeout(2000)
     }
 
     // ── Step 1.5: 处理可能出现的弹窗 ──
