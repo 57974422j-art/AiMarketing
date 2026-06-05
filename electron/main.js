@@ -543,12 +543,6 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
 //  自动化模板实现
 // ════════════════════════════════════════
 
-/**
- * 抖音发视频模板 v5（已拆分到 fp-templates/douyin-publish.js）
- */
-async function executeDouyinPublish(page, params, log) {
-  return require('./fp-templates/douyin-publish').executeDouyinPublish(page, params, log)
-}
 async function executeDouyinLike(page, params, log) {
   try {
     const count = Math.min(params.count || 3, 10)
