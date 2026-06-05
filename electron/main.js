@@ -529,7 +529,9 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
             await new Promise((resolve, reject) => {
               const urlObj = new URL(downloadUrl)
               const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
-              mod.get(downloadUrl, { timeout: 120000 }, (res) => {
+              const reqHeaders = {}
+              if (params.authToken) reqHeaders['Cookie'] = 'token=' + params.authToken
+              mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
                 if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
                 const chunks = []
                 res.on('data', chunk => chunks.push(chunk))

@@ -217,11 +217,15 @@ export default function MyFingerprintPage() {
     switch (selectedTemplate) {
       case 'douyin-publish':
         params.storageFileName = storageVideoName
-        // 下载视频需要 userId（storage API 用途）
+        // 下载视频需要 userId + token（storage API 鉴权）
         try {
           const sr = await fetch('/api/storage/files', { credentials: 'include' })
           const sd = await sr.json()
-          if (sd.success) params.userId = sd.data.userId
+          if (sd.success) {
+            params.userId = sd.data.userId
+            // 提取当前 JWT token 供主进程下载时使用
+            params.authToken = document.cookie.split(';').find(c => c.trim().startsWith('token='))?.trim().replace('token=', '') || ''
+          }
         } catch {}
         params.title = templateTitle
         params.description = templateDesc
