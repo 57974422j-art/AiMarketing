@@ -160,8 +160,8 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json(
       { success: false, message: '删除失败' },
       { status: 500 }
-    ) 
-  finally {
+    )
+  } finally {
     await prisma.$disconnect()
   }
 }
