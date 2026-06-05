@@ -877,7 +877,7 @@ async function cleanupBrowser(instance) {
 /** 根据平台获取默认登录 URL */
 function getDefaultUrl(platform) {
   const urls = {
-    douyin: 'https://creator.douyin.com/creator-micro/content/publish',
+    douyin: 'https://creator.douyin.com/creator-micro/content/upload',
     xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish',
     kuaishou: 'https://cp.kuaishou.com/article/publish/video',
     bilibili: 'https://member.bilibili.com/platform/upload-video/frame',

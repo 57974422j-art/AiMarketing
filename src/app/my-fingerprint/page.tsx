@@ -30,7 +30,7 @@ interface BrowserInstance {
 // ── 平台配置 ──
 
 const PLATFORMS = [
-  { key: 'douyin', label: '抖音', icon: '🎵', url: 'https://creator.douyin.com/creator-micro/content/publish' },
+  { key: 'douyin', label: '抖音', icon: '🎵', url: 'https://creator.douyin.com/creator-micro/content/upload' },
   { key: 'xiaohongshu', label: '小红书', icon: '📕', url: 'https://creator.xiaohongshu.com/publish/publish' },
   { key: 'kuaishou', label: '快手', icon: '📹', url: 'https://cp.kuaishou.com/article/publish/video' },
   { key: 'bilibili', label: 'B站', icon: '📺', url: 'https://member.bilibili.com/platform/upload-video/frame' },
