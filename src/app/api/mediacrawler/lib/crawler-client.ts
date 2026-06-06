@@ -337,6 +337,8 @@ export interface ProxyItem {
   type?: 'datacenter' | 'residential' | 'mobile'
   testStatus?: 'ok' | 'slow' | 'fail' | 'untested'
   testLatencyMs?: number
+  usedCount?: number
+  lastUsedAt?: string
 }
 
 /**
