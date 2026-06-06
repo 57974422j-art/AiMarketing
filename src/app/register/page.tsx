@@ -27,17 +27,17 @@ export default function RegisterPage() {
     setError('');
 
     if (formData.password !== formData.confirmPassword) {
-      setError('两次密码不一致 / Passwords do not match');
+      setError('两次密码不一致');
       return;
     }
 
     if (formData.password.length < 6) {
-      setError('密码太短（至少6位）/ Password too short (min 6 chars)');
+      setError('密码太短，至少6位');
       return;
     }
 
     if (!formData.inviteCode) {
-      setError('邀请码不能为空 / Invite code required');
+      setError('邀请码不能为空');
       return;
     }
 
@@ -60,13 +60,13 @@ export default function RegisterPage() {
       const data = await response.json();
 
       if (data.success) {
-        showToast('注册成功 / Registration Successful');
+        showToast('注册成功');
         router.push('/login');
       } else {
-        setError(data.message || '注册失败 / Registration Failed');
+        setError(data.message || '注册失败');
       }
     } catch (err) {
-      setError('连接错误 / Connection Error');
+      setError('网络连接失败');
     } finally {
       setLoading(false);
     }
@@ -91,7 +91,7 @@ export default function RegisterPage() {
           <h2 className="text-mono text-xl text-white mb-2 text-center">
             <span>注册账号</span>
           </h2>
-          <p className="text-center text-xs text-gray-500 mb-6 tracking-wider">CREATE ACCOUNT</p>
+          <p className="text-center text-xs text-gray-500 mb-6 tracking-wider">创建账号</p>
 
           {error && (
             <div className="mb-6 p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm text-center">
@@ -193,14 +193,14 @@ export default function RegisterPage() {
               {t.auth.alreadyHaveAccount}
               <br />
               <Link href="/login" className="text-emerald-400 hover:text-emerald-300">
-                <span>立即登录 → / LOGIN →</span>
+                <span>立即登录 →</span>
               </Link>
             </p>
           </div>
         </div>
 
         <div className="mt-8 text-center">
-          <p className="text-xs text-gray-600">© 2026 AIMARKETING</p>
+          <p className="text-xs text-gray-600">© 2026 AI营销系统</p>
         </div>
       </div>
     </div>

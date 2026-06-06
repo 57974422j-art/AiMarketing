@@ -240,7 +240,7 @@ export default function EnginePanel({
 
       <div>
         <label className="block text-label mb-2">
-          <span>QUERY_ENGINE</span>
+          <span>查询引擎</span>
           <StatusDot name="queryEngine" statusMap={statusMap} />
         </label>
         <select value={String(queryEngine)} onChange={e => s.setQueryEngine(String(e.target.value))}
@@ -416,8 +416,8 @@ export default function EnginePanel({
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                   {px.testLatencyMs != null && <span className={`text-[9px] ${px.testLatencyMs < 2000 ? 'text-emerald-400' : 'text-yellow-400'}`}>{px.testLatencyMs}ms</span>}
-                  <button onClick={() => testSingleProxy(px.id)} className="p-1 hover:text-cyan-400 text-gray-500" title="测试">↻</button>
-                  <button onClick={() => deleteProxy(px.id)} className="p-1 hover:text-red-400 text-gray-500" title="delete">×</button>
+                  <button onClick={() => testSingleProxy(px.id)} className="p-1 hover:text-cyan-400 text-gray-500" title="测试连通性">↻</button>
+                  <button onClick={() => deleteProxy(px.id)} className="p-1 hover:text-red-400 text-gray-500" title="删除">×</button>
                 </div>
               </div>
             ))}
@@ -468,7 +468,7 @@ export default function EnginePanel({
         <p className="text-gray-400 text-xs mb-4">用于点赞、评论、发布视频等写操作</p>
         <div>
           <label className="block text-label mb-2">
-            <span>ACTION_ENGINE</span>
+            <span>执行引擎</span>
             <StatusDot name="actionEngine" statusMap={statusMap} />
           </label>
           <select value={String(actionEngine)} onChange={e => s.setActionEngine(String(e.target.value))}

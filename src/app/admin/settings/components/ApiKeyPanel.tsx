@@ -163,7 +163,7 @@ export default function ApiKeyPanel({
       s.setTestResult({ type: result.valid ? 'success' : 'error', message: result.message })
       s.setStatusMap(prev => ({ ...prev, oss: result.valid ? 'ok' : 'fail' }))
     } catch {
-      s.setTestResult({ type: 'error', message: '测试请求 failed' })
+      s.setTestResult({ type: 'error', message: '测试请求失败' })
       s.setStatusMap(prev => ({ ...prev, oss: 'fail' }))
     } finally {
       s.setTestingOSS(false)
@@ -225,13 +225,13 @@ export default function ApiKeyPanel({
 
           <div className="space-y-6">
             {/* DeepSeek */}
-            <KeyInputRow label="DeepSeek API Key" sub="DEEPSEEK" name="deepseek"
+            <KeyInputRow label="DeepSeek API Key" sub="深度求索" name="deepseek"
               value={deepseekKey} show={showDeepseekKey} onShowChange={() => s.setShowDeepseekKey(!showDeepseekKey)}
               testing={testingDeepseek} onTest={() => testKey('deepseek', deepseekKey, 'DeepSeek API Key')}
               hint="DeepSeek API Key，用于 AI 文案生成等功能" />
 
             {/* SiliconFlow */}
-            <KeyInputRow label="硅基流动 API Key" sub="SILICONFLOW" name="siliconflow"
+            <KeyInputRow label="硅基流动 API Key" sub="硅基流动" name="siliconflow"
               value={siliconflowKey} show={showSiliconflowKey} onShowChange={() => s.setShowSiliconflowKey(!showSiliconflowKey)}
               testing={testingSiliconflow} onTest={() => testKey('siliconflow', siliconflowKey, '硅基流动 API Key')}
               hint="硅基流动 API Key，用于语音识别（Whisper/SenseVoice）等功能" />
@@ -244,13 +244,13 @@ export default function ApiKeyPanel({
               </h4>
               <p className="text-sm text-gray-500 mb-4 font-mono">用于语音识别（Paraformer 文件转写），需先在百炼控制台开通 Paraformer 模型</p>
 
-              <KeyInputRow label="API Key" sub="DASHSCOPE_API_KEY" name="dashscope"
+              <KeyInputRow label="百炼 API Key" sub="阿里云百炼" name="dashscope"
                 value={dashscopeKey} show={showDashscopeKey} onShowChange={() => s.setShowDashscopeKey(!showDashscopeKey)}
                 testing={testingDashscope} onTest={() => testKey('dashscope', dashscopeKey, '阿里云百炼 API Key')} />
             </div>
 
             {/* Volcano */}
-            <KeyInputRow label="火山方舟 API Key" sub="VOLCANO" name="volcano"
+            <KeyInputRow label="火山方舟 API Key" sub="火山引擎" name="volcano"
               value={volcanoKey} show={showVolcanoKey} onShowChange={() => s.setShowVolcanoKey(!showVolcanoKey)}
               testing={testingVolcano} onTest={() => testKey('volcano', volcanoKey, '火山方舟 API Key')}
               hint="火山方舟 API Key，用于文案生成、翻译、配音等功能" />
@@ -265,7 +265,7 @@ export default function ApiKeyPanel({
               <p className="text-sm text-gray-500 mb-4 font-mono">用于后期处理中的高质量 AI 配音。需在火山引擎控制台开通语音合成服务</p>
               <div className="grid grid-cols-1 gap-4">
                   <div>
-                    <label className="block text-label mb-2">App ID <span className="opacity-50 ml-1">VOLCANO_TTS_APP_ID</span></label>
+                    <label className="block text-label mb-2">应用ID</label>
                     <div className="relative">
                       <input type={showTtsAppId ? 'text' : 'password'} value={ttsAppId} onChange={e => s.setTtsAppId(e.target.value)} placeholder="请输入 App ID"
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-10" />
@@ -279,7 +279,7 @@ export default function ApiKeyPanel({
                     </div>
                   </div>
                   <div>
-                    <label className="block text-label mb-2">Access Key <span className="opacity-50 ml-1">VOLCANO_TTS_ACCESS_KEY</span></label>
+                    <label className="block text-label mb-2">访问密钥</label>
                     <div className="relative">
                       <input type={showTtsAccessKey ? 'text' : 'password'} value={ttsAccessKey} onChange={e => s.setTtsAccessKey(e.target.value)} placeholder="请输入 Access Key"
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-10" />
@@ -293,7 +293,7 @@ export default function ApiKeyPanel({
                     </div>
                   </div>
                   <div>
-                    <label className="block text-label mb-2">Resource ID <span className="opacity-50 ml-1">VOLCANO_TTS_RESOURCE_ID</span></label>
+                    <label className="block text-label mb-2">资源ID</label>
                     <div className="relative">
                       <input type={showTtsResourceId ? 'text' : 'password'} value={ttsResourceId} onChange={e => s.setTtsResourceId(e.target.value)} placeholder="请输入 Resource ID"
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-10" />
@@ -339,7 +339,7 @@ export default function ApiKeyPanel({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-label mb-2">OSS Region</label>
+              <label className="block text-label mb-2">OSS 地域</label>
               <input type="text" value={ossRegion} onChange={e => s.setOssRegion(e.target.value)} placeholder="oss-cn-hangzhou"
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono" />
             </div>

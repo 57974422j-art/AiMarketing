@@ -25,7 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
               <div className="text-center">
                 <p className="text-mono-sm text-gray-500">
-                  © 2026 AIMARKETING SYSTEM v2.0 // ALL RIGHTS RESERVED
+                  © 2026 AI营销系统 v2.0 // 版权所有
                 </p>
               </div>
             </div>

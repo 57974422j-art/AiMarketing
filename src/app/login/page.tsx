@@ -140,7 +140,7 @@ export default function LoginPage() {
         </div>
 
         <div className="mt-8 text-center">
-          <p className="text-xs text-gray-600">© 2026 AIMARKETING SYSTEM</p>
+          <p className="text-xs text-gray-600">© 2026 AI营销系统</p>
         </div>
       </div>
     </div>

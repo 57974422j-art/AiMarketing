@@ -100,11 +100,11 @@ export default function ProjectsPage() {
 
   const handleNextStep = () => {
     if (step === 1 && !formData.industry) {
-      showToast('请选择一个行业 / Please select an industry');
+      showToast('请选择一个行业');
       return;
     }
     if (step === 2 && formData.goals.length === 0) {
-      showToast('请至少选择一个营销目标 / Please select at least one goal');
+      showToast('请至少选择一个营销目标');
       return;
     }
     if (step === 2) {
@@ -147,12 +147,12 @@ export default function ProjectsPage() {
 
   const handleCreateProject = async () => {
     if (!user?.id) {
-      showToast('请先登录 / Please login');
+      showToast('请先登录');
       return;
     }
 
     if (!formData.projectName.trim()) {
-      showToast('请输入项目名称 / Please enter project name');
+      showToast('请输入项目名称');
       return;
     }
 
@@ -179,11 +179,11 @@ export default function ProjectsPage() {
         loadProjects();
         showToast(`项目创建成功！\n项目名称: ${formData.projectName || data.project?.name || ''}`);
       } else {
-        showToast(data.message || '创建失败 / Creation failed');
+        showToast(data.message || '创建失败');
       }
     } catch (error) {
       console.error('创建项目失败:', error);
-      showToast('创建失败 / Creation failed');
+      showToast('创建失败');
     } finally {
       setIsCreating(false);
     }
@@ -279,7 +279,6 @@ export default function ProjectsPage() {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg text-white">
                 <span>创建新项目</span>
-                <span className="text-xs opacity-50 ml-1">CREATE NEW PROJECT</span>
               </h3>
               <button
                 onClick={handleCloseModal}
@@ -316,13 +315,13 @@ export default function ProjectsPage() {
             <div className="mb-6">
               <h4 className="text-center text-lg text-white mb-4">
                 {step === 1 && (
-                  <><span>步骤 1：选择行业</span><span className="text-xs opacity-50 ml-1">/ SELECT INDUSTRY</span></>
+                  <><span>步骤 1：选择行业</span></>
                 )}
                 {step === 2 && (
-                  <><span>步骤 2：选择营销目标</span><span className="text-xs opacity-50 ml-1">/ SELECT GOALS</span></>
+                  <><span>步骤 2：选择营销目标</span></>
                 )}
                 {step === 3 && (
-                  <><span>步骤 3：确认项目信息</span><span className="text-xs opacity-50 ml-1">/ CONFIRM INFO</span></>
+                  <><span>步骤 3：确认项目信息</span></>
                 )}
               </h4>
 
@@ -349,7 +348,6 @@ export default function ProjectsPage() {
                 <div>
                   <p className="text-center text-gray-500 mb-4 text-sm">
                     <span>支持多选</span>
-                    <span className="text-xs opacity-50 ml-1">/ MULTI-SELECT</span>
                   </p>
                   <div className="grid grid-cols-2 gap-4">
                     {MARKETING_GOALS.map((goal) => (
@@ -374,15 +372,14 @@ export default function ProjectsPage() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm text-gray-400 mb-2">
-                      <span>项目名称</span>
-                      <span className="text-xs opacity-50 ml-1">PROJECT NAME *</span>
+                      <span>项目名称</span> <span className="text-red-400">*</span>
                     </label>
                     <input
                       type="text"
                       value={formData.projectName}
                       onChange={(e) => setFormData({ ...formData, projectName: e.target.value })}
                       className="input-dark font-mono"
-                      placeholder="输入项目名称 / Enter project name"
+                      placeholder="输入项目名称"
                       required
                     />
                   </div>
@@ -390,26 +387,24 @@ export default function ProjectsPage() {
                   <div>
                     <label className="block text-sm text-gray-400 mb-2">
                       <span>项目描述</span>
-                      <span className="text-xs opacity-50 ml-1">DESCRIPTION</span>
                     </label>
                     <textarea
                       value={formData.projectDescription}
                       onChange={(e) => setFormData({ ...formData, projectDescription: e.target.value })}
                       className="input-dark font-mono"
                       rows={3}
-                      placeholder="可选描述 / Optional description"
+                      placeholder="可选描述"
                     />
                   </div>
 
                   <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
                     <h5 className="text-emerald-400 mb-3">
                       <span>AI将自动生成</span>
-                      <span className="text-xs opacity-70 ml-1">/ AI WILL AUTO-GENERATE:</span>
                     </h5>
                     <ul className="text-sm text-gray-400 space-y-1">
-                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name?.zh || ""} <span className="opacity-50">industry</span> 营销文案模板</li>
-                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name?.zh || ""} <span className="opacity-50">industry</span> 专业AI员工</li>
-                      <li>✅ {formData.goals.length} 个意向客户关键词 <span className="opacity-50">keywords</span></li>
+                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name?.zh || ""} 行业营销文案模板</li>
+                      <li>✅ {INDUSTRIES.find(i => i.id === formData.industry)?.name?.zh || ""} 专业AI员工</li>
+                      <li>✅ {formData.goals.length} 个意向客户关键词</li>
                     </ul>
                   </div>
                 </div>
@@ -423,7 +418,6 @@ export default function ProjectsPage() {
                   className="flex-1 px-4 py-3 border border-white/10 text-gray-300 rounded-lg hover:bg-white/5"
                 >
                   <span>← 上一步</span>
-                  <span className="text-xs opacity-50 ml-1">PREV</span>
                 </button>
               )}
               {step < 3 && (
@@ -432,7 +426,6 @@ export default function ProjectsPage() {
                   className="flex-1 px-4 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600"
                 >
                   <span>下一步 →</span>
-                  <span className="text-xs opacity-70 ml-1">NEXT</span>
                 </button>
               )}
               {step === 3 && (
@@ -442,9 +435,9 @@ export default function ProjectsPage() {
                   className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-lg hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50"
                 >
                   {isCreating ? (
-                    <span>创建中... / CREATING...</span>
+                    <span>创建中...</span>
                   ) : (
-                    <span>✨ 创建项目 / CREATE</span>
+                    <span>✨ 创建项目</span>
                   )}
                 </button>
               )}

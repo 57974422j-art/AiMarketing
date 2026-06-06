@@ -6,24 +6,24 @@ export default function Home() {
     <div className="min-h-screen bg-gray-950">
       <div className="container-main max-w-7xl mx-auto">
         <div className="text-center mb-16 pt-12">
-          <p className="text-label mb-4">系统已就绪 / SYSTEM INITIALIZED</p>
+          <p className="text-label mb-4">系统已就绪</p>
           <h1 className="text-mono-lg text-white mb-4">
-            AIMARKETING <span className="text-emerald-400">//</span> NEXT GEN
+            AI营销平台 <span className="text-emerald-400">//</span> 新一代
           </h1>
           <p className="text-lg text-gray-400 max-w-2xl mx-auto">
-            一站式短视频营销操作系统 / 集成 AI 生成 / 多平台发布 / 智能数据分析
+            一站式短视频营销操作系统 · AI生成 · 多平台发布 · 智能数据分析
           </p>
         </div>
 
         <div className="grid-bento mb-12">
           <div className="card-bento flex flex-col justify-center items-center text-center animate-float">
-            <p className="text-label mb-2">视频处理 / VIDEO PROCESSING</p>
+            <p className="text-label mb-2">视频处理</p>
             <p className="text-mono-lg text-emerald-400 mb-2">1080P</p>
             <p className="text-mono-sm text-gray-500">视频剪辑引擎已就绪</p>
           </div>
 
           <div className="card-bento grid-bento-tall">
-            <p className="text-label mb-4">AI 模块 / AI MODULES</p>
+            <p className="text-label mb-4">AI 模块</p>
             <div className="space-y-4">
               <div className="flex items-center gap-3">
                 <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
@@ -45,28 +45,28 @@ export default function Home() {
           </div>
 
           <div className="card-bento flex flex-col justify-center items-center text-center">
-            <p className="text-label mb-2">账号 / ACCOUNTS</p>
+            <p className="text-label mb-2">账号管理</p>
             <p className="text-mono-lg text-emerald-400 mb-2">03</p>
             <p className="text-mono-sm text-gray-500">已接入平台</p>
           </div>
 
           <div className="card-bento flex flex-col justify-center items-center text-center">
-            <p className="text-label mb-2">配额 / QUOTA</p>
+            <p className="text-label mb-2">使用配额</p>
             <p className="text-mono-lg text-emerald-400 mb-2">∞</p>
             <p className="text-mono-sm text-gray-500">本月配额</p>
           </div>
 
           <div className="card-bento flex flex-col justify-center items-center text-center">
-            <p className="text-label mb-2">系统状态 / SYSTEM STATUS</p>
+            <p className="text-label mb-2">系统状态</p>
             <div className="flex items-center gap-2 mb-2">
               <span className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse-glow"></span>
-              <span className="text-mono text-emerald-400">ONLINE</span>
+              <span className="text-mono text-emerald-400">运行中</span>
             </div>
             <p className="text-mono-sm text-gray-500">所有服务运行正常</p>
           </div>
 
           <div className="card-bento flex flex-col justify-center items-center text-center">
-            <p className="text-label mb-2">项目 / PROJECTS</p>
+            <p className="text-label mb-2">项目管理</p>
             <p className="text-mono-lg text-emerald-400 mb-2">00</p>
             <p className="text-mono-sm text-gray-500">进行中</p>
           </div>
@@ -90,7 +90,7 @@ export default function Home() {
                 </svg>
               </div>
               <div>
-                <p className="text-label">MODULE_01</p>
+                <p className="text-label">模块一</p>
                 <p className="text-lg font-semibold text-white">视频剪辑</p>
               </div>
             </div>
@@ -105,7 +105,7 @@ export default function Home() {
                 </svg>
               </div>
               <div>
-                <p className="text-label">MODULE_02</p>
+                <p className="text-label">模块二</p>
                 <p className="text-lg font-semibold text-white">AI 文案</p>
               </div>
             </div>
@@ -120,7 +120,7 @@ export default function Home() {
                 </svg>
               </div>
               <div>
-                <p className="text-label">MODULE_03</p>
+                <p className="text-label">模块三</p>
                 <p className="text-lg font-semibold text-white">AI 员工</p>
               </div>
             </div>

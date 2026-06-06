@@ -165,8 +165,8 @@ export default function AICopyPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8 flex justify-between items-start">
           <div>
-            <p className="text-label mb-2">AI 工作区 / AI WORKSPACE</p>
-            <h1 className="text-mono-lg text-white">文案生成 / COPY WRITER</h1>
+            <p className="text-label mb-2">AI 工作区</p>
+            <h1 className="text-mono-lg text-white">文案生成</h1>
           </div>
           {user && (
             <button
@@ -183,13 +183,12 @@ export default function AICopyPage() {
             <div>
               <label className="block text-label mb-2">
                 <span>关键词</span>
-                <span className="opacity-50 ml-1">KEYWORDS</span>
               </label>
               <input
                 type="text"
                 value={keywords}
                 onChange={(e) => setKeywords(e.target.value)}
-                placeholder="输入关键词... / Input keywords..."
+                placeholder="输入关键词..."
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
               />
             </div>
@@ -198,34 +197,32 @@ export default function AICopyPage() {
               <div>
                 <label className="block text-label mb-2">
                   <span>平台</span>
-                  <span className="opacity-50 ml-1">PLATFORM</span>
                 </label>
                 <select
                   value={platform}
                   onChange={(e) => setPlatform(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50"
                 >
-                  <option value="douyin" className="bg-gray-900">抖音 / DOUYIN</option>
-                  <option value="xiaohongshu" className="bg-gray-900">小红书 / XIAOHONGSHU</option>
-                  <option value="kuaishou" className="bg-gray-900">快手 / KUAISHOU</option>
-                  <option value="weibo" className="bg-gray-900">微博 / WEIBO</option>
+                  <option value="douyin" className="bg-gray-900">抖音</option>
+                  <option value="xiaohongshu" className="bg-gray-900">小红书</option>
+                  <option value="kuaishou" className="bg-gray-900">快手</option>
+                  <option value="weibo" className="bg-gray-900">微博</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-label mb-2">
                   <span>风格</span>
-                  <span className="opacity-50 ml-1">STYLE</span>
                 </label>
                 <select
                   value={style}
                   onChange={(e) => setStyle(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-emerald-500/50"
                 >
-                  <option value="catchy" className="bg-gray-900">吸睛 / CATCHY</option>
-                  <option value="professional" className="bg-gray-900">专业 / PROFESSIONAL</option>
-                  <option value="humorous" className="bg-gray-900">幽默 / HUMOROUS</option>
-                  <option value="emotional" className="bg-gray-900">情感 / EMOTIONAL</option>
+                  <option value="catchy" className="bg-gray-900">吸睛</option>
+                  <option value="professional" className="bg-gray-900">专业</option>
+                  <option value="humorous" className="bg-gray-900">幽默</option>
+                  <option value="emotional" className="bg-gray-900">情感</option>
                 </select>
               </div>
             </div>
@@ -236,9 +233,9 @@ export default function AICopyPage() {
               className="w-full py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors"
             >
               {isGenerating ? (
-                <span>生成中... / GENERATING...</span>
+                <span>生成中...</span>
               ) : (
-                <span>生成文案 / GENERATE COPY</span>
+                <span>生成文案</span>
               )}
             </button>
           </form>
@@ -247,7 +244,6 @@ export default function AICopyPage() {
             <div className="mt-8">
               <h2 className="text-label mb-4">
                 <span>生成结果</span>
-                <span className="opacity-50 ml-1">/ GENERATED COPY</span>
               </h2>
               <div className="space-y-4">
                 {copyContent.map((copy, index) => (
@@ -295,7 +291,6 @@ export default function AICopyPage() {
           <div className="mt-8">
             <h2 className="text-label mb-4">
               <span>历史记录</span>
-              <span className="opacity-50 ml-1">/ HISTORY</span>
             </h2>
             <div className="space-y-4">
               {historyList.map((item) => {

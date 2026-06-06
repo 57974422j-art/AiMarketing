@@ -46,11 +46,11 @@ interface DashboardData {
   usageSummary?: UsageSummary;
 }
 
-const platformMap: Record<string, { cn: string; en: string }> = {
-  'douyin': { cn: '抖音', en: 'DOUYIN' },
-  'kuaishou': { cn: '快手', en: 'KUAISHOU' },
-  'xiaohongshu': { cn: '小红书', en: 'XIAOHONGSHU' },
-  'weibo': { cn: '微博', en: 'WEIBO' }
+const platformMap: Record<string, { cn: string }> = {
+  'douyin': { cn: '抖音' },
+  'kuaishou': { cn: '快手' },
+  'xiaohongshu': { cn: '小红书' },
+  'weibo': { cn: '微博' }
 };
 
 /* V2 默认数据（API 未返回时兜底） */
@@ -93,16 +93,16 @@ export default function DashboardPage() {
   }, [])
 
   const getPlatformDisplay = (platform: string) => {
-    const p = platformMap[platform.toLowerCase()] || { cn: platform, en: platform };
-    return <><span>{p.cn}</span><span className="text-xs opacity-50 ml-1">{p.en}</span></>;
+    const p = platformMap[platform.toLowerCase()] || { cn: platform };
+    return <>{p.cn}</>;
   };
 
   return (
     <div className="min-h-screen bg-gray-950">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <p className="text-label mb-2">总览 / OVERVIEW</p>
-          <h1 className="text-mono-lg text-white">仪表盘 / DASHBOARD</h1>
+          <p className="text-label mb-2">总览</p>
+          <h1 className="text-mono-lg text-white">仪表盘</h1>
         </div>
         
         {loading ? (
@@ -110,8 +110,7 @@ export default function DashboardPage() {
             <div className="text-center">
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400"></div>
               <p className="mt-2 text-gray-400 text-sm">
-                <span>加载中</span>
-                <span className="text-xs opacity-50 ml-1">/ LOADING...</span>
+                <span>加载中...</span>
               </p>
             </div>
           </div>
@@ -123,7 +122,6 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-sm text-gray-400">
                       <span>总粉丝数</span>
-                      <span className="opacity-50 ml-1">/ FOLLOWERS</span>
                     </p>
                     <p className="text-3xl font-bold text-white mt-1">{dashboardData.totalFollowers.toLocaleString()}</p>
                   </div>
@@ -140,7 +138,7 @@ export default function DashboardPage() {
                     </svg>
                     10.5%
                   </span>
-                  <span className="text-sm text-gray-500 ml-2">较上月 / vs last month</span>
+                  <span className="text-sm text-gray-500 ml-2">较上月</span>
                 </div>
               </div>
               
@@ -149,7 +147,6 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-sm text-gray-400">
                       <span>总发布量</span>
-                      <span className="opacity-50 ml-1">/ PUBLISH</span>
                     </p>
                     <p className="text-3xl font-bold text-white mt-1">{dashboardData.totalPublishCount}</p>
                   </div>
@@ -166,7 +163,7 @@ export default function DashboardPage() {
                     </svg>
                     8.2%
                   </span>
-                  <span className="text-sm text-gray-500 ml-2">较上月 / vs last month</span>
+                  <span className="text-sm text-gray-500 ml-2">较上月</span>
                 </div>
               </div>
               
@@ -175,7 +172,6 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-sm text-gray-400">
                       <span>平均互动率</span>
-                      <span className="opacity-50 ml-1">/ ENGAGEMENT</span>
                     </p>
                     <p className="text-3xl font-bold text-white mt-1">{dashboardData.averageEngagementRate.toFixed(1)}%</p>
                   </div>
@@ -192,7 +188,7 @@ export default function DashboardPage() {
                     </svg>
                     1.2%
                   </span>
-                  <span className="text-sm text-gray-500 ml-2">较上月 / vs last month</span>
+                  <span className="text-sm text-gray-500 ml-2">较上月</span>
                 </div>
               </div>
             </div>
@@ -200,7 +196,6 @@ export default function DashboardPage() {
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
               <h2 className="text-xl font-semibold text-white mb-6">
                 <span>平台数据详情</span>
-                <span className="text-sm opacity-50 ml-1">/ PLATFORM STATS</span>
               </h2>
               
               <div className="overflow-x-auto">
@@ -209,23 +204,18 @@ export default function DashboardPage() {
                     <tr>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                         <span>平台</span>
-                        <span className="opacity-50 ml-1">PLATFORM</span>
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                         <span>粉丝数</span>
-                        <span className="opacity-50 ml-1">FOLLOWERS</span>
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                         <span>发布量</span>
-                        <span className="opacity-50 ml-1">PUBLISH</span>
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                         <span>互动率</span>
-                        <span className="opacity-50 ml-1">RATE</span>
                       </th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                         <span>增长率</span>
-                        <span className="opacity-50 ml-1">GROWTH</span>
                       </th>
                     </tr>
                   </thead>
@@ -264,13 +254,13 @@ export default function DashboardPage() {
             {/* 今日概览 4 卡片 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {[
-                { label: '新增线索', sub: 'NEW LEADS', value: dashboardData.todayStats?.newLeads ?? 0, icon: '🎯', color: 'text-blue-400 bg-blue-500/15', trend: '+12%' },
-                { label: '直播观看', sub: 'LIVE VIEWS', value: (dashboardData.todayStats?.liveViews ?? 0) > 1000 ? `${((dashboardData.todayStats?.liveViews ?? 0) / 1000).toFixed(1)}K` : dashboardData.todayStats?.liveViews ?? 0, icon: '📺', color: 'text-red-400 bg-red-500/15', trend: '+8%' },
-                { label: '内容发布', sub: 'PUBLISHED', value: dashboardData.todayStats?.publishedContent ?? 0, icon: '📝', color: 'text-emerald-400 bg-emerald-500/15', trend: '+3' },
-                { label: '互动总量', sub: 'INTERACTIONS', value: dashboardData.todayStats?.totalInteractions ?? 0, icon: '💬', color: 'text-purple-400 bg-purple-500/15', trend: '+22%' },
+                { label: '新增线索', sub: '', value: dashboardData.todayStats?.newLeads ?? 0, icon: '🎯', color: 'text-blue-400 bg-blue-500/15', trend: '+12%' },
+                { label: '直播观看', sub: '', value: (dashboardData.todayStats?.liveViews ?? 0) > 1000 ? `${((dashboardData.todayStats?.liveViews ?? 0) / 1000).toFixed(1)}K` : dashboardData.todayStats?.liveViews ?? 0, icon: '📺', color: 'text-red-400 bg-red-500/15', trend: '+8%' },
+                { label: '内容发布', sub: '', value: dashboardData.todayStats?.publishedContent ?? 0, icon: '📝', color: 'text-emerald-400 bg-emerald-500/15', trend: '+3' },
+                { label: '互动总量', sub: '', value: dashboardData.todayStats?.totalInteractions ?? 0, icon: '💬', color: 'text-purple-400 bg-purple-500/15', trend: '+22%' },
               ].map((card) => (
                 <div key={card.label} className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 hover:bg-white/[0.07] transition-colors">
-                  <p className="text-xs text-gray-500">{card.label} <span className="opacity-40 ml-0.5">/ {card.sub}</span></p>
+                  <p className="text-xs text-gray-500">{card.label}</p>
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-xl font-bold text-white">{card.value}</span>
                     <span className={`text-lg ${card.color.split(' ')[0]} px-1.5 py-0.5 rounded ${card.color.split(' ')[1]}`}>{card.icon}</span>
@@ -286,7 +276,6 @@ export default function DashboardPage() {
               <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-5">
                 <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
                   <span>待办事项</span>
-                  <span className="text-[10px] opacity-40">/ TODO</span>
                   <span className="ml-auto text-xs bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded-full">
                     {dashboardData.todoList?.length || 0}
                   </span>
@@ -324,7 +313,6 @@ export default function DashboardPage() {
               <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-5">
                 <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
                   <span>最近动态</span>
-                  <span className="text-[10px] opacity-40">/ RECENT ACTIVITY</span>
                 </h3>
                 <div className="space-y-3">
                   {(dashboardData.recentFeed && dashboardData.recentFeed.length > 0 ? dashboardData.recentFeed : defaultFeed).map((item) => (
@@ -344,7 +332,6 @@ export default function DashboardPage() {
             <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-5 mb-8">
               <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
                 <span>快捷入口</span>
-                <span className="text-[10px] opacity-40">/ QUICK ACTIONS</span>
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
@@ -371,7 +358,6 @@ export default function DashboardPage() {
               <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-5 mb-8">
                 <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
                   <span>AI 使用量</span>
-                  <span className="text-[10px] opacity-40">/ USAGE STATS</span>
                 </h3>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="text-center p-3 bg-white/[0.02] rounded-xl">
