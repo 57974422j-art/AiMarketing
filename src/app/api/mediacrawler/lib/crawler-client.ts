@@ -4,16 +4,26 @@
  * 通过 child_process 调用 MediaCrawler Python 脚本，
  * 实现进程隔离、超时控制、错误处理。
  *
+ * 功能模块:
+ *  - crawl(): 数据爬取 (search/comments/user/trending/detail)
+ *  - checkHealth(): 健康检查
+ *  - getProxyPool(): 获取代理配置（供爬取时注入）
+ *
  * 使用方式：
  * import { crawl } from '@/app/api/mediacrawler/lib/crawler-client'
  * const result = await crawl('search', { keyword: '美业', count: '20' })
  */
 
 import { spawn } from 'child_process'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
 
 const MEDIA_CRAWLER_PATH = process.env.MEDIA_CRAWLER_PATH || '/opt/MediaCrawler'
 const PYTHON_BIN = process.env.PYTHON_BIN || 'python3'
 const DEFAULT_TIMEOUT = 60000 // 60s
+
+// 代理池配置文件路径
+const PROXY_POOL_PATH = join(process.cwd(), '.proxy-pool.json')
 
 export interface CrawlerOptions {
   timeout?: number   // 毫秒，默认 60000
@@ -310,4 +320,88 @@ except ImportError as e:
       }
     })
   })
+}
+
+// ==================== Proxy Pool Support ====================
+
+export interface ProxyItem {
+  id: string
+  host: string
+  port: number
+  protocol: 'http' | 'https' | 'socks5'
+  username?: string
+  password?: string
+  enabled: boolean
+  label?: string
+  region?: string
+  type?: 'datacenter' | 'residential' | 'mobile'
+  testStatus?: 'ok' | 'slow' | 'fail' | 'untested'
+  testLatencyMs?: number
+}
+
+/**
+ * 获取当前代理池配置（供 crawl() 调用时自动注入）
+ * 返回一个可用的代理 URL 或 null（不使用代理）
+ */
+export async function getProxyForRequest(): Promise<string | null> {
+  try {
+    const content = await readFile(PROXY_POOL_PATH, 'utf-8')
+    const pool = JSON.parse(content)
+
+    // 检查是否全局启用
+    if (!pool.settings?.globalEnabled) return null
+
+    // 筛选可用代理
+    const enabledProxies = (pool.proxies || []).filter(
+      (p: ProxyItem) => p.enabled && p.testStatus !== 'fail'
+    )
+
+    if (enabledProxies.length === 0) return null
+
+    // 简单轮询：选择使用次数最少的
+    const sorted = [...enabledProxies].sort(
+      (a: ProxyItem, b: ProxyItem) => a.usedCount - b.usedCount
+    )
+    const proxy = sorted[0]
+
+    // 构建 proxy URL
+    if (proxy.username && proxy.password) {
+      return `${proxy.protocol}://${proxy.username}:${proxy.password}@${proxy.host}:${proxy.port}`
+    }
+    return `${proxy.protocol}://${proxy.host}:${proxy.port}`
+  } catch {
+    // 配置文件不存在或解析失败，不使用代理
+    return null
+  }
+}
+
+/**
+ * 标记代理使用成功/失败（用于自动轮换和封禁检测）
+ */
+export async function markProxyResult(proxyUrl: string | null, success: boolean): Promise<void> {
+  if (!proxyUrl) return
+
+  try {
+    const { writeFile: write } = await import('fs/promises')
+    const content = await readFile(PROXY_POOL_PATH, 'utf-8')
+    const pool = JSON.parse(content)
+
+    // 从 URL 提取 host:port 匹配代理
+    let urlHost = ''
+    let urlPort = 0
+    try {
+      const u = new URL(proxyUrl)
+      urlHost = u.hostname
+      urlPort = parseInt(u.port, 10)
+    } catch { return }
+
+    const proxy = (pool.proxies || []).find(
+      (p: ProxyItem) => p.host === urlHost && p.port === urlPort
+    )
+    if (proxy) {
+      proxy.usedCount++
+      proxy.lastUsedAt = new Date().toISOString()
+      await write(PROXY_POOL_PATH, JSON.stringify(pool, null, 2), 'utf-8')
+    }
+  } catch { /* ignore */ }
 }
