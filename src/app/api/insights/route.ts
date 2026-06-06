@@ -159,7 +159,7 @@ async function handleLeadInsights(userId: number, days: number) {
       },
       _count: true,
     }),
-    // 平均意向分
+    // 平均意向分（安全处理空数据）
     prisma.lead.aggregate({
       where: {
         OR: [{ ownerId: userId }, { assignedTo: userId }],
@@ -169,6 +169,10 @@ async function handleLeadInsights(userId: number, days: number) {
       _max: { intentScore: true },
     }),
   ])
+
+  // 安全取值：聚合结果可能为 null
+  const avgScore = intentScoreAvg._avg?.intentScore ?? 0
+  const maxScore = intentScoreAvg._max?.intentScore ?? 0
 
   return NextResponse.json({
     success: true,
@@ -183,8 +187,8 @@ async function handleLeadInsights(userId: number, days: number) {
         return acc
       }, {} as Record<string, number>),
       intentStats: {
-        avg: Math.round(intentScoreAvg._avg.intentScore || 0),
-        max: intentScoreAvg._max.intentScore || 0,
+        avg: Math.round(avgScore),
+        max: maxScore,
       },
     }
   })
@@ -324,31 +328,44 @@ async function handleCollectionStats(userId: number) {
 
 /** 获取指定天数内的每日新增线索趋势 */
 async function getDailyLeadTrend(userId: number, days: number): Promise<Array<{ date: string; count: number }>> {
-  const since = new Date()
-  since.setDate(since.getDate() - days)
+  try {
+    const since = new Date()
+    since.setDate(since.getDate() - days)
 
-  const raw = await prisma.$queryRaw<Array<{ date: string; count: number }>>`
-    SELECT DATE(createdAt) as date, COUNT(*) as count 
-    FROM Lead 
-    WHERE (ownerId = ${userId} OR assignedTo = ${userId})
-      AND createdAt >= ${since}
-    GROUP BY DATE(createdAt)
-    ORDER BY date DESC
-  `
+    // 使用 Prisma 原生查询（兼容 SQLite）
+    const raw = await prisma.$queryRaw<Array<{ date: string; count: number }>>`
+      SELECT DATE(createdAt) as date, COUNT(*) as count 
+      FROM Lead 
+      WHERE (ownerId = ${userId} OR assignedTo = ${userId})
+        AND createdAt >= ${since}
+      GROUP BY DATE(createdAt)
+      ORDER BY date DESC
+    `
+    
+    // 补全缺失的日期（显示为 0）
+    const resultMap = new Map((raw || []).map(r => [String(r.date).split('T')[0], r.count]))
+    const trend: Array<{ date: string; count: number }> = []
 
-  // 补全缺失的日期（显示为 0）
-  const resultMap = new Map(raw.map(r => [r.date.split('T')[0], r.count]))
-  const trend: Array<{ date: string; count: number }> = []
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const dateStr = d.toISOString().split('T')[0]
+      trend.push({
+        date: dateStr,
+        count: resultMap.get(dateStr) || 0,
+      })
+    }
 
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date()
-    d.setDate(d.getDate() - i)
-    const dateStr = d.toISOString().split('T')[0]
-    trend.push({
-      date: dateStr,
-      count: resultMap.get(dateStr) || 0,
-    })
+    return trend
+  } catch (e) {
+    console.error('[getDailyLeadTrend] 查询失败:', e)
+    // 返回空趋势数据
+    const trend: Array<{ date: string; count: number }> = []
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      trend.push({ date: d.toISOString().split('T')[0], count: 0 })
+    }
+    return trend
   }
-
-  return trend
 }

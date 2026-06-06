@@ -257,7 +257,15 @@ export async function runCollection(ctx: CollectionContext): Promise<{
         continue
       }
 
-      const videoList: Record<string, unknown>[] = (searchResult.data as any).list || (searchResult.data as any).videos || []
+      // 调试日志：打印实际返回结构（前200字符）
+      console.log(`[采集] 关键词"${keyword}"搜索返回数据结构:`, JSON.stringify(searchResult.data).substring(0, 200))
+
+      // 兼容多种返回格式
+      const searchData = searchResult.data as any
+      const videoList: Record<string, unknown>[] = searchData.list || searchData.videos || searchData.data?.list || searchData.data?.videos || []
+      if (videoList.length === 0) {
+        console.log(`[采集] 关键词"${keyword}"未解析到视频列表，原始data keys:`, Object.keys(searchData))
+      }
       
       for (const video of videoList.slice(0, resultsPerKeyword)) {
         const videoUrl = String(video.video_url || video.share_url || video.aweme_id || '')
