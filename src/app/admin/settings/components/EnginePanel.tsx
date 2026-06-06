@@ -433,10 +433,14 @@ export default function EnginePanel({
                   className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white text-xs font-mono w-28" />
                 <input placeholder="端口" value={newProxy.port} onChange={e => s.setNewProxy(p => ({ ...p, port: e.target.value }))}
                   className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white text-xs font-mono w-16" />
-                <select value={String(newProxy.protocol)} onChange={e => s.setNewProxy(p => ({ ...p, protocol: String(e.target.value) }))}
-                  className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white text-xs font-mono w-16">
-                  <option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option>
-                </select>
+                <div className="flex gap-1 bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white text-xs font-mono w-auto">
+                  {['http', 'https', 'socks5'].map(p => (
+                    <button key={p} type="button" onClick={() => s.setNewProxy(x => ({ ...x, protocol: p }))}
+                      className={`px-2 py-0.5 rounded text-[10px] ${String(newProxy.protocol) === p ? 'bg-emerald-500/30 text-emerald-400' : 'text-gray-400 hover:text-white'}`}>
+                      {p.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
                 <input placeholder="用户名(可选)" value={newProxy.username} onChange={e => s.setNewProxy(p => ({ ...p, username: e.target.value }))}
                   className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white text-xs font-mono w-24" />
                 <input placeholder="密码(可选)" type="password" value={newProxy.password} onChange={e => s.setNewProxy(p => ({ ...p, password: e.target.value }))}
