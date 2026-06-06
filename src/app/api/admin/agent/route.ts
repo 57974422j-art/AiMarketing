@@ -53,9 +53,8 @@ export async function GET(req: NextRequest) {
         where: { userId: { in: clients.map(c => c.id) }, status: 'published' },
         orderBy: { updatedAt: 'desc' },
         take: 3,
-        select: { id: true, title: true, userId: true, updatedAt: true },
       }).then(items => items.map(i => ({
-        type: 'publish', desc: i.title || '发布了内容', user: clients.find(c => c.id === i.userId)?.username || '客户',
+        type: 'publish', desc: '发布了内容 (' + i.status + ')', user: clients.find(c => c.id === i.userId)?.username || '客户',
         time: formatRelativeTime(i.updatedAt), id: i.id,
       }))),
       /* 最近提交审核 */
