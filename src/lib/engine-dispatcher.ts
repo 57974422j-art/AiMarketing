@@ -17,7 +17,17 @@
  * const result = await dispatchEngine({ action: 'search', platform: '抖音', params: { keyword: '美业' }, userId: 1 })
  */
 
-import { AutomationResult, getActiveEngines } from './automation-providers'
+import { 
+  AutomationResult, 
+  getActiveEngines,
+  justoneSearchVideo, 
+  justoneFetchComments, 
+  justoneFetchUserProfile,
+  justoneVideoDetail,
+  justoneTrendingTopics,
+  justoneFetchUserVideos,
+  justoneSearchUser,
+} from './automation-providers'
 
 // ====== 类型定义 ======
 
@@ -224,17 +234,6 @@ async function dispatchWriteEngine(ctx: EngineContext): Promise<AutomationResult
 
 // ====== 具体的读操作处理器 ======
 // （这些函数将在 Phase 1 中实现具体的 JustOneAPI 调用）
-
-import { 
-  justoneSearchVideo, 
-  justoneFetchComments, 
-  justoneFetchUserProfile,
-  justoneVideoDetail,
-  justoneTrendingTopics,
-  justoneFetchUserVideos,
-  justoneSearchUser,
-  AutomationResult,
-} from './automation-providers'
 
 /**
  * 处理视频搜索
