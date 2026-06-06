@@ -284,7 +284,7 @@ export async function runCollection(ctx: CollectionContext): Promise<{
 
             // Step 4: 从评论中提取潜在线索
             for (const comment of commentList) {
-              const text = comment.text || comment.content || ''
+              const text = String(comment.text || comment.content || '')
               const score = analyzeLeadIntent(text)
               if (score >= 60) {
                 extractedLeads.push({
