@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
         },
         clients: clients.map(c => ({
           ...c,
-          status: new Date() - c.updatedAt < 7 * 86400000 ? 'active' : 'inactive',
+          status: Date.now() - c.updatedAt.getTime() < 7 * 86400000 ? 'active' : 'inactive',
           lastLogin: c.updatedAt.toISOString().split('T')[0],
           taskCount: 0,
         })),
