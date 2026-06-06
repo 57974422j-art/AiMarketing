@@ -56,32 +56,17 @@ export interface TTSVisibility {
 }
 
 // ====== 自动化引擎 =====_
-export type QueryEngine = 'mediacrawler' | 'douyin-official'
-export type ActionEngine = 'q1-adb' | 'fingerprint'
+export type QueryEngine = string
+export type ActionEngine = string
 
 // ====== MediaCrawler ======
-export type MCHealthStatus = 'idle' | 'checking' | 'ok' | 'fail'
+export type MCHealthStatus = string
 
 // ====== 扫码登录 =====_
-export type LoginStatus =
-  | 'idle'
-  | 'starting'
-  | 'waiting_scan'
-  | 'scanned'
-  | 'confirmed'
-  | 'success'
-  | 'error'
-  | 'timeout'
-  | 'killed'
+export type LoginStatus = string
 
 // ====== Cookie 状态 =====_
-export type CookieStatus =
-  | 'loading'
-  | 'valid'
-  | 'expired'
-  | 'missing'
-  | 'error'
-  | 'unknown'
+export type CookieStatus = string
 
 export interface CookieFile {
   name: string

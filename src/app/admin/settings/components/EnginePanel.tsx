@@ -71,16 +71,16 @@ export default function EnginePanel({
       if (result.success && result.data?.available) {
         s.setMcHealthStatus('ok')
         s.setMcHealthDetail(`Python OK | 路径: ${result.data.pathExists ? '存在' : '不存在'}${result.data.version ? ` | v${result.data.version}` : ''}`)
-        s.setStatusMap(prev => ({ ...prev as StatusMap, queryEngine: 'ok' }))
+        s.setStatusMap((prev: any) => ({ ...prev, queryEngine: 'ok' }))
       } else {
         s.setMcHealthStatus('fail')
         s.setMcHealthDetail(result.data?.error || result.message || '连接失败')
-        s.setStatusMap(prev => ({ ...prev as StatusMap, queryEngine: 'fail' }))
+        s.setStatusMap((prev: any) => ({ ...prev, queryEngine: 'fail' }))
       }
     } catch (e: any) {
       s.setMcHealthStatus('fail')
       s.setMcHealthDetail(e.message || '网络错误')
-      s.setStatusMap(prev => ({ ...prev as StatusMap, queryEngine: 'fail' }))
+      s.setStatusMap((prev: any) => ({ ...prev, queryEngine: 'fail' }))
     }
   }
 
@@ -243,7 +243,7 @@ export default function EnginePanel({
           <span>QUERY_ENGINE</span>
           <StatusDot name="queryEngine" statusMap={statusMap} />
         </label>
-        <select value={queryEngine} onChange={e => s.setQueryEngine(e.target.value as QueryEngine)}
+        <select value={String(queryEngine)} onChange={e => s.setQueryEngine(String(e.target.value))}
           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 font-mono">
           <option value="mediacrawler" className="bg-gray-900">MediaCrawler 爬虫（推荐）</option>
           <option value="douyin-official" className="bg-gray-900">抖音官方 API</option>
@@ -470,7 +470,7 @@ export default function EnginePanel({
             <span>ACTION_ENGINE</span>
             <StatusDot name="actionEngine" statusMap={statusMap} />
           </label>
-          <select value={actionEngine} onChange={e => s.setActionEngine(e.target.value as ActionEngine)}
+          <select value={String(actionEngine)} onChange={e => s.setActionEngine(String(e.target.value))}
             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 font-mono">
             <option value="q1-adb" className="bg-gray-900">Q1 ADB 自动化（推荐）</option>
             <option value="fingerprint" className="bg-gray-900">指纹浏览器</option>
