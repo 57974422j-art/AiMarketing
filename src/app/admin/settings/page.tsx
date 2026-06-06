@@ -508,8 +508,7 @@ export default function SettingsPage() {
           ttsAppId: actualTtsAppId || undefined,
           ttsAccessKey: actualTtsAccessKey || undefined,
           ttsResourceId: actualTtsResourceId || undefined,
-          queryEngine: queryEngine || undefined,
-          actionEngine: actionEngine || undefined,
+          automationEngine: queryEngine || undefined,
           mcPath: mcPath || undefined,
           mcPythonBin: mcPythonBin || undefined,
         })
