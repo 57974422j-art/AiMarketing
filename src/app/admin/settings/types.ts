@@ -99,7 +99,7 @@ export interface ProxyItem {
   id: string
   host: string
   port: string
-  protocol: 'http' | 'https' | 'socks5'
+  protocol: string
   username: string
   password: string
   label: string
@@ -112,7 +112,7 @@ export interface ProxyItem {
 export interface NewProxyForm {
   host: string
   port: string
-  protocol: 'http' | 'https' | 'socks5'
+  protocol: string
   username: string
   password: string
   label: string
