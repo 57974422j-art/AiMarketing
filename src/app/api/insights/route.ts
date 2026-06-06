@@ -198,7 +198,7 @@ async function handleLeadInsights(userId: number, days: number) {
 
 async function handleTrendingData(_userId: number) {
   try {
-    // 从 JustOneAPI 获取实时热门话题
+    // 从数据采集引擎获取热门话题
     const result = await dispatchEngine({
       action: 'trending_topics',
       platform: '抖音',
@@ -207,7 +207,7 @@ async function handleTrendingData(_userId: number) {
     })
 
     if (result.success && result.data) {
-      return NextResponse.json({ success: true, data: { source: 'justoneapi', topics: result.data } })
+      return NextResponse.json({ success: true, data: { source: (result as any).provider || 'engine', topics: result.data } })
     }
 
     // API 失败时返回本地缓存的热门关键词
