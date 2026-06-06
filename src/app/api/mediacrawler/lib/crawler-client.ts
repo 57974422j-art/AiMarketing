@@ -334,8 +334,8 @@ export interface ProxyItem {
   enabled: boolean
   label?: string
   region?: string
-  type?: 'datacenter' | 'residential' | 'mobile'
-  testStatus?: 'ok' | 'slow' | 'fail' | 'untested'
+  type?: string
+  testStatus?: string
   testLatencyMs?: number
   usedCount?: number
   lastUsedAt?: string

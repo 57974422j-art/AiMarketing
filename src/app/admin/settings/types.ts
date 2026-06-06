@@ -1,7 +1,7 @@
 /** Settings 页面所有类型定义 */
 
 // ====== 状态指示器 ======
-export type StatusType = 'ok' | 'fail' | null
+export type StatusType = string | null
 
 export interface StatusMap {
   [key: string]: StatusType
@@ -30,7 +30,7 @@ export interface TestingState {
 }
 
 export interface TestResult {
-  type: 'success' | 'error'
+  type: string
   message: string
 }
 
@@ -90,7 +90,7 @@ export interface ProxyItem {
   label: string
   region: string
   enabled: boolean
-  testStatus?: 'ok' | 'slow' | 'fail'
+  testStatus?: string
   testLatencyMs?: number
 }
 
@@ -114,6 +114,6 @@ export interface ProxyStats {
 
 // ====== 保存消息 ======
 export interface SaveMessage {
-  type: 'success' | 'error'
+  type: string
   text: string
 }

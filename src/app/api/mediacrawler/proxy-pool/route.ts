@@ -25,12 +25,12 @@ export interface ProxyItem {
   enabled: boolean        // 是否启用
   label?: string          // 自定义标签（如"美国节点"、"住宅IP"等）
   region?: string         // 地区代码 (CN, US, HK 等)
-  type?: 'datacenter' | 'residential' | 'mobile'  // 代理类型
+  type?: string  // 代理类型: datacenter/residential/mobile
   maxUses?: number        // 最大使用次数 (-1 = 无限)
   usedCount: number       // 已使用次数
   lastUsedAt?: string     // 最后使用时间
   lastTestAt?: string     // 最后测试时间
-  testStatus?: 'ok' | 'slow' | 'fail' | 'untested'  // 测试结果
+  testStatus?: string  // 测试结果: ok/slow/fail/untested
   testLatencyMs?: number  // 测试延迟(ms)
   createdAt: string       // 创建时间
 }
