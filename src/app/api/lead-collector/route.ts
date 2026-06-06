@@ -398,10 +398,10 @@ async function handleRunTask(data: any, userId: number) {
     // 调用引擎调度器执行完整采集流程
     const result = await dispatchEngine({
       action: 'extract',
+      platform,
       params: {
         extractType: 'collection',
         keywords: taskKeywords,
-        platform,
         maxResults,
         ownerId: userId,
         taskId: targetTaskId,
