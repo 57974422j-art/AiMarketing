@@ -36,7 +36,7 @@ interface EnginePanelProps {
     setMcHealthDetail: (v: string) => void
     setLoginStatus: (v: LoginStatus) => void
     setLoginMessage: (v: string) => void
-    setLoginElapsed: (v: number) => void
+    setLoginElapsed: (v: number | ((prev: number) => number)) => void
     setLoginPolling: (v: boolean) => void
     setCookieStatus: (v: CookieStatus) => void
     setCookieFiles: (v: CookieFile[]) => void
