@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
         id: Date.now(),
         title,
         category: category || 'douyin',
-        summary: 'AI生成的' + (catLabels[category] || '行业') + '洞察报告已就绪',
+        summary: 'AI生成的' + (catLabels[category ?? 'douyin'] || '行业') + '洞察报告已就绪',
         content,
         createdAt: now,
         tags: [category || 'general', period || 'month'],
