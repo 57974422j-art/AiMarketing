@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { generateText } from '@/lib/ai-providers'
 import { PrismaClient } from '@prisma/client'
+import { dispatchEngine, EngineAction } from '@/lib/engine-dispatcher'
 
 const prisma = new PrismaClient()
 
@@ -163,6 +164,10 @@ export async function POST(request: NextRequest) {
       
       case 'create-task':
         return await handleCreateTask(data, auth.userId)
+      
+      case 'run-task':
+        // 执行自动采集任务（Phase 1 核心）
+        return await handleRunTask(data, auth.userId)
       
       default:
         return NextResponse.json(
@@ -332,6 +337,158 @@ async function handleCreateTask(data: any, userId: number) {
     data: task,
     message: '采集任务创建成功'
   })
+}
+
+/**
+ * 执行自动采集任务（Phase 1 核心）
+ * 
+ * 流程：
+ * 1. 查找 CollectionTask 获取关键词配置
+ * 2. 通过 engine-dispatcher 调用 JustOneAPI 批量搜索
+ * 3. 对每个视频抓取评论
+ * 4. AI 分析评论提取高意向线索
+ * 5. 自动写入 Lead 表
+ */
+async function handleRunTask(data: any, userId: number) {
+  const { taskId, keywords, platform = 'douyin', maxResults = 20 } = data
+
+  // 确定要用的任务和关键词
+  let taskKeywords: string[] = []
+  let targetTaskId: number | undefined
+
+  if (taskId) {
+    // 从已有任务读取配置
+    const task = await prisma.collectionTask.findFirst({
+      where: { id: taskId, OR: [{ ownerId: userId }, { ownerId: 0 }] }  // ownerId=0 为系统任务
+    })
+    if (!task) {
+      return NextResponse.json(
+        { success: false, message: '采集任务不存在或无权限' },
+        { status: 404 }
+      )
+    }
+    taskKeywords = JSON.parse(task.keywords || '[]')
+    targetTaskId = task.id
+  } else if (keywords && Array.isArray(keywords) && keywords.length > 0) {
+    // 直接传入关键词（一次性采集）
+    taskKeywords = keywords.map((k: string | number) => String(k)).filter(Boolean)
+  } else {
+    return NextResponse.json(
+      { success: false, message: '请提供 taskId 或 keywords 参数' },
+      { status: 400 }
+    )
+  }
+
+  if (taskKeywords.length === 0) {
+    return NextResponse.json(
+      { success: false, message: '采集关键词为空' },
+      { status: 400 }
+    )
+  }
+
+  // 更新任务状态为执行中
+  if (targetTaskId) {
+    await prisma.collectionTask.update({
+      where: { id: targetTaskId },
+      data: { status: 'running' }
+    })
+  }
+
+  try {
+    // 调用引擎调度器执行完整采集流程
+    const result = await dispatchEngine({
+      action: 'extract',
+      params: {
+        extractType: 'collection',
+        keywords: taskKeywords,
+        platform,
+        maxResults,
+        ownerId: userId,
+        taskId: targetTaskId,
+      },
+      userId,
+    })
+
+    if (!result.success || !result.data) {
+      // 恢复任务状态
+      if (targetTaskId) {
+        await prisma.collectionTask.update({ where: { id: targetTaskId }, data: { status: 'active' } )
+}
+      return NextResponse.json({
+        success: false,
+        message: result.message || '采集执行失败',
+        data: result.data,
+      })
+    }
+
+    const collectionData = result.data as {
+      videos: any[]
+      comments: any[]
+      extractedLeads: Array<{ content: string; source: string; intentScore: number; contactInfo?: string }>
+      errors: string[]
+    }
+
+    // 将提取到的线索写入数据库
+    let createdLeadsCount = 0
+    if (collectionData.extractedLeads.length > 0) {
+      const leadCreates = collectionData.extractedLeads.map(lead =>
+        prisma.lead.create({
+          data: {
+            taskId: targetTaskId || null,
+            platform,
+            sourceType: 'auto_collection',
+            rawContent: lead.content,
+            contactInfo: lead.contactInfo || null,
+            intentScore: lead.intentScore,
+            status: 'new',
+            tags: JSON.stringify(['自动采集']),
+            metadata: JSON.stringify({ source: lead.source }),
+            ownerId: userId,
+          }
+        }).catch(e => {
+          console.error('创建线索失败:', e)
+          return null
+        })
+      )
+
+      const createdLeads = await Promise.all(leadCreates)
+      createdLeadsCount = createdLeads.filter(l => l !== null).length
+    }
+
+    // 恢复/更新任务状态
+    if (targetTaskId) {
+      await prisma.collectionTask.update({
+        where: { id: targetTaskId },
+        data: { status: 'active' }
+      })
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        videosCollected: collectionData.videos.length,
+        commentsCollected: collectionData.comments.length,
+        leadsExtracted: collectionData.extractedLeads.length,
+        leadsSaved: createdLeadsCount,
+        errors: collectionData.errors,
+        videos: collectionData.videos.slice(0, 5),  // 返回前5个视频作为预览
+      },
+      message: `采集完成: ${collectionData.videos.length}视频, ${collectionData.comments.length}评论, ${createdLeadsCount}条线索已保存`
+    })
+
+  } catch (error: any) {
+    console.error('[自动采集] 异常:', error)
+    if (targetTaskId) {
+      await prisma.collectionTask.update({
+        where: { id: targetTaskId },
+        data: { status: 'active' }
+      })
+    }
+    return NextResponse.json(
+      { success: false, message: error.message || '采集过程出错' },
+      { status: 500 }
+    )
+  }
 }
 
 // ====== PUT: 更新线索状态或分配 ======

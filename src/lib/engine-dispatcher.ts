@@ -225,7 +225,16 @@ async function dispatchWriteEngine(ctx: EngineContext): Promise<AutomationResult
 // ====== 具体的读操作处理器 ======
 // （这些函数将在 Phase 1 中实现具体的 JustOneAPI 调用）
 
-import { justoneSearchVideo } from './automation-providers'
+import { 
+  justoneSearchVideo, 
+  justoneFetchComments, 
+  justoneFetchUserProfile,
+  justoneVideoDetail,
+  justoneTrendingTopics,
+  justoneFetchUserVideos,
+  justoneSearchUser,
+  AutomationResult,
+} from './automation-providers'
 
 /**
  * 处理视频搜索
@@ -249,7 +258,7 @@ async function handleSearch(params: Record<string, unknown>): Promise<Automation
 
 /**
  * 处理评论爬取
- * 待实现：Phase 1 需要在 automation-providers.ts 中添加 justoneFetchComments
+ * 调用 justoneFetchComments 获取视频评论
  */
 async function handleFetchComments(params: Record<string, unknown>): Promise<AutomationResult> {
   const videoUrl = String(params.videoUrl || '')
@@ -264,60 +273,42 @@ async function handleFetchComments(params: Record<string, unknown>): Promise<Aut
     }
   }
   
-  // TODO: Phase 1 实现 - 调用 justoneFetchComments(videoUrl, count)
-  // 目前返回占位符
-  return {
-    success: false,
-    message: '评论爬取功能将在 Phase 1 中实现',
-    provider: 'justoneapi',
-    data: { error: 'NOT_IMPLEMENTED_YET', videoUrl, count }
-  }
+  return await justoneFetchComments(videoUrl, count)
 }
 
 /**
  * 处理用户画像查询
- * 待实现：Phase 1 需要添加 justoneFetchUserProfile
+ * 调用 justoneFetchUserProfile 获取用户详细信息
  */
 async function handleFetchUserProfile(params: Record<string, unknown>): Promise<AutomationResult> {
-  const userId = String(params.userId || params.user_id || '')
+  const userId = String(params.userId || params.user_id || params.secUserId || params.sec_user_id || '')
   
   if (!userId) {
     return {
       success: false,
-      message: '缺少用户 ID（userId 参数）',
+      message: '缺少用户 ID（userId / secUserId 参数）',
       provider: 'justoneapi',
       data: { error: 'MISSING_USER_ID' }
     }
   }
   
-  // TODO: Phase 1 实现 - 调用 justoneFetchUserProfile(userId)
-  return {
-    success: false,
-    message: '用户画像功能将在 Phase 1 中实现',
-    provider: 'justoneapi',
-    data: { error: 'NOT_IMPLEMENTED_YET', targetUserId: userId }
-  }
+  return await justoneFetchUserProfile(userId)
 }
 
 /**
  * 处理热门话题查询
- * 待实现：Phase 1 需要添加 justoneTrendingTopics
+ * 调用 justoneTrendingTopics 获取热门话题/热搜榜
  */
 async function handleTrendingTopics(params: Record<string, unknown>): Promise<AutomationResult> {
-  const category = String(params.category || 'all')
+  const category = (params.category || 'all') as 'all' | 'hot' | 'realtime' | 'video' | 'live'
+  const count = Number(params.count || 20)
   
-  // TODO: Phase 1 实现 - 调用 justoneTrendingTopics(category)
-  return {
-    success: false,
-    message: '热门话题功能将在 Phase 1 中实现',
-    provider: 'justoneapi',
-    data: { error: 'NOT_IMPLEMENTED_YET', category }
-  }
+  return await justoneTrendingTopics(category, count)
 }
 
 /**
  * 处理视频详情查询
- * 待实现：Phase 1 需要添加 justoneVideoDetail
+ * 调用 justoneVideoDetail 获取视频详细信息（播放量/点赞数等）
  */
 async function handleVideoDetail(params: Record<string, unknown>): Promise<AutomationResult> {
   const videoUrl = String(params.videoUrl || '')
@@ -331,28 +322,61 @@ async function handleVideoDetail(params: Record<string, unknown>): Promise<Autom
     }
   }
   
-  // TODO: Phase 1 实现 - 调用 justoneVideoDetail(videoUrl)
-  return {
-    success: false,
-    message: '视频详情功能将在 Phase 1 中实现',
-    provider: 'justoneapi',
-    data: { error: 'NOT_IMPLEMENTED_YET', videoUrl }
-  }
+  return await justoneVideoDetail(videoUrl)
 }
 
 /**
  * 处理通用数据提取
- * 待实现：Phase 1 根据 extractType 分发
+ * 支持模式：
+ * - 'collection': 执行完整采集任务（搜索+详情+评论+线索提取）
+ * - 'user_videos': 获取指定用户的作品列表
+ * - 'search_user': 搜索用户
  */
 async function handleExtract(params: Record<string, unknown>): Promise<AutomationResult> {
   const extractType = String(params.extractType || 'general')
   
-  // TODO: Phase 1 实现通用提取逻辑
-  return {
-    success: false,
-    message: `数据提取功能 (${extractType}) 将在 Phase 1 中实现`,
-    provider: 'justoneapi',
-    data: { error: 'NOT_IMPLEMENTED_YET', extractType }
+  switch (extractType) {
+    case 'collection': {
+      // 完整采集流程：需要 keywords, platform, ownerId 等参数
+      const { runCollection } = await import('./automation-providers')
+      const result = await runCollection({
+        keywords: (params.keywords as string[]) || [String(params.keyword || '')].filter(Boolean),
+        platform: String(params.platform || 'douyin'),
+        maxResults: Number(params.maxResults || 20),
+        ownerId: Number(params.ownerId || 0),
+        taskId: params.taskId ? Number(params.taskId) : undefined,
+      })
+      return {
+        success: true,
+        message: `采集完成: ${result.videos.length}视频, ${result.comments.length}评论, ${result.extractedLeads.length}线索`,
+        provider: 'justoneapi',
+        data: result,
+      }
+    }
+    
+    case 'user_videos': {
+      const secUserId = String(params.secUserId || params.userId || '')
+      if (!secUserId) {
+        return { success: false, message: '缺少用户 ID', provider: 'justoneapi', data: { error: 'MISSING_USER_ID' } }
+      }
+      return await justoneFetchUserVideos(secUserId, Number(params.count || 20))
+    }
+    
+    case 'search_user': {
+      const keyword = String(params.keyword || '')
+      if (!keyword) {
+        return { success: false, message: '缺少搜索关键词', provider: 'justoneapi', data: { error: 'MISSING_KEYWORD' } }
+      }
+      return await justoneSearchUser(keyword, Number(params.count || 10))
+    }
+    
+    default:
+      return {
+        success: false,
+        message: `不支持的提取类型: ${extractType}，支持: collection / user_videos / search_user`,
+        provider: 'justoneapi',
+        data: { error: 'UNSUPPORTED_EXTRACT_TYPE', extractType },
+      }
   }
 }
 
