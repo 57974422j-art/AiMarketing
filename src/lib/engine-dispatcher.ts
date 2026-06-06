@@ -5,11 +5,11 @@
  * ┌─────────────────────────────────────────────────────┐
  * │  读操作 (Read Operations)                           │
  * │  → 视频搜索、评论爬取、用户画像、数据查询             │
- * │  → 引擎：JustOneAPI / 第三方数据平台                 │
+ * │  → 引擎：抖音官方 API / Mock 模拟                    │
  * ├─────────────────────────────────────────────────────┤
  * │  写操作 (Write Operations)                          │
  * │  → 点赞、评论、关注、分享、发布视频、私信            │
- * │  → 引擎：Q1 ADB / 指纹浏览器 / Mock（保持原有逻辑）  │
+ * │  → 引擎：Q1 ADB / 指纹浏览器 / Mock                │
  * └─────────────────────────────────────────────────────┘
  * 
  * 使用方式：
@@ -20,14 +20,23 @@
 import { 
   AutomationResult, 
   getActiveEngines,
-  justoneSearchVideo, 
-  justoneFetchComments, 
-  justoneFetchUserProfile,
-  justoneVideoDetail,
-  justoneTrendingTopics,
-  justoneFetchUserVideos,
-  justoneSearchUser,
+  douyinSearchVideo, 
+  douyinFetchComments, 
+  douyinFetchUserProfile,
+  douyinVideoDetail,
+  douyinTrendingTopics,
+  douyinFetchUserVideos,
+  douyinSearchUser,
 } from './automation-providers'
+
+// 向后兼容别名
+const justoneSearchVideo = douyinSearchVideo
+const justoneFetchComments = douyinFetchComments
+const justoneFetchUserProfile = douyinFetchUserProfile
+const justoneVideoDetail = douyinVideoDetail
+const justoneTrendingTopics = douyinTrendingTopics
+const justoneFetchUserVideos = douyinFetchUserVideos
+const justoneSearchUser = douyinSearchUser
 
 // ====== 类型定义 ======
 
@@ -93,7 +102,7 @@ export function isWriteAction(action: EngineAction): boolean {
  * 统一引擎调度入口
  * 
  * 根据操作类型自动选择合适的引擎：
- * - 读操作 → JustOneAPI 或其他数据平台
+ * - 读操作 → 抖音官方 API / Mock 模拟
  * - 写操作 → Q1 ADB / 指纹浏览器 / Mock
  * 
  * @param ctx 引擎上下文（包含操作类型、平台、参数等）
@@ -126,18 +135,18 @@ export async function dispatchEngine(ctx: EngineContext): Promise<AutomationResu
  * 读操作引擎调度
  * 
  * 当前支持的数据源：
- * - justoneapi：JustOneAPI 第三方数据平台（推荐）
- * - 后续可扩展：自建爬虫、官方 API 等
+ * - douyin-official：抖音开放平台官方 API
+ * - mock：Mock 模拟数据（开发/测试阶段默认）
  */
 async function dispatchReadEngine(ctx: EngineContext): Promise<AutomationResult> {
   const { action, params } = ctx
   const activeEngines = getActiveEngines()
   
-  // 检查是否有可用的数据查询引擎
-  if (!activeEngines.includes('justoneapi')) {
+  // 检查是否有可用的数据查询引擎（mock 或 douyin-official 均可）
+  if (activeEngines.length === 0) {
     return {
       success: false,
-      message: '未配置数据查询引擎，请在系统设置中配置 JustOneAPI Token',
+      message: '未配置数据采集引擎，请设置 AUTOMATION_ENGINE 环境变量',
       provider: 'none' as any,
       data: { error: 'NO_READ_ENGINE_CONFIGURED' }
     }
@@ -167,7 +176,7 @@ async function dispatchReadEngine(ctx: EngineContext): Promise<AutomationResult>
       return {
         success: false,
         message: `读操作 ${action} 尚未实现`,
-        provider: 'justoneapi',
+        provider: activeEngines[0] || ('mock' as any),
         data: { error: 'NOT_IMPLEMENTED' }
       }
   }
@@ -233,11 +242,9 @@ async function dispatchWriteEngine(ctx: EngineContext): Promise<AutomationResult
 }
 
 // ====== 具体的读操作处理器 ======
-// （这些函数将在 Phase 1 中实现具体的 JustOneAPI 调用）
 
 /**
  * 处理视频搜索
- * 已实现：调用 justoneSearchVideo
  */
 async function handleSearch(params: Record<string, unknown>): Promise<AutomationResult> {
   const keyword = String(params.keyword || '')
@@ -247,17 +254,16 @@ async function handleSearch(params: Record<string, unknown>): Promise<Automation
     return {
       success: false,
       message: '缺少搜索关键词（keyword 参数）',
-      provider: 'justoneapi',
+      provider: getActiveEngines()[0] || ('mock' as any),
       data: { error: 'MISSING_KEYWORD' }
     }
   }
   
-  return await justoneSearchVideo(keyword, count)
+  return await douyinSearchVideo(keyword, count)
 }
 
 /**
  * 处理评论爬取
- * 调用 justoneFetchComments 获取视频评论
  */
 async function handleFetchComments(params: Record<string, unknown>): Promise<AutomationResult> {
   const videoUrl = String(params.videoUrl || '')
@@ -267,17 +273,16 @@ async function handleFetchComments(params: Record<string, unknown>): Promise<Aut
     return {
       success: false,
       message: '缺少视频 URL（videoUrl 参数）',
-      provider: 'justoneapi',
+      provider: getActiveEngines()[0] || ('mock' as any),
       data: { error: 'MISSING_VIDEO_URL' }
     }
   }
   
-  return await justoneFetchComments(videoUrl, count)
+  return await douyinFetchComments(videoUrl, count)
 }
 
 /**
  * 处理用户画像查询
- * 调用 justoneFetchUserProfile 获取用户详细信息
  */
 async function handleFetchUserProfile(params: Record<string, unknown>): Promise<AutomationResult> {
   const userId = String(params.userId || params.user_id || params.secUserId || params.sec_user_id || '')
@@ -286,28 +291,26 @@ async function handleFetchUserProfile(params: Record<string, unknown>): Promise<
     return {
       success: false,
       message: '缺少用户 ID（userId / secUserId 参数）',
-      provider: 'justoneapi',
+      provider: getActiveEngines()[0] || ('mock' as any),
       data: { error: 'MISSING_USER_ID' }
     }
   }
   
-  return await justoneFetchUserProfile(userId)
+  return await douyinFetchUserProfile(userId)
 }
 
 /**
  * 处理热门话题查询
- * 调用 justoneTrendingTopics 获取热门话题/热搜榜
  */
 async function handleTrendingTopics(params: Record<string, unknown>): Promise<AutomationResult> {
   const category = (params.category || 'all') as 'all' | 'hot' | 'realtime' | 'video' | 'live'
   const count = Number(params.count || 20)
   
-  return await justoneTrendingTopics(category, count)
+  return await douyinTrendingTopics(category, count)
 }
 
 /**
  * 处理视频详情查询
- * 调用 justoneVideoDetail 获取视频详细信息（播放量/点赞数等）
  */
 async function handleVideoDetail(params: Record<string, unknown>): Promise<AutomationResult> {
   const videoUrl = String(params.videoUrl || '')
@@ -316,12 +319,12 @@ async function handleVideoDetail(params: Record<string, unknown>): Promise<Autom
     return {
       success: false,
       message: '缺少视频 URL（videoUrl 参数）',
-      provider: 'justoneapi',
+      provider: getActiveEngines()[0] || ('mock' as any),
       data: { error: 'MISSING_VIDEO_URL' }
     }
   }
   
-  return await justoneVideoDetail(videoUrl)
+  return await douyinVideoDetail(videoUrl)
 }
 
 /**
@@ -348,7 +351,7 @@ async function handleExtract(params: Record<string, unknown>): Promise<Automatio
       return {
         success: true,
         message: `采集完成: ${result.videos.length}视频, ${result.comments.length}评论, ${result.extractedLeads.length}线索`,
-        provider: 'justoneapi',
+        provider: getActiveEngines()[0] || ('mock' as any),
         data: result,
       }
     }
@@ -356,24 +359,24 @@ async function handleExtract(params: Record<string, unknown>): Promise<Automatio
     case 'user_videos': {
       const secUserId = String(params.secUserId || params.userId || '')
       if (!secUserId) {
-        return { success: false, message: '缺少用户 ID', provider: 'justoneapi', data: { error: 'MISSING_USER_ID' } }
+        return { success: false, message: '缺少用户 ID', provider: getActiveEngines()[0] || ('mock' as any), data: { error: 'MISSING_USER_ID' } }
       }
-      return await justoneFetchUserVideos(secUserId, Number(params.count || 20))
+      return await douyinFetchUserVideos(secUserId, Number(params.count || 20))
     }
     
     case 'search_user': {
       const keyword = String(params.keyword || '')
       if (!keyword) {
-        return { success: false, message: '缺少搜索关键词', provider: 'justoneapi', data: { error: 'MISSING_KEYWORD' } }
+        return { success: false, message: '缺少搜索关键词', provider: getActiveEngines()[0] || ('mock' as any), data: { error: 'MISSING_KEYWORD' } }
       }
-      return await justoneSearchUser(keyword, Number(params.count || 10))
+      return await douyinSearchUser(keyword, Number(params.count || 10))
     }
     
     default:
       return {
         success: false,
         message: `不支持的提取类型: ${extractType}，支持: collection / user_videos / search_user`,
-        provider: 'justoneapi',
+        provider: getActiveEngines()[0] || ('mock' as any),
         data: { error: 'UNSUPPORTED_EXTRACT_TYPE', extractType },
       }
   }
