@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/app/providers';
 
 // ====== 类型定义 ======
@@ -514,13 +514,10 @@ export default function SettingsPage() {
   // ====== 面板折叠切换 #22 ======
   const togglePanel = (key: string) => setCollapsed(c => ({ ...c, [key]: !c[key] }))
 
+  if (authLoading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><p className="text-gray-400">加载中...</p></div>
+  if (!authorized) return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><p className="text-red-400">仅管理员可访问</p></div>
+
   return (
-    <Fragment>
-      {authLoading ? (
-        <div className="min-h-screen bg-gray-950 flex items-center justify-center"><p className="text-gray-400">加载中...</p></div>
-      ) : !authorized ? (
-        <div className="min-h-screen bg-gray-950 flex items-center justify-center"><p className="text-red-400">仅管理员可访问</p></div>
-      ) : (
     <div className="min-h-screen bg-gray-950">
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* 顶部标题 + 消息提示 */}
@@ -954,7 +951,6 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
-      )}
-    </Fragment>
   );
 }
+
