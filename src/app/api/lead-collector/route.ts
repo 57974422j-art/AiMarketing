@@ -412,8 +412,8 @@ async function handleRunTask(data: any, userId: number) {
     if (!result.success || !result.data) {
       // 恢复任务状态
       if (targetTaskId) {
-        await prisma.collectionTask.update({ where: { id: targetTaskId }, data: { status: 'active' } )
-}
+        await prisma.collectionTask.update({ where: { id: targetTaskId }, data: { status: 'active' } })
+      }
       return NextResponse.json({
         success: false,
         message: result.message || '采集执行失败',
