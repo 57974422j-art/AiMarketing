@@ -328,7 +328,7 @@ export interface ProxyItem {
   id: string
   host: string
   port: number
-  protocol: 'http' | 'https' | 'socks5'
+  protocol: string
   username?: string
   password?: string
   enabled: boolean

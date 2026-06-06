@@ -19,7 +19,7 @@ export interface ProxyItem {
   id: string              // 唯一标识 (自动生成)
   host: string            // 代理主机地址 (IP 或域名)
   port: number            // 端口
-  protocol: 'http' | 'https' | 'socks5'  // 协议类型
+  protocol: string  // 协议类型: http/https/socks5
   username?: string       // 认证用户名（可选）
   password?: string       // 认证密码（可选）
   enabled: boolean        // 是否启用
