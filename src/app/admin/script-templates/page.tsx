@@ -1,5 +1,7 @@
 'use client';
 
+// Script Templates Admin Page - AI话术模板库（支持AI智能生成）
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/app/providers';
 import { showToast } from '@/components/Toast';
