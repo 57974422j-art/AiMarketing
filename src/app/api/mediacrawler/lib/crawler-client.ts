@@ -362,7 +362,7 @@ export async function getProxyForRequest(): Promise<string | null> {
 
     // 简单轮询：选择使用次数最少的
     const sorted = [...enabledProxies].sort(
-      (a: ProxyItem, b: ProxyItem) => a.usedCount - b.usedCount
+      (a: ProxyItem, b: ProxyItem) => (a.usedCount ?? 0) - (b.usedCount ?? 0)
     )
     const proxy = sorted[0]
 
@@ -401,7 +401,7 @@ export async function markProxyResult(proxyUrl: string | null, success: boolean)
       (p: ProxyItem) => p.host === urlHost && p.port === urlPort
     )
     if (proxy) {
-      proxy.usedCount++
+      proxy.usedCount = (proxy.usedCount ?? 0) + 1
       proxy.lastUsedAt = new Date().toISOString()
       await write(PROXY_POOL_PATH, JSON.stringify(pool, null, 2), 'utf-8')
     }
