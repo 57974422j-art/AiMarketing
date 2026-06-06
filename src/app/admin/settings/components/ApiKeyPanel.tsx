@@ -52,7 +52,7 @@ interface ApiKeyPanelProps {
     setTestingSiliconflow: (v: boolean) => void
     setTestingDashscope: (v: boolean) => void
     setTestResult: (r: TestResult | null) => void
-    setStatusMap: (s: StatusMap) => void
+    setStatusMap: (s: StatusMap | ((prev: StatusMap) => StatusMap)) => void
     setTtsAppId: (v: string) => void
     setTtsAccessKey: (v: string) => void
     setTtsResourceId: (v: string) => void
