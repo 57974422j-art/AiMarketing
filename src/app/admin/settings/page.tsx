@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { useAuth } from '@/app/providers';
 
 // ====== 类型定义 ======
@@ -515,7 +515,7 @@ export default function SettingsPage() {
   const togglePanel = (key: string) => setCollapsed(c => ({ ...c, [key]: !c[key] }))
 
   return (
-    <>
+    <Fragment>
       {authLoading ? (
         <div className="min-h-screen bg-gray-950 flex items-center justify-center"><p className="text-gray-400">加载中...</p></div>
       ) : !authorized ? (
@@ -955,6 +955,6 @@ export default function SettingsPage() {
       </div>
     </div>
       )}
-    </>
+    </Fragment>
   );
 }
