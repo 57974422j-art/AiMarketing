@@ -163,7 +163,7 @@ export default function LivePage() {
 
   /* 直播控制命令 */
   const executeCommand = async (cmdType: string, payload?: Record<string, unknown>) => {
-    if (!selectedRoom) { showToast('请先选择直播间', 'warning'); return; }
+    if (!selectedRoom) { showToast('请先选择直播间', 'error'); return; }
     addLog('> ' + cmdType + (payload ? ' ' + JSON.stringify(payload) : ''));
 
     try {
