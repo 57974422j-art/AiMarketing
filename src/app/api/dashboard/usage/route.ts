@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       todayUsage,
       weekUsage,
       monthlyUsage,
-      topActions,
+      todayDetail,
     ] = await Promise.all([
       prisma.usageLog.count({ where: { userId: { in: userIds } } }),
       prisma.usageLog.aggregate({
@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
           monthlyTotal: monthlyUsage.reduce((s, i) => s + i._count.id, 0),
           monthlyTokens: monthlyUsage.reduce((s, i) => s + (i._sum.tokens || 0), 0),
         },
-        topWeekly: topActions.map(item => ({
+        topWeekly: weekUsage.map(item => ({
           action: item.action,
           label: actionLabelMap[item.action] || item.action,
           count: item._count.id,
@@ -96,14 +96,10 @@ export async function GET(req: NextRequest) {
           count: item._count.id,
           tokens: item._sum.tokens || 0,
         })),
-        todayDetail: (await prisma.usageLog.groupBy({
-          by: ['action', 'model'],
-          where: { userId: { in: userIds }, createdAt: { gte: todayStart } },
-          _sum: { tokens: true, count: true },
-        })).map(item => ({
+        todayDetail: todayDetail.map(item => ({
           action: item.action,
           label: actionLabelMap[item.action] || item.action,
-          model: item.model || '-',
+          model: (item as any).model || '-',
           count: item._sum.count || 0,
           tokens: item._sum.tokens || 0,
         })),
