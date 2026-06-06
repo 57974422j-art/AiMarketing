@@ -62,9 +62,8 @@ export async function GET(req: NextRequest) {
         where: { submitterId: { in: clients.map(c => c.id) }, status: 'pending' },
         orderBy: { createdAt: 'desc' },
         take: 2,
-        select: { id: true, title: true, submitterId: true, createdAt: true },
       }).then(items => items.map(i => ({
-        type: 'submit', desc: i.title || '提交了素材待审核', user: clients.find(c => c.id === i.submitterId)?.username || '客户',
+        type: 'submit', desc: '提交了素材待审核', user: clients.find(c => c.id === i.submitterId)?.username || '客户',
         time: formatRelativeTime(i.createdAt), id: i.id,
       }))),
     ]);
