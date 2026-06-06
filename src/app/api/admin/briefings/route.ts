@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     };
     const periodLabels: Record<string, string> = { week: '本周', month: '本月', quarter: '本季度' };
 
-    const title = (periodLabels[period] || '本月') + (catLabels[category] || '') + '简报';
+    const title = (periodLabels[period ?? 'month'] || '本月') + (catLabels[category ?? 'douyin'] || '') + '简报';
     const now = new Date().toISOString().split('T')[0];
 
     /* TODO: 接入AI生成真实内容 */
