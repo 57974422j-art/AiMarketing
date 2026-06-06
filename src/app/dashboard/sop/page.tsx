@@ -56,7 +56,7 @@ const workflows: Workflow[] = [
     color: 'from-blue-500/20 to-indigo-500/10',
     steps: [
       { id: 1, title: '创建采集任务', desc: '选择平台 + 关键词 + 数据源', href: '/lead-collector', status: 'done' },
-      { id: 2, title: '自动采集', desc: 'JustOneAPI 爬取 + AI 提取联系方式 + 意向打分', href: '/lead-collector', status: 'active' },
+      { id: 2, title: '自动采集', desc: 'MediaCrawler 爬取 + AI 提取联系方式 + 意向打分', href: '/lead-collector', status: 'active' },
       { id: 3, title: '线索分配', desc: 'Editor 审核高意向线索 → 分配给 end-user', href: '/lead-collector', status: 'pending' },
       { id: 4, title: '跟进转化', desc: 'end-user 手动联系 / 记录转化状态', href: '/referral', status: 'pending' },
       { id: 5, title: '导流配置', desc: '配置导流文案 + 落地方式', href: '/referral', status: 'pending' },

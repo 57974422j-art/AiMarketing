@@ -48,8 +48,8 @@ export default function SettingsPage() {
   const [showTtsAppId, setShowTtsAppId] = useState(false);
   const [showTtsAccessKey, setShowTtsAccessKey] = useState(false);
   const [showTtsResourceId, setShowTtsResourceId] = useState(false);
-  const [queryEngine, setQueryEngine] = useState('mock');
-  const [actionEngine, setActionEngine] = useState('mock');
+  const [queryEngine, setQueryEngine] = useState('mediacrawler');
+  const [actionEngine, setActionEngine] = useState('q1-adb');
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -67,8 +67,8 @@ export default function SettingsPage() {
         setVolcanoKey(d.volcanoConfigured ? '********' : '');
         setSiliconflowKey(d.siliconflowConfigured ? '********' : '');
         setDashscopeKey(d.dashscopeConfigured ? '********' : '');
-        setQueryEngine(d.queryEngine || 'mock');
-        setActionEngine(d.actionEngine || 'mock');
+        setQueryEngine(d.automationEngine || 'mediacrawler');
+        setActionEngine(d.automationEngine || 'q1-adb');
         setOssRegion(d.ossConfigured ? '********' : '');
         setOssBucket(d.ossConfigured ? '********' : '');
         // 已配置即显示 🟢已连接，测试失败才变 🔴
@@ -80,7 +80,6 @@ export default function SettingsPage() {
           siliconflow: d.siliconflowConfigured ? 'ok' : null,
           dashscope: d.dashscopeConfigured ? 'ok' : null,
           volcano: d.volcanoConfigured ? 'ok' : null,
-          justone: d.justoneConfigured ? 'ok' : null,
           tts: (d.ttsAppIdConfigured && d.ttsAccessKeyConfigured && d.ttsResourceIdConfigured) ? 'ok' : null,
           oss: d.ossConfigured ? 'ok' : null,
         })
@@ -702,11 +701,11 @@ export default function SettingsPage() {
               onChange={(e) => setQueryEngine(e.target.value)}
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 font-mono"
             >
-              <option value="mock" className="bg-gray-900">Mock 模式（默认）</option>
+              <option value="mediacrawler" className="bg-gray-900">MediaCrawler 爬虫（推荐）</option>
               <option value="douyin-official" className="bg-gray-900">抖音官方 API</option>
             </select>
             <p className="text-xs text-gray-500 mt-2 font-mono">
-              💡 当前默认使用 Mock 模式开发测试
+              💡 推荐使用 MediaCrawler 爬虫服务，需先部署 MediaCrawler 并配置 cookie
             </p>
           </div>
 
@@ -724,7 +723,7 @@ export default function SettingsPage() {
                 onChange={(e) => setActionEngine(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 font-mono"
               >
-                <option value="mock" className="bg-gray-900">Mock 模式（默认）</option>
+                <option value="q1-adb" className="bg-gray-900">Q1 ADB 自动化（推荐）</option>
                 <option value="fingerprint" className="bg-gray-900">指纹浏览器</option>
                 <option value="q1-adb" className="bg-gray-900">Q1 ADB 自动化</option>
               </select>

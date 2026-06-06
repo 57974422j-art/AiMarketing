@@ -3,22 +3,25 @@
  * 
  * 架构设计：
  * ┌─────────────────────────────────────────────────┐
- * │  Engine Type: douyin-official | mock            │
+ * │  Engine Type: douyin-official | mediacrawler    │
  * ├─────────────────────────────────────────────────┤
  * │  douyin-official: 抖音开放平台官方API（待接入）    │
- * │  mock: 返回模拟数据，用于开发和测试               │
+ * │  mediacrawler: MediaCrawler 爬虫服务（待部署）   │
  * └─────────────────────────────────────────────────┘
  * 
+ * 当前状态：数据采集功能依赖 MediaCrawler 服务。
+ * 在 MediaCrawler 部署完成前，以下接口返回 "未配置" 提示，
+ * 不再返回任何假数据（旧 Mock 已全部移除）。
+ * 
  * 环境变量：
- *   AUTOMATION_ENGINE=douyin-official|mock （默认 mock）
- *   DOUYIN_APP_ID          - 抖音开放平台 App ID
- *   DOUYIN_APP_SECRET      - 抖音开放平台 App Secret  
- *   DOUYIN_ACCESS_TOKEN    - 抖音开放平台 Access Token（可选，自动刷新）
+ *   DOUYIN_APP_ID          - 抖音开放平台 App ID（可选，企业资质申请后使用）
+ *   DOUYIN_APP_SECRET      - 抖音开放平台 App Secret
+ *   MEDIACRAWLER_URL       - MediaCrawler 服务地址（如 http://127.0.0.1:8000）
  */
 
 // ==================== 类型定义 ====================
 
-export type AutomationEngine = 'douyin-official' | 'mock' | 'q1-coordinates' | 'fingerprint'
+export type AutomationEngine = 'douyin-official' 'mediacrawler' | 'q1-coordinates' | 'fingerprint'
 
 export interface AutomationResult {
   success: boolean
@@ -38,10 +41,10 @@ export interface DouyinConfig {
 
 /**
  * 获取当前活跃的数据采集引擎列表
- * 默认使用 mock 模式（开发/测试阶段）
  */
 export function getActiveEngines(): AutomationEngine[] {
-  const raw = process.env.AUTOMATION_ENGINE || 'mock'
+  const raw = process.env.AUTOMATION_ENGINE || ''
+  if (!raw) return []
   return raw.split(',').map((s: string) => s.trim().toLowerCase()) as AutomationEngine[]
 }
 
@@ -50,8 +53,8 @@ export function isEngineConfigured(engine: AutomationEngine): boolean {
   switch (engine) {
     case 'douyin-official':
       return !!(process.env.DOUYIN_APP_ID && process.env.DOUYIN_APP_SECRET)
-    case 'mock':
-      return true
+    case 'mediacrawler':
+      return !!process.env.MEDIACRAWLER_URL
     case 'q1-coordinates': case 'fingerprint':
       return true
     default:
@@ -71,21 +74,12 @@ export function getDouyinConfig(): DouyinConfig | null {
   }
 }
 
-/** 判断是否为 Mock 模式 */
-export function isMockMode(): boolean {
-  return getActiveEngines().includes('mock')
-}
-
 
 // ==================== 抖音官方 API 适配器 ====================
-// TODO: 周一申请抖音开放平台后，替换以下占位实现
+// TODO: 申请抖音开放平台资质后激活此模块
 
 const DOUYIN_OPEN_BASE = 'https://open.douyin.com'
 
-/**
- * 抖音官方 API 请求封装
- * 自动处理 access_token 刷新和错误重试
- */
 async function douyinOfficialRequest(
   path: string,
   params?: Record<string, string>
@@ -93,133 +87,60 @@ async function douyinOfficialRequest(
   const config = getDouyinConfig()
   if (!config) throw new Error('抖音官方 API 未配置，请设置 DOUYIN_APP_ID 和 DOUYIN_APP_SECRET')
 
-  // TODO: 实现 access_token 获取/刷新逻辑
   const token = config.accessToken || ''
-  
+
   const searchParams = new URLSearchParams(params || {})
   if (token) searchParams.set('access_token', token)
-  
+
   const url = `${DOUYIN_OPEN_BASE}${path}?${searchParams.toString()}`
-  
   console.log(`[Douyin Official] GET ${url}`)
-  
+
   const res = await fetch(url, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
     signal: AbortSignal.timeout(30000),
   })
-  
+
   return await res.json()
 }
 
 
-// ==================== Mock 数据生成器 ====================
-// 开发测试阶段使用，返回结构化的模拟数据
-
-function generateMockVideos(keyword: string, count: number): Record<string, unknown>[] {
-  const videos: Record<string, unknown>[] = []
-  for (let i = 0; i < Math.min(count, 10); i++) {
-    videos.push({
-      aweme_id: `mock_aweme_${Date.now()}_${i}`,
-      video_url: `https://v.douyin.com/mock${i}/`,
-      share_url: `https://v.douyin.com/mock${i}/`,
-      title: `${keyword}相关视频 ${i + 1} #美业 #美容护肤`,
-      desc: `这是一条关于${keyword}的精彩内容分享...`,
-      author: {
-        nickname: `美业达人_${String.fromCharCode(65 + i)}`,
-        uid: `mock_uid_${i}`,
-        sec_uid: `mock_secuid_${i}`,
-        follower_count: Math.floor(Math.random() * 500000) + 1000,
-      },
-      statistics: {
-        play_count: Math.floor(Math.random() * 100000),
-        like_count: Math.floor(Math.random() * 10000),
-        comment_count: Math.floor(Math.random() * 1000),
-        share_count: Math.floor(Math.random() * 500),
-      },
-      create_time: Date.now() - Math.floor(Math.random() * 7 * 24 * 60 * 60 * 1000),
-      _mock: true,
-    })
-  }
-  return videos
-}
-
-function generateMockComments(videoUrl: string, count: number): Record<string, unknown>[] {
-  const templates = [
-    { text: '这个效果怎么样？想了解一下价格', score: 75 },
-    { text: '在哪里可以买到？求链接', score: 85 },
-    { text: '太好看了！请问怎么下单', score: 80 },
-    { text: '有人用过吗？效果真的假的', score: 45 },
-    { text: '北京的有吗？想咨询一下', score: 70 },
-    { text: '加我微信聊一下 vx:beauty2024', score: 90 },
-    { text: '多少钱一套？学生党能买得起吗', score: 80 },
-    { text: '绝了绝了！爱了爱了', score: 25 },
-    { text: '请问有联系方式吗？13800138000', score: 95 },
-    { text: '推荐推荐！已入手，效果不错', score: 65 },
-    { text: '怎么购买？私信我了', score: 70 },
-    { text: '好看是好看就是有点贵', score: 50 },
-  ]
-  
-  const comments: Record<string, unknown>[] = []
-  for (let i = 0; i < Math.min(count, templates.length); i++) {
-    const t = templates[i % templates.length]
-    comments.push({
-      id: `mock_comment_${Date.now()}_${i}`,
-      text: t.text,
-      content: t.text,
-      author: {
-        nickname: `用户_${String.fromCharCode(65 + i)}`,
-        uid: `mock_cuid_${i}`,
-      },
-      like_count: Math.floor(Math.random() * 100),
-      create_time: Date.now() - Math.floor(Math.random() * 30 * 24 * 60 * 60 * 1000),
-      video_url: videoUrl,
-      _mock: true,
-      _intentScore: t.score,
-    })
-  }
-  return comments
-}
-
-
 // ==================== 数据采集接口 ====================
-// 所有接口统一：优先走官方 API → 失败降级到 Mock
+// 所有接口统一：优先走 MediaCrawler → 再尝试 Douyin Official → 返回提示信息
+
 
 /**
- * 视频搜索 V4
+ * 视频搜索
  * 搜索关键词获取视频列表
  */
 export async function douyinSearchVideo(keyword: string, count = 10): Promise<AutomationResult> {
   try {
-    if (isMockMode()) {
-      // Mock 模式：返回模拟数据
-      const videos = generateMockVideos(keyword, count)
+    // 优先尝试抖音官方 API
+    if (isEngineConfigured('douyin-official')) {
+      const data = await douyinOfficialRequest('/video/search/v4/', { keyword: String(keyword), count: String(count) })
       return {
-        success: true,
-        message: `[Mock] 搜索"${keyword}"返回 ${videos.length} 条结果`,
-        provider: 'mock',
-        data: { list: videos, total: videos.length, keyword },
+        success: data?.error_code === 0 || data?.code === 0,
+        message: data?.description || '搜索完成',
+        provider: 'douyin-official',
+        data: data?.data || data,
       }
     }
 
-    // 官方 API 模式
-    const data = await douyinOfficialRequest('/video/search/v4/', { keyword: String(keyword), count: String(count) })
+    // 未配置任何数据源
     return {
-      success: data?.error_code === 0 || data?.code === 0,
-      message: data?.description || '搜索完成',
+      success: false,
+      message: `视频搜索暂不可用：请配置 MediaCrawler 服务或抖音官方 API。关键词: "${keyword}"`,
       provider: 'douyin-official',
-      data: data?.data || data,
+      data: { keyword, note: '需部署 MediaCrawler 或配置 DOUYIN_APP_ID/DOUYIN_APP_SECRET' },
     }
   } catch (e: any) {
-    return { success: false, message: e.message || '搜索失败', provider: 'mock' as any }
+    return { success: false, message: e.message || '搜索失败', provider: 'douyin-official' as any }
   }
 }
-// 向后兼容别名
-export const justoneSearchVideo = douyinSearchVideo
 
 
 /**
- * 视频评论 V1
+ * 视频评论
  * 获取指定视频的评论列表
  */
 export async function douyinFetchComments(
@@ -228,157 +149,109 @@ export async function douyinFetchComments(
   cursor = 0
 ): Promise<AutomationResult> {
   try {
-    if (isMockMode()) {
-      const comments = generateMockComments(videoUrl, count)
+    if (isEngineConfigured('douyin-official')) {
+      const data = await douyinOfficialRequest('/comment/list/v1/', {
+        video_url: videoUrl,
+        count: String(Math.min(count, 100)),
+        cursor: String(cursor),
+      })
       return {
-        success: true,
-        message: `[Mock] 获取 ${comments.length} 条评论`,
-        provider: 'mock',
-        data: { comments, total: comments.length, cursor, has_more: false },
+        success: data?.error_code === 0 || data?.code === 0,
+        message: `获取 ${data?.data?.comments?.length || 0} 条评论`,
+        provider: 'douyin-official',
+        data: data?.data || data,
       }
     }
 
-    const data = await douyinOfficialRequest('/comment/list/v1/', {
-      video_url: videoUrl,
-      count: String(Math.min(count, 100)),
-      cursor: String(cursor),
-    })
     return {
-      success: data?.error_code === 0 || data?.code === 0,
-      message: `获取 ${data?.data?.comments?.length || 0} 条评论`,
+      success: false,
+      message: `评论爬取暂不可用：请部署 MediaCrawler 服务。`,
       provider: 'douyin-official',
-      data: data?.data || data,
+      data: { video_url: videoUrl, note: '需部署 MediaCrawler' },
     }
   } catch (e: any) {
-    return { success: false, message: e.message || '评论爬取失败', provider: 'mock' as any }
+    return { success: false, message: e.message || '评论爬取失败', provider: 'douyin-official' as any }
   }
 }
-export const justoneFetchComments = douyinFetchComments
 
 
 /**
- * 用户资料 V3
+ * 用户资料
  * 获取抖音用户详细信息
  */
 export async function douyinFetchUserProfile(secUserId: string): Promise<AutomationResult> {
   try {
-    if (isMockMode()) {
+    if (isEngineConfigured('douyin-official')) {
+      const data = await douyinOfficialRequest('/user/profile/v3/', { sec_user_id: secUserId })
       return {
-        success: true,
-        message: '[Mock] 用户资料获取成功',
-        provider: 'mock',
-        data: {
-          user: {
-            sec_uid: secUserId,
-            nickname: `Mock用户_${secUserId.substring(0, 6)}`,
-            avatar: 'https://example.com/avatar.jpg',
-            follower_count: Math.floor(Math.random() * 500000) + 1000,
-            following_count: Math.floor(Math.random() * 500) + 100,
-            aweme_count: Math.floor(Math.random() * 200) + 10,
-            verification_type: Math.random() > 0.5 ? 1 : 0,
-            signature: '这是模拟的用户简介',
-          },
-          _mock: true,
-        },
+        success: data?.error_code === 0,
+        message: '用户信息获取成功',
+        provider: 'douyin-official',
+        data: data?.data || data,
       }
     }
 
-    const data = await douyinOfficialRequest('/user/profile/v3/', { sec_user_id: secUserId })
     return {
-      success: data?.error_code === 0,
-      message: '用户信息获取成功',
+      success: false,
+      message: `用户资料查询暂不可用：请部署 MediaCrawler 服务。`,
       provider: 'douyin-official',
-      data: data?.data || data,
+      data: { sec_uid: secUserId, note: '需部署 MediaCrawler' },
     }
   } catch (e: any) {
-    return { success: false, message: e.message || '用户信息获取失败', provider: 'mock' as any }
+    return { success: false, message: e.message || '用户信息获取失败', provider: 'douyin-official' as any }
   }
 }
-export const justoneFetchUserProfile = douyinFetchUserProfile
 
 
 /**
- * 视频详情 V2
+ * 视频详情
  * 获取视频的详细信息和互动数据
  */
 export async function douyinVideoDetail(videoUrl: string): Promise<AutomationResult> {
   try {
-    if (isMockMode()) {
+    if (isEngineConfigured('douyin-official')) {
+      const data = await douyinOfficialRequest('/video/detail/v2/', { video_url: videoUrl })
       return {
-        success: true,
-        message: '[Mock] 视频详情获取成功',
-        provider: 'mock',
-        data: {
-          video: {
-            video_url: videoUrl,
-            title: 'Mock视频标题',
-            desc: '这是一个模拟的视频描述内容...',
-            statistics: {
-              play_count: Math.floor(Math.random() * 100000),
-              like_count: Math.floor(Math.random() * 10000),
-              comment_count: Math.floor(Math.random() * 1000),
-              share_count: Math.floor(Math.random() * 500),
-              collect_count: Math.floor(Math.random() * 300),
-            },
-          },
-          _mock: true,
-        },
+        success: data?.error_code === 0,
+        message: '视频详情获取成功',
+        provider: 'douyin-official',
+        data: data?.data || data,
       }
     }
 
-    const data = await douyinOfficialRequest('/video/detail/v2/', { video_url: videoUrl })
     return {
-      success: data?.error_code === 0,
-      message: '视频详情获取成功',
+      success: false,
+      message: `视频详情查询暂不可用：请部署 MediaCrawler 服务。`,
       provider: 'douyin-official',
-      data: data?.data || data,
+      data: { video_url: videoUrl, note: '需部署 MediaCrawler' },
     }
   } catch (e: any) {
-    return { success: false, message: e.message || '视频详情获取失败', provider: 'mock' as any }
+    return { success: false, message: e.message || '视频详情获取失败', provider: 'douyin-official' as any }
   }
 }
-export const justoneVideoDetail = douyinVideoDetail
 
 
 /**
  * 热门话题/热搜
- * 注：抖音开放平台可能无此接口，Mock 模式下返回热门关键词
+ * 注：此功能建议通过 AI 分析生成，或接入第三方热搜 API
  */
 export async function douyinTrendingTopics(
   category: 'all' | 'hot' | 'realtime' | 'video' | 'live' = 'all',
   count = 20
 ): Promise<AutomationResult> {
-  // Mock 热门数据
-  const mockTopics = [
-    { title: '#美业护肤#', hot_value: 980000, category: 'beauty' },
-    { title: '#美容院探店#', hot_value: 750000, category: 'beauty' },
-    { title: '#抗衰老攻略#', hot_value: 620000, category: 'beauty' },
-    { title: '#医美体验#', hot_value: 540000, category: 'medical' },
-    { title: '#减肥打卡#', hot_value: 890000, category: 'health' },
-    { title: '#健身日常#', hot_value: 720000, category: 'health' },
-    { title: '#穿搭分享#', hot_value: 650000, category: 'fashion' },
-    { title: '#美食探店#', hot_value: 930000, category: 'food' },
-    { title: '#旅行vlog#', hot_value: 580000, category: 'travel' },
-    { title: '#数码测评#', hot_value: 470000, category: 'tech' },
-  ]
-
+  // 热门话题目前无稳定的外部数据源
+  // 建议：后续通过 MediaCrawler 的 trending 接口或 AI 生成替代
   return {
-    success: true,
-    message: '[Mock] 热门话题（待接入官方API）',
-    provider: 'mock',
-    data: {
-      list: mockTopics.slice(0, count),
-      total: mockTopics.length,
-      category,
-      _mock: true,
-    },
+    success: false,
+    message: `热门话题功能待接入：请部署 MediaCrawler 或使用 AI 生成的行业简报。`,
+    provider: 'douyin-official',
+    data: { category, count, note: '需部署 MediaCrawler 或查看 /admin/briefings' },
   }
 }
-export const justoneTrendingTopics = douyinTrendingTopics
 
 
 /**
- * 用户发布视频 V3
+ * 用户发布视频列表
  * 获取指定用户的作品列表
  */
 export async function douyinFetchUserVideos(
@@ -387,80 +260,61 @@ export async function douyinFetchUserVideos(
   cursor = 0
 ): Promise<AutomationResult> {
   try {
-    if (isMockMode()) {
-      const videos = generateMockVideos('用户作品', count).map(v => ({
-        ...v,
-        author: { nickname: 'Mock创作者', uid: secUserId, sec_uid: secUserId },
-      }))
+    if (isEngineConfigured('douyin-official')) {
+      const data = await douyinOfficialRequest('/user/videos/v3/', {
+        sec_user_id: secUserId,
+        count: String(Math.min(count, 50)),
+        cursor: String(cursor),
+      })
       return {
-        success: true,
-        message: `[Mock] 获取 ${videos.length} 个作品`,
-        provider: 'mock',
-        data: { list: videos, total: videos.length, has_more: false },
+        success: data?.error_code === 0,
+        message: `获取 ${data?.data?.videos?.length || 0} 个作品`,
+        provider: 'douyin-official',
+        data: data?.data || data,
       }
     }
 
-    const data = await douyinOfficialRequest('/user/videos/v3/', {
-      sec_user_id: secUserId,
-      count: String(Math.min(count, 50)),
-      cursor: String(cursor),
-    })
     return {
-      success: data?.error_code === 0,
-      message: `获取 ${data?.data?.videos?.length || 0} 个作品`,
+      success: false,
+      message: `用户作品查询暂不可用：请部署 MediaCrawler 服务。`,
       provider: 'douyin-official',
-      data: data?.data || data,
+      data: { sec_uid: secUserId, note: '需部署 MediaCrawler' },
     }
   } catch (e: any) {
-    return { success: false, message: e.message || '用户作品获取失败', provider: 'mock' as any }
+    return { success: false, message: e.message || '用户作品获取失败', provider: 'douyin-official' as any }
   }
 }
-export const justoneFetchUserVideos = douyinFetchUserVideos
 
 
 /**
- * 搜索用户 V2
+ * 搜索用户
  * 通过关键词搜索抖音用户
  */
 export async function douyinSearchUser(keyword: string, count = 10): Promise<AutomationResult> {
   try {
-    if (isMockMode()) {
-      const users: Record<string, unknown>[] = []
-      for (let i = 0; i < Math.min(count, 5); i++) {
-        users.push({
-          uid: `mock_search_uid_${i}`,
-          sec_uid: `mock_search_secuid_${i}`,
-          nickname: `${keyword}相关用户_${String.fromCharCode(65 + i)}`,
-          avatar: 'https://example.com/avatar.jpg',
-          follower_count: Math.floor(Math.random() * 500000) + 1000,
-          verification_type: Math.random() > 0.7 ? 1 : 0,
-          signature: `专注${keyword}领域的内容创作`,
-          _mock: true,
-        })
-      }
+    if (isEngineConfigured('douyin-official')) {
+      const data = await douyinOfficialRequest('/user/search/v2/', {
+        keyword,
+        count: String(count),
+      })
       return {
-        success: true,
-        message: `[Mock] 找到 ${users.length} 个用户`,
-        provider: 'mock',
-        data: { list: users, total: users.length },
+        success: data?.error_code === 0,
+        message: `找到 ${data?.data?.users?.length || 0} 个用户`,
+        provider: 'douyin-official',
+        data: data?.data || data,
       }
     }
 
-    const data = await douyinOfficialRequest('/user/search/v2/', {
-      keyword,
-      count: String(count),
-    })
     return {
-      success: data?.error_code === 0,
-      message: `找到 ${data?.data?.users?.length || 0} 个用户`,
+      success: false,
+      message: `用户搜索暂不可用：请部署 MediaCrawler 服务。`,
       provider: 'douyin-official',
-      data: data?.data || data,
+      data: { keyword, note: '需部署 MediaCrawler' },
     }
   } catch (e: any) {
-    return { success: false, message: e.message || '用户搜索失败', provider: 'mock' as any }
+    return { success: false, message: e.message || '用户搜索失败', provider: 'douyin-official' as any }
   }
 }
-export const justoneSearchUser = douyinSearchUser
 
 
 // ==================== 批量采集引擎（Phase 1 核心）====================
@@ -480,6 +334,8 @@ export interface CollectionContext {
  * 3. 获取视频评论
  * 4. 从评论中分析提取高意向线索
  * 5. 返回结构化结果（由调用方写入数据库）
+ *
+ * 注意：在 MediaCrawler 部署前，此函数会因无数据源而返回空结果 + 错误提示
  */
 export async function runCollection(ctx: CollectionContext): Promise<{
   videos: any[]
@@ -487,20 +343,27 @@ export async function runCollection(ctx: CollectionContext): Promise<{
   extractedLeads: Array<{ content: string; source: string; intentScore: number; contactInfo?: string }>
   errors: string[]
 }> {
-  const { keywords, platform, maxResults } = ctx
+  const { keywords, maxResults } = ctx
+  const errors: string[] = []
+
+  // 快速检查是否有可用的数据源
+  const hasSource = isEngineConfigured('douyin-official') || isEngineConfigured('mediacrawler')
+  if (!hasSource) {
+    errors.push('无可用的数据采集源。请部署 MediaCrawler 服务（推荐）或配置抖音官方 API。')
+    return { videos: [], comments: [], extractedLeads: [], errors }
+  }
+
+  const resultsPerKeyword = Math.ceil(maxResults / Math.max(keywords.length, 1))
   const videos: any[] = []
   const comments: any[] = []
   const extractedLeads: Array<{ content: string; source: string; intentScore: number; contactInfo?: string }> = []
-  const errors: string[] = []
-
-  const resultsPerKeyword = Math.ceil(maxResults / Math.max(keywords.length, 1))
 
   for (const keyword of keywords) {
     try {
       // Step 1: 搜索视频
       const searchResult = await douyinSearchVideo(keyword, resultsPerKeyword)
       if (!searchResult.success || !searchResult.data) {
-        errors.push(`搜索关键词"${keyword}"无结果`)
+        errors.push(`搜索关键词"${keyword}"无结果: ${searchResult.message}`)
         continue
       }
 
@@ -508,10 +371,6 @@ export async function runCollection(ctx: CollectionContext): Promise<{
       const searchData = searchResult.data as any
       const videoList: Record<string, unknown>[] =
         searchData.list || searchData.videos || searchData.data?.list || searchData.data?.videos || []
-
-      if (videoList.length === 0 && !searchData._mock) {
-        console.log(`[采集] 关键词"${keyword}"未解析到视频列表，原始 keys:`, Object.keys(searchData))
-      }
 
       for (const video of videoList.slice(0, resultsPerKeyword)) {
         const videoUrl = String(video.video_url || video.share_url || video.aweme_id || '')
@@ -540,10 +399,8 @@ export async function runCollection(ctx: CollectionContext): Promise<{
             // Step 4: 从评论中提取高意向线索
             for (const comment of commentList) {
               const text = String(comment.text || comment.content || '')
-              
-              // Mock 评论自带意向分，真实数据用算法分析
-              const score = (comment as any)._intentScore ?? analyzeLeadIntent(text)
-              
+              const score = analyzeLeadIntent(text)
+
               if (score >= 60) {
                 extractedLeads.push({
                   content: text,
@@ -568,8 +425,7 @@ export async function runCollection(ctx: CollectionContext): Promise<{
 
   console.log(
     `[采集完成] 视频=${videos.length}, 评论=${comments.length}, ` +
-    `线索=${extractedLeads.length}, 错误=${errors.length}` +
-    (isMockMode() ? ' [MOCK模式]' : '')
+    `线索=${extractedLeads.length}, 错误=${errors.length}`
   )
 
   return { videos, comments, extractedLeads, errors }

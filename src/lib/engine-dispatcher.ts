@@ -1,27 +1,27 @@
 /**
  * 统一引擎调度器 - Engine Dispatcher
- * 
+ *
  * 职责划分：
  * ┌─────────────────────────────────────────────────────┐
  * │  读操作 (Read Operations)                           │
  * │  → 视频搜索、评论爬取、用户画像、数据查询             │
- * │  → 引擎：抖音官方 API / Mock 模拟                    │
- * ├─────────────────────────────────────────────────────┤
+ * │  → 引擎：MediaCrawler 爬虫 / 抖音官方API             │
+ ├─────────────────────────────────────────────────────┤
  * │  写操作 (Write Operations)                          │
  * │  → 点赞、评论、关注、分享、发布视频、私信            │
- * │  → 引擎：Q1 ADB / 指纹浏览器 / Mock                │
+ * │  → 引擎：Q1 ADB / 指纹浏览器 / 真机接入             │
  * └─────────────────────────────────────────────────────┘
- * 
+ *
  * 使用方式：
  * import { dispatchEngine } from '@/lib/engine-dispatcher'
  * const result = await dispatchEngine({ action: 'search', platform: '抖音', params: { keyword: '美业' }, userId: 1 })
  */
 
-import { 
-  AutomationResult, 
+import {
+  AutomationResult,
   getActiveEngines,
-  douyinSearchVideo, 
-  douyinFetchComments, 
+  douyinSearchVideo,
+  douyinFetchComments,
   douyinFetchUserProfile,
   douyinVideoDetail,
   douyinTrendingTopics,
@@ -29,18 +29,9 @@ import {
   douyinSearchUser,
 } from './automation-providers'
 
-// 向后兼容别名
-const justoneSearchVideo = douyinSearchVideo
-const justoneFetchComments = douyinFetchComments
-const justoneFetchUserProfile = douyinFetchUserProfile
-const justoneVideoDetail = douyinVideoDetail
-const justoneTrendingTopics = douyinTrendingTopics
-const justoneFetchUserVideos = douyinFetchUserVideos
-const justoneSearchUser = douyinSearchUser
-
 // ====== 类型定义 ======
 
-export type EngineAction = 
+export type EngineAction =
   | 'search'              // 视频搜索
   | 'fetch_comments'      // 评论爬取
   | 'fetch_user_profile'  // 用户画像查询
@@ -51,8 +42,8 @@ export type EngineAction =
   | 'share'               // 转发/分享
   | 'publish'             // 发布视频
   | 'dm'                  // 私信
-  | 'trending_topics'     // 热门话题（新增）
-  | 'video_detail'        // 视频详情（新增）
+  | 'trending_topics'     // 热门话题
+  | 'video_detail'        // 视频详情
 
 export interface EngineContext {
   action: EngineAction           // 操作类型
@@ -100,17 +91,17 @@ export function isWriteAction(action: EngineAction): boolean {
 
 /**
  * 统一引擎调度入口
- * 
+ *
  * 根据操作类型自动选择合适的引擎：
- * - 读操作 → 抖音官方 API / Mock 模拟
- * - 写操作 → Q1 ADB / 指纹浏览器 / Mock
- * 
+ * - 读操作 → MediaCrawler / 抖音官方 API（需配置 AUTOMATION_ENGINE）
+ * - 写操作 → Q1 ADB / 指纹浏览器 / 真机接入
+ *
  * @param ctx 引擎上下文（包含操作类型、平台、参数等）
  * @returns 操作结果
  */
 export async function dispatchEngine(ctx: EngineContext): Promise<AutomationResult> {
-  const { action, platform, params, userId, deviceId } = ctx
-  
+  const { action } = ctx
+
   // 验证操作类型
   if (!READ_ACTIONS.has(action) && !WRITE_ACTIONS.has(action)) {
     return {
@@ -120,7 +111,7 @@ export async function dispatchEngine(ctx: EngineContext): Promise<AutomationResu
       data: { error: 'INVALID_ACTION' }
     }
   }
-  
+
   // 路由到对应的处理函数
   if (isReadAction(action)) {
     return await dispatchReadEngine(ctx)
@@ -133,50 +124,52 @@ export async function dispatchEngine(ctx: EngineContext): Promise<AutomationResu
 
 /**
  * 读操作引擎调度
- * 
+ *
  * 当前支持的数据源：
+ * - mediacrawler：MediaCrawler 爬虫服务（推荐）
  * - douyin-official：抖音开放平台官方 API
- * - mock：Mock 模拟数据（开发/测试阶段默认）
+ *
+ * 未配置时返回明确的错误提示，引导用户配置引擎。
  */
 async function dispatchReadEngine(ctx: EngineContext): Promise<AutomationResult> {
   const { action, params } = ctx
   const activeEngines = getActiveEngines()
-  
-  // 检查是否有可用的数据查询引擎（mock 或 douyin-official 均可）
+
+  // 检查是否有可用的数据查询引擎
   if (activeEngines.length === 0) {
     return {
       success: false,
-      message: '未配置数据采集引擎，请设置 AUTOMATION_ENGINE 环境变量',
+      message: '未配置数据采集引擎。请在 Settings 中设置 AUTOMATION_ENGINE 为 mediacrawler 或 douyin-official，并完成对应服务的部署配置。',
       provider: 'none' as any,
-      data: { error: 'NO_READ_ENGINE_CONFIGURED' }
+      data: { error: 'NO_READ_ENGINE_CONFIGURED', hint: '设置环境变量 AUTOMATION_ENGINE=mediacrawler 并部署 MediaCrawler 服务' }
     }
   }
-  
+
   // 根据具体操作类型分发
   switch (action) {
     case 'search':
       return await handleSearch(params)
-    
+
     case 'fetch_comments':
       return await handleFetchComments(params)
-    
+
     case 'fetch_user_profile':
       return await handleFetchUserProfile(params)
-    
+
     case 'trending_topics':
       return await handleTrendingTopics(params)
-    
+
     case 'video_detail':
       return await handleVideoDetail(params)
-    
+
     case 'extract':
       return await handleExtract(params)
-    
+
     default:
       return {
         success: false,
         message: `读操作 ${action} 尚未实现`,
-        provider: activeEngines[0] || ('mock' as any),
+        provider: activeEngines[0] || ('none' as any),
         data: { error: 'NOT_IMPLEMENTED' }
       }
   }
@@ -186,56 +179,40 @@ async function dispatchReadEngine(ctx: EngineContext): Promise<AutomationResult>
 
 /**
  * 写操作引擎调度
- * 
+ *
  * 注意：此函数只负责路由，实际执行逻辑在：
  * - src/app/api/devices/[id]/execute/route.ts（Q1 设备）
  * - electron/fp-templates/*.js（指纹浏览器）
- * 
- * 这里只是返回配置信息，告诉调用者应该使用哪个引擎。
+ *
+ * 写操作必须指定设备 ID，不再有 mock 模式。
  */
 async function dispatchWriteEngine(ctx: EngineContext): Promise<AutomationResult> {
   const { action, deviceId, platform, params } = ctx
-  
-  // 写操作必须指定设备（除非是 Mock 模式）
+
+  // 写操作必须指定设备 ID
   if (!deviceId) {
-    // 检查是否为 Mock 模式
-    const { getAutomationConfig } = await import('./automation/config')
-    const config = getAutomationConfig()
-    
-    if (config.engine === 'mock') {
-      // Mock 模式：返回模拟成功结果
-      return {
-        success: true,
-        message: `[Mock] ${action} 操作已模拟执行`,
-        provider: 'mock' as any,
-        data: { action, platform, params, mock: true }
-      }
-    }
-    
     return {
       success: false,
-      message: '写操作需要指定设备 ID（deviceId）',
-      provider: 'unknown' as any,
+      message: '写操作需要指定设备 ID（deviceId）。请先在设备管理中添加 Q1/指纹浏览器/真机设备。',
+      provider: 'none' as any,
       data: { error: 'DEVICE_ID_REQUIRED' }
     }
   }
-  
+
   // 返回引擎配置信息，由调用方决定如何执行
-  // 实际的设备执行逻辑在 /api/devices/{id}/execute 中处理
   const { getAutomationConfig } = await import('./automation/config')
   const config = getAutomationConfig()
-  
+
   return {
     success: true,
     message: `写操作 ${action} 已路由到执行引擎: ${config.engine}`,
-    provider: config.engine as any,  // 'fingerprint' | 'real-device' | 'mock'
+    provider: config.engine as any,  // 'fingerprint' | 'real-device' | 'q1-adb'
     data: {
       action,
       platform,
       deviceId,
       engine: config.engine,
       fingerprintBrowser: config.fingerprintBrowser,
-      // 提示调用方应该使用 /api/devices/{id}/execute 来执行
       executeEndpoint: `/api/devices/${deviceId}/execute`
     }
   }
@@ -249,16 +226,16 @@ async function dispatchWriteEngine(ctx: EngineContext): Promise<AutomationResult
 async function handleSearch(params: Record<string, unknown>): Promise<AutomationResult> {
   const keyword = String(params.keyword || '')
   const count = Number(params.count || 10)
-  
+
   if (!keyword) {
     return {
       success: false,
       message: '缺少搜索关键词（keyword 参数）',
-      provider: getActiveEngines()[0] || ('mock' as any),
+      provider: 'none' as any,
       data: { error: 'MISSING_KEYWORD' }
     }
   }
-  
+
   return await douyinSearchVideo(keyword, count)
 }
 
@@ -268,16 +245,16 @@ async function handleSearch(params: Record<string, unknown>): Promise<Automation
 async function handleFetchComments(params: Record<string, unknown>): Promise<AutomationResult> {
   const videoUrl = String(params.videoUrl || '')
   const count = Number(params.count || 20)
-  
+
   if (!videoUrl) {
     return {
       success: false,
       message: '缺少视频 URL（videoUrl 参数）',
-      provider: getActiveEngines()[0] || ('mock' as any),
+      provider: 'none' as any,
       data: { error: 'MISSING_VIDEO_URL' }
     }
   }
-  
+
   return await douyinFetchComments(videoUrl, count)
 }
 
@@ -286,16 +263,16 @@ async function handleFetchComments(params: Record<string, unknown>): Promise<Aut
  */
 async function handleFetchUserProfile(params: Record<string, unknown>): Promise<AutomationResult> {
   const userId = String(params.userId || params.user_id || params.secUserId || params.sec_user_id || '')
-  
+
   if (!userId) {
     return {
       success: false,
       message: '缺少用户 ID（userId / secUserId 参数）',
-      provider: getActiveEngines()[0] || ('mock' as any),
+      provider: 'none' as any,
       data: { error: 'MISSING_USER_ID' }
     }
   }
-  
+
   return await douyinFetchUserProfile(userId)
 }
 
@@ -305,7 +282,7 @@ async function handleFetchUserProfile(params: Record<string, unknown>): Promise<
 async function handleTrendingTopics(params: Record<string, unknown>): Promise<AutomationResult> {
   const category = (params.category || 'all') as 'all' | 'hot' | 'realtime' | 'video' | 'live'
   const count = Number(params.count || 20)
-  
+
   return await douyinTrendingTopics(category, count)
 }
 
@@ -314,16 +291,16 @@ async function handleTrendingTopics(params: Record<string, unknown>): Promise<Au
  */
 async function handleVideoDetail(params: Record<string, unknown>): Promise<AutomationResult> {
   const videoUrl = String(params.videoUrl || '')
-  
+
   if (!videoUrl) {
     return {
       success: false,
       message: '缺少视频 URL（videoUrl 参数）',
-      provider: getActiveEngines()[0] || ('mock' as any),
+      provider: 'none' as any,
       data: { error: 'MISSING_VIDEO_URL' }
     }
   }
-  
+
   return await douyinVideoDetail(videoUrl)
 }
 
@@ -336,10 +313,9 @@ async function handleVideoDetail(params: Record<string, unknown>): Promise<Autom
  */
 async function handleExtract(params: Record<string, unknown>): Promise<AutomationResult> {
   const extractType = String(params.extractType || 'general')
-  
+
   switch (extractType) {
     case 'collection': {
-      // 完整采集流程：需要 keywords, platform, ownerId 等参数
       const { runCollection } = await import('./automation-providers')
       const result = await runCollection({
         keywords: (params.keywords as string[]) || [String(params.keyword || '')].filter(Boolean),
@@ -351,32 +327,32 @@ async function handleExtract(params: Record<string, unknown>): Promise<Automatio
       return {
         success: true,
         message: `采集完成: ${result.videos.length}视频, ${result.comments.length}评论, ${result.extractedLeads.length}线索`,
-        provider: getActiveEngines()[0] || ('mock' as any),
+        provider: getActiveEngines()[0] || ('none' as any),
         data: result,
       }
     }
-    
+
     case 'user_videos': {
       const secUserId = String(params.secUserId || params.userId || '')
       if (!secUserId) {
-        return { success: false, message: '缺少用户 ID', provider: getActiveEngines()[0] || ('mock' as any), data: { error: 'MISSING_USER_ID' } }
+        return { success: false, message: '缺少用户 ID', provider: 'none' as any, data: { error: 'MISSING_USER_ID' } }
       }
       return await douyinFetchUserVideos(secUserId, Number(params.count || 20))
     }
-    
+
     case 'search_user': {
       const keyword = String(params.keyword || '')
       if (!keyword) {
-        return { success: false, message: '缺少搜索关键词', provider: getActiveEngines()[0] || ('mock' as any), data: { error: 'MISSING_KEYWORD' } }
+        return { success: false, message: '缺少搜索关键词', provider: 'none' as any, data: { error: 'MISSING_KEYWORD' } }
       }
       return await douyinSearchUser(keyword, Number(params.count || 10))
     }
-    
+
     default:
       return {
         success: false,
         message: `不支持的提取类型: ${extractType}，支持: collection / user_videos / search_user`,
-        provider: getActiveEngines()[0] || ('mock' as any),
+        provider: 'none' as any,
         data: { error: 'UNSUPPORTED_EXTRACT_TYPE', extractType },
       }
   }
