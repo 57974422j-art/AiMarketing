@@ -264,20 +264,13 @@ export default function ApiKeyPanel({
               </h4>
               <p className="text-sm text-gray-500 mb-4 font-mono">用于后期处理中的高质量 AI 配音。需在火山引擎控制台开通语音合成服务</p>
               <div className="grid grid-cols-1 gap-4">
-                {[['App ID', 'VOLCANO_TTS_APP_ID', ttsAppId, showTtsAppId, s.setTtsAppId, s.setShowTtsAppId],
-                  ['Access Key', 'VOLCANO_TTS_ACCESS_KEY', ttsAccessKey, showTtsAccessKey, s.setTtsAccessKey, s.setShowTtsAccessKey],
-                  ['Resource ID', 'VOLCANO_TTS_RESOURCE_ID', ttsResourceId, showTtsResourceId, s.setTtsResourceId, s.setShowTtsResourceId],
-                ].map(([lbl, sub, val, show, setter, setShow]) => (
-                  <div key={String(sub)}>
-                    <label className="block text-label mb-2">{String(lbl)} <span className="opacity-50 ml-1">{String(sub)}</span></label>
+                  <div>
+                    <label className="block text-label mb-2">App ID <span className="opacity-50 ml-1">VOLCANO_TTS_APP_ID</span></label>
                     <div className="relative">
-                      <input type={(show as boolean) ? 'text' : 'password'} value={val as string}
-                        onChange={e => (setter as (v: string) => void)(e.target.value)}
-                        placeholder={`请输入 ${String(lbl)}`}
+                      <input type={showTtsAppId ? 'text' : 'password'} value={ttsAppId} onChange={e => s.setTtsAppId(e.target.value)} placeholder="请输入 App ID"
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-10" />
-                      <button type="button" onClick={() => (setShow as (v: boolean) => v => void 0)(!(show as boolean))}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
-                        {(show as boolean) ? (
+                      <button type="button" onClick={() => s.setShowTtsAppId(!showTtsAppId)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                        {showTtsAppId ? (
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
                         ) : (
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
@@ -285,7 +278,34 @@ export default function ApiKeyPanel({
                       </button>
                     </div>
                   </div>
-                ))}
+                  <div>
+                    <label className="block text-label mb-2">Access Key <span className="opacity-50 ml-1">VOLCANO_TTS_ACCESS_KEY</span></label>
+                    <div className="relative">
+                      <input type={showTtsAccessKey ? 'text' : 'password'} value={ttsAccessKey} onChange={e => s.setTtsAccessKey(e.target.value)} placeholder="请输入 Access Key"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-10" />
+                      <button type="button" onClick={() => s.setShowTtsAccessKey(!showTtsAccessKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                        {showTtsAccessKey ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-label mb-2">Resource ID <span className="opacity-50 ml-1">VOLCANO_TTS_RESOURCE_ID</span></label>
+                    <div className="relative">
+                      <input type={showTtsResourceId ? 'text' : 'password'} value={ttsResourceId} onChange={e => s.setTtsResourceId(e.target.value)} placeholder="请输入 Resource ID"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-10" />
+                      <button type="button" onClick={() => s.setShowTtsResourceId(!showTtsResourceId)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                        {showTtsResourceId ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                        )}
+                      </button>
+                    </div>
+                  </div>
               </div>
               <div className="mt-4">
                 <button type="button" onClick={() => {
