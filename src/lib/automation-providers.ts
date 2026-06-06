@@ -279,7 +279,7 @@ export async function runCollection(ctx: CollectionContext): Promise<{
         try {
           const commentResult = await justoneFetchComments(videoUrl, 10)
           if (commentResult.success && commentResult.data) {
-            const commentList = commentResult.data.comments || commentResult.data || []
+            const commentList: Record<string, unknown>[] = (commentResult.data as any).comments || []
             comments.push(...commentList)
 
             // Step 4: 从评论中提取潜在线索
