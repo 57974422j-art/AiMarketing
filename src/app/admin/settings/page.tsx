@@ -119,7 +119,7 @@ export default function SettingsPage() {
         volcano: d.volcanoConfigured ? 'ok' : null,
         tts: (d.ttsAppIdConfigured && d.ttsAccessKeyConfigured && d.ttsResourceIdConfigured) ? 'ok' : null,
         oss: d.ossConfigured ? 'ok' : null,
-        queryEngine: undefined,
+        queryEngine: null,
       })
     } catch (e) {
       console.error('加载配置失败:', e)
