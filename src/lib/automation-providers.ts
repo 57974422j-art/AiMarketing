@@ -257,7 +257,7 @@ export async function runCollection(ctx: CollectionContext): Promise<{
         continue
       }
 
-      const videoList = searchResult.data.list || searchResult.data.videos || searchResult.data || []
+      const videoList: Record<string, unknown>[] = (searchResult.data as any).list || (searchResult.data as any).videos || []
       
       for (const video of videoList.slice(0, resultsPerKeyword)) {
         const videoUrl = video.video_url || video.share_url || video.aweme_id || ''
