@@ -412,7 +412,7 @@ export default function AdminScriptTemplatesPage() {
                 onChange={e => setType(e.target.value)}
               >
                 {SCRIPT_TYPES.map(t => (
-                  <option key={t.id} value={t} className="bg-gray-900">{t.icon} {t.id}</option>
+                  <option key={t.id} value={t.id} className="bg-gray-900">{t.icon} {t.id}</option>
                 ))}
               </select>
               <input
