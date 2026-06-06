@@ -381,7 +381,8 @@ export default function EnginePanel({
           {/* 统计 */}
           {proxyStats && (
             <div className="grid grid-cols-5 gap-2 mb-3">
-              {(Object.entries(proxyStats) as [string, number][]).map(([key, val]) => {
+              {(['total', 'enabled', 'ok', 'fail', 'untested'] as const).map(key => {
+                const val = proxyStats[key]
                 const map: Record<string, [string, string]> = {
                   total: ['总计', 'gray'], enabled: ['启用', 'blue'], ok: ['可用', 'emerald'],
                   fail: ['失败', 'red'], untested: ['未测', 'yellow'],
