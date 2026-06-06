@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { requireAdminOrEditor } from '@/lib/auth';
+import { PrismaClient } from '@prisma/client';
+import { getAuthFromHeaders } from '@/lib/api-auth';
+
+const prisma = new PrismaClient();
 
 /* GET: 获取直播间商品列表 */
 export async function GET(req: NextRequest) {
@@ -8,8 +10,9 @@ export async function GET(req: NextRequest) {
     const roomId = req.nextUrl.searchParams.get('roomId');
     if (!roomId) return NextResponse.json({ success: false, message: '缺少 roomId' });
 
-    const auth = await requireAdminOrEditor(req);
-    if (auth) return auth;
+    const auth = getAuthFromHeaders(req)
+    if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权访问' }, { status: 403 })
 
     const products = await prisma.liveProduct.findMany({
       where: { roomId: parseInt(roomId) },
@@ -31,8 +34,9 @@ export async function POST(req: NextRequest) {
 
     if (!roomId || !name) return NextResponse.json({ success: false, message: '缺少必要参数' });
 
-    const auth = await requireAdminOrEditor(req);
-    if (auth) return auth;
+    const auth = getAuthFromHeaders(req)
+    if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
 
     /* 获取当前最大排序值 */
     const lastProduct = await prisma.liveProduct.findFirst({

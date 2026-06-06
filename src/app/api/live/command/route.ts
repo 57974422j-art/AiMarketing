@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { requireAdminOrEditor } from '@/lib/auth';
+import { PrismaClient } from '@prisma/client';
+import { getAuthFromHeaders } from '@/lib/api-auth';
+
+const prisma = new PrismaClient();
 
 /* POST: 执行直播控制命令 */
 export async function POST(req: NextRequest) {
@@ -10,8 +12,9 @@ export async function POST(req: NextRequest) {
 
     if (!roomId || !command) return NextResponse.json({ success: false, message: '缺少参数' });
 
-    const auth = await requireAdminOrEditor(req);
-    if (auth) return auth;
+    const auth = getAuthFromHeaders(req)
+    if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
 
     const room = await prisma.liveRoom.findUnique({ where: { id: roomId } });
     if (!room) return NextResponse.json({ success: false, message: '直播间不存在' }, { status: 404 });

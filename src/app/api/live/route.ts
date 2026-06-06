@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { requireAdminOrEditor } from '@/lib/auth';
+import { PrismaClient } from '@prisma/client';
+import { getAuthFromHeaders } from '@/lib/api-auth';
+
+const prisma = new PrismaClient();
 
 /* GET: 获取当前用户的直播间列表 */
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireAdminOrEditor(req);
-    if (auth) return auth;
+    const auth = getAuthFromHeaders(req)
+    if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权访问' }, { status: 403 })
 
     // TODO: 从 session 获取真实 userId，暂用 admin 查询
     const user = await prisma.user.findFirst({ where: { role: 'admin' } });
@@ -37,8 +40,9 @@ export async function POST(req: NextRequest) {
 
     if (!name) return NextResponse.json({ success: false, message: '直播间名称不能为空' });
 
-    const auth = await requireAdminOrEditor(req);
-    if (auth) return auth;
+    const auth = getAuthFromHeaders(req)
+    if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
 
     const user = await prisma.user.findFirst({ where: { role: 'admin' } });
     if (!user) return NextResponse.json({ success: false, message: '用户不存在' }, { status: 404 });
@@ -68,8 +72,9 @@ export async function PUT(req: NextRequest) {
 
     if (!id) return NextResponse.json({ success: false, message: '缺少 ID' });
 
-    const auth = await requireAdminOrEditor(req);
-    if (auth) return auth;
+    const auth = getAuthFromHeaders(req)
+    if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+    if (auth.role === 'end-user') return NextResponse.json({ success: false, message: '无权操作' }, { status: 403 })
 
     const updateData: Record<string, unknown> = {};
     if (name !== undefined) updateData.name = name;
