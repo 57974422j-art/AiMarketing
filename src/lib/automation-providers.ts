@@ -21,7 +21,7 @@
 
 // ==================== 类型定义 ====================
 
-export type AutomationEngine = 'douyin-official' 'mediacrawler' | 'q1-coordinates' | 'fingerprint'
+export type AutomationEngine = 'douyin-official' | 'mediacrawler' | 'q1-coordinates' | 'fingerprint'
 
 export interface AutomationResult {
   success: boolean
