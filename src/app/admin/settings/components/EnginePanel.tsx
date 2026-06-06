@@ -433,7 +433,7 @@ export default function EnginePanel({
                   className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white text-xs font-mono w-28" />
                 <input placeholder="端口" value={newProxy.port} onChange={e => s.setNewProxy(p => ({ ...p, port: e.target.value }))}
                   className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white text-xs font-mono w-16" />
-                <select value={newProxy.protocol} onChange={e => s.setNewProxy(p => ({ ...p, protocol: e.target.value as any }))}
+                <select value={String(newProxy.protocol)} onChange={e => s.setNewProxy(p => ({ ...p, protocol: e.target.value as 'http' | 'https' | 'socks5' }))}
                   className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-white text-xs font-mono w-16">
                   <option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option>
                 </select>
