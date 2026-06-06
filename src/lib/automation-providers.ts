@@ -3,20 +3,19 @@
  * 
  * 架构设计：
  * ┌─────────────────────────────────────────────────┐
- * │  Engine Type: douyin-official | mediacrawler    │
+ * │  Engine Type: mediacrawler | douyin-official     │
  * ├─────────────────────────────────────────────────┤
+ * │  mediacrawler: MediaCrawler 爬虫服务（推荐）      │
  * │  douyin-official: 抖音开放平台官方API（待接入）    │
- * │  mediacrawler: MediaCrawler 爬虫服务（待部署）   │
  * └─────────────────────────────────────────────────┘
  * 
- * 当前状态：数据采集功能依赖 MediaCrawler 服务。
- * 在 MediaCrawler 部署完成前，以下接口返回 "未配置" 提示，
- * 不再返回任何假数据（旧 Mock 已全部移除）。
+ * 数据源优先级：MediaCrawler → 抖音官方API → 返回提示信息
  * 
  * 环境变量：
- *   DOUYIN_APP_ID          - 抖音开放平台 App ID（可选，企业资质申请后使用）
+ *   DOUYIN_APP_ID          - 抖音开放平台 App ID（可选）
  *   DOUYIN_APP_SECRET      - 抖音开放平台 App Secret
- *   MEDIACRAWLER_URL       - MediaCrawler 服务地址（如 http://127.0.0.1:8000）
+ *   MEDIA_CRAWLER_PATH     - MediaCrawler 安装路径（默认 /opt/MediaCrawler）
+ *   PYTHON_BIN             - Python 可执行文件（默认 python3）
  */
 
 // ==================== 类型定义 ====================
@@ -54,7 +53,9 @@ export function isEngineConfigured(engine: AutomationEngine): boolean {
     case 'douyin-official':
       return !!(process.env.DOUYIN_APP_ID && process.env.DOUYIN_APP_SECRET)
     case 'mediacrawler':
-      return !!process.env.MEDIACRAWLER_URL
+      // MediaCrawler 通过检查路径是否存在判断是否可用
+      // 实际可用性由 crawler-client.checkHealth() 运行时确认
+      return !!process.env.AUTOMATION_ENGINE?.includes('mediacrawler') || !!process.env.MEDIA_CRAWLER_PATH
     case 'q1-coordinates': case 'fingerprint':
       return true
     default:
@@ -71,6 +72,45 @@ export function getDouyinConfig(): DouyinConfig | null {
     appId,
     appSecret,
     accessToken: process.env.DOUYIN_ACCESS_TOKEN || undefined,
+  }
+}
+
+/**
+ * 通过内部 API 调用 MediaCrawler（进程隔离）
+ * 仅在 mediacrawler 引擎启用时使用
+ */
+async function viaMediaCrawler<T = unknown>(
+  action: 'search' | 'comments' | 'user' | 'trending' | 'detail',
+  params: Record<string, string>
+): Promise<AutomationResult | null> {
+  // 检查是否配置了 mediacrawler 引擎
+  const engines = getActiveEngines()
+  if (!engines.includes('mediacrawler') && !process.env.MEDIA_CRAWLER_PATH) return null
+
+  try {
+    // 动态导入 crawler-client（避免在未安装时加载失败）
+    const { crawl } = await import('@/app/api/mediacrawler/lib/crawler-client')
+    const result = await crawl<T>(action, params)
+
+    if (result.success) {
+      return {
+        success: true,
+        message: `MediaCrawler ${action} 成功`,
+        provider: 'mediacrawler',
+        data: result.data as Record<string, unknown>,
+      }
+    }
+
+    // 爬虫执行失败但不是致命错误，返回错误信息让上层决定是否 fallback
+    return {
+      success: false,
+      message: result.error?.message || `MediaCrawler ${action} 失败`,
+      provider: 'mediacrawler',
+      data: { error: result.error?.code, retryable: result.error?.retryable },
+    }
+  } catch (e: any) {
+    console.error(`[MediaCrawler] ${action} 异常:`, e.message)
+    return null // 导入失败或异常时返回 null，走 fallback
   }
 }
 
@@ -114,6 +154,11 @@ async function douyinOfficialRequest(
  * 搜索关键词获取视频列表
  */
 export async function douyinSearchVideo(keyword: string, count = 10): Promise<AutomationResult> {
+  // 1. 尝试 MediaCrawler
+  const mcResult = await viaMediaCrawler('search', { keyword: String(keyword), count: String(count) })
+  if (mcResult) return mcResult
+
+  // 2. 尝试抖音官方 API
   try {
     // 优先尝试抖音官方 API
     if (isEngineConfigured('douyin-official')) {
@@ -148,6 +193,11 @@ export async function douyinFetchComments(
   count = 20,
   cursor = 0
 ): Promise<AutomationResult> {
+  // 1. 尝试 MediaCrawler
+  const mcResult = await viaMediaCrawler('comments', { url: videoUrl, count: String(count) })
+  if (mcResult) return mcResult
+
+  // 2. 尝试抖音官方 API
   try {
     if (isEngineConfigured('douyin-official')) {
       const data = await douyinOfficialRequest('/comment/list/v1/', {
@@ -180,6 +230,11 @@ export async function douyinFetchComments(
  * 获取抖音用户详细信息
  */
 export async function douyinFetchUserProfile(secUserId: string): Promise<AutomationResult> {
+  // 1. 尝试 MediaCrawler
+  const mcResult = await viaMediaCrawler('user', { sec_user_id: secUserId })
+  if (mcResult) return mcResult
+
+  // 2. 尝试抖音官方 API
   try {
     if (isEngineConfigured('douyin-official')) {
       const data = await douyinOfficialRequest('/user/profile/v3/', { sec_user_id: secUserId })
@@ -208,6 +263,11 @@ export async function douyinFetchUserProfile(secUserId: string): Promise<Automat
  * 获取视频的详细信息和互动数据
  */
 export async function douyinVideoDetail(videoUrl: string): Promise<AutomationResult> {
+  // 1. 尝试 MediaCrawler
+  const mcResult = await viaMediaCrawler('detail', { url: videoUrl })
+  if (mcResult) return mcResult
+
+  // 2. 尝试抖音官方 API
   try {
     if (isEngineConfigured('douyin-official')) {
       const data = await douyinOfficialRequest('/video/detail/v2/', { video_url: videoUrl })
@@ -239,8 +299,11 @@ export async function douyinTrendingTopics(
   category: 'all' | 'hot' | 'realtime' | 'video' | 'live' = 'all',
   count = 20
 ): Promise<AutomationResult> {
-  // 热门话题目前无稳定的外部数据源
-  // 建议：后续通过 MediaCrawler 的 trending 接口或 AI 生成替代
+  // 1. 尝试 MediaCrawler
+  const mcResult = await viaMediaCrawler('trending', { category, count: String(count) })
+  if (mcResult) return mcResult
+
+  // 2. 无可用数据源
   return {
     success: false,
     message: `热门话题功能待接入：请部署 MediaCrawler 或使用 AI 生成的行业简报。`,
@@ -259,6 +322,11 @@ export async function douyinFetchUserVideos(
   count = 20,
   cursor = 0
 ): Promise<AutomationResult> {
+  // 1. 尝试 MediaCrawler
+  const mcResult = await viaMediaCrawler('search', { keyword: `user:${secUserId}`, count: String(count) })
+  if (mcResult) return mcResult
+
+  // 2. 尝试抖音官方 API
   try {
     if (isEngineConfigured('douyin-official')) {
       const data = await douyinOfficialRequest('/user/videos/v3/', {
@@ -291,6 +359,11 @@ export async function douyinFetchUserVideos(
  * 通过关键词搜索抖音用户
  */
 export async function douyinSearchUser(keyword: string, count = 10): Promise<AutomationResult> {
+  // MediaCrawler 暂不支持独立用户搜索，走 search 的 user 模式
+  const mcResult = await viaMediaCrawler('search', { keyword, count: String(count) })
+  if (mcResult) return mcResult
+
+  // 尝试抖音官方 API
   try {
     if (isEngineConfigured('douyin-official')) {
       const data = await douyinOfficialRequest('/user/search/v2/', {

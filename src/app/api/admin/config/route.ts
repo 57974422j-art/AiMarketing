@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, mcPath, mcPythonBin } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -140,6 +140,18 @@ export async function POST(request: NextRequest) {
       else envContent += `\nAUTOMATION_ENGINE=${automationEngine}`;
     }
 
+    // MediaCrawler 配置
+    if (mcPath !== undefined) {
+      const p = /^MEDIA_CRAWLER_PATH=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `MEDIA_CRAWLER_PATH=${mcPath}`);
+      else envContent += `\nMEDIA_CRAWLER_PATH=${mcPath}`;
+    }
+    if (mcPythonBin !== undefined) {
+      const p = /^PYTHON_BIN=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `PYTHON_BIN=${mcPythonBin}`);
+      else envContent += `\nPYTHON_BIN=${mcPythonBin}`;
+    }
+
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
     console.log('[Admin-Config] 配置已保存到 .env.local');
@@ -153,6 +165,8 @@ export async function POST(request: NextRequest) {
     if (ossAccessKeyId !== undefined) process.env.OSS_ACCESS_KEY_ID = ossAccessKeyId
     if (ossAccessKeySecret !== undefined) process.env.OSS_ACCESS_KEY_SECRET = ossAccessKeySecret
     if (ossBucket !== undefined) process.env.OSS_BUCKET = ossBucket
+    if (mcPath !== undefined) process.env.MEDIA_CRAWLER_PATH = mcPath
+    if (mcPythonBin !== undefined) process.env.PYTHON_BIN = mcPythonBin
 
     return NextResponse.json({
       success: true,
@@ -198,6 +212,8 @@ export async function GET(request: NextRequest) {
     const ttsAccessKey = await readEnv('VOLCANO_TTS_ACCESS_KEY');
     const ttsResourceId = await readEnv('VOLCANO_TTS_RESOURCE_ID');
     const automationEngine = await readEnv('AUTOMATION_ENGINE');
+    const mcPath = await readEnv('MEDIA_CRAWLER_PATH');
+    const mcPythonBin = await readEnv('PYTHON_BIN');
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -213,6 +229,8 @@ export async function GET(request: NextRequest) {
         ttsAccessKeyConfigured: !!ttsAccessKey,
         ttsResourceIdConfigured: !!ttsResourceId,
         automationEngine: automationEngine || 'mediacrawler',
+        mcPath: mcPath || '/opt/MediaCrawler',
+        mcPythonBin: mcPythonBin || 'python3',
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''

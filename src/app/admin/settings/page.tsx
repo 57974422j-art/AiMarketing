@@ -50,6 +50,11 @@ export default function SettingsPage() {
   const [showTtsResourceId, setShowTtsResourceId] = useState(false);
   const [queryEngine, setQueryEngine] = useState('mediacrawler');
   const [actionEngine, setActionEngine] = useState('q1-adb');
+  // MediaCrawler 配置
+  const [mcPath, setMcPath] = useState('/opt/MediaCrawler');
+  const [mcPythonBin, setMcPythonBin] = useState('python3');
+  const [mcHealthStatus, setMcHealthStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
+  const [mcHealthDetail, setMcHealthDetail] = useState<string>('');
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -75,6 +80,9 @@ export default function SettingsPage() {
         setTtsAppId(d.ttsAppIdConfigured ? '********' : '')
         setTtsAccessKey(d.ttsAccessKeyConfigured ? '********' : '')
         setTtsResourceId(d.ttsResourceIdConfigured ? '********' : '')
+        // MediaCrawler 配置
+        if (d.mcPath) setMcPath(d.mcPath)
+        if (d.mcPythonBin) setMcPythonBin(d.mcPythonBin)
         setStatusMap({
           deepseek: d.deepseekConfigured ? 'ok' : null,
           siliconflow: d.siliconflowConfigured ? 'ok' : null,
@@ -225,6 +233,29 @@ export default function SettingsPage() {
     }
   };
 
+  // 测试 MediaCrawler 连接
+  const testMediaCrawler = async () => {
+    setMcHealthStatus('checking')
+    setMcHealthDetail('正在检查...')
+    try {
+      const response = await fetch('/api/mediacrawler', { credentials: 'include' })
+      const result = await response.json()
+      if (result.success && result.data?.available) {
+        setMcHealthStatus('ok')
+        setMcHealthDetail(`Python OK | 路径: ${result.data.pathExists ? '存在' : '不存在'}${result.data.version ? ` | v${result.data.version}` : ''}`)
+        setStatusMap(prev => ({ ...prev, queryEngine: 'ok' }))
+      } else {
+        setMcHealthStatus('fail')
+        setMcHealthDetail(result.data?.error || result.message || '连接失败')
+        setStatusMap(prev => ({ ...prev, queryEngine: 'fail' }))
+      }
+    } catch (e: any) {
+      setMcHealthStatus('fail')
+      setMcHealthDetail(e.message || '网络错误')
+      setStatusMap(prev => ({ ...prev, queryEngine: 'fail' }))
+    }
+  };
+
   // 测试 OSS 配置
   const testOSSConnection = async () => {
     if (!ossRegion || !ossAccessKeyId || !ossAccessKeySecret || !ossBucket) {
@@ -291,6 +322,8 @@ export default function SettingsPage() {
           ttsResourceId: actualTtsResourceId || undefined,
           queryEngine: queryEngine || undefined,
           actionEngine: actionEngine || undefined,
+          mcPath: mcPath || undefined,
+          mcPythonBin: mcPythonBin || undefined,
         })
       });
 
@@ -708,6 +741,56 @@ export default function SettingsPage() {
               💡 推荐使用 MediaCrawler 爬虫服务，需先部署 MediaCrawler 并配置 cookie
             </p>
           </div>
+
+          {/* MediaCrawler 详细配置（当选择 mediacrawler 时显示） */}
+          {queryEngine === 'mediacrawler' && (
+            <div className="mt-4 p-4 rounded-xl bg-blue-500/5 border border-blue-500/20">
+              <h4 className="text-sm font-medium text-blue-400 mb-3 flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
+                MediaCrawler 服务配置
+              </h4>
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">安装路径</label>
+                  <input
+                    type="text"
+                    value={mcPath}
+                    onChange={(e) => setMcPath(e.target.value)}
+                    placeholder="/opt/MediaCrawler"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-blue-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Python 路径</label>
+                  <input
+                    type="text"
+                    value={mcPythonBin}
+                    onChange={(e) => setMcPythonBin(e.target.value)}
+                    placeholder="python3"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-blue-500/50"
+                  />
+                </div>
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={testMediaCrawler}
+                    disabled={mcHealthStatus === 'checking'}
+                    className="px-3 py-1.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-lg hover:bg-blue-500/30 disabled:opacity-50 font-mono text-xs"
+                  >
+                    {mcHealthStatus === 'checking' ? '检查中...' : '检查连接'}
+                  </button>
+                  {mcHealthStatus !== 'idle' && (
+                    <span className={`text-xs font-mono ${mcHealthStatus === 'ok' ? 'text-emerald-400' : mcHealthStatus === 'fail' ? 'text-red-400' : 'text-gray-400'}`}>
+                      {mcHealthStatus === 'ok' ? '✅' : mcHealthStatus === 'fail' ? '❌' : ''} {mcHealthDetail}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-600 mt-2 font-mono">
+                需要在服务器上安装 MediaCrawler + Python3 + Playwright，详见 docs/mediaCrawler-integration.md
+              </p>
+            </div>
+          )}
 
           {/* 动作执行引擎（Write Engine） */}
           <div className="mt-6 pt-6 border-t border-white/10">
