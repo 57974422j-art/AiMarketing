@@ -99,7 +99,7 @@ export default function AgentDashboardPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <p className="text-label mb-2">代理工作台 / AGENT DASHBOARD</p>
           <h1 className="text-mono-lg text-white">
-            欢迎，<span className="text-emerald-400">{user.name || user.username}</span>
+            欢迎，<span className="text-emerald-400">{user.username}</span>
             {' '}<span className="text-sm font-normal text-gray-500">| {user.role}</span>
           </h1>
           <p className="text-gray-400 text-sm mt-2">管理您的客户、跟踪业绩、查看实时动态</p>
