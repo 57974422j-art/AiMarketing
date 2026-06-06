@@ -36,7 +36,7 @@ const MOCK_CHECKS: Omit<CheckItem, 'status'>[] = [
   /* 系统健康 */
   { key: 'sys_aikey', category: '系统', label: 'AI API Key 状态', message: '所有Key有效', detail: '腾讯云/智谱/通义均正常', fix: '' },
   { key: 'sys_oss', category: '系统', label: 'OSS 存储状态', message: '存储正常', detail: '已用 2.3GB / 50GB (4.6%)', fix: '' },
-  { key: 'sys_db', category: '系统', label: '数据库性能', message: '响应正常', message: '查询延迟 avg 23ms, 无慢查询', fix: '', detail: '' },
+  { key: 'sys_db', category: '系统', label: '数据库性能', message: '响应正常，查询延迟 avg 23ms, 无慢查询', fix: '', detail: '' },
 ];
 
 const CATEGORY_ICONS: Record<string, string> = {
