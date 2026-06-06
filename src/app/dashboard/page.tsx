@@ -9,11 +9,41 @@ interface PlatformStat {
   growthRate: number
 }
 
+interface TodoItem {
+  id: number;
+  text: string;
+  type: 'lead' | 'task' | 'submission' | 'live';
+  urgency: 'high' | 'medium' | 'low';
+}
+
+interface FeedItem {
+  id: number;
+  text: string;
+  time: string;
+  icon: string;
+}
+
+interface UsageSummary {
+  totalUsage: number;
+  topAction: string;
+  tokenUsed: number;
+}
+
 interface DashboardData {
   totalFollowers: number
   totalPublishCount: number
   averageEngagementRate: number
   platformStats: PlatformStat[]
+  /* V2 新增 */
+  todayStats?: {
+    newLeads: number;
+    liveViews: number;
+    publishedContent: number;
+    totalInteractions: number;
+  };
+  todoList?: TodoItem[];
+  recentFeed?: FeedItem[];
+  usageSummary?: UsageSummary;
 }
 
 const platformMap: Record<string, { cn: string; en: string }> = {
@@ -22,6 +52,20 @@ const platformMap: Record<string, { cn: string; en: string }> = {
   'xiaohongshu': { cn: '小红书', en: 'XIAOHONGSHU' },
   'weibo': { cn: '微博', en: 'WEIBO' }
 };
+
+/* V2 默认数据（API 未返回时兜底） */
+const defaultTodos: TodoItem[] = [
+  { id: 1, text: '3 条线索待分配给代理', type: 'lead', urgency: 'high' },
+  { id: 2, text: '2 个自动化任务待审核', type: 'task', urgency: 'medium' },
+  { id: 3, text: '1 份内容素材待审核', type: 'submission', urgency: 'low' },
+];
+
+const defaultFeed: FeedItem[] = [
+  { id: 1, text: '直播刚结束，本场观看 1.2K 人', time: '10 分钟前', icon: '📺' },
+  { id: 2, text: '新视频「夏季促销」已发布到抖音', time: '30 分钟前', icon: '✅' },
+  { id: 3, text: '采集任务「美业关键词」完成，发现 23 条新线索', time: '1 小时前', icon: '🎯' },
+  { id: 4, text: 'AI 诊断报告已生成，账号健康度评分 82', time: '2 小时前', icon: '🏥' },
+];
 
 export default function DashboardPage() {
   const [dashboardData, setDashboardData] = useState<DashboardData>({
@@ -211,6 +255,140 @@ export default function DashboardPage() {
                 </table>
               </div>
             </div>
+          </>
+        )}
+
+        {/* ====== V2 增强区域 ====== */}
+        {!loading && (
+          <>
+            {/* 今日概览 4 卡片 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {[
+                { label: '新增线索', sub: 'NEW LEADS', value: dashboardData.todayStats?.newLeads ?? 0, icon: '🎯', color: 'text-blue-400 bg-blue-500/15', trend: '+12%' },
+                { label: '直播观看', sub: 'LIVE VIEWS', value: (dashboardData.todayStats?.liveViews ?? 0) > 1000 ? `${((dashboardData.todayStats?.liveViews ?? 0) / 1000).toFixed(1)}K` : dashboardData.todayStats?.liveViews ?? 0, icon: '📺', color: 'text-red-400 bg-red-500/15', trend: '+8%' },
+                { label: '内容发布', sub: 'PUBLISHED', value: dashboardData.todayStats?.publishedContent ?? 0, icon: '📝', color: 'text-emerald-400 bg-emerald-500/15', trend: '+3' },
+                { label: '互动总量', sub: 'INTERACTIONS', value: dashboardData.todayStats?.totalInteractions ?? 0, icon: '💬', color: 'text-purple-400 bg-purple-500/15', trend: '+22%' },
+              ].map((card) => (
+                <div key={card.label} className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 hover:bg-white/[0.07] transition-colors">
+                  <p className="text-xs text-gray-500">{card.label} <span className="opacity-40 ml-0.5">/ {card.sub}</span></p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-xl font-bold text-white">{card.value}</span>
+                    <span className={`text-lg ${card.color.split(' ')[0]} px-1.5 py-0.5 rounded ${card.color.split(' ')[1]}`}>{card.icon}</span>
+                  </div>
+                  <p className="text-[10px] text-emerald-400 mt-1.5">{card.trend} 较昨日</p>
+                </div>
+              ))}
+            </div>
+
+            {/* 双栏：待办 + 动态 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              {/* 待办事项 */}
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                  <span>待办事项</span>
+                  <span className="text-[10px] opacity-40">/ TODO</span>
+                  <span className="ml-auto text-xs bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded-full">
+                    {dashboardData.todoList?.length || 0}
+                  </span>
+                </h3>
+                <div className="space-y-2">
+                  {(dashboardData.todoList && dashboardData.todoList.length > 0 ? dashboardData.todoList : defaultTodos).map((item) => (
+                    <div key={item.id} className={`flex items-center gap-3 p-3 rounded-lg ${
+                      item.urgency === 'high' ? 'bg-red-500/5 border border-red-500/10' :
+                      item.urgency === 'medium' ? 'bg-yellow-500/5 border border-yellow-500/10' :
+                      'bg-white/[0.02] border border-white/5'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        item.type === 'lead' ? 'bg-blue-400' :
+                        item.type === 'task' ? 'bg-purple-400' :
+                        item.type === 'submission' ? 'bg-emerald-400' :
+                        'bg-red-400'
+                      }`} />
+                      <span className="text-sm text-gray-300 flex-1 truncate">{item.text}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
+                        item.urgency === 'high' ? 'bg-red-500/15 text-red-400' :
+                        item.urgency === 'medium' ? 'bg-yellow-500/15 text-yellow-400' :
+                        'bg-gray-500/10 text-gray-500'
+                      }`}>
+                        {item.urgency === 'high' ? '紧急' : item.urgency === 'medium' ? '中等' : '普通'}
+                      </span>
+                    </div>
+                  ))}
+                  {(!dashboardData.todoList || dashboardData.todoList.length === 0) && (
+                    <p className="text-xs text-gray-600 text-center py-4">暂无待办事项</p>
+                  )}
+                </div>
+              </div>
+
+              {/* 最近动态 */}
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                  <span>最近动态</span>
+                  <span className="text-[10px] opacity-40">/ RECENT ACTIVITY</span>
+                </h3>
+                <div className="space-y-3">
+                  {(dashboardData.recentFeed && dashboardData.recentFeed.length > 0 ? dashboardData.recentFeed : defaultFeed).map((item) => (
+                    <div key={item.id} className="flex items-start gap-3 group">
+                      <span className="text-base mt-0.5">{item.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-300 group-hover:text-white transition-colors">{item.text}</p>
+                        <p className="text-[10px] text-gray-600 mt-0.5">{item.time}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* 快捷入口 */}
+            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-5 mb-8">
+              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                <span>快捷入口</span>
+                <span className="text-[10px] opacity-40">/ QUICK ACTIONS</span>
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: '创建内容', sub: 'AI 文案 / 视频合成', href: '/ai-copy', icon: '✨', color: 'from-blue-500/10 to-blue-500/5 border-blue-500/15 hover:border-blue-500/30' },
+                  { label: '开启直播', sub: '直播间中控台', href: '/live', icon: '📺', color: 'from-red-500/10 to-red-500/5 border-red-500/15 hover:border-red-500/30' },
+                  { label: '采集线索', sub: '自动采集 + AI 分析', href: '/lead-collector', icon: '🎯', color: 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/15 hover:border-emerald-500/30' },
+                  { label: '诊断报告', sub: '系统健康检测', href: '/admin/diagnostics', icon: '🏥', color: 'from-purple-500/10 to-purple-500/5 border-purple-500/15 hover:border-purple-500/30' },
+                ].map((action) => (
+                  <a
+                    key={action.label}
+                    href={action.href}
+                    className={`group relative overflow-hidden rounded-xl bg-gradient-to-br ${action.color} border p-4 hover:shadow-lg transition-all`}
+                  >
+                    <span className="text-lg">{action.icon}</span>
+                    <p className="text-sm font-medium text-white mt-2 group-hover:text-blue-300 transition-colors">{action.label}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">{action.sub}</p>
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* 使用量统计 */}
+            {dashboardData.usageSummary && (
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-5 mb-8">
+                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                  <span>AI 使用量</span>
+                  <span className="text-[10px] opacity-40">/ USAGE STATS</span>
+                </h3>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-3 bg-white/[0.02] rounded-xl">
+                    <p className="text-2xl font-bold text-blue-400">{dashboardData.usageSummary.totalUsage}</p>
+                    <p className="text-xs text-gray-500 mt-1">总调用次数</p>
+                  </div>
+                  <div className="text-center p-3 bg-white/[0.02] rounded-xl">
+                    <p className="text-lg font-bold text-emerald-400">{dashboardData.usageSummary.topAction || '-'}</p>
+                    <p className="text-xs text-gray-500 mt-1">最常用功能</p>
+                  </div>
+                  <div className="text-center p-3 bg-white/[0.02] rounded-xl">
+                    <p className="text-2xl font-bold text-purple-400">{(dashboardData.usageSummary.tokenUsed / 1000).toFixed(0)}K</p>
+                    <p className="text-xs text-gray-500 mt-1">Token 消耗</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

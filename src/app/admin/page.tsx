@@ -31,6 +31,7 @@ const sections: CardSection[] = [
     items: [
       { title: 'AI 系统诊断', desc: '一键检测账号/设备/内容/系统健康度', href: '/admin/diagnostics', icon: '🏥', roles: ['admin'] },
       { title: '行业简报', desc: 'AI生成营销洞察报告与趋势分析', href: '/admin/briefings', icon: '📊', roles: ['admin', 'editor'] },
+      { title: 'SOP 工作流', desc: '内容生产/直播运营/客户获取标准化流程', href: '/dashboard/sop', icon: '📋', roles: ['admin', 'editor'] },
     ],
   },
   {

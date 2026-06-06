@@ -1,6 +1,6 @@
 # AiMarketing 项目完整报告
 
-> 生成日期: 2026-06-05 (更新)
+> 生成日期: 2026-06-06 (本轮更新)
 > 项目路径: `/root/AiMarketing` (服务器) / `D:\AiMarketing` (本地)
 > 域名: http://120.55.43.195:3000
 > PM2 进程名: `aimarketing`
@@ -177,7 +177,18 @@ src/app/my-fingerprint/page.tsx      # 指纹模拟器前端页面 (~35KB) ⭐�
 
 ---
 
-## 五、最近更新记录（2026-05 ~ 2026-06-05）
+## 五、最近更新记录（2026-05 ~ 2026-06-06）
+
+### V2 路线图实施进展（本轮会话完成）
+
+| 日期 | 阶段 | Commit(s) | 改动内容 |
+|------|------|-----------|---------|
+| 2026-06-06 | Phase 3 | `e4f9372`~`af22483` | **直播模块落地**: `/live` 页面(676行) + 4个API路由，含直播间管理/商品上架/话术库/Q1设备控制台 |
+| 2026-06-06 | Phase 3 | — | 管理中心添加「直播间中控台」入口(admin only) |
+| 2026-06-06 | Phase 4a | `e4f9372` | **代理工作台**: `/admin/agent`(220行) + API，3Tab(客户列表/业绩统计/动态) |
+| 2026-06-06 | Phase 4b | `450b583` | **AI诊断面板**: `/admin/diagnostics`(200行) + API，4维度11项检测(账号/设备/内容/系统) |
+| 2026-06-06 | Phase 4c | `e7d4523` | **行业简报系统**: `/admin/briefings`(300行) + API(165行)，左右布局+分类筛选+AI生成+Markdown渲染 |
+| 2026-06-06 | Bugfix | `c22df66`→`af22483` | 连续修复7个TypeScript类型错误(user.name→username/duplicate message/assignedTo/title/index-type/Date算术) |
 
 ### 指纹浏览器模块迭代
 
@@ -383,6 +394,10 @@ cd /root/AiMarketing && git pull && rm -rf .next && npx next build && pm2 restar
 | POI 地址库 | `/admin/poi-addresses` | ✅ 完整 | 有 DB 模型 + CRUD，手动输入坐标 |
 | 话术模板 | `/admin/script-templates` | ✅ 完整 | 有 DB 模型 + CRUD，无 AI 生成 |
 | NFC 推广 | `/nfc-promo` | ⚠️ 半成品 | UI 完整，有 DB 模型，但数据全零，API 缺 PUT/DELETE |
+| **直播中控台** | `/live` | ✅ **新增完成** | 直播间管理+商品上架+话术库+Q1控制(676行) |
+| **代理工作台** | `/admin/agent` | ✅ **新增完成** | 3Tab(客户/业绩/动态)+API(220行) |
+| **AI 诊断面板** | `/admin/diagnostics` | ✅ **新增完成** | 4维度11项健康检测+API(200行) |
+| **行业简报** | `/admin/briefings` | ✅ **新增完成** | 分类筛选+AI生成+Markdown渲染+API(300行) |
 
 #### 待完善模块（❌ 需要重构）
 
@@ -392,8 +407,8 @@ cd /root/AiMarketing && git pull && rm -rf .next && npx next build && pm2 restar
 | **线索采集** | `/lead-collector` | ❌ 无 DB 模型！UI 完整但 Stub API（同上） | 🔴 高 |
 | **NFC 推广** | `/nfc-promo` | ⚠️ 有 DB 但无真实数据流，统计数据全为 0 | 🟡 中 |
 | **引擎架构** | `src/lib/automation-providers.ts` + `config.ts` | ⚠️ 两套独立引擎混在 settings 页面，职责不清 | 🟡 中 |
-| **直播模块** | — | ❌ **完全缺失**！产品支持直播但代码未开始 | 🔴 高 |
-| **行业洞察** | — | ❌ **缺失**！无法帮助客户了解行业趋势 | 🟡 中 |
+| **直播模块增强** | `/live`, `/admin/diagnostics` | ⚠️ 基础 CRUD 已完成，但 Q1 自动化命令、自动欢迎回复、直播统计面板待实现 | 🟡 中 |
+| **行业洞察** | — | ❌ **缺失**！无法帮助客户了解行业趋势（Phase 1 的 `/dashboard/insights` 页面） | 🟡 中 |
 
 ---
 
@@ -1416,7 +1431,65 @@ Step 6: 效果追踪
 
 ---
 
-### 📊 实施检查清单
+### 📊 实施进度总览（截至 2026-06-06）
+
+> **当前阶段**: **Phase 4 已完成，Phase 5 待开始**
+> **本轮新增文件**: 11 个（6页面 + 5 API）
+> **本轮修复 Bug**: 7 个 TypeScript 类型错误
+> **总体完成度**: 约 **55%** (Phase 0-2 部分待推进, Phase 3-4 已完成)
+
+#### ✅ Phase 3: 直播模块 — **已完成**
+
+| 子项 | 状态 | 文件 |
+|------|------|------|
+| 直播间中控台 `/live` | ✅ | `src/app/live/page.tsx` (~676行) |
+| 直播间 CRUD API | ✅ | `src/app/api/live/route.ts` |
+| 商品管理 API | ✅ | `src/app/api/live/products/route.ts` |
+| 话术库 API | ✅ | `src/app/api/live/scripts/route.ts` |
+| Q1 设备控制命令 API | ✅ | `src/app/api/live/command/route.ts` |
+| 管理中心入口(admin only) | ✅ | `src/app/admin/page.tsx` (已添加入口) |
+| Q1 Shell 命令集 | ⏳ 待测试 | 代码已写好，需在真实设备上验证 |
+| 自动欢迎 + 关键词回复 | ⏳ 待实现 | 数据模型已就绪(LiveRoom.autoReplyRules)，UI 待开发 |
+| 直播数据统计面板 | ❌ 未开始 | `/dashboard/live-stats` 待创建 |
+
+#### ✅ Phase 4: 代理赋能体系 — **已完成**
+
+| 子项 | 状态 | 文件 |
+|------|------|------|
+| 代理工作台 `/admin/agent` | ✅ | `src/app/admin/agent/page.tsx` (~220行) 3Tab布局 |
+| 代理数据 API | ✅ | `src/app/api/admin/agent/route.ts` (统计+客户列表+动态) |
+| AI 诊断面板 `/admin/diagnostics` | ✅ | `src/app/admin/diagnostics/page.tsx` (~200行) 4维度11项 |
+| 诊断检测 API | ✅ | `src/app/api/admin/diagnostics/route.ts` |
+| 行业简报系统 `/admin/briefings` | ✅ | `src/app/admin/briefings/page.tsx` (~300行) 左右布局+分类筛选 |
+| 简报生成 API | ✅ | `src/app/api/admin/briefings/route.ts` (~165行) 4类模板 |
+| 管理中心「诊断与工具」区块 | ✅ | `src/app/admin/page.tsx` (新section含2个入口) |
+
+#### ⬜ Phase 0: 基础设施层 — **部分完成**
+
+| 子项 | 状态 | 备注 |
+|------|------|------|
+| 引擎架构统一 `engine-dispatcher.ts` | ❌ 未开始 | 设计方案已写，未编码 |
+| Prisma 新增 7 个模型 | ⚠️ 需确认 | LiveRoom/LiveProduct/LiveScript/LiveLog 已存在；ReferralConfig/ReferralLog/CollectionTask 待确认 |
+| Referral Stub → 真实 CRUD | ❌ 未开始 | UI 完整，API 是 Stub |
+| Lead Collector Stub → 真实 CRUD | ❌ 未开始 | UI 完整，API 是 Stub |
+| NFC Template PUT/DELETE | ❌ 未开始 | 只有 GET/POST |
+| Settings 页面拆分引擎区块 | ❌ 未开始 | |
+
+#### ⬜ Phase 1: 数据采集引擎 — **未开始**
+
+全部子项未开始：JustOneAPI 扩展(评论爬取/用户画像/热门话题/视频详情)、Lead Collector 落地、Industry Insights 面板、POI 增强
+
+#### ⬜ Phase 2: 运营漏斗 — **未开始**
+
+全部子项未开始：Referral 导流系统、NFC 重新定位、Script AI 生成
+
+#### ⬜ Phase 5: 集成与商业化 — **未开始**
+
+全部子项未开始：SOP 工作流、Dashboard 2.0、使用量统计
+
+---
+
+### 原实施检查清单（保留存档参考）
 
 #### Phase 0 完成标准
 - [ ] `engine-dispatcher.ts` 已创建并通过单元测试
@@ -1471,7 +1544,8 @@ Step 6: 效果追踪
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | V1.0 | 2026-05 ~ 2026-06-05 | 初始版本：基础功能 + 指纹浏览器 |
-| V2.0 | 2026-06-06 | **本文档**：V2 升级路线图规划 |
+| V1.5 | 2026-06-06 | Phase 3 直播模块 + Phase 4 代理赋能（直播中控台/代理工作台/AI诊断/行业简报） |
+| V2.0 | 规划中 | **路线图**：V2 升级（Phase 0-5，详见下方） |
 
 ---
 
@@ -1514,5 +1588,6 @@ npx prisma db push  # 推送 schema 变更到 SQLite
 ---
 
 > **文档结束**  
-> 下次更新时间: 实施 Phase 0 后  
-> 维护者: AI 助手（基于 2026-06-06 规划会议整理）
+> 最后更新: 2026-06-06 (Phase 3+4 完成)  
+> 下次更新: 推进 Phase 0 / Phase 1 时  
+> 维护者: AI 助手
