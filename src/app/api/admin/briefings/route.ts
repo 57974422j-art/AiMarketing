@@ -55,12 +55,7 @@ export async function POST(req: NextRequest) {
 ${focus ? `\n6. 重点关注方向：${focus}\n7. 增加一个关于「${focus}」的专题分析板块` : ''}`;
 
     // 调用 AI 生成
-    const contentResult = await generateText(prompt, {
-      temperature: 0.7,
-      maxTokens: 2000,
-    });
-
-    const content = contentResult.text || 'AI 生成失败，请检查 AI 服务配置。';
+    const content = await generateText(prompt) || 'AI 生成失败，请检查 AI 服务配置。';
 
     return NextResponse.json({
       success: true,
