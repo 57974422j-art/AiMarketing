@@ -22,6 +22,7 @@ const sections: CardSection[] = [
       { title: '社交账号', desc: '绑定/管理社交平台账号', href: '/admin/social-accounts', icon: '🔗', roles: ['admin', 'editor'] },
       { title: '任务执行', desc: '设备状态监控、执行任务', href: '/admin/automation', icon: '⚡', roles: ['admin', 'editor'] },
       { title: '素材审核', desc: '审核终端客户提交的视频素材', href: '/admin/content-submissions', icon: '📋', roles: ['admin', 'editor', 'end-user'] },
+      { title: '直播间中控台', desc: '直播间管理、商品上架、话术库、Q1设备控制台', href: '/live', icon: '📺', roles: ['admin'] },
     ],
   },
   {
