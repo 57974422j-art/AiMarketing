@@ -1,6 +1,5 @@
 'use client'
 
-import { Fragment } from 'react'
 import StatusDot from './StatusDot'
 import type {
   StatusMap, TestResult,
@@ -213,7 +212,7 @@ export default function ApiKeyPanel({
   }
 
   return (
-    <Fragment>
+    <div>
       {/* ====== API KEY 配置面板 ====== */}
       <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 mb-6">
         <div className="p-6">
@@ -353,6 +352,6 @@ export default function ApiKeyPanel({
           </div>
         </div>
       </div>
-    </Fragment>
+    </div>
   )
 }
