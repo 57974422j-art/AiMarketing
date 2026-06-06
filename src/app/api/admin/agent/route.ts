@@ -24,8 +24,8 @@ export async function GET(req: NextRequest) {
     ] = await Promise.all([
       prisma.user.count({ where: { parentId: userId } }),
       prisma.user.count({ where: { parentId: userId, updatedAt: { gte: new Date(Date.now() - 30 * 86400000) } } }),
-      prisma.lead.count({ where: { assignedTo: { id: userId } } }),
-      prisma.lead.count({ where: { assignedTo: { id: userId }, status: 'converted' } }),
+      prisma.lead.count({ where: { assignedTo: userId } }),
+      prisma.lead.count({ where: { assignedTo: userId, status: 'converted' } }),
       prisma.contentSubmission.count({
         where: {
           submitterId: { in: (await prisma.user.findMany({ where: { parentId: userId }, select: { id: true } })).map(u => u.id) },
