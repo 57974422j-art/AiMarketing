@@ -697,19 +697,17 @@ export default function SettingsPage() {
               <span>QUERY_ENGINE</span>
               <StatusDot name="queryEngine" />
             </label>
-            <div className="relative">
-              <select
-                value={queryEngine}
-                onChange={(e) => setQueryEngine(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 font-mono"
-              >
-                <option value="mock" className="bg-gray-900">Mock 模式（默认）</option>
-                <option value="douyin-official" className="bg-gray-900">抖音官方 API</option>
-              </select>
+            <select
+              value={queryEngine}
+              onChange={(e) => setQueryEngine(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500/50 font-mono"
+            >
+              <option value="mock" className="bg-gray-900">Mock 模式（默认）</option>
+              <option value="douyin-official" className="bg-gray-900">抖音官方 API</option>
+            </select>
             <p className="text-xs text-gray-500 mt-2 font-mono">
               💡 当前默认使用 Mock 模式开发测试
             </p>
-          </div>
           </div>
 
           {/* 动作执行引擎（Write Engine） */}
