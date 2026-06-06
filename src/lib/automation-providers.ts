@@ -260,7 +260,7 @@ export async function runCollection(ctx: CollectionContext): Promise<{
       const videoList: Record<string, unknown>[] = (searchResult.data as any).list || (searchResult.data as any).videos || []
       
       for (const video of videoList.slice(0, resultsPerKeyword)) {
-        const videoUrl = video.video_url || video.share_url || video.aweme_id || ''
+        const videoUrl = String(video.video_url || video.share_url || video.aweme_id || '')
         if (!videoUrl) continue
 
         videos.push(video)
