@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, mcPath, mcPythonBin } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -140,6 +140,13 @@ export async function POST(request: NextRequest) {
       else envContent += `\nAUTOMATION_ENGINE=${automationEngine}`;
     }
 
+    // 动作执行引擎选择
+    if (actionEngine !== undefined) {
+      const p = /^ACTION_ENGINE=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `ACTION_ENGINE=${actionEngine}`);
+      else envContent += `\nACTION_ENGINE=${actionEngine}`;
+    }
+
     // MediaCrawler 配置
     if (mcPath !== undefined) {
       const p = /^MEDIA_CRAWLER_PATH=.*$/m;
@@ -212,6 +219,7 @@ export async function GET(request: NextRequest) {
     const ttsAccessKey = await readEnv('VOLCANO_TTS_ACCESS_KEY');
     const ttsResourceId = await readEnv('VOLCANO_TTS_RESOURCE_ID');
     const automationEngine = await readEnv('AUTOMATION_ENGINE');
+    const actionEngine = await readEnv('ACTION_ENGINE');
     const mcPath = await readEnv('MEDIA_CRAWLER_PATH');
     const mcPythonBin = await readEnv('PYTHON_BIN');
 
@@ -229,6 +237,7 @@ export async function GET(request: NextRequest) {
         ttsAccessKeyConfigured: !!ttsAccessKey,
         ttsResourceIdConfigured: !!ttsResourceId,
         automationEngine: automationEngine || 'mediacrawler',
+        actionEngine: actionEngine || 'q1-adb',
         mcPath: mcPath || '/opt/MediaCrawler',
         mcPythonBin: mcPythonBin || 'python3',
         ossConfigured,
