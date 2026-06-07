@@ -56,7 +56,8 @@ model User {
   copyTemplates           CopyTemplate[]
   aiAgents                AIAgent[]
   phyDevices              PhyDevice[]
-  taskConfigs             TaskConfig[]
+  taskConfigs             TaskConfig[]  
+  filterPresets           FilterPreset[]
   
   // V2 升级新增关系 (Phase 0-3)
   referrals               ReferralConfig[]
@@ -774,4 +775,22 @@ model CrawledTrending {
   crawledAt     DateTime @default(now())
 
   @@unique([platform, category, title])  // 去重
+}
+
+// 13. 筛选方案（统一筛选器保存/复用）
+model FilterPreset {
+  id          Int      @id @default(autoincrement())
+  name        String                         // "我的日常筛选"
+  description String?
+  entityType  String                         // "video" | "comment" | "lead" | "user" | "trending"
+  filters     String                         // JSON: 筛选条件的序列化
+  isDefault   Boolean  @default(false)       // 设为默认方案
+  isShared    Boolean  @default(false)       // 团队共享
+  userId      Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, name, entityType])  // 同一用户同类型下名称唯一
 }
