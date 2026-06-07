@@ -128,7 +128,7 @@ async function executeTool(intent: string, params: Record<string, any>, auth: an
     }
 
     default:
-      return null // chat 意图返回 null，由主流程处理
+      return '' // chat 意图返回空字符串，由主流程处理
   }
 }
 
