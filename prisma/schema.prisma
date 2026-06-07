@@ -715,6 +715,8 @@ model CrawledVideo {
 
   task          CollectionTask? @relation(fields: [taskId], references: [id])
   comments      CrawledComment[]
+
+  @@unique([platform, videoId])  // 同一平台同一视频去重
 }
 
 // 10. 爬取评论记录（视频评论的持久化）
