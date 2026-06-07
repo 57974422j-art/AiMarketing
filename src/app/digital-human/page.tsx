@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useAuth } from '@/app/providers'
+import { showToast } from '@/components/Toast'
 
 type CloningMode = 'fast' | 'pro'
 type PageStep = 'upload' | 'training' | 'generation'
@@ -20,6 +22,7 @@ const PRESET_BG_COLORS = [
 ]
 
 export default function DigitalHumanPage() {
+  const { user } = useAuth()
   const [step, setStep] = useState<PageStep>('upload')
   const [mode, setMode] = useState<CloningMode>('fast')
   const [modeTooltip, setModeTooltip] = useState(false)
@@ -52,10 +55,6 @@ export default function DigitalHumanPage() {
   const [genError, setGenError] = useState('')
   const [savingToStorage, setSavingToStorage] = useState(false)
 
-  // Toast
-  const [toast, setToast] = useState('')
-  useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
-
   // 场景库
   const [sceneLib, setSceneLib] = useState<Array<{ id: number; title: string; prompt: string; previewUrl: string | null; category: string }>>([])
   useEffect(() => {
@@ -69,8 +68,8 @@ export default function DigitalHumanPage() {
   const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (!file.type.startsWith('video/')) { setToast('请上传视频文件'); return }
-    if (file.size > 200 * 1024 * 1024) { setToast('视频不能超过 200MB'); return }
+    if (!file.type.startsWith('video/')) { showToast('请上传视频文件', 'error'); return }
+    if (file.size > 200 * 1024 * 1024) { showToast('视频不能超过 200MB', 'error'); return }
     setVideoFile(file)
     setVideoPreview(URL.createObjectURL(file))
   }
@@ -83,7 +82,7 @@ export default function DigitalHumanPage() {
 
   // 提交训练
   const handleSubmitTraining = async () => {
-    if (!videoFile) { setToast('请上传真人视频'); return }
+    if (!videoFile) { showToast('请上传真人视频', 'error'); return }
     setUploading(true)
     setTrainStatus('正在上传素材至 OSS...')
     setTrainText('上传中...')
@@ -93,9 +92,9 @@ export default function DigitalHumanPage() {
       if (audioFile) fd.append('audio', audioFile)
       fd.append('mode', mode)
 
-      const res = await fetch('/api/digital-human', { method: 'POST', body: fd })
+      const res = await fetch('/api/digital-human', { method: 'POST', body: fd, credentials: 'include' })
       const data = await res.json()
-      if (!data.success) { setToast(data.message || '提交失败'); setUploading(false); return }
+      if (!data.success) { showToast(data.message || '提交失败', 'error'); setUploading(false); return }
 
       setTaskId(data.taskId)
       setStep('training')
@@ -104,7 +103,7 @@ export default function DigitalHumanPage() {
       setTrainText('排队中')
       setUploading(false)
     } catch (e: any) {
-      setToast(e.message || '提交失败')
+      showToast(e.message || '提交失败', 'error')
       setUploading(false)
     }
   }
@@ -116,6 +115,7 @@ export default function DigitalHumanPage() {
       try {
         const res = await fetch('/api/digital-human', {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'query', taskId }),
         })
@@ -133,11 +133,11 @@ export default function DigitalHumanPage() {
           clearInterval(interval)
           setAvatarId(data.avatarUrl)
           setStep('generation')
-          setToast('形象克隆完成！')
+          showToast('形象克隆完成！', 'success')
         }
         if (status === 'FAILED') {
           clearInterval(interval)
-          setToast('训练失败，请重试')
+          showToast('训练失败，请重试', 'error')
           setStep('upload')
         }
       } catch { /* ignore */ }
@@ -161,7 +161,7 @@ export default function DigitalHumanPage() {
 
   // 生成口播视频
   const handleGenerateVideo = async () => {
-    if (!script.trim()) { setToast('请输入口播文案'); return }
+    if (!script.trim()) { showToast('请输入口播文案', 'error'); return }
     setGenerating(true)
     setGenProgress(0)
     setGenError('')
@@ -172,6 +172,7 @@ export default function DigitalHumanPage() {
     try {
       const res = await fetch('/api/digital-human', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'generate',
@@ -181,7 +182,7 @@ export default function DigitalHumanPage() {
         }),
       })
       const data = await res.json()
-      if (!data.success) { setToast(data.message || '生成失败'); setGenerating(false); return }
+      if (!data.success) { showToast(data.message || '生成失败', 'error'); setGenerating(false); return }
 
       setGenTaskId(data.taskId)
       pollVideoResult(data.taskId)
@@ -200,6 +201,7 @@ export default function DigitalHumanPage() {
       try {
         const res = await fetch('/api/digital-human', {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'query', taskId: tid }),
         })
@@ -209,7 +211,7 @@ export default function DigitalHumanPage() {
           setVideoUrl(data.avatarUrl)
           setGenProgress(100)
           setGenerating(false)
-          setToast('口播视频生成完成！')
+          showToast('口播视频生成完成！', 'success')
         }
         if (data.status === 'FAILED') {
           clearInterval(interval)
@@ -238,7 +240,7 @@ export default function DigitalHumanPage() {
   const handleSaveToStorage = async () => {
     if (!videoUrl || savingToStorage) return
     setSavingToStorage(true)
-    setToast('正在存入素材库...')
+    showToast('正在存入素材库...')
     try {
       const res = await fetch('/api/storage/save-digital-human', {
         method: 'POST',
@@ -248,12 +250,12 @@ export default function DigitalHumanPage() {
       })
       const d = await res.json()
       if (d.success) {
-        setToast(`✅ ${d.message}`)
+        showToast(`✅ ${d.message}`, 'success')
       } else {
-        setToast(`❌ ${d.message}`)
+        showToast(`❌ ${d.message}`, 'error')
       }
     } catch (e: any) {
-      setToast('❌ 存储失败')
+      showToast('❌ 存储失败', 'error')
     } finally {
       setSavingToStorage(false)
     }
@@ -275,13 +277,6 @@ export default function DigitalHumanPage() {
 
   return (
     <div className="min-h-screen bg-gray-950">
-      {/* Toast */}
-      {toast && (
-        <div className="fixed top-4 right-4 z-50 bg-gray-900 border border-gray-700 text-white px-4 py-3 rounded-xl shadow-2xl font-mono text-sm animate-slide-in">
-          {toast}
-        </div>
-      )}
-
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
@@ -636,7 +631,7 @@ export default function DigitalHumanPage() {
                           setBgType('custom')
                           setCustomBgPreview(s.previewUrl)
                           setCustomBg(null as any)
-                          setToast(`已选场景: ${s.title}`)
+                          showToast(`已选场景: ${s.title}`, 'success')
                         }
                       }}
                       className="relative group rounded-xl overflow-hidden aspect-video bg-black/40 hover:ring-1 hover:ring-emerald-500/50 transition-all"

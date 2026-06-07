@@ -1,11 +1,13 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import { useAuth } from '@/app/providers'
 import { showToast } from '@/components/Toast'
 
 interface FileInfo { name: string; size: number; mtime: string; isVideo?: boolean; thumbUrl?: string | null }
 interface Quota { used: number; total: number }
 
 export default function StoragePage() {
+  const { user } = useAuth()
   const [files, setFiles] = useState<FileInfo[]>([])
   const [quota, setQuota] = useState<Quota>({ used: 0, total: 500 * 1024 * 1024 })
   const [loading, setLoading] = useState(true)
@@ -20,7 +22,7 @@ export default function StoragePage() {
   const load = async () => {
     setLoading(true)
     try {
-      const r = await fetch('/api/storage/files')
+      const r = await fetch('/api/storage/files', { credentials: 'include' })
       const d = await r.json()
       if (d.success) { setFiles(d.data.files); setQuota({ used: d.data.used, total: d.data.total }); setUserId(d.data.userId) }
     } catch {}
@@ -35,7 +37,7 @@ export default function StoragePage() {
     if (quota.used + f.size > quota.total) { showToast('空间不足', 'error'); return }
     const fd = new FormData(); fd.append('file', f)
     try {
-      const r = await fetch('/api/storage/files', { method: 'POST', body: fd })
+      const r = await fetch('/api/storage/files', { method: 'POST', body: fd, credentials: 'include' })
       const d = await r.json()
       if (d.success) { showToast('上传成功', 'success'); load() }
       else showToast(d.message || '上传失败', 'error')
@@ -44,7 +46,7 @@ export default function StoragePage() {
 
   const del = async (name: string) => {
     try {
-      const r = await fetch('/api/storage/delete', { method: 'DELETE', body: JSON.stringify({ name }), headers: { 'Content-Type': 'application/json' } })
+      const r = await fetch('/api/storage/delete', { method: 'DELETE', body: JSON.stringify({ name }), headers: { 'Content-Type': 'application/json' }, credentials: 'include' })
       const d = await r.json()
       if (d.success) { showToast('已删除', 'success'); load() }
     } catch {}
@@ -56,6 +58,7 @@ export default function StoragePage() {
     try {
       const r = await fetch('/api/video/push-to-account', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId: pushFile, endUserId: pushClient.id, remark: pushClient.name || pushClient.username }),
       })
@@ -70,13 +73,21 @@ export default function StoragePage() {
   const fmt = (b: number) => (b / 1024 / 1024).toFixed(1) + 'MB'
 
   return (
-    <div className="min-h-screen bg-gray-950 p-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-lg font-bold text-white">素材仓库</h1>
-          <input ref={fileRef} type="file" accept="image/*,video/*" className="hidden" onChange={upload} />
-          <button onClick={() => fileRef.current?.click()} className="px-4 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs hover:bg-emerald-500/30">+ 上传</button>
+    <div className="min-h-screen bg-gray-950">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <p className="text-xs tracking-[0.2em] text-gray-500 mb-1 font-mono">素材管理 / STORAGE</p>
+          <h1 className="text-mono-lg text-white">素材仓库 / MY LIBRARY</h1>
+          <p className="text-sm text-gray-500 mt-1 font-mono">
+            上传、管理和推送视频/图片素材 · 配额 {fmt(quota.total)}
+          </p>
         </div>
+
+        {/* 操作栏 */}
+        <div className="flex items-center justify-between mb-6">
+          <input ref={fileRef} type="file" accept="image/*,video/*" className="hidden" onChange={upload} />
+          <button onClick={() => fileRef.current?.click()} className="btn-primary text-sm">+ 上传素材</button>
 
         {/* Quota bar */}
         <div className="card-glass p-3 mb-4">
@@ -116,7 +127,7 @@ export default function StoragePage() {
                       const d = await r.json()
                       if (d.success) { setClients(d.data); setShowPushDlg(true) }
                       else showToast('获取客户列表失败', 'error')
-                    }} className="flex-1 text-[9px] py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30">📤 推送</button>
+                    }} className="btn-secondary flex-1 text-[9px] py-1">📤 推送</button>
                   )}
                   <button onClick={() => del(f.name)} className="w-6 h-6 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition">×</button>
                 </div>
@@ -137,9 +148,9 @@ export default function StoragePage() {
               ))}
             </div>
             <div className="flex gap-2">
-              <button onClick={()=>{setShowPushDlg(false);setPushFile(null);setPushClient(null)}} className="flex-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs">取消</button>
+              <button onClick={()=>{setShowPushDlg(false);setPushFile(null);setPushClient(null)}} className="btn-secondary flex-1 text-xs py-2">取消</button>
               <button disabled={!pushClient||pushLoading} onClick={doPush}
-                className={`flex-1 py-2 rounded-lg text-xs ${pushClient&&!pushLoading?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-500"}`}>
+                className={`flex-1 btn-primary text-xs ${(!pushClient||pushLoading)?'opacity-50 cursor-not-allowed':''}`}>
                 {pushLoading?'推送中...':'确认推送'}
               </button>
             </div>
