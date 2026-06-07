@@ -656,7 +656,7 @@ async function buildConcatFile(clips: StreamClip[]): Promise<string> {
 /**
  * 构建 FFmpeg 命令行参数
  */
-function buildFFmpegArgs(inputPath: string, cfg: Required<Omit<StreamConfig, 'rtmpUrl'>>): string[] {
+function buildFFmpegArgs(inputPath: string, cfg: StreamConfig): string[] {
   const args = [
     '-re',                    // 以原始帧率读取 (模拟实时)
     '-f', 'concat',           // concat demuxer
