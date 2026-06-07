@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 
 interface DashboardData {
@@ -42,8 +42,19 @@ const navItems = [
 export default function DataCenterPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showQuickCollect, setShowQuickCollect] = useState(false)
+  const [collecting, setCollecting] = useState(false)
+  const [collectResult, setCollectResult] = useState<string | null>(null)
+  const [collectError, setCollectError] = useState<string | null>(null)
+  const pollRef = useRef<NodeJS.Timeout | null>(null)
 
-  useEffect(() => {
+  // 快捷采集表单状态
+  const [taskName, setTaskName] = useState('')
+  const [platform, setPlatform] = useState('抖音')
+  const [keywordsInput, setKeywordsInput] = useState('')
+  const [maxResults, setMaxResults] = useState(20)
+
+  const refreshData = useCallback(() => {
     fetch('/api/data-center', { credentials: 'include' })
       .then(r => r.json())
       .then(res => {
@@ -52,6 +63,74 @@ export default function DataCenterPage() {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    refreshData()
+  }, [refreshData])
+
+  // 自动轮询：有任务在运行时每5秒刷新
+  useEffect(() => {
+    if (data?.tasks?.stats?.running && data.tasks.stats.running > 0) {
+      pollRef.current = setInterval(refreshData, 5000)
+    } else {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [data?.tasks?.stats?.running, refreshData])
+
+  // 执行快捷采集
+  const handleQuickCollect = async () => {
+    if (!taskName.trim()) { setCollectError('请输入任务名称'); return }
+    if (!keywordsInput.trim()) { setCollectError('请输入至少一个关键词'); return }
+
+    const keywords = keywordsInput.split(/[,，\n]/).map(k => k.trim()).filter(Boolean)
+    setCollecting(true)
+    setCollectResult(null)
+    setCollectError(null)
+
+    try {
+      // Step 1: 创建任务
+      const createRes = await fetch('/api/lead-collector', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create-task',
+          data: { name: taskName, platform, keywords, schedule: 'manual', status: 'active' }
+        })
+      })
+      const createData = await createRes.json()
+      if (!createData.success) throw new Error(createData.message || '创建任务失败')
+
+      // Step 2: 立即执行
+      const runRes = await fetch('/api/lead-collector', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'run-task',
+          data: { taskId: createData.data.id, platform: platform === '抖音' ? 'douyin' : platform, maxResults }
+        })
+      })
+      const runData = await runRes.json()
+
+      if (runData.success) {
+        const stats = runData.data
+        setCollectResult(
+          `采集完成！获取 ${stats.videos || 0} 个视频、${stats.comments || 0} 条评论、` +
+          `提取 ${stats.leads || 0} 条线索（耗时 ${stats.elapsed || '?'}s）`
+        )
+        setShowQuickCollect(false)
+        refreshData()
+      } else {
+        throw new Error(runData.message || '采集执行失败')
+      }
+    } catch (err: any) {
+      setCollectError(err.message || '采集失败')
+    } finally {
+      setCollecting(false)
+    }
+  }
 
   const statusColor: Record<string, string> = {
     new: 'bg-blue-500/20 text-blue-400',
@@ -75,14 +154,142 @@ export default function DataCenterPage() {
           <div>
             <p className="text-label mb-2">数据管理中心 / DATA CENTER</p>
             <h1 className="text-mono-lg text-white">综合数据面板 / DASHBOARD</h1>
+            {data?.tasks?.stats?.running ? (
+              <span className="inline-flex items-center gap-2 mt-2 px-3 py-1 bg-emerald-500/15 border border-emerald-500/30 rounded-lg text-emerald-400 text-sm font-mono">
+                <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                {data.tasks.stats.running} 个任务正在采集中...（自动刷新中）
+              </span>
+            ) : null}
           </div>
-          <Link
-            href="/lead-collector"
-            className="px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 font-mono text-sm"
-          >
-            + 新建采集任务
-          </Link>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowQuickCollect(!showQuickCollect)}
+              className={`px-4 py-2 rounded-xl font-mono text-sm transition-colors ${
+                showQuickCollect
+                  ? 'bg-gray-600 text-white'
+                  : 'bg-emerald-500 text-white hover:bg-emerald-600'
+              }`}
+            >
+              {showQuickCollect ? '✕ 关闭' : '🚀 快捷采集'}
+            </button>
+            <Link
+              href="/lead-collector"
+              className="px-4 py-2 bg-white/10 text-gray-300 rounded-xl hover:bg-white/20 font-mono text-sm border border-white/10"
+            >
+              高级任务 →
+            </Link>
+          </div>
         </div>
+
+        {/* ===== 快捷采集面板 ===== */}
+        {showQuickCollect && (
+          <div className="mb-8 p-6 bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 border border-emerald-500/20 rounded-2xl">
+            <h3 className="text-base font-semibold text-white font-mono mb-4 flex items-center gap-2">
+              🚀 快捷采集任务 / QUICK COLLECT
+              <span className="text-xs text-gray-500 font-normal">创建并立即执行</span>
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              {/* 任务名称 */}
+              <div className="lg:col-span-2">
+                <label className="block text-xs text-gray-400 font-mono mb-1">任务名称 *</label>
+                <input
+                  type="text"
+                  value={taskName}
+                  onChange={e => setTaskName(e.target.value)}
+                  placeholder='如：美业引流-日常采集'
+                  className="w-full px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white text-sm font-mono placeholder:text-gray-600 focus:border-emerald-500/50 outline-none"
+                />
+              </div>
+
+              {/* 平台选择 */}
+              <div>
+                <label className="block text-xs text-gray-400 font-mono mb-1">目标平台</label>
+                <select
+                  value={platform}
+                  onChange={e => setPlatform(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white text-sm font-mono focus:border-emerald-500/50 outline-none"
+                >
+                  <option value="抖音">抖音 Douyin</option>
+                  <option value="小红书">小红书 RED</option>
+                  <option value="快手">快手 Kuaishou</option>
+                  <option value="B站">哔哩哔哩 Bilibili</option>
+                </select>
+              </div>
+
+              {/* 每关键词结果数 */}
+              <div>
+                <label className="block text-xs text-gray-400 font-mono mb-1">每词视频数</label>
+                <select
+                  value={maxResults}
+                  onChange={e => setMaxResults(Number(e.target.value))}
+                  className="w-full px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white text-sm font-mono focus:border-emerald-500/50 outline-none"
+                >
+                  <option value={10}>10 个视频</option>
+                  <option value={20}>20 个视频 (推荐)</option>
+                  <option value={50}>50 个视频</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 关键词输入 */}
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 font-mono mb-1">采集关键词 * （每行一个，或用逗号分隔）</label>
+              <textarea
+                value={keywordsInput}
+                onChange={e => setKeywordsInput(e.target.value)}
+                placeholder={'美业引流\n美容院推广\n减肥瘦身\n同城探店'}
+                rows={3}
+                className="w-full px-3 py-2.5 bg-black/30 border border-white/10 rounded-xl text-white text-sm font-mono placeholder:text-gray-600 focus:border-emerald-500/50 outline-none resize-y"
+              />
+              {keywordsInput.trim() && (
+                <p className="mt-1 text-xs text-gray-500 font-mono">
+                  已输入 {keywordsInput.split(/[,，\n]/).map(k => k.trim()).filter(Boolean).length} 个关键词
+                </p>
+              )}
+            </div>
+
+            {/* 错误提示 */}
+            {collectError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm font-mono">
+                ✕ {collectError}
+              </div>
+            )}
+
+            {/* 成功结果 */}
+            {collectResult && (
+              <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-sm font-mono">
+                ✅ {collectResult}
+              </div>
+            )}
+
+            {/* 操作按钮 */}
+            <div className="flex items-center justify-between">
+              <button
+                onClick={handleQuickCollect}
+                disabled={collecting}
+                className={`px-6 py-2.5 rounded-xl font-mono text-sm transition-colors ${
+                  collecting
+                    ? 'bg-gray-700 text-gray-400 cursor-wait'
+                    : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                }`}
+              >
+                {collecting ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg>
+                    正在执行采集...
+                  </span>
+                ) : (
+                  '🚀 创建并立即采集'
+                )}
+              </button>
+              <p className="text-[11px] text-gray-600 font-mono">
+                提示：首次使用需在 管理中心→设置 中配置 MediaCrawler 并扫码登录
+                <Link href="/admin/settings" className="text-cyan-500 hover:text-cyan-400 ml-1">去配置 →</Link>
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* 导航 Tab */}
         <div className="flex gap-2 mb-8 flex-wrap">
