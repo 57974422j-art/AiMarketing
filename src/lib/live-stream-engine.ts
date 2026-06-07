@@ -519,7 +519,7 @@ export async function aiGenerateLiveContent(params: {
 
   // Step 1: LLM 生成结构化话术
   const prompt = buildScriptPrompt(params.products || [], types, tone)
-  const scriptsJson = await generateText(prompt, 0.7, 3000)
+  const scriptsJson = await generateText(prompt)
   if (!scriptsJson) throw new Error('LLM 话术生成失败')
 
   // 解析 LLM 返回的 JSON
