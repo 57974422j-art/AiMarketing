@@ -1014,6 +1014,63 @@ rm -f data/live-streams/concat_*.txt
 | **Q1 命令控制台** | 辅助监控 | 用于弹幕收集、评论监控、ADB 控制 |
 | **数据统计** | 数据消费者 | 推流时长、状态等可写入统计报表 |
 
+### 8.4 与素材仓库（Storage）的完整闭环 ⭐
+
+> **这是核心业务闭环：数字人制作 → 存入仓库 → 直播推流**
+
+#### 完整数据流图
+
+```
+┌──────────────┐     生成完成      ┌──────────────────┐    存入按钮     ┌──────────────┐
+│ 数字人板块    │ ──────────────→   │ 生成结果(OSS URL) │ ───────────→   │ 素材仓库     │
+│ /digital-human│                  │ videoUrl          │                │ /storage    │
+│              │                  ├──────────────────┤                │ public/     │
+│ Step 1: 训练 │                  │ 一键成片板块       │                │ storage/    │
+│ Step 2: 口播 │                  │ /auto-compile     │                │ {userId}/   │
+└──────┬───────┘                  └────────┬─────────┘                └──────┬───────┘
+       │ avatarId                          │                                │
+       ▼                                   │ 导入按钮                       ▼
+┌──────────────┐                           │                         ┌──────────────┐
+│ 千寻API训练   │                           │                         │ 直播推流     │
+│ 获取avatarId │                           │                         │ /live       │
+└──────────────┘                           │                         │ 📡 推流控制  │
+                                           │                         │ Tab         │
+                                           │  import-storage API     └──────┬───────┘
+                                           └──────────────────────────────→│ Playlist    │
+                                                                       │ clips[]     │
+                                                                       │ FFmpeg RTMP │
+                                                                       └──────┬───────┘
+                                                                              ▼
+                                                                     ┌──────────────┐
+                                                                     │ 抖音/快手 CDN │
+                                                                     │ 观众观看直播   │
+                                                                     └──────────────┘
+```
+
+#### 涉及的新增接口与函数
+
+| 层级 | 名称 | 说明 |
+|------|------|------|
+| **引擎层** | `importFromStorage()` | 从 storage 复制视频到 `data/live-streams/clips/`，返回 `StreamClip[]` |
+| **引擎层** | `addClipsToPlaylist()` | 将 clips 追加到已有 Playlist |
+| **引擎层** | `listStorageVideos()` | 列出用户 storage 目录中的视频文件 |
+| **API GET** | `/api/live/stream?action=storage-videos` | 列出仓库视频（前端弹窗调用） |
+| **API POST** | `/api/live/stream action=import-storage` | 执行导入操作 |
+| **API POST** | `/api/storage/save-digital-human` | 下载 OSS 视频 → 写入 storage（数字人页面调用） |
+| **前端 /live** | 「📦 从仓库导入」按钮 + 弹窗 | 勾选文件 → 确认导入 |
+| **前端 /digital-human** | 「📦 存入素材库」按钮 | 生成完成后一键入库 |
+
+#### SOP 对应关系
+
+| SOP 步骤 | 页面 | 操作 |
+|----------|------|------|
+| 内容生产 Step 3 | `/digital-human` | 克隆数字人形象，获取 avatarId |
+| 内容生产 Step 4 | `/digital-human` 或 `/auto-compile` | 制作口播视频或一键成片 |
+| **内容生产 Step 5** | **`/storage`** | **点击「存入素材库」统一入库** |
+| **直播运营 Step 1** | **`/storage`** | **确认素材已就绪** |
+| **直播运营 Step 2** | **`/live` 推流控制Tab** | **点击「📦 从仓库导入」选视频组 Playlist** |
+| 直播运营 Step 3 | `/live` 推流控制Tab | 配置 RTMP + 开始推流 |
+
 ---
 
 ## 九、常见问题 FAQ
