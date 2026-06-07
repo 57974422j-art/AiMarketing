@@ -10,6 +10,9 @@ import {
   createPlaylist,
   listPlaylists,
   shufflePlaylist,
+  importFromStorage,
+  addClipsToPlaylist,
+  listStorageVideos,
 } from '@/lib/live-stream-engine'
 
 /* ============================================================
@@ -53,6 +56,12 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ success: true, data: pl })
       }
 
+      // ---- 列出 Storage 仓库中的视频 ----
+      case 'storage-videos': {
+        const videos = await listStorageVideos(auth.userId)
+        return NextResponse.json({ success: true, data: videos })
+      }
+
       default:
         return NextResponse.json({ success: false, message: `未知操作: ${action}` }, { status: 400 })
     }
@@ -72,6 +81,7 @@ export async function GET(req: NextRequest) {
  * action=ai-generate     → AI一键生成(话术+视频)
  * action=create-playlist → 创建播放列表
  * action=shuffle         → 打乱播放顺序
+ * action=import-storage  → 从素材库导入视频到直播Playlist
  * ============================================================ */
 export async function POST(req: NextRequest) {
   try {
@@ -173,6 +183,22 @@ export async function POST(req: NextRequest) {
 
         const playlist = await shufflePlaylist(playlistId)
         return NextResponse.json({ success: true, message: '播放顺序已打乱', data: playlist })
+      }
+
+      // ---- 从 Storage 素材库导入视频到直播 Playlist ----
+      case 'import-storage': {
+        const { fileNames, playlistId } = body as { fileNames: string[]; playlistId?: string }
+        if (!fileNames?.length) return NextResponse.json({ success: false, message: '请选择要导入的文件' })
+
+        const clips = await importFromStorage(auth.userId, fileNames, playlistId)
+        if (clips.length === 0) {
+          return NextResponse.json({ success: false, message: '没有成功导入任何文件，请确认文件存在于素材库' })
+        }
+        return NextResponse.json({
+          success: true,
+          message: `✅ 成功导入 ${clips.length} 个视频${playlistId ? '并加入播放列表' : ''}`,
+          data: clips,
+        })
       }
 
       default:
