@@ -78,12 +78,12 @@ export async function GET(request: NextRequest) {
       }),
 
       // 9. 近7天每日新增线索趋势
-      prisma.$queryRaw`
+      prisma.$queryRaw<Array<{ day: string; cnt: number }>>`
         SELECT DATE(createdAt) as day, COUNT(*) as cnt 
         FROM Lead 
         WHERE createdAt >= datetime('now', '-7 days')
         GROUP BY DATE(createdAt) ORDER BY day ASC
-      ` as Array<{ day: string; cnt: number }>,
+      `,
 
       // 10. 点赞最高的视频 Top 5
       prisma.crawledVideo.findMany({
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
           status: s.status,
           count: s._count.id,
         })),
-        dailyTrend: (dailyLeadTrend as Array<{ day: string; cnt: number }>).map(d => ({
+        dailyTrend: dailyLeadTrend.map(d => ({
           date: d.day,
           count: d.cnt || 0,
         })),
