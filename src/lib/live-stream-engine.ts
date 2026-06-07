@@ -10,7 +10,7 @@
  */
 
 import { execFile, spawn, ChildProcess } from 'child_process'
-import { readFile, writeFile, unlink, readdir, stat, access, mkdir } from 'fs/promises'
+import { readFile, writeFile, unlink, readdir, stat, access, mkdir, copyFile } from 'fs/promises'
 import { join } from 'path'
 import { generateDigitalHumanVideo, queryDigitalHumanTask, textToSpeech, generateText } from './ai-providers'
 import { existsSync } from 'fs'
@@ -111,6 +111,8 @@ export interface ContentGenItem {
 const STREAM_DIR = join(process.cwd(), 'data', 'live-streams')
 const CLIPS_DIR = join(STREAM_DIR, 'clips')
 const PLAYLISTS_DIR = join(STREAM_DIR, 'playlists')
+/** 素材仓库根目录（与 storage API 一致） */
+const STORAGE_BASE = join(process.cwd(), 'public', 'storage')
 
 const DEFAULT_CONFIG: Required<Omit<StreamConfig, 'rtmpUrl'>> = {
   videoBitrate: 2500000,
@@ -574,6 +576,131 @@ export async function listClips(taskId?: string): Promise<StreamClip[]> {
   } catch { /* empty */ }
 
   return clips.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+// ============================================================
+// 核心 API: 从 Storage 仓库导入素材
+// ============================================================
+
+/**
+ * 将 Storage 仓库中的视频文件导入到直播素材池
+ *
+ * 流程: storage/{userId}/{fileName} → 复制 → clips/{playlistId}/import_{timestamp}_{fileName}
+ *
+ * @param userId      用户 ID
+ * @param fileNames   要导入的文件名列表（来自 storage 目录）
+ * @param playlistId  目标 playlist ID（可选，不传则只返回 clips 不加入 playlist）
+ * @returns 导入成功的 StreamClip 数组
+ */
+export async function importFromStorage(
+  userId: number,
+  fileNames: string[],
+  playlistId?: string
+): Promise<StreamClip[]> {
+  await ensureDirs()
+  const userStorageDir = join(STORAGE_BASE, String(userId))
+  const importClips: StreamClip[] = []
+  const timestamp = Date.now()
+
+  for (const fileName of fileNames) {
+    // 安全校验：防止路径穿越
+    if (fileName.includes('/') || fileName.includes('\\') || fileName.startsWith('.')) {
+      continue
+    }
+    if (!fileName.endsWith('.mp4') && !fileName.endsWith('.mov') && !fileName.endsWith('.avi')) {
+      continue
+    }
+
+    const srcPath = join(userStorageDir, fileName)
+    // 验证源文件存在
+    try {
+      await access(srcPath)
+    } catch {
+      continue // 文件不存在，跳过
+    }
+
+    // 目标路径: clips/import_{timestamp}/ 下
+    const destDir = join(CLIPS_DIR, `import_${timestamp}`)
+    await mkdir(destDir, { recursive: true })
+    const clipId = `import_${timestamp}_${fileName.replace(/\.[^.]+$/, '')}`
+    const destPath = join(destDir, `${clipId}.mp4`)
+
+    // 复制到 clips 目录
+    await copyFile(srcPath, destPath)
+
+    // 获取文件信息估算时长
+    const statData = await stat(destPath)
+    const duration = Math.floor(statData.size / 500000) || 10 // 粗估，最少 10 秒
+
+    const clip: StreamClip = {
+      id: clipId,
+      type: 'product_intro', // 默认类型，前端可后续修改
+      filePath: destPath,
+      duration,
+      priority: 0,
+      createdAt: new Date().toISOString(),
+    }
+    importClips.push(clip)
+  }
+
+  // 如果指定了 playlistId，将 clips 加入播放列表
+  if (playlistId && importClips.length > 0) {
+    await addClipsToPlaylist(playlistId, importClips)
+  }
+
+  return importClips
+}
+
+/**
+ * 向已有播放列表追加素材片段
+ */
+export async function addClipsToPlaylist(
+  playlistId: string,
+  clips: StreamClip[]
+): Promise<Playlist | null> {
+  const playlist = await loadPlaylist(playlistId)
+  if (!playlist) return null
+
+  playlist.clips.push(...clips)
+  playlist.totalDuration = playlist.clips.reduce((sum, c) => sum + c.duration, 0)
+  await savePlaylist(playlist)
+  return playlist
+}
+
+/**
+ * 列出用户 Storage 仓库中的视频文件
+ *
+ * @param userId 用户 ID
+ * @returns 文件列表 { name, size, duration }
+ */
+export async function listStorageVideos(userId: number): Promise<Array<{
+  name: string
+  size: number
+  duration: number
+  isVideo: boolean
+}>> {
+  const userDir = join(STORAGE_BASE, String(userId))
+  const results: Array<{ name: string; size: number; duration: number; isVideo: boolean }> = []
+
+  try {
+    const files = await readdir(userDir)
+    for (const f of files) {
+      // 跳过缩略图目录和隐藏文件
+      if (f.startsWith('.') || f === '.thumbs') continue
+      const fp = join(userDir, f)
+      const s = await stat(fp)
+      const ext = f.split('.').pop()?.toLowerCase()
+      const isVideo = ['mp4', 'mov', 'avi', 'mkv', 'flv'].includes(ext || '')
+      results.push({
+        name: f,
+        size: s.size,
+        duration: isVideo ? Math.floor(s.size / 500000) : 0,
+        isVideo,
+      })
+    }
+  } catch { /* 目录不存在 */ }
+
+  return results.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 // ============================================================
