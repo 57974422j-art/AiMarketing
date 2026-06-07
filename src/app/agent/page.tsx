@@ -122,7 +122,7 @@ export default function AgentPage() {
           src={match[2]}
           alt={match[1]}
           className="max-w-full rounded-xl my-2 cursor-pointer"
-          onClick={() => window.open(match[2], '_blank')}
+          onClick={() => window.open(match[2] || '', '_blank')}
         />
       )
       lastIdx = match.index + match[0].length
