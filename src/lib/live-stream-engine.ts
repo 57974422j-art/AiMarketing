@@ -192,7 +192,7 @@ async function listAllSessions(): Promise<StreamSession[]> {
         sessions.push(JSON.parse(raw))
       } catch { /* skip corrupt */ }
     }
-    return sessions.sort((a, b) => b.createdAt?.localeCompare(a.createdAt || '') ? -1 : 1)
+    return sessions.sort((a, b) => b.startTime?.localeCompare(a.startTime || '') ? -1 : 1)
   } catch {
     return []
   }
