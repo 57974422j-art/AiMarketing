@@ -88,6 +88,7 @@ export default function StoragePage() {
         <div className="flex items-center justify-between mb-6">
           <input ref={fileRef} type="file" accept="image/*,video/*" className="hidden" onChange={upload} />
           <button onClick={() => fileRef.current?.click()} className="btn-primary text-sm">+ 上传素材</button>
+        </div>
 
         {/* Quota bar */}
         <div className="card-glass p-3 mb-4">
