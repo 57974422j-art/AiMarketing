@@ -67,7 +67,18 @@ export default function LivePage() {
   const [welcomeMessage, setWelcomeMessage] = useState('');
 
   /* Tab 切换 */
-  const [activeTab, setActiveTab] = useState<'rooms' | 'products' | 'scripts' | 'console' | 'stats'>('rooms');
+  const [activeTab, setActiveTab] = useState<'rooms' | 'products' | 'scripts' | 'console' | 'stats' | 'stream'>('rooms');
+
+  /* ====== 推流控制相关状态 ====== */
+  const [showStreamPanel, setShowStreamPanel] = useState(false);
+  const [rtmpUrl, setRtmpUrl] = useState('');
+  const [streamStatus, setStreamStatus] = useState<'idle' | 'preparing' | 'streaming' | 'stopping' | 'error'>('idle');
+  const [currentSession, setCurrentSession] = useState<any>(null);
+  const [streamLoading, setStreamLoading] = useState(false);
+  const [genLoading, setGenLoading] = useState(false);
+  const [genProgress, setGenProgress] = useState({ done: 0, total: 0 });
+  const [avatarId, setAvatarId] = useState('');
+  const [clips, setClips] = useState<any[]>([]);
 
   /* 商品列表 */
   const [products, setProducts] = useState<LiveProduct[]>([]);
@@ -198,7 +209,142 @@ export default function LivePage() {
     setConsoleOutput(prev => [...prev.slice(-50), '[' + new Date().toLocaleTimeString() + '] ' + msg]);
   };
 
-  /* 权限检查 */
+  /* ====== 推流控制函数 ====== */
+
+  /** 格式化秒数为 HH:MM:SS */
+  const formatDuration = (seconds: number): string => {
+    if (!seconds || seconds < 0) return '00:00:00';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
+  /** 启动推流 */
+  const handleStartStream = async () => {
+    if (!rtmpUrl.trim()) { showToast('请输入 RTMP 推流地址', 'error'); return; }
+    setStreamLoading(true);
+    addLog('[STREAM] 正在启动推流...');
+    try {
+      // 如果有已生成的 clips，直接用；否则让后端自动查找
+      const body: any = { action: 'start-stream', rtmpUrl: rtmpUrl.trim() };
+      if (clips.length > 0) body.clips = clips;
+
+      const res = await fetch('/api/live/stream', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setStreamStatus('streaming');
+        setCurrentSession(result.data);
+        addLog(`[OK] 推流启动成功 session=${result.data.id}`);
+        showToast(result.message, 'success');
+      } else {
+        setStreamStatus('error');
+        addLog(`[FAIL] ${result.message}`);
+        showToast(result.message, 'error');
+      }
+    } catch (e: any) {
+      setStreamStatus('error');
+      addLog(`[ERROR] ${e.message}`);
+      showToast('网络错误', 'error');
+    } finally {
+      setStreamLoading(false);
+    }
+  };
+
+  /** 停止推流 */
+  const handleStopStream = async () => {
+    if (!currentSession?.id) return;
+    addLog('[STREAM] 正在停止推流...');
+    try {
+      const res = await fetch('/api/live/stream', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop-stream', sessionId: currentSession.id }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setStreamStatus('idle');
+        setCurrentSession(result.data);
+        addLog('[OK] 推流已停止');
+        showToast('推流已停止', 'success');
+      } else {
+        addLog(`[FAIL] ${result.message}`);
+        showToast(result.message, 'error');
+      }
+    } catch (e: any) {
+      addLog(`[ERROR] ${e.message}`);
+    }
+  };
+
+  /** AI 一键生成内容 */
+  const handleAIGenerate = async () => {
+    if (!avatarId.trim()) { showToast('请先填写数字人形象 ID（从数字人板块获取）', 'error'); return; }
+
+    setGenLoading(true);
+    setGenProgress({ done: 0, total: 1 });
+    addLog('[AI-GEN] 开始 AI 内容生成...');
+    try {
+      // 解析商品输入
+      const productEl = document.getElementById('ai-products-input') as HTMLTextAreaElement;
+      const toneEl = document.getElementById('ai-tone-select') as HTMLSelectElement;
+      const rawProducts = productEl?.value || '';
+      const products = rawProducts.split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => {
+          const parts = line.split('|').map(s => s.trim());
+          return {
+            name: parts[0] || '未知商品',
+            price: parts[1] || '待定价',
+            features: parts[2]?.split(',').map(s => s.trim()).filter(Boolean) || [],
+          };
+        });
+
+      const res = await fetch('/api/live/stream', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'ai-generate',
+          avatarId: avatarId.trim(),
+          brandTone: toneEl?.value || '亲切热情',
+          products: products.length > 0 ? products : undefined,
+        }),
+      });
+
+      const result = await res.json();
+      if (result.success) {
+        const task = result.data;
+        setGenProgress(task.progress);
+        addLog(`[OK] AI 生成完成: ${task.progress.done}/${task.progress.total} 条`);
+
+        // 刷新素材列表
+        const clipRes = await fetch('/api/live/stream?action=clips&taskId=' + task.id, { credentials: 'include' });
+        const clipData = await clipRes.json();
+        if (clipData.success && clipData.data.length > 0) {
+          setClips(clipData.data);
+          addLog(`[INFO] 已加载 ${clipData.data.length} 个素材片段`);
+        }
+        showToast(`成功生成 ${task.progress.done} 个视频片段`, 'success');
+      } else {
+        addLog(`[FAIL] ${result.message}`);
+        showToast(result.message, 'error');
+      }
+    } catch (e: any) {
+      addLog(`[ERROR] ${e.message}`);
+      showToast('生成失败', 'error');
+    } finally {
+      setGenLoading(false);
+    }
+  };
+
+  /** 权限检查 */
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -345,9 +491,10 @@ export default function LivePage() {
             </div>
 
             {/* Tab 导航 */}
-            <div className="flex gap-1 mb-6 border-b border-white/10 pb-px">
+            <div className="flex gap-1 mb-6 border-b border-white/10 pb-px overflow-x-auto">
               {[
                 { key: 'rooms' as const, label: '🏠 概览', sub: '控制台+快捷操作' },
+                { key: 'stream' as const, label: '📡 推流控制', sub: 'FFmpeg RTMP 推流' },
                 { key: 'products' as const, label: '📦 商品管理', sub: products.length + '个商品' },
                 { key: 'scripts' as const, label: '📝 话术库', sub: scripts.length + '条话术' },
                 { key: 'console' as const, label: '⌨️ 命令控制台', sub: 'Q1 ADB 命令' },
@@ -428,6 +575,198 @@ export default function LivePage() {
                     {selectedRoom.title && <div className="md:col-span-3"><span className="text-gray-500">标题：</span><span className="text-white font-mono">{selectedRoom.title}</span></div>}
                     {selectedRoom.startTime && <div><span className="text-gray-500">开始时间：</span><span className="text-white font-mono">{new Date(selectedRoom.startTime).toLocaleString()}</span></div>}
                     {selectedRoom.welcomeMessage && <div className="md:col-span-3"><span className="text-gray-500">欢迎语：</span><span className="text-emerald-400 font-mono">{selectedRoom.welcomeMessage}</span></div>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ====== Tab: 推流控制 (FFmpeg RTMP) ====== */}
+            {activeTab === 'stream' && (
+              <div className="space-y-6">
+                {/* 推流配置 + 启停控制 */}
+                <div className="card-glass p-6">
+                  <h3 className="text-white font-bold font-mono mb-4 flex items-center gap-2">
+                    <span>📡</span> 推流引擎
+                    {streamStatus === 'streaming' && (
+                      <span className="ml-auto text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full animate-pulse">● 直播中</span>
+                    )}
+                    {(streamStatus === 'idle' || streamStatus === 'error') && (
+                      <span className="ml-auto text-xs bg-gray-500/20 text-gray-400 px-2 py-0.5 rounded-full">○ 待命</span>
+                    )}
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="text-xs text-gray-500 font-mono block mb-1">RTMP 推流地址 *</label>
+                      <input
+                        className="input-dark w-full"
+                        placeholder="rtmp://push.douyin.com/live/xxxxx"
+                        value={rtmpUrl}
+                        onChange={e => setRtmpUrl(e.target.value)}
+                        disabled={streamStatus === 'streaming' || streamStatus === 'preparing'}
+                      />
+                      <p className="text-xs text-gray-600 mt-1 font-mono">从抖音/快手直播后台获取推流地址</p>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 font-mono block mb-1">数字人形象 ID</label>
+                      <input
+                        className="input-dark w-full"
+                        placeholder="千寻训练后的 avatarId（数字人板块获取）"
+                        value={avatarId}
+                        onChange={e => setAvatarId(e.target.value)}
+                      />
+                      <p className="text-xs text-gray-600 mt-1 font-mono">在数字人板块克隆形象后获取</p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 flex-wrap">
+                    {(streamStatus === 'idle' || streamStatus === 'error') && (
+                      <button
+                        onClick={handleStartStream}
+                        disabled={streamLoading || !rtmpUrl}
+                        className="px-5 py-2.5 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-xl font-mono text-sm hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {streamLoading ? (
+                          <><span className="inline-block animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />启动中...</>
+                        ) : '📹 开始推流'}
+                      </button>
+                    )}
+                    {streamStatus === 'streaming' && (
+                      <button
+                        onClick={handleStopStream}
+                        className="px-5 py-2.5 bg-gray-700 text-white rounded-xl font-mono text-sm hover:bg-gray-600 transition-colors"
+                      >
+                        ⏹ 停止推流
+                      </button>
+                    )}
+                    {currentSession && (
+                      <button
+                        onClick={() => fetch('/api/live/stream?action=clips', { credentials: 'include' }).then(r => r.json()).then(d => setClips(d.data || []))}
+                        className="px-3 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg font-mono text-sm hover:bg-blue-500/30"
+                      >
+                        🔄 刷新素材列表 ({clips.length}个)
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 当前会话信息 */}
+                  {currentSession && (
+                    <div className="mt-4 p-3 bg-black/30 rounded-lg border border-white/5">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
+                        <div><span className="text-gray-500">Session:</span> <span className="text-emerald-400">{currentSession.id.slice(0, 12)}...</span></div>
+                        <div><span className="text-gray-500">状态:</span> <span className={
+                          currentSession.status === 'streaming' ? 'text-red-400' :
+                          currentSession.status === 'error' ? 'text-red-400' : 'text-gray-300'
+                        }>{currentSession.status}</span></div>
+                        <div><span className="text-gray-500">时长:</span> <span className="text-white">{formatDuration(currentSession.durationSeconds)}</span></div>
+                        <div><span className="text-gray-500">PID:</span> <span className="text-yellow-400">{currentSession.pid || '-'}</span></div>
+                        {currentSession.startTime && (
+                          <div className="md:col-span-2"><span className="text-gray-500">开始:</span> <span className="text-gray-300">{new Date(currentSession.startTime).toLocaleString()}</span></div>
+                        )}
+                        {currentSession.error && (
+                          <div className="md:col-span-2 text-red-400"><span className="text-gray-500">错误:</span> {currentSession.error}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {streamStatus === 'error' && !currentSession?.id && (
+                    <p className="mt-3 text-red-400 text-sm font-mono">⚠️ 上次推流出错，请检查 RTMP 地址或重试</p>
+                  )}
+                </div>
+
+                {/* AI 一键生成内容 */}
+                <div className="card-glass p-6">
+                  <h3 className="text-white font-bold font-mono mb-4 flex items-center gap-2">
+                    <span>🤖</span> AI 一键生成直播内容
+                    <span className="text-xs text-gray-500 font-normal ml-1">(商品 → 话术 → 数字人视频)</span>
+                  </h3>
+
+                  <p className="text-xs text-gray-500 mb-4 font-mono">
+                    输入商品信息和品牌调性，AI 自动生成欢迎语、产品介绍、问答、逼单、结束语等全套口播内容，并调用数字人生成视频素材。
+                  </p>
+
+                  <div className="flex items-end gap-3 flex-wrap">
+                    <div className="flex-1 min-w-[200px]">
+                      <label className="text-xs text-gray-500 font-mono block mb-1">商品信息（每行一个，格式: 名称|价格|特点）</label>
+                      <textarea
+                        className="input-dark w-full"
+                        rows={3}
+                        placeholder={"示例:\n面膜补水保湿|99元|深层补水,敏感肌可用\n精华液抗老|199元|烟酰胺,提亮肤色"}
+                        id="ai-products-input"
+                      />
+                    </div>
+                    <div className="w-40">
+                      <label className="text-xs text-gray-500 font-mono block mb-1">品牌调性</label>
+                      <select className="input-dark" id="ai-tone-select">
+                        <option value="亲切热情">亲切热情</option>
+                        <option value="专业严谨">专业严谨</option>
+                        <option value="幽默活泼">幽默活泼</option>
+                        <option value="高端奢华">高端奢华</option>
+                      </select>
+                    </div>
+                    <button
+                      onClick={handleAIGenerate}
+                      disabled={genLoading || !avatarId}
+                      className="px-5 py-2.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-xl font-mono text-sm hover:bg-purple-500/30 transition-colors disabled:opacity-40 h-[42px]"
+                    >
+                      {genLoading ? (
+                        <><span className="inline-block animate-spin w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full mr-2" />{genProgress.done}/{genProgress.total}</>
+                      ) : '🎬 AI 生成'}
+                    </button>
+                  </div>
+
+                  {/* 已生成的素材预览 */}
+                  {clips.length > 0 && (
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs text-gray-500 font-mono">已生成素材 ({clips.length} 个片段)</span>
+                        <span className="text-xs text-emerald-400 font-mono">
+                          总时长约 {Math.floor(clips.reduce((s, c) => s + (c.duration || 30), 0) / 60)} 分钟
+                        </span>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto space-y-1.5">
+                        {clips.map((clip, i) => (
+                          <div key={i} className="flex items-center justify-between p-2 bg-black/20 rounded-lg text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-500 font-mono w-6">{i + 1}.</span>
+                              <span className="text-gray-300 truncate max-w-[200px]">{clip.type}</span>
+                              <span className="text-emerald-400 font-mono">{clip.duration || '?'}s</span>
+                            </div>
+                            <span className="text-gray-600 font-mono">{clip.id?.slice(0, 8)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 使用说明 */}
+                <div className="card-glass p-6 border-dashed">
+                  <h3 className="text-white font-bold font-mono mb-3 flex items-center gap-2">
+                    <span>📖</span> 使用流程
+                  </h3>
+                  <div className="space-y-2 text-sm text-gray-400">
+                    <div className="flex items-start gap-2">
+                      <span className="bg-emerald-500/20 text-emerald-400 px-1.5 rounded text-xs font-mono mt-0.5">1</span>
+                      <span>去 <strong className="text-white">数字人板块</strong> 克隆一个主播形象 → 获取 avatarId 填入上方</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="bg-emerald-500/20 text-emerald-400 px-1.5 rounded text-xs font-mono mt-0.5">2</span>
+                      <span>点击 <strong className="text-white">「AI 生成」</strong> — 自动生成全套话术+数字人视频素材</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="bg-emerald-500/20 text-emerald-400 px-1.5 rounded text-xs font-mono mt-0.5">3</span>
+                      <span>填入抖音/快手给你的 <strong className="text-white">RTMP 推流地址</strong></span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="bg-emerald-500/20 text-emerald-400 px-1.5 rounded text-xs font-mono mt-0.5">4</span>
+                      <span>点击 <strong className="text-white">「开始推流」</strong> — FFmpeg 自动循环播放素材并推送到直播间</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="bg-yellow-500/20 text-yellow-400 px-1.5 rounded text-xs font-mono mt-0.5">!</span>
+                      <span>当前模式：预渲染录播轮播。未来升级 GPU 后切换为实时互动数字人。</span>
+                    </div>
                   </div>
                 </div>
               </div>
