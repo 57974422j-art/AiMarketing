@@ -657,6 +657,8 @@ async function buildConcatFile(clips: StreamClip[]): Promise<string> {
  * 构建 FFmpeg 命令行参数
  */
 function buildFFmpegArgs(inputPath: string, cfg: StreamConfig): string[] {
+  // 合并默认值（确保所有可选字段有值）
+  const c = { ...DEFAULT_CONFIG, ...cfg }
   const args = [
     '-re',                    // 以原始帧率读取 (模拟实时)
     '-f', 'concat',           // concat demuxer
@@ -665,8 +667,9 @@ function buildFFmpegArgs(inputPath: string, cfg: StreamConfig): string[] {
   ]
 
   // 反检测微变速
-  if (cfg.antiDetectSpeedVary) {
-    const factor = cfg.speedRange[0] + Math.random() * (cfg.speedRange[1] - cfg.speedRange[0])
+  if (c.antiDetectSpeedVary) {
+    const [min, max] = c.speedRange
+    const factor = min + Math.random() * (max - min)
     args.push('-filter_complex', `[0:v]setPTS=PTS*${factor.toFixed(4)}[v];[0:a]atempo=${factor.toFixed(4)}[a]`)
     args.push('-map', '[v]', '-map', '[a]')
   }
@@ -675,28 +678,28 @@ function buildFFmpegArgs(inputPath: string, cfg: StreamConfig): string[] {
   args.push(
     '-c:v', 'libx264',
     '-preset', 'fast',        // 编码速度 vs 压缩比平衡
-    '-b:v', `${cfg.videoBitrate}`,
-    '-maxrate', `${Math.floor(cfg.videoBitrate * 1.078)}`,  // +7.8%
-    '-buf_size', `${Math.floor(cfg.videoBitrate * 1.333)}`,  // 133% buffer
-    '-g', `${cfg.fps * 2}`,     // GOP = 2秒 (关键帧间隔)
-    '-r', String(cfg.fps),
+    '-b:v', `${c.videoBitrate}`,
+    '-maxrate', `${Math.floor(c.videoBitrate * 1.078)}`,  // +7.8%
+    '-buf_size', `${Math.floor(c.videoBitrate * 1.333)}`,  // 133% buffer
+    '-g', `${c.fps * 2}`,     // GOP = 2秒 (关键帧间隔)
+    '-r', String(c.fps),
   )
 
   // 分辨率缩放 (如需要)
-  if (cfg.resolution) {
-    const [w, h] = cfg.resolution.split('x')
+  if (c.resolution) {
+    const [w, h] = c.resolution.split('x')
     args.push('-vf', `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2`)
   }
 
   // 音频编码
   args.push(
     '-c:a', 'aac',
-    '-b:a', `${cfg.audioBitrate}`,
+    '-b:a', `${c.audioBitrate}`,
     '-ar', '44100',
   )
 
   // 输出
-  args.push('-f', 'flv', cfg.rtmpUrl)
+  args.push('-f', 'flv', c.rtmpUrl)
 
   return args
 }
@@ -713,7 +716,7 @@ async function pollDHResult(taskId: string, maxAttempts: number, intervalMs = 20
     const result = await queryDigitalHumanTask(taskId)
     if (!result) continue
     if (result.status === 'SUCCEEDED') {
-      return { videoUrl: result.videoUrl, status: result.status }
+      return { videoUrl: result.avatarUrl, status: result.status }
     }
     if (result.status === 'FAILED') {
       return null
