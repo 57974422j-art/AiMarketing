@@ -487,7 +487,7 @@ export async function generateLiveContent(
   // 启动初始并发
   const initialConcurrency = Math.min(MAX_CONCURRENT_DH, queue.length)
   const workers = Array.from({ length: initialConcurrency }, () => processNext())
-  await Promise.allSettledworkers)
+  await Promise.allSettled(workers)
 
   // 完成
   task.status = task.items.every(i => i.status === 'completed') ? 'completed'
