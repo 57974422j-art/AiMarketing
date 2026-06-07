@@ -333,8 +333,9 @@ export default function DashboardPage() {
               <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
                 <span>快捷入口</span>
               </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {[
+                  { label: '数据中心', sub: '采集数据 / 线索 / 视频', href: '/data-center', icon: '📊', color: 'from-cyan-500/10 to-cyan-500/5 border-cyan-500/15 hover:border-cyan-500/30' },
                   { label: '创建内容', sub: 'AI 文案 / 视频合成', href: '/ai-copy', icon: '✨', color: 'from-blue-500/10 to-blue-500/5 border-blue-500/15 hover:border-blue-500/30' },
                   { label: '开启直播', sub: '直播间中控台', href: '/live', icon: '📺', color: 'from-red-500/10 to-red-500/5 border-red-500/15 hover:border-red-500/30' },
                   { label: '采集线索', sub: '自动采集 + AI 分析', href: '/lead-collector', icon: '🎯', color: 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/15 hover:border-emerald-500/30' },
