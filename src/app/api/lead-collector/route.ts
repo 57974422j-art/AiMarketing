@@ -428,6 +428,74 @@ async function handleRunTask(data: any, userId: number) {
       errors: string[]
     }
 
+    // ====== 新增：持久化原始视频数据到 CrawledVideo 表 ======
+    let savedVideoIds: Record<string, number> = {}  // { videoId_in_platform: db_id }
+    if (collectionData.videos && collectionData.videos.length > 0) {
+      const videoCreates = collectionData.videos.map((v: any) => {
+        const platformVid = v.videoId || v.aweme_id || v.id || `unknown_${Date.now()}_${Math.random()}`
+        return prisma.crawledVideo.upsert({
+          where: {   // 用平台唯一ID去重（同一任务内不重复采集同一视频）
+            platform_videoId: {
+              platform: platform,
+              videoId: String(platformVid),
+            }
+          },
+          update: {},  // 已存在则不更新
+          create: {
+            taskId: targetTaskId || null,
+            platform,
+            videoId: String(platformVid),
+            title: v.title || '',
+            description: v.description || v.desc || null,
+            coverUrl: v.cover || v.coverUrl || v.staticCoverUrl || null,
+            videoUrl: v.playAddr || v.videoUrl || v.playApi || null,
+            authorUid: v.authorUid?.toString() || v.author?.uid?.toString() || v.uniqueId?.toString() || null,
+            authorName: v.authorName || v.author?.nickname || v.nickname || null,
+            authorAvatar: v.authorAvatar || v.author?.avatarThumb || null,
+            likeCount: typeof v.likeCount === 'number' ? v.likeCount : parseInt(v.likeCount || v.diggCount || '0', 10) || 0,
+            commentCount: typeof v.commentCount === 'number' ? v.commentCount : parseInt(v.commentCount || v.commentCountStr || '0', 10) || 0,
+            shareCount: typeof v.shareCount === 'number' ? v.shareCount : parseInt(v.shareCount || '0', 10) || 0,
+            collectCount: typeof v.collectCount === 'number' ? v.collectCount : parseInt(v.collectCount || v.collectCountStr || '0', 10) || 0,
+            playCount: v.playCount ? parseInt(String(v.playCount), 10) || null : null,
+            publishedAt: v.createTime || v.publishedAt ? new Date(v.createTime || v.publishedAt) : null,
+          }
+        }).then(r => ({ platformVid, dbId: r.id }))
+      })
+      const videoResults = await Promise.all(videoCreates)
+      for (const r of videoResults) {
+        if (r) savedVideoIds[r.platformVid] = r.dbId
+      }
+    }
+
+    // ====== 新增：持久化原始评论数据到 CrawledComment 表 ======
+    if (collectionData.comments && collectionData.comments.length > 0) {
+      const commentCreates = collectionData.comments.map((c: any) => {
+        const commentId = c.commentId || c.cid || c.id || `unknown_${Date.now()}_${Math.random()}`
+        // 找到该评论所属的视频的数据库ID
+        const parentVideoId = c.videoId || c.awemeId || c.noteId || ''
+        const crawledVideoDbId = savedVideoIds[parentVideoId] || null
+
+        // 如果找不到关联视频，跳过该条评论（或存为孤儿）
+        if (!crawledVideoDbId) return Promise.resolve(null)
+
+        return prisma.crawledComment.create({
+          data: {
+            videoId: crawledVideoDbId,
+            commentId: String(commentId),
+            content: c.content || c.text || c.commentText || '',
+            authorUid: c.uid?.toString() || c.userUid?.toString() || c.authorUid?.toString() || null,
+            authorName: c.nickname || c.userName || c.authorName || null,
+            authorAvatar: c.avatar || c.avatarThumb || null,
+            likeCount: typeof c.likeCount === 'number' ? c.likeCount : parseInt(c.likeCount || c.diggCount || '0', 10) || 0,
+            createdAt: c.createTime || c.commentTime ? new Date(c.createTime || c.commentTime) : null,
+            replyTo: c.replyId || c.replyToCommentId || null,
+            isAuthorReply: !!c.isAuthorReply,
+          }
+        })
+      })
+      await Promise.all(commentCreates)
+    }
+
     // 将提取到的线索写入数据库
     let createdLeadsCount = 0
     if (collectionData.extractedLeads.length > 0) {
@@ -468,12 +536,14 @@ async function handleRunTask(data: any, userId: number) {
       data: {
         videosCollected: collectionData.videos.length,
         commentsCollected: collectionData.comments.length,
+        videosSaved: Object.keys(savedVideoIds).length,      // 新增：实际入库视频数
+        commentsSaved: collectionData.comments?.filter(c => savedVideoIds[c.videoId || c.awemeId || '']).length || 0,  // 新增
         leadsExtracted: collectionData.extractedLeads.length,
         leadsSaved: createdLeadsCount,
         errors: collectionData.errors,
         videos: collectionData.videos.slice(0, 5),  // 返回前5个视频作为预览
       },
-      message: `采集完成: ${collectionData.videos.length}视频, ${collectionData.comments.length}评论, ${createdLeadsCount}条线索已保存`
+      message: `采集完成: ${collectionData.videos.length}视频(入库${Object.keys(savedVideoIds).length}), ${collectionData.comments.length}评论(入库), ${createdLeadsCount}条线索已保存`
     })
 
   } catch (error: any) {

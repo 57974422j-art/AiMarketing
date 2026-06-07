@@ -607,6 +607,7 @@ model CollectionTask {
   status      String   @default("active")   // active/paused/completed
   ownerId     Int
   leads       Lead[]
+  crawledVideos CrawledVideo[]              // 关联采集到的视频
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -683,4 +684,92 @@ model LiveLog {
   createdAt   DateTime @default(now())
 
   room        LiveRoom @relation(fields: [roomId], references: [id])
+}
+
+// ====== 数据采集持久化模型 ======
+// 创建日期: 2026-06-07
+// 用途: 存储采集到的原始视频/评论/用户画像/热门话题数据
+
+// 9. 爬取视频记录（搜索结果的持久化）
+model CrawledVideo {
+  id            Int      @id @default(autoincrement())
+  taskId        Int?                          // 关联采集任务
+  platform      String   @default("抖音")
+  videoId       String                         // 平台视频唯一 ID (aweme_id)
+  title         String                         // 视频/图文标题
+  description   String?                        // 描述文字
+  coverUrl      String?                        // 封面图 URL
+  videoUrl      String?                        // 视频播放地址
+  authorUid     String?                        // 作者 UID
+  authorName    String?                        // 作者昵称
+  authorAvatar  String?                        // 作者头像
+  likeCount     Int      @default(0)
+  commentCount  Int      @default(0)
+  shareCount    Int      @default(0)
+  collectCount  Int      @default(0)
+  playCount     Int?                            // 播放数（部分可见）
+  publishedAt   DateTime?                      // 发布时间
+  tags          String?                         // 标签 JSON
+  location      String?                        // 地理位置
+  crawledAt     DateTime @default(now())        // 采集时间
+
+  task          CollectionTask? @relation(fields: [taskId], references: [id])
+  comments      CrawledComment[]
+}
+
+// 10. 爬取评论记录（视频评论的持久化）
+model CrawledComment {
+  id            Int      @id @default(autoincrement())
+  videoId       Int                            // 关联 CrawledVideo
+  commentId     String                         // 平台评论唯一 ID
+  content       String                         // 评论正文
+  authorUid     String?                        // 评论者 UID
+  authorName    String?                        // 评论者昵称
+  authorAvatar  String?                        // 评论者头像
+  likeCount     Int      @default(0)
+  createdAt     DateTime?                      // 评论发布时间
+  replyTo       String?                        // 回复的目标评论 ID
+  isAuthorReply Boolean  @default(false)       // 是否作者回复
+  crawledAt     DateTime @default(now())        // 采集时间
+  intentScore   Float?                         // AI意向度（可选，分析后回填）
+  leadId        Int?                           // 关联提取到的线索ID
+
+  video         CrawledVideo  @relation(fields: [videoId], references: [id])
+}
+
+// 11. 用户画像记录
+model CrawledUserProfile {
+  id              Int      @id @default(autoincrement())
+  uid             String                         // 平台用户 ID
+  platform        String   @default("抖音")
+  nickname        String
+  avatar          String?
+  bio             String?
+  followerCount   Int      @default(0)
+  followingCount  Int      @default(0)
+  likeCount       Int      @default(0)
+  videoCount      Int      @default(0)
+  isVerified      Boolean  @default(false)
+  verifyType      String?
+  location        String?
+  tags            String?
+  firstCrawledAt  DateTime @default(now())
+  lastCrawledAt   DateTime @updatedAt
+
+  @@unique([uid, platform])  // 同一平台同一用户去重
+}
+
+// 12. 热门话题记录
+model CrawledTrending {
+  id            Int      @id @default(autoincrement())
+  platform      String   @default("抖音")
+  category      String                         // hot/daily/weekly
+  title         String
+  heatValue     Float?                          // 热度值
+  description   String?
+  coverUrl      String?
+  rank          Int?                            // 排名
+  crawledAt     DateTime @default(now())
+
+  @@unique([platform, category, title])  // 去重
 }
