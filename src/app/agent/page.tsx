@@ -113,19 +113,20 @@ export default function AgentPage() {
     let lastIdx = 0
 
     while ((match = imgRegex.exec(remaining)) !== null) {
-      if (match.index > lastIdx) {
-        parts.push(<span key={key++}>{renderText(remaining.substring(lastIdx, match.index))}</span>)
+      const m = match
+      if (m.index > lastIdx) {
+        parts.push(<span key={key++}>{renderText(remaining.substring(lastIdx, m.index))}</span>)
       }
       parts.push(
         <img
           key={key++}
-          src={match[2]}
-          alt={match[1]}
+          src={m[2] || ''}
+          alt={m[1] || ''}
           className="max-w-full rounded-xl my-2 cursor-pointer"
-          onClick={() => window.open(match[2] || '', '_blank')}
+          onClick={() => window.open(m[2] || '', '_blank')}
         />
       )
-      lastIdx = match.index + match[0].length
+      lastIdx = m.index + m[0].length
     }
     if (lastIdx < remaining.length) {
       parts.push(<span key={key++}>{renderText(remaining.substring(lastIdx))}</span>)
