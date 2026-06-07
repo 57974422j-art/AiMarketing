@@ -75,6 +75,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: { pushed: success, total: accounts.length } })
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: e.message })
+    return NextResponse.json({ success: false, message: e.message }, { status: 500 })
   } finally { await prisma.$disconnect() }
 }

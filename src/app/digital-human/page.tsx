@@ -22,7 +22,7 @@ const PRESET_BG_COLORS = [
 ]
 
 export default function DigitalHumanPage() {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [step, setStep] = useState<PageStep>('upload')
   const [mode, setMode] = useState<CloningMode>('fast')
   const [modeTooltip, setModeTooltip] = useState(false)
@@ -57,11 +57,14 @@ export default function DigitalHumanPage() {
 
   // 场景库
   const [sceneLib, setSceneLib] = useState<Array<{ id: number; title: string; prompt: string; previewUrl: string | null; category: string }>>([])
+  const [sceneLibLoading, setSceneLibLoading] = useState(true)
   useEffect(() => {
+    setSceneLibLoading(true)
     fetch('/api/prompt-templates?category=场景', { credentials: 'include' })
       .then(r => r.json())
       .then(d => { if (d.data) setSceneLib(d.data) })
       .catch(() => {})
+      .finally(() => setSceneLibLoading(false))
   }, [])
 
   // 视频文件选取
@@ -275,13 +278,21 @@ export default function DigitalHumanPage() {
     setTrainProgress(0)
   }
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <p className="text-gray-400 font-mono text-sm">加载中...</p>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-950">
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
           <p className="text-xs tracking-[0.2em] text-gray-500 mb-1 font-mono">AI 工作区 / AI WORKSPACE</p>
-          <h1 className="text-2xl font-bold text-white font-mono">数字人形象克隆 / DIGITAL HUMAN</h1>
+          <h1 className="text-mono-lg text-white">数字人形象克隆 / DIGITAL HUMAN</h1>
           <p className="text-sm text-gray-500 mt-1 font-mono">
             上传真人视频，克隆专属数字人形象，一键生成口播视频
           </p>
@@ -291,8 +302,8 @@ export default function DigitalHumanPage() {
           <div className="lg:col-span-2 space-y-6">
             {/* ===== 模式选择 ===== */}
             {step === 'upload' && (
-              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-                <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">选择克隆模式 / MODE</h2>
+              <div className="card-glass p-6">
+                <h2 className="text-label mb-4">选择克隆模式 / MODE</h2>
                 <div className="grid grid-cols-2 gap-4">
                   {(['fast', 'pro'] as CloningMode[]).map(m => (
                     <button
@@ -320,8 +331,8 @@ export default function DigitalHumanPage() {
 
             {/* ===== 上传区 ===== */}
             {step === 'upload' && (
-              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-                <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">素材上传 / UPLOAD</h2>
+              <div className="card-glass p-6">
+                <h2 className="text-label mb-4">素材上传 / UPLOAD</h2>
 
                 <div className="space-y-4">
                   {/* 视频上传 */}
@@ -382,7 +393,7 @@ export default function DigitalHumanPage() {
                   <button
                     onClick={handleSubmitTraining}
                     disabled={uploading || !videoFile}
-                    className="w-full px-4 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors font-mono"
+                    className="btn-primary w-full py-3 font-mono text-base disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {uploading ? '上传中...' : `开始 ${MODE_LABELS[mode].label} 训练`}
                   </button>
@@ -392,8 +403,8 @@ export default function DigitalHumanPage() {
 
             {/* ===== 训练进度 ===== */}
             {step === 'training' && (
-              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-                <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">训练进度 / TRAINING</h2>
+              <div className="card-glass p-6">
+                <h2 className="text-label mb-4">训练进度 / TRAINING</h2>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -444,13 +455,13 @@ export default function DigitalHumanPage() {
             {/* ===== 口播视频生成 ===== */}
             {step === 'generation' && (
               <>
-                <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-                  <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">口播文案 / SCRIPT</h2>
+                <div className="card-glass p-6">
+                  <h2 className="text-label mb-4">口播文案 / SCRIPT</h2>
                   <textarea
                     value={script}
                     onChange={(e) => setScript(e.target.value)}
                     placeholder="输入口播文案..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono text-sm"
+                    className="input-dark font-mono text-sm"
                     rows={5}
                   />
                   <div className="text-xs text-gray-600 mt-1 font-mono">
@@ -459,8 +470,8 @@ export default function DigitalHumanPage() {
                 </div>
 
                 {/* 背景选择 */}
-                <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-                  <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">背景设置 / BACKGROUND</h2>
+                <div className="card-glass p-6">
+                  <h2 className="text-label mb-4">背景设置 / BACKGROUND</h2>
 
                   <div className="flex gap-4 mb-4">
                     <button
@@ -534,15 +545,15 @@ export default function DigitalHumanPage() {
                 <button
                   onClick={handleGenerateVideo}
                   disabled={generating || !script.trim()}
-                  className="w-full px-4 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed font-medium transition-colors font-mono"
+                  className="btn-primary w-full py-3 font-mono text-base disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {generating ? '生成中...' : '生成口播视频'}
                 </button>
 
                 {/* 生成进度 */}
                 {generating && (
-                  <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-                    <h3 className="text-xs tracking-[0.2em] text-gray-400 mb-3 font-mono">生成进度 / PROGRESS</h3>
+                  <div className="card-glass p-6">
+                    <h3 className="text-label mb-3">生成进度 / PROGRESS</h3>
                     <div className="w-full bg-white/10 rounded-full h-3">
                       <div className="bg-gradient-to-r from-emerald-500 to-cyan-400 h-3 rounded-full transition-all duration-500" style={{ width: `${genProgress}%` }} />
                     </div>
@@ -558,26 +569,26 @@ export default function DigitalHumanPage() {
 
                 {/* 结果预览 */}
                 {videoUrl && (
-                  <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-                    <h2 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">生成结果 / RESULT</h2>
+                  <div className="card-glass p-6">
+                    <h2 className="text-label mb-4">生成结果 / RESULT</h2>
                     <video src={videoUrl} controls className="w-full rounded-xl max-h-[500px]" />
                     <div className="flex gap-3 mt-4">
                       <button
                         onClick={handleDownload}
-                        className="flex-1 px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 font-mono text-sm"
+                        className="btn-primary flex-1 font-mono text-sm"
                       >
                         下载视频
                       </button>
                       <button
                         onClick={handleSaveToStorage}
                         disabled={savingToStorage}
-                        className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-mono text-sm disabled:opacity-50"
+                        className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-mono text-sm disabled:opacity-50 transition-colors"
                       >
                         {savingToStorage ? '存入中...' : '📦 存入素材库'}
                       </button>
                       <button
                         onClick={handleReset}
-                        className="px-4 py-2 bg-white/10 text-gray-300 rounded-xl hover:bg-white/20 font-mono text-sm"
+                        className="btn-secondary font-mono text-sm"
                       >
                         继续制作
                       </button>
@@ -590,8 +601,8 @@ export default function DigitalHumanPage() {
 
           {/* ===== 右侧信息面板 ===== */}
           <div className="space-y-6">
-            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <h3 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">克隆说明 / GUIDE</h3>
+            <div className="card-glass p-6">
+              <h3 className="text-label mb-4">克隆说明 / GUIDE</h3>
               <div className="space-y-3 text-xs text-gray-500 font-mono leading-relaxed">
                 <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
                   <p className="text-blue-400 font-medium mb-1">📹 视频要求</p>
@@ -617,9 +628,11 @@ export default function DigitalHumanPage() {
             </div>
 
             {/* ===== 直播场景库 ===== */}
-            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
-              <h3 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">直播场景 / SCENE LIBRARY</h3>
-              {sceneLib.length === 0 ? (
+            <div className="card-glass p-6">
+              <h3 className="text-label mb-4">直播场景 / SCENE LIBRARY</h3>
+              {sceneLibLoading ? (
+                <p className="text-gray-500 text-xs font-mono text-center py-6">加载场景库...</p>
+              ) : sceneLib.length === 0 ? (
                 <p className="text-gray-500 text-xs font-mono">暂无场景素材，请在后台 /admin/prompt-templates 添加</p>
               ) : (
                 <div className="grid grid-cols-2 gap-2 max-h-[320px] overflow-y-auto pr-1">
@@ -659,8 +672,8 @@ export default function DigitalHumanPage() {
 
             {/* 训练状态摘要 */}
             {step === 'training' && taskId && (
-              <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-4">
-                <h4 className="text-xs text-gray-400 mb-2 font-mono">任务信息</h4>
+              <div className="card-glass p-4">
+                <h4 className="text-label mb-2">任务信息</h4>
                 <div className="text-[10px] text-gray-600 font-mono break-all">
                   <p>ID: {taskId}</p>
                   <p>模式: {MODE_LABELS[mode].label}</p>

@@ -19,5 +19,5 @@ export async function DELETE(request: NextRequest) {
   if (!fs.existsSync(fp)) return NextResponse.json({ success: false, message: '文件不存在' }, { status: 404 })
 
   fs.unlinkSync(fp)
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, message: '删除成功' })
 }
