@@ -89,6 +89,12 @@ export default function LivePage() {
   const [consoleOutput, setConsoleOutput] = useState<string[]>([]);
   const [commandInput, setCommandInput] = useState('');
 
+  /* ====== 素材仓库导入状态 ====== */
+  const [showStorageModal, setShowStorageModal] = useState(false);
+  const [storageFiles, setStorageFiles] = useState<Array<{ name: string; size: number; duration: number; isVideo: boolean }>>([]);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [storageLoading, setStorageLoading] = useState(false);
+
   useEffect(() => {
     if (!authLoading && user) loadRooms();
     else if (!authLoading) setLoading(false);
@@ -341,6 +347,69 @@ export default function LivePage() {
       showToast('生成失败', 'error');
     } finally {
       setGenLoading(false);
+    }
+  };
+
+  /* ====== 从素材仓库导入 ====== */
+
+  /** 打开仓库选择弹窗，加载文件列表 */
+  const handleOpenStorageModal = async () => {
+    setShowStorageModal(true);
+    setStorageLoading(true);
+    setSelectedFiles(new Set());
+    try {
+      const res = await fetch('/api/live/stream?action=storage-videos', { credentials: 'include' });
+      const d = await res.json();
+      if (d.success) {
+        setStorageFiles(d.data || []);
+        addLog(`[STORAGE] 仓库中有 ${(d.data || []).length} 个视频文件`);
+      } else {
+        addLog(`[FAIL] 加载仓库失败: ${d.message}`);
+      }
+    } catch (e: any) {
+      addLog(`[ERROR] ${e.message}`);
+    } finally {
+      setStorageLoading(false);
+    }
+  };
+
+  /** 切换选中/取消选中文件 */
+  const toggleFileSelect = (fileName: string) => {
+    setSelectedFiles(prev => {
+      const next = new Set(prev);
+      if (next.has(fileName)) next.delete(fileName); else next.add(fileName);
+      return next;
+    });
+  };
+
+  /** 执行导入 */
+  const handleImportFromStorage = async () => {
+    if (selectedFiles.size === 0) { showToast('请至少选择一个文件', 'error'); return; }
+    setStorageLoading(true);
+    try {
+      const fileNames = Array.from(selectedFiles);
+      addLog(`[IMPORT] 正在导入 ${fileNames.length} 个文件...`);
+      const res = await fetch('/api/live/stream', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'import-storage', fileNames }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        // 将新 clips 合并到现有列表
+        setClips(prev => [...prev, ...result.data]);
+        addLog(`[OK] 导入成功: ${result.message}`);
+        showToast(result.message, 'success');
+        setShowStorageModal(false);
+      } else {
+        addLog(`[FAIL] ${result.message}`);
+        showToast(result.message, 'error');
+      }
+    } catch (e: any) {
+      addLog(`[ERROR] ${e.message}`);
+    } finally {
+      setStorageLoading(false);
     }
   };
 
@@ -644,9 +713,15 @@ export default function LivePage() {
                         onClick={() => fetch('/api/live/stream?action=clips', { credentials: 'include' }).then(r => r.json()).then(d => setClips(d.data || []))}
                         className="px-3 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg font-mono text-sm hover:bg-blue-500/30"
                       >
-                        🔄 刷新素材列表 ({clips.length}个)
+                        🔄 刷新素材 ({clips.length}个)
                       </button>
                     )}
+                    <button
+                      onClick={handleOpenStorageModal}
+                      className="px-3 py-2 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg font-mono text-sm hover:bg-orange-500/30"
+                    >
+                      📦 从仓库导入
+                    </button>
                   </div>
 
                   {/* 当前会话信息 */}
@@ -753,7 +828,7 @@ export default function LivePage() {
                     </div>
                     <div className="flex items-start gap-2">
                       <span className="bg-emerald-500/20 text-emerald-400 px-1.5 rounded text-xs font-mono mt-0.5">2</span>
-                      <span>点击 <strong className="text-white">「AI 生成」</strong> — 自动生成全套话术+数字人视频素材</span>
+                      <span>选择素材来源: <strong className="text-white">「AI 生成」</strong> 自动制作 / <strong className="text-orange-400">「从仓库导入」</strong> 用已有视频</span>
                     </div>
                     <div className="flex items-start gap-2">
                       <span className="bg-emerald-500/20 text-emerald-400 px-1.5 rounded text-xs font-mono mt-0.5">3</span>
@@ -769,6 +844,88 @@ export default function LivePage() {
                     </div>
                   </div>
                 </div>
+
+                {/* ====== 素材仓库导入弹窗 ====== */}
+                {showStorageModal && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowStorageModal(false)}>
+                    <div className="bg-gray-900 border border-white/10 rounded-2xl w-full max-w-lg max-h-[70vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+                      {/* Header */}
+                      <div className="flex items-center justify-between p-5 border-b border-white/10">
+                        <div>
+                          <h3 className="text-white font-bold font-mono">📦 从素材库导入</h3>
+                          <p className="text-xs text-gray-500 mt-0.5">选择要加入直播播放列表的视频文件</p>
+                        </div>
+                        <button onClick={() => setShowStorageModal(false)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">&times;</button>
+                      </div>
+
+                      {/* File list */}
+                      <div className="flex-1 overflow-y-auto p-4 min-h-[200px]">
+                        {storageLoading && storageFiles.length === 0 ? (
+                          <div className="flex items-center justify-center py-12">
+                            <div className="animate-spin w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full" />
+                          </div>
+                        ) : storageFiles.length === 0 ? (
+                          <div className="text-center py-12 text-gray-500">
+                            <p className="text-3xl mb-2">📂</p>
+                            <p className="font-mono">素材库为空</p>
+                            <p className="text-xs mt-1">先在「数字人」或「一键成片」制作视频并存入仓库</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {storageFiles.map(file => (
+                              <label
+                                key={file.name}
+                                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${
+                                  selectedFiles.has(file.name)
+                                    ? 'bg-orange-500/15 border border-orange-500/30'
+                                    : 'bg-black/20 border border-white/5 hover:border-white/10'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedFiles.has(file.name)}
+                                  onChange={() => toggleFileSelect(file.name)}
+                                  className="w-4 h-4 rounded accent-orange-500"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm text-white truncate font-medium">{file.name}</div>
+                                  <div className="text-xs text-gray-500 font-mono mt-0.5">
+                                    {(file.size / 1024 / 1024).toFixed(1)} MB {file.duration > 0 ? `· ~${file.duration}s` : ''}
+                                  </div>
+                                </div>
+                                <span className={`shrink-0 w-2 h-2 rounded-full ${file.isVideo ? 'bg-emerald-400' : 'bg-gray-600'}`} />
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Footer */}
+                      <div className="p-4 border-t border-white/10 flex items-center justify-between">
+                        <span className="text-xs text-gray-500 font-mono">
+                          已选 {selectedFiles.size} 个文件
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setShowStorageModal(false)}
+                            className="px-4 py-2 bg-white/5 text-gray-400 rounded-lg text-sm hover:bg-white/10 transition-colors"
+                          >
+                            取消
+                          </button>
+                          <button
+                            onClick={handleImportFromStorage}
+                            disabled={selectedFiles.size === 0 || storageLoading}
+                            className="px-5 py-2 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            {storageLoading ? (
+                              <><span className="inline-block animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />导入中...</>
+                            ) : `✅ 导入 ${selectedFiles.size} 个`}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
