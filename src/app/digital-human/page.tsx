@@ -50,6 +50,7 @@ export default function DigitalHumanPage() {
   const [genTaskId, setGenTaskId] = useState('')
   const [videoUrl, setVideoUrl] = useState('')
   const [genError, setGenError] = useState('')
+  const [savingToStorage, setSavingToStorage] = useState(false)
 
   // Toast
   const [toast, setToast] = useState('')
@@ -221,6 +222,31 @@ export default function DigitalHumanPage() {
       a.href = videoUrl
       a.download = `digital_human_${Date.now()}.mp4`
       a.click()
+    }
+  }
+
+  // 存入素材仓库
+  const handleSaveToStorage = async () => {
+    if (!videoUrl || savingToStorage) return
+    setSavingToStorage(true)
+    setToast('正在存入素材库...')
+    try {
+      const res = await fetch('/api/storage/save-digital-human', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl, title: `口播视频_${Date.now()}` }),
+      })
+      const d = await res.json()
+      if (d.success) {
+        setToast(`✅ ${d.message}`)
+      } else {
+        setToast(`❌ ${d.message}`)
+      }
+    } catch (e: any) {
+      setToast('❌ 存储失败')
+    } finally {
+      setSavingToStorage(false)
     }
   }
 
@@ -537,6 +563,13 @@ export default function DigitalHumanPage() {
                         className="flex-1 px-4 py-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 font-mono text-sm"
                       >
                         下载视频
+                      </button>
+                      <button
+                        onClick={handleSaveToStorage}
+                        disabled={savingToStorage}
+                        className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-mono text-sm disabled:opacity-50"
+                      >
+                        {savingToStorage ? '存入中...' : '📦 存入素材库'}
                       </button>
                       <button
                         onClick={handleReset}
