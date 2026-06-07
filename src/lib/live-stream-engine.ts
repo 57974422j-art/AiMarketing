@@ -361,7 +361,7 @@ export async function stopStream(sessionId: string): Promise<StreamSession> {
   const proc = activeFFmpegProcesses.get(sessionId)
   if (proc && !proc.killed) {
     // 发送 'q' 命令让 FFmpeg 优雅退出
-    proc.stdin.write('q')
+    proc.stdin?.write('q')
     // 5 秒后强制 kill
     setTimeout(() => {
       if (!proc.killed) proc.kill('SIGTERM')
