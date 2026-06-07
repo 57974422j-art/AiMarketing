@@ -29,10 +29,11 @@ const workflows: Workflow[] = [
     steps: [
       { id: 1, title: '行业洞察', desc: '查看热门话题，选择内容方向', href: '/dashboard/insights', status: 'done' },
       { id: 2, title: 'AI 文案生成', desc: '输入关键词，AI 生成多个候选文案', href: '/ai-copy', status: 'done' },
-      { id: 3, title: 'AI 视频合成', desc: '上传素材/照片，选择模板合成视频', href: '/auto-compile', status: 'active' },
-      { id: 4, title: '话术准备', desc: 'AI 生成直播话术 / 评论区回复话术', href: '/admin/script-templates', status: 'pending' },
-      { id: 5, title: '发布', desc: '指纹浏览器发布 / Q1 自动发布', href: '/my-fingerprint', status: 'pending' },
-      { id: 6, title: '数据追踪', desc: 'Dashboard 查看播放量 / 互动数据', href: '/dashboard', status: 'pending' },
+      { id: 3, title: '数字人形象克隆', desc: '上传真人视频训练数字人形象（极速版3分钟/精品版24小时）', href: '/digital-human', status: 'active' },
+      { id: 4, title: '视频制作', desc: '方式A：一键成片合成视频 / 方式B：数字人口播视频生成', href: '/auto-compile', status: 'pending' },
+      { id: 5, title: '存入素材库', desc: '将制作好的视频统一存入仓库，供直播推流或手机推送使用', href: '/storage', status: 'pending' },
+      { id: 6, title: '发布推送', desc: '指纹浏览器发布 / Q1 手机自动发布 / 推送到设备', href: '/my-fingerprint', status: 'pending' },
+      { id: 7, title: '数据追踪', desc: 'Dashboard 查看播放量 / 互动数据 / 转化漏斗', href: '/dashboard', status: 'pending' },
     ],
   },
   {
@@ -42,10 +43,11 @@ const workflows: Workflow[] = [
     icon: '📺',
     color: 'from-red-500/20 to-orange-500/10',
     steps: [
-      { id: 1, title: '直播前准备', desc: '设置标题 / 封面 / 准备商品 / 配置话术 / 自动回复规则', href: '/live', status: 'done' },
-      { id: 2, title: '开始直播', desc: '系统 → Q1 ADB → 抖音开播', href: '/live', status: 'active' },
-      { id: 3, title: '直播中控', desc: '实时数据 / 手动自动回复 / 商品上下架 / 人工介入', href: '/live', status: 'pending' },
-      { id: 4, title: '直播后复盘', desc: '本场数据报告 / 对比历史 / 导出报告', href: '/live', status: 'pending' },
+      { id: 1, title: '素材准备', desc: '数字人口播视频 / 一键成片视频 → 存入素材库', href: '/storage', status: 'done' },
+      { id: 2, title: '组建播放列表', desc: '从素材库导入视频到直播 Playlist，设置播放顺序和类型', href: '/live', status: 'active' },
+      { id: 3, title: '直播配置与开播', desc: '配置 RTMP 推流地址、码率、分辨率等参数，启动 FFmpeg 推流', href: '/live', status: 'pending' },
+      { id: 4, title: '直播中控', desc: '实时监控推流状态 / 手动自动回复 / 商品上下架 / 人工介入', href: '/live', status: 'pending' },
+      { id: 5, title: '直播后复盘', desc: '本场推流时长/流量统计 / 对比历史场次 / 导出报告', href: '/live', status: 'pending' },
     ],
   },
   {
