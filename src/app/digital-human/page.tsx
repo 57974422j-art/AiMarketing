@@ -56,6 +56,15 @@ export default function DigitalHumanPage() {
   const [toast, setToast] = useState('')
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
 
+  // 场景库
+  const [sceneLib, setSceneLib] = useState<Array<{ id: number; title: string; prompt: string; previewUrl: string | null; category: string }>>([])
+  useEffect(() => {
+    fetch('/api/prompt-templates?category=场景', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.data) setSceneLib(d.data) })
+      .catch(() => {})
+  }, [])
+
   // 视频文件选取
   const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -612,15 +621,45 @@ export default function DigitalHumanPage() {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 rounded-2xl border border-emerald-500/20 p-6 text-white">
-              <h3 className="font-semibold mb-3 font-mono text-sm">数字人优势</h3>
-              <ul className="text-xs space-y-2 text-gray-300 font-mono">
-                <li>✓ 无需真人出镜拍摄</li>
-                <li>✓ 突破时间空间限制</li>
-                <li>✓ 保持形象一致性</li>
-                <li>✓ 多语言口播支持</li>
-                <li>✓ 降低 80% 制作成本</li>
-              </ul>
+            {/* ===== 直播场景库 ===== */}
+            <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+              <h3 className="text-xs tracking-[0.2em] text-gray-400 mb-4 font-mono">直播场景 / SCENE LIBRARY</h3>
+              {sceneLib.length === 0 ? (
+                <p className="text-gray-500 text-xs font-mono">暂无场景素材，请在后台 /admin/prompt-templates 添加</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 max-h-[320px] overflow-y-auto pr-1">
+                  {sceneLib.map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        if (s.previewUrl) {
+                          setBgType('custom')
+                          setCustomBgPreview(s.previewUrl)
+                          setCustomBg(null as any)
+                          setToast(`已选场景: ${s.title}`)
+                        }
+                      }}
+                      className="relative group rounded-xl overflow-hidden aspect-video bg-black/40 hover:ring-1 hover:ring-emerald-500/50 transition-all"
+                    >
+                      {s.previewUrl ? (
+                        s.previewUrl.endsWith('.mp4')
+                          ? <video src={s.previewUrl} className="w-full h-full object-cover" muted />
+                          : <img src={s.previewUrl} alt={s.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-white/5">
+                          <span className="text-lg">🏞️</span>
+                        </div>
+                      )}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-1.5">
+                        <p className="text-[10px] text-white font-medium truncate">{s.title}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {sceneLib.length > 0 && (
+                <p className="text-[10px] text-gray-600 mt-2 font-mono text-center">点击场景 → 自动设为口播背景 · 共 {sceneLib.length} 个</p>
+              )}
             </div>
 
             {/* 训练状态摘要 */}
