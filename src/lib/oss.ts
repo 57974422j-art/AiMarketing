@@ -76,7 +76,7 @@ export async function objectExists(key: string): Promise<boolean> {
 /** 列出目录下所有文件 */
 export async function listObjects(prefix: string, maxKeys = 1000): Promise<Array<{ name: string; size: number; lastModified: Date }>> {
   const oss = await getOSSClient()
-  const result = await oss.list({ prefix, 'max-keys': maxKeys })
+  const result = await oss.list({ prefix, 'max-keys': maxKeys }, undefined)
   return (result.objects || []).map(o => ({
     name: o.name,
     size: o.size || 0,
