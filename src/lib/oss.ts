@@ -46,7 +46,9 @@ export function resetOSSClient(): void {
 /** 上传文件 */
 export async function putObject(key: string, buffer: Buffer | string, mime?: string): Promise<void> {
   const oss = await getOSSClient()
-  await oss.put(key, buffer, { headers: mime ? { 'Content-Type': mime } : undefined })
+  const options: Record<string, any> = {}
+  if (mime) options.headers = { 'Content-Type': mime }
+  await oss.put(key, buffer, options)
 }
 
 /** 删除文件 */
@@ -76,7 +78,7 @@ export async function objectExists(key: string): Promise<boolean> {
 /** 列出目录下所有文件 */
 export async function listObjects(prefix: string, maxKeys = 1000): Promise<Array<{ name: string; size: number; lastModified: Date }>> {
   const oss = await getOSSClient()
-  const result = await oss.list({ prefix, 'max-keys': maxKeys }, undefined)
+  const result = await oss.list({ prefix, 'max-keys': maxKeys }, {})
   return (result.objects || []).map(o => ({
     name: o.name,
     size: o.size || 0,
