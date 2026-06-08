@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
         success: true,
         data: {
           reply,
-          intent: fcResult.toolCalls.map(t => t.name),
+          intent: toolCalls.map(t => t.name),
           toolUsed: true,
         },
       })
