@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import path from 'path'
-import fs from 'fs'
 import { PrismaClient } from '@prisma/client'
 import { getAuthFromHeaders } from '@/lib/api-auth'
+import { getObject } from '@/lib/oss'
 
 const prisma = new PrismaClient()
-const STORAGE_BASE = '/root/AiMarketing/public/storage'
 
 // 通过 Q1 shell 执行命令
 async function q1Exec(port: number, cmd: string) {
@@ -21,20 +19,24 @@ export async function POST(request: NextRequest) {
     const { fileName } = await request.json()
     if (!fileName) return NextResponse.json({ success: false, message: '缺少文件名' }, { status: 400 })
 
-    const src = path.join(STORAGE_BASE, String(auth.userId), fileName)
-    if (!fs.existsSync(src)) return NextResponse.json({ success: false, message: '文件不存在' }, { status: 404 })
+    // 从 OSS 读取文件
+    const key = `storage/${auth.userId}/${fileName}`
+    let buf: Buffer
+    try {
+      buf = await getObject(key)
+    } catch {
+      return NextResponse.json({ success: false, message: '文件不存在' }, { status: 404 })
+    }
 
     let devices: { id: number; name: string | null; apiPort: number | null }[] = []
 
     if (auth.role === 'admin' || auth.role === 'editor') {
-      // admin/editor：推到所有有 API 端口的设备
       const allDevs = await prisma.device.findMany({
         where: { apiPort: { not: null } },
         select: { id: true, name: true, apiPort: true },
       })
       devices = allDevs as typeof devices
     } else {
-      // end-user：只推自己绑定的设备
       const accts = await prisma.account.findMany({
         where: { userId: auth.userId, deviceId: { not: null } },
         include: { device: { select: { id: true, name: true, apiPort: true } } },
@@ -44,7 +46,6 @@ export async function POST(request: NextRequest) {
 
     if (!devices.length) return NextResponse.json({ success: false, message: '没有可用的设备' }, { status: 400 })
 
-    const buf = fs.readFileSync(src)
     const details: { name: string; ok: boolean }[] = []
 
     for (const device of devices) {
