@@ -215,7 +215,7 @@ export async function POST(request: NextRequest) {
 ${history.map((h: any) => `${h.role}: ${h.content}`).slice(-6).join('\n')}`
 
     const fullPrompt = `${systemPrompt}\n\n用户最新消息：${userMessage}`
-    const reply = await generateText(fullPrompt, 1500) || '抱歉，AI服务暂时繁忙，请稍后再试。'
+    const reply = await generateText(fullPrompt) || '抱歉，AI服务暂时繁忙，请稍后再试。'
 
     return NextResponse.json({
       success: true,
