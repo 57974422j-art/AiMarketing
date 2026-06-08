@@ -82,7 +82,7 @@ export async function listObjects(prefix: string, maxKeys = 1000): Promise<Array
   return (result.objects || []).map(o => ({
     name: o.name,
     size: o.size || 0,
-    lastModified: o.lastModified || new Date(),
+    lastModified: o.lastModified ? new Date(o.lastModified) : new Date(),
   }))
 }
 
