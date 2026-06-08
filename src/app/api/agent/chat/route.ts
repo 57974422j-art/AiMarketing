@@ -196,7 +196,8 @@ export async function POST(request: NextRequest) {
     const fcResult = await deepSeekFunctionCall(messages, AGENT_TOOLS)
 
     // 如果有 tool_calls，执行工具并回传结果
-    if ((fcResult.toolCalls?.length ?? 0) > 0) {
+    const toolCalls = fcResult.toolCalls || []
+    if (toolCalls.length > 0) {
       // 把 assistant 的响应（含 tool_calls）加入消息
       messages.push({
         role: 'assistant',
@@ -204,7 +205,7 @@ export async function POST(request: NextRequest) {
       } as any) // tool_calls 在实际API返回中，这里简化处理
 
       // 执行每个工具调用
-      for (const tc of fcResult.toolCalls) {
+      for (const tc of toolCalls) {
         let args: Record<string, any> = {}
         try { args = JSON.parse(tc.arguments) } catch { args = {} }
 
