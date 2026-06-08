@@ -3,35 +3,36 @@
  * 从 SystemConfig 读取配置，提供统一的文件操作接口
  */
 
-import { getSystemConfigs } from './system-config'
 import OSS from 'ali-oss'
 
-let client: OSS | null = null
-
-interface OSSConfig {
-  region: string
-  accessKeyId: string
-  accessKeySecret: string
-  bucket: string
+/** 从 .env.local 读取环境变量（兼容热重载） */
+async function readEnv(key: string): Promise<string> {
+  if (process.env[key]) return process.env[key]!
+  try {
+    const { readFile } = await import('fs/promises')
+    const { join } = await import('path')
+    const content = await readFile(join(process.cwd(), '.env.local'), 'utf-8')
+    const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'))
+    return match?.[1] || ''
+  } catch { return '' }
 }
+
+let client: OSS | null = null
 
 /** 获取 OSS 客户端（懒加载单例） */
 export async function getOSSClient(): Promise<OSS> {
   if (client) return client
 
-  const configs = await getSystemConfigs()
-  const config: OSSConfig = {
-    region: configs.get('oss_region') || '',
-    accessKeyId: configs.get('oss_access_key_id') || '',
-    accessKeySecret: configs.get('oss_access_key_secret') || '',
-    bucket: configs.get('oss_bucket') || '',
-  }
+  const region = await readEnv('OSS_REGION')
+  const accessKeyId = await readEnv('OSS_ACCESS_KEY_ID')
+  const accessKeySecret = await readEnv('OSS_ACCESS_KEY_SECRET')
+  const bucket = await readEnv('OSS_BUCKET')
 
-  if (!config.region || !config.accessKeyId || !config.accessKeySecret || !config.bucket) {
+  if (!region || !accessKeyId || !accessKeySecret || !bucket) {
     throw new Error('OSS 未配置，请在 admin/settings 中填写完整配置')
   }
 
-  client = new OSS(config)
+  client = new OSS({ region, accessKeyId, accessKeySecret, bucket })
   return client
 }
 
