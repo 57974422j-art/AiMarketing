@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
     const fcResult = await deepSeekFunctionCall(messages, AGENT_TOOLS)
 
     // 如果有 tool_calls，执行工具并回传结果
-    if (fcResult.toolCalls?.length > 0) {
+    if ((fcResult.toolCalls?.length ?? 0) > 0) {
       // 把 assistant 的响应（含 tool_calls）加入消息
       messages.push({
         role: 'assistant',
