@@ -1,99 +1,123 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateText, generateImage, generateVideo } from '@/lib/ai-providers'
+import { generateText, generateImage, generateVideo, deepSeekFunctionCall, ToolDefinition } from '@/lib/ai-providers'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 
-// ==================== Agent 工具定义 ====================
+// ==================== 工具定义 (OpenAI Function Calling 格式) ====================
 
-interface ToolCall {
-  name: string
-  params: Record<string, any>
-  result?: any
-}
+const AGENT_TOOLS: ToolDefinition[] = [
+  {
+    name: 'generate_copy',
+    description: '为用户生成营销文案、广告语、社交媒体内容。当用户提到"写文案"、"推广"、"广告"、"小红书文案"、"抖音脚本"时使用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        product: { type: 'string', description: '产品或品牌名称' },
+        platform: { type: 'string', description: '目标平台，如抖音/小红书/微信/多平台' },
+        style: { type: 'string', description: '风格，如专业/活泼/幽默/高端' },
+      },
+      required: ['product'],
+    },
+  },
+  {
+    name: 'generate_image',
+    description: '根据文字描述AI生成图片。当用户提到"生成图片"、"做海报"、"设计图"、"画一张"时使用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: '图片的详细描述' },
+        size: { type: 'string', description: '尺寸，如1024*1024, 768*1344, 1440*720' },
+      },
+      required: ['prompt'],
+    },
+  },
+  {
+    name: 'generate_video',
+    description: '根据文字描述AI生成短视频。当用户提到"做视频"、"生成视频"、"短视频"时使用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: '视频内容的详细描述' },
+        duration: { type: 'number', description: '视频时长(秒)，默认5' },
+        ratio: { type: 'string', description: '画面比例，16:9横屏/9:16竖屏，默认16:9' },
+      },
+      required: ['prompt'],
+    },
+  },
+  {
+    name: 'search_templates',
+    description: '搜索后台素材库和提示词模板。当用户问有没有什么模板、场景、素材可用时使用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        keyword: { type: 'string', description: '搜索关键词' },
+        category: { type: 'string', description: '分类，如场景、文案、背景等' },
+      },
+    },
+  },
+]
 
-// 意图分类提示词
-const INTENT_PROMPT = `你是 AiMarketing AI 助手的意图分析器。用户会发送自然语言请求，你需要判断他想做什么。
+// 系统提示词
+const SYSTEM_PROMPT = `你是 AiMarketing 的智能助手（代号：小Ai），一个专业的AI营销创作平台的AI大脑。
 
-可用工具列表：
-1. chat - 闲聊/问答（不调用任何工具，直接回复）
-2. generate_copy - 生成营销文案。参数: product(产品名), platform(平台,如"抖音/小红书"), style(风格)
-3. generate_image - AI生成图片。参数: prompt(图片描述), size(尺寸)
-4. generate_video - AI生成视频。参数: prompt(视频描述), duration(时长秒), ratio(比例)
-4. search_templates - 搜索素材模板库。参数: keyword(关键词), category(分类)
-5. digital_human_info - 数字人相关咨询（使用说明、流程介绍等）
+你的能力：
+📝 AI文案生成 — 帮用户写各种营销文案、广告语、社媒内容
+🎨 AI图片生成 — 根据文字描述生成商业图片
+🎬 AI视频生成 — 文字描述转短视频
+🤖 数字人克隆 — 上传真人视频克隆数字人形象并生成口播视频
+📦 素材管理 — 管理和推送视频/图片到设备
+📡 直播推流 — 推流到抖音等直播平台
 
-请严格按以下JSON格式输出，不要输出任何其他内容：
-{"intent":"工具名","params":{"参数名":"参数值",...},"confidence":0.0-1.0}
+工作方式：
+1. 用户发消息 → 你判断是否需要调用工具
+2. 需要工具 → 调用对应函数获取结果
+3. 拿到结果后 → 用自然语言友好地回复用户
+4. 不需要工具 → 直接回答
 
-如果用户只是闲聊或问一般问题，intent设为"chat"。
-如果无法判断意图，intent设为"chat"，confidence低于0.5。
+回复规则：
+- 简洁友好、专业但不死板
+- 适当使用emoji增强可读性
+- 中文回复为主
+- 如果执行了工具，告诉用户做了什么、结果是什么
+- 如果用户的问题超出能力范围，诚实告知并建议合适方向`
 
-用户输入：`
+// ==================== 工具执行器 ====================
 
-// ==================== 主处理函数 ====================
-
-async function classifyIntent(userMessage: string): Promise<{ intent: string; params: Record<string, any>; confidence: number }> {
-  const response = await generateText(INTENT_PROMPT + userMessage)
-  if (!response) return { intent: 'chat', params: {}, confidence: 0 }
-
-  try {
-    // 尝试从响应中提取 JSON
-    const jsonMatch = response.match(/\{[\s\S]*"intent"[\s\S]*\}/)
-    if (!jsonMatch) return { intent: 'chat', params: {}, confidence: 0 }
-    
-    const parsed = JSON.parse(jsonMatch[0])
-    return {
-      intent: parsed.intent || 'chat',
-      params: parsed.params || {},
-      confidence: parsed.confidence || 0.5,
-    }
-  } catch {
-    return { intent: 'chat', params: {}, confidence: 0 }
-  }
-}
-
-// 工具执行器
-async function executeTool(intent: string, params: Record<string, any>, auth: any): Promise<string> {
-  switch (intent) {
+async function executeToolCall(name: string, args: Record<string, any>, auth: any): Promise<string> {
+  switch (name) {
     case 'generate_copy': {
-      const product = params.product || '产品'
-      const platform = params.platform || '多平台'
-      const style = params.style || '专业'
+      const product = args.product || '产品'
+      const platform = args.platform || '多平台'
+      const style = args.style || '专业'
       const copyPrompt = `为"${product}"生成${platform}平台的营销文案，风格:${style}。要求：吸引眼球、有卖点、适合社交媒体传播。直接输出3条不同角度的文案，每条用【文案X】标记。`
       const result = await generateText(copyPrompt)
       return result || '抱歉，文案生成服务暂时不可用，请稍后再试。'
     }
 
     case 'generate_image': {
-      const prompt = params.prompt || '商业海报'
-      const size = params.size || '1024*1024'
+      const prompt = args.prompt || '商业海报'
+      const size = args.size || '1024*1024'
       const result = await generateImage(prompt, size)
-      if (result?.url) {
-        return `IMAGE_RESULT:${result.url}|MODEL:${result.model}`
-      }
+      if (result?.url) return `IMAGE_RESULT:${result.url}|MODEL:${result.model}`
       return '抱歉，图片生成服务暂时不可用，请检查AI配置后重试。'
     }
 
     case 'generate_video': {
-      const prompt = params.prompt || '产品展示视频'
-      const duration = parseInt(params.duration) || 5
-      const ratio = params.ratio || '16:9'
+      const prompt = args.prompt || '产品展示视频'
+      const duration = parseInt(args.duration) || 5
+      const ratio = args.ratio || '16:9'
       const result = await generateVideo(prompt, duration, '720P', ratio)
-      if (result?.taskId && result.status === 'running') {
-        return `VIDEO_TASK:${result.taskId}|STATUS:generating|PROMPT:${prompt}`
-      }
-      if (result?.videoUrl) {
-        return `VIDEO_RESULT:${result.videoUrl}`
-      }
+      if (result?.taskId && result.status === 'running') return `VIDEO_TASK:${result.taskId}|PROMPT:${prompt}`
+      if (result?.videoUrl) return `VIDEO_RESULT:${result.videoUrl}`
       return '抱歉，视频生成任务创建失败，请检查AI配置后重试。'
     }
 
     case 'search_templates': {
-      // 调用内部API搜索模板库
       try {
         const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || ''
-        const category = params.category ? `&category=${encodeURIComponent(params.category)}` : ''
-        const keyword = params.keyword ? `&keyword=${encodeURIComponent(params.keyword)}` : ''
-        const res = await fetch(`${baseUrl}/api/prompt-templates?${category}${keyword}`, {
+        const params = new URLSearchParams()
+        if (args.category) params.set('category', args.category)
+        if (args.keyword) params.set('keyword', args.keyword)
+        const res = await fetch(`${baseUrl}/api/prompt-templates?${params}`, {
           headers: auth ? { Authorization: `Bearer ${auth.userId}` } : {},
         })
         const data = await res.json()
@@ -109,55 +133,34 @@ async function executeTool(intent: string, params: Record<string, any>, auth: an
       }
     }
 
-    case 'digital_human_info': {
-      return `数字人功能说明：
-
-🎬 **形象克隆流程**：
-1. 上传真人视频（30-120秒，正面露脸）
-2. 可选上传录音音频（用于声音克隆）
-3. 选择模式：极速版(~3分钟) / 精品版(~24小时)
-4. 等待训练完成
-
-🎤 **口播视频生成**：
-1. 训练完成后输入口播文案
-2. 选择背景（纯色/自定义图片/场景库）
-3. 点击生成，等待视频渲染完成
-4. 可下载或存入素材仓库
-
-💡 **小提示**：你可以说"我想克隆一个数字人"来开始，或者"帮我做一个关于XX的口播视频"。需要我帮你开始吗？`
-    }
-
     default:
-      return '' // chat 意图返回空字符串，由主流程处理
+      return `未知工具: ${name}`
   }
 }
 
-// 格式化工具结果为自然语言
-function formatToolResponse(intent: string, toolOutput: string): string {
+// ==================== 结果格式化 ====================
+
+function formatResult(toolOutput: string): string {
   if (toolOutput.startsWith('IMAGE_RESULT:')) {
-    const [urlInfo, modelInfo] = toolOutput.split('|')
-    const url = urlInfo.replace('IMAGE_RESULT:', '')
-    const model = modelInfo?.replace('MODEL:', '') || 'AI'
+    const parts = toolOutput.split('|')
+    const url = parts[0]?.replace('IMAGE_RESULT:', '') || ''
+    const model = parts[1]?.replace('MODEL:', '') || 'AI'
     return `✅ 图片已生成完成！\n\n模型：${model}\n\n![生成图片](${url})\n\n预览链接：${url}\n\n还需要我做什么吗？比如基于这张图片生成视频，或者调整描述重新生成？`
   }
-
   if (toolOutput.startsWith('VIDEO_TASK:')) {
     const parts = toolOutput.split('|')
     const taskId = parts[0]?.replace('VIDEO_TASK:', '') || ''
-    const prompt = parts.find(p => p.startsWith('PROMPT:'))?.replace('PROMT:', '') || ''
+    const prompt = parts.find(p => p.startsWith('PROMPT:'))?.replace('PROMPT:', '') || ''
     return `⏳ 视频正在生成中...\n\n任务ID：${taskId.substring(0, 12)}...\n描述：${prompt}\n\n生成通常需要2-5分钟，你可以继续聊天，之后问我"视频好了吗"来查看进度。`
   }
-
   if (toolOutput.startsWith('VIDEO_RESULT:')) {
     const url = toolOutput.replace('VIDEO_RESULT:', '')
     return `🎬 视频已生成完成！\n\n[观看视频](${url})\n下载链接：${url}\n\n需要我帮你存入素材库，还是发布到直播间？`
   }
-
   if (toolOutput.startsWith('TEMPLATE_RESULT:')) {
     return toolOutput.replace('TEMPLATE_RESULT:', '')
   }
-
-  // 默认原样返回（文案等文本结果）
+  // 文案等文本结果直接返回
   return toolOutput
 }
 
@@ -176,46 +179,67 @@ export async function POST(request: NextRequest) {
 
     const userMessage = message.trim()
 
-    // 1. 分类意图
-    const { intent, params, confidence } = await classifyIntent(userMessage)
-    console.log(`[Agent] intent=${intent}, confidence=${confidence}, params=`, JSON.stringify(params).substring(0, 200))
+    // 构建对话历史（DeepSeek格式）
+    const messages: Array<{ role: string; content: string }> = [
+      { role: 'system', content: SYSTEM_PROMPT },
+    ]
 
-    // 2. 执行对应工具
-    if (intent !== 'chat' && confidence >= 0.3) {
-      const toolResult = await executeTool(intent, params, auth)
-      if (toolResult) {
-        const formattedResponse = formatToolResponse(intent, toolResult)
-        return NextResponse.json({
-          success: true,
-          data: {
-            reply: formattedResponse,
-            intent,
-            toolUsed: true,
-          },
-        })
-      }
+    // 添加历史消息（保留最近10轮）
+    for (const h of history.slice(-10)) {
+      messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })
     }
 
-    // 3. 闲聊/通用对话 - 直接调LLM
-    const systemPrompt = `你是 AiMarketing 的智能助手，一个专业的AI营销创作平台。
+    // 当前用户消息
+    messages.push({ role: 'user', content: userMessage })
 
-你的能力包括：
-📝 AI文案生成 - 帮用户写各种营销文案、广告语、社媒内容
-🎨 AI图片生成 - 根据文字描述生成商业图片
-🎬 AI视频生成 - 文字描述转短视频
-🤖 数字人克隆 - 上传真人视频克隆数字人形象并生成口播视频
-📦 素材管理 - 管理和推送视频/图片到设备
-📡 直播推流 - 推流到抖音等直播平台
+    // ===== 第1步：调用 DeepSeek Function Calling =====
+    const fcResult = await deepSeekFunctionCall(messages, AGENT_TOOLS)
 
-回复风格：简洁友好、专业但不死板、适当使用emoji增强可读性。中文回复为主。
-如果用户想了解具体功能，给出清晰的步骤指引。
-如果用户的问题超出能力范围，诚实告知并建议合适的功能方向。
+    // 如果有 tool_calls，执行工具并回传结果
+    if (fcResult.toolCalls?.length > 0) {
+      // 把 assistant 的响应（含 tool_calls）加入消息
+      messages.push({
+        role: 'assistant',
+        content: fcResult.content || '',
+      } as any) // tool_calls 在实际API返回中，这里简化处理
 
-当前用户消息历史（最近几轮）：
-${history.map((h: any) => `${h.role}: ${h.content}`).slice(-6).join('\n')}`
+      // 执行每个工具调用
+      for (const tc of fcResult.toolCalls) {
+        let args: Record<string, any> = {}
+        try { args = JSON.parse(tc.arguments) } catch { args = {} }
 
-    const fullPrompt = `${systemPrompt}\n\n用户最新消息：${userMessage}`
-    const reply = await generateText(fullPrompt) || '抱歉，AI服务暂时繁忙，请稍后再试。'
+        console.log(`[Agent] 工具调用: ${tc.name}`, JSON.stringify(args).substring(0, 200))
+
+        const toolResult = await executeToolCall(tc.name, args, auth)
+
+        // 加入工具结果
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          name: tc.name,
+          content: toolResult,
+        } as any)
+      }
+
+      // ===== 第2步：把工具结果喂回 DeepSeek，让它组织自然语言回复 =====
+      const finalResult = await deepSeekFunctionCall(messages, [])
+      const reply = finalResult.content || formatResult(
+        // 兜底：如果DeepSeek不回复，取最后一个工具结果格式化
+        messages.filter(m => (m as any).role === 'tool').pop()?.content || ''
+      )
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          reply,
+          intent: fcResult.toolCalls.map(t => t.name),
+          toolUsed: true,
+        },
+      })
+    }
+
+    // 没有 tool_calls → 纯闲聊/问答，直接返回 DeepSeek 回复
+    const reply = fcResult.content || '抱歉，AI服务暂时繁忙，请稍后再试。'
 
     return NextResponse.json({
       success: true,

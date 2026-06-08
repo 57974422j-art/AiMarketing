@@ -968,6 +968,73 @@ export async function deepSeekChat(prompt: string, maxTokens = 1000): Promise<st
   }
 }
 
+// ==================== DeepSeek Function Calling (Agent专用) ====================
+
+export interface ToolDefinition {
+  name: string
+  description: string
+  parameters?: Record<string, any>
+}
+
+export interface FunctionCallResult {
+  content: string | null
+  toolCalls?: Array<{
+    id: string
+    name: string
+    arguments: string
+  }>
+}
+
+/**
+ * DeepSeek Function Calling - Agent大脑核心
+ * 支持多轮对话 + 工具自动调用，兼容OpenAI格式
+ */
+export async function deepSeekFunctionCall(
+  messages: Array<{ role: string; content: string; tool_call_id?: string; name?: string }>,
+  tools: ToolDefinition[] = [],
+  maxTokens = 2000
+): Promise<FunctionCallResult> {
+  const key = getDeepSeekKey()
+  if (!key) return { content: null }
+
+  try {
+    const body: Record<string, any> = {
+      model: 'deepseek-chat',
+      messages,
+      temperature: 0.3, // 低温度保证意图识别准确
+      max_tokens: maxTokens,
+    }
+
+    if (tools.length > 0) {
+      body.tools = tools.map(t => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters || { type: 'object', properties: {} },
+        },
+      }))
+    }
+
+    const data = await fetchJSON('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify(body),
+    })
+
+    const choice = data.choices?.[0]
+    if (!choice) return { content: null }
+
+    return {
+      content: choice.message?.content || null,
+      toolCalls: choice.message?.tool_calls || undefined,
+    }
+  } catch (e) {
+    console.error('[DeepSeek FC] 调用失败:', e)
+    return { content: null }
+  }
+}
+
 async function deepSeekTranslate(text: string, toLang: string, fromLang = 'zh'): Promise<string | null> {
   const sourceLabel = fromLang === 'zh' ? '中文' : fromLang;
   const prompt = `请将以下${sourceLabel}翻译成${toLang}，只返回翻译结果：\n\n${text}`;
