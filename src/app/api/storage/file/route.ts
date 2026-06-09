@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getOSSClient } from '@/lib/oss'
+import { getOSSClient, signedUrl } from '@/lib/oss'
 
 const MIME_MAP: Record<string, string> = {
   mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
   mkv: 'video/x-matroska', webm: 'video/webm',
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-  gif: 'image/gif', webp: 'image/webp',
+  gif: 'image/gif', webp: 'image/webm',
 }
 
 export async function GET(request: NextRequest) {
@@ -16,18 +16,27 @@ export async function GET(request: NextRequest) {
   const key = `storage/${userId}/${name}`
   const ext = name.split('.').pop()?.toLowerCase() || ''
   const mime = MIME_MAP[ext] || 'application/octet-stream'
+  const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(ext)
 
   try {
-    // 从 OSS 获取文件内容并返回（带正确的 Content-Type 让浏览器识别为视频/图片）
     const oss = await getOSSClient()
+
+    // 视频用 fetch 签名 URL（已验证可正常播放/显示首帧）
+    if (isVideo) {
+      const url = await signedUrl(key)
+      const resp = await fetch(url)
+      if (!resp.ok) throw new Error(`OSS读取失败: ${resp.status}`)
+      const buffer = Buffer.from(await resp.arrayBuffer())
+      return new NextResponse(buffer, {
+        headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=86400' },
+      })
+    }
+
+    // 图片等小文件用 oss.get
     const result = await oss.get(key)
     const buffer = result.content as Buffer
     return new NextResponse(buffer, {
-      headers: {
-        'Content-Type': mime,
-        'Content-Length': String(buffer.length),
-        'Cache-Control': 'public, max-age=86400',
-      },
+      headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=86400' },
     })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message || '文件不存在' }, { status: 404 })

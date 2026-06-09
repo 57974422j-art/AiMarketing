@@ -115,7 +115,7 @@ export default function StoragePage() {
                   ) : !f.isVideo && /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name) ? (
                     <img src={`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}`} alt={f.name} className="w-full h-full object-cover" />
                   ) : f.isVideo ? (
-                    <video src={`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}`} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+                    <video src={`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}#t=0.1`} className="w-full h-full object-cover" muted autoPlay loop playsInline preload="auto" />
                   ) : (
                     <span className="text-2xl">📄</span>
                   )}
