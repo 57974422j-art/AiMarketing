@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useAuth } from '@/app/providers'
 import Link from 'next/link'
 
 interface DashboardData {
@@ -39,7 +40,21 @@ const navItems = [
   { href: '/data-center/trending', label: '热榜追踪', en: 'TRENDING', icon: '🔥' },
 ]
 
-export default function DataCenterPage() {
+// 权限守卫：仅 admin/editor 可访问数据中心
+function DataCenterGuard({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth()
+  if (loading) return <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center"><p className="text-gray-400 font-mono">加载中...</p></div>
+  if (!user || (user.role !== 'admin' && user.role !== 'editor')) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+        <div className="text-center"><span className="text-6xl mb-6 block">🔒</span><h2 className="text-xl font-bold text-white mb-3">访问受限</h2><p className="text-gray-400 text-sm mb-6">数据中心仅对管理员和编辑开放</p><Link href="/workspace" className="px-6 py-2.5 bg-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-colors text-sm font-mono">返回工作台 →</Link></div>
+      </div>
+    )
+  }
+  return <>{children}</>
+}
+
+function DataCenterContent() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [showQuickCollect, setShowQuickCollect] = useState(false)
@@ -523,4 +538,8 @@ export default function DataCenterPage() {
       </div>
     </div>
   )
+}
+
+export default function DataCenterPage() {
+  return <DataCenterGuard><DataCenterContent /></DataCenterGuard>
 }

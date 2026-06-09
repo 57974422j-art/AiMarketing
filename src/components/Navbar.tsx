@@ -68,10 +68,12 @@ export default function Navbar() {
 
           {/* Desktop nav */}
           <div className="hidden md:flex items-center space-x-1">
+            <Link href="/workspace" className="px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-all text-sm font-medium">🏠 工作台</Link>
             <Link href="/storage" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">📁 仓库</Link>
-            <Link href="/ai-tools" className="px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-all text-sm font-medium">🛠 AI 工具</Link>
-            <Link href="/my-fingerprint" className="px-3 py-2 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-all text-sm">🌐 指纹浏览器</Link>
-            <Link href="/data-center" className="px-3 py-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded-lg transition-all text-sm font-medium">📊 数据中心</Link>
+            <Link href="/my-fingerprint" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">🌐 指纹浏览器</Link>
+            {(user?.role === 'admin' || user?.role === 'editor') && (
+              <Link href="/data-center" className="px-3 py-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded-lg transition-all text-sm font-medium">📊 数据中心</Link>
+            )}
             <Link href="/accounts" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">{t.nav.accounts}</Link>
             {(user?.role === 'admin' || user?.role === 'editor') && (
               <Link href="/admin/" className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm font-bold">⚙ 管理中心</Link>
@@ -105,7 +107,9 @@ export default function Navbar() {
                     <p className="text-xs text-emerald-400 mt-1">{roleInfo}</p>
                   </div>
                   <Link href="/storage" className="block px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">{t.projects.title}</Link>
-                  <Link href="/data-center" className="block px-4 py-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 text-sm">📊 数据中心</Link>
+                  {(user?.role === 'admin' || user?.role === 'editor') && (
+                    <Link href="/data-center" className="block px-4 py-2 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 text-sm">📊 数据中心</Link>
+                  )}
                   {(user?.role === 'admin' || user?.role === 'editor') && (
                     <Link href="/admin/" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">🖥️ 管理中心</Link>
                   )}
@@ -121,10 +125,12 @@ export default function Navbar() {
       {showMobileMenu && (
         <div className="md:hidden border-t border-white/10 bg-gray-900/95 backdrop-blur-md">
           <div className="px-4 py-3 space-y-1">
+            <Link href="/workspace" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-emerald-400 hover:bg-emerald-500/10 rounded-lg text-sm font-medium">🏠 工作台</Link>
             <Link href="/storage" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg text-sm">📁 仓库</Link>
-            <Link href="/ai-tools" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-emerald-400 hover:bg-emerald-500/10 rounded-lg text-sm font-medium">🛠 AI 工具</Link>
-            <Link href="/my-fingerprint" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg text-sm">🌐 指纹浏览器</Link>
-            <Link href="/data-center" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded-lg text-sm font-medium">📊 数据中心</Link>
+            <Link href="/my-fingerprint" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg text-sm">🌐 指纹浏览器</Link>
+            {(user?.role === 'admin' || user?.role === 'editor') && (
+              <Link href="/data-center" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded-lg text-sm font-medium">📊 数据中心</Link>
+            )}
             <Link href="/accounts" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg text-sm">{t.nav.accounts}</Link>
             {(user?.role === 'admin' || user?.role === 'editor') && (
               <Link href="/admin/" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-yellow-400 hover:bg-yellow-500/10 rounded-lg text-sm font-bold">⚙ 管理中心</Link>
