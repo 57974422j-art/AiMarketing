@@ -123,7 +123,7 @@ export default function StoragePage() {
                     try {
                       const r = await fetch(`/api/storage/url?userId=${userId}&name=${encodeURIComponent(f.name)}`, { credentials: 'include' })
                       const d = await r.json()
-                      if (d.success?.data?.url) window.open(d.data.url, '_blank')
+                      if (d.success && d.data?.url) window.open(d.data.url, '_blank')
                       else showToast('获取视频链接失败', 'error')
                     } catch { showToast('获取视频链接失败', 'error') }
                   } else {
