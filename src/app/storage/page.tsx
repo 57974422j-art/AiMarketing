@@ -118,7 +118,18 @@ export default function StoragePage() {
                     <span className="text-2xl">{f.isVideo ? '🎬' : '📄'}</span>
                   )}
                 </div>
-                <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={()=>{window.open('/api/storage/file?userId='+userId+'&name='+encodeURIComponent(f.name),'_blank')}}>{f.name}</p>
+                <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={async () => {
+                  if (f.isVideo) {
+                    try {
+                      const r = await fetch(`/api/storage/url?userId=${userId}&name=${encodeURIComponent(f.name)}`, { credentials: 'include' })
+                      const d = await r.json()
+                      if (d.success?.data?.url) window.open(d.data.url, '_blank')
+                      else showToast('获取视频链接失败', 'error')
+                    } catch { showToast('获取视频链接失败', 'error') }
+                  } else {
+                    window.open('/api/storage/file?userId='+userId+'&name='+encodeURIComponent(f.name),'_blank')
+                  }
+                }}>{f.name}</p>
                 <p className="text-[9px] text-gray-500">{fmt(f.size)}</p>
                 <div className="flex gap-1 mt-1">
                   {f.isVideo && (
