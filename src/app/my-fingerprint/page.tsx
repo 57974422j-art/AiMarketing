@@ -10,7 +10,8 @@ interface Account {
   id: number
   platform: string
   accountName: string
-  accountId: string        // 对于 manual 类型，这里存的是端口号
+  accountId: string        // 平台唯一标识（如抖音号）
+  cdpPort: number | null   // 指纹浏览器 CDP 端口（系统自动分配）
   isBound: boolean
   bindType: string
   status: string
@@ -160,12 +161,12 @@ export default function MyFingerprintPage() {
       showMsg('需要使用桌面客户端才能启动指纹浏览器', 'error')
       return
     }
-    if (!acct.accountId) {
+    if (!acct.cdpPort) {
       showMsg('该账号未分配端口，请联系管理员绑定', 'error')
       return
     }
 
-    const port = parseInt(acct.accountId, 10)
+    const port = acct.cdpPort
     showMsg(`正在启动端口 ${port}...`, 'info')
 
     const res = await window.electronAPI.fpStart({
@@ -192,7 +193,7 @@ export default function MyFingerprintPage() {
     if (res.success) {
       showMsg(`⏹ 端口 ${port} 已停止`, 'success')
       refreshBrowserList()
-      if (selectedAccount && parseInt(selectedAccount.accountId, 10) === port) {
+      if (selectedAccount && selectedAccount.cdpPort === port) {
         setSelectedAccount(null)
         setShowTemplatePanel(false)
         setExecLogs([])
@@ -212,7 +213,7 @@ export default function MyFingerprintPage() {
 
   const handleExecute = async () => {
     if (!selectedTemplate) { showMsg('请选择模板', 'error'); return }
-    if (!selectedAccount?.accountId) return
+    if (!selectedAccount?.cdpPort) return
 
     setExecuting(true)
     setExecLogs(['开始执行...'])
@@ -251,7 +252,7 @@ export default function MyFingerprintPage() {
         break
     }
 
-    const port = parseInt(selectedAccount.accountId, 10)
+    const port = selectedAccount.cdpPort!
 
     if (window.electronAPI?.fpExecute) {
       try {
@@ -341,7 +342,7 @@ export default function MyFingerprintPage() {
             <div className="grid gap-3">
               {accounts.map(acct => {
                 const plat = PLATFORMS.find(p => p.key === acct.platform) || { icon: '🌐', label: acct.platform }
-                const port = acct.accountId ? parseInt(acct.accountId, 10) : 0
+                const port = acct.cdpPort || 0
                 const running = port > 0 && isRunning(port)
                 const browserInfo = browsers.find(b => b.port === port)
 
@@ -366,7 +367,7 @@ export default function MyFingerprintPage() {
                         <div className="min-w-0">
                           <p className="font-medium text-sm truncate">{acct.accountName}</p>
                           <p className="text-xs text-gray-500 mt-0.5">
-                            {plat.label} · 端口 {acct.accountId || '未分配'} · {acct.status}
+                            {plat.label} · 端口 {acct.cdpPort || '未分配'} · {acct.status}
                             {running && browserInfo?.currentUrl && (
                               <span className="ml-2 text-cyan-400 truncate inline-block max-w-[200px]" title={browserInfo.currentUrl}>
                                 🟢 运行中
@@ -408,7 +409,7 @@ export default function MyFingerprintPage() {
         <div className="space-y-4">
           <h2 className="text-sm font-semibold text-gray-300">自动化模板</h2>
 
-          {(!selectedAccount || !selectedAccount.accountId || !isRunning(parseInt(selectedAccount.accountId, 10))) ? (
+          {(!selectedAccount || !selectedAccount.cdpPort || !isRunning(selectedAccount.cdpPort)) ? (
             <div className="bg-gray-900/30 border border-dashed border-white/10 rounded-xl p-6 text-center">
               <p className="text-gray-500 text-sm">先选择并启动一个浏览器</p>
               <p className="text-gray-600 text-xs mt-1">启动后可在此执行自动化脚本</p>
@@ -421,7 +422,7 @@ export default function MyFingerprintPage() {
                   🟢 当前: {selectedAccount.accountName}
                   ({PLATFORMS.find(p => p.key === selectedAccount.platform)?.label})
                 </p>
-                <p className="text-[11px] text-emerald-400/60 mt-0.5">端口 {selectedAccount.accountId} · 可执行模板</p>
+                <p className="text-[11px] text-emerald-400/60 mt-0.5">端口 {selectedAccount.cdpPort} · 可执行模板</p>
               </div>
 
               {/* 模板选择 */}

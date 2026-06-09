@@ -9,6 +9,12 @@ interface UserInfo {
   parent: { id: number; username: string; name: string | null } | null
   childrenCount: number; totalWindows: number; usedWindows: number
   boundAccounts: number; socialAccounts: { platform: string; status: string }[]
+  // 配额信息（仅 editor 有）
+  quota?: {
+    q1Containers: number; q1Used: number;
+    fingerprintPorts: number; fingerprintUsed: number;
+    realPhones: number; realPhonesUsed: number;
+  } | null
 }
 
 const PLATFORM_ICON: Record<string, string> = { douyin: '🎵', kuaishou: '📹', xiaohongshu: '📕', shipinhao: '💚', weibo: '📢', bilibili: '📺' }
@@ -31,7 +37,13 @@ export default function AccountInfoPage() {
   const [cuWindows, setCuWindows] = useState('10')
   const [submitting, setSubmitting] = useState(false)
   const [editUser, setEditUser] = useState<UserInfo | null>(null)
-  const [newQuota, setNewQuota] = useState('')
+  // 资源配额编辑状态
+  const [qQ1Total, setQQ1Total] = useState('')
+  const [qFpTotal, setQFpTotal] = useState('')
+  const [qPhoneTotal, setQPhoneTotal] = useState('')
+  const [qPortStart, setQPortStart] = useState('')
+  const [qPortEnd, setQPortEnd] = useState('')
+  const [quotaSaving, setQuotaSaving] = useState(false)
   const [storageUser, setStorageUser] = useState<{ id: number; name: string } | null>(null)
   const [storageFiles, setStorageFiles] = useState<any[]>([])
   const [storageLoading, setStorageLoading] = useState(false)
@@ -42,8 +54,22 @@ export default function AccountInfoPage() {
   }, [authLoading, user])
 
   const loadUsers = async () => {
-    try { const r = await fetch('/api/admin/users', { credentials: 'include' }); if (r.ok) setUsers((await r.json()).data || []) }
-    catch {} finally { setLoading(false) }
+    try {
+      const [r, qR] = await Promise.all([
+        fetch('/api/admin/users', { credentials: 'include' }),
+        user?.role === 'admin' ? fetch('/api/admin/editor-quota', { credentials: 'include' }) : Promise.resolve(null),
+      ])
+      if (r.ok) {
+        const list = (await r.json()).data || []
+        // 合并配额数据
+        if (qR?.ok) {
+          const quotaMap = new Map((await qR.json()).data.map((q: any) => [q.editorId, q]))
+          setUsers(list.map((u: any) => ({ ...u, quota: quotaMap.get(u.id) || null })))
+        } else {
+          setUsers(list)
+        }
+      }
+    } catch {} finally { setLoading(false) }
   }
 
   const handleCreate = async () => {
@@ -61,16 +87,21 @@ export default function AccountInfoPage() {
 
   const handleQuotaSave = async () => {
     if (!editUser) return
-    const q = parseInt(newQuota, 10)
-    if (isNaN(q) || q < 0) { showToast('无效数值', 'error'); return }
-    setSubmitting(true)
+    const fields: Record<string, number> = {}
+    if (qQ1Total !== '') fields.q1Containers = parseInt(qQ1Total, 10)
+    if (qFpTotal !== '') fields.fingerprintPorts = parseInt(qFpTotal, 10)
+    if (qPhoneTotal !== '') fields.realPhones = parseInt(qPhoneTotal, 10)
+    if (qPortStart !== '') fields.portRangeStart = parseInt(qPortStart, 10)
+    if (qPortEnd !== '') fields.portRangeEnd = parseInt(qPortEnd, 10)
+    if (Object.keys(fields).length === 0) { showToast('未修改任何值', 'error'); return }
+    setQuotaSaving(true)
     try {
-      const r = await fetch('/api/admin/users', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: editUser.id, totalWindows: q }) })
+      const r = await fetch('/api/admin/editor-quota', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ editorId: editUser.id, ...fields }) })
       const d = await r.json()
       if (r.ok) { showToast('配额已更新', 'success'); setEditUser(null); loadUsers() }
       else showToast(d.message || '更新失败', 'error')
     } catch { showToast('更新失败', 'error') }
-    finally { setSubmitting(false) }
+    finally { setQuotaSaving(false) }
   }
 
   const filtered = users.filter(u => {
@@ -115,7 +146,15 @@ export default function AccountInfoPage() {
                     <span className={`ml-2 px-2 py-0.5 text-[10px] rounded ${u.plan==='pro'?'bg-purple-500/20 text-purple-400':'bg-white/5 text-gray-400'}`}>{u.plan === 'pro' ? '专业版' : u.plan === 'enterprise' ? '企业版' : '免费版'}</span>
                   </div>
                   {u.role === 'editor' && (
-                    <button onClick={() => { setEditUser(u); setNewQuota(String(u.totalWindows)) }} className="text-[10px] px-2 py-1 bg-white/5 text-gray-400 rounded hover:bg-white/10">编辑配额</button>
+                    <button onClick={() => {
+                      setEditUser(u)
+                      const q = u.quota
+                      setQQ1Total(q ? String(q.q1Containers) : '0')
+                      setQFpTotal(q ? String(q.fingerprintPorts) : '5')
+                      setQPhoneTotal(q ? String(q.realPhones) : '0')
+                      setQPortStart('9220')
+                      setQPortEnd('9320')
+                    }} className="text-[10px] px-2 py-1 bg-white/5 text-gray-400 rounded hover:bg-white/10">编辑配额</button>
                   )}
                   <button onClick={async () => {
                     setStorageUser({ id: u.id, name: u.name || u.username })
@@ -167,13 +206,37 @@ export default function AccountInfoPage() {
         </div>}
 
         {editUser && <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={()=>setEditUser(null)}>
-          <div className="card-glass p-6 rounded-xl max-w-sm w-full mx-4" onClick={e=>e.stopPropagation()}>
-            <h3 className="text-sm font-bold text-white mb-2">编辑窗口配额</h3>
-            <p className="text-[10px] text-gray-500 mb-3">{editUser.name||editUser.username} 当前: {editUser.usedWindows} / {editUser.totalWindows}</p>
-            <input type="number" className="input-dark w-full text-xs" value={newQuota} onChange={e=>setNewQuota(e.target.value)} />
+          <div className="card-glass p-6 rounded-xl max-w-md w-full mx-4" onClick={e=>e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-white mb-2">资源配额管理</h3>
+            <p className="text-[10px] text-gray-500 mb-3">{editUser.name||editUser.username} (#{editUser.id})</p>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 bg-blue-500/5 border border-blue-500/20 rounded-lg p-3">
+                <span className="text-sm">📱 Q1 容器</span>
+                <input type="number" min="0" className="input-dark w-full text-xs font-mono" value={qQ1Total} onChange={e=>setQQ1Total(e.target.value)} placeholder="上限" />
+                <span className="text-[10px] text-gray-500">/ 已用 {editUser.quota?.q1Used ?? 0}</span>
+              </div>
+              <div className="flex items-center gap-3 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3">
+                <span className="text-sm">🌐 指纹端口</span>
+                <input type="number" min="0" className="input-dark w-full text-xs font-mono" value={qFpTotal} onChange={e=>setQFpTotal(e.target.value)} placeholder="上限" />
+                <span className="text-[10px] text-gray-500">/ 已用 {editUser.quota?.fingerprintUsed ?? 0}</span>
+              </div>
+              <div className="flex items-center gap-3 bg-cyan-500/5 border border-cyan-500/20 rounded-lg p-3">
+                <span className="text-sm">📲 真手机</span>
+                <input type="number" min="0" className="input-dark w-full text-xs font-mono" value={qPhoneTotal} onChange={e=>setQPhoneTotal(e.target.value)} placeholder="上限" />
+                <span className="text-[10px] text-gray-500">/ 已用 {editUser.quota?.realPhonesUsed ?? 0}</span>
+              </div>
+              <div className="bg-white/5 rounded-lg p-3">
+                <p className="text-[10px] text-gray-400 mb-2">指纹浏览器端口池范围（可选调整）</p>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="1024" max="65535" className="input-dark w-full text-xs font-mono" value={qPortStart} onChange={e=>setQPortStart(e.target.value)} placeholder="起始" />
+                  <span className="text-gray-500 text-xs">~</span>
+                  <input type="number" min="1024" max="65535" className="input-dark w-full text-xs font-mono" value={qPortEnd} onChange={e=>setQPortEnd(e.target.value)} placeholder="结束" />
+                </div>
+              </div>
+            </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={()=>setEditUser(null)} className="flex-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs">取消</button>
-              <button disabled={submitting} onClick={handleQuotaSave} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs">{submitting?'保存中...':'保存'}</button>
+              <button onClick={() => setEditUser(null)} className="flex-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs">取消</button>
+              <button disabled={quotaSaving} onClick={handleQuotaSave} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs">{quotaSaving?'保存中...':'保存'}</button>
             </div>
           </div>
         </div>}

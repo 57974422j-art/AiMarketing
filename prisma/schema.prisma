@@ -58,6 +58,7 @@ model User {
   phyDevices              PhyDevice[]
   taskConfigs             TaskConfig[]  
   filterPresets           FilterPreset[]
+  editorQuota             EditorQuota?           // 资源配额（仅 editor 有）
   
   // V2 升级新增关系 (Phase 0-3)
   referrals               ReferralConfig[]
@@ -77,6 +78,25 @@ model DevicePool {
 
   owner    User            @relation(fields: [ownerId], references: [id])
   sessions WindowSession[]
+}
+
+// EditorQuota: editor 资源配额（admin 分配，系统自动分配端口）
+// 替代之前手动填写 CDP 端口的方式
+model EditorQuota {
+  id               Int      @id @default(autoincrement())
+  editorId         Int      @unique             // 所属 editor (User.id)
+  q1Containers     Int      @default(0)         // Q1 容器数量上限
+  q1Used           Int      @default(0)         // 已用 Q1 数量
+  fingerprintPorts Int      @default(0)         // 指纹浏览器端口上限
+  fingerprintUsed  Int      @default(0)         // 已用指纹端口数
+  realPhones       Int      @default(0)         // 真机 ADB 数量上限
+  realPhonesUsed   Int      @default(0)         // 已用真机数
+  portRangeStart   Int      @default(9220)      // 端口池起始
+  portRangeEnd     Int      @default(9320)      // 端口池结束
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  editor User @relation(fields: [editorId], references: [id])
 }
 // 窗口使用记录：Q1多窗口可后续查询分析
 model WindowSession {
@@ -237,6 +257,7 @@ model Account {
   bindType    String   @default("device")  // device(真机群控) / manual(指纹浏览器) / official(官方API)
   password    String   @default("")
   mobile      String   @default("")          // 手机号（绑定用）
+  cdpPort     Int?                           // 指纹浏览器 CDP 调试端口（仅 manual 类型使用，系统自动分配）
   deviceId    Int?                           // 绑定的设备
   status      String   @default("未绑定")    // 未绑定/已绑定/登录异常/已封禁
   remark      String   @default("")

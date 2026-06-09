@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
+import { allocateCdpPort, releaseCdpPort } from '@/lib/quota-manager'
 
 const prisma = new PrismaClient()
 
@@ -47,32 +48,62 @@ export async function PUT(request: NextRequest) {
     const body = await request.json()
     const { id, deviceId, remark, accountId: updateAccountId } = body
     if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
+
+    // 查出当前账号信息（需要知道 bindType 和 userId）
+    const account = await prisma.account.findUnique({ where: { id: parseInt(id) } })
+    if (!account) return NextResponse.json({ success: false, message: '账号不存在' }, { status: 404 })
+
     const data: any = {}
-    // ── 指纹浏览器：端口号存入 accountId 字段 ──
-    if (updateAccountId !== undefined && updateAccountId !== '') {
-      data.accountId = String(updateAccountId)
+    const targetUserId = account.userId
+
+    // ── 解绑操作（deviceId='' 或 deviceId=null）──
+    if (deviceId === '' || deviceId === null || deviceId === undefined) {
       data.deviceId = null
-      data.status = '已绑定'
-      data.isBound = true
+      data.status = '未绑定'
+      data.isBound = false
+      // 指纹浏览器解绑：释放端口
+      if (account.bindType === 'manual' && account.cdpPort) {
+        await releaseCdpPort(targetUserId, account.cdpPort)
+        data.cdpPort = null
+      }
     }
-    // ── Q1 设备 / USB 本地设备 ──
+    // ── 指纹浏览器自动分配端口 ──
+    else if (account.bindType === 'manual') {
+      // 如果还没分配过端口，自动分配一个
+      if (!account.cdpPort) {
+        try {
+          const port = await allocateCdpPort(targetUserId)
+          data.cdpPort = port
+          data.status = '已绑定'
+          data.isBound = true
+        } catch (allocErr: any) {
+          return NextResponse.json({ success: false, message: allocErr.message || '端口分配失败，配额已满或端口池耗尽' }, { status: 409 })
+        }
+      }
+      // 已有端口则直接标记为已绑定
+      else {
+        data.status = '已绑定'
+        data.isBound = true
+      }
+      data.deviceId = null
+    }
+    // ── Q1 设备绑定 ──
     else if (deviceId && deviceId !== 'local') {
       data.deviceId = parseInt(deviceId)
       data.status = '已绑定'
       data.isBound = true
-    } else if (deviceId === 'local') {
+    }
+    // ── USB 本地设备绑定 ──
+    else if (deviceId === 'local') {
       data.deviceId = null
       data.status = '已绑定'
       data.isBound = true
-    } else if (deviceId === '' || deviceId === null || deviceId === undefined) {
-      data.deviceId = null
-      data.status = '未绑定'
-      data.isBound = false
     }
+
     if (remark !== undefined) data.remark = remark
     await prisma.account.update({ where: { id: parseInt(id) }, data })
-    return NextResponse.json({ success: true, message: '已更新' })
-  } catch (e) { console.error(e); return NextResponse.json({ success: false, message: '更新失败' }, { status: 500 })
+    return NextResponse.json({ success: true, message: '已更新', data })
+  } catch (e: any) { console.error(e); return NextResponse.json({ success: false, message: e.message || '更新失败' }, { status: 500 })
   } finally { await prisma.$disconnect() }
 }
 
@@ -83,8 +114,13 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const id = parseInt(searchParams.get('id') || '')
     if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
+    // 删除前释放指纹端口配额
+    const account = await prisma.account.findUnique({ where: { id } })
+    if (account?.bindType === 'manual' && account.cdpPort) {
+      await releaseCdpPort(account.userId, account.cdpPort)
+    }
     await prisma.account.delete({ where: { id } })
     return NextResponse.json({ success: true, message: '已删除' })
-  } catch (e) { console.error(e); return NextResponse.json({ success: false, message: '删除失败' }, { status: 500 })
+  } catch (e: any) { console.error(e); return NextResponse.json({ success: false, message: e.message || '删除失败' }, { status: 500 })
   } finally { await prisma.$disconnect() }
 }

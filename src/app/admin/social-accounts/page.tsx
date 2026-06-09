@@ -35,7 +35,6 @@ export default function SocialAccountsPage() {
   const [bindAccount, setBindAccount] = useState<AccountItem | null>(null)
   const [bindDeviceId, setBindDeviceId] = useState('')
   const [bindAdbSerial, setBindAdbSerial] = useState('')
-  const [bindBrowserPort, setBindBrowserPort] = useState('')
   const [binding, setBinding] = useState(false)
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -71,9 +70,7 @@ export default function SocialAccountsPage() {
     const isManual = bindAccount?.bindType === 'manual'
     if (!bindId) { showToast('请选择要绑定的账号', 'error'); return }
     if (isManual) {
-      if (!bindBrowserPort.trim()) { showToast('请输入浏览器端口', 'error'); return }
-      const portNum = parseInt(bindBrowserPort.trim(), 10)
-      if (isNaN(portNum) || portNum < 1024 || portNum > 65535) { showToast('端口号无效（1024-65535）', 'error'); return }
+      // 指纹浏览器：系统自动分配端口，无需手动输入
     } else {
       if (!bindDeviceId && !bindAdbSerial) { showToast('请选择设备或输入ADB序列号', 'error'); return }
     }
@@ -81,8 +78,7 @@ export default function SocialAccountsPage() {
     try {
       const body: any = { id: bindId }
       if (isManual) {
-        // 指纹浏览器：端口号存入 accountId 字段
-        body.accountId = bindBrowserPort.trim()
+        // 指纹浏览器：后端自动分配 CDP 端口到 cdpPort 字段
         body.deviceId = null
       } else if (isLocal) { body.deviceId = 'local'; body.remark = `adb:${bindAdbSerial}` }
       else if (bindDeviceId) { body.deviceId = parseInt(bindDeviceId) }
@@ -240,19 +236,14 @@ export default function SocialAccountsPage() {
               {/* ── manual (指纹浏览器) ── */}
               {bindAccount.bindType === 'manual' && (
                 <>
-                  <p className="text-[11px] text-purple-400/80 mb-2">🌐 指纹浏览器 — 分配 CDP 调试端口</p>
-                  <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3 mb-3">
-                    <p className="text-[10px] text-purple-300/70">
-                      端口范围建议：9220 ~ 9320<br/>
-                      每账号独占一个端口，与 Q1 端口完全隔离
+                  <p className="text-[11px] text-purple-400/80 mb-2">🌐 指纹浏览器 — 自动分配端口</p>
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 mb-3">
+                    <p className="text-[10px] text-emerald-300/70">
+                      系统将自动从端口池中分配一个空闲端口<br/>
+                      端口范围：9220 ~ 9320（管理员可在配额中调整）<br/>
+                      无需手动输入，保证不重复
                     </p>
                   </div>
-                  <label className="block text-xs text-gray-400 mb-1">浏览器端口</label>
-                  <input className="input-dark w-full mb-3 text-sm font-mono" type="number"
-                    min="1024" max="65535" placeholder="如 9222"
-                    value={bindBrowserPort}
-                    onChange={e => setBindBrowserPort(e.target.value)}
-                  />
                 </>
               )}
 
@@ -266,11 +257,11 @@ export default function SocialAccountsPage() {
 
               <div className="flex gap-3">
                 <button onClick={() => { setBindId(null); setBindAccount(null) }} className="flex-1 py-2 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 text-sm">取消</button>
-                {bindAccount.bindType !== 'official' ? (
-                  <button onClick={handleBind} disabled={binding || (bindAccount.bindType === 'manual' ? !bindBrowserPort.trim() : !bindDeviceId)}
-                    className="flex-1 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 text-sm">
-                    {binding ? '绑定中...' : '确认绑定'}
-                  </button>
+                  {bindAccount.bindType !== 'official' ? (
+                    <button onClick={handleBind} disabled={binding || (bindAccount.bindType !== 'manual' && !bindDeviceId)}
+                      className="flex-1 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 text-sm">
+                      {binding ? '绑定中...' : '确认绑定'}
+                    </button>
                 ) : (
                   <button onClick={() => { setBindId(null); setBindAccount(null) }}
                     className="flex-1 py-2 bg-gray-600 text-white rounded-lg text-sm">知道了</button>
@@ -318,7 +309,7 @@ export default function SocialAccountsPage() {
                                 <div className="flex items-center gap-2">
                                   {a.device && <span className="text-gray-600">{a.device.name}</span>}
                                   {a.status !== '已绑定' ? (
-                                    <button onClick={() => { setBindId(a.id); setBindAccount(a); setBindDeviceId(''); setBindAdbSerial(''); setBindBrowserPort('') }} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑</button>
+                                    <button onClick={() => { setBindId(a.id); setBindAccount(a); setBindDeviceId(''); setBindAdbSerial('') }} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑</button>
                                   ) : (
                                     <button onClick={() => handleUnbind(a.id)} className="text-[10px] px-2 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded hover:bg-yellow-500/30">🔓 解绑</button>
                                   )}
@@ -361,7 +352,7 @@ export default function SocialAccountsPage() {
                         <div className="flex items-center gap-2">
                           {a.device && <span className="text-gray-600">{a.device.name}</span>}
                           {a.status !== '已绑定' ? (
-                            <button onClick={() => { setBindId(a.id); setBindAccount(a); setBindDeviceId(''); setBindAdbSerial(''); setBindBrowserPort('') }} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑</button>
+                            <button onClick={() => { setBindId(a.id); setBindAccount(a); setBindDeviceId(''); setBindAdbSerial('') }} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑</button>
                           ) : (
                             <button onClick={() => handleUnbind(a.id)} className="text-[10px] px-2 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded hover:bg-yellow-500/30">🔓 解绑</button>
                           )}
