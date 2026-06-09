@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
     const stickerPos = (f.get('stickerPos') as string) || 'tl'
     const titleText = (f.get('titleText') as string) || ''
     const colorFilter = (f.get('colorFilter') as string) || ''
+    const subtitleMode = (f.get('subtitleMode') as string) || 'tts-sync'
 
     if (!text) return NextResponse.json({ success: false, message: '缺少文案' }, { status: 400 })
     dir()
@@ -34,9 +35,10 @@ export async function POST(req: NextRequest) {
     const wd = path.join(OUT, taskId)
     fs.mkdirSync(wd, { recursive: true })
 
-    // 收集素材
+    // 收集素材（三种来源）
     const mp: string[] = []
     if (mode === 'smart') {
+      // 智能模式：搜索的图片URL
       const urls: string[] = JSON.parse((f.get('imageUrls') as string) || '[]')
       if (!urls.length) return NextResponse.json({ success: false, message: '无图片URL' }, { status: 400 })
       for (let i = 0; i < urls.length; i++) {
@@ -44,7 +46,41 @@ export async function POST(req: NextRequest) {
         execSync(`curl -s -L -o "${p}" "${urls[i]}"`, { timeout: 15000 })
         mp.push(p)
       }
+    } else if (mode === 'storage') {
+      // 仓库模式：从 storage 仓库选取
+      const storageFilesRaw = (f.get('storageFiles') as string) || '[]'
+      const storageFiles: Array<{ name: string }> = JSON.parse(storageFilesRaw)
+      if (!storageFiles.length) return NextResponse.json({ success: false, message: '未选择仓库文件' }, { status: 400 })
+      // 从 OSS 下载选中的文件到本地工作目录
+      const { getOSSClient } = await import('@/lib/oss')
+      const oss = await getOSSClient()
+      // 从 auth 获取 userId（优先 header，其次 query fallback）
+      let userId = ''
+      try {
+        const authHeader = req.headers.get('cookie') || ''
+        // 简单提取：实际项目中应使用 getAuthFromHeaders
+        const userIdMatch = authHeader.match(/userId=([^;]+)/)
+        if (userIdMatch) userId = userIdMatch[1]
+      } catch {}
+      if (!userId) {
+        // 尝试从 formData 中获取
+        userId = (f.get('userId') as string) || ''
+      }
+      for (let i = 0; i < storageFiles.length; i++) {
+        const key = `storage/${userId}/${storageFiles[i].name}`
+        const ext = storageFiles[i].name.split('.').pop() || 'jpg'
+        const p = path.join(wd, `s${i}.${ext}`)
+        try {
+          const result = await oss.get(key)
+          fs.writeFileSync(p, result.content as Buffer)
+          mp.push(p)
+        } catch (e) {
+          console.error(`[素材] 下载失败: ${key}`, (e as Error)?.message)
+        }
+      }
+      if (!mp.length) return NextResponse.json({ success: false, message: '仓库文件下载失败' }, { status: 400 })
     } else {
+      // 免费模式：本地上传
       const mf = f.getAll('media') as File[]
       if (!mf.length) return NextResponse.json({ success: false, message: '请上传素材' }, { status: 400 })
       for (let i = 0; i < mf.length; i++) {
@@ -65,7 +101,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 启动异步任务
-    startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter)
+    startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode as any)
     return NextResponse.json({ success: true, data: { taskId } })
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message })

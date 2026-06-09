@@ -4,13 +4,13 @@ import { showToast } from '@/components/Toast'
 import { useAuth } from '@/app/providers'
 
 export default function AutoCompilePage() {
-  const [mode, setMode] = useState<'free' | 'smart'>('free')
+  const [mode, setMode] = useState<'free' | 'smart' | 'storage'>('free')
   const [text, setText] = useState('')
   const [images, setImages] = useState<File[]>([])
   const [voice, setVoice] = useState('zh_female_vv_uranus_bigtts')
   const [ratio, setRatio] = useState('16:9')
   const [resolution, setResolution] = useState('1080p')
-  const [duration, setDuration] = useState(30)
+  const [duration, setDuration] = useState<number>(30) // 0=auto(文案结束)
   const [showSubs, setShowSubs] = useState(true)
   const [stickerText, setStickerText] = useState('')
   const [stickerPos, setStickerPos] = useState('tl')
@@ -34,11 +34,46 @@ export default function AutoCompilePage() {
   const [genIndustry, setGenIndustry] = useState('')
   const [genLoading, setGenLoading] = useState(false)
 
+  // 新增：字幕时间戳模式 + 仓库选择
+  const [subtitleMode, setSubtitleMode] = useState<'tts-sync' | 'funasr' | 'legacy'>('tts-sync')
+  const [storageFiles, setStorageFiles] = useState<Array<{name:string;isVideo:boolean;thumbUrl?:string}>>([])
+  const [showStorageDlg, setShowStorageDlg] = useState(false)
+  const [storageList, setStorageList] = useState<any[]>([])
+  const [storageLoading, setStorageLoading] = useState(false)
+
   useEffect(() => {
     fetch('/api/music-library').then(r=>r.json()).then(d => {
       if (d.success) setMusicList(d.data)
     }).catch(() => {})
   }, [])
+
+  // 加载 storage 仓库文件列表
+  const loadStorageFiles = useCallback(async () => {
+    setStorageLoading(true)
+    try {
+      const r = await fetch(`/api/storage/files?userId=${user?.id || 0}`, { credentials: 'include' })
+      const d = await r.json()
+      if (d.success) setStorageList(d.data.files || [])
+      else showToast(d.message || '加载失败', 'error')
+    } catch { showToast('加载仓库失败', 'error') }
+    finally { setStorageLoading(false) }
+  }, [user?.id])
+
+  // 打开仓库选择弹窗
+  const openStorageDlg = () => {
+    setShowStorageDlg(true)
+    if (storageList.length === 0) loadStorageFiles()
+  }
+
+  // 切换仓库文件的选中状态
+  const toggleStorageFile = (f: any) => {
+    setStorageFiles(prev => {
+      const exists = prev.find(x => x.name === f.name)
+      if (exists) return prev.filter(x => x.name !== f.name)
+      if (prev.length >= 20) { showToast('最多选20个素材', 'error'); return prev }
+      return [...prev, { name: f.name, isVideo: f.isVideo, thumbUrl: f.thumbUrl }]
+    })
+  }
 
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<Record<number, Array<{url:string;thumb:string;title:string}>>>({})
@@ -93,6 +128,7 @@ export default function AutoCompilePage() {
     if (!text.trim()) { showToast('请输入文案', 'error'); return }
     if (mode === 'free' && images.length === 0) { showToast('请上传素材', 'error'); return }
     if (mode === 'smart' && Object.keys(selectedImages).length === 0) { showToast('请先搜索素材', 'error'); return }
+    if (mode === 'storage' && storageFiles.length === 0) { showToast('请从仓库选择素材', 'error'); return }
 
     setProcessing(true); setProgress(10); setVideoUrl('')
     try {
@@ -102,13 +138,19 @@ export default function AutoCompilePage() {
       fd.append('duration', String(duration))
       fd.append('ratio', ratio); fd.append('resolution', resolution); fd.append('subtitleSize', String(subtitleSize))
       fd.append('showSubs', String(showSubs))
+      fd.append('subtitleMode', subtitleMode)
+      fd.append('mode', mode)
       if (stickerOn) { fd.append('stickerText', stickerText); fd.append('stickerPos', stickerPos) }
       if (titleOn) fd.append('titleText', titleText)
       fd.append('colorFilter', colorFilter)
       if (bgmFile) fd.append('bgm', bgmFile)
       else if (bgm?.url) fd.append('bgmUrl', bgm.url)
       if (mode === 'free') images.forEach(img => fd.append('media', img))
-      else fd.append('imageUrls', JSON.stringify(Object.values(selectedImages).map(v => v.url)))
+      else if (mode === 'smart') fd.append('imageUrls', JSON.stringify(Object.values(selectedImages).map(v => v.url)))
+      else if (mode === 'storage') {
+        fd.append('storageFiles', JSON.stringify(storageFiles.map(f => ({ name: f.name }))))
+        if (user?.id) fd.append('userId', String(user.id))
+      }
 
       const r = await fetch('/api/video/auto-compile', { method: 'POST', body: fd })
       const d = await r.json()
@@ -144,6 +186,7 @@ export default function AutoCompilePage() {
         <div className="flex gap-2 mb-4">
           <button onClick={() => setMode('free')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='free'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>🆓 免费模式</button>
           <button onClick={() => setMode('smart')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='smart'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>🤖 智能模式</button>
+          <button onClick={() => {setMode('storage'); openStorageDlg()}} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='storage'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>📦 仓库素材</button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -172,7 +215,8 @@ export default function AutoCompilePage() {
               <div><label className="text-[10px] text-gray-400 mb-1 block">分辨率</label><select className="input-dark w-full text-xs" value={resolution} onChange={e=>setResolution(e.target.value)}><option value="1080p">1080p</option><option value="720p">720p</option></select></div>
               <div><label className="text-[10px] text-gray-400 mb-1 block">字幕大小</label><select className="input-dark w-full text-xs" value={subtitleSize} onChange={e=>setSubtitleSize(Number(e.target.value))}><option value={28}>小</option><option value={36}>中</option><option value={44}>大</option></select></div>
               <div><label className="text-[10px] text-gray-400 mb-1 block">字幕</label><button onClick={()=>setShowSubs(!showSubs)} className={`w-full py-2 text-xs rounded-lg ${showSubs?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-400 border border-white/10"}`}>{showSubs?"ON":"OFF"}</button></div>
-              <div><label className="text-[10px] text-gray-400 mb-1 block">视频时长</label><select className="input-dark w-full text-xs" value={duration} onChange={e=>setDuration(Number(e.target.value))}><option value={15}>15秒</option><option value={30}>30秒</option><option value={45}>45秒</option><option value={60}>60秒</option></select></div>
+              <div><label className="text-[10px] text-gray-400 mb-1 block">视频时长</label><select className="input-dark w-full text-xs" value={duration} onChange={e=>setDuration(Number(e.target.value))}><option value={0}>📝 文案结束(自动)</option><option value={15}>15秒</option><option value={30}>30秒</option><option value={45}>45秒</option><option value={60}>60秒</option></select></div>
+              <div><label className="text-[10px] text-gray-400 mb-1 block">字幕时间戳</label><select className="input-dark w-full text-xs" value={subtitleMode} onChange={e=>setSubtitleMode(e.target.value as any)}><option value="tts-sync">🎯 TTS同步(推荐)</option><option value="funasr">🎤 FunASR精确</option><option value="legacy">⏱️ 传统均分</option></select></div>
             </div>
 
             <div className="card-glass p-4">
@@ -211,6 +255,39 @@ export default function AutoCompilePage() {
               </div>
             )}
 
+            {mode === 'storage' && (
+              <div className="card-glass p-4">
+                <label className="text-xs text-gray-400 mb-2 block">
+                  仓库素材 {storageFiles.length > 0 && <span className="text-emerald-400 ml-2">✅ 已选 {storageFiles.length} 个</span>}
+                </label>
+                <button onClick={openStorageDlg} className="w-full py-2 border border-dashed border-white/20 text-gray-400 rounded-xl hover:border-emerald-500/50 hover:text-emerald-400 text-xs transition">
+                  {storageFiles.length > 0 ? '📦 重新选择素材' : '+ 从仓库选择素材'}
+                </button>
+                {storageFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {storageFiles.map((f, i) => (
+                      <div key={i} className="relative group">
+                        {f.isVideo ? (
+                          f.thumbUrl ? (
+                            <img src={f.thumbUrl} className="w-14 h-14 object-cover rounded-lg" alt={f.name} />
+                          ) : (
+                            <div className="w-14 h-14 bg-white/10 rounded-lg flex items-center justify-center text-lg">🎬</div>
+                          )
+                        ) : (
+                          <img src={`/api/storage/file?userId=${user?.id}&name=${encodeURIComponent(f.name)}`} className="w-14 h-14 object-cover rounded-lg" alt={f.name} onLoad={e=>{(e.target as HTMLImageElement).style.display='block'}} onError={e=>{(e.target as HTMLImageElement).style.display='none';(e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden')}}/>
+                        )}
+                        <button
+                          onClick={() => setStorageFiles(prev => prev.filter((_, idx) => idx !== i))}
+                          className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full text-[8px] opacity-0 group-hover:opacity-100 transition"
+                        >&times;</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-gray-600 mt-1">{storageFiles.length} 个文件</p>
+              </div>
+            )}
+
             <div className="card-glass p-4">
               <label className="text-xs text-gray-400 mb-2 block">背景音乐（可选）</label>
               <input ref={bgmRef} type="file" accept="audio/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setBgmFile(f); setBgm({name: f.name, url: '', custom: true}) }}} />
@@ -237,6 +314,72 @@ export default function AutoCompilePage() {
           </div>
         </div>
       </div>
+
+      {/* 仓库文件选择弹窗 */}
+      {showStorageDlg && <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowStorageDlg(false)}>
+        <div className="card-glass p-6 rounded-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-white">📦 选择仓库素材</h3>
+            <button onClick={() => setShowStorageDlg(false)} className="text-gray-400 hover:text-white text-sm">&times;</button>
+          </div>
+          {storageLoading ? (
+            <div className="flex-1 flex items-center justify-center py-8">
+              <span className="text-gray-400 text-xs">加载中...</span>
+            </div>
+          ) : storageList.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center py-8">
+              <p className="text-gray-500 text-xs">仓库为空，请先上传文件</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-[10px] text-gray-500 mb-3">已选 {storageFiles.length}/20 个（点击选择/取消）</p>
+              <div className="flex-1 overflow-y-auto max-h-[50vh]">
+                <div className="grid grid-cols-4 gap-2">
+                  {storageList.map((f: any) => {
+                    const isSelected = storageFiles.some(sf => sf.name === f.name)
+                    return (
+                      <div
+                        key={f.name}
+                        onClick={() => toggleStorageFile(f)}
+                        className={`cursor-pointer relative rounded-lg overflow-hidden border-2 transition ${isSelected ? 'border-emerald-400' : 'border-transparent hover:border-white/30'}`}
+                      >
+                        {f.isVideo ? (
+                          f.thumbUrl ? (
+                            <img src={f.thumbUrl} alt={f.name} className="w-full aspect-square object-cover" />
+                          ) : (
+                            <div className="w-full aspect-square bg-white/10 flex items-center justify-center text-2xl">🎬</div>
+                          )
+                        ) : (
+                          <img
+                            src={`/api/storage/file?userId=${user?.id}&name=${encodeURIComponent(f.name)}`}
+                            alt={f.name}
+                            className="w-full aspect-square object-cover"
+                            onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                          />
+                        )}
+                        {isSelected && (
+                          <div className="absolute top-1 right-1 w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center text-white text-[10px]">✓</div>
+                        )}
+                        <p className="text-[9px] text-gray-400 truncate px-1 pb-1">{f.name}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+          <div className="flex gap-2 mt-4 pt-3 border-t border-white/10">
+            <button onClick={() => setShowStorageDlg(false)} className="flex-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs hover:bg-white/10 transition">取消</button>
+            <button
+              onClick={() => setShowStorageDlg(false)}
+              disabled={storageFiles.length === 0}
+              className={`flex-1 py-2 rounded-lg text-xs transition ${storageFiles.length > 0 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30' : 'bg-white/5 text-gray-500 cursor-not-allowed'}`}
+            >
+              确认选择 ({storageFiles.length})
+            </button>
+          </div>
+        </div>
+      </div>}
 
       {showPushDlg && <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={()=>setShowPushDlg(false)}>
         <div className="card-glass p-6 rounded-xl max-w-md w-full mx-4" onClick={e=>e.stopPropagation()}>
