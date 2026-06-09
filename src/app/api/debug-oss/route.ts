@@ -68,14 +68,21 @@ export async function GET() {
     }
   }
 
-  // 5. 测试生成签名URL
+  // 5. 测试生成签名URL（用真实存在的视频文件）
   if (ossClient) {
     try {
-      const testKey = 'storage/test.mp4'
+      // 先找一个真实存在的视频
+      const files = await ossClient.list({ prefix: 'storage/', 'max-keys': 20 }, {})
+      const videoFile = (files.objects || []).find((o: any) => /\.mp4$/i.test(o.name))
+      const testKey = videoFile ? videoFile.name : 'storage/test.mp4'
       const url = ossClient.signatureUrl(testKey, { expires: 3600 })
-      steps.push({ step: '5.生成签名URL', ok: true, detail: url.slice(0,120) + '...' })
+      steps.push({
+        step: '5.生成视频签名URL',
+        ok: true,
+        detail: `文件: ${testKey} | URL(请直接在浏览器打开测试): ${url}`
+      })
     } catch (e: any) {
-      steps.push({ step: '5.生成签名URL', ok: false, detail: e.message?.slice(0,400) })
+      steps.push({ step: '5.生成视频签名URL', ok: false, detail: e.message?.slice(0,400) })
     }
   }
 
