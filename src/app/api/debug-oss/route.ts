@@ -86,5 +86,24 @@ export async function GET() {
     }
   }
 
+  // 6. 流式返回测试URL（直接在浏览器打开测试视频播放）
+  if (ossClient) {
+    try {
+      const files = await ossClient.list({ prefix: 'storage/', 'max-keys': 20 }, {})
+      const videoFile = (files.objects || []).find((o: any) => /\.mp4$/i.test(o.name))
+      if (videoFile) {
+        steps.push({
+          step: '6.流式返回测试',
+          ok: true,
+          detail: `请在新标签页打开: /api/debug-oss/stream?key=${encodeURIComponent(videoFile.name)}`
+        })
+      } else {
+        steps.push({ step: '6.流式返回测试', ok: false, detail: '未找到视频文件' })
+      }
+    } catch (e: any) {
+      steps.push({ step: '6.流式返回测试', ok: false, detail: e.message?.slice(0,400) })
+    }
+  }
+
   return NextResponse.json({ success: true, data: { timestamp: new Date().toISOString(), steps } })
 }
