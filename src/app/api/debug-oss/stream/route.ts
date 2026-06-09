@@ -40,7 +40,7 @@ export async function GET(request: Request) {
       })
     } catch (streamErr: any) {
       // 方案B失败 → 方案C: fetch签名URL再返回buffer (兼容性最好)
-      const signedUrl = client.signatureUrl(key, { expires: 3600, 'response-content-type': 'video/mp4' })
+      const signedUrl = client.signatureUrl(key, { expires: 3600, response: { 'content-type': 'video/mp4' } } as any)
       const resp = await fetch(signedUrl)
       if (!resp.ok) throw new Error(`fetch OSS失败: ${resp.status}`)
       const buffer = Buffer.from(await resp.arrayBuffer())
