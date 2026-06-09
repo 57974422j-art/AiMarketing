@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
+        name: user.name || user.username,
         role: user.role,
         isAdmin: user.role === 'admin',
         // 功能权限
