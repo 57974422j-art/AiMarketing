@@ -15,6 +15,9 @@
   "main": "electron/main.js",
   "dependencies": {
     "@alicloud/nls-filetrans-2018-08-17": "^1.0.0",
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
     "@prisma/client": "^5.22.0",
     "ali-oss": "^6.23.0",
     "crypto-js": "^4.2.0",

@@ -86,21 +86,8 @@ export async function listObjects(prefix: string, maxKeys = 1000): Promise<Array
   }))
 }
 
-/** 文件扩展名 → MIME 类型映射 */
-const EXT_MIME: Record<string, string> = {
-  mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
-  mkv: 'video/x-matroska', webm: 'video/webm',
-  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-  gif: 'image/gif', webp: 'image/webp', pdf: 'application/pdf',
-}
-
-/** 获取签名 URL（用于前端直连下载/预览） */
+/** 获取签名 URL（用于内部服务端 fetch） */
 export async function signedUrl(key: string, expires = 3600): Promise<string> {
   const oss = await getOSSClient()
-  const ext = key.split('.').pop()?.toLowerCase() || ''
-  const mime = EXT_MIME[ext]
-  // 指定 response-content-type 让浏览器正确识别文件类型（否则默认 octet-stream 会触发下载）
-  const params: Record<string, any> = { expires }
-  if (mime) params['response-content-type'] = mime
-  return oss.signatureUrl(key, params)
+  return oss.signatureUrl(key, { expires })
 }

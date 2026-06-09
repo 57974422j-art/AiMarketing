@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getOSSClient, signedUrl } from '@/lib/oss'
+import { getOSSClient } from '@/lib/oss'
 
 const MIME_MAP: Record<string, string> = {
   mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
@@ -18,24 +18,10 @@ export async function GET(request: NextRequest) {
   const mime = MIME_MAP[ext] || 'application/octet-stream'
 
   try {
+    // 从 OSS 获取文件内容并返回（带正确的 Content-Type 让浏览器识别为视频/图片）
     const oss = await getOSSClient()
-
-    // 方案A: getStream 流式返回（低内存）
-    try {
-      const result = await oss.getStream(key)
-      const stream = result.stream as any
-      if (stream && typeof stream.pipe === 'function') {
-        return new NextResponse(stream, {
-          headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' },
-        })
-      }
-    } catch (_) { /* getStream失败 → 降级到方案B */ }
-
-    // 方案B: fetch签名URL读buffer（兼容性最好，已验证可播放视频）
-    const url = await signedUrl(key)
-    const resp = await fetch(url)
-    if (!resp.ok) throw new Error(`OSS读取失败: ${resp.status}`)
-    const buffer = Buffer.from(await resp.arrayBuffer())
+    const result = await oss.get(key)
+    const buffer = result.content as Buffer
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': mime,
