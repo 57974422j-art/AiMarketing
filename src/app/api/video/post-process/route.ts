@@ -9,6 +9,7 @@ import { promisify } from 'util'
 import OSS from 'ali-oss'
 import type { FunasrResult } from '@/lib/funasr-service'
 import { getAuthFromHeaders } from '@/lib/api-auth'
+import { recordVideoEditUsage } from '@/lib/quota'
 
 export const runtime = 'nodejs'
 
@@ -571,6 +572,11 @@ export async function POST(request: NextRequest) {
     console.log('[PostProcess] 耗时:', elapsed, 'ms')
     console.log('[PostProcess] 执行步骤:', processSteps)
     console.log('[PostProcess] 输出OSS URL:', ossFinalUrl)
+
+    // 记录一键成片/后期处理使用量
+    if (processSteps.length > 0) {
+      try { await recordVideoEditUsage(auth.userId) } catch (e) { console.error('[PostProcess] 记录用量失败:', e) }
+    }
 
     funasrCache = undefined
 

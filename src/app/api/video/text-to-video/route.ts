@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateVideo, generateLongVideo, queryVideoTask } from '@/lib/ai-providers'
 import { getAuthFromHeaders } from '@/lib/api-auth'
+import { checkFeatureAccess, FeatureCodes } from '@/lib/quota'
 
 export async function POST(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
+
+    // 检查文生视频功能是否已开通
+    const featureCheck = await checkFeatureAccess(auth.userId, FeatureCodes.TEXT_TO_VIDEO)
+    if (!featureCheck.allowed) {
+      return NextResponse.json({
+        success: false,
+        message: featureCheck.message,
+        needContactService: featureCheck.needContactService
+      }, { status: 403 })
+    }
+
     const body = await request.json()
     const { prompt, aspectRatio, duration, resolution, model, refImage, longVideo, segmentPrompts } = body
     const rawDuration = Math.max(2, parseInt(duration) || 5)

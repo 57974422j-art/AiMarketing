@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { generateText, isAIConfigured } from '@/lib/ai-providers'
-import { checkQuota, incrementUsage } from '@/lib/quota'
+import { checkCopyDailyQuota, useCopyQuota } from '@/lib/quota'
 
 const prisma = new PrismaClient()
 
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     }
     
     const userId = user ? user.userId : null
-    const quotaResult = await checkQuota(userId, '文案生成')
+    const quotaResult = await checkCopyDailyQuota(userId)
     if (!quotaResult.allowed) {
       return NextResponse.json({ success: false, message: quotaResult.message }, { status: 403 })
     }
@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
         })
         createdTasks.push({ ...copy, id: copyTask.id })
       }
-      await incrementUsage(user.userId, '文案生成', 1)
+      await useCopyQuota(user.userId)
       return NextResponse.json({ success: true, copies: createdTasks })
     } else {
       return NextResponse.json({ success: true, copies: parsedCopies })

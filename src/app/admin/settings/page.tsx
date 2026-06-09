@@ -78,6 +78,11 @@ export default function SettingsPage() {
     host: '', port: '', protocol: 'http', username: '', password: '', label: '', region: '',
   })
 
+  // ====== 客服设置 ======
+  const [serviceQrcode, setServiceQrcode] = useState('')
+  const [serviceSaving, setServiceSaving] = useState(false)
+  const [serviceMsg, setServiceMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
   // ====== 全局消息 ======
   const [saveMessage, setSaveMessage] = useState<SaveMessage | null>(null)
 
@@ -111,6 +116,15 @@ export default function SettingsPage() {
       // MediaCrawler
       if (d.mcPath) setMcPath(d.mcPath)
       if (d.mcPythonBin) setMcPythonBin(d.mcPythonBin)
+
+      // 客服设置
+      try {
+        const scRes = await fetch('/api/admin/system-config?keys=service_qrcode', { credentials: 'include' })
+        const scResult = await scRes.json()
+        if (scResult.success && scResult.data?.service_qrcode) {
+          setServiceQrcode(scResult.data.service_qrcode.value || '')
+        }
+      } catch {} // 忽略，非关键功能
 
       setStatusMap({
         deepseek: d.deepseekConfigured ? 'ok' : null,
@@ -163,6 +177,32 @@ export default function SettingsPage() {
       setSaveMessage({ type: 'error', text: '❌ 保存失败：网络错误' })
     }
     setTimeout(() => setSaveMessage(null), 5000)
+  }
+
+  // ====== 保存客服设置 ======
+  const saveServiceConfig = async () => {
+    setServiceSaving(true)
+    setServiceMsg(null)
+    try {
+      const res = await fetch('/api/admin/system-config', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          configs: [{ key: 'service_qrcode', value: serviceQrcode, label: '客服微信二维码' }]
+        }),
+      })
+      const result = await res.json()
+      if (result.success) {
+        setServiceMsg({ type: 'success', text: '✅ 客服设置已保存' })
+      } else {
+        setServiceMsg({ type: 'error', text: `❌ ${result.message}` })
+      }
+    } catch {
+      setServiceMsg({ type: 'error', text: '❌ 网络错误' })
+    }
+    setServiceSaving(false)
+    setTimeout(() => setServiceMsg(null), 4000)
   }
 
   // ====== 鉴权守卫 ======
@@ -249,6 +289,58 @@ export default function SettingsPage() {
             className="px-6 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-colors font-mono">
             保存所有配置
           </button>
+        </div>
+
+        {/* ====== 客服设置 ====== */}
+        <div className="mt-10 border border-gray-800/50 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-xl">📱</span>
+            <h2 className="text-white font-semibold">客服设置</h2>
+          </div>
+          <p className="text-gray-400 text-sm mb-5">配置客服微信二维码，未开通付费功能的用户可扫码联系客服。</p>
+
+          {serviceMsg && (
+            <div className={`mb-4 px-4 py-2 rounded-lg text-sm font-mono ${
+              serviceMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+            }`}>{serviceMsg.text}</div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+            {/* 二维码输入 */}
+            <div>
+              <label className="block text-gray-300 text-sm font-mono mb-2">微信二维码图片 URL</label>
+              <input
+                type="text"
+                value={serviceQrcode}
+                onChange={e => setServiceQrcode(e.target.value)}
+                placeholder="https://xxx.com/qrcode.png 或上传后填入地址"
+                className="w-full bg-black/40 border border-gray-700/50 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-blue-500/50 focus:outline-none font-mono"
+              />
+              <p className="text-xs text-gray-500 mt-2 font-mono">建议尺寸 200x200 以上，支持 PNG/JPG 格式</p>
+            </div>
+            {/* 二维码预览 */}
+            <div>
+              <label className="block text-gray-300 text-sm font-mono mb-2">预览</label>
+              {serviceQrcode ? (
+                <img src={serviceQrcode} alt="预览" className="w-40 h-40 object-contain rounded-lg border border-gray-700/50 bg-white p-1" />
+              ) : (
+                <div className="w-40 h-40 border border-dashed border-gray-700/50 rounded-lg flex items-center justify-center">
+                  <span className="text-gray-600 text-sm">暂无图片</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end mt-5">
+            <button onClick={saveServiceConfig} disabled={serviceSaving}
+              className={`px-5 py-2.5 rounded-lg text-sm font-mono transition-colors ${
+                serviceSaving
+                  ? 'bg-gray-700 text-gray-400 cursor-wait'
+                  : 'bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30'
+              }`}>
+              {serviceSaving ? '保存中...' : '保存客服设置'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { generateImage } from '@/lib/ai-providers'
+import { checkFeatureAccess, FeatureCodes } from '@/lib/quota'
 
 export async function POST(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
+
+    // 检查AI生图功能是否已开通
+    const featureCheck = await checkFeatureAccess(auth.userId, FeatureCodes.IMAGE_GENERATOR)
+    if (!featureCheck.allowed) {
+      return NextResponse.json({
+        success: false,
+        message: featureCheck.message,
+        needContactService: featureCheck.needContactService
+      }, { status: 403 })
+    }
+
     const body = await request.json()
     const { prompt, size, provider } = body
     if (!prompt?.trim()) {

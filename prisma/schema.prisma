@@ -59,6 +59,10 @@ model User {
   taskConfigs             TaskConfig[]  
   filterPresets           FilterPreset[]
   editorQuota             EditorQuota?           // 资源配额（仅 editor 有）
+  paidFeatures            String?                // JSON: 已开通的付费功能 ["text-to-video", "image-generator"]
+  videoEditCount          Int      @default(0)   // 一键成片/后期处理使用量统计
+  copyUsedToday           Int      @default(0)   // 今日AI文案已用次数
+  copyLastResetDate       String?                // 文案配额上次重置日期 (YYYY-MM-DD)
   
   // V2 升级新增关系 (Phase 0-3)
   referrals               ReferralConfig[]
@@ -815,3 +819,17 @@ model FilterPreset {
 
   @@unique([userId, name, entityType])  // 同一用户同类型下名称唯一
 }
+
+// ====== 系统配置模型 ======
+// 创建日期: 2026-06-09
+// 用途: 存储系统全局配置，如客服联系方式、功能开关等
+
+model SystemConfig {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique              // 配置键名 (service_phone / service_wechat / service_qrcode)
+  value       String                        // 配置值
+  label       String?                       // 显示名称 (如 "客服电话")
+  description String?                       // 配置说明
+  updatedAt   DateTime @updatedAt
+}
+
