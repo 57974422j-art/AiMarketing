@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getOSSClient } from '@/lib/oss'
+import { getOSSClient, signedUrl } from '@/lib/oss'
 
 const MIME_MAP: Record<string, string> = {
   mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
   mkv: 'video/x-matroska', webm: 'video/webm',
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-  gif: 'image/gif', webp: 'image/webm',
+  gif: 'image/gif', webp: 'image/webp',
 }
 
 export async function GET(request: NextRequest) {
@@ -19,12 +19,27 @@ export async function GET(request: NextRequest) {
 
   try {
     const oss = await getOSSClient()
-    const result = await oss.getStream(key)
-    const stream = result.stream as NodeJS.ReadableStream
 
-    return new NextResponse(stream as any, {
+    // 方案A: getStream 流式返回（低内存）
+    try {
+      const result = await oss.getStream(key)
+      const stream = result.stream as any
+      if (stream && typeof stream.pipe === 'function') {
+        return new NextResponse(stream, {
+          headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' },
+        })
+      }
+    } catch (_) { /* getStream失败 → 降级到方案B */ }
+
+    // 方案B: fetch签名URL读buffer（兼容性最好，已验证可播放视频）
+    const url = await signedUrl(key)
+    const resp = await fetch(url)
+    if (!resp.ok) throw new Error(`OSS读取失败: ${resp.status}`)
+    const buffer = Buffer.from(await resp.arrayBuffer())
+    return new NextResponse(buffer, {
       headers: {
         'Content-Type': mime,
+        'Content-Length': String(buffer.length),
         'Cache-Control': 'public, max-age=86400',
       },
     })
