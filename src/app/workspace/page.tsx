@@ -13,6 +13,7 @@ interface FeatureStatus {
 }
 
 interface WorkspaceData {
+  name: string
   role: string
   isAdmin: boolean
   features: Record<string, FeatureStatus>
@@ -143,7 +144,7 @@ export default function WorkspacePage() {
           <div>
             <p className="text-xs text-gray-500 font-mono tracking-wider mb-1">WORKSPACE</p>
             <h1 className="text-2xl font-bold text-white">
-              你好{user?.name ? `，${user.name}` : ''} 👋
+              你好{data?.name ? `，${data.name}` : ''} 👋
             </h1>
             <p className="text-gray-400 text-sm mt-1">选择你需要的功能</p>
           </div>
