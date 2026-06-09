@@ -1,8 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { putObject, listObjects } from '@/lib/oss'
+import { execSync } from 'child_process'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 const MAX_QUOTA = 500 * 1024 * 1024 // 500MB
+
+/** FFmpeg 路径 */
+function getFFmpeg(): string {
+  const paths = ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', 'ffmpeg']
+  for (const p of paths) {
+    try { execSync(`"${p}" -version`, { stdio: 'ignore', timeout: 3000 }); return p }
+    catch {}
+  }
+  return 'ffmpeg'
+}
+
+/** 用 FFmpeg 从视频 buffer 中截取第一帧作为缩略图 */
+async function generateThumbnail(videoBuffer: Buffer): Promise<Buffer | null> {
+  try {
+    const ffmpeg = getFFmpeg()
+    const tmpIn = join(tmpdir(), `thumb_${Date.now()}_in.mp4`)
+    const tmpOut = join(tmpdir(), `thumb_${Date.now()}_out.jpg`)
+    require('fs').writeFileSync(tmpIn, videoBuffer)
+    execSync(
+      `"${ffmpeg}" -y -i "${tmpIn}" -ss 00:00:00.5 -vframes 1 -q:v 2 "${tmpOut}"`,
+      { stdio: 'ignore', timeout: 15000 }
+    )
+    const thumb = require('fs').readFileSync(tmpOut)
+    require('fs').unlinkSync(tmpIn)
+    require('fs').unlinkSync(tmpOut)
+    return thumb
+  } catch (e) {
+    console.error('[thumbnail] FFmpeg生成失败:', e instanceof Error ? e.message : e)
+    return null
+  }
+}
 
 /** 获取用户在 OSS 上的已用空间 */
 async function usedQuota(userId: number): Promise<number> {
@@ -79,6 +113,19 @@ export async function POST(request: NextRequest) {
   const mime = mimeMap[ext.toLowerCase()] || 'application/octet-stream'
 
   await putObject(key, buffer, mime)
+
+  // 视频文件：生成缩略图存到 .thumbs/ 目录
+  const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(name)
+  if (isVideo) {
+    try {
+      const thumbBuffer = await generateThumbnail(buffer)
+      if (thumbBuffer) {
+        const thumbName = name.replace(/\.(mp4|mov|avi|mkv|webm)$/i, '.jpg')
+        const thumbKey = `storage/${auth.userId}/.thumbs/${thumbName}`
+        await putObject(thumbKey, thumbBuffer, 'image/jpeg')
+      }
+    } catch {}
+  }
 
   return NextResponse.json({ success: true, data: { name, size: file.size } })
 }
