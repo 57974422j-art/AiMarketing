@@ -90,16 +90,16 @@ export async function allocateCdpPort(editorId: number): Promise<number> {
   // 2) 查出此 editor 已占用的所有端口（包括旧数据中 accountId 里存的）
   const usedPorts = new Set<number>()
 
-  // 新字段 cdpPort 中已分配的
+  // 新字段 cdpPort 中已分配的 — 全局查重（防止不同 editor 分配同一端口）
   const cdpAccounts = await prisma.account.findMany({
-    where: { userId: editorId, bindType: 'manual', cdpPort: { not: null } },
+    where: { bindType: 'manual', cdpPort: { not: null } },
     select: { cdpPort: true },
   })
   cdpAccounts.forEach(a => { if (a.cdpPort) usedPorts.add(a.cdpPort) })
 
-  // 兼容旧数据：accountId 里存了数字端口的也计入占用
+  // 兼容旧数据：accountId 里存了数字端口的也计入占用（全局）
   const legacyAccounts = await prisma.account.findMany({
-    where: { userId: editorId, bindType: 'manual', cdpPort: null },
+    where: { bindType: 'manual', cdpPort: null },
     select: { accountId: true },
   })
   legacyAccounts.forEach(a => {
