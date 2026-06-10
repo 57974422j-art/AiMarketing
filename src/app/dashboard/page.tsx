@@ -101,7 +101,7 @@ export default function DashboardPage() {
 
   const getPlatformDisplay = (platform: string) => {
     const p = platformMap[platform.toLowerCase()] || { cn: platform };
-    return <>{p.cn}</>;
+    return p.cn;
   };
 
   return (
