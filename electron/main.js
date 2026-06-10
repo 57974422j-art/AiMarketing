@@ -266,10 +266,18 @@ async function getChromium() {
         const executablePath = pw.chromium.executablePath()
         if (!executablePath || !fs.existsSync(executablePath)) {
           console.log('[FP] ⚠️ Chromium 浏览器未检测到，正在自动安装...')
-          const { execSync } = require('child_process')
-          // 使用 npx playwright install 安装（兼容打包/开发环境）
-          const cmd = process.platform === 'win32' ? 'npx playwright install chromium' : 'npx playwright install chromium'
-          execSync(cmd, { stdio: 'inherit', timeout: 120000 })
+          const { spawnSync } = require('child_process')
+          // 用 Playwright 内置 CLI 安装，不弹窗、不依赖 npx
+          const pwCli = require.resolve('playwright/cli.js').replace(/\\/g, '/')
+          const result = spawnSync(process.execPath, [pwCli, 'install', 'chromium'], {
+            stdio: 'pipe',
+            windowsHide: true,
+            timeout: 300000,
+          })
+          console.log('[FP] playwright install 输出:', result.stdout?.toString().slice(-200))
+          if (result.error || result.status !== 0) {
+            throw new Error(result.stderr?.toString() || result.error?.message || 'install failed')
+          }
           console.log('[FP] ✅ Chromium 浏览器安装完成')
           
           // 重新获取路径确认
@@ -282,7 +290,7 @@ async function getChromium() {
         console.error('[FP] ❌ 浏览器安装失败:', e.message)
         throw new Error(
           `Playwright Chromium 未安装且自动安装失败: ${e.message}\n` +
-          `请手动执行: npx playwright install chromium`
+          `请手动在项目目录执行: npx playwright install chromium`
         )
       }
     }
