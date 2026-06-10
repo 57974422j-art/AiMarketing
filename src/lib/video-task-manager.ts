@@ -345,7 +345,6 @@ async function runTask(
           if (cf) vf = vf + ',' + cf
           await runFFmpeg(`-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p`, { timeout: 60000 })
         }
-      }
       task.progress = 35 + Math.round((i + 1) / mp.length * 30)
     }
 
