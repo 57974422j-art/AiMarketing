@@ -65,20 +65,18 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        const response = await fetch('/api/dashboard', { credentials: 'include' })
-        const data = await response.json()
-        setDashboardData(data)
-      } catch (error) {
-        console.error('获取仪表盘数据错误:', error)
-      } finally {
-        setLoading(false)
-      }
+  const fetchDashboardData = async () => {
+    try {
+      const response = await fetch('/api/dashboard', { credentials: 'include' })
+      const data = await response.json()
+      setDashboardData(data)
+    } catch (error) {
+      console.error('获取仪表盘数据错误:', error)
     }
+  }
 
-    fetchDashboardData()
+  useEffect(() => {
+    fetchDashboardData().finally(() => setLoading(false))
   }, [])
 
   /** 手动触发数据采集（通过指纹浏览器同步） */
