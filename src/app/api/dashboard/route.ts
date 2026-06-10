@@ -41,46 +41,17 @@ export async function GET(request: NextRequest) {
     }
 
     const dashboardStats = await prisma.dashboardStat.findMany({
-      where: whereClause
+      where: whereClause,
+      orderBy: { date: 'desc' },
     })
 
+    // 没有数据时返回空结构（不再自动播种 mock 数据）
     if (dashboardStats.length === 0) {
-      let mockUserId = user.userId as any
-      if (user.teamId) {
-        const teamMembers = await prisma.user.findMany({
-          where: { teamId: user.teamId },
-          take: 1
-        })
-        if (teamMembers.length > 0) {
-          mockUserId = teamMembers[0].id
-        }
-      }
-
-      const mockStats = [
-        { platform: '抖音', followers: 12500, publishCount: 156, engagementRate: 4.8, userId: mockUserId },
-        { platform: '快手', followers: 8900, publishCount: 98, engagementRate: 3.2, userId: mockUserId },
-        { platform: '小红书', followers: 5600, publishCount: 72, engagementRate: 6.5, userId: mockUserId }
-      ]
-
-      for (const stat of mockStats) {
-        await prisma.dashboardStat.create({ data: stat })
-      }
-
-      const updatedStats = await prisma.dashboardStat.findMany({
-        where: whereClause
-      })
-      
       return NextResponse.json({
-        totalFollowers: updatedStats.reduce((sum: number, stat: any) => sum + stat.followers, 0),
-        totalPublishCount: updatedStats.reduce((sum: number, stat: any) => sum + stat.publishCount, 0),
-        averageEngagementRate: updatedStats.reduce((sum: number, stat: any) => sum + stat.engagementRate, 0) / updatedStats.length || 0,
-        platformStats: updatedStats.map((stat: any) => ({
-          platform: stat.platform,
-          followers: stat.followers,
-          publishCount: stat.publishCount,
-          engagementRate: stat.engagementRate,
-          growthRate: Math.random() * 20
-        }))
+        totalFollowers: 0,
+        totalPublishCount: 0,
+        averageEngagementRate: 0,
+        platformStats: [],
       })
     }
 
@@ -93,14 +64,15 @@ export async function GET(request: NextRequest) {
       followers: stat.followers,
       publishCount: stat.publishCount,
       engagementRate: stat.engagementRate,
-      growthRate: Math.random() * 20
+      // growthRate 需要两次采集对比计算，单次查询暂返回 null（前端显示"开发中"）
+      growthRate: null as number | null,
     }))
 
     return NextResponse.json({
       totalFollowers,
       totalPublishCount,
       averageEngagementRate,
-      platformStats
+      platformStats,
     })
   } catch (error) {
     console.error('获取仪表盘数据错误:', error)

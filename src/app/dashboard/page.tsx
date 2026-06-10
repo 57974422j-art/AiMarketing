@@ -6,7 +6,7 @@ interface PlatformStat {
   followers: number
   publishCount: number
   engagementRate: number
-  growthRate: number
+  growthRate: number | null
 }
 
 interface TodoItem {
@@ -53,19 +53,7 @@ const platformMap: Record<string, { cn: string }> = {
   'weibo': { cn: '微博' }
 };
 
-/* V2 默认数据（API 未返回时兜底） */
-const defaultTodos: TodoItem[] = [
-  { id: 1, text: '3 条线索待分配给代理', type: 'lead', urgency: 'high' },
-  { id: 2, text: '2 个自动化任务待审核', type: 'task', urgency: 'medium' },
-  { id: 3, text: '1 份内容素材待审核', type: 'submission', urgency: 'low' },
-];
-
-const defaultFeed: FeedItem[] = [
-  { id: 1, text: '直播刚结束，本场观看 1.2K 人', time: '10 分钟前', icon: '📺' },
-  { id: 2, text: '新视频「夏季促销」已发布到抖音', time: '30 分钟前', icon: '✅' },
-  { id: 3, text: '采集任务「美业关键词」完成，发现 23 条新线索', time: '1 小时前', icon: '🎯' },
-  { id: 4, text: 'AI 诊断报告已生成，账号健康度评分 82', time: '2 小时前', icon: '🏥' },
-];
+/* 数据通过指纹浏览器采集，无数据时显示空状态 */
 
 export default function DashboardPage() {
   const [dashboardData, setDashboardData] = useState<DashboardData>({
@@ -75,6 +63,7 @@ export default function DashboardPage() {
     platformStats: []
   })
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -92,6 +81,26 @@ export default function DashboardPage() {
     fetchDashboardData()
   }, [])
 
+  /** 手动触发数据采集（通过指纹浏览器同步） */
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/dashboard/sync', { method: 'POST', credentials: 'include' })
+      const d = await res.json()
+      if (d.success) {
+        // 刷新仪表盘数据
+        fetchDashboardData()
+        alert(d.message || `采集完成: ${d.data?.filter((r: any) => r.collected).length || 0} 个账号成功`)
+      } else {
+        alert('同步失败: ' + d.message)
+      }
+    } catch (e) {
+      alert('同步出错')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const getPlatformDisplay = (platform: string) => {
     const p = platformMap[platform.toLowerCase()] || { cn: platform };
     return <>{p.cn}</>;
@@ -100,9 +109,18 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-950">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <p className="text-label mb-2">总览</p>
-          <h1 className="text-mono-lg text-white">仪表盘</h1>
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <p className="text-label mb-2">总览</p>
+            <h1 className="text-mono-lg text-white">仪表盘</h1>
+          </div>
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="px-4 py-2 text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 disabled:opacity-50 transition-colors"
+          >
+            {syncing ? '同步中...' : '🔄 同步数据'}
+          </button>
         </div>
         
         {loading ? (
@@ -132,13 +150,10 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="mt-4 flex items-center">
-                  <span className="text-sm font-medium text-emerald-400 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                    </svg>
-                    10.5%
+                  <span className="text-sm font-medium text-gray-500 flex items-center">
+                    --
                   </span>
-                  <span className="text-sm text-gray-500 ml-2">较上月</span>
+                  <span className="text-sm text-gray-500 ml-2">较上月（需采集数据）</span>
                 </div>
               </div>
               
@@ -157,13 +172,9 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="mt-4 flex items-center">
-                  <span className="text-sm font-medium text-emerald-400 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                    </svg>
-                    8.2%
+                  <span className="text-sm font-medium text-gray-500 flex items-center">--
                   </span>
-                  <span className="text-sm text-gray-500 ml-2">较上月</span>
+                  <span className="text-sm text-gray-500 ml-2">较上月（需采集数据）</span>
                 </div>
               </div>
               
@@ -182,13 +193,9 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="mt-4 flex items-center">
-                  <span className="text-sm font-medium text-red-400 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                    1.2%
+                  <span className="text-sm font-medium text-gray-500 flex items-center">--
                   </span>
-                  <span className="text-sm text-gray-500 ml-2">较上月</span>
+                  <span className="text-sm text-gray-500 ml-2">较上月（需采集数据）</span>
                 </div>
               </div>
             </div>
@@ -220,7 +227,7 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/10">
-                    {dashboardData.platformStats.map((stat, index) => (
+                    {dashboardData.platformStats.length > 0 ? dashboardData.platformStats.map((stat, index) => (
                       <tr key={index} className="hover:bg-white/5">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
                           {getPlatformDisplay(stat.platform)}
@@ -235,12 +242,22 @@ export default function DashboardPage() {
                           {stat.engagementRate}%
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${stat.growthRate > 0 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
-                            {stat.growthRate > 0 ? '+' : ''}{stat.growthRate.toFixed(1)}%
-                          </span>
+                          {stat.growthRate !== null && stat.growthRate !== undefined ? (
+                            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${stat.growthRate > 0 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                              {stat.growthRate > 0 ? '+' : ''}{stat.growthRate.toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-600">开发中</span>
+                          )}
                         </td>
                       </tr>
-                    ))}
+                    )) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-sm text-gray-500">
+                          暂无数据，请通过指纹浏览器登录各平台账号后自动采集
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -254,10 +271,10 @@ export default function DashboardPage() {
             {/* 今日概览 4 卡片 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {[
-                { label: '新增线索', sub: '', value: dashboardData.todayStats?.newLeads ?? 0, icon: '🎯', color: 'text-blue-400 bg-blue-500/15', trend: '+12%' },
-                { label: '直播观看', sub: '', value: (dashboardData.todayStats?.liveViews ?? 0) > 1000 ? `${((dashboardData.todayStats?.liveViews ?? 0) / 1000).toFixed(1)}K` : dashboardData.todayStats?.liveViews ?? 0, icon: '📺', color: 'text-red-400 bg-red-500/15', trend: '+8%' },
-                { label: '内容发布', sub: '', value: dashboardData.todayStats?.publishedContent ?? 0, icon: '📝', color: 'text-emerald-400 bg-emerald-500/15', trend: '+3' },
-                { label: '互动总量', sub: '', value: dashboardData.todayStats?.totalInteractions ?? 0, icon: '💬', color: 'text-purple-400 bg-purple-500/15', trend: '+22%' },
+                { label: '新增线索', sub: '', value: dashboardData.todayStats?.newLeads ?? 0, icon: '🎯', color: 'text-blue-400 bg-blue-500/15', dev: true },
+                { label: '直播观看', sub: '', value: (dashboardData.todayStats?.liveViews ?? 0) > 1000 ? `${((dashboardData.todayStats?.liveViews ?? 0) / 1000).toFixed(1)}K` : dashboardData.todayStats?.liveViews ?? 0, icon: '📺', color: 'text-red-400 bg-red-500/15', dev: true },
+                { label: '内容发布', sub: '', value: dashboardData.todayStats?.publishedContent ?? 0, icon: '📝', color: 'text-emerald-400 bg-emerald-500/15', dev: true },
+                { label: '互动总量', sub: '', value: dashboardData.todayStats?.totalInteractions ?? 0, icon: '💬', color: 'text-purple-400 bg-purple-500/15', dev: true },
               ].map((card) => (
                 <div key={card.label} className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 p-4 hover:bg-white/[0.07] transition-colors">
                   <p className="text-xs text-gray-500">{card.label}</p>
@@ -265,7 +282,7 @@ export default function DashboardPage() {
                     <span className="text-xl font-bold text-white">{card.value}</span>
                     <span className={`text-lg ${card.color.split(' ')[0]} px-1.5 py-0.5 rounded ${card.color.split(' ')[1]}`}>{card.icon}</span>
                   </div>
-                  <p className="text-[10px] text-emerald-400 mt-1.5">{card.trend} 较昨日</p>
+                  <p className="text-[10px] text-gray-600 mt-1.5">开发中</p>
                 </div>
               ))}
             </div>
@@ -281,7 +298,7 @@ export default function DashboardPage() {
                   </span>
                 </h3>
                 <div className="space-y-2">
-                  {(dashboardData.todoList && dashboardData.todoList.length > 0 ? dashboardData.todoList : defaultTodos).map((item) => (
+                  {dashboardData.todoList && dashboardData.todoList.length > 0 ? dashboardData.todoList.map((item) => (
                     <div key={item.id} className={`flex items-center gap-3 p-3 rounded-lg ${
                       item.urgency === 'high' ? 'bg-red-500/5 border border-red-500/10' :
                       item.urgency === 'medium' ? 'bg-yellow-500/5 border border-yellow-500/10' :
@@ -315,7 +332,7 @@ export default function DashboardPage() {
                   <span>最近动态</span>
                 </h3>
                 <div className="space-y-3">
-                  {(dashboardData.recentFeed && dashboardData.recentFeed.length > 0 ? dashboardData.recentFeed : defaultFeed).map((item) => (
+                  {dashboardData.recentFeed && dashboardData.recentFeed.length > 0 ? dashboardData.recentFeed.map((item) => (
                     <div key={item.id} className="flex items-start gap-3 group">
                       <span className="text-base mt-0.5">{item.icon}</span>
                       <div className="flex-1 min-w-0">
@@ -323,7 +340,9 @@ export default function DashboardPage() {
                         <p className="text-[10px] text-gray-600 mt-0.5">{item.time}</p>
                       </div>
                     </div>
-                  ))}
+                  )) : (
+                    <p className="text-xs text-gray-600 text-center py-6">暂无动态</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -333,13 +352,14 @@ export default function DashboardPage() {
               <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
                 <span>快捷入口</span>
               </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {[
-                  { label: '数据中心', sub: '采集数据 / 线索 / 视频', href: '/data-center', icon: '📊', color: 'from-cyan-500/10 to-cyan-500/5 border-cyan-500/15 hover:border-cyan-500/30' },
-                  { label: '创建内容', sub: 'AI 文案 / 视频合成', href: '/ai-copy', icon: '✨', color: 'from-blue-500/10 to-blue-500/5 border-blue-500/15 hover:border-blue-500/30' },
-                  { label: '开启直播', sub: '直播间中控台', href: '/live', icon: '📺', color: 'from-red-500/10 to-red-500/5 border-red-500/15 hover:border-red-500/30' },
-                  { label: '采集线索', sub: '自动采集 + AI 分析', href: '/lead-collector', icon: '🎯', color: 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/15 hover:border-emerald-500/30' },
-                  { label: '诊断报告', sub: '系统健康检测', href: '/admin/diagnostics', icon: '🏥', color: 'from-purple-500/10 to-purple-500/5 border-purple-500/15 hover:border-purple-500/30' },
+                  { label: 'AI 文案', sub: '智能生成营销文案', href: '/ai-copy', icon: '✍️', color: 'from-blue-500/10 to-blue-500/5 border-blue-500/15 hover:border-blue-500/30' },
+                  { label: '一键成片', sub: '文案+图片自动合成视频', href: '/auto-compile', icon: '🎬', color: 'from-cyan-500/10 to-cyan-500/5 border-cyan-500/15 hover:border-cyan-500/30' },
+                  { label: '个人仓库', sub: '素材文件管理', href: '/storage', icon: '🗂️', color: 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/15 hover:border-emerald-500/30' },
+                  { label: '指纹浏览器', sub: '多窗口自动化操作', href: '/my-fingerprint', icon: '🌐', color: 'from-violet-500/10 to-violet-500/5 border-violet-500/15 hover:border-violet-500/30' },
+                  { label: '账号管理', sub: '多平台账号绑定管理', href: '/accounts', icon: '🔑', color: 'from-teal-500/10 to-teal-500/5 border-teal-500/15 hover:border-teal-500/30' },
+                  { label: '数据中心', sub: '综合数据面板', href: '/data-center', icon: '📊', color: 'from-rose-500/10 to-rose-500/5 border-rose-500/15 hover:border-rose-500/30' },
                 ].map((action) => (
                   <a
                     key={action.label}

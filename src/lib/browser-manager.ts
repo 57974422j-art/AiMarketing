@@ -268,3 +268,243 @@ async function takeScreenshotInternal(page: any): Promise<string> {
   const buf = await page.screenshot({ type: 'png', fullPage: false })
   return `data:image/png;base64,${buf.toString('base64')}`
 }
+
+// ════════════════════════════════════
+// 个人主页数据采集（指纹浏览器启动后自动调用）
+// ════════════════════════════════════
+
+export interface ProfileCollectResult {
+  success: boolean
+  platform: string
+  accountId: string | null
+  /** 采集到的数据 */
+  followers?: number
+  following?: number
+  totalLikes?: number
+  videoCount?: number
+  nickname?: string
+  message: string
+}
+
+/**
+ * 通过已运行的浏览器实例采集个人主页数据
+ * 在指纹浏览器启动后自动调用，将数据写入 DashboardStat
+ *
+ * @param port CDP 端口号（必须已运行）
+ * @param platform 平台标识 (douyin/kuaishou/xiaohongshu)
+ * @param userId 用户ID（用于写入数据库）
+ */
+export async function collectProfileData(
+  port: number,
+  platform: string,
+  userId: number,
+): Promise<ProfileCollectResult> {
+  const instance = activeBrowsers.get(port)
+  if (!instance || !instance.running || !instance.page) {
+    return { success: false, platform, accountId: instance?.accountId || null, message: `端口 ${port} 浏览器未运行` }
+  }
+
+  const page = instance.page
+  let result: ProfileCollectResult = {
+    success: false, platform, accountId: instance.accountId, message: '',
+  }
+
+  try {
+    // 根据平台选择采集策略
+    if (platform === 'douyin') {
+      result = await collectDouyinProfile(page)
+    } else if (platform === 'kuaishou') {
+      result = await collectKuaishouProfile(page)
+    } else if (platform === 'xiaohongshu') {
+      result = await collectXhsProfile(page)
+    } else {
+      return { ...result, message: `暂不支持 ${platform} 平台数据采集` }
+    }
+
+    // 采集成功 → 写入 DashboardStat
+    if (result.success && result.followers !== undefined) {
+      const { PrismaClient } = require('@prisma/client')
+      const prisma = new PrismaClient()
+      try {
+        const today = new Date()
+        today.setHours(0, 0, 0, 1)
+
+        // 查找今天是否已有该用户+平台的记录
+        const existing = await prisma.dashboardStat.findFirst({
+          where: { userId, platform, date: { gte: today } },
+        })
+
+        if (existing) {
+          await prisma.dashboardStat.update({
+            where: { id: existing.id },
+            data: {
+              followers: result.followers || 0,
+              following: result.following || 0,
+              likes: result.totalLikes || 0,
+              publishCount: result.videoCount || 0,
+              engagementRate: result.videoCount && result.videoCount > 0
+                ? Math.round(((result.totalLikes || 0) / result.videoCount) * 100) / 100
+                : 0,
+              date: new Date(),
+            },
+          })
+        } else {
+          await prisma.dashboardStat.create({
+            data: {
+              userId,
+              platform,
+              followers: result.followers || 0,
+              following: result.following || 0,
+              likes: result.totalLikes || 0,
+              publishCount: result.videoCount || 0,
+              engagementRate: result.videoCount && result.videoCount > 0
+                ? Math.round(((result.totalLikes || 0) / result.videoCount) * 100) / 100
+                : 0,
+            },
+          })
+        }
+        console.log(`[BrowserManager] ✅ 数据已入库 → 用户${userId} ${platform}: 粉丝${result.followers} 作品${result.videoCount}`)
+      } finally {
+        await prisma.$disconnect()
+      }
+    }
+
+    return result
+  } catch (e: any) {
+    console.error(`[BrowserManager] ❌ 采集失败 (${platform}, port=${port}):`, e.message)
+    return { ...result, message: `采集异常: ${e.message}` }
+  }
+}
+
+/**
+ * 解析数字（支持中文万/w单位）
+ */
+function parseNum(raw: string): number {
+  if (!raw) return 0
+  const c = raw.replace(/,/g, '').trim()
+  const wan = c.match(/^([\d.]+)\s*[wW万]$/)
+  if (wan) return Math.round(parseFloat(wan[1]) * 10000)
+  const n = parseFloat(c)
+  return isNaN(n) ? 0 : Math.round(n)
+}
+
+/** 抖音个人主页采集 */
+async function collectDouyinProfile(page: any): Promise<ProfileCollectResult> {
+  const log = (m: string) => console.log(`[DouyinProfile] ${m}`)
+
+  try {
+    // 策略A：创作者中心
+    log('导航到创作者中心...')
+    await page.goto('https://creator.douyin.com/creator-micro/home', {
+      timeout: 30000, waitUntil: 'domcontentloaded',
+    })
+    await page.waitForTimeout(8000)
+
+    // 关闭弹窗
+    for (const text of ['我知道了', '知道了', '确定', '关闭']) {
+      try {
+        const btn = await page.$(`text="${text}"`)
+        if (btn && await btn.isVisible().catch(() => false)) {
+          await btn.click({ timeout: 2000 })
+          await page.waitForTimeout(800)
+        }
+      } catch (_) {}
+    }
+
+    // DOM 解析
+    const raw = await page.evaluate(() => {
+      const bodyText = document.body.innerText
+      const data: Record<string, string> = {}
+
+      // 多模式匹配
+      const patterns: [RegExp, string][] = [
+        [/粉丝[：:\s]*(\d+[,\d]*\d*(?:\.\d+)?[wW万]?)/, 'followers'],
+        [/关注[：:\s]*(\d+[,\d]*\d*)/, 'following'],
+        [/获赞[：:\s]*(\d+[,\d]*\d*(?:\.\d+)?[wW万]?)/, 'totalLikes'],
+        [/总获赞[：:\s]*(\d+[,\d]*\d*(?:\.\d+)?[wW万]?)/, 'totalLikes'],
+        [/作品[：:\s]*(\d+)/, 'videoCount'],
+        [/作品数[：:\s]*(\d+)/, 'videoCount'],
+      ]
+      for (const [p, key] of patterns) {
+        const m = bodyText.match(p)
+        if (m) data[key] = m[1]
+      }
+      data._raw = bodyText.substring(0, 2000)
+      return data
+    })
+
+    log(`原始匹配: ${JSON.stringify(raw)}`)
+
+    const followers = parseNum(raw['followers'])
+    const following = parseNum(raw['following'])
+    const totalLikes = parseNum(raw['totalLikes'])
+    const videoCount = parseNum(raw['videoCount'])
+
+    const hasData = followers > 0 || videoCount > 0
+    log(`结果: 粉丝=${followers} 关注=${following} 获赞=${totalLikes} 作品=${videoCount} 有效=${hasData}`)
+
+    if (hasData) {
+      return {
+        success: true, platform: 'douyin', accountId: null,
+        followers, following, totalLikes, videoCount,
+        message: `抖音数据采集成功: 粉丝${followers} 作品${videoCount}`,
+      }
+    }
+
+    // 策略B：网页版个人主页兜底
+    log('创作者中心无数据，尝试网页版...')
+    await page.goto('https://www.douyin.com/user/self', {
+      timeout: 20000, waitUntil: 'domcontentloaded',
+    })
+    await page.waitForTimeout(6000)
+
+    const webRaw = await page.evaluate(() => {
+      const bt = document.body.innerText
+      const d: Record<string, string> = {}
+      const patterns: [RegExp, string][] = [
+        [/关注\s+(\d+)/, 'following'], [/粉丝\s+(\d+)/, 'followers'],
+        [/获赞\s+(\d[\d,]*)/, 'totalLikes'], [/喜欢\s+(\d[\d,]*)/, 'totalLikes'],
+        [/作品\s*(\d+)/, 'videoCount'], [/(\d+)\s*作品/, 'videoCount'],
+      ]
+      for (const [p, k] of patterns) { const m = bt.match(p); if (m) d[k] = m[1] }
+      return d
+    })
+
+    const wFollowers = parseNum(webRaw['followers'])
+    const wVideoCount = parseNum(webRaw['videoCount'])
+    const wTotalLikes = parseNum(webRaw['totalLikes'])
+    const wFollowing = parseNum(webRaw['following'])
+    const wHasData = wFollowers > 0 || wVideoCount > 0
+
+    if (wHasData) {
+      return {
+        success: true, platform: 'douyin', accountId: null,
+        followers: wFollowers, following: wFollowing, totalLikes: wTotalLikes, videoCount: wVideoCount,
+        message: `抖音(网页版): 粉丝${wFollowers} 作品${wVideoCount}`,
+      }
+    }
+
+    return {
+      success: false, platform: 'douyin', accountId: null,
+      message: '未能提取到有效数据，可能未登录或页面结构变化',
+    }
+  } catch (e: any) {
+    return { success: false, platform: 'douyin', accountId: null, message: e.message }
+  }
+}
+
+/** 快手个人主页采集（预留） */
+async function collectKuaishouProfile(_page: any): Promise<ProfileCollectResult> {
+  return {
+    success: false, platform: 'kuaishou', accountId: null,
+    message: '快手数据采集开发中，后续通过 MediaCrawler 实现',
+  }
+}
+
+/** 小红书个人主页采集（预留） */
+async function collectXhsProfile(_page: any): Promise<ProfileCollectResult> {
+  return {
+    success: false, platform: 'xiaohongshu', accountId: null,
+    message: '小红书数据采集开发中，后续通过 MediaCrawler 实现',
+  }
+}

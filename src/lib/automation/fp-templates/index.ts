@@ -12,6 +12,7 @@ import douyinPublish from './douyin-publish'
 import douyinLike from './douyin-like'
 import douyinComment from './douyin-comment'
 import xiaohongshuPublish from './xiaohongshu-publish'
+import douyinProfile from './douyin-profile'
 
 /** 所有已注册的模板 */
 export const templateRegistry: Map<string, FingerprintTemplate> = new Map([
@@ -19,6 +20,7 @@ export const templateRegistry: Map<string, FingerprintTemplate> = new Map([
   [douyinLike.meta.key, douyinLike],
   [douyinComment.meta.key, douyinComment],
   [xiaohongshuPublish.meta.key, xiaohongshuPublish],
+  [douyinProfile.meta.key, douyinProfile],
 ])
 
 /** 获取所有模板的元信息（用于前端展示，不暴露执行函数） */

@@ -69,7 +69,9 @@ export default function Navbar() {
           {/* Desktop nav — 精简：工作台入口已在卡片中，导航只保留核心入口 */}
           <div className="hidden md:flex items-center space-x-1">
             <Link href="/workspace" className="px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-all text-sm font-medium">🏠 工作台</Link>
-            <Link href="/ai-tools" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">🛠 工具集</Link>
+            {(user?.role === 'admin' || user?.role === 'editor') && (
+              <Link href="/ai-tools" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">🛠 工具集</Link>
+            )}
             {(user?.role === 'admin' || user?.role === 'editor') && (
               <Link href="/admin/" className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm font-bold">⚙ 管理中心</Link>
             )}
@@ -117,7 +119,9 @@ export default function Navbar() {
         <div className="md:hidden border-t border-white/10 bg-gray-900/95 backdrop-blur-md">
           <div className="px-4 py-3 space-y-1">
             <Link href="/workspace" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-emerald-400 hover:bg-emerald-500/10 rounded-lg text-sm font-medium">🏠 工作台</Link>
-            <Link href="/ai-tools" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg text-sm">🛠 工具集</Link>
+            {(user?.role === 'admin' || user?.role === 'editor') && (
+              <Link href="/ai-tools" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg text-sm">🛠 工具集</Link>
+            )}
             {(user?.role === 'admin' || user?.role === 'editor') && (
               <Link href="/admin/" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-yellow-400 hover:bg-yellow-500/10 rounded-lg text-sm font-bold">⚙ 管理中心</Link>
             )}

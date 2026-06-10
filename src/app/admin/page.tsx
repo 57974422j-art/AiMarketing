@@ -23,6 +23,7 @@ const sections: CardSection[] = [
       { title: '任务执行', desc: '设备状态监控、执行任务', href: '/admin/automation', icon: '⚡', roles: ['admin', 'editor'] },
       { title: '素材审核', desc: '审核终端客户提交的视频素材', href: '/admin/content-submissions', icon: '📋', roles: ['admin', 'editor', 'end-user'] },
       { title: '直播间中控台', desc: '直播间管理、商品上架、话术库、Q1设备控制台', href: '/live', icon: '📺', roles: ['admin'] },
+      { title: '数据中心', desc: '综合数据面板：视频库、评论池、线索看板、用户画像、热榜追踪', href: '/data-center', icon: '📊', roles: ['admin', 'editor'] },
       { title: '代理工作台', desc: '客户管理、业绩跟踪、线索池、团队数据', href: '/admin/agent', icon: '🤖', roles: ['admin', 'editor'] },
     ],
   },

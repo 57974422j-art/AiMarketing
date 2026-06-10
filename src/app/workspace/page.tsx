@@ -13,7 +13,7 @@ interface WorkspaceData {
   }
 }
 
-// 终端用户工作台 — 7个功能入口
+// 终端用户工作台 — 6个功能入口
 const featureCards = [
   {
     id: 'aiCopy',
@@ -61,16 +61,15 @@ const featureCards = [
     badgeColor: 'bg-violet-500/20 text-violet-400',
   },
   {
-    id: 'videoEdit',
-    title: '视频剪辑',
-    desc: '1080P视频剪辑引擎，混剪/拼接/故事板模板，后期处理配音字幕翻译',
-    icon: '\u2702\uFE0F',
-    color: 'from-orange-500/20 to-orange-600/10 border-orange-500/30',
-    hoverColor: 'hover:border-orange-400/50 hover:shadow-orange-500/10',
-    path: '/video-edit',
-    badgeKey: 'videoEdit', // 显示使用量
-    badgeDefault: '剪辑工具',
-    badgeColor: 'bg-orange-500/20 text-orange-400',
+    id: 'dashboard',
+    title: '仪表盘',
+    desc: '数据总览：粉丝统计、发布量、互动率、平台数据一览',
+    icon: '\uD83D\uDCCA',
+    color: 'from-rose-500/20 to-rose-600/10 border-rose-500/30',
+    hoverColor: 'hover:border-rose-400/50 hover:shadow-rose-500/10',
+    path: '/dashboard',
+    badgeDefault: '数据概览',
+    badgeColor: 'bg-rose-500/20 text-rose-400',
   },
   {
     id: 'accounts',
@@ -82,21 +81,6 @@ const featureCards = [
     path: '/accounts',
     badgeDefault: '账号中心',
     badgeColor: 'bg-teal-500/20 text-teal-400',
-  },
-]
-
-// 仅管理员可见的卡片
-const adminCards = [
-  {
-    id: 'dataCenter',
-    title: '数据中心',
-    desc: '综合数据面板：视频库、评论池、线索看板、用户画像、热榜追踪',
-    icon: '\uD83D\uDCCA',
-    color: 'from-rose-500/20 to-rose-600/10 border-rose-500/30',
-    hoverColor: 'hover:border-rose-400/50 hover:shadow-rose-500/10',
-    path: '/data-center',
-    badgeDefault: '数据看板',
-    badgeColor: 'bg-rose-500/20 text-rose-400',
   },
 ]
 
@@ -124,8 +108,6 @@ export default function WorkspacePage() {
   const getBadgeText = (card: typeof featureCards[0]) => {
     if (!card.badgeKey || !data) return card.badgeDefault
     if (card.badgeKey === 'aiCopy') return `今日剩余 ${data.features.aiCopy.remaining}/${data.features.aiCopy.limit}`
-    if (card.badgeKey === 'videoEdit' && data.features.videoEdit.usedCount > 0)
-      return `已用 ${data.features.videoEdit.usedCount} 次`
     return card.badgeDefault
   }
 
@@ -143,9 +125,7 @@ export default function WorkspacePage() {
     </Link>
   )
 
-  const allCards = user?.role === 'admin' || user?.role === 'editor'
-    ? [...featureCards, ...adminCards]
-    : featureCards
+  const allCards = featureCards
 
   return (
     <div className="min-h-screen bg-[#0a0a0f]">
