@@ -14,7 +14,7 @@ async function generateThumbnail(videoBuffer: Buffer): Promise<Buffer | null> {
     const tmpIn = join(tmpdir(), `thumb_${Date.now()}_in.mp4`)
     const tmpOut = join(tmpdir(), `thumb_${Date.now()}_out.jpg`)
     fs.writeFileSync(tmpIn, videoBuffer)
-    await runFFmpeg(`-y -i "${tmpIn}" -ss 00:00:00.5 -vframes 1 -q:v 2 "${tmpOut}"`, { timeout: 15000 })
+    await runFFmpeg(`-y -i "${tmpIn}" -ss 00:00:00.5 -vframes 1 -q:v 2 "${tmpOut}"`, { timeout: 15000, skipNice: true, priority: 'high' })
     const thumb = fs.readFileSync(tmpOut)
     fs.unlinkSync(tmpIn)
     fs.unlinkSync(tmpOut)

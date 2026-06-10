@@ -77,6 +77,8 @@ interface FFmpegOptions {
   threads?: number
   /** 最大输出 buffer（MB），默认50 */
   maxBufferMB?: number
+  /** 高优先级 — 插队到队列前面（缩微图、探测等短命令用） */
+  priority?: 'high'
 }
 
 function processQueue() {
@@ -135,7 +137,13 @@ function processQueue() {
  */
 export function runFFmpeg(args: string, opts?: FFmpegOptions): Promise<string> {
   return new Promise((resolve, reject) => {
-    ffQueue.push({ cmd: args, opts: opts || {}, resolve, reject })
+    const item = { cmd: args, opts: opts || {}, resolve, reject }
+    // 高优先级任务插队到队列前面（缩微图、探测等短命令）
+    if (opts?.priority === 'high') {
+      ffQueue.unshift(item)
+    } else {
+      ffQueue.push(item)
+    }
     processQueue()
   })
 }
