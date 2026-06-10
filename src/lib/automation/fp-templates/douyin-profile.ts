@@ -130,18 +130,18 @@ async function parseWebProfile(page: any, log: LogFn): Promise<ProfileData | nul
       // 头像下方显示：关注  粉丝  获赞  以及作品数量
 
       // 尝试多种正则
-      const patterns = [
+      const patterns: [RegExp, string][] = [
         [/关注\s+(\d+)/, 'following'],
         [/粉丝\s+(\d+)/, 'followers'],
         [/获赞\s+(\d[\d,]*)/, 'totalLikes'],
-        [/喜欢\s+(\d[\d,]*)/, 'totalLikes'], // 新版可能用"喜欢"
+        [/喜欢\s+(\d[\d,]*)/, 'totalLikes'],
         [/作品\s*(\d+)/, 'videoCount'],
         [/(\d+)\s*作品/, 'videoCount'],
         [/作品.*?(\d+)/, 'videoCount'],
       ]
 
       for (const [p, label] of patterns) {
-        const m = allText.match(p as RegExp)
+        const m = allText.match(p)
         if (m) result[label] = m[1]
       }
 
