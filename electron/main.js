@@ -252,8 +252,43 @@ ipcMain.handle('adb:push', async (_event, { deviceId, localPath, remotePath }) =
 
 // 延迟加载 Playwright（避免拖慢启动）
 let _chromium = null
+let _browserChecked = false
+
+/** 获取 Playwright Chromium 实例，自动检测并安装浏览器 */
 async function getChromium() {
-  if (!_chromium) _chromium = (await import('playwright')).chromium
+  if (!_chromium) {
+    const pw = await import('playwright')
+    
+    // 首次使用时检查浏览器是否已安装
+    if (!_browserChecked) {
+      _browserChecked = true
+      try {
+        const executablePath = pw.chromium.executablePath()
+        if (!executablePath || !fs.existsSync(executablePath)) {
+          console.log('[FP] ⚠️ Chromium 浏览器未检测到，正在自动安装...')
+          const { execSync } = require('child_process')
+          // 使用 npx playwright install 安装（兼容打包/开发环境）
+          const cmd = process.platform === 'win32' ? 'npx playwright install chromium' : 'npx playwright install chromium'
+          execSync(cmd, { stdio: 'inherit', timeout: 120000 })
+          console.log('[FP] ✅ Chromium 浏览器安装完成')
+          
+          // 重新获取路径确认
+          const newPath = pw.chromium.executablePath()
+          if (!newPath || !fs.existsSync(newPath)) {
+            throw new Error(`安装后仍找不到浏览器: ${newPath}`)
+          }
+        }
+      } catch (e) {
+        console.error('[FP] ❌ 浏览器安装失败:', e.message)
+        throw new Error(
+          `Playwright Chromium 未安装且自动安装失败: ${e.message}\n` +
+          `请手动执行: npx playwright install chromium`
+        )
+      }
+    }
+    
+    _chromium = pw.chromium
+  }
   return _chromium
 }
 
