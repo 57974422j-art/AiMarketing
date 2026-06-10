@@ -7,8 +7,11 @@
  *   - videoPath:   视频文件绝对路径（必填）
  *   - title:       作品标题，最多30字
  *   - description: 作品简介/正文，最多1000字
- *   - topics:      是否勾选推荐话题 (true/false)
- *   - publishNow:  是否立即发布 (true=立即 / false=草稿)
+ *   - topics:      自定义话题（逗号分隔）或留空跳过
+ *   - publishNow:  是否立即发布 ("true"/"false")
+ *   - coverImage:  自定义封面图片名（来自素材仓库），留空则使用默认
+ *   - location:    地理位置（可选）
+ *   - autoMusic:   自定义音乐文件名（来自素材仓库），留空则跳过
  */
 
 const path = require('path')
@@ -588,6 +591,169 @@ async function step6_covers(page, params, log) {
 }
 
 // ════════════════════════════════════
+// Step 6.5: 选择音乐
+//
+// 流程：点击"选择音乐"按钮 → 搜索/上传自定义音乐 → 确认使用
+// params.autoMusic = 音乐文件名(来自素材仓库)，留空则跳过
+// ════════════════════════════════════
+
+async function step65_selectMusic(page, params, log) {
+  if (!params.autoMusic || !params.autoMusic.trim()) {
+    log('[步骤6.5] 跳过（无自定义音乐）')
+    return
+  }
+
+  log('[步骤6.5] 选择自定义音乐: ' + params.autoMusic.trim())
+  await page.waitForTimeout(1500)
+
+  try {
+    // ── 1. 查找"选择音乐"按钮 ──
+    var musicBtns = []
+    var allClickables = await page.$$('button, div[role="button"], [class*="music-btn"], [class*="musicBtn"], [class*="sound-btn"]').catch(function() { return [] })
+    for (var b = 0; b < allClickables.length; b++) {
+      try {
+        var t = (await allClickables[b].innerText()).trim()
+        // 匹配"选择音乐"、"添加音乐"、"配乐"、"换一个"等
+        if (t.includes('选择音乐') || t.includes('添加音乐') || t === '配乐' || t.includes('换一个')) {
+          musicBtns.push(allClickables[b])
+        }
+      } catch (_) {}
+    }
+    // 文本选择器兜底
+    if (!musicBtns.length) {
+      try {
+        var textBtns = await page.$$(
+          'text=/选择音乐/, text=/添加音乐/, text=/配乐/, text=/换一个/'
+        ).catch(function() { return [] })
+        for (var ti = 0; ti < textBtns.length; ti++) musicBtns.push(textBtns[ti])
+      } catch (_) {}
+    }
+
+    // 也检查页面上是否有"音乐"相关文字区域（可能是个入口）
+    if (!musicBtns.length) {
+      var bodyText = await page.evaluate(function() { return document.body.innerText }).catch(function() { return '' })
+      if (!bodyText.includes('音乐') && !bodyText.includes('配乐') && !bodyText.includes('BGM')) {
+        log('  ⚠️ 页面上未检测到音乐相关区域，跳过')
+        return
+      }
+      // 有文字但没找到按钮，用更宽泛的选择器再试一次
+      try {
+        var broadBtns = await page.$$('div[class*="music"], div[class*="sound"], div[class*="bgm"] button, div[class*="music"] span').catch(function() { return [] })
+        musicBtns = broadBtns
+      } catch (_) {}
+    }
+
+    log('  找到 ' + musicBtns.length + ' 个音乐相关按钮')
+
+    if (!musicBtns.length) {
+      log('  ⚠️ 未找到"选择音乐"按钮，跳过音乐设置')
+      return
+    }
+
+    // ── 2. 点击第一个音乐按钮打开弹窗 ──
+    await musicBtns[0].click({ timeout: 3000 })
+    await page.waitForTimeout(2500)
+    log('  已点击音乐按钮，等待弹窗...')
+
+    // ── 3. 尝试上传自定义音乐 ──
+    // 先下载音乐到本地
+    var serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
+    var userId = params.userId || ''
+    var musicDownloadUrl = serverUrl + '/api/storage/file?userId=' + userId + '&name=' + encodeURIComponent(params.autoMusic.trim())
+    var osTmpDir = require('os').tmpdir()
+    var musicTmpDir = path.join(osTmpDir, 'aimarketing-music')
+    if (!require('fs').existsSync(musicTmpDir)) require('fs').mkdirSync(musicTmpDir, { recursive: true })
+    var localMusicPath = path.join(musicTmpDir, params.autoMusic.trim())
+
+    log('  下载自定义音乐: ' + params.autoMusic.trim())
+    try {
+      await new Promise(function(resolve, reject) {
+        var urlObj = new URL(musicDownloadUrl)
+        var mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
+        mod.get(musicDownloadUrl, { timeout: 120000 }, function(res) {
+          if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode))
+          var chunks = []
+          res.on('data', function(c) { chunks.push(c) })
+          res.on('end', function() {
+            require('fs').writeFileSync(localMusicPath, Buffer.concat(chunks))
+            resolve()
+          })
+        }).on('error', reject).on('timeout', function() { reject(new Error('音乐下载超时')) })
+      })
+      log('  ✅ 音乐已下载 (' + (require('fs').statSync(localMusicPath).size / 1024).toFixed(1) + 'KB)')
+    } catch (e2) {
+      log('  ⚠️ 音乐下载失败: ' + e2.message)
+      // 关闭弹窗然后退出
+      try { await page.keyboard.press('Escape'); await page.waitForTimeout(1000) } catch (_) {}
+      return
+    }
+
+    // ── 4. 查找"上传音乐"按钮并上传 ──
+    var uploadSelectors = ['text=上传音乐', 'text=+ 上传', 'text=本地上传', '[class*="upload-music"]', '[class*="upload-sound"]']
+    var uploadClicked = false
+
+    for (var ui = 0; ui < uploadSelectors.length; ui++) {
+      try {
+        var ub = await page.$(uploadSelectors[ui])
+        if (ub && await ub.isVisible().catch(function() { return false })) {
+          var fcResult = await Promise.all([
+            page.waitForEvent('filechooser', { timeout: 5000 }).catch(function() { return null }),
+            ub.click({ timeout: 2000 }).catch(function() {})
+          ])
+          if (fcResult[0]) {
+            await fcResult[0].setFiles(localMusicPath)
+            log('  ✅ 已上传自定义音乐')
+            uploadClicked = true
+            await page.waitForTimeout(3000)
+            break
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!uploadClicked) {
+      log('  ⚠️ 未找到上传音乐入口，尝试使用已选音乐或默认推荐')
+    }
+
+    // ── 5. 确认使用 / 完成选择 ──
+    var confirmSelectors = ['text=使用', text='确定使用', 'text=确认使用', 'text=完成', 'button:has-text("使用")']
+    var confirmed = false
+    for (var ci = 0; ci < confirmSelectors.length; ci++) {
+      try {
+        var cb = await page.$(confirmSelectors[ci])
+        if (cb && await cb.isVisible().catch(function() { return false })) {
+          await cb.click({ timeout: 3000 })
+          confirmed = true
+          log('  ✅ 已确认使用音乐')
+          await page.waitForTimeout(1500)
+          break
+        }
+      } catch (_) {}
+    }
+
+    if (!confirmed) {
+      // 兜底：按 Enter 或点弹窗外关闭
+      log('  未找到确认按钮，尝试关闭弹窗')
+      try {
+        var xBtn = await page.$('[aria-label="关闭"], [class*="close-btn"]')
+        if (xBtn && await xBtn.isVisible().catch(function() { return false })) {
+          await xBtn.click().catch(function() {})
+        } else {
+          await page.keyboard.press('Escape')
+        }
+        await page.waitForTimeout(1000)
+      } catch (_) {}
+    }
+
+    log('✅ 步骤6.5完成')
+  } catch (e) {
+    log('❌ 步骤6.5: ' + e.message)
+    // 出错时尝试恢复
+    try { await page.keyboard.press('Escape') } catch (_) {}
+  }
+}
+
+// ════════════════════════════════════
 // Step 5.5: 位置标签
 // ════════════════════════════════════
 
@@ -763,6 +929,9 @@ async function executeDouyinPublish(page, params, log) {
 
     // Step 6: 封面
     await step6_covers(page, params, log)
+
+    // Step 6.5: 音乐
+    await step65_selectMusic(page, params, log)
 
     // Step 7: 发布
     return await step7_publish(page, params, log)

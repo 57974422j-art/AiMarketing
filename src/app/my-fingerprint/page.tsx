@@ -93,6 +93,8 @@ export default function MyFingerprintPage() {
   const [templateCustomTopics, setTemplateCustomTopics] = useState('')
   const [templateCoverImage, setTemplateCoverImage] = useState('')
   const [storageImages, setStorageImages] = useState<any[]>([])
+  const [templateAutoMusic, setTemplateAutoMusic] = useState('')
+  const [storageMusics, setStorageMusics] = useState<any[]>([])
   const [templateLocation, setTemplateLocation] = useState('')
   const [templatePublishNow, setTemplatePublishNow] = useState(true)
   const [templateCaption, setTemplateCaption] = useState('')
@@ -239,6 +241,7 @@ export default function MyFingerprintPage() {
         params.topics = templateCustomTopics.trim()
         params.coverImage = templateCoverImage
         params.location = templateLocation
+        params.autoMusic = templateAutoMusic
         params.publishNow = String(templatePublishNow)
         break
       case 'douyin-comment':
@@ -581,6 +584,50 @@ export default function MyFingerprintPage() {
                                 <div className="min-w-0 flex-1">
                                   <p className="text-[10px] text-gray-200 truncate">{img.name}</p>
                                   <p className="text-[9px] text-gray-500">{(img.size / 1024).toFixed(1)}KB</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 自定义音乐（可选） */}
+                      <div>
+                        <label className="text-[11px] text-gray-500 block mb-1">自定义配乐（可选，留空使用抖音默认）</label>
+                        {templateAutoMusic ? (
+                          <div className="flex items-center gap-2 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
+                            <span className="text-[10px] text-purple-300 truncate flex-1">{templateAutoMusic}</span>
+                            <button type="button" onClick={() => setTemplateAutoMusic('')} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const r = await fetch(`/api/storage/files?userId=${user?.id || ''}`, { credentials: 'include' })
+                                const d = await r.json()
+                                if (d.success) {
+                                  const audios = d.data.files.filter((f: any) => /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(f.name))
+                                  if (!audios.length) showToast('素材仓库暂无音频文件', 'error')
+                                  else { setStorageMusics(audios); }
+                                } else showToast(d.message || '加载失败', 'error')
+                              } catch { showToast('加载素材仓库失败', 'error') }
+                            }}
+                            className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-xs text-gray-400 hover:text-white hover:border-purple-500/30 transition"
+                          >🎵 从素材仓库选择音乐</button>
+                        )}
+                        {storageMusics.length > 0 && !templateAutoMusic && (
+                          <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
+                            {storageMusics.map((audio: any) => (
+                              <button key={audio.name} type="button" onClick={() => { setTemplateAutoMusic(audio.name); setStorageMusics([]) }}
+                                className={`w-full flex items-center gap-2 p-2 rounded-lg text-left transition ${
+                                  templateAutoMusic === audio.name ? 'bg-purple-500/20 border-purple-500/30' : 'bg-white/5 border border-transparent hover:bg-white/10'
+                                }`}
+                              >
+                                <span className="text-sm shrink-0">🎵</span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[10px] text-gray-200 truncate">{audio.name}</p>
+                                  <p className="text-[9px] text-gray-500">{(audio.size / 1024).toFixed(1)}KB</p>
                                 </div>
                               </button>
                             ))}
