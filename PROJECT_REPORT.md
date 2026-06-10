@@ -177,7 +177,7 @@ src/app/my-fingerprint/page.tsx      # 指纹模拟器前端页面 (~35KB) ⭐�
 
 ---
 
-## 五、最近更新记录（2026-05 ~ 2026-06-06）
+## 五、最近更新记录（2026-05 ~ 2026-06-10）
 
 ### V2 路线图实施进展（本轮会话完成）
 
@@ -189,6 +189,70 @@ src/app/my-fingerprint/page.tsx      # 指纹模拟器前端页面 (~35KB) ⭐�
 | 2026-06-06 | Phase 4b | `450b583` | **AI诊断面板**: `/admin/diagnostics`(200行) + API，4维度11项检测(账号/设备/内容/系统) |
 | 2026-06-06 | Phase 4c | `e7d4523` | **行业简报系统**: `/admin/briefings`(300行) + API(165行)，左右布局+分类筛选+AI生成+Markdown渲染 |
 | 2026-06-06 | Bugfix | `c22df66`→`af22483` | 连续修复7个TypeScript类型错误(user.name→username/duplicate message/assignedTo/title/index-type/Date算术) |
+
+### 基础架构优化（2026-06-10）
+
+| Commit | 改动内容 | 关键文件 |
+|--------|---------|---------|
+| `ab15e4d` | **FFmpeg 统一执行层**：全局串行队列 + nice -n 19 + threads 1 + 超时保护，解决 CPU 爆满导致服务器死机问题 | `src/lib/ffmpeg.ts` (重写) |
+| `ab15e4d` | **一键成片串行化**：Step5 从 Promise.all(2并行) 改为 for 循环串行；所有步骤统一走 runFFmpeg() | `src/lib/video-task-manager.ts` |
+| `ab15e4d` | **缩微图异步化**：从 execSync 阻塞主线程改为 runFFmpeg() 异步排队，不再阻塞 Web 服务 | `src/app/api/storage/files/route.ts` |
+| `4992aa4` | **FFmpeg 高优先级通道**：新增 `priority: 'high'` 选项，缩微图/ffprobe 短命令插队到队列前端执行，不被一键成片长任务阻塞 | `src/lib/ffmpeg.ts`, `storage/files/route.ts` |
+| — | **Dashboard SWC 编译修复**：dashboard/page.tsx 完整重写（函数外置、Unicode emoji、简化嵌套），解决 Linux 上反复出现的 `Unexpected token 'div'` 错误 | `src/app/dashboard/page.tsx` |
+| — | **Navbar 角色权限**：终端用户(end-user)隐藏 ai-tools 导航入口，只显示工作台 | `src/components/Navbar.tsx` |
+| — | **TypeScript 类型修复**：douyin-profile.ts 正则索引类型注解 `[RegExp, string][]` | `src/lib/automation/fp-templates/douyin-profile.ts` |
+| — | **LF 行尾规范化**：新增 `.gitattributes` 强制 LF，避免 Windows CRLF 导致 Linux SWC 编译失败 | `.gitattributes` |
+
+### FFmpeg 统一执行层说明（2026-06-10 新增）
+
+> **核心文件**: `src/lib/ffmpeg.ts`
+> **设计目标**: 解决多模块同时使用 FFmpeg 导致 4 核 CPU 爆满、服务器死机的问题
+
+#### 架构
+
+```
+所有 FFmpeg 调用 → runFFmpeg(args, opts?) → 全局串行队列(ffQueue)
+                                              ↓
+                                    同一时间只有 1 个进程运行
+                                              ↓
+                              nice -n 19（最低优先级）+ threads 1（单线程）
+```
+
+#### API
+
+```typescript
+// 核心：提交到全局串行队列
+await runFFmpeg('-i input.mp4 -c copy output.mp4', { timeout: 60000 })
+
+// 高优先级（插队到队列前端）
+await runFFmpeg('-y -i video.mp4 -vframes 1 thumb.jpg', { skipNice: true, priority: 'high' })
+
+// 快捷方法
+trimVideo(input, start, duration, output)
+concatVideos(inputs, output)
+addTextOverlay(input, text, position, output)
+resizeVideo(input, w, h, output)
+
+// 调试用
+getQueueStatus()  // 返回 { queued: number, processing: boolean }
+```
+
+#### 优先级机制
+
+| 场景 | 配置 | 行为 |
+|------|------|------|
+| 一键成片（长任务 30+ 步） | 默认 | 排队末尾，nice + threads 1 |
+| 缩微图生成（~2s） | `{priority:'high', skipNice:true}` | **插队最前面**，跳过 nice |
+| ffprobe / 视频信息探测 | `{skipNice: true}` | 走队列但跳过 nice |
+| 视频裁剪/拼接/叠加文字 | 默认 | 排队，nice + threads 1 |
+
+#### 已接入模块
+
+| 模块 | 文件 | 状态 |
+|------|------|------|
+| 一键成片 (auto-compile) | `src/lib/video-task-manager.ts` | ✅ 全部改用 runFFmpeg(), Step5 串行化 |
+| 素材仓库缩微图 | `src/app/api/storage/files/route.ts` | ✅ 高优先级 + skipNice |
+| 向后兼容快捷方法 | `src/lib/ffmpeg.ts` 底部 | ✅ trimVideo/concatVideos/addTextOverlay/resizeVideo |
 
 ### 指纹浏览器模块迭代
 
@@ -222,7 +286,8 @@ src/app/my-fingerprint/page.tsx      # 指纹模拟器前端页面 (~35KB) ⭐�
 ```bash
 # ===== 服务端执行（SSH 到 120.55.43.195）=====
 cd /root/AiMarketing
-git pull
+git checkout -- . && git clean -fd   # 清理未跟踪文件（避免合并冲突）
+git pull origin master
 rm -rf .next
 npx next build
 pm2 restart aimarketing
@@ -1545,6 +1610,7 @@ Step 6: 效果追踪
 |------|------|------|
 | V1.0 | 2026-05 ~ 2026-06-05 | 初始版本：基础功能 + 指纹浏览器 |
 | V1.5 | 2026-06-06 | Phase 3 直播模块 + Phase 4 代理赋能（直播中控台/代理工作台/AI诊断/行业简报） |
+| V1.6 | 2026-06-10 | 基础架构优化：FFmpeg 统一执行层 + 高优先级通道 + Dashboard SWC修复 + Navbar角色权限 |
 | V2.0 | 规划中 | **路线图**：V2 升级（Phase 0-5，详见下方） |
 
 ---
@@ -1587,7 +1653,7 @@ npx prisma db push  # 推送 schema 变更到 SQLite
 
 ---
 
-> **文档结束**  
-> 最后更新: 2026-06-06 (Phase 3+4 完成)  
-> 下次更新: 推进 Phase 0 / Phase 1 时  
+> **文档结束**
+> 最后更新: 2026-06-10 (V1.6 FFmpeg统一执行层 + 高优先级通道 + Dashboard SWC修复)
+> 下次更新: 推进 Phase 0 / Phase 1 时
 > 维护者: AI 助手
