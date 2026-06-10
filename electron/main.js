@@ -252,49 +252,21 @@ ipcMain.handle('adb:push', async (_event, { deviceId, localPath, remotePath }) =
 
 // 延迟加载 Playwright（避免拖慢启动）
 let _chromium = null
-let _browserChecked = false
 
-/** 获取 Playwright Chromium 实例，自动检测并安装浏览器 */
+/** 获取 Playwright Chromium 实例 */
 async function getChromium() {
   if (!_chromium) {
     const pw = await import('playwright')
-    
-    // 首次使用时检查浏览器是否已安装
-    if (!_browserChecked) {
-      _browserChecked = true
-      try {
-        const executablePath = pw.chromium.executablePath()
-        if (!executablePath || !fs.existsSync(executablePath)) {
-          console.log('[FP] ⚠️ Chromium 浏览器未检测到，正在自动安装...')
-          const { spawnSync } = require('child_process')
-          // 用 Playwright 内置 CLI 安装，不弹窗、不依赖 npx
-          const pwCli = require.resolve('playwright/cli.js').replace(/\\/g, '/')
-          const result = spawnSync(process.execPath, [pwCli, 'install', 'chromium'], {
-            stdio: 'pipe',
-            windowsHide: true,
-            timeout: 300000,
-          })
-          console.log('[FP] playwright install 输出:', result.stdout?.toString().slice(-200))
-          if (result.error || result.status !== 0) {
-            throw new Error(result.stderr?.toString() || result.error?.message || 'install failed')
-          }
-          console.log('[FP] ✅ Chromium 浏览器安装完成')
-          
-          // 重新获取路径确认
-          const newPath = pw.chromium.executablePath()
-          if (!newPath || !fs.existsSync(newPath)) {
-            throw new Error(`安装后仍找不到浏览器: ${newPath}`)
-          }
-        }
-      } catch (e) {
-        console.error('[FP] ❌ 浏览器安装失败:', e.message)
-        throw new Error(
-          `Playwright Chromium 未安装且自动安装失败: ${e.message}\n` +
-          `请手动在项目目录执行: npx playwright install chromium`
-        )
-      }
+    // 快速校验浏览器可执行文件是否存在
+    const exePath = pw.chromium.executablePath()
+    if (!exePath || !fs.existsSync(exePath)) {
+      throw new Error(
+        `Playwright Chromium 未安装！\n` +
+        `找不到浏览器: ${exePath || '(未知路径)'}\n\n` +
+        `请在项目目录执行以下命令后重新打包：\n` +
+        `  npx playwright install chromium`
+      )
     }
-    
     _chromium = pw.chromium
   }
   return _chromium

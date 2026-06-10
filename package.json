@@ -70,7 +70,7 @@
         "to": "scripts/scrcpy"
       },
       {
-        "from": "../../AppData/Local/ms-playwright",
+        "from": "C:/Users/Administrator/AppData/Local/ms-playwright",
         "to": "ms-playwright",
         "filter": [
           "**/*"
