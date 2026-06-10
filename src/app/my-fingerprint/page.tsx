@@ -384,7 +384,7 @@ export default function MyFingerprintPage() {
                         {!running ? (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleStart(acct) }}
-                            disabled={!acct.accountId || !isElectron}
+                            disabled={!acct.cdpPort || !isElectron}
                             className="px-3 py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-xs hover:bg-purple-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition"
                           >
                             启动
