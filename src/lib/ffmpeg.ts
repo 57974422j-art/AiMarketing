@@ -88,7 +88,7 @@ function processQueue() {
 
   const { cmd, opts, resolve, reject } = item
   const timeout = opts.timeout || 120000
-  const threads = opts.opts?.threads ?? 1
+  const threads = opts.threads ?? 1
   const maxBuffer = (opts.maxBufferMB ?? 50) * 1024 * 1024
 
   // 构建完整命令：nice + ffmpeg + 用户参数
