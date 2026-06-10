@@ -30,7 +30,9 @@ export default function LoginPage() {
 
       if (data.success) {
         setTimeout(() => {
-          window.location.href = '/ai-tools';
+          // 按角色分流：终端用户去工作台，管理员/编辑去仪表盘
+          const role = data.user?.role || data.role || 'end-user'
+          window.location.href = (role === 'end-user') ? '/workspace' : '/dashboard'
         }, 100);
       } else {
         setError(data.message || t.auth.loginSuccess);
