@@ -57,7 +57,7 @@ export async function PUT(request: NextRequest) {
     const targetUserId = account.userId
 
     // ── 解绑操作（deviceId='' 或 deviceId=null）──
-    if (deviceId === '' || deviceId === null || deviceId === undefined) {
+    if ((deviceId === '' || deviceId === null || deviceId === undefined) && account.bindType !== 'manual') {
       data.deviceId = null
       data.status = '未绑定'
       data.isBound = false
