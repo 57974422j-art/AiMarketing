@@ -56,20 +56,19 @@ export async function PUT(request: NextRequest) {
     const data: any = {}
     const targetUserId = account.userId
 
-    // ── 解绑操作（deviceId='' 或 deviceId=null）──
-    if ((deviceId === '' || deviceId === null || deviceId === undefined) && account.bindType !== 'manual') {
+    // ── 解绑操作（deviceId='' 表示明确解绑）──
+    if (deviceId === '') {
       data.deviceId = null
       data.status = '未绑定'
       data.isBound = false
-      // 指纹浏览器解绑：释放端口
+      // 指纹浏览器解绑：释放 CDP 端口
       if (account.bindType === 'manual' && account.cdpPort) {
         await releaseCdpPort(targetUserId, account.cdpPort)
         data.cdpPort = null
       }
     }
-    // ── 指纹浏览器自动分配端口 ──
+    // ── 指纹浏览器绑定/自动分配端口（deviceId=null 且无端口时分配）──
     else if (account.bindType === 'manual') {
-      // 如果还没分配过端口，自动分配一个
       if (!account.cdpPort) {
         try {
           const port = await allocateCdpPort(targetUserId)
@@ -79,9 +78,8 @@ export async function PUT(request: NextRequest) {
         } catch (allocErr: any) {
           return NextResponse.json({ success: false, message: allocErr.message || '端口分配失败，配额已满或端口池耗尽' }, { status: 409 })
         }
-      }
-      // 已有端口则直接标记为已绑定
-      else {
+      } else {
+        // 已有端口则直接标记为已绑定
         data.status = '已绑定'
         data.isBound = true
       }
