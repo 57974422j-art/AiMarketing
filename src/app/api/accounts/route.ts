@@ -62,18 +62,18 @@ export async function PUT(request: NextRequest) {
       data.status = '未绑定'
       data.isBound = false
       // 指纹浏览器解绑：释放端口
-      if (account.bindType === 'manual' && (account as any).cdpPort) {
-        await releaseCdpPort(targetUserId, (account as any).cdpPort)
-        ;(data as any).cdpPort = null
+      if (account.bindType === 'manual' && account.cdpPort) {
+        await releaseCdpPort(targetUserId, account.cdpPort)
+        data.cdpPort = null
       }
     }
     // ── 指纹浏览器自动分配端口 ──
     else if (account.bindType === 'manual') {
       // 如果还没分配过端口，自动分配一个
-      if (!(account as any).cdpPort) {
+      if (!account.cdpPort) {
         try {
           const port = await allocateCdpPort(targetUserId)
-          ;(data as any).cdpPort = port
+          data.cdpPort = port
           data.status = '已绑定'
           data.isBound = true
         } catch (allocErr: any) {
@@ -116,8 +116,8 @@ export async function DELETE(request: NextRequest) {
     if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
     // 删除前释放指纹端口配额
     const account = await prisma.account.findUnique({ where: { id } })
-    if (account?.bindType === 'manual' && (account as any).cdpPort) {
-      await releaseCdpPort(account.userId, (account as any).cdpPort)
+    if (account?.bindType === 'manual' && account.cdpPort) {
+      await releaseCdpPort(account.userId, account.cdpPort)
     }
     await prisma.account.delete({ where: { id } })
     return NextResponse.json({ success: true, message: '已删除' })
