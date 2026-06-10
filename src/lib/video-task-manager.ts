@@ -1,6 +1,7 @@
-import { exec, execSync } from 'child_process'
+import { execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
+import { runFFmpeg, getQueueStatus } from './ffmpeg'
 
 export interface VideoTask {
   id: string
@@ -28,14 +29,7 @@ function processQueue() {
     .catch((e) => { processing = false; next.onError(e); processQueue() })
 }
 
-function run(cmd: string, t = 120000): Promise<string> {
-  return new Promise((res, rej) => {
-    exec(cmd, { timeout: t, maxBuffer: 1024 * 1024 * 50 }, (e, o, er) => {
-      if (e) rej(new Error(er || e.message))
-      else res(o)
-    })
-  })
-}
+// 统一使用 ffmpeg.ts 的 runFFmpeg（自带 nice -n 19 + 全局串行队列 + threads 限制）
 
 function isVideoFile(file: string): boolean {
   return /\.(mp4|mov|avi|mkv|webm)$/i.test(file)
@@ -278,7 +272,7 @@ async function runTask(
     task.progress = 20
 
     // 获取 TTS 实际音频时长（关键：用于字幕时间戳和 auto duration）
-    const origDurOut = await run(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${ap}"`, 10000)
+    const origDurOut = await runFFmpeg(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${ap}"`, { timeout: 10000, skipNice: true })
     const audioDur = parseFloat(origDurOut.trim()) || 0
     console.log(`[合成] TTS完成 task=${task.id} 音频时长=${audioDur.toFixed(2)}s`)
 
@@ -297,16 +291,16 @@ async function runTask(
     const adjAudio = path.join(wd, 'ta.mp3')
     try {
       if (audioDur > totalDur) {
-        await run(`ffmpeg -y -i "${ap}" -t ${totalDur} -c copy "${adjAudio}"`, 30000)
+        await runFFmpeg(`-y -i "${ap}" -t ${totalDur} -c copy "${adjAudio}"`, { timeout: 30000 })
       } else if (audioDur > 0 && audioDur < totalDur) {
         const padFile = path.join(wd, 'silence.mp3')
-        await run(`ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t ${(totalDur - audioDur).toFixed(1)} "${padFile}"`, 10000)
-        await run(`ffmpeg -y -i "${ap}" -i "${padFile}" -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" -ac 1 "${adjAudio}"`, 30000)
+        await runFFmpeg(`-y -f lavfi -i anullsrc=r=24000:cl=mono -t ${(totalDur - audioDur).toFixed(1)} "${padFile}"`, { timeout: 10000 })
+        await runFFmpeg(`-y -i "${ap}" -i "${padFile}" -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" -ac 1 "${adjAudio}"`, { timeout: 30000 })
       } else {
-        await run(`cp "${ap}" "${adjAudio}"`, 5000)
+        fs.copyFileSync(ap, adjAudio)
       }
     } catch {
-      await run(`cp "${ap}" "${adjAudio}"`, 5000)
+      fs.copyFileSync(ap, adjAudio)
     }
 
     // ═══════════════════════════════════════
@@ -332,10 +326,9 @@ async function runTask(
     // ═══════════════════════════════════════
     // Step 5: 编码视频片段
     // ═══════════════════════════════════════
-    for (let b = 0; b < mp.length; b += 2) {
-      await Promise.all(mp.slice(b, b + 2).map(async (src, bi) => {
-        const idx = b + bi
-        const out = path.join(wd, `c${idx}.mp4`)
+    for (let i = 0; i < mp.length; i++) {
+      const src = mp[i]
+      const out = path.join(wd, `c${i}.mp4`)
         const isVideo = isVideoFile(src)
         const segT = segDuration.toFixed(2)
 
@@ -346,14 +339,14 @@ async function runTask(
           if (srcSize && srcSize.w >= W && srcSize.h >= H) vf = `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`
           if (cf) vf = vf + ',' + cf
           const loop = srcDur < segDuration ? '-stream_loop -1 ' : ''
-          await run(`nice -n 19 ffmpeg -y ${loop}-i "${src}" -vf "${vf}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, 180000)
+          await runFFmpeg(`-y ${loop}-i "${src}" -vf "${vf}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p`, { timeout: 180000 })
         } else {
           let vf = sf
           if (cf) vf = vf + ',' + cf
-          await run(`nice -n 19 ffmpeg -y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p -threads 2 "${out}"`, 60000)
+          await runFFmpeg(`-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p`, { timeout: 60000 })
         }
       }))
-      task.progress = 35 + Math.round((b + 2) / mp.length * 30)
+      task.progress = 35 + Math.round((i + 1) / mp.length * 30)
     }
 
     // ═══════════════════════════════════════
@@ -362,7 +355,7 @@ async function runTask(
     const ct = path.join(wd, 'c.txt')
     fs.writeFileSync(ct, mp.map((_, i) => `file '${wd}/c${i}.mp4'`).join('\n'))
     const mv = path.join(wd, 'm.mp4')
-    await run(`ffmpeg -y -f concat -safe 0 -i "${ct}" -c copy "${mv}"`, 120000)
+    await runFFmpeg(`-y -f concat -safe 0 -i "${ct}" -c copy "${mv}"`, { timeout: 120000 })
 
     // ═══════════════════════════════════════
     // Step 7: BGM 混音（循环不足时自动拼接）
@@ -372,17 +365,17 @@ async function runTask(
       const bgpNorm = path.join(wd, 'b_norm.mp3')
       const bgpLoop = path.join(wd, 'b_loop.mp3')
       try {
-        await run(`ffmpeg -y -i "${bgp}" -ac 2 -ar 44100 -b:a 128k "${bgpNorm}"`, 30000)
+        await runFFmpeg(`-y -i "${bgp}" -ac 2 -ar 44100 -b:a 128k "${bgpNorm}"`, { timeout: 30000 })
         let bgmSrc = bgpNorm
         try {
-          const durOut = await run(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${bgpNorm}"`, 10000)
+          const durOut = await runFFmpeg(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${bgpNorm}"`, { timeout: 10000, skipNice: true })
           if ((parseFloat(durOut.trim()) || 0) < totalDur) {
-            await run(`ffmpeg -y -stream_loop -1 -i "${bgpNorm}" -t ${totalDur} -c copy "${bgpLoop}"`, 30000)
+            await runFFmpeg(`-y -stream_loop -1 -i "${bgpNorm}" -t ${totalDur} -c copy "${bgpLoop}"`, { timeout: 30000 })
             bgmSrc = bgpLoop
           }
         } catch {}
         const mx = path.join(wd, 'x.mp3')
-        await run(`ffmpeg -y -i "${adjAudio}" -i "${bgmSrc}" -filter_complex "[0:a]volume=1[a1];[1:a]volume=0.25[a2];[a1][a2]amix=inputs=2:duration=first" -ac 2 "${mx}"`, 30000)
+        await runFFmpeg(`-y -i "${adjAudio}" -i "${bgmSrc}" -filter_complex "[0:a]volume=1[a1];[1:a]volume=0.25[a2];[a1][a2]amix=inputs=2:duration=first" -ac 2 "${mx}"`, { timeout: 30000 })
         ai = mx
       } catch (e) {
         console.log(`[合成] BGM跳过 task=${task.id}`)
@@ -410,7 +403,7 @@ async function runTask(
     const op = path.join('/root/AiMarketing/public/generated', `${task.id}.mp4`)
     const vfArg = finalVf ? `-vf "${finalVf}"` : ''
     console.log(`[合成] 最终渲染 task=${task.id} 时长=${totalDur}s 字幕模式=${subtitleMode}`)
-    await run(`ffmpeg -y -i "${mv}" -i "${ai}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} -threads 2 "${op}"`, 300000)
+    await runFFmpeg(`-y -i "${mv}" -i "${ai}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur}`, { timeout: 300000 })
 
     // 完成
     task.progress = 100

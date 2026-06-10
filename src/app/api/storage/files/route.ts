@@ -1,36 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { putObject, listObjects } from '@/lib/oss'
-import { execSync } from 'child_process'
+import { runFFmpeg } from '@/lib/ffmpeg'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import fs from 'fs'
 
 const MAX_QUOTA = 500 * 1024 * 1024 // 500MB
 
-/** FFmpeg 路径 */
-function getFFmpeg(): string {
-  const paths = ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', 'ffmpeg']
-  for (const p of paths) {
-    try { execSync(`"${p}" -version`, { stdio: 'ignore', timeout: 3000 }); return p }
-    catch {}
-  }
-  return 'ffmpeg'
-}
-
-/** 用 FFmpeg 从视频 buffer 中截取第一帧作为缩略图 */
+/** 用 FFmpeg 从视频 buffer 中截取第一帧作为缩略图 — 走全局队列 + nice */
 async function generateThumbnail(videoBuffer: Buffer): Promise<Buffer | null> {
   try {
-    const ffmpeg = getFFmpeg()
     const tmpIn = join(tmpdir(), `thumb_${Date.now()}_in.mp4`)
     const tmpOut = join(tmpdir(), `thumb_${Date.now()}_out.jpg`)
-    require('fs').writeFileSync(tmpIn, videoBuffer)
-    execSync(
-      `"${ffmpeg}" -y -i "${tmpIn}" -ss 00:00:00.5 -vframes 1 -q:v 2 "${tmpOut}"`,
-      { stdio: 'ignore', timeout: 15000 }
-    )
-    const thumb = require('fs').readFileSync(tmpOut)
-    require('fs').unlinkSync(tmpIn)
-    require('fs').unlinkSync(tmpOut)
+    fs.writeFileSync(tmpIn, videoBuffer)
+    await runFFmpeg(`-y -i "${tmpIn}" -ss 00:00:00.5 -vframes 1 -q:v 2 "${tmpOut}"`, { timeout: 15000 })
+    const thumb = fs.readFileSync(tmpOut)
+    fs.unlinkSync(tmpIn)
+    fs.unlinkSync(tmpOut)
     return thumb
   } catch (e) {
     console.error('[thumbnail] FFmpeg生成失败:', e instanceof Error ? e.message : e)
