@@ -417,3 +417,215 @@ async function runTask(
     console.error(`[合成] ❌ 失败 task=${task.id}`, e.message.slice(0, 300))
   }
 }
+
+
+// ═══════════════════════════════════════
+// 智能成片模式（Smart Compile）
+// 在普通成片基础上增加：转场/KenBurns/透明贴纸/动态字幕
+// ═══════════════════════════════════════
+
+import {
+  SmartCompileOptions,
+  CostEstimate,
+  encodeClipsWithEffects,
+  mergeWithTransition,
+  finalRenderWithEffects,
+  estimateCost,
+} from './smart-compile-engine'
+
+export interface SmartTaskResult {
+  taskId: string
+  cost?: CostEstimate
+}
+
+/**
+ * 启动智能成片任务（与 startTask 并行，互不干扰）
+ */
+export function startSmartTask(
+  taskId: string,
+  workDir: string,
+  mediaPaths: string[],
+  text: string,
+  voice: string,
+  ratio: string,
+  resolution: string,
+  subtitleSize: number,
+  bgmPath: string,
+  duration: number,
+  showSubs: boolean,
+  stickerText: string = '',
+  stickerPos: string = 'tl',
+  titleText: string = '',
+  colorFilter: string = '',
+  subtitleMode: SubtitleMode = 'tts-sync',
+  smartOptions: SmartCompileOptions
+): VideoTask {
+  const task: VideoTask = { id: taskId, status: 'queued', progress: 0 }
+  tasks.set(taskId, task)
+
+  // 费用预估算
+  const cost = estimateCost(smartOptions, duration || 30, subtitleMode)
+  console.log(`[智能成片] 预估费用: ${cost.estimatedCNY.toFixed(4)}元 token=${cost.tokens}`)
+
+  const runFn = () => runSmartTask(
+    task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize,
+    bgmPath, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode,
+    smartOptions, cost
+  )
+  const onDone = () => {}
+  const onError = (e: any) => { task.status = 'failed'; task.error = e.message }
+  taskQueue.push({ fn: runFn, onDone, onError })
+  processQueue()
+  return task
+}
+
+/**
+ * 获取费用估算（前端预览用）
+ */
+export function getCostEstimate(
+  durationSeconds: number,
+  subtitleMode: string,
+  smartOptions: SmartCompileOptions
+): CostEstimate {
+  return estimateCost(smartOptions, durationSeconds, subtitleMode)
+}
+
+/**
+ * 智能成片核心执行函数
+ * 流程与普通成片类似，但在 Step 5/6/8 使用增强版渲染引擎
+ */
+async function runSmartTask(
+  task: VideoTask,
+  wd: string,
+  mp: string[],
+  text: string,
+  voice: string,
+  ratio: string,
+  res: string,
+  fs2: number,
+  bgp: string,
+  dur: number,
+  showSubs: boolean,
+  stickerText: string,
+  stickerPos: string,
+  titleText: string,
+  colorFilter: string,
+  subtitleMode: SubtitleMode,
+  smartOptions: SmartCompileOptions,
+  costEstimate: CostEstimate
+): Promise<void> {
+  try {
+    task.status = 'processing'
+    const isAutoDur = dur === 0
+    console.log(`[智能成片] 开始 task=${task.id} 素材=${mp.length} 转场=${smartOptions.transition} KenBurns=${smartOptions.kenBurns} 字幕样式=${smartOptions.subtitleStyle}`)
+
+    const dim = { '16:9': { w: 1920, h: 1080 }, '9:16': { w: 1080, h: 1920 }, '1:1': { w: 1080, h: 1080 }, '4:3': { w: 1440, h: 1080 } }[ratio] || { w: 1920, h: 1080 }
+    const sc = res === '720p' ? 0.5 : 1
+    const W = Math.round(dim.w * sc), H = Math.round(dim.h * sc)
+
+    task.progress = 5
+
+    // ── Step 1: TTS 语音合成 ──
+    const r = await fetch('http://localhost:3000/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voice }),
+    })
+    const d = await r.json()
+    if (!d.audioUrl) throw new Error('TTS失败')
+    const ap = path.join(wd, 't.mp3')
+    fs.copyFileSync('/root/AiMarketing/public/tts/' + path.basename(d.audioUrl), ap)
+    task.progress = 15
+
+    const origDurOut = await runFFmpeg(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${ap}"`, { timeout: 10000, skipNice: true })
+    const audioDur = parseFloat(origDurOut.trim()) || 0
+    const totalDur = isAutoDur ? Math.max(audioDur + 1.5, dur || 30) : (dur || 30)
+    const segDuration = totalDur / mp.length
+
+    // ── Step 2~3: 音频处理 ──
+    const adjAudio = path.join(wd, 'ta.mp3')
+    try {
+      if (audioDur > totalDur) {
+        await runFFmpeg(`-y -i "${ap}" -t ${totalDur} -c copy "${adjAudio}"`, { timeout: 30000 })
+      } else if (audioDur > 0 && audioDur < totalDur) {
+        const padFile = path.join(wd, 'silence.mp3')
+        await runFFmpeg(`-y -f lavfi -i anullsrc=r=24000:cl=mono -t ${(totalDur - audioDur).toFixed(1)} "${padFile}"`, { timeout: 10000 })
+        await runFFmpeg(`-y -i "${ap}" -i "${padFile}" -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" -ac 1 "${adjAudio}"`, { timeout: 30000 })
+      } else {
+        fs.copyFileSync(ap, adjAudio)
+      }
+    } catch { fs.copyFileSync(ap, adjAudio) }
+
+    // ── Step 4: 字幕生成（复用原有逻辑）──
+    let sp = ''
+    const ln = text.split('\n').filter(Boolean)
+    if (showSubs && ln.length > 0) {
+      switch (subtitleMode) {
+        case 'tts-sync': sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd); break
+        case 'funasr': sp = await generateFunASRSubtitles(ap, ln, totalDur, ratio, wd); break
+        default: sp = generateLegacySubtitles(ln, totalDur, ratio, wd); break
+      }
+    }
+    task.progress = 25
+
+    // ══════════════════════════════════
+    // Step 5 增强：带 Ken Burns 效果的片段编码
+    // ══════════════════════════════════
+    const clipFiles = await encodeClipsWithEffects(mp, wd, segDuration, W, H, sc, colorFilter, smartOptions, (pct) => {
+      task.progress = 25 + Math.round(pct)
+    })
+
+    // ══════════════════════════════════
+    // Step 6 增强：带转场的合并
+    // ══════════════════════════════════
+    const mergedVideo = await mergeWithTransition(clipFiles, wd, totalDur, smartOptions)
+    task.progress = 65
+
+    // ── Step 7: BGM 混音（完全同普通模式）──
+    let ai = adjAudio
+    if (bgp && fs.existsSync(bgp) && fs.statSync(bgp).size > 1000) {
+      const bgpNorm = path.join(wd, 'b_norm.mp3')
+      const bgpLoop = path.join(wd, 'b_loop.mp3')
+      try {
+        await runFFmpeg(`-y -i "${bgp}" -ac 2 -ar 44100 -b:a 128k "${bgpNorm}"`, { timeout: 30000 })
+        let bgmSrc = bgpNorm
+        try {
+          const dOut = await runFFmpeg(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${bgpNorm}"`, { timeout: 10000, skipNice: true })
+          if ((parseFloat(dOut.trim()) || 0) < totalDur) {
+            await runFFmpeg(`-y -stream_loop -1 -i "${bgpNorm}" -t ${totalDur} -c copy "${bgpLoop}"`, { timeout: 30000 })
+            bgmSrc = bgpLoop
+          }
+        } catch {}
+        const mx = path.join(wd, 'x.mp3')
+        await runFFmpeg(`-y -i "${adjAudio}" -i "${bgmSrc}" -filter_complex "[0:a]volume=1[a1];[1:a]volume=0.25[a2];[a1][a2]amix=inputs=2:duration=first" -ac 2 "${mx}"`, { timeout: 30000 })
+        ai = mx
+      } catch { ai = adjAudio }
+    }
+
+    task.progress = 80
+
+    // ══════════════════════════════════
+    // Step 8 增强：最终渲染（ASS + overlay）
+    // ══════════════════════════════════
+    const op = path.join('/root/AiMarketing/public/generated', `${task.id}.mp4`)
+    await finalRenderWithEffects(mergedVideo, ai, op, wd, {
+      W, H,
+      showSubs, srtPath: sp, subtitleSize: fs2, subtitleStyle: smartOptions.subtitleStyle,
+      stickerText, stickerPos, stickerOn: !!stickerText,
+      titleText, titleOn: !!titleText, colorFilter,
+      totalDuration: totalDur, smartOptions,
+    })
+
+    // 完成
+    task.progress = 100
+    console.log(`[智能成片] ✅ 完成 task=${task.id} 时长=${totalDur}s 转场=${smartOptions.transition} KenBurns=${smartOptions.kenBurns}`)
+    task.status = 'completed'
+    task.videoUrl = `/api/video/get?id=${task.id}.mp4`
+
+    fs.rmSync(wd, { recursive: true, force: true })
+  } catch (e: any) {
+    task.status = 'failed'
+    task.error = e.message
+    console.error(`[智能成片] ❌ 失败 task=${task.id}`, e.message.slice(0, 300))
+  }
+}

@@ -3,7 +3,8 @@ import { execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
-import { startTask, getTask } from '@/lib/video-task-manager'
+import { startTask, getTask, startSmartTask, getCostEstimate } from '@/lib/video-task-manager'
+import { SmartCompileOptions, DEFAULT_SMART_OPTIONS } from '@/lib/smart-compile-engine'
 
 export const dynamic = 'force-dynamic'
 const OUT = '/root/AiMarketing/public/generated'
@@ -100,17 +101,71 @@ export async function POST(req: NextRequest) {
       execSync(`curl -s -L -o "${bgp}" "${bgmUrl}"`, { timeout: 15000 })
     }
 
-    // 启动异步任务
-    startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode as any)
+    // 启动异步任务（根据 smartMode 选择普通或智能引擎）
+    const smartModeRaw = (f.get('smartMode') as string) || 'false'
+    const smartMode = smartModeRaw === 'true'
+
+    if (smartMode) {
+      // ── 智能成片模式 ──
+      const transition = (f.get('transition') as string) || DEFAULT_SMART_OPTIONS.transition
+      const kenBurns = (f.get('kenBurns') as string) || DEFAULT_SMART_OPTIONS.kenBurns
+      const subtitleStyle = (f.get('subtitleStyle') as string) || DEFAULT_SMART_OPTIONS.subtitleStyle
+
+      // 透明贴纸：保存上传的文件到工作目录
+      let stickers: any[] = []
+      try { stickers = JSON.parse((f.get('stickers') as string) || '[]') } catch {}
+      const stickerUploads = f.getAll('stickerUploads') as File[]
+      for (let si = 0; si < Math.min(stickerUploads.length, stickers.length); si++) {
+        const ext = (stickerUploads[si].name.split('.').pop() || 'png').toLowerCase()
+        const sp = path.join(wd, `sticker${si}.${ext}`)
+        fs.writeFileSync(sp, Buffer.from(await stickerUploads[si].arrayBuffer()))
+        // 更新 src 为实际文件路径
+        if (stickers[si]) stickers[si].src = sp
+      }
+
+      const smartOptions: SmartCompileOptions = {
+        enabled: true,
+        transition: transition as any,
+        transitionDuration: parseFloat((f.get('transitionDur') as string) || '0.8'),
+        kenBurns: kenBurns as any,
+        subtitleStyle: subtitleStyle as any,
+        stickers,
+      }
+
+      startSmartTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode as any, smartOptions)
+    } else {
+      // ── 普通成片模式（原有逻辑不变）──
+      startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode as any)
+    }
+
     return NextResponse.json({ success: true, data: { taskId } })
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message })
   }
 }
 
-// GET: 查询任务状态
+// GET: 查询任务状态 / 费用估算
 export async function GET(req: NextRequest) {
   const taskId = req.nextUrl.searchParams.get('taskId')
+
+  // 费算估算接口（不创建任务）
+  if (req.nextUrl.searchParams.get('action') === 'cost') {
+    const duration = parseInt((req.nextUrl.searchParams.get('duration') as string) || '30') || 30
+    const subtitleMode = (req.nextUrl.searchParams.get('subtitleMode') as string) || 'tts-sync'
+    const transition = (req.nextUrl.searchParams.get('transition') as string) || 'fade'
+    const kenBurns = (req.nextUrl.searchParams.get('kenBurns') as string) || 'zoomin'
+
+    const { DEFAULT_SMART_OPTIONS } = await import('@/lib/smart-compile-engine')
+    const cost = getCostEstimate(duration, subtitleMode, {
+      ...DEFAULT_SMART_OPTIONS,
+      enabled: true,
+      transition: transition as any,
+      kenBurns: kenBurns as any,
+    })
+    return NextResponse.json({ success: true, data: cost })
+  }
+
+  // 任务状态查询
   if (!taskId) return NextResponse.json({ success: false, message: '缺少taskId' }, { status: 400 })
   const task = getTask(taskId)
   if (!task) return NextResponse.json({ success: false, message: '任务不存在' }, { status: 404 })

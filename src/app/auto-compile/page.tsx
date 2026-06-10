@@ -41,6 +41,16 @@ export default function AutoCompilePage() {
   const [storageList, setStorageList] = useState<any[]>([])
   const [storageLoading, setStorageLoading] = useState(false)
 
+  // ── 智能成片模式（Smart Compile）──
+  const [smartMode, setSmartMode] = useState(false)
+  const [transition, setTransition] = useState('fade')
+  const [transitionDur, setTransitionDur] = useState(0.8)
+  const [kenBurns, setKenBurns] = useState('zoomin')
+  const [subtitleStyle, setSubtitleStyle] = useState('highlight')
+  const [stickerFiles, setStickerFiles] = useState<File[]>([])
+  const [stickerPosList, setStickerPosList] = useState<string[]>(['br'])
+  const [costEstimate, setCostEstimate] = useState<any>(null)
+
   useEffect(() => {
     fetch('/api/music-library').then(r=>r.json()).then(d => {
       if (d.success) setMusicList(d.data)
@@ -124,6 +134,32 @@ export default function AutoCompilePage() {
     } catch { showToast("保存失败", "error") }
   }
 
+  // ── 智能成片费用估算 ──
+  const fetchCostEstimate = useCallback(async () => {
+    if (!smartMode) { setCostEstimate(null); return }
+    try {
+      const r = await fetch(`/api/video/auto-compile?action=cost&duration=${duration}&subtitleMode=${subtitleMode}&transition=${transition}&kenBurns=${kenBurns}`)
+      const d = await r.json()
+      if (d.success) setCostEstimate(d.data)
+    } catch {}
+  }, [smartMode, duration, subtitleMode, transition, kenBurns])
+
+  useEffect(() => { if (smartMode) fetchCostEstimate() }, [fetchCostEstimate])
+
+  const stickerFileRef = useRef<HTMLInputElement>(null)
+
+  const handleStickerFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (stickerFiles.length + files.length > 8) { showToast('最多8个贴纸', 'error'); return }
+    setStickerFiles(prev => [...prev, ...files].slice(0, 8))
+    setStickerPosList(prev => [...prev, ...Array(files.length).fill('br')].slice(0, 8))
+  }
+
+  const removeSticker = (i: number) => {
+    setStickerFiles(prev => prev.filter((_, idx) => idx !== i))
+    setStickerPosList(prev => prev.filter((_, idx) => idx !== i))
+  }
+
   const handleSubmit = async () => {
     if (!text.trim()) { showToast('请输入文案', 'error'); return }
     if (mode === 'free' && images.length === 0) { showToast('请上传素材', 'error'); return }
@@ -143,6 +179,22 @@ export default function AutoCompilePage() {
       if (stickerOn) { fd.append('stickerText', stickerText); fd.append('stickerPos', stickerPos) }
       if (titleOn) fd.append('titleText', titleText)
       fd.append('colorFilter', colorFilter)
+      // 智能成片参数
+      fd.append('smartMode', String(smartMode))
+      if (smartMode) {
+        fd.append('transition', transition)
+        fd.append('transitionDur', String(transitionDur))
+        fd.append('kenBurns', kenBurns)
+        fd.append('subtitleStyle', subtitleStyle)
+        // 透明贴纸
+        if (stickerFiles.length > 0) {
+          stickerFiles.forEach(sf => fd.append('stickerUploads', sf))
+          fd.append('stickers', JSON.stringify(stickerFiles.map((_, i) => ({
+            src: `sticker${i}.png`,
+            position: stickerPosList[i] || 'br',
+          }))))
+        }
+      }
       if (bgmFile) fd.append('bgm', bgmFile)
       else if (bgm?.url) fd.append('bgmUrl', bgm.url)
       if (mode === 'free') images.forEach(img => fd.append('media', img))
@@ -187,6 +239,14 @@ export default function AutoCompilePage() {
           <button onClick={() => setMode('free')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='free'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>🆓 免费模式</button>
           <button onClick={() => setMode('smart')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='smart'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>🤖 智能模式</button>
           <button onClick={() => {setMode('storage'); openStorageDlg()}} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='storage'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>📦 仓库素材</button>
+
+          {/* 智能成片开关 */}
+          <div className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
+            <span className="text-[10px] text-purple-300">✨ 智能增强</span>
+            <button onClick={()=>{setSmartMode(!smartMode); if(!smartMode) fetchCostEstimate()}} className={`relative w-9 h-5 rounded-full transition-colors ${smartMode?'bg-purple-500':'bg-white/15'}`}>
+              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${smartMode?'left-[18px]':'left-0.5'}`} />
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -231,6 +291,102 @@ export default function AutoCompilePage() {
               <label className="text-xs text-gray-400 mb-2 block">色调滤镜</label>
               <div className="flex gap-2">{["原色","暖色","冷色","黑白"].map((l,i)=><button key={i} onClick={()=>setColorFilter(colorFilter===["","warm","cool","bw"][i]?"":["","warm","cool","bw"][i])} className={`px-3 py-1.5 text-[10px] rounded-lg ${colorFilter===["","warm","cool","bw"][i]?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-400 border border-white/10"}`}>{l}</button>)}</div>
             </div>
+
+            {/* ═══ 智能成片增强选项 ═══ */}
+            {smartMode && (
+              <div className="card-glass p-4 space-y-4 border-purple-500/30">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-purple-300 font-medium flex items-center gap-1">
+                    ⚡ 智能增强效果
+                    {costEstimate && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/20">
+                        ~{costEstimate.estimatedCNY.toFixed(4)}元 / token:{costEstimate.tokens}
+                      </span>
+                    )}
+                  </label>
+                </div>
+
+                {/* 转场特效 */}
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-1 block">转场特效</label>
+                  <div className="flex gap-1 flex-wrap">
+                    {[
+                      {v:'none', l:'无'}, {v:'fade', l:'淡入淡出'}, {v:'slideleft', l:'左滑'}, {v:'slideright', l:'右滑'},
+                      {v:'slideup', l:'上滑'}, {v:'slidedown', l:'下滑'},
+                      {v:'wipeleft', l:'擦除←'}, {v:'wiperight', l:'→擦除'},
+                      {v:'circleopen', l:'○展开'}, {v:'circleclose', l:'●收缩'}, {v:'dissolve', l:'溶解'},
+                    ].map(t => (
+                      <button key={t.v} onClick={() => setTransition(t.v)}
+                        className={`px-2 py-1 text-[10px] rounded transition ${transition === t.v ? 'bg-purple-500/25 text-purple-300 border border-purple-500/40' : 'bg-white/5 text-gray-500 border border-white/5 hover:bg-white/10'}`}>
+                        {t.l}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <label className="text-[9px] text-gray-600">转场时长:</label>
+                    <input type="range" min="0.3" max="2" step="0.1" value={transitionDur} onChange={e=>setTransitionDur(parseFloat(e.target.value))} className="w-24 accent-purple-500" />
+                    <span className="text-[10px] text-purple-400">{transitionDur.toFixed(1)}s</span>
+                  </div>
+                </div>
+
+                {/* Ken Burns 效果（图片动画）*/}
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-1 block">图片动态效果 (Ken Burns)</label>
+                  <div className="flex gap-1 flex-wrap">
+                    {[
+                      {v:'none', l:'静态'}, {v:'zoomin', l:'🔍+ 放大'}, {v:'zoomout', l:'🔍- 缩小'},
+                      {v:'panleft', l:'⬅ 左移'}, {v:'panright', l:'➡ 右移'}, {v:'panup', l:'⬆ 上移'},
+                      {v:'pandown', l:'⬇ 下移'}, {v:'random', l:'🎲 随机'},
+                    ].map(k => (
+                      <button key={k.v} onClick={() => setKenBurns(k.v)}
+                        className={`px-2 py-1 text-[10px] rounded transition ${kenBurns === k.v ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40' : 'bg-white/5 text-gray-500 border border-white/5 hover:bg-white/10'}`}>
+                        {k.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 动态字幕样式 */}
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-1 block">字幕动效</label>
+                  <div className="flex gap-1">
+                    {[
+                      {v:'normal', l:'普通(SRT)'}, {v:'highlight', l:'✨ 高亮'}, {v:'karaoke', l:'🎤 卡拉OK'}, {v:'typewriter', l:'⌨ 打字机'},
+                    ].map(s => (
+                      <button key={s.v} onClick={() => setSubtitleStyle(s.v)}
+                        className={`px-2 py-1 text-[10px] rounded transition ${subtitleStyle === s.v ? 'bg-orange-500/25 text-orange-300 border border-orange-500/40' : 'bg-white/5 text-gray-500 border border-white/5 hover:bg-white/10'}`}>
+                        {s.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 透明贴纸上传 */}
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-1 block">透明贴纸 (PNG/GIF, 支持8个)</label>
+                  <input ref={(el: HTMLInputElement | null) => { /* store ref */ }} type="file" accept="image/png,image/gif" multiple className="hidden" onChange={handleStickerFiles} />
+                  <button onClick={() => (document.querySelector('input[type="file"][accept*="png"]') as HTMLElement)?.click()} className="w-full py-1.5 border border-dashed border-purple-500/30 rounded-lg text-purple-400/70 text-xs hover:border-purple-500/50 hover:text-purple-400 transition">
+                    + 上传透明贴纸
+                  </button>
+                  {stickerFiles.length > 0 && (
+                    <div className="flex gap-1.5 mt-2 flex-wrap">
+                      {stickerFiles.map((f, i) => (
+                        <div key={i} className="relative group">
+                          <img src={URL.createObjectURL(f)} className="w-12 h-12 object-contain rounded bg-black/20 border border-white/10" />
+                          <select value={stickerPosList[i]} onChange={e => {
+                            const nl = [...stickerPosList]; nl[i] = e.target.value; setStickerPosList(nl)
+                          }} className="absolute bottom-0 left-0 w-full h-5 text-[8px] bg-black/60 text-white border-0 rounded-b opacity-0 group-hover:opacity-100 transition cursor-pointer">
+                            <option value="tl">左上</option><option value="tr">右上</option>
+                            <option value="bl">左下</option><option value="br">右下</option><option value="center">居中</option>
+                          </select>
+                          <button onClick={() => removeSticker(i)} className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full text-[8px]">&times;</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {mode === 'free' && (
               <div className="card-glass p-4">
