@@ -90,6 +90,11 @@ export default function AutoCompilePage() {
     })
   }
 
+// 浏览器兼容的UUID生成
+const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+  ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16) })
+
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<Record<number, Array<{url:string;thumb:string;title:string}>>>({})
   const [selectedImages, setSelectedImages] = useState<Record<number, {url:string;title:string}>>({})
@@ -130,7 +135,7 @@ export default function AutoCompilePage() {
       return [
         ...base,
         ...Object.values(selectedImages).map(v => ({
-          id: crypto.randomUUID(), url: v.url, thumb: v.url, title: v.title || '',
+          id: genId(), url: v.url, thumb: v.url, title: v.title || '',
           source: 'search' as const
         }))
       ]
@@ -159,7 +164,7 @@ export default function AutoCompilePage() {
     if (files.length === 0) return
     if (materialList.length + files.length > 20) { showToast('素材最多20个', 'error'); return }
     const newItems: MaterialItem[] = files.map(f => ({
-      id: crypto.randomUUID(),
+      id: genId(),
       url: URL.createObjectURL(f),
       thumb: URL.createObjectURL(f),
       title: f.name,
@@ -173,7 +178,7 @@ export default function AutoCompilePage() {
   const addStorageToMaterials = (files: Array<{name:string; isVideo:boolean; thumbUrl?:string}>) => {
     if (materialList.length + files.length > 20) { showToast('素材最多20个', 'error'); return }
     const newItems: MaterialItem[] = files.map(f => ({
-      id: crypto.randomUUID(),
+      id: genId(),
       url: `/api/storage/serve?file=${encodeURIComponent(f.name)}`,
       thumb: f.thumbUrl || '/api/storage/serve?file=' + encodeURIComponent(f.name),
       title: f.name,
