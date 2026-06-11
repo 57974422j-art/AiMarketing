@@ -338,7 +338,7 @@ export default function AutoCompilePage() {
                           finally { setGenLoading(false) }
                         }}
                         disabled={genLoading || !genInput.trim() || genInput.trim().length < 5}
-                        className="text[10px] px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                        className="text-[10px] px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
                       >
                         {genLoading ? '⏳ AI生成中...' : '🎬 生成+配图词'}
                       </button>
