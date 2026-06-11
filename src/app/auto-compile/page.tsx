@@ -362,9 +362,6 @@ export default function AutoCompilePage() {
                             if (d.success) {
                               setText(d.data.script)
                               setAiKeywords(d.data.lines.map((l: any) => l.keyword))
-                              // 自动填入搜索框：优先用AI返回的第一个关键词，否则用首行文案
-                              const firstKeyword = d.data.lines[0]?.keyword || d.data.script.split('\n').filter(Boolean)[0] || ''
-                              setSearchQuery(firstKeyword)
                               const dir = d.data.director
                               if (dir?.title?.text) { setTitleText(dir.title.text); setTitleOn(true) }
                               if (dir?.sticker?.text) { setStickerText(dir.sticker.text); setStickerOn(true); if (dir.sticker.position) setStickerPos(dir.sticker.position) }
