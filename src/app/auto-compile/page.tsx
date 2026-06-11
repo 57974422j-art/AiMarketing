@@ -424,6 +424,7 @@ export default function AutoCompilePage() {
                       )}
                     </div>
                   )}
+                </div>
 
                 {/* 转场特效 */}
                 <div>
