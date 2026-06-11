@@ -35,6 +35,7 @@ export default function AutoCompilePage() {
   const [genInput, setGenInput] = useState('')
   const [genLoading, setGenLoading] = useState(false)
   const [aiKeywords, setAiKeywords] = useState<string[]>([]) // AI返回的每行搜图关键词
+  const [searchQuery, setSearchQuery] = useState('') // 搜图区独立搜索关键词
 
   // 新增：字幕时间戳模式 + 手动编辑 + 仓库选择
   const [subtitleMode, setSubtitleMode] = useState<'tts-sync' | 'manual'>('tts-sync')
@@ -109,12 +110,27 @@ export default function AutoCompilePage() {
   const removeFile = (i: number) => setImages(prev => prev.filter((_, idx) => idx !== i))
 
   const handleAutoSearch = useCallback(async () => {
+    // 独立搜索模式：用 searchQuery
+    if (searchQuery.trim()) {
+      setSearching(true); setSearchResults({}); setSelectedImages({})
+      try {
+        const r = await fetch('/api/search-images?q=' + encodeURIComponent(searchQuery.trim()) + '&count=6')
+        const d = await r.json()
+        console.log(`[搜图] 独立搜索 "${searchQuery.trim()}":`, d.success ? `${d.data.length}张` : '失败', d)
+        if (d.success && d.data.length > 0) {
+          setSearchResults({ '0': d.data })
+          setSelectedImages({ '0': { url: d.data[0].url, title: d.data[0].title } })
+        }
+      } catch (e) { console.error('[搜图] 独立搜索异常:', e) }
+      setSearching(false); setProgress(0)
+      return
+    }
+    // 按文案行搜索模式
     const lines = text.split('\n').filter(Boolean)
-    if (lines.length === 0) { showToast('请先输入文案', 'error'); return }
+    if (lines.length === 0) { showToast('请先输入文案或搜索关键词', 'error'); return }
     setSearching(true); setSearchResults({}); setSelectedImages({})
     let successCount = 0
     for (let i = 0; i < lines.length; i++) {
-      // 优先使用AI生成的关键词，降级用文案本身
       const query = (aiKeywords[i] || lines[i]).slice(0, 50)
       console.log(`[搜图] 第${i+1}行 搜索关键词: "${query}"`)
       try {
@@ -222,14 +238,12 @@ export default function AutoCompilePage() {
       if (stickerOn) { fd.append('stickerText', stickerText); fd.append('stickerPos', stickerPos) }
       if (titleOn) fd.append('titleText', titleText)
       fd.append('colorFilter', colorFilter)
-      // 智能成片参数
       fd.append('smartMode', String(smartMode))
       if (smartMode) {
         fd.append('transition', transition)
         fd.append('transitionDur', String(transitionDur))
         fd.append('kenBurns', kenBurns)
         fd.append('subtitleStyle', subtitleStyle)
-        // 透明贴纸
         if (stickerFiles.length > 0) {
           stickerFiles.forEach(sf => fd.append('stickerUploads', sf))
           fd.append('stickers', JSON.stringify(stickerFiles.map((_, i) => ({
@@ -293,6 +307,7 @@ export default function AutoCompilePage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* ═══ 左侧栏：设置面板 ═══ */}
           <div className="space-y-4">
             <div className="card-glass p-4">
               <div className="flex items-center justify-between mb-2">
@@ -330,22 +345,15 @@ export default function AutoCompilePage() {
                             })
                             const d = await r.json()
                             if (d.success) {
-                              // 1. 填充文案 + 搜图关键词
                               setText(d.data.script)
                               setAiKeywords(d.data.lines.map((l: any) => l.keyword))
-                              // 2. 导演建议自动填充
                               const dir = d.data.director
                               if (dir?.title?.text) { setTitleText(dir.title.text); setTitleOn(true) }
                               if (dir?.sticker?.text) { setStickerText(dir.sticker.text); setStickerOn(true); if (dir.sticker.position) setStickerPos(dir.sticker.position) }
                               if (dir?.filter) setColorFilter(dir.filter)
                               if (dir?.voiceRecommend) setVoice(dir.voiceRecommend)
-                              // 3. 费用数据
-                              if (d.data.cost) {
-                                setCostEstimate(prev => ({ ...prev, aiCost: d.data.cost }))
-                              }
-                              // 4. 自动触发搜图
+                              if (d.data.cost) setCostEstimate(prev => ({ ...prev, aiCost: d.data.cost }))
                               setTimeout(() => handleAutoSearch(), 300)
-                              //
                               setGenOpen(false); setGenInput('')
                               showToast(`✅ 已生成 ${d.data.lines.length} 条文案+导演方案${d.data.cost ? ' | 费用¥'+d.data.cost.estimatedCNY.toFixed(4) : ''}`, 'success')
                             } else {
@@ -563,8 +571,6 @@ export default function AutoCompilePage() {
 
             <div className="card-glass p-4">
               <label className="text-xs text-gray-400 mb-2 block">背景音乐（可选）</label>
-
-              {/* 免费BGM预设 */}
               <div className="space-y-1.5 mb-3">
                 <p className="text-[9px] text-gray-600">🆓 免费配乐（点击选择，不可用会提示）</p>
                 <div className="grid grid-cols-1 gap-1">
@@ -575,13 +581,11 @@ export default function AutoCompilePage() {
                     { name: '电影感 - Cinematic', url: 'https://cdn.pixabay.com/download/audio/2022/08/02/audio_884fe92c6b.mp3?filename=cinematic-epic-emotional-inspirational.mp3' },
                   ].map(item => (
                     <div key={item.url} className="flex items-center gap-1.5">
-                      {/* 试听按钮 */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
                           if (bgmPlaying === item.url) { setBgmPlaying(null); return }
                           setBgmPlaying(item.url)
-                          // 播放3秒预览后自动停止
                           setTimeout(() => setBgmPlaying(null), 5000)
                         }}
                         className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-white/10 text-gray-400 hover:text-white hover:bg-white/20 transition text-[10px]"
@@ -589,16 +593,13 @@ export default function AutoCompilePage() {
                       >
                         {bgmPlaying === item.url ? '■' : '▶'}
                       </button>
-                      {/* 音频标签（隐藏，仅用于播放） */}
                       {bgmPlaying === item.url && (
                         <audio autoPlay src={item.url} onEnded={() => setBgmPlaying(null)} onError={() => setBgmPlaying(null)} />
                       )}
                       <button
                         key={item.url}
                         onClick={() => {
-                          if (bgm?.url === item.url && !bgm?.custom) {
-                            setBgm(null); return
-                          }
+                          if (bgm?.url === item.url && !bgm?.custom) { setBgm(null); return }
                           setBgm({ name: item.name, url: item.url }); setBgmFile(null)
                           showToast('已选择：' + item.name, 'success')
                         }}
@@ -618,7 +619,6 @@ export default function AutoCompilePage() {
                 <p className="text-[8px] text-gray-600">⚠️ 来源 Pixabay 免版税音乐 | 如加载失败请上传本地音乐</p>
               </div>
 
-              {/* 上传自定义 */}
               <input ref={bgmRef} type="file" accept="audio/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setBgmFile(f); setBgm({name: f.name, url: '', custom: true}) }}} />
               <button onClick={() => bgmRef.current?.click()} className="w-full py-2 border border-dashed border-white/20 text-gray-400 rounded-xl hover:border-emerald-500/50 hover:text-emerald-400 text-xs transition">{bgm?.custom ? '🎵 ' + bgm.name : '+ 上传本地音乐'}</button>
               {bgm && <button onClick={() => { setBgm(null); setBgmFile(null) }} className="text-[10px] text-red-400 mt-1 block">移除当前音乐</button>}
@@ -628,12 +628,20 @@ export default function AutoCompilePage() {
             {processing && <div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{width:progress+'%'}}/></div>}
           </div>
 
+          {/* ═══ 右侧栏：sticky 容器（搜图 + 预览） ═══ */}
           <div className="card-glass p-4 h-fit sticky top-4 space-y-4">
             {/* ── 智能模式：搜图选图 ── */}
             {mode === 'smart' && (
               <div>
                 <label className="text-xs text-gray-400 mb-2 block">自动搜图 {Object.keys(selectedImages).length > 0 && <span className="text-emerald-400 ml-2">✅ {Object.keys(selectedImages).length} 张</span>}</label>
-                <button onClick={handleAutoSearch} disabled={searching||!text.trim()} className="w-full py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:bg-blue-500/30 text-xs transition disabled:opacity-50">{searching ? `搜索中 ${progress}%` : '🔍 自动搜索配图'}</button>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="输入关键词搜索配图（如：日落、美食、运动）..."
+                  className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder-gray-600 focus:border-blue-500/50 outline-none mb-2"
+                />
+                <button onClick={handleAutoSearch} disabled={searching} className="w-full py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:bg-blue-500/30 text-xs transition disabled:opacity-50">{searching ? `搜索中 ${progress}%` : '🔍 自动搜索配图'}</button>
                 <div className="max-h-[50vh] overflow-y-auto pr-1 mt-2 space-y-3">
                   {Object.entries(searchResults).map(([idx, imgs]) => (
                     <div key={idx}>
@@ -643,28 +651,30 @@ export default function AutoCompilePage() {
                   ))}
                 </div>
                 {Object.keys(searchResults).length === 0 && !searching && (
-                  <p className="text-[10px] text-gray-600 mt-2 text-center py-4">输入文案后点击搜索配图</p>
+                  <p className="text-[10px] text-gray-600 mt-2 text-center py-4">输入关键词或文案后点击搜索配图</p>
                 )}
               </div>
             )}
 
+            {/* ── 视频预览区 ── */}
             <div>
               <label className="text-xs text-gray-400 mb-2 block">预览</label>
-            {videoUrl ? (
-              <div>
-                <video src={videoUrl} controls className="w-full rounded-xl" />
-                <div className="flex gap-2 mt-3">
-                  <a href={videoUrl} download className="flex-1 block text-center py-2 bg-white/5 text-gray-400 border border-white/10 rounded-lg hover:bg-white/10 text-xs">⬇ 下载</a>
-                  <button onClick={()=>saveToStorage(videoUrl)} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 text-xs">📦 保存到仓库</button>
-                  {user?.role !== 'end-user' && <button onClick={()=>{fetch('/api/clients').then(r=>r.json()).then(d=>{if(d.success){setClients(d.data);setShowPushDlg(true)}}).catch(()=>showToast('获取客户列表失败','error'))}} className="flex-1 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 text-xs">📤 推送到账号</button>}
+              {videoUrl ? (
+                <div>
+                  <video src={videoUrl} controls className="w-full rounded-xl" />
+                  <div className="flex gap-2 mt-3">
+                    <a href={videoUrl} download className="flex-1 block text-center py-2 bg-white/5 text-gray-400 border border-white/10 rounded-lg hover:bg-white/10 text-xs">⬇ 下载</a>
+                    <button onClick={()=>saveToStorage(videoUrl)} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 text-xs">📦 保存到仓库</button>
+                    {user?.role !== 'end-user' && <button onClick={()=>{fetch('/api/clients').then(r=>r.json()).then(d=>{if(d.success){setClients(d.data);setShowPushDlg(true)}}).catch(()=>showToast('获取客户列表失败','error'))}} className="flex-1 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 text-xs">📤 推送到账号</button>}
+                  </div>
                 </div>
-              </div>
-            ) : <div className="aspect-video bg-white/5 rounded-xl flex items-center justify-center text-gray-600 text-xs">{processing?'⏳ 合成中...':'预览区'}</div>}
+              ) : <div className="aspect-video bg-white/5 rounded-xl flex items-center justify-center text-gray-600 text-xs">{processing?'⏳ 合成中...':'预览区'}</div>}
             </div>
+          </div>
 
-          {/* ── 手动字幕时间戳编辑器（视频预览下方）── */}
+          {/* ═══ 手动字幕编辑器（独立区域，跨两列放在网格底部，不在sticky内） ═══ */}
           {showSubEditor && subtitleMode === 'manual' && (
-            <div className="card-glass p-4 mt-4">
+            <div className="card-glass p-4 mt-4 col-span-1 lg:col-span-2">
               <div className="flex items-center justify-between mb-3">
                 <label className="text-xs text-gray-400">✏️ 字幕时间戳编辑 <span className="text-purple-400 ml-1">({editSubtitles.length} 条)</span></label>
                 <div className="flex gap-2">
@@ -797,6 +807,5 @@ export default function AutoCompilePage() {
         </div>
       </div>}
     </div>
-  </div>
   )
 }
