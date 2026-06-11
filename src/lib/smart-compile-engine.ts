@@ -396,7 +396,7 @@ function convertToASS(srtPath: string, workDir: string, style: SubtitleStyle, fo
 Title: Smart Compile Subtitles
 ScriptType: v4.00+
 PlayResX: 1920
-PlayResY: 1080
+PlayResY: 1080:
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
@@ -441,7 +441,7 @@ function getASSStyle(style: SubtitleStyle, fontSize: number): string {
     case 'karaoke':
       return `Default,Arial,${fontSize * 1.5},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,2,20,20,30,1`
     case 'typewriter':
-      return `Default,Courier New,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,2,20,20,30,1`
+      return `Default,Courier New,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,25,1`
     case 'highlight':
       return `Default,Arial,${fontSize * 1.2},&H00FFFFFF,&H00FFFF00,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2.5,3,2,15,15,35,1`
     default:
@@ -496,19 +496,36 @@ function getOverlayPosition(position: string, customX: number | undefined, custo
 
 function getDuration(file: string): number {
   try {
-    const { execSync } = require('child_process')
-    const out = execSync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${file}"`, { timeout: 10000, encoding: 'utf8' })
+    const { execFileSync } = require('child_process')
+    const out = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', file], { timeout: 10000, encoding: 'utf8' })
     return parseFloat(out.trim()) || 0
-  } catch { return 0 }
+  } catch {
+    // fallback：用 json 格式解析（兼容极旧版本 ffprobe）
+    try {
+      const { execFileSync } = require('child_process')
+      const out = execFileSync('ffprobe', ['-v', 'error', '-show_format', '-of', 'json', file], { timeout: 10000, encoding: 'utf8' })
+      const j = JSON.parse(out)
+      return parseFloat(j.format?.duration) || 0
+    } catch { return 0 }
+  }
 }
 
 function getVideoSize(file: string): { w: number; h: number } | null {
   try {
-    const { execSync } = require('child_process')
-    const out = execSync(`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${file}"`, { timeout: 10000, encoding: 'utf8' })
+    const { execFileSync } = require('child_process')
+    const out = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p:0', file], { timeout: 10000, encoding: 'utf8' })
     const [w, h] = out.trim().split('x').map(Number)
     if (w && h) return { w, h }
-  } catch {}
+  } catch {
+    // fallback：用 json 格式解析（兼容极旧版本 ffprobe）
+    try {
+      const { execFileSync } = require('child_process')
+      const out = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json', file], { timeout: 10000, encoding: 'utf8' })
+      const j = JSON.parse(out)
+      const s = (j.streams || []).find((s: any) => s.codec_type === 'video')
+      if (s?.width && s?.height) return { w: s.width, h: s.height }
+    } catch {}
+  }
   return null
 }
 

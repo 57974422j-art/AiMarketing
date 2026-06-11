@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execSync, execFileSync, execFile } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { runFFmpeg, getQueueStatus } from './ffmpeg'
@@ -37,18 +37,58 @@ function isVideoFile(file: string): boolean {
 
 function getDuration(file: string): number {
   try {
-    const out = execSync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${file}"`, { timeout: 10000, encoding: 'utf8' })
+    // 方案1：execFileSync 数组传参，避免 shell 拆解参数
+    const out = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', file], { timeout: 10000, encoding: 'utf8' })
     return parseFloat(out.trim()) || 0
-  } catch { return 0 }
+  } catch {
+    // 方案2：fallback 用 json 格式解析
+    try {
+      const out = execFileSync('ffprobe', ['-v', 'error', '-show_format', '-of', 'json', file], { timeout: 10000, encoding: 'utf8' })
+      const j = JSON.parse(out)
+      return parseFloat(j.format?.duration) || 0
+    } catch { return 0 }
+  }
 }
 
 function getVideoSize(file: string): { w: number; h: number } | null {
   try {
-    const out = execSync(`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p:0 "${file}"`, { timeout: 10000, encoding: 'utf8' })
+    const out = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p:0', file], { timeout: 10000, encoding: 'utf8' })
     const [w, h] = out.trim().split('x').map(Number)
     if (w && h) return { w, h }
-  } catch {}
+  } catch {
+    try {
+      const out = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json', file], { timeout: 10000, encoding: 'utf8' })
+      const j = JSON.parse(out)
+      const s = (j.streams || []).find((s: any) => s.codec_type === 'video')
+      if (s?.width && s?.height) return { w: s.width, h: s.height }
+    } catch {}
+  }
   return null
+}
+
+/** 异步获取媒体时长（用于 async 函数内，不阻塞事件循环） */
+async function getDurationAsync(file: string): Promise<number> {
+  try {
+    const out = await new Promise<string>((resolve, reject) => {
+      execFile('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', file], { timeout: 10000 }, (err, stdout) => {
+        if (err) reject(err)
+        else resolve(stdout)
+      })
+    })
+    return parseFloat(out.trim()) || 0
+  } catch {
+    // fallback: json 格式
+    try {
+      const out = await new Promise<string>((resolve, reject) => {
+        execFile('ffprobe', ['-v', 'error', '-show_format', '-of', 'json', file], { timeout: 10000 }, (err, stdout) => {
+          if (err) reject(err)
+          else resolve(stdout)
+        })
+      })
+      const j = JSON.parse(out)
+      return parseFloat(j.format?.duration) || 0
+    } catch { return 0 }
+  }
 }
 
 function posXY(pos: string, W: number, H: number, fontSize: number): string {
@@ -222,8 +262,7 @@ async function runTask(
     task.progress = 20
 
     // 获取 TTS 实际音频时长（关键：用于字幕时间戳和 auto duration）
-    const origDurOut = await runFFmpeg(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${ap}"`, { timeout: 10000, skipNice: true })
-    const audioDur = parseFloat(origDurOut.trim()) || 0
+    const audioDur = await getDurationAsync(ap)
     console.log(`[合成] TTS完成 task=${task.id} 音频时长=${audioDur.toFixed(2)}s`)
 
     // ═══════════════════════════════════════
@@ -318,8 +357,8 @@ async function runTask(
         await runFFmpeg(`-y -i "${bgp}" -ac 2 -ar 44100 -b:a 128k "${bgpNorm}"`, { timeout: 30000 })
         let bgmSrc = bgpNorm
         try {
-          const durOut = await runFFmpeg(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${bgpNorm}"`, { timeout: 10000, skipNice: true })
-          if ((parseFloat(durOut.trim()) || 0) < totalDur) {
+          const bgmDur = await getDurationAsync(bgpNorm)
+          if (bgmDur < totalDur) {
             await runFFmpeg(`-y -stream_loop -1 -i "${bgpNorm}" -t ${totalDur} -c copy "${bgpLoop}"`, { timeout: 30000 })
             bgmSrc = bgpLoop
           }
@@ -490,8 +529,7 @@ async function runSmartTask(
     fs.copyFileSync('/root/AiMarketing/public/tts/' + path.basename(d.audioUrl), ap)
     task.progress = 15
 
-    const origDurOut = await runFFmpeg(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${ap}"`, { timeout: 10000, skipNice: true })
-    const audioDur = parseFloat(origDurOut.trim()) || 0
+    const audioDur = await getDurationAsync(ap)
     const totalDur = isAutoDur ? Math.max(audioDur + 1.5, dur || 30) : (dur || 30)
     const segDuration = totalDur / mp.length
 
@@ -546,8 +584,8 @@ async function runSmartTask(
         await runFFmpeg(`-y -i "${bgp}" -ac 2 -ar 44100 -b:a 128k "${bgpNorm}"`, { timeout: 30000 })
         let bgmSrc = bgpNorm
         try {
-          const dOut = await runFFmpeg(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${bgpNorm}"`, { timeout: 10000, skipNice: true })
-          if ((parseFloat(dOut.trim()) || 0) < totalDur) {
+          const bgmDur2 = await getDurationAsync(bgpNorm)
+          if (bgmDur2 < totalDur) {
             await runFFmpeg(`-y -stream_loop -1 -i "${bgpNorm}" -t ${totalDur} -c copy "${bgpLoop}"`, { timeout: 30000 })
             bgmSrc = bgpLoop
           }

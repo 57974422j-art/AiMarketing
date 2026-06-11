@@ -112,21 +112,31 @@ export default function AutoCompilePage() {
     const lines = text.split('\n').filter(Boolean)
     if (lines.length === 0) { showToast('请先输入文案', 'error'); return }
     setSearching(true); setSearchResults({}); setSelectedImages({})
+    let successCount = 0
     for (let i = 0; i < lines.length; i++) {
       // 优先使用AI生成的关键词，降级用文案本身
       const query = (aiKeywords[i] || lines[i]).slice(0, 50)
+      console.log(`[搜图] 第${i+1}行 搜索关键词: "${query}"`)
       try {
         const r = await fetch('/api/search-images?q=' + encodeURIComponent(query) + '&count=6')
         const d = await r.json()
+        console.log(`[搜图] 第${i+1}行 结果:`, d.success ? `${d.data.length}张` : '失败', d)
         if (d.success && d.data.length > 0) {
           setSearchResults(prev => ({ ...prev, [i]: d.data }))
           setSelectedImages(prev => ({ ...prev, [i]: { url: d.data[0].url, title: d.data[0].title } }))
+          successCount++
         }
         setProgress(Math.round(((i + 1) / lines.length) * 100))
-      } catch {}
+      } catch (e) {
+        console.error(`[搜图] 第${i+1}行 异常:`, e)
+      }
     }
     setSearching(false); setProgress(0)
-    showToast('✅ 素材搜索完成', 'success')
+    if (successCount > 0) {
+      showToast(`✅ 搜到 ${successCount}/${lines.length} 行配图`, 'success')
+    } else {
+      showToast('⚠️ 未搜到图片，请更换文案后重试', 'error')
+    }
   }, [text, aiKeywords])
 
   const saveToStorage = async (url: string) => {
@@ -518,19 +528,6 @@ export default function AutoCompilePage() {
               </div>
             )}
 
-            {mode === 'smart' && (
-              <div className="card-glass p-4">
-                <label className="text-xs text-gray-400 mb-2 block">自动搜图 {Object.keys(selectedImages).length > 0 && <span className="text-emerald-400 ml-2">✅ {Object.keys(selectedImages).length} 张</span>}</label>
-                <button onClick={handleAutoSearch} disabled={searching||!text.trim()} className="w-full py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:bg-blue-500/30 text-xs transition disabled:opacity-50">{searching ? `搜索中 ${progress}%` : '🔍 自动搜索配图'}</button>
-                {Object.entries(searchResults).map(([idx, imgs]) => (
-                  <div key={idx} className="mt-3">
-                    <p className="text-[10px] text-gray-500 mb-1">{Number(idx)+1}. {text.split('\n').filter(Boolean)[Number(idx)]?.slice(0,15)}</p>
-                    <div className="flex flex-wrap gap-1">{imgs.map((img,j) => (<div key={j} className="cursor-pointer" onClick={()=>setSelectedImages(p=>({...p,[Number(idx)]:{url:img.url,title:img.title}}))}><img src={img.thumb||img.url} className={`w-14 h-14 object-cover rounded-lg border-2 ${selectedImages[Number(idx)]?.url===img.url?'border-emerald-400':'border-transparent'}`} /></div>))}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
             {mode === 'storage' && (
               <div className="card-glass p-4">
                 <label className="text-xs text-gray-400 mb-2 block">
@@ -631,8 +628,28 @@ export default function AutoCompilePage() {
             {processing && <div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{width:progress+'%'}}/></div>}
           </div>
 
-          <div className="card-glass p-4 h-fit sticky top-4">
-            <label className="text-xs text-gray-400 mb-2 block">预览</label>
+          <div className="card-glass p-4 h-fit sticky top-4 space-y-4">
+            {/* ── 智能模式：搜图选图 ── */}
+            {mode === 'smart' && (
+              <div>
+                <label className="text-xs text-gray-400 mb-2 block">自动搜图 {Object.keys(selectedImages).length > 0 && <span className="text-emerald-400 ml-2">✅ {Object.keys(selectedImages).length} 张</span>}</label>
+                <button onClick={handleAutoSearch} disabled={searching||!text.trim()} className="w-full py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:bg-blue-500/30 text-xs transition disabled:opacity-50">{searching ? `搜索中 ${progress}%` : '🔍 自动搜索配图'}</button>
+                <div className="max-h-[50vh] overflow-y-auto pr-1 mt-2 space-y-3">
+                  {Object.entries(searchResults).map(([idx, imgs]) => (
+                    <div key={idx}>
+                      <p className="text-[10px] text-gray-500 mb-1 truncate" title={text.split('\n').filter(Boolean)[Number(idx)]}>{Number(idx)+1}. {text.split('\n').filter(Boolean)[Number(idx)]?.slice(0,20)}...</p>
+                      <div className="flex flex-wrap gap-1">{imgs.map((img,j) => (<div key={j} className="cursor-pointer" onClick={()=>setSelectedImages(p=>({...p,[Number(idx)]:{url:img.url,title:img.title}}))}><img src={img.thumb||img.url} className={`w-16 h-16 object-cover rounded-lg border-2 ${selectedImages[Number(idx)]?.url===img.url?'border-emerald-400':'border-transparent hover:border-white/30'}`} /></div>))}</div>
+                    </div>
+                  ))}
+                </div>
+                {Object.keys(searchResults).length === 0 && !searching && (
+                  <p className="text-[10px] text-gray-600 mt-2 text-center py-4">输入文案后点击搜索配图</p>
+                )}
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs text-gray-400 mb-2 block">预览</label>
             {videoUrl ? (
               <div>
                 <video src={videoUrl} controls className="w-full rounded-xl" />
@@ -643,6 +660,7 @@ export default function AutoCompilePage() {
                 </div>
               </div>
             ) : <div className="aspect-video bg-white/5 rounded-xl flex items-center justify-center text-gray-600 text-xs">{processing?'⏳ 合成中...':'预览区'}</div>}
+            </div>
 
           {/* ── 手动字幕时间戳编辑器（视频预览下方）── */}
           {showSubEditor && subtitleMode === 'manual' && (
