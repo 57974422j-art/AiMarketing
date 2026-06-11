@@ -27,6 +27,7 @@ export default function AutoCompilePage() {
   const [bgm, setBgm] = useState<{name:string;url:string;custom?:boolean} | null>(null)
   const [bgmFile, setBgmFile] = useState<File | null>(null)
   const [musicList, setMusicList] = useState<Array<{name:string;url:string;duration:string;mood:string}>>([])
+  const [bgmPlaying, setBgmPlaying] = useState<string | null>(null) // 当前试听的BGM url
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [videoUrl, setVideoUrl] = useState('')
@@ -287,14 +288,7 @@ export default function AutoCompilePage() {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs text-gray-400">文案</label>
                 {mode === 'smart' && (
-                  <>
-                    <button onClick={() => setGenOpen(!genOpen)} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">✨ AI 生成</button>
-                    {aiKeywords.length > 0 && text && (
-                      <button onClick={handleAutoSearch} disabled={searching || !text.trim()} className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30 transition disabled:opacity-50">
-                        {searching ? `🔍 搜图中...` : `🔍 一键搜图(${aiKeywords.length})`}
-                      </button>
-                    )}
-                  </>
+                  <button onClick={() => setGenOpen(!genOpen)} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">✨ AI 导演</button>
                 )}
                 {mode === 'free' && <span className="text-[9px] text-gray-600">手动输入，每行对应一个素材</span>}
                 {mode === 'storage' && <span className="text-[9px] text-gray-600">手动输入，每行对应一个素材</span>}
@@ -326,11 +320,24 @@ export default function AutoCompilePage() {
                             })
                             const d = await r.json()
                             if (d.success) {
+                              // 1. 填充文案 + 搜图关键词
                               setText(d.data.script)
                               setAiKeywords(d.data.lines.map((l: any) => l.keyword))
-                              setGenOpen(false)
-                              setGenInput('')
-                              showToast(`✅ 已生成 ${d.data.lines.length} 条文案 + 搜图关键词`, 'success')
+                              // 2. 导演建议自动填充
+                              const dir = d.data.director
+                              if (dir?.title?.text) { setTitleText(dir.title.text); setTitleOn(true) }
+                              if (dir?.sticker?.text) { setStickerText(dir.sticker.text); setStickerOn(true); if (dir.sticker.position) setStickerPos(dir.sticker.position) }
+                              if (dir?.filter) setColorFilter(dir.filter)
+                              if (dir?.voiceRecommend) setVoice(dir.voiceRecommend)
+                              // 3. 费用数据
+                              if (d.data.cost) {
+                                setCostEstimate(prev => ({ ...prev, aiCost: d.data.cost }))
+                              }
+                              // 4. 自动触发搜图
+                              setTimeout(() => handleAutoSearch(), 300)
+                              //
+                              setGenOpen(false); setGenInput('')
+                              showToast(`✅ 已生成 ${d.data.lines.length} 条文案+导演方案${d.data.cost ? ' | 费用¥'+d.data.cost.estimatedCNY.toFixed(4) : ''}`, 'success')
                             } else {
                               showToast(d.error || '生成失败', 'error')
                             }
@@ -340,7 +347,7 @@ export default function AutoCompilePage() {
                         disabled={genLoading || !genInput.trim() || genInput.trim().length < 5}
                         className="text-[10px] px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
                       >
-                        {genLoading ? '⏳ AI生成中...' : '🎬 生成+配图词'}
+                        {genLoading ? '⏳ AI导演中...' : '🎬 AI一键生成'}
                       </button>
                     </div>
                   </div>
@@ -397,13 +404,26 @@ export default function AutoCompilePage() {
                 <div className="flex items-center justify-between">
                   <label className="text-xs text-purple-300 font-medium flex items-center gap-1">
                     ⚡ 智能增强效果
-                    {costEstimate && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/20">
-                        ~{costEstimate.estimatedCNY.toFixed(4)}元 / token:{costEstimate.tokens}
-                      </span>
-                    )}
                   </label>
-                </div>
+                  {costEstimate && (
+                    <div className="flex items-center gap-2 text-[9px]">
+                      {costEstimate.aiCost && (
+                        <span className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20">
+                          AI导演: ¥{costEstimate.aiCost.estimatedCNY.toFixed(4)} ({costEstimate.aiCost.tokens}t)
+                        </span>
+                      )}
+                      {costEstimate.estimatedCNY !== undefined && !costEstimate.aiCost && (
+                        <span className="px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/20">
+                          增强: ~¥{costEstimate.estimatedCNY.toFixed(4)}
+                        </span>
+                      )}
+                      {costEstimate.aiCost && costEstimate.estimatedCNY !== undefined && (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-bold">
+                          总计: ¥{(costEstimate.aiCost.estimatedCNY + (costEstimate.estimatedCNY || 0)).toFixed(4)}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                 {/* 转场特效 */}
                 <div>
@@ -556,27 +576,45 @@ export default function AutoCompilePage() {
                     { name: '电子节奏 - Electronic', url: 'https://cdn.pixabay.com/download/audio/2022/02/22/audio_d171c86b8d.mp3?filename=electronic-future-beats.mp3' },
                     { name: '电影感 - Cinematic', url: 'https://cdn.pixabay.com/download/audio/2022/08/02/audio_884fe92c6b.mp3?filename=cinematic-epic-emotional-inspirational.mp3' },
                   ].map(item => (
-                    <button
-                      key={item.url}
-                      onClick={() => {
-                        if (bgm?.url === item.url && !bgm?.custom) {
-                          setBgm(null)
-                          return
-                        }
-                        setBgm({ name: item.name, url: item.url })
-                        setBgmFile(null)
-                        showToast('已选择：' + item.name, 'success')
-                      }}
-                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] transition text-left ${
-                        bgm?.url === item.url && !bgm?.custom
-                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                          : 'bg-white/5 text-gray-400 hover:bg-white/10 border border-transparent'
-                      }`}
-                    >
-                      <span className="shrink-0">🎵</span>
-                      <span className="truncate flex-1">{item.name}</span>
-                      {bgm?.url === item.url && !bgm?.custom && <span className="text-purple-400 shrink-0">✓</span>}
-                    </button>
+                    <div key={item.url} className="flex items-center gap-1.5">
+                      {/* 试听按钮 */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (bgmPlaying === item.url) { setBgmPlaying(null); return }
+                          setBgmPlaying(item.url)
+                          // 播放3秒预览后自动停止
+                          setTimeout(() => setBgmPlaying(null), 5000)
+                        }}
+                        className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-white/10 text-gray-400 hover:text-white hover:bg-white/20 transition text-[10px]"
+                        title={bgmPlaying === item.url ? '停止' : '试听5秒'}
+                      >
+                        {bgmPlaying === item.url ? '■' : '▶'}
+                      </button>
+                      {/* 音频标签（隐藏，仅用于播放） */}
+                      {bgmPlaying === item.url && (
+                        <audio autoPlay src={item.url} onEnded={() => setBgmPlaying(null)} onError={() => setBgmPlaying(null)} />
+                      )}
+                      <button
+                        key={item.url}
+                        onClick={() => {
+                          if (bgm?.url === item.url && !bgm?.custom) {
+                            setBgm(null); return
+                          }
+                          setBgm({ name: item.name, url: item.url }); setBgmFile(null)
+                          showToast('已选择：' + item.name, 'success')
+                        }}
+                        className={`flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] transition text-left ${
+                          bgm?.url === item.url && !bgm?.custom
+                            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                            : 'bg-white/5 text-gray-400 hover:bg-white/10 border border-transparent'
+                        }`}
+                      >
+                        <span className="shrink-0">🎵</span>
+                        <span className="truncate flex-1">{item.name}</span>
+                        {bgm?.url === item.url && !bgm?.custom && <span className="text-purple-400 shrink-0">✓</span>}
+                      </button>
+                    </div>
                   ))}
                 </div>
                 <p className="text-[8px] text-gray-600">⚠️ 来源 Pixabay 免版税音乐 | 如加载失败请上传本地音乐</p>
