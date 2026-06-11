@@ -33,6 +33,7 @@ export default function AutoCompilePage() {
   const [genOpen, setGenOpen] = useState(false)
   const [genInput, setGenInput] = useState('')
   const [genLoading, setGenLoading] = useState(false)
+  const [aiKeywords, setAiKeywords] = useState<string[]>([]) // AI返回的每行搜图关键词
 
   // 新增：字幕时间戳模式 + 手动编辑 + 仓库选择
   const [subtitleMode, setSubtitleMode] = useState<'tts-sync' | 'manual'>('tts-sync')
@@ -111,8 +112,10 @@ export default function AutoCompilePage() {
     if (lines.length === 0) { showToast('请先输入文案', 'error'); return }
     setSearching(true); setSearchResults({}); setSelectedImages({})
     for (let i = 0; i < lines.length; i++) {
+      // 优先使用AI生成的关键词，降级用文案本身
+      const query = (aiKeywords[i] || lines[i]).slice(0, 50)
       try {
-        const r = await fetch('/api/search-images?q=' + encodeURIComponent(lines[i].slice(0, 20)) + '&count=6')
+        const r = await fetch('/api/search-images?q=' + encodeURIComponent(query) + '&count=6')
         const d = await r.json()
         if (d.success && d.data.length > 0) {
           setSearchResults(prev => ({ ...prev, [i]: d.data }))
@@ -123,7 +126,7 @@ export default function AutoCompilePage() {
     }
     setSearching(false); setProgress(0)
     showToast('✅ 素材搜索完成', 'success')
-  }, [text])
+  }, [text, aiKeywords])
 
   const saveToStorage = async (url: string) => {
     const taskId = url.split("id=")[1]
@@ -283,15 +286,26 @@ export default function AutoCompilePage() {
             <div className="card-glass p-4">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs text-gray-400">文案</label>
-                <button onClick={() => setGenOpen(!genOpen)} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">✨ AI 生成</button>
+                {mode === 'smart' && (
+                  <>
+                    <button onClick={() => setGenOpen(!genOpen)} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">✨ AI 生成</button>
+                    {aiKeywords.length > 0 && text && (
+                      <button onClick={handleAutoSearch} disabled={searching || !text.trim()} className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30 transition disabled:opacity-50">
+                        {searching ? `🔍 搜图中...` : `🔍 一键搜图(${aiKeywords.length})`}
+                      </button>
+                    )}
+                  </>
+                )}
+                {mode === 'free' && <span className="text-[9px] text-gray-600">手动输入，每行对应一个素材</span>}
+                {mode === 'storage' && <span className="text-[9px] text-gray-600">手动输入，每行对应一个素材</span>}
               </div>
 
-              {/* AI生成内嵌面板 */}
-              {genOpen && (
+              {/* AI生成内嵌面板（仅智能模式） */}
+              {genOpen && mode === 'smart' && (
                 <div className="mt-3 p-3 bg-purple-500/5 border border-purple-500/20 rounded-lg space-y-2">
                   <textarea
                     className="input-dark w-full text-sm h-20 resize-none"
-                    placeholder="输入描述文字（100-200字），AI将根据此内容生成文案..."
+                    placeholder="输入描述文字（100-200字），AI将自动生成文案+配图关键词..."
                     value={genInput}
                     onChange={e => { const v = e.target.value; if (v.length <= 200) setGenInput(v) }}
                     maxLength={200}
@@ -302,8 +316,7 @@ export default function AutoCompilePage() {
                       <button onClick={() => { setGenOpen(false); setGenInput('') }} className="text-[10px] px-2 py-1 text-gray-400 hover:text-white border border-white/10 rounded">取消</button>
                       <button
                         onClick={async () => {
-                          if (!genInput.trim() || genInput.trim().length < 10) { showToast('请输入至少10个字', 'error'); return }
-                          if (genInput.trim().length > 200) { showToast('最多200字', 'error'); return }
+                          if (!genInput.trim() || genInput.trim().length < 5) { showToast('请至少输入5个字描述', 'error'); return }
                           setGenLoading(true)
                           try {
                             const r = await fetch('/api/generate-script', {
@@ -314,26 +327,30 @@ export default function AutoCompilePage() {
                             const d = await r.json()
                             if (d.success) {
                               setText(d.data.script)
+                              setAiKeywords(d.data.lines.map((l: any) => l.keyword))
                               setGenOpen(false)
                               setGenInput('')
-                              showToast('文案已生成', 'success')
+                              showToast(`✅ 已生成 ${d.data.lines.length} 条文案 + 搜图关键词`, 'success')
                             } else {
                               showToast(d.error || '生成失败', 'error')
                             }
                           } catch { showToast('网络错误', 'error') }
                           finally { setGenLoading(false) }
                         }}
-                        disabled={genLoading || !genInput.trim() || genInput.trim().length < 10}
-                        className="text-[10px] px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                        disabled={genLoading || !genInput.trim() || genInput.trim().length < 5}
+                        className="text[10px] px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
                       >
-                        {genLoading ? '生成中...' : '生成文案'}
+                        {genLoading ? '⏳ AI生成中...' : '🎬 生成+配图词'}
                       </button>
                     </div>
                   </div>
                 </div>
               )}
-              </div>
-              <textarea className="input-dark w-full text-sm h-36 resize-none" placeholder={mode==='free'?'每行对应一个素材':'每行动态搜相关图片'} value={text} onChange={e => setText(e.target.value)} />
+              <textarea className="input-dark w-full text-sm h-36 resize-none" placeholder={
+                mode==='free' ? '每行对应一个素材（如：第一张图对应这行文案）'
+                : mode==='smart' ? '每行动态搜图 / 或用上方AI生成'
+                : '每行对应一个仓库素材'
+              } value={text} onChange={e => setText(e.target.value)} />
               <p className="text-[10px] text-gray-500 mt-1">文案约 {text.replace(/\s/g,'').length} 字，预计配音 ~{Math.round(text.replace(/\s/g,'').length * 0.3)} 秒</p>
             </div>
 
