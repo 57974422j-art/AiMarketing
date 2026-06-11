@@ -797,7 +797,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                                 // 追加已选到素材列表
                                 if (selectedCount === 0) return
                                 const toAdd = checkedImages.filter(c => !materialList.some(m => m.url === c.url))
-                                if (toAdd.length === 0) { showToast('所选图片已在素材列表中', 'info'); return }
+                                if (toAdd.length === 0) { showToast('所选图片已在素材列表中', 'success'); return }
                                 if (materialList.length + toAdd.length > 20) { showToast(`最多20个素材，当前${materialList.length}个，要加${toAdd.length}张`, 'error'); return }
                                 const newItems: MaterialItem[] = toAdd.map(v => ({
                                   id: genId(), url: v.url, thumb: v.url, title: v.title || '',
