@@ -31,11 +31,13 @@ export default function AutoCompilePage() {
   const [progress, setProgress] = useState(0)
   const [videoUrl, setVideoUrl] = useState('')
   const [genOpen, setGenOpen] = useState(false)
-  const [genIndustry, setGenIndustry] = useState('')
+  const [genInput, setGenInput] = useState('')
   const [genLoading, setGenLoading] = useState(false)
 
-  // 新增：字幕时间戳模式 + 仓库选择
-  const [subtitleMode, setSubtitleMode] = useState<'tts-sync' | 'funasr' | 'legacy'>('tts-sync')
+  // 新增：字幕时间戳模式 + 手动编辑 + 仓库选择
+  const [subtitleMode, setSubtitleMode] = useState<'tts-sync' | 'manual'>('tts-sync')
+  const [editSubtitles, setEditSubtitles] = useState<Array<{start:number; end:number; text:string}>>([])
+  const [showSubEditor, setShowSubEditor] = useState(false)
   const [storageFiles, setStorageFiles] = useState<Array<{name:string;isVideo:boolean;thumbUrl?:string}>>([])
   const [showStorageDlg, setShowStorageDlg] = useState(false)
   const [storageList, setStorageList] = useState<any[]>([])
@@ -144,6 +146,26 @@ export default function AutoCompilePage() {
     } catch {}
   }, [smartMode, duration, subtitleMode, transition, kenBurns])
 
+  // ── 从文案自动生成时间戳（用于手动编辑导入）──
+  const importFromText = useCallback(() => {
+    const lines = text.split('\n').filter((l: string) => l.trim())
+    if (lines.length === 0) return
+    const totalSec = duration || 30
+    let cursor = 0
+    const subs: Array<{start:number; end:number; text:string}> = []
+    for (const line of lines) {
+      const chars = line.trim().length || 1
+      const segLen = (totalSec / (text.replace(/\s/g,'').length || totalSec)) * chars
+      const start = Math.round(cursor * 100) / 100
+      const end = Math.round((cursor + segLen) * 100) / 100
+      subs.push({ start, end, text: line.trim() })
+      cursor += segLen
+    }
+    setEditSubtitles(subs)
+    setShowSubEditor(true)
+    showToast(`已导入 ${subs.length} 条时间戳`, 'success')
+  }, [text, duration])
+
   useEffect(() => { if (smartMode) fetchCostEstimate() }, [fetchCostEstimate])
 
   const stickerFileRef = useRef<HTMLInputElement>(null)
@@ -175,6 +197,13 @@ export default function AutoCompilePage() {
       fd.append('ratio', ratio); fd.append('resolution', resolution); fd.append('subtitleSize', String(subtitleSize))
       fd.append('showSubs', String(showSubs))
       fd.append('subtitleMode', subtitleMode)
+      if (subtitleMode === 'manual' && editSubtitles.length > 0) {
+        const srt = editSubtitles.map((sub, i) => {
+          function fmt(n: number) { const s = Math.floor(n); const ms = Math.round((n - s) * 1000); return `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')},${String(ms).padStart(3,'0')}` }
+          return `${i+1}\n${fmt(sub.start)} --> ${fmt(sub.end)}\n${sub.text}`
+        }).join('\n')
+        fd.append('customSrt', srt)
+      }
       fd.append('mode', mode)
       if (stickerOn) { fd.append('stickerText', stickerText); fd.append('stickerPos', stickerPos) }
       if (titleOn) fd.append('titleText', titleText)
@@ -254,7 +283,55 @@ export default function AutoCompilePage() {
             <div className="card-glass p-4">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs text-gray-400">文案</label>
-                <button onClick={()=>{const inp=prompt('请输入行业描述（如：餐饮、旅游）');if(!inp||!inp.trim())return;fetch('/api/generate-script',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({industry:inp.trim(),style:'',duration:duration})}).then(r=>r.json()).then(r=>{if(r.success)setText(r.data.script);else showToast(r.error||'生成失败','error')})}} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">✨ AI 生成</button>
+                <button onClick={() => setGenOpen(!genOpen)} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">✨ AI 生成</button>
+              </div>
+
+              {/* AI生成内嵌面板 */}
+              {genOpen && (
+                <div className="mt-3 p-3 bg-purple-500/5 border border-purple-500/20 rounded-lg space-y-2">
+                  <textarea
+                    className="input-dark w-full text-sm h-20 resize-none"
+                    placeholder="输入描述文字（100-200字），AI将根据此内容生成文案..."
+                    value={genInput}
+                    onChange={e => { const v = e.target.value; if (v.length <= 200) setGenInput(v) }}
+                    maxLength={200}
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] text-gray-500">{genInput.length}/200 字</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => { setGenOpen(false); setGenInput('') }} className="text-[10px] px-2 py-1 text-gray-400 hover:text-white border border-white/10 rounded">取消</button>
+                      <button
+                        onClick={async () => {
+                          if (!genInput.trim() || genInput.trim().length < 10) { showToast('请输入至少10个字', 'error'); return }
+                          if (genInput.trim().length > 200) { showToast('最多200字', 'error'); return }
+                          setGenLoading(true)
+                          try {
+                            const r = await fetch('/api/generate-script', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ description: genInput.trim(), duration })
+                            })
+                            const d = await r.json()
+                            if (d.success) {
+                              setText(d.data.script)
+                              setGenOpen(false)
+                              setGenInput('')
+                              showToast('文案已生成', 'success')
+                            } else {
+                              showToast(d.error || '生成失败', 'error')
+                            }
+                          } catch { showToast('网络错误', 'error') }
+                          finally { setGenLoading(false) }
+                        }}
+                        disabled={genLoading || !genInput.trim() || genInput.trim().length < 10}
+                        className="text-[10px] px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                      >
+                        {genLoading ? '生成中...' : '生成文案'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
               </div>
               <textarea className="input-dark w-full text-sm h-36 resize-none" placeholder={mode==='free'?'每行对应一个素材':'每行动态搜相关图片'} value={text} onChange={e => setText(e.target.value)} />
               <p className="text-[10px] text-gray-500 mt-1">文案约 {text.replace(/\s/g,'').length} 字，预计配音 ~{Math.round(text.replace(/\s/g,'').length * 0.3)} 秒</p>
@@ -276,7 +353,12 @@ export default function AutoCompilePage() {
               <div><label className="text-[10px] text-gray-400 mb-1 block">字幕大小</label><select className="input-dark w-full text-xs" value={subtitleSize} onChange={e=>setSubtitleSize(Number(e.target.value))}><option value={28}>小</option><option value={36}>中</option><option value={44}>大</option></select></div>
               <div><label className="text-[10px] text-gray-400 mb-1 block">字幕</label><button onClick={()=>setShowSubs(!showSubs)} className={`w-full py-2 text-xs rounded-lg ${showSubs?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-400 border border-white/10"}`}>{showSubs?"ON":"OFF"}</button></div>
               <div><label className="text-[10px] text-gray-400 mb-1 block">视频时长</label><select className="input-dark w-full text-xs" value={duration} onChange={e=>setDuration(Number(e.target.value))}><option value={0}>📝 文案结束(自动)</option><option value={15}>15秒</option><option value={30}>30秒</option><option value={45}>45秒</option><option value={60}>60秒</option></select></div>
-              <div><label className="text-[10px] text-gray-400 mb-1 block">字幕时间戳</label><select className="input-dark w-full text-xs" value={subtitleMode} onChange={e=>setSubtitleMode(e.target.value as any)}><option value="tts-sync">🎯 TTS同步(推荐)</option><option value="funasr">🎤 FunASR精确</option><option value="legacy">⏱️ 传统均分</option></select></div>
+              <div><label className="text-[10px] text-gray-400 mb-1 block">字幕时间戳</label>
+                <div className="flex gap-1">
+                  <button onClick={() => { setSubtitleMode('tts-sync'); setEditSubtitles([]) }} className={`flex-1 py-2 text-xs rounded-lg ${subtitleMode==='tts-sync'?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-400 border border-white/10"}`}>🎯 自动(TTS)</button>
+                  <button onClick={() => { if(text.trim()){ setSubtitleMode('manual'); importFromText() }else{ showToast('请先输入文案','error') } }} className={`flex-1 py-2 text-xs rounded-lg ${subtitleMode==='manual'?"bg-purple-500/20 text-purple-400 border border-purple-500/30":"bg-white/5 text-gray-400 border border-white/10"}`}>✏️ 手动</button>
+                </div>
+              </div>
             </div>
 
             <div className="card-glass p-4">
@@ -446,9 +528,47 @@ export default function AutoCompilePage() {
 
             <div className="card-glass p-4">
               <label className="text-xs text-gray-400 mb-2 block">背景音乐（可选）</label>
+
+              {/* 免费BGM预设 */}
+              <div className="space-y-1.5 mb-3">
+                <p className="text-[9px] text-gray-600">🆓 免费配乐（点击选择，不可用会提示）</p>
+                <div className="grid grid-cols-1 gap-1">
+                  {[
+                    { name: '轻松愉快 - Uplifting', url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=uplifting-upbeat Corporate-Inspiration.mp3' },
+                    { name: '温馨柔和 - Soft', url: 'https://cdn.pixabay.com/download/audio/2022/10/25/audio_946bc7ebc8.mp3?filename=acoustic-guitar-soft-instrumental-background-music.mp3' },
+                    { name: '电子节奏 - Electronic', url: 'https://cdn.pixabay.com/download/audio/2022/02/22/audio_d171c86b8d.mp3?filename=electronic-future-beats.mp3' },
+                    { name: '电影感 - Cinematic', url: 'https://cdn.pixabay.com/download/audio/2022/08/02/audio_884fe92c6b.mp3?filename=cinematic-epic-emotional-inspirational.mp3' },
+                  ].map(item => (
+                    <button
+                      key={item.url}
+                      onClick={() => {
+                        if (bgm?.url === item.url && !bgm?.custom) {
+                          setBgm(null)
+                          return
+                        }
+                        setBgm({ name: item.name, url: item.url })
+                        setBgmFile(null)
+                        showToast('已选择：' + item.name, 'success')
+                      }}
+                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] transition text-left ${
+                        bgm?.url === item.url && !bgm?.custom
+                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                          : 'bg-white/5 text-gray-400 hover:bg-white/10 border border-transparent'
+                      }`}
+                    >
+                      <span className="shrink-0">🎵</span>
+                      <span className="truncate flex-1">{item.name}</span>
+                      {bgm?.url === item.url && !bgm?.custom && <span className="text-purple-400 shrink-0">✓</span>}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[8px] text-gray-600">⚠️ 来源 Pixabay 免版税音乐 | 如加载失败请上传本地音乐</p>
+              </div>
+
+              {/* 上传自定义 */}
               <input ref={bgmRef} type="file" accept="audio/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setBgmFile(f); setBgm({name: f.name, url: '', custom: true}) }}} />
-              <button onClick={() => bgmRef.current?.click()} className="w-full py-2 border border-dashed border-white/20 text-gray-400 rounded-xl hover:border-emerald-500/50 hover:text-emerald-400 text-xs transition">{bgm?.custom ? '🎵 ' + bgm.name : '+ 上传背景音乐'}</button>
-              {bgm && <button onClick={() => { setBgm(null); setBgmFile(null) }} className="text-[10px] text-red-400 mt-1">移除</button>}
+              <button onClick={() => bgmRef.current?.click()} className="w-full py-2 border border-dashed border-white/20 text-gray-400 rounded-xl hover:border-emerald-500/50 hover:text-emerald-400 text-xs transition">{bgm?.custom ? '🎵 ' + bgm.name : '+ 上传本地音乐'}</button>
+              {bgm && <button onClick={() => { setBgm(null); setBgmFile(null) }} className="text-[10px] text-red-400 mt-1 block">移除当前音乐</button>}
             </div>
 
             <button onClick={handleSubmit} disabled={processing} className="w-full py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:opacity-50 text-sm font-bold transition">{processing ? `⏳ ${progress}%` : '🎬 一键合成'}</button>
@@ -467,7 +587,56 @@ export default function AutoCompilePage() {
                 </div>
               </div>
             ) : <div className="aspect-video bg-white/5 rounded-xl flex items-center justify-center text-gray-600 text-xs">{processing?'⏳ 合成中...':'预览区'}</div>}
-          </div>
+
+          {/* ── 手动字幕时间戳编辑器（视频预览下方）── */}
+          {showSubEditor && subtitleMode === 'manual' && (
+            <div className="card-glass p-4 mt-4">
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-xs text-gray-400">✏️ 字幕时间戳编辑 <span className="text-purple-400 ml-1">({editSubtitles.length} 条)</span></label>
+                <div className="flex gap-2">
+                  <button onClick={importFromText} className="text-[10px] px-2 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30 transition">🔄 从文案重新导入</button>
+                  <button onClick={() => {
+                    const total = duration || 30
+                    setEditSubtitles(prev => [...prev, { start: prev.length > 0 ? prev[prev.length - 1].end + 0.5 : 0, end: prev.length > 0 ? prev[prev.length - 1].end + 3 : 3, text: '新字幕文本' }])
+                  }} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30 transition">+ 添加</button>
+                </div>
+              </div>
+
+              {editSubtitles.length === 0 && (
+                <p className="text-[11px] text-gray-600 py-6 text-center">点击"从文案重新导入"或"+ 添加"来创建时间戳</p>
+              )}
+
+              <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
+                {editSubtitles.map((sub, idx) => (
+                  <div key={idx} className="flex items-center gap-2 bg-black/20 rounded-lg p-2 group">
+                    <span className="text-[9px] text-gray-500 w-5 shrink-0 text-center">#{idx+1}</span>
+                    <input type="number" step="0.1" min="0" value={sub.start} onChange={e => {
+                      const v = parseFloat(e.target.value) || 0; setEditSubtitles(prev => prev.map((s, i) => i === idx ? {...s, start: Math.max(0, v)} : s))
+                    }} className="w-16 bg-black/30 border border-white/10 rounded px-1.5 py-1 text-[10px] text-right text-gray-300 focus:border-purple-500/50 outline-none" />
+                    <span className="text-[9px] text-gray-600 shrink-0">→</span>
+                    <input type="number" step="0.1" min="0" value={sub.end} onChange={e => {
+                      const v = parseFloat(e.target.value) || 0; setEditSubtitles(prev => prev.map((s, i) => i === idx ? {...s, end: Math.max(v, s.start + 0.3)} : s))
+                    }} className="w-16 bg-black/30 border border-white/10 rounded px-1.5 py-1 text-[10px] text-right text-gray-300 focus:border-purple-500/50 outline-none" />
+                    <span className="text-[8px] text-gray-600 shrink-0">秒</span>
+                    <input type="text" value={sub.text} onChange={e => {
+                      setEditSubtitles(prev => prev.map((s, i) => i === idx ? {...s, text: e.target.value} : s))
+                    }} className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded px-2 py-1 text-[11px] text-gray-200 focus:border-purple-500/50 outline-none truncate" placeholder="字幕文字..." />
+                    <button
+                      onClick={() => setEditSubtitles(prev => prev.filter((_, i) => i !== idx))}
+                      className="shrink-0 w-6 h-6 flex items-center justify-center bg-red-500/10 text-red-400 rounded opacity-0 group-hover:opacity-100 transition hover:bg-red-500/20"
+                    >×</button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 flex items-center gap-3 text-[9px] text-gray-600">
+                <span>总时长: {(duration || 30)}秒</span>
+                {editSubtitles.length > 0 && (
+                  <span>覆盖: {editSubtitles[editSubtitles.length - 1].end.toFixed(1)}s / {(duration||30)}s</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

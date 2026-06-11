@@ -12,7 +12,7 @@ export interface VideoTask {
 }
 
 /** 字幕时间戳生成模式 */
-export type SubtitleMode = 'tts-sync' | 'funasr' | 'legacy'
+export type SubtitleMode = 'tts-sync' | 'manual'
 
 const tasks = new Map<string, VideoTask>()
 let processing = false
@@ -126,67 +126,15 @@ function generateTTSSyncSubtitles(
 }
 
 /**
- * FunASR 方案：调用语音识别 API 获取精确时间戳
- * 不可用时自动降级到 TTS 同步方案
+ * 手动模式：直接使用前端传入的自定义 SRT 时间戳
  */
-async function generateFunASRSubtitles(
-  audioPath: string,
-  originalLines: string[],
-  totalVideoDur: number,
-  ratio: string,
-  workDir: string
-): Promise<string> {
-  try {
-    const r = await fetch('http://localhost:3000/api/funasr', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audioPath, outputFormat: 'srt' })
-    })
-    const d = await r.json()
-    if (d.success && d.data?.srtPath) {
-      console.log('[字幕-FunASR] 使用 ASR 精确时间戳')
-      return d.data.srtPath
-    }
-    throw new Error(d.error || 'FunASR 返回无效结果')
-  } catch (e) {
-    console.warn('[字幕-FunASR] 不可用，降级到 TTS 同步:', (e as Error)?.message?.slice(0, 100))
-    return generateTTSSyncSubtitles(originalLines, totalVideoDur, totalVideoDur, ratio, workDir)
-  }
-}
-
-/**
- * 传统方案（兼容保留）：简单均分时间戳
- */
-function generateLegacySubtitles(
-  lines: string[],
-  totalDur: number,
-  ratio: string,
+function generateManualSubtitles(
+  customSrt: string,
   workDir: string
 ): string {
-  const wrapMax: Record<string, number> = { '16:9': 22, '9:16': 6, '1:1': 12, '4:3': 18 }
-  const maxW = wrapMax[ratio] || 16
-  function splitLine(l: string): string[] {
-    if (l.length <= maxW) return [l]
-    const r: string[] = []; let cur = ''
-    for (const ch of l) { if (cur.length >= maxW) { r.push(cur); cur = ch } else cur += ch }
-    if (cur) r.push(cur)
-    return r
-  }
-  const perLineTime = totalDur / Math.max(lines.length, 1)
-  let srtLines: string[] = [], entryIdx = 1
-  for (let i = 0; i < lines.length; i++) {
-    const chunks = splitLine(lines[i])
-    const chunkTime = perLineTime / chunks.length
-    for (let j = 0; j < chunks.length; j++) {
-      const st = i * perLineTime + j * chunkTime
-      const et = Math.min(st + chunkTime, totalDur)
-      srtLines.push(entryIdx + '\n' + fmtSRTTime(st) + ' --> ' + fmtSRTTime(et) + '\n' + chunks[j] + '\n')
-      entryIdx++
-    }
-  }
   const srtPath = path.join(workDir, 's.srt')
-  fs.writeFileSync(srtPath, srtLines.join('\n'))
-  console.log(`[字幕-传统均分] ${lines.length}行 ${srtLines.length}条SRT 时长=${totalDur}s`)
+  fs.writeFileSync(srtPath, customSrt)
+  console.log(`[字幕-手动] 使用自定义时间戳 ${customSrt.split('\n').filter(l => /^\d+$/.test(l.trim())).length} 条`)
   return srtPath
 }
 
@@ -206,11 +154,12 @@ export function startTask(
   stickerPos: string = 'tl',
   titleText: string = '',
   colorFilter: string = '',
-  subtitleMode: SubtitleMode = 'tts-sync'
+  subtitleMode: SubtitleMode = 'tts-sync',
+  customSrt: string = ''
 ) {
   const task: VideoTask = { id: taskId, status: 'queued', progress: 0 }
   tasks.set(taskId, task)
-  const runFn = () => runTask(task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize, bgmPath, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode)
+  const runFn = () => runTask(task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize, bgmPath, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode, customSrt)
   const onDone = () => {}
   const onError = (e: any) => { task.status = 'failed'; task.error = e.message }
   taskQueue.push({ fn: runFn, onDone, onError })
@@ -241,7 +190,8 @@ async function runTask(
   stickerPos: string = 'tl',
   titleText: string = '',
   colorFilter: string = '',
-  subtitleMode: SubtitleMode = 'tts-sync'
+  subtitleMode: SubtitleMode = 'tts-sync',
+  customSrt: string = ''
 ) {
   try {
     task.status = 'processing'
@@ -314,11 +264,12 @@ async function runTask(
         case 'tts-sync':
           sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd)
           break
-        case 'funasr':
-          sp = await generateFunASRSubtitles(ap, ln, totalDur, ratio, wd)
+        case 'manual':
+          if (customSrt) sp = generateManualSubtitles(customSrt, wd)
+          else { console.warn('[字幕-手动] 未提供自定义时间戳，降级到 TTS 同步'); sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd) }
           break
         default:
-          sp = generateLegacySubtitles(ln, totalDur, ratio, wd)
+          sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd)
       }
     }
     task.progress = 35
@@ -458,7 +409,8 @@ export function startSmartTask(
   titleText: string = '',
   colorFilter: string = '',
   subtitleMode: SubtitleMode = 'tts-sync',
-  smartOptions: SmartCompileOptions
+  smartOptions: SmartCompileOptions,
+  customSrt: string = ''
 ): VideoTask {
   const task: VideoTask = { id: taskId, status: 'queued', progress: 0 }
   tasks.set(taskId, task)
@@ -470,7 +422,7 @@ export function startSmartTask(
   const runFn = () => runSmartTask(
     task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize,
     bgmPath, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode,
-    smartOptions, cost
+    smartOptions, cost, customSrt
   )
   const onDone = () => {}
   const onError = (e: any) => { task.status = 'failed'; task.error = e.message }
@@ -512,7 +464,8 @@ async function runSmartTask(
   colorFilter: string,
   subtitleMode: SubtitleMode,
   smartOptions: SmartCompileOptions,
-  costEstimate: CostEstimate
+  costEstimate: CostEstimate,
+  customSrt: string = ''
 ): Promise<void> {
   try {
     task.status = 'processing'
@@ -562,8 +515,11 @@ async function runSmartTask(
     if (showSubs && ln.length > 0) {
       switch (subtitleMode) {
         case 'tts-sync': sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd); break
-        case 'funasr': sp = await generateFunASRSubtitles(ap, ln, totalDur, ratio, wd); break
-        default: sp = generateLegacySubtitles(ln, totalDur, ratio, wd); break
+        case 'manual':
+          if (customSrt) sp = generateManualSubtitles(customSrt, wd)
+          else { console.warn('[字幕-手动] 未提供自定义时间戳，降级到 TTS 同步'); sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd) }
+          break
+        default: sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd); break
       }
     }
     task.progress = 25

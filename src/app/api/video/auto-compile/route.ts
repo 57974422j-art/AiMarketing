@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
     const titleText = (f.get('titleText') as string) || ''
     const colorFilter = (f.get('colorFilter') as string) || ''
     const subtitleMode = (f.get('subtitleMode') as string) || 'tts-sync'
+    const customSrt = (f.get('customSrt') as string) || ''
 
     if (!text) return NextResponse.json({ success: false, message: '缺少文案' }, { status: 400 })
     dir()
@@ -132,10 +133,10 @@ export async function POST(req: NextRequest) {
         stickers,
       }
 
-      startSmartTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode as any, smartOptions)
+      startSmartTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode as any, smartOptions, customSrt)
     } else {
       // ── 普通成片模式（原有逻辑不变）──
-      startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode as any)
+      startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode as any, customSrt)
     }
 
     return NextResponse.json({ success: true, data: { taskId } })
