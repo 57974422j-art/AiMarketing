@@ -740,5 +740,6 @@ export default function AutoCompilePage() {
         </div>
       </div>}
     </div>
+  </div>
   )
 }
