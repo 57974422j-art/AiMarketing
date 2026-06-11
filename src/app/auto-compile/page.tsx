@@ -94,7 +94,51 @@ export default function AutoCompilePage() {
   const [searchResults, setSearchResults] = useState<Record<number, Array<{url:string;thumb:string;title:string}>>>({})
   const [selectedImages, setSelectedImages] = useState<Record<number, {url:string;title:string}>>({})
 
+  // 统一素材列表（合并搜图+仓库+本地上传，支持拖拽排序）
+  interface MaterialItem {
+    id: string; url: string; thumb: string; title: string;
+    source: 'search' | 'storage' | 'local'; file?: File; storageName?: string;
+  }
+  const [materialList, setMaterialList] = useState<MaterialItem[]>([])
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  // 拖拽排序处理
+  const handleDragStart = (idx: number) => setDragIdx(idx)
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault()
+  const handleDrop = (targetIdx: number) => {
+    if (dragIdx === null || dragIdx === targetIdx) return
+    setMaterialList(prev => {
+      const list = [...prev]
+      const [moved] = list.splice(dragIdx!, 1)
+      list.splice(targetIdx, 0, moved)
+      return list
+    })
+    setDragIdx(null)
+  }
+  // 搜图结果同步到统一素材列表（去重追加）
+  useEffect(() => {
+    setMaterialList(prev => {
+      const existingUrls = new Set(prev.map(m => m.url))
+      let changed = false
+      Object.entries(selectedImages).forEach(([_, img]) => {
+        if (!existingUrls.has(img.url)) {
+          changed = true
+          existingUrls.add(img.url)
+        }
+      })
+      if (!changed && prev.length > 0) return prev
+      const base = prev.filter(m => m.source !== 'search')
+      return [
+        ...base,
+        ...Object.values(selectedImages).map(v => ({
+          id: crypto.randomUUID(), url: v.url, thumb: v.thumb || v.url, title: v.title || '',
+          source: 'search' as const
+        }))
+      ]
+    })
+  }, [selectedImages])
+
   const fileRef = useRef<HTMLInputElement>(null)
+  const localFileRef = useRef<HTMLInputElement>(null)  // 搜图区本地上传
   const bgmRef = useRef<HTMLInputElement>(null)
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,6 +152,36 @@ export default function AutoCompilePage() {
     setImages(prev => [...prev, ...files].slice(0, 20))
   }
   const removeFile = (i: number) => setImages(prev => prev.filter((_, idx) => idx !== i))
+
+  // 搜图区：本地上传 → 追加到统一素材列表
+  const handleLocalUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    if (materialList.length + files.length > 20) { showToast('素材最多20个', 'error'); return }
+    const newItems: MaterialItem[] = files.map(f => ({
+      id: crypto.randomUUID(),
+      url: URL.createObjectURL(f),
+      thumb: URL.createObjectURL(f),
+      title: f.name,
+      source: 'local' as const,
+      file: f
+    }))
+    setMaterialList(prev => [...prev, ...newItems])
+    e.target.value = ''
+  }
+  // 搜图区：仓库选择 → 追加到统一素材列表
+  const addStorageToMaterials = (files: Array<{name:string; isVideo:boolean; thumbUrl?:string}>) => {
+    if (materialList.length + files.length > 20) { showToast('素材最多20个', 'error'); return }
+    const newItems: MaterialItem[] = files.map(f => ({
+      id: crypto.randomUUID(),
+      url: `/api/storage/serve?file=${encodeURIComponent(f.name)}`,
+      thumb: f.thumbUrl || '/api/storage/serve?file=' + encodeURIComponent(f.name),
+      title: f.name,
+      source: 'storage' as const,
+      storageName: f.name
+    }))
+    setMaterialList(prev => [...prev, ...newItems])
+  }
 
   const handleAutoSearch = useCallback(async (forceQuery?: string) => {
     // 强制搜索模式（AI生成等场景直接传入关键词）
@@ -229,9 +303,10 @@ export default function AutoCompilePage() {
 
   const handleSubmit = async () => {
     if (!text.trim()) { showToast('请输入文案', 'error'); return }
-    if (mode === 'free' && images.length === 0) { showToast('请上传素材', 'error'); return }
-    if (mode === 'smart' && Object.keys(selectedImages).length === 0) { showToast('请先搜索素材', 'error'); return }
-    if (mode === 'storage' && storageFiles.length === 0) { showToast('请从仓库选择素材', 'error'); return }
+    // 统一校验：所有模式都用 materialList
+    if (materialList.length === 0 && mode !== 'free') { showToast('请先添加素材（搜索/上传/仓库）', 'error'); return }
+    // 兼容旧 free 模式的 images state
+    if (materialList.length === 0 && images.length === 0) { showToast('请上传素材或添加素材', 'error'); return }
 
     setProcessing(true); setProgress(10); setVideoUrl('')
     try {
@@ -269,11 +344,48 @@ export default function AutoCompilePage() {
       }
       if (bgmFile) fd.append('bgm', bgmFile)
       else if (bgm?.url) fd.append('bgmUrl', bgm.url)
-      if (mode === 'free') images.forEach(img => fd.append('media', img))
-      else if (mode === 'smart') fd.append('imageUrls', JSON.stringify(Object.values(selectedImages).map(v => v.url)))
-      else if (mode === 'storage') {
+      // 统一素材收集（从 materialList 按来源拆分）
+      if (materialList.length > 0) {
+        const localFiles = materialList.filter(m => m.source === 'local' && m.file).map(m => m.file!)
+        const searchUrls = materialList.filter(m => m.source === 'search').map(m => m.url)
+        const storageNames = materialList.filter(m => m.source === 'storage').map(m => ({ name: m.storageName || '' }))
+
+        // 有本地文件 → 用 free 模式的 media 字段
+        if (localFiles.length > 0) {
+          fd.append('mode', 'free')
+          localFiles.forEach(f => fd.append('media', f))
+          // 同时追加网络图片URL
+          if (searchUrls.length > 0) fd.append('imageUrls', JSON.stringify(searchUrls))
+          if (storageNames.length > 0) { fd.append('storageFiles', JSON.stringify(storageNames)); if (user?.id) fd.append('userId', String(user.id)) }
+        }
+        // 纯网络图片 → 用 smart 模式
+        else if (searchUrls.length > 0) {
+          fd.append('mode', 'smart')
+          const allUrls = [...searchUrls, ...storageNames.map(n => `/api/storage/serve?file=${encodeURIComponent(n.name)}`)]
+          fd.append('imageUrls', JSON.stringify(allUrls))
+          if (storageNames.length > 0 && user?.id) fd.append('userId', String(user.id))
+        }
+        // 纯仓库文件
+        else if (storageNames.length > 0) {
+          fd.append('mode', 'storage')
+          fd.append('storageFiles', JSON.stringify(storageNames))
+          if (user?.id) fd.append('userId', String(user.id))
+        }
+      } else if (images.length > 0) {
+        // 兼容：旧 free 模式直接上传的 images
+        fd.append('mode', 'free')
+        images.forEach(img => fd.append('media', img))
+      } else if (Object.keys(selectedImages).length > 0) {
+        // 兼容：旧 smart 模式的 selectedImages
+        fd.append('mode', 'smart')
+        fd.append('imageUrls', JSON.stringify(Object.values(selectedImages).map(v => v.url)))
+      } else if (storageFiles.length > 0) {
+        // 兼容：旧 storage 模式
+        fd.append('mode', 'storage')
         fd.append('storageFiles', JSON.stringify(storageFiles.map(f => ({ name: f.name }))))
         if (user?.id) fd.append('userId', String(user.id))
+      } else {
+        fd.append('mode', mode)
       }
 
       const r = await fetch('/api/video/auto-compile', { method: 'POST', body: fd })
@@ -310,7 +422,6 @@ export default function AutoCompilePage() {
         <div className="flex gap-2 mb-4">
           <button onClick={() => setMode('free')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='free'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>🆓 免费模式</button>
           <button onClick={() => setMode('smart')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='smart'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>🤖 智能模式</button>
-          <button onClick={() => {setMode('storage'); openStorageDlg()}} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='storage'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>📦 仓库素材</button>
 
           {/* 智能成片开关 */}
           <div className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
@@ -330,8 +441,7 @@ export default function AutoCompilePage() {
                 {mode === 'smart' && (
                   <button onClick={() => setGenOpen(!genOpen)} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">✨ AI 导演</button>
                 )}
-                {mode === 'free' && <span className="text-[9px] text-gray-600">手动输入，每行对应一个素材</span>}
-                {mode === 'storage' && <span className="text-[9px] text-gray-600">手动输入，每行对应一个素材</span>}
+                {mode === 'free' && <span className="text-[9px] text-gray-600">手动输入文案，右侧添加素材</span>}
               </div>
 
               {/* AI生成内嵌面板（仅智能模式） */}
@@ -370,7 +480,7 @@ export default function AutoCompilePage() {
                               if (d.data.cost) setCostEstimate(prev => ({ ...prev, aiCost: d.data.cost }))
                               // 立即搜图，直接传关键词，不依赖state异步更新
                               const firstKeyword = d.data.lines[0]?.keyword || d.data.script.split('\n').filter(Boolean)[0] || ''
-                              if (firstKeyword) handleAutoSearch(firstKeyword)
+                              if (firstKeyword) { setSearchQuery(firstKeyword); handleAutoSearch(firstKeyword) }
                               setGenOpen(false); setGenInput('')
                               showToast(`✅ 已生成 ${d.data.lines.length} 条文案+导演方案${d.data.cost ? ' | 费用¥'+d.data.cost.estimatedCNY.toFixed(4) : ''}`, 'success')
                             } else {
@@ -390,8 +500,7 @@ export default function AutoCompilePage() {
               )}
               <textarea className="input-dark w-full text-sm h-36 resize-none" placeholder={
                 mode==='free' ? '每行对应一个素材（如：第一张图对应这行文案）'
-                : mode==='smart' ? '每行动态搜图 / 或用上方AI生成'
-                : '每行对应一个仓库素材'
+                : '每行动态搜图 / 或用上方AI生成'
               } value={text} onChange={e => setText(e.target.value)} />
               <p className="text-[10px] text-gray-500 mt-1">文案约 {text.replace(/\s/g,'').length} 字，预计配音 ~{Math.round(text.replace(/\s/g,'').length * 0.3)} 秒</p>
             </div>
@@ -543,49 +652,6 @@ export default function AutoCompilePage() {
               </div>
             )}
 
-            {mode === 'free' && (
-              <div className="card-glass p-4">
-                <label className="text-xs text-gray-400 mb-2 block">素材</label>
-                <input ref={fileRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleFiles} />
-                <button onClick={() => fileRef.current?.click()} className="w-full py-2 border border-dashed border-white/20 text-gray-400 rounded-xl hover:border-emerald-500/50 text-xs transition">+ 上传</button>
-                {images.length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">{images.map((f,i)=>(<div key={i} className="relative">{f.type.startsWith('video/')?<video src={URL.createObjectURL(f)} className="w-14 h-14 object-cover rounded-lg"/>:<img src={URL.createObjectURL(f)} className="w-14 h-14 object-cover rounded-lg"/>}<button onClick={()=>removeFile(i)} className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full text-[8px]">&times;</button></div>))}</div>}
-                <p className="text-[10px] text-gray-600 mt-1">{images.length} 个</p>
-              </div>
-            )}
-
-            {mode === 'storage' && (
-              <div className="card-glass p-4">
-                <label className="text-xs text-gray-400 mb-2 block">
-                  仓库素材 {storageFiles.length > 0 && <span className="text-emerald-400 ml-2">✅ 已选 {storageFiles.length} 个</span>}
-                </label>
-                <button onClick={openStorageDlg} className="w-full py-2 border border-dashed border-white/20 text-gray-400 rounded-xl hover:border-emerald-500/50 hover:text-emerald-400 text-xs transition">
-                  {storageFiles.length > 0 ? '📦 重新选择素材' : '+ 从仓库选择素材'}
-                </button>
-                {storageFiles.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-3">
-                    {storageFiles.map((f, i) => (
-                      <div key={i} className="relative group">
-                        {f.isVideo ? (
-                          f.thumbUrl ? (
-                            <img src={f.thumbUrl} className="w-14 h-14 object-cover rounded-lg" alt={f.name} />
-                          ) : (
-                            <div className="w-14 h-14 bg-white/10 rounded-lg flex items-center justify-center text-lg">🎬</div>
-                          )
-                        ) : (
-                          <img src={`/api/storage/file?userId=${user?.id}&name=${encodeURIComponent(f.name)}`} className="w-14 h-14 object-cover rounded-lg" alt={f.name} onLoad={e=>{(e.target as HTMLImageElement).style.display='block'}} onError={e=>{(e.target as HTMLImageElement).style.display='none';(e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden')}}/>
-                        )}
-                        <button
-                          onClick={() => setStorageFiles(prev => prev.filter((_, idx) => idx !== i))}
-                          className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full text-[8px] opacity-0 group-hover:opacity-100 transition"
-                        >&times;</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <p className="text-[10px] text-gray-600 mt-1">{storageFiles.length} 个文件</p>
-              </div>
-            )}
-
             <div className="card-glass p-4">
               <label className="text-xs text-gray-400 mb-2 block">背景音乐（可选）</label>
               <div className="space-y-1.5 mb-3">
@@ -645,31 +711,111 @@ export default function AutoCompilePage() {
             {processing && <div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{width:progress+'%'}}/></div>}
           </div>
 
-          {/* ═══ 右侧栏：sticky 容器（搜图 + 预览） ═══ */}
+          {/* ═══ 右侧栏：素材区（搜图/上传/仓库 + 统一列表 + 预览） ═══ */}
           <div className="card-glass p-4 h-fit sticky top-4 space-y-4">
-            {/* ── 智能模式：搜图选图 ── */}
-            {mode === 'smart' && (
-              <div>
-                <label className="text-xs text-gray-400 mb-2 block">自动搜图 {Object.keys(selectedImages).length > 0 && <span className="text-emerald-400 ml-2">✅ {Object.keys(selectedImages).length} 张</span>}</label>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="输入关键词搜索配图（如：日落、美食、运动）..."
-                  className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder-gray-600 focus:border-blue-500/50 outline-none mb-2"
-                />
-                <button onClick={() => handleAutoSearch()} disabled={searching} className="w-full py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:bg-blue-500/30 text-xs transition disabled:opacity-50">{searching ? `搜索中 ${progress}%` : '🔍 自动搜索配图'}</button>
-                <div className="max-h-[50vh] overflow-y-auto pr-1 mt-2 space-y-3">
+            {/* ── 素材来源工具栏（所有模式共用）── */}
+            <div>
+              <label className="text-xs text-gray-400 mb-2 block">
+                素材来源 {materialList.length > 0 && <span className="text-emerald-400 ml-2">✅ 已选 {materialList.length} 张</span>}
+              </label>
+
+              {/* 提示词 chips */}
+              {aiKeywords.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {aiKeywords.map((kw, i) => (
+                    <button key={i} onClick={() => { setSearchQuery(kw); handleAutoSearch(kw) }}
+                      className={`text-[10px] px-2 py-1 rounded-full border transition ${
+                        searchQuery === kw ? 'bg-blue-500/30 text-blue-300 border-blue-500/50' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
+                      }`}
+                      title={`用「${kw}」搜图`}
+                    >🏷️ {kw.slice(0, 12)}{kw.length > 12 ? '...' : ''}</button>
+                  ))}
+                </div>
+              )}
+
+              {/* 搜索框 */}
+              <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAutoSearch()}
+                placeholder="输入关键词搜索配图..."
+                className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder-gray-600 focus:border-blue-500/50 outline-none mb-2"
+              />
+
+              {/* 操作按钮行：搜图 | 上传 | 仓库 | 全选 | 清空 */}
+              <div className="flex gap-1.5 flex-wrap">
+                <button onClick={() => handleAutoSearch()} disabled={searching}
+                  className="py-2 px-3 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:bg-blue-500/30 text-[10px] transition disabled:opacity-50"
+                >{searching ? `搜索中 ${progress}%` : '🔍 搜索配图'}</button>
+
+                <input ref={localFileRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleLocalUpload} />
+                <button onClick={() => localFileRef.current?.click()}
+                  className="py-2 px-3 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl hover:bg-emerald-500/30 text-[10px] transition"
+                >+ 本地上传</button>
+
+                <button onClick={openStorageDlg}
+                  className="py-2 px-3 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-xl hover:bg-purple-500/30 text-[10px] transition"
+                >📦 仓库素材</button>
+
+                {materialList.length > 0 && (
+                  <>
+                    <button onClick={() => setSelectedImages({})} className="py-2 px-3 bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl hover:bg-red-500/20 text-[10px] transition">✕ 清空</button>
+                  </>
+                )}
+              </div>
+
+              {/* 搜索结果预览（点击追加到素材列表） */}
+              {Object.keys(searchResults).length > 0 && (
+                <div className="max-h-[25vh] overflow-y-auto pr-1 mt-2 space-y-2 border-t border-white/5 pt-2">
                   {Object.entries(searchResults).map(([idx, imgs]) => (
                     <div key={idx}>
-                      <p className="text-[10px] text-gray-500 mb-1 truncate" title={text.split('\n').filter(Boolean)[Number(idx)]}>{Number(idx)+1}. {text.split('\n').filter(Boolean)[Number(idx)]?.slice(0,20)}...</p>
-                      <div className="flex flex-wrap gap-1">{imgs.map((img,j) => (<div key={j} className="cursor-pointer" onClick={()=>setSelectedImages(p=>({...p,[Number(idx)]:{url:img.url,title:img.title}}))}><img src={img.thumb||img.url} className={`w-16 h-16 object-cover rounded-lg border-2 ${selectedImages[Number(idx)]?.url===img.url?'border-emerald-400':'border-transparent hover:border-white/30'}`} /></div>))}</div>
+                      <p className="text-[9px] text-gray-500 mb-1">🔍 {searchQuery || '搜索结果'}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {imgs.slice(0, 4).map((img, j) => (
+                          <div key={j} className={`relative cursor-pointer rounded-lg overflow-hidden ${selectedImages[Number(idx)]?.url === img.url ? 'ring-2 ring-emerald-400' : 'hover:ring hover:ring-white/40'}`}
+                            onClick={() => setSelectedImages(p => ({ ...p, [Number(idx)]: { url: img.url, title: img.title } }))}
+                          >
+                            <img src={img.thumb || img.url} className="w-14 h-14 object-cover" onError={(e) => {(e.target as HTMLImageElement).src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 56 56%22><rect fill=%22%23111%22 width=56 height=56/><text x=28 y=32 fill=%22%23666%22 font-size=7 text-anchor=middle>✗</text></svg>'}} />
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
-                {Object.keys(searchResults).length === 0 && !searching && (
-                  <p className="text-[10px] text-gray-600 mt-2 text-center py-4">输入关键词或文案后点击搜索配图</p>
-                )}
+              )}
+            </div>
+
+            {/* ── 统一素材列表（可拖拽排序，所有来源合并显示）── */}
+            {materialList.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-gray-400">已选素材 <span className="text-emerald-300">({materialList.length})</span> <span className="text-[8px] text-gray-600 ml-1">↔ 可拖拽调顺序</span></label>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5 max-h-[35vh] overflow-y-auto pr-1">
+                  {materialList.map((m, idx) => (
+                    <div key={m.id || idx}
+                      draggable
+                      onDragStart={() => handleDragStart(idx)}
+                      onDragOver={handleDragOver}
+                      onDrop={() => handleDrop(idx)}
+                      className={`relative cursor-grab active:cursor-grabbing rounded-lg overflow-hidden group ${
+                        dragIdx === idx ? 'ring-2 ring-blue-400 opacity-50 scale-95 transition' : 'hover:ring-1 hover:ring-white/40'
+                      }`}
+                    >
+                      <img src={m.thumb || m.url} className="w-full aspect-square object-cover" onError={(e) => {(e.target as HTMLImageElement).src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect fill=%22%23222%22 width=64 height=64/><text x=32 y=34 fill=%22%23666%22 font-size=8 text-anchor=middle>?</text></svg>'}} />
+                      {/* 来源标签 */}
+                      <span className={`absolute top-0 left-0 text-[7px] px-1 py-0.5 rounded-br ${
+                        m.source === 'search' ? 'bg-blue-500/70 text-white' :
+                        m.source === 'storage' ? 'bg-purple-500/70 text-white' :
+                        'bg-emerald-500/70 text-white'
+                      }`}>{m.source === 'search' ? '搜' : m.source === 'storage' ? '仓' : '本'}</span>
+                      {/* 序号 */}
+                      <span className="absolute top-0 right-0 bg-black/60 text-[8px] text-white px-1">{idx + 1}</span>
+                      {/* 删除按钮 */}
+                      <button onClick={(e) => { e.stopPropagation(); setMaterialList(prev => prev.filter((_, i) => i !== idx)) }}
+                        className="absolute bottom-0 left-0 right-0 bg-red-500/80 text-white text-[8px] py-0.5 opacity-0 group-hover:opacity-100 transition"
+                      >删除</button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
 import { startTask, getTask, startSmartTask, getCostEstimate } from '@/lib/video-task-manager'
 import { SmartCompileOptions, DEFAULT_SMART_OPTIONS } from '@/lib/smart-compile-engine'
+
+/** 安全下载文件到本地（用Node原生fetch，避免curl shell转义问题） */
+async function downloadToFile(url: string, dest: string): Promise<void> {
+  const res = await fetch(url, { redirect: 'follow' })
+  if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}: ${url}`)
+  const buf = Buffer.from(await res.arrayBuffer())
+  fs.writeFileSync(dest, buf)
+}
 
 export const dynamic = 'force-dynamic'
 const OUT = '/root/AiMarketing/public/generated'
@@ -45,7 +52,7 @@ export async function POST(req: NextRequest) {
       if (!urls.length) return NextResponse.json({ success: false, message: '无图片URL' }, { status: 400 })
       for (let i = 0; i < urls.length; i++) {
         const p = path.join(wd, `i${i}.jpg`)
-        execSync(`curl -s -L -o "${p}" "${urls[i]}"`, { timeout: 15000 })
+        await downloadToFile(urls[i], p)
         mp.push(p)
       }
     } else if (mode === 'storage') {
@@ -99,7 +106,7 @@ export async function POST(req: NextRequest) {
       fs.writeFileSync(bgp, Buffer.from(await bgmFile.arrayBuffer()))
     } else if (bgmUrl) {
       bgp = path.join(wd, 'b.mp3')
-      execSync(`curl -s -L -o "${bgp}" "${bgmUrl}"`, { timeout: 15000 })
+      await downloadToFile(bgmUrl, bgp)
     }
 
     // 启动异步任务（根据 smartMode 选择普通或智能引擎）
