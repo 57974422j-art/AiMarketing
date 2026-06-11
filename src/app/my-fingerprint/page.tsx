@@ -183,8 +183,6 @@ export default function MyFingerprintPage() {
       setSelectedAccount(acct)
       setShowTemplatePanel(true)
       refreshBrowserList()
-      // 启动后自动同步仪表盘数据（后台执行）
-      fetch('/api/dashboard/sync', { method: 'POST', credentials: 'include' }).catch(() => {})
     } else {
       showMsg(`❌ 启动失败: ${res.error}`, 'error')
     }

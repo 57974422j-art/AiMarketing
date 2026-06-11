@@ -716,7 +716,7 @@ async function step65_selectMusic(page, params, log) {
     }
 
     // ── 5. 确认使用 / 完成选择 ──
-    var confirmSelectors = ['text=使用', text='确定使用', 'text=确认使用', 'text=完成', 'button:has-text("使用")']
+    var confirmSelectors = ['text=使用', 'text=确定使用', 'text=确认使用', 'text=完成', 'button:has-text("使用")']
     var confirmed = false
     for (var ci = 0; ci < confirmSelectors.length; ci++) {
       try {
