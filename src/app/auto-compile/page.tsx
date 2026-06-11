@@ -948,7 +948,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
           <div className="flex gap-2 mt-4 pt-3 border-t border-white/10">
             <button onClick={() => setShowStorageDlg(false)} className="flex-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs hover:bg-white/10 transition">取消</button>
             <button
-              onClick={() => setShowStorageDlg(false)}
+              onClick={() => { if (storageFiles.length > 0) addStorageToMaterials(storageFiles); setShowStorageDlg(false) }}
               disabled={storageFiles.length === 0}
               className={`flex-1 py-2 rounded-lg text-xs transition ${storageFiles.length > 0 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30' : 'bg-white/5 text-gray-500 cursor-not-allowed'}`}
             >
