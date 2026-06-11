@@ -5,12 +5,50 @@ import crypto from 'crypto'
 import { startTask, getTask, startSmartTask, getCostEstimate } from '@/lib/video-task-manager'
 import { SmartCompileOptions, DEFAULT_SMART_OPTIONS } from '@/lib/smart-compile-engine'
 
-/** 安全下载文件到本地（用Node原生fetch，避免curl shell转义问题） */
-async function downloadToFile(url: string, dest: string): Promise<void> {
-  const res = await fetch(url, { redirect: 'follow' })
-  if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}: ${url}`)
-  const buf = Buffer.from(await res.arrayBuffer())
-  fs.writeFileSync(dest, buf)
+/** 根据URL路径猜测文件扩展名（图片/视频） */
+function guessExtFromUrl(url: string): string {
+  // 先从 URL 路径提取
+  const pathname = url.split('?')[0].split('#')[0]
+  const ext = pathname.split('.').pop()?.toLowerCase() || ''
+  const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp']
+  const videoExts = ['mp4', 'webm', 'mov', 'avi', 'mkv', 'm4v']
+  if (imageExts.includes(ext)) return ext
+  if (videoExts.includes(ext)) return ext
+  // 默认返回 jpg（大多数搜图结果是图片）
+  return 'jpg'
+}
+
+/**
+ * 安全下载文件到本地
+ * @returns { ok: boolean, error?: string } 不再抛异常，由调用方决定是否跳过
+ */
+async function downloadToFile(url: string, dest: string): Promise<{ ok: boolean; error?: string }> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30000) // 30秒超时
+  try {
+    const res = await fetch(url, {
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/*,video/*,*/*',
+      }
+    })
+    clearTimeout(timeout)
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status}` }
+    }
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (buf.length < 100) {
+      return { ok: false, error: `文件过小 (${buf.length}B)，可能不是有效媒体` }
+    }
+    fs.writeFileSync(dest, buf)
+    return { ok: true }
+  } catch (e: any) {
+    clearTimeout(timeout)
+    const msg = e.name === 'AbortError' ? '下载超时(30s)' : (e.message || String(e))
+    return { ok: false, error: msg }
+  }
 }
 
 export const dynamic = 'force-dynamic'
@@ -47,13 +85,26 @@ export async function POST(req: NextRequest) {
     // 收集素材（三种来源）
     const mp: string[] = []
     if (mode === 'smart') {
-      // 智能模式：搜索的图片URL
+      // 智能模式：网络URL（图片/视频混合）
       const urls: string[] = JSON.parse((f.get('imageUrls') as string) || '[]')
-      if (!urls.length) return NextResponse.json({ success: false, message: '无图片URL' }, { status: 400 })
+      if (!urls.length) return NextResponse.json({ success: false, message: '无图片/视频URL' }, { status: 400 })
+      let failCount = 0
       for (let i = 0; i < urls.length; i++) {
-        const p = path.join(wd, `i${i}.jpg`)
-        await downloadToFile(urls[i], p)
-        mp.push(p)
+        const ext = guessExtFromUrl(urls[i])
+        const p = path.join(wd, `i${i}.${ext}`)
+        const result = await downloadToFile(urls[i], p)
+        if (result.ok) {
+          mp.push(p)
+        } else {
+          failCount++
+          console.warn(`[素材] 下载第${i+1}张失败 (${urls[i].slice(0, 60)}...): ${result.error}`)
+        }
+      }
+      if (mp.length === 0) {
+        return NextResponse.json({ success: false, message: `${failCount}个素材全部下载失败，请检查图片/视频链接是否有效` }, { status: 400 })
+      }
+      if (failCount > 0) {
+        console.warn(`[素材] 共${urls.length}个，成功${mp.length}个，失败${failCount}个`)
       }
     } else if (mode === 'storage') {
       // 仓库模式：从 storage 仓库选取
@@ -89,14 +140,33 @@ export async function POST(req: NextRequest) {
       }
       if (!mp.length) return NextResponse.json({ success: false, message: '仓库文件下载失败' }, { status: 400 })
     } else {
-      // 免费模式：本地上传
+      // 免费模式：本地上传 + 可选的网络URL混合
       const mf = f.getAll('media') as File[]
-      if (!mf.length) return NextResponse.json({ success: false, message: '请上传素材' }, { status: 400 })
+
+      // 处理本地上传文件
       for (let i = 0; i < mf.length; i++) {
         const p = path.join(wd, `m${i}.${mf[i].name.split('.').pop() || 'jpg'}`)
         fs.writeFileSync(p, Buffer.from(await mf[i].arrayBuffer()))
         mp.push(p)
       }
+
+      // 兼容：free 模式也可能附带网络图片/视频URL（素材列表混搭场景）
+      const extraUrls: string[] = JSON.parse((f.get('imageUrls') as string) || '[]')
+      if (extraUrls.length > 0) {
+        let baseIdx = mp.length // 从已有文件数之后继续编号
+        for (let i = 0; i < extraUrls.length; i++) {
+          const ext = guessExtFromUrl(extraUrls[i])
+          const p = path.join(wd, `u${baseIdx + i}.${ext}`)
+          const result = await downloadToFile(extraUrls[i], p)
+          if (result.ok) {
+            mp.push(p)
+          } else {
+            console.warn(`[素材] free模式附加URL下载失败 (${extraUrls[i].slice(0, 60)}...): ${result.error}`)
+          }
+        }
+      }
+
+      if (mp.length === 0) return NextResponse.json({ success: false, message: '请上传素材或添加图片/视频' }, { status: 400 })
     }
 
     // BGM

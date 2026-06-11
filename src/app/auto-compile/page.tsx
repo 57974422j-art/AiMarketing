@@ -121,28 +121,8 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
     })
     setDragIdx(null)
   }
-  // 搜图结果同步到统一素材列表（去重追加）
-  useEffect(() => {
-    setMaterialList(prev => {
-      const existingUrls = new Set(prev.map(m => m.url))
-      let changed = false
-      Object.entries(selectedImages).forEach(([_, img]) => {
-        if (!existingUrls.has(img.url)) {
-          changed = true
-          existingUrls.add(img.url)
-        }
-      })
-      if (!changed && prev.length > 0) return prev
-      const base = prev.filter(m => m.source !== 'search')
-      return [
-        ...base,
-        ...Object.values(selectedImages).map(v => ({
-          id: genId(), url: v.url, thumb: v.url, title: v.title || '',
-          source: 'search' as const
-        }))
-      ]
-    })
-  }, [selectedImages])
+  // 注释：旧逻辑已移除 — 之前 useEffect([selectedImages]) 会在每次搜索时用单张图覆盖 materialList
+  // 现在统一通过「搜图区多选(checkedImages) → 点追加按钮」手动加入 materialList，避免互相干扰
 
   const fileRef = useRef<HTMLInputElement>(null)
   const localFileRef = useRef<HTMLInputElement>(null)  // 搜图区本地上传
@@ -193,14 +173,14 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
   const handleAutoSearch = useCallback(async (forceQuery?: string) => {
     // 强制搜索模式（AI生成等场景直接传入关键词）
     if (forceQuery?.trim()) {
-      setSearching(true); setSearchResults({}); setSelectedImages({})
+      setSearching(true); setSearchResults({}); setCheckedImages([])
       try {
         const r = await fetch('/api/search-images?q=' + encodeURIComponent(forceQuery.trim()) + '&count=6')
         const d = await r.json()
         console.log(`[搜图] 强制搜索 "${forceQuery.trim()}":`, d.success ? `${d.data.length}张` : '失败', d)
         if (d.success && d.data.length > 0) {
           setSearchResults({ '0': d.data })
-          setSelectedImages({ '0': { url: d.data[0].url, title: d.data[0].title } })
+          // 不再自动选中第1张，让用户通过 checkedImages 多选
         }
       } catch (e) { console.error('[搜图] 强制搜索异常:', e) }
       setSearching(false); setProgress(0)
@@ -208,14 +188,14 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
     }
     // 独立搜索模式：用 searchQuery state
     if (searchQuery.trim()) {
-      setSearching(true); setSearchResults({}); setSelectedImages({})
+      setSearching(true); setSearchResults({}); setCheckedImages([])
       try {
         const r = await fetch('/api/search-images?q=' + encodeURIComponent(searchQuery.trim()) + '&count=6')
         const d = await r.json()
         console.log(`[搜图] 独立搜索 "${searchQuery.trim()}":`, d.success ? `${d.data.length}张` : '失败', d)
         if (d.success && d.data.length > 0) {
           setSearchResults({ '0': d.data })
-          setSelectedImages({ '0': { url: d.data[0].url, title: d.data[0].title } })
+          // 不再自动选中第1张，让用户通过 checkedImages 多选
         }
       } catch (e) { console.error('[搜图] 独立搜索异常:', e) }
       setSearching(false); setProgress(0)
@@ -224,7 +204,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
     // 按文案行搜索模式
     const lines = text.split('\n').filter(Boolean)
     if (lines.length === 0) { showToast('请先输入文案或搜索关键词', 'error'); return }
-    setSearching(true); setSearchResults({}); setSelectedImages({})
+    setSearching(true); setSearchResults({}); setCheckedImages([])
     let successCount = 0
     for (let i = 0; i < lines.length; i++) {
       const query = (aiKeywords[i] || lines[i]).slice(0, 50)
@@ -235,7 +215,6 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
         console.log(`[搜图] 第${i+1}行 结果:`, d.success ? `${d.data.length}张` : '失败', d)
         if (d.success && d.data.length > 0) {
           setSearchResults(prev => ({ ...prev, [i]: d.data }))
-          setSelectedImages(prev => ({ ...prev, [i]: { url: d.data[0].url, title: d.data[0].title } }))
           successCount++
         }
         setProgress(Math.round(((i + 1) / lines.length) * 100))
@@ -245,7 +224,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
     }
     setSearching(false); setProgress(0)
     if (successCount > 0) {
-      showToast(`✅ 搜到 ${successCount}/${lines.length} 行配图`, 'success')
+      showToast(`✅ 搜到 ${successCount}/${lines.length} 行配图，请在下方勾选需要的图片后点"追加"加入素材列表`, 'success')
     } else {
       showToast('⚠️ 未搜到图片，请更换文案后重试', 'error')
     }
