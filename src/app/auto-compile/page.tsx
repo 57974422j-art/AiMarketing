@@ -658,7 +658,7 @@ export default function AutoCompilePage() {
                   placeholder="输入关键词搜索配图（如：日落、美食、运动）..."
                   className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder-gray-600 focus:border-blue-500/50 outline-none mb-2"
                 />
-                <button onClick={handleAutoSearch} disabled={searching} className="w-full py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:bg-blue-500/30 text-xs transition disabled:opacity-50">{searching ? `搜索中 ${progress}%` : '🔍 自动搜索配图'}</button>
+                <button onClick={() => handleAutoSearch()} disabled={searching} className="w-full py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl hover:bg-blue-500/30 text-xs transition disabled:opacity-50">{searching ? `搜索中 ${progress}%` : '🔍 自动搜索配图'}</button>
                 <div className="max-h-[50vh] overflow-y-auto pr-1 mt-2 space-y-3">
                   {Object.entries(searchResults).map(([idx, imgs]) => (
                     <div key={idx}>
