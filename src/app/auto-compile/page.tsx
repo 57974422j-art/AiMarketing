@@ -130,7 +130,7 @@ export default function AutoCompilePage() {
       return [
         ...base,
         ...Object.values(selectedImages).map(v => ({
-          id: crypto.randomUUID(), url: v.url, thumb: v.thumb || v.url, title: v.title || '',
+          id: crypto.randomUUID(), url: v.url, thumb: v.url, title: v.title || '',
           source: 'search' as const
         }))
       ]
