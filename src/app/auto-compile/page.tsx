@@ -98,6 +98,8 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<Record<number, Array<{url:string;thumb:string;title:string}>>>({})
   const [selectedImages, setSelectedImages] = useState<Record<number, {url:string;title:string}>>({})
+  const [checkedImages, setCheckedImages] = useState<Array<{url:string;title:string}>>([]) // 搜图多选暂存区
+
 
   // 统一素材列表（合并搜图+仓库+本地上传，支持拖拽排序）
   interface MaterialItem {
@@ -767,23 +769,78 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                 )}
               </div>
 
-              {/* 搜索结果预览（点击追加到素材列表） */}
+              {/* 搜索结果预览（点击多选，追加到素材列表） */}
               {Object.keys(searchResults).length > 0 && (
                 <div className="max-h-[25vh] overflow-y-auto pr-1 mt-2 space-y-2 border-t border-white/5 pt-2">
-                  {Object.entries(searchResults).map(([idx, imgs]) => (
-                    <div key={idx}>
-                      <p className="text-[9px] text-gray-500 mb-1">🔍 {searchQuery || '搜索结果'}</p>
-                      <div className="flex flex-wrap gap-1">
-                        {imgs.slice(0, 4).map((img, j) => (
-                          <div key={j} className={`relative cursor-pointer rounded-lg overflow-hidden ${selectedImages[Number(idx)]?.url === img.url ? 'ring-2 ring-emerald-400' : 'hover:ring hover:ring-white/40'}`}
-                            onClick={() => setSelectedImages(p => ({ ...p, [Number(idx)]: { url: img.url, title: img.title } }))}
-                          >
-                            <img src={img.thumb || img.url} className="w-14 h-14 object-cover" onError={(e) => {(e.target as HTMLImageElement).src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 56 56%22><rect fill=%22%23111%22 width=56 height=56/><text x=28 y=32 fill=%22%23666%22 font-size=7 text-anchor=middle>✗</text></svg>'}} />
+                  {Object.entries(searchResults).map(([idx, imgs]) => {
+                    // 多选用法：checkedImages 记录已选的 url 集合
+                    const checkedUrls = new Set(checkedImages.map(v => v.url))
+                    const selectedCount = checkedImages.length
+                    return (
+                      <div key={idx}>
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-[9px] text-gray-500">🔍 {searchQuery || '搜索结果'}</p>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => {
+                                // 全选当前组
+                                const all = imgs.filter(i => !checkedUrls.has(i.url)).map(i => ({ url: i.url, title: i.title }))
+                                if (all.length > 0 && materialList.length + selectedCount + all.length <= 20) {
+                                  setCheckedImages(prev => [...prev, ...all])
+                                }
+                              }}
+                              disabled={materialList.length + selectedCount >= 20}
+                              className="text-[9px] px-1.5 py-0.5 bg-blue-500/15 text-blue-300 rounded border border-blue-500/25 hover:bg-blue-500/25 disabled:opacity-30 transition"
+                            >全选</button>
+                            <button
+                              onClick={() => {
+                                // 追加已选到素材列表
+                                if (selectedCount === 0) return
+                                const toAdd = checkedImages.filter(c => !materialList.some(m => m.url === c.url))
+                                if (toAdd.length === 0) { showToast('所选图片已在素材列表中', 'info'); return }
+                                if (materialList.length + toAdd.length > 20) { showToast(`最多20个素材，当前${materialList.length}个，要加${toAdd.length}张`, 'error'); return }
+                                const newItems: MaterialItem[] = toAdd.map(v => ({
+                                  id: genId(), url: v.url, thumb: v.url, title: v.title || '',
+                                  source: 'search' as const
+                                }))
+                                setMaterialList(prev => [...prev, ...newItems])
+                                setCheckedImages([])
+                                showToast(`✅ 已追加 ${toAdd.length} 张到素材列表`, 'success')
+                              }}
+                              className="text-[9px] px-1.5 py-0.5 bg-emerald-500/15 text-emerald-300 rounded border border-emerald-500/25 hover:bg-emerald-500/25 transition"
+                            >+ 追加 ({selectedCount})</button>
                           </div>
-                        ))}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {imgs.map((img, j) => {
+                            const isChecked = checkedUrls.has(img.url)
+                            return (
+                              <div key={j}
+                                className={`relative cursor-pointer rounded-lg overflow-hidden border-2 transition ${
+                                  isChecked ? 'border-emerald-400 ring-1 ring-emerald-400/50' : 'border-transparent hover:border-white/40'
+                                }`}
+                                onClick={() => {
+                                  if (isChecked) {
+                                    setCheckedImages(prev => prev.filter(v => v.url !== img.url))
+                                  } else {
+                                    if (materialList.length + checkedImages.length >= 20) { showToast('素材已达上限20张', 'error'); return }
+                                    setCheckedImages(prev => [...prev, { url: img.url, title: img.title }])
+                                  }
+                                }}
+                              >
+                                <img src={img.thumb || img.url} className="w-16 h-16 object-cover" onError={(e) => {(e.target as HTMLImageElement).src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect fill=%22%23111%22 width=64 height=64/><text x=32 y=34 fill=%22%23666%22 font-size=8 text-anchor=middle>✗</text></svg>'}} />
+                                {isChecked && (
+                                  <div className="absolute top-0 left-0 w-full h-full bg-emerald-500/20 flex items-center justify-center">
+                                    <span className="bg-emerald-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shadow-lg">✓</span>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
