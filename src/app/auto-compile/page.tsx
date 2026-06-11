@@ -109,8 +109,23 @@ export default function AutoCompilePage() {
   }
   const removeFile = (i: number) => setImages(prev => prev.filter((_, idx) => idx !== i))
 
-  const handleAutoSearch = useCallback(async () => {
-    // 独立搜索模式：用 searchQuery
+  const handleAutoSearch = useCallback(async (forceQuery?: string) => {
+    // 强制搜索模式（AI生成等场景直接传入关键词）
+    if (forceQuery?.trim()) {
+      setSearching(true); setSearchResults({}); setSelectedImages({})
+      try {
+        const r = await fetch('/api/search-images?q=' + encodeURIComponent(forceQuery.trim()) + '&count=6')
+        const d = await r.json()
+        console.log(`[搜图] 强制搜索 "${forceQuery.trim()}":`, d.success ? `${d.data.length}张` : '失败', d)
+        if (d.success && d.data.length > 0) {
+          setSearchResults({ '0': d.data })
+          setSelectedImages({ '0': { url: d.data[0].url, title: d.data[0].title } })
+        }
+      } catch (e) { console.error('[搜图] 强制搜索异常:', e) }
+      setSearching(false); setProgress(0)
+      return
+    }
+    // 独立搜索模式：用 searchQuery state
     if (searchQuery.trim()) {
       setSearching(true); setSearchResults({}); setSelectedImages({})
       try {
@@ -347,13 +362,18 @@ export default function AutoCompilePage() {
                             if (d.success) {
                               setText(d.data.script)
                               setAiKeywords(d.data.lines.map((l: any) => l.keyword))
+                              // 自动填入搜索框：优先用AI返回的第一个关键词，否则用首行文案
+                              const firstKeyword = d.data.lines[0]?.keyword || d.data.script.split('\n').filter(Boolean)[0] || ''
+                              setSearchQuery(firstKeyword)
                               const dir = d.data.director
                               if (dir?.title?.text) { setTitleText(dir.title.text); setTitleOn(true) }
                               if (dir?.sticker?.text) { setStickerText(dir.sticker.text); setStickerOn(true); if (dir.sticker.position) setStickerPos(dir.sticker.position) }
                               if (dir?.filter) setColorFilter(dir.filter)
                               if (dir?.voiceRecommend) setVoice(dir.voiceRecommend)
                               if (d.data.cost) setCostEstimate(prev => ({ ...prev, aiCost: d.data.cost }))
-                              setTimeout(() => handleAutoSearch(), 300)
+                              // 立即搜图，直接传关键词，不依赖state异步更新
+                              const firstKeyword = d.data.lines[0]?.keyword || d.data.script.split('\n').filter(Boolean)[0] || ''
+                              if (firstKeyword) handleAutoSearch(firstKeyword)
                               setGenOpen(false); setGenInput('')
                               showToast(`✅ 已生成 ${d.data.lines.length} 条文案+导演方案${d.data.cost ? ' | 费用¥'+d.data.cost.estimatedCNY.toFixed(4) : ''}`, 'success')
                             } else {
