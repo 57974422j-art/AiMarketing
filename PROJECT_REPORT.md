@@ -12,19 +12,115 @@
 
 ## ⚠️ 可忽略的文件/目录（不要浪费时间阅读）
 
+> **核心原则**: 这个项目真正活跃的代码集中在 `src/app/`、`src/lib/`、`electron/`、`prisma/` 四个目录。其他 90%+ 的文件都可以跳过。
+
+### 🔴 绝对不用看（垃圾/临时/生成物）
+
 | 路径 | 原因 |
 |------|------|
-| **根目录下的垃圾文件** `addsnap.mjs`、`console.log(e.message))`、`fix-pubbtn.mjs` | 之前调试残留（部分已清理于 2026-06-05），剩余可删除 |
+| **`node_modules/`**、**`.next/`** | 依赖和编译缓存，**规则禁止读取** |
 | **`dist-electron/`** | Electron 打包输出产物（200+ 文件），自动生成的 |
-| **`node_modules/`**、**`.next/`** | 依赖和编译缓存，规则禁止读取 |
-| **`scripts/` 目录** | ADB工具、测试脚本、语音分离等辅助工具（37个文件），与核心功能无关 |
-| **`temp/`** | 临时测试视频文件 |
 | **`.tsbuildinfo`**、**`next-env.d.ts`** | 编译缓存 |
-| **`fix-pubbtn.mjs`**、**`deploy.bat`**、**`fix_prisma.sh`** | 一次性修复/部署脚本 |
-| **`src/*.bak`** | 备份文件 |
-| **`scripts/douyin-test.png`** | 测试截图 |
+| **`addsnap.mjs`** | 调试残留，无意义 |
+| **`console.log(e.message))`** | 意外创建的垃圾文件名（不是代码） |
+| **`fix-pubbtn.mjs`** | 一次性修复脚本，已用过 |
+| **`fix_prisma.sh`**、**`deploy.bat`** | 一次性运维脚本 |
+| **`UTF8`** | 根目录下的空文件/乱码文件，无意义 |
+| **`temp_query.mjs`**、**`temp_query.sql`** | 临时调试查询脚本 |
+| **`AiMarketing-Cards-PPT.pptx`** | 生成的 PPT 演示文稿，非代码 |
 
-> 💡 建议：可以清理根目录下那几个无意义文件（`{console.table(r)` 等），避免干扰 AI 接手
+### 🟡 基本不用看（辅助工具 / 已冻结的模块）
+
+| 路径 | 原因 |
+|------|------|
+| **`scripts/` 目录**（24个文件） | ADB 工具 exe/dll、测试脚本、语音分离、PPT 生成等辅助工具，与核心功能无关 |
+| **`temp/` 目录** | 临时测试视频（3个 mp4） |
+| **`android/` 目录**（53个文件） | **Capacitor 手机端代码** — 部署限制明确：手机端不支持指纹浏览器/视频合成等功能，**暂不动**（见记忆 ID: 44040787） |
+| **`capacitor.config.ts`** | Capacitor 配置文件，同上 |
+| **`docs/` 目录**（12个 md） | 项目文档备份，信息已整合到本 REPORT |
+| **`src/*.bak`** | 备份文件（如 douyin-publish.js.bak.20250610） |
+| **`PROJECT_REPORT.md`** | 就是本文档本身，不需要读自己 |
+
+### 🟢 特定场景才看（有条件地阅读）
+
+| 路径 |什么时候看 | 说明 |
+|------|-----------|------|
+| **`electron/` 目录** | **仅改指纹浏览器时** | main.js + preload.js + fp-templates/*.js，改了需重新打包 Electron 客户端 |
+| **`prisma/schema.prisma`** | **改数据模型时** | 改了需 `prisma db push`（规则禁止 AI 执行 prisma generate） |
+| **`src/middleware.ts`** | **加新 API 白名单 / 改鉴权逻辑** | 改错会导致全站 401 |
+| **`package.json` / `tsconfig.json`** | **规则禁止修改** | 绝不动 |
+
+### ✅ 重点关注的文件（核心代码索引）
+
+> 以下是这个项目的**灵魂文件**，按优先级排列：
+
+#### 第 0 优先级：每次改功能都要看的（⭐⭐⭐）
+
+```
+prisma/schema.prisma              # 数据模型定义（所有表的源头）
+src/middleware.ts                  # JWT鉴权 + API白名单（所有请求必经之路）
+src/lib/ai-providers.ts            # AI统一入口（所有AI功能的调度中心）
+```
+
+#### 第 1 优先级：批量发布相关（当前最活跃模块）
+
+```
+src/app/my-fingerprint/page.tsx    # 抖音批量发布工作台前端 (~880行) V1.8重写 ⭐⭐
+electron/main.js                   # Electron主进程 IPC通道 (~26KB) ⭐⭐⭐
+electron/fp-templates/douyin-publish.js  # 抖音发视频Playwright脚本 (~600行) ⭐⭐⭐
+electron/preload.js                # IPC桥接 window.electronAPI 暴露 ⭐
+```
+
+#### 第 2 优先级：一键合成相关
+
+```
+src/app/auto-compile/page.tsx      # 一键合成前端页面
+src/app/api/video/auto-compile/route.ts  # 一键合成API
+src/lib/video-task-manager.ts      # 普通成片引擎（FFmpeg步骤编排）
+src/lib/smart-compile-engine.ts    # 智能成片引擎
+src/lib/ffmpeg.ts                  # FFmpeg统一执行层（串行队列+nice+超时保护）
+```
+
+#### 第 3 优先级：管理后台 & 其他页面
+
+```
+src/app/admin/page.tsx             # 管理中心首页（入口聚合）
+src/app/admin/devices/page.tsx     # Q1设备管理
+src/app/admin/social-accounts/page.tsx  # 社交账号管理
+src/app/storage/page.tsx           # 素材仓库页面
+src/app/dashboard/page.tsx         # 用户仪表盘
+src/components/Navbar.tsx          # 导航栏（角色权限控制）
+```
+
+#### 第 4 优先级：API 路由层（按需查阅）
+
+```
+src/app/api/storage/files/route.ts # 素材仓库列表（白名单+缩微图）
+src/app/api/storage/file/route.ts  # 单文件下载（白名单）
+src/app/api/devices/[id]/execute/route.ts  # Q1设备执行引擎
+src/app/api/dashboard/*/route.ts  # Dashboard相关API
+```
+
+### 📊 文件重要性分布图
+
+```
+AiMarketing/
+├── 🔴 不看 (70%): node_modules/.next/dist-electron/temp/scripts/android/docs/根目录垃圾
+├── 🟡 少看 (20%): electron/(仅改发布时) package.json/tsconfig.json/配置文件
+└── 🟢 多看 (10%): ← 这就是整个项目的核心 ↓
+    ├── prisma/schema.prisma        ⭐⭐⭐ 数据模型
+    ├── src/middleware.ts           ⭐⭐⭐ 鉴权
+    ├── src/lib/ai-providers.ts     ⭐⭐⭐ AI入口
+    ├── src/app/my-fingerprint/     ⭐⭐⭐ 批量发布(当前焦点)
+    ├── electron/fp-templates/      ⭐⭐⭐ 抖音脚本
+    ├── src/lib/ffmpeg.ts           ⭐⭐  视频处理
+    ├── src/lib/video-task-manager.ts ⭐⭐ 成片引擎
+    ├── src/lib/smart-compile-engine.ts ⭐⭐ 智能引擎
+    ├── src/app/auto-compile/       ⭐⭐  一键合成UI
+    ├── src/app/admin/*/            ⭐   管理后台
+    ├── src/app/api/*/              ⭐   API路由
+    └── src/components/             ⭐   公共组件
+```
 
 ---
 
