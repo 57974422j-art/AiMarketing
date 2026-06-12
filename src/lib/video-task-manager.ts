@@ -392,7 +392,7 @@ async function runTask(
     const op = path.join('/root/AiMarketing/public/generated', `${task.id}.mp4`)
     const vfArg = finalVf ? `-vf "${finalVf}"` : ''
     console.log(`[合成] 最终渲染 task=${task.id} 时长=${totalDur}s 字幕模式=${subtitleMode}`)
-    await runFFmpeg(`-y -i "${mv}" -i "${ai}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur}`, { timeout: 300000 })
+    await runFFmpeg(`-y -i "${mv}" -i "${ai}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${totalDur} "${op}"`, { timeout: 300000 })
 
     // 完成
     task.progress = 100

@@ -154,7 +154,7 @@ export async function encodeClipsWithEffects(
       const vfBase = src ? sf : `${sf},${cf}`
       const loop = srcDur < segDuration ? '-stream_loop -1 ' : ''
       await runFFmpeg(
-        `-y ${loop}-i "${src}" -vf "${vfBase},zoompan=z='min(zoom+0.0015,1.5)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${Number(segT.replace('.', '*'))*25}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p`,
+        `-y ${loop}-i "${src}" -vf "${vfBase},zoompan=z='min(zoom+0.0015,1.5)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${Number(segT.replace('.', '*'))*25}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
         { timeout: 180000 }
       )
     } else if (!isVideo && options.kenBurns !== 'none') {
@@ -166,7 +166,7 @@ export async function encodeClipsWithEffects(
         vf += `,zoompan=d=${kbParams.d}:s=${kbParams.s}:z=${kbParams.z}:fps=25`
       }
       await runFFmpeg(
-        `-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p`,
+        `-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
         { timeout: 60000 }
       )
     } else if (isVideo) {
@@ -178,7 +178,7 @@ export async function encodeClipsWithEffects(
       const srcDur = getDuration(src)
       const loop = srcDur < segDuration ? '-stream_loop -1 ' : ''
       await runFFmpeg(
-        `-y ${loop}-i "${src}" -vf "${vf}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p`,
+        `-y ${loop}-i "${src}" -vf "${vf}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
         { timeout: 180000 }
       )
     } else {
@@ -186,7 +186,7 @@ export async function encodeClipsWithEffects(
       let vf = sf
       if (cf) vf = vf + ',' + cf
       await runFFmpeg(
-        `-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p`,
+        `-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
         { timeout: 60000 }
       )
     }
@@ -383,7 +383,7 @@ export async function finalRenderWithEffects(
   console.log(`[智能成片] 最终渲染 字幕样式=${subtitleStyle} 贴纸=${smartOptions.stickers.length}个`)
 
   await runFFmpeg(
-    `-y -i "${mergedVideo}" -i "${audioPath}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${params.totalDuration}`,
+    `-y -i "${mergedVideo}" -i "${audioPath}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${params.totalDuration} "${outputPath}"`,
     { timeout: 300000 }
   )
 }
