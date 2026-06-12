@@ -579,14 +579,28 @@ async function step6_covers(page, params, log) {
             closed = true
           }
         }
-        // 等待弹窗完全消失（关键！否则下一个按钮会被遮罩挡住）
-        if (closed) {
-          log('    等待弹窗关闭动画...')
+        // 用 JS 强制清除所有弹窗/遮罩 DOM（抖音弹窗关闭后元素不消失会挡住后续操作）
+        if (closed || i === 0) {
+          log('    清除页面残留弹窗...')
+          await page.waitForTimeout(800)
           try {
-            await page.waitForSelector('[role="dialog"][aria-modal="true"]', { state: 'hidden', timeout: 5000 }).catch(function() {})
-            await page.waitForSelector('.dy-creator-content-modal-wrap', { state: 'hidden', timeout: 3000 }).catch(function() {})
+            await page.evaluate(function() {
+              // 移除所有 modal dialog 和 portal 遮罩
+              var selectors = [
+                '[role="dialog"][aria-modal="true"]',
+                '.dy-creator-content-modal-wrap',
+                '.dy-creator-content-portal',
+                '[class*="modal-overlay"]',
+                '[class*="modal-mask"]',
+              ]
+              selectors.forEach(function(sel) {
+                var els = document.querySelectorAll(sel)
+                for (var k = 0; k < els.length; k++) { els[k].remove() }
+              })
+            })
+            log('    ✅ 弹窗已清除')
           } catch (_) {}
-          await page.waitForTimeout(1000)
+          await page.waitForTimeout(800)
         }
 
       } catch (e) { log('    ⚠️ ' + lab + ': ' + e.message) }
