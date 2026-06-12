@@ -114,16 +114,10 @@ export async function POST(req: NextRequest) {
       // 从 OSS 下载选中的文件到本地工作目录
       const { getOSSClient } = await import('@/lib/oss')
       const oss = await getOSSClient()
-      // 从 auth 获取 userId（优先 header，其次 query fallback）
-      let userId = ''
-      try {
-        const authHeader = req.headers.get('cookie') || ''
-        // 简单提取：实际项目中应使用 getAuthFromHeaders
-        const userIdMatch = authHeader.match(/userId=([^;]+)/)
-        if (userIdMatch) userId = userIdMatch[1]
-      } catch {}
+      // 从 auth 获取 userId（middleware 已经解析 JWT 并注入 X-User-Id）
+      let userId = req.headers.get('X-User-Id') || ''
       if (!userId) {
-        // 尝试从 formData 中获取
+        // fallback: 尝试从 formData 中获取
         userId = (f.get('userId') as string) || ''
       }
       for (let i = 0; i < storageFiles.length; i++) {

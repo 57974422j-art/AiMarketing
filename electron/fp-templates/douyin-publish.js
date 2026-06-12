@@ -561,7 +561,6 @@ async function step6_covers(page, params, log) {
               await cb2.click({ timeout: 3000 })
               log('    ✅ 关闭弹窗(' + lab + ')')
               closed = true
-              await page.waitForTimeout(1500)
               break
             }
           } catch (_) {}
@@ -573,13 +572,21 @@ async function step6_covers(page, params, log) {
             if (xBtn && await xBtn.isVisible().catch(function() { return false })) {
               await xBtn.click().catch(function() {})
               closed = true
-              await page.waitForTimeout(1000)
             }
           } catch (_) {}
           if (!closed) {
             await page.keyboard.press('Escape')
-            await page.waitForTimeout(1000)
+            closed = true
           }
+        }
+        // 等待弹窗完全消失（关键！否则下一个按钮会被遮罩挡住）
+        if (closed) {
+          log('    等待弹窗关闭动画...')
+          try {
+            await page.waitForSelector('[role="dialog"][aria-modal="true"]', { state: 'hidden', timeout: 5000 }).catch(function() {})
+            await page.waitForSelector('.dy-creator-content-modal-wrap', { state: 'hidden', timeout: 3000 }).catch(function() {})
+          } catch (_) {}
+          await page.waitForTimeout(1000)
         }
 
       } catch (e) { log('    ⚠️ ' + lab + ': ' + e.message) }
