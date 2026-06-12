@@ -106,14 +106,16 @@ function processQueue() {
     fullCmd = `nice -n 19 "${ffmpegPath}"${threadArg} ${cmd}`
   }
 
-  console.log(`[FF队列] 排队=${ffQueue.length+1} 执行: ${fullCmd.slice(0,120)}...`)
+  console.log(`[FF队列] 排队=${ffQueue.length+1} 执行: ${fullCmd}`)
   const startTime = Date.now()
 
   exec(fullCmd, { timeout, maxBuffer }, (err, stdout, stderr) => {
     queueProcessing = false
 
     if (err) {
-      const errMsg = (stderr || err.message).slice(0, 500)
+      // FFmpeg stderr 前几百字是版本头，真正的错误在末尾。保留尾部2000字符
+      const raw = (stderr || err.message || '')
+      const errMsg = raw.length > 2000 ? '...(前' + raw.length + '字)...' + raw.slice(-2000) : raw
       console.error(`[FF队列] ❌ 失败 (${Date.now()-startTime}ms): ${errMsg}`)
       reject(new Error(`FFmpeg error: ${errMsg}`))
     } else {
