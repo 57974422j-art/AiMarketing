@@ -902,42 +902,63 @@ async function step7_publish(page, params, log) {
 async function executeDouyinPublish(page, params, log) {
   var fs = require('fs')
 
+  log('📋 参数检查开始...')
+  log('   videoPath: ' + (params.videoPath || '未提供'))
+  log('   title: ' + (params.title || '未提供'))
+  log('   coverImage: ' + (params.coverImage || '无'))
+
   // 校验
-  if (!params.videoPath) return { success: false, message: '请提供视频文件路径' }
-  if (!fs.existsSync(params.videoPath)) return { success: false, message: '视频文件不存在: ' + params.videoPath }
+  if (!params.videoPath) { log('❌ 缺少videoPath'); return { success: false, message: '请提供视频文件路径' } }
+  if (!fs.existsSync(params.videoPath)) { log('❌ 视频文件不存在'); return { success: false, message: '视频文件不存在: ' + params.videoPath } }
+  log('✅ 视频文件校验通过')
 
   try {
     // Step 1: 导航
+    log('▶ Step 1/7: 导航到发布页...')
     await step1_navigate(page, params, log)
+    log('✅ Step 1 完成')
 
     // Step 2: 上传
+    log('▶ Step 2/7: 上传视频...')
     var uploadErr = await step2_upload(page, params, fs, log)
     if (uploadErr) return uploadErr
+    log('✅ Step 2 完成')
 
     // Step 3: 等待转码完成进入编辑页
+    log('▶ Step 3/7: 等待转码...')
     var step3Result = await step3_waitUpload(page, log)
-    if (step3Result && !step3Result.success) return step3Result // 上传失败或作品检测失败
+    if (step3Result && !step3Result.success) return step3Result
+    log('✅ Step 3 完成')
 
     // Step 4: 填写标题+正文
+    log('▶ Step 4/7: 填写标题+正文...')
     await step4_fillContent(page, params, log)
+    log('✅ Step 4 完成')
 
     // Step 5: 话题
+    log('▶ Step 5/7: 添加话题...')
     await step5_topics(page, params, log)
+    log('✅ Step 5 完成')
 
     // Step 5.5: 位置
+    log('▶ Step 5.5/7: 设置位置...')
     await step55_location(page, params, log)
 
     // Step 6: 封面
+    log('▶ Step 6/7: 选择封面...')
     await step6_covers(page, params, log)
 
     // Step 6.5: 音乐
+    log('▶ Step 6.5/7: 选择音乐...')
     await step65_selectMusic(page, params, log)
 
     // Step 7: 发布
+    log('▶ Step 7/7: 发布...')
     return await step7_publish(page, params, log)
 
   } catch (e) {
-    log('❌ 出错: ' + e.message)
+    log('❌ 异常退出: ' + e.message)
+    log('   堆栈: ' + (e.stack || '').substring(0, 300))
     return { success: false, message: e.message }
   }
 }
