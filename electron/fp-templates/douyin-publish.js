@@ -45,7 +45,7 @@ async function step1_navigate(page, params, log) {
 
   if (!currentUrl.includes('/content/upload')) {
     log(`导航到: ${targetUrl}`)
-    await page.goto(targetUrl, { timeout: 30000, waitUntil: 'networkidle' })
+    await page.goto(targetUrl, { timeout: 30000, waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(5000)
     log(`已到达: ${page.url()}`)
   } else {
