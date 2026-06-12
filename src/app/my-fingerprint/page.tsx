@@ -326,6 +326,9 @@ export default function MyFingerprintPage() {
 
     setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🚀 开始批量发布，共 ${pendingTasks.length} 个任务`])
 
+    let doneCount = 0
+    let failCount = 0
+
     for (let i = 0; i < pendingTasks.length; i++) {
       if (batchPaused) {
         setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏸ 用户暂停`])
@@ -345,12 +348,14 @@ export default function MyFingerprintPage() {
         if (window.electronAPI?.fpExecute) {
           const res = await window.electronAPI.fpExecute(port, 'douyin-publish', params)
           if (res.success) {
+            doneCount++
             setTaskQueue(prev => prev.map(t =>
               t.id === task.id ? { ...t, status: 'done' as const } : t
             ))
             setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 第 ${i + 1} 个任务完成: ${task.videoName}`])
             if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
           } else {
+            failCount++
             setTaskQueue(prev => prev.map(t =>
               t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: res.error } : t
             ))
@@ -360,6 +365,7 @@ export default function MyFingerprintPage() {
           throw new Error('需要客户端环境')
         }
       } catch (e: any) {
+        failCount++
         setTaskQueue(prev => prev.map(t =>
           t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: e.message } : t
         ))
@@ -375,8 +381,6 @@ export default function MyFingerprintPage() {
     }
 
     setBatchRunning(false)
-    const doneCount = taskQueue.filter(t => t.status === 'done').length
-    const failCount = taskQueue.filter(t => t.status === 'failed').length
     setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏁 批量发布结束: ✅${doneCount} ❌${failCount}`])
     showMsg(`批量发布完成: 成功 ${doneCount}, 失败 ${failCount}`, failCount > 0 ? 'error' : 'success')
   }
