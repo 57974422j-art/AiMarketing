@@ -1,11 +1,12 @@
 # AiMarketing 项目完整报告
 
-> 生成日期: 2026-06-06 (本轮更新)
+> 生成日期: 2026-06-12 (V1.7 一键合成修复专场)
 > 项目路径: `/root/AiMarketing` (服务器) / `D:\AiMarketing` (本地)
 > 域名: http://120.55.43.195:3000
 > PM2 进程名: `aimarketing`
 > Git: github.com:57974422j-art/AiMarketing.git (master)
 > 技术栈: Next.js 14 + TypeScript + Prisma 5.22.0 + SQLite + Tailwind CSS
+> 部署限制: Electron 仅桌面端(Windows/macOS/Linux)，手机端(Capacitor)不支持指纹浏览器/视频合成等后端功能
 
 ---
 
@@ -74,7 +75,9 @@
 | **小红书发帖** | `xiaohongshu-publish` | 小红书文案发布 |
 | **停止按钮** | — | 运行中可中断脚本执行（global.__fpAbort） |
 
-#### 抖音发视频参数表（douyin-publish v5）
+> ⚠️ **已删除功能**: 音乐自动选择（v5 模板已移除 step65_selectMusic），用户决定本地配好音乐后再发布
+
+#### 抖音发视频参数表（douyin-publish v5，2026-06-12 更新）
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
@@ -148,14 +151,14 @@ electron/
 └── fp-templates/
     └── douyin-publish.js            # 抖音发视频模板 (~600行) ⭐⭐⭐
         ├── executeDouyinPublish()   # 主入口函数（module.exports）
-        ├── step1_navigate()         # 导航到 creator.douyin.com/content/upload
+        ├── step1_navigate()         # 导航到 creator.douyin.com/content/upload (domcontentloaded, 非networkidle)
         ├── step2_upload()           # 视频上传（file input / filechooser 三种方法）
         ├── step3_waitUpload()       # 等待转码+进入编辑页（核心判定逻辑）
         ├── step4_fillContent()      # 填标题(input/textarea) + 正文(contenteditable)
         ├── step5_topics()           # #添加话题 手动输入模式
         ├── step55_location()        # 地理位置填写
-        ├── step6_covers()           # 封面选择/自定义上传（弹窗管理）
-        └── step7_publish()          # 发布 或 存草稿
+        ├── step6_covers()           # 封面选择/自定义上传（弹窗关闭后JS强制移除DOM）
+        └── step7_publish()          # 发布 或 存草稿（音乐功能已删除，2026-06-12）
 
 src/app/my-fingerprint/page.tsx      # 指纹模拟器前端页面 (~35KB) ⭐⭐
     ├── Window.electronAPI 类型声明（第48-62行）
@@ -177,7 +180,19 @@ src/app/my-fingerprint/page.tsx      # 指纹模拟器前端页面 (~35KB) ⭐�
 
 ---
 
-## 五、最近更新记录（2026-05 ~ 2026-06-10）
+## 五、最近更新记录（2026-05 ~ 2026-06-12）
+
+### V1.7 一键合成修复专场（2026-06-12）
+
+> **背景**: 仓库素材模式完全不可用，经排查发现多个累积性 Bug
+
+| Commit | 改动内容 | 关键文件 |
+|--------|---------|---------|
+| `d8e9455` | **FormData mode 覆盖 Bug**: `fd.append('mode', mode)` 预设在素材判断之前，导致 storage 模式永远被 free 模式覆盖（FormData 同名 key 多次 append 时 get() 取第一个值） | `src/app/auto-compile/page.tsx` |
+| `bbecf63` | **FFmpeg 错误日志截断**: 原代码 `slice(0, 500)` 导致 FFmpeg 版本头(400+字)占满，真正错误被截掉。改为完整输出命令 + 保留尾部 2000 字符 | `src/lib/ffmpeg.ts` |
+| `ac29b62` | **FFmpeg 输出文件缺失(普通模式)**: Step5 图片/视频→片段命令漏了 `"${out}"` 参数 → 报 "At least one output file must be specified" | `src/lib/video-task-manager.ts` (2处) |
+| `e455104` | **FFmpeg 输出文件缺失(智能模式+最终渲染)**: 智能引擎4片段 + 最终渲染共5处同样问题，一次性修复 | `src/lib/smart-compile-engine.ts` (5处) |
+| `40c731f` | **删除音乐功能 + 修复仓库图片缩略图 + FFmpeg xfade 越界** (上一轮) | 多文件 |
 
 ### V2 路线图实施进展（本轮会话完成）
 
@@ -203,7 +218,7 @@ src/app/my-fingerprint/page.tsx      # 指纹模拟器前端页面 (~35KB) ⭐�
 | — | **TypeScript 类型修复**：douyin-profile.ts 正则索引类型注解 `[RegExp, string][]` | `src/lib/automation/fp-templates/douyin-profile.ts` |
 | — | **LF 行尾规范化**：新增 `.gitattributes` 强制 LF，避免 Windows CRLF 导致 Linux SWC 编译失败 | `.gitattributes` |
 
-### FFmpeg 统一执行层说明（2026-06-10 新增）
+### FFmpeg 统一执行层说明（2026-06-10 创建，2026-06-12 增强）
 
 > **核心文件**: `src/lib/ffmpeg.ts`
 > **设计目标**: 解决多模块同时使用 FFmpeg 导致 4 核 CPU 爆满、服务器死机的问题
@@ -217,6 +232,13 @@ src/app/my-fingerprint/page.tsx      # 指纹模拟器前端页面 (~35KB) ⭐�
                                               ↓
                               nice -n 19（最低优先级）+ threads 1（单线程）
 ```
+
+#### 日志增强 (2026-06-12)
+
+| 项目 | 改前 | 改后 |
+|------|------|------|
+| 命令日志 | `slice(0, 120)` 截断 | 完整输出 |
+| 错误信息 | `slice(0, 500)` 被版本头占满 | 保留尾部 2000 字符（FFmpeg 真正错误在末尾） |
 
 #### API
 
@@ -375,8 +397,11 @@ cd /root/AiMarketing && git pull && rm -rf .next && npx next build && pm2 restar
 13. **停止机制**: `global.__fpAbort` 布尔标志，每轮循环检查；IPC通道 `fp:scriptStop`
 14. **IPC 通道命名冲突**: 已有 `fp:stop` 用于停浏览器实例，所以停止脚本用了 `fp:scriptStop`
 15. **标题元素类型不确定**: 抖音可能用 input 也可能用 contenteditable div，两种都要尝试
-16. **封面弹窗遮挡**: 点第一个「选择封面」打开弹窗后，第二个按钮被弹窗遮盖无法点击 → 需要先点「完成」关闭弹窗
+16. **封面弹窗遮挡**: 点第一个「选择封面」打开弹窗后，第二个按钮被弹窗遮盖无法点击 → 需要先点「完成」关闭弹窗 → 弹窗关闭后用 JS 强制移除所有 `[role="dialog"]` / `.dy-creator-content-modal-wrap` DOM 元素
 17. **Step3 判定优先级**: 终止(作品检测失败) > 成功(封面文字) > 成功(contenteditable 表单)
+18. **导航等待策略**: 抖音 SPA 页面有 WebSocket 长连接，`waitUntil:'networkidle'` 永远不返回 → 必须用 `'domcontentloaded'`
+19. **音乐功能已删除 (2026-06-12)**: 原因是弹窗复杂+推荐黑屏+用户决定本地配好音乐再发布
+20. **移动端不支持**: Capacitor 打包的 App 无法使用指纹浏览器（Electron 仅桌面平台）
 
 ### 魔云腾 Q1 设备
 
@@ -430,10 +455,32 @@ cd /root/AiMarketing && git pull && rm -rf .next && npx next build && pm2 restar
 
 | 优先级 | 问题 | 状态 | 备注 |
 |--------|------|------|------|
-| 🔴 高 | 封面弹窗第二个按钮仍偶发超时 | 部分 | 已加「完成」关闭逻辑，待验证 |
+| 🔴 高 | 一键合成 FFmpeg 输出文件缺失(7处) | ✅ **已修复** `e455104` | 普通模式2+智能模式4+最终渲染1，全部补上 `"${out}"` |
+| 🔴 高 | 一键合成 FormData mode 被覆盖 | ✅ **已修复** `d8e9455` | 删除预设置 mode，统一在素材来源判断中设置 |
+| 🔴 高 | FFmpeg 错误信息被截断无法定位问题 | ✅ **已修复** `bbecf63` | 完整输出命令 + 尾部2000字符 |
+| 🟡 中 | 智能成片 xfade 转场越界崩溃 | ✅ **已修复** `40c731f` | 真实时长检测 + 累积偏移 + 安全边界 |
+| 🟡 中 | 仓库图片缩略图显示碎裂 | ✅ **已修复** `40c731f` | 图片 thumbUrl 返回自身文件而非 null |
 | 🟡 中 | 话题输入后未自动触发推荐选择列表 | 待测 | 可能需要更精确的等待时机 |
 | 🟡 中 | 位置输入后下拉推荐匹配不稳定 | 待测 | 取决于抖音接口响应速度 |
-| 🟢 低 | 根目录垃圾文件未清理 | ✅ 已解决 | 2026-06-05 已删除 5 个垃圾文件，剩余 `addsnap.mjs` 等 |
+| 🟢 低 | 根目录垃圾文件未清理 | ⚠️ 部分解决 | 2026-06-05 已删除部分，剩余 `addsnap.mjs` 等 |
+| 💭 建议 | 素材选中后统一预上传到服务器临时存储 | 未开始 | 避免 local/search/storage 三种路径的边界问题（用户提议） |
+
+### 一键合成模式说明（2026-06-12 更新）
+
+> **核心文件**: `src/app/auto-compile/page.tsx` (前端) + `src/app/api/video/auto-compile/route.ts` (API) + `src/lib/video-task-manager.ts` (普通引擎) + `src/lib/smart-compile-engine.ts` (智能引擎)
+
+#### 三种素材来源
+
+| 模式 | 来源 | 后端处理 | 适用场景 |
+|------|------|---------|---------|
+| `free` | 本地上传 File + 可选网络URL | 写入工作目录 + downloadToFile | 传统上传方式 |
+| `smart` | 网络 URL (搜图) | downloadToFile 全部下载到本地 | AI 搜图配图 |
+| `storage` | 素材仓库 (OSS) | OSS get() 下载到本地 | 终端客户从仓库选 |
+
+#### 关键注意事项
+1. **mode 参数只能设置一次**: FormData 同名 key 多次 `append()` 时，`get()` 取第一个值。不要在素材判断之前预设 mode
+2. **FFmpeg 命令必须有输出文件**: 每个 `runFFmpeg()` 调用必须包含 `"${outputPath}"` 作为最后一个参数
+3. **materialList 统一素材管理**: 前端用 materialList 合并三种来源，提交时按 source 拆分到不同 FormData 字段
 
 ---
 
@@ -1611,6 +1658,7 @@ Step 6: 效果追踪
 | V1.0 | 2026-05 ~ 2026-06-05 | 初始版本：基础功能 + 指纹浏览器 |
 | V1.5 | 2026-06-06 | Phase 3 直播模块 + Phase 4 代理赋能（直播中控台/代理工作台/AI诊断/行业简报） |
 | V1.6 | 2026-06-10 | 基础架构优化：FFmpeg 统一执行层 + 高优先级通道 + Dashboard SWC修复 + Navbar角色权限 |
+| **V1.7** | **2026-06-12** | **一键合成修复专场**: FormData mode覆盖 + FFmpeg输出文件缺失(7处) + 日志截断 + xfade越界 + 图片缩略图 + 删除音乐功能 |
 | V2.0 | 规划中 | **路线图**：V2 升级（Phase 0-5，详见下方） |
 
 ---
@@ -1654,6 +1702,6 @@ npx prisma db push  # 推送 schema 变更到 SQLite
 ---
 
 > **文档结束**
-> 最后更新: 2026-06-10 (V1.6 FFmpeg统一执行层 + 高优先级通道 + Dashboard SWC修复)
+> 最后更新: 2026-06-12 (V1.7 一键合成修复专场 - 7处FFmpeg输出文件缺失 + FormData mode覆盖 + 日志截断)
 > 下次更新: 推进 Phase 0 / Phase 1 时
 > 维护者: AI 助手
