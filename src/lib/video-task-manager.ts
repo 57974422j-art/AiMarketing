@@ -329,11 +329,11 @@ async function runTask(
           if (srcSize && srcSize.w >= W && srcSize.h >= H) vf = `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`
           if (cf) vf = vf + ',' + cf
           const loop = srcDur < segDuration ? '-stream_loop -1 ' : ''
-          await runFFmpeg(`-y ${loop}-i "${src}" -vf "${vf}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p`, { timeout: 180000 })
+          await runFFmpeg(`-y ${loop}-i "${src}" -vf "${vf}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`, { timeout: 180000 })
         } else {
           let vf = sf
           if (cf) vf = vf + ',' + cf
-          await runFFmpeg(`-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p`, { timeout: 60000 })
+          await runFFmpeg(`-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`, { timeout: 60000 })
         }
       task.progress = 35 + Math.round((i + 1) / mp.length * 30)
     }
