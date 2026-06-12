@@ -1068,13 +1068,15 @@ interface VLResult { x: number; y: number; x2?: number; y2?: number }
 /** 调用百炼 VL 识别按钮坐标 */
 async function dashscopeLocateButton(base64Image: string, buttonDesc: string): Promise<VLResult | null> {
   const key = getDashScopeKey()
-  if (!key) return null
+  if (!key) { console.log('[百炼VL] 跳过: 未配置DashScope Key'); return null }
+  const t0 = Date.now()
   try {
+    console.log(`[百炼VL] 🚀 开始定位: "${buttonDesc}" (图片${(base64Image.length/1024).toFixed(0)}KB)`)
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'qwen-vl-plus',
+        model: 'qwen-vl-max',
         messages: [{
           role: 'user',
           content: [
@@ -1087,15 +1089,33 @@ async function dashscopeLocateButton(base64Image: string, buttonDesc: string): P
       }),
     })
     const text = data?.choices?.[0]?.message?.content?.trim()
-    if (!text) return null
-    const m = text.match(/\{\s*"x"\s*:\s*(\d+)\s*,\s*"y"\s*:\s*(\d+)\s*\}/)
-    if (m) return { x: parseInt(m[1]), y: parseInt(m[2]) }
+    console.log(`[百炼VL] 📥 耗时${Date.now()-t0}ms 原始响应: "${text ? text.substring(0, 200) : '(空)'}"`)
+    if (!text) { console.log('[百炼VL] ❌ 响应为空'); return null }
+    // 优先解析包围框 {x,y,x2,y2}
+    let m = text.match(/\{\s*"x"\s*:\s*(\d+)\s*,\s*"y"\s*:\s*(\d+)\s*,\s*"x2"\s*:\s*(\d+)\s*,\s*"y2"\s*:\s*(\d+)\s*\}/)
+    if (m) {
+      const r = { x: parseInt(m[1]), y: parseInt(m[2]), x2: parseInt(m[3]), y2: parseInt(m[4]) }
+      console.log(`[百炼VL] ✅ 包围框解析成功 → (${r.x},${r.y})-(${r.x2},${r.y2})`)
+      return r
+    }
+    // 兼容单点格式 {x,y}
+    m = text.match(/\{\s*"x"\s*:\s*(\d+)\s*,\s*"y"\s*:\s*(\d+)\s*\}/)
+    if (m) {
+      const r = { x: parseInt(m[1]), y: parseInt(m[2]) }
+      console.log(`[百炼VL] ✅ 单点坐标 → (${r.x},${r.y})`)
+      return r
+    }
     // 试试非 JSON 格式
     const m2 = text.match(/(\d+)[,\s]+(\d+)/)
-    if (m2) return { x: parseInt(m2[1]), y: parseInt(m2[2]) }
+    if (m2) {
+      const r = { x: parseInt(m2[1]), y: parseInt(m2[2]) }
+      console.log(`[百炼VL] ⚠️ 模糊匹配数字对 → (${r.x},${r.y})`)
+      return r
+    }
+    console.log(`[百炼VL] ❌ 无法解析响应格式: "${text.substring(0, 100)}"`)
     return null
-  } catch (e) {
-    console.error('[百炼VL] 定位失败:', e)
+  } catch (e: any) {
+    console.error(`[百炼VL] ❌ 异常(耗时${Date.now()-t0}ms):`, e?.message || e)
     return null
   }
 }
@@ -1103,8 +1123,10 @@ async function dashscopeLocateButton(base64Image: string, buttonDesc: string): P
 /** 调用硅基 VL 识别按钮坐标 */
 async function siliconLocateButton(base64Image: string, buttonDesc: string): Promise<VLResult | null> {
   const key = getSiliconFlowKey()
-  if (!key) return null
+  if (!key) { console.log('[硅基VL] 跳过: 未配置SiliconFlow Key'); return null }
+  const t0 = Date.now()
   try {
+    console.log(`[硅基VL] 🚀 开始定位: "${buttonDesc}"`)
     const data = await fetchJSON(`${SILICONFLOW_BASE}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
@@ -1122,18 +1144,32 @@ async function siliconLocateButton(base64Image: string, buttonDesc: string): Pro
       }),
     })
     const text = data?.choices?.[0]?.message?.content?.trim()
-    if (!text) return null
+    console.log(`[硅基VL] 📥 耗时${Date.now()-t0}ms 原始响应: "${text ? text.substring(0, 200) : '(空)'}"`)
+    if (!text) { console.log('[硅基VL] ❌ 响应为空'); return null }
     // 优先解析包围框 {x,y,x2,y2}
     let m = text.match(/\{\s*"x"\s*:\s*(\d+)\s*,\s*"y"\s*:\s*(\d+)\s*,\s*"x2"\s*:\s*(\d+)\s*,\s*"y2"\s*:\s*(\d+)\s*\}/)
-    if (m) return { x: parseInt(m[1]), y: parseInt(m[2]), x2: parseInt(m[3]), y2: parseInt(m[4]) }
+    if (m) {
+      const r = { x: parseInt(m[1]), y: parseInt(m[2]), x2: parseInt(m[3]), y2: parseInt(m[4]) }
+      console.log(`[硅基VL] ✅ 包围框解析成功 → (${r.x},${r.y})-(${r.x2},${r.y2})`)
+      return r
+    }
     // 兼容旧格式 {x,y}
     m = text.match(/\{\s*"x"\s*:\s*(\d+)\s*,\s*"y"\s*:\s*(\d+)\s*\}/)
-    if (m) return { x: parseInt(m[1]), y: parseInt(m[2]) }
+    if (m) {
+      const r = { x: parseInt(m[1]), y: parseInt(m[2]) }
+      console.log(`[硅基VL] ✅ 单点坐标 → (${r.x},${r.y})`)
+      return r
+    }
     const m2 = text.match(/(\d+)[,\s]+(\d+)/)
-    if (m2) return { x: parseInt(m2[1]), y: parseInt(m2[2]) }
+    if (m2) {
+      const r = { x: parseInt(m2[1]), y: parseInt(m2[2]) }
+      console.log(`[硅基VL] ⚠️ 模糊匹配数字对 → (${r.x},${r.y})`)
+      return r
+    }
+    console.log(`[硅基VL] ❌ 无法解析响应格式: "${text.substring(0, 100)}"`)
     return null
-  } catch (e) {
-    console.error('[硅基VL] 定位失败:', e)
+  } catch (e: any) {
+    console.error(`[硅基VL] ❌ 异常(耗时${Date.now()-t0}ms):`, e?.message || e)
     return null
   }
 }
@@ -1154,12 +1190,14 @@ export async function aiLocateButton(apiPort: number, buttonDesc: string): Promi
 async function dashscopeDescribeScreen(base64Image: string): Promise<string | null> {
   const key = getDashScopeKey()
   if (!key) return null
+  const t0 = Date.now()
   try {
+    console.log(`[百炼VL-Describe] 🚀 分析页面 (图片${(base64Image.length/1024).toFixed(0)}KB)`)
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'qwen-vl-plus',
+        model: 'qwen-vl-max',
         messages: [{
           role: 'user',
           content: [
@@ -1171,9 +1209,11 @@ async function dashscopeDescribeScreen(base64Image: string): Promise<string | nu
         max_tokens: 200,
       }),
     })
-    return data?.choices?.[0]?.message?.content?.trim() || null
-  } catch (e) {
-    console.error('[百炼VL] 页面分析失败:', e)
+    const text = data?.choices?.[0]?.message?.content?.trim()
+    console.log(`[百炼VL-Describe] 📥 耗时${Date.now()-t0}ms → ${text ? text.substring(0, 150) : '(空)'}`)
+    return text || null
+  } catch (e: any) {
+    console.error(`[百炼VL-Describe] ❌ 失败(耗时${Date.now()-t0}ms):`, e?.message || e)
     return null
   }
 }
@@ -1231,16 +1271,24 @@ async function dd(milestone: string, goal: string, b64: string, scr: SC): Promis
 {"analysis":"分析当前页面类型和应该做什么","status":"CONTINUE|DONE","action":"click|input|wait","target_desc":"点击目标的描述","coordinates":{"x":整数像素,"y":整数像素},"text_content":""}
 坐标必须是实际像素。只输出 JSON。`
 
+  const t0 = Date.now()
   try {
+    console.log(`[百炼VL-ReAct] 🚀 决策请求 (screen=${scr.width}x${scr.height})`)
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({ model: 'qwen-vl-plus', messages: [{ role: 'user', content: [{ type: 'text', text: p }, { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } }] }], temperature: 0.2, max_tokens: 1000, response_format: { type: 'json_object' } }),
+      body: JSON.stringify({ model: 'qwen-vl-max', messages: [{ role: 'user', content: [{ type: 'text', text: p }, { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } }] }], temperature: 0.2, max_tokens: 1000, response_format: { type: 'json_object' } }),
     })
     const rt = data?.choices?.[0]?.message?.content?.trim()
-    if (!rt) return null
-    return pr(rt, scr)
-  } catch (e) { return null }
+    console.log(`[百炼VL-ReAct] 📥 耗时${Date.now()-t0}ms 原始: "${rt ? rt.substring(0, 200) : '(空)'}"`)
+    if (!rt) { console.log('[百炼VL-ReAct] ❌ 响应为空'); return null }
+    const parsed = pr(rt, scr)
+    if (!parsed) console.log(`[百炼VL-ReAct] ❌ 解析失败, 原始响应: "${rt.substring(0, 200)}"`)
+    return parsed
+  } catch (e: any) {
+    console.error(`[百炼VL-ReAct] ❌ 异常(耗时${Date.now()-t0}ms):`, e?.message || e)
+    return null
+  }
 }
 
 function pr(rt: string, scr: SC): DR | null {
@@ -1293,17 +1341,19 @@ const locatorPrompts: Record<string, string> = {
 /** 根据元素描述，在截图上找到坐标 */
 export async function locateElement(base64Image: string, elementDesc: string): Promise<{ x: number; y: number } | null> {
   const key = getDashScopeKey()
-  if (!key) return null
+  if (!key) { console.log('[VL定位器] 跳过: 未配置DashScope Key'); return null }
   // 从描述中匹配已知元素类型
   const type = Object.keys(locatorPrompts).find(k => elementDesc.includes(k)) || '加号'
   const prompt = locatorPrompts[type]
+  console.log(`[VL定位器] 🚀 定位"${type}" | 描述="${elementDesc}" | 图片${(base64Image.length/1024).toFixed(0)}KB`)
 
+  const t0 = Date.now()
   try {
     const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'qwen-vl-plus',
+        model: 'qwen-vl-max',
         messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }] }],
         temperature: 0.1,
         max_tokens: 100,
@@ -1311,11 +1361,30 @@ export async function locateElement(base64Image: string, elementDesc: string): P
       }),
     })
     const text = data?.choices?.[0]?.message?.content?.trim()
-    if (!text) return null
-    const j = JSON.parse(text)
-    if (j.x === -1 || j.y === -1) return null
-    return { x: Math.round(j.x), y: Math.round(j.y) }
-  } catch { return null }
+    console.log(`[VL定位器] 📥 耗时${Date.now()-t0}ms 原始: "${text ? text.substring(0, 200) : '(空)'}"`)
+    if (!text) { console.log(`[VL定位器] ❌ "type}" 响应为空`); return null }
+    let j: any
+    try {
+      j = JSON.parse(text)
+    } catch {
+      console.log(`[VL定位器] ❌ "${type}" JSON解析失败: "${text.substring(0, 150)}"`)
+      return null
+    }
+    if (j.x === undefined || j.y === undefined) {
+      console.log(`[VL定位器] ❌ "${type}" 缺少x/y字段, 收到: ${JSON.stringify(j)}`)
+      return null
+    }
+    if (j.x === -1 || j.y === -1) {
+      console.log(`[VL定位器] ⚠️ "${type}" VL返回(-1,-1)表示找不到`)
+      return null
+    }
+    const result = { x: Math.round(j.x), y: Math.round(j.y) }
+    console.log(`[VL定位器] ✅ "${type}" → (${result.x}, ${result.y})`)
+    return result
+  } catch (e: any) {
+    console.error(`[VL定位器] ❌ "${type}" 异常(耗时${Date.now()-t0}ms):`, e?.message || e)
+    return null
+  }
 }
 
 // ==================== 导出函数 — 双保险模式 ====================
