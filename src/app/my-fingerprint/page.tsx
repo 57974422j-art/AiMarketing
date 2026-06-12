@@ -29,21 +29,24 @@ interface BrowserInstance {
   currentUrl: string
 }
 
+/** 单个发布任务 */
+interface PublishTask {
+  id: string
+  videoName: string       // 视频文件名（素材仓库）
+  title: string           // 标题
+  description: string     // 文案/简介
+  topics: string          // 话题
+  coverImage: string      // 封面
+  location: string        // 位置
+  publishNow: boolean     // true=立即发布 false=草稿
+  status: 'pending' | 'publishing' | 'done' | 'failed'
+  errorMsg?: string
+}
+
 // ── 平台配置 ──
 
 const PLATFORMS = [
   { key: 'douyin', label: '抖音', icon: '🎵', url: 'https://creator.douyin.com/creator-micro/content/upload' },
-  { key: 'xiaohongshu', label: '小红书', icon: '📕', url: 'https://creator.xiaohongshu.com/publish/publish' },
-  { key: 'kuaishou', label: '快手', icon: '📹', url: 'https://cp.kuaishou.com/article/publish/video' },
-  { key: 'bilibili', label: 'B站', icon: '📺', url: 'https://member.bilibili.com/platform/upload-video/frame' },
-  { key: 'weibo', label: '微博', icon: '📢', url: 'https://weibo.com' },
-]
-
-const TEMPLATES = [
-  { key: 'douyin-publish', label: '📝 抖音发视频', platforms: ['douyin'], desc: '上传视频+填写文案+话题，自动发布' },
-  { key: 'douyin-like',   label: '👍 抖音点赞', platforms: ['douyin'], desc: '批量点赞指定视频或当前页' },
-  { key: 'douyin-comment',label: '💬 抖音评论', platforms: ['douyin'], desc: '在目标视频下发表评论' },
-  { key: 'xiaohongshu-publish', label: '📝 小红书发帖', platforms: ['xiaohongshu'], desc: '填写小红书文案内容' },
 ]
 
 // ── Electron API 类型声明 ──
@@ -81,26 +84,26 @@ export default function MyFingerprintPage() {
   // ── 启动参数 ──
   const [proxyInput, setProxyInput] = useState('')
 
-  // ── 模板执行 ──
-  const [showTemplatePanel, setShowTemplatePanel] = useState(false)
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('')
-  const [templateVideoPath, setTemplateVideoPath] = useState('')
-  const [storageVideoName, setStorageVideoName] = useState<string>('')
+  // ── 发布参数表单（用于添加到队列）──
+  const [formVideoName, setFormVideoName] = useState('')
   const [storageVideos, setStorageVideos] = useState<any[]>([])
-  const [templateTitle, setTemplateTitle] = useState('')
-  const [templateDesc, setTemplateDesc] = useState('')
-  const [templateEnableTopics, setTemplateEnableTopics] = useState(true)
-  const [templateCustomTopics, setTemplateCustomTopics] = useState('')
-  const [templateCoverImage, setTemplateCoverImage] = useState('')
+  const [formTitle, setFormTitle] = useState('')
+  const [formDesc, setFormDesc] = useState('')
+  const [formTopics, setFormTopics] = useState('')
+  const [formCoverImage, setFormCoverImage] = useState('')
   const [storageImages, setStorageImages] = useState<any[]>([])
-  const [templateAutoMusic, setTemplateAutoMusic] = useState('')
-  const [storageMusics, setStorageMusics] = useState<any[]>([])
-  const [templateLocation, setTemplateLocation] = useState('')
-  const [templatePublishNow, setTemplatePublishNow] = useState(true)
-  const [templateCaption, setTemplateCaption] = useState('')
-  const [templateTargetUrl, setTemplateTargetUrl] = useState('')
-  const [templateCount, setTemplateCount] = useState(3)
-  const [executing, setExecuting] = useState(false)
+  const [formLocation, setFormLocation] = useState('')
+  const [formPublishNow, setFormPublishNow] = useState(true)
+
+  // ── 任务队列 ──
+  const [taskQueue, setTaskQueue] = useState<PublishTask[]>([])
+
+  // ── 批量发布控制 ──
+  const [batchMode, setBatchMode] = useState<'immediate' | 'scheduled'>('immediate')
+  const [intervalSeconds, setIntervalSeconds] = useState(30)
+  const [scheduleTime, setScheduleTime] = useState('')   // 格式 HH:mm
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [batchPaused, setBatchPaused] = useState(false)
   const [execLogs, setExecLogs] = useState<string[]>([])
 
   // ── 状态消息 ──
@@ -128,8 +131,8 @@ export default function MyFingerprintPage() {
       if (r.ok) {
         const d = await r.json()
         const all = Array.isArray(d) ? d : (d.data || [])
-        // 只显示 manual 类型的账号（已绑定且有端口的）
-        setAccounts(all.filter((a: Account) => a.bindType === 'manual'))
+        // 只显示 manual 类型的抖音账号
+        setAccounts(all.filter((a: Account) => a.bindType === 'manual' && a.platform === 'douyin'))
       }
     } catch (_) {}
     setLoading(false)
@@ -181,7 +184,6 @@ export default function MyFingerprintPage() {
     if (res.success) {
       showMsg(`✅ 浏览器已启动 - ${PLATFORMS.find(p => p.key === acct.platform)?.icon} ${acct.platform}`, 'success')
       setSelectedAccount(acct)
-      setShowTemplatePanel(true)
       refreshBrowserList()
     } else {
       showMsg(`❌ 启动失败: ${res.error}`, 'error')
@@ -197,7 +199,7 @@ export default function MyFingerprintPage() {
       refreshBrowserList()
       if (selectedAccount && selectedAccount.cdpPort === port) {
         setSelectedAccount(null)
-        setShowTemplatePanel(false)
+        setTaskQueue([])
         setExecLogs([])
       }
     } else {
@@ -211,67 +213,188 @@ export default function MyFingerprintPage() {
   }
 
 
-  // ── 模板执行 ──
+  // ── 队列操作 ──
 
-  const handleExecute = async () => {
-    if (!selectedTemplate) { showMsg('请选择模板', 'error'); return }
-    if (!selectedAccount?.cdpPort) return
+  /** 重置表单 */
+  const resetForm = useCallback(() => {
+    setFormVideoName('')
+    setFormTitle('')
+    setFormDesc('')
+    setFormTopics('')
+    setFormCoverImage('')
+    setFormLocation('')
+    setFormPublishNow(true)
+  }, [])
 
-    setExecuting(true)
-    setExecLogs(['开始执行...'])
+  /** 添加任务到队列 */
+  const addToQueue = () => {
+    if (!formVideoName) {
+      showToast('请先选择视频', 'error'); return
+    }
+    if (!formTitle.trim()) {
+      showToast('请填写标题', 'error'); return
+    }
 
+    const task: PublishTask = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      videoName: formVideoName,
+      title: formTitle.trim(),
+      description: formDesc.trim(),
+      topics: formTopics.trim(),
+      coverImage: formCoverImage,
+      location: formLocation,
+      publishNow: formPublishNow,
+      status: 'pending',
+    }
+
+    setTaskQueue(prev => [...prev, task])
+    resetForm()
+    showToast(`已添加到队列 (#${taskQueue.length + 1})`, 'success')
+  }
+
+  /** 从队列移除任务 */
+  const removeFromQueue = (taskId: string) => {
+    setTaskQueue(prev => prev.filter(t => t.id !== taskId))
+  }
+
+  /** 清空队列 */
+  const clearQueue = () => {
+    if (batchRunning) return
+    setTaskQueue([])
+  }
+
+
+  // ── 批量发布执行 ──
+
+  /** 构建单个任务的执行参数 */
+  const buildTaskParams = async (task: PublishTask): Promise<Record<string, any>> => {
     const params: Record<string, any> = {}
-    switch (selectedTemplate) {
-      case 'douyin-publish':
-        params.storageFileName = storageVideoName
-        // 下载视频需要 userId + token（storage API 鉴权）
-        try {
-          const sr = await fetch(`/api/storage/files?userId=${user?.id || ''}`, { credentials: 'include' })
-          const sd = await sr.json()
-          if (sd.success) {
-            params.userId = sd.data.userId
-            // 提取当前 JWT token 供主进程下载时使用
-            params.authToken = document.cookie.split(';').find(c => c.trim().startsWith('token='))?.trim().replace('token=', '') || ''
-          }
-        } catch {}
-        params.title = templateTitle
-        params.description = templateDesc
-        params.topics = templateCustomTopics.trim()
-        params.coverImage = templateCoverImage
-        params.location = templateLocation
-        params.publishNow = String(templatePublishNow)
-        break
-      case 'douyin-comment':
-        params.comment = templateCaption
-        params.targetUrl = templateTargetUrl
-        break
-      case 'douyin-like':
-        params.targetUrls = templateTargetUrl ? [templateTargetUrl] : []
-        params.count = templateCount
-        break
-      case 'xiaohongshu-publish':
-        params.caption = templateCaption
-        break
-    }
-
-    const port = selectedAccount.cdpPort!
-
-    if (window.electronAPI?.fpExecute) {
-      try {
-        const res = await window.electronAPI.fpExecute(port, selectedTemplate, params)
-        setExecuting(false)
-        if (res.data?.logs) setExecLogs(res.data.logs)
-        showMsg(res.data?.message || (res.success ? '执行完成' : '执行出错'), res.success ? 'success' : 'error')
-      } catch (e: any) {
-        setExecuting(false)
-        setExecLogs(prev => [...prev, `错误: ${e.message}`])
-        showMsg(`执行出错: ${e.message}`, 'error')
+    params.storageFileName = task.videoName
+    // 获取鉴权信息
+    try {
+      const sr = await fetch(`/api/storage/files?userId=${user?.id || ''}`, { credentials: 'include' })
+      const sd = await sr.json()
+      if (sd.success) {
+        params.userId = sd.data.userId
+        params.authToken = document.cookie.split(';').find(c => c.trim().startsWith('token='))?.trim().replace('token=', '') || ''
       }
-    } else {
-      setExecuting(false)
-      setExecLogs(prev => [...prev, '需要客户端环境'])
-      showMsg('需要在客户端中执行模板', 'error')
+    } catch {}
+    params.title = task.title
+    params.description = task.description
+    params.topics = task.topics
+    params.coverImage = task.coverImage
+    params.location = task.location
+    params.publishNow = String(task.publishNow)
+    return params
+  }
+
+  /** 开始批量发布 */
+  const startBatchPublish = async () => {
+    if (!selectedAccount?.cdpPort) return
+    if (taskQueue.length === 0) { showToast('队列为空', 'error'); return }
+    if (batchRunning) return
+
+    // 定时模式：检查是否到了时间
+    if (batchMode === 'scheduled' && scheduleTime) {
+      const [h, m] = scheduleTime.split(':').map(Number)
+      const now = new Date()
+      const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h || 0, m || 0, 0)
+      if (target > now) {
+        const waitMs = target.getTime() - now.getTime()
+        showMsg(`定时模式: 将在 ${scheduleTime} 开始发布`, 'info')
+        setExecLogs(prev => [...prev, `[${now.toLocaleTimeString()}] ⏰ 定时设置: ${scheduleTime}, 等待 ${Math.round(waitMs / 1000)}s`])
+        setTimeout(() => executeBatch(), waitMs)
+        return
+      }
     }
+
+    await executeBatch()
+  }
+
+  /** 执行批量发布主循环 */
+  const executeBatch = async () => {
+    setBatchRunning(true)
+    setBatchPaused(false)
+    const port = selectedAccount!.cdpPort!
+
+    // 获取当前待发任务快照
+    const pendingTasks = [...taskQueue].filter(t => t.status === 'pending')
+
+    if (pendingTasks.length === 0) {
+      setBatchRunning(false); return
+    }
+
+    setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🚀 开始批量发布，共 ${pendingTasks.length} 个任务`])
+
+    for (let i = 0; i < pendingTasks.length; i++) {
+      if (batchPaused) {
+        setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏸ 用户暂停`])
+        break
+      }
+
+      const task = pendingTasks[i]
+
+      // 标记为发布中
+      setTaskQueue(prev => prev.map(t =>
+        t.id === task.id ? { ...t, status: 'publishing' as const } : t
+      ))
+      setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📤 发布第 ${i + 1}/${pendingTasks.length}: ${task.videoName}`])
+
+      try {
+        const params = await buildTaskParams(task)
+        if (window.electronAPI?.fpExecute) {
+          const res = await window.electronAPI.fpExecute(port, 'douyin-publish', params)
+          if (res.success) {
+            setTaskQueue(prev => prev.map(t =>
+              t.id === task.id ? { ...t, status: 'done' as const } : t
+            ))
+            setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 第 ${i + 1} 个任务完成: ${task.videoName}`])
+            if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
+          } else {
+            setTaskQueue(prev => prev.map(t =>
+              t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: res.error } : t
+            ))
+            setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 第 ${i + 1} 个任务失败: ${res.error}`])
+          }
+        } else {
+          throw new Error('需要客户端环境')
+        }
+      } catch (e: any) {
+        setTaskQueue(prev => prev.map(t =>
+          t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: e.message } : t
+        ))
+        setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 异常: ${e.message}`])
+      }
+
+      // 间隔等待（最后一个不等待）
+      if (i < pendingTasks.length - 1 && !batchPaused) {
+        const delay = intervalSeconds * 1000
+        setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 等待 ${intervalSeconds}s...`])
+        await new Promise(r => setTimeout(r, delay))
+      }
+    }
+
+    setBatchRunning(false)
+    const doneCount = taskQueue.filter(t => t.status === 'done').length
+    const failCount = taskQueue.filter(t => t.status === 'failed').length
+    setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏁 批量发布结束: ✅${doneCount} ❌${failCount}`])
+    showMsg(`批量发布完成: 成功 ${doneCount}, 失败 ${failCount}`, failCount > 0 ? 'error' : 'success')
+  }
+
+  /** 暂停批量发布 */
+  const pauseBatch = () => {
+    setBatchPaused(true)
+    setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏸ 正在暂停...`])
+  }
+
+  /** 停止批量发布（完全停止） */
+  const stopBatch = async () => {
+    setBatchPaused(true)
+    setBatchRunning(false)
+    if (window.electronAPI?.fpScriptStop) {
+      await window.electronAPI.fpScriptStop()
+    }
+    setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 已停止`])
   }
 
 
@@ -290,14 +413,14 @@ export default function MyFingerprintPage() {
       <div className="max-w-6xl mx-auto mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-3">
           <span className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-xl">🌐</span>
-          指纹浏览器工作台
+          抖音批量发布工作台
           {!isElectron && (
             <span className="ml-2 text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
               请在客户端中使用
             </span>
           )}
         </h1>
-        <p className="text-sm text-gray-500 mt-2">本地 Chromium 多窗口管理 · 自动化脚本执行</p>
+        <p className="text-sm text-gray-500 mt-2">选择账号 → 添加视频到队列 → 批量自动发布</p>
       </div>
 
       {/* 全局消息 */}
@@ -332,18 +455,18 @@ export default function MyFingerprintPage() {
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-300">我的账号</h2>
-            <span className="text-xs text-gray-600">{accounts.length} 个指纹浏览器账号</span>
+            <span className="text-xs text-gray-600">{accounts.length} 个抖音账号</span>
           </div>
 
           {accounts.length === 0 ? (
             <div className="bg-gray-900/30 border border-dashed border-white/10 rounded-xl p-8 text-center">
-              <p className="text-gray-500 text-sm mb-2">还没有指纹浏览器类型的账号</p>
-              <p className="text-gray-600 text-xs">去「账号管理」登记一个 bindType=manual 的账号，管理员审核后会分配端口</p>
+              <p className="text-gray-500 text-sm mb-2">还没有指纹浏览器类型的抖音账号</p>
+              <p className="text-gray-600 text-xs">去「账号管理」登记一个 bindType=manual 的抖音账号</p>
             </div>
           ) : (
             <div className="grid gap-3">
               {accounts.map(acct => {
-                const plat = PLATFORMS.find(p => p.key === acct.platform) || { icon: '🌐', label: acct.platform }
+                const plat = PLATFORMS.find(p => p.key === acct.platform) || { icon: '🎵', label: acct.platform }
                 const port = acct.cdpPort || 0
                 const running = port > 0 && isRunning(port)
                 const browserInfo = browsers.find(b => b.port === port)
@@ -407,14 +530,14 @@ export default function MyFingerprintPage() {
         </div>
 
 
-        {/* ═══ 右侧：模板执行面板 ═══ */}
+        {/* ═══ 右侧：批量发布面板 ═══ */}
         <div className="space-y-4">
-          <h2 className="text-sm font-semibold text-gray-300">自动化模板</h2>
+          <h2 className="text-sm font-semibold text-gray-300">批量发布</h2>
 
           {(!selectedAccount || !selectedAccount.cdpPort || !isRunning(selectedAccount.cdpPort)) ? (
             <div className="bg-gray-900/30 border border-dashed border-white/10 rounded-xl p-6 text-center">
-              <p className="text-gray-500 text-sm">先选择并启动一个浏览器</p>
-              <p className="text-gray-600 text-xs mt-1">启动后可在此执行自动化脚本</p>
+              <p className="text-gray-500 text-sm">先选择并启动一个抖音浏览器</p>
+              <p className="text-gray-600 text-xs mt-1">启动后可添加视频到发布队列</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -422,282 +545,311 @@ export default function MyFingerprintPage() {
               <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
                 <p className="text-xs text-emerald-400 font-medium">
                   🟢 当前: {selectedAccount.accountName}
-                  ({PLATFORMS.find(p => p.key === selectedAccount.platform)?.label})
                 </p>
-                <p className="text-[11px] text-emerald-400/60 mt-0.5">端口 {selectedAccount.cdpPort} · 可执行模板</p>
+                <p className="text-[11px] text-emerald-400/60 mt-0.5">端口 {selectedAccount.cdpPort}</p>
               </div>
 
-              {/* 模板选择 */}
-              <div>
-                <label className="text-xs text-gray-500 mb-1.5 block">选择模板</label>
-                <div className="space-y-1.5">
-                  {TEMPLATES.map(tmpl => {
-                    const canUse = tmpl.platforms.includes(selectedAccount!.platform)
-                    return (
-                      <button
-                        key={tmpl.key}
-                        onClick={() => setSelectedTemplate(tmpl.key)}
-                        disabled={!canUse}
-                        className={`w-full text-left px-3 py-2.5 rounded-lg text-xs border transition ${
-                          selectedTemplate === tmpl.key
-                            ? 'bg-purple-500/15 border-purple-500/40 text-purple-300'
-                            : canUse
-                              ? 'bg-gray-800/30 border-white/5 text-gray-300 hover:border-white/15 hover:bg-gray-800/50'
-                              : 'bg-gray-800/10 border-white/5 text-gray-600 cursor-not-allowed opacity-40'
-                        }`}
-                      >
-                        <span className="font-medium">{tmpl.label}</span>
-                        <p className="text-[10px] mt-0.5 opacity-60">{tmpl.desc}</p>
-                      </button>
-                    )
-                  })}
+              {/* ═══ 添加视频表单 ═══ */}
+              <div className="bg-gray-800/30 border border-white/5 rounded-xl p-3 space-y-2.5">
+                <p className="text-xs font-medium text-gray-300">📝 添加发布内容</p>
+
+                {/* 选择视频 */}
+                <div>
+                  <label className="text-[11px] text-gray-500 block mb-1">视频 *</label>
+                  {formVideoName ? (
+                    <div className="flex items-center gap-2 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
+                      <span className="text-[10px] text-purple-300 truncate flex-1">{formVideoName}</span>
+                      <button type="button" onClick={() => setFormVideoName('')} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const r = await fetch(`/api/storage/files?userId=${user?.id || ''}`, { credentials: 'include' })
+                          const d = await r.json()
+                          if (d.success) {
+                            const videos = d.data.files.filter((f: any) => f.isVideo)
+                            if (!videos.length) showToast('素材仓库暂无视频，请先上传', 'error')
+                            else { setStorageVideos(videos); }
+                          } else showToast(d.message || '加载失败', 'error')
+                        } catch { showToast('加载素材仓库失败', 'error') }
+                      }}
+                      className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-xs text-gray-400 hover:text-white hover:border-purple-500/30 transition"
+                    >📁 从素材仓库选视频</button>
+                  )}
+                  {storageVideos.length > 0 && !formVideoName && (
+                    <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
+                      {storageVideos.map((v: any) => (
+                        <button key={v.name} type="button" onClick={() => { setFormVideoName(v.name); setStorageVideos([]) }}
+                          className={`w-full flex items-center gap-2 p-2 rounded-lg text-left transition ${
+                            formVideoName === v.name ? 'bg-purple-500/20 border-purple-500/30' : 'bg-white/5 border border-transparent hover:bg-white/10'
+                          }`}
+                        >
+                          <span className="text-sm shrink-0">{v.thumbUrl ? <img src={v.thumbUrl} className="w-10 h-6 object-cover rounded" alt="" /> : '🎬'}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] text-gray-200 truncate">{v.name}</p>
+                            <p className="text-[9px] text-gray-500">{(v.size / 1024 / 1024).toFixed(1)}MB</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
+                {/* 标题 */}
+                <div>
+                  <label className="text-[11px] text-gray-500 block mb-1">标题 *（最多30字）</label>
+                  <input
+                    type="text"
+                    value={formTitle}
+                    onChange={e => setFormTitle(e.target.value.slice(0, 30))}
+                    placeholder="填写作品标题"
+                    maxLength={30}
+                    className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
+                  />
+                </div>
+
+                {/* 文案/简介 */}
+                <div>
+                  <label className="text-[11px] text-gray-500 block mb-1">文案 / 简介</label>
+                  <textarea
+                    value={formDesc}
+                    onChange={e => setFormDesc(e.target.value)}
+                    placeholder="添加作品简介..."
+                    rows={2}
+                    className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none resize-none"
+                  />
+                </div>
+
+                {/* 话题 */}
+                <div>
+                  <label className="text-[11px] text-gray-500 block mb-1">话题（逗号分隔）</label>
+                  <input
+                    type="text"
+                    value={formTopics}
+                    onChange={e => setFormTopics(e.target.value)}
+                    placeholder="#宠物 #萌宠"
+                    className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
+                  />
+                </div>
+
+                {/* 封面（可选） */}
+                <div>
+                  <label className="text-[11px] text-gray-500 block mb-1">封面（可选）</label>
+                  {formCoverImage ? (
+                    <div className="flex items-center gap-2 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
+                      <span className="text-[10px] text-purple-300 truncate flex-1">{formCoverImage}</span>
+                      <button type="button" onClick={() => setFormCoverImage('')} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const r = await fetch(`/api/storage/files?userId=${user?.id || ''}`, { credentials: 'include' })
+                          const d = await r.json()
+                          if (d.success) {
+                            const imgs = d.data.files.filter((f: any) => !f.isVideo && /\.(jpg|jpeg|png|webp)$/i.test(f.name))
+                            if (!imgs.length) showToast('素材仓库暂无图片', 'error')
+                            else { setStorageImages(imgs); }
+                          } else showToast(d.message || '加载失败', 'error')
+                        } catch { showToast('加载素材仓库失败', 'error') }
+                      }}
+                      className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-xs text-gray-400 hover:text-white hover:border-purple-500/30 transition"
+                    >🖼️ 从素材仓库选封面</button>
+                  )}
+                  {storageImages.length > 0 && !formCoverImage && (
+                    <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
+                      {storageImages.map((img: any) => (
+                        <button key={img.name} type="button" onClick={() => { setFormCoverImage(img.name); setStorageImages([]) }}
+                          className={`w-full flex items-center gap-2 p-2 rounded-lg text-left transition ${
+                            formCoverImage === img.name ? 'bg-purple-500/20 border-purple-500/30' : 'bg-white/5 border border-transparent hover:bg-white/10'
+                          }`}
+                        >
+                          <span className="text-sm shrink-0">🖼️</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] text-gray-200 truncate">{img.name}</p>
+                            <p className="text-[9px] text-gray-500">{(img.size / 1024).toFixed(1)}KB</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 位置 */}
+                <div>
+                  <label className="text-[11px] text-gray-500 block mb-1">位置（可选）</label>
+                  <input
+                    type="text"
+                    value={formLocation}
+                    onChange={e => setFormLocation(e.target.value)}
+                    placeholder="如：北京市朝阳区"
+                    className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
+                  />
+                </div>
+
+                {/* 发布方式 */}
+                <div>
+                  <label className="text-[11px] text-gray-500 block mb-1">发布方式</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormPublishNow(true)}
+                      className={`flex-1 px-3 py-1.5 rounded-lg text-xs transition ${
+                        formPublishNow
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-gray-800/30 text-gray-500 border border-white/5'
+                      }`}
+                    >立即发布</button>
+                    <button
+                      type="button"
+                      onClick={() => setFormPublishNow(false)}
+                      className={`flex-1 px-3 py-1.5 rounded-lg text-xs transition ${
+                        !formPublishNow
+                          ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                          : 'bg-gray-800/30 text-gray-500 border border-white/5'
+                      }`}
+                    >仅草稿</button>
+                  </div>
+                </div>
+
+                {/* 添加到队列按钮 */}
+                <button
+                  type="button"
+                  onClick={addToQueue}
+                  disabled={!formVideoName || !formTitle.trim()}
+                  className="w-full py-2.5 rounded-lg text-sm font-medium bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                >
+                  ➕ 添加到发布队列 ({taskQueue.length})
+                </button>
               </div>
 
-              {/* 模板参数 */}
-              {selectedTemplate && (
-                <div className="bg-gray-800/30 border border-white/5 rounded-xl p-3 space-y-2.5">
-                  <p className="text-xs font-medium text-gray-300">
-                    {TEMPLATES.find(t => t.key === selectedTemplate)?.label} 参数
-                  </p>
+              {/* ═══ 队列表格 ═══ */}
+              {taskQueue.length > 0 && (
+                <div className="bg-gray-800/30 border border-white/5 rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                    <span className="text-xs font-medium text-gray-400">📋 发布队列 ({taskQueue.length})</span>
+                    <button onClick={clearQueue} disabled={batchRunning} className="text-[10px] text-red-400 hover:text-red-300 disabled:text-gray-600">清空</button>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto">
+                    <table className="w-full text-[11px]">
+                      <thead className="sticky top-0 bg-gray-800/90">
+                        <tr className="text-gray-500">
+                          <th className="py-1.5 px-2 text-left font-medium w-8">#</th>
+                          <th className="py-1.5 px-2 text-left font-medium">视频</th>
+                          <th className="py-1.5 px-2 text-left font-medium hidden sm:table-cell">文案</th>
+                          <th className="py-1.5 px-2 text-center font-medium w-16">状态</th>
+                          <th className="py-1.5 px-2 text-center font-medium w-8"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {taskQueue.map((task, idx) => (
+                          <tr key={task.id} className={`border-t border-white/5 ${idx % 2 ? 'bg-transparent' : 'bg-white/[0.02]'}`}>
+                            <td className="py-1.5 px-2 text-gray-500">{idx + 1}</td>
+                            <td className="py-1.5 px-2 text-gray-300 max-w-[120px] truncate" title={task.videoName}>{task.videoName}</td>
+                            <td className="py-1.5 px-2 text-gray-500 max-w-[100px] truncate hidden sm:table-cell" title={task.title}>{task.title}</td>
+                            <td className="py-1.5 px-2 text-center">
+                              {task.status === 'pending' && <span className="text-gray-500">○ 待发</span>}
+                              {task.status === 'publishing' && <span className="text-cyan-400 animate-pulse">● 发布中</span>}
+                              {task.status === 'done' && <span className="text-emerald-400">✓ 完成</span>}
+                              {task.status === 'failed' && <span className="text-red-400" title={task.errorMsg}>✗ 失败</span>}
+                            </td>
+                            <td className="py-1.5 px-2 text-center">
+                              {(task.status === 'pending' && !batchRunning) && (
+                                <button onClick={() => removeFromQueue(task.id)} className="text-gray-600 hover:text-red-400 text-xs">✕</button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
-                  {/* 抖音发帖/视频 专属参数 */}
-                  {selectedTemplate === 'douyin-publish' && (
-                    <>
-                      {/* 素材仓库选择视频 */}
-                      <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">选择视频（从素材仓库）</label>
-                        {storageVideoName ? (
-                          <div className="flex items-center gap-2 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
-                            <span className="text-[10px] text-purple-300 truncate flex-1">{storageVideoName}</span>
-                            <button type="button" onClick={() => setStorageVideoName('')} className="text-red-400 hover:text-red-300 text-xs">✕</button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                const r = await fetch(`/api/storage/files?userId=${user?.id || ''}`, { credentials: 'include' })
-                                const d = await r.json()
-                                if (d.success) {
-                                  const videos = d.data.files.filter((f: any) => f.isVideo)
-                                  if (!videos.length) showToast('素材仓库暂无视频，请先上传', 'error')
-                                  else { setStorageVideos(videos); }
-                                } else showToast(d.message || '加载失败', 'error')
-                              } catch { showToast('加载素材仓库失败', 'error') }
-                            }}
-                            className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-xs text-gray-400 hover:text-white hover:border-purple-500/30 transition"
-                          >📁 从素材仓库选择视频</button>
-                        )}
+              {/* ═══ 批量发布控制栏 ═══ */}
+              {taskQueue.length > 0 && (
+                <div className="bg-gradient-to-b from-purple-500/10 to-gray-800/30 border border-purple-500/20 rounded-xl p-3 space-y-2.5">
+                  <p className="text-xs font-medium text-gray-300">⚙️ 发布控制</p>
 
-                        {/* 视频列表弹层 */}
-                        {storageVideos.length > 0 && !storageVideoName && (
-                          <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
-                            {storageVideos.map((v: any) => (
-                              <button key={v.name} type="button" onClick={() => { setStorageVideoName(v.name); setStorageVideos([]) }}
-                                className={`w-full flex items-center gap-2 p-2 rounded-lg text-left transition ${
-                                  storageVideoName === v.name ? 'bg-purple-500/20 border-purple-500/30' : 'bg-white/5 border border-transparent hover:bg-white/10'
-                                }`}
-                              >
-                                <span className="text-sm shrink-0">{v.thumbUrl ? <img src={v.thumbUrl} className="w-10 h-6 object-cover rounded" alt="" /> : '🎬'}</span>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-[10px] text-gray-200 truncate">{v.name}</p>
-                                  <p className="text-[9px] text-gray-500">{(v.size / 1024 / 1024).toFixed(1)}MB</p>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">作品标题（最多30字）</label>
-                        <input
-                          type="text"
-                          value={templateTitle}
-                          onChange={e => setTemplateTitle(e.target.value.slice(0, 30))}
-                          placeholder="填写作品标题"
-                          maxLength={30}
-                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">作品简介 / 正文</label>
-                        <textarea
-                          value={templateDesc}
-                          onChange={e => setTemplateDesc(e.target.value)}
-                          placeholder="添加作品简介，最多1000字..."
-                          rows={3}
-                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none resize-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">自定义话题（用逗号或空格分隔，如 #宠物 #萌宠）</label>
-                        <input
-                          type="text"
-                          value={templateCustomTopics}
-                          onChange={e => setTemplateCustomTopics(e.target.value)}
-                          placeholder="#宠物 #萌宠 #日常"
-                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
-                        />
-                      </div>
-
-                      {/* 自定义封面（可选） */}
-                      <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">自定义封面图片（可选，留空使用系统默认）</label>
-                        {templateCoverImage ? (
-                          <div className="flex items-center gap-2 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
-                            <span className="text-[10px] text-purple-300 truncate flex-1">{templateCoverImage}</span>
-                            <button type="button" onClick={() => setTemplateCoverImage('')} className="text-red-400 hover:text-red-300 text-xs">✕</button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                const r = await fetch(`/api/storage/files?userId=${user?.id || ''}`, { credentials: 'include' })
-                                const d = await r.json()
-                                if (d.success) {
-                                  const imgs = d.data.files.filter((f: any) => !f.isVideo && /\.(jpg|jpeg|png|webp)$/i.test(f.name))
-                                  if (!imgs.length) showToast('素材仓库暂无图片', 'error')
-                                  else { setStorageImages(imgs); }
-                                } else showToast(d.message || '加载失败', 'error')
-                              } catch { showToast('加载素材仓库失败', 'error') }
-                            }}
-                            className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-xs text-gray-400 hover:text-white hover:border-purple-500/30 transition"
-                          >🖼️ 从素材仓库选择封面</button>
-                        )}
-                        {storageImages.length > 0 && !templateCoverImage && (
-                          <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
-                            {storageImages.map((img: any) => (
-                              <button key={img.name} type="button" onClick={() => { setTemplateCoverImage(img.name); setStorageImages([]) }}
-                                className={`w-full flex items-center gap-2 p-2 rounded-lg text-left transition ${
-                                  templateCoverImage === img.name ? 'bg-purple-500/20 border-purple-500/30' : 'bg-white/5 border border-transparent hover:bg-white/10'
-                                }`}
-                              >
-                                <span className="text-sm shrink-0">🖼️</span>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-[10px] text-gray-200 truncate">{img.name}</p>
-                                  <p className="text-[9px] text-gray-500">{(img.size / 1024).toFixed(1)}KB</p>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 位置标签 */}
-                      <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">地理位置（可选）</label>
-                        <input
-                          type="text"
-                          value={templateLocation}
-                          onChange={e => setTemplateLocation(e.target.value)}
-                          placeholder="如：北京市朝阳区、上海市浦东新区"
-                          className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[11px] text-gray-500 block mb-1">发布方式</label>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setTemplatePublishNow(true)}
-                            className={`flex-1 px-3 py-1.5 rounded-lg text-xs transition ${
-                              templatePublishNow
-                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                : 'bg-gray-800/30 text-gray-500 border border-white/5'
-                            }`}
-                          >
-                            立即发布
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTemplatePublishNow(false)}
-                            className={`flex-1 px-3 py-1.5 rounded-lg text-xs transition ${
-                              !templatePublishNow
-                                ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                                : 'bg-gray-800/30 text-gray-500 border border-white/5'
-                            }`}
-                          >
-                            仅保存草稿
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {/* 评论模板参数 */}
-                  {(selectedTemplate === 'douyin-comment') && (
-                    <div>
-                      <label className="text-[11px] text-gray-500 block mb-1">评论内容</label>
-                      <textarea
-                        value={templateCaption}
-                        onChange={e => setTemplateCaption(e.target.value)}
-                        placeholder="输入评论内容..."
-                        rows={3}
-                        className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none resize-none"
-                      />
-                    </div>
-                  )}
-
-                  {(selectedTemplate === 'douyin-comment' || selectedTemplate === 'douyin-like') && (
-                    <div>
-                      <label className="text-[11px] text-gray-500 block mb-1">目标URL（可选）</label>
-                      <input
-                        type="text"
-                        value={templateTargetUrl}
-                        onChange={e => setTemplateTargetUrl(e.target.value)}
-                        placeholder={selectedTemplate === 'douyin-like' ? '留空则在当前页面滚动点赞' : '留空则在当前页面评论'}
-                        className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600 focus:border-purple-500/30 focus:outline-none"
-                      />
-                    </div>
-                  )}
-
-                  {selectedTemplate === 'douyin-like' && (
-                    <div>
-                      <label className="text-[11px] text-gray-500 block mb-1">次数</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={templateCount}
-                        onChange={e => setTemplateCount(parseInt(e.target.value) || 3)}
-                        className="w-full bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-purple-500/30 focus:outline-none"
-                      />
-                    </div>
-                  )}
-
-                  {/* 执行按钮 */}
+                  {/* 发布模式切换 */}
                   <div className="flex gap-2">
-                    {executing && (
-                      <button
-                        onClick={async () => {
-                          if (window.electronAPI?.fpScriptStop) {
-                            await window.electronAPI.fpScriptStop()
-                            setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 用户停止`])
-                          }
-                        }}
-                        className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition flex items-center justify-center gap-2"
-                      >⏹ 停止</button>
+                    <button
+                      type="button"
+                      onClick={() => setBatchMode('immediate')}
+                      className={`flex-1 px-3 py-1.5 rounded-lg text-xs transition ${
+                        batchMode === 'immediate'
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-gray-800/30 text-gray-500 border border-white/5'
+                      }`}
+                    >○ 立即依次发布</button>
+                    <button
+                      type="button"
+                      onClick={() => setBatchMode('scheduled')}
+                      className={`flex-1 px-3 py-1.5 rounded-lg text-xs transition ${
+                        batchMode === 'scheduled'
+                          ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                          : 'bg-gray-800/30 text-gray-500 border border-white/5'
+                      }`}
+                    >🕐 定时发布</button>
+                  </div>
+
+                  {/* 参数 */}
+                  <div className="flex gap-2">
+                    {batchMode === 'immediate' ? (
+                      <div className="flex-1 flex items-center gap-2">
+                        <label className="text-[10px] text-gray-500 whitespace-nowrap">间隔</label>
+                        <input
+                          type="number"
+                          min={5}
+                          max={300}
+                          value={intervalSeconds}
+                          onChange={e => setIntervalSeconds(parseInt(e.target.value) || 30)}
+                          className="w-16 bg-gray-900/50 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:border-purple-500/30 outline-none"
+                        />
+                        <span className="text-[10px] text-gray-500">秒</span>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex items-center gap-2">
+                        <label className="text-[10px] text-gray-500 whitespace-nowrap">时间</label>
+                        <input
+                          type="time"
+                          value={scheduleTime}
+                          onChange={e => setScheduleTime(e.target.value)}
+                          className="flex-1 bg-gray-900/50 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:border-purple-500/30 outline-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 操作按钮 */}
+                  <div className="flex gap-2">
+                    {batchRunning && (
+                      <>
+                        <button
+                          onClick={batchPaused ? () => executeBatch() : pauseBatch}
+                          className="flex-1 py-2 rounded-lg text-xs font-medium bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition"
+                        >
+                          {batchPaused ? '▶ 恢复' : '⏸ 暂停'}
+                        </button>
+                        <button
+                          onClick={stopBatch}
+                          className="flex-1 py-2 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition"
+                        >⛔ 停止</button>
+                      </>
                     )}
                     <button
-                      onClick={handleExecute}
-                      disabled={executing}
-                      className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2 ${
-                        executing
+                      onClick={startBatchPublish}
+                      disabled={batchRunning || taskQueue.every(t => t.status !== 'pending')}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
+                        batchRunning
                           ? 'bg-gray-700 text-gray-400 cursor-wait'
-                          : 'bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-400 hover:to-violet-400 text-white'
+                          : 'bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-400 hover:to-violet-400 text-white disabled:opacity-40'
                       }`}
                     >
-                      {executing ? (
-                        <>⏳ 执行中...</>
-                      ) : (
-                        <>▶️ 执行模板</>
-                      )}
+                      {batchRunning ? '⏳ 发布中...' : '▶ 开始批量发布'}
                     </button>
                   </div>
                 </div>
