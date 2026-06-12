@@ -1,6 +1,6 @@
 # AiMarketing 项目完整报告
 
-> 生成日期: 2026-06-12 (V1.7 一键合成修复专场)
+> 生成日期: 2026-06-12 (V1.8 批量发布队列专场)
 > 项目路径: `/root/AiMarketing` (服务器) / `D:\AiMarketing` (本地)
 > 域名: http://120.55.43.195:3000
 > PM2 进程名: `aimarketing`
@@ -58,24 +58,62 @@
 
 ### 🔑 指纹浏览器（Fingerprint Simulator）— 核心模块 ⭐
 
-> **前端路径**: `src/app/my-fingerprint/page.tsx` (~35KB)
+> **前端路径**: `src/app/my-fingerprint/page.tsx` (~880行)
 > **后端路径**: `electron/` 目录
 > **技术栈**: Electron 主进程 + Playwright 浏览器自动化
 > **部署注意**: Electron 客户端加载远程服务器页面 (`SERVER_URL=http://120.55.43.195:3000`)
 >   - 前端 UI 改动 → 服务端 build 部署后才可见
 >   - 模板改动（douyin-publish.js 等） → 客户端需重新打包安装
 
-#### 功能概述
+#### 功能概述（V1.8 重构后 — 抖音专用批量发布队列）
 
-| 功能 | 模板Key | 说明 |
-|------|---------|------|
-| **抖音发视频** | `douyin-publish` | 上传视频→填标题/正文→话题→封面→位置→发布/草稿 |
-| **抖音点赞** | `douyin-like` | 当前页滚动点赞 |
-| **抖音评论** | `douyin-comment` | 填评论内容并发布 |
-| **小红书发帖** | `xiaohongshu-publish` | 小红书文案发布 |
-| **停止按钮** | — | 运行中可中断脚本执行（global.__fpAbort） |
+| 功能 | 说明 |
+|------|------|
+| **抖音批量发布队列** | 单账号多视频依次发布，支持间隔时间/定时发布、暂停/恢复/停止 |
+| **任务入队** | 填写视频(素材仓库选)、标题、文案、话题、封面、位置 → 加入队列 |
+| **队列管理** | 表格展示所有待发任务，支持删除单个/清空全部，实时状态(pending/publishing/done/failed) |
+| **批量控制** | 立即模式(可设间隔秒数) / 定时模式(指定时间开始) / 暂停-恢复 / 完全停止 |
+| **执行日志** | 每步操作实时日志输出，含成功/失败统计 |
 
+> ⚠️ **已删除功能 (V1.8)**: 抖音点赞模板(douyin-like)、评论模板(douyin-comment)、小红书发帖(xiaohongshu-publish) — 本页面现为**抖音专用批量发布工作台**
 > ⚠️ **已删除功能**: 音乐自动选择（v5 模板已移除 step65_selectMusic），用户决定本地配好音乐后再发布
+
+#### PublishTask 数据结构（V1.8 新增）
+
+```typescript
+interface PublishTask {
+  id: string                    // 唯一ID (timestamp + random)
+  videoName: string             // 视频文件名（素材仓库）
+  title: string                 // 标题
+  description: string           // 文案/简介
+  topics: string                // 话题
+  coverImage: string            // 封面图片名
+  location: string              // 位置
+  publishNow: boolean           // true=立即发布 false=草稿
+  status: 'pending' | 'publishing' | 'done' | 'failed'
+  errorMsg?: string
+}
+```
+
+#### 批量发布流程（V1.8）
+
+```
+1. 选择并启动抖音浏览器实例 (fpStart)
+2. 填写视频参数表单（视频/标题/文案/话题/封面/位置）
+3. 点击「添加到发布队列」→ 入队 (addToQueue)
+4. 重复步骤2-3，添加多个视频到队列
+5. 设置发布模式：
+   ├── 立即依次发布 → 设定间隔秒数(默认30s)
+   └── 定时发布 → 指定 HH:mm 开始时间
+6. 点击「开始批量发布」→ executeBatch() 循环执行:
+   ├── for each task in pendingTasks:
+   │   ├── 标记 status='publishing'
+   │   ├── fpExecute(port, 'douyin-publish', params)
+   │   ├── 成功→status='done' / 失败→status='failed' (+errorMsg)
+   │   └── 等待 intervalSeconds (最后一个不等待)
+   └── 输出统计 ✅doneCount ❌failCount (局部变量计数，不依赖React state)
+7. 支持操作：暂停(pauseBatch) / 恢复(重调executeBatch) / 停止(stopBatch+fpScriptStop)
+```
 
 #### 抖音发视频参数表（douyin-publish v5，2026-06-12 更新）
 
@@ -160,15 +198,16 @@ electron/
         ├── step6_covers()           # 封面选择/自定义上传（弹窗关闭后JS强制移除DOM）
         └── step7_publish()          # 发布 或 存草稿（音乐功能已删除，2026-06-12）
 
-src/app/my-fingerprint/page.tsx      # 指纹模拟器前端页面 (~35KB) ⭐⭐
-    ├── Window.electronAPI 类型声明（第48-62行）
-    ├── 模板选择 TEMPLATES 数组（第33-45行）
-    ├── 状态管理（storageVideoName/templateTitle/templateDesc...）
-    ├── 素材仓库视频选择器（从 storage API 获取列表）
-    ├── 自定义封面图片选择器
-    ├── 地理位置输入框
-    ├── 执行日志显示区
-    └── 停止按钮（红色 ⏹）
+src/app/my-fingerprint/page.tsx      # 抖音批量发布工作台前端 (~880行) ⭐⭐ (V1.8重写)
+    ├── PublishTask 接口定义（第33-44行）
+    ├── PLATFORMS 仅保留 douyin（第48-50行）
+    ├── 表单状态: formVideoName/formTitle/formDesc/formTopics/formCoverImage/formLocation/formPublishNow
+    ├── 任务队列状态: taskQueue[] + batchRunning/batchPaused/intervalSeconds/scheduleTime
+    ├── addToQueue() 入队 / removeFromQueue() / clearQueue()
+    ├── buildTaskParams() 构建douyin-publish参数
+    ├── executeBatch() 批量循环执行(含间隔等待+暂停/恢复/停止)
+    ├── UI结构: 左侧=账号列表(仅抖音manual) | 右侧=表单+队列表格+批量控制栏+执行日志
+    └── 统计修复(V1.8): doneCount/failCount 用局部变量累加，不依赖闭包中的React state
 
 相关 API 文件:
 ├── src/middleware.ts                # 中间件：JWT鉴权 + 白名单
@@ -193,6 +232,15 @@ src/app/my-fingerprint/page.tsx      # 指纹模拟器前端页面 (~35KB) ⭐�
 | `ac29b62` | **FFmpeg 输出文件缺失(普通模式)**: Step5 图片/视频→片段命令漏了 `"${out}"` 参数 → 报 "At least one output file must be specified" | `src/lib/video-task-manager.ts` (2处) |
 | `e455104` | **FFmpeg 输出文件缺失(智能模式+最终渲染)**: 智能引擎4片段 + 最终渲染共5处同样问题，一次性修复 | `src/lib/smart-compile-engine.ts` (5处) |
 | `40c731f` | **删除音乐功能 + 修复仓库图片缩略图 + FFmpeg xfade 越界** (上一轮) | 多文件 |
+
+### V1.8 批量发布队列专场（2026-06-12）
+
+> **背景**: my-fingerprint 页面原有 4 个模板（发视频/点赞/评论/小红书）混在一起，实际只需抖音批量发布多视频
+
+| Commit | 改动内容 | 关键文件 |
+|--------|---------|---------|
+| `b3c0092` | **my-fingerprint 完全重写**: 删除TEMPLATES数组(4→0)、PLATFORMS只保留douyin、删除点赞/评论/小红书相关状态和UI、新增PublishTask接口+任务队列+批量控制栏(间隔/定时/暂停恢复停止) + 新UI布局(左侧账号列表/右侧表单+队列表格+控制栏+日志) | `src/app/my-fingerprint/page.tsx` (~880行重写) |
+| `d1d2362` | **修复统计bug**: executeBatch()循环结束读取taskQueue state得到旧值(闭包问题)，改为局部变量doneCount/failCount实时累加 | `src/app/my-fingerprint/page.tsx` (2行新增) |
 
 ### V2 路线图实施进展（本轮会话完成）
 
@@ -280,6 +328,7 @@ getQueueStatus()  // 返回 { queued: number, processing: boolean }
 
 | 日期 | Commit | 改动内容 |
 |------|--------|---------|
+| **2026-06-12** | **`b3c0092` → `d1d2362`** | **V1.8 批量发布队列**: 删除点赞/评论/小红书模板 → 重写为抖音专用批量发布工作台（任务队列入队/出队/循环执行/间隔定时/暂停恢复停止）+ 修复批量结束统计数为0的bug（setState闭包问题） |
 | 2026-06-05 | `8a49901` | 自定义封面上传 + 位置标签(step55) + 话题#号分隔 + 封面弹窗修复(完成按钮关闭) |
 | 2026-06-05 | `0129c1a` | 标题支持 input/textarea 元素(不再只找 contenteditable) + 封面按钮 includes 匹配 |
 | 2026-06-05 | `a93e1d5` | storage/files API 加入白名单 + query param userId 兼容 Electron 环境 |
@@ -1659,6 +1708,7 @@ Step 6: 效果追踪
 | V1.5 | 2026-06-06 | Phase 3 直播模块 + Phase 4 代理赋能（直播中控台/代理工作台/AI诊断/行业简报） |
 | V1.6 | 2026-06-10 | 基础架构优化：FFmpeg 统一执行层 + 高优先级通道 + Dashboard SWC修复 + Navbar角色权限 |
 | **V1.7** | **2026-06-12** | **一键合成修复专场**: FormData mode覆盖 + FFmpeg输出文件缺失(7处) + 日志截断 + xfade越界 + 图片缩略图 + 删除音乐功能 |
+| **V1.8** | **2026-06-12** | **批量发布队列专场**: my-fingerprint重写为抖音专用批量发布工作台(任务队列+间隔/定时+暂停恢复停止) + 删除点赞/评论/小红书模板 + 修复统计数闭包bug |
 | V2.0 | 规划中 | **路线图**：V2 升级（Phase 0-5，详见下方） |
 
 ---
@@ -1702,6 +1752,6 @@ npx prisma db push  # 推送 schema 变更到 SQLite
 ---
 
 > **文档结束**
-> 最后更新: 2026-06-12 (V1.7 一键合成修复专场 - 7处FFmpeg输出文件缺失 + FormData mode覆盖 + 日志截断)
+> 最后更新: 2026-06-12 (V1.8 批量发布队列专场 - my-fingerprint重写+删除非抖音模板+统计bug修复)
 > 下次更新: 推进 Phase 0 / Phase 1 时
 > 维护者: AI 助手
