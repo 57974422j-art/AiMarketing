@@ -221,8 +221,17 @@ export async function mergeWithTransition(
 
   // xfade 多输入合并
   const transName = XFADE_MAP[options.transition] || 'fade'
-  const transDur = Math.min(options.transitionDuration, totalDuration / clipFiles.length / 2)
+  // 转场时长不能超过单段时长的一半，否则 xfade 会因偏移越界报错
+  const segDuration = totalDuration / clipFiles.length
+  const transDur = Math.min(options.transitionDuration, segDuration / 2 - 0.1)
   const out = path.join(workDir, 'sm.mp4')
+
+  // 检测每个片段实际时长，用真实时长而非估算值来计算偏移
+  const durs: number[] = []
+  for (const f of clipFiles) {
+    durs.push(getDuration(f))
+  }
+  console.log(`[智能成片-转场] ${clipFiles.length}段 时长=[${durs.map(d=>d.toFixed(1)).join(',')}]s 转场=${transName} ${transDur.toFixed(1)}s`)
 
   if (clipFiles.length === 2) {
     // 两段直接 xfade
@@ -232,23 +241,33 @@ export async function mergeWithTransition(
     )
   } else {
     // 多段：逐级 xfade（n 段需要 n-1 次 xfade）
-    // 构建链式 filter_complex
+    // 构建链式 filter_complex — 用累积偏移确保不越界
     const inputs = clipFiles.map((f, i) => `-i "${f}"`).join(' ')
-    const halfSeg = totalDuration / clipFiles.length
 
     let fc = ''
     let lastOutput = '[v0]'
+    // 累积时长（已合并输出的总时长）
+    let accumulatedDuration = durs[0] || segDuration
     for (let i = 0; i < clipFiles.length - 1; i++) {
-      const offset = halfSeg * (i + 1) - transDur / 2
+      // 偏移点 = 当前累积时长 - 转场时长的一半
+      const offset = Math.max(0, Math.min(accumulatedDuration - transDur / 2, accumulatedDuration - transDur))
+      // 安全检查：offset + transDur 不能超过当前输出和下一输入的可用时长
+      const safeOffset = Math.min(offset, (accumulatedDuration - transDur), ((durs[i+1] || segDuration) - transDur))
+      const finalOffset = Math.max(0, safeOffset)
+
       const inA = i === 0 ? '[0:v]' : lastOutput
       const inB = `[${i + 1}:v]`
       const outLabel = i === clipFiles.length - 2 ? '' : `[v${i + 1}]`
-      fc += `${inA}${inB}xfade=transition=${transName}:duration=${transDur.toFixed(2)}:offset=${offset.toFixed(2)}${outLabel}\n`
+      fc += `${inA}${inB}xfade=transition=${transName}:duration=${transDur.toFixed(2)}:offset=${finalOffset.toFixed(2)}${outLabel};`
       if (i < clipFiles.length - 2) lastOutput = `[v${i + 1}]`
+      // 更新累积时长 = 偏移点 + 下一输入的有效时长（减去被转场消耗的部分）
+      accumulatedDuration = finalOffset + transDur + (durs[i+1] || segDuration) - transDur
     }
 
+    console.log(`[智能成片-转场] filter_complex: ${fc}`)
+
     await runFFmpeg(
-      `-y ${inputs} -filter_complex "${fc.trim()}" -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
+      `-y ${inputs} -filter_complex "${fc}" -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
       { timeout: 300000 }
     )
   }

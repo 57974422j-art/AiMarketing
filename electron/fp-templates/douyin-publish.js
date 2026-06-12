@@ -962,19 +962,15 @@ async function executeDouyinPublish(page, params, log) {
     log('✅ Step 5 完成')
 
     // Step 5.5: 位置
-    log('▶ Step 5.5/7: 设置位置...')
+    log('▶ Step 5.5/6: 设置位置...')
     await step55_location(page, params, log)
 
     // Step 6: 封面
-    log('▶ Step 6/7: 选择封面...')
+    log('▶ Step 6/6: 选择封面...')
     await step6_covers(page, params, log)
 
-    // Step 6.5: 音乐
-    log('▶ Step 6.5/7: 选择音乐...')
-    await step65_selectMusic(page, params, log)
-
-    // Step 7: 发布
-    log('▶ Step 7/7: 发布...')
+    // Step 7: 发布（音乐已移除，本地配好再上传）
+    log('▶ 发布...')
     return await step7_publish(page, params, log)
 
   } catch (e) {

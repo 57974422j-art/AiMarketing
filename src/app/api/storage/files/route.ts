@@ -65,7 +65,10 @@ export async function GET(request: NextRequest) {
           size: o.size,
           mtime: o.lastModified.toISOString(),
           isVideo,
-          thumbUrl: isVideo ? `/api/storage/file?userId=${auth!.userId}&name=.thumbs/${thumbName}` : null,
+          // 视频用 .thumbs 缩略图；图片直接用文件本身作预览
+          thumbUrl: isVideo
+            ? `/api/storage/file?userId=${auth!.userId}&name=.thumbs/${thumbName}`
+            : `/api/storage/file?userId=${auth!.userId}&name=${encodeURIComponent(name)}`,
         }
       })
       .sort((a, b) => b.mtime.localeCompare(a.mtime))
