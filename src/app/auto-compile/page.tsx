@@ -310,7 +310,8 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
         }).join('\n')
         fd.append('customSrt', srt)
       }
-      fd.append('mode', mode)
+      // 注意：mode 不在此处预设置，统一在下方素材收集逻辑中根据实际来源设置唯一一次
+      // （FormData 同名 key 多次 append 时，后端 f.get() 取第一个值，会导致覆盖失效）
       if (stickerOn) { fd.append('stickerText', stickerText); fd.append('stickerPos', stickerPos) }
       if (titleOn) fd.append('titleText', titleText)
       fd.append('colorFilter', colorFilter)
