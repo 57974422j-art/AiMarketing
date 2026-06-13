@@ -833,3 +833,20 @@ model SystemConfig {
   updatedAt   DateTime @updatedAt
 }
 
+// ═══════════════════════════════════════════════
+// 脚本诊断报告 — DeepSeek AI 实时分析日志存储
+// ═══════════════════════════════════════════════
+model ScriptDiagnosis {
+  id          Int      @id @default(autoincrement())
+  app         String   @default("抖音")       // APP名称: 抖音/快手/小红书
+  step        String                          // 出错的步骤: HOME_PLUS/SHOOT_ALBUM/...
+  errorLog    String                          // 原始错误日志(截取关键片段)
+  screenshot  String?                         // 截图文件名(存 /screenshots/)
+  diagnosis   String                          // DeepSeek 诊断结果(Markdown)
+  severity    String   @default("warning")    // warning / error / critical
+  resolved    Boolean  @default(false)        // 是否已解决
+  createdAt   DateTime @default(now())
+  ownerId     Int?
+  owner       User?    @relation(fields: [ownerId], references: [id])
+}
+
