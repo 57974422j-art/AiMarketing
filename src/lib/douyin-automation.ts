@@ -2354,12 +2354,19 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
         return { success: false, action: '标题框定位失败', message: '未找到', waitMs: 3000 }
       }
 
-      // ════════ Sub-B: 输入标题文本 ════════
-      // ★ 注意：只输入标题 _safeTitle，不要拼接搜索关键词(_safeTopics)
-      //   搜索关键词（如火锅/美业/减肥）仅在 ADD_TOPICS 步骤中用于话题搜索
+      // ════════ Sub-B: 输入标题+话题（一次性合并输入）═══════
       if (subStep === 'INPUT_TITLE') {
-        const fullText = _safeTitle
-        console.log(`[编辑-输入] 准备输入: ${fullText.substring(0, 40)}...`)
+        // ★ 把标题和话题合并成一行输入：如 "新农村之旅 #农村 #民宿"
+        let fullText = _safeTitle
+        if (_safeTopics && _safeTopics.trim()) {
+          const topics = _safeTopics
+            .split(/[,#\s]+/)
+            .map(t => t.trim().replace(/^#+/, ''))
+            .filter(t => t.length >= 2)
+            .map(t => `#${t}`)
+          if (topics.length > 0) fullText += ' ' + topics.join(' ')
+        }
+        console.log(`[编辑-输入] 准备输入(${fullText.length}字): ${fullText.substring(0, 60)}...`)
         const inputOk = await doInput(apiPort, fullText, signal, adb)
         if (!inputOk) {
           console.log(`[编辑-输入✗] 文本输入失败，将在验证阶段重试`)
@@ -2400,9 +2407,9 @@ x坐标应在 ${Math.round(screenW*0.60)} ~ ${screenW} 之间（屏幕右侧）�
             }
 
             if (titleFound) {
-              console.log(`[编辑-标题验证✓] 标题已成功输入！准备处理话题标签...`)
-              _editSubStep = 'ADD_TOPICS'
-              return { success: true, action: '标题验证通过', message: '标题已确认输入', waitMs: 10000, internalProgress: true }
+              console.log(`[编辑-标题验证✓] 标题已成功输入！编辑流程完成 ✅`)
+              _editSubStep = ''  // ★ 直接完成，跳过话题步骤（话题已合并到标题中）
+              return { success: true, action: '编辑流程完成', message: '标题+话题已确认', waitMs: 10000 }
             } else {
               // 标题没找到 — 可能是输入方式问题，重试一次
               console.log(`[编辑-标题验证✗] 未在页面找到标题内容 "${titlePreview}..."，可能输入失败`)
@@ -2831,8 +2838,7 @@ function getNextStep(current: WorkflowStep): WorkflowStep {
     case 'ALBUM_PICK': return 'VIDEO_PREVIEW'
     case 'VIDEO_PREVIEW': return 'EDIT_TITLE'
     case 'EDIT_TITLE':
-      // ★ 根据勾选决定下一步：有topic → topic，否则看location，都没有直接发布
-      if (_safePublishSteps.includes('topic')) return 'SELECT_TOPIC'
+      // ★ 话题已合并到标题中一次性输入，跳过SELECT_TOPIC
       if (_safePublishSteps.includes('location') && _safeLocation) return 'SELECT_POI'
       return 'PUBLISH_BTN'
     case 'SELECT_TOPIC':
