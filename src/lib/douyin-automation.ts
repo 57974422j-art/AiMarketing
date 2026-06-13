@@ -412,9 +412,9 @@ async function doInput(
         console.warn(`[doInput-⚠] [1-AdbKeyboard] IME切换失败，仍尝试广播...`)
       }
 
-      // 发送文本广播
-      const escaped = text.replace(/"/g, '\\"').replace(/'/g, "'\\''")
-      const r = await execShell(apiPort, `am broadcast -a ADB_INPUT_TEXT --es msg '${escaped}'`, signal, adb)
+      // 发送文本广播（用双引号包裹，避免 # $ ` 等shell特殊字符问题）
+      const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`')
+      const r = await execShell(apiPort, `am broadcast -a ADB_INPUT_TEXT --es msg "${escaped}"`, signal, adb)
 
       // 恢复原输入法（不影响已输入的文字）
       if (prevIme && switched) {
@@ -488,8 +488,8 @@ async function doInput(
           await sleep(400, signal)
 
           // ★ 方式A：尝试直接用 ADB_INPUT_TEXT 广播（如果设备上有 AdbKeyboard 的接收器也可以复用）
-          const escaped = text.replace(/"/g, '\\"').replace(/'/g, "'\\''")
-          const broadcastR = await execShell(apiPort, `am broadcast -a ADB_INPUT_TEXT --es msg '${escaped}'`, signal, adb)
+          const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`')
+          const broadcastR = await execShell(apiPort, `am broadcast -a ADB_INPUT_TEXT --es msg "${escaped}"`, signal, adb)
 
           // 恢复原输入法
           if (prevIme) {
