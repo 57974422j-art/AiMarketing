@@ -319,7 +319,7 @@ export function sleep(ms: number): Promise<void> {
 export async function takeScreenshot(apiPort: number): Promise<string | null> {
   const t0 = Date.now()
   try {
-    const res = await fetch(`http://localhost:${apiPort}/task=snap&level=0`, { signal: AbortSignal.timeout(45000) })
+    const res = await fetch(`http://localhost:${apiPort}/task=snap&level=3`, { signal: AbortSignal.timeout(45000) })
     if (!res.ok) {
       console.warn('[截图] HTTP非200, status=' + res.status + ' 耗时' + (Date.now() - t0) + 'ms')
       return null
