@@ -220,7 +220,7 @@ export async function publishV4(
     { name: '点下一步2', x: 803,                     y: 2260,                       check: '添加标题', waitS: 5 },
     // 🆕 AI封面
     { name: '点编辑封面',x: 0,                       y: 0,                          check: '智能封面', findByText: '编辑封面', waitS: 3 },
-    { name: '点智能封面',x: 141,                     y: 1885,                       check: null,       pollForText: '保存', pollTimeout: 30, waitS: 3 },
+    { name: '点智能封面',x: 141,                     y: 1885,                       check: null,       pollForText: '保存', pollTimeout: 60, waitS: 3 },
     { name: '点保存封面',x: 958,                     y: 139,                        check: '添加标题', waitS: 4 },
     // 输标题+发布
     { name: '输标题',    x: 554,                     y: 1000,                       check: title.substring(0, 3), input: fullText, waitS: 4 },
