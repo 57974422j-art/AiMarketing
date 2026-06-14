@@ -358,22 +358,20 @@ export default function AutomationTemplatesPage() {
                                 const keyword = cfg.publishTitle || cfg.keywords?.[0] || '热门'
                                 setCfg(prev => ({ ...prev, aiGenLoading: true }))
                                 try {
-                                  const { generateText } = await import('@/lib/ai-providers')
-                                  const prompt = `你是一个抖音SEO运营专家。请根据关键词生成：
-1. 一个吸引人的标题（带钩子，20字以内）
-2. 3~5个SEO优化热门话题标签
-关键词：${keyword}
-格式：标题文字|#话题1 #话题2 #话题3 #话题4 #话题5`
-                                  const result = await generateText(prompt)
-                                  if (result && result.includes('|')) {
-                                    const parts = result.split('|')
-                                    const newTitle = parts[0].trim().replace(/^[「『""]|[」』""]$/g, '').replace(/^标题[：:]\s*/i, '')
-                                    const topics = parts.slice(1).join('').trim()
-                                    setCfg(prev => ({ 
-                                      ...prev, 
-                                      publishTitle: newTitle + ' ' + topics,
+                                  const r = await fetch('/api/admin/ai-generate-title', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ keyword }),
+                                    credentials: 'include',
+                                  })
+                                  const data = await r.json()
+                                  if (data.title) {
+                                    const topics = data.topics || ''
+                                    setCfg(prev => ({
+                                      ...prev,
+                                      publishTitle: data.title + ' ' + topics,
                                       publishTopics: topics,
-                                      aiGenLoading: false 
+                                      aiGenLoading: false
                                     }))
                                   } else {
                                     setCfg(prev => ({ ...prev, aiGenLoading: false }))
