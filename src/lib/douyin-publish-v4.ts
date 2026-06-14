@@ -83,13 +83,7 @@ async function execShell(apiPort: number, cmd: string, signal?: AbortSignal, adb
 // ══════════════════════════════════════════════════════
 
 async function xmlSpotCheck(apiPort: number, keyword: string, screenH: number): Promise<{ found: boolean; x: number; y: number }> {
-  try {
-    const { findAnyText } = await import('./douyin-automation')
-    // findAnyText 在旧模块里，这里重新内联实现
-    const result = await import('./douyin-automation').then(m => m.findAnyText?.(apiPort, [keyword], screenH, 2000))
-    if (result) return { found: true, x: result.x, y: result.y }
-  } catch {}
-  // 降级：直接 XML dump 手动搜索
+  // 直接 XML dump 手动搜索
   try {
     const dumpResult = await UI.dumpXml(apiPort)
     if (dumpResult.success && dumpResult.data) {
