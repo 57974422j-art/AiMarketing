@@ -22,10 +22,9 @@ interface TaskConfig {
   followMode?: 'search' | 'mutual'
   followTargets?: string
   // ── 发布视频子步骤（可勾选组合）──
-  publishSteps?: PublishStep[]       // 勾选的发布子单元：video/title/topic/location
-  publishTitle?: string              // 标题文案
-  publishTopics?: string             // 话题关键词
-  publishDesc?: string               // 视频描述（AI生成参考）
+  publishSteps?: PublishStep[]       // 勾选的发布子单元：video/title/location
+  publishTitle?: string              // 标题文案（包含话题，如：乡村故事 #乡村 #民宿）
+  publishTopics?: string             // 话题关键词（AI生成后自动填入）
   publishLocation?: string           // 所在城市/POI
 }
 
@@ -324,8 +323,7 @@ export default function AutomationTemplatesPage() {
                         <p className="text-[9px] text-gray-500 mb-2">📹 选视频发布将作为前置步骤自动执行</p>
                         <div className="grid grid-cols-3 gap-2">
                           {[
-                            { key: 'title' as PublishStep, label: '✏️ 添加标题', desc: '输入/粘贴标题文案' },
-                            { key: 'topic' as PublishStep, label: '# 添加话题', desc: '选择热门话题标签' },
+                            { key: 'title' as PublishStep, label: '✏️ 添加标题', desc: '输入标题+AI话题生成' },
                             { key: 'location' as PublishStep, label: '📍 所在位置', desc: '添加城市定位' },
                           ].map(step => {
                               const checked = (cfg.publishSteps || []).includes(step.key)
@@ -350,26 +348,50 @@ export default function AutomationTemplatesPage() {
                         </div>
                       </div>
 
-                      {/* ── 标题配置（勾选"添加标题"后显示）── */}
+                      {/* ── 标题+话题（AI增强）── */}
                       {(cfg.publishSteps || []).includes('title') && (
                         <div className="pl-2 border-l-2 border-pink-500/20 space-y-2">
-                          <label className="text-[10px] text-gray-400 mb-1 block">✏️ 标题文案</label>
+                          <div className="flex items-center justify-between">
+                            <label className="text-[10px] text-gray-400">✏️ 标题文案（含话题）</label>
+                            <button
+                              onClick={async () => {
+                                const keyword = cfg.publishTitle || cfg.keywords?.[0] || '热门'
+                                setCfg(prev => ({ ...prev, aiGenLoading: true }))
+                                try {
+                                  const { generateText } = await import('@/lib/ai-providers')
+                                  const prompt = `你是一个抖音SEO运营专家。请根据关键词生成：
+1. 一个吸引人的标题（带钩子，20字以内）
+2. 3~5个SEO优化热门话题标签
+关键词：${keyword}
+格式：标题文字|#话题1 #话题2 #话题3 #话题4 #话题5`
+                                  const result = await generateText(prompt)
+                                  if (result && result.includes('|')) {
+                                    const parts = result.split('|')
+                                    const newTitle = parts[0].trim().replace(/^[「『""]|[」』""]$/g, '').replace(/^标题[：:]\s*/i, '')
+                                    const topics = parts.slice(1).join('').trim()
+                                    setCfg(prev => ({ 
+                                      ...prev, 
+                                      publishTitle: newTitle + ' ' + topics,
+                                      publishTopics: topics,
+                                      aiGenLoading: false 
+                                    }))
+                                  } else {
+                                    setCfg(prev => ({ ...prev, aiGenLoading: false }))
+                                  }
+                                } catch { setCfg(prev => ({ ...prev, aiGenLoading: false })) }
+                              }}
+                              disabled={(cfg as any).aiGenLoading}
+                              className="px-2 py-1 text-[10px] bg-purple-600/30 text-purple-300 rounded hover:bg-purple-600/50 disabled:opacity-50">
+                              {(cfg as any).aiGenLoading ? '⏳' : '🤖'} AI生成
+                            </button>
+                          </div>
                           <textarea value={cfg.publishTitle || ''} onChange={e => setCfg(prev => ({ ...prev, publishTitle: e.target.value }))}
-                            placeholder="输入发布标题，如：小狗坐C位吃席，全场笑疯了！&#10;留空则使用AI生成的标题"
-                            className="input-dark w-full h-16 resize-y text-sm" rows={2} />
-                          <p className="text-[9px] text-gray-500">轻触标题框后自动输入，支持直接粘贴</p>
-                        </div>
-                      )}
-
-                      {/* ── 话题配置（勾选"添加话题"后显示）── */}
-                      {(cfg.publishSteps || []).includes('topic') && (
-                        <div className="pl-2 border-l-2 border-pink-500/20 space-y-2">
-                          <label className="text-[10px] text-gray-400 mb-1 block"># 话题关键词</label>
-                          <input className="input-dark w-full text-sm"
-                            placeholder="输入话题关键词，如：萌宠、搞笑（多个用逗号分隔，执行时从热门话题中匹配）"
-                            value={cfg.publishTopics || ''}
-                            onChange={e => setCfg(prev => ({ ...prev, publishTopics: e.target.value }))} />
-                          <p className="text-[9px] text-gray-500"># 话题按钮 → 热门列表 → 按关键词匹配选择 → 返回编辑页</p>
+                            placeholder="输入标题关键词，点AI按钮自动扩展为SEO标题+话题&#10;如：小狗吃席 → AI生成：萌宠界的排面！小狗坐C位吃席现场太欢乐了 #萌宠 #搞笑 #治愈系"
+                            className="input-dark w-full h-20 resize-y text-sm" rows={3} />
+                          {cfg.publishTopics && (
+                            <p className="text-[9px] text-emerald-400">🏷️ 检测到话题: {cfg.publishTopics}</p>
+                          )}
+                          <p className="text-[9px] text-gray-500">标题+话题合并输入到抖音标题框，无需额外操作</p>
                         </div>
                       )}
 
@@ -378,20 +400,12 @@ export default function AutomationTemplatesPage() {
                         <div className="pl-2 border-l-2 border-pink-500/20 space-y-2">
                           <label className="text-[10px] text-gray-400 mb-1 block">📍 所在城市 / POI</label>
                           <input className="input-dark w-full text-sm"
-                            placeholder="如：合肥、成都市太古里"
+                            placeholder="如：合肥、成都市太古里（留空则跳过）"
                             value={cfg.publishLocation || ''}
                             onChange={e => setCfg(prev => ({ ...prev, publishLocation: e.target.value }))} />
-                          <p className="text-[9px] text-gray-500">点击"所在位置" → 弹窗确认 → 城市搜索选择</p>
+                          <p className="text-[9px] text-gray-500">留空自动跳过位置步骤，直接发布</p>
                         </div>
                       )}
-
-                      {/* ── AI描述（始终显示，作为AI生成参考）── */}
-                      <div className="pt-1 border-t border-white/5">
-                        <label className="text-[10px] text-gray-400 mb-1 block">🤖 视频描述（AI生成参考，可选）</label>
-                        <textarea value={cfg.publishDesc || ''} onChange={e => setCfg(prev => ({ ...prev, publishDesc: e.target.value }))}
-                          placeholder="描述今天视频想表达的内容，AI将据此生成标题和话题建议（不填也可正常执行）"
-                          className="input-dark w-full h-14 resize-y text-sm" rows={2} />
-                      </div>
 
                       {/* 默认全选提示 */}
                       {(cfg.publishSteps || []).length === 0 && (

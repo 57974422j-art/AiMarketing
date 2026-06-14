@@ -1,35 +1,37 @@
 <!DOCTYPE html>
-<html><head><title>坐标获取</title>
+<html><head><title>坐标获取 · Q1设备截图定位</title>
 <style>
-body{margin:0;background:#111;display:flex;flex-direction:column;align-items:center;color:#fff;font-family:monospace}
-h2{color:#10b981;margin:10px}
-#info{position:fixed;top:10px;right:10px;background:#000c;color:#0f0;padding:8px 14px;border-radius:8px;font-size:14px;z-index:99}
-img{max-width:95vw;cursor:crosshair;border:1px solid #333;border-radius:8px}
-.toolbar{display:flex;gap:10px;margin:10px;align-items:center;flex-wrap:wrap;justify-content:center}
-select,input,button{padding:6px 12px;border-radius:6px;border:1px solid #333;background:#222;color:#fff;font-size:14px}
-button{background:#10b981;border-color:#10b981;cursor:pointer;font-weight:bold}
-button:hover{background:#059669}
-label{color:#888;font-size:12px}
+body{margin:0;background:#0d1117;display:flex;flex-direction:column;align-items:center;color:#c9d1d9;font-family:monospace}
+h2{color:#10b981;margin:12px 0 4px;font-size:18px}
+.sub{color:#8b949e;font-size:11px;margin-bottom:10px}
+#info{position:fixed;top:12px;right:12px;background:#161b22;color:#7ee787;padding:8px 16px;border-radius:8px;font-size:13px;z-index:99;border:1px solid #30363d}
+img{max-width:95vw;max-height:85vh;cursor:crosshair;border:1px solid #30363d;border-radius:8px}
+.toolbar{display:flex;gap:10px;margin:8px;align-items:center}
+button{padding:8px 16px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;font-size:13px;cursor:pointer}
+button:hover{background:#30363d}
+.btn-primary{background:#238636;border-color:#238636}
+.btn-primary:hover{background:#2ea043}
+#status{color:#8b949e;font-size:12px;margin:4px 0}
 </style></head>
 <body>
-<h2>点击图片获取坐标</h2>
+<h2>📸 点击图片获取坐标</h2>
+<p class="sub">设备 #2 实时截图 · 点击任意位置坐标自动复制到剪贴板</p>
 <div class="toolbar">
-  <label>设备ID:</label>
-  <input id="devId" type="number" value="2" style="width:60px" />
-  <button id="fetchBtn">📸 实时截图</button>
-  <label>或上传图片:</label>
-  <input id="upload" type="file" accept="image/png,image/jpeg" />
-  <span id="loading" style="color:#f59e0b;display:none">截图中...</span>
+  <button class="btn-primary" id="fetchBtn">🔄 刷新截图</button>
+  <input id="upload" type="file" accept="image/png,image/jpeg" style="display:none" />
+  <button onclick="document.getElementById('upload').click()">📁 上传图片</button>
+  <span id="status">初始加载中...</span>
 </div>
 <div id="info">x: 0, y: 0</div>
-<img id="pic" src="/douyin_play.png" crossorigin="anonymous" />
+<img id="pic" src="" crossorigin="anonymous" />
 <script>
+const DEVICE_ID = 2
+
 const img=document.getElementById('pic')
 const info=document.getElementById('info')
-const devId=document.getElementById('devId')
 const fetchBtn=document.getElementById('fetchBtn')
 const upload=document.getElementById('upload')
-const loading=document.getElementById('loading')
+const status=document.getElementById('status')
 
 img.onclick=function(e){
   if (!img.naturalWidth) return
@@ -42,27 +44,46 @@ img.onclick=function(e){
   navigator.clipboard.writeText(`${x},${y}`).catch(()=>{})
 }
 
-fetchBtn.onclick=async function(){
-  const id=devId.value || 2
-  loading.style.display='inline'
+async function loadScreenshot(){
+  status.textContent='截图中...'
   fetchBtn.disabled=true
   try {
-    const r=await fetch('/api/devices/'+id+'/screenshot',{credentials:'include'})
-    if (!r.ok) { alert('截图失败: '+r.status); return }
+    const r=await fetch('/api/devices/'+DEVICE_ID+'/screenshot',{credentials:'include'})
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`
+      try { const j=await r.json(); msg=j.message||msg } catch {}
+      status.textContent='❌ '+msg
+      fetchBtn.disabled=false
+      return
+    }
     const blob=await r.blob()
     const url=URL.createObjectURL(blob)
     img.src=url
-    img.onload=()=>{ info.textContent=`已加载实时截图` }
-  } catch(e) { alert('截图失败: '+e.message) }
-  finally { loading.style.display='none'; fetchBtn.disabled=false }
+    img.onload=()=>{
+      info.textContent=`${img.naturalWidth}×${img.naturalHeight} | 点击获取坐标`
+      status.textContent='✅ 截图就绪'
+      fetchBtn.disabled=false
+    }
+  } catch(e) {
+    status.textContent='❌ '+e.message
+    fetchBtn.disabled=false
+  }
 }
+
+fetchBtn.onclick=loadScreenshot
 
 upload.onchange=function(e){
   const file=e.target.files[0]
   if (!file) return
   const url=URL.createObjectURL(file)
   img.src=url
-  img.onload=()=>{ info.textContent=`已加载: ${file.name} (${img.naturalWidth}×${img.naturalHeight})` }
+  img.onload=()=>{
+    info.textContent=`${file.name} (${img.naturalWidth}×${img.naturalHeight})`
+    status.textContent='📁 本地图片'
+  }
 }
+
+// 页面加载自动截图
+loadScreenshot()
 </script>
 </body></html>

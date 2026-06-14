@@ -243,10 +243,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           case 'extract': { r = await UI.extractScreenData(port); break }
           case 'comments': { r = await UI.extractScreenData(port); break }
           case 'publish': {
-            const { title: genTitle } = await generatePublishTitle(searchKeyword, publishDesc)
-            const pubTitle = publishTitle || genTitle
-            const pubTopics = Array.isArray(publishTopics) && publishTopics.length > 0 ? publishTopics : [`#${searchKeyword}`]
-            // 位置：逗号分隔多位置时随机取一个，否则原样传入
+            // ★ 话题已合并到标题中（publishTitle 可能包含 #话题）
+            // AI生成仅在 title 为空时兜底
+            let pubTitle = publishTitle
+            if (!pubTitle) {
+              const { title: genTitle } = await generatePublishTitle(searchKeyword, '')
+              pubTitle = genTitle
+            }
+            // 话题不再单独传递，已在标题中
+            const pubTopics: string[] = []
+            // 位置：逗号分隔多位置时随机取一个
             const rawLocation = publishLocation || ''
             const pubLocation = rawLocation.includes(',')
               ? rawLocation.split(',').map(s => s.trim()).filter(Boolean)[Math.floor(Math.random() * rawLocation.split(',').filter(s => s.trim()).length)] || ''
@@ -254,7 +260,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             // V4 纯坐标极速模式（2次抽查失败自动切换VL自检）
             const safePubSteps = Array.isArray(publishSteps) ? publishSteps : undefined
             const wr = await publishV4(port, pubTitle, pubTopics, signal, adb, { location: pubLocation })
-            // 如果V4失败，兜底用旧版
             if (!wr.success) {
               log('title', false, `V4失败: ${wr.message}, 兜底V3...`)
               const wr2 = await Douyin.aiPublishVideoWorkflow(port, pubTitle, pubTopics, signal, adb, { location: pubLocation, publishSteps: safePubSteps })
