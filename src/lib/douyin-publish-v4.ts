@@ -221,9 +221,9 @@ export async function publishV4(
     { name: '选视频',    x: 178,                      y: Math.round(sh2 * 0.270), check: '下一步',   waitS: 4 },
     { name: '点下一步1', x: 828,                      y: Math.round(sh2 * 0.959), check: '下一步',   waitS: 5 },
     { name: '点下一步2', x: 803,                      y: Math.round(sh2 * 0.951), check: '添加标题', waitS: 5 },
-    // 🆕 AI封面（Y坐标比例化）
+    // 🆕 AI封面（全部XML定位，不靠硬编码坐标）
     { name: '点编辑封面',x: 0,                        y: 0,                          check: '智能封面', findByText: '编辑封面', waitS: 3 },
-    { name: '点智能封面',x: 141,                      y: Math.round(sh2 * 0.793),   check: null,       pollForText: '保存', pollTimeout: 60, waitS: 3 },
+    { name: '点智能封面',x: 0,                        y: 0,                          check: null,       findByText: '智能封面', pollForText: '保存', pollTimeout: 60, waitS: 10 },
     { name: '点保存封面',x: 958,                      y: Math.round(sh2 * 0.059),   check: '添加标题', waitS: 4 },
     // 输标题+发布
     { name: '输标题',    x: 554,                      y: Math.round(sh2 * 0.421),   check: title.substring(0, 3), input: fullText, waitS: 4 },
