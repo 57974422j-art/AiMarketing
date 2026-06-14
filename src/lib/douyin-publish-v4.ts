@@ -203,14 +203,26 @@ export async function publishV4(
   const sh2 = screenH, sw2 = screenW
   console.log(`[${TS()}] ====== V4纯坐标 屏幕${sw2}x${sh2} "${fullText.substring(0, 25)}" ======`)
 
-  // 8步序列
-  const steps: Array<{ name: string; x: number; y: number; check: string | null; input?: string; waitS: number }> = [
+  // 步骤序列（可包含XML文字定位和轮询等待）
+  type V4Step = {
+    name: string; x: number; y: number; check: string | null;
+    input?: string; waitS: number;
+    findByText?: string;   // 用XML找文字定位（忽略x/y）
+    pollForText?: string;  // 轮询等待文字出现（AI生成封面等场景）
+    pollTimeout?: number;  // 轮询超时秒数
+  }
+  const steps: V4Step[] = [
     { name: '点加号',    x: Math.round(sw2 * 0.50), y: Math.round(sh2 * 0.958), check: '相册',     waitS: 4 },
     { name: '点相册',    x: 873,                     y: 2024,                       check: '全部',     waitS: 4 },
     { name: '切视频标签',x: 405,                     y: 497,                        check: '00:',      waitS: 3 },
     { name: '选视频',    x: 178,                     y: 642,                        check: '下一步',   waitS: 4 },
     { name: '点下一步1', x: 828,                     y: 2279,                       check: '下一步',   waitS: 5 },
     { name: '点下一步2', x: 803,                     y: 2260,                       check: '添加标题', waitS: 5 },
+    // 🆕 AI封面
+    { name: '点编辑封面',x: 0,                       y: 0,                          check: '智能封面', findByText: '编辑封面', waitS: 3 },
+    { name: '点智能封面',x: 141,                     y: 1885,                       check: null,       pollForText: '保存', pollTimeout: 30, waitS: 3 },
+    { name: '点保存封面',x: 958,                     y: 139,                        check: '添加标题', waitS: 4 },
+    // 输标题+发布
     { name: '输标题',    x: 554,                     y: 1000,                       check: title.substring(0, 3), input: fullText, waitS: 4 },
     { name: '点发布',    x: 731,                     y: 2183,                       check: null,       waitS: 5 },
   ]
@@ -223,12 +235,45 @@ export async function publishV4(
     const step = steps[currentIdx]
     const waitMs = step.waitS * 1000 + Math.floor(Math.random() * 2001)
 
-    console.log(`\n[${TS()}] ─ Step ${currentIdx + 1}/${steps.length}: ${step.name} (${step.x},${step.y}) ─`)
+    console.log(`\n[${TS()}] ─ Step ${currentIdx + 1}/${steps.length}: ${step.name} ─`)
 
-    // 点击
-    await smartTap(apiPort, step.x, step.y, 200 + Math.floor(Math.random() * 81), signal, adb)
+    // ── XML文字定位点击（findByText优先级最高）──
+    let tapX = step.x, tapY = step.y
+    if (step.findByText) {
+      const found = await xmlSpotCheck(apiPort, step.findByText, sh2)
+      if (found.found) {
+        tapX = found.x; tapY = found.y
+        console.log(`[${TS()}] [XML定位] "${step.findByText}" → (${tapX},${tapY})`)
+      } else {
+        console.log(`[${TS()}] [XML定位✗] "${step.findByText}" 未找到，用默认坐标`)
+      }
+    }
+    await smartTap(apiPort, tapX, tapY, 200 + Math.floor(Math.random() * 81), signal, adb)
 
-    // 输入
+    // ── 轮询等待文字出现（AI生成封面等场景）──
+    let pollFound = true  // 默认 true（非轮询步骤不干预）
+    if (step.pollForText) {
+      const timeout = (step.pollTimeout || 30) * 1000
+      const pollStart = Date.now()
+      pollFound = false
+      console.log(`[${TS()}] [轮询] 等待"${step.pollForText}"出现... (超时${step.pollTimeout || 30}s)`)
+      while (Date.now() - pollStart < timeout) {
+        if (signal?.aborted) return { success: false, message: '用户停止' }
+        await sleep(2000, signal)
+        const ck = await xmlSpotCheck(apiPort, step.pollForText, sh2)
+        if (ck.found) {
+          console.log(`[${TS()}] [轮询✓] "${step.pollForText}" 出现 → (${ck.x},${ck.y})`)
+          pollFound = true
+          break
+        }
+        console.log(`[${TS()}] [轮询...] 已等${Math.round((Date.now()-pollStart)/1000)}s`)
+      }
+      if (!pollFound) {
+        console.log(`[${TS()}] [轮询⚠] 超时，继续执行`)
+      }
+    }
+
+    // ── 输入 ──
     if (step.input) {
       await sleep(1500, signal)
       const ok = await doInput(apiPort, step.input, signal, adb)
@@ -240,7 +285,9 @@ export async function publishV4(
 
     // 抽查
     let spotOk = true
-    if (step.check) {
+    if (step.pollForText) {
+      spotOk = pollFound  // 轮询结果即抽查结果
+    } else if (step.check) {
       const ck = await xmlSpotCheck(apiPort, step.check, sh2)
       if (ck.found) {
         console.log(`[${TS()}] [抽查✓] "${step.check}" → (${ck.x},${ck.y})`)
