@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import * as Douyin from '@/lib/douyin-automation'
+import { publishV4 } from '@/lib/douyin-publish-v4'
 import * as UI from '@/lib/uiautomator-driver'
 import { ADB } from '@/lib/adb-helper'
 
@@ -250,10 +251,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             const pubLocation = rawLocation.includes(',')
               ? rawLocation.split(',').map(s => s.trim()).filter(Boolean)[Math.floor(Math.random() * rawLocation.split(',').filter(s => s.trim()).length)] || ''
               : rawLocation
-            // AI ReAct 模式（ADB 优先，HTTP shell 兜底）
+            // V4 纯坐标极速模式（2次抽查失败自动切换VL自检）
             const safePubSteps = Array.isArray(publishSteps) ? publishSteps : undefined
-            const wr = await Douyin.aiPublishVideoWorkflow(port, pubTitle, pubTopics, signal, adb, { location: pubLocation, publishSteps: safePubSteps })
-            r = { success: wr.success, message: wr.message }
+            const wr = await publishV4(port, pubTitle, pubTopics, signal, adb, { location: pubLocation })
+            // 如果V4失败，兜底用旧版
+            if (!wr.success) {
+              log('title', false, `V4失败: ${wr.message}, 兜底V3...`)
+              const wr2 = await Douyin.aiPublishVideoWorkflow(port, pubTitle, pubTopics, signal, adb, { location: pubLocation, publishSteps: safePubSteps })
+              r = { success: wr2.success, message: wr2.message }
+            } else {
+              r = { success: wr.success, message: wr.message }
+            }
             log('title', true, `标题: ${pubTitle}${pubLocation ? ' | 位置: ' + pubLocation : ''}`)
             break
           }
