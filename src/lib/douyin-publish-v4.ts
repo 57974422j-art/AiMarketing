@@ -256,23 +256,27 @@ export async function publishV4(
     }
     await smartTap(apiPort, tapX, tapY, 200 + Math.floor(Math.random() * 81), signal, adb)
 
-    // ── 轮询等待文字出现（AI生成封面等场景）──
-    let pollFound = true  // 默认 true（非轮询步骤不干预）
+    // ── 轮询等待文字出现（先静默等8s让AI启动，再轮询）──
+    let pollFound = true
     if (step.pollForText) {
+      // 先静默等8秒（不dump XML，避免干扰AI生成）
+      console.log(`[${TS()}] [轮询] 静默等待${step.waitS}s让AI启动...`)
+      await sleep(step.waitS * 1000, signal)
+
       const timeout = (step.pollTimeout || 30) * 1000
       const pollStart = Date.now()
       pollFound = false
-      console.log(`[${TS()}] [轮询] 等待"${step.pollForText}"出现... (超时${step.pollTimeout || 30}s)`)
+      console.log(`[${TS()}] [轮询] 开始轮询"${step.pollForText}" (超时${step.pollTimeout || 30}s)`)
       while (Date.now() - pollStart < timeout) {
         if (signal?.aborted) return { success: false, message: '用户停止' }
-        await sleep(2000, signal)
+        await sleep(3000, signal)
         const ck = await xmlSpotCheck(apiPort, step.pollForText, sh2)
         if (ck.found) {
           console.log(`[${TS()}] [轮询✓] "${step.pollForText}" 出现 → (${ck.x},${ck.y})`)
           pollFound = true
           break
         }
-        console.log(`[${TS()}] [轮询...] 已等${Math.round((Date.now()-pollStart)/1000)}s`)
+        console.log(`[${TS()}] [轮询...] 已等${Math.round((Date.now()-pollStart)/1000)+step.waitS}s`)
       }
       if (!pollFound) {
         console.log(`[${TS()}] [轮询⚠] 超时，继续执行`)
