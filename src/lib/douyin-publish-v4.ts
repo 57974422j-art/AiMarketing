@@ -169,11 +169,9 @@ async function vlSelfCheck(
 
 async function vlDescribe(b64: string): Promise<string | null> {
   try {
-    // 直接调百炼 VL
-    const { dashscopeDescribeScreen } = await import('./ai-providers') as any
-    if (typeof dashscopeDescribeScreen === 'function') return await dashscopeDescribeScreen(b64)
-  } catch {}
-  return null
+    const { dashscopeDescribeScreen } = await import('./ai-providers')
+    return await dashscopeDescribeScreen(b64)
+  } catch { return null }
 }
 
 // ══════════════════════════════════════════════════════
@@ -212,25 +210,28 @@ export async function publishV4(
     pollTimeout?: number;  // 轮询超时秒数
   }
   const steps: V4Step[] = [
-    { name: '点加号',    x: Math.round(sw2 * 0.50), y: Math.round(sh2 * 0.958), check: '相册',     waitS: 4 },
-    { name: '点相册',    x: 873,                     y: 2024,                       check: '全部',     waitS: 4 },
-    { name: '切视频标签',x: 405,                     y: 497,                        check: '00:',      waitS: 3 },
-    { name: '选视频',    x: 178,                     y: 642,                        check: '下一步',   waitS: 4 },
-    { name: '点下一步1', x: 828,                     y: 2279,                       check: '下一步',   waitS: 5 },
-    { name: '点下一步2', x: 803,                     y: 2260,                       check: '添加标题', waitS: 5 },
-    // 🆕 AI封面
-    { name: '点编辑封面',x: 0,                       y: 0,                          check: '智能封面', findByText: '编辑封面', waitS: 3 },
-    { name: '点智能封面',x: 141,                     y: 1885,                       check: null,       pollForText: '保存', pollTimeout: 60, waitS: 3 },
-    { name: '点保存封面',x: 958,                     y: 139,                        check: '添加标题', waitS: 4 },
+    { name: '点加号',    x: Math.round(sw2 * 0.50),  y: Math.round(sh2 * 0.958), check: '相册',     waitS: 4 },
+    { name: '点相册',    x: 873,                      y: Math.round(sh2 * 0.852), check: '全部',     waitS: 4 },
+    { name: '切视频标签',x: 405,                      y: Math.round(sh2 * 0.209), check: '00:',      waitS: 3 },
+    { name: '选视频',    x: 178,                      y: Math.round(sh2 * 0.270), check: '下一步',   waitS: 4 },
+    { name: '点下一步1', x: 828,                      y: Math.round(sh2 * 0.959), check: '下一步',   waitS: 5 },
+    { name: '点下一步2', x: 803,                      y: Math.round(sh2 * 0.951), check: '添加标题', waitS: 5 },
+    // 🆕 AI封面（Y坐标比例化）
+    { name: '点编辑封面',x: 0,                        y: 0,                          check: '智能封面', findByText: '编辑封面', waitS: 3 },
+    { name: '点智能封面',x: 141,                      y: Math.round(sh2 * 0.793),   check: null,       pollForText: '保存', pollTimeout: 60, waitS: 3 },
+    { name: '点保存封面',x: 958,                      y: Math.round(sh2 * 0.059),   check: '添加标题', waitS: 4 },
     // 输标题+发布
-    { name: '输标题',    x: 554,                     y: 1000,                       check: title.substring(0, 3), input: fullText, waitS: 4 },
-    { name: '点发布',    x: 731,                     y: 2183,                       check: null,       waitS: 5 },
+    { name: '输标题',    x: 554,                      y: Math.round(sh2 * 0.421),   check: title.substring(0, 3), input: fullText, waitS: 4 },
+    { name: '点发布',    x: 731,                      y: Math.round(sh2 * 0.919),   check: null,       waitS: 5 },
   ]
 
   let failStreak = 0
   let currentIdx = 0
+  let totalLoops = 0
+  const MAX_LOOPS = 30  // 单步骤最大重试轮数
 
-  while (currentIdx < steps.length) {
+  while (currentIdx < steps.length && totalLoops < MAX_LOOPS) {
+    totalLoops++
     if (signal?.aborted) return { success: false, message: '用户停止' }
     const step = steps[currentIdx]
     const waitMs = step.waitS * 1000 + Math.floor(Math.random() * 2001)
@@ -311,6 +312,10 @@ export async function publishV4(
     if (spotOk) currentIdx++
   }
 
+  if (totalLoops >= MAX_LOOPS) {
+    console.log(`\n[${TS()}] ====== V4 超时(循环${totalLoops}次) ======`)
+    return { success: false, message: `V4超时(循环${totalLoops}次)` }
+  }
   console.log(`\n[${TS()}] ====== V4 完成 ✅ ======`)
   return { success: true, message: '发布流程已执行' }
 }

@@ -1187,7 +1187,7 @@ export async function aiLocateButton(apiPort: number, buttonDesc: string): Promi
 }
 
 /** 调用百炼 VL 分析页面内容 */
-async function dashscopeDescribeScreen(base64Image: string): Promise<string | null> {
+export async function dashscopeDescribeScreen(base64Image: string): Promise<string | null> {
   const key = getDashScopeKey()
   if (!key) return null
   const t0 = Date.now()
