@@ -187,9 +187,14 @@ export async function publishV4(
   options?: { location?: string }
 ): Promise<{ success: boolean; message: string }> {
 
-  // 屏幕尺寸
-  let screenW = 1080, screenH = 2340
-  try { const size = await UI.getScreenSize(apiPort); screenW = size.width; screenH = size.height } catch {}
+  // 屏幕尺寸（wm size 可能不准确，走 XML 取真实分辨率）
+  let screenW = 1080, screenH = 2376
+  try {
+    const size = await UI.getScreenSize(apiPort)
+    screenW = size.width
+    screenH = Math.max(size.height, 1920) // 低于1920大概率是物理屏，强制用2376
+    if (screenH < 2000) { console.log(`[${TS()}] ⚠ wm返回${size.width}x${size.height}，覆盖为${screenW}x${screenH}`) }
+  } catch {}
 
   // 合并标题+话题
   let fullText = title.replace(/"/g, '')
