@@ -847,6 +847,5 @@ model ScriptDiagnosis {
   resolved    Boolean  @default(false)        // 是否已解决
   createdAt   DateTime @default(now())
   ownerId     Int?
-  owner       User?    @relation(fields: [ownerId], references: [id])
 }
 
