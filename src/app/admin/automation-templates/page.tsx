@@ -480,7 +480,6 @@ export default function AutomationTemplatesPage() {
                     platform: testOpen.platform || activePlatform,
                     actions: [testAction],
                     keywords: testOpen.keywords || [],
-                    publishDesc: testOpen.publishDesc || '',
                     publishTitle: testOpen.publishTitle || '',
                     publishTopics: testOpen.publishTopics ? (Array.isArray(testOpen.publishTopics) ? testOpen.publishTopics : testOpen.publishTopics.split(',')) : [],
                     publishLocation: testOpen.publishLocation || '',
