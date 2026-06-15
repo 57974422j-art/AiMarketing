@@ -10,8 +10,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { spawn, execSync } from 'child_process'
 
-function getMediaCrawlerPath() { return process.env.getMediaCrawlerPath() || '/opt/MediaCrawler' }
-function getPythonBin() { return process.env.getPythonBin() || 'python3' }
+function getMediaCrawlerPath() { return process.env.MEDIA_CRAWLER_PATH || '/opt/MediaCrawler' }
+function getPythonBin() { return process.env.PYTHON_BIN || 'python3' }
 
 // 存储登录进程信息（内存中，重启后丢失）
 const activeLoginProcess: {
