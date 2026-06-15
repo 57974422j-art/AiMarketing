@@ -260,7 +260,7 @@ export async function checkHealth(): Promise<{
     const pythonBin = getPythonBin()
     const mcPath = getMediaCrawlerPath()
     const proc = spawn(pythonBin, ['-c', `
-import sys; sys.path.insert(0, '${mcPath}')
+import sys, json; sys.path.insert(0, '${mcPath}')
 try:
     import media_platform
     print(json.dumps({"ok": True, "version": "ok"}))
