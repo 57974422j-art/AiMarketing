@@ -18,12 +18,9 @@ import { spawn } from 'child_process'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
-const getMediaCrawlerPath() = process.env.getMediaCrawlerPath() || '/opt/MediaCrawler'
-const getPythonBin() = process.env.getPythonBin() || 'python3'
+function getPythonBin(): string { return process.env.PYTHON_BIN || 'python3' }
+function getMediaCrawlerPath(): string { return process.env.MEDIA_CRAWLER_PATH || '/opt/MediaCrawler' }
 const DEFAULT_TIMEOUT = 60000
-
-function getPythonBin(): string { return process.env.getPythonBin() || 'python3' }
-function getMediaCrawlerPath(): string { return process.env.getMediaCrawlerPath() || '/opt/MediaCrawler' } // 60s
 
 // 代理池配置文件路径
 const PROXY_POOL_PATH = join(process.cwd(), '.proxy-pool.json')
