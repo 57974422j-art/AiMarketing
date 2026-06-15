@@ -10,7 +10,6 @@ const API_WHITELIST = [
   '/api/migrate-template-urls',
   '/api/tasks/mine',
   '/api/tts',
-  '/api/storage/file',   // Electron下载素材(自带userId参数鉴权)，不拦截
 ]
 
 function base64UrlDecode(str: string): string {
@@ -40,6 +39,9 @@ export function middleware(request: NextRequest) {
   if (!pathname.startsWith('/api/')) {
     return NextResponse.next()
   }
+
+  // 精确匹配：Electron下载素材端点（自带userId参数鉴权），不要拦截
+  if (pathname === '/api/storage/file') return NextResponse.next()
 
   if (API_WHITELIST.some(path => pathname.startsWith(path))) {
     return NextResponse.next()
