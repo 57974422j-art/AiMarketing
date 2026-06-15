@@ -124,10 +124,12 @@ export default function StoragePage() {
                   {f.isVideo && (
                     <button onClick={async () => {
                       setPushFile(f.name)
-                      const r = await fetch('/api/devices', { credentials: 'include' })
+                      // admin 看全部设备，end-user 只看自己绑定的
+                      const url = user?.role === 'admin' ? '/api/devices' : '/api/storage/my-devices'
+                      const r = await fetch(url, { credentials: 'include' })
                       const d = await r.json()
-                      if (d.success) { setDevices(d.data); setShowPushDlg(true) }
-                      else showToast('获取设备列表失败', 'error')
+                      if (d.success && d.data?.length > 0) { setDevices(d.data); setShowPushDlg(true) }
+                      else showToast(d.data?.length === 0 ? '暂无绑定设备' : d.message || '获取失败', 'error')
                     }} className="btn-secondary flex-1 text-[9px] py-1">📤 推送</button>
                   )}
                   <button onClick={() => del(f.name)} className="w-6 h-6 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition">×</button>
