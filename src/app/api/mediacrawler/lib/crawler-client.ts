@@ -195,53 +195,32 @@ function buildPythonScript(
   const paramsJson = JSON.stringify(params)
 
   return `
-import json
-import sys
-import os
-
-# 添加 MediaCrawler 到 Python 路径
+import json, sys, os, asyncio
 sys.path.insert(0, '${MEDIA_CRAWLER_PATH}')
+os.chdir('${MEDIA_CRAWLER_PATH}')
 
-result = None
+async def _do():
+    from media_platform.douyin.client import DouYinClient
+    client = DouYinClient()
+    p = ${paramsJson}
+    if '${action}' == 'search':
+        return await client.search_info_by_keyword(keyword=p.get('keyword',''))
+    elif '${action}' == 'comments':
+        return await client.get_aweme_all_comments(aweme_id=p.get('aweme_id',''))
+    elif '${action}' == 'user':
+        return await client.get_user_info(sec_user_id=p.get('sec_user_id',''))
+    elif '${action}' == 'detail':
+        return await client.get_video_by_id(aweme_id=p.get('aweme_id',''))
+    elif '${action}' == 'trending':
+        return {"error":"请用 main.py --platform dy --type search 搜索"}
+    return {"error":"Unknown: ${action}"}
 
 try:
-    if '${action}' == 'search':
-        # 视频搜索
-        from media_crawler.douyin.douyin_search import DouyinSearch
-        crawler = DouyinSearch()
-        result = crawler.search_videos(${paramsJson})
-
-    elif '${action}' == 'comments':
-        # 评论爬取
-        from media_crawler.douyin.douyin_comment import DouyinComment
-        crawler = DouyinComment()
-        result = crawler.get_comments(${paramsJson})
-
-    elif '${action}' == 'user':
-        # 用户画像
-        from media_crawler.douyin.douyin_user import DouyinUser
-        crawler = DouyinUser()
-        result =crawler.get_user_profile(${paramsJson})
-
-    elif '${action}' == 'trending':
-        # 热门话题
-        from media_crawler.douyin.douyin_trending import DouyinTrending
-        crawler = DouyinTrending()
-        result = crawler.get_trending(${paramsJson})
-
-    elif '${action}' == 'detail':
-        # 视频详情
-        from media_crawler.douyin.douyin_detail import DouyinDetail
-        crawler = DouyinDetail()
-        result = crawler.get_detail(${paramsJson})
-
-    else:
-        result = {"error": f"Unknown action: ${action}"}
-
+    result = asyncio.run(_do())
 except ImportError as e:
-    result = {"error": "Import Error: " + str(e), "hint": "请确认已正确安装 MediaCrawler 及其依赖"}
+    result = {"error":"Import: "+str(e)}
 except Exception as e:
-    result = {"error": type(e).__name__ + ": " + str(e)}
+    result = {"error":type(e).__name__+": "+str(e)}
 
 print(json.dumps(result, ensure_ascii=False))
 `.trim()
@@ -281,8 +260,8 @@ export async function checkHealth(): Promise<{
     const proc = spawn(PYTHON_BIN, ['-c', `
 import sys; sys.path.insert(0, '${MEDIA_CRAWLER_PATH}')
 try:
-    import media_crawler
-    print(json.dumps({"ok": True, "version": getattr(media_crawler, "__version__", "unknown")}))
+    import media_platform
+    print(json.dumps({"ok": True, "version": "ok"}))
 except ImportError as e:
     print(json.dumps({"ok": False, "error": str(e)}))
 `], {

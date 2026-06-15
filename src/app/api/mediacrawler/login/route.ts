@@ -63,69 +63,15 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // 启动登录子进程
-    // 使用 Python 脚本启动 Playwright 浏览器并获取二维码
-    const loginScript = `
-import json, sys, os, time, subprocess
-sys.path.insert(0, '${MEDIA_CRAWLER_PATH}')
-
-result = {"status": "starting"}
-
-try:
-    # 尝试导入 MediaCrawler 的登录模块
-    from media_crawler.login.login import Login
-    login = Login(platform='${platform}')
+    // 新版 CLI: main.py --platform dy --lt qrcode
+    console.log(`[MC-Login] 启动登录: ${PYTHON_BIN} main.py --platform ${platform} --lt qrcode`)
     
-    # 输出等待扫码状态
-    result["status"] = "waiting_scan"
-    print(json.dumps(result, ensure_ascii=False))
-    sys.stdout.flush()
-    
-    # 执行登录（会弹出浏览器或获取二维码）
-    login_result = login.do_login()
-    
-    if login_result and login_result.get("success"):
-        result["status"] = "success"
-        result["message"] = "登录成功，Cookie 已保存"
-        result["cookie_path"] = login_result.get("cookie_path", "")
-    else:
-        result["status"] = "error"
-        result["message"] = login_result.get("message", "登录失败") if login_result else "未知错误"
-    
-    print(json.dumps(result, ensure_ascii=False))
-    
-except ImportError:
-    # fallback: 使用 main.py --login 方式
-    print(json.dumps({"status": "waiting_scan", "message": "正在启动浏览器，请在服务器桌面扫码..."}, ensure_ascii=False))
-    sys.stdout.flush()
-    
-    proc = subprocess.Popen(
-        ['${PYTHON_BIN}', '${MEDIA_CRAWLER_PATH}/main.py', '--login', '--platform', '${platform}'],
-        cwd='${MEDIA_CRAWLER_PATH}',
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env={**os.environ, "DISPLAY": ":99"}
-    )
-    stdout, stderr = proc.communicate(timeout=120)
-    
-    if proc.returncode == 0:
-        print(json.dumps({"status": "success", "message": "登录成功"}, ensure_ascii=False))
-    else:
-        print(json.dumps({
-            "status": "error",
-            "message": f"登录进程退出码: {proc.returncode}",
-            "detail": stderr.decode("utf-8", errors="ignore")[-500:]
-        }, ensure_ascii=False))
-
-except Exception as e:
-    result["status"] = "error"
-    result["message"] = str(e)
-    import traceback
-    result["detail"] = traceback.format_exc()[-1000:]
-    print(json.dumps(result, ensure_ascii=False))
-`
-
-    const proc = spawn(PYTHON_BIN, ['-c', loginScript], {
+    const proc = spawn(PYTHON_BIN, [
+      `${MEDIA_CRAWLER_PATH}/main.py`,
+      '--platform', platform === 'douyin' ? 'dy' : platform,
+      '--lt', 'qrcode',
+      '--headless', 'false',
+    ], {
       cwd: MEDIA_CRAWLER_PATH,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', DISPLAY: ':99' },
       stdio: ['pipe', 'pipe', 'pipe'],
