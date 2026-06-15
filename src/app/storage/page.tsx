@@ -15,8 +15,8 @@ export default function StoragePage() {
   const [pushFile, setPushFile] = useState<string | null>(null)
   const [pushLoading, setPushLoading] = useState(false)
   const [showPushDlg, setShowPushDlg] = useState(false)
-  const [clients, setClients] = useState<any[]>([])
-  const [pushClient, setPushClient] = useState<any>(null)
+  const [devices, setDevices] = useState<any[]>([])
+  const [pushDevice, setPushDevice] = useState<any>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -53,20 +53,20 @@ export default function StoragePage() {
   }
 
   const doPush = async () => {
-    if (!pushFile || !pushClient) return
+    if (!pushFile || !pushDevice) return
     setPushLoading(true)
     try {
-      const r = await fetch('/api/video/push-to-account', {
+      const r = await fetch('/api/storage/push-to-phone', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: pushFile, endUserId: pushClient.id, remark: pushClient.name || pushClient.username }),
+        body: JSON.stringify({ fileName: pushFile }),
       })
       const d = await r.json()
-      if (d.success) showToast(`已推送 ${d.data.pushed}/${d.data.total} 台设备`, 'success')
+      if (d.success) showToast(`已推送到 ${pushDevice.name}`, 'success')
       else showToast(d.message || '推送失败', 'error')
     } catch { showToast('推送失败', 'error') }
-    finally { setShowPushDlg(false); setPushFile(null); setPushClient(null); setPushLoading(false) }
+    finally { setShowPushDlg(false); setPushFile(null); setPushDevice(null); setPushLoading(false) }
   }
 
   const pct = Math.round(quota.used / quota.total * 100)
@@ -124,10 +124,10 @@ export default function StoragePage() {
                   {f.isVideo && (
                     <button onClick={async () => {
                       setPushFile(f.name)
-                      const r = await fetch('/api/clients', { credentials: 'include' })
+                      const r = await fetch('/api/devices', { credentials: 'include' })
                       const d = await r.json()
-                      if (d.success) { setClients(d.data); setShowPushDlg(true) }
-                      else showToast('获取客户列表失败', 'error')
+                      if (d.success) { setDevices(d.data); setShowPushDlg(true) }
+                      else showToast('获取设备列表失败', 'error')
                     }} className="btn-secondary flex-1 text-[9px] py-1">📤 推送</button>
                   )}
                   <button onClick={() => del(f.name)} className="w-6 h-6 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition">×</button>
@@ -137,21 +137,25 @@ export default function StoragePage() {
           </div>
         )}
 
-        {showPushDlg && <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={()=>{setShowPushDlg(false);setPushFile(null);setPushClient(null)}}>
+        {showPushDlg && <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={()=>{setShowPushDlg(false);setPushFile(null);setPushDevice(null)}}>
           <div className="card-glass p-6 rounded-xl max-w-sm w-full mx-4" onClick={e=>e.stopPropagation()}>
-            <h3 className="text-sm font-bold text-white mb-3">选择推送客户</h3>
+            <h3 className="text-sm font-bold text-white mb-3">选择推送设备</h3>
             <div className="space-y-2 max-h-60 overflow-y-auto mb-4">
-              {clients.map((cl: any) => (
-                <button key={cl.id} onClick={()=>setPushClient(cl)}
-                  className={`w-full text-left p-3 rounded-lg border text-xs transition ${pushClient?.id===cl.id?"bg-emerald-500/20 border-emerald-500/30 text-emerald-400":"bg-white/5 border-white/10 text-gray-300 hover:bg-white/10"}`}>
-                  {cl.name||cl.username} <span className="text-gray-500 ml-1">(#{cl.id})</span>
+              {devices.filter((d:any) => d.type === 'q1' && d.apiPort).map((d: any) => (
+                <button key={d.id} onClick={()=>setPushDevice(d)}
+                  className={`w-full text-left p-3 rounded-lg border text-xs transition ${pushDevice?.id===d.id?"bg-emerald-500/20 border-emerald-500/30 text-emerald-400":"bg-white/5 border-white/10 text-gray-300 hover:bg-white/10"}`}>
+                  <span className="font-mono text-emerald-300">{d.name}</span>
+                  <span className="text-gray-500 ml-2">端口 {d.apiPort}</span>
                 </button>
               ))}
+              {devices.filter((d:any) => d.type === 'q1' && d.apiPort).length === 0 && (
+                <p className="text-gray-500 text-xs text-center py-4">暂无可用Q1设备</p>
+              )}
             </div>
             <div className="flex gap-2">
-              <button onClick={()=>{setShowPushDlg(false);setPushFile(null);setPushClient(null)}} className="btn-secondary flex-1 text-xs py-2">取消</button>
-              <button disabled={!pushClient||pushLoading} onClick={doPush}
-                className={`flex-1 btn-primary text-xs ${(!pushClient||pushLoading)?'opacity-50 cursor-not-allowed':''}`}>
+              <button onClick={()=>{setShowPushDlg(false);setPushFile(null);setPushDevice(null)}} className="btn-secondary flex-1 text-xs py-2">取消</button>
+              <button disabled={!pushDevice||pushLoading} onClick={doPush}
+                className={`flex-1 btn-primary text-xs ${(!pushDevice||pushLoading)?'opacity-50 cursor-not-allowed':''}`}>
                 {pushLoading?'推送中...':'确认推送'}
               </button>
             </div>

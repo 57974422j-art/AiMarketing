@@ -94,7 +94,10 @@ export async function POST(request: NextRequest) {
   }
 
   const ext = file.name.split('.').pop() || 'mp4'
-  const name = Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const now = new Date()
+  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`
+  const seq = String(Date.now() % 100000).padStart(5, '0')  // 5位序列号保唯一
+  const name = `${dateStr}${seq}.${ext}`
   const key = `storage/${auth.userId}/${name}`
   const buffer = Buffer.from(await file.arrayBuffer())
 
