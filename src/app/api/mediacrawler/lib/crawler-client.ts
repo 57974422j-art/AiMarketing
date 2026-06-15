@@ -257,26 +257,35 @@ export async function checkHealth(): Promise<{
 
   // 检查 Python 和基本导入
   return new Promise((resolve) => {
-    const proc = spawn(getPythonBin(), ['-c', `
-import sys; sys.path.insert(0, '${getMediaCrawlerPath()}')
+    const pythonBin = getPythonBin()
+    const mcPath = getMediaCrawlerPath()
+    const proc = spawn(pythonBin, ['-c', `
+import sys; sys.path.insert(0, '${mcPath}')
 try:
     import media_platform
     print(json.dumps({"ok": True, "version": "ok"}))
 except ImportError as e:
     print(json.dumps({"ok": False, "error": str(e)}))
 `], {
-      cwd: getMediaCrawlerPath(),
+      cwd: mcPath,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
     let out = ''
+    let err = ''
     proc.stdout.on('data', (d: Buffer) => { out += d.toString() })
+    proc.stderr.on('data', (d: Buffer) => { err += d.toString() })
 
     const timer = setTimeout(() => {
       proc.kill()
       resolve({ available: false, pythonOk: false, pathExists: true, error: 'Python 健康检查超时' })
     }, 10000)
+
+    proc.on('error', (e) => {
+      clearTimeout(timer)
+      resolve({ available: false, pythonOk: false, pathExists: true, error: `无法启动Python(${pythonBin}): ${e.message}` })
+    })
 
     proc.on('close', () => {
       clearTimeout(timer)
@@ -294,7 +303,7 @@ except ImportError as e:
           available: false,
           pythonOk: false,
           pathExists: true,
-          error: `Python 输出异常: ${out.slice(0, 200)}`,
+          error: err.trim() ? `Python stderr: ${err.slice(0, 300)}` : `Python 无输出(stdout:${out.slice(0,100)}, stderr:${err.slice(0,100)})`,
         })
       }
     })
