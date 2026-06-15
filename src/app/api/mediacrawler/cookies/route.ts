@@ -222,6 +222,58 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}))
     const action = body.action || 'validate'
 
+    if (action === 'import') {
+      // 手动导入 Cookie：从浏览器DevTools复制Cookie字符串，写入MediaCrawler格式
+      const cookieString: string = body.cookieString || ''
+      if (!cookieString.trim()) {
+        return NextResponse.json({ success: false, message: 'Cookie字符串不能为空' }, { status: 400 })
+      }
+
+      // 解析 Cookie 字符串 "key1=val1; key2=val2; ..."
+      const cookies = cookieString.split(';').map(pair => {
+        const [name, ...valParts] = pair.trim().split('=')
+        return {
+          name: name.trim(),
+          value: valParts.join('=').trim(),
+          domain: '.douyin.com',
+          path: '/',
+          httpOnly: false,
+          secure: true,
+        }
+      }).filter(c => c.name && c.value)
+
+      if (cookies.length === 0) {
+        return NextResponse.json({ success: false, message: '未能解析到有效Cookie' }, { status: 400 })
+      }
+
+      try {
+        const fs = await import('fs/promises')
+        const pathModule = await import('path')
+        const cookieDir = pathModule.join(MEDIA_CRAWLER_PATH, 'data', 'cookies')
+        await fs.mkdir(cookieDir, { recursive: true })
+        const filePath = pathModule.join(cookieDir, 'douyin_cookies.json')
+        await fs.writeFile(filePath, JSON.stringify(cookies, null, 2), 'utf-8')
+
+        // 同时也写一份到 browser_data 目录（MediaCrawler可能从这里读）
+        const browserCookieDir = pathModule.join(MEDIA_CRAWLER_PATH, 'data', 'browser_data')
+        await fs.mkdir(browserCookieDir, { recursive: true })
+        await fs.writeFile(
+          pathModule.join(browserCookieDir, 'douyin_cookies.json'),
+          JSON.stringify(cookies, null, 2),
+          'utf-8'
+        )
+
+        const summary = cookies.map(c => c.name).slice(0, 8).join(', ')
+        return NextResponse.json({
+          success: true,
+          message: `已导入 ${cookies.length} 个Cookie: ${summary}${cookies.length > 8 ? '...' : ''}`,
+          data: { count: cookies.length, path: filePath },
+        })
+      } catch (e: any) {
+        return NextResponse.json({ success: false, message: `写入失败: ${e.message}` }, { status: 500 })
+      }
+    }
+
     if (action === 'validate') {
       // 发送一个轻量级请求验证 cookie 是否有效
       const validateScript = `

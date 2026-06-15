@@ -62,6 +62,37 @@ export default function EnginePanel({
   // ---- 内部 polling 状态 ----
   const [loginPolling, setLoginPolling] = useState(false)
 
+  // ---- 手动导入 Cookie ----
+  const [showImportCookie, setShowImportCookie] = useState(false)
+  const [cookieImportText, setCookieImportText] = useState('')
+  const [importingCookie, setImportingCookie] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const toggleImportCookie = () => { setShowImportCookie(v => !v); setImportMsg(null) }
+
+  const importCookie = async () => {
+    if (!cookieImportText.trim()) return
+    setImportingCookie(true); setImportMsg(null)
+    try {
+      const res = await fetch('/api/mediacrawler/cookies', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'import', cookieString: cookieImportText }),
+      })
+      const result = await res.json()
+      if (result.success) {
+        setImportMsg({ type: 'success', text: result.message })
+        setCookieImportText('')
+        loadCookieStatus()
+      } else {
+        setImportMsg({ type: 'error', text: result.message })
+      }
+    } catch (e: any) {
+      setImportMsg({ type: 'error', text: e.message })
+    }
+    setImportingCookie(false)
+  }
+
   // ====== MediaCrawler 测试 ======
   const testMediaCrawler = async () => {
     s.setMcHealthStatus('checking'); s.setMcHealthDetail('正在检查...')
@@ -343,11 +374,35 @@ export default function EnginePanel({
               <button onClick={cancelLogin}
                 className="px-3 py-1.5 bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/30 text-xs font-mono">取消</button>
             )}
+            <button onClick={toggleImportCookie}
+              className="px-3 py-1.5 bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 rounded-lg hover:bg-yellow-500/30 text-xs font-mono">
+              {showImportCookie ? '收起导入' : '手动导入 Cookie'}
+            </button>
             <button onClick={validateCookies} disabled={cookieStatus === 'loading'}
               className="px-3 py-1.5 bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded-lg hover:bg-cyan-500/30 disabled:opacity-50 text-xs font-mono">验证 Cookie</button>
             <button onClick={clearCookies}
               className="px-3 py-1.5 bg-orange-500/20 border border-orange-500/30 text-orange-400 rounded-lg hover:bg-orange-500/30 text-xs font-mono">清除 Cookie</button>
           </div>
+
+          {/* 手动导入 Cookie */}
+          {showImportCookie && (
+            <div className="mt-3 p-3 rounded-lg bg-yellow-500/5 border border-yellow-500/20">
+              <p className="text-[10px] text-gray-500 mb-2 font-mono">
+                浏览器打开抖音 → F12 → Network → 任意请求 → 复制 Cookie 请求头值粘贴到下方
+              </p>
+              <textarea value={cookieImportText} onChange={e => setCookieImportText(e.target.value)}
+                placeholder="ttwid=xxx; passport_csrf_token=yyy; sessionid=zzz; ..."
+                rows={3}
+                className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-yellow-500/50 resize-none" />
+              <div className="flex items-center gap-2 mt-2">
+                <button onClick={importCookie} disabled={!cookieImportText.trim() || importingCookie}
+                  className="px-3 py-1.5 bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 rounded-lg hover:bg-yellow-500/30 disabled:opacity-50 text-xs font-mono">
+                  {importingCookie ? '导入中...' : '导入 Cookie'}
+                </button>
+                {importMsg && <span className={`text-xs font-mono ${importMsg.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>{importMsg.text}</span>}
+              </div>
+            </div>
+          )}
 
           {/* Cookie 文件列表 */}
           {cookieFiles.length > 0 && (
