@@ -238,8 +238,8 @@ export async function GET(request: NextRequest) {
         ttsResourceIdConfigured: !!ttsResourceId,
         automationEngine: automationEngine || 'mediacrawler',
         actionEngine: actionEngine || 'q1-adb',
-        mcPath: mcPath || '/opt/MediaCrawler',
-        mcPythonBin: mcPythonBin || 'python3',
+        mcPath: mcPath || '',
+        mcPythonBin: mcPythonBin || '',
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''

@@ -54,8 +54,8 @@ export default function SettingsPage() {
   // ====== 引擎状态 ======
   const [queryEngine, setQueryEngine] = useState<QueryEngine>('mediacrawler')
   const [actionEngine, setActionEngine] = useState<ActionEngine>('q1-adb')
-  const [mcPath, setMcPath] = useState('/opt/MediaCrawler')
-  const [mcPythonBin, setMcPythonBin] = useState('python3')
+  const [mcPath, setMcPath] = useState('')
+  const [mcPythonBin, setMcPythonBin] = useState('')
   const [mcHealthStatus, setMcHealthStatus] = useState<MCHealthStatus>('idle')
   const [mcHealthDetail, setMcHealthDetail] = useState('')
 
