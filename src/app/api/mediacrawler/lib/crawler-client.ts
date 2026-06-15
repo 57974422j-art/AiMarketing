@@ -20,7 +20,10 @@ import { join } from 'path'
 
 const MEDIA_CRAWLER_PATH = process.env.MEDIA_CRAWLER_PATH || '/opt/MediaCrawler'
 const PYTHON_BIN = process.env.PYTHON_BIN || 'python3'
-const DEFAULT_TIMEOUT = 60000 // 60s
+const DEFAULT_TIMEOUT = 60000
+
+function getPythonBin(): string { return process.env.PYTHON_BIN || 'python3' }
+function getMediaCrawlerPath(): string { return process.env.MEDIA_CRAWLER_PATH || '/opt/MediaCrawler' } // 60s
 
 // 代理池配置文件路径
 const PROXY_POOL_PATH = join(process.cwd(), '.proxy-pool.json')
@@ -71,8 +74,8 @@ export async function crawl<T = unknown>(
     // 构建内联 Python 调用脚本
     const script = buildPythonScript(action, params)
 
-    const proc = spawn(PYTHON_BIN, ['-c', script], {
-      cwd: MEDIA_CRAWLER_PATH,
+    const proc = spawn(getPythonBin(), ['-c', script], {
+      cwd: getMediaCrawlerPath(),
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: false,
@@ -257,8 +260,8 @@ export async function checkHealth(): Promise<{
 
   // 检查 Python 和基本导入
   return new Promise((resolve) => {
-    const proc = spawn(PYTHON_BIN, ['-c', `
-import sys; sys.path.insert(0, '${MEDIA_CRAWLER_PATH}')
+    const proc = spawn(getPythonBin(), ['-c', `
+import sys; sys.path.insert(0, '${getMediaCrawlerPath()}')
 try:
     import media_platform
     print(json.dumps({"ok": True, "version": "ok"}))

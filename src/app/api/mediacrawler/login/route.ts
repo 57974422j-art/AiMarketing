@@ -10,8 +10,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { spawn, execSync } from 'child_process'
 
-const MEDIA_CRAWLER_PATH = process.env.MEDIA_CRAWLER_PATH || '/opt/MediaCrawler'
-const PYTHON_BIN = process.env.PYTHON_BIN || 'python3'
+function getMediaCrawlerPath() { return process.env.MEDIA_CRAWLER_PATH || '/opt/MediaCrawler' }
+function getPythonBin() { return process.env.PYTHON_BIN || 'python3' }
 
 // 存储登录进程信息（内存中，重启后丢失）
 const activeLoginProcess: {
@@ -64,10 +64,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 新版 CLI: main.py --platform dy --lt qrcode
-    console.log(`[MC-Login] 启动登录: ${PYTHON_BIN} main.py --platform ${platform} --lt qrcode`)
+    const mcp = getMediaCrawlerPath()
+    console.log(`[MC-Login] 启动登录: ${getPythonBin()} main.py --platform ${platform} --lt qrcode`)
     
-    const proc = spawn(PYTHON_BIN, [
-      `${MEDIA_CRAWLER_PATH}/main.py`,
+    const proc = spawn(getPythonBin(), [
+      `${mcp}/main.py`,
       '--platform', platform === 'douyin' ? 'dy' : platform,
       '--lt', 'qrcode',
       '--headless', 'false',
