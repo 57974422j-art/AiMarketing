@@ -10,7 +10,7 @@ const API_WHITELIST = [
   '/api/migrate-template-urls',
   '/api/tasks/mine',
   '/api/tts',
-  '/api/storage',        // Electron主进程下载素材(自带userId参数鉴权)
+  '/api/storage/file',   // Electron下载素材(自带userId参数鉴权)，不拦截
 ]
 
 function base64UrlDecode(str: string): string {

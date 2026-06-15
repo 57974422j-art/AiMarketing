@@ -305,9 +305,14 @@ export default function SocialAccountsPage() {
                                   <span className="text-gray-400">· {a.accountName}</span>
                                   {a.mobile && <span className="text-gray-600">📱{a.mobile}</span>}
                                   <span className={`px-1.5 py-0.5 rounded text-[10px] border ${STATUS_COLOR[a.status] || 'bg-gray-500/20 text-gray-500'}`}>{a.status}</span>
+                                  {a.bindType && (
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] border ${BIND_TYPE_COLOR[a.bindType] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>
+                                      {BIND_TYPE_LABEL[a.bindType] || a.bindType}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  {a.device && <span className="text-gray-600">{a.device.name}</span>}
+                                  {a.device && <span className="text-gray-500 font-mono text-[10px]">{a.device.name}</span>}
                                   {a.status !== '已绑定' ? (
                                     <button onClick={() => { setBindId(a.id); setBindAccount(a); setBindDeviceId(''); setBindAdbSerial('') }} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑</button>
                                   ) : (
@@ -348,9 +353,10 @@ export default function SocialAccountsPage() {
                           <span className="text-gray-400">· {a.accountName}</span>
                           {a.mobile && <span className="text-gray-600">📱{a.mobile}</span>}
                           <span className={`px-1.5 py-0.5 rounded text-[10px] border ${STATUS_COLOR[a.status] || 'bg-gray-500/20 text-gray-500'}`}>{a.status}</span>
+                          {a.bindType && <span className={`px-1.5 py-0.5 rounded text-[10px] border ${BIND_TYPE_COLOR[a.bindType] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>{BIND_TYPE_LABEL[a.bindType] || a.bindType}</span>}
                         </div>
                         <div className="flex items-center gap-2">
-                          {a.device && <span className="text-gray-600">{a.device.name}</span>}
+                          {a.device && <span className="text-gray-500 font-mono text-[10px]">{a.device.name}</span>}
                           {a.status !== '已绑定' ? (
                             <button onClick={() => { setBindId(a.id); setBindAccount(a); setBindDeviceId(''); setBindAdbSerial('') }} className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">+ 绑</button>
                           ) : (

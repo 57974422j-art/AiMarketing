@@ -97,7 +97,7 @@ export default function AutomationTemplatesPage() {
         fetch('/api/devices', { credentials: 'include' }),
         fetch('/api/automation-templates', { credentials: 'include' }),
       ])
-      if (aRes.ok) { const d = await aRes.json(); setAccounts((d.data || []).filter((a: any) => a.status === '已绑定')) }
+      if (aRes.ok) { const d = await aRes.json(); setAccounts((d.data || []).filter((a: any) => a.status === '已绑定' && a.bindType === 'device')) }
       if (dRes.ok) setDevices(((await dRes.json()).data || []).filter((d: any) => d.type === 'q1'))
       if (tRes.ok) {
         const list = (await tRes.json()).data || []
