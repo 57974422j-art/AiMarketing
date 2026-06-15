@@ -95,9 +95,14 @@ export async function POST(request: NextRequest) {
 
   const ext = file.name.split('.').pop() || 'mp4'
   const now = new Date()
-  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`
-  const seq = String(Date.now() % 100000).padStart(5, '0')  // 5位序列号保唯一
-  const name = `${dateStr}${seq}.${ext}`
+  const datePrefix = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`
+  // 查今天已有几个文件，序号从 001 递增
+  let todaySeq = 1
+  try {
+    const existing = await listObjects(`storage/${auth.userId}/${datePrefix}`)
+    todaySeq = existing.length + 1
+  } catch {}
+  const name = `${datePrefix}_${String(todaySeq).padStart(3, '0')}.${ext}`
   const key = `storage/${auth.userId}/${name}`
   const buffer = Buffer.from(await file.arrayBuffer())
 
