@@ -18,12 +18,12 @@ import { spawn } from 'child_process'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
-const MEDIA_CRAWLER_PATH = process.env.MEDIA_CRAWLER_PATH || '/opt/MediaCrawler'
-const PYTHON_BIN = process.env.PYTHON_BIN || 'python3'
+const getMediaCrawlerPath() = process.env.getMediaCrawlerPath() || '/opt/MediaCrawler'
+const getPythonBin() = process.env.getPythonBin() || 'python3'
 const DEFAULT_TIMEOUT = 60000
 
-function getPythonBin(): string { return process.env.PYTHON_BIN || 'python3' }
-function getMediaCrawlerPath(): string { return process.env.MEDIA_CRAWLER_PATH || '/opt/MediaCrawler' } // 60s
+function getPythonBin(): string { return process.env.getPythonBin() || 'python3' }
+function getMediaCrawlerPath(): string { return process.env.getMediaCrawlerPath() || '/opt/MediaCrawler' } // 60s
 
 // 代理池配置文件路径
 const PROXY_POOL_PATH = join(process.cwd(), '.proxy-pool.json')
@@ -180,7 +180,7 @@ export async function crawl<T = unknown>(
           code: 'SPAWN_ERROR',
           message: `无法启动 MediaCrawler 进程: ${err.message}`,
           retryable: false,
-          hint: `确认 Python (${PYTHON_BIN}) 已安装且 MediaCrawler 路径 (${MEDIA_CRAWLER_PATH}) 正确`,
+          hint: `确认 Python (${getPythonBin()}) 已安装且 MediaCrawler 路径 (${getMediaCrawlerPath()}) 正确`,
         },
         meta: { source: 'mediacrawler', crawledAt: new Date().toISOString(), costMs: Date.now() - startTime },
       })
@@ -199,8 +199,8 @@ function buildPythonScript(
 
   return `
 import json, sys, os, asyncio
-sys.path.insert(0, '${MEDIA_CRAWLER_PATH}')
-os.chdir('${MEDIA_CRAWLER_PATH}')
+sys.path.insert(0, '${getMediaCrawlerPath()}')
+os.chdir('${getMediaCrawlerPath()}')
 
 async def _do():
     from media_platform.douyin.client import DouYinClient
@@ -243,7 +243,7 @@ export async function checkHealth(): Promise<{
   const fs = await import('fs/promises')
   let pathExists = false
   try {
-    await fs.access(MEDIA_CRAWLER_PATH)
+    await fs.access(getMediaCrawlerPath())
     pathExists = true
   } catch {
     pathExists = false
@@ -254,7 +254,7 @@ export async function checkHealth(): Promise<{
       available: false,
       pythonOk: false,
       pathExists: false,
-      error: `MediaCrawler 路径不存在: ${MEDIA_CRAWLER_PATH}`,
+      error: `MediaCrawler 路径不存在: ${getMediaCrawlerPath()}`,
     }
   }
 
@@ -268,7 +268,7 @@ try:
 except ImportError as e:
     print(json.dumps({"ok": False, "error": str(e)}))
 `], {
-      cwd: MEDIA_CRAWLER_PATH,
+      cwd: getMediaCrawlerPath(),
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })

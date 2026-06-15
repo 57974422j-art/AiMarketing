@@ -10,8 +10,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { spawn, execSync } from 'child_process'
 
-function getMediaCrawlerPath() { return process.env.MEDIA_CRAWLER_PATH || '/opt/MediaCrawler' }
-function getPythonBin() { return process.env.PYTHON_BIN || 'python3' }
+function getMediaCrawlerPath() { return process.env.getMediaCrawlerPath() || '/opt/MediaCrawler' }
+function getPythonBin() { return process.env.getPythonBin() || 'python3' }
 
 // 存储登录进程信息（内存中，重启后丢失）
 const activeLoginProcess: {
@@ -45,12 +45,12 @@ export async function POST(request: NextRequest) {
     const fs = await import('fs/promises')
     let pathExists = false
     try {
-      await fs.access(MEDIA_CRAWLER_PATH)
+      await fs.access(getMediaCrawlerPath())
       pathExists = true
     } catch {
       return NextResponse.json({
         success: false,
-        message: `MediaCrawler 路径不存在: ${MEDIA_CRAWLER_PATH}`,
+        message: `MediaCrawler 路径不存在: ${getMediaCrawlerPath()}`,
         hint: '请检查 MediaCrawler 安装路径配置'
       }, { status: 400 })
     }
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         message: 'MediaCrawler 未安装或路径错误',
-        hint: `请确认 ${MEDIA_CRAWLER_PATH} 存在`
+        hint: `请确认 ${getMediaCrawlerPath()} 存在`
       }, { status: 400 })
     }
 
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       '--lt', 'qrcode',
       '--headless', 'false',
     ], {
-      cwd: MEDIA_CRAWLER_PATH,
+      cwd: getMediaCrawlerPath(),
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', DISPLAY: ':99' },
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: false,
@@ -167,7 +167,7 @@ export async function GET(request: NextRequest) {
 
     // 检查 Cookie 文件是否存在
     const fs = await import('fs/promises')
-    const cookieDir = `${MEDIA_CRAWLER_PATH}/data/browser_data`
+    const cookieDir = `${getMediaCrawlerPath()}/data/browser_data`
     let cookieFiles: string[] = []
     let cookieExists = false
 
@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 也检查 data/cookies 目录
-    const altCookieDir = `${MEDIA_CRAWLER_PATH}/data/cookies`
+    const altCookieDir = `${getMediaCrawlerPath()}/data/cookies`
     try {
       const files = await fs.readdir(altCookieDir)
       if (files.length > 0 && !cookieExists) {
@@ -213,8 +213,8 @@ export async function GET(request: NextRequest) {
         },
         serverInfo: {
           hasDisplay: !!process.env.DISPLAY,
-          mediaCrawlerPath: MEDIA_CRAWLER_PATH,
-          pythonBin: PYTHON_BIN,
+          mediaCrawlerPath: getMediaCrawlerPath(),
+          pythonBin: getPythonBin(),
         },
       },
     })
