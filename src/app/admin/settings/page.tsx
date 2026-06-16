@@ -203,7 +203,7 @@ export default function SettingsPage() {
       }
       const d = await res.json()
       if (d.totalHits !== undefined) {
-        const msg = `✅ 连接成功！图库共 ${d.totalHits.toLocaleString()} 张图片`
+        const msg = `✅ 连接成功！Pixabay API 正常工作`
         setTestResult({ type: 'success', message: msg })
         setPixabayTestMsg({ type: 'success', text: msg })
         setStatusMap(prev => ({ ...prev, pixabay: 'ok' as any }))
