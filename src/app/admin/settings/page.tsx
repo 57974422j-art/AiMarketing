@@ -82,6 +82,7 @@ export default function SettingsPage() {
   const [pixabayKey, setPixabayKey] = useState('')
   const [showPixabayKey, setShowPixabayKey] = useState(false)
   const [testingPixabay, setTestingPixabay] = useState(false)
+  const [pixabayTestMsg, setPixabayTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // ====== 客服设置 ======
   const [serviceQrcode, setServiceQrcode] = useState('')
@@ -190,19 +191,25 @@ export default function SettingsPage() {
   // ====== 测试 Pixabay Key ======
   const testPixabayKey = async () => {
     if (!pixabayKey || pixabayKey === '********') return
-    setTestingPixabay(true); setTestResult(null)
+    setTestingPixabay(true); setTestResult(null); setPixabayTestMsg(null)
     try {
       const res = await fetch(`https://pixabay.com/api/?key=${pixabayKey}&q=test&per_page=1`)
       const d = await res.json()
       if (d.totalHits !== undefined) {
-        setTestResult({ type: 'success', message: `✅ Pixabay 连接成功！总图库: ${d.totalHits.toLocaleString()} 张` })
+        const msg = `✅ 连接成功！图库共 ${d.totalHits.toLocaleString()} 张图片`
+        setTestResult({ type: 'success', message: msg })
+        setPixabayTestMsg({ type: 'success', text: msg })
         setStatusMap(prev => ({ ...prev, pixabay: 'ok' as any }))
       } else {
-        setTestResult({ type: 'error', message: `❌ Pixabay 返回异常: ${JSON.stringify(d).slice(0, 100)}` })
+        const msg = `❌ 返回异常: ${JSON.stringify(d).slice(0, 80)}`
+        setTestResult({ type: 'error', message: msg })
+        setPixabayTestMsg({ type: 'error', text: msg })
         setStatusMap(prev => ({ ...prev, pixabay: 'fail' as any }))
       }
     } catch (e: any) {
-      setTestResult({ type: 'error', message: `❌ 测试失败: ${e.message}` })
+      const msg = `❌ 网络错误: ${e.message}`
+      setTestResult({ type: 'error', message: msg })
+      setPixabayTestMsg({ type: 'error', text: msg })
       setStatusMap(prev => ({ ...prev, pixabay: 'fail' as any }))
     }
     setTestingPixabay(false)
@@ -322,6 +329,11 @@ export default function SettingsPage() {
                 {testingPixabay ? '测试中...' : '测试连接'}
               </button>
             </div>
+            {pixabayTestMsg && (
+              <div className={`mt-2 text-xs font-mono px-3 py-1.5 rounded-lg inline-block ${
+                pixabayTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+              }`}>{pixabayTestMsg.text}</div>
+            )}
             <div className="flex flex-wrap gap-3 mt-2">
               <p className="text-[10px] text-gray-600 font-mono">
                 免费注册 → <a href="https://pixabay.com/api/docs/" target="_blank" className="text-yellow-500 underline">pixabay.com</a>
