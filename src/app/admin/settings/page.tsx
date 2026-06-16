@@ -91,6 +91,7 @@ export default function SettingsPage() {
 
   // ====== 全局消息 ======
   const [saveMessage, setSaveMessage] = useState<SaveMessage | null>(null)
+  const [saving, setSaving] = useState(false)
 
   // ====== 初始加载 ======
   useEffect(() => {
@@ -150,6 +151,7 @@ export default function SettingsPage() {
 
   // ====== 保存所有配置 ======
   const saveAllSettings = async () => {
+    setSaving(true)
     try {
       const mask = (v: string) => v === '********' ? undefined : v || undefined
       const res = await fetch('/api/admin/config', {
@@ -177,7 +179,7 @@ export default function SettingsPage() {
       })
       const result = await res.json()
       if (result.success) {
-        setSaveMessage({ type: 'success', text: '✅ 配置已保存，服务重启中' })
+        setSaveMessage({ type: 'success', text: '✅ 保存成功，立即生效' })
         await loadConfig()
       } else {
         setSaveMessage({ type: 'error', text: `❌ 保存失败：${result.message}` })
@@ -185,7 +187,8 @@ export default function SettingsPage() {
     } catch {
       setSaveMessage({ type: 'error', text: '❌ 保存失败：网络错误' })
     }
-    setTimeout(() => setSaveMessage(null), 5000)
+    setSaving(false)
+    setTimeout(() => setSaveMessage(null), 4000)
   }
 
   // ====== 测试 Pixabay Key ======
@@ -260,8 +263,8 @@ export default function SettingsPage() {
             <h1 className="text-mono-lg text-white">设置 / SETTINGS</h1>
           </div>
           {saveMessage && (
-            <div className={`px-4 py-2 rounded-xl text-sm font-mono ${
-              saveMessage.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+            <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl text-sm font-mono shadow-lg backdrop-blur animate-pulse-once ${
+              saveMessage.type === 'success' ? 'bg-emerald-500/90 text-white' : 'bg-red-500/90 text-white'
             }`}>
               {saveMessage.text}
             </div>
@@ -370,9 +373,11 @@ export default function SettingsPage() {
 
         {/* 保存按钮 */}
         <div className="flex justify-end mt-6">
-          <button onClick={saveAllSettings}
-            className="px-6 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-colors font-mono">
-            保存所有配置
+          <button onClick={saveAllSettings} disabled={saving}
+            className={`px-6 py-3 rounded-xl text-white font-mono transition-colors ${
+              saving ? 'bg-gray-600 cursor-wait' : 'bg-emerald-500 hover:bg-emerald-600'
+            }`}>
+            {saving ? '⏳ 保存中...' : '保存所有配置'}
           </button>
         </div>
 
