@@ -57,8 +57,8 @@ export default function AutoCompilePage() {
   const [costEstimate, setCostEstimate] = useState<any>(null)
 
   useEffect(() => {
-    fetch('/api/music-library').then(r=>r.json()).then(d => {
-      if (d.success) setMusicList(d.data)
+    fetch('/api/bgm').then(r=>r.json()).then(d => {
+      if (d.success && d.data?.length > 0) setMusicList(d.data)
     }).catch(() => {})
   }, [])
 
@@ -642,14 +642,14 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
             <div className="card-glass p-4">
               <label className="text-xs text-gray-400 mb-2 block">背景音乐（可选）</label>
               <div className="space-y-1.5 mb-3">
-                <p className="text-[9px] text-gray-600">🆓 免费配乐（点击选择，不可用会提示）</p>
-                <div className="grid grid-cols-1 gap-1">
-                  {[
-                    { name: '轻松愉快 - Uplifting', url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=uplifting-upbeat Corporate-Inspiration.mp3' },
-                    { name: '温馨柔和 - Soft', url: 'https://cdn.pixabay.com/download/audio/2022/10/25/audio_946bc7ebc8.mp3?filename=acoustic-guitar-soft-instrumental-background-music.mp3' },
-                    { name: '电子节奏 - Electronic', url: 'https://cdn.pixabay.com/download/audio/2022/02/22/audio_d171c86b8d.mp3?filename=electronic-future-beats.mp3' },
-                    { name: '电影感 - Cinematic', url: 'https://cdn.pixabay.com/download/audio/2022/08/02/audio_884fe92c6b.mp3?filename=cinematic-epic-emotional-inspirational.mp3' },
-                  ].map(item => (
+                <p className="text-[9px] text-gray-600">🆓 Pixabay 免版税音乐 · 点击试听选择</p>
+                <div className="grid grid-cols-1 gap-1 max-h-60 overflow-y-auto">
+                  {(musicList.length > 0 ? musicList : [
+                    { name: '轻松愉快 - Uplifting', url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3' },
+                    { name: '温馨柔和 - Soft', url: 'https://cdn.pixabay.com/download/audio/2022/10/25/audio_946bc7ebc8.mp3' },
+                    { name: '电子节奏 - Electronic', url: 'https://cdn.pixabay.com/download/audio/2022/02/22/audio_d171c86b8d.mp3' },
+                    { name: '电影感 - Cinematic', url: 'https://cdn.pixabay.com/download/audio/2022/08/02/audio_884fe92c6b.mp3' },
+                  ]).map(item => (
                     <div key={item.url} className="flex items-center gap-1.5">
                       <button
                         onClick={(e) => {
