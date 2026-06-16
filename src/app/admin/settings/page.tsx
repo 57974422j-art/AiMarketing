@@ -193,7 +193,11 @@ export default function SettingsPage() {
     if (!pixabayKey || pixabayKey === '********') return
     setTestingPixabay(true); setTestResult(null); setPixabayTestMsg(null)
     try {
-      const res = await fetch(`https://pixabay.com/api/?key=${pixabayKey}&q=test&per_page=1`)
+      const res = await fetch(`https://pixabay.com/api/?key=${pixabayKey}&q=test&per_page=3`)
+      if (!res.ok) {
+        const errText = await res.text()
+        throw new Error(errText.slice(0, 100))
+      }
       const d = await res.json()
       if (d.totalHits !== undefined) {
         const msg = `✅ 连接成功！图库共 ${d.totalHits.toLocaleString()} 张图片`
