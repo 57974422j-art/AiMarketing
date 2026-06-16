@@ -115,27 +115,35 @@ export async function GET(request: NextRequest) {
 
   let images: Array<{url:string;thumb:string;title:string}> = []
 
-  // 1. 尝试 DuckDuckGo
-  images = await searchDuckDuckGo(q, count)
+  const key = process.env.PIXABAY_API_KEY
 
-  // 2. DDG 失败 → Pixabay
-  if (images.length === 0) {
+  // 1. Pixabay 优先（相关性远好于 DuckDuckGo）
+  if (key) {
     images = await searchPixabay(q, count)
-  }
-
-  // 3. 最终兜底：Picsum 随机图 + 占位提示
-  if (images.length === 0) {
-    console.warn(`[search-images] 所有来源均无结果，关键词: "${q}"，使用占位图`)
-    for (let i = 0; i < Math.min(count, 4); i++) {
-      images.push({
-        url: `https://picsum.photos/seed/${q}${i}/400/300`,
-        thumb: `https://picsum.photos/seed/${q}${i}/100/80`,
-        title: `${q} - 示例图${i+1}`
-      })
+    if (images.length > 0) {
+      console.log(`[search-images] Pixabay 关键词="${q}" 结果=${images.length}`)
+      return NextResponse.json({ success: true, data: images })
     }
   }
 
-  console.log(`[search-images] 关键词="${q}" 结果数=${images.length}`)
+  // 2. Pixabay 无结果或无Key → DuckDuckGo
+  images = await searchDuckDuckGo(q, count)
+  if (images.length > 0) {
+    console.log(`[search-images] DuckDuckGo 关键词="${q}" 结果=${images.length}`)
+    return NextResponse.json({ success: true, data: images })
+  }
+
+  // 3. 最终兜底：Picsum 随机图 + 占位提示
+  console.warn(`[search-images] 所有来源均无结果，关键词: "${q}"，使用占位图`)
+  for (let i = 0; i < Math.min(count, 4); i++) {
+    images.push({
+      url: `https://picsum.photos/seed/${q}${i}/400/300`,
+      thumb: `https://picsum.photos/seed/${q}${i}/100/80`,
+      title: `${q} - 示例图${i+1}`
+    })
+  }
+
+  console.log(`[search-images] 兜底关键词="${q}" 结果数=${images.length}`)
 
   return NextResponse.json({ success: true, data: images })
 }

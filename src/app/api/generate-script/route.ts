@@ -28,8 +28,8 @@ export async function POST(request: NextRequest) {
 【重要】你必须严格按以下JSON格式返回，不要输出其他任何内容：
 {
   "lines": [
-    {"text": "第一句口语化文案", "keyword": "英文搜图关键词"},
-    {"text": "第二句文案", "keyword": "keyword for image search"}
+    {"text": "第一句口语化文案", "keyword": "搜图关键词"},
+    {"text": "第二句文案", "keyword": "搜图关键词"}
   ],
   "title": {"text": "片头标题文字(8字以内)", "style": "bold|elegant|playful"},
   "sticker": {"text": "贴纸标签文字(6字以内，如'好可爱啊')", "position": "tl|tr|bl|br"},
@@ -38,11 +38,17 @@ export async function POST(request: NextRequest) {
 }
 
 规则说明：
-1. lines: ${lineCount}句口语化短视频文案，每句独立成行，不要序号。keyword要具体有画面感（英文），能搜到高质量配图
-2. title: 从第一句文案提炼精华作为片头标题，吸引眼球
-3. sticker: 设计一个互动贴纸标签，position=tl左上/tr右上/bl左下/br右下
-4. filter: 根据内容氛围推荐色调（warm暖色温馨/cool冷色科技/bw黑白纪实/''原色）
-5. voiceRecommend: 推荐最适合的配音（女声=zh_female_vv_uranus_bigtts, 温柔女声=zh_female_vv_aurora_bigtts, 稳重男声=zh_male_fengge_bigtts, 阳光男声=zh_male_xiaoming_bigtts）`
+1. lines: ${lineCount}句口语化短视频文案，每句独立成行，不要序号。
+2. 【搜图关键词核心规则】keyword必须满足以下要求才能搜到精准配图：
+   - 英文，2-4个词，描述具体的主体+场景+动作/状态
+   - ❌ 错误示范：cat（太泛）、animal（无画面感）、food（无法确定是什么）
+   - ✅ 正确示范：cute orange kitten sleeping、steaming hot coffee cup、sunset beach palm trees、happy golden retriever playing
+   - 每句文案的keyword要和那句话的内容强相关，描述该句文案的画面主体
+   - 优先用具体名词，少用形容词，避免抽象概念
+3. title: 从第一句文案提炼精华作为片头标题，吸引眼球
+4. sticker: 设计一个互动贴纸标签，position=tl左上/tr右上/bl左下/br右下
+5. filter: 根据内容氛围推荐色调（warm暖色温馨/cool冷色科技/bw黑白纪实/''原色）
+6. voiceRecommend: 推荐最适合的配音（女声=zh_female_vv_uranus_bigtts, 温柔女声=zh_female_vv_aurora_bigtts, 稳重男声=zh_male_fengge_bigtts, 阳光男声=zh_male_xiaoming_bigtts）`
 
     const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
