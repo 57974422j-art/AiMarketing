@@ -78,6 +78,17 @@ export default function SettingsPage() {
     host: '', port: '', protocol: 'http', username: '', password: '', label: '', region: '',
   })
 
+  // ====== Pixabay 图片API ======
+  const [pixabayKey, setPixabayKey] = useState('')
+  const [showPixabayKey, setShowPixabayKey] = useState(false)
+  const [testingPixabay, setTestingPixabay] = useState(false)
+
+  // ====== BGM 音乐 API ======
+  const [musicApiType, setMusicApiType] = useState('')
+  const [musicApiUrl, setMusicApiUrl] = useState('')
+  const [musicApiKey, setMusicApiKey] = useState('')
+  const [showMusicKey, setShowMusicKey] = useState(false)
+
   // ====== 客服设置 ======
   const [serviceQrcode, setServiceQrcode] = useState('')
   const [serviceSaving, setServiceSaving] = useState(false)
@@ -116,6 +127,11 @@ export default function SettingsPage() {
       // MediaCrawler
       if (d.mcPath) setMcPath(d.mcPath)
       if (d.mcPythonBin) setMcPythonBin(d.mcPythonBin)
+      // Pixabay
+      setPixabayKey(d.pixabayConfigured ? '********' : '')
+      // 音乐 API
+      setMusicApiType(d.musicApiType || '')
+      if (d.musicApiConfigured) setMusicApiKey('********')
 
       // 客服设置
       try {
@@ -164,6 +180,10 @@ export default function SettingsPage() {
           actionEngine: actionEngine || undefined,
           mcPath: mcPath || undefined,
           mcPythonBin: mcPythonBin || undefined,
+          pixabayKey: mask(pixabayKey),
+          musicApiType: musicApiType || undefined,
+          musicApiUrl: musicApiUrl || undefined,
+          musicApiKey: mask(musicApiKey),
         }),
       })
       const result = await res.json()
@@ -177,6 +197,27 @@ export default function SettingsPage() {
       setSaveMessage({ type: 'error', text: '❌ 保存失败：网络错误' })
     }
     setTimeout(() => setSaveMessage(null), 5000)
+  }
+
+  // ====== 测试 Pixabay Key ======
+  const testPixabayKey = async () => {
+    if (!pixabayKey || pixabayKey === '********') return
+    setTestingPixabay(true); setTestResult(null)
+    try {
+      const res = await fetch(`https://pixabay.com/api/?key=${pixabayKey}&q=test&per_page=1`)
+      const d = await res.json()
+      if (d.totalHits !== undefined) {
+        setTestResult({ type: 'success', message: `✅ Pixabay 连接成功！总图库: ${d.totalHits.toLocaleString()} 张` })
+        setStatusMap(prev => ({ ...prev, pixabay: 'ok' as any }))
+      } else {
+        setTestResult({ type: 'error', message: `❌ Pixabay 返回异常: ${JSON.stringify(d).slice(0, 100)}` })
+        setStatusMap(prev => ({ ...prev, pixabay: 'fail' as any }))
+      }
+    } catch (e: any) {
+      setTestResult({ type: 'error', message: `❌ 测试失败: ${e.message}` })
+      setStatusMap(prev => ({ ...prev, pixabay: 'fail' as any }))
+    }
+    setTestingPixabay(false)
   }
 
   // ====== 保存客服设置 ======
@@ -263,6 +304,97 @@ export default function SettingsPage() {
             setShowOssSecret, setTestingOSS,
           }}
         />
+
+        {/* ====== 媒体资源 API（Pixabay + 音乐） ====== */}
+        <div className="card-glass p-6 mt-6">
+          <h3 className="text-white font-bold mb-2"><span className="text-yellow-400">//</span> 媒体资源 API</h3>
+          <p className="text-gray-400 text-xs mb-4">配置免版税图片和背景音乐 API，用于智能成片素材搜索</p>
+
+          {/* Pixabay Key */}
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <label className="block text-label mb-2">
+                <span>Pixabay API Key（免版税图片）</span>
+                {pixabayKey === '********' && <span className="ml-2 text-xs text-emerald-400 font-mono">✓ 已配置</span>}
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showPixabayKey ? 'text' : 'password'}
+                    value={pixabayKey}
+                    onChange={e => setPixabayKey(e.target.value)}
+                    placeholder="输入 Pixabay API Key"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-yellow-500/50 pr-10"
+                  />
+                  <button type="button" onClick={() => setShowPixabayKey(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                    {showPixabayKey ? '🙈' : '👁'}
+                  </button>
+                </div>
+                <button onClick={testPixabayKey} disabled={!pixabayKey || pixabayKey === '********' || testingPixabay}
+                  className="px-3 py-2 bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 rounded-lg hover:bg-yellow-500/30 disabled:opacity-50 font-mono text-xs whitespace-nowrap">
+                  {testingPixabay ? '测试中...' : '测试连接'}
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-600 mt-1 font-mono">
+                免费注册 → <a href="https://pixabay.com/api/docs/" target="_blank" className="text-yellow-500 underline">pixabay.com</a>，用于智能成片搜图和免版税 BGM
+              </p>
+            </div>
+
+            {/* 分隔线 */}
+            <div className="border-t border-white/5 my-1"></div>
+
+            {/* 音乐 API 配置 */}
+            <div>
+              <label className="block text-label mb-2">
+                <span>BGM 音乐 API</span>
+                {musicApiKey === '********' && <span className="ml-2 text-xs text-emerald-400 font-mono">✓ 已配置</span>}
+              </label>
+              <p className="text-[10px] text-gray-600 mb-2 font-mono">
+                支持任意兼容 REST API 的音乐源，如网易云音乐 API、QQ音乐 API 等
+              </p>
+
+              <div className="grid grid-cols-1 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">API 类型</label>
+                  <select value={musicApiType} onChange={e => setMusicApiType(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-yellow-500/50">
+                    <option value="" className="bg-gray-900">不配置（使用内置音乐）</option>
+                    <option value="pixabay" className="bg-gray-900">Pixabay 免版税音乐</option>
+                    <option value="custom" className="bg-gray-900">自定义 API</option>
+                  </select>
+                </div>
+
+                {musicApiType === 'custom' && (
+                  <>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">API 地址</label>
+                      <input type="text" value={musicApiUrl} onChange={e => setMusicApiUrl(e.target.value)}
+                        placeholder="https://api.example.com/music/search"
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-yellow-500/50" />
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <label className="block text-xs text-gray-400 mb-1">API Key（可选）</label>
+                        <input
+                          type={showMusicKey ? 'text' : 'password'}
+                          value={musicApiKey}
+                          onChange={e => setMusicApiKey(e.target.value)}
+                          placeholder="API Key"
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-yellow-500/50 pr-10"
+                        />
+                        <button type="button" onClick={() => setShowMusicKey(v => !v)}
+                          className="absolute right-3 top-1/2 text-gray-400 hover:text-white" style={{marginTop: 10}}>
+                          {showMusicKey ? '🙈' : '👁'}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* 引擎 + 登录 + 代理池面板 */}
         <EnginePanel

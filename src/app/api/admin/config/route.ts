@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -159,6 +159,30 @@ export async function POST(request: NextRequest) {
       else envContent += `\nPYTHON_BIN=${mcPythonBin}`;
     }
 
+    // Pixabay API Key
+    if (pixabayKey !== undefined) {
+      const p = /^PIXABAY_API_KEY=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `PIXABAY_API_KEY=${pixabayKey}`);
+      else envContent += `\nPIXABAY_API_KEY=${pixabayKey}`;
+    }
+
+    // 音乐 API 配置
+    if (musicApiType !== undefined) {
+      const p = /^MUSIC_API_TYPE=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `MUSIC_API_TYPE=${musicApiType}`);
+      else envContent += `\nMUSIC_API_TYPE=${musicApiType}`;
+    }
+    if (musicApiKey !== undefined) {
+      const p = /^MUSIC_API_KEY=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `MUSIC_API_KEY=${musicApiKey}`);
+      else envContent += `\nMUSIC_API_KEY=${musicApiKey}`;
+    }
+    if (musicApiUrl !== undefined) {
+      const p = /^MUSIC_API_URL=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `MUSIC_API_URL=${musicApiUrl}`);
+      else envContent += `\nMUSIC_API_URL=${musicApiUrl}`;
+    }
+
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
     console.log('[Admin-Config] 配置已保存到 .env.local');
@@ -174,6 +198,10 @@ export async function POST(request: NextRequest) {
     if (ossBucket !== undefined) process.env.OSS_BUCKET = ossBucket
     if (mcPath !== undefined) process.env.MEDIA_CRAWLER_PATH = mcPath
     if (mcPythonBin !== undefined) process.env.PYTHON_BIN = mcPythonBin
+    if (pixabayKey !== undefined) process.env.PIXABAY_API_KEY = pixabayKey
+    if (musicApiType !== undefined) process.env.MUSIC_API_TYPE = musicApiType
+    if (musicApiKey !== undefined) process.env.MUSIC_API_KEY = musicApiKey
+    if (musicApiUrl !== undefined) process.env.MUSIC_API_URL = musicApiUrl
 
     return NextResponse.json({
       success: true,
@@ -222,6 +250,10 @@ export async function GET(request: NextRequest) {
     const actionEngine = await readEnv('ACTION_ENGINE');
     const mcPath = await readEnv('MEDIA_CRAWLER_PATH');
     const mcPythonBin = await readEnv('PYTHON_BIN');
+    const pixabayKey = await readEnv('PIXABAY_API_KEY');
+    const musicApiType = await readEnv('MUSIC_API_TYPE');
+    const musicApiKey = await readEnv('MUSIC_API_KEY');
+    const musicApiUrl = await readEnv('MUSIC_API_URL');
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -240,6 +272,9 @@ export async function GET(request: NextRequest) {
         actionEngine: actionEngine || 'q1-adb',
         mcPath: mcPath || '',
         mcPythonBin: mcPythonBin || '',
+        pixabayConfigured: !!pixabayKey,
+        musicApiType: musicApiType || '',
+        musicApiConfigured: !!(musicApiKey && musicApiUrl),
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''
