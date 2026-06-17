@@ -57,6 +57,12 @@ export default function AutoCompilePage() {
   const [subtitleStyle, setSubtitleStyle] = useState('highlight')
   const [stickerFiles, setStickerFiles] = useState<File[]>([])
   const [stickerPosList, setStickerPosList] = useState<string[]>(['br'])
+
+  // ====== GIPHY 在线贴纸 ======
+  const [giphyQuery, setGiphyQuery] = useState('')
+  const [giphyResults, setGiphyResults] = useState<Array<{id:string;url:string;thumb:string;title:string}>>([])
+  const [giphyLoading, setGiphyLoading] = useState(false)
+  const [giphySearched, setGiphySearched] = useState(false)
   const [costEstimate, setCostEstimate] = useState<any>(null)
 
   useEffect(() => {
@@ -288,6 +294,35 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
   const removeSticker = (i: number) => {
     setStickerFiles(prev => prev.filter((_, idx) => idx !== i))
     setStickerPosList(prev => prev.filter((_, idx) => idx !== i))
+  }
+
+  // ====== GIPHY 搜索 ======
+  const searchGiphy = async () => {
+    if (!giphyQuery.trim()) return
+    setGiphyLoading(true); setGiphyResults([]); setGiphySearched(true)
+    try {
+      const r = await fetch(`/api/stickers/search?q=${encodeURIComponent(giphyQuery)}&limit=10`)
+      const d = await r.json()
+      if (d.success) setGiphyResults(d.data)
+      else showToast(d.message, 'error')
+    } catch (e: any) {
+      showToast('搜索失败: ' + e.message, 'error')
+    }
+    setGiphyLoading(false)
+  }
+
+  const addGiphySticker = async (gif: {id:string;url:string;thumb:string;title:string}) => {
+    if (stickerFiles.length >= 8) { showToast('最多8个贴纸', 'error'); return }
+    try {
+      const res = await fetch(gif.url)
+      const blob = await res.blob()
+      const file = new File([blob], `giphy_${gif.id}.gif`, { type: 'image/gif' })
+      setStickerFiles(prev => [...prev, file])
+      setStickerPosList(prev => [...prev, 'br'])
+      showToast(`已添加: ${gif.title || 'GIF贴纸'}`, 'success')
+    } catch {
+      showToast('下载贴纸失败，请重试', 'error')
+    }
   }
 
   const handleSubmit = async () => {
@@ -669,6 +704,40 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                         </div>
                       ))}
                     </div>
+                  )}
+                </div>
+
+                {/* GIPHY 在线贴纸搜索 */}
+                <div className="border-t border-purple-500/20 pt-3">
+                  <label className="text-[10px] text-gray-500 mb-1 block">🔍 GIPHY 在线贴纸库</label>
+                  <div className="flex gap-1.5 mb-2">
+                    <input
+                      className="input-dark text-[10px] flex-1"
+                      placeholder="搜索贴纸，如：鼓掌、爱心、箭头"
+                      value={giphyQuery}
+                      onChange={e => setGiphyQuery(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') searchGiphy() }}
+                    />
+                    <button onClick={searchGiphy} disabled={giphyLoading || !giphyQuery.trim()}
+                      className="px-2 py-1 bg-pink-500/20 border border-pink-500/30 text-pink-400 rounded text-[10px] hover:bg-pink-500/30 disabled:opacity-40 transition">
+                      {giphyLoading ? '搜索中...' : '搜索'}
+                    </button>
+                  </div>
+                  {giphyResults.length > 0 && (
+                    <div className="flex gap-1.5 overflow-x-auto pb-1 max-w-full">
+                      {giphyResults.map(g => (
+                        <div key={g.id} className="shrink-0 relative group cursor-pointer rounded border border-white/10 hover:border-pink-400/50 transition"
+                          onClick={() => addGiphySticker(g)} title={g.title}>
+                          <img src={g.thumb} className="w-14 h-14 object-contain bg-black/30 rounded" alt={g.title} />
+                          <div className="absolute inset-0 bg-pink-500/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center rounded">
+                            <span className="text-[9px] text-white font-mono">+添加</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {giphySearched && giphyResults.length === 0 && !giphyLoading && (
+                    <p className="text-[9px] text-gray-600">未找到贴纸，试试其他关键词</p>
                   )}
                 </div>
               </div>
