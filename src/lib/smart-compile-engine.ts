@@ -295,7 +295,7 @@ export async function mergeWithTransition(
  */
 const TITLE_FONT = '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'
 
-function buildTitleFilter(
+export function buildTitleFilter(
   text: string,
   style: TitleStyle,
   W: number, H: number,

@@ -193,13 +193,16 @@ export function startTask(
   stickerText: string = '',
   stickerPos: string = 'tl',
   titleText: string = '',
+  titleStyle: TitleStyle = 'popin',
+  titlePos: 'center' | 'top' | 'bottom' = 'center',
+  titleTiming: 'intro' | 'full' = 'intro',
   colorFilter: string = '',
   subtitleMode: SubtitleMode = 'tts-sync',
   customSrt: string = ''
 ) {
   const task: VideoTask = { id: taskId, status: 'queued', progress: 0 }
   tasks.set(taskId, task)
-  const runFn = () => runTask(task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize, bgmPath, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode, customSrt)
+  const runFn = () => runTask(task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize, bgmPath, duration, showSubs, stickerText, stickerPos, titleText, titleStyle, titlePos, titleTiming, colorFilter, subtitleMode, customSrt)
   const onDone = () => {}
   const onError = (e: any) => { task.status = 'failed'; task.error = e.message }
   taskQueue.push({ fn: runFn, onDone, onError })
@@ -229,6 +232,9 @@ async function runTask(
   stickerText: string = '',
   stickerPos: string = 'tl',
   titleText: string = '',
+  titleStyle: TitleStyle = 'popin',
+  titlePos: 'center' | 'top' | 'bottom' = 'center',
+  titleTiming: 'intro' | 'full' = 'intro',
   colorFilter: string = '',
   subtitleMode: SubtitleMode = 'tts-sync',
   customSrt: string = ''
@@ -385,7 +391,10 @@ async function runTask(
       finalVf = finalVf ? finalVf + ',' + drawtext : drawtext
     }
     if (titleText) {
-      const title = `drawtext=text='${titleText.slice(0, 20)}':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:shadowx=2:shadowy=2:shadowcolor=black@0.6:enable='between(t,0,3)'`
+      const ts = titleStyle || 'popin'
+      const tp = titlePos || 'center'
+      const tt = titleTiming || 'intro'
+      const title = buildTitleFilter(titleText.slice(0, 20), ts, dim.w, dim.h, tp, tt)
       finalVf = finalVf ? finalVf + ',' + title : title
     }
 
@@ -417,10 +426,12 @@ async function runTask(
 import {
   SmartCompileOptions,
   CostEstimate,
+  TitleStyle,
   encodeClipsWithEffects,
   mergeWithTransition,
   finalRenderWithEffects,
   estimateCost,
+  buildTitleFilter,
 } from './smart-compile-engine'
 
 export interface SmartTaskResult {
@@ -446,6 +457,9 @@ export function startSmartTask(
   stickerText: string = '',
   stickerPos: string = 'tl',
   titleText: string = '',
+  titleStyle: TitleStyle = 'popin',
+  titlePos: 'center' | 'top' | 'bottom' = 'center',
+  titleTiming: 'intro' | 'full' = 'intro',
   colorFilter: string = '',
   subtitleMode: SubtitleMode = 'tts-sync',
   smartOptions: SmartCompileOptions,
@@ -460,7 +474,7 @@ export function startSmartTask(
 
   const runFn = () => runSmartTask(
     task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize,
-    bgmPath, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode,
+    bgmPath, duration, showSubs, stickerText, stickerPos, titleText, titleStyle, titlePos, titleTiming, colorFilter, subtitleMode,
     smartOptions, cost, customSrt
   )
   const onDone = () => {}
@@ -500,6 +514,9 @@ async function runSmartTask(
   stickerText: string,
   stickerPos: string,
   titleText: string,
+  titleStyle: TitleStyle,
+  titlePos: 'center' | 'top' | 'bottom',
+  titleTiming: 'intro' | 'full',
   colorFilter: string,
   subtitleMode: SubtitleMode,
   smartOptions: SmartCompileOptions,
@@ -606,7 +623,7 @@ async function runSmartTask(
       W, H,
       showSubs, srtPath: sp, subtitleSize: fs2, subtitleStyle: smartOptions.subtitleStyle,
       stickerText, stickerPos, stickerOn: !!stickerText,
-      titleText, titleOn: !!titleText, colorFilter,
+      titleText, titleOn: !!titleText, titleStyle, titlePos, titleTiming, colorFilter,
       totalDuration: totalDur, smartOptions,
     })
 
