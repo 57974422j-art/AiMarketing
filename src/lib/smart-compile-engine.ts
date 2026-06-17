@@ -85,6 +85,8 @@ export const TITLE_STYLES: { v: TitleStyle; l: string }[] = [
   { v: 'scalePulse', l: '🔍 脉冲缩放' },
   { v: 'shake', l: '🎯 抖动' },
 ]
+
+export const DEFAULT_SMART_OPTIONS: SmartCompileOptions = {
   transition: 'fade',
   transitionDuration: 0.8,
   kenBurns: 'zoomin',
