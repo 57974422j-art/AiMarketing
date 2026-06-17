@@ -301,7 +301,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
     if (!giphyQuery.trim()) return
     setGiphyLoading(true); setGiphyResults([]); setGiphySearched(true)
     try {
-      const r = await fetch(`/api/stickers/search?q=${encodeURIComponent(giphyQuery)}&limit=10`)
+      const r = await fetch(`/api/stickers/search?q=${encodeURIComponent(giphyQuery)}&limit=10`, { credentials: 'include' })
       const d = await r.json()
       if (d.success) setGiphyResults(d.data)
       else showToast(d.message, 'error')
