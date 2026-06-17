@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -183,6 +183,13 @@ export async function POST(request: NextRequest) {
       else envContent += `\nMUSIC_API_URL=${musicApiUrl}`;
     }
 
+    // GIPHY API Key（在线贴纸库）
+    if (giphyKey !== undefined) {
+      const p = /^GIPHY_API_KEY=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `GIPHY_API_KEY=${giphyKey}`);
+      else envContent += `\nGIPHY_API_KEY=${giphyKey}`;
+    }
+
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
     console.log('[Admin-Config] 配置已保存到 .env.local');
@@ -202,6 +209,7 @@ export async function POST(request: NextRequest) {
     if (musicApiType !== undefined) process.env.MUSIC_API_TYPE = musicApiType
     if (musicApiKey !== undefined) process.env.MUSIC_API_KEY = musicApiKey
     if (musicApiUrl !== undefined) process.env.MUSIC_API_URL = musicApiUrl
+    if (giphyKey !== undefined) process.env.GIPHY_API_KEY = giphyKey
 
     return NextResponse.json({
       success: true,
@@ -254,6 +262,7 @@ export async function GET(request: NextRequest) {
     const musicApiType = await readEnv('MUSIC_API_TYPE');
     const musicApiKey = await readEnv('MUSIC_API_KEY');
     const musicApiUrl = await readEnv('MUSIC_API_URL');
+    const giphyKey = await readEnv('GIPHY_API_KEY');
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -275,6 +284,7 @@ export async function GET(request: NextRequest) {
         pixabayConfigured: !!pixabayKey,
         musicApiType: musicApiType || '',
         musicApiConfigured: !!(musicApiKey && musicApiUrl),
+        giphyConfigured: !!giphyKey,
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''

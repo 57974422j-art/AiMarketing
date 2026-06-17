@@ -84,6 +84,10 @@ export default function SettingsPage() {
   const [testingPixabay, setTestingPixabay] = useState(false)
   const [pixabayTestMsg, setPixabayTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
+  // ====== GIPHY 贴纸 API ======
+  const [giphyKey, setGiphyKey] = useState('')
+  const [showGiphyKey, setShowGiphyKey] = useState(false)
+
   // ====== 客服设置 ======
   const [serviceQrcode, setServiceQrcode] = useState('')
   const [serviceSaving, setServiceSaving] = useState(false)
@@ -125,6 +129,8 @@ export default function SettingsPage() {
       if (d.mcPythonBin) setMcPythonBin(d.mcPythonBin)
       // Pixabay（图片+音乐通用）
       setPixabayKey(d.pixabayConfigured ? '********' : '')
+      // GIPHY（贴纸库）
+      setGiphyKey(d.giphyConfigured ? '********' : '')
 
       // 客服设置
       try {
@@ -175,6 +181,7 @@ export default function SettingsPage() {
           mcPath: mcPath || undefined,
           mcPythonBin: mcPythonBin || undefined,
           pixabayKey: mask(pixabayKey),
+          giphyKey: mask(giphyKey),
         }),
       })
       const result = await res.json()
@@ -348,6 +355,31 @@ export default function SettingsPage() {
               <span className="text-[10px] text-emerald-600 font-mono">🖼 搜图</span>
               <span className="text-[10px] text-purple-600 font-mono">🎵 免版税 BGM</span>
               <span className="text-[10px] text-gray-600 font-mono">一键开通，图片+音乐全搞定</span>
+            </div>
+
+            {/* GIPHY 贴纸 Key */}
+            <div className="border-t border-white/5 my-3"></div>
+            <div>
+              <label className="block text-label mb-2">
+                <span>GIPHY API Key（在线贴纸库）</span>
+                {giphyKey === '********' && <span className="ml-2 text-xs text-emerald-400 font-mono">✓ 已配置</span>}
+              </label>
+              <div className="relative">
+                <input
+                  type={showGiphyKey ? 'text' : 'password'}
+                  value={giphyKey}
+                  onChange={e => setGiphyKey(e.target.value)}
+                  placeholder="输入 GIPHY API Key"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-yellow-500/50 pr-10"
+                />
+                <button type="button" onClick={() => setShowGiphyKey(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                  {showGiphyKey ? '🙈' : '👁'}
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-600 mt-1 font-mono">
+                免费注册 → <a href="https://developers.giphy.com" target="_blank" className="text-yellow-500 underline">developers.giphy.com</a>，用于在线搜索GIF贴纸叠加到视频
+              </p>
             </div>
           </div>
         </div>
