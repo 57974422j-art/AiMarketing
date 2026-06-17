@@ -319,8 +319,8 @@ export function buildTitleFilter(
       return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white:x=${x}:y=${y}:shadowx=3:shadowy=3:shadowcolor=black@0.6${enable}`
 
     case 'fade':
-      // 淡入：渐变透明出现（drawtext 不支持 fade 参数，用 fontcolor_expr + alpha 模拟）
-      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white@0.6:x=${x}:y=${y}:shadowx=2:shadowy=2:shadowcolor=black@0.3${enable}`
+      // 淡入：正常渲染 + 调用方在 vf 链末尾追加 ,fade=t=in:st=0:d=1
+      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white:x=${x}:y=${y}:shadowx=2:shadowy=2:shadowcolor=black@0.4${enable}`
 
     case 'glow':
       // 发光：双层叠加，底层模糊
@@ -445,6 +445,8 @@ export async function finalRenderWithEffects(
     const tt = params.titleTiming || 'intro'
     const dt = buildTitleFilter(params.titleText.slice(0, 20), ts, W, H, tp, tt)
     vf = vf ? vf + ',' + dt : dt
+    // 淡入风格：在滤镜链末尾加 fade 实现全画面淡入效果
+    if (ts === 'fade') vf += ',fade=t=in:st=0:d=1'
   }
 
   // ── 执行渲染 ──

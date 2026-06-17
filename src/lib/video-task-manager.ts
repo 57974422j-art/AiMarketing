@@ -396,6 +396,7 @@ async function runTask(
       const tt = titleTiming || 'intro'
       const title = buildTitleFilter(titleText.slice(0, 20), ts, dim.w, dim.h, tp, tt)
       finalVf = finalVf ? finalVf + ',' + title : title
+      if (ts === 'fade') finalVf += ',fade=t=in:st=0:d=1'
     }
 
     const op = path.join('/root/AiMarketing/public/generated', `${task.id}.mp4`)
