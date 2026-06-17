@@ -86,6 +86,9 @@ export async function POST(req: NextRequest) {
     const stickerText = (f.get('stickerText') as string) || ''
     const stickerPos = (f.get('stickerPos') as string) || 'tl'
     const titleText = (f.get('titleText') as string) || ''
+    const titleStyle = (f.get('titleStyle') as string) || 'popin'
+    const titlePos = (f.get('titlePos') as string) || 'center'
+    const titleTiming = (f.get('titleTiming') as string) || 'intro'
     const colorFilter = (f.get('colorFilter') as string) || ''
     const subtitleMode = (f.get('subtitleMode') as string) || 'tts-sync'
     const customSrt = (f.get('customSrt') as string) || ''
@@ -219,10 +222,10 @@ export async function POST(req: NextRequest) {
         stickers,
       }
 
-      startSmartTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode as any, smartOptions, customSrt)
+      startSmartTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, titleStyle as any, titlePos as any, titleTiming as any, colorFilter, subtitleMode as any, smartOptions, customSrt)
     } else {
       // ── 普通成片模式（原有逻辑不变）──
-      startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, colorFilter, subtitleMode as any, customSrt)
+      startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, titleStyle as any, titlePos as any, titleTiming as any, colorFilter, subtitleMode as any, customSrt)
     }
 
     return NextResponse.json({ success: true, data: { taskId } })
