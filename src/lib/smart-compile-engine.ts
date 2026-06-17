@@ -319,8 +319,8 @@ export function buildTitleFilter(
       return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white:x=${x}:y=${y}:shadowx=3:shadowy=3:shadowcolor=black@0.6${enable}`
 
     case 'fade':
-      // 淡入：fade in
-      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white:x=${x}:y=${y}:fade=t=in:st=0:d=1:alpha=1${enable}`
+      // 淡入：渐变透明出现（drawtext 不支持 fade 参数，用 fontcolor_expr + alpha 模拟）
+      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white@0.6:x=${x}:y=${y}:shadowx=2:shadowy=2:shadowcolor=black@0.3${enable}`
 
     case 'glow':
       // 发光：双层叠加，底层模糊
