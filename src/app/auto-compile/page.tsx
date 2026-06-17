@@ -17,6 +17,9 @@ export default function AutoCompilePage() {
   const [stickerOn, setStickerOn] = useState(false)
   const [titleText, setTitleText] = useState('')
   const [titleOn, setTitleOn] = useState(false)
+  const [titleStyle, setTitleStyle] = useState('popin')
+  const [titlePos, setTitlePos] = useState('center')
+  const [titleTiming, setTitleTiming] = useState('intro')
   const [colorFilter, setColorFilter] = useState('')
   const { user } = useAuth()
   const [showPushDlg, setShowPushDlg] = useState(false)
@@ -313,7 +316,12 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
       // 注意：mode 不在此处预设置，统一在下方素材收集逻辑中根据实际来源设置唯一一次
       // （FormData 同名 key 多次 append 时，后端 f.get() 取第一个值，会导致覆盖失效）
       if (stickerOn) { fd.append('stickerText', stickerText); fd.append('stickerPos', stickerPos) }
-      if (titleOn) fd.append('titleText', titleText)
+      if (titleOn) {
+        fd.append('titleText', titleText)
+        fd.append('titleStyle', titleStyle)
+        fd.append('titlePos', titlePos)
+        fd.append('titleTiming', titleTiming)
+      }
       fd.append('colorFilter', colorFilter)
       fd.append('smartMode', String(smartMode))
       if (smartMode) {
@@ -522,7 +530,34 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
             </div>
             <div className="card-glass p-4">
               <label className="text-xs text-gray-400 mb-2 flex items-center gap-2">片头标题<button onClick={()=>setTitleOn(!titleOn)} className={`px-2 py-0.5 text-[10px] rounded ${titleOn?"bg-emerald-500/20 text-emerald-400 border border-emerald-500/30":"bg-white/5 text-gray-400 border border-white/10"}`}>{titleOn?"ON":"OFF"}</button></label>
-              {titleOn&&<input className="input-dark text-xs w-full" placeholder="默认文案第一句" value={titleText} onChange={e=>setTitleText(e.target.value)} maxLength={20}/>}
+              {titleOn&&<div className="space-y-2">
+                <input className="input-dark text-xs w-full" placeholder="默认文案第一句" value={titleText} onChange={e=>setTitleText(e.target.value)} maxLength={20}/>
+                {/* 标题风格 */}
+                <div>
+                  <label className="text-[9px] text-gray-500 mb-1 block">标题动效</label>
+                  <div className="flex gap-1 flex-wrap">
+                    {[
+                      {v:'popin',l:'💥弹入'},{v:'fade',l:'🌫淡入'},{v:'typewriter',l:'⌨打字机'},
+                      {v:'glow',l:'✨发光'},{v:'outline',l:'🖊描边'},{v:'gradient',l:'🌈渐变'},
+                      {v:'scalePulse',l:'🔍缩放'},{v:'shake',l:'🎯抖动'},
+                    ].map(s=>(
+                      <button key={s.v} onClick={()=>setTitleStyle(s.v)}
+                        className={`px-2 py-1 text-[10px] rounded transition ${titleStyle===s.v?'bg-yellow-500/25 text-yellow-300 border border-yellow-500/40':'bg-white/5 text-gray-500 border border-white/5 hover:bg-white/10'}`}>
+                        {s.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* 位置+时机 */}
+                <div className="flex gap-2">
+                  <select value={titlePos} onChange={e=>setTitlePos(e.target.value)} className="input-dark text-[10px] flex-1">
+                    <option value="center">📍 居中</option><option value="top">⬆ 顶部</option><option value="bottom">⬇ 底部</option>
+                  </select>
+                  <select value={titleTiming} onChange={e=>setTitleTiming(e.target.value)} className="input-dark text-[10px] flex-1">
+                    <option value="intro">⏱ 片头3秒</option><option value="full">🔄 全程显示</option>
+                  </select>
+                </div>
+              </div>}
             </div>
             <div className="card-glass p-4">
               <label className="text-xs text-gray-400 mb-2 block">色调滤镜</label>
