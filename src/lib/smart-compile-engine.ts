@@ -225,7 +225,7 @@ export async function mergeWithTransition(
   const transName = XFADE_MAP[options.transition] || 'fade'
   // 转场时长不能超过单段时长的一半，否则 xfade 会因偏移越界报错
   const segDuration = totalDuration / clipFiles.length
-  const transDur = Math.min(options.transitionDuration, segDuration / 2 - 0.1)
+  const transDur = Math.max(0.1, Math.min(options.transitionDuration, segDuration / 2 - 0.1))
   const out = path.join(workDir, 'sm.mp4')
 
   // 检测每个片段实际时长，用真实时长而非估算值来计算偏移
@@ -269,7 +269,7 @@ export async function mergeWithTransition(
     console.log(`[智能成片-转场] filter_complex: ${fc}`)
 
     await runFFmpeg(
-      `-y ${inputs} -filter_complex "${fc}" -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
+      `-y ${inputs} -filter_complex "${fc.replace(/;+$/, '')}" -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
       { timeout: 300000 }
     )
   }
