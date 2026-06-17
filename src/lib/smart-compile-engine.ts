@@ -100,14 +100,14 @@ const XFADE_MAP: Record<TransitionType, string> = {
 
 // ── Ken Burns zoompan 参数 ──
 
-const KEN_BURNS_PARAMS: Record<KenBurnsType, { d: string; s: string; z: string } | null> = {
+const KEN_BURNS_PARAMS: Record<KenBurnsType, { d: string; scale: number; z: string } | null> = {
   none: null,
-  zoomin:   { d: '1*25', s: "iw*1.2:ih*1.2", z: "'min(iw,iw*1.2)/iw':'min(ih,ih*1.2)/ih'" },
-  zoomout:  { d: '1*25', s: "iw*1.2:ih*1.2", z: "'max(iw,iw/1.2) / iw':'max(ih,ih/1.2)/ ih'" },
-  panleft:  { d: '1*25', s: "iw*1.3:ih*1.3", z: "'(iw+(iw-iw/1.3))/iw':'(ih+(ih-ih/1.3))/ih'" },
-  panright: { d: '1*25', s: "iw*1.3:ih*1.3", z: "'(iw-(iw-iw/1.3))/iw':'(ih-(ih-ih/1.3))/ih'" },
-  panup:    { d: '1*25', s: "iw*1.3:ih*1.3", z: "'(iw+(iw-iw/1.3))/iw':'(ih+(ih-ih/1.3))/ih'" },
-  pandown:  { d: '1*25', s: "iw*1.3:ih*1.3", z: "'(iw-(iw-iw/1.3))/iw':'(ih-(ih-ih/1.3))/ih'" },
+  zoomin:   { d: '1*25', scale: 1.2, z: "'min(iw,iw*1.2)/iw':'min(ih,ih*1.2)/ih'" },
+  zoomout:  { d: '1*25', scale: 1.2, z: "'max(iw,iw/1.2) / iw':'max(ih,ih/1.2)/ ih'" },
+  panleft:  { d: '1*25', scale: 1.3, z: "'(iw+(iw-iw/1.3))/iw':'(ih+(ih-ih/1.3))/ih'" },
+  panright: { d: '1*25', scale: 1.3, z: "'(iw-(iw-iw/1.3))/iw':'(ih-(ih-ih/1.3))/ih'" },
+  panup:    { d: '1*25', scale: 1.3, z: "'(iw+(iw-iw/1.3))/iw':'(ih+(ih-ih/1.3))/ih'" },
+  pandown:  { d: '1*25', scale: 1.3, z: "'(iw-(iw-iw/1.3))/iw':'(ih-(ih-ih/1.3))/ih'" },
   random:   null,  // 运行时随机选择
 }
 
@@ -163,7 +163,9 @@ export async function encodeClipsWithEffects(
       let vf = `${sf}`
       if (cf) vf += `,${cf}`
       if (kbParams) {
-        vf += `,zoompan=d=${kbParams.d}:s=${kbParams.s}:z=${kbParams.z}:fps=25`
+        const kbW = Math.round(W * kbParams.scale)
+        const kbH = Math.round(H * kbParams.scale)
+        vf += `,zoompan=d=${kbParams.d}:s=${kbW}x${kbH}:z=${kbParams.z}:fps=25`
       }
       await runFFmpeg(
         `-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
