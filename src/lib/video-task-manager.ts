@@ -387,7 +387,8 @@ async function runTask(
     if (showSubs && sp) finalVf = `subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2,MarginV=40'`
     if (stickerText) {
       const pos = posXY(stickerPos, W, H, 28)
-      const drawtext = `drawtext=text='${stickerText.slice(0, 12)}':fontsize=28:fontcolor=white:${pos}:shadowx=2:shadowy=2:shadowcolor=black@0.5`
+      const safeSticker = stickerText.slice(0, 12).replace(/[':]/g, '\\$&')
+      const drawtext = `drawtext=text='${safeSticker}':fontfile='${TITLE_FONT}':fontsize=28:fontcolor=white:${pos}:shadowx=2:shadowy=2:shadowcolor=black@0.5`
       finalVf = finalVf ? finalVf + ',' + drawtext : drawtext
     }
     if (titleText) {
@@ -428,6 +429,7 @@ import {
   SmartCompileOptions,
   CostEstimate,
   TitleStyle,
+  TITLE_FONT,
   encodeClipsWithEffects,
   mergeWithTransition,
   finalRenderWithEffects,

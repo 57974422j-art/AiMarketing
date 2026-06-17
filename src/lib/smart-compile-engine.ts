@@ -295,7 +295,7 @@ export async function mergeWithTransition(
  * 构建标题滤镜（8种风格）
  * NotoSansCJK 字体路径硬编码，服务器已安装 fonts-noto-cjk
  */
-const TITLE_FONT = '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'
+export const TITLE_FONT = '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'
 
 export function buildTitleFilter(
   text: string,
@@ -434,7 +434,8 @@ export async function finalRenderWithEffects(
   // ── 文字贴纸（旧版兼容）──
   if (params.stickerOn && params.stickerText) {
     const pos = posXY(params.stickerPos, W, H, 28)
-    const dt = `drawtext=text='${params.stickerText.slice(0, 12)}':fontsize=28:fontcolor=white:${pos}:shadowx=2:shadowy=2:shadowcolor=black@0.5`
+    const safeSticker = params.stickerText.slice(0, 12).replace(/[':]/g, '\\$&')
+    const dt = `drawtext=text='${safeSticker}':fontfile='${TITLE_FONT}':fontsize=28:fontcolor=white:${pos}:shadowx=2:shadowy=2:shadowcolor=black@0.5`
     vf = vf ? vf + ',' + dt : dt
   }
 
