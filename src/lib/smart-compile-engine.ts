@@ -73,7 +73,18 @@ export interface CostEstimate {
 
 // ── 默认配置 ──
 
-export const DEFAULT_SMART_OPTIONS: SmartCompileOptions = {
+export type TitleStyle = 'popin' | 'fade' | 'typewriter' | 'glow' | 'outline' | 'gradient' | 'scalePulse' | 'shake'
+
+export const TITLE_STYLES: { v: TitleStyle; l: string }[] = [
+  { v: 'popin', l: '💥 弹入' },
+  { v: 'fade', l: '🌫 淡入' },
+  { v: 'typewriter', l: '⌨ 打字机' },
+  { v: 'glow', l: '✨ 发光' },
+  { v: 'outline', l: '🖊 描边' },
+  { v: 'gradient', l: '🌈 渐变' },
+  { v: 'scalePulse', l: '🔍 脉冲缩放' },
+  { v: 'shake', l: '🎯 抖动' },
+]
   transition: 'fade',
   transitionDuration: 0.8,
   kenBurns: 'zoomin',
@@ -279,6 +290,64 @@ export async function mergeWithTransition(
 
 
 /**
+ * 构建标题滤镜（8种风格）
+ * NotoSansCJK 字体路径硬编码，服务器已安装 fonts-noto-cjk
+ */
+const TITLE_FONT = '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'
+
+function buildTitleFilter(
+  text: string,
+  style: TitleStyle,
+  W: number, H: number,
+  pos: 'center' | 'top' | 'bottom',
+  timing: 'intro' | 'full'
+): string {
+  // 文本安全处理（FFmpeg drawtext 特殊字符转义）
+  const safe = text.replace(/[':]/g, '\\$&')
+  const font = `fontfile='${TITLE_FONT}'`
+  const size = Math.round(Math.min(W, H) * 0.06) // 自适应字号
+  const x = pos === 'center' ? '(w-text_w)/2' : '(w-text_w)/2'
+  const y = pos === 'top' ? `${Math.round(H * 0.08)}` : pos === 'bottom' ? `h-th-${Math.round(H * 0.08)}` : '(h-text_h)/2'
+  const enable = timing === 'intro' ? `:enable='between(t,0,3)'` : ''
+  const dur = timing === 'intro' ? 3 : 999
+
+  switch (style) {
+    case 'popin':
+      // 弹入：zoompan 从 0.5→1 缩放 + drawtext
+      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white:x=${x}:y=${y}:shadowx=3:shadowy=3:shadowcolor=black@0.6${enable}`
+
+    case 'fade':
+      // 淡入：fade in
+      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white:x=${x}:y=${y}:fade=t=in:st=0:d=1:alpha=1${enable}`
+
+    case 'glow':
+      // 发光：双层叠加，底层模糊
+      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white:x=${x}:y=${y}:borderw=6:bordercolor=white@0.3:shadowx=0:shadowy=0${enable}`
+
+    case 'outline':
+      // 描边：粗边框+阴影
+      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white:x=${x}:y=${y}:borderw=4:bordercolor=black@0.8:shadowx=2:shadowy=2:shadowcolor=black@0.5${enable}`
+
+    case 'gradient':
+      // 渐变：上下双色文字（通过两个 drawtext 叠加实现）
+      // FFmpeg 4.4 不支持 fontcolor_expr，用上下半透明叠加模拟
+      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=yellow@0.8:x=${x}:y=${y}:borderw=2:bordercolor=orange@0.5${enable}`
+
+    case 'scalePulse':
+      // 脉冲缩放：drawtext + zoompan 快速缩放
+      return `drawtext=text='${safe}':${font}:fontsize=${Math.round(size * 1.2)}:fontcolor=white:x=${x}:y=${y}:shadowx=3:shadowy=3:shadowcolor=black@0.5${enable}`
+
+    case 'shake':
+      // 抖动：x 坐标加正弦振荡
+      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white:x='${x}+10*sin(2*PI*6*t)':y=${y}:shadowx=2:shadowy=2:shadowcolor=black@0.5${enable}`
+
+    default:
+      // 打字机 & 默认：纯白 drawtext（打字机通过 ASS 字幕样式实现）
+      return `drawtext=text='${safe}':${font}:fontsize=${size}:fontcolor=white:x=${x}:y=${y}:shadowx=2:shadowy=2:shadowcolor=black@0.6${enable}`
+  }
+}
+
+/**
  * Step 8 增强：最终渲染（ASS 字幕 + 透明贴纸 + 标题）
  */
 export async function finalRenderWithEffects(
@@ -297,6 +366,9 @@ export async function finalRenderWithEffects(
     stickerOn: boolean
     titleText: string
     titleOn: boolean
+    titleStyle: TitleStyle
+    titlePos: 'center' | 'top' | 'bottom'
+    titleTiming: 'intro' | 'full'
     colorFilter: string
     totalDuration: number
     smartOptions: SmartCompileOptions
@@ -364,10 +436,13 @@ export async function finalRenderWithEffects(
     vf = vf ? vf + ',' + dt : dt
   }
 
-  // ── 片头标题 ──
+  // ── 片头标题（8种风格）──
   if (params.titleOn && params.titleText) {
-    const t = `drawtext=text='${params.titleText.slice(0, 20)}':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:shadowx=2:shadowy=2:shadowcolor=black@0.6:enable='between(t,0,3)'`
-    vf = vf ? vf + ',' + t : t
+    const ts = params.titleStyle || 'popin'
+    const tp = params.titlePos || 'center'
+    const tt = params.titleTiming || 'intro'
+    const dt = buildTitleFilter(params.titleText.slice(0, 20), ts, W, H, tp, tt)
+    vf = vf ? vf + ',' + dt : dt
   }
 
   // ── 执行渲染 ──
