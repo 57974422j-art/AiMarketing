@@ -22,33 +22,47 @@ function guessExtFromUrl(url: string): string {
  * 安全下载文件到本地
  * @returns { ok: boolean, error?: string } 不再抛异常，由调用方决定是否跳过
  */
-async function downloadToFile(url: string, dest: string): Promise<{ ok: boolean; error?: string }> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 30000) // 30秒超时
-  try {
-    const res = await fetch(url, {
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'image/*,video/*,*/*',
+async function downloadToFile(url: string, dest: string, retries = 3): Promise<{ ok: boolean; error?: string }> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    if (attempt > 0) {
+      const delay = Math.min(1000 * Math.pow(2, attempt), 8000) // 2s/4s/8s 退避
+      await new Promise(r => setTimeout(r, delay))
+    }
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 30000)
+    try {
+      const res = await fetch(url, {
+        redirect: 'follow',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/*,video/*,*/*',
+        }
+      })
+      clearTimeout(timeout)
+      if (res.status === 429) {
+        // 被限流，等待后重试
+        continue
       }
-    })
-    clearTimeout(timeout)
-    if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status}` }
+      if (!res.ok) {
+        if (attempt < retries - 1) continue
+        return { ok: false, error: `HTTP ${res.status}` }
+      }
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (buf.length < 100) {
+        if (attempt < retries - 1) continue
+        return { ok: false, error: `文件过小 (${buf.length}B)` }
+      }
+      fs.writeFileSync(dest, buf)
+      return { ok: true }
+    } catch (e: any) {
+      clearTimeout(timeout)
+      if (attempt < retries - 1) continue
+      const msg = e.name === 'AbortError' ? '下载超时(30s)' : (e.message || String(e))
+      return { ok: false, error: msg }
     }
-    const buf = Buffer.from(await res.arrayBuffer())
-    if (buf.length < 100) {
-      return { ok: false, error: `文件过小 (${buf.length}B)，可能不是有效媒体` }
-    }
-    fs.writeFileSync(dest, buf)
-    return { ok: true }
-  } catch (e: any) {
-    clearTimeout(timeout)
-    const msg = e.name === 'AbortError' ? '下载超时(30s)' : (e.message || String(e))
-    return { ok: false, error: msg }
   }
+  return { ok: false, error: '重试耗尽' }
 }
 
 export const dynamic = 'force-dynamic'
@@ -90,6 +104,7 @@ export async function POST(req: NextRequest) {
       if (!urls.length) return NextResponse.json({ success: false, message: '无图片/视频URL' }, { status: 400 })
       let failCount = 0
       for (let i = 0; i < urls.length; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 800)) // 间隔800ms防限流
         const ext = guessExtFromUrl(urls[i])
         const p = path.join(wd, `i${i}.${ext}`)
         const result = await downloadToFile(urls[i], p)
