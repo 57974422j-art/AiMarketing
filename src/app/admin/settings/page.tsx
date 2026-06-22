@@ -88,6 +88,9 @@ export default function SettingsPage() {
   const [giphyKey, setGiphyKey] = useState('')
   const [showGiphyKey, setShowGiphyKey] = useState(false)
 
+  // ====== 海外API代理 ======
+  const [overseasProxy, setOverseasProxy] = useState('')
+
   // ====== 客服设置 ======
   const [serviceQrcode, setServiceQrcode] = useState('')
   const [serviceSaving, setServiceSaving] = useState(false)
@@ -131,6 +134,8 @@ export default function SettingsPage() {
       setPixabayKey(d.pixabayConfigured ? '********' : '')
       // GIPHY（贴纸库）
       setGiphyKey(d.giphyConfigured ? '********' : '')
+      // 海外API代理
+      setOverseasProxy(d.overseasProxy || '')
 
       // 客服设置
       try {
@@ -182,6 +187,7 @@ export default function SettingsPage() {
           mcPythonBin: mcPythonBin || undefined,
           pixabayKey: mask(pixabayKey),
           giphyKey: mask(giphyKey),
+          overseasProxy: overseasProxy || undefined,
         }),
       })
       const result = await res.json()
@@ -378,7 +384,26 @@ export default function SettingsPage() {
                 </button>
               </div>
               <p className="text-[10px] text-gray-600 mt-1 font-mono">
-                免费注册 → <a href="https://developers.giphy.com" target="_blank" className="text-yellow-500 underline">developers.giphy.com</a>，用于在线搜索GIF贴纸叠加到视频
+                免费注册 → <a href="https://developers.giphy.com" target="_blank" className="text-yellow-500 underline">developers.giphy.com</a>
+              </p>
+            </div>
+
+            {/* 海外API代理 */}
+            <div className="border-t border-white/5 my-3"></div>
+            <div>
+              <label className="block text-label mb-2">
+                <span>海外 API 代理</span>
+                {overseasProxy && <span className="ml-2 text-xs text-emerald-400 font-mono">✓ 已配置</span>}
+              </label>
+              <input
+                type="text"
+                value={overseasProxy}
+                onChange={e => setOverseasProxy(e.target.value)}
+                placeholder="https://proxy.example.com"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-yellow-500/50"
+              />
+              <p className="text-[10px] text-gray-600 mt-1 font-mono">
+                CF Worker 代理地址，用于 GIPHY / Gemini 等海外 API。格式: https://xxx.com
               </p>
             </div>
           </div>

@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -190,6 +190,13 @@ export async function POST(request: NextRequest) {
       else envContent += `\nGIPHY_API_KEY=${giphyKey}`;
     }
 
+    // 海外API代理（CF Worker地址，用于GIPHY/Gemini等翻墙）
+    if (overseasProxy !== undefined) {
+      const p = /^OVERSEAS_PROXY=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `OVERSEAS_PROXY=${overseasProxy}`);
+      else envContent += `\nOVERSEAS_PROXY=${overseasProxy}`;
+    }
+
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
     console.log('[Admin-Config] 配置已保存到 .env.local');
@@ -210,6 +217,7 @@ export async function POST(request: NextRequest) {
     if (musicApiKey !== undefined) process.env.MUSIC_API_KEY = musicApiKey
     if (musicApiUrl !== undefined) process.env.MUSIC_API_URL = musicApiUrl
     if (giphyKey !== undefined) process.env.GIPHY_API_KEY = giphyKey
+    if (overseasProxy !== undefined) process.env.OVERSEAS_PROXY = overseasProxy
 
     return NextResponse.json({
       success: true,
@@ -263,6 +271,7 @@ export async function GET(request: NextRequest) {
     const musicApiKey = await readEnv('MUSIC_API_KEY');
     const musicApiUrl = await readEnv('MUSIC_API_URL');
     const giphyKey = await readEnv('GIPHY_API_KEY');
+    const overseasProxy = await readEnv('OVERSEAS_PROXY');
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -285,6 +294,8 @@ export async function GET(request: NextRequest) {
         musicApiType: musicApiType || '',
         musicApiConfigured: !!(musicApiKey && musicApiUrl),
         giphyConfigured: !!giphyKey,
+        overseasProxy: overseasProxy || '',
+        overseasProxyConfigured: !!overseasProxy,
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''
