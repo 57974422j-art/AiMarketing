@@ -400,7 +400,7 @@ export async function finalRenderWithEffects(
       const stickerPath = resolveStickerPath(sticker.src, workDir)
       if (stickerPath && fs.existsSync(stickerPath)) {
         stickerInputs.push(`-i "${stickerPath}"`)
-        const idx = stickerInputs.length  // video=[0], audio=[1], stickers start at [2]
+        const idx = stickerInputs.length + 1  // video=[0], audio=[1], stickers start at [2]
 
         const scale = sticker.scale || 0.15
         const sw = Math.round(W * scale)
@@ -450,24 +450,39 @@ export async function finalRenderWithEffects(
     if (ts === 'fade') vf += ',fade=t=in:st=0:d=1'
   }
 
+  // ── 收集贴纸输入路径 ──
+  const stickerPaths: string[] = []
+  for (const sticker of smartOptions.stickers) {
+    const p = resolveStickerPath(sticker.src, workDir)
+    if (p && fs.existsSync(p)) stickerPaths.push(p)
+  }
+  const hasStickers = stickerPaths.length > 0
+
   // ── 执行渲染 ──
-  const vfArg = vf ? `-vf "${vf}"` : ''
+  // 有贴纸时用 filter_complex（多输入多输出），否则用 -vf（简单）
+  if (hasStickers) {
+    // 提取 overlay 部分 → filter_complex；drawtext 部分 → 追加到 filter_complex
+    const parts = vf.split(/,\s*(?=drawtext)/) // 按 drawtext 拆分
+    const complexPart = parts[0] || ''
+    const extraParts = parts.slice(1).join(',')
+    let fc = complexPart.replace(/;\s*$/, '')
+    if (extraParts) {
+      fc += `[vout];[vout]${extraParts}` // 追加 drawtext 到 [vout]
+    }
+    fc += `[outv]` // 最终输出标签
 
-  // 收集贴纸输入文件
-  const stickerInputArgs = smartOptions.stickers
-    .filter(s => { const p = resolveStickerPath(s.src, workDir); return !!p && fs.existsSync(p) })
-    .map(() => {
-      const sp = resolveStickerPath('', '') // placeholder
-      return `-i ""`
-    })
-    .join(' ')
-
-  console.log(`[智能成片] 最终渲染 字幕样式=${subtitleStyle} 贴纸=${smartOptions.stickers.length}个`)
-
-  await runFFmpeg(
-    `-y -i "${mergedVideo}" -i "${audioPath}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${params.totalDuration} "${outputPath}"`,
-    { timeout: 300000 }
-  )
+    const stickerArgs = stickerPaths.map(p => `-i "${p}"`).join(' ')
+    await runFFmpeg(
+      `-y -i "${mergedVideo}" -i "${audioPath}" ${stickerArgs} -filter_complex "${fc}" -map "[outv]" -map 1:a -c:v libx264 -preset medium -crf 23 -c:a aac -t ${params.totalDuration} "${outputPath}"`,
+      { timeout: 300000 }
+    )
+  } else {
+    const vfArg = vf ? `-vf "${vf}"` : ''
+    await runFFmpeg(
+      `-y -i "${mergedVideo}" -i "${audioPath}" ${vfArg} -c:v libx264 -preset medium -crf 23 -c:a aac -map 0:v -map 1:a -t ${params.totalDuration} "${outputPath}"`,
+      { timeout: 300000 }
+    )
+  }
 }
 
 

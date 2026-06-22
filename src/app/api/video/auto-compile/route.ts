@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       if (!urls.length) return NextResponse.json({ success: false, message: '无图片/视频URL' }, { status: 400 })
       let failCount = 0
       for (let i = 0; i < urls.length; i++) {
-        if (i > 0) await new Promise(r => setTimeout(r, 800)) // 间隔800ms防限流
+        if (i > 0) await new Promise(r => setTimeout(r, 1200)) // 间隔1.2s防限流
         const ext = guessExtFromUrl(urls[i])
         const p = path.join(wd, `i${i}.${ext}`)
         const result = await downloadToFile(urls[i], p)
