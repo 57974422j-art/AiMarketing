@@ -461,19 +461,21 @@ export async function finalRenderWithEffects(
   // ── 执行渲染 ──
   // 有贴纸时用 filter_complex（多输入多输出），否则用 -vf（简单）
   if (hasStickers) {
-    // 提取 overlay 部分 → filter_complex；drawtext 部分 → 追加到 filter_complex
-    const parts = vf.split(/,\s*(?=drawtext)/) // 按 drawtext 拆分
-    const complexPart = parts[0] || ''
+    const parts = vf.split(/,\s*(?=drawtext)/)
+    const complexPart = (parts[0] || '').replace(/;\s*$/, '')
     const extraParts = parts.slice(1).join(',')
-    let fc = complexPart.replace(/;\s*$/, '')
+    let fc = complexPart
     if (extraParts) {
-      fc += `[vout];[vout]${extraParts}` // 追加 drawtext 到 [vout]
+      fc += `[vout];[vout]${extraParts}`
     }
-    fc += `[outv]` // 最终输出标签
+    // 统一输出标签
+    fc = fc.replace(/\[vout\]$/, '') // 去末尾裸标签
+    const outLabel = extraParts ? '[outv]' : '[vout]'
+    if (extraParts) fc += outLabel
 
     const stickerArgs = stickerPaths.map(p => `-i "${p}"`).join(' ')
     await runFFmpeg(
-      `-y -i "${mergedVideo}" -i "${audioPath}" ${stickerArgs} -filter_complex "${fc}" -map "[outv]" -map 1:a -c:v libx264 -preset medium -crf 23 -c:a aac -t ${params.totalDuration} "${outputPath}"`,
+      `-y -i "${mergedVideo}" -i "${audioPath}" ${stickerArgs} -filter_complex "${fc}" -map "${outLabel}" -map 1:a -c:v libx264 -preset medium -crf 23 -c:a aac -t ${params.totalDuration} "${outputPath}"`,
       { timeout: 300000 }
     )
   } else {
