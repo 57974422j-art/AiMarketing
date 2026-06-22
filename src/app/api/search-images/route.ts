@@ -77,22 +77,42 @@ async function searchDuckDuckGo(q: string, count: number): Promise<Array<{url:st
 /**
  * 方案2：Pixabay 免费图片 API（备用）
  */
-async function searchPixabay(q: string, count: number): Promise<Array<{url:string;thumb:string;title:string}>> {
+async function searchPixabay(q: string, count: number): Promise<Array<{url:string;thumb:string;title:string;type:'image'|'video'}>> {
   const key = process.env.PIXABAY_API_KEY
   if (!key) return []
 
   try {
-    const url = `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(q)}&image_type=photo&per_page=${count}&safesearch=true`
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`Pixabay HTTP ${res.status}`)
-    const data = await res.json()
-    return (data.hits || []).slice(0, count).map((h: any) => ({
-      url: h.largeImageURL || h.webformatURL,
-      thumb: h.previewURL,
-      tags: h.tags
-    }))
+    // 同时搜图片和视频
+    const imgUrl = `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(q)}&image_type=photo&per_page=${count}&safesearch=true`
+    const vidUrl = `https://pixabay.com/api/videos/?key=${key}&q=${encodeURIComponent(q)}&per_page=3&safesearch=true`
+    
+    const [imgRes, vidRes] = await Promise.all([fetch(imgUrl), fetch(vidUrl)])
+    const imgData = imgRes.ok ? await imgRes.json() : null
+    const vidData = vidRes.ok ? await vidRes.json() : null
+
+    const results: Array<{url:string;thumb:string;title:string;type:'image'|'video'}> = []
+    
+    if (imgData?.hits) {
+      results.push(...imgData.hits.slice(0, count).map((h: any) => ({
+        url: h.largeImageURL || h.webformatURL,
+        thumb: h.previewURL,
+        title: h.tags || '',
+        type: 'image' as const,
+      })))
+    }
+    
+    if (vidData?.hits) {
+      results.push(...vidData.hits.slice(0, 2).map((h: any) => ({
+        url: h.videos?.medium?.url || h.videos?.small?.url || '',
+        thumb: h.videos?.medium?.thumbnail || h.videos?.small?.thumbnail || '',
+        title: (h.tags || '') + ' 🎬',
+        type: 'video' as const,
+      })).filter((v: any) => v.url))
+    }
+
+    return results
   } catch (e) {
-    console.error(`[search-images] Pixabay 备用也失败:`, e)
+    console.error(`[search-images] Pixabay 失败:`, e)
     return []
   }
 }
@@ -113,7 +133,7 @@ export async function GET(request: NextRequest) {
   const count = parseInt(request.nextUrl.searchParams.get('count') || '6')
   if (!q) return NextResponse.json({ success: false, message: '缺少搜索词' }, { status: 400 })
 
-  let images: Array<{url:string;thumb:string;title:string}> = []
+  let images: Array<{url:string;thumb:string;title:string;type?:string}> = []
 
   const key = process.env.PIXABAY_API_KEY
 
