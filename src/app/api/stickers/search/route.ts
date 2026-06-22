@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
-import { get as httpsGet } from 'https'
 
 /**
  * GET /api/stickers/search?q=鼓掌
  * GIPHY 贴纸搜索代理，返回 GIF 贴纸列表
- * 国内服务器需配置 HTTPS_PROXY 代理环境变量
+ * 通过 OVERSEAS_PROXY 环境变量指定 CF Worker 代理地址
  */
 export async function GET(req: Request) {
   try {
@@ -18,26 +17,19 @@ export async function GET(req: Request) {
 
     const apiKey = process.env.GIPHY_API_KEY
     if (!apiKey) {
-      return NextResponse.json({
-        success: false,
-        message: 'GIPHY API Key 未配置，请在管理后台设置中配置',
-      }, { status: 400 })
+      return NextResponse.json({ success: false, message: 'GIPHY API Key 未配置' }, { status: 400 })
     }
 
     const giphyUrl = `https://api.giphy.com/v1/stickers/search?api_key=${apiKey}&q=${encodeURIComponent(q)}&limit=${limit}&lang=zh`
+    const proxy = process.env.OVERSEAS_PROXY
+    const fetchUrl = proxy ? `${proxy}?url=${encodeURIComponent(giphyUrl)}` : giphyUrl
 
-    // 使用 https 原生模块（自动读取 HTTPS_PROXY 环境变量）
-    const data = await new Promise<any>((resolve, reject) => {
-      httpsGet(giphyUrl, (res) => {
-        let body = ''
-        res.on('data', (chunk: Buffer) => { body += chunk.toString() })
-        res.on('end', () => {
-          try { resolve(JSON.parse(body)) }
-          catch (e) { reject(new Error(`解析失败: HTTP ${res.statusCode}`)) }
-        })
-      }).on('error', reject)
-    })
+    const res = await fetch(fetchUrl)
+    if (!res.ok) {
+      return NextResponse.json({ success: false, message: `GIPHY 返回 HTTP ${res.status}` }, { status: 500 })
+    }
 
+    const data = await res.json()
     const stickers = (data.data || []).map((s: any) => ({
       id: s.id,
       url: s.images?.downsized?.url || s.images?.original?.url || '',
