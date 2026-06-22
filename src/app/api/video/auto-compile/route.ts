@@ -22,7 +22,7 @@ function guessExtFromUrl(url: string): string {
  * 安全下载文件到本地
  * @returns { ok: boolean, error?: string } 不再抛异常，由调用方决定是否跳过
  */
-async function downloadToFile(url: string, dest: string, retries = 3): Promise<{ ok: boolean; error?: string }> {
+async function downloadToFile(url: string, dest: string, retries = 5): Promise<{ ok: boolean; error?: string }> {
   for (let attempt = 0; attempt < retries; attempt++) {
     if (attempt > 0) {
       const delay = Math.min(1000 * Math.pow(2, attempt), 8000) // 2s/4s/8s 退避

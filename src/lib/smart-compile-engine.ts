@@ -408,7 +408,7 @@ export async function finalRenderWithEffects(
         const opacity = sticker.opacity ?? 1
         const pos = getOverlayPosition(sticker.position, sticker.x, sticker.y, W, H, sw)
 
-        let olFilter = `[${idx}:v]format=rgba,scale=${sw}:${sh}${opacity < 1 ? `,colorchannelmixer=aa=${opacity}` : ''}[s${idx}];`
+        let olFilter = `[${idx}:v]scale=${sw}:${sh}${opacity < 1 ? `,format=rgba,colorchannelmixer=aa=${opacity}` : ''}[s${idx}];`
 
         // 时间范围控制
         if (sticker.timeRange) {
