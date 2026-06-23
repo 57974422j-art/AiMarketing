@@ -469,14 +469,14 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
             <div className="card-glass p-4">
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs text-gray-400">文案</label>
-                {mode === 'smart' && (
+                {(mode === 'smart' || mode === 'storyboard') && (
                   <button onClick={() => setGenOpen(!genOpen)} className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30 transition">✨ AI 导演</button>
                 )}
                 {mode === 'free' && <span className="text-[9px] text-gray-600">手动输入文案，右侧添加素材</span>}
               </div>
 
               {/* AI生成内嵌面板（仅智能模式） */}
-              {genOpen && mode === 'smart' && (
+              {genOpen && (mode === 'smart' || mode === 'storyboard') && (
                 <div className="mt-3 p-3 bg-purple-500/5 border border-purple-500/20 rounded-lg space-y-2">
                   <textarea
                     className="input-dark w-full text-sm h-20 resize-none"
