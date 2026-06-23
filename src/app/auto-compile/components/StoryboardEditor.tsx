@@ -32,7 +32,7 @@ interface Props {
   transitionDur: number; setTransitionDur: (v: number) => void
   subtitleStyle: string; setSubtitleStyle: (v: string) => void
   bgm: any; setBgm: (v: any) => void; bgmFile: File | null; setBgmFile: (v: any) => void
-  musicList: any[]; bgmPlaying: string; setBgmPlaying: (v: string) => void
+  musicList: any[]; bgmPlaying: string | null; setBgmPlaying: (v: string | null) => void
   processing: boolean; setProcessing: (v: boolean) => void
   progress: number; setProgress: (v: number) => void; videoUrl: string; setVideoUrl: (v: string) => void
 }
