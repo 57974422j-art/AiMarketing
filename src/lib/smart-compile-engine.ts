@@ -461,17 +461,21 @@ export async function finalRenderWithEffects(
   // ── 执行渲染 ──
   // 有贴纸时用 filter_complex（多输入多输出），否则用 -vf（简单）
   if (hasStickers) {
+    // 分离：overlay 链路（含 [vout] 标签） vs drawtext 简单滤镜
     const parts = vf.split(/,\s*(?=drawtext)/)
-    const complexPart = (parts[0] || '').replace(/;\s*$/, '')
-    const extraParts = parts.slice(1).join(',')
-    let fc = complexPart
-    if (extraParts) {
-      fc += `[vout];[vout]${extraParts}`
+    let complexLabeled = (parts[0] || '').replace(/;\s*$/, '') // overlay链，含 [vout]
+    const drawtextChain = parts.slice(1).join(',')
+    
+    // 去掉 overlay 链末尾的 [vout]（后面要重新指定流向）
+    complexLabeled = complexLabeled.replace(/\[vout\]\s*$/, '')
+    
+    // 追加 drawtext：用分号分隔，输入来自 [vout]
+    let fc = complexLabeled
+    let outLabel = '[vout]'
+    if (drawtextChain) {
+      fc += `;[vout]${drawtextChain}[outv]`
+      outLabel = '[outv]'
     }
-    // 统一输出标签
-    fc = fc.replace(/\[vout\]$/, '') // 去末尾裸标签
-    const outLabel = extraParts ? '[outv]' : '[vout]'
-    if (extraParts) fc += outLabel
 
     console.log(`[智能成片] filter_complex(${stickerPaths.length} stickers): ${fc}`)
     const stickerArgs = stickerPaths.map(p => `-i "${p}"`).join(' ')
