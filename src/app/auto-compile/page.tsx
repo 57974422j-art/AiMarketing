@@ -2,6 +2,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { showToast } from '@/components/Toast'
 import { useAuth } from '@/app/providers'
+import StoryboardEditor from './components/StoryboardEditor'
 
 export default function AutoCompilePage() {
   const [mode, setMode] = useState<'free' | 'smart' | 'storage' | 'storyboard'>('free')
@@ -463,7 +464,34 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {mode === 'storyboard' && (
+          <StoryboardEditor
+            text={text} setText={setText}
+            genInput={genInput} setGenInput={setGenInput}
+            genOpen={genOpen} setGenOpen={setGenOpen}
+            generating={generating} generateScript={generateScript}
+            aiKeywords={aiKeywords}
+            searchQuery={searchQuery} setSearchQuery={setSearchQuery}
+            searching={searching} handleAutoSearch={handleAutoSearch}
+            searchResults={searchResults} setSearchResults={setSearchResults}
+            checkedImages={checkedImages} setCheckedImages={setCheckedImages}
+            materialList={materialList} setMaterialList={setMaterialList}
+            voice={voice} setVoice={setVoice}
+            duration={duration} setDuration={setDuration}
+            subtitleSize={subtitleSize} setSubtitleSize={setSubtitleSize}
+            colorFilter={colorFilter} setColorFilter={setColorFilter}
+            kenBurns={kenBurns} setKenBurns={setKenBurns}
+            transition={transition} setTransition={setTransition}
+            transitionDur={transitionDur} setTransitionDur={setTransitionDur}
+            subtitleStyle={subtitleStyle} setSubtitleStyle={setSubtitleStyle}
+            bgm={bgm} setBgm={setBgm} bgmFile={bgmFile} setBgmFile={setBgmFile}
+            musicList={musicList} bgmPlaying={bgmPlaying} setBgmPlaying={setBgmPlaying}
+            processing={processing} setProcessing={setProcessing}
+            progress={progress} setProgress={setProgress} videoUrl={videoUrl} setVideoUrl={setVideoUrl}
+          />
+        )}
+
+        <div className={`grid grid-cols-1 lg:grid-cols-2 gap-4 ${mode === 'storyboard' ? 'hidden' : ''}`}>
           {/* ═══ 左侧栏：设置面板 ═══ */}
           <div className="space-y-4">
             <div className="card-glass p-4">
