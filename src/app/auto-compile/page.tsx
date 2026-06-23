@@ -106,6 +106,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
 
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<Record<number, Array<{url:string;thumb:string;title:string;type?:string}>>>({})
+  const [selectedImages, setSelectedImages] = useState<Record<number, {url:string;title:string}>>({})
   const [checkedImages, setCheckedImages] = useState<Array<{url:string;title:string;type?:string}>>([]) // 搜图多选暂存区
 
 
