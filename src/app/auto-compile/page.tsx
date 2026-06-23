@@ -105,14 +105,13 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
   : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16) })
 
   const [searching, setSearching] = useState(false)
-  const [searchResults, setSearchResults] = useState<Record<number, Array<{url:string;thumb:string;title:string}>>>({})
-  const [selectedImages, setSelectedImages] = useState<Record<number, {url:string;title:string}>>({})
-  const [checkedImages, setCheckedImages] = useState<Array<{url:string;title:string}>>([]) // 搜图多选暂存区
+  const [searchResults, setSearchResults] = useState<Record<number, Array<{url:string;thumb:string;title:string;type?:string}>>>({})
+  const [checkedImages, setCheckedImages] = useState<Array<{url:string;title:string;type?:string}>>([]) // 搜图多选暂存区
 
 
   // 统一素材列表（合并搜图+仓库+本地上传，支持拖拽排序）
   interface MaterialItem {
-    id: string; url: string; thumb: string; title: string;
+    id: string; url: string; thumb: string; title: string; type?: string;
     source: 'search' | 'storage' | 'local'; file?: File; storageName?: string;
   }
   const [materialList, setMaterialList] = useState<MaterialItem[]>([])
@@ -868,7 +867,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                             <button
                               onClick={() => {
                                 // 全选当前组
-                                const all = imgs.filter(i => !checkedUrls.has(i.url)).map(i => ({ url: i.url, title: i.title }))
+                                const all = imgs.filter(i => !checkedUrls.has(i.url)).map(i => ({ url: i.url, title: i.title, type: i.type }))
                                 if (all.length > 0 && materialList.length + selectedCount + all.length <= 20) {
                                   setCheckedImages(prev => [...prev, ...all])
                                 }
@@ -884,7 +883,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                                 if (toAdd.length === 0) { showToast('所选图片已在素材列表中', 'success'); return }
                                 if (materialList.length + toAdd.length > 20) { showToast(`最多20个素材，当前${materialList.length}个，要加${toAdd.length}张`, 'error'); return }
                                 const newItems: MaterialItem[] = toAdd.map(v => ({
-                                  id: genId(), url: v.url, thumb: v.url, title: v.title || '',
+                                  id: genId(), url: v.url, thumb: v.url, title: v.title || '', type: v.type || 'image',
                                   source: 'search' as const
                                 }))
                                 setMaterialList(prev => [...prev, ...newItems])
@@ -908,11 +907,12 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                                     setCheckedImages(prev => prev.filter(v => v.url !== img.url))
                                   } else {
                                     if (materialList.length + checkedImages.length >= 20) { showToast('素材已达上限20张', 'error'); return }
-                                    setCheckedImages(prev => [...prev, { url: img.url, title: img.title }])
+                                    setCheckedImages(prev => [...prev, { url: img.url, title: img.title, type: img.type }])
                                   }
                                 }}
                               >
                                 <img src={img.thumb || img.url} className="w-16 h-16 object-cover" onError={(e) => {(e.target as HTMLImageElement).src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect fill=%22%23111%22 width=64 height=64/><text x=32 y=34 fill=%22%23666%22 font-size=8 text-anchor=middle>✗</text></svg>'}} />
+                                {img.type === 'video' && <span className="absolute top-0.5 right-0.5 bg-purple-500 text-white text-[8px] px-1 rounded">🎬</span>}
                                 {isChecked && (
                                   <div className="absolute top-0 left-0 w-full h-full bg-emerald-500/20 flex items-center justify-center">
                                     <span className="bg-emerald-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shadow-lg">✓</span>
@@ -952,7 +952,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                         m.source === 'search' ? 'bg-blue-500/70 text-white' :
                         m.source === 'storage' ? 'bg-purple-500/70 text-white' :
                         'bg-emerald-500/70 text-white'
-                      }`}>{m.source === 'search' ? '搜' : m.source === 'storage' ? '仓' : '本'}</span>
+                      }`}>{m.source === 'search' ? '搜' : m.source === 'storage' ? '仓' : '本'}{m.type === 'video' ? ' 🎬' : ''}</span>
                       {/* 序号 */}
                       <span className="absolute top-0 right-0 bg-black/60 text-[8px] text-white px-1">{idx + 1}</span>
                       {/* 删除按钮 */}
