@@ -473,6 +473,7 @@ export async function finalRenderWithEffects(
     const outLabel = extraParts ? '[outv]' : '[vout]'
     if (extraParts) fc += outLabel
 
+    console.log(`[智能成片] filter_complex(${stickerPaths.length} stickers): ${fc}`)
     const stickerArgs = stickerPaths.map(p => `-i "${p}"`).join(' ')
     await runFFmpeg(
       `-y -i "${mergedVideo}" -i "${audioPath}" ${stickerArgs} -filter_complex "${fc}" -map "${outLabel}" -map 1:a -c:v libx264 -preset medium -crf 23 -c:a aac -t ${params.totalDuration} "${outputPath}"`,

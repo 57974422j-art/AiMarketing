@@ -313,9 +313,9 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
   const addGiphySticker = async (gif: {id:string;url:string;thumb:string;title:string}) => {
     if (stickerFiles.length >= 8) { showToast('最多8个贴纸', 'error'); return }
     try {
-      const res = await fetch(gif.url)
+      const res = await fetch(`/api/stickers/download?url=${encodeURIComponent(gif.url)}`, { credentials: 'include' })
       const blob = await res.blob()
-      const file = new File([blob], `giphy_${gif.id}.gif`, { type: 'image/gif' })
+      const file = new File([blob], `giphy_${gif.id}.gif`, { type: blob.type || 'image/gif' })
       setStickerFiles(prev => [...prev, file])
       setStickerPosList(prev => [...prev, 'br'])
       showToast(`已添加: ${gif.title || 'GIF贴纸'}`, 'success')
@@ -501,6 +501,8 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                             if (d.success) {
                               setText(d.data.script)
                               setAiKeywords(d.data.lines.map((l: any) => l.keyword))
+                              setSearchResults({}) // 清空上次的搜图缓存
+                              setCheckedImages([])
                               const dir = d.data.director
                               if (dir?.title?.text) { setTitleText(dir.title.text); setTitleOn(true) }
                               if (dir?.sticker?.text) { setStickerText(dir.sticker.text); setStickerOn(true); if (dir.sticker.position) setStickerPos(dir.sticker.position) }

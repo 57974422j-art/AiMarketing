@@ -39,12 +39,13 @@ export async function POST(request: NextRequest) {
 
 规则说明：
 1. lines: ${lineCount}句口语化短视频文案，每句独立成行，不要序号。
-2. 【搜图关键词核心规则】keyword必须满足以下要求才能搜到精准配图：
-   - 英文，2-4个词，描述具体的主体+场景+动作/状态
-   - ❌ 错误示范：cat（太泛）、animal（无画面感）、food（无法确定是什么）
-   - ✅ 正确示范：cute orange kitten sleeping、steaming hot coffee cup、sunset beach palm trees、happy golden retriever playing
-   - 每句文案的keyword要和那句话的内容强相关，描述该句文案的画面主体
-   - 优先用具体名词，少用形容词，避免抽象概念
+2. 【搜图关键词核心规则】keyword必须是图库中常见、能直接搜到的实体物体名称：
+   - 英文，1-3个词，描述的照片里能看到的实物，不是动作或状态
+   - ❌ 错误：woman washing face（人脸特写搜不到产品）→ ✅ facial cleanser foam product
+   - ❌ 错误：cute kitten sleeping（动作模糊）→ ✅ orange tabby cat closeup
+   - ❌ 错误：chef cooking kitchen（人物场景不精准）→ ✅ fresh vegetables cutting board
+   - 只描述图片中会出现的物体/产品，不要描述动作（running/jumping/washing）或氛围（happy/cozy）
+   - 每句keyword和对应文案强相关，但必须是图库里能搜到的具体物品
 3. title: 从第一句文案提炼精华作为片头标题，吸引眼球
 4. sticker: 设计一个互动贴纸标签，position=tl左上/tr右上/bl左下/br右下
 5. filter: 根据内容氛围推荐色调（warm暖色温馨/cool冷色科技/bw黑白纪实/''原色）
