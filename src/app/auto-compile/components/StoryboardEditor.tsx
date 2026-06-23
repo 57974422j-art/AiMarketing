@@ -56,6 +56,7 @@ export default function StoryboardEditor(props: Props) {
   const [showMediaPanel, setShowMediaPanel] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [draggingSticker, setDraggingSticker] = useState<string | null>(null)
+  const [localKeywords, setLocalKeywords] = useState<string[]>([])
 
   // AI 生成分镜
   const handleAIGenerate = async () => {
@@ -69,6 +70,8 @@ export default function StoryboardEditor(props: Props) {
       const d = await r.json()
       if (d.success) {
         setText(d.data.script)
+        const keywords: string[] = d.data.lines.map((l: any) => l.keyword)
+        setLocalKeywords(keywords)
         const lines = (d.data.script || '').split('\n').filter((l: string) => l.trim())
         const durPerShot = Math.max(3, Math.round((duration || 15) / lines.length))
         setShots(lines.map((line: string) => ({
@@ -314,16 +317,16 @@ export default function StoryboardEditor(props: Props) {
 
             {/* 搜图素材 */}
             <button onClick={() => {
-              const autoKw = aiKeywords[idx] || ''
+              const autoKw = localKeywords[idx] || aiKeywords[idx] || ''
               if (autoKw) { setSearchQuery(autoKw); handleAutoSearch(autoKw) }
               setShowMediaPanel(!showMediaPanel)
             }}
               className="w-full py-1.5 border border-dashed border-blue-500/30 rounded text-blue-400 text-xs hover:border-blue-500/50 transition">
-              🖼 {showMediaPanel ? '收起素材面板' : `添加素材 (AI关键词: ${aiKeywords[idx] ? aiKeywords[idx].substring(0,15)+'...' : '无'})`}
+              🖼 {showMediaPanel ? '收起素材面板' : `添加素材 (AI: ${(localKeywords[idx] || aiKeywords[idx] || '').substring(0,15)}${(localKeywords[idx] || aiKeywords[idx]) ? '…' : '无'})`}
             </button>
             {showMediaPanel && (
               <div className="mt-2 pt-2 border-t border-white/10">
-                <p className="text-[8px] text-gray-500 mb-1">🔍 AI关键词: {aiKeywords[idx] || '未生成'}</p>
+                <p className="text-[8px] text-gray-500 mb-1">🔍 AI关键词: {localKeywords[idx] || aiKeywords[idx] || '未生成'}</p>
                 <div className="flex gap-1.5 mb-2">
                   <input className="input-dark text-xs flex-1" placeholder="修改搜索词..."
                     value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
