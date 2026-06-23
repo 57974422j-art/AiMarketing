@@ -363,17 +363,19 @@ export default function StoryboardEditor(props: Props) {
               setShowMediaPanel(!showMediaPanel)
             }}
               className="w-full py-1.5 border border-dashed border-blue-500/30 rounded text-blue-400 text-xs hover:border-blue-500/50 transition">
-              🖼 {showMediaPanel ? '收起素材面板' : `添加素材 (AI: ${(localKeywords[idx] || aiKeywords[idx] || '').substring(0,15)}${(localKeywords[idx] || aiKeywords[idx]) ? '…' : '无'})`}
+              {showMediaPanel ? '🔽 收起素材' : '🖼 AI搜素材 — 点击自动用英文关键词搜索'}
             </button>
             {showMediaPanel && (
               <div className="mt-2 pt-2 border-t border-white/10">
-                <p className="text-[8px] text-gray-500 mb-1">🔍 AI关键词: {localKeywords[idx] || aiKeywords[idx] || '未生成'}</p>
-                <div className="flex gap-1.5 mb-2">
-                  <input className="input-dark text-xs flex-1" placeholder="修改搜索词..."
-                    value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                <div className="flex items-center gap-1.5 mb-2">
+                  <p className="text-[9px] text-blue-400 font-mono">🔍 {(localKeywords[idx] || aiKeywords[idx] || '未生成AI关键词')}</p>
+                  <input className="input-dark text-xs flex-1" placeholder="换词搜索（可选）..."
+                    value={searchQuery}
+                    onFocus={e => e.target.select()}
+                    onChange={e => setSearchQuery(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleAutoSearch() }} />
                   <button onClick={() => handleAutoSearch()} disabled={searching}
-                    className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs">{searching ? '··' : '搜索'}</button>
+                    className="shrink-0 px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs">{searching ? '··' : '重新搜'}</button>
                 </div>
                 <div className="flex gap-1.5 overflow-x-auto pb-1">
                   {Object.values(searchResults).flat().slice(0, 8).map((img: any, j: number) => (
@@ -383,6 +385,9 @@ export default function StoryboardEditor(props: Props) {
                       {img.type === 'video' && <span className="absolute text-[7px]">🎬</span>}
                     </div>
                   ))}
+                  {Object.values(searchResults).flat().length === 0 && !searching && (
+                    <p className="text-[9px] text-gray-500 py-2">点击上方"重新搜"加载图片</p>
+                  )}
                 </div>
               </div>
             )}
