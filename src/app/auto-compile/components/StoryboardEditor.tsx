@@ -99,13 +99,26 @@ export default function StoryboardEditor(props: Props) {
 
   return (
     <div className="space-y-4">
-      {/* 生成按钮 */}
-      <div className="flex gap-2 items-center">
-        <button onClick={handleAIGenerate} disabled={genLoading || genInput.length < 5}
-          className="px-4 py-2 bg-purple-500 text-white rounded-lg text-sm disabled:opacity-40">
-          {genLoading ? '⏳ AI导演中...' : '🎬 AI导演 — 生成分镜'}
-        </button>
-        {shots.length > 0 && <span className="text-xs text-gray-500">{shots.length} 个分镜</span>}
+      {/* AI导演输入框 + 生成按钮 */}
+      <div className="card-glass p-4">
+        <label className="text-xs text-gray-400 mb-2 block">🎬 AI导演 — 输入主题描述</label>
+        <textarea
+          className="input-dark w-full text-sm h-24 resize-none"
+          placeholder="输入描述文字（20-200字），AI将自动生成文案..."
+          value={genInput}
+          onChange={e => { if (e.target.value.length <= 200) setGenInput(e.target.value) }}
+          maxLength={200}
+        />
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-[10px] text-gray-500">{genInput.length}/200 字</span>
+          <div className="flex gap-2 items-center">
+            {shots.length > 0 && <span className="text-xs text-gray-500">{shots.length} 个分镜</span>}
+            <button onClick={handleAIGenerate} disabled={genLoading || genInput.length < 5}
+              className="px-4 py-2 bg-purple-500 text-white rounded-lg text-sm disabled:opacity-40">
+              {genLoading ? '⏳ AI导演中...' : '🎬 AI导演 — 生成分镜'}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* 分镜卡片 */}
