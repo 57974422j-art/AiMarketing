@@ -469,7 +469,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
             text={text} setText={setText}
             genInput={genInput} setGenInput={setGenInput}
             genOpen={genOpen} setGenOpen={setGenOpen}
-            generating={generating} generateScript={generateScript}
+            genLoading={genLoading} setGenLoading={setGenLoading}
             aiKeywords={aiKeywords}
             searchQuery={searchQuery} setSearchQuery={setSearchQuery}
             searching={searching} handleAutoSearch={handleAutoSearch}

@@ -13,7 +13,7 @@ interface Props {
   text: string; setText: (v: string) => void
   genInput: string; setGenInput: (v: string) => void
   genOpen: boolean; setGenOpen: (v: boolean) => void
-  generating: boolean; generateScript: () => void
+  genLoading: boolean; setGenLoading: (v: boolean) => void
   aiKeywords: string[]
   // 搜图
   searchQuery: string; setSearchQuery: (v: string) => void
@@ -43,7 +43,7 @@ const genId = () => typeof crypto !== 'undefined' && crypto.randomUUID
 
 export default function StoryboardEditor(props: Props) {
   const {
-    text, setText, genInput, setGenInput, genOpen, setGenOpen, generating, generateScript,
+    text, setText, genInput, setGenInput, genOpen, setGenOpen, genLoading, setGenLoading,
     aiKeywords, searchQuery, setSearchQuery, searching, handleAutoSearch,
     searchResults, setSearchResults, checkedImages, setCheckedImages, materialList, setMaterialList,
     voice, setVoice, duration, setDuration, subtitleSize, setSubtitleSize,
@@ -59,20 +59,34 @@ export default function StoryboardEditor(props: Props) {
 
   // AI 生成 → 转为分镜
   const handleAIGenerate = async () => {
-    generateScript()
-    // 等生成完成后由父组件通过 text/aiKeywords 更新，这里监听变化转换
-    if (aiKeywords.length > 0) {
-      const lines = text.split('\n').filter((l: string) => l.trim())
-      const durPerShot = Math.max(3, Math.round((duration || 15) / lines.length))
-      const newShots: Shot[] = lines.map((line, i) => ({
-        id: genId(),
-        mediaUrl: '', mediaThumb: '', mediaType: 'image',
-        subtitle: line, duration: durPerShot,
-        stickers: []
-      }))
-      setShots(newShots)
-      showToast(`已生成 ${newShots.length} 个分镜`, 'success')
+    if (!genInput.trim() || genInput.length < 5) { showToast('请至少输入5个字', 'error'); return }
+    setGenLoading(true)
+    try {
+      const r = await fetch('/api/generate-script', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: genInput.trim(), duration })
+      })
+      const d = await r.json()
+      if (d.success) {
+        setText(d.data.script)
+        const lines = (d.data.script || '').split('\n').filter((l: string) => l.trim())
+        const durPerShot = Math.max(3, Math.round((duration || 15) / lines.length))
+        const newShots: Shot[] = lines.map((line: string) => ({
+          id: genId(),
+          mediaUrl: '', mediaThumb: '', mediaType: 'image',
+          subtitle: line, duration: durPerShot,
+          stickers: []
+        }))
+        setShots(newShots)
+        showToast(`已生成 ${newShots.length} 个分镜`, 'success')
+        setGenInput('')
+      } else {
+        showToast(d.error || '生成失败', 'error')
+      }
+    } catch (e: any) {
+      showToast('生成失败: ' + e.message, 'error')
     }
+    setGenLoading(false)
   }
 
   // 选图放入指定分镜
@@ -87,9 +101,9 @@ export default function StoryboardEditor(props: Props) {
     <div className="space-y-4">
       {/* 生成按钮 */}
       <div className="flex gap-2 items-center">
-        <button onClick={handleAIGenerate} disabled={generating || genInput.length < 5}
+        <button onClick={handleAIGenerate} disabled={genLoading || genInput.length < 5}
           className="px-4 py-2 bg-purple-500 text-white rounded-lg text-sm disabled:opacity-40">
-          {generating ? '⏳ AI导演中...' : '🎬 AI导演 — 生成分镜'}
+          {genLoading ? '⏳ AI导演中...' : '🎬 AI导演 — 生成分镜'}
         </button>
         {shots.length > 0 && <span className="text-xs text-gray-500">{shots.length} 个分镜</span>}
       </div>
