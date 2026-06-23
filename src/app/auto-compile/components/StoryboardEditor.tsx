@@ -1,11 +1,12 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { showToast } from '@/components/Toast'
 
 interface ShotItem {
   id: string; mediaUrl: string; mediaThumb: string; mediaType: string
   subtitle: string; duration: number
   titleOn: boolean; titleStyle: string; titleText: string
+  titlePosX: number; titlePosY: number
   stickerOn: boolean; stickerText: string; stickerPosX: number; stickerPosY: number
 }
 type SearchResultMap = Record<number, Array<{ url: string; thumb: string; title: string; type?: string }>>
@@ -57,6 +58,7 @@ export default function StoryboardEditor(props: Props) {
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [draggingSticker, setDraggingSticker] = useState<string | null>(null)
   const [localKeywords, setLocalKeywords] = useState<string[]>([])
+  const dragTypeRef = useRef<string | null>(null) // 'sticker' | 'title'
 
   // AI 生成分镜
   const handleAIGenerate = async () => {
@@ -77,7 +79,7 @@ export default function StoryboardEditor(props: Props) {
         setShots(lines.map((line: string) => ({
           id: genId(), mediaUrl: '', mediaThumb: '', mediaType: 'image',
           subtitle: line, duration: durPerShot,
-          titleOn: false, titleStyle: 'popin', titleText: '',
+          titleOn: false, titleStyle: 'popin', titleText: '', titlePosX: 50, titlePosY: 10,
           stickerOn: false, stickerText: '', stickerPosX: 85, stickerPosY: 85,
         })))
         showToast(`已生成 ${lines.length} 个分镜`, 'success')
@@ -187,27 +189,49 @@ export default function StoryboardEditor(props: Props) {
                 }`}
               >
                 <div className="aspect-[9/16] bg-black/30 rounded mb-1.5 flex items-center justify-center overflow-hidden relative"
-                  onDragOver={e => { e.preventDefault() }}
-                  onDrop={e => {
-                    e.preventDefault()
+                  onMouseMove={e => {
+                    if (!dragTypeRef.current) return
                     const rect = e.currentTarget.getBoundingClientRect()
                     const x = Math.round(((e.clientX - rect.left) / rect.width) * 100)
                     const y = Math.round(((e.clientY - rect.top) / rect.height) * 100)
-                    setShots(prev => prev.map(s => s.id === shot.id ? { ...s, stickerPosX: Math.min(95, Math.max(5, x)), stickerPosY: Math.min(95, Math.max(5, y)), stickerOn: true } : s))
+                    const cx = Math.min(95, Math.max(5, x)), cy = Math.min(95, Math.max(5, y))
+                    if (dragTypeRef.current === 'sticker') {
+                      setShots(prev => prev.map(s => s.id === shot.id ? { ...s, stickerPosX: cx, stickerPosY: cy, stickerOn: true } : s))
+                    } else if (dragTypeRef.current === 'title') {
+                      setShots(prev => prev.map(s => s.id === shot.id ? { ...s, titlePosX: cx, titlePosY: cy, titleOn: true } : s))
+                    }
                   }}
+                  onMouseUp={() => { dragTypeRef.current = null }}
+                  onMouseLeave={() => { dragTypeRef.current = null }}
                 >
                   {shot.mediaThumb ? (
                     <img src={shot.mediaThumb} className="w-full h-full object-cover" draggable={false} />
                   ) : (
                     <span className="text-gray-600 text-xl">📷</span>
                   )}
-                  {/* 贴纸位置指示器 */}
-                  {shot.stickerOn && (
-                    <div className="absolute w-2.5 h-2.5 bg-pink-500 rounded-full border border-white shadow-lg"
-                      style={{ left: `${shot.stickerPosX}%`, top: `${shot.stickerPosY}%`, transform: 'translate(-50%,-50%)' }}
-                      title="拖放文字或图片可换位置" />
+                  {/* 标题位置点（可拖动）*/}
+                  {shot.titleOn && (
+                    <div className="absolute cursor-grab active:cursor-grabbing z-10 select-none"
+                      style={{ left: `${shot.titlePosX}%`, top: `${shot.titlePosY}%`, transform: 'translate(-50%,-50%)' }}
+                      onMouseDown={e => { e.stopPropagation(); dragTypeRef.current = 'title' }}>
+                      <span className="text-[8px] bg-yellow-500/80 text-white px-1 py-0.5 rounded whitespace-nowrap">
+                        📝{shot.titleText || '标题'}
+                      </span>
+                    </div>
                   )}
-                  <p className="absolute bottom-0.5 right-1 text-[6px] text-white/40">↕拖放定位</p>
+                  {/* 贴纸位置点（可拖动）*/}
+                  {shot.stickerOn && (
+                    <div className="absolute cursor-grab active:cursor-grabbing z-10 select-none"
+                      style={{ left: `${shot.stickerPosX}%`, top: `${shot.stickerPosY}%`, transform: 'translate(-50%,-50%)' }}
+                      onMouseDown={e => { e.stopPropagation(); dragTypeRef.current = 'sticker' }}>
+                      <span className="text-[8px] bg-pink-500/80 text-white px-1 py-0.5 rounded whitespace-nowrap">
+                        🏷{shot.stickerText || '贴纸'}
+                      </span>
+                    </div>
+                  )}
+                  {(!shot.stickerOn && !shot.titleOn) && (
+                    <p className="absolute bottom-0.5 right-1 text-[6px] text-white/40">开启贴纸/标题后可拖放</p>
+                  )}
                 </div>
                 <p className="text-[8px] text-gray-400 line-clamp-2 leading-tight">{shot.subtitle}</p>
                 <div className="flex items-center justify-between mt-1">
@@ -266,16 +290,33 @@ export default function StoryboardEditor(props: Props) {
                 </button>
               </label>
               {shot.titleOn && (
-                <div className="flex gap-2 flex-wrap">
-                  <input className="input-dark text-xs flex-1 min-w-[120px]" placeholder="标题文字(10字内)"
-                    value={shot.titleText} maxLength={10}
-                    onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, titleText: e.target.value } : s))} />
-                  <select className="input-dark text-xs w-20" value={shot.titleStyle}
-                    onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, titleStyle: e.target.value } : s))}>
-                    <option value="popin">弹入</option><option value="fade">淡入</option><option value="outline">描边</option>
-                    <option value="glow">发光</option><option value="gradient">渐变</option><option value="scalePulse">缩放</option>
-                    <option value="shake">抖动</option>
-                  </select>
+                <div className="space-y-1.5">
+                  <div className="flex gap-2 flex-wrap">
+                    <input className="input-dark text-xs flex-1 min-w-[120px]" placeholder="标题文字(10字内)"
+                      value={shot.titleText} maxLength={10}
+                      onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, titleText: e.target.value } : s))} />
+                    <select className="input-dark text-xs w-20" value={shot.titleStyle}
+                      onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, titleStyle: e.target.value } : s))}>
+                      <option value="popin">弹入</option><option value="fade">淡入</option><option value="outline">描边</option>
+                      <option value="glow">发光</option><option value="gradient">渐变</option><option value="scalePulse">缩放</option>
+                      <option value="shake">抖动</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-1">
+                    <span className="text-[9px] text-gray-600 w-10">X:</span>
+                    <input type="range" min={5} max={95} value={shot.titlePosX}
+                      onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, titlePosX: Number(e.target.value) } : s))}
+                      className="w-full accent-yellow-500 h-1" />
+                    <span className="text-[9px] text-yellow-400 w-8">{shot.titlePosX}%</span>
+                  </div>
+                  <div className="flex gap-1">
+                    <span className="text-[9px] text-gray-600 w-10">Y:</span>
+                    <input type="range" min={5} max={95} value={shot.titlePosY}
+                      onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, titlePosY: Number(e.target.value) } : s))}
+                      className="w-full accent-yellow-500 h-1" />
+                    <span className="text-[9px] text-yellow-400 w-8">{shot.titlePosY}%</span>
+                  </div>
+                  <p className="text-[7px] text-gray-600">或在分镜预览图上直接拖动 📝标题</p>
                 </div>
               )}
             </div>
