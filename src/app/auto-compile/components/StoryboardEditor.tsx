@@ -6,7 +6,7 @@ interface ShotItem {
   id: string; mediaUrl: string; mediaThumb: string; mediaType: string
   subtitle: string; duration: number
   titleOn: boolean; titleStyle: string; titleText: string
-  stickerOn: boolean; stickerText: string; stickerPos: string
+  stickerOn: boolean; stickerText: string; stickerPosX: number; stickerPosY: number
 }
 type SearchResultMap = Record<number, Array<{ url: string; thumb: string; title: string; type?: string }>>
 
@@ -55,6 +55,7 @@ export default function StoryboardEditor(props: Props) {
   const [activeShot, setActiveShot] = useState<string | null>(null)
   const [showMediaPanel, setShowMediaPanel] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [draggingSticker, setDraggingSticker] = useState<string | null>(null)
 
   // AI 生成分镜
   const handleAIGenerate = async () => {
@@ -74,7 +75,7 @@ export default function StoryboardEditor(props: Props) {
           id: genId(), mediaUrl: '', mediaThumb: '', mediaType: 'image',
           subtitle: line, duration: durPerShot,
           titleOn: false, titleStyle: 'popin', titleText: '',
-          stickerOn: false, stickerText: '', stickerPos: 'br',
+          stickerOn: false, stickerText: '', stickerPosX: 85, stickerPosY: 85,
         })))
         showToast(`已生成 ${lines.length} 个分镜`, 'success')
         setGenInput('')
@@ -182,12 +183,28 @@ export default function StoryboardEditor(props: Props) {
                   'border-white/10 bg-white/5'
                 }`}
               >
-                <div className="aspect-[9/16] bg-black/30 rounded mb-1.5 flex items-center justify-center overflow-hidden">
+                <div className="aspect-[9/16] bg-black/30 rounded mb-1.5 flex items-center justify-center overflow-hidden relative"
+                  onDragOver={e => { e.preventDefault() }}
+                  onDrop={e => {
+                    e.preventDefault()
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const x = Math.round(((e.clientX - rect.left) / rect.width) * 100)
+                    const y = Math.round(((e.clientY - rect.top) / rect.height) * 100)
+                    setShots(prev => prev.map(s => s.id === shot.id ? { ...s, stickerPosX: Math.min(95, Math.max(5, x)), stickerPosY: Math.min(95, Math.max(5, y)), stickerOn: true } : s))
+                  }}
+                >
                   {shot.mediaThumb ? (
-                    <img src={shot.mediaThumb} className="w-full h-full object-cover" />
+                    <img src={shot.mediaThumb} className="w-full h-full object-cover" draggable={false} />
                   ) : (
                     <span className="text-gray-600 text-xl">📷</span>
                   )}
+                  {/* 贴纸位置指示器 */}
+                  {shot.stickerOn && (
+                    <div className="absolute w-2.5 h-2.5 bg-pink-500 rounded-full border border-white shadow-lg"
+                      style={{ left: `${shot.stickerPosX}%`, top: `${shot.stickerPosY}%`, transform: 'translate(-50%,-50%)' }}
+                      title="拖放文字或图片可换位置" />
+                  )}
+                  <p className="absolute bottom-0.5 right-1 text-[6px] text-white/40">↕拖放定位</p>
                 </div>
                 <p className="text-[8px] text-gray-400 line-clamp-2 leading-tight">{shot.subtitle}</p>
                 <div className="flex items-center justify-between mt-1">
@@ -270,28 +287,45 @@ export default function StoryboardEditor(props: Props) {
                 </button>
               </label>
               {shot.stickerOn && (
-                <div className="flex gap-2">
-                  <input className="input-dark text-xs flex-1" placeholder="如：好可爱啊" maxLength={8}
-                    value={shot.stickerText}
-                    onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, stickerText: e.target.value } : s))} />
-                  <select className="input-dark text-xs w-18" value={shot.stickerPos}
-                    onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, stickerPos: e.target.value } : s))}>
-                    <option value="tl">左上</option><option value="tr">右上</option>
-                    <option value="bl">左下</option><option value="br">右下</option>
-                  </select>
+                <div>
+                  <div className="flex gap-2 mb-1">
+                    <input className="input-dark text-xs flex-1" placeholder="如：好可爱啊" maxLength={8}
+                      value={shot.stickerText}
+                      onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, stickerText: e.target.value } : s))} />
+                  </div>
+                  <div className="flex gap-1">
+                    <span className="text-[9px] text-gray-600 w-10">X:</span>
+                    <input type="range" min={5} max={95} value={shot.stickerPosX}
+                      onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, stickerPosX: Number(e.target.value) } : s))}
+                      className="w-full accent-pink-500 h-1" />
+                    <span className="text-[9px] text-pink-400 w-8">{shot.stickerPosX}%</span>
+                  </div>
+                  <div className="flex gap-1">
+                    <span className="text-[9px] text-gray-600 w-10">Y:</span>
+                    <input type="range" min={5} max={95} value={shot.stickerPosY}
+                      onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, stickerPosY: Number(e.target.value) } : s))}
+                      className="w-full accent-pink-500 h-1" />
+                    <span className="text-[9px] text-pink-400 w-8">{shot.stickerPosY}%</span>
+                  </div>
+                  <p className="text-[7px] text-gray-600 mt-0.5">或在分镜预览图上直接拖放定位</p>
                 </div>
               )}
             </div>
 
             {/* 搜图素材 */}
-            <button onClick={() => setShowMediaPanel(!showMediaPanel)}
+            <button onClick={() => {
+              const autoKw = aiKeywords[idx] || ''
+              if (autoKw) { setSearchQuery(autoKw); handleAutoSearch(autoKw) }
+              setShowMediaPanel(!showMediaPanel)
+            }}
               className="w-full py-1.5 border border-dashed border-blue-500/30 rounded text-blue-400 text-xs hover:border-blue-500/50 transition">
-              🖼 {showMediaPanel ? '收起素材面板' : '添加图片/视频'}
+              🖼 {showMediaPanel ? '收起素材面板' : `添加素材 (AI关键词: ${aiKeywords[idx] ? aiKeywords[idx].substring(0,15)+'...' : '无'})`}
             </button>
             {showMediaPanel && (
               <div className="mt-2 pt-2 border-t border-white/10">
+                <p className="text-[8px] text-gray-500 mb-1">🔍 AI关键词: {aiKeywords[idx] || '未生成'}</p>
                 <div className="flex gap-1.5 mb-2">
-                  <input className="input-dark text-xs flex-1" placeholder="搜索..."
+                  <input className="input-dark text-xs flex-1" placeholder="修改搜索词..."
                     value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleAutoSearch() }} />
                   <button onClick={() => handleAutoSearch()} disabled={searching}
