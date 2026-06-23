@@ -4,7 +4,7 @@ import { showToast } from '@/components/Toast'
 import { useAuth } from '@/app/providers'
 
 export default function AutoCompilePage() {
-  const [mode, setMode] = useState<'free' | 'smart' | 'storage'>('free')
+  const [mode, setMode] = useState<'free' | 'smart' | 'storage' | 'storyboard'>('free')
   const [text, setText] = useState('')
   const [images, setImages] = useState<File[]>([])
   const [voice, setVoice] = useState('zh_female_vv_uranus_bigtts')
@@ -452,6 +452,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
         <div className="flex gap-2 mb-4">
           <button onClick={() => setMode('free')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='free'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>🆓 免费模式</button>
           <button onClick={() => setMode('smart')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='smart'?'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>🤖 智能模式</button>
+          <button onClick={() => setMode('storyboard')} className={`px-4 py-1.5 rounded-lg text-xs ${mode==='storyboard'?'bg-orange-500/20 text-orange-400 border border-orange-500/30':'bg-white/5 text-gray-400 border border-white/10'}`}>🎬 分镜编辑</button>
 
           {/* 智能成片开关 */}
           <div className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
