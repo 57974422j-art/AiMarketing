@@ -94,7 +94,7 @@ async function searchPixabay(q: string, count: number): Promise<Array<{url:strin
     
     if (imgData?.hits) {
       results.push(...imgData.hits.slice(0, count).map((h: any) => ({
-        url: h.largeImageURL || h.webformatURL,
+        url: h.webformatURL || h.largeImageURL,
         thumb: h.previewURL,
         title: h.tags || '',
         type: 'image' as const,

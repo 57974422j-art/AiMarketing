@@ -911,7 +911,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                                   }
                                 }}
                               >
-                                <img src={img.thumb || img.url} className="w-16 h-16 object-cover" onError={(e) => {(e.target as HTMLImageElement).src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect fill=%22%23111%22 width=64 height=64/><text x=32 y=34 fill=%22%23666%22 font-size=8 text-anchor=middle>✗</text></svg>'}} />
+                                <img src={img.thumb} className="w-16 h-16 object-cover" onError={(e) => {(e.target as HTMLImageElement).src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect fill=%22%23111%22 width=64 height=64/><text x=32 y=34 fill=%22%23666%22 font-size=8 text-anchor=middle>✗</text></svg>'}} />
                                 {img.type === 'video' && <span className="absolute top-0.5 right-0.5 bg-purple-500 text-white text-[8px] px-1 rounded">🎬</span>}
                                 {isChecked && (
                                   <div className="absolute top-0 left-0 w-full h-full bg-emerald-500/20 flex items-center justify-center">
@@ -946,7 +946,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                         dragIdx === idx ? 'ring-2 ring-blue-400 opacity-50 scale-95 transition' : 'hover:ring-1 hover:ring-white/40'
                       }`}
                     >
-                      <img src={m.thumb || m.url} className="w-full aspect-square object-cover" onError={(e) => {(e.target as HTMLImageElement).src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect fill=%22%23222%22 width=64 height=64/><text x=32 y=34 fill=%22%23666%22 font-size=8 text-anchor=middle>?</text></svg>'}} />
+                      <img src={m.thumb || m.url} className="w-full aspect-square object-cover" loading="lazy" onError={(e) => {(e.target as HTMLImageElement).src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect fill=%22%23222%22 width=64 height=64/><text x=32 y=34 fill=%22%23666%22 font-size=8 text-anchor=middle>?</text></svg>'}} />
                       {/* 来源标签 */}
                       <span className={`absolute top-0 left-0 text-[7px] px-1 py-0.5 rounded-br ${
                         m.source === 'search' ? 'bg-blue-500/70 text-white' :
