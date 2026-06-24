@@ -222,7 +222,10 @@ export async function POST(req: NextRequest) {
         stickers,
       }
 
-      startSmartTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, titleStyle as any, titlePos as any, titleTiming as any, colorFilter, subtitleMode as any, smartOptions, customSrt)
+      // 分镜时长（按字数比例计算，-1 表示用默认等分）
+      let shotDurations: number[] = []
+      try { shotDurations = JSON.parse((f.get('shotDurations') as string) || '[]') } catch {}
+      startSmartTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, titleStyle as any, titlePos as any, titleTiming as any, colorFilter, subtitleMode as any, smartOptions, customSrt, shotDurations)
     } else {
       // ── 普通成片模式（原有逻辑不变）──
       startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, titleStyle as any, titlePos as any, titleTiming as any, colorFilter, subtitleMode as any, customSrt)

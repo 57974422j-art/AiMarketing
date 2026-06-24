@@ -158,7 +158,19 @@ export default function StoryboardEditor(props: Props) {
       fd.append('ratio', '9:16'); fd.append('resolution', '1080')
       fd.append('subtitleSize', String(subtitleSize)); fd.append('showSubs', 'true')
       fd.append('subtitleMode', 'tts-sync'); fd.append('colorFilter', colorFilter)
-      // 走智能模式合成（xfade已修复）
+      // 每镜时长：手动设置的用设置值，否则按字数估算
+      const totalWords = shots.reduce((a, s) => a + s.subtitle.replace(/\s/g, '').length, 1)
+      const totalDur = duration || shots.reduce((a, s) => a + s.duration, 0)
+      const defaultSeg = totalDur / shots.length
+      const shotDurations = shots.map(s => {
+        if (s.duration !== defaultSeg) return s.duration          // 手动设了
+        const wordRatio = s.subtitle.replace(/\s/g, '').length / totalWords
+        return Math.max(1.5, Math.round(wordRatio * totalDur * 10) / 10) // 按字数比例
+      })
+      fd.append('shotDurations', JSON.stringify(shotDurations))
+      console.log('[分镜] 每镜时长:', shotDurations.map(d => d + 's').join(', '))
+
+      // 走智能模式合成
       fd.append('smartMode', 'true')
       fd.append('transition', transition); fd.append('transitionDur', String(transitionDur))
       fd.append('kenBurns', kenBurns); fd.append('subtitleStyle', subtitleStyle)

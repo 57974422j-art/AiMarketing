@@ -466,7 +466,8 @@ export function startSmartTask(
   colorFilter: string = '',
   subtitleMode: SubtitleMode = 'tts-sync',
   smartOptions: SmartCompileOptions,
-  customSrt: string = ''
+  customSrt: string = '',
+  shotDurations: number[] = []
 ): VideoTask {
   const task: VideoTask = { id: taskId, status: 'queued', progress: 0 }
   tasks.set(taskId, task)
@@ -478,7 +479,7 @@ export function startSmartTask(
   const runFn = () => runSmartTask(
     task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize,
     bgmPath, duration, showSubs, stickerText, stickerPos, titleText, titleStyle, titlePos, titleTiming, colorFilter, subtitleMode,
-    smartOptions, cost, customSrt
+    smartOptions, cost, customSrt, shotDurations
   )
   const onDone = () => {}
   const onError = (e: any) => { task.status = 'failed'; task.error = e.message }
@@ -524,7 +525,8 @@ async function runSmartTask(
   subtitleMode: SubtitleMode,
   smartOptions: SmartCompileOptions,
   costEstimate: CostEstimate,
-  customSrt: string = ''
+  customSrt: string = '',
+  shotDurations: number[] = []
 ): Promise<void> {
   try {
     task.status = 'processing'
@@ -551,7 +553,9 @@ async function runSmartTask(
 
     const audioDur = await getDurationAsync(ap)
     const totalDur = isAutoDur ? Math.max(audioDur + 1.5, dur || 30) : (dur || 30)
-    const segDuration = totalDur / mp.length
+    // 每镜时长：有分镜数据就按分镜，否则均分
+    const haveShotDurations = shotDurations.length > 0 && shotDurations.length === mp.length
+    const segDuration = haveShotDurations ? shotDurations : totalDur / mp.length
 
     // ── Step 2~3: 音频处理 ──
     const adjAudio = path.join(wd, 'ta.mp3')

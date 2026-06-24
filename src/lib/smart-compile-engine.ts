@@ -132,7 +132,7 @@ const KEN_BURNS_PARAMS: Record<KenBurnsType, { d: string; scale: number; z: stri
 export async function encodeClipsWithEffects(
   mediaPaths: string[],
   workDir: string,
-  segDuration: number,
+  segDuration: number | number[],  // 支持数组：每片段不同时长
   dimW: number,
   dimH: number,
   resolutionScale: number,
@@ -159,7 +159,8 @@ export async function encodeClipsWithEffects(
     const src = mediaPaths[i]
     const out = path.join(workDir, `sc${i}.mp4`)
     const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(src)
-    const segT = segDuration.toFixed(2)
+    const clipDur = Array.isArray(segDuration) ? (segDuration[i] || segDuration[0]) : segDuration
+    const segT = clipDur.toFixed(2)
 
     if (isVideo && options.kenBurns !== 'none') {
       // 视频素材 + Ken Burns 缩放效果
@@ -181,7 +182,7 @@ export async function encodeClipsWithEffects(
         vf += `,zoompan=d=${kbParams.d}:s=${kbW}x${kbH}:z=${kbParams.z}:fps=25`
       }
       await runFFmpeg(
-        `-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
+        `-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(clipDur - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
         { timeout: 60000 }
       )
     } else if (isVideo) {
@@ -201,7 +202,7 @@ export async function encodeClipsWithEffects(
       let vf = sf
       if (cf) vf = vf + ',' + cf
       await runFFmpeg(
-        `-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(segDuration - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
+        `-y -loop 1 -r 25 -i "${src}" -vf "${vf},fade=t=in:st=0:d=0.5,fade=t=out:st=${(clipDur - 0.5).toFixed(2)}:d=0.5" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
         { timeout: 60000 }
       )
     }
