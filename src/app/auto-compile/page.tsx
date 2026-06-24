@@ -1006,6 +1006,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                   <div className="flex gap-2 mt-3">
                     <a href={videoUrl} download className="flex-1 block text-center py-2 bg-white/5 text-gray-400 border border-white/10 rounded-lg hover:bg-white/10 text-xs">⬇ 下载</a>
                     <button onClick={()=>saveToStorage(videoUrl)} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 text-xs">📦 保存到仓库</button>
+                    <button onClick={()=>{navigator.clipboard.writeText(window.location.origin+videoUrl);showToast('链接已复制','success')}} className="flex-1 py-2 bg-white/5 text-gray-400 border border-white/10 rounded-lg hover:bg-white/10 text-xs">📋 复制链接</button>
                     {user?.role !== 'end-user' && <button onClick={()=>{fetch('/api/clients').then(r=>r.json()).then(d=>{if(d.success){setClients(d.data);setShowPushDlg(true)}}).catch(()=>showToast('获取客户列表失败','error'))}} className="flex-1 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 text-xs">📤 推送到账号</button>}
                   </div>
                 </div>
