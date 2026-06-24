@@ -158,9 +158,9 @@ export default function StoryboardEditor(props: Props) {
       fd.append('ratio', '9:16'); fd.append('resolution', '1080')
       fd.append('subtitleSize', String(subtitleSize)); fd.append('showSubs', 'true')
       fd.append('subtitleMode', 'tts-sync'); fd.append('colorFilter', colorFilter)
-      fd.append('smartMode', 'true')
-      fd.append('transition', transition); fd.append('transitionDur', String(transitionDur))
-      fd.append('kenBurns', kenBurns); fd.append('subtitleStyle', subtitleStyle)
+      // 分镜走普通模式合成（concat 拼接，更稳定）
+      fd.append('smartMode', 'false')
+      fd.append('transition', 'none'); fd.append('kenBurns', 'none'); fd.append('subtitleStyle', 'normal')
 
       // 用预下载的 blob 文件提交（不走 URL 下载）
       let blobIdx = 0
