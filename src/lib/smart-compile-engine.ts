@@ -192,7 +192,7 @@ export async function encodeClipsWithEffects(
       if (srcSize && srcSize.w >= W && srcSize.h >= H) vf = `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`
       if (cf) vf = vf + ',' + cf
       const srcDur = getDuration(src)
-      const loop = srcDur < segDuration ? '-stream_loop -1 ' : ''
+      const loop = srcDur < clipDur ? '-stream_loop -1 ' : ''
       await runFFmpeg(
         `-y ${loop}-i "${src}" -vf "${vf}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
         { timeout: 180000 }
