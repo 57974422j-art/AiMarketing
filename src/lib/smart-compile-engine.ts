@@ -166,7 +166,7 @@ export async function encodeClipsWithEffects(
       // 视频素材 + Ken Burns 缩放效果
       const srcDur = getDuration(src)
       const vfBase = src ? sf : `${sf},${cf}`
-      const loop = srcDur < segDuration ? '-stream_loop -1 ' : ''
+      const loop = srcDur < clipDur ? '-stream_loop -1 ' : ''
       await runFFmpeg(
         `-y ${loop}-i "${src}" -vf "${vfBase},zoompan=z='min(zoom+0.0015,1.5)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${Number(segT.replace('.', '*'))*25}" -t ${segT} -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
         { timeout: 180000 }
