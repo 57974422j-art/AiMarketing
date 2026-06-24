@@ -164,18 +164,26 @@ export default function StoryboardEditor(props: Props) {
 
       // 用预下载的 blob 文件提交（不走 URL 下载）
       let blobIdx = 0
+      let noBlobCount = 0
       for (const shot of shots) {
         if (shot.mediaBlob) {
           const ext = shot.mediaType === 'video' ? 'mp4' : 'jpg'
           fd.append('media', new File([shot.mediaBlob], `shot${blobIdx}.${ext}`, { type: shot.mediaBlob.type }))
           blobIdx++
+        } else {
+          noBlobCount++
         }
+      }
+      console.log(`[分镜合成] 共${shots.length}个分镜 blob就绪=${blobIdx} 缺失=${noBlobCount}`)
+      if (noBlobCount > 0) {
+        showToast(`⚠ ${noBlobCount} 个分镜未配图，将被跳过`, 'error')
       }
       if (blobIdx === 0) {
         // 没有预下载的，回退到 URL 方式
         const urls = shots.filter(s => s.mediaUrl).map(s => s.mediaUrl)
         if (urls.length > 0) { fd.append('imageUrls', JSON.stringify(urls)); fd.append('mode', 'smart') }
       }
+      fd.append('debugBlobCount', String(blobIdx)) // 后端诊断用
 
       if (bgm?.url) fd.append('bgmUrl', bgm.url)
       if (bgmFile) fd.append('bgm', bgmFile)
