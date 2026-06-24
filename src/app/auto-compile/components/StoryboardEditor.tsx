@@ -482,6 +482,25 @@ export default function StoryboardEditor(props: Props) {
           ))}
         </div>
       </div>
+
+      {/* 视频预览 */}
+      {videoUrl && (
+        <div className="card-glass p-3">
+          <label className="text-xs text-emerald-400 mb-2 block">✅ 视频预览</label>
+          <video controls className="w-full rounded-lg" src={videoUrl} />
+          <div className="flex gap-2 mt-2">
+            <a href={videoUrl} download className="flex-1 text-center py-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded text-xs hover:bg-blue-500/30">
+              ⬇ 下载
+            </a>
+            <button onClick={() => {
+              navigator.clipboard.writeText(window.location.origin + videoUrl)
+              showToast('链接已复制', 'success')
+            }} className="flex-1 py-1.5 bg-white/10 text-gray-400 rounded text-xs hover:bg-white/20">
+              📋 复制链接
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
