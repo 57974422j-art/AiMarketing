@@ -471,6 +471,10 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
             genOpen={genOpen} setGenOpen={setGenOpen}
             genLoading={genLoading} setGenLoading={setGenLoading}
             aiKeywords={aiKeywords}
+            showStorageDlg={showStorageDlg} setShowStorageDlg={setShowStorageDlg}
+            storageFiles={storageFiles} setStorageFiles={setStorageFiles}
+            storageList={storageList} storageLoading={storageLoading}
+            loadStorageFiles={loadStorageFiles}
             searchQuery={searchQuery} setSearchQuery={setSearchQuery}
             searching={searching} handleAutoSearch={handleAutoSearch}
             searchResults={searchResults} setSearchResults={setSearchResults}

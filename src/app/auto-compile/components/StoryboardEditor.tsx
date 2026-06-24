@@ -1,5 +1,5 @@
 'use client'
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { showToast } from '@/components/Toast'
 
 interface ShotItem {
@@ -17,6 +17,10 @@ interface Props {
   genOpen: boolean; setGenOpen: (v: boolean) => void
   genLoading: boolean; setGenLoading: (v: boolean) => void
   aiKeywords: string[]
+  // 仓库
+  showStorageDlg: boolean; setShowStorageDlg: (v: boolean) => void
+  storageFiles: any[]; setStorageFiles: (v: any) => void
+  storageList: any[]; storageLoading: boolean; loadStorageFiles: () => void
   searchQuery: string; setSearchQuery: (v: string) => void
   searching: boolean
   handleAutoSearch: (q?: string) => void
@@ -50,6 +54,8 @@ export default function StoryboardEditor(props: Props) {
     transitionDur, setTransitionDur, subtitleStyle, setSubtitleStyle,
     bgm, setBgm, bgmFile, setBgmFile, musicList, bgmPlaying, setBgmPlaying,
     processing, setProcessing, progress, setProgress, videoUrl, setVideoUrl,
+    showStorageDlg, setShowStorageDlg, storageFiles, setStorageFiles,
+    storageList, storageLoading, loadStorageFiles,
   } = props
 
   const [shots, setShots] = useState<ShotItem[]>([])
@@ -59,6 +65,20 @@ export default function StoryboardEditor(props: Props) {
   const [draggingSticker, setDraggingSticker] = useState<string | null>(null)
   const [localKeywords, setLocalKeywords] = useState<string[]>([])
   const dragTypeRef = useRef<string | null>(null) // 'sticker' | 'title'
+  const prevStorageCount = useRef(0)
+
+  // 仓库文件选中后自动加入当前分镜
+  useEffect(() => {
+    if (storageFiles.length > prevStorageCount.current && activeShot) {
+      const newFiles = storageFiles.slice(prevStorageCount.current)
+      newFiles.forEach((f: any) => {
+        const url = `/api/storage/serve?file=${encodeURIComponent(f.name)}`
+        addMediaToShot(activeShot, url, f.thumbUrl || url, f.isVideo ? 'video' : 'image')
+      })
+      showToast(`已添加 ${newFiles.length} 个仓库文件`, 'success')
+    }
+    prevStorageCount.current = storageFiles.length
+  }, [storageFiles.length])
 
   // AI 生成分镜
   const handleAIGenerate = async () => {
@@ -226,6 +246,12 @@ export default function StoryboardEditor(props: Props) {
             <label className="text-gray-500 text-[9px] block mb-0.5">色调</label>
             <select className="input-dark w-full text-[10px]" value={colorFilter} onChange={e => setColorFilter(e.target.value)}>
               <option value="">原色</option><option value="warm">暖色</option><option value="cool">冷色</option><option value="bw">黑白</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-gray-500 text-[9px] block mb-0.5">比例</label>
+            <select className="input-dark w-full text-[10px]" value="9:16" onChange={()=>{}}>
+              <option value="9:16">9:16 竖屏</option><option value="16:9">16:9 横屏</option><option value="1:1">1:1 方形</option>
             </select>
           </div>
         </div>
@@ -414,14 +440,47 @@ export default function StoryboardEditor(props: Props) {
               )}
             </div>
 
-            {/* 搜图素材 */}
+            {/* 素材来源：搜图 + 仓库 + GIPHY + 上传 */}
+            <div className="border-t border-white/10 pt-2 mb-2">
+              <label className="text-[9px] text-gray-500 block mb-1">📦 素材来源</label>
+              <div className="flex gap-1.5 flex-wrap">
+                <button onClick={() => {
+                  const autoKw = localKeywords[idx] || aiKeywords[idx] || ''
+                  if (autoKw) { setSearchQuery(autoKw); handleAutoSearch(autoKw) }
+                  setShowMediaPanel(!showMediaPanel)
+                }}
+                  className="px-2 py-1 bg-blue-500/15 text-blue-400 border border-blue-500/25 rounded text-[10px] hover:bg-blue-500/25">
+                  🖼 {showMediaPanel ? '收起搜图' : 'AI搜图'}
+                </button>
+                <button onClick={() => { loadStorageFiles(); setShowStorageDlg(true) }}
+                  className="px-2 py-1 bg-purple-500/15 text-purple-400 border border-purple-500/25 rounded text-[10px] hover:bg-purple-500/25">
+                  📦 仓库
+                </button>
+                <button onClick={() => document.getElementById('sb_upload')?.click()}
+                  className="px-2 py-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 rounded text-[10px] hover:bg-emerald-500/25">
+                  📤 本地上传
+                </button>
+                <input id="sb_upload" type="file" accept="image/*,video/*" multiple className="hidden"
+                  onChange={e => {
+                    const files = Array.from(e.target.files || [])
+                    files.forEach(f => {
+                      const url = URL.createObjectURL(f)
+                      const isVideo = f.type.startsWith('video/')
+                      addMediaToShot(activeShot, url, url, isVideo ? 'video' : 'image')
+                    })
+                    if (files.length > 0) showToast(`已添加 ${files.length} 个文件到当前分镜`, 'success')
+                  }} />
+              </div>
+            </div>
+
+            {/* 搜图素材面板 */}
             <button onClick={() => {
               const autoKw = localKeywords[idx] || aiKeywords[idx] || ''
               if (autoKw) { setSearchQuery(autoKw); handleAutoSearch(autoKw) }
               setShowMediaPanel(!showMediaPanel)
             }}
-              className="w-full py-1.5 border border-dashed border-blue-500/30 rounded text-blue-400 text-xs hover:border-blue-500/50 transition">
-              {showMediaPanel ? '🔽 收起素材' : '🖼 AI搜素材 — 点击自动用英文关键词搜索'}
+              className="w-full py-1.5 border border-dashed border-blue-500/30 rounded text-blue-400 text-xs hover:border-blue-500/50 transition hidden">
+              {showMediaPanel ? '收起' : '搜图'}
             </button>
             {showMediaPanel && (
               <div className="mt-2 pt-2 border-t border-white/10">
