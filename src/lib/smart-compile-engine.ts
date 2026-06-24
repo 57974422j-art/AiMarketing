@@ -241,12 +241,9 @@ export async function mergeWithTransition(
   const transDur = Math.max(0.1, Math.min(options.transitionDuration, segDuration / 2 - 0.1))
   const out = path.join(workDir, 'sm.mp4')
 
-  // 检测每个片段实际时长，用真实时长而非估算值来计算偏移
-  const durs: number[] = []
-  for (const f of clipFiles) {
-    durs.push(getDuration(f))
-  }
-  console.log(`[智能成片-转场] ${clipFiles.length}段 时长=[${durs.map(d=>d.toFixed(1)).join(',')}]s 转场=${transName} ${transDur.toFixed(1)}s`)
+  // 使用固定分段时长计算偏移（避免 ffprobe 检测失败导致丢帧）
+  const durs = clipFiles.map(() => segDuration)
+  console.log(`[智能成片-转场] ${clipFiles.length}段 使用固定分段=${segDuration.toFixed(1)}s 转场=${transName} ${transDur.toFixed(1)}s`)
 
   if (clipFiles.length === 2) {
     // 两段直接 xfade
