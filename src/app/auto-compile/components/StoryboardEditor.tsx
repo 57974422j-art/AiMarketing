@@ -161,6 +161,19 @@ export default function StoryboardEditor(props: Props) {
       // 分镜走普通模式合成（concat 拼接，更稳定）
       fd.append('smartMode', 'false')
       fd.append('transition', 'none'); fd.append('kenBurns', 'none'); fd.append('subtitleStyle', 'normal')
+      // 标题和贴纸（取第一个开启的分镜作为全局）
+      const titleShot = shots.find(s => s.titleOn && s.titleText)
+      if (titleShot) {
+        fd.append('titleText', titleShot.titleText)
+        fd.append('titleStyle', titleShot.titleStyle)
+        fd.append('titlePos', 'center'); fd.append('titleTiming', 'intro')
+      }
+      const stickerShot = shots.find(s => s.stickerOn && s.stickerText)
+      if (stickerShot) {
+        fd.append('stickerText', stickerShot.stickerText)
+        const posMap: Record<string, string> = { 'br': 'br', 'tr': 'tr', 'bl': 'bl', 'tl': 'tl' }
+        fd.append('stickerPos', stickerShot.stickerPosX > 50 ? (stickerShot.stickerPosY > 50 ? 'br' : 'tr') : (stickerShot.stickerPosY > 50 ? 'bl' : 'tl'))
+      }
 
       // 用预下载的 blob 文件提交（不走 URL 下载）
       let blobIdx = 0
