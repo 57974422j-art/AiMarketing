@@ -4,6 +4,7 @@ import { showToast } from '@/components/Toast'
 
 interface ShotItem {
   id: string; mediaUrl: string; mediaThumb: string; mediaType: string
+  mediaBlob: Blob | null
   subtitle: string; duration: number
   titleOn: boolean; titleStyle: string; titleText: string
   titlePosX: number; titlePosY: number
@@ -97,7 +98,7 @@ export default function StoryboardEditor(props: Props) {
         const lines = (d.data.script || '').split('\n').filter((l: string) => l.trim())
         const durPerShot = Math.max(3, Math.round((duration || 15) / lines.length))
         setShots(lines.map((line: string) => ({
-          id: genId(), mediaUrl: '', mediaThumb: '', mediaType: 'image',
+          id: genId(), mediaUrl: '', mediaThumb: '', mediaType: 'image', mediaBlob: null,
           subtitle: line, duration: durPerShot,
           titleOn: false, titleStyle: 'popin', titleText: '', titlePosX: 50, titlePosY: 10,
           stickerOn: false, stickerText: '', stickerPosX: 85, stickerPosY: 85,
@@ -109,12 +110,23 @@ export default function StoryboardEditor(props: Props) {
     setGenLoading(false)
   }
 
-  // 添加素材到分镜
-  const addMediaToShot = (shotId: string, mediaUrl: string, mediaThumb: string, mediaType: string) => {
+  // 添加素材到分镜（选中即下载，避免合成时 Pixabay 限流失效）
+  const addMediaToShot = async (shotId: string, mediaUrl: string, mediaThumb: string, mediaType: string) => {
+    // 先更新缩略图即时反馈
     setShots(prev => prev.map(s =>
       s.id === shotId ? { ...s, mediaUrl, mediaThumb, mediaType } : s
     ))
-    showToast('已添加素材到分镜', 'success')
+    showToast('下载中...', 'success')
+    try {
+      const res = await fetch(mediaUrl)
+      const blob = await res.blob()
+      setShots(prev => prev.map(s =>
+        s.id === shotId ? { ...s, mediaBlob: blob } : s
+      ))
+      showToast('素材已就绪', 'success')
+    } catch {
+      showToast('下载失败，合成时可能缺此素材', 'error')
+    }
   }
 
   // 拖拽排序
@@ -141,7 +153,7 @@ export default function StoryboardEditor(props: Props) {
     try {
       const fd = new FormData()
       fd.append('text', shots.map(s => s.subtitle).join('\n'))
-      fd.append('mode', 'smart'); fd.append('voice', voice)
+      fd.append('mode', 'free'); fd.append('voice', voice)
       fd.append('duration', String(duration || shots.reduce((a, s) => a + s.duration, 0)))
       fd.append('ratio', '9:16'); fd.append('resolution', '1080')
       fd.append('subtitleSize', String(subtitleSize)); fd.append('showSubs', 'true')
@@ -150,8 +162,20 @@ export default function StoryboardEditor(props: Props) {
       fd.append('transition', transition); fd.append('transitionDur', String(transitionDur))
       fd.append('kenBurns', kenBurns); fd.append('subtitleStyle', subtitleStyle)
 
-      const urls = shots.filter(s => s.mediaUrl).map(s => s.mediaUrl)
-      fd.append('imageUrls', JSON.stringify(urls))
+      // 用预下载的 blob 文件提交（不走 URL 下载）
+      let blobIdx = 0
+      for (const shot of shots) {
+        if (shot.mediaBlob) {
+          const ext = shot.mediaType === 'video' ? 'mp4' : 'jpg'
+          fd.append('media', new File([shot.mediaBlob], `shot${blobIdx}.${ext}`, { type: shot.mediaBlob.type }))
+          blobIdx++
+        }
+      }
+      if (blobIdx === 0) {
+        // 没有预下载的，回退到 URL 方式
+        const urls = shots.filter(s => s.mediaUrl).map(s => s.mediaUrl)
+        if (urls.length > 0) { fd.append('imageUrls', JSON.stringify(urls)); fd.append('mode', 'smart') }
+      }
 
       if (bgm?.url) fd.append('bgmUrl', bgm.url)
       if (bgmFile) fd.append('bgm', bgmFile)
