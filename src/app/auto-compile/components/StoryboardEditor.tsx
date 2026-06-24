@@ -122,7 +122,7 @@ export default function StoryboardEditor(props: Props) {
       const fd = new FormData()
       fd.append('text', shots.map(s => s.subtitle).join('\n'))
       fd.append('mode', 'smart'); fd.append('voice', voice)
-      fd.append('duration', String(shots.reduce((a, s) => a + s.duration, 0)))
+      fd.append('duration', String(duration || shots.reduce((a, s) => a + s.duration, 0)))
       fd.append('ratio', '9:16'); fd.append('resolution', '1080')
       fd.append('subtitleSize', String(subtitleSize)); fd.append('showSubs', 'true')
       fd.append('subtitleMode', 'tts-sync'); fd.append('colorFilter', colorFilter)
@@ -172,6 +172,64 @@ export default function StoryboardEditor(props: Props) {
           </button>
         </div>
       </div>
+
+      {/* ═══ 合成参数 ═══ */}
+      {shots.length > 0 && (
+        <div className="card-glass p-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+          <div>
+            <label className="text-gray-500 text-[9px] block mb-0.5">配音</label>
+            <select className="input-dark w-full text-[10px]" value={voice} onChange={e => setVoice(e.target.value)}>
+              <option value="zh_female_vv_uranus_bigtts">女声</option>
+              <option value="zh_female_vv_aurora_bigtts">温柔女声</option>
+              <option value="zh_male_fengge_bigtts">稳重男声</option>
+              <option value="zh_male_xiaoming_bigtts">阳光男声</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-gray-500 text-[9px] block mb-0.5">字幕</label>
+            <select className="input-dark w-full text-[10px]" value={subtitleSize} onChange={e => setSubtitleSize(Number(e.target.value))}>
+              <option value={28}>小号</option><option value={36}>中号</option><option value={44}>大号</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-gray-500 text-[9px] block mb-0.5">字幕动效</label>
+            <select className="input-dark w-full text-[10px]" value={subtitleStyle} onChange={e => setSubtitleStyle(e.target.value)}>
+              <option value="normal">普通(SRT)</option><option value="highlight">高亮</option>
+              <option value="karaoke">卡拉OK</option><option value="typewriter">打字机</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-gray-500 text-[9px] block mb-0.5">转场</label>
+            <select className="input-dark w-full text-[10px]" value={transition} onChange={e => setTransition(e.target.value)}>
+              <option value="fade">淡入淡出</option><option value="slideleft">左滑</option><option value="slideright">右滑</option>
+              <option value="wipeleft">擦除</option><option value="dissolve">溶解</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-gray-500 text-[9px] block mb-0.5">Ken Burns</label>
+            <select className="input-dark w-full text-[10px]" value={kenBurns} onChange={e => setKenBurns(e.target.value)}>
+              <option value="zoomin">放大</option><option value="zoomout">缩小</option>
+              <option value="panleft">左移</option><option value="panright">右移</option><option value="random">随机</option><option value="none">静态</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-gray-500 text-[9px] block mb-0.5">时长</label>
+            <input type="number" className="input-dark w-full text-[10px]" value={duration || shots.reduce((a,s)=>a+s.duration,0)}
+              onChange={e => setDuration(Number(e.target.value) || 0)} min={5} max={120} />
+          </div>
+          <div>
+            <label className="text-gray-500 text-[9px] block mb-0.5">转场秒数</label>
+            <input type="number" step={0.1} className="input-dark w-full text-[10px]" value={transitionDur}
+              onChange={e => setTransitionDur(Number(e.target.value) || 0.3)} min={0.3} max={2} />
+          </div>
+          <div>
+            <label className="text-gray-500 text-[9px] block mb-0.5">色调</label>
+            <select className="input-dark w-full text-[10px]" value={colorFilter} onChange={e => setColorFilter(e.target.value)}>
+              <option value="">原色</option><option value="warm">暖色</option><option value="cool">冷色</option><option value="bw">黑白</option>
+            </select>
+          </div>
+        </div>
+      )}
 
       {/* 分镜卡片（拖拽排序） */}
       {shots.length > 0 && (
@@ -378,14 +436,13 @@ export default function StoryboardEditor(props: Props) {
                     className="shrink-0 px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-xs">{searching ? '··' : '重新搜'}</button>
                 </div>
                 <div className="flex gap-1.5 overflow-x-auto pb-1">
-                  {Object.values(searchResults).flat().slice(0, 8).map((img: any, j: number) => (
+                  {Object.values(searchResults).flat().filter((img:any) => img.type !== 'video').slice(0, 8).map((img: any, j: number) => (
                     <div key={j} className="shrink-0 cursor-pointer rounded overflow-hidden border border-white/10 hover:border-blue-400"
-                      onClick={() => addMediaToShot(activeShot, img.url, img.thumb, img.type || 'image')}>
+                      onClick={() => addMediaToShot(activeShot, img.url, img.thumb, 'image')}>
                       <img src={img.thumb} className="w-16 h-16 object-cover" />
-                      {img.type === 'video' && <span className="absolute text-[7px]">🎬</span>}
                     </div>
                   ))}
-                  {Object.values(searchResults).flat().length === 0 && !searching && (
+                  {Object.values(searchResults).flat().filter((img:any) => img.type !== 'video').length === 0 && !searching && (
                     <p className="text-[9px] text-gray-500 py-2">点击上方"重新搜"加载图片</p>
                   )}
                 </div>
