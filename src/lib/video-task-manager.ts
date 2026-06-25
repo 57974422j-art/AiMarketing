@@ -552,7 +552,8 @@ async function runSmartTask(
     task.progress = 15
 
     const audioDur = await getDurationAsync(ap)
-    const totalDur = isAutoDur ? Math.max(audioDur + 1.5, dur || 30) : (dur || 30)
+    // 视频时长跟随音频（+1s收尾），避免画面跑快于配音
+    const totalDur = audioDur + 1.0
     // 每镜时长：有分镜数据就按分镜，否则均分
     const haveShotDurations = shotDurations.length > 0 && shotDurations.length === mp.length
     const segDuration = haveShotDurations ? shotDurations : totalDur / mp.length

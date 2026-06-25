@@ -261,6 +261,10 @@ export default function StoryboardEditor(props: Props) {
               <option value="zh_female_vv_aurora_bigtts">温柔女声</option>
               <option value="zh_male_fengge_bigtts">稳重男声</option>
               <option value="zh_male_xiaoming_bigtts">阳光男声</option>
+              <option value="zh_female_tianmei">甜美女童</option>
+              <option value="zh_male_sijie">磁性男声</option>
+              <option value="zh_female_zhixia">知性女声</option>
+              <option value="zh_male_yanyang">广告男声</option>
             </select>
           </div>
           <div>

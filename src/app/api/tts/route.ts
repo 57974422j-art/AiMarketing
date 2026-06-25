@@ -8,10 +8,14 @@ const TTS_DIR = '/root/AiMarketing/public/tts'
 function ensureDir() { if (!fs.existsSync(TTS_DIR)) fs.mkdirSync(TTS_DIR, { recursive: true }) }
 
 const VOICE_MAP: Record<string, string> = {
-  'zh_female_vv_uranus_bigtts': 'zh-CN-XiaoxiaoNeural',
-  'zh_female_vv_aurora_bigtts': 'zh-CN-XiaoyiNeural',
-  'zh_male_fengge_bigtts': 'zh-CN-YunxiNeural',
-  'zh_male_xiaoming_bigtts': 'zh-CN-YunyangNeural',
+  'zh_female_vv_uranus_bigtts': 'zh-CN-XiaoxiaoNeural',       // 女声
+  'zh_female_vv_aurora_bigtts': 'zh-CN-XiaoyiNeural',         // 温柔女声
+  'zh_male_fengge_bigtts': 'zh-CN-YunxiNeural',               // 稳重男声
+  'zh_male_xiaoming_bigtts': 'zh-CN-YunyangNeural',           // 阳光男声
+  'zh_female_tianmei': 'zh-CN-XiaohanNeural',                 // 甜美女童
+  'zh_male_sijie': 'zh-CN-YunjianNeural',                     // 磁性男声
+  'zh_female_zhixia': 'zh-CN-XiaoxuanNeural',                 // 知性女声
+  'zh_male_yanyang': 'zh-CN-YunhaoNeural',                    // 广告男声
 }
 
 export async function POST(request: NextRequest) {

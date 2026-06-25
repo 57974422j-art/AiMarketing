@@ -73,7 +73,9 @@ function dir() { if (!fs.existsSync(OUT)) fs.mkdirSync(OUT, { recursive: true })
 export async function POST(req: NextRequest) {
   try {
     const f = await req.formData()
-    const text = (f.get('text') as string) || ''
+    const rawText = (f.get('text') as string) || ''
+    // 过滤特殊符号（Emoji/全角标点），避免 NotoSansCJK 字体缺字形显示方框
+    const text = rawText.replace(/[^\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\w\s\n,，.。!！?？:：;；\-—、（）()【】"']/g, '')
     const voice = (f.get('voice') as string) || 'zh_female_vv_uranus_bigtts'
     const bgmFile = f.get('bgm') as File | null
     const bgmUrl = (f.get('bgmUrl') as string) || ''
