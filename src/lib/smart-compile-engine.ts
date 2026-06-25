@@ -226,63 +226,34 @@ export async function mergeWithTransition(
   totalDuration: number,
   options: SmartCompileOptions
 ): Promise<string> {
-  if (clipFiles.length <= 1 || options.transition === 'none') {
-    // 单个片段或无转场 → 直接 concat
+  // FFmpeg 4.4 filter_complex 不能处理超过 3 段的链式 xfade，改用 concat
+  if (clipFiles.length > 3 || options.transition === 'none' || clipFiles.length <= 1) {
+    // 简单 concat（每段已有 fade-in/out，效果近似转场）
     const ct = path.join(workDir, 'sc_concat.txt')
-    fs.writeFileSync(ct, clipFiles.map((_, i) => `file '${clipFiles[i]}'`).join('\n'))
+    fs.writeFileSync(ct, clipFiles.map(f => `file '${f}'`).join('\n'))
     const out = path.join(workDir, 'sm.mp4')
     await runFFmpeg(`-y -f concat -safe 0 -i "${ct}" -c copy "${out}"`, { timeout: 120000 })
     return out
   }
 
-  // xfade 多输入合并
+  // 2~3 段：xfade（FFmpeg 4.4 能处理）
   const transName = XFADE_MAP[options.transition] || 'fade'
-  // 转场时长不能超过单段时长的一半，否则 xfade 会因偏移越界报错
   const segDuration = totalDuration / clipFiles.length
   const transDur = Math.max(0.1, Math.min(options.transitionDuration, segDuration / 2 - 0.1))
   const out = path.join(workDir, 'sm.mp4')
-
-  // 使用固定分段时长计算偏移（避免 ffprobe 检测失败导致丢帧）
   const durs = clipFiles.map(() => segDuration)
-  console.log(`[智能成片-转场] ${clipFiles.length}段 使用固定分段=${segDuration.toFixed(1)}s 转场=${transName} ${transDur.toFixed(1)}s`)
+  console.log(`[智能成片-转场] ${clipFiles.length}段 xfade=${transName} ${transDur.toFixed(1)}s`)
 
   if (clipFiles.length === 2) {
-    // 两段直接 xfade
-    await runFFmpeg(
-      `-y -i "${clipFiles[0]}" -i "${clipFiles[1]}" -filter_complex "[0:v][1:v]xfade=transition=${transName}:duration=${transDur.toFixed(2)}:offset=${totalDuration / 2 - transDur / 2}" -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
-      { timeout: 180000 }
-    )
+    const offset = totalDuration / 2 - transDur / 2
+    await runFFmpeg(`-y -i "${clipFiles[0]}" -i "${clipFiles[1]}" -filter_complex "[0:v][1:v]xfade=transition=${transName}:duration=${transDur.toFixed(2)}:offset=${offset.toFixed(2)}" -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`, { timeout: 180000 })
   } else {
-    // 多段：逐级 xfade（n 段需要 n-1 次 xfade）
-    // 构建链式 filter_complex — 用累积偏移确保不越界
-    const inputs = clipFiles.map((f, i) => `-i "${f}"`).join(' ')
-
-    let fc = ''
-    let lastOutput = '[v0]'
-    // 累积时长（已合并输出的总时长）
-    let accumulatedDuration = durs[0] || segDuration
-    for (let i = 0; i < clipFiles.length - 1; i++) {
-      // 偏移点 = 当前累积时长 - 转场时长的一半
-      const offset = Math.max(0, Math.min(accumulatedDuration - transDur / 2, accumulatedDuration - transDur))
-      // 安全检查：offset + transDur 不能超过当前输出和下一输入的可用时长
-      const safeOffset = Math.min(offset, (accumulatedDuration - transDur), ((durs[i+1] || segDuration) - transDur))
-      const finalOffset = Math.max(0, safeOffset)
-
-      const inA = i === 0 ? '[0:v]' : lastOutput
-      const inB = `[${i + 1}:v]`
-      const outLabel = i === clipFiles.length - 2 ? '' : `[v${i + 1}]`
-      fc += `${inA}${inB}xfade=transition=${transName}:duration=${transDur.toFixed(2)}:offset=${finalOffset.toFixed(2)}${outLabel};`
-      if (i < clipFiles.length - 2) lastOutput = `[v${i + 1}]`
-      // 更新累积时长 = 偏移点 + 下一输入的有效时长（减去被转场消耗的部分）
-      accumulatedDuration = finalOffset + transDur + (durs[i+1] || segDuration) - transDur
-    }
-
-    console.log(`[智能成片-转场] filter_complex: ${fc}`)
-
-    await runFFmpeg(
-      `-y ${inputs} -filter_complex "${fc.replace(/;+$/, '')}" -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`,
-      { timeout: 300000 }
-    )
+    // 3段 xfade
+    const inputs = clipFiles.map(f => `-i "${f}"`).join(' ')
+    const offset1 = (durs[0] - transDur).toFixed(2)
+    const offset2 = (durs[0] + durs[1] - transDur * 2).toFixed(2)
+    const fc = `[0:v][1:v]xfade=transition=${transName}:duration=${transDur.toFixed(2)}:offset=${offset1}[v1];[v1][2:v]xfade=transition=${transName}:duration=${transDur.toFixed(2)}:offset=${offset2}`
+    await runFFmpeg(`-y ${inputs} -filter_complex "${fc}" -c:v libx264 -preset fast -pix_fmt yuv420p "${out}"`, { timeout: 180000 })
   }
 
   return out
