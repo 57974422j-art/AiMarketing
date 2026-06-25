@@ -3,6 +3,13 @@ import path from 'path'
 import fs from 'fs'
 import { runFFmpeg, getQueueStatus } from './ffmpeg'
 
+/** SRT 时间戳 "00:01:23,456" → 秒数 */
+function parseHms(hms: string): number {
+  const m = /(\d+):(\d+):([\d,.]+)/.exec(hms)
+  if (!m) return 0
+  return parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3].replace(',', '.'))
+}
+
 export interface VideoTask {
   id: string
   status: 'queued' | 'processing' | 'completed' | 'failed'
@@ -554,9 +561,8 @@ async function runSmartTask(
     const audioDur = await getDurationAsync(ap)
     // 视频时长跟随音频（+1s收尾），避免画面跑快于配音
     const totalDur = audioDur + 1.0
-    // 每镜时长：有分镜数据就按分镜，否则均分
-    const haveShotDurations = shotDurations.length > 0 && shotDurations.length === mp.length
-    const segDuration = haveShotDurations ? shotDurations : totalDur / mp.length
+    // 每镜时长：稍后从SRT字幕提取（等字幕生成后再覆盖）预设均分兜底
+    let segDuration: number | number[] = totalDur / mp.length
 
     // ── Step 2~3: 音频处理 ──
     const adjAudio = path.join(wd, 'ta.mp3')
@@ -584,6 +590,39 @@ async function runSmartTask(
           break
         default: sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd); break
       }
+    }
+
+    // 从SRT字幕提取每行实际时长，用于逐镜编码（解决画面配音不同步）
+    if (sp && fs.existsSync(sp)) {
+      const srtContent = fs.readFileSync(sp, 'utf8')
+      const entries = srtContent.split('\n\n').filter(Boolean)
+      const lineEnds: number[] = []
+      let cursor = 0
+      for (const line of ln) {
+        const lineChars = line.trim().length || 1
+        const totalChars = ln.reduce((a, l) => a + l.trim().length, 1)
+        const expectedEntries = Math.max(1, Math.round(entries.length * lineChars / totalChars))
+        let lastEnd = 0
+        for (let i = cursor; i < Math.min(cursor + expectedEntries, entries.length); i++) {
+          const timeMatch = entries[i].match(/([\d:.]+)\s*-->\s*([\d:.]+)/)
+          if (timeMatch) {
+            lastEnd = parseHms(timeMatch[2])
+          }
+        }
+        cursor += expectedEntries
+        const startTime = lineEnds.length > 0 ? lineEnds[lineEnds.length - 1] : 0
+        const rawDur = lastEnd - startTime
+        lineEnds.push(Math.max(1.5, rawDur > 0 ? rawDur : (lineChars * 0.25)))
+      }
+      // 补齐：如果行数多于mp，截断；少于则均分剩余时长
+      const needed = mp.length
+      if (lineEnds.length < needed) {
+        const remaining = totalDur - lineEnds.reduce((a, v) => a + v, 0)
+        const perExtra = Math.max(1, remaining / (needed - lineEnds.length))
+        while (lineEnds.length < needed) lineEnds.push(perExtra)
+      }
+      segDuration = lineEnds.slice(0, needed)
+      console.log(`[智能成片-字幕] 每镜时长(从SRT提取): ${(segDuration as number[]).map((d: number) => d.toFixed(1) + 's').join(', ')}`)
     }
     task.progress = 25
 
