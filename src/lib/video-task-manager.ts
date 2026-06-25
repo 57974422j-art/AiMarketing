@@ -10,6 +10,28 @@ function parseHms(hms: string): number {
   return parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3].replace(',', '.'))
 }
 
+/** 秒数 → SRT 时间戳 */
+function fmtSrtTime(sec: number): string {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${s.toFixed(3).padStart(6, '0')}`.replace('.', ',')
+}
+
+/** 按长度切分文本 */
+function splitText(text: string, maxLen: number): string[] {
+  const result: string[] = []
+  let remain = text.trim()
+  while (remain.length > 0) {
+    if (remain.length <= maxLen) { result.push(remain); break }
+    let cut = maxLen
+    // 尽量在标点处切
+    const punct = remain.lastIndexOf('，', maxLen) || remain.lastIndexOf(',', maxLen) || remain.lastIndexOf('。', maxLen) || remain.lastIndexOf('！', maxLen) || remain.lastIndexOf('？', maxLen)
+    if (punct > maxLen / 2) cut = punct + 1
+    result.push(remain.slice(0, cut))
+    remain = remain.slice(cut)
+  }
+  return result
+}
+
 export interface VideoTask {
   id: string
   status: 'queued' | 'processing' | 'completed' | 'failed'
@@ -546,83 +568,67 @@ async function runSmartTask(
 
     task.progress = 5
 
-    // ── Step 1: TTS 语音合成 ──
-    const r = await fetch('http://localhost:3000/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice }),
-    })
-    const d = await r.json()
-    if (!d.audioUrl) throw new Error('TTS失败')
+    // ── Step 1: 逐句 TTS（Qwen3优先，失败降级edge-tts）──
+    const ln = text.split('\n').filter(Boolean)
+    const { ttsQwen3 } = await import('./qwen3-tts')
+    const ttsResults: Array<{ path: string; duration: number }> = []
+    let totalAudioDur = 0
+
+    for (let i = 0; i < ln.length; i++) {
+      const r = await ttsQwen3(ln[i], voice, wd, i)
+      ttsResults.push({ path: r.path, duration: r.duration })
+      totalAudioDur += r.duration
+      task.progress = 5 + Math.round((i + 1) / ln.length * 10)
+    }
+    console.log(`[智能成片-TTS] 逐句合成 ${ln.length}句 总音频=${totalAudioDur.toFixed(1)}s`)
+
+    // concat 所有单句音频 → 完整配音
     const ap = path.join(wd, 't.mp3')
-    fs.copyFileSync('/root/AiMarketing/public/tts/' + path.basename(d.audioUrl), ap)
+    if (ln.length === 1) {
+      fs.copyFileSync(ttsResults[0].path, ap)
+    } else {
+      const audioList = path.join(wd, 'audio_concat.txt')
+      fs.writeFileSync(audioList, ttsResults.map(r => `file '${r.path}'`).join('\n'))
+      await runFFmpeg(`-y -f concat -safe 0 -i "${audioList}" -c copy "${ap}"`, { timeout: 60000 })
+    }
     task.progress = 15
 
-    const audioDur = await getDurationAsync(ap)
-    // 视频时长跟随音频（+1s收尾），避免画面跑快于配音
-    const totalDur = audioDur + 1.0
-    // 每镜时长：稍后从SRT字幕提取（等字幕生成后再覆盖）预设均分兜底
-    let segDuration: number | number[] = totalDur / mp.length
+    // 每镜时长 = 该句TTS真实时长
+    const segDuration: number[] = ttsResults.map(r => Math.max(1.0, r.duration))
+    const totalDur = totalAudioDur + 1.0
+    console.log(`[智能成片-字幕] 每镜时长(逐句TTS): ${segDuration.map(d => d.toFixed(1) + 's').join(', ')}`)
 
-    // ── Step 2~3: 音频处理 ──
+    // ── Step 2: 音频标准化 ──
     const adjAudio = path.join(wd, 'ta.mp3')
-    try {
-      if (audioDur > totalDur) {
-        await runFFmpeg(`-y -i "${ap}" -t ${totalDur} -c copy "${adjAudio}"`, { timeout: 30000 })
-      } else if (audioDur > 0 && audioDur < totalDur) {
-        const padFile = path.join(wd, 'silence.mp3')
-        await runFFmpeg(`-y -f lavfi -i anullsrc=r=24000:cl=mono -t ${(totalDur - audioDur).toFixed(1)} "${padFile}"`, { timeout: 10000 })
-        await runFFmpeg(`-y -i "${ap}" -i "${padFile}" -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" -ac 1 "${adjAudio}"`, { timeout: 30000 })
-      } else {
-        fs.copyFileSync(ap, adjAudio)
-      }
-    } catch { fs.copyFileSync(ap, adjAudio) }
-
-    // ── Step 4: 字幕生成（复用原有逻辑）──
-    let sp = ''
-    const ln = text.split('\n').filter(Boolean)
-    if (showSubs && ln.length > 0) {
-      switch (subtitleMode) {
-        case 'tts-sync': sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd); break
-        case 'manual':
-          if (customSrt) sp = generateManualSubtitles(customSrt, wd)
-          else { console.warn('[字幕-手动] 未提供自定义时间戳，降级到 TTS 同步'); sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd) }
-          break
-        default: sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd); break
-      }
+    if (totalAudioDur > totalDur) {
+      await runFFmpeg(`-y -i "${ap}" -t ${totalDur} -c copy "${adjAudio}"`, { timeout: 30000 })
+    } else if (totalAudioDur < totalDur) {
+      const padFile = path.join(wd, 'silence.mp3')
+      await runFFmpeg(`-y -f lavfi -i anullsrc=r=24000:cl=mono -t ${(totalDur - totalAudioDur).toFixed(1)} "${padFile}"`, { timeout: 10000 })
+      await runFFmpeg(`-y -i "${ap}" -i "${padFile}" -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" -ac 1 "${adjAudio}"`, { timeout: 30000 })
+    } else {
+      fs.copyFileSync(ap, adjAudio)
     }
 
-    // 从SRT字幕提取每行实际时长，用于逐镜编码（解决画面配音不同步）
-    if (sp && fs.existsSync(sp)) {
-      const srtContent = fs.readFileSync(sp, 'utf8')
-      const entries = srtContent.split('\n\n').filter(Boolean)
-      const lineEnds: number[] = []
-      let cursor = 0
-      for (const line of ln) {
-        const lineChars = line.trim().length || 1
-        const totalChars = ln.reduce((a, l) => a + l.trim().length, 1)
-        const expectedEntries = Math.max(1, Math.round(entries.length * lineChars / totalChars))
-        let lastEnd = 0
-        for (let i = cursor; i < Math.min(cursor + expectedEntries, entries.length); i++) {
-          const timeMatch = entries[i].match(/([\d:.]+)\s*-->\s*([\d:.]+)/)
-          if (timeMatch) {
-            lastEnd = parseHms(timeMatch[2])
-          }
+    // ── Step 3: 字幕生成（从逐句时长推算）──
+    let sp = ''
+    if (showSubs && ln.length > 0) {
+      let subCursor = 0, entryIdx = 1
+      const srtLines: string[] = []
+      for (let li = 0; li < ln.length; li++) {
+        const lineDur = segDuration[li] || 2
+        const chunks = splitText(ln[li], 18) // 每行最多18字
+        const chunkDur = lineDur / chunks.length
+        for (let ci = 0; ci < chunks.length; ci++) {
+          const t1 = subCursor + ci * chunkDur
+          const t2 = t1 + chunkDur
+          srtLines.push(`${entryIdx}\n${fmtSrtTime(t1)} --> ${fmtSrtTime(t2)}\n${chunks[ci]}`)
+          entryIdx++
         }
-        cursor += expectedEntries
-        const startTime = lineEnds.length > 0 ? lineEnds[lineEnds.length - 1] : 0
-        const rawDur = lastEnd - startTime
-        lineEnds.push(Math.max(1.5, rawDur > 0 ? rawDur : (lineChars * 0.25)))
+        subCursor += lineDur
       }
-      // 补齐：如果行数多于mp，截断；少于则均分剩余时长
-      const needed = mp.length
-      if (lineEnds.length < needed) {
-        const remaining = totalDur - lineEnds.reduce((a, v) => a + v, 0)
-        const perExtra = Math.max(1, remaining / (needed - lineEnds.length))
-        while (lineEnds.length < needed) lineEnds.push(perExtra)
-      }
-      segDuration = lineEnds.slice(0, needed)
-      console.log(`[智能成片-字幕] 每镜时长(从SRT提取): ${(segDuration as number[]).map((d: number) => d.toFixed(1) + 's').join(', ')}`)
+      sp = path.join(wd, 's.srt')
+      fs.writeFileSync(sp, srtLines.join('\n\n') + '\n', 'utf8')
     }
     task.progress = 25
 
