@@ -56,6 +56,7 @@ const sections: CardSection[] = [
       { title: '邀请码管理', desc: '生成和管理注册邀请码', href: '/admin/invite-codes', icon: '🔑', roles: ['admin', 'editor'] },
       { title: '模板审核', desc: '审核文案模板的提交', href: '/admin/review', icon: '📝', roles: ['admin'] },
       { title: '系统设置', desc: 'AI API Key、OSS、TTS 配置', href: '/admin/settings', icon: '⚙️', roles: ['admin'] },
+      { title: '套餐与计费', desc: '套餐管理、用量统计、计费设置', href: '/admin/subscription', icon: '💳', roles: ['admin'] },
     ],
   },
 ]
