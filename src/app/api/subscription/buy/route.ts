@@ -29,8 +29,12 @@ export async function POST(req: NextRequest) {
       include: { plan: true },
     })
 
-    // 更新 user.plan 字段（兼容旧代码）
-    await prisma.user.update({ where: { id: userId }, data: { plan: plan.name } })
+    // 更新 user.plan + paidFeatures（兼容旧配额系统）
+    const features: string[] = []
+    if (plan.text2imgQuota > 0 || plan.text2imgQuota === -1) features.push('image-generator')
+    if (plan.text2videoQuota > 0 || plan.text2videoQuota === -1) features.push('text-to-video')
+    if (plan.deepseekTokens !== 0 || plan.llmTokens > 0 || plan.llmTokens === -1) features.push('video-edit-tts')
+    await prisma.user.update({ where: { id: userId }, data: { plan: plan.name, paidFeatures: JSON.stringify(features) } })
 
     return NextResponse.json({ success: true, data: sub })
   } catch (e: any) {
