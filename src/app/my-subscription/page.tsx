@@ -9,6 +9,7 @@ interface Plan {
   durationMonths: number
   text2imgQuota: number; text2videoQuota: number
   digitalHumanMin: number; liveStreamMin: number; storageMb: number
+  status: string
 }
 interface MyUsage { month: string; llmTokens: number; text2img: number; text2video: number }
 
