@@ -70,6 +70,7 @@ model User {
   assignedLeads           Lead[]                @relation("LeadAssignee")
   collectionTasks         CollectionTask[]
   liveRooms               LiveRoom[]
+  subscriptions           UserSubscription[]
 }
 
 model DevicePool {
@@ -379,6 +380,44 @@ model UsageLog {
   // - tokens: 每次调用的token消耗（用于统计成本）
   // - model: 使用的模型（用于区分不同模型成本）
   // Dashboard 通过此表计算：总使用量、Token消耗、各功能使用分布
+}
+
+// ====== 收费系统 ======
+
+model SubscriptionPlan {
+  id                Int      @id @default(autoincrement())
+  name              String                            // 套餐名 "基础月卡"
+  description       String?                           // 套餐描述
+  price             Int                               // 原价(分) 2900=¥29
+  discountPrice     Int?                              // 折扣价(分) 1900=¥19
+  durationMonths    Int      @default(1)              // 1=月/3=季/12=年
+  // 资源配额(0=不可用, -1=无限)
+  deepseekTokens    Int      @default(-1)             // DeepSeek token（默认免费无限）
+  llmTokens         Int      @default(0)              // Qwen LLM token
+  text2imgQuota     Int      @default(0)              // 文生图次数
+  text2videoQuota   Int      @default(0)              // 文生视频次数
+  digitalHumanMin   Int      @default(0)              // 数字人分钟
+  liveStreamMin     Int      @default(0)              // 直播分钟
+  storageMb         Int      @default(100)            // 存储空间MB
+  status            String   @default("active")       // active/disabled
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  subscriptions UserSubscription[]
+}
+
+model UserSubscription {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  planId     Int
+  startDate  DateTime @default(now())
+  endDate    DateTime
+  status     String   @default("active")              // active/expired/cancelled
+  createdAt  DateTime @default(now())
+
+  user       User              @relation(fields: [userId], references: [id])
+  plan       SubscriptionPlan  @relation(fields: [planId], references: [id])
 }
 
 model VideoTemplate {
