@@ -420,12 +420,6 @@ model UserSubscription {
   plan       SubscriptionPlan  @relation(fields: [planId], references: [id])
 }
 
-model SystemConfig {
-  key       String   @id
-  value     String
-  updatedAt DateTime @updatedAt
-}
-
 model VideoTemplate {
   id          Int      @id @default(autoincrement())
   title       String
