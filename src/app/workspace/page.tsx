@@ -50,6 +50,17 @@ const featureCards = [
     badgeColor: 'bg-emerald-500/20 text-emerald-400',
   },
   {
+    id: 'subscription',
+    title: '我的套餐',
+    desc: '查看当前订阅、本月用量、购买或升级套餐',
+    icon: '💳',
+    color: 'from-amber-500/20 to-amber-600/10 border-amber-500/30',
+    hoverColor: 'hover:border-amber-400/50 hover:shadow-amber-500/10',
+    path: '/my-subscription',
+    badgeDefault: '套餐中心',
+    badgeColor: 'bg-amber-500/20 text-amber-400',
+  },
+  {
     id: 'fingerprint',
     title: '指纹浏览器',
     desc: '本地Chromium多窗口管理，支持抖音/小红书/快手/B站自动化操作',

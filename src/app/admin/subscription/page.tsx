@@ -145,7 +145,17 @@ export default function SubscriptionAdminPage() {
             <div className="card-glass p-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm text-white">📦 套餐列表 ({plans.length})</h3>
-                <button onClick={startNew} className="px-3 py-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded text-xs hover:bg-blue-500/30">+ 新建套餐</button>
+                <div className="flex gap-2">
+                  {plans.length === 0 && (
+                    <button onClick={async () => {
+                      const r = await fetch('/api/admin/seed-plans', { method: 'POST' })
+                      const d = await r.json()
+                      showToast(d.message, d.success ? 'success' : 'error')
+                      if (d.success) loadPlans()
+                    }} className="px-3 py-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded text-xs hover:bg-emerald-500/30">🌱 初始化套餐</button>
+                  )}
+                  <button onClick={startNew} className="px-3 py-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded text-xs hover:bg-blue-500/30">+ 新建套餐</button>
+                </div>
               </div>
               {loading ? <p className="text-gray-500 text-xs">加载...</p> : plans.length === 0 ? <p className="text-gray-500 text-xs">暂无套餐</p> : (
                 <div className="overflow-x-auto">
