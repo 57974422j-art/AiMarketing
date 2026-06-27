@@ -28,7 +28,8 @@ async function uploadToOSS(filePath: string, ext: string): Promise<string | null
     const client = createOSSClient()
     const objectName = genOSSKey(ext)
     const bucket = process.env.OSS_BUCKET || ''
-    await client.put(objectName, filePath, { headers: { 'x-oss-object-acl': 'public-read' } })
+    await client.put(objectName, filePath)
+    await client.putACL(objectName, 'public-read')
     const region = process.env.OSS_REGION || 'oss-cn-hangzhou'
     return `https://${bucket}.${region}.aliyuncs.com/${objectName}`
   } catch (error) {

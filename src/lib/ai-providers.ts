@@ -847,7 +847,7 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
 // ==================== 百炼千寻数字人 ====================
 
 const DH_MODEL = process.env.DASHSCOPE_DIGITALHUMAN_MODEL || 'liveportrait'
-const DH_BASE = process.env.DASHSCOPE_DIGITALHUMAN_BASE_URL || 'https://dashscope.aliyuncs.com/api/v1'
+const DH_BASE = process.env.DASHSCOPE_DIGITALHUMAN_BASE_URL || 'https://dashscope.aliyuncs.com/api/v1/services/aigc/live-portrait'
 
 /** 提交形象克隆任务 */
 async function dashscopeCreateDigitalHuman(
@@ -861,17 +861,12 @@ async function dashscopeCreateDigitalHuman(
     const body = JSON.stringify({
       model: DH_MODEL,
       input: {
-        audio_file_url: audioFileUrl,
-        video_file_url: videoFileUrl,
-      },
-      parameters: {
-        mode,
-        // fast: 极速版 ~3分钟, pro: 精品版 ~24小时
-        // 上传的文件需先存到 OSS 并传 URL
+        video_url: videoFileUrl,
+        audio_url: audioFileUrl || undefined,
       },
     });
-    console.log('[千寻] 提交形象克隆, mode:', mode);
-    const data = await fetchJSON(`${DH_BASE}/services/avatar/training`, {
+    console.log('[千寻] 提交形象克隆, model:', DH_MODEL);
+    const data = await fetchJSON(`${DH_BASE}/generation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body,
@@ -897,7 +892,7 @@ async function dashscopeQueryDigitalHumanTask(taskId: string): Promise<{
   const key = getDashScopeKey();
   if (!key) return null;
   try {
-    const data = await fetchJSON(`${DH_BASE}/tasks/${taskId}`, {
+    const data = await fetchJSON(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${key}` },
     });
@@ -925,7 +920,7 @@ async function dashscopeGenerateDigitalHumanVideo(
     if (background) {
       params.background_url = background;
     }
-    const data = await fetchJSON(`${DH_BASE}/services/avatar/video/generation`, {
+    const data = await fetchJSON(`${DH_BASE}/generation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body: JSON.stringify({
