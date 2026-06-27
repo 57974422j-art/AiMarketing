@@ -14,7 +14,7 @@ function createOSSClient() {
   const accessKeySecret = process.env.OSS_ACCESS_KEY_SECRET
   const bucket = process.env.OSS_BUCKET
   if (!accessKeyId || !accessKeySecret || !bucket) throw new Error('OSS 配置不完整')
-  return new OSS({ region, accessKeyId, accessKeySecret, bucket, secure: true, timeout: '300s' })
+  return new OSS({ region, accessKeyId, accessKeySecret, bucket, secure: true, timeout: 300000 })
 }
 
 function genOSSKey(ext: string): string {

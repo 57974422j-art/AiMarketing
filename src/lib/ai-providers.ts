@@ -846,7 +846,7 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
 
 // ==================== 百炼千寻数字人 ====================
 
-const DH_MODEL = process.env.DASHSCOPE_DIGITALHUMAN_MODEL || 'qwen-avatar'
+const DH_MODEL = process.env.DASHSCOPE_DIGITALHUMAN_MODEL || 'wan2.1-avatar'
 const DH_BASE = process.env.DASHSCOPE_DIGITALHUMAN_BASE_URL || 'https://dashscope.aliyuncs.com/api/v1'
 
 /** 提交形象克隆任务 */
