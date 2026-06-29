@@ -13,23 +13,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#6366f1" />
       </head>
-      <body className="min-h-screen bg-gray-950 text-gray-100">
+      <body className="min-h-screen bg-[#0a0a0f] text-gray-100 flex flex-col">
         <AuthProvider>
           <Navbar />
           <ToastContainer />
           <AIGuide />
-          <main className="flex-grow">
+          <main className="flex-1">
             {children}
           </main>
-          <footer className="border-t border-white/10 bg-gray-950 mt-8">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-              <div className="text-center">
-                <p className="text-mono-sm text-gray-500">
-                  © 2026 AI营销系统 v2.0 // 版权所有
-                </p>
-              </div>
-            </div>
-          </footer>
         </AuthProvider>
       </body>
     </html>

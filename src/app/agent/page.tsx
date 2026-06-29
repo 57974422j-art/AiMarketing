@@ -81,14 +81,9 @@ export default function AgentPage() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] flex flex-col">
       {/* Header */}
-      <header className="px-6 py-4 border-b border-white/5">
-        <p className="text-label mb-1">AI 营创作业平台 / 智能助手</p>
-        <div className="flex items-center gap-3">
-          <h1 className="text-mono-lg text-white">🤖 AI 助手</h1>
-          <span className="flex items-center gap-1 text-[10px] text-emerald-400/70 font-mono">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> 在线
-          </span>
-        </div>
+      <header className="px-6 py-3 border-b border-white/5">
+        <p className="text-label mb-0.5">AI 营创作业平台 / 智能助手</p>
+        <h1 className="text-mono-lg text-white">🤖 AI 助手</h1>
       </header>
 
       {/* Messages */}
