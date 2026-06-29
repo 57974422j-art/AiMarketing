@@ -81,13 +81,8 @@ export default function AgentPage() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] flex flex-col">
       {/* Header */}
-      <header className="px-6 py-3 border-b border-white/5">
-        <p className="text-label mb-0.5">AI 营创作业平台 / 智能助手</p>
-        <h1 className="text-mono-lg text-white">🤖 AI 助手</h1>
-      </header>
-
       {/* Messages */}
-      <main className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+      <main className="flex-1 overflow-y-auto px-6 py-4 space-y-4 max-w-3xl mx-auto w-full">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
             <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/15 flex items-center justify-center mb-4">
@@ -110,7 +105,7 @@ export default function AgentPage() {
         )}
 
         {messages.map(msg => (
-          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={msg.id} className="flex justify-center">
             <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-xs leading-relaxed ${
               msg.role === 'user'
                 ? 'bg-blue-500/20 text-blue-200 border border-blue-500/25 rounded-br-md'
