@@ -17,21 +17,18 @@ function createOSSClient() {
   return new OSS({ region, accessKeyId, accessKeySecret, bucket, secure: true, timeout: 300000 })
 }
 
-function genOSSKey(ext: string): string {
-  const ts = Date.now()
-  const r = Math.random().toString(36).substring(2, 8)
-  return `digital-human/${ts}_${r}.${ext}`
-}
-
+/** 上传 OSS 并返回有效期 24h 的签名 URL */
 async function uploadToOSS(filePath: string, ext: string): Promise<string | null> {
   try {
     const client = createOSSClient()
-    const objectName = genOSSKey(ext)
-    const bucket = process.env.OSS_BUCKET || ''
+    const ts = Date.now()
+    const r = Math.random().toString(36).substring(2, 8)
+    const objectName = `dh/${ts}_${r}.${ext}`
     await client.put(objectName, filePath)
-    await client.putACL(objectName, 'public-read')
-    const region = process.env.OSS_REGION || 'oss-cn-hangzhou'
-    return `https://${bucket}.${region}.aliyuncs.com/${objectName}`
+    // 签名 URL（24小时有效），DashScope 可通过签名访问
+    const signedUrl = client.signatureUrl(objectName, { expires: 86400 })
+    console.log('[数字人] OSS 签名URL: ' + signedUrl.substring(0, 80) + '...')
+    return signedUrl
   } catch (error) {
     console.error('[数字人 OSS] 上传失败:', error)
     return null
