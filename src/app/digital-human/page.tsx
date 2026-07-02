@@ -116,7 +116,7 @@ export default function DigitalHumanPage() {
                 <button key={p.id} onClick={() => setSelectedPreset(p.id)}
                   className={`p-2 rounded-xl border-2 transition text-center ${selectedPreset === p.id ? 'border-blue-400 bg-blue-500/10' : 'border-white/10 hover:border-white/20'}`}>
                   <div className="w-full aspect-square rounded-lg bg-white/5 mb-1.5 flex items-center justify-center overflow-hidden">
-                    <span className="text-2xl">🤖</span>
+                    <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover rounded-lg" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.innerHTML = '<span class="text-2xl">🤖</span>' }} />
                   </div>
                   <p className="text-[10px] text-gray-300">{p.name}</p>
                 </button>
