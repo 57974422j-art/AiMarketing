@@ -846,8 +846,8 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
 
 // ==================== 百炼千寻数字人 ====================
 
-const DH_MODEL = process.env.DASHSCOPE_DIGITALHUMAN_MODEL || 'liveportrait'
-const DH_BASE = process.env.DASHSCOPE_DIGITALHUMAN_BASE_URL || 'https://dashscope.aliyuncs.com/api/v1/services/aigc/live-portrait'
+const DH_MODEL = 'liveportrait'
+const DH_BASE = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/image2video'
 
 /** 提交形象克隆任务 */
 async function dashscopeCreateDigitalHuman(
@@ -861,12 +861,17 @@ async function dashscopeCreateDigitalHuman(
     const body = JSON.stringify({
       model: DH_MODEL,
       input: {
-        video_url: videoFileUrl,
-        audio_url: audioFileUrl || undefined,
+        image_url: videoFileUrl,
+        audio_url: audioFileUrl || videoFileUrl,
+      },
+      parameters: {
+        template_id: 'normal',
+        video_fps: 24,
+        paste_back: true,
       },
     });
-    console.log('[千寻] 提交形象克隆, model:', DH_MODEL);
-    const data = await fetchJSON(`${DH_BASE}/generation`, {
+    console.log('[千寻] 提交形象克隆, model:', DH_MODEL, 'image_url:', videoFileUrl.substring(0, 60));
+    const data = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body,
@@ -920,13 +925,13 @@ async function dashscopeGenerateDigitalHumanVideo(
     if (background) {
       params.background_url = background;
     }
-    const data = await fetchJSON(`${DH_BASE}/generation`, {
+    const data = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body: JSON.stringify({
         model: DH_MODEL,
-        input,
-        parameters: params,
+        input: { image_url: avatarId, audio_url: text },
+        parameters: { template_id: background || 'normal', video_fps: 24 },
       }),
     });
     const taskId = data?.output?.task_id || data?.task_id;

@@ -36,20 +36,20 @@ export async function POST(request: NextRequest) {
     // 文件上传 + 提交训练
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData()
-      const videoFile = formData.get('video') as File | null
+      const imageFile = formData.get('image') as File | null
       const audioFile = formData.get('audio') as File | null
 
-      if (!videoFile) {
-        return NextResponse.json({ success: false, message: '请上传真人视频' }, { status: 400 })
+      if (!imageFile) {
+        return NextResponse.json({ success: false, message: '请上传人物肖像图片' }, { status: 400 })
+      }
+      if (!audioFile) {
+        return NextResponse.json({ success: false, message: '请上传配音音频' }, { status: 400 })
       }
 
-      const videoUrl = await saveToPublic(videoFile, 'mp4', request)
-      let audioUrl = ''
-      if (audioFile) {
-        audioUrl = await saveToPublic(audioFile, 'mp3', request)
-      }
+      const imageUrl = await saveToPublic(imageFile, 'png', request)
+      const audioUrl = await saveToPublic(audioFile, 'mp3', request)
 
-      const result = await createDigitalHuman(audioUrl || videoUrl, videoUrl)
+      const result = await createDigitalHuman(audioUrl, imageUrl)
       if (!result) {
         return NextResponse.json({ success: false, message: '提交形象克隆任务失败' }, { status: 500 })
       }
