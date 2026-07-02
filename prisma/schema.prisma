@@ -592,12 +592,13 @@ model NFCRuleTemplate {
 }
 
 model PromptTemplate {
-  id       Int      @id @default(autoincrement())
-  title    String?
-  prompt   String
-  category String?
-  isActive Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  title      String?
+  prompt     String
+  category   String?
+  previewUrl String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
 }
 
 // ====== V2 升级 - Phase 0-3 新增模型 ======
