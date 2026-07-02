@@ -599,7 +599,7 @@ model PromptTemplate {
   previewUrl String?
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  updatedAt  DateTime?
 }
 
 // ====== V2 升级 - Phase 0-3 新增模型 ======
