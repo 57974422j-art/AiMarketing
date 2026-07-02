@@ -8,18 +8,20 @@ import { getAuthFromHeaders } from '@/lib/api-auth'
 
 export const runtime = 'nodejs'
 
-/** 预设数字人形象（avatar-dialog 公共形象，使用官方示例图片） */
+/** avatar-dialog 公共形象库（https://help.aliyun.com/zh/model-studio/avatar-dialog-api）
+ *  官方只提供了 avatar_id 和名称，未提供头像图片。
+ *  实际人物形象在百炼控制台可视化选择，这里用通用头像做入口标识。 */
 const PRESET_AVATARS: Record<string, { name: string; imageUrl: string }> = {
-  taoji:    { name: '桃叽',  imageUrl: 'https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250911/ynhjrg/p874909.png' },
-  aria:     { name: 'Aria',  imageUrl: 'https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250911/ynhjrg/p874909.png' },
-  jiaoyue:  { name: '椒月',  imageUrl: 'https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250911/ynhjrg/p874909.png' },
-  shian:    { name: '时安',  imageUrl: 'https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250911/ynhjrg/p874909.png' },
-  meike:    { name: '莓可',  imageUrl: 'https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250911/ynhjrg/p874909.png' },
-  yanqiu:   { name: '砚秋',  imageUrl: 'https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250911/ynhjrg/p874909.png' },
-  tangli:   { name: '棠梨',  imageUrl: 'https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250911/ynhjrg/p874909.png' },
-  xingyao:  { name: '星瑶',  imageUrl: 'https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250911/ynhjrg/p874909.png' },
-  lengzhou: { name: '棱舟',  imageUrl: 'https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250911/ynhjrg/p874909.png' },
-  mowen:    { name: '墨翁',  imageUrl: 'https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250911/ynhjrg/p874909.png' },
+  taoji:    { name: '桃叽',  imageUrl: 'https://randomuser.me/api/portraits/women/1.jpg' },
+  aria:     { name: 'Aria',  imageUrl: 'https://randomuser.me/api/portraits/women/2.jpg' },
+  jiaoyue:  { name: '椒月',  imageUrl: 'https://randomuser.me/api/portraits/women/3.jpg' },
+  shian:    { name: '时安',  imageUrl: 'https://randomuser.me/api/portraits/women/4.jpg' },
+  meike:    { name: '莓可',  imageUrl: 'https://randomuser.me/api/portraits/women/5.jpg' },
+  yanqiu:   { name: '砚秋',  imageUrl: 'https://randomuser.me/api/portraits/women/6.jpg' },
+  tangli:   { name: '棠梨',  imageUrl: 'https://randomuser.me/api/portraits/women/7.jpg' },
+  xingyao:  { name: '星瑶',  imageUrl: 'https://randomuser.me/api/portraits/women/8.jpg' },
+  lengzhou: { name: '棱舟',  imageUrl: 'https://randomuser.me/api/portraits/men/1.jpg' },
+  mowen:    { name: '墨翁',  imageUrl: 'https://randomuser.me/api/portraits/men/2.jpg' },
 }
 
 /** 保存文件到 public/dh/ 并返回完整URL */
@@ -112,7 +114,7 @@ export async function POST(request: NextRequest) {
 
     // 获取预设形象列表
     if (action === 'list') {
-      const list = Object.entries(PRESET_AVATARS).map(([id, info]) => ({ id, name: info.name, imageUrl: info.imageUrl }))
+      const list = Object.entries(PRESET_AVATARS).map(([id, info]) => ({ id, name: info.name, color: info.color, avatar: avatarSvg(info.name, info.color) }))
       return NextResponse.json({ success: true, data: list })
     }
 
