@@ -138,12 +138,13 @@ export default function DigitalHumanPage() {
                   ) : (
                     <p className="text-xs text-gray-500">点击上传照片</p>
                   )}
-                  <input type="file" accept="image/*" className="hidden"
+                  <input type="file" accept="image/jpeg,image/png,image/bmp,image/webp" className="hidden"
                     onChange={e => {
                       const f = e.target.files?.[0]
                       if (f) { setCustomImage(f); setCustomPreview(URL.createObjectURL(f)) }
                     }} />
                 </label>
+                <p className="text-[9px] text-gray-600 mt-1">支持 jpg/png/bmp/webp，≤10MB，正面半身照效果最佳</p>
               </div>
               <div>
                 <p className="text-[10px] text-gray-500 mb-1.5">配音音频（mp3/wav）</p>
