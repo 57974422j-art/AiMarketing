@@ -18,9 +18,9 @@ async function saveToPublic(file: File, ext: string, request: NextRequest): Prom
   const filepath = join(dhDir, filename)
   await writeFile(filepath, new Uint8Array(await file.arrayBuffer()))
 
-  // 构造公网URL
+  // 构造URL：有端口走http，无端口走https
   const host = request.headers.get('host') || 'localhost:3000'
-  const proto = host.includes('localhost') ? 'http' : 'https'
+  const proto = host.includes('localhost') || host.includes(':') ? 'http' : 'https'
   const url = `${proto}://${host}/dh/${filename}`
   console.log('[数字人] 视频URL:', url)
   return url
