@@ -10,26 +10,26 @@ import { PrismaClient } from '@prisma/client'
 export const runtime = 'nodejs'
 const prisma = new PrismaClient()
 
-/** 保存到 public/dh/ */
-async function saveToPublic(file: File, ext: string, request: NextRequest): Promise<string> {
-  const dhDir = join(process.cwd(), 'public', 'dh')
-  if (!existsSync(dhDir)) await mkdir(dhDir, { recursive: true })
-  const fn = `${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`
-  await writeFile(join(dhDir, fn), new Uint8Array(await file.arrayBuffer()))
+/** 保存到 public/uploads/ */
+async function saveToPublic(file: File, ext: string, request: NextRequest, prefix = ''): Promise<string> {
+  const dir = join(process.cwd(), 'public', 'uploads')
+  if (!existsSync(dir)) await mkdir(dir, { recursive: true })
+  const fn = `${prefix}${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`
+  await writeFile(join(dir, fn), new Uint8Array(await file.arrayBuffer()))
   const host = request.headers.get('host') || 'localhost:3000'
-  return `http://${host}/dh/${fn}`
+  return `http://${host}/uploads/${fn}`
 }
 
 /** TTS 文本→MP3 */
 function synthesizeTTS(text: string, request: NextRequest): string {
-  const dhDir = join(process.cwd(), 'public', 'dh')
-  if (!existsSync(dhDir)) { require('fs').mkdirSync(dhDir, { recursive: true }) }
+  const dir = join(process.cwd(), 'public', 'uploads')
+  if (!existsSync(dir)) { require('fs').mkdirSync(dir, { recursive: true }) }
   const fn = `tts_${Date.now()}.mp3`
-  const out = join(dhDir, fn)
+  const out = join(dir, fn)
   const safe = text.replace(/["$'`\\]/g, '')
   execSync(`edge-tts --voice zh-CN-XiaoxiaoNeural --text "${safe}" --write-media ${out}`, { timeout: 30000, shell: '/bin/bash' })
   const host = request.headers.get('host') || 'localhost:3000'
-  return `http://${host}/dh/${fn}`
+  return `http://${host}/uploads/${fn}`
 }
 
 export async function POST(request: NextRequest) {
@@ -39,7 +39,6 @@ export async function POST(request: NextRequest) {
   try {
     const ct = request.headers.get('content-type') || ''
 
-    // 自定义上传
     if (ct.includes('multipart/form-data')) {
       const fd = await request.formData()
       const img = fd.get('image') as File | null
@@ -54,7 +53,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { action } = body
 
-    // 形象列表 — 从 PromptTemplate 表取
     if (action === 'list') {
       const items = await prisma.promptTemplate.findMany({
         where: { category: '数字人' },
@@ -65,7 +63,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, data: list })
     }
 
-    // 选形象+文案 → TTS → liveportrait
     if (action === 'avatar-speak') {
       const { avatarId, text } = body
       if (!avatarId || !text) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
@@ -79,7 +76,6 @@ export async function POST(request: NextRequest) {
       return r ? NextResponse.json({ success: true, taskId: r.taskId }) : NextResponse.json({ success: false, message: '提交失败' }, { status: 500 })
     }
 
-    // 查询
     if (action === 'query') {
       const { taskId } = body
       if (!taskId) return NextResponse.json({ success: false, message: '缺少 taskId' }, { status: 400 })
@@ -87,7 +83,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, ...r })
     }
 
-    // 旧接口
     if (action === 'generate') {
       const { avatarId, text } = body
       if (!avatarId || !text) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
