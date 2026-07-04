@@ -107,8 +107,11 @@ export async function POST(request: NextRequest) {
         select: { previewUrl: true },
       })
       if (!tmpl?.previewUrl) return NextResponse.json({ success: false, message: '形象未生成预览图，请后台先点「预览图」' }, { status: 400 })
+      console.log('[数字人-avatar] 开始TTS, 文案长度:', text.length)
       const au = await synthesizeTTS(text)
+      console.log('[数字人-avatar] TTS完成, audio_url:', au.substring(0, 80))
       const r = await createDigitalHuman(au, tmpl.previewUrl)
+      console.log('[数字人-avatar] 结果:', r ? `taskId=${r.taskId}` : 'NULL')
       return r ? NextResponse.json({ success: true, taskId: r.taskId }) : NextResponse.json({ success: false, message: '提交失败' }, { status: 500 })
     }
 

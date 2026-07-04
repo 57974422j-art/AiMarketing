@@ -878,9 +878,10 @@ async function dashscopeCreateDigitalHuman(
     });
     const taskId = data?.output?.task_id || data?.task_id;
     if (!taskId) {
-      console.error('[千寻] 创建失败, 响应:', JSON.stringify(data).substring(0, 300));
+      console.error('[千寻] 创建失败, 完整响应:', JSON.stringify(data).substring(0, 500));
       return null;
     }
+    console.log('[千寻] 提交成功, taskId:', taskId, 'image_url:', videoFileUrl.substring(0, 80));
     return { taskId };
   } catch (e) {
     console.error('[千寻] 创建形象克隆失败:', e);
