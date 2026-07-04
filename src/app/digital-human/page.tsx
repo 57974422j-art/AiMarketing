@@ -60,6 +60,8 @@ export default function DigitalHumanPage() {
 
   const generate = async () => {
     if (!text.trim()) { showToast('请输入口播文案', 'error'); return }
+    // 文案长度校验（中文约3字/秒，3分钟=540字上限）
+    if (text.length > 540) { showToast(`文案过长：${text.length}字，最多540字（约3分钟）`, 'error'); return }
     setLoading(true)
 
     try {
@@ -141,7 +143,10 @@ export default function DigitalHumanPage() {
                   <input type="file" accept="image/jpeg,image/png,image/bmp,image/webp" className="hidden"
                     onChange={e => {
                       const f = e.target.files?.[0]
-                      if (f) { setCustomImage(f); setCustomPreview(URL.createObjectURL(f)) }
+                      if (!f) return
+                      if (f.size > 10 * 1024 * 1024) { showToast('图片不能超过10MB', 'error'); return }
+                      if (!['image/jpeg', 'image/png', 'image/bmp', 'image/webp'].includes(f.type)) { showToast('仅支持 jpg/png/bmp/webp', 'error'); return }
+                      setCustomImage(f); setCustomPreview(URL.createObjectURL(f))
                     }} />
                 </label>
                 <p className="text-[9px] text-gray-600 mt-1">支持 jpg/png/bmp/webp，≤10MB，正面半身照效果最佳</p>
@@ -150,25 +155,35 @@ export default function DigitalHumanPage() {
                 <p className="text-[10px] text-gray-500 mb-1.5">配音音频（mp3/wav）</p>
                 <label className="block border-2 border-dashed border-white/10 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400/30 transition">
                   {customAudio ? (
-                    <p className="text-xs text-emerald-400">✅ {customAudio.name}</p>
+                    <p className="text-xs text-emerald-400">✅ {customAudio.name}（{(customAudio.size / 1024 / 1024).toFixed(1)}MB）</p>
                   ) : (
                     <p className="text-xs text-gray-500">点击上传音频</p>
                   )}
-                  <input type="file" accept="audio/*" className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) setCustomAudio(f) }} />
+                  <input type="file" accept="audio/mpeg,audio/wav,audio/mp3" className="hidden"
+                    onChange={e => {
+                      const f = e.target.files?.[0]
+                      if (!f) return
+                      if (f.size > 15 * 1024 * 1024) { showToast('音频不能超过15MB（约3分钟）', 'error'); return }
+                      setCustomAudio(f)
+                    }} />
                 </label>
+                <p className="text-[9px] text-gray-600 mt-1">mp3/wav，≤15MB，最长3分钟</p>
               </div>
             </div>
           </div>
         )}
 
-        {/* 文案输入 */}
+        {/* 文案 */}
         <div className="card-glass p-5 mb-4">
           <h3 className="text-xs text-gray-400 mb-3">口播文案</h3>
           <textarea value={text} onChange={e => setText(e.target.value)}
             placeholder="输入数字人要说的内容..."
             rows={4}
             className="input-dark w-full rounded-xl px-4 py-3 text-sm resize-none" />
+          <div className="flex justify-between mt-1">
+            <span className="text-[9px] text-gray-600">约 {Math.round(text.length / 3)} 秒 · 上限540字（≈3分钟）</span>
+            <span className={`text-[9px] font-mono ${text.length > 500 ? 'text-yellow-400' : text.length > 540 ? 'text-red-400' : 'text-gray-600'}`}>{text.length}/540</span>
+          </div>
         </div>
 
         {/* 生成按钮 */}
