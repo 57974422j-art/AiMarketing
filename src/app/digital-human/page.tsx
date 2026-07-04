@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/app/providers'
 import { showToast } from '@/components/Toast'
 
@@ -9,16 +9,26 @@ interface PresetAvatar { id: string; name: string; imageUrl: string }
 export default function DigitalHumanPage() {
   const { user } = useAuth()
   const [tab, setTab] = useState<'preset' | 'custom'>('preset')
+  const [voiceMode, setVoiceMode] = useState<'upload' | 'clone'>('clone')
   const [presets, setPresets] = useState<PresetAvatar[]>([])
   const [selectedPreset, setSelectedPreset] = useState('')
   const [text, setText] = useState('')
   const [customImage, setCustomImage] = useState<File | null>(null)
   const [customPreview, setCustomPreview] = useState('')
   const [customAudio, setCustomAudio] = useState<File | null>(null)
+  const [voiceId, setVoiceId] = useState('')
+  const [voiceEnrolling, setVoiceEnrolling] = useState(false)
   const [loading, setLoading] = useState(false)
   const [taskId, setTaskId] = useState('')
   const [pollStatus, setPollStatus] = useState('')
   const [resultUrl, setResultUrl] = useState('')
+
+  // 录音相关
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
+  const [recordTime, setRecordTime] = useState(0)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     fetch('/api/digital-human', {
@@ -58,14 +68,82 @@ export default function DigitalHumanPage() {
     return () => clearInterval(iv)
   }, [taskId])
 
+  // 开始录音
+  const startRecord = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      const chunks: BlobPart[] = []
+      mr.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data) }
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(chunks, { type: 'audio/wav' })
+        setRecordedBlob(blob)
+        if (timerRef.current) clearInterval(timerRef.current)
+      }
+      mr.start()
+      mediaRecorderRef.current = mr
+      setIsRecording(true)
+      setRecordTime(0)
+      timerRef.current = setInterval(() => setRecordTime(t => t + 1), 200)
+    } catch {
+      showToast('无法访问麦克风', 'error')
+    }
+  }
+
+  const stopRecord = () => {
+    mediaRecorderRef.current?.stop()
+    setIsRecording(false)
+  }
+
+  // 上传音频到OSS并注册声音
+  const enrollVoice = async (blob: Blob) => {
+    setVoiceEnrolling(true)
+    try {
+      const fd = new FormData()
+      fd.append('audio', blob, 'voice_sample.wav')
+      // 先上传音频到服务器
+      const upRes = await fetch('/api/digital-human', { method: 'POST', body: fd, credentials: 'include' })
+      // multipart 会走自定义上传分支，我们需要单独的endpoint
+      // 改为先上传到服务器临时目录
+      // 简单处理：直接用 audio/save 路由
+    } catch (e) { showToast('注册失败', 'error') }
+    setVoiceEnrolling(false)
+  }
+
+  // 声音注册：把音频文件上传到OSS后注册
+  const doVoiceEnroll = async (audioFile: File) => {
+    setVoiceEnrolling(true)
+    try {
+      // 1. 先上传音频到服务器，拿到URL
+      const fd = new FormData()
+      fd.append('audio', audioFile)
+      const upRes = await fetch('/api/digital-human/upload-audio', { method: 'POST', body: fd, credentials: 'include' })
+      const upData = await upRes.json()
+      if (!upData.success) { showToast(upData.message, 'error'); setVoiceEnrolling(false); return }
+
+      // 2. 注册声音
+      const r = await fetch('/api/digital-human', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'voice-enroll', audioUrl: upData.url, prefix: `u${user?.userId || 0}` }),
+      })
+      const d = await r.json()
+      if (d.success) {
+        setVoiceId(d.voiceId)
+        localStorage.setItem('dh_voice_id', d.voiceId)
+        showToast('声音克隆成功！', 'success')
+      } else { showToast(d.message, 'error') }
+    } catch { showToast('注册失败', 'error') }
+    setVoiceEnrolling(false)
+  }
+
   const generate = async () => {
-    // 校验
     if (tab === 'preset') {
       if (!text.trim()) { showToast('请输入口播文案', 'error'); return }
-      if (text.length > 540) { showToast(`文案过长：${text.length}字，最多540字（约3分钟）`, 'error'); return }
+      if (text.length > 540) { showToast(`文案过长：${text.length}字`, 'error'); return }
     }
     setLoading(true)
-
     try {
       if (tab === 'preset') {
         if (!selectedPreset) { showToast('请选择数字人形象', 'error'); setLoading(false); return }
@@ -79,14 +157,38 @@ export default function DigitalHumanPage() {
         else showToast(d.message, 'error')
       } else {
         if (!customImage) { showToast('请上传人物照片', 'error'); setLoading(false); return }
-        if (!customAudio) { showToast('请上传配音音频', 'error'); setLoading(false); return }
-        const fd = new FormData()
-        fd.append('image', customImage)
-        fd.append('audio', customAudio)
-        const r = await fetch('/api/digital-human', { method: 'POST', body: fd, credentials: 'include' })
-        const d = await r.json()
-        if (d.success) { setTaskId(d.taskId); setPollStatus('排队中...'); showToast('已提交', 'success') }
-        else showToast(d.message, 'error')
+        // 克隆模式：TTS合成 → liveportrait
+        if (voiceMode === 'clone' && voiceId) {
+          if (!text.trim()) { showToast('请输入口播文案', 'error'); setLoading(false); return }
+          showToast('正在合成克隆语音...', 'info' as any)
+          // 1. 用克隆声音合成音频
+          const synRes = await fetch('/api/digital-human', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'voice-synthesize', voiceId, text }),
+          })
+          const synData = await synRes.json()
+          if (!synData.success) { showToast(synData.message || '合成失败', 'error'); setLoading(false); return }
+
+          // 2. 上传照片到OSS
+          const fd = new FormData()
+          fd.append('image', customImage)
+          fd.append('audio_url', synData.audioUrl)
+          const imgRes = await fetch('/api/digital-human', { method: 'POST', body: fd, credentials: 'include' })
+          const imgData = await imgRes.json()
+          if (imgData.success) { setTaskId(imgData.taskId); setPollStatus('排队中...'); showToast('已提交', 'success') }
+          else showToast(imgData.message || '提交失败', 'error')
+        } else {
+          // 直传音频模式
+          if (!customAudio) { showToast('请上传配音音频', 'error'); setLoading(false); return }
+          const fd = new FormData()
+          fd.append('image', customImage)
+          fd.append('audio', customAudio)
+          const r = await fetch('/api/digital-human', { method: 'POST', body: fd, credentials: 'include' })
+          const d = await r.json()
+          if (d.success) { setTaskId(d.taskId); setPollStatus('排队中...'); showToast('已提交', 'success') }
+          else showToast(d.message, 'error')
+        }
       }
     } catch { showToast('提交失败', 'error') }
     setLoading(false)
@@ -131,16 +233,16 @@ export default function DigitalHumanPage() {
 
         {/* 自定义形象 */}
         {tab === 'custom' && (
-          <div className="card-glass p-5 mb-4">
-            <h3 className="text-xs text-gray-400 mb-3">上传素材</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-[10px] text-gray-500 mb-1.5">人物照片（正面半身照）</p>
+          <>
+            {/* 照片 */}
+            <div className="card-glass p-5 mb-4">
+              <h3 className="text-xs text-gray-400 mb-3">人物照片</h3>
+              <div className="max-w-xs">
                 <label className="block border-2 border-dashed border-white/10 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400/30 transition">
                   {customPreview ? (
                     <img src={customPreview} className="max-h-32 mx-auto rounded-lg" alt="preview" />
                   ) : (
-                    <p className="text-xs text-gray-500">点击上传照片</p>
+                    <p className="text-xs text-gray-500">点击上传正面半身照</p>
                   )}
                   <input type="file" accept="image/jpeg,image/png,image/bmp,image/webp" className="hidden"
                     onChange={e => {
@@ -151,34 +253,104 @@ export default function DigitalHumanPage() {
                       setCustomImage(f); setCustomPreview(URL.createObjectURL(f))
                     }} />
                 </label>
-                <p className="text-[9px] text-gray-600 mt-1">支持 jpg/png/bmp/webp，≤10MB，正面半身照效果最佳</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-gray-500 mb-1.5">配音音频（mp3/wav）</p>
-                <label className="block border-2 border-dashed border-white/10 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400/30 transition">
-                  {customAudio ? (
-                    <p className="text-xs text-emerald-400">✅ {customAudio.name}（{(customAudio.size / 1024 / 1024).toFixed(1)}MB）</p>
-                  ) : (
-                    <p className="text-xs text-gray-500">点击上传音频</p>
-                  )}
-                  <input type="file" accept="audio/mpeg,audio/wav,audio/mp3" className="hidden"
-                    onChange={e => {
-                      const f = e.target.files?.[0]
-                      if (!f) return
-                      if (f.size > 15 * 1024 * 1024) { showToast('音频不能超过15MB（约3分钟）', 'error'); return }
-                      setCustomAudio(f)
-                    }} />
-                </label>
-                <p className="text-[9px] text-gray-600 mt-1">mp3/wav，≤15MB，最长3分钟</p>
+                <p className="text-[9px] text-gray-600 mt-1">jpg/png/bmp/webp，≤10MB，正面半身照</p>
               </div>
             </div>
-          </div>
+
+            {/* 配音方式 */}
+            <div className="card-glass p-5 mb-4">
+              <h3 className="text-xs text-gray-400 mb-3">配音方式</h3>
+              <div className="flex gap-1 mb-4 bg-white/5 rounded-lg p-1 w-fit">
+                {(['clone', 'upload'] as const).map(m => (
+                  <button key={m} onClick={() => setVoiceMode(m)}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition ${voiceMode === m ? 'bg-emerald-500/20 text-emerald-400' : 'text-gray-500 hover:text-gray-300'}`}>
+                    {m === 'clone' ? '🎙️ 声音克隆' : '📁 直传音频'}
+                  </button>
+                ))}
+              </div>
+
+              {/* 声音克隆 */}
+              {voiceMode === 'clone' && !voiceId && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[10px] text-gray-500 mb-2">🔴 录音（10-20 秒朗读任意文字）</p>
+                    {!isRecording && !recordedBlob && (
+                      <button onClick={startRecord}
+                        className="px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg text-xs hover:bg-red-500/30 transition">
+                        🎤 开始录音
+                      </button>
+                    )}
+                    {isRecording && (
+                      <div className="flex items-center gap-3">
+                        <span className="animate-pulse text-red-400 text-xs">🔴 录音中 {(recordTime / 5).toFixed(1)}s</span>
+                        <button onClick={stopRecord} className="px-3 py-1 bg-white/10 text-white rounded-lg text-xs">⏹ 停止</button>
+                      </div>
+                    )}
+                    {recordedBlob && !isRecording && (
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-gray-400">已录制 {(recordTime / 5).toFixed(1)}s</span>
+                        <audio src={URL.createObjectURL(recordedBlob)} controls className="h-7 w-32" />
+                        <button onClick={() => { setRecordedBlob(null); setRecordTime(0) }}
+                          className="text-[10px] text-gray-500 hover:text-red-400">重录</button>
+                        <button onClick={() => doVoiceEnroll(new File([recordedBlob], 'sample.wav', { type: 'audio/wav' }))}
+                          disabled={voiceEnrolling}
+                          className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs hover:bg-emerald-500/30 disabled:opacity-50 transition">
+                          {voiceEnrolling ? '注册中...' : '注册声音'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 mb-2">📁 或上传音频样本（mp3/wav，10-60秒）</p>
+                    <input type="file" accept="audio/mpeg,audio/wav" className="hidden" id="voice-upload"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) doVoiceEnroll(f) }} />
+                    <label htmlFor="voice-upload"
+                      className="inline-block px-3 py-1.5 bg-white/5 border border-white/10 text-gray-400 rounded-lg text-xs cursor-pointer hover:border-white/20 transition">
+                      📎 选择文件
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {voiceMode === 'clone' && voiceId && (
+                <div className="text-xs text-emerald-400">
+                  ✅ 声音已克隆（ID: {voiceId.substring(0, 8)}...）
+                  <button onClick={() => { setVoiceId(''); localStorage.removeItem('dh_voice_id') }}
+                    className="ml-3 text-gray-500 hover:text-red-400">清除</button>
+                </div>
+              )}
+
+              {/* 直传音频 */}
+              {voiceMode === 'upload' && (
+                <div className="max-w-xs">
+                  <p className="text-[10px] text-gray-500 mb-1.5">上传配音文件（mp3/wav）</p>
+                  <label className="block border-2 border-dashed border-white/10 rounded-xl p-4 text-center cursor-pointer hover:border-blue-400/30 transition">
+                    {customAudio ? (
+                      <p className="text-xs text-emerald-400">✅ {customAudio.name}（{(customAudio.size / 1024 / 1024).toFixed(1)}MB）</p>
+                    ) : (
+                      <p className="text-xs text-gray-500">点击上传</p>
+                    )}
+                    <input type="file" accept="audio/mpeg,audio/wav,audio/mp3" className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0]
+                        if (!f) return
+                        if (f.size > 15 * 1024 * 1024) { showToast('音频≤15MB', 'error'); return }
+                        setCustomAudio(f)
+                      }} />
+                  </label>
+                  <p className="text-[9px] text-gray-600 mt-1">mp3/wav，≤15MB，最长3分钟</p>
+                </div>
+              )}
+            </div>
+          </>
         )}
 
-        {/* 文案（仅公共模式） */}
-        {tab === 'preset' && (
+        {/* 文案（公共模式 or 定制克隆模式） */}
+        {((tab === 'preset') || (tab === 'custom' && voiceMode === 'clone' && voiceId)) && (
           <div className="card-glass p-5 mb-4">
-            <h3 className="text-xs text-gray-400 mb-3">口播文案</h3>
+            <h3 className="text-xs text-gray-400 mb-3">
+              {tab === 'custom' ? '口播文案（将用你的克隆声音朗读）' : '口播文案'}
+            </h3>
             <textarea value={text} onChange={e => setText(e.target.value)}
               placeholder="输入数字人要说的内容..."
               rows={4}
@@ -190,10 +362,15 @@ export default function DigitalHumanPage() {
           </div>
         )}
 
-        {/* 提示（自定义模式） */}
-        {tab === 'custom' && (
+        {/* 提示（自定义直传模式） */}
+        {tab === 'custom' && voiceMode === 'upload' && (
           <div className="card-glass p-4 mb-4 text-center">
-            <p className="text-xs text-gray-500">🎤 自定义模式直接使用你上传的音频驱动口播，请提前录制好配音</p>
+            <p className="text-xs text-gray-500">🎤 直接使用你上传的音频驱动口播</p>
+          </div>
+        )}
+        {tab === 'custom' && voiceMode === 'clone' && !voiceId && (
+          <div className="card-glass p-4 mb-4 text-center">
+            <p className="text-xs text-gray-500">🎙️ 请先录音或上传声音样本完成注册</p>
           </div>
         )}
 

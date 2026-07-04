@@ -1756,3 +1756,61 @@ export async function digitalHuman(text: string, _avatar = 'default'): Promise<{
 export async function isAIConfigured(): Promise<boolean> {
   return !!(process.env.DASHSCOPE_API_KEY || process.env.VOLCANO_API_KEY || process.env.SILICONFLOW_API_KEY);
 }
+
+// ===================== CosyVoice 声音克隆 =====================
+
+const COSY_BASE = 'https://dashscope.aliyuncs.com/api/v1/services/audio/tts'
+
+/** 注册声音：上传10-20秒音频 → 返回 voice_id */
+async function dashscopeVoiceEnroll(audioUrl: string, prefix = ''): Promise<{ voiceId: string } | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  try {
+    const body = {
+      model: 'voice-enrollment',
+      input: { action: 'create_voice', target_model: 'cosyvoice-v1', prefix: prefix || `dh_${Date.now()}`, url: audioUrl },
+    }
+    console.log('[CosyVoice] 注册声音, audio_url:', audioUrl.substring(0, 80))
+    const data = await fetchJSON(`${COSY_BASE}/customization`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body,
+    })
+    const voiceId = data?.output?.voice_id || data?.output?.result?.voice_id
+    if (!voiceId) { console.error('[CosyVoice] 注册失败:', JSON.stringify(data).substring(0, 300)); return null }
+    console.log('[CosyVoice] 注册成功, voiceId:', voiceId)
+    return { voiceId }
+  } catch (e) { console.error('[CosyVoice] 注册异常:', e); return null }
+}
+
+/** 用克隆的声音合成文字→音频（返回音频URL） */
+async function dashscopeVoiceSynthesize(voiceId: string, text: string, ): Promise<{ audioUrl: string } | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  try {
+    const body = {
+      model: 'cosyvoice-v1',
+      input: { text },
+      parameters: { voice: voiceId, format: 'mp3' },
+    }
+    console.log('[CosyVoice] 语音合成, voiceId:', voiceId, 'textLen:', text.length)
+    const data = await fetchJSON(`${COSY_BASE}/synthesis`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body,
+    })
+    // 返回可能是直接音频 URL 或需要再查询
+    const audioUrl = data?.output?.audio_url || data?.output?.url || data?.output?.result?.audio_url
+    if (!audioUrl) { console.error('[CosyVoice] 合成失败:', JSON.stringify(data).substring(0, 300)); return null }
+    console.log('[CosyVoice] 合成成功, urlLen:', audioUrl.length)
+    return { audioUrl }
+  } catch (e) { console.error('[CosyVoice] 合成异常:', e); return null }
+}
+
+export async function enrollVoice(audioUrl: string, prefix?: string) {
+  return dashscopeVoiceEnroll(audioUrl, prefix)
+}
+
+export async function synthesizeVoiceTTS(voiceId: string, text: string) {
+  return dashscopeVoiceSynthesize(voiceId, text)
+}

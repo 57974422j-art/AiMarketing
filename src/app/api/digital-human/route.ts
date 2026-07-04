@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createDigitalHuman, queryDigitalHumanTask, generateDigitalHumanVideo } from '@/lib/ai-providers'
+import { createDigitalHuman, queryDigitalHumanTask, generateDigitalHumanVideo, enrollVoice, synthesizeVoiceTTS } from '@/lib/ai-providers'
 import { writeFile, mkdir, unlink } from 'fs/promises'
 import { join } from 'path'
 import { existsSync } from 'fs'
@@ -57,32 +57,36 @@ export async function POST(request: NextRequest) {
       const fd = await request.formData()
       const img = fd.get('image') as File | null
       const aud = fd.get('audio') as File | null
-      if (!img || !aud) return NextResponse.json({ success: false, message: '请上传照片和音频' }, { status: 400 })
+      const audUrl = fd.get('audio_url') as string | null
+      if (!img) return NextResponse.json({ success: false, message: '请上传照片' }, { status: 400 })
+      if (!aud && !audUrl) return NextResponse.json({ success: false, message: '请上传音频或提供音频URL' }, { status: 400 })
 
-      // 保存到临时目录
       const tmpDir = join(process.cwd(), 'temp')
       if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true })
-      const tmpImg = join(tmpDir, `img_${Date.now()}`)
-      const tmpAud = join(tmpDir, `aud_${Date.now()}`)
-      const tmpAudOut = join(tmpDir, `aud_${Date.now()}.mp3`)
-      await writeFile(tmpImg, new Uint8Array(await img.arrayBuffer()))
-      await writeFile(tmpAud, new Uint8Array(await aud.arrayBuffer()))
 
-      // ffmpeg 转 jpg + mp3
+      // 图片
+      const tmpImg = join(tmpDir, `img_${Date.now()}`)
+      await writeFile(tmpImg, new Uint8Array(await img.arrayBuffer()))
       execSync(`ffmpeg -y -i ${tmpImg} ${tmpImg}.jpg 2>/dev/null`)
       const imgUrl = await uploadOSS(tmpImg + '.jpg', 'jpg')
-
-      // 转 mp3
-      execSync(`ffmpeg -y -i ${tmpAud} -codec:a libmp3lame -q:a 2 ${tmpAudOut} 2>/dev/null`)
-      const audUrl = await uploadOSS(tmpAudOut, 'mp3')
-
-      // 清理
       await unlink(tmpImg).catch(() => {})
-      await unlink(tmpImg + '.jpg').catch(() => {})
-      await unlink(tmpAud).catch(() => {})
-      await unlink(tmpAudOut).catch(() => {})
 
-      const r = await createDigitalHuman(audUrl, imgUrl)
+      // 音频：克隆合成URL or 直传文件
+      let finalAudUrl: string
+      if (audUrl) {
+        finalAudUrl = audUrl
+      } else {
+        const tmpAud = join(tmpDir, `aud_${Date.now()}`)
+        const tmpAudOut = join(tmpDir, `aud_${Date.now()}.mp3`)
+        await writeFile(tmpAud, new Uint8Array(await aud!.arrayBuffer()))
+        execSync(`ffmpeg -y -i ${tmpAud} -codec:a libmp3lame -q:a 2 ${tmpAudOut} 2>/dev/null`)
+        finalAudUrl = await uploadOSS(tmpAudOut, 'mp3')
+        await unlink(tmpAud).catch(() => {})
+        await unlink(tmpAudOut).catch(() => {})
+      }
+      await unlink(tmpImg + '.jpg').catch(() => {})
+
+      const r = await createDigitalHuman(finalAudUrl, imgUrl)
       return r ? NextResponse.json({ success: true, taskId: r.taskId }) : NextResponse.json({ success: false, message: '提交失败' }, { status: 500 })
     }
 
@@ -120,6 +124,32 @@ export async function POST(request: NextRequest) {
       if (!taskId) return NextResponse.json({ success: false, message: '缺少 taskId' }, { status: 400 })
       const r = await queryDigitalHumanTask(taskId)
       return NextResponse.json({ success: true, ...r })
+    }
+
+    // 声音注册（克隆）
+    if (action === 'voice-enroll') {
+      const { audioUrl, prefix } = body
+      if (!audioUrl) return NextResponse.json({ success: false, message: '缺少音频URL' }, { status: 400 })
+      const r = await enrollVoice(audioUrl, prefix || `user_${auth.userId}`)
+      return r ? NextResponse.json({ success: true, voiceId: r.voiceId }) : NextResponse.json({ success: false, message: '声音注册失败' }, { status: 500 })
+    }
+
+    // 用克隆声音合成音频
+    if (action === 'voice-synthesize') {
+      const { voiceId, text } = body
+      if (!voiceId || !text) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
+      const r = await synthesizeVoiceTTS(voiceId, text)
+      if (!r) return NextResponse.json({ success: false, message: '合成失败' }, { status: 500 })
+      // 下载合成的音频并上传到OSS（因为合成返回的URL可能是临时的）
+      const resp = await fetch(r.audioUrl)
+      if (!resp.ok) return NextResponse.json({ success: false, message: '下载合成音频失败' }, { status: 502 })
+      const tmpDir = join(process.cwd(), 'temp')
+      if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true })
+      const tmp = join(tmpDir, `tts_${Date.now()}.mp3`)
+      await writeFile(tmp, new Uint8Array(await resp.arrayBuffer()))
+      const audUrl = await uploadOSS(tmp, 'mp3')
+      await unlink(tmp).catch(() => {})
+      return NextResponse.json({ success: true, audioUrl: audUrl })
     }
 
     // 转存视频到本地
