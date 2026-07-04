@@ -59,9 +59,11 @@ export default function DigitalHumanPage() {
   }, [taskId])
 
   const generate = async () => {
-    if (!text.trim()) { showToast('请输入口播文案', 'error'); return }
-    // 文案长度校验（中文约3字/秒，3分钟=540字上限）
-    if (text.length > 540) { showToast(`文案过长：${text.length}字，最多540字（约3分钟）`, 'error'); return }
+    // 校验
+    if (tab === 'preset') {
+      if (!text.trim()) { showToast('请输入口播文案', 'error'); return }
+      if (text.length > 540) { showToast(`文案过长：${text.length}字，最多540字（约3分钟）`, 'error'); return }
+    }
     setLoading(true)
 
     try {
@@ -173,18 +175,27 @@ export default function DigitalHumanPage() {
           </div>
         )}
 
-        {/* 文案 */}
-        <div className="card-glass p-5 mb-4">
-          <h3 className="text-xs text-gray-400 mb-3">口播文案</h3>
-          <textarea value={text} onChange={e => setText(e.target.value)}
-            placeholder="输入数字人要说的内容..."
-            rows={4}
-            className="input-dark w-full rounded-xl px-4 py-3 text-sm resize-none" />
-          <div className="flex justify-between mt-1">
-            <span className="text-[9px] text-gray-600">约 {Math.round(text.length / 3)} 秒 · 上限540字（≈3分钟）</span>
-            <span className={`text-[9px] font-mono ${text.length > 500 ? 'text-yellow-400' : text.length > 540 ? 'text-red-400' : 'text-gray-600'}`}>{text.length}/540</span>
+        {/* 文案（仅公共模式） */}
+        {tab === 'preset' && (
+          <div className="card-glass p-5 mb-4">
+            <h3 className="text-xs text-gray-400 mb-3">口播文案</h3>
+            <textarea value={text} onChange={e => setText(e.target.value)}
+              placeholder="输入数字人要说的内容..."
+              rows={4}
+              className="input-dark w-full rounded-xl px-4 py-3 text-sm resize-none" />
+            <div className="flex justify-between mt-1">
+              <span className="text-[9px] text-gray-600">约 {Math.round(text.length / 3)} 秒 · 上限540字（≈3分钟）</span>
+              <span className={`text-[9px] font-mono ${text.length > 500 ? 'text-yellow-400' : text.length > 540 ? 'text-red-400' : 'text-gray-600'}`}>{text.length}/540</span>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* 提示（自定义模式） */}
+        {tab === 'custom' && (
+          <div className="card-glass p-4 mb-4 text-center">
+            <p className="text-xs text-gray-500">🎤 自定义模式直接使用你上传的音频驱动口播，请提前录制好配音</p>
+          </div>
+        )}
 
         {/* 生成按钮 */}
         <button onClick={generate} disabled={loading || !!taskId}
