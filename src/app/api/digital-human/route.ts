@@ -83,6 +83,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, ...r })
     }
 
+    // 转存视频到本地存储
+    if (action === 'save') {
+      const { videoUrl, title } = body
+      if (!videoUrl) return NextResponse.json({ success: false, message: '缺少视频URL' }, { status: 400 })
+      try {
+        // 下载视频
+        const resp = await fetch(videoUrl)
+        if (!resp.ok) return NextResponse.json({ success: false, message: '下载视频失败' }, { status: 400 })
+        const buf = new Uint8Array(await resp.arrayBuffer())
+        const dir = join(process.cwd(), 'public', 'media')
+        if (!existsSync(dir)) await mkdir(dir, { recursive: true })
+        const fn = `dh_${Date.now()}.mp4`
+        await writeFile(join(dir, fn), buf)
+        const host = request.headers.get('host') || 'localhost:3000'
+        const localUrl = `http://${host}/media/${fn}`
+
+        // 写入素材库
+        const asset = await prisma.mediaAsset.create({
+          data: { title: title || '数字人口播', url: localUrl, type: 'video', ownerId: auth.id },
+        })
+        return NextResponse.json({ success: true, id: asset.id, url: localUrl })
+      } catch (e: any) {
+        console.error('[数字人转存]', e)
+        return NextResponse.json({ success: false, message: e.message }, { status: 500 })
+      }
+    }
+
     if (action === 'generate') {
       const { avatarId, text } = body
       if (!avatarId || !text) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })

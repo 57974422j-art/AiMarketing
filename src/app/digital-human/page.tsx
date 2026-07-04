@@ -181,7 +181,27 @@ export default function DigitalHumanPage() {
         {resultUrl && (
           <div className="card-glass p-5 mt-4">
             <h3 className="text-xs text-gray-400 mb-3">✅ 生成结果</h3>
-            <video src={resultUrl} controls className="w-full rounded-xl max-h-96" />
+            <video src={resultUrl} controls className="w-full rounded-xl max-h-96 mb-3" />
+            <div className="flex gap-2">
+              <a href={resultUrl} download target="_blank"
+                className="px-3 py-1.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-lg text-xs hover:bg-blue-500/30 transition">
+                ⬇ 下载
+              </a>
+              <button onClick={async () => {
+                try {
+                  const r = await fetch('/api/digital-human', {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save', videoUrl: resultUrl, title: `数字人口播_${new Date().toLocaleDateString()}` }),
+                  })
+                  const d = await r.json()
+                  d.success ? showToast('已存到素材库', 'success') : showToast(d.message, 'error')
+                } catch { showToast('保存失败', 'error') }
+              }}
+                className="px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs hover:bg-emerald-500/30 transition">
+                💾 存到素材库
+              </button>
+            </div>
           </div>
         )}
         {taskId && (
