@@ -58,9 +58,31 @@ export async function POST(request: NextRequest) {
       const img = fd.get('image') as File | null
       const aud = fd.get('audio') as File | null
       if (!img || !aud) return NextResponse.json({ success: false, message: '请上传照片和音频' }, { status: 400 })
-      const iu = await uploadOSS(img, 'png')
-      const au = await uploadOSS(aud, 'mp3')
-      const r = await createDigitalHuman(au, iu)
+
+      // 保存到临时目录
+      const tmpDir = join(process.cwd(), 'temp')
+      if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true })
+      const tmpImg = join(tmpDir, `img_${Date.now()}`)
+      const tmpAud = join(tmpDir, `aud_${Date.now()}`)
+      const tmpAudOut = join(tmpDir, `aud_${Date.now()}.mp3`)
+      await writeFile(tmpImg, new Uint8Array(await img.arrayBuffer()))
+      await writeFile(tmpAud, new Uint8Array(await aud.arrayBuffer()))
+
+      // ffmpeg 转 jpg + mp3
+      execSync(`ffmpeg -y -i ${tmpImg} ${tmpImg}.jpg 2>/dev/null`)
+      const imgUrl = await uploadOSS(tmpImg + '.jpg', 'jpg')
+
+      // 转 mp3
+      execSync(`ffmpeg -y -i ${tmpAud} -codec:a libmp3lame -q:a 2 ${tmpAudOut} 2>/dev/null`)
+      const audUrl = await uploadOSS(tmpAudOut, 'mp3')
+
+      // 清理
+      await unlink(tmpImg).catch(() => {})
+      await unlink(tmpImg + '.jpg').catch(() => {})
+      await unlink(tmpAud).catch(() => {})
+      await unlink(tmpAudOut).catch(() => {})
+
+      const r = await createDigitalHuman(audUrl, imgUrl)
       return r ? NextResponse.json({ success: true, taskId: r.taskId }) : NextResponse.json({ success: false, message: '提交失败' }, { status: 500 })
     }
 
