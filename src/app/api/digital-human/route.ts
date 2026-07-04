@@ -12,12 +12,12 @@ export const runtime = 'nodejs'
 const prisma = new PrismaClient()
 
 function ossClient() {
-  if (!process.env.OSS_ACCESS_KEY_ID || !process.env.OSS_BUCKET) throw new Error('OSS未配置')
+  if (!process.env.OSS_ACCESS_KEY_ID || !process.env.OSS_ACCESS_KEY_SECRET || !process.env.OSS_BUCKET) throw new Error('OSS未配置')
   return new OSS({
     region: process.env.OSS_REGION || 'oss-cn-hangzhou',
-    accessKeyId: process.env.OSS_ACCESS_KEY_ID,
-    accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET,
-    bucket: process.env.OSS_BUCKET,
+    accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
+    accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
+    bucket: process.env.OSS_BUCKET!,
     secure: true, timeout: 300000,
   })
 }
