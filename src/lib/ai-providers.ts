@@ -790,6 +790,7 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
 
     // 尝试多种可能的 video_url 字段
     const videoUrl = data?.output?.video_url
+      || data?.output?.results?.video_url
       || data?.output?.results?.[0]?.url
       || data?.output?.result?.video_url
       || data?.output?.output?.video_url
