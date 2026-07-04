@@ -10,26 +10,26 @@ import { PrismaClient } from '@prisma/client'
 export const runtime = 'nodejs'
 const prisma = new PrismaClient()
 
-/** 保存到 public/uploads/ */
+/** 保存到 public/dh/（uploads PNG被Next拦截，dh目录正常） */
 async function saveToPublic(file: File, ext: string, request: NextRequest, prefix = ''): Promise<string> {
-  const dir = join(process.cwd(), 'public', 'uploads')
+  const dir = join(process.cwd(), 'public', 'dh')
   if (!existsSync(dir)) await mkdir(dir, { recursive: true })
   const fn = `${prefix}${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`
   await writeFile(join(dir, fn), new Uint8Array(await file.arrayBuffer()))
   const host = request.headers.get('host') || 'localhost:3000'
-  return `http://${host}/uploads/${fn}`
+  return `http://${host}/dh/${fn}`
 }
 
 /** TTS 文本→MP3 */
 function synthesizeTTS(text: string, request: NextRequest): string {
-  const dir = join(process.cwd(), 'public', 'uploads')
+  const dir = join(process.cwd(), 'public', 'dh')
   if (!existsSync(dir)) { require('fs').mkdirSync(dir, { recursive: true }) }
   const fn = `tts_${Date.now()}.mp3`
   const out = join(dir, fn)
   const safe = text.replace(/["$'`\\]/g, '')
   execSync(`edge-tts --voice zh-CN-XiaoxiaoNeural --text "${safe}" --write-media ${out}`, { timeout: 30000, shell: '/bin/bash' })
   const host = request.headers.get('host') || 'localhost:3000'
-  return `http://${host}/uploads/${fn}`
+  return `http://${host}/dh/${fn}`
 }
 
 export async function POST(request: NextRequest) {
@@ -91,12 +91,12 @@ export async function POST(request: NextRequest) {
         const resp = await fetch(videoUrl)
         if (!resp.ok) return NextResponse.json({ success: false, message: '下载视频失败' }, { status: 400 })
         const buf = Buffer.from(await resp.arrayBuffer())
-        const dir = join(process.cwd(), 'public', 'media')
+        const dir = join(process.cwd(), 'public', 'dh')
         if (!existsSync(dir)) await mkdir(dir, { recursive: true })
-        const fn = `dh_${Date.now()}.mp4`
+        const fn = `save_${Date.now()}.mp4`
         await writeFile(join(dir, fn), buf)
         const host = request.headers.get('host') || 'localhost:3000'
-        const localUrl = `http://${host}/media/${fn}`
+        const localUrl = `http://${host}/dh/${fn}`
 
         // 写入素材库
         await prisma.mediaAsset.create({
