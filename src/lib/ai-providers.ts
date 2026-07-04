@@ -905,7 +905,10 @@ async function dashscopeQueryDigitalHumanTask(taskId: string): Promise<{
     });
     const status = data?.output?.task_status || data?.output?.status || 'unknown';
     const progress = data?.output?.task_progress ?? data?.output?.progress ?? 0;
-    const avatarUrl = data?.output?.avatar_id || data?.output?.result?.avatar_id || data?.output?.avatar_url;
+    const avatarUrl = data?.output?.results?.video_url
+      || data?.output?.video_url
+      || data?.output?.results?.[0]?.url
+      || data?.output?.result?.video_url;
     return { status, progress, avatarUrl };
   } catch (e) {
     console.error('[千寻] 查询任务失败:', e);
