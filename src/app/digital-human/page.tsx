@@ -126,7 +126,7 @@ export default function DigitalHumanPage() {
       const r = await fetch('/api/digital-human', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'voice-enroll', audioUrl: upData.url, prefix: `u${user?.userId || 0}` }),
+        body: JSON.stringify({ action: 'voice-enroll', audioUrl: upData.url, prefix: `u${user?.id || 0}` }),
       })
       const d = await r.json()
       if (d.success) {
