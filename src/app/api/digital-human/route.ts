@@ -83,15 +83,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, ...r })
     }
 
-    // 转存视频到本地存储
+    // 转存视频到本地个人仓库
     if (action === 'save') {
       const { videoUrl, title } = body
       if (!videoUrl) return NextResponse.json({ success: false, message: '缺少视频URL' }, { status: 400 })
       try {
-        // 下载视频
         const resp = await fetch(videoUrl)
         if (!resp.ok) return NextResponse.json({ success: false, message: '下载视频失败' }, { status: 400 })
-        const buf = new Uint8Array(await resp.arrayBuffer())
+        const buf = Buffer.from(await resp.arrayBuffer())
         const dir = join(process.cwd(), 'public', 'media')
         if (!existsSync(dir)) await mkdir(dir, { recursive: true })
         const fn = `dh_${Date.now()}.mp4`
@@ -100,10 +99,10 @@ export async function POST(request: NextRequest) {
         const localUrl = `http://${host}/media/${fn}`
 
         // 写入素材库
-        const asset = await prisma.mediaAsset.create({
-          data: { title: title || '数字人口播', url: localUrl, type: 'video', ownerId: auth.id },
+        await prisma.mediaAsset.create({
+          data: { title: title || '数字人口播', url: localUrl, type: 'video', ownerId: auth.userId },
         })
-        return NextResponse.json({ success: true, id: asset.id, url: localUrl })
+        return NextResponse.json({ success: true, url: localUrl })
       } catch (e: any) {
         console.error('[数字人转存]', e)
         return NextResponse.json({ success: false, message: e.message }, { status: 500 })
