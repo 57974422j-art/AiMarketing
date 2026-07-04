@@ -1774,7 +1774,7 @@ async function dashscopeVoiceEnroll(audioUrl: string, prefix = ''): Promise<{ vo
     const data = await fetchJSON(`${COSY_BASE}/customization`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body,
+      body: JSON.stringify(body),
     })
     const voiceId = data?.output?.voice_id || data?.output?.result?.voice_id
     if (!voiceId) { console.error('[CosyVoice] 注册失败:', JSON.stringify(data).substring(0, 300)); return null }
@@ -1797,7 +1797,7 @@ async function dashscopeVoiceSynthesize(voiceId: string, text: string, ): Promis
     const data = await fetchJSON(`${COSY_BASE}/synthesis`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body,
+      body: JSON.stringify(body),
     })
     // 返回可能是直接音频 URL 或需要再查询
     const audioUrl = data?.output?.audio_url || data?.output?.url || data?.output?.result?.audio_url
