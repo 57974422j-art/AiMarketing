@@ -10,7 +10,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace('/workspace')
+      router.replace('/agent')
     }
   }, [user, loading, router])
 

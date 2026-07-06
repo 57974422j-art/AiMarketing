@@ -13,10 +13,12 @@ interface Message {
 }
 
 const SUGGESTIONS = [
-  { icon: '✍️', label: '写文案', text: '帮我写个口红推广文案' },
-  { icon: '🎨', label: '生成海报', text: '生成一张产品海报图' },
-  { icon: '🎬', label: '做视频', text: '做一个护肤品的短视频' },
-  { icon: '🤖', label: '数字人', text: '数字人怎么用？' },
+  '帮我写一个文案',
+  '帮我做一个海报',
+  '帮我做一个视频',
+  '帮我发一个抖音',
+  '帮我做一个数字人口播',
+  '帮我分析一下竞品',
 ]
 
 export default function AgentPage() {
@@ -165,12 +167,11 @@ export default function AgentPage() {
                 <p className="text-xs text-gray-500 text-center mb-8 max-w-xs">
                   文案创作 · 图片视频 · 数字人口播 · 素材管理
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-w-xl w-full">
+                <div className="flex flex-wrap justify-center gap-2 max-w-xl w-full">
                   {SUGGESTIONS.map((s, i) => (
-                    <button key={i} onClick={() => sendMessage(s.text)}
-                      className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-blue-500/20 transition-all group">
-                      <span className="text-lg group-hover:scale-110 transition-transform">{s.icon}</span>
-                      <span className="text-[10px] text-gray-400 group-hover:text-gray-200">{s.label}</span>
+                    <button key={i} onClick={() => sendMessage(s)}
+                      className="px-4 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-emerald-500/20 text-xs text-gray-400 hover:text-gray-200 transition-all">
+                      {s}
                     </button>
                   ))}
                 </div>
