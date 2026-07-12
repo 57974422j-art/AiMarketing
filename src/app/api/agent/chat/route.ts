@@ -252,7 +252,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     case 'automation_check': {
       try {
         const tasks = await prisma.automationTask.findMany({
-          where: auth?.userId ? { ownerId: auth.userId } : {},
+          where: auth?.userId ? { createdBy: auth.userId } : {},
           orderBy: { createdAt: 'desc' }, take: 5,
         })
         if (tasks.length) {
