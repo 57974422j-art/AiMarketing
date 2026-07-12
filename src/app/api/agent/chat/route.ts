@@ -243,7 +243,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           take: 5,
         })
         if (!accts.length) return `PUBLISH_NEED_LOGIN:你还没有绑定${args.platform || ''}账号。请先去【账号管理】页面绑定账号，支持：1.指纹浏览器模拟登录 2.真手机接入 3.魔云腾发布。绑好后跟我说，我帮你一键发布！`
-        const list = accts.map(a => `- ${a.nickname || a.username} (${a.platform})`).join('\n')
+        const list = accts.map(a => `- ${a.username} (${a.platform})`).join('\n')
         return `PUBLISH_READY:你已绑定以下账号:\n${list}\n\n确认用哪个账号发布？回复我即可执行。`
       } catch { return 'PUBLISH_READY:账号查询失败' }
     }
