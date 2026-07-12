@@ -890,3 +890,25 @@ model ScriptDiagnosis {
   ownerId     Int?
 }
 
+// Agent 聊天会话 + 消息
+model ChatSession {
+  id        Int           @id @default(autoincrement())
+  title     String        @default("新对话")
+  userId    Int
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  user      User          @relation(fields: [userId], references: [id])
+  messages  ChatMessage[]
+}
+
+model ChatMessage {
+  id        Int         @id @default(autoincrement())
+  sessionId Int
+  role      String
+  content   String      @db.Text
+  toolUsed  Boolean     @default(false)
+  intent    String?
+  createdAt DateTime    @default(now())
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
