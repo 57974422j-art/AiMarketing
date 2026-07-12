@@ -71,6 +71,7 @@ model User {
   collectionTasks         CollectionTask[]
   liveRooms               LiveRoom[]
   subscriptions           UserSubscription[]
+  chatSessions            ChatSession[]
 }
 
 model DevicePool {
@@ -905,7 +906,7 @@ model ChatMessage {
   id        Int         @id @default(autoincrement())
   sessionId Int
   role      String
-  content   String      @db.Text
+  content   String
   toolUsed  Boolean     @default(false)
   intent    String?
   createdAt DateTime    @default(now())
