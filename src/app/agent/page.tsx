@@ -218,7 +218,7 @@ export default function AgentPage() {
       {/* Header */}
       <header className="relative z-10 h-14 border-b border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80 flex items-center px-3 sm:px-4 shrink-0">
         <button onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center">
+          className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center lg:hidden">
           <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
         <div className="flex items-center gap-2 ml-3">
@@ -230,7 +230,10 @@ export default function AgentPage() {
             <p className="text-[9px] text-emerald-400">在线</p>
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1.5">
+          <a href="/workspace" className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-gray-200 transition" title="工具箱">
+            工具箱
+          </a>
           <button onClick={newChat} className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center" title="新对话">
             <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
           </button>
@@ -239,7 +242,34 @@ export default function AgentPage() {
 
       <div className="flex-1 flex overflow-hidden relative z-10">
         {/* 侧边栏 */}
-        <aside className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} fixed z-20 left-0 top-14 bottom-0 w-64 border-r border-white/5 backdrop-blur-xl bg-[#0a0a0f]/95 transition-transform duration-300 flex flex-col`}>
+        {/* 桌面端常驻侧边栏 */}
+        <aside className="hidden lg:flex w-56 border-r border-white/5 backdrop-blur-xl bg-[#0a0a0f]/90 flex-col shrink-0">
+          <div className="p-3 border-b border-white/5">
+            <button onClick={newChat}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-gray-300 transition">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
+              新对话
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+            <p className="text-[10px] text-gray-600 px-2 py-1">对话历史</p>
+            {sessions.length === 0 ? (
+              <p className="text-[10px] text-gray-700 px-2 py-2">暂无对话</p>
+            ) : (
+              sessions.map(s => (
+                <button key={s.id} onClick={() => switchSession(s.id)}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-[10px] truncate transition ${sessionId === s.id ? 'bg-white/10 text-gray-200' : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'}`}>
+                  {s.title}
+                </button>
+              ))
+            )}
+          </div>
+          <div className="p-3 border-t border-white/5">
+            <p className="text-[9px] text-gray-600 text-center">{user?.username}</p>
+          </div>
+        </aside>
+        {/* 移动端浮层侧边栏 */}
+        <aside className={`lg:hidden ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} fixed z-20 left-0 top-14 bottom-0 w-64 border-r border-white/5 backdrop-blur-xl bg-[#0a0a0f]/95 transition-transform duration-300 flex flex-col`}>
           <div className="p-3 border-b border-white/5">
             <button onClick={newChat}
               className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-gray-300 transition">
