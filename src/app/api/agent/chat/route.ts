@@ -239,7 +239,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     case 'publish_content': {
       try {
         const accts = await prisma.socialAccount.findMany({
-          where: auth?.userId ? { ownerId: auth.userId, platform: args.platform } : { platform: args.platform },
+          where: auth?.userId ? { userId: auth.userId, platform: args.platform || '抖音' } : { platform: args.platform || '抖音' },
           take: 5,
         })
         if (!accts.length) return `PUBLISH_NEED_LOGIN:你还没有绑定${args.platform || ''}账号。请先去【账号管理】页面绑定账号，支持：1.指纹浏览器模拟登录 2.真手机接入 3.魔云腾发布。绑好后跟我说，我帮你一键发布！`
