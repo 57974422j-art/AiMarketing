@@ -49,7 +49,7 @@ export default function AdminPromptTemplatesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   // 批量操作状态
-  const [busy, setBusy] = useState({ fetch: false, imgPreview: false, vidPreview: false, genDigital: false, preseeding: false })
+  const [busy, setBusy] = useState({ fetch: false, imgPreview: false, vidPreview: false, genDigital: false, preseeding: false, aishort: false })
   const [progress, setProgress] = useState({ show: false, text: '' })
 
   // 生成控制参数
@@ -160,6 +160,19 @@ export default function AdminPromptTemplatesPage() {
     finally { setBusy(p => ({ ...p, fetch: false })) }
   }
 
+  // ===== AiShort 导入 =====
+  const handleAIShort = async () => {
+    if (!confirm('从 AiShort 导入中文提示词（约800条）？')) return
+    setBusy(p => ({ ...p, aishort: true }))
+    try {
+      const r = await fetch('/api/seed-from-aishort', { method: 'POST', credentials: 'include' })
+      const d = await r.json()
+      showToast(d.message, d.success ? 'success' : 'error')
+      if (d.success) loadItems()
+    } catch { showToast('导入失败', 'error') }
+    finally { setBusy(p => ({ ...p, aishort: false })) }
+  }
+
   // ===== 批量生成 =====
   const runBatch = async (endpoint: string, mode: 'imgPreview' | 'vidPreview') => {
     const targetIds = selectedIds.size > 0 ? Array.from(selectedIds) : null
@@ -266,6 +279,7 @@ export default function AdminPromptTemplatesPage() {
             <button onClick={() => handleFetch('video')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🎬 抓取文生视频'}</button>
             <button onClick={() => handleFetch('scene')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🏞️ 抓取场景'}</button>
             <button onClick={handlePreseed} disabled={busy.preseeding} className="btn-secondary text-xs py-2">{busy.preseeding ? '填充中' : '📦 预设'}</button>
+            <button onClick={handleAIShort} disabled={busy.aishort} className="btn-secondary text-xs py-2">{busy.aishort ? '导入中' : '📥 导入AiShort'}</button>
             <button onClick={openCreate} className="btn-primary text-xs py-2">+ 新建</button>
           </div>
         </div>
