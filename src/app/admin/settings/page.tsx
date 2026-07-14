@@ -91,6 +91,11 @@ export default function SettingsPage() {
   // ====== 海外API代理 ======
   const [overseasProxy, setOverseasProxy] = useState('')
 
+  // ====== Gemini API ======
+  const [geminiKey, setGeminiKey] = useState('')
+  const [showGeminiKey, setShowGeminiKey] = useState(false)
+  const [geminiBaseUrl, setGeminiBaseUrl] = useState('')
+
   // ====== 客服设置 ======
   const [serviceQrcode, setServiceQrcode] = useState('')
   const [serviceSaving, setServiceSaving] = useState(false)
@@ -136,6 +141,9 @@ export default function SettingsPage() {
       setGiphyKey(d.giphyConfigured ? '********' : '')
       // 海外API代理
       setOverseasProxy(d.overseasProxy || '')
+      // Gemini
+      setGeminiKey(d.geminiConfigured ? '********' : '')
+      setGeminiBaseUrl(d.geminiBaseUrl || '')
 
       // 客服设置
       try {
@@ -188,6 +196,8 @@ export default function SettingsPage() {
           pixabayKey: mask(pixabayKey),
           giphyKey: mask(giphyKey),
           overseasProxy: overseasProxy || undefined,
+          geminiKey: mask(geminiKey),
+          geminiBaseUrl: geminiBaseUrl || undefined,
         }),
       })
       const result = await res.json()
@@ -404,6 +414,39 @@ export default function SettingsPage() {
               />
               <p className="text-[10px] text-gray-600 mt-1 font-mono">
                 CF Worker 代理地址，用于 GIPHY / Gemini 等海外 API。格式: https://xxx.com
+              </p>
+            </div>
+
+            {/* Gemini API */}
+            <div className="border-t border-white/5 my-3"></div>
+            <div className="space-y-3">
+              <label className="block text-label">
+                <span>🤖 Gemini API</span>
+                <span className="ml-2 text-[10px] text-gray-500">（趋势猎手 / AI 搜索 / 图文分析）</span>
+                {geminiKey && <span className="ml-2 text-xs text-emerald-400 font-mono">✓ 已配置</span>}
+              </label>
+              <div className="relative">
+                <input
+                  type={showGeminiKey ? 'text' : 'password'}
+                  value={geminiKey}
+                  onChange={e => setGeminiKey(e.target.value)}
+                  placeholder="sk-xxx 或直接粘贴 API Key"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-purple-500/50"
+                />
+                <button type="button" onClick={() => setShowGeminiKey(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                  {showGeminiKey ? '🙈' : '👁'}
+                </button>
+              </div>
+              <input
+                type="text"
+                value={geminiBaseUrl}
+                onChange={e => setGeminiBaseUrl(e.target.value)}
+                placeholder="中转地址，例如 https://bboluo.com/v1"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-purple-500/50"
+              />
+              <p className="text-[10px] text-gray-600 font-mono">
+                优先用直连 Key；填了中转地址则作降级。支持 OpenAI 兼容 /v1 端点。模型名前缀 [L]按次 [V]按量
               </p>
             </div>
           </div>
