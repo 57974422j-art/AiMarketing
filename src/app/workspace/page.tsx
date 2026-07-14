@@ -137,6 +137,17 @@ const featureCards = [
     badgeDefault: '自动化',
     badgeColor: 'bg-indigo-500/20 text-indigo-400',
   },
+  {
+    id: 'trendVideo',
+    title: '趋势猎手',
+    desc: 'AI 实时搜索全球热门趋势，爆款深度分析，批量合成视频',
+    icon: '🔍',
+    color: 'from-yellow-500/20 to-yellow-600/10 border-yellow-500/30',
+    hoverColor: 'hover:border-yellow-400/50 hover:shadow-yellow-500/10',
+    path: '/trendvideo',
+    badgeDefault: 'NEW',
+    badgeColor: 'bg-yellow-500/20 text-yellow-400',
+  },
 ]
 
 export default function WorkspacePage() {

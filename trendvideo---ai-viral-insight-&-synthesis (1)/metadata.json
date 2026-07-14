@@ -1,0 +1,6 @@
+{
+  "name": "TrendVideo - AI Viral Insight & Synthesis",
+  "description": "Discover viral trends across global platforms, analyze with AI, and synthesize vertical videos instantly for social media.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["AI Analysis", "Video Synthesis", "Trend Discovery"]
+}
