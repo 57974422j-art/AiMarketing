@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
+/** 通过海外代理fetch */
+function proxiedFetch(url: string, opts?: RequestInit) {
+  const proxy = process.env.OVERSEAS_PROXY
+  const target = proxy ? `${proxy}?url=${encodeURIComponent(url)}` : url
+  return fetch(target, opts)
+}
+
 /**
  * 获取 DuckDuckGo vqd token（必需的第一步）
  */
@@ -86,7 +93,7 @@ async function searchPixabay(q: string, count: number): Promise<Array<{url:strin
     const imgUrl = `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(q)}&image_type=photo&per_page=${count}&safesearch=true`
     const vidUrl = `https://pixabay.com/api/videos/?key=${key}&q=${encodeURIComponent(q)}&per_page=3&safesearch=true`
     
-    const [imgRes, vidRes] = await Promise.all([fetch(imgUrl), fetch(vidUrl)])
+    const [imgRes, vidRes] = await Promise.all([proxiedFetch(imgUrl), proxiedFetch(vidUrl)])
     const imgData = imgRes.ok ? await imgRes.json() : null
     const vidData = vidRes.ok ? await vidRes.json() : null
 

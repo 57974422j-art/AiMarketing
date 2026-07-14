@@ -4,6 +4,13 @@ import { getAuthFromHeaders } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
 
+/** 通过海外代理fetch（被墙资源自动走新加坡） */
+function proxiedFetch(url: string, opts?: RequestInit) {
+  const proxy = process.env.OVERSEAS_PROXY
+  const target = proxy ? `${proxy}?url=${encodeURIComponent(url)}` : url
+  return fetch(target, opts)
+}
+
 interface FetchedPrompt {
   title: string
   prompt: string
@@ -19,7 +26,7 @@ function qualityFilter(prompt: string): boolean {
 async function fetchFromCivitai(): Promise<FetchedPrompt[]> {
   const results: FetchedPrompt[] = []
   try {
-    const res = await fetch('https://civitai.com/api/v1/images?limit=30&sort=Most Reactions&period=Week&nsfw=false', { signal: AbortSignal.timeout(15000) })
+    const res = await proxiedFetch('https://civitai.com/api/v1/images?limit=30&sort=Most Reactions&period=Week&nsfw=false', { signal: AbortSignal.timeout(15000) })
     if (!res.ok) return results
     const data: any = await res.json()
     const items = data.items || []
@@ -50,7 +57,7 @@ async function fetchFromLexica(): Promise<FetchedPrompt[]> {
   const unique = new Set<string>()
   for (const q of queries) {
     try {
-      const res = await fetch(`https://lexica.art/api/v1/search?q=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(10000) })
+      const res = await proxiedFetch(`https://lexica.art/api/v1/search?q=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(10000) })
       if (!res.ok) continue
       const data: any = await res.json()
       const images = data.images || []
@@ -76,7 +83,7 @@ async function fetchFromLexica(): Promise<FetchedPrompt[]> {
 async function fetchFromPromptHero(): Promise<FetchedPrompt[]> {
   const results: FetchedPrompt[] = []
   try {
-    const res = await fetch('https://prompthero.com/search?q=product', { signal: AbortSignal.timeout(8000), headers: { 'User-Agent': 'Mozilla/5.0' } })
+    const res = await proxiedFetch('https://prompthero.com/search?q=product', { signal: AbortSignal.timeout(8000), headers: { 'User-Agent': 'Mozilla/5.0' } })
     if (res.ok) {
       const html = await res.text()
       const matches = html.match(/"prompt":"([^"]+)"/g) || html.match(/<div[^>]*class="[^"]*prompt[^"]*"[^>]*>([^<]+)</g)
