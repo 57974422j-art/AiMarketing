@@ -18,6 +18,7 @@ export default function AdminTrendVideoPage() {
   const [authorized, setAuthorized] = useState(false)
 
   const [keyword, setKeyword] = useState('')
+  const [count, setCount] = useState(8)
   const [platforms, setPlatforms] = useState<string[]>(['YouTube', 'TikTok', 'Instagram'])
   const [results, setResults] = useState<TrendingItem[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -41,7 +42,7 @@ export default function AdminTrendVideoPage() {
       const r = await fetch(`/api/trendvideo?action=search`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keyword, platforms, count: 20 }),
+        body: JSON.stringify({ keyword, platforms, count }),
       })
       const d = await r.json()
       if (d.success) { setResults(d.data); showToast(`找到 ${d.data.length} 条趋势`) }
@@ -146,6 +147,13 @@ export default function AdminTrendVideoPage() {
                 {p}
               </button>
             ))}
+          </div>
+          <div className="flex items-center gap-2 mt-3">
+            <span className="text-[10px] text-gray-500">采集数量</span>
+            <input type="number" min={1} max={20} value={count}
+              onChange={e => setCount(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+              className="input-dark w-16 rounded-lg px-2 py-1 text-xs" />
+            <span className="text-[10px] text-gray-500">条（1–20）</span>
           </div>
         </div>
 
