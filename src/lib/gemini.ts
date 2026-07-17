@@ -59,7 +59,7 @@ async function callOpenAIProxy(prompt: string, opts: GeminiOptions = {}): Promis
     throw new Error(`Gemini proxy ${res.status}: ${text.substring(0, 200)}`)
   }
   const data = await res.json()
-  return data.choices?.[0]?.message?.content || ''
+  return { text: data.choices?.[0]?.message?.content || '', raw: data }
 }
 
 /** Google 原生 API 调用 */
@@ -90,7 +90,7 @@ async function callGoogleNative(prompt: string, opts: GeminiOptions = {}): Promi
     throw new Error(`Gemini native ${res.status}: ${text.substring(0, 200)}`)
   }
   const data = await res.json()
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+  return { text: data.candidates?.[0]?.content?.parts?.[0]?.text || '', raw: data }
 }
 
 /** 主入口 — 自动选择调用方式 */
@@ -100,10 +100,50 @@ export async function gemini(prompt: string, opts: GeminiOptions = {}): Promise<
 
   if (isOpenAIProxy(baseUrl)) {
     console.log('[Gemini] 使用 OpenAI 兼容中转:', baseUrl.substring(0, 30))
-    return callOpenAIProxy(prompt, opts)
+    return (await callOpenAIProxy(prompt, opts)).text
   }
   console.log('[Gemini] 使用 Google 原生 API')
-  return callGoogleNative(prompt, opts)
+  return (await callGoogleNative(prompt, opts)).text
+}
+
+export interface GroundingSource {
+  uri: string
+  title: string
+}
+
+/**
+ * 从模型原始响应中深度扫描真实 grounding 来源（真实 URL/标题）。
+ * 兼容：Google 原生 groundingMetadata.groundingChunks[].web，
+ *       以及 OpenAI 兼容代理的 annotations.url_citation / 任意 web.{uri,title}。
+ */
+function extractGroundingSources(raw: any): GroundingSource[] {
+  const out: GroundingSource[] = []
+  const seen = new Set<string>()
+  const push = (uri?: string, title?: string) => {
+    if (uri && !seen.has(uri)) { seen.add(uri); out.push({ uri, title: title || uri }) }
+  }
+  const walk = (o: any) => {
+    if (!o || typeof o !== 'object') return
+    if (Array.isArray(o)) { o.forEach(walk); return }
+    if (o.web && (o.web.uri || o.web.url)) push(o.web.uri || o.web.url, o.web.title)
+    if (o.url_citation && o.url_citation.url) push(o.url_citation.url, o.url_citation.title)
+    if (o.groundingMetadata) {
+      (o.groundingMetadata.groundingChunks || []).forEach((c: any) => c?.web && push(c.web.uri, c.web.title))
+    }
+    for (const k of Object.keys(o)) walk(o[k])
+  }
+  walk(raw)
+  return out
+}
+
+/** 同 gemini()，但额外返回 search grounding 真实来源 */
+export async function geminiWithGrounding(prompt: string, opts: GeminiOptions = {}): Promise<{ text: string; grounding: GroundingSource[] }> {
+  const { key, baseUrl } = getGeminiConfig()
+  if (!key) throw new Error('GEMINI_API_KEY 未配置')
+  const r = isOpenAIProxy(baseUrl)
+    ? await callOpenAIProxy(prompt, opts)
+    : await callGoogleNative(prompt, opts)
+  return { text: r.text, grounding: extractGroundingSources(r.raw) }
 }
 
 /** JSON 结构化返回 */
@@ -129,19 +169,29 @@ export interface TrendingItem {
   imageUrl?: string
 }
 
-export async function searchTrends(keyword: string, platforms: string[], count = 30): Promise<TrendingItem[]> {
+export async function searchTrends(keyword: string, platforms: string[], count = 8): Promise<TrendingItem[]> {
+  const safeCount = Math.min(Math.max(Number(count) || 8, 1), 20)
   const prompt = `Search for the most trending and viral content/videos related to "${keyword}" on these platforms: ${platforms.join(", ")}.
-Focus on the last 24-48 hours. Return a list of approximately ${count} items.
+Focus on the last 24-48 hours. Return a list of approximately ${safeCount} items.
 For each item, provide: title, platform, hotness (0-100), a descriptive URL, a high-quality placeholder image URL (related to the topic), and a short description.
-Use your search tools to find REAL current information. Do NOT make up fake data.
+Use your search tools to find REAL current information and REAL source URLs. Do NOT make up fake data.
 Return the result as a JSON array with fields: title, platform, hotness, url, image, description.`
 
-  const results = await geminiJSON<any[]>(prompt, { googleSearch: true, model: '[L]gemini-3-flash-preview' || 'gemini-2.5-flash' })
-  return results.map((item: any, i: number) => ({
-    ...item,
-    id: `trend_${Date.now()}_${i}`,
-    imageUrl: item.imageUrl || item.image,
-  }))
+  const { text, grounding } = await geminiWithGrounding(prompt, { googleSearch: true, model: '[L]gemini-3-flash-preview' })
+  const clean = text.replace(/```json/g, '').replace(/```/g, '').trim()
+  const results = JSON.parse(clean) as any[]
+
+  console.log(`[TrendVideo] 真实 grounding 来源数: ${grounding.length}`)
+  return results.map((item: any, i: number) => {
+    const g = grounding.length ? grounding[i % grounding.length] : null
+    return {
+      ...item,
+      id: `trend_${Date.now()}_${i}`,
+      title: g?.title || item.title,
+      url: g?.uri || item.url,
+      imageUrl: item.imageUrl || item.image,
+    }
+  })
 }
 
 export async function analyzeTrends(items: TrendingItem[]): Promise<TrendingItem[]> {
