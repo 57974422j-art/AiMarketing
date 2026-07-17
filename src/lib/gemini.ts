@@ -28,7 +28,7 @@ function isOpenAIProxy(url: string): boolean {
 }
 
 /** OpenAI 兼容中转调用 */
-async function callOpenAIProxy(prompt: string, opts: GeminiOptions = {}): Promise<string> {
+async function callOpenAIProxy(prompt: string, opts: GeminiOptions = {}): Promise<{ text: string; raw: any }> {
   const { key, baseUrl } = getGeminiConfig()
   const model = opts.model || DEFAULT_MODEL
 
@@ -63,7 +63,7 @@ async function callOpenAIProxy(prompt: string, opts: GeminiOptions = {}): Promis
 }
 
 /** Google 原生 API 调用 */
-async function callGoogleNative(prompt: string, opts: GeminiOptions = {}): Promise<string> {
+async function callGoogleNative(prompt: string, opts: GeminiOptions = {}): Promise<{ text: string; raw: any }> {
   const { key, baseUrl } = getGeminiConfig()
   const model = opts.model || DEFAULT_MODEL
 
