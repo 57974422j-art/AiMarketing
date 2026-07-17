@@ -11,6 +11,11 @@ async function ensureTable() {
     `ALTER TABLE MediaAsset ADD COLUMN prompt TEXT DEFAULT ''`,
     `ALTER TABLE MediaAsset ADD COLUMN category TEXT DEFAULT ''`,
     `ALTER TABLE MediaAsset ADD COLUMN source TEXT DEFAULT 'public'`,
+    `ALTER TABLE MediaAsset ADD COLUMN purpose TEXT DEFAULT ''`,
+    `ALTER TABLE MediaAsset ADD COLUMN industry TEXT DEFAULT ''`,
+    `ALTER TABLE MediaAsset ADD COLUMN platform TEXT DEFAULT ''`,
+    `ALTER TABLE MediaAsset ADD COLUMN thumbnailUrl TEXT DEFAULT ''`,
+    `ALTER TABLE MediaAsset ADD COLUMN originalUrl TEXT DEFAULT ''`,
   ]
   for (const sql of migrations) { try { await prisma.$executeRawUnsafe(sql) } catch {} }
 }
@@ -60,14 +65,14 @@ export async function POST(request: NextRequest) {
     const items = Array.isArray(body) ? body : [body]
     const created: any[] = []
     for (const item of items) {
-      const { ossUrl, title, prompt, category, source } = item
+      const { ossUrl, title, prompt, category, source, purpose, industry, platform, thumbnailUrl, originalUrl, type } = item
       if (!ossUrl || !title) continue
-      const type = detectType(ossUrl)
+      const t = type || detectType(ossUrl)
       await prisma.$executeRawUnsafe(
-        'INSERT INTO MediaAsset (ossUrl, title, prompt, type, category, source, ownerId) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ossUrl, title, prompt || '', type, category || '', source || 'public', auth.userId
+        'INSERT INTO MediaAsset (ossUrl, title, prompt, type, category, source, purpose, industry, platform, thumbnailUrl, originalUrl, ownerId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ossUrl, title, prompt || '', t, category || '', source || 'public', purpose || '', industry || '', platform || '', thumbnailUrl || '', originalUrl || '', auth.userId
       )
-      created.push({ ossUrl, title, type, prompt })
+      created.push({ ossUrl, title, type: t, prompt })
     }
     return NextResponse.json({ success: true, data: created, message: `已添加 ${created.length} 个素材` }, { status: 201 })
   } catch (e) {
