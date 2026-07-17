@@ -13,6 +13,18 @@ interface TrendingItem {
 // 注意：搬家时漏了 Instagram，这里补回，支持单独取 IG 视频
 const PLATFORMS = ['YouTube', 'TikTok', 'Twitter', 'Instagram', 'Bilibili', 'Douyin']
 
+// 存素材库：用途 / 行业 预设（下拉可自定义）
+const PURPOSE_OPTIONS = ['克隆视频', '口播', '带货', '混剪', '通用素材']
+const INDUSTRY_OPTIONS = ['服装', '鞋子', '美妆', '3C', '美食', '教育', '母婴', '家居']
+const PLATFORM_OPTIONS = ['YouTube', 'TikTok', '抖音', 'Instagram', '小红书', 'Twitter', 'Bilibili']
+const PROMPT_TEMPLATES = [
+  '服装行业 TikTok 近7天爆款带货口播视频',
+  '美妆品牌 Instagram 爆款种草短视频',
+  '鞋子测评类 YouTube 高播放开箱视频',
+  '3C数码 抖音 种草混剪热门',
+  '美食探店 小红书 爆款笔记视频',
+]
+
 export default function AdminTrendVideoPage() {
   const { user, loading: authLoading } = useAuth()
   const [authorized, setAuthorized] = useState(false)
@@ -26,6 +38,13 @@ export default function AdminTrendVideoPage() {
   const [analyzing, setAnalyzing] = useState(false)
   const [insightItem, setInsightItem] = useState<any>(null)
   const [insightLoading, setInsightLoading] = useState(false)
+
+  // 存素材库弹窗状态
+  const [saveItem, setSaveItem] = useState<TrendingItem | null>(null)
+  const [savePurpose, setSavePurpose] = useState('')
+  const [saveIndustry, setSaveIndustry] = useState('')
+  const [savePlatform, setSavePlatform] = useState('')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!authLoading) setAuthorized(user?.role === 'admin')
@@ -101,6 +120,28 @@ export default function AdminTrendVideoPage() {
     else showToast('该条目无可用链接', 'error')
   }
 
+  // 存素材库：调用 /api/trendvideo/download（yt-dlp 抓真实视频+真实封面 → OSS → 写 MediaAsset）
+  const handleSave = async () => {
+    if (!saveItem) return
+    setSaving(true)
+    try {
+      const r = await fetch('/api/trendvideo/download', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: saveItem.url, title: saveItem.title,
+          purpose: savePurpose, industry: saveIndustry, platform: savePlatform,
+          imageUrl: saveItem.imageUrl || saveItem.image,
+        }),
+      })
+      const d = await r.json()
+      if (d.success) showToast(d.message)
+      else showToast(d.message || '保存失败', 'error')
+    } catch { showToast('保存失败', 'error') }
+    setSaving(false)
+    setSaveItem(null)
+  }
+
   // 下载单条封面图
   const handleDownloadImg = async (item: TrendingItem) => {
     const src = item.imageUrl || item.image
@@ -131,14 +172,23 @@ export default function AdminTrendVideoPage() {
         {/* 搜索栏 */}
         <div className="card-glass p-5 mb-5">
           <div className="flex gap-2 mb-3">
-            <input value={keyword} onChange={e => setKeyword(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSearch()}
-              placeholder="例如：AI新工具、TikTok爆款、护肤趋势..."
-              className="input-dark flex-1 rounded-xl px-4 py-2.5 text-sm" />
+            <textarea value={keyword} onChange={e => setKeyword(e.target.value)}
+              placeholder="支持自然语言提示词，例如：服装行业 TikTok 近7天爆款带货口播视频、带字幕"
+              rows={2}
+              className="input-dark flex-1 rounded-xl px-4 py-2.5 text-sm resize-none" />
             <button onClick={handleSearch} disabled={loading || !keyword.trim()}
-              className="px-6 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 disabled:opacity-40 transition">
+              className="px-6 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 disabled:opacity-40 transition self-start">
               {loading ? '搜索中...' : '🔍 搜索'}
             </button>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <span className="text-[10px] text-gray-500 self-center">提示词模板：</span>
+            {PROMPT_TEMPLATES.map(t => (
+              <button key={t} onClick={() => setKeyword(t)}
+                className="px-2.5 py-1 rounded-lg text-[10px] bg-white/5 text-gray-400 border border-white/10 hover:bg-emerald-500/15 hover:text-emerald-400 transition">
+                {t}
+              </button>
+            ))}
           </div>
           <div className="flex flex-wrap gap-2">
             {PLATFORMS.map(p => (
@@ -205,6 +255,8 @@ export default function AdminTrendVideoPage() {
                     )}
                     <button onClick={(e) => { e.stopPropagation(); handleInsight(item) }}
                       className="text-[10px] text-blue-400 hover:underline mt-1">📊 深度洞察</button>
+                    <button onClick={(e) => { e.stopPropagation(); setSaveItem(item); setSavePurpose(''); setSaveIndustry(''); setSavePlatform(item.platform || '') }}
+                      className="text-[10px] text-emerald-400 hover:underline mt-1 ml-3">⬇ 存素材库</button>
                   </div>
                 </div>
               ))}
@@ -241,6 +293,44 @@ export default function AdminTrendVideoPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* 存素材库弹窗 */}
+        {saveItem && (
+          <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setSaveItem(null)}>
+            <div className="card-glass w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white">⬇ 存入素材库</h3>
+                <button onClick={() => setSaveItem(null)} className="text-gray-500">✕</button>
+              </div>
+              <p className="text-[11px] text-gray-400 line-clamp-2">{saveItem.title}</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[10px] text-gray-500">用途</label>
+                  <input list="purposeList" value={savePurpose} onChange={e => setSavePurpose(e.target.value)}
+                    placeholder="可选择或自定义" className="input-dark w-full rounded-lg px-3 py-2 text-xs mt-1" />
+                  <datalist id="purposeList">{PURPOSE_OPTIONS.map(p => <option key={p} value={p} />)}</datalist>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500">行业</label>
+                  <input list="industryList" value={saveIndustry} onChange={e => setSaveIndustry(e.target.value)}
+                    placeholder="可选择或自定义" className="input-dark w-full rounded-lg px-3 py-2 text-xs mt-1" />
+                  <datalist id="industryList">{INDUSTRY_OPTIONS.map(p => <option key={p} value={p} />)}</datalist>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500">平台</label>
+                  <input list="platformList" value={savePlatform} onChange={e => setSavePlatform(e.target.value)}
+                    className="input-dark w-full rounded-lg px-3 py-2 text-xs mt-1" />
+                  <datalist id="platformList">{PLATFORM_OPTIONS.map(p => <option key={p} value={p} />)}</datalist>
+                </div>
+              </div>
+              <button onClick={handleSave} disabled={saving || !savePurpose || !saveIndustry}
+                className="w-full py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 disabled:opacity-40 transition">
+                {saving ? '下载并入库中...' : '确认存入素材库'}
+              </button>
+              <p className="text-[9px] text-gray-600">将用服务器 yt-dlp 抓取真实视频与封面并上传 OSS；抓取失败也会保留元数据。</p>
             </div>
           </div>
         )}
