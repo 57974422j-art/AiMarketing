@@ -35,6 +35,7 @@ const sections: CardSection[] = [
       { title: '坐标截图工具', desc: 'Q1设备实时截图点击获取像素坐标', href: '/coord.html', icon: '📍', roles: ['admin'] },
       { title: '行业简报', desc: 'AI生成营销洞察报告与趋势分析', href: '/admin/briefings', icon: '📊', roles: ['admin', 'editor'] },
       { title: 'SOP 工作流', desc: '内容生产/直播运营/客户获取标准化流程', href: '/dashboard/sop', icon: '📋', roles: ['admin', 'editor'] },
+      { title: '趋势猎手', desc: 'AI 搜索全球热门趋势，采集视频信息，支持播放与下载', href: '/admin/trendvideo', icon: '🔍', roles: ['admin'] },
     ],
   },
   {
