@@ -6,7 +6,7 @@ import { showToast } from '@/components/Toast'
 
 interface TrendingItem {
   id: string; title: string; platform: string; hotness: number
-  url: string; image: string; description: string
+  url: string; image: string; imageUrl?: string; description: string
   category?: string; aiComment?: string; viralFactors?: string[]
 }
 
