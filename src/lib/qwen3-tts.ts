@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { execSync } from 'child_process'
+import { volcanoTTS } from './ai-providers'
 
 const QWEN_VOICE_MAP: Record<string, string> = {
   'zh_female_vv_uranus_bigtts': 'Cherry',
@@ -20,7 +21,8 @@ const QWEN_VOICE_MAP: Record<string, string> = {
 export async function ttsQwen3(text: string, voice: string, workDir: string, idx: number): Promise<{ ok: boolean; path: string; duration: number }> {
   const KEY = process.env.DASHSCOPE_API_KEY
   if (!KEY) {
-    const result = await ttsEdgeFallback(text, voice, workDir, idx)
+    console.warn('[Qwen3TTS] 未配置 DASHSCOPE_API_KEY，直接使用火山TTS兜底')
+    const result = await ttsVolcanoFallback(text, voice, workDir, idx)
     return { ...result, ok: true }
   }
 
@@ -62,30 +64,18 @@ export async function ttsQwen3(text: string, voice: string, workDir: string, idx
     console.warn(`[Qwen3TTS] 非音频响应 (${res.status}): ${errBody.slice(0, 200)}`)
     throw new Error(`HTTP ${res.status}`)
   } catch (e: any) {
-    console.warn(`[Qwen3TTS] 第${idx}句失败: ${e.message}，降级edge-tts`)
-    const result = await ttsEdgeFallback(text, voice, workDir, idx)
+    console.warn(`[Qwen3TTS] 第${idx}句失败: ${e.message}，降级火山TTS`)
+    const result = await ttsVolcanoFallback(text, voice, workDir, idx)
     return { ...result, ok: true }
   }
 }
 
-/** edge-tts 降级方案 */
-async function ttsEdgeFallback(text: string, voice: string, workDir: string, idx: number): Promise<{ path: string; duration: number }> {
-  const voiceMap: Record<string, string> = {
-    'zh_female_vv_uranus_bigtts': 'zh-CN-XiaoxiaoNeural',
-    'zh_female_vv_aurora_bigtts': 'zh-CN-XiaoyiNeural',
-    'zh_male_fengge_bigtts': 'zh-CN-YunxiNeural',
-    'zh_male_xiaoming_bigtts': 'zh-CN-YunyangNeural',
-    'zh_female_tianmei': 'zh-CN-XiaohanNeural',
-    'zh_male_sijie': 'zh-CN-YunjianNeural',
-    'zh_female_zhixia': 'zh-CN-XiaoxuanNeural',
-    'zh_male_yanyang': 'zh-CN-YunhaoNeural',
-  }
-  const vn = voiceMap[voice] || 'zh-CN-XiaoxiaoNeural'
+/** 火山方舟 TTS 兜底方案（国内可达，替代被墙的 edge-tts） */
+async function ttsVolcanoFallback(text: string, voice: string, workDir: string, idx: number): Promise<{ path: string; duration: number }> {
   const outPath = path.join(workDir, `tts${idx}.mp3`)
-  const textFile = outPath + '.txt'
-  fs.writeFileSync(textFile, text.replace(/["$'`\\]/g, ''), 'utf8')
-  execSync(`edge-tts --voice ${vn} --text "$(cat ${textFile})" --write-media ${outPath}`, { timeout: 30000, shell: '/bin/bash' })
-  try { fs.unlinkSync(textFile) } catch {}
+  const buf = await volcanoTTS(text, voice)
+  if (!buf || buf.byteLength < 500) throw new Error('火山TTS返回空音频')
+  fs.writeFileSync(outPath, Buffer.from(buf))
   const dur = await getMP3Duration(outPath)
   return { path: outPath, duration: dur }
 }
