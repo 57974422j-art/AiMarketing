@@ -172,7 +172,7 @@ async function volcanoTranslate(text: string, toLang: string, fromLang = 'zh'): 
 }
 
 // 火山方舟 TTS（从环境变量读取凭据，未配置时返回 null 自动降级）
-async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'): Promise<ArrayBuffer | null> {
+export async function volcanoTTS(text: string, speaker = 'zh_female_vv_uranus_bigtts'): Promise<ArrayBuffer | null> {
   const appId = process.env.VOLCANO_TTS_APP_ID;
   const accessKey = process.env.VOLCANO_TTS_ACCESS_KEY;
   const resourceId = process.env.VOLCANO_TTS_RESOURCE_ID;
