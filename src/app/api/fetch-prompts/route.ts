@@ -239,25 +239,15 @@ async function fetchSceneCandidates(): Promise<Cand[]> {
   return out
 }
 
-export async function POST(request: NextRequest) {
+// 后台异步执行抓取（避免前端请求超时；PM2 长驻进程可跑完整个任务）
+async function runFetch(fetchType: string, kindLabel: string) {
   try {
-    const auth = getAuthFromHeaders(request)
-    if (!auth || auth.role !== 'admin') {
-      return NextResponse.json({ success: false, message: '需要管理员权限' }, { status: 403 })
-    }
-    const { searchParams } = new URL(request.url)
-    const fetchType = searchParams.get('type') || 'image'
-    if (!['image', 'video', 'scene'].includes(fetchType)) {
-      return NextResponse.json({ success: false, message: '未知抓取类型' }, { status: 400 })
-    }
-
     await ensureColumns()
 
     let candidates: Cand[] = []
-    let kindLabel = '营销图片'
-    if (fetchType === 'video') { candidates = await fetchVideoCandidates(); kindLabel = '营销视频' }
-    else if (fetchType === 'scene') { candidates = await fetchSceneCandidates(); kindLabel = '场景图片' }
-    else { candidates = await fetchImageCandidates(); kindLabel = '营销图片' }
+    if (fetchType === 'video') candidates = await fetchVideoCandidates()
+    else if (fetchType === 'scene') candidates = await fetchSceneCandidates()
+    else candidates = await fetchImageCandidates()
     console.log(`[Fetch] 抓取候选: ${candidates.length} 条 (type=${fetchType})`)
 
     // 逐条：视觉写中文克隆提示词 + 转存 OSS
@@ -281,16 +271,28 @@ export async function POST(request: NextRequest) {
       inserted++
     }
 
-    console.log(`[Fetch] 写入完成: ${inserted} 条新记录`)
-    return NextResponse.json({
-      success: true,
-      message: `抓取完成：候选 ${enriched.length} 条，新增 ${inserted} 条`,
-      data: { total: enriched.length, inserted },
-    })
+    console.log(`[Fetch] 写入完成: ${inserted} 条新记录 (type=${fetchType})`)
   } catch (error: any) {
-    console.error('[Fetch] 错误:', error)
-    return NextResponse.json({ success: false, message: '抓取失败: ' + (error?.message || '') }, { status: 500 })
-  } finally {
-    await prisma.$disconnect()
+    console.error('[Fetch] 后台任务错误:', error)
   }
+}
+
+export async function POST(request: NextRequest) {
+  const auth = getAuthFromHeaders(request)
+  if (!auth || auth.role !== 'admin') {
+    return NextResponse.json({ success: false, message: '需要管理员权限' }, { status: 403 })
+  }
+  const { searchParams } = new URL(request.url)
+  const fetchType = searchParams.get('type') || 'image'
+  if (!['image', 'video', 'scene'].includes(fetchType)) {
+    return NextResponse.json({ success: false, message: '未知抓取类型' }, { status: 400 })
+  }
+  const kindLabel = fetchType === 'video' ? '营销视频' : fetchType === 'scene' ? '场景图片' : '营销图片'
+
+  // 立即返回，重活丢到后台异步跑（约 1~3 分钟），不再阻塞前端请求
+  runFetch(fetchType, kindLabel).catch((e) => console.error('[Fetch] 后台任务异常:', e))
+  return NextResponse.json({
+    success: true,
+    message: '抓取任务已启动（后台处理中，约需 1~3 分钟，完成后可在素材库/提示词模板查看）',
+  })
 }
