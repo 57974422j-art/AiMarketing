@@ -6,9 +6,6 @@ const prisma = new PrismaClient()
 
 // ===== 配置（均来自 .env.local / 后台设置页，运行时注入） =====
 const PIXABAY_KEY = process.env.PIXABAY_API_KEY || ''
-const AGNES_KEY = process.env.AGNES_API_KEY || ''
-const AGNES_BASE = (process.env.AGNES_BASE_URL || 'https://apihub.agnes-ai.com/v1').replace(/\/$/, '')
-const AGNES_VL_MODEL = process.env.AGNES_VL_MODEL || 'agnes-vl-max'
 const DASHSCOPE_KEY = process.env.DASHSCOPE_API_KEY || ''
 const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 
@@ -32,7 +29,8 @@ async function imageUrlToBase64(url: string): Promise<string | null> {
 
 /**
  * 视觉理解：用真实图片生成「中文克隆提示词」
- * 策略：先试 Agnes 视觉（直接传图片 URL），失败/无结果则保底 qwen-vl-max（base64）。
+ * Agnes 经 /v1/models 确认仅提供生图 / 生视频 / 文本模型，无视觉理解(VL)能力，
+ * 故统一用 qwen-vl-max 看真实画面写提示词（不再试 Agnes，避免 503 浪费）。
  */
 async function visionClonePrompt(imageUrl: string, kindLabel: string): Promise<string | null> {
   const instruct = `请看这张${kindLabel}。请用简体中文写一段可用于 AI 文生图/文生视频的「克隆提示词」，要求：
@@ -40,63 +38,33 @@ async function visionClonePrompt(imageUrl: string, kindLabel: string): Promise<s
 2）按「主体, 环境, 光线, 风格, 镜头」的结构组织关键词，用逗号分隔；
 3）只输出提示词本身，不要解释、不要加引号、不要 markdown。`
 
-  // 1) 先试 Agnes 视觉（OpenAI 兼容，直接传 URL）
-  if (AGNES_KEY) {
-    try {
-      const res = await fetch(`${AGNES_BASE}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${AGNES_KEY}` },
-        body: JSON.stringify({
-          model: AGNES_VL_MODEL,
-          messages: [{ role: 'user', content: [
-            { type: 'text', text: instruct },
-            { type: 'image_url', image_url: { url: imageUrl } },
-          ] }],
-          temperature: 0.4,
-          max_tokens: 600,
-        }),
-        signal: AbortSignal.timeout(60000),
-      })
-      if (res.ok) {
-        const d: any = await res.json()
-        const t = d?.choices?.[0]?.message?.content?.trim()
-        if (t) { console.log(`[visionClone] Agnes(${AGNES_VL_MODEL}) 成功`); return t }
-      } else {
-        console.log(`[visionClone] Agnes 返回 ${res.status}，转 qwen 保底`)
-      }
-    } catch (e: any) {
-      console.log('[visionClone] Agnes 视觉异常，保底 qwen:', e?.message)
+  if (!DASHSCOPE_KEY) { console.log('[visionClone] 缺少 DASHSCOPE_API_KEY，退化为标签'); return null }
+  const b64 = await imageUrlToBase64(imageUrl)
+  if (!b64) { console.log('[visionClone] 图片下载为 base64 失败，退化为标签'); return null }
+  try {
+    const res = await fetch(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DASHSCOPE_KEY}` },
+      body: JSON.stringify({
+        model: 'qwen-vl-max',
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: instruct },
+          { type: 'image_url', image_url: { url: b64 } },
+        ] }],
+        temperature: 0.4,
+        max_tokens: 600,
+      }),
+      signal: AbortSignal.timeout(60000),
+    })
+    if (res.ok) {
+      const d: any = await res.json()
+      const t = d?.choices?.[0]?.message?.content?.trim()
+      if (t) { console.log('[visionClone] qwen-vl-max 成功'); return t }
+    } else {
+      console.log(`[visionClone] qwen-vl-max 返回 ${res.status}，退化为标签`)
     }
-  }
-
-  // 2) 保底 qwen-vl-max（需 base64）
-  if (DASHSCOPE_KEY) {
-    const b64 = await imageUrlToBase64(imageUrl)
-    if (b64) {
-      try {
-        const res = await fetch(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DASHSCOPE_KEY}` },
-          body: JSON.stringify({
-            model: 'qwen-vl-max',
-            messages: [{ role: 'user', content: [
-              { type: 'text', text: instruct },
-              { type: 'image_url', image_url: { url: b64 } },
-            ] }],
-            temperature: 0.4,
-            max_tokens: 600,
-          }),
-          signal: AbortSignal.timeout(60000),
-        })
-        if (res.ok) {
-          const d: any = await res.json()
-          const t = d?.choices?.[0]?.message?.content?.trim()
-          if (t) { console.log('[visionClone] qwen-vl-max 成功'); return t }
-        }
-      } catch (e: any) {
-        console.log('[visionClone] qwen-vl 失败:', e?.message)
-      }
-    }
+  } catch (e: any) {
+    console.log('[visionClone] qwen-vl 失败:', e?.message)
   }
   return null
 }
