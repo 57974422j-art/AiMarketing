@@ -4,98 +4,163 @@ import { getAuthFromHeaders } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
 
-/** 通过海外代理fetch（被墙资源自动走新加坡） */
-function proxiedFetch(url: string, opts?: RequestInit) {
-  const proxy = process.env.OVERSEAS_PROXY
-  const target = proxy ? `${proxy}?url=${encodeURIComponent(url)}` : url
-  return fetch(target, opts)
-}
+// ===== 配置（均来自 .env.local / 后台设置页，运行时注入） =====
+const PIXABAY_KEY = process.env.PIXABAY_API_KEY || ''
+const AGNES_KEY = process.env.AGNES_API_KEY || ''
+const AGNES_BASE = (process.env.AGNES_BASE_URL || 'https://apihub.agnes-ai.com/v1').replace(/\/$/, '')
+const AGNES_VL_MODEL = process.env.AGNES_VL_MODEL || 'agnes-vl-max'
+const DASHSCOPE_KEY = process.env.DASHSCOPE_API_KEY || ''
+const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 
 interface FetchedPrompt {
   title: string
   prompt: string
   category: string
+  previewUrl: string
 }
 
-// 质量门槛：过滤过短的提示词
-function qualityFilter(prompt: string): boolean {
-  return prompt.length > 20 && !prompt.includes('http') && !prompt.includes('{') && !prompt.includes('<')
-}
-
-// Civitai API — 按最高热度排序
-async function fetchFromCivitai(): Promise<FetchedPrompt[]> {
-  const results: FetchedPrompt[] = []
+// 把远程图片下载为 base64（供 qwen-vl 使用）
+async function imageUrlToBase64(url: string): Promise<string | null> {
   try {
-    const res = await proxiedFetch('https://civitai.com/api/v1/images?limit=30&sort=Most Reactions&period=Week&nsfw=false', { signal: AbortSignal.timeout(15000) })
-    if (!res.ok) return results
-    const data: any = await res.json()
-    const items = data.items || []
-    const unique = new Set<string>()
-    for (const item of items) {
-      if (results.length >= 12) break
-      const meta = item.meta || {}
-      const prompt = (meta.prompt || '').trim()
-      if (!prompt || !qualityFilter(prompt)) continue
-      const key = prompt.substring(0, 60)
-      if (unique.has(key)) continue
-      unique.add(key)
-      const reactions = (item.stats?.reactionCount || 0)
-      results.push({
-        title: `Civitai ⭐${reactions}`,
-        prompt: prompt.substring(0, 1500),
-        category: meta.negativePrompt ? '文生图' : '文生视频',
-      })
-    }
-  } catch { /* ignore */ }
-  return results
+    const r = await fetch(url, { signal: AbortSignal.timeout(20000) })
+    if (!r.ok) return null
+    const buf = Buffer.from(await r.arrayBuffer())
+    const ct = r.headers.get('content-type') || 'image/jpeg'
+    return `data:${ct};base64,${buf.toString('base64')}`
+  } catch { return null }
 }
 
-// Lexica API — 取搜索前几名
-async function fetchFromLexica(): Promise<FetchedPrompt[]> {
-  const results: FetchedPrompt[] = []
-  const queries = ['marketing', 'product showcase', 'social media', 'advertising', 'e-commerce']
-  const unique = new Set<string>()
-  for (const q of queries) {
+/**
+ * 视觉理解：用真实图片生成「中文克隆提示词」
+ * 策略：先试 Agnes 视觉（直接传图片 URL），失败/无结果则保底 qwen-vl-max（base64）。
+ */
+async function visionClonePrompt(imageUrl: string, kindLabel: string): Promise<string | null> {
+  const instruct = `请看这张${kindLabel}。请用简体中文写一段可用于 AI 文生图/文生视频的「克隆提示词」，要求：
+1）准确描述画面主体、构图、光线、色彩、风格、氛围；
+2）按「主体, 环境, 光线, 风格, 镜头」的结构组织关键词，用逗号分隔；
+3）只输出提示词本身，不要解释、不要加引号、不要 markdown。`
+
+  // 1) 先试 Agnes 视觉（OpenAI 兼容，直接传 URL）
+  if (AGNES_KEY) {
     try {
-      const res = await proxiedFetch(`https://lexica.art/api/v1/search?q=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(10000) })
-      if (!res.ok) continue
-      const data: any = await res.json()
-      const images = data.images || []
-      for (const img of images) {
-        if (results.length >= 15) break
-        const prompt = (img.prompt || '').trim()
-        if (!prompt || !qualityFilter(prompt)) continue
-        const key = prompt.substring(0, 60)
-        if (unique.has(key)) continue
-        unique.add(key)
-        results.push({
-          title: `Lexica ${q}`,
-          prompt: prompt.substring(0, 1500),
-          category: '文生图',
-        })
+      const res = await fetch(`${AGNES_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${AGNES_KEY}` },
+        body: JSON.stringify({
+          model: AGNES_VL_MODEL,
+          messages: [{ role: 'user', content: [
+            { type: 'text', text: instruct },
+            { type: 'image_url', image_url: { url: imageUrl } },
+          ] }],
+          temperature: 0.4,
+          max_tokens: 600,
+        }),
+        signal: AbortSignal.timeout(60000),
+      })
+      if (res.ok) {
+        const d: any = await res.json()
+        const t = d?.choices?.[0]?.message?.content?.trim()
+        if (t) { console.log(`[visionClone] Agnes(${AGNES_VL_MODEL}) 成功`); return t }
+      } else {
+        console.log(`[visionClone] Agnes 返回 ${res.status}，转 qwen 保底`)
       }
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      console.log('[visionClone] Agnes 视觉异常，保底 qwen:', e?.message)
+    }
   }
-  return results
-}
 
-// PromptHero（React 渲染页面，能抓多少算多少）
-async function fetchFromPromptHero(): Promise<FetchedPrompt[]> {
-  const results: FetchedPrompt[] = []
-  try {
-    const res = await proxiedFetch('https://prompthero.com/search?q=product', { signal: AbortSignal.timeout(8000), headers: { 'User-Agent': 'Mozilla/5.0' } })
-    if (res.ok) {
-      const html = await res.text()
-      const matches = html.match(/"prompt":"([^"]+)"/g) || html.match(/<div[^>]*class="[^"]*prompt[^"]*"[^>]*>([^<]+)</g)
-      if (matches) {
-        for (let i = 0; i < Math.min(matches.length, 8); i++) {
-          const text = matches[i].replace(/^.*?"prompt":"|"$|<[^>]*>/g, '').trim()
-          if (qualityFilter(text)) results.push({ title: `PromptHero ${i + 1}`, prompt: text, category: '文生图' })
+  // 2) 保底 qwen-vl-max（需 base64）
+  if (DASHSCOPE_KEY) {
+    const b64 = await imageUrlToBase64(imageUrl)
+    if (b64) {
+      try {
+        const res = await fetch(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DASHSCOPE_KEY}` },
+          body: JSON.stringify({
+            model: 'qwen-vl-max',
+            messages: [{ role: 'user', content: [
+              { type: 'text', text: instruct },
+              { type: 'image_url', image_url: { url: b64 } },
+            ] }],
+            temperature: 0.4,
+            max_tokens: 600,
+          }),
+          signal: AbortSignal.timeout(60000),
+        })
+        if (res.ok) {
+          const d: any = await res.json()
+          const t = d?.choices?.[0]?.message?.content?.trim()
+          if (t) { console.log('[visionClone] qwen-vl-max 成功'); return t }
         }
+      } catch (e: any) {
+        console.log('[visionClone] qwen-vl 失败:', e?.message)
       }
     }
-  } catch {}
-  return results
+  }
+  return null
+}
+
+// 分批并发（每批 4 个，避免瞬间打爆视觉 API）
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = []
+  for (let i = 0; i < items.length; i += limit) {
+    const batch = items.slice(i, i + limit)
+    const res = await Promise.all(batch.map(fn))
+    out.push(...res)
+  }
+  return out
+}
+
+// ===== 从 Pixabay 抓取素材 + AI 写中文克隆提示词 =====
+async function fetchFromPixabay(kind: 'image' | 'video', keywords: string[], category: string, kindLabel: string, limit = 12): Promise<FetchedPrompt[]> {
+  if (!PIXABAY_KEY) { console.log('[FetchPrompts] 缺少 PIXABAY_API_KEY，跳过'); return [] }
+  const results: FetchedPrompt[] = []
+  const seenUrl = new Set<string>()
+
+  for (const q of keywords) {
+    if (results.length >= limit) break
+    try {
+      let apiUrl: string
+      if (kind === 'image') {
+        apiUrl = `https://pixabay.com/api/?key=${PIXABAY_KEY}&q=${encodeURIComponent(q)}&per_page=20&safesearch=true&image_type=photo&orientation=all`
+      } else {
+        apiUrl = `https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=${encodeURIComponent(q)}&per_page=20`
+      }
+      const res = await fetch(apiUrl, { signal: AbortSignal.timeout(20000) })
+      if (!res.ok) { console.log(`[FetchPrompts] Pixabay ${kind} 查询失败 ${res.status}`); continue }
+      const data: any = await res.json()
+      const hits: any[] = (kind === 'image' ? data.hits : data.hits) || []
+      for (const hit of hits) {
+        if (results.length >= limit) break
+        const previewUrl = kind === 'image'
+          ? (hit.largeImageURL || hit.webformatURL)
+          : (hit.videos?.medium?.url || hit.videos?.small?.url)
+        const visionImage = kind === 'image'
+          ? (hit.webformatURL || hit.largeImageURL)
+          : hit.picture
+        if (!previewUrl || !visionImage || seenUrl.has(previewUrl)) continue
+        seenUrl.add(previewUrl)
+        const tags = (hit.tags || '').replace(/,/g, ', ').trim() || `Pixabay ${kind}`
+        const title = tags.length > 50 ? tags.substring(0, 50) + '…' : tags
+        results.push({ title, prompt: '', category, previewUrl, _visionImage: visionImage, _tags: tags } as any)
+      }
+    } catch (e: any) {
+      console.log(`[FetchPrompts] Pixabay ${kind} 异常:`, e?.message)
+    }
+  }
+
+  // 逐条调视觉模型写中文克隆提示词
+  const enriched = await mapWithConcurrency(results, 4, async (item: any) => {
+    const clone = await visionClonePrompt(item._visionImage, kindLabel)
+    return {
+      title: item.title,
+      category: item.category,
+      previewUrl: item.previewUrl,
+      prompt: clone || item._tags, // 视觉失败时退化为标签，保证素材入库
+    }
+  })
+  return enriched
 }
 
 export async function POST(request: NextRequest) {
@@ -105,56 +170,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '需要管理员权限' }, { status: 403 })
     }
     const { searchParams } = new URL(request.url)
-    const fetchType = searchParams.get('type') || 'image' // 'image' | 'video'
+    const fetchType = searchParams.get('type') || 'image' // 'image' | 'video' | 'scene'
 
-    const sources = (process.env.PROMPT_SOURCES || 'civitai,lexica,prompthero').split(',').map(s => s.trim())
-    console.log('[FetchPrompts] 抓取来源:', sources)
-
-    let allPrompts: FetchedPrompt[] = []
-
-    // 如果需要按类型筛选后插入
-    const targetCategory = fetchType === 'video' ? '文生视频' : fetchType === 'image' ? '文生图' : fetchType === 'scene' ? '场景' : null
-
-    // 按配置顺序抓取
-    for (const source of sources) {
-      if (source === 'civitai') {
-        const r = await fetchFromCivitai()
-        console.log(`[FetchPrompts] Civitai 抓取: ${r.length} 条`)
-        allPrompts.push(...r)
-      }
-      if (source === 'lexica') {
-        const r = await fetchFromLexica()
-        console.log(`[FetchPrompts] Lexica 抓取: ${r.length} 条`)
-        allPrompts.push(...r)
-      }
-      if (source === 'prompthero') {
-        const r = await fetchFromPromptHero()
-        console.log(`[FetchPrompts] PromptHero: ${r.length} 条`)
-        allPrompts.push(...r)
-      }
+    // 关键词规划：image/video 偏营销物料；scene 偏真实场景
+    const plans: Record<string, { kind: 'image' | 'video'; category: string; kindLabel: string; keywords: string[] }> = {
+      image: { kind: 'image', category: '文生图', kindLabel: '营销图片', keywords: ['marketing product', 'advertising poster', 'brand social media', 'e-commerce product'] },
+      video: { kind: 'video', category: '文生视频', kindLabel: '营销视频', keywords: ['business marketing', 'product promotion', 'advertising commercial', 'brand story'] },
+      scene: { kind: 'image', category: '场景', kindLabel: '场景图片', keywords: ['shopping mall interior', 'beach resort', 'coffee shop bookstore', 'city street night', 'supermarket shelf', 'outdoor camping'] },
     }
+    const plan = plans[fetchType]
+    if (!plan) return NextResponse.json({ success: false, message: '未知抓取类型' }, { status: 400 })
 
-    // 去重（按 prompt 去重）
-    const seen = new Set<string>()
-    const unique = allPrompts.filter(p => {
-      const key = p.prompt.substring(0, 50)
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    console.log(`[FetchPrompts] 去重后: ${unique.length} 条`)
+    console.log(`[FetchPrompts] 开始抓取 Pixabay: type=${fetchType} kind=${plan.kind}`)
+    const all = await fetchFromPixabay(plan.kind, plan.keywords, plan.category, plan.kindLabel)
+    console.log(`[FetchPrompts] 抓取候选: ${all.length} 条`)
 
-    // 批量写入数据库
+    // 写入数据库（按 previewUrl 去重，避免重复抓取同一素材）
     let inserted = 0
-    for (const item of unique) {
-      // 按类型筛选：image→只存文生图, video→只存文生视频, 空→所有
-      if (targetCategory && item.category !== targetCategory) continue
-      const existing = await prisma.promptTemplate.findFirst({
-        where: { prompt: item.prompt.substring(0, 200) },
-      })
+    for (const item of all) {
+      const existing = await prisma.promptTemplate.findFirst({ where: { previewUrl: item.previewUrl } })
       if (existing) continue
       await prisma.promptTemplate.create({
-        data: { title: item.title, prompt: item.prompt, category: item.category },
+        data: { title: item.title, prompt: item.prompt, category: item.category, previewUrl: item.previewUrl },
       })
       inserted++
     }
@@ -162,12 +199,12 @@ export async function POST(request: NextRequest) {
     console.log(`[FetchPrompts] 写入完成: ${inserted} 条新记录`)
     return NextResponse.json({
       success: true,
-      message: `抓取完成：共获取 ${unique.length} 条，新增 ${inserted} 条`,
-      data: { total: unique.length, inserted },
+      message: `抓取完成：候选 ${all.length} 条，新增 ${inserted} 条`,
+      data: { total: all.length, inserted },
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error('[FetchPrompts] 错误:', error)
-    return NextResponse.json({ success: false, message: '抓取失败' }, { status: 500 })
+    return NextResponse.json({ success: false, message: '抓取失败: ' + (error?.message || '') }, { status: 500 })
   } finally {
     await prisma.$disconnect()
   }
