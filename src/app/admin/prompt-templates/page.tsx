@@ -9,6 +9,7 @@ interface PromptItem {
   category: string
   prompt: string
   previewUrl: string | null
+  industry?: string | null
 }
 
 const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频', '场景', '数字人']
