@@ -4,13 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "next build && electron-builder",
     "electron:start": "electron .",
-    "postinstall": "npx prisma db push; true"
+    "postinstall": "npx prisma generate && npx prisma db push; true"
   },
   "main": "electron/main.js",
   "dependencies": {
