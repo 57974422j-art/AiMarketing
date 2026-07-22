@@ -71,6 +71,7 @@ model User {
   collectionTasks         CollectionTask[]
   liveRooms               LiveRoom[]
   subscriptions           UserSubscription[]
+  paymentOrders           PaymentOrder[]
   chatSessions            ChatSession[]
 }
 
@@ -406,6 +407,7 @@ model SubscriptionPlan {
   updatedAt         DateTime @updatedAt
 
   subscriptions UserSubscription[]
+  paymentOrders PaymentOrder[]
 }
 
 model UserSubscription {

@@ -59,6 +59,7 @@ const sections: CardSection[] = [
       { title: '系统设置', desc: 'AI API Key、OSS、TTS 配置', href: '/admin/settings', icon: '⚙️', roles: ['admin'] },
       { title: '套餐与计费', desc: '套餐管理、用量统计、计费设置', href: '/admin/subscription', icon: '💳', roles: ['admin'] },
       { title: '支付设置', desc: '微信支付、支付宝商户号配置', href: '/admin/payment-settings', icon: '💰', roles: ['admin'] },
+      { title: '订单管理', desc: '支付订单查询、筛选、状态跟踪', href: '/admin/orders', icon: '🧾', roles: ['admin'] },
     ],
   },
 ]

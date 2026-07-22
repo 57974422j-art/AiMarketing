@@ -25,6 +25,11 @@ export default function MySubscriptionPage() {
   const [buying, setBuying] = useState(false)
 
   useEffect(() => { loadData() }, [user])
+  useEffect(() => {
+    const on = new URLSearchParams(window.location.search).get('out_trade_no')
+    if (on) pollOrder(on)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const loadData = async () => {
     setLoading(true)
@@ -43,15 +48,36 @@ export default function MySubscriptionPage() {
     if (!user?.id) { showToast('请先登录', 'error'); return }
     setBuying(true)
     try {
-      const r = await fetch('/api/subscription/buy', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, planId }),
+      const r = await fetch('/api/subscription/checkout', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId, channel: 'alipay' }),
       })
       const d = await r.json()
-      if (d.success) { showToast('🎉 订阅成功！', 'success'); loadData() }
-      else showToast(d.message, 'error')
-    } catch { showToast('购买失败', 'error') }
+      if (d.success && d.data?.payUrl) {
+        // 跳转支付宝收银台，支付完成后由 return_url 跳回本页
+        window.location.href = d.data.payUrl
+        return
+      }
+      showToast(d.message || '发起支付失败', 'error')
+    } catch { showToast('发起支付失败', 'error') }
     setBuying(false)
+  }
+
+  // 支付宝回跳后（return_url 带 out_trade_no），轮询订单状态确认开通
+  const pollOrder = async (orderNo: string) => {
+    for (let i = 0; i < 6; i++) {
+      await new Promise(res => setTimeout(res, 1500))
+      try {
+        const r = await fetch(`/api/subscription/order/${orderNo}`, { credentials: 'include' })
+        const d = await r.json()
+        if (d.success && d.data.status === 'paid') {
+          showToast('🎉 订阅成功！', 'success')
+          loadData()
+          return
+        }
+      } catch {}
+    }
   }
 
   if (loading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center text-gray-400 text-sm">加载中...</div>

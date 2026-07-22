@@ -1847,6 +1847,49 @@ npx prisma db push  # 推送 schema 变更到 SQLite
 
 ---
 
+---
+
+## 十、收费与支付系统（2026-07-22 上线测试）
+
+> 目标：终端用户可付费订阅套餐，后台可管理订单。当前为支付宝手机网站支付（wap.pay），微信 Native 同链路待补。
+
+### 数据模型（prisma/schema.prisma）
+- `SubscriptionPlan`：套餐（name / price(分) / discountPrice / durationMonths / 各配额 / status）
+- `UserSubscription`：用户已开通订阅（记录生效期）
+- `PaymentOrder`：支付订单
+  - 字段：orderNo(唯一) / userId / planId / channel(alipay|wechat) / amount(分) / subject / status(pending|paid|closed|failed) / tradeNo / payUrl / qrCode / expireAt / paidAt / raw(回调原文)
+  - 反向关系：User.paymentOrders、SubscriptionPlan.paymentOrders（**缺失会导致 db push 失败，务必补齐**）
+
+### 关键文件
+| 文件 | 作用 |
+|------|------|
+| `src/lib/alipay.ts` | 支付宝下单 / 验签工具 |
+| `src/lib/payment-config.ts` | 支付渠道配置（读 SystemConfig 密钥） |
+| `src/app/api/subscription/checkout/route.ts` | 下单：cookie 鉴权取 userId → 建 PaymentOrder → 返回支付宝 wap 跳转 URL |
+| `src/app/api/payment/alipay/notify/route.ts` | 异步回调：验签 → 校验金额 → 幂等标记 paid → 开通订阅 → 返回 success |
+| `src/app/api/subscription/order/[orderNo]/route.ts` | 订单状态查询（前端支付后轮询用，含越权保护） |
+| `src/app/api/admin/orders/route.ts` | 后台订单列表（admin 鉴权，status/channel/q 筛选、分页、groupBy 汇总） |
+| `src/app/my-subscription/page.tsx` | 前端订阅页：「立即订阅」走 checkout → 跳转支付宝 → 回跳按 out_trade_no 轮询开通 |
+| `src/app/admin/orders/page.tsx` | 后台订单管理页：状态 tab+计数、渠道筛选、搜索、分页、详情弹窗（含 raw 回调） |
+| `src/app/admin/page.tsx` | 后台「系统管理」区新增「订单管理」入口 |
+
+### 支付闭环
+```
+用户点订阅 → checkout 建单+拿支付链接 → 跳转支付宝付款
+  → 支付宝异步 notify 验签开通 + return_url 跳回本页
+  → 前端轮询订单状态 → 显示「订阅成功」
+```
+
+### 部署注意（测试前必做）
+1. 服务器 `git pull` + **重新 `prisma db push`**（PaymentOrder 表需建出；之前因反向关系缺失可能失败）
+2. 重建 + `pm2 restart aimarketing`
+3. 支付宝已签约「手机网站支付」产品（否则调 wap.pay 报「未签约」）
+4. 后台「支付设置」已配置支付宝商户号 / 密钥（SystemConfig 表）
+
+### 待补
+- 微信 Native 支付同链路（qrCode 字段已预留）
+- 订单过期自动关闭定时任务
+
 > **文档结束**
 > 最后更新: 2026-06-12 (V1.8 批量发布队列专场 - my-fingerprint重写+删除非抖音模板+统计bug修复)
 > 下次更新: 推进 Phase 0 / Phase 1 时
