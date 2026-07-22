@@ -12,6 +12,7 @@ interface PromptItem {
 }
 
 const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频', '场景', '数字人']
+const INDUSTRIES = ['美业', '教育', '电商', '餐饮', '房产', '健身', '旅游', '服装']
 
 const IMG_MODELS = [
   { value: 'auto', label: '自动(Auto)', desc: 'Agnes→百炼→硅基' },
@@ -45,6 +46,7 @@ export default function AdminPromptTemplatesPage() {
   const [editItem, setEditItem] = useState<PromptItem | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [filterCat, setFilterCat] = useState('')
+  const [industryFilter, setIndustryFilter] = useState('')
   const [modeTab, setModeTab] = useState<ModeTab>('image')
 
   // 选中项
@@ -82,6 +84,7 @@ export default function AdminPromptTemplatesPage() {
       else if (modeTab === 'digital') params.set('category', '数字人')
       else if (modeTab === 'image') params.set('type', 'image')
       else if (modeTab === 'video') params.set('type', 'video')
+      if (industryFilter) params.set('industry', industryFilter)
       const url = '/api/prompt-templates?' + params.toString()
       const r = await fetch(url, { credentials: 'include' })
       if (r.ok) {
@@ -399,6 +402,21 @@ export default function AdminPromptTemplatesPage() {
           ))}
         </div>
 
+        {/* 行业筛选 */}
+        <div className="flex gap-2 mb-4 flex-wrap items-center">
+          <span className="text-[10px] text-gray-500 font-mono">行业:</span>
+          <button onClick={() => setIndustryFilter('')}
+            className={`px-2 py-1 rounded text-xs ${!industryFilter ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+            全部
+          </button>
+          {INDUSTRIES.map((c: string) => (
+            <button key={c} onClick={() => setIndustryFilter(c)}
+              className={`px-2 py-1 rounded text-xs ${industryFilter === c ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+              {c}
+            </button>
+          ))}
+        </div>
+
         {/* 表单 */}
         {showForm && (
           <div className="card-glass p-6 mb-6">
@@ -461,6 +479,7 @@ export default function AdminPromptTemplatesPage() {
                         <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/40 text-cyan-200' : 'bg-emerald-500/40 text-emerald-200'}`}>
                           {item.category}
                         </span>
+                        {item.industry ? <span className="inline-block mt-0.5 ml-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/30 text-amber-200">{item.industry}</span> : null}
                         <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-1">{item.prompt}</p>
                       </div>
                     </div>
@@ -470,6 +489,7 @@ export default function AdminPromptTemplatesPage() {
                         className="w-4 h-4 mb-2 rounded border-white/20 bg-white/5 accent-emerald-500" />
                       <h3 className="text-white font-bold text-xs">{item.title}</h3>
                       <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-emerald-500/20 text-emerald-400'}`}>{item.category}</span>
+                      {item.industry ? <span className="inline-block mt-1 ml-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300">{item.industry}</span> : null}
                       <p className="text-gray-500 text-[10px] mt-1 line-clamp-2">{item.prompt}</p>
                       <div className="flex gap-2 mt-2">
                         <button onClick={() => openEdit(item)} className="px-2 py-1 text-[10px] bg-white/10 text-gray-300 rounded">编辑</button>

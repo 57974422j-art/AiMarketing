@@ -64,12 +64,14 @@ export async function GET(request: NextRequest) {
     await ensureTable()
     const { searchParams } = new URL(request.url)
     const category = searchParams.get('category')
+    const industry = searchParams.get('industry')
     const type = searchParams.get('type') // 'image' | 'video'
     let sql = 'SELECT * FROM PromptTemplate'
     const params: any[] = []
     const conditions: string[] = []
 
     if (category) { conditions.push('category = ?'); params.push(category) }
+    if (industry) { conditions.push('industry = ?'); params.push(industry) }
     if (type === 'image') { conditions.push("(category = '文生图' OR category NOT IN ('文生视频'))") }
     if (type === 'video') { conditions.push("category = '文生视频'") }
 
