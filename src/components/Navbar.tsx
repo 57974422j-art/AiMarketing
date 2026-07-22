@@ -75,6 +75,7 @@ export default function Navbar() {
             {(user?.role === 'admin' || user?.role === 'editor') && (
               <Link href="/admin/" className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm font-bold">⚙ 管理中心</Link>
             )}
+            <Link href="/download" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">📥 下载客户端</Link>
           </div>
 
           <div className="flex items-center gap-3">
@@ -125,6 +126,7 @@ export default function Navbar() {
             {(user?.role === 'admin' || user?.role === 'editor') && (
               <Link href="/admin/" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-yellow-400 hover:bg-yellow-500/10 rounded-lg text-sm font-bold">⚙ 管理中心</Link>
             )}
+            <Link href="/download" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg text-sm">📥 下载客户端</Link>
           </div>
         </div>
       )}

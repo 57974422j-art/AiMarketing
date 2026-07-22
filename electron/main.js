@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -36,7 +36,6 @@ function createWindow() {
   const isDev = process.env.NODE_ENV !== 'production'
   const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
   mainWindow.loadURL(serverUrl)
-  if (isDev) mainWindow.webContents.openDevTools()
 
   // ── 自动更新检测（生产环境）──
   if (!isDev) {
@@ -782,7 +781,37 @@ function getDefaultUrl(platform) {
 }
 
 
-app.whenReady().then(createWindow)
+// ── 启动更新日志弹窗 ──
+async function showChangelogOnStartup() {
+  try {
+    const changelogPath = path.join(__dirname, 'changelog.json')
+    if (!fs.existsSync(changelogPath)) return
+    const list = JSON.parse(fs.readFileSync(changelogPath, 'utf-8'))
+    if (!Array.isArray(list) || list.length === 0) return
+    const latest = list[0]
+    const storePath = path.join(app.getPath('userData'), 'lastChangelogVersion.json')
+    let lastSeen = null
+    try { lastSeen = JSON.parse(fs.readFileSync(storePath, 'utf-8')).version } catch (_) {}
+    if (lastSeen === latest.version) return
+    const detail = (latest.changes || []).map((c, i) => `${i + 1}. ${c}`).join('\n')
+    await dialog.showMessageBox({
+      type: 'info',
+      title: `更新日志 v${latest.version}`,
+      message: latest.title || `版本 ${latest.version} 更新内容`,
+      detail: `发布日期：${latest.date || '—'}\n\n${detail}`,
+      buttons: ['知道了'],
+      noLink: true,
+    })
+    fs.writeFileSync(storePath, JSON.stringify({ version: latest.version, seenAt: new Date().toISOString() }))
+  } catch (e) {
+    console.error('[Changelog] 弹窗失败:', e.message)
+  }
+}
+
+app.whenReady().then(() => {
+  createWindow()
+  showChangelogOnStartup()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

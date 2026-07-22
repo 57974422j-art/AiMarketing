@@ -1894,3 +1894,35 @@ npx prisma db push  # 推送 schema 变更到 SQLite
 > 最后更新: 2026-06-12 (V1.8 批量发布队列专场 - my-fingerprint重写+删除非抖音模板+统计bug修复)
 > 下次更新: 推进 Phase 0 / Phase 1 时
 > 维护者: AI 助手
+
+---
+
+## 十一、桌面客户端版本管理与下载入口（2026-07-22）
+
+> 客户端是加载远程页面的壳（`electron/main.js` 直连 `SERVER_URL`，默认 `http://120.55.43.195:3000`）。纯服务端功能（收费、订单）无需客户端更新即可用；本机制为后续客户端独立迭代提供版本/更新日志/下载管理。
+
+### 关键文件
+| 文件 | 作用 |
+|------|------|
+| `electron/version.json` | **版本号唯一记录**（独立维护，规避"禁止改 package.json"规则）。字段：version / buildDate / channel / minSupportedVersion / downloadUrl / notes |
+| `electron/changelog.json` | 更新日志+历史日志（结构化数组，**最新在前**）。每条 `{version,date,title,changes[]}` |
+| `electron/main.js` | 启动时 `showChangelogOnStartup()` 读 changelog 首条版本，与 `userData/lastChangelogVersion.json` 已读版本对比，不同则 `dialog` 弹窗提示并写入已读（避免重复弹窗） |
+| `src/app/api/client-info/route.ts` | 公开 API，读取 `electron/` 下两文件作为唯一数据源输出给前端 |
+| `src/app/download/page.tsx` | 下载页：当前版本/渠道/发布日期、下载按钮（指向 `downloadUrl`）、更新日志（最新）、历史日志 |
+| `src/components/Navbar.tsx` | 桌面+移动端导航新增「📥 下载客户端」入口 → `/download` |
+| `docs/server-nginx-https-deploy.md` §4.1 | **访问地址特别申明**：唯一权威域名 `ai-niuma.cc`（已备案+HTTPS） |
+
+### ⚠️ 强制规则（打包上传客户端前必做）
+1. **递增 `electron/version.json` 的 `version`**（语义化版本）。
+2. **在 `electron/changelog.json` 数组顶部追加新条目** `{version,date,title,changes[]}`（最新在前；首条=启动弹窗显示的"更新日志"，全部=历史日志）。
+3. 客户端启动会自动弹窗提示最新更新内容（对比已读版本），无需手动触发。
+
+### ⚠️ 访问地址特别申明（避免误用 IP）
+- **唯一权威对外域名**：`ai-niuma.cc` / `www.ai-niuma.cc`（已 ICP 备案 + HTTPS，经 Nginx 443 反代到 3000）。
+- `downloadUrl` **必须写 `https://ai-niuma.cc/updates`，禁止写 IP:3000**。
+- `IP:3000` 仅用于 `electron/main.js` 的 `SERVER_URL` 默认值（客户端进程内直连）及后端 `localhost:3000` 回环，二者用途不同，勿混淆。
+- 任何对外链接（页面/下载/支付回调/分享）一律用 `https://ai-niuma.cc`。
+
+### 待补
+- `electron-updater` 已集成，需将 `package.json` 的 `publish.url` 与自动更新逻辑接通（当前更新提示靠启动弹窗 + 手动下载）。
+- 跨平台安装包（mac/linux）与签名。
