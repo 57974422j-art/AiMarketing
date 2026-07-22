@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -208,6 +208,17 @@ export async function POST(request: NextRequest) {
       if (p.test(envContent)) envContent = envContent.replace(p, `GEMINI_BASE_URL=${geminiBaseUrl}`);
       else envContent += `\nGEMINI_BASE_URL=${geminiBaseUrl}`;
     }
+    // Agnes AI
+    if (agnesKey !== undefined) {
+      const p = /^AGNES_API_KEY=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `AGNES_API_KEY=${agnesKey}`);
+      else envContent += `\nAGNES_API_KEY=${agnesKey}`;
+    }
+    if (agnesBaseUrl !== undefined) {
+      const p = /^AGNES_BASE_URL=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `AGNES_BASE_URL=${agnesBaseUrl}`);
+      else envContent += `\nAGNES_BASE_URL=${agnesBaseUrl}`;
+    }
 
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
@@ -232,6 +243,8 @@ export async function POST(request: NextRequest) {
     if (overseasProxy !== undefined) process.env.OVERSEAS_PROXY = overseasProxy
     if (geminiKey !== undefined) process.env.GEMINI_API_KEY = geminiKey
     if (geminiBaseUrl !== undefined) process.env.GEMINI_BASE_URL = geminiBaseUrl
+    if (agnesKey !== undefined) process.env.AGNES_API_KEY = agnesKey
+    if (agnesBaseUrl !== undefined) process.env.AGNES_BASE_URL = agnesBaseUrl
 
     return NextResponse.json({
       success: true,
@@ -288,6 +301,8 @@ export async function GET(request: NextRequest) {
     const overseasProxy = await readEnv('OVERSEAS_PROXY');
     const geminiKey = await readEnv('GEMINI_API_KEY');
     const geminiBaseUrl = await readEnv('GEMINI_BASE_URL');
+    const agnesKey = await readEnv('AGNES_API_KEY');
+    const agnesBaseUrl = await readEnv('AGNES_BASE_URL');
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -315,6 +330,9 @@ export async function GET(request: NextRequest) {
         geminiConfigured: !!geminiKey,
         geminiBaseUrl: geminiBaseUrl || '',
         geminiBaseUrlConfigured: !!geminiBaseUrl,
+        agnesConfigured: !!agnesKey,
+        agnesBaseUrl: agnesBaseUrl || '',
+        agnesBaseUrlConfigured: !!agnesBaseUrl,
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''

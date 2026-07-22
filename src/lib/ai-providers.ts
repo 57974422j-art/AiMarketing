@@ -1587,6 +1587,107 @@ async function dashscopeTTS(text: string, voice = 'longxiaochun'): Promise<Array
   }
 }
 
+// ==================== Agnes AI（Sapiens AI 全模态，默认主用，其他厂商作降级兜底） ====================
+function getAgnesKey(): string | null {
+  return process.env.AGNES_API_KEY || readEnvFile('AGNES_API_KEY') || null;
+}
+function getAgnesBase(): string {
+  return (process.env.AGNES_BASE_URL || readEnvFile('AGNES_BASE_URL') || 'https://apihub.agnes-ai.com/v1').replace(/\/$/, '');
+}
+
+// 文生图：POST {base}/images/generations（OpenAI 兼容）
+async function agnesGenerateImage(prompt: string, size = '1280*1280'): Promise<string | null> {
+  const key = getAgnesKey();
+  if (!key) { console.log('[Agnes 文生图] Key 未设置，跳过'); return null; }
+  const [w, h] = (size || '1280*1280').split('*').map(Number);
+  const sz = `${w || 1024}x${h || 1024}`;
+  console.log(`[Agnes 文生图] 模型 agnes-image-2.1-flash, size=${sz}`);
+  try {
+    const res = await fetch(`${getAgnesBase()}/images/generations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({ model: 'agnes-image-2.1-flash', prompt, n: 1, size: sz }),
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.log('[Agnes 文生图] 调用失败:', res.status, err.substring(0, 300));
+      return null;
+    }
+    const data = await res.json();
+    const item = data?.data?.[0];
+    const imageUrl = item?.url || (item?.b64_json ? `data:image/png;base64,${item.b64_json}` : null);
+    if (!imageUrl) { console.log('[Agnes 文生图] 未返回图片URL:', JSON.stringify(data).substring(0, 300)); return null; }
+    return imageUrl;
+  } catch (e) {
+    console.error('[Agnes 文生图] 异常:', e);
+    return null;
+  }
+}
+
+// 文生视频：POST {base}/videos（异步），taskId 加 agnes: 前缀便于 queryVideoTask 路由
+async function agnesGenerateVideo(prompt: string, duration = 5, resolution = '720P', ratio = '16:9'): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  const key = getAgnesKey();
+  if (!key) { console.log('[Agnes 文生视频] Key 未设置，跳过'); return null; }
+  const [rw, rh] = (resolution || '720P') === '1080P' ? [1920, 1080] : [1280, 720];
+  const [aw, ah] = (ratio || '16:9').split(':').map(Number);
+  const width = Math.round((ah && aw) ? rw * (aw / ah) : rw);
+  const height = rh;
+  const numFrames = duration * 8 + 1; // Agnes 要求 num_frames = 8n+1
+  console.log(`[Agnes 文生视频] 模型 agnes-video-v2.0, ${width}x${height}, frames=${numFrames}`);
+  try {
+    const res = await fetch(`${getAgnesBase()}/videos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'agnes-video-v2.0',
+        prompt,
+        num_frames: numFrames,
+        frame_rate: 8,
+        height,
+        width,
+      }),
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.log('[Agnes 文生视频] 创建失败:', res.status, err.substring(0, 300));
+      return null;
+    }
+    const data = await res.json();
+    const id = data?.id || data?.task_id || data?.taskId;
+    if (!id) { console.log('[Agnes 文生视频] 未返回任务ID:', JSON.stringify(data).substring(0, 300)); return null; }
+    return { taskId: `agnes:${id}`, status: 'pending' };
+  } catch (e) {
+    console.error('[Agnes 文生视频] 异常:', e);
+    return null;
+  }
+}
+
+// 轮询 Agnes 视频任务状态
+async function agnesQueryVideoTask(rawId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  const key = getAgnesKey();
+  if (!key) return null;
+  try {
+    const res = await fetch(`${getAgnesBase()}/videos/${rawId}`, {
+      headers: { 'Authorization': `Bearer ${key}` },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) { console.log('[Agnes 视频查询] 失败:', res.status); return null; }
+    const data = await res.json();
+    const statusRaw = data?.status || data?.output?.status || 'pending';
+    const videoUrl = data?.video_url || data?.url || data?.remixed_from_video_id || data?.output?.video_url || (typeof data === 'string' ? data : '');
+    let status = 'RUNNING';
+    if (['completed', 'succeeded', 'SUCCESS', 'done'].includes(statusRaw)) status = 'SUCCEEDED';
+    else if (['failed', 'FAILED', 'error'].includes(statusRaw)) status = 'FAILED';
+    console.log(`[Agnes 视频查询] id=${rawId} status=${statusRaw} ${videoUrl ? 'hasUrl=true' : ''}`);
+    return { taskId: `agnes:${rawId}`, status, videoUrl: videoUrl || undefined };
+  } catch (e) {
+    console.error('[Agnes 视频查询] 异常:', e);
+    return null;
+  }
+}
+
 // 5. 文生图（返回 {url, model}，model 标明实际使用的模型）
 export async function generateImage(prompt: string, size = '1280*1280', provider?: string): Promise<{ url: string; model: string } | null> {
   const labelMap: Record<string, string> = {
@@ -1594,6 +1695,12 @@ export async function generateImage(prompt: string, size = '1280*1280', provider
     'qwen-image-2.0-pro': '通义千问 2.0 Pro',
     'dashscope': '百炼 wan2.6',
     'siliconflow': '硅基 Z-Image',
+    'agnes': 'Agnes AI',
+  }
+  if (provider === 'agnes') {
+    const url = await agnesGenerateImage(prompt, size)
+    if (url) return { url, model: labelMap['agnes'] }
+    return null
   }
   if (provider === 'dashscope') {
     const url = await dashscopeGenerateImage(prompt, size, 'wan2.6-t2i')
@@ -1610,7 +1717,10 @@ export async function generateImage(prompt: string, size = '1280*1280', provider
     if (url) return { url, model: labelMap[provider] || provider }
     return null
   }
-  // auto: 百炼(wan2.6-t2i) → 硅基流动 → null
+  // auto（默认主用 Agnes，其他厂商降级兜底）: Agnes → 百炼(wan2.6-t2i) → 硅基流动 → null
+  const agnesUrl = await agnesGenerateImage(prompt, size)
+  if (agnesUrl) return { url: agnesUrl, model: 'Agnes AI' }
+
   const dashUrl = await dashscopeGenerateImage(prompt, size)
   if (dashUrl) return { url: dashUrl, model: '百炼 wan2.6' }
 
@@ -1629,6 +1739,13 @@ const MODEL_MAP: Record<string, string> = {
   doubao: 'doubao-seedance-2-0-260128',
 }
 export async function generateVideo(prompt: string, _duration = 5, _resolution = '720P', _ratio = '16:9', _model?: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  // 指定 Agnes（主用模型，失败不降级）
+  if (_model === 'agnes') {
+    const result = await agnesGenerateVideo(prompt, _duration, _resolution, _ratio)
+    if (result) return result
+    console.log(`[文生视频] Agnes 失败, 无降级`)
+    return null
+  }
   // 指定了模型 → 直接调用百炼对应模型
   if (_model) {
     const realModel = MODEL_MAP[_model] || _model
@@ -1639,15 +1756,16 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
     return null
   }
 
-  // 自动模式（未指定模型）：百炼 wan2.7 → happyhorse
-  // [火山 doubao] 暂未开通，开通后加回来
+  // 自动模式（未指定模型）：默认主用 Agnes，失败则降级 百炼 wan2.7 → happyhorse
+  const agnesResult = await agnesGenerateVideo(prompt, _duration, _resolution, _ratio)
+  if (agnesResult) return agnesResult;
+  console.log(`[文生视频] Agnes失败, 降级到百炼 wan2.7-t2v`)
 
-  // ② 百炼 wan2.7-t2v
-  console.log(`[文生视频] 火山失败, 降级到百炼 wan2.7-t2v`)
+  // 百炼 wan2.7-t2v
   const dash27Result = await dashscopeGenerateVideo(prompt, _duration, _resolution, _ratio, 'wan2.7-t2v');
   if (dash27Result) return dash27Result;
 
-  // ③ 百炼 happyhorse-1.0-t2v（自动配音兜底）
+  // 百炼 happyhorse-1.0-t2v（自动配音兜底）
   console.log(`[文生视频] 百炼wan降级到 happyhorse-1.0-t2v`)
   const dashHhResult = await dashscopeGenerateVideo(prompt, _duration, '720P', _ratio, 'happyhorse-1.0-t2v');
   if (dashHhResult) return dashHhResult;
@@ -1658,6 +1776,10 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
 
 // 7. 查询视频任务状态
 export async function queryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  // Agnes 任务（taskId 以 agnes: 前缀）单独路由
+  if (taskId.startsWith('agnes:')) {
+    return agnesQueryVideoTask(taskId.substring(7));
+  }
   // 先查百炼
   const dashResult = await dashscopeQueryVideoTask(taskId);
   // 百炼有结果（SUCCEEDED/FAILED/RUNNING 都算）→ 直接用

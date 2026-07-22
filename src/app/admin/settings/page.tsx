@@ -96,6 +96,11 @@ export default function SettingsPage() {
   const [showGeminiKey, setShowGeminiKey] = useState(false)
   const [geminiBaseUrl, setGeminiBaseUrl] = useState('')
 
+  // ====== Agnes AI（全模态生图/生视频，默认主用） ======
+  const [agnesKey, setAgnesKey] = useState('')
+  const [showAgnesKey, setShowAgnesKey] = useState(false)
+  const [agnesBaseUrl, setAgnesBaseUrl] = useState('')
+
   // ====== 客服设置 ======
   const [serviceQrcode, setServiceQrcode] = useState('')
   const [serviceSaving, setServiceSaving] = useState(false)
@@ -144,6 +149,9 @@ export default function SettingsPage() {
       // Gemini
       setGeminiKey(d.geminiConfigured ? '********' : '')
       setGeminiBaseUrl(d.geminiBaseUrl || '')
+      // Agnes AI
+      setAgnesKey(d.agnesConfigured ? '********' : '')
+      setAgnesBaseUrl(d.agnesBaseUrl || '')
 
       // 客服设置
       try {
@@ -198,6 +206,8 @@ export default function SettingsPage() {
           overseasProxy: overseasProxy || undefined,
           geminiKey: mask(geminiKey),
           geminiBaseUrl: geminiBaseUrl || undefined,
+          agnesKey: mask(agnesKey),
+          agnesBaseUrl: agnesBaseUrl || undefined,
         }),
       })
       const result = await res.json()
@@ -449,6 +459,41 @@ export default function SettingsPage() {
                 优先用直连 Key；填了中转地址则作降级。支持 OpenAI 兼容 /v1 端点。模型名前缀 [L]按次 [V]按量
               </p>
             </div>
+          </div>
+        </div>
+
+        {/* Agnes AI（全模态：文生图 / 文生视频，默认主用，其他厂商作降级兜底） */}
+        <div className="card-glass p-6 mt-6">
+          <h3 className="text-white font-bold mb-2"><span className="text-yellow-400">//</span> Agnes AI（全模态生图 / 生视频 · 主用）</h3>
+          <p className="text-gray-400 text-xs mb-4">Sapiens AI 全模态免费 API。配置后「自动」模式生图/生视频将优先用 Agnes，失败再降级到百炼/硅基；也可在 Prompt 模板页单独指定 Agnes。</p>
+          <div className="space-y-3">
+            <label className="block text-label">
+              <span>🔮 Agnes API Key</span>
+              {agnesKey && <span className="ml-2 text-xs text-emerald-400 font-mono">✓ 已配置</span>}
+            </label>
+            <div className="relative">
+              <input
+                type={showAgnesKey ? 'text' : 'password'}
+                value={agnesKey}
+                onChange={e => setAgnesKey(e.target.value)}
+                placeholder="粘贴 Agnes API Key（platform.agnes-ai.com → Settings → API Keys）"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50 pr-10"
+              />
+              <button type="button" onClick={() => setShowAgnesKey(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                {showAgnesKey ? '🙈' : '👁'}
+              </button>
+            </div>
+            <input
+              type="text"
+              value={agnesBaseUrl}
+              onChange={e => setAgnesBaseUrl(e.target.value)}
+              placeholder="API 地址（可选，默认 https://apihub.agnes-ai.com/v1）"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50"
+            />
+            <p className="text-[10px] text-gray-600 font-mono">
+              文生图 agnes-image-2.1-flash · 文生视频 agnes-video-v2.0（异步轮询）。免费额度，谨慎高频调用。
+            </p>
           </div>
         </div>
 

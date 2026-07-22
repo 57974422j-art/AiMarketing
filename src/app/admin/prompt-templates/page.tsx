@@ -14,14 +14,16 @@ interface PromptItem {
 const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频', '场景', '数字人']
 
 const IMG_MODELS = [
-  { value: 'auto', label: '自动(Auto)', desc: '百炼→硅基' },
+  { value: 'auto', label: '自动(Auto)', desc: 'Agnes→百炼→硅基' },
+  { value: 'agnes', label: 'Agnes AI', desc: '全模态主用' },
   { value: 'dashscope', label: '百炼 wan2.6', desc: '图文生图' },
   { value: 'qwen-image-2.0', label: '通义千问 2.0', desc: '最新轻量' },
   { value: 'qwen-image-2.0-pro', label: '通义千问 2.0 Pro', desc: '最新高质' },
   { value: 'siliconflow', label: '硅基 Z-Image', desc: '备选' },
 ]
 const VID_MODELS = [
-  { value: '', label: '自动', desc: 'Doubao→wan2.7' },
+  { value: '', label: '自动', desc: 'Agnes→wan2.7' },
+  { value: 'agnes', label: 'Agnes AI', desc: '全模态主用' },
   { value: 'doubao', label: 'Doubao', desc: '火山' },
   { value: 'wan2.7', label: 'wan2.7', desc: '百炼' },
   { value: 'happyhorse', label: '快乐小马', desc: '自动配音' },

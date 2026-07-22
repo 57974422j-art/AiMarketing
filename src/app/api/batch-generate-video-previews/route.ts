@@ -40,10 +40,10 @@ function getVolcanoKey(): string | null {
 /** 调用 AI 生成 5 秒视频，支持选择模型 */
 async function generatePreviewVideo(prompt: string, model: string): Promise<string | null> {
   // 使用百炼 happyhorse 或 wan2.7
-  if (model === 'happyhorse' || model === 'wan2.7' || model === '') {
+  if (model === 'happyhorse' || model === 'wan2.7' || model === '' || model === 'agnes') {
     try {
       const { generateVideo: genVid } = await import('@/lib/ai-providers')
-      const modelName = model === 'wan2.7' ? 'wan2.7' : 'happyhorse'
+      const modelName = model === 'wan2.7' ? 'wan2.7' : model === 'agnes' ? 'agnes' : 'happyhorse'
       const result = await genVid(prompt, 5, '720P', '16:9', modelName)
       if (result?.taskId) {
         // 轮询结果（generateVideo 异步模式下只返回 taskId）
