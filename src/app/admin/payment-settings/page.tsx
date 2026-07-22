@@ -6,6 +6,7 @@ import { showToast } from '@/components/Toast'
 interface PaymentConfig {
   wechatAppId: string; wechatMchId: string; wechatApiKey: string; wechatEnabled: boolean
   alipayAppId: string; alipayPrivateKey: string; alipayPublicKey: string; alipayEnabled: boolean
+  alipayGateway: string; alipayNotifyUrl: string
 }
 
 export default function PaymentSettingsPage() {
@@ -15,6 +16,7 @@ export default function PaymentSettingsPage() {
   const [config, setConfig] = useState<PaymentConfig>({
     wechatAppId: '', wechatMchId: '', wechatApiKey: '', wechatEnabled: false,
     alipayAppId: '', alipayPrivateKey: '', alipayPublicKey: '', alipayEnabled: false,
+    alipayGateway: 'https://openapi.alipay.com/gateway.do', alipayNotifyUrl: 'https://ai-niuma.cc/api/payment/alipay/notify',
   })
 
   useEffect(() => { if (!authLoading) setAuthorized(user?.role === 'admin') }, [authLoading, user])
@@ -44,12 +46,18 @@ export default function PaymentSettingsPage() {
 
   if (!authorized) return <div className="min-h-screen bg-gray-950 p-8 text-gray-400 text-sm">需要管理员权限</div>
 
-  const field = (label: string, key: keyof PaymentConfig, placeholder: string, isPassword = true) => (
+  const field = (label: string, key: keyof PaymentConfig, placeholder: string, isPassword = true, multiline = false) => (
     <div>
       <label className="text-gray-500 text-[10px] block mb-0.5">{label}</label>
-      <input className="input-dark w-full text-xs" type={isPassword ? 'password' : 'text'} placeholder={placeholder}
-        value={(config as any)[key]}
-        onChange={e => setConfig(prev => ({ ...prev, [key]: e.target.value }))} />
+      {multiline ? (
+        <textarea className="input-dark w-full text-xs font-mono h-24 resize-y" placeholder={placeholder}
+          value={(config as any)[key]}
+          onChange={e => setConfig(prev => ({ ...prev, [key]: e.target.value }))} />
+      ) : (
+        <input className="input-dark w-full text-xs" type={isPassword ? 'password' : 'text'} placeholder={placeholder}
+          value={(config as any)[key]}
+          onChange={e => setConfig(prev => ({ ...prev, [key]: e.target.value }))} />
+      )}
     </div>
   )
 
@@ -97,12 +105,14 @@ export default function PaymentSettingsPage() {
               </button>
             </label>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {field('AppID', 'alipayAppId', '2021001xxxxx')}
-            {field('应用私钥', 'alipayPrivateKey', '-----BEGIN RSA PRIVATE KEY-----')}
-            {field('支付宝公钥', 'alipayPublicKey', '-----BEGIN PUBLIC KEY-----')}
+            {field('应用私钥', 'alipayPrivateKey', '-----BEGIN RSA PRIVATE KEY-----', true, true)}
+            {field('支付宝公钥', 'alipayPublicKey', '-----BEGIN PUBLIC KEY-----', true, true)}
+            {field('支付宝网关地址', 'alipayGateway', 'https://openapi.alipay.com/gateway.do', false)}
+            {field('异步通知地址', 'alipayNotifyUrl', 'https://ai-niuma.cc/api/payment/alipay/notify', false)}
           </div>
-          <p className="text-[9px] text-gray-600 mt-2">获取方式：支付宝开放平台 → 控制台 → 应用详情 → 开发设置</p>
+          <p className="text-[9px] text-gray-600 mt-2">密钥/网关获取：支付宝开放平台 → 控制台 → 应用详情 → 开发设置。「异步通知地址」需与支付宝后台「应用网关」填成同一个值。</p>
         </div>
 
         <button onClick={save} disabled={saving}

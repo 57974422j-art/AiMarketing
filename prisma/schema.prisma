@@ -415,10 +415,37 @@ model UserSubscription {
   startDate  DateTime @default(now())
   endDate    DateTime
   status     String   @default("active")              // active/expired/cancelled
+  orderNo       String?   // 关联 PaymentOrder.orderNo，便于对账
+  paymentMethod String?   // alipay / wechat / manual
   createdAt  DateTime @default(now())
 
   user       User              @relation(fields: [userId], references: [id])
   plan       SubscriptionPlan  @relation(fields: [planId], references: [id])
+}
+
+// ═══════════════════════════════════════════════
+// 支付订单 — 收款流程中间态（下单→支付→回调开通订阅）
+// ═══════════════════════════════════════════════
+model PaymentOrder {
+  id        Int      @id @default(autoincrement())
+  orderNo   String   @unique                 // 商户订单号（平台生成，唯一）
+  userId    Int
+  planId    Int
+  channel   String   @default("alipay")      // alipay / wechat
+  amount    Int                               // 金额(分)
+  subject   String                            // 订单标题，如 "专业版月卡"
+  status    String   @default("pending")      // pending / paid / closed / failed
+  tradeNo   String?                           // 第三方交易号
+  payUrl    String?                           // 支付宝 wap 支付跳转 URL
+  qrCode    String?                           // 微信 Native 支付二维码内容
+  expireAt  DateTime?                         // 订单过期时间
+  paidAt    DateTime?
+  raw       String?                           // 回调原始数据(JSON)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User             @relation(fields: [userId],   references: [id])
+  plan SubscriptionPlan @relation(fields: [planId],   references: [id])
 }
 
 model VideoTemplate {
