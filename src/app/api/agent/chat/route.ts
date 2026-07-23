@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   generateText, generateImage, generateVideo, generateLongVideo,
-  deepSeekFunctionCall, ToolDefinition,
+  ToolDefinition,
   createDigitalHuman, queryDigitalHumanTask, synthesizeVoiceTTS,
+  agnesChat, type AgentChatMessage,
 } from '@/lib/ai-providers'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { PrismaClient } from '@prisma/client'
@@ -315,20 +316,28 @@ export async function POST(request: NextRequest) {
 
     const userMessage = message.trim()
 
-    // 组装附件信息
-    let contextMsg = userMessage
+    // 组装附件：图像作为视觉块(image_url)让模型"看到"，视频等非图像以文本说明
+    let userContent: any = userMessage
     if (attachments?.length) {
-      contextMsg += '\n[用户上传了附件:' + attachments.map((a: any) => `${a.type}:${a.url}`).join(',') + ']'
+      const blocks: any[] = [{ type: 'text', text: userMessage }]
+      for (const a of attachments as any[]) {
+        if (typeof a.url === 'string' && (a.type || '').startsWith('image')) {
+          blocks.push({ type: 'image_url', image_url: { url: a.url } })
+        } else {
+          blocks.push({ type: 'text', text: `\n[用户上传了附件:${a.type || 'file'}:${a.url}]` })
+        }
+      }
+      userContent = blocks
     }
 
-    // 构建消息
-    const messages: Array<{ role: string; content: string; name?: string }> = [
+    // 构建消息（Agnes 多模态对话格式）
+    const messages: AgentChatMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
     ]
     for (const h of history.slice(-10)) {
       messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })
     }
-    messages.push({ role: 'user', content: contextMsg })
+    messages.push({ role: 'user', content: userContent })
 
     // Step 1: 多模态 + 工具调用（Agnes 大脑）
     const fcResult = await agnesChat(messages, AGENT_TOOLS)
