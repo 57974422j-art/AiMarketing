@@ -1718,43 +1718,65 @@ export async function agnesChat(
     console.warn('[Agnes Chat] 未配置 AGNES_API_KEY，跳过')
     return { content: null }
   }
-  try {
-    const body: Record<string, any> = {
-      model,
-      messages: messages.map((m) => {
-        const o: Record<string, any> = { role: m.role, content: m.content }
-        if (m.role === 'tool' && m.tool_call_id) o.tool_call_id = m.tool_call_id
-        if (m.name) o.name = m.name
-        return o
-      }),
-      temperature: 0.3,
-      max_tokens: maxTokens,
+  // 灰度模型回退：agnes-2.5-flash 不可用（model_not_found 等）时，自动回退 agnes-2.0-flash
+  const modelChain = model === 'agnes-2.5-flash'
+    ? ['agnes-2.5-flash', 'agnes-2.0-flash']
+    : [model]
+  let lastErr: any = null
+  for (const tryModel of modelChain) {
+    try {
+      const body: Record<string, any> = {
+        model: tryModel,
+        messages: messages.map((m) => {
+          const o: Record<string, any> = { role: m.role, content: m.content }
+          if (m.role === 'tool' && m.tool_call_id) o.tool_call_id = m.tool_call_id
+          if (m.name) o.name = m.name
+          return o
+        }),
+        temperature: 0.3,
+        max_tokens: maxTokens,
+      }
+      if (tools.length > 0) {
+        body.tools = tools.map((t) => ({
+          type: 'function',
+          function: {
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters || { type: 'object', properties: {} },
+          },
+        }))
+      }
+      const data = await fetchJSON(`${getAgnesBase()}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        body: JSON.stringify(body),
+      })
+      const choice = data.choices?.[0]
+      if (!choice) return { content: null }
+      if (tryModel !== model) console.warn(`[Agnes Chat] 回退使用模型 ${tryModel}`)
+      return {
+        content: choice.message?.content || null,
+        toolCalls: choice.message?.tool_calls || undefined,
+      }
+    } catch (e: any) {
+      const msg = String(e?.message || e)
+      lastErr = e
+      const isLast = tryModel === modelChain[modelChain.length - 1]
+      // 模型不可用（灰度未开放等）→ 尝试下一档回退模型
+      const modelUnavailable = /model_not_found|no available channel|HTTP 503/i.test(msg)
+      if (!isLast && modelUnavailable) {
+        console.warn(`[Agnes Chat] 模型 ${tryModel} 不可用，回退 ${modelChain[modelChain.indexOf(tryModel) + 1]}: ${msg}`)
+        continue
+      }
+      if (!isLast) {
+        console.warn(`[Agnes Chat] 模型 ${tryModel} 调用异常，尝试回退下一档: ${msg}`)
+        continue
+      }
+      break
     }
-    if (tools.length > 0) {
-      body.tools = tools.map((t) => ({
-        type: 'function',
-        function: {
-          name: t.name,
-          description: t.description,
-          parameters: t.parameters || { type: 'object', properties: {} },
-        },
-      }))
-    }
-    const data = await fetchJSON(`${getAgnesBase()}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify(body),
-    })
-    const choice = data.choices?.[0]
-    if (!choice) return { content: null }
-    return {
-      content: choice.message?.content || null,
-      toolCalls: choice.message?.tool_calls || undefined,
-    }
-  } catch (e) {
-    console.error('[Agnes Chat] 调用失败:', e)
-    return { content: null }
   }
+  console.error('[Agnes Chat] 调用失败:', lastErr)
+  return { content: null }
 }
 
 // 5. 文生图（返回 {url, model}，model 标明实际使用的模型）
