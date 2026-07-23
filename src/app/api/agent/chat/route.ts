@@ -365,9 +365,10 @@ export async function POST(request: NextRequest) {
 
       // Step 2: 回传结果
       const finalResult = await agnesChat(messages, [])
-      const reply = finalResult.content || formatToolResult(
-        messages.filter(m => (m as any).role === 'tool').pop()?.content || ''
-      )
+      const toolMsg = messages.filter(m => (m as any).role === 'tool').pop() as AgentChatMessage | undefined
+      const toolRaw = toolMsg?.content
+      const toolText = typeof toolRaw === 'string' ? toolRaw : (toolRaw ? JSON.stringify(toolRaw) : '')
+      const reply = finalResult.content || formatToolResult(toolText)
 
       // 存DB
       let sessionId = sid
