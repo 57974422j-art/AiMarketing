@@ -39,7 +39,7 @@ async function generateThumbnail(videoBuffer: Buffer): Promise<Buffer | null> {
 }
 
 export interface SaveToRepoOptions {
-  userId: string
+  userId: string | number
   buffer: Buffer
   ext: string
   mime: string
@@ -53,12 +53,13 @@ export interface SaveToRepoOptions {
  */
 export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ name: string }> {
   const { userId, buffer, ext, mime } = opts
+  const uid = String(userId)
   const quotaCheck = opts.quotaCheck ?? true
 
   // 配额检查（统计该用户已用空间）
   if (quotaCheck) {
     try {
-      const files = await listObjects(`storage/${userId}/`)
+      const files = await listObjects(`storage/${uid}/`)
       const used = files.reduce((sum, f) => sum + f.size, 0)
       if (used + buffer.length > MAX_QUOTA) {
         throw new Error('存储空间不足')
@@ -74,13 +75,13 @@ export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ nam
   const datePrefix = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
   let todaySeq = 1
   try {
-    const existing = (await listObjects(`storage/${userId}/${datePrefix}`)).filter(
+    const existing = (await listObjects(`storage/${uid}/${datePrefix}`)).filter(
       o => !o.name.includes('/.thumbs/')
     )
     todaySeq = existing.length + 1
   } catch {}
   const name = `${datePrefix}_${String(todaySeq).padStart(3, '0')}.${ext}`
-  const key = `storage/${userId}/${name}`
+  const key = `storage/${uid}/${name}`
 
   // 上传主文件
   await putObject(key, buffer, mime)
@@ -91,7 +92,7 @@ export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ nam
       const thumbBuffer = await generateThumbnail(buffer)
       if (thumbBuffer) {
         const thumbName = name.replace(VIDEO_RE, '.jpg')
-        const thumbKey = `storage/${userId}/.thumbs/${thumbName}`
+        const thumbKey = `storage/${uid}/.thumbs/${thumbName}`
         await putObject(thumbKey, thumbBuffer, 'image/jpeg')
       }
     } catch {}
@@ -104,10 +105,11 @@ export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ nam
  * 存量视频缺缩略图时后台懒补齐：
  * 从 OSS 取回视频 buffer → 现截一帧 → 存回 .thumbs/
  */
-export async function ensureThumb(userId: string, videoName: string): Promise<void> {
-  const key = `storage/${userId}/${videoName}`
+export async function ensureThumb(userId: string | number, videoName: string): Promise<void> {
+  const uid = String(userId)
+  const key = `storage/${uid}/${videoName}`
   const thumbName = videoName.replace(VIDEO_RE, '.jpg')
-  const thumbKey = `storage/${userId}/.thumbs/${thumbName}`
+  const thumbKey = `storage/${uid}/.thumbs/${thumbName}`
   try {
     if (await objectExists(thumbKey)) return
     const videoBuf = await getObject(key)
