@@ -144,6 +144,7 @@ export default function AdminPromptTemplatesPage() {
   }
 
   // ===== 预设 / 抓取 =====
+  const [videoOrientation, setVideoOrientation] = useState<'horizontal' | 'vertical'>('horizontal')
   const handlePreseed = async () => {
     if (!confirm('预设 20 条营销提示词模板？')) return
     setBusy(p => ({ ...p, preseeding: true }))
@@ -158,7 +159,8 @@ export default function AdminPromptTemplatesPage() {
     if (!confirm(`从外部源抓取${type === 'image' ? '文生图' : '文生视频'}提示词？`)) return
     setBusy(p => ({ ...p, fetch: true }))
     try {
-      const r = await fetch(`/api/fetch-prompts?type=${type}`, { method: 'POST', credentials: 'include' })
+      const qs = type === 'video' ? `?type=${type}&orientation=${videoOrientation}` : `?type=${type}`
+      const r = await fetch(`/api/fetch-prompts${qs}`, { method: 'POST', credentials: 'include' })
       const d = await r.json()
       showToast(d.message, d.success ? 'success' : 'error')
       if (d.success) loadItems()
@@ -283,6 +285,11 @@ export default function AdminPromptTemplatesPage() {
           <div className="flex gap-2 flex-wrap justify-end">
             <button onClick={() => handleFetch('image')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🌄 抓取文生图'}</button>
             <button onClick={() => handleFetch('video')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🎬 抓取文生视频'}</button>
+            <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-[10px]">
+              <span className="text-gray-500 mr-0.5">朝向</span>
+              <button onClick={() => setVideoOrientation('horizontal')} className={`px-2 py-0.5 rounded ${videoOrientation === 'horizontal' ? 'bg-emerald-500 text-white' : 'text-gray-400 hover:text-white'}`}>横屏</button>
+              <button onClick={() => setVideoOrientation('vertical')} className={`px-2 py-0.5 rounded ${videoOrientation === 'vertical' ? 'bg-emerald-500 text-white' : 'text-gray-400 hover:text-white'}`}>竖屏</button>
+            </span>
             <button onClick={() => handleFetch('scene')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🏞️ 抓取场景'}</button>
             <button onClick={handlePreseed} disabled={busy.preseeding} className="btn-secondary text-xs py-2">{busy.preseeding ? '填充中' : '📦 预设'}</button>
             <button onClick={handleAIShort} disabled={busy.aishort} className="btn-secondary text-xs py-2">{busy.aishort ? '导入中' : '📥 导入AiShort'}</button>
