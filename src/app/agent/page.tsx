@@ -158,17 +158,23 @@ export default function AgentPage() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
   }
 
-  // 文件上传处理
+  // 文件上传处理（图片/视频 → 个人仓库 /api/storage/files）
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files?.length) return
     Array.from(files).forEach(async (file) => {
-      if (file.size > 10 * 1024 * 1024) return
+      const isVideo = file.type.startsWith('video')
+      const isImage = file.type.startsWith('image')
+      if (!isVideo && !isImage) return
+      if (file.size > 100 * 1024 * 1024) return
       const fd = new FormData()
-      fd.append('image', file)
-      const r = await fetch('/api/digital-human/upload-audio', { method: 'POST', body: fd, credentials: 'include' })
+      fd.append('file', file)
+      const r = await fetch('/api/storage/files', { method: 'POST', body: fd, credentials: 'include' })
       const d = await r.json()
-      if (d.success) setAttachments(prev => [...prev, { name: file.name, url: d.url, type: file.type.startsWith('image') ? 'image' : 'audio' }])
+      if (d.success && d.data?.name) {
+        const url = `/api/storage/file?userId=${user?.id}&name=${encodeURIComponent(d.data.name)}`
+        setAttachments(prev => [...prev, { name: file.name, url, type: isVideo ? 'video' : 'image' }])
+      }
     })
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -376,7 +382,7 @@ export default function AgentPage() {
                 <div className="flex gap-2 mb-2 flex-wrap">
                   {attachments.map((a, i) => (
                     <span key={i} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 text-[10px] text-gray-400">
-                      {a.type === 'image' ? '🖼' : '🎵'} {a.name}
+                      {a.type === 'image' ? '🖼' : a.type === 'video' ? '🎬' : '🎵'} {a.name}
                       <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} className="text-gray-600 hover:text-red-400">×</button>
                     </span>
                   ))}
@@ -388,7 +394,7 @@ export default function AgentPage() {
                   className="shrink-0 w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-500 hover:text-gray-300 transition">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
                 </button>
-                <input ref={fileInputRef} type="file" accept="image/*,audio/*" className="hidden" onChange={handleFilePick} multiple />
+                <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFilePick} multiple />
                 <textarea ref={inputRef} value={input}
                   onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
                   placeholder="输入需求，我帮你干活..."
@@ -401,7 +407,7 @@ export default function AgentPage() {
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
                 </button>
               </div>
-              <p className="text-[8px] text-gray-700 text-center mt-1 hidden sm:block">Enter 发送 · Shift+Enter 换行 · 📎 上传图片/音频</p>
+              <p className="text-[8px] text-gray-700 text-center mt-1 hidden sm:block">Enter 发送 · Shift+Enter 换行 · 📎 上传图片/视频</p>
             </div>
           </footer>
         </main>
