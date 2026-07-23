@@ -460,9 +460,9 @@ export default function AdminPromptTemplatesPage() {
               {items.map(item => (
                 <div key={item.id} className={`card-glass border-2 transition-all overflow-hidden ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-transparent'}`} style={{ height: '200px' }}>
                   {item.previewUrl ? (
-                    <div className={`relative w-full h-full group ${item.previewUrl.endsWith('.mp4') ? 'cursor-pointer' : ''}`} onClick={() => item.previewUrl?.endsWith('.mp4') && setPlayVideo(item.previewUrl)}>
+                    <div className={`relative w-full h-full group bg-black/50 ${item.previewUrl.endsWith('.mp4') ? 'cursor-pointer' : ''}`} onClick={() => item.previewUrl?.endsWith('.mp4') && setPlayVideo(item.previewUrl)}>
                       {item.previewUrl.endsWith('.mp4')
-                        ? <video src={item.previewUrl} className="w-full h-full object-cover" />
+                        ? <video src={item.previewUrl} className="w-full h-full object-contain" />
                         : <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
                       }
                       {/* 图片 hover 放大预览 */}
