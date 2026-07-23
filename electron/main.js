@@ -314,8 +314,12 @@ ipcMain.handle('fp:start', async (_event, { port, accountId, platform, proxy }) 
         ...FP_LAUNCH_ARGS,
         `--remote-debugging-port=${port}`,
         `--user-agent=${FP_USER_AGENT}`,
+        '--window-size=1920,1440',
       ],
-      viewport: { width: 1280, height: 800 },
+      // 视口放大到 1920x1440：抖音编辑页的「发布」按钮在底部/右侧，
+      // 1280x800 下会落在布局视口之外导致脚本 isVisible()/点击失败。
+      // 放大后发布键进入布局视口，脚本可正常定位点击。
+      viewport: { width: 1920, height: 1440 },
       locale: 'zh-CN',
     }
 

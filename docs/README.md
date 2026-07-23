@@ -21,7 +21,7 @@
 | server-k8s-deploy.md | K8s 部署说明 |
 | server-mediacrawler-deploy.md | 媒体爬虫部署 |
 | wechat-mp-integration.md | 微信公众号集成 |
-| fingerprint-browser-guide.md | 指纹浏览器使用指南 |
+| fingerprint-browser-guide.md | 指纹浏览器发布指南（发布脚本/视口/草稿假成功等坑，2026-07-23 已建） |
 | api-reference.md | API 参考 |
 | content-publish-guide.md | 内容发布指南 |
 | device-control-guide.md | 设备控制指南 |
@@ -31,3 +31,4 @@
 ## 更新记录
 
 - 2026-07-23：新增 `agent-customer-journey-plan.md`（AGENT 客户旅程规划）；BGM 路线调整为「后续接入国内收费音乐 API」，已建 `/api/bgm/ingest`（Pixabay 直链转存 OSS）与 `/api/bgm/upload`（文件上传转存 OSS）两个接口。
+- 2026-07-23：修复指纹浏览器发布视口过小导致「发布」键在布局视口外、脚本点不到的问题（`electron/main.js` 第 318 行 `viewport 1280×800 → 1920×1440`，加 `--window-size=1920,1440`）；建 `fingerprint-browser-guide.md` 记录发布架构与草稿假成功/封面失效/滚轮等已知坑。
