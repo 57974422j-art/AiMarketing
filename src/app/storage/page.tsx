@@ -110,12 +110,20 @@ export default function StoragePage() {
               <div key={f.name} className="card-glass p-2 rounded-lg relative group">
                 {/* 缩略图 */}
                 <div className="aspect-video bg-white/5 rounded mb-1 overflow-hidden flex items-center justify-center">
-                  {f.thumbUrl ? (
+                  {f.isVideo ? (
+                    <video
+                      src={`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}`}
+                      poster={f.thumbUrl || undefined}
+                      className="w-full h-full object-cover"
+                      controls
+                      preload="metadata"
+                    />
+                  ) : f.thumbUrl ? (
                     <img src={f.thumbUrl} alt={f.name} className="w-full h-full object-cover" />
-                  ) : !f.isVideo && /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name) ? (
+                  ) : /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name) ? (
                     <img src={`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}`} alt={f.name} className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-2xl">{f.isVideo ? '🎬' : '📄'}</span>
+                    <span className="text-2xl">📄</span>
                   )}
                 </div>
                 <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={()=>{window.open('/api/storage/file?userId='+userId+'&name='+encodeURIComponent(f.name),'_blank')}}>{f.name}</p>

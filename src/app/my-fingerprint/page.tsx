@@ -252,6 +252,56 @@ export default function MyFingerprintPage() {
     showToast(`已添加到队列 (#${taskQueue.length + 1})`, 'success')
   }
 
+  /** 立即发布当前填写的内容（不进队列，直接发这条） */
+  const publishNow = async () => {
+    if (!selectedAccount?.cdpPort) {
+      showToast('请先选择并启动指纹浏览器', 'error'); return
+    }
+    if (!formVideoName) {
+      showToast('请先选择视频', 'error'); return
+    }
+    if (!formTitle.trim()) {
+      showToast('请填写标题', 'error'); return
+    }
+    if (batchRunning) return
+
+    setBatchRunning(true)
+    setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🚀 立即发布: ${formVideoName}`])
+    try {
+      const task: PublishTask = {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        videoName: formVideoName,
+        title: formTitle.trim(),
+        description: formDesc.trim(),
+        topics: formTopics.trim(),
+        coverImage: formCoverImage,
+        location: formLocation,
+        publishNow: formPublishNow,
+        status: 'publishing',
+      }
+      const params = await buildTaskParams(task)
+      if (window.electronAPI?.fpExecute) {
+        const res = await window.electronAPI.fpExecute(selectedAccount.cdpPort, 'douyin-publish', params)
+        if (res.success) {
+          setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 发布完成: ${formVideoName}`])
+          if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
+          showToast('发布成功', 'success')
+        } else {
+          setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✗ 发布失败: ${res.message || '未知错误'}`])
+          showToast('发布失败: ' + (res.message || '未知错误'), 'error')
+        }
+      } else {
+        setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✗ 客户端未连接，无法发布`])
+        showToast('客户端未连接，无法发布', 'error')
+      }
+    } catch (e: any) {
+      setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✗ 异常: ${e?.message || e}`])
+      showToast('发布异常: ' + (e?.message || e), 'error')
+    } finally {
+      setBatchRunning(false)
+    }
+  }
+
   /** 从队列移除任务 */
   const removeFromQueue = (taskId: string) => {
     setTaskQueue(prev => prev.filter(t => t.id !== taskId))
@@ -717,6 +767,15 @@ export default function MyFingerprintPage() {
                       }`}
                     >仅草稿</button>
                   </div>
+                  {/* 真正的立即发布动作按钮 */}
+                  <button
+                    type="button"
+                    onClick={publishNow}
+                    disabled={!formVideoName || !formTitle.trim() || batchRunning}
+                    className="w-full mt-2 py-2.5 rounded-lg text-sm font-medium bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 text-white disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                  >
+                    🚀 立即发布当前内容
+                  </button>
                 </div>
 
                 {/* 添加到队列按钮 */}
