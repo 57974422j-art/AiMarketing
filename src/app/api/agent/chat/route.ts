@@ -330,24 +330,32 @@ export async function POST(request: NextRequest) {
     }
     messages.push({ role: 'user', content: contextMsg })
 
-    // Step 1: Function Calling
-    const fcResult = await deepSeekFunctionCall(messages, AGENT_TOOLS)
+    // Step 1: 多模态 + 工具调用（Agnes 大脑）
+    const fcResult = await agnesChat(messages, AGENT_TOOLS)
     const toolCalls = fcResult.toolCalls || []
 
     if (toolCalls.length > 0) {
-      // Add assistant fc response
-      messages.push({ role: 'assistant', content: fcResult.content || '', name: 'tool_use' } as any)
+      // 按 OpenAI 兼容格式回传 assistant(tool_calls) + tool(tool_call_id)
+      messages.push({
+        role: 'assistant',
+        content: fcResult.content || '',
+        tool_calls: toolCalls.map((tc: any) => ({
+          id: tc.id,
+          type: 'function',
+          function: { name: tc.name, arguments: tc.arguments },
+        })),
+      } as any)
 
       for (const tc of toolCalls) {
         let args: Record<string, any> = {}
         try { args = JSON.parse(tc.arguments) } catch { args = {} }
         console.log(`[Agent] 🔧 ${tc.name}`, JSON.stringify(args).substring(0, 100))
         const result = await executeToolCall(tc.name, args, auth)
-        messages.push({ role: 'tool', content: result } as any)
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: result } as any)
       }
 
       // Step 2: 回传结果
-      const finalResult = await deepSeekFunctionCall(messages, [])
+      const finalResult = await agnesChat(messages, [])
       const reply = finalResult.content || formatToolResult(
         messages.filter(m => (m as any).role === 'tool').pop()?.content || ''
       )

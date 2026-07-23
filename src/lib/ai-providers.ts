@@ -1688,6 +1688,75 @@ async function agnesQueryVideoTask(rawId: string): Promise<{ taskId: string; sta
   }
 }
 
+// ==================== Agnes 多模态对话（AGENT 大脑） ====================
+// agnes-2.5-flash 是 OpenAI 兼容的多模态对话模型：
+// - 支持 image_url 视觉输入（图像理解）
+// - 支持 function calling / 工具调用（智能体工作流）
+// 与 agnesGenerateImage / agnesGenerateVideo 同生态，AGENT 生图生视频都走 Agnes
+// 注意：灰度模型，key 须进灰度名单；否则回退 agnes-2.0-flash（API 兼容）
+export interface AgentChatMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  // 文本，或多模态内容块（image_url 等）
+  content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+  tool_call_id?: string
+  name?: string
+}
+
+export interface AgentChatResult {
+  content: string | null
+  toolCalls?: Array<{ id: string; name: string; arguments: string }>
+}
+
+export async function agnesChat(
+  messages: AgentChatMessage[],
+  tools: ToolDefinition[] = [],
+  model: string = 'agnes-2.5-flash',
+  maxTokens = 2000
+): Promise<AgentChatResult> {
+  const key = getAgnesKey()
+  if (!key) {
+    console.warn('[Agnes Chat] 未配置 AGNES_API_KEY，跳过')
+    return { content: null }
+  }
+  try {
+    const body: Record<string, any> = {
+      model,
+      messages: messages.map((m) => {
+        const o: Record<string, any> = { role: m.role, content: m.content }
+        if (m.role === 'tool' && m.tool_call_id) o.tool_call_id = m.tool_call_id
+        if (m.name) o.name = m.name
+        return o
+      }),
+      temperature: 0.3,
+      max_tokens: maxTokens,
+    }
+    if (tools.length > 0) {
+      body.tools = tools.map((t) => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters || { type: 'object', properties: {} },
+        },
+      }))
+    }
+    const data = await fetchJSON(`${getAgnesBase()}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify(body),
+    })
+    const choice = data.choices?.[0]
+    if (!choice) return { content: null }
+    return {
+      content: choice.message?.content || null,
+      toolCalls: choice.message?.tool_calls || undefined,
+    }
+  } catch (e) {
+    console.error('[Agnes Chat] 调用失败:', e)
+    return { content: null }
+  }
+}
+
 // 5. 文生图（返回 {url, model}，model 标明实际使用的模型）
 export async function generateImage(prompt: string, size = '1280*1280', provider?: string): Promise<{ url: string; model: string } | null> {
   const labelMap: Record<string, string> = {
