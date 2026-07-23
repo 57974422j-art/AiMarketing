@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import fs from 'fs'
 import { getAuthFromHeaders } from '@/lib/api-auth'
-import { putObject, listObjects } from '@/lib/oss'
+import { saveToPersonalRepo } from '@/lib/personal-storage'
 
 const GENERATED = '/root/AiMarketing/public/generated'
 
@@ -18,21 +18,12 @@ export async function POST(request: NextRequest) {
   if (!fs.existsSync(src)) return NextResponse.json({ success: false, message: '文件不存在' }, { status: 404 })
 
   const srcBuf = fs.readFileSync(src)
-  const destKey = `storage/${auth.userId}/${taskId.split('.')[0]}.mp4`
 
-  // 检查存储配额（统计该用户已用空间）
   try {
-    const files = await listObjects(`storage/${auth.userId}/`)
-    let used = files.reduce((sum, f) => sum + f.size, 0)
-    if (used + srcBuf.length > 500 * 1024 * 1024) {
-      return NextResponse.json({ success: false, message: '存储空间不足' }, { status: 413 })
-    }
-  } catch {
-    // OSS 列目录失败时跳过配额检查
+    const res = await saveToPersonalRepo({ userId: auth.userId, buffer: srcBuf, ext: 'mp4', mime: 'video/mp4' })
+    return NextResponse.json({ success: true, data: { name: res.name } })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : '保存失败'
+    return NextResponse.json({ success: false, message }, { status: 413 })
   }
-
-  // 上传到 OSS
-  await putObject(destKey, srcBuf, 'video/mp4')
-
-  return NextResponse.json({ success: true, data: { name: path.basename(destKey) } })
 }

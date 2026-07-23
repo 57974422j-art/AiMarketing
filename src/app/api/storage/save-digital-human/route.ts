@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
-import { putObject, listObjects, signedUrl } from '@/lib/oss'
+import { listObjects, signedUrl } from '@/lib/oss'
+import { saveToPersonalRepo } from '@/lib/personal-storage'
 
 const MAX_QUOTA = 500 * 1024 * 1024 // 500MB
 
@@ -28,14 +29,8 @@ export async function POST(request: NextRequest) {
       used = files.reduce((sum, f) => sum + f.size, 0)
     } catch { /* 首次使用可能无目录 */ }
 
-    // 生成文件名：dh_时间戳_title(可选).mp4
-    const timestamp = Date.now()
-    const safeTitle = (title || 'video').replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, '_').slice(0, 30)
-    const fileName = `dh_${timestamp}_${safeTitle}.mp4`
-    const key = `storage/${auth.userId}/${fileName}`
+    addLog(`[STORAGE] 开始下载视频`)
 
-    addLog(`[STORAGE] 开始下载视频 → ${fileName}`)
-    
     // 下载视频
     const response = await fetch(videoUrl)
     if (!response.ok) {
@@ -56,19 +51,23 @@ export async function POST(request: NextRequest) {
       }, { status: 413 })
     }
 
-    // 上传到 OSS
-    await putObject(key, buffer, 'video/mp4')
-    addLog(`[STORAGE] 保存成功: ${fileName} (${Math.round(fileSize / 1024 / 1024)}MB)`)
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        name: fileName,
-        size: fileSize,
-        url: `/api/storage/file?userId=${auth.userId}&name=${fileName}`,
-      },
-      message: `✅ 已存入素材库: ${fileName}`,
-    })
+    // 统一写入个人仓库（日期序命名 + 自动缩略图）
+    try {
+      const res = await saveToPersonalRepo({ userId: auth.userId, buffer, ext: 'mp4', mime: 'video/mp4', quotaCheck: false })
+      addLog(`[STORAGE] 保存成功: ${res.name} (${Math.round(fileSize / 1024 / 1024)}MB)`)
+      return NextResponse.json({
+        success: true,
+        data: {
+          name: res.name,
+          size: fileSize,
+          url: `/api/storage/file?userId=${auth.userId}&name=${res.name}`,
+        },
+        message: `✅ 已存入素材库: ${res.name}`,
+      })
+    } catch (e) {
+      const message = e instanceof Error ? e.message : '保存失败'
+      return NextResponse.json({ success: false, message }, { status: 413 })
+    }
 
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : '保存失败'

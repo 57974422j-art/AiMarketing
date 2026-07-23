@@ -1,29 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
-import { putObject, listObjects } from '@/lib/oss'
-import { runFFmpeg } from '@/lib/ffmpeg'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import fs from 'fs'
+import { listObjects } from '@/lib/oss'
+import { saveToPersonalRepo, ensureThumb } from '@/lib/personal-storage'
 
 const MAX_QUOTA = 500 * 1024 * 1024 // 500MB
-
-/** 用 FFmpeg 从视频 buffer 中截取第一帧作为缩略图 — 走全局队列 + nice */
-async function generateThumbnail(videoBuffer: Buffer): Promise<Buffer | null> {
-  try {
-    const tmpIn = join(tmpdir(), `thumb_${Date.now()}_in.mp4`)
-    const tmpOut = join(tmpdir(), `thumb_${Date.now()}_out.jpg`)
-    fs.writeFileSync(tmpIn, videoBuffer)
-    await runFFmpeg(`-y -i "${tmpIn}" -ss 00:00:00.5 -vframes 1 -q:v 2 "${tmpOut}"`, { timeout: 15000, skipNice: true, priority: 'high' })
-    const thumb = fs.readFileSync(tmpOut)
-    fs.unlinkSync(tmpIn)
-    fs.unlinkSync(tmpOut)
-    return thumb
-  } catch (e) {
-    console.error('[thumbnail] FFmpeg生成失败:', e instanceof Error ? e.message : e)
-    return null
-  }
-}
 
 /** 获取用户在 OSS 上的已用空间 */
 async function usedQuota(userId: number): Promise<number> {
@@ -51,6 +31,10 @@ export async function GET(request: NextRequest) {
   try {
     const prefix = `storage/${auth.userId}/`
     const objects = await listObjects(prefix)
+    // 已存在的缩略图集合，用于判断存量视频是否需要补图
+    const thumbSet = new Set(
+      objects.filter(o => o.name.includes('/.thumbs/')).map(o => o.name.split('/.thumbs/')[1])
+    )
 
     // 过滤掉 .thumbs 子目录的文件，只返回用户上传的文件
     const files = objects
@@ -60,14 +44,17 @@ export async function GET(request: NextRequest) {
         const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(name)
         // 缩略图路径（OSS 上 .thumbs/{name}.jpg）
         const thumbName = name.replace(/\.(mp4|mov|avi|mkv|webm)$/i, '.jpg')
+        const thumbExists = thumbSet.has(thumbName)
+        // 存量视频缺缩略图时后台异步补齐
+        if (isVideo && !thumbExists) void ensureThumb(auth!.userId, name)
         return {
           name,
           size: o.size,
           mtime: o.lastModified.toISOString(),
           isVideo,
-          // 视频用 .thumbs 缩略图；图片直接用文件本身作预览
+          // 视频用 .thumbs 缩略图；图片直接用文件本身作预览；缺图时返回 null（由懒补齐生成）
           thumbUrl: isVideo
-            ? `/api/storage/file?userId=${auth!.userId}&name=.thumbs/${thumbName}`
+            ? (thumbExists ? `/api/storage/file?userId=${auth!.userId}&name=.thumbs/${thumbName}` : null)
             : `/api/storage/file?userId=${auth!.userId}&name=${encodeURIComponent(name)}`,
         }
       })
@@ -94,36 +81,17 @@ export async function POST(request: NextRequest) {
   }
 
   const ext = file.name.split('.').pop() || 'mp4'
-  const now = new Date()
-  const datePrefix = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`
-  // 查今天已有几个文件，序号从 001 递增
-  let todaySeq = 1
-  try {
-    const existing = await listObjects(`storage/${auth.userId}/${datePrefix}`)
-    todaySeq = existing.length + 1
-  } catch {}
-  const name = `${datePrefix}_${String(todaySeq).padStart(3, '0')}.${ext}`
-  const key = `storage/${auth.userId}/${name}`
   const buffer = Buffer.from(await file.arrayBuffer())
 
   // 根据扩展名设置 MIME 类型
   const mimeMap: Record<string, string> = { mp4: 'video/mp4', mov: 'video/quicktime', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' }
   const mime = mimeMap[ext.toLowerCase()] || 'application/octet-stream'
 
-  await putObject(key, buffer, mime)
-
-  // 视频文件：生成缩略图存到 .thumbs/ 目录
-  const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(name)
-  if (isVideo) {
-    try {
-      const thumbBuffer = await generateThumbnail(buffer)
-      if (thumbBuffer) {
-        const thumbName = name.replace(/\.(mp4|mov|avi|mkv|webm)$/i, '.jpg')
-        const thumbKey = `storage/${auth.userId}/.thumbs/${thumbName}`
-        await putObject(thumbKey, thumbBuffer, 'image/jpeg')
-      }
-    } catch {}
+  try {
+    const res = await saveToPersonalRepo({ userId: auth.userId, buffer, ext, mime })
+    return NextResponse.json({ success: true, data: { name: res.name, size: file.size } })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : '保存失败'
+    return NextResponse.json({ success: false, message }, { status: 413 })
   }
-
-  return NextResponse.json({ success: true, data: { name, size: file.size } })
 }
