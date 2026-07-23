@@ -1754,9 +1754,16 @@ export async function agnesChat(
       const choice = data.choices?.[0]
       if (!choice) return { content: null }
       if (tryModel !== model) console.warn(`[Agnes Chat] 回退使用模型 ${tryModel}`)
+      // OpenAI 格式：tool_calls[].function.{name,arguments}，拍平方便调用方取用
+      const rawCalls = choice.message?.tool_calls || []
+      const toolCalls = rawCalls.map((tc: any) => ({
+        id: tc.id,
+        name: tc.function?.name,
+        arguments: tc.function?.arguments || '{}',
+      }))
       return {
         content: choice.message?.content || null,
-        toolCalls: choice.message?.tool_calls || undefined,
+        toolCalls: toolCalls.length ? toolCalls : undefined,
       }
     } catch (e: any) {
       const msg = String(e?.message || e)
