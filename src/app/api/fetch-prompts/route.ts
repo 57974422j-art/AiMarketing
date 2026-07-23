@@ -180,14 +180,14 @@ async function fetchImageCandidates(): Promise<Cand[]> {
 }
 
 // ===== 抓取：行业 视频（暂归「文生视频」，细分待定） =====
-async function fetchVideoCandidates(): Promise<Cand[]> {
+async function fetchVideoCandidates(orientation: string): Promise<Cand[]> {
   if (!PIXABAY_KEY) return []
   const out: Cand[] = []
   for (const ind of INDUSTRIES) {
     if (out.length >= VIDEO_TOTAL_CAP) break
     const q = `${ind.w} promotion`
     try {
-      const api = `https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=${encodeURIComponent(q)}&per_page=20`
+      const api = `https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=${encodeURIComponent(q)}&per_page=20${orientation ? `&orientation=${orientation}` : ''}`
       const r = await fetch(api, { signal: AbortSignal.timeout(20000) })
       if (!r.ok) { console.log(`[Fetch] 视频查询失败 ${r.status} (${ind.name})`); continue }
       const data: any = await r.json()
@@ -241,12 +241,12 @@ async function fetchSceneCandidates(): Promise<Cand[]> {
 }
 
 // 后台异步执行抓取（避免前端请求超时；PM2 长驻进程可跑完整个任务）
-async function runFetch(fetchType: string, kindLabel: string) {
+async function runFetch(fetchType: string, kindLabel: string, orientation: string) {
   try {
     await ensureColumns()
 
     let candidates: Cand[] = []
-    if (fetchType === 'video') candidates = await fetchVideoCandidates()
+    if (fetchType === 'video') candidates = await fetchVideoCandidates(orientation)
     else if (fetchType === 'scene') candidates = await fetchSceneCandidates()
     else candidates = await fetchImageCandidates()
     console.log(`[Fetch] 抓取候选: ${candidates.length} 条 (type=${fetchType})`)
@@ -289,9 +289,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, message: '未知抓取类型' }, { status: 400 })
   }
   const kindLabel = fetchType === 'video' ? '营销视频' : fetchType === 'scene' ? '场景图片' : '营销图片'
+  const orientation = fetchType === 'video' ? (searchParams.get('orientation') || '') : ''
 
   // 立即返回，重活丢到后台异步跑（约 1~3 分钟），不再阻塞前端请求
-  runFetch(fetchType, kindLabel).catch((e) => console.error('[Fetch] 后台任务异常:', e))
+  runFetch(fetchType, kindLabel, orientation).catch((e) => console.error('[Fetch] 后台任务异常:', e))
   return NextResponse.json({
     success: true,
     message: '抓取任务已启动（后台处理中，约需 1~3 分钟，完成后可在素材库/提示词模板查看）',
