@@ -195,9 +195,10 @@ async function fetchVideoCandidates(): Promise<Cand[]> {
       let taken = 0
       for (const hit of hits) {
         if (taken >= PER_VIDEO || out.length >= VIDEO_TOTAL_CAP) break
-        const previewUrl = hit.videos?.medium?.url || hit.videos?.small?.url
-        const visionImage = hit.picture
-        if (!previewUrl || !visionImage) continue
+        const v = hit.videos?.medium || hit.videos?.small || hit.videos?.large
+        const previewUrl = v?.url
+        const visionImage = v?.thumbnail || hit.picture || ''
+        if (!previewUrl) continue
         const tags = (hit.tags || '').replace(/,/g, ', ').trim() || `${ind.name} 视频`
         const title = tags.length > 40 ? tags.substring(0, 40) + '…' : tags
         out.push({ title, category: '文生视频', industry: ind.name, prompt: '', previewUrl, originalUrl: previewUrl, visionImage, kind: 'video', _tags: tags })
