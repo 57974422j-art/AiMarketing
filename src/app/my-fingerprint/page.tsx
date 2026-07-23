@@ -287,8 +287,8 @@ export default function MyFingerprintPage() {
           if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
           showToast('发布成功', 'success')
         } else {
-          setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✗ 发布失败: ${res.message || '未知错误'}`])
-          showToast('发布失败: ' + (res.message || '未知错误'), 'error')
+          setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✗ 发布失败: ${res.error || '未知错误'}`])
+          showToast('发布失败: ' + (res.error || '未知错误'), 'error')
         }
       } else {
         setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✗ 客户端未连接，无法发布`])
