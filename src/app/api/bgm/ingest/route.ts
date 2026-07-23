@@ -81,7 +81,16 @@ function isLikelyAudio(buf: Buffer, ct: string | null): boolean {
 async function ingestOne(item: { url: string; title: string; mood: string }) {
   const { url, title, mood } = item
   try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(60000) })
+    // Pixabay CDN 热链保护：带浏览器 UA + Referer 才能拿到 200
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(60000),
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        Referer: 'https://pixabay.com/',
+        Accept: '*/*',
+      },
+    })
     if (!resp.ok) {
       return { url, ok: false, reason: `HTTP ${resp.status}` }
     }
