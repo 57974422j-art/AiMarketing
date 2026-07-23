@@ -634,6 +634,17 @@ model PromptTemplate {
   originalUrl String?
 }
 
+// 背景音乐库：精选免版税 BGM 转存 OSS 后入库，永久可用（避免原直链失效）
+model BgmTrack {
+  id         Int      @id @default(autoincrement())
+  title      String                         // 风格名，如 "轻松愉快"
+  mood       String?                        // 风格标签 uplifting / soft / electronic / cinematic
+  duration   Int?                           // 时长（秒）
+  url        String                         // OSS 永久地址
+  sourceUrl  String?                        // 原始直链（留档）
+  createdAt  DateTime @default(now())
+}
+
 // ====== V2 升级 - Phase 0-3 新增模型 ======
 // 创建日期: 2026-06-06
 // 用途: 支持导流系统、线索采集、直播模块
