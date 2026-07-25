@@ -6,6 +6,7 @@ import {
   agnesChat, type AgentChatMessage,
 } from '@/lib/ai-providers'
 import { getAuthFromHeaders } from '@/lib/api-auth'
+import { listObjects } from '@/lib/oss'
 import { PrismaClient } from '@prisma/client'
 
 export const runtime = 'nodejs'
@@ -74,12 +75,23 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'search_storage',
-    description: '搜索项目素材仓库。触发词："素材""仓库""找视频""找图片""媒体库""我的素材"。',
+    description: '搜索项目素材库（MediaAsset，平台级素材：趋势视频/BGM/图片等）。触发词："素材库""媒体库""项目素材""找视频""找图片"。制作日常内容时可主动调用挑选可用素材。',
     parameters: {
       type: 'object',
       properties: {
-        keyword: { type: 'string', description: '搜索关键词' },
+        keyword: { type: 'string', description: '搜索关键词（匹配标题）' },
         type: { type: 'string', description: '素材类型：video/image/audio/all' },
+      },
+    },
+  },
+  {
+    name: 'list_personal_files',
+    description: '列出用户个人仓库（OSS 私有存储）的文件，含用户自己上传的视频/图片。触发词："我的仓库""个人素材""我上传的""之前传的视频"。发布内容前可主动调用挑选成片；返回的每个文件带可直接使用的URL。',
+    parameters: {
+      type: 'object',
+      properties: {
+        keyword: { type: 'string', description: '文件名关键词过滤（可选）' },
+        type: { type: 'string', description: '类型过滤：video/image/all，默认all' },
       },
     },
   },
@@ -96,13 +108,13 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'publish_content',
-    description: '发布内容到抖音/快手等平台。触发词："发布""发抖音""发快手""上传视频""投稿"。需要先到/accounts绑定账号。',
+    description: '发布/准备发布内容到自媒体平台（抖音/小红书/快手/视频号/B站）。触发词："发布""发抖音""发小红书""投稿""上传视频"。会检查该平台绑定账号并给出发布指引；真实发布在客户端指纹浏览器执行，账号未登录平台时需用户先去登录（你不处理登录）。',
     parameters: {
       type: 'object',
       properties: {
-        platform: { type: 'string', description: '平台：抖音/快手/小红书' },
-        contentUrl: { type: 'string', description: '要发布的内容URL' },
-        caption: { type: 'string', description: '文案/标题' },
+        platform: { type: 'string', description: '平台：douyin/xiaohongshu/kuaishou/shipinhao/bilibili（或中文名）' },
+        contentUrl: { type: 'string', description: '要发布的内容URL（个人仓库文件URL或生成结果URL）' },
+        caption: { type: 'string', description: '文案/标题（含话题标签）' },
       }, required: ['platform'],
     },
   },
@@ -118,24 +130,30 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
 ]
 
-const SYSTEM_PROMPT = `你是 AiMarketing 的 AI 助手，一个全能AI营销创作平台的智能大脑。
+const SYSTEM_PROMPT = `你是 AiMarketing 的 AI 运营助手，核心使命：帮用户执行自媒体运营的日常任务——每天的内容制作与发布（抖音/小红书/快手/视频号/B站）。
 
 你可以直接做这些事情：
-✍️ 写文案 — 各平台营销文案、脚本、广告语
+✍️ 写文案 — 各平台营销文案、脚本、标题、话题标签
 🎨 AI生图 — 文生图，生成海报配图
-🔍 网络搜图 — 帮用户找参考图片
+🔍 网络搜图 — 上网帮用户找参考图/可用素材
 🎬 AI视频 — 文字描述生成短视频
 🤖 数字人口播 — 照片+文案生成AI主播视频
-📦 素材仓库 — 管理项目图片视频素材
+📦 项目素材库 — 平台级素材（趋势视频/图片/BGM）
+🗂 个人仓库 — 用户自己上传的视频/图片（发布首选来源）
 📋 模板库 — 项目内置的各种模板
-📱 发布内容 — 发抖音/快手（需要先绑定账号）
+📱 发布内容 — 发到5大平台（指纹浏览器执行，需账号已绑定且已登录平台）
 ⚙️ 自动化 — 定时任务/互关/评论
 
-工作方式：
-1. 用户一句话指令 → 你直接执行 → 展示结果
-2. 需要补充信息时友好询问
-3. 执行完告诉用户做了什么、结果是什么
-4. 如果涉及账号发布，告诉用户需要先绑定账号
+【内容制作自由度】制作日常内容时你有主动权，不必等用户一步步指挥：
+1. 找素材优先级：个人仓库(list_personal_files) → 项目素材库(search_storage) → 网上找(search_web_images) → AI现做(generate_image/generate_video)
+2. 用户说"帮我做今天的内容/日更"这类模糊指令时，主动组合工具：查素材→写文案→配图/成片→给出发布建议，一次给出完整方案
+3. 素材不合适就换下一个来源，不要卡住反问；实在缺关键信息（如产品名/平台）再问
+
+【发布规则】
+- 发布前确认三要素：平台、内容URL（优先个人仓库成片）、文案标题
+- publish_content 会检查绑定账号；真实发布在客户端「指纹浏览器」页执行
+- 账号未登录平台时，引导用户去指纹浏览器页点「去登录」扫码；你不处理登录
+- 没绑定账号时，引导去【账号管理】绑定（bindType=manual）
 
 规则：简洁专业、适度emoji、中文回复、不啰嗦、不说"你不能"而是给替代方案`
 
@@ -202,18 +220,49 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       }
     }
 
-    // ── 素材仓库 ──
+    // ── 项目素材库 ──
     case 'search_storage': {
       try {
         const where: any = { ownerId: auth?.userId }
         if (args.type && args.type !== 'all') where.type = args.type
+        if (args.keyword) where.title = { contains: args.keyword }
         const items = await prisma.mediaAsset.findMany({ where, orderBy: { createdAt: 'desc' }, take: 8 })
         if (items.length) {
-          const list = items.map((m, i) => `${i + 1}. ${m.title} [${m.type}] ${m.url?.substring(0, 50)}`).join('\n')
-          return `STORAGE_RESULT:找到${items.length}个素材:\n${list}`
+          const list = items.map((m, i) => `${i + 1}. ${m.title} [${m.type}] ${m.url}`).join('\n')
+          return `STORAGE_RESULT:项目素材库找到${items.length}个素材（URL可直接用于配图/发布）:\n${list}`
         }
-        return 'STORAGE_RESULT:素材仓库暂无内容。你可以上传素材，或让我帮你生成。'
+        return 'STORAGE_RESULT:项目素材库暂无匹配内容。可以试试个人仓库(list_personal_files)、网上找图，或让我AI生成。'
       } catch { return 'STORAGE_RESULT:素材查询失败' }
+    }
+
+    // ── 个人仓库（OSS 私有存储）──
+    case 'list_personal_files': {
+      if (!auth?.userId) return 'PERSONAL_RESULT:请先登录后再查看个人仓库'
+      try {
+        const prefix = `storage/${auth.userId}/`
+        const objects = await listObjects(prefix)
+        let files = objects
+          .filter(o => !o.name.includes('/.thumbs/'))
+          .map(o => {
+            const name = o.name.replace(prefix, '')
+            const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(name)
+            const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(name)
+            return {
+              name,
+              type: isVideo ? 'video' : isImage ? 'image' : 'file',
+              sizeMB: (o.size / 1024 / 1024).toFixed(1),
+              mtime: o.lastModified.toISOString().substring(0, 10),
+              url: `/api/storage/file?userId=${auth.userId}&name=${encodeURIComponent(name)}`,
+            }
+          })
+        if (args.type === 'video') files = files.filter(f => f.type === 'video')
+        if (args.type === 'image') files = files.filter(f => f.type === 'image')
+        if (args.keyword) files = files.filter(f => f.name.includes(args.keyword))
+        files = files.sort((a, b) => b.mtime.localeCompare(a.mtime)).slice(0, 10)
+        if (!files.length) return 'PERSONAL_RESULT:个人仓库暂无匹配文件。可以去【个人仓库】页上传，或让我AI生成内容。'
+        const list = files.map((f, i) => `${i + 1}. ${f.name} [${f.type}] ${f.sizeMB}MB ${f.mtime} URL:${f.url}`).join('\n')
+        return `PERSONAL_RESULT:个人仓库找到${files.length}个文件（URL可直接作为发布内容）:\n${list}`
+      } catch { return 'PERSONAL_RESULT:个人仓库读取失败' }
     }
 
     // ── 模板 ──
@@ -239,14 +288,34 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     // ── 发布 ──
     case 'publish_content': {
       try {
+        // 平台名归一化（中文/英文 -> 统一 key）
+        const raw = String(args.platform || 'douyin').toLowerCase()
+        const PLATFORM_ALIAS: Record<string, string> = {
+          douyin: 'douyin', '抖音': 'douyin',
+          xiaohongshu: 'xiaohongshu', '小红书': 'xiaohongshu', xhs: 'xiaohongshu',
+          kuaishou: 'kuaishou', '快手': 'kuaishou',
+          shipinhao: 'shipinhao', '视频号': 'shipinhao', weixin: 'shipinhao', '微信视频号': 'shipinhao',
+          bilibili: 'bilibili', 'b站': 'bilibili', 'B站': 'bilibili', 'bili': 'bilibili', '哔哩哔哩': 'bilibili',
+        }
+        const platform = PLATFORM_ALIAS[raw] || PLATFORM_ALIAS[args.platform] || raw
+        const PLATFORM_LABEL: Record<string, string> = { douyin: '抖音', xiaohongshu: '小红书', kuaishou: '快手', shipinhao: '视频号', bilibili: 'B站' }
+        const label = PLATFORM_LABEL[platform] || args.platform
+
+        if (!auth?.userId) return 'PUBLISH_NEED_LOGIN:请先登录平台账号后再发布。'
+
+        // 查该平台已绑定的指纹浏览器账号（bindType=manual）
         const accts = await prisma.socialAccount.findMany({
-          where: auth?.userId ? { userId: auth.userId, platform: args.platform || '抖音' } : { platform: args.platform || '抖音' },
+          where: { userId: auth.userId, platform, bindType: 'manual' },
           take: 5,
         })
-        if (!accts.length) return `PUBLISH_NEED_LOGIN:你还没有绑定${args.platform || ''}账号。请先去【账号管理】页面绑定账号，支持：1.指纹浏览器模拟登录 2.真手机接入 3.魔云腾发布。绑好后跟我说，我帮你一键发布！`
-        const list = accts.map(a => `- ${a.username} (${a.platform})`).join('\n')
-        return `PUBLISH_READY:你已绑定以下账号:\n${list}\n\n确认用哪个账号发布？回复我即可执行。`
-      } catch { return 'PUBLISH_READY:账号查询失败' }
+        if (!accts.length) {
+          return `PUBLISH_NEED_LOGIN:你还没有绑定${label}的指纹浏览器账号。请去【账号管理】登记一个 bindType=manual 的${label}账号，然后在【指纹浏览器】页启动并登录该平台（扫码），登录好之后就可以发布了。`
+        }
+        const list = accts.map(a => `- ${a.username}（${label}${a.cdpPort ? `，端口${a.cdpPort}` : ''}）`).join('\n')
+        const contentLine = args.contentUrl ? `\n📎 待发内容：${args.contentUrl}` : '\n📎 待发内容：还未确定，可从个人仓库选一个成片'
+        const captionLine = args.caption ? `\n📝 文案：${args.caption}` : ''
+        return `PUBLISH_READY:${label}已绑定 ${accts.length} 个指纹浏览器账号:\n${list}${contentLine}${captionLine}\n\n👉 发布操作：打开客户端【指纹浏览器】页 → 选择该账号并启动 → 从素材仓库选择这个视频 → 填好标题文案 → 点发布。\n⚠️ 如果发布时提示「该账号未登录平台」，点账号卡片上的「🔓 去登录」扫码登录后重试（我不代你登录）。`
+      } catch { return 'PUBLISH_READY:账号查询失败，请稍后重试' }
     }
 
     // ── 自动化 ──
@@ -291,6 +360,7 @@ function formatToolResult(output: string): string {
     return `🎬 视频完成！\n\n[📥 下载](${output.replace('VIDEO_RESULT:', '')})`
   }
   if (output.startsWith('STORAGE_RESULT:')) return output.replace('STORAGE_RESULT:', '')
+  if (output.startsWith('PERSONAL_RESULT:')) return output.replace('PERSONAL_RESULT:', '')
   if (output.startsWith('TEMPLATE_RESULT:')) return output.replace('TEMPLATE_RESULT:', '')
   if (output.startsWith('PUBLISH_NEED_LOGIN:')) return `⚠️ ${output.replace('PUBLISH_NEED_LOGIN:', '')}`
   if (output.startsWith('PUBLISH_READY:')) return output.replace('PUBLISH_READY:', '')

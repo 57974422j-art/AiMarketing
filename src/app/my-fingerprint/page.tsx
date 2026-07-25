@@ -47,7 +47,21 @@ interface PublishTask {
 
 const PLATFORMS = [
   { key: 'douyin', label: '抖音', icon: '🎵', url: 'https://creator.douyin.com/creator-micro/content/upload' },
+  { key: 'xiaohongshu', label: '小红书', icon: '📕', url: 'https://creator.xiaohongshu.com/publish/publish' },
+  { key: 'kuaishou', label: '快手', icon: '🟠', url: 'https://cp.kuaishou.com/creator/video/upload' },
+  { key: 'shipinhao', label: '视频号', icon: '🟢', url: 'https://channels.weixin.qq.com/platform/post/create' },
+  { key: 'bilibili', label: 'B站', icon: '📺', url: 'https://member.bilibili.com/platform/upload/video/frame?spm_id_from=333.33.top_bar.upload' },
 ]
+
+// 平台 -> 指纹浏览器发布模板类型（与 electron/main.js 的 fp:execute case 对应）
+const TEMPLATE_MAP: Record<string, string> = {
+  douyin: 'douyin-publish',
+  xiaohongshu: 'xiaohongshu-publish',
+  kuaishou: 'kuaishou-publish',
+  shipinhao: 'shipinhao-publish',
+  bilibili: 'bilibili-publish',
+}
+const getTemplateType = (platform?: string) => TEMPLATE_MAP[platform || 'douyin'] || 'douyin-publish'
 
 // ── Electron API 类型声明 ──
 
@@ -98,6 +112,9 @@ export default function MyFingerprintPage() {
   // ── 任务队列 ──
   const [taskQueue, setTaskQueue] = useState<PublishTask[]>([])
 
+  // ── 未登录账号标记（发布返回 needLogin 时记录，用于提示去登录）──
+  const [needLoginIds, setNeedLoginIds] = useState<string[]>([])
+
   // ── 批量发布控制 ──
   const [batchMode, setBatchMode] = useState<'immediate' | 'scheduled'>('immediate')
   const [intervalSeconds, setIntervalSeconds] = useState(30)
@@ -131,8 +148,8 @@ export default function MyFingerprintPage() {
       if (r.ok) {
         const d = await r.json()
         const all = Array.isArray(d) ? d : (d.data || [])
-        // 只显示 manual 类型的抖音账号
-        setAccounts(all.filter((a: Account) => a.bindType === 'manual' && a.platform === 'douyin'))
+        // 显示所有 manual 类型账号（支持多平台）
+        setAccounts(all.filter((a: Account) => a.bindType === 'manual'))
       }
     } catch (_) {}
     setLoading(false)
@@ -184,6 +201,7 @@ export default function MyFingerprintPage() {
     if (res.success) {
       showMsg(`✅ 浏览器已启动 - ${PLATFORMS.find(p => p.key === acct.platform)?.icon} ${acct.platform}`, 'success')
       setSelectedAccount(acct)
+      setNeedLoginIds(prev => prev.filter(id => id !== String(acct.id)))
       refreshBrowserList()
     } else {
       showMsg(`❌ 启动失败: ${res.error}`, 'error')
@@ -281,14 +299,18 @@ export default function MyFingerprintPage() {
       }
       const params = await buildTaskParams(task)
       if (window.electronAPI?.fpExecute) {
-        const res = await window.electronAPI.fpExecute(selectedAccount.cdpPort, 'douyin-publish', params)
+        const res = await window.electronAPI.fpExecute(selectedAccount.cdpPort, getTemplateType(selectedAccount.platform), params)
         if (res.success) {
           setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 发布完成: ${formVideoName}`])
           if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
           showToast('发布成功', 'success')
         } else {
+          const needLogin = (res as any).needLogin || (res as any).data?.needLogin
+          if (needLogin && selectedAccount) {
+            setNeedLoginIds(prev => prev.includes(String(selectedAccount.id)) ? prev : [...prev, String(selectedAccount.id)])
+          }
           setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✗ 发布失败: ${res.error || '未知错误'}`])
-          showToast('发布失败: ' + (res.error || '未知错误'), 'error')
+          showToast(needLogin ? '该账号未登录平台，请点击「去登录」后重试' : ('发布失败: ' + (res.error || '未知错误')), 'error')
         }
       } else {
         setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✗ 客户端未连接，无法发布`])
@@ -396,7 +418,7 @@ export default function MyFingerprintPage() {
       try {
         const params = await buildTaskParams(task)
         if (window.electronAPI?.fpExecute) {
-          const res = await window.electronAPI.fpExecute(port, 'douyin-publish', params)
+          const res = await window.electronAPI.fpExecute(port, getTemplateType(selectedAccount.platform), params)
           if (res.success) {
             doneCount++
             setTaskQueue(prev => prev.map(t =>
@@ -406,10 +428,14 @@ export default function MyFingerprintPage() {
             if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
           } else {
             failCount++
+            const needLogin = (res as any).needLogin || (res as any).data?.needLogin
+            if (needLogin && selectedAccount) {
+              setNeedLoginIds(prev => prev.includes(String(selectedAccount.id)) ? prev : [...prev, String(selectedAccount.id)])
+            }
             setTaskQueue(prev => prev.map(t =>
               t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: res.error } : t
             ))
-            setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 第 ${i + 1} 个任务失败: ${res.error}`])
+            setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 第 ${i + 1} 个任务失败: ${res.error || ''}${needLogin ? '（账号未登录，请先去登录）' : ''}`])
           }
         } else {
           throw new Error('需要客户端环境')
@@ -509,13 +535,13 @@ export default function MyFingerprintPage() {
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-300">我的账号</h2>
-            <span className="text-xs text-gray-600">{accounts.length} 个抖音账号</span>
+            <span className="text-xs text-gray-600">{accounts.length} 个账号</span>
           </div>
 
           {accounts.length === 0 ? (
             <div className="bg-gray-900/30 border border-dashed border-white/10 rounded-xl p-8 text-center">
-              <p className="text-gray-500 text-sm mb-2">还没有指纹浏览器类型的抖音账号</p>
-              <p className="text-gray-600 text-xs">去「账号管理」登记一个 bindType=manual 的抖音账号</p>
+              <p className="text-gray-500 text-sm mb-2">还没有指纹浏览器类型的账号</p>
+              <p className="text-gray-600 text-xs">去「账号管理」登记一个 bindType=manual 的账号</p>
             </div>
           ) : (
             <div className="grid gap-3">
@@ -558,7 +584,15 @@ export default function MyFingerprintPage() {
 
                       {/* 操作按钮 */}
                       <div className="flex items-center gap-2 shrink-0 ml-3">
-                        {!running ? (
+                        {needLoginIds.includes(String(acct.id)) ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleStart(acct) }}
+                            disabled={!acct.cdpPort || !isElectron}
+                            className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/40 rounded-lg text-xs hover:bg-red-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition animate-pulse"
+                          >
+                            🔓 去登录
+                          </button>
+                        ) : !running ? (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleStart(acct) }}
                             disabled={!acct.cdpPort || !isElectron}
@@ -590,7 +624,7 @@ export default function MyFingerprintPage() {
 
           {(!selectedAccount || !selectedAccount.cdpPort || !isRunning(selectedAccount.cdpPort)) ? (
             <div className="bg-gray-900/30 border border-dashed border-white/10 rounded-xl p-6 text-center">
-              <p className="text-gray-500 text-sm">先选择并启动一个抖音浏览器</p>
+              <p className="text-gray-500 text-sm">先选择并启动一个{PLATFORMS.find(p => p.key === selectedAccount?.platform)?.label || '目标平台'}浏览器</p>
               <p className="text-gray-600 text-xs mt-1">启动后可添加视频到发布队列</p>
             </div>
           ) : (

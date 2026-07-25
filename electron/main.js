@@ -9,6 +9,10 @@ const { autoUpdater } = require('electron-updater')
 
 // ── 指纹浏览器模板 ──
 const { executeDouyinPublish } = require('./fp-templates/douyin-publish')
+const { executeXiaohongshuPublish } = require('./fp-templates/xiaohongshu-publish')
+const { executeKuaishouPublish } = require('./fp-templates/kuaishou-publish')
+const { executeShipinhaoPublish } = require('./fp-templates/shipinhao-publish')
+const { executeBilibiliPublish } = require('./fp-templates/bilibili-publish')
 
 let mainWindow
 
@@ -314,12 +318,13 @@ ipcMain.handle('fp:start', async (_event, { port, accountId, platform, proxy }) 
         ...FP_LAUNCH_ARGS,
         `--remote-debugging-port=${port}`,
         `--user-agent=${FP_USER_AGENT}`,
-        '--window-size=1920,1440',
+        '--start-maximized',
       ],
-      // 视口放大到 1920x1440：抖音编辑页的「发布」按钮在底部/右侧，
-      // 1280x800 下会落在布局视口之外导致脚本 isVisible()/点击失败。
-      // 放大后发布键进入布局视口，脚本可正常定位点击。
-      viewport: { width: 1920, height: 1440 },
+      // 视口自适应屏幕：窗口最大化 + viewport:null，
+      // 页面按真实窗口尺寸渲染，出现真实滚动条，
+      // 人工可像普通浏览器一样滚动查看发布键/位置等底部内容。
+      // 脚本 click() 仍会自动滚动到目标元素，自动发布不受影响。
+      viewport: null,
       locale: 'zh-CN',
     }
 
@@ -580,7 +585,148 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
         result = await executeDouyinComment(instance.page, params, log)
         break
       case 'xiaohongshu-publish':
-        result = await executeXhsPublish(instance.page, params, log)
+        // 如果是从素材仓库选择视频，先下载到本地
+        if (params.storageFileName && !params.videoPath) {
+          const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
+          const downloadUrl = `${serverUrl}/api/storage/file?userId=${params.userId || ''}&name=${encodeURIComponent(params.storageFileName)}`
+          const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
+          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+          const localPath = path.join(tmpDir, params.storageFileName)
+          log(`从素材仓库下载: ${params.storageFileName}`)
+          try {
+            await new Promise((resolve, reject) => {
+              const urlObj = new URL(downloadUrl)
+              const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
+              const reqHeaders = {}
+              if (params.authToken) reqHeaders['Cookie'] = 'token=' + params.authToken
+              mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
+                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
+                const chunks = []
+                res.on('data', chunk => chunks.push(chunk))
+                res.on('end', () => {
+                  const buf = Buffer.concat(chunks)
+                  fs.writeFileSync(localPath, buf)
+                  resolve()
+                })
+              }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
+            })
+            const stat = fs.statSync(localPath)
+            log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
+            params.videoPath = localPath
+          } catch (e) {
+            log(`❌ 视频下载失败: ${e.message}`)
+            return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
+          }
+        }
+        result = await executeXiaohongshuPublish(instance.page, params, log)
+        break
+      case 'kuaishou-publish':
+        // 如果是从素材仓库选择视频，先下载到本地
+        if (params.storageFileName && !params.videoPath) {
+          const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
+          const downloadUrl = `${serverUrl}/api/storage/file?userId=${params.userId || ''}&name=${encodeURIComponent(params.storageFileName)}`
+          const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
+          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+          const localPath = path.join(tmpDir, params.storageFileName)
+          log(`从素材仓库下载: ${params.storageFileName}`)
+          try {
+            await new Promise((resolve, reject) => {
+              const urlObj = new URL(downloadUrl)
+              const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
+              const reqHeaders = {}
+              if (params.authToken) reqHeaders['Cookie'] = 'token=' + params.authToken
+              mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
+                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
+                const chunks = []
+                res.on('data', chunk => chunks.push(chunk))
+                res.on('end', () => {
+                  const buf = Buffer.concat(chunks)
+                  fs.writeFileSync(localPath, buf)
+                  resolve()
+                })
+              }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
+            })
+            const stat = fs.statSync(localPath)
+            log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
+            params.videoPath = localPath
+          } catch (e) {
+            log(`❌ 视频下载失败: ${e.message}`)
+            return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
+          }
+        }
+        result = await executeKuaishouPublish(instance.page, params, log)
+        break
+      case 'shipinhao-publish':
+        // 如果是从素材仓库选择视频，先下载到本地
+        if (params.storageFileName && !params.videoPath) {
+          const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
+          const downloadUrl = `${serverUrl}/api/storage/file?userId=${params.userId || ''}&name=${encodeURIComponent(params.storageFileName)}`
+          const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
+          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+          const localPath = path.join(tmpDir, params.storageFileName)
+          log(`从素材仓库下载: ${params.storageFileName}`)
+          try {
+            await new Promise((resolve, reject) => {
+              const urlObj = new URL(downloadUrl)
+              const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
+              const reqHeaders = {}
+              if (params.authToken) reqHeaders['Cookie'] = 'token=' + params.authToken
+              mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
+                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
+                const chunks = []
+                res.on('data', chunk => chunks.push(chunk))
+                res.on('end', () => {
+                  const buf = Buffer.concat(chunks)
+                  fs.writeFileSync(localPath, buf)
+                  resolve()
+                })
+              }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
+            })
+            const stat = fs.statSync(localPath)
+            log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
+            params.videoPath = localPath
+          } catch (e) {
+            log(`❌ 视频下载失败: ${e.message}`)
+            return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
+          }
+        }
+        result = await executeShipinhaoPublish(instance.page, params, log)
+        break
+      case 'bilibili-publish':
+        // 如果是从素材仓库选择视频，先下载到本地
+        if (params.storageFileName && !params.videoPath) {
+          const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
+          const downloadUrl = `${serverUrl}/api/storage/file?userId=${params.userId || ''}&name=${encodeURIComponent(params.storageFileName)}`
+          const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
+          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+          const localPath = path.join(tmpDir, params.storageFileName)
+          log(`从素材仓库下载: ${params.storageFileName}`)
+          try {
+            await new Promise((resolve, reject) => {
+              const urlObj = new URL(downloadUrl)
+              const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
+              const reqHeaders = {}
+              if (params.authToken) reqHeaders['Cookie'] = 'token=' + params.authToken
+              mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
+                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
+                const chunks = []
+                res.on('data', chunk => chunks.push(chunk))
+                res.on('end', () => {
+                  const buf = Buffer.concat(chunks)
+                  fs.writeFileSync(localPath, buf)
+                  resolve()
+                })
+              }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
+            })
+            const stat = fs.statSync(localPath)
+            log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
+            params.videoPath = localPath
+          } catch (e) {
+            log(`❌ 视频下载失败: ${e.message}`)
+            return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
+          }
+        }
+        result = await executeBilibiliPublish(instance.page, params, log)
         break
       default:
         throw new Error(`未知模板类型: ${templateType}`)
@@ -589,7 +735,9 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
     log(`执行完成: ${result.success ? '成功' : '失败'} ${result.message || ''}`)
 
     return {
-      success: true,
+      success: !!result.success,
+      error: result.success ? undefined : (result.message || '执行失败'),
+      needLogin: !!result.needLogin,
       data: {
         ...result,
         logs,
@@ -714,45 +862,7 @@ async function executeDouyinComment(page, params, log) {
   }
 }
 
-/**
- * 小红书发帖模板（结构类似抖音）
- */
-async function executeXhsPublish(page, params, log) {
-  try {
-    if (!page.url().includes('creator.xiaohongshu.com') && !page.url().includes('xhslink')) {
-      log('导航到小红书创作服务平台...')
-      await page.goto('https://creator.xiaohongshu.com/publish/publish', { timeout: 30000 })
-      await page.waitForTimeout(3000)
-    }
 
-    if (params.caption) {
-      log('填写小红书文案...')
-      const inputSel = ['textarea', '[contenteditable="true"]']
-      for (const sel of inputSel) {
-        try {
-          const input = await page.$(sel)
-          if (input && await input.isVisible()) {
-            await input.click()
-            await page.waitForTimeout(300)
-            await input.fill(params.caption)
-            log('文案已填写')
-            break
-          }
-        } catch (_) {}
-      }
-    }
-
-    log('小红书发帖模板完成')
-    return {
-      success: true,
-      message: '小红书发帖内容已填写，请手动确认发布',
-      needConfirm: true,
-    }
-  } catch (e) {
-    log(`出错: ${e.message}`)
-    return { success: false, message: e.message }
-  }
-}
 
 
 // ════════════════════════════════════════

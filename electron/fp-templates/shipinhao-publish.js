@@ -1,0 +1,150 @@
+// 视频号（微信视频号）创作者中心自动发布脚本
+// 平台：channels.weixin.qq.com
+// 登录方式：微信扫码（本脚本不处理登录，仅检测未登录并返回 needLogin:true）
+// 发布模型：进入发布页 -> 登录检测 -> 上传视频 -> 填标题/话题/描述 -> 封面(方案A跳过) -> 发布/存草稿
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+const SHIPINHAO_PUBLISH_URL = 'https://channels.weixin.qq.com/platform/post/create'
+
+async function isLoggedIn(page, log) {
+  try {
+    // 未登录标志：扫码登录二维码
+    const qr = await page.$('img.qrcode, div.login-qrcode-wrap, div.qrcode-wrap, span:has-text("扫码登录")')
+    if (qr) return false
+    // 已登录标志：编辑页存在"发表"发布按钮
+    const publishBtn = await page.$('button[name="发表"]')
+    if (publishBtn) return true
+    const byText = await page.$('button:has-text("发表")')
+    return !!byText
+  } catch (e) {
+    log(`登录检测异常: ${e.message}`)
+    return false
+  }
+}
+
+async function uploadVideo(page, videoPath, log) {
+  let input = await page.$('input[type="file"]')
+  // 视频号上传入口可能在 iframe 内
+  if (!input) {
+    for (const frame of page.frames()) {
+      try {
+        const f = await frame.$('input[type="file"]')
+        if (f) { input = f; break }
+      } catch (_) {}
+    }
+  }
+  if (!input) {
+    // 触发上传：点击"上传视频 / 发表"按钮弹出文件选择
+    try {
+      await page.click('text=上传视频', { timeout: 5000 })
+    } catch (_) {
+      try { await page.click('button:has-text("发表")', { timeout: 5000 }) } catch (_) {}
+    }
+    await page.waitForSelector('input[type="file"]', { timeout: 20000 })
+    input = await page.$('input[type="file"]')
+  }
+  if (!input) throw new Error('未找到视频上传入口')
+  await input.setInputFiles(videoPath)
+  log('视频已选择，等待转码进入编辑页...')
+  // 等待进入编辑页：标题输入框出现
+  await page.waitForSelector('input[placeholder*="标题"], .input-editor', { timeout: 180000 })
+  log('已进入编辑页')
+}
+
+async function fillTitleAndTags(page, title, topics, log) {
+  const titleInput = await page.$('input[placeholder*="标题"]')
+  if (titleInput) {
+    await titleInput.click()
+    await titleInput.fill(title || '')
+    if (topics && topics.length) {
+      for (const t of topics) {
+        await page.keyboard.type('#' + t, { delay: 30 })
+        await sleep(450)
+        await page.keyboard.press('Space')
+        await sleep(200)
+      }
+    }
+    await page.keyboard.press('Enter')
+    log('标题/话题已填写')
+  } else {
+    log('未找到标题输入框，跳过标题填写')
+  }
+}
+
+async function fillDescription(page, description, log) {
+  const desc = await page.$('textarea[placeholder*="描述"], textarea[placeholder*="介绍"], .desc-editor, div[contenteditable="true"]')
+  if (desc) {
+    await desc.click()
+    await desc.fill(description || '')
+    log('描述已填写')
+  } else {
+    log('未找到描述输入框，跳过描述填写')
+  }
+}
+
+async function publishOrDraft(page, publishNow, log) {
+  // 等待上传完成：发表按钮可用（去掉 disabled）
+  const publishBtnSel = 'button[name="发表"]'
+  await page.waitForSelector(publishBtnSel, { timeout: 180000 })
+  // 等按钮可点击
+  for (let i = 0; i < 60; i++) {
+    const disabled = await page.$eval(publishBtnSel, el => el.classList.contains('weui-desktop-btn_disabled') || el.disabled).catch(() => false)
+    if (!disabled) break
+    await sleep(2000)
+  }
+  if (publishNow) {
+    log('点击【发表】发布视频号...')
+    await page.click('div.form-btns button:has-text("发表"), button:has-text("发表")')
+  } else {
+    log('点击【存草稿】...')
+    await page.click('button:has-text("存草稿")')
+  }
+  await sleep(5000)
+  return page.url()
+}
+
+async function executeShipinhaoPublish(page, params, log) {
+  try {
+    log('导航到视频号创作者发布页...')
+    const url = page.url()
+    if (!url.includes('channels.weixin.qq.com')) {
+      await page.goto(SHIPINHAO_PUBLISH_URL, { timeout: 30000 })
+      await page.waitForTimeout(3000)
+    }
+
+    if (!(await isLoggedIn(page, log))) {
+      return {
+        success: false,
+        message: '请先在指纹浏览器中登录视频号（微信扫码），再发布。登录后账号会长期保留在 profile 中。',
+        needLogin: true,
+      }
+    }
+
+    if (!params.videoPath) {
+      return { success: false, message: '缺少视频文件 videoPath' }
+    }
+
+    await uploadVideo(page, params.videoPath, log)
+    await fillTitleAndTags(page, params.title, params.topics, log)
+    await fillDescription(page, params.description, log)
+
+    // 封面：方案A（1.0.4）—— 无自定义封面时跳过，使用平台默认帧
+    if (params.coverImage) {
+      log('检测到自定义封面，视频号封面选择需手动，本次跳过使用平台默认')
+    }
+
+    const resultUrl = await publishOrDraft(page, params.publishNow !== false, log)
+    log('视频号发布流程完成')
+    return {
+      success: true,
+      message: params.publishNow !== false ? '视频号发布成功' : '已存入草稿',
+      url: resultUrl,
+      needConfirm: false,
+    }
+  } catch (e) {
+    log(`出错: ${e.message}`)
+    return { success: false, message: e.message }
+  }
+}
+
+module.exports = { executeShipinhaoPublish }
