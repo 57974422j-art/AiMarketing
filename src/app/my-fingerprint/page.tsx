@@ -69,7 +69,7 @@ declare global {
   interface Window {
     electronAPI?: {
       isElectron?: boolean
-      fpStart?: (opts: { port: number; accountId?: string; platform?: string; proxy?: string }) => Promise<{ success: boolean; data?: any; error?: string }>
+      fpStart?: (opts: { port: number; userId?: number; accountId?: string; platform?: string; proxy?: string }) => Promise<{ success: boolean; data?: any; error?: string }>
       fpStop?: (port: number) => Promise<{ success: boolean; error?: string }>
       fpList?: () => Promise<{ success: boolean; data?: BrowserInstance[]; error?: string }>
       fpScreenshot?: (port: number) => Promise<{ success: boolean; data?: string; error?: string }>
@@ -114,6 +114,8 @@ export default function MyFingerprintPage() {
 
   // ── 未登录账号标记（发布返回 needLogin 时记录，用于提示去登录）──
   const [needLoginIds, setNeedLoginIds] = useState<string[]>([])
+  const [runningPort, setRunningPort] = useState<number | null>(null)
+  const [activeAccountId, setActiveAccountId] = useState<number | null>(null)
 
   // ── 批量发布控制 ──
   const [batchMode, setBatchMode] = useState<'immediate' | 'scheduled'>('immediate')
@@ -177,57 +179,76 @@ export default function MyFingerprintPage() {
 
   // ── 浏览器操作 ──
 
-  /** 启动浏览器 */
+  /** 启动浏览器（先向服务器动态申请端口，再用该端口本地启动） */
   const handleStart = async (acct: Account) => {
     if (!isElectron || !window.electronAPI?.fpStart) {
       showMsg('需要使用桌面客户端才能启动指纹浏览器', 'error')
       return
     }
-    if (!acct.cdpPort) {
-      showMsg('该账号未分配端口，请联系管理员绑定', 'error')
-      return
-    }
 
-    const port = acct.cdpPort
-    showMsg(`正在启动端口 ${port}...`, 'info')
-
-    const res = await window.electronAPI.fpStart({
-      port,
-      accountId: String(acct.id),
-      platform: acct.platform,
-      proxy: proxyInput.trim(),
-    })
-
-    if (res.success) {
-      showMsg(`✅ 浏览器已启动 - ${PLATFORMS.find(p => p.key === acct.platform)?.icon} ${acct.platform}`, 'success')
-      setSelectedAccount(acct)
-      setNeedLoginIds(prev => prev.filter(id => id !== String(acct.id)))
-      refreshBrowserList()
-    } else {
-      showMsg(`❌ 启动失败: ${res.error}`, 'error')
-    }
-  }
-
-  /** 停止浏览器 */
-  const handleStop = async (port: number) => {
-    if (!window.electronAPI?.fpStop) return
-    const res = await window.electronAPI.fpStop(port)
-    if (res.success) {
-      showMsg(`⏹ 端口 ${port} 已停止`, 'success')
-      refreshBrowserList()
-      if (selectedAccount && selectedAccount.cdpPort === port) {
-        setSelectedAccount(null)
-        setTaskQueue([])
-        setExecLogs([])
+    try {
+      showMsg(`正在为 ${acct.platform} 申请端口并启动...`, 'info')
+      // 1) 向服务器动态申请一个空闲端口（全局限量，订阅校验由中间件拦截）
+      const alloc = await fetch('/api/browser/allocate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ platform: acct.platform }),
+      })
+      const ad = await alloc.json()
+      if (!alloc.ok || !ad.success) {
+        showMsg('申请端口失败：' + (ad.message || alloc.status), 'error')
+        return
       }
-    } else {
-      showMsg(`停止失败: ${res.error}`, 'error')
+      const port = ad.data.port
+      // 2) 用该端口在本地启动指纹浏览器（profile 按 用户+平台 落盘）
+      const res = await window.electronAPI.fpStart({
+        port,
+        userId: user?.id,
+        accountId: String(acct.id),
+        platform: acct.platform,
+        proxy: proxyInput.trim(),
+      })
+      if (res.success) {
+        setRunningPort(port)
+        setActiveAccountId(acct.id)
+        setSelectedAccount(acct)
+        setNeedLoginIds(prev => prev.filter(id => id !== String(acct.id)))
+        showMsg(`✅ 浏览器已启动 - ${PLATFORMS.find(p => p.key === acct.platform)?.icon} ${acct.platform}（端口 ${port}）`, 'success')
+        refreshBrowserList()
+      } else {
+        // 启动失败则释放刚申请的端口
+        await fetch(`/api/browser/release?port=${port}`, { method: 'DELETE', credentials: 'include' }).catch(() => {})
+        showMsg(`❌ 启动失败: ${res.error}`, 'error')
+      }
+    } catch (e: any) {
+      showMsg(`启动异常: ${e?.message || e}`, 'error')
     }
   }
 
-  /** 检查某端口的运行状态 */
-  const isRunning = (port: number): boolean => {
-    return browsers.some(b => b.port === port && b.running)
+  /** 停止浏览器（同时向服务器释放端口） */
+  const handleStop = async () => {
+    if (runningPort === null || !window.electronAPI?.fpStop) return
+    const port = runningPort
+    const res = await window.electronAPI.fpStop(port)
+    // 无论停止是否成功，都向服务器归还端口
+    await fetch(`/api/browser/release?port=${port}`, { method: 'DELETE', credentials: 'include' }).catch(() => {})
+    setRunningPort(null)
+    setActiveAccountId(null)
+    setSelectedAccount(null)
+    setTaskQueue([])
+    setExecLogs([])
+    if (res.success) {
+      showMsg(`⏹ 浏览器已停止，端口 ${port} 已释放`, 'success')
+    } else {
+      showMsg(`停止返回异常（端口已释放）: ${res.error}`, 'error')
+    }
+    refreshBrowserList()
+  }
+
+  /** 检查某账号当前是否处于运行态（基于动态端口注册） */
+  const isRunning = (acct: Account): boolean => {
+    return runningPort !== null && activeAccountId === acct.id
   }
 
 
@@ -272,7 +293,7 @@ export default function MyFingerprintPage() {
 
   /** 立即发布当前填写的内容（不进队列，直接发这条） */
   const publishNow = async () => {
-    if (!selectedAccount?.cdpPort) {
+    if (runningPort === null || !selectedAccount) {
       showToast('请先选择并启动指纹浏览器', 'error'); return
     }
     if (!formVideoName) {
@@ -299,7 +320,7 @@ export default function MyFingerprintPage() {
       }
       const params = await buildTaskParams(task)
       if (window.electronAPI?.fpExecute) {
-        const res = await window.electronAPI.fpExecute(selectedAccount.cdpPort, getTemplateType(selectedAccount.platform), params)
+        const res = await window.electronAPI.fpExecute(runningPort, getTemplateType(selectedAccount.platform), params)
         if (res.success) {
           setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 发布完成: ${formVideoName}`])
           if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
@@ -362,7 +383,7 @@ export default function MyFingerprintPage() {
 
   /** 开始批量发布 */
   const startBatchPublish = async () => {
-    if (!selectedAccount?.cdpPort) return
+    if (runningPort === null) return
     if (taskQueue.length === 0) { showToast('队列为空', 'error'); return }
     if (batchRunning) return
 
@@ -385,9 +406,10 @@ export default function MyFingerprintPage() {
 
   /** 执行批量发布主循环 */
   const executeBatch = async () => {
+    if (!selectedAccount || runningPort === null) return
     setBatchRunning(true)
     setBatchPaused(false)
-    const port = selectedAccount!.cdpPort!
+    const port = runningPort
 
     // 获取当前待发任务快照
     const pendingTasks = [...taskQueue].filter(t => t.status === 'pending')
@@ -547,9 +569,9 @@ export default function MyFingerprintPage() {
             <div className="grid gap-3">
               {accounts.map(acct => {
                 const plat = PLATFORMS.find(p => p.key === acct.platform) || { icon: '🎵', label: acct.platform }
-                const port = acct.cdpPort || 0
-                const running = port > 0 && isRunning(port)
-                const browserInfo = browsers.find(b => b.port === port)
+                const running = isRunning(acct)
+                const port = running ? runningPort! : 0
+                const browserInfo = running ? browsers.find(b => b.port === runningPort) : undefined
 
                 return (
                   <div
@@ -572,7 +594,7 @@ export default function MyFingerprintPage() {
                         <div className="min-w-0">
                           <p className="font-medium text-sm truncate">{acct.accountName}</p>
                           <p className="text-xs text-gray-500 mt-0.5">
-                            {plat.label} · 端口 {acct.cdpPort || '未分配'} · {acct.status}
+                            {plat.label} · 端口 {running ? port : '动态分配'} · {acct.status}
                             {running && browserInfo?.currentUrl && (
                               <span className="ml-2 text-cyan-400 truncate inline-block max-w-[200px]" title={browserInfo.currentUrl}>
                                 🟢 运行中
@@ -587,7 +609,7 @@ export default function MyFingerprintPage() {
                         {needLoginIds.includes(String(acct.id)) ? (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleStart(acct) }}
-                            disabled={!acct.cdpPort || !isElectron}
+                            disabled={!isElectron}
                             className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/40 rounded-lg text-xs hover:bg-red-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition animate-pulse"
                           >
                             🔓 去登录
@@ -595,14 +617,14 @@ export default function MyFingerprintPage() {
                         ) : !running ? (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleStart(acct) }}
-                            disabled={!acct.cdpPort || !isElectron}
+                            disabled={!isElectron}
                             className="px-3 py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-xs hover:bg-purple-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition"
                           >
                             启动
                           </button>
                         ) : (
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleStop(port) }}
+                            onClick={(e) => { e.stopPropagation(); handleStop() }}
                             className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs hover:bg-red-500/30 transition"
                           >
                             停止
@@ -622,7 +644,7 @@ export default function MyFingerprintPage() {
         <div className="space-y-4">
           <h2 className="text-sm font-semibold text-gray-300">批量发布</h2>
 
-          {(!selectedAccount || !selectedAccount.cdpPort || !isRunning(selectedAccount.cdpPort)) ? (
+          {(!selectedAccount || runningPort === null) ? (
             <div className="bg-gray-900/30 border border-dashed border-white/10 rounded-xl p-6 text-center">
               <p className="text-gray-500 text-sm">先选择并启动一个{PLATFORMS.find(p => p.key === selectedAccount?.platform)?.label || '目标平台'}浏览器</p>
               <p className="text-gray-600 text-xs mt-1">启动后可添加视频到发布队列</p>
@@ -634,7 +656,7 @@ export default function MyFingerprintPage() {
                 <p className="text-xs text-emerald-400 font-medium">
                   🟢 当前: {selectedAccount.accountName}
                 </p>
-                <p className="text-[11px] text-emerald-400/60 mt-0.5">端口 {selectedAccount.cdpPort}</p>
+                <p className="text-[11px] text-emerald-400/60 mt-0.5">端口 {runningPort}</p>
               </div>
 
               {/* ═══ 添加视频表单 ═══ */}

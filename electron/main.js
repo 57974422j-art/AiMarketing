@@ -296,7 +296,7 @@ const FP_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537
 
 
 // ── 启动指纹浏览器窗口 ──
-ipcMain.handle('fp:start', async (_event, { port, accountId, platform, proxy }) => {
+ipcMain.handle('fp:start', async (_event, { port, userId, accountId, platform, proxy }) => {
   try {
     if (activeBrowsers.has(port)) {
       const existing = activeBrowsers.get(port)
@@ -309,7 +309,9 @@ ipcMain.handle('fp:start', async (_event, { port, accountId, platform, proxy }) 
     }
 
     const chromium = await getChromium()
-    const userDataDir = getUserDataDir(port)
+    // profile 按 用户+平台 维度，端口仅作调试端口，释放后可复用登录态
+    const profileKey = userId ? `${userId}-${platform}` : `${accountId || port}-${platform}`
+    const userDataDir = getUserDataDir(profileKey)
     fs.mkdirSync(userDataDir, { recursive: true })
 
     const launchOptions = {

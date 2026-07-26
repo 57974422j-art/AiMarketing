@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import crypto from 'crypto'
 import { getPaymentConfig } from '@/lib/payment-config'
-import { buildWapPayUrl, AlipayConfig } from '@/lib/alipay'
+import { buildPagePayUrl, AlipayConfig } from '@/lib/alipay'
 
 const prisma = new PrismaClient()
 
@@ -87,11 +87,11 @@ export async function POST(req: NextRequest) {
       notifyUrl: cfg.alipayNotifyUrl || 'https://ai-niuma.cc/api/payment/alipay/notify',
       returnUrl: 'https://ai-niuma.cc/my-subscription',
     }
-    const payUrl = buildWapPayUrl(alipayCfg, {
+    const payUrl = buildPagePayUrl(alipayCfg, {
       out_trade_no: orderNo,
       total_amount: (amount / 100).toFixed(2), // 元，两位小数
       subject,
-      product_code: 'QUICK_WAP_WAY',
+      product_code: 'FAST_INSTANT_TRADE_PAY',
     })
 
     await prisma.paymentOrder.update({ where: { orderNo }, data: { payUrl } })

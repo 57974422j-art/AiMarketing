@@ -77,11 +77,11 @@ export function verifySign(params: Record<string, any>, alipayPublicKey: string)
   }
 }
 
-/** 构造手机网站支付跳转 URL（前端 window.location 即可拉起支付宝） */
-export function buildWapPayUrl(cfg: AlipayConfig, bizContent: Record<string, any>): string {
+/** 构造电脑网站支付（alipay.trade.page.pay）跳转 URL（前端 window.location 即可拉起支付宝收银台） */
+export function buildPagePayUrl(cfg: AlipayConfig, bizContent: Record<string, any>): string {
   const params: Record<string, any> = {
     app_id: cfg.appId,
-    method: 'alipay.trade.wap.pay',
+    method: 'alipay.trade.page.pay',
     charset: cfg.charset || CHARSET,
     sign_type: cfg.signType || SIGN_TYPE,
     timestamp: alipayTimestamp(),

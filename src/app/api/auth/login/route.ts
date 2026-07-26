@@ -13,7 +13,7 @@ async function verifyPassword(password: string, storedHash: string): Promise<boo
   return timingSafeEqual(new Uint8Array(hashed), new Uint8Array(storedHashBuffer))
 }
 
-function createJWT(payload: { userId: number; username: string; role: string; teamId: number | null }, secret: string): string {
+function createJWT(payload: { userId: number; username: string; role: string; teamId: number | null; subExp?: number }, secret: string): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
   const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url')
   const signature = createHmac('sha256', secret)
@@ -22,7 +22,7 @@ function createJWT(payload: { userId: number; username: string; role: string; te
   return `${header}.${payloadStr}.${signature}`
 }
 
-function verifyJWT(token: string, secret: string): { userId: number; username: string; role: string; teamId: number | null } | null {
+function verifyJWT(token: string, secret: string): { userId: number; username: string; role: string; teamId: number | null; subExp?: number } | null {
   try {
     const [header, payload, signature] = token.split('.')
     const expectedSignature = createHmac('sha256', secret)
@@ -68,8 +68,16 @@ export async function POST(request: NextRequest) {
       )
     }
     
+    // 查询有效订阅到期时间，写入 JWT 供 Edge middleware 做全局订阅门控
+    let subExp = 0
+    const activeSub = await prisma.userSubscription.findFirst({
+      where: { userId: user.id, status: 'active', endDate: { gte: new Date() } },
+      orderBy: { endDate: 'desc' },
+    })
+    if (activeSub) subExp = activeSub.endDate.getTime()
+
     const token = createJWT(
-      { userId: user.id, username: user.username, role: user.role, teamId: user.teamId },
+      { userId: user.id, username: user.username, role: user.role, teamId: user.teamId, subExp },
       JWT_SECRET
     )
     
@@ -120,13 +128,35 @@ export async function GET(request: NextRequest) {
   if (!payload) {
     return NextResponse.json({ authenticated: false })
   }
-  
-  return NextResponse.json({
+
+  // 每次校验登录态时刷新订阅到期时间并重签 token（解决续费/新购后 JWT 里 subExp 不更新的问题）
+  let subExp = 0
+  try {
+    const activeSub = await prisma.userSubscription.findFirst({
+      where: { userId: payload.userId, status: 'active', endDate: { gte: new Date() } },
+      orderBy: { endDate: 'desc' },
+    })
+    if (activeSub) subExp = activeSub.endDate.getTime()
+  } catch {}
+
+  const refreshed = createJWT(
+    { userId: payload.userId, username: payload.username, role: payload.role, teamId: payload.teamId, subExp },
+    JWT_SECRET,
+  )
+  const response = NextResponse.json({
     authenticated: true,
     user: {
       id: payload.userId,
       username: payload.username,
-      role: payload.role
-    }
+      role: payload.role,
+    },
   })
+  response.cookies.set('token', refreshed, {
+    httpOnly: true,
+    secure: false,
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60,
+    path: '/',
+  })
+  return response
 }

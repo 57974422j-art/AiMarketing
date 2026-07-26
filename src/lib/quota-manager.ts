@@ -72,65 +72,57 @@ export async function getAllQuotas(): Promise<(QuotaInfo & { editorName: string;
   }))
 }
 
-// ── 端口分配核心逻辑 ──
+// ── 动态端口池（方案 D：运行时分配 / 停止释放，端口不绑账号）──
 
-/**
- * 为一个 manual 类型的 Account 自动分配 CDP 端口
- * @returns 分配的端口号
- * @throws 超额/无可用端口时抛错
- */
-export async function allocateCdpPort(editorId: number): Promise<number> {
-  const quota = await getOrCreateQuota(editorId)
+// 运行时端口占用注册表（进程内存；多实例部署需改为共享存储，当前单机足够）
+const portRegistry = new Map<number, { userId: number; platform: string; startedAt: number }>()
 
-  // 1) 校验指纹端口配额是否已满
-  if (quota.fingerprintUsed >= quota.fingerprintPorts) {
-    throw new Error(`指纹浏览器端口配额已满 (${quota.fingerprintUsed}/${quota.fingerprintPorts})`)
-  }
+/** 获取全局端口池范围（取首个 editorQuota 的范围，缺省 9220~9320） */
+export async function getPortRange(): Promise<{ start: number; end: number }> {
+  const q = await prisma.editorQuota.findFirst()
+  if (q) return { start: q.portRangeStart, end: q.portRangeEnd }
+  return { start: 9220, end: 9320 }
+}
 
-  // 2) 查出此 editor 已占用的所有端口（包括旧数据中 accountId 里存的）
-  const usedPorts = new Set<number>()
-
-  // 新字段 cdpPort 中已分配的 — 全局查重（防止不同 editor 分配同一端口）
-  const cdpAccounts = await prisma.account.findMany({
+/** 旧数据仍写死的 cdpPort（legacy），分配时避开以免冲突 */
+async function getOccupiedPorts(): Promise<Set<number>> {
+  const legacy = await prisma.account.findMany({
     where: { bindType: 'manual', cdpPort: { not: null } },
     select: { cdpPort: true },
   })
-  cdpAccounts.forEach(a => { if (a.cdpPort) usedPorts.add(a.cdpPort) })
-
-  // 兼容旧数据：accountId 里存了数字端口的也计入占用（全局）
-  const legacyAccounts = await prisma.account.findMany({
-    where: { bindType: 'manual', cdpPort: null },
-    select: { accountId: true },
-  })
-  legacyAccounts.forEach(a => {
-    const p = parseInt(a.accountId, 10)
-    if (!isNaN(p) && p >= 1024 && p <= 65535) usedPorts.add(p)
-  })
-
-  // 3) 从端口池中找第一个空闲端口
-  for (let port = quota.portRangeStart; port <= quota.portRangeEnd; port++) {
-    if (!usedPorts.has(port)) {
-      // 找到可用端口，更新已用计数
-      await prisma.editorQuota.update({
-        where: { editorId },
-        data: { fingerprintUsed: quota.fingerprintUsed + 1 },
-      })
-      return port
-    }
-  }
-
-  throw new Error(`端口池 ${quota.portRangeStart}-${quota.portRangeEnd} 已耗尽`)
+  const set = new Set<number>()
+  legacy.forEach(a => { if (a.cdpPort) set.add(a.cdpPort) })
+  return set
 }
 
-/** 释放端口（解绑 / 删除账号时调用） */
-export async function releaseCdpPort(editorId: number, port: number): Promise<void> {
-  const quota = await getOrCreateQuota(editorId)
-  if (quota.fingerprintUsed > 0) {
-    await prisma.editorQuota.update({
-      where: { editorId },
-      data: { fingerprintUsed: Math.max(0, quota.fingerprintUsed - 1) },
-    })
+/**
+ * 运行时从空闲池分配一个端口（不绑账号、不写库）。
+ * 同一用户+平台若已有运行中端口则复用，避免重复启动同一 profile。
+ * @throws 端口池耗尽
+ */
+export async function allocateCdpPort(userId: number, platform: string): Promise<number> {
+  for (const [p, info] of portRegistry) {
+    if (info.userId === userId && info.platform === platform) return p
   }
+  const { start, end } = await getPortRange()
+  const occupied = await getOccupiedPorts()
+  for (let p = start; p <= end; p++) {
+    if (occupied.has(p)) continue
+    if (portRegistry.has(p)) continue
+    portRegistry.set(p, { userId, platform, startedAt: Date.now() })
+    return p
+  }
+  throw new Error(`端口池 ${start}-${end} 已耗尽`)
+}
+
+/** 释放端口（停止浏览器时调用，仅从运行注册表移除） */
+export function releaseCdpPort(port: number): boolean {
+  return portRegistry.delete(port)
+}
+
+/** 当前运行中的端口列表（供状态查询） */
+export function getActivePorts(): number[] {
+  return Array.from(portRegistry.keys())
 }
 
 // ── Q1 容器配额校验 ──
