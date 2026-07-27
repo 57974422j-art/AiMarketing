@@ -86,16 +86,20 @@ export async function POST(request: NextRequest) {
         const imageUrl = await generateImage(enhancedPrompt, '1280*1280', model as any)
 
         if (imageUrl?.url) {
-          // 转存到自己的 OSS（临时链接会过期）
+          // 转存到自己的 OSS（临时链接会过期）——必须成功才写库，失败不写临时链接
           const ext = imageUrl.url.endsWith('.png') ? 'png' : 'jpg'
           const ossUrl = await saveToOSS(imageUrl.url, ext)
-          const finalUrl = ossUrl || imageUrl.url
-          await prisma.$executeRawUnsafe(
-            'UPDATE PromptTemplate SET previewUrl = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
-            finalUrl, t.id
-          )
-          results.push({ id: t.id, title: t.title, success: true, url: finalUrl })
-          console.log(`[${i + 1}/${total}] ✅ ${t.title} -> ${finalUrl.substring(0, 60)}...`)
+          if (ossUrl) {
+            await prisma.$executeRawUnsafe(
+              'UPDATE PromptTemplate SET previewUrl = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
+              ossUrl, t.id
+            )
+            results.push({ id: t.id, title: t.title, success: true, url: ossUrl })
+            console.log(`[${i + 1}/${total}] ✅ ${t.title} -> ${ossUrl.substring(0, 60)}...`)
+          } else {
+            results.push({ id: t.id, title: t.title, success: false, error: 'OSS 转存失败，未写库（请检查 OSS_* 环境变量或网络）' })
+            console.warn(`[${i + 1}/${total}] ❌ ${t.title} -> OSS 转存失败，未写库`)
+          }
         } else {
           results.push({ id: t.id, title: t.title, success: false, error: 'AI 服务不可用，请检查硅基流动 API Key' })
           console.warn(`[${i + 1}/${total}] ❌ ${t.title} -> AI 服务不可用`)

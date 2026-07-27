@@ -8,9 +8,11 @@ const PIXABAY_KEY = process.env.PIXABAY_API_KEY || ''
 const DASHSCOPE_KEY = process.env.DASHSCOPE_API_KEY || ''
 const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 
-// ===== 行业 × 用途 抓取矩阵 =====
-// 图片：行业 × 用途子分类（海报封面/产品展示/品牌宣传/节日营销/短视频封面）
-// 视频：按行业搜视频词，暂归入「文生视频」（细分待用户看效果后定）
+// ===== 抓取策略（2026-07-27 调整）=====
+// 1. 一次只抓 1 条：同步执行，抓到 → 转存 OSS → 入库 → 返回结果；用户确认后再点下一次。
+// 2. previewUrl 必须是 OSS 地址：转存失败直接不入库（不再保留 Pixabay 外链，避免死链）。
+// 3. 按 originalUrl 跨次去重，抓到重复的自动跳过找下一条。
+
 const INDUSTRIES = [
   { name: '美业', w: 'beauty salon' },
   { name: '教育', w: 'education training' },
@@ -28,17 +30,17 @@ const IMAGE_USES = [
   { cat: '节日营销', q: (w: string) => `${w} festival sale` },
   { cat: '短视频封面', q: (w: string) => `${w} portrait person` },
 ]
-const PER_USE = 2       // 每个行业每个用途抓几条
-const PER_VIDEO = 2     // 每个行业抓几条视频
-const IMAGE_TOTAL_CAP = 80
-const VIDEO_TOTAL_CAP = 24
+const SCENE_PLANS = [
+  'shopping mall interior', 'beach resort', 'coffee shop bookstore',
+  'city street night', 'supermarket shelf', 'outdoor camping',
+]
 
 interface Cand {
   title: string
   category: string
   industry: string
   prompt: string
-  previewUrl: string   // 初始为 Pixabay 链接，转存 OSS 后替换
+  previewUrl: string   // 候选阶段为 Pixabay 链接，入库前必须替换为 OSS 地址
   originalUrl: string  // Pixabay 原始链接，用于跨次去重
   visionImage: string  // 喂视觉模型的图（图=webformat；视频=缩略图）
   kind: 'image' | 'video'
@@ -97,13 +99,13 @@ async function visionClonePrompt(imageUrl: string, kindLabel: string): Promise<s
   return null
 }
 
-// 转存到阿里云 OSS（失败则保留 Pixabay 外链，不阻塞抓取）
+// 转存到阿里云 OSS。失败返回 null → 调用方【不入库】（不再保留外链）
 async function uploadToOSS(url: string, kind: 'image' | 'video'): Promise<string | null> {
   const region = process.env.OSS_REGION
   const id = process.env.OSS_ACCESS_KEY_ID
   const secret = process.env.OSS_ACCESS_KEY_SECRET
   const bucket = process.env.OSS_BUCKET
-  if (!region || !id || !secret || !bucket) { console.log('[OSS] 未配置，保留 Pixabay 外链'); return null }
+  if (!region || !id || !secret || !bucket) { console.log('[OSS] 未配置，本条不入库'); return null }
   try {
     const to = kind === 'video' ? 120000 : 30000
     const resp = await fetch(url, { signal: AbortSignal.timeout(to) })
@@ -119,7 +121,7 @@ async function uploadToOSS(url: string, kind: 'image' | 'video'): Promise<string
     const url2 = `https://${bucket}.${region}.aliyuncs.com/${ossName}`
     console.log(`[OSS] 转存成功 (${kind}): ${url2.substring(0, 70)}`)
     return url2
-  } catch (e: any) { console.log('[OSS] 转存失败，保留外链:', e?.message); return null }
+  } catch (e: any) { console.log('[OSS] 转存失败，本条不入库:', e?.message); return null }
 }
 
 // 运行时建表 + 加列（避开 prisma generate，单文件自包含）
@@ -136,152 +138,104 @@ async function ensureColumns() {
   }
 }
 
-// 分批并发
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = []
-  for (let i = 0; i < items.length; i += limit) {
-    const batch = items.slice(i, i + limit)
-    const res = await Promise.all(batch.map(fn))
-    out.push(...res)
+// 数组随机打乱（每次抓取随机换行业/用途，避免总在同一组合里打转）
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
   }
-  return out
+  return a
 }
 
-// ===== 抓取：行业 × 用途 图片 =====
-async function fetchImageCandidates(): Promise<Cand[]> {
-  if (!PIXABAY_KEY) { console.log('[Fetch] 缺少 PIXABAY_API_KEY'); return [] }
-  const out: Cand[] = []
-  for (const ind of INDUSTRIES) {
-    if (out.length >= IMAGE_TOTAL_CAP) break
-    for (const use of IMAGE_USES) {
-      if (out.length >= IMAGE_TOTAL_CAP) break
-      const q = use.q(ind.w)
-      try {
-        const api = `https://pixabay.com/api/?key=${PIXABAY_KEY}&q=${encodeURIComponent(q)}&per_page=20&safesearch=true&image_type=photo`
-        const r = await fetch(api, { signal: AbortSignal.timeout(20000) })
-        if (!r.ok) { console.log(`[Fetch] 图查询失败 ${r.status} (${ind.name}/${use.cat})`); continue }
-        const data: any = await r.json()
-        const hits: any[] = data.hits || []
-        let taken = 0
-        for (const hit of hits) {
-          if (taken >= PER_USE || out.length >= IMAGE_TOTAL_CAP) break
-          const previewUrl = hit.largeImageURL || hit.webformatURL
-          const visionImage = hit.webformatURL || hit.largeImageURL
-          if (!previewUrl || !visionImage) continue
-          const tags = (hit.tags || '').replace(/,/g, ', ').trim() || `${ind.name} ${use.cat}`
-          const title = tags.length > 40 ? tags.substring(0, 40) + '…' : tags
-          out.push({ title, category: use.cat, industry: ind.name, prompt: '', previewUrl, originalUrl: previewUrl, visionImage, kind: 'image', _tags: tags })
-          taken++
-        }
-      } catch (e: any) { console.log(`[Fetch] 图异常 ${ind.name}/${use.cat}:`, e?.message) }
-    }
-  }
-  return out
+// 查库判断该 Pixabay 原始链接是否已抓过
+async function existsByOriginal(originalUrl: string): Promise<boolean> {
+  const rows: any[] = await prisma.$queryRawUnsafe('SELECT id FROM PromptTemplate WHERE originalUrl = ?', originalUrl)
+  return Array.isArray(rows) && rows.length > 0
 }
 
-// ===== 抓取：行业 视频（暂归「文生视频」，细分待定） =====
-async function fetchVideoCandidates(orientation: string): Promise<Cand[]> {
-  if (!PIXABAY_KEY) return []
-  const out: Cand[] = []
-  for (const ind of INDUSTRIES) {
-    if (out.length >= VIDEO_TOTAL_CAP) break
+// ===== 找 1 条未抓过的图片候选（随机行业×用途） =====
+async function pickImageCandidate(): Promise<Cand | null> {
+  const combos = shuffle(INDUSTRIES.flatMap(ind => IMAGE_USES.map(use => ({ ind, use }))))
+  for (const { ind, use } of combos) {
+    const q = use.q(ind.w)
+    try {
+      const api = `https://pixabay.com/api/?key=${PIXABAY_KEY}&q=${encodeURIComponent(q)}&per_page=20&safesearch=true&image_type=photo`
+      const r = await fetch(api, { signal: AbortSignal.timeout(20000) })
+      if (!r.ok) { console.log(`[Fetch] 图查询失败 ${r.status} (${ind.name}/${use.cat})`); continue }
+      const data: any = await r.json()
+      for (const hit of (data.hits || [])) {
+        const previewUrl = hit.largeImageURL || hit.webformatURL
+        const visionImage = hit.webformatURL || hit.largeImageURL
+        if (!previewUrl || !visionImage) continue
+        if (await existsByOriginal(previewUrl)) continue   // 重复的跳过
+        const tags = (hit.tags || '').replace(/,/g, ', ').trim() || `${ind.name} ${use.cat}`
+        const title = tags.length > 40 ? tags.substring(0, 40) + '…' : tags
+        return { title, category: use.cat, industry: ind.name, prompt: '', previewUrl, originalUrl: previewUrl, visionImage, kind: 'image', _tags: tags }
+      }
+    } catch (e: any) { console.log(`[Fetch] 图异常 ${ind.name}/${use.cat}:`, e?.message) }
+  }
+  return null
+}
+
+// ===== 找 1 条未抓过的视频候选（随机行业） =====
+async function pickVideoCandidate(orientation: string): Promise<Cand | null> {
+  for (const ind of shuffle(INDUSTRIES)) {
     const q = `${ind.w} promotion`
     try {
       const api = `https://pixabay.com/api/videos/?key=${PIXABAY_KEY}&q=${encodeURIComponent(q)}&per_page=20${orientation ? `&orientation=${orientation}` : ''}`
       const r = await fetch(api, { signal: AbortSignal.timeout(20000) })
       if (!r.ok) { console.log(`[Fetch] 视频查询失败 ${r.status} (${ind.name})`); continue }
       const data: any = await r.json()
-      const hits: any[] = data.hits || []
-      let taken = 0
-      for (const hit of hits) {
-        if (taken >= PER_VIDEO || out.length >= VIDEO_TOTAL_CAP) break
+      for (const hit of (data.hits || [])) {
         const v = hit.videos?.medium || hit.videos?.small || hit.videos?.large
         const previewUrl = v?.url
         const visionImage = v?.thumbnail || hit.picture || ''
         if (!previewUrl) continue
+        if (await existsByOriginal(previewUrl)) continue
         const tags = (hit.tags || '').replace(/,/g, ', ').trim() || `${ind.name} 视频`
         const title = tags.length > 40 ? tags.substring(0, 40) + '…' : tags
-        out.push({ title, category: '文生视频', industry: ind.name, prompt: '', previewUrl, originalUrl: previewUrl, visionImage, kind: 'video', _tags: tags })
-        taken++
+        return { title, category: '文生视频', industry: ind.name, prompt: '', previewUrl, originalUrl: previewUrl, visionImage, kind: 'video', _tags: tags }
       }
     } catch (e: any) { console.log(`[Fetch] 视频异常 ${ind.name}:`, e?.message) }
   }
-  return out
+  return null
 }
 
-// ===== 抓取：场景（地点关键词，无行业） =====
-const SCENE_PLANS = [
-  'shopping mall interior', 'beach resort', 'coffee shop bookstore',
-  'city street night', 'supermarket shelf', 'outdoor camping',
-]
-async function fetchSceneCandidates(): Promise<Cand[]> {
-  if (!PIXABAY_KEY) return []
-  const out: Cand[] = []
-  for (const q of SCENE_PLANS) {
+// ===== 找 1 条未抓过的场景候选（随机场景词） =====
+async function pickSceneCandidate(): Promise<Cand | null> {
+  for (const q of shuffle(SCENE_PLANS)) {
     try {
       const api = `https://pixabay.com/api/?key=${PIXABAY_KEY}&q=${encodeURIComponent(q)}&per_page=20&safesearch=true&image_type=photo`
       const r = await fetch(api, { signal: AbortSignal.timeout(20000) })
       if (!r.ok) continue
       const data: any = await r.json()
-      const hits: any[] = data.hits || []
-      let taken = 0
-      for (const hit of hits) {
-        if (taken >= 2) break
+      for (const hit of (data.hits || [])) {
         const previewUrl = hit.largeImageURL || hit.webformatURL
         const visionImage = hit.webformatURL || hit.largeImageURL
         if (!previewUrl || !visionImage) continue
+        if (await existsByOriginal(previewUrl)) continue
         const tags = (hit.tags || '').replace(/,/g, ', ').trim() || q
         const title = tags.length > 40 ? tags.substring(0, 40) + '…' : tags
-        out.push({ title, category: '场景', industry: '', prompt: '', previewUrl, originalUrl: previewUrl, visionImage, kind: 'image', _tags: tags })
-        taken++
+        return { title, category: '场景', industry: '', prompt: '', previewUrl, originalUrl: previewUrl, visionImage, kind: 'image', _tags: tags }
       }
     } catch {}
   }
-  return out
+  return null
 }
 
-// 后台异步执行抓取（避免前端请求超时；PM2 长驻进程可跑完整个任务）
-async function runFetch(fetchType: string, kindLabel: string, orientation: string) {
-  try {
-    await ensureColumns()
-
-    let candidates: Cand[] = []
-    if (fetchType === 'video') candidates = await fetchVideoCandidates(orientation)
-    else if (fetchType === 'scene') candidates = await fetchSceneCandidates()
-    else candidates = await fetchImageCandidates()
-    console.log(`[Fetch] 抓取候选: ${candidates.length} 条 (type=${fetchType})`)
-
-    // 逐条：视觉写中文克隆提示词 + 转存 OSS
-    const enriched = await mapWithConcurrency(candidates, 3, async (c: Cand) => {
-      const clone = await visionClonePrompt(c.visionImage, kindLabel)
-      c.prompt = clone || c._tags
-      const oss = await uploadToOSS(c.previewUrl, c.kind)
-      if (oss) c.previewUrl = oss
-      return c
-    })
-
-    // 入库（按 originalUrl 去重，避免重复抓取同一素材）
-    let inserted = 0
-    for (const c of enriched) {
-      const rows: any[] = await prisma.$queryRawUnsafe('SELECT id FROM PromptTemplate WHERE originalUrl = ?', c.originalUrl)
-      if (Array.isArray(rows) && rows.length) continue
-      await prisma.$executeRawUnsafe(
-        'INSERT INTO PromptTemplate (title, category, prompt, previewUrl, industry, originalUrl) VALUES (?, ?, ?, ?, ?, ?)',
-        c.title, c.category, c.prompt, c.previewUrl, c.industry || '', c.originalUrl
-      )
-      inserted++
-    }
-
-    console.log(`[Fetch] 写入完成: ${inserted} 条新记录 (type=${fetchType})`)
-  } catch (error: any) {
-    console.error('[Fetch] 后台任务错误:', error)
-  }
-}
-
+/**
+ * POST /api/fetch-prompts?type=image|video|scene
+ * 单条同步抓取：找 1 条未抓过的素材 → 视觉写克隆提示词 → 转存 OSS（必须成功）→ 入库 → 返回该条。
+ * OSS 转存失败则不入库并报错。前端确认结果后再点下一次抓取。
+ */
 export async function POST(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
   if (!auth || auth.role !== 'admin') {
     return NextResponse.json({ success: false, message: '需要管理员权限' }, { status: 403 })
+  }
+  if (!PIXABAY_KEY) {
+    return NextResponse.json({ success: false, message: '缺少 PIXABAY_API_KEY，无法抓取' }, { status: 400 })
   }
   const { searchParams } = new URL(request.url)
   const fetchType = searchParams.get('type') || 'image'
@@ -291,10 +245,46 @@ export async function POST(request: NextRequest) {
   const kindLabel = fetchType === 'video' ? '营销视频' : fetchType === 'scene' ? '场景图片' : '营销图片'
   const orientation = fetchType === 'video' ? (searchParams.get('orientation') || '') : ''
 
-  // 立即返回，重活丢到后台异步跑（约 1~3 分钟），不再阻塞前端请求
-  runFetch(fetchType, kindLabel, orientation).catch((e) => console.error('[Fetch] 后台任务异常:', e))
-  return NextResponse.json({
-    success: true,
-    message: '抓取任务已启动（后台处理中，约需 1~3 分钟，完成后可在素材库/提示词模板查看）',
-  })
+  try {
+    await ensureColumns()
+
+    // 1) 找一条没抓过的候选
+    let cand: Cand | null = null
+    if (fetchType === 'video') cand = await pickVideoCandidate(orientation)
+    else if (fetchType === 'scene') cand = await pickSceneCandidate()
+    else cand = await pickImageCandidate()
+    if (!cand) {
+      return NextResponse.json({ success: false, message: '没有找到新素材（可能都已抓取过，或 Pixabay 查询失败）' })
+    }
+
+    // 2) 转存 OSS —— 必须成功，否则不入库
+    const ossUrl = await uploadToOSS(cand.previewUrl, cand.kind)
+    if (!ossUrl) {
+      return NextResponse.json({ success: false, message: 'OSS 转存失败，本条未入库（请检查服务器 OSS_* 环境变量或网络）' })
+    }
+    cand.previewUrl = ossUrl
+
+    // 3) 视觉写中文克隆提示词（失败退化为标签，不阻塞）
+    const clone = await visionClonePrompt(cand.visionImage, kindLabel)
+    cand.prompt = clone || cand._tags
+
+    // 4) 入库（再查一次去重，防并发点击）
+    if (await existsByOriginal(cand.originalUrl)) {
+      return NextResponse.json({ success: false, message: '该素材刚被抓取过（重复），未重复入库' })
+    }
+    await prisma.$executeRawUnsafe(
+      'INSERT INTO PromptTemplate (title, category, prompt, previewUrl, industry, originalUrl) VALUES (?, ?, ?, ?, ?, ?)',
+      cand.title, cand.category, cand.prompt, cand.previewUrl, cand.industry || '', cand.originalUrl
+    )
+    console.log(`[Fetch] 单条入库成功: ${cand.title} (${cand.category})`)
+
+    return NextResponse.json({
+      success: true,
+      message: `已抓取并存入 OSS：「${cand.title}」（${cand.industry || '场景'} / ${cand.category}）。确认无误后可继续抓取下一条。`,
+      data: { title: cand.title, category: cand.category, industry: cand.industry, previewUrl: cand.previewUrl },
+    })
+  } catch (error: any) {
+    console.error('[Fetch] 抓取失败:', error)
+    return NextResponse.json({ success: false, message: `抓取失败: ${error?.message || '未知错误'}` }, { status: 500 })
+  }
 }

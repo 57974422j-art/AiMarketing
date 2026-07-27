@@ -67,17 +67,12 @@ export function middleware(request: NextRequest) {
     return NextResponse.json({ success: false, message: '无效的登录状态，请重新登录' }, { status: 401 })
   }
 
-  // 全局订阅门控：非 admin 必须持有未过期订阅（订阅到期时间随 JWT 携带）。
-  // 老 token 无 subExp 字段 → 视为需要重新登录以刷新订阅信息。
-  if (payload.role !== 'admin') {
-    const subExp = payload.subExp || 0
-    if (!subExp || subExp < Date.now()) {
-      return NextResponse.json(
-        { success: false, message: '订阅已到期或未订阅，请前往订阅页购买', code: 'NO_SUBSCRIPTION' },
-        { status: 403 },
-      )
-    }
-  }
+  // 订阅门控策略（2026-07-27 调整）：
+  // 不再在 middleware 层对未订阅用户做全局硬拦截——否则会连「套餐卡片 / 工作台 /
+  // 账号列表」等查看类接口一起挡掉，导致用户看不到内容、无法自助充值。
+  // 真正的付费动作由各路由内的 checkFeatureAccess(User.paidFeatures) / quota-checker
+  // 单独做软拦截，返回「需要充值开通」提示（免费 LLM 等始终放行）。
+  // 这样未订阅用户仍可浏览内容并前往充值。仅未登录（无 token）时返回 401。
 
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('X-User-Id', payload.userId.toString())
