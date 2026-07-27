@@ -32,10 +32,19 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { accountName, platform, accountId, bindType, password, mobile, remark } = body
     if (!accountName || !platform) return NextResponse.json({ success: false, message: '缺少必要参数' }, { status: 400 })
+    // 指纹浏览器（manual）：用户自助，登记即可用，无需管理员授权
+    // 魔云腾/云手机（device）等仍保持「未绑定」，需管理员在后台绑定授权
+    const effectiveBindType = bindType || 'device'
+    const isSelfService = effectiveBindType === 'manual'
     const account = await prisma.account.create({
-      data: { accountName, platform, accountId: accountId || '', bindType: bindType || 'device', password: password || '', mobile: mobile || '', remark: remark || '', userId: user.userId },
+      data: {
+        accountName, platform, accountId: accountId || '', bindType: effectiveBindType,
+        password: password || '', mobile: mobile || '', remark: remark || '', userId: user.userId,
+        isBound: isSelfService,
+        status: isSelfService ? '已绑定' : '未绑定',
+      },
     })
-    return NextResponse.json({ success: true, message: '添加成功', account })
+    return NextResponse.json({ success: true, message: isSelfService ? '添加成功，指纹浏览器已可用' : '添加成功，等待管理员绑定设备', account })
   } catch (e) { console.error(e); return NextResponse.json({ success: false, message: '添加失败' }, { status: 500 })
   } finally { await prisma.$disconnect() }
 }
