@@ -109,6 +109,11 @@ export default function MyFingerprintPage() {
   const [formLocation, setFormLocation] = useState('')
   const [formPublishNow, setFormPublishNow] = useState(true)
 
+  // ── AI 智能填充（可选）──
+  const [aiMode, setAiMode] = useState<'frame' | 'full'>('frame')  // frame=抽帧3~5帧 / full=整段8~10帧
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiCoverLoading, setAiCoverLoading] = useState(false)
+
   // ── 任务队列 ──
   const [taskQueue, setTaskQueue] = useState<PublishTask[]>([])
 
@@ -264,6 +269,63 @@ export default function MyFingerprintPage() {
     setFormLocation('')
     setFormPublishNow(true)
   }, [])
+
+  /** AI 看片：自动填充标题/文案/话题/封面（用户可选，不点则自行填写） */
+  const handleAIFill = async () => {
+    if (!formVideoName) {
+      showToast('请先选择视频', 'error'); return
+    }
+    if (aiLoading) return
+    setAiLoading(true)
+    try {
+      const r = await fetch('/api/ai/analyze-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ videoName: formVideoName, mode: aiMode }),
+      })
+      const d = await r.json()
+      if (d.success) {
+        if (d.title) setFormTitle(d.title)
+        if (d.description) setFormDesc(d.description)
+        if (Array.isArray(d.topics) && d.topics.length) setFormTopics(d.topics.join('，'))
+        if (d.coverImage) setFormCoverImage(d.coverImage)
+        showToast('AI 已自动填充标题/文案/话题/封面', 'success')
+      } else {
+        showToast(d.message || 'AI 分析失败', 'error')
+      }
+    } catch (e: any) {
+      showToast('AI 分析异常: ' + (e?.message || e), 'error')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  /** AI 生成封面（基于标题+文案，可选；生成失败不影响手填） */
+  const handleAICover = async () => {
+    if (aiCoverLoading) return
+    const basePrompt = (formTitle || formDesc || '一张美观的短视频封面')
+    setAiCoverLoading(true)
+    try {
+      const r = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ prompt: `为短视频生成一张吸引人的封面图，主题：${basePrompt}`, size: '1280*1280' }),
+      })
+      const d = await r.json()
+      if (d.success && d.data?.url) {
+        setFormCoverImage(d.data.url)
+        showToast('AI 封面已生成', 'success')
+      } else {
+        showToast(d.message || 'AI 生成封面失败', 'error')
+      }
+    } catch (e: any) {
+      showToast('生成封面异常: ' + (e?.message || e), 'error')
+    } finally {
+      setAiCoverLoading(false)
+    }
+  }
 
   /** 添加任务到队列 */
   const addToQueue = () => {
@@ -663,6 +725,39 @@ export default function MyFingerprintPage() {
               <div className="bg-gray-800/30 border border-white/5 rounded-xl p-3 space-y-2.5">
                 <p className="text-xs font-medium text-gray-300">📝 添加发布内容</p>
 
+                {/* ═══ AI 智能填充（可选，不点则自行填写） ═══ */}
+                <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3 space-y-2">
+                  <p className="text-[11px] font-medium text-purple-300">🤖 AI 看片智能填充（可选 · 让 AI 自动写标题/文案/话题/封面）</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAiMode('frame')}
+                      className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] transition ${
+                        aiMode === 'frame'
+                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                          : 'bg-gray-800/30 text-gray-500 border border-white/5'
+                      }`}
+                    >抽帧（3~5 帧）</button>
+                    <button
+                      type="button"
+                      onClick={() => setAiMode('full')}
+                      className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] transition ${
+                        aiMode === 'full'
+                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                          : 'bg-gray-800/30 text-gray-500 border border-white/5'
+                      }`}
+                    >整段（8~10 帧）</button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAIFill}
+                    disabled={!formVideoName || aiLoading}
+                    className="w-full py-2 rounded-lg text-xs font-medium bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-400 hover:to-violet-400 text-white disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                  >
+                    {aiLoading ? '⏳ AI 分析中...' : '✨ 让 AI 看片并自动填写'}
+                  </button>
+                </div>
+
                 {/* 选择视频 */}
                 <div>
                   <label className="text-[11px] text-gray-500 block mb-1">视频 *</label>
@@ -786,6 +881,16 @@ export default function MyFingerprintPage() {
                       ))}
                     </div>
                   )}
+
+                  {/* AI 生成封面（可选，与抽帧封面二选一） */}
+                  <button
+                    type="button"
+                    onClick={handleAICover}
+                    disabled={aiCoverLoading}
+                    className="w-full mt-2 bg-gradient-to-r from-fuchsia-500/20 to-pink-500/20 border border-fuchsia-500/30 rounded-lg px-3 py-2.5 text-xs text-fuchsia-300 hover:from-fuchsia-500/30 hover:to-pink-500/30 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {aiCoverLoading ? '⏳ 生成中...' : '🎨 AI 生成封面（基于标题/文案）'}
+                  </button>
                 </div>
 
                 {/* 位置 */}
