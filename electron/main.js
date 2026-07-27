@@ -889,6 +889,7 @@ function getDefaultUrl(platform) {
     douyin: 'https://creator.douyin.com/creator-micro/content/upload',
     xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish',
     kuaishou: 'https://cp.kuaishou.com/article/publish/video',
+    shipinhao: 'https://channels.weixin.qq.com/platform/post/create',
     bilibili: 'https://member.bilibili.com/platform/upload-video/frame',
     toutiao: 'https://mp.toutiao.com/profile_v4/graphic/publish',
     weibo: 'https://weibo.com',
