@@ -104,6 +104,7 @@ export default function Navbar() {
                     <p className="text-sm text-white">{user?.username?.toUpperCase()}</p>
                     <p className="text-xs text-emerald-400 mt-1">{roleInfo}</p>
                   </div>
+                  <Link href="/my-subscription" className="block px-4 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 text-sm">💳 查看充值/套餐</Link>
                   {(user?.role === 'admin' || user?.role === 'editor') && (
                     <Link href="/admin/" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">🖥️ 管理中心</Link>
                   )}
@@ -123,6 +124,7 @@ export default function Navbar() {
             {(user?.role === 'admin' || user?.role === 'editor') && (
               <Link href="/ai-tools" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg text-sm">🛠 工具集</Link>
             )}
+            <Link href="/my-subscription" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-emerald-400 hover:bg-emerald-500/10 rounded-lg text-sm font-medium">💳 查看充值/套餐</Link>
             {(user?.role === 'admin' || user?.role === 'editor') && (
               <Link href="/admin/" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-yellow-400 hover:bg-yellow-500/10 rounded-lg text-sm font-bold">⚙ 管理中心</Link>
             )}

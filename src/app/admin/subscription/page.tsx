@@ -18,6 +18,12 @@ interface UsageStats { month: string; totals: any; users: any[] }
 const fmtYuan = (fen: number) => '¥' + (fen / 100).toFixed(0)
 const fmtDisk = (mb: number) => mb >= 1024 ? (mb / 1024).toFixed(1) + 'GB' : mb + 'MB'
 const fmtQuota = (v: number) => v === -1 ? '∞' : v > 0 ? v.toLocaleString() : '—'
+/** 月 TOKEN 额度：1 TOKEN=¥0.01，实付价/月数；0元套餐=500 试用 */
+const planTokens = (p: Plan) => {
+  const effective = p.discountPrice ?? p.price
+  if (effective <= 0) return 500
+  return Math.round(effective / Math.max(1, p.durationMonths || 1))
+}
 
 export default function SubscriptionAdminPage() {
   const { user, loading: authLoading } = useAuth()
@@ -51,7 +57,7 @@ export default function SubscriptionAdminPage() {
   }
 
   const savePlan = async () => {
-    if (!form.name || !form.price) { showToast('请填写套餐名和价格', 'error'); return }
+    if (!form.name || form.price === undefined || form.price === ('' as any)) { showToast('请填写套餐名和价格', 'error'); return }
     try {
       const body = {
         ...form,
@@ -74,6 +80,20 @@ export default function SubscriptionAdminPage() {
       if (d.success) { showToast(editing ? '已更新' : '已创建', 'success'); setEditing(null); setForm({}); loadPlans() }
       else showToast(d.message, 'error')
     } catch { showToast('保存失败', 'error') }
+  }
+
+  // 上/下架切换（下架后前台不显示、免费周卡不可领取）
+  const toggleStatus = async (p: Plan) => {
+    const next = p.status === 'active' ? 'disabled' : 'active'
+    try {
+      const r = await fetch(`/api/admin/subscription-plans/${p.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      })
+      const d = await r.json()
+      if (d.success) { showToast(next === 'active' ? '已上架' : '已下架', 'success'); loadPlans() }
+      else showToast(d.message, 'error')
+    } catch { showToast('操作失败', 'error') }
   }
 
   const deletePlan = async (id: number) => {
@@ -162,7 +182,7 @@ export default function SubscriptionAdminPage() {
                   <table className="w-full text-xs">
                     <thead><tr className="text-gray-500 border-b border-white/10">
                       <th className="text-left py-2">名称</th><th className="text-right">原价</th><th className="text-right">折扣</th><th className="text-center">时长</th>
-                      <th className="text-right">文生图</th><th className="text-right">文生视频</th><th className="text-center">状态</th><th className="text-center">操作</th>
+                      <th className="text-right">月TOKEN</th><th className="text-center">状态</th><th className="text-center">操作</th>
                     </tr></thead>
                     <tbody>
                       {plans.map(p => (
@@ -171,10 +191,10 @@ export default function SubscriptionAdminPage() {
                           <td className="text-right font-mono">{fmtYuan(p.price)}</td>
                           <td className="text-right font-mono text-emerald-400">{p.discountPrice ? fmtYuan(p.discountPrice) : '—'}</td>
                           <td className="text-center">{p.durationMonths}月</td>
-                          <td className="text-right">{fmtQuota(p.text2imgQuota)}</td>
-                          <td className="text-right">{fmtQuota(p.text2videoQuota)}</td>
-                          <td className="text-center"><span className={p.status === 'active' ? 'text-emerald-400' : 'text-gray-600'}>{p.status}</span></td>
+                          <td className="text-right font-mono text-amber-400">{planTokens(p).toLocaleString()}</td>
+                          <td className="text-center"><span className={p.status === 'active' ? 'text-emerald-400' : 'text-gray-600'}>{p.status === 'active' ? '上架' : '已下架'}</span></td>
                           <td className="text-center">
+                            <button onClick={() => toggleStatus(p)} className={`mr-2 ${p.status === 'active' ? 'text-amber-400 hover:text-amber-300' : 'text-emerald-400 hover:text-emerald-300'}`}>{p.status === 'active' ? '下架' : '上架'}</button>
                             <button onClick={() => startEdit(p)} className="text-blue-400 hover:text-blue-300 mr-2">编辑</button>
                             <button onClick={() => deletePlan(p.id)} className="text-red-400 hover:text-red-300">删除</button>
                           </td>

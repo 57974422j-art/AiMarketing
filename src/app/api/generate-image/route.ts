@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { generateImage } from '@/lib/ai-providers'
 import { checkFeatureAccess, FeatureCodes } from '@/lib/quota'
+import { checkTokens, spendTokens, TOKEN_COSTS } from '@/lib/token-wallet'
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,6 +17,12 @@ export async function POST(request: NextRequest) {
         message: featureCheck.message,
         needContactService: featureCheck.needContactService
       }, { status: 403 })
+    }
+
+    // TOKEN 余额检查（12 TOKEN/张，余额不足直接拒绝，避免先烧上游成本）
+    const tokenCheck = await checkTokens(auth.userId, TOKEN_COSTS.IMAGE_PER_PIC)
+    if (!tokenCheck.allowed) {
+      return NextResponse.json({ success: false, message: tokenCheck.message, wallet: tokenCheck.wallet }, { status: 403 })
     }
 
     const body = await request.json()
@@ -36,6 +43,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'AI 服务不可用（已尝试百炼→硅基流动，均失败）' }, { status: 503 })
     }
     console.log('[生成图片] 成功, 模型:', result.model, 'URL:', result.url.substring(0, 60) + '...')
+    await spendTokens(auth.userId, TOKEN_COSTS.IMAGE_PER_PIC, 'text2img')
     return NextResponse.json({ success: true, data: { url: result.url, model: result.model } })
   } catch (e) {
     console.error('[生成图片] 异常:', e)

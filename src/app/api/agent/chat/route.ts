@@ -6,6 +6,7 @@ import {
   agnesChat, type AgentChatMessage,
 } from '@/lib/ai-providers'
 import { getAuthFromHeaders } from '@/lib/api-auth'
+import { spendTokens, TOKEN_COSTS } from '@/lib/token-wallet'
 import { listObjects } from '@/lib/oss'
 import { PrismaClient } from '@prisma/client'
 
@@ -458,6 +459,7 @@ export async function POST(request: NextRequest) {
         await prisma.chatSession.update({ where: { id: sessionId }, data: { updatedAt: new Date() } })
       }
 
+      if (auth?.userId) await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
       return NextResponse.json({
         success: true,
         data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, sessionId },
@@ -483,6 +485,7 @@ export async function POST(request: NextRequest) {
       await prisma.chatSession.update({ where: { id: sessionId }, data: { updatedAt: new Date() } })
     }
 
+    if (auth?.userId) await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
     return NextResponse.json({
       success: true,
       data: { reply, intent: 'chat', toolUsed: false, sessionId },

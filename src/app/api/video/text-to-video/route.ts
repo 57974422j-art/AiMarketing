@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateVideo, generateLongVideo, queryVideoTask } from '@/lib/ai-providers'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { checkFeatureAccess, FeatureCodes } from '@/lib/quota'
+import { checkTokens, spendTokens, TOKEN_COSTS } from '@/lib/token-wallet'
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,6 +29,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '缺少必要参数: prompt' }, { status: 400 })
     }
 
+    // TOKEN 余额检查（100 TOKEN/秒，最烧钱的动作，余额不足直接拒绝）
+    const videoTokenCost = videoDuration * TOKEN_COSTS.VIDEO_PER_SECOND
+    const tokenCheck = await checkTokens(auth.userId, videoTokenCost)
+    if (!tokenCheck.allowed) {
+      return NextResponse.json({ success: false, message: tokenCheck.message, wallet: tokenCheck.wallet }, { status: 403 })
+    }
+
     console.log(`[文生视频API] 开始, params=${JSON.stringify({ prompt: (prompt||'').substring(0, 50), ratio: aspectRatio, duration: videoDuration, resolution, model, longVideo, hasRef: !!refImage })}`)
 
     // 长视频模式
@@ -43,6 +51,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, message: '长视频生成失败' }, { status: 500 })
       }
       console.log(`[文生视频API] 长视频成功, 耗时=${cost}s`)
+      await spendTokens(auth.userId, videoTokenCost, `text2video:${videoDuration}s`)
       return NextResponse.json({ success: true, taskId: 'long_video', videoUrl: result.videoUrl })
     }
 
@@ -58,11 +67,13 @@ export async function POST(request: NextRequest) {
 
     if (result.videoUrl) {
       console.log(`[文生视频API] 同步返回, 耗时=${cost}s, taskId=${result.taskId?.substring(0, 8)}..., videoUrl_len=${result.videoUrl.length}`)
+      await spendTokens(auth.userId, videoTokenCost, `text2video:${videoDuration}s`)
       return NextResponse.json({ success: true, taskId: result.taskId, videoUrl: result.videoUrl })
     }
 
-    // 异步模式（只有 taskId，前端轮询）
+    // 异步模式（只有 taskId，前端轮询）——上游任务已提交、成本已发生，此时即记账
     console.log(`[文生视频API] 异步提交, 耗时=${cost}s, taskId=${result.taskId?.substring(0, 8)}...`)
+    await spendTokens(auth.userId, videoTokenCost, `text2video:${videoDuration}s`)
     return NextResponse.json({ success: true, taskId: result.taskId, message: '视频生成任务已提交，请稍后查询结果' })
   } catch (error) {
     console.error('[文生视频API] 异常:', error instanceof Error ? `${error.name}: ${error.message}\n${error.stack?.substring(0, 200)}` : error)

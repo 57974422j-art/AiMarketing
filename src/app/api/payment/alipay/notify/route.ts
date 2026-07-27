@@ -34,26 +34,34 @@ export async function POST(req: NextRequest) {
     const order = await prisma.paymentOrder.findUnique({ where: { orderNo } })
     if (!order) return new NextResponse('success', { status: 200 })
 
-    // 4. 幂等：已处理过直接返回
-    if (order.status === 'paid') return new NextResponse('success', { status: 200 })
-
-    // 5. 校验金额（元，两位小数）
-    const notifyAmount = Math.round(parseFloat(params['total_amount'] || '0') * 100)
-    if (notifyAmount !== order.amount) {
-      await prisma.paymentOrder.update({
-        where: { orderNo }, data: { status: 'failed', raw },
-      })
+    // 4. 幂等 + 恢复：以「订阅是否已开通」为准，而非只看订单状态
+    //    （旧逻辑订单先标 paid 再建订阅，建订阅抛错后重试会因订单已 paid 直接返回，导致订阅永久漏开）
+    const existingSub = await prisma.userSubscription.findFirst({ where: { orderNo } })
+    if (order.status === 'paid' && existingSub) {
       return new NextResponse('success', { status: 200 })
     }
 
-    // 6. 标记订单已支付
-    await prisma.paymentOrder.update({
-      where: { orderNo },
-      data: { status: 'paid', tradeNo, paidAt: new Date(), raw },
-    })
+    // 5. 校验金额（元，两位小数）；已支付订单不被复核误覆盖为 failed
+    const notifyAmount = Math.round(parseFloat(params['total_amount'] || '0') * 100)
+    if (notifyAmount !== order.amount) {
+      if (order.status !== 'paid') {
+        await prisma.paymentOrder.update({ where: { orderNo }, data: { status: 'failed', raw } })
+      }
+      return new NextResponse('success', { status: 200 })
+    }
 
-    // 7. 开通订阅（迁自原 buy 逻辑）
-    await activateSubscription(order.userId, order.planId, orderNo, order.channel)
+    // 6. 标记订单已支付（已付则保持，不覆盖原 paidAt）
+    if (order.status !== 'paid') {
+      await prisma.paymentOrder.update({
+        where: { orderNo },
+        data: { status: 'paid', tradeNo, paidAt: order.paidAt || new Date(), raw },
+      })
+    }
+
+    // 7. 开通订阅（已开通则跳过，保证幂等、可 recovery）
+    if (!existingSub) {
+      await activateSubscription(order.userId, order.planId, orderNo, order.channel)
+    }
 
     return new NextResponse('success', { status: 200 })
   } catch (e: any) {
