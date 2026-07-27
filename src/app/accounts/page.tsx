@@ -486,7 +486,9 @@ export default function AccountsPage() {
 
               <p className="text-[10px] text-gray-600 text-center mt-4">
                 绑定方式：{BIND_TYPES.find(b => b.key === workbench.bindType)?.label || workbench.bindType}
-                {workbench.accountId ? ` · 设备已绑定` : ' · 等待管理员绑定设备'}
+                {workbench.bindType === 'manual'
+                  ? ' · 自助可用（无需管理员绑定）'
+                  : (workbench.accountId ? ' · 设备已绑定' : ' · 等待管理员绑定设备')}
               </p>
             </div>
           </div>
