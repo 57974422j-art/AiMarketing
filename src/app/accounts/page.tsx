@@ -93,67 +93,6 @@ export default function AccountsPage() {
     return urls[platform] || '#'
   }
 
-  // ── 运行脚本弹窗 ──
-  const [runScript, setRunScript] = useState<{ deviceId: string; deviceName: string } | null>(null)
-  const [scriptAction, setScriptAction] = useState('打开抖音')
-  const [scriptRunning, setScriptRunning] = useState(false)
-  const [scriptLog, setScriptLog] = useState<string[]>([])
-  const [scriptCustomInput, setScriptCustomInput] = useState('')
-
-  // ── Electron 本地设备 + 权限 ──
-  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron
-  const [localDevices, setLocalDevices] = useState<any[]>([])
-  const [mySerials, setMySerials] = useState<string[]>([])
-  const [regLoading, setRegLoading] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!isElectron) return
-    const poll = async () => {
-      const res = await (window as any).electronAPI.adbDevices()
-      if (res.success) setLocalDevices(res.data)
-    }
-    poll()
-    const timer = setInterval(poll, 5000)
-    return () => clearInterval(timer)
-  }, [isElectron])
-
-  // 加载当前用户已登记的本地设备序列号
-  useEffect(() => {
-    if (!user) return
-    fetch('/api/accounts', { credentials: 'include' }).then(r => r.json()).then(d => {
-      const list = Array.isArray(d) ? d : d.data || []
-      setMySerials(list.filter((a: any) => a.bindType === 'manual' && a.platform === 'local-device').map((a: any) => a.accountId).filter(Boolean))
-    }).catch(() => {})
-  }, [user])
-
-  const isRegistered = (serial: string) => mySerials.includes(serial)
-
-  const registerDevice = async (serial: string, name: string) => {
-    setRegLoading(serial)
-    try {
-      const r = await fetch('/api/accounts', {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountName: name,
-          platform: 'local-device',
-          bindType: 'imai',
-          accountId: serial,
-          remark: 'Electron本地设备',
-        }),
-      })
-      const data = await r.json()
-      if (data.success) {
-        showToast('登记成功，等待管理员审核', 'success')
-        setMySerials(prev => [...prev, serial])
-      } else {
-        showToast('登记失败: ' + (data.message || ''), 'error')
-      }
-    } catch (e: any) {
-      showToast('登记异常: ' + e.message, 'error')
-    }
-    setRegLoading(null)
-  }
-
   const platformMeta = (key: string) => PLATFORMS.find(p => p.key === key)
 
   if (authLoading || loading) return <Loading />
@@ -240,144 +179,7 @@ export default function AccountsPage() {
           </div>
         )}
 
-        {/* ── Electron 本地设备 ── */}
-        {isElectron && (
-          <div className="card-glass p-4 mt-6">
-            <h3 className="text-white text-sm font-bold mb-3 flex items-center gap-2">
-              💻 本地设备 <span className="text-[10px] text-gray-500 font-normal">客户端直连 · 自动刷新</span>
-            </h3>
-            {localDevices.length === 0 ? (
-              <div className="text-center text-gray-500 text-xs py-6">
-                <p>未检测到设备</p>
-                <p className="mt-1">请通过 USB 或 WiFi ADB 连接手机</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {localDevices.map((dev: any) => {
-                  const regged = isRegistered(dev.id)
-                  return (
-                    <div key={dev.id} className="bg-white/5 rounded-xl p-3 border border-white/10">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">📱</span>
-                          <div>
-                            <span className="text-white text-xs font-medium">{dev.name}</span>
-                            <span className={`text-[10px] ml-2 ${dev.status === 'device' ? 'text-emerald-400' : 'text-yellow-400'}`}>
-                              {dev.status === 'device' ? '已连接' : '未授权'}
-                            </span>
-                          </div>
-                        </div>
-                        <span className="text-[10px] text-gray-500">{dev.type === 'usb' ? '🔌 USB' : '📶 WiFi'}</span>
-                      </div>
-                      <p className="text-[10px] text-gray-600 truncate">{dev.id}</p>
-                      <div className="flex gap-2 mt-2">
-                        {dev.status === 'device' && !regged && (
-                          <button onClick={() => registerDevice(dev.id, dev.name)} disabled={regLoading === dev.id}
-                            className="w-full text-[10px] py-1.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded hover:bg-yellow-500/30 disabled:opacity-50">
-                            {regLoading === dev.id ? '登记中...' : '📋 登记设备'}
-                          </button>
-                        )}
-                        {dev.status === 'device' && regged && (
-                          <>
-                            <button onClick={async () => {
-                              try {
-                                const snap = await (window as any).electronAPI.adbScreenshot(dev.id)
-                                if (snap?.success) showToast('截图已保存', 'success')
-                                else showToast('截图失败', 'error')
-                              } catch (e: any) {
-                                showToast('截图异常: ' + e.message, 'error')
-                              }
-                            }} className="flex-1 text-[10px] py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">
-                              📸 截图
-                            </button>
-                            <button onClick={async () => {
-                              const r = await (window as any).electronAPI.adbMirror(dev.id)
-                              if (!r.success) showToast('投屏失败: ' + (r.error || ''), 'error')
-                            }} className="flex-1 text-[10px] py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30">
-                              🖥️ 投屏
-                            </button>
-                            <button onClick={() => setRunScript({ deviceId: dev.id, deviceName: dev.name })}
-                              className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">
-                              ▶ 运行
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── 运行脚本弹窗 ── */}
-        {runScript && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setRunScript(null)}>
-            <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
-              <h3 className="text-white font-bold mb-1">▶ 运行脚本</h3>
-              <p className="text-xs text-gray-500 mb-4">{runScript.deviceName} · {runScript.deviceId}</p>
-              <PushedTasks deviceId={runScript.deviceId} />
-              <select className="input-dark w-full text-sm mb-3" value={scriptAction} onChange={e => setScriptAction(e.target.value)}>
-                <option className="bg-gray-900">打开抖音</option>
-                <option className="bg-gray-900">打开快手</option>
-                <option className="bg-gray-900">打开小红书</option>
-                <option className="bg-gray-900">返回桌面</option>
-                <option className="bg-gray-900">输入文字</option>
-                <option className="bg-gray-900">点击坐标</option>
-                <option className="bg-gray-900">上滑</option>
-                <option className="bg-gray-900">自定义 Shell</option>
-              </select>
-              {scriptAction === '输入文字' && (
-                <input className="input-dark w-full text-sm mb-3" placeholder="要输入的文字..." value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
-              )}
-              {scriptAction === '点击坐标' && (
-                <div className="flex gap-2 mb-3">
-                  <input className="input-dark flex-1 text-sm" placeholder="X Y (如 500 800)" value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
-                </div>
-              )}
-              {scriptAction === '自定义 Shell' && (
-                <input className="input-dark w-full text-sm mb-3" placeholder="adb shell 命令（如 input tap 500 800）" value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
-              )}
-              <div className="flex gap-3 mb-3">
-                <button onClick={async () => {
-                  setScriptRunning(true); setScriptLog([])
-                  const api = (window as any).electronAPI
-                  const log = (msg: string) => setScriptLog(p => [...p, msg])
-                  try {
-                    const actions: Record<string, string> = {
-                      '打开抖音': 'am start -n com.ss.android.ugc.aweme/.main.MainActivity',
-                      '打开快手': 'am start -n com.smile.gifmaker/.MainActivity',
-                      '打开小红书': 'am start -n com.xingin.xhs/.activity.SplashActivity',
-                      '返回桌面': 'input keyevent 3',
-                      '上滑': 'input swipe 540 1500 540 500',
-                    }
-                    const cmd = actions[scriptAction] || scriptCustomInput || ''
-                    if (cmd) {
-                      log(`执行: ${cmd}`)
-                      const r = await api.adbShell(runScript.deviceId, cmd)
-                      log(r.success ? '✅ 成功' : '❌ 失败: ' + (r.error || ''))
-                    }
-                    if (scriptAction === '输入文字' && scriptCustomInput) {
-                      log(`输入: ${scriptCustomInput}`)
-                      const r = await api.adbShell(runScript.deviceId, `input text "${scriptCustomInput.replace(/ /g, '%s')}"`)
-                      log(r.success ? '✅ 成功' : '❌ 失败: ' + (r.error || ''))
-                    }
-                  } catch (e: any) { log('❌ 异常: ' + e.message) }
-                  setScriptRunning(false)
-                }} disabled={scriptRunning} className="flex-1 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 text-sm">
-                  {scriptRunning ? '⏳ 执行中...' : '▶ 执行'}
-                </button>
-                <button onClick={() => setRunScript(null)} className="flex-1 py-2 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 text-sm">关闭</button>
-              </div>
-              {scriptLog.length > 0 && (
-                <div className="bg-black/30 rounded-lg p-3 max-h-32 overflow-y-auto text-[10px] text-gray-400 font-mono space-y-1">
-                  {scriptLog.map((l, i) => <p key={i}>{l}</p>)}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        <LocalDeviceSection />
 
         {/* ── 登记弹窗 ── */}
         {showAdd && (
@@ -495,6 +297,210 @@ export default function AccountsPage() {
         )}
       </div>
     </div>
+  )
+}
+
+// ── 本地设备独立组件：隔离 adb 轮询，避免拖累父组件（昵称输入）重渲染 ──
+function LocalDeviceSection() {
+  const { user } = useAuth()
+  const [runScript, setRunScript] = useState<{ deviceId: string; deviceName: string } | null>(null)
+  const [scriptAction, setScriptAction] = useState('打开抖音')
+  const [scriptRunning, setScriptRunning] = useState(false)
+  const [scriptLog, setScriptLog] = useState<string[]>([])
+  const [scriptCustomInput, setScriptCustomInput] = useState('')
+
+  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron
+  const [localDevices, setLocalDevices] = useState<any[]>([])
+  const [mySerials, setMySerials] = useState<string[]>([])
+  const [regLoading, setRegLoading] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isElectron) return
+    const poll = async () => {
+      const res = await (window as any).electronAPI.adbDevices()
+      if (res.success) setLocalDevices(res.data)
+    }
+    poll()
+    const timer = setInterval(poll, 5000)
+    return () => clearInterval(timer)
+  }, [isElectron])
+
+  // 加载当前用户已登记的本地设备序列号
+  useEffect(() => {
+    if (!user) return
+    fetch('/api/accounts', { credentials: 'include' }).then(r => r.json()).then(d => {
+      const list = Array.isArray(d) ? d : d.data || []
+      setMySerials(list.filter((a: any) => a.bindType === 'manual' && a.platform === 'local-device').map((a: any) => a.accountId).filter(Boolean))
+    }).catch(() => {})
+  }, [user])
+
+  const isRegistered = (serial: string) => mySerials.includes(serial)
+
+  const registerDevice = async (serial: string, name: string) => {
+    setRegLoading(serial)
+    try {
+      const r = await fetch('/api/accounts', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountName: name,
+          platform: 'local-device',
+          bindType: 'imai',
+          accountId: serial,
+          remark: 'Electron本地设备',
+        }),
+      })
+      const data = await r.json()
+      if (data.success) {
+        showToast('登记成功，等待管理员审核', 'success')
+        setMySerials(prev => [...prev, serial])
+      } else {
+        showToast('登记失败: ' + (data.message || ''), 'error')
+      }
+    } catch (e: any) {
+      showToast('登记异常: ' + e.message, 'error')
+    }
+    setRegLoading(null)
+  }
+
+  if (!isElectron) return null
+
+  return (
+    <>
+      <div className="card-glass p-4 mt-6">
+        <h3 className="text-white text-sm font-bold mb-3 flex items-center gap-2">
+          💻 本地设备 <span className="text-[10px] text-gray-500 font-normal">客户端直连 · 自动刷新</span>
+        </h3>
+        {localDevices.length === 0 ? (
+          <div className="text-center text-gray-500 text-xs py-6">
+            <p>未检测到设备</p>
+            <p className="mt-1">请通过 USB 或 WiFi ADB 连接手机</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {localDevices.map((dev: any) => {
+              const regged = isRegistered(dev.id)
+              return (
+                <div key={dev.id} className="bg-white/5 rounded-xl p-3 border border-white/10">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">📱</span>
+                      <div>
+                        <span className="text-white text-xs font-medium">{dev.name}</span>
+                        <span className={`text-[10px] ml-2 ${dev.status === 'device' ? 'text-emerald-400' : 'text-yellow-400'}`}>
+                          {dev.status === 'device' ? '已连接' : '未授权'}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-gray-500">{dev.type === 'usb' ? '🔌 USB' : '📶 WiFi'}</span>
+                  </div>
+                  <p className="text-[10px] text-gray-600 truncate">{dev.id}</p>
+                  <div className="flex gap-2 mt-2">
+                    {dev.status === 'device' && !regged && (
+                      <button onClick={() => registerDevice(dev.id, dev.name)} disabled={regLoading === dev.id}
+                        className="w-full text-[10px] py-1.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded hover:bg-yellow-500/30 disabled:opacity-50">
+                        {regLoading === dev.id ? '登记中...' : '📋 登记设备'}
+                      </button>
+                    )}
+                    {dev.status === 'device' && regged && (
+                      <>
+                        <button onClick={async () => {
+                          try {
+                            const snap = await (window as any).electronAPI.adbScreenshot(dev.id)
+                            if (snap?.success) showToast('截图已保存', 'success')
+                            else showToast('截图失败', 'error')
+                          } catch (e: any) {
+                            showToast('截图异常: ' + e.message, 'error')
+                          }
+                        }} className="flex-1 text-[10px] py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30">
+                          📸 截图
+                        </button>
+                        <button onClick={async () => {
+                          const r = await (window as any).electronAPI.adbMirror(dev.id)
+                          if (!r.success) showToast('投屏失败: ' + (r.error || ''), 'error')
+                        }} className="flex-1 text-[10px] py-1 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/30">
+                          🖥️ 投屏
+                        </button>
+                        <button onClick={() => setRunScript({ deviceId: dev.id, deviceName: dev.name })}
+                          className="flex-1 text-[10px] py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded hover:bg-emerald-500/30">
+                          ▶ 运行
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {runScript && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setRunScript(null)}>
+          <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-white font-bold mb-1">▶ 运行脚本</h3>
+            <p className="text-xs text-gray-500 mb-4">{runScript.deviceName} · {runScript.deviceId}</p>
+            <PushedTasks deviceId={runScript.deviceId} />
+            <select className="input-dark w-full text-sm mb-3" value={scriptAction} onChange={e => setScriptAction(e.target.value)}>
+              <option className="bg-gray-900">打开抖音</option>
+              <option className="bg-gray-900">打开快手</option>
+              <option className="bg-gray-900">打开小红书</option>
+              <option className="bg-gray-900">返回桌面</option>
+              <option className="bg-gray-900">输入文字</option>
+              <option className="bg-gray-900">点击坐标</option>
+              <option className="bg-gray-900">上滑</option>
+              <option className="bg-gray-900">自定义 Shell</option>
+            </select>
+            {scriptAction === '输入文字' && (
+              <input className="input-dark w-full text-sm mb-3" placeholder="要输入的文字..." value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
+            )}
+            {scriptAction === '点击坐标' && (
+              <div className="flex gap-2 mb-3">
+                <input className="input-dark flex-1 text-sm" placeholder="X Y (如 500 800)" value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
+              </div>
+            )}
+            {scriptAction === '自定义 Shell' && (
+              <input className="input-dark w-full text-sm mb-3" placeholder="adb shell 命令（如 input tap 500 800）" value={scriptCustomInput} onChange={e => setScriptCustomInput(e.target.value)} />
+            )}
+            <div className="flex gap-3 mb-3">
+              <button onClick={async () => {
+                setScriptRunning(true); setScriptLog([])
+                const api = (window as any).electronAPI
+                const log = (msg: string) => setScriptLog(p => [...p, msg])
+                try {
+                  const actions: Record<string, string> = {
+                    '打开抖音': 'am start -n com.ss.android.ugc.aweme/.main.MainActivity',
+                    '打开快手': 'am start -n com.smile.gifmaker/.MainActivity',
+                    '打开小红书': 'am start -n com.xingin.xhs/.activity.SplashActivity',
+                    '返回桌面': 'input keyevent 3',
+                    '上滑': 'input swipe 540 1500 540 500',
+                  }
+                  const cmd = actions[scriptAction] || scriptCustomInput || ''
+                  if (cmd) {
+                    log(`执行: ${cmd}`)
+                    const r = await api.adbShell(runScript.deviceId, cmd)
+                    log(r.success ? '✅ 成功' : '❌ 失败: ' + (r.error || ''))
+                  }
+                  if (scriptAction === '输入文字' && scriptCustomInput) {
+                    log(`输入: ${scriptCustomInput}`)
+                    const r = await api.adbShell(runScript.deviceId, `input text "${scriptCustomInput.replace(/ /g, '%s')}"`)
+                    log(r.success ? '✅ 成功' : '❌ 失败: ' + (r.error || ''))
+                  }
+                } catch (e: any) { log('❌ 异常: ' + e.message) }
+                setScriptRunning(false)
+              }} disabled={scriptRunning} className="flex-1 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 text-sm">
+                {scriptRunning ? '⏳ 执行中...' : '▶ 执行'}
+              </button>
+              <button onClick={() => setRunScript(null)} className="flex-1 py-2 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 text-sm">关闭</button>
+            </div>
+            {scriptLog.length > 0 && (
+              <div className="bg-black/30 rounded-lg p-3 max-h-32 overflow-y-auto text-[10px] text-gray-400 font-mono space-y-1">
+                {scriptLog.map((l, i) => <p key={i}>{l}</p>)}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
