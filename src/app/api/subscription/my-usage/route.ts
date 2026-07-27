@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { getUserMonthlyStats } from '@/lib/quota-checker'
 import { getTokenWallet } from '@/lib/token-wallet'
+import { getAuthFromCookie } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
 
 /** GET /api/subscription/my-usage?userId=1 — 用户配额+订阅信息 */
 export async function GET(req: NextRequest) {
   try {
-    const userId = parseInt(new URL(req.url).searchParams.get('userId') || '0')
+    const auth = getAuthFromCookie(req)
+    const userId = auth?.userId ?? 0
     if (!userId) return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
 
     let [usage, sub] = await Promise.all([

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
-import { getAuthFromHeaders } from '@/lib/api-auth'
+import { getAuthFromCookie } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
 
@@ -35,7 +35,7 @@ async function ensureWeeklyPlan() {
 export async function GET(request: NextRequest) {
   try {
     const plan = await ensureWeeklyPlan()
-    const auth = getAuthFromHeaders(request)
+    const auth = getAuthFromCookie(request)
     let claimed = false
     if (auth?.userId) {
       claimed = !!(await prisma.userSubscription.findFirst({ where: { userId: auth.userId, planId: plan.id } }))
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const auth = getAuthFromHeaders(request)
+    const auth = getAuthFromCookie(request)
     if (!auth?.userId) {
       return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     }
