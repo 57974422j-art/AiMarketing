@@ -7,6 +7,11 @@ import { execSync } from 'child_process'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { PrismaClient } from '@prisma/client'
 import OSS from 'ali-oss'
+import { checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
+import {
+  createRecord, attachTaskId, finalizeSuccess, finalizeFailure,
+  finalizeSuccessByTaskId, finalizeFailureByTaskId,
+} from '@/lib/generation-record'
 
 export const runtime = 'nodejs'
 const prisma = new PrismaClient()
@@ -61,6 +66,10 @@ export async function POST(request: NextRequest) {
       if (!img) return NextResponse.json({ success: false, message: '请上传照片' }, { status: 400 })
       if (!aud && !audUrl) return NextResponse.json({ success: false, message: '请上传音频或提供音频URL' }, { status: 400 })
 
+      // 点数前置检查（成功后才真正扣款）
+      const tc = await checkTokens(auth.userId, TOKEN_COSTS.DH_VIDEO)
+      if (!tc.allowed) return NextResponse.json({ success: false, message: tc.message, wallet: tc.wallet }, { status: 403 })
+
       const tmpDir = join(process.cwd(), 'temp')
       if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true })
 
@@ -87,6 +96,13 @@ export async function POST(request: NextRequest) {
       await unlink(tmpImg + '.jpg').catch(() => {})
 
       const r = await createDigitalHuman(finalAudUrl, imgUrl)
+      // 生成记录：异步任务落 pending，query 到成功时再扣款+转存
+      const recId = await createRecord({
+        userId: auth.userId, type: 'digital_human', provider: 'dashscope', model: 'liveportrait',
+        prompt: '照片+音频生成口播', sourceUrl: imgUrl, costPoints: TOKEN_COSTS.DH_VIDEO,
+      })
+      if (r?.taskId) await attachTaskId(recId, r.taskId)
+      else await finalizeFailure(recId, '千寻提交失败（检查百炼 liveportrait 服务是否开通）')
       return r ? NextResponse.json({ success: true, taskId: r.taskId }) : NextResponse.json({ success: false, message: '提交失败' }, { status: 500 })
     }
 
@@ -106,6 +122,11 @@ export async function POST(request: NextRequest) {
     if (action === 'avatar-speak') {
       const { avatarId, text } = body
       if (!avatarId || !text) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
+
+      // 点数前置检查（成功后才真正扣款）
+      const tc = await checkTokens(auth.userId, TOKEN_COSTS.DH_VIDEO)
+      if (!tc.allowed) return NextResponse.json({ success: false, message: tc.message, wallet: tc.wallet }, { status: 403 })
+
       const tmpl = await prisma.promptTemplate.findFirst({
         where: { category: '数字人', id: parseInt(avatarId) },
         select: { previewUrl: true },
@@ -116,6 +137,12 @@ export async function POST(request: NextRequest) {
       console.log('[数字人-avatar] TTS完成, audio_url:', au.substring(0, 80))
       const r = await createDigitalHuman(au, tmpl.previewUrl)
       console.log('[数字人-avatar] 结果:', r ? `taskId=${r.taskId}` : 'NULL')
+      const recId = await createRecord({
+        userId: auth.userId, type: 'digital_human', provider: 'dashscope', model: 'liveportrait',
+        prompt: text, sourceUrl: tmpl.previewUrl, costPoints: TOKEN_COSTS.DH_VIDEO,
+      })
+      if (r?.taskId) await attachTaskId(recId, r.taskId)
+      else await finalizeFailure(recId, '千寻提交失败（检查百炼 liveportrait 服务是否开通）')
       return r ? NextResponse.json({ success: true, taskId: r.taskId }) : NextResponse.json({ success: false, message: '提交失败' }, { status: 500 })
     }
 
@@ -123,6 +150,14 @@ export async function POST(request: NextRequest) {
       const { taskId } = body
       if (!taskId) return NextResponse.json({ success: false, message: '缺少 taskId' }, { status: 400 })
       const r = await queryDigitalHumanTask(taskId)
+      // 成功后扣款结算（原子认领，轮询多次只扣一次）；失败不扣款
+      // 千寻返回字段为 avatarUrl（最终视频/形象资源 URL）
+      if (r?.avatarUrl) {
+        const storageKey = await finalizeSuccessByTaskId(taskId, r.avatarUrl)
+        if (storageKey) console.log(`[数字人][查询] 已结算扣款并转存 OSS: ${storageKey}`)
+      } else if ((r?.status || '').toUpperCase().includes('FAIL')) {
+        await finalizeFailureByTaskId(taskId, `千寻任务失败 status=${r?.status}`)
+      }
       return NextResponse.json({ success: true, ...r })
     }
 
@@ -130,7 +165,23 @@ export async function POST(request: NextRequest) {
     if (action === 'voice-enroll') {
       const { audioUrl, prefix } = body
       if (!audioUrl) return NextResponse.json({ success: false, message: '缺少音频URL' }, { status: 400 })
+
+      const tc = await checkTokens(auth.userId, TOKEN_COSTS.VOICE_ENROLL)
+      if (!tc.allowed) return NextResponse.json({ success: false, message: tc.message, wallet: tc.wallet }, { status: 403 })
+
+      const recId = await createRecord({
+        userId: auth.userId, type: 'voice_clone', provider: 'dashscope', model: 'cosyvoice-clone',
+        prompt: `声音注册 prefix=${prefix || `user_${auth.userId}`}`, sourceUrl: audioUrl,
+      })
       const r = await enrollVoice(audioUrl, prefix || `user_${auth.userId}`)
+      if (r?.voiceId) {
+        // 同步成功：扣款（声音注册无资源文件，跳过 OSS 转存）
+        await finalizeSuccess(recId, auth.userId, {
+          platformUrl: '', costPoints: TOKEN_COSTS.VOICE_ENROLL, reason: 'voice_enroll', skipOssBackup: true,
+        })
+      } else {
+        await finalizeFailure(recId, '声音注册失败')
+      }
       return r ? NextResponse.json({ success: true, voiceId: r.voiceId }) : NextResponse.json({ success: false, message: '声音注册失败' }, { status: 500 })
     }
 
@@ -138,17 +189,35 @@ export async function POST(request: NextRequest) {
     if (action === 'voice-synthesize') {
       const { voiceId, text } = body
       if (!voiceId || !text) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
+
+      const tc = await checkTokens(auth.userId, TOKEN_COSTS.VOICE_TTS)
+      if (!tc.allowed) return NextResponse.json({ success: false, message: tc.message, wallet: tc.wallet }, { status: 403 })
+
+      const recId = await createRecord({
+        userId: auth.userId, type: 'voice_tts', provider: 'dashscope', model: 'cosyvoice',
+        prompt: text, costPoints: TOKEN_COSTS.VOICE_TTS,
+      })
       const r = await synthesizeVoiceTTS(voiceId, text)
-      if (!r) return NextResponse.json({ success: false, message: '合成失败' }, { status: 500 })
+      if (!r) {
+        await finalizeFailure(recId, '合成失败')
+        return NextResponse.json({ success: false, message: '合成失败' }, { status: 500 })
+      }
       // 下载合成的音频并上传到OSS（因为合成返回的URL可能是临时的）
       const resp = await fetch(r.audioUrl)
-      if (!resp.ok) return NextResponse.json({ success: false, message: '下载合成音频失败' }, { status: 502 })
+      if (!resp.ok) {
+        await finalizeFailure(recId, '下载合成音频失败')
+        return NextResponse.json({ success: false, message: '下载合成音频失败' }, { status: 502 })
+      }
       const tmpDir = join(process.cwd(), 'temp')
       if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true })
       const tmp = join(tmpDir, `tts_${Date.now()}.mp3`)
       await writeFile(tmp, new Uint8Array(await resp.arrayBuffer()))
       const audUrl = await uploadOSS(tmp, 'mp3')
       await unlink(tmp).catch(() => {})
+      // 成功后扣款（音频已由上面自行转存 OSS，直接登记地址）
+      await finalizeSuccess(recId, auth.userId, {
+        platformUrl: r.audioUrl, costPoints: TOKEN_COSTS.VOICE_TTS, reason: 'voice_tts', storageUrlOverride: audUrl,
+      })
       return NextResponse.json({ success: true, audioUrl: audUrl })
     }
 
@@ -174,7 +243,17 @@ export async function POST(request: NextRequest) {
     if (action === 'generate') {
       const { avatarId, text } = body
       if (!avatarId || !text) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
+
+      const tc = await checkTokens(auth.userId, TOKEN_COSTS.DH_VIDEO)
+      if (!tc.allowed) return NextResponse.json({ success: false, message: tc.message, wallet: tc.wallet }, { status: 403 })
+
       const r = await generateDigitalHumanVideo(avatarId, text)
+      const recId = await createRecord({
+        userId: auth.userId, type: 'digital_human', provider: 'dashscope', model: 'liveportrait',
+        prompt: text, costPoints: TOKEN_COSTS.DH_VIDEO,
+      })
+      if (r?.taskId) await attachTaskId(recId, r.taskId)
+      else await finalizeFailure(recId, '数字人视频提交失败')
       return r ? NextResponse.json({ success: true, taskId: r.taskId }) : NextResponse.json({ success: false, message: '失败' }, { status: 500 })
     }
 

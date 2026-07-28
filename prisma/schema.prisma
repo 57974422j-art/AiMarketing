@@ -72,6 +72,8 @@ model User {
   liveRooms               LiveRoom[]
   subscriptions           UserSubscription[]
   paymentOrders           PaymentOrder[]
+  generationRecords       GenerationRecord[]    // 生成记录总表（虚拟关系，不产生数据库列）
+  feedbacks               Feedback[]            // 问题反馈（虚拟关系，不产生数据库列）
   chatSessions            ChatSession[]
 }
 
@@ -953,5 +955,52 @@ model ChatMessage {
   intent    String?
   createdAt DateTime    @default(now())
   session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+// ====== 生成记录总表 + 问题反馈 ======
+// 创建日期: 2026-07-28
+// 用途: 统一记录每笔 AI 生成的 平台 / 状态 / 消耗 / OSS落库地址，
+//       杜绝"AI已生成但客户未收到"的投诉；后台查询替代服务器 grep 日志。
+
+model GenerationRecord {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  type           String                        // text2img / text2video / digital_human / voice_clone / ai_chat / analyze_video ...
+  provider       String   @default("agnes")    // agnes / dashscope / volcano / edge-tts / openai ...
+  model          String?                       // 具体模型名
+  platformTaskId String?                       // AI 平台侧任务 id (如 agnes:ta...)
+  status         String   @default("pending")  // pending / succeeded / failed
+  costPoints     Int      @default(0)          // 成功时消耗的积分
+  prompt         String?                       // 请求提示词(截断存储, 便于后台审计"执行了什么")
+  platformUrl    String?                       // AI 平台返回的原始资源 URL
+  storageUrl     String?                       // ★ 下载后存 OSS 的 URL (防投诉关键)
+  sourceUrl      String?                       // 客户原始素材 URL (如有)
+  errorMessage   String?                       // 失败原因
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([type])
+}
+
+// 问题反馈（支持上传图片）
+model Feedback {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  type      String   @default("问题")          // 问题 / 建议 / 投诉
+  content   String                            // 反馈正文
+  images    String?                           // 图片 URL 数组 (JSON)
+  status    String   @default("待处理")        // 待处理 / 处理中 / 已解决 / 已关闭
+  reply     String?                           // 官方回复
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([status])
 }
 

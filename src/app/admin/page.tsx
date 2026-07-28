@@ -60,6 +60,8 @@ const sections: CardSection[] = [
       { title: '套餐与计费', desc: '套餐管理、用量统计、计费设置', href: '/admin/subscription', icon: '💳', roles: ['admin'] },
       { title: '支付设置', desc: '微信支付、支付宝商户号配置', href: '/admin/payment-settings', icon: '💰', roles: ['admin'] },
       { title: '订单管理', desc: '支付订单查询、筛选、状态跟踪', href: '/admin/orders', icon: '🧾', roles: ['admin'] },
+      { title: '生成记录', desc: 'AI 生成总表、OSS 落库核对、补下载', href: '/admin/generation-records', icon: '🎬', roles: ['admin'] },
+      { title: '问题反馈', desc: '用户反馈处理、回复、状态流转', href: '/admin/feedback', icon: '📮', roles: ['admin'] },
     ],
   },
 ]

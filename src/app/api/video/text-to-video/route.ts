@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateVideo, generateLongVideo, queryVideoTask } from '@/lib/ai-providers'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { checkFeatureAccess, FeatureCodes } from '@/lib/quota'
-import { checkTokens, spendTokens, TOKEN_COSTS } from '@/lib/token-wallet'
+import { checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
+import {
+  createRecord, attachTaskId, finalizeSuccess, finalizeFailure,
+  finalizeSuccessByTaskId, finalizeFailureByTaskId,
+} from '@/lib/generation-record'
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,6 +42,16 @@ export async function POST(request: NextRequest) {
 
     console.log(`[文生视频API] 开始, params=${JSON.stringify({ prompt: (prompt||'').substring(0, 50), ratio: aspectRatio, duration: videoDuration, resolution, model, longVideo, hasRef: !!refImage })}`)
 
+    // 生成记录：先落 pending（记录预计点数，成功才真正扣款）
+    const recId = await createRecord({
+      userId: auth.userId,
+      type: 'text2video',
+      provider: model || 'auto',
+      model: model || null as any,
+      prompt: prompt || (segmentPrompts || []).join(' | '),
+      costPoints: videoTokenCost,
+    })
+
     // 长视频模式
     if (videoDuration > 15 && longVideo) {
       const segPrompts = segmentPrompts || (prompt ? [prompt] : [])
@@ -48,10 +62,16 @@ export async function POST(request: NextRequest) {
       const cost = Math.round((Date.now() - requestStart) / 1000)
       if (!result?.videoUrl) {
         console.log(`[文生视频API] 长视频失败, 耗时=${cost}s`)
+        await finalizeFailure(recId, '长视频生成失败')
         return NextResponse.json({ success: false, message: '长视频生成失败' }, { status: 500 })
       }
       console.log(`[文生视频API] 长视频成功, 耗时=${cost}s`)
-      await spendTokens(auth.userId, videoTokenCost, `text2video:${videoDuration}s`)
+      // 成功后扣款 + 下载转存 OSS（防投诉兜底）
+      await finalizeSuccess(recId, auth.userId, {
+        platformUrl: result.videoUrl,
+        costPoints: videoTokenCost,
+        reason: `text2video:${videoDuration}s`,
+      })
       return NextResponse.json({ success: true, taskId: 'long_video', videoUrl: result.videoUrl, pointsSpent: videoTokenCost })
     }
 
@@ -62,19 +82,28 @@ export async function POST(request: NextRequest) {
 
     if (!result) {
       console.log(`[文生视频API] 服务不可用, 耗时=${cost}s`)
+      await finalizeFailure(recId, '视频生成服务未配置')
       return NextResponse.json({ success: false, message: '视频生成服务未配置' }, { status: 500 })
     }
 
     if (result.videoUrl) {
       console.log(`[文生视频API] 同步返回, 耗时=${cost}s, taskId=${result.taskId?.substring(0, 8)}..., videoUrl_len=${result.videoUrl.length}`)
-      await spendTokens(auth.userId, videoTokenCost, `text2video:${videoDuration}s`)
+      if (result.taskId) await attachTaskId(recId, result.taskId)
+      // 成功后扣款 + 下载转存 OSS
+      await finalizeSuccess(recId, auth.userId, {
+        platformUrl: result.videoUrl,
+        costPoints: videoTokenCost,
+        reason: `text2video:${videoDuration}s`,
+      })
       return NextResponse.json({ success: true, taskId: result.taskId, videoUrl: result.videoUrl, pointsSpent: videoTokenCost })
     }
 
-    // 异步模式（只有 taskId，前端轮询）——上游任务已提交、成本已发生，此时即记账
+    // 异步模式（只有 taskId，前端轮询）——改为【成功后扣款】：
+    // 此处只把 taskId 挂到 pending 记录上，等 GET 查询到 SUCCEEDED 时再扣款+转存 OSS；失败不扣。
     console.log(`[文生视频API] 异步提交, 耗时=${cost}s, taskId=${result.taskId?.substring(0, 8)}...`)
-    await spendTokens(auth.userId, videoTokenCost, `text2video:${videoDuration}s`)
-    return NextResponse.json({ success: true, taskId: result.taskId, message: '视频生成任务已提交，请稍后查询结果', pointsSpent: videoTokenCost })
+    if (result.taskId) await attachTaskId(recId, result.taskId)
+    else await finalizeFailure(recId, '上游未返回任务ID')
+    return NextResponse.json({ success: true, taskId: result.taskId, message: '视频生成任务已提交，请稍后查询结果', pointsWillSpend: videoTokenCost })
   } catch (error) {
     console.error('[文生视频API] 异常:', error instanceof Error ? `${error.name}: ${error.message}\n${error.stack?.substring(0, 200)}` : error)
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : '视频生成失败' }, { status: 500 })
@@ -94,7 +123,17 @@ export async function GET(request: NextRequest) {
 
     console.log(`[文生视频API][查询] 前端查询 taskId=${taskId.substring(0, 8)}...`)
     const result = await queryVideoTask(taskId)
-    console.log(`[文生视频API][查询] 返回 taskId=${taskId.substring(0, 8)}..., status=${result?.status}, hasUrl=!!${!!result?.videoUrl}`)
+    console.log(`[文生视频API][查询] 返回 taskId=${taskId.substring(0, 8)}..., status=${result?.status}, hasUrl=${!!result?.videoUrl}`)
+
+    // 成功后扣款结算：查询到最终态时按 taskId 结算（内部原子认领，轮询多次也只扣一次款/转存一次）
+    const statusUpper = (result?.status || '').toUpperCase()
+    if (result?.videoUrl) { // 拿到视频 URL 即视为最终成功（各平台状态大小写不一，以 URL 为准）
+      const storageKey = await finalizeSuccessByTaskId(taskId, result.videoUrl)
+      if (storageKey) console.log(`[文生视频API][查询] 已结算扣款并转存 OSS: ${storageKey}`)
+    } else if (statusUpper.includes('FAIL') || statusUpper === 'CANCELED') {
+      await finalizeFailureByTaskId(taskId, `上游任务失败 status=${result?.status}`)
+    }
+
     return NextResponse.json({ success: true, ...result })
   } catch (error) {
     console.error('[文生视频API][查询异常]:', error instanceof Error ? `${error.name}: ${error.message}` : error)

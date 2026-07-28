@@ -46,9 +46,12 @@ export function usageToPoints(platform: string, realTokens: number): number {
 }
 
 export const TOKEN_COSTS = {
-  IMAGE_PER_PIC: 12,      // 文生图：12 点/张
-  VIDEO_PER_SECOND: 100,  // 文生视频：100 点/秒
-  CHAT_PER_MSG: 1,        // AI 对话：1 点/条
+  IMAGE_PER_PIC: 12,        // 文生图：12 点/张
+  VIDEO_PER_SECOND: 100,    // 文生视频：100 点/秒
+  CHAT_PER_MSG: 1,          // AI 对话：1 点/条
+  DH_VIDEO: 200,            // 数字人口播视频：200 点/条（千寻 liveportrait，估 ¥2/条）
+  VOICE_ENROLL: 100,        // 声音克隆注册：100 点/次
+  VOICE_TTS: 10,            // 克隆声音合成音频：10 点/次
 } as const
 
 /** 免费套餐（0元周卡等）的固定试用额度（点） */
