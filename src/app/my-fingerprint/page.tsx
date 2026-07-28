@@ -105,6 +105,7 @@ export default function MyFingerprintPage() {
   const [formDesc, setFormDesc] = useState('')
   const [formTopics, setFormTopics] = useState('')
   const [formCoverImage, setFormCoverImage] = useState('')
+  const [aiUsage, setAiUsage] = useState<null | { promptTokens: number; completionTokens: number; totalTokens: number }>(null)
   const [storageImages, setStorageImages] = useState<any[]>([])
   const [formLocation, setFormLocation] = useState('')
   const [formPublishNow, setFormPublishNow] = useState(true)
@@ -266,6 +267,7 @@ export default function MyFingerprintPage() {
     setFormDesc('')
     setFormTopics('')
     setFormCoverImage('')
+    setAiUsage(null)
     setFormLocation('')
     setFormPublishNow(true)
   }, [])
@@ -290,6 +292,7 @@ export default function MyFingerprintPage() {
         if (d.description) setFormDesc(d.description)
         if (Array.isArray(d.topics) && d.topics.length) setFormTopics(d.topics.join('，'))
         if (d.coverImage) setFormCoverImage(d.coverImage)
+        if (d.usage) setAiUsage(d.usage)
         showToast('AI 已自动填充标题/文案/话题/封面', 'success')
       } else {
         showToast(d.message || 'AI 分析失败', 'error')
@@ -844,8 +847,13 @@ export default function MyFingerprintPage() {
                   <label className="text-[11px] text-gray-500 block mb-1">封面（可选）</label>
                   {formCoverImage ? (
                     <div className="flex items-center gap-2 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
+                      <img
+                        src={formCoverImage.startsWith('/') || formCoverImage.startsWith('http') || formCoverImage.startsWith('data:') ? formCoverImage : `/api/storage/file?userId=${user?.id || ''}&name=${encodeURIComponent(formCoverImage)}`}
+                        alt="cover"
+                        className="w-12 h-12 rounded object-cover shrink-0"
+                      />
                       <span className="text-[10px] text-purple-300 truncate flex-1">{formCoverImage}</span>
-                      <button type="button" onClick={() => setFormCoverImage('')} className="text-red-400 hover:text-red-300 text-xs">✕</button>
+                      <button type="button" onClick={() => { setFormCoverImage(''); setAiUsage(null) }} className="text-red-400 hover:text-red-300 text-xs">✕</button>
                     </div>
                   ) : (
                     <button
@@ -891,6 +899,11 @@ export default function MyFingerprintPage() {
                   >
                     {aiCoverLoading ? '⏳ 生成中...' : '🎨 AI 生成封面（基于标题/文案）'}
                   </button>
+                  {aiUsage && aiUsage.totalTokens > 0 && (
+                    <p className="mt-2 text-[10px] text-amber-300/80">
+                      🪙 本次 AI 看片消耗 {aiUsage.totalTokens} tokens（输入 {aiUsage.promptTokens} / 输出 {aiUsage.completionTokens}）
+                    </p>
+                  )}
                 </div>
 
                 {/* 位置 */}

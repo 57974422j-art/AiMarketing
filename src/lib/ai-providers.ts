@@ -1705,6 +1705,7 @@ export interface AgentChatMessage {
 export interface AgentChatResult {
   content: string | null
   toolCalls?: Array<{ id: string; name: string; arguments: string }>
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
 }
 
 export async function agnesChat(
@@ -1761,9 +1762,15 @@ export async function agnesChat(
         name: tc.function?.name,
         arguments: tc.function?.arguments || '{}',
       }))
+      const u = data.usage || {}
       return {
         content: choice.message?.content || null,
         toolCalls: toolCalls.length ? toolCalls : undefined,
+        usage: {
+          promptTokens: Number(u.prompt_tokens) || 0,
+          completionTokens: Number(u.completion_tokens) || 0,
+          totalTokens: Number(u.total_tokens) || 0,
+        },
       }
     } catch (e: any) {
       const msg = String(e?.message || e)

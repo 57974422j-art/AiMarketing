@@ -130,6 +130,7 @@ export async function POST(request: NextRequest) {
       description,
       topics,
       coverImage: `/api/storage/file?userId=${uid}&name=${encodeURIComponent(coverName)}`,
+      usage: res.usage || null,
     })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: 'AI 分析失败：' + (e?.message || '') }, { status: 500 })
