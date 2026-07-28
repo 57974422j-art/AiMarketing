@@ -64,20 +64,28 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const items = Array.isArray(body) ? body : [body]
     const created: any[] = []
+    const skipped: string[] = []
     for (const item of items) {
       const { ossUrl, title, prompt, category, source, purpose, industry, platform, thumbnailUrl, originalUrl, type } = item
-      if (!ossUrl || !title) continue
+      if (!ossUrl || !title) { skipped.push(String(title || '未命名')); continue }
+      // 去重：同 ossUrl 已存在则跳过，避免重复素材
+      try {
+        const exist = await prisma.$queryRawUnsafe('SELECT id FROM MediaAsset WHERE ossUrl = ? LIMIT 1', ossUrl) as any[]
+        if (Array.isArray(exist) && exist.length > 0) { skipped.push(title); continue }
+      } catch { /* 忽略查重异常，继续插入 */ }
       const t = type || detectType(ossUrl)
       await prisma.$executeRawUnsafe(
         'INSERT INTO MediaAsset (ossUrl, title, prompt, type, category, source, purpose, industry, platform, thumbnailUrl, originalUrl, ownerId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         ossUrl, title, prompt || '', t, category || '', source || 'public', purpose || '', industry || '', platform || '', thumbnailUrl || '', originalUrl || '', auth.userId
       )
-      created.push({ ossUrl, title, type: t, prompt })
+      created.push({ ossUrl, title, type: t })
     }
-    return NextResponse.json({ success: true, data: created, message: `已添加 ${created.length} 个素材` }, { status: 201 })
+    const msg = `已添加 ${created.length} 个素材${skipped.length ? `，${skipped.length} 个跳过（重复或无标题）` : ''}`
+    return NextResponse.json({ success: true, data: created, message: msg }, { status: 201 })
   } catch (e) {
-    console.error(e)
-    return NextResponse.json({ success: false, message: '服务器错误' }, { status: 500 })
+    console.error('[media-library POST] 异常:', e)
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ success: false, message: '服务器错误: ' + msg }, { status: 500 })
   } finally { await prisma.$disconnect() }
 }
 

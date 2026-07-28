@@ -217,12 +217,19 @@ export default function AdminPromptTemplatesPage() {
     if (targetIds.length === 0) { showToast('没有可选模板', 'error'); return }
     // 筛选有预览图的
     const withPreview = items.filter(i => targetIds.includes(i.id) && i.previewUrl)
-    if (withPreview.length === 0) { showToast('所选模板没有预览图，请先生成', 'error'); return }
-    if (!confirm(`将 ${withPreview.length} 个模板预览图导入素材库？`)) return
+    if (withPreview.length === 0) { showToast('所选模板没有预览图，请先点「🎨 预览图」生成', 'error'); return }
+    // 仅保留有效 http(s) 链接（过滤 data: 本地临时图等无效地址，避免请求体过大 / 入库脏数据）
+    const valid = withPreview.filter(i => /^https?:\/\//.test((i.previewUrl || '').trim()))
+    const skipped = withPreview.length - valid.length
+    if (valid.length === 0) {
+      showToast('所选模板预览图均为本地临时图，无法入库，请重新生成预览图', 'error')
+      return
+    }
+    if (!confirm(`将 ${valid.length} 个模板预览图导入素材库？${skipped ? `（已跳过 ${skipped} 个无效地址）` : ''}`)) return
     try {
-      const batch = withPreview.map(item => ({
+      const batch = valid.map(item => ({
         title: `模板-${item.title}`,
-        ossUrl: item.previewUrl!,
+        ossUrl: item.previewUrl!.trim(),
         prompt: item.prompt,
         category: item.category,
       }))
@@ -231,9 +238,20 @@ export default function AdminPromptTemplatesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(batch),
       })
-      const d = await r.json()
-      showToast(d.message || `已导入 ${batch.length} 个`, d.success ? 'success' : 'error')
-    } catch { showToast('导入失败', 'error') }
+      const text = await r.text()
+      let d: any = null
+      try { d = JSON.parse(text) } catch {
+        // 响应非 JSON（多为网络 / CORS / 中间件拦截），把原始内容暴露出来方便排查
+        console.error('[导入素材库] 非JSON响应:', text)
+        showToast(`导入失败: HTTP ${r.status} ${text.slice(0, 200)}`, 'error')
+        return
+      }
+      showToast(d.message || `已导入 ${valid.length} 个`, d.success ? 'success' : 'error')
+      if (d.success) loadItems()
+    } catch (e: any) {
+      console.error('[导入素材库] 异常:', e)
+      showToast('导入失败: ' + (e?.message || e), 'error')
+    }
   }
 
   // ===== 场景生成 =====

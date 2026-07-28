@@ -249,7 +249,7 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
                     </label>
                     <div>
                       <span className="text-sm text-gray-300 font-mono">长视频模式</span>
-                      <p className="text-[10px] text-gray-600">{'>'}5s 一段自动拆分</p>
+                      <p className="text-[10px] text-gray-600">按「每段时长」切分多段分别生成后自动合成</p>
                     </div>
                   </div>
                   {longVideo && (
