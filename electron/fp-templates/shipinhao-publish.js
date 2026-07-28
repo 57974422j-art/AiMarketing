@@ -8,14 +8,31 @@ const SHIPINHAO_PUBLISH_URL = 'https://channels.weixin.qq.com/platform/post/crea
 
 async function isLoggedIn(page, log) {
   try {
-    // 未登录标志：扫码登录二维码
-    const qr = await page.$('img.qrcode, div.login-qrcode-wrap, div.qrcode-wrap, span:has-text("扫码登录")')
-    if (qr) return false
-    // 已登录标志：编辑页存在"发表"发布按钮
-    const publishBtn = await page.$('button[name="发表"]')
-    if (publishBtn) return true
-    const byText = await page.$('button:has-text("发表")')
-    return !!byText
+    await page.waitForTimeout(2500)
+    const url = page.url()
+    // 未登录：URL 落在登录/授权页
+    if (url.includes('login') || url.includes('passport') || url.includes('connect')) {
+      log('  ⚠️ 检测到登录页 URL: ' + url)
+      return false
+    }
+    const bodyText = await page.evaluate(() => document.body.innerText).catch(() => '')
+    // 正向信号：发布表单已加载（已登录态）
+    const hasPublishForm =
+      bodyText.includes('发表视频') || bodyText.includes('上传视频') ||
+      bodyText.includes('填写标题') || bodyText.includes('添加标题') ||
+      bodyText.includes('视频标题') || bodyText.includes('选择视频') ||
+      bodyText.includes('发表') || bodyText.includes('创建视频')
+    // 反向信号：仅当页面出现扫码登录入口且没发布表单时才判未登录
+    const hasLoginPrompt = bodyText.includes('扫码登录') || bodyText.includes('微信扫码')
+    if (hasLoginPrompt && !hasPublishForm) {
+      log('  ⚠️ 页面显示登录入口且无发布表单，判定为未登录')
+      return false
+    }
+    if (!hasPublishForm) {
+      // 既没有发布表单也没有登录入口，可能是页面未加载完，保守放行并提示
+      log('  ⚠️ 未识别到明确的发布表单或登录入口，按已登录放行（如实际未登录请先扫码）')
+    }
+    return true
   } catch (e) {
     log(`登录检测异常: ${e.message}`)
     return false
