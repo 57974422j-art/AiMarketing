@@ -69,7 +69,7 @@ async function testNlsToken(akId: string, akSecret: string, appKey: string): Pro
 // 测试 API Key 或 OSS 配置是否有效
 export async function POST(request: NextRequest) {
   try {
-    const { provider, key, region, accessKeyId, accessKeySecret, bucket, akId, akSecret, appKey } = await request.json();
+    const { provider, key, baseUrl, proxy, region, accessKeyId, accessKeySecret, bucket, akId, akSecret, appKey } = await request.json();
 
     if (!provider) {
       return NextResponse.json({
@@ -283,6 +283,78 @@ export async function POST(request: NextRequest) {
             valid: false,
             message: `OSS 连接失败: ${ossError.message || '未知错误'}`
           });
+        }
+      }
+
+      case 'agnes': {
+        const base = (baseUrl || process.env.AGNES_BASE_URL || 'https://apihub.agnes-ai.com/v1').replace(/\/$/, '');
+        const ak = key || process.env.AGNES_API_KEY || '';
+        const px = proxy || process.env.OVERSEAS_PROXY || '';
+        if (!ak) return NextResponse.json({ valid: false, message: '缺少 Agnes API Key' }, { status: 400 });
+        const target = `${base}/models`;
+        const url = px ? `${px}?url=${encodeURIComponent(target)}` : target;
+        try {
+          const res = await fetch(url, { headers: { 'Authorization': `Bearer ${ak}` }, signal: AbortSignal.timeout(20000) });
+          if (res.status === 401) return NextResponse.json({ valid: false, message: 'Agnes API Key 无效（401 无效的令牌）' });
+          if (res.ok) return NextResponse.json({ valid: true, message: px ? 'Agnes 连接成功（经海外代理）' : 'Agnes 连接成功' });
+          const t = await res.text();
+          return NextResponse.json({ valid: false, message: `Agnes 连接失败: HTTP ${res.status} ${t.substring(0, 100)}` });
+        } catch (e: any) {
+          return NextResponse.json({ valid: false, message: `Agnes 连接失败: ${e.message}（请检查海外代理是否配置）` });
+        }
+      }
+
+      case 'gemini': {
+        const gk = key || process.env.GEMINI_API_KEY || '';
+        const base = (baseUrl || process.env.GEMINI_BASE_URL || 'https://bboluo.com/v1').replace(/\/$/, '');
+        if (!gk) return NextResponse.json({ valid: false, message: '缺少 Gemini API Key' }, { status: 400 });
+        const isOpenAI = base.endsWith('/v1');
+        const target = isOpenAI ? `${base}/chat/completions` : `${base}/models/gemini-2.5-flash:generateContent?key=${gk}`;
+        const body = isOpenAI
+          ? JSON.stringify({ model: 'gemini-2.5-flash', messages: [{ role: 'user', content: 'Hi' }], max_tokens: 10 })
+          : JSON.stringify({ contents: [{ parts: [{ text: 'Hi' }] }] });
+        const headers = isOpenAI
+          ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gk}` }
+          : { 'Content-Type': 'application/json' };
+        try {
+          const res = await fetch(target, { method: 'POST', headers, body, signal: AbortSignal.timeout(20000) });
+          if (res.ok) return NextResponse.json({ valid: true, message: 'Gemini 连接成功' });
+          const t = await res.text();
+          return NextResponse.json({ valid: false, message: `Gemini 错误: HTTP ${res.status} ${t.substring(0, 100)}` });
+        } catch (e: any) {
+          return NextResponse.json({ valid: false, message: `Gemini 连接失败: ${e.message}` });
+        }
+      }
+
+      case 'giphy': {
+        const gk = key || process.env.GIPHY_API_KEY || '';
+        const px = proxy || process.env.OVERSEAS_PROXY || '';
+        if (!gk) return NextResponse.json({ valid: false, message: '缺少 GIPHY API Key' }, { status: 400 });
+        const target = `https://api.giphy.com/v1/stickers/search?api_key=${gk}&q=cat&limit=1`;
+        const url = px ? `${px}?url=${encodeURIComponent(target)}` : target;
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+          const d = await res.json().catch(() => ({} as any));
+          if (d.data && Array.isArray(d.data)) return NextResponse.json({ valid: true, message: px ? 'GIPHY 连接成功（经海外代理）' : 'GIPHY 连接成功' });
+          return NextResponse.json({ valid: false, message: `GIPHY 返回异常: ${JSON.stringify(d).substring(0, 100)}` });
+        } catch (e: any) {
+          return NextResponse.json({ valid: false, message: `GIPHY 连接失败: ${e.message}` });
+        }
+      }
+
+      case 'overseas_proxy': {
+        const px = proxy || process.env.OVERSEAS_PROXY || '';
+        if (!px) return NextResponse.json({ valid: false, message: '未配置海外代理地址' }, { status: 400 });
+        // 用 Agnes 域作探针：代理转发成功会到达 Agnes（返回 401 或 200），否则是代理自身问题
+        const target = 'https://apihub.agnes-ai.com/v1/models';
+        const url = `${px}?url=${encodeURIComponent(target)}`;
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+          if (res.status === 401 || res.ok) return NextResponse.json({ valid: true, message: '海外代理可用，能转发到海外 API' });
+          const t = await res.text();
+          return NextResponse.json({ valid: false, message: `代理转发异常: HTTP ${res.status} ${t.substring(0, 100)}` });
+        } catch (e: any) {
+          return NextResponse.json({ valid: false, message: `代理不可达: ${e.message}` });
         }
       }
 

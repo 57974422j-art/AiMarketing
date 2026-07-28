@@ -1,6 +1,6 @@
 {
   "name": "ai-marketing",
-  "version": "0.1.0",
+  "version": "1.0.9",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,6 +10,7 @@
     "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "next build && electron-builder",
     "electron:start": "electron .",
+    "release:electron": "node scripts/release-electron.mjs",
     "postinstall": "npx prisma generate && npx prisma db push; true"
   },
   "main": "electron/main.js",
@@ -60,6 +61,7 @@
       ".next/**/*",
       "electron/**/*",
       "public/**/*",
+      "!public/updates/**",
       "package.json"
     ],
     "extraResources": [
@@ -81,11 +83,12 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "artifactName": "AI-Marketing-Setup-${version}.exe"
     },
     "publish": {
       "provider": "generic",
-      "url": "http://120.55.43.195:3000/updates"
+      "url": "https://ai-niuma.cc/updates"
     },
     "nsis": {
       "oneClick": false,

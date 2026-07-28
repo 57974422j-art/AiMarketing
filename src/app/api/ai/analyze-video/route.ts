@@ -104,6 +104,14 @@ export async function POST(request: NextRequest) {
       { role: 'user', content: userContent },
     ], [], 'agnes-2.5-flash', 1200)
 
+    // Agnes 未返回任何内容（网络超时 / 服务不可达 / key 问题）→ 明确失败，不假成功
+    if (!res || !res.content || !String(res.content).trim()) {
+      return NextResponse.json({
+        success: false,
+        message: 'Agnes AI 未返回内容（网络或该服务暂不可用，请检查 AGNES_API_KEY 与服务器出口网络，或稍后重试）',
+      }, { status: 502 })
+    }
+
     let parsed: any = {}
     const raw = res.content || ''
     try {

@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/app/providers'
 import { useLocale } from '@/i18n/context'
 import LanguageSwitcher from './LanguageSwitcher'
@@ -10,6 +10,20 @@ export default function Navbar() {
   const { t } = useLocale()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
+  const [appVersion, setAppVersion] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const api = (window as any).electronAPI
+    if (api?.getAppVersion) {
+      api.getAppVersion().then((info: any) => {
+        if (active && info?.version) {
+          setAppVersion(`v${info.version}${info.buildDate ? ' · ' + info.buildDate : ''}`)
+        }
+      }).catch(() => {})
+    }
+    return () => { active = false }
+  }, [])
 
   const getRoleName = (role: string) => {
     switch (role) {
@@ -26,7 +40,7 @@ export default function Navbar() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Link href="/" className="text-mono text-xl font-bold tracking-wider"><span className="text-emerald-400">AI</span><span className="text-white">MARKETING</span></Link>
-              <span className="ml-2 text-mono-sm text-gray-500 hidden md:inline">// v2.0</span>
+              {appVersion && <span className="ml-2 text-mono-sm text-emerald-400/50 hidden md:inline">{appVersion}</span>}
             </div>
             <div className="w-24" />
           </div>
@@ -42,7 +56,7 @@ export default function Navbar() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Link href="/" className="text-mono text-xl font-bold tracking-wider"><span className="text-emerald-400">AI</span><span className="text-white">MARKETING</span></Link>
-              <span className="ml-2 text-mono-sm text-gray-500 hidden md:inline">// v2.0</span>
+              {appVersion && <span className="ml-2 text-mono-sm text-emerald-400/50 hidden md:inline">{appVersion}</span>}
             </div>
             <div className="flex items-center space-x-3">
               <LanguageSwitcher />
@@ -63,7 +77,7 @@ export default function Navbar() {
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
             <Link href="/" className="text-mono text-xl font-bold tracking-wider"><span className="text-emerald-400">AI</span><span className="text-white">MARKETING</span></Link>
-            <span className="ml-2 text-mono-sm text-emerald-400/50 hidden md:inline">// {t.home.online}</span>
+            {appVersion && <span className="ml-2 text-mono-sm text-emerald-400/50 hidden md:inline">{appVersion}</span>}
           </div>
 
           {/* Desktop nav — 精简：工作台入口已在卡片中，导航只保留核心入口 */}

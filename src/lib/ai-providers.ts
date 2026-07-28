@@ -18,9 +18,6 @@ export function pickInBox(b: ButtonBox): { x: number; y: number } {
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { mkdir, writeFile, unlink } from 'fs/promises'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
-const execFileAsync = promisify(execFile)
 
 // ==================== 基础工具 ====================
 
@@ -36,6 +33,18 @@ async function fetchJSON(url: string, options: RequestInit, retries = 1): Promis
       await new Promise(r => setTimeout(r, 1000 * (i + 1)));
     }
   }
+}
+
+// 海外 API 代理（CF Worker 反向代理，对应后台"海外 API 代理"= OVERSEAS_PROXY）
+// 用法：把目标 URL 编码为 ?url= 参数附在代理后，由 Worker 透传 method/headers/body 转发。
+// 仅 Agnes / Gemini 等海外 API 使用；Qwen / 硅基 / DeepSeek 等国内直连不受影响。
+function overseasProxyUrl(target: string): string {
+  const proxy = process.env.OVERSEAS_PROXY || readEnvFile('OVERSEAS_PROXY') || ''
+  return proxy ? `${proxy}?url=${encodeURIComponent(target)}` : target
+}
+// 走海外代理的请求：URL 经代理包装，method/headers/body 原样透传给 Worker 由其转发
+async function overseasFetch(url: string, options: RequestInit, retries = 1): Promise<any> {
+  return fetchJSON(overseasProxyUrl(url), options, retries)
 }
 
 async function fetchBuffer(url: string, options: RequestInit): Promise<ArrayBuffer | null> {
@@ -1603,18 +1612,11 @@ async function agnesGenerateImage(prompt: string, size = '1280*1280'): Promise<s
   const sz = `${w || 1024}x${h || 1024}`;
   console.log(`[Agnes 文生图] 模型 agnes-image-2.1-flash, size=${sz}`);
   try {
-    const res = await fetch(`${getAgnesBase()}/images/generations`, {
+    const data = await overseasFetch(`${getAgnesBase()}/images/generations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({ model: 'agnes-image-2.1-flash', prompt, n: 1, size: sz }),
-      signal: AbortSignal.timeout(120000),
     });
-    if (!res.ok) {
-      const err = await res.text();
-      console.log('[Agnes 文生图] 调用失败:', res.status, err.substring(0, 300));
-      return null;
-    }
-    const data = await res.json();
     const item = data?.data?.[0];
     const imageUrl = item?.url || (item?.b64_json ? `data:image/png;base64,${item.b64_json}` : null);
     if (!imageUrl) { console.log('[Agnes 文生图] 未返回图片URL:', JSON.stringify(data).substring(0, 300)); return null; }
@@ -1636,7 +1638,7 @@ async function agnesGenerateVideo(prompt: string, duration = 5, resolution = '72
   const numFrames = duration * 8 + 1; // Agnes 要求 num_frames = 8n+1
   console.log(`[Agnes 文生视频] 模型 agnes-video-v2.0, ${width}x${height}, frames=${numFrames}`);
   try {
-    const res = await fetch(`${getAgnesBase()}/videos`, {
+    const data = await overseasFetch(`${getAgnesBase()}/videos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
@@ -1647,14 +1649,7 @@ async function agnesGenerateVideo(prompt: string, duration = 5, resolution = '72
         height,
         width,
       }),
-      signal: AbortSignal.timeout(120000),
     });
-    if (!res.ok) {
-      const err = await res.text();
-      console.log('[Agnes 文生视频] 创建失败:', res.status, err.substring(0, 300));
-      return null;
-    }
-    const data = await res.json();
     const id = data?.id || data?.task_id || data?.taskId;
     if (!id) { console.log('[Agnes 文生视频] 未返回任务ID:', JSON.stringify(data).substring(0, 300)); return null; }
     return { taskId: `agnes:${id}`, status: 'pending' };
@@ -1669,12 +1664,9 @@ async function agnesQueryVideoTask(rawId: string): Promise<{ taskId: string; sta
   const key = getAgnesKey();
   if (!key) return null;
   try {
-    const res = await fetch(`${getAgnesBase()}/videos/${rawId}`, {
+    const data = await overseasFetch(`${getAgnesBase()}/videos/${rawId}`, {
       headers: { 'Authorization': `Bearer ${key}` },
-      signal: AbortSignal.timeout(30000),
     });
-    if (!res.ok) { console.log('[Agnes 视频查询] 失败:', res.status); return null; }
-    const data = await res.json();
     const statusRaw = data?.status || data?.output?.status || 'pending';
     const videoUrl = data?.video_url || data?.url || data?.remixed_from_video_id || data?.output?.video_url || (typeof data === 'string' ? data : '');
     let status = 'RUNNING';
@@ -1747,7 +1739,7 @@ export async function agnesChat(
           },
         }))
       }
-      const data = await fetchJSON(`${getAgnesBase()}/chat/completions`, {
+      const data = await overseasFetch(`${getAgnesBase()}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
         body: JSON.stringify(body),

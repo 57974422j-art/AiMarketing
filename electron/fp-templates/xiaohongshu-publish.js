@@ -61,6 +61,43 @@ async function isLoggedIn(page, log) {
   return true
 }
 
+/** 找到正文编辑器：小红书正文为 contenteditable div，placeholder 含「正文/描述/分享」；兜底取第一个可见 contenteditable */
+async function findBodyEditor(page, log) {
+  try {
+    const editables = await page.$$('div[contenteditable="true"]')
+    for (const e of editables) {
+      try {
+        const ph = (await e.getAttribute('data-placeholder') || '') + (await e.getAttribute('placeholder') || '')
+        const cls = await e.getAttribute('class') || ''
+        if (/正文|描述|分享|心得|故事|体验/.test(ph) || /desc|content|body/i.test(cls)) {
+          if (await e.isVisible().catch(() => false)) return e
+        }
+      } catch (_) {}
+    }
+    if (editables.length) {
+      for (const e of editables) {
+        if (await e.isVisible().catch(() => false)) return e
+      }
+    }
+  } catch (e) { log('  [body] 探测异常: ' + e.message) }
+  return null
+}
+
+/** 把光标移到 contenteditable 末尾 */
+async function moveCursorToEnd(page, el) {
+  try {
+    await el.evaluate(n => {
+      n.focus()
+      const range = document.createRange()
+      range.selectNodeContents(n)
+      range.collapse(false)
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(range)
+    })
+  } catch (_) {}
+}
+
 // ════════════════════════════════════
 // Step 1: 导航
 // ════════════════════════════════════
@@ -299,37 +336,38 @@ async function step4_fillContent(page, params, log) {
   }
   await page.waitForTimeout(1500)
 
-  // ── 4b: 正文/简介 ──
+  // ── 4b: 正文/简介（标题只有 20 字，正文单独填到标题下方「正文描述」灰字区）──
   let descFilled = false
   if (params.description) {
     const descText = String(params.description)
-    const descSels = [
-      'textarea[placeholder*="正文"]',
-      'div[contenteditable="true"][data-placeholder*="正文"]',
-      'div[contenteditable="true"][data-placeholder*="描述"]',
-      'textarea[placeholder*="填写正文描述"]',
-    ]
-    for (let di = 0; di < descSels.length; di++) {
+    const de = await findBodyEditor(page, log)
+    if (de) {
       try {
-        const de = await page.$(descSels[di])
-        if (!de || !(await de.isVisible().catch(() => false))) continue
-        log('  [4b] 找到正文框: ' + descSels[di])
+        const tag = await de.evaluate(n => n.tagName.toLowerCase())
+        log('  [4b] 找到正文框 (' + tag + ')')
         await de.click({ timeout: 3000 })
-        await page.waitForTimeout(600)
-        if (descSels[di].includes('contenteditable')) {
-          await de.evaluate(n => { n.innerText = '' })
-          await page.keyboard.type(descText, { delay: 40 })
-        } else {
-          await de.fill(descText)
-        }
         await page.waitForTimeout(500)
-        const dvalue = await de.evaluate(n => n.value || n.innerText).catch(() => '')
-        if (dvalue.length > 0) {
-          log('  ✅ 正文(' + dvalue.length + '字)')
-          descFilled = true
-          break
+        if (tag === 'input' || tag === 'textarea') {
+          await de.fill(descText)
+        } else {
+          await de.evaluate(n => { n.innerHTML = '' })
+          await moveCursorToEnd(page, de)
+          await page.keyboard.type(descText, { delay: 25 })
         }
-      } catch (e) { log('  ⚠️ ' + descSels[di] + ': ' + e.message) }
+        await page.waitForTimeout(600)
+        const dvalue = await de.evaluate(n => n.value || n.innerText || n.textContent).catch(() => '')
+        if (dvalue.trim().length > 0) {
+          log('  ✅ 正文(' + dvalue.trim().length + '字)')
+          descFilled = true
+        } else {
+          log('  ⚠️ 正文验证为空，重试一次')
+          await de.click({ timeout: 3000 }).catch(() => {})
+          await page.keyboard.type(descText, { delay: 25 })
+          descFilled = true
+        }
+      } catch (e) { log('  ⚠️ 正文框: ' + e.message) }
+    } else {
+      log('  ❌ 未找到正文框')
     }
     if (!descFilled) log('  ❌ 正文未填入')
   } else {
@@ -354,27 +392,30 @@ async function step5_topics(page, params, log) {
 
   const topicList = topics.split(/[\s,，#]+/).filter(t => t.trim().length > 0)
   if (topicList.length === 0) { log('  ⚠️ 无有效话题'); return }
-  log('[步骤5] 添加话题: ' + JSON.stringify(topicList))
+  log('[步骤5] 添加话题（写入正文区，与文案在一起）: ' + JSON.stringify(topicList))
 
-  // 把焦点放进正文框（话题在正文内以 # 触发）
-  try {
-    const body = await page.$('textarea[placeholder*="正文"], div[contenteditable="true"][data-placeholder*="正文"]')
-    if (body && await body.isVisible().catch(() => false)) {
-      await body.click({ timeout: 2000 })
-      await page.waitForTimeout(500)
-    }
-  } catch (_) {}
+  // 话题必须进「正文描述」区，绝不能进标题框（标题只有 20 字）
+  const body = await findBodyEditor(page, log)
+  if (!body) { log('  ❌ 未找到正文区，无法写入话题'); return }
+  await body.click({ timeout: 2000 }).catch(() => {})
+  await moveCursorToEnd(page, body)
+  await page.waitForTimeout(300)
+  // 有正文时先换行，避免话题和文案黏在一起
+  if (params.description && params.description.trim()) {
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(250)
+  }
 
   for (let ti = 0; ti < topicList.length; ti++) {
     let t = topicList[ti].trim()
     if (!t.startsWith('#')) t = '#' + t
     try {
       await page.keyboard.type(t, { delay: 40 })
-      await page.waitForTimeout(800)
+      await page.waitForTimeout(700)
       // 小红书会弹出话题联想，点第一个建议把它变成真实话题
       let picked = false
       try {
-        const sug = await page.$$('[class*="topic"] li, [class*="associate"] div, [class*="suggest"] div')
+        const sug = await page.$$('[class*="topic"] li, [class*="associate"] div, [class*="suggest"] div, [class*="dropdown"] li')
         for (let s = 0; s < sug.length; s++) {
           if (await sug[s].isVisible().catch(() => false)) {
             await sug[s].click({ timeout: 1500 }).catch(() => {})
@@ -386,15 +427,15 @@ async function step5_topics(page, params, log) {
       if (!picked) {
         await page.keyboard.press('Space')
       }
-      await page.waitForTimeout(600)
+      await page.waitForTimeout(500)
       log('  ✅ 已输入: ' + t + (picked ? ' (已关联话题)' : ''))
     } catch (e) {
       log('  ⚠️ 话题"' + t + '"失败: ' + e.message)
     }
-    if (ti < topicList.length - 1) await page.waitForTimeout(800)
+    if (ti < topicList.length - 1) await page.waitForTimeout(600)
   }
   log('✅ 步骤5完成')
-  await page.waitForTimeout(1200)
+  await page.waitForTimeout(1000)
 }
 
 // ════════════════════════════════════
@@ -499,14 +540,19 @@ async function step7_publish(page, params, log) {
   const targetText = isDraft ? '存草稿' : '发布笔记'
   let pub = false
   try {
+    // 先把底部按钮滚入视野（发布按钮在页面底部 fixed 区域）
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
+    await page.waitForTimeout(800)
     const allBtns = await page.$$('button')
     for (let i = 0; i < allBtns.length; i++) {
       try {
-        const t = (await allBtns[i].innerText()).trim()
-        if (await allBtns[i].isVisible().catch(() => false) && t === targetText) {
+        const t = (await allBtns[i].innerText()).catch(() => '') || ''
+        const tt = t.trim()
+        const match = isDraft ? tt.includes('草稿') : tt.includes('发布')
+        if (await allBtns[i].isVisible().catch(() => false) && match) {
           await allBtns[i].click({ timeout: 5000 })
           pub = true
-          log('  ✅ 点击:"' + t + '"')
+          log('  ✅ 点击:"' + tt + '"')
           break
         }
       } catch (_) {}

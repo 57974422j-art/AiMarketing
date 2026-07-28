@@ -1,5 +1,36 @@
 [
   {
+    "version": "1.0.9",
+    "date": "2026-07-28",
+    "title": "建立标准发布流程 + 修复版本号显示",
+    "changes": [
+      "新增 scripts/release-electron.mjs：以 version.json 为单一事实源，自动同步 package.json 版本、构建、输出 SHA256 校验和，杜绝安装包名/exe 版本/显示版本三处不一致",
+      "main.js 版本读取增加 package.json 兜底：version.json 缺失或陈旧时导航栏仍显示版本号，不再空白",
+      "自动更新地址切换为正式 HTTPS 域名 https://ai-niuma.cc/updates",
+      "版本号推进至 1.0.9"
+    ]
+  },
+  {
+    "version": "1.0.8",
+    "date": "2026-07-28",
+    "title": "修复安装包叠加打包（体积回退至约 700MB）",
+    "changes": [
+      "打包配置排除 public/updates，安装包不再套娃打包历史版本 exe，体积从 1.6GB 回落至约 700MB",
+      "版本号推进至 1.0.8"
+    ]
+  },
+  {
+    "version": "1.0.7",
+    "date": "2026-07-28",
+    "title": "导航栏显示版本号+发布日期 + 视频号/小红书发布修复",
+    "changes": [
+      "导航栏（logo 旁）新增客户端版本号与发布日期显示，由 electron/version.json 实时驱动",
+      "修复视频号（shipinhao）启动浏览器误开抖音：main.js getDefaultUrl 已含 shipinhao→channels.weixin.qq.com，旧版 exe 缺失该映射会回退到抖音",
+      "小红书发布脚本重构：标题单独填写（限20字），正文+话题填入标题下方「正文描述」区，话题与文案换行分隔，避免和标题挤在一起",
+      "发布按钮检测改为滚动到底部后模糊匹配「发布」，避免精确匹配「发布笔记」失败需手动点击"
+    ]
+  },
+  {
     "version": "1.0.6",
     "date": "2026-07-26",
     "title": "指纹浏览器端口动态分配 + 登录态按用户+平台保存",

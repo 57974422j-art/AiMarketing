@@ -101,6 +101,16 @@ export default function SettingsPage() {
   const [showAgnesKey, setShowAgnesKey] = useState(false)
   const [agnesBaseUrl, setAgnesBaseUrl] = useState('')
 
+  // ====== GIPHY / 海外代理 / Gemini / Agnes 测试连接状态 ======
+  const [testingGiphy, setTestingGiphy] = useState(false)
+  const [giphyTestMsg, setGiphyTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [testingProxy, setTestingProxy] = useState(false)
+  const [proxyTestMsg, setProxyTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [testingGemini, setTestingGemini] = useState(false)
+  const [geminiTestMsg, setGeminiTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [testingAgnes, setTestingAgnes] = useState(false)
+  const [agnesTestMsg, setAgnesTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
   // ====== 客服设置 ======
   const [serviceQrcode, setServiceQrcode] = useState('')
   const [serviceSaving, setServiceSaving] = useState(false)
@@ -255,6 +265,43 @@ export default function SettingsPage() {
     setTestingPixabay(false)
   }
 
+  // ====== 通用：调用后端 /api/admin/test-key 测试某个 provider ======
+  const testProvider = async (
+    provider: string,
+    setTesting: (v: boolean) => void,
+    setMsg: (m: { type: 'success' | 'error'; text: string } | null) => void,
+    payload: Record<string, string> = {},
+  ) => {
+    setTesting(true)
+    setMsg(null)
+    try {
+      const res = await fetch('/api/admin/test-key', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, ...payload }),
+      })
+      const d = await res.json()
+      if (d.valid) {
+        setMsg({ type: 'success', text: `✅ ${d.message || '连接成功'}` })
+      } else {
+        setMsg({ type: 'error', text: `❌ ${d.message || '连接失败'}` })
+      }
+    } catch (e: any) {
+      setMsg({ type: 'error', text: `❌ 网络错误: ${e.message}` })
+    }
+    setTesting(false)
+  }
+
+  const testGiphyKey = () =>
+    testProvider('giphy', setTestingGiphy, setGiphyTestMsg, { key: giphyKey, proxy: overseasProxy })
+  const testProxy = () =>
+    testProvider('overseas_proxy', setTestingProxy, setProxyTestMsg, { proxy: overseasProxy })
+  const testGeminiKey = () =>
+    testProvider('gemini', setTestingGemini, setGeminiTestMsg, { key: geminiKey, baseUrl: geminiBaseUrl })
+  const testAgnesKey = () =>
+    testProvider('agnes', setTestingAgnes, setAgnesTestMsg, { key: agnesKey, baseUrl: agnesBaseUrl, proxy: overseasProxy })
+
   // ====== 保存客服设置 ======
   const saveServiceConfig = async () => {
     setServiceSaving(true)
@@ -390,19 +437,30 @@ export default function SettingsPage() {
                 <span>GIPHY API Key（在线贴纸库）</span>
                 {giphyKey === '********' && <span className="ml-2 text-xs text-emerald-400 font-mono">✓ 已配置</span>}
               </label>
-              <div className="relative">
-                <input
-                  type={showGiphyKey ? 'text' : 'password'}
-                  value={giphyKey}
-                  onChange={e => setGiphyKey(e.target.value)}
-                  placeholder="输入 GIPHY API Key"
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-yellow-500/50 pr-10"
-                />
-                <button type="button" onClick={() => setShowGiphyKey(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
-                  {showGiphyKey ? '🙈' : '👁'}
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showGiphyKey ? 'text' : 'password'}
+                    value={giphyKey}
+                    onChange={e => setGiphyKey(e.target.value)}
+                    placeholder="输入 GIPHY API Key"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-yellow-500/50 pr-10"
+                  />
+                  <button type="button" onClick={() => setShowGiphyKey(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                    {showGiphyKey ? '🙈' : '👁'}
+                  </button>
+                </div>
+                <button onClick={testGiphyKey} disabled={!giphyKey || giphyKey === '********' || testingGiphy}
+                  className="px-3 py-2 bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 rounded-lg hover:bg-yellow-500/30 disabled:opacity-50 font-mono text-xs whitespace-nowrap">
+                  {testingGiphy ? '测试中...' : '测试连接'}
                 </button>
               </div>
+              {giphyTestMsg && (
+                <div className={`mt-2 text-xs font-mono px-3 py-1.5 rounded-lg inline-block ${
+                  giphyTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                }`}>{giphyTestMsg.text}</div>
+              )}
               <p className="text-[10px] text-gray-600 mt-1 font-mono">
                 免费注册 → <a href="https://developers.giphy.com" target="_blank" className="text-yellow-500 underline">developers.giphy.com</a>
               </p>
@@ -415,13 +473,24 @@ export default function SettingsPage() {
                 <span>海外 API 代理</span>
                 {overseasProxy && <span className="ml-2 text-xs text-emerald-400 font-mono">✓ 已配置</span>}
               </label>
-              <input
-                type="text"
-                value={overseasProxy}
-                onChange={e => setOverseasProxy(e.target.value)}
-                placeholder="https://proxy.example.com"
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-yellow-500/50"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={overseasProxy}
+                  onChange={e => setOverseasProxy(e.target.value)}
+                  placeholder="https://proxy.example.com"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-yellow-500/50"
+                />
+                <button onClick={testProxy} disabled={!overseasProxy || testingProxy}
+                  className="px-3 py-2 bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 rounded-lg hover:bg-yellow-500/30 disabled:opacity-50 font-mono text-xs whitespace-nowrap">
+                  {testingProxy ? '测试中...' : '测试连接'}
+                </button>
+              </div>
+              {proxyTestMsg && (
+                <div className={`mt-2 text-xs font-mono px-3 py-1.5 rounded-lg inline-block ${
+                  proxyTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                }`}>{proxyTestMsg.text}</div>
+              )}
               <p className="text-[10px] text-gray-600 mt-1 font-mono">
                 CF Worker 代理地址，用于 GIPHY / Gemini 等海外 API。格式: https://xxx.com
               </p>
@@ -455,6 +524,15 @@ export default function SettingsPage() {
                 placeholder="中转地址，例如 https://bboluo.com/v1"
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-purple-500/50"
               />
+              <button onClick={testGeminiKey} disabled={!geminiKey || geminiKey === '********' || testingGemini}
+                className="mt-2 px-3 py-2 bg-purple-500/20 border border-purple-500/30 text-purple-300 rounded-lg hover:bg-purple-500/30 disabled:opacity-50 font-mono text-xs whitespace-nowrap">
+                {testingGemini ? '测试中...' : '测试连接'}
+              </button>
+              {geminiTestMsg && (
+                <div className={`mt-2 text-xs font-mono px-3 py-1.5 rounded-lg inline-block ${
+                  geminiTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                }`}>{geminiTestMsg.text}</div>
+              )}
               <p className="text-[10px] text-gray-600 font-mono">
                 优先用直连 Key；填了中转地址则作降级。支持 OpenAI 兼容 /v1 端点。模型名前缀 [L]按次 [V]按量
               </p>
@@ -491,6 +569,15 @@ export default function SettingsPage() {
               placeholder="API 地址（可选，默认 https://apihub.agnes-ai.com/v1）"
               className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50"
             />
+            <button onClick={testAgnesKey} disabled={!agnesKey || agnesKey === '********' || testingAgnes}
+              className="mt-2 px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-500/30 disabled:opacity-50 font-mono text-xs whitespace-nowrap">
+              {testingAgnes ? '测试中...' : '测试连接'}
+            </button>
+            {agnesTestMsg && (
+              <div className={`mt-2 text-xs font-mono px-3 py-1.5 rounded-lg inline-block ${
+                agnesTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+              }`}>{agnesTestMsg.text}</div>
+            )}
             <p className="text-[10px] text-gray-600 font-mono">
               文生图 agnes-image-2.1-flash · 文生视频 agnes-video-v2.0（异步轮询）。免费额度，谨慎高频调用。
             </p>

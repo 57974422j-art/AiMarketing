@@ -79,6 +79,25 @@ function setupAutoUpdater(win) {
     win?.webContents.send('app:update-status', { status: 'up-to-date' })
   })
 
+  // 暴露客户端版本信息给渲染进程（导航栏显示版本号 + 发布日期）
+  ipcMain.handle('app:get-version', async () => {
+    try {
+      const vPath = path.join(__dirname, 'version.json')
+      if (fs.existsSync(vPath)) {
+        const v = JSON.parse(fs.readFileSync(vPath, 'utf-8'))
+        // 优先用 version.json；version 缺失时回退到 package.json 版本，保证一定有版本号
+        const version = v.version || app.getVersion()
+        return { version, buildDate: v.buildDate || null }
+      }
+      // version.json 不存在（如未打包/缺失），回退到 package.json 版本
+      return { version: app.getVersion(), buildDate: null }
+    } catch (e) {
+      console.error('[Version] 读取失败:', e.message)
+      // 兜底：无论如何都返回 package.json 版本，避免导航栏空白
+      try { return { version: app.getVersion(), buildDate: null } } catch { return null }
+    }
+  })
+
   // 出错
   autoUpdater.on('error', (err) => {
     console.error('[Updater] 错误:', err.message)

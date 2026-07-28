@@ -59,6 +59,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── 自动更新 ──
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
   updaterInstall: () => ipcRenderer.invoke('updater:install'),
+
+  // ── 版本信息（导航栏显示版本号 + 发布日期）──
+  getAppVersion: () => ipcRenderer.invoke('app:get-version'),
+
   onUpdateStatus: (callback) => {
     const handler = (_event, data) => callback(data)
     ipcRenderer.on('app:update-status', handler)

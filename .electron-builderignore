@@ -1,0 +1,4 @@
+# 更新包(Setup.exe)由 Next.js 静态托管在 /updates，供 electron-updater 下载，
+# 必须排除出安装包 asar，否则会造成"安装包里装着安装包"的套娃式体积膨胀。
+# 服务器运行时 public/updates 仍对外提供下载，但打包时不计入安装包体积。
+public/updates
