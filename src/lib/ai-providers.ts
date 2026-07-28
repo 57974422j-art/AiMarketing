@@ -1875,7 +1875,7 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
 export async function queryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
   // Agnes 任务（taskId 以 agnes: 前缀）单独路由
   if (taskId.startsWith('agnes:')) {
-    return agnesQueryVideoTask(taskId.substring(7));
+    return agnesQueryVideoTask(taskId.substring(6));
   }
   // 先查百炼
   const dashResult = await dashscopeQueryVideoTask(taskId);
