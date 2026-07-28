@@ -116,6 +116,17 @@ const featureCards = [
     badgeColor: 'bg-pink-500/20 text-pink-400',
   },
   {
+    id: 'mediaLibrary',
+    title: '公共素材库',
+    desc: '所有成员共享的素材库，按横屏/竖屏浏览，视频可一键克隆同风格新片',
+    icon: '🗂️',
+    color: 'from-lime-500/20 to-lime-600/10 border-lime-500/30',
+    hoverColor: 'hover:border-lime-400/50 hover:shadow-lime-500/10',
+    path: '/media-library',
+    badgeDefault: '素材共享',
+    badgeColor: 'bg-lime-500/20 text-lime-400',
+  },
+  {
     id: 'digitalHuman',
     title: '数字人',
     desc: '上传真人视频训练数字分身，AI 口播配音自动生成',

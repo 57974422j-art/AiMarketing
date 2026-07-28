@@ -500,6 +500,21 @@ async function dashscopeImageToVideo(prompt: string, refImageUrl: string, _durat
   }
 }
 
+/**
+ * 图生视频（以参考图/视频首帧为参考生成新视频）—— 对外统一入口
+ * 用于「克隆视频」：把参考视频首帧抽出来作为 refImageUrl 传入即可。
+ * 目前走百炼 wan2.7 i2v；后续可在此加 Agnes / 原生 v2v 兜底。
+ */
+export async function generateImageToVideo(
+  prompt: string,
+  refImageUrl: string,
+  _duration = 15,
+  _resolution = '720P',
+  _ratio = '16:9',
+): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  return dashscopeImageToVideo(prompt, refImageUrl, _duration, _resolution, _ratio)
+}
+
 /** 下载视频文件并返回 ArrayBuffer */
 async function downloadVideo(url: string): Promise<ArrayBuffer | null> {
   try {

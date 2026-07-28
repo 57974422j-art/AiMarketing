@@ -10,6 +10,7 @@ export default function Navbar() {
   const { t } = useLocale()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [appVersion, setAppVersion] = useState('')
 
   useEffect(() => {
@@ -90,6 +91,7 @@ export default function Navbar() {
               <Link href="/admin/" className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm font-bold">⚙ 管理中心</Link>
             )}
             <Link href="/download" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">📥 下载客户端</Link>
+            <button onClick={() => setFeedbackOpen(true)} className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">💬 反馈</button>
           </div>
 
           <div className="flex items-center gap-3">
@@ -143,9 +145,76 @@ export default function Navbar() {
               <Link href="/admin/" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-yellow-400 hover:bg-yellow-500/10 rounded-lg text-sm font-bold">⚙ 管理中心</Link>
             )}
             <Link href="/download" onClick={() => setShowMobileMenu(false)} className="block px-3 py-2.5 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg text-sm">📥 下载客户端</Link>
+            <button onClick={() => { setShowMobileMenu(false); setFeedbackOpen(true) }} className="block w-full text-left px-3 py-2.5 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg text-sm">💬 反馈</button>
           </div>
         </div>
       )}
+
+      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
     </nav>
+  )
+}
+
+function FeedbackModal({ onClose }: { onClose: () => void }) {
+  const [type, setType] = useState('问题')
+  const [content, setContent] = useState('')
+  const [images, setImages] = useState<File[]>([])
+  const [submitting, setSubmitting] = useState(false)
+  const [msg, setMsg] = useState('')
+  const pagePath = typeof window !== 'undefined' ? window.location.pathname : ''
+
+  const submit = async () => {
+    if (!content.trim()) { setMsg('请填写反馈内容'); return }
+    setSubmitting(true); setMsg('')
+    try {
+      const fd = new FormData()
+      fd.append('type', type)
+      fd.append('content', content + `\n\n[页面路径: ${pagePath}]`)
+      images.forEach(f => fd.append('images', f))
+      const r = await fetch('/api/feedback', { method: 'POST', credentials: 'include', body: fd })
+      const d = await r.json()
+      if (d.success) { setMsg('已提交，感谢反馈！'); setTimeout(onClose, 1200) }
+      else setMsg(d.message || '提交失败')
+    } catch {
+      setMsg('提交失败，请稍后重试')
+    } finally { setSubmitting(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="w-full max-w-md bg-gray-900 border border-white/10 rounded-2xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-white font-semibold">💬 意见反馈</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">×</button>
+        </div>
+        <div className="flex gap-2 mb-3">
+          {(['问题', '建议', '其他'] as const).map(tp => (
+            <button key={tp} onClick={() => setType(tp)}
+              className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${type === tp ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
+              {tp}
+            </button>
+          ))}
+        </div>
+        <textarea value={content} onChange={e => setContent(e.target.value)} rows={5}
+          placeholder="请描述你遇到的问题或建议…（当前页面路径会自动附带）"
+          className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-500/50 resize-none" />
+        <div className="mt-3">
+          <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-400 hover:bg-white/10">
+            📎 添加截图（最多4张）
+            <input type="file" accept="image/*" multiple className="hidden"
+              onChange={e => { const fs = Array.from(e.target.files || []).slice(0, 4); setImages(fs) }} />
+          </label>
+          {images.length > 0 && <span className="ml-2 text-xs text-gray-500">已选 {images.length} 张</span>}
+        </div>
+        {msg && <p className="mt-3 text-xs text-amber-400">{msg}</p>}
+        <div className="flex gap-2 mt-4">
+          <button onClick={onClose} className="flex-1 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-gray-300 hover:bg-white/10">取消</button>
+          <button onClick={submit} disabled={submitting}
+            className="flex-1 py-2 bg-emerald-500 text-white rounded-lg text-sm hover:bg-emerald-600 disabled:opacity-50">
+            {submitting ? '提交中…' : '提交反馈'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

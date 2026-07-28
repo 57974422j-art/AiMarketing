@@ -40,8 +40,11 @@ export default function TextToVideoPage() {
   const [ratio, setRatio] = useState('16:9')
   const [model, setModel] = useState('')
   const [longVideo, setLongVideo] = useState(false)
+const [genMode, setGenMode] = useState<'text' | 'image' | 'clone'>('text')
 const [refImage, setRefImage] = useState<File | null>(null)
 const [refPreview, setRefPreview] = useState('')
+const [refVideoUrl, setRefVideoUrl] = useState('')
+const [refImageUrl, setRefImageUrl] = useState('')
 const [segmentPrompts, setSegmentPrompts] = useState<string[]>([])
 const [editSegments, setEditSegments] = useState(false)
 const [generating, setGenerating] = useState(false)
@@ -61,6 +64,16 @@ const [sceneLib, setSceneLib] = useState<any[]>([])
 const [lastPoints, setLastPoints] = useState<number | null>(null)
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
+
+  // 读取 URL 参数（从素材库「克隆视频」/「使用到文生视频」带入）
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const p = sp.get('prompt'); if (p) setPrompt(p)
+      const ref = sp.get('refUrl'); if (ref) { setRefImageUrl(ref); setGenMode('image') }
+      const rv = sp.get('refVideo'); if (rv) { setRefVideoUrl(rv); setGenMode('clone') }
+    } catch {}
+  }, [])
   useEffect(() => { fetchTemplates() }, [])
   // 从素材库跳转过来时读取 URL 参数
   useEffect(() => {
@@ -113,6 +126,11 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
       if (refImage) {
         const buf = await refImage.arrayBuffer()
         body.refImage = Buffer.from(buf).toString('base64')
+      } else if (genMode === 'image' && refImageUrl) {
+        body.refImageUrl = refImageUrl
+      }
+      if (genMode === 'clone' && refVideoUrl) {
+        body.refVideo = refVideoUrl
       }
 
       const r = await fetch('/api/video/text-to-video', {
@@ -437,23 +455,52 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
                   </div>
                 )}
 
-                {/* 参考图上传 */}
-                <div>
-                  <label className="block text-label mb-1">参考图片 / REF IMAGE (OPTIONAL)</label>
-                  <div className="flex items-center gap-3">
-                    <label className="cursor-pointer px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-400 hover:bg-white/10 transition-colors">
-                      选择图片
-                      <input type="file" accept="image/*" className="hidden"
-                        onChange={e => { const f = e.target.files?.[0]; if (f) { setRefImage(f); setRefPreview(URL.createObjectURL(f)) } }} />
-                    </label>
-                    {refPreview && (
-                      <div className="flex items-center gap-2">
-                        <img src={refPreview} alt="ref" className="w-10 h-10 rounded-lg object-cover border border-white/10" />
-                        <button onClick={() => { setRefImage(null); setRefPreview('') }} className="text-xs text-red-400 hover:text-red-300">移除</button>
-                      </div>
+                {/* 模式切换：文生 / 图生 / 克隆 */}
+                <div className="flex gap-2 mb-1">
+                  {(['text', 'image', 'clone'] as const).map((m) => (
+                    <button key={m} type="button" onClick={() => setGenMode(m)}
+                      className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${genMode === m ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
+                      {m === 'text' ? '文生视频' : m === 'image' ? '图生视频' : '克隆视频'}
+                    </button>
+                  ))}
+                </div>
+
+                {genMode === 'clone' ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-500">克隆视频：以参考视频的风格 / 画面为参考，生成一段新视频。请描述新视频的内容。</p>
+                    <div className="flex items-center gap-2">
+                      <input value={refVideoUrl} onChange={e => setRefVideoUrl(e.target.value)} placeholder="粘贴参考视频链接（也可点击素材库「克隆视频」按钮带入）"
+                        className="flex-1 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-500/50" />
+                    </div>
+                    {refVideoUrl && (
+                      <video src={refVideoUrl} className="w-32 h-20 rounded-lg object-cover border border-white/10" controls />
                     )}
                   </div>
-                </div>
+                ) : genMode === 'image' ? (
+                  <div>
+                    <label className="block text-label mb-1">参考图片 / REF IMAGE (OPTIONAL)</label>
+                    <div className="flex items-center gap-3">
+                      <label className="cursor-pointer px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-400 hover:bg-white/10 transition-colors">
+                        选择图片
+                        <input type="file" accept="image/*" className="hidden"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) { setRefImage(f); setRefPreview(URL.createObjectURL(f)) } }} />
+                      </label>
+                      {refPreview && (
+                        <div className="flex items-center gap-2">
+                          <img src={refPreview} alt="ref" className="w-10 h-10 rounded-lg object-cover border border-white/10" />
+                          <button onClick={() => { setRefImage(null); setRefPreview('') }} className="text-xs text-red-400 hover:text-red-300">移除</button>
+                        </div>
+                      )}
+                      {refImageUrl && !refPreview && (
+                        <div className="flex items-center gap-2">
+                          <img src={refImageUrl} alt="ref" className="w-10 h-10 rounded-lg object-cover border border-white/10" />
+                          <span className="text-xs text-gray-500">参考图</span>
+                          <button onClick={() => setRefImageUrl('')} className="text-xs text-red-400 hover:text-red-300">移除</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
 
                 {/* 模型选择（admin 可见） */}
                 {user?.role === 'admin' && (
@@ -536,7 +583,7 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
                         const todayItems = list.filter((m: any) => m.title && String(m.title).startsWith(dateStr))
                         const num = String(todayItems.length + 1).padStart(2, '0')
                         const title = dateStr + '-' + num
-                        await fetch('/api/media-library', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ossUrl: videoUrl, title, prompt, category: 'AI生成', source: 'private' }) })
+                        await fetch('/api/media-library', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ossUrl: videoUrl, title, prompt, category: 'AI生成', source: 'private', orientation: ratio === '16:9' ? 'landscape' : ratio === '9:16' ? 'portrait' : 'unknown' }) })
                         setToast(`已保存到媒体库: ${title}`)
                       }} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/30 text-xs">
                         💾 保存到媒体库

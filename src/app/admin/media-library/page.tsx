@@ -200,6 +200,12 @@ export default function AdminMediaLibraryPage() {
                       className="px-2 py-1 text-[10px] bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded hover:bg-cyan-500/30">
                       使用到文生视频
                     </button>
+                    {item.type === 'video' && (
+                      <button onClick={() => window.open(`/text-to-video?mode=clone&refVideo=${encodeURIComponent(item.ossUrl)}`, '_blank')}
+                        className="px-2 py-1 text-[10px] bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded hover:bg-emerald-500/30">
+                        🎬 克隆视频
+                      </button>
+                    )}
                     {!favIds.has(item.id) && (
                       <button onClick={() => handleFavorite(item)}
                         className="px-2 py-1 text-[10px] bg-purple-500/20 border border-purple-500/30 text-purple-400 rounded hover:bg-purple-500/30">

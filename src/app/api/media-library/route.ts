@@ -16,6 +16,7 @@ async function ensureTable() {
     `ALTER TABLE MediaAsset ADD COLUMN platform TEXT DEFAULT ''`,
     `ALTER TABLE MediaAsset ADD COLUMN thumbnailUrl TEXT DEFAULT ''`,
     `ALTER TABLE MediaAsset ADD COLUMN originalUrl TEXT DEFAULT ''`,
+    `ALTER TABLE MediaAsset ADD COLUMN orientation TEXT DEFAULT 'unknown'`,
   ]
   for (const sql of migrations) { try { await prisma.$executeRawUnsafe(sql) } catch {} }
 }
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type')
     const source = searchParams.get('source')
     const category = searchParams.get('category')
+    const orientation = searchParams.get('orientation')
 
     let sql = 'SELECT * FROM MediaAsset'
     const params: any[] = []
@@ -43,6 +45,7 @@ export async function GET(request: NextRequest) {
     if (type && type !== 'all') { conds.push('type = ?'); params.push(type) }
     if (category) { conds.push('category = ?'); params.push(category) }
     if (source) { conds.push('source = ?'); params.push(source) }
+    if (orientation && orientation !== 'all') { conds.push('orientation = ?'); params.push(orientation) }
     if (conds.length > 0) sql += ' WHERE ' + conds.join(' AND ')
     sql += ' ORDER BY createdAt DESC'
 
@@ -66,7 +69,7 @@ export async function POST(request: NextRequest) {
     const created: any[] = []
     const skipped: string[] = []
     for (const item of items) {
-      const { ossUrl, title, prompt, category, source, purpose, industry, platform, thumbnailUrl, originalUrl, type } = item
+      const { ossUrl, title, prompt, category, source, purpose, industry, platform, thumbnailUrl, originalUrl, type, orientation } = item
       if (!ossUrl || !title) { skipped.push(String(title || '未命名')); continue }
       // 去重：同 ossUrl 已存在则跳过，避免重复素材
       try {
@@ -75,8 +78,8 @@ export async function POST(request: NextRequest) {
       } catch { /* 忽略查重异常，继续插入 */ }
       const t = type || detectType(ossUrl)
       await prisma.$executeRawUnsafe(
-        'INSERT INTO MediaAsset (ossUrl, title, prompt, type, category, source, purpose, industry, platform, thumbnailUrl, originalUrl, ownerId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        ossUrl, title, prompt || '', t, category || '', source || 'public', purpose || '', industry || '', platform || '', thumbnailUrl || '', originalUrl || '', auth.userId
+        'INSERT INTO MediaAsset (ossUrl, title, prompt, type, category, source, purpose, industry, platform, thumbnailUrl, originalUrl, ownerId, orientation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ossUrl, title, prompt || '', t, category || '', source || 'public', purpose || '', industry || '', platform || '', thumbnailUrl || '', originalUrl || '', auth.userId, orientation || 'unknown'
       )
       created.push({ ossUrl, title, type: t })
     }

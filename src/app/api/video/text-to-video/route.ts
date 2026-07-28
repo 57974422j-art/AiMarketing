@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateVideo, generateLongVideo, queryVideoTask } from '@/lib/ai-providers'
+import { generateVideo, generateLongVideo, queryVideoTask, generateImageToVideo } from '@/lib/ai-providers'
+import { runFFmpeg } from '@/lib/ffmpeg'
+import { putObject, getObject, signedUrl } from '@/lib/oss'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { checkFeatureAccess, FeatureCodes } from '@/lib/quota'
 import { checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
@@ -24,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { prompt, aspectRatio, duration, resolution, model, refImage, longVideo, segmentPrompts } = body
+    const { prompt, aspectRatio, duration, resolution, model, refImage, longVideo, segmentPrompts, refVideo, refImageUrl } = body
     const rawDuration = Math.max(2, parseInt(duration) || 5)
     const videoDuration = longVideo ? Math.min(60, rawDuration) : Math.min(15, rawDuration)
     const requestStart = Date.now()
@@ -77,7 +82,17 @@ export async function POST(request: NextRequest) {
 
     // 短视频模式（≤15s）
     console.log(`[文生视频API] 进入短视频模式, duration=${videoDuration}s` + (model ? `, model=${model}` : ''))
-    const result = await generateVideo(prompt, videoDuration, resolution || '720P', aspectRatio || '16:9', model)
+    let result
+    if (refVideo || refImageUrl) {
+      // 克隆视频（图生视频）：以参考视频首帧 / 参考图 为参考生成新视频
+      const ref = await resolveRefImage(refVideo || refImageUrl, !!refVideo)
+      if (!ref) {
+        return NextResponse.json({ success: false, message: '参考素材处理失败（抽帧/下载失败，请确认文件可访问）' }, { status: 400 })
+      }
+      result = await generateImageToVideo(prompt, ref, videoDuration, resolution || '720P', aspectRatio || '16:9')
+    } else {
+      result = await generateVideo(prompt, videoDuration, resolution || '720P', aspectRatio || '16:9', model)
+    }
     const cost = Math.round((Date.now() - requestStart) / 1000)
 
     if (!result) {
@@ -138,5 +153,45 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[文生视频API][查询异常]:', error instanceof Error ? `${error.name}: ${error.message}` : error)
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : '查询失败' }, { status: 500 })
+  }
+}
+
+/**
+ * 把参考视频 / 图片解析为可用于图生视频（百炼 i2v）的公开 URL。
+ * 视频：服务端下载 → ffmpeg 抽首帧 → 上传 OSS 拿签名 URL；
+ * 图片：下载 → 上传 OSS 拿签名 URL。
+ */
+async function resolveRefImage(src: string, isVideo: boolean): Promise<string | null> {
+  try {
+    let buffer: Buffer
+    if (src.includes('/api/video/file?name=')) {
+      const name = decodeURIComponent(src.split('name=')[1].split('&')[0])
+      buffer = await getObject(name)
+    } else if (src.startsWith('http')) {
+      const res = await fetch(src)
+      if (!res.ok) return null
+      buffer = Buffer.from(await res.arrayBuffer())
+    } else {
+      buffer = await getObject(src)
+    }
+    if (!buffer || buffer.length === 0) return null
+
+    let outBuffer = buffer
+    if (isVideo) {
+      const tmpBase = path.join(os.tmpdir(), `clone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+      const tmpVid = tmpBase + '.mp4'
+      const tmpImg = tmpBase + '.jpg'
+      fs.writeFileSync(tmpVid, buffer)
+      await runFFmpeg(`-y -i ${JSON.stringify(tmpVid)} -vframes 1 -q:v 2 ${JSON.stringify(tmpImg)}`)
+      outBuffer = fs.readFileSync(tmpImg)
+      try { fs.unlinkSync(tmpVid) } catch {}
+      try { fs.unlinkSync(tmpImg) } catch {}
+    }
+    const key = `clone-ref/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
+    await putObject(key, outBuffer, 'image/jpeg')
+    return await signedUrl(key)
+  } catch (e) {
+    console.error('[clone] 参考图解析失败:', e)
+    return null
   }
 }
