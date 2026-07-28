@@ -15,11 +15,11 @@ interface MyUsage { month: string; llmTokens: number; text2img: number; text2vid
 interface Wallet { hasSubscription: boolean; planName: string | null; allowance: number; spent: number; remaining: number }
 
 const fmtYuan = (f: number) => '¥' + (f / 100).toFixed(0)
-const FREE_TRIAL_TOKENS = 500
-/** 套餐月度 TOKEN 额度（1 TOKEN = ¥0.01，按实付价折算；0元套餐=固定试用额度） */
+const FREE_TRIAL_POINTS = 500
+/** 套餐月度点数额度（1 点 = ¥0.01，按原价折算，与后端账本一致；0元套餐=固定试用额度） */
 const planTokens = (p: Plan) => {
-  const effective = p.discountPrice ?? p.price
-  if (effective <= 0) return FREE_TRIAL_TOKENS
+  const effective = p.price // 取原价
+  if (effective <= 0) return FREE_TRIAL_POINTS
   return Math.round(effective / Math.max(1, p.durationMonths || 1))
 }
 const isFreePlan = (p: Plan) => (p.discountPrice ?? p.price) <= 0
@@ -132,8 +132,8 @@ export default function MySubscriptionPage() {
         {wallet && wallet.hasSubscription && (
           <div className="card-glass p-4 mb-6">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs text-gray-400">🪙 本月 TOKEN 额度</h3>
-              <span className="text-[10px] text-gray-600">1 TOKEN ≈ ¥0.01（按国内阿里成本估算）</span>
+              <h3 className="text-xs text-gray-400">🪙 本月点数额度</h3>
+              <span className="text-[10px] text-gray-600">1 点 ≈ ¥0.01（按各平台成本折算）</span>
             </div>
             <div className="grid grid-cols-3 gap-3 mb-2">
               {[
@@ -161,7 +161,7 @@ export default function MySubscriptionPage() {
             <div className="grid grid-cols-2 gap-3">
               {[
                 { label: 'LLM Token', value: usage.llmTokens.toLocaleString() },
-                { label: '已用 TOKEN', value: (wallet?.spent ?? 0).toLocaleString() },
+                { label: '已用点数', value: (wallet?.spent ?? 0).toLocaleString() },
               ].map(i => (
                 <div key={i.label} className="bg-white/5 rounded-lg p-2.5 text-center">
                   <p className="text-[10px] text-gray-500">{i.label}</p>
@@ -192,8 +192,8 @@ export default function MySubscriptionPage() {
                 )}
               </div>
               <div className="text-[10px] text-gray-500 space-y-1 mb-4">
-                <p>🪙 {isFreePlan(p) ? '体验额度' : '每月额度'} <span className="text-emerald-400 font-mono">{planTokens(p).toLocaleString()}</span> TOKEN</p>
-                <p className="text-gray-600">1 TOKEN ≈ ¥0.01 · 生图/生视频/对话通用</p>
+                <p>🪙 {isFreePlan(p) ? '体验额度' : '每月额度'} <span className="text-emerald-400 font-mono">{planTokens(p).toLocaleString()}</span> 点</p>
+                <p className="text-gray-600">1 点 ≈ ¥0.01 · 生图/生视频/对话/看片通用</p>
                 <p>💾 存储 {p.storageMb >= 1024 ? (p.storageMb/1024).toFixed(1)+'GB' : p.storageMb+'MB'}</p>
               </div>
               {isFreePlan(p) ? (

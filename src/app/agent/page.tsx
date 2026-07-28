@@ -44,6 +44,7 @@ export default function AgentPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [lastPoints, setLastPoints] = useState<number | null>(null)
 
   // 加载会话列表
   const loadSessions = useCallback(async () => {
@@ -139,6 +140,7 @@ export default function AgentPage() {
           toolUsed: data.data.toolUsed,
         }])
         if (data.data.sessionId) setSessionId(data.data.sessionId)
+        if (typeof data.data.pointsSpent === 'number') setLastPoints(data.data.pointsSpent)
         loadSessions()
       } else {
         setMessages(prev => [...prev, {
@@ -305,6 +307,9 @@ export default function AgentPage() {
         {/* 主对话 */}
         <main className="flex-1 flex flex-col min-w-0">
           <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-3">
+            {lastPoints != null && (
+              <p className="text-[10px] text-amber-300/80 text-center">🪙 本次对话消耗 {lastPoints} 点</p>
+            )}
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center min-h-[50vh] pt-4">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center mb-4 shadow-lg shadow-emerald-500/20 animate-in fade-in zoom-in">

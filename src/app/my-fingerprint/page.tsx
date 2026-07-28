@@ -106,6 +106,8 @@ export default function MyFingerprintPage() {
   const [formTopics, setFormTopics] = useState('')
   const [formCoverImage, setFormCoverImage] = useState('')
   const [aiUsage, setAiUsage] = useState<null | { promptTokens: number; completionTokens: number; totalTokens: number }>(null)
+  const [aiFillPoints, setAiFillPoints] = useState<number | null>(null)   // AI 看片消耗点数
+  const [aiCoverPoints, setAiCoverPoints] = useState<number | null>(null) // AI 生封面消耗点数
   const [storageImages, setStorageImages] = useState<any[]>([])
   const [formLocation, setFormLocation] = useState('')
   const [formPublishNow, setFormPublishNow] = useState(true)
@@ -268,6 +270,8 @@ export default function MyFingerprintPage() {
     setFormTopics('')
     setFormCoverImage('')
     setAiUsage(null)
+    setAiFillPoints(null)
+    setAiCoverPoints(null)
     setFormLocation('')
     setFormPublishNow(true)
   }, [])
@@ -293,6 +297,7 @@ export default function MyFingerprintPage() {
         if (Array.isArray(d.topics) && d.topics.length) setFormTopics(d.topics.join('，'))
         if (d.coverImage) setFormCoverImage(d.coverImage)
         if (d.usage) setAiUsage(d.usage)
+        if (typeof d.pointsSpent === 'number' && d.pointsSpent > 0) setAiFillPoints(d.pointsSpent)
         showToast('AI 已自动填充标题/文案/话题/封面', 'success')
       } else {
         showToast(d.message || 'AI 分析失败', 'error')
@@ -319,6 +324,7 @@ export default function MyFingerprintPage() {
       const d = await r.json()
       if (d.success && d.data?.url) {
         setFormCoverImage(d.data.url)
+        if (typeof d.pointsSpent === 'number' && d.pointsSpent > 0) setAiCoverPoints(d.pointsSpent)
         showToast('AI 封面已生成', 'success')
       } else {
         showToast(d.message || 'AI 生成封面失败', 'error')
@@ -899,9 +905,14 @@ export default function MyFingerprintPage() {
                   >
                     {aiCoverLoading ? '⏳ 生成中...' : '🎨 AI 生成封面（基于标题/文案）'}
                   </button>
-                  {aiUsage && aiUsage.totalTokens > 0 && (
+                  {aiCoverPoints != null && (
+                    <p className="mt-2 text-[10px] text-fuchsia-300/80">
+                      🪙 本次 AI 封面消耗 {aiCoverPoints} 点
+                    </p>
+                  )}
+                  {aiFillPoints != null && (
                     <p className="mt-2 text-[10px] text-amber-300/80">
-                      🪙 本次 AI 看片消耗 {aiUsage.totalTokens} tokens（输入 {aiUsage.promptTokens} / 输出 {aiUsage.completionTokens}）
+                      🪙 本次 AI 看片消耗 {aiFillPoints} 点
                     </p>
                   )}
                 </div>

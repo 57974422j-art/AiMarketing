@@ -462,7 +462,7 @@ export async function POST(request: NextRequest) {
       if (auth?.userId) await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
       return NextResponse.json({
         success: true,
-        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, sessionId },
+        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
       })
     }
 
@@ -488,7 +488,7 @@ export async function POST(request: NextRequest) {
     if (auth?.userId) await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
     return NextResponse.json({
       success: true,
-      data: { reply, intent: 'chat', toolUsed: false, sessionId },
+      data: { reply, intent: 'chat', toolUsed: false, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
     })
   } catch (error: any) {
     console.error('[Agent API]', error)

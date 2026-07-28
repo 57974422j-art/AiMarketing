@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       }
       console.log(`[文生视频API] 长视频成功, 耗时=${cost}s`)
       await spendTokens(auth.userId, videoTokenCost, `text2video:${videoDuration}s`)
-      return NextResponse.json({ success: true, taskId: 'long_video', videoUrl: result.videoUrl })
+      return NextResponse.json({ success: true, taskId: 'long_video', videoUrl: result.videoUrl, pointsSpent: videoTokenCost })
     }
 
     // 短视频模式（≤15s）
@@ -68,13 +68,13 @@ export async function POST(request: NextRequest) {
     if (result.videoUrl) {
       console.log(`[文生视频API] 同步返回, 耗时=${cost}s, taskId=${result.taskId?.substring(0, 8)}..., videoUrl_len=${result.videoUrl.length}`)
       await spendTokens(auth.userId, videoTokenCost, `text2video:${videoDuration}s`)
-      return NextResponse.json({ success: true, taskId: result.taskId, videoUrl: result.videoUrl })
+      return NextResponse.json({ success: true, taskId: result.taskId, videoUrl: result.videoUrl, pointsSpent: videoTokenCost })
     }
 
     // 异步模式（只有 taskId，前端轮询）——上游任务已提交、成本已发生，此时即记账
     console.log(`[文生视频API] 异步提交, 耗时=${cost}s, taskId=${result.taskId?.substring(0, 8)}...`)
     await spendTokens(auth.userId, videoTokenCost, `text2video:${videoDuration}s`)
-    return NextResponse.json({ success: true, taskId: result.taskId, message: '视频生成任务已提交，请稍后查询结果' })
+    return NextResponse.json({ success: true, taskId: result.taskId, message: '视频生成任务已提交，请稍后查询结果', pointsSpent: videoTokenCost })
   } catch (error) {
     console.error('[文生视频API] 异常:', error instanceof Error ? `${error.name}: ${error.message}\n${error.stack?.substring(0, 200)}` : error)
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : '视频生成失败' }, { status: 500 })

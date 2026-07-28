@@ -6,6 +6,7 @@ import { getAuthFromCookie } from '@/lib/api-auth'
 import { getObject, putObject } from '@/lib/oss'
 import { runFFmpeg, runFFprobe } from '@/lib/ffmpeg'
 import { agnesChat } from '@/lib/ai-providers'
+import { spendTokens, usageToPoints } from '@/lib/token-wallet'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -124,12 +125,25 @@ export async function POST(request: NextRequest) {
     const coverName = `.thumbs/analyze/${videoName.replace(VIDEO_RE, '')}_ai_cover.jpg`
     await putObject(`storage/${uid}/${coverName}`, coverBuf, 'image/jpeg')
 
+    // 记账：AI 看片消耗的多模态真实 token，按平台单价换算成「点」计入账本
+    let pointsSpent = 0
+    try {
+      const realTokens = (res.usage && res.usage.totalTokens) || 0
+      if (realTokens > 0 && auth.userId) {
+        pointsSpent = usageToPoints('agnes-2.5-flash', realTokens)
+        await spendTokens(auth.userId, pointsSpent, 'fp_analyze_video')
+      }
+    } catch (e: any) {
+      console.error('[analyze-video] 点数记账失败:', e?.message)
+    }
+
     return NextResponse.json({
       success: true,
       title,
       description,
       topics,
       coverImage: `/api/storage/file?userId=${uid}&name=${encodeURIComponent(coverName)}`,
+      pointsSpent,
       usage: res.usage || null,
     })
   } catch (e: any) {

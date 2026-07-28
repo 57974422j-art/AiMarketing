@@ -58,6 +58,7 @@ const [segDuration, setSegDuration] = useState(5)
 const [splitting, setSplitting] = useState(false)
 const [favorites, setFavorites] = useState<any[]>([])
 const [sceneLib, setSceneLib] = useState<any[]>([])
+const [lastPoints, setLastPoints] = useState<number | null>(null)
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3000); return () => clearTimeout(t) } }, [toast])
   useEffect(() => { fetchTemplates() }, [])
@@ -120,6 +121,7 @@ const [sceneLib, setSceneLib] = useState<any[]>([])
         body: JSON.stringify(body),
       })
       const d = await r.json()
+      if (typeof d.pointsSpent === 'number') setLastPoints(d.pointsSpent)
       if (!d.success) { setError(d.message || '提交失败'); setGenerating(false); return }
       if (d.videoUrl) { setVideoUrl(d.videoUrl); setProgress(100); setGenerating(false); return }
 
@@ -366,6 +368,7 @@ const [sceneLib, setSceneLib] = useState<any[]>([])
                               body: JSON.stringify({ prompt: segmentPrompts.join(' '), duration, resolution, aspectRatio: ratio, longVideo: true, segmentPrompts, segmentDuration: segDuration, model: model || 'happyhorse' }),
                             })
                             const d = await r.json()
+                            if (typeof d.pointsSpent === 'number') setLastPoints(d.pointsSpent)
                             if (d.videoUrl) { setVideoUrl(d.videoUrl); setProgress(100); setGenerating(false) }
                             else { setError('合成失败'); setGenerating(false) }
                           } catch { setError('合成失败'); setGenerating(false) }
@@ -476,6 +479,11 @@ const [sceneLib, setSceneLib] = useState<any[]>([])
                   ? <div className="p-3 bg-cyan-500/10 rounded-xl border border-cyan-500/20 text-sm text-cyan-400 font-mono">{error}</div>
                   : typeof error === 'string' && error.trim().length > 0 && <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20 text-sm text-red-400 font-mono">❌ {error}</div>
                 }
+
+                {/* 本次消耗 */}
+                {lastPoints != null && (
+                  <p className="text-[10px] text-amber-300/80 mt-2">🪙 本次 AI 消耗 {lastPoints} 点</p>
+                )}
 
                 {/* 等待中（长视频提交后、拿到taskId前） */}
                 {generating && !taskId && !videoUrl && (

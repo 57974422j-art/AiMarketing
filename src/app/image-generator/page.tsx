@@ -29,6 +29,7 @@ export default function ImageGeneratorPage() {
   const [showFav, setShowFav] = useState(false)
   const [favItems, setFavItems] = useState<any[]>([])
   const [referencePreview, setReferencePreview] = useState('')
+  const [lastPoints, setLastPoints] = useState<number | null>(null)
   const SIZE_OPTIONS = [
     { value: '1280*1280', label: '1:1 正方形' },
     { value: '1696*960', label: '16:9 横版' },
@@ -86,6 +87,7 @@ export default function ImageGeneratorPage() {
       if (d.success) {
         setGeneratedUrl(d.data.url)
         setUsingModel(d.data.model || '百炼通义万相')
+        setLastPoints(typeof d.pointsSpent === 'number' ? d.pointsSpent : null)
         showToast('图片生成成功')
       } else {
         setError(d.message || '生成失败')
@@ -284,6 +286,9 @@ export default function ImageGeneratorPage() {
           <div className="lg:col-span-1">
             <div className="card-glass p-4 h-full flex flex-col">
               <h2 className="text-white font-bold text-sm mb-3"><span>结果预览</span><span className="text-xs opacity-50 ml-1">/ PREVIEW</span></h2>
+              {lastPoints != null && (
+                <p className="text-[10px] text-amber-300/80 mb-2">🪙 本次 AI 消耗 {lastPoints} 点</p>
+              )}
               <div className="flex-1 flex items-center justify-center min-h-[260px] bg-black/30 rounded-lg overflow-hidden">
                 {generating ? (
                   <div className="text-center p-4">
