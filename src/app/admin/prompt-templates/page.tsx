@@ -232,6 +232,7 @@ export default function AdminPromptTemplatesPage() {
         ossUrl: item.previewUrl!.trim(),
         prompt: item.prompt,
         category: item.category,
+        orientation: videoOrientation === 'vertical' ? 'portrait' : 'landscape',
       }))
       const r = await fetch('/api/media-library', {
         method: 'POST', credentials: 'include',

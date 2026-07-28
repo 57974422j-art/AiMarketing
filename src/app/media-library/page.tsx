@@ -13,7 +13,6 @@ interface Asset {
 }
 
 const TABS = [
-  { key: 'all', label: '全部' },
   { key: 'landscape', label: '横屏' },
   { key: 'portrait', label: '竖屏' },
 ] as const
@@ -22,14 +21,13 @@ type TabKey = (typeof TABS)[number]['key']
 
 export default function MediaLibraryPage() {
   const router = useRouter()
-  const [tab, setTab] = useState<TabKey>('all')
+  const [tab, setTab] = useState<TabKey>('landscape')
   const [items, setItems] = useState<Asset[]>([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(() => {
     setLoading(true)
-    const orientation = tab === 'all' ? 'all' : tab
-    fetch(`/api/media-library?source=public&orientation=${orientation}`, { credentials: 'include' })
+    fetch(`/api/media-library?source=public&orientation=${tab}`, { credentials: 'include' })
       .then(r => r.json())
       .then(d => setItems(Array.isArray(d?.data) ? d.data : []))
       .catch(() => setItems([]))

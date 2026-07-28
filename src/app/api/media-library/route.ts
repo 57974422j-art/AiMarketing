@@ -7,6 +7,7 @@ const prisma = new PrismaClient()
 async function ensureTable() {
   try { await prisma.$executeRawUnsafe('CREATE TABLE IF NOT EXISTS MediaAsset (id INTEGER PRIMARY KEY AUTOINCREMENT, ossUrl TEXT NOT NULL, title TEXT NOT NULL, type TEXT NOT NULL DEFAULT \'video\', prompt TEXT DEFAULT \'\', category TEXT DEFAULT \'\', source TEXT DEFAULT \'public\', ownerId INTEGER, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)') } catch {}
   const migrations = [
+    `ALTER TABLE MediaAsset ADD COLUMN ossUrl TEXT DEFAULT ''`,
     `ALTER TABLE MediaAsset ADD COLUMN type TEXT NOT NULL DEFAULT 'video'`,
     `ALTER TABLE MediaAsset ADD COLUMN prompt TEXT DEFAULT ''`,
     `ALTER TABLE MediaAsset ADD COLUMN category TEXT DEFAULT ''`,
@@ -19,6 +20,10 @@ async function ensureTable() {
     `ALTER TABLE MediaAsset ADD COLUMN orientation TEXT DEFAULT 'unknown'`,
   ]
   for (const sql of migrations) { try { await prisma.$executeRawUnsafe(sql) } catch {} }
+  // 回填：若历史数据走 Prisma 的 url 列（prisma db push 建的表），同步到 ossUrl，避免旧素材丢失
+  try { await prisma.$executeRawUnsafe('UPDATE MediaAsset SET ossUrl = url WHERE (ossUrl IS NULL OR ossUrl = \'\') AND url IS NOT NULL') } catch {}
+  // 回填：图片默认归横屏，避免未知方向在横/竖 tab 都看不到
+  try { await prisma.$executeRawUnsafe("UPDATE MediaAsset SET orientation = 'landscape' WHERE (orientation IS NULL OR orientation = '' OR orientation = 'unknown') AND type = 'image'") } catch {}
 }
 
 function detectType(url: string): 'video' | 'image' {
