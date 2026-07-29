@@ -13,7 +13,7 @@ interface Plan {
   status: string
 }
 interface MyUsage { month: string; llmTokens: number; text2img: number; text2video: number }
-interface Wallet { hasSubscription: boolean; planName: string | null; allowance: number; spent: number; remaining: number }
+interface Wallet { hasSubscription: boolean; planName: string | null; allowance: number; spent: number; subRemaining: number; pointBalance: number; remaining: number }
 
 const fmtYuan = (f: number) => '¥' + (f / 100).toFixed(0)
 const FREE_TRIAL_POINTS = 500
@@ -34,6 +34,8 @@ export default function MySubscriptionPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [loading, setLoading] = useState(true)
   const [buying, setBuying] = useState(false)
+  const [buyingId, setBuyingId] = useState<number | null>(null)
+  const [cards, setCards] = useState<any[]>([])
 
   useEffect(() => { loadData() }, [user])
   useEffect(() => {
@@ -47,12 +49,14 @@ export default function MySubscriptionPage() {
     try {
       // 先确保免费周卡套餐已种下（GET 自动创建），再拉套餐列表
       await fetch('/api/subscription/claim-weekly', { credentials: 'include' }).catch(() => {})
-      const [pr, ur] = await Promise.all([
+      const [pr, ur, cr] = await Promise.all([
         fetch('/api/admin/subscription-plans').then(r => r.json()),
         fetch('/api/subscription/my-usage').then(r => r.json()),
+        fetch('/api/point-cards').then(r => r.json()),
       ])
       if (pr.success) setPlans(pr.data)
       if (ur.success) { setUsage(ur.data.usage); setMyPlan(ur.data.subscription); setWallet(ur.data.wallet || null) }
+      if (cr.success) setCards(cr.data || [])
     } catch {}
     setLoading(false)
   }
