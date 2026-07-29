@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
-import AlipaySign from '@/lib/alipay'
+import { buildPagePayUrl } from '@/lib/alipay'
 import { getAuthFromCookie } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
@@ -26,29 +26,27 @@ export async function POST(req: NextRequest) {
     if (channel !== 'alipay') {
       return NextResponse.json({ success: false, message: '当前仅支持支付宝' }, { status: 400 })
     }
-    const gateway = 'https://openapi.alipay.com/gateway.do'
-    const params: Record<string, any> = {
-      app_id: process.env.ALIPAY_APP_ID,
-      method: 'alipay.trade.page.pay',
-      charset: 'UTF-8',
-      sign_type: 'RSA2',
-      timestamp: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }).replace(/\//g, '-'),
-      version: '1.0',
-      notify_url: process.env.ALIPAY_NOTIFY_URL,
-      return_url: process.env.ALIPAY_RETURN_URL || (process.env.NEXT_PUBLIC_BASE_URL + '/payment/success'),
-      biz_content: JSON.stringify({
+    if (!process.env.ALIPAY_APP_ID || !process.env.ALIPAY_PRIVATE_KEY || !process.env.ALIPAY_NOTIFY_URL) {
+      return NextResponse.json({ success: false, message: '支付宝未配置' }, { status: 500 })
+    }
+    const payUrl = buildPagePayUrl(
+      {
+        appId: process.env.ALIPAY_APP_ID,
+        privateKey: process.env.ALIPAY_PRIVATE_KEY,
+        publicKey: process.env.ALIPAY_PUBLIC_KEY || '',
+        gateway: 'https://openapi.alipay.com/gateway.do',
+        notifyUrl: process.env.ALIPAY_NOTIFY_URL,
+        returnUrl: process.env.ALIPAY_RETURN_URL || (process.env.NEXT_PUBLIC_BASE_URL + '/payment/success'),
+      },
+      {
         out_trade_no: orderNo,
         product_code: 'FAST_INSTANT_TRADE_PAY',
         total_amount: (amount / 100).toFixed(2),
         subject: '点卡：' + card.name,
         body: `${card.points} 点`,
         passback_params: Buffer.from(JSON.stringify({ module: 'pointcard' })).toString('base64'),
-      }),
-    }
-    const sign = AlipaySign.sign(params)
-    params.sign = sign
-    const query = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
-    const payUrl = `${gateway}?${query}`
+      },
+    )
 
     await prisma.pointCardOrder.update({ where: { id: order.id }, data: { payUrl } })
     return NextResponse.json({ success: true, data: { orderNo, payUrl, amount } })

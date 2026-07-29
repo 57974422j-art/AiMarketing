@@ -306,13 +306,13 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
 
         // 查该平台已绑定的指纹浏览器账号（bindType=manual）
         const accts = await prisma.socialAccount.findMany({
-          where: { userId: auth.userId, platform, bindType: 'manual' },
+          where: { userId: auth.userId, platform },
           take: 5,
         })
         if (!accts.length) {
           return `PUBLISH_NEED_LOGIN:你还没有绑定${label}的指纹浏览器账号。请去【账号管理】登记一个 bindType=manual 的${label}账号，然后在【指纹浏览器】页启动并登录该平台（扫码），登录好之后就可以发布了。`
         }
-        const list = accts.map(a => `- ${a.username}（${label}${a.cdpPort ? `，端口${a.cdpPort}` : ''}）`).join('\n')
+        const list = accts.map(a => `- ${a.username}（${label}）`).join('\n')
         const contentLine = args.contentUrl ? `\n📎 待发内容：${args.contentUrl}` : '\n📎 待发内容：还未确定，可从个人仓库选一个成片'
         const captionLine = args.caption ? `\n📝 文案：${args.caption}` : ''
         return `PUBLISH_READY:${label}已绑定 ${accts.length} 个指纹浏览器账号:\n${list}${contentLine}${captionLine}\n\n👉 发布操作：打开客户端【指纹浏览器】页 → 选择该账号并启动 → 从素材仓库选择这个视频 → 填好标题文案 → 点发布。\n⚠️ 如果发布时提示「该账号未登录平台」，点账号卡片上的「🔓 去登录」扫码登录后重试（我不代你登录）。`

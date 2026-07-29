@@ -18,6 +18,10 @@ export function pickInBox(b: ButtonBox): { x: number; y: number } {
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { mkdir, writeFile, unlink } from 'fs/promises'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+
+const execFileAsync = promisify(execFile)
 
 // ==================== 基础工具 ====================
 
