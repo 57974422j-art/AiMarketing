@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.0.12",
+    "date": "2026-07-29",
+    "title": "修复视频号/B站发布「detached element」失败",
+    "changes": [
+      "视频号发布：上传改用选择器写法 page.setInputFiles('input[type=file]', path)，避免点击上传弹层后元素句柄脱离 DOM 导致「Cannot set input files to detached element」报错",
+      "B站发布：主路径同样由元素句柄 setInputFiles 改为选择器写法，规避同一 detached 问题",
+      "抖音/快手/小红书的 page.setInputFiles 选择器兜底本就存在，本次未改动"
+    ]
+  },
+  {
     "version": "1.0.11",
     "date": "2026-07-29",
     "title": "修复登录态保存不住 + 5 平台发布不可用",
