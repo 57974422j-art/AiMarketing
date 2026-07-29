@@ -452,7 +452,11 @@ export default function MyFingerprintPage() {
     try {
       const r = await fetch('/api/content-draft', { credentials: 'include' })
       const d = await r.json()
-      if (d.success) setDrafts(d.drafts || [])
+      if (d.success) {
+        setDrafts(d.drafts || [])
+      } else if (r.status === 401) {
+        showToast('请先登录后再查看草稿', 'error')
+      }
     } catch {}
   }
 
