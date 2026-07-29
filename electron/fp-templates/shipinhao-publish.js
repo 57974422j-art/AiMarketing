@@ -109,55 +109,66 @@ async function fillShortTitle(page, title, log) {
 }
 
 /**
- * 定位视频号「视频描述」输入框。
- * 视频号描述区：标签文字为「视频描述」，未聚焦时显示灰字「添加描述」（多为 CSS 伪元素/占位，
- * 不是真实 placeholder），且底层常是 div[contenteditable]（可能 plaintext-only）。
- * 策略：①按标签「视频描述」找所在表单项内的可编辑区；②按 placeholder 含“描述/介绍”找 textarea/input；
- * ③兜底任意 [contenteditable]。返回打标的临时选择器，找不到返回 null。
+ * 定位视频号「视频描述」输入框并填入。
+ * 视频号描述区【在标题上方】：标签文字为「视频描述」，未聚焦时显示灰字「添加描述」
+ * （该灰字是 CSS 伪元素占位，并非真实 DOM 文本/placeholder，因此 text= 选择器点不到）。
+ * 底层常是 div[contenteditable]，需先【点击容器】把它展开成真正的可编辑区，再在其中填入。
  */
-async function findDescSelector(page) {
-  return await page.evaluate(() => {
-    const isEditable = (el) =>
-      el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.getAttribute('contenteditable') !== null)
+async function fillDescription(page, description, topics, log) {
+  // 1) 按「视频描述」标签定位其所在容器，并打标
+  const containerSel = await page.evaluate(() => {
     const labels = Array.from(document.querySelectorAll('label, div, span, p'))
     for (const lab of labels) {
       if (lab.textContent && lab.textContent.trim() === '视频描述') {
         const c = lab.closest('[class*="item"], [class*="form"], [class*="row"], [class*="field"]') || lab.parentElement
-        const box = c && c.querySelector('textarea, input, [contenteditable]')
-        if (isEditable(box)) {
-          box.setAttribute('data-fp-desc', '1')
-          return '[data-fp-desc="1"]'
+        if (c) {
+          c.setAttribute('data-fp-desc-box', '1')
+          return '[data-fp-desc-box="1"]'
         }
       }
     }
-    const ta = document.querySelector(
-      'textarea[placeholder*="描述"], textarea[placeholder*="介绍"], input[placeholder*="描述"], input[placeholder*="介绍"]'
-    )
-    if (isEditable(ta)) {
-      ta.setAttribute('data-fp-desc', '1')
-      return '[data-fp-desc="1"]'
-    }
-    const ce = document.querySelector('[contenteditable]')
-    if (isEditable(ce)) {
-      ce.setAttribute('data-fp-desc', '1')
-      return '[data-fp-desc="1"]'
-    }
     return null
   })
-}
 
-/** 视频描述：放文案 + #话题（话题不进短标题） */
-async function fillDescription(page, description, topics, log) {
-  let sel = await findDescSelector(page)
-  if (!sel) {
-    // 视频号描述区可能是「添加描述」灰字，点击展开真正的输入框
-    const add = await page.$('text=添加描述')
-    if (add) {
-      await add.click().catch(() => {})
-      await sleep(600)
-      sel = await findDescSelector(page)
-    }
+  // 在容器内查找可编辑区；找不到就先点击容器（展开“添加描述”），再查一次
+  const tryFindEditable = () =>
+    page.evaluate(() => {
+      const box = document.querySelector('[data-fp-desc-box="1"]') || document.body
+      const el = box.querySelector('textarea, input, [contenteditable]')
+      if (el) {
+        el.setAttribute('data-fp-desc', '1')
+        return '[data-fp-desc="1"]'
+      }
+      return null
+    })
+
+  let sel = containerSel ? await tryFindEditable() : null
+  if (!sel && containerSel) {
+    // 关键：点击容器把「添加描述」灰字展开成真正的可编辑区（灰字是 CSS 占位，不能直接 text= 选中）
+    await page.click(containerSel, { timeout: 5000 }).catch(() => {})
+    await sleep(800)
+    sel = await tryFindEditable()
   }
+
+  // 2) 兜底：任意含“描述/介绍”placeholder 的 textarea/input，或任意 [contenteditable]
+  if (!sel) {
+    sel = await page.evaluate(() => {
+      const ta = document.querySelector(
+        'textarea[placeholder*="描述"], textarea[placeholder*="介绍"], input[placeholder*="描述"], input[placeholder*="介绍"]'
+      )
+      if (ta) {
+        ta.setAttribute('data-fp-desc', '1')
+        return '[data-fp-desc="1"]'
+      }
+      const ce = document.querySelector('[contenteditable]')
+      if (ce) {
+        ce.setAttribute('data-fp-desc', '1')
+        return '[data-fp-desc="1"]'
+      }
+      return null
+    })
+  }
+
   if (!sel) {
     log('未找到视频描述输入框，跳过描述填写')
     return
