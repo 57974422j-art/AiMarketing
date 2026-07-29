@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { getPaymentConfig } from '@/lib/payment-config'
 import { verifySign } from '@/lib/alipay'
+import { addPointBalance } from '@/lib/token-wallet'
 
 const prisma = new PrismaClient()
 
@@ -31,6 +32,26 @@ export async function POST(req: NextRequest) {
 
     const orderNo = params['out_trade_no']
     const tradeNo = params['trade_no']
+
+    // ── 点卡订单分支（订单号前缀 PC）──
+    const pcOrder = await prisma.pointCardOrder.findUnique({ where: { orderNo } })
+    if (pcOrder) {
+      if (pcOrder.status === 'paid') return new NextResponse('success', { status: 200 })
+      const notifyAmount = Math.round(parseFloat(params['total_amount'] || '0') * 100)
+      if (notifyAmount !== pcOrder.amount) {
+        if (pcOrder.status !== 'paid') {
+          await prisma.pointCardOrder.update({ where: { orderNo }, data: { status: 'failed', raw: JSON.stringify(params) } })
+        }
+        return new NextResponse('success', { status: 200 })
+      }
+      if (pcOrder.status !== 'paid') {
+        await prisma.pointCardOrder.update({ where: { orderNo }, data: { status: 'paid', tradeNo, paidAt: pcOrder.paidAt || new Date(), raw: JSON.stringify(params) } })
+      }
+      // 支付成功 → 充值永久点数余额
+      await addPointBalance(pcOrder.userId, pcOrder.points, pcOrder.orderNo)
+      return new NextResponse('success', { status: 200 })
+    }
+
     const order = await prisma.paymentOrder.findUnique({ where: { orderNo } })
     if (!order) return new NextResponse('success', { status: 200 })
 

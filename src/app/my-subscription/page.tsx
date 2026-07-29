@@ -106,6 +106,45 @@ export default function MySubscriptionPage() {
     }
   }
 
+  // 点卡下单（新开支付宝标签页，支付后轮询到账）
+  const buyCard = async (card: any) => {
+    if (!user?.id) { showToast('请先登录', 'error'); return }
+    setBuyingId(card.id)
+    try {
+      const r = await fetch('/api/point-cards/checkout', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardId: card.id, channel: 'alipay' }),
+      })
+      const d = await r.json()
+      if (d.success && d.data?.payUrl) {
+        window.open(d.data.payUrl, '_blank')
+        showToast('已打开支付宝，支付成功后本页自动刷新', 'success')
+        pollPointCardOrder(d.data.orderNo)
+        return
+      }
+      showToast(d.message || '发起支付失败', 'error')
+    } catch { showToast('发起支付失败', 'error') }
+    setBuyingId(null)
+  }
+
+  // 点卡订单支付后轮询到账
+  const pollPointCardOrder = (orderNo: string) => {
+    const timer = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/point-cards/order/${orderNo}`, { credentials: 'include' })
+        const d = await r.json()
+        if (d.success && d.data.status === 'paid') {
+          clearInterval(timer)
+          setBuyingId(null)
+          showToast('🎉 点卡已到账，余额已更新！', 'success')
+          loadData()
+        }
+      } catch {}
+    }, 3000)
+    setTimeout(() => { clearInterval(timer); setBuyingId(null) }, 120000)
+  }
+
   if (loading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center text-gray-400 text-sm">加载中...</div>
 
   return (
@@ -130,18 +169,18 @@ export default function MySubscriptionPage() {
           )}
         </div>
 
-        {/* TOKEN 余额 */}
-        {wallet && wallet.hasSubscription && (
+        {/* 点数钱包（月额度 + 点卡永久余额） */}
+        {wallet && (
           <div className="card-glass p-4 mb-6">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs text-gray-400">🪙 本月点数额度</h3>
-              <span className="text-[10px] text-gray-600">1 点 ≈ ¥0.01（按各平台成本折算）</span>
+              <h3 className="text-xs text-gray-400">🪙 点数钱包</h3>
+              <span className="text-[10px] text-gray-600">1 点 ≈ ¥0.01</span>
             </div>
             <div className="grid grid-cols-3 gap-3 mb-2">
               {[
-                { label: '总额度', value: wallet.allowance.toLocaleString(), color: 'text-white' },
+                { label: '套餐剩余', value: wallet.subRemaining.toLocaleString(), color: 'text-white' },
                 { label: '已消耗', value: wallet.spent.toLocaleString(), color: 'text-amber-400' },
-                { label: '剩余', value: wallet.remaining.toLocaleString(), color: 'text-emerald-400' },
+                { label: '点卡余额', value: wallet.pointBalance.toLocaleString(), color: 'text-emerald-400' },
               ].map(i => (
                 <div key={i.label} className="bg-white/5 rounded-lg p-2.5 text-center">
                   <p className="text-[10px] text-gray-500">{i.label}</p>
@@ -149,12 +188,46 @@ export default function MySubscriptionPage() {
                 </div>
               ))}
             </div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-emerald-500 to-blue-500 rounded-full transition-all"
-                style={{ width: `${wallet.allowance > 0 ? Math.min(100, (wallet.remaining / wallet.allowance) * 100) : 0}%` }} />
-            </div>
+            {wallet.allowance > 0 && (
+              <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-emerald-500 to-blue-500 rounded-full transition-all"
+                  style={{ width: `${Math.min(100, (wallet.subRemaining / wallet.allowance) * 100)}%` }} />
+              </div>
+            )}
+            <p className="text-[10px] text-gray-600 mt-2">扣费顺序：先扣当月套餐额度，额度用完再扣点卡余额（永不过期）。</p>
           </div>
         )}
+
+        {/* 点卡补充（永久点数） */}
+        <div className="card-glass p-5 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm text-white">🎫 点卡补充（永久点数，永不过期）</h3>
+              <p className="text-[10px] text-gray-500 mt-1">适合额度用完的用户补充点数；购买后直接累加到上方「点卡余额」。</p>
+            </div>
+          </div>
+          {cards.length === 0 ? (
+            <p className="text-gray-500 text-xs">暂无可售点卡</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {cards.map(c => (
+                <div key={c.id} className="border border-white/10 rounded-lg p-4 bg-white/5">
+                  <div className="text-white text-sm font-medium">{c.name}</div>
+                  {c.description && <div className="text-gray-500 text-[10px] mt-1 h-8 overflow-hidden">{c.description}</div>}
+                  <div className="mt-2 flex items-baseline gap-1">
+                    <span className="text-amber-400 font-mono text-lg">{c.points.toLocaleString()}</span>
+                    <span className="text-gray-500 text-[10px]">点</span>
+                  </div>
+                  <div className="mt-1 text-emerald-400 font-mono text-sm">¥{(c.price / 100).toFixed(2)}</div>
+                  <button onClick={() => buyCard(c)} disabled={buyingId === c.id}
+                    className="mt-3 w-full px-3 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded text-xs hover:bg-blue-500/30 disabled:opacity-50">
+                    {buyingId === c.id ? '处理中…' : '购买'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* 用量 */}
         {usage && (
