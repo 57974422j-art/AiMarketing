@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.0.11",
+    "date": "2026-07-29",
+    "title": "修复登录态保存不住 + 5 平台发布不可用",
+    "changes": [
+      "登录态按账号维度持久化：fp:start 的 profile 目录 key 改用 Account.id（不再 userId-platform 争用），每个账号独立稳定目录，解决「扫码登录后保存不住」",
+      "新增 fp:markLogin / fp:loginState / fp:logout 三个 IPC；前端登录态改为跨刷新持久（取代纯内存 needLoginIds），账号卡片新增「✅ 我已登录」按钮，发布成功自动标记已登录",
+      "新增发布脚本公共模块 fp-templates/_common.js：素材仓库视频/封面自动下载到本地，修复 5 平台脚本因拿不到本地 videoPath 而「缺少 videoPath」直接失败的共通根因",
+      "抖音/小红书/快手/视频号/B站 5 平台脚本接入视频路径解析，发布流程可真正启动；抖音补导航后登录检测（未登录返回 needLogin）"
+    ]
+  },
+  {
     "version": "1.0.10",
     "date": "2026-07-28",
     "title": "修复视频号登录检测误判（已登录仍提示需扫码）",
