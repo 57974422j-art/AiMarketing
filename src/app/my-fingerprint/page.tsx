@@ -36,7 +36,8 @@ interface PublishTask {
   title: string           // 标题
   description: string     // 文案/简介
   topics: string          // 话题
-  coverImage: string      // 封面
+  coverImage: string      // 封面（自定义/AI 封面 URL 或素材仓库文件名；平台智能封面模式时为空）
+  coverMode: 'upload' | 'platform'  // upload=上传封面 / platform=使用平台智能封面（不上传）
   location: string        // 位置
   publishNow: boolean     // true=立即发布 false=草稿
   status: 'pending' | 'publishing' | 'done' | 'failed'
@@ -108,6 +109,23 @@ export default function MyFingerprintPage() {
   const [formDesc, setFormDesc] = useState('')
   const [formTopics, setFormTopics] = useState('')
   const [formCoverImage, setFormCoverImage] = useState('')
+  const [formCoverMode, setFormCoverMode] = useState<'upload' | 'platform'>('upload')  // upload=上传封面 / platform=平台智能封面
+
+  // 封面缩微图下方的文件名显示：去掉多余 URL，只展示可读文件名
+  const coverDisplayName = (() => {
+    const raw = formCoverImage
+    if (!raw) return ''
+    if (raw.startsWith('http')) {
+      try {
+        const u = new URL(raw)
+        const nameParam = u.searchParams.get('name')
+        if (nameParam) return decodeURIComponent(nameParam.split('/').pop() || nameParam)
+        const seg = u.pathname.split('/').filter(Boolean).pop()
+        return seg ? decodeURIComponent(seg) : raw
+      } catch { return raw }
+    }
+    return raw
+  })()
   const [aiUsage, setAiUsage] = useState<null | { promptTokens: number; completionTokens: number; totalTokens: number }>(null)
   const [aiFillPoints, setAiFillPoints] = useState<number | null>(null)   // AI 看片消耗点数
   const [aiCoverPoints, setAiCoverPoints] = useState<number | null>(null) // AI 生封面消耗点数
@@ -302,6 +320,7 @@ export default function MyFingerprintPage() {
     setFormDesc('')
     setFormTopics('')
     setFormCoverImage('')
+    setFormCoverMode('upload')
     setAiUsage(null)
     setAiFillPoints(null)
     setAiCoverPoints(null)
@@ -385,6 +404,7 @@ export default function MyFingerprintPage() {
       description: formDesc.trim(),
       topics: formTopics.trim(),
       coverImage: formCoverImage,
+      coverMode: formCoverMode,
       location: formLocation,
       publishNow: formPublishNow,
       status: 'pending',
@@ -418,6 +438,7 @@ export default function MyFingerprintPage() {
         description: formDesc.trim(),
         topics: formTopics.trim(),
         coverImage: formCoverImage,
+        coverMode: formCoverMode,
         location: formLocation,
         publishNow: formPublishNow,
         status: 'publishing',
@@ -480,7 +501,8 @@ export default function MyFingerprintPage() {
     params.title = task.title
     params.description = task.description
     params.topics = task.topics
-    params.coverImage = task.coverImage
+    params.coverImage = task.coverMode === 'platform' ? '' : task.coverImage
+    params.coverMode = task.coverMode
     params.location = task.location
     params.publishNow = String(task.publishNow)
     return params
@@ -895,6 +917,25 @@ export default function MyFingerprintPage() {
                 {/* 封面（可选） */}
                 <div>
                   <label className="text-[11px] text-gray-500 block mb-1">封面（可选）</label>
+
+                  {/* 封面模式切换：上传封面 / 平台智能封面 */}
+                  <div className="flex gap-2 mb-2">
+                    <button type="button" onClick={() => setFormCoverMode('upload')}
+                      className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] border transition ${formCoverMode === 'upload' ? 'bg-purple-500/20 border-purple-500/40 text-purple-200' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>
+                      🖼️ 上传封面
+                    </button>
+                    <button type="button" onClick={() => { setFormCoverMode('platform'); setFormCoverImage('') }}
+                      className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] border transition ${formCoverMode === 'platform' ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>
+                      ✨ 平台智能封面
+                    </button>
+                  </div>
+
+                  {formCoverMode === 'platform' ? (
+                    <div className="text-[11px] text-emerald-300/90 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2.5">
+                      ✓ 将使用平台智能封面，不单独上传（由平台自动取最佳帧）
+                    </div>
+                  ) : (
+                  <>
                   {formCoverImage ? (
                     <div className="flex items-center gap-2 bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
                       <img
@@ -902,7 +943,7 @@ export default function MyFingerprintPage() {
                         alt="cover"
                         className="w-12 h-12 rounded object-cover shrink-0"
                       />
-                      <span className="text-[10px] text-purple-300 truncate flex-1">{formCoverImage}</span>
+                      <span className="text-[10px] text-purple-300 truncate flex-1" title={formCoverImage}>{coverDisplayName}</span>
                       <button type="button" onClick={() => { setFormCoverImage(''); setAiUsage(null) }} className="text-red-400 hover:text-red-300 text-xs">✕</button>
                     </div>
                   ) : (
@@ -958,6 +999,8 @@ export default function MyFingerprintPage() {
                     <p className="mt-2 text-[10px] text-amber-300/80">
                       🪙 本次 AI 看片消耗 {aiFillPoints} 点
                     </p>
+                  )}
+                  </>
                   )}
                 </div>
 
