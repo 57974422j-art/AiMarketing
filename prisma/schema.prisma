@@ -75,6 +75,8 @@ model User {
   generationRecords       GenerationRecord[]    // 生成记录总表（虚拟关系，不产生数据库列）
   feedbacks               Feedback[]            // 问题反馈（虚拟关系，不产生数据库列）
   chatSessions            ChatSession[]
+  pointBalance            Int      @default(0)  // 点卡永久点数余额（1点=¥0.01，不过期；扣费顺序=月额度优先、余额兜底）
+  pointCardOrders         PointCardOrder[]
 }
 
 model DevicePool {
@@ -452,6 +454,46 @@ model PaymentOrder {
 
   user User             @relation(fields: [userId],   references: [id])
   plan SubscriptionPlan @relation(fields: [planId],   references: [id])
+}
+
+// ── 点卡（永久点数充值包）──
+// 点卡 ≠ 套餐：无时长概念，购买后点数直接累加到 User.pointBalance，永不过期、不按月清零。
+// 扣费顺序：先扣当月套餐额度，额度用完再扣 pointBalance（见 lib/token-wallet.ts）。
+model PointCard {
+  id          Int      @id @default(autoincrement())
+  name        String                             // 点卡名 "1000点补充包"
+  description String?                            // 描述
+  points      Int                                // 充值点数（1点=¥0.01）
+  price       Int                                // 售价(分)
+  status      String   @default("active")        // active/disabled
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders PointCardOrder[]
+}
+
+model PointCardOrder {
+  id        Int      @id @default(autoincrement())
+  orderNo   String   @unique                     // 商户订单号
+  userId    Int
+  cardId    Int
+  channel   String   @default("alipay")          // alipay / wechat
+  amount    Int                                  // 金额(分)
+  points    Int                                  // 到账点数（下单时快照，防后台改卡影响历史订单）
+  subject   String                               // 订单标题
+  status    String   @default("pending")         // pending / paid / closed / failed
+  tradeNo   String?
+  payUrl    String?
+  qrCode    String?
+  expireAt  DateTime?
+  paidAt    DateTime?
+  raw       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User      @relation(fields: [userId], references: [id])
+  card PointCard @relation(fields: [cardId], references: [id])
 }
 
 model VideoTemplate {
