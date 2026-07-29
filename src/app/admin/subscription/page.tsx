@@ -18,9 +18,9 @@ interface UsageStats { month: string; totals: any; users: any[] }
 const fmtYuan = (fen: number) => '¥' + (fen / 100).toFixed(0)
 const fmtDisk = (mb: number) => mb >= 1024 ? (mb / 1024).toFixed(1) + 'GB' : mb + 'MB'
 const fmtQuota = (v: number) => v === -1 ? '∞' : v > 0 ? v.toLocaleString() : '—'
-/** 月 TOKEN 额度：1 TOKEN=¥0.01，实付价/月数；0元套餐=500 试用 */
+/** 月 TOKEN 额度：与前端「我的套餐」/后端 token-wallet.planMonthlyTokens 算法一致 —— 1 点=¥0.01，按【原价】/月数（折后价仅用于展示与支付，不计入额度） */
 const planTokens = (p: Plan) => {
-  const effective = p.discountPrice ?? p.price
+  const effective = p.price
   if (effective <= 0) return 500
   return Math.round(effective / Math.max(1, p.durationMonths || 1))
 }
