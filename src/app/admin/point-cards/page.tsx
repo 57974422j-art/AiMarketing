@@ -27,6 +27,7 @@ export default function PointCardAdminPage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<PointCard | null>(null)
   const [form, setForm] = useState<Partial<PointCard>>({})
+  const [seeding, setSeeding] = useState(false)
 
   useEffect(() => { if (!authLoading) setAuthorized(user?.role === 'admin') }, [authLoading, user])
   useEffect(() => { if (authorized) loadCards() }, [authorized])
@@ -87,6 +88,18 @@ export default function PointCardAdminPage() {
     } catch { showToast('删除失败', 'error') }
   }
 
+  const seedCards = async () => {
+    if (!confirm('初始化示例点卡（仅在当前没有任何点卡时生效）？')) return
+    setSeeding(true)
+    try {
+      const r = await fetch('/api/admin/point-cards/seed', { method: 'POST' })
+      const d = await r.json()
+      showToast(d.message, d.success ? 'success' : 'error')
+      if (d.success) loadCards()
+    } catch { showToast('初始化失败', 'error') }
+    setSeeding(false)
+  }
+
   const startEdit = (c: PointCard) => { setEditing(c); setForm({ ...c }) }
   const startNew = () => { setEditing(null as any); setForm({ name: '', description: '', points: 1000, price: 990, status: 'active', sortOrder: cards.length }) }
 
@@ -108,6 +121,7 @@ export default function PointCardAdminPage() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm text-white">🎫 点卡列表 ({cards.length})</h3>
             <button onClick={startNew} className="px-3 py-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded text-xs hover:bg-blue-500/30">+ 新建点卡</button>
+            <button onClick={seedCards} disabled={seeding} className="px-3 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-xs hover:bg-amber-500/30 disabled:opacity-50">{seeding ? '初始化中…' : '🎲 初始化示例点卡'}</button>
           </div>
           {loading ? <p className="text-gray-500 text-xs">加载...</p> : cards.length === 0 ? <p className="text-gray-500 text-xs">暂无点卡，点击右上角新建</p> : (
             <div className="overflow-x-auto">

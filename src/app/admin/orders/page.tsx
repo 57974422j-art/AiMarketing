@@ -5,11 +5,12 @@ import { showToast } from '@/components/Toast'
 
 interface OrderUser { username: string | null; email: string | null }
 interface OrderPlan { name: string | null }
+interface OrderCard { name: string | null; points: number | null }
 interface Order {
   id: number
   orderNo: string
   userId: number
-  planId: number
+  planId?: number
   channel: string
   amount: number
   subject: string
@@ -22,7 +23,11 @@ interface Order {
   createdAt: string
   updatedAt: string
   user: OrderUser
-  plan: OrderPlan
+  plan?: OrderPlan
+  card?: OrderCard
+  type?: string        // 'subscription' | 'pointcard'
+  productName?: string // 归一化商品名
+  points?: number | null
 }
 
 const fmtYuan = (fen: number) => '¥' + (fen / 100).toFixed(2)
@@ -121,7 +126,7 @@ export default function AdminOrdersPage() {
                 <thead><tr className="text-gray-500 border-b border-white/10">
                   <th className="text-left py-2">订单号</th>
                   <th className="text-left">用户</th>
-                  <th className="text-left">套餐</th>
+                  <th className="text-left">商品</th>
                   <th className="text-right">金额</th>
                   <th className="text-center">渠道</th>
                   <th className="text-center">状态</th>
@@ -130,10 +135,13 @@ export default function AdminOrdersPage() {
                 </tr></thead>
                 <tbody>
                   {orders.map(o => (
-                    <tr key={o.id} className="border-b border-white/5 text-gray-300 hover:bg-white/5">
+                    <tr key={o.type + '-' + o.id} className="border-b border-white/5 text-gray-300 hover:bg-white/5">
                       <td className="py-2 font-mono text-[11px]">{o.orderNo}</td>
                       <td>{o.user?.username || o.user?.email || '—'}</td>
-                      <td>{o.plan?.name || '—'}</td>
+                      <td>
+                        <span className={`mr-1 text-[10px] px-1.5 py-0.5 rounded ${o.type === 'pointcard' ? 'bg-amber-500/15 text-amber-400' : 'bg-blue-500/15 text-blue-400'}`}>{o.type === 'pointcard' ? '点卡' : '套餐'}</span>
+                        <span>{o.productName || o.plan?.name || o.card?.name || '—'}</span>
+                      </td>
                       <td className="text-right font-mono">{fmtYuan(o.amount)}</td>
                       <td className="text-center">{CHANNEL_LABEL[o.channel] || o.channel}</td>
                       <td className="text-center"><span className={STATUS_META[o.status]?.cls || 'text-gray-400'}>{STATUS_META[o.status]?.label || o.status}</span></td>
@@ -173,9 +181,11 @@ export default function AdminOrdersPage() {
             <dl className="space-y-2 text-xs">
               {[
                 ['订单号', detail.orderNo],
+                ['类型', detail.type === 'pointcard' ? '点卡（永久点数）' : '会员套餐'],
                 ['标题', detail.subject],
                 ['用户', detail.user?.username || detail.user?.email || '—'],
-                ['套餐', detail.plan?.name || '—'],
+                ['商品', detail.type === 'pointcard' ? (detail.card?.name || detail.subject || '—') : (detail.plan?.name || '—')],
+                detail.type === 'pointcard' ? ['到账点数', `${detail.points?.toLocaleString() || 0} 点`] as [string, string] : ['套餐', detail.plan?.name || '—'],
                 ['金额', fmtYuan(detail.amount)],
                 ['渠道', CHANNEL_LABEL[detail.channel] || detail.channel],
                 ['状态', STATUS_META[detail.status]?.label || detail.status],

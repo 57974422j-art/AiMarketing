@@ -30,27 +30,39 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [orders, total, grouped] = await Promise.all([
+    // 同时查「套餐订单」与「点卡订单」，合并为统一列表（点卡订单计入同一状态汇总）
+    const [subOrders, pcOrders, subTotal, pcTotal, subGrouped, pcGrouped] = await Promise.all([
       prisma.paymentOrder.findMany({
         where,
-        include: {
-          user: { select: { username: true, email: true } },
-          plan: { select: { name: true } },
-        },
+        include: { user: { select: { username: true, email: true } }, plan: { select: { name: true } } },
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+      }),
+      prisma.pointCardOrder.findMany({
+        where,
+        include: { user: { select: { username: true, email: true } }, card: { select: { name: true, points: true } } },
+        orderBy: { createdAt: 'desc' },
       }),
       prisma.paymentOrder.count({ where }),
+      prisma.pointCardOrder.count({ where }),
       prisma.paymentOrder.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.pointCardOrder.groupBy({ by: ['status'], _count: { _all: true } }),
     ])
 
+    const normSub = subOrders.map((o: any) => ({ ...o, type: 'subscription', productName: o.plan?.name || '—' }))
+    const normPc = pcOrders.map((o: any) => ({ ...o, type: 'pointcard', productName: o.card?.name || o.subject || '—', points: o.points }))
+    const merged = [...normSub, ...normPc].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
+
+    const total = subTotal + pcTotal
+    const pageOrders = merged.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize)
+
     const summary: Record<string, number> = { all: total }
-    grouped.forEach((g: any) => { summary[g.status] = g._count._all })
+    ;[...subGrouped, ...pcGrouped].forEach((g: any) => { summary[g.status] = (summary[g.status] || 0) + g._count._all })
 
     return NextResponse.json({
       success: true,
-      data: { orders, total, page, pageSize, summary },
+      data: { orders: pageOrders, total, page, pageSize, summary },
     })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message }, { status: 500 })
