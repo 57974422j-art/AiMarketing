@@ -578,19 +578,29 @@ model AccountGroupItem {
 }
 
 model MediaAsset {
-  id        Int      @id @default(autoincrement())
-  title     String
-  url       String?
-  type      String   @default("video")  // video / image / audio
-  duration  Int?
-  size      Int?
-  ownerId   Int
-  createdAt DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  title        String
+  url          String?
+  ossUrl       String   @default("")      // 素材真实地址（OSS），列表/播放/下载主用
+  type         String   @default("video") // video / image / audio
+  prompt       String   @default("")      // 素材提示词
+  category     String   @default("")      // 分类（行业/类型）
+  source       String   @default("public")// public 公共素材 / private 用户私有
+  purpose      String   @default("")      // 用途
+  industry     String   @default("")      // 行业
+  platform     String   @default("")      // 平台
+  thumbnailUrl String?                   // 封面
+  originalUrl  String?                   // 原始链接
+  orientation  String   @default("unknown") // landscape / portrait / unknown
+  duration     Int?
+  size         Int?
+  ownerId      Int
+  createdAt    DateTime @default(now())
 
   owner User @relation(fields: [ownerId], references: [id])
 
   // 【素材库】
-  // 存放上传的视频/图片/音频素材，供AI调用于视频合成。
+  // 存放上传的视频/图片/音频素材，文件本体在 OSS（ossUrl），本表仅存目录/元数据。
 }
 
 model AutomationTemplate {
