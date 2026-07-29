@@ -74,9 +74,10 @@ export interface TokenCheck {
   wallet: TokenWallet
 }
 
-/** 计算某套餐的月度点数额度（按原价，不打折价） */
-export function planMonthlyTokens(plan: { price: number; discountPrice: number | null; durationMonths: number }): number {
-  const effective = plan.price // 分，使用原价（折后价仅作展示/支付用）
+/** 计算某套餐的月度点数额度：手动设定的 monthlyTokens 优先；否则按原价/月数自动算（折后价仅作展示/支付用） */
+export function planMonthlyTokens(plan: { price: number; discountPrice: number | null; durationMonths: number; monthlyTokens?: number | null }): number {
+  if (plan.monthlyTokens !== null && plan.monthlyTokens !== undefined) return plan.monthlyTokens
+  const effective = plan.price // 分，使用原价
   if (effective <= 0) return FREE_TRIAL_POINTS
   return Math.round(effective / Math.max(1, plan.durationMonths || 1))
 }

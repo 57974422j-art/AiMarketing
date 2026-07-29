@@ -7,6 +7,7 @@ interface Plan {
   id: number; name: string; description: string | null
   price: number; discountPrice: number | null
   durationMonths: number
+  monthlyTokens: number | null
   storageMb: number
   status: string; sortOrder: number
 }
@@ -15,8 +16,9 @@ interface UsageStats { month: string; totals: any; users: any[] }
 
 const fmtYuan = (fen: number) => '¥' + (fen / 100).toFixed(0)
 const fmtDisk = (mb: number) => mb >= 1024 ? (mb / 1024).toFixed(1) + 'GB' : mb + 'MB'
-/** 月点数额度：与前端「我的套餐」/后端 token-wallet.planMonthlyTokens 完全一致 —— 1 点=¥0.01，按【原价】/月数（折后价仅用于展示/支付，不计入额度） */
+/** 月点数额度：手填的 monthlyTokens 优先；否则按【原价】/月数自动算（与 token-wallet.planMonthlyTokens 完全一致，1 点≈¥0.01） */
 const planTokens = (p: Plan) => {
+  if (p.monthlyTokens !== null && p.monthlyTokens !== undefined) return p.monthlyTokens
   const effective = p.price
   if (effective <= 0) return 500
   return Math.round(effective / Math.max(1, p.durationMonths || 1))
@@ -64,6 +66,7 @@ export default function SubscriptionAdminPage() {
         price: Number(form.price),
         discountPrice: form.discountPrice ? Number(form.discountPrice) : null,
         durationMonths: Number(form.durationMonths) || 1,
+        monthlyTokens: (form.monthlyTokens === '' || form.monthlyTokens === undefined || form.monthlyTokens === null) ? null : Number(form.monthlyTokens),
         storageMb: Number(form.storageMb) || 100,
         sortOrder: Number(form.sortOrder) || 0,
       }
@@ -98,7 +101,7 @@ export default function SubscriptionAdminPage() {
   }
 
   const startEdit = (p: Plan) => { setEditing(p); setForm({ ...p }) }
-  const startNew = () => { setEditing(null as any); setForm({ name: '', price: 2900, discountPrice: null, durationMonths: 1, storageMb: 100, status: 'active', sortOrder: plans.length }) }
+  const startNew = () => { setEditing(null as any); setForm({ name: '', price: 2900, discountPrice: null, durationMonths: 1, monthlyTokens: '', storageMb: 100, status: 'active', sortOrder: plans.length }) }
 
   if (!authorized) return <div className="min-h-screen bg-gray-950 p-8 text-gray-400 text-sm">需要管理员权限</div>
 
@@ -206,13 +209,14 @@ export default function SubscriptionAdminPage() {
             {(editing !== null || form.name !== undefined) && (
               <div className="card-glass p-4 border border-blue-500/20">
                 <h3 className="text-sm text-blue-400 mb-3">{editing ? `编辑: ${editing.name}` : '新建套餐'}</h3>
-                <p className="text-[10px] text-gray-500 mb-3">点数体系：月点数 = 原价(分) / 月数（1 点≈¥0.01）。生图 12 点/张、生视频 100 点/秒、对话 1 点/条，<span className="text-gray-400">按实际用量扣点，无需单独设"多少张/多少条"配额</span>。</p>
+                <p className="text-[10px] text-gray-500 mb-3">点数体系：月点数 = 原价(分) / 月数（1 点≈¥0.01）。生图 12 点/张、生视频 100 点/秒、对话 1 点/条，<span className="text-gray-400">按实际用量扣点，无需单独设"多少张/多少条"配额</span>。表单中「月点数」**留空=按原价/月数自动算**；**填了即按你填的值生效**（可故意少给，如季卡 89 元只给 6900 点）。</p>
                 <div className="grid grid-cols-3 md:grid-cols-4 gap-3 text-xs">
                   {[
                     { key: 'name', label: '套餐名', type: 'text', placeholder: '基础月卡' },
                     { key: 'price', label: '原价(分)', type: 'number', placeholder: '2900(¥29)' },
                     { key: 'discountPrice', label: '折扣价(分)', type: 'number', placeholder: '1900(¥19)' },
                     { key: 'durationMonths', label: '月数', type: 'number', placeholder: '1' },
+                    { key: 'monthlyTokens', label: '月点数(可留空)', type: 'number', placeholder: '留空=原价/月数自动' },
                     { key: 'storageMb', label: '存储空间(MB)', type: 'number', placeholder: '100' },
                     { key: 'sortOrder', label: '排序', type: 'number', placeholder: '0' },
                   ].map(f => (

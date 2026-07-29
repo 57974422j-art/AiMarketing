@@ -395,6 +395,8 @@ model SubscriptionPlan {
   price             Int                               // 原价(分) 2900=¥29
   discountPrice     Int?                              // 折扣价(分) 1900=¥19
   durationMonths    Int      @default(1)              // 1=月/3=季/12=年
+  // 月点数额度：手动设定优先；为 null 时按 price/durationMonths 自动算（1 点≈¥0.01，见 token-wallet.planMonthlyTokens）
+  monthlyTokens     Int?                              // 覆盖值，后台套餐编辑页可手填；null=按原价/月数自动
   // 资源配额(0=不可用, -1=无限)
   deepseekTokens    Int      @default(-1)             // DeepSeek token（默认免费无限）
   llmTokens         Int      @default(0)              // Qwen LLM token
