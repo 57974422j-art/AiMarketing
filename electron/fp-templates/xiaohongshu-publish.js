@@ -447,42 +447,60 @@ async function step6_covers(page, params, log) {
   log('[步骤6] 检查封面...')
   await page.waitForTimeout(1500)
 
-  // 有自定义封面才进封面弹窗，否则用平台默认帧（方案A）
-  let localCoverPath = null
-  if (params.coverImage) {
-    const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
-    const userId = params.userId || ''
-    const coverDownloadUrl = serverUrl + '/api/storage/file?userId=' + userId + '&name=' + encodeURIComponent(params.coverImage)
-    const osTmpDir = require('os').tmpdir()
-    const coverTmpDir = path.join(osTmpDir, 'aimarketing-covers')
-    if (!require('fs').existsSync(coverTmpDir)) require('fs').mkdirSync(coverTmpDir, { recursive: true })
-    localCoverPath = path.join(coverTmpDir, params.coverImage)
-    log('  下载自定义封面: ' + params.coverImage)
-    try {
-      await new Promise((resolve, reject) => {
-        const urlObj2 = new URL(coverDownloadUrl)
-        const mod2 = require(urlObj2.protocol === 'https:' ? 'https' : 'http')
-        mod2.get(coverDownloadUrl, { timeout: 60000 }, res2 => {
-          if (res2.statusCode !== 200) return reject(new Error('HTTP ' + res2.statusCode))
-          const chunks2 = []
-          res2.on('data', c => chunks2.push(c))
-          res2.on('end', () => {
-            require('fs').writeFileSync(localCoverPath, Buffer.concat(chunks2))
-            resolve()
-          })
-        }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
-      })
-      log('  ✅ 封面已下载 (' + (require('fs').statSync(localCoverPath).size / 1024).toFixed(1) + 'KB)')
-    } catch (e2) {
-      log('  ⚠️ 封面下载失败: ' + e2.message)
-      localCoverPath = null
-    }
+  // 封面模式：
+  //   coverMode === 'platform'  → 使用平台「智能封面/默认帧」，完全不上传（多数平台支持）
+  //   无 coverImage              → 同样用平台默认帧
+  //   有 coverImage              → 下载自定义封面后上传
+  if (params.coverMode === 'platform' || !params.coverImage) {
+    log('  跳过封面（' + (params.coverMode === 'platform' ? '使用平台智能封面' : '无自定义封面，使用平台默认帧') + '）')
+    log('✅ 步骤6完成')
+    await page.waitForTimeout(1000)
+    return
   }
 
-  if (!(localCoverPath && require('fs').existsSync(localCoverPath))) {
-    log('  跳过封面设置（无自定义封面，使用平台默认帧）')
-    log('✅ 步骤6完成')
-    await page.waitForTimeout(1500)
+  // coverImage 兼容三种形态：
+  //   ① 完整 http(s) URL            → 直接下载
+  //   ② /api/... 路径               → 拼 SERVER_URL 后下载
+  //   ③ 素材仓库文件名（如 .thumbs/analyze/xxx.jpg）→ 拼 /api/storage/file?userId=&name=
+  // 注意：之前把「完整 URL」当成「文件名」二次 encode 导致 404，这里先判定形态再决定下载方式。
+  const coverRaw = String(params.coverImage).trim()
+  let coverDownloadUrl = ''
+  if (/^https?:\/\//.test(coverRaw)) {
+    coverDownloadUrl = coverRaw
+  } else if (coverRaw.startsWith('/api/')) {
+    coverDownloadUrl = (process.env.SERVER_URL || 'http://120.55.43.195:3000') + coverRaw
+  } else {
+    const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
+    const userId = params.userId || ''
+    coverDownloadUrl = serverUrl + '/api/storage/file?userId=' + userId + '&name=' + encodeURIComponent(coverRaw)
+  }
+
+  const osTmpDir = require('os').tmpdir()
+  const coverTmpDir = path.join(osTmpDir, 'aimarketing-covers')
+  if (!require('fs').existsSync(coverTmpDir)) require('fs').mkdirSync(coverTmpDir, { recursive: true })
+  const coverFileName = coverRaw.split('?')[0].split('/').pop().replace(/[^\w.\-]/g, '_') || 'cover.jpg'
+  const localCoverPath = path.join(coverTmpDir, coverFileName)
+  log('  下载自定义封面: ' + coverDownloadUrl)
+  try {
+    await new Promise((resolve, reject) => {
+      const urlObj2 = new URL(coverDownloadUrl)
+      const mod2 = require(urlObj2.protocol === 'https:' ? 'https' : 'http')
+      mod2.get(coverDownloadUrl, { timeout: 60000 }, res2 => {
+        if (res2.statusCode !== 200) return reject(new Error('HTTP ' + res2.statusCode))
+        const chunks2 = []
+        res2.on('data', c => chunks2.push(c))
+        res2.on('end', () => {
+          require('fs').writeFileSync(localCoverPath, Buffer.concat(chunks2))
+          resolve()
+        })
+      }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
+    })
+    log('  ✅ 封面已下载 (' + (require('fs').statSync(localCoverPath).size / 1024).toFixed(1) + 'KB)')
+  } catch (e2) {
+    // 下载失败：不打开任何弹窗，直接退回平台默认封面，避免残留遮罩挡住发布按钮
+    log('  ⚠️ 封面下载失败: ' + e2.message + '，使用平台默认封面')
+    log('✅ 步骤6完成（无自定义封面）')
+    await page.waitForTimeout(1000)
     return
   }
 
@@ -529,8 +547,8 @@ async function step6_covers(page, params, log) {
 
 async function step7_publish(page, params, log) {
   const isDraft = params.publishNow === 'false'
-  log('[步骤7] ' + (isDraft ? '存草稿' : '发布笔记'))
-  await page.waitForTimeout(2000)
+  log('[步骤7] ' + (isDraft ? '存草稿' : '发布'))
+  await page.waitForTimeout(1500)
 
   // 发布前再确认没被弹到登录页
   const stillLogin = await isLoggedIn(page, log)
@@ -538,34 +556,72 @@ async function step7_publish(page, params, log) {
     return { success: false, message: '发布前检测到掉登录，请重新在指纹浏览器扫码登录小红书后再发', needLogin: true }
   }
 
-  const targetText = isDraft ? '存草稿' : '发布笔记'
-  let pub = false
-  try {
-    // 先把底部按钮滚入视野（发布按钮在页面底部 fixed 区域）
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
-    await page.waitForTimeout(800)
-    const allBtns = await page.$$('button')
-    for (let i = 0; i < allBtns.length; i++) {
-      try {
-        const t = (await allBtns[i].innerText()).catch(() => '') || ''
-        const tt = t.trim()
-        const match = isDraft ? tt.includes('草稿') : tt.includes('发布')
-        if (await allBtns[i].isVisible().catch(() => false) && match) {
-          await allBtns[i].click({ timeout: 5000 })
-          pub = true
-          log('  ✅ 点击:"' + tt + '"')
-          break
-        }
-      } catch (_) {}
-    }
-  } catch (e) { log('  遍历异常: ' + e.message) }
+  // 先关掉可能残留的弹窗（封面/话题联想等）
+  await dismissPopups(page, log, '[发布前] ')
 
-  // 兜底：发布笔记/发布 任一
-  if (!pub && !isDraft) {
+  // 等发布按钮真正出现（内容/封面步骤后页面可能还没 settle）
+  let appeared = true
+  try {
+    await page.waitForSelector('button:has(.btn-text), button:has-text("发布")', { timeout: 12000 })
+  } catch (_) { appeared = false }
+
+  // 把页面滚到底部，让 fixed 区发布按钮进入视野
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
+  await page.waitForTimeout(800)
+
+  const targetText = isDraft ? '存草稿' : '发布'
+  // 引导入口按钮（左上角「发布…」选发视频/图文/长文）一律排除，只命中真正的发布/存草稿
+  const EXCLUDE = /图文|长文|比较|上传|选择|视频$|图文$/
+  let pub = false
+  const candidates = []
+
+  try {
+    // 1) 精确：小红书编辑器发布按钮 = button 内含 .btn-text 且文本含「发布/草稿」
+    const exact = await page.$$('button:has(.btn-text)')
+    for (const b of exact) {
+      const t = (await b.innerText().catch(() => '')) || ''
+      if (!EXCLUDE.test(t) && /发布|草稿/.test(t) && await b.isVisible().catch(() => false)) candidates.push(b)
+    }
+  } catch (_) {}
+
+  // 2) 兜底：任意可见 button 含「发布/草稿」且非引导入口
+  if (candidates.length === 0) {
     try {
-      await page.click('button:has-text("发布笔记"), button:has-text("发布")', { timeout: 3000 })
+      const allBtns = await page.$$('button')
+      for (const b of allBtns) {
+        try {
+          const t = (await b.innerText()).catch(() => '') || ''
+          const tt = t.trim()
+          if (!EXCLUDE.test(tt) && (isDraft ? tt.includes('草稿') : tt.includes('发布')) && await b.isVisible().catch(() => false)) {
+            candidates.push(b)
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  for (const b of candidates) {
+    try { log('  [候选发布按钮] "' + (await b.innerText()).trim() + '"') } catch (_) {}
+  }
+
+  if (candidates.length > 0) {
+    try {
+      await candidates[0].scrollIntoViewIfNeeded().catch(() => {})
+      await candidates[0].click({ timeout: 6000 })
       pub = true
-      log('  兜底成功')
+      log('  ✅ 已点击发布按钮')
+    } catch (e) { log('  ⚠️ 点击异常: ' + e.message) }
+  }
+
+  // 3) 最终兜底：Playwright 文本定位（排除引导入口）
+  if (!pub) {
+    try {
+      const loc = page.locator('button', { hasText: isDraft ? /存草稿/ : /发布/ }).filter({ hasNotText: EXCLUDE })
+      if (await loc.first().isVisible().catch(() => false)) {
+        await loc.first().click({ timeout: 4000 })
+        pub = true
+        log('  ✅ 兜底点击发布')
+      }
     } catch (_) {}
   }
 
