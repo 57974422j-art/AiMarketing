@@ -559,70 +559,97 @@ async function step7_publish(page, params, log) {
   // 先关掉可能残留的弹窗（封面/话题联想等）
   await dismissPopups(page, log, '[发布前] ')
 
-  // 等发布按钮真正出现（内容/封面步骤后页面可能还没 settle）
-  let appeared = true
+  // 等发布按钮区渲染（内容/封面步骤后页面可能还没 settle）
   try {
-    await page.waitForSelector('button:has(.btn-text), button:has-text("发布")', { timeout: 12000 })
-  } catch (_) { appeared = false }
+    await page.waitForSelector('button:has-text("发布"), button:has-text("存草稿"), [role="button"]', { timeout: 15000 })
+  } catch (_) {}
 
   // 把页面滚到底部，让 fixed 区发布按钮进入视野
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
   await page.waitForTimeout(800)
 
   const targetText = isDraft ? '存草稿' : '发布'
-  // 引导入口按钮（左上角「发布…」选发视频/图文/长文）一律排除，只命中真正的发布/存草稿
-  const EXCLUDE = /图文|长文|比较|上传|选择|视频$|图文$/
-  let pub = false
-  const candidates = []
 
-  try {
-    // 1) 精确：小红书编辑器发布按钮 = button 内含 .btn-text 且文本含「发布/草稿」
-    const exact = await page.$$('button:has(.btn-text)')
-    for (const b of exact) {
-      const t = (await b.innerText().catch(() => '')) || ''
-      if (!EXCLUDE.test(t) && /发布|草稿/.test(t) && await b.isVisible().catch(() => false)) candidates.push(b)
+  // ── 小红书发布按钮识别（打分法，比正则更稳）──
+  // 小红书真实发布是右下角【红色】按钮，文案「发布笔记」（草稿为「存草稿」）。
+  // 左上角还有一个「发布」引导入口（选视频/图文/长文），必须排除，否则会点到它打开下拉而不是真正发布。
+  // 对每个 button / role=button 打分，取最高分者点击：
+  //   ①文案命中 发布笔记/存草稿 → +5；仅含「发布」→ +3；②背景偏红 → +4；③位于页面下半部 → +1；④排除上传/图文/选择等引导词。
+  const sel = await page.evaluate((isDraft) => {
+    const nodes = Array.from(document.querySelectorAll('button, [role="button"]'))
+    let best = null, bestScore = -1
+    const isRed = (el) => {
+      const s = getComputedStyle(el)
+      const bg = s.backgroundColor || s.backgroundImage || ''
+      const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+      if (!m) return false
+      const r = +m[1], g = +m[2], b = +m[3]
+      return r > 150 && (r - g) > 50 && (r - b) > 30
     }
-  } catch (_) {}
-
-  // 2) 兜底：任意可见 button 含「发布/草稿」且非引导入口
-  if (candidates.length === 0) {
-    try {
-      const allBtns = await page.$$('button')
-      for (const b of allBtns) {
-        try {
-          const t = (await b.innerText()).catch(() => '') || ''
-          const tt = t.trim()
-          if (!EXCLUDE.test(tt) && (isDraft ? tt.includes('草稿') : tt.includes('发布')) && await b.isVisible().catch(() => false)) {
-            candidates.push(b)
-          }
-        } catch (_) {}
+    for (const n of nodes) {
+      const t = (n.innerText || n.getAttribute('aria-label') || '').trim()
+      if (!t) continue
+      // 排除引导入口 / 上传 / 选择类按钮（除非它本身就是要找的草稿/发布）
+      if (/图文|长文|比较|上传|选择|话题|添加|草稿箱|预览/.test(t) && !t.includes(isDraft ? '草稿' : '发布')) continue
+      let score = 0
+      if (isDraft) {
+        if (t.includes('存草稿') || t === '草稿') score += 5
+      } else {
+        if (t.includes('发布笔记') || t === '发布笔记') score += 5
+        else if (t.includes('发布')) score += 3
       }
-    } catch (_) {}
-  }
+      if (isRed(n)) score += 4
+      const rect = n.getBoundingClientRect()
+      if (rect.bottom > window.innerHeight * 0.4) score += 1
+      if (score > bestScore) { bestScore = score; best = n }
+    }
+    if (best) { best.setAttribute('data-fp-pub', '1'); return '[data-fp-pub="1"]' }
+    return null
+  }, isDraft)
 
-  for (const b of candidates) {
-    try { log('  [候选发布按钮] "' + (await b.innerText()).trim() + '"') } catch (_) {}
-  }
-
-  if (candidates.length > 0) {
+  let pub = false
+  if (sel) {
+    log('  定位到发布按钮: ' + sel)
     try {
-      await candidates[0].scrollIntoViewIfNeeded().catch(() => {})
-      await candidates[0].click({ timeout: 6000 })
+      const b = page.locator(sel)
+      await b.scrollIntoViewIfNeeded().catch(() => {})
+      await b.click({ timeout: 6000 })
       pub = true
       log('  ✅ 已点击发布按钮')
-    } catch (e) { log('  ⚠️ 点击异常: ' + e.message) }
+    } catch (e) { log('  ⚠️ 点击发布异常: ' + e.message) }
+  } else {
+    log('  ⚠️ 评分未命中发布按钮，尝试文本兜底')
   }
 
-  // 3) 最终兜底：Playwright 文本定位（排除引导入口）
+  // 兜底：Playwright 文本定位
   if (!pub) {
     try {
-      const loc = page.locator('button', { hasText: isDraft ? /存草稿/ : /发布/ }).filter({ hasNotText: EXCLUDE })
+      const loc = isDraft
+        ? page.locator('button:has-text("存草稿")')
+        : page.locator('button:has-text("发布笔记"), button:has-text("发布")')
       if (await loc.first().isVisible().catch(() => false)) {
         await loc.first().click({ timeout: 4000 })
         pub = true
         log('  ✅ 兜底点击发布')
       }
     } catch (_) {}
+  }
+
+  // 二次确认弹窗（小红书点击后偶发「确认发布 / 确定」）
+  if (pub) {
+    await page.waitForTimeout(2500)
+    for (let i = 0; i < 3; i++) {
+      const clicked = await page.evaluate(() => {
+        const want = ['确认发布', '继续发布', '确认', '确定']
+        const btns = Array.from(document.querySelectorAll('button, [role="button"]'))
+        for (const b of btns) {
+          const t = (b.innerText || '').trim()
+          if (want.includes(t) && b.offsetParent !== null) { b.click(); return t }
+        }
+        return null
+      })
+      if (clicked) { log('  二次确认已点: ' + clicked); await page.waitForTimeout(1500) } else break
+    }
   }
 
   if (!pub) {
