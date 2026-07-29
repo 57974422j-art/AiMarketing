@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.0.14",
+    "date": "2026-07-29",
+    "title": "修复视频号「视频描述」未填写",
+    "changes": [
+      "视频号描述定位重写：原选择器 textarea[placeholder*=\"描述\"] / div[contenteditable=\"true\"] 匹配不到视频号描述区（其底层多为 div[contenteditable] plaintext-only，灰字「添加描述」是 CSS 占位而非真实 placeholder）",
+      "新策略：①按标签文字「视频描述」找所在表单项内的可编辑区；②找不到则点击「添加描述」灰字展开输入框；③兜底任意 [contenteditable]；并对 contenteditable 增加 textContent+input 事件兜底写入",
+      "修复后视频描述会正确填入「文案 + #话题」，不再出现“未找到视频描述输入框，跳过描述填写”"
+    ]
+  },
+  {
     "version": "1.0.13",
     "date": "2026-07-29",
     "title": "修复视频号发布：字段错填 + 话题乱码 + 卡死",
