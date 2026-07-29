@@ -66,7 +66,7 @@ export default function SubscriptionAdminPage() {
         price: Number(form.price),
         discountPrice: form.discountPrice ? Number(form.discountPrice) : null,
         durationMonths: Number(form.durationMonths) || 1,
-        monthlyTokens: (form.monthlyTokens === '' || form.monthlyTokens === undefined || form.monthlyTokens === null) ? null : Number(form.monthlyTokens),
+        monthlyTokens: (form.monthlyTokens === undefined || form.monthlyTokens === null) ? null : Number(form.monthlyTokens),
         storageMb: Number(form.storageMb) || 100,
         sortOrder: Number(form.sortOrder) || 0,
       }
@@ -101,7 +101,7 @@ export default function SubscriptionAdminPage() {
   }
 
   const startEdit = (p: Plan) => { setEditing(p); setForm({ ...p }) }
-  const startNew = () => { setEditing(null as any); setForm({ name: '', price: 2900, discountPrice: null, durationMonths: 1, monthlyTokens: '', storageMb: 100, status: 'active', sortOrder: plans.length }) }
+  const startNew = () => { setEditing(null as any); setForm({ name: '', price: 2900, discountPrice: null, durationMonths: 1, monthlyTokens: null, storageMb: 100, status: 'active', sortOrder: plans.length }) }
 
   if (!authorized) return <div className="min-h-screen bg-gray-950 p-8 text-gray-400 text-sm">需要管理员权限</div>
 

@@ -313,9 +313,8 @@ export async function POST(request: NextRequest) {
         const body = isOpenAI
           ? JSON.stringify({ model: 'gemini-2.5-flash', messages: [{ role: 'user', content: 'Hi' }], max_tokens: 10 })
           : JSON.stringify({ contents: [{ parts: [{ text: 'Hi' }] }] });
-        const headers = isOpenAI
-          ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gk}` }
-          : { 'Content-Type': 'application/json' };
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (isOpenAI) headers['Authorization'] = `Bearer ${gk}`
         try {
           const res = await fetch(target, { method: 'POST', headers, body, signal: AbortSignal.timeout(20000) });
           if (res.ok) return NextResponse.json({ valid: true, message: 'Gemini 连接成功' });

@@ -168,10 +168,11 @@ export default function MyFingerprintPage() {
         setAccounts(manual)
         // 同步本地登录态（Electron 端按 Account.id 维度的标记文件，跨刷新持久）
         if (isElectron && window.electronAPI?.fpLoginState) {
+          const fpLoginState = window.electronAPI.fpLoginState
           const states: Record<number, boolean> = {}
           await Promise.all(manual.map(async (a: Account) => {
             try {
-              const lr = await window.electronAPI!.fpLoginState(a.id)
+              const lr = await fpLoginState(a.id)
               states[a.id] = !!(lr.success && lr.data?.loggedIn)
             } catch { states[a.id] = false }
           }))
