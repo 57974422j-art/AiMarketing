@@ -145,6 +145,7 @@ export default function AdminPromptTemplatesPage() {
 
   // ===== 预设 / 抓取 =====
   const [videoOrientation, setVideoOrientation] = useState<'horizontal' | 'vertical'>('horizontal')
+  const isVert = videoOrientation === 'vertical'
   const handlePreseed = async () => {
     if (!confirm('预设 20 条营销提示词模板？')) return
     setBusy(p => ({ ...p, preseeding: true }))
@@ -475,13 +476,13 @@ export default function AdminPromptTemplatesPage() {
                 <span className="text-xs text-cyan-400 font-mono">已选 {selectedIds.size} 项</span>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            <div className={isVert ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3'}>
               {items.map(item => (
-                <div key={item.id} className={`card-glass border-2 transition-all overflow-hidden ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-transparent'}`} style={{ height: '200px' }}>
+                <div key={item.id} className={`card-glass border-2 transition-all overflow-hidden ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-transparent'} ${isVert ? 'aspect-[9/16]' : 'aspect-video'}`}>
                   {item.previewUrl ? (
                     <div className={`relative w-full h-full group bg-black/50 ${item.previewUrl.endsWith('.mp4') ? 'cursor-pointer' : ''}`} onClick={() => item.previewUrl?.endsWith('.mp4') && setPlayVideo(item.previewUrl)}>
                       {item.previewUrl.endsWith('.mp4')
-                        ? <video src={item.previewUrl} className="w-full h-full object-contain" />
+                        ? <video src={item.previewUrl} className="w-full h-full object-cover" />
                         : <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
                       }
                       {/* 图片 hover 放大预览 */}
