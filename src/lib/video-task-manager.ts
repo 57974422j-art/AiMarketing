@@ -140,57 +140,40 @@ function fmtSRTTime(t: number): string {
 }
 
 /**
- * TTS 同步方案：按字数比例分配时间戳（推荐）
- * 原理：TTS 音频时长与文本长度大致成正比，按每行字数占比计算精确时间戳
+ * TTS 同步方案（与智能成片完全一致）：按逐句真实 TTS 时长分配时间戳
+ * 原理：每句独立合成 TTS 拿到真实时长，字幕按真实时长顺序排布；
+ * 单句内按字数(kmax)切分小块，块时长 = 该句时长 / 块数，保证音字同步。
  */
 function generateTTSSyncSubtitles(
   lines: string[],
-  totalAudioDur: number,
-  totalVideoDur: number,
+  lineDurations: number[],
   ratio: string,
   workDir: string
 ): string {
   const wrapMax: Record<string, number> = { '16:9': 22, '9:16': 12, '1:1': 15, '4:3': 18 }
   const maxW = wrapMax[ratio] || 16
 
-  function splitLine(l: string): string[] {
-    if (l.length <= maxW) return [l]
-    const r: string[] = []; let cur = ''
-    for (const ch of l) { if (cur.length >= maxW) { r.push(cur); cur = ch } else cur += ch }
-    if (cur) r.push(cur)
-    return r
-  }
-
-  // 收集所有字幕块并计算总字数
-  const allChunks: { text: string; charCount: number }[] = []
-  for (const line of lines) {
-    const chunks = splitLine(line)
-    for (const chunk of chunks) allChunks.push({ text: chunk, charCount: chunk.length })
-  }
-  const totalChars = allChunks.reduce((sum, c) => sum + c.charCount, 0)
-
-  // 按字数比例分配时间戳
-  let srtLines: string[] = []
+  const srtLines: string[] = []
   let entryIdx = 1
-  let currentTime = 0
+  let cursor = 0
 
-  for (const chunk of allChunks) {
-    const chunkDur = totalChars > 0
-      ? (totalVideoDur * chunk.charCount) / totalChars
-      : totalVideoDur / Math.max(allChunks.length, 1)
-
-    const startTime = currentTime
-    const endTime = Math.min(currentTime + chunkDur, totalVideoDur)
-    const gap = Math.min(0.3, chunkDur * 0.1)
-
-    srtLines.push(`${entryIdx}\n${fmtSRTTime(startTime)} --> ${fmtSRTTime(Math.max(endTime - gap, startTime + 0.5))}\n${chunk.text}\n`)
-    entryIdx++
-    currentTime = endTime
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li]
+    const lineDur = lineDurations[li] || 2
+    const chunks = splitText(line, maxW) // 与智能成片一致：按字数与标点切分
+    const chunkDur = chunks.length > 0 ? lineDur / chunks.length : lineDur
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const t1 = cursor + ci * chunkDur
+      const t2 = t1 + chunkDur
+      srtLines.push(`${entryIdx}\n${fmtSrtTime(t1)} --> ${fmtSrtTime(t2)}\n${chunks[ci]}`)
+      entryIdx++
+    }
+    cursor += lineDur
   }
 
   const srtPath = path.join(workDir, 's.srt')
-  fs.writeFileSync(srtPath, srtLines.join('\n'))
-  console.log(`[字幕-TTS同步] ${lines.length}行→${srtLines.length}条SRT 总字数=${totalChars} 音频=${totalAudioDur.toFixed(1)}s 视频=${totalVideoDur.toFixed(1)}s`)
+  fs.writeFileSync(srtPath, srtLines.join('\n\n') + '\n', 'utf8')
+  console.log(`[字幕-TTS同步] ${lines.length}行→${srtLines.length}条SRT 字幕总时长=${cursor.toFixed(1)}s 比例=${ratio}`)
   return srtPath
 }
 
@@ -283,29 +266,42 @@ async function runTask(
     task.progress = 10
 
     // ═══════════════════════════════════════
-    // Step 1: TTS 语音合成
+    // Step 1: 逐句 TTS（与智能成片一致，拿每句真实时长用于字幕同步）
     // ═══════════════════════════════════════
-    const r = await fetch('http://localhost:3000/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice })
-    })
-    const d = await r.json()
-    if (!d.audioUrl) throw new Error('TTS失败')
+    const ln = text.split('\n').filter(Boolean)
+    const { ttsQwen3 } = await import('./qwen3-tts')
+    const ttsResults: Array<{ path: string; duration: number }> = []
+    for (let i = 0; i < ln.length; i++) {
+      const r = await ttsQwen3(ln[i], voice, wd, i)
+      ttsResults.push({ path: r.path, duration: r.duration })
+      task.progress = 10 + Math.round((i + 1) / ln.length * 10)
+    }
     const ap = path.join(wd, 't.mp3')
-    fs.copyFileSync('/root/AiMarketing/public/tts/' + path.basename(d.audioUrl), ap)
+    if (ln.length === 1) {
+      fs.copyFileSync(ttsResults[0].path, ap)
+    } else {
+      const audioList = path.join(wd, 'audio_concat.txt')
+      fs.writeFileSync(audioList, ttsResults.map(r => `file '${r.path}'`).join('\n'))
+      await runFFmpeg(`-y -f concat -safe 0 -i "${audioList}" -c copy "${ap}"`, { timeout: 60000 })
+    }
     task.progress = 20
 
-    // 获取 TTS 实际音频时长（关键：用于字幕时间戳和 auto duration）
-    const audioDur = await getDurationAsync(ap)
-    console.log(`[合成] TTS完成 task=${task.id} 音频时长=${audioDur.toFixed(2)}s`)
+    // 逐句真实音频时长之和（用于 auto duration 与字幕时间戳）
+    const audioDur = ttsResults.reduce((s, r) => s + r.duration, 0)
+    console.log(`[合成] 逐句TTS完成 task=${task.id} ${ln.length}句 总音频=${audioDur.toFixed(2)}s`)
 
     // ═══════════════════════════════════════
     // Step 2: 计算最终视频时长
-    //   - auto 模式：音频时长 + 1.5s 尾部留白
+    //   - auto 模式：真实音频时长 + 1.0s 尾部留白（与智能成片一致）
     //   - 固定模式：使用用户指定时长
     // ═══════════════════════════════════════
-    const totalDur = isAutoDur ? Math.max(audioDur + 1.5, dur || 30) : (dur || 30)
+    const totalDur = isAutoDur ? Math.max(audioDur + 1.0, dur || 30) : (dur || 30)
+    // 固定时长短于真实音频时，按比例压缩每句时长，使字幕对齐被裁剪后的音频
+    let lineDurations = ttsResults.map(r => r.duration)
+    if (totalDur < audioDur && audioDur > 0) {
+      const scale = totalDur / audioDur
+      lineDurations = lineDurations.map(d => d * scale)
+    }
     const segDuration = totalDur / mp.length
     console.log(`[合成] 视频时长 task=${task.id} totalDur=${totalDur.toFixed(1)}s (auto=${isAutoDur})`)
 
@@ -328,22 +324,20 @@ async function runTask(
     }
 
     // ═══════════════════════════════════════
-    // Step 4: 字幕生成（三种模式）
+    // Step 4: 字幕生成（与智能成片一致的逐句真实时长同步）
     // ═══════════════════════════════════════
     let sp = ''
-    const ln = text.split('\n').filter(Boolean)
-
     if (showSubs && ln.length > 0) {
       switch (subtitleMode) {
         case 'tts-sync':
-          sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd)
+          sp = generateTTSSyncSubtitles(ln, lineDurations, ratio, wd)
           break
         case 'manual':
           if (customSrt) sp = generateManualSubtitles(customSrt, wd)
-          else { console.warn('[字幕-手动] 未提供自定义时间戳，降级到 TTS 同步'); sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd) }
+          else { console.warn('[字幕-手动] 未提供自定义时间戳，降级到 TTS 同步'); sp = generateTTSSyncSubtitles(ln, lineDurations, ratio, wd) }
           break
         default:
-          sp = generateTTSSyncSubtitles(ln, audioDur, totalDur, ratio, wd)
+          sp = generateTTSSyncSubtitles(ln, lineDurations, ratio, wd)
       }
     }
     task.progress = 35
