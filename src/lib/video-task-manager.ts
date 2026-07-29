@@ -414,9 +414,7 @@ async function runTask(
     // ═══════════════════════════════════════
     let finalVf = ''
     if (showSubs && sp) {
-      const r = W / H
-      const mc = r < 0.8 ? 12 : r < 1.1 ? 15 : r < 1.5 ? 18 : 22
-      const effFont = Math.max(14, Math.round((W * 0.92 / mc) * ((fs2 || 36) / 36)))
+      const effFont = Math.max(14, Math.round(Math.min(W, H) * 0.055 * ((fs2 || 36) / 36)))
       finalVf = `subtitles='${sp}':force_style='FontSize=${effFont},Alignment=2,MarginV=${Math.round(H * 0.06)}'`
     }
     if (stickerText) {

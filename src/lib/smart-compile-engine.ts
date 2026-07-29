@@ -482,10 +482,8 @@ function convertToASS(srtPath: string, workDir: string, style: SubtitleStyle, fo
     }
   }
 
-  // 字号按【宽度】自适应：让 maxChars 个字约占 92% 宽，横竖屏视觉一致，且不再随高度被放大（修复竖屏字幕巨大）
-  const ratio = W / H
-  const maxChars = ratio < 0.8 ? 12 : ratio < 1.1 ? 15 : ratio < 1.5 ? 18 : 22
-  const baseFont = (W * 0.92) / maxChars
+  // 字号按【较短边】取 ~5.5%：横竖屏视觉大小一致，且明显小于之前"按宽度撑满"的 ~80px，字幕不再巨大
+  const baseFont = Math.min(W, H) * 0.055
   const scale = (fontSize || 36) / 36 // 用户所选大小(28/36/44)以 36 为基准作相对缩放
   const effFont = Math.max(14, Math.round(baseFont * scale))
   const styleLine = getASSStyle(style, effFont, W, H)
