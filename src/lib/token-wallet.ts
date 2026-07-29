@@ -59,13 +59,17 @@ export const FREE_TRIAL_POINTS = 500
 export const FREE_TRIAL_TOKENS = FREE_TRIAL_POINTS // 向后兼容别名
 
 const TOKEN_ACTION = 'point_spend'
+/** 点卡余额消耗记账（与套餐额度 point_spend 分开，避免影响月额度统计） */
+const POINT_CARD_ACTION = 'pointcard_spend'
 
 export interface TokenWallet {
   hasSubscription: boolean
   planName: string | null
-  allowance: number   // 本期总额度
-  spent: number       // 本期已消耗
-  remaining: number   // 剩余
+  allowance: number     // 本期套餐总额度
+  spent: number         // 本期套餐内已消耗
+  subRemaining: number  // 套餐剩余额度（= allowance - spent，不超过 0）
+  pointBalance: number  // 点卡永久余额（User.pointBalance，不过期）
+  remaining: number     // 总可用 = 套餐剩余 + 点卡余额
 }
 
 export interface TokenCheck {
@@ -82,43 +86,49 @@ export function planMonthlyTokens(plan: { price: number; discountPrice: number |
   return Math.round(effective / Math.max(1, plan.durationMonths || 1))
 }
 
-/** 查询用户当前点数钱包（额度=当前生效订阅套餐；消耗=当月 point_spend 累计） */
+/** 查询用户当前点数钱包（额度=当前生效订阅套餐；消耗=当月 point_spend 累计；另含点卡永久余额） */
 export async function getTokenWallet(userId: number): Promise<TokenWallet> {
   const sub = await prisma.userSubscription.findFirst({
     where: { userId, status: 'active', endDate: { gte: new Date() } },
     include: { plan: true },
     orderBy: { endDate: 'desc' },
   })
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { pointBalance: true } })
+  const pointBalance = user?.pointBalance || 0
   const monthStart = new Date(new Date().toISOString().slice(0, 7) + '-01')
   const agg = await prisma.usageLog.aggregate({
     where: { userId, action: TOKEN_ACTION, createdAt: { gte: monthStart } },
     _sum: { tokens: true },
   })
   const spent = agg._sum.tokens || 0
-  if (!sub?.plan) {
-    return { hasSubscription: false, planName: null, allowance: 0, spent, remaining: 0 }
-  }
-  const allowance = planMonthlyTokens(sub.plan)
+  const allowance = sub?.plan ? planMonthlyTokens(sub.plan) : 0
+  const subRemaining = Math.max(0, allowance - spent)
   return {
-    hasSubscription: true,
-    planName: sub.plan.name,
+    hasSubscription: !!sub?.plan,
+    planName: sub?.plan?.name || null,
     allowance,
     spent,
-    remaining: Math.max(0, allowance - spent),
+    subRemaining,
+    pointBalance,
+    remaining: subRemaining + pointBalance,
   }
 }
 
-/** 消费前检查：余额不足直接拒绝（避免先烧上游成本再拦） */
+/** 消费前检查：月额度 + 点卡余额均不足才拒绝（月额度优先、余额兜底） */
 export async function checkTokens(userId: number, cost: number): Promise<TokenCheck> {
   try {
     const wallet = await getTokenWallet(userId)
-    if (!wallet.hasSubscription) {
-      return { allowed: false, message: '未订阅任何套餐，请先开通（可在"我的套餐"领取免费周卡）', wallet }
+    if (!wallet.hasSubscription && wallet.pointBalance <= 0) {
+      return {
+        allowed: false,
+        message: '未订阅套餐且点卡余额为 0，请先开通套餐或在「我的套餐」购买点卡补充点数',
+        wallet,
+      }
     }
     if (wallet.remaining < cost) {
       return {
         allowed: false,
-        message: `点数余额不足：本次需 ${cost} 点，剩余 ${wallet.remaining}（本月额度 ${wallet.allowance}），请升级/续费套餐`,
+        message: `点数不足：本次需 ${cost} 点，可用 ${wallet.remaining}（套餐剩余 ${wallet.subRemaining} + 点卡余额 ${wallet.pointBalance}），请购买点卡或续费套餐`,
         wallet,
       }
     }
@@ -129,19 +139,54 @@ export async function checkTokens(userId: number, cost: number): Promise<TokenCh
     return {
       allowed: true,
       message: 'skip(error)',
-      wallet: { hasSubscription: true, planName: null, allowance: -1, spent: 0, remaining: -1 },
+      wallet: { hasSubscription: true, planName: null, allowance: -1, spent: 0, subRemaining: -1, pointBalance: -1, remaining: -1 },
     }
   }
 }
 
-/** 记账（成功后调用）。cost 为「点」数；reason 示例：'text2img' / 'text2video:5s' / 'agent_chat' / 'fp_analyze_video' */
+/**
+ * 记账（成功后调用）。cost 为「点」数；reason 示例：'text2img' / 'text2video:5s' / 'agent_chat'。
+ * 扣费顺序：先扣当月套餐额度，额度不够的部分再扣点卡永久余额（User.pointBalance）。
+ * - 套餐内消耗 → usageLog(action='point_spend')，计入月额度统计；
+ * - 点卡余额消耗 → 原子 decrement User.pointBalance，并记 usageLog(action='pointcard_spend') 便于对账（不计入月额度）。
+ */
 export async function spendTokens(userId: number, cost: number, reason: string): Promise<void> {
   if (cost <= 0) return
   try {
-    await prisma.usageLog.create({
-      data: { userId, action: TOKEN_ACTION, tokens: cost, count: 1, model: reason },
-    })
+    const wallet = await getTokenWallet(userId)
+    const fromSub = Math.min(cost, wallet.subRemaining)
+    const fromBalance = cost - fromSub
+    if (fromSub > 0) {
+      await prisma.usageLog.create({
+        data: { userId, action: TOKEN_ACTION, tokens: fromSub, count: 1, model: reason },
+      })
+    }
+    if (fromBalance > 0) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { pointBalance: { decrement: fromBalance } },
+      })
+      await prisma.usageLog.create({
+        data: { userId, action: POINT_CARD_ACTION, tokens: fromBalance, count: 1, model: reason },
+      })
+    }
   } catch (e: any) {
     console.error('[TokenWallet] 记账失败:', e?.message)
+  }
+}
+
+/** 给某用户充值点卡余额（支付回调成功时调用）。amount 为点数，orderNo 仅用于日志 */
+export async function addPointBalance(userId: number, amount: number, reason = 'pointcard'): Promise<void> {
+  if (amount <= 0) return
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { pointBalance: { increment: amount } },
+    })
+    await prisma.usageLog.create({
+      data: { userId, action: POINT_CARD_ACTION, tokens: -amount, count: 1, model: `recharge:${reason}` },
+    })
+  } catch (e: any) {
+    console.error('[TokenWallet] 充值失败:', e?.message)
   }
 }
