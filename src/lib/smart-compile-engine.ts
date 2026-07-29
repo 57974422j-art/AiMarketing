@@ -355,8 +355,10 @@ export async function finalRenderWithEffects(
       const assPath = convertToASS(srtPath, workDir, subtitleStyle, subtitleSize, W, H)
       vf = `subtitles='${assPath}'`
     } else {
-      // 普通 SRT（保持兼容）
-      vf = `subtitles='${srtPath}':force_style='FontSize=${subtitleSize},Alignment=2,MarginV=40'`
+      // 普通 SRT：libass 按默认虚拟画布 PlayResY=288 解释 FontSize/MarginV（非像素），须换算
+      const pxFont = Math.max(14, Math.round(Math.min(W, H) * 0.055 * ((subtitleSize || 36) / 36)))
+      const assFont = Math.max(6, Math.round(pxFont * 288 / H))
+      vf = `subtitles='${srtPath}':force_style='FontSize=${assFont},Alignment=2,MarginV=17'`
     }
   }
 

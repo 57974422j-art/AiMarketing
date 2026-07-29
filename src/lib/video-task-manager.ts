@@ -414,8 +414,11 @@ async function runTask(
     // ═══════════════════════════════════════
     let finalVf = ''
     if (showSubs && sp) {
-      const effFont = Math.max(14, Math.round(Math.min(W, H) * 0.055 * ((fs2 || 36) / 36)))
-      finalVf = `subtitles='${sp}':force_style='FontSize=${effFont},Alignment=2,MarginV=${Math.round(H * 0.06)}'`
+      // libass 对 SRT 按默认虚拟画布 PlayResY=288 解释 force_style 的 FontSize/MarginV（非像素！）
+      // 之前直接传像素值导致竖屏被放大 6.67 倍(~390px)且 MarginV=115 被解释为距底 40% 高度(字幕跑到中间)
+      const pxFont = Math.max(14, Math.round(Math.min(W, H) * 0.055 * ((fs2 || 36) / 36))) // 目标像素字号(~59px)
+      const assFont = Math.max(6, Math.round(pxFont * 288 / H)) // 换算到 288 基准
+      finalVf = `subtitles='${sp}':force_style='FontSize=${assFont},Alignment=2,MarginV=17'` // 17/288≈6% 距底
     }
     if (stickerText) {
       const pos = posXY(stickerPos, W, H, 28)
