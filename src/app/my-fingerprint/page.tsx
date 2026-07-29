@@ -470,7 +470,6 @@ export default function MyFingerprintPage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          platform: selectedAccount?.platform || '',
           title: formTitle.trim(),
           description: formDesc,
           topics: formTopics,
@@ -1212,7 +1211,7 @@ export default function MyFingerprintPage() {
                               <div className="min-w-0">
                                 <p className="text-xs text-white font-medium truncate">{d.title}</p>
                                 <p className="text-[10px] text-gray-500 mt-0.5">
-                                  {d.platform || '未设平台'} · {new Date(d.createdAt).toLocaleString('zh-CN')}
+                                  {new Date(d.createdAt).toLocaleString('zh-CN')} · 可在任意平台使用
                                 </p>
                               </div>
                               <button
