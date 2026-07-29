@@ -15,6 +15,7 @@
  */
 
 const path = require('path')
+const { resolveLocalVideoPath } = require('./_common')
 
 // ════════════════════════════════════
 // 工具函数
@@ -955,15 +956,25 @@ async function executeDouyinPublish(page, params, log) {
   log('   title: ' + (params.title || '未提供'))
   log('   coverImage: ' + (params.coverImage || '无'))
 
-  // 校验
-  if (!params.videoPath) { log('❌ 缺少videoPath'); return { success: false, message: '请提供视频文件路径' } }
-  if (!fs.existsSync(params.videoPath)) { log('❌ 视频文件不存在'); return { success: false, message: '视频文件不存在: ' + params.videoPath } }
-  log('✅ 视频文件校验通过')
+  // 校验 + 解析视频（素材仓库名 → 本地路径；修复“缺少 videoPath”断点）
+  try {
+    const resolved = await resolveLocalVideoPath(params, log)
+    log('✅ 视频文件校验通过: ' + resolved)
+  } catch (e) {
+    log('❌ 视频解析失败: ' + e.message)
+    return { success: false, message: '视频获取失败: ' + e.message }
+  }
 
   try {
     // Step 1: 导航
     log('▶ Step 1/7: 导航到发布页...')
     await step1_navigate(page, params, log)
+    // 登录态检测：导航后应停留在上传页，若被重定向到登录页则说明未登录
+    const cur1 = page.url()
+    if (!cur1.includes('/content/upload')) {
+      log('⚠️ 未处于上传页（可能未登录）: ' + cur1)
+      return { success: false, message: '账号未登录或已掉线，请先扫码登录', needLogin: true }
+    }
     log('✅ Step 1 完成')
 
     // Step 2: 上传

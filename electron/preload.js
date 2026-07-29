@@ -56,6 +56,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** 停止当前正在执行的模板脚本 */
   fpScriptStop: () => ipcRenderer.invoke('fp:scriptStop'),
 
+  /** 标记账号已登录（本地持久化登录态，解决“保存不住”） */
+  fpMarkLogin: (accountId) => ipcRenderer.invoke('fp:markLogin', { accountId }),
+
+  /** 查询账号本地登录态 { loggedIn } */
+  fpLoginState: (accountId) => ipcRenderer.invoke('fp:loginState', { accountId }),
+
+  /** 清除账号登录标记 */
+  fpLogout: (accountId) => ipcRenderer.invoke('fp:logout', { accountId }),
+
   // ── 自动更新 ──
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
   updaterInstall: () => ipcRenderer.invoke('updater:install'),

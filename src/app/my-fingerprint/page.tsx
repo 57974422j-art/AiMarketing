@@ -76,6 +76,9 @@ declare global {
       fpInfo?: (port: number) => Promise<{ success: boolean; data?: any; error?: string }>
       fpExecute?: (port: number, templateType: string, params: any) => Promise<{ success: boolean; data?: any; error?: string; logs?: string[] }>
       fpScriptStop?: () => Promise<{ success: boolean; message?: string }>
+      fpMarkLogin?: (accountId: number | string) => Promise<{ success: boolean; error?: string }>
+      fpLoginState?: (accountId: number | string) => Promise<{ success: boolean; data?: { loggedIn: boolean }; error?: string }>
+      fpLogout?: (accountId: number | string) => Promise<{ success: boolean; error?: string }>
     }
   }
 }
@@ -120,8 +123,10 @@ export default function MyFingerprintPage() {
   // ── 任务队列 ──
   const [taskQueue, setTaskQueue] = useState<PublishTask[]>([])
 
-  // ── 未登录账号标记（发布返回 needLogin 时记录，用于提示去登录）──
-  const [needLoginIds, setNeedLoginIds] = useState<string[]>([])
+  // ── 账号登录态（按 accountId 维度，跨刷新持久：启动时从本地标记文件读取）──
+  const [loginState, setLoginState] = useState<Record<number, boolean>>({})
+  const setAccountLoggedIn = (id: number, loggedIn: boolean) =>
+    setLoginState(prev => ({ ...prev, [id]: loggedIn }))
   const [runningPort, setRunningPort] = useState<number | null>(null)
   const [activeAccountId, setActiveAccountId] = useState<number | null>(null)
 
@@ -159,7 +164,19 @@ export default function MyFingerprintPage() {
         const d = await r.json()
         const all = Array.isArray(d) ? d : (d.data || [])
         // 显示所有 manual 类型账号（支持多平台）
-        setAccounts(all.filter((a: Account) => a.bindType === 'manual'))
+        const manual = (all as Account[]).filter((a: Account) => a.bindType === 'manual')
+        setAccounts(manual)
+        // 同步本地登录态（Electron 端按 Account.id 维度的标记文件，跨刷新持久）
+        if (isElectron && window.electronAPI?.fpLoginState) {
+          const states: Record<number, boolean> = {}
+          await Promise.all(manual.map(async (a: Account) => {
+            try {
+              const lr = await window.electronAPI!.fpLoginState(a.id)
+              states[a.id] = !!(lr.success && lr.data?.loggedIn)
+            } catch { states[a.id] = false }
+          }))
+          setLoginState(states)
+        }
       }
     } catch (_) {}
     setLoading(false)
@@ -221,7 +238,7 @@ export default function MyFingerprintPage() {
         setRunningPort(port)
         setActiveAccountId(acct.id)
         setSelectedAccount(acct)
-        setNeedLoginIds(prev => prev.filter(id => id !== String(acct.id)))
+        // 启动浏览器用于登录；登录态由「我已登录」按钮或发布成功后标记
         showMsg(`✅ 浏览器已启动 - ${PLATFORMS.find(p => p.key === acct.platform)?.icon} ${acct.platform}（端口 ${port}）`, 'success')
         refreshBrowserList()
       } else {
@@ -231,6 +248,21 @@ export default function MyFingerprintPage() {
       }
     } catch (e: any) {
       showMsg(`启动异常: ${e?.message || e}`, 'error')
+    }
+  }
+
+  /** 标记账号已登录（扫码完成后手动确认，本地持久化登录态，解决“保存不住”） */
+  const handleMarkLogin = async (acct: Account) => {
+    if (!isElectron || !window.electronAPI?.fpMarkLogin) {
+      showMsg('需要使用桌面客户端才能标记登录', 'error')
+      return
+    }
+    const r = await window.electronAPI.fpMarkLogin(acct.id)
+    if (r.success) {
+      setAccountLoggedIn(acct.id, true)
+      showMsg(`✅ 已记录 ${acct.platform} 账号登录态（持久保存，刷新不丢）`, 'success')
+    } else {
+      showMsg('标记失败: ' + (r.error || ''), 'error')
     }
   }
 
@@ -395,11 +427,12 @@ export default function MyFingerprintPage() {
         if (res.success) {
           setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 发布完成: ${formVideoName}`])
           if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
+          if (selectedAccount) setAccountLoggedIn(selectedAccount.id, true)
           showToast('发布成功', 'success')
         } else {
           const needLogin = (res as any).needLogin || (res as any).data?.needLogin
           if (needLogin && selectedAccount) {
-            setNeedLoginIds(prev => prev.includes(String(selectedAccount.id)) ? prev : [...prev, String(selectedAccount.id)])
+            setAccountLoggedIn(selectedAccount.id, false)
           }
           setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✗ 发布失败: ${res.error || '未知错误'}`])
           showToast(needLogin ? '该账号未登录平台，请点击「去登录」后重试' : ('发布失败: ' + (res.error || '未知错误')), 'error')
@@ -519,11 +552,12 @@ export default function MyFingerprintPage() {
             ))
             setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 第 ${i + 1} 个任务完成: ${task.videoName}`])
             if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
+            if (selectedAccount) setAccountLoggedIn(selectedAccount.id, true)
           } else {
             failCount++
             const needLogin = (res as any).needLogin || (res as any).data?.needLogin
             if (needLogin && selectedAccount) {
-              setNeedLoginIds(prev => prev.includes(String(selectedAccount.id)) ? prev : [...prev, String(selectedAccount.id)])
+              setAccountLoggedIn(selectedAccount.id, false)
             }
             setTaskQueue(prev => prev.map(t =>
               t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: res.error } : t
@@ -677,14 +711,23 @@ export default function MyFingerprintPage() {
 
                       {/* 操作按钮 */}
                       <div className="flex items-center gap-2 shrink-0 ml-3">
-                        {needLoginIds.includes(String(acct.id)) ? (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleStart(acct) }}
-                            disabled={!isElectron}
-                            className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/40 rounded-lg text-xs hover:bg-red-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition animate-pulse"
-                          >
-                            🔓 去登录
-                          </button>
+                        {!loginState[acct.id] ? (
+                          <>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleStart(acct) }}
+                              disabled={!isElectron}
+                              className="px-3 py-1.5 bg-red-500/20 text-red-400 border border-red-500/40 rounded-lg text-xs hover:bg-red-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition animate-pulse"
+                            >
+                              🔓 去登录
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleMarkLogin(acct) }}
+                              disabled={!isElectron}
+                              className="px-3 py-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs hover:bg-emerald-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                            >
+                              ✅ 我已登录
+                            </button>
+                          </>
                         ) : !running ? (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleStart(acct) }}

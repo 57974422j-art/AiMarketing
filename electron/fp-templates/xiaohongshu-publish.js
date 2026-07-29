@@ -19,6 +19,7 @@
  */
 
 const path = require('path')
+const { resolveLocalVideoPath } = require('./_common')
 
 // ════════════════════════════════════
 // 工具函数
@@ -602,9 +603,14 @@ async function executeXiaohongshuPublish(page, params, log) {
   log('   title: ' + (params.title || '未提供'))
   log('   coverImage: ' + (params.coverImage || '无'))
 
-  if (!params.videoPath) { log('❌ 缺少videoPath'); return { success: false, message: '请提供视频文件路径' } }
-  if (!fs.existsSync(params.videoPath)) { log('❌ 视频文件不存在'); return { success: false, message: '视频文件不存在: ' + params.videoPath } }
-  log('✅ 视频文件校验通过')
+  // 解析视频（素材仓库名 → 本地路径；修复“缺少 videoPath”断点）
+  try {
+    const resolved = await resolveLocalVideoPath(params, log)
+    log('✅ 视频文件校验通过: ' + resolved)
+  } catch (e) {
+    log('❌ 视频解析失败: ' + e.message)
+    return { success: false, message: '视频获取失败: ' + e.message }
+  }
 
   try {
     log('▶ Step 1/6: 导航到发布页...')

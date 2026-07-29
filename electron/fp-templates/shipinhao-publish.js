@@ -5,6 +5,7 @@
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const SHIPINHAO_PUBLISH_URL = 'https://channels.weixin.qq.com/platform/post/create'
+const { resolveLocalVideoPath } = require('./_common')
 
 async function isLoggedIn(page, log) {
   try {
@@ -137,8 +138,12 @@ async function executeShipinhaoPublish(page, params, log) {
       }
     }
 
-    if (!params.videoPath) {
-      return { success: false, message: '缺少视频文件 videoPath' }
+    // 解析视频（素材仓库名 → 本地路径；修复“缺少 videoPath”断点）
+    try {
+      await resolveLocalVideoPath(params, log)
+    } catch (e) {
+      log('❌ 视频解析失败: ' + e.message)
+      return { success: false, message: '视频获取失败: ' + e.message }
     }
 
     await uploadVideo(page, params.videoPath, log)

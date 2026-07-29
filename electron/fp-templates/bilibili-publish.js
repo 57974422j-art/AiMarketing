@@ -6,6 +6,7 @@
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const BILIBILI_UPLOAD_URL = 'https://member.bilibili.com/platform/upload/video/frame?spm_id_from=333.33.top_bar.upload'
+const { resolveLocalVideoPath, resolveLocalImagePath } = require('./_common')
 
 async function isLoggedIn(page, log) {
   try {
@@ -164,8 +165,12 @@ async function executeBilibiliPublish(page, params, log) {
       }
     }
 
-    if (!params.videoPath) {
-      return { success: false, message: '缺少视频文件 videoPath' }
+    // 解析视频（素材仓库名 → 本地路径；修复“缺少 videoPath”断点）
+    try {
+      await resolveLocalVideoPath(params, log)
+    } catch (e) {
+      log('❌ 视频解析失败: ' + e.message)
+      return { success: false, message: '视频获取失败: ' + e.message }
     }
 
     await uploadVideo(page, params.videoPath, log)
@@ -173,6 +178,9 @@ async function executeBilibiliPublish(page, params, log) {
     await fillDescription(page, params.description, log)
     await selectCategory(page, log)
     await fillTags(page, params.topics, log)
+    if (params.coverImage) {
+      params.coverImage = (await resolveLocalImagePath(params.coverImage, params.userId, params.authToken, log)) || params.coverImage
+    }
     await uploadCover(page, params.coverImage, log)
 
     const resultUrl = await publishOrDraft(page, params.publishNow !== false, log)

@@ -328,8 +328,9 @@ ipcMain.handle('fp:start', async (_event, { port, userId, accountId, platform, p
     }
 
     const chromium = await getChromium()
-    // profile 按 用户+平台 维度，端口仅作调试端口，释放后可复用登录态
-    const profileKey = userId ? `${userId}-${platform}` : `${accountId || port}-${platform}`
+    // 登录态按「账号维度」持久化：accountId 即 Account.id（稳定唯一），
+    // 不再用 userId-platform，避免同用户多同平台账号争用同一 profile 目录（原“保存不住”根因之一）
+    const profileKey = accountId ? String(accountId) : (userId ? `${userId}-${platform}` : String(port))
     const userDataDir = getUserDataDir(profileKey)
     fs.mkdirSync(userDataDir, { recursive: true })
 
@@ -530,6 +531,41 @@ ipcMain.handle('fp:info', async (_event, { port }) => {
   } catch (e) {
     return { success: false, error: e.message }
   }
+})
+
+
+// ── 登录态持久化（按账号维度，本地标记文件）──
+// 解决「扫码登录后保存不住」：登录态落在 Account.id 维度 profile 目录，
+// 并用 .loggedin 标记文件记录有效登录，前端刷新后通过 fp:loginState 重新读取。
+ipcMain.handle('fp:markLogin', async (_event, { accountId }) => {
+  try {
+    if (!accountId) return { success: false, error: '缺少 accountId' }
+    const dir = getUserDataDir(String(accountId))
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, '.loggedin'), new Date().toISOString())
+    console.log(`[FP] 标记账号 ${accountId} 已登录`)
+    return { success: true }
+  } catch (e) { return { success: false, error: e.message } }
+})
+
+ipcMain.handle('fp:loginState', async (_event, { accountId }) => {
+  try {
+    if (!accountId) return { success: true, data: { loggedIn: false } }
+    const dir = getUserDataDir(String(accountId))
+    const loggedIn = fs.existsSync(path.join(dir, '.loggedin'))
+    return { success: true, data: { loggedIn } }
+  } catch (e) { return { success: false, error: e.message, data: { loggedIn: false } } }
+})
+
+ipcMain.handle('fp:logout', async (_event, { accountId }) => {
+  try {
+    if (!accountId) return { success: false, error: '缺少 accountId' }
+    const dir = getUserDataDir(String(accountId))
+    const marker = path.join(dir, '.loggedin')
+    if (fs.existsSync(marker)) fs.unlinkSync(marker)
+    console.log(`[FP] 清除账号 ${accountId} 登录标记`)
+    return { success: true }
+  } catch (e) { return { success: false, error: e.message } }
 })
 
 
@@ -751,6 +787,15 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
         break
       default:
         throw new Error(`未知模板类型: ${templateType}`)
+    }
+
+    // 发布成功后，标记该账号已登录（持久化本地登录态，解决“保存不住”）
+    if (result && result.success && instance.accountId) {
+      try {
+        const dir = getUserDataDir(String(instance.accountId))
+        fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(path.join(dir, '.loggedin'), new Date().toISOString())
+      } catch (_) {}
     }
 
     log(`执行完成: ${result.success ? '成功' : '失败'} ${result.message || ''}`)
