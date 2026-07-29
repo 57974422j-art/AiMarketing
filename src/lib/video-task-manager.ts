@@ -150,7 +150,7 @@ function generateTTSSyncSubtitles(
   ratio: string,
   workDir: string
 ): string {
-  const wrapMax: Record<string, number> = { '16:9': 22, '9:16': 6, '1:1': 12, '4:3': 18 }
+  const wrapMax: Record<string, number> = { '16:9': 22, '9:16': 12, '1:1': 15, '4:3': 18 }
   const maxW = wrapMax[ratio] || 16
 
   function splitLine(l: string): string[] {
@@ -413,7 +413,12 @@ async function runTask(
     // Step 8: 最终渲染（字幕/贴纸/标题）
     // ═══════════════════════════════════════
     let finalVf = ''
-    if (showSubs && sp) finalVf = `subtitles='${sp}':force_style='FontSize=${Math.round(fs2 * H / 1080)},Alignment=2,MarginV=${Math.round(H * 0.04)}'`
+    if (showSubs && sp) {
+      const r = W / H
+      const mc = r < 0.8 ? 12 : r < 1.1 ? 15 : r < 1.5 ? 18 : 22
+      const effFont = Math.max(14, Math.round((W * 0.92 / mc) * ((fs2 || 36) / 36)))
+      finalVf = `subtitles='${sp}':force_style='FontSize=${effFont},Alignment=2,MarginV=${Math.round(H * 0.06)}'`
+    }
     if (stickerText) {
       const pos = posXY(stickerPos, W, H, 28)
       const safeSticker = stickerText.slice(0, 12).replace(/[':]/g, '\\$&')
@@ -617,7 +622,8 @@ async function runSmartTask(
       const srtLines: string[] = []
       for (let li = 0; li < ln.length; li++) {
         const lineDur = segDuration[li] || 2
-        const chunks = splitText(ln[li], 18) // 每行最多18字
+        const subMax = ratio === '9:16' ? 12 : ratio === '1:1' ? 15 : ratio === '4:3' ? 18 : 22
+        const chunks = splitText(ln[li], subMax) // 竖屏每行最多12字，横屏22字，未结束自动双排
         const chunkDur = lineDur / chunks.length
         for (let ci = 0; ci < chunks.length; ci++) {
           const t1 = subCursor + ci * chunkDur

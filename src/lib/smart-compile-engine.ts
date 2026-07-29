@@ -482,8 +482,12 @@ function convertToASS(srtPath: string, workDir: string, style: SubtitleStyle, fo
     }
   }
 
-  // 构建 ASS 头部：PlayRes 跟随真实输出分辨率/比例，字号按输出高度自适应（以1080p为基准，保证各比例/分辨率视觉大小一致）
-  const effFont = Math.max(14, Math.round(fontSize * (H / 1080)))
+  // 字号按【宽度】自适应：让 maxChars 个字约占 92% 宽，横竖屏视觉一致，且不再随高度被放大（修复竖屏字幕巨大）
+  const ratio = W / H
+  const maxChars = ratio < 0.8 ? 12 : ratio < 1.1 ? 15 : ratio < 1.5 ? 18 : 22
+  const baseFont = (W * 0.92) / maxChars
+  const scale = (fontSize || 36) / 36 // 用户所选大小(28/36/44)以 36 为基准作相对缩放
+  const effFont = Math.max(14, Math.round(baseFont * scale))
   const styleLine = getASSStyle(style, effFont, W, H)
   const assHeader = `[Script Info]
 Title: Smart Compile Subtitles
@@ -530,16 +534,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 }
 
 
-function getASSStyle(style: SubtitleStyle, fontSize: number): string {
+function getASSStyle(style: SubtitleStyle, fontSize: number, W: number, H: number): string {
+  const mL = Math.round((W || 1920) * 0.02)
+  const mR = Math.round((W || 1920) * 0.02)
+  const mV = Math.round((H || 1080) * 0.06)
+  const outline = Math.max(1, Math.round(fontSize * 0.08))
+  const shadow = Math.max(1, Math.round(fontSize * 0.05))
   switch (style) {
     case 'karaoke':
-      return `Default,Arial,${fontSize * 1.5},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,2,20,20,30,1`
+      return `Default,Arial,${fontSize * 1.5},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,${outline},${shadow},2,${mL},${mR},${mV},1`
     case 'typewriter':
-      return `Default,Courier New,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,25,1`
+      return `Default,Courier New,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,${outline},${shadow},2,${Math.round((W || 1920) * 0.01)},${Math.round((W || 1920) * 0.01)},${Math.round((H || 1080) * 0.05)},1`
     case 'highlight':
-      return `Default,Arial,${fontSize * 1.2},&H00FFFFFF,&H00FFFF00,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2.5,3,2,15,15,35,1`
+      return `Default,Arial,${fontSize * 1.2},&H00FFFFFF,&H00FFFF00,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,${outline},${shadow},2,${mL},${mR},${mV},1`
     default:
-      return `Default,Arial,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,25,1`
+      return `Default,Arial,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,${outline},${shadow},2,${mL},${mR},${mV},1`
   }
 }
 
