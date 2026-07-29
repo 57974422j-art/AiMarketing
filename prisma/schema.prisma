@@ -74,6 +74,7 @@ model User {
   paymentOrders           PaymentOrder[]
   generationRecords       GenerationRecord[]    // 生成记录总表（虚拟关系，不产生数据库列）
   feedbacks               Feedback[]            // 问题反馈（虚拟关系，不产生数据库列）
+  contentDrafts           ContentDraft[]        // 发布内容草稿箱（虚拟关系，不产生数据库列）
   chatSessions            ChatSession[]
   pointBalance            Int      @default(0)  // 点卡永久点数余额（1点=¥0.01，不过期；扣费顺序=月额度优先、余额兜底）
   pointCardOrders         PointCardOrder[]
@@ -1056,5 +1057,23 @@ model Feedback {
 
   @@index([userId, createdAt])
   @@index([status])
+}
+
+// 用户发布内容草稿箱（AI 生成/手填的标题文案话题封面，可保存后列表提取再发布）
+model ContentDraft {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  platform    String                        // douyin/xiaohongshu/kuaishou/shipinhao/bilibili
+  title       String
+  description String   @default("")
+  topics      String   @default("[]")        // JSON 数组字符串
+  coverImage  String?
+  videoName   String?                       // 关联的个人仓库视频（可选）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
 }
 

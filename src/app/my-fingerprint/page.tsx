@@ -141,6 +141,11 @@ export default function MyFingerprintPage() {
   // ── 任务队列 ──
   const [taskQueue, setTaskQueue] = useState<PublishTask[]>([])
 
+  // ── 草稿箱 ──
+  const [drafts, setDrafts] = useState<any[]>([])
+  const [draftsOpen, setDraftsOpen] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
+
   // ── 账号登录态（按 accountId 维度，跨刷新持久：启动时从本地标记文件读取）──
   const [loginState, setLoginState] = useState<Record<number, boolean>>({})
   const setAccountLoggedIn = (id: number, loggedIn: boolean) =>
@@ -361,31 +366,136 @@ export default function MyFingerprintPage() {
     }
   }
 
-  /** AI 生成封面（基于标题+文案，可选；生成失败不影响手填） */
+  // 加载图片为 HTMLImageElement（用于 canvas 合成封面），相对路径自动补 origin
+  const loadCoverImage = (src: string) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image()
+      im.onload = () => resolve(im)
+      im.onerror = () => reject(new Error('封面底图加载失败'))
+      im.src = src.startsWith('http') ? src : `${window.location.origin}${src}`
+    })
+
+  // 多行文字绘制（按字符宽度换行，最多 maxLines 行，从 yBottom 向上排）
+  const drawWrappedText = (
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    yBottom: number,
+    maxWidth: number,
+    lineHeight: number,
+    maxLines: number,
+  ) => {
+    const chars = Array.from(text)
+    const lines: string[] = []
+    let line = ''
+    for (const c of chars) {
+      const test = line + c
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line)
+        line = c
+      } else {
+        line = test
+      }
+    }
+    if (line) lines.push(line)
+    const shown = lines.slice(-maxLines)
+    shown.forEach((ln, i) => {
+      ctx.fillText(ln, x, yBottom - (shown.length - 1 - i) * lineHeight)
+    })
+  }
+
+  /** 美化封面：用真实视频帧作底图，canvas 叠加标题文字（不再调文生图凭空生成） */
   const handleAICover = async () => {
     if (aiCoverLoading) return
-    const basePrompt = (formTitle || formDesc || '一张美观的短视频封面')
+    if (!formCoverImage) {
+      showToast('请先用「AI 看片」或上传得到封面底图', 'error')
+      return
+    }
     setAiCoverLoading(true)
     try {
-      const r = await fetch('/api/generate-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ prompt: `为短视频生成一张吸引人的封面图，主题：${basePrompt}`, size: '1280*1280' }),
-      })
-      const d = await r.json()
-      if (d.success && d.data?.url) {
-        setFormCoverImage(d.data.url)
-        if (typeof d.pointsSpent === 'number' && d.pointsSpent > 0) setAiCoverPoints(d.pointsSpent)
-        showToast('AI 封面已生成', 'success')
-      } else {
-        showToast(d.message || 'AI 生成封面失败', 'error')
+      const img = await loadCoverImage(formCoverImage)
+      const W = img.width || 720
+      const H = img.height || 1280
+      const canvas = document.createElement('canvas')
+      canvas.width = W
+      canvas.height = H
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('canvas 不可用')
+      ctx.drawImage(img, 0, 0, W, H)
+      // 底部渐变遮罩，保证标题文字可读
+      const grad = ctx.createLinearGradient(0, H * 0.5, 0, H)
+      grad.addColorStop(0, 'rgba(0,0,0,0)')
+      grad.addColorStop(1, 'rgba(0,0,0,0.78)')
+      ctx.fillStyle = grad
+      ctx.fillRect(0, H * 0.5, W, H * 0.5)
+      // 叠加标题
+      const title = (formTitle || formDesc || '').trim()
+      const fontSize = Math.max(28, Math.floor(W / 16))
+      ctx.textBaseline = 'alphabetic'
+      ctx.fillStyle = '#ffffff'
+      ctx.font = `bold ${fontSize}px sans-serif`
+      if (title) {
+        drawWrappedText(ctx, title, Math.floor(W * 0.06), H - Math.floor(H * 0.08), W * 0.88, fontSize * 1.25, 4)
       }
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+      setFormCoverImage(dataUrl)
+      showToast('✨ 美化封面已生成（已叠加标题）', 'success')
     } catch (e: any) {
-      showToast('生成封面异常: ' + (e?.message || e), 'error')
+      showToast('封面美化失败: ' + (e?.message || e), 'error')
     } finally {
       setAiCoverLoading(false)
     }
+  }
+
+  // ── 草稿箱：加载 / 保存 / 提取 ──
+  const loadDrafts = async () => {
+    try {
+      const r = await fetch('/api/content-draft', { credentials: 'include' })
+      const d = await r.json()
+      if (d.success) setDrafts(d.drafts || [])
+    } catch {}
+  }
+
+  const saveDraft = async () => {
+    if (savingDraft) return
+    if (!formTitle.trim()) { showToast('请先填写标题再保存草稿', 'error'); return }
+    setSavingDraft(true)
+    try {
+      const r = await fetch('/api/content-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          platform: selectedAccount?.platform || '',
+          title: formTitle.trim(),
+          description: formDesc,
+          topics: formTopics,
+          coverImage: formCoverImage || null,
+          videoName: formVideoName || null,
+        }),
+      })
+      const d = await r.json()
+      if (d.success) {
+        showToast('✅ 草稿已保存', 'success')
+        await loadDrafts()
+      } else {
+        showToast(d.message || '保存失败', 'error')
+      }
+    } catch (e: any) {
+      showToast('保存异常: ' + (e?.message || e), 'error')
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
+  const extractDraft = (d: any) => {
+    if (d.title) setFormTitle(d.title)
+    if (d.description) setFormDesc(d.description)
+    if (d.topics) setFormTopics(Array.isArray(d.topics) ? d.topics.join(' ') : d.topics)
+    if (d.coverImage) setFormCoverImage(d.coverImage)
+    if (d.videoName) setFormVideoName(d.videoName)
+    setDraftsOpen(false)
+    showToast('已提取到发布表单', 'success')
   }
 
   /** 添加任务到队列 */
@@ -988,7 +1098,7 @@ export default function MyFingerprintPage() {
                     disabled={aiCoverLoading}
                     className="w-full mt-2 bg-gradient-to-r from-fuchsia-500/20 to-pink-500/20 border border-fuchsia-500/30 rounded-lg px-3 py-2.5 text-xs text-fuchsia-300 hover:from-fuchsia-500/30 hover:to-pink-500/30 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    {aiCoverLoading ? '⏳ 生成中...' : '🎨 AI 生成封面（基于标题/文案）'}
+                    {aiCoverLoading ? '⏳ 美化中...' : '🎨 美化封面（叠加标题）'}
                   </button>
                   {aiCoverPoints != null && (
                     <p className="mt-2 text-[10px] text-fuchsia-300/80">
@@ -1050,6 +1160,25 @@ export default function MyFingerprintPage() {
                   </button>
                 </div>
 
+                {/* 草稿箱：保存 / 我的草稿 */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={saveDraft}
+                    disabled={savingDraft}
+                    className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                  >
+                    {savingDraft ? '⏳ 保存中...' : '💾 保存草稿'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => { await loadDrafts(); setDraftsOpen(true) }}
+                    className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-gray-700/50 hover:bg-gray-600/50 text-gray-200 border border-white/10 transition flex items-center justify-center gap-2"
+                  >
+                    📂 我的草稿 ({drafts.length})
+                  </button>
+                </div>
+
                 {/* 添加到队列按钮 */}
                 <button
                   type="button"
@@ -1060,6 +1189,43 @@ export default function MyFingerprintPage() {
                   ➕ 添加到发布队列 ({taskQueue.length})
                 </button>
               </div>
+
+              {/* 草稿箱抽屉 */}
+              {draftsOpen && (
+                <div className="fixed inset-0 z-50 flex justify-end bg-black/50" onClick={() => setDraftsOpen(false)}>
+                  <div className="w-[88%] max-w-md h-full bg-gray-900 border-l border-white/10 overflow-y-auto p-4" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-medium text-gray-200">📂 我的草稿</span>
+                      <button onClick={() => setDraftsOpen(false)} className="text-gray-500 hover:text-gray-300 text-lg">✕</button>
+                    </div>
+                    {drafts.length === 0 ? (
+                      <p className="text-xs text-gray-500 mt-6 text-center">还没有草稿</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {drafts.map((d: any) => (
+                          <div key={d.id} className="bg-gray-800/40 border border-white/5 rounded-lg p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-xs text-white font-medium truncate">{d.title}</p>
+                                <p className="text-[10px] text-gray-500 mt-0.5">
+                                  {d.platform || '未设平台'} · {new Date(d.createdAt).toLocaleString('zh-CN')}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => extractDraft(d)}
+                                className="shrink-0 text-[10px] px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
+                              >提取</button>
+                            </div>
+                            {d.coverImage && (
+                              <img src={d.coverImage} alt="" className="w-full h-20 object-cover rounded mt-2" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* ═══ 队列表格 ═══ */}
               {taskQueue.length > 0 && (

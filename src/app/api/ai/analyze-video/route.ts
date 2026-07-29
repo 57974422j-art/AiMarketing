@@ -7,6 +7,8 @@ import { getObject, putObject } from '@/lib/oss'
 import { runFFmpeg, runFFprobe } from '@/lib/ffmpeg'
 import { agnesChat } from '@/lib/ai-providers'
 import { spendTokens, usageToPoints } from '@/lib/token-wallet'
+import { PrismaClient } from '@prisma/client'
+const prisma = new PrismaClient()
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -143,6 +145,36 @@ export async function POST(request: NextRequest) {
       }
     } catch (e: any) {
       console.error('[analyze-video] 点数记账失败:', e?.message)
+    }
+
+    // A. 成功日志：便于事后在 PM2 日志中追溯 Agnes 到底返回了什么
+    console.log('[analyze-video] 成功', {
+      user: uid,
+      video: videoName,
+      usage: res.usage,
+      title,
+      descriptionLen: description.length,
+      topics: topics.length,
+      pointsSpent,
+    })
+
+    // B. 写一条 GenerationRecord，使后台 admin/generation-records 也能看到本次看片
+    try {
+      await prisma.generationRecord.create({
+        data: {
+          userId: auth.userId,
+          type: 'analyze_video',
+          provider: 'agnes',
+          model: 'agnes-2.5-flash',
+          status: 'succeeded',
+          costPoints: pointsSpent,
+          prompt: `视频:${videoName} 抽帧:${images.length}张`,
+          storageUrl: `/api/storage/file?userId=${uid}&name=${encodeURIComponent(coverName)}`,
+          sourceUrl: `storage/${uid}/${videoName}`,
+        },
+      })
+    } catch (e: any) {
+      console.error('[analyze-video] 写 GenerationRecord 失败:', e?.message)
     }
 
     return NextResponse.json({
