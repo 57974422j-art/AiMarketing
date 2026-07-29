@@ -7,9 +7,7 @@ interface Plan {
   id: number; name: string; description: string | null
   price: number; discountPrice: number | null
   durationMonths: number
-  deepseekTokens: number; llmTokens: number
-  text2imgQuota: number; text2videoQuota: number
-  digitalHumanMin: number; liveStreamMin: number; storageMb: number
+  storageMb: number
   status: string; sortOrder: number
 }
 
@@ -17,13 +15,15 @@ interface UsageStats { month: string; totals: any; users: any[] }
 
 const fmtYuan = (fen: number) => '¥' + (fen / 100).toFixed(0)
 const fmtDisk = (mb: number) => mb >= 1024 ? (mb / 1024).toFixed(1) + 'GB' : mb + 'MB'
-const fmtQuota = (v: number) => v === -1 ? '∞' : v > 0 ? v.toLocaleString() : '—'
-/** 月 TOKEN 额度：与前端「我的套餐」/后端 token-wallet.planMonthlyTokens 算法一致 —— 1 点=¥0.01，按【原价】/月数（折后价仅用于展示与支付，不计入额度） */
+/** 月点数额度：与前端「我的套餐」/后端 token-wallet.planMonthlyTokens 完全一致 —— 1 点=¥0.01，按【原价】/月数（折后价仅用于展示/支付，不计入额度） */
 const planTokens = (p: Plan) => {
   const effective = p.price
   if (effective <= 0) return 500
   return Math.round(effective / Math.max(1, p.durationMonths || 1))
 }
+/** 由点数额度反推「可约生图/生视频」：生图 12 点/张、生视频 100 点/秒（见 token-wallet.TOKEN_COSTS），按实际用量扣点而非固定配额 */
+const planImageEst = (pts: number) => Math.floor(pts / 12)
+const planVideoEst = (pts: number) => Math.floor(pts / 100)
 
 export default function SubscriptionAdminPage() {
   const { user, loading: authLoading } = useAuth()
@@ -64,12 +64,6 @@ export default function SubscriptionAdminPage() {
         price: Number(form.price),
         discountPrice: form.discountPrice ? Number(form.discountPrice) : null,
         durationMonths: Number(form.durationMonths) || 1,
-        deepseekTokens: Number(form.deepseekTokens) ?? -1,
-        llmTokens: Number(form.llmTokens) || 0,
-        text2imgQuota: Number(form.text2imgQuota) || 0,
-        text2videoQuota: Number(form.text2videoQuota) || 0,
-        digitalHumanMin: Number(form.digitalHumanMin) || 0,
-        liveStreamMin: Number(form.liveStreamMin) || 0,
         storageMb: Number(form.storageMb) || 100,
         sortOrder: Number(form.sortOrder) || 0,
       }
@@ -104,7 +98,7 @@ export default function SubscriptionAdminPage() {
   }
 
   const startEdit = (p: Plan) => { setEditing(p); setForm({ ...p }) }
-  const startNew = () => { setEditing(null as any); setForm({ name: '', price: 2900, discountPrice: null, durationMonths: 1, deepseekTokens: -1, llmTokens: 50000, text2imgQuota: 200, text2videoQuota: 10, digitalHumanMin: 30, liveStreamMin: 60, storageMb: 100, status: 'active', sortOrder: plans.length }) }
+  const startNew = () => { setEditing(null as any); setForm({ name: '', price: 2900, discountPrice: null, durationMonths: 1, storageMb: 100, status: 'active', sortOrder: plans.length }) }
 
   if (!authorized) return <div className="min-h-screen bg-gray-950 p-8 text-gray-400 text-sm">需要管理员权限</div>
 
@@ -182,7 +176,7 @@ export default function SubscriptionAdminPage() {
                   <table className="w-full text-xs">
                     <thead><tr className="text-gray-500 border-b border-white/10">
                       <th className="text-left py-2">名称</th><th className="text-right">原价</th><th className="text-right">折扣</th><th className="text-center">时长</th>
-                      <th className="text-right">月TOKEN</th><th className="text-center">状态</th><th className="text-center">操作</th>
+                      <th className="text-right">月点数</th><th className="text-right">可约生图</th><th className="text-right">可约生视频</th><th className="text-center">状态</th><th className="text-center">操作</th>
                     </tr></thead>
                     <tbody>
                       {plans.map(p => (
@@ -192,6 +186,8 @@ export default function SubscriptionAdminPage() {
                           <td className="text-right font-mono text-emerald-400">{p.discountPrice ? fmtYuan(p.discountPrice) : '—'}</td>
                           <td className="text-center">{p.durationMonths}月</td>
                           <td className="text-right font-mono text-amber-400">{planTokens(p).toLocaleString()}</td>
+                          <td className="text-right font-mono text-sky-400">{planImageEst(planTokens(p))}张</td>
+                          <td className="text-right font-mono text-rose-400">{planVideoEst(planTokens(p))}秒</td>
                           <td className="text-center"><span className={p.status === 'active' ? 'text-emerald-400' : 'text-gray-600'}>{p.status === 'active' ? '上架' : '已下架'}</span></td>
                           <td className="text-center">
                             <button onClick={() => toggleStatus(p)} className={`mr-2 ${p.status === 'active' ? 'text-amber-400 hover:text-amber-300' : 'text-emerald-400 hover:text-emerald-300'}`}>{p.status === 'active' ? '下架' : '上架'}</button>
@@ -210,16 +206,14 @@ export default function SubscriptionAdminPage() {
             {(editing !== null || form.name !== undefined) && (
               <div className="card-glass p-4 border border-blue-500/20">
                 <h3 className="text-sm text-blue-400 mb-3">{editing ? `编辑: ${editing.name}` : '新建套餐'}</h3>
+                <p className="text-[10px] text-gray-500 mb-3">点数体系：月点数 = 原价(分) / 月数（1 点≈¥0.01）。生图 12 点/张、生视频 100 点/秒、对话 1 点/条，<span className="text-gray-400">按实际用量扣点，无需单独设"多少张/多少条"配额</span>。</p>
                 <div className="grid grid-cols-3 md:grid-cols-4 gap-3 text-xs">
                   {[
                     { key: 'name', label: '套餐名', type: 'text', placeholder: '基础月卡' },
                     { key: 'price', label: '原价(分)', type: 'number', placeholder: '2900(¥29)' },
                     { key: 'discountPrice', label: '折扣价(分)', type: 'number', placeholder: '1900(¥19)' },
                     { key: 'durationMonths', label: '月数', type: 'number', placeholder: '1' },
-                    { key: 'deepseekTokens', label: 'DeepSeek Token', type: 'number', placeholder: '-1(无限)' },
-                    { key: 'llmTokens', label: 'LLM Token', type: 'number', placeholder: '50000' },
-                    { key: 'text2imgQuota', label: '文生图(次)', type: 'number', placeholder: '200' },
-                    { key: 'text2videoQuota', label: '文生视频(次)', type: 'number', placeholder: '10' },
+                    { key: 'storageMb', label: '存储空间(MB)', type: 'number', placeholder: '100' },
                     { key: 'sortOrder', label: '排序', type: 'number', placeholder: '0' },
                   ].map(f => (
                     <div key={f.key}>
