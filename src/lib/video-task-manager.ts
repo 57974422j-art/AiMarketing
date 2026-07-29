@@ -413,7 +413,7 @@ async function runTask(
     // Step 8: 最终渲染（字幕/贴纸/标题）
     // ═══════════════════════════════════════
     let finalVf = ''
-    if (showSubs && sp) finalVf = `subtitles='${sp}':force_style='FontSize=${fs2},Alignment=2,MarginV=40'`
+    if (showSubs && sp) finalVf = `subtitles='${sp}':force_style='FontSize=${Math.round(fs2 * H / 1080)},Alignment=2,MarginV=${Math.round(H * 0.04)}'`
     if (stickerText) {
       const pos = posXY(stickerPos, W, H, 28)
       const safeSticker = stickerText.slice(0, 12).replace(/[':]/g, '\\$&')

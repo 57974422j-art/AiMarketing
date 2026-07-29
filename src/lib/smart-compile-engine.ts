@@ -352,7 +352,7 @@ export async function finalRenderWithEffects(
   if (showSubs && srtPath) {
     if (subtitleStyle !== 'normal') {
       // 高级字幕样式：转换为 ASS 格式
-      const assPath = convertToASS(srtPath, workDir, subtitleStyle, subtitleSize)
+      const assPath = convertToASS(srtPath, workDir, subtitleStyle, subtitleSize, W, H)
       vf = `subtitles='${assPath}'`
     } else {
       // 普通 SRT（保持兼容）
@@ -465,7 +465,7 @@ export async function finalRenderWithEffects(
 /**
  * SRT → ASS 字幕转换（支持高级样式）
  */
-function convertToASS(srtPath: string, workDir: string, style: SubtitleStyle, fontSize: number): string {
+function convertToASS(srtPath: string, workDir: string, style: SubtitleStyle, fontSize: number, W: number, H: number): string {
   const content = fs.readFileSync(srtPath, 'utf-8')
   const lines = content.split('\n')
 
@@ -482,13 +482,15 @@ function convertToASS(srtPath: string, workDir: string, style: SubtitleStyle, fo
     }
   }
 
-  // 构建 ASS 头部
-  const styleLine = getASSStyle(style, fontSize)
+  // 构建 ASS 头部：PlayRes 跟随真实输出分辨率/比例，字号按输出高度自适应（以1080p为基准，保证各比例/分辨率视觉大小一致）
+  const effFont = Math.max(14, Math.round(fontSize * (H / 1080)))
+  const styleLine = getASSStyle(style, effFont, W, H)
   const assHeader = `[Script Info]
 Title: Smart Compile Subtitles
 ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080:
+ScaledBorderAndShadow: yes
+PlayResX: ${W}
+PlayResY: ${H}
 
 [V4+ Styles]
 Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
