@@ -7,6 +7,7 @@ interface Plan {
   id: number; name: string; description: string | null
   price: number; discountPrice: number | null
   durationMonths: number
+  monthlyTokens: number | null
   text2imgQuota: number; text2videoQuota: number
   digitalHumanMin: number; liveStreamMin: number; storageMb: number
   status: string
@@ -16,8 +17,9 @@ interface Wallet { hasSubscription: boolean; planName: string | null; allowance:
 
 const fmtYuan = (f: number) => '¥' + (f / 100).toFixed(0)
 const FREE_TRIAL_POINTS = 500
-/** 套餐月度点数额度（1 点 = ¥0.01，按原价折算，与后端账本一致；0元套餐=固定试用额度） */
+/** 套餐月度点数额度（手填 monthlyTokens 优先；否则按原价/月数自动，与后端 planMonthlyTokens 一致；0元套餐=固定试用额度） */
 const planTokens = (p: Plan) => {
+  if (p.monthlyTokens !== null && p.monthlyTokens !== undefined) return p.monthlyTokens
   const effective = p.price // 取原价
   if (effective <= 0) return FREE_TRIAL_POINTS
   return Math.round(effective / Math.max(1, p.durationMonths || 1))
