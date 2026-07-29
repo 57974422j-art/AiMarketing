@@ -74,40 +74,59 @@ async function uploadVideo(page, videoPath, log) {
   log('已进入编辑页')
 }
 
-async function fillTitleAndTags(page, title, topics, log) {
-  const titleInput = await page.$('input[placeholder*="标题"]')
-  if (titleInput) {
-    await titleInput.click()
-    await titleInput.fill(title || '')
-    if (topics && topics.length) {
-      for (const t of topics) {
-        await page.keyboard.type('#' + t, { delay: 30 })
-        await sleep(450)
-        await page.keyboard.press('Space')
-        await sleep(200)
-      }
-    }
-    await page.keyboard.press('Enter')
-    log('标题/话题已填写')
-  } else {
-    log('未找到标题输入框，跳过标题填写')
+/**
+ * 将 topics 统一解析为标签数组。
+ * 注意：params.topics 是【字符串】（如 "AI工具 短视频运营" 或 "AI工具，短视频运营"），
+ * 不能当数组遍历，否则会被拆成单个字符（之前 bug：#A #I #工 #具…）。
+ */
+function parseTopics(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map(t => String(t).replace(/^#/, '').trim()).filter(Boolean)
   }
+  if (typeof raw === 'string') {
+    return raw
+      .split(/[\s,，、]+/)
+      .map(t => t.replace(/^#/, '').trim())
+      .filter(Boolean)
+  }
+  return []
 }
 
-async function fillDescription(page, description, log) {
-  const desc = await page.$('textarea[placeholder*="描述"], textarea[placeholder*="介绍"], .desc-editor, div[contenteditable="true"]')
-  if (desc) {
-    await desc.click()
-    await desc.fill(description || '')
-    log('描述已填写')
-  } else {
-    log('未找到描述输入框，跳过描述填写')
+/** 短标题：视频号独立输入框，限 16 字，只填标题本身（不塞话题） */
+async function fillShortTitle(page, title, log) {
+  const titleInput = await page.$('input[placeholder*="标题"]')
+  if (!titleInput) {
+    log('未找到短标题输入框，跳过')
+    return
   }
+  await titleInput.click()
+  // 视频号短标题硬限 16 字，超出会被平台拒绝 → 截断避免“标题超过16字限制”
+  const raw = (title || '').trim()
+  const shortTitle = raw.slice(0, 16)
+  if (raw.length > 16) log(`短标题超 16 字已截断为: ${shortTitle}`)
+  await titleInput.fill(shortTitle)
+  log('短标题已填写')
+}
+
+/** 视频描述：放文案 + #话题（话题不进短标题） */
+async function fillDescription(page, description, topics, log) {
+  const desc = await page.$('textarea[placeholder*="描述"], textarea[placeholder*="介绍"], .desc-editor, div[contenteditable="true"]')
+  if (!desc) {
+    log('未找到视频描述输入框，跳过描述填写')
+    return
+  }
+  const tags = parseTopics(topics).map(t => '#' + t)
+  const parts = []
+  if (description && description.trim()) parts.push(description.trim())
+  if (tags.length) parts.push(tags.join(' '))
+  await desc.click()
+  await desc.fill(parts.join('\n'))
+  log('视频描述（文案 + 话题）已填写')
 }
 
 async function publishOrDraft(page, publishNow, log) {
-  // 等待上传完成：发表按钮可用（去掉 disabled）
-  const publishBtnSel = 'button[name="发表"]'
+  // 视频号发表按钮没有 name="发表" 属性，必须用文本匹配
+  const publishBtnSel = 'button:has-text("发表"), button[name="发表"]'
   await page.waitForSelector(publishBtnSel, { timeout: 180000 })
   // 等按钮可点击
   for (let i = 0; i < 60; i++) {
@@ -117,7 +136,7 @@ async function publishOrDraft(page, publishNow, log) {
   }
   if (publishNow) {
     log('点击【发表】发布视频号...')
-    await page.click('div.form-btns button:has-text("发表"), button:has-text("发表")')
+    await page.click(publishBtnSel)
   } else {
     log('点击【存草稿】...')
     await page.click('button:has-text("存草稿")')
@@ -152,8 +171,8 @@ async function executeShipinhaoPublish(page, params, log) {
     }
 
     await uploadVideo(page, params.videoPath, log)
-    await fillTitleAndTags(page, params.title, params.topics, log)
-    await fillDescription(page, params.description, log)
+    await fillShortTitle(page, params.title, log)
+    await fillDescription(page, params.description, params.topics, log)
 
     // 封面：方案A（1.0.4）—— 无自定义封面时跳过，使用平台默认帧
     if (params.coverImage) {
