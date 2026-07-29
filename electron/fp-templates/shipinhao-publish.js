@@ -41,30 +41,35 @@ async function isLoggedIn(page, log) {
 }
 
 async function uploadVideo(page, videoPath, log) {
-  let input = await page.$('input[type="file"]')
-  // 视频号上传入口可能在 iframe 内
-  if (!input) {
-    for (const frame of page.frames()) {
-      try {
-        const f = await frame.$('input[type="file"]')
-        if (f) { input = f; break }
-      } catch (_) {}
-    }
+  const sel = 'input[type="file"]'
+  // 视频号上传入口可能在 iframe 内：优先在 frame 中按选择器上传
+  for (const frame of page.frames()) {
+    try {
+      const found = await frame.$(sel)
+      if (found) {
+        // 用选择器写法，Playwright 每次执行重新定位元素，避免 "detached element"
+        await frame.setInputFiles(sel, videoPath, { timeout: 30000 })
+        log('视频已选择（弹层/iframe），等待转码进入编辑页...')
+        await page.waitForSelector('input[placeholder*="标题"], .input-editor', { timeout: 180000 })
+        log('已进入编辑页')
+        return
+      }
+    } catch (_) {}
   }
-  if (!input) {
-    // 触发上传：点击"上传视频 / 发表"按钮弹出文件选择
+
+  // 主页面未见 file input：点击"上传视频 / 发表"触发上传入口出现
+  if (!(await page.$(sel))) {
     try {
       await page.click('text=上传视频', { timeout: 5000 })
     } catch (_) {
       try { await page.click('button:has-text("发表")', { timeout: 5000 }) } catch (_) {}
     }
-    await page.waitForSelector('input[type="file"]', { timeout: 20000 })
-    input = await page.$('input[type="file"]')
+    await page.waitForSelector(sel, { timeout: 20000 })
   }
-  if (!input) throw new Error('未找到视频上传入口')
-  await input.setInputFiles(videoPath)
+
+  // 关键修复：用选择器写法而非元素句柄，规避 "Cannot set input files to detached element"
+  await page.setInputFiles(sel, videoPath, { timeout: 30000 })
   log('视频已选择，等待转码进入编辑页...')
-  // 等待进入编辑页：标题输入框出现
   await page.waitForSelector('input[placeholder*="标题"], .input-editor', { timeout: 180000 })
   log('已进入编辑页')
 }

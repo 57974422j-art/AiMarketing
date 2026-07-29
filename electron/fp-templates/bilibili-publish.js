@@ -28,14 +28,10 @@ async function uploadVideo(page, videoPath, log) {
     log('upload-area 未触发文件选择，尝试直接 setInputFiles: ' + e.message)
   }
   if (!uploaded) {
-    const input = await page.$('input[type="file"][name="uploader"][accept*=".mp4"]')
-    if (input) {
-      await input.setInputFiles(videoPath)
-    } else {
-      const anyInput = await page.$('input[type="file"]')
-      if (anyInput) await anyInput.setInputFiles(videoPath)
-      else throw new Error('未找到视频上传入口')
-    }
+    // 用选择器写法，避免 "detached element" 报错
+    let sel = 'input[type="file"][name="uploader"][accept*=".mp4"]'
+    if (!(await page.$(sel))) sel = 'input[type="file"]'
+    await page.setInputFiles(sel, videoPath, { timeout: 30000 })
   }
   log('视频已选择，等待上传/转码完成进入编辑页...')
   await page.waitForSelector('input[placeholder="请输入标题"]', { timeout: 180000 })
