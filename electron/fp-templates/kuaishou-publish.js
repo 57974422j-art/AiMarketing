@@ -19,6 +19,7 @@
 
 const path = require('path')
 const { resolveLocalVideoPath } = require('./_common')
+const { clickByTextCDP } = require('./_cdpClick')
 
 // ════════════════════════════════════
 // 工具函数
@@ -38,6 +39,56 @@ async function dismissPopups(page, log, prefix = '') {
       }
     } catch (_) {}
   }
+}
+
+/** 关闭快手发布页的新手引导遮罩（react-joyride 向导，会拦截所有点击） */
+async function dismissJoyride(page, log, prefix = '  ') {
+  try {
+    for (let i = 0; i < 8; i++) {
+      const portal = await page.$('#react-joyride-portal')
+      if (!portal) break
+      log(prefix + '[引导] 检测到新手引导遮罩，尝试关闭...')
+      let clicked = false
+      const skipTexts = ['跳过', '下一步', '我知道了', '知道了', '关闭', '×', 'X', '不再提示', '完成', '先去体验']
+      const btns = await page.$$('#react-joyride-portal button, #react-joyride-portal [role="button"]')
+      for (const b of btns) {
+        try {
+          const txt = (await b.evaluate(n => (n.innerText || n.getAttribute('aria-label') || '')).trim())
+          if (skipTexts.some(t => txt.includes(t)) && await b.isVisible().catch(() => false)) {
+            await b.click({ timeout: 2000 }).catch(() => {})
+            clicked = true
+            log(prefix + '[引导] 点击「' + txt + '」关闭引导')
+            break
+          }
+        } catch (_) {}
+      }
+      if (!clicked) {
+        try {
+          const overlay = await page.$('.react-joyride__overlay')
+          if (overlay && await overlay.isVisible().catch(() => false)) {
+            await overlay.click({ timeout: 1500, force: true }).catch(() => {})
+            clicked = true
+            log(prefix + '[引导] 点击遮罩关闭')
+          }
+        } catch (_) {}
+      }
+      await page.waitForTimeout(700)
+      const still = await page.$('#react-joyride-portal')
+      if (still) {
+        await page.evaluate(() => {
+          const p = document.getElementById('react-joyride-portal')
+          if (p) p.remove()
+          document.querySelectorAll('.react-joyride__overlay,.react-joyride__spotlight,.react-joyride__tooltip').forEach(n => n.remove())
+        }).catch(() => {})
+        await page.waitForTimeout(400)
+      }
+    }
+    await page.evaluate(() => {
+      const p = document.getElementById('react-joyride-portal')
+      if (p) p.remove()
+      document.querySelectorAll('.react-joyride__overlay,.react-joyride__spotlight,.react-joyride__tooltip').forEach(n => n.remove())
+    }).catch(() => {})
+  } catch (e) { log(prefix + '[引导] 处理异常: ' + e.message) }
 }
 
 /** 检测是否已登录；未登录返回 false */
@@ -153,6 +204,7 @@ async function step3_waitUpload(page, log) {
     let bodyText = ''
     try { bodyText = await page.evaluate(() => document.body.innerText) } catch (_) {}
     await dismissPopups(page, log, '  [' + elapsed + 's] ')
+    await dismissJoyride(page, log, '  [' + elapsed + 's] ')
 
     if (i % 5 === 4 || i < 3) {
       const kw = ['上传中', '上传失败', '标题', '填写作品', '发布']
@@ -168,11 +220,12 @@ async function step3_waitUpload(page, log) {
     const stillUploading = (bodyText.match(/上传中/g) || []).length > 0
     let titleVisible = false
     try {
-      const el = await page.$('input[placeholder*="标题"], input[placeholder*="作品"]')
+      const el = await page.$('input[placeholder*="标题"], input[placeholder*="作品"], textarea[placeholder*="简介"], textarea[placeholder*="描述"], div[contenteditable="true"]')
       if (el && await el.isVisible().catch(() => false)) titleVisible = true
     } catch (_) {}
+    const formHint = bodyText.includes('填写作品') || bodyText.includes('作品描述') || bodyText.includes('发布设置')
 
-    if (!stillUploading && titleVisible) {
+    if (!stillUploading && (titleVisible || formHint)) {
       editPageReady = true
       log('✅ 编辑页就绪 (' + elapsed + 's)')
       break
@@ -363,6 +416,7 @@ async function step7_publish(page, params, log) {
   const isDraft = params.publishNow === 'false'
   log('[步骤7] ' + (isDraft ? '存草稿' : '发布（两步）'))
   await page.waitForTimeout(2000)
+  await dismissJoyride(page, log, '[发布前] ')
 
   const stillLogin = await isLoggedIn(page, log)
   if (!stillLogin) {
@@ -386,7 +440,10 @@ async function step7_publish(page, params, log) {
     await page.click('button:has-text("发布")', { timeout: 5000 })
     step1 = true
     log('  ✅ 点击「发布」')
-  } catch (e) { log('  ⚠️ 未找到「发布」按钮: ' + e.message) }
+  } catch (e) {
+    log('  ⚠️ 常规点击「发布」失败，改用 CDP 保底: ' + e.message)
+    if (await clickByTextCDP(page, log, ['发布'])) step1 = true
+  }
 
   await page.waitForTimeout(2500)
 
@@ -397,8 +454,9 @@ async function step7_publish(page, params, log) {
     step2 = true
     log('  ✅ 点击「确认发布」')
   } catch (e) {
-    // 有些版本直接发布成功，无二次确认
-    log('  ℹ️ 无「确认发布」弹窗（可能已直接发布）')
+    // 有些版本直接发布成功，无二次确认；再试 CDP 保底
+    if (await clickByTextCDP(page, log, ['确认发布'])) step2 = true
+    else log('  ℹ️ 无「确认发布」弹窗（可能已直接发布）')
   }
 
   if (!step1 && !step2) {
@@ -463,6 +521,7 @@ async function executeKuaishouPublish(page, params, log) {
     const s3 = await step3_waitUpload(page, log)
     if (s3 && !s3.success) return s3
     log('✅ Step 3 完成')
+    await dismissJoyride(page, log, '[填表前] ')
 
     log('▶ Step 4/6: 填写标题+描述...')
     await step4_fillContent(page, params, log)
