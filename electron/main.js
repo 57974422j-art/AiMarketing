@@ -579,6 +579,49 @@ ipcMain.handle('fp:scriptStop', () => {
 // ── 执行自动化模板脚本（核心）──
 // templateType: 'douyin-publish' | 'douyin-comment' | ...
 // params: 模板所需的参数（文案、目标用户等）
+/**
+ * 从素材仓库下载视频到本地临时目录（5 个平台共用）。
+ *  - 优先复用本地缓存（temp/aimarketing-videos）：反复测试同一文件时，即便 OSS 上文件已被清理也能继续发布
+ *  - storage/file 端点免鉴权（middleware 白名单放行），不携带 cookie，避免巨型 JWT 触发 HTTP 431
+ *  - 失败时把完整 URL 带进错误，便于在浏览器直接核对 userId / name
+ */
+async function downloadStorageFile(userId, storageFileName, log) {
+  const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
+  const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
+  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+  const localPath = path.join(tmpDir, storageFileName)
+  // 本地已有有效缓存 → 直接复用，不再打 OSS
+  if (fs.existsSync(localPath) && fs.statSync(localPath).size > 0) {
+    const kb = (fs.statSync(localPath).size / 1024 / 1024).toFixed(1)
+    log(`[缓存] 复用本地视频: ${localPath} (${kb}MB)`)
+    return localPath
+  }
+  const downloadUrl = `${serverUrl}/api/storage/file?userId=${encodeURIComponent(userId || '')}&name=${encodeURIComponent(storageFileName)}`
+  log(`从素材仓库下载: ${storageFileName}（${serverUrl}）`)
+  await new Promise((resolve, reject) => {
+    const urlObj = new URL(downloadUrl)
+    const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
+    const reqHeaders = {}
+    mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume && res.resume()
+        // 404 多为该文件在素材仓库已不存在（被清理/未上传）；带上 URL 便于浏览器核对
+        return reject(new Error(`HTTP ${res.statusCode}（请在浏览器打开核对: ${downloadUrl}）`))
+      }
+      const chunks = []
+      res.on('data', (c) => chunks.push(c))
+      res.on('end', () => {
+        try { fs.writeFileSync(localPath, Buffer.concat(chunks)); resolve() }
+        catch (e) { reject(e) }
+      })
+    }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
+  })
+  const stat = fs.statSync(localPath)
+  log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
+  if (stat.size < 10000) log(`⚠️ 文件过小(${stat.size}B)，可能下载不完整`)
+  return localPath
+}
+
 ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
   try {
     const instance = activeBrowsers.get(port)
@@ -597,38 +640,10 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
     let result
     switch (templateType) {
       case 'douyin-publish':
-        // 如果是从素材仓库选择视频，先下载到本地
+        // 如果是从素材仓库选择视频，先下载到本地（含本地缓存复用；404 多为文件在仓库已不存在）
         if (params.storageFileName && !params.videoPath) {
-          const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
-          const downloadUrl = `${serverUrl}/api/storage/file?userId=${params.userId || ''}&name=${encodeURIComponent(params.storageFileName)}`
-          const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
-          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
-          const localPath = path.join(tmpDir, params.storageFileName)
-          log(`从素材仓库下载: ${params.storageFileName}`)
           try {
-            // 用 stream 方式下载，支持大文件
-            await new Promise((resolve, reject) => {
-              const urlObj = new URL(downloadUrl)
-              const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
-              const reqHeaders = {}
-              // storage/file 端点免鉴权（middleware 已白名单放行），去掉 cookie 避免巨型 JWT 触发 HTTP 431
-              mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
-                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
-                const chunks = []
-                res.on('data', chunk => chunks.push(chunk))
-                res.on('end', () => {
-                  const buf = Buffer.concat(chunks)
-                  fs.writeFileSync(localPath, buf)
-                  resolve()
-                })
-              }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
-            })
-            const stat = fs.statSync(localPath)
-            log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
-            if (stat.size < 10000) {
-              log(`⚠️ 文件过小(${stat.size}B)，可能下载不完整`)
-            }
-            params.videoPath = localPath
+            params.videoPath = await downloadStorageFile(params.userId, params.storageFileName, log)
           } catch (e) {
             log(`❌ 视频下载失败: ${e.message}`)
             return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
@@ -643,34 +658,10 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
         result = await executeDouyinComment(instance.page, params, log)
         break
       case 'xiaohongshu-publish':
-        // 如果是从素材仓库选择视频，先下载到本地
+        // 如果是从素材仓库选择视频，先下载到本地（含本地缓存复用；404 多为文件在仓库已不存在）
         if (params.storageFileName && !params.videoPath) {
-          const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
-          const downloadUrl = `${serverUrl}/api/storage/file?userId=${params.userId || ''}&name=${encodeURIComponent(params.storageFileName)}`
-          const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
-          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
-          const localPath = path.join(tmpDir, params.storageFileName)
-          log(`从素材仓库下载: ${params.storageFileName}`)
           try {
-            await new Promise((resolve, reject) => {
-              const urlObj = new URL(downloadUrl)
-              const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
-              const reqHeaders = {}
-              // storage/file 端点免鉴权（middleware 已白名单放行），去掉 cookie 避免巨型 JWT 触发 HTTP 431
-              mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
-                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
-                const chunks = []
-                res.on('data', chunk => chunks.push(chunk))
-                res.on('end', () => {
-                  const buf = Buffer.concat(chunks)
-                  fs.writeFileSync(localPath, buf)
-                  resolve()
-                })
-              }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
-            })
-            const stat = fs.statSync(localPath)
-            log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
-            params.videoPath = localPath
+            params.videoPath = await downloadStorageFile(params.userId, params.storageFileName, log)
           } catch (e) {
             log(`❌ 视频下载失败: ${e.message}`)
             return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
@@ -679,34 +670,10 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
         result = await executeXiaohongshuPublish(instance.page, params, log)
         break
       case 'kuaishou-publish':
-        // 如果是从素材仓库选择视频，先下载到本地
+        // 如果是从素材仓库选择视频，先下载到本地（含本地缓存复用；404 多为文件在仓库已不存在）
         if (params.storageFileName && !params.videoPath) {
-          const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
-          const downloadUrl = `${serverUrl}/api/storage/file?userId=${params.userId || ''}&name=${encodeURIComponent(params.storageFileName)}`
-          const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
-          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
-          const localPath = path.join(tmpDir, params.storageFileName)
-          log(`从素材仓库下载: ${params.storageFileName}`)
           try {
-            await new Promise((resolve, reject) => {
-              const urlObj = new URL(downloadUrl)
-              const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
-              const reqHeaders = {}
-              // storage/file 端点免鉴权（middleware 已白名单放行），去掉 cookie 避免巨型 JWT 触发 HTTP 431
-              mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
-                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
-                const chunks = []
-                res.on('data', chunk => chunks.push(chunk))
-                res.on('end', () => {
-                  const buf = Buffer.concat(chunks)
-                  fs.writeFileSync(localPath, buf)
-                  resolve()
-                })
-              }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
-            })
-            const stat = fs.statSync(localPath)
-            log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
-            params.videoPath = localPath
+            params.videoPath = await downloadStorageFile(params.userId, params.storageFileName, log)
           } catch (e) {
             log(`❌ 视频下载失败: ${e.message}`)
             return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
@@ -715,34 +682,10 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
         result = await executeKuaishouPublish(instance.page, params, log)
         break
       case 'shipinhao-publish':
-        // 如果是从素材仓库选择视频，先下载到本地
+        // 如果是从素材仓库选择视频，先下载到本地（含本地缓存复用；404 多为文件在仓库已不存在）
         if (params.storageFileName && !params.videoPath) {
-          const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
-          const downloadUrl = `${serverUrl}/api/storage/file?userId=${params.userId || ''}&name=${encodeURIComponent(params.storageFileName)}`
-          const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
-          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
-          const localPath = path.join(tmpDir, params.storageFileName)
-          log(`从素材仓库下载: ${params.storageFileName}`)
           try {
-            await new Promise((resolve, reject) => {
-              const urlObj = new URL(downloadUrl)
-              const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
-              const reqHeaders = {}
-              // storage/file 端点免鉴权（middleware 已白名单放行），去掉 cookie 避免巨型 JWT 触发 HTTP 431
-              mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
-                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
-                const chunks = []
-                res.on('data', chunk => chunks.push(chunk))
-                res.on('end', () => {
-                  const buf = Buffer.concat(chunks)
-                  fs.writeFileSync(localPath, buf)
-                  resolve()
-                })
-              }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
-            })
-            const stat = fs.statSync(localPath)
-            log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
-            params.videoPath = localPath
+            params.videoPath = await downloadStorageFile(params.userId, params.storageFileName, log)
           } catch (e) {
             log(`❌ 视频下载失败: ${e.message}`)
             return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
@@ -751,34 +694,10 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
         result = await executeShipinhaoPublish(instance.page, params, log)
         break
       case 'bilibili-publish':
-        // 如果是从素材仓库选择视频，先下载到本地
+        // 如果是从素材仓库选择视频，先下载到本地（含本地缓存复用；404 多为文件在仓库已不存在）
         if (params.storageFileName && !params.videoPath) {
-          const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
-          const downloadUrl = `${serverUrl}/api/storage/file?userId=${params.userId || ''}&name=${encodeURIComponent(params.storageFileName)}`
-          const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
-          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
-          const localPath = path.join(tmpDir, params.storageFileName)
-          log(`从素材仓库下载: ${params.storageFileName}`)
           try {
-            await new Promise((resolve, reject) => {
-              const urlObj = new URL(downloadUrl)
-              const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
-              const reqHeaders = {}
-              // storage/file 端点免鉴权（middleware 已白名单放行），去掉 cookie 避免巨型 JWT 触发 HTTP 431
-              mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
-                if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
-                const chunks = []
-                res.on('data', chunk => chunks.push(chunk))
-                res.on('end', () => {
-                  const buf = Buffer.concat(chunks)
-                  fs.writeFileSync(localPath, buf)
-                  resolve()
-                })
-              }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
-            })
-            const stat = fs.statSync(localPath)
-            log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
-            params.videoPath = localPath
+            params.videoPath = await downloadStorageFile(params.userId, params.storageFileName, log)
           } catch (e) {
             log(`❌ 视频下载失败: ${e.message}`)
             return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
