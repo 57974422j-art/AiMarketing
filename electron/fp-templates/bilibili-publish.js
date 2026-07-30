@@ -27,41 +27,60 @@ async function uploadVideo(page, videoPath, log) {
     }
   } catch (_) {}
 
-  // 2) 多策略触发 filechooser 上传
-  const triggers = ['.upload-area', '.bcc-upload', 'text=上传视频', '[class*="upload"] >> text=视频', '.upload-btn', '.bcc-upload-btn']
+  // 2) 直接对隐藏的 file input 设置文件（B站视频上传框本质为隐藏 input[type=file]，Playwright 可对其 setInputFiles）
+  const fileSels = [
+    'input[type="file"][accept*="video"]',
+    'input[type="file"][name*="video"]',
+    '.bcc-upload input[type="file"]',
+    'input[type="file"]',
+  ]
   let uploaded = false
-  for (const sel of triggers) {
+  for (const sel of fileSels) {
     try {
-      const fc = page.waitForEvent('filechooser', { timeout: 6000 })
-      await page.click(sel, { timeout: 4000 })
-      const chooser = await fc
-      await chooser.setFiles(videoPath)
+      const el = await page.$(sel)
+      if (!el) continue
+      await el.setInputFiles(videoPath, { timeout: 15000 })
       uploaded = true
-      log('✅ 视频已选择 (' + sel + ')')
+      log('✅ 已通过 file input 上传 (' + sel + ')')
       break
     } catch (e) {
-      log('  [上传] 触发失败: ' + sel)
+      log('  [上传] setInputFiles 失败: ' + sel)
     }
   }
 
-  // 3) 兜底：iframe 内的 file input
+  // 3) 兜底：iframe 内的 file input（B站上传页可能嵌在 frame 中）
   if (!uploaded) {
     try {
       for (const f of page.frames()) {
-        const inp = await f.$('input[type="file"]').catch(() => null)
-        if (inp) { await inp.setInputFiles(videoPath); uploaded = true; log('✅ 已通过 frame 内 file input 上传'); break }
+        for (const sel of fileSels) {
+          const inp = await f.$(sel).catch(() => null)
+          if (inp) {
+            await inp.setInputFiles(videoPath, { timeout: 15000 })
+            uploaded = true
+            log('✅ 已通过 frame 内 file input 上传 (' + sel + ')')
+            break
+          }
+        }
+        if (uploaded) break
       }
-    } catch (_) {}
+    } catch (e) { log('  [上传] frame 兜底异常: ' + e.message) }
   }
 
-  // 4) 最后兜底：主文档 file input
+  // 4) 再兜底：点击上传区触发原生文件选择框
   if (!uploaded) {
-    try {
-      await page.setInputFiles('input[type="file"]', videoPath, { timeout: 15000 })
-      uploaded = true
-      log('✅ 已通过主文档 file input 上传')
-    } catch (e) {
-      log('  ❌ 所有上传方式均失败: ' + e.message)
+    const triggers = ['.upload-area', '.bcc-upload', '[class*="upload"]', 'text=上传视频']
+    for (const sel of triggers) {
+      try {
+        const fc = page.waitForEvent('filechooser', { timeout: 8000 })
+        await page.click(sel, { timeout: 5000, force: true })
+        const chooser = await fc
+        await chooser.setFiles(videoPath)
+        uploaded = true
+        log('✅ 视频已选择 (' + sel + ')')
+        break
+      } catch (e) {
+        log('  [上传] 触发失败: ' + sel)
+      }
     }
   }
 
@@ -177,7 +196,7 @@ async function publishOrDraft(page, publishNow, log) {
       ok = true
     } catch (e) {
       log('  ⚠️ 常规点击失败，改用 CDP 保底: ' + e.message)
-      ok = await clickByTextCDP(page, log, ['立即投稿', '发布', '提交'])
+      ok = await clickByTextCDP(page, log, ['立即投稿', '发布', '提交'], 30, ['button', 'a', 'div'])
     }
     if (!ok) log('  ❌ 未能点击发布按钮，请手动点击')
   } else {
