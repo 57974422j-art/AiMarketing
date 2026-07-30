@@ -52,6 +52,7 @@ const PLATFORMS = [
   { key: 'kuaishou', label: '快手', icon: '🟠', url: 'https://cp.kuaishou.com/creator/video/upload' },
   { key: 'shipinhao', label: '视频号', icon: '🟢', url: 'https://channels.weixin.qq.com/platform/post/create' },
   { key: 'bilibili', label: 'B站', icon: '📺', url: 'https://member.bilibili.com/platform/upload/video/frame?spm_id_from=333.33.top_bar.upload' },
+  { key: 'weibo', label: '微博', icon: '🐧', url: 'https://weibo.com' },
 ]
 
 // 平台 -> 指纹浏览器发布模板类型（与 electron/main.js 的 fp:execute case 对应）
@@ -61,8 +62,22 @@ const TEMPLATE_MAP: Record<string, string> = {
   kuaishou: 'kuaishou-publish',
   shipinhao: 'shipinhao-publish',
   bilibili: 'bilibili-publish',
+  weibo: 'weibo-publish',
 }
-const getTemplateType = (platform?: string) => TEMPLATE_MAP[platform || 'douyin'] || 'douyin-publish'
+// 平台名归一化：兼容中英文 / 大小写 / 常见别名 → 标准 key（与 TEMPLATE_MAP / main.js case / PLATFORMS.key 对应）
+// 解决：账号库里 platform 若存成中文「微博」「抖音」或大小写不一致，导致 getTemplateType 落到默认 douyin-publish
+const PLATFORM_ALIASES: Record<string, string> = {
+  douyin: 'douyin', '抖音': 'douyin', 'tiktok': 'douyin',
+  xiaohongshu: 'xiaohongshu', '小红书': 'xiaohongshu', 'xhs': 'xiaohongshu', 'red': 'xiaohongshu',
+  kuaishou: 'kuaishou', '快手': 'kuaishou', 'ks': 'kuaishou',
+  shipinhao: 'shipinhao', '视频号': 'shipinhao', 'weixin': 'shipinhao', 'channels': 'shipinhao',
+  bilibili: 'bilibili', 'b站': 'bilibili', 'bili': 'bilibili',
+  weibo: 'weibo', '微博': 'weibo', 'microblog': 'weibo',
+}
+const normalizePlatform = (p?: string) =>
+  p ? (PLATFORM_ALIASES[(p || '').toLowerCase().trim()] || PLATFORM_ALIASES[(p || '').trim()] || (p || '').trim()) : 'douyin'
+
+const getTemplateType = (platform?: string) => TEMPLATE_MAP[normalizePlatform(platform)] || 'douyin-publish'
 
 // ── Electron API 类型声明 ──
 
@@ -263,7 +278,7 @@ export default function MyFingerprintPage() {
         setActiveAccountId(acct.id)
         setSelectedAccount(acct)
         // 启动浏览器用于登录；登录态由「我已登录」按钮或发布成功后标记
-        showMsg(`✅ 浏览器已启动 - ${PLATFORMS.find(p => p.key === acct.platform)?.icon} ${acct.platform}（端口 ${port}）`, 'success')
+        showMsg(`✅ 浏览器已启动 - ${PLATFORMS.find(p => p.key === normalizePlatform(acct.platform))?.icon} ${PLATFORMS.find(p => p.key === normalizePlatform(acct.platform))?.label || acct.platform}（端口 ${port}）`, 'success')
         refreshBrowserList()
       } else {
         // 启动失败则释放刚申请的端口
@@ -809,7 +824,7 @@ export default function MyFingerprintPage() {
           ) : (
             <div className="grid gap-3">
               {accounts.map(acct => {
-                const plat = PLATFORMS.find(p => p.key === acct.platform) || { icon: '🎵', label: acct.platform }
+                const plat = PLATFORMS.find(p => p.key === normalizePlatform(acct.platform)) || { icon: '🎵', label: acct.platform }
                 const running = isRunning(acct)
                 const port = running ? runningPort! : 0
                 const browserInfo = running ? browsers.find(b => b.port === runningPort) : undefined
@@ -896,7 +911,7 @@ export default function MyFingerprintPage() {
 
           {(!selectedAccount || runningPort === null) ? (
             <div className="bg-gray-900/30 border border-dashed border-white/10 rounded-xl p-6 text-center">
-              <p className="text-gray-500 text-sm">先选择并启动一个{PLATFORMS.find(p => p.key === selectedAccount?.platform)?.label || '目标平台'}浏览器</p>
+              <p className="text-gray-500 text-sm">先选择并启动一个{PLATFORMS.find(p => p.key === normalizePlatform(selectedAccount?.platform))?.label || '目标平台'}浏览器</p>
               <p className="text-gray-600 text-xs mt-1">启动后可添加视频到发布队列</p>
             </div>
           ) : (
