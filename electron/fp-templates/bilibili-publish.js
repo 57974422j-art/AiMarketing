@@ -7,6 +7,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const BILIBILI_UPLOAD_URL = 'https://member.bilibili.com/platform/upload/video/frame?spm_id_from=333.33.top_bar.upload'
 const { resolveLocalVideoPath, resolveLocalImagePath } = require('./_common')
+const { clickByTextCDP } = require('./_cdpClick')
 
 async function isLoggedIn(page, log) {
   try {
@@ -17,22 +18,55 @@ async function isLoggedIn(page, log) {
 }
 
 async function uploadVideo(page, videoPath, log) {
-  let uploaded = false
+  // 1) 若已在编辑页（标题框可见），说明视频已就绪，直接跳过上传（避免去等不存在的 file input）
   try {
-    const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 8000 })
-    await page.click('.upload-area', { timeout: 8000 })
-    const fileChooser = await fileChooserPromise
-    await fileChooser.setFiles(videoPath)
-    uploaded = true
-  } catch (e) {
-    log('upload-area 未触发文件选择，尝试直接 setInputFiles: ' + e.message)
+    const titleBox = await page.$('input[placeholder="请输入标题"]')
+    if (titleBox && await titleBox.isVisible().catch(() => false)) {
+      log('检测到已进入编辑页（标题框存在），跳过上传，直接填表')
+      return
+    }
+  } catch (_) {}
+
+  // 2) 多策略触发 filechooser 上传
+  const triggers = ['.upload-area', '.bcc-upload', 'text=上传视频', '[class*="upload"] >> text=视频', '.upload-btn', '.bcc-upload-btn']
+  let uploaded = false
+  for (const sel of triggers) {
+    try {
+      const fc = page.waitForEvent('filechooser', { timeout: 6000 })
+      await page.click(sel, { timeout: 4000 })
+      const chooser = await fc
+      await chooser.setFiles(videoPath)
+      uploaded = true
+      log('✅ 视频已选择 (' + sel + ')')
+      break
+    } catch (e) {
+      log('  [上传] 触发失败: ' + sel)
+    }
   }
+
+  // 3) 兜底：iframe 内的 file input
   if (!uploaded) {
-    // 用选择器写法，避免 "detached element" 报错
-    let sel = 'input[type="file"][name="uploader"][accept*=".mp4"]'
-    if (!(await page.$(sel))) sel = 'input[type="file"]'
-    await page.setInputFiles(sel, videoPath, { timeout: 30000 })
+    try {
+      for (const f of page.frames()) {
+        const inp = await f.$('input[type="file"]').catch(() => null)
+        if (inp) { await inp.setInputFiles(videoPath); uploaded = true; log('✅ 已通过 frame 内 file input 上传'); break }
+      }
+    } catch (_) {}
   }
+
+  // 4) 最后兜底：主文档 file input
+  if (!uploaded) {
+    try {
+      await page.setInputFiles('input[type="file"]', videoPath, { timeout: 15000 })
+      uploaded = true
+      log('✅ 已通过主文档 file input 上传')
+    } catch (e) {
+      log('  ❌ 所有上传方式均失败: ' + e.message)
+    }
+  }
+
+  if (!uploaded) throw new Error('未找到 B站视频上传入口')
+
   log('视频已选择，等待上传/转码完成进入编辑页...')
   await page.waitForSelector('input[placeholder="请输入标题"]', { timeout: 180000 })
   log('已进入编辑页')
@@ -41,11 +75,14 @@ async function uploadVideo(page, videoPath, log) {
 async function fillTitle(page, title, log) {
   const input = await page.$('input[placeholder="请输入标题"]')
   if (input) {
+    // B站会自动把视频文件名填成标题，先全选清空再填我们的标题
     await input.click()
-    await input.fill('')
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('Backspace')
+    await page.waitForTimeout(300)
     await input.fill(title || '')
     await page.keyboard.press('Tab')
-    log('标题已填写')
+    log('标题已填写: ' + (title || '(空)'))
   } else {
     log('未找到标题输入框，跳过')
   }
@@ -91,7 +128,7 @@ async function selectCategory(page, log) {
 
 async function fillTags(page, tags, log) {
   if (!tags || !tags.length) return
-  const input = await page.$('#tag-container input[placeholder*="回车"]')
+  const input = await page.$('#tag-container input, input[placeholder*="回车"]')
   if (!input) {
     log('未找到标签输入框，跳过标签')
     return
@@ -133,12 +170,24 @@ async function uploadCover(page, coverImage, log) {
 async function publishOrDraft(page, publishNow, log) {
   if (publishNow) {
     log('点击最终发布按钮【立即投稿/发布】...')
-    const btn = page.locator('button', { hasText: /立即投稿|发布|详细发布|提交/ }).first()
-    await btn.click()
+    let ok = false
+    try {
+      const btn = page.locator('button', { hasText: /立即投稿|发布|详细发布|提交/ }).first()
+      await btn.click({ timeout: 5000 })
+      ok = true
+    } catch (e) {
+      log('  ⚠️ 常规点击失败，改用 CDP 保底: ' + e.message)
+      ok = await clickByTextCDP(page, log, ['立即投稿', '发布', '提交'])
+    }
+    if (!ok) log('  ❌ 未能点击发布按钮，请手动点击')
   } else {
     log('点击【存草稿】...')
-    const draft = page.locator('button', { hasText: '存草稿' }).first()
-    await draft.click()
+    try {
+      const draft = page.locator('button', { hasText: '存草稿' }).first()
+      await draft.click({ timeout: 5000 })
+    } catch (e) {
+      await clickByTextCDP(page, log, ['存草稿'])
+    }
   }
   await sleep(5000)
   return page.url()
