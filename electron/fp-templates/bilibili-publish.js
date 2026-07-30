@@ -127,17 +127,64 @@ async function fillTitle(page, title, log) {
 }
 
 async function fillDescription(page, description, log) {
+  if (!description) { log('未提供简介内容，跳过'); return }
   const ctx = await getCtx(page)
-  const editor = await ctx.$('.desc-container .ql-editor')
-  if (editor) {
+
+  // 1) 多选择器直接找简介编辑器（B站为 quill 富文本 .ql-editor，容器类名可能随版本变化）
+  let editor = await ctx.$('.desc-container .ql-editor, .video-desc .ql-editor, [class*="desc"] .ql-editor, [class*="desc"] [contenteditable="true"], textarea[placeholder*="简介"]')
+
+  // 2) 兜底：按「简介」label 找同一表单项内的 contenteditable/textarea
+  if (!editor) {
+    editor = await ctx.evaluateHandle(() => {
+      const labels = Array.from(document.querySelectorAll('label, .label, [class*="label"], [class*="title"]'))
+      for (const lb of labels) {
+        if (!(lb.textContent || '').trim().startsWith('简介')) continue
+        let box = lb.closest('[class*="item"], [class*="row"], [class*="section"]') || lb.parentElement
+        for (let i = 0; i < 3 && box; i++) {
+          const ed = box.querySelector('.ql-editor, [contenteditable="true"], textarea')
+          if (ed) return ed
+          box = box.parentElement
+        }
+      }
+      return null
+    }).then(h => h.asElement()).catch(() => null)
+  }
+
+  if (!editor) {
+    log('未找到简介编辑框，跳过（请把简介区 HTML 发我以便精修）')
+    return
+  }
+
+  // 3) contenteditable 键盘输入不可靠，click 后先清空再 evaluate 直写 + 派发 input 事件
+  try {
     await editor.click()
     await ctx.keyboard.press('ControlOrMeta+A')
     await ctx.keyboard.press('Backspace')
-    await ctx.keyboard.type(description || '')
-    await ctx.keyboard.press('Tab')
-    log('描述已填写')
-  } else {
-    log('未找到描述编辑框，跳过')
+    await page.waitForTimeout(200)
+    const filled = await editor.evaluate((el, text) => {
+      if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+        el.value = text
+      } else {
+        el.innerHTML = ''
+        const p = document.createElement('p')
+        p.textContent = text
+        el.appendChild(p)
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+      return (el.value || el.textContent || '').trim().length > 0
+    }, description)
+    if (filled) {
+      log('简介已填写')
+    } else {
+      // 直写没生效（quill 可能吞掉）→ 退回键盘逐字输入
+      await editor.click()
+      await ctx.keyboard.type(description)
+      log('简介已填写(键盘输入)')
+    }
+    await ctx.keyboard.press('Tab').catch(() => {})
+  } catch (e) {
+    log('简介填写失败: ' + e.message)
   }
 }
 
