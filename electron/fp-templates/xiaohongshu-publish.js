@@ -443,6 +443,43 @@ async function step5_topics(page, params, log) {
 // Step 6: 封面（无自定义封面 → 用平台默认帧）
 // ════════════════════════════════════
 
+// 自定义封面上传逻辑：点「编辑封面」→ 选文件上传 → 完成。抽离供下载成功 / base64 解码后共用。
+async function uploadCover(page, localCoverPath, log) {
+  try {
+    const coverEntry = await page.$('text=编辑封面, text=更换封面, [class*="cover"] button')
+    if (coverEntry && await coverEntry.isVisible().catch(() => false)) {
+      await coverEntry.click({ timeout: 3000 }).catch(() => {})
+      await page.waitForTimeout(2000)
+      let uploaded = false
+      try {
+        const [fc] = await Promise.all([
+          page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
+          page.click('text=上传封面, text=上传图片, [class*="upload"]', { timeout: 2000 }).catch(() => {}),
+        ])
+        if (fc) { await fc.setFiles(localCoverPath); uploaded = true }
+        else {
+          const fip = await page.$('input[type=file]').catch(() => null)
+          if (fip) { await fip.setInputFiles(localCoverPath).catch(() => {}); uploaded = true }
+        }
+      } catch (_) {}
+      if (uploaded) {
+        log('  ✅ 已上传自定义封面')
+        await page.waitForTimeout(2500)
+        const doneBtn = await page.$('button:has-text("完成"), [class*="confirm"] button').catch(() => null)
+        if (doneBtn && await doneBtn.isVisible().catch(() => false)) {
+          await doneBtn.click({ timeout: 3000 }).catch(() => {})
+          log('  ✅ 封面确认完成')
+        }
+      } else {
+        log('  ⚠️ 未找到上传封面入口')
+      }
+    } else {
+      log('  ⚠️ 未找到「编辑封面」入口，使用平台默认帧')
+    }
+  } catch (e) { log('  ⚠️ 封面步骤: ' + e.message) }
+  await page.waitForTimeout(1500)
+}
+
 async function step6_covers(page, params, log) {
   log('[步骤6] 检查封面...')
   await page.waitForTimeout(1500)
@@ -464,6 +501,29 @@ async function step6_covers(page, params, log) {
   //   ③ 素材仓库文件名（如 .thumbs/analyze/xxx.jpg）→ 拼 /api/storage/file?userId=&name=
   // 注意：之前把「完整 URL」当成「文件名」二次 encode 导致 404，这里先判定形态再决定下载方式。
   const coverRaw = String(params.coverImage).trim()
+
+  // ④ base64 data URL（AI 生成封面常以此形态传入）：直接解码成本地文件，避免超长 URL 导致 HTTP 431
+  if (/^data:image\/[a-zA-Z]+;base64,/.test(coverRaw)) {
+    try {
+      const osTmpDir = require('os').tmpdir()
+      const coverTmpDir = path.join(osTmpDir, 'aimarketing-covers')
+      if (!require('fs').existsSync(coverTmpDir)) require('fs').mkdirSync(coverTmpDir, { recursive: true })
+      const localCoverPath = path.join(coverTmpDir, 'cover_' + Date.now() + '.jpg')
+      const b64 = coverRaw.split(',')[1] || ''
+      require('fs').writeFileSync(localCoverPath, Buffer.from(b64, 'base64'))
+      log('  ✅ 封面 base64 已解码为本地文件 (' + (require('fs').statSync(localCoverPath).size / 1024).toFixed(1) + 'KB)')
+      await uploadCover(page, localCoverPath, log)
+      log('✅ 步骤6完成')
+      await page.waitForTimeout(1000)
+      return
+    } catch (e) {
+      log('  ⚠️ 封面 base64 解码失败: ' + e.message + '，使用平台默认封面')
+      log('✅ 步骤6完成（无自定义封面）')
+      await page.waitForTimeout(1000)
+      return
+    }
+  }
+
   let coverDownloadUrl = ''
   if (/^https?:\/\//.test(coverRaw)) {
     coverDownloadUrl = coverRaw
@@ -504,40 +564,7 @@ async function step6_covers(page, params, log) {
     return
   }
 
-  // 自定义封面：点「编辑封面」→ 上传图片 → 完成
-  try {
-    const coverEntry = await page.$('text=编辑封面, text=更换封面, [class*="cover"] button')
-    if (coverEntry && await coverEntry.isVisible().catch(() => false)) {
-      await coverEntry.click({ timeout: 3000 }).catch(() => {})
-      await page.waitForTimeout(2000)
-      let uploaded = false
-      try {
-        const [fc] = await Promise.all([
-          page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
-          page.click('text=上传封面, text=上传图片, [class*="upload"]', { timeout: 2000 }).catch(() => {}),
-        ])
-        if (fc) { await fc.setFiles(localCoverPath); uploaded = true }
-        else {
-          const fip = await page.$('input[type=file]').catch(() => null)
-          if (fip) { await fip.setInputFiles(localCoverPath).catch(() => {}); uploaded = true }
-        }
-      } catch (_) {}
-      if (uploaded) {
-        log('  ✅ 已上传自定义封面')
-        await page.waitForTimeout(2500)
-        const doneBtn = await page.$('button:has-text("完成"), [class*="confirm"] button').catch(() => null)
-        if (doneBtn && await doneBtn.isVisible().catch(() => false)) {
-          await doneBtn.click({ timeout: 3000 }).catch(() => {})
-          log('  ✅ 封面确认完成')
-        }
-      } else {
-        log('  ⚠️ 未找到上传封面入口')
-      }
-    } else {
-      log('  ⚠️ 未找到「编辑封面」入口，使用平台默认帧')
-    }
-  } catch (e) { log('  ⚠️ 封面步骤: ' + e.message) }
-  await page.waitForTimeout(1500)
+  await uploadCover(page, localCoverPath, log)
   log('✅ 步骤6完成')
 }
 
