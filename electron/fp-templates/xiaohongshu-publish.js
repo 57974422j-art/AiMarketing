@@ -597,35 +597,54 @@ async function step7_publish(page, params, log) {
 
   const targetText = isDraft ? '存草稿' : '发布'
 
-  // ── 小红书发布按钮识别（打分法，比正则更稳）──
-  // 小红书真实发布是右下角【红色】按钮，文案「发布笔记」（草稿为「存草稿」）。
-  // 左上角还有一个「发布」引导入口（选视频/图文/长文），必须排除，否则会点到它打开下拉而不是真正发布。
-  // 对每个 button / role=button 打分，取最高分者点击：
-  //   ①文案命中 发布笔记/存草稿 → +5；仅含「发布」→ +3；②背景偏红 → +4；③位于页面下半部 → +1；④排除上传/图文/选择等引导词。
+  // ── 小红书发布按钮识别（锁定固定底栏 + 打分法）──
+  // 小红书真实发布在【固定底栏浮层】里（position:fixed; bottom:0；透明；滚动页面也贴底），
+  // 底栏内并列：智能客服 / 暂存离开 / 发布(红色)。绝不能点智能客服、暂存离开。
+  // 正确做法：①先定位这个固定底栏容器；②只在容器内部打分，全页其它 button 一律不看；
+  //           ③显式排除 智能客服/暂存离开/离开；④红键判定兼顾「红背景」和「红文字」（浮层是透明背景+红字）。
   const sel = await page.evaluate((isDraft) => {
-    const nodes = Array.from(document.querySelectorAll('button, [role="button"]'))
-    let best = null, bestScore = -1
-    const isRed = (el) => {
+    const redLike = (el) => {
       const s = getComputedStyle(el)
-      const bg = s.backgroundColor || s.backgroundImage || ''
+      const bg = (s.backgroundColor || '') + ' ' + (s.backgroundImage || '')
+      const col = s.color || ''
       const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-      if (!m) return false
-      const r = +m[1], g = +m[2], b = +m[3]
-      return r > 150 && (r - g) > 50 && (r - b) > 30
+      const mc = col.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+      const hit = (mm) => { if (!mm) return false; const r = +mm[1], g = +mm[2], b = +mm[3]; return r > 150 && (r - g) > 50 && (r - b) > 30 }
+      return hit(m) || hit(mc)
     }
-    for (const n of nodes) {
+    // ① 找到固定底栏：position:fixed 且贴视口底部、横向长条、内部含多个可点项、文字含 智能客服/暂存/发布 之一
+    let bar = null
+    const all = Array.from(document.querySelectorAll('*'))
+    for (const el of all) {
+      const s = getComputedStyle(el)
+      if (s.position !== 'fixed') continue
+      const r = el.getBoundingClientRect()
+      if (r.bottom < window.innerHeight - 8) continue      // 必须贴底
+      if (r.width < window.innerWidth * 0.4) continue       // 必须是横向长条
+      const inner = el.querySelectorAll('button, [role="button"], a, div')
+      if (inner.length < 2) continue
+      const txt = el.innerText || ''
+      if (/智能客服|暂存|发布/.test(txt)) { bar = el; break }
+    }
+    // ② 只在底栏内部打分；找不到底栏则退回全页（兜底）
+    const scope = bar ? Array.from(bar.querySelectorAll('button, [role="button"], a, div')) : Array.from(document.querySelectorAll('button, [role="button"]'))
+    let best = null, bestScore = -1
+    for (const n of scope) {
       const t = (n.innerText || n.getAttribute('aria-label') || '').trim()
       if (!t) continue
-      // 排除引导入口 / 上传 / 选择类按钮（除非它本身就是要找的草稿/发布）
+      // ③ 显式排除非发布项（智能客服 / 暂存离开 / 离开）
+      if (/智能客服|暂存|离开/.test(t)) continue
+      // 含引导词的（图文/上传/选择等）且不是我们要找的草稿/发布，也排除
       if (/图文|长文|比较|上传|选择|话题|添加|草稿箱|预览/.test(t) && !t.includes(isDraft ? '草稿' : '发布')) continue
       let score = 0
       if (isDraft) {
         if (t.includes('存草稿') || t === '草稿') score += 5
       } else {
-        if (t.includes('发布笔记') || t === '发布笔记') score += 5
-        else if (t.includes('发布')) score += 3
+        if (t.includes('发布笔记')) score += 6
+        else if (t.includes('发布')) score += 4
       }
-      if (isRed(n)) score += 4
+      // ④ 红背景或红文字都算红键
+      if (redLike(n)) score += 4
       const rect = n.getBoundingClientRect()
       if (rect.bottom > window.innerHeight * 0.4) score += 1
       if (score > bestScore) { bestScore = score; best = n }
