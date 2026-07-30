@@ -632,7 +632,11 @@ export default function MyFingerprintPage() {
     params.title = task.title
     params.description = task.description
     params.topics = task.topics
-    params.coverImage = task.coverMode === 'platform' ? '' : task.coverImage
+    // B站必须传封面，但走平台自带「AI 生成」封面（不传我们的自定义图）；
+    // 其它平台按 coverMode 决定：选了封面就传，没选就不传（可不传也能发）
+    params.coverImage = selectedAccount?.platform === 'bilibili'
+      ? ''
+      : (task.coverMode === 'platform' ? '' : task.coverImage)
     params.coverMode = task.coverMode
     params.location = task.location
     params.publishNow = String(task.publishNow)
