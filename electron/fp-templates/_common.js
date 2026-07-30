@@ -69,7 +69,8 @@ function downloadFile(url, dest, authToken) {
   return new Promise((resolve, reject) => {
     const mod = require(url.startsWith('https') ? 'https' : 'http')
     const headers = {}
-    if (authToken) headers['Cookie'] = 'token=' + authToken
+    // /api/storage/file 由 middleware 白名单放行，路由本身不校验 cookie，无需携带 token；
+    // 否则巨型 JWT 会触发 HTTP 431（请求头过大）
     const req = mod.get(url, { headers, timeout: 180000 }, (res) => {
       if (res.statusCode !== 200) {
         res.resume && res.resume()

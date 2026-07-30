@@ -13,6 +13,7 @@ const { executeXiaohongshuPublish } = require('./fp-templates/xiaohongshu-publis
 const { executeKuaishouPublish } = require('./fp-templates/kuaishou-publish')
 const { executeShipinhaoPublish } = require('./fp-templates/shipinhao-publish')
 const { executeBilibiliPublish } = require('./fp-templates/bilibili-publish')
+const { executeWeiboPublish } = require('./fp-templates/weibo-publish')
 
 let mainWindow
 
@@ -610,7 +611,7 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
               const urlObj = new URL(downloadUrl)
               const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
               const reqHeaders = {}
-              if (params.authToken) reqHeaders['Cookie'] = 'token=' + params.authToken
+              // storage/file 端点免鉴权（middleware 已白名单放行），去掉 cookie 避免巨型 JWT 触发 HTTP 431
               mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
                 if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
                 const chunks = []
@@ -655,7 +656,7 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
               const urlObj = new URL(downloadUrl)
               const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
               const reqHeaders = {}
-              if (params.authToken) reqHeaders['Cookie'] = 'token=' + params.authToken
+              // storage/file 端点免鉴权（middleware 已白名单放行），去掉 cookie 避免巨型 JWT 触发 HTTP 431
               mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
                 if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
                 const chunks = []
@@ -691,7 +692,7 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
               const urlObj = new URL(downloadUrl)
               const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
               const reqHeaders = {}
-              if (params.authToken) reqHeaders['Cookie'] = 'token=' + params.authToken
+              // storage/file 端点免鉴权（middleware 已白名单放行），去掉 cookie 避免巨型 JWT 触发 HTTP 431
               mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
                 if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
                 const chunks = []
@@ -727,7 +728,7 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
               const urlObj = new URL(downloadUrl)
               const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
               const reqHeaders = {}
-              if (params.authToken) reqHeaders['Cookie'] = 'token=' + params.authToken
+              // storage/file 端点免鉴权（middleware 已白名单放行），去掉 cookie 避免巨型 JWT 触发 HTTP 431
               mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
                 if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
                 const chunks = []
@@ -763,7 +764,7 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
               const urlObj = new URL(downloadUrl)
               const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
               const reqHeaders = {}
-              if (params.authToken) reqHeaders['Cookie'] = 'token=' + params.authToken
+              // storage/file 端点免鉴权（middleware 已白名单放行），去掉 cookie 避免巨型 JWT 触发 HTTP 431
               mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
                 if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
                 const chunks = []
@@ -784,6 +785,10 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
           }
         }
         result = await executeBilibiliPublish(instance.page, params, log)
+        break
+      case 'weibo-publish':
+        // 微博脚本内部自行处理素材仓库下载与登录检测
+        result = await executeWeiboPublish(instance.page, params, log)
         break
       default:
         throw new Error(`未知模板类型: ${templateType}`)
