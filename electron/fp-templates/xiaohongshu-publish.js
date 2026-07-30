@@ -599,15 +599,22 @@ async function step7_publish(page, params, log) {
   // 真实发布键（用户 inspect 确认）：<button class="ce-btn bg red">发布</button>
   //   background:#ff2442(品牌红 r=255,g=36,b=66) / 文案「发布」/ 编辑器底部。
   // 透明浮层的「智能客服」「暂存离开」均不是红背景、且文案不含「发布」(或已被显式排除) → 不会误点。
-  const sel = await page.evaluate((isDraft) => {
+  const res = await page.evaluate((isDraft) => {
     const isRedBg = (el) => {
-      const s = getComputedStyle(el)
-      const bg = (s.backgroundColor || '') + ' ' + (s.backgroundImage || '')
-      const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-      if (m) { const r = +m[1], g = +m[2], b = +m[3]; if (r > 150 && (r - g) > 50 && (r - b) > 30) return true }
+      const check = (e) => {
+        const s = getComputedStyle(e)
+        const bg = (s.backgroundColor || '') + ' ' + (s.backgroundImage || '')
+        const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+        if (m) { const r = +m[1], g = +m[2], b = +m[3]; if (r > 150 && (r - g) > 50 && (r - b) > 30) return true }
+        return false
+      }
+      if (check(el)) return true
+      // 红背景可能在子元素上（按钮自身透明）
+      for (const c of el.querySelectorAll('*')) if (check(c)) return true
       return false
     }
     const nodes = Array.from(document.querySelectorAll('button, [role="button"], a, div'))
+    const cands = []
     let best = null, bestScore = -1
     for (const n of nodes) {
       const t = (n.innerText || n.getAttribute('aria-label') || '').trim()
@@ -621,21 +628,27 @@ async function step7_publish(page, params, log) {
         if (!/发布/.test(t)) continue
         if (/存草稿|草稿箱/.test(t)) continue
       }
+      const cls = (typeof n.className === 'string') ? n.className : ''
+      // 兼容 class="ce-btn bg red" 与 class="...bg-red..."（连字符）
+      const hasRedClass = /(^|[\s-])(red|brand)/.test(cls)
+      const isRed = isRedBg(n)
       let score = 0
       if (/发布笔记/.test(t)) score += 6
       else if (/发布/.test(t)) score += 4
-      // 红背景是决定性信号（#ff2442 等品牌红；智能客服/暂存离开无红背景 → 不加分）
-      if (isRedBg(n)) score += 5
-      // class 含 red/brand 也加分（inspect 显示 class="ce-btn bg red"）
-      const cls = (typeof n.className === 'string') ? n.className : ''
-      if (/(^|\s)(red|brand)/.test(cls)) score += 3
+      if (isRed) score += 5
+      // class 含 red/brand 是最直接信号（inspect 确认真实键 class="ce-btn bg red"），给决定性高分
+      if (hasRedClass) score += 100
       const rect = n.getBoundingClientRect()
       if (rect.bottom > window.innerHeight * 0.3) score += 1
+      cands.push((t.slice(0, 14)) + (isRed ? '[RED]' : '') + (hasRedClass ? '[CLS-RED]' : '') + '(s=' + score + ')')
       if (score > bestScore) { bestScore = score; best = n }
     }
-    if (best) { best.setAttribute('data-fp-pub', '1'); return '[data-fp-pub="1"]' }
-    return null
+    const dbg = cands.join(' | ') || '(无候选)'
+    if (best) { best.setAttribute('data-fp-pub', '1'); return { sel: '[data-fp-pub="1"]', dbg } }
+    return { sel: null, dbg }
   }, isDraft)
+  const sel = res.sel
+  if (res.dbg) log('  [发布候选] ' + res.dbg)
 
   let pub = false
   if (sel) {
@@ -651,12 +664,12 @@ async function step7_publish(page, params, log) {
     log('  ⚠️ 评分未命中发布按钮，尝试文本兜底')
   }
 
-  // 兜底：Playwright 文本定位
+  // 兜底：优先红 class 的发布键，其次文本定位（避免误点左上方「发布」引导入口）
   if (!pub) {
     try {
       const loc = isDraft
         ? page.locator('button:has-text("存草稿")')
-        : page.locator('button:has-text("发布笔记"), button:has-text("发布")')
+        : page.locator('button[class*="red"]:has-text("发布"), button[class*="brand"]:has-text("发布"), button:has-text("发布笔记"), button:has-text("发布")')
       if (await loc.first().isVisible().catch(() => false)) {
         await loc.first().click({ timeout: 4000 })
         pub = true
