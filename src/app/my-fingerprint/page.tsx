@@ -558,6 +558,9 @@ export default function MyFingerprintPage() {
 
     setBatchRunning(true)
     setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🚀 立即发布: ${formVideoName}`])
+    // 打印本次实际执行的模板，便于排查是否误判成其他平台（如跳抖音）
+    const _tpl = getTemplateType(selectedAccount.platform)
+    setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🎯 执行模板: ${_tpl}（账号platform="${selectedAccount.platform}"）`])
     try {
       const task: PublishTask = {
         id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -691,6 +694,8 @@ export default function MyFingerprintPage() {
         t.id === task.id ? { ...t, status: 'publishing' as const } : t
       ))
       setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📤 发布第 ${i + 1}/${pendingTasks.length}: ${task.videoName}`])
+      const _tpl2 = getTemplateType(selectedAccount.platform)
+      setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🎯 执行模板: ${_tpl2}（账号platform="${selectedAccount.platform}"）`])
 
       try {
         const params = await buildTaskParams(task)
