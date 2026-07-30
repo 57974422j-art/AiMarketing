@@ -591,62 +591,46 @@ async function step7_publish(page, params, log) {
     await page.waitForSelector('button:has-text("发布"), button:has-text("存草稿"), [role="button"]', { timeout: 15000 })
   } catch (_) {}
 
-  // 把页面滚到底部，让 fixed 区发布按钮进入视野
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
-  await page.waitForTimeout(800)
+  // 发布键是编辑器底部固定红键<button class="ce-btn bg red">发布</button>（background:#ff2442）。
+  // 不滚动（固定元素不随滚动移动），仅留一点渲染缓冲。
+  await page.waitForTimeout(500)
 
-  const targetText = isDraft ? '存草稿' : '发布'
-
-  // ── 小红书发布按钮识别（锁定固定底栏 + 打分法）──
-  // 小红书真实发布在【固定底栏浮层】里（position:fixed; bottom:0；透明；滚动页面也贴底），
-  // 底栏内并列：智能客服 / 暂存离开 / 发布(红色)。绝不能点智能客服、暂存离开。
-  // 正确做法：①先定位这个固定底栏容器；②只在容器内部打分，全页其它 button 一律不看；
-  //           ③显式排除 智能客服/暂存离开/离开；④红键判定兼顾「红背景」和「红文字」（浮层是透明背景+红字）。
+  // ── 小红书发布按钮识别（红背景 + 文案「发布」为决定性信号）──
+  // 真实发布键（用户 inspect 确认）：<button class="ce-btn bg red">发布</button>
+  //   background:#ff2442(品牌红 r=255,g=36,b=66) / 文案「发布」/ 编辑器底部。
+  // 透明浮层的「智能客服」「暂存离开」均不是红背景、且文案不含「发布」(或已被显式排除) → 不会误点。
   const sel = await page.evaluate((isDraft) => {
-    const redLike = (el) => {
+    const isRedBg = (el) => {
       const s = getComputedStyle(el)
       const bg = (s.backgroundColor || '') + ' ' + (s.backgroundImage || '')
-      const col = s.color || ''
       const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-      const mc = col.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-      const hit = (mm) => { if (!mm) return false; const r = +mm[1], g = +mm[2], b = +mm[3]; return r > 150 && (r - g) > 50 && (r - b) > 30 }
-      return hit(m) || hit(mc)
+      if (m) { const r = +m[1], g = +m[2], b = +m[3]; if (r > 150 && (r - g) > 50 && (r - b) > 30) return true }
+      return false
     }
-    // ① 找到固定底栏：position:fixed 且贴视口底部、横向长条、内部含多个可点项、文字含 智能客服/暂存/发布 之一
-    let bar = null
-    const all = Array.from(document.querySelectorAll('*'))
-    for (const el of all) {
-      const s = getComputedStyle(el)
-      if (s.position !== 'fixed') continue
-      const r = el.getBoundingClientRect()
-      if (r.bottom < window.innerHeight - 8) continue      // 必须贴底
-      if (r.width < window.innerWidth * 0.4) continue       // 必须是横向长条
-      const inner = el.querySelectorAll('button, [role="button"], a, div')
-      if (inner.length < 2) continue
-      const txt = el.innerText || ''
-      if (/智能客服|暂存|发布/.test(txt)) { bar = el; break }
-    }
-    // ② 只在底栏内部打分；找不到底栏则退回全页（兜底）
-    const scope = bar ? Array.from(bar.querySelectorAll('button, [role="button"], a, div')) : Array.from(document.querySelectorAll('button, [role="button"]'))
+    const nodes = Array.from(document.querySelectorAll('button, [role="button"], a, div'))
     let best = null, bestScore = -1
-    for (const n of scope) {
+    for (const n of nodes) {
       const t = (n.innerText || n.getAttribute('aria-label') || '').trim()
       if (!t) continue
-      // ③ 显式排除非发布项（智能客服 / 暂存离开 / 离开）
+      // 显式排除非发布项（智能客服 / 暂存离开 / 离开 等）
       if (/智能客服|暂存|离开/.test(t)) continue
-      // 含引导词的（图文/上传/选择等）且不是我们要找的草稿/发布，也排除
-      if (/图文|长文|比较|上传|选择|话题|添加|草稿箱|预览/.test(t) && !t.includes(isDraft ? '草稿' : '发布')) continue
-      let score = 0
+      // 模式过滤：发布模式只认「发布」(排除 存草稿/草稿箱)；草稿模式只认「存草稿」
       if (isDraft) {
-        if (t.includes('存草稿') || t === '草稿') score += 5
+        if (!(t.includes('存草稿') || t === '草稿')) continue
       } else {
-        if (t.includes('发布笔记')) score += 6
-        else if (t.includes('发布')) score += 4
+        if (!/发布/.test(t)) continue
+        if (/存草稿|草稿箱/.test(t)) continue
       }
-      // ④ 红背景或红文字都算红键
-      if (redLike(n)) score += 4
+      let score = 0
+      if (/发布笔记/.test(t)) score += 6
+      else if (/发布/.test(t)) score += 4
+      // 红背景是决定性信号（#ff2442 等品牌红；智能客服/暂存离开无红背景 → 不加分）
+      if (isRedBg(n)) score += 5
+      // class 含 red/brand 也加分（inspect 显示 class="ce-btn bg red"）
+      const cls = (typeof n.className === 'string') ? n.className : ''
+      if (/(^|\s)(red|brand)/.test(cls)) score += 3
       const rect = n.getBoundingClientRect()
-      if (rect.bottom > window.innerHeight * 0.4) score += 1
+      if (rect.bottom > window.innerHeight * 0.3) score += 1
       if (score > bestScore) { bestScore = score; best = n }
     }
     if (best) { best.setAttribute('data-fp-pub', '1'); return '[data-fp-pub="1"]' }
