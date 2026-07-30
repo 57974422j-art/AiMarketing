@@ -77,21 +77,32 @@ async function _clickNodeById(client, page, log, nodeId, label) {
  */
 async function clickByTextCDP(page, log, texts, maxLen = 30, tags = ['button', 'a']) {
   try {
-    const client = await page.context().newCDPSession(page)
-    const { root } = await client.send('DOM.getDocument', { depth: -1, pierce: true })
-    const hits = []
-    _collectPierced(root, ({ name, txt }) =>
-      (tags.includes(name)) &&
-      texts.some(t => txt.includes(t)) && txt.length < maxLen, hits)
-    if (hits.length) {
-      // 取文本最短（最精确）的命中，避免误点父容器等大块元素
-      hits.sort((a, b) => _subtreeText(a).length - _subtreeText(b).length)
-      const label = _subtreeText(hits[0]).replace(/\s+/g, ' ').trim().slice(0, 20)
-      const ok = await _clickNodeById(client, page, log, hits[0].nodeId, '「' + label + '」(CDP保底)')
+    // 遍历 主文档 + 所有 iframe，分别对各自 CDP 会话做 pierce 扫描
+    // （发布按钮可能嵌在 iframe 内，主文档的 CDP 会话看不到它；坐标仍是视口坐标，用 page.mouse.click 点）
+    const targets = [page, ...page.frames()]
+    for (const target of targets) {
+      let client
+      try { client = await page.context().newCDPSession(target) }
+      catch (_) { continue }
+      try {
+        const { root } = await client.send('DOM.getDocument', { depth: -1, pierce: true })
+        const hits = []
+        _collectPierced(root, ({ name, txt }) =>
+          (tags.includes(name)) &&
+          texts.some(t => txt.includes(t)) && txt.length < maxLen, hits)
+        if (hits.length) {
+          // 取文本最短（最精确）的命中，避免误点父容器等大块元素
+          hits.sort((a, b) => _subtreeText(a).length - _subtreeText(b).length)
+          const label = _subtreeText(hits[0]).replace(/\s+/g, ' ').trim().slice(0, 20)
+          const ok = await _clickNodeById(client, page, log, hits[0].nodeId, '「' + label + '」(CDP保底)')
+          await client.detach().catch(() => {})
+          return ok
+        }
+      } catch (e) {
+        log('  [CDP] 会话异常(' + (target === page ? 'main' : 'frame') + '): ' + e.message)
+      }
       await client.detach().catch(() => {})
-      return ok
     }
-    await client.detach().catch(() => {})
     return false
   } catch (e) { log('  [CDP] 保底点击异常: ' + e.message); return false }
 }

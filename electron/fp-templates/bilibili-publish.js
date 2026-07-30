@@ -17,10 +17,27 @@ async function isLoggedIn(page, log) {
   return true
 }
 
+// B站投稿页嵌在 iframe 中，主文档里查不到表单元素。
+// 该函数返回承载上传部件的上下文（frame 或 page），后续所有 $/locator/keyboard 都走它。
+async function getCtx(page) {
+  try {
+    for (const f of page.frames()) {
+      if (f === page.mainFrame()) continue
+      const u = (f.url() || '')
+      if (u.includes('platform/upload')) return f
+      // 兜底：按上传部件关键元素判定
+      const el = await f.$('.upload-area, input[placeholder*="标题"], [class*="bcc-upload"], [class*="upload"]').catch(() => null)
+      if (el) return f
+    }
+  } catch (_) {}
+  return page
+}
+
 async function uploadVideo(page, videoPath, log) {
   // 1) 若已在编辑页（标题框可见），说明视频已就绪，直接跳过上传（避免去等不存在的 file input）
   try {
-    const titleBox = await page.$('input[placeholder="请输入标题"]')
+    const ctx = await getCtx(page)
+    const titleBox = await ctx.$('input[placeholder*="标题"]')
     if (titleBox && await titleBox.isVisible().catch(() => false)) {
       log('检测到已进入编辑页（标题框存在），跳过上传，直接填表')
       return
@@ -87,20 +104,22 @@ async function uploadVideo(page, videoPath, log) {
   if (!uploaded) throw new Error('未找到 B站视频上传入口')
 
   log('视频已选择，等待上传/转码完成进入编辑页...')
-  await page.waitForSelector('input[placeholder="请输入标题"]', { timeout: 180000 })
+  const ctx = await getCtx(page)
+  await ctx.waitForSelector('input[placeholder*="标题"]', { timeout: 180000 })
   log('已进入编辑页')
 }
 
 async function fillTitle(page, title, log) {
-  const input = await page.$('input[placeholder="请输入标题"]')
+  const ctx = await getCtx(page)
+  const input = await ctx.$('input[placeholder*="标题"]')
   if (input) {
     // B站会自动把视频文件名填成标题，先全选清空再填我们的标题
     await input.click()
-    await page.keyboard.press('ControlOrMeta+A')
-    await page.keyboard.press('Backspace')
+    await ctx.keyboard.press('ControlOrMeta+A')
+    await ctx.keyboard.press('Backspace')
     await page.waitForTimeout(300)
     await input.fill(title || '')
-    await page.keyboard.press('Tab')
+    await ctx.keyboard.press('Tab')
     log('标题已填写: ' + (title || '(空)'))
   } else {
     log('未找到标题输入框，跳过')
@@ -108,13 +127,14 @@ async function fillTitle(page, title, log) {
 }
 
 async function fillDescription(page, description, log) {
-  const editor = await page.$('.desc-container .ql-editor')
+  const ctx = await getCtx(page)
+  const editor = await ctx.$('.desc-container .ql-editor')
   if (editor) {
     await editor.click()
-    await page.keyboard.press('ControlOrMeta+A')
-    await page.keyboard.press('Backspace')
-    await page.keyboard.type(description || '')
-    await page.keyboard.press('Tab')
+    await ctx.keyboard.press('ControlOrMeta+A')
+    await ctx.keyboard.press('Backspace')
+    await ctx.keyboard.type(description || '')
+    await ctx.keyboard.press('Tab')
     log('描述已填写')
   } else {
     log('未找到描述编辑框，跳过')
@@ -123,7 +143,8 @@ async function fillDescription(page, description, log) {
 
 async function selectCategory(page, log) {
   try {
-    const container = await page.$('.selector-container')
+    const ctx = await getCtx(page)
+    const container = await ctx.$('.selector-container')
     if (!container) return
     const txt = await container.textContent().catch(() => '')
     if (txt && txt.trim()) {
@@ -132,9 +153,9 @@ async function selectCategory(page, log) {
     }
     await container.click()
     await sleep(500)
-    let opt = page.locator('.bcc-option, .category-item, li').filter({ hasText: '日常' }).first()
+    let opt = ctx.locator('.bcc-option, .category-item, li').filter({ hasText: '日常' }).first()
     if (await opt.count() === 0) {
-      opt = page.locator('.bcc-option, .category-item, li').first()
+      opt = ctx.locator('.bcc-option, .category-item, li').first()
     }
     if (await opt.count() > 0) {
       await opt.click()
@@ -147,14 +168,15 @@ async function selectCategory(page, log) {
 
 async function fillTags(page, tags, log) {
   if (!tags || !tags.length) return
-  const input = await page.$('#tag-container input, input[placeholder*="回车"]')
+  const ctx = await getCtx(page)
+  const input = await ctx.$('#tag-container input, input[placeholder*="回车"]')
   if (!input) {
     log('未找到标签输入框，跳过标签')
     return
   }
   // 删除已有标签
   for (let i = 0; i < 10; i++) {
-    const close = await page.$('.tag-pre-wrp .label-item-v2-container .close')
+    const close = await ctx.$('.tag-pre-wrp .label-item-v2-container .close')
     if (!close) break
     await close.click()
     await sleep(200)
@@ -162,7 +184,7 @@ async function fillTags(page, tags, log) {
   for (const tag of tags) {
     await input.click()
     await input.fill(tag)
-    await page.keyboard.press('Enter')
+    await ctx.keyboard.press('Enter')
     await sleep(300)
   }
   log('标签已填写')
@@ -172,13 +194,14 @@ async function uploadCover(page, coverImage, log) {
   // 方案A（1.0.4）：无自定义封面时跳过，使用平台默认帧
   if (!coverImage) return
   try {
-    const coverItem = await page.$('.cover-item')
+    const ctx = await getCtx(page)
+    const coverItem = await ctx.$('.cover-item')
     if (coverItem) {
-      const fc = page.waitForEvent('filechooser', { timeout: 8000 })
+      const fc = ctx.waitForEvent('filechooser', { timeout: 8000 })
       await coverItem.click()
       const chooser = await fc
       await chooser.setFiles(coverImage)
-      await page.click('.cover-editor .confirm-btn, button:has-text("完成")', { timeout: 5000 }).catch(() => {})
+      await ctx.click('.cover-editor .confirm-btn, button:has-text("完成")', { timeout: 5000 }).catch(() => {})
       log('封面已上传')
     }
   } catch (e) {
@@ -187,11 +210,12 @@ async function uploadCover(page, coverImage, log) {
 }
 
 async function publishOrDraft(page, publishNow, log) {
+  const ctx = await getCtx(page)
   if (publishNow) {
     log('点击最终发布按钮【立即投稿/发布】...')
     let ok = false
     try {
-      const btn = page.locator('button', { hasText: /立即投稿|发布|详细发布|提交/ }).first()
+      const btn = ctx.locator('button', { hasText: /立即投稿|发布|详细发布|提交/ }).first()
       await btn.click({ timeout: 5000 })
       ok = true
     } catch (e) {
@@ -202,7 +226,7 @@ async function publishOrDraft(page, publishNow, log) {
   } else {
     log('点击【存草稿】...')
     try {
-      const draft = page.locator('button', { hasText: '存草稿' }).first()
+      const draft = ctx.locator('button', { hasText: '存草稿' }).first()
       await draft.click({ timeout: 5000 })
     } catch (e) {
       await clickByTextCDP(page, log, ['存草稿'])
