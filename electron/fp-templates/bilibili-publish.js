@@ -269,6 +269,50 @@ async function uploadCover(page, coverImage, log) {
   }
 }
 
+// 使用 B站内置「AI生成」自动生成封面（无自定义封面时调用）
+// 完成判定：按钮文案变为「重新生成」即视为生成好；生成中（文案含「生成中」或按钮 disabled）则持续等待
+async function generateCoverAI(page, log) {
+  const ctx = await getCtx(page)
+  let btn
+  try {
+    btn = await ctx.locator('.generate-pill, span:has-text("AI生成"), [class*="ai-"]:has-text("AI生成")').first()
+    if (await btn.count() === 0) {
+      log('未找到「AI生成」封面按钮，跳过（将使用默认帧）')
+      return
+    }
+    const cur = (await btn.textContent().catch(() => '')) || ''
+    if (cur.includes('重新生成')) {
+      log('封面已由 B站 AI 生成（检测到「重新生成」），复用')
+      return
+    }
+    await btn.scrollIntoViewIfNeeded().catch(() => {})
+    await btn.click({ timeout: 5000 }).catch(async () => {
+      // 兜底：直接点父级可点元素
+      await ctx.locator('[class*="ai-"]:has-text("AI生成"), [class*="generate"]:has-text("AI生成")').first().click({ timeout: 5000 })
+    })
+    log('已点击「AI生成」，等待 B站生成封面（耗时较长，最长等待 2 分钟）...')
+  } catch (e) {
+    log('点击「AI生成」失败: ' + e.message)
+    return
+  }
+
+  const deadline = Date.now() + 120000
+  let done = false
+  // 先等生成真正开始（进入生成中/禁用态），避免瞬间判定完成
+  await sleep(4000)
+  while (Date.now() < deadline) {
+    await sleep(3000)
+    const disabled = await btn.isDisabled().catch(() => false)
+    const txt = (await btn.textContent().catch(() => '')) || ''
+    if (txt.includes('生成中') || disabled) continue        // 仍在生成，继续等
+    if (txt.includes('重新生成')) { done = true; break }     // 生成完成信号
+    // 文案回到「AI生成」且不再禁用，也视为一轮结束（兜底）
+    if (txt.includes('AI生成') && !disabled) { done = true; break }
+  }
+  if (done) log('✅ B站 AI 封面已生成，可继续发布')
+  else log('⚠️ 未能确认 AI 封面生成完成，仍继续发布（若 B站报缺封面请手动确认）')
+}
+
 async function publishOrDraft(page, publishNow, log) {
   const ctx = await getCtx(page)
   if (publishNow) {
@@ -337,8 +381,12 @@ async function executeBilibiliPublish(page, params, log) {
     await fillTags(page, params.topics, log)
     if (params.coverImage) {
       params.coverImage = (await resolveLocalImagePath(params.coverImage, params.userId, params.authToken, log)) || params.coverImage
+      await uploadCover(page, params.coverImage, log)
+    } else {
+      // B站强制要求封面：无自定义封面时改用平台内置「AI生成」
+      log('未提供自定义封面，改用 B站 AI 生成封面')
+      await generateCoverAI(page, log)
     }
-    await uploadCover(page, params.coverImage, log)
 
     const resultUrl = await publishOrDraft(page, params.publishNow !== false, log)
     log('B站发布流程完成')
