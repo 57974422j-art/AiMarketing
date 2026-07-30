@@ -214,27 +214,40 @@ async function selectCategory(page, log) {
 }
 
 async function fillTags(page, tags, log) {
-  if (!tags || !tags.length) return
+  // 关键修复：前端可能传逗号分隔的「字符串」，for...of 字符串会逐字循环 → 一个字一个标签。
+  // 统一规整成数组：字符串按中/英文逗号拆分。
+  if (typeof tags === 'string') {
+    tags = tags.split(/[,，]/).map(t => t.trim()).filter(Boolean)
+  }
+  if (!tags || !Array.isArray(tags) || !tags.length) {
+    log('未提供标签，跳过')
+    return
+  }
   const ctx = await getCtx(page)
-  const input = await ctx.$('#tag-container input, input[placeholder*="回车"]')
+  const input = await ctx.$('#tag-container input, input[placeholder*="回车"], input[placeholder*="标签"]')
   if (!input) {
     log('未找到标签输入框，跳过标签')
     return
   }
   // 删除已有标签
-  for (let i = 0; i < 10; i++) {
-    const close = await ctx.$('.tag-pre-wrp .label-item-v2-container .close')
+  for (let i = 0; i < 12; i++) {
+    const close = await ctx.$('.tag-pre-wrp .label-item-v2-container .close, .tag-item .close, [class*="tag"] [class*="close"]')
     if (!close) break
-    await close.click()
-    await sleep(200)
+    await close.click().catch(() => {})
+    await sleep(150)
   }
+  await ctx.keyboard.press('Escape').catch(() => {})
   for (const tag of tags) {
     await input.click()
-    await input.fill(tag)
-    await ctx.keyboard.press('Enter')
-    await sleep(300)
+    await sleep(150)
+    await input.fill('')                       // 先清空输入框，避免残留
+    // 一次性写入整词（insertText 只触发一次 input 事件，不会逐字触发 B站「一个字一个标签」）
+    await page.keyboard.insertText(tag)
+    await sleep(250)
+    await ctx.keyboard.press('Enter')          // 整词提交为单个标签
+    await sleep(400)
   }
-  log('标签已填写')
+  log('标签已填写: ' + tags.join(' / '))
 }
 
 async function uploadCover(page, coverImage, log) {
@@ -259,24 +272,33 @@ async function uploadCover(page, coverImage, log) {
 async function publishOrDraft(page, publishNow, log) {
   const ctx = await getCtx(page)
   if (publishNow) {
-    log('点击最终发布按钮【立即投稿/发布】...')
+    log('点击最终发布按钮【立即投稿】...')
     let ok = false
     try {
-      const btn = ctx.locator('button', { hasText: /立即投稿|发布|详细发布|提交/ }).first()
-      await btn.click({ timeout: 5000 })
+      // B站「立即投稿」是 <span class="submit-add">，位于表单底部，须先滚动进视口
+      const submitContainer = await ctx.$('.submit-container')
+      if (submitContainer) {
+        await submitContainer.scrollIntoViewIfNeeded().catch(() => {})
+        await sleep(300)
+      }
+      const btn = ctx.locator('.submit-add, span:has-text("立即投稿")').first()
+      await btn.scrollIntoViewIfNeeded().catch(() => {})
+      await btn.click({ timeout: 8000 })
       ok = true
     } catch (e) {
       log('  ⚠️ 常规点击失败，改用 CDP 保底: ' + e.message)
-      ok = await clickByTextCDP(page, log, ['立即投稿', '发布', '提交'], 30, ['button', 'a', 'div'])
+      // 关键：允许 span；且「立即投稿」精确匹配，必须排除误点「定时发布」
+      ok = await clickByTextCDP(page, log, ['立即投稿'], 12, ['span', 'button', 'a', 'div'])
+        || await clickByTextCDP(page, log, ['投稿'], 12, ['span', 'button', 'a', 'div'])
     }
     if (!ok) log('  ❌ 未能点击发布按钮，请手动点击')
   } else {
     log('点击【存草稿】...')
     try {
-      const draft = ctx.locator('button', { hasText: '存草稿' }).first()
+      const draft = ctx.locator('button, span', { hasText: '存草稿' }).first()
       await draft.click({ timeout: 5000 })
     } catch (e) {
-      await clickByTextCDP(page, log, ['存草稿'])
+      await clickByTextCDP(page, log, ['存草稿'], 12, ['span', 'button', 'a', 'div'])
     }
   }
   await sleep(5000)
