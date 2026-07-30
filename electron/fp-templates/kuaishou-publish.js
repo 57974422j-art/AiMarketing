@@ -247,60 +247,58 @@ async function step3_waitUpload(page, log) {
 // ════════════════════════════════════
 
 async function step4_fillContent(page, params, log) {
-  log('[步骤4] 填写标题+描述')
+  log('[步骤4] 合并填写 标题+描述+话题（快手单输入框，与微博一致）')
   await page.waitForTimeout(1500)
 
-  // ── 标题（清空再输入，最多20字）──
-  let titleFilled = false
-  if (params.title) {
-    const titleText = String(params.title).substring(0, 20)
-    const sels = ['input[placeholder*="标题"]', 'input[placeholder*="作品"]', 'input[maxlength]']
-    for (const sel of sels) {
-      try {
-        const el = await page.$(sel)
-        if (!el || !(await el.isVisible().catch(() => false))) continue
-        await el.click({ timeout: 3000 })
-        await page.waitForTimeout(400)
-        await el.fill('')          // 先清空（快手标题需 clear）
-        await page.waitForTimeout(200)
-        await el.type(titleText, { delay: 60 })
-        await page.waitForTimeout(400)
-        const v = await el.evaluate(n => n.value).catch(() => '')
-        if (v.trim().length > 0) { log('  ✅ 标题:"' + v + '"'); titleFilled = true; break }
-      } catch (e) { log('  ⚠️ ' + sel + ': ' + e.message) }
-    }
-    if (!titleFilled) log('  ❌ 标题未填入')
-  } else {
-    log('[4a] 跳过（无标题）')
+  // 快手发布页只有一个内容输入框（作品描述），标题/描述/话题全部合并填入
+  const descSels = ['textarea[placeholder*="简介"]', 'textarea[placeholder*="描述"]', 'textarea[placeholder*="介绍"]', 'div[contenteditable="true"]']
+  let descEl = null
+  for (const sel of descSels) {
+    try {
+      const el = await page.$(sel)
+      if (el && await el.isVisible().catch(() => false)) { descEl = el; break }
+    } catch (_) {}
   }
-  await page.waitForTimeout(1000)
+  if (!descEl) { log('  ❌ 未找到内容输入框，跳过填写'); return }
+  await descEl.click({ timeout: 3000 }).catch(() => {})
+  await page.waitForTimeout(400)
 
-  // ── 描述 ──
-  let descFilled = false
-  if (params.description) {
-    const sels = ['textarea[placeholder*="简介"]', 'textarea[placeholder*="描述"]', 'textarea[placeholder*="介绍"]', 'div[contenteditable="true"]']
-    for (const sel of sels) {
-      try {
-        const el = await page.$(sel)
-        if (!el || !(await el.isVisible().catch(() => false))) continue
-        await el.click({ timeout: 3000 })
-        await page.waitForTimeout(400)
-        if (sel.includes('contenteditable')) {
-          await el.evaluate(n => { n.innerText = '' })
-          await page.keyboard.type(params.description, { delay: 30 })
-        } else {
-          await el.fill(params.description)
-        }
-        await page.waitForTimeout(400)
-        const v = await el.evaluate(n => n.value || n.innerText).catch(() => '')
-        if (v.length > 0) { log('  ✅ 描述(' + v.length + '字)'); descFilled = true; break }
-      } catch (e) { log('  ⚠️ ' + sel + ': ' + e.message) }
+  // 合并正文：标题（最多20字）+ 描述
+  const parts = []
+  if (params.title) parts.push(String(params.title).substring(0, 20))
+  if (params.description) parts.push(params.description)
+  const bodyText = parts.join('\n\n')
+  if (bodyText) {
+    const isTextarea = await descEl.evaluate(n => n.tagName === 'TEXTAREA').catch(() => false)
+    if (isTextarea) {
+      await descEl.fill(bodyText)
+    } else {
+      await descEl.evaluate(n => { n.innerText = '' })
+      await page.keyboard.type(bodyText, { delay: 30 })
     }
-    if (!descFilled) log('  ❌ 描述未填入')
+    await page.waitForTimeout(400)
+    log('  ✅ 内容已填写 (' + bodyText.length + ' 字)' + (params.title ? ' 含标题' : ''))
   } else {
-    log('[4b] 跳过（无描述）')
+    log('  ⚠️ 标题与描述均为空，仅填话题')
   }
-  log('步骤4完成 → 标题:' + (titleFilled ? 'OK' : '失败') + ' 描述:' + (descFilled ? 'OK' : '失败'))
+
+  // 话题追加到尾部（#标签 带空格，最多3个）
+  let topics = typeof params.topics === 'string' ? params.topics.trim() : ''
+  if (topics) {
+    const list = topics.split(/[\s,，#]+/).filter(t => t.trim()).slice(0, 3)
+    if (list.length) {
+      await page.keyboard.press('End').catch(() => {})
+      await page.keyboard.type(' ', { delay: 10 })
+      for (const t of list) {
+        const tag = '#' + t.trim() + ' '
+        await page.keyboard.type(tag, { delay: 40 })
+        await page.waitForTimeout(400)
+      }
+      log('  ✅ 已追加话题: ' + list.map(t => '#' + t).join(' '))
+    }
+  }
+
+  log('步骤4完成')
   await page.waitForTimeout(1000)
 }
 
@@ -309,35 +307,9 @@ async function step4_fillContent(page, params, log) {
 // ════════════════════════════════════
 
 async function step5_topics(page, params, log) {
-  let topics = typeof params.topics === 'string' ? params.topics.trim() : ''
-  if (!topics) { log('[步骤5] 跳过（无话题）'); return }
-
-  const list = topics.split(/[\s,，#]+/).filter(t => t.trim()).slice(0, 3) // 快手最多3个
-  if (list.length === 0) { log('  ⚠️ 无有效话题'); return }
-  log('[步骤5] 添加话题(最多3): ' + JSON.stringify(list))
-
-  // 话题并入描述字段，格式 "#标签 "
-  try {
-    const desc = await page.$('textarea[placeholder*="简介"], textarea[placeholder*="描述"], textarea[placeholder*="介绍"], div[contenteditable="true"]')
-    if (desc && await desc.isVisible().catch(() => false)) {
-      await desc.click({ timeout: 2000 })
-      await page.waitForTimeout(400)
-      // 若描述已有内容，先补个换行/空格
-      const existing = await desc.evaluate(n => n.value || n.innerText).catch(() => '')
-      if (existing && existing.trim().length > 0) await page.keyboard.press('Space')
-      for (let i = 0; i < list.length; i++) {
-        const t = '#' + list[i].trim() + ' '  // 带空格，触发快手话题识别
-        await page.keyboard.type(t, { delay: 40 })
-        await page.waitForTimeout(500)
-        log('  ✅ 已输入: ' + t)
-      }
-      await page.waitForTimeout(600)
-    } else {
-      log('  ⚠️ 未找到描述框，话题跳过')
-    }
-  } catch (e) { log('  ⚠️ 话题失败: ' + e.message) }
-  log('✅ 步骤5完成')
-  await page.waitForTimeout(1000)
+  // 快手为单输入框，标题+描述+话题已在 step4 合并填入同一内容框，此处不再单独追加
+  log('[步骤5] 跳过（话题已在步骤4合并进内容框）')
+  await page.waitForTimeout(500)
 }
 
 // ════════════════════════════════════
@@ -441,8 +413,8 @@ async function step7_publish(page, params, log) {
     step1 = true
     log('  ✅ 点击「发布」')
   } catch (e) {
-    log('  ⚠️ 常规点击「发布」失败，改用 CDP 保底: ' + e.message)
-    if (await clickByTextCDP(page, log, ['发布'])) step1 = true
+    log('  ⚠️ 常规点击「发布」失败（快手发布键是 div 非 button），改用 CDP 坐标点击: ' + e.message)
+    if (await clickByTextCDP(page, log, ['立即发布', '发布'], 30, ['button', 'a', 'div'])) step1 = true
   }
 
   await page.waitForTimeout(2500)
@@ -454,8 +426,8 @@ async function step7_publish(page, params, log) {
     step2 = true
     log('  ✅ 点击「确认发布」')
   } catch (e) {
-    // 有些版本直接发布成功，无二次确认；再试 CDP 保底
-    if (await clickByTextCDP(page, log, ['确认发布'])) step2 = true
+    // 有些版本直接发布成功，无二次确认；再试 CDP 保底（匹配 div）
+    if (await clickByTextCDP(page, log, ['确认发布'], 30, ['button', 'a', 'div'])) step2 = true
     else log('  ℹ️ 无「确认发布」弹窗（可能已直接发布）')
   }
 
