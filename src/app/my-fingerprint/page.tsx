@@ -545,6 +545,28 @@ export default function MyFingerprintPage() {
     showToast('已提取到发布表单', 'success')
   }
 
+  // 删除一条草稿（仅删自己的）
+  const deleteDraft = async (id: string) => {
+    try {
+      const r = await fetch('/api/content-draft?id=' + encodeURIComponent(id), {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      const d = await r.json()
+      if (d.success) {
+        setDrafts(prev => prev.filter(x => x.id !== id))
+        showToast('🗑 草稿已删除', 'success')
+      } else {
+        showToast(d.message || '删除失败', 'error')
+      }
+    } catch (e: any) {
+      showToast('删除异常: ' + (e?.message || e), 'error')
+    }
+  }
+
+  // 进入页面即加载草稿，避免「我的草稿 (数量)」要点击一次才显示
+  useEffect(() => { loadDrafts() }, [])
+
   /** 添加任务到队列 */
   const addToQueue = () => {
     if (!formVideoName) {
@@ -1339,10 +1361,17 @@ export default function MyFingerprintPage() {
                                   {new Date(d.createdAt).toLocaleString('zh-CN')} · 可在任意平台使用
                                 </p>
                               </div>
-                              <button
-                                onClick={() => extractDraft(d)}
-                                className="shrink-0 text-[10px] px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
-                              >提取</button>
+                              <div className="flex shrink-0 gap-1">
+                                <button
+                                  onClick={() => extractDraft(d)}
+                                  className="text-[10px] px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
+                                >提取</button>
+                                <button
+                                  onClick={() => { if (confirm('确定删除该草稿？')) deleteDraft(d.id) }}
+                                  title="删除草稿"
+                                  className="text-[10px] px-2 py-1 rounded bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/30"
+                                >🗑</button>
+                              </div>
                             </div>
                             {d.coverImage && (
                               <img src={d.coverImage} alt="" className="w-full h-20 object-cover rounded mt-2" />

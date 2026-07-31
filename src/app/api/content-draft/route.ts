@@ -58,3 +58,22 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ success: true, draft })
 }
+
+/** 删除一条草稿（仅能删自己的） */
+export async function DELETE(request: NextRequest) {
+  const auth = getAuthFromCookie(request)
+  if (!auth) {
+    return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+  }
+
+  const id = request.nextUrl.searchParams.get('id')
+  if (!id) {
+    return NextResponse.json({ success: false, message: '缺少草稿 id' }, { status: 400 })
+  }
+
+  await prisma.contentDraft.deleteMany({
+    where: { id: String(id), userId: auth.userId },
+  })
+
+  return NextResponse.json({ success: true })
+}
