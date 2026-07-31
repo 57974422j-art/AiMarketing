@@ -351,6 +351,42 @@ async function _clickDeclOnce(ctx, text, prefix) {
   }, { t: text, usePrefix: !!prefix })
 }
 
+/** 展开「含AI生成内容」这样的分组标题，露出其下的三选一选项。点击“容器”而非叶子节点 */
+async function _expandDeclGroup(ctx, text) {
+  return await ctx.evaluate((t) => {
+    const norm = s => (s || '').replace(/\s+/g, '').trim()
+    const target = norm(t)
+    const all = Array.from(document.querySelectorAll('div,section,li,label,span'))
+    // 组标题是“容器”：自身文本等于目标、且有子节点（展开箭头/子项）；真正的选项往往是叶子/较短文本
+    const headers = all.filter(el => norm(el.textContent) === target && el.children.length > 0)
+    if (!headers.length) return false
+    const el = headers[headers.length - 1]
+    try { el.scrollIntoView({ block: 'center' }) } catch (_) {}
+    el.click()
+    return true
+  }, text).catch(() => false)
+}
+
+/** 判断某声明选项是否已选中（兼容真实 input 与 B站自定义控件） */
+async function _isDeclChecked(ctx, text) {
+  return await ctx.evaluate((t) => {
+    const norm = s => (s || '').replace(/\s+/g, '').trim()
+    const target = norm(t)
+    const all = Array.from(document.querySelectorAll('span,label,div,li,p,a'))
+    for (const el of all) {
+      const s = norm(el.textContent)
+      if (s !== target) continue
+      if (Array.from(el.children).some(c => norm(c.textContent) === target)) continue
+      const box = el.closest('label') || el.parentElement || el
+      const input = box.querySelector && box.querySelector('input[type="checkbox"],input[type="radio"]')
+      if (input) return !!input.checked
+      const cls = (el.className || '') + ' ' + (box.className || '')
+      if (/checked|selected|active|on/i.test(cls)) return true
+    }
+    return false
+  }, text).catch(() => false)
+}
+
 /** 点击一个创作声明选项：常规 → 展开后二次点击 → 前缀匹配 → CDP 保底 */
 async function clickDecl(page, ctx, text, log, prefix) {
   let r = await _clickDeclOnce(ctx, text, prefix).catch(() => ({ ok: false }))
@@ -377,21 +413,25 @@ async function clickDecl(page, ctx, text, log, prefix) {
   return false
 }
 
-/** 诊断：把创作声明区域的可见文案打出来，便于按真实结构精修 */
+/** 诊断：把创作声明区域的可见文案+结构打出来，便于按真实 DOM 精修 */
 async function dumpDeclarationArea(ctx, log) {
   try {
     const info = await ctx.evaluate(() => {
       const out = []
       for (const el of Array.from(document.querySelectorAll('div,section'))) {
         const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
-        if (t.includes('创作声明') && t.length < 300) {
-          out.push({ cls: String(el.className || '').slice(0, 60), text: t.slice(0, 200) })
+        if (t.includes('创作声明') && t.length < 400) {
+          out.push({
+            cls: String(el.className || '').slice(0, 60),
+            text: t.slice(0, 240),
+            html: (el.outerHTML || '').replace(/\s+/g, ' ').slice(0, 500),
+          })
           if (out.length >= 3) break
         }
       }
       return out
     })
-    log('  [创作声明诊断] ' + JSON.stringify(info))
+    log('  [创作声明诊断] ' + JSON.stringify(info, null, 2))
   } catch (e) {
     log('  [创作声明诊断] 失败: ' + e.message)
   }
@@ -428,14 +468,35 @@ async function selectDeclaration(page, params, log) {
   } catch (_) {}
 
   log('开始勾选创作声明...')
+  // B站把「内容无需标注/含AI生成内容/含虚构演绎内容」收在「含AI生成内容」分组下，先展开
+  const expanded = await _expandDeclGroup(ctx, '含AI生成内容')
+  if (expanded) log('  ℹ️ 已尝试展开「含AI生成内容」分组')
+  await sleep(800)
+  // 兜底：再点一次分组标题（某些版本点容器不展开，需点标题文字）
+  await clickDecl(page, ctx, '含AI生成内容', log).catch(() => {})
+  await sleep(500)
+
   let allOk = true
-  if (main) allOk = (await clickDecl(page, ctx, main, log)) && allOk
+  if (main) {
+    const before = await _isDeclChecked(ctx, main).catch(() => false)
+    const clicked = await clickDecl(page, ctx, main, log)
+    await sleep(400)
+    const after = await _isDeclChecked(ctx, main).catch(() => false)
+    if (!clicked || (!before && !after)) {
+      log(`  ⚠️ 主声明「${main}」似乎未选中（before=${before}, after=${after}），尝试 CDP 二次点击`)
+      await clickByTextCDP(page, log, [main], main.length + 6, ['span', 'label', 'div', 'a', 'li'])
+      await sleep(400)
+    }
+    allOk = allOk && (clicked || after)
+  }
   for (const t of extras) {
-    allOk = (await clickDecl(page, ctx, t, log)) && allOk
+    const ok = await clickDecl(page, ctx, t, log)
     await sleep(300)
+    allOk = allOk && ok
   }
   if (copyrightSelf) {
-    allOk = (await clickDecl(page, ctx, '内容为自制', log, true)) && allOk
+    const ok = await clickDecl(page, ctx, '内容为自制', log, true)
+    allOk = allOk && ok
   }
   if (!allOk) await dumpDeclarationArea(ctx, log)
   await sleep(500)
@@ -474,6 +535,19 @@ async function publishOrDraft(page, publishNow, log) {
     }
   }
   await sleep(5000)
+  // 软校验：B站若因创作声明未选/封面缺失等被拦截，不会真正跳转成功页
+  if (publishNow) {
+    try {
+      const url = page.url()
+      const body = await ctx.textContent('body').catch(() => '')
+      const success = /投稿成功|发布成功|已发布|提交成功/.test(body || '') || /member\.bilibili\.com\/video/.test(url)
+      if (!success) {
+        log('  ⚠️ 未检测到 B站发布成功信号（可能创作声明未选/封面缺失被拦截）。请到 B站网页确认视频是否已发布。')
+      } else {
+        log('  ✅ 已检测到 B站发布成功信号')
+      }
+    } catch (_) {}
+  }
   return page.url()
 }
 
