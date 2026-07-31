@@ -42,8 +42,8 @@ function createWindow() {
   const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
   mainWindow.loadURL(serverUrl)
 
-  // ── 自动更新检测（生产环境）──
-  if (!isDev) {
+  // ── 自动更新检测（打包后的生产环境）──
+  if (app.isPackaged) {
     setupAutoUpdater(mainWindow)
   }
 }
@@ -88,25 +88,6 @@ function setupAutoUpdater(win) {
     win?.webContents.send('app:update-status', { status: 'up-to-date' })
   })
 
-  // 暴露客户端版本信息给渲染进程（导航栏显示版本号 + 发布日期）
-  ipcMain.handle('app:get-version', async () => {
-    try {
-      const vPath = path.join(__dirname, 'version.json')
-      if (fs.existsSync(vPath)) {
-        const v = JSON.parse(fs.readFileSync(vPath, 'utf-8'))
-        // 优先用 version.json；version 缺失时回退到 package.json 版本，保证一定有版本号
-        const version = v.version || app.getVersion()
-        return { version, buildDate: v.buildDate || null }
-      }
-      // version.json 不存在（如未打包/缺失），回退到 package.json 版本
-      return { version: app.getVersion(), buildDate: null }
-    } catch (e) {
-      console.error('[Version] 读取失败:', e.message)
-      // 兜底：无论如何都返回 package.json 版本，避免导航栏空白
-      try { return { version: app.getVersion(), buildDate: null } } catch { return null }
-    }
-  })
-
   // 出错
   autoUpdater.on('error', (err) => {
     console.error('[Updater] 错误:', err.message)
@@ -119,6 +100,25 @@ function setupAutoUpdater(win) {
     autoUpdater.checkForUpdates()
   }, 5000)
 }
+
+// 暴露客户端版本信息给渲染进程（导航栏显示版本号 + 发布日期）
+// 必须注册在顶层，不能放在 setupAutoUpdater 内部：
+// 打包后的 app 因 NODE_ENV 未设为 'production' 导致 isDev 恒为 true，
+// setupAutoUpdater 在 isDev 时不执行，app:get-version 永不注册 → 导航栏「版本加载中…」。
+ipcMain.handle('app:get-version', async () => {
+  try {
+    const vPath = path.join(__dirname, 'version.json')
+    if (fs.existsSync(vPath)) {
+      const v = JSON.parse(fs.readFileSync(vPath, 'utf-8'))
+      const version = v.version || app.getVersion()
+      return { version, buildDate: v.buildDate || null }
+    }
+    return { version: app.getVersion(), buildDate: null }
+  } catch (e) {
+    console.error('[Version] 读取失败:', e.message)
+    try { return { version: app.getVersion(), buildDate: null } } catch { return null }
+  }
+})
 
 // IPC：手动触发检查更新
 ipcMain.handle('updater:check', async () => {

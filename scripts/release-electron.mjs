@@ -69,7 +69,7 @@ if (DRY) {
   console.log(`  将发布版本:      ${next}  (${today})`)
   console.log(`  将写 version.json | version=${next} downloadUrl=${downloadUrl}`)
   console.log(`  将同步 package.json | version=${next}`)
-  console.log(`  将构建产物:      dist-electron/${exeName}`)
+  console.log(`  将构建产物:      dist-rel/${exeName}`)
   console.log(`  将输出 SHA256 校验和`)
   console.log('\n请确认后去掉 --dry 再执行。')
   process.exit(0)
@@ -104,7 +104,7 @@ console.log(`\n🔨 开始构建 (npm run electron:build) ...`)
 execSync('npm run electron:build', { stdio: 'inherit', cwd: ROOT })
 
 // ---- 5) 产物 + 校验和 ----
-const exePath = resolve(`dist-electron/${exeName}`)
+const exePath = resolve(`dist-rel/${exeName}`)
 if (!existsSync(exePath)) {
   console.error('❌ 未找到构建产物:', exePath)
   process.exit(1)
@@ -112,7 +112,7 @@ if (!existsSync(exePath)) {
 const buf = readFileSync(exePath)
 const sha = createHash('sha256').update(buf).digest('hex')
 const sizeMB = (buf.length / 1024 / 1024).toFixed(1)
-console.log(`\n✅ 构建完成: dist-electron/${exeName}  (${sizeMB} MB)`)
+console.log(`\n✅ 构建完成: dist-rel/${exeName}  (${sizeMB} MB)`)
 console.log(`   SHA256: ${sha}`)
 
 // ---- 6) 上传指引 ----
