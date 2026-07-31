@@ -12,6 +12,9 @@ export default function Navbar() {
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [appVersion, setAppVersion] = useState('')
+  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'up-to-date' | 'error'>('idle')
+  const [updateVersion, setUpdateVersion] = useState('')
+  const [updatePercent, setUpdatePercent] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -25,6 +28,34 @@ export default function Navbar() {
     }
     return () => { active = false }
   }, [])
+
+  // 监听 Electron 自动更新事件，驱动 Navbar 的「立即重启更新」提示
+  useEffect(() => {
+    const api = (window as any).electronAPI
+    if (!api?.onUpdateStatus) return
+    const off = api.onUpdateStatus((data: any) => {
+      if (!data?.status) return
+      if (data.status === 'available') { setUpdateState('available'); setUpdateVersion(data.version || '') }
+      else if (data.status === 'downloading') { setUpdateState('downloading'); setUpdatePercent(typeof data.percent === 'number' ? data.percent : 0) }
+      else if (data.status === 'ready') { setUpdateState('ready'); setUpdateVersion(data.version || '') }
+      else setUpdateState(data.status)
+    })
+    return off
+  }, [])
+
+  // 点击版本号手动检查更新
+  const checkUpdate = () => {
+    const api = (window as any).electronAPI
+    if (!api?.updaterCheck) return
+    setUpdateState('checking')
+    api.updaterCheck().catch(() => setUpdateState('idle'))
+  }
+
+  // 点击「重启更新」立即安装并重启客户端
+  const installUpdate = () => {
+    const api = (window as any).electronAPI
+    if (api?.updaterInstall) api.updaterInstall().catch(() => {})
+  }
 
   const getRoleName = (role: string) => {
     switch (role) {
@@ -41,7 +72,7 @@ export default function Navbar() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Link href="/" className="text-mono text-xl font-bold tracking-wider"><span className="text-emerald-400">AI</span><span className="text-white">MARKETING</span></Link>
-              {appVersion && <span className="ml-2 text-mono-sm text-emerald-400/50 hidden md:inline">{appVersion}</span>}
+              <VersionBadge version={appVersion} onCheck={checkUpdate} />
             </div>
             <div className="w-24" />
           </div>
@@ -57,9 +88,10 @@ export default function Navbar() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Link href="/" className="text-mono text-xl font-bold tracking-wider"><span className="text-emerald-400">AI</span><span className="text-white">MARKETING</span></Link>
-              {appVersion && <span className="ml-2 text-mono-sm text-emerald-400/50 hidden md:inline">{appVersion}</span>}
+              <VersionBadge version={appVersion} onCheck={checkUpdate} />
             </div>
             <div className="flex items-center space-x-3">
+              <UpdatePill state={updateState} version={updateVersion} percent={updatePercent} onInstall={installUpdate} />
               <LanguageSwitcher />
               <Link href="/login" className="px-4 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-all font-mono text-sm tracking-wider">{t.auth.signIn}</Link>
               <Link href="/register" className="px-4 py-2 bg-white/5 border border-white/10 text-gray-300 rounded-lg hover:bg-white/10 transition-all font-mono text-sm tracking-wider">{t.auth.signUp}</Link>
@@ -78,7 +110,7 @@ export default function Navbar() {
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
             <Link href="/" className="text-mono text-xl font-bold tracking-wider"><span className="text-emerald-400">AI</span><span className="text-white">MARKETING</span></Link>
-            {appVersion && <span className="ml-2 text-mono-sm text-emerald-400/50 hidden md:inline">{appVersion}</span>}
+            <VersionBadge version={appVersion} onCheck={checkUpdate} />
           </div>
 
           {/* Desktop nav — 精简：工作台入口已在卡片中，导航只保留核心入口 */}
@@ -95,6 +127,7 @@ export default function Navbar() {
           </div>
 
           <div className="flex items-center gap-3">
+            <UpdatePill state={updateState} version={updateVersion} percent={updatePercent} onInstall={installUpdate} />
             <LanguageSwitcher />
             {/* Mobile hamburger */}
             <button onClick={() => setShowMobileMenu(!showMobileMenu)} className="md:hidden px-2 py-2 text-gray-400 hover:text-white">
@@ -153,6 +186,42 @@ export default function Navbar() {
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
     </nav>
   )
+}
+
+function VersionBadge({ version, onCheck }: { version: string; onCheck: () => void }) {
+  if (!version) return null
+  return (
+    <button onClick={onCheck} title="点击检查客户端更新"
+      className="ml-2 text-[11px] font-mono text-emerald-400/70 hover:text-emerald-300 transition-colors hidden sm:inline">
+      {version}
+    </button>
+  )
+}
+
+function UpdatePill({ state, version, percent, onInstall }: { state: string; version: string; percent: number; onInstall: () => void }) {
+  if (state === 'ready') {
+    return (
+      <button onClick={onInstall} title="点击立即重启并更新到最新版本"
+        className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-medium hover:bg-emerald-500/30 transition-colors">
+        🔄 重启更新{version ? ' ' + version : ''}
+      </button>
+    )
+  }
+  if (state === 'downloading') {
+    return (
+      <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-gray-400 text-xs">
+        ⬇️ 更新 {percent}%
+      </span>
+    )
+  }
+  if (state === 'available') {
+    return (
+      <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-gray-400 text-xs">
+        🆕 发现新版本
+      </span>
+    )
+  }
+  return null
 }
 
 function FeedbackModal({ onClose }: { onClose: () => void }) {
