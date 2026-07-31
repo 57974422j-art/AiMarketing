@@ -1,0 +1,15 @@
+{
+  "files.watcherExclude": {
+    "**/dist-electron/**": true,
+    "**/dist-rel/**": true,
+    "**/node_modules/**": true
+  },
+  "files.exclude": {
+    "dist-electron/": true,
+    "dist-rel/": true
+  },
+  "search.exclude": {
+    "dist-electron/": true,
+    "dist-rel/": true
+  }
+}
