@@ -302,3 +302,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   if (ac) { ac.abort(); abortMap.delete(deviceId) }
   return NextResponse.json({ success: true, message: '已发送停止信号' })
 }
+
+// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
+export const dynamic = 'force-dynamic'

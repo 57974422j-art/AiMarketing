@@ -117,3 +117,6 @@ export async function DELETE(request: NextRequest) {
   } catch (e: any) { console.error(e); return NextResponse.json({ success: false, message: e.message || '删除失败' }, { status: 500 })
   } finally { await prisma.$disconnect() }
 }
+
+// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
+export const dynamic = 'force-dynamic'

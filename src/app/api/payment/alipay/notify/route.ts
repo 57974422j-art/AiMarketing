@@ -123,3 +123,6 @@ async function activateSubscription(userId: number, planId: number, orderNo: str
     data: { plan: plan.name, paidFeatures: JSON.stringify(features) },
   })
 }
+
+// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
+export const dynamic = 'force-dynamic'

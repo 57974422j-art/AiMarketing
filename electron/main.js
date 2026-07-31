@@ -68,10 +68,18 @@ function setupAutoUpdater(win) {
     win?.webContents.send('app:update-status', { status: 'downloading', percent: pct })
   })
 
-  // 下载完成，提示重启
+  // 下载完成，提示重启并自动安装（silent auto-update：用户无需手动操作即可收敛到最新版）
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[Updater] 下载完成:', info.version)
     win?.webContents.send('app:update-status', { status: 'ready', version: info.version, releaseNotes: info.releaseNotes })
+    // 留 12 秒让前端展示「重启更新」按钮；若用户未手动点击，则自动退出并安装重启
+    setTimeout(() => {
+      try {
+        autoUpdater.quitAndInstall(true, true)
+      } catch (e) {
+        console.error('[Updater] 自动安装失败:', e.message)
+      }
+    }, 12000)
   })
 
   // 没有新版本

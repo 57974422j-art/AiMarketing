@@ -23,3 +23,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ success: false, message: e.message }, { status: 400 })
   }
 }
+
+// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
+export const dynamic = 'force-dynamic'

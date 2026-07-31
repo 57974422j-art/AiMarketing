@@ -98,3 +98,6 @@ function formatRelativeTime(date: Date): string {
   if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
   return Math.floor(diff / 86400000) + '天前';
 }
+
+// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
+export const dynamic = 'force-dynamic'

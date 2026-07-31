@@ -44,3 +44,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: e.message })
   }
 }
+
+// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
+export const dynamic = 'force-dynamic'

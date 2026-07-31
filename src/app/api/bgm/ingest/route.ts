@@ -152,3 +152,6 @@ export async function POST(req: NextRequest) {
   console.log(`[BgmIngest] 完成 ingested=${ingested} skipped=${skipped} failed=${failed}`)
   return NextResponse.json({ ingested, skipped, failed, total: list.length, details })
 }
+
+// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
+export const dynamic = 'force-dynamic'

@@ -1,6 +1,6 @@
 {
   "name": "ai-marketing",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -92,7 +92,8 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "electron/installer.nsh"
     }
   },
   "prisma": {

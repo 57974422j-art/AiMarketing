@@ -52,3 +52,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
+
+// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
+export const dynamic = 'force-dynamic'

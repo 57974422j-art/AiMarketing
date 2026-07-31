@@ -77,3 +77,6 @@ ${focus ? `\n6. 重点关注方向：${focus}\n7. 增加一个关于「${focus}�
     }, { status: 500 });
   }
 }
+
+// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
+export const dynamic = 'force-dynamic'
