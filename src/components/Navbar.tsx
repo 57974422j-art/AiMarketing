@@ -15,6 +15,7 @@ export default function Navbar() {
   const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'up-to-date' | 'error'>('idle')
   const [updateVersion, setUpdateVersion] = useState('')
   const [updatePercent, setUpdatePercent] = useState(0)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -28,6 +29,9 @@ export default function Navbar() {
     }
     return () => { active = false }
   }, [])
+
+  // 标记客户端已挂载，避免服务端预渲染时访问 window 报错（版本徽标/更新提示仅在客户端渲染）
+  useEffect(() => { setMounted(true) }, [])
 
   // 监听 Electron 自动更新事件，驱动 Navbar 的「立即重启更新」提示
   useEffect(() => {
@@ -72,7 +76,7 @@ export default function Navbar() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Link href="/" className="text-mono text-xl font-bold tracking-wider"><span className="text-emerald-400">AI</span><span className="text-white">MARKETING</span></Link>
-              <VersionBadge version={appVersion} onCheck={checkUpdate} />
+              {mounted && <VersionBadge version={appVersion} onCheck={checkUpdate} />}
             </div>
             <div className="w-24" />
           </div>
@@ -88,7 +92,7 @@ export default function Navbar() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Link href="/" className="text-mono text-xl font-bold tracking-wider"><span className="text-emerald-400">AI</span><span className="text-white">MARKETING</span></Link>
-              <VersionBadge version={appVersion} onCheck={checkUpdate} />
+              {mounted && <VersionBadge version={appVersion} onCheck={checkUpdate} />}
             </div>
             <div className="flex items-center space-x-3">
               <UpdatePill state={updateState} version={updateVersion} percent={updatePercent} onInstall={installUpdate} />
@@ -110,7 +114,7 @@ export default function Navbar() {
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
             <Link href="/" className="text-mono text-xl font-bold tracking-wider"><span className="text-emerald-400">AI</span><span className="text-white">MARKETING</span></Link>
-            <VersionBadge version={appVersion} onCheck={checkUpdate} />
+            {mounted && <VersionBadge version={appVersion} onCheck={checkUpdate} />}
           </div>
 
           {/* Desktop nav — 精简：工作台入口已在卡片中，导航只保留核心入口 */}
