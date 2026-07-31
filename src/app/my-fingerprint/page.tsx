@@ -370,7 +370,15 @@ export default function MyFingerprintPage() {
         if (d.coverImage) setFormCoverImage(d.coverImage)
         if (d.usage) setAiUsage(d.usage)
         if (typeof d.pointsSpent === 'number' && d.pointsSpent > 0) setAiFillPoints(d.pointsSpent)
-        showToast('AI 已自动填充标题/文案/话题/封面', 'success')
+        // 诚实提示：只有真正填到文本才说「已填充」，否则提示只拿到封面
+        const filledCount = [d.title, d.description, (d.topics || []).length].filter(Boolean).length
+        if (d.partial || filledCount === 0) {
+          showToast(d.message || '⚠️ AI 只生成了封面，标题/文案/话题未获取到，请手动填写或重试', 'error')
+        } else if (filledCount < 3) {
+          showToast('AI 已填充部分内容（可能缺标题/文案/话题），请检查补充', 'success')
+        } else {
+          showToast('AI 已自动填充标题/文案/话题/封面', 'success')
+        }
       } else {
         showToast(d.message || 'AI 分析失败', 'error')
       }

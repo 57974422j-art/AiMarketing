@@ -119,15 +119,27 @@ export async function POST(request: NextRequest) {
     try {
       parsed = JSON.parse(raw.replace(/```json|```/g, '').trim())
     } catch {
-      const m = raw.match(/\{[\s\S]*\}/)
-      if (m) { try { parsed = JSON.parse(m[0]) } catch {} }
+      // 兜底1：截取首个 { 到末个 } 之间的内容再试（模型若夹带说明文字时常见）
+      const s = raw.indexOf('{'); const e = raw.lastIndexOf('}')
+      if (s >= 0 && e > s) {
+        try { parsed = JSON.parse(raw.slice(s, e + 1)) } catch {}
+      }
+      // 兜底2：正则粗匹配
+      if (!parsed || typeof parsed !== 'object') {
+        const m = raw.match(/\{[\s\S]*\}/)
+        if (m) { try { parsed = JSON.parse(m[0]) } catch {} }
+      }
     }
+    if (!parsed || typeof parsed !== 'object') parsed = {}
 
     const title = String(parsed.title || '').slice(0, 50)
     const description = String(parsed.description || '').slice(0, 1000)
     const topics = Array.isArray(parsed.topics)
       ? parsed.topics.map((x: any) => String(x)).filter(Boolean).slice(0, 10)
       : []
+
+    // 文本字段一个都没拿到 → 标记为「部分成功」（封面已生成，但标题/文案/话题缺失）
+    const gotText = Boolean(title) || Boolean(description) || topics.length > 0
 
     // 5. 选中间帧作封面，上传到个人仓库 .thumbs/analyze/
     const coverIdx = Math.floor(images.length / 2)
@@ -179,12 +191,14 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      partial: !gotText,
       title,
       description,
       topics,
       coverImage: `/api/storage/file?userId=${uid}&name=${encodeURIComponent(coverName)}`,
       pointsSpent,
       usage: res.usage || null,
+      message: gotText ? undefined : '已生成封面，但 AI 未返回可用的标题/文案/话题，请手动填写或重试',
     })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: 'AI 分析失败：' + (e?.message || '') }, { status: 500 })
