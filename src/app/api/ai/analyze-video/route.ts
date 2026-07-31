@@ -101,44 +101,52 @@ export async function POST(request: NextRequest) {
       ...images.map(u => ({ type: 'image_url', image_url: { url: u } })),
     ]
 
-    const res = await agnesChat([
-      { role: 'system', content: sysPrompt },
-      { role: 'user', content: userContent },
-    ], [], 'agnes-2.5-flash', 1200)
-
-    // Agnes 未返回任何内容（网络超时 / 服务不可达 / key 问题）→ 明确失败，不假成功
-    if (!res || !res.content || !String(res.content).trim()) {
-      return NextResponse.json({
-        success: false,
-        message: 'Agnes AI 未返回内容（网络或该服务暂不可用，请检查 AGNES_API_KEY 与服务器出口网络，或稍后重试）',
-      }, { status: 502 })
-    }
-
+    // 多次重试：Agnes 返回不稳定（有时夹带说明文字 / 不按 JSON 输出），最多试 3 次直到解析出文本字段
+    let res: any = null
     let parsed: any = {}
-    const raw = res.content || ''
-    try {
-      parsed = JSON.parse(raw.replace(/```json|```/g, '').trim())
-    } catch {
-      // 兜底1：截取首个 { 到末个 } 之间的内容再试（模型若夹带说明文字时常见）
-      const s = raw.indexOf('{'); const e = raw.lastIndexOf('}')
-      if (s >= 0 && e > s) {
-        try { parsed = JSON.parse(raw.slice(s, e + 1)) } catch {}
+    let raw = ''
+    let title = ''
+    let description = ''
+    let topics: string[] = []
+    const ATTEMPTS = 3
+    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+      res = await agnesChat([
+        { role: 'system', content: sysPrompt },
+        { role: 'user', content: userContent },
+      ], [], 'agnes-2.5-flash', 1200)
+
+      if (!res || !res.content || !String(res.content).trim()) {
+        console.error(`[analyze-video] 第${attempt}/${ATTEMPTS}次 Agnes 未返回内容（可能网络/灰度模型不可用）`)
+        continue
       }
-      // 兜底2：正则粗匹配
-      if (!parsed || typeof parsed !== 'object') {
-        const m = raw.match(/\{[\s\S]*\}/)
-        if (m) { try { parsed = JSON.parse(m[0]) } catch {} }
+      raw = res.content || ''
+      try {
+        parsed = JSON.parse(raw.replace(/```json|```/g, '').trim())
+      } catch {
+        // 兜底1：截取首个 { 到末个 } 之间的内容再试（模型若夹带说明文字时常见）
+        const s = raw.indexOf('{'); const e = raw.lastIndexOf('}')
+        if (s >= 0 && e > s) {
+          try { parsed = JSON.parse(raw.slice(s, e + 1)) } catch {}
+        }
+        // 兜底2：正则粗匹配
+        if (!parsed || typeof parsed !== 'object') {
+          const m = raw.match(/\{[\s\S]*\}/)
+          if (m) { try { parsed = JSON.parse(m[0]) } catch {} }
+        }
       }
+      if (!parsed || typeof parsed !== 'object') parsed = {}
+
+      title = String(parsed.title || '').slice(0, 50)
+      description = String(parsed.description || '').slice(0, 1000)
+      topics = Array.isArray(parsed.topics)
+        ? parsed.topics.map((x: any) => String(x)).filter(Boolean).slice(0, 10)
+        : []
+
+      if (title || description || topics.length > 0) break  // 拿到文本字段即成功，跳出重试
+      console.error(`[analyze-video] 第${attempt}/${ATTEMPTS}次 Agnes 返回内容但解析不到标题/文案/话题, raw前300=${raw.slice(0, 300)}`)
     }
-    if (!parsed || typeof parsed !== 'object') parsed = {}
 
-    const title = String(parsed.title || '').slice(0, 50)
-    const description = String(parsed.description || '').slice(0, 1000)
-    const topics = Array.isArray(parsed.topics)
-      ? parsed.topics.map((x: any) => String(x)).filter(Boolean).slice(0, 10)
-      : []
-
-    // 文本字段一个都没拿到 → 标记为「部分成功」（封面已生成，但标题/文案/话题缺失）
+    // 文本字段一个都没拿到 → 部分成功（封面已生成，但标题/文案/话题缺失）
     const gotText = Boolean(title) || Boolean(description) || topics.length > 0
 
     // 5. 选中间帧作封面，上传到个人仓库 .thumbs/analyze/
@@ -150,7 +158,7 @@ export async function POST(request: NextRequest) {
     // 记账：AI 看片消耗的多模态真实 token，按平台单价换算成「点」计入账本
     let pointsSpent = 0
     try {
-      const realTokens = (res.usage && res.usage.totalTokens) || 0
+      const realTokens = (res?.usage?.totalTokens) || 0
       if (realTokens > 0 && auth.userId) {
         pointsSpent = usageToPoints('agnes-2.5-flash', realTokens)
         await spendTokens(auth.userId, pointsSpent, 'fp_analyze_video')
@@ -163,7 +171,7 @@ export async function POST(request: NextRequest) {
     console.log('[analyze-video] 成功', {
       user: uid,
       video: videoName,
-      usage: res.usage,
+      usage: res?.usage || null,
       title,
       descriptionLen: description.length,
       topics: topics.length,
@@ -197,8 +205,9 @@ export async function POST(request: NextRequest) {
       topics,
       coverImage: `/api/storage/file?userId=${uid}&name=${encodeURIComponent(coverName)}`,
       pointsSpent,
-      usage: res.usage || null,
+      usage: res?.usage || null,
       message: gotText ? undefined : '已生成封面，但 AI 未返回可用的标题/文案/话题，请手动填写或重试',
+      debug: gotText ? undefined : String(raw || '').slice(0, 600),
     })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: 'AI 分析失败：' + (e?.message || '') }, { status: 500 })

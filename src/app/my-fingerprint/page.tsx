@@ -144,6 +144,7 @@ export default function MyFingerprintPage() {
   const [aiUsage, setAiUsage] = useState<null | { promptTokens: number; completionTokens: number; totalTokens: number }>(null)
   const [aiFillPoints, setAiFillPoints] = useState<number | null>(null)   // AI 看片消耗点数
   const [aiCoverPoints, setAiCoverPoints] = useState<number | null>(null) // AI 生封面消耗点数
+  const [aiLog, setAiLog] = useState<string[]>([])                       // AI 看片过程日志（前端可见）
   const [storageImages, setStorageImages] = useState<any[]>([])
   const [formLocation, setFormLocation] = useState('')
   const [formPublishNow, setFormPublishNow] = useState(true)
@@ -355,7 +356,10 @@ export default function MyFingerprintPage() {
     }
     if (aiLoading) return
     setAiLoading(true)
+    const log: string[] = []
+    const pushLog = (s: string) => { log.push(s); setAiLog([...log]) }
     try {
+      pushLog(`[${new Date().toLocaleTimeString()}] 开始 AI 看片：${formVideoName}（模式 ${aiMode === 'full' ? '整段' : '抽帧'}）`)
       const r = await fetch('/api/ai/analyze-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -373,16 +377,23 @@ export default function MyFingerprintPage() {
         // 诚实提示：只有真正填到文本才说「已填充」，否则提示只拿到封面
         const filledCount = [d.title, d.description, (d.topics || []).length].filter(Boolean).length
         if (d.partial || filledCount === 0) {
+          pushLog('⚠️ AI 只生成了封面，标题/文案/话题未获取到')
+          if (d.debug) pushLog('── Agnes 原始返回 ──\n' + d.debug)
           showToast(d.message || '⚠️ AI 只生成了封面，标题/文案/话题未获取到，请手动填写或重试', 'error')
         } else if (filledCount < 3) {
+          pushLog(`✅ 已填充部分内容（标题/文案/话题 命中 ${filledCount}/3），请检查补充`)
           showToast('AI 已填充部分内容（可能缺标题/文案/话题），请检查补充', 'success')
         } else {
+          pushLog('✅ 已自动填充：标题 / 文案 / 话题 / 封面')
           showToast('AI 已自动填充标题/文案/话题/封面', 'success')
         }
       } else {
+        pushLog('❌ 分析失败：' + (d.message || '未知错误'))
+        if (d.debug) pushLog('── Agnes 原始返回 ──\n' + d.debug)
         showToast(d.message || 'AI 分析失败', 'error')
       }
     } catch (e: any) {
+      pushLog('❌ 请求异常：' + (e?.message || e))
       showToast('AI 分析异常: ' + (e?.message || e), 'error')
     } finally {
       setAiLoading(false)
@@ -976,6 +987,21 @@ export default function MyFingerprintPage() {
                   >
                     {aiLoading ? '⏳ AI 分析中...' : '✨ 让 AI 看片并自动填写'}
                   </button>
+                  {aiLog.length > 0 && (
+                    <div className="mt-2 bg-black/40 border border-white/10 rounded-lg p-2 max-h-40 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] text-purple-300/80">📋 AI 看片日志</span>
+                        <button
+                          type="button"
+                          onClick={() => setAiLog([])}
+                          className="text-[10px] text-gray-500 hover:text-gray-300"
+                        >清空</button>
+                      </div>
+                      <pre className="text-[10px] leading-relaxed text-gray-300 whitespace-pre-wrap font-mono">
+                        {aiLog.join('\n')}
+                      </pre>
+                    </div>
+                  )}
                 </div>
 
                 {/* 选择视频 */}
