@@ -313,6 +313,134 @@ async function generateCoverAI(page, log) {
   else log('⚠️ 未能确认 AI 封面生成完成，仍继续发布（若 B站报缺封面请手动确认）')
 }
 
+// ───────────────── 创作声明（B站必填，不选不给发布） ─────────────────
+// 页面结构（用户实拍）：
+//   *创作声明
+//     [ 含AI生成内容 ]  ← 组标题/收起态
+//       内容无需标注 / 含AI生成内容 / 含虚构演绎内容   ← 三选一
+//     内容含营销信息 / 个人观点，仅供参考 / 内容为转载  ← 可多选
+//   是否添加内容授权声明(非必选)
+//     内容为自制:未经作者允许，禁止转载
+// 由于 B站类名随版本变动，这里一律「按文案定位」+ 关联 input 优先 + CDP 保底。
+
+/** 在页面上下文里按文案点击一个声明选项。返回 {ok, via, count} */
+async function _clickDeclOnce(ctx, text, prefix) {
+  return await ctx.evaluate(({ t, usePrefix }) => {
+    const norm = s => (s || '').replace(/\s+/g, '').trim()
+    const target = norm(t)
+    const all = Array.from(document.querySelectorAll('span,label,div,li,p,a'))
+    const match = el => {
+      const s = norm(el.textContent)
+      if (!s || s.length > target.length + 30) return false
+      return usePrefix ? s.startsWith(target) : s === target
+    }
+    // 只要「最内层」的匹配节点（子孙里没有同样匹配的），避免点到外层容器
+    const nodes = all.filter(el => match(el) && !Array.from(el.children).some(c => match(c)))
+    if (!nodes.length) return { ok: false, reason: 'notfound', count: 0 }
+    const el = nodes[nodes.length - 1]   // 组标题在前、真实选项在后，取最后一个
+    try { el.scrollIntoView({ block: 'center' }) } catch (_) {}
+    const box = el.closest('label') || el.parentElement || el
+    const input = box.querySelector && box.querySelector('input[type="checkbox"],input[type="radio"]')
+    if (input) {
+      if (input.checked) return { ok: true, via: 'already', count: nodes.length }
+      input.click()
+      return { ok: true, via: 'input', count: nodes.length }
+    }
+    el.click()
+    return { ok: true, via: 'text', count: nodes.length }
+  }, { t: text, usePrefix: !!prefix })
+}
+
+/** 点击一个创作声明选项：常规 → 展开后二次点击 → 前缀匹配 → CDP 保底 */
+async function clickDecl(page, ctx, text, log, prefix) {
+  let r = await _clickDeclOnce(ctx, text, prefix).catch(() => ({ ok: false }))
+  if (r && r.ok) {
+    await sleep(500)
+    // 若第一次点的是「组标题」（点完才展开子项），再点一次真正的子项
+    const r2 = await _clickDeclOnce(ctx, text, prefix).catch(() => ({ ok: false, count: 0 }))
+    if (r2 && r2.ok && r2.count > (r.count || 0)) {
+      log(`  ✅ 创作声明「${text}」已选（展开后二次点击, via=${r2.via}）`)
+    } else {
+      log(`  ✅ 创作声明「${text}」已选（via=${r.via}）`)
+    }
+    return true
+  }
+  // 前缀兜底（如「内容为自制:未经作者允许，禁止转载」冒号可能是全角/半角）
+  if (!prefix) {
+    r = await _clickDeclOnce(ctx, text, true).catch(() => ({ ok: false }))
+    if (r && r.ok) { log(`  ✅ 创作声明「${text}」已选（前缀匹配, via=${r.via}）`); return true }
+  }
+  // CDP 保底（穿透 shadow / iframe）
+  const ok = await clickByTextCDP(page, log, [text], text.length + 6, ['span', 'label', 'div', 'a', 'li'])
+  if (ok) { log(`  ✅ 创作声明「${text}」已选（CDP 保底）`); return true }
+  log(`  ⚠️ 未找到创作声明选项「${text}」`)
+  return false
+}
+
+/** 诊断：把创作声明区域的可见文案打出来，便于按真实结构精修 */
+async function dumpDeclarationArea(ctx, log) {
+  try {
+    const info = await ctx.evaluate(() => {
+      const out = []
+      for (const el of Array.from(document.querySelectorAll('div,section'))) {
+        const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
+        if (t.includes('创作声明') && t.length < 300) {
+          out.push({ cls: String(el.className || '').slice(0, 60), text: t.slice(0, 200) })
+          if (out.length >= 3) break
+        }
+      }
+      return out
+    })
+    log('  [创作声明诊断] ' + JSON.stringify(info))
+  } catch (e) {
+    log('  [创作声明诊断] 失败: ' + e.message)
+  }
+}
+
+/**
+ * 勾选创作声明
+ * params.declaration        主声明（内容无需标注 / 含AI生成内容 / 含虚构演绎内容），空则跳过
+ * params.declarationExtras  附加声明数组或逗号分隔串（内容含营销信息 / 个人观点，仅供参考 / 内容为转载）
+ * params.copyrightSelf      是否勾选「内容为自制:未经作者允许，禁止转载」
+ */
+async function selectDeclaration(page, params, log) {
+  const main = String(params.declaration || '').trim()
+  let extras = params.declarationExtras || []
+  if (typeof extras === 'string') extras = extras.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+  if (!Array.isArray(extras)) extras = []
+  const copyrightSelf = params.copyrightSelf === true || params.copyrightSelf === 'true'
+
+  if (!main && !extras.length && !copyrightSelf) {
+    log('未指定创作声明，跳过（若 B站提示必填将无法发布）')
+    return
+  }
+
+  const ctx = await getCtx(page)
+  // 先把「创作声明」滚进视口（它在表单底部，不滚动可能未渲染/点不到）
+  try {
+    await ctx.evaluate(() => {
+      for (const el of Array.from(document.querySelectorAll('div,span,label'))) {
+        const t = (el.textContent || '').trim()
+        if (t.startsWith('创作声明') && t.length < 60) { el.scrollIntoView({ block: 'center' }); return }
+      }
+    })
+    await sleep(600)
+  } catch (_) {}
+
+  log('开始勾选创作声明...')
+  let allOk = true
+  if (main) allOk = (await clickDecl(page, ctx, main, log)) && allOk
+  for (const t of extras) {
+    allOk = (await clickDecl(page, ctx, t, log)) && allOk
+    await sleep(300)
+  }
+  if (copyrightSelf) {
+    allOk = (await clickDecl(page, ctx, '内容为自制', log, true)) && allOk
+  }
+  if (!allOk) await dumpDeclarationArea(ctx, log)
+  await sleep(500)
+}
+
 async function publishOrDraft(page, publishNow, log) {
   const ctx = await getCtx(page)
   if (publishNow) {
@@ -387,6 +515,9 @@ async function executeBilibiliPublish(page, params, log) {
       log('未提供自定义封面，改用 B站 AI 生成封面')
       await generateCoverAI(page, log)
     }
+
+    // 创作声明（B站必填项，不勾选会被拦下不给发布）
+    await selectDeclaration(page, params, log)
 
     const resultUrl = await publishOrDraft(page, params.publishNow !== false, log)
     log('B站发布流程完成')

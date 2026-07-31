@@ -40,6 +40,9 @@ interface PublishTask {
   coverMode: 'upload' | 'platform'  // upload=上传封面 / platform=使用平台智能封面（不上传）
   location: string        // 位置
   publishNow: boolean     // true=立即发布 false=草稿
+  declaration?: string        // B站创作声明（内容无需标注/含AI生成内容/含虚构演绎内容）
+  declarationExtras?: string[]// B站附加声明（内容含营销信息/个人观点，仅供参考/内容为转载）
+  copyrightSelf?: boolean     // B站授权声明：内容为自制，禁止转载
   status: 'pending' | 'publishing' | 'done' | 'failed'
   errorMsg?: string
 }
@@ -125,6 +128,10 @@ export default function MyFingerprintPage() {
   const [formTopics, setFormTopics] = useState('')
   const [formCoverImage, setFormCoverImage] = useState('')
   const [formCoverMode, setFormCoverMode] = useState<'upload' | 'platform'>('upload')  // upload=上传封面 / platform=平台智能封面
+  // B站创作声明（必填，不选平台不给发布）
+  const [formDeclaration, setFormDeclaration] = useState('内容无需标注')
+  const [formDeclExtras, setFormDeclExtras] = useState<string[]>([])
+  const [formCopyrightSelf, setFormCopyrightSelf] = useState(false)
 
   // 封面缩微图下方的文件名显示：去掉多余 URL，只展示可读文件名
   const coverDisplayName = (() => {
@@ -342,6 +349,9 @@ export default function MyFingerprintPage() {
     setFormTopics('')
     setFormCoverImage('')
     setFormCoverMode('upload')
+    setFormDeclaration('内容无需标注')
+    setFormDeclExtras([])
+    setFormCopyrightSelf(false)
     setAiUsage(null)
     setAiFillPoints(null)
     setAiCoverPoints(null)
@@ -554,6 +564,9 @@ export default function MyFingerprintPage() {
       coverMode: formCoverMode,
       location: formLocation,
       publishNow: formPublishNow,
+      declaration: formDeclaration,
+      declarationExtras: formDeclExtras,
+      copyrightSelf: formCopyrightSelf,
       status: 'pending',
     }
 
@@ -591,6 +604,9 @@ export default function MyFingerprintPage() {
         coverMode: formCoverMode,
         location: formLocation,
         publishNow: formPublishNow,
+        declaration: formDeclaration,
+        declarationExtras: formDeclExtras,
+        copyrightSelf: formCopyrightSelf,
         status: 'publishing',
       }
       const params = await buildTaskParams(task)
@@ -659,6 +675,12 @@ export default function MyFingerprintPage() {
     params.coverMode = task.coverMode
     params.location = task.location
     params.publishNow = String(task.publishNow)
+    // B站创作声明（其它平台无此项，传了也不用）
+    if (normalizePlatform(selectedAccount?.platform) === 'bilibili') {
+      params.declaration = task.declaration || ''
+      params.declarationExtras = task.declarationExtras || []
+      params.copyrightSelf = !!task.copyrightSelf
+    }
     return params
   }
 
@@ -1174,6 +1196,51 @@ export default function MyFingerprintPage() {
                   </>
                   )}
                 </div>
+
+                {/* 创作声明（B站必填，不选平台不给发布） */}
+                {normalizePlatform(selectedAccount?.platform) === 'bilibili' && (
+                  <div className="bg-sky-500/5 border border-sky-500/20 rounded-lg p-3 space-y-2">
+                    <label className="text-[11px] text-sky-300 block">
+                      📺 B站创作声明 <span className="text-red-400">*</span>
+                      <span className="text-gray-500 ml-1">（B站必填，不选无法发布）</span>
+                    </label>
+                    <select
+                      value={formDeclaration}
+                      onChange={e => setFormDeclaration(e.target.value)}
+                      className="w-full bg-gray-900/60 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-sky-500/40 focus:outline-none"
+                    >
+                      <option value="内容无需标注">内容无需标注</option>
+                      <option value="含AI生成内容">含AI生成内容</option>
+                      <option value="含虚构演绎内容">含虚构演绎内容</option>
+                    </select>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {['内容含营销信息', '个人观点，仅供参考', '内容为转载'].map(t => {
+                        const on = formDeclExtras.includes(t)
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setFormDeclExtras(prev => on ? prev.filter(x => x !== t) : [...prev, t])}
+                            className={`px-2 py-1 rounded-md text-[10px] border transition ${
+                              on ? 'bg-sky-500/20 border-sky-500/40 text-sky-200' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'
+                            }`}
+                          >{on ? '✓ ' : ''}{t}</button>
+                        )
+                      })}
+                    </div>
+
+                    <label className="flex items-center gap-2 text-[10px] text-gray-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formCopyrightSelf}
+                        onChange={e => setFormCopyrightSelf(e.target.checked)}
+                        className="accent-sky-500"
+                      />
+                      内容为自制：未经作者允许，禁止转载（授权声明，非必选）
+                    </label>
+                  </div>
+                )}
 
                 {/* 位置 */}
                 <div>
