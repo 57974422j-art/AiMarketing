@@ -189,11 +189,13 @@ export default function Navbar() {
 }
 
 function VersionBadge({ version, onCheck }: { version: string; onCheck: () => void }) {
-  if (!version) return null
+  const api = (window as any).electronAPI
+  // 纯网页（浏览器）无 electronAPI，不显示版本徽标
+  if (!api?.isElectron) return null
   return (
     <button onClick={onCheck} title="点击检查客户端更新"
-      className="ml-2 text-[11px] font-mono text-emerald-400/70 hover:text-emerald-300 transition-colors hidden sm:inline">
-      {version}
+      className="ml-2 inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[11px] font-mono text-emerald-300 hover:bg-emerald-500/20 transition-colors">
+      {version || '版本加载中…'}
     </button>
   )
 }
