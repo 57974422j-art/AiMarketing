@@ -184,6 +184,12 @@ export default function MyFingerprintPage() {
   const [batchPaused, setBatchPaused] = useState(false)
   const [execLogs, setExecLogs] = useState<string[]>([])
 
+  // ── 跨平台排队发布 ──
+  // 开启后：队列内容将依次发到勾选的多个账号（每个账号对应一个平台），即「一条草稿顺着 6 个媒体挨个发」
+  const [crossPlatformMode, setCrossPlatformMode] = useState(false)
+  // 勾选的多账号 id（跨平台模式使用；非跨平台模式仍用 selectedAccount 单账号）
+  const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([])
+
   // ── 状态消息 ──
   const [msgText, setMsgText] = useState('')
   const [msgType, setMsgType] = useState<'info' | 'error' | 'success'>('info')
@@ -811,6 +817,137 @@ export default function MyFingerprintPage() {
     showMsg(`批量发布完成: 成功 ${doneCount}, 失败 ${failCount}`, failCount > 0 ? 'error' : 'success')
   }
 
+  /**
+   * 跨平台排队发布：对勾选的多个账号（每个对应一个平台），依次：
+   *   申请端口 → fpStart → 整队任务 fpExecute → fpStop → 释放端口 → 间隔 → 下一账号
+   * 即「一条草稿准备好了，6 个媒体顺着发」；也支持整队×多账号（笛卡尔式逐个发）。
+   * 未登录的账号标记 needLogin 并跳过，不影响其他账号。
+   */
+  const executeMultiAccount = async () => {
+    if (selectedAccountIds.length === 0) {
+      showMsg('请先勾选要发布的目标账号', 'error')
+      return
+    }
+    const targets = accounts.filter(a => selectedAccountIds.includes(a.id))
+    if (targets.length === 0) return
+    if (!isElectron || !window.electronAPI?.fpStart) {
+      showMsg('跨平台排队发布需要使用桌面客户端', 'error')
+      return
+    }
+    if (batchRunning) return
+    setBatchRunning(true)
+    setBatchPaused(false)
+
+    // 待发任务快照
+    const pendingTasks = [...taskQueue].filter(t => t.status === 'pending')
+    if (pendingTasks.length === 0) {
+      setBatchRunning(false)
+      showMsg('队列为空', 'error')
+      return
+    }
+
+    setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🌐 跨平台排队发布启动：${targets.length} 个账号 × ${pendingTasks.length} 条内容`])
+    let doneCount = 0
+    let failCount = 0
+    let skipCount = 0
+
+    for (let a = 0; a < targets.length; a++) {
+      if (batchPaused) {
+        setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏸ 用户暂停`])
+        break
+      }
+      const acct = targets[a]
+      const tpl = getTemplateType(acct.platform)
+      setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ── 账号 ${a + 1}/${targets.length}: ${acct.accountName}（${PLATFORMS.find(p => p.key === normalizePlatform(acct.platform))?.label || acct.platform}）──`])
+
+      // 1) 申请端口
+      let port: number
+      try {
+        const alloc = await fetch('/api/browser/allocate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ platform: acct.platform }),
+        })
+        const ad = await alloc.json()
+        if (!alloc.ok || !ad.success) {
+          failCount++
+          setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 端口申请失败: ${ad.message || alloc.status}，跳过该账号`])
+          continue
+        }
+        port = ad.data.port
+      } catch (e: any) {
+        failCount++
+        setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 端口申请异常: ${e.message}，跳过该账号`])
+        continue
+      }
+
+      // 2) 启动浏览器
+      try {
+        const res = await window.electronAPI.fpStart({ port, userId: user?.id, accountId: String(acct.id), platform: acct.platform, proxy: proxyInput.trim() })
+        if (!res.success) {
+          failCount++
+          setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 浏览器启动失败: ${res.error}，跳过该账号`])
+          await fetch(`/api/browser/release?port=${port}`, { method: 'DELETE', credentials: 'include' }).catch(() => {})
+          continue
+        }
+      } catch (e: any) {
+        failCount++
+        setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 浏览器启动异常: ${e.message}，跳过该账号`])
+        await fetch(`/api/browser/release?port=${port}`, { method: 'DELETE', credentials: 'include' }).catch(() => {})
+        continue
+      }
+
+      // 3) 逐条发布到该账号
+      let accountOk = false
+      for (let i = 0; i < pendingTasks.length; i++) {
+        if (batchPaused) { setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏸ 用户暂停`]); break }
+        const task = pendingTasks[i]
+        setTaskQueue(prev => prev.map(t => t.id === task.id ? { ...t, status: 'publishing' as const } : t))
+        setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📤 发布第 ${i + 1}/${pendingTasks.length}: ${task.videoName}`])
+        try {
+          const params = await buildTaskParams(task)
+          const res = await window.electronAPI.fpExecute(port, tpl, params)
+          if (res.success) {
+            accountOk = true
+            doneCount++
+            setTaskQueue(prev => prev.map(t => t.id === task.id ? { ...t, status: 'done' as const } : t))
+            setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ ${acct.accountName} 第 ${i + 1} 条完成: ${task.videoName}`])
+            if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
+            setAccountLoggedIn(acct.id, true)
+          } else {
+            failCount++
+            const needLogin = (res as any).needLogin || (res as any).data?.needLogin
+            if (needLogin) {
+              setAccountLoggedIn(acct.id, false)
+              skipCount++
+              setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔓 账号未登录，请先去登录: ${acct.accountName}`])
+            }
+            setTaskQueue(prev => prev.map(t => t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: res.error } : t))
+            setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ ${acct.accountName} 第 ${i + 1} 条失败: ${res.error || ''}`])
+          }
+        } catch (e: any) {
+          failCount++
+          setTaskQueue(prev => prev.map(t => t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: e.message } : t))
+          setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 异常: ${e.message}`])
+        }
+      }
+
+      // 4) 停止浏览器并释放端口
+      try { await window.electronAPI.fpStop(port) } catch {}
+      await fetch(`/api/browser/release?port=${port}`, { method: 'DELETE', credentials: 'include' }).catch(() => {})
+      setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔚 已停止并释放 ${acct.accountName} 的浏览器（端口 ${port}）`])
+
+      // 5) 账号间间隔
+      if (a < targets.length - 1 && !batchPaused) {
+        setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 等待 ${intervalSeconds}s 后切下一个账号...`])
+        await new Promise(r => setTimeout(r, intervalSeconds * 1000))
+      }
+    }
+
+    setBatchRunning(false)
+    setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏁 跨平台排队发布结束: ✅${doneCount} ❌${failCount}${skipCount ? ` 🔓需登录${skipCount}` : ''}`])
+    showMsg(`跨平台发布完成: 成功 ${doneCount}, 失败 ${failCount}${skipCount ? `, 需登录 ${skipCount}` : ''}`, (failCount > 0 || skipCount > 0) ? 'error' : 'success')
+  }
+
   /** 暂停批量发布 */
   const pauseBatch = () => {
     setBatchPaused(true)
@@ -981,7 +1118,70 @@ export default function MyFingerprintPage() {
         <div className="space-y-4">
           <h2 className="text-sm font-semibold text-gray-300">批量发布</h2>
 
-          {(!selectedAccount || runningPort === null) ? (
+          {/* ═══ 跨平台排队发布开关 ═══ */}
+          <div className="bg-gradient-to-b from-sky-500/10 to-gray-800/30 border border-sky-500/20 rounded-xl p-3 space-y-2">
+            <label className="flex items-center justify-between cursor-pointer">
+              <span className="text-xs font-medium text-sky-300">🌐 跨平台排队发布</span>
+              <input
+                type="checkbox"
+                checked={crossPlatformMode}
+                onChange={e => setCrossPlatformMode(e.target.checked)}
+                className="w-4 h-4 accent-sky-500"
+              />
+            </label>
+            <p className="text-[10px] text-gray-500 leading-relaxed">
+              开启后：勾选多个账号（每个对应一个平台），队列内容将依次发到每个平台（一条草稿顺着各媒体挨个发）。关闭则为单账号模式。
+            </p>
+
+            {crossPlatformMode && (
+              <div className="pt-1 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-gray-400">选择目标账号（{selectedAccountIds.length}/{accounts.length}）</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAccountIds(accounts.map(a => a.id))}
+                    className="text-[10px] text-sky-400 hover:text-sky-300"
+                  >全选</button>
+                </div>
+                <div className="max-h-44 overflow-y-auto space-y-1 pr-1">
+                  {accounts.map(acct => {
+                    const plat = PLATFORMS.find(p => p.key === normalizePlatform(acct.platform))
+                    const checked = selectedAccountIds.includes(acct.id)
+                    const loggedIn = loginState[acct.id]
+                    return (
+                      <label
+                        key={acct.id}
+                        className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border cursor-pointer transition ${
+                          checked ? 'bg-sky-500/10 border-sky-500/30' : 'bg-gray-900/30 border-white/5'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setSelectedAccountIds(prev =>
+                            checked ? prev.filter(id => id !== acct.id) : [...prev, acct.id]
+                          )}
+                          className="w-3.5 h-3.5 accent-sky-500"
+                        />
+                        <span className="text-base">{plat?.icon || '📱'}</span>
+                        <span className="text-xs text-gray-200 flex-1 truncate">{acct.accountName}</span>
+                        {loggedIn ? (
+                          <span className="text-[10px] text-emerald-400">已登录</span>
+                        ) : (
+                          <span className="text-[10px] text-amber-400">需登录</span>
+                        )}
+                      </label>
+                    )
+                  })}
+                  {accounts.length === 0 && (
+                    <p className="text-[11px] text-gray-600 text-center py-2">暂无账号，请先在「账号管理」绑定</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {(!selectedAccount || runningPort === null) && !crossPlatformMode ? (
             <div className="bg-gray-900/30 border border-dashed border-white/10 rounded-xl p-6 text-center">
               <p className="text-gray-500 text-sm">先选择并启动一个{PLATFORMS.find(p => p.key === normalizePlatform(selectedAccount?.platform))?.label || '目标平台'}浏览器</p>
               <p className="text-gray-600 text-xs mt-1">启动后可添加视频到发布队列</p>
@@ -1499,15 +1699,15 @@ export default function MyFingerprintPage() {
                       </>
                     )}
                     <button
-                      onClick={startBatchPublish}
-                      disabled={batchRunning || taskQueue.every(t => t.status !== 'pending')}
+                      onClick={crossPlatformMode ? executeMultiAccount : startBatchPublish}
+                      disabled={batchRunning || taskQueue.every(t => t.status !== 'pending') || (crossPlatformMode && selectedAccountIds.length === 0)}
                       className={`flex-1 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 ${
                         batchRunning
                           ? 'bg-gray-700 text-gray-400 cursor-wait'
                           : 'bg-gradient-to-r from-purple-500 to-violet-500 hover:from-purple-400 hover:to-violet-400 text-white disabled:opacity-40'
                       }`}
                     >
-                      {batchRunning ? '⏳ 发布中...' : '▶ 开始批量发布'}
+                      {batchRunning ? '⏳ 发布中...' : crossPlatformMode ? `🌐 跨平台发布 (${selectedAccountIds.length})` : '▶ 开始批量发布'}
                     </button>
                   </div>
                 </div>

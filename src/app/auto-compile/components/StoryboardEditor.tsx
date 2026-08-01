@@ -255,7 +255,7 @@ export default function StoryboardEditor(props: Props) {
       {shots.length > 0 && (
         <div className="card-glass p-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
           <div>
-            <label className="text-gray-500 text-[9px] block mb-0.5">配音</label>
+            <label className="text-gray-500 text-[11px] block mb-0.5">配音</label>
             <select className="input-dark w-full text-[10px]" value={voice} onChange={e => setVoice(e.target.value)}>
               <option value="zh_female_vv_uranus_bigtts">女声</option>
               <option value="zh_female_vv_aurora_bigtts">温柔女声</option>
@@ -268,50 +268,50 @@ export default function StoryboardEditor(props: Props) {
             </select>
           </div>
           <div>
-            <label className="text-gray-500 text-[9px] block mb-0.5">字幕</label>
+            <label className="text-gray-500 text-[11px] block mb-0.5">字幕</label>
             <select className="input-dark w-full text-[10px]" value={subtitleSize} onChange={e => setSubtitleSize(Number(e.target.value))}>
               <option value={28}>小号</option><option value={36}>中号</option><option value={44}>大号</option>
             </select>
           </div>
           <div>
-            <label className="text-gray-500 text-[9px] block mb-0.5">字幕动效</label>
+            <label className="text-gray-500 text-[11px] block mb-0.5">字幕动效</label>
             <select className="input-dark w-full text-[10px]" value={subtitleStyle} onChange={e => setSubtitleStyle(e.target.value)}>
               <option value="normal">普通(SRT)</option><option value="highlight">高亮</option>
               <option value="karaoke">卡拉OK</option><option value="typewriter">打字机</option>
             </select>
           </div>
           <div>
-            <label className="text-gray-500 text-[9px] block mb-0.5">转场</label>
+            <label className="text-gray-500 text-[11px] block mb-0.5">转场</label>
             <select className="input-dark w-full text-[10px]" value={transition} onChange={e => setTransition(e.target.value)}>
               <option value="fade">淡入淡出</option><option value="slideleft">左滑</option><option value="slideright">右滑</option>
               <option value="wipeleft">擦除</option><option value="dissolve">溶解</option>
             </select>
           </div>
           <div>
-            <label className="text-gray-500 text-[9px] block mb-0.5">Ken Burns</label>
+            <label className="text-gray-500 text-[11px] block mb-0.5">Ken Burns</label>
             <select className="input-dark w-full text-[10px]" value={kenBurns} onChange={e => setKenBurns(e.target.value)}>
               <option value="zoomin">放大</option><option value="zoomout">缩小</option>
               <option value="panleft">左移</option><option value="panright">右移</option><option value="random">随机</option><option value="none">静态</option>
             </select>
           </div>
           <div>
-            <label className="text-gray-500 text-[9px] block mb-0.5">时长</label>
+            <label className="text-gray-500 text-[11px] block mb-0.5">时长</label>
             <input type="number" className="input-dark w-full text-[10px]" value={duration || shots.reduce((a,s)=>a+s.duration,0)}
               onChange={e => setDuration(Number(e.target.value) || 0)} min={5} max={120} />
           </div>
           <div>
-            <label className="text-gray-500 text-[9px] block mb-0.5">转场秒数</label>
+            <label className="text-gray-500 text-[11px] block mb-0.5">转场秒数</label>
             <input type="number" step={0.1} className="input-dark w-full text-[10px]" value={transitionDur}
               onChange={e => setTransitionDur(Number(e.target.value) || 0.3)} min={0.3} max={2} />
           </div>
           <div>
-            <label className="text-gray-500 text-[9px] block mb-0.5">色调</label>
+            <label className="text-gray-500 text-[11px] block mb-0.5">色调</label>
             <select className="input-dark w-full text-[10px]" value={colorFilter} onChange={e => setColorFilter(e.target.value)}>
               <option value="">原色</option><option value="warm">暖色</option><option value="cool">冷色</option><option value="bw">黑白</option>
             </select>
           </div>
           <div>
-            <label className="text-gray-500 text-[9px] block mb-0.5">比例</label>
+            <label className="text-gray-500 text-[11px] block mb-0.5">比例</label>
             <select className="input-dark w-full text-[10px]" value="9:16" onChange={()=>{}}>
               <option value="9:16">9:16 竖屏</option><option value="16:9">16:9 横屏</option><option value="1:1">1:1 方形</option>
             </select>
@@ -322,7 +322,7 @@ export default function StoryboardEditor(props: Props) {
       {/* 分镜卡片（拖拽排序） */}
       {shots.length > 0 && (
         <div className="card-glass p-4">
-          <label className="text-xs text-gray-400 mb-3 block">📋 分镜时间线 ({shots.length} 帧) <span className="text-[9px] text-gray-600 ml-1">↔ 可拖拽排序</span></label>
+          <label className="text-xs text-gray-400 mb-3 block">📋 分镜时间线 ({shots.length} 帧) <span className="text-[11px] text-gray-600 ml-1">↔ 可拖拽排序</span></label>
           <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
             {shots.map((shot, idx) => (
               <div key={shot.id} draggable
@@ -360,7 +360,7 @@ export default function StoryboardEditor(props: Props) {
                     <div className="absolute cursor-grab active:cursor-grabbing z-10 select-none"
                       style={{ left: `${shot.titlePosX}%`, top: `${shot.titlePosY}%`, transform: 'translate(-50%,-50%)' }}
                       onMouseDown={e => { e.stopPropagation(); dragTypeRef.current = 'title' }}>
-                      <span className="text-[8px] bg-yellow-500/80 text-white px-1 py-0.5 rounded whitespace-nowrap">
+                      <span className="text-[11px] bg-yellow-500/80 text-white px-1 py-0.5 rounded whitespace-nowrap">
                         📝{shot.titleText || '标题'}
                       </span>
                     </div>
@@ -370,7 +370,7 @@ export default function StoryboardEditor(props: Props) {
                     <div className="absolute cursor-grab active:cursor-grabbing z-10 select-none"
                       style={{ left: `${shot.stickerPosX}%`, top: `${shot.stickerPosY}%`, transform: 'translate(-50%,-50%)' }}
                       onMouseDown={e => { e.stopPropagation(); dragTypeRef.current = 'sticker' }}>
-                      <span className="text-[8px] bg-pink-500/80 text-white px-1 py-0.5 rounded whitespace-nowrap">
+                      <span className="text-[11px] bg-pink-500/80 text-white px-1 py-0.5 rounded whitespace-nowrap">
                         🏷{shot.stickerText || '贴纸'}
                       </span>
                     </div>
@@ -379,13 +379,13 @@ export default function StoryboardEditor(props: Props) {
                     <p className="absolute bottom-0.5 right-1 text-[6px] text-white/40">开启贴纸/标题后可拖放</p>
                   )}
                 </div>
-                <p className="text-[8px] text-gray-400 line-clamp-2 leading-tight">{shot.subtitle}</p>
+                <p className="text-[11px] text-gray-400 line-clamp-2 leading-tight">{shot.subtitle}</p>
                 <div className="flex items-center justify-between mt-1">
-                  <span className="text-[7px] text-gray-600">{shot.duration}s</span>
-                  <span className="text-[7px] text-gray-600">#{idx + 1}</span>
+                  <span className="text-[10px] text-gray-600">{shot.duration}s</span>
+                  <span className="text-[10px] text-gray-600">#{idx + 1}</span>
                 </div>
-                {shot.stickerOn && <span className="absolute top-1 left-1 text-[8px]">🏷</span>}
-                {shot.titleOn && <span className="absolute top-1 right-1 text-[8px]">T</span>}
+                {shot.stickerOn && <span className="absolute top-1 left-1 text-[11px]">🏷</span>}
+                {shot.titleOn && <span className="absolute top-1 right-1 text-[11px]">T</span>}
               </div>
             ))}
           </div>
@@ -408,17 +408,17 @@ export default function StoryboardEditor(props: Props) {
             {/* 基础参数 */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3 text-xs">
               <div>
-                <label className="text-gray-500 text-[9px] block mb-0.5">时长 (秒)</label>
+                <label className="text-gray-500 text-[11px] block mb-0.5">时长 (秒)</label>
                 <input type="number" className="input-dark w-full" value={shot.duration}
                   onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, duration: Math.max(1, Number(e.target.value) || 1) } : s))} min={1} max={30} />
               </div>
               <div>
-                <label className="text-gray-500 text-[9px] block mb-0.5">字幕文本</label>
+                <label className="text-gray-500 text-[11px] block mb-0.5">字幕文本</label>
                 <input className="input-dark w-full" value={shot.subtitle.substring(0, 30)}
                   onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, subtitle: e.target.value } : s))} />
               </div>
               <div>
-                <label className="text-gray-500 text-[9px] block mb-0.5">滤镜</label>
+                <label className="text-gray-500 text-[11px] block mb-0.5">滤镜</label>
                 <select className="input-dark w-full" value={colorFilter}
                   onChange={e => setColorFilter(e.target.value)}>
                   <option value="">原色</option><option value="warm">暖色</option><option value="cool">冷色</option><option value="bw">黑白</option>
@@ -428,10 +428,10 @@ export default function StoryboardEditor(props: Props) {
 
             {/* 标题 */}
             <div className="border-t border-white/10 pt-2 mb-2">
-              <label className="text-[9px] text-gray-500 flex items-center gap-1 mb-1">
+              <label className="text-[11px] text-gray-500 flex items-center gap-1 mb-1">
                 片头标题
                 <button onClick={() => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, titleOn: !s.titleOn } : s))}
-                  className={`text-[8px] px-1.5 py-0.5 rounded ${shot.titleOn ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-gray-500'}`}>
+                  className={`text-[11px] px-1.5 py-0.5 rounded ${shot.titleOn ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-gray-500'}`}>
                   {shot.titleOn ? 'ON' : 'OFF'}
                 </button>
               </label>
@@ -449,30 +449,30 @@ export default function StoryboardEditor(props: Props) {
                     </select>
                   </div>
                   <div className="flex gap-1">
-                    <span className="text-[9px] text-gray-600 w-10">X:</span>
+                    <span className="text-[11px] text-gray-600 w-10">X:</span>
                     <input type="range" min={5} max={95} value={shot.titlePosX}
                       onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, titlePosX: Number(e.target.value) } : s))}
                       className="w-full accent-yellow-500 h-1" />
-                    <span className="text-[9px] text-yellow-400 w-8">{shot.titlePosX}%</span>
+                    <span className="text-[11px] text-yellow-400 w-8">{shot.titlePosX}%</span>
                   </div>
                   <div className="flex gap-1">
-                    <span className="text-[9px] text-gray-600 w-10">Y:</span>
+                    <span className="text-[11px] text-gray-600 w-10">Y:</span>
                     <input type="range" min={5} max={95} value={shot.titlePosY}
                       onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, titlePosY: Number(e.target.value) } : s))}
                       className="w-full accent-yellow-500 h-1" />
-                    <span className="text-[9px] text-yellow-400 w-8">{shot.titlePosY}%</span>
+                    <span className="text-[11px] text-yellow-400 w-8">{shot.titlePosY}%</span>
                   </div>
-                  <p className="text-[7px] text-gray-600">或在分镜预览图上直接拖动 📝标题</p>
+                  <p className="text-[10px] text-gray-600">或在分镜预览图上直接拖动 📝标题</p>
                 </div>
               )}
             </div>
 
             {/* 贴纸标签 */}
             <div className="border-t border-white/10 pt-2 mb-2">
-              <label className="text-[9px] text-gray-500 flex items-center gap-1 mb-1">
+              <label className="text-[11px] text-gray-500 flex items-center gap-1 mb-1">
                 贴纸标签
                 <button onClick={() => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, stickerOn: !s.stickerOn } : s))}
-                  className={`text-[8px] px-1.5 py-0.5 rounded ${shot.stickerOn ? 'bg-pink-500/20 text-pink-400' : 'bg-white/5 text-gray-500'}`}>
+                  className={`text-[11px] px-1.5 py-0.5 rounded ${shot.stickerOn ? 'bg-pink-500/20 text-pink-400' : 'bg-white/5 text-gray-500'}`}>
                   {shot.stickerOn ? 'ON' : 'OFF'}
                 </button>
               </label>
@@ -484,27 +484,27 @@ export default function StoryboardEditor(props: Props) {
                       onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, stickerText: e.target.value } : s))} />
                   </div>
                   <div className="flex gap-1">
-                    <span className="text-[9px] text-gray-600 w-10">X:</span>
+                    <span className="text-[11px] text-gray-600 w-10">X:</span>
                     <input type="range" min={5} max={95} value={shot.stickerPosX}
                       onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, stickerPosX: Number(e.target.value) } : s))}
                       className="w-full accent-pink-500 h-1" />
-                    <span className="text-[9px] text-pink-400 w-8">{shot.stickerPosX}%</span>
+                    <span className="text-[11px] text-pink-400 w-8">{shot.stickerPosX}%</span>
                   </div>
                   <div className="flex gap-1">
-                    <span className="text-[9px] text-gray-600 w-10">Y:</span>
+                    <span className="text-[11px] text-gray-600 w-10">Y:</span>
                     <input type="range" min={5} max={95} value={shot.stickerPosY}
                       onChange={e => setShots(prev => prev.map(s => s.id === activeShot ? { ...s, stickerPosY: Number(e.target.value) } : s))}
                       className="w-full accent-pink-500 h-1" />
-                    <span className="text-[9px] text-pink-400 w-8">{shot.stickerPosY}%</span>
+                    <span className="text-[11px] text-pink-400 w-8">{shot.stickerPosY}%</span>
                   </div>
-                  <p className="text-[7px] text-gray-600 mt-0.5">或在分镜预览图上直接拖放定位</p>
+                  <p className="text-[10px] text-gray-600 mt-0.5">或在分镜预览图上直接拖放定位</p>
                 </div>
               )}
             </div>
 
             {/* 素材来源：搜图 + 仓库 + GIPHY + 上传 */}
             <div className="border-t border-white/10 pt-2 mb-2">
-              <label className="text-[9px] text-gray-500 block mb-1">📦 素材来源</label>
+              <label className="text-[11px] text-gray-500 block mb-1">📦 素材来源</label>
               <div className="flex gap-1.5 flex-wrap">
                 <button onClick={() => {
                   const autoKw = localKeywords[idx] || aiKeywords[idx] || ''
@@ -547,7 +547,7 @@ export default function StoryboardEditor(props: Props) {
             {showMediaPanel && (
               <div className="mt-2 pt-2 border-t border-white/10">
                 <div className="flex items-center gap-1.5 mb-2">
-                  <p className="text-[9px] text-blue-400 font-mono">🔍 {(localKeywords[idx] || aiKeywords[idx] || '未生成AI关键词')}</p>
+                  <p className="text-[11px] text-blue-400 font-mono">🔍 {(localKeywords[idx] || aiKeywords[idx] || '未生成AI关键词')}</p>
                   <input className="input-dark text-xs flex-1" placeholder="换词搜索（可选）..."
                     value={searchQuery}
                     onFocus={e => e.target.select()}
@@ -564,7 +564,7 @@ export default function StoryboardEditor(props: Props) {
                     </div>
                   ))}
                   {Object.values(searchResults).flat().filter((img:any) => img.type !== 'video').length === 0 && !searching && (
-                    <p className="text-[9px] text-gray-500 py-2">点击上方"重新搜"加载图片</p>
+                    <p className="text-[11px] text-gray-500 py-2">点击上方"重新搜"加载图片</p>
                   )}
                 </div>
               </div>

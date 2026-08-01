@@ -1,6 +1,8 @@
 'use client'
 import { useAuth } from '@/app/providers'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useEffect } from 'react'
 
 const cards = [
   // 视频创作区
@@ -28,7 +30,23 @@ const cards = [
 ]
 
 export default function AiToolsPage() {
-  const { user } = useAuth()
+  const { user, isLoggedIn, loading } = useAuth()
+  const router = useRouter()
+
+  // 任务 A：/ai-tools 是代理级页面，未登录禁止访问
+  useEffect(() => {
+    if (!loading && !isLoggedIn) {
+      router.replace('/login')
+    }
+  }, [loading, isLoggedIn, router])
+
+  if (loading || !isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-gray-400">正在校验登录状态…</div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-950">
