@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, tianApiKey } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -233,6 +233,13 @@ export async function POST(request: NextRequest) {
       else envContent += `\nAGENT_WEBHOOK_FEISHU=${agentWebhookFeishu}`;
     }
 
+    // 天行 API Key（热点榜：抖音/微博/微信/知乎/头条/百度，有则优先，无则走 vvhan 免费兜底）
+    if (tianApiKey !== undefined) {
+      const p = /^TIAN_API_KEY=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `TIAN_API_KEY=${tianApiKey}`);
+      else envContent += `\nTIAN_API_KEY=${tianApiKey}`;
+    }
+
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
     console.log('[Admin-Config] 配置已保存到 .env.local');
@@ -260,6 +267,7 @@ export async function POST(request: NextRequest) {
     if (agnesBaseUrl !== undefined) process.env.AGNES_BASE_URL = agnesBaseUrl
     if (agentWebhookWechat !== undefined) process.env.AGENT_WEBHOOK_WECHAT = agentWebhookWechat
     if (agentWebhookFeishu !== undefined) process.env.AGENT_WEBHOOK_FEISHU = agentWebhookFeishu
+    if (tianApiKey !== undefined) process.env.TIAN_API_KEY = tianApiKey
 
     return NextResponse.json({
       success: true,
@@ -320,6 +328,7 @@ export async function GET(request: NextRequest) {
     const agnesBaseUrl = await readEnv('AGNES_BASE_URL');
     const agentWebhookWechat = await readEnv('AGENT_WEBHOOK_WECHAT');
     const agentWebhookFeishu = await readEnv('AGENT_WEBHOOK_FEISHU');
+    const tianApiKey = await readEnv('TIAN_API_KEY');
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -352,6 +361,7 @@ export async function GET(request: NextRequest) {
         agnesBaseUrlConfigured: !!agnesBaseUrl,
         agentWebhookWechatConfigured: !!agentWebhookWechat,
         agentWebhookFeishuConfigured: !!agentWebhookFeishu,
+        tianApiConfigured: !!tianApiKey,
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''

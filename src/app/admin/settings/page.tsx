@@ -101,6 +101,12 @@ export default function SettingsPage() {
   const [showAgnesKey, setShowAgnesKey] = useState(false)
   const [agnesBaseUrl, setAgnesBaseUrl] = useState('')
 
+  // ====== 天行 API（热点榜：抖音/微博/微信等，有则优先，无则走 vvhan 免费兜底） ======
+  const [tianApiKey, setTianApiKey] = useState('')
+  const [showTianApiKey, setShowTianApiKey] = useState(false)
+  const [testingTianApi, setTestingTianApi] = useState(false)
+  const [tianApiTestMsg, setTianApiTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
   // ====== AGENT 微信/飞书 渠道 webhook（阶段四） ======
   const [agentWebhookWechat, setAgentWebhookWechat] = useState('')
   const [agentWebhookFeishu, setAgentWebhookFeishu] = useState('')
@@ -168,6 +174,8 @@ export default function SettingsPage() {
       // Agnes AI
       setAgnesKey(d.agnesConfigured ? '********' : '')
       setAgnesBaseUrl(d.agnesBaseUrl || '')
+      // 天行 API
+      setTianApiKey(d.tianApiConfigured ? '********' : '')
       // AGENT 渠道 webhook
       setAgentWebhookWechat(d.agentWebhookWechatConfigured ? '********' : '')
       setAgentWebhookFeishu(d.agentWebhookFeishuConfigured ? '********' : '')
@@ -229,6 +237,7 @@ export default function SettingsPage() {
           agnesBaseUrl: agnesBaseUrl || undefined,
           agentWebhookWechat: agentWebhookWechat || undefined,
           agentWebhookFeishu: agentWebhookFeishu || undefined,
+          tianApiKey: mask(tianApiKey),
         }),
       })
       const result = await res.json()
@@ -312,6 +321,9 @@ export default function SettingsPage() {
     testProvider('gemini', setTestingGemini, setGeminiTestMsg, { key: geminiKey, baseUrl: geminiBaseUrl })
   const testAgnesKey = () =>
     testProvider('agnes', setTestingAgnes, setAgnesTestMsg, { key: agnesKey, baseUrl: agnesBaseUrl, proxy: overseasProxy })
+
+  const testTianApiKey = () =>
+    testProvider('tianapi', setTestingTianApi, setTianApiTestMsg, { key: tianApiKey })
 
   // ====== 保存客服设置 ======
   const saveServiceConfig = async () => {
@@ -593,6 +605,36 @@ export default function SettingsPage() {
               文生图 agnes-image-2.1-flash · 文生视频 agnes-video-v2.0（异步轮询）。免费额度，谨慎高频调用。
             </p>
           </div>
+        </div>
+
+        {/* 天行 API（热点榜：抖音/微博/微信等，有则优先，无则走 vvhan 免费兜底） */}
+        <div className="bg-gray-900/60 backdrop-blur-xl rounded-xl border border-white/5 p-4 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-white font-bold mb-2"><span className="text-purple-400">//</span> 天行 API（热点榜）</h3>
+          </div>
+          <p className="text-gray-400 text-xs mb-4">填写后，AGENT 热点榜（抖音/微博/微信/知乎/头条/百度）优先走天行官方接口，数据更全更稳；<b className="text-yellow-400">不填则自动降级到 vvhan 免费聚合接口</b>。小红书不在天行，始终走免费源。注册：<a href="https://www.tianapi.com/" target="_blank" rel="noreferrer" className="text-cyan-400 underline">tianapi.com</a></p>
+          <div className="flex gap-2">
+            <input
+              type={showTianApiKey ? 'text' : 'password'}
+              value={tianApiKey}
+              onChange={e => setTianApiKey(e.target.value)}
+              placeholder="天行 API Key（留空=用免费兜底）"
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50"
+            />
+            <button onClick={() => setShowTianApiKey(v => !v)}
+              className="px-3 py-2 bg-white/5 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 font-mono text-sm">
+              {showTianApiKey ? '🙈' : '👁'}
+            </button>
+          </div>
+          <button onClick={testTianApiKey} disabled={!tianApiKey || tianApiKey === '********' || testingTianApi}
+            className="mt-2 px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-500/30 disabled:opacity-50 font-mono text-xs whitespace-nowrap">
+            {testingTianApi ? '测试中...' : '测试连接'}
+          </button>
+          {tianApiTestMsg && (
+            <div className={`mt-2 text-xs font-mono px-3 py-1.5 rounded-lg inline-block ${
+              tianApiTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+            }`}>{tianApiTestMsg.text}</div>
+          )}
         </div>
 
         {/* AGENT 微信/飞书渠道（阶段四·融合 BaiLongma IM 连接） */}

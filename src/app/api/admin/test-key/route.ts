@@ -357,6 +357,23 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // 天行 API Key 测试（热点榜：抖音/微博/微信等）
+      case 'tianapi': {
+        const k = key || process.env.TIAN_API_KEY || '';
+        if (!k) return NextResponse.json({ valid: false, message: '未配置天行 API Key' }, { status: 400 });
+        try {
+          const res = await fetch(`https://api.tianapi.com/douyinhot/index?key=${k}&num=10`, { signal: AbortSignal.timeout(8000) });
+          const j = await res.json();
+          if (j && j.code === 200) {
+            const n = Array.isArray(j.newslist) ? j.newslist.length : 0;
+            return NextResponse.json({ valid: true, message: `天行 Key 有效，返回 ${n} 条抖音热搜` });
+          }
+          return NextResponse.json({ valid: false, message: `天行返回错误：code=${j?.code} ${j?.msg || ''}` });
+        } catch (e: any) {
+          return NextResponse.json({ valid: false, message: `天行请求失败：${e.message}` });
+        }
+      }
+
       default:
         return NextResponse.json({
           valid: false,

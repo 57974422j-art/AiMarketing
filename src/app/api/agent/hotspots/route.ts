@@ -86,6 +86,39 @@ async function fetchVvhan(src: string, url: string): Promise<HotItem[]> {
   } catch { return [] }
 }
 
+// 天行 API 接口名映射：source -> 天行接口（小红书不在天行，无对应项则走 vvhan 兜底）
+const TIAN_API_MAP: Record<string, string> = {
+  '微博': 'weibohot',
+  '抖音': 'douyinhot',
+  '知乎': 'zhihu',
+  '今日头条': 'toutiaohot',
+  '百度热搜': 'baiduhot',
+  // 微信不在 VVHAN 列表，但天行有 wxhottopic；下面单独补一个"微信"源
+}
+
+// 天行优先抓取（有 key 才调用；失败返回 null，交由 vvhan 兜底）
+async function fetchTianapi(apiName: string): Promise<HotItem[] | null> {
+  const key = process.env.TIAN_API_KEY
+  if (!key) return null
+  try {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => ctrl.abort(), 6000)
+    const r = await fetch(`https://api.tianapi.com/${apiName}/index?key=${key}&num=15`, { signal: ctrl.signal })
+    clearTimeout(t)
+    if (!r.ok) return null
+    const d = await r.json()
+    if (d?.code !== 200 || !Array.isArray(d.newslist)) return null
+    return d.newslist
+      .slice(0, 12)
+      .map((it: any) => ({
+        title: String(it.title || it.word || it.hotword || '').trim(),
+        hot: it.hot ? String(it.hot) : undefined,
+        url: it.url ? String(it.url) : undefined,
+      }))
+      .filter((it: HotItem) => it.title)
+  } catch { return null }
+}
+
 // 内存缓存（单进程内 1 小时有效；与 BaiLongma hotspot 缓存策略一致）
 let cache: { at: number; data: HotSource[] } | null = null
 const TTL = 60 * 60 * 1000
@@ -101,8 +134,29 @@ export async function GET(request: NextRequest) {
     const vvhanResults = await Promise.all(VVHAN.map((e) => fetchVvhan(e.source, e.url)))
     const [hn, reddit] = await Promise.all([fetchHackerNews(), fetchReddit()])
 
+    // 天行优先：对每个支持天行的平台并行拉取，成功则覆盖 vvhan 结果，失败回退 vvhan
+    const tianCnResults = await Promise.all(
+      VVHAN.map((e) => (TIAN_API_MAP[e.source] ? fetchTianapi(TIAN_API_MAP[e.source]) : Promise.resolve(null)))
+    )
+
+    // 微信：天行有 wxhottopic，vvhan 没有，单独补一个源
+    const wechatTian = process.env.TIAN_API_KEY ? await fetchTianapi('wxhottopic') : null
+    const wechatVvhan: HotItem[] = [] // vvhan 无微信源，留空
+
+    const cnSources: HotSource[] = VVHAN.map((e, i) => {
+      const tian = tianCnResults[i]
+      const items = tian && tian.length ? tian : vvhanResults[i]
+      return { source: e.source, region: 'cn' as const, items }
+    })
+    // 微信（仅天行有；无 key 或拉取失败则跳过，不影响其它）
+    if (wechatTian && wechatTian.length) {
+      cnSources.push({ source: '微信', region: 'cn', items: wechatTian })
+    } else if (wechatVvhan.length) {
+      cnSources.push({ source: '微信', region: 'cn', items: wechatVvhan })
+    }
+
     const sources: HotSource[] = [
-      ...VVHAN.map((e, i) => ({ source: e.source, region: 'cn' as const, items: vvhanResults[i] })),
+      ...cnSources,
       { source: 'HackerNews', region: 'global' as const, items: hn },
       { source: 'Reddit', region: 'global' as const, items: reddit },
     ].filter((s) => s.items.length > 0)
