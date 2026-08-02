@@ -20,6 +20,7 @@
     "@capacitor/cli": "^8.4.0",
     "@capacitor/core": "^8.4.0",
     "@prisma/client": "^5.22.0",
+    "@types/three": "^0.185.3",
     "ali-oss": "^6.23.0",
     "crypto-js": "^4.2.0",
     "electron-updater": "^6.3.0",
@@ -31,7 +32,8 @@
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "sharp": "^0.35.1"
+    "sharp": "^0.35.1",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/ali-oss": "^6.23.3",

@@ -4,10 +4,30 @@ import {
   ToolDefinition,
   agnesChat, type AgentChatMessage,
 } from '@/lib/ai-providers'
+import { searchTrendsReal } from '@/lib/gemini'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { spendTokens, TOKEN_COSTS } from '@/lib/token-wallet'
 import { listObjects } from '@/lib/oss'
+import { getSystemConfigs } from '@/lib/quota'
 import { PrismaClient } from '@prisma/client'
+
+// 已接入的发布平台（其余视为"未接入需求"收集）
+const SUPPORTED_PLATFORMS: Record<string, string> = {
+  douyin: '抖音', xiaohongshu: '小红书', kuaishou: '快手', shipinhao: '视频号', bilibili: 'B站',
+}
+// 用户可能提的、我们暂未接入的平台（识别为未接入需求）
+const UNMET_PLATFORM_ALIAS: Record<string, string> = {
+  tiktok: 'TikTok', tik: 'TikTok', '抖音国际版': 'TikTok',
+  youtube: 'YouTube', '油管': 'YouTube',
+  weibo: '微博', '微博': '微博',
+  instagram: 'Instagram', ins: 'Instagram', ig: 'Instagram', '照片墙': 'Instagram',
+  facebook: 'Facebook', fb: 'Facebook', '脸书': 'Facebook',
+  twitter: 'X(Twitter)', x: 'X(Twitter)', '推特': 'X(Twitter)',
+  threads: 'Threads', reddit: 'Reddit', pinterest: 'Pinterest',
+  kwai: '快手国际版', '快手海外': '快手国际版',
+  '淘宝': '淘宝', taobao: '淘宝', '京东': '京东', jd: '京东',
+  '大众点评': '大众点评', '知乎': '知乎', zhihu: '知乎',
+}
 
 export const runtime = 'nodejs'
 const prisma = new PrismaClient()
@@ -172,6 +192,53 @@ const AGENT_TOOLS: ToolDefinition[] = [
       required: ['taskId'],
     },
   },
+  {
+    name: 'collect_unmet_need',
+    description: '收集用户提出但平台暂未接入的需求（如 TikTok/YouTube/微博等），记录并反馈人工客服会跟进。当用户明确要求某未接入平台/能力、或说"我要发tiktok/注册youtube"等时调用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        need: { type: 'string', description: '需求简述，如 在TikTok发布内容' },
+        platform: { type: 'string', description: '用户提到的平台/功能名（未接入的）' },
+        detail: { type: 'string', description: '用户补充的细节（可选）' },
+      },
+      required: ['need', 'platform'],
+    },
+  },
+  {
+    name: 'clear_memory',
+    description: '清空与该用户相关的长期记忆（用于用户说"重新定义我的画像/换行业了/你忘了我"时，先清空旧画像再重新收集）。可指定只清空某类标签。',
+    parameters: {
+      type: 'object',
+      properties: {
+        tag: { type: 'string', description: '只清空含此标签的记忆（如 画像）。留空则清空全部记忆' },
+      },
+    },
+  },
+  {
+    name: 'set_agent_profile',
+    description: '给用户自己的 AI 助手设定名字和性格/人设（白龙马式个性化）。当用户说"以后叫我你xx/你叫xx吧/你的人设是xx/我想给你起个名字"时调用。名字会显示在对话界面并用于自称。',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: '助手名字，如 小白、龙马、小助手' },
+        persona: { type: 'string', description: '性格/人设描述（可选），如 活泼幽默、专业干练' },
+      },
+    },
+  },
+  {
+    name: 'search_trends',
+    description: '搜索国内外真实热点/趋势（舆情）。当用户问"最近有什么热点/海外在火什么/YouTube上xx热不热/TikTok趋势"时调用。国内走免费热榜，海外优先 Google grounding，失败时降级到 DuckDuckGo/Reddit 真实源。',
+    parameters: {
+      type: 'object',
+      properties: {
+        keyword: { type: 'string', description: '话题关键词' },
+        platforms: { type: 'string', description: '平台范围：domestic(国内)/global(海外)/all(全部)，默认 all' },
+        count: { type: 'number', description: '返回条数，默认 8' },
+      },
+      required: ['keyword'],
+    },
+  },
 ]
 
 // 思考流步骤中文标签（前端展示用）
@@ -189,9 +256,26 @@ const TOOL_STEP_LABEL: Record<string, string> = {
   automation_check: '查看自动化任务',
   search_memory: '回忆长期记忆',
   upsert_memory: '写入长期记忆',
+  collect_unmet_need: '记录未接入需求',
+  clear_memory: '清空旧画像',
+  set_agent_profile: '设定助手人设',
+  search_trends: '搜索全球热点',
 }
 
-const SYSTEM_PROMPT = `你是 AiMarketing 的 AI 运营助手，核心使命：帮用户执行自媒体运营的日常任务——每天的内容制作与发布（抖音/小红书/快手/视频号/B站）。
+function buildSystemPrompt(profile?: { name?: string; persona?: string }): string {
+  let header = `你是 AiMarketing 的 AI 运营助手，核心使命：帮用户执行自媒体运营的日常任务——每天的内容制作与发布（抖音/小红书/快手/视频号/B站）。`
+  if (profile?.name) {
+    header = `你的名字叫「${profile.name}」，是用户的专属 AI 运营助手。用户在对话中称呼你为「${profile.name}」，你也要用这个名字自称（如开头说"我是${profile.name}"）。`
+      + (profile.persona ? `你的人设/性格：${profile.persona}。` : '')
+      + `\n核心使命：帮用户执行自媒体运营的日常任务——每天的内容制作与发布（抖音/小红书/快手/视频号/B站）。`
+  }
+  return header + `
+
+【助手人设设定】
+- 用户可以用"你叫xx吧/给你起个名字叫xx/你的人设是xx"随时修改你的名字和性格，修改后你应立即以新名字自称，并把新名字记进长期记忆（set_agent_profile 已在背后保存）。
+- 若用户没给过名字，你就是通用的「AI 运营助手」，无需强调自己没名字。
+`
+}
 
 你可以直接做这些事情：
 ✍️ 写文案 — 各平台营销文案、脚本、标题、话题标签
@@ -236,7 +320,21 @@ const SYSTEM_PROMPT = `你是 AiMarketing 的 AI 运营助手，核心使命：�
 - 文生视频(generate_video)、数字人口播(digital_human_speak) 都是异步任务，会返回 taskId。
 - 返回 taskId 后，告诉用户"正在生成中，稍后你可以问我进度，或我再帮你查"，并可用对应 query_ 工具轮询结果。不要在本次回复里空等。
 
-规则：简洁专业、适度emoji、中文回复、不啰嗦、不说"你不能"而是给替代方案`
+规则：简洁专业、适度emoji、中文回复、不啰嗦、不说"你不能"而是给替代方案
+
+【未接入需求收集（重要）】
+- 我们只接入了 5 个平台：抖音、小红书、快手、视频号、B站。如果客户提出 TikTok、YouTube、微博、Instagram、Facebook、X(Twitter)、淘宝、京东 等我们暂未接入的平台/能力，不要说"我不支持"就结束。
+- 正确做法：调用 collect_unmet_need 工具记录该需求（平台+简述），然后回复："已记录你的需求：在{平台}上{做什么}。目前该平台还在接入中，我帮您登记了，人工客服会尽快与你联系～"
+- 紧接着用场景卡片把客服微信二维码推给用户：在回复中输出 [SCENE_JSON]{"type":"service_qrcode","title":"扫码联系客服","desc":"人工客服会尽快与你联系"}[/SCENE_JSON]（二维码图由系统自动填充，你无需写URL）。
+- 如果客户主动说"跳过/算了/不用了/先不用"，立即停止收集，转去聊别的，不要纠缠。
+
+【重新定义画像】
+- 客户说"重新定义我的画像/换行业了/你忘了我/重新来过"时：先调用 clear_memory（tag=画像）清空旧画像，再像新用户一样重新问几个关键问题（行业/产品/常发平台/风格偏好），用 upsert_memory 重新记录。
+- 客户问"你还记得我吗/我是什么行业"时，先 search_memory 调出画像再回答。
+
+【收集时的分寸】
+- 用户明确说"跳过"任何收集步骤，都尊重并继续；不要反复追问同一信息。
+- 记画像不要打断主任务：完成当前请求后，顺带把新确认的信息写进记忆即可。`
 
 // ==================== 工具执行器 ====================
 
@@ -490,6 +588,83 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       }
     }
 
+    // ── 未接入需求收集 ──
+    case 'collect_unmet_need': {
+      try {
+        const { PrismaClient } = await import('@prisma/client')
+        const p = new PrismaClient()
+        const userId = auth?.userId || ''
+        const need = (args.need || '').trim()
+        const platform = (args.platform || '').trim()
+        const detail = (args.detail || '').trim()
+        const content = `【未接入需求】平台/功能：${platform}；需求：${need}${detail ? `；细节：${detail}` : ''}`
+        await p.agentMemory.create({
+          data: { userId, content, tags: '未接入需求,平台', salience: 0.9 },
+        })
+        await p.$disconnect()
+        return `UNMET_NEED:已记录|PLATFORM:${platform}|NEED:${need}`
+      } catch (e: any) {
+        return `UNMET_NEED_ERR:${e.message}`
+      }
+    }
+
+    // ── 清空记忆（重新定义画像用）──
+    case 'clear_memory': {
+      try {
+        const { PrismaClient } = await import('@prisma/client')
+        const p = new PrismaClient()
+        const userId = auth?.userId || ''
+        const tag = (args.tag || '').trim()
+        const where: any = { userId }
+        if (tag) where.tags = { contains: tag }
+        const n = await p.agentMemory.deleteMany({ where })
+        await p.$disconnect()
+        return JSON.stringify({ ok: true, deleted: n.count })
+      } catch (e: any) {
+        return JSON.stringify({ ok: false, error: e.message })
+      }
+    }
+
+    // ── 设定助手名字/人设 ──
+    case 'set_agent_profile': {
+      try {
+        const { PrismaClient } = await import('@prisma/client')
+        const p = new PrismaClient()
+        const userId = auth?.userId || ''
+        const name = (args.name || '').trim()
+        const persona = (args.persona || '').trim()
+        if (!name && !persona) return JSON.stringify({ ok: false, error: '缺少名字或人设' })
+        const content = `【助手人设】名字: ${name || '（未设）'}；人设: ${persona || '（未设）'}`
+        // 更新或新建 agent_profile 记忆
+        const existing = await p.agentMemory.findFirst({ where: { userId, tags: { contains: 'agent_profile' } } })
+        if (existing) {
+          await p.agentMemory.update({ where: { id: existing.id }, data: { content, updatedAt: new Date() } })
+        } else {
+          await p.agentMemory.create({ data: { userId, content, tags: 'agent_profile', salience: 1.0 } })
+        }
+        await p.$disconnect()
+        return `AGENT_PROFILE_SET:名字=${name || '（通用）'}|人设=${persona || '（默认）'}`
+      } catch (e: any) {
+        return `AGENT_PROFILE_ERR:${e.message}`
+      }
+    }
+
+    // ── 搜索全球真实热点（舆情，带降级）──
+    case 'search_trends': {
+      try {
+        const keyword = (args.keyword || '').trim()
+        if (!keyword) return JSON.stringify({ ok: false, error: '缺少关键词' })
+        const scope = (args.platforms === 'domestic' || args.platforms === 'global') ? args.platforms : 'all'
+        const { items, source } = await searchTrendsReal(keyword, scope as any, Number(args.count) || 8)
+        const list = items.map((it, i) =>
+          `${i + 1}. [${it.platform}] ${it.title}\n   ${it.description || ''}\n   链接: ${it.url}`
+        ).join('\n')
+        return `TRENDS_RESULT:来源=${source}\n${list}`
+      } catch (e: any) {
+        return `TRENDS_ERR:${e.message}`
+      }
+    }
+
     default:
       return `未知工具: ${name}`
   }
@@ -541,10 +716,25 @@ function formatToolResult(output: string): string {
   if (output.startsWith('TEMPLATE_RESULT:')) return output.replace('TEMPLATE_RESULT:', '')
   if (output.startsWith('PUBLISH_NEED_LOGIN:')) return `⚠️ ${output.replace('PUBLISH_NEED_LOGIN:', '')}`
   if (output.startsWith('PUBLISH_READY:')) return output.replace('PUBLISH_READY:', '')
+  if (output.startsWith('UNMET_NEED:')) {
+    const plat = output.split('|').find(p => p.startsWith('PLATFORM:'))?.replace('PLATFORM:', '') || ''
+    return `✅ 已记录你对「${plat}」的需求。该平台/能力目前还在接入中，我已为你登记，人工客服会尽快与你联系～\n\n（稍后我会把客服微信二维码推给你，方便直接沟通）`
+  }
   if (output.startsWith('DH_TASK:')) { const taskId = output.split('|')[0]?.replace('DH_TASK:', '') || ''
     return `🤖 数字人口播已提交！\n任务ID: ${taskId}\n稍后问我"口播好了吗"查看进度`
   }
   if (output.startsWith('DH_NEED_MEDIA:')) return `📷 ${output.replace('DH_NEED_MEDIA:', '')}`
+  if (output.startsWith('AGENT_PROFILE_SET:')) {
+    const name = output.split('|').find(p => p.startsWith('名字='))?.replace('名字=', '') || ''
+    const persona = output.split('|').find(p => p.startsWith('人设='))?.replace('人设=', '') || ''
+    return `✅ 好的，以后我就是「${name}」啦${persona && persona !== '（默认）' ? `，性格：${persona}` : ''}～有什么运营上的事尽管吩咐！`
+  }
+  if (output.startsWith('TRENDS_RESULT:')) {
+    const src = output.split('\n')[0]?.replace('TRENDS_RESULT:', '') || ''
+    const list = output.split('\n').slice(1).join('\n')
+    return `🌐 为你搜到以下真实热点（数据来源：${src}）：\n\n${list}\n\n需要我针对哪条帮你写文案或做成视频吗？`
+  }
+  if (output.startsWith('TRENDS_ERR:')) return `⚠️ 海外舆情服务暂不可用：${output.replace('TRENDS_ERR:', '')}`
   return output
 }
 
@@ -577,8 +767,22 @@ export async function POST(request: NextRequest) {
       userContent = blocks
     }
 
+    // 读取用户给助手设定的名字/人设（agent_profile 记忆）
+    let agentProfile: { name?: string; persona?: string } | undefined
+    try {
+      const profMem = await prisma.agentMemory.findFirst({
+        where: { userId: auth?.userId || '', tags: { contains: 'agent_profile' } },
+        orderBy: { updatedAt: 'desc' },
+      })
+      if (profMem) {
+        const m = profMem.content.match(/名字[:：]\s*([^\n;；]+)/)
+        const p = profMem.content.match(/人设[:：]\s*([^\n;；]+)/)
+        agentProfile = { name: m?.[1]?.trim(), persona: p?.[1]?.trim() }
+      }
+    } catch {}
+
     // 构建消息（Agnes 多模态对话格式）
-    const sysBlocks: string[] = [SYSTEM_PROMPT]
+    const sysBlocks: string[] = [buildSystemPrompt(agentProfile)]
     if (hotContext && typeof hotContext === 'string' && hotContext.trim()) {
       sysBlocks.push(
         `\n【今日热点上下文（用户主页展示的真实热榜，可主动结合做内容，但只在相关时提及，不要每条都硬塞）】\n${hotContext}`
@@ -640,6 +844,20 @@ export async function POST(request: NextRequest) {
       if (sceneMatch) {
         try { scene = JSON.parse(sceneMatch[1]) } catch {}
         reply = reply.replace(sceneMatch[0], '').trim()
+      }
+      // 客服二维码场景：从 SystemConfig 读取 service_qrcode 并注入为图片卡片
+      if (scene && scene.type === 'service_qrcode') {
+        try {
+          const cfg = await getSystemConfigs(['service_qrcode'])
+          const qr = cfg?.service_qrcode || ''
+          if (qr) {
+            scene = { type: 'image', title: scene.title || '扫码联系客服', desc: scene.desc || '人工客服会尽快与你联系', url: qr }
+          } else {
+            scene = null // 未配置则不渲染，避免空图
+          }
+        } catch {
+          scene = null
+        }
       }
 
       // 存DB

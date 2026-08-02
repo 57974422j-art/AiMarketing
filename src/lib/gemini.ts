@@ -221,3 +221,104 @@ export async function extractVideoInsights(item: TrendingItem): Promise<{ summar
 
   return geminiJSON(prompt, { model: '[L]gemini-3-flash-preview' || 'gemini-2.5-flash' })
 }
+
+/**
+ * 真实趋势搜索（带降级链路，绝不返回假 url）。
+ * 优先级：① Gemini grounding（海外真实链接，需 GEMINI_API_KEY + 直连 Google）
+ *         ② DuckDuckGo HTML（免 key，真实海外搜索结果）
+ *         ③ Reddit JSON（免 key，真实社区讨论）
+ * 全部失败 → 抛出友好错误，由调用方提示"海外舆情服务暂不可用"。
+ */
+export async function searchTrendsReal(keyword: string, scope: 'domestic' | 'global' | 'all' = 'all', count = 8): Promise<{ items: TrendingItem[]; source: string }> {
+  const safeCount = Math.min(Math.max(Number(count) || 8, 1), 20)
+  const region = scope === 'domestic' ? '（重点关注国内平台：抖音/小红书/微博/B站）' : scope === 'global' ? '（重点关注海外平台：YouTube/TikTok/Twitter/Reddit）' : ''
+
+  // ① Gemini grounding（仅当配置了官方 key 且非中转时）
+  const { key, baseUrl } = getGeminiConfig()
+  const canGround = !!key && !isOpenAIProxy(baseUrl || '')
+  if (canGround) {
+    try {
+      const results = await searchTrends(keyword, ['YouTube', 'TikTok', 'Twitter', 'Bilibili', 'Douyin'], safeCount)
+      if (results.length && results.some(r => r.url && r.url.startsWith('http'))) {
+        console.log(`[TrendVideo] 真实 grounding 来源数: ${results.filter(r => r.url?.startsWith('http')).length}`)
+        return { items: results, source: 'google-grounding' }
+      }
+    } catch (e: any) {
+      console.warn('[TrendVideo] Gemini grounding 失败，降级:', e.message)
+    }
+  }
+
+  // ② DuckDuckGo HTML（免 key）
+  try {
+    const ddg = await duckDuckGoSearch(keyword, safeCount)
+    if (ddg.length) return { items: ddg, source: 'duckduckgo' }
+  } catch (e: any) {
+    console.warn('[TrendVideo] DuckDuckGo 失败，降级:', e.message)
+  }
+
+  // ③ Reddit JSON（免 key）
+  try {
+    const reddit = await redditSearch(keyword, safeCount)
+    if (reddit.length) return { items: reddit, source: 'reddit' }
+  } catch (e: any) {
+    console.warn('[TrendVideo] Reddit 失败:', e.message)
+  }
+
+  throw new Error('海外舆情服务暂不可用：请检查 GEMINI_API_KEY 配置或服务器网络（需能访问 Google/DuckDuckGo/Reddit）。')
+}
+
+/** DuckDuckGo HTML 聚合搜索（免 key，返回真实链接） */
+async function duckDuckGoSearch(keyword: string, count: number): Promise<TrendingItem[]> {
+  const html = await (await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(keyword)}`, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+  })).text()
+  const items: TrendingItem[] = []
+  const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([^<]*)<\/a>/g
+  let m: RegExpExecArray | null
+  let i = 0
+  while ((m = re.exec(html)) && i < count) {
+    const url = decodeDdgUrl(m[1])
+    if (!url || !url.startsWith('http')) continue
+    items.push({
+      id: `ddg_${Date.now()}_${i}`,
+      title: m[2].replace(/<[^>]+>/g, '').trim(),
+      platform: 'Web',
+      hotness: 0,
+      url,
+      image: '',
+      description: (m[3] || '').replace(/<[^>]+>/g, '').trim(),
+    })
+    i++
+  }
+  return items
+}
+
+/** Reddit 公开 JSON 搜索（免 key，真实社区讨论） */
+async function redditSearch(keyword: string, count: number): Promise<TrendingItem[]> {
+  const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(keyword)}&sort=hot&limit=${count}`
+  const data = await (await fetch(url, { headers: { 'User-Agent': 'AiMarketing/1.0' } })).json()
+  const children = data?.data?.children || []
+  return children.slice(0, count).map((c: any, i: number) => {
+    const d = c.data
+    return {
+      id: `reddit_${Date.now()}_${i}`,
+      title: d.title || '',
+      platform: 'Reddit',
+      hotness: d.score || 0,
+      url: `https://www.reddit.com${d.permalink || ''}`,
+      image: d.thumbnail && d.thumbnail.startsWith('http') ? d.thumbnail : '',
+      description: (d.selftext || '').slice(0, 120),
+    }
+  })
+}
+
+/** DuckDuckGo 跳转链接解码（其 302 重定向到真实地址） */
+function decodeDdgUrl(raw: string): string {
+  try {
+    const u = new URL(raw, 'https://html.duckduckgo.com')
+    const real = u.searchParams.get('uddg')
+    return real ? decodeURIComponent(real) : raw
+  } catch {
+    return raw
+  }
+}

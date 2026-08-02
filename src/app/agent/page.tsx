@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/providers'
 import VoiceOrb from '@/components/VoiceOrb'
+import GlobeTrends from '@/components/GlobeTrends'
 
 // 声纹球状态（融合 BaiLongma 语音环观感）
 type OrbState = 'idle' | 'listening' | 'recognizing' | 'speaking' | 'thinking'
@@ -91,6 +92,7 @@ const SUGGESTIONS = [
   '把这段文案一键成片',
   '帮我做一个产品宣传视频',
   '帮我把这条内容发到抖音',
+  '查一下海外 YouTube 上最近什么最火',
 ]
 
 // 思考步骤流工具中文标签（右侧常驻面板渲染用）
@@ -106,7 +108,10 @@ const TOOL_STEP_LABEL: Record<string, string> = {
   publish_content: '规划发布',
   upsert_memory: '记忆客户画像',
   search_memory: '回忆长期记忆',
-  web_search: '联网搜索',
+  collect_unmet_need: '登记未接入需求',
+  clear_memory: '清空旧画像',
+  set_agent_profile: '设定助手人设',
+  search_trends: '搜索全球热点',
 }
 
 export default function AgentPage() {
@@ -123,12 +128,14 @@ export default function AgentPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [lastPoints, setLastPoints] = useState<number | null>(null)
+  // 助手人设名字（来自记忆中的 agent_profile，白龙马式自定义名）
+  const [agentName, setAgentName] = useState('AI 助手')
   // 右侧常驻思考步骤流
   const [liveSteps, setLiveSteps] = useState<{ tool: string; label: string }[]>([])
   // 语音实时识别中间文本
   const [interimText, setInterimText] = useState('')
   // 今日热点（融合 BaiLongma 热点推荐：真实热榜注入主页 + 对话上下文）
-  const [hotTopics, setHotTopics] = useState<{ source: string; items: { title: string; hot?: string }[] }[]>([])
+  const [hotTopics, setHotTopics] = useState<{ source: string; region: 'cn' | 'global'; items: { title: string; hot?: string }[] }[]>([])
   const [hotLoading, setHotLoading] = useState(false)
 
   // ===== 阶段一·语音环状态 =====
@@ -262,6 +269,21 @@ export default function AgentPage() {
     } catch {} finally { setHotLoading(false) }
   }
   useEffect(() => { if (messages.length === 0) loadHotTopics() }, [])
+
+  // 加载助手人设名字（agent_profile 记忆，白龙马式自定义名）
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch('/api/agent/memories?limit=20', { credentials: 'include' })
+        const d = await r.json()
+        const mem = (d.memories || []).find((m: any) => (m.tags || '').includes('agent_profile'))
+        if (mem) {
+          const nm = (mem.content || '').match(/名字[:：]\s*([^\n;；]+)/)
+          if (nm?.[1]?.trim()) setAgentName(nm[1].trim())
+        }
+      } catch {}
+    })()
+  }, [])
 
   // 加载素材仓库
   const loadStorageForPicker = async () => {
@@ -525,22 +547,40 @@ export default function AgentPage() {
             <p className="text-[9px] text-gray-600 mt-0.5">实时展示助手执行链路</p>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {liveSteps.length === 0 ? (
+            {liveSteps.length === 0 && !loading ? (
               <p className="text-[10px] text-gray-700 px-1 py-4 text-center">
-                {loading ? '分析中…' : '发一条消息，看助手怎么拆解执行'}
+                发一条消息，看助手怎么拆解执行
               </p>
             ) : (
-              liveSteps.map((s, i) => (
-                <div key={i} className="flex items-start gap-2 rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2 animate-in fade-in">
-                  <span className="mt-0.5 w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[9px] shrink-0 font-semibold">
-                    {i + 1}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[10px] text-gray-300 leading-snug">{s.label}</p>
-                    <p className="text-[8px] text-cyan-400/70 mt-0.5">{TOOL_STEP_LABEL[s.tool] || s.tool}</p>
+              <>
+                {/* 流式思考占位：请求尚未返回 steps 时显示脉冲卡 */}
+                {loading && liveSteps.length === 0 && (
+                  <div className="flex items-start gap-2 rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2">
+                    <span className="mt-0.5 w-4 h-4 rounded-full bg-purple-500/20 flex items-center justify-center text-[9px] shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-300 animate-ping" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-gray-400 leading-snug animate-pulse">思考中 · 正在拆解你的需求…</p>
+                      <p className="text-[8px] text-purple-400/60 mt-0.5">规划执行链路</p>
+                    </div>
                   </div>
-                </div>
-              ))
+                )}
+                {liveSteps.map((s, i) => (
+                  <div key={i} className="flex items-start gap-2 rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2 animate-in fade-in"
+                    style={{ animationDelay: `${i * 90}ms` }}>
+                    <span className="mt-0.5 w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[9px] shrink-0 font-semibold">
+                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"/></svg>
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-gray-300 leading-snug">{s.label}</p>
+                      <p className="text-[8px] text-cyan-400/70 mt-0.5 flex items-center gap-1">
+                        <span className="w-1 h-1 rounded-full bg-cyan-400/70" />
+                        {TOOL_STEP_LABEL[s.tool] || s.tool}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </>
             )}
           </div>
           {/* 客户画像（融合 BaiLongma 需求/画像记忆） */}
@@ -617,7 +657,7 @@ export default function AgentPage() {
                   我能帮你做什么？
                 </h1>
                 <p className="text-xs text-gray-500 mb-5 leading-relaxed max-w-md text-center">
-                  点击上方声纹球直接说话，或在下方输入需求，我帮你生成图片/视频、结合热点做内容、查找素材、发布、推送微信飞书。
+                  点击上方声纹球直接说话，或在下方输入需求，我帮你生成图片/视频、结合热点做内容、查找素材、发布，暂未接入的平台会登记并推送客服二维码。
                 </p>
 
                 <div className="flex flex-wrap gap-2 mb-6 justify-center max-w-xl">
@@ -628,6 +668,17 @@ export default function AgentPage() {
                     </button>
                   ))}
                 </div>
+
+                {/* 地球舆情（融合 BaiLongma 地图舆情：3D 地球 + 国内外热点打点，仅大屏显示） */}
+                {hotTopics.length > 0 && (
+                  <div className="hidden lg:block w-full max-w-3xl mb-6">
+                    <div className="flex items-center gap-1.5 mb-2.5">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" />
+                      <span className="text-[11px] font-medium text-gray-400 tracking-wide">🌐 地球舆情 · 实时热点分布</span>
+                    </div>
+                    <GlobeTrends sources={hotTopics} />
+                  </div>
+                )}
 
                 {/* 今日热点（融合 BaiLongma 热点推荐：真实热榜注入主页） */}
                 <div className="w-full max-w-3xl">
@@ -693,7 +744,7 @@ export default function AgentPage() {
                       : <VoiceOrb state="idle" size={28} />}
                   </div>
                   <div className="min-w-0">
-                    {msg.role === 'assistant' && <p className="text-[9px] text-gray-500 mb-0.5 font-medium">AI 助手</p>}
+                    {msg.role === 'assistant' && <p className="text-[9px] text-gray-500 mb-0.5 font-medium">{agentName}</p>}
                     <div className={`rounded-2xl px-3 py-2 text-xs leading-relaxed break-words ${msg.role === 'user'
                       ? 'bg-blue-500/15 text-blue-100 border border-blue-500/20 rounded-br-md'
                       : 'bg-white/[0.04] text-gray-200 border border-white/[0.06] rounded-bl-md'}`}>
@@ -717,30 +768,43 @@ export default function AgentPage() {
                       {/* 阶段二·Scene 投影：AGENT 返回结构化卡片原生渲染 */}
                       {msg.role === 'assistant' && msg.scene && (
                         <div className="mt-2 rounded-xl bg-white/[0.03] border border-white/[0.08] p-3">
-                          {msg.scene.title && <p className="text-[11px] text-emerald-300 font-medium mb-2">{msg.scene.title}</p>}
-                          {msg.scene.fields?.map((f, i) => (
-                            <div key={i} className="flex justify-between gap-3 text-[10px] py-1 border-b border-white/[0.04] last:border-0">
-                              <span className="text-gray-500">{f.label}</span>
-                              <span className="text-gray-300 text-right">{f.value}</span>
+                          {msg.scene.type === 'image' ? (
+                            <div className="flex flex-col items-center">
+                              {msg.scene.title && <p className="text-[11px] text-emerald-300 font-medium mb-2 text-center">{msg.scene.title}</p>}
+                              {msg.scene.url && (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={msg.scene.url} alt={msg.scene.title || '二维码'} className="w-36 h-36 object-contain rounded-lg bg-white" />
+                              )}
+                              {msg.scene.desc && <p className="text-[10px] text-gray-400 mt-2 text-center">{msg.scene.desc}</p>}
                             </div>
-                          ))}
-                          {msg.scene.options && (
-                            <div className="flex flex-wrap gap-1.5 mt-2">
-                              {msg.scene.options.map((o, i) => (
-                                <span key={i} className="px-2 py-0.5 rounded-md bg-white/5 text-[9px] text-gray-400">· {o}</span>
+                          ) : (
+                            <>
+                              {msg.scene.title && <p className="text-[11px] text-emerald-300 font-medium mb-2">{msg.scene.title}</p>}
+                              {msg.scene.fields?.map((f, i) => (
+                                <div key={i} className="flex justify-between gap-3 text-[10px] py-1 border-b border-white/[0.04] last:border-0">
+                                  <span className="text-gray-500">{f.label}</span>
+                                  <span className="text-gray-300 text-right">{f.value}</span>
+                                </div>
                               ))}
-                            </div>
-                          )}
-                          {msg.scene.actions && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {msg.scene.actions.map((a, i) => (
-                                a.href ? (
-                                  <a key={i} href={a.href} className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-[10px] text-emerald-300 hover:bg-emerald-500/30 transition">{a.label}</a>
-                                ) : (
-                                  <span key={i} className="px-2.5 py-1 rounded-lg bg-white/5 text-[10px] text-gray-400">{a.label}</span>
-                                )
-                              ))}
-                            </div>
+                              {msg.scene.options && (
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                  {msg.scene.options.map((o, i) => (
+                                    <span key={i} className="px-2 py-0.5 rounded-md bg-white/5 text-[9px] text-gray-400">· {o}</span>
+                                  ))}
+                                </div>
+                              )}
+                              {msg.scene.actions && (
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  {msg.scene.actions.map((a, i) => (
+                                    a.href ? (
+                                      <a key={i} href={a.href} className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-[10px] text-emerald-300 hover:bg-emerald-500/30 transition">{a.label}</a>
+                                    ) : (
+                                      <span key={i} className="px-2.5 py-1 rounded-lg bg-white/5 text-[10px] text-gray-400">{a.label}</span>
+                                    )
+                                  ))}
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
@@ -764,7 +828,7 @@ export default function AgentPage() {
                     <VoiceOrb state="thinking" size={28} />
                   </div>
                   <div>
-                    <p className="text-[9px] text-gray-500 mb-1">AI 助手</p>
+                    <p className="text-[9px] text-gray-500 mb-1">{agentName}</p>
                     <div className="rounded-2xl rounded-bl-md bg-white/[0.04] border border-white/[0.06] px-4 py-3">
                       <div className="flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />

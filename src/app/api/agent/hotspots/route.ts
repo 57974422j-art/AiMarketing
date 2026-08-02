@@ -6,8 +6,8 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-type HotItem = { title: string; hot?: string }
-type HotSource = { source: string; items: HotItem[] }
+type HotItem = { title: string; hot?: string; url?: string }
+type HotSource = { source: string; region: 'cn' | 'global'; items: HotItem[] }
 
 // 主源：vvhan 聚合（中国热榜）
 const VVHAN: { source: string; url: string }[] = [
@@ -102,9 +102,9 @@ export async function GET(request: NextRequest) {
     const [hn, reddit] = await Promise.all([fetchHackerNews(), fetchReddit()])
 
     const sources: HotSource[] = [
-      ...VVHAN.map((e, i) => ({ source: e.source, items: vvhanResults[i] })),
-      { source: 'HackerNews', items: hn },
-      { source: 'Reddit', items: reddit },
+      ...VVHAN.map((e, i) => ({ source: e.source, region: 'cn' as const, items: vvhanResults[i] })),
+      { source: 'HackerNews', region: 'global' as const, items: hn },
+      { source: 'Reddit', region: 'global' as const, items: reddit },
     ].filter((s) => s.items.length > 0)
 
     cache = { at: now, data: sources }
