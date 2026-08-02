@@ -3,7 +3,6 @@
 import './globals.css'
 import Navbar from '@/components/Navbar'
 import ToastContainer from '@/components/Toast'
-import AIGuide from '@/components/AIGuide'
 import { AuthProvider } from './providers'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -17,7 +16,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <Navbar />
           <ToastContainer />
-          <AIGuide />
           <main className="flex-1">
             {children}
           </main>

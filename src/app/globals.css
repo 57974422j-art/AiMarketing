@@ -172,3 +172,9 @@ body.hotspot-mode header .agent-hotspot-toggle {
 .fade-in { animation-name:fade-in }
 .slide-in-from-bottom-2 { animation-name:slide-in-bottom }
 .zoom-in { animation-name:zoom-in }
+
+/* 热点大屏底部跑马灯（仿白龙马 hs-marquee） */
+@keyframes hsmarquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
