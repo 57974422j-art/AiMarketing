@@ -178,3 +178,8 @@ body.hotspot-mode header .agent-hotspot-toggle {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
 }
+
+/* 热点大屏打开时隐藏全局导航栏，避免遮挡大屏顶栏统计信息 */
+body.hotspot-open nav {
+  display: none !important;
+}

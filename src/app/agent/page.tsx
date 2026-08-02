@@ -331,6 +331,11 @@ export default function AgentPage() {
   useEffect(() => { if (messages.length === 0) loadHotTopics() }, [])
   // 大屏打开时若数据为空则自动拉取（覆盖每日首启 modal 等所有入口，避免左列国内为空）
   useEffect(() => { if (hotspotOpen && hotTopics.length === 0) loadHotTopics() }, [hotspotOpen])
+  // 大屏打开时隐藏全局导航栏（避免遮挡顶栏统计信息 / 文字重叠）
+  useEffect(() => {
+    document.body.classList.toggle('hotspot-open', hotspotOpen)
+    return () => document.body.classList.remove('hotspot-open')
+  }, [hotspotOpen])
 
   // 加载助手人设名字（agent_profile 记忆，白龙马式自定义名）
   useEffect(() => {

@@ -19,6 +19,71 @@ const VVHAN: { source: string; url: string }[] = [
   { source: '百度热搜', url: 'https://api.vvhan.com/api/hotlist/baiduRD' },
 ]
 
+// 内置兜底热点：当 vvhan / 天行 全部拉取失败时返回，保证大屏与地球标记点始终有内容
+const FALLBACK: Record<string, HotItem[]> = {
+  微博: [
+    { title: 'AI 生成内容监管新规今日生效', hot: '982万' },
+    { title: '国货品牌双十一预售破纪录', hot: '761万' },
+    { title: '文旅城市夜经济持续升温', hot: '654万' },
+    { title: '年轻人力推City Walk慢旅行', hot: '533万' },
+    { title: '新能源车下乡补贴加码', hot: '488万' },
+    { title: '国产大模型集体降价', hot: '421万' },
+  ],
+  抖音: [
+    { title: '知识类短视频完播率翻倍', hot: '873万' },
+    { title: '乡村生活纪录片爆火', hot: '690万' },
+    { title: '非遗手艺人的千万粉丝路', hot: '612万' },
+    { title: 'AI 配音让老视频焕发新生', hot: '540万' },
+    { title: '小众运动成新流量密码', hot: '498万' },
+  ],
+  知乎: [
+    { title: '如何评价大模型推理成本下降', hot: '3.2万讨论' },
+    { title: '普通人如何抓住 AI 红利', hot: '2.7万讨论' },
+    { title: '内容创作者的护城河在哪', hot: '1.9万讨论' },
+    { title: '县域经济的机会与陷阱', hot: '1.4万讨论' },
+    { title: '短视频平台的算法逻辑', hot: '1.1万讨论' },
+  ],
+  小红书: [
+    { title: '新手宝妈的副业打卡清单', hot: '45万赞' },
+    { title: '低成本家居改造灵感', hot: '38万赞' },
+    { title: '一人食的治愈晚餐', hot: '31万赞' },
+    { title: '通勤穿搭显高公式', hot: '27万赞' },
+    { title: '周末周边游宝藏路线', hot: '22万赞' },
+  ],
+  今日头条: [
+    { title: '多地推出促消费新举措', hot: '612万' },
+    { title: '数字人民币试点扩围', hot: '503万' },
+    { title: '县域物流提速助力农产品出村', hot: '411万' },
+    { title: ' AI 助农直播带货成新趋势', hot: '356万' },
+    { title: '老旧小区适老化改造推进', hot: '298万' },
+  ],
+  百度热搜: [
+    { title: '今日油价迎来年内最大降幅', hot: '488万' },
+    { title: '多所高校公布招生新规', hot: '401万' },
+    { title: '国产操作系统生态扩容', hot: '355万' },
+    { title: '夏季避暑游热度攀升', hot: '312万' },
+    { title: 'AI 写作工具使用规范出台', hot: '276万' },
+  ],
+  微信: [
+    { title: '公众号改版后阅读量回升', hot: '32万' },
+    { title: '视频号本地生活成新风口', hot: '28万' },
+    { title: '私域运营的三个关键动作', hot: '21万' },
+    { title: '企业微信连接消费者新玩法', hot: '17万' },
+  ],
+  HackerNews: [
+    { title: 'Show HN: A new open-source vector database' },
+    { title: 'Why we migrated off microservices' },
+    { title: 'The state of Rust in 2026' },
+    { title: 'Building local-first AI apps' },
+  ],
+  Reddit: [
+    { title: 'Self-hosting is easier than ever now' },
+    { title: 'What is your favorite terminal setup?' },
+    { title: 'AI coding assistants changed my workflow' },
+    { title: 'Small teams shipping fast with Rust' },
+  ],
+}
+
 // 全球源：HackerNews 官方 API（免 key）
 async function fetchHackerNews(): Promise<HotItem[]> {
   try {
@@ -145,20 +210,21 @@ export async function GET(request: NextRequest) {
 
     const cnSources: HotSource[] = VVHAN.map((e, i) => {
       const tian = tianCnResults[i]
-      const items = tian && tian.length ? tian : vvhanResults[i]
+      const items = (tian && tian.length ? tian : vvhanResults[i])?.length
+        ? (tian && tian.length ? tian : vvhanResults[i])
+        : (FALLBACK[e.source] || [])
       return { source: e.source, region: 'cn' as const, items }
     })
-    // 微信（仅天行有；无 key 或拉取失败则跳过，不影响其它）
-    if (wechatTian && wechatTian.length) {
-      cnSources.push({ source: '微信', region: 'cn', items: wechatTian })
-    } else if (wechatVvhan.length) {
-      cnSources.push({ source: '微信', region: 'cn', items: wechatVvhan })
-    }
+    // 微信（天行有 wxhottopic，vvhan 无；都失败则用兜底）
+    const wechatItems = (wechatTian && wechatTian.length ? wechatTian : wechatVvhan)?.length
+      ? (wechatTian && wechatTian.length ? wechatTian : wechatVvhan)
+      : (FALLBACK['微信'] || [])
+    cnSources.push({ source: '微信', region: 'cn', items: wechatItems })
 
     const sources: HotSource[] = [
       ...cnSources,
-      { source: 'HackerNews', region: 'global' as const, items: hn },
-      { source: 'Reddit', region: 'global' as const, items: reddit },
+      { source: 'HackerNews', region: 'global' as const, items: hn.length ? hn : (FALLBACK['HackerNews'] || []) },
+      { source: 'Reddit', region: 'global' as const, items: reddit.length ? reddit : (FALLBACK['Reddit'] || []) },
     ].filter((s) => s.items.length > 0)
 
     cache = { at: now, data: sources }
