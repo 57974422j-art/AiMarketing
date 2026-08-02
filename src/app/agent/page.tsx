@@ -147,6 +147,22 @@ export default function AgentPage() {
     return () => { document.body.classList.remove('hotspot-mode') }
   }, [hotspotOpen])
 
+  // 客户端（Electron）每日首启询问是否进入热点大屏（Web 端不弹）
+  const [showHotspotPrompt, setShowHotspotPrompt] = useState(false)
+  useEffect(() => {
+    const isElectron = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
+    if (!isElectron) return
+    const today = new Date().toISOString().slice(0, 10)
+    const last = typeof localStorage !== 'undefined' ? localStorage.getItem('hotspot_prompt_date') : today
+    if (last !== today) setShowHotspotPrompt(true)
+  }, [])
+  const answerHotspotPrompt = (enter: boolean) => {
+    const today = new Date().toISOString().slice(0, 10)
+    if (typeof localStorage !== 'undefined') localStorage.setItem('hotspot_prompt_date', today)
+    setShowHotspotPrompt(false)
+    if (enter) { if (hotTopics.length === 0) loadHotTopics(); setHotspotOpen(true) }
+  }
+
   // ===== 阶段一·语音环状态 =====
   const [autoSpeak, setAutoSpeak] = useState(false)
   const [showBrain, setShowBrain] = useState(false)
@@ -311,6 +327,14 @@ export default function AgentPage() {
   const sendMessage = async (text?: string) => {
     const msgText = (text || input).trim()
     if ((!msgText && !attachments.length) || loading) return
+
+    // 自然语言触发热点大屏（融合 BaiLongma onUserMessage 意图路由：说"热点/热搜"即开，说"关闭"即关）
+    if (hotspotOpen && /关闭|退出|关掉|隐藏|不要/.test(msgText)) {
+      setHotspotOpen(false)
+    } else if (/热点|热搜|打开热点|看热点|今日热榜|舆情/.test(msgText)) {
+      if (hotTopics.length === 0) loadHotTopics()
+      setHotspotOpen(true)
+    }
 
     let finalText = msgText
     if (attachments.length && !msgText) finalText = '请帮我看一下这些附件'
@@ -516,6 +540,28 @@ export default function AgentPage() {
         <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px)', backgroundSize: '40px 40px' }} />
       </div>
 
+      {/* 客户端每日首启·是否进入热点大屏（仅 Electron，Web 端不渲染） */}
+      {showHotspotPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-[340px] rounded-2xl border border-white/10 bg-[#0d0d14] p-5 shadow-2xl">
+            <h3 className="text-sm font-semibold text-white mb-1">🌐 进入今日热点大屏？</h3>
+            <p className="text-[11px] text-gray-400 mb-4 leading-relaxed">
+              可查看全球实时热榜与舆情地球分布。今天不再询问，明天会再次提示。
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => answerHotspotPrompt(false)}
+                className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] text-gray-400 transition">
+                暂不
+              </button>
+              <button onClick={() => answerHotspotPrompt(true)}
+                className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-[11px] text-emerald-300 transition">
+                进入热点
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="relative z-10 h-14 border-b border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80 flex items-center px-3 sm:px-4 shrink-0">
         <div className="flex items-center gap-2 ml-1">
@@ -538,11 +584,6 @@ export default function AgentPage() {
             className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${isRecording ? 'bg-red-500/30 text-red-300 animate-pulse' : orbState === 'thinking' ? 'bg-purple-500/20 text-purple-300' : orbState === 'speaking' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
             title={isRecording ? '点击停止录音' : (orbState === 'thinking' ? '思考中' : orbState === 'speaking' ? '朗读中' : '点击说话')}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2m7 9v3"/></svg>
-          </button>
-          <button onClick={() => { if (!hotspotOpen && hotTopics.length === 0) loadHotTopics(); setHotspotOpen(v => !v) }}
-            className={`agent-hotspot-toggle hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] transition ${hotspotOpen ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
-            title={hotspotOpen ? '关闭热点大屏' : '打开热点大屏'}>
-            🌐 热点大屏
           </button>
           <a href="/workspace" className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-gray-200 transition" title="工具箱">
             工具箱
@@ -631,8 +672,10 @@ export default function AgentPage() {
           </div>
         </aside>
 
-        {/* 热点大屏（融合 BaiLongma hotspot-mode：全屏互斥，呼出时主对话右移收窄） */}
-        <section className="agent-hotspot hidden fixed inset-0 z-40 bg-[#05050a]">
+        {/* 热点大屏（融合 BaiLongma hotspot-mode：全屏互斥，呼出时主对话右移收窄；
+            仅在 hotspotOpen 时挂载，确保地球 canvas 拿到正确尺寸） */}
+        {hotspotOpen && (
+        <section className="agent-hotspot fixed inset-0 z-40 bg-[#05050a]">
           <div className="w-full h-full flex flex-col">
             {/* 大屏顶栏 */}
             <div className="shrink-0 h-14 px-4 flex items-center gap-3 border-b border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80">
@@ -691,6 +734,7 @@ export default function AgentPage() {
             </div>
           </div>
         </section>
+        )}
 
         {/* 主对话 */}
         <main className="agent-main-col flex-1 flex flex-col min-w-0 agent-main">

@@ -28,29 +28,36 @@ function latLngToVec3(lat: number, lng: number, r: number): THREE.Vector3 {
   return new THREE.Vector3(x, y, z)
 }
 
-// 程序生成地球海洋/陆地纹理（免外网依赖，无 NASA 在线贴图时也能出效果）
+// 程序生成地球海洋/陆地纹理（NASA 在线贴图加载失败时的本地兜底）
 function makeEarthTexture(): THREE.Texture {
   const c = document.createElement('canvas')
   c.width = 1024; c.height = 512
   const ctx = c.getContext('2d')!
-  // 海洋渐变
   const g = ctx.createLinearGradient(0, 0, 0, 512)
-  g.addColorStop(0, '#0a2a4a')
-  g.addColorStop(0.5, '#0d3b66')
-  g.addColorStop(1, '#0a2a4a')
+  g.addColorStop(0, '#0a2a4a'); g.addColorStop(0.5, '#0d3b66'); g.addColorStop(1, '#0a2a4a')
   ctx.fillStyle = g
   ctx.fillRect(0, 0, 1024, 512)
-  // 伪随机大陆块（暖绿/沙色）
   const blobs = [
     [180, 180, 90, '#1f6f4a'], [260, 300, 70, '#2a7d54'], [520, 200, 110, '#237a4f'],
     [560, 330, 80, '#2f8a5a'], [760, 240, 95, '#1f6f4a'], [820, 360, 60, '#2a7d54'],
     [400, 120, 50, '#3a8a60'], [680, 400, 70, '#237a4f'],
   ]
-  blobs.forEach(([x, y, r, col]) => {
-    ctx.fillStyle = col
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill()
-  })
+  blobs.forEach(([x, y, r, col]) => { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill() })
   const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+}
+
+// 加载 NASA Blue Marble 真实贴图（three-globe 官方示例 CDN），失败回退本地纹理
+function loadEarthTexture(fallback: THREE.Texture): THREE.Texture {
+  const loader = new THREE.TextureLoader()
+  loader.setCrossOrigin('anonymous')
+  const tex = loader.load(
+    'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
+    (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4 },
+    undefined,
+    () => { /* 加载失败：保留 fallback 本地纹理 */ }
+  )
   tex.colorSpace = THREE.SRGBColorSpace
   return tex
 }
@@ -86,11 +93,11 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
     mount.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // 光照
-    const ambient = new THREE.AmbientLight(0xffffff, 0.9)
+    // 光照（降低环境光以凸显 NASA 贴图细节，方向光打出立体感）
+    const ambient = new THREE.AmbientLight(0xffffff, 0.55)
     scene.add(ambient)
-    const dir = new THREE.DirectionalLight(0xffffff, 0.7)
-    dir.position.set(2, 1, 2)
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9)
+    dir.position.set(2.5, 1.5, 2)
     scene.add(dir)
 
     const globe = new THREE.Group()
@@ -98,11 +105,11 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
     scene.add(globe)
 
     const R = 1
-    // 实体地球（NASA 风格贴图 + 程序兜底）
+    // 实体地球（NASA Blue Marble 真实贴图，失败回退本地纹理）
     const earthMat = new THREE.MeshPhongMaterial({
-      map: makeEarthTexture(),
-      shininess: 8,
-      specular: new THREE.Color(0x223344),
+      map: loadEarthTexture(makeEarthTexture()),
+      shininess: 6,
+      specular: new THREE.Color(0x112233),
     })
     const earth = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 48), earthMat)
     globe.add(earth)

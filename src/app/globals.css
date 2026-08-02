@@ -133,7 +133,6 @@ select.input-dark option, select option { background-color:#1f2937; color:#e5e7e
   to   { opacity: 1; transform: translateX(0) scale(1); }
 }
 body.hotspot-mode .agent-hotspot {
-  display: flex;
   animation: hotspot-slide-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 body.hotspot-mode .agent-thinking-aside {
