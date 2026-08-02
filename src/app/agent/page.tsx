@@ -2,9 +2,12 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { useAuth } from '@/app/providers'
 import VoiceOrb from '@/components/VoiceOrb'
-import GlobeTrends from '@/components/GlobeTrends'
+
+// 3D 地球（three.js 纯客户端组件，禁用 SSR 避免服务端预渲染时 require('three') 失败）
+const GlobeTrends = dynamic(() => import('@/components/GlobeTrends'), { ssr: false })
 
 // 声纹球状态（融合 BaiLongma 语音环观感）
 type OrbState = 'idle' | 'listening' | 'recognizing' | 'speaking' | 'thinking'
