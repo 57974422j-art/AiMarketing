@@ -717,7 +717,7 @@ export default function AgentPage() {
           const regionMax = Math.max(1, ...regionRows.map((r) => r.pct))
           const sentiment = 72
           return (
-        <section className="agent-hotspot bg-[#05050a] text-[#e6eaf2] h-full">
+        <section className="agent-hotspot bg-[#05050a] text-[#e6eaf2]">
           <div className="w-full h-full flex flex-col" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}>
             {/* 顶栏 */}
             <div className="shrink-0 h-12 px-4 flex items-center gap-3 border-b border-white/[0.07] bg-[#0a0e16]/90">
