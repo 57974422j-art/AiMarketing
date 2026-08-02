@@ -329,6 +329,8 @@ export default function AgentPage() {
     } catch {} finally { setHotLoading(false) }
   }
   useEffect(() => { if (messages.length === 0) loadHotTopics() }, [])
+  // 大屏打开时若数据为空则自动拉取（覆盖每日首启 modal 等所有入口，避免左列国内为空）
+  useEffect(() => { if (hotspotOpen && hotTopics.length === 0) loadHotTopics() }, [hotspotOpen])
 
   // 加载助手人设名字（agent_profile 记忆，白龙马式自定义名）
   useEffect(() => {
