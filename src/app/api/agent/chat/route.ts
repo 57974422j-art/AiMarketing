@@ -470,7 +470,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { message, history = [], sessionId: sid, attachments } = body
+    const { message, history = [], sessionId: sid, attachments, hotContext } = body
 
     if (!message || typeof message !== 'string' || !message.trim()) {
       return NextResponse.json({ success: false, message: '请输入消息' }, { status: 400 })
@@ -493,8 +493,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 构建消息（Agnes 多模态对话格式）
+    const sysBlocks: string[] = [SYSTEM_PROMPT]
+    if (hotContext && typeof hotContext === 'string' && hotContext.trim()) {
+      sysBlocks.push(
+        `\n【今日热点上下文（用户主页展示的真实热榜，可主动结合做内容，但只在相关时提及，不要每条都硬塞）】\n${hotContext}`
+      )
+    }
     const messages: AgentChatMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: sysBlocks.join('\n') },
     ]
     for (const h of history.slice(-10)) {
       messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })

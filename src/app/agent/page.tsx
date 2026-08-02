@@ -18,7 +18,7 @@ function useAgentVoice() {
       const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext
       if (!Ctx) return
       if (!ctxRef.current) ctxRef.current = new Ctx()
-      const ctx = ctxRef.current
+      const ctx = ctxRef.current!
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
       osc.type = 'sine'
@@ -92,6 +92,18 @@ const SUGGESTIONS = [
   '帮我找一张产品图',
 ]
 
+// 思考步骤流工具中文标签（右侧常驻面板渲染用）
+const TOOL_STEP_LABEL: Record<string, string> = {
+  generate_image: '生成图片',
+  generate_video: '生成视频',
+  search_storage: '检索素材库',
+  list_personal_files: '列出个人仓库',
+  publish_content: '规划发布',
+  upsert_memory: '记忆客户画像',
+  search_memory: '回忆长期记忆',
+  web_search: '联网搜索',
+}
+
 export default function AgentPage() {
   const { user } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
@@ -107,6 +119,11 @@ export default function AgentPage() {
   const [lastPoints, setLastPoints] = useState<number | null>(null)
   // 右侧常驻思考步骤流
   const [liveSteps, setLiveSteps] = useState<{ tool: string; label: string }[]>([])
+  // 语音实时识别中间文本
+  const [interimText, setInterimText] = useState('')
+  // 今日热点（融合 BaiLongma 热点推荐：真实热榜注入主页 + 对话上下文）
+  const [hotTopics, setHotTopics] = useState<{ source: string; items: { title: string; hot?: string }[] }[]>([])
+  const [hotLoading, setHotLoading] = useState(false)
 
   // ===== 阶段一·语音环状态 =====
   const [autoSpeak, setAutoSpeak] = useState(false)
@@ -178,6 +195,7 @@ export default function AgentPage() {
           const d = await r.json()
           if (d.success && d.text) {
             setInput(d.text)
+            setInterimText(d.text)
           } else {
             setRecordingTip(d.message || '识别失败')
           }
@@ -186,6 +204,7 @@ export default function AgentPage() {
         }
         setIsRecording(false)
         setOrbState('idle')
+        setInterimText('')
         setTimeout(() => setRecordingTip(''), 2500)
       }
       rec.start()
@@ -227,6 +246,17 @@ export default function AgentPage() {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
+  // 加载今日热点（真实热榜，融合 BaiLongma 热点推荐体验）
+  const loadHotTopics = async () => {
+    setHotLoading(true)
+    try {
+      const r = await fetch('/api/agent/hotspots', { credentials: 'include' })
+      const d = await r.json()
+      if (d.success && d.sources?.length) setHotTopics(d.sources)
+    } catch {} finally { setHotLoading(false) }
+  }
+  useEffect(() => { if (messages.length === 0) loadHotTopics() }, [])
+
   // 加载素材仓库
   const loadStorageForPicker = async () => {
     try {
@@ -267,6 +297,12 @@ export default function AgentPage() {
       const history = messages.slice(-10).map(m => ({ role: m.role, content: m.content }))
       const body: any = { message: finalText, history, sessionId: sessionId || undefined }
       if (attachments.length) body.attachments = attachments
+      // 注入今日热点上下文（融合 BaiLongma 热点推荐：让助手能结合真实热榜做内容）
+      if (hotTopics.length) {
+        body.hotContext = hotTopics
+          .map(s => `${s.source}：${s.items.map(i => i.title).join('、')}`)
+          .join('；')
+      }
 
       const res = await fetch('/api/agent/chat', {
         method: 'POST', credentials: 'include',
@@ -471,67 +507,103 @@ export default function AgentPage() {
               <p className="text-[10px] text-amber-300/80 text-center">🪙 本次对话消耗 {lastPoints} 点</p>
             )}
             {messages.length === 0 && (
-              /* BaiLongma 桌面双栏主页：左声纹舞台 / 右信息面板 */
-              <div className="grid lg:grid-cols-[minmax(360px,520px)_minmax(420px,1fr)] gap-8 items-center max-w-6xl mx-auto px-4 py-10 min-h-[60vh]">
-                {/* 左栏：声纹球主舞台 */}
-                <section className="flex flex-col items-center lg:items-start">
-                  <div className="flex items-center gap-3 mb-7">
-                    <div className="w-10 h-10 rounded-xl border border-emerald-400/40 bg-emerald-500/10 flex items-center justify-center text-emerald-300 font-bold shadow-[0_0_30px_rgba(56,189,248,0.15)]">
-                      AI
-                    </div>
-                    <div className="flex flex-col">
-                      <strong className="text-white text-base leading-none">AI 营销助手</strong>
-                      <span className="text-[11px] text-gray-500 mt-1">智能体 · 桌面客户端</span>
-                    </div>
-                  </div>
-                  <div className="relative mb-5 self-center">
-                    <div className="absolute inset-0 rounded-full bg-emerald-500/10 blur-2xl scale-90" />
+              /* BaiLongma 主页气质：顶部居中悬浮声纹球 + 引导 + 今日热点 */
+              <div className="flex flex-col items-center w-full px-5 pt-10 pb-8">
+                <div className="relative flex flex-col items-center">
+                  <div
+                    className="pointer-events-none absolute -top-10 h-56 w-56 rounded-full opacity-25 blur-3xl"
+                    style={{ background: 'radial-gradient(circle, #ff9f1c, transparent 70%)' }}
+                  />
+                  <div className="relative">
+                    <div className="absolute inset-0 rounded-full bg-orange-500/10 blur-2xl scale-90" />
                     <VoiceOrb
                       state={orbState}
                       volume={micVolume}
-                      size={240}
-                      className="relative drop-shadow-[0_0_24px_rgba(56,189,248,0.25)]"
+                      size={180}
+                      className="relative drop-shadow-[0_0_24px_rgba(255,159,28,0.25)]"
                     />
                     <button onClick={toggleRecording}
                       className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
                       title={isRecording ? '点击停止' : '点击说话'} />
                   </div>
-                  <p className="text-[11px] text-emerald-400/70 text-center lg:text-left w-full">
+                  <p className="text-[12px] text-orange-300/80 text-center mt-5">
                     {orbState === 'listening' ? '🎤 正在聆听…' : orbState === 'recognizing' ? '🔍 识别中…' : orbState === 'thinking' ? '💭 思考中…' : orbState === 'speaking' ? '🔊 朗读中…' : '声纹球待命中 · 点击说话'}
                   </p>
-                </section>
+                  {isRecording && interimText && (
+                    <div className="mt-2 max-w-sm text-xs text-white/70 px-3 py-2 rounded-lg bg-white/5 border border-white/10">
+                      {interimText}
+                    </div>
+                  )}
+                </div>
 
-                {/* 右栏：信息 + 建议 */}
-                <section className="flex flex-col justify-center">
-                  <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-3 leading-tight">
-                    我能帮你做什么？
-                  </h1>
-                  <p className="text-xs text-gray-500 mb-6 leading-relaxed max-w-md">
-                    点击左侧声纹球直接说话，或在下方输入需求，我帮你生成图片/视频、查找素材、发布内容、推送微信飞书。
-                  </p>
-                  <p className="text-[10px] text-gray-600 mb-2">快捷指令</p>
-                  <div className="flex flex-wrap gap-2 mb-6">
-                    {SUGGESTIONS.map((s, i) => (
-                      <button key={i} onClick={() => sendMessage(s)}
-                        className="px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-emerald-500/20 text-[11px] text-gray-400 hover:text-gray-200 transition-all">
-                        {s}
-                      </button>
-                    ))}
+                <h1 className="mt-5 text-2xl sm:text-3xl font-bold text-white tracking-tight mb-3 leading-tight text-center">
+                  我能帮你做什么？
+                </h1>
+                <p className="text-xs text-gray-500 mb-5 leading-relaxed max-w-md text-center">
+                  点击上方声纹球直接说话，或在下方输入需求，我帮你生成图片/视频、结合热点做内容、查找素材、发布、推送微信飞书。
+                </p>
+
+                <div className="flex flex-wrap gap-2 mb-6 justify-center max-w-xl">
+                  {SUGGESTIONS.map((s, i) => (
+                    <button key={i} onClick={() => sendMessage(s)}
+                      className="px-3 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-orange-400/30 text-[11px] text-gray-400 hover:text-gray-200 transition-all">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 今日热点（融合 BaiLongma 热点推荐：真实热榜注入主页） */}
+                <div className="w-full max-w-3xl">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-[11px] font-medium text-gray-500 tracking-wide flex items-center gap-1.5">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-400 animate-pulse" />
+                      今日热点 · 点条目让助手结合热点出方案
+                    </div>
+                    <button onClick={loadHotTopics} className="text-[11px] text-gray-500 hover:text-gray-300 transition">
+                      {hotLoading ? '刷新中…' : '↻ 刷新'}
+                    </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 max-w-md">
-                    {[
-                      ['🎨 多模态生成', '文生图 / 文生视频'],
-                      ['🗂 素材管理', '个人仓库 / 项目库'],
-                      ['📡 渠道推送', '微信 / 飞书群'],
-                      ['🧠 长期记忆', '越用越懂你'],
-                    ].map(([t, d], i) => (
-                      <div key={i} className="rounded-xl bg-white/[0.02] border border-white/[0.06] px-3 py-2.5">
-                        <p className="text-[11px] text-gray-200 font-medium">{t}</p>
-                        <p className="text-[10px] text-gray-500 mt-0.5">{d}</p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
+                  {hotTopics.length === 0 ? (
+                    <div className="text-[11px] text-gray-600 text-center py-4 border border-dashed border-white/10 rounded-xl">
+                      {hotLoading ? '正在获取热榜…' : '暂无热点数据'}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      {hotTopics.slice(0, 3).map((src) => (
+                        <div key={src.source} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                          <div className="text-[11px] font-semibold text-orange-300/90 mb-2">{src.source}</div>
+                          <ul className="space-y-1.5">
+                            {src.items.slice(0, 5).map((it, i) => (
+                              <li key={i}>
+                                <button
+                                  onClick={() => sendMessage(`结合「${it.title}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
+                                  className="text-left text-[11px] text-gray-400 hover:text-gray-100 leading-snug transition line-clamp-1"
+                                  title={it.title}
+                                >
+                                  {i + 1}. {it.title}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 w-full max-w-3xl mt-6">
+                  {[
+                    ['🎨 多模态生成', '文生图 / 文生视频'],
+                    ['🔥 热点结合', '借势做内容'],
+                    ['📡 渠道推送', '微信 / 飞书群'],
+                    ['🧠 长期记忆', '越用越懂你'],
+                  ].map(([t, d], i) => (
+                    <div key={i} className="rounded-xl bg-white/[0.02] border border-white/[0.06] px-3 py-2.5">
+                      <p className="text-[11px] text-gray-200 font-medium">{t}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">{d}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
