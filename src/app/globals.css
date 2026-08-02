@@ -144,23 +144,22 @@ body.hotspot-mode .agent-main {
   width: 100%;
 }
 body.hotspot-mode .agent-shell {
-  display: block;
+  display: flex;
+  flex-direction: row;
 }
 body.hotspot-mode .agent-shell .agent-main-col {
   width: 380px;
   flex: 0 0 380px;
-  /* 热点大屏铺满背景时，AI 语音对话框（含声纹球/输入框）常驻右侧并置于大屏之上 */
-  position: relative;
-  z-index: 50;
 }
 @media (max-width: 1023px) {
   body.hotspot-mode .agent-shell .agent-main-col { width: 320px; flex: 0 0 320px; }
 }
+/* 热点大屏作为 agent-shell 的 flex 子项占据左侧主区，与右侧对话栏并排共存、互不重叠 */
 body.hotspot-mode .agent-shell .agent-hotspot {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  padding: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 body.hotspot-mode header .agent-hotspot-toggle {
   background: rgba(16,185,129,0.2);
