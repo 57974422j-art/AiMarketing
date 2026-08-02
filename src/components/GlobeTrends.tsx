@@ -253,7 +253,8 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
     <div className="relative w-full h-full min-h-0">
       <div
         ref={mountRef}
-        className="absolute inset-0 overflow-hidden cursor-grab active:cursor-grabbing"
+        className="absolute inset-0 rounded-2xl border border-white/10 bg-[#070710] overflow-hidden cursor-grab active:cursor-grabbing"
+        style={{ boxShadow: 'inset 0 0 60px rgba(43,108,176,0.15)' }}
       />
       <div className="absolute top-3 left-3 flex items-center gap-3 text-[10px]">
         <span className="flex items-center gap-1 text-gray-400">

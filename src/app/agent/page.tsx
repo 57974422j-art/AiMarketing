@@ -785,16 +785,14 @@ export default function AgentPage() {
               </div>
               {/* 中柱：地球 + 辅助信息（复刻 BaiLongma 结构，地球 flex:1 1 0 + min-h-0） */}
               <div className="flex-1 flex flex-col min-w-0 min-h-0">
-                {/* 地球容器（flex:1 1 0 + min-h-0，是收缩关键，绝不写死高度） */}
+                {/* 地球容器（flex:1 1 0 + min-h-0，收缩关键，不写死高度） */}
                 <div className="flex-[1_1_0] min-h-0 relative overflow-hidden" style={{ background: 'radial-gradient(ellipse at center, #0a1a2e 0%, #050b14 100%)' }}>
-                  {/* 正方形地球（absolute + m-auto + inset-0 + aspect-square 取短边正方，居中不撑破） */}
+                  {/* 正方形地球（absolute + m-auto + inset-0 + aspect-square 取短边正方，居中） */}
                   <div className="absolute inset-0 m-auto aspect-square max-h-full max-w-full">
                     {hotTopics.length > 0 ? <GlobeTrends sources={hotTopics} /> : (
-                      <div className="text-[11px] text-[#5a6072] flex h-full items-center justify-center">暂无热点数据</div>
+                      <div className="absolute inset-0 flex items-center justify-center text-[11px] text-[#5a6072]">暂无热点数据</div>
                     )}
                   </div>
-                  <span className="absolute top-2.5 right-3.5 text-[9.5px] text-[#4f8cff] tracking-[0.12em] opacity-70">GLOBAL HOTSPOT MAP</span>
-                  <span className="absolute bottom-2 right-3 text-[9px] text-[#6b7180]">拖拽旋转 · 滚轮缩放</span>
                 </div>
                 {/* 辅助：区域关注度 + 情绪指数（固定高度底部条，正常 flex 流） */}
                 <div className="shrink-0 h-[110px] flex border-t-2 border-[#1c2740] bg-[#070d18]">
