@@ -786,9 +786,9 @@ export default function AgentPage() {
               {/* 中柱：地球 + 辅助信息（复刻 BaiLongma 结构，地球 flex:1 1 0 + min-h-0） */}
               <div className="flex-1 flex flex-col min-w-0 min-h-0">
                 {/* 地球容器（flex:1 1 0 + min-h-0，是收缩关键，绝不写死高度） */}
-                <div className="flex-[1_1_0] min-h-0 relative overflow-hidden flex items-center justify-center" style={{ background: 'radial-gradient(ellipse at center, #0a1a2e 0%, #050b14 100%)' }}>
-                  {/* 正方形地球（宽高一致，居中，不撑破布局） */}
-                  <div className="aspect-square max-h-full max-w-full w-auto h-auto relative">
+                <div className="flex-[1_1_0] min-h-0 relative overflow-hidden" style={{ background: 'radial-gradient(ellipse at center, #0a1a2e 0%, #050b14 100%)' }}>
+                  {/* 正方形地球（absolute + m-auto + inset-0 + aspect-square 取短边正方，居中不撑破） */}
+                  <div className="absolute inset-0 m-auto aspect-square max-h-full max-w-full">
                     {hotTopics.length > 0 ? <GlobeTrends sources={hotTopics} /> : (
                       <div className="text-[11px] text-[#5a6072] flex h-full items-center justify-center">暂无热点数据</div>
                     )}
