@@ -597,32 +597,19 @@ export default function AgentPage() {
         </div>
       )}
 
-      {/* Header */}
-      <header className="relative z-10 h-14 border-b border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80 flex items-center px-3 sm:px-4 shrink-0">
+      {/* Header（极简：仅 logo，语音控制已移到底部输入框） */}
+      <header className="relative z-10 h-12 border-b border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80 flex items-center px-3 sm:px-4 shrink-0">
         <div className="flex items-center gap-2 ml-1">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center">
+            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
           </div>
-          <div className="hidden sm:block">
-            <h1 className="text-xs font-semibold text-white">AI 营销助手</h1>
-            <p className="text-[9px] text-emerald-400">智能体 · 在线</p>
-          </div>
+          <span className="text-[11px] font-semibold text-white tracking-wide hidden sm:inline">AI 营销助手</span>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
-          {/* 阶段一·语音环控制 */}
-          <button onClick={() => setAutoSpeak(s => !s)}
-            className={`hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] transition ${autoSpeak ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
-            title="自动朗读回复">
-            🔊 {autoSpeak ? '朗读中' : '自动朗读'}
+          <button onClick={() => { if (hotTopics.length === 0) loadHotTopics(); setHotspotOpen(true) }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-gray-200 transition" title="打开热点大屏">
+            🌐 热点大屏
           </button>
-          <button onClick={toggleRecording}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${isRecording ? 'bg-red-500/30 text-red-300 animate-pulse' : orbState === 'thinking' ? 'bg-purple-500/20 text-purple-300' : orbState === 'speaking' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
-            title={isRecording ? '点击停止录音' : (orbState === 'thinking' ? '思考中' : orbState === 'speaking' ? '朗读中' : '点击说话')}>
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2m7 9v3"/></svg>
-          </button>
-          <a href="/workspace" className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-gray-200 transition" title="工具箱">
-            工具箱
-          </a>
         </div>
       </header>
 
@@ -723,7 +710,7 @@ export default function AgentPage() {
           const regionMax = Math.max(1, ...regionRows.map((r) => r.pct))
           const sentiment = 72
           return (
-        <section className="fixed inset-0 z-40 bg-[#05050a] text-[#e6eaf2]">
+        <section className="fixed inset-0 z-[60] bg-[#05050a] text-[#e6eaf2]">
           <div className="w-full h-full flex flex-col" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}>
             {/* 顶栏 */}
             <div className="shrink-0 h-12 px-4 flex items-center gap-3 border-b border-white/[0.07] bg-[#0a0e16]/90">
@@ -884,17 +871,6 @@ export default function AgentPage() {
                     </button>
                   ))}
                 </div>
-
-                {/* 地球舆情（融合 BaiLongma 地图舆情：3D 地球 + 国内外热点打点，仅大屏显示） */}
-                {hotTopics.length > 0 && (
-                  <div className="hidden lg:block w-full max-w-3xl mb-6">
-                    <div className="flex items-center gap-1.5 mb-2.5">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" />
-                      <span className="text-[11px] font-medium text-gray-400 tracking-wide">🌐 地球舆情 · 实时热点分布</span>
-                    </div>
-                    <GlobeTrends sources={hotTopics} />
-                  </div>
-                )}
 
                 {/* 今日热点（融合 BaiLongma 热点推荐：真实热榜注入主页） */}
                 <div className="w-full max-w-3xl">
@@ -1098,8 +1074,19 @@ export default function AgentPage() {
                     ? 'bg-gradient-to-br from-emerald-400 to-cyan-500 text-white hover:opacity-90' : 'bg-white/5 text-gray-700 cursor-not-allowed'}`}>
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
                 </button>
+                {/* 语音控制（从 Header 下移：自动朗读 + 录音） */}
+                <button onClick={() => setAutoSpeak(s => !s)}
+                  className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition ${autoSpeak ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
+                  title={autoSpeak ? '自动朗读：开' : '自动朗读：关'}>
+                  🔊
+                </button>
+                <button onClick={toggleRecording}
+                  className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition ${isRecording ? 'bg-red-500/30 text-red-300 animate-pulse' : orbState === 'thinking' ? 'bg-purple-500/20 text-purple-300' : orbState === 'speaking' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
+                  title={isRecording ? '点击停止录音' : (orbState === 'thinking' ? '思考中' : orbState === 'speaking' ? '朗读中' : '点击说话')}>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2m7 9v3"/></svg>
+                </button>
               </div>
-              <p className="text-[8px] text-gray-700 text-center mt-1 hidden sm:block">Enter 发送 · Shift+Enter 换行 · 📎 上传图片/视频</p>
+              <p className="text-[8px] text-gray-700 text-center mt-1 hidden sm:block">Enter 发送 · Shift+Enter 换行 · 📎 上传图片/视频 · 🔊 朗读 · 🎤 语音</p>
             </div>
           </footer>
         </main>

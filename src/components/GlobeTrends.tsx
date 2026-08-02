@@ -102,6 +102,8 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
 
     const globe = new THREE.Group()
     globeRef.current = globe
+    // 初始朝向：亚洲（中国）居中面对相机，确保国内平台光点默认可见
+    globe.rotation.y = -Math.PI / 2
     scene.add(globe)
 
     const R = 1
