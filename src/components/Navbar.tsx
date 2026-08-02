@@ -117,17 +117,9 @@ export default function Navbar() {
             {mounted && <VersionBadge version={appVersion} onCheck={checkUpdate} />}
           </div>
 
-          {/* Desktop nav — 精简：工作台入口已在卡片中，导航只保留核心入口 */}
-          <div className="hidden md:flex items-center space-x-1">
-            <Link href="/workspace" className="px-3 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-all text-sm font-medium">🏠 工作台</Link>
-            {(user?.role === 'admin' || user?.role === 'editor') && (
-              <Link href="/ai-tools" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">🛠 工具集</Link>
-            )}
-            {(user?.role === 'admin' || user?.role === 'editor') && (
-              <Link href="/admin/" className="px-3 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-lg transition-all text-sm font-bold">⚙ 管理中心</Link>
-            )}
-            <Link href="/download" className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">📥 下载客户端</Link>
-            <button onClick={() => setFeedbackOpen(true)} className="px-3 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 rounded-lg transition-all text-sm">💬 反馈</button>
+          {/* Desktop nav — 主入口全部收进头像下拉框，桌面顶栏只留品牌+版本 */}
+          <div className="hidden md:flex items-center space-x-1 text-xs text-gray-500">
+            <span>导航菜单见右侧头像 ▾</span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -152,15 +144,22 @@ export default function Navbar() {
                 </svg>
               </button>
               {showUserMenu && (
-                <div className="absolute top-full right-0 mt-1 w-48 bg-gray-900/95 backdrop-blur-md border border-white/10 rounded-xl shadow-xl py-2 z-50">
+                <div className="absolute top-full right-0 mt-1 w-52 bg-gray-900/95 backdrop-blur-md border border-white/10 rounded-xl shadow-xl py-2 z-50">
                   <div className="px-4 py-3 border-b border-white/10">
                     <p className="text-sm text-white">{user?.username?.toUpperCase()}</p>
                     <p className="text-xs text-emerald-400 mt-1">{roleInfo}</p>
                   </div>
-                  <Link href="/my-subscription" className="block px-4 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 text-sm">💳 查看充值/套餐</Link>
+                  <Link href="/workspace" className="block px-4 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 text-sm">🏠 工作台</Link>
                   {(user?.role === 'admin' || user?.role === 'editor') && (
-                    <Link href="/admin/" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm">🖥️ 管理中心</Link>
+                    <Link href="/ai-tools" className="block px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">🛠 工具集</Link>
                   )}
+                  {(user?.role === 'admin' || user?.role === 'editor') && (
+                    <Link href="/admin/" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm font-bold">⚙ 管理中心</Link>
+                  )}
+                  <Link href="/download" className="block px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">📥 下载客户端</Link>
+                  <Link href="/my-subscription" className="block px-4 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 text-sm">💳 查看充值/套餐</Link>
+                  <button onClick={() => { setShowUserMenu(false); setFeedbackOpen(true) }} className="w-full text-left px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">💬 反馈</button>
+                  <div className="border-t border-white/10 my-1" />
                   <button onClick={logout} className="w-full text-left px-4 py-2 text-red-400 hover:bg-red-500/10 text-sm">{t.common.logout}</button>
                 </div>
               )}
