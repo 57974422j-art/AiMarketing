@@ -9,6 +9,21 @@ import VoiceOrb from '@/components/VoiceOrb'
 // 3D 地球（three.js 纯客户端组件，禁用 SSR 避免服务端预渲染时 require('three') 失败）
 const GlobeTrends = dynamic(() => import('@/components/GlobeTrends'), { ssr: false })
 
+// 阶段三：用户关注度埋点（localStorage 轻量实现，按收看/点击习惯累积权重，驱动热点排序）
+const ATT_KEY = 'agent_attention'
+function readAttention(): Record<string, number> {
+  if (typeof window === 'undefined') return {}
+  try { return JSON.parse(localStorage.getItem(ATT_KEY) || '{}') } catch { return {} }
+}
+function trackAttention(source: string) {
+  if (typeof window === 'undefined' || !source) return
+  try {
+    const a = readAttention()
+    a[source] = (a[source] || 0) + 1
+    localStorage.setItem(ATT_KEY, JSON.stringify(a))
+  } catch { /* 忽略 */ }
+}
+
 // 平台热榜卡片（仿白龙马 .hs-panel：标题行 + 排行列表）
 function HotListCard({ source, items, accent, onPick, collapsed, onToggle }: {
   source: string
@@ -48,6 +63,55 @@ function HotListCard({ source, items, accent, onPick, collapsed, onToggle }: {
           {items.length === 0 && <li className="text-[10px] text-[#5a6072] text-center py-3">暂无数据</li>}
         </ul>
       )}
+    </div>
+  )
+}
+
+// 实时事件流卡片（复刻 BaiLongma hs-feed-bar：横向滚动卡片轮播）
+function FeedBar({ items, onPlay, onPick }: {
+  items: { id: string; source: string; region: 'cn' | 'global'; title: string; hot?: string; url?: string }[]
+  onPlay?: (url: string, title: string) => void
+  onPick?: (item: { source: string; title: string }) => void
+}) {
+  if (items.length === 0) return null
+  return (
+    <div className="shrink-0 h-[58px] flex items-center gap-2 border-t border-white/[0.07] bg-[#070d18] px-3 overflow-hidden">
+      <span className="shrink-0 text-[9px] font-bold text-[#4f8cff] flex items-center gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#4f8cff] animate-pulse" />实时事件流
+      </span>
+      <div className="flex-1 overflow-x-auto flex items-center gap-2 scrollbar-thin">
+        {items.map((it) => (
+          <button
+            key={it.id}
+            onClick={() => onPick?.(it)}
+            className="shrink-0 group flex items-center gap-2 max-w-[260px] px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.09] border border-white/[0.06] transition cursor-pointer"
+            title={`${it.source} · ${it.title}`}
+          >
+            <span className={`shrink-0 text-[8px] px-1 py-0.5 rounded ${it.region === 'global' ? 'bg-[#1e3a5f] text-[#7db4ff]' : 'bg-[#14361f] text-[#5fd99a]'}`}>{it.source}</span>
+            <span className="text-[10px] text-[#cdd3e0] truncate">{it.title}</span>
+            {it.hot && <span className="shrink-0 text-[8px] text-[#6b7180]">{it.hot}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// 全局视频播放器（阶段二：对话/语音"找视频"统一播放，<video> 通道，支持 OSS/直链）
+function VideoPlayer({ state, onClose }: {
+  state: { open: boolean; url: string; title: string }
+  onClose: () => void
+}) {
+  if (!state.open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-[min(90vw,860px)] bg-[#0a0e16] rounded-xl border border-white/10 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
+          <span className="text-[12px] text-gray-200 truncate">{state.title || '视频播放'}</span>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-lg leading-none px-2">✕</button>
+        </div>
+        <video src={state.url} controls autoPlay className="w-full max-h-[70vh] bg-black" />
+      </div>
     </div>
   )
 }
@@ -224,6 +288,15 @@ export default function AgentPage() {
   const analyserRef = useRef<AnalyserNode | null>(null)
   const volRafRef = useRef<number>(0)
   const voice = useAgentVoice()
+
+  // ===== 全局视频播放器（阶段二：对话/语音"找视频"统一在此播放）=====
+  const [player, setPlayer] = useState<{ open: boolean; url: string; title: string }>({ open: false, url: '', title: '' })
+  const handlePlayVideo = (url: string, title = '') => {
+    if (!url) return
+    setPlayer({ open: true, url, title })
+  }
+  // 对话/语音命中"找视频"类意图时，由外部调用（search_video 工具结果经消息渲染触发）
+  const openVideoFromUrl = (url: string, title = '') => handlePlayVideo(url, title)
 
   // 录音：按住说话 / 点击切换
   const startRecording = async () => {
@@ -546,11 +619,22 @@ export default function AgentPage() {
         )
       }
     }
-    // 结果卡片
-    const resRe = /(DH_RESULT|VIDEO_RESULT):(.+)/
+    // 结果卡片（支持 VIDEO_RESULT:url|TITLE:标题 触发全局播放器）
+    const resRe = /(DH_RESULT|VIDEO_RESULT):([^|]+)(?:\|TITLE:([^|\n]+))?/
     const rm = content.match(resRe)
     if (rm) {
       const url = rm[2].trim()
+      const title = (rm[3] || '').trim()
+      // 视频类结果：弹出全局播放器播放（阶段二：语音/对话"找视频"统一入口）
+      if (rm[1] === 'VIDEO_RESULT') {
+        if (typeof window !== 'undefined') openVideoFromUrl(url, title)
+        return (
+          <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <p className="text-sm text-emerald-300 mb-2">{title || '已为你找到视频，正在播放…'}</p>
+            <button onClick={() => openVideoFromUrl(url, title)} className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-medium transition">▶ 点击在此播放</button>
+          </div>
+        )
+      }
       return (
         <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
           <p className="text-sm text-emerald-300 mb-2">{map[rm[1].replace('_RESULT', '_TASK') as string]?.doneText || '任务已完成'}</p>
@@ -725,13 +809,29 @@ export default function AgentPage() {
           const rightDefault = rightSources[0]?.source ?? null
           const leftOpen = leftExpanded ?? leftDefault
           const rightOpen = rightExpanded ?? rightDefault
-          // 中间辅助：区域关注度（按各源话题数派生）、情绪指数（mock 稳定值）
+          // 阶段三：用户关注度（localStorage 埋点，按用户收看/点击习惯加权排序）
+          const attention = readAttention()
+          const attWeight = (source: string) => attention[source] || 0
+          // 中间辅助：平台爆款覆盖度（按各源话题数 + 用户关注度加权派生）、情绪指数（mock 稳定值）
           const regionRows = cnSources
-            .map((s) => ({ name: s.source, pct: s.items.length }))
+            .map((s) => ({ name: s.source, pct: s.items.length + attWeight(s.source) * 3 }))
             .sort((a, b) => b.pct - a.pct)
             .slice(0, 5)
           const regionMax = Math.max(1, ...regionRows.map((r) => r.pct))
           const sentiment = 72
+          // 实时事件流卡片（扁平化所有源，按用户关注度排序：常看的 source 前置）
+          const feedItems = hotTopics
+            .sort((a, b) => attWeight(b.source) - attWeight(a.source))
+            .flatMap((s) =>
+              s.items.slice(0, 6).map((it, i) => ({
+                id: `${s.source}-${i}`,
+                source: s.source,
+                region: s.region,
+                title: it.title,
+                hot: it.hot,
+                url: it.url,
+              }))
+            )
           return (
         <section className="agent-hotspot bg-[#05050a] text-[#e6eaf2] relative">
           <div className="w-full h-full flex flex-col" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}>
@@ -778,7 +878,7 @@ export default function AgentPage() {
                       accent="#ff8a3c"
                       collapsed={!isFirst && src.source !== leftOpen}
                       onToggle={isFirst ? undefined : () => setLeftExpanded((cur) => (cur === src.source ? null : src.source))}
-                      onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
+                      onPick={(t) => { trackAttention(src.source); sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`) }}
                     />
                   )
                 })}
@@ -796,7 +896,7 @@ export default function AgentPage() {
                 {/* 辅助：区域关注度 + 情绪指数（固定高度底部条，正常 flex 流） */}
                 <div className="shrink-0 h-[110px] flex border-t-2 border-[#1c2740] bg-[#070d18]">
                   <div className="flex-1 p-2.5 border-r border-white/[0.07] overflow-hidden">
-                    <div className="text-[10px] text-[#aab2c2] font-semibold mb-1.5">区域关注度 <span className="text-[8.5px] text-[#6b7180] font-normal">REGION</span></div>
+                    <div className="text-[10px] text-[#aab2c2] font-semibold mb-1.5">平台爆款覆盖度 <span className="text-[8.5px] text-[#6b7180] font-normal">不限平台</span></div>
                     <div className="flex flex-col gap-1.5">
                       {regionRows.map((r) => (
                         <div key={r.name} className="flex items-center gap-2">
@@ -826,6 +926,8 @@ export default function AgentPage() {
                     <span className="text-[9.5px] text-[#3ad29f] mt-1">▲ 较昨日 +3</span>
                   </div>
                 </div>
+                {/* 实时事件流（复刻 BaiLongma hs-feed-bar：区域关注度下方、跑马灯上方的横向卡片轮播） */}
+                <FeedBar items={feedItems} onPlay={handlePlayVideo} onPick={(it) => { trackAttention(it.source); sendMessage(`结合「${it.title}」这个热点，帮我出一个适合自媒体发布的内容方案`) }} />
               </div>
               {/* 右柱：微信/微博 + 全球热榜（头部 1 个固定展开 + 其余折叠手风琴） */}
               <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-l border-white/[0.07]">
@@ -840,7 +942,7 @@ export default function AgentPage() {
                       accent={src.region === 'global' ? '#4f8cff' : '#3ad29f'}
                       collapsed={!isFirst && src.source !== rightOpen}
                       onToggle={isFirst ? undefined : () => setRightExpanded((cur) => (cur === src.source ? null : src.source))}
-                      onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
+                      onPick={(t) => { trackAttention(src.source); sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`) }}
                     />
                   )
                 })}
@@ -865,6 +967,9 @@ export default function AgentPage() {
         </section>
           )
         })()}
+
+        {/* 全局视频播放器（对话/语音"找视频"统一播放） */}
+        <VideoPlayer state={player} onClose={() => setPlayer({ open: false, url: '', title: '' })} />
 
         {/* 主对话 */}
         <main className="agent-main-col flex-1 flex flex-col min-w-0 agent-main">

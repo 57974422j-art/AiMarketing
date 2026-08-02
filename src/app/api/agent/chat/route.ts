@@ -105,6 +105,17 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'search_video',
+    description: '搜索可播放的视频素材（项目素材库 + 个人仓库中的视频），用于对话/语音"找视频播放""帮我找个XX视频看看"。触发词："找视频""搜视频""播放""看看视频""找个XX的视频"。命中后返回可直接播放的视频URL(VIDEO_RESULT)，前端会自动弹出播放器播放。优先个人仓库已上传的成片，其次项目素材库。',
+    parameters: {
+      type: 'object',
+      properties: {
+        keyword: { type: 'string', description: '视频关键词（匹配标题/文件名），如"口红""美食""穿搭"；不填则返回最新上传的视频' },
+        scope: { type: 'string', description: '范围：all(默认,个人仓库+素材库) / personal(仅个人仓库) / storage(仅项目素材库)' },
+      },
+    },
+  },
+  {
     name: 'list_personal_files',
     description: '列出用户个人仓库（OSS 私有存储）的文件，含用户自己上传的视频/图片。触发词："我的仓库""个人素材""我上传的""之前传的视频"。发布内容前可主动调用挑选成片；返回的每个文件带可直接使用的URL。',
     parameters: {
@@ -440,6 +451,55 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         }
         return 'STORAGE_RESULT:项目素材库暂无匹配内容。可以试试个人仓库(list_personal_files)、网上找图，或让我AI生成。'
       } catch { return 'STORAGE_RESULT:素材查询失败' }
+    }
+
+    // ── 找视频播放（阶段二：对话/语音"帮我找个XX视频"）──
+    case 'search_video': {
+      try {
+        const kw = (args.keyword || '').trim()
+        const scope = (args.scope || 'all') as string
+        let found: { url: string; title: string }[] = []
+
+        // 1) 个人仓库视频
+        if ((scope === 'all' || scope === 'personal') && auth?.userId) {
+          try {
+            const prefix = `storage/${auth.userId}/`
+            const objects = await listObjects(prefix)
+            const vids = objects
+              .filter(o => !o.name.includes('/.thumbs/'))
+              .map(o => {
+                const name = o.name.replace(prefix, '')
+                const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(name)
+                return { name, isVideo, url: `/api/storage/file?userId=${auth.userId}&name=${encodeURIComponent(name)}` }
+              })
+              .filter(v => v.isVideo)
+              .filter(v => !kw || v.name.includes(kw))
+              .sort((a, b) => b.name.localeCompare(a.name))
+              .slice(0, 5)
+            found.push(...vids.map(v => ({ url: v.url, title: v.name })))
+          } catch { /* 忽略个人仓库错误 */ }
+        }
+
+        // 2) 项目素材库视频
+        if (scope === 'all' || scope === 'storage') {
+          try {
+            const where: any = { type: 'video' }
+            if (kw) where.title = { contains: kw }
+            const items = await prisma.mediaAsset.findMany({ where, orderBy: { createdAt: 'desc' }, take: 5 })
+            found.push(...items.map(m => ({ url: m.url, title: m.title })))
+          } catch { /* 忽略 */ }
+        }
+
+        if (found.length) {
+          // 返回首个可播放视频（VIDEO_RESULT 触发前端播放器），并列出全部候选
+          const first = found[0]
+          const list = found.map((f, i) => `${i + 1}. ${f.title}`).join('\n')
+          return `VIDEO_RESULT:${first.url}|TITLE:${first.title}\n其它候选:\n${list}`
+        }
+        return 'VIDEO_RESULT_EMPTY:未找到匹配的视频。可去【个人仓库】上传视频，或让我用 generate_video 生成一段。'
+      } catch (e: any) {
+        return 'VIDEO_RESULT_EMPTY:视频搜索失败'
+      }
     }
 
     // ── 个人仓库（OSS 私有存储）──
