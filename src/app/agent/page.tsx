@@ -138,8 +138,14 @@ export default function AgentPage() {
   // 语音实时识别中间文本
   const [interimText, setInterimText] = useState('')
   // 今日热点（融合 BaiLongma 热点推荐：真实热榜注入主页 + 对话上下文）
-  const [hotTopics, setHotTopics] = useState<{ source: string; region: 'cn' | 'global'; items: { title: string; hot?: string }[] }[]>([])
+  const [hotTopics, setHotTopics] = useState<{ source: string; region: 'cn' | 'global'; items: { title: string; hot?: string; url?: string }[] }[]>([])
   const [hotLoading, setHotLoading] = useState(false)
+  // 热点大屏（融合 BaiLongma hotspot-mode 全屏互斥布局：呼出时对话框右移收窄）
+  const [hotspotOpen, setHotspotOpen] = useState(false)
+  useEffect(() => {
+    document.body.classList.toggle('hotspot-mode', hotspotOpen)
+    return () => { document.body.classList.remove('hotspot-mode') }
+  }, [hotspotOpen])
 
   // ===== 阶段一·语音环状态 =====
   const [autoSpeak, setAutoSpeak] = useState(false)
@@ -533,15 +539,20 @@ export default function AgentPage() {
             title={isRecording ? '点击停止录音' : (orbState === 'thinking' ? '思考中' : orbState === 'speaking' ? '朗读中' : '点击说话')}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2m7 9v3"/></svg>
           </button>
+          <button onClick={() => { if (!hotspotOpen && hotTopics.length === 0) loadHotTopics(); setHotspotOpen(v => !v) }}
+            className={`agent-hotspot-toggle hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] transition ${hotspotOpen ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
+            title={hotspotOpen ? '关闭热点大屏' : '打开热点大屏'}>
+            🌐 热点大屏
+          </button>
           <a href="/workspace" className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-gray-200 transition" title="工具箱">
             工具箱
           </a>
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden relative z-10">
+      <div className="flex-1 flex overflow-hidden relative z-10 agent-shell">
         {/* 右侧常驻·思考步骤流面板（融合 BaiLongma 步骤流） */}
-        <aside className="hidden xl:flex w-72 border-l border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80 flex-col shrink-0">
+        <aside className="agent-thinking-aside hidden xl:flex w-72 border-l border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80 flex-col shrink-0">
           <div className="p-3 border-b border-white/5">
             <p className="text-[11px] text-gray-300 font-medium flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -620,8 +631,69 @@ export default function AgentPage() {
           </div>
         </aside>
 
+        {/* 热点大屏（融合 BaiLongma hotspot-mode：全屏互斥，呼出时主对话右移收窄） */}
+        <section className="agent-hotspot hidden fixed inset-0 z-40 bg-[#05050a]">
+          <div className="w-full h-full flex flex-col">
+            {/* 大屏顶栏 */}
+            <div className="shrink-0 h-14 px-4 flex items-center gap-3 border-b border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80">
+              <span className="inline-block h-2 w-2 rounded-full bg-orange-400 animate-pulse" />
+              <h2 className="text-sm font-semibold text-white">🌐 热点大屏 · 全球舆情实时分布</h2>
+              <span className="text-[10px] text-gray-500">拖拽地球可旋转 · 滚轮缩放 · 点光点看平台榜单</span>
+              <div className="ml-auto flex items-center gap-2">
+                <button onClick={loadHotTopics} className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 transition">
+                  {hotLoading ? '刷新中…' : '↻ 刷新'}
+                </button>
+                <button onClick={() => setHotspotOpen(false)} className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 transition">
+                  ✕ 关闭
+                </button>
+              </div>
+            </div>
+            {/* 大屏主体：左地球 / 右分栏榜 */}
+            <div className="flex-1 flex overflow-hidden">
+              {/* 地球区 */}
+              <div className="flex-1 relative min-w-0 flex items-center justify-center p-4">
+                {hotTopics.length > 0 ? (
+                  <GlobeTrends sources={hotTopics} />
+                ) : (
+                  <div className="text-[11px] text-gray-600 text-center">
+                    {hotLoading ? '正在获取热榜…' : '暂无热点数据'}
+                  </div>
+                )}
+              </div>
+              {/* 分栏榜（国内/全球） */}
+              <aside className="w-[360px] shrink-0 border-l border-white/5 overflow-y-auto p-3 space-y-3 bg-[#0a0a0f]/40">
+                {hotTopics.length === 0 && (
+                  <p className="text-[11px] text-gray-600 text-center py-8">暂无数据，点右上角「刷新」</p>
+                )}
+                {hotTopics.map((src) => (
+                  <div key={src.source} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className={`w-2 h-2 rounded-full ${src.region === 'cn' ? 'bg-orange-400' : 'bg-sky-400'}`} />
+                      <span className="text-[11px] font-semibold text-gray-200">{src.source}</span>
+                      <span className="text-[9px] text-gray-500 ml-auto">{src.region === 'cn' ? '国内' : '全球'}</span>
+                    </div>
+                    <ul className="space-y-1">
+                      {src.items.slice(0, 8).map((it, i) => (
+                        <li key={i}>
+                          <button
+                            onClick={() => sendMessage(`结合「${it.title}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
+                            className="text-left text-[10px] text-gray-400 hover:text-gray-100 leading-snug transition block w-full truncate"
+                            title={it.title}
+                          >
+                            <span className="text-gray-600 mr-1">{i + 1}.</span>{it.title}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </aside>
+            </div>
+          </div>
+        </section>
+
         {/* 主对话 */}
-        <main className="flex-1 flex flex-col min-w-0">
+        <main className="agent-main-col flex-1 flex flex-col min-w-0 agent-main">
           <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-3">
             {lastPoints != null && (
               <p className="text-[10px] text-amber-300/80 text-center">🪙 本次对话消耗 {lastPoints} 点</p>

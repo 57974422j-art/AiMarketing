@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
 type HotItem = { title: string; hot?: string; url?: string }
 type HotSource = { source: string; region: 'cn' | 'global'; items: HotItem[] }
@@ -27,12 +28,41 @@ function latLngToVec3(lat: number, lng: number, r: number): THREE.Vector3 {
   return new THREE.Vector3(x, y, z)
 }
 
+// 程序生成地球海洋/陆地纹理（免外网依赖，无 NASA 在线贴图时也能出效果）
+function makeEarthTexture(): THREE.Texture {
+  const c = document.createElement('canvas')
+  c.width = 1024; c.height = 512
+  const ctx = c.getContext('2d')!
+  // 海洋渐变
+  const g = ctx.createLinearGradient(0, 0, 0, 512)
+  g.addColorStop(0, '#0a2a4a')
+  g.addColorStop(0.5, '#0d3b66')
+  g.addColorStop(1, '#0a2a4a')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 1024, 512)
+  // 伪随机大陆块（暖绿/沙色）
+  const blobs = [
+    [180, 180, 90, '#1f6f4a'], [260, 300, 70, '#2a7d54'], [520, 200, 110, '#237a4f'],
+    [560, 330, 80, '#2f8a5a'], [760, 240, 95, '#1f6f4a'], [820, 360, 60, '#2a7d54'],
+    [400, 120, 50, '#3a8a60'], [680, 400, 70, '#237a4f'],
+  ]
+  blobs.forEach(([x, y, r, col]) => {
+    ctx.fillStyle = col
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill()
+  })
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+}
+
 export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
   const mountRef = useRef<HTMLDivElement>(null)
   const [active, setActive] = useState<HotSource | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const globeRef = useRef<THREE.Group | null>(null)
+  const cloudRef = useRef<THREE.Mesh | null>(null)
+  const controlsRef = useRef<any>(null)
   const markersRef = useRef<{ mesh: THREE.Mesh; source: HotSource; base: number }[]>([])
   const rafRef = useRef<number>(0)
   const activeRef = useRef<HotSource | null>(null)
@@ -56,37 +86,58 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
     mount.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
+    // 光照
+    const ambient = new THREE.AmbientLight(0xffffff, 0.9)
+    scene.add(ambient)
+    const dir = new THREE.DirectionalLight(0xffffff, 0.7)
+    dir.position.set(2, 1, 2)
+    scene.add(dir)
+
     const globe = new THREE.Group()
     globeRef.current = globe
     scene.add(globe)
 
-    // 点阵地球（免贴图）
     const R = 1
-    const sphereGeo = new THREE.SphereGeometry(R, 48, 48)
-    const pos = sphereGeo.attributes.position
-    const dots: number[] = []
-    const dotCount = pos.count
-    for (let i = 0; i < dotCount; i++) {
-      const v = new THREE.Vector3().fromBufferAttribute(pos, i)
-      // 只保留表层点
-      dots.push(v.x, v.y, v.z)
-    }
-    const dotGeo = new THREE.BufferGeometry()
-    dotGeo.setAttribute('position', new THREE.Float32BufferAttribute(dots, 3))
-    const dotMat = new THREE.PointsMaterial({ color: 0x3a5a8c, size: 0.018, transparent: true, opacity: 0.55 })
-    globe.add(new THREE.Points(dotGeo, dotMat))
+    // 实体地球（NASA 风格贴图 + 程序兜底）
+    const earthMat = new THREE.MeshPhongMaterial({
+      map: makeEarthTexture(),
+      shininess: 8,
+      specular: new THREE.Color(0x223344),
+    })
+    const earth = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 48), earthMat)
+    globe.add(earth)
 
-    // 经纬线框
+    // 经纬线框（BaiLongma 网格观感）
     const wire = new THREE.Mesh(
-      new THREE.SphereGeometry(R * 1.002, 24, 18),
-      new THREE.MeshBasicMaterial({ color: 0x1e3a5f, wireframe: true, transparent: true, opacity: 0.18 })
+      new THREE.SphereGeometry(R * 1.002, 36, 24),
+      new THREE.MeshBasicMaterial({ color: 0x1e3a5f, wireframe: true, transparent: true, opacity: 0.12 })
     )
     globe.add(wire)
 
+    // 云层（半透明，独立缓慢自转）
+    const cloudTex = (() => {
+      const c = document.createElement('canvas'); c.width = 512; c.height = 256
+      const cx = c.getContext('2d')!
+      cx.fillStyle = 'rgba(255,255,255,0)'; cx.fillRect(0, 0, 512, 256)
+      for (let i = 0; i < 40; i++) {
+        const x = Math.random() * 512, y = Math.random() * 256, r = 12 + Math.random() * 36
+        const rg = cx.createRadialGradient(x, y, 0, x, y, r)
+        rg.addColorStop(0, 'rgba(255,255,255,0.5)'); rg.addColorStop(1, 'rgba(255,255,255,0)')
+        cx.fillStyle = rg; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill()
+      }
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t
+    })()
+    const cloud = new THREE.Mesh(
+      new THREE.SphereGeometry(R * 1.015, 48, 36),
+      new THREE.MeshPhongMaterial({ map: cloudTex, transparent: true, opacity: 0.35, depthWrite: false })
+    )
+    cloudRef.current = cloud
+    globe.add(cloud)
+
     // 高光大气圈
     const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(R * 1.06, 32, 32),
-      new THREE.MeshBasicMaterial({ color: 0x2b6cb0, transparent: true, opacity: 0.06, side: THREE.BackSide })
+      new THREE.SphereGeometry(R * 1.08, 32, 32),
+      new THREE.MeshBasicMaterial({ color: 0x2b6cb0, transparent: true, opacity: 0.08, side: THREE.BackSide })
     )
     globe.add(glow)
 
@@ -97,7 +148,7 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
       if (!geo) return
       const isCN = src.region === 'cn'
       const color = isCN ? 0xff9f1c : 0x38bdf8
-      const vec = latLngToVec3(geo.lat, geo.lng, R * 1.01)
+      const vec = latLngToVec3(geo.lat, geo.lng, R * 1.02)
       const markerGeo = new THREE.SphereGeometry(0.035 + Math.min(src.items.length, 12) * 0.002, 12, 12)
       const markerMat = new THREE.MeshBasicMaterial({ color })
       const mesh = new THREE.Mesh(markerGeo, markerMat)
@@ -106,7 +157,17 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
       markersRef.current.push({ mesh, source: src, base: vec.length() })
     })
 
-    // 射线拾取
+    // OrbitControls：拖拽旋转 + 滚轮缩放
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.dampingFactor = 0.08
+    controls.rotateSpeed = 0.5
+    controls.minDistance = 1.6
+    controls.maxDistance = 6
+    controls.enablePan = false
+    controlsRef.current = controls
+
+    // 射线拾取（点光点看榜单）
     const raycaster = new THREE.Raycaster()
     const mouse = new THREE.Vector2()
     const onClick = (e: MouseEvent) => {
@@ -129,14 +190,15 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
     let t = 0
     const animate = () => {
       t += 0.005
-      globe.rotation.y += 0.0025
-      // 标记脉冲
+      globe.rotation.y += 0.0008
+      if (cloudRef.current) cloudRef.current.rotation.y += 0.0004
       markersRef.current.forEach((m, i) => {
         const s = 1 + Math.sin(t * 3 + i) * 0.12
         m.mesh.scale.setScalar(s)
         const mat = m.mesh.material as THREE.MeshBasicMaterial
         mat.color.set(m.source.region === 'cn' ? 0xff9f1c : 0x38bdf8)
       })
+      controls.update()
       renderer.render(scene, camera)
       rafRef.current = requestAnimationFrame(animate)
     }
@@ -155,10 +217,12 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
       cancelAnimationFrame(rafRef.current)
       window.removeEventListener('resize', onResize)
       renderer.domElement.removeEventListener('click', onClick)
+      controls.dispose()
       renderer.dispose()
-      dotGeo.dispose()
-      wire.geometry.dispose()
-      glow.geometry.dispose()
+      earth.geometry.dispose(); earthMat.map?.dispose(); earthMat.dispose()
+      wire.geometry.dispose(); (wire.material as THREE.Material).dispose()
+      cloud.geometry.dispose(); (cloud.material as THREE.Material).dispose(); cloudTex.dispose()
+      glow.geometry.dispose(); (glow.material as THREE.Material).dispose()
       markersRef.current.forEach((m) => {
         m.mesh.geometry.dispose()
         ;(m.mesh.material as THREE.Material).dispose()
@@ -168,10 +232,10 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
   }, [sources])
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full h-full">
       <div
         ref={mountRef}
-        className="w-full h-[320px] rounded-2xl border border-white/10 bg-[#070710] overflow-hidden cursor-pointer"
+        className="w-full h-full rounded-2xl border border-white/10 bg-[#070710] overflow-hidden cursor-grab active:cursor-grabbing"
         style={{ boxShadow: 'inset 0 0 60px rgba(43,108,176,0.15)' }}
       />
       <div className="absolute top-3 left-3 flex items-center gap-3 text-[10px]">

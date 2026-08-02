@@ -126,6 +126,45 @@ body {
 }
 select.input-dark option, select option { background-color:#1f2937; color:#e5e7eb; }
 
+/* Agent 热点大屏·全屏互斥布局（融合 BaiLongma body.xxx-mode 切换架构）
+   呼出热点大屏时：主对话区右移收窄、思考流隐藏、热点面板铺满；关闭则还原 */
+@keyframes hotspot-slide-in {
+  from { opacity: 0; transform: translateX(40px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+body.hotspot-mode .agent-hotspot {
+  display: flex;
+  animation: hotspot-slide-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+body.hotspot-mode .agent-thinking-aside {
+  display: none !important;
+}
+body.hotspot-mode .agent-main {
+  /* 主对话让到右侧栏宽度内 */
+  margin-right: 0;
+  width: 100%;
+}
+body.hotspot-mode .agent-shell {
+  display: block;
+}
+body.hotspot-mode .agent-shell .agent-main-col {
+  width: 380px;
+  flex: 0 0 380px;
+}
+@media (max-width: 1023px) {
+  body.hotspot-mode .agent-shell .agent-main-col { width: 320px; flex: 0 0 320px; }
+}
+body.hotspot-mode .agent-shell .agent-hotspot {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  padding: 0;
+}
+body.hotspot-mode header .agent-hotspot-toggle {
+  background: rgba(16,185,129,0.2);
+  color: #6ee7b7;
+}
+
 /* Agent 动画 */
 @keyframes fade-in { from { opacity:0 } to { opacity:1 } }
 @keyframes slide-in-bottom { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
