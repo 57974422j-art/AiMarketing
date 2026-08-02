@@ -717,7 +717,7 @@ export default function AgentPage() {
           const regionMax = Math.max(1, ...regionRows.map((r) => r.pct))
           const sentiment = 72
           return (
-        <section className="agent-hotspot bg-[#05050a] text-[#e6eaf2]">
+        <section className="agent-hotspot bg-[#05050a] text-[#e6eaf2] relative">
           <div className="w-full h-full flex flex-col" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}>
             {/* 顶栏 */}
             <div className="shrink-0 h-12 px-4 flex items-center gap-3 border-b border-white/[0.07] bg-[#0a0e16]/90">
@@ -748,7 +748,7 @@ export default function AgentPage() {
               ))}
             </div>
             {/* 三柱主体 */}
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex overflow-hidden pb-8">
               {/* 左柱：国内平台热榜（抖音/小红书/知乎/百度/头条） */}
               <div className="w-[300px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-r border-white/[0.07]">
                 {leftSources.length === 0 && <p className="text-[11px] text-[#5a6072] text-center py-8">暂无国内热榜</p>}
@@ -768,7 +768,7 @@ export default function AgentPage() {
                     <span className="absolute bottom-2 right-3 text-[9px] text-[#6b7180]">拖拽旋转 · 滚轮缩放</span>
                   </div>
                   {/* 辅助：区域关注度 + 情绪指数（地球容器内底部条，不会被跑马灯遮挡） */}
-                  <div className="shrink-0 h-[108px] flex border-t border-white/[0.07] bg-[#070b14]">
+                  <div className="shrink-0 h-[110px] flex border-t-2 border-[#1c2740] bg-[#070d18]">
                     <div className="flex-1 p-2.5 border-r border-white/[0.07] overflow-hidden">
                       <div className="text-[10px] text-[#aab2c2] font-semibold mb-1.5">区域关注度 <span className="text-[8.5px] text-[#6b7180] font-normal">REGION</span></div>
                       <div className="flex flex-col gap-1.5">
@@ -810,9 +810,9 @@ export default function AgentPage() {
                 ))}
               </div>
             </div>
-            {/* 底部跑马灯 */}
+            {/* 底部跑马灯（绝对浮层，不占高度，避免遮挡区域关注度） */}
             {tickerItems.length > 0 && (
-              <div className="shrink-0 h-8 flex items-center border-t border-white/[0.07] bg-[#0a0e16]/80 overflow-hidden">
+              <div className="absolute bottom-0 left-0 right-0 h-8 flex items-center border-t border-white/[0.07] bg-[#0a0e16]/85 overflow-hidden z-[45]">
                 <span className="shrink-0 px-3 text-[10px] font-bold text-[#ff5a3c] flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#ff5a3c] animate-pulse" /> LIVE 实时热点
                 </span>
