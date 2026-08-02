@@ -97,20 +97,75 @@ function FeedBar({ items, onPlay, onPick }: {
   )
 }
 
-// 全局视频播放器（阶段二：对话/语音"找视频"统一播放，<video> 通道，支持 OSS/直链）
+// 全局视频播放器（路线1·真播放：复刻 BaiLongma video-surface，支持 B站/YouTube/直链 iframe 真播放）
+// URL 归一：B站/youtube 链接转可嵌入 iframe；直链 .mp4/.webm 用 <video>；其余走 iframe 尝试。
+function iframeUrlFor(raw: string): { kind: 'iframe' | 'video'; url: string } {
+  if (!raw) return { kind: 'iframe', url: '' }
+  let u = raw.trim()
+  const lower = u.toLowerCase()
+  // 直链视频文件 → <video>
+  if (/\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(lower) || u.startsWith('blob:') || u.startsWith('data:video')) {
+    return { kind: 'video', url: u }
+  }
+  try {
+    const url = new URL(u.startsWith('http') ? u : `https://${u}`)
+    const h = url.hostname.replace(/^www\./, '')
+    // Bilibili
+    if (h.includes('bilibili.com') || h.includes('b23.tv') || h.includes('biliintl')) {
+      const bv = url.pathname.match(/\/(BV[0-9A-Za-z]+)/)
+      const av = url.pathname.match(/\/av(\d+)/)
+      const ep = url.pathname.match(/\/ep(\d+)/)
+      const ss = url.pathname.match(/\/ss(\d+)/)
+      const id = bv?.[1] || av?.[1] ? (bv ? `bv=${bv[1]}` : `aid=${av?.[1]}`) : ep?.[1] ? `ep_id=${ep[1]}` : ss?.[1] ? `season_id=${ss[1]}` : ''
+      return { kind: 'iframe', url: id ? `https://player.bilibili.com/player.html?${id}&autoplay=1&high_quality=1&danmaku=0` : url.href }
+    }
+    // YouTube
+    if (h.includes('youtube.com') || h.includes('youtu.be')) {
+      let id = ''
+      if (h.includes('youtu.be')) id = url.pathname.slice(1)
+      else id = url.searchParams.get('v') || (url.pathname.includes('/embed/') ? url.pathname.split('/embed/')[1] : '')
+      return { kind: 'iframe', url: id ? `https://www.youtube.com/embed/${id}?autoplay=1` : url.href }
+    }
+    // 已是 embed/player 直链
+    if (h.includes('player.') || url.pathname.includes('/embed/')) return { kind: 'iframe', url: url.href }
+    // 兜底：原样走 iframe（部分站点允许 X-Frame-Options）
+    return { kind: 'iframe', url: url.href }
+  } catch {
+    return { kind: 'iframe', url: raw }
+  }
+}
+
 function VideoPlayer({ state, onClose }: {
   state: { open: boolean; url: string; title: string }
   onClose: () => void
 }) {
   if (!state.open) return null
+  const { kind, url } = iframeUrlFor(state.url)
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-[min(90vw,860px)] bg-[#0a0e16] rounded-xl border border-white/10 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
-          <span className="text-[12px] text-gray-200 truncate">{state.title || '视频播放'}</span>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-lg leading-none px-2">✕</button>
+    // 不遮挡主对话：浮层仅覆盖中部预览区，AI 始终在场（参考 BaiLongma video-mode 不隐藏对话）
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-md" onClick={onClose}>
+      <div
+        className="relative w-[min(92vw,920px)] bg-[#060a12] rounded-2xl border border-white/10 shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/10 bg-white/[0.03]">
+          <span className="text-[12px] text-gray-200 truncate max-w-[80%]">{state.title || '视频播放'}</span>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-base leading-none px-2 py-0.5 rounded hover:bg-white/10">✕</button>
         </div>
-        <video src={state.url} controls autoPlay className="w-full max-h-[70vh] bg-black" />
+        <div className="relative w-full bg-black" style={{ aspectRatio: '16 / 9' }}>
+          {kind === 'video' ? (
+            <video src={url} controls autoPlay className="absolute inset-0 w-full h-full bg-black" />
+          ) : (
+            <iframe
+              src={url}
+              title={state.title || 'video'}
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+              allowFullScreen
+              className="absolute inset-0 w-full h-full border-0"
+            />
+          )}
+        </div>
+        <p className="px-4 py-2 text-[10px] text-gray-500">AI 助手仍在场，可继续对话让它换源或搜索其它视频。</p>
       </div>
     </div>
   )
@@ -619,14 +674,14 @@ export default function AgentPage() {
         )
       }
     }
-    // 结果卡片（支持 VIDEO_RESULT:url|TITLE:标题 触发全局播放器）
-    const resRe = /(DH_RESULT|VIDEO_RESULT):([^|]+)(?:\|TITLE:([^|\n]+))?/
+    // 结果卡片（支持 VIDEO_RESULT / VIDEO_WEB :url|TITLE:标题 触发全局播放器真播放）
+    const resRe = /(DH_RESULT|VIDEO_RESULT|VIDEO_WEB):([^|]+)(?:\|TITLE:([^|\n]+))?/
     const rm = content.match(resRe)
     if (rm) {
       const url = rm[2].trim()
       const title = (rm[3] || '').trim()
-      // 视频类结果：弹出全局播放器播放（阶段二：语音/对话"找视频"统一入口）
-      if (rm[1] === 'VIDEO_RESULT') {
+      // 视频类结果：弹出全局播放器真播放（路线1：B站/YouTube/直链 iframe 均支持）
+      if (rm[1] === 'VIDEO_RESULT' || rm[1] === 'VIDEO_WEB') {
         if (typeof window !== 'undefined') openVideoFromUrl(url, title)
         return (
           <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">

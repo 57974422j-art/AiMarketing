@@ -106,12 +106,12 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'search_video',
-    description: '搜索可播放的视频素材（项目素材库 + 个人仓库中的视频），用于对话/语音"找视频播放""帮我找个XX视频看看"。触发词："找视频""搜视频""播放""看看视频""找个XX的视频"。命中后返回可直接播放的视频URL(VIDEO_RESULT)，前端会自动弹出播放器播放。优先个人仓库已上传的成片，其次项目素材库。',
+    description: '搜索并可播放视频。用于对话/语音"找视频播放""帮我找个XX视频看看""播放白龙马的视频"。触发词："找视频""搜视频""播放""看看视频""找个XX的视频"。返回 VIDEO_RESULT(可直接播放的URL，前端自动弹播放器真播，支持B站/YouTube/直链iframe)；本地库无结果且用户要外站视频时返回 VIDEO_WEB(外站搜索/播放链接)。优先个人仓库与项目素材库，其次可外链播放。',
     parameters: {
       type: 'object',
       properties: {
-        keyword: { type: 'string', description: '视频关键词（匹配标题/文件名），如"口红""美食""穿搭"；不填则返回最新上传的视频' },
-        scope: { type: 'string', description: '范围：all(默认,个人仓库+素材库) / personal(仅个人仓库) / storage(仅项目素材库)' },
+        keyword: { type: 'string', description: '视频关键词或外站视频名，如"口红""美食""白龙马"(B站/YouTube视频名)' },
+        scope: { type: 'string', description: '范围：all(默认,个人仓库+素材库) / personal(仅个人仓库) / storage(仅项目素材库) / web(外站播放，如B站/YouTube搜索结果)' },
       },
     },
   },
@@ -453,7 +453,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       } catch { return 'STORAGE_RESULT:素材查询失败' }
     }
 
-    // ── 找视频播放（阶段二：对话/语音"帮我找个XX视频"）──
+    // ── 找视频播放（路线1·真播放：本地库 + 外站 web 播放）──
     case 'search_video': {
       try {
         const kw = (args.keyword || '').trim()
@@ -490,11 +490,22 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           } catch { /* 忽略 */ }
         }
 
-        if (found.length) {
+        if (found.length && scope !== 'web') {
           // 返回首个可播放视频（VIDEO_RESULT 触发前端播放器），并列出全部候选
           const first = found[0]
           const list = found.map((f, i) => `${i + 1}. ${f.title}`).join('\n')
           return `VIDEO_RESULT:${first.url}|TITLE:${first.title}\n其它候选:\n${list}`
+        }
+
+        // 3) 外站播放（web scope 或 本地无结果时，返回可直接 iframe 真播的外站链接）
+        if (scope === 'web' || !found.length) {
+          const q = encodeURIComponent(kw || '热门视频')
+          const bili = `https://search.bilibili.com/all?keyword=${q}`
+          const yt = `https://www.youtube.com/results?search_query=${q}`
+          if (kw) {
+            return `VIDEO_WEB:${bili}|TITLE:在B站搜索「${kw}」\n备选YouTube:${yt}\n(前端播放器已支持B站/YouTube直链真播放；也可把具体视频链接发给我直接播)`
+          }
+          return 'VIDEO_RESULT_EMPTY:未指定视频关键词。请告诉我具体想看什么，例如"播放白龙马的视频"。'
         }
         return 'VIDEO_RESULT_EMPTY:未找到匹配的视频。可去【个人仓库】上传视频，或让我用 generate_video 生成一段。'
       } catch (e: any) {
@@ -769,6 +780,12 @@ function formatToolResult(output: string): string {
   }
   if (output.startsWith('VIDEO_RESULT:')) {
     return `🎬 视频完成！\n\n[📥 下载](${output.replace('VIDEO_RESULT:', '')})`
+  }
+  if (output.startsWith('VIDEO_WEB:')) {
+    const parts = output.replace('VIDEO_WEB:', '').split('\n')
+    const url = parts[0]?.replace('TITLE:', '') || ''
+    const yt = parts.find(p => p.startsWith('备选YouTube:'))?.replace('备选YouTube:', '') || ''
+    return `📺 已为你打开外站视频播放（B站/YouTube 支持真播放）：\n\n🔗 ${url}${yt ? `\n🔗 ${yt}` : ''}\n\n（也可把具体视频链接发给我，我直接帮你播）`
   }
   if (output.startsWith('STORAGE_RESULT:')) return output.replace('STORAGE_RESULT:', '')
   if (output.startsWith('PERSONAL_RESULT:')) return output.replace('PERSONAL_RESULT:', '')
