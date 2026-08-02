@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '@/app/providers'
 import VoiceOrb from '@/components/VoiceOrb'
 
@@ -81,12 +81,6 @@ interface Message {
   scene?: SceneCard | null
 }
 
-interface Session {
-  id: number
-  title: string
-  updatedAt: string
-}
-
 interface Attachment { name: string; url: string; type: string }
 
 const SUGGESTIONS = [
@@ -103,9 +97,7 @@ export default function AgentPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sessionId, setSessionId] = useState<number | null>(null)
-  const [sessions, setSessions] = useState<Session[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [showStorage, setShowStorage] = useState(false)
   const [storageItems, setStorageItems] = useState<any[]>([])
@@ -113,6 +105,8 @@ export default function AgentPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [lastPoints, setLastPoints] = useState<number | null>(null)
+  // 右侧常驻思考步骤流
+  const [liveSteps, setLiveSteps] = useState<{ tool: string; label: string }[]>([])
 
   // ===== 阶段一·语音环状态 =====
   const [autoSpeak, setAutoSpeak] = useState(false)
@@ -231,45 +225,6 @@ export default function AgentPage() {
     voice.speak(plain).then(() => { if (!isRecording) setOrbState('idle') })
   }
 
-  // 加载会话列表
-  const loadSessions = useCallback(async () => {
-    try {
-      const r = await fetch('/api/agent/chat?action=sessions', { credentials: 'include' })
-      const d = await r.json()
-      if (d.success) setSessions(d.data)
-    } catch {}
-  }, [])
-
-  useEffect(() => { if (user) loadSessions() }, [user, loadSessions])
-
-  // 切换会话
-  const switchSession = async (id: number) => {
-    setSidebarOpen(false)
-    try {
-      const r = await fetch(`/api/agent/chat?action=messages&sessionId=${id}`, { credentials: 'include' })
-      const d = await r.json()
-      if (d.success) {
-        setSessionId(id)
-        setMessages(d.data.messages.map((m: any) => ({
-          id: m.id, role: m.role,
-          content: m.content, intent: m.intent,
-          toolUsed: m.toolUsed,
-          timestamp: new Date(m.createdAt).getTime(),
-        })))
-        d.data.session.title && (document.title = d.data.session.title)
-      }
-    } catch {}
-  }
-
-  // 新建对话
-  const newChat = () => {
-    setMessages([])
-    setSessionId(null)
-    setAttachments([])
-    setSidebarOpen(false)
-    document.title = 'AI 助手'
-  }
-
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   // 加载素材仓库
@@ -306,6 +261,7 @@ export default function AgentPage() {
     setAttachments([])
     setLoading(true)
     setOrbState('thinking')
+    setLiveSteps([])
 
     try {
       const history = messages.slice(-10).map(m => ({ role: m.role, content: m.content }))
@@ -330,8 +286,8 @@ export default function AgentPage() {
         if (autoSpeak) speakMessage(data.data.reply)
         if (data.data.sessionId) setSessionId(data.data.sessionId)
         setOrbState('idle')
+        if (data.data.steps?.length) setLiveSteps(data.data.steps)
         if (typeof data.data.pointsSpent === 'number') setLastPoints(data.data.pointsSpent)
-        loadSessions()
       } else {
         setMessages(prev => [...prev, {
           id: (Date.now() + 1).toString(), role: 'assistant',
@@ -418,17 +374,13 @@ export default function AgentPage() {
 
       {/* Header */}
       <header className="relative z-10 h-14 border-b border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80 flex items-center px-3 sm:px-4 shrink-0">
-        <button onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center lg:hidden">
-          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-        </button>
-        <div className="flex items-center gap-2 ml-3">
+        <div className="flex items-center gap-2 ml-1">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
           </div>
           <div className="hidden sm:block">
-            <h1 className="text-xs font-semibold text-white">AI 助手</h1>
-            <p className="text-[9px] text-emerald-400">在线</p>
+            <h1 className="text-xs font-semibold text-white">AI 营销助手</h1>
+            <p className="text-[9px] text-emerald-400">智能体 · 在线</p>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
@@ -446,114 +398,71 @@ export default function AgentPage() {
           <a href="/workspace" className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-gray-200 transition" title="工具箱">
             工具箱
           </a>
-          <button onClick={async () => {
-            const next = !showBrain
-            setShowBrain(next)
-            if (next) {
-              try {
-                const r = await fetch('/api/agent/memories', { credentials: 'include' })
-                const d = await r.json()
-                if (d.success) setBrainMemories(d.items || [])
-              } catch {}
-            }
-          }}
-            className={`hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] transition ${showBrain ? 'bg-purple-500/20 text-purple-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
-            title="认知地图 / 长期记忆">
-            🧠 记忆
-          </button>
-          <button onClick={newChat} className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center" title="新对话">
-            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-          </button>
         </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden relative z-10">
-        {/* 阶段五·认知地图抽屉（融合 BaiLongma Brain UI，轻量版） */}
-        {showBrain && (
-          <aside className="w-64 border-r border-purple-500/10 backdrop-blur-xl bg-[#0a0a0f]/95 flex-col shrink-0 hidden md:flex">
-            <div className="p-3 border-b border-white/5 flex items-center justify-between">
-              <span className="text-[11px] text-purple-300 font-medium">🧠 认知地图</span>
-              <button onClick={() => setShowBrain(false)} className="text-gray-500 hover:text-gray-300 text-xs">✕</button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
-              <div>
-                <p className="text-[9px] text-gray-500 mb-1.5">长期记忆 ({brainMemories.length})</p>
+        {/* 右侧常驻·思考步骤流面板（融合 BaiLongma 步骤流） */}
+        <aside className="hidden xl:flex w-72 border-l border-white/5 backdrop-blur-xl bg-[#0a0a0f]/80 flex-col shrink-0">
+          <div className="p-3 border-b border-white/5">
+            <p className="text-[11px] text-gray-300 font-medium flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              思考步骤流
+            </p>
+            <p className="text-[9px] text-gray-600 mt-0.5">实时展示助手执行链路</p>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {liveSteps.length === 0 ? (
+              <p className="text-[10px] text-gray-700 px-1 py-4 text-center">
+                {loading ? '分析中…' : '发一条消息，看助手怎么拆解执行'}
+              </p>
+            ) : (
+              liveSteps.map((s, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2 animate-in fade-in">
+                  <span className="mt-0.5 w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[9px] shrink-0 font-semibold">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[10px] text-gray-300 leading-snug">{s.label}</p>
+                    <p className="text-[8px] text-cyan-400/70 mt-0.5">{TOOL_STEP_LABEL[s.tool] || s.tool}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          {/* 客户画像（融合 BaiLongma 需求/画像记忆） */}
+          <div className="p-3 border-t border-white/5">
+            <p className="text-[10px] text-gray-500 mb-1.5">📇 客户画像 · 长期记忆</p>
+            <button onClick={async () => {
+              const next = !showBrain
+              setShowBrain(next)
+              if (next) {
+                try {
+                  const r = await fetch('/api/agent/memories', { credentials: 'include' })
+                  const d = await r.json()
+                  if (d.success) setBrainMemories(d.items || [])
+                } catch {}
+              }
+            }}
+              className={`w-full text-left px-2.5 py-2 rounded-lg text-[10px] transition ${showBrain ? 'bg-purple-500/20 text-purple-300' : 'bg-white/[0.03] hover:bg-white/[0.06] text-gray-400'}`}>
+              {showBrain ? `已记录 ${brainMemories.length} 条 · 点击收起` : `共 ${brainMemories.length} 条需求/偏好 · 点击展开`}
+            </button>
+            {showBrain && (
+              <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
                 {brainMemories.length === 0 ? (
-                  <p className="text-[9px] text-gray-700">暂无记忆（聊天中让助手「记住…」即可）</p>
+                  <p className="text-[9px] text-gray-700 px-1">聊天中让助手「记住我的行业/偏好…」即生成画像</p>
                 ) : (
-                  brainMemories.map((m, i) => (
-                    <div key={i} className="mb-1.5 rounded-lg bg-purple-500/5 border border-purple-500/15 px-2 py-1.5">
+                  brainMemories.slice(0, 20).map((m, i) => (
+                    <div key={i} className="rounded-lg bg-purple-500/5 border border-purple-500/15 px-2 py-1.5">
                       <p className="text-[10px] text-gray-300 leading-snug">{m.content}</p>
                       {m.tags && <p className="text-[8px] text-purple-400/70 mt-0.5">#{m.tags}</p>}
                     </div>
                   ))
                 )}
               </div>
-              <div>
-                <p className="text-[9px] text-gray-500 mb-1.5">可用工具</p>
-                <div className="flex flex-wrap gap-1">
-                  {['写文案', '生图', '生视频', '搜素材', '个人仓库', '发布', '记忆'].map((t, i) => (
-                    <span key={i} className="px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-[9px] text-cyan-300">· {t}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </aside>
-        )}
-        {/* 侧边栏 */}
-        {/* 桌面端常驻侧边栏 */}
-        <aside className="hidden lg:flex w-56 border-r border-white/5 backdrop-blur-xl bg-[#0a0a0f]/90 flex-col shrink-0">
-          <div className="p-3 border-b border-white/5">
-            <button onClick={newChat}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-gray-300 transition">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-              新对话
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-            <p className="text-[10px] text-gray-600 px-2 py-1">对话历史</p>
-            {sessions.length === 0 ? (
-              <p className="text-[10px] text-gray-700 px-2 py-2">暂无对话</p>
-            ) : (
-              sessions.map(s => (
-                <button key={s.id} onClick={() => switchSession(s.id)}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-[10px] truncate transition ${sessionId === s.id ? 'bg-white/10 text-gray-200' : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'}`}>
-                  {s.title}
-                </button>
-              ))
             )}
           </div>
-          <div className="p-3 border-t border-white/5">
-            <p className="text-[9px] text-gray-600 text-center">{user?.username}</p>
-          </div>
         </aside>
-        {/* 移动端浮层侧边栏 */}
-        <aside className={`lg:hidden ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} fixed z-20 left-0 top-14 bottom-0 w-64 border-r border-white/5 backdrop-blur-xl bg-[#0a0a0f]/95 transition-transform duration-300 flex flex-col`}>
-          <div className="p-3 border-b border-white/5">
-            <button onClick={newChat}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-gray-300 transition">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-              新对话
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-            <p className="text-[10px] text-gray-600 px-2 py-1">对话历史</p>
-            {sessions.length === 0 ? (
-              <p className="text-[10px] text-gray-700 px-2 py-2">暂无对话</p>
-            ) : (
-              sessions.map(s => (
-                <button key={s.id} onClick={() => switchSession(s.id)}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-[10px] truncate transition ${sessionId === s.id ? 'bg-white/10 text-gray-200' : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'}`}>
-                  {s.title}
-                </button>
-              ))
-            )}
-          </div>
-          <div className="p-3 border-t border-white/5">
-            <p className="text-[9px] text-gray-600 text-center">{user?.username}</p>
-          </div>
-        </aside>
-        {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-10" onClick={() => setSidebarOpen(false)} />}
 
         {/* 主对话 */}
         <main className="flex-1 flex flex-col min-w-0">
