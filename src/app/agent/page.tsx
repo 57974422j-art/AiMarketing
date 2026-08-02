@@ -84,18 +84,22 @@ interface Message {
 interface Attachment { name: string; url: string; type: string }
 
 const SUGGESTIONS = [
-  '帮我写一个文案',
-  '帮我做一个海报',
-  '帮我做一个视频',
-  '帮我发一个抖音',
-  '帮我做一个数字人口播',
-  '帮我找一张产品图',
+  '今天有什么热点可以蹭？给我 3 个选题',
+  '帮我写一条小红书种草文案',
+  '用这张图做个数字人口播',
+  '把这段文案一键成片',
+  '帮我做一个产品宣传视频',
+  '帮我把这条内容发到抖音',
 ]
 
 // 思考步骤流工具中文标签（右侧常驻面板渲染用）
 const TOOL_STEP_LABEL: Record<string, string> = {
   generate_image: '生成图片',
   generate_video: '生成视频',
+  digital_human_speak: '生成数字人口播',
+  query_digital_human: '查询口播进度',
+  auto_compile: '一键成片',
+  query_auto_compile: '查询成片进度',
   search_storage: '检索素材库',
   list_personal_files: '列出个人仓库',
   publish_content: '规划发布',
@@ -397,6 +401,74 @@ export default function AgentPage() {
     )
   }
 
+  // 异步任务进度/结果卡片（数字人 / 一键成片 / 文生视频）
+  const renderTaskCard = (content: string) => {
+    if (!content) return null
+    const map: Record<string, { kind: string; label: string; doneText: string }> = {
+      DH_TASK: { kind: 'dh', label: '数字人口播生成中', doneText: '口播视频已生成' },
+      COMPILE_TASK: { kind: 'compile', label: '一键成片剪辑中', doneText: '成片已生成' },
+      VIDEO_TASK: { kind: 'video', label: 'AI 视频生成中', doneText: '视频已生成' },
+    }
+    let m: RegExpMatchArray | null
+    for (const key of Object.keys(map)) {
+      const re = new RegExp(`${key}:([^|]+)\\|?`)
+      m = content.match(re)
+      if (m) {
+        const taskId = m[1].trim()
+        return (
+          <div className="mt-2 rounded-lg border border-white/10 bg-white/5 p-3 flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <div className="flex-1">
+              <p className="text-sm text-amber-300">{map[key].label}</p>
+              <p className="text-[11px] text-gray-500">任务 ID：{taskId}</p>
+            </div>
+            <button
+              onClick={() => askProgress(taskId, map[key].kind)}
+              className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition"
+            >查询进度</button>
+          </div>
+        )
+      }
+    }
+    // 结果卡片
+    const resRe = /(DH_RESULT|COMPILE_RESULT|VIDEO_RESULT):(.+)/
+    const rm = content.match(resRe)
+    if (rm) {
+      const url = rm[2].trim()
+      const isVideo = rm[1] !== 'DH_RESULT'
+      return (
+        <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+          <p className="text-sm text-emerald-300 mb-2">{map[rm[1].replace('_RESULT', '_TASK') as string]?.doneText || '任务已完成'}</p>
+          {isVideo
+            ? <video src={url} controls className="w-full rounded-lg max-h-72 bg-black" />
+            : <video src={url} controls className="w-full rounded-lg max-h-72 bg-black" />}
+        </div>
+      )
+    }
+    // 进度卡片
+    const progRe = /(DH_PROGRESS|COMPILE_PROGRESS|VIDEO_PROGRESS):([^|]+)\|TASK:(.+)/
+    const pm = content.match(progRe)
+    if (pm) {
+      return (
+        <div className="mt-2 rounded-lg border border-white/10 bg-white/5 p-3 flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          <div className="flex-1">
+            <p className="text-sm text-amber-300">状态：{pm[2].trim()}</p>
+            <p className="text-[11px] text-gray-500">任务 ID：{pm[3].trim()}</p>
+          </div>
+          <button onClick={() => askProgress(pm[3].trim(), pm[1].split('_')[0].toLowerCase())} className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition">再查一次</button>
+        </div>
+      )
+    }
+    return null
+  }
+
+  const askProgress = async (taskId: string, kind: string) => {
+    const queryTool = kind === 'dh' ? 'query_digital_human' : kind === 'compile' ? 'query_auto_compile' : 'query_video_task'
+    setInput(`查询任务 ${taskId} 的进度（调用 ${queryTool}）`)
+    await sendMessage(`请调用 ${queryTool} 查询任务 ${taskId} 的最新进度并返回结果链接。`)
+  }
+
   return (
     <div className="min-h-screen bg-[#07070c] flex flex-col relative overflow-hidden">
       {/* 背景：BaiLongma 风格动态渐变光晕 */}
@@ -626,6 +698,7 @@ export default function AgentPage() {
                         </p>
                       )}
                       <div className="text-gray-300 whitespace-pre-wrap">{renderContent(msg.content)}</div>
+                      {renderTaskCard(msg.content)}
                       {/* 阶段二·思考流：工具执行步骤可视化 */}
                       {msg.role === 'assistant' && msg.steps && msg.steps.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1.5">

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  generateText, generateImage, generateVideo, generateLongVideo,
+  generateText, generateImage, generateVideo, queryVideoTask,
   ToolDefinition,
-  createDigitalHuman, queryDigitalHumanTask, synthesizeVoiceTTS,
   agnesChat, type AgentChatMessage,
 } from '@/lib/ai-providers'
 import { getAuthFromHeaders } from '@/lib/api-auth'
@@ -148,7 +147,57 @@ const AGENT_TOOLS: ToolDefinition[] = [
         content: { type: 'string', description: '要记住的内容' },
         tags: { type: 'string', description: '逗号分隔的标签，如 偏好,品牌' },
         salience: { type: 'number', description: '重要度 0~1，默认0.5' },
-      }, required: ['content'],
+      },       required: ['content'],
+    },
+  },
+  {
+    name: 'query_digital_human',
+    description: '根据数字人口播任务 taskId 查询生成进度，成功后返回口播视频 URL。在调用 digital_human_speak 之后使用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'digital_human_speak 返回的任务ID' },
+      },
+      required: ['taskId'],
+    },
+  },
+  {
+    name: 'auto_compile',
+    description: '一键成片：把一段文案 + 配图自动剪辑成带配音/字幕的短视频。可选参数控制比例、分辨率、配音风格。返回任务ID（异步），之后用 query_auto_compile 查询进度与成片 URL。',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '视频旁白/口播文案（会用于配音与字幕）' },
+        ratio: { type: 'string', description: '画面比例：9:16（竖屏，默认）或 16:9（横屏）', enum: ['9:16', '16:9'] },
+        resolution: { type: 'string', description: '分辨率：720P（默认）或 1080P', enum: ['720P', '1080P'] },
+        voice: { type: 'string', description: '配音音色：xiaoxiao（女声，默认）/ yunxi（男声）/ youyou（女声）' },
+        images: { type: 'array', items: { type: 'string' }, description: '可选：配图 URL 列表，不传则自动用 AI 配图' },
+        bgm: { type: 'string', description: '可选：背景音乐风格，如 轻快/科技/治愈' },
+        title: { type: 'string', description: '可选：视频标题文字（片头展示）' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'query_auto_compile',
+    description: '根据一键成片任务ID查询进度，成功后返回成片视频 URL 与封面。在调用 auto_compile 之后使用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'auto_compile 返回的任务ID' },
+      },
+      required: ['taskId'],
+    },
+  },
+  {
+    name: 'query_video_task',
+    description: '根据文生视频任务ID查询生成进度，成功后返回视频 URL。在调用 generate_video 之后使用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'generate_video 返回的任务ID' },
+      },
+      required: ['taskId'],
     },
   },
 ]
@@ -160,6 +209,9 @@ const TOOL_STEP_LABEL: Record<string, string> = {
   generate_video: 'AI 生成视频',
   search_web_images: '上网搜索参考图',
   digital_human_speak: '生成数字人口播',
+  query_digital_human: '查询数字人口播进度',
+  auto_compile: '一键成片剪辑',
+  query_auto_compile: '查询成片进度',
   search_storage: '检索项目素材库',
   list_personal_files: '读取个人仓库',
   search_templates: '查找模板',
@@ -177,6 +229,7 @@ const SYSTEM_PROMPT = `你是 AiMarketing 的 AI 运营助手，核心使命：�
 🔍 网络搜图 — 上网帮用户找参考图/可用素材
 🎬 AI视频 — 文字描述生成短视频
 🤖 数字人口播 — 照片+文案生成AI主播视频
+🎞 一键成片 — 文案+配图自动剪辑成带配音字幕的短视频
 📦 项目素材库 — 平台级素材（趋势视频/图片/BGM）
 🗂 个人仓库 — 用户自己上传的视频/图片（发布首选来源）
 📋 模板库 — 项目内置的各种模板
@@ -199,6 +252,15 @@ const SYSTEM_PROMPT = `你是 AiMarketing 的 AI 运营助手，核心使命：�
 - 在对话中自然收集关键信息，当确认到客户的行业、产品、偏好、常发平台、目标人群等稳定信息时，主动调用 upsert_memory 记下来（tags 用 画像/偏好/行业/平台 等），salience 设高（0.8~1.0）。
 - 客户问"你还记得我吗/我是什么行业"时，先 search_memory 调出画像再回答，让客户感到"你真的懂他"。
 - 记画像不要打断主任务：完成当前请求后，顺带把新确认的信息写进记忆即可。
+
+【热点驱动选题（像白龙马一样主动）】
+- 系统会在对话开头注入【今日热点上下文】（来自 vvhan/微博/抖音/知乎/小红书/HackerNews/Reddit 等）。
+- 当用户说"今天发什么/给我个选题/日更内容"等模糊指令时，主动结合热点给 2~3 个具体选题方向（带标题+文案要点+用哪个工具做），不要空泛。
+- 生成图文/视频/成片后，主动提示"要不要我帮你发到XX平台"。
+
+【异步任务处理】
+- 文生视频(generate_video)、数字人口播(digital_human_speak)、一键成片(auto_compile) 都是异步任务，会返回 taskId。
+- 返回 taskId 后，告诉用户"正在生成中，稍后你可以问我进度，或我再帮你查"，并可用对应 query_ 工具轮询结果。不要在本次回复里空等。
 
 规则：简洁专业、适度emoji、中文回复、不啰嗦、不说"你不能"而是给替代方案`
 
@@ -246,23 +308,95 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
 
     // ── 数字人口播 ──
     case 'digital_human_speak': {
-      const text = args.text || ''
+      const text = (args.text || '').trim()
       if (!text) return '请提供口播文案内容'
-      // 先查找用户的预设数字人形象
-      const tmpl = await prisma.promptTemplate.findFirst({ where: { category: '数字人' }, orderBy: { id: 'asc' } })
-      const imageUrl = args.imageUrl || (tmpl as any)?.previewUrl
-      if (!imageUrl) return '数字人形象还未准备好。请先去数字人页面创建形象，或者上传一张人物照片。'
+      const avatarId = args.avatarId
+      if (!avatarId) return 'DH_NEED_AVATAR:请先指定数字人形象ID（去「数字人」页查看已创建形象）。也可以先让我用 generate_image 生成一张形象照，再去数字人页创建形象。'
       try {
-        const result = await createDigitalHuman(
-          `https://dashscope.aliyuncs.com/api/v1/services/aigc/text-to-speech/synthesize`, // placeholder
-          imageUrl
-        )
-        if (result?.taskId) return `DH_TASK:${result.taskId}|TEXT:${text.substring(0, 50)}`
-        return '数字人口播任务创建失败'
+        const res = await fetch(`${baseUrl}/api/digital-human`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth?.userId}` },
+          body: JSON.stringify({ action: 'avatar-speak', avatarId, text }),
+        })
+        const data = await res.json()
+        if (data.success && data.taskId) return `DH_TASK:${data.taskId}|TEXT:${text.substring(0, 50)}`
+        return `DH_NEED_AVATAR:${data.message || '数字人口播创建失败'}`
       } catch (e: any) {
-        // 降级：用AI配音生成
-        return `DH_NEED_MEDIA:需要一个人物照片才能做口播。建议：1.上传一张正面半身照 2.或者去数字人页面创建形象`
+        return `DH_NEED_AVATAR:数字人口播接口调用失败（${e.message}）`
       }
+    }
+
+    // ── 数字人任务进度查询 ──
+    case 'query_digital_human': {
+      const taskId = args.taskId
+      if (!taskId) return '缺少 taskId'
+      try {
+        const res = await fetch(`${baseUrl}/api/digital-human`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth?.userId}` },
+          body: JSON.stringify({ action: 'query', taskId }),
+        })
+        const data = await res.json()
+        if (data.avatarUrl) return `DH_RESULT:${data.avatarUrl}`
+        return `DH_PROGRESS:${data.status || '处理中'}|TASK:${taskId}`
+      } catch { return `DH_PROGRESS:查询失败|TASK:${taskId}` }
+    }
+
+    // ── 一键成片 ──
+    case 'auto_compile': {
+      const text = (args.text || '').trim()
+      if (!text) return '请提供视频文案'
+      try {
+        const res = await fetch(`${baseUrl}/api/video/auto-compile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth?.userId}` },
+          body: JSON.stringify({
+            text,
+            ratio: args.ratio || '9:16',
+            resolution: args.resolution || '720P',
+            voice: args.voice || 'xiaoxiao',
+            images: args.images || [],
+            bgm: args.bgm || '',
+            title: args.title || '',
+          }),
+        })
+        const data = await res.json()
+        if (data.success && data.taskId) return `COMPILE_TASK:${data.taskId}|TEXT:${text.substring(0, 40)}`
+        return `COMPILE_FAIL:${data.message || '一键成片启动失败'}`
+      } catch (e: any) {
+        return `COMPILE_FAIL:一键成片接口调用失败（${e.message}）`
+      }
+    }
+
+    // ── 一键成片进度查询 ──
+    case 'query_auto_compile': {
+      const taskId = args.taskId
+      if (!taskId) return '缺少 taskId'
+      try {
+        const res = await fetch(`${baseUrl}/api/video/auto-compile?taskId=${encodeURIComponent(taskId)}`, {
+          headers: { Authorization: `Bearer ${auth?.userId}` },
+        })
+        const data = await res.json()
+        const status = data.status || (data.task && data.task.status) || ''
+        if (status === 'completed' || status === 'done') {
+          const url = data.videoUrl || (data.task && data.task.videoUrl) || ''
+          return `COMPILE_RESULT:${url}`
+        }
+        return `COMPILE_PROGRESS:${status || '处理中'}|TASK:${taskId}`
+      } catch { return `COMPILE_PROGRESS:查询失败|TASK:${taskId}` }
+    }
+
+    case 'query_video_task': {
+      const taskId = args.taskId
+      if (!taskId) return '缺少 taskId'
+      try {
+        const r = await queryVideoTask(taskId)
+        if (!r) return `VIDEO_PROGRESS:查询失败|TASK:${taskId}`
+        if (r.status === 'completed' || r.status === 'SUCCEEDED' || r.status === 'done') {
+          return `VIDEO_RESULT:${r.videoUrl || ''}`
+        }
+        return `VIDEO_PROGRESS:${r.status || '处理中'}|TASK:${taskId}`
+      } catch { return `VIDEO_PROGRESS:查询失败|TASK:${taskId}` }
     }
 
     // ── 项目素材库 ──
