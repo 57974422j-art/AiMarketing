@@ -756,46 +756,49 @@ export default function AgentPage() {
                   <HotListCard key={src.source} source={src.source} items={src.items} accent="#ff8a3c" onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)} />
                 ))}
               </div>
-              {/* 中柱：地球 + 辅助信息 */}
+              {/* 中柱：地球 + 辅助信息（辅助区嵌入地球容器底部，避免被底部跑马灯遮挡） */}
               <div className="flex-1 flex flex-col min-w-0">
-                <div className="flex-1 relative min-h-0 overflow-hidden" style={{ background: 'radial-gradient(ellipse at center, #0a1a2e 0%, #050b14 100%)' }}>
-                  {hotTopics.length > 0 ? <GlobeTrends sources={hotTopics} /> : (
-                    <div className="text-[11px] text-[#5a6072] flex h-full items-center justify-center">{hotLoading ? '正在获取热榜…' : '暂无热点数据'}</div>
-                  )}
-                  <span className="absolute top-2.5 right-3.5 text-[9.5px] text-[#4f8cff] tracking-[0.12em] opacity-70">GLOBAL HOTSPOT MAP</span>
-                  <span className="absolute bottom-2 right-3 text-[9px] text-[#6b7180]">拖拽旋转 · 滚轮缩放</span>
-                </div>
-                {/* 辅助：区域关注度 + 情绪指数 */}
-                <div className="shrink-0 h-[118px] flex border-t border-white/[0.07]">
-                  <div className="flex-1 p-2.5 border-r border-white/[0.07] overflow-hidden">
-                    <div className="text-[10px] text-[#aab2c2] font-semibold mb-1.5">区域关注度 <span className="text-[8.5px] text-[#6b7180] font-normal">REGION</span></div>
-                    <div className="flex flex-col gap-1.5">
-                      {regionRows.map((r) => (
-                        <div key={r.name} className="flex items-center gap-2">
-                          <span className="text-[9.5px] text-[#aab2c2] w-[52px] shrink-0 truncate">{r.name}</span>
-                          <div className="flex-1 h-[3px] bg-white/10 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${(r.pct / regionMax) * 100}%`, background: 'linear-gradient(90deg,#4f8cff,#88ccff)' }} />
-                          </div>
-                          <span className="text-[9px] text-[#6b7180] w-7 text-right">{r.pct}</span>
-                        </div>
-                      ))}
-                      {regionRows.length === 0 && <span className="text-[9px] text-[#5a6072]">暂无数据</span>}
-                    </div>
+                <div className="flex-1 flex flex-col min-h-0" style={{ background: 'radial-gradient(ellipse at center, #0a1a2e 0%, #050b14 100%)' }}>
+                  {/* 地球 canvas 区 */}
+                  <div className="flex-1 relative min-h-0 overflow-hidden">
+                    {hotTopics.length > 0 ? <GlobeTrends sources={hotTopics} /> : (
+                      <div className="text-[11px] text-[#5a6072] flex h-full items-center justify-center">{hotLoading ? '正在获取热榜…' : '暂无热点数据'}</div>
+                    )}
+                    <span className="absolute top-2.5 right-3.5 text-[9.5px] text-[#4f8cff] tracking-[0.12em] opacity-70">GLOBAL HOTSPOT MAP</span>
+                    <span className="absolute bottom-2 right-3 text-[9px] text-[#6b7180]">拖拽旋转 · 滚轮缩放</span>
                   </div>
-                  <div className="w-[150px] shrink-0 p-2.5 flex flex-col items-center justify-center">
-                    <div className="text-[10px] text-[#aab2c2] font-semibold mb-1 self-start">情绪指数 <span className="text-[8.5px] text-[#6b7180] font-normal">演示指标</span></div>
-                    <div className="relative w-[78px] h-[78px]">
-                      <svg viewBox="0 0 36 36" className="w-[78px] h-[78px] -rotate-90">
-                        <circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" />
-                        <circle cx="18" cy="18" r="15.5" fill="none" stroke="#3ad29f" strokeWidth="3" strokeLinecap="round"
-                          strokeDasharray={`${(sentiment / 100) * 97.4} 97.4`} />
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="text-[18px] font-bold text-white">{sentiment}</span>
-                        <span className="text-[8px] text-[#6b7180]">积极</span>
+                  {/* 辅助：区域关注度 + 情绪指数（地球容器内底部条，不会被跑马灯遮挡） */}
+                  <div className="shrink-0 h-[108px] flex border-t border-white/[0.07] bg-[#070b14]">
+                    <div className="flex-1 p-2.5 border-r border-white/[0.07] overflow-hidden">
+                      <div className="text-[10px] text-[#aab2c2] font-semibold mb-1.5">区域关注度 <span className="text-[8.5px] text-[#6b7180] font-normal">REGION</span></div>
+                      <div className="flex flex-col gap-1.5">
+                        {regionRows.map((r) => (
+                          <div key={r.name} className="flex items-center gap-2">
+                            <span className="text-[9.5px] text-[#aab2c2] w-[52px] shrink-0 truncate">{r.name}</span>
+                            <div className="flex-1 h-[3px] bg-white/10 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full" style={{ width: `${(r.pct / regionMax) * 100}%`, background: 'linear-gradient(90deg,#4f8cff,#88ccff)' }} />
+                            </div>
+                            <span className="text-[9px] text-[#6b7180] w-7 text-right">{r.pct}</span>
+                          </div>
+                        ))}
+                        {regionRows.length === 0 && <span className="text-[9px] text-[#5a6072]">暂无数据</span>}
                       </div>
                     </div>
-                    <span className="text-[9.5px] text-[#3ad29f] mt-1">▲ 较昨日 +3</span>
+                    <div className="w-[150px] shrink-0 p-2.5 flex flex-col items-center justify-center">
+                      <div className="text-[10px] text-[#aab2c2] font-semibold mb-1 self-start">情绪指数 <span className="text-[8.5px] text-[#6b7180] font-normal">演示指标</span></div>
+                      <div className="relative w-[68px] h-[68px]">
+                        <svg viewBox="0 0 36 36" className="w-[68px] h-[68px] -rotate-90">
+                          <circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" />
+                          <circle cx="18" cy="18" r="15.5" fill="none" stroke="#3ad29f" strokeWidth="3" strokeLinecap="round"
+                            strokeDasharray={`${(sentiment / 100) * 97.4} 97.4`} />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <span className="text-[16px] font-bold text-white">{sentiment}</span>
+                          <span className="text-[8px] text-[#6b7180]">积极</span>
+                        </div>
+                      </div>
+                      <span className="text-[9.5px] text-[#3ad29f] mt-1">▲ 较昨日 +3</span>
+                    </div>
                   </div>
                 </div>
               </div>
