@@ -149,6 +149,9 @@ body.hotspot-mode .agent-shell {
 body.hotspot-mode .agent-shell .agent-main-col {
   width: 380px;
   flex: 0 0 380px;
+  /* 热点大屏铺满背景时，AI 语音对话框（含声纹球/输入框）常驻右侧并置于大屏之上 */
+  position: relative;
+  z-index: 50;
 }
 @media (max-width: 1023px) {
   body.hotspot-mode .agent-shell .agent-main-col { width: 320px; flex: 0 0 320px; }

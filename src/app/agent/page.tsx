@@ -717,7 +717,7 @@ export default function AgentPage() {
           const regionMax = Math.max(1, ...regionRows.map((r) => r.pct))
           const sentiment = 72
           return (
-        <section className="fixed inset-0 z-[60] bg-[#05050a] text-[#e6eaf2]">
+        <section className="agent-hotspot bg-[#05050a] text-[#e6eaf2]">
           <div className="w-full h-full flex flex-col" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace' }}>
             {/* 顶栏 */}
             <div className="shrink-0 h-12 px-4 flex items-center gap-3 border-b border-white/[0.07] bg-[#0a0e16]/90">
@@ -739,7 +739,7 @@ export default function AgentPage() {
                 ['国内信源', String(cnSources.length), '#ff8a3c'],
                 ['全球信源', String(globalSources.length), '#4f8cff'],
                 ['监测话题', String(totalItems), '#3ad29f'],
-                ['AI置信度', '94%', '#b098f0'],
+                ['实时抓取率', `${Math.round((hotTopics.length / (cnSources.length + globalSources.length || 1)) * 100)}%`, '#b098f0'],
               ].map(([label, val, color], i) => (
                 <div key={i} className="flex-1 flex items-center gap-2 px-4 border-r border-white/[0.05]">
                   <span className="text-[#6b7180]">{label}</span>
@@ -762,7 +762,7 @@ export default function AgentPage() {
                   {hotTopics.length > 0 ? <GlobeTrends sources={hotTopics} /> : (
                     <div className="text-[11px] text-[#5a6072] flex h-full items-center justify-center">{hotLoading ? '正在获取热榜…' : '暂无热点数据'}</div>
                   )}
-                  <span className="absolute top-2.5 left-3.5 text-[9.5px] text-[#4f8cff] tracking-[0.12em] opacity-70">GLOBAL HOTSPOT MAP</span>
+                  <span className="absolute top-2.5 right-3.5 text-[9.5px] text-[#4f8cff] tracking-[0.12em] opacity-70">GLOBAL HOTSPOT MAP</span>
                   <span className="absolute bottom-2 right-3 text-[9px] text-[#6b7180]">拖拽旋转 · 滚轮缩放</span>
                 </div>
                 {/* 辅助：区域关注度 + 情绪指数 */}
@@ -783,7 +783,7 @@ export default function AgentPage() {
                     </div>
                   </div>
                   <div className="w-[150px] shrink-0 p-2.5 flex flex-col items-center justify-center">
-                    <div className="text-[10px] text-[#aab2c2] font-semibold mb-1 self-start">情绪指数 <span className="text-[8.5px] text-[#6b7180] font-normal">SENTIMENT</span></div>
+                    <div className="text-[10px] text-[#aab2c2] font-semibold mb-1 self-start">情绪指数 <span className="text-[8.5px] text-[#6b7180] font-normal">演示指标</span></div>
                     <div className="relative w-[78px] h-[78px]">
                       <svg viewBox="0 0 36 36" className="w-[78px] h-[78px] -rotate-90">
                         <circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" />
