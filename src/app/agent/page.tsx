@@ -124,6 +124,12 @@ export default function AgentPage() {
   // 录音：按住说话 / 点击切换
   const startRecording = async () => {
     try {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+        setRecordingTip('当前浏览器不支持语音，请下载客户端使用')
+        setIsRecording(false)
+        setTimeout(() => { if (confirm('当前浏览器不支持语音输入，是否前往下载桌面客户端？')) window.open('/download', '_blank') }, 50)
+        return
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
       const rec = new MediaRecorder(stream)

@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -220,6 +220,19 @@ export async function POST(request: NextRequest) {
       else envContent += `\nAGNES_BASE_URL=${agnesBaseUrl}`;
     }
 
+    // AGENT 微信机器人 webhook
+    if (agentWebhookWechat !== undefined) {
+      const p = /^AGENT_WEBHOOK_WECHAT=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `AGENT_WEBHOOK_WECHAT=${agentWebhookWechat}`);
+      else envContent += `\nAGENT_WEBHOOK_WECHAT=${agentWebhookWechat}`;
+    }
+    // AGENT 飞书机器人 webhook
+    if (agentWebhookFeishu !== undefined) {
+      const p = /^AGENT_WEBHOOK_FEISHU=.*$/m;
+      if (p.test(envContent)) envContent = envContent.replace(p, `AGENT_WEBHOOK_FEISHU=${agentWebhookFeishu}`);
+      else envContent += `\nAGENT_WEBHOOK_FEISHU=${agentWebhookFeishu}`;
+    }
+
     // 写入文件
     await writeFile(envPath, envContent, 'utf-8');
     console.log('[Admin-Config] 配置已保存到 .env.local');
@@ -245,6 +258,8 @@ export async function POST(request: NextRequest) {
     if (geminiBaseUrl !== undefined) process.env.GEMINI_BASE_URL = geminiBaseUrl
     if (agnesKey !== undefined) process.env.AGNES_API_KEY = agnesKey
     if (agnesBaseUrl !== undefined) process.env.AGNES_BASE_URL = agnesBaseUrl
+    if (agentWebhookWechat !== undefined) process.env.AGENT_WEBHOOK_WECHAT = agentWebhookWechat
+    if (agentWebhookFeishu !== undefined) process.env.AGENT_WEBHOOK_FEISHU = agentWebhookFeishu
 
     return NextResponse.json({
       success: true,
@@ -303,6 +318,8 @@ export async function GET(request: NextRequest) {
     const geminiBaseUrl = await readEnv('GEMINI_BASE_URL');
     const agnesKey = await readEnv('AGNES_API_KEY');
     const agnesBaseUrl = await readEnv('AGNES_BASE_URL');
+    const agentWebhookWechat = await readEnv('AGENT_WEBHOOK_WECHAT');
+    const agentWebhookFeishu = await readEnv('AGENT_WEBHOOK_FEISHU');
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -333,6 +350,8 @@ export async function GET(request: NextRequest) {
         agnesConfigured: !!agnesKey,
         agnesBaseUrl: agnesBaseUrl || '',
         agnesBaseUrlConfigured: !!agnesBaseUrl,
+        agentWebhookWechatConfigured: !!agentWebhookWechat,
+        agentWebhookFeishuConfigured: !!agentWebhookFeishu,
         ossConfigured,
         ossRegion: ossRegion || '',
         ossBucket: ossBucket || ''

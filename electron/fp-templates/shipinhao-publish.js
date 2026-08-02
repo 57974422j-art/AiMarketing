@@ -6,6 +6,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const SHIPINHAO_PUBLISH_URL = 'https://channels.weixin.qq.com/platform/post/create'
 const { resolveLocalVideoPath } = require('./_common')
+const { clickByTextCDP } = require('./_cdpClick')
 
 async function isLoggedIn(page, log) {
   try {
@@ -110,137 +111,153 @@ async function fillShortTitle(page, title, log) {
 
 /**
  * 定位视频号「视频描述」输入框并填入。
- * 视频号描述区在标题上方，标签「视频描述」。未激活时显示占位（#话题 / 添加描述，多为伪元素/占位 span），
- * 真正的可编辑区（div[contenteditable] 或 textarea）需【点击占位/#话题】才渲染出来。
- * 策略：①按「视频描述」标签定位容器；②在容器内点击「#话题」/「添加描述」占位触发渲染；
- * ③若未渲染则点击容器本身；④再在容器内找可编辑区填入「文案 + #话题」。
- * 注意：查找可编辑区时优先 textarea/contenteditable，避免误选上方的「短标题」input。
+ * 与短标题同一思路：短标题用 placeholder 定位（input[placeholder*="标题"]），
+ * 描述则用它的专属 placeholder —— div.input-editor[data-placeholder="添加描述"]（contenteditable）。
+ * ⚠️ 该字段在【视频上传/转码完成后】才渲染，且页面有多个 .post-deso-box（封面区也用，出现很早），
+ *    所以【只等描述专属的 data-placeholder="添加描述"】，绝不用通用 .post-deso-box 等待（会提前放行）。
+ * 找不到时返回 false —— 由主流程决定停止（不填标题、不点发布）。
  */
 async function fillDescription(page, description, topics, log) {
-  // 1) 按「视频描述」标签定位其所在容器
-  const containerSel = await page.evaluate(() => {
-    const labels = Array.from(document.querySelectorAll('label, div, span, p, h3, h4, dt, th, b, strong'))
-    for (const lab of labels) {
-      const txt = (lab.textContent || '').trim()
-      if (txt === '视频描述' || txt.includes('视频描述')) {
-        const c =
-          lab.closest('[class*="item"], [class*="form"], [class*="row"], [class*="field"], [class*="desc"], li, div') ||
-          lab.parentElement
-        if (c) {
-          c.setAttribute('data-fp-desc-box', '1')
-          return '[data-fp-desc-box="1"]'
-        }
-      }
-    }
-    return null
-  })
-  if (!containerSel) {
-    log('未找到「视频描述」标签，跳过描述填写')
-  }
-
-  // 2) 点击容器内「#话题 / 添加描述」占位，激活真正的输入框（用户反馈：点 #话题 即出输入框）
-  const clickTrigger = async () => {
-    await page.evaluate(() => {
-      const box = document.querySelector('[data-fp-desc-box="1"]') || document.body
-      const all = Array.from(box.querySelectorAll('*'))
-      for (const el of all) {
-        const t = (el.textContent || '').trim()
-        if (t === '#话题' || t === '添加描述' || t === '说点什么' || t.includes('添加描述') || t.includes('#话题')) {
-          try { el.click(); return } catch (_) {}
-        }
-      }
-      // 兜底：点 placeholder/tip 类占位元素
-      const ph = box.querySelector('[class*="placeholder"], [class*="tip"], [class*="hint"]')
-      if (ph) { try { ph.click() } catch (_) {} }
-    })
-  }
-
-  // 3) 在容器内查找可编辑区（优先 textarea/contenteditable，排除标题 input）
-  const tryFindEditable = () =>
-    page.evaluate(() => {
-      const box = document.querySelector('[data-fp-desc-box="1"]') || document.body
-      let el = box.querySelector('textarea, [contenteditable]')
-      if (!el) {
-        const inp = Array.from(box.querySelectorAll('input')).find(
-          (i) => !/标题/.test(i.getAttribute('placeholder') || '')
-        )
-        el = inp || null
-      }
-      if (el) { el.setAttribute('data-fp-desc', '1'); return '[data-fp-desc="1"]' }
-      return null
-    })
-
+  // 1) 只等「描述专属」的 data-placeholder="添加描述"，最多等 120s
   let sel = null
-  if (containerSel) {
-    // 先点占位触发（点「#话题」即出输入框）
-    await clickTrigger()
-    await sleep(700)
-    sel = await tryFindEditable()
-    // 占位没生效 → 点击整个容器再试
-    if (!sel) {
-      await page.click(containerSel, { timeout: 5000 }).catch(() => {})
-      await sleep(800)
-      sel = await tryFindEditable()
-    }
+  try {
+    await page.waitForSelector('div.input-editor[data-placeholder="添加描述"]', { timeout: 120000 })
+    sel = 'div.input-editor[data-placeholder="添加描述"]'
+    log('  [描述] 已等到描述输入框（data-placeholder="添加描述"）渲染')
+  } catch (e) {
+    log('  ⚠️ 等待描述输入框（data-placeholder="添加描述"）超时')
   }
 
-  // 4) 兜底：任意含“描述/介绍” placeholder 的 textarea/input，或任意 [contenteditable]
+  // 2) 兜底：按「视频描述」label 找所属 form-item 内的 contenteditable
   if (!sel) {
     sel = await page.evaluate(() => {
-      const ta = document.querySelector(
-        'textarea[placeholder*="描述"], textarea[placeholder*="介绍"], input[placeholder*="描述"], input[placeholder*="介绍"]'
-      )
-      if (ta) { ta.setAttribute('data-fp-desc', '1'); return '[data-fp-desc="1"]' }
-      const ce = document.querySelector('[contenteditable]')
-      if (ce) { ce.setAttribute('data-fp-desc', '1'); return '[data-fp-desc="1"]' }
+      const labels = Array.from(document.querySelectorAll('div.label, label, .label'))
+      for (const lab of labels) {
+        if ((lab.textContent || '').trim().includes('视频描述')) {
+          const item = lab.closest('.form-item, [class*="item"], [class*="form"]') || lab.parentElement
+          const ed = item && (item.querySelector('.input-editor') || item.querySelector('[contenteditable]'))
+          if (ed) { ed.setAttribute('data-fp-desc', '1'); return '[data-fp-desc="1"]' }
+        }
+      }
       return null
-    })
+    }).catch(() => null)
+  }
+
+  // 3) 再兜底：任意带“添加描述/话题/描述/简介”的 contenteditable
+  if (!sel) {
+    sel = await page.evaluate(() => {
+      const all = Array.from(document.querySelectorAll('[contenteditable], .input-editor, textarea'))
+      for (const el of all) {
+        const ph = el.getAttribute('data-placeholder') || el.getAttribute('placeholder') || ''
+        if (/添加描述|话题|描述|简介/.test(ph)) { el.setAttribute('data-fp-desc', '1'); return '[data-fp-desc="1"]' }
+      }
+      return null
+    }).catch(() => null)
   }
 
   if (!sel) {
-    log('未找到视频描述输入框，跳过描述填写')
-    return
+    // —— 找不到：dump 诊断信息，方便照真实结构精修，然后返回 false（主流程会停止）——
+    try {
+      const dump = await page.evaluate(() => {
+        const forms = Array.from(document.querySelectorAll('.form-item'))
+          .map((f) => (f.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80))
+        const phs = Array.from(document.querySelectorAll('[data-placeholder]'))
+          .map((el) => el.getAttribute('data-placeholder'))
+        const hasEditor = !!document.querySelector('.input-editor')
+        return { forms, phs, hasEditor }
+      })
+      log('  [描述诊断] form-item 文本: ' + JSON.stringify(dump.forms))
+      log('  [描述诊断] 所有 data-placeholder: ' + JSON.stringify(dump.phs))
+      log('  [描述诊断] 页面是否存在 .input-editor: ' + dump.hasEditor)
+    } catch (_) {}
+    log('  ❌ 未找到视频描述输入框，按约定【停止流程：不填标题、不点发布】')
+    return false
   }
+  log('  [描述] 已定位描述输入框: ' + sel)
+
   const tags = parseTopics(topics).map((t) => '#' + t)
   const parts = []
   if (description && description.trim()) parts.push(description.trim())
   if (tags.length) parts.push(tags.join(' '))
   const text = parts.join('\n')
+  log('  [描述] 准备填入文本(' + text.length + '字): ' + text.slice(0, 60).replace(/\n/g, '\\n') + (text.length > 60 ? '…' : ''))
   const box = page.locator(sel)
   try {
     await box.click()
-    await box.fill(text)
+    // contenteditable 用 fill 不一定可靠，直接写 textContent + 派发 input/change 事件最稳
+    await box.evaluate((el, t) => {
+      el.focus()
+      el.textContent = t
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+    }, text)
+    log('  ✅ 视频描述（文案 + 话题）已填写')
   } catch (e) {
-    // contenteditable 兜底：直接写文本并派发输入事件
-    await box
-      .evaluate((el, t) => {
-        el.focus()
-        el.textContent = t
-        el.dispatchEvent(new Event('input', { bubbles: true }))
-        el.dispatchEvent(new Event('change', { bubbles: true }))
-      }, text)
-      .catch(() => {})
+    log('  ⚠️ 视频描述填写失败: ' + e.message)
+    return false
   }
-  log('视频描述（文案 + 话题）已填写')
+  return true
 }
 
 async function publishOrDraft(page, publishNow, log) {
-  // 视频号发表按钮没有 name="发表" 属性，必须用文本匹配
-  const publishBtnSel = 'button:has-text("发表"), button[name="发表"]'
-  await page.waitForSelector(publishBtnSel, { timeout: 180000 })
-  // 等按钮可点击
+  // —— 等「发表」按钮出现且可点击（视频号编辑页底部主按钮，黄底白字 weui-desktop-btn_primary）——
+  const baseSel = 'button:has-text("发表")'
+  await page.waitForSelector(baseSel, { timeout: 180000 })
   for (let i = 0; i < 60; i++) {
-    const disabled = await page.$eval(publishBtnSel, el => el.classList.contains('weui-desktop-btn_disabled') || el.disabled).catch(() => false)
+    const disabled = await page
+      .$eval(baseSel, (el) => el.classList.contains('weui-desktop-btn_disabled') || el.disabled)
+      .catch(() => false)
     if (!disabled) break
     await sleep(2000)
   }
-  if (publishNow) {
-    log('点击【发表】发布视频号...')
-    await page.click(publishBtnSel)
-  } else {
+
+  if (!publishNow) {
     log('点击【存草稿】...')
-    await page.click('button:has-text("存草稿")')
+    try { await page.click('button:has-text("存草稿")') } catch (_) {
+      await clickByTextCDP(page, log, ['存草稿'])
+    }
+    await sleep(5000)
+    return page.url()
   }
+
+  log('点击【发表】发布视频号...')
+  // ⚠️ 页面可能含多个“发表”（顶部“发表视频”入口等），必须点【底部黄底白字主按钮】。
+  // 策略：① weui-desktop-btn_primary:has-text("发表") ② 最后一个 button:has-text("发表") ③ CDP 穿透保底
+  let ok = false
+
+  // ① 黄色主按钮（黄底白字）
+  try {
+    const primary = page.locator('button.weui-desktop-btn_primary:has-text("发表")').first()
+    if (await primary.count()) {
+      await primary.scrollIntoViewIfNeeded()
+      await primary.click({ timeout: 10000 })
+      ok = true
+      log('  [发表] 已点击黄色主按钮(weui-desktop-btn_primary)')
+    }
+  } catch (e) { log('  [黄色主按钮点击失败] ' + e.message) }
+
+  // ② 兜底：最后一个含“发表”的按钮（编辑页底部发表按钮在 DOM 末尾）
+  if (!ok) {
+    try {
+      const all = page.locator('button:has-text("发表")')
+      const n = await all.count()
+      if (n) {
+        const last = all.nth(n - 1)
+        await last.scrollIntoViewIfNeeded()
+        await last.click({ timeout: 10000 })
+        ok = true
+        log('  [发表] 已点击最后一个“发表”按钮(页面共 ' + n + ' 个匹配)')
+      }
+    } catch (e) { log('  [最后发表按钮点击失败] ' + e.message) }
+  }
+
+  // ③ CDP 穿透保底（绕过 Playwright 点击盲区）
+  if (!ok) {
+    log('  [常规点击失败] 改用 CDP 穿透保底点击「发表」')
+    ok = await clickByTextCDP(page, log, ['发表', '发布'])
+  }
+  if (!ok) log('  ❌ 未能点击「发表」，请手动点击')
+
   await sleep(5000)
   return page.url()
 }
@@ -271,8 +288,13 @@ async function executeShipinhaoPublish(page, params, log) {
     }
 
     await uploadVideo(page, params.videoPath, log)
+    // 先填视频描述：找不到就停下整个流程（按约定不填标题、不点发布），便于排查
+    const descOk = await fillDescription(page, params.description, params.topics, log)
+    if (!descOk) {
+      log('⛔ 视频描述未填写成功，已停止整个发布流程（未填短标题、未点发表）。请检查上方[描述诊断]')
+      return { success: false, message: '未找到/未填写视频描述，已停止发布（未发布）' }
+    }
     await fillShortTitle(page, params.title, log)
-    await fillDescription(page, params.description, params.topics, log)
 
     // 封面：方案A（1.0.4）—— 无自定义封面时跳过，使用平台默认帧
     if (params.coverImage) {

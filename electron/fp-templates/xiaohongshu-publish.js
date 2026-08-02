@@ -99,6 +99,94 @@ async function moveCursorToEnd(page, el) {
   } catch (_) {}
 }
 
+/**
+ * 通过 CDP 穿透 closed shadow 点击发布红键。
+ * Playwright 的 >>> 选择器进不去 closed shadow（xhs-publish-btn 的 shadowRoot === null），
+ * 但 DevTools Protocol 的 DOM.getDocument({pierce:true}) 能展开 closed shadow 内部，
+ * 再用 DOM.querySelector 定位红键、getBoxModel 算出视口坐标，用真实鼠标点击。
+ * 红键结构（用户 DevTools 实测）：
+ *   xhs-publish-btn > #shadow-root(closed) > div.publish-page-publish-btn > button.ce-btn.bg.red（文本“发布”）
+ * @returns {Promise<boolean>} 是否成功点击
+ */
+// —— CDP 穿透 closed shadow 的辅助函数统一抽到 _cdpClick.js，与快手/视频号/B站共用保底方法论 ——
+// 详见 _cdpClick.js 顶部踩坑实录：pierce 树下 shadow 内容在 node.shadowRoots，须递归遍历。
+const { _collectPierced, _clickNodeById, _subtreeText } = require('./_cdpClick')
+
+/**
+ * 通过 CDP 穿透 closed shadow 点击发布/存草稿红键。
+ * 红键结构（用户 DevTools 实测）：
+ *   xhs-publish-btn > #shadow-root(closed) > div.publish-page-publish-btn > button.ce-btn.bg.red（文本“发布”）
+ * 做法：先在 pierced 文档上用【单个简单选择器】'button.ce-btn.bg.red' 跨 shadow 命中节点，
+ * 再用 outerHTML 校验文本=target，命中则 getBoxModel 取视口坐标真实点击。
+ * 调用前页面先滚到底部，确保发布栏（可能在底部）进入视口、坐标有效。
+ * @param {string} target 目标文本，如 '发布' / '存草稿'
+ * @returns {Promise<boolean>}
+ */
+async function clickPublishViaCDP(page, log, target) {
+  try {
+    // 先滚到底部，让发布栏进入视口（getBoxModel 坐标才有效）
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {})
+    await page.waitForTimeout(400)
+    const client = await page.context().newCDPSession(page)
+    const { root } = await client.send('DOM.getDocument', { depth: -1, pierce: true })
+
+    // ① 主匹配：button 且 class 含 ce-btn+red 且文本含 target
+    let hits = []
+    _collectPierced(root, ({ name, cls, txt }) =>
+      name === 'button' && cls.includes('ce-btn') && cls.includes('red') && txt.includes(target), hits)
+    // ② 放宽：任意 button 文本严格等于 target（防止小红书改 class 名）
+    if (!hits.length) {
+      _collectPierced(root, ({ name, txt }) => name === 'button' && txt === target, hits)
+    }
+    if (hits.length) {
+      const ok = await _clickNodeById(client, page, log, hits[0].nodeId, '「' + target + '」红键(shadow内)')
+      await client.detach().catch(() => {})
+      return ok
+    }
+
+    // ③ 一个没找到 → dump xhs-publish-btn 的 shadow 内部结构，给下一轮诊断
+    const hosts = []
+    _collectPierced(root, ({ name }) => name === 'xhs-publish-btn', hosts)
+    if (hosts.length) {
+      const h = hosts[0]
+      const sr = (h.shadowRoots && h.shadowRoots.length) ? h.shadowRoots.length : 0
+      let inner = ''
+      if (sr) {
+        const o = await client.send('DOM.getOuterHTML', { nodeId: h.shadowRoots[0].nodeId }).catch(() => null)
+        inner = o && o.outerHTML ? o.outerHTML.slice(0, 600) : '(取不到outerHTML)'
+      }
+      log('  [CDP诊断] xhs-publish-btn shadowRoots=' + sr + (sr ? (' 内部HTML片段: ' + inner) : '（CDP也看不到shadow内容）'))
+      // ④ 最后兜底：shadow 树拿不到内容时，直接点 host 元素中心（红键几乎占满 host）
+      const ok = await _clickNodeById(client, page, log, h.nodeId, 'xhs-publish-btn宿主(兜底盲点)')
+      await client.detach().catch(() => {})
+      return ok
+    }
+    await client.detach().catch(() => {})
+    log('  [CDP] 树中连 xhs-publish-btn 宿主都没有（可能在 iframe 外层？）')
+    return false
+  } catch (e) { log('  [CDP] 点击异常: ' + e.message); return false }
+}
+
+/**
+ * 通过 CDP 穿透 shadow，按文本匹配点击某按钮（用于二次确认弹窗，也可能在 shadow 内）。
+ * @param {string[]} texts 目标按钮文本子串，如 ['确认发布','确定']
+ * @returns {Promise<boolean>}
+ */
+async function clickTextViaCDP(page, log, texts) {
+  try {
+    const client = await page.context().newCDPSession(page)
+    const { root } = await client.send('DOM.getDocument', { depth: -1, pierce: true })
+    const hits = []
+    _collectPierced(root, ({ name, txt }) =>
+      (name === 'button' || name === 'a') && texts.some(t => txt.includes(t)) && txt.length < 30, hits)
+    if (!hits.length) { await client.detach().catch(() => {}); return false }
+    const label = _subtreeText(hits[0]).replace(/\s+/g, ' ').trim().slice(0, 20)
+    const ok = await _clickNodeById(client, page, log, hits[0].nodeId, '确认键「' + label + '」')
+    await client.detach().catch(() => {})
+    return ok
+  } catch (e) { log('  [CDP] 确认点击异常: ' + e.message); return false }
+}
+
 // ════════════════════════════════════
 // Step 1: 导航
 // ════════════════════════════════════
@@ -586,99 +674,105 @@ async function step7_publish(page, params, log) {
   // 先关掉可能残留的弹窗（封面/话题联想等）
   await dismissPopups(page, log, '[发布前] ')
 
-  // 等发布按钮区渲染（内容/封面步骤后页面可能还没 settle）
-  try {
-    await page.waitForSelector('button:has-text("发布"), button:has-text("存草稿"), [role="button"]', { timeout: 15000 })
-  } catch (_) {}
+  // 发布栏是 Web Component <xhs-publish-btn>，其红键 button.ce-btn.bg.red 在 **closed shadow** 内，
+  // 且要等视频上传+转码完成后才渲染。这里【轮询等待】，每轮尝试：
+  //   主方案 = CDP 穿透 closed shadow 点击红键（Playwright >>> 进不去 closed shadow，已验证失败）
+  //   兜底   = 主文档层级 button/:has-text("发布")（针对极个别红键不在 shadow 的情况）
+  // 最多等 90s；若仍失败，diagnosePublish() 会打印页面里真实情况。
 
-  // 发布键是编辑器底部固定红键<button class="ce-btn bg red">发布</button>（background:#ff2442）。
-  // 不滚动（固定元素不随滚动移动），仅留一点渲染缓冲。
-  await page.waitForTimeout(500)
-
-  // ── 小红书发布按钮识别（红背景 + 文案「发布」为决定性信号）──
-  // 真实发布键（用户 inspect 确认）：<button class="ce-btn bg red">发布</button>
-  //   background:#ff2442(品牌红 r=255,g=36,b=66) / 文案「发布」/ 编辑器底部。
-  // 透明浮层的「智能客服」「暂存离开」均不是红背景、且文案不含「发布」(或已被显式排除) → 不会误点。
-  const res = await page.evaluate((isDraft) => {
-    const isRedBg = (el) => {
-      const check = (e) => {
-        const s = getComputedStyle(e)
-        const bg = (s.backgroundColor || '') + ' ' + (s.backgroundImage || '')
-        const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-        if (m) { const r = +m[1], g = +m[2], b = +m[3]; if (r > 150 && (r - g) > 50 && (r - b) > 30) return true }
-        return false
+  // —— 诊断：失败时把“到底有没有发布按钮、它在哪”打印出来，便于定位 ——
+  async function diagnosePublish() {
+    const info = await page.evaluate(() => {
+      const out = { mainDoc: [], comp: null }
+      const all = Array.from(document.querySelectorAll('button, a, [role="button"], .ce-btn, div, span'))
+      for (const el of all) {
+        const t = (el.innerText || el.textContent || '').trim()
+        if (t && (t.includes('发布') || t.includes('存草稿') || t.includes('定时'))) {
+          const root = el.getRootNode()
+          out.mainDoc.push({
+            tag: el.tagName,
+            text: t.slice(0, 30),
+            cls: (el.className && el.className.toString ? el.className.toString() : '').slice(0, 70),
+            id: el.id || '',
+            visible: el.offsetParent !== null,
+            inShadow: root !== document,
+          })
+        }
       }
-      if (check(el)) return true
-      // 红背景可能在子元素上（按钮自身透明）
-      for (const c of el.querySelectorAll('*')) if (check(c)) return true
-      return false
-    }
-    const nodes = Array.from(document.querySelectorAll('button, [role="button"], a, div'))
-    const cands = []
-    let best = null, bestScore = -1
-    for (const n of nodes) {
-      const t = (n.innerText || n.getAttribute('aria-label') || '').trim()
-      if (!t) continue
-      // 显式排除非发布项（智能客服 / 暂存离开 / 离开 等）
-      if (/智能客服|暂存|离开/.test(t)) continue
-      // 模式过滤：发布模式只认「发布」(排除 存草稿/草稿箱)；草稿模式只认「存草稿」
-      if (isDraft) {
-        if (!(t.includes('存草稿') || t === '草稿')) continue
-      } else {
-        if (!/发布/.test(t)) continue
-        if (/存草稿|草稿箱/.test(t)) continue
+      const c = document.querySelector('xhs-publish-btn')
+      if (c) {
+        out.comp = { exists: true, shadowNull: c.shadowRoot === null }
+        try {
+          if (c.shadowRoot) {
+            out.comp.shadowTexts = Array.from(c.shadowRoot.querySelectorAll('*'))
+              .map(n => (n.innerText || n.textContent || '').trim())
+              .filter(t => t.includes('发布') || t.includes('存草稿'))
+          }
+        } catch (e) { out.comp.shadowErr = e.message }
       }
-      const cls = (typeof n.className === 'string') ? n.className : ''
-      // 兼容 class="ce-btn bg red" 与 class="...bg-red..."（连字符）
-      const hasRedClass = /(^|[\s-])(red|brand)/.test(cls)
-      const isRed = isRedBg(n)
-      let score = 0
-      if (/发布笔记/.test(t)) score += 6
-      else if (/发布/.test(t)) score += 4
-      if (isRed) score += 5
-      // class 含 red/brand 是最直接信号（inspect 确认真实键 class="ce-btn bg red"），给决定性高分
-      if (hasRedClass) score += 100
-      const rect = n.getBoundingClientRect()
-      if (rect.bottom > window.innerHeight * 0.3) score += 1
-      cands.push((t.slice(0, 14)) + (isRed ? '[RED]' : '') + (hasRedClass ? '[CLS-RED]' : '') + '(s=' + score + ')')
-      if (score > bestScore) { bestScore = score; best = n }
-    }
-    const dbg = cands.join(' | ') || '(无候选)'
-    if (best) { best.setAttribute('data-fp-pub', '1'); return { sel: '[data-fp-pub="1"]', dbg } }
-    return { sel: null, dbg }
-  }, isDraft)
-  const sel = res.sel
-  if (res.dbg) log('  [发布候选] ' + res.dbg)
-
-  let pub = false
-  if (sel) {
-    log('  定位到发布按钮: ' + sel)
-    try {
-      const b = page.locator(sel)
-      await b.scrollIntoViewIfNeeded().catch(() => {})
-      await b.click({ timeout: 6000 })
-      pub = true
-      log('  ✅ 已点击发布按钮')
-    } catch (e) { log('  ⚠️ 点击发布异常: ' + e.message) }
-  } else {
-    log('  ⚠️ 评分未命中发布按钮，尝试文本兜底')
+      return out
+    }).catch(e => ({ evalErr: e.message }))
+    log('  [发布诊断] 主文档含「发布/存草稿」的元素: ' + JSON.stringify(info.mainDoc || []))
+    if (info.comp) log('  [发布诊断] xhs-publish-btn: ' + JSON.stringify(info.comp))
+    else log('  [发布诊断] 页面不存在 xhs-publish-btn 组件')
   }
 
-  // 兜底：优先红 class 的发布键，其次文本定位（避免误点左上方「发布」引导入口）
+  let pub = false
+  const PUB_DEADLINE = Date.now() + 90000
+  while (Date.now() < PUB_DEADLINE) {
+    if (global.__fpAbort) { log('  ⛔ 用户手动停止，放弃点击发布'); break }
+
+    // 1) 确认发布栏 web 组件已挂载（此时不一定含红键）
+    try { await page.waitForSelector('xhs-publish-btn', { timeout: 2000 }) } catch (_) {}
+
+    // 2) 页面若还在「处理中/上传中/转码/解析」，说明红键未就绪，继续等
+    const bodyNow = await page.evaluate(() => document.body.innerText).catch(() => '')
+    if (/(处理中|上传中|转码|解析中|等待上传|上传失败|格式不支持)/.test(bodyNow)) {
+      const remain = Math.max(0, Math.round((PUB_DEADLINE - Date.now()) / 1000))
+      log('  [等发布键] 视频仍在处理/上传中，继续等待…（剩 ' + remain + 's）')
+      await page.waitForTimeout(3000)
+      continue
+    }
+
+    // 3) 定位发布键：主方案 = CDP 穿透 closed shadow；兜底 = 主文档文本
+    let hit = ''
+    if (await clickPublishViaCDP(page, log, isDraft ? '存草稿' : '发布')) { pub = true; hit = 'CDP-pierce-closed-shadow' }
+    if (!pub) {
+      const docSel = isDraft
+        ? 'button:has-text("存草稿"), [role="button"]:has-text("存草稿")'
+        : 'button:has-text("发布"), [role="button"]:has-text("发布"), .ce-btn:has-text("发布")'
+      try {
+        const loc = page.locator(docSel).first()
+        if (await loc.isVisible().catch(() => false)) {
+          await loc.click({ timeout: 5000 })
+          pub = true
+          hit = 'mainDoc'
+        }
+      } catch (_) {}
+    }
+    if (pub) { log('  ✅ 已点击发布按钮 (' + hit + ')'); break }
+
+    const remain = Math.max(0, Math.round((PUB_DEADLINE - Date.now()) / 1000))
+    log('  [等发布键] 本轮 shadow/mainDoc 均未命中可见红键，继续等待…（剩 ' + remain + 's）')
+    await page.waitForTimeout(3000)
+  }
+
+  // 兜底 + 诊断
   if (!pub) {
+    log('  ⚠️ 90s 内仍未自动点到发布键，输出诊断信息：')
+    await diagnosePublish()
+    // 末次再试一次主文档文本点击
     try {
-      const loc = isDraft
-        ? page.locator('button:has-text("存草稿")')
-        : page.locator('button[class*="red"]:has-text("发布"), button[class*="brand"]:has-text("发布"), button:has-text("发布笔记"), button:has-text("发布")')
+      const loc = isDraft ? page.locator('button:has-text("存草稿")') : page.locator('button:has-text("发布")')
       if (await loc.first().isVisible().catch(() => false)) {
         await loc.first().click({ timeout: 4000 })
         pub = true
-        log('  ✅ 兜底点击发布')
+        log('  ✅ 末次兜底点击发布成功')
       }
     } catch (_) {}
   }
 
-  // 二次确认弹窗（小红书点击后偶发「确认发布 / 确定」）
+  // 二次确认弹窗（小红书点击后偶发「确认发布 / 确定」，可能在 shadow 内）
   if (pub) {
     await page.waitForTimeout(2500)
     for (let i = 0; i < 3; i++) {
@@ -691,13 +785,19 @@ async function step7_publish(page, params, log) {
         }
         return null
       })
-      if (clicked) { log('  二次确认已点: ' + clicked); await page.waitForTimeout(1500) } else break
+      if (clicked) { log('  二次确认已点(主文档): ' + clicked); await page.waitForTimeout(1500); continue }
+      // 主文档没找到 → 走 CDP 穿透 shadow 找确认键
+      if (await clickTextViaCDP(page, log, ['确认发布', '继续发布', '确认', '确定'])) {
+        await page.waitForTimeout(1500); continue
+      }
+      break
     }
   }
 
   if (!pub) {
-    log('❌ 未找到' + targetText + '按钮！请手动点击')
-    return { success: true, message: '内容已填完，请手动点「' + targetText + '」', needConfirm: true }
+    const tt = isDraft ? '存草稿' : '发布'
+    log('❌ 未找到' + tt + '按钮！请手动点击')
+    return { success: true, message: '内容已填完，请手动点「' + tt + '」', needConfirm: true }
   }
 
   log('等待发布响应(8s)...')

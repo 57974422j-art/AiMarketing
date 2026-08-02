@@ -101,6 +101,12 @@ export default function SettingsPage() {
   const [showAgnesKey, setShowAgnesKey] = useState(false)
   const [agnesBaseUrl, setAgnesBaseUrl] = useState('')
 
+  // ====== AGENT 微信/飞书 渠道 webhook（阶段四） ======
+  const [agentWebhookWechat, setAgentWebhookWechat] = useState('')
+  const [agentWebhookFeishu, setAgentWebhookFeishu] = useState('')
+  const [showAgentWebhookWechat, setShowAgentWebhookWechat] = useState(false)
+  const [showAgentWebhookFeishu, setShowAgentWebhookFeishu] = useState(false)
+
   // ====== GIPHY / 海外代理 / Gemini / Agnes 测试连接状态 ======
   const [testingGiphy, setTestingGiphy] = useState(false)
   const [giphyTestMsg, setGiphyTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -162,6 +168,9 @@ export default function SettingsPage() {
       // Agnes AI
       setAgnesKey(d.agnesConfigured ? '********' : '')
       setAgnesBaseUrl(d.agnesBaseUrl || '')
+      // AGENT 渠道 webhook
+      setAgentWebhookWechat(d.agentWebhookWechatConfigured ? '********' : '')
+      setAgentWebhookFeishu(d.agentWebhookFeishuConfigured ? '********' : '')
 
       // 客服设置
       try {
@@ -218,6 +227,8 @@ export default function SettingsPage() {
           geminiBaseUrl: geminiBaseUrl || undefined,
           agnesKey: mask(agnesKey),
           agnesBaseUrl: agnesBaseUrl || undefined,
+          agentWebhookWechat: agentWebhookWechat || undefined,
+          agentWebhookFeishu: agentWebhookFeishu || undefined,
         }),
       })
       const result = await res.json()
@@ -582,6 +593,43 @@ export default function SettingsPage() {
               文生图 agnes-image-2.1-flash · 文生视频 agnes-video-v2.0（异步轮询）。免费额度，谨慎高频调用。
             </p>
           </div>
+        </div>
+
+        {/* AGENT 微信/飞书渠道（阶段四·融合 BaiLongma IM 连接） */}
+        <div className="bg-gray-900/60 backdrop-blur-xl rounded-xl border border-white/5 p-4 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-white font-bold mb-2"><span className="text-purple-400">//</span> AGENT 微信 / 飞书渠道</h3>
+          </div>
+          <p className="text-gray-400 text-xs mb-4">把 AGENT 对话通过群机器人 webhook 推送到企业微信群 / 飞书群。填写后，在 AGENT 页可通过「转发到群」把内容同步过去。需在企业微信/飞书后台创建群机器人获取 webhook 地址。</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">企业微信机器人 Webhook</label>
+              <div className="flex gap-2">
+                <input
+                  type={showAgentWebhookWechat ? 'text' : 'password'}
+                  value={agentWebhookWechat}
+                  onChange={e => setAgentWebhookWechat(e.target.value)}
+                  placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+                  className="flex-1 px-3 py-2 bg-black/30 border border-white/10 rounded-lg text-white text-xs font-mono focus:border-emerald-500/50 focus:outline-none" />
+                <button type="button" onClick={() => setShowAgentWebhookWechat(v => !v)} className="px-2 py-2 bg-white/5 rounded-lg text-gray-400 hover:text-gray-200">{showAgentWebhookWechat ? '🙈' : '👁'}</button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">飞书机器人 Webhook</label>
+              <div className="flex gap-2">
+                <input
+                  type={showAgentWebhookFeishu ? 'text' : 'password'}
+                  value={agentWebhookFeishu}
+                  onChange={e => setAgentWebhookFeishu(e.target.value)}
+                  placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
+                  className="flex-1 px-3 py-2 bg-black/30 border border-white/10 rounded-lg text-white text-xs font-mono focus:border-emerald-500/50 focus:outline-none" />
+                <button type="button" onClick={() => setShowAgentWebhookFeishu(v => !v)} className="px-2 py-2 bg-white/5 rounded-lg text-gray-400 hover:text-gray-200">{showAgentWebhookFeishu ? '🙈' : '👁'}</button>
+              </div>
+            </div>
+          </div>
+          {(agentWebhookWechat || agentWebhookFeishu) && (
+            <p className="mt-2 text-[10px] text-emerald-400 font-mono">✓ 已配置 {[agentWebhookWechat && '企业微信', agentWebhookFeishu && '飞书'].filter(Boolean).join(' / ')}</p>
+          )}
         </div>
 
         {/* 引擎 + 登录 + 代理池面板 */}
