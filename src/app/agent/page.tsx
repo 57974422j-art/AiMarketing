@@ -3,6 +3,68 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/providers'
 
+// ===== 阶段一·语音环（融合 BaiLongma 声纹语音能力，复用火山 TTS + 本地 FunASR）=====
+function useAgentVoice() {
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const ctxRef = useRef<AudioContext | null>(null)
+
+  // Jarvis 风格提示音（WebAudio 合成，无需外部文件）
+  const blip = (freq = 660, dur = 0.12) => {
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext
+      if (!Ctx) return
+      if (!ctxRef.current) ctxRef.current = new Ctx()
+      const ctx = ctxRef.current
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01)
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur)
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.start(); osc.stop(ctx.currentTime + dur)
+    } catch {}
+  }
+
+  const speak = async (text: string): Promise<void> => {
+    if (!text) return
+    blip(880, 0.1)
+    try {
+      const res = await fetch('/api/agent/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      const data = await res.json()
+      if (data.success && data.audioBase64) {
+        const url = `data:${data.mime};base64,${data.audioBase64}`
+        await new Promise<void>((resolve) => {
+          const audio = new Audio(url)
+          audioRef.current = audio
+          audio.onended = () => { blip(440, 0.1); resolve() }
+          audio.onerror = () => resolve()
+          audio.play().catch(() => resolve())
+        })
+      }
+    } catch {}
+  }
+
+  const stop = () => {
+    audioRef.current?.pause()
+    audioRef.current = null
+  }
+
+  return { speak, stop, blip }
+}
+
+interface SceneCard {
+  type: string
+  title?: string
+  fields?: { label: string; value: string }[]
+  options?: string[]
+  actions?: { label: string; href?: string }[]
+}
 interface Message {
   id: number | string
   role: 'user' | 'assistant'
@@ -11,6 +73,8 @@ interface Message {
   createdAt?: string
   intent?: string
   toolUsed?: boolean
+  steps?: { tool: string; label: string }[]
+  scene?: SceneCard | null
 }
 
 interface Session {
@@ -45,6 +109,70 @@ export default function AgentPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [lastPoints, setLastPoints] = useState<number | null>(null)
+
+  // ===== 阶段一·语音环状态 =====
+  const [autoSpeak, setAutoSpeak] = useState(false)
+  const [showBrain, setShowBrain] = useState(false)
+  const [brainMemories, setBrainMemories] = useState<{ content: string; tags: string; salience: number }[]>([])
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingTip, setRecordingTip] = useState('')
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<BlobPart[]>([])
+  const voice = useAgentVoice()
+
+  // 录音：按住说话 / 点击切换
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaStreamRef.current = stream
+      const rec = new MediaRecorder(stream)
+      mediaRecorderRef.current = rec
+      audioChunksRef.current = []
+      rec.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(audioChunksRef.current, { type: rec.mimeType || 'audio/webm' })
+        if (blob.size < 1500) { setRecordingTip('没听到声音'); setIsRecording(false); return }
+        setRecordingTip('识别中…')
+        try {
+          const fd = new FormData()
+          fd.append('audio', blob, 'rec.webm')
+          const r = await fetch('/api/agent/asr', { method: 'POST', body: fd, credentials: 'include' })
+          const d = await r.json()
+          if (d.success && d.text) {
+            setInput(d.text)
+          } else {
+            setRecordingTip(d.message || '识别失败')
+          }
+        } catch (e: any) {
+          setRecordingTip('识别出错：' + e.message)
+        }
+        setIsRecording(false)
+        setTimeout(() => setRecordingTip(''), 2500)
+      }
+      rec.start()
+      setIsRecording(true)
+      setRecordingTip('正在听…松开或再点停止')
+      voice.blip(660, 0.12)
+    } catch (e: any) {
+      setRecordingTip('麦克风权限被拒绝')
+      setIsRecording(false)
+    }
+  }
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop()
+  }
+  const toggleRecording = () => {
+    if (isRecording) stopRecording()
+    else startRecording()
+  }
+
+  // 朗读某条消息（自动朗读时会在收到助手消息后调用）
+  const speakMessage = (content: string) => {
+    const plain = content.replace(/【[^\]]*】/g, '').replace(/\n+/g, '。').slice(0, 400)
+    voice.speak(plain)
+  }
 
   // 加载会话列表
   const loadSessions = useCallback(async () => {
@@ -138,7 +266,10 @@ export default function AgentPage() {
           content: data.data.reply, timestamp: Date.now(),
           intent: data.data.intent?.join?.(',') || data.data.intent,
           toolUsed: data.data.toolUsed,
+          steps: data.data.steps,
+          scene: data.data.scene,
         }])
+        if (autoSpeak) speakMessage(data.data.reply)
         if (data.data.sessionId) setSessionId(data.data.sessionId)
         if (typeof data.data.pointsSpent === 'number') setLastPoints(data.data.pointsSpent)
         loadSessions()
@@ -239,9 +370,35 @@ export default function AgentPage() {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
+          {/* 阶段一·语音环控制 */}
+          <button onClick={() => setAutoSpeak(s => !s)}
+            className={`hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] transition ${autoSpeak ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
+            title="自动朗读回复">
+            🔊 {autoSpeak ? '朗读中' : '自动朗读'}
+          </button>
+          <button onClick={toggleRecording}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${isRecording ? 'bg-red-500/30 text-red-300 animate-pulse' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
+            title={isRecording ? '点击停止录音' : '按住/点击说话'}>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2m7 9v3"/></svg>
+          </button>
           <a href="/workspace" className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-gray-200 transition" title="工具箱">
             工具箱
           </a>
+          <button onClick={async () => {
+            const next = !showBrain
+            setShowBrain(next)
+            if (next) {
+              try {
+                const r = await fetch('/api/agent/memories', { credentials: 'include' })
+                const d = await r.json()
+                if (d.success) setBrainMemories(d.items || [])
+              } catch {}
+            }
+          }}
+            className={`hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] transition ${showBrain ? 'bg-purple-500/20 text-purple-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
+            title="认知地图 / 长期记忆">
+            🧠 记忆
+          </button>
           <button onClick={newChat} className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center" title="新对话">
             <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
           </button>
@@ -249,6 +406,38 @@ export default function AgentPage() {
       </header>
 
       <div className="flex-1 flex overflow-hidden relative z-10">
+        {/* 阶段五·认知地图抽屉（融合 BaiLongma Brain UI，轻量版） */}
+        {showBrain && (
+          <aside className="w-64 border-r border-purple-500/10 backdrop-blur-xl bg-[#0a0a0f]/95 flex-col shrink-0 hidden md:flex">
+            <div className="p-3 border-b border-white/5 flex items-center justify-between">
+              <span className="text-[11px] text-purple-300 font-medium">🧠 认知地图</span>
+              <button onClick={() => setShowBrain(false)} className="text-gray-500 hover:text-gray-300 text-xs">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              <div>
+                <p className="text-[9px] text-gray-500 mb-1.5">长期记忆 ({brainMemories.length})</p>
+                {brainMemories.length === 0 ? (
+                  <p className="text-[9px] text-gray-700">暂无记忆（聊天中让助手「记住…」即可）</p>
+                ) : (
+                  brainMemories.map((m, i) => (
+                    <div key={i} className="mb-1.5 rounded-lg bg-purple-500/5 border border-purple-500/15 px-2 py-1.5">
+                      <p className="text-[10px] text-gray-300 leading-snug">{m.content}</p>
+                      {m.tags && <p className="text-[8px] text-purple-400/70 mt-0.5">#{m.tags}</p>}
+                    </div>
+                  ))
+                )}
+              </div>
+              <div>
+                <p className="text-[9px] text-gray-500 mb-1.5">可用工具</p>
+                <div className="flex flex-wrap gap-1">
+                  {['写文案', '生图', '生视频', '搜素材', '个人仓库', '发布', '记忆'].map((t, i) => (
+                    <span key={i} className="px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-[9px] text-cyan-300">· {t}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </aside>
+        )}
         {/* 侧边栏 */}
         {/* 桌面端常驻侧边栏 */}
         <aside className="hidden lg:flex w-56 border-r border-white/5 backdrop-blur-xl bg-[#0a0a0f]/90 flex-col shrink-0">
@@ -349,6 +538,52 @@ export default function AgentPage() {
                         </p>
                       )}
                       <div className="text-gray-300 whitespace-pre-wrap">{renderContent(msg.content)}</div>
+                      {/* 阶段二·思考流：工具执行步骤可视化 */}
+                      {msg.role === 'assistant' && msg.steps && msg.steps.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {msg.steps.map((s, i) => (
+                            <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-[9px] text-cyan-300">
+                              <span className="w-1 h-1 bg-cyan-400 rounded-full" /> {s.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {/* 阶段二·Scene 投影：AGENT 返回结构化卡片原生渲染 */}
+                      {msg.role === 'assistant' && msg.scene && (
+                        <div className="mt-2 rounded-xl bg-white/[0.03] border border-white/[0.08] p-3">
+                          {msg.scene.title && <p className="text-[11px] text-emerald-300 font-medium mb-2">{msg.scene.title}</p>}
+                          {msg.scene.fields?.map((f, i) => (
+                            <div key={i} className="flex justify-between gap-3 text-[10px] py-1 border-b border-white/[0.04] last:border-0">
+                              <span className="text-gray-500">{f.label}</span>
+                              <span className="text-gray-300 text-right">{f.value}</span>
+                            </div>
+                          ))}
+                          {msg.scene.options && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {msg.scene.options.map((o, i) => (
+                                <span key={i} className="px-2 py-0.5 rounded-md bg-white/5 text-[9px] text-gray-400">· {o}</span>
+                              ))}
+                            </div>
+                          )}
+                          {msg.scene.actions && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {msg.scene.actions.map((a, i) => (
+                                a.href ? (
+                                  <a key={i} href={a.href} className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-[10px] text-emerald-300 hover:bg-emerald-500/30 transition">{a.label}</a>
+                                ) : (
+                                  <span key={i} className="px-2.5 py-1 rounded-lg bg-white/5 text-[10px] text-gray-400">{a.label}</span>
+                                )
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {msg.role === 'assistant' && (
+                        <button onClick={() => speakMessage(msg.content)}
+                          className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-[9px] text-gray-400 hover:text-emerald-300 transition" title="朗读此条">
+                          🔊 朗读
+                        </button>
+                      )}
                       <p className="text-[8px] mt-1 opacity-30">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''}</p>
                     </div>
                   </div>
@@ -382,6 +617,12 @@ export default function AgentPage() {
           {/* 输入区 */}
           <footer className="relative border-t border-white/[0.04] backdrop-blur-xl bg-[#0a0a0f]/80 px-2 sm:px-6 py-2 sm:py-3 shrink-0">
             <div className="max-w-3xl mx-auto">
+              {recordingTip && (
+                <div className={`mb-2 text-center text-[10px] py-1 rounded-lg ${isRecording ? 'bg-red-500/15 text-red-300' : 'bg-white/5 text-gray-400'}`}>
+                  {isRecording && <span className="inline-block w-1.5 h-1.5 bg-red-400 rounded-full mr-1 animate-pulse" />}
+                  {recordingTip}
+                </div>
+              )}
               {/* 附件预览 */}
               {attachments.length > 0 && (
                 <div className="flex gap-2 mb-2 flex-wrap">

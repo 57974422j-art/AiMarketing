@@ -129,7 +129,45 @@ const AGENT_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    name: 'search_memory',
+    description: '回顾与用户相关的长期记忆（偏好、品牌信息、过往约定）。触发词："你还记得""之前说的""我的偏好""上次"。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '检索关键词' },
+      },
+    },
+  },
+  {
+    name: 'upsert_memory',
+    description: '把重要信息写入长期记忆，便于以后调用（用户偏好、品牌名、发布节奏、约定）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: '要记住的内容' },
+        tags: { type: 'string', description: '逗号分隔的标签，如 偏好,品牌' },
+        salience: { type: 'number', description: '重要度 0~1，默认0.5' },
+      }, required: ['content'],
+    },
+  },
 ]
+
+// 思考流步骤中文标签（前端展示用）
+const TOOL_STEP_LABEL: Record<string, string> = {
+  generate_copy: '撰写营销文案',
+  generate_image: 'AI 生成配图',
+  generate_video: 'AI 生成视频',
+  search_web_images: '上网搜索参考图',
+  digital_human_speak: '生成数字人口播',
+  search_storage: '检索项目素材库',
+  list_personal_files: '读取个人仓库',
+  search_templates: '查找模板',
+  publish_content: '核对发布账号',
+  automation_check: '查看自动化任务',
+  search_memory: '回忆长期记忆',
+  upsert_memory: '写入长期记忆',
+}
 
 const SYSTEM_PROMPT = `你是 AiMarketing 的 AI 运营助手，核心使命：帮用户执行自媒体运营的日常任务——每天的内容制作与发布（抖音/小红书/快手/视频号/B站）。
 
@@ -334,6 +372,53 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       } catch { return '自动化查询失败' }
     }
 
+    // ── 长期记忆（融合 BaiLongma memory 模块）──
+    case 'search_memory': {
+      try {
+        const { PrismaClient } = await import('@prisma/client')
+        const prisma = new PrismaClient()
+        const kw = (args.query || '').trim()
+        const rows = await prisma.agentMemory.findMany({
+          where: {
+            userId: auth?.userId || '',
+            OR: kw ? [
+              { content: { contains: kw } },
+              { tags: { contains: kw } },
+            ] : undefined,
+          },
+          orderBy: { salience: 'desc' },
+          take: 8,
+        })
+        await prisma.$disconnect()
+        if (!rows.length) return JSON.stringify({ found: false, hint: '没有相关记忆' })
+        return JSON.stringify({ found: true, items: rows.map((r: any) => ({ content: r.content, tags: r.tags, salience: r.salience })) })
+      } catch (e: any) {
+        return JSON.stringify({ found: false, error: e.message })
+      }
+    }
+    case 'upsert_memory': {
+      try {
+        const { PrismaClient } = await import('@prisma/client')
+        const prisma = new PrismaClient()
+        const content = (args.content || '').trim()
+        if (!content) return JSON.stringify({ ok: false, error: '缺少内容' })
+        const tags = Array.isArray(args.tags) ? args.tags.join(',') : (args.tags || '')
+        const salience = Number(args.salience) || 0.5
+        const existing = await prisma.agentMemory.findFirst({
+          where: { userId: auth?.userId || '', content: { contains: content.substring(0, 20) } },
+        })
+        if (existing) {
+          await prisma.agentMemory.update({ where: { id: existing.id }, data: { content, tags, salience, updatedAt: new Date() } })
+        } else {
+          await prisma.agentMemory.create({ data: { userId: auth?.userId || '', content, tags, salience } })
+        }
+        await prisma.$disconnect()
+        return JSON.stringify({ ok: true })
+      } catch (e: any) {
+        return JSON.stringify({ ok: false, error: e.message })
+      }
+    }
+
     default:
       return `未知工具: ${name}`
   }
@@ -426,9 +511,12 @@ export async function POST(request: NextRequest) {
         })),
       } as any)
 
+      const steps: { tool: string; label: string }[] = []
       for (const tc of toolCalls) {
         let args: Record<string, any> = {}
         try { args = JSON.parse(tc.arguments) } catch { args = {} }
+        const stepLabel = TOOL_STEP_LABEL[tc.name] || tc.name
+        steps.push({ tool: tc.name, label: stepLabel })
         console.log(`[Agent] 🔧 ${tc.name}`, JSON.stringify(args).substring(0, 100))
         const result = await executeToolCall(tc.name, args, auth)
         messages.push({ role: 'tool', tool_call_id: tc.id, content: result } as any)
@@ -439,7 +527,14 @@ export async function POST(request: NextRequest) {
       const toolMsg = messages.filter(m => (m as any).role === 'tool').pop() as AgentChatMessage | undefined
       const toolRaw = toolMsg?.content
       const toolText = typeof toolRaw === 'string' ? toolRaw : (toolRaw ? JSON.stringify(toolRaw) : '')
-      const reply = finalResult.content || formatToolResult(toolText)
+      let reply = finalResult.content || formatToolResult(toolText)
+      // 解析 Scene 投影协议：回复中 [SCENE_JSON]{...}[/SCENE_JSON] 让前端渲染原生卡片
+      let scene: any = null
+      const sceneMatch = reply.match(/\[SCENE_JSON\]([\s\S]*?)\[\/SCENE_JSON\]/)
+      if (sceneMatch) {
+        try { scene = JSON.parse(sceneMatch[1]) } catch {}
+        reply = reply.replace(sceneMatch[0], '').trim()
+      }
 
       // 存DB
       let sessionId = sid
@@ -462,7 +557,7 @@ export async function POST(request: NextRequest) {
       if (auth?.userId) await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
       return NextResponse.json({
         success: true,
-        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
+        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, steps, scene, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
       })
     }
 

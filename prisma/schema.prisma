@@ -943,6 +943,20 @@ model CrawledTrending {
   @@unique([platform, category, title])  // 去重
 }
 
+// ====== AGENT 长期记忆（融合 BaiLongma memory 模块，2026-08-02）======
+model AgentMemory {
+  id        Int      @id @default(autoincrement())
+  userId    String                        // 归属用户（与 User.username 对应）
+  content   String                        // 记忆内容
+  tags      String   @default("")         // 逗号分隔标签
+  salience  Float    @default(0.5)        // 重要度 0~1
+  visibility String  @default("user")     // user / agent / all
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, salience])
+}
+
 // 13. 筛选方案（统一筛选器保存/复用）
 model FilterPreset {
   id          Int      @id @default(autoincrement())
