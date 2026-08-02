@@ -162,34 +162,6 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: 'auto_compile',
-    description: '一键成片：把一段文案 + 配图自动剪辑成带配音/字幕的短视频。可选参数控制比例、分辨率、配音风格。返回任务ID（异步），之后用 query_auto_compile 查询进度与成片 URL。',
-    parameters: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', description: '视频旁白/口播文案（会用于配音与字幕）' },
-        ratio: { type: 'string', description: '画面比例：9:16（竖屏，默认）或 16:9（横屏）', enum: ['9:16', '16:9'] },
-        resolution: { type: 'string', description: '分辨率：720P（默认）或 1080P', enum: ['720P', '1080P'] },
-        voice: { type: 'string', description: '配音音色：xiaoxiao（女声，默认）/ yunxi（男声）/ youyou（女声）' },
-        images: { type: 'array', items: { type: 'string' }, description: '可选：配图 URL 列表，不传则自动用 AI 配图' },
-        bgm: { type: 'string', description: '可选：背景音乐风格，如 轻快/科技/治愈' },
-        title: { type: 'string', description: '可选：视频标题文字（片头展示）' },
-      },
-      required: ['text'],
-    },
-  },
-  {
-    name: 'query_auto_compile',
-    description: '根据一键成片任务ID查询进度，成功后返回成片视频 URL 与封面。在调用 auto_compile 之后使用。',
-    parameters: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string', description: 'auto_compile 返回的任务ID' },
-      },
-      required: ['taskId'],
-    },
-  },
-  {
     name: 'query_video_task',
     description: '根据文生视频任务ID查询生成进度，成功后返回视频 URL。在调用 generate_video 之后使用。',
     parameters: {
@@ -210,8 +182,6 @@ const TOOL_STEP_LABEL: Record<string, string> = {
   search_web_images: '上网搜索参考图',
   digital_human_speak: '生成数字人口播',
   query_digital_human: '查询数字人口播进度',
-  auto_compile: '一键成片剪辑',
-  query_auto_compile: '查询成片进度',
   search_storage: '检索项目素材库',
   list_personal_files: '读取个人仓库',
   search_templates: '查找模板',
@@ -228,8 +198,8 @@ const SYSTEM_PROMPT = `你是 AiMarketing 的 AI 运营助手，核心使命：�
 🎨 AI生图 — 文生图，生成海报配图
 🔍 网络搜图 — 上网帮用户找参考图/可用素材
 🎬 AI视频 — 文字描述生成短视频
-🤖 数字人口播 — 照片+文案生成AI主播视频
-🎞 一键成片 — 文案+配图自动剪辑成带配音字幕的短视频
+🤖 数字人口播 — 照片+文案生成AI主播视频（接口已打通，开通阿里 liveportrait 后即用）
+🎞 一键成片 — 我理解你的意图后，帮你直接打开「一键成片」页并带入文案/配图，页面负责剪辑（你不用自己填表）
 📦 项目素材库 — 平台级素材（趋势视频/图片/BGM）
 🗂 个人仓库 — 用户自己上传的视频/图片（发布首选来源）
 📋 模板库 — 项目内置的各种模板
@@ -255,11 +225,15 @@ const SYSTEM_PROMPT = `你是 AiMarketing 的 AI 运营助手，核心使命：�
 
 【热点驱动选题（像白龙马一样主动）】
 - 系统会在对话开头注入【今日热点上下文】（来自 vvhan/微博/抖音/知乎/小红书/HackerNews/Reddit 等）。
-- 当用户说"今天发什么/给我个选题/日更内容"等模糊指令时，主动结合热点给 2~3 个具体选题方向（带标题+文案要点+用哪个工具做），不要空泛。
-- 生成图文/视频/成片后，主动提示"要不要我帮你发到XX平台"。
+- 当用户点热点卡片、或说"今天发什么/给我个选题/日更内容"等模糊指令时，直接结合热点上下文给 2~3 个具体选题方向（带标题+文案要点+建议用哪个工具做），不要空泛、不要先反问"你是做什么的"——热点本身就是素材，先出方案再说。
+- 如果用户行业不在热点里覆盖，可在出完方案后顺带问一句"你主要做哪个行业，我记一下以后更精准"，但绝不要阻塞出方案。
+
+【一键成片（唤起页面，不代跑）】
+- 你不直接执行一键成片剪辑。当用户要"把这段文案做成片/剪个视频"，你理解意图后，用 [SCENE_JSON]{"type":"open_page","path":"/video-edit","params":{...}}[/SCENE_JSON] 让前端直接打开一键成片页并带入文案/配图参数，页面负责剪辑。
+- 文生视频(generate_video)、数字人口播(digital_human_speak) 是异步任务，会返回 taskId，返回后提示"正在生成中，稍后可问我进度"。
 
 【异步任务处理】
-- 文生视频(generate_video)、数字人口播(digital_human_speak)、一键成片(auto_compile) 都是异步任务，会返回 taskId。
+- 文生视频(generate_video)、数字人口播(digital_human_speak) 都是异步任务，会返回 taskId。
 - 返回 taskId 后，告诉用户"正在生成中，稍后你可以问我进度，或我再帮你查"，并可用对应 query_ 工具轮询结果。不要在本次回复里空等。
 
 规则：简洁专业、适度emoji、中文回复、不啰嗦、不说"你不能"而是给替代方案`
@@ -342,50 +316,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       } catch { return `DH_PROGRESS:查询失败|TASK:${taskId}` }
     }
 
-    // ── 一键成片 ──
-    case 'auto_compile': {
-      const text = (args.text || '').trim()
-      if (!text) return '请提供视频文案'
-      try {
-        const res = await fetch(`${baseUrl}/api/video/auto-compile`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth?.userId}` },
-          body: JSON.stringify({
-            text,
-            ratio: args.ratio || '9:16',
-            resolution: args.resolution || '720P',
-            voice: args.voice || 'xiaoxiao',
-            images: args.images || [],
-            bgm: args.bgm || '',
-            title: args.title || '',
-          }),
-        })
-        const data = await res.json()
-        if (data.success && data.taskId) return `COMPILE_TASK:${data.taskId}|TEXT:${text.substring(0, 40)}`
-        return `COMPILE_FAIL:${data.message || '一键成片启动失败'}`
-      } catch (e: any) {
-        return `COMPILE_FAIL:一键成片接口调用失败（${e.message}）`
-      }
-    }
-
-    // ── 一键成片进度查询 ──
-    case 'query_auto_compile': {
-      const taskId = args.taskId
-      if (!taskId) return '缺少 taskId'
-      try {
-        const res = await fetch(`${baseUrl}/api/video/auto-compile?taskId=${encodeURIComponent(taskId)}`, {
-          headers: { Authorization: `Bearer ${auth?.userId}` },
-        })
-        const data = await res.json()
-        const status = data.status || (data.task && data.task.status) || ''
-        if (status === 'completed' || status === 'done') {
-          const url = data.videoUrl || (data.task && data.task.videoUrl) || ''
-          return `COMPILE_RESULT:${url}`
-        }
-        return `COMPILE_PROGRESS:${status || '处理中'}|TASK:${taskId}`
-      } catch { return `COMPILE_PROGRESS:查询失败|TASK:${taskId}` }
-    }
-
+    // ── 一键成片进度查询（AGENT 不主动发起一键成片，仅当用户从一键成片页带参数回来问进度时查询）──
     case 'query_video_task': {
       const taskId = args.taskId
       if (!taskId) return '缺少 taskId'
@@ -566,6 +497,26 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
 
 // ==================== 结果格式化 ====================
 
+// 清理模型偶发吐出的工具调用 XML 脏标签（不同模型命名不一）
+function stripToolCallTags(text: string): string {
+  if (!text) return text
+  return text
+    .replace(/<function_calls?>/gi, '')
+    .replace(/<\/function_calls?>/gi, '')
+    .replace(/<tool_call(s)?>/gi, '')
+    .replace(/<\/tool_call(s)?>/gi, '')
+    .replace(/<invoke>/gi, '')
+    .replace(/<\/invoke>/gi, '')
+    .replace(/<tool_call\s+name="[^"]*">/gi, '')
+    .replace(/<function_call\s+[^>]*>/gi, '')
+    .replace(/<\/?tool_name>/gi, '')
+    .replace(/<\/?parameters>/gi, '')
+    .replace(/<parameter\s+name="[^"]*">/gi, '')
+    .replace(/<\/parameter>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 function formatToolResult(output: string): string {
   if (output.startsWith('IMAGE_RESULT:')) {
     const url = output.split('|')[0]?.replace('IMAGE_RESULT:', '') || ''
@@ -668,12 +619,21 @@ export async function POST(request: NextRequest) {
         messages.push({ role: 'tool', tool_call_id: tc.id, content: result } as any)
       }
 
-      // Step 2: 回传结果
+      // Step 2: 回传结果（不再让模型二次决定调工具，直接用结果文本，避免脏标签）
       const finalResult = await agnesChat(messages, [])
       const toolMsg = messages.filter(m => (m as any).role === 'tool').pop() as AgentChatMessage | undefined
       const toolRaw = toolMsg?.content
       const toolText = typeof toolRaw === 'string' ? toolRaw : (toolRaw ? JSON.stringify(toolRaw) : '')
-      let reply = finalResult.content || formatToolResult(toolText)
+
+      let reply: string
+      // 若模型在 Step2 又返回了 tool_calls（异常），忽略它，用工具结果兜底，避免死循环与脏输出
+      if (finalResult.toolCalls && finalResult.toolCalls.length > 0) {
+        reply = formatToolResult(toolText)
+      } else {
+        reply = finalResult.content || formatToolResult(toolText)
+      }
+      // 清理模型偶发吐出的工具调用 XML 脏标签（<tool_call> <function_calls> <invoke> 等）
+      reply = stripToolCallTags(reply)
       // 解析 Scene 投影协议：回复中 [SCENE_JSON]{...}[/SCENE_JSON] 让前端渲染原生卡片
       let scene: any = null
       const sceneMatch = reply.match(/\[SCENE_JSON\]([\s\S]*?)\[\/SCENE_JSON\]/)

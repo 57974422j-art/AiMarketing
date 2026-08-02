@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/providers'
 import VoiceOrb from '@/components/VoiceOrb'
 
@@ -110,6 +111,7 @@ const TOOL_STEP_LABEL: Record<string, string> = {
 
 export default function AgentPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -328,6 +330,13 @@ export default function AgentPage() {
         setOrbState('idle')
         if (data.data.steps?.length) setLiveSteps(data.data.steps)
         if (typeof data.data.pointsSpent === 'number') setLastPoints(data.data.pointsSpent)
+        // 场景协议：open_page 直接唤起对应页面（懒人模式，不逼用户自己操作页面）
+        if (data.data.scene?.type === 'open_page') {
+          const path = data.data.scene.path || '/'
+          const params = data.data.scene.params || {}
+          const qs = new URLSearchParams(params).toString()
+          setTimeout(() => router.push(qs ? `${path}?${qs}` : path), 600)
+        }
       } else {
         setMessages(prev => [...prev, {
           id: (Date.now() + 1).toString(), role: 'assistant',
@@ -406,7 +415,6 @@ export default function AgentPage() {
     if (!content) return null
     const map: Record<string, { kind: string; label: string; doneText: string }> = {
       DH_TASK: { kind: 'dh', label: '数字人口播生成中', doneText: '口播视频已生成' },
-      COMPILE_TASK: { kind: 'compile', label: '一键成片剪辑中', doneText: '成片已生成' },
       VIDEO_TASK: { kind: 'video', label: 'AI 视频生成中', doneText: '视频已生成' },
     }
     let m: RegExpMatchArray | null
@@ -431,22 +439,19 @@ export default function AgentPage() {
       }
     }
     // 结果卡片
-    const resRe = /(DH_RESULT|COMPILE_RESULT|VIDEO_RESULT):(.+)/
+    const resRe = /(DH_RESULT|VIDEO_RESULT):(.+)/
     const rm = content.match(resRe)
     if (rm) {
       const url = rm[2].trim()
-      const isVideo = rm[1] !== 'DH_RESULT'
       return (
         <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
           <p className="text-sm text-emerald-300 mb-2">{map[rm[1].replace('_RESULT', '_TASK') as string]?.doneText || '任务已完成'}</p>
-          {isVideo
-            ? <video src={url} controls className="w-full rounded-lg max-h-72 bg-black" />
-            : <video src={url} controls className="w-full rounded-lg max-h-72 bg-black" />}
+          <video src={url} controls className="w-full rounded-lg max-h-72 bg-black" />
         </div>
       )
     }
     // 进度卡片
-    const progRe = /(DH_PROGRESS|COMPILE_PROGRESS|VIDEO_PROGRESS):([^|]+)\|TASK:(.+)/
+    const progRe = /(DH_PROGRESS|VIDEO_PROGRESS):([^|]+)\|TASK:(.+)/
     const pm = content.match(progRe)
     if (pm) {
       return (
