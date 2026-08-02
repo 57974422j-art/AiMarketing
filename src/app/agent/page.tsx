@@ -28,7 +28,7 @@ function HotListCard({ source, items, accent, onPick, collapsed, onToggle }: {
         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: accent }} />
         <span className="text-[11px] font-semibold text-[#e6eaf2] truncate">{source}</span>
         <span className="text-[9px] text-[#5a6072] ml-auto shrink-0">{items.length} 条</span>
-        <span className={`text-[9px] text-[#6b7180] transition-transform ${collapsed ? '' : 'rotate-90'}`}>▶</span>
+        {onToggle && <span className={`text-[9px] text-[#6b7180] transition-transform ${collapsed ? '' : 'rotate-90'}`}>▶</span>}
       </button>
       {!collapsed && (
         <ul className="flex-1 min-h-0 overflow-y-auto list-none m-0 p-0">
@@ -768,25 +768,31 @@ export default function AgentPage() {
               {/* 左柱：国内平台热榜（头部 1 个固定展开 + 其余折叠手风琴） */}
               <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-r border-white/[0.07]">
                 {leftSources.length === 0 && <p className="text-[11px] text-[#5a6072] text-center py-8">暂无国内热榜</p>}
-                {leftSources.map((src) => (
-                  <HotListCard
-                    key={src.source}
-                    source={src.source}
-                    items={src.items}
-                    accent="#ff8a3c"
-                    collapsed={src.source !== leftOpen}
-                    onToggle={() => setLeftExpanded((cur) => (cur === src.source ? null : src.source))}
-                    onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
-                  />
-                ))}
+                {leftSources.map((src, idx) => {
+                  const isFirst = idx === 0
+                  return (
+                    <HotListCard
+                      key={src.source}
+                      source={src.source}
+                      items={src.items}
+                      accent="#ff8a3c"
+                      collapsed={!isFirst && src.source !== leftOpen}
+                      onToggle={isFirst ? undefined : () => setLeftExpanded((cur) => (cur === src.source ? null : src.source))}
+                      onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
+                    />
+                  )
+                })}
               </div>
               {/* 中柱：地球 + 辅助信息（复刻 BaiLongma 结构，地球 flex:1 1 0 + min-h-0） */}
               <div className="flex-1 flex flex-col min-w-0 min-h-0">
                 {/* 地球容器（flex:1 1 0 + min-h-0，是收缩关键，绝不写死高度） */}
-                <div className="flex-[1_1_0] min-h-0 relative overflow-hidden" style={{ background: 'radial-gradient(ellipse at center, #0a1a2e 0%, #050b14 100%)' }}>
-                  {hotTopics.length > 0 ? <GlobeTrends sources={hotTopics} /> : (
-                    <div className="text-[11px] text-[#5a6072] flex h-full items-center justify-center">{hotLoading ? '正在获取热榜…' : '暂无热点数据'}</div>
-                  )}
+                <div className="flex-[1_1_0] min-h-0 relative overflow-hidden flex items-center justify-center" style={{ background: 'radial-gradient(ellipse at center, #0a1a2e 0%, #050b14 100%)' }}>
+                  {/* 正方形地球（宽高一致，居中，不撑破布局） */}
+                  <div className="aspect-square max-h-full max-w-full w-auto h-auto relative">
+                    {hotTopics.length > 0 ? <GlobeTrends sources={hotTopics} /> : (
+                      <div className="text-[11px] text-[#5a6072] flex h-full items-center justify-center">暂无热点数据</div>
+                    )}
+                  </div>
                   <span className="absolute top-2.5 right-3.5 text-[9.5px] text-[#4f8cff] tracking-[0.12em] opacity-70">GLOBAL HOTSPOT MAP</span>
                   <span className="absolute bottom-2 right-3 text-[9px] text-[#6b7180]">拖拽旋转 · 滚轮缩放</span>
                 </div>
@@ -827,17 +833,20 @@ export default function AgentPage() {
               {/* 右柱：微信/微博 + 全球热榜（头部 1 个固定展开 + 其余折叠手风琴） */}
               <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-l border-white/[0.07]">
                 {rightSources.length === 0 && <p className="text-[11px] text-[#5a6072] text-center py-8">暂无热榜</p>}
-                {rightSources.map((src) => (
-                  <HotListCard
-                    key={src.source}
-                    source={src.source}
-                    items={src.items}
-                    accent={src.region === 'global' ? '#4f8cff' : '#3ad29f'}
-                    collapsed={src.source !== rightOpen}
-                    onToggle={() => setRightExpanded((cur) => (cur === src.source ? null : src.source))}
-                    onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
-                  />
-                ))}
+                {rightSources.map((src, idx) => {
+                  const isFirst = idx === 0
+                  return (
+                    <HotListCard
+                      key={src.source}
+                      source={src.source}
+                      items={src.items}
+                      accent={src.region === 'global' ? '#4f8cff' : '#3ad29f'}
+                      collapsed={!isFirst && src.source !== rightOpen}
+                      onToggle={isFirst ? undefined : () => setRightExpanded((cur) => (cur === src.source ? null : src.source))}
+                      onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
+                    />
+                  )
+                })}
               </div>
             </div>
             {/* 底部跑马灯（复刻 BaiLongma：flex 正常流 flex:0 0 auto，不绝对定位，不挤压地球） */}

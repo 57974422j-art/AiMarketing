@@ -91,6 +91,9 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setSize(width, height)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.domElement.style.width = '100%'
+    renderer.domElement.style.height = '100%'
+    renderer.domElement.style.display = 'block'
     mount.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
@@ -247,10 +250,10 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
   }, [sources])
 
   return (
-    <div className="relative w-full h-full">
+    <div className="relative w-full h-full min-h-0">
       <div
         ref={mountRef}
-        className="w-full h-full rounded-2xl border border-white/10 bg-[#070710] overflow-hidden cursor-grab active:cursor-grabbing"
+        className="absolute inset-0 rounded-2xl border border-white/10 bg-[#070710] overflow-hidden cursor-grab active:cursor-grabbing"
         style={{ boxShadow: 'inset 0 0 60px rgba(43,108,176,0.15)' }}
       />
       <div className="absolute top-3 left-3 flex items-center gap-3 text-[10px]">
