@@ -2,6 +2,10 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/providers'
+import VoiceOrb from '@/components/VoiceOrb'
+
+// 声纹球状态（融合 BaiLongma 语音环观感）
+type OrbState = 'idle' | 'listening' | 'recognizing' | 'speaking' | 'thinking'
 
 // ===== 阶段一·语音环（融合 BaiLongma 声纹语音能力，复用火山 TTS + 本地 FunASR）=====
 function useAgentVoice() {
@@ -116,9 +120,14 @@ export default function AgentPage() {
   const [brainMemories, setBrainMemories] = useState<{ content: string; tags: string; salience: number }[]>([])
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTip, setRecordingTip] = useState('')
+  const [orbState, setOrbState] = useState<OrbState>('idle')
+  const [micVolume, setMicVolume] = useState(0)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<BlobPart[]>([])
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const volRafRef = useRef<number>(0)
   const voice = useAgentVoice()
 
   // 录音：按住说话 / 点击切换
@@ -135,11 +144,38 @@ export default function AgentPage() {
       const rec = new MediaRecorder(stream)
       mediaRecorderRef.current = rec
       audioChunksRef.current = []
+      // 启动音量分析驱动声纹球
+      try {
+        const AC = (window as any).AudioContext || (window as any).webkitAudioContext
+        const ac = new AC()
+        audioCtxRef.current = ac
+        const src = ac.createMediaStreamSource(stream)
+        const analyser = ac.createAnalyser()
+        analyser.fftSize = 512
+        src.connect(analyser)
+        analyserRef.current = analyser
+        const buf = new Uint8Array(analyser.frequencyBinCount)
+        const tick = () => {
+          analyser.getByteTimeDomainData(buf)
+          let sum = 0
+          for (let i = 0; i < buf.length; i++) {
+            const v = (buf[i] - 128) / 128
+            sum += v * v
+          }
+          const rms = Math.sqrt(sum / buf.length)
+          setMicVolume(Math.min(1, rms * 3))
+          volRafRef.current = requestAnimationFrame(tick)
+        }
+        tick()
+      } catch {}
       rec.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
       rec.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
+        cancelAnimationFrame(volRafRef.current)
+        setMicVolume(0)
+        setOrbState('recognizing')
         const blob = new Blob(audioChunksRef.current, { type: rec.mimeType || 'audio/webm' })
-        if (blob.size < 1500) { setRecordingTip('没听到声音'); setIsRecording(false); return }
+        if (blob.size < 1500) { setRecordingTip('没听到声音'); setIsRecording(false); setOrbState('idle'); return }
         setRecordingTip('识别中…')
         try {
           const fd = new FormData()
@@ -155,10 +191,12 @@ export default function AgentPage() {
           setRecordingTip('识别出错：' + e.message)
         }
         setIsRecording(false)
+        setOrbState('idle')
         setTimeout(() => setRecordingTip(''), 2500)
       }
       rec.start()
       setIsRecording(true)
+      setOrbState('listening')
       setRecordingTip('正在听…松开或再点停止')
       voice.blip(660, 0.12)
     } catch (e: any) {
@@ -177,7 +215,8 @@ export default function AgentPage() {
   // 朗读某条消息（自动朗读时会在收到助手消息后调用）
   const speakMessage = (content: string) => {
     const plain = content.replace(/【[^\]]*】/g, '').replace(/\n+/g, '。').slice(0, 400)
-    voice.speak(plain)
+    setOrbState('speaking')
+    voice.speak(plain).then(() => { if (!isRecording) setOrbState('idle') })
   }
 
   // 加载会话列表
@@ -254,6 +293,7 @@ export default function AgentPage() {
     setInput('')
     setAttachments([])
     setLoading(true)
+    setOrbState('thinking')
 
     try {
       const history = messages.slice(-10).map(m => ({ role: m.role, content: m.content }))
@@ -277,6 +317,7 @@ export default function AgentPage() {
         }])
         if (autoSpeak) speakMessage(data.data.reply)
         if (data.data.sessionId) setSessionId(data.data.sessionId)
+        setOrbState('idle')
         if (typeof data.data.pointsSpent === 'number') setLastPoints(data.data.pointsSpent)
         loadSessions()
       } else {
@@ -353,11 +394,14 @@ export default function AgentPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] flex flex-col relative overflow-hidden">
-      {/* 背景 */}
-      <div className="fixed inset-0 pointer-events-none opacity-15">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-[128px] animate-pulse" style={{ animationDuration: '8s' }} />
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-blue-500/10 rounded-full blur-[96px] animate-pulse" style={{ animationDuration: '6s', animationDelay: '2s' }} />
+    <div className="min-h-screen bg-[#07070c] flex flex-col relative overflow-hidden">
+      {/* 背景：BaiLongma 风格动态渐变光晕 */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute -top-32 -left-32 w-[28rem] h-[28rem] bg-emerald-500/[0.08] rounded-full blur-[140px] animate-pulse" style={{ animationDuration: '9s' }} />
+        <div className="absolute -bottom-40 -right-24 w-[24rem] h-[24rem] bg-indigo-500/[0.07] rounded-full blur-[120px] animate-pulse" style={{ animationDuration: '7s', animationDelay: '1.5s' }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[36rem] h-[36rem] bg-cyan-500/[0.04] rounded-full blur-[160px] animate-pulse" style={{ animationDuration: '11s', animationDelay: '0.8s' }} />
+        {/* 细网格纹理 */}
+        <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px)', backgroundSize: '40px 40px' }} />
       </div>
 
       {/* Header */}
@@ -383,8 +427,8 @@ export default function AgentPage() {
             🔊 {autoSpeak ? '朗读中' : '自动朗读'}
           </button>
           <button onClick={toggleRecording}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${isRecording ? 'bg-red-500/30 text-red-300 animate-pulse' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
-            title={isRecording ? '点击停止录音' : '按住/点击说话'}>
+            className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${isRecording ? 'bg-red-500/30 text-red-300 animate-pulse' : orbState === 'thinking' ? 'bg-purple-500/20 text-purple-300' : orbState === 'speaking' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 hover:bg-white/10 text-gray-400'}`}
+            title={isRecording ? '点击停止录音' : (orbState === 'thinking' ? '思考中' : orbState === 'speaking' ? '朗读中' : '点击说话')}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2m7 9v3"/></svg>
           </button>
           <a href="/workspace" className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-gray-400 hover:text-gray-200 transition" title="工具箱">
@@ -507,12 +551,25 @@ export default function AgentPage() {
             )}
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center min-h-[50vh] pt-4">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center mb-4 shadow-lg shadow-emerald-500/20 animate-in fade-in zoom-in">
-                  <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                {/* BaiLongma 声纹点云球 · 页面主角 */}
+                <div className="relative mb-6">
+                  <div className="absolute inset-0 rounded-full bg-emerald-500/10 blur-2xl scale-90" />
+                  <VoiceOrb
+                    state={orbState}
+                    volume={micVolume}
+                    size={220}
+                    className="relative drop-shadow-[0_0_24px_rgba(56,189,248,0.25)]"
+                  />
+                  <button onClick={toggleRecording}
+                    className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
+                    title={isRecording ? '点击停止' : '点击说话'} />
                 </div>
-                <h2 className="text-base text-white font-semibold mb-1">我能帮你做什么？</h2>
-                <p className="text-xs text-gray-500 text-center mb-6 max-w-xs px-2">
-                  输入需求，我直接帮你执行
+                <h2 className="text-lg text-white font-semibold mb-1 tracking-tight">我能帮你做什么？</h2>
+                <p className="text-xs text-gray-500 text-center mb-1 max-w-xs px-2">
+                  点击上方声纹球，或直接输入需求
+                </p>
+                <p className="text-[10px] text-emerald-400/70 mb-6 text-center">
+                  {orbState === 'listening' ? '🎤 正在聆听…' : orbState === 'recognizing' ? '🔍 识别中…' : orbState === 'thinking' ? '💭 思考中…' : orbState === 'speaking' ? '🔊 朗读中…' : '声纹球待命中'}
                 </p>
                 <div className="flex flex-wrap justify-center gap-2 max-w-xl w-full px-2">
                   {SUGGESTIONS.map((s, i) => (
@@ -528,10 +585,10 @@ export default function AgentPage() {
             {messages.map(msg => (
               <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
                 <div className={`flex items-start gap-2 max-w-[88%] sm:max-w-[75%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                  <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${msg.role === 'user' ? 'bg-blue-500/20 border border-blue-500/30 rounded-full' : 'bg-gradient-to-br from-emerald-400 to-cyan-500'}`}>
+                  <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 overflow-hidden ${msg.role === 'user' ? 'bg-blue-500/20 border border-blue-500/30 rounded-full' : 'bg-gradient-to-br from-emerald-400 to-cyan-500'}`}>
                     {msg.role === 'user'
                       ? <span className="text-[9px] text-blue-300 font-semibold">{user?.username?.[0]?.toUpperCase() || 'U'}</span>
-                      : <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>}
+                      : <VoiceOrb state="idle" size={28} />}
                   </div>
                   <div className="min-w-0">
                     {msg.role === 'assistant' && <p className="text-[9px] text-gray-500 mb-0.5 font-medium">AI 助手</p>}
@@ -600,8 +657,8 @@ export default function AgentPage() {
             {loading && (
               <div className="flex justify-start animate-in fade-in">
                 <div className="flex items-start gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center shrink-0">
-                    <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                  <div className="w-7 h-7 rounded-lg overflow-hidden bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center shrink-0">
+                    <VoiceOrb state="thinking" size={28} />
                   </div>
                   <div>
                     <p className="text-[9px] text-gray-500 mb-1">AI 助手</p>
