@@ -10,36 +10,44 @@ import VoiceOrb from '@/components/VoiceOrb'
 const GlobeTrends = dynamic(() => import('@/components/GlobeTrends'), { ssr: false })
 
 // 平台热榜卡片（仿白龙马 .hs-panel：标题行 + 排行列表）
-function HotListCard({ source, items, accent, onPick }: {
+function HotListCard({ source, items, accent, onPick, collapsed, onToggle }: {
   source: string
   items: { title: string; hot?: string; url?: string }[]
   accent: string
   onPick?: (title: string) => void
+  collapsed?: boolean
+  onToggle?: () => void
 }) {
   const rankColor = (i: number) => (i === 0 ? '#ff4444' : i === 1 ? '#ff8800' : i === 2 ? '#ffcc00' : '#6b7180')
   return (
     <div className="flex flex-col min-h-0 bg-[#0c1119]/60 border-b border-white/[0.05]">
-      <div className="flex items-center gap-1.5 px-2.5 py-2 border-b border-white/[0.05]">
-        <span className="w-1.5 h-1.5 rounded-full" style={{ background: accent }} />
-        <span className="text-[11px] font-semibold text-[#e6eaf2]">{source}</span>
-        <span className="text-[9px] text-[#5a6072] ml-auto">{items.length} 条</span>
-      </div>
-      <ul className="flex-1 min-h-0 overflow-y-auto list-none m-0 p-0">
-        {items.slice(0, 10).map((it, i) => (
-          <li key={i}>
-            <button
-              onClick={() => onPick?.(it.title)}
-              className="w-full flex items-center gap-1.5 px-2.5 py-1 text-left hover:bg-white/[0.05] transition"
-              title={it.title}
-            >
-              <span className="font-bold text-[11px] w-4 text-center shrink-0" style={{ color: rankColor(i) }}>{i + 1}</span>
-              <span className="flex-1 min-w-0 text-[11px] text-[#aab2c2] truncate">{it.title}</span>
-              {it.hot && <span className="text-[9px] text-[#5a6072] shrink-0">{it.hot}</span>}
-            </button>
-          </li>
-        ))}
-        {items.length === 0 && <li className="text-[10px] text-[#5a6072] text-center py-3">暂无数据</li>}
-      </ul>
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-1.5 px-2.5 py-2 border-b border-white/[0.05] hover:bg-white/[0.04] transition text-left w-full"
+      >
+        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: accent }} />
+        <span className="text-[11px] font-semibold text-[#e6eaf2] truncate">{source}</span>
+        <span className="text-[9px] text-[#5a6072] ml-auto shrink-0">{items.length} 条</span>
+        <span className={`text-[9px] text-[#6b7180] transition-transform ${collapsed ? '' : 'rotate-90'}`}>▶</span>
+      </button>
+      {!collapsed && (
+        <ul className="flex-1 min-h-0 overflow-y-auto list-none m-0 p-0">
+          {items.slice(0, 10).map((it, i) => (
+            <li key={i}>
+              <button
+                onClick={() => onPick?.(it.title)}
+                className="w-full flex items-center gap-1.5 px-2.5 py-1 text-left hover:bg-white/[0.05] transition"
+                title={it.title}
+              >
+                <span className="font-bold text-[11px] w-4 text-center shrink-0" style={{ color: rankColor(i) }}>{i + 1}</span>
+                <span className="flex-1 min-w-0 text-[11px] text-[#aab2c2] truncate">{it.title}</span>
+                {it.hot && <span className="text-[9px] text-[#5a6072] shrink-0">{it.hot}</span>}
+              </button>
+            </li>
+          ))}
+          {items.length === 0 && <li className="text-[10px] text-[#5a6072] text-center py-3">暂无数据</li>}
+        </ul>
+      )}
     </div>
   )
 }
@@ -177,6 +185,9 @@ export default function AgentPage() {
   const [hotLoading, setHotLoading] = useState(false)
   // 热点大屏（融合 BaiLongma hotspot-mode 全屏互斥布局：呼出时对话框右移收窄）
   const [hotspotOpen, setHotspotOpen] = useState(false)
+  // 热点大屏手风琴：左右柱各仅头部 1 个固定展开，其余折叠互斥（key=source）
+  const [leftExpanded, setLeftExpanded] = useState<string | null>(null)
+  const [rightExpanded, setRightExpanded] = useState<string | null>(null)
   useEffect(() => {
     document.body.classList.toggle('hotspot-mode', hotspotOpen)
     return () => { document.body.classList.remove('hotspot-mode') }
@@ -709,6 +720,11 @@ export default function AgentPage() {
           const rightSources = [...cnSources.filter((s) => s.source === '微信' || s.source === '微博'), ...globalSources]
           const totalItems = hotTopics.reduce((n, s) => n + s.items.length, 0)
           const tickerItems = hotTopics.flatMap((s) => s.items.slice(0, 4).map((it) => ({ src: s.source, title: it.title })))
+          // 手风琴默认：左右柱各仅第一个平台卡固定展开，其余折叠
+          const leftDefault = leftSources[0]?.source ?? null
+          const rightDefault = rightSources[0]?.source ?? null
+          const leftOpen = leftExpanded ?? leftDefault
+          const rightOpen = rightExpanded ?? rightDefault
           // 中间辅助：区域关注度（按各源话题数派生）、情绪指数（mock 稳定值）
           const regionRows = cnSources
             .map((s) => ({ name: s.source, pct: s.items.length }))
@@ -747,13 +763,21 @@ export default function AgentPage() {
                 </div>
               ))}
             </div>
-            {/* 三柱主体（复刻 BaiLongma：跑马灯/flex 正常流，地球 flex:1 1 0 + min-h-0 才能收缩） */}
+            {/* 三柱主体（复刻 BaiLongma：左右柱 percentage + min-width，地球 flex:1 1 0 + min-h-0） */}
             <div className="flex-1 flex overflow-hidden min-h-0">
-              {/* 左柱：国内平台热榜（抖音/小红书/知乎/百度/头条） */}
-              <div className="w-[300px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-r border-white/[0.07]">
+              {/* 左柱：国内平台热榜（头部 1 个固定展开 + 其余折叠手风琴） */}
+              <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-r border-white/[0.07]">
                 {leftSources.length === 0 && <p className="text-[11px] text-[#5a6072] text-center py-8">暂无国内热榜</p>}
                 {leftSources.map((src) => (
-                  <HotListCard key={src.source} source={src.source} items={src.items} accent="#ff8a3c" onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)} />
+                  <HotListCard
+                    key={src.source}
+                    source={src.source}
+                    items={src.items}
+                    accent="#ff8a3c"
+                    collapsed={src.source !== leftOpen}
+                    onToggle={() => setLeftExpanded((cur) => (cur === src.source ? null : src.source))}
+                    onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
+                  />
                 ))}
               </div>
               {/* 中柱：地球 + 辅助信息（复刻 BaiLongma 结构，地球 flex:1 1 0 + min-h-0） */}
@@ -800,11 +824,19 @@ export default function AgentPage() {
                   </div>
                 </div>
               </div>
-              {/* 右柱：微信/微博 + 全球热榜 */}
-              <div className="w-[300px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-l border-white/[0.07]">
+              {/* 右柱：微信/微博 + 全球热榜（头部 1 个固定展开 + 其余折叠手风琴） */}
+              <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-l border-white/[0.07]">
                 {rightSources.length === 0 && <p className="text-[11px] text-[#5a6072] text-center py-8">暂无热榜</p>}
                 {rightSources.map((src) => (
-                  <HotListCard key={src.source} source={src.source} items={src.items} accent={src.region === 'global' ? '#4f8cff' : '#3ad29f'} onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)} />
+                  <HotListCard
+                    key={src.source}
+                    source={src.source}
+                    items={src.items}
+                    accent={src.region === 'global' ? '#4f8cff' : '#3ad29f'}
+                    collapsed={src.source !== rightOpen}
+                    onToggle={() => setRightExpanded((cur) => (cur === src.source ? null : src.source))}
+                    onPick={(t) => sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
+                  />
                 ))}
               </div>
             </div>
@@ -815,7 +847,7 @@ export default function AgentPage() {
                   <span className="w-1.5 h-1.5 rounded-full bg-[#ff5a3c] animate-pulse" /> LIVE 实时热点
                 </span>
                 <div className="flex-1 overflow-hidden relative">
-                  <div className="absolute whitespace-nowrap animate-[hsmarquee_40s_linear_infinite] text-[11px] text-[#aab2c2]">
+                  <div className="relative inline-flex whitespace-nowrap animate-[hsmarquee_40s_linear_infinite] text-[11px] text-[#aab2c2] will-change-transform">
                     {[...tickerItems, ...tickerItems].map((t, i) => (
                       <span key={i} className="mx-6"><span className="text-[#6b7180]">[{t.src}]</span> {t.title}</span>
                     ))}

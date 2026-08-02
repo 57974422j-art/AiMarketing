@@ -79,8 +79,9 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
     const mount = mountRef.current
     if (!mount) return
 
-    const width = mount.clientWidth
-    const height = mount.clientHeight || 320
+    // 延迟到下一帧测量，避免 fixed 大屏刚出现时容器高度为 0（白龙马靠 CSS 自适应，我们需 JS 补偿）
+    const measure = () => ({ w: mount.clientWidth, h: mount.clientHeight || 320 })
+    let { w: width, h: height } = measure()
 
     const scene = new THREE.Scene()
     sceneRef.current = scene
@@ -214,17 +215,22 @@ export default function GlobeTrends({ sources }: { sources: HotSource[] }) {
     animate()
 
     const onResize = () => {
-      const w = mount.clientWidth
-      const h = mount.clientHeight || 320
+      const { w, h } = measure()
+      if (!w || !h) return
       camera.aspect = w / h
       camera.updateProjectionMatrix()
       renderer.setSize(w, h)
     }
-    window.addEventListener('resize', onResize)
+    // 用 ResizeObserver 替代 window.resize：容器尺寸（含 fixed 大屏出现、拖拽窗口）变化即重绘
+    const ro = new ResizeObserver(onResize)
+    ro.observe(mount)
+    // 首帧布局完成后补测一次，修正初始 0 高度
+    const raf1 = requestAnimationFrame(onResize)
 
     return () => {
       cancelAnimationFrame(rafRef.current)
-      window.removeEventListener('resize', onResize)
+      cancelAnimationFrame(raf1)
+      ro.disconnect()
       renderer.domElement.removeEventListener('click', onClick)
       controls.dispose()
       renderer.dispose()
