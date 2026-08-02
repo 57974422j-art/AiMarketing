@@ -200,8 +200,20 @@ export default function AgentPage() {
       setRecordingTip('正在听…松开或再点停止')
       voice.blip(660, 0.12)
     } catch (e: any) {
-      setRecordingTip('麦克风权限被拒绝')
+      const denied = e?.name === 'NotAllowedError' || e?.name === 'PermissionDeniedError'
+      const insecure = typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost'
       setIsRecording(false)
+      setOrbState('idle')
+      if (denied) {
+        setRecordingTip(insecure
+          ? '麦克风被拒绝：请通过 https 或 localhost 访问，或下载桌面客户端'
+          : '麦克风权限被拒绝：点击地址栏🎤图标允许，或用桌面客户端')
+      } else if (insecure) {
+        setRecordingTip('当前非 https 环境不支持语音，请下载桌面客户端')
+      } else {
+        setRecordingTip('无法访问麦克风：' + (e?.message || '未知错误'))
+      }
+      setTimeout(() => setRecordingTip(''), 4000)
     }
   }
   const stopRecording = () => {
@@ -550,35 +562,67 @@ export default function AgentPage() {
               <p className="text-[10px] text-amber-300/80 text-center">🪙 本次对话消耗 {lastPoints} 点</p>
             )}
             {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center min-h-[50vh] pt-4">
-                {/* BaiLongma 声纹点云球 · 页面主角 */}
-                <div className="relative mb-6">
-                  <div className="absolute inset-0 rounded-full bg-emerald-500/10 blur-2xl scale-90" />
-                  <VoiceOrb
-                    state={orbState}
-                    volume={micVolume}
-                    size={220}
-                    className="relative drop-shadow-[0_0_24px_rgba(56,189,248,0.25)]"
-                  />
-                  <button onClick={toggleRecording}
-                    className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
-                    title={isRecording ? '点击停止' : '点击说话'} />
-                </div>
-                <h2 className="text-lg text-white font-semibold mb-1 tracking-tight">我能帮你做什么？</h2>
-                <p className="text-xs text-gray-500 text-center mb-1 max-w-xs px-2">
-                  点击上方声纹球，或直接输入需求
-                </p>
-                <p className="text-[10px] text-emerald-400/70 mb-6 text-center">
-                  {orbState === 'listening' ? '🎤 正在聆听…' : orbState === 'recognizing' ? '🔍 识别中…' : orbState === 'thinking' ? '💭 思考中…' : orbState === 'speaking' ? '🔊 朗读中…' : '声纹球待命中'}
-                </p>
-                <div className="flex flex-wrap justify-center gap-2 max-w-xl w-full px-2">
-                  {SUGGESTIONS.map((s, i) => (
-                    <button key={i} onClick={() => sendMessage(s)}
-                      className="px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-emerald-500/20 text-[11px] text-gray-400 hover:text-gray-200 transition-all">
-                      {s}
-                    </button>
-                  ))}
-                </div>
+              /* BaiLongma 桌面双栏主页：左声纹舞台 / 右信息面板 */
+              <div className="grid lg:grid-cols-[minmax(360px,520px)_minmax(420px,1fr)] gap-8 items-center max-w-6xl mx-auto px-4 py-10 min-h-[60vh]">
+                {/* 左栏：声纹球主舞台 */}
+                <section className="flex flex-col items-center lg:items-start">
+                  <div className="flex items-center gap-3 mb-7">
+                    <div className="w-10 h-10 rounded-xl border border-emerald-400/40 bg-emerald-500/10 flex items-center justify-center text-emerald-300 font-bold shadow-[0_0_30px_rgba(56,189,248,0.15)]">
+                      AI
+                    </div>
+                    <div className="flex flex-col">
+                      <strong className="text-white text-base leading-none">AI 营销助手</strong>
+                      <span className="text-[11px] text-gray-500 mt-1">智能体 · 桌面客户端</span>
+                    </div>
+                  </div>
+                  <div className="relative mb-5 self-center">
+                    <div className="absolute inset-0 rounded-full bg-emerald-500/10 blur-2xl scale-90" />
+                    <VoiceOrb
+                      state={orbState}
+                      volume={micVolume}
+                      size={240}
+                      className="relative drop-shadow-[0_0_24px_rgba(56,189,248,0.25)]"
+                    />
+                    <button onClick={toggleRecording}
+                      className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
+                      title={isRecording ? '点击停止' : '点击说话'} />
+                  </div>
+                  <p className="text-[11px] text-emerald-400/70 text-center lg:text-left w-full">
+                    {orbState === 'listening' ? '🎤 正在聆听…' : orbState === 'recognizing' ? '🔍 识别中…' : orbState === 'thinking' ? '💭 思考中…' : orbState === 'speaking' ? '🔊 朗读中…' : '声纹球待命中 · 点击说话'}
+                  </p>
+                </section>
+
+                {/* 右栏：信息 + 建议 */}
+                <section className="flex flex-col justify-center">
+                  <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-3 leading-tight">
+                    我能帮你做什么？
+                  </h1>
+                  <p className="text-xs text-gray-500 mb-6 leading-relaxed max-w-md">
+                    点击左侧声纹球直接说话，或在下方输入需求，我帮你生成图片/视频、查找素材、发布内容、推送微信飞书。
+                  </p>
+                  <p className="text-[10px] text-gray-600 mb-2">快捷指令</p>
+                  <div className="flex flex-wrap gap-2 mb-6">
+                    {SUGGESTIONS.map((s, i) => (
+                      <button key={i} onClick={() => sendMessage(s)}
+                        className="px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-emerald-500/20 text-[11px] text-gray-400 hover:text-gray-200 transition-all">
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 max-w-md">
+                    {[
+                      ['🎨 多模态生成', '文生图 / 文生视频'],
+                      ['🗂 素材管理', '个人仓库 / 项目库'],
+                      ['📡 渠道推送', '微信 / 飞书群'],
+                      ['🧠 长期记忆', '越用越懂你'],
+                    ].map(([t, d], i) => (
+                      <div key={i} className="rounded-xl bg-white/[0.02] border border-white/[0.06] px-3 py-2.5">
+                        <p className="text-[11px] text-gray-200 font-medium">{t}</p>
+                        <p className="text-[10px] text-gray-500 mt-0.5">{d}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               </div>
             )}
 
