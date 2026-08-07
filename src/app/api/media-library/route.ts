@@ -127,7 +127,28 @@ export async function DELETE(request: NextRequest) {
   try {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
-    const id = parseInt(new URL(request.url).searchParams.get('id') || '', 10)
+    const sp = new URL(request.url).searchParams
+
+    // 2026-08-07：批量删除 ?ids=1,2,3（仅 admin；普通用户仍走单条且限自己的）
+    const idsParam = sp.get('ids')
+    if (idsParam) {
+      if (auth.role !== 'admin') {
+        return NextResponse.json({ success: false, message: '仅管理员可批量删除' }, { status: 403 })
+      }
+      const ids = idsParam.split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n) && n > 0)
+      if (ids.length === 0) return NextResponse.json({ success: false, message: '缺少有效 id' }, { status: 400 })
+      const placeholders = ids.map(() => '?').join(',')
+      const rows = await prisma.$queryRawUnsafe(`SELECT id FROM MediaAsset WHERE id IN (${placeholders})`, ...ids) as any[]
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return NextResponse.json({ success: false, message: '素材不存在' }, { status: 404 })
+      }
+      const foundIds = rows.map((r: any) => r.id)
+      await prisma.$executeRawUnsafe(`DELETE FROM MediaAsset WHERE id IN (${placeholders})`, ...foundIds)
+      return NextResponse.json({ success: true, message: `已删除 ${foundIds.length} 条素材` })
+    }
+
+    // 单条删除（admin 可删任意；普通用户仅删自己的）
+    const id = parseInt(sp.get('id') || '', 10)
     if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
     const rows = await prisma.$queryRawUnsafe('SELECT * FROM MediaAsset WHERE id = ?', id) as any[]
     if (!Array.isArray(rows) || rows.length === 0) {

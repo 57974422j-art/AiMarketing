@@ -29,6 +29,15 @@ const IMAGE_USES = [
   { cat: '品牌宣传', q: (w: string) => `${w} brand store` },
   { cat: '节日营销', q: (w: string) => `${w} festival sale` },
   { cat: '短视频封面', q: (w: string) => `${w} portrait person` },
+  // 2026-08-07 扩展关键词池：减少 Pixabay 重复
+  { cat: '海报封面', q: (w: string) => `${w} advertising banner` },
+  { cat: '产品展示', q: (w: string) => `${w} product photography` },
+  { cat: '品牌宣传', q: (w: string) => `${w} brand identity` },
+  { cat: '短视频封面', q: (w: string) => `${w} vlog cover` },
+  { cat: '节日营销', q: (w: string) => `${w} sale discount` },
+  { cat: '海报封面', q: (w: string) => `${w} flyer design` },
+  { cat: '餐饮', q: (w: string) => `${w} food menu` },
+  { cat: '教育', q: (w: string) => `${w} online course` },
 ]
 const SCENE_PLANS = [
   'shopping mall interior', 'beach resort', 'coffee shop bookstore',
@@ -156,6 +165,7 @@ async function existsByOriginal(originalUrl: string): Promise<boolean> {
 
 // ===== 找 1 条未抓过的图片候选（随机行业×用途） =====
 async function pickImageCandidate(): Promise<Cand | null> {
+  if (!PIXABAY_KEY) return null // 2026-08-07：无 key 直接走 promptbase
   const combos = shuffle(INDUSTRIES.flatMap(ind => IMAGE_USES.map(use => ({ ind, use }))))
   for (const { ind, use } of combos) {
     const q = use.q(ind.w)
@@ -180,6 +190,7 @@ async function pickImageCandidate(): Promise<Cand | null> {
 
 // ===== 找 1 条未抓过的视频候选（随机行业） =====
 async function pickVideoCandidate(orientation: string): Promise<Cand | null> {
+  if (!PIXABAY_KEY) return null
   for (const ind of shuffle(INDUSTRIES)) {
     const q = `${ind.w} promotion`
     try {
@@ -204,6 +215,7 @@ async function pickVideoCandidate(orientation: string): Promise<Cand | null> {
 
 // ===== 找 1 条未抓过的场景候选（随机场景词） =====
 async function pickSceneCandidate(): Promise<Cand | null> {
+  if (!PIXABAY_KEY) return null
   for (const q of shuffle(SCENE_PLANS)) {
     try {
       const api = `https://pixabay.com/api/?key=${PIXABAY_KEY}&q=${encodeURIComponent(q)}&per_page=20&safesearch=true&image_type=photo`
@@ -224,6 +236,38 @@ async function pickSceneCandidate(): Promise<Cand | null> {
   return null
 }
 
+// ===== promptbase 免费区候选（2026-08-07，方案 A：列表页标题+缩略图 → 转存 OSS → qwen-vl 生成提示词） =====
+async function pickPromptbaseCandidate(): Promise<Cand | null> {
+  try {
+    const res = await fetch('https://promptbase.com/free-prompts', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(25000),
+    })
+    if (!res.ok) { console.log('[Fetch] promptbase 列表失败', res.status); return null }
+    const html = await res.text()
+    // 卡片块：<a href="/prompt/xxx"> ... <img src="https://assets.promptbase.com/...">
+    const cardRe = /href="(\/prompt\/[a-z0-9-]+)"[\s\S]{0,900}?<img[^>]+src="(https:\/\/assets\.promptbase\.com\/[^"]+)"/g
+    let m: RegExpExecArray | null
+    const cands: { detail: string; img: string }[] = []
+    while ((m = cardRe.exec(html)) !== null) {
+      const detail = m[1]
+      const img = m[2].replace(/&amp;/g, '&')
+      if (detail && img) cands.push({ detail, img })
+      if (cands.length >= 12) break
+    }
+    if (cands.length === 0) { console.log('[Fetch] promptbase 未解析到卡片'); return null }
+    // 去重（按详情页 URL）
+    for (const cand of shuffle(cands)) {
+      const originalUrl = 'https://promptbase.com' + cand.detail
+      if (await existsByOriginal(originalUrl)) continue
+      const slug = cand.detail.split('/').pop() || ''
+      const title = slug.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ').slice(0, 45)
+      return { title, category: '文生图', industry: 'promptbase', prompt: '', previewUrl: cand.img, originalUrl, visionImage: cand.img, kind: 'image', _tags: title }
+    }
+    return null
+  } catch (e: any) { console.log('[Fetch] promptbase 异常:', e?.message); return null }
+}
+
 /**
  * POST /api/fetch-prompts?type=image|video|scene
  * 单条同步抓取：找 1 条未抓过的素材 → 视觉写克隆提示词 → 转存 OSS（必须成功）→ 入库 → 返回该条。
@@ -234,54 +278,71 @@ export async function POST(request: NextRequest) {
   if (!auth || auth.role !== 'admin') {
     return NextResponse.json({ success: false, message: '需要管理员权限' }, { status: 403 })
   }
-  if (!PIXABAY_KEY) {
-    return NextResponse.json({ success: false, message: '缺少 PIXABAY_API_KEY，无法抓取' }, { status: 400 })
-  }
   const { searchParams } = new URL(request.url)
   const fetchType = searchParams.get('type') || 'image'
+  // 2026-08-07：Pixabay key 缺失时 image 类型仍可走 promptbase 免费区；video/scene 依赖 Pixabay
+  if (!PIXABAY_KEY && fetchType !== 'image') {
+    return NextResponse.json({ success: false, message: '缺少 PIXABAY_API_KEY（视频/场景抓取需要）' }, { status: 400 })
+  }
   if (!['image', 'video', 'scene'].includes(fetchType)) {
     return NextResponse.json({ success: false, message: '未知抓取类型' }, { status: 400 })
   }
   const kindLabel = fetchType === 'video' ? '营销视频' : fetchType === 'scene' ? '场景图片' : '营销图片'
   const orientation = fetchType === 'video' ? (searchParams.get('orientation') || '') : ''
+  // 2026-08-07：抓取数量可配（默认 10，上限 20——一次太多会出问题，10 个一批安全）
+  const count = Math.min(20, Math.max(1, parseInt(searchParams.get('count') || '10', 10) || 10))
 
   try {
     await ensureColumns()
 
-    // 1) 找一条没抓过的候选
-    let cand: Cand | null = null
-    if (fetchType === 'video') cand = await pickVideoCandidate(orientation)
-    else if (fetchType === 'scene') cand = await pickSceneCandidate()
-    else cand = await pickImageCandidate()
-    if (!cand) {
-      return NextResponse.json({ success: false, message: '没有找到新素材（可能都已抓取过，或 Pixabay 查询失败）' })
+    const results: { title: string; category: string; industry: string; previewUrl: string }[] = []
+    let failCount = 0
+    // 批量抓取：每条独立处理，单条失败/重复跳过继续（不中断整批）
+    for (let i = 0; i < count; i++) {
+      let cand: Cand | null = null
+      if (fetchType === 'video') cand = await pickVideoCandidate(orientation)
+      else if (fetchType === 'scene') cand = await pickSceneCandidate()
+      else {
+        cand = await pickImageCandidate() // Pixabay
+        if (!cand) cand = await pickPromptbaseCandidate() // 2026-08-07：Pixabay 无新素材时换 promptbase 免费区
+      }
+      if (!cand) {
+        failCount++
+        continue // 没新素材了，跳过
+      }
+
+      // 转存 OSS —— 必须成功，否则本条不入库
+      const ossUrl = await uploadToOSS(cand.previewUrl, cand.kind)
+      if (!ossUrl) {
+        failCount++
+        continue
+      }
+      cand.previewUrl = ossUrl
+
+      // 视觉写中文克隆提示词（失败退化为标签，不阻塞）
+      const clone = await visionClonePrompt(cand.visionImage, kindLabel)
+      cand.prompt = clone || cand._tags
+
+      // 入库（再查一次去重，防并发点击）
+      if (await existsByOriginal(cand.originalUrl)) {
+        failCount++
+        continue
+      }
+      await prisma.$executeRawUnsafe(
+        'INSERT INTO PromptTemplate (title, category, prompt, previewUrl, industry, originalUrl) VALUES (?, ?, ?, ?, ?, ?)',
+        cand.title, cand.category, cand.prompt, cand.previewUrl, cand.industry || '', cand.originalUrl
+      )
+      results.push({ title: cand.title, category: cand.category, industry: cand.industry, previewUrl: cand.previewUrl })
+      console.log(`[Fetch] 批量入库 ${i + 1}/${count}: ${cand.title} (${cand.category})`)
     }
 
-    // 2) 转存 OSS —— 必须成功，否则不入库
-    const ossUrl = await uploadToOSS(cand.previewUrl, cand.kind)
-    if (!ossUrl) {
-      return NextResponse.json({ success: false, message: 'OSS 转存失败，本条未入库（请检查服务器 OSS_* 环境变量或网络）' })
+    if (results.length === 0) {
+      return NextResponse.json({ success: false, message: `本次 0 条入库（${failCount} 条跳过：无新素材 / OSS 失败 / 重复）。可稍后重试。` })
     }
-    cand.previewUrl = ossUrl
-
-    // 3) 视觉写中文克隆提示词（失败退化为标签，不阻塞）
-    const clone = await visionClonePrompt(cand.visionImage, kindLabel)
-    cand.prompt = clone || cand._tags
-
-    // 4) 入库（再查一次去重，防并发点击）
-    if (await existsByOriginal(cand.originalUrl)) {
-      return NextResponse.json({ success: false, message: '该素材刚被抓取过（重复），未重复入库' })
-    }
-    await prisma.$executeRawUnsafe(
-      'INSERT INTO PromptTemplate (title, category, prompt, previewUrl, industry, originalUrl) VALUES (?, ?, ?, ?, ?, ?)',
-      cand.title, cand.category, cand.prompt, cand.previewUrl, cand.industry || '', cand.originalUrl
-    )
-    console.log(`[Fetch] 单条入库成功: ${cand.title} (${cand.category})`)
-
     return NextResponse.json({
       success: true,
-      message: `已抓取并存入 OSS：「${cand.title}」（${cand.industry || '场景'} / ${cand.category}）。确认无误后可继续抓取下一条。`,
-      data: { title: cand.title, category: cand.category, industry: cand.industry, previewUrl: cand.previewUrl },
+      message: `已抓取 ${results.length} 条并存入 OSS（跳过 ${failCount} 条：无新素材/OSS 失败/重复）`,
+      data: { items: results, successCount: results.length, skipCount: failCount },
     })
   } catch (error: any) {
     console.error('[Fetch] 抓取失败:', error)

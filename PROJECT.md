@@ -301,7 +301,43 @@ DASHSCOPE_API_KEY / VOLCANO_API_KEY / VOLCANO_TTS_APP_ID+ACCESS_KEY+RESOURCE_ID 
 - `npm run dev`（next dev :3000）；`npm run electron:dev`（桌面联调）
 - 服务器 FFmpeg 串行队列防 CPU 爆满是硬约束（4 核），勿绕过 runFFmpeg
 
-## 八、文档体系
+## 八、更新流程（服务器 + 客户端双端联动，2026-08-07 定稿）
+
+> **核心规则：改 `src/` 任意代码 → 服务器和客户端【两处都要更新】**（客户端页面是打包时的快照，不重打包不生效）。
+
+### 判断改了什么
+| 改了 | 网页端 | 客户端安装包 |
+|---|---|---|
+| `src/**`（API/页面/组件） | ✅ 必须更新 | ✅ 必须重打包 |
+| `electron/**`（主进程/发布脚本） | ❌ | ✅ 必须重打包 |
+| `prisma/schema.prisma` | ✅ 加字段 | 跟随重打包 |
+| 只改服务器配置（.env/key） | ✅ 重启即可 | ❌ |
+
+### A. 服务器更新（Linux，网页生效）
+```bash
+cd /root/AiMarketing && cp prisma/dev.db prisma/dev.db.bak.$(date +%Y%m%d) && git fetch origin && git reset --hard origin/master && rm -rf .next && npm run build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public && DATABASE_URL="file:/root/AiMarketing/prisma/dev.db" pm2 delete aimarketing && DATABASE_URL="file:/root/AiMarketing/prisma/dev.db" pm2 start .next/standalone/server.js --name aimarketing && pm2 save && pm2 flush aimarketing && sleep 3 && curl -s http://127.0.0.1:3000/login -o /dev/null -w "HTTP %{http_code}
+"
+```
+**注意**：
+- ✅ **`npx prisma db push` 现在可用**（2026-08-07 已删 AgentSessionBrain 表，schema 与库一致；之前它会导致 db push 误删）
+- pm2 启动**必须带 `DATABASE_URL="file:/root/AiMarketing/prisma/dev.db"`**（standalone 不读 .env，不带就连空库 → 全部 500）
+- 验证：curl 返回 200 或 401（401=已连库仅缺登录，正常）；`pm2 logs aimarketing --lines 5 --err` 无 P2021
+
+### B. 客户端重打包（本地 Windows）
+```bash
+cd D:\AiMarketing && node scripts/build-local.mjs
+```
+产物：`dist-rel/AI-Marketing-Setup-1.0.19.exe`（安装包=连服务器版：页面本地渲染、API 全走 https://ai-niuma.cc）
+
+### C. 客户端自动更新发布（给已安装用户）
+1. 打包产物上传服务器 `public/updates/`（AI-Marketing-Setup-X.Y.Z.exe + .blockmap + latest.yml，版本号走 electron/version.json）
+2. 客户端启动时 electron-updater 自动检查（更新源 https://ai-niuma.cc/updates）
+
+### D. 本次部署记录（2026-08-07）
+- 服务器：git reset 到我们版本（d6ddd93）+ standalone 启动（server.js + DATABASE_URL 绝对路径）+ 手动 SQL 加 User 5 字段 + AgentPublishTask 表
+- 踩坑：standalone 不读 .env（必须 pm2 注入 DATABASE_URL）；db push 会删 AgentSessionBrain（禁用）；.next/static+public 要复制进 standalone
+
+## 九、文档体系
 | 文档 | 用途 |
 |---|---|
 | **PROJECT.md**（本文档） | 唯一权威项目文档：架构/模块/进度/待办/运维 |

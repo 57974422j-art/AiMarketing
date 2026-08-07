@@ -59,6 +59,7 @@ export default function AdminPromptTemplatesPage() {
 
   // 生成控制参数
   const [batchLimit, setBatchLimit] = useState(10)
+  const [fetchCount, setFetchCount] = useState(10) // 2026-08-07：抓取数量可配（10 个一批）
   const [imgModel, setImgModel] = useState('auto')
   const [vidModel, setVidModel] = useState('')
 
@@ -157,10 +158,10 @@ export default function AdminPromptTemplatesPage() {
   }
 
   const handleFetch = async (type: 'image' | 'video' | 'scene') => {
-    if (!confirm(`从外部源抓取${type === 'image' ? '文生图' : '文生视频'}提示词？`)) return
+    if (!confirm(`从外部源抓取 ${fetchCount} 条${type === 'image' ? '文生图' : '文生视频'}提示词？（每条需转存 OSS，约几十秒）`)) return
     setBusy(p => ({ ...p, fetch: true }))
     try {
-      const qs = type === 'video' ? `?type=${type}&orientation=${videoOrientation}` : `?type=${type}`
+      const qs = type === 'video' ? `?type=${type}&orientation=${videoOrientation}&count=${fetchCount}` : `?type=${type}&count=${fetchCount}`
       const r = await fetch(`/api/fetch-prompts${qs}`, { method: 'POST', credentials: 'include' })
       const d = await r.json()
       showToast(d.message, d.success ? 'success' : 'error')
@@ -303,6 +304,11 @@ export default function AdminPromptTemplatesPage() {
             <p className="text-gray-400 text-sm mt-1">总数：<span className="text-emerald-400 font-bold">{items.length}</span> / 已选：<span className="text-cyan-400 font-bold">{selectedIds.size}</span></p>
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
+            <div className="flex items-center gap-1">
+              <input type="number" min={1} max={20} value={fetchCount} onChange={e => setFetchCount(parseInt(e.target.value) || 10)}
+                className="w-14 bg-black/30 border border-white/10 rounded px-1.5 py-1 text-xs text-white text-center" title="抓取数量（10 个一批安全）" />
+              <span className="text-[10px] text-gray-500">条/批</span>
+            </div>
             <button onClick={() => handleFetch('image')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🌄 抓取文生图'}</button>
             <button onClick={() => handleFetch('video')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🎬 抓取文生视频'}</button>
             <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-[10px]">

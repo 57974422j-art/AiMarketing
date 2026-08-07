@@ -10,6 +10,13 @@
 
 | 操作 | 改动文件 | 结果 |
 |---|---|---|
+| media-library 改版（promptbase 风格）：搜索框 + 卡片悬停高亮 + admin「🔧 管理」模式（全选/批量删除仅 admin 可见，普通用户无删除入口）+ 后端 DELETE ?ids= 批量 | src/app/media-library/page.tsx、src/app/api/media-library/route.ts | ✅ 语法 0、dev 200 |
+| promptbase 免费区抓取源（方案 A）：列表页解析卡片（标题+缩略图）→ 转存 OSS → qwen-vl 生成提示词；Pixabay 无新素材时自动兜底；无 Pixabay key 时 image 也可抓 | src/app/api/fetch-prompts/route.ts | ✅ 端到端验证：候选解析成功、批量循环正常（本地无 OSS key 跳过属预期） |
+| 抓取数量可配（2026-08-07）：admin/prompt-templates 加「条/批」输入（默认 10，上限 20）+ /api/fetch-prompts?count=N 批量循环（每条独立转存 OSS/去重，失败跳过不中断）；Pixabay 关键词池扩展 8 组减重复 | src/app/api/fetch-prompts/route.ts、src/app/admin/prompt-templates/page.tsx | ✅ 语法 0、dev 200、count 参数验证通过（400=本地无 Pixabay key 正常拦截）；Lexica API 已关闭(500)/Civitai 限流(503)，暂不加免费源 |
+| 服务器清理（2026-08-07）：删除误建空库 dev.db（相对路径导致）+ 删 AgentSessionBrain 表（其它 AI 遗留、代码 0 引用）→ schema 与库一致，prisma db push 恢复可用 | 服务器 /root/AiMarketing | ✅ system-config HTTP 401（连真库正常）；文档已改「db push 可用」 |
+| 服务器部署完成（2026-08-07）：git reset 到我们版本 + standalone 启动（server.js + DATABASE_URL 绝对路径）+ 手动 SQL 加 User 5 字段 + AgentPublishTask；修复 500 根因（standalone 不读 .env → pm2 注入 env）；网页验证通过 | 服务器 /root/AiMarketing | ✅ system-config HTTP 401（连上真库）、error log 无 P2021、网页 500 全消；更新流程已写入 PROJECT.md 八 |
+| 安装包 1.0.19 打包完成（连服务器版）：dist-rel/AI-Marketing-Setup-1.0.19.exe（342.9MB）| 本地打包 | ✅ API 全走 ai-niuma.cc，可去其它机器测试 |
+| 服务器关键坑记录：⚠️ 禁用 prisma db push（会删 AgentSessionBrain 表）；pm2 启动必须带 DATABASE_URL；.next/static+public 需复制进 standalone | PROJECT.md 八 | 已写入文档防遗忘 |
 | Serper（Google 搜索）接入：key 实测可用（网页/视频/新闻）→ admin/settings 加 Serper key 输入（.env.local SERPER_API_KEY）+ /api/agent/search（web/videos/news）+ Agent 新增 search_web 工具（语音「帮我搜XX」呼出）| src/app/api/admin/config/route.ts、src/app/admin/settings/page.tsx、src/app/api/agent/search/route.ts、src/app/api/agent/chat/route.ts、.env.local | ✅ 实测：语音链路 AI 自动搜到 5 个 B站/油管视频教程；语法 0 诊断、dev 200；前台 UI 未动（待讨论）|
 | AI 设置第一批（白龙马设置对标）：用户级 音色选择+试听（7 个百炼 CosyVoice 音色）/ 回复温度滑块（0~1.5）/ 语音灵敏度（VAD 阈值+停顿时长）→ schema 4 字段 + /api/agent/prefs + agent 页 ⚙️ 弹窗 + chat 温度注入 + speak 带音色 | prisma/schema.prisma、src/app/api/agent/prefs/route.ts、src/app/api/agent/chat/route.ts、src/lib/ai-providers.ts、src/app/agent/page.tsx | ✅ db push+generate、GET/PUT 验证通过、语法 0 诊断、dev 200 |
 | 语音三项优化：① 百炼热词表（文生视频/一键成片等 30 词防同音误识）+ prompt 同音兜底；② TTS 播放音量 WebAudio 分析驱动声纹球波动（朗读/说话都动）；③ 朗读不读 URL（过滤为「链接已发到对话」）+ 视频卡片嵌入播放器（B站/油管 iframe，其他本地 video）| scripts/dashscope_asr_server.py、src/app/api/agent/chat/route.ts、src/app/agent/page.tsx | ✅ 语法 0 诊断、dev 200；代理已重启（热词生效）|
