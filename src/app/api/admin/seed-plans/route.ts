@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { getAuthFromHeaders } from '@/lib/api-auth'
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
@@ -27,7 +28,11 @@ const DEFAULT_PLANS = [
   },
 ]
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const auth = getAuthFromHeaders(request)
+  if (!auth) return NextResponse.json({ success: false, message: '未认证，请先登录' }, { status: 401 })
+  if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
+
   try {
     const exists = await prisma.subscriptionPlan.findFirst()
     if (exists) return NextResponse.json({ success: false, message: '已有套餐数据，请先清空' }, { status: 400 })

@@ -571,9 +571,46 @@ export default function MyFingerprintPage() {
   }
 
   // 进入页面即加载草稿，避免「我的草稿 (数量)」要点击一次才显示
-  useEffect(() => { loadDrafts() }, [])
+  useEffect(() => { loadDrafts(); importAgentTasks() }, [])
 
   /** 添加任务到队列 */
+  // C2 发布闭环（2026-08-05）：自动导入 Agent 创建的待发布任务（AgentPublishTask → 队列）
+  const importAgentTasks = async () => {
+    try {
+      const r = await fetch('/api/agent/publish-tasks?status=pending', { credentials: 'include' })
+      const d = await r.json()
+      if (d.success && d.data?.length) {
+        const tasks: PublishTask[] = d.data.map((t: any) => ({
+          id: `agent_${t.id}`,
+          videoName: t.videoName,
+          title: t.title,
+          description: t.description,
+          topics: (t.topics || []).join(' '),
+          coverImage: '',
+          coverMode: 'platform',
+          location: '',
+          publishNow: true,
+          status: 'pending',
+        }))
+        setTaskQueue(prev => {
+          const exist = new Set(prev.map(x => x.id))
+          const fresh = tasks.filter(x => !exist.has(x.id))
+          if (fresh.length) showToast(`已自动导入 ${fresh.length} 个待发布任务`, 'success')
+          return [...prev, ...fresh]
+        })
+      }
+    } catch {}
+  }
+  /** 回写 Agent 发布任务执行结果 */
+  const reportAgentTask = (taskId: string, status: 'succeeded' | 'failed', error?: string) => {
+    if (!taskId.startsWith('agent_')) return
+    fetch(`/api/agent/publish-tasks/${taskId.replace('agent_', '')}/done`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, error: error || null }),
+    }).catch(() => {})
+  }
+
   const addToQueue = () => {
     if (!formVideoName) {
       showToast('请先选择视频', 'error'); return
@@ -779,6 +816,7 @@ export default function MyFingerprintPage() {
             setTaskQueue(prev => prev.map(t =>
               t.id === task.id ? { ...t, status: 'done' as const } : t
             ))
+            reportAgentTask(task.id, 'succeeded')
             setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 第 ${i + 1} 个任务完成: ${task.videoName}`])
             if (res.data?.logs) setExecLogs(prev => [...prev, ...res.data.logs])
             if (selectedAccount) setAccountLoggedIn(selectedAccount.id, true)
@@ -791,6 +829,7 @@ export default function MyFingerprintPage() {
             setTaskQueue(prev => prev.map(t =>
               t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: res.error } : t
             ))
+            reportAgentTask(task.id, 'failed', res.error || '发布失败')
             setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 第 ${i + 1} 个任务失败: ${res.error || ''}${needLogin ? '（账号未登录，请先去登录）' : ''}`])
           }
         } else {
@@ -801,6 +840,7 @@ export default function MyFingerprintPage() {
         setTaskQueue(prev => prev.map(t =>
           t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: e.message } : t
         ))
+        reportAgentTask(task.id, 'failed', e.message || '执行异常')
         setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 异常: ${e.message}`])
       }
 
@@ -922,11 +962,13 @@ export default function MyFingerprintPage() {
               setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔓 账号未登录，请先去登录: ${acct.accountName}`])
             }
             setTaskQueue(prev => prev.map(t => t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: res.error } : t))
+              reportAgentTask(task.id, 'failed', res.error || '发布失败')
             setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ ${acct.accountName} 第 ${i + 1} 条失败: ${res.error || ''}`])
           }
         } catch (e: any) {
           failCount++
           setTaskQueue(prev => prev.map(t => t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: e.message } : t))
+          reportAgentTask(task.id, 'failed', e.message || '执行异常')
           setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 异常: ${e.message}`])
         }
       }

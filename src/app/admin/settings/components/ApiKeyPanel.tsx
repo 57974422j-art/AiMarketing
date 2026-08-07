@@ -26,6 +26,10 @@ interface ApiKeyPanelProps {
   ttsAppId: string
   ttsAccessKey: string
   ttsResourceId: string
+  volcAsrApiKey: string
+  volcAsrAppKey: string
+  volcAsrAccessKey: string
+  volcAsrResourceId: string
   showTtsAppId: boolean
   showTtsAccessKey: boolean
   showTtsResourceId: boolean
@@ -56,6 +60,10 @@ interface ApiKeyPanelProps {
     setTtsAppId: (v: string) => void
     setTtsAccessKey: (v: string) => void
     setTtsResourceId: (v: string) => void
+    setVolcAsrApiKey: (v: string) => void
+    setVolcAsrAppKey: (v: string) => void
+    setVolcAsrAccessKey: (v: string) => void
+    setVolcAsrResourceId: (v: string) => void
     setShowTtsAppId: (v: boolean) => void
     setShowTtsAccessKey: (v: boolean) => void
     setShowTtsResourceId: (v: boolean) => void
@@ -93,6 +101,7 @@ export default function ApiKeyPanel({
   testingDeepseek, testingVolcano, testingSiliconflow, testingDashscope,
   testResult, statusMap,
   ttsAppId, ttsAccessKey, ttsResourceId,
+  volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId,
   showTtsAppId, showTtsAccessKey, showTtsResourceId, testingTTS,
   ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket,
   showOssSecret, testingOSS,
@@ -254,6 +263,38 @@ export default function ApiKeyPanel({
               value={volcanoKey} show={showVolcanoKey} onShowChange={() => s.setShowVolcanoKey(!showVolcanoKey)}
               testing={testingVolcano} onTest={() => testKey('volcano', volcanoKey, '火山方舟 API Key')}
               hint="火山方舟 API Key，用于文案生成、翻译、配音等功能" />
+
+            {/* 火山 ASR（语音识别）配置（2026-08-05：需在火山引擎控制台单独开通语音识别产品） */}
+            <div className="mt-6 pt-6 border-t border-white/10">
+              <h4 className="text-label mb-4 flex items-center gap-2">
+                <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" /></svg>
+                火山引擎 ASR（语音识别）配置
+              </h4>
+              <p className="text-sm text-gray-500 mb-4 font-mono">用于 Agent 语音输入转文字。需在火山引擎控制台单独开通「语音识别」产品（与 TTS 是两个独立产品）。两种鉴权方式任选其一：① API Key + 资源ID（新式）② App Key + Access Key + 资源ID（旧式）。资源ID示例 volc.seedasr.sauc.duration</p>
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <label className="block text-label mb-2">API Key（可选）</label>
+                  <input type="password" value={volcAsrApiKey} onChange={e => s.setVolcAsrApiKey(e.target.value)} placeholder="X-Api-Key（新式鉴权）"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 font-mono" />
+                </div>
+                <div>
+                  <label className="block text-label mb-2">App Key（可选）</label>
+                  <input type="password" value={volcAsrAppKey} onChange={e => s.setVolcAsrAppKey(e.target.value)} placeholder="旧式鉴权 App Key"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 font-mono" />
+                </div>
+                <div>
+                  <label className="block text-label mb-2">Access Key（可选）</label>
+                  <input type="password" value={volcAsrAccessKey} onChange={e => s.setVolcAsrAccessKey(e.target.value)} placeholder="旧式鉴权 Access Key"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 font-mono" />
+                </div>
+                <div>
+                  <label className="block text-label mb-2">资源 ID（必填）</label>
+                  <input type="password" value={volcAsrResourceId} onChange={e => s.setVolcAsrResourceId(e.target.value)} placeholder="如 volc.seedasr.sauc.duration"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 font-mono" />
+                </div>
+              </div>
+              <p className="text-xs text-gray-600 mt-3">填写后点页面底部「保存配置」，保存到本地 .env.local（VOLC_ASR_*）；识别服务自动优先走火山云端。</p>
+            </div>
 
             {/* TTS */}
             <div className="mt-6 pt-6 border-t border-white/10">

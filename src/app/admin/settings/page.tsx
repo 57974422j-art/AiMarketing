@@ -46,6 +46,10 @@ export default function SettingsPage() {
   const [ttsAppId, setTtsAppId] = useState('')
   const [ttsAccessKey, setTtsAccessKey] = useState('')
   const [ttsResourceId, setTtsResourceId] = useState('')
+  const [volcAsrApiKey, setVolcAsrApiKey] = useState('')
+  const [volcAsrAppKey, setVolcAsrAppKey] = useState('')
+  const [volcAsrAccessKey, setVolcAsrAccessKey] = useState('')
+  const [volcAsrResourceId, setVolcAsrResourceId] = useState('')
   const [showTtsAppId, setShowTtsAppId] = useState(false)
   const [showTtsAccessKey, setShowTtsAccessKey] = useState(false)
   const [showTtsResourceId, setShowTtsResourceId] = useState(false)
@@ -103,9 +107,12 @@ export default function SettingsPage() {
 
   // ====== 天行 API（热点榜：抖音/微博/微信等，有则优先，无则走 vvhan 免费兜底） ======
   const [tianApiKey, setTianApiKey] = useState('')
+  const [serperKey, setSerperKey] = useState('')
   const [showTianApiKey, setShowTianApiKey] = useState(false)
   const [testingTianApi, setTestingTianApi] = useState(false)
   const [tianApiTestMsg, setTianApiTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [showSerperKey, setShowSerperKey] = useState(false)
+  const [serperTestMsg, setSerperTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // ====== AGENT 微信/飞书 渠道 webhook（阶段四） ======
   const [agentWebhookWechat, setAgentWebhookWechat] = useState('')
@@ -153,6 +160,10 @@ export default function SettingsPage() {
       setTtsAppId(d.ttsAppIdConfigured ? '********' : '')
       setTtsAccessKey(d.ttsAccessKeyConfigured ? '********' : '')
       setTtsResourceId(d.ttsResourceIdConfigured ? '********' : '')
+      setVolcAsrApiKey(d.volcAsrApiKeyConfigured ? '********' : '')
+      setVolcAsrAppKey(d.volcAsrAppKeyConfigured ? '********' : '')
+      setVolcAsrAccessKey(d.volcAsrAccessKeyConfigured ? '********' : '')
+      setVolcAsrResourceId(d.volcAsrResourceIdConfigured ? '********' : '')
       // OSS
       setOssRegion(d.ossRegion || '')
       setOssBucket(d.ossBucket || '')
@@ -176,6 +187,7 @@ export default function SettingsPage() {
       setAgnesBaseUrl(d.agnesBaseUrl || '')
       // 天行 API
       setTianApiKey(d.tianApiConfigured ? '********' : '')
+      setSerperKey(d.serperKeyConfigured ? '********' : '')
       // AGENT 渠道 webhook
       setAgentWebhookWechat(d.agentWebhookWechatConfigured ? '********' : '')
       setAgentWebhookFeishu(d.agentWebhookFeishuConfigured ? '********' : '')
@@ -224,6 +236,10 @@ export default function SettingsPage() {
           ttsAppId: mask(ttsAppId),
           ttsAccessKey: mask(ttsAccessKey),
           ttsResourceId: mask(ttsResourceId),
+          volcAsrApiKey: mask(volcAsrApiKey),
+          volcAsrAppKey: mask(volcAsrAppKey),
+          volcAsrAccessKey: mask(volcAsrAccessKey),
+          volcAsrResourceId: mask(volcAsrResourceId),
           queryEngine: queryEngine || undefined,
           actionEngine: actionEngine || undefined,
           mcPath: mcPath || undefined,
@@ -238,6 +254,7 @@ export default function SettingsPage() {
           agentWebhookWechat: agentWebhookWechat || undefined,
           agentWebhookFeishu: agentWebhookFeishu || undefined,
           tianApiKey: mask(tianApiKey),
+          serperKey: mask(serperKey),
         }),
       })
       const result = await res.json()
@@ -393,6 +410,7 @@ export default function SettingsPage() {
           testingSiliconflow={testingSiliconflow} testingDashscope={testingDashscope}
           testResult={testResult} statusMap={statusMap}
           ttsAppId={ttsAppId} ttsAccessKey={ttsAccessKey} ttsResourceId={ttsResourceId}
+          volcAsrApiKey={volcAsrApiKey} volcAsrAppKey={volcAsrAppKey} volcAsrAccessKey={volcAsrAccessKey} volcAsrResourceId={volcAsrResourceId}
           showTtsAppId={showTtsAppId} showTtsAccessKey={showTtsAccessKey} showTtsResourceId={showTtsResourceId}
           testingTTS={testingTTS}
           ossRegion={ossRegion} ossAccessKeyId={ossAccessKeyId}
@@ -404,6 +422,7 @@ export default function SettingsPage() {
             setTestingDeepseek, setTestingVolcano, setTestingSiliconflow, setTestingDashscope,
             setTestResult, setStatusMap,
             setTtsAppId, setTtsAccessKey, setTtsResourceId,
+            setVolcAsrApiKey, setVolcAsrAppKey, setVolcAsrAccessKey, setVolcAsrResourceId,
             setShowTtsAppId, setShowTtsAccessKey, setShowTtsResourceId, setTestingTTS,
             setOssRegion, setOssAccessKeyId, setOssAccessKeySecret, setOssBucket,
             setShowOssSecret, setTestingOSS,
@@ -634,6 +653,32 @@ export default function SettingsPage() {
             <div className={`mt-2 text-xs font-mono px-3 py-1.5 rounded-lg inline-block ${
               tianApiTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
             }`}>{tianApiTestMsg.text}</div>
+          )}
+        </div>
+
+        {/* Google 搜索（Serper）— 网页/视频/新闻搜索信源 */}
+        <div className="bg-gray-900/60 backdrop-blur-xl rounded-xl border border-white/5 p-4 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-white font-bold mb-2"><span className="text-cyan-400">//</span> Google 搜索（Serper）</h3>
+          </div>
+          <p className="text-gray-400 text-xs mb-4">填写后，AGENT 可实时搜索 Google 网页 / 视频 / 新闻（语音说「帮我搜XX」即可呼出）。免费 2500 次/月，注册：<a href="https://serper.dev" target="_blank" rel="noreferrer" className="text-cyan-400 underline">serper.dev</a>。不填则搜索功能不可用。</p>
+          <div className="flex gap-2">
+            <input
+              type={showSerperKey ? 'text' : 'password'}
+              value={serperKey}
+              onChange={e => setSerperKey(e.target.value)}
+              placeholder="Serper API Key"
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50"
+            />
+            <button type="button" onClick={() => setShowSerperKey(v => !v)}
+              className="px-3 py-2 bg-white/5 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 font-mono text-sm">
+              {showSerperKey ? '🙈' : '👁'}
+            </button>
+          </div>
+          {serperTestMsg && (
+            <div className={`mt-2 text-xs font-mono px-3 py-1.5 rounded-lg inline-block ${
+              serperTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+            }`}>{serperTestMsg.text}</div>
           )}
         </div>
 

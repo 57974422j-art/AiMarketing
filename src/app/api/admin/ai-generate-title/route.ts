@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateText } from '@/lib/ai-providers'
+import { getAuthFromHeaders } from '@/lib/api-auth'
 
 export async function POST(req: NextRequest) {
+  const auth = getAuthFromHeaders(req)
+  if (!auth) return NextResponse.json({ success: false, message: '未认证，请先登录' }, { status: 401 })
+  if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
   try {
     const { keyword } = await req.json()
     if (!keyword) return NextResponse.json({ error: '缺少keyword' }, { status: 400 })

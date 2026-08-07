@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
+import { getAuthFromHeaders } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
 
 /** GET /api/admin/usage-stats?month=2026-06 — 全平台用量统计 */
 export async function GET(req: NextRequest) {
+  const auth = getAuthFromHeaders(req)
+  if (!auth) return NextResponse.json({ success: false, message: '未认证，请先登录' }, { status: 401 })
+  if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
   try {
     const month = new URL(req.url).searchParams.get('month') || new Date().toISOString().slice(0, 7)
     const logs = await prisma.usageLog.findMany({

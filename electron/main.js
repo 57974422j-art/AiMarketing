@@ -1,4 +1,12 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, session } = require('electron')
+// 2026-08-07：允许无手势自动播放（TTS 朗读回复不被浏览器策略拦截）
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+// 2026-08-06：授予麦克风/媒体权限（否则 getUserMedia 被拒，声纹球点击无响应）
+app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'media' || permission === 'microphone' || permission === 'audioCapture')
+  })
+})
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -16,6 +24,50 @@ const { executeBilibiliPublish } = require('./fp-templates/bilibili-publish')
 const { executeWeiboPublish } = require('./fp-templates/weibo-publish')
 
 let mainWindow
+// ── 本地 standalone server（阶段0 客户端本地化）──
+// 打包后 .next/standalone 位于 resources/standalone（extraResources，asar 外），
+// 用 Electron 自身的 node（ELECTRON_RUN_AS_NODE）启动，页面本地渲染、/api/* 经 Next rewrites 代理到服务器。
+let localServerProc = null
+const LOCAL_SERVER_PORT = 3377
+
+function startLocalServer() {
+  return new Promise((resolve) => {
+    try {
+      const serverPath = path.join(process.resourcesPath, 'standalone/server.js')
+      if (!fs.existsSync(serverPath)) {
+        console.error('[local] 找不到 standalone/server.js，回退远程加载:', serverPath)
+        return resolve(false)
+      }
+      localServerProc = spawn(process.execPath, [serverPath], {
+        cwd: path.dirname(serverPath),
+        env: {
+          // 2026-08-06：显式指定本地数据库（绝对路径，不依赖 cwd），prisma 用 env("DATABASE_URL")
+          DATABASE_URL: 'file:' + path.join(path.dirname(serverPath), 'dev.db').split(String.fromCharCode(92)).join('/'),
+          ...process.env,
+          ELECTRON_RUN_AS_NODE: '1',
+          NODE_ENV: 'production',
+          PORT: String(LOCAL_SERVER_PORT),
+          HOSTNAME: '127.0.0.1',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let done = false
+      const finish = (ok) => { if (!done) { done = true; resolve(ok) } }
+      localServerProc.stdout.on('data', (d) => {
+        const s = d.toString()
+        process.stdout.write('[local] ' + s)
+        if (s.includes('Ready')) finish(true)
+      })
+      localServerProc.stderr.on('data', (d) => process.stderr.write('[local-err] ' + d.toString()))
+      localServerProc.on('exit', (code) => { console.log('[local] server 退出', code); finish(false) })
+      // 兜底：3.5 秒后视为就绪（Next standalone 启动较快）
+      setTimeout(() => finish(true), 3500)
+    } catch (e) {
+      console.error('[local] 启动本地 server 失败:', e.message)
+      resolve(false)
+    }
+  })
+}
 
 // ── 让 Playwright 从安装包内找浏览器 ──
 if (app.isPackaged) {
@@ -38,9 +90,38 @@ function createWindow() {
     icon: path.join(__dirname, '../public/icon.png'),
   })
 
+  // 外链/新窗口策略（阶段1 Scene 卡片外链）：http(s) 外链走系统浏览器，内部路径留在本地壳
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      const { shell } = require('electron')
+      shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    const cur = mainWindow.webContents.getURL()
+    if (url.startsWith('http') && !url.startsWith(cur.split('/').slice(0, 3).join('/'))) {
+      e.preventDefault()
+      const { shell } = require('electron')
+      shell.openExternal(url)
+    }
+  })
+
   const isDev = process.env.NODE_ENV !== 'production'
-  const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
-  mainWindow.loadURL(serverUrl)
+  if (app.isPackaged && !process.env.SERVER_URL) {
+    // 生产模式（阶段0）：启动本地 standalone server，页面本地渲染、API 走服务器
+    mainWindow.loadURL(`http://127.0.0.1:${LOCAL_SERVER_PORT}`)
+    startLocalServer().then((ok) => {
+      if (!ok) {
+        // 本地 server 失败时回退远程页面（保留可用性）
+        mainWindow.loadURL('http://120.55.43.195:3000')
+      }
+    })
+  } else {
+    // 开发模式 / 显式指定 SERVER_URL：加载远程或本地 dev server
+    const serverUrl = process.env.SERVER_URL || 'http://localhost:3000'
+    mainWindow.loadURL(serverUrl)
+  }
 
   // ── 自动更新检测（打包后的生产环境）──
   if (app.isPackaged) {
@@ -934,10 +1015,25 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow()
 })
 
-// 退出时清理所有浏览器
-app.on('before-quit', async () => {
-  for (const [, inst] of activeBrowsers) {
-    await cleanupBrowser(inst).catch(() => {})
-  }
-  activeBrowsers.clear()
+// 退出时清理所有浏览器（2026-08-05 修复：Electron 不会 await async listener，
+// 直接退出会残留 Playwright/Chromium 子进程占用打包产物文件。改为 preventDefault +
+// 等待清理完成（5s 超时兜底）后 app.exit，保证退出无残留）
+let isQuitting = false
+app.on('before-quit', (event) => {
+  if (isQuitting) return
+  event.preventDefault()
+  isQuitting = true
+  ;(async () => {
+    const browsers = [...activeBrowsers.values()]
+    await Promise.race([
+      Promise.all(browsers.map(inst => cleanupBrowser(inst).catch(() => {}))),
+      new Promise(resolve => setTimeout(resolve, 5000)),
+    ])
+    activeBrowsers.clear()
+    if (localServerProc) {
+      try { localServerProc.kill() } catch (e) { /* 忽略 */ }
+      localServerProc = null
+    }
+    app.exit(0)
+  })()
 })

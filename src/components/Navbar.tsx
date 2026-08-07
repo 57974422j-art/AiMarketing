@@ -16,6 +16,11 @@ export default function Navbar() {
   const [updateVersion, setUpdateVersion] = useState('')
   const [updatePercent, setUpdatePercent] = useState(0)
   const [mounted, setMounted] = useState(false)
+  // 嵌入模式（2026-08-05）：iframe 内加载时隐藏全局导航（应用随行大屏自带标题栏）
+  const [embedMode, setEmbedMode] = useState(false)
+  useEffect(() => {
+    setEmbedMode(typeof window !== 'undefined' && window.location.search.includes('embed=1'))
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -27,7 +32,9 @@ export default function Navbar() {
         }
       }).catch(() => {})
     }
-    return () => { active = false }
+    if (embedMode) return null
+
+  return () => { active = false }
   }, [])
 
   // 标记客户端已挂载，避免服务端预渲染时访问 window 报错（版本徽标/更新提示仅在客户端渲染）

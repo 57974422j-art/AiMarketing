@@ -161,9 +161,87 @@ body.hotspot-mode .agent-main-col {
 body.hotspot-mode .agent-thinking-aside {
   display: none !important;
 }
+/* 左面板（品牌/声纹球/活动指示器）在热点模式下让位，大屏占左 2/3 */
+body.hotspot-mode .agent-left-panel {
+  display: none !important;
+}
 body.hotspot-mode header .agent-hotspot-toggle {
   background: rgba(16,185,129,0.2);
   color: #6ee7b7;
+}
+
+/* ═══ 通用应用大屏（2026-08-05：一键成片/指纹浏览器等 iframe 应用，AI 对话栏右 1/3 常驻）═══ */
+body.app-mode .agent-app {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  width: calc(66vw - 16px);
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: hotspot-slide-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+body.app-mode .agent-main-col {
+  position: fixed !important;
+  top: 0;
+  left: calc(66vw + 8px);
+  right: 16px;
+  bottom: 0;
+  width: auto !important;
+  flex: none !important;
+  z-index: 50;
+}
+body.app-mode .agent-left-panel,
+body.app-mode .agent-thinking-aside {
+  display: none !important;
+}
+/* 紧凑模式：功能大屏全屏，AI 缩小为右下角悬浮小窗（参考白龙马台风/世界杯，够输入够语音） */
+body.app-compact .agent-app {
+  width: 100vw !important;
+  right: 0 !important;
+  left: 0 !important;
+}
+body.app-compact .agent-main-col {
+  left: auto !important;
+  top: 52px !important;   /* 避让大屏标题栏，露出「展开/关闭」按钮 */
+  right: 12px !important;
+  bottom: 12px !important;
+  width: 340px !important;
+  height: auto !important;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  /* 2026-08-05：实体面板（不透明），不再是透明悬浮图层 */
+  background: #0b0b12 !important;
+  backdrop-filter: blur(24px);
+}
+body.app-compact .agent-left-panel,
+body.app-compact .agent-thinking-aside {
+  display: none !important;
+}
+
+/* ═══ 三栏卡片化（2026-08-06 效仿白龙马 panel：左/中/右各自边框+圆角+间隔）═══ */
+.agent-shell {
+  gap: 10px;
+  padding: 10px;
+}
+.agent-left-panel,
+.agent-main-col,
+.agent-thinking-aside {
+  border: 1px solid rgba(212, 175, 55, 0.3) !important; /* 2026-08-06：金黄色边框（黑底可见） */
+  border-radius: 14px;
+  background: rgba(10, 10, 15, 0.92) !important;
+  overflow: hidden;
+}
+/* 热点大屏/应用大屏模式：大屏卡片同样化（fixed 布局不受 shell padding 影响） */
+body.hotspot-mode .agent-hotspot,
+body.app-mode .agent-app {
+  border-radius: 14px;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  overflow: hidden;
 }
 
 /* Agent 动画 */
@@ -185,3 +263,11 @@ body.hotspot-mode header .agent-hotspot-toggle {
 body.hotspot-open nav {
   display: none !important;
 }
+
+
+/* ===== Scene 卡片进入动画（阶段1，对齐 BaiLongma 场景化 UI）===== */
+@keyframes sceneIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.scene-in { animation: sceneIn 0.35s ease-out; }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   generateText, generateImage, generateVideo, queryVideoTask,
   ToolDefinition,
-  agnesChat, type AgentChatMessage,
+  agnesChat, dashscopeFunctionCall, type AgentChatMessage,
 } from '@/lib/ai-providers'
 import { searchTrendsReal } from '@/lib/gemini'
 import { getAuthFromHeaders } from '@/lib/api-auth'
@@ -81,6 +81,18 @@ const AGENT_TOOLS: ToolDefinition[] = [
       }, required: ['keyword'],
     },
   },
+
+  {
+    name: 'search_web',
+    description: '实时搜索互联网（Google，2026-08-07）。触发词："帮我搜""查一下""搜索""找找XX""看看XX新闻""找XX视频"。可搜网页/视频/新闻三种，视频会给出可播放的链接。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '搜索关键词（中文直接给，服务端自动适配语言）' },
+        type: { type: 'string', enum: ['web', 'videos', 'news'], description: '搜索类型：网页(默认)/videos视频/news新闻' },
+      }, required: ['query'],
+    },
+  },
   {
     name: 'digital_human_speak',
     description: '创建数字人口播视频：上传照片+选择声音+输入文案。触发词："数字人""口播""虚拟人""AI主播"。',
@@ -138,6 +150,19 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+      name: 'read_knowledge',
+      description: '读取用户知识库文档（AI 智能体训练文档：产品介绍/项目说明/行业知识等）。触发词："了解我的项目""读文档""我的知识库""产品是什么"。返回文档标题+内容摘要，供回答引用。',
+      parameters: { type: 'object', properties: { query: { type: 'string', description: '可选：想了解的关键词' } } },
+    },
+  {
+      name: 'project_overview',
+      description: '查看用户项目概况（绑定平台账号、素材数量、生成记录、套餐状态）。触发词："我的项目""我的账号""看看我的情况""我有什么素材""帮我了解下我的账号"。',
+      parameters: {
+        type: 'object',
+        properties: { detail: { type: 'string', description: '可选：想要的重点（账号/素材/生成/全部）' } },
+      },
+    },
+  {
     name: 'publish_content',
     description: '发布/准备发布内容到自媒体平台（抖音/小红书/快手/视频号/B站）。触发词："发布""发抖音""发小红书""投稿""上传视频"。会检查该平台绑定账号并给出发布指引；真实发布在客户端指纹浏览器执行，账号未登录平台时需用户先去登录（你不处理登录）。',
     parameters: {
@@ -145,6 +170,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
       properties: {
         platform: { type: 'string', description: '平台：douyin/xiaohongshu/kuaishou/shipinhao/bilibili（或中文名）' },
         contentUrl: { type: 'string', description: '要发布的内容URL（个人仓库文件URL或生成结果URL）' },
+        videoName: { type: 'string', description: '素材仓库中的视频文件名（如 xxx.mp4），与 contentUrl 二选一，优先用这个' },
         caption: { type: 'string', description: '文案/标题（含话题标签）' },
       }, required: ['platform'],
     },
@@ -258,6 +284,7 @@ const TOOL_STEP_LABEL: Record<string, string> = {
   generate_image: 'AI 生成配图',
   generate_video: 'AI 生成视频',
   search_web_images: '上网搜索参考图',
+  search_web: '实时搜索互联网',
   digital_human_speak: '生成数字人口播',
   query_digital_human: '查询数字人口播进度',
   search_storage: '检索项目素材库',
@@ -273,14 +300,25 @@ const TOOL_STEP_LABEL: Record<string, string> = {
   search_trends: '搜索全球热点',
 }
 
-function buildSystemPrompt(profile?: { name?: string; persona?: string }): string {
-  let header = `你是 AiMarketing 的 AI 运营助手，核心使命：帮用户执行自媒体运营的日常任务——每天的内容制作与发布（抖音/小红书/快手/视频号/B站）。`
+function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboarding?: boolean): string {
+  let header = `你是 AiMarketing 的 AI 运营助手，核心使命：帮用户执行自媒体运营的日常任务——每天的内容制作与发布（抖音/小红书/快手/视频号/B站）。
+注意：用户的语音输入可能包含同音错字（例如「纹身视频」其实是「文生视频」、「热恋」是「热点」），请结合上下文理解真实意图后再执行，不要被错字误导。`
   if (profile?.name) {
     header = `你的名字叫「${profile.name}」，是用户的专属 AI 运营助手。用户在对话中称呼你为「${profile.name}」，你也要用这个名字自称（如开头说"我是${profile.name}"）。`
       + (profile.persona ? `你的人设/性格：${profile.persona}。` : '')
       + `\n核心使命：帮用户执行自媒体运营的日常任务——每天的内容制作与发布（抖音/小红书/快手/视频号/B站）。`
   }
-  return header + `
+  return header + (onboarding ? `
+
+【首次摸底模式（仅本次对话生效，绝不影响后续能力）】
+- 你正在和用户首次认识。先用 1~2 轮自然对话摸清他的：行业/产品、常发平台、内容形态（图文/短视频）、最想让你帮的事。
+- 不要一口气抛一堆问题，像朋友聊天一样顺带问；用户回答了就调用 upsert_memory 记下（tags 含 画像，salience 0.9）。
+- ⚠️ 必须真实调用 upsert_memory 工具写入记忆，**绝不能只口头说"已记住/已存入"**——只有调用工具才算真正记住。用户明确给出行业/产品/平台/偏好时，本回合就必须调用。
+- 摸清后（通常 1~2 轮内），用一句自然的话收尾，必须包含类似"我已经记下你的基本情况，随时可以为你服务了"的意思，然后停止追问。
+- 即使用户在摸底中说"帮我写个文案/做个视频"，你也照常调用对应能力去做，不要说"不知道/我是客服/暂不支持"这类套话——摸底和干活不冲突。
+- 用户说"跳过/不用记了"就尊重，直接进入正常模式。
+
+` : '') + `
 
 【助手人设设定】
 - 用户可以用"你叫xx吧/给你起个名字叫xx/你的人设是xx"随时修改你的名字和性格，修改后你应立即以新名字自称，并把新名字记进长期记忆（set_agent_profile 已在背后保存）。
@@ -322,12 +360,31 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }): strin
 - 如果用户行业不在热点里覆盖，可在出完方案后顺带问一句"你主要做哪个行业，我记一下以后更精准"，但绝不要阻塞出方案。
 
 【一键成片（唤起页面，不代跑）】
-- 你不直接执行一键成片剪辑。当用户要"把这段文案做成片/剪个视频"，你理解意图后，用 [SCENE_JSON]{"type":"open_page","path":"/video-edit","params":{...}}[/SCENE_JSON] 让前端直接打开一键成片页并带入文案/配图参数，页面负责剪辑。
+- 你不直接执行一键成片剪辑。当用户要"把这段文案做成片/剪个视频"，你理解意图后，用 [SCENE_JSON]{"type":"open_page","path":"/auto-compile","params":{...}}[/SCENE_JSON] 让前端直接打开一键成片页并带入文案/配图参数，页面负责剪辑。
+【功能页面路径映射（open_page 必须按此表选 path）】
+- 一键成片/做成片/剪成片 → /auto-compile
+- 文生视频/AI视频 → /text-to-video
+- AI文案/写文案 → /ai-copy
+- 素材库/个人仓库 → /storage
+- 指纹浏览器/发抖音/发布 → /my-fingerprint
+- 数据看板/仪表盘 → /dashboard
+- AI生图/生成图片 → /image-generator
+- 视频剪辑/后期处理/配音字幕 → /video-edit
 - 文生视频(generate_video)、数字人口播(digital_human_speak) 是异步任务，会返回 taskId，返回后提示"正在生成中，稍后可问我进度"。
 
 【异步任务处理】
 - 文生视频(generate_video)、数字人口播(digital_human_speak) 都是异步任务，会返回 taskId。
 - 返回 taskId 后，告诉用户"正在生成中，稍后你可以问我进度，或我再帮你查"，并可用对应 query_ 工具轮询结果。不要在本次回复里空等。
+
+【场景卡片类型（阶段1：回复中可输出 [SCENE_JSON]{...}[/SCENE_JSON] 渲染原生卡片）】
+- {"type":"image","title":"标题","url":"图片地址","desc":"说明"} —— 图片卡片（二维码/生成图）
+- {"type":"video","title":"标题","video":{"url":"视频地址","poster":"封面(可选)"},"desc":"说明"} —— 视频卡片（成片/下载的视频）
+- {"type":"confirm","title":"确认标题","desc":"说明","confirm":{"label":"按钮文字","prompt":"点击后发给我的指令"}} —— 确认卡片（征求用户确认，点击后 prompt 会作为下一条用户消息发回）
+- {"type":"link","title":"标题","link":{"url":"https://外链"},"desc":"说明"} —— 外链卡片（系统浏览器打开）
+- {"type":"task","title":"任务名","task":{"status":"状态文字","progress":0.6}} —— 任务进度卡片（progress 0~1）
+- {"type":"open_page","path":"/页面路径","params":{...}} —— 唤起项目内页面
+- {"type":"service_qrcode","title":"扫码联系客服","desc":"说明"} —— 客服二维码（系统自动填图）
+- 用场景卡片把重要结果可视化（图片/视频/链接/确认），比纯文字更清晰；每轮最多 1 张卡片。
 
 规则：简洁专业、适度emoji、中文回复、不啰嗦、不说"你不能"而是给替代方案
 
@@ -336,6 +393,22 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }): strin
 - 正确做法：调用 collect_unmet_need 工具记录该需求（平台+简述），然后回复："已记录你的需求：在{平台}上{做什么}。目前该平台还在接入中，我帮您登记了，人工客服会尽快与你联系～"
 - 紧接着用场景卡片把客服微信二维码推给用户：在回复中输出 [SCENE_JSON]{"type":"service_qrcode","title":"扫码联系客服","desc":"人工客服会尽快与你联系"}[/SCENE_JSON]（二维码图由系统自动填充，你无需写URL）。
 - 如果客户主动说"跳过/算了/不用了/先不用"，立即停止收集，转去聊别的，不要纠缠。
+
+【多步任务编排（C4 全链路）】
+- 用户一句话要完成整条链路时（如"追这个热点做个视频发抖音"），分步执行，每步说明进度：
+  1. 追热点：用 search_trends 或结合已给热点，选 1 个最适合用户行业的选题
+  2. 出文案：generate_copy 生成标题+正文+话题
+  3. 做成片：用 [SCENE_JSON]{"type":"open_page","path":"/auto-compile","params":{"script":"文案"}} 打开一键成片页带入文案
+  4. 发布：确认视频做好后，用 publish_content 创建发布任务（需用户确认视频文件在素材仓库并告知文件名）
+- 步骤间不要跳步；用户打断时停下问下一步。单条消息最多推进 1-2 步，避免过长。
+
+【了解项目（C3）】
+- 用户问"我的项目/我的账号/看看我的情况/我有什么素材/帮我了解账号"时，先调用 project_overview 工具查看概况（绑定平台/素材/AI生成/套餐点数），再基于数据回答，不要凭空说。
+- 结合概况给建议：有素材没账号→引导绑定；有账号没内容→推荐追热点出片；账号少→建议多平台。
+
+【知识库（C3 增强）】
+- 用户问"了解我的项目/产品/公司/业务/知识库"时，先调用 read_knowledge 读取训练文档，基于文档内容回答（引用文档观点），不要凭空说。
+- 文档内容可帮助回答业务/产品问题；文档为空时引导用户到「AI 智能体」页上传。
 
 【重新定义画像】
 - 客户说"重新定义我的画像/换行业了/你忘了我/重新来过"时：先调用 clear_memory（tag=画像）清空旧画像，再像新用户一样重新问几个关键问题（行业/产品/常发平台/风格偏好），用 upsert_memory 重新记录。
@@ -386,6 +459,41 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         }
         return '未找到相关图片，换个关键词试试？'
       } catch { return '网络搜图暂不可用' }
+    }
+
+    case 'search_web': {
+      try {
+        const sk = process.env.SERPER_API_KEY
+        if (!sk) return '未配置搜索服务（SERPER_API_KEY），请管理员在后台设置后重试'
+        const q = String(args.query || '').slice(0, 200)
+        const type = args.type === 'videos' || args.type === 'news' ? args.type : 'web'
+        const hasCJK = /[一-鿿]/.test(q)
+        const body: Record<string, any> = { q, num: 5, hl: hasCJK ? 'zh-cn' : 'en', gl: hasCJK ? 'cn' : 'us' }
+        if (type !== 'web') body.type = type
+        const res = await fetch('https://google.serper.dev/search', {
+          method: 'POST',
+          headers: { 'X-API-KEY': sk, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) return '搜索服务暂时不可用（HTTP ' + res.status + '）'
+        const data = await res.json()
+        if (type === 'videos') {
+          const vs = (data.videos || []).slice(0, 5).map((v: any) => ({ title: v.title || '', url: v.link || '', channel: v.channel || '', duration: v.duration || '' }))
+          if (!vs.length) return '没有搜到相关视频'
+          return 'VIDEO_WEB:' + JSON.stringify(vs)
+        }
+        if (type === 'news') {
+          const ns = (data.news || []).slice(0, 5).map((n: any) => ({ title: n.title || '', url: n.link || '', source: n.source || '', date: n.date || '' }))
+          if (!ns.length) return '没有搜到相关新闻'
+          return 'NEWS:' + JSON.stringify(ns)
+        }
+        const ws = (data.organic || []).slice(0, 5).map((r: any) => ({ title: r.title || '', url: r.link || '', snippet: r.snippet || '' }))
+        if (!ws.length) return '没有搜到相关内容'
+        return 'WEB_RESULT:' + JSON.stringify(ws)
+      } catch (e: any) {
+        return '搜索失败：' + (e?.message || '网络错误')
+      }
     }
 
     // ── 数字人口播 ──
@@ -563,6 +671,51 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       } catch { return 'TEMPLATE_RESULT:模板查询失败' }
     }
 
+    case 'read_knowledge': {
+      try {
+        if (!auth?.userId) return 'KNOWLEDGE_NEED_LOGIN:请先登录。'
+        const { PrismaClient } = await import('@prisma/client')
+        const prisma = new PrismaClient()
+        const user = await prisma.user.findUnique({ where: { id: auth.userId }, select: { username: true } })
+        const uid = user?.username || String(auth.userId)
+        const agents = await prisma.aIAgent.findMany({
+          where: { userId: uid as any },
+          include: { trainingDocuments: true },
+          take: 5,
+        })
+        await prisma.$disconnect()
+        if (!agents.length) return 'KNOWLEDGE_EMPTY:你的知识库还没有文档。可以到「AI 智能体」页创建一个智能体并上传训练文档（产品介绍/项目说明），我就能真正了解你的项目了。'
+        const docs = agents.flatMap((a: any) => (a.trainingDocuments || []).map((d: any) => ({ agent: a.name, title: d.title, content: (d.content || '').slice(0, 1200) })))
+        if (!docs.length) return 'KNOWLEDGE_EMPTY:智能体还没有训练文档，请先到「AI 智能体」页上传。'
+        return docs.map((d: any) => `【${d.agent} · ${d.title}】\n${d.content}`).join('\n---\n')
+      } catch (e: any) { return 'KNOWLEDGE_ERR:' + e.message }
+    }
+
+    case 'project_overview': {
+      try {
+        if (!auth?.userId) return 'PROJECT_NEED_LOGIN:请先登录。'
+        const uid = auth.userId
+        const [socialCount, socials, assetCount, assets, genCount, recentGens, user] = await Promise.all([
+          prisma.socialAccount.count({ where: { userId: uid } }),
+          prisma.socialAccount.findMany({ where: { userId: uid }, select: { platform: true, username: true, status: true }, take: 10 }),
+          prisma.mediaAsset.count({ where: { ownerId: uid } }),
+          prisma.mediaAsset.findMany({ where: { ownerId: uid }, select: { title: true, type: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 5 }),
+          prisma.generationRecord.count({ where: { userId: uid } }),
+          prisma.generationRecord.findMany({ where: { userId: uid }, select: { type: true, prompt: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 5 }),
+          prisma.user.findUnique({ where: { id: uid }, select: { username: true, plan: true, pointBalance: true } }),
+        ])
+        const platformSet = [...new Set(socials.map(s => s.platform))]
+        return [
+          `【项目概况 · ${user?.username || ''}】`,
+          `- 套餐：${user?.plan || 'free'} ｜ 点数余额：${user?.pointBalance ?? 0}`,
+          `- 绑定平台账号：${socialCount} 个（${platformSet.join('、') || '无'}）`,
+          `- 素材库：${assetCount} 条${assets.length ? '（最近：' + assets.map(a => a.title).join('、') + '）' : ''}`,
+          `- AI 生成记录：${genCount} 条${recentGens.length ? '（最近：' + recentGens.map(g => g.type + (g.prompt ? '「' + g.prompt.slice(0, 12) + '」' : '')).join('、') + '）' : ''}`,
+          `- 已发布任务可查客户端【指纹浏览器】队列。`,
+        ].join('\n')
+      } catch (e: any) { return 'PROJECT_OVERVIEW_ERROR:' + e.message }
+    }
+
     // ── 发布 ──
     case 'publish_content': {
       try {
@@ -590,9 +743,34 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           return `PUBLISH_NEED_LOGIN:你还没有绑定${label}的指纹浏览器账号。请去【账号管理】登记一个 bindType=manual 的${label}账号，然后在【指纹浏览器】页启动并登录该平台（扫码），登录好之后就可以发布了。`
         }
         const list = accts.map(a => `- ${a.username}（${label}）`).join('\n')
+        // C2 发布闭环（2026-08-05）：视频/文案齐备 → 创建发布任务，客户端自动发布（复用 7 平台脚本）
+        const videoName = args.videoName || (typeof args.contentUrl === 'string' ? args.contentUrl.split('/').pop()?.split('?')[0] : '')
+        const captionLine0 = args.caption ? `
+📝 文案：${args.caption}` : ''
+        if (videoName && args.caption) {
+          try {
+            const task = await prisma.agentPublishTask.create({
+              data: {
+                userId: auth.userId,
+                platform,
+                socialAccountId: accts[0]?.id || null,
+                videoName,
+                title: String(args.caption).slice(0, 80),
+                description: String(args.caption),
+                topics: JSON.stringify([]),
+                status: 'pending',
+              },
+            })
+            return `PUBLISH_QUEUED:已为「${label}」创建发布任务 #${task.id}（视频：${videoName}）。打开客户端【指纹浏览器】页会自动执行发布，也可在【应用 → 指纹浏览器】里查看队列。${captionLine0}`
+          } catch (e: any) {
+            return `PUBLISH_READY:创建发布任务失败（${e.message}），${label}已绑定账号：
+${list}
+👉 可手动去客户端【指纹浏览器】页发布。`
+          }
+        }
         const contentLine = args.contentUrl ? `\n📎 待发内容：${args.contentUrl}` : '\n📎 待发内容：还未确定，可从个人仓库选一个成片'
         const captionLine = args.caption ? `\n📝 文案：${args.caption}` : ''
-        return `PUBLISH_READY:${label}已绑定 ${accts.length} 个指纹浏览器账号:\n${list}${contentLine}${captionLine}\n\n👉 发布操作：打开客户端【指纹浏览器】页 → 选择该账号并启动 → 从素材仓库选择这个视频 → 填好标题文案 → 点发布。\n⚠️ 如果发布时提示「该账号未登录平台」，点账号卡片上的「🔓 去登录」扫码登录后重试（我不代你登录）。`
+        return `PUBLISH_READY:${label}已绑定 ${accts.length} 个指纹浏览器账号:\n${list}${contentLine}${captionLine}\n\n👉 告诉我要发哪个视频（素材仓库名）和文案，我直接创建发布任务；或去客户端【指纹浏览器】页手动发布。\n⚠️ 如果发布时提示「该账号未登录平台」，点账号卡片上的「🔓 去登录」扫码登录后重试（我不代你登录）。`
       } catch { return 'PUBLISH_READY:账号查询失败，请稍后重试' }
     }
 
@@ -617,9 +795,11 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         const { PrismaClient } = await import('@prisma/client')
         const prisma = new PrismaClient()
         const kw = (args.query || '').trim()
+        const user = await prisma.user.findUnique({ where: { id: auth.userId }, select: { username: true } })
+        const uid = user?.username || String(auth.userId)
         const rows = await prisma.agentMemory.findMany({
           where: {
-            userId: auth?.userId || '',
+            userId: uid,
             OR: kw ? [
               { content: { contains: kw } },
               { tags: { contains: kw } },
@@ -643,13 +823,16 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         if (!content) return JSON.stringify({ ok: false, error: '缺少内容' })
         const tags = Array.isArray(args.tags) ? args.tags.join(',') : (args.tags || '')
         const salience = Number(args.salience) || 0.5
+        // 2026-08-06：AgentMemory.userId 存 username（非数字 id），统一口径才能查到
+        const user = await prisma.user.findUnique({ where: { id: auth.userId }, select: { username: true } })
+        const uid = user?.username || String(auth.userId)
         const existing = await prisma.agentMemory.findFirst({
-          where: { userId: auth?.userId || '', content: { contains: content.substring(0, 20) } },
+          where: { userId: uid, content: { contains: content.substring(0, 20) } },
         })
         if (existing) {
           await prisma.agentMemory.update({ where: { id: existing.id }, data: { content, tags, salience, updatedAt: new Date() } })
         } else {
-          await prisma.agentMemory.create({ data: { userId: auth?.userId || '', content, tags, salience } })
+          await prisma.agentMemory.create({ data: { userId: uid, content, tags, salience } })
         }
         await prisma.$disconnect()
         return JSON.stringify({ ok: true })
@@ -663,7 +846,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       try {
         const { PrismaClient } = await import('@prisma/client')
         const p = new PrismaClient()
-        const userId = auth?.userId || ''
+        const user = await p.user.findUnique({ where: { id: auth.userId }, select: { username: true } })
+        const userId = user?.username || String(auth.userId)
         const need = (args.need || '').trim()
         const platform = (args.platform || '').trim()
         const detail = (args.detail || '').trim()
@@ -683,7 +867,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       try {
         const { PrismaClient } = await import('@prisma/client')
         const p = new PrismaClient()
-        const userId = auth?.userId || ''
+        const user = await p.user.findUnique({ where: { id: auth.userId }, select: { username: true } })
+        const userId = user?.username || String(auth.userId)
         const tag = (args.tag || '').trim()
         const where: any = { userId }
         if (tag) where.tags = { contains: tag }
@@ -816,12 +1001,39 @@ function formatToolResult(output: string): string {
 
 // ==================== API 入口 ====================
 
+// 从回复中提取并剥离 SCENE_JSON 场景卡片（2026-08-05：工具分支与纯聊天分支共用，
+// 避免模型未调工具直接输出场景卡片时前端显示原文）
+async function extractSceneFromReply(raw: string): Promise<{ reply: string; scene: any }> {
+  let reply = raw
+  let scene: any = null
+  const sceneMatch = reply.match(/\[SCENE_JSON\]([\s\S]*?)\[\/SCENE_JSON\]/)
+  if (sceneMatch) {
+    try { scene = JSON.parse(sceneMatch[1]) } catch {}
+    reply = reply.replace(sceneMatch[0], '').trim()
+  }
+  // 客服二维码场景：从 SystemConfig 读取 service_qrcode 并注入为图片卡片
+  if (scene && scene.type === 'service_qrcode') {
+    try {
+      const cfg = await getSystemConfigs(['service_qrcode'])
+      const qr = cfg?.service_qrcode || ''
+      if (qr) {
+        scene = { type: 'image', title: scene.title || '扫码联系客服', desc: scene.desc || '人工客服会尽快与你联系', url: qr }
+      } else {
+        scene = null // 未配置则不渲染，避免空图
+      }
+    } catch {
+      scene = null
+    }
+  }
+  return { reply, scene }
+}
+
 export async function POST(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
 
   try {
     const body = await request.json()
-    const { message, history = [], sessionId: sid, attachments, hotContext } = body
+    const { message, history = [], sessionId: sid, attachments, hotContext, onboarding, currentApp } = body
 
     if (!message || typeof message !== 'string' || !message.trim()) {
       return NextResponse.json({ success: false, message: '请输入消息' }, { status: 400 })
@@ -844,6 +1056,12 @@ export async function POST(request: NextRequest) {
     }
 
     // 读取用户给助手设定的名字/人设（agent_profile 记忆）
+    // 用户级 AI 设置（2026-08-07：温度）
+    let userTemperature = 0.7
+    try {
+      const u0 = await prisma.user.findUnique({ where: { id: auth?.userId || '' }, select: { agentTemperature: true } })
+      if (typeof u0?.agentTemperature === 'number') userTemperature = u0.agentTemperature
+    } catch {}
     let agentProfile: { name?: string; persona?: string } | undefined
     try {
       const profMem = await prisma.agentMemory.findFirst({
@@ -856,9 +1074,49 @@ export async function POST(request: NextRequest) {
         agentProfile = { name: m?.[1]?.trim(), persona: p?.[1]?.trim() }
       }
     } catch {}
+    // 自定义名称兜底（2026-08-07）：用户级 User.agentName > 全局 SystemConfig.agent_name
+    try {
+      if (!agentProfile?.name && auth?.userId) {
+        const u = await prisma.user.findUnique({ where: { id: auth.userId }, select: { agentName: true } })
+        if (u?.agentName) agentProfile = { name: u.agentName, persona: agentProfile?.persona }
+      }
+      if (!agentProfile?.name) {
+        const cfg = await prisma.systemConfig.findUnique({ where: { key: 'agent_name' } })
+        if (cfg?.value) agentProfile = { name: cfg.value, persona: agentProfile?.persona }
+      }
+    } catch {}
+
+    // 2026-08-06：自动画像提取（不依赖模型调用工具——模型常口头答应但实际不写记忆）
+    try {
+      const pt = String(message || '')
+      const platforms = ['抖音','快手','小红书','视频号','B站','微博','微信公众号','公众号','淘宝','拼多多','美团','饿了么','知乎','闲鱼']
+      const foundPlat = platforms.find(p => pt.includes(p))
+      const indMatch = pt.match(/(?:我|我们)(?:是|做|主营|主做|在(?:做|搞|经营))([\u4e00-\u9fa5]{2,12})(?:的|行业|生意|业务)?/)
+      if (foundPlat || indMatch) {
+        const { PrismaClient } = await import('@prisma/client')
+        const pm = new PrismaClient()
+        const u = await pm.user.findUnique({ where: { id: auth.userId }, select: { username: true } })
+        const uid = u?.username || String(auth.userId)
+        const parts: string[] = []
+        if (indMatch) parts.push('行业/业务：' + indMatch[1])
+        if (foundPlat) parts.push('主要平台：' + foundPlat)
+        if (parts.length) {
+          const content = parts.join('；')
+          const exist = await pm.agentMemory.findFirst({ where: { userId: uid, content: { contains: content.substring(0, 8) } } })
+          if (exist) {
+            await pm.agentMemory.update({ where: { id: exist.id }, data: { content, tags: '画像,行业', salience: 0.9, updatedAt: new Date() } })
+          } else {
+            await pm.agentMemory.create({ data: { userId: uid, content, tags: '画像,行业', salience: 0.9 } })
+          }
+        }
+        await pm.$disconnect()
+      }
+    } catch {}
 
     // 构建消息（Agnes 多模态对话格式）
-    const sysBlocks: string[] = [buildSystemPrompt(agentProfile)]
+    const sysBlocks: string[] = [buildSystemPrompt(agentProfile, onboarding === true)]
+    // 2026-08-05：应用随行模式——用户在当前功能大屏内，让 AI 结合场景回答
+    if (currentApp) sysBlocks.push(`【当前页面】用户正在使用「${currentApp}」应用（左侧功能大屏内操作）。请结合该应用场景简洁指导/回答，必要时给出下一步操作建议。`)
     if (hotContext && typeof hotContext === 'string' && hotContext.trim()) {
       sysBlocks.push(
         `\n【今日热点上下文（用户主页展示的真实热榜，可主动结合做内容，但只在相关时提及，不要每条都硬塞）】\n${hotContext}`
@@ -872,16 +1130,28 @@ export async function POST(request: NextRequest) {
     }
     messages.push({ role: 'user', content: userContent })
 
-    // Step 1: 多模态 + 工具调用（Agnes 大脑）
-    const fcResult = await agnesChat(messages, AGENT_TOOLS)
+    // Step 1: 多模态 + 工具调用
+    // 2026-08-05：默认使用 DeepSeek（用户要求，本地无需海外代理）；仅当用户上传图片时
+    // 才用 Agnes（多模态视觉），否则 DeepSeek 纯文本模型无法处理 image_url
+    const hasImage = messages.some(m => Array.isArray(m.content) && (m.content as any[]).some((b: any) => b?.type === 'image_url'))
+    const fcResult = hasImage
+      ? await agnesChat(messages, AGENT_TOOLS)
+      : await dashscopeFunctionCall(messages as any, AGENT_TOOLS, 2000, userTemperature)
     const toolCalls = fcResult.toolCalls || []
+    // 2026-08-05：兼容 OpenAI 格式 tool_calls（百炼 qwen：{function:{name,arguments}}）与扁平格式（{name,arguments}）
+    const normTool = (tc: any) => ({
+      id: tc.id || '',
+      name: tc.name || tc.function?.name || '',
+      arguments: typeof tc.arguments === 'string' ? tc.arguments : (tc.function?.arguments ? String(tc.function.arguments) : '{}'),
+    })
+    const normCalls = toolCalls.map(normTool)
 
-    if (toolCalls.length > 0) {
+    if (normCalls.length > 0) {
       // 按 OpenAI 兼容格式回传 assistant(tool_calls) + tool(tool_call_id)
       messages.push({
         role: 'assistant',
         content: fcResult.content || '',
-        tool_calls: toolCalls.map((tc: any) => ({
+        tool_calls: normCalls.map((tc: any) => ({
           id: tc.id,
           type: 'function',
           function: { name: tc.name, arguments: tc.arguments },
@@ -889,7 +1159,7 @@ export async function POST(request: NextRequest) {
       } as any)
 
       const steps: { tool: string; label: string }[] = []
-      for (const tc of toolCalls) {
+      for (const tc of normCalls) {
         let args: Record<string, any> = {}
         try { args = JSON.parse(tc.arguments) } catch { args = {} }
         const stepLabel = TOOL_STEP_LABEL[tc.name] || tc.name
@@ -900,7 +1170,9 @@ export async function POST(request: NextRequest) {
       }
 
       // Step 2: 回传结果（不再让模型二次决定调工具，直接用结果文本，避免脏标签）
-      const finalResult = await agnesChat(messages, [])
+      const finalResult = hasImage
+        ? await agnesChat(messages, [])
+        : await dashscopeFunctionCall(messages as any, [], 2000, userTemperature)
       const toolMsg = messages.filter(m => (m as any).role === 'tool').pop() as AgentChatMessage | undefined
       const toolRaw = toolMsg?.content
       const toolText = typeof toolRaw === 'string' ? toolRaw : (toolRaw ? JSON.stringify(toolRaw) : '')
@@ -914,27 +1186,10 @@ export async function POST(request: NextRequest) {
       }
       // 清理模型偶发吐出的工具调用 XML 脏标签（<tool_call> <function_calls> <invoke> 等）
       reply = stripToolCallTags(reply)
-      // 解析 Scene 投影协议：回复中 [SCENE_JSON]{...}[/SCENE_JSON] 让前端渲染原生卡片
-      let scene: any = null
-      const sceneMatch = reply.match(/\[SCENE_JSON\]([\s\S]*?)\[\/SCENE_JSON\]/)
-      if (sceneMatch) {
-        try { scene = JSON.parse(sceneMatch[1]) } catch {}
-        reply = reply.replace(sceneMatch[0], '').trim()
-      }
-      // 客服二维码场景：从 SystemConfig 读取 service_qrcode 并注入为图片卡片
-      if (scene && scene.type === 'service_qrcode') {
-        try {
-          const cfg = await getSystemConfigs(['service_qrcode'])
-          const qr = cfg?.service_qrcode || ''
-          if (qr) {
-            scene = { type: 'image', title: scene.title || '扫码联系客服', desc: scene.desc || '人工客服会尽快与你联系', url: qr }
-          } else {
-            scene = null // 未配置则不渲染，避免空图
-          }
-        } catch {
-          scene = null
-        }
-      }
+      // 解析 Scene 投影协议（工具分支，2026-08-05 提取共用函数）
+      const extracted = await extractSceneFromReply(reply)
+      reply = extracted.reply
+      let scene = extracted.scene
 
       // 存DB
       let sessionId = sid
@@ -948,7 +1203,7 @@ export async function POST(request: NextRequest) {
         await prisma.chatMessage.createMany({
           data: [
             { sessionId, role: 'user', content: userMessage },
-            { sessionId, role: 'assistant', content: reply, toolUsed: true, intent: toolCalls.map((t: any) => t.name).join(',') },
+            { sessionId, role: 'assistant', content: reply, toolUsed: true, intent: normCalls.map((t: any) => t.name).join(',') },
           ],
         })
         await prisma.chatSession.update({ where: { id: sessionId }, data: { updatedAt: new Date() } })
@@ -962,7 +1217,23 @@ export async function POST(request: NextRequest) {
     }
 
     // 纯聊天
-    const reply = fcResult.content || '抱歉，AI服务暂时繁忙。'
+    let reply = fcResult.content || '抱歉，AI服务暂时繁忙。'
+    // 纯聊天分支同样解析 SCENE_JSON（2026-08-05：模型可能不调工具直接输出场景卡片）
+    const extractedChat = await extractSceneFromReply(reply)
+    reply = extractedChat.reply
+    const scene = extractedChat.scene
+    // 2026-08-05：AI 自由度——仅输出场景卡片而无正文时，给一句自然引导（不让回复为空）
+    if (!reply.trim() && scene) {
+      if (scene.type === 'open_page') {
+        const p = scene.path || ''
+        const title = (p.split('/').filter(Boolean).pop() || '功能')
+        reply = `已为你打开「${title}」，我一直在旁边。想让我帮你做什么？比如：结合当前页面给建议、生成内容、或告诉我下一步。`
+      } else if (scene.type === 'image') {
+        reply = scene.desc || '已为你生成，看看这张卡片～'
+      } else {
+        reply = '已为你处理，还有什么需要帮忙的吗？'
+      }
+    }
     let sessionId = sid
     if (auth?.userId) {
       if (!sessionId) {
@@ -983,7 +1254,7 @@ export async function POST(request: NextRequest) {
     if (auth?.userId) await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
     return NextResponse.json({
       success: true,
-      data: { reply, intent: 'chat', toolUsed: false, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
+      data: { reply, intent: 'chat', toolUsed: false, sessionId, scene, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
     })
   } catch (error: any) {
     console.error('[Agent API]', error)

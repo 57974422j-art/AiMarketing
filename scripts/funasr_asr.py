@@ -8,6 +8,16 @@ FunASR 语音识别脚本
 import json
 import sys
 import os
+# 2026-08-06：固定 modelscope 本地缓存（模型已下载，避免每次重复下载）
+MODELSCOPE_CACHE = os.path.join(os.path.expanduser('~'), '.cache', 'modelscope', 'models')
+def _m(name):
+    return os.path.join(MODELSCOPE_CACHE, name, 'snapshots', 'master')
+ASR_MODEL = _m('iic--speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch')
+VAD_MODEL = _m('iic--speech_fsmn_vad_zh-cn-16k-common-pytorch')
+PUNC_MODEL = _m('iic--punc_ct-transformer_zh-cn-common-vocab272727-pytorch')
+SV_MODEL = _m('iic--speech_campplus_sv_zh-cn_16k-common')
+if not os.path.exists(ASR_MODEL):
+    os.environ.setdefault('MODELSCOPE_CACHE', MODELSCOPE_CACHE)
 import re
 from contextlib import redirect_stdout
 
@@ -133,7 +143,7 @@ def run_speaker_diarization(audio_path, sentences=None):
 
             # 加载说话人嵌入模型（已下载）
             sv_model = AutoModel(
-                model="iic/speech_campplus_sv_zh-cn_16k-common",
+                model=SV_MODEL,
                 disable_update=True,
             )
 
@@ -232,9 +242,9 @@ def main():
             from funasr import AutoModel
 
             model = AutoModel(
-                model="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
-                vad_model="iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
-                punc_model="iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
+                model=ASR_MODEL,
+                vad_model=VAD_MODEL,
+                punc_model=PUNC_MODEL,
                 disable_update=True,
             )
 

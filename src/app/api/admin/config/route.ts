@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, tianApiKey } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, tianApiKey } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -145,6 +145,32 @@ export async function POST(request: NextRequest) {
       const p = /^ACTION_ENGINE=.*$/m;
       if (p.test(envContent)) envContent = envContent.replace(p, `ACTION_ENGINE=${actionEngine}`);
       else envContent += `\nACTION_ENGINE=${actionEngine}`;
+    }
+
+    // 火山 ASR（语音识别）配置
+    if (volcAsrApiKey !== undefined) {
+      const pattern = /^VOLC_ASR_API_KEY=.*$/m;
+      if (pattern.test(envContent)) envContent = envContent.replace(pattern, `VOLC_ASR_API_KEY=${volcAsrApiKey}`);
+      else envContent += `
+VOLC_ASR_API_KEY=${volcAsrApiKey}`;
+    }
+    if (volcAsrAppKey !== undefined) {
+      const pattern = /^VOLC_ASR_APP_KEY=.*$/m;
+      if (pattern.test(envContent)) envContent = envContent.replace(pattern, `VOLC_ASR_APP_KEY=${volcAsrAppKey}`);
+      else envContent += `
+VOLC_ASR_APP_KEY=${volcAsrAppKey}`;
+    }
+    if (volcAsrAccessKey !== undefined) {
+      const pattern = /^VOLC_ASR_ACCESS_KEY=.*$/m;
+      if (pattern.test(envContent)) envContent = envContent.replace(pattern, `VOLC_ASR_ACCESS_KEY=${volcAsrAccessKey}`);
+      else envContent += `
+VOLC_ASR_ACCESS_KEY=${volcAsrAccessKey}`;
+    }
+    if (volcAsrResourceId !== undefined) {
+      const pattern = /^VOLC_ASR_RESOURCE_ID=.*$/m;
+      if (pattern.test(envContent)) envContent = envContent.replace(pattern, `VOLC_ASR_RESOURCE_ID=${volcAsrResourceId}`);
+      else envContent += `
+VOLC_ASR_RESOURCE_ID=${volcAsrResourceId}`;
     }
 
     // MediaCrawler 配置
@@ -329,6 +355,10 @@ export async function GET(request: NextRequest) {
     const agentWebhookWechat = await readEnv('AGENT_WEBHOOK_WECHAT');
     const agentWebhookFeishu = await readEnv('AGENT_WEBHOOK_FEISHU');
     const tianApiKey = await readEnv('TIAN_API_KEY');
+    const volcAsrApiKey = await readEnv('VOLC_ASR_API_KEY');
+    const volcAsrAppKey = await readEnv('VOLC_ASR_APP_KEY');
+    const volcAsrAccessKey = await readEnv('VOLC_ASR_ACCESS_KEY');
+    const volcAsrResourceId = await readEnv('VOLC_ASR_RESOURCE_ID');
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -343,6 +373,10 @@ export async function GET(request: NextRequest) {
         ttsAppIdConfigured: !!ttsAppId,
         ttsAccessKeyConfigured: !!ttsAccessKey,
         ttsResourceIdConfigured: !!ttsResourceId,
+        volcAsrApiKeyConfigured: !!volcAsrApiKey,
+        volcAsrAppKeyConfigured: !!volcAsrAppKey,
+        volcAsrAccessKeyConfigured: !!volcAsrAccessKey,
+        volcAsrResourceIdConfigured: !!volcAsrResourceId,
         automationEngine: automationEngine || 'mediacrawler',
         actionEngine: actionEngine || 'q1-adb',
         mcPath: mcPath || '',

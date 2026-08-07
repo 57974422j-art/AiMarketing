@@ -1068,6 +1068,57 @@ export async function deepSeekFunctionCall(
   }
 }
 
+/**
+ * 百炼通义千问 Function Calling（2026-08-05：Agent 大脑默认，OpenAI 兼容格式）
+ * 与 deepSeekFunctionCall 结构一致：返回 { content, toolCalls }
+ */
+export async function dashscopeFunctionCall(
+  messages: Array<{ role: string; content: string | any; tool_call_id?: string; name?: string }>,
+  tools: ToolDefinition[] = [],
+  maxTokens = 2000,
+  temperature = 0.3 // 2026-08-07：用户级 AI 设置可调
+): Promise<FunctionCallResult> {
+  const key = getDashScopeKey()
+  if (!key) return { content: null }
+
+  try {
+    const body: Record<string, any> = {
+      model: 'qwen-plus',
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+    }
+
+    if (tools.length > 0) {
+      body.tools = tools.map(t => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters || { type: 'object', properties: {} },
+        },
+      }))
+    }
+
+    const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify(body),
+    })
+
+    const choice = data.choices?.[0]
+    if (!choice) return { content: null }
+
+    return {
+      content: choice.message?.content || null,
+      toolCalls: choice.message?.tool_calls || undefined,
+    }
+  } catch (e) {
+    console.error('[DashScope FC] 调用失败:', e)
+    return { content: null }
+  }
+}
+
 async function deepSeekTranslate(text: string, toLang: string, fromLang = 'zh'): Promise<string | null> {
   const sourceLabel = fromLang === 'zh' ? '中文' : fromLang;
   const prompt = `请将以下${sourceLabel}翻译成${toLang}，只返回翻译结果：\n\n${text}`;
@@ -1469,23 +1520,23 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
     return null;
   }
 
-  // 中文/英文：火山 → 百炼(CosyVoice) → 硅基
+  // 中文/英文：百炼(CosyVoice) 优先 → 硅基 → 火山兜底（2026-08-05：用户弃用火山，百炼主用）
   if (language === 'zh' || language === 'en') {
-    console.log(`[TTS] 尝试火山: speaker=${speaker}, lang=${language}, text_len=${cleaned.length}`);
-    const volcanoResult = await volcanoTTS(cleaned, speaker);
-    if (volcanoResult && volcanoResult.byteLength > 100) {
-      console.log(`[TTS] 火山成功: ${volcanoResult.byteLength} bytes`);
-      return volcanoResult;
-    }
-    console.log(`[TTS] 火山失败, 尝试百炼...`);
-
-    // 百炼 CosyVoice（需要开通百炼 CosyVoice 服务）
+    // 百炼 CosyVoice（DASHSCOPE_API_KEY）
     const dashResult = await dashscopeTTS(cleaned);
     if (dashResult && dashResult.byteLength > 100) {
       console.log(`[TTS] 百炼成功: ${dashResult.byteLength} bytes`);
       return dashResult;
     }
-    console.log(`[TTS] 百炼失败, 尝试硅基...`);
+    console.log(`[TTS] 百炼失败, 尝试火山...`);
+
+    // 火山（保留兜底，避免百炼 CosyVoice 未开通时无声音）
+    const volcanoResult = await volcanoTTS(cleaned, speaker);
+    if (volcanoResult && volcanoResult.byteLength > 100) {
+      console.log(`[TTS] 火山成功: ${volcanoResult.byteLength} bytes`);
+      return volcanoResult;
+    }
+    console.log(`[TTS] 火山失败, 尝试硅基...`);
   } else {
     console.log(`[TTS] 非中/英文(${language}), 跳过火山, 直接走百炼→硅基`);
     const dashResult = await dashscopeTTS(cleaned);

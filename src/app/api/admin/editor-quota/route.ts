@@ -7,18 +7,16 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
+import { getAuthFromHeaders } from '@/lib/api-auth'
 import { getOrCreateQuota, updateQuota, getAllQuotas } from '@/lib/quota-manager'
 
 const prisma = new PrismaClient()
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = (request as any).user?.id
-    const role = (request as any).user?.role
-
-    if (role !== 'admin') {
-      return NextResponse.json({ message: '仅管理员可访问' }, { status: 403 })
-    }
+    const auth = getAuthFromHeaders(request)
+    if (!auth) return NextResponse.json({ message: '未认证，请先登录' }, { status: 401 })
+    if (auth.role !== 'admin') return NextResponse.json({ message: '仅管理员可访问' }, { status: 403 })
 
     const quotas = await getAllQuotas()
     return NextResponse.json({ success: true, data: quotas })
@@ -30,12 +28,9 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const userId = (request as any).user?.id
-    const role = (request as any).user?.role
-
-    if (role !== 'admin') {
-      return NextResponse.json({ message: '仅管理员可访问' }, { status: 403 })
-    }
+    const auth = getAuthFromHeaders(request)
+    if (!auth) return NextResponse.json({ message: '未认证，请先登录' }, { status: 401 })
+    if (auth.role !== 'admin') return NextResponse.json({ message: '仅管理员可访问' }, { status: 403 })
 
     const body = await request.json()
     const { editorId, q1Containers, fingerprintPorts, realPhones, portRangeStart, portRangeEnd } = body

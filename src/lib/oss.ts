@@ -32,7 +32,16 @@ export async function getOSSClient(): Promise<OSS> {
     throw new Error('OSS 未配置，请在 admin/settings 中填写完整配置')
   }
 
-  client = new OSS({ region, accessKeyId, accessKeySecret, bucket })
+  // 2026-08-06 修:2024 年后新建 bucket 强制 V4 签名。ali-oss 6.20+ 支持 V4,需显式 authorizationV4:true
+  // 不加此配置 → 默认 V1 签名 → 对 V4-only bucket 报 SignatureDoesNotMatch
+  client = new OSS({
+    region,
+    accessKeyId,
+    accessKeySecret,
+    bucket,
+    authorizationV4: true,
+    endpoint: `https://${region}.aliyuncs.com`,
+  })
   return client
 }
 

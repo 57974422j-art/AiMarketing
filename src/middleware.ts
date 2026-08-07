@@ -45,7 +45,50 @@ function decodeJWT(token: string): JwtPayload | null {
   }
 }
 
-export function middleware(request: NextRequest) {
+// 2026-08-05 修复 ISSUES #1：Edge Runtime 下用 Web Crypto (HMAC-SHA256) 校验 JWT 签名，
+// 与 src/app/api/auth/login/route.ts 的 createHmac('sha256', secret) 签发逻辑完全对应。
+// 2026-08-07：兼容 Authorization Bearer header（Electron 客户端无 cookie，走 header 鉴权）
+function getBearerToken(req: NextRequest): string | null {
+  const auth = req.headers.get('authorization') || req.headers.get('Authorization') || ''
+  const m = auth.match(/^Bearer\s+(.+)$/i)
+  return m ? m[1] : null
+}
+
+function base64UrlToBytes(str: string): Uint8Array {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/')
+  const padding = base64.length % 4
+  if (padding) base64 += '='.repeat(4 - padding)
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+async function verifyJWTSignature(token: string, secret: string): Promise<boolean> {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return false
+    const [header, payload, signature] = parts
+    const encoder = new TextEncoder()
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    )
+    return await crypto.subtle.verify(
+      'HMAC',
+      key,
+      base64UrlToBytes(signature),
+      encoder.encode(header + '.' + payload),
+    )
+  } catch {
+    return false
+  }
+}
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (!pathname.startsWith('/api/')) return NextResponse.next()
@@ -57,7 +100,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  const token = request.cookies.get('token')?.value
+  let token = getBearerToken(request)
+  if (!token) {
+    token = request.cookies.get('token')?.value || null
+  }
   if (!token) {
     return NextResponse.json({ success: false, message: '未登录，请先登录' }, { status: 401 })
   }
@@ -65,6 +111,13 @@ export function middleware(request: NextRequest) {
   const payload = decodeJWT(token)
   if (!payload) {
     return NextResponse.json({ success: false, message: '无效的登录状态，请重新登录' }, { status: 401 })
+  }
+
+  // JWT HS256 验签（2026-08-05）：防止伪造 token 提权；密钥与 login/route.ts 一致
+  const JWT_SECRET = process.env.JWT_SECRET || 'aimarketing-secret-key-2024'
+  const signatureValid = await verifyJWTSignature(token, JWT_SECRET)
+  if (!signatureValid) {
+    return NextResponse.json({ success: false, message: '登录状态无效，请重新登录' }, { status: 401 })
   }
 
   // 订阅门控策略（2026-07-27 调整）：
