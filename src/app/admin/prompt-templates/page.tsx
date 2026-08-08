@@ -12,7 +12,15 @@ interface PromptItem {
   industry?: string | null
 }
 
-const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频', '场景', '数字人']
+interface FetchLog {
+  ok: boolean
+  source: string
+  title?: string
+  category?: string
+  reason?: string
+}
+
+const CATEGORIES = ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面', '文生图', '文生视频', '场景', '数字人', 'AI 工具']
 const INDUSTRIES = ['美业', '教育', '电商', '餐饮', '房产', '健身', '旅游', '服装']
 
 const IMG_MODELS = [
@@ -32,6 +40,8 @@ const VID_MODELS = [
 ]
 
 type ModeTab = 'image' | 'video' | 'scene' | 'digital' | 'all'
+type MainTab = 'manage' | 'fetch' | 'generate' | 'maintain'
+
 const SUB_CATS: any = {
   image: ['海报封面', '产品展示', '品牌宣传', '节日营销', '短视频封面'],
   video: ['商业广告', '产品介绍', '品牌故事', '场景宣传'],
@@ -50,6 +60,9 @@ export default function AdminPromptTemplatesPage() {
   const [industryFilter, setIndustryFilter] = useState('')
   const [modeTab, setModeTab] = useState<ModeTab>('image')
 
+  // 主 Tab（2026-08-08：逻辑分组，避免按钮混乱）
+  const [mainTab, setMainTab] = useState<MainTab>('manage')
+
   // 选中项
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
@@ -59,9 +72,13 @@ export default function AdminPromptTemplatesPage() {
 
   // 生成控制参数
   const [batchLimit, setBatchLimit] = useState(10)
-  const [fetchCount, setFetchCount] = useState(10) // 2026-08-07：抓取数量可配（10 个一批）
+  const [fetchCount, setFetchCount] = useState(10)
   const [imgModel, setImgModel] = useState('auto')
   const [vidModel, setVidModel] = useState('')
+
+  // 抓取日志（2026-08-08：每次抓取的逐条结果，透明可见）
+  const [fetchLogs, setFetchLogs] = useState<FetchLog[]>([])
+  const [fetchLogLabel, setFetchLogLabel] = useState('')
 
   // 场景生成
   const [sceneInput, setSceneInput] = useState('')
@@ -147,8 +164,9 @@ export default function AdminPromptTemplatesPage() {
   // ===== 预设 / 抓取 =====
   const [videoOrientation, setVideoOrientation] = useState<'horizontal' | 'vertical'>('horizontal')
   const isVert = videoOrientation === 'vertical'
+
   const handlePreseed = async () => {
-    if (!confirm('预设 20 条营销提示词模板？')) return
+    if (!confirm('将导入 20 条营销提示词模板（内置预设，已有预设时会拒绝）？')) return
     setBusy(p => ({ ...p, preseeding: true }))
     const r = await fetch('/api/seed-prompt-templates', { method: 'POST', credentials: 'include' })
     const d = await r.json()
@@ -158,21 +176,27 @@ export default function AdminPromptTemplatesPage() {
   }
 
   const handleFetch = async (type: 'image' | 'video' | 'scene') => {
-    if (!confirm(`从外部源抓取 ${fetchCount} 条${type === 'image' ? '文生图' : '文生视频'}提示词？（每条需转存 OSS，约几十秒）`)) return
+    const srcDesc = type === 'image' ? '文生图（Pixabay → 无新素材时自动换 promptbase 免费区）'
+      : type === 'video' ? '文生视频（Pixabay）' : '场景图（Pixabay）'
+    if (!confirm(`将从外部源抓取 ${fetchCount} 条【${srcDesc}】\n每条需：下载图片 → 转存 OSS → AI 生成提示词 → 入库\n预计耗时约 ${fetchCount * 20} 秒，请耐心等待。`)) return
     setBusy(p => ({ ...p, fetch: true }))
+    setFetchLogs([])
+    setFetchLogLabel(`抓取中：${type === 'image' ? '文生图' : type === 'video' ? '文生视频' : '场景图'} × ${fetchCount}…`)
     try {
       const qs = type === 'video' ? `?type=${type}&orientation=${videoOrientation}&count=${fetchCount}` : `?type=${type}&count=${fetchCount}`
       const r = await fetch(`/api/fetch-prompts${qs}`, { method: 'POST', credentials: 'include' })
       const d = await r.json()
       showToast(d.message, d.success ? 'success' : 'error')
+      if (d.data?.logs) setFetchLogs(d.data.logs)
+      setFetchLogLabel(d.message || '')
       if (d.success) loadItems()
-    } catch { showToast('抓取失败', 'error') }
+    } catch (e: any) { showToast('抓取失败: ' + (e?.message || e), 'error'); setFetchLogLabel('抓取失败') }
     finally { setBusy(p => ({ ...p, fetch: false })) }
   }
 
   // ===== AiShort 导入 =====
   const handleAIShort = async () => {
-    if (!confirm('从 AiShort 导入中文提示词（约800条）？')) return
+    if (!confirm('将从 AiShort 导入约 800 条中文 AI 工具提示词（纯文字无图，如"文章改写/论文降重/法律咨询"）？\n注意：这是批量导入，不是抓图。')) return
     setBusy(p => ({ ...p, aishort: true }))
     try {
       const r = await fetch('/api/seed-from-aishort', { method: 'POST', credentials: 'include' })
@@ -217,10 +241,8 @@ export default function AdminPromptTemplatesPage() {
   const handleImportToMedia = async () => {
     const targetIds = selectedIds.size > 0 ? Array.from(selectedIds) : items.map(i => i.id)
     if (targetIds.length === 0) { showToast('没有可选模板', 'error'); return }
-    // 筛选有预览图的
     const withPreview = items.filter(i => targetIds.includes(i.id) && i.previewUrl)
     if (withPreview.length === 0) { showToast('所选模板没有预览图，请先点「🎨 预览图」生成', 'error'); return }
-    // 仅保留有效 http(s) 链接（过滤 data: 本地临时图等无效地址，避免请求体过大 / 入库脏数据）
     const valid = withPreview.filter(i => /^https?:\/\//.test((i.previewUrl || '').trim()))
     const skipped = withPreview.length - valid.length
     if (valid.length === 0) {
@@ -244,7 +266,6 @@ export default function AdminPromptTemplatesPage() {
       const text = await r.text()
       let d: any = null
       try { d = JSON.parse(text) } catch {
-        // 响应非 JSON（多为网络 / CORS / 中间件拦截），把原始内容暴露出来方便排查
         console.error('[导入素材库] 非JSON响应:', text)
         showToast(`导入失败: HTTP ${r.status} ${text.slice(0, 200)}`, 'error')
         return
@@ -265,11 +286,7 @@ export default function AdminPromptTemplatesPage() {
       const r = await fetch('/api/ai-guide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'scene-prompts',
-          scene: sceneInput.trim(),
-          language: 'zh',
-        }),
+        body: JSON.stringify({ action: 'scene-prompts', scene: sceneInput.trim(), language: 'zh' }),
       })
       const d = await r.json()
       if (d.success && d.prompts) {
@@ -283,258 +300,340 @@ export default function AdminPromptTemplatesPage() {
         showToast(`已生成 ${d.prompts.length} 条模板`)
         loadItems()
         setSceneInput('')
-      } else {
-        showToast(d.message || '生成失败', 'error')
-      }
+      } else { showToast(d.message || '生成失败', 'error') }
     } catch { showToast('请求失败', 'error') }
     finally { setSceneGenerating(false) }
+  }
+
+  // ===== 数字人模板生成 =====
+  const handleGenDigital = async () => {
+    if (!confirm('生成 6 个数字人口播模板（男性/女性/正装/休闲/古风等）？')) return
+    setBusy(p => ({ ...p, genDigital: true }))
+    try {
+      const r = await fetch('/api/generate-digital-prompts', { method: 'POST', credentials: 'include' })
+      const d = await r.json()
+      showToast(d.message, d.success ? 'success' : 'error')
+      if (d.success) loadItems()
+    } catch { showToast('生成失败', 'error') }
+    finally { setBusy(p => ({ ...p, genDigital: false })) }
   }
 
   if (authLoading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-gray-400">加载中...</div></div>
   if (!user || user.role !== 'admin') return <div className="min-h-screen bg-gray-950 flex items-center justify-center"><div className="text-red-400 text-center"><p className="text-xl mb-2">仅管理员可访问</p><p className="text-xs text-gray-500 mt-1">二级客户请到素材库选择模板</p></div></div>
 
+  const MAIN_TABS: { key: MainTab; label: string; desc: string }[] = [
+    { key: 'manage', label: '📚 模板管理', desc: '查看/编辑/删除/筛选模板' },
+    { key: 'fetch', label: '🌐 素材抓取', desc: '从外部源抓取图/视频/场景模板' },
+    { key: 'generate', label: '🤖 AI 生成', desc: '批量生成预览图/视频/数字人/场景' },
+    { key: 'maintain', label: '🧹 数据维护', desc: '预设填充/AiShort 导入/清空' },
+  ]
+
   return (
     <div className="min-h-screen bg-gray-950">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* 头部 */}
-        <div className="flex items-center justify-between mb-6">
+      <header className="border-b border-white/10 bg-gray-900/60 backdrop-blur sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-lg font-semibold text-white">提示词模板库 / PROMPT TEMPLATES</h1>
+            <span className="text-xs text-gray-500">总数：<span className="text-emerald-400 font-bold">{items.length}</span> / 已选：<span className="text-cyan-400 font-bold">{selectedIds.size}</span></span>
+          </div>
+          {/* 主 Tab 导航 */}
+          <div className="flex gap-1 mt-3 flex-wrap">
+            {MAIN_TABS.map(t => (
+              <button key={t.key} onClick={() => setMainTab(t.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${mainTab === t.key ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}
+                title={t.desc}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-5">
+
+        {/* ════════ Tab1 模板管理 ════════ */}
+        {mainTab === 'manage' && (
           <div>
-            <p className="text-label mb-2">管理后台 / ADMIN</p>
-            <h1 className="text-mono-lg text-white">提示词模板库 / PROMPT TEMPLATES</h1>
-            <p className="text-gray-400 text-sm mt-1">总数：<span className="text-emerald-400 font-bold">{items.length}</span> / 已选：<span className="text-cyan-400 font-bold">{selectedIds.size}</span></p>
-          </div>
-          <div className="flex gap-2 flex-wrap justify-end">
-            <div className="flex items-center gap-1">
-              <input type="number" min={1} max={20} value={fetchCount} onChange={e => setFetchCount(parseInt(e.target.value) || 10)}
-                className="w-14 bg-black/30 border border-white/10 rounded px-1.5 py-1 text-xs text-white text-center" title="抓取数量（10 个一批安全）" />
-              <span className="text-[10px] text-gray-500">条/批</span>
+            <div className="flex gap-2 mb-4 flex-wrap">
+              <button onClick={() => { setModeTab('all'); setFilterCat(''); setSelectedIds(new Set()) }}
+                className={`px-3 py-1.5 rounded-lg text-xs border ${modeTab === 'all' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10'}`}>全部</button>
+              <button onClick={() => { setModeTab('image'); setFilterCat(''); setSelectedIds(new Set()) }}
+                className={`px-3 py-1.5 rounded-lg text-xs border ${modeTab === 'image' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10'}`}>文生图</button>
+              <button onClick={() => { setModeTab('video'); setFilterCat(''); setSelectedIds(new Set()) }}
+                className={`px-3 py-1.5 rounded-lg text-xs border ${modeTab === 'video' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10'}`}>文生视频</button>
+              <button onClick={() => { setModeTab('scene'); setFilterCat(''); setSelectedIds(new Set()) }}
+                className={`px-3 py-1.5 rounded-lg text-xs border ${modeTab === 'scene' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10'}`}>场景</button>
+              <button onClick={() => { setModeTab('digital'); setFilterCat(''); setSelectedIds(new Set()) }}
+                className={`px-3 py-1.5 rounded-lg text-xs border ${modeTab === 'digital' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10'}`}>数字人</button>
+              <div className="flex-1" />
+              <button onClick={openCreate} className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs hover:bg-emerald-600">＋ 新建模板</button>
             </div>
-            <button onClick={() => handleFetch('image')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🌄 抓取文生图'}</button>
-            <button onClick={() => handleFetch('video')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🎬 抓取文生视频'}</button>
-            <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-[10px]">
-              <span className="text-gray-500 mr-0.5">朝向</span>
-              <button onClick={() => setVideoOrientation('horizontal')} className={`px-2 py-0.5 rounded ${videoOrientation === 'horizontal' ? 'bg-emerald-500 text-white' : 'text-gray-400 hover:text-white'}`}>横屏</button>
-              <button onClick={() => setVideoOrientation('vertical')} className={`px-2 py-0.5 rounded ${videoOrientation === 'vertical' ? 'bg-emerald-500 text-white' : 'text-gray-400 hover:text-white'}`}>竖屏</button>
-            </span>
-            <button onClick={() => handleFetch('scene')} disabled={busy.fetch} className="btn-secondary text-xs py-2">{busy.fetch ? '抓取中' : '🏞️ 抓取场景'}</button>
-            <button onClick={handlePreseed} disabled={busy.preseeding} className="btn-secondary text-xs py-2">{busy.preseeding ? '填充中' : '📦 预设'}</button>
-            <button onClick={handleAIShort} disabled={busy.aishort} className="btn-secondary text-xs py-2">{busy.aishort ? '导入中' : '📥 导入AiShort'}</button>
-            <button onClick={openCreate} className="btn-primary text-xs py-2">+ 新建</button>
+
+            {/* 子分类 + 行业筛选 */}
+            {modeTab !== 'all' && (
+              <div className="flex gap-2 mb-3 flex-wrap">
+                <button onClick={() => setFilterCat('')}
+                  className={`px-2 py-1 rounded text-[11px] ${!filterCat ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>全部子类</button>
+                {(SUB_CATS[modeTab] || []).map((c: string) => (
+                  <button key={c} onClick={() => setFilterCat(c)}
+                    className={`px-2 py-1 rounded text-[11px] ${filterCat === c ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>{c}</button>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 mb-4 flex-wrap items-center">
+              <span className="text-[10px] text-gray-500 font-mono">行业:</span>
+              <button onClick={() => setIndustryFilter('')}
+                className={`px-2 py-1 rounded text-[11px] ${!industryFilter ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>全部</button>
+              {INDUSTRIES.map((c: string) => (
+                <button key={c} onClick={() => setIndustryFilter(c)}
+                  className={`px-2 py-1 rounded text-[11px] ${industryFilter === c ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>{c}</button>
+              ))}
+            </div>
+
+            {/* 新建/编辑表单 */}
+            {showForm && (
+              <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-5 mb-5">
+                <h3 className="text-white font-bold mb-4">{editItem ? '编辑模板 / EDIT' : '新建模板 / NEW'}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <input className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" placeholder="标题 / TITLE *" value={title} onChange={e => setTitle(e.target.value)} />
+                  <select className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" value={category} onChange={e => setCategory(e.target.value)}>
+                    {CATEGORIES.map(c => <option key={c} value={c} className="bg-gray-900">{c}</option>)}
+                  </select>
+                  <input className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm md:col-span-2" placeholder="预览图 URL（可选）" value={previewUrl} onChange={e => setPreviewUrl(e.target.value)} />
+                </div>
+                <textarea className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm mb-4 h-32 w-full resize-y" placeholder="提示词内容 / PROMPT *" value={prompt} onChange={e => setPrompt(e.target.value)} />
+                <div className="flex gap-3">
+                  <button onClick={handleSubmit} disabled={submitting} className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-sm hover:bg-emerald-600 disabled:opacity-50">{submitting ? '保存中...' : '保存'}</button>
+                  <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-white/10 text-gray-300 rounded-lg text-sm hover:bg-white/20">取消</button>
+                </div>
+              </div>
+            )}
+
+            {/* 列表 */}
+            {loading ? <div className="text-center text-gray-400 py-12">加载中...</div>
+            : items.length === 0 ? <div className="bg-gray-900/40 border border-white/10 rounded-2xl p-12 text-center"><p className="text-gray-400">暂无模板</p></div>
+            : <div className="space-y-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="checkbox" checked={selectedIds.size === filteredItems.length && filteredItems.length > 0} onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-white/20 bg-white/5 accent-emerald-500" />
+                  <span className="text-xs text-gray-500 font-mono">全选</span>
+                  {selectedIds.size > 0 && <span className="text-xs text-cyan-400 font-mono">已选 {selectedIds.size} 项</span>}
+                  {selectedIds.size > 0 && (
+                    <button onClick={() => setSelectedIds(new Set())} className="text-[10px] text-gray-500 hover:text-gray-300 ml-2">取消选择</button>
+                  )}
+                </div>
+                <div className={isVert ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3'}>
+                  {items.map(item => (
+                    <div key={item.id} className={`bg-gray-900/60 border-2 rounded-xl overflow-hidden transition-all ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-white/10'} ${isVert ? 'aspect-[9/16]' : 'aspect-video'}`}>
+                      {item.previewUrl ? (
+                        <div className={`relative w-full h-full group bg-black/50 ${item.previewUrl.endsWith('.mp4') ? 'cursor-pointer' : ''}`} onClick={() => item.previewUrl?.endsWith('.mp4') && setPlayVideo(item.previewUrl)}>
+                          {item.previewUrl.endsWith('.mp4')
+                            ? <video src={item.previewUrl} className="w-full h-full object-cover" />
+                            : <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
+                          }
+                          {!item.previewUrl.endsWith('.mp4') && (
+                            <div className="hidden group-hover:block fixed z-40 pointer-events-none" style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)', maxWidth: '60vw', maxHeight: '80vh' }}>
+                              <img src={item.previewUrl} alt="" className="max-w-[60vw] max-h-[80vh] rounded-xl shadow-2xl border border-white/20" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                          <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-2">
+                            <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)}
+                              className="w-4 h-4 rounded border-white/40 bg-black/30 accent-emerald-500" />
+                            <div className="flex gap-1">
+                              <button onClick={() => openEdit(item)} className="px-1.5 py-0.5 text-[10px] bg-black/50 text-gray-200 rounded hover:bg-black/70">编辑</button>
+                              <button onClick={() => handleDelete(item.id)} className="px-1.5 py-0.5 text-[10px] bg-red-500/50 text-white rounded hover:bg-red-500/70">删</button>
+                            </div>
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 p-2">
+                            <h3 className="text-white text-xs font-bold truncate">{item.title}</h3>
+                            <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/40 text-cyan-200' : 'bg-emerald-500/40 text-emerald-200'}`}>{item.category}</span>
+                            {item.industry ? <span className="inline-block mt-0.5 ml-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/30 text-amber-200">{item.industry}</span> : null}
+                            <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-1">{item.prompt}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full p-4 text-center">
+                          <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)}
+                            className="w-4 h-4 mb-2 rounded border-white/20 bg-white/5 accent-emerald-500" />
+                          <h3 className="text-white font-bold text-xs">{item.title}</h3>
+                          <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-emerald-500/20 text-emerald-400'}`}>{item.category}</span>
+                          {item.industry ? <span className="inline-block mt-1 ml-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300">{item.industry}</span> : null}
+                          <p className="text-gray-500 text-[10px] mt-1 line-clamp-2">{item.prompt}</p>
+                          <div className="flex gap-2 mt-2">
+                            <button onClick={() => openEdit(item)} className="px-2 py-1 text-[10px] bg-white/10 text-gray-300 rounded">编辑</button>
+                            <button onClick={() => handleDelete(item.id)} className="px-2 py-1 text-[10px] bg-red-500/20 text-red-400 rounded">删</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>}
           </div>
-        </div>
+        )}
 
-        {/* Tab：大分类 */}
-        <div className="flex gap-1 mb-4 bg-white/5 rounded-xl p-1 border border-white/10 w-fit">
-          {([
-            { key: 'all' as const, label: '📋 全部' },
-            { key: 'image' as const, label: '🎨 文生图' },
-            { key: 'video' as const, label: '🎬 文生视频' },
-            { key: 'scene' as const, label: '🏞️ 场景' },
-            { key: 'digital' as const, label: '🤖 数字人' },
-          ]).map(tab => (
-            <button key={tab.key} onClick={() => { setModeTab(tab.key); setFilterCat(''); setSelectedIds(new Set()) }}
-              className={`px-4 py-1.5 rounded-lg text-xs font-mono transition-all ${modeTab === tab.key ? 'bg-emerald-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {/* ════════ Tab2 素材抓取 ════════ */}
+        {mainTab === 'fetch' && (
+          <div>
+            <div className="grid md:grid-cols-3 gap-4 mb-5">
+              {/* 抓图 */}
+              <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
+                <h3 className="text-white font-bold text-sm mb-1">🌄 抓取文生图</h3>
+                <p className="text-[11px] text-gray-500 mb-3">来源：Pixabay（免费可商用）→ 无新素材时自动换 promptbase 免费区。每条：下载图 → 转存 OSS → AI 生成中文提示词 → 入库。</p>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-[11px] text-gray-400">数量</span>
+                  <input type="number" min={1} max={20} value={fetchCount} onChange={e => setFetchCount(parseInt(e.target.value) || 10)}
+                    className="w-16 bg-black/30 border border-white/10 rounded px-2 py-1 text-xs text-white text-center" />
+                  <span className="text-[10px] text-gray-600">条（1-20，建议 10）</span>
+                </div>
+                <button onClick={() => handleFetch('image')} disabled={busy.fetch}
+                  className="w-full px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-lg text-xs hover:bg-emerald-500/30 disabled:opacity-50">
+                  {busy.fetch ? '抓取中…' : '开始抓图'}
+                </button>
+              </div>
+              {/* 抓视频 */}
+              <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
+                <h3 className="text-white font-bold text-sm mb-1">🎬 抓取文生视频</h3>
+                <p className="text-[11px] text-gray-500 mb-3">来源：Pixabay 视频库（免费可商用）。每条：下载视频 → 转存 OSS → AI 生成中文提示词 → 入库。</p>
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                  <span className="text-[11px] text-gray-400">朝向</span>
+                  <div className="flex gap-1">
+                    <button onClick={() => setVideoOrientation('horizontal')} className={`px-2 py-0.5 rounded text-[10px] ${videoOrientation === 'horizontal' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-gray-400 border border-white/10'}`}>横屏</button>
+                    <button onClick={() => setVideoOrientation('vertical')} className={`px-2 py-0.5 rounded text-[10px] ${videoOrientation === 'vertical' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-gray-400 border border-white/10'}`}>竖屏</button>
+                  </div>
+                  <span className="text-[11px] text-gray-400 ml-1">数量</span>
+                  <input type="number" min={1} max={10} value={fetchCount} onChange={e => setFetchCount(parseInt(e.target.value) || 5)}
+                    className="w-14 bg-black/30 border border-white/10 rounded px-2 py-1 text-xs text-white text-center" />
+                </div>
+                <button onClick={() => handleFetch('video')} disabled={busy.fetch}
+                  className="w-full px-3 py-2 bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 rounded-lg text-xs hover:bg-cyan-500/30 disabled:opacity-50">
+                  {busy.fetch ? '抓取中…' : '开始抓视频'}
+                </button>
+              </div>
+              {/* 抓场景 */}
+              <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
+                <h3 className="text-white font-bold text-sm mb-1">🏞️ 抓取场景图</h3>
+                <p className="text-[11px] text-gray-500 mb-3">来源：Pixabay（商场/海滩/咖啡店等场景素材）。每条：下载图 → 转存 OSS → AI 生成中文提示词 → 入库。</p>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-[11px] text-gray-400">数量</span>
+                  <input type="number" min={1} max={20} value={fetchCount} onChange={e => setFetchCount(parseInt(e.target.value) || 10)}
+                    className="w-16 bg-black/30 border border-white/10 rounded px-2 py-1 text-xs text-white text-center" />
+                  <span className="text-[10px] text-gray-600">条（1-20）</span>
+                </div>
+                <button onClick={() => handleFetch('scene')} disabled={busy.fetch}
+                  className="w-full px-3 py-2 bg-purple-500/20 border border-purple-500/30 text-purple-300 rounded-lg text-xs hover:bg-purple-500/30 disabled:opacity-50">
+                  {busy.fetch ? '抓取中…' : '开始抓场景'}
+                </button>
+              </div>
+            </div>
 
-        {/* 批量操作控制栏 */}
-        <div className="bg-white/5 rounded-2xl border border-white/10 p-4 mb-4">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              {selectedIds.size > 0 ? (
-                <span className="text-xs text-cyan-400 font-mono">已选 {selectedIds.size} 项</span>
+            {/* 抓取日志（透明反馈：每条结果 + 失败原因） */}
+            <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-white font-bold text-sm">📋 抓取日志</h3>
+                {fetchLogs.length > 0 && (
+                  <button onClick={() => { setFetchLogs([]); setFetchLogLabel('') }} className="text-[10px] text-gray-500 hover:text-gray-300">清空</button>
+                )}
+              </div>
+              {fetchLogLabel && !busy.fetch && <p className="text-xs text-gray-400 mb-2">{fetchLogLabel}</p>}
+              {busy.fetch && <p className="text-xs text-emerald-400 animate-pulse mb-2">⏳ 抓取执行中…（每条约 15-25 秒）</p>}
+              {fetchLogs.length === 0 && !busy.fetch ? (
+                <p className="text-[11px] text-gray-600">暂无日志。点击上方「开始抓图/抓视频/抓场景」后，这里会逐条显示结果（✅ 成功 / ⏭ 跳过 / ❌ 失败原因）。</p>
               ) : (
-                <>
-                  <span className="text-xs text-gray-500 font-mono">批量:</span>
-                  <input type="number" min={1} max={100} value={batchLimit} onChange={e => setBatchLimit(parseInt(e.target.value) || 10)}
-                    className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs text-center" />
-                  <span className="text-[10px] text-gray-600">条/次</span>
-                </>
+                <div className="space-y-1 max-h-80 overflow-y-auto">
+                  {fetchLogs.map((l, i) => (
+                    <div key={i} className={`flex items-start gap-2 text-[11px] py-1 px-2 rounded ${l.ok ? 'bg-emerald-500/[0.06] text-emerald-300' : 'bg-red-500/[0.06] text-red-300'}`}>
+                      <span>{l.ok ? '✅' : '❌'}</span>
+                      <span className="text-gray-500 shrink-0 w-16">[{l.source}]</span>
+                      <span className="flex-1 truncate">{l.ok ? `${l.title}（${l.category || ''}）` : (l.title ? `${l.title}：` : '') + (l.reason || '')}</span>
+                    </div>
+                  ))}
+                </div>
               )}
-            </div>
-
-            {/* 文生图模型 */}
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] text-gray-500">图模型:</span>
-              {IMG_MODELS.map(m => (
-                <button key={m.value} onClick={() => setImgModel(m.value)}
-                  className={`px-2 py-1 rounded text-[10px] ${imgModel === m.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-
-            {/* 文生视频模型 */}
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] text-gray-500">视频模型:</span>
-              {VID_MODELS.map(m => (
-                <button key={m.value} onClick={() => setVidModel(m.value)}
-                  className={`px-2 py-1 rounded text-[10px] ${vidModel === m.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex gap-2 ml-auto flex-wrap">
-              <button onClick={() => runBatch('/api/generate-prompt-previews', 'imgPreview')} disabled={busy.imgPreview || busy.vidPreview}
-                className="px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs hover:bg-emerald-500/30 disabled:opacity-50">
-                {busy.imgPreview ? '生成中...' : '🎨 预览图'}
-              </button>
-              <button onClick={() => runBatch('/api/batch-generate-video-previews', 'vidPreview')} disabled={busy.vidPreview || busy.imgPreview}
-                className="px-3 py-1.5 bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs hover:bg-cyan-500/30 disabled:opacity-50">
-                {busy.vidPreview ? '生成中...' : '🎬 视频预览'}
-              </button>
-              <button onClick={async () => {
-                if (!confirm('生成 6 个数字人口播模板？')) return
-                setBusy(p => ({ ...p, genDigital: true }))
-                try {
-                  const r = await fetch('/api/generate-digital-prompts', { method: 'POST', credentials: 'include' })
-                  const d = await r.json()
-                  showToast(d.message, d.success ? 'success' : 'error')
-                  if (d.success) loadItems()
-                } catch { showToast('生成失败', 'error') }
-                finally { setBusy(p => ({ ...p, genDigital: false })) }
-              }} disabled={busy.genDigital}
-                className="px-3 py-1.5 bg-purple-500/20 border border-purple-500/30 text-purple-400 rounded-lg text-xs hover:bg-purple-500/30 disabled:opacity-50">
-                {busy.genDigital ? '生成中...' : '🤖 数字人模板'}
-              </button>
-              <button onClick={handleImportToMedia}
-                className="px-3 py-1.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-lg text-xs hover:bg-blue-500/30">
-                📦 导入素材库
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* 场景生成 */}
-        <div className="bg-gradient-to-r from-emerald-500/5 to-cyan-500/5 rounded-2xl border border-emerald-500/20 p-4 mb-4">
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-emerald-400 font-mono shrink-0">🏞️ 场景生模板</span>
-            <input value={sceneInput} onChange={e => setSceneInput(e.target.value)}
-              placeholder="输入场景描述，如：夏日海滩度假产品推广"
-              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-emerald-500/50" />
-            <button onClick={handleSceneGen} disabled={sceneGenerating || !sceneInput.trim()}
-              className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-xs hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed shrink-0">
-              {sceneGenerating ? '生成中...' : 'AI 生成'}
-            </button>
-          </div>
-        </div>
-
-        {/* 子分类筛选（根据大分类切换） */}
-        <div className="flex gap-2 mb-4 flex-wrap">
-          <button onClick={() => setFilterCat('')}
-            className={`px-2 py-1 rounded text-xs ${!filterCat ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
-            全部
-          </button>
-          {(SUB_CATS[modeTab] || []).map((c: string) => (
-            <button key={c} onClick={() => setFilterCat(c)}
-              className={`px-2 py-1 rounded text-xs ${filterCat === c ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
-              {c}
-            </button>
-          ))}
-        </div>
-
-        {/* 行业筛选 */}
-        <div className="flex gap-2 mb-4 flex-wrap items-center">
-          <span className="text-[10px] text-gray-500 font-mono">行业:</span>
-          <button onClick={() => setIndustryFilter('')}
-            className={`px-2 py-1 rounded text-xs ${!industryFilter ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
-            全部
-          </button>
-          {INDUSTRIES.map((c: string) => (
-            <button key={c} onClick={() => setIndustryFilter(c)}
-              className={`px-2 py-1 rounded text-xs ${industryFilter === c ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
-              {c}
-            </button>
-          ))}
-        </div>
-
-        {/* 表单 */}
-        {showForm && (
-          <div className="card-glass p-6 mb-6">
-            <h3 className="text-white font-bold mb-4">{editItem ? '编辑模板 / EDIT' : '新建模板 / NEW'}</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <input className="input-dark" placeholder="标题 / TITLE *" value={title} onChange={e => setTitle(e.target.value)} />
-              <select className="input-dark" value={category} onChange={e => setCategory(e.target.value)}>
-                {CATEGORIES.map(c => <option key={c} value={c} className="bg-gray-900">{c}</option>)}
-              </select>
-              <input className="input-dark md:col-span-2" placeholder="预览图 URL（可选）" value={previewUrl} onChange={e => setPreviewUrl(e.target.value)} />
-            </div>
-            <textarea className="input-dark mb-4 h-32 resize-y" placeholder="提示词内容 / PROMPT *" value={prompt} onChange={e => setPrompt(e.target.value)} />
-            <div className="flex gap-3">
-              <button onClick={handleSubmit} disabled={submitting} className="btn-primary disabled:opacity-50">{submitting ? '保存中...' : '保存'}</button>
-              <button onClick={() => setShowForm(false)} className="btn-secondary">取消</button>
             </div>
           </div>
         )}
 
-        {/* 列表 */}
-        {loading ? <div className="text-center text-gray-400 py-12">加载中...</div>
-        : items.length === 0 ? <div className="card-glass p-12 text-center"><p className="text-gray-400">暂无模板</p></div>
-        : <div className="space-y-3">
-            <div className="flex items-center gap-2 mb-2">
-              <input type="checkbox" checked={selectedIds.size === filteredItems.length && filteredItems.length > 0} onChange={toggleSelectAll}
-                className="w-4 h-4 rounded border-white/20 bg-white/5 accent-emerald-500" />
-              <span className="text-xs text-gray-500 font-mono">全选</span>
-              {selectedIds.size > 0 && (
-                <span className="text-xs text-cyan-400 font-mono">已选 {selectedIds.size} 项</span>
-              )}
+        {/* ════════ Tab3 AI 生成 ════════ */}
+        {mainTab === 'generate' && (
+          <div>
+            <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4 mb-4">
+              <h3 className="text-white font-bold text-sm mb-1">🎨 批量生成预览（给模板配图/配视频）</h3>
+              <p className="text-[11px] text-gray-500 mb-3">到「模板管理」勾选模板（或对全部模板）批量生成图片/视频预览。生成后可在「模板管理」查看，也可「导入素材库」。</p>
+              <div className="flex flex-wrap gap-2 items-center mb-3">
+                <span className="text-[10px] text-gray-500">图模型:</span>
+                {IMG_MODELS.map(m => (
+                  <button key={m.value} onClick={() => setImgModel(m.value)}
+                    className={`px-2 py-1 rounded text-[10px] ${imgModel === m.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+                    title={m.desc}>{m.label}</button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2 items-center mb-3">
+                <span className="text-[10px] text-gray-500">视频模型:</span>
+                {VID_MODELS.map(m => (
+                  <button key={m.value} onClick={() => setVidModel(m.value)}
+                    className={`px-2 py-1 rounded text-[10px] ${vidModel === m.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}
+                    title={m.desc}>{m.label}</button>
+                ))}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => runBatch('/api/generate-prompt-previews', 'imgPreview')} disabled={busy.imgPreview || busy.vidPreview}
+                  className="px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs hover:bg-emerald-500/30 disabled:opacity-50">
+                  {busy.imgPreview ? '生成中...' : '🎨 批量生成图片预览'}
+                </button>
+                <button onClick={() => runBatch('/api/batch-generate-video-previews', 'vidPreview')} disabled={busy.vidPreview || busy.imgPreview}
+                  className="px-3 py-1.5 bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded-lg text-xs hover:bg-cyan-500/30 disabled:opacity-50">
+                  {busy.vidPreview ? '生成中...' : '🎬 批量生成视频预览'}
+                </button>
+                <button onClick={handleGenDigital} disabled={busy.genDigital}
+                  className="px-3 py-1.5 bg-purple-500/20 border border-purple-500/30 text-purple-400 rounded-lg text-xs hover:bg-purple-500/30 disabled:opacity-50">
+                  {busy.genDigital ? '生成中...' : '🤖 数字人模板 ×6'}
+                </button>
+                <button onClick={handleImportToMedia}
+                  className="px-3 py-1.5 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-lg text-xs hover:bg-blue-500/30">
+                  📦 导入素材库（选中或有图的）
+                </button>
+              </div>
             </div>
-            <div className={isVert ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3'}>
-              {items.map(item => (
-                <div key={item.id} className={`card-glass border-2 transition-all overflow-hidden ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-transparent'} ${isVert ? 'aspect-[9/16]' : 'aspect-video'}`}>
-                  {item.previewUrl ? (
-                    <div className={`relative w-full h-full group bg-black/50 ${item.previewUrl.endsWith('.mp4') ? 'cursor-pointer' : ''}`} onClick={() => item.previewUrl?.endsWith('.mp4') && setPlayVideo(item.previewUrl)}>
-                      {item.previewUrl.endsWith('.mp4')
-                        ? <video src={item.previewUrl} className="w-full h-full object-cover" />
-                        : <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
-                      }
-                      {/* 图片 hover 放大预览 */}
-                      {!item.previewUrl.endsWith('.mp4') && (
-                        <div className="hidden group-hover:block fixed z-40 pointer-events-none" style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)', maxWidth: '60vw', maxHeight: '80vh' }}>
-                          <img src={item.previewUrl} alt="" className="max-w-[60vw] max-h-[80vh] rounded-xl shadow-2xl border border-white/20" />
-                        </div>
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                      {/* 顶部：复选框 + 操作按钮 */}
-                      <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-2">
-                        <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)}
-                          className="w-4 h-4 rounded border-white/40 bg-black/30 accent-emerald-500" />
-                        <div className="flex gap-1">
-                          <button onClick={() => openEdit(item)} className="px-1.5 py-0.5 text-[10px] bg-black/50 text-gray-200 rounded hover:bg-black/70">编辑</button>
-                          <button onClick={() => handleDelete(item.id)} className="px-1.5 py-0.5 text-[10px] bg-red-500/50 text-white rounded hover:bg-red-500/70">删</button>
-                        </div>
-                      </div>
-                      {/* 底部：标题 + 分类 + 提示词 */}
-                      <div className="absolute bottom-0 left-0 right-0 p-2">
-                        <h3 className="text-white text-xs font-bold truncate">{item.title}</h3>
-                        <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/40 text-cyan-200' : 'bg-emerald-500/40 text-emerald-200'}`}>
-                          {item.category}
-                        </span>
-                        {item.industry ? <span className="inline-block mt-0.5 ml-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/30 text-amber-200">{item.industry}</span> : null}
-                        <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-1">{item.prompt}</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-full p-4 text-center">
-                      <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)}
-                        className="w-4 h-4 mb-2 rounded border-white/20 bg-white/5 accent-emerald-500" />
-                      <h3 className="text-white font-bold text-xs">{item.title}</h3>
-                      <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-emerald-500/20 text-emerald-400'}`}>{item.category}</span>
-                      {item.industry ? <span className="inline-block mt-1 ml-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300">{item.industry}</span> : null}
-                      <p className="text-gray-500 text-[10px] mt-1 line-clamp-2">{item.prompt}</p>
-                      <div className="flex gap-2 mt-2">
-                        <button onClick={() => openEdit(item)} className="px-2 py-1 text-[10px] bg-white/10 text-gray-300 rounded">编辑</button>
-                        <button onClick={() => handleDelete(item.id)} className="px-2 py-1 text-[10px] bg-red-500/20 text-red-400 rounded">删</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+
+            <div className="bg-gray-900/60 border border-emerald-500/20 rounded-2xl p-4">
+              <h3 className="text-white font-bold text-sm mb-1">🏞️ AI 生成场景模板</h3>
+              <p className="text-[11px] text-gray-500 mb-3">输入场景描述，AI 生成多条场景类模板（如：夏日海滩度假产品推广）。</p>
+              <div className="flex items-center gap-3">
+                <input value={sceneInput} onChange={e => setSceneInput(e.target.value)}
+                  placeholder="输入场景描述，如：夏日海滩度假产品推广"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs placeholder-gray-500 focus:outline-none focus:border-emerald-500/50" />
+                <button onClick={handleSceneGen} disabled={sceneGenerating || !sceneInput.trim()}
+                  className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-xs hover:bg-emerald-600 disabled:bg-gray-700 disabled:cursor-not-allowed shrink-0">
+                  {sceneGenerating ? '生成中...' : 'AI 生成'}
+                </button>
+              </div>
             </div>
-          </div>}
+          </div>
+        )}
+
+        {/* ════════ Tab4 数据维护 ════════ */}
+        {mainTab === 'maintain' && (
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
+              <h3 className="text-white font-bold text-sm mb-1">📦 预设填充</h3>
+              <p className="text-[11px] text-gray-500 mb-3">导入内置的 20 条营销提示词模板（有图有词）。已有预设时会拒绝重复导入。</p>
+              <button onClick={handlePreseed} disabled={busy.preseeding}
+                className="px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-lg text-xs hover:bg-emerald-500/30 disabled:opacity-50">
+                {busy.preseeding ? '填充中...' : '导入 20 条预设'}
+              </button>
+            </div>
+            <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
+              <h3 className="text-white font-bold text-sm mb-1">📥 AiShort 提示词导入</h3>
+              <p className="text-[11px] text-gray-500 mb-3">从 AiShort 导入约 800 条中文 AI 工具提示词（纯文字无图，如：文章改写/论文降重/法律咨询）。<span className="text-amber-400">注意：这是批量导入（非抓图），导入后模板库会大量增加。</span></p>
+              <button onClick={handleAIShort} disabled={busy.aishort}
+                className="px-3 py-2 bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 rounded-lg text-xs hover:bg-cyan-500/30 disabled:opacity-50">
+                {busy.aishort ? '导入中...' : '导入 AiShort（约 800 条）'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* 进度弹窗 */}
         {progress.show && (
@@ -554,7 +653,7 @@ export default function AdminPromptTemplatesPage() {
             <video src={playVideo} controls autoPlay className="max-w-[80vw] max-h-[80vh] rounded-xl" onClick={e => e.stopPropagation()} />
           </div>
         )}
-      </div>
+      </main>
     </div>
   )
 }

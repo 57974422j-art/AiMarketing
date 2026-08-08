@@ -10,6 +10,9 @@
 
 | 操作 | 改动文件 | 结果 |
 |---|---|---|
+| prompt-templates 页面重构（逻辑分组 4 Tab）：📚模板管理 / 🌐素材抓取（来源+数量+【抓取日志】逐条反馈成功/失败原因）/ 🤖AI生成 / 🧹数据维护；每个操作 confirm 说明「抓什么/多少/从哪抓」；AiShort 导入明确标注"约800条非抓图"防混淆 | src/app/admin/prompt-templates/page.tsx | ✅ 语法 0、dev 200 |
+| 抓取日志后端：/api/fetch-prompts 返回逐条 logs（✅成功/❌失败+原因/⏭重复），前端实时显示 | src/app/api/fetch-prompts/route.ts | ✅ 语法 0 |
+| 真相澄清：那 129 条 = AiShort 批量导入的 AI 工具 prompt（非抓图），保留 | 服务器库 | ✅ 不删 |
 | media-library 改版（promptbase 风格）：搜索框 + 卡片悬停高亮 + admin「🔧 管理」模式（全选/批量删除仅 admin 可见，普通用户无删除入口）+ 后端 DELETE ?ids= 批量 | src/app/media-library/page.tsx、src/app/api/media-library/route.ts | ✅ 语法 0、dev 200 |
 | promptbase 免费区抓取源（方案 A）：列表页解析卡片（标题+缩略图）→ 转存 OSS → qwen-vl 生成提示词；Pixabay 无新素材时自动兜底；无 Pixabay key 时 image 也可抓 | src/app/api/fetch-prompts/route.ts | ✅ 端到端验证：候选解析成功、批量循环正常（本地无 OSS key 跳过属预期） |
 | 抓取数量可配（2026-08-07）：admin/prompt-templates 加「条/批」输入（默认 10，上限 20）+ /api/fetch-prompts?count=N 批量循环（每条独立转存 OSS/去重，失败跳过不中断）；Pixabay 关键词池扩展 8 组减重复 | src/app/api/fetch-prompts/route.ts、src/app/admin/prompt-templates/page.tsx | ✅ 语法 0、dev 200、count 参数验证通过（400=本地无 Pixabay key 正常拦截）；Lexica API 已关闭(500)/Civitai 限流(503)，暂不加免费源 |

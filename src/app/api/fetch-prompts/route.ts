@@ -310,26 +310,26 @@ export async function POST(request: NextRequest) {
   try {
     await ensureColumns()
 
-    const results: { title: string; category: string; industry: string; previewUrl: string }[] = []
-    let failCount = 0
-    // 批量抓取：每条独立处理，单条失败/重复跳过继续（不中断整批）
+    const logs: { ok: boolean; source: string; title?: string; category?: string; reason?: string }[] = []
+    // 批量抓取：每条独立处理，单条失败/重复跳过继续（不中断整批）；全程记日志
     for (let i = 0; i < count; i++) {
       let cand: Cand | null = null
+      let source = 'pixabay'
       if (fetchType === 'video') cand = await pickVideoCandidate(orientation)
       else if (fetchType === 'scene') cand = await pickSceneCandidate()
       else {
         cand = await pickImageCandidate() // Pixabay
-        if (!cand) cand = await pickPromptbaseCandidate() // 2026-08-07：Pixabay 无新素材时换 promptbase 免费区
+        if (!cand) { cand = await pickPromptbaseCandidate(); source = 'promptbase' } // Pixabay 无新素材时换 promptbase 免费区
       }
       if (!cand) {
-        failCount++
-        continue // 没新素材了，跳过
+        logs.push({ ok: false, source, reason: '该来源暂无新素材（可能已抓完或查询失败）' })
+        continue
       }
 
       // 转存 OSS —— 必须成功，否则本条不入库
       const ossUrl = await uploadToOSS(cand.previewUrl, cand.kind)
       if (!ossUrl) {
-        failCount++
+        logs.push({ ok: false, source, title: cand.title, reason: 'OSS 转存失败（请检查服务器 OSS_* 配置或网络/防盗链）' })
         continue
       }
       cand.previewUrl = ossUrl
@@ -340,24 +340,25 @@ export async function POST(request: NextRequest) {
 
       // 入库（再查一次去重，防并发点击）
       if (await existsByOriginal(cand.originalUrl)) {
-        failCount++
+        logs.push({ ok: false, source, title: cand.title, reason: '重复素材，跳过' })
         continue
       }
       await prisma.$executeRawUnsafe(
         'INSERT INTO PromptTemplate (title, category, prompt, previewUrl, industry, originalUrl) VALUES (?, ?, ?, ?, ?, ?)',
         cand.title, cand.category, cand.prompt, cand.previewUrl, cand.industry || '', cand.originalUrl
       )
-      results.push({ title: cand.title, category: cand.category, industry: cand.industry, previewUrl: cand.previewUrl })
-      console.log(`[Fetch] 批量入库 ${i + 1}/${count}: ${cand.title} (${cand.category})`)
+      logs.push({ ok: true, source, title: cand.title, category: cand.category })
+      console.log(`[Fetch] 批量入库 ${i + 1}/${count}: ${cand.title} (${cand.category}) [${source}]`)
     }
 
-    if (results.length === 0) {
-      return NextResponse.json({ success: false, message: `本次 0 条入库（${failCount} 条跳过：无新素材 / OSS 失败 / 重复）。可稍后重试。` })
+    const okCount = logs.filter(l => l.ok).length
+    if (okCount === 0) {
+      return NextResponse.json({ success: false, message: `本次 0 条入库（共 ${logs.length} 条尝试）。失败原因见日志。` })
     }
     return NextResponse.json({
       success: true,
-      message: `已抓取 ${results.length} 条并存入 OSS（跳过 ${failCount} 条：无新素材/OSS 失败/重复）`,
-      data: { items: results, successCount: results.length, skipCount: failCount },
+      message: `抓取完成：成功 ${okCount} 条 / 跳过 ${logs.length - okCount} 条（详见下方日志）`,
+      data: { logs, successCount: okCount, skipCount: logs.length - okCount },
     })
   } catch (error: any) {
     console.error('[Fetch] 抓取失败:', error)
