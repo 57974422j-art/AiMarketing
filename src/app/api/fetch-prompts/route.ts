@@ -137,11 +137,11 @@ async function uploadToOSS(url: string, kind: 'image' | 'video'): Promise<string
     if (buf.length < 1024) { console.log('[OSS] 下载内容过小，疑似无效:', url.substring(0, 60)); return null }
     const clean = url.split('?')[0]
     const ext = (clean.split('.').pop() || (kind === 'video' ? 'mp4' : 'jpg')).toLowerCase()
-    const ct = resp.headers.get('content-type') || (kind === 'video' ? 'video/mp4' : 'image/jpeg')
+    const contentType = resp.headers.get('content-type') || (kind === 'video' ? 'video/mp4' : 'image/jpeg')
     const OSS = (await import('ali-oss')).default
     const client = new OSS({ region, accessKeyId: id, accessKeySecret: secret, bucket, secure: true })
     const ossName = `prompt-templates/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
-    await client.put(ossName, buf, { headers: { 'x-oss-object-acl': 'public-read', 'Content-Type': ct } })
+    await client.put(ossName, buf, { headers: { 'x-oss-object-acl': 'public-read', 'Content-Type': contentType } })
     const url2 = `https://${bucket}.${region}.aliyuncs.com/${ossName}`
     console.log(`[OSS] 转存成功 (${kind}): ${url2.substring(0, 70)}`)
     return url2
