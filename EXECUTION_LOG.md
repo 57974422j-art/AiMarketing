@@ -10,6 +10,7 @@
 
 | 操作 | 改动文件 | 结果 |
 |---|---|---|
+| admin 后台减负（2026-08-08）：删除 8 个无实际作用页面+6 个 API（tasks 死链/briefings 一次性/review 无 API/social-accounts+account-groups 发布未落地/poi-addresses 低频/diagnosis-reports+diagnostics 脚本诊断摆设——依赖未落地设备生态）+ 清理 admin 首页 7 处入口；无残留引用 | src/app/admin/{tasks,briefings,review,social-accounts,account-groups,poi-addresses,diagnosis-reports,diagnostics}、src/app/api/{social-accounts,account-groups,poi-addresses,admin/diagnostics,admin/diagnosis-reports,admin/briefings}、src/app/admin/page.tsx | ✅ 删除完成、语法 0、无残留引用、dev 200；数据表保留（自动化落地可重建） |
 | prompt-templates 页面重构（逻辑分组 4 Tab）：📚模板管理 / 🌐素材抓取（来源+数量+【抓取日志】逐条反馈成功/失败原因）/ 🤖AI生成 / 🧹数据维护；每个操作 confirm 说明「抓什么/多少/从哪抓」；AiShort 导入明确标注"约800条非抓图"防混淆 | src/app/admin/prompt-templates/page.tsx | ✅ 语法 0、dev 200 |
 | 抓取日志后端：/api/fetch-prompts 返回逐条 logs（✅成功/❌失败+原因/⏭重复），前端实时显示 | src/app/api/fetch-prompts/route.ts | ✅ 语法 0 |
 | 真相澄清：那 129 条 = AiShort 批量导入的 AI 工具 prompt（非抓图），保留 | 服务器库 | ✅ 不删 |

@@ -19,7 +19,6 @@ const sections: CardSection[] = [
     items: [
       { title: '数据看板', desc: '实时统计：发布数、粉丝增长、成功率', href: '/admin/dashboard', icon: '📊', roles: ['admin', 'editor'] },
       { title: '设备管理', desc: '管理设备池、查看设备状态', href: '/admin/devices', icon: '🖥️', roles: ['admin', 'editor'] },
-      { title: '社交账号', desc: '绑定/管理社交平台账号', href: '/admin/social-accounts', icon: '🔗', roles: ['admin', 'editor'] },
       { title: '任务执行', desc: '设备状态监控、执行任务', href: '/admin/automation', icon: '⚡', roles: ['admin', 'editor'] },
       { title: '素材审核', desc: '审核终端客户提交的视频素材', href: '/admin/content-submissions', icon: '📋', roles: ['admin', 'editor', 'end-user'] },
       { title: '直播间中控台', desc: '直播间管理、商品上架、话术库、Q1设备控制台', href: '/live', icon: '📺', roles: ['admin'] },
@@ -30,10 +29,7 @@ const sections: CardSection[] = [
   {
     title: '诊断与工具',
     items: [
-      { title: 'AI 系统诊断', desc: '一键检测账号/设备/内容/系统健康度', href: '/admin/diagnostics', icon: '🏥', roles: ['admin'] },
-      { title: '脚本诊断报告', desc: 'DeepSeek实时分析脚本日志 · 截图永久存档', href: '/admin/diagnosis-reports', icon: '🔍', roles: ['admin'] },
       { title: '坐标截图工具', desc: 'Q1设备实时截图点击获取像素坐标', href: '/coord.html', icon: '📍', roles: ['admin'] },
-      { title: '行业简报', desc: 'AI生成营销洞察报告与趋势分析', href: '/admin/briefings', icon: '📊', roles: ['admin', 'editor'] },
       { title: 'SOP 工作流', desc: '内容生产/直播运营/客户获取标准化流程', href: '/dashboard/sop', icon: '📋', roles: ['admin', 'editor'] },
       { title: '趋势猎手', desc: 'AI 搜索全球热门趋势，采集视频信息，支持播放与下载', href: '/admin/trendvideo', icon: '🔍', roles: ['admin'] },
     ],
@@ -42,9 +38,7 @@ const sections: CardSection[] = [
     title: '资源库',
     items: [
       { title: '视频素材库', desc: '上传和管理 OSS 视频素材', href: '/admin/media-library', icon: '🎬', roles: ['admin', 'editor'] },
-      { title: 'POI 地址库', desc: '管理推广定位地址', href: '/admin/poi-addresses', icon: '📍', roles: ['admin', 'editor'] },
       { title: '话术模板', desc: '评论/私信/直播互动话术', href: '/admin/script-templates', icon: '💬', roles: ['admin', 'editor'] },
-      { title: '账号分组', desc: '对社交账号进行分类管理', href: '/admin/account-groups', icon: '📁', roles: ['admin', 'editor'] },
       { title: '任务模板', desc: '配置自动任务（关键词/时间/动作）', href: '/admin/automation-templates', icon: '📋', roles: ['admin', 'editor'] },
       { title: '提示词模板库', desc: 'AI 生图提示词模板管理', href: '/admin/prompt-templates', icon: '🖼️', roles: ['admin', 'editor'] },
     ],
@@ -55,7 +49,6 @@ const sections: CardSection[] = [
       { title: 'Q1 管理', desc: '管理 Q1 物理机、扫描窗口容器', href: '/admin/phy-devices', icon: '📡', roles: ['admin', 'editor'] },
       { title: '客户管理', desc: '管理二级客户、分配窗口配额', href: '/admin/users', icon: '👥', roles: ['admin'] },
       { title: '邀请码管理', desc: '生成和管理注册邀请码', href: '/admin/invite-codes', icon: '🔑', roles: ['admin', 'editor'] },
-      { title: '模板审核', desc: '审核文案模板的提交', href: '/admin/review', icon: '📝', roles: ['admin'] },
       { title: '系统设置', desc: 'AI API Key、OSS、TTS 配置', href: '/admin/settings', icon: '⚙️', roles: ['admin'] },
       { title: '套餐与计费', desc: '套餐管理、用量统计、计费设置', href: '/admin/subscription', icon: '💳', roles: ['admin'] },
       { title: '点卡管理', desc: '点卡（永久点数）商品上/下架、定价', href: '/admin/point-cards', icon: '🎫', roles: ['admin'] },
