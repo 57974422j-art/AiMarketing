@@ -382,6 +382,41 @@ export default function AgentPage() {
   const [vadThreshold, setVadThreshold] = useState(0.045)
   const [vadSilence, setVadSilence] = useState(1800)
   const [ttsVoices, setTtsVoices] = useState<{ id: string; label: string }[]>([])
+  // ── 自检 + 左侧信息面板（2026-08-08：账号/订阅/点数/模型/记忆 + A+B 自检）──
+  const [selfChecks, setSelfChecks] = useState<{ key: string; label: string; ok: boolean; detail?: string }[]>([])
+  const [selfModel, setSelfModel] = useState<{ brain: string; asr: string; tts: string } | null>(null)
+  const [selfChecking, setSelfChecking] = useState(false)
+  const [showSelfCheck, setShowSelfCheck] = useState(false)
+  const [sessionStart] = useState(Date.now())
+  const [sessionReqs, setSessionReqs] = useState(0)
+  const runSelfCheck = async (silent = true) => {
+    setSelfChecking(true)
+    try {
+      const r = await fetch('/api/agent/selfcheck', { credentials: 'include' })
+      const d = await r.json()
+      if (d.success && d.data) {
+        setSelfChecks(d.data.checks || [])
+        setSelfModel(d.data.model || null)
+      }
+    } catch {}
+    setSelfChecking(false)
+    if (!silent) setShowSelfCheck(true)
+  }
+  useEffect(() => {
+    if (!user) return
+    // 启动自动静默自检；首次（本机）自动弹窗
+    runSelfCheck(true)
+    const first = typeof localStorage !== 'undefined' && !localStorage.getItem('agent_selfcheck_done')
+    if (first && typeof localStorage !== 'undefined') localStorage.setItem('agent_selfcheck_done', '1')
+    if (first) setTimeout(() => setShowSelfCheck(true), 2500)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
+  const roleLabel = user?.role === 'admin' ? '超级管理' : user?.role === 'editor' ? '代理' : '普通用户'
+  const roleColor = user?.role === 'admin' ? 'bg-red-500/20 text-red-300 border-red-500/30'
+    : user?.role === 'editor' ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+  const allOk = selfChecks.length > 0 && selfChecks.every(ch => ch.ok)
+  const failCount = selfChecks.filter(ch => !ch.ok).length
   const [savingPrefs, setSavingPrefs] = useState(false)
   // 加载自定义名称（2026-08-07：User.agentName > SystemConfig.agent_name > 默认）
   useEffect(() => {
@@ -464,19 +499,47 @@ export default function AgentPage() {
     document.body.classList.toggle('app-compact', m && appCompact)
     return () => { document.body.classList.remove('app-mode', 'app-compact') }
   }, [activeApp, appCompact])
-  const openApp = (path: string, title: string) => { setAppCompact(false); setActiveApp({ path, title }) }
   const closeApp = () => { setActiveApp(null); setAppCompact(false) }
 
   // 应用清单（白龙马式快捷入口，AI 全程在场）
+  // 应用卡片（2026-08-08：按角色过滤 + 颜色区分 + 文字宽度自适应 + 错落排列）
   const APPS = [
-    { path: '/auto-compile', title: '一键成片', icon: '🎬' },
-    { path: '/text-to-video', title: '文生视频', icon: '🎥' },
-    { path: '/ai-copy', title: 'AI文案', icon: '✍️' },
-    { path: '/storage', title: '素材库', icon: '🗂️' },
-    { path: '/my-fingerprint', title: '指纹浏览器', icon: '🖐️' },
-    { path: '/dashboard', title: '数据看板', icon: '📊' },
-    { path: '/image-generator', title: 'AI生图', icon: '🖼️' },
+    // 全员可见（营销核心工具）
+    { path: '/auto-compile', title: '一键成片', color: 'emerald', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/text-to-video', title: '文生视频', color: 'cyan', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/ai-copy', title: 'AI 文案', color: 'amber', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/image-generator', title: 'AI 生图', color: 'violet', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/storage', title: '素材库', color: 'sky', roles: ['admin', 'editor', 'end-user'] },
+    // 代理+管理可见
+    { path: '/dashboard', title: '数据看板', color: 'rose', roles: ['admin', 'editor'] },
+    { path: '/lead-collector', title: '意向采集', color: 'orange', roles: ['admin', 'editor'] },
+    // 仅 admin（管理/自动化）
+    { path: '/my-fingerprint', title: '指纹浏览器', color: 'pink', roles: ['admin'] },
+    { path: '/admin', title: '管理后台', color: 'red', roles: ['admin'] },
+    { path: '/data-center', title: '数据中台', color: 'teal', roles: ['admin'] },
+    { path: '/live', title: '直播引擎', color: 'fuchsia', roles: ['admin'] },
+    { path: '/trendvideo', title: '趋势猎手', color: 'lime', roles: ['admin', 'editor'] },
   ]
+  const APP_COLORS: Record<string, { border: string; text: string; bg: string }> = {
+    emerald: { border: 'border-emerald-400/40', text: 'text-emerald-300', bg: 'bg-emerald-500/[0.06]' },
+    cyan:    { border: 'border-cyan-400/40', text: 'text-cyan-300', bg: 'bg-cyan-500/[0.06]' },
+    amber:   { border: 'border-amber-400/40', text: 'text-amber-300', bg: 'bg-amber-500/[0.06]' },
+    violet:  { border: 'border-violet-400/40', text: 'text-violet-300', bg: 'bg-violet-500/[0.06]' },
+    sky:     { border: 'border-sky-400/40', text: 'text-sky-300', bg: 'bg-sky-500/[0.06]' },
+    rose:    { border: 'border-rose-400/40', text: 'text-rose-300', bg: 'bg-rose-500/[0.06]' },
+    orange:  { border: 'border-orange-400/40', text: 'text-orange-300', bg: 'bg-orange-500/[0.06]' },
+    pink:    { border: 'border-pink-400/40', text: 'text-pink-300', bg: 'bg-pink-500/[0.06]' },
+    red:     { border: 'border-red-400/40', text: 'text-red-300', bg: 'bg-red-500/[0.06]' },
+    teal:    { border: 'border-teal-400/40', text: 'text-teal-300', bg: 'bg-teal-500/[0.06]' },
+    fuchsia: { border: 'border-fuchsia-400/40', text: 'text-fuchsia-300', bg: 'bg-fuchsia-500/[0.06]' },
+    lime:    { border: 'border-lime-400/40', text: 'text-lime-300', bg: 'bg-lime-500/[0.06]' },
+  }
+  const visibleApps = APPS.filter(a => a.roles.includes(user?.role || 'end-user'))
+  const openApp = (path: string) => {
+    setAppCompact(false)
+    setActiveApp({ title: (APPS.find(a => a.path === path)?.title || '应用'), path })
+    setHotspotOpen(false)
+  }
 
   // 客户端（Electron）每日首启询问是否进入热点大屏（Web 端不弹）
   const [showHotspotPrompt, setShowHotspotPrompt] = useState(false)
@@ -1211,6 +1274,33 @@ export default function AgentPage() {
         <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px)', backgroundSize: '40px 40px' }} />
       </div>
 
+      {/* 🏥 自检弹窗（2026-08-08 A+B：启动自动 + 点击/语音触发） */}
+      {showSelfCheck && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowSelfCheck(false)}>
+          <div className="w-[360px] max-h-[80vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0d0d14] p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-white mb-1">🏥 AI 系统自检</h3>
+            <p className="text-[10px] text-gray-500 mb-4">账号 / 订阅 / 语音 / 记忆 / 模型 一次性体检</p>
+            <div className="space-y-2">
+              {selfChecks.length === 0 && <p className="text-[11px] text-gray-600">{selfChecking ? '正在检查…' : '暂无数据，请稍后重试'}</p>}
+              {selfChecks.map(ch => (
+                <div key={ch.key} className={`flex items-start gap-2 rounded-lg px-2.5 py-2 text-[11px] ${ch.ok ? 'bg-emerald-500/[0.06]' : 'bg-red-500/[0.06]'}`}>
+                  <span>{ch.ok ? '✅' : '❌'}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-medium ${ch.ok ? 'text-emerald-300' : 'text-red-300'}`}>{ch.label}</p>
+                    <p className="text-gray-500 text-[10px] truncate">{ch.detail || ''}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setShowSelfCheck(false)} className="flex-1 rounded-lg bg-white/[0.06] py-2 text-[11px] text-gray-400 hover:bg-white/10 transition">关闭</button>
+              <button onClick={() => runSelfCheck(false)} disabled={selfChecking}
+                className="flex-1 rounded-lg bg-emerald-500/20 py-2 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition disabled:opacity-50">{selfChecking ? '检查中…' : '重新检查'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ⚙️ AI 设置弹窗（2026-08-07：音色/温度/语音灵敏度） */}
       {showPrefs && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowPrefs(false)}>
@@ -1341,6 +1431,32 @@ export default function AgentPage() {
             <div className="relative">
               <div className="pointer-events-none absolute -inset-px rounded-full opacity-25 blur-3xl"
                 style={{ background: 'radial-gradient(circle, #ff9f1c, transparent 70%)' }} />
+              {/* 左侧信息面板（2026-08-08：账号/订阅/点数/模型/记忆 + 自检状态） */}
+              <div className="px-4 pb-1 shrink-0">
+                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-2.5 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white truncate">
+                      {user?.username || '未登录'}
+                      <span className={`px-1.5 py-0.5 rounded border text-[9px] font-normal ${roleColor}`}>{roleLabel}</span>
+                    </span>
+                    <button onClick={() => runSelfCheck(false)}
+                      className={`shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded border text-[9px] transition ${allOk ? 'border-emerald-500/30 text-emerald-300 bg-emerald-500/[0.08] hover:bg-emerald-500/20' : 'border-red-500/30 text-red-300 bg-red-500/[0.08] hover:bg-red-500/20'}`}
+                      title="点击查看自检明细">
+                      {selfChecking ? <span className="animate-pulse">自检中…</span> : <>{allOk ? '✅ 全部正常' : `⚠️ ${failCount} 项异常`}</>}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-gray-400">
+                    <span className="truncate">📅 {selfChecks.find(c => c.key === 'subscription')?.detail || '—'}</span>
+                    <span className="truncate">💎 {selfChecks.find(c => c.key === 'points')?.detail || '—'}</span>
+                    <span className="truncate col-span-2">🧠 {selfModel?.brain || '—'} <span className="text-gray-600">· {selfChecks.find(c => c.key === 'memory')?.detail || ''}</span></span>
+                  </div>
+                  <div className="text-[9px] text-gray-600 border-t border-white/[0.05] pt-1.5 flex items-center justify-between">
+                    <span>会话 {Math.floor((Date.now() - sessionStart) / 60000)} 分钟</span>
+                    <span>请求 {sessionReqs} 次</span>
+                  </div>
+                </div>
+              </div>
+
               <VoiceOrb state={orbState} volume={Math.max(micVolume, ttsVolume)} size={290}
                 className="relative drop-shadow-[0_0_10px_rgba(255,159,28,0.22)]" />
               <button onClick={toggleRecording}
@@ -1352,14 +1468,17 @@ export default function AgentPage() {
           {/* 应用入口（2026-08-05：一键成片等 iframe 大屏，AI 对话栏右 1/3 常驻） */}
           <div className="px-4 py-3 border-t border-white/[0.06] shrink-0">
             <p className="text-[9px] text-gray-600 mb-2 tracking-wide">📱 应用 · 打开即 AI 随行</p>
-            <div className="grid grid-cols-2 gap-1.5">
-              {APPS.map(a => (
-                <button key={a.path} onClick={() => { if (hotspotOpen) setHotspotOpen(false); openApp(a.path + '?embed=1', a.title) }}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] transition ${activeApp?.path === a.path ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/25' : 'bg-white/[0.03] hover:bg-white/[0.08] text-gray-400 hover:text-gray-200 border border-white/[0.06]'}`}>
-                  <span className="shrink-0">{a.icon}</span>
-                  <span className="truncate">{a.title}</span>
-                </button>
-              ))}
+            {/* 2026-08-08：按角色过滤 + 颜色区分（字体/边框同色）+ 文字宽度自适应 + 错落排列 */}
+            <div className="flex flex-wrap gap-x-2 gap-y-1 pt-0.5">
+              {visibleApps.map((a, i) => {
+                const col = APP_COLORS[a.color] || APP_COLORS.emerald
+                return (
+                  <button key={a.path} onClick={() => { if (hotspotOpen) setHotspotOpen(false); openApp(a.path) }}
+                    className={`px-3 py-1.5 rounded-xl border text-[11px] font-medium transition hover:brightness-125 ${col.border} ${col.text} ${col.bg} ${['', 'mt-2.5', 'mt-1.5', 'mt-3'][i % 4]} ${activeApp?.path === a.path ? 'ring-1 ring-current' : ''}`}>
+                    {a.title}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
