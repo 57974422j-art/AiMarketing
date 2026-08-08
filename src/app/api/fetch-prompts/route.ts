@@ -117,9 +117,24 @@ async function uploadToOSS(url: string, kind: 'image' | 'video'): Promise<string
   if (!region || !id || !secret || !bucket) { console.log('[OSS] 未配置，本条不入库'); return null }
   try {
     const to = kind === 'video' ? 120000 : 30000
-    const resp = await fetch(url, { signal: AbortSignal.timeout(to) })
+    // 2026-08-07：带浏览器 UA + Referer，绕过 promptbase 等 CDN 防盗链（否则下载到空/错误内容）
+    const resp = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+        'Referer': 'https://promptbase.com/',
+        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      },
+      signal: AbortSignal.timeout(to),
+    })
     if (!resp.ok) return null
+    // 校验是真图片（防盗链常见返回 HTML/空）
+    const ct = (resp.headers.get('content-type') || '').toLowerCase()
+    if (!ct.includes('image') && !ct.includes('video') && !ct.includes('octet-stream')) {
+      console.log('[OSS] 下载内容非图片/视频 (' + ct + ')，本条不入库:', url.substring(0, 60))
+      return null
+    }
     const buf = Buffer.from(await resp.arrayBuffer())
+    if (buf.length < 1024) { console.log('[OSS] 下载内容过小，疑似无效:', url.substring(0, 60)); return null }
     const clean = url.split('?')[0]
     const ext = (clean.split('.').pop() || (kind === 'video' ? 'mp4' : 'jpg')).toLowerCase()
     const ct = resp.headers.get('content-type') || (kind === 'video' ? 'video/mp4' : 'image/jpeg')
