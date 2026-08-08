@@ -26,13 +26,19 @@ export async function GET(request: NextRequest) {
 
     // 2) 订阅有效期 + 点数
     let subInfo = '无订阅'
+    let subOk = false
     try {
-      const sub = await prisma.userSubscription.findFirst({ where: { userId: user.id, status: 'active' }, orderBy: { endDate: 'desc' } })
-      if (sub?.endDate) subInfo = `订阅至 ${new Date(sub.endDate).toLocaleDateString('zh-CN')}`
+      const sub = await prisma.userSubscription.findFirst({ where: { userId: user.id }, orderBy: { endDate: 'desc' } })
+      if (sub?.endDate) {
+        const end = new Date(sub.endDate)
+        const expired = end.getTime() < Date.now()
+        subOk = !expired
+        subInfo = expired ? `已于 ${end.toLocaleDateString('zh-CN')} 过期` : `订阅至 ${end.toLocaleDateString('zh-CN')}`
+      } else { subInfo = '无订阅' }
     } catch {}
     const points = user.pointBalance ?? 0
-    checks.push({ key: 'subscription', label: '订阅有效期', ok: subInfo !== '无订阅', detail: subInfo })
-    checks.push({ key: 'points', label: '剩余点数', ok: points >= 0, detail: `${points} 点（点卡余额）` })
+    checks.push({ key: 'subscription', label: '订阅有效期', ok: subOk, detail: subInfo })
+    checks.push({ key: 'points', label: '剩余点数', ok: points > 0, detail: points < 0 ? `${points} 点（⚠️ 余额为负，请联系管理员）` : `${points} 点（点卡余额）` })
 
     // 3) 长期记忆
     try {
@@ -67,7 +73,7 @@ export async function GET(request: NextRequest) {
 
     // 6) 热点
     try {
-      const hs = await fetch('http://127.0.0.1:3000/api/agent/hotspots', { signal: AbortSignal.timeout(8000) }).catch(() => null)
+      const hs = await fetch('http://127.0.0.1:3000/api/agent/hotspots', { signal: AbortSignal.timeout(25000) }).catch(() => null) // 多源串行抓取慢，给足 25s
       const hsData = hs?.ok ? await hs.json().catch(() => null) : null
       checks.push({
         key: 'hotspots', label: '热点大屏',
