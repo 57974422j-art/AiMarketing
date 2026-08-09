@@ -162,7 +162,6 @@ function iframeUrlFor(raw: string): { kind: 'iframe' | 'video'; url: string } {
     if (h.includes('x.com') || h.includes('twitter.com')) {
       return { kind: 'link', url: u }
     }
-    }
     // 已是 embed/player 直链
     if (h.includes('player.') || url.pathname.includes('/embed/')) return { kind: 'iframe', url: url.href }
     // 兜底：原样走 iframe（部分站点允许 X-Frame-Options）
