@@ -134,6 +134,7 @@ function createWindow() {
 // ════════════════════════════════════════
 
 function setupAutoUpdater(win) {
+  if (process.env.DISABLE_AUTO_UPDATE === '1') { console.log('[Updater] 已禁用（DISABLE_AUTO_UPDATE=1）'); return }
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 
@@ -175,10 +176,12 @@ function setupAutoUpdater(win) {
     win?.webContents.send('app:update-status', { status: 'error', error: err.message })
   })
 
-  // 启动后延迟 5 秒检查更新
+  // 启动后延迟 5 秒检查更新（2026-08-08：加 catch，更新检查失败不再导致进程崩溃退出）
   setTimeout(() => {
     console.log('[Updater] 正在检查更新...')
-    autoUpdater.checkForUpdates()
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.error('[Updater] 检查失败（忽略，不影响使用）:', err?.message || err)
+    })
   }, 5000)
 }
 

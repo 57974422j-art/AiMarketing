@@ -82,30 +82,7 @@ export async function GET(request: NextRequest) {
       })
     } catch { checks.push({ key: 'hotspots', label: '热点大屏', ok: true, detail: '正常（内置兜底）' }) }
 
-    // 7) 数据源健康（2026-08-08：探测热点源，坏源一目了然）
-    try {
-      const probe = async (name: string, url: string) => {
-        try {
-          const r = await fetch(url + '?apikey=' + (process.env.VVHAN_API_KEY || '3834978aefecccceb2c9b98092620fe0'), { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) })
-          if (!r.ok) return { name, ok: false, detail: 'HTTP ' + r.status }
-          const d = await r.json().catch(() => null)
-          const ok = !!(d?.data?.list?.length || d?.data?.length)
-          return { name, ok, detail: ok ? '正常' : (d?.msg || '返回空/无数据（key 可能无效）') }
-        } catch (e: any) { return { name, ok: false, detail: '连接失败' } }
-      }
-      const results = await Promise.all([
-        probe('vvhan·微博', 'https://v1.vvhan.com/api/hotlist/wbHot'),
-        probe('vvhan·抖音', 'https://v1.vvhan.com/api/hotlist/douyinHot'),
-      ])
-      const okCnt = results.filter(r => r.ok).length
-      checks.push({
-        key: 'datasource', label: '热点数据源',
-        ok: okCnt > 0,
-        detail: results.map(r => `${r.name}:${r.ok ? '✅' : '❌'}`).join(' ') + (okCnt === 0 ? '（vvhan key 可能无效，当前走内置兜底）' : ''),
-      })
-    } catch { checks.push({ key: 'datasource', label: '热点数据源', ok: false, detail: '探测失败' }) }
-
-    // 8) 当前模型配置
+    // 7) 当前模型配置
     const modelInfo = {
       brain: process.env.AGENT_BRAIN_MODEL || 'qwen-plus（百炼）',
       asr: 'paraformer-realtime-v2（百炼流式）',
