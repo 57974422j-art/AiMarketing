@@ -85,6 +85,40 @@ const FALLBACK: Record<string, HotItem[]> = {
 }
 
 // 全球源：HackerNews 官方 API（免 key）
+// tophub.today 免 key 兜底（2026-08-08：vvhan 失败时用，首页解析板块 → 详情页解析榜单）
+let tophubNodes: { name: string; id: string }[] | null = null
+async function fetchTophub(source: string): Promise<HotItem[] | null> {
+  try {
+    const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    // 1) 首页解析板块 id（缓存）
+    if (!tophubNodes) {
+      const home = await (await fetch('https://tophub.today/', { headers: UA, signal: AbortSignal.timeout(15000) })).text()
+      // tophub 渲染怪癖：href 的 id 属于"上一个"板块（名在前、id 在后，错位一位）
+      const names = [...home.matchAll(/zb-kc-Cb">([^<]+)<span>([^<]+)<\/span>/g)].map((m) => m[1] + m[2])
+      const ids = [...home.matchAll(/href="\/n\/([A-Za-z0-9]+)"/g)].map((m) => m[1])
+      tophubNodes = names.map((n, i) => ({ name: n, id: ids[i + 1] || '' })).filter((n) => n.id)
+    }
+    // 模糊匹配：板块名与源名前 2 字匹配（"百度热搜"↔"百度实时热点"、"抖音"↔"抖音总榜"）
+    const key = source.slice(0, 2)
+    const node = tophubNodes?.find((n) => n.name.includes(key))
+    if (!node) return null
+    // 2) 详情页解析榜单（tr 行：排名/标题/热度）
+    const page = await (await fetch(`https://tophub.today/n/${node.id}`, { headers: UA, signal: AbortSignal.timeout(15000) })).text()
+    const rows = page.match(/<tr[^>]*>([\s\S]*?)<\/tr>/g) || []
+    const items: HotItem[] = []
+    for (const row of rows.slice(1, 13)) {
+      // 列结构不固定（微博=[排名,标题,热度]；百度/抖音=[排名,空,标题+热度]）→ 取非排名非 icon 的最长文本为标题
+      const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((x) => x[1].replace(/<[^>]+>/g, ' ').replace(/&\#x?\w+;/g, '').replace(/\s+/g, ' ').trim())
+      const cands = cells.filter((t) => t && !/^\d+[.、]?$/.test(t) && !/^\d+(\.\d+)?[万亿]?$/.test(t))
+      if (!cands.length) continue
+      const title = cands.reduce((a, b) => (b.length > a.length ? b : a), cands[0]).slice(0, 60)
+      const hotM = title.match(/(\d+(\.\d+)?[万亿]?)$/)
+      items.push({ title, hot: hotM ? hotM[1] : undefined })
+    }
+    return items.length ? items : null
+  } catch (e: any) { console.log('[Tophub]', source, '抓取失败:', e?.message?.slice(0, 60)); return null }
+}
+
 async function fetchHackerNews(): Promise<HotItem[]> {
   try {
     const ctrl = new AbortController()
@@ -169,11 +203,13 @@ export async function GET(request: NextRequest) {
     const vvhanResults = await Promise.all(VVHAN.map((e) => fetchVvhan(e.source, e.url)))
     const [hn, reddit] = await Promise.all([fetchHackerNews(), fetchReddit()])
 
-    // 2026-08-08：删天行（接口未申请+已变更），vvhan v1 为主源
-    const cnSources: HotSource[] = VVHAN.map((e, i) => {
-      const items = vvhanResults[i]?.length ? vvhanResults[i] : (FALLBACK[e.source] || [])
-      return { source: e.source, region: 'cn' as const, items }
-    })
+    // 2026-08-08：vvhan v1 为主源，失败时 tophub 免 key 兜底，最后内置兜底
+    const cnSources: HotSource[] = await Promise.all(VVHAN.map(async (e, i) => {
+      if (vvhanResults[i]?.length) return { source: e.source, region: 'cn' as const, items: vvhanResults[i] }
+      const th = await fetchTophub(e.source)
+      if (th?.length) return { source: e.source, region: 'cn' as const, items: th }
+      return { source: e.source, region: 'cn' as const, items: (FALLBACK[e.source] || []) }
+    }))
 
     const sources: HotSource[] = [
       ...cnSources,
