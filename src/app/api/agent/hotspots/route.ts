@@ -137,7 +137,7 @@ async function fetchVvhan(src: string, url: string): Promise<HotItem[]> {
     const ctrl = new AbortController()
     const t = setTimeout(() => ctrl.abort(), 6000)
     const sep = url.includes('?') ? '&' : '?'
-    const r = await fetch(url + sep + 'apikey=' + VVHAN_KEY, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } })
+    const r = await fetch(url + sep + 'apikey=' + (process.env.VVHAN_API_KEY || '3834978aefecccceb2c9b98092620fe0'), { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } })
     clearTimeout(t)
     if (!r.ok) return []
     const d = await r.json()
