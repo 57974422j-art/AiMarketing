@@ -2227,14 +2227,18 @@ export default function AgentPage() {
                 {trendVideos.map((v, i) => (
                   <button key={i} onClick={() => handlePlayVideo(v.url, v.title)}
                     className="group shrink-0 flex flex-col gap-1.5 rounded-xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-[#ff6b4f]/40 hover:bg-white/[0.06] transition text-left">
-                    {v.thumbnail && (
-                      <div className="relative w-full aspect-video bg-black/40">
+                    <div className="relative w-full aspect-video bg-black/40">
+                      {v.thumbnail ? (
                         <img src={v.thumbnail} alt="" className="w-full h-full object-cover" loading="lazy" />
-                        <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
-                          <span className="w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-white text-xs">▶</span>
-                        </span>
-                      </div>
-                    )}
+                      ) : (
+                        <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${v.platform.includes('TikTok') ? 'from-[#1e2a3a] to-[#111827]' : v.platform.includes('YouTube') ? 'from-[#2a1a1a] to-[#1a0f0f]' : 'from-[#1a2a1f] to-[#0f1a12]'}`}>
+                          <span className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white text-xs border border-white/20">▶</span>
+                        </div>
+                      )}
+                      <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                        <span className="w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-white text-xs">▶</span>
+                      </span>
+                    </div>
                     <div className="px-2 pb-2">
                       <span className="text-[8px] px-1 py-0.5 rounded bg-[#2a1a2e] text-[#ff9f7a]">{v.platform}</span>
                       <p className="text-[10px] text-[#cdd3e0] line-clamp-2 mt-1 leading-snug">{v.title}</p>
