@@ -54,19 +54,16 @@ def make_ydl():
     return yt_dlp.YoutubeDL(opts)
 
 def fetch_one(industry, keyword):
-    """下载一条 → 截帧 → OSS 上传 → 返回 (oss_video, oss_cover, title, duration)"""
+    """下载一条 → multipart 上传本地 API（API 负责截帧/OSS 私有/入库）"""
     import yt_dlp
-    ydl = make_ydl()
     try:
-        # 搜索取第一条
+        ydl = make_ydl()
         info = ydl.extract_info(f'ytsearch1:{keyword}', download=False)['entries'][0]
         vid_id = info.get('id', '')
         title = (info.get('title') or keyword)[:80]
-        dur = info.get('duration')
         if not vid_id:
             log(f'  [{industry}] 无结果: {keyword}')
             return None
-        # 下载
         ydl2 = make_ydl()
         ydl2.params['outtmpl'] = f'/tmp/indv_{vid_id}.%(ext)s'
         info2 = ydl2.extract_info(f'https://www.youtube.com/watch?v={vid_id}', download=True)
@@ -77,42 +74,29 @@ def fetch_one(industry, keyword):
         if not file_path or not os.path.exists(file_path):
             log(f'  [{industry}] 下载失败: {title}')
             return None
-        # 截首帧
-        cover_path = f'/tmp/indv_{vid_id}.jpg'
-        subprocess.run(['ffmpeg', '-y', '-i', file_path, '-frames:v', '1', '-q:v', '3', cover_path],
-                       capture_output=True, timeout=60)
-        # OSS 上传（私有 bucket，oss2）
-        import oss2
-        auth = oss2.Auth(ENV.get('OSS_ACCESS_KEY_ID', ''), ENV.get('OSS_ACCESS_KEY_SECRET', ''))
-        bucket = oss2.Bucket(auth, f"https://{ENV.get('OSS_REGION', '')}.aliyuncs.com", ENV.get('OSS_BUCKET', ''))
-        day = time.strftime('%Y%m%d')
-        key_v = f'industry-videos/{day}/{vid_id}.mp4'
-        key_c = f'industry-videos/{day}/{vid_id}.jpg'
-        bucket.put_object_from_file(key_v, file_path)
-        cover_oss = ''
-        if os.path.exists(cover_path):
-            bucket.put_object_from_file(key_c, cover_path)
-            cover_oss = key_c
-        # 清理临时
-        for f in [file_path, cover_path]:
-            try: os.remove(f)
-            except: pass
-        return {'key': key_v, 'coverKey': cover_oss or '', 'title': title, 'duration': dur, 'industry': industry, 'keyword': keyword}
+        # multipart 上传到本地 API（截帧 + OSS 私有转存 + 入库都在 API 端）
+        import mimetypes
+        CRLF = chr(13) + chr(10)
+        boundary = '----indv' + str(int(time.time() * 1000))
+        def field(name, value):
+            return (f'--{boundary}' + CRLF + f'Content-Disposition: form-data; name="{name}"' + CRLF + CRLF + str(value) + CRLF).encode()
+        def file_part(name, path):
+            ct = mimetypes.guess_type(path)[0] or 'application/octet-stream'
+            head = (f'--{boundary}' + CRLF + f'Content-Disposition: form-data; name="{name}"; filename="{os.path.basename(path)}"' + CRLF + f'Content-Type: {ct}' + CRLF + CRLF).encode()
+            with open(path, 'rb') as fp:
+                return head + fp.read() + CRLF.encode()
+        body = field('industry', industry) + field('title', title) + field('keyword', keyword) + field('duration', str(info.get('duration') or ''))
+        body += file_part('file', file_path) + (f'--{boundary}--' + CRLF).encode()
+        import urllib.request
+        req = urllib.request.Request(f'{API_BASE}/api/admin/industry-videos/upload', data=body,
+            headers={'Content-Type': f'multipart/form-data; boundary={boundary}'}, method='POST')
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            res = json.loads(resp.read().decode())
+        try: os.remove(file_path)
+        except: pass
+        return res
     except Exception as e:
         log(f'  [{industry}] 异常: {str(e)[:80]}')
-        return None
-
-def report(r):
-    """POST 入库"""
-    try:
-        import urllib.request
-        data = json.dumps(r).encode()
-        req = urllib.request.Request(f'{API_BASE}/api/admin/industry-videos', data=data,
-                                     headers={'Content-Type': 'application/json'}, method='POST')
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode())
-    except Exception as e:
-        log(f'  入库失败: {str(e)[:60]}')
         return None
 
 def main():
@@ -123,15 +107,11 @@ def main():
             kw = kws[i % len(kws)]
             log(f'[{industry}] 拉取 {kw} ...')
             r = fetch_one(industry, kw)
-            if r:
-                res = report(r)
-                if res and res.get('success'):
-                    total += 1
-                    log(f'  ✅ 入库: {r["title"][:40]}')
-                else:
-                    log(f'  ⚠️ 上传成功但入库未确认')
+            if r and r.get('success'):
+                total += 1
+                log(f'  ✅ 入库: {(r.get("data") or {}).get("title", "")[:40]}')
             else:
-                log(f'  ❌ 失败跳过')
+                log(f'  ❌ 失败: {(r or {}).get("message", "无结果/下载失败")[:60]}')
             time.sleep(INTERVAL)
     log(f'完成，共入库 {total} 条')
 
