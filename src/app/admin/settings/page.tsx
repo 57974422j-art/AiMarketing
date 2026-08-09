@@ -106,7 +106,7 @@ export default function SettingsPage() {
   const [agnesBaseUrl, setAgnesBaseUrl] = useState('')
 
   // ====== 天行 API（热点榜：抖音/微博/微信等，有则优先，无则走 vvhan 免费兜底） ======
-  const [tianApiKey, setTianApiKey] = useState('')
+  const [vvhanApiKey, setVvhanApiKey] = useState('')
   const [serperKey, setSerperKey] = useState('')
   const [showTianApiKey, setShowTianApiKey] = useState(false)
   const [testingTianApi, setTestingTianApi] = useState(false)
@@ -186,7 +186,7 @@ export default function SettingsPage() {
       setAgnesKey(d.agnesConfigured ? '********' : '')
       setAgnesBaseUrl(d.agnesBaseUrl || '')
       // 天行 API
-      setTianApiKey(d.tianApiConfigured ? '********' : '')
+      setVvhanApiKey(d.vvhanApiConfigured ? '********' : '')
       setSerperKey(d.serperKeyConfigured ? '********' : '')
       // AGENT 渠道 webhook
       setAgentWebhookWechat(d.agentWebhookWechatConfigured ? '********' : '')
@@ -253,7 +253,7 @@ export default function SettingsPage() {
           agnesBaseUrl: agnesBaseUrl || undefined,
           agentWebhookWechat: agentWebhookWechat || undefined,
           agentWebhookFeishu: agentWebhookFeishu || undefined,
-          tianApiKey: mask(tianApiKey),
+          vvhanApiKey: mask(vvhanApiKey),
           serperKey: mask(serperKey),
         }),
       })
@@ -339,8 +339,8 @@ export default function SettingsPage() {
   const testAgnesKey = () =>
     testProvider('agnes', setTestingAgnes, setAgnesTestMsg, { key: agnesKey, baseUrl: agnesBaseUrl, proxy: overseasProxy })
 
-  const testTianApiKey = () =>
-    testProvider('tianapi', setTestingTianApi, setTianApiTestMsg, { key: tianApiKey })
+  const testVvhanApiKey = () =>
+    testProvider('vvhan', setTestingTianApi, setTianApiTestMsg, { key: vvhanApiKey })
 
   // ====== 保存客服设置 ======
   const saveServiceConfig = async () => {
@@ -629,15 +629,15 @@ export default function SettingsPage() {
         {/* 天行 API（热点榜：抖音/微博/微信等，有则优先，无则走 vvhan 免费兜底） */}
         <div className="bg-gray-900/60 backdrop-blur-xl rounded-xl border border-white/5 p-4 mb-4">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-white font-bold mb-2"><span className="text-purple-400">//</span> 天行 API（热点榜）</h3>
+            <h3 className="text-white font-bold mb-2"><span className="text-purple-400">//</span> vvhan 热点 API</h3>
           </div>
-          <p className="text-gray-400 text-xs mb-4">填写后，AGENT 热点榜（抖音/微博/微信/知乎/头条/百度）优先走天行官方接口，数据更全更稳；<b className="text-yellow-400">不填则自动降级到 vvhan 免费聚合接口</b>。小红书不在天行，始终走免费源。注册：<a href="https://www.tianapi.com/" target="_blank" rel="noreferrer" className="text-cyan-400 underline">tianapi.com</a></p>
+          <p className="text-gray-400 text-xs mb-4">填写后，AGENT 热点榜（微博/抖音/知乎/小红书/头条/百度）优先走 vvhan v1 官方接口。申请：<a href="https://v1.vvhan.com/" target="_blank" rel="noreferrer" className="text-cyan-400 underline">v1.vvhan.com</a>（VH-BunAPI 控制台）</p>
           <div className="flex gap-2">
             <input
               type={showTianApiKey ? 'text' : 'password'}
-              value={tianApiKey}
-              onChange={e => setTianApiKey(e.target.value)}
-              placeholder="天行 API Key（留空=用免费兜底）"
+              value={vvhanApiKey}
+              onChange={e => setVvhanApiKey(e.target.value)}
+              placeholder="vvhan API Key（留空=用内置兜底）"
               className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50"
             />
             <button onClick={() => setShowTianApiKey(v => !v)}
@@ -645,7 +645,7 @@ export default function SettingsPage() {
               {showTianApiKey ? '🙈' : '👁'}
             </button>
           </div>
-          <button onClick={testTianApiKey} disabled={!tianApiKey || tianApiKey === '********' || testingTianApi}
+          <button onClick={testVvhanApiKey} disabled={!vvhanApiKey || vvhanApiKey === '********' || testingTianApi}
             className="mt-2 px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-500/30 disabled:opacity-50 font-mono text-xs whitespace-nowrap">
             {testingTianApi ? '测试中...' : '测试连接'}
           </button>
