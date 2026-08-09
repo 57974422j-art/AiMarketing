@@ -97,6 +97,33 @@ function FeedBar({ items, onPlay, onPick }: {
   )
 }
 
+// 视频事件流（2026-08-08：通栏横向视频卡片，点击播放；白龙马 feed-bar 样式，固定高度不溢出）
+function VideoFeedBar({ videos, onPlay }: {
+  videos: { platform: string; title: string; url: string; thumbnail?: string }[]
+  onPlay: (url: string, title: string) => void
+}) {
+  if (videos.length === 0) return null
+  return (
+    <div className="shrink-0 h-[64px] flex items-center gap-2 border-t border-white/[0.07] bg-[#070d18] px-3 overflow-hidden">
+      <span className="shrink-0 text-[9px] font-bold text-[#ff6b4f] flex items-center gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-[#ff6b4f] animate-pulse" />视频精选
+      </span>
+      <div className="flex-1 overflow-x-auto flex items-center gap-2 scrollbar-thin">
+        {videos.map((v, i) => (
+          <button key={i} onClick={() => onPlay(v.url, v.title)}
+            className="shrink-0 flex items-center gap-2 px-2 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.09] border border-white/[0.06] transition cursor-pointer max-w-[300px]"
+            title={v.title}>
+            {v.thumbnail && <img src={v.thumbnail} className="w-10 h-6 rounded object-cover shrink-0" alt="" loading="lazy" />}
+            <span className="text-[8.5px] px-1 py-0.5 rounded bg-[#2a1a2e] text-[#ff9f7a] shrink-0">{v.platform}</span>
+            <span className="text-[10px] text-[#cdd3e0] truncate">{v.title}</span>
+            <span className="text-[8px] text-[#6b7180] shrink-0">▶</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // 全局视频播放器（路线1·真播放：复刻 BaiLongma video-surface，支持 B站/YouTube/直链 iframe 真播放）
 // URL 归一：B站/youtube 链接转可嵌入 iframe；直链 .mp4/.webm 用 <video>；其余走 iframe 尝试。
 function iframeUrlFor(raw: string): { kind: 'iframe' | 'video'; url: string } {
@@ -479,9 +506,27 @@ export default function AgentPage() {
   const [interimText, setInterimText] = useState('')
   // 今日热点（融合 BaiLongma 热点推荐：真实热榜注入主页 + 对话上下文）
   const [hotTopics, setHotTopics] = useState<{ source: string; region: 'cn' | 'global'; items: { title: string; hot?: string; url?: string }[] }[]>([])
+  // 大屏视频推荐 + 发布统计（2026-08-08）
+  const [trendVideos, setTrendVideos] = useState<{ platform: string; title: string; url: string; thumbnail?: string; duration?: string }[]>([])
+  const [publishStats, setPublishStats] = useState<{ platform: string; count: number }[]>([])
+  const loadTrendVideos = async () => {
+    try {
+      const r = await fetch('/api/agent/trend-videos', { credentials: 'include' })
+      const d = await r.json()
+      if (d.success && d.data?.videos) setTrendVideos(d.data.videos)
+    } catch {}
+  }
+  const loadPublishStats = async () => {
+    try {
+      const r = await fetch('/api/agent/publish-stats', { credentials: 'include' })
+      const d = await r.json()
+      if (d.success && Array.isArray(d.data)) setPublishStats(d.data)
+    } catch {}
+  }
   const [hotLoading, setHotLoading] = useState(false)
   // 热点大屏（融合 BaiLongma hotspot-mode 全屏互斥布局：呼出时对话框右移收窄）
   const [hotspotOpen, setHotspotOpen] = useState(false)
+  useEffect(() => { if (hotspotOpen) { loadTrendVideos(); loadPublishStats() } }, [hotspotOpen])
   // 热点大屏手风琴：左右柱各仅头部 1 个固定展开，其余折叠互斥（key=source）
   const [leftExpanded, setLeftExpanded] = useState<string | null>(null)
   const [rightExpanded, setRightExpanded] = useState<string | null>(null)
@@ -2039,12 +2084,19 @@ export default function AgentPage() {
           const attention = readAttention()
           const attWeight = (source: string) => attention[source] || 0
           // 中间辅助：平台爆款覆盖度（按各源话题数 + 用户关注度加权派生）、情绪指数（mock 稳定值）
-          const regionRows = cnSources
-            .map((s) => ({ name: s.source, pct: s.items.length + attWeight(s.source) * 3 }))
-            .sort((a, b) => b.pct - a.pct)
-            .slice(0, 5)
-          const regionMax = Math.max(1, ...regionRows.map((r) => r.pct))
-          const sentiment = 72
+          // 发布次数统计（竖排，2026-08-08：AgentPublishTask 按平台；空则显示引导）
+          const publishRows = publishStats.length > 0
+            ? publishStats.slice(0, 6).map((p) => ({ name: p.platform, pct: p.count }))
+            : cnSources.slice(0, 6).map((s) => ({ name: s.source, pct: s.items.length + attWeight(s.source) * 3 }))
+          const regionMax = Math.max(1, ...publishRows.map((r) => r.pct))
+          // 情绪指数（2026-08-08：热榜标题情感词库规则，正面/负面词占比 → 0-100）
+          const POS_WORDS = ['爆', '涨', '红', '火', '热', '喜', '赢', '新', '强', '大', '赞', '好', '增', '破', '领', '佳', '美', '爱']
+          const NEG_WORDS = ['跌', '亏', '难', '痛', '忧', '罚', '禁', '查', '危', '乱', '骗', '假', '坏', '暗', '疑', '下']
+          const allTitles = hotTopics.flatMap((s) => s.items.map((i) => i.title)).join('')
+          let pos = 0, neg = 0
+          for (const w of POS_WORDS) { const n = allTitles.split(w).length - 1; pos += n }
+          for (const w of NEG_WORDS) { const n = allTitles.split(w).length - 1; neg += n }
+          const sentiment = pos + neg === 0 ? 60 : Math.min(98, Math.max(2, Math.round((pos / (pos + neg)) * 100)))
           // 实时事件流卡片（扁平化所有源，按用户关注度排序：常看的 source 前置）
           const feedItems = hotTopics
             .sort((a, b) => attWeight(b.source) - attWeight(a.source))
@@ -2122,7 +2174,7 @@ export default function AgentPage() {
                 {/* 辅助：区域关注度 + 情绪指数（固定高度底部条，正常 flex 流） */}
                 <div className="shrink-0 h-[110px] flex border-t-2 border-[#1c2740] bg-[#070d18]">
                   <div className="flex-1 p-2.5 border-r border-white/[0.07] overflow-hidden">
-                    <div className="text-[10px] text-[#aab2c2] font-semibold mb-1.5">平台爆款覆盖度 <span className="text-[8.5px] text-[#6b7180] font-normal">不限平台</span></div>
+                    <div className="text-[10px] text-[#aab2c2] font-semibold mb-1.5">发布次数 <span className="text-[8.5px] text-[#6b7180] font-normal">已发布平台</span></div>
                     <div className="flex flex-col gap-1.5">
                       {regionRows.map((r) => (
                         <div key={r.name} className="flex items-center gap-2">
@@ -2153,25 +2205,29 @@ export default function AgentPage() {
                   </div>
                 </div>
                 {/* 实时事件流（复刻 BaiLongma hs-feed-bar：区域关注度下方、跑马灯上方的横向卡片轮播） */}
-                <FeedBar items={feedItems} onPlay={handlePlayVideo} onPick={(it) => { trackAttention(it.source); sendMessage(`结合「${it.title}」这个热点，帮我出一个适合自媒体发布的内容方案`) }} />
+                <VideoFeedBar videos={trendVideos} onPlay={handlePlayVideo} />
               </div>
-              {/* 右柱：微信/微博 + 全球热榜（头部 1 个固定展开 + 其余折叠手风琴） */}
-              <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-l border-white/[0.07]">
-                {rightSources.length === 0 && <p className="text-[11px] text-[#5a6072] text-center py-8">暂无热榜</p>}
-                {rightSources.map((src, idx) => {
-                  const isFirst = idx === 0
-                  return (
-                    <HotListCard
-                      key={src.source}
-                      source={src.source}
-                      items={src.items}
-                      accent={src.region === 'global' ? '#4f8cff' : '#3ad29f'}
-                      collapsed={!isFirst && src.source !== rightOpen}
-                      onToggle={isFirst ? undefined : () => setRightExpanded((cur) => (cur === src.source ? null : src.source))}
-                      onPick={(t) => { trackAttention(src.source); sendMessage(`结合「${t}」这个热点，帮我出一个适合自媒体发布的内容方案`) }}
-                    />
-                  )
-                })}
+              {/* 右柱：视频推荐（2026-08-08：TikTok/YouTube/X，点击播放；文字热榜已并入左柱） */}
+              <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-2 overflow-y-auto bg-white/[0.02] border-l border-white/[0.07] p-2">
+                <div className="text-[10px] text-[#aab2c2] font-semibold mb-0.5">🎬 视频推荐 <span className="text-[8.5px] text-[#6b7180] font-normal">点击播放</span></div>
+                {trendVideos.length === 0 && <p className="text-[10px] text-[#5a6072] text-center py-6">视频加载中…</p>}
+                {trendVideos.map((v, i) => (
+                  <button key={i} onClick={() => handlePlayVideo(v.url, v.title)}
+                    className="group shrink-0 flex flex-col gap-1.5 rounded-xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-[#ff6b4f]/40 hover:bg-white/[0.06] transition text-left">
+                    {v.thumbnail && (
+                      <div className="relative w-full aspect-video bg-black/40">
+                        <img src={v.thumbnail} alt="" className="w-full h-full object-cover" loading="lazy" />
+                        <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                          <span className="w-8 h-8 rounded-full bg-black/60 flex items-center justify-center text-white text-xs">▶</span>
+                        </span>
+                      </div>
+                    )}
+                    <div className="px-2 pb-2">
+                      <span className="text-[8px] px-1 py-0.5 rounded bg-[#2a1a2e] text-[#ff9f7a]">{v.platform}</span>
+                      <p className="text-[10px] text-[#cdd3e0] line-clamp-2 mt-1 leading-snug">{v.title}</p>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
             {/* 底部跑马灯（复刻 BaiLongma：flex 正常流 flex:0 0 auto，不绝对定位，不挤压地球） */}
