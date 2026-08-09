@@ -25,6 +25,7 @@ model User {
   isAgent         Boolean  @default(false)
   agentInviteCode String?
   agentName       String?   // 自定义 AI 名称（客户起名，2026-08-07）
+  industry        String?   // 客户行业（2026-08-09：视频/热点按行业推送）
   agentTtsVoice   String?   // AI 语音音色（2026-08-07 设置：用户级）
   agentTemperature Float?    // AI 回复温度（0~1.5）
   agentVadThreshold Float?   // 语音 VAD 音量阈值（0~0.15）
@@ -1100,6 +1101,20 @@ model AgentPublishTask {
   socialAccount SocialAccount? @relation(fields: [socialAccountId], references: [id])
 
   @@index([userId, status])
+}
+
+model IndustryVideo {
+  id        Int      @id @default(autoincrement())
+  industry  String                       // 行业（餐饮/美业/教育…）
+  title     String
+  videoUrl  String                       // OSS 私有地址（签名访问）
+  coverUrl  String?                      // FFmpeg 截取的首帧封面
+  source    String   @default("youtube") // youtube/tiktok
+  duration  Int?
+  keyword   String?                      // 搜索关键词
+  createdAt DateTime @default(now())
+
+  @@index([industry, createdAt])
 }
 
 model ContentDraft {
