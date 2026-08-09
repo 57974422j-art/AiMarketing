@@ -2184,7 +2184,7 @@ export default function AgentPage() {
                   <div className="flex-1 p-2.5 border-r border-white/[0.07] overflow-hidden">
                     <div className="text-[10px] text-[#aab2c2] font-semibold mb-1.5">发布次数 <span className="text-[8.5px] text-[#6b7180] font-normal">已发布平台</span></div>
                     <div className="flex flex-col gap-1.5">
-                      {regionRows.map((r) => (
+                      {publishRows.map((r) => (
                         <div key={r.name} className="flex items-center gap-2">
                           <span className="text-[9.5px] text-[#aab2c2] w-[52px] shrink-0 truncate">{r.name}</span>
                           <div className="flex-1 h-[3px] bg-white/10 rounded-full overflow-hidden">
@@ -2193,7 +2193,7 @@ export default function AgentPage() {
                           <span className="text-[9px] text-[#6b7180] w-7 text-right">{r.pct}</span>
                         </div>
                       ))}
-                      {regionRows.length === 0 && <span className="text-[9px] text-[#5a6072]">暂无数据</span>}
+                      {publishRows.length === 0 && <span className="text-[9px] text-[#5a6072]">暂无数据</span>}
                     </div>
                   </div>
                   <div className="w-[150px] shrink-0 p-2.5 flex flex-col items-center justify-center">
