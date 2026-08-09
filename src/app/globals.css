@@ -271,3 +271,11 @@ body.hotspot-open nav {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .scene-in { animation: sceneIn 0.35s ease-out; }
+
+/* 2026-08-09 白龙马式视频模式：视频播放时左右侧栏滑出（动画），对话区保留 */
+.agent-left-panel,
+.agent-thinking-aside {
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+body.video-mode .agent-left-panel { transform: translateX(calc(-100% - 24px)); }
+body.video-mode .agent-thinking-aside { transform: translateX(calc(100% + 24px)); }

@@ -175,13 +175,17 @@ function VideoPlayer({ state, onClose }: {
   state: { open: boolean; url: string; title: string }
   onClose: () => void
 }) {
+  useEffect(() => {
+    document.body.classList.toggle('video-mode', state.open)
+    return () => document.body.classList.remove('video-mode')
+  }, [state.open])
   if (!state.open) return null
   const { kind, url } = iframeUrlFor(state.url)
   return (
-    // 不遮挡主对话：浮层仅覆盖中部预览区，AI 始终在场（参考 BaiLongma video-mode 不隐藏对话）
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-md" onClick={onClose}>
+    // 2026-08-09 白龙马式：视频占左 66%，AI 对话区右侧 34% 并存不遮挡；body.video-mode 侧栏滑出
+    <div className="fixed top-0 left-0 bottom-0 w-[66vw] z-40 flex items-center justify-center bg-[#05070d]/92 border-r border-white/10" onClick={onClose}>
       <div
-        className="relative w-[min(92vw,920px)] bg-[#060a12] rounded-2xl border border-white/10 shadow-2xl overflow-hidden"
+        className="relative w-[92%] bg-[#060a12] rounded-2xl border border-white/10 shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/10 bg-white/[0.03]">
