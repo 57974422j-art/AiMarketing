@@ -153,6 +153,16 @@ function iframeUrlFor(raw: string): { kind: 'iframe' | 'video'; url: string } {
       else id = url.searchParams.get('v') || (url.pathname.includes('/embed/') ? url.pathname.split('/embed/')[1] : '')
       return { kind: 'iframe', url: id ? `https://www.youtube.com/embed/${id}?autoplay=1` : url.href }
     }
+    // TikTok（2026-08-09：官方 embed 端点；无 id 走链接）
+    if (h.includes('tiktok.com')) {
+      const vid = url.pathname.match(/\/video\/(\d+)/)
+      return { kind: vid ? 'iframe' : 'link', url: vid ? `https://www.tiktok.com/embed/v2/${vid[1]}` : u }
+    }
+    // X / Twitter（2026-08-09：无公开嵌入，新窗口打开）
+    if (h.includes('x.com') || h.includes('twitter.com')) {
+      return { kind: 'link', url: u }
+    }
+    }
     // 已是 embed/player 直链
     if (h.includes('player.') || url.pathname.includes('/embed/')) return { kind: 'iframe', url: url.href }
     // 兜底：原样走 iframe（部分站点允许 X-Frame-Options）
@@ -180,7 +190,15 @@ function VideoPlayer({ state, onClose }: {
           <button onClick={onClose} className="text-gray-400 hover:text-white text-base leading-none px-2 py-0.5 rounded hover:bg-white/10">✕</button>
         </div>
         <div className="relative w-full bg-black" style={{ aspectRatio: '16 / 9' }}>
-          {kind === 'video' ? (
+          {kind === 'link' ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+              <p className="text-[12px] text-gray-300">该平台不支持站内嵌入播放</p>
+              <button onClick={() => window.open(url, '_blank')}
+                className="px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs hover:bg-emerald-500/30 transition">
+                在浏览器中打开 ↗
+              </button>
+            </div>
+          ) : kind === 'video' ? (
             <video src={url} controls autoPlay className="absolute inset-0 w-full h-full bg-black" />
           ) : (
             <iframe
