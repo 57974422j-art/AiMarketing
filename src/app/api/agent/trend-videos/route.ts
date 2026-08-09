@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
   if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
   const key = process.env.SERPER_API_KEY
-  if (!key) return NextResponse.json({ success: false, message: '未配置 SERPER_API_KEY' }, { status: 400 })
+  // 2026-08-09：无 key 不报 400（前端大屏会崩溃）——返回空，前端显示"未配置"提示
+  if (!key) return NextResponse.json({ success: true, data: { videos: [], cached: false, message: '未配置 SERPER_API_KEY（后台设置页添加）' } })
 
   try {
     const now = Date.now()
