@@ -415,6 +415,13 @@ export default function AgentPage() {
   const [selfChecking, setSelfChecking] = useState(false)
   const [showSelfCheck, setShowSelfCheck] = useState(false)
   const [sessionStart] = useState(Date.now())
+  const [appVersion, setAppVersion] = useState('1.0.19')
+  useEffect(() => {
+    try {
+      const w = window as any
+      if (w.electronAPI?.getAppVersion) { w.electronAPI.getAppVersion().then((v: any) => v?.version && setAppVersion(v.version)).catch(() => {}) }
+    } catch {}
+  }, [])
   const [sessionReqs, setSessionReqs] = useState(0)
   const runSelfCheck = async (silent = true) => {
     setSelfChecking(true)
@@ -1476,32 +1483,6 @@ export default function AgentPage() {
             <div className="relative">
               <div className="pointer-events-none absolute -inset-px rounded-full opacity-25 blur-3xl"
                 style={{ background: 'radial-gradient(circle, #ff9f1c, transparent 70%)' }} />
-              {/* 左侧信息面板（2026-08-08：账号/订阅/点数/模型/记忆 + 自检状态） */}
-              <div className="px-4 pb-1 shrink-0">
-                <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-2.5 space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white truncate">
-                      {user?.username || '未登录'}
-                      <span className={`px-1.5 py-0.5 rounded border text-[9px] font-normal ${roleColor}`}>{roleLabel}</span>
-                    </span>
-                    <button onClick={() => runSelfCheck(false)}
-                      className={`shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded border text-[9px] transition ${allOk ? 'border-emerald-500/30 text-emerald-300 bg-emerald-500/[0.08] hover:bg-emerald-500/20' : 'border-red-500/30 text-red-300 bg-red-500/[0.08] hover:bg-red-500/20'}`}
-                      title="点击查看自检明细">
-                      {selfChecking ? <span className="animate-pulse">自检中…</span> : <>{allOk ? '✅ 全部正常' : `⚠️ ${failCount} 项异常`}</>}
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-gray-400">
-                    <span className="truncate">📅 {selfChecks.find(c => c.key === 'subscription')?.detail || '—'}</span>
-                    <span className="truncate">💎 {selfChecks.find(c => c.key === 'points')?.detail || '—'}</span>
-                    <span className="truncate col-span-2">🧠 {selfModel?.brain || '—'} <span className="text-gray-600">· {selfChecks.find(c => c.key === 'memory')?.detail || ''}</span></span>
-                  </div>
-                  <div className="text-[9px] text-gray-600 border-t border-white/[0.05] pt-1.5 flex items-center justify-between">
-                    <span>会话 {Math.floor((Date.now() - sessionStart) / 60000)} 分钟</span>
-                    <span>请求 {sessionReqs} 次</span>
-                  </div>
-                </div>
-              </div>
-
               <VoiceOrb state={orbState} volume={Math.max(micVolume, ttsVolume)} size={290}
                 className="relative drop-shadow-[0_0_10px_rgba(255,159,28,0.22)]" />
               <button onClick={toggleRecording}
@@ -1535,6 +1516,7 @@ export default function AgentPage() {
               🌐 {hotspotOpen ? '收起热点大屏' : '呼出热点大屏'}
             </button>
             <p className="text-[8px] text-gray-700 text-center mt-1.5">或直接说「打开热点大屏」</p>
+            <p className="text-[8px] text-gray-800 text-center mt-2 select-none">v{appVersion}</p>
           </div>
         </aside>
 
@@ -1851,6 +1833,32 @@ export default function AgentPage() {
 
         {/* 右侧常驻·思考步骤流面板（融合 BaiLongma 步骤流） */}
         <aside className="agent-thinking-aside hidden lg:flex w-72 backdrop-blur-xl flex-col shrink-0">
+          {/* 右侧信息面板（2026-08-08：账号/订阅/点数/模型/记忆/自检，从左侧移来） */}
+          <div className="p-3 border-b border-white/5 shrink-0">
+            <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-2.5 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white truncate">
+                  {user?.username || '未登录'}
+                  <span className={`px-1.5 py-0.5 rounded border text-[9px] font-normal ${roleColor}`}>{roleLabel}</span>
+                </span>
+                <button onClick={() => runSelfCheck(false)}
+                  className={`shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded border text-[9px] transition ${allOk ? 'border-emerald-500/30 text-emerald-300 bg-emerald-500/[0.08] hover:bg-emerald-500/20' : 'border-red-500/30 text-red-300 bg-red-500/[0.08] hover:bg-red-500/20'}`}
+                  title="点击查看自检明细">
+                  {selfChecking ? <span className="animate-pulse">自检中…</span> : <>{allOk ? '✅ 全部正常' : `⚠️ ${failCount} 项异常`}</>}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-y-1 text-[10px] text-gray-400">
+                <span className="truncate">📅 {selfChecks.find(c => c.key === 'subscription')?.detail || '—'}</span>
+                <span className="truncate">💎 {selfChecks.find(c => c.key === 'points')?.detail || '—'}</span>
+                <span className="truncate">🧠 {selfModel?.brain || '—'} <span className="text-gray-600">· {selfChecks.find(c => c.key === 'memory')?.detail || ''}</span></span>
+              </div>
+              <div className="text-[9px] text-gray-600 border-t border-white/[0.05] pt-1.5 flex items-center justify-between">
+                <span>会话 {Math.floor((Date.now() - sessionStart) / 60000)} 分钟</span>
+                <span>请求 {sessionReqs} 次</span>
+              </div>
+            </div>
+          </div>
+
           {/* 终端流（阶段1：实时请求日志，对齐 BaiLongma terminal-stream） */}
           <div className="p-3 border-b border-white/5">
             <button onClick={() => setTermOpen(v => !v)}
