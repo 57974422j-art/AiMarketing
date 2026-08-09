@@ -39,6 +39,30 @@ INTERVAL = int(ENV.get('VIDEO_FETCH_INTERVAL', '180'))  # 秒，3 分钟一个
 def log(msg):
     print(f'[{time.strftime("%H:%M:%S")}] {msg}', flush=True)
 
+# ── 快代理动态住宅（fps 短效代理，2026-08-09）──
+# 每条下载前自动提取新 IP（30 分钟有效）；认证 = 组合账密（可改订单号模式）
+KD_SECRET_ID = ENV.get('KD_SECRET_ID', 'ouetsr2s0kvxgeb8tuot')
+KD_SIGNATURE = ENV.get('KD_SIGNATURE', 'dtdj127qwjt9cmolgfo42almfwu8lxjo')
+KD_AUTH = ENV.get('KD_AUTH', 'u0q1kn5euf9y0zrrh0z1:tubvkcdn4im449w84ayfm4j0yv2l7toy')
+KD_REGION = ENV.get('KD_REGION', 'US')
+
+def get_proxy():
+    """调快代理 fps 提取 API，返回 {proxy: 'http://auth@ip:port', ip: 'ip:port'}"""
+    try:
+        import urllib.request, urllib.parse
+        url = ('https://fps.kdlapi.com/api/getfpsip/?secret_id=' + urllib.parse.quote(KD_SECRET_ID)
+               + '&signature=' + urllib.parse.quote(KD_SIGNATURE)
+               + '&region=' + KD_REGION + '&period=30&format=text&sep=1&num=3&ut=1&gt=1')
+        with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=20) as r:
+            ips = [l.strip() for l in r.read().decode().splitlines() if l.strip()]
+        if not ips:
+            return None
+        ip = ips[0]
+        return {'proxy': f'http://{KD_AUTH}@{ip}', 'ip': ip}
+    except Exception as e:
+        log(f'  代理提取失败: {str(e)[:60]}')
+        return None
+
 def make_ydl():
     import yt_dlp
     opts = {
@@ -53,11 +77,29 @@ def make_ydl():
         opts['proxy'] = PROXY
     return yt_dlp.YoutubeDL(opts)
 
+def ydl_with_proxy(proxy_url):
+    """带代理的 yt-dlp（优先快代理动态住宅，回退 OVERSEAS_PROXY）"""
+    import yt_dlp
+    opts = {
+        'format': 'best[height<=480][ext=mp4]/best[height<=480]/best',
+        'noplaylist': True, 'quiet': True, 'no_warnings': True,
+        'outtmpl': '/tmp/indv_%(id)s.%(ext)s',
+        'max_filesize': 150 * 1024 * 1024,
+        'extractor_args': {'youtube': {'player_client': ['android', 'web_embedded']}},
+    }
+    if proxy_url:
+        opts['proxy'] = proxy_url
+    elif PROXY:
+        opts['proxy'] = PROXY
+    return yt_dlp.YoutubeDL(opts)
+
 def fetch_one(industry, keyword):
     """下载一条 → multipart 上传本地 API（API 负责截帧/OSS 私有/入库）"""
     import yt_dlp
     try:
-        ydl = make_ydl()
+        # 每次下载前取新代理（快代理动态住宅 30 分钟有效，自动续）
+        proxy_info = get_proxy()
+        ydl = ydl_with_proxy(proxy_info['proxy'] if proxy_info else '')
         info = ydl.extract_info(f'ytsearch1:{keyword}', download=False)['entries'][0]
         vid_id = info.get('id', '')
         title = (info.get('title') or keyword)[:80]
