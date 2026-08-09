@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         ttsVoice: u?.agentTtsVoice || 'longxiaochun',
+        industry: u?.industry || '',
         temperature: u?.agentTemperature ?? 0.7,
         vadThreshold: u?.agentVadThreshold ?? 0.045,
         vadSilence: u?.agentVadSilence ?? 1800,
@@ -50,11 +51,13 @@ export async function PUT(request: NextRequest) {
     if (typeof body.temperature === 'number') data.agentTemperature = Math.min(1.5, Math.max(0, body.temperature))
     if (typeof body.vadThreshold === 'number') data.agentVadThreshold = Math.min(0.15, Math.max(0.01, body.vadThreshold))
     if (typeof body.vadSilence === 'number') data.agentVadSilence = Math.min(4000, Math.max(1000, Math.round(body.vadSilence)))
+    if (typeof body.industry === 'string') data.industry = ['餐饮', '美业', '教育', '电商', '房产', '健身', '旅游', '服装'].includes(body.industry) ? body.industry : undefined
     const u = await prisma.user.update({ where: { id: auth.userId }, data })
     return NextResponse.json({
       success: true,
       data: {
         ttsVoice: u.agentTtsVoice || 'longxiaochun',
+        industry: u.industry || '',
         temperature: u.agentTemperature ?? 0.7,
         vadThreshold: u.agentVadThreshold ?? 0.045,
         vadSilence: u.agentVadSilence ?? 1800,

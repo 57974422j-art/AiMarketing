@@ -430,6 +430,7 @@ export default function AgentPage() {
   const [vadThreshold, setVadThreshold] = useState(0.045)
   const [vadSilence, setVadSilence] = useState(1800)
   const [ttsVoices, setTtsVoices] = useState<{ id: string; label: string }[]>([])
+  const [industry, setIndustry] = useState('') // 行业（视频/热点按行业推送，2026-08-09）
   // ── 自检 + 左侧信息面板（2026-08-08：账号/订阅/点数/模型/记忆 + A+B 自检）──
   const [selfChecks, setSelfChecks] = useState<{ key: string; label: string; ok: boolean; detail?: string }[]>([])
   const [selfModel, setSelfModel] = useState<{ brain: string; asr: string; tts: string } | null>(null)
@@ -489,6 +490,7 @@ export default function AgentPage() {
       .then(d => {
         if (d.success && d.data) {
           setTtsVoice(d.data.ttsVoice || 'longxiaochun')
+          if (d.data.industry) setIndustry(d.data.industry)
           setTemperature(d.data.temperature ?? 0.7)
           setVadThreshold(d.data.vadThreshold ?? 0.045)
           setVadSilence(d.data.vadSilence ?? 1800)
@@ -501,7 +503,7 @@ export default function AgentPage() {
   const savePrefs = async () => {
     setSavingPrefs(true)
     try {
-      await fetch('/api/agent/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ttsVoice, temperature, vadThreshold, vadSilence }), credentials: 'include' })
+      await fetch('/api/agent/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ttsVoice, temperature, vadThreshold, vadSilence, industry }), credentials: 'include' })
     } catch {}
     setSavingPrefs(false)
     setShowPrefs(false)
@@ -1393,6 +1395,17 @@ export default function AgentPage() {
               <button onClick={() => testVoice(ttsVoice)}
                 className="shrink-0 rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition">试听</button>
             </div>
+
+            <p className="text-[11px] text-gray-400 mb-1.5">🏷 我的行业 <span className="text-emerald-300">{industry || '未设置'}</span></p>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {['餐饮', '美业', '教育', '电商', '房产', '健身', '旅游', '服装'].map(ind => (
+                <button key={ind} onClick={() => setIndustry(ind)}
+                  className={`px-2 py-1 rounded border text-[10px] transition ${industry === ind ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-white/[0.04] text-gray-400 border-white/10 hover:bg-white/10'}`}>
+                  {ind}
+                </button>
+              ))}
+            </div>
+            <p className="text-[9px] text-gray-600 mb-3">按行业推送每日参考视频与热点（可在设置随时改）</p>
 
             <p className="text-[11px] text-gray-400 mb-1.5">🎛 回复温度：<span className="text-emerald-300">{temperature.toFixed(1)}</span></p>
             <input type="range" min="0" max="1.5" step="0.1" value={temperature} onChange={e => setTemperature(parseFloat(e.target.value))}
