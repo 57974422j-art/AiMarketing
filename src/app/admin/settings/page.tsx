@@ -108,6 +108,11 @@ export default function SettingsPage() {
   // ====== 天行 API（热点榜：抖音/微博/微信等，有则优先，无则走 vvhan 免费兜底） ======
   const [vvhanApiKey, setVvhanApiKey] = useState('')
   const [serperKey, setSerperKey] = useState('')
+  // 下载代理（Shadowsocks，2026-08-09）
+  const [ssServer, setSsServer] = useState('')
+  const [ssPort, setSsPort] = useState('')
+  const [ssPassword, setSsPassword] = useState('')
+  const [ssMethod, setSsMethod] = useState('aes-256-gcm')
   const [showTianApiKey, setShowTianApiKey] = useState(false)
   const [testingTianApi, setTestingTianApi] = useState(false)
   const [tianApiTestMsg, setTianApiTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -188,6 +193,10 @@ export default function SettingsPage() {
       // 天行 API
       setVvhanApiKey(d.vvhanApiConfigured ? '********' : '')
       setSerperKey(d.serperKeyConfigured ? '********' : '')
+      setSsServer(d.ssServer || '')
+      setSsPort(d.ssPort || '')
+      setSsPassword(d.ssPasswordConfigured ? '********' : '')
+      setSsMethod(d.ssMethod || 'aes-256-gcm')
       // AGENT 渠道 webhook
       setAgentWebhookWechat(d.agentWebhookWechatConfigured ? '********' : '')
       setAgentWebhookFeishu(d.agentWebhookFeishuConfigured ? '********' : '')
@@ -255,6 +264,10 @@ export default function SettingsPage() {
           agentWebhookFeishu: agentWebhookFeishu || undefined,
           vvhanApiKey: mask(vvhanApiKey),
           serperKey: mask(serperKey),
+          ssServer: ssServer || undefined,
+          ssPort: ssPort || undefined,
+          ssPassword: mask(ssPassword),
+          ssMethod: ssMethod,
         }),
       })
       const result = await res.json()
@@ -680,6 +693,41 @@ export default function SettingsPage() {
               serperTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
             }`}>{serperTestMsg.text}</div>
           )}
+        </div>
+
+        {/* 下载代理（Shadowsocks）— 夜间视频下载用 */}
+        <div className="bg-gray-900/60 backdrop-blur-xl rounded-xl border border-white/5 p-4 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-white font-bold mb-2"><span className="text-yellow-400">//</span> 下载代理（Shadowsocks）</h3>
+          </div>
+          <p className="text-gray-400 text-xs mb-4">用于夜间定时拉取 YouTube 行业视频（服务器直连被墙，需 SS 隧道转 SOCKS5）。填写后重启 ss-local：<code className="text-emerald-400">ss-local -c /etc/shadowsocks-libev/config.json -f /tmp/ss-local.pid</code></p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">服务器 IP</label>
+              <input value={ssServer} onChange={e => setSsServer(e.target.value)} placeholder="如 3.88.222.230"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">端口</label>
+              <input value={ssPort} onChange={e => setSsPort(e.target.value)} placeholder="如 11311"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">密码</label>
+              <input type="password" value={ssPassword} onChange={e => setSsPassword(e.target.value)} placeholder="SS 密码"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">加密方式</label>
+              <select value={ssMethod} onChange={e => setSsMethod(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500/50">
+                <option value="aes-256-gcm" className="bg-gray-900">aes-256-gcm</option>
+                <option value="aes-128-gcm" className="bg-gray-900">aes-128-gcm</option>
+                <option value="chacha20-ietf-poly1305" className="bg-gray-900">chacha20-ietf-poly1305</option>
+                <option value="rc4-md5" className="bg-gray-900">rc4-md5</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* AGENT 微信/飞书渠道（阶段四·融合 BaiLongma IM 连接） */}
