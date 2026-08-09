@@ -516,12 +516,15 @@ export default function AgentPage() {
   // 大屏视频推荐 + 发布统计（2026-08-08）
   const [trendVideos, setTrendVideos] = useState<{ platform: string; title: string; url: string; thumbnail?: string; duration?: string }[]>([])
   const [publishStats, setPublishStats] = useState<{ platform: string; count: number }[]>([])
+  const [trendVideosLoading, setTrendVideosLoading] = useState(false)
   const loadTrendVideos = async () => {
+    setTrendVideosLoading(true)
     try {
       const r = await fetch('/api/agent/trend-videos', { credentials: 'include' })
       const d = await r.json()
       if (d.success && d.data?.videos) setTrendVideos(d.data.videos)
     } catch {}
+    finally { setTrendVideosLoading(false) }
   }
   const loadPublishStats = async () => {
     try {
@@ -2218,7 +2221,9 @@ export default function AgentPage() {
               {/* 右柱：视频推荐（2026-08-08：TikTok/YouTube/X，点击播放；文字热榜已并入左柱） */}
               <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-2 overflow-y-auto bg-white/[0.02] border-l border-white/[0.07] p-2">
                 <div className="text-[10px] text-[#aab2c2] font-semibold mb-0.5">🎬 视频推荐 <span className="text-[8.5px] text-[#6b7180] font-normal">点击播放</span></div>
-                {trendVideos.length === 0 && <p className="text-[10px] text-[#5a6072] text-center py-6">视频加载中…</p>}
+                {trendVideos.length === 0 && (
+                  <p className="text-[10px] text-[#5a6072] text-center py-6">{trendVideosLoading ? '视频加载中…' : '未配置视频源（后台添加 SERPER key）'}</p>
+                )}
                 {trendVideos.map((v, i) => (
                   <button key={i} onClick={() => handlePlayVideo(v.url, v.title)}
                     className="group shrink-0 flex flex-col gap-1.5 rounded-xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-[#ff6b4f]/40 hover:bg-white/[0.06] transition text-left">
