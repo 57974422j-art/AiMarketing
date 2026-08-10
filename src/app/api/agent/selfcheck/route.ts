@@ -38,7 +38,19 @@ export async function GET(request: NextRequest) {
     } catch {}
     const points = user.pointBalance ?? 0
     checks.push({ key: 'subscription', label: '订阅有效期', ok: subOk, detail: subInfo })
-    checks.push({ key: 'points', label: '剩余点数', ok: points > 0, detail: points < 0 ? `${points} 点（⚠️ 余额为负，请联系管理员）` : `${points} 点（点卡余额）` })
+    // 2026-08-10：剩余点数 = 套餐额度 + 点卡（不再只显示点卡，年卡用户也能看到额度）
+    let pointsDetail = `${points} 点（点卡余额）`
+    let pointsOk = points > 0
+    try {
+      const { getTokenWallet } = await import('@/lib/token-wallet')
+      const wallet = await getTokenWallet(user.id)
+      if (wallet.hasSubscription) {
+        const subTxt = wallet.subRemaining < 0 ? '无限额度' : `${wallet.subRemaining} 点（套餐额度，月${wallet.allowance < 0 ? '?' : wallet.allowance}）`
+        pointsDetail = `${subTxt} + 点卡 ${wallet.pointBalance} 点`
+        pointsOk = wallet.remaining > 0
+      }
+    } catch {}
+    checks.push({ key: 'points', label: '剩余点数', ok: pointsOk, detail: pointsDetail })
 
     // 3) 长期记忆
     try {
@@ -48,19 +60,19 @@ export async function GET(request: NextRequest) {
       checks.push({ key: 'memory', label: '长期记忆', ok: false, detail: '查询失败: ' + e.message })
     }
 
-    // 4) 语音 ASR（本地 8766 代理 + 百炼 key）
+    // 4) 语音 ASR（2026-08-10：检查 FunASR 常驻服务 8765——服务器实际用的；8766 是本地客户端百炼代理）
     try {
       const http = require('http')
       const asrAlive = await new Promise<boolean>((resolve) => {
-        const req = http.get({ host: '127.0.0.1', port: 8766, path: '/', timeout: 1200 }, (r: any) => { r.resume(); resolve(true) })
+        const req = http.get({ host: '127.0.0.1', port: 8765, path: '/', timeout: 1500 }, (r: any) => { r.resume(); resolve(true) })
         req.on('error', () => resolve(false))
         req.on('timeout', () => { req.destroy(); resolve(false) })
       })
       const dashKey = process.env.DASHSCOPE_API_KEY ? '已配置' : '未配置'
       checks.push({
         key: 'asr', label: '语音识别',
-        ok: asrAlive && !!process.env.DASHSCOPE_API_KEY,
-        detail: `本地代理${asrAlive ? '正常' : '未启动'} · 百炼key ${dashKey}`,
+        ok: asrAlive || !!process.env.DASHSCOPE_API_KEY,
+        detail: `FunASR服务${asrAlive ? '正常' : '未启动（可回退脚本/百炼）'} · 百炼key ${dashKey}`,
       })
     } catch { checks.push({ key: 'asr', label: '语音识别', ok: false, detail: '检查失败' }) }
 
