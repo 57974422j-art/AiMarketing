@@ -9,6 +9,7 @@
 ## 2026-08-10
 | 日期 | 操作内容 | 改动文件 | 结果 |
 |---|---|---|---|
+| 08-10 | 二期B：create_ai_video 一句话成片（自动分镜→创建任务→后台生成，两段式费用确认）+ 修复 storyboard 动态 import 路径致服务器 build 失败 | src/app/api/agent/chat/route.ts | ✅ 已推送，服务器部署验证通过（/api/agent/storyboard 401 正常） |
 | 08-10 | 二期A：AI 全自动成片——generate_video >15s 自动走 generateLongVideo（首尾帧接力）+ 成本预估两段式确认 + generate_storyboard 分镜协议 + 分镜任务引擎（StoryboardTask 表/后台逐镜/单镜重试/进度，Agent 工具 create_storyboard_task/query_storyboard） | src/app/api/agent/chat/route.ts、src/app/api/agent/storyboard/{route,retry/route}.ts、prisma/schema.prisma | ✅ c08031f 已推送，本地端到端验证通过（创建/进度/失败路径），待部署 |
 |---|---|---|---|
 | 08-10 | 成片诚实协议：chat prompt 加「成片诚实协议」（先查库/禁编素材/BGM/预填、提议句式）+ search_storage 描述禁编 + 免费素材站引导 | src/app/api/agent/chat/route.ts | ✅ 推送 f269c22，待部署 |

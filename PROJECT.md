@@ -257,7 +257,7 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 |---|---|---|
 | 一期 | 诚实协议：chat prompt 硬规则（先查库/禁胡诌/提议句式）+ search_storage 工具描述 + 免费素材站引导（Pixabay/Pexels/Videvo/Coverr/Mixkit） | ✅ 2026-08-10 f269c22 已推送，待部署 |
 | 二期 A | ① generate_video 升级：>15s 自动走 generateLongVideo（首尾帧接力）② 分镜协议 generate_storyboard ③ 成片任务引擎（StoryboardTask 表：后台逐镜生成/单镜重试/进度，Agent 工具 create_storyboard_task/query_storyboard）④ 成本预估提示（两段式确认：首调只报价，用户确认才生成） | ✅ 2026-08-10 c08031f 已推送（待部署）|
-| 二期 B | 前端分镜节点链视图（简化版）+ create_ai_video 一句话成片 | ⬜ |
+| 二期 B | create_ai_video 一句话成片 ✅（自动分镜+建任务，c0810）；前端分镜节点链视图（简化版）⬜ 待定 |
 | 三期 | Minimax AI 音乐（BGM 真生成）+ 发布真执行（publish_content 由只校验改真发，打通指纹浏览器） | ⬜ |
 | 中转站调研 | 候选 OpenRouter/fal.ai/Replicate/infistar.ai（用户自研选型）。**必须覆盖**：文生图/文生视频/图生视频/克隆视频，按实际需求定。infistar 有 kling-v2-6/seedance-2.5/mimo/wan2.7（无 Sora/Veo）；OpenRouter/fal 有 Sora2/Veo3。接法：ai-providers.ts 加中转通道+双通道降级链 | 🟡 调研中 |
 

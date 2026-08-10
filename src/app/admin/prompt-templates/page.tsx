@@ -10,6 +10,9 @@ interface PromptItem {
   prompt: string
   previewUrl: string | null
   industry?: string | null
+  coverUrl?: string | null
+  tags?: string | null
+  author?: string | null
 }
 
 interface FetchLog {
@@ -58,6 +61,7 @@ export default function AdminPromptTemplatesPage() {
   const [submitting, setSubmitting] = useState(false)
   const [filterCat, setFilterCat] = useState('')
   const [industryFilter, setIndustryFilter] = useState('')
+  const [tagFilter, setTagFilter] = useState('')
   const [modeTab, setModeTab] = useState<ModeTab>('image')
 
   // 主 Tab（2026-08-08：逻辑分组，避免按钮混乱）
@@ -88,6 +92,30 @@ export default function AdminPromptTemplatesPage() {
   const [vidFetchBusy, setVidFetchBusy] = useState(false)
   const [vidFetchRunning, setVidFetchRunning] = useState(false)
   const [vidFetchLog, setVidFetchLog] = useState('')
+  // 提示词库同步（2026-08-10）
+  const PROMPT_SOURCES = [
+    { id: 'banana-prompt-quicker', name: 'Banana Prompt Quicker（中文社区·质量高）', url: 'https://cdn.jsdelivr.net/gh/yukkcat/image-prompts@main/dist/sources/banana-prompt-quicker.json' },
+    { id: 'awesome-gpt-image', name: 'Awesome GPT Image', url: 'https://cdn.jsdelivr.net/gh/yukkcat/image-prompts@main/dist/sources/awesome-gpt-image.json' },
+    { id: 'awesome-gpt4o-image-prompts', name: 'Awesome GPT-4o', url: 'https://cdn.jsdelivr.net/gh/yukkcat/image-prompts@main/dist/sources/awesome-gpt4o-image-prompts.json' },
+    { id: 'youmind-nano-banana-pro', name: 'YouMind Nano Banana Pro', url: 'https://cdn.jsdelivr.net/gh/yukkcat/image-prompts@main/dist/sources/youmind-nano-banana-pro.json' },
+  ]
+  const [syncSelected, setSyncSelected] = useState<string[]>(['banana-prompt-quicker'])
+  const [customSourceUrl, setCustomSourceUrl] = useState('')
+  const [syncBusy, setSyncBusy] = useState(false)
+  const [syncResult, setSyncResult] = useState<any[] | null>(null)
+  const handleSyncPrompts = async () => {
+    setSyncBusy(true); setSyncResult(null)
+    try {
+      const sources = PROMPT_SOURCES.filter(s => syncSelected.includes(s.id))
+      if (customSourceUrl.trim()) sources.push({ id: 'custom', name: '自定义源', url: customSourceUrl.trim() })
+      const r = await fetch('/api/admin/prompt-sync', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sources }), credentials: 'include' })
+      const d = await r.json()
+      setSyncResult(d?.data?.results || [])
+      if (d.success) loadItems()
+    } catch { setSyncResult([{ id: 'x', name: '同步', error: '请求失败' }]) }
+    finally { setSyncBusy(false) }
+  }
   const refreshVidLog = async () => {
     try {
       const r = await fetch('/api/admin/fetch-videos', { credentials: 'include' })
@@ -150,7 +178,8 @@ export default function AdminPromptTemplatesPage() {
 
   useEffect(() => { if (!authLoading && user && user.role === 'admin') loadItems() }, [filterCat, modeTab])
 
-  const filteredItems = items
+  const filteredItems = tagFilter ? items.filter(i => (i.tags || '').includes(tagFilter)) : items
+  const allTags = Array.from(new Set((items || []).flatMap(i => (i.tags || '').split(',').map(t => t.trim()).filter(Boolean))))
 
   // ===== 选择 =====
   const toggleSelect = (id: number) => {
@@ -423,6 +452,16 @@ export default function AdminPromptTemplatesPage() {
                   className={`px-2 py-1 rounded text-[11px] ${industryFilter === c ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>{c}</button>
               ))}
             </div>
+            <div className="flex gap-2 mb-4 flex-wrap items-center">
+              <span className="text-[10px] text-gray-500 font-mono">标签:</span>
+              <button onClick={() => setTagFilter('')}
+                className={`px-2 py-1 rounded text-[11px] ${!tagFilter ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>全部</button>
+              {allTags.slice(0, 30).map((t: string) => (
+                <button key={t} onClick={() => setTagFilter(tagFilter === t ? '' : t)}
+                  className={`px-2 py-1 rounded text-[11px] ${tagFilter === t ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>{t}</button>
+              ))}
+              {allTags.length > 30 && <span className="text-[10px] text-gray-600">+{allTags.length - 30} 更多</span>}
+            </div>
 
             {/* 新建/编辑表单 */}
             {showForm && (
@@ -459,15 +498,15 @@ export default function AdminPromptTemplatesPage() {
                 <div className={isVert ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3'}>
                   {items.map(item => (
                     <div key={item.id} className={`bg-gray-900/60 border-2 rounded-xl overflow-hidden transition-all ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-white/10'} ${isVert ? 'aspect-[9/16]' : 'aspect-video'}`}>
-                      {item.previewUrl ? (
-                        <div className={`relative w-full h-full group bg-black/50 ${item.previewUrl.endsWith('.mp4') ? 'cursor-pointer' : ''}`} onClick={() => item.previewUrl?.endsWith('.mp4') && setPlayVideo(item.previewUrl)}>
-                          {item.previewUrl.endsWith('.mp4')
-                            ? <video src={item.previewUrl} className="w-full h-full object-cover" />
-                            : <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
+                      {(item.previewUrl || item.coverUrl) ? (
+                        <div className={`relative w-full h-full group bg-black/50 ${(item.previewUrl || item.coverUrl).endsWith('.mp4') ? 'cursor-pointer' : ''}`} onClick={() => (item.previewUrl || item.coverUrl)?.endsWith('.mp4') && setPlayVideo(item.previewUrl || item.coverUrl)}>
+                          {(item.previewUrl || item.coverUrl).endsWith('.mp4')
+                            ? <video src={item.previewUrl || item.coverUrl} className="w-full h-full object-cover" />
+                            : <img src={item.previewUrl || item.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                           }
-                          {!item.previewUrl.endsWith('.mp4') && (
+                          {!(item.previewUrl || item.coverUrl).endsWith('.mp4') && (
                             <div className="hidden group-hover:block fixed z-40 pointer-events-none" style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)', maxWidth: '60vw', maxHeight: '80vh' }}>
-                              <img src={item.previewUrl} alt="" className="max-w-[60vw] max-h-[80vh] rounded-xl shadow-2xl border border-white/20" />
+                              <img src={item.previewUrl || item.coverUrl} alt="" className="max-w-[60vw] max-h-[80vh] rounded-xl shadow-2xl border border-white/20" />
                             </div>
                           )}
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
@@ -483,6 +522,8 @@ export default function AdminPromptTemplatesPage() {
                             <h3 className="text-white text-xs font-bold truncate">{item.title}</h3>
                             <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/40 text-cyan-200' : 'bg-emerald-500/40 text-emerald-200'}`}>{item.category}</span>
                             {item.industry ? <span className="inline-block mt-0.5 ml-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/30 text-amber-200">{item.industry}</span> : null}
+                            {item.tags ? <div className="mt-0.5 flex gap-1 flex-wrap">{item.tags.split(',').slice(0, 3).map((t: string) => <span key={t} className="px-1 py-0.5 rounded text-[8px] bg-violet-500/20 text-violet-300">{t}</span>)}</div> : null}
+                            {item.author ? <div className="text-[8px] text-gray-500 mt-0.5">✍️ {item.author}</div> : null}
                             <p className="text-gray-300 text-[10px] mt-0.5 line-clamp-1">{item.prompt}</p>
                           </div>
                         </div>
@@ -493,6 +534,8 @@ export default function AdminPromptTemplatesPage() {
                           <h3 className="text-white font-bold text-xs">{item.title}</h3>
                           <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] ${item.category === '文生图' || item.category === '文生视频' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-emerald-500/20 text-emerald-400'}`}>{item.category}</span>
                           {item.industry ? <span className="inline-block mt-1 ml-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300">{item.industry}</span> : null}
+                          {item.tags ? <div className="mt-1 flex gap-1 flex-wrap justify-center">{item.tags.split(',').slice(0, 3).map((t: string) => <span key={t} className="px-1 py-0.5 rounded text-[8px] bg-violet-500/20 text-violet-300">{t}</span>)}</div> : null}
+                          {item.author ? <div className="text-[8px] text-gray-500 mt-0.5">✍️ {item.author}</div> : null}
                           <p className="text-gray-500 text-[10px] mt-1 line-clamp-2">{item.prompt}</p>
                           <div className="flex gap-2 mt-2">
                             <button onClick={() => openEdit(item)} className="px-2 py-1 text-[10px] bg-white/10 text-gray-300 rounded">编辑</button>
@@ -554,6 +597,40 @@ export default function AdminPromptTemplatesPage() {
               </div>
               {vidFetchLog && (
                 <pre className="mt-3 max-h-40 overflow-y-auto bg-black/30 border border-white/5 rounded-lg p-2 text-[10px] text-emerald-300 whitespace-pre-wrap">{vidFetchLog}</pre>
+              )}
+            </div>
+
+            {/* 📚 提示词库同步（2026-08-10，参考 canvas.best 多源机制） */}
+            <div className="bg-violet-900/20 border border-violet-500/20 rounded-2xl p-4 mb-4">
+              <h3 className="text-white font-bold text-sm mb-1">📚 提示词库同步（社区高质量源）</h3>
+              <p className="text-[11px] text-gray-500 mb-3">从开源提示词仓库拉取（中文标题/封面/标签/作者），按 sourceKey 去重。同步后可在一键成片/文生图里选用。</p>
+              <div className="flex flex-col gap-2 mb-3">
+                {PROMPT_SOURCES.map(s => (
+                  <label key={s.id} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                    <input type="checkbox" checked={syncSelected.includes(s.id)} onChange={() => setSyncSelected(prev => prev.includes(s.id) ? prev.filter(x => x !== s.id) : [...prev, s.id])}
+                      className="accent-violet-500 w-4 h-4" />
+                    {s.name}
+                    <span className="text-[10px] text-gray-600 truncate">{s.url}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <input value={customSourceUrl} onChange={e => setCustomSourceUrl(e.target.value)} placeholder="自定义 JSON 源 URL（可选）"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600" />
+                <button onClick={handleSyncPrompts} disabled={syncBusy}
+                  className="px-4 py-2 bg-violet-500/20 border border-violet-500/30 text-violet-300 rounded-lg text-xs hover:bg-violet-500/30 disabled:opacity-50">
+                  {syncBusy ? '同步中…' : '🔄 同步入库'}
+                </button>
+              </div>
+              {syncResult && (
+                <div className="mt-3 space-y-1">
+                  {syncResult.map(r => (
+                    <div key={r.id} className="text-[10px] font-mono">
+                      {r.error ? <span className="text-red-400">❌ {r.name}: {r.error}</span>
+                        : <span className="text-violet-300">✅ {r.name}: +{r.added} 新增 / {r.skipped} 跳过</span>}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
             <div className="grid md:grid-cols-3 gap-4 mb-5">

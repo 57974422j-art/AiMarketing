@@ -75,13 +75,25 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ success: true, data: { id: task.id, totalShots: normalized.length, costPoints } })
 }
 
-// GET 查进度
+// GET：list=1 返回任务列表；否则查单个任务进度
 export async function GET(req: NextRequest) {
   const auth = getAuthFromHeaders(req)
   if (!auth?.userId) return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
-  const id = parseInt(new URL(req.url).searchParams.get('id') || '0')
+  const sp = new URL(req.url).searchParams
+  if (sp.get('list') === '1') {
+    const isAdmin = auth.role === 'admin'
+    const tasks = await prisma.storyboardTask.findMany({
+      where: isAdmin ? {} : { userId: auth.userId },
+      orderBy: { createdAt: 'desc' }, take: 50,
+      select: { id: true, title: true, topic: true, status: true, doneShots: true, totalShots: true,
+        costPoints: true, videoUrl: true, duration: true, ratio: true, createdAt: true, userId: true },
+    })
+    return NextResponse.json({ success: true, data: { list: tasks } })
+  }
+  const id = parseInt(sp.get('id') || '0')
   if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
-  const task = await prisma.storyboardTask.findFirst({ where: { id, userId: auth.userId } })
+  const isAdmin2 = auth.role === 'admin'
+  const task = await prisma.storyboardTask.findFirst({ where: isAdmin2 ? { id } : { id, userId: auth.userId } })
   if (!task) return NextResponse.json({ success: false, message: '任务不存在' }, { status: 404 })
   const shots = JSON.parse(task.shots || '[]')
   return NextResponse.json({ success: true, data: {
@@ -89,4 +101,27 @@ export async function GET(req: NextRequest) {
     costPoints: task.costPoints, videoUrl: task.videoUrl, error: task.error, shots,
     createdAt: task.createdAt,
   } })
+}
+
+// PATCH：编辑单镜 prompt/desc（改完自动重置该镜为 pending 并重跑）
+export async function PATCH(req: NextRequest) {
+  const auth = getAuthFromHeaders(req)
+  if (!auth?.userId) return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
+  let body: any = {}
+  try { body = await req.json() } catch {}
+  const id = parseInt(body.id || '0')
+  const shotNo = parseInt(body.shot || '0')
+  if (!id || !shotNo) return NextResponse.json({ success: false, message: '缺少 id 或 shot' }, { status: 400 })
+  const isAdmin = auth.role === 'admin'
+  const task = await prisma.storyboardTask.findFirst({ where: isAdmin ? { id } : { id, userId: auth.userId } })
+  if (!task) return NextResponse.json({ success: false, message: '任务不存在' }, { status: 404 })
+  const shots = JSON.parse(task.shots || '[]')
+  const shot = shots.find((s: any) => s.shot === shotNo)
+  if (!shot) return NextResponse.json({ success: false, message: '分镜不存在' }, { status: 404 })
+  if (body.prompt !== undefined && body.prompt !== null) shot.prompt = String(body.prompt).substring(0, 500)
+  if (body.desc !== undefined && body.desc !== null) shot.desc = String(body.desc).substring(0, 200)
+  shot.status = 'pending'; shot.error = null; shot.videoUrl = null
+  await prisma.storyboardTask.update({ where: { id }, data: { shots: JSON.stringify(shots) } })
+  runShots(id, shots, task.ratio).catch(e => console.error('[Storyboard patch]', e))
+  return NextResponse.json({ success: true, message: `分镜${shotNo}已更新并重新生成` })
 }
