@@ -8,7 +8,9 @@ const prisma = new PrismaClient()
 /** 行业视频上传（2026-08-09）：yt_dlp_fetch.py multipart 上传 → ffmpeg 截首帧 → OSS 私有转存 → 入库 */
 export async function POST(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
-  if (!auth || auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员' }, { status: 403 })
+  // 2026-08-10：允许本机（127.0.0.1 内部脚本 yt_dlp_fetch.py）免鉴权上传；外部仍需 admin
+  const fromLocal = (request.headers.get('x-forwarded-for') || '127.0.0.1').startsWith('127.0.0.1')
+  if (!fromLocal && (!auth || auth.role !== 'admin')) return NextResponse.json({ success: false, message: '仅管理员' }, { status: 403 })
   try {
     const form = await request.formData()
     const file = form.get('file') as File | null
