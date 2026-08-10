@@ -705,6 +705,23 @@ model PromptTemplate {
   sourceKey   String?   // 来源标识（源名:hash 或 sourceId），用于去重
 }
 
+// 提示词源管理（2026-08-10：canvas.best 风格独立页 /admin/prompt-sources）
+model PromptSource {
+  id         Int      @id @default(autoincrement())
+  name       String                       // 源名称
+  url        String                       // JSON 拉取地址
+  homepage   String?                      // 主页链接
+  enabled    Boolean  @default(true)
+  intervalMin Int     @default(30)         // 定时拉取间隔（分钟，0=不自动）
+  lastSyncAt DateTime?                    // 上次成功时间
+  lastStatus String   @default("never")   // never/success/error
+  lastError  String?
+  itemCount  Int      @default(0)          // 已入库条数
+  builtIn    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
 // 背景音乐库：精选免版税 BGM 转存 OSS 后入库，永久可用（避免原直链失效）
 model BgmTrack {
   id         Int      @id @default(autoincrement())

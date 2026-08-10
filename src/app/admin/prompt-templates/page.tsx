@@ -92,30 +92,6 @@ export default function AdminPromptTemplatesPage() {
   const [vidFetchBusy, setVidFetchBusy] = useState(false)
   const [vidFetchRunning, setVidFetchRunning] = useState(false)
   const [vidFetchLog, setVidFetchLog] = useState('')
-  // 提示词库同步（2026-08-10）
-  const PROMPT_SOURCES = [
-    { id: 'banana-prompt-quicker', name: 'Banana Prompt Quicker（中文社区·质量高）', url: 'https://cdn.jsdelivr.net/gh/yukkcat/image-prompts@main/dist/sources/banana-prompt-quicker.json' },
-    { id: 'awesome-gpt-image', name: 'Awesome GPT Image', url: 'https://cdn.jsdelivr.net/gh/yukkcat/image-prompts@main/dist/sources/awesome-gpt-image.json' },
-    { id: 'awesome-gpt4o-image-prompts', name: 'Awesome GPT-4o', url: 'https://cdn.jsdelivr.net/gh/yukkcat/image-prompts@main/dist/sources/awesome-gpt4o-image-prompts.json' },
-    { id: 'youmind-nano-banana-pro', name: 'YouMind Nano Banana Pro', url: 'https://cdn.jsdelivr.net/gh/yukkcat/image-prompts@main/dist/sources/youmind-nano-banana-pro.json' },
-  ]
-  const [syncSelected, setSyncSelected] = useState<string[]>(['banana-prompt-quicker'])
-  const [customSourceUrl, setCustomSourceUrl] = useState('')
-  const [syncBusy, setSyncBusy] = useState(false)
-  const [syncResult, setSyncResult] = useState<any[] | null>(null)
-  const handleSyncPrompts = async () => {
-    setSyncBusy(true); setSyncResult(null)
-    try {
-      const sources = PROMPT_SOURCES.filter(s => syncSelected.includes(s.id))
-      if (customSourceUrl.trim()) sources.push({ id: 'custom', name: '自定义源', url: customSourceUrl.trim() })
-      const r = await fetch('/api/admin/prompt-sync', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sources }), credentials: 'include' })
-      const d = await r.json()
-      setSyncResult(d?.data?.results || [])
-      if (d.success) loadItems()
-    } catch { setSyncResult([{ id: 'x', name: '同步', error: '请求失败' }]) }
-    finally { setSyncBusy(false) }
-  }
   const refreshVidLog = async () => {
     try {
       const r = await fetch('/api/admin/fetch-videos', { credentials: 'include' })
@@ -600,39 +576,6 @@ export default function AdminPromptTemplatesPage() {
               )}
             </div>
 
-            {/* 📚 提示词库同步（2026-08-10，参考 canvas.best 多源机制） */}
-            <div className="bg-violet-900/20 border border-violet-500/20 rounded-2xl p-4 mb-4">
-              <h3 className="text-white font-bold text-sm mb-1">📚 提示词库同步（社区高质量源）</h3>
-              <p className="text-[11px] text-gray-500 mb-3">从开源提示词仓库拉取（中文标题/封面/标签/作者），按 sourceKey 去重。同步后可在一键成片/文生图里选用。</p>
-              <div className="flex flex-col gap-2 mb-3">
-                {PROMPT_SOURCES.map(s => (
-                  <label key={s.id} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-                    <input type="checkbox" checked={syncSelected.includes(s.id)} onChange={() => setSyncSelected(prev => prev.includes(s.id) ? prev.filter(x => x !== s.id) : [...prev, s.id])}
-                      className="accent-violet-500 w-4 h-4" />
-                    {s.name}
-                    <span className="text-[10px] text-gray-600 truncate">{s.url}</span>
-                  </label>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <input value={customSourceUrl} onChange={e => setCustomSourceUrl(e.target.value)} placeholder="自定义 JSON 源 URL（可选）"
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-600" />
-                <button onClick={handleSyncPrompts} disabled={syncBusy}
-                  className="px-4 py-2 bg-violet-500/20 border border-violet-500/30 text-violet-300 rounded-lg text-xs hover:bg-violet-500/30 disabled:opacity-50">
-                  {syncBusy ? '同步中…' : '🔄 同步入库'}
-                </button>
-              </div>
-              {syncResult && (
-                <div className="mt-3 space-y-1">
-                  {syncResult.map(r => (
-                    <div key={r.id} className="text-[10px] font-mono">
-                      {r.error ? <span className="text-red-400">❌ {r.name}: {r.error}</span>
-                        : <span className="text-violet-300">✅ {r.name}: +{r.added} 新增 / {r.skipped} 跳过</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
             <div className="grid md:grid-cols-3 gap-4 mb-5">
               {/* 抓图 */}
               <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
