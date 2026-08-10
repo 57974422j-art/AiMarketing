@@ -135,19 +135,14 @@ def fetch_one(industry, keyword):
     """下载一条 → multipart 上传本地 API（API 负责截帧/OSS 私有/入库）"""
     import yt_dlp
     try:
-        # 每次下载前取新代理（快代理动态住宅 30 分钟有效，自动续）
+        # 每次下载前取代理（SS 节点轮换）
         proxy_info = get_proxy()
         ydl = ydl_with_proxy(proxy_info['proxy'] if proxy_info else '')
-        info = ydl.extract_info(f'ytsearch1:{keyword}', download=False)['entries'][0]
-        vid_id = info.get('id', '')
-        title = (info.get('title') or keyword)[:80]
-        if not vid_id:
-            log(f'  [{industry}] 无结果: {keyword}')
-            return None
-        ydl2 = make_ydl()
-        ydl2.params['outtmpl'] = f'/tmp/indv_{vid_id}.%(ext)s'
-        info2 = ydl2.extract_info(f'https://www.youtube.com/watch?v={vid_id}', download=True)
-        file_path = ydl2.prepare_filename(info2)
+        # 2026-08-10：一步到位（ytsearch1 直接下载）——download=False 搜索路径会触发 HTTPS proxy 依赖错
+        info2 = ydl.extract_info(f'ytsearch1:{keyword}', download=True)
+        vid_id = info2.get('id', '')
+        title = (info2.get('title') or keyword)[:80]
+        file_path = ydl.prepare_filename(info2)
         if not os.path.exists(file_path):
             candidates = [f'/tmp/indv_{vid_id}.mp4', f'/tmp/indv_{vid_id}.webm', f'/tmp/indv_{vid_id}.mkv']
             file_path = next((f for f in candidates if os.path.exists(f)), None)
