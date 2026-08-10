@@ -9,6 +9,7 @@
 ## 2026-08-10
 | 日期 | 操作内容 | 改动文件 | 结果 |
 |---|---|---|---|
+| 08-11 | admin/settings 改造：修 Serper 保存无效 + statusMap 全量状态 + 顶部汇总条 + vvhan/Serper 徽章/测试 + test-key 加 serper/vvhan；selfcheck 优化（点数显示套餐额度/ASR 改 8765/热点 401 修复）；热点白名单；spendTokens 下限 0；套餐编辑 PUT 修复；sync-db.cmd | 多文件 | ✅ 0dde31c 已推送，待部署 |
 | 08-10 | 生成历史+查看提示词（/api/generation-records + image/text-to-video 历史区：prompt 复制/模型/复用）+ 文生图升级 qwen-image-3.0-pro（修中文乱码）+ 用户画像登记表单（首登 → AgentMemory） | src/app/api/generation-records、image-generator、text-to-video、ai-providers、agent/page.tsx、memories | ✅ 已推送（见 git log） |
 | 08-10 | 提示词发布到素材库：PromptTemplate.published（默认不推）+ publish API + admin 发布/下架按钮 + media-library「提示词」Tab（复制/用这个生成）+ 封面转存 OSS（migrate-covers）+ 标签筛选修复 | prisma/schema.prisma、api/admin/prompt-templates/publish、api/prompts-public、media-library/page.tsx、prompt-sources 等 | ✅ 已推送，验证发布/下架即时生效 |
 | 08-10 | 提示词源独立页 /admin/prompt-sources（6 内置源/条数/状态/间隔/单源刷新/自定义/服务端定时拉取 + PromptSource 表）+ prompt-templates 移除同步区块收口 | src/app/admin/prompt-sources/page.tsx、src/app/api/admin/prompt-sources/route.ts、prisma/schema.prisma、src/app/admin/prompt-templates/page.tsx | ✅ 已推送，本地验证 6 源 1201 条 |
