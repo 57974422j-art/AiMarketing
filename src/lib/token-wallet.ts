@@ -162,9 +162,10 @@ export async function spendTokens(userId: number, cost: number, reason: string):
       })
     }
     if (fromBalance > 0) {
+      // 2026-08-10：点卡余额不扣成负数（下限 0）
       await prisma.user.update({
         where: { id: userId },
-        data: { pointBalance: { decrement: fromBalance } },
+        data: { pointBalance: Math.max(0, wallet.pointBalance - fromBalance) },
       })
       await prisma.usageLog.create({
         data: { userId, action: POINT_CARD_ACTION, tokens: fromBalance, count: 1, model: reason },
