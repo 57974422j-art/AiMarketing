@@ -8,10 +8,10 @@ type OrbState = 'idle' | 'listening' | 'recognizing' | 'speaking' | 'thinking'
 
 const STATE_CFG: Record<OrbState, { amp: number; spd: number; r: [number, number, number]; g: [number, number, number]; b: [number, number, number] }> = {
   idle:        { amp: 0.01, spd: 0.5,  r: [90, 150, 210], g: [120, 190, 235], b: [200, 240, 255] },
-  listening:   { amp: 0.08, spd: 1.0,  r: [200, 230, 255], g: [210, 240, 255], b: [235, 250, 255] },
-  recognizing: { amp: 0.5,  spd: 3.0,  r: [20, 90, 200],   g: [80, 180, 250],  b: [190, 240, 255] },
-  speaking:    { amp: 0.15, spd: 1.4,  r: [150, 110, 220], g: [120, 90, 200],  b: [240, 210, 255] },
-  thinking:    { amp: 0.2,  spd: 1.6,  r: [110, 70, 220],  g: [90, 60, 200],   b: [230, 200, 255] },
+  listening:   { amp: 0.28, spd: 1.0,  r: [200, 230, 255], g: [210, 240, 255], b: [235, 250, 255] },
+  recognizing: { amp: 0.6,  spd: 3.0,  r: [20, 90, 200],   g: [80, 180, 250],  b: [190, 240, 255] },
+  speaking:    { amp: 0.35, spd: 1.4,  r: [150, 110, 220], g: [120, 90, 200],  b: [240, 210, 255] },
+  thinking:    { amp: 0.3,  spd: 1.6,  r: [110, 70, 220],  g: [90, 60, 200],   b: [230, 200, 255] },
 }
 
 interface Props {
@@ -68,6 +68,8 @@ export default function VoiceOrb({ state, size = 200, volume = 0, className }: P
     let rotY = 0, rotX = Math.PI / 2 // 2026-08-06：环面正面朝屏幕（正圆环，与光晕同心，无自转/无拖拽）
     let dragging = false, prevX = 0, prevY = 0
     let audioSmooth = 0
+    let prevAudio = 0
+    let pulse = 0      // 音量骤升能量脉冲（0~1，衰减）
 
 
     // 3D 投影
@@ -92,13 +94,19 @@ export default function VoiceOrb({ state, size = 200, volume = 0, className }: P
       const cfg = STATE_CFG[stateRef.current]
       const vol = Math.min(1, Math.max(0, volRef.current))
       t += 0.016 * cfg.spd
-      audioSmooth = audioSmooth * 0.75 + vol * 0.25
-      const aInt = audioSmooth
+      audioSmooth = audioSmooth * 0.5 + vol * 0.5
+      // 幂次放大：低音量差异放大，高音量封顶 1.2，语音时强弱起伏明显
+      const aInt = Math.min(1.2, Math.pow(audioSmooth, 0.6))
+      // 音量骤升 → 能量脉冲（触发扩散光环）
+      if (aInt - prevAudio > 0.3) pulse = Math.min(1, pulse + (aInt - prevAudio) * 1.6)
+      prevAudio = audioSmooth
+      pulse *= 0.94  // 衰减
 
       ctx.clearRect(0, 0, size, size)
 
-      // 呼吸脉动
-      const breath = Math.sin(t * 2.2) * 0.1 + 1
+      // 呼吸脉动（2026-08-10：不对称呼吸——吸气快呼气慢，幅度 ±18%）
+      const breathT = t * 1.4
+      const breath = 1 + Math.sin(breathT) * 0.18 * (0.5 + 0.5 * Math.abs(Math.sin(breathT)))
 
       // ===== 多圈光圈（最外层） =====
       for (let i = 0; i < 4; i++) {
@@ -200,7 +208,7 @@ export default function VoiceOrb({ state, size = 200, volume = 0, className }: P
       for (const p of particles) {
         p.theta += p.speedTheta * (1 + aInt * 3)
         p.phi += p.speedPhi * (1 + aInt * 2)
-        const pert = Math.sin(p.theta * p.freq + t * 3) * p.amp * (6 + aInt * 40)
+        const pert = Math.sin(p.theta * p.freq + t * 3) * p.amp * (6 + aInt * 70)
         const tp = torus(p.theta, p.phi, pert)
         const pp = project(tp.x, tp.y, tp.z)
         p.px = pp.x; p.py = pp.y; p.depth = pp.depth; p.scale = pp.s
@@ -210,7 +218,7 @@ export default function VoiceOrb({ state, size = 200, volume = 0, className }: P
         const alpha = Math.min(0.9, Math.max(0.15, p.scale - 0.1))
         const hue = (p.hue + aInt * 50) % 360
         const light = p.light + aInt * 35
-        const ps = p.size * p.scale * (0.8 + aInt * 1.5)
+        const ps = p.size * p.scale * (0.8 + aInt * 2.2)
         ctx.beginPath()
         ctx.arc(p.px, p.py, ps, 0, TAU)
         ctx.fillStyle = `hsla(${hue}, ${p.sat}%, ${light}%, ${alpha})`
@@ -234,20 +242,58 @@ export default function VoiceOrb({ state, size = 200, volume = 0, className }: P
       ctx.fillStyle = cg
       ctx.beginPath(); ctx.arc(cp.x, cp.y, coreR, 0, TAU); ctx.fill()
 
-      // ===== 声纹波动环（2026-08-07：语音时由内向外扩散发光）=====
+      // ===== 语音能量弧（2026-08-10：随音量伸缩的弧线仪表，直观"声音有多大"）=====
+      if (aInt > 0.12) {
+        const arcFrac = Math.min(1, (aInt - 0.12) / 0.7)   // 0~1 随音量
+        const arcR = R * 0.98
+        const startA = -Math.PI / 2
+        const arcLen = TAU * arcFrac * 0.8
+        ctx.beginPath()
+        for (let th = 0; th <= arcLen; th += 0.05) {
+          const ang = startA + th
+          const x = arcR * Math.cos(ang)
+          const z = arcR * Math.sin(ang)
+          const y = Math.sin(th * 8 - t * 4) * 3 * aInt
+          const pp = project(x, y, z)
+          if (th === 0) ctx.moveTo(pp.x, pp.y); else ctx.lineTo(pp.x, pp.y)
+        }
+        ctx.strokeStyle = `hsla(${waveHue}, 96%, 70%, ${0.5 + aInt * 0.4})`
+        ctx.lineWidth = 3 + aInt * 3
+        ctx.shadowBlur = 14 + aInt * 18
+        ctx.shadowColor = waveHue > 250 ? '#c060ff' : '#00e0ff'
+        ctx.stroke()
+        ctx.shadowBlur = 0
+      }
+
+      // ===== 声纹波动环（2026-08-10：波纹随音量增多、线宽加大、能量脉冲扩散）=====
+      const waveHue = stateRef.current === 'speaking' ? 270 : 200
       if (aInt > 0.03) {
-        const waves = 3
+        const waves = 3 + Math.floor(aInt * 4)  // 音量越大波纹越多（最多 7）
         for (let i = 0; i < waves; i++) {
-          const phase = (t * 1.4 + i / waves) % 1
-          const wr = coreR * 0.6 + phase * (R * 1.3)
-          const alpha = (1 - phase) * (0.22 + aInt * 0.5)
+          const phase = (t * 1.6 + i / waves) % 1
+          const wr = coreR * 0.5 + phase * (R * (1.25 + aInt * 0.35))
+          const alpha = (1 - phase) * (0.25 + aInt * 0.6)
           if (alpha < 0.02) continue
           ctx.beginPath()
           ctx.arc(cp.x, cp.y, wr, 0, TAU)
-          ctx.strokeStyle = `hsla(${200 + i * 26}, 92%, 66%, ${alpha})`
-          ctx.lineWidth = 1.2 + (1 - phase) * 2.4
-          ctx.shadowBlur = 8 + aInt * 16
-          ctx.shadowColor = '#00d0ff'
+          ctx.strokeStyle = `hsla(${waveHue + i * 18}, 94%, 68%, ${alpha})`
+          ctx.lineWidth = (1.4 + (1 - phase) * 3) * (1 + aInt * 1.4)
+          ctx.shadowBlur = 10 + aInt * 22
+          ctx.shadowColor = stateRef.current === 'speaking' ? '#c060ff' : '#00d0ff'
+          ctx.stroke()
+        }
+        ctx.shadowBlur = 0
+      }
+      // 能量脉冲：音量骤升 → 一道快速扩散的冲击光环
+      if (pulse > 0.03) {
+        for (let i = 0; i < 2; i++) {
+          const pr = (1 - pulse) * (R * 2.2) + i * 8
+          ctx.beginPath()
+          ctx.arc(cp.x, cp.y, pr, 0, TAU)
+          ctx.strokeStyle = `hsla(${waveHue}, 100%, 72%, ${pulse * 0.55})`
+          ctx.lineWidth = 2.5 + pulse * 4
+          ctx.shadowBlur = 20 + pulse * 20
+          ctx.shadowColor = '#00e0ff'
           ctx.stroke()
         }
         ctx.shadowBlur = 0
