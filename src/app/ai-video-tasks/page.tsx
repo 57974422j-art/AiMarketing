@@ -1,10 +1,6 @@
 'use client'
-// 动态渲染：useSearchParams 需避开静态预渲染
 
-export const dynamic = 'force-dynamic'
-
-
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/app/providers'
 
@@ -27,7 +23,7 @@ const STATUS_CLS: Record<string, string> = {
   failed: 'bg-red-500/15 text-red-300 border-red-500/40',
 }
 
-export default function AiVideoTasksPage() {
+function AiVideoTasksInner() {
   const router = useRouter()
   const sp = useSearchParams()
   const { user } = useAuth()
@@ -218,5 +214,15 @@ export default function AiVideoTasksPage() {
         )}
       </main>
     </div>
+  )
+
+}
+
+// Suspense 包裹：useSearchParams 需在客户端边界内（避免静态预渲染报错）
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0a0e17] text-white flex items-center justify-center text-gray-500 text-sm">加载中…</div>}>
+      <AiVideoTasksInner />
+    </Suspense>
   )
 }
