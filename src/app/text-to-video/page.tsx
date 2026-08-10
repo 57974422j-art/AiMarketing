@@ -39,6 +39,19 @@ export default function TextToVideoPage() {
   const [resolution, setResolution] = useState('720P')
   const [ratio, setRatio] = useState('16:9')
   const [model, setModel] = useState('')
+  // 生成历史（2026-08-10：查看提示词/复用）
+  const [videoHistory, setVideoHistory] = useState<any[]>([])
+  const [histLoading, setHistLoading] = useState(false)
+  const loadVideoHistory = async () => {
+    setHistLoading(true)
+    try {
+      const r = await fetch('/api/generation-records?type=text2video&limit=16', { credentials: 'include' })
+      const d = await r.json()
+      setVideoHistory(Array.isArray(d?.data?.list) ? d.data.list.filter((x: any) => x.storageUrl || x.platformUrl) : [])
+    } catch { setVideoHistory([]) }
+    finally { setHistLoading(false) }
+  }
+  useEffect(() => { loadVideoHistory() }, [])
   const [longVideo, setLongVideo] = useState(false)
 const [genMode, setGenMode] = useState<'text' | 'image' | 'clone'>('text')
 const [refImage, setRefImage] = useState<File | null>(null)
@@ -701,6 +714,41 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
               ))}
             </div>
           )}
+
+        {/* 🕘 我的生成历史（2026-08-10） */}
+        <div className="mt-10 border-t border-white/10 pt-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold">🕘 我的视频生成历史</h2>
+            <span className="text-[10px] text-gray-500">最近 {videoHistory.length} 条 · 点「↻」复用提示词</span>
+          </div>
+          {histLoading ? <div className="text-gray-500 text-center py-8 text-xs">加载中…</div>
+          : videoHistory.length === 0 ? <div className="text-gray-600 text-center py-8 text-xs">还没有生成记录</div>
+          : <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {videoHistory.map(rec => (
+              <div key={rec.id} className="rounded-xl border border-white/10 bg-white/[0.04] overflow-hidden hover:border-emerald-400/40 transition-all">
+                <div className="aspect-video bg-black/40">
+                  {(rec.storageUrl || rec.platformUrl) ? (
+                    <video src={rec.storageUrl || rec.platformUrl} muted playsInline preload="metadata" className="w-full h-full object-cover"
+                      onClick={() => (rec.storageUrl || rec.platformUrl) && window.open(rec.storageUrl || rec.platformUrl, '_blank')} />
+                  ) : <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-600">无视频</div>}
+                </div>
+                <div className="p-2">
+                  <div className="text-[9px] text-gray-500 truncate" title={rec.prompt || ''}>{rec.prompt || '(无提示词记录)'}</div>
+                  <div className="mt-1 flex items-center justify-between">
+                    <span className="text-[9px] text-cyan-400/70 truncate max-w-[60%]">{rec.model || rec.provider || ''}</span>
+                    <div className="flex gap-1">
+                      <button onClick={() => rec.prompt && navigator.clipboard?.writeText(rec.prompt)} title="复制提示词"
+                        className="px-1.5 py-0.5 rounded bg-white/10 text-[9px] text-gray-300 hover:bg-white/20">📋</button>
+                      <button onClick={() => { if (rec.prompt) setPrompt(rec.prompt); if (rec.model) setModel(rec.model); window.scrollTo({ top: 0, behavior: 'smooth' }) }} title="用这个再生成"
+                        className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-[9px] text-emerald-300 hover:bg-emerald-500/30">↻</button>
+                    </div>
+                  </div>
+                  <div className="mt-0.5 text-[8px] text-gray-600">{new Date(rec.createdAt).toLocaleString('zh-CN')}</div>
+                </div>
+              </div>
+            ))}
+          </div>}
+        </div>
         </div>
       </div>
     </div>
