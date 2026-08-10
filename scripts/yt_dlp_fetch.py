@@ -39,6 +39,23 @@ INTERVAL = int(ENV.get('VIDEO_FETCH_INTERVAL', '180'))  # 秒，3 分钟一个
 def log(msg):
     print(f'[{time.strftime("%H:%M:%S")}] {msg}', flush=True)
 
+# ── 住宅 SS 代理池（2026-08-10 实测 4/5 可下载 YouTube；38.213.66.215 被 bot 标记已排除）──
+SS_POOL = [
+    {'server': '38.49.38.249', 'port': 11530, 'password': '7700', 'method': 'aes-256-gcm'},
+    {'server': '166.0.17.174', 'port': 11306, 'password': '7700', 'method': 'aes-256-gcm'},
+    {'server': '38.60.126.30', 'port': 11639, 'password': '7700', 'method': 'aes-256-gcm'},
+    {'server': '38.179.85.200', 'port': 11407, 'password': '7700', 'method': 'aes-256-gcm'},
+]
+# 生成 ss-local 配置并重启（切换节点用）
+def switch_ss(node):
+    import json, subprocess
+    cfg = {'server': node['server'], 'server_port': node['port'], 'password': node['password'],
+           'method': node['method'], 'local_address': '127.0.0.1', 'local_port': 1080}
+    with open('/etc/shadowsocks-libev/config.json', 'w') as f:
+        json.dump(cfg, f)
+    subprocess.run(['pkill', '-f', 'ss-local'], capture_output=True)
+    subprocess.run(['ss-local', '-c', '/etc/shadowsocks-libev/config.json', '-f', '/tmp/ss-local.pid'], capture_output=True)
+
 # ── 快代理动态住宅（fps 短效代理，2026-08-09）──
 # 每条下载前自动提取新 IP（30 分钟有效）；认证 = 组合账密（可改订单号模式）
 KD_SECRET_ID = ENV.get('KD_SECRET_ID', 'ouetsr2s0kvxgeb8tuot')
@@ -46,7 +63,22 @@ KD_SIGNATURE = ENV.get('KD_SIGNATURE', 'dtdj127qwjt9cmolgfo42almfwu8lxjo')
 KD_AUTH = ENV.get('KD_AUTH', 'u0q1kn5euf9y0zrrh0z1:tubvkcdn4im449w84ayfm4j0yv2l7toy')
 KD_REGION = ENV.get('KD_REGION', 'US')
 
+SS_IDX = {'n': 0}
 def get_proxy():
+    """优先住宅 SS 池（本地 ss-local socks5，轮换节点），回退快代理 fps"""
+    try:
+        node = SS_POOL[SS_IDX['n'] % len(SS_POOL)]
+        SS_IDX['n'] += 1
+        switch_ss(node)
+        log(f'  SS 节点: {node["server"]}:{node["port"]}')
+        return {'proxy': 'socks5://127.0.0.1:1080', 'ip': f'{node["server"]}:{node["port"]}', 'ss': node}
+    except Exception as e:
+        log(f'  SS 切换失败: {str(e)[:50]}')
+        return None
+    # 注：快代理 fps 提取保留为备用（账密认证问题未解决，暂不启用）：
+    # return None
+
+def get_proxy_kd():
     """调快代理 fps 提取 API，返回 {proxy: 'http://auth@ip:port', ip: 'ip:port'}"""
     try:
         import urllib.request, urllib.parse
