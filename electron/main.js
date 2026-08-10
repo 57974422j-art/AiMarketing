@@ -1010,6 +1010,18 @@ app.whenReady().then(() => {
   showChangelogOnStartup()
 })
 
+// 2026-08-10：渲染进程崩溃监控（诊断客户端闪退）
+app.on('render-process-gone', (event, webContents, details) => {
+  const msg = `[CRASH] 渲染进程崩溃 reason=${details.reason} exitCode=${details.exitCode}`
+  console.error(msg)
+  try { require('fs').appendFileSync(require('path').join(require('os').tmpdir(), 'aimarketing-crash.log'), new Date().toISOString() + ' ' + msg + '\n') } catch {}
+})
+app.on('child-process-gone', (event, details) => {
+  const msg = `[CRASH] 子进程退出 type=${details.type} reason=${details.reason} exitCode=${details.exitCode}`
+  console.error(msg)
+  try { require('fs').appendFileSync(require('path').join(require('os').tmpdir(), 'aimarketing-crash.log'), new Date().toISOString() + ' ' + msg + '\n') } catch {}
+})
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
