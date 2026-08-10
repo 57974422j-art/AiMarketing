@@ -1,4 +1,8 @@
 'use client'
+// 动态渲染：useSearchParams 需避开静态预渲染
+
+export const dynamic = 'force-dynamic'
+
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
