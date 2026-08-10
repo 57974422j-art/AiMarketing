@@ -43,7 +43,21 @@ export async function DELETE(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
   if (!auth || auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员' }, { status: 403 })
   try {
+    const idParam = parseInt(request.nextUrl.searchParams.get('id') || '0', 10)
     const days = parseInt(request.nextUrl.searchParams.get('days') || '3', 10)
+    // 单条删除（2026-08-10 B：页面单删）
+    if (idParam) {
+      const row = await prisma.industryVideo.findUnique({ where: { id: idParam } })
+      if (!row) return NextResponse.json({ success: false, message: '视频不存在' }, { status: 404 })
+      await prisma.industryVideo.delete({ where: { id: idParam } })
+      try {
+        const { getOSSClient } = await import('@/lib/oss')
+        const client = await getOSSClient()
+        const keys = [row.videoUrl, row.coverUrl].filter(Boolean).map((u: string) => { try { return decodeURIComponent(new URL(u).pathname.replace(/^\//, '')) } catch { return u } })
+        await Promise.all(keys.map((k: string) => client.delete(k).catch(() => {})))
+      } catch {}
+      return NextResponse.json({ success: true, message: '已删除' })
+    }
     const cutoff = new Date(Date.now() - days * 86400000)
     const old = await prisma.industryVideo.findMany({ where: { createdAt: { lt: cutoff } }, select: { id: true, videoUrl: true, coverUrl: true } })
     // 删库

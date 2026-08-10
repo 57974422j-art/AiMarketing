@@ -38,6 +38,7 @@ const sections: CardSection[] = [
     title: '资源库',
     items: [
       { title: '视频素材库', desc: '上传和管理 OSS 视频素材', href: '/admin/media-library', icon: '🎬', roles: ['admin', 'editor'] },
+      { title: '行业视频库', desc: 'YouTube/TikTok 抓取入库的视频（OSS 私有，按行业推送）', href: '/admin/industry-videos', icon: '📹', roles: ['admin'] },
       { title: '话术模板', desc: '评论/私信/直播互动话术', href: '/admin/script-templates', icon: '💬', roles: ['admin', 'editor'] },
       { title: '任务模板', desc: '配置自动任务（关键词/时间/动作）', href: '/admin/automation-templates', icon: '📋', roles: ['admin', 'editor'] },
       { title: '提示词模板库', desc: 'AI 生图提示词模板管理（浏览/标签筛选/编辑）', href: '/admin/prompt-templates', icon: '🖼️', roles: ['admin', 'editor'] },

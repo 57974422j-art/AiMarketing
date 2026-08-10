@@ -30,8 +30,14 @@ export async function POST(request: NextRequest) {
     fs.writeFileSync(LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] 手动抓取启动：${platform}×${n} 时长 ${minDuration}-${maxDuration}s 关键词「${keyword}」\n`)
     const child = spawn('python3', [script, '--platform', platform, '--count', String(n),
       '--min-duration', String(minDuration), '--max-duration', String(maxDuration), '--keyword', keyword], {
-      cwd: process.cwd(), detached: true, stdio: 'ignore',
+      cwd: process.cwd(), detached: true, stdio: ['ignore', 'pipe', 'pipe'],
     })
+    // 2026-08-10 A：管道捕获 stdout/stderr → 流式写入日志（原 stdio:ignore 丢全部日志）
+    const appendLog = (buf: Buffer) => {
+      try { fs.appendFileSync(LOG_FILE, buf.toString().replace(/\r/g, '\n')) } catch {}
+    }
+    child.stdout?.on('data', appendLog)
+    child.stderr?.on('data', appendLog)
     fs.writeFileSync(marker, String(child.pid))
     child.on('exit', () => { try { fs.unlinkSync(marker) } catch {} })
     child.unref()

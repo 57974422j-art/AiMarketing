@@ -102,6 +102,19 @@ def get_proxy_kd():
         log(f'  代理提取失败: {str(e)[:60]}')
         return None
 
+_last_pct = [0]
+
+def on_progress(d):
+    """yt-dlp 下载进度钩子：换行输出百分比，避免  覆盖式进度条丢失"""
+    if d.get('status') == 'downloading':
+        pct = d.get('_percent_str', '').strip() or f"{d.get('downloaded_bytes', 0) / 1024 / 1024:.1f}MB"
+        speed = d.get('_speed_str', '').strip() or ''
+        eta = d.get('_eta_str', '').strip() or ''
+        log(f'  ⏬ 下载 {pct}{("  " + speed) if speed else ""}{("  ETA " + eta) if eta else ""}')
+    elif d.get('status') == 'finished':
+        log(f'  ✅ 下载完成 {d.get("filename", "")}')
+
+
 def make_ydl():
     import yt_dlp
     opts = {
@@ -111,6 +124,7 @@ def make_ydl():
         'no_warnings': True,
         'outtmpl': '/tmp/indv_%(id)s.%(ext)s',
         'max_filesize': 150 * 1024 * 1024,
+        'progress_hooks': [on_progress],
     }
     if PROXY:
         opts['proxy'] = PROXY
