@@ -105,7 +105,7 @@ def get_proxy_kd():
 def make_ydl():
     import yt_dlp
     opts = {
-        'format': 'best[height<=480]/best',
+        'format': 'best[height<=360]/best',
         'noplaylist': True,
         'quiet': True,
         'no_warnings': True,
@@ -120,7 +120,7 @@ def ydl_with_proxy(proxy_url):
     """带代理的 yt-dlp（优先快代理动态住宅，回退 OVERSEAS_PROXY）"""
     import yt_dlp
     opts = {
-        'format': 'best[height<=480]/best',
+        'format': 'best[height<=360]/best',
         'noplaylist': True, 'quiet': True, 'no_warnings': True,
         'outtmpl': '/tmp/indv_%(id)s.%(ext)s',
         'max_filesize': 150 * 1024 * 1024,
