@@ -107,15 +107,17 @@ export async function GET(request: NextRequest) {
         } catch (e: any) { return { name, ok: false, detail: '连接失败' } }
       }
       const results = await Promise.all([
-        probe('vvhan·微博', 'https://v1.vvhan.com/api/hotlist/wbHot'),
-        probe('vvhan·抖音', 'https://v1.vvhan.com/api/hotlist/douyinHot'),
+        probe('vvhan·微博', 'https://api.vvhan.com/api/hotlist/wbHot'),
+        probe('vvhan·抖音', 'https://api.vvhan.com/api/hotlist/douyinHot'),
+        probe('tophub(免key兜底)', 'https://tophub.today/'),
       ])
       const okCnt = results.filter(r => r.ok).length
-      checks.push({
-        key: 'datasource', label: '热点数据源',
-        ok: okCnt > 0,
-        detail: results.map(r => `${r.name}:${r.ok ? '✅' : '❌'}`).join(' ') + (okCnt === 0 ? '（vvhan key 可能无效，当前走内置兜底）' : ''),
-      })
+      // 2026-08-11：vvhan 常被墙/不稳定 → 判定改为「任一源可用即正常」；detail 说明实际链路
+      const vvhanOk = results.filter(r => r.name.startsWith('vvhan') && r.ok).length
+      const tophub = results.find(r => r.name.startsWith('tophub'))
+      const detail = results.map(r => `${r.name}:${r.ok ? '✅' : '❌'}`).join(' ')
+        + (okCnt === 0 ? '（全部不可达，当前走内置兜底）' : vvhanOk > 0 ? '（vvhan 可用）' : '（vvhan 不可达，已自动切 tophub 兜底 ✅）')
+      checks.push({ key: 'datasource', label: '热点数据源', ok: okCnt > 0, detail })
     } catch { checks.push({ key: 'datasource', label: '热点数据源', ok: false, detail: '探测失败' }) }
 
     // 8) 当前模型配置
