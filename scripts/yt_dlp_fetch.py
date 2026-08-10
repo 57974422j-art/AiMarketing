@@ -159,7 +159,7 @@ def fetch_one(industry, keyword):
             head = (f'--{boundary}' + CRLF + f'Content-Disposition: form-data; name="{name}"; filename="{os.path.basename(path)}"' + CRLF + f'Content-Type: {ct}' + CRLF + CRLF).encode()
             with open(path, 'rb') as fp:
                 return head + fp.read() + CRLF.encode()
-        body = field('industry', industry) + field('title', title) + field('keyword', keyword) + field('duration', str(info.get('duration') or ''))
+        body = field('industry', industry) + field('title', title) + field('keyword', keyword) + field('duration', str(info2.get('duration') or ''))
         body += file_part('file', file_path) + (f'--{boundary}--' + CRLF).encode()
         import urllib.request
         req = urllib.request.Request(f'{API_BASE}/api/admin/industry-videos/upload', data=body,
