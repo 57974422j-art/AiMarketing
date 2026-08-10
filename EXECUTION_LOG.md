@@ -9,6 +9,7 @@
 ## 2026-08-10
 | 日期 | 操作内容 | 改动文件 | 结果 |
 |---|---|---|---|
+| 08-10 | 提示词源独立页 /admin/prompt-sources（6 内置源/条数/状态/间隔/单源刷新/自定义/服务端定时拉取 + PromptSource 表）+ prompt-templates 移除同步区块收口 | src/app/admin/prompt-sources/page.tsx、src/app/api/admin/prompt-sources/route.ts、prisma/schema.prisma、src/app/admin/prompt-templates/page.tsx | ✅ 已推送，本地验证 6 源 1201 条 |
 | 08-10 | 二期B：/ai-video-tasks 分镜节点链页（列表+节点链/缩略图/预览/重试/prompt编辑/成品/轮询/admin全部）+ storyboard list+PATCH + 提示词库升级（表扩展 tags/author/coverUrl/imageMode/sourceKey + prompt-sync 多源同步 jsdelivr + 标签筛选/封面/作者，验证 323 条入库） | src/app/ai-video-tasks/page.tsx、src/app/api/agent/storyboard/route.ts、src/app/api/admin/prompt-sync/route.ts、prisma/schema.prisma、admin/prompt-templates/page.tsx | ✅ 已推送（见 git log） |
 | 08-10 | 二期B：create_ai_video 一句话成片（自动分镜→创建任务→后台生成，两段式费用确认）+ 修复 storyboard 动态 import 路径致服务器 build 失败 | src/app/api/agent/chat/route.ts | ✅ 已推送，服务器部署验证通过（/api/agent/storyboard 401 正常） |
 | 08-10 | 二期A：AI 全自动成片——generate_video >15s 自动走 generateLongVideo（首尾帧接力）+ 成本预估两段式确认 + generate_storyboard 分镜协议 + 分镜任务引擎（StoryboardTask 表/后台逐镜/单镜重试/进度，Agent 工具 create_storyboard_task/query_storyboard） | src/app/api/agent/chat/route.ts、src/app/api/agent/storyboard/{route,retry/route}.ts、prisma/schema.prisma | ✅ c08031f 已推送，本地端到端验证通过（创建/进度/失败路径），待部署 |
