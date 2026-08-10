@@ -412,6 +412,27 @@ export default function AgentPage() {
   const [onboarding, setOnboarding] = useState(false)
   // 欢迎词单独存放，不进 messages，避免顶掉 BaiLongma 风格的主页欢迎区（声纹球+卡片）
   const [welcomeMsg, setWelcomeMsg] = useState<string | null>(null)
+  // 画像快速登记（2026-08-10：首登结构化登记，写 AgentMemory）
+  const [onboardForm, setOnboardForm] = useState({ industry: '', occupation: '', needs: '', platforms: [] as string[] })
+  const [onboardSaving, setOnboardSaving] = useState(false)
+  const PLATFORM_OPTS = ['抖音', '小红书', '视频号', '快手', 'B站', '淘宝直播', '公众号']
+  const INDUSTRY_OPTS = ['餐饮', '美业', '教育', '电商', '旅游', '健身', '汽车', '房产', '其他']
+  const submitOnboard = async () => {
+    const { industry, occupation, needs, platforms } = onboardForm
+    if (!industry && !occupation && !needs) { alert('请至少填写行业或需求'); return }
+    setOnboardSaving(true)
+    try {
+      const r = await fetch('/api/agent/memories', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(onboardForm), credentials: 'include' })
+      const d = await r.json()
+      if (d.success) {
+        localStorage.setItem('agent_onboarded', '1')
+        setOnboarded(true); setOnboarding(false)
+        setWelcomeMsg(`记住了！你（${industry || '待补充'} / ${occupation || '待补充'}）的核心需求我放进了记忆库，之后聊热点、做内容都会结合你的行业来。随时可以再告诉我更多～`)
+      } else alert(d.message || '保存失败')
+    } catch { alert('保存失败，请重试') }
+    finally { setOnboardSaving(false) }
+  }
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [showStorage, setShowStorage] = useState(false)
   const [storageItems, setStorageItems] = useState<any[]>([])
@@ -1660,6 +1681,32 @@ export default function AgentPage() {
                     <div className="rounded-2xl px-3 py-2 text-xs leading-relaxed break-words bg-white/[0.04] text-gray-200 border border-white/[0.06] rounded-bl-md">
                       <div className="text-gray-300 whitespace-pre-wrap">{welcomeMsg}</div>
                     </div>
+                    {onboarding && (
+                      <div className="mt-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] p-3 w-[300px] sm:w-[340px]">
+                        <div className="text-[10px] text-emerald-300/80 mb-2">⚡ 快速登记（也可直接打字告诉我，我会记住）</div>
+                        <select value={onboardForm.industry} onChange={e => setOnboardForm({ ...onboardForm, industry: e.target.value })}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs mb-2 text-white">
+                          <option value="" className="bg-gray-900">行业（选一个）</option>
+                          {INDUSTRY_OPTS.map(i => <option key={i} value={i} className="bg-gray-900">{i}</option>)}
+                        </select>
+                        <input value={onboardForm.occupation} onChange={e => setOnboardForm({ ...onboardForm, occupation: e.target.value })}
+                          placeholder="职业/身份，如：餐饮店老板、美业运营"
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs mb-2 text-white placeholder-gray-600" />
+                        <textarea value={onboardForm.needs} onChange={e => setOnboardForm({ ...onboardForm, needs: e.target.value })}
+                          placeholder="主要需求，如：想每天做短视频获客但没时间写文案"
+                          rows={2} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs mb-2 text-white placeholder-gray-600" />
+                        <div className="flex gap-1 flex-wrap mb-2">
+                          {PLATFORM_OPTS.map(pf => (
+                            <button key={pf} type="button" onClick={() => setOnboardForm(prev => ({ ...prev, platforms: prev.platforms.includes(pf) ? prev.platforms.filter(x => x !== pf) : [...prev.platforms, pf] }))}
+                              className={`px-2 py-0.5 rounded text-[10px] border ${onboardForm.platforms.includes(pf) ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/40' : 'bg-white/5 text-gray-400 border-white/10'}`}>{pf}</button>
+                          ))}
+                        </div>
+                        <button onClick={submitOnboard} disabled={onboardSaving}
+                          className="w-full py-2 rounded-lg bg-emerald-500/25 text-emerald-200 text-xs border border-emerald-500/40 hover:bg-emerald-500/35 disabled:opacity-50">
+                          {onboardSaving ? '保存中…' : '💾 保存我的画像'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

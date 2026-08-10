@@ -24,7 +24,7 @@ export default function ImageGeneratorPage() {
   const [error, setError] = useState('')
   const [imageSize, setImageSize] = useState('1280*1280')
   const [usingModel, setUsingModel] = useState('')
-  const [provider, setProvider] = useState<'auto' | 'dashscope' | 'siliconflow'>('auto')
+  const [provider, setProvider] = useState<'auto' | 'dashscope' | 'qwen-image-3.0' | 'qwen-image-3.0-pro' | 'siliconflow'>('auto')
   const [referenceImage, setReferenceImage] = useState<File | null>(null)
   const [showFav, setShowFav] = useState(false)
   const [favItems, setFavItems] = useState<any[]>([])
@@ -251,8 +251,10 @@ export default function ImageGeneratorPage() {
                   </span>
                   <div className="flex gap-1 flex-wrap">
                     {[
-                      { value: 'auto' as const, label: '自动(Auto)', desc: '百炼→硅基' },
-                      { value: 'dashscope' as const, label: '百炼 wan2.6-t2i', desc: '推荐' },
+                      { value: 'auto' as const, label: '自动(Auto)', desc: 'Agnes→百炼→硅基' },
+                      { value: 'qwen-image-3.0-pro' as const, label: '通义千问 3.0 Pro', desc: '推荐·文字最强' },
+                      { value: 'qwen-image-3.0' as const, label: '通义千问 3.0', desc: '速度版' },
+                      { value: 'dashscope' as const, label: '百炼 qwen-3.0-pro', desc: '直连百炼' },
                       { value: 'siliconflow' as const, label: '硅基 Z-Image', desc: '备选' },
                     ].map(opt => (
                       <button key={opt.value} type="button" onClick={() => setProvider(opt.value)}

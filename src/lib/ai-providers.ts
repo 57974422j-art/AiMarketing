@@ -1563,8 +1563,11 @@ async function dashscopeGenerateImage(prompt: string, size = '1280*1280', _model
   const modelMap: Record<string, string> = {
     'qwen-image-2.0': 'qwen-image-2.0-2026-03-03',
     'qwen-image-2.0-pro': 'qwen-image-2.0-pro-2026-04-22',
+    'qwen-image-3.0': 'qwen-image-3.0',
+    'qwen-image-3.0-pro': 'qwen-image-3.0-pro',
   }
-  const model = _model ? (modelMap[_model] || _model) : 'wan2.6-t2i'
+  // 2026-08-10 升级：默认 wan2.6-t2i → qwen-image-3.0-pro（中文文字渲染官方最强，修复乱码）
+  const model = _model ? (modelMap[_model] || _model) : 'qwen-image-3.0-pro'
   console.log(`[文生图] 尝试百炼 ${model} (同步调用)...`)
   try {
     // wan2.6/qwen-image 支持 HTTP 同步调用，无需异步+轮询
@@ -1860,7 +1863,9 @@ export async function generateImage(prompt: string, size = '1280*1280', provider
   const labelMap: Record<string, string> = {
     'qwen-image-2.0': '通义千问 2.0',
     'qwen-image-2.0-pro': '通义千问 2.0 Pro',
-    'dashscope': '百炼 wan2.6',
+    'qwen-image-3.0': '通义千问 3.0',
+    'qwen-image-3.0-pro': '通义千问 3.0 Pro',
+    'dashscope': '百炼 qwen-image-3.0-pro',
     'siliconflow': '硅基 Z-Image',
     'agnes': 'Agnes AI',
   }
@@ -1870,7 +1875,7 @@ export async function generateImage(prompt: string, size = '1280*1280', provider
     return null
   }
   if (provider === 'dashscope') {
-    const url = await dashscopeGenerateImage(prompt, size, 'wan2.6-t2i')
+    const url = await dashscopeGenerateImage(prompt, size, 'qwen-image-3.0-pro')
     if (url) return { url, model: labelMap['dashscope'] || '百炼' }
     return null
   }
