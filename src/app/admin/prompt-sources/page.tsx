@@ -58,6 +58,16 @@ export default function PromptSourcesPage() {
     try { await post({ action: 'refresh', id: s.id }) } finally { setRefreshingId(null) }
     load()
   }
+  const migrateCovers = async () => {
+    if (!confirm('将未转存的封面图下载并存储到我们 OSS（后台执行，约几分钟）？')) return
+    setBusy(true)
+    try {
+      const r = await fetch('/api/admin/prompt-sources', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'migrate-covers' }), credentials: 'include' })
+      const d = await r.json()
+      alert(d.message || '已开始')
+    } finally { setBusy(false) }
+  }
   const refreshAll = async () => {
     setBusy(true)
     try { await post({ action: 'sync-all' }) } finally { setBusy(false) }
@@ -88,6 +98,10 @@ export default function PromptSourcesPage() {
           <button onClick={refreshAll} disabled={busy}
             className="px-3 py-1.5 rounded-lg bg-violet-500/20 border border-violet-500/30 text-violet-300 text-xs hover:bg-violet-500/30 disabled:opacity-50">
             {busy ? '同步中…' : '🔄 全部同步'}
+          </button>
+          <button onClick={migrateCovers} disabled={busy}
+            className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs hover:bg-amber-500/25 disabled:opacity-50">
+            ⬇️ 补转封面到 OSS
           </button>
           <button onClick={() => { setEditId(null); setForm({ name: '', url: '', homepage: '', intervalMin: 30 }); setShowAdd(true) }}
             className="px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-xs hover:bg-emerald-600">＋ 添加源</button>

@@ -472,7 +472,7 @@ export default function AdminPromptTemplatesPage() {
                   )}
                 </div>
                 <div className={isVert ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3'}>
-                  {items.map(item => (
+                  {filteredItems.map(item => (
                     <div key={item.id} className={`bg-gray-900/60 border-2 rounded-xl overflow-hidden transition-all ${selectedIds.has(item.id) ? 'border-emerald-500/50' : 'border-white/10'} ${isVert ? 'aspect-[9/16]' : 'aspect-video'}`}>
                       {(item.previewUrl || item.coverUrl) ? (
                         <div className={`relative w-full h-full group bg-black/50 ${(item.previewUrl || item.coverUrl).endsWith('.mp4') ? 'cursor-pointer' : ''}`} onClick={() => (item.previewUrl || item.coverUrl)?.endsWith('.mp4') && setPlayVideo(item.previewUrl || item.coverUrl)}>

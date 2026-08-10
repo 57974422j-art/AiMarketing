@@ -24,6 +24,24 @@ async function ensureBuiltins() {
   }
 }
 
+// 封面转存 OSS（2026-08-10：外链封面 → 我们 OSS，防链接失效裂图）
+async function migrateCover(url: string, prefix: string): Promise<string> {
+  if (!url || !/^https?:\/\//.test(url) || url.includes('aliyuncs.com')) return url
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
+    if (!res.ok) return url
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (buf.length < 100) return url
+    const m = url.split('?')[0].match(/\.(png|jpe?g|webp|gif|svg|avif)/i)
+    const ext = (m ? m[1] : 'jpg').toLowerCase()
+    const key = `prompt-covers/${prefix}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
+    const { getOSSClient } = await import('@/lib/oss')
+    const client = await getOSSClient()
+    await client.put(key, buf, { headers: { 'x-oss-object-acl': 'public-read' } })
+    return `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION}.aliyuncs.com/${key}`
+  } catch { return url }
+}
+
 // 同步单个源：拉 JSON → 按 sourceKey 去重入库 → 更新状态/条数
 export async function syncSource(sourceId: number): Promise<{ added: number; skipped: number; error?: string }> {
   const src = await prisma.promptSource.findUnique({ where: { id: sourceId } })
@@ -49,10 +67,10 @@ export async function syncSource(sourceId: number): Promise<{ added: number; ski
             previewUrl: String(it.coverUrl || '') || null,
             industry: String(it.sourceId || src.name) || null,
             // industry 存 sourceId（如 banana-prompt-quicker），与旧 prompt-sync 数据一致
+            coverUrl: String(it.coverUrl || '') ? await migrateCover(String(it.coverUrl), String(src.name).replace(/[^a-zA-Z0-9]+/g, '-').substring(0, 30)) : null,
             originalUrl: String(it.sourceUrl || '') || null,
             tags: Array.isArray(it.tags) ? it.tags.join(',').substring(0, 200) : (String(it.tags || '') || null),
             author: String(it.author || '').substring(0, 100) || null,
-            coverUrl: String(it.coverUrl || '') || null,
             imageMode: String(it.imageMode || '') || null,
             sourceKey: key,
           },
@@ -145,6 +163,27 @@ export async function POST(req: NextRequest) {
     if (!id) return NextResponse.json({ success: false, message: '缺少 id' }, { status: 400 })
     const r = await syncSource(id)
     return NextResponse.json({ success: !r.error, data: r })
+  }
+  if (action === 'migrate-covers') {
+    // 补转存量记录封面到 OSS（异步后台跑，不阻塞响应）
+    const rows = await prisma.promptTemplate.findMany({
+      where: { coverUrl: { not: null } },
+      select: { id: true, coverUrl: true },
+      take: 5000,
+    })
+    const pending = rows.filter(r => r.coverUrl && !r.coverUrl.includes('aliyuncs.com'))
+    ;(async () => {
+      let done = 0
+      for (const r of pending) {
+        try {
+          const oss = await migrateCover(r.coverUrl!, 'legacy')
+          if (oss !== r.coverUrl) await prisma.promptTemplate.update({ where: { id: r.id }, data: { coverUrl: oss } })
+        } catch {}
+        done++
+        if (done % 20 === 0) await sleep(500)
+      }
+    })().catch(() => {})
+    return NextResponse.json({ success: true, message: `开始补转 ${pending.length} 张封面到 OSS（后台执行）` })
   }
   if (action === 'sync-all') {
     const list = await prisma.promptSource.findMany({ where: { enabled: true } })
