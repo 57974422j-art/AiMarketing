@@ -533,7 +533,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           ratio, style: args.style || null, duration, shots: JSON.stringify(normalized), status: 'pending',
           totalShots: normalized.length, costPoints },
       })
-      const mod = await import('../../storyboard/route')
+      const mod = await import('../storyboard/route')
       mod.runShots(task.id, normalized, ratio).catch(e => console.error('[Storyboard]', e))
       return `STORYBOARD_TASK:${task.id}|SHOTS:${normalized.length}|COST:${costPoints}点（约¥${(costPoints / 100).toFixed(1)}）。已开始后台逐镜生成，请告知用户任务已创建、约每镜1-3分钟，可随时问进度。`
     }
