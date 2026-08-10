@@ -217,6 +217,14 @@ export default function SettingsPage() {
         volcano: d.volcanoConfigured ? 'ok' : null,
         tts: (d.ttsAppIdConfigured && d.ttsAccessKeyConfigured && d.ttsResourceIdConfigured) ? 'ok' : null,
         oss: d.ossConfigured ? 'ok' : null,
+        pixabay: d.pixabayConfigured ? 'ok' : null,
+        giphy: d.giphyConfigured ? 'ok' : null,
+        gemini: d.geminiConfigured ? 'ok' : null,
+        agnes: d.agnesConfigured ? 'ok' : null,
+        vvhan: d.vvhanApiConfigured ? 'ok' : null,
+        serper: d.serperKeyConfigured ? 'ok' : null,
+        wechat: d.agentWebhookWechatConfigured ? 'ok' : null,
+        feishu: d.agentWebhookFeishuConfigured ? 'ok' : null,
         queryEngine: null,
       })
     } catch (e) {
@@ -321,6 +329,8 @@ export default function SettingsPage() {
     setTesting: (v: boolean) => void,
     setMsg: (m: { type: 'success' | 'error'; text: string } | null) => void,
     payload: Record<string, string> = {},
+    onOk?: () => void,
+    onFail?: () => void,
   ) => {
     setTesting(true)
     setMsg(null)
@@ -333,8 +343,10 @@ export default function SettingsPage() {
       })
       const d = await res.json()
       if (d.valid) {
+        onOk?.()
         setMsg({ type: 'success', text: `✅ ${d.message || '连接成功'}` })
       } else {
+        onFail?.()
         setMsg({ type: 'error', text: `❌ ${d.message || '连接失败'}` })
       }
     } catch (e: any) {
@@ -353,7 +365,12 @@ export default function SettingsPage() {
     testProvider('agnes', setTestingAgnes, setAgnesTestMsg, { key: agnesKey, baseUrl: agnesBaseUrl, proxy: overseasProxy })
 
   const testVvhanApiKey = () =>
-    testProvider('vvhan', setTestingTianApi, setTianApiTestMsg, { key: vvhanApiKey })
+    testProvider('vvhan', setTestingTianApi, setTianApiTestMsg, { key: vvhanApiKey }, () => setStatusMap(prev => ({ ...prev, vvhan: 'ok' })), () => setStatusMap(prev => ({ ...prev, vvhan: 'fail' })))
+  // Serper 测试（2026-08-11：接入统一状态）
+  const [testingSerper, setTestingSerper] = useState(false)
+  const [serperTestMsg2, setSerperTestMsg2] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const testSerperKey = () =>
+    testProvider('serper', setTestingSerper, setSerperTestMsg2, { key: serperKey }, () => setStatusMap(prev => ({ ...prev, serper: 'ok' })), () => setStatusMap(prev => ({ ...prev, serper: 'fail' })))
 
   // ====== 保存客服设置 ======
   const saveServiceConfig = async () => {
@@ -394,6 +411,26 @@ export default function SettingsPage() {
           <div>
             <p className="text-label mb-2">系统 / SYSTEM</p>
             <h1 className="text-mono-lg text-white">设置 / SETTINGS</h1>
+          </div>
+          {/* 2026-08-11：API 配置汇总条——一眼看清各组通断 */}
+          <div className="flex flex-wrap gap-2 mb-6">
+            {[
+              { g: 'AI 核心', keys: ['deepseek', 'volcano', 'dashscope', 'siliconflow', 'agnes'], total: 5 },
+              { g: '语音', keys: ['tts'], total: 1 },
+              { g: '存储', keys: ['oss'], total: 1 },
+              { g: '搜索热点', keys: ['serper', 'vvhan'], total: 2 },
+              { g: '媒体', keys: ['pixabay', 'giphy'], total: 2 },
+              { g: '推送', keys: ['wechat', 'feishu'], total: 2 },
+            ].map(grp => {
+              const okN = grp.keys.filter(k => statusMap[k] === 'ok').length
+              return (
+                <div key={grp.g} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-mono ${okN === grp.total ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : okN > 0 ? 'border-amber-500/40 bg-amber-500/10 text-amber-300' : 'border-white/10 bg-white/5 text-gray-500'}`}>
+                  <span className="font-semibold">{grp.g}</span>
+                  <span>{okN}/{grp.total}</span>
+                  {okN === grp.total ? '✅' : okN > 0 ? '⚠️' : '❌'}
+                </div>
+              )
+            })}
           </div>
           {saveMessage && (
             <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl text-sm font-mono shadow-lg backdrop-blur animate-pulse-once ${
@@ -642,7 +679,11 @@ export default function SettingsPage() {
         {/* 天行 API（热点榜：抖音/微博/微信等，有则优先，无则走 vvhan 免费兜底） */}
         <div className="bg-gray-900/60 backdrop-blur-xl rounded-xl border border-white/5 p-4 mb-4">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-white font-bold mb-2"><span className="text-purple-400">//</span> vvhan 热点 API</h3>
+            <h3 className="text-white font-bold mb-2"><span className="text-purple-400">//</span> vvhan 热点 API
+              {statusMap.vvhan === 'ok'
+                ? <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">✅ 已配置</span>
+                : <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-500 border border-white/10">❌ 未配置（内置兜底可用）</span>}
+            </h3>
           </div>
           <p className="text-gray-400 text-xs mb-4">填写后，AGENT 热点榜（微博/抖音/知乎/小红书/头条/百度）优先走 vvhan v1 官方接口。申请：<a href="https://v1.vvhan.com/" target="_blank" rel="noreferrer" className="text-cyan-400 underline">v1.vvhan.com</a>（VH-BunAPI 控制台）</p>
           <div className="flex gap-2">
@@ -672,7 +713,11 @@ export default function SettingsPage() {
         {/* Google 搜索（Serper）— 网页/视频/新闻搜索信源 */}
         <div className="bg-gray-900/60 backdrop-blur-xl rounded-xl border border-white/5 p-4 mb-4">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-white font-bold mb-2"><span className="text-cyan-400">//</span> Google 搜索（Serper）</h3>
+            <h3 className="text-white font-bold mb-2"><span className="text-cyan-400">//</span> Google 搜索（Serper）
+              {statusMap.serper === 'ok'
+                ? <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">✅ 已配置</span>
+                : <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-500 border border-white/10">❌ 未配置</span>}
+            </h3>
           </div>
           <p className="text-gray-400 text-xs mb-4">填写后，AGENT 可实时搜索 Google 网页 / 视频 / 新闻（语音说「帮我搜XX」即可呼出）。免费 2500 次/月，注册：<a href="https://serper.dev" target="_blank" rel="noreferrer" className="text-cyan-400 underline">serper.dev</a>。不填则搜索功能不可用。</p>
           <div className="flex gap-2">
@@ -688,10 +733,14 @@ export default function SettingsPage() {
               {showSerperKey ? '🙈' : '👁'}
             </button>
           </div>
-          {serperTestMsg && (
+          <button type="button" onClick={testSerperKey} disabled={!serperKey || serperKey === '********' || testingSerper}
+            className="mt-2 px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-500/30 disabled:opacity-50 font-mono text-xs">
+            {testingSerper ? '测试中...' : '测试连接'}
+          </button>
+          {(serperTestMsg2 || serperTestMsg) && (
             <div className={`mt-2 text-xs font-mono px-3 py-1.5 rounded-lg inline-block ${
-              serperTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-            }`}>{serperTestMsg.text}</div>
+              (serperTestMsg2 || serperTestMsg)!.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+            }`}>{(serperTestMsg2 || serperTestMsg)!.text}</div>
           )}
         </div>
 

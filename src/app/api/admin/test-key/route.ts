@@ -374,6 +374,39 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      case 'serper': {
+        const k = key || process.env.SERPER_API_KEY || '';
+        if (!k) return NextResponse.json({ valid: false, message: '未配置 Serper API Key' }, { status: 400 });
+        try {
+          const res = await fetch('https://google.serper.dev/search', {
+            method: 'POST',
+            headers: { 'X-API-KEY': k, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ q: 'test', num: 1 }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!res.ok) return NextResponse.json({ valid: false, message: `Serper HTTP ${res.status}` });
+          const j = await res.json();
+          const n = Array.isArray(j.organic) ? j.organic.length : 0;
+          return NextResponse.json({ valid: true, message: `Serper 有效，返回 ${n} 条结果` });
+        } catch (e: any) {
+          return NextResponse.json({ valid: false, message: `Serper 请求失败：${e.message}` });
+        }
+      }
+      case 'vvhan': {
+        const k = key || process.env.VVHAN_API_KEY || '';
+        try {
+          const res = await fetch('https://api.vvhan.com/api/hotlist/wbHot' + (k ? `?apikey=${k}` : ''), {
+            headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000),
+          });
+          if (!res.ok) return NextResponse.json({ valid: false, message: `vvhan HTTP ${res.status}` });
+          const j = await res.json();
+          const n = Array.isArray(j.data) ? j.data.length : 0;
+          return NextResponse.json({ valid: true, message: `vvhan 有效${k ? '（key 已用）' : '（免 key）'}，返回 ${n} 条微博热榜` });
+        } catch (e: any) {
+          return NextResponse.json({ valid: false, message: `vvhan 请求失败：${e.message}` });
+        }
+      }
+
       default:
         return NextResponse.json({
           valid: false,

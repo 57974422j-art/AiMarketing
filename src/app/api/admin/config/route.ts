@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, vvhanApiKey, ssServer, ssPort, ssPassword, ssMethod } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, vvhanApiKey, serperKey, ssServer, ssPort, ssPassword, ssMethod } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -267,6 +267,14 @@ VOLC_ASR_RESOURCE_ID=${volcAsrResourceId}`;
 VVHAN_API_KEY=${vvhanApiKey}`;
     }
 
+    // Serper API Key（Google 搜索，2026-08-11：修复此前后端未接收导致保存无效）
+    if (serperKey !== undefined) {
+      const p = new RegExp('^SERPER_API_KEY=.*$', 'm');
+      if (p.test(envContent)) envContent = envContent.replace(p, `SERPER_API_KEY=${serperKey}`);
+      else envContent += `
+SERPER_API_KEY=${serperKey}`;
+    }
+
     // 下载代理（Shadowsocks，2026-08-09：夜间视频下载用）
     for (const [k, v] of [['SS_SERVER', ssServer], ['SS_PORT', ssPort], ['SS_PASSWORD', ssPassword], ['SS_METHOD', ssMethod]]) {
       if (v !== undefined) {
@@ -305,6 +313,7 @@ ${k}=${v}`;
     if (agentWebhookWechat !== undefined) process.env.AGENT_WEBHOOK_WECHAT = agentWebhookWechat
     if (agentWebhookFeishu !== undefined) process.env.AGENT_WEBHOOK_FEISHU = agentWebhookFeishu
     if (vvhanApiKey !== undefined) process.env.VVHAN_API_KEY = vvhanApiKey
+    if (serperKey !== undefined) process.env.SERPER_API_KEY = serperKey
     if (ssServer !== undefined) process.env.SS_SERVER = ssServer
     if (ssPort !== undefined) process.env.SS_PORT = ssPort
     if (ssPassword !== undefined) process.env.SS_PASSWORD = ssPassword
@@ -370,6 +379,7 @@ export async function GET(request: NextRequest) {
     const agentWebhookWechat = await readEnv('AGENT_WEBHOOK_WECHAT');
     const agentWebhookFeishu = await readEnv('AGENT_WEBHOOK_FEISHU');
     const vvhanApiKey = await readEnv('VVHAN_API_KEY');
+    const serperKey = await readEnv('SERPER_API_KEY');
     const ssServer = await readEnv('SS_SERVER');
     const ssPort = await readEnv('SS_PORT');
     const ssPassword = await readEnv('SS_PASSWORD');
@@ -415,6 +425,7 @@ export async function GET(request: NextRequest) {
         agentWebhookWechatConfigured: !!agentWebhookWechat,
         agentWebhookFeishuConfigured: !!agentWebhookFeishu,
         vvhanApiConfigured: !!vvhanApiKey,
+        serperKeyConfigured: !!serperKey,
         ssServer: ssServer,
         ssPort: ssPort,
         ssMethod: ssMethod || 'aes-256-gcm',
