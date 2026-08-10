@@ -117,7 +117,6 @@ def ydl_with_proxy(proxy_url):
         'noplaylist': True, 'quiet': True, 'no_warnings': True,
         'outtmpl': '/tmp/indv_%(id)s.%(ext)s',
         'max_filesize': 150 * 1024 * 1024,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web_embedded']}},
     }
     if proxy_url:
         opts['proxy'] = proxy_url
