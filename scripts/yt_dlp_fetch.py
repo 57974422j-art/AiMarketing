@@ -54,7 +54,16 @@ def switch_ss(node):
     with open('/etc/shadowsocks-libev/config.json', 'w') as f:
         json.dump(cfg, f)
     subprocess.run(['pkill', '-f', 'ss-local'], capture_output=True)
+    time.sleep(0.5)
     subprocess.run(['ss-local', '-c', '/etc/shadowsocks-libev/config.json', '-f', '/tmp/ss-local.pid'], capture_output=True)
+    # 等待 127.0.0.1:1080 就绪（最多 3 秒），否则 yt-dlp 连 socks5 失败
+    import socket
+    for _ in range(15):
+        try:
+            s = socket.create_connection(('127.0.0.1', 1080), timeout=0.5)
+            s.close(); break
+        except Exception:
+            time.sleep(0.2)
 
 # ── 快代理动态住宅（fps 短效代理，2026-08-09）──
 # 每条下载前自动提取新 IP（30 分钟有效）；认证 = 组合账密（可改订单号模式）
