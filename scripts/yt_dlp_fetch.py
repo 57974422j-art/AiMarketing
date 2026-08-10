@@ -140,12 +140,11 @@ def fetch_one(industry, keyword):
         ydl = ydl_with_proxy(proxy_info['proxy'] if proxy_info else '')
         # 2026-08-10：一步到位（ytsearch1 直接下载）——download=False 搜索路径会触发 HTTPS proxy 依赖错
         info2 = ydl.extract_info(f'ytsearch1:{keyword}', download=True)
-        vid_id = info2.get('id', '')
         title = (info2.get('title') or keyword)[:80]
-        file_path = ydl.prepare_filename(info2)
-        if not os.path.exists(file_path):
-            candidates = [f'/tmp/indv_{vid_id}.mp4', f'/tmp/indv_{vid_id}.webm', f'/tmp/indv_{vid_id}.mkv']
-            file_path = next((f for f in candidates if os.path.exists(f)), None)
+        # ytsearch1 返回 playlist 结构，prepare_filename 路径不可靠 → 按最新下载文件定位
+        import glob
+        cands = sorted(glob.glob('/tmp/indv_*.mp4') + glob.glob('/tmp/indv_*.webm') + glob.glob('/tmp/indv_*.mkv'), key=os.path.getmtime)
+        file_path = cands[-1] if cands else None
         if not file_path or not os.path.exists(file_path):
             log(f'  [{industry}] 下载失败: {title}')
             return None
