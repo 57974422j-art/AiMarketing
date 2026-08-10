@@ -74,18 +74,16 @@ KD_REGION = ENV.get('KD_REGION', 'US')
 
 SS_IDX = {'n': 0}
 def get_proxy():
-    """优先住宅 SS 池（本地 ss-local socks5，轮换节点），回退快代理 fps"""
-    try:
-        node = SS_POOL[SS_IDX['n'] % len(SS_POOL)]
-        SS_IDX['n'] += 1
-        switch_ss(node)
-        log(f'  SS 节点: {node["server"]}:{node["port"]}')
-        return {'proxy': 'socks5://127.0.0.1:1080', 'ip': f'{node["server"]}:{node["port"]}', 'ss': node}
-    except Exception as e:
-        log(f'  SS 切换失败: {str(e)[:50]}')
-        return None
-    # 注：快代理 fps 提取保留为备用（账密认证问题未解决，暂不启用）：
-    # return None
+    """使用外部常驻 ss-local（socks5://127.0.0.1:1080）。
+    2026-08-10：不再脚本内 pkill/重启 ss-local（会杀外部常驻实例导致 socks5 连不上）。
+    节点轮换改为：外部脚本按需切换 /etc/shadowsocks-libev/config.json 后重启 ss-local。"""
+    node = SS_POOL[SS_IDX['n'] % len(SS_POOL)]
+    SS_IDX['n'] += 1
+    log(f'  SS 节点: {node["server"]}:{node["port"]}')
+    return {'proxy': 'socks5://127.0.0.1:1080', 'ip': f'{node["server"]}:{node["port"]}', 'ss': node}
+
+def get_proxy_kd():
+    """调快代理 fps 提取 API，返回 {proxy: 'http://auth@ip:port', ip: 'ip:port'}"""
 
 def get_proxy_kd():
     """调快代理 fps 提取 API，返回 {proxy: 'http://auth@ip:port', ip: 'ip:port'}"""
