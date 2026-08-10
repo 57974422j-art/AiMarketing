@@ -131,15 +131,25 @@ def ydl_with_proxy(proxy_url):
         opts['proxy'] = PROXY
     return yt_dlp.YoutubeDL(opts)
 
-def fetch_one(industry, keyword):
+def fetch_one(industry, keyword, platform='youtube', min_dur=15, max_dur=180):
     """下载一条 → multipart 上传本地 API（API 负责截帧/OSS 私有/入库）"""
     import yt_dlp
     try:
         # 每次下载前取代理（SS 节点轮换）
         proxy_info = get_proxy()
         ydl = ydl_with_proxy(proxy_info['proxy'] if proxy_info else '')
-        # 2026-08-10：一步到位（ytsearch1 直接下载）——download=False 搜索路径会触发 HTTPS proxy 依赖错
-        info2 = ydl.extract_info(f'ytsearch1:{keyword}', download=True)
+        # 时长过滤：只取 min_dur-max_dur 秒短视频（2026-08-10）
+        import yt_dlp as _ydl
+        ydl.params['match_filter'] = _ydl.utils.match_filter_func(f'duration > {min_dur} & duration < {max_dur}')
+        if platform == 'youtube':
+            info2 = ydl.extract_info(f'ytsearch{max(2, 3)}:{keyword}', download=True)
+        else:
+            # TikTok：尝试 hashtag 页（yt-dlp 对 TikTok 搜索支持有限）
+            try:
+                info2 = ydl.extract_info(f'https://www.tiktok.com/tag/{keyword}', download=True)
+            except Exception:
+                info2 = ydl.extract_info(f'https://www.tiktok.com/tag/{keyword}', download=False)
+                info2 = {'title': keyword, 'entries': []}
         title = (info2.get('title') or keyword)[:80]
         # ytsearch1 返回 playlist 结构，prepare_filename 路径不可靠 → 按最新下载文件定位
         import glob
@@ -174,19 +184,29 @@ def fetch_one(industry, keyword):
         return None
 
 def main():
-    log(f'开始按行业拉取：{len(INDUSTRY_KEYWORDS)} 行业 × {PER_INDUSTRY} 条，间隔 {INTERVAL}s')
+    # 2026-08-10 手动抓取（admin/prompt-templates 触发）：参数 platform/count/min_duration/max_duration/keyword
+    import sys, argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--platform', default='youtube', choices=['youtube', 'tiktok'])
+    ap.add_argument('--count', type=int, default=3)
+    ap.add_argument('--min-duration', type=int, default=15)
+    ap.add_argument('--max-duration', type=int, default=180)
+    ap.add_argument('--keyword', default='')
+    args = ap.parse_args(sys.argv[1:])
+
+    industry = args.keyword or '通用'
+    log(f'手动抓取：{args.platform} × {args.count} 条，时长 {args.min_duration}-{args.max_duration}s，关键词「{args.keyword}」')
     total = 0
-    for industry, kws in INDUSTRY_KEYWORDS.items():
-        for i in range(PER_INDUSTRY):
-            kw = kws[i % len(kws)]
-            log(f'[{industry}] 拉取 {kw} ...')
-            r = fetch_one(industry, kw)
-            if r and r.get('success'):
-                total += 1
-                log(f'  ✅ 入库: {(r.get("data") or {}).get("title", "")[:40]}')
-            else:
-                log(f'  ❌ 失败: {(r or {}).get("message", "无结果/下载失败")[:60]}')
-            time.sleep(INTERVAL)
+    for i in range(args.count):
+        kw = args.keyword or (['restaurant food video', 'beauty makeup tutorial', 'study tips'][i % 3])
+        log(f'[{industry}] 拉取 {kw} ...')
+        r = fetch_one(industry, kw, args.platform, args.min_duration, args.max_duration)
+        if r and r.get('success'):
+            total += 1
+            log(f'  ✅ 入库: {(r.get("data") or {}).get("title", "")[:40]}')
+        else:
+            log(f'  ❌ 失败: {(r or {}).get("message", "无结果/下载失败")[:60]}')
+        time.sleep(3)  # 手动抓取间隔短（3s），快速出结果
     log(f'完成，共入库 {total} 条')
 
 if __name__ == '__main__':

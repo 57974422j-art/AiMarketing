@@ -79,6 +79,40 @@ export default function AdminPromptTemplatesPage() {
   // 抓取日志（2026-08-08：每次抓取的逐条结果，透明可见）
   const [fetchLogs, setFetchLogs] = useState<FetchLog[]>([])
   const [fetchLogLabel, setFetchLogLabel] = useState('')
+  // 视频手动抓取（2026-08-10）
+  const [vidFetchPlatform, setVidFetchPlatform] = useState('youtube')
+  const [vidFetchCount, setVidFetchCount] = useState(3)
+  const [vidMinDur, setVidMinDur] = useState(15)
+  const [vidMaxDur, setVidMaxDur] = useState(180)
+  const [vidKeyword, setVidKeyword] = useState('')
+  const [vidFetchBusy, setVidFetchBusy] = useState(false)
+  const [vidFetchRunning, setVidFetchRunning] = useState(false)
+  const [vidFetchLog, setVidFetchLog] = useState('')
+  const refreshVidLog = async () => {
+    try {
+      const r = await fetch('/api/admin/fetch-videos', { credentials: 'include' })
+      const d = await r.json()
+      if (d.success && d.data) { setVidFetchRunning(d.data.running); setVidFetchLog(d.data.tail || '') }
+    } catch {}
+  }
+  const handleFetchVideos = async () => {
+    setVidFetchBusy(true)
+    try {
+      const r = await fetch('/api/admin/fetch-videos', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform: vidFetchPlatform, count: vidFetchCount, minDuration: vidMinDur, maxDuration: vidMaxDur, keyword: vidKeyword }), credentials: 'include' })
+      const d = await r.json()
+      if (!d.success) { alert(d.message); return }
+      setVidFetchRunning(true)
+      // 轮询日志
+      const t = setInterval(async () => {
+        await refreshVidLog()
+        if (!(await (async () => { try { const rr = await fetch('/api/admin/fetch-videos', { credentials: 'include' }); return (await rr.json()).data.running } catch { return false } })())) {
+          clearInterval(t); setVidFetchBusy(false)
+        }
+      }, 5000)
+    } catch (e: any) { alert('启动失败: ' + (e?.message || e)) }
+    finally { setVidFetchBusy(false) }
+  }
 
   // 场景生成
   const [sceneInput, setSceneInput] = useState('')
@@ -476,6 +510,52 @@ export default function AdminPromptTemplatesPage() {
         {/* ════════ Tab2 素材抓取 ════════ */}
         {mainTab === 'fetch' && (
           <div>
+            {/* 🎬 视频手动抓取（2026-08-10：替代夜间自动，选平台/数量/时长/关键词） */}
+            <div className="bg-gray-900/60 border border-cyan-500/20 rounded-2xl p-4 mb-4">
+              <h3 className="text-white font-bold text-sm mb-1">🎬 抓取视频（YouTube/TikTok）</h3>
+              <p className="text-[11px] text-gray-500 mb-3">手动抓取短视频到 OSS（私有，按行业推送用）。每条约 30-90 秒，SS 住宅代理下载。</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                <div>
+                  <label className="block text-[10px] text-gray-400 mb-1">平台</label>
+                  <select value={vidFetchPlatform} onChange={e => setVidFetchPlatform(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs">
+                    <option value="youtube" className="bg-gray-900">YouTube（稳定）</option>
+                    <option value="tiktok" className="bg-gray-900">TikTok（实验）</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 mb-1">数量</label>
+                  <input type="number" min={1} max={10} value={vidFetchCount} onChange={e => setVidFetchCount(parseInt(e.target.value) || 3)}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 mb-1">时长范围（秒）</label>
+                  <div className="flex items-center gap-1">
+                    <input type="number" min={5} value={vidMinDur} onChange={e => setVidMinDur(parseInt(e.target.value) || 15)}
+                      className="w-14 bg-white/5 border border-white/10 rounded-lg px-1.5 py-1.5 text-white text-xs text-center" />
+                    <span className="text-gray-600 text-[10px]">-</span>
+                    <input type="number" max={600} value={vidMaxDur} onChange={e => setVidMaxDur(parseInt(e.target.value) || 180)}
+                      className="w-14 bg-white/5 border border-white/10 rounded-lg px-1.5 py-1.5 text-white text-xs text-center" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-400 mb-1">关键词/行业</label>
+                  <input value={vidKeyword} onChange={e => setVidKeyword(e.target.value)} placeholder="如 餐饮 / restaurant food"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs" />
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button onClick={handleFetchVideos} disabled={vidFetchBusy}
+                  className="px-4 py-2 bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 rounded-lg text-xs hover:bg-cyan-500/30 disabled:opacity-50">
+                  {vidFetchBusy ? '抓取中…' : '▶ 开始抓取'}
+                </button>
+                {vidFetchRunning && <span className="text-[10px] text-cyan-400 animate-pulse">后台任务运行中…</span>}
+                <button onClick={refreshVidLog} className="text-[10px] text-gray-500 hover:text-gray-300">刷新日志</button>
+              </div>
+              {vidFetchLog && (
+                <pre className="mt-3 max-h-40 overflow-y-auto bg-black/30 border border-white/5 rounded-lg p-2 text-[10px] text-emerald-300 whitespace-pre-wrap">{vidFetchLog}</pre>
+              )}
+            </div>
             <div className="grid md:grid-cols-3 gap-4 mb-5">
               {/* 抓图 */}
               <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
