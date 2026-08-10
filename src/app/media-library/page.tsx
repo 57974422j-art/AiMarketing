@@ -17,6 +17,7 @@ interface Asset {
 const TABS = [
   { key: 'landscape', label: '横屏' },
   { key: 'portrait', label: '竖屏' },
+  { key: 'prompts', label: '💡 提示词' },
 ] as const
 
 type TabKey = (typeof TABS)[number]['key']
@@ -28,6 +29,8 @@ export default function MediaLibraryPage() {
 
   const [tab, setTab] = useState<TabKey>('landscape')
   const [items, setItems] = useState<Asset[]>([])
+  const [promptList, setPromptList] = useState<any[]>([])
+  const [promptTotal, setPromptTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [manageMode, setManageMode] = useState(false)
@@ -38,12 +41,20 @@ export default function MediaLibraryPage() {
 
   const load = useCallback(() => {
     setLoading(true)
+    if (tab === 'prompts') {
+      fetch(`/api/prompts-public?limit=120${search.trim() ? '&keyword=' + encodeURIComponent(search.trim()) : ''}`, { credentials: 'include' })
+        .then(r => r.json())
+        .then(d => { setPromptList(Array.isArray(d?.data?.list) ? d.data.list : []); setPromptTotal(d?.data?.total || 0) })
+        .catch(() => setPromptList([]))
+        .finally(() => setLoading(false))
+      return
+    }
     fetch(`/api/media-library?source=public&orientation=${tab}`, { credentials: 'include' })
       .then(r => r.json())
       .then(d => setItems(Array.isArray(d?.data) ? d.data : []))
       .catch(() => setItems([]))
       .finally(() => setLoading(false))
-  }, [tab])
+  }, [tab, search])
 
   useEffect(() => { load() }, [load])
 
@@ -150,7 +161,33 @@ export default function MediaLibraryPage() {
           </div>
         )}
 
-        {loading ? (
+        {tab === 'prompts' ? (
+          loading ? <div className="text-center text-gray-500 py-20">加载中…</div>
+          : promptList.length === 0 ? <div className="text-center text-gray-500 py-20">{search ? '没有匹配的提示词' : '暂无已发布的提示词'}</div>
+          : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {promptList.map((pt: any) => (
+                <div key={pt.id} className="group rounded-xl overflow-hidden border border-white/10 bg-white/[0.04] hover:border-emerald-400/40 transition-all flex flex-col">
+                  <div className="aspect-video bg-black/40 overflow-hidden">
+                    {pt.coverUrl
+                      ? <img src={pt.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+                      : <div className="w-full h-full flex items-center justify-center text-2xl opacity-30">💡</div>}
+                  </div>
+                  <div className="p-2.5 flex flex-col flex-1">
+                    <div className="text-xs font-medium line-clamp-1">{pt.title || '未命名提示词'}</div>
+                    <div className="mt-1 text-[9px] text-gray-500 line-clamp-2">{pt.prompt}</div>
+                    {pt.tags && <div className="mt-1.5 flex gap-1 flex-wrap">{pt.tags.split(',').slice(0, 3).map((t: string) => <span key={t} className="px-1 py-0.5 rounded text-[8px] bg-violet-500/20 text-violet-300">{t}</span>)}</div>}
+                    <div className="mt-auto pt-2 flex gap-1.5">
+                      <button onClick={() => navigator.clipboard?.writeText(pt.prompt)} className="flex-1 px-1.5 py-1 rounded bg-white/10 text-[10px] text-gray-200 hover:bg-white/20">📋 复制</button>
+                      <button onClick={() => window.open(`/image-generator?prompt=${encodeURIComponent(pt.prompt)}`, '_blank')}
+                        className="flex-1 px-1.5 py-1 rounded bg-emerald-500/20 text-[10px] text-emerald-300 hover:bg-emerald-500/30">✨ 用这个生成</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        ) : loading ? (
           <div className="text-center text-gray-500 py-20">加载中…</div>
         ) : filtered.length === 0 ? (
           <div className="text-center text-gray-500 py-20">{search ? '没有匹配的素材' : '该方向暂无公共素材'}</div>

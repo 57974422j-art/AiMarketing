@@ -194,6 +194,25 @@ export default function AdminPromptTemplatesPage() {
     finally { setSubmitting(false) }
   }
 
+  // 发布/下架到素材库（2026-08-10：显式推送，用户媒体库提示词 Tab 可见）
+  const publishSelected = async () => {
+    const ids = selectedIds.size ? Array.from(selectedIds) : []
+    if (ids.length === 0) return
+    if (!confirm(`将选中的 ${ids.length} 条提示词发布到用户素材库？`)) return
+    const r = await fetch('/api/admin/prompt-templates/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, published: true }), credentials: 'include' })
+    const d = await r.json()
+    alert(d.message || '完成'); setSelectedIds(new Set())
+  }
+  const unpublishSelected = async () => {
+    const ids = selectedIds.size ? Array.from(selectedIds) : []
+    if (ids.length === 0) return
+    if (!confirm(`下架选中的 ${ids.length} 条？（用户素材库将不再显示）`)) return
+    const r = await fetch('/api/admin/prompt-templates/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, published: false }), credentials: 'include' })
+    const d = await r.json()
+    alert(d.message || '完成'); setSelectedIds(new Set())
+  }
   const handleDelete = async (id: number) => {
     if (!confirm('确定删除？')) return
     const r = await fetch(`/api/prompt-templates?id=${id}`, { method: 'DELETE', credentials: 'include' })
@@ -467,6 +486,12 @@ export default function AdminPromptTemplatesPage() {
                     className="w-4 h-4 rounded border-white/20 bg-white/5 accent-emerald-500" />
                   <span className="text-xs text-gray-500 font-mono">全选</span>
                   {selectedIds.size > 0 && <span className="text-xs text-cyan-400 font-mono">已选 {selectedIds.size} 项</span>}
+                  {selectedIds.size > 0 && (
+                    <button onClick={publishSelected} className="px-2 py-1 rounded bg-emerald-500/20 text-[10px] text-emerald-300 hover:bg-emerald-500/30">📤 发布选中到素材库</button>
+                  )}
+                  {selectedIds.size > 0 && (
+                    <button onClick={unpublishSelected} className="px-2 py-1 rounded bg-white/10 text-[10px] text-gray-300 hover:bg-white/20">↩️ 下架</button>
+                  )}
                   {selectedIds.size > 0 && (
                     <button onClick={() => setSelectedIds(new Set())} className="text-[10px] text-gray-500 hover:text-gray-300 ml-2">取消选择</button>
                   )}
