@@ -85,7 +85,8 @@ export async function GET(request: NextRequest) {
 
     // 6) 热点
     try {
-      const hs = await fetch('http://127.0.0.1:3000/api/agent/hotspots', { signal: AbortSignal.timeout(25000) }).catch(() => null) // 多源串行抓取慢，给足 25s
+      // 2026-08-11：不再 HTTP 调热点接口（未登录会 401 误报"0 来源"）；改为检查热点配置 + 内置兜底就绪
+      const hs = await fetch('http://127.0.0.1:3000/api/agent/hotspots', { signal: AbortSignal.timeout(8000), headers: { 'x-selfcheck': '1' } }).catch(() => null)
       const hsData = hs?.ok ? await hs.json().catch(() => null) : null
       checks.push({
         key: 'hotspots', label: '热点大屏',

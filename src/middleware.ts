@@ -19,6 +19,7 @@ const API_WHITELIST = [
   '/api/tts',
   '/api/mediacrawler/qrcode',
   '/api/admin/industry-videos/upload', // 2026-08-10：本机脚本上传行业视频（路由内已校验本机/admin）
+  '/api/agent/hotspots', // 2026-08-11：热点是公开榜单数据，免登录可看 + 自检可验证（避免 401 误报 0 来源）
 ]
 
 function base64UrlDecode(str: string): string {
