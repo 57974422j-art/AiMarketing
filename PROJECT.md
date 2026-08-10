@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-08-06 ｜ 配套文档：[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-08-10 ｜2026-08-06 ｜ 配套文档：[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 ## 🚨 架构定案（2026-08-06，最重要，勿再偏离）
@@ -249,6 +249,19 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 | Agent 客户旅程闭环（要资源→克隆→发布） | ⬜ | 原 docs 规划已删除，要点在此 |
 | /api/subscription/buy 清理 | ✅ | 已删除（2026-08-05，无调用方） |
 | 5 平台发布脚本坐标维护 | 🚧 | 抖音改版需重测 |
+
+### 🚀 二期：AI 全自动成片（2026-08-10 规划定稿，待执行）
+> 用户方向：AI 推荐**文生视频**全自动成片（一键成片只适合客户手动）；诚实协议已上线（f269c22：AI 先查库再回复、禁编素材/BGM/预填、无素材引导免费素材站上传个人仓库）。
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 一期 | 诚实协议：chat prompt 硬规则（先查库/禁胡诌/提议句式）+ search_storage 工具描述 + 免费素材站引导（Pixabay/Pexels/Videvo/Coverr/Mixkit） | ✅ 2026-08-10 f269c22 已推送，待部署 |
+| 二期 A | ① generate_video 升级：>15s 自动走 generateLongVideo（**首尾帧接力已存在**：每段提尾帧→下段 i2v 参考，收尾帧统一解决）② 分镜协议 generate_storyboard ③ 成片任务引擎（ShotNode 逐镜调度/重试/进度）④ **成本预估提示**（生成前报费用，用户确认才生成） | ⬜ 待执行 |
+| 二期 B | 前端分镜节点链视图（简化版）+ create_ai_video 一句话成片 | ⬜ |
+| 三期 | Minimax AI 音乐（BGM 真生成）+ 发布真执行（publish_content 由只校验改真发，打通指纹浏览器） | ⬜ |
+| 中转站调研 | 候选 OpenRouter/fal.ai/Replicate/infistar.ai（用户自研选型）。**必须覆盖**：文生图/文生视频/图生视频/克隆视频，按实际需求定。infistar 有 kling-v2-6/seedance-2.5/mimo/wan2.7（无 Sora/Veo）；OpenRouter/fal 有 Sora2/Veo3。接法：ai-providers.ts 加中转通道+双通道降级链 | 🟡 调研中 |
+
+**参考**：infinite-canvas（basketikun）——借鉴节点化分镜管理/生成参数记录可重试；不借鉴画布本体/浏览器存凭据。成本：60s 成片 ≈ ¥20-65/条。
 
 ## 七、部署与运维要点
 

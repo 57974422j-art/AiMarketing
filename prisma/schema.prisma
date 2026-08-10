@@ -26,6 +26,7 @@ model User {
   agentInviteCode String?
   agentName       String?   // 自定义 AI 名称（客户起名，2026-08-07）
   industry        String?   // 客户行业（2026-08-09：视频/热点按行业推送）
+  storyboards     StoryboardTask[]
   agentTtsVoice   String?   // AI 语音音色（2026-08-07 设置：用户级）
   agentTemperature Float?    // AI 回复温度（0~1.5）
   agentVadThreshold Float?   // 语音 VAD 音量阈值（0~0.15）
@@ -1101,6 +1102,28 @@ model AgentPublishTask {
   socialAccount SocialAccount? @relation(fields: [socialAccountId], references: [id])
 
   @@index([userId, status])
+}
+
+model StoryboardTask {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  title       String                       // 视频标题/主题
+  topic       String                       // 创意描述
+  ratio       String   @default("16:9")
+  style       String?
+  duration    Int      @default(30)         // 目标总时长
+  shots       String                       // JSON：每镜 {shot,desc,prompt,duration,camera,status,videoUrl,error}
+  status      String   @default("pending") // pending/generating/done/failed
+  doneShots   Int      @default(0)
+  totalShots  Int      @default(0)
+  costPoints  Int      @default(0)          // 预估点数
+  videoUrl    String?                      // 拼接成品 OSS
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id])
+  @@index([userId, createdAt])
 }
 
 model IndustryVideo {

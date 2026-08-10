@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  generateText, generateImage, generateVideo, queryVideoTask,
+  generateText, generateImage, generateVideo, generateLongVideo, queryVideoTask,
   ToolDefinition,
   agnesChat, dashscopeFunctionCall, type AgentChatMessage,
 } from '@/lib/ai-providers'
@@ -60,14 +60,51 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'generate_video',
-    description: 'AI生成短视频。触发词："做视频""生成视频""短视频""拍一个"。',
+    description: 'AI生成视频（百炼 wan2.7）。触发词："做视频""生成视频""短视频""拍一个"。注意：首次调用必须先报费用预估（不要带 confirmed），用户确认后再带 confirmed=true 真正生成；时长超过15秒会自动分段拼接（每段用上一段尾帧做参考，保证衔接）。',
     parameters: {
       type: 'object',
       properties: {
         prompt: { type: 'string', description: '视频内容描述' },
-        duration: { type: 'number', description: '时长(秒)，默认5' },
+        duration: { type: 'number', description: '时长(秒)，默认5；单次上限15秒，超过15秒自动分段拼接' },
         ratio: { type: 'string', description: '比例：16:9横屏 / 9:16竖屏' },
+        confirmed: { type: 'boolean', description: '用户是否已确认费用。false/缺省=只报预估；true=真正生成' },
+        segModel: { type: 'string', description: '分段模型（仅>15s时用），可选 wan2.7-t2v / happyhorse-1.0-t2v，缺省自动' },
       }, required: ['prompt'],
+    },
+  },
+  {
+    name: 'generate_storyboard',
+    description: '生成视频分镜脚本（只出方案，不生成视频）。触发词："分镜""脚本""镜头方案"。根据用户视频创意输出分镜JSON（每镜：画面描述/英文prompt/时长/镜头感）+ 总费用预估。用户确认分镜后，再用 generate_video（confirmed=true）逐镜生成。',
+    parameters: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', description: '视频主题/创意描述' },
+        duration: { type: 'number', description: '目标总时长(秒)，默认30' },
+        ratio: { type: 'string', description: '比例：16:9横屏 / 9:16竖屏' },
+        style: { type: 'string', description: '风格要求（电影感/卡通/写实等），可选' },
+      }, required: ['topic'],
+    },
+  },
+  {
+    name: 'create_storyboard_task',
+    description: '创建分镜成片任务（后台逐镜生成，可查进度）。在 generate_storyboard 出分镜且用户确认费用后调用。返回任务ID。',
+    parameters: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', description: '视频主题' },
+        shots: { type: 'array', items: { type: 'object' }, description: '分镜数组（来自 generate_storyboard）：每镜 {prompt, desc, duration, camera}' },
+        ratio: { type: 'string', description: '比例 16:9 / 9:16' },
+        duration: { type: 'number', description: '总时长(秒)' },
+      }, required: ['topic', 'shots'],
+    },
+  },
+  {
+    name: 'query_storyboard',
+    description: '查询分镜成片任务进度（每镜状态/完成数/成品URL）。参数：id（任务ID）。',
+    parameters: {
+      type: 'object',
+      properties: { id: { type: 'number', description: '分镜任务ID' } },
+      required: ['id'],
     },
   },
   {
@@ -370,7 +407,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 - 数据看板/仪表盘 → /dashboard
 - AI生图/生成图片 → /image-generator
 - 视频剪辑/后期处理/配音字幕 → /video-edit
-- 文生视频(generate_video)、数字人口播(digital_human_speak) 是异步任务，会返回 taskId，返回后提示"正在生成中，稍后可问我进度"。
+- 文生视频(generate_video) 必须先报价（首次调用只返回预估，不带 confirmed），用户确认后才带 confirmed=true 生成；用户明确说"直接生成/马上生成/不用问"时可直接带 confirmed=true。文生视频、数字人口播(digital_human_speak) 是异步任务，会返回 taskId，返回后提示"正在生成中，稍后可问我进度"。
 
 【异步任务处理】
 - 文生视频(generate_video)、数字人口播(digital_human_speak) 都是异步任务，会返回 taskId。
@@ -443,10 +480,74 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
 
     // ── 视频 ──
     case 'generate_video': {
-      const result = await generateVideo(args.prompt || '产品展示', parseInt(args.duration) || 5, '720P', args.ratio || '16:9')
-      if (result?.taskId && result.status === 'running') return `VIDEO_TASK:${result.taskId}|PROMPT:${args.prompt}`
+      const gvDuration = parseInt(args.duration) || 5
+      const gvPrompt = args.prompt || '产品展示'
+      const gvRatio = args.ratio || '16:9'
+      const gvCost = Math.ceil(gvDuration * 100) // 100 点/秒
+      // A2 成本确认：未确认只报预估
+      if (!args.confirmed) {
+        return `VIDEO_COST_ESTIMATE:时长${gvDuration}秒 × 100点/秒 = ${gvCost}点（约¥${(gvCost / 100).toFixed(1)}）。请先向用户明确报价并等确认（用户说"确认/生成吧/可以"等即视为确认），确认后再次调用本工具并带 confirmed=true 才开始生成。${gvDuration > 15 ? '（超过15秒将自动分段拼接，每段用上一段尾帧做参考保证衔接，费用按总时长计）' : ''}`
+      }
+      // A1: >15s 走长视频拼接（首尾帧接力）
+      if (gvDuration > 15) {
+        const segModel = args.segModel === 'wan2.7-t2v' ? 'wan2.7-t2v' : undefined // 缺省用引擎默认
+        const lv = await generateLongVideo([gvPrompt], gvDuration, '720P', gvRatio, undefined, 5, segModel)
+        if (lv?.videoUrl) return `VIDEO_RESULT:${lv.videoUrl}|DURATION:${gvDuration}s`
+        return '长视频生成失败（分段模型可能不可用，可重试或换 wan2.7-t2v）'
+      }
+      const result = await generateVideo(gvPrompt, gvDuration, '720P', gvRatio)
+      if (result?.taskId && result.status === 'running') return `VIDEO_TASK:${result.taskId}|PROMPT:${gvPrompt}`
       if (result?.videoUrl) return `VIDEO_RESULT:${result.videoUrl}`
       return '视频生成暂不可用'
+    }
+
+    // ── 分镜协议（A3）──
+    case 'generate_storyboard': {
+      const sbDuration = Math.min(180, parseInt(args.duration) || 30)
+      const sbRatio = args.ratio || '16:9'
+      const sbShots = Math.max(2, Math.ceil(sbDuration / 5))
+      const sbCost = Math.ceil(sbDuration * 100)
+      const sbPrompt = `你是短视频分镜导演。根据主题「${args.topic || ''}」生成 ${sbShots} 个镜头的分镜脚本（总时长约${sbDuration}秒，每镜约5秒，${sbRatio}画面）。只输出 JSON 数组（不要任何其它文字或代码块标记），每镜对象：{shot:序号, desc:"中文画面描述", prompt:"英文视频生成提示词，含主体/动作/场景/光影/运镜，80词内", duration:5, camera:"镜头感（如推近/航拍/慢动作）"}。风格要求：${args.style || '通用写实'}。`
+      const sbRaw = await generateText(sbPrompt)
+      if (!sbRaw) return '分镜生成失败，请稍后重试'
+      const m = sbRaw.match(/\[[\s\S]*\]/)
+      if (!m) return '分镜格式异常，请重试'
+      return `STORYBOARD:${m[0]}|TOTAL:${sbDuration}秒|SHOTS:${sbShots}|COST:${sbCost}点（约¥${(sbCost / 100).toFixed(1)}）。分镜仅供确认：请向用户展示并确认费用，确认后调用 create_storyboard_task 创建任务（后台逐镜生成）。`
+    }
+
+    // ── 分镜任务（A4）──
+    case 'create_storyboard_task': {
+      const { PrismaClient } = await import('@prisma/client')
+      const p2 = new PrismaClient()
+      const sbShots = Array.isArray(args.shots) ? args.shots : []
+      if (sbShots.length === 0) return '缺少分镜数组'
+      const ratio = args.ratio || '16:9'
+      const duration = parseInt(args.duration) || sbShots.reduce((s: number, x: any) => s + (parseInt(x.duration) || 5), 0)
+      const costPoints = Math.ceil(duration * 100)
+      const normalized = sbShots.map((s: any, i: number) => ({
+        shot: s.shot ?? (i + 1), desc: s.desc || '', prompt: s.prompt || '', duration: Math.min(5, Math.max(2, parseInt(s.duration) || 5)),
+        camera: s.camera || '', status: 'pending', videoUrl: null, error: null,
+      }))
+      const task = await p2.storyboardTask.create({
+        data: { userId: auth?.userId || 0, title: (args.topic || '').substring(0, 80), topic: args.topic || '',
+          ratio, style: args.style || null, duration, shots: JSON.stringify(normalized), status: 'pending',
+          totalShots: normalized.length, costPoints },
+      })
+      const mod = await import('../../storyboard/route')
+      mod.runShots(task.id, normalized, ratio).catch(e => console.error('[Storyboard]', e))
+      return `STORYBOARD_TASK:${task.id}|SHOTS:${normalized.length}|COST:${costPoints}点（约¥${(costPoints / 100).toFixed(1)}）。已开始后台逐镜生成，请告知用户任务已创建、约每镜1-3分钟，可随时问进度。`
+    }
+    case 'query_storyboard': {
+      const { PrismaClient } = await import('@prisma/client')
+      const p3 = new PrismaClient()
+      const tid = parseInt(args.id || '0')
+      if (!tid) return '缺少任务ID'
+      const task = await p3.storyboardTask.findFirst({ where: { id: tid, userId: auth?.userId || 0 } })
+      if (!task) return '任务不存在'
+      const shots = JSON.parse(task.shots || '[]')
+      const progress = shots.map((s: any) => `${s.shot}镜:${s.status === 'done' ? '✅' : s.status === 'failed' ? '❌' : '⏳'}${s.error ? '(' + s.error + ')' : ''}`).join(' ')
+      const base = `分镜任务#${task.id} 状态:${task.status} 完成:${task.doneShots}/${task.totalShots} ${progress}`
+      return task.videoUrl ? `${base} 成品:${task.videoUrl}` : `${base}（未完成/无成品，可稍后问我或重试失败镜）`
     }
 
     // ── 网络搜图 ──

@@ -6,6 +6,12 @@
 
 ---
 
+## 2026-08-10
+| 日期 | 操作内容 | 改动文件 | 结果 |
+|---|---|---|---|
+| 08-10 | 成片诚实协议：chat prompt 加「成片诚实协议」（先查库/禁编素材/BGM/预填、提议句式）+ search_storage 描述禁编 + 免费素材站引导 | src/app/api/agent/chat/route.ts | ✅ 推送 f269c22，待部署 |
+| 08-10 | 二期规划定稿：AI 文生视频全自动成片（分镜→generateLongVideo 首尾帧接力→成本提示→三期 BGM/发布）+ 中转站调研清单（OpenRouter/fal/Replicate/infistar，须覆盖文生图/图生视频/克隆视频） | PROJECT.md 六、记忆 | ✅ 规划入库，待执行 |
+
 ## 2026-08-05
 
 | 操作 | 改动文件 | 结果 |
