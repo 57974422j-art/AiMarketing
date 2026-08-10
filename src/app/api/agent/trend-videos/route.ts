@@ -38,10 +38,14 @@ export async function GET(request: NextRequest) {
         })
         if (!r.ok) return { platform: p.key, videos: [] }
         const d = await r.json()
-        const videos = (d.videos || []).slice(0, 3).map((v: any) => ({
-          title: v.title || '', url: v.link || '', thumbnail: v.thumbnail || '',
-          duration: v.duration || '', channel: v.channel || '', views: v.views || '',
-        }))
+        const videos = (d.videos || []).slice(0, 3).map((v: any) => {
+          const link = v.link || ''
+          // YouTube 官方缩略图（img.youtube.com 国内可达，不依赖代理）
+          const ytId = link.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/)
+          const thumb = v.thumbnail || (ytId ? `https://img.youtube.com/vi/${ytId[1]}/hqdefault.jpg` : '')
+          return { title: v.title || '', url: link, thumbnail: thumb,
+            duration: v.duration || '', channel: v.channel || '', views: v.views || '' }
+        })
         return { platform: p.key, videos }
       } catch { return { platform: p.key, videos: [] } }
     }))
