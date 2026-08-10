@@ -86,6 +86,20 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'create_ai_video',
+    description: '一句话 AI 成片：内部自动分镜并创建后台生成任务（无需用户先要分镜）。触发词："帮我做个视频""一键成片""自动做视频""做一条视频"。规则同 generate_video：首次调用不带 confirmed 只报费用预估，用户确认后带 confirmed=true 才真正分镜+建任务。返回任务ID，可用 query_storyboard 查进度。',
+    parameters: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', description: '视频主题/创意（一句话）' },
+        duration: { type: 'number', description: '目标总时长(秒)，默认30' },
+        ratio: { type: 'string', description: '比例：16:9横屏 / 9:16竖屏' },
+        style: { type: 'string', description: '风格要求（电影感/卡通/写实等），可选' },
+        confirmed: { type: 'boolean', description: '用户是否已确认费用。false/缺省=只报预估；true=真正分镜并创建任务' },
+      }, required: ['topic'],
+    },
+  },
+  {
     name: 'create_storyboard_task',
     description: '创建分镜成片任务（后台逐镜生成，可查进度）。在 generate_storyboard 出分镜且用户确认费用后调用。返回任务ID。',
     parameters: {
@@ -513,6 +527,40 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const m = sbRaw.match(/\[[\s\S]*\]/)
       if (!m) return '分镜格式异常，请重试'
       return `STORYBOARD:${m[0]}|TOTAL:${sbDuration}秒|SHOTS:${sbShots}|COST:${sbCost}点（约¥${(sbCost / 100).toFixed(1)}）。分镜仅供确认：请向用户展示并确认费用，确认后调用 create_storyboard_task 创建任务（后台逐镜生成）。`
+    }
+
+    // ── 一句话成片（二期B）──
+    case 'create_ai_video': {
+      const avDuration = Math.min(180, parseInt(args.duration) || 30)
+      const avRatio = args.ratio || '16:9'
+      const avCost = Math.ceil(avDuration * 100)
+      if (!args.confirmed) {
+        return `AI_VIDEO_COST:时长${avDuration}秒 × 100点/秒 = ${avCost}点（约¥${(avCost / 100).toFixed(1)}）。请向用户报价并等确认（用户说"确认/生成吧/可以"即确认），确认后带 confirmed=true 自动分镜并创建任务。`
+      }
+      // 分镜：调 LLM 出分镜 JSON
+      const avShots = Math.max(2, Math.ceil(avDuration / 5))
+      const avPrompt = `你是短视频分镜导演。根据主题「${args.topic || ''}」生成 ${avShots} 个镜头的分镜脚本（总时长约${avDuration}秒，每镜约5秒，${avRatio}画面）。只输出 JSON 数组（不要任何其它文字或代码块标记），每镜对象：{shot:序号, desc:"中文画面描述", prompt:"英文视频生成提示词，含主体/动作/场景/光影/运镜，80词内", duration:5, camera:"镜头感"}。风格：${args.style || '通用写实'}。`
+      const avRaw = await generateText(avPrompt)
+      const avMatch = avRaw ? avRaw.match(/\[[\s\S]*\]/) : null
+      if (!avMatch) return '自动分镜失败，请用 generate_storyboard 手动分镜或重试'
+      let avShotsArr = []
+      try { avShotsArr = JSON.parse(avMatch[0]) } catch { return '分镜 JSON 解析失败' }
+      if (!Array.isArray(avShotsArr) || avShotsArr.length === 0) return '分镜为空'
+      // 建任务
+      const { PrismaClient } = await import('@prisma/client')
+      const p4 = new PrismaClient()
+      const normalized = avShotsArr.map((s: any, i: number) => ({
+        shot: s.shot ?? (i + 1), desc: s.desc || '', prompt: s.prompt || '', duration: Math.min(5, Math.max(2, parseInt(s.duration) || 5)),
+        camera: s.camera || '', status: 'pending', videoUrl: null, error: null,
+      }))
+      const task = await p4.storyboardTask.create({
+        data: { userId: auth?.userId || 0, title: (args.topic || '').substring(0, 80), topic: args.topic || '',
+          ratio: avRatio, style: args.style || null, duration: avDuration, shots: JSON.stringify(normalized),
+          status: 'pending', totalShots: normalized.length, costPoints: avCost },
+      })
+      const mod = await import('../storyboard/route')
+      mod.runShots(task.id, normalized, avRatio).catch(e => console.error('[Storyboard]', e))
+      return `AI_VIDEO_TASK:${task.id}|SHOTS:${normalized.length}|COST:${avCost}点（约¥${(avCost / 100).toFixed(1)}）。已自动分镜并开始后台生成，约每镜1-3分钟，可随时问我进度。`
     }
 
     // ── 分镜任务（A4）──
