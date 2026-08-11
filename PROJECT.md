@@ -113,7 +113,7 @@ android/          Capacitor 手机端（冻结）
 ### 5. Electron（桌面客户端）
 - IPC：adb:* 8 + fp:* 14（fp:start/stop/list/screenshot/click/type/enter/navigate/info/markLogin/loginState/logout/scriptStop/execute）+ app:get-version + updater:*
 - 指纹浏览器：Playwright launchPersistentContext **按 accountId 分 profile**，登录态 `.loggedin` 文件；`fp:execute` 分发到 `electron/fp-templates/*.js`（douyin/kuaishou/bilibili/shipinhao/weibo/xiaohongshu 发布脚本）
-- 版本：`electron/version.json` 唯一版本源（package.json 禁止改）；changelog.json 启动弹窗；electron-updater（源 https://ai-niuma.cc/updates）；打包 dist-rel
+- 版本：package.json 与 electron/version.json 同步维护（2026-08-11：原「package.json 禁止改」为误加规则已解除；打包产物名/latest.yml 自动对齐）；changelog.json 启动弹窗；electron-updater（源 https://ai-niuma.cc/updates）；打包 dist-rel
 - 前端 `my-fingerprint/page.tsx`：抖音批量发布队列（入队/间隔/定时/暂停恢复停止）
 
 ### 6. 商业化（双轨计费）
