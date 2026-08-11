@@ -107,6 +107,7 @@ export default function SettingsPage() {
 
   // ====== 天行 API（热点榜：抖音/微博/微信等，有则优先，无则走 vvhan 免费兜底） ======
   const [vvhanApiKey, setVvhanApiKey] = useState('')
+  const [vvhanApiBase, setVvhanApiBase] = useState('https://v1.vvhan.com')
   const [serperKey, setSerperKey] = useState('')
   // 下载代理（Shadowsocks，2026-08-09）
   const [ssServer, setSsServer] = useState('')
@@ -192,6 +193,7 @@ export default function SettingsPage() {
       setAgnesBaseUrl(d.agnesBaseUrl || '')
       // 天行 API
       setVvhanApiKey(d.vvhanApiConfigured ? '********' : '')
+      setVvhanApiBase(d.vvhanApiBase || 'https://v1.vvhan.com')
       setSerperKey(d.serperKeyConfigured ? '********' : '')
       setSsServer(d.ssServer || '')
       setSsPort(d.ssPort || '')
@@ -271,6 +273,7 @@ export default function SettingsPage() {
           agentWebhookWechat: agentWebhookWechat || undefined,
           agentWebhookFeishu: agentWebhookFeishu || undefined,
           vvhanApiKey: mask(vvhanApiKey),
+          vvhanApiBase: vvhanApiBase.trim() || 'https://v1.vvhan.com',
           serperKey: mask(serperKey),
           ssServer: ssServer || undefined,
           ssPort: ssPort || undefined,
@@ -686,7 +689,7 @@ export default function SettingsPage() {
             </h3>
           </div>
           <p className="text-gray-400 text-xs mb-4">填写后，AGENT 热点榜（微博/抖音/知乎/小红书/头条/百度）优先走 vvhan v1 官方接口。申请：<a href="https://v1.vvhan.com/" target="_blank" rel="noreferrer" className="text-cyan-400 underline">v1.vvhan.com</a>（VH-BunAPI 控制台）</p>
-          <div className="flex gap-2">
+          <div className="flex gap-2 mb-2">
             <input
               type={showTianApiKey ? 'text' : 'password'}
               value={vvhanApiKey}
@@ -699,7 +702,13 @@ export default function SettingsPage() {
               {showTianApiKey ? '🙈' : '👁'}
             </button>
           </div>
-          <button onClick={testVvhanApiKey} disabled={!vvhanApiKey || vvhanApiKey === '********' || testingTianApi}
+          <div className="flex gap-2 mb-2">
+            <input value={vvhanApiBase} onChange={e => setVvhanApiBase(e.target.value)}
+              placeholder="API 域名（默认 https://v1.vvhan.com）"
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50" />
+          </div>
+          {/* 2026-08-11：掩码（已配置）状态也可测试——后端用已存 key 测 */}
+          <button onClick={testVvhanApiKey} disabled={testingTianApi}
             className="mt-2 px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-500/30 disabled:opacity-50 font-mono text-xs whitespace-nowrap">
             {testingTianApi ? '测试中...' : '测试连接'}
           </button>
@@ -733,7 +742,7 @@ export default function SettingsPage() {
               {showSerperKey ? '🙈' : '👁'}
             </button>
           </div>
-          <button type="button" onClick={testSerperKey} disabled={!serperKey || serperKey === '********' || testingSerper}
+          <button type="button" onClick={testSerperKey} disabled={testingSerper}
             className="mt-2 px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-500/30 disabled:opacity-50 font-mono text-xs">
             {testingSerper ? '测试中...' : '测试连接'}
           </button>

@@ -9,14 +9,15 @@ export const dynamic = 'force-dynamic'
 type HotItem = { title: string; hot?: string; url?: string }
 type HotSource = { source: string; region: 'cn' | 'global'; items: HotItem[] }
 
-// 主源：vvhan 聚合（中国热榜）
+// 主源：vvhan 聚合（中国热榜）——2026-08-11：域名后台可填（VVHAN_API_BASE，默认 v1.vvhan.com），url 只存路径
+const VVHAN_BASE = () => process.env.VVHAN_API_BASE || 'https://v1.vvhan.com'
 const VVHAN: { source: string; url: string }[] = [
-  { source: '微博', url: 'https://api.vvhan.com/api/hotlist/wbHot' },
-  { source: '抖音', url: 'https://api.vvhan.com/api/hotlist/douyinHot' },
-  { source: '知乎', url: 'https://api.vvhan.com/api/hotlist/zhihuHot' },
-  { source: '小红书', url: 'https://api.vvhan.com/api/hotlist/xiaohongshu' },
-  { source: '今日头条', url: 'https://api.vvhan.com/api/hotlist/toutiao' },
-  { source: '百度热搜', url: 'https://api.vvhan.com/api/hotlist/baiduRD' },
+  { source: '微博', url: '/api/hotlist/wbHot' },
+  { source: '抖音', url: '/api/hotlist/douyinHot' },
+  { source: '知乎', url: '/api/hotlist/zhihuHot' },
+  { source: '小红书', url: '/api/hotlist/xiaohongshu' },
+  { source: '今日头条', url: '/api/hotlist/toutiao' },
+  { source: '百度热搜', url: '/api/hotlist/baiduRD' },
 ]
 
 // 内置兜底热点：当 vvhan / 天行 全部拉取失败时返回，保证大屏与地球标记点始终有内容
@@ -192,7 +193,7 @@ async function fetchVvhan(src: string, url: string): Promise<HotItem[]> {
     const ctrl = new AbortController()
     const t = setTimeout(() => ctrl.abort(), 6000)
     const sep = url.includes('?') ? '&' : '?'
-    const r = await fetch(url + sep + 'apikey=' + (process.env.VVHAN_API_KEY || '3834978aefecccceb2c9b98092620fe0'), { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } })
+    const r = await fetch(VVHAN_BASE() + url + sep + 'apikey=' + (process.env.VVHAN_API_KEY || '3834978aefecccceb2c9b98092620fe0'), { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } })
     clearTimeout(t)
     if (!r.ok) return fetchVhanFree(src)
     const d = await r.json()
