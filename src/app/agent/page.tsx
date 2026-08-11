@@ -446,6 +446,7 @@ export default function AgentPage() {
   const [nameInput, setNameInput] = useState('')
   // ⚙️ AI 设置（2026-08-07：音色/温度/语音灵敏度）
   const [showPrefs, setShowPrefs] = useState(false)
+  const [showLogout, setShowLogout] = useState(false) // 2026-08-11：退出用自定义弹窗（不用浏览器 confirm）
   const [ttsVoice, setTtsVoice] = useState('longxiaochun')
   const [temperature, setTemperature] = useState(0.7)
   const [vadThreshold, setVadThreshold] = useState(0.045)
@@ -613,7 +614,7 @@ export default function AgentPage() {
     { path: '/dashboard', title: '数据看板', color: 'rose', roles: ['admin', 'editor'] },
     { path: '/lead-collector', title: '意向采集', color: 'orange', roles: ['admin', 'editor'] },
     // 仅 admin（管理/自动化）
-    { path: '/my-fingerprint', title: '指纹浏览器', color: 'pink', roles: ['admin'] },
+    { path: '/my-fingerprint', title: '指纹发布', color: 'pink', roles: ['admin', 'editor', 'end-user'] },
     { path: '/admin', title: '管理后台', color: 'red', roles: ['admin'] },
     { path: '/data-center', title: '数据中台', color: 'teal', roles: ['admin'] },
     { path: '/live', title: '直播引擎', color: 'fuchsia', roles: ['admin'] },
@@ -780,19 +781,6 @@ export default function AgentPage() {
   const BARGEIN_FRAMES = 3      // 连续 3 帧高音量才算打断（防噪音误触）
   const [ttsVolume, setTtsVolume] = useState(0)
   const voice = useAgentVoice((v) => setTtsVolume(v))
-
-  // ===== AI 当前活动指示器（BaiLongma ai-activity）：纯派生，不逼 AI 自述 =====
-  const aiBusy = loading || orbState === 'listening' || orbState === 'recognizing' || orbState === 'thinking' || orbState === 'speaking'
-  const aiActivity = (() => {
-    if (orbState === 'listening') return { label: '聆听中', detail: streamText || interimText || '正在接收语音…' }
-    if (orbState === 'recognizing') return { label: '识别中', detail: '语音转文字' }
-    if (loading || orbState === 'thinking') {
-      const last = liveSteps[liveSteps.length - 1]
-      return { label: '执行中', detail: last ? (TOOL_STEP_LABEL[last.tool] || last.label) : '拆解需求 · 规划链路' }
-    }
-    if (orbState === 'speaking') return { label: '回复中', detail: '语音播报' }
-    return { label: '空闲', detail: '等待指令' }
-  })()
 
   // ===== 全局视频播放器（阶段二：对话/语音"找视频"统一在此播放）=====
   const [player, setPlayer] = useState<{ open: boolean; url: string; title: string }>({ open: false, url: '', title: '' })
@@ -1396,6 +1384,11 @@ export default function AgentPage() {
               <button onClick={() => runSelfCheck(false)} disabled={selfChecking}
                 className="flex-1 rounded-lg bg-emerald-500/20 py-2 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition disabled:opacity-50">{selfChecking ? '检查中…' : '重新检查'}</button>
             </div>
+            {/* 2026-08-11：版本号加入自检明细 */}
+            <div className="mt-3 pt-2 border-t border-white/10 flex items-center justify-between text-[10px] text-gray-500">
+              <span>📦 客户端版本</span>
+              <span className="font-mono text-gray-400">v{appVersion}</span>
+            </div>
           </div>
         </div>
       )}
@@ -1405,6 +1398,16 @@ export default function AgentPage() {
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowPrefs(false)}>
           <div className="w-[340px] max-h-[80vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0d0d14] p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-white mb-1">⚙️ AI 设置</h3>
+            <div className="mb-3 p-2.5 rounded-lg bg-white/[0.04] border border-white/10">
+              <div className="text-[10px] text-gray-400 mb-1.5">✎ 给 AI 起个名字（显示在标题栏与对话中）</div>
+              <div className="flex gap-1.5">
+                <input value={nameInput} onChange={e => setNameInput(e.target.value)} maxLength={20}
+                  placeholder={agentName || '例如：小美 / 麦子'}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder-gray-600 outline-none focus:border-emerald-400/50" />
+                <button onClick={saveAgentName}
+                  className="shrink-0 rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition">保存</button>
+              </div>
+            </div>
             <p className="text-[10px] text-gray-500 mb-4">你的个性化设置，AI 回复会按此执行</p>
 
             <p className="text-[11px] text-gray-400 mb-1.5">🎙 AI 声音（音色）</p>
@@ -1453,6 +1456,22 @@ export default function AgentPage() {
       )}
 
       {/* 自定义 AI 名称弹窗（2026-08-07） */}
+      {/* 2026-08-11：退出确认弹窗（自定义，非浏览器 confirm） */}
+      {showLogout && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowLogout(false)}>
+          <div className="w-[300px] rounded-2xl border border-white/15 bg-[#11131c] p-5 text-center" onClick={e => e.stopPropagation()}>
+            <div className="text-3xl mb-2">👋</div>
+            <h3 className="text-sm font-semibold text-white mb-1">确定退出登录？</h3>
+            <p className="text-[11px] text-gray-500 mb-4">当前账号：{user?.username}</p>
+            <div className="flex gap-2">
+              <button onClick={() => setShowLogout(false)} className="flex-1 rounded-lg bg-white/[0.06] py-2 text-xs text-gray-400 hover:bg-white/10 transition">取消</button>
+              <button onClick={async () => { setShowLogout(false); await logout(); router.push('/login') }}
+                className="flex-1 rounded-lg bg-red-500/20 py-2 text-xs text-red-300 border border-red-500/30 hover:bg-red-500/30 transition">确认退出</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showNameEdit && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowNameEdit(false)}>
           <div className="w-[300px] rounded-2xl border border-white/10 bg-[#0d0d14] p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -1502,20 +1521,16 @@ export default function AgentPage() {
             <div className="flex flex-col gap-0.5 min-w-0 flex-1">
               <span className="text-[9px] tracking-[0.22em] uppercase text-gray-600 font-mono">AI MARKETING</span>
               <span className="text-[14px] font-semibold text-white tracking-tight truncate">{agentName}</span>
-              <button onClick={() => { setNameInput(agentName); setShowNameEdit(true) }}
-                className="text-[9px] text-gray-600 hover:text-emerald-300 transition shrink-0" title="自定义 AI 名称">✎ 改名</button>
-              <button onClick={() => setShowPrefs(true)}
-                className="text-[9px] text-gray-600 hover:text-emerald-300 transition shrink-0" title="AI 设置">⚙️</button>
             </div>
             {user ? (
+              /* 2026-08-11：右侧一排三卡片——设置 / 管理(按角色跳转) / 退出 */
               <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-[10px] text-gray-400 max-w-[72px] truncate" title={user.username}>{user.username}</span>
-                {user.role === 'admin' && (
-                  <button onClick={() => router.push('/admin')}
-                    className="px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/25 text-[9px] text-amber-300 hover:bg-amber-500/25 transition" title="管理后台（API Key/系统配置）">⚙ 管理</button>
-                )}
-                <button onClick={async () => { await logout(); router.push('/login') }}
-                  className="px-2 py-1 rounded-md bg-white/5 hover:bg-white/10 text-[9px] text-gray-400 hover:text-red-300 transition">退出</button>
+                <button onClick={() => setShowPrefs(true)}
+                  className="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-white/10 transition" title="AI 设置（含改名）">设置</button>
+                <button onClick={() => router.push(user?.role === 'admin' ? '/admin' : user?.role === 'editor' ? '/ai-tools' : '/workspace')}
+                  className="px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/25 text-[9px] text-amber-300 hover:bg-amber-500/25 transition" title="进入对应管理/工作台">管理</button>
+                <button onClick={() => setShowLogout(true)}
+                  className="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[9px] text-gray-400 hover:text-red-300 hover:bg-white/10 transition" title="退出登录">退出</button>
               </div>
             ) : (
               <div className="flex items-center gap-1.5 shrink-0">
@@ -1525,15 +1540,6 @@ export default function AgentPage() {
                   className="px-2.5 py-1 rounded-md bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-white/10 transition">注册</button>
               </div>
             )}
-          </div>
-
-          {/* AI 当前活动指示器（ai-activity：纯派生，不逼 AI 开口） */}
-          <div className="px-4 py-2.5 border-b border-white/[0.06] shrink-0">
-            <div className={`flex items-center gap-2 text-[10px] font-mono tracking-wide ${aiBusy ? 'text-cyan-300' : 'text-gray-600'}`}>
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${aiBusy ? 'bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.7)] animate-pulse' : 'bg-gray-700'}`} />
-              <span className="shrink-0">{aiActivity.label}</span>
-              <span className="flex-1 opacity-70 truncate text-right">{aiActivity.detail}</span>
-            </div>
           </div>
 
           {/* 声纹球语音面板（BaiLongma voice-panel 位置：左面板内，非中栏顶部） */}
@@ -1550,10 +1556,12 @@ export default function AgentPage() {
           </div>
 
           {/* 应用入口（2026-08-05：一键成片等 iframe 大屏，AI 对话栏右 1/3 常驻） */}
-          <div className="px-4 py-3 border-t border-white/[0.06] shrink-0">
-            <p className="text-[9px] text-gray-600 mb-2 tracking-wide">📱 应用 · 打开即 AI 随行</p>
+          {/* 2026-08-11：flex-1 弹性占满剩余空间——底部「呼出热点大屏」按钮顶到最底部，不贴应用卡 */}
+          <div className="px-4 py-3 border-t border-white/[0.06] flex-1 min-h-0 flex flex-col">
+            <p className="text-[9px] text-gray-600 mb-2 tracking-wide shrink-0">📱 应用 · 打开即 AI 随行</p>
             {/* 2026-08-08：按角色过滤 + 颜色区分（字体/边框同色）+ 文字宽度自适应 + 错落排列 */}
-            <div className="flex flex-wrap gap-x-2 gap-y-1 pt-0.5">
+            {/* 2026-08-11：应用多时内部滚动（不挤压底部） */}
+            <div className="flex flex-wrap gap-x-2 gap-y-1 pt-0.5 overflow-y-auto pr-0.5">
               {visibleApps.map((a, i) => {
                 const col = APP_COLORS[a.color] || APP_COLORS.emerald
                 return (
@@ -2236,7 +2244,8 @@ export default function AgentPage() {
             {/* 三柱主体（复刻 BaiLongma：左右柱 percentage + min-width，地球 flex:1 1 0 + min-h-0） */}
             <div className="flex-1 flex overflow-hidden min-h-0">
               {/* 左柱：国内平台热榜（头部 1 个固定展开 + 其余折叠手风琴） */}
-              <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-r border-white/[0.07]">
+              {/* 2026-08-11：justify-end 热点卡片固定底部，数据少时不跟着往上跑 */}
+              <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-px justify-end overflow-y-auto bg-white/[0.02] border-r border-white/[0.07]">
                 {leftSources.length === 0 && <p className="text-[11px] text-[#5a6072] text-center py-8">暂无国内热榜</p>}
                 {leftSources.map((src, idx) => {
                   const isFirst = idx === 0
@@ -2343,6 +2352,11 @@ export default function AgentPage() {
                 </div>
               </div>
             )}
+            {/* 2026-08-11：大屏底部版本号 */}
+            <div className="shrink-0 h-6 flex items-center justify-between px-4 border-t border-white/[0.07] bg-[#0a0e16]/70 text-[9px] text-[#4a5162]">
+              <span>AiMarketing 客户端</span>
+              <span className="font-mono">v{appVersion}</span>
+            </div>
           </div>
         </section>
           )

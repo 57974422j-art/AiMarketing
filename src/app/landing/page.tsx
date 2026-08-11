@@ -18,6 +18,13 @@ export default function LandingPage() {
   const wrapRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // 2026-08-11：landing 独立风格——隐藏全局顶部导航
+    const navs = document.querySelectorAll('nav')
+    navs.forEach(n => { (n as HTMLElement).style.display = 'none' })
+    return () => { navs.forEach(n => { (n as HTMLElement).style.display = '' }) }
+  }, [])
+
+  useEffect(() => {
     const onScroll = () => {
       const el = wrapRef.current
       if (!el) return
@@ -37,6 +44,10 @@ export default function LandingPage() {
 
   return (
     <div ref={wrapRef} className="relative bg-[#05070d] text-white" style={{ height: `${SCENES.length * 100}vh` }}>
+      <style>{`
+        @keyframes landingFloat { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-14px) } }
+        .animate-float { animation: landingFloat 4s ease-in-out infinite }
+      `}</style>
       {/* 固定视口：3D 穿越舞台 */}
       <div className="fixed inset-0 overflow-hidden" style={{ perspective: '1300px' }}>
         {/* 星尘背景 */}
@@ -75,35 +86,51 @@ export default function LandingPage() {
 
 // 3D 场景层：镜头随 progress（0-1）依次飞过 5 个场景，从远到近、无剪切
 function SceneLayers({ progress, active }: { progress: number; active: number }) {
-  const DEPTH = 4200 // 起点深度
   return (
-    <div className="absolute inset-0" style={{ transformStyle: 'preserve-3d' }}>
+    <div className="absolute inset-0">
       {SCENES.map((s, i) => {
-        const t = Math.min(1, Math.max(0, progress * SCENES.length - i)) // 本场景飞行进度 0→1
-        const z = DEPTH * (1 - t) - 200 // 远 → 近
-        const opacity = t < 0.15 ? t / 0.15 : 1 - Math.max(0, t - 0.82) / 0.18
-        const scale = 0.72 + t * 0.28
+        // 2026-08-11 v2：全屏场景交叉切换（无 3D 飞行，大小恒定不会黑屏/变形）
+        const t = Math.min(1, Math.max(0, progress * SCENES.length - i)) // 本幕进度 0→1
+        const fadeIn = Math.min(1, t / 0.22)
+        const fadeOut = Math.min(1, (1.18 - t) / 0.18)
+        // 2026-08-11：第一幕初始可见（页面加载 progress=0 时 t=0，原逻辑 opacity=0 导致首屏空白）
+        const opacity = i === 0 ? Math.max(0.92, fadeIn * fadeOut) : fadeIn * fadeOut
+        const activeNow = i === active
+        // 受控 3D 飞行感：卡片随 t 从远处放大到近处（幅度小，不会大小失控）
+        const flyScale = 0.86 + t * 0.14
         return (
-          <div key={i} className="absolute inset-0 flex items-center justify-center"
-            style={{
-              transform: `translateZ(${z}px) scale(${scale})`,
-              opacity: Math.max(0, Math.min(1, opacity)),
-              transition: 'transform 0.1s linear',
-            }}>
-            <div className="relative w-[min(94vw,860px)] h-[min(70vh,560px)] rounded-3xl border border-white/15 overflow-hidden shadow-2xl"
-              style={{ boxShadow: `0 0 140px -30px ${s.glow}` }}>
-              {/* diorama 场景图（镜头推近感） */}
+          <div key={i} className="absolute inset-0 flex items-center justify-center" style={{ opacity, pointerEvents: activeNow ? 'auto' : 'none' }}>
+            {/* 场景卡：方形框（匹配 1280x1280 图，完整显示不裁剪）+ 框内推进动画 */}
+            <div className="relative w-[min(88vw,680px)] aspect-square rounded-3xl overflow-hidden border border-white/20 shadow-2xl"
+              style={{ boxShadow: `0 0 120px -20px ${s.glow}`, transform: `scale(${flyScale})`, transition: 'transform 0.2s ease-out' }}>
               <img src={s.image} alt={s.title} className="w-full h-full object-cover"
-                style={{ transform: `scale(${1.06 + t * 0.12})`, transition: 'transform 0.15s linear' }} />
-              {/* 底部文字叠加 */}
-              <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="text-3xl sm:text-4xl drop-shadow">{s.icon}</span>
-                  <h2 className="text-2xl sm:text-4xl font-bold tracking-tight drop-shadow">{s.title}</h2>
+                style={{ transform: `scale(${1.0 + (activeNow ? 0.14 : 0.0)})`, transition: 'transform 4s ease-out' }} />
+              {/* 顶部光晕 + 底部渐变 */}
+              <div className="absolute inset-0 pointer-events-none"
+                style={{ background: `radial-gradient(circle at 50% 30%, ${s.glow}22, transparent 55%), linear-gradient(to top, rgba(0,0,0,0.55), transparent 40%)` }} />
+              {/* 浮动粒子（动态感） */}
+              {activeNow && (
+                <div className="absolute inset-0 pointer-events-none">
+                  {[...Array(14)].map((_, k) => (
+                    <span key={k} className="absolute rounded-full bg-white/70 animate-float"
+                      style={{
+                        left: `${(k * 137) % 100}%`, top: `${(k * 61) % 100}%`,
+                        width: 3 + (k % 4), height: 3 + (k % 4),
+                        animationDelay: `${(k % 7) * 0.6}s`, animationDuration: `${3 + (k % 5)}s`,
+                        boxShadow: `0 0 8px ${s.glow}`,
+                      }} />
+                  ))}
                 </div>
-                <p className="text-xs sm:text-sm mb-2 font-medium" style={{ color: `${s.glow}` }}>{s.sub}</p>
-                <p className="text-xs sm:text-sm text-white/85 max-w-xl leading-relaxed drop-shadow">{s.desc}</p>
-                <div className="mt-3 flex justify-start gap-1.5">
+              )}
+              {/* 文字叠加（底部） */}
+              <div className="absolute inset-x-0 bottom-0 p-6 text-center">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <span className="text-2xl sm:text-3xl drop-shadow">{s.icon}</span>
+                  <h2 className="text-2xl sm:text-3xl font-bold tracking-tight drop-shadow">{s.title}</h2>
+                </div>
+                <p className="text-xs sm:text-sm mb-1.5 font-medium drop-shadow" style={{ color: `${s.glow}` }}>{s.sub}</p>
+                <p className="text-[11px] sm:text-sm text-white/90 max-w-md mx-auto leading-relaxed drop-shadow hidden sm:block">{s.desc}</p>
+                <div className="mt-3 flex justify-center gap-1.5">
                   {SCENES.map((_, j) => (
                     <span key={j} className={`h-1.5 rounded-full transition-all ${j === i ? 'w-8 bg-white' : 'w-1.5 bg-white/40'}`} />
                   ))}
