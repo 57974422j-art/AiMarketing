@@ -375,7 +375,7 @@ export async function POST(request: NextRequest) {
       }
 
       case 'serper': {
-        const k = key || process.env.SERPER_API_KEY || '';
+        const k = (key && key !== '********' ? key : '') || process.env.SERPER_API_KEY || '';
         if (!k) return NextResponse.json({ valid: false, message: '未配置 Serper API Key' }, { status: 400 });
         try {
           const res = await fetch('https://google.serper.dev/search', {
@@ -393,7 +393,7 @@ export async function POST(request: NextRequest) {
         }
       }
       case 'vvhan': {
-        const k = key || process.env.VVHAN_API_KEY || '';
+        const k = (key && key !== '********' ? key : '') || process.env.VVHAN_API_KEY || '';
         try {
           // 2026-08-11：vvhan 官方接口已失效，统一测免 key 源
           {
