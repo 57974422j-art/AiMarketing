@@ -166,6 +166,27 @@ async function fetchReddit(): Promise<HotItem[]> {
   } catch { return [] }
 }
 
+// vvhan 免 key 兜底源（2026-08-11：hot-api.vhan.eu.org Cloudflare Worker，key 无效/域名被墙时用，真实数据）
+const VHAN_FREE: Record<string, string> = {
+  '微博': 'wbHot', '抖音': 'douyinHot', '知乎': 'zhihuHot', '小红书': 'xhsHot', '今日头条': 'toutiao', '百度热搜': 'baiduRD',
+}
+async function fetchVhanFree(src: string): Promise<HotItem[]> {
+  try {
+    const type = VHAN_FREE[src] || 'all'
+    const r = await fetch(`https://hot-api.vhan.eu.org/v2?type=${type}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) })
+    if (!r.ok) return []
+    const d = await r.json()
+    const list: any[] = d?.data?.list || d?.data || []
+    return (Array.isArray(list) ? list : [])
+      .slice(0, 12)
+      .map((it: any) => ({
+        title: String(it.title || it.name || it.word || '').trim(),
+        hot: it.hot ? String(it.hot) : undefined,
+      }))
+      .filter((it: HotItem) => it.title)
+  } catch { return [] }
+}
+
 async function fetchVvhan(src: string, url: string): Promise<HotItem[]> {
   try {
     const ctrl = new AbortController()
@@ -173,8 +194,9 @@ async function fetchVvhan(src: string, url: string): Promise<HotItem[]> {
     const sep = url.includes('?') ? '&' : '?'
     const r = await fetch(url + sep + 'apikey=' + (process.env.VVHAN_API_KEY || '3834978aefecccceb2c9b98092620fe0'), { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } })
     clearTimeout(t)
-    if (!r.ok) return []
+    if (!r.ok) return fetchVhanFree(src)
     const d = await r.json()
+    if (d?.success === false) return fetchVhanFree(src) // key 无效/不存在 → 免 key 源兜底
     const list: any[] = d?.data?.list || d?.data || []
     return (Array.isArray(list) ? list : [])
       .slice(0, 12)
@@ -183,7 +205,7 @@ async function fetchVvhan(src: string, url: string): Promise<HotItem[]> {
         hot: it.hot ? String(it.hot) : undefined,
       }))
       .filter((it: HotItem) => it.title)
-  } catch { return [] }
+  } catch { return fetchVhanFree(src) }
 }
 
 
