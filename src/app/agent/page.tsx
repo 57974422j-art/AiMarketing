@@ -177,7 +177,9 @@ function VideoPlayer({ state, onClose }: {
 }) {
   useEffect(() => {
     document.body.classList.toggle('video-mode', state.open)
-    return () => document.body.classList.remove('video-mode')
+    // 2026-08-11：视频呼出与应用呼出一致——进入 app-mode（对话收窄右 34% + 声纹球头部）
+    document.body.classList.toggle('app-mode', state.open)
+    return () => { document.body.classList.remove('video-mode', 'app-mode') }
   }, [state.open])
   if (!state.open) return null
   const { kind, url } = iframeUrlFor(state.url)
@@ -411,6 +413,32 @@ export default function AgentPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [sessionId, setSessionId] = useState<number | null>(null)
+  // 2026-08-11：登录后恢复最近对话历史（界面不空；有历史则跳过欢迎/onboarding）
+  const [historyLoaded, setHistoryLoaded] = useState(false)
+  useEffect(() => {
+    if (!user || historyLoaded) return
+    ;(async () => {
+      try {
+        // 用现有接口：先取最近会话列表 → 再取该会话消息
+        const s = await fetch('/api/agent/chat?action=sessions', { credentials: 'include' }).then(r => r.json())
+        const sessions = Array.isArray(s?.data) ? s.data : []
+        if (sessions.length > 0) {
+          const sid = sessions[0].id
+          const m = await fetch(`/api/agent/chat?action=messages&sessionId=${sid}`, { credentials: 'include' }).then(r => r.json())
+          const msgs = Array.isArray(m?.data?.messages) ? m.data.messages : []
+          if (msgs.length > 0) {
+            setMessages(msgs.map((x: any) => ({ role: x.role, content: x.content })))
+            setSessionId(sid)
+            setWelcomeMsg(null)
+            setOnboarding(false)
+            localStorage.setItem('agent_onboarded', '1')
+          }
+        }
+      } catch {}
+      setHistoryLoaded(true)
+    })()
+  }, [user, historyLoaded])
+
   // 首次登录对话式 onboarding（纯对话、无按钮/标签，区别于被回退的 ada9740 按钮条）
   const [onboarded, setOnboarded] = useState(false)
   const [onboarding, setOnboarding] = useState(false)
@@ -1591,6 +1619,24 @@ export default function AgentPage() {
         </aside>
 
         <main className="agent-main-col flex-1 flex flex-col min-w-0 min-h-0 agent-main">
+          {/* 2026-08-11：应用/视频模式时声纹球合并到对话栏头部（左面板隐藏后说话入口保留） */}
+          {(activeApp || player.open) && (
+            <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-white/[0.06] bg-white/[0.03]">
+              <div className="relative shrink-0">
+                <VoiceOrb state={orbState} volume={Math.max(micVolume, ttsVolume)} size={44}
+                  className="relative drop-shadow-[0_0_8px_rgba(255,159,28,0.3)]" />
+                <button onClick={toggleRecording}
+                  className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
+                  title={isRecording ? '点击停止' : '点击说话'} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-medium text-gray-200">
+                  {orbState === 'listening' ? '🎤 正在聆听…' : orbState === 'recognizing' ? '🔍 识别中…' : orbState === 'thinking' ? '💭 思考中…' : orbState === 'speaking' ? '🔊 朗读中…' : 'AI 随行 · 点击声纹球说话'}
+                </p>
+                <p className="text-[9px] text-gray-600 truncate">说「关闭」可退出 · 语音可随时打断</p>
+              </div>
+            </div>
+          )}
           <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-6 py-4 flex flex-col">
             {lastPoints != null && (
               <p className="text-[10px] text-amber-300/80 text-center">🪙 本次对话消耗 {lastPoints} 点</p>
