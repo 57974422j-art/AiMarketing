@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // 今日热点接口（融合 BaiLongma 热点推荐：多源聚合，免 key，本地缓存 1 小时）
-// 取法参考 BaiLongma trending.js / hotspots.js：中国热榜走 vvhan 聚合 + 全球走 HackerNews/Reddit，
+// 取法参考 BaiLongma trending.js / hotspots.js：中国热榜走免 key 聚合 + 全球走 HackerNews/Reddit，
 // 多源容错，单个源失败不影响其他。
 
 export const dynamic = 'force-dynamic'
@@ -9,18 +9,10 @@ export const dynamic = 'force-dynamic'
 type HotItem = { title: string; hot?: string; url?: string }
 type HotSource = { source: string; region: 'cn' | 'global'; items: HotItem[] }
 
-// 主源：vvhan 聚合（中国热榜）——2026-08-11：域名后台可填（VVHAN_API_BASE，默认 v1.vvhan.com），url 只存路径
-const VVHAN_BASE = () => process.env.VVHAN_API_BASE || 'https://v1.vvhan.com'
-const VVHAN: { source: string; url: string }[] = [
-  { source: '微博', url: '/api/hotlist/wbHot' },
-  { source: '抖音', url: '/api/hotlist/douyinHot' },
-  { source: '知乎', url: '/api/hotlist/zhihuHot' },
-  { source: '小红书', url: '/api/hotlist/xiaohongshu' },
-  { source: '今日头条', url: '/api/hotlist/toutiao' },
-  { source: '百度热搜', url: '/api/hotlist/baiduRD' },
-]
+// 主源：免 key 聚合（hot-api.vhan.eu.org/v2?type=all，一次拿全部榜单）——2026-08-11：vvhan 官方接口已失效，彻底清除
+const CN_SOURCES = ['微博', '抖音', '知乎', '小红书', '今日头条', '百度热搜']
 
-// 内置兜底热点：当 vvhan / 天行 全部拉取失败时返回，保证大屏与地球标记点始终有内容
+// 内置兜底热点：当免 key 源 / tophub 全部拉取失败时返回
 const FALLBACK: Record<string, HotItem[]> = {
   微博: [
     { title: 'AI 生成内容监管新规今日生效', hot: '982万' },
@@ -86,7 +78,7 @@ const FALLBACK: Record<string, HotItem[]> = {
 }
 
 // 全球源：HackerNews 官方 API（免 key）
-// tophub.today 免 key 兜底（2026-08-08：vvhan 失败时用，首页解析板块 → 详情页解析榜单）
+// tophub.today 次级兜底（首页解析板块 → 详情页解析榜单）
 let tophubNodes: { name: string; id: string }[] | null = null
 async function fetchTophub(source: string): Promise<HotItem[] | null> {
   try {
@@ -167,46 +159,32 @@ async function fetchReddit(): Promise<HotItem[]> {
   } catch { return [] }
 }
 
-// vvhan 免 key 兜底源（2026-08-11：hot-api.vhan.eu.org Cloudflare Worker，key 无效/域名被墙时用，真实数据）
-const VHAN_FREE: Record<string, string> = {
-  '微博': 'wbHot', '抖音': 'douyinHot', '知乎': 'zhihuHot', '小红书': 'xhsHot', '今日头条': 'toutiao', '百度热搜': 'baiduRD',
-}
-async function fetchVhanFree(src: string): Promise<HotItem[]> {
+// 免 key 主源：一次拉全部榜单，按 name 匹配各平台（2026-08-11：替代失效的 vvhan 官方接口）
+async function fetchVhanAll(): Promise<Record<string, HotItem[]>> {
+  const out: Record<string, HotItem[]> = {}
   try {
-    const type = VHAN_FREE[src] || 'all'
-    const r = await fetch(`https://hot-api.vhan.eu.org/v2?type=${type}`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) })
-    if (!r.ok) return []
+    const r = await fetch('https://hot-api.vhan.eu.org/v2?type=all', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(9000) })
+    if (!r.ok) return out
     const d = await r.json()
-    const list: any[] = d?.data?.list || d?.data || []
-    return (Array.isArray(list) ? list : [])
-      .slice(0, 12)
-      .map((it: any) => ({
-        title: String(it.title || it.name || it.word || '').trim(),
-        hot: it.hot ? String(it.hot) : undefined,
-      }))
-      .filter((it: HotItem) => it.title)
-  } catch { return [] }
-}
-
-async function fetchVvhan(src: string, url: string): Promise<HotItem[]> {
-  try {
-    const ctrl = new AbortController()
-    const t = setTimeout(() => ctrl.abort(), 6000)
-    const sep = url.includes('?') ? '&' : '?'
-    const r = await fetch(VVHAN_BASE() + url + sep + 'apikey=' + (process.env.VVHAN_API_KEY || '3834978aefecccceb2c9b98092620fe0'), { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } })
-    clearTimeout(t)
-    if (!r.ok) return fetchVhanFree(src)
-    const d = await r.json()
-    if (d?.success === false) return fetchVhanFree(src) // key 无效/不存在 → 免 key 源兜底
-    const list: any[] = d?.data?.list || d?.data || []
-    return (Array.isArray(list) ? list : [])
-      .slice(0, 12)
-      .map((it: any) => ({
-        title: String(it.title || it.word || it.name || '').trim(),
-        hot: it.hot ? String(it.hot) : undefined,
-      }))
-      .filter((it: HotItem) => it.title)
-  } catch { return fetchVhanFree(src) }
+    const boards: any[] = d?.data || []
+    const pick = (keys: string[]) => (board: any) => keys.some((k) => String(board?.name || '').includes(k))
+    const map: [string, string[]][] = [
+      ['微博', ['微博']],
+      ['抖音', ['抖音']],
+      ['知乎', ['知乎']],
+      ['小红书', ['小红书']],
+      ['今日头条', ['头条']],
+      ['百度热搜', ['百度']],
+    ]
+    for (const [source, keys] of map) {
+      const board = boards.find(pick(keys))
+      const list: any[] = board?.data || board?.list || []
+      out[source] = (Array.isArray(list) ? list : []).slice(0, 12)
+        .map((it: any, i: number) => ({ title: String(it.title || it.name || '').trim(), hot: it.hot ? String(it.hot) : undefined, rank: i + 1 }))
+        .filter((it: HotItem) => it.title)
+    }
+  } catch {}
+  return out
 }
 
 
@@ -222,16 +200,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, sources: cache.data, cached: true })
     }
 
-    // 并行抓取：国内 vvhan 多平台 + 全球 HackerNews/Reddit
-    const vvhanResults = await Promise.all(VVHAN.map((e) => fetchVvhan(e.source, e.url)))
+    // 并行抓取：国内免 key 榜单 + 全球 HackerNews/Reddit
+    const vhanAll = await fetchVhanAll()
     const [hn, reddit] = await Promise.all([fetchHackerNews(), fetchReddit()])
 
-    // 2026-08-08：vvhan v1 为主源，失败时 tophub 免 key 兜底，最后内置兜底
-    const cnSources: HotSource[] = await Promise.all(VVHAN.map(async (e, i) => {
-      if (vvhanResults[i]?.length) return { source: e.source, region: 'cn' as const, items: vvhanResults[i] }
-      const th = await fetchTophub(e.source)
-      if (th?.length) return { source: e.source, region: 'cn' as const, items: th }
-      return { source: e.source, region: 'cn' as const, items: (FALLBACK[e.source] || []) }
+    // 2026-08-11：免 key 源为主 → tophub 兜底 → 内置 FALLBACK
+    const cnSources: HotSource[] = await Promise.all(CN_SOURCES.map(async (source) => {
+      if (vhanAll[source]?.length) return { source, region: 'cn' as const, items: vhanAll[source] }
+      const th = await fetchTophub(source)
+      if (th?.length) return { source, region: 'cn' as const, items: th }
+      return { source, region: 'cn' as const, items: (FALLBACK[source] || []) }
     }))
 
     const sources: HotSource[] = [

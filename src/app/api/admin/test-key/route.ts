@@ -395,8 +395,8 @@ export async function POST(request: NextRequest) {
       case 'vvhan': {
         const k = key || process.env.VVHAN_API_KEY || '';
         try {
-          // 无 key → 测免 key 源（hot-api.vhan.eu.org）
-          if (!k) {
+          // 2026-08-11：vvhan 官方接口已失效，统一测免 key 源
+          {
             const fr = await fetch('https://hot-api.vhan.eu.org/v2?type=wbHot', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) });
             if (!fr.ok) return NextResponse.json({ valid: false, message: `免key源 HTTP ${fr.status}` });
             const fj = await fr.json();
