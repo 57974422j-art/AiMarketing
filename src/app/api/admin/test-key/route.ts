@@ -395,13 +395,22 @@ export async function POST(request: NextRequest) {
       case 'vvhan': {
         const k = key || process.env.VVHAN_API_KEY || '';
         try {
-          const res = await fetch('https://api.vvhan.com/api/hotlist/wbHot' + (k ? `?apikey=${k}` : ''), {
+          // 无 key → 测免 key 源（hot-api.vhan.eu.org）
+          if (!k) {
+            const fr = await fetch('https://hot-api.vhan.eu.org/v2?type=wbHot', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) });
+            if (!fr.ok) return NextResponse.json({ valid: false, message: `免key源 HTTP ${fr.status}` });
+            const fj = await fr.json();
+            const fn = Array.isArray(fj?.data?.list || fj?.data) ? (fj.data.list || fj.data).length : 0;
+            return NextResponse.json({ valid: true, message: `免key源可用，返回 ${fn} 条微博热榜（未填 key）` });
+          }
+          const res = await fetch((process.env.VVHAN_API_BASE || 'https://v1.vvhan.com') + '/api/hotlist/wbHot' + `?apikey=${k}`, {
             headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000),
           });
           if (!res.ok) return NextResponse.json({ valid: false, message: `vvhan HTTP ${res.status}` });
           const j = await res.json();
-          const n = Array.isArray(j.data) ? j.data.length : 0;
-          return NextResponse.json({ valid: true, message: `vvhan 有效${k ? '（key 已用）' : '（免 key）'}，返回 ${n} 条微博热榜` });
+          if (j?.success === false) return NextResponse.json({ valid: false, message: `vvhan 返回：${j?.msg || 'apikey 无效'}` });
+          const n = Array.isArray(j.data?.list) ? j.data.list.length : (Array.isArray(j.data) ? j.data.length : 0);
+          return NextResponse.json({ valid: true, message: `vvhan key 有效，返回 ${n} 条微博热榜` });
         } catch (e: any) {
           return NextResponse.json({ valid: false, message: `vvhan 请求失败：${e.message}` });
         }
