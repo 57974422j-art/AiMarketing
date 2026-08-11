@@ -401,8 +401,12 @@ const TOOL_STEP_LABEL: Record<string, string> = {
 }
 
 export default function AgentPage() {
-  const { user, logout } = useAuth()
+  const { user, logout, loading: authLoading } = useAuth() || ({ user: undefined, logout: async () => {}, loading: true } as any)
   const router = useRouter()
+  // 2026-08-11：未登录访问首页 → 跳转 /landing（5 动画落地页）；已登录正常进对话
+  useEffect(() => {
+    if (!authLoading && !user) router.replace('/landing')
+  }, [user, authLoading, router])
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
