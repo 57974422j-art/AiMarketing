@@ -2294,8 +2294,8 @@ export default function AgentPage() {
             {/* 三柱主体（复刻 BaiLongma：左右柱 percentage + min-width，地球 flex:1 1 0 + min-h-0） */}
             <div className="flex-1 flex overflow-hidden min-h-0">
               {/* 左柱：国内平台热榜（头部 1 个固定展开 + 其余折叠手风琴） */}
-              {/* 2026-08-11：justify-end 热点卡片固定底部，数据少时不跟着往上跑 */}
-              <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-px justify-end overflow-y-auto bg-white/[0.02] border-r border-white/[0.07]">
+              {/* 2026-08-11 修正：移除 justify-end（此前误加导致所有卡片贴底）——恢复顶部正常排列 */}
+              <div className="flex-[0_0_23%] min-w-[150px] shrink-0 flex flex-col gap-px overflow-y-auto bg-white/[0.02] border-r border-white/[0.07]">
                 {leftSources.length === 0 && <p className="text-[11px] text-[#5a6072] text-center py-8">暂无国内热榜</p>}
                 {leftSources.map((src, idx) => {
                   const isFirst = idx === 0
