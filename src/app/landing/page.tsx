@@ -5,11 +5,11 @@ import { useEffect, useRef, useState } from 'react'
 // /landing 滚动穿越落地页（2026-08-11，纯 CSS 3D 视差，零依赖）
 // 效果：滚动时镜头从每个场景外部飞入内部，无缝流向下一场景（scroll-world 式）
 const SCENES = [
-  { icon: '🎯', title: 'AI 热点雷达', sub: '实时捕捉全网热点 · 抖音 / 微博 / 小红书 / 知乎', desc: '语音一句「今天有什么热点」，AI 立刻拉取全网热榜并为你匹配行业内容方向。', color: 'from-cyan-500/25 to-blue-600/10', glow: '#22d3ee' },
-  { icon: '✍️', title: '爆款文案生成', sub: '10 秒产出一条带货/引流文案 · 自动适配平台风格', desc: '结合你的行业与热点，AI 生成标题、正文、话题标签，还可以直接朗读给你听。', color: 'from-emerald-500/25 to-teal-600/10', glow: '#34d399' },
-  { icon: '🎬', title: 'AI 文生视频', sub: '一句话生成视频 · wan2.7 / 分镜脚本 / 首尾帧接力', desc: '「做一个 30 秒的咖啡店视频」——AI 自动分镜、逐镜生成、无缝拼接成完整成片。', color: 'from-violet-500/25 to-purple-600/10', glow: '#a78bfa' },
-  { icon: '🎞️', title: '一键成片', sub: '素材 · 配音 · 字幕 · BGM 全自动合成', desc: '上传素材或从素材库挑选，AI 自动剪辑、配音、加字幕、配音乐，几分钟出片。', color: 'from-amber-500/25 to-orange-600/10', glow: '#fbbf24' },
-  { icon: '🚀', title: '自动发布', sub: '指纹浏览器多平台发布 · 抖音 / 小红书 / 视频号 / 快手', desc: '成片确认后，一键推送到各大平台，批量任务队列自动执行，省去人工操作。', color: 'from-rose-500/25 to-pink-600/10', glow: '#fb7185' },
+  { icon: '🎯', title: 'AI 热点雷达', sub: '实时捕捉全网热点 · 抖音 / 微博 / 小红书 / 知乎', desc: '语音一句「今天有什么热点」，AI 立刻拉取全网热榜并为你匹配行业内容方向。', image: '/landing/hotspot.png', glow: '#22d3ee' },
+  { icon: '✍️', title: '爆款文案生成', sub: '10 秒产出一条带货/引流文案 · 自动适配平台风格', desc: '结合你的行业与热点，AI 生成标题、正文、话题标签，还可以直接朗读给你听。', image: '/landing/copy.png', glow: '#34d399' },
+  { icon: '🎬', title: 'AI 文生视频', sub: '一句话生成视频 · wan2.7 / 分镜脚本 / 首尾帧接力', desc: '「做一个 30 秒的咖啡店视频」——AI 自动分镜、逐镜生成、无缝拼接成完整成片。', image: '/landing/video.png', glow: '#a78bfa' },
+  { icon: '🎞️', title: '一键成片', sub: '素材 · 配音 · 字幕 · BGM 全自动合成', desc: '上传素材或从素材库挑选，AI 自动剪辑、配音、加字幕、配音乐，几分钟出片。', image: '/landing/compile.png', glow: '#fbbf24' },
+  { icon: '🚀', title: '自动发布', sub: '指纹浏览器多平台发布 · 抖音 / 小红书 / 视频号 / 快手', desc: '成片确认后，一键推送到各大平台，批量任务队列自动执行，省去人工操作。', image: '/landing/publish.png', glow: '#fb7185' },
 ]
 
 export default function LandingPage() {
@@ -90,19 +90,24 @@ function SceneLayers({ progress, active }: { progress: number; active: number })
               opacity: Math.max(0, Math.min(1, opacity)),
               transition: 'transform 0.1s linear',
             }}>
-            <div className={`w-[min(88vw,780px)] rounded-3xl border border-white/15 bg-gradient-to-br ${s.color} backdrop-blur-2xl p-10 sm:p-14 text-center shadow-2xl relative overflow-hidden`}
-              style={{ boxShadow: `0 0 120px -20px ${s.glow}, inset 0 0 60px -30px ${s.glow}` }}>
-              {/* 光晕 */}
-              <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[420px] h-[420px] rounded-full pointer-events-none"
-                style={{ background: `radial-gradient(circle, ${s.glow}33, transparent 60%)` }} />
-              <div className="text-6xl sm:text-7xl mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.35)]">{s.icon}</div>
-              <h2 className="text-3xl sm:text-5xl font-bold tracking-tight mb-3">{s.title}</h2>
-              <p className="text-sm sm:text-base text-white/70 mb-6" style={{ color: `${s.glow}` }}>{s.sub}</p>
-              <p className="text-sm sm:text-base text-white/80 max-w-xl mx-auto leading-relaxed">{s.desc}</p>
-              <div className="mt-8 flex justify-center gap-2">
-                {SCENES.map((_, j) => (
-                  <span key={j} className={`h-1.5 rounded-full transition-all ${j === i ? 'w-8 bg-white' : 'w-1.5 bg-white/30'}`} />
-                ))}
+            <div className="relative w-[min(94vw,860px)] h-[min(70vh,560px)] rounded-3xl border border-white/15 overflow-hidden shadow-2xl"
+              style={{ boxShadow: `0 0 140px -30px ${s.glow}` }}>
+              {/* diorama 场景图（镜头推近感） */}
+              <img src={s.image} alt={s.title} className="w-full h-full object-cover"
+                style={{ transform: `scale(${1.06 + t * 0.12})`, transition: 'transform 0.15s linear' }} />
+              {/* 底部文字叠加 */}
+              <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-3xl sm:text-4xl drop-shadow">{s.icon}</span>
+                  <h2 className="text-2xl sm:text-4xl font-bold tracking-tight drop-shadow">{s.title}</h2>
+                </div>
+                <p className="text-xs sm:text-sm mb-2 font-medium" style={{ color: `${s.glow}` }}>{s.sub}</p>
+                <p className="text-xs sm:text-sm text-white/85 max-w-xl leading-relaxed drop-shadow">{s.desc}</p>
+                <div className="mt-3 flex justify-start gap-1.5">
+                  {SCENES.map((_, j) => (
+                    <span key={j} className={`h-1.5 rounded-full transition-all ${j === i ? 'w-8 bg-white' : 'w-1.5 bg-white/40'}`} />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
