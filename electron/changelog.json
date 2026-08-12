@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.0.29",
+    "date": "2026-08-12",
+    "title": "安全加固 + 计费修复（25 条隐患逐一修复）",
+    "items": [
+      "JWT_SECRET 去硬编码 fallback，服务器须显式配置",
+      "Agent 工具链路前移扣费（文生图/视频/成片不再免费）",
+      "debug-oss/proxy-download/storage/video-get 高危端点收紧",
+      "Electron adb:shell 防注入 + 导航/下载路径加固",
+      "套餐额度显示修复（年卡 500 点正常显示）"
+    ]
+  },
+  {
     "version": "1.0.28",
     "date": "2026-08-12",
     "title": "提示词库窗口 + 首页 4 张新卡片",
