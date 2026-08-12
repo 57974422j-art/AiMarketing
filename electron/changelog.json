@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.0.25",
+    "date": "2026-08-12",
+    "title": "安装器自动清理旧版本残留",
+    "items": [
+      "安装新版本前自动关闭旧进程 + 清空旧 standalone/playwright/scripts（不再需要手动删残留）"
+    ]
+  },
+  {
     "version": "1.0.24",
     "date": "2026-08-12",
     "title": "修复：standalone 回 extraResources + 画像登记账号级",
