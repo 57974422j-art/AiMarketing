@@ -105,6 +105,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // 2026-08-12 v1.0.27: 应用随行 iframe（open_page embed）需要 preload 注入子 frame
+      // 否则 iframe 内 window.electronAPI undefined -> "请在客户端中使用"
+      nodeIntegrationInSubFrames: true,
     },
     icon: path.join(__dirname, '../public/icon.png'),
   })

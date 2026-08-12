@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.27",
+    "date": "2026-08-12",
+    "title": "修复应用随行 iframe 内无法识别客户端",
+    "items": [
+      "修复: 批量发布等应用 iframe 内提示'请在客户端中使用'",
+      "webPreferences 加 nodeIntegrationInSubFrames: preload 注入子 frame"
+    ]
+  },
+  {
     "version": "1.0.26",
     "date": "2026-08-12",
     "title": "修复客户端安装缺失 standalone/.next",
