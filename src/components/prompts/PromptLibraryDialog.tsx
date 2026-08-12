@@ -35,7 +35,9 @@ export default function PromptLibraryDialog({ open, onClose, onSelect }: Props) 
     return () => clearTimeout(t)
   }, [keyword])
 
+  const reqSeq = useRef(0)
   const load = useCallback(async (pg: number, append: boolean) => {
+    const seq = ++reqSeq.current  // #19: 请求序号，旧请求结果丢弃
     setLoading(true)
     try {
       const sp = new URLSearchParams()
@@ -46,10 +48,11 @@ export default function PromptLibraryDialog({ open, onClose, onSelect }: Props) 
       sp.set('offset', String(pg * PAGE))
       const r = await fetch(`/api/prompts-public?${sp}`, { credentials: 'include' })
       const d = await r.json()
+      if (seq !== reqSeq.current) return  // 旧请求丢弃
       const rows: PromptItem[] = d?.data?.list || []
       setList(prev => append ? [...prev, ...rows] : rows)
       setTotal(d?.data?.total || 0)
-    } catch {} finally { setLoading(false) }
+    } catch {} finally { if (seq === reqSeq.current) setLoading(false) }
   }, [debounced, category, tags])
 
   useEffect(() => { if (!open) return; setPage(0); setList([]); load(0, false) }, [open, debounced, category, tags, load])

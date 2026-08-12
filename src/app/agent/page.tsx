@@ -1839,7 +1839,7 @@ export default function AgentPage() {
                               </button>
                             </div>
                           ) : msg.scene.type === 'link' || msg.scene.type === 'card' ? (
-                            <a href={msg.scene.link?.url || msg.scene.url} target="_blank" rel="noopener noreferrer"
+                            <a href={/^https?:/.test(msg.scene.link?.url || msg.scene.url || '') ? (msg.scene.link?.url || msg.scene.url) : '#'} target="_blank" rel="noopener noreferrer"  // #14 只允许 http(s)
                               className="flex flex-col gap-1 rounded-lg bg-white/[0.04] border border-white/[0.08] p-2.5 hover:border-emerald-400/40 transition">
                               {msg.scene.title && <p className="text-[11px] text-emerald-300 font-medium">{msg.scene.title}</p>}
                               {msg.scene.desc && <p className="text-[10px] text-gray-400">{msg.scene.desc}</p>}
@@ -1877,7 +1877,7 @@ export default function AgentPage() {
                                 <div className="flex flex-wrap gap-2 mt-2">
                                   {msg.scene.actions.map((a, i) => (
                                     a.href ? (
-                                      <a key={i} href={a.href} target={a.href.startsWith('http') ? '_blank' : undefined} rel="noopener noreferrer"
+                                      <a key={i} href={/^https?:/.test(a.href || '') ? a.href : '#'} target={/^https?:/.test(a.href || '') ? '_blank' : undefined} rel="noopener noreferrer"  // #14
                                         className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-[10px] text-emerald-300 hover:bg-emerald-500/30 transition">{a.label}</a>
                                     ) : (
                                       <span key={i} className="px-2.5 py-1 rounded-lg bg-white/5 text-[10px] text-gray-400">{a.label}</span>
