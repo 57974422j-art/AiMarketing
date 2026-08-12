@@ -431,7 +431,7 @@ export default function AgentPage() {
             setSessionId(sid)
             setWelcomeMsg(null)
             setOnboarding(false)
-            localStorage.setItem('agent_onboarded', '1')
+            localStorage.setItem(`agent_onboarded_${user?.id || 'guest'}`, '1')
           }
         }
       } catch {}
@@ -458,7 +458,7 @@ export default function AgentPage() {
         body: JSON.stringify(onboardForm), credentials: 'include' })
       const d = await r.json()
       if (d.success) {
-        localStorage.setItem('agent_onboarded', '1')
+        localStorage.setItem(`agent_onboarded_${user?.id || 'guest'}`, '1')
         setOnboarded(true); setOnboarding(false)
         setWelcomeMsg(`记住了！你（${industry || '待补充'} / ${occupation || '待补充'}）的核心需求我放进了记忆库，之后聊热点、做内容都会结合你的行业来。随时可以再告诉我更多～`)
       } else alert(d.message || '保存失败')
@@ -496,6 +496,11 @@ export default function AgentPage() {
     try {
       const w = window as any
       if (w.electronAPI?.getAppVersion) { w.electronAPI.getAppVersion().then((v: any) => v?.version && setAppVersion(v.version)).catch(() => {}) }
+      else {
+        // 网页端：读服务器版本（不再显示默认 1.0.19）
+        fetch('/api/client-info', { credentials: 'include' }).then(r => r.json())
+          .then((d: any) => d?.data?.version && setAppVersion(d.data.version)).catch(() => {})
+      }
     } catch {}
   }, [])
   const [sessionReqs, setSessionReqs] = useState(0)
@@ -1067,14 +1072,16 @@ export default function AgentPage() {
   // 首次登录对话式 onboarding：检查是否已有画像记忆，无则自动发欢迎词（纯对话、语音朗读、有记录）
   useEffect(() => {
     (async () => {
-      const done = typeof localStorage !== 'undefined' && localStorage.getItem('agent_onboarded') === '1'
+      // 2026-08-12：账号级标记（避免换账号被旧标记跳过）；无画像一律进入
+      const onbKey = `agent_onboarded_${user?.id || 'guest'}`
+      const done = typeof localStorage !== 'undefined' && localStorage.getItem(onbKey) === '1'
       if (done) { setOnboarded(true); return }
       try {
         const r = await fetch('/api/agent/memories?limit=30', { credentials: 'include' })
         const d = await r.json()
         const hasProfile = (d.items || d.memories || []).some((m: any) => (m.tags || '').includes('画像'))
         if (hasProfile) {
-          localStorage.setItem('agent_onboarded', '1')
+          localStorage.setItem(`agent_onboarded_${user?.id || 'guest'}`, '1')
           setOnboarded(true)
           return
         }
@@ -1171,7 +1178,7 @@ export default function AgentPage() {
           if (/随时(为|给)你(服务|效劳)|已经(记|记住|记下|了解)|记住了|了解你了|懂你了/.test(tail)) {
             setOnboarding(false)
             setOnboarded(true)
-            if (typeof localStorage !== 'undefined') localStorage.setItem('agent_onboarded', '1')
+            if (typeof localStorage !== 'undefined') localStorage.setItem(`agent_onboarded_${user?.id || 'guest'}`, '1')
           }
         }
         if (data.data.sessionId) setSessionId(data.data.sessionId)
@@ -2327,16 +2334,19 @@ export default function AgentPage() {
                   <div className="flex-1 p-2.5 border-r border-white/[0.07] overflow-hidden">
                     <div className="text-[10px] text-[#aab2c2] font-semibold mb-1.5">发布次数 <span className="text-[8.5px] text-[#6b7180] font-normal">已发布平台</span></div>
                     <div className="flex flex-col gap-1.5">
-                      {publishRows.map((r) => (
-                        <div key={r.name} className="flex items-center gap-2">
-                          <span className="text-[9.5px] text-[#aab2c2] w-[52px] shrink-0 truncate">{r.name}</span>
-                          <div className="flex-1 h-[3px] bg-white/10 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${(r.pct / regionMax) * 100}%`, background: 'linear-gradient(90deg,#4f8cff,#88ccff)' }} />
-                          </div>
-                          <span className="text-[9px] text-[#6b7180] w-7 text-right">{r.pct}</span>
+                      {/* 2026-08-12：发布次数竖柱图 */}
+                      {publishRows.length > 0 ? (
+                        <div className="flex items-end justify-between gap-1.5 pt-1" style={{ height: 64 }}>
+                          {publishRows.slice(0, 6).map((r) => (
+                            <div key={r.name} className="flex flex-col items-center gap-1 flex-1 min-w-0">
+                              <span className="text-[8px] text-[#6b7180]">{r.pct}</span>
+                              <div className="w-full max-w-[26px] rounded-t bg-gradient-to-t from-[#4f8cff] to-[#88ccff] transition-all"
+                                style={{ height: `${Math.max(4, (r.pct / regionMax) * 42)}px` }} />
+                              <span className="text-[8px] text-[#aab2c2] truncate max-w-full">{r.name}</span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                      {publishRows.length === 0 && <span className="text-[9px] text-[#5a6072]">暂无数据</span>}
+                      ) : <span className="text-[9px] text-[#5a6072]">暂无数据</span>}
                     </div>
                   </div>
                   <div className="w-[150px] shrink-0 p-2.5 flex flex-col items-center justify-center">

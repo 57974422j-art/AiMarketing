@@ -48,15 +48,14 @@ const LOCAL_SERVER_PORT = 3377
 function startLocalServer() {
   return new Promise((resolve) => {
     try {
-      // 2026-08-12：standalone 随自动更新（进 asar）——asar 内路径优先，兼容旧 extraResources
-      let serverPath = path.join(__dirname, 'standalone', 'server.js')
-      if (!fs.existsSync(serverPath)) serverPath = path.join(process.resourcesPath, 'standalone', 'server.js')
+      // 2026-08-12 v1.0.24：standalone 在 extraResources（asar 内 ELECTRON_RUN_AS_NODE 跑不起来 MODULE_NOT_FOUND）
+      const serverPath = path.join(process.resourcesPath, 'standalone', 'server.js')
       if (!fs.existsSync(serverPath)) {
         console.error('[local] 找不到 standalone/server.js，回退远程加载:', serverPath)
         return resolve(false)
       }
       localServerProc = spawn(process.execPath, [serverPath], {
-        cwd: process.resourcesPath, // asar 内路径不能作 cwd，server.js 用 __dirname 定位 .next
+        cwd: path.dirname(serverPath),
         env: {
           // 2026-08-11：客户端正式版连服务器——API 代理到服务器（登录/计费/数据统一），页面本地渲染
           API_TARGET: process.env.API_TARGET || 'https://ai-niuma.cc',

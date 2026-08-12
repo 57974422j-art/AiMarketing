@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.0.24",
+    "date": "2026-08-12",
+    "title": "修复：standalone 回 extraResources + 画像登记账号级",
+    "items": [
+      "standalone 回 extraResources（asar 内跑不起来已回退）",
+      "新号/无画像账号强制登记画像（账号级标记，换账号不串）",
+      "网页端自检显示服务器版本（不再 1.0.19）",
+      "热点大屏发布次数改竖柱图"
+    ]
+  },
+  {
     "version": "1.0.23",
     "date": "2026-08-12",
     "title": "彻底修复：单实例锁 + standalone 随自动更新",
