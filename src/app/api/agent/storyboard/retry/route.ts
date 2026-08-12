@@ -15,6 +15,8 @@ export async function POST(req: NextRequest) {
   if (!id || !shotNo) return NextResponse.json({ success: false, message: '缺少 id 或 shot' }, { status: 400 })
   const task = await prisma.storyboardTask.findFirst({ where: { id, userId: auth.userId } })
   if (!task) return NextResponse.json({ success: false, message: '任务不存在' }, { status: 404 })
+  // 2026-08-12 #10: 任务正在生成时拒绝重复重试（防并发双跑双倍成本）
+  if (task.status === 'generating') return NextResponse.json({ success: false, message: '任务正在生成中，请稍后再重试' }, { status: 400 })
   const shots = JSON.parse(task.shots || '[]')
   const shot = shots.find((s: any) => s.shot === shotNo)
   if (!shot) return NextResponse.json({ success: false, message: '分镜不存在' }, { status: 404 })
