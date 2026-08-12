@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAuthFromCookie } from '@/lib/api-auth'  // 白名单路径无 X-User-* 头，必须读 cookie
 import { getOSSClient, signedUrl } from '@/lib/oss'
 
 const MIME_MAP: Record<string, string> = {
@@ -9,9 +10,16 @@ const MIME_MAP: Record<string, string> = {
 }
 
 export async function GET(request: NextRequest) {
+  // 2026-08-12 #5: 加登录 + 归属校验（原免鉴权任意 userId+name 可下载他人私有素材）
+  const auth = getAuthFromCookie(request)
+  if (!auth?.userId) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
   const userId = request.nextUrl.searchParams.get('userId')
   const name = request.nextUrl.searchParams.get('name')
   if (!userId || !name) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
+  const ownerId = parseInt(userId, 10)
+  if (isNaN(ownerId)) return NextResponse.json({ success: false, message: 'userId 无效' }, { status: 400 })
+  if (ownerId !== auth.userId && auth.role !== 'admin') return NextResponse.json({ success: false, message: '无权访问该文件' }, { status: 403 })
+  if (!/^[a-zA-Z0-9._\-]+$/.test(name)) return NextResponse.json({ success: false, message: '文件名非法' }, { status: 400 })
 
   const key = `storage/${userId}/${name}`
   const ext = name.split('.').pop()?.toLowerCase() || ''

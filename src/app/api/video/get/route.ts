@@ -17,7 +17,9 @@ export async function GET(request: NextRequest) {
   return new NextResponse(buf, {
     headers: {
       'Content-Type': 'video/mp4',
-      'Content-Disposition': `attachment; filename="${fileId}"`,
+      'Content-Disposition': `attachment;
+  // 2026-08-12 #6: 防路径遍历（原 fileId 可 ../ 读任意文件）
+  if (!fileId || !/^[a-zA-Z0-9._\-]+$/.test(fileId)) return NextResponse.json({ error: 'fileId 非法' }, { status: 400 }) filename="${fileId}"`,
       'Content-Length': String(buf.length),
     },
   })

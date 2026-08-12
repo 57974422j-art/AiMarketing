@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { getAuthFromHeaders } from '@/lib/api-auth'
 
-export async function GET() {
+// 2026-08-12 #3: admin-only（原无鉴权，泄露 OSS 配置 + 任意文件签名 URL）
+export async function GET(request: NextRequest) {
+  const auth = getAuthFromHeaders(request)
+  if (auth?.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可用' }, { status: 403 })
+
   const steps: { step: string; ok: boolean; detail: string }[] = []
 
   // 1. 读取环境变量
