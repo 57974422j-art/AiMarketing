@@ -122,6 +122,8 @@ function createWindow() {
   })
   mainWindow.webContents.on('will-navigate', (e, url) => {
     const cur = mainWindow.webContents.getURL()
+    // 2026-08-12 #20: 拦截非 http(s) 导航（file:// 等），防配合 preload 面的本地文件访问
+    if (!/^https?:/.test(url)) { e.preventDefault(); return }
     if (url.startsWith('http') && !url.startsWith(cur.split('/').slice(0, 3).join('/'))) {
       e.preventDefault()
       const { shell } = require('electron')
@@ -297,6 +299,9 @@ ipcMain.handle('adb:devices', async () => {
 
 ipcMain.handle('adb:shell', async (_event, { deviceId, command }) => {
   try {
+    // 2026-08-12 #7: 防命令注入（nodeIntegrationInSubFrames 下 iframe JS 可调此 IPC）
+    if (typeof deviceId !== 'string' || !/^[a-zA-Z0-9.:_-]+$/.test(deviceId)) return { success: false, error: 'deviceId 非法' }
+    if (typeof command !== 'string' || command.length > 500 || /[;&|`$<>()]/.test(command)) return { success: false, error: '命令含非法字符' }
     const adb = findAdb()
     const out = execSync('"' + adb + '" -s ' + deviceId + ' shell ' + command, { timeout: 15000, encoding: 'utf-8' })
     return { success: true, data: out.trim() }
@@ -703,6 +708,7 @@ async function downloadStorageFile(userId, storageFileName, log) {
   const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
   const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
   if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+  if (typeof storageFileName !== 'string' || !/^[a-zA-Z0-9._\-]+$/.test(storageFileName)) { log('文件名非法，已拒绝'); return false }
   const localPath = path.join(tmpDir, storageFileName)
   // 本地已有有效缓存 → 直接复用，不再打 OSS
   if (fs.existsSync(localPath) && fs.statSync(localPath).size > 0) {
