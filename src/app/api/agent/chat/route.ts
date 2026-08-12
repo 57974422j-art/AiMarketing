@@ -485,10 +485,19 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       return await generateText(p) || '文案生成暂不可用'
     }
 
-    // ── 图片 ──
+    // ── 图片（#2 2026-08-12: 工具前移扣费——执行前 check，成功后 spend）──
     case 'generate_image': {
+      const uid = auth?.userId
+      if (!uid) return 'TOOL_REJECT:未登录'
+      const gCount = Math.max(1, parseInt(args.count) || 1)
+      const gCost = TOKEN_COSTS.IMAGE_PER_PIC * gCount
+      const gChk = await checkTokens(uid, gCost)
+      if (!gChk.allowed) return `TOOL_REJECT:${gChk.message}`
       const result = await generateImage(args.prompt || '商业海报', args.size || '1024*1024')
-      if (result?.url) return `IMAGE_RESULT:${result.url}|MODEL:${result.model}`
+      if (result?.url) {
+        await spendTokens(uid, gCost, 'agent_generate_image')
+        return `IMAGE_RESULT:${result.url}|MODEL:${result.model}|COST:${gCost}点`
+      }
       return '图片生成暂不可用，请检查AI配置'
     }
 
@@ -503,15 +512,20 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         return `VIDEO_COST_ESTIMATE:时长${gvDuration}秒 × 100点/秒 = ${gvCost}点（约¥${(gvCost / 100).toFixed(1)}）。请先向用户明确报价并等确认（用户说"确认/生成吧/可以"等即视为确认），确认后再次调用本工具并带 confirmed=true 才开始生成。${gvDuration > 15 ? '（超过15秒将自动分段拼接，每段用上一段尾帧做参考保证衔接，费用按总时长计）' : ''}`
       }
       // A1: >15s 走长视频拼接（首尾帧接力）
+      // #2 扣费：执行前 check（confirmed 后才真正生成）
+      const uid2 = auth?.userId
+      if (!uid2) return 'TOOL_REJECT:未登录'
+      const gvChk = await checkTokens(uid2, gvCost)
+      if (!gvChk.allowed) return `TOOL_REJECT:${gvChk.message}`
       if (gvDuration > 15) {
         const segModel = args.segModel === 'wan2.7-t2v' ? 'wan2.7-t2v' : undefined // 缺省用引擎默认
         const lv = await generateLongVideo([gvPrompt], gvDuration, '720P', gvRatio, undefined, 5, segModel)
-        if (lv?.videoUrl) return `VIDEO_RESULT:${lv.videoUrl}|DURATION:${gvDuration}s`
+        if (lv?.videoUrl) { await spendTokens(uid2, gvCost, 'agent_generate_video'); return `VIDEO_RESULT:${lv.videoUrl}|DURATION:${gvDuration}s|COST:${gvCost}点` }
         return '长视频生成失败（分段模型可能不可用，可重试或换 wan2.7-t2v）'
       }
       const result = await generateVideo(gvPrompt, gvDuration, '720P', gvRatio)
-      if (result?.taskId && result.status === 'running') return `VIDEO_TASK:${result.taskId}|PROMPT:${gvPrompt}`
-      if (result?.videoUrl) return `VIDEO_RESULT:${result.videoUrl}`
+      if (result?.taskId && result.status === 'running') { await spendTokens(uid2, gvCost, 'agent_generate_video'); return `VIDEO_TASK:${result.taskId}|PROMPT:${gvPrompt}|COST:${gvCost}点` }
+      if (result?.videoUrl) { await spendTokens(uid2, gvCost, 'agent_generate_video'); return `VIDEO_RESULT:${result.videoUrl}|COST:${gvCost}点` }
       return '视频生成暂不可用'
     }
 
@@ -537,6 +551,11 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       if (!args.confirmed) {
         return `AI_VIDEO_COST:时长${avDuration}秒 × 100点/秒 = ${avCost}点（约¥${(avCost / 100).toFixed(1)}）。请向用户报价并等确认（用户说"确认/生成吧/可以"即确认），确认后带 confirmed=true 自动分镜并创建任务。`
       }
+      // #2 扣费：confirmed 后执行前 check，建任务成功后 spend
+      const uid3 = auth?.userId
+      if (!uid3) return 'TOOL_REJECT:未登录'
+      const avChk = await checkTokens(uid3, avCost)
+      if (!avChk.allowed) return `TOOL_REJECT:${avChk.message}`
       // 分镜：调 LLM 出分镜 JSON
       const avShots = Math.max(2, Math.ceil(avDuration / 5))
       const avPrompt = `你是短视频分镜导演。根据主题「${args.topic || ''}」生成 ${avShots} 个镜头的分镜脚本（总时长约${avDuration}秒，每镜约5秒，${avRatio}画面）。只输出 JSON 数组（不要任何其它文字或代码块标记），每镜对象：{shot:序号, desc:"中文画面描述", prompt:"英文视频生成提示词，含主体/动作/场景/光影/运镜，80词内", duration:5, camera:"镜头感"}。风格：${args.style || '通用写实'}。`
@@ -558,6 +577,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           ratio: avRatio, style: args.style || null, duration: avDuration, shots: JSON.stringify(normalized),
           status: 'pending', totalShots: normalized.length, costPoints: avCost },
       })
+      await spendTokens(uid3, avCost, 'agent_create_ai_video')
       const mod = await import('../storyboard/route')
       mod.runShots(task.id, normalized, avRatio).catch(e => console.error('[Storyboard]', e))
       return `AI_VIDEO_TASK:${task.id}|SHOTS:${normalized.length}|COST:${avCost}点（约¥${(avCost / 100).toFixed(1)}）。已自动分镜并开始后台生成，约每镜1-3分钟，可随时问我进度。`
@@ -576,11 +596,17 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         shot: s.shot ?? (i + 1), desc: s.desc || '', prompt: s.prompt || '', duration: Math.min(5, Math.max(2, parseInt(s.duration) || 5)),
         camera: s.camera || '', status: 'pending', videoUrl: null, error: null,
       }))
+      // #2 扣费：创建前 check，成功后 spend
+      const uid4 = auth?.userId
+      if (!uid4) return 'TOOL_REJECT:未登录'
+      const sbChk = await checkTokens(uid4, costPoints)
+      if (!sbChk.allowed) return `TOOL_REJECT:${sbChk.message}`
       const task = await p2.storyboardTask.create({
         data: { userId: auth?.userId || 0, title: (args.topic || '').substring(0, 80), topic: args.topic || '',
           ratio, style: args.style || null, duration, shots: JSON.stringify(normalized), status: 'pending',
           totalShots: normalized.length, costPoints },
       })
+      await spendTokens(uid4, costPoints, 'agent_storyboard')
       const mod = await import('../storyboard/route')
       mod.runShots(task.id, normalized, ratio).catch(e => console.error('[Storyboard]', e))
       return `STORYBOARD_TASK:${task.id}|SHOTS:${normalized.length}|COST:${costPoints}点（约¥${(costPoints / 100).toFixed(1)}）。已开始后台逐镜生成，请告知用户任务已创建、约每镜1-3分钟，可随时问进度。`
@@ -1315,6 +1341,14 @@ export async function POST(request: NextRequest) {
         steps.push({ tool: tc.name, label: stepLabel })
         console.log(`[Agent] 🔧 ${tc.name}`, JSON.stringify(args).substring(0, 100))
         const result = await executeToolCall(tc.name, args, auth)
+        // #2 2026-08-12: 点数不足拦截（跳过模型，直接回复 + 弹「我的套餐」）
+        if (typeof result === 'string' && result.startsWith('TOOL_REJECT:')) {
+          const rejMsg = result.substring('TOOL_REJECT:'.length)
+          return NextResponse.json({ success: true, data: {
+            reply: '⚠️ ' + rejMsg + '——已为你打开「我的套餐」页面，可在其中开通套餐或购买点卡补充点数。',
+            intent: 'no_quota', toolUsed: false, scene: { type: 'open_page', path: '/my-subscription', params: {} }, sessionId: session?.id || null, pointsSpent: 0,
+          } })
+        }
         messages.push({ role: 'tool', tool_call_id: tc.id, content: result } as any)
       }
 
