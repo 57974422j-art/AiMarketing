@@ -647,6 +647,10 @@ export default function AgentPage() {
     { path: '/ai-copy', title: 'AI 文案', color: 'amber', roles: ['admin', 'editor', 'end-user'] },
     { path: '/image-generator', title: 'AI 生图', color: 'violet', roles: ['admin', 'editor', 'end-user'] },
     { path: '/storage', title: '素材库', color: 'sky', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/media-library', title: '公共素材', color: 'lime', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/media-library?tab=prompts', title: '提示词库', color: 'violet', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/accounts', title: '账号管理', color: 'teal', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/digital-human', title: '数字人', color: 'orange', roles: ['admin', 'editor', 'end-user'] },
     // 代理+管理可见
     { path: '/dashboard', title: '数据看板', color: 'rose', roles: ['admin', 'editor'] },
     { path: '/lead-collector', title: '意向采集', color: 'orange', roles: ['admin', 'editor'] },

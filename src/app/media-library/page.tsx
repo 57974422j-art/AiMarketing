@@ -28,6 +28,11 @@ export default function MediaLibraryPage() {
   const isAdmin = user?.role === 'admin'
 
   const [tab, setTab] = useState<TabKey>('landscape')
+  // 2026-08-12: 支持 ?tab=prompts 直达提示词库（agent 首页卡片入口）
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    if (t === 'prompts') setTab('prompts')
+  }, [])
   const [items, setItems] = useState<Asset[]>([])
   const [promptList, setPromptList] = useState<any[]>([])
   const [promptTotal, setPromptTotal] = useState(0)

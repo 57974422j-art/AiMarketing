@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useLocale } from '@/i18n/context'
 import { useAuth } from '@/app/providers'
+import PromptLibraryDialog from '@/components/prompts/PromptLibraryDialog'
 
 interface VideoTemplate {
   id: number
@@ -34,6 +35,7 @@ export default function TextToVideoPage() {
   const [loading, setLoading] = useState(true)
   const [title, setTitle] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [libraryOpen, setLibraryOpen] = useState(false)
   const [duration, setDuration] = useState(5)
   const [style, setStyle] = useState('电影感')
   const [resolution, setResolution] = useState('720P')
@@ -172,6 +174,8 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
   }
 
   return (
+    <>
+    <PromptLibraryDialog open={libraryOpen} onClose={() => setLibraryOpen(false)} onSelect={(t) => { setPrompt(t); setVideoUrl('') }} />
     <div className="min-h-screen bg-gray-950">
       {toast && (
         <div className="fixed top-4 right-4 z-50 bg-gray-900 border border-gray-700 text-white px-4 py-3 rounded-xl shadow-2xl font-mono text-sm">
@@ -201,7 +205,10 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
 
                 {/* 提示词 */}
                 <div>
-                  <label className="block text-label mb-1">{t.textToVideo.promptRequired}</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-label">{t.textToVideo.promptRequired}</label>
+                    <button onClick={() => setLibraryOpen(true)} className="text-[10px] px-2 py-0.5 rounded-full border border-violet-400/40 text-violet-300 hover:bg-violet-500/15">📚 提示词库</button>
+                  </div>
                   <textarea value={prompt} onChange={e => { setPrompt(e.target.value); setVideoUrl('') }}
                     placeholder={t.textToVideo.describeVideo}
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
@@ -752,5 +759,6 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
         </div>
       </div>
     </div>
+    </>
   )
 }

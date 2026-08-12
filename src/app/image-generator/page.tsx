@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/providers'
+import PromptLibraryDialog from '@/components/prompts/PromptLibraryDialog'
 import { showToast } from '@/components/Toast'
 
 interface PromptItem {
@@ -19,6 +20,7 @@ export default function ImageGeneratorPage() {
   const [templatesLoading, setTemplatesLoading] = useState(true)
   const [filterCat, setFilterCat] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [libraryOpen, setLibraryOpen] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -142,6 +144,8 @@ export default function ImageGeneratorPage() {
   )
 
   return (
+    <>
+    <PromptLibraryDialog open={libraryOpen} onClose={() => setLibraryOpen(false)} onSelect={(t) => { setPrompt(t); setShowFav(false); setFilterCat(''); showToast('已填入提示词') }} />
     <div className="min-h-screen bg-gray-950">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
@@ -155,7 +159,10 @@ export default function ImageGeneratorPage() {
           <div className="lg:col-span-2 space-y-4">
             <div className="card-glass p-4">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-white font-bold text-sm"><span>提示词模板</span><span className="text-xs opacity-50 ml-1">/ PROMPT TEMPLATES</span></h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-white font-bold text-sm"><span>提示词模板</span><span className="text-xs opacity-50 ml-1">/ PROMPT TEMPLATES</span></h2>
+                  <button onClick={() => setLibraryOpen(true)} className="text-[10px] px-2 py-0.5 rounded-full border border-violet-400/40 text-violet-300 hover:bg-violet-500/15">📚 提示词库</button>
+                </div>
                 <button onClick={() => setShowFav(!showFav)}
                   className={`px-2 py-1 rounded text-xs ${showFav ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
                   {showFav ? '📁 模板' : '⭐ 收藏'}
@@ -384,5 +391,6 @@ export default function ImageGeneratorPage() {
         </div>
       </div>
     </div>
+    </>
   )
 }
