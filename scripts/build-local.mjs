@@ -125,12 +125,13 @@ const build = {
   // 2026-08-12：standalone 进 asar 但全部 unpack（app.asar.unpacked/standalone 真实文件）
   // ——ELECTRON_RUN_AS_NODE 可执行真实文件（asar 内 MODULE_NOT_FOUND）+ 自动更新随 asar 一起替换 unpacked
   files: [...pkg.build.files, '.next/standalone/**'],
-  asarUnpack: ['**/*.node', '**/*.exe', '**/*.dll'],
+  // 2026-08-12 v1.0.26: dot dir .next 被 electron-builder glob 排除 (asarUnpack/extraResources 都漏)
+  // 修复: standalone 进 asar + 显式 unpack 'standalone/.next/**' -> server.js + .next 全真实文件
+  asarUnpack: ['**/*.node', '**/*.exe', '**/*.dll', 'standalone/**', 'standalone/.next/**', 'standalone/.next/**/*'],
   extraResources: [
     { from: 'scripts/platform-tools', to: 'scripts/platform-tools' },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
-    { from: '.next/standalone', to: 'standalone' },
   ],
   win: pkg.build.win,
   publish: pkg.build.publish,

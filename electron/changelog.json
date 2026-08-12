@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.26",
+    "date": "2026-08-12",
+    "title": "修复客户端安装缺失 standalone/.next",
+    "items": [
+      "修复: 客户端安装版缺失 .next 导致登录 code 14",
+      "standalone 改 asar+unpack, 自动更新随 asar 替换"
+    ]
+  },
+  {
     "version": "1.0.25",
     "date": "2026-08-12",
     "title": "安装器自动清理旧版本残留",
