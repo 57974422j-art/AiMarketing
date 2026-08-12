@@ -88,11 +88,12 @@ export function planMonthlyTokens(plan: { price: number; discountPrice: number |
 
 /** 查询用户当前点数钱包（额度=当前生效订阅套餐；消耗=当月 point_spend 累计；另含点卡永久余额） */
 export async function getTokenWallet(userId: number): Promise<TokenWallet> {
+  // 2026-08-12: 两步查询（include plan 在脏数据/plan 缺失时 Prisma 抛 "Field plan is required"，改查后单独取 plan 容错）
   const sub = await prisma.userSubscription.findFirst({
     where: { userId, status: 'active', endDate: { gte: new Date() } },
-    include: { plan: true },
     orderBy: { endDate: 'desc' },
   })
+  const plan = sub ? await prisma.subscriptionPlan.findUnique({ where: { id: sub.planId } }) : null
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { pointBalance: true } })
   const pointBalance = user?.pointBalance || 0
   const monthStart = new Date(new Date().toISOString().slice(0, 7) + '-01')
@@ -101,11 +102,11 @@ export async function getTokenWallet(userId: number): Promise<TokenWallet> {
     _sum: { tokens: true },
   })
   const spent = agg._sum.tokens || 0
-  const allowance = sub?.plan ? planMonthlyTokens(sub.plan) : 0
+  const allowance = plan ? planMonthlyTokens(plan) : 0
   const subRemaining = Math.max(0, allowance - spent)
   return {
-    hasSubscription: !!sub?.plan,
-    planName: sub?.plan?.name || null,
+    hasSubscription: !!plan,
+    planName: plan?.name || null,
     allowance,
     spent,
     subRemaining,
