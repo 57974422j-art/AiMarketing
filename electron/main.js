@@ -48,8 +48,11 @@ const LOCAL_SERVER_PORT = 3377
 function startLocalServer() {
   return new Promise((resolve) => {
     try {
-      // 2026-08-12 v1.0.24：standalone 在 extraResources（asar 内 ELECTRON_RUN_AS_NODE 跑不起来 MODULE_NOT_FOUND）
-      const serverPath = path.join(process.resourcesPath, 'standalone', 'server.js')
+      // 2026-08-12 v1.0.26：standalone 在 app.asar.unpacked/.next/standalone（asar+unpack，.next 真实文件）
+      // 兼容旧 extraResources 路径（resources/standalone）
+      const unpackPath = path.join(process.resourcesPath, 'app.asar.unpacked', '.next', 'standalone', 'server.js')
+      const legacyPath = path.join(process.resourcesPath, 'standalone', 'server.js')
+      const serverPath = fs.existsSync(unpackPath) ? unpackPath : legacyPath
       if (!fs.existsSync(serverPath)) {
         console.error('[local] 找不到 standalone/server.js，回退远程加载:', serverPath)
         return resolve(false)
