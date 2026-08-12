@@ -95,6 +95,8 @@ export async function POST(request: NextRequest) {
     
     response.cookies.set('token', token, {
       httpOnly: true,
+      // 2026-08-12 #16: 生产环境 https 下 cookie secure（防明文传输 JWT 被中间人窃取）
+      secure: process.env.NODE_ENV === 'production',
       secure: false,
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60,

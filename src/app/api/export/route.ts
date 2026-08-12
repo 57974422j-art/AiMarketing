@@ -15,6 +15,9 @@ const prisma = new PrismaClient()
  */
 
 export async function GET(request: NextRequest) {
+  // 2026-08-12 #12: users/trending 导出仅 admin（原任何登录用户可导出全量画像/热点）
+  const { getAuthFromHeaders } = await import('@/lib/api-auth')
+  const auth = getAuthFromHeaders(request)
   const auth = getAuthFromHeaders(request)
   if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
 
@@ -31,8 +34,11 @@ export async function GET(request: NextRequest) {
       case 'comments':
         return await exportComments(auth.userId, searchParams, format)
       case 'users':
+        // 2026-08-12 #12: 全量画像导出仅 admin
+        if (auth?.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可导出该数据' }, { status: 403 })
         return await exportUsers(searchParams, format)
       case 'trending':
+        if (auth?.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可导出该数据' }, { status: 403 })
         return await exportTrending(searchParams, format)
       default:
         return NextResponse.json({ success: false, message: `不支持的导出类型: ${type}` }, { status: 400 })

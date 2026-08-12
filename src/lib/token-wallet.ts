@@ -135,11 +135,11 @@ export async function checkTokens(userId: number, cost: number): Promise<TokenCh
     return { allowed: true, message: 'ok', wallet }
   } catch (e: any) {
     console.error('[TokenWallet] 检查异常:', e?.message)
-    // 容灾：查库异常时放行，不影响主流程
+    // 2026-08-12 #9: 查库异常改为拒绝（原容灾放行=计费旁路，消费可免费绕过）
     return {
-      allowed: true,
-      message: 'skip(error)',
-      wallet: { hasSubscription: true, planName: null, allowance: -1, spent: 0, subRemaining: -1, pointBalance: -1, remaining: -1 },
+      allowed: false,
+      message: '点数系统暂时不可用，请稍后重试',
+      wallet: { hasSubscription: false, planName: null, allowance: 0, spent: 0, subRemaining: 0, pointBalance: 0, remaining: 0 },
     }
   }
 }

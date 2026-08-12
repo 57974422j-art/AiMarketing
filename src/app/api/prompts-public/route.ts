@@ -8,8 +8,10 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams
   const tag = sp.get('tag') || ''
   const keyword = (sp.get('keyword') || '').trim()
-  const limit = Math.min(parseInt(sp.get('limit') || '60'), 200)
-  const offset = parseInt(sp.get('offset') || '0')
+  const limitRaw = parseInt(sp.get('limit') || '60')
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 60  // #18 参数兜底
+  const offsetRaw = parseInt(sp.get('offset') || '0')
+  const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0
   const where: any = { published: true, isActive: true }
   if (tag) where.tags = { contains: tag }
   if (keyword) {

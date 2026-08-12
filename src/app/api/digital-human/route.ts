@@ -45,7 +45,7 @@ async function synthesizeTTS(text: string): Promise<string> {
   const tmpDir = join(process.cwd(), 'temp')
   if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true })
   const tmp = join(tmpDir, `tts_${Date.now()}.mp3`)
-  execSync(`edge-tts --voice zh-CN-XiaoxiaoNeural --text "${text.replace(/["$'`\\]/g, '')}" --write-media ${tmp}`, { timeout: 30000, shell: '/bin/bash' })
+  execSync(`edge-tts --voice zh-CN-XiaoxiaoNeural --text "${text.replace(/["$'`\\]/g, '')}" --write-media ${tmp}`, { timeout: 30000, shell: process.platform === 'win32' ? undefined : '/bin/bash' })
   const url = await uploadOSS(tmp, 'mp3')
   await unlink(tmp).catch(() => {})
   return url
