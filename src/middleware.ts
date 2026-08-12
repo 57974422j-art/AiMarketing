@@ -91,6 +91,10 @@ async function verifyJWTSignature(token: string, secret: string): Promise<boolea
 }
 
 export async function middleware(request: NextRequest) {
+  // 2026-08-12 #1: 代理模式（客户端 standalone，API_TARGET 设置）本地不验签——
+  // 请求全部代理到服务器，由服务器 middleware 验签（避免客户端无 JWT_SECRET 401 / secret 泄露进客户端包）
+  if (process.env.API_TARGET) return NextResponse.next()
+
   const { pathname } = request.nextUrl
 
   if (!pathname.startsWith('/api/')) return NextResponse.next()
@@ -116,7 +120,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // JWT HS256 验签（2026-08-05）：防止伪造 token 提权；密钥与 login/route.ts 一致
-  const JWT_SECRET = process.env.JWT_SECRET || 'aimarketing-secret-key-2024'
+  const JWT_SECRET = process.env.JWT_SECRET // 2026-08-12 #1: 去硬编码 fallback，必须显式配置
   const signatureValid = await verifyJWTSignature(token, JWT_SECRET)
   if (!signatureValid) {
     return NextResponse.json({ success: false, message: '登录状态无效，请重新登录' }, { status: 401 })

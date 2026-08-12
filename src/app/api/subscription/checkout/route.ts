@@ -10,7 +10,7 @@ const prisma = new PrismaClient()
 function getUserIdFromRequest(req: NextRequest): number | null {
   const token = req.cookies.get('token')?.value
   if (!token) return null
-  const JWT_SECRET = process.env.JWT_SECRET || 'aimarketing-secret-key-2024'
+  const JWT_SECRET = process.env.JWT_SECRET
   try {
     const [header, payload, signature] = token.split('.')
     const expected = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${payload}`).digest('base64url')

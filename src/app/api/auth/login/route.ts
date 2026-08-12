@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { username, password } = body
-    const JWT_SECRET = process.env.JWT_SECRET || 'aimarketing-secret-key-2024'
+    const JWT_SECRET = process.env.JWT_SECRET
     
     if (!username || !password) {
       return NextResponse.json(
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const token = request.cookies.get('token')?.value
-  const JWT_SECRET = process.env.JWT_SECRET || 'aimarketing-secret-key-2024'
+  const JWT_SECRET = process.env.JWT_SECRET
   
   if (!token) {
     return NextResponse.json({ authenticated: false })
