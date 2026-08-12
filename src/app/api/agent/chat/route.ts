@@ -6,7 +6,7 @@ import {
 } from '@/lib/ai-providers'
 import { searchTrendsReal } from '@/lib/gemini'
 import { getAuthFromHeaders } from '@/lib/api-auth'
-import { spendTokens, TOKEN_COSTS } from '@/lib/token-wallet'
+import { spendTokens, checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
 import { listObjects } from '@/lib/oss'
 import { getSystemConfigs } from '@/lib/quota'
 import { PrismaClient } from '@prisma/client'
@@ -1358,7 +1358,17 @@ export async function POST(request: NextRequest) {
         await prisma.chatSession.update({ where: { id: sessionId }, data: { updatedAt: new Date() } })
       }
 
-      if (auth?.userId) await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
+      // 2026-08-12: 对话前先检查点数（无套餐且点卡0/额度不足 -> 主动弹「我的套餐」）
+      if (auth?.userId) {
+        const tok = await checkTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG)
+        if (!tok.allowed) {
+          return NextResponse.json({ success: true, data: {
+            reply: '⚠️ ' + (tok.message || '点数不足') + '——已为你打开「我的套餐」页面，可在其中开通套餐或购买点卡。',
+            intent: 'no_quota', toolUsed: false, scene: { type: 'open_page', path: '/my-subscription', params: {} }, sessionId: session?.id || null, pointsSpent: 0,
+          } })
+        }
+        await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
+      }
       return NextResponse.json({
         success: true,
         data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, steps, scene, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
@@ -1400,7 +1410,16 @@ export async function POST(request: NextRequest) {
       await prisma.chatSession.update({ where: { id: sessionId }, data: { updatedAt: new Date() } })
     }
 
-    if (auth?.userId) await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
+    if (auth?.userId) {
+      const tok = await checkTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG)
+      if (!tok.allowed) {
+        return NextResponse.json({ success: true, data: {
+          reply: '⚠️ ' + (tok.message || '点数不足') + '——已为你打开「我的套餐」页面。',
+          intent: 'no_quota', toolUsed: false, scene: { type: 'open_page', path: '/my-subscription', params: {} }, sessionId: null, pointsSpent: 0,
+        } })
+      }
+      await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
+    }
     return NextResponse.json({
       success: true,
       data: { reply, intent: 'chat', toolUsed: false, sessionId, scene, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },

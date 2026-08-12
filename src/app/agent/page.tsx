@@ -651,6 +651,7 @@ export default function AgentPage() {
     { path: '/media-library?tab=prompts', title: '提示词库', color: 'violet', roles: ['admin', 'editor', 'end-user'] },
     { path: '/accounts', title: '账号管理', color: 'teal', roles: ['admin', 'editor', 'end-user'] },
     { path: '/digital-human', title: '数字人', color: 'orange', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/my-subscription', title: '我的套餐', color: 'amber', roles: ['admin', 'editor', 'end-user'] },
     // 代理+管理可见
     { path: '/dashboard', title: '数据看板', color: 'rose', roles: ['admin', 'editor'] },
     { path: '/lead-collector', title: '意向采集', color: 'orange', roles: ['admin', 'editor'] },
