@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
-// 客户端本地化（2026-08-05 阶段0 / 2026-08-06 纯本地定案）：
-//  - output: 'standalone'：产出 .next/standalone，供 Electron 内置本地 server 使用（页面+API 全本地渲染）
-//  - 不代理远程：客户端自带本地数据库（prisma/dev.db 打包进 standalone），登录/AI/热点全在本地执行
-//  - 服务器仅用于后期可选同步
+// 2026-08-11：客户端正式版连服务器——页面本地渲染（standalone 快）+ API 走服务器（登录/计费/数据统一）
+//  - output: 'standalone'：产出 .next/standalone，Electron 内置本地 server 渲染页面
+//  - API_TARGET 设置时：/api/* 代理到服务器（打包版 electron/main.js 注入 https://ai-niuma.cc）
+//  - 本地开发（npm run dev 不设 API_TARGET）：API 全本地执行（开发用本地 dev.db）
 
 
 const nextConfig = {
@@ -14,6 +14,14 @@ const nextConfig = {
     },
   },
   output: 'standalone',
+  // 2026-08-11：API 远程代理（打包版走服务器；本地 dev 不设 API_TARGET 则全本地）
+  ...(process.env.API_TARGET
+    ? {
+        async rewrites() {
+          return [{ source: '/api/:path*', destination: `${process.env.API_TARGET}/api/:path*` }]
+        },
+      }
+    : {}),
 }
 
 module.exports = nextConfig

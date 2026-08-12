@@ -100,14 +100,8 @@ copyDir(resolve(ROOT, 'public'), resolve(STANDALONE, 'public'), ['updates'])
 // Next standalone 会自动复制整个 public/（含 updates/ 里的旧安装包，本地有 4.7GB），
 // 必须删除，否则 electron-builder 打包 5GB+ 会卡死在压缩/签名阶段
 rmSync(resolve(STANDALONE, 'public/updates'), { recursive: true, force: true })
-// 2026-08-06 纯本地定案：把本地数据库复制进 standalone（客户端自带库，登录/AI/热点全本地）
-if (existsSync(resolve(ROOT, 'prisma/dev.db'))) {
-  copyFileSync(resolve(ROOT, 'prisma/dev.db'), resolve(STANDALONE, 'dev.db'))
-  log('已复制本地数据库 dev.db 进 standalone')
-} else {
-  log('⚠️ 未找到 prisma/dev.db，客户端将无数据')
-}
-log('standalone 就绪: ' + STANDALONE + '（已清理 public/updates）')
+// 2026-08-11 客户端正式版连服务器：不复制本地 dev.db（API 走服务器，登录/计费/数据统一）
+log('standalone 就绪: ' + STANDALONE + '（已清理 public/updates；客户端 API 走服务器）')
 
 // ── 5) 生成临时打包配置（ms-playwright 指向本机）───────
 log('5/7 生成 build.local.json…')

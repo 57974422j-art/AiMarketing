@@ -41,8 +41,8 @@ function startLocalServer() {
       localServerProc = spawn(process.execPath, [serverPath], {
         cwd: path.dirname(serverPath),
         env: {
-          // 2026-08-06：显式指定本地数据库（绝对路径，不依赖 cwd），prisma 用 env("DATABASE_URL")
-          DATABASE_URL: 'file:' + path.join(path.dirname(serverPath), 'dev.db').split(String.fromCharCode(92)).join('/'),
+          // 2026-08-11：客户端正式版连服务器——API 代理到服务器（登录/计费/数据统一），页面本地渲染
+          API_TARGET: process.env.API_TARGET || 'https://ai-niuma.cc',
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
           NODE_ENV: 'production',
