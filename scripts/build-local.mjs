@@ -109,16 +109,27 @@ const pkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8'))
 const loc = String(process.env.LOCALAPPDATA || '').split(String.fromCharCode(92)).join('/')
 const candidates = ['C:/Users/Administrator/AppData/Local/ms-playwright', loc + '/ms-playwright']
 const pw = candidates.find(p => existsSync(p)) || candidates[0]
+// 2026-08-12：打包前自动更新 version.json buildDate（避免版本日期滞后）
+try {
+  const vj = resolve(ROOT, 'electron/version.json')
+  const vd = JSON.parse(readFileSync(vj, 'utf-8'))
+  vd.buildDate = new Date().toISOString().slice(0, 10)
+  writeFileSync(vj, JSON.stringify(vd, null, 2) + '
+')
+  log('version.json buildDate 更新为 ' + vd.buildDate)
+} catch (e) { log('⚠️ buildDate 更新失败: ' + e.message) }
+
 const build = {
   appId: pkg.build.appId,
   productName: pkg.build.productName,
   directories: { output: 'dist-rel' },
-  files: [...pkg.build.files, '!.next/standalone/**'],
+  // 2026-08-12：standalone 进 asar（files）——自动更新随 asar 一起替换，不再残留旧 standalone
+  files: [...pkg.build.files, '.next/standalone/**'],
+  asarUnpack: ['**/*.node', '**/*.exe', '**/*.dll'],  // prisma engine 等原生模块 unpack（asar 外可执行）
   extraResources: [
     { from: 'scripts/platform-tools', to: 'scripts/platform-tools' },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
-    { from: '.next/standalone', to: 'standalone' },
   ],
   win: pkg.build.win,
   publish: pkg.build.publish,
