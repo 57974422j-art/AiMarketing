@@ -74,34 +74,11 @@ if (ELECTRON_CACHE && existsSync(ELECTRON_CACHE)) {
   if (removed === 0) log('缓存 zip 全部完好')
 }
 
-// ── 4) Next standalone 构建（阶段0：API 代理到服务器）────
-log('4/7 构建 Next standalone（API_TARGET=https://ai-niuma.cc）…')
-const buildRes = spawnSync('npm', ['run', 'build'], {
-  cwd: ROOT,
-  env: { ...process.env, API_TARGET: 'https://ai-niuma.cc' },
-  stdio: 'inherit',
-  shell: true,
-})
-if (buildRes.status !== 0) { console.error('❌ next build 失败'); process.exit(1) }
+// ── 4) 2026-08-13 v1.0.30 纯壳：不再 next build / 不打包 standalone——
+// 客户端直接加载服务器页面（https://ai-niuma.cc），本地无后端/无代理/无数据库
+log('4/7 纯壳模式：跳过 Next standalone 构建（页面/API 全在服务器）…')
 
-// 复制 static/public 进 standalone（Next 官方要求）
-const STANDALONE = resolve(ROOT, '.next/standalone')
-function copyDir(src, dest, skip = []) {
-  if (!existsSync(src)) return
-  mkdirSync(dest, { recursive: true })
-  for (const name of readdirSync(src)) {
-    if (skip.includes(name)) continue
-    cpSync(resolve(src, name), resolve(dest, name), { recursive: true })
-  }
-}
-mkdirSync(resolve(STANDALONE, '.next'), { recursive: true })
-copyDir(resolve(ROOT, '.next/static'), resolve(STANDALONE, '.next/static'))
-copyDir(resolve(ROOT, 'public'), resolve(STANDALONE, 'public'), ['updates'])
-// Next standalone 会自动复制整个 public/（含 updates/ 里的旧安装包，本地有 4.7GB），
-// 必须删除，否则 electron-builder 打包 5GB+ 会卡死在压缩/签名阶段
-rmSync(resolve(STANDALONE, 'public/updates'), { recursive: true, force: true })
-// 2026-08-11 客户端正式版连服务器：不复制本地 dev.db（API 走服务器，登录/计费/数据统一）
-log('standalone 就绪: ' + STANDALONE + '（已清理 public/updates；客户端 API 走服务器）')
+// 纯壳：无 standalone 复制（客户端加载服务器页面）
 
 // ── 5) 生成临时打包配置（ms-playwright 指向本机）───────
 log('5/7 生成 build.local.json…')
@@ -122,17 +99,13 @@ const build = {
   appId: pkg.build.appId,
   productName: pkg.build.productName,
   directories: { output: 'dist-rel' },
-  // 2026-08-12：standalone 进 asar 但全部 unpack（app.asar.unpacked/standalone 真实文件）
-  // ——ELECTRON_RUN_AS_NODE 可执行真实文件（asar 内 MODULE_NOT_FOUND）+ 自动更新随 asar 一起替换 unpacked
+  // 2026-08-13 v1.0.30 纯壳：files 只含 electron/preload；无 standalone/无 next build
   files: pkg.build.files,
-  // 2026-08-12 v1.0.26d: electron-builder files 对 node_modules 按项目依赖图过滤 -> standalone/node_modules 被丢
-  // 修复: standalone 完整走 extraResources (不受 files 过滤); dot 目录 .next 用显式 filter '**/.*/**'
   asarUnpack: ['**/*.node', '**/*.exe', '**/*.dll'],
   extraResources: [
     { from: 'scripts/platform-tools', to: 'scripts/platform-tools' },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
-    { from: '.next/standalone', to: 'standalone', filter: ['**/*', '**/.*/**', '**/.next/**', '**/node_modules/**'] },
   ],
   win: pkg.build.win,
   publish: pkg.build.publish,

@@ -131,16 +131,11 @@ function createWindow() {
     }
   })
 
+  // 2026-08-13 v1.0.30 纯壳：客户端不再内置后端/standalone/代理——直接加载服务器页面
+  // 页面/功能永远服务器最新；AI 能力全在服务器；本地能力（指纹/语音/摄像头）走 preload 桥
   const isDev = process.env.NODE_ENV !== 'production'
   if (app.isPackaged && !process.env.SERVER_URL) {
-    // 生产模式（阶段0）：启动本地 standalone server，页面本地渲染、API 走服务器
-    mainWindow.loadURL(`http://127.0.0.1:${LOCAL_SERVER_PORT}`)
-    startLocalServer().then((ok) => {
-      if (!ok) {
-        // 本地 server 失败时回退远程页面（保留可用性）
-        mainWindow.loadURL('http://120.55.43.195:3000')
-      }
-    })
+    mainWindow.loadURL('https://ai-niuma.cc')
   } else {
     // 开发模式 / 显式指定 SERVER_URL：加载远程或本地 dev server
     const serverUrl = process.env.SERVER_URL || 'http://localhost:3000'
