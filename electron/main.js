@@ -756,6 +756,14 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
   try {
     const instance = activeBrowsers.get(port)
     if (!instance?.page || instance.page.isClosed()) throw new Error('浏览器未运行')
+    // 2026-08-13: 注入登录 cookie（发布脚本下载素材需要鉴权）
+    try {
+      if (mainWindow && mainWindow.webContents && mainWindow.webContents.session && mainWindow.webContents.session.cookies) {
+        const cks = await mainWindow.webContents.session.cookies.get({ url: 'https://ai-niuma.cc' })
+        const cs = cks.map((ck) => ck.name + '=' + ck.value).join('; ')
+        if (cs) { params = params || {}; params.cookie = cs }
+      }
+    } catch (e) { console.log('[FP] 取 cookie 失败', e && e.message) }
 
     const logs = []
     const log = (msg) => {

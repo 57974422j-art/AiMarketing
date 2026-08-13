@@ -15,7 +15,7 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 
-const SERVER_URL = (process.env.SERVER_URL || 'http://120.55.43.195:3000').replace(/\/$/, '')
+const SERVER_URL = (process.env.SERVER_URL || 'https://ai-niuma.cc').replace(/\/$/, '')  // 2026-08-13 纯壳
 
 /**
  * 把视频定位为本地绝对路径。
@@ -37,7 +37,7 @@ async function resolveLocalVideoPath(params, log) {
   const safe = path.basename(params.storageFileName).replace(/[^\w.\-]/g, '_')
   const local = path.join(dir, safe)
   log('[common] 从素材仓库下载视频: ' + params.storageFileName)
-  await downloadFile(url, local, params.authToken)
+  await downloadFile(url, local, params.authToken, params.cookie)
   if (!fs.existsSync(local)) throw new Error('视频下载失败: ' + params.storageFileName)
   const kb = (fs.statSync(local).size / 1024).toFixed(1)
   log(`[common] 视频已下载: ${local} (${kb}KB)`)
@@ -59,18 +59,19 @@ async function resolveLocalImagePath(fileName, userId, authToken, log) {
   const safe = path.basename(fileName).replace(/[^\w.\-]/g, '_')
   const local = path.join(dir, safe)
   log('[common] 从素材仓库下载图片: ' + fileName)
-  await downloadFile(url, local, authToken)
+  await downloadFile(url, local, authToken, params && params.cookie)
   if (!fs.existsSync(local)) { log('[common] 图片下载失败，跳过: ' + fileName); return null }
   return local
 }
 
-/** 从服务端下载文件（带 token Cookie 兜底鉴权） */
-function downloadFile(url, dest, authToken) {
+/** 从服务端下载文件（带 Cookie 鉴权——storage/file 已加登录校验 #5） */
+function downloadFile(url, dest, authToken, cookie) {
   return new Promise((resolve, reject) => {
     const mod = require(url.startsWith('https') ? 'https' : 'http')
     const headers = {}
-    // /api/storage/file 由 middleware 白名单放行，路由本身不校验 cookie，无需携带 token；
-    // 否则巨型 JWT 会触发 HTTP 431（请求头过大）
+    // 2026-08-13: storage/file 要求登录（getAuthFromCookie）——带登录 cookie 或 JWT
+    if (cookie) headers.Cookie = cookie
+    else if (authToken) headers.Cookie = 'token=' + authToken
     const req = mod.get(url, { headers, timeout: 180000 }, (res) => {
       if (res.statusCode !== 200) {
         res.resume && res.resume()
