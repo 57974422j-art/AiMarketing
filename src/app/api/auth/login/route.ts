@@ -95,8 +95,10 @@ export async function POST(request: NextRequest) {
     
     response.cookies.set('token', token, {
       httpOnly: true,
-      // 2026-08-12 #16: 生产环境 https 下 cookie secure（防明文传输 JWT 被中间人窃取）
-      secure: process.env.NODE_ENV === 'production',
+      // 2026-08-12 #16 修正: cookie 不能无条件 secure——客户端代理模式页面在 http://127.0.0.1（http）
+      // secure cookie 在 http 下不发送导致登录后 401 数据全空。改为按请求协议判断:
+      // 真实 https 请求（公网 nginx 反代带 X-Forwarded-Proto: https）才 secure；客户端代理(http)不 secure
+      secure: request.headers.get('x-forwarded-proto') === 'https' || request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https',
       secure: false,
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60,
