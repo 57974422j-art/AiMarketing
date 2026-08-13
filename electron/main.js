@@ -700,7 +700,7 @@ ipcMain.handle('fp:scriptStop', () => {
  *  - 失败时把完整 URL 带进错误，便于在浏览器直接核对 userId / name
  */
 async function downloadStorageFile(userId, storageFileName, log) {
-  const serverUrl = process.env.SERVER_URL || 'http://120.55.43.195:3000'
+  const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc'  // 2026-08-13 纯壳
   const tmpDir = path.join(os.tmpdir(), 'aimarketing-videos')
   if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
   if (typeof storageFileName !== 'string' || !/^[a-zA-Z0-9._\-]+$/.test(storageFileName)) { log('文件名非法，已拒绝'); return false }
@@ -715,21 +715,36 @@ async function downloadStorageFile(userId, storageFileName, log) {
   log(`从素材仓库下载: ${storageFileName}（${serverUrl}）`)
   await new Promise((resolve, reject) => {
     const urlObj = new URL(downloadUrl)
-    const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
-    const reqHeaders = {}
-    mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
-      if (res.statusCode !== 200) {
-        res.resume && res.resume()
-        // 404 多为该文件在素材仓库已不存在（被清理/未上传）；带上 URL 便于浏览器核对
-        return reject(new Error(`HTTP ${res.statusCode}（请在浏览器打开核对: ${downloadUrl}）`))
-      }
-      const chunks = []
-      res.on('data', (c) => chunks.push(c))
-      res.on('end', () => {
-        try { fs.writeFileSync(localPath, Buffer.concat(chunks)); resolve() }
-        catch (e) { reject(e) }
-      })
-    }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
+    // 2026-08-13: 下载需带登录 cookie（storage/file 已加鉴权，#5）——从主窗口 session 拿 cookie，就绪后再发起下载
+    const startDownload = (reqHeaders) => {
+      const urlObj = new URL(downloadUrl)
+      const mod = require(urlObj.protocol === 'https:' ? 'https' : 'http')
+      mod.get(downloadUrl, { timeout: 120000, headers: reqHeaders }, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume && res.resume()
+          // 404 多为该文件在素材仓库已不存在（被清理/未上传）；带上 URL 便于浏览器核对
+          return reject(new Error(`HTTP ${res.statusCode}（请在浏览器打开核对: ${downloadUrl}）`))
+        }
+        const chunks = []
+        res.on('data', (ch) => chunks.push(ch))
+        res.on('end', () => {
+          try { fs.writeFileSync(localPath, Buffer.concat(chunks)); resolve() }
+          catch (e) { reject(e) }
+        })
+      }).on('error', reject).on('timeout', () => reject(new Error('下载超时')))
+    }
+    try {
+      const s = mainWindow && mainWindow.webContents ? mainWindow.webContents.session : null
+      if (s && s.cookies) {
+        const ckList = s.cookies.get({ url: serverUrl })
+        if (ckList && typeof ckList.then === 'function') {
+          ckList.then((cks) => {
+            const cs = cks.map((ck) => ck.name + '=' + ck.value).join('; ')
+            startDownload(cs ? { Cookie: cs } : {})
+          }).catch(() => startDownload({}))
+        } else startDownload({})
+      } else startDownload({})
+    } catch (e) { log('[下载] 取 cookie 失败: ' + (e && e.message ? e.message : e)); startDownload({}) }
   })
   const stat = fs.statSync(localPath)
   log(`✅ 已下载到本地 (${(stat.size / 1024 / 1024).toFixed(1)}MB)`)
