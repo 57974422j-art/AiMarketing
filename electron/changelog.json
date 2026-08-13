@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.32",
+    "date": "2026-08-13",
+    "title": "修复指纹发布下载素材 401",
+    "items": [
+      "Electron 下载素材带登录 cookie（storage/file 鉴权后无 cookie 401）",
+      "serverUrl 纯壳指向 ai-niuma.cc"
+    ]
+  },
+  {
     "version": "1.0.31",
     "date": "2026-08-13",
     "title": "修复指纹浏览器缺 chromium",
