@@ -696,18 +696,15 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     case 'crawl_web': {
       const crawlUrl = String(args.url || '').trim()
       if (!/^https?:\/\//.test(crawlUrl)) return 'CRAWL_INVALID:URL 无效（仅支持 http/https 链接）'
+      // 2026-08-13: 直接调共享 crawl4ai 函数（不再 HTTP 自调用 /api/crawl——避免相对 URL/401 问题）
+      const { crawlWeb, isBlockedCrawlUrl } = await import('@/lib/crawl4ai')
+      if (isBlockedCrawlUrl(crawlUrl)) return 'CRAWL_FAIL:目标地址不允许访问（内网/保留地址）'
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || ''
-        const crawlRes = await fetch(`${baseUrl}/api/crawl?url=${encodeURIComponent(crawlUrl)}`, {
-          headers: auth?.userId ? {} : {}, credentials: 'include', signal: AbortSignal.timeout(70000),
-        })
-        if (!crawlRes.ok) { const t = await crawlRes.text(); return `CRAWL_FAIL:抓取失败 HTTP ${crawlRes.status}` }
-        const d = await crawlRes.json()
-        const md = d?.data?.markdown || ''
-        if (!md) return 'CRAWL_EMPTY:页面没有可提取的文本内容（可能是视频页/需要登录/动态加载）'
+        const cr = await crawlWeb(crawlUrl)
+        if (!cr.ok) return 'CRAWL_FAIL:' + (cr.error || '抓取失败')
+        if (!cr.markdown) return 'CRAWL_EMPTY:页面没有可提取的文本内容（可能是视频页/需要登录/动态加载）'
         const purpose = args.purpose ? `。抓取目的：${args.purpose}` : ''
-        // 截断避免超 token，返回给 LLM 提炼
-        return `CRAWL_RESULT:${md.substring(0, 15000)}|URL:${crawlUrl}${purpose}`
+        return `CRAWL_RESULT:${cr.markdown.substring(0, 15000)}|URL:${crawlUrl}${purpose}`
       } catch (e: any) {
         return 'CRAWL_FAIL:' + (e?.message || '抓取异常')
       }
@@ -1387,7 +1384,7 @@ export async function POST(request: NextRequest) {
           const cwMsg = result.substring(result.indexOf(':') + 1).trim()
           return NextResponse.json({ success: true, data: {
             reply: '⚠️ ' + cwMsg + '。需要我换一个网址再试，或者用搜索（"帮我搜一下XX"）查相关内容吗？',
-            intent: 'crawl_failed', toolUsed: false, scene: null, sessionId: session?.id || null, pointsSpent: 0,
+            intent: 'crawl_failed', toolUsed: false, scene: null, sessionId: sid || null, pointsSpent: 0,
           } })
         }
         // #2 2026-08-12: 点数不足拦截（跳过模型，直接回复 + 弹「我的套餐」）
@@ -1395,7 +1392,7 @@ export async function POST(request: NextRequest) {
           const rejMsg = result.substring('TOOL_REJECT:'.length)
           return NextResponse.json({ success: true, data: {
             reply: '⚠️ ' + rejMsg + '——已为你打开「我的套餐」页面，可在其中开通套餐或购买点卡补充点数。',
-            intent: 'no_quota', toolUsed: false, scene: { type: 'open_page', path: '/my-subscription', params: {} }, sessionId: session?.id || null, pointsSpent: 0,
+            intent: 'no_quota', toolUsed: false, scene: { type: 'open_page', path: '/my-subscription', params: {} }, sessionId: sid || null, pointsSpent: 0,
           } })
         }
         messages.push({ role: 'tool', tool_call_id: tc.id, content: result } as any)

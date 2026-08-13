@@ -8,34 +8,8 @@ const CRAWL4AI_TOKEN = process.env.CRAWL4AI_API_TOKEN || ''
 
 export const dynamic = 'force-dynamic'
 
-async function callCrawl4ai(url: string, mode: string): Promise<{ ok: boolean; data?: any; error?: string }> {
-  try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (CRAWL4AI_TOKEN) headers['Authorization'] = `Bearer ${CRAWL4AI_TOKEN}`
-    // 简单模式：同步 /crawl
-    // 2026-08-13: 反爬增强——js 渲染 + 真实 UA + 等待 + headless
-    const r = await fetch(`${CRAWL4AI_URL}/crawl`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        urls: [url], priority: 10, max_depth: 1, verbose: false,
-        headless: true,
-        js: true,
-        wait_for: 'domcontentloaded',
-        page_timeout: 30000,
-        user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-      }),
-      signal: AbortSignal.timeout(90000),
-    })
-    if (!r.ok) return { ok: false, error: `crawl4ai HTTP ${r.status}` }
-    const d = await r.json()
-    const first = Array.isArray(d?.results) ? d.results[0] : null
-    const md = first?.markdown || first?.cleaned_html || ''
-    return { ok: true, data: { markdown: String(md).substring(0, 50000), title: first?.metadata?.title || '', url } }
-  } catch (e: any) {
-    return { ok: false, error: `crawl4ai 调用失败: ${e?.message || e}` }
-  }
-}
+import { crawlWeb, isBlockedCrawlUrl } from '@/lib/crawl4ai'
+
 
 // GET /api/crawl?url=xxx&mode=markdown
 export async function GET(request: NextRequest) {
@@ -44,16 +18,11 @@ export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url')
   if (!url || !/^https?:\/\//.test(url)) return NextResponse.json({ success: false, message: 'url 无效（仅 http/https）' }, { status: 400 })
   // 防 SSRF：拒绝内网/保留地址
-  try {
-    const host = new URL(url).hostname
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || /^(10|127|0)\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2[0-9]|3[01])\./.test(host)) {
-      return NextResponse.json({ success: false, message: '目标地址不允许访问' }, { status: 403 })
-    }
-  } catch { return NextResponse.json({ success: false, message: 'url 无效' }, { status: 400 }) }
+  if (isBlockedCrawlUrl(url)) return NextResponse.json({ success: false, message: '目标地址不允许访问' }, { status: 403 })
   const mode = request.nextUrl.searchParams.get('mode') || 'markdown'
-  const r = await callCrawl4ai(url, mode)
+  const r = await crawlWeb(url)
   if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 502 })
-  return NextResponse.json({ success: true, data: r.data })
+  return NextResponse.json({ success: true, data: r })
 }
 
 // POST /api/crawl  {url, mode}
@@ -64,7 +33,7 @@ export async function POST(request: NextRequest) {
   try { body = await request.json() } catch {}
   const url = (body.url || '').trim()
   if (!url || !/^https?:\/\//.test(url)) return NextResponse.json({ success: false, message: 'url 无效' }, { status: 400 })
-  const r = await callCrawl4ai(url, body.mode || 'markdown')
+  const r = await crawlWeb(url)
   if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 502 })
-  return NextResponse.json({ success: true, data: r.data })
+  return NextResponse.json({ success: true, data: r })
 }
