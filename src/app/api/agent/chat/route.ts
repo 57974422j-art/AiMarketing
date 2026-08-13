@@ -145,6 +145,17 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'crawl_web',
+    description: '抓取任意网页内容并转成 Markdown（2026-08-13，crawl4ai）。触发词："看看这个网页""抓取这个页面""这个链接内容""竞品网站分析""这个文章讲了什么"。用于：用户给 URL 时读取网页正文、竞品站点调研、热点详情。',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: '要抓取的网页完整 URL（http/https）' },
+        purpose: { type: 'string', description: '抓取目的（可选，帮助提炼重点，如"提取竞品价格""总结这篇文章"）' },
+      }, required: ['url'],
+    },
+  },
+  {
     name: 'digital_human_speak',
     description: '创建数字人口播视频：上传照片+选择声音+输入文案。触发词："数字人""口播""虚拟人""AI主播"。',
     parameters: {
@@ -672,6 +683,26 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     }
 
     // ── 数字人口播 ──
+    case 'crawl_web': {
+      const crawlUrl = String(args.url || '').trim()
+      if (!/^https?:\/\//.test(crawlUrl)) return 'CRAWL_INVALID:URL 无效（仅支持 http/https 链接）'
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || ''
+        const crawlRes = await fetch(`${baseUrl}/api/crawl?url=${encodeURIComponent(crawlUrl)}`, {
+          headers: auth?.userId ? {} : {}, credentials: 'include', signal: AbortSignal.timeout(70000),
+        })
+        if (!crawlRes.ok) { const t = await crawlRes.text(); return `CRAWL_FAIL:抓取失败 HTTP ${crawlRes.status}` }
+        const d = await crawlRes.json()
+        const md = d?.data?.markdown || ''
+        if (!md) return 'CRAWL_EMPTY:页面没有可提取的文本内容（可能是视频页/需要登录/动态加载）'
+        const purpose = args.purpose ? `。抓取目的：${args.purpose}` : ''
+        // 截断避免超 token，返回给 LLM 提炼
+        return `CRAWL_RESULT:${md.substring(0, 15000)}|URL:${crawlUrl}${purpose}`
+      } catch (e: any) {
+        return 'CRAWL_FAIL:' + (e?.message || '抓取异常')
+      }
+    }
+
     case 'digital_human_speak': {
       const text = (args.text || '').trim()
       if (!text) return '请提供口播文案内容'
