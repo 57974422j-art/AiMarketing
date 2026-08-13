@@ -2,6 +2,15 @@
   {
     "version": "1.0.32",
     "date": "2026-08-13",
+    "title": "修复指纹发布 401",
+    "items": [
+      "fp 脚本下载素材带登录 cookie（session 注入）",
+      "SERVER_URL 纯壳 https://ai-niuma.cc"
+    ]
+  },
+  {
+    "version": "1.0.32",
+    "date": "2026-08-13",
     "title": "修复指纹发布下载素材 401",
     "items": [
       "Electron 下载素材带登录 cookie（storage/file 鉴权后无 cookie 401）",
