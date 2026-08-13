@@ -13,11 +13,19 @@ async function callCrawl4ai(url: string, mode: string): Promise<{ ok: boolean; d
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (CRAWL4AI_TOKEN) headers['Authorization'] = `Bearer ${CRAWL4AI_TOKEN}`
     // 简单模式：同步 /crawl
+    // 2026-08-13: 反爬增强——js 渲染 + 真实 UA + 等待 + headless
     const r = await fetch(`${CRAWL4AI_URL}/crawl`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ urls: [url], priority: 10, max_depth: 1, verbose: false }),
-      signal: AbortSignal.timeout(60000),
+      body: JSON.stringify({
+        urls: [url], priority: 10, max_depth: 1, verbose: false,
+        headless: true,
+        js: true,
+        wait_for: 'domcontentloaded',
+        page_timeout: 30000,
+        user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      }),
+      signal: AbortSignal.timeout(90000),
     })
     if (!r.ok) return { ok: false, error: `crawl4ai HTTP ${r.status}` }
     const d = await r.json()
