@@ -99,7 +99,6 @@ export async function POST(request: NextRequest) {
       // secure cookie 在 http 下不发送导致登录后 401 数据全空。改为按请求协议判断:
       // 真实 https 请求（公网 nginx 反代带 X-Forwarded-Proto: https）才 secure；客户端代理(http)不 secure
       secure: request.headers.get('x-forwarded-proto') === 'https' || request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https',
-      secure: false,
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60,
       path: '/'
@@ -157,7 +156,7 @@ export async function GET(request: NextRequest) {
   })
   response.cookies.set('token', refreshed, {
     httpOnly: true,
-    secure: false,
+    secure: request.headers.get('x-forwarded-proto') === 'https' || request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https',
     sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60,
     path: '/',
