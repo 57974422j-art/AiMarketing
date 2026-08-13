@@ -457,6 +457,9 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 
 规则：简洁专业、适度emoji、中文回复、不啰嗦、不说"你不能"而是给替代方案
 
+【当前日期（重要，写日期/时间必须用这个，禁止用训练知识里的旧日期）】
+今天是 ${new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}（${new Date().getFullYear()}年${new Date().getMonth() + 1}月${new Date().getDate()}日）。引用新闻/热点/日期时必须基于此。
+
 【未接入需求收集（重要）】
 - 我们只接入了 5 个平台：抖音、小红书、快手、视频号、B站。如果客户提出 TikTok、YouTube、微博、Instagram、Facebook、X(Twitter)、淘宝、京东 等我们暂未接入的平台/能力，不要说"我不支持"就结束。
 - 正确做法：调用 collect_unmet_need 工具记录该需求（平台+简述），然后回复："已记录你的需求：在{平台}上{做什么}。目前该平台还在接入中，我帮您登记了，人工客服会尽快与你联系～"
@@ -1379,6 +1382,14 @@ export async function POST(request: NextRequest) {
         steps.push({ tool: tc.name, label: stepLabel })
         console.log(`[Agent] 🔧 ${tc.name}`, JSON.stringify(args).substring(0, 100))
         const result = await executeToolCall(tc.name, args, auth)
+        // 2026-08-13: 网页抓取失败拦截——直接如实返回失败（禁止模型用知识编造网页内容冒充抓取结果）
+        if (typeof result === 'string' && (result.startsWith('CRAWL_FAIL:') || result.startsWith('CRAWL_EMPTY:') || result.startsWith('CRAWL_INVALID:'))) {
+          const cwMsg = result.substring(result.indexOf(':') + 1).trim()
+          return NextResponse.json({ success: true, data: {
+            reply: '⚠️ ' + cwMsg + '。需要我换一个网址再试，或者用搜索（"帮我搜一下XX"）查相关内容吗？',
+            intent: 'crawl_failed', toolUsed: false, scene: null, sessionId: session?.id || null, pointsSpent: 0,
+          } })
+        }
         // #2 2026-08-12: 点数不足拦截（跳过模型，直接回复 + 弹「我的套餐」）
         if (typeof result === 'string' && result.startsWith('TOOL_REJECT:')) {
           const rejMsg = result.substring('TOOL_REJECT:'.length)
