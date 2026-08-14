@@ -120,30 +120,39 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'avatar-speak') {
-      const { avatarId, text } = body
-      if (!avatarId || !text) return NextResponse.json({ success: false, message: '缺少参数' }, { status: 400 })
+      // 2026-08-14: wan2.2-s2v（照片+音频对口型，同步轮询直出）——avatarId 指向数字人形象模板（previewUrl 为人像图）
+      const { avatarId, text, photoUrl } = body
+      if ((!avatarId && !photoUrl) || !text) return NextResponse.json({ success: false, message: '缺少形象或文案' }, { status: 400 })
 
       // 点数前置检查（成功后才真正扣款）
       const tc = await checkTokens(auth.userId, TOKEN_COSTS.DH_VIDEO)
       if (!tc.allowed) return NextResponse.json({ success: false, message: tc.message, wallet: tc.wallet }, { status: 403 })
 
-      const tmpl = await prisma.promptTemplate.findFirst({
-        where: { category: '数字人', id: parseInt(avatarId) },
-        select: { previewUrl: true },
-      })
-      if (!tmpl?.previewUrl) return NextResponse.json({ success: false, message: '形象未生成预览图，请后台先点「预览图」' }, { status: 400 })
-      console.log('[数字人-avatar] 开始TTS, 文案长度:', text.length)
+      // 照片 URL：优先自定义 photoUrl，否则用数字人模板预览图
+      let photo = photoUrl || ''
+      if (!photo && avatarId) {
+        const tmpl = await prisma.promptTemplate.findFirst({
+          where: { category: '数字人', id: parseInt(avatarId) },
+          select: { previewUrl: true },
+        })
+        photo = tmpl?.previewUrl || ''
+      }
+      if (!photo) return NextResponse.json({ success: false, message: '缺少形象照片（人像图）' }, { status: 400 })
+      console.log('[数字人] 开始TTS, 文案长度:', text.length)
       const au = await synthesizeTTS(text)
-      console.log('[数字人-avatar] TTS完成, audio_url:', au.substring(0, 80))
-      const r = await createDigitalHuman(au, tmpl.previewUrl)
-      console.log('[数字人-avatar] 结果:', r ? `taskId=${r.taskId}` : 'NULL')
-      const recId = await createRecord({
-        userId: auth.userId, type: 'digital_human', provider: 'dashscope', model: 'liveportrait',
-        prompt: text, sourceUrl: tmpl.previewUrl, costPoints: TOKEN_COSTS.DH_VIDEO,
-      })
-      if (r?.taskId) await attachTaskId(recId, r.taskId)
-      else await finalizeFailure(recId, '千寻提交失败（检查百炼 liveportrait 服务是否开通）')
-      return r ? NextResponse.json({ success: true, taskId: r.taskId }) : NextResponse.json({ success: false, message: '提交失败' }, { status: 500 })
+      console.log('[数字人] TTS完成, audio:', au.substring(0, 60))
+      const { createDigitalHumanVideo } = await import('@/lib/ai-providers')
+      const r = await createDigitalHumanVideo(photo, au)
+      console.log('[数字人] 生成结果:', r ? (r.videoUrl ? 'videoUrl=' + r.videoUrl.substring(0, 60) : 'error=' + r.error) : 'NULL')
+      if (r?.videoUrl) {
+        await spendTokens(auth.userId, TOKEN_COSTS.DH_VIDEO, 'digital_human')
+        await createRecord({
+          userId: auth.userId, type: 'digital_human', provider: 'dashscope', model: 'wan2.2-s2v',
+          prompt: text, sourceUrl: photo, costPoints: TOKEN_COSTS.DH_VIDEO, storageUrl: r.videoUrl,
+        })
+        return NextResponse.json({ success: true, videoUrl: r.videoUrl, segments: r.segments || 1 })
+      }
+      return NextResponse.json({ success: false, message: r?.error || '数字人生成失败' }, { status: 500 })
     }
 
     if (action === 'query') {
