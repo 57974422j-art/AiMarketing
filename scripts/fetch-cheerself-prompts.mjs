@@ -1,7 +1,8 @@
 // 2026-08-14: 抓取 cheerselfai.com 提示词库 → 导入 PromptTemplate（学习库）
-// 用法: node scripts/fetch-cheerself-prompts.mjs --lib=seedance-2-5 [--limit N]
+// 封面/图自动下载转 OSS（坚决不存外链）
+// 用法: node --env-file=.env.local scripts/fetch-cheerself-prompts.mjs [--lib=seedance-2-5] [--limit=N]
+import OSS from 'ali-oss'
 import { PrismaClient } from '@prisma/client'
-// 运行方式: node --env-file=.env.local scripts/fetch-cheerself-prompts.mjs
 const prisma = new PrismaClient()
 const BASE = 'https://cheerselfai.com/prompts'
 const LIBS = [
@@ -14,6 +15,29 @@ const LIBS = [
 ]
 const limit = parseInt(process.argv.find(a => a.startsWith('--limit='))?.split('=')[1] || '60', 10)
 const only = process.argv.find(a => a.startsWith('--lib='))?.split('=')[1]
+
+let ossClient = null
+function getOss() {
+  if (ossClient) return ossClient
+  const r = process.env.OSS_REGION, k = process.env.OSS_ACCESS_KEY_ID, s = process.env.OSS_ACCESS_KEY_SECRET, b = process.env.OSS_BUCKET
+  if (!r || !k || !s || !b) { console.warn('[OSS] 未配置——封面跳过转存'); return null }
+  ossClient = new OSS({ region: r, accessKeyId: k, accessKeySecret: s, bucket: b, authorizationV4: true, endpoint: `https://${r}.aliyuncs.com` })
+  return ossClient
+}
+async function coverToOss(url, slug, idx) {
+  try {
+    const oss = getOss()
+    if (!oss || !url) return null
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(30000) })
+    if (!r.ok) return null
+    const buf = Buffer.from(await r.arrayBuffer())
+    if (buf.length < 500 || buf.length > 8 * 1024 * 1024) return null
+    const ext = (url.split('?')[0].match(/\.(jpe?g|png|webp|gif)$/i)?.[1] || 'jpg').toLowerCase()
+    const key = `prompts/cheerselfai/${slug}/${idx}.${ext}`
+    await oss.put(key, buf, { headers: { 'Content-Type': 'image/' + (ext === 'jpg' ? 'jpeg' : ext) } })
+    return `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION}.aliyuncs.com/${key}`
+  } catch { return null }
+}
 
 function stripTags(h) {
   return h.replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<style[\s\S]*?<\/style>/g, ' ')
@@ -33,14 +57,27 @@ async function fetchLib(slug) {
     const s = starts[i]
     const a = actions.find(x => x > s)
     if (!a) continue
-    let prompt = stripTags(html.substring(s, a))
+    const cardHtml = html.substring(s, a)
+    let prompt = stripTags(cardHtml)
     const ti = prompt.indexOf('提示词')
     if (ti >= 0 && ti < 30) prompt = prompt.substring(ti + 3).trim()
     prompt = prompt.replace(/^[\s:：]*/, '').replace(/当前浏览器不支持视频播放\s*$/, '').replace(/\s+$/g, '').trim()
     const after = html.substring(a, a + 900)
     const mAuthor = after.match(/@([A-Za-z0-9_\-\.]+)/)
     const mX = after.match(/https:\/\/x\.com\/[^"\s'\)]+/)
-    if (prompt.length > 20) items.push({ prompt, author: mAuthor?.[1] || '', xurl: mX?.[0] || '' })
+    let cover = ''
+    const mPoster = cardHtml.match(/poster="([^"]+)/)
+    if (mPoster) cover = mPoster[1]
+    if (!cover) {
+      const mImg = cardHtml.match(/<img[^>]*src="([^"]+)/)
+      if (mImg) {
+        let u = mImg[1]
+        if (u.startsWith('/_next/image?url=')) u = decodeURIComponent(u.split('url=')[1].split('&')[0])
+        if (u.startsWith('/')) u = 'https://cheerselfai.com' + u
+        cover = u
+      }
+    }
+    if (prompt.length > 20) items.push({ prompt, author: mAuthor?.[1] || '', xurl: mX?.[0] || '', cover })
   }
   return items
 }
@@ -55,11 +92,22 @@ async function main() {
       let inserted = 0
       for (const it of items.slice(0, limit)) {
         const exist = await prisma.promptTemplate.findFirst({ where: { model: lib.model, originalUrl: it.xurl || undefined } })
-        if (exist) continue
+        if (exist) {
+          // 已存在但无封面 → 补转 OSS
+          if (!exist.previewUrl && it.cover) {
+            const pv = await coverToOss(it.cover, lib.slug, items.indexOf(it))
+            if (pv) await prisma.promptTemplate.update({ where: { id: exist.id }, data: { previewUrl: pv, coverUrl: pv } })
+          }
+          continue
+        }
+        let previewUrl = null
+        if (it.cover) previewUrl = await coverToOss(it.cover, lib.slug, items.indexOf(it))
         await prisma.promptTemplate.create({
           data: {
             title: it.prompt.substring(0, 40),
             prompt: it.prompt,
+            previewUrl,
+            coverUrl: previewUrl || undefined,
             category: lib.category,
             model: lib.model,
             source: 'cheerselfai',
@@ -75,7 +123,7 @@ async function main() {
       console.log(`  → 入库 ${inserted} 条`)
     } catch (e) { console.error(`[${lib.slug}] 失败: ${e.message}`) }
   }
-  console.log(`\n完成：共入库 ${total} 条（去重后）`)
+  console.log(`\n完成：共入库 ${total} 条`)
   await prisma.$disconnect()
 }
 main()
