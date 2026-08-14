@@ -709,6 +709,12 @@ export default function AgentPage() {
   const [mediaLoading, setMediaLoading] = useState(false)
   const [mediaPlayingId, setMediaPlayingId] = useState<number | null>(null)
   const mediaAudioRef = useRef<HTMLAudioElement | null>(null)
+  // 2026-08-14: AI 生成 BGM（Minimax）
+  const [musicPrompt, setMusicPrompt] = useState('')
+  const [musicGenBusy, setMusicGenBusy] = useState(false)
+  const [musicGenMsg, setMusicGenMsg] = useState('')
+  const [musicGenUrl, setMusicGenUrl] = useState('')
+  const [musicGenNeedsPay, setMusicGenNeedsPay] = useState(false)
 
   const loadMedia = async () => {
     setMediaLoading(true)
@@ -717,6 +723,34 @@ export default function AgentPage() {
       const d = await r.json()
       if (d.success) setMediaData(d.data)
     } catch {} finally { setMediaLoading(false) }
+  }
+  // 2026-08-14: AI 生成背景音乐（Minimax music-3.0）
+  const genMusic = async () => {
+    const prompt = musicPrompt.trim()
+    if (!prompt) { setMusicGenMsg('请输入音乐风格描述'); setMusicGenNeedsPay(false); return }
+    setMusicGenBusy(true); setMusicGenMsg('生成中，约 30-90 秒…'); setMusicGenUrl(''); setMusicGenNeedsPay(false)
+    try {
+      const r = await fetch('/api/music/generate', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+      const d = await r.json()
+      if (d.success && d.url) {
+        setMusicGenUrl(d.url); setMusicGenMsg('✅ 生成成功（可试听 / 用做背景乐）')
+      } else {
+        setMusicGenMsg(d.message || '生成失败'); setMusicGenNeedsPay(!!d.needsPayment)
+      }
+    } catch { setMusicGenMsg('生成失败（网络/服务异常）'); setMusicGenNeedsPay(false) }
+    finally { setMusicGenBusy(false) }
+  }
+  const addGenMusic = () => {
+    if (!musicGenUrl) return
+    const next = musicGenUrl.trim()
+    setMediaData((prev) => prev ? {
+      ...prev,
+      bgm: [...prev.bgm, { id: Date.now(), title: 'AI 生成 · ' + (musicPrompt.slice(0, 12) || '背景乐'), mood: 'ai', url: next }],
+    } : prev)
+    setMusicGenMsg('已加入音乐库（本次会话可用）')
   }
   const toggleMedia = () => {
     const next = !mediaOpen
@@ -2141,6 +2175,26 @@ export default function AgentPage() {
                   <p className="text-[9px] text-gray-700 px-1">加载中…</p>
                 ) : (
                   <>
+                    {/* 2026-08-14: AI 生成 BGM（Minimax） */}
+                    <div className="rounded-lg border border-white/[0.06] p-2 bg-white/[0.02]">
+                      <div className="flex gap-1.5">
+                        <input value={musicPrompt} onChange={(e) => setMusicPrompt(e.target.value)}
+                          placeholder="AI 生成背景乐：如 欢快的电子音乐"
+                          className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded-md px-2 py-1 text-[10px] text-gray-300 placeholder:text-gray-600 outline-none focus:border-cyan-500/40" />
+                        <button onClick={genMusic} disabled={musicGenBusy}
+                          className="shrink-0 px-2.5 py-1 rounded-md text-[10px] bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 disabled:opacity-50 disabled:cursor-wait">
+                          {musicGenBusy ? '生成中…' : '🎼 生成'}
+                        </button>
+                      </div>
+                      {musicGenMsg && <p className={`mt-1 text-[9px] ${musicGenNeedsPay ? 'text-amber-400' : 'text-gray-500'}`}>{musicGenMsg}</p>}
+                      {musicGenUrl && (
+                        <div className="mt-1.5 space-y-1">
+                          <audio src={musicGenUrl} controls className="w-full h-8" />
+                          <button onClick={addGenMusic}
+                            className="w-full text-[9px] py-1 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25">✅ 用做背景乐</button>
+                        </div>
+                      )}
+                    </div>
                     <p className="text-[9px] text-gray-500">🎶 音乐库</p>
                     {(mediaData?.bgm.length ? mediaData.bgm : []).map(b => (
                       <button key={b.id} onClick={() => toggleBgm(b)}
