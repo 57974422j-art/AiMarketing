@@ -15,40 +15,20 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
       take: 20,
     })
-    const aiTracks = pubMusic.map((m, i) => ({
-      id: i + 1,
-      name: (m.prompt || 'AI 音乐').substring(0, 20),
-      mood: 'ai',
-      url: m.ossUrl,
-    }))
-
-    // 免费兜底：Pixabay 第 1 首（实测可用的）
-    const freeTrack = {
-      id: 999,
-      name: '轻松愉快 - Uplifting',
-      mood: 'happy',
-      url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=uplifting-upbeat-corporate-inspiration.mp3',
-    }
-
+    // 2026-08-14: 全部用 AI 音乐库（用户弃用 Pixabay——下载无效/仅 1 首可用）
     return NextResponse.json({
       success: true,
-      poweredBy: '公共音乐库 + Pixabay 免费',
-      count: aiTracks.length + 1,
-      data: [...aiTracks, freeTrack],
+      poweredBy: 'AI 音乐库',
+      count: pubMusic.length,
+      data: pubMusic.map((m, i) => ({
+        id: i + 1,
+        name: (m.prompt || 'AI 音乐').substring(0, 20),
+        mood: 'ai',
+        url: m.ossUrl,
+      })),
     })
   } catch (e: any) {
-    // 数据库异常时兜底免费曲
-    return NextResponse.json({
-      success: true,
-      poweredBy: 'Pixabay 免费（库异常兜底）',
-      count: 1,
-      data: [{
-        id: 999,
-        name: '轻松愉快 - Uplifting',
-        mood: 'happy',
-        url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=uplifting-upbeat-corporate-inspiration.mp3',
-      }],
-    })
+    return NextResponse.json({ success: true, poweredBy: 'AI 音乐库', count: 0, data: [] })
   }
 }
 

@@ -781,14 +781,9 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
             <div className="card-glass p-4">
               <label className="text-xs text-gray-400 mb-2 block">背景音乐（可选）</label>
               <div className="space-y-1.5 mb-3">
-                <p className="text-[9px] text-gray-600">🆓 Pixabay 免版税音乐 · 点击试听选择</p>
+                <p className="text-[9px] text-gray-600">🎵 AI 音乐库 · 点击试听选择</p>
                 <div className="grid grid-cols-1 gap-1 max-h-60 overflow-y-auto">
-                  {(musicList.length > 0 ? musicList : [
-                    { name: '轻松愉快 - Uplifting', url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3' },
-                    { name: '温馨柔和 - Soft', url: 'https://cdn.pixabay.com/download/audio/2022/10/25/audio_946bc7ebc8.mp3' },
-                    { name: '电子节奏 - Electronic', url: 'https://cdn.pixabay.com/download/audio/2022/02/22/audio_d171c86b8d.mp3' },
-                    { name: '电影感 - Cinematic', url: 'https://cdn.pixabay.com/download/audio/2022/08/02/audio_884fe92c6b.mp3' },
-                  ]).map(item => (
+                  {musicList.map(item => (
                     <div key={item.url} className="flex items-center gap-1.5">
                       <button
                         onClick={(e) => {
@@ -825,7 +820,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
                     </div>
                   ))}
                 </div>
-                <p className="text-[8px] text-gray-600">⚠️ 来源 Pixabay 免版税音乐 | 如加载失败请上传本地音乐</p>
+                <p className="text-[8px] text-gray-600">💡 音乐来自公共音乐库（管理后台 → 🎵 音乐库 生成并设为公开）· 暂无时可上传本地音乐</p>
               </div>
 
               <input ref={bgmRef} type="file" accept="audio/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { setBgmFile(f); setBgm({name: f.name, url: '', custom: true}) }}} />
