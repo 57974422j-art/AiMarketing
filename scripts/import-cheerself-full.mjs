@@ -2,6 +2,7 @@
 // 用法: node --env-file=.env.local scripts/import-cheerself-full.mjs [--nocover] [--lib=minimax-h3]
 import OSS from 'ali-oss'
 import fs from 'fs'
+import { gunzipSync } from 'zlib'
 import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 const CATS = {
@@ -50,7 +51,7 @@ async function coverToOss(url, slug, idx) {
 
 let raw
 if (fs.existsSync('scripts/cheerself-full.json.gz')) {
-  raw = require('zlib').gunzipSync(fs.readFileSync('scripts/cheerself-full.json.gz')).toString('utf8')
+  raw = gunzipSync(fs.readFileSync('scripts/cheerself-full.json.gz')).toString('utf8')
 } else {
   raw = fs.readFileSync('scripts/cheerself-full.json', 'utf8')
 }
