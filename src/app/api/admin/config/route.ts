@@ -14,7 +14,8 @@ export async function POST(request: NextRequest) {
     console.log('[Admin-Config] 收到保存请求');
 
     // 读取现有 .env.local
-    const envPath = join(process.cwd(), '.env.local');
+    // 2026-08-14: 写入路径统一用 DOTENV_CONFIG_PATH（pm2 加载的根目录 .env.local）——避免写到 standalone 被 rm -rf 删除
+    const envPath = process.env.DOTENV_CONFIG_PATH || join(process.cwd(), '.env.local');
     let envContent = '';
 
     try {
@@ -357,7 +358,8 @@ async function readEnv(key: string): Promise<string | undefined> {
   try {
     const { readFile } = await import('fs/promises')
     const { join } = await import('path')
-    const content = await readFile(join(process.cwd(), '.env.local'), 'utf-8')
+    const envP = process.env.DOTENV_CONFIG_PATH || join(process.cwd(), '.env.local')
+    const content = await readFile(envP, 'utf-8')
     const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'))
     return match?.[1] || undefined
   } catch { return undefined }
