@@ -13,7 +13,7 @@ const LIBS = [
   { slug: 'flux-3',         model: 'FLUX 3',         category: '视频提示词' },
   { slug: 'ecommerce-image',model: 'GPT Image 2',    category: '电商图片提示词' },
 ]
-const limit = parseInt(process.argv.find(a => a.startsWith('--limit='))?.split('=')[1] || '60', 10)
+const limit = parseInt(process.argv.find(a => a.startsWith('--limit='))?.split('=')[1] || '0', 10)  // 0=全部
 const only = process.argv.find(a => a.startsWith('--lib='))?.split('=')[1]
 
 let ossClient = null
@@ -115,7 +115,7 @@ async function main() {
       const items = await fetchLib(lib.slug)
       console.log(`[${lib.slug}] 解析到 ${items.length} 条`)
       let inserted = 0
-      for (const it of items.slice(0, limit)) {
+      for (const it of items.slice(0, limit || items.length)) {
         const exist = it.xurl
           ? await prisma.promptTemplate.findFirst({ where: { model: lib.model, originalUrl: it.xurl } })
           : await prisma.promptTemplate.findFirst({ where: { model: lib.model, prompt: it.prompt } })
