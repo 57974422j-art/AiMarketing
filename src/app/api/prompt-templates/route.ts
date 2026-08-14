@@ -80,15 +80,27 @@ export async function GET(request: NextRequest) {
     if (source) { conditions.push('source = ?'); params.push(source) }
 
     if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ')
-    sql += ' ORDER BY id ASC'
+
+    // 2026-08-14: 分页（page/pageSize；默认全部返回，兼容旧调用）
+    const page = parseInt(searchParams.get('page') || '0', 10)
+    const pageSize = parseInt(searchParams.get('pageSize') || '0', 10)
+
+    let total = 0
+    try {
+      const cnt = await prisma.$queryRawUnsafe(`SELECT COUNT(*) AS c FROM PromptTemplate${conditions.length ? ' WHERE ' + conditions.join(' AND ') : ''}`, ...params)
+      total = Number((cnt as any[])[0]?.c || 0)
+    } catch {}
+
+    let sql2 = sql + ' ORDER BY id ASC'
+    if (page > 0 && pageSize > 0) { sql2 += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}` }
 
     let rows: any[]
     if (params.length > 0) {
-      rows = await prisma.$queryRawUnsafe(sql, ...params)
+      rows = await prisma.$queryRawUnsafe(sql2, ...params)
     } else {
-      rows = await prisma.$queryRawUnsafe(sql)
+      rows = await prisma.$queryRawUnsafe(sql2)
     }
-    return NextResponse.json({ success: true, data: rows })
+    return NextResponse.json({ success: true, data: rows, total, page, pageSize })
   } catch (e) {
     console.error(e)
     return NextResponse.json({ success: false, message: '服务器错误' }, { status: 500 })

@@ -44,6 +44,7 @@ const sections: CardSection[] = [
       { title: '提示词模板库', desc: 'AI 生图提示词模板管理（浏览/标签筛选/编辑）', href: '/admin/prompt-templates', icon: '🖼️', roles: ['admin', 'editor'] },
       { title: '提示词源管理', desc: '开源提示词仓库 · 定时自动拉取入库（canvas.best 同源）', href: '/admin/prompt-sources', icon: '📚', roles: ['admin'] },
       { title: '🎵 音乐库', desc: 'AI 生成背景音乐 · 试听 / 设为公开（一键成片 BGM）', href: '/music-library', icon: '🎵', roles: ['admin', 'editor'] },
+      { title: '📚 提示词资源库', desc: '外部抓取/来源同步内容 · 分页浏览 · 来源/模型筛选', href: '/admin/prompt-library', icon: '📚', roles: ['admin', 'editor'] },
     ],
   },
   {
