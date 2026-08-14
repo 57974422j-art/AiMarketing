@@ -4,7 +4,11 @@
 > 同步维护：PROJECT.md 六「当前进度/待办」、ISSUES.md 问题状态。
 > 开始日期：2026-08-05
 
+| 2026-08-14 | API key 根因修复：①config 读写 .env.local 统一 DOTENV_CONFIG_PATH（之前写 cwd/standalone 被 rm -rf 删）；②16 段保存排除 ******** 掩码覆盖；③statusMap 加 minimax（配置后显示已配置）；④settings 分页 Tab（密钥/媒体/引擎/系统 4 组）；⑤Minimax 音乐测试命令 | config/route.ts / settings/page.tsx | 服务器验证 MINIMAX_API_KEY 保存成功；settings 语法 0；分页提交 2c18a72 |
 ---
+| 2026-08-14 | 数字人全链路 wan2.2-s2v：TTS 改百炼 CosyVoice(edge-tts 弃用)、异步提交+查询(修复504)、live 直播片段适配(照片+文案→口播)、Minimax 后台接入(key 输入+测试+保存)、crawl4ai B/C 方案(文本抓取修复 markdown dict+阈值；截图+视觉读图) | ai-providers/digital-human/live-stream-engine/live 页/settings/ApiKeyPanel/config/test-key/crawl4ai | 数字人异步提交验证通过(taskId+PENDING)；待部署测试 |
+| 2026-08-13 | 客户端改回纯壳 v1.0.30（彻底解决 code14/数据空/两套）：根因=Next standalone 把后端+管理后台+API key+本地库配置(.env.local 含 DATABASE_URL/全部 key)全打包进客户端→login 本地执行+代理与本地路由互相干扰。方案 A 纯壳：main.js 直接 loadURL(https://ai-niuma.cc)，build-local 不再 next build/不打包 standalone，本地能力(指纹/语音/摄像头)走 preload 桥，管理后台仅网页。另修 login cookie secure 按 x-forwarded-proto 判断(f86ba55) | electron/main.js / scripts/build-local.mjs / src/app/api/auth/login/route.ts | v1.0.30 打包 275MB，CDP 验证页面加载 ai-niuma.cc/login；待部署 |
+| 2026-08-12 | 25 条隐患批量修复（v1.0.29）：#1 JWT_SECRET 去 fallback+代理模式跳过本地验签; #2 Agent 工具链前移扣费(文生图12点/张/视频100点/秒/成片, 不足 TOOL_REJECT 弹套餐); #3-6 debug-oss admin-only/proxy-download 防SSRF/storage IDOR/video-get 路径遍历; #7 adb:shell 防注入+will-navigate 拦 file://; #9 token-wallet 异常拒绝+两步查询容错; #10 storyboard retry 防并发; #12-16/18-21/24 中低危; 套餐额度显示修复(年卡 500 点) | middleware/login/token-wallet/chat/storage/video-get/debug-oss/proxy-download/main.js/export/tts/prompts-public/digital-human/agent/PromptLibraryDialog | 本地验证通过(对话扣费/selfcheck 499点/全页面 200); 打包 v1.0.29 待完成
 
 ## 2026-08-10
 | 日期 | 操作内容 | 改动文件 | 结果 |

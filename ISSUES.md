@@ -1,3 +1,7 @@
+### ✅ 已解决
+- 2026-08-14 API key 保存后丢失/未配置：根因 ① config 写 cwd/standalone 被 rm -rf 删（修：DOTENV_CONFIG_PATH 统一）② 16 段保存没排除 ******** 掩码覆盖（修）③ statusMap minimax 未初始化显示未配置（修）——服务器验证 MINIMAX 保存成功
+- 2026-08-14 settings 一页堆叠全部配置难用（修：分页 Tab 密钥/媒体/引擎/系统）
+
 # AiMarketing 问题清单（ISSUES）
 
 > 已知问题 / Bug / 风险 / 隐患。与 PROJECT.md 分开维护。
