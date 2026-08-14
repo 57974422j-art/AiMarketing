@@ -895,7 +895,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         const data = await res.json()
         if (data.success && data.data?.length) {
           const items = data.data.slice(0, 6).map((t: any, i: number) =>
-            `${i + 1}. ${t.title}${t.category ? ` [${t.category}]` : ''}`
+            `${i + 1}. ${t.title}${t.category ? ` [${t.category}]` : ''}${t.model ? ` (${t.model})` : ''}`
           ).join('\n')
           return `TEMPLATE_RESULT:${data.data.length}个模板:\n${items}`
         }

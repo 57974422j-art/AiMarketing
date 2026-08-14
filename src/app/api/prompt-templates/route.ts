@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') // 'image' | 'video'
     const model = searchParams.get('model') // 2026-08-14 按模型（Seedance/H3/GPT-Image 等）
     const source = searchParams.get('source') // 2026-08-14 按来源（cheerselfai 学习库等）
+    const keyword = searchParams.get('keyword') // 2026-08-14 关键词搜索（title/prompt/category LIKE）
     let sql = 'SELECT * FROM PromptTemplate'
     const params: any[] = []
     const conditions: string[] = []
@@ -79,6 +80,7 @@ export async function GET(request: NextRequest) {
     if (model) { conditions.push('model = ?'); params.push(model) }
     if (source === 'self') { conditions.push("(source IS NULL OR source = '')") }
     else if (source) { conditions.push('source = ?'); params.push(source) }
+    if (keyword) { conditions.push('(title LIKE ? OR prompt LIKE ? OR category LIKE ? OR model LIKE ?)'); const k = '%' + keyword + '%'; params.push(k, k, k, k) }
 
     if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ')
 
