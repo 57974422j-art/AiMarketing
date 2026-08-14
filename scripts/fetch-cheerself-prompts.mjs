@@ -84,12 +84,14 @@ async function fetchLib(slug) {
     const mAuthor = after.match(/@([A-Za-z0-9_\-\.]+)/)
     const mX = after.match(/https:\/\/x\.com\/[^"\s'\)]+/)
     let cover = ''
+    let coverMp4 = ''
     const mPoster = cardHtml.match(/poster="([^"]+)/)
     if (mPoster) cover = mPoster[1]
-    if (!cover) {
-      // 视频卡片：找 mp4（r2.dev——国内可达，下载后抽帧）
-      const mMp4 = cardHtml.match(/https:\/\/[^"']+\.mp4[^"']*/)
-      if (mMp4) cover = mMp4[0]
+    const mMp4 = cardHtml.match(/<source[^>]*src="([^"]+\.mp4[^"]*)"/)
+    if (mMp4) coverMp4 = mMp4[1]
+    if (!cover && !coverMp4) {
+      const mMp42 = cardHtml.match(/https:\/\/[^"']+\.mp4[^"']*/)
+      if (mMp42) coverMp4 = mMp42[0]
     }
     if (!cover) {
       const mImg = cardHtml.match(/<img[^>]*src="([^"]+)/)
@@ -100,7 +102,7 @@ async function fetchLib(slug) {
         cover = u
       }
     }
-    if (prompt.length > 20) items.push({ prompt, author: mAuthor?.[1] || '', xurl: mX?.[0] || '', cover })
+    if (prompt.length > 20) items.push({ prompt, author: mAuthor?.[1] || '', xurl: mX?.[0] || '', cover, coverMp4 })
   }
   return items
 }
@@ -117,14 +119,16 @@ async function main() {
         const exist = await prisma.promptTemplate.findFirst({ where: { model: lib.model, originalUrl: it.xurl || undefined } })
         if (exist) {
           // 已存在但无封面 → 补转 OSS
-          if (!exist.previewUrl && it.cover) {
-            const pv = await coverToOss(it.cover, lib.slug, items.indexOf(it))
+          if (!exist.previewUrl && (it.cover || it.coverMp4)) {
+            let pv = it.cover ? await coverToOss(it.cover, lib.slug, items.indexOf(it)) : null
+            if (!pv && it.coverMp4) pv = await coverToOss(it.coverMp4, lib.slug, items.indexOf(it))
             if (pv) await prisma.promptTemplate.update({ where: { id: exist.id }, data: { previewUrl: pv, coverUrl: pv } })
           }
           continue
         }
         let previewUrl = null
         if (it.cover) previewUrl = await coverToOss(it.cover, lib.slug, items.indexOf(it))
+        if (!previewUrl && it.coverMp4) previewUrl = await coverToOss(it.coverMp4, lib.slug, items.indexOf(it))
         await prisma.promptTemplate.create({
           data: {
             title: it.prompt.substring(0, 40),
