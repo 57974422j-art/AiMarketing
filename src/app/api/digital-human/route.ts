@@ -41,14 +41,19 @@ async function uploadOSS(fileOrPath: File | string, ext: string): Promise<string
 }
 
 /** TTS 文本→MP3 到 OSS */
+/** TTS 文本→MP3 到 OSS（2026-08-14: edge-tts 被墙弃用——改用 ai-providers textToSpeech 百炼/火山） */
 async function synthesizeTTS(text: string): Promise<string> {
-  const tmpDir = join(process.cwd(), 'temp')
-  if (!existsSync(tmpDir)) await mkdir(tmpDir, { recursive: true })
-  const tmp = join(tmpDir, `tts_${Date.now()}.mp3`)
-  execSync(`edge-tts --voice zh-CN-XiaoxiaoNeural --text "${text.replace(/["$'`\\]/g, '')}" --write-media ${tmp}`, { timeout: 30000, shell: process.platform === 'win32' ? undefined : '/bin/bash' })
-  const url = await uploadOSS(tmp, 'mp3')
-  await unlink(tmp).catch(() => {})
-  return url
+  const { textToSpeech } = await import('@/lib/ai-providers')
+  const audio = await textToSpeech(text)
+  if (!audio) throw new Error('TTS 合成失败（百炼/火山均不可用）')
+  const os = await import('os')
+  const tmp = join(os.tmpdir(), 'dh-tts_' + Date.now() + '.mp3')
+  const { writeFileSync, unlinkSync } = await import('fs')
+  writeFileSync(tmp, Buffer.from(audio))
+  try {
+    const url = await uploadOSS(tmp, 'mp3')
+    return url
+  } finally { try { unlinkSync(tmp) } catch {} }
 }
 
 export async function POST(request: NextRequest) {
