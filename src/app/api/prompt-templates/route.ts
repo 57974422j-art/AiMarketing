@@ -77,7 +77,8 @@ export async function GET(request: NextRequest) {
     if (type === 'image') { conditions.push("(category = '文生图' OR category NOT IN ('文生视频'))") }
     if (type === 'video') { conditions.push("category = '文生视频'") }
     if (model) { conditions.push('model = ?'); params.push(model) }
-    if (source) { conditions.push('source = ?'); params.push(source) }
+    if (source === 'self') { conditions.push("(source IS NULL OR source = '')") }
+    else if (source) { conditions.push('source = ?'); params.push(source) }
 
     if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ')
 

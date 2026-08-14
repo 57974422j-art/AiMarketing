@@ -22,6 +22,11 @@ export default function PromptSourcesPage() {
   const [list, setList] = useState<PromptSource[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  // 2026-08-14: cheerselfai 学习库内置卡
+  const [cheerStatus, setCheerStatus] = useState<{ total: number; withCover: number; byModel: any[] } | null>(null)
+  const [cheerSyncing, setCheerSyncing] = useState(false)
+  const loadCheerStatus = async () => { try { const r = await fetch('/api/admin/prompt-sources/cheerself-sync', { credentials: 'include' }).then(r => r.json()); if (r.success) setCheerStatus(r.data) } catch {} }
+  const syncCheer = async () => { setCheerSyncing(true); try { await fetch('/api/admin/prompt-sources/cheerself-sync', { method: 'POST', credentials: 'include' }); setTimeout(loadCheerStatus, 8000) } catch {} finally { setTimeout(() => setCheerSyncing(false), 3000) } }
   const [refreshingId, setRefreshingId] = useState<number | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
@@ -87,6 +92,7 @@ export default function PromptSourcesPage() {
     setEditId(s.id); setForm({ name: s.name, url: s.url, homepage: s.homepage || '', intervalMin: s.intervalMin }); setShowAdd(true)
   }
 
+  useEffect(() => { loadCheerStatus() }, [])
   return (
     <div className="min-h-screen bg-[#0a0e17] text-white">
       <header className="border-b border-white/10 bg-[#0a0e17]/80 backdrop-blur sticky top-0 z-10">
@@ -111,6 +117,28 @@ export default function PromptSourcesPage() {
       <main className="max-w-5xl mx-auto px-4 py-6">
         <div className="text-[11px] text-gray-500 mb-4">
           💡 每个源可独立设置「自动拉取间隔」（0 = 手动）。服务端每 5 分钟检查一次，到点自动拉取（需服务端进程常驻）。同步进同一个 PromptTemplate 库，用 sourceKey 去重。
+        </div>
+
+        {/* 2026-08-14: cheerselfai 学习库内置源卡（HTML 抓取，非 JSON 源） */}
+        <div className="rounded-xl border border-purple-500/20 bg-purple-500/[0.04] p-4 mb-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold">📚 cheerselfai 学习库</span>
+                <span className="px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 text-[9px] border border-purple-500/25">内置</span>
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1">Seedance 2.5 / MiniMax H3 / GPT Image 2 / Seedream / FLUX 提示词（HTML 抓取，封面自动转 OSS）</p>
+              {cheerStatus && (
+                <p className="text-[10px] text-gray-500 mt-1">已入库 <span className="text-purple-300">{cheerStatus.total}</span> 条 · 封面 <span className="text-emerald-300">{cheerStatus.withCover}</span> 条
+                  {cheerStatus.byModel?.length > 0 && ' · ' + cheerStatus.byModel.map(m => `${m.model || '未知'}:${m.count}`).join(' / ')}
+                </p>
+              )}
+            </div>
+            <button onClick={syncCheer}
+              className="px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs hover:bg-purple-500/30 disabled:opacity-50">
+              {cheerSyncing ? '同步中…' : '🔁 同步学习库'}
+            </button>
+          </div>
         </div>
 
         {loading ? <div className="text-gray-500 text-center py-16">加载中…</div> : (

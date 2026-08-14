@@ -143,6 +143,7 @@ export default function AdminPromptTemplatesPage() {
       else if (modeTab === 'image') params.set('type', 'image')
       else if (modeTab === 'video') params.set('type', 'video')
       else if (modeTab === 'learn') params.set('source', 'cheerselfai')
+      else params.set('source', 'self')  // 2026-08-14: manage 只显示自建（学习库/源抓取另页）
       if (industryFilter) params.set('industry', industryFilter)
       if (modelFilter) params.set('model', modelFilter)
       const url = '/api/prompt-templates?' + params.toString()
