@@ -220,6 +220,7 @@ export default function SettingsPage() {
         deepseek: d.deepseekConfigured ? 'ok' : null,
         siliconflow: d.siliconflowConfigured ? 'ok' : null,
         dashscope: d.dashscopeConfigured ? 'ok' : null,
+        minimax: d.minimaxConfigured ? 'ok' : null,  // 2026-08-14
         volcano: d.volcanoConfigured ? 'ok' : null,
         tts: (d.ttsAppIdConfigured && d.ttsAccessKeyConfigured && d.ttsResourceIdConfigured) ? 'ok' : null,
         oss: d.ossConfigured ? 'ok' : null,
