@@ -2046,6 +2046,14 @@ const MODEL_MAP: Record<string, string> = {
   doubao: 'doubao-seedance-2-0-260128',
 }
 export async function generateVideo(prompt: string, _duration = 5, _resolution = '720P', _ratio = '16:9', _model?: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+  // 2026-08-14: MiniMax H3（前端可选模型——768P 50点/秒 / 2K 80点/秒）
+  if (_model === 'h3-768p' || _model === 'h3-2k') {
+    const { generateH3Video } = await import('./minimax-h3')
+    const res = await generateH3Video(prompt, _duration, _model === 'h3-2k' ? '2K' : '768P', _ratio || '16:9')
+    if (res?.ok && res.videoUrl) return { taskId: res.taskId || '', status: 'succeeded', videoUrl: res.videoUrl }
+    console.log(`[文生视频] H3 失败: ${res?.error}`)
+    return null
+  }
   // 指定 Agnes（主用模型，失败不降级）
   if (_model === 'agnes') {
     const result = await agnesGenerateVideo(prompt, _duration, _resolution, _ratio)

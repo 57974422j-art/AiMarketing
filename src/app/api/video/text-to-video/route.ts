@@ -38,8 +38,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '缺少必要参数: prompt' }, { status: 400 })
     }
 
-    // TOKEN 余额检查（100 TOKEN/秒，最烧钱的动作，余额不足直接拒绝）
-    const videoTokenCost = videoDuration * TOKEN_COSTS.VIDEO_PER_SECOND
+    // TOKEN 余额检查（100 TOKEN/秒；H3 768P=50/秒 2K=80/秒，余额不足直接拒绝）
+    const costPerSec = model === 'h3-768p' ? 50 : model === 'h3-2k' ? 80 : TOKEN_COSTS.VIDEO_PER_SECOND
+    const videoTokenCost = videoDuration * costPerSec
     const tokenCheck = await checkTokens(auth.userId, videoTokenCost)
     if (!tokenCheck.allowed) {
       return NextResponse.json({ success: false, message: tokenCheck.message, wallet: tokenCheck.wallet }, { status: 403 })

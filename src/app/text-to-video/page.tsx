@@ -25,6 +25,8 @@ const MODELS = [
   { value: '', label: '自动(Auto)', desc: 'Doubao→wan2.7→happyhorse' },
   { value: 'doubao', label: 'Doubao-Seedance', desc: '火山引擎' },
   { value: 'wan2.7', label: '百炼 wan2.7', desc: '阿里云' },
+  { value: 'h3-768p', label: 'MiniMax H3 768P', desc: '50点/秒 · 更便宜' },
+  { value: 'h3-2k', label: 'MiniMax H3 2K', desc: '80点/秒 · 高清' },
   { value: 'happyhorse', label: '快乐小马', desc: '自动配音' },
 ]
 
