@@ -875,10 +875,12 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
 
 // ==================== 百炼千寻数字人 ====================
 
-const DH_MODEL = 'liveportrait'
+// 2026-08-14: 数字人默认 wan2.2-s2v（万相-数字人，实测有权限；liveportrait 提示即将下线）
+// wan2.2-s2v 限制：音频<15MB且<20s、输出<=20s、仅北京region（当前 key 已测可用）
+const DH_MODEL = 'wan2.2-s2v'
 const DH_BASE = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/image2video'
 
-/** 提交形象克隆任务 */
+/** 提交形象克隆任务（wan2.2-s2v 照片+音频对口型；失败自动降级 liveportrait） */
 async function dashscopeCreateDigitalHuman(
   audioFileUrl: string,
   videoFileUrl: string,
@@ -887,33 +889,67 @@ async function dashscopeCreateDigitalHuman(
   const key = getDashScopeKey();
   if (!key) return null;
   try {
-    const body = JSON.stringify({
+    // wan2.2-s2v 需要 detect 预处理拿 face_bbox/ext_bbox（失败则降级 liveportrait 无 bbox）
+    let bbox: { face_bbox?: number[]; ext_bbox?: number[] } = {}
+    try {
+      const detRes = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
+        body: JSON.stringify({
+          model: 'wan2.2-s2v-detect',
+          input: { image_url: videoFileUrl },
+          parameters: { resolution: 480 },
+        }),
+      })
+      if (detRes?.output?.results?.[0]) {
+        const rr = detRes.output.results[0]
+        bbox.face_bbox = rr.face_bbox || rr.face_bboxes?.[0]
+        bbox.ext_bbox = rr.ext_bbox || rr.ext_bboxes?.[0]
+      }
+    } catch (e) { console.log('[数字人] detect 失败, 降级 liveportrait:', e?.message || e) }
+    const body: any = {
       model: DH_MODEL,
       input: {
         image_url: videoFileUrl,
         audio_url: audioFileUrl || videoFileUrl,
       },
       parameters: {
-        template_id: 'normal',
-        video_fps: 24,
-        paste_back: true,
+        resolution: '480P',
+        duration: 5,
       },
-    });
-    console.log('[千寻] 提交形象克隆, model:', DH_MODEL, 'image_url:', videoFileUrl.substring(0, 60));
+    }
+    if (bbox.face_bbox) body.input.face_bbox = bbox.face_bbox
+    if (bbox.ext_bbox) body.input.ext_bbox = bbox.ext_bbox
+    console.log('[数字人] 提交, model:', DH_MODEL, 'image_url:', videoFileUrl.substring(0, 60), 'bbox:', !!bbox.face_bbox);
     const data = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
-      body,
+      body: JSON.stringify(body),
     });
-    const taskId = data?.output?.task_id || data?.task_id;
+    let taskId = data?.output?.task_id || data?.task_id;
     if (!taskId) {
-      console.error('[千寻] 创建失败, 完整响应:', JSON.stringify(data).substring(0, 500));
+      console.error('[数字人] wan2.2-s2v 创建失败, 降级 liveportrait:', JSON.stringify(data).substring(0, 300));
+      // 降级 liveportrait
+      const fb = JSON.stringify({
+        model: 'liveportrait',
+        input: { image_url: videoFileUrl, audio_url: audioFileUrl || videoFileUrl },
+        parameters: { template_id: 'normal', video_fps: 24, paste_back: true },
+      })
+      const fbRes = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
+        body: fb,
+      })
+      taskId = fbRes?.output?.task_id || fbRes?.task_id
+    }
+    if (!taskId) {
+      console.error('[数字人] 全部模型创建失败');
       return null;
     }
-    console.log('[千寻] 提交成功, taskId:', taskId, 'image_url:', videoFileUrl.substring(0, 80));
+    console.log('[数字人] 提交成功, taskId:', taskId, 'image_url:', videoFileUrl.substring(0, 80));
     return { taskId };
   } catch (e) {
-    console.error('[千寻] 创建形象克隆失败:', e);
+    console.error('[数字人] 创建形象克隆失败:', e);
     return null;
   }
 }
