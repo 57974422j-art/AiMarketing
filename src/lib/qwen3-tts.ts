@@ -1,7 +1,6 @@
 import fs from 'fs'
 import path from 'path'
 import { execSync } from 'child_process'
-import { volcanoTTS } from './ai-providers'
 
 const QWEN_VOICE_MAP: Record<string, string> = {
   'zh_female_vv_uranus_bigtts': 'Cherry',
@@ -21,9 +20,9 @@ const QWEN_VOICE_MAP: Record<string, string> = {
 export async function ttsQwen3(text: string, voice: string, workDir: string, idx: number): Promise<{ ok: boolean; path: string; duration: number }> {
   const KEY = process.env.DASHSCOPE_API_KEY
   if (!KEY) {
-    console.warn('[Qwen3TTS] 未配置 DASHSCOPE_API_KEY，直接使用火山TTS兜底')
-    const result = await ttsVolcanoFallback(text, voice, workDir, idx)
-    return { ...result, ok: true }
+    // 2026-08-14：统一百炼，弃用火山兜底
+    console.warn('[Qwen3TTS] 未配置 DASHSCOPE_API_KEY，一键成片 TTS 无法合成（后台 AI 密钥 → 百炼 DASHSCOPE）')
+    return { ok: false, path: '', duration: 0 }
   }
 
   const qwenVoice = QWEN_VOICE_MAP[voice] || 'Cherry'
@@ -70,15 +69,6 @@ export async function ttsQwen3(text: string, voice: string, workDir: string, idx
   }
 }
 
-/** 火山方舟 TTS 兜底方案（国内可达，替代被墙的 edge-tts） */
-async function ttsVolcanoFallback(text: string, voice: string, workDir: string, idx: number): Promise<{ path: string; duration: number }> {
-  const outPath = path.join(workDir, `tts${idx}.mp3`)
-  const buf = await volcanoTTS(text, voice)
-  if (!buf || buf.byteLength < 500) throw new Error('火山TTS返回空音频')
-  fs.writeFileSync(outPath, Buffer.from(buf))
-  const dur = await getMP3Duration(outPath)
-  return { path: outPath, duration: dur }
-}
 
 /** 获取 mp3 音频时长 */
 function getMP3Duration(file: string): Promise<number> {

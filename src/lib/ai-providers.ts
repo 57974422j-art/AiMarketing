@@ -1663,7 +1663,7 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
     return null;
   }
 
-  // 中文/英文：百炼(CosyVoice) 优先 → 硅基 → 火山兜底（2026-08-05：用户弃用火山，百炼主用）
+  // 2026-08-14：统一平台——百炼(CosyVoice) 优先 → 硅基兜底（弃用火山 TTS，用户已删火山配置）
   if (language === 'zh' || language === 'en') {
     // 百炼 CosyVoice（DASHSCOPE_API_KEY）
     const dashResult = await dashscopeTTS(cleaned);
@@ -1671,17 +1671,9 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
       console.log(`[TTS] 百炼成功: ${dashResult.byteLength} bytes`);
       return dashResult;
     }
-    console.log(`[TTS] 百炼失败, 尝试火山...`);
-
-    // 火山（保留兜底，避免百炼 CosyVoice 未开通时无声音）
-    const volcanoResult = await volcanoTTS(cleaned, speaker);
-    if (volcanoResult && volcanoResult.byteLength > 100) {
-      console.log(`[TTS] 火山成功: ${volcanoResult.byteLength} bytes`);
-      return volcanoResult;
-    }
-    console.log(`[TTS] 火山失败, 尝试硅基...`);
+    console.log(`[TTS] 百炼失败, 尝试硅基...`);
   } else {
-    console.log(`[TTS] 非中/英文(${language}), 跳过火山, 直接走百炼→硅基`);
+    console.log(`[TTS] 非中/英文(${language}), 直接走百炼→硅基`);
     const dashResult = await dashscopeTTS(cleaned);
     if (dashResult && dashResult.byteLength > 100) {
       console.log(`[TTS] 百炼成功: ${dashResult.byteLength} bytes`);
