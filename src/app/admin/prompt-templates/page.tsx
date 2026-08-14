@@ -63,6 +63,7 @@ export default function AdminPromptTemplatesPage() {
   const [industryFilter, setIndustryFilter] = useState('')
   const [tagFilter, setTagFilter] = useState('')
   const [modeTab, setModeTab] = useState<ModeTab>('image')
+  const [modelFilter, setModelFilter] = useState('')  // 2026-08-14 按模型筛选（Seedance/H3/GPT-Image 等）
 
   // 主 Tab（2026-08-08：逻辑分组，避免按钮混乱）
   const [mainTab, setMainTab] = useState<MainTab>('manage')
@@ -142,6 +143,7 @@ export default function AdminPromptTemplatesPage() {
       else if (modeTab === 'image') params.set('type', 'image')
       else if (modeTab === 'video') params.set('type', 'video')
       if (industryFilter) params.set('industry', industryFilter)
+      if (modelFilter) params.set('model', modelFilter)
       const url = '/api/prompt-templates?' + params.toString()
       const r = await fetch(url, { credentials: 'include' })
       if (r.ok) {
@@ -152,7 +154,7 @@ export default function AdminPromptTemplatesPage() {
     finally { setLoading(false) }
   }
 
-  useEffect(() => { if (!authLoading && user && user.role === 'admin') loadItems() }, [filterCat, modeTab])
+  useEffect(() => { if (!authLoading && user && user.role === 'admin') loadItems() }, [filterCat, modeTab, modelFilter])
 
   const filteredItems = tagFilter ? items.filter(i => (i.tags || '').includes(tagFilter)) : items
   const allTags = Array.from(new Set((items || []).flatMap(i => (i.tags || '').split(',').map(t => t.trim()).filter(Boolean))))
@@ -423,6 +425,15 @@ export default function AdminPromptTemplatesPage() {
                 className={`px-3 py-1.5 rounded-lg text-xs border ${modeTab === 'scene' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10'}`}>场景</button>
               <button onClick={() => { setModeTab('digital'); setFilterCat(''); setSelectedIds(new Set()) }}
                 className={`px-3 py-1.5 rounded-lg text-xs border ${modeTab === 'digital' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10'}`}>数字人</button>
+              <select value={modelFilter} onChange={(e) => { setModelFilter(e.target.value); setSelectedIds(new Set()) }}
+                className="px-2 py-1.5 rounded-lg text-xs border bg-black/30 border-white/10 text-gray-300 outline-none focus:border-emerald-500/40">
+                <option value="">全部模型</option>
+                <option value="Seedance 2.5">Seedance 2.5</option>
+                <option value="MiniMax H3">MiniMax H3</option>
+                <option value="GPT Image 2">GPT Image 2</option>
+                <option value="Seedream 5 Pro">Seedream 5 Pro</option>
+                <option value="FLUX 3">FLUX 3</option>
+              </select>
               <div className="flex-1" />
               <button onClick={openCreate} className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs hover:bg-emerald-600">＋ 新建模板</button>
             </div>
