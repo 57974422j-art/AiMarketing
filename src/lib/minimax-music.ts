@@ -1,7 +1,8 @@
 // 2026-08-14: Minimax AI 音乐生成（新平台 api.minimax.io，同步返回音频 URL）
 // 官方文档: https://platform.minimax.io/docs/api-reference/music-generation
 // 注意: 模型 music-3.0-free 免费 / music-3.0 付费(Token Plan)；2061 = 当前套餐不支持该模型（需充值）
-const MINIMAX_MUSIC_URL = 'https://api.minimax.io/v1/music_generation'
+// 2026-08-14: 默认国内站 api.minimaxi.com（用户是国内 key）；国际站可配 MINIMAX_MUSIC_URL=https://api.minimax.io/v1/music_generation
+const MINIMAX_MUSIC_URL = process.env.MINIMAX_MUSIC_URL || 'https://api.minimaxi.com/v1/music_generation'
 const MINIMAX_MUSIC_MODEL = process.env.MINIMAX_MUSIC_MODEL || 'music-3.0-free'
 
 export interface MusicGenResult {
