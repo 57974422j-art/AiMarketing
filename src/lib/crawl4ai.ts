@@ -36,9 +36,21 @@ export async function crawlWeb(url: string): Promise<{ ok: boolean; markdown?: s
     if (!r.ok) return { ok: false, error: `crawl4ai HTTP ${r.status}` }
     const d = await r.json()
     const first = Array.isArray(d?.results) ? d.results[0] : null
-    // 2026-08-14: fit_markdown（crawl4ai 正文提取）优先；无正文/过短视为无内容（门户导航文字不算正文）
-    const raw = first?.fit_markdown || first?.markdown || first?.cleaned_html || ''
-    const cleaned = cleanMarkdown(String(raw))
+    // 2026-08-14: crawl4ai 0.9.2 的 markdown 是对象（{raw, structured,...}）——取 raw 或 converted；兜底 cleaned_html 去标签转文本
+    let raw = ''
+    const mdField = first?.markdown
+    if (typeof mdField === 'string') raw = mdField
+    else if (mdField && typeof mdField === 'object') raw = mdField.raw || mdField.converted || ''
+    if (!raw) {
+      const ch = String(first?.cleaned_html || first?.fit_html || '')
+      // 去 HTML 标签取文本
+      raw = ch
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;/g, ' ')
+    }
+    const cleaned = cleanMarkdown(raw)
     if (cleaned.length < 300) return { ok: true, markdown: '', title: first?.metadata?.title || '' }
     return { ok: true, markdown: cleaned.substring(0, 50000), title: first?.metadata?.title || '' }
   } catch (e: any) {
