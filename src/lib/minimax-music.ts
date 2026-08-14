@@ -35,7 +35,11 @@ export async function generateMusic(prompt: string): Promise<MusicGenResult> {
       const msg = d?.base_resp?.status_msg || `Minimax 错误 ${code}`
       // 2061: 套餐不支持该模型
       if (String(code) === '2061' || /not support model|token plan/i.test(msg)) {
-        return { ok: false, needsPayment: true, error: '当前 Minimax 套餐不支持音乐生成（music-3.0），请在 platform.minimax.io 充值或开通后重试' }
+        return { ok: false, needsPayment: true, error: '当前 Minimax 套餐不支持音乐生成（music-3.0），请在 Minimax 控制台开通/充值后重试' }
+      }
+      // 1008: 余额不足
+      if (String(code) === '1008' || /insufficient balance/i.test(msg)) {
+        return { ok: false, needsPayment: true, error: 'Minimax 账户余额不足，请在控制台充值后重试（免费档也要求账户有余额）' }
       }
       return { ok: false, error: msg }
     }
