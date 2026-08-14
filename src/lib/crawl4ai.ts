@@ -36,8 +36,11 @@ export async function crawlWeb(url: string): Promise<{ ok: boolean; markdown?: s
     if (!r.ok) return { ok: false, error: `crawl4ai HTTP ${r.status}` }
     const d = await r.json()
     const first = Array.isArray(d?.results) ? d.results[0] : null
-    const md = first?.markdown || first?.cleaned_html || ''
-    return { ok: true, markdown: cleanMarkdown(String(md)).substring(0, 50000), title: first?.metadata?.title || '' }
+    // 2026-08-14: fit_markdown（crawl4ai 正文提取）优先；无正文/过短视为无内容（门户导航文字不算正文）
+    const raw = first?.fit_markdown || first?.markdown || first?.cleaned_html || ''
+    const cleaned = cleanMarkdown(String(raw))
+    if (cleaned.length < 300) return { ok: true, markdown: '', title: first?.metadata?.title || '' }
+    return { ok: true, markdown: cleaned.substring(0, 50000), title: first?.metadata?.title || '' }
   } catch (e: any) {
     return { ok: false, error: `crawl4ai 调用失败: ${e?.message || e}` }
   }
