@@ -139,6 +139,9 @@ export default function SettingsPage() {
   const [testingAgnes, setTestingAgnes] = useState(false)
   const [agnesTestMsg, setAgnesTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
+  // ====== 配置页 Tab 分组（2026-08-14：密钥/媒体/引擎/系统分页） ======
+  const [cfgTab, setCfgTab] = useState<'keys' | 'media' | 'engine' | 'system'>('keys')
+
   // ====== 客服设置 ======
   const [serviceQrcode, setServiceQrcode] = useState('')
   const [serviceSaving, setServiceSaving] = useState(false)
@@ -415,6 +418,15 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-gray-950">
       <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* 2026-08-14：分页 Tab */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {([['keys', '🔑 API 密钥'], ['media', '🎨 媒体资源'], ['engine', '⚙️ 引擎'], ['system', '🛠️ 系统设置']] as const).map(([k, t]) => (
+            <button key={k} onClick={() => setCfgTab(k)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-mono border transition-colors ${cfgTab === k ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300' : 'border-white/10 bg-white/5 text-gray-400 hover:text-white'}`}>
+              {t}
+            </button>
+          ))}
+        </div>
         {/* 标题栏 */}
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -460,6 +472,7 @@ export default function SettingsPage() {
         )}
 
         {/* API Key + OSS 面板 */}
+        <div className={cfgTab === 'keys' ? '' : 'hidden'}>
         <ApiKeyPanel
           deepseekKey={deepseekKey} volcanoKey={volcanoKey}
           siliconflowKey={siliconflowKey} dashscopeKey={dashscopeKey} minimaxKey={minimaxKey}
@@ -490,7 +503,8 @@ export default function SettingsPage() {
           }}
         />
 
-        {/* ====== 媒体资源 API（Pixabay 图片+音乐） ====== */}
+        </div>{/* keys 组结束 */}
+        <div className={cfgTab === 'media' ? '' : 'hidden'}>        {/* ====== 媒体资源 API（Pixabay 图片+音乐） ====== */}
         <div className="card-glass p-6 mt-6">
           <h3 className="text-white font-bold mb-2"><span className="text-yellow-400">//</span> Pixabay API（免版税图片 + 音乐）</h3>
           <p className="text-gray-400 text-xs mb-4">一个 Key 搞定智能成片的素材搜索和背景音乐，全部免版税可商用</p>
@@ -645,6 +659,8 @@ export default function SettingsPage() {
 
         {/* Agnes AI（全模态：文生图 / 文生视频，默认主用，其他厂商作降级兜底） */}
         <div className="card-glass p-6 mt-6">
+        </div>{/* media 组结束 */}
+        <div className={cfgTab === 'keys' ? '' : 'hidden'}>
           <h3 className="text-white font-bold mb-2"><span className="text-yellow-400">//</span> Agnes AI（全模态生图 / 生视频 · 主用）</h3>
           <p className="text-gray-400 text-xs mb-4">Sapiens AI 全模态免费 API。配置后「自动」模式生图/生视频将优先用 Agnes，失败再降级到百炼/硅基；也可在 Prompt 模板页单独指定 Agnes。</p>
           <div className="space-y-3">
@@ -764,6 +780,8 @@ export default function SettingsPage() {
         {/* 下载代理（Shadowsocks）— 夜间视频下载用 */}
         <div className="bg-gray-900/60 backdrop-blur-xl rounded-xl border border-white/5 p-4 mb-4">
           <div className="flex items-center gap-2 mb-1">
+        </div>{/* keys 组结束 */}
+        <div className={cfgTab === 'engine' ? '' : 'hidden'}>
             <h3 className="text-white font-bold mb-2"><span className="text-yellow-400">//</span> 下载代理（Shadowsocks）</h3>
           </div>
           <p className="text-gray-400 text-xs mb-4">用于夜间定时拉取 YouTube 行业视频（服务器直连被墙，需 SS 隧道转 SOCKS5）。填写后重启 ss-local：<code className="text-emerald-400">ss-local -c /etc/shadowsocks-libev/config.json -f /tmp/ss-local.pid</code></p>
@@ -799,6 +817,8 @@ export default function SettingsPage() {
         {/* AGENT 微信/飞书渠道（阶段四·融合 BaiLongma IM 连接） */}
         <div className="bg-gray-900/60 backdrop-blur-xl rounded-xl border border-white/5 p-4 mb-4">
           <div className="flex items-center gap-2 mb-1">
+        </div>{/* engine 组结束 */}
+        <div className={cfgTab === 'system' ? '' : 'hidden'}>
             <h3 className="text-white font-bold mb-2"><span className="text-purple-400">//</span> AGENT 微信 / 飞书渠道</h3>
           </div>
           <p className="text-gray-400 text-xs mb-4">把 AGENT 对话通过群机器人 webhook 推送到企业微信群 / 飞书群。填写后，在 AGENT 页可通过「转发到群」把内容同步过去。需在企业微信/飞书后台创建群机器人获取 webhook 地址。</p>
@@ -833,6 +853,8 @@ export default function SettingsPage() {
           )}
         </div>
 
+        </div>{/* system 组结束 */}
+        <div className={cfgTab === 'engine' ? '' : 'hidden'}>
         {/* 引擎 + 登录 + 代理池面板 */}
         <EnginePanel
           queryEngine={queryEngine} actionEngine={actionEngine}
@@ -862,6 +884,8 @@ export default function SettingsPage() {
           </button>
         </div>
 
+        </div>{/* engine 组结束 */}
+        <div className={cfgTab === 'system' ? '' : 'hidden'}>
         {/* ====== 客服设置 ====== */}
         <div className="mt-10 border border-gray-800/50 rounded-xl p-6">
           <div className="flex items-center gap-3 mb-4">
@@ -913,6 +937,7 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
+        </div>{/* system 组结束 */}
       </div>
     </div>
   )
