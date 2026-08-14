@@ -2,23 +2,21 @@
 const CRAWL4AI_URL = process.env.CRAWL4AI_URL || 'http://127.0.0.1:11235'
 const CRAWL4AI_TOKEN = process.env.CRAWL4AI_API_TOKEN || ''
 
-// 2026-08-13: 清理抓取文本——只留正文文字，去链接/图片/表格线/分隔线/符号噪音
+// 2026-08-13: 清理抓取文本——只留正文文字，去链接/图片/表格线/分隔线/URL/符号噪音
 export function cleanMarkdown(md: string): string {
   if (!md) return ''
-  return md
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')            // 图片
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')            // 链接只留文字
-    .replace(/^[\s]*\|[\s\-:]*\|.*$/gm, '')             // 表格分隔线
-    .replace(/\|/g, ' ')                                     // 表格竖线
-    .replace(/[-*_=]{3,}/g, ' ')                              // 分隔线
-    .replace(/#{1,6}\s*/g, '')                               // 标题符号
-    .replace(/[`>~*_]/g, '')                                  // 其它 markdown 符号
-    .replace(/https?:\/\/[^\s)]+/g, ' ')                   // URL
-    .replace(/\s{2,}/g, ' ')                                 // 多余空白
-    .replace(/
-{2,}/g, '
-')
+  const out = md
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')          // 图片
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')          // 链接只留文字
+    .replace(/^[\s]*\|[\s\-:]*\|.*$/gm, '')           // 表格分隔线
+    .replace(/\|/g, ' ')                              // 表格竖线
+    .replace(/[-*_=]{3,}/g, ' ')                      // 分隔线
+    .replace(/#{1,6}\s*/g, '')                        // 标题符号
+    .replace(/[`>~*_]/g, '')                          // 其它 markdown 符号
+    .replace(/https?:\/\/[^\s)]+/g, ' ')              // URL
+    .replace(/\s{2,}/g, ' ')                          // 多余空白
     .trim()
+  return out
 }
 
 export async function crawlWeb(url: string): Promise<{ ok: boolean; markdown?: string; title?: string; error?: string }> {
