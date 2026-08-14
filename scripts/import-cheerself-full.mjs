@@ -48,7 +48,13 @@ async function coverToOss(url, slug, idx) {
   } catch { return null }
 }
 
-const data = JSON.parse(fs.readFileSync('scripts/cheerself-full.json', 'utf8'))
+let raw
+if (fs.existsSync('scripts/cheerself-full.json.gz')) {
+  raw = require('zlib').gunzipSync(fs.readFileSync('scripts/cheerself-full.json.gz')).toString('utf8')
+} else {
+  raw = fs.readFileSync('scripts/cheerself-full.json', 'utf8')
+}
+const data = JSON.parse(raw)
 let total = 0
 for (const slug of Object.keys(data)) {
   if (only && slug !== only) continue
