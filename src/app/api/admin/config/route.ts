@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 更新或添加 DeepSeek API Key
-    if (deepseekKey !== undefined) {
+    if (deepseekKey !== undefined && deepseekKey !== '********') {
       const deepseekPattern = /^DEEPSEEK_API_KEY=.*$/m;
       if (deepseekPattern.test(envContent)) {
         envContent = envContent.replace(deepseekPattern, `DEEPSEEK_API_KEY=${deepseekKey}`);
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 更新或添加 火山方舟 API Key
-    if (volcanoKey !== undefined) {
+    if (volcanoKey !== undefined && volcanoKey !== '********') {
       const volcanoPattern = /^VOLCANO_API_KEY=.*$/m;
       if (volcanoPattern.test(envContent)) {
         envContent = envContent.replace(volcanoPattern, `VOLCANO_API_KEY=${volcanoKey}`);
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 更新或添加 SiliconFlow API Key
-    if (siliconflowKey !== undefined) {
+    if (siliconflowKey !== undefined && siliconflowKey !== '********') {
       const siliconflowPattern = /^SILICONFLOW_API_KEY=.*$/m;
       if (siliconflowPattern.test(envContent)) {
         envContent = envContent.replace(siliconflowPattern, `SILICONFLOW_API_KEY=${siliconflowKey}`);
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 更新或添加阿里云百炼 API Key
-    if (dashscopeKey !== undefined) {
+    if (dashscopeKey !== undefined && dashscopeKey !== '********') {
       const pattern = /^DASHSCOPE_API_KEY=.*$/m;
       if (pattern.test(envContent)) {
         envContent = envContent.replace(pattern, `DASHSCOPE_API_KEY=${dashscopeKey}`);
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 更新或添加 OSS AccessKey ID
-    if (ossAccessKeyId !== undefined) {
+    if (ossAccessKeyId !== undefined && ossAccessKeyId !== '********') {
       const akPattern = /^OSS_ACCESS_KEY_ID=.*$/m;
       if (akPattern.test(envContent)) {
         envContent = envContent.replace(akPattern, `OSS_ACCESS_KEY_ID=${ossAccessKeyId}`);
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 更新或添加 OSS AccessKey Secret
-    if (ossAccessKeySecret !== undefined) {
+    if (ossAccessKeySecret !== undefined && ossAccessKeySecret !== '********') {
       const skPattern = /^OSS_ACCESS_KEY_SECRET=.*$/m;
       if (skPattern.test(envContent)) {
         envContent = envContent.replace(skPattern, `OSS_ACCESS_KEY_SECRET=${ossAccessKeySecret}`);
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 更新或添加 TTS Access Key
-    if (ttsAccessKey !== undefined) {
+    if (ttsAccessKey !== undefined && ttsAccessKey !== '********') {
       const pattern = /^VOLCANO_TTS_ACCESS_KEY=.*$/m;
       if (pattern.test(envContent)) {
         envContent = envContent.replace(pattern, `VOLCANO_TTS_ACCESS_KEY=${ttsAccessKey}`);
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 火山 ASR（语音识别）配置
-    if (volcAsrApiKey !== undefined) {
+    if (volcAsrApiKey !== undefined && volcAsrApiKey !== '********') {
       const pattern = /^VOLC_ASR_API_KEY=.*$/m;
       if (pattern.test(envContent)) envContent = envContent.replace(pattern, `VOLC_ASR_API_KEY=${volcAsrApiKey}`);
       else envContent += `
@@ -160,7 +160,7 @@ VOLC_ASR_API_KEY=${volcAsrApiKey}`;
       else envContent += `
 VOLC_ASR_APP_KEY=${volcAsrAppKey}`;
     }
-    if (volcAsrAccessKey !== undefined) {
+    if (volcAsrAccessKey !== undefined && volcAsrAccessKey !== '********') {
       const pattern = /^VOLC_ASR_ACCESS_KEY=.*$/m;
       if (pattern.test(envContent)) envContent = envContent.replace(pattern, `VOLC_ASR_ACCESS_KEY=${volcAsrAccessKey}`);
       else envContent += `
@@ -186,7 +186,7 @@ VOLC_ASR_RESOURCE_ID=${volcAsrResourceId}`;
     }
 
     // Pixabay API Key
-    if (pixabayKey !== undefined) {
+    if (pixabayKey !== undefined && pixabayKey !== '********') {
       const p = /^PIXABAY_API_KEY=.*$/m;
       if (p.test(envContent)) envContent = envContent.replace(p, `PIXABAY_API_KEY=${pixabayKey}`);
       else envContent += `\nPIXABAY_API_KEY=${pixabayKey}`;
@@ -198,7 +198,7 @@ VOLC_ASR_RESOURCE_ID=${volcAsrResourceId}`;
       if (p.test(envContent)) envContent = envContent.replace(p, `MUSIC_API_TYPE=${musicApiType}`);
       else envContent += `\nMUSIC_API_TYPE=${musicApiType}`;
     }
-    if (musicApiKey !== undefined) {
+    if (musicApiKey !== undefined && musicApiKey !== '********') {
       const p = /^MUSIC_API_KEY=.*$/m;
       if (p.test(envContent)) envContent = envContent.replace(p, `MUSIC_API_KEY=${musicApiKey}`);
       else envContent += `\nMUSIC_API_KEY=${musicApiKey}`;
@@ -210,7 +210,7 @@ VOLC_ASR_RESOURCE_ID=${volcAsrResourceId}`;
     }
 
     // GIPHY API Key（在线贴纸库）
-    if (giphyKey !== undefined) {
+    if (giphyKey !== undefined && giphyKey !== '********') {
       const p = /^GIPHY_API_KEY=.*$/m;
       if (p.test(envContent)) envContent = envContent.replace(p, `GIPHY_API_KEY=${giphyKey}`);
       else envContent += `\nGIPHY_API_KEY=${giphyKey}`;
@@ -224,7 +224,7 @@ VOLC_ASR_RESOURCE_ID=${volcAsrResourceId}`;
     }
 
     // Gemini API（直连key或中转代理）
-    if (geminiKey !== undefined) {
+    if (geminiKey !== undefined && geminiKey !== '********') {
       const p = /^GEMINI_API_KEY=.*$/m;
       if (p.test(envContent)) envContent = envContent.replace(p, `GEMINI_API_KEY=${geminiKey}`);
       else envContent += `\nGEMINI_API_KEY=${geminiKey}`;
@@ -235,7 +235,7 @@ VOLC_ASR_RESOURCE_ID=${volcAsrResourceId}`;
       else envContent += `\nGEMINI_BASE_URL=${geminiBaseUrl}`;
     }
     // Agnes AI
-    if (agnesKey !== undefined) {
+    if (agnesKey !== undefined && agnesKey !== '********') {
       const p = /^AGNES_API_KEY=.*$/m;
       if (p.test(envContent)) envContent = envContent.replace(p, `AGNES_API_KEY=${agnesKey}`);
       else envContent += `\nAGNES_API_KEY=${agnesKey}`;
@@ -260,7 +260,7 @@ VOLC_ASR_RESOURCE_ID=${volcAsrResourceId}`;
     }
 
     // vvhan API Key（热点榜）
-    if (vvhanApiKey !== undefined) {
+    if (vvhanApiKey !== undefined && vvhanApiKey !== '********') {
       const p = new RegExp('^VVHAN_API_KEY=.*$', 'm');
       if (p.test(envContent)) envContent = envContent.replace(p, `VVHAN_API_KEY=${vvhanApiKey}`);
       else envContent += `
@@ -276,7 +276,7 @@ VVHAN_API_BASE=${vvhanApiBase}`;
     }
 
     // Serper API Key（Google 搜索，2026-08-11：修复此前后端未接收导致保存无效）
-    if (serperKey !== undefined) {
+    if (serperKey !== undefined && serperKey !== '********') {
       const p = new RegExp('^SERPER_API_KEY=.*$', 'm');
       if (p.test(envContent)) envContent = envContent.replace(p, `SERPER_API_KEY=${serperKey}`);
       else envContent += `
