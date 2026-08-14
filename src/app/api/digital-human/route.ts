@@ -146,23 +146,39 @@ export async function POST(request: NextRequest) {
       console.log('[数字人] 开始TTS, 文案长度:', text.length)
       const au = await synthesizeTTS(text)
       console.log('[数字人] TTS完成, audio:', au.substring(0, 60))
-      const { createDigitalHumanVideo } = await import('@/lib/ai-providers')
-      const r = await createDigitalHumanVideo(photo, au)
-      console.log('[数字人] 生成结果:', r ? (r.videoUrl ? 'videoUrl=' + r.videoUrl.substring(0, 60) : 'error=' + r.error) : 'NULL')
-      if (r?.videoUrl) {
-        await spendTokens(auth.userId, TOKEN_COSTS.DH_VIDEO, 'digital_human')
-        await createRecord({
+      // 2026-08-14: 异步——提交 wan2.2-s2v 任务返回 taskId，前端轮询（避免同步 504）
+      const { wanS2vSubmit } = await import('@/lib/ai-providers')
+      const taskId = await wanS2vSubmit(photo, au)
+      console.log('[数字人] 提交结果:', taskId ? 'taskId=' + taskId : 'NULL')
+      if (taskId) {
+        const recId = await createRecord({
           userId: auth.userId, type: 'digital_human', provider: 'dashscope', model: 'wan2.2-s2v',
-          prompt: text, sourceUrl: photo, costPoints: TOKEN_COSTS.DH_VIDEO, storageUrl: r.videoUrl,
+          prompt: text, sourceUrl: photo, costPoints: TOKEN_COSTS.DH_VIDEO,
         })
-        return NextResponse.json({ success: true, videoUrl: r.videoUrl, segments: r.segments || 1 })
+        await attachTaskId(recId, taskId)
+        return NextResponse.json({ success: true, taskId })
       }
-      return NextResponse.json({ success: false, message: r?.error || '数字人生成失败' }, { status: 500 })
+      return NextResponse.json({ success: false, message: '数字人任务提交失败（可能照片非清晰人像）' }, { status: 500 })
     }
 
     if (action === 'query') {
       const { taskId } = body
       if (!taskId) return NextResponse.json({ success: false, message: '缺少 taskId' }, { status: 400 })
+      // 2026-08-14: wan2.2-s2v 任务（taskId 是 wan 任务）优先 wanS2vQuery；旧千寻任务走 queryDigitalHumanTask
+      const { wanS2vQuery } = await import('@/lib/ai-providers')
+      const wr = await wanS2vQuery(taskId)
+      if (wr) {
+        if (wr.status === 'SUCCEEDED' && wr.videoUrl) {
+          const storageKey = await finalizeSuccessByTaskId(taskId, wr.videoUrl)
+          if (storageKey) console.log(`[数字人][查询] wan 成功已结算: ${storageKey}`)
+          return NextResponse.json({ success: true, status: 'SUCCEEDED', avatarUrl: wr.videoUrl })
+        }
+        if (wr.status === 'FAILED' || wr.status === 'CANCELED') {
+          await finalizeFailureByTaskId(taskId, `wan任务失败 status=${wr.status}`)
+          return NextResponse.json({ success: false, status: 'FAILED', message: '生成失败' })
+        }
+        return NextResponse.json({ success: true, status: wr.status, progress: null })
+      }
       const r = await queryDigitalHumanTask(taskId)
       // 成功后扣款结算（原子认领，轮询多次只扣一次）；失败不扣款
       // 千寻返回字段为 avatarUrl（最终视频/形象资源 URL）

@@ -877,7 +877,8 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
  * createDigitalHumanVideo(photoUrl, audioUrl)
  * <=20s 直接 wan2.2-s2v；>20s FFmpeg 切段 → 每段生成 → concat 拼接
  */
-async function wanS2vSegment(photoUrl: string, audioUrl: string): Promise<string | null> {
+// wan2.2-s2v 提交任务（detect 预处理 + 提交，返回 taskId）——异步（前端轮询）
+export async function wanS2vSubmit(photoUrl: string, audioUrl: string): Promise<string | null> {
   const key = getDashScopeKey()
   if (!key) return null
   try {
@@ -901,24 +902,36 @@ async function wanS2vSegment(photoUrl: string, audioUrl: string): Promise<string
     })
     const taskId = data?.output?.task_id || data?.task_id
     if (!taskId) { console.error('[数字人] wan2.2-s2v 创建失败:', JSON.stringify(data).substring(0, 200)); return null }
-    const dashBase = 'https://dashscope.aliyuncs.com'
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 5000))
-      try {
-        const q = await fetchJSON(`${dashBase}/api/v1/tasks/${taskId}`, { headers: { 'Authorization': `Bearer ${key}` } })
-        const st = q?.output?.task_status || q?.status
-        if (st === 'SUCCEEDED') {
-          const url = q?.output?.video_url || q?.output?.results?.[0]?.url || ''
-          if (url) return url
-        }
-        if (st === 'FAILED' || st === 'CANCELED') { console.error('[数字人] 任务失败:', JSON.stringify(q).substring(0, 200)); return null }
-      } catch {}
-    }
-    return null
-  } catch (e) { console.error('[数字人] wan2.2-s2v 异常:', e?.message || e); return null }
+    return taskId
+  } catch (e) { console.error('[数字人] wan2.2-s2v 提交异常:', e?.message || e); return null }
 }
 
-// 照片+音频数字人（自动分段拼接）；返回最终视频 URL
+// 查询 wan2.2-s2v 任务（异步轮询用）——返回 video_url 或状态
+export async function wanS2vQuery(taskId: string): Promise<{ status: string; videoUrl?: string } | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  try {
+    const q = await fetchJSON(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, { headers: { 'Authorization': `Bearer ${key}` } })
+    const st = q?.output?.task_status || q?.status || 'unknown'
+    const url = q?.output?.video_url || q?.output?.results?.[0]?.url || ''
+    return { status: st, videoUrl: url || undefined }
+  } catch (e) { console.error('[数字人] wan 查询异常:', e?.message || e); return null }
+}
+
+async function wanS2vSegment(photoUrl: string, audioUrl: string): Promise<string | null> {
+  const taskId = await wanS2vSubmit(photoUrl, audioUrl)
+  if (!taskId) return null
+  // 轮询任务（最长 5 分钟）
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 5000))
+    const q = await wanS2vQuery(taskId)
+    if (!q) continue
+    if (q.status === 'SUCCEEDED' && q.videoUrl) return q.videoUrl
+    if (q.status === 'FAILED' || q.status === 'CANCELED') { console.error('[数字人] 任务失败'); return null }
+  }
+  return null
+}
+
 export async function createDigitalHumanVideo(photoUrl: string, audioUrl: string): Promise<{ videoUrl?: string; segments?: number; error?: string } | null> {
   if (!photoUrl || !audioUrl) return { error: '缺少照片或音频' }
   let audioDur = 0
