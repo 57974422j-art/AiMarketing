@@ -63,9 +63,9 @@ export async function ttsQwen3(text: string, voice: string, workDir: string, idx
     console.warn(`[Qwen3TTS] 非音频响应 (${res.status}): ${errBody.slice(0, 200)}`)
     throw new Error(`HTTP ${res.status}`)
   } catch (e: any) {
-    console.warn(`[Qwen3TTS] 第${idx}句失败: ${e.message}，降级火山TTS`)
-    const result = await ttsVolcanoFallback(text, voice, workDir, idx)
-    return { ...result, ok: true }
+    // 2026-08-14：统一百炼，无火山降级（用户已删火山配置）——失败明确返回，由上层提示
+    console.warn(`[Qwen3TTS] 第${idx}句失败: ${e.message}`)
+    return { ok: false, path: '', duration: 0 }
   }
 }
 
