@@ -20,6 +20,7 @@ export default function DigitalHumanPage() {
   const [voiceEnrolling, setVoiceEnrolling] = useState(false)
   const [loading, setLoading] = useState(false)
   const [taskId, setTaskId] = useState('')
+  const [videoUrl, setVideoUrl] = useState('')
   const [pollStatus, setPollStatus] = useState('')
   const [resultUrl, setResultUrl] = useState('')
 
@@ -153,12 +154,30 @@ export default function DigitalHumanPage() {
           body: JSON.stringify({ action: 'avatar-speak', avatarId: selectedPreset, text }),
         })
         const d = await r.json()
-        if (d.success) { setTaskId(d.taskId); setPollStatus('排队中...'); showToast('已提交', 'success') }
-        else showToast(d.message, 'error')
+        if (d.success && d.videoUrl) { setVideoUrl(d.videoUrl); setTaskId(''); showToast('生成完成', 'success') }
+        else if (d.success && d.taskId) { setTaskId(d.taskId); setPollStatus('排队中...'); showToast('已提交', 'success') }
+        else showToast(d.message || '生成失败', 'error')
       } else {
         if (!customImage) { showToast('请上传人物照片', 'error'); setLoading(false); return }
-        // 克隆模式：TTS合成 → liveportrait
-        if (voiceMode === 'clone' && voiceId) {
+        // 2026-08-14: 自定义照片 → wan2.2-s2v（照片+文案直出）
+        if (voiceMode === 'upload' || voiceMode === 'record' || (voiceMode === 'clone' && !voiceId)) {
+          if (!text.trim()) { showToast('请输入口播文案', 'error'); setLoading(false); return }
+          // 上传照片到 OSS
+          const fd = new FormData()
+          fd.append('image', customImage)
+          const upRes = await fetch('/api/digital-human', { method: 'POST', body: fd, credentials: 'include' })
+          const upData = await upRes.json()
+          if (!upData.url) { showToast('照片上传失败', 'error'); setLoading(false); return }
+          const speakRes = await fetch('/api/digital-human', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'avatar-speak', photoUrl: upData.url, text }),
+          })
+          const sd = await speakRes.json()
+          if (sd.success && sd.videoUrl) { setVideoUrl(sd.videoUrl); setTaskId(''); showToast('生成完成', 'success') }
+          else showToast(sd.message || '生成失败', 'error')
+        } else if (voiceMode === 'clone' && voiceId) {
+        // 克隆模式：TTS合成 → wan2.2-s2v（保留）
           if (!text.trim()) { showToast('请输入口播文案', 'error'); setLoading(false); return }
           showToast('正在合成克隆语音...', 'info' as any)
           // 1. 用克隆声音合成音频
@@ -375,6 +394,7 @@ export default function DigitalHumanPage() {
         )}
 
         {/* 生成按钮 */}
+        <p className="text-[10px] text-gray-500 mt-1 mb-2">📷 形象需清晰正面人像 · 音频 ≤20 秒效果最佳，更长将自动分段生成拼接</p>
         <button onClick={generate} disabled={loading || !!taskId}
           className="w-full py-3 bg-blue-500 text-white rounded-xl text-sm font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition">
           {taskId ? pollStatus : loading ? '提交中...' : '🚀 生成口播视频'}
