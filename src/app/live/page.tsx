@@ -78,6 +78,7 @@ export default function LivePage() {
   const [genLoading, setGenLoading] = useState(false);
   const [genProgress, setGenProgress] = useState({ done: 0, total: 0 });
   const [avatarId, setAvatarId] = useState('');
+  const [photoUrl, setPhotoUrl] = useState('');  // 2026-08-14: 形象照片 URL（wan2.2-s2v）
   const [clips, setClips] = useState<any[]>([]);
 
   /* 商品列表 */
@@ -290,7 +291,7 @@ export default function LivePage() {
 
   /** AI 一键生成内容 */
   const handleAIGenerate = async () => {
-    if (!avatarId.trim()) { showToast('请先填写数字人形象 ID（从数字人板块获取）', 'error'); return; }
+    if (!avatarId.trim() && !photoUrl.trim()) { showToast('请先填写形象照片 URL（或数字人板块照片）', 'error'); return; }
 
     setGenLoading(true);
     setGenProgress({ done: 0, total: 1 });
@@ -319,6 +320,7 @@ export default function LivePage() {
         body: JSON.stringify({
           action: 'ai-generate',
           avatarId: avatarId.trim(),
+          photoUrl: photoUrl.trim(),
           brandTone: toneEl?.value || '亲切热情',
           products: products.length > 0 ? products : undefined,
         }),
@@ -680,8 +682,8 @@ export default function LivePage() {
                       <label className="text-xs text-gray-500 font-mono block mb-1">数字人形象 ID</label>
                       <input
                         className="input-dark w-full"
-                        placeholder="千寻训练后的 avatarId（数字人板块获取）"
-                        value={avatarId}
+                        placeholder="形象照片 URL（如 OSS 人像图，wan2.2-s2v 用）"
+                        value={photoUrl}
                         onChange={e => setAvatarId(e.target.value)}
                       />
                       <p className="text-xs text-gray-600 mt-1 font-mono">在数字人板块克隆形象后获取</p>
@@ -782,7 +784,7 @@ export default function LivePage() {
                     </div>
                     <button
                       onClick={handleAIGenerate}
-                      disabled={genLoading || !avatarId}
+                      disabled={genLoading || (!avatarId && !photoUrl)}
                       className="px-5 py-2.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-xl font-mono text-sm hover:bg-purple-500/30 transition-colors disabled:opacity-40 h-[42px]"
                     >
                       {genLoading ? (
@@ -824,7 +826,7 @@ export default function LivePage() {
                   <div className="space-y-2 text-sm text-gray-400">
                     <div className="flex items-start gap-2">
                       <span className="bg-emerald-500/20 text-emerald-400 px-1.5 rounded text-xs font-mono mt-0.5">1</span>
-                      <span>去 <strong className="text-white">数字人板块</strong> 克隆一个主播形象 → 获取 avatarId 填入上方</span>
+                      <span>去 <strong className="text-white">数字人板块</strong> 上传人像照片 → 填入照片 URL（wan2.2-s2v）</span>
                     </div>
                     <div className="flex items-start gap-2">
                       <span className="bg-emerald-500/20 text-emerald-400 px-1.5 rounded text-xs font-mono mt-0.5">2</span>

@@ -427,6 +427,7 @@ export async function generateLiveContent(
       text: item.text,
       type: item.type,
       avatarId: item.avatarId,
+      photoUrl: item.photoUrl,
       background: item.background,
       status: 'pending',
     })),
@@ -451,19 +452,28 @@ export async function generateLiveContent(
     item.status = 'generating'
 
     try {
-      // 调用千寻数字人生成口播视频
-      const result = await generateDigitalHumanVideo(item.avatarId, item.text, item.background)
-      if (!result?.taskId) {
-        throw new Error('提交数字人生成任务失败')
-      }
-      item.taskId = result.taskId
-
-      // 轮询等待完成
-      const videoInfo = await pollDHResult(result.taskId, 120) // 最长等 120 秒
-      if (videoInfo?.videoUrl) {
-        // 下载视频到本地
+      // 2026-08-14: wan2.2-s2v（照片+文案→TTS→口播视频）——item.photoUrl 为形象照片 URL
+      const { createDigitalHumanVideo } = await import('@/lib/ai-providers')
+      // 文案 → TTS → 照片+音频生成（同步轮询，后台任务可接受）
+      const { textToSpeech } = await import('@/lib/ai-providers')
+      const audioBuf = await textToSpeech(item.text)
+      if (!audioBuf) throw new Error('TTS 合成失败')
+      // 音频需要公网 URL——上传 OSS
+      const os = await import('os')
+      const { join: j2 } = await import('path')
+      const tmpAudio = j2(os.tmpdir(), 'live-tts-' + Date.now() + '.mp3')
+      const { writeFileSync, unlinkSync } = await import('fs')
+      writeFileSync(tmpAudio, Buffer.from(audioBuf))
+      let audioUrl = ''
+      try {
+        const { uploadOSS } = await import('@/lib/oss')
+        audioUrl = await uploadOSS(tmpAudio, 'mp3')
+      } finally { try { unlinkSync(tmpAudio) } catch {} }
+      if (!audioUrl) throw new Error('音频上传失败')
+      const dhRes = await createDigitalHumanVideo(item.photoUrl || item.avatarId, audioUrl)
+      if (dhRes?.videoUrl) {
         const localPath = join(outputDir, `${item.id}.mp4`)
-        await downloadFile(videoInfo.videoUrl, localPath)
+        await downloadFile(dhRes.videoUrl, localPath)
         item.outputPath = localPath
         item.status = 'completed'
       } else {
@@ -511,7 +521,8 @@ export async function generateLiveContent(
 export async function aiGenerateLiveContent(params: {
   products?: Array<{ name: string; price: string; features: string[] }>
   scriptTypes?: Array<'welcome' | 'product_intro' | 'qa' | 'hard_sell' | 'close'>
-  avatarId: string
+  avatarId?: string
+  photoUrl?: string   // 2026-08-14: 形象照片 URL（wan2.2-s2v）
   brandTone?: string  // 专业/亲切/幽默
   background?: string
   onProgress?: (done: number, total: number) => void
@@ -532,6 +543,7 @@ export async function aiGenerateLiveContent(params: {
     text: s.text,
     type: s.type,
     avatarId: params.avatarId,
+    photoUrl: params.photoUrl,
     background: params.background,
   }))
 
