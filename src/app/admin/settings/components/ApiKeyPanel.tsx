@@ -100,8 +100,8 @@ function EyeButton({ show, onToggle }: { show: boolean; onToggle: () => void }) 
 
 export default function ApiKeyPanel({
   deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, minimaxKey,
-  showDeepseekKey, showVolcanoKey, showSiliconflowKey, showDashscopeKey,
-  testingDeepseek, testingVolcano, testingSiliconflow, testingDashscope,
+  showDeepseekKey, showVolcanoKey, showSiliconflowKey, showDashscopeKey, showMinimaxKey,
+  testingDeepseek, testingVolcano, testingSiliconflow, testingDashscope, testingMinimax,
   testResult, statusMap,
   ttsAppId, ttsAccessKey, ttsResourceId,
   volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId,
