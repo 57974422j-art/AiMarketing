@@ -12,10 +12,13 @@ interface ApiKeyPanelProps {
   volcanoKey: string
   siliconflowKey: string
   dashscopeKey: string
+  minimaxKey: string  // 2026-08-14 Minimax AI 音乐
   showDeepseekKey: boolean
   showVolcanoKey: boolean
   showSiliconflowKey: boolean
   showDashscopeKey: boolean
+  showMinimaxKey: boolean
+  testingMinimax: boolean
   testingDeepseek: boolean
   testingVolcano: boolean
   testingSiliconflow: boolean
@@ -96,7 +99,7 @@ function EyeButton({ show, onToggle }: { show: boolean; onToggle: () => void }) 
 }
 
 export default function ApiKeyPanel({
-  deepseekKey, volcanoKey, siliconflowKey, dashscopeKey,
+  deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, minimaxKey,
   showDeepseekKey, showVolcanoKey, showSiliconflowKey, showDashscopeKey,
   testingDeepseek, testingVolcano, testingSiliconflow, testingDashscope,
   testResult, statusMap,
@@ -204,6 +207,7 @@ export default function ApiKeyPanel({
                 else if (name === 'volcano') s.setVolcanoKey(e.target.value)
                 else if (name === 'siliconflow') s.setSiliconflowKey(e.target.value)
                 else if (name === 'dashscope') s.setDashscopeKey(e.target.value)
+                else if (name === 'minimax') s.setMinimaxKey(e.target.value)
               }}
               placeholder={placeholder}
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-20" />
@@ -256,6 +260,18 @@ export default function ApiKeyPanel({
               <KeyInputRow label="百炼 API Key" sub="阿里云百炼" name="dashscope"
                 value={dashscopeKey} show={showDashscopeKey} onShowChange={() => s.setShowDashscopeKey(!showDashscopeKey)}
                 testing={testingDashscope} onTest={() => testKey('dashscope', dashscopeKey, '阿里云百炼 API Key')} />
+            </div>
+
+            {/* Minimax（AI 音乐/BGM，2026-08-14） */}
+            <div className="mt-6 pt-6 border-t border-white/10">
+              <h4 className="text-label mb-4 flex items-center gap-2">
+                🎵 AI 音乐（Minimax）配置
+              </h4>
+              <p className="text-sm text-gray-500 mb-4 font-mono">用于一键成片 BGM/AI 音乐生成（music-3.0）。key 有效即可用，按量计费。</p>
+              <KeyInputRow label="Minimax API Key" sub="Minimax" name="minimax"
+                value={minimaxKey} show={showMinimaxKey} onShowChange={() => s.setShowMinimaxKey(!showMinimaxKey)}
+                testing={testingMinimax} onTest={() => testKey('minimax', minimaxKey, 'Minimax API Key')}
+                hint="minimaxi.com 控制台获取" />
             </div>
 
             {/* Volcano */}

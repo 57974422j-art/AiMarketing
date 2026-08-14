@@ -374,6 +374,25 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      case 'minimax': {
+        const k = (key && key !== '********' ? key : '') || process.env.MINIMAX_API_KEY || '';
+        if (!k) return NextResponse.json({ valid: false, message: '未配置 Minimax API Key' }, { status: 400 });
+        try {
+          const res = await fetch('https://api.minimax.chat/v1/text/chatcompletion_v2', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${k}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: 'MiniMax-Text-01', messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 }),
+            signal: AbortSignal.timeout(15000),
+          });
+          const j = await res.json().catch(() => ({}));
+          const code = j?.base_resp?.status_code;
+          if (code === 2049 || code === 1004) return NextResponse.json({ valid: false, message: `Minimax 无效 key（${j?.base_resp?.status_msg || code}）` });
+          if (j?.id || j?.choices || j?.base_resp?.status_code === 0) return NextResponse.json({ valid: true, message: '✅ Minimax API Key 有效（可生成 AI 音乐/BGM）' });
+          return NextResponse.json({ valid: false, message: `Minimax 响应异常: ${JSON.stringify(j).substring(0, 120)}` });
+        } catch (e: any) {
+          return NextResponse.json({ valid: false, message: `Minimax 连接失败: ${e?.message || e}` });
+        }
+      }
       case 'serper': {
         const k = (key && key !== '********' ? key : '') || process.env.SERPER_API_KEY || '';
         if (!k) return NextResponse.json({ valid: false, message: '未配置 Serper API Key' }, { status: 400 });

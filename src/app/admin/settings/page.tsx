@@ -23,6 +23,9 @@ export default function SettingsPage() {
   const [volcanoKey, setVolcanoKey] = useState('')
   const [siliconflowKey, setSiliconflowKey] = useState('')
   const [dashscopeKey, setDashscopeKey] = useState('')
+  const [minimaxKey, setMinimaxKey] = useState('')  // 2026-08-14 Minimax AI 音乐
+  const [showMinimaxKey, setShowMinimaxKey] = useState(false)
+  const [testingMinimax, setTestingMinimax] = useState(false)
   const [showDeepseekKey, setShowDeepseekKey] = useState(false)
   const [showVolcanoKey, setShowVolcanoKey] = useState(false)
   const [showSiliconflowKey, setShowSiliconflowKey] = useState(false)
@@ -162,6 +165,7 @@ export default function SettingsPage() {
       setVolcanoKey(d.volcanoConfigured ? '********' : '')
       setSiliconflowKey(d.siliconflowConfigured ? '********' : '')
       setDashscopeKey(d.dashscopeConfigured ? '********' : '')
+      setMinimaxKey(d.minimaxConfigured ? '********' : '')
       // TTS
       setTtsAppId(d.ttsAppIdConfigured ? '********' : '')
       setTtsAccessKey(d.ttsAccessKeyConfigured ? '********' : '')
@@ -248,6 +252,7 @@ export default function SettingsPage() {
           volcanoKey: mask(volcanoKey),
           siliconflowKey: mask(siliconflowKey),
           dashscopeKey: mask(dashscopeKey),
+          minimaxKey: mask(minimaxKey),
           ossRegion: ossRegion || undefined,
           ossAccessKeyId: mask(ossAccessKeyId),
           ossAccessKeySecret: mask(ossAccessKeySecret),
@@ -456,9 +461,10 @@ export default function SettingsPage() {
         {/* API Key + OSS 面板 */}
         <ApiKeyPanel
           deepseekKey={deepseekKey} volcanoKey={volcanoKey}
-          siliconflowKey={siliconflowKey} dashscopeKey={dashscopeKey}
+          siliconflowKey={siliconflowKey} dashscopeKey={dashscopeKey} minimaxKey={minimaxKey}
           showDeepseekKey={showDeepseekKey} showVolcanoKey={showVolcanoKey}
           showSiliconflowKey={showSiliconflowKey} showDashscopeKey={showDashscopeKey}
+          showMinimaxKey={showMinimaxKey} testingMinimax={testingMinimax}
           testingDeepseek={testingDeepseek} testingVolcano={testingVolcano}
           testingSiliconflow={testingSiliconflow} testingDashscope={testingDashscope}
           testResult={testResult} statusMap={statusMap}
@@ -470,8 +476,9 @@ export default function SettingsPage() {
           ossAccessKeySecret={ossAccessKeySecret} ossBucket={ossBucket}
           showOssSecret={showOssSecret} testingOSS={testingOSS}
           setters={{
-            setDeepseekKey, setVolcanoKey, setSiliconflowKey, setDashscopeKey,
+            setDeepseekKey, setVolcanoKey, setSiliconflowKey, setDashscopeKey, setMinimaxKey,
             setShowDeepseekKey, setShowVolcanoKey, setShowSiliconflowKey, setShowDashscopeKey,
+            setShowMinimaxKey, setTestingMinimax,
             setTestingDeepseek, setTestingVolcano, setTestingSiliconflow, setTestingDashscope,
             setTestResult, setStatusMap,
             setTtsAppId, setTtsAccessKey, setTtsResourceId,

@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, vvhanApiKey, vvhanApiBase, serperKey, ssServer, ssPort, ssPassword, ssMethod } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, vvhanApiKey, vvhanApiBase, serperKey, minimaxKey, ssServer, ssPort, ssPassword, ssMethod } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -281,6 +281,15 @@ VVHAN_API_BASE=${vvhanApiBase}`;
       if (p.test(envContent)) envContent = envContent.replace(p, `SERPER_API_KEY=${serperKey}`);
       else envContent += `
 SERPER_API_KEY=${serperKey}`;
+    }
+
+    // Minimax API Key（AI 音乐/BGM，2026-08-14）
+    if (minimaxKey !== undefined && minimaxKey && minimaxKey !== '********') {
+      const pm = new RegExp('^MINIMAX_API_KEY=.*$', 'm');
+      if (pm.test(envContent)) envContent = envContent.replace(pm, `MINIMAX_API_KEY=${minimaxKey}`);
+      else envContent += `
+MINIMAX_API_KEY=${minimaxKey}`;
+      process.env.MINIMAX_API_KEY = minimaxKey
     }
 
     // 下载代理（Shadowsocks，2026-08-09：夜间视频下载用）
