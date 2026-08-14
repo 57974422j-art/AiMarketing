@@ -12,6 +12,7 @@
 | 2026-08-14 | 一键成片 BGM 全 AI 音乐库：/api/bgm 去 Pixabay（只公共音乐库）+ 前端去硬编码 4 首/文案改 AI 音乐库；媒体舞台 BGM 统一公共音乐库（原 BgmTrack 空表）；音乐库全链路验证通过（生成→OSS→入库→设公开→BGM 列表出现）| bgm 路由 / auto-compile 页 / agent media 路由 | 服务器验证 count 2（AI 音乐+免费）→改后纯 AI |
 | 2026-08-14 | Agent 实时数据（画像/媒体舞台初始加载+对话后刷新）+ Minimax 音乐模型选择（settings free/music-3.0）+ 音乐计费（music-3.0=100点/首 先查后扣；free=0）| agent 页 / ApiKeyPanel / settings / config / music-generate | 语法 0；待部署 |
 | 2026-08-14 | H3 接入（前端可选）：minimax-h3.ts 提交+轮询+图生首帧；generateVideo H3 分支；扣费 768P=50点/秒 2K=80点/秒；text-to-video 模型选项 | minimax-h3/ai-providers/text-to-video | key 验证通过（bad_request=权限过）；待部署 |
+| 2026-08-14 | text-to-video 模型联动：选模型自动切换控件（H3 固定分辨率/时长4-15/禁长视频与参考视频）+ 实时成本预估（wan 100点/秒 H3 768P 50 2K 80）| text-to-video/page.tsx | 语法 0；待部署 |
 ---
 | 2026-08-14 | 数字人全链路 wan2.2-s2v：TTS 改百炼 CosyVoice(edge-tts 弃用)、异步提交+查询(修复504)、live 直播片段适配(照片+文案→口播)、Minimax 后台接入(key 输入+测试+保存)、crawl4ai B/C 方案(文本抓取修复 markdown dict+阈值；截图+视觉读图) | ai-providers/digital-human/live-stream-engine/live 页/settings/ApiKeyPanel/config/test-key/crawl4ai | 数字人异步提交验证通过(taskId+PENDING)；待部署测试 |
 | 2026-08-13 | 客户端改回纯壳 v1.0.30（彻底解决 code14/数据空/两套）：根因=Next standalone 把后端+管理后台+API key+本地库配置(.env.local 含 DATABASE_URL/全部 key)全打包进客户端→login 本地执行+代理与本地路由互相干扰。方案 A 纯壳：main.js 直接 loadURL(https://ai-niuma.cc)，build-local 不再 next build/不打包 standalone，本地能力(指纹/语音/摄像头)走 preload 桥，管理后台仅网页。另修 login cookie secure 按 x-forwarded-proto 判断(f86ba55) | electron/main.js / scripts/build-local.mjs / src/app/api/auth/login/route.ts | v1.0.30 打包 275MB，CDP 验证页面加载 ai-niuma.cc/login；待部署 |
