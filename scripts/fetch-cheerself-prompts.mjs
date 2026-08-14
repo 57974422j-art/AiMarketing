@@ -28,10 +28,28 @@ async function coverToOss(url, slug, idx) {
   try {
     const oss = getOss()
     if (!oss || !url) return null
-    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(30000) })
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(60000) })
     if (!r.ok) return null
     const buf = Buffer.from(await r.arrayBuffer())
-    if (buf.length < 500 || buf.length > 8 * 1024 * 1024) return null
+    if (buf.length < 500) return null
+    const isMp4 = /\.mp4(\?|$)/i.test(url) || url.includes('.mp4')
+    if (isMp4) {
+      // 视频：下载后 ffmpeg 抽首帧
+      const fs = await import('fs')
+      const os = await import('os')
+      const path = await import('path')
+      const cp = await import('child_process')
+      const tmp = path.join(os.tmpdir(), `cheer-${slug}-${idx}.mp4`)
+      fs.writeFileSync(tmp, buf)
+      try {
+        const out = cp.execSync(`ffmpeg -y -i "${tmp}" -frames:v 1 -f image2pipe -vcodec mjpeg - 2>/dev/null`, { timeout: 60000 })
+        if (!out || out.length < 500) return null
+        const key = `prompts/cheerselfai/${slug}/${idx}.jpg`
+        await oss.put(key, out, { headers: { 'Content-Type': 'image/jpeg' } })
+        return `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION}.aliyuncs.com/${key}`
+      } catch { return null } finally { try { fs.unlinkSync(tmp) } catch {} }
+    }
+    if (buf.length > 8 * 1024 * 1024) return null
     const ext = (url.split('?')[0].match(/\.(jpe?g|png|webp|gif)$/i)?.[1] || 'jpg').toLowerCase()
     const key = `prompts/cheerselfai/${slug}/${idx}.${ext}`
     await oss.put(key, buf, { headers: { 'Content-Type': 'image/' + (ext === 'jpg' ? 'jpeg' : ext) } })
@@ -68,6 +86,11 @@ async function fetchLib(slug) {
     let cover = ''
     const mPoster = cardHtml.match(/poster="([^"]+)/)
     if (mPoster) cover = mPoster[1]
+    if (!cover) {
+      // 视频卡片：找 mp4（r2.dev——国内可达，下载后抽帧）
+      const mMp4 = cardHtml.match(/https:\/\/[^"']+\.mp4[^"']*/)
+      if (mMp4) cover = mMp4[0]
+    }
     if (!cover) {
       const mImg = cardHtml.match(/<img[^>]*src="([^"]+)/)
       if (mImg) {
