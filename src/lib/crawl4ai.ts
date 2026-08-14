@@ -63,33 +63,26 @@ export async function crawlScreenshot(url: string): Promise<{ ok: boolean; base6
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (CRAWL4AI_TOKEN) headers['Authorization'] = `Bearer ${CRAWL4AI_TOKEN}`
+    // 2026-08-14: crawl4ai 0.9.x 截图参数必须在 crawler_config 内（顶层被丢弃）；screenshot 返回 base64 PNG
     const r = await fetch(`${CRAWL4AI_URL}/crawl`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
         urls: [url], priority: 10, max_depth: 1, verbose: false,
-        headless: true, js: true, wait_for: 'domcontentloaded', page_timeout: 40000,
-        screenshot: true, full_page: true,
-        user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        browser_config: { headless: true, user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36' },
+        crawler_config: { screenshot: true, screenshot_wait_for: 2, page_timeout: 40000, js: true },
       }),
       signal: AbortSignal.timeout(120000),
     })
     if (!r.ok) return { ok: false, error: `crawl4ai HTTP ${r.status}` }
     const d = await r.json()
     const first = Array.isArray(d?.results) ? d.results[0] : null
-    const shot = first?.screenshot
-    if (!shot) return { ok: false, error: 'crawl4ai 未返回截图（可能截图不可用）' }
-    // screenshot 可能是 base64 或 URL
-    if (typeof shot === 'string' && shot.startsWith('data:image')) {
-      return { ok: true, base64: shot }
-    }
-    if (typeof shot === 'string' && /^https?:\/\//.test(shot)) {
-      // 服务器 fetch 截图 → base64（百炼需要公网 URL 或 base64）
-      const img = await fetch(shot, { signal: AbortSignal.timeout(30000) })
-      const buf = Buffer.from(await img.arrayBuffer())
-      return { ok: true, base64: `data:image/png;base64,${buf.toString('base64')}` }
-    }
-    return { ok: false, error: '截图格式未知' }
+    let shot = first?.screenshot
+    if (!shot) return { ok: false, error: 'crawl4ai 未返回截图' }
+    if (typeof shot !== 'string') return { ok: false, error: '截图格式未知' }
+    // 兼容带/不带 data: 前缀
+    if (!shot.startsWith('data:image')) shot = `data:image/png;base64,${shot}`
+    return { ok: true, base64: shot }
   } catch (e: any) {
     return { ok: false, error: `截图失败: ${e?.message || e}` }
   }
