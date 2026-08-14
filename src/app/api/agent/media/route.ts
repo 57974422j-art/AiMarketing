@@ -13,8 +13,9 @@ export async function GET(request: NextRequest) {
   if (!auth) return NextResponse.json({ success: false, message: '未认证，请先登录' }, { status: 401 })
 
   try {
-    const [bgm, records] = await Promise.all([
+    const [bgmRows, pubMusic, records] = await Promise.all([
       prisma.bgmTrack.findMany({ take: 20, orderBy: { createdAt: 'desc' } }),
+      prisma.mediaAsset.findMany({ where: { source: 'public', type: 'audio', category: 'music' }, take: 20, orderBy: { createdAt: 'desc' } }),
       prisma.generationRecord.findMany({
         where: {
           userId: auth.userId,
@@ -29,7 +30,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        bgm: bgm.map((t) => ({ id: t.id, title: t.title, mood: t.mood || '', url: t.url })),
+        bgm: [
+          ...pubMusic.map((m, i) => ({ id: 1000 + i, title: (m.prompt || 'AI 音乐').substring(0, 20), mood: 'ai', url: m.ossUrl })),
+          ...bgmRows.map((t) => ({ id: t.id, title: t.title, mood: t.mood || '', url: t.url })),
+        ],
         records: records.map((r) => ({
           id: r.id,
           type: r.type,
