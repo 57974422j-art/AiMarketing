@@ -46,6 +46,43 @@ export async function crawlWeb(url: string): Promise<{ ok: boolean; markdown?: s
   }
 }
 
+// 2026-08-14: 抓取整页截图（C 方案——截图后交给视觉模型读图）
+export async function crawlScreenshot(url: string): Promise<{ ok: boolean; base64?: string; error?: string }> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (CRAWL4AI_TOKEN) headers['Authorization'] = `Bearer ${CRAWL4AI_TOKEN}`
+    const r = await fetch(`${CRAWL4AI_URL}/crawl`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        urls: [url], priority: 10, max_depth: 1, verbose: false,
+        headless: true, js: true, wait_for: 'domcontentloaded', page_timeout: 40000,
+        screenshot: true, full_page: true,
+        user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      }),
+      signal: AbortSignal.timeout(120000),
+    })
+    if (!r.ok) return { ok: false, error: `crawl4ai HTTP ${r.status}` }
+    const d = await r.json()
+    const first = Array.isArray(d?.results) ? d.results[0] : null
+    const shot = first?.screenshot
+    if (!shot) return { ok: false, error: 'crawl4ai 未返回截图（可能截图不可用）' }
+    // screenshot 可能是 base64 或 URL
+    if (typeof shot === 'string' && shot.startsWith('data:image')) {
+      return { ok: true, base64: shot }
+    }
+    if (typeof shot === 'string' && /^https?:\/\//.test(shot)) {
+      // 服务器 fetch 截图 → base64（百炼需要公网 URL 或 base64）
+      const img = await fetch(shot, { signal: AbortSignal.timeout(30000) })
+      const buf = Buffer.from(await img.arrayBuffer())
+      return { ok: true, base64: `data:image/png;base64,${buf.toString('base64')}` }
+    }
+    return { ok: false, error: '截图格式未知' }
+  } catch (e: any) {
+    return { ok: false, error: `截图失败: ${e?.message || e}` }
+  }
+}
+
 // 防 SSRF：拒绝内网/保留地址
 export function isBlockedCrawlUrl(rawUrl: string): boolean {
   try {

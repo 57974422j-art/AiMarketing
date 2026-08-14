@@ -2047,6 +2047,35 @@ export async function digitalHuman(text: string, _avatar = 'default'): Promise<{
   return { status: 'mock_completed', videoUrl: undefined };
 }
 
+// 2026-08-14: 百炼 qwen-vl 读图总结（crawl4ai 截图 → 视觉模型描述页面内容）
+export async function describeImageWithVL(imageUrlOrBase64: string, prompt?: string): Promise<string | null> {
+  const key = getDashScopeKey()
+  if (!key) { console.log('[百炼VL] 跳过: 未配置DashScope Key'); return null }
+  try {
+    const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'qwen-vl-max',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt || '请用中文描述这张网页截图的主要内容：页面类型、可见的标题/文字/栏目、关键信息。如果文字太小看不清就说明看不清哪些部分。只描述图中实际可见的内容，不要猜测图外信息。' },
+            { type: 'image_url', image_url: { url: imageUrlOrBase64 } },
+          ],
+        }],
+        temperature: 0.3,
+        max_tokens: 1500,
+      }),
+    })
+    const text = data?.choices?.[0]?.message?.content
+    return typeof text === 'string' ? text.trim() : null
+  } catch (e: any) {
+    console.error('[百炼VL] 读图失败:', e?.message || e)
+    return null
+  }
+}
+
 export async function isAIConfigured(): Promise<boolean> {
   return !!(process.env.DASHSCOPE_API_KEY || process.env.VOLCANO_API_KEY || process.env.SILICONFLOW_API_KEY);
 }

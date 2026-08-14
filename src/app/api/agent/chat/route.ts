@@ -697,13 +697,31 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     case 'crawl_web': {
       const crawlUrl = String(args.url || '').trim()
       if (!/^https?:\/\//.test(crawlUrl)) return 'CRAWL_INVALID:URL 无效（仅支持 http/https 链接）'
-      // 2026-08-13: 直接调共享 crawl4ai 函数（不再 HTTP 自调用 /api/crawl——避免相对 URL/401 问题）
-      const { crawlWeb, isBlockedCrawlUrl } = await import('@/lib/crawl4ai')
+      const { crawlWeb, crawlScreenshot, isBlockedCrawlUrl } = await import('@/lib/crawl4ai')
       if (isBlockedCrawlUrl(crawlUrl)) return 'CRAWL_FAIL:目标地址不允许访问（内网/保留地址）'
+      // 2026-08-14 C 方案：vision=true 时截图+视觉模型读图（需用户先确认，扣 20 点）
+      if (args.vision === true) {
+        const uidV = auth?.userId
+        if (!uidV) return 'TOOL_REJECT:未登录'
+        const VISION_COST = 20
+        const vChk = await checkTokens(uidV, VISION_COST)
+        if (!vChk.allowed) return `TOOL_REJECT:${vChk.message}`
+        try {
+          const shot = await crawlScreenshot(crawlUrl)
+          if (!shot.ok || !shot.base64) return 'CRAWL_FAIL:' + (shot.error || '截图失败')
+          const { describeImageWithVL } = await import('@/lib/ai-providers')
+          const desc = await describeImageWithVL(shot.base64, args.purpose ? `用户想看：${args.purpose}。请用中文描述这张网页截图的主要内容和关键信息（只描述图中可见的）。` : undefined)
+          if (!desc) return 'CRAWL_FAIL:视觉模型读图失败'
+          await spendTokens(uidV, VISION_COST, 'agent_crawl_vision')
+          return `CRAWL_VISION_RESULT:${desc.substring(0, 8000)}|URL:${crawlUrl}`
+        } catch (e: any) {
+          return 'CRAWL_FAIL:' + (e?.message || '截图读图异常')
+        }
+      }
       try {
         const cr = await crawlWeb(crawlUrl)
         if (!cr.ok) return 'CRAWL_FAIL:' + (cr.error || '抓取失败')
-        if (!cr.markdown) return 'CRAWL_EMPTY:页面没有可提取的文本内容（可能是视频页/需要登录/动态加载）'
+        if (!cr.markdown) return 'CRAWL_NEED_VISION:该页面没有可提取的文本内容。可用「截图+AI视觉扫描」查看整页（约20点/次）。请先向用户确认是否使用，用户同意后再调用本工具并带 vision:true 参数。'
         const purpose = args.purpose ? `。抓取目的：${args.purpose}` : ''
         return `CRAWL_RESULT:${cr.markdown.substring(0, 15000)}|URL:${crawlUrl}${purpose}`
       } catch (e: any) {
