@@ -138,6 +138,18 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-08-14 更新规划（已确认/待执行）
+- ✅ **Agent 实时数据**：画像/记忆/媒体舞台初始自动加载 + 对话后刷新（b361755）
+- ✅ **音乐模型选择**：settings Minimax 段 free/music-3.0 下拉（1829fc5）
+- ✅ **音乐计费**：music-3.0=100 点/首（先查后扣，失败不扣）；free=0（1829fc5）
+- ✅ **音乐库全功能**：OSS 存储 + /music-library 页面 + BGM 全 AI 音乐库（423d435/e53dc91）
+- ⏳ **H3 视频模型接入（待用户确认）**：国内站已公开（api.minimaxi.com/v2/video_generation，model=MiniMax-H3）；768P=50 点/秒、2K=80 点/秒（比 wan 100 点/秒便宜）；需 ai-providers 加 H3 通道 + generate_video 降级链 + 前端模型选择
+- ⏳ **剩余隐患（低优先）**：点卡 checkout 配置源不一致 / token-wallet 非事务 / 订单过期定时 / 死代码清理（quota-checker/subscription-guard）/ 免费周卡口径 / 微信 Native 支付（待商户号）
+- ⏳ **二期 B**：分镜节点链视图 + 一句话成片（create_ai_video）
+- ⏳ **三期**：发布真执行（publish_content 打通 fingerprint-browser）
+
+
+
 ### 🚀 客户端智能化改造（白龙马 UI 克隆，2026-08-05 立项）
 > 目标：把 AiMarketing 客户端打造成「白龙马式智能 UI + 项目服务器能力」的独立智能平台。
 > 已确认决策：① UI 功能全部补齐 ② 不要本地内核（记忆/画像走服务器 AgentMemory）③ 客户端完全独立（打包前端+本地 API 代理）。
