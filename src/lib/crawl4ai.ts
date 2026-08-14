@@ -51,7 +51,7 @@ export async function crawlWeb(url: string): Promise<{ ok: boolean; markdown?: s
         .replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;/g, ' ')
     }
     const cleaned = cleanMarkdown(raw)
-    if (cleaned.length < 300) return { ok: true, markdown: '', title: first?.metadata?.title || '' }
+    if (cleaned.length < 80) return { ok: true, markdown: '', title: first?.metadata?.title || '' }  // 2026-08-14 阈值 300→80（小正文页也能过，导航文字提取后远小于80）
     return { ok: true, markdown: cleaned.substring(0, 50000), title: first?.metadata?.title || '' }
   } catch (e: any) {
     return { ok: false, error: `crawl4ai 调用失败: ${e?.message || e}` }
