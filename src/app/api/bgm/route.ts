@@ -1,27 +1,56 @@
 import { NextResponse } from 'next/server'
+import { PrismaClient } from '@prisma/client'
+const prisma = new PrismaClient()
 
 /**
- * GET /api/bgm - 返回可用的背景音乐列表
- * Pixabay 免版税音乐，直接 CDN 链接，无需 API Key
+ * GET /api/bgm - 返回可用的背景音乐列表（一键成片选用）
+ * 2026-08-14: 数据源改为「公共音乐库（MusicAsset source=public）」+ 1 首可用免费兜底
+ * （原 Pixabay 硬编码 4 首只有第 1 首 CDN 可用，其余 3 首失效——移除）
  */
 export async function GET() {
-  const pixabayConfigured = !!process.env.PIXABAY_API_KEY
+  try {
+    // 公共音乐库（admin 生成并设为公开的 AI 音乐）
+    const pubMusic = await prisma.mediaAsset.findMany({
+      where: { source: 'public', type: 'audio', category: 'music' },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    })
+    const aiTracks = pubMusic.map((m, i) => ({
+      id: i + 1,
+      name: (m.prompt || 'AI 音乐').substring(0, 20),
+      mood: 'ai',
+      url: m.ossUrl,
+    }))
 
-  const tracks = [
-    { name: '轻松愉快 - Uplifting', mood: 'happy', url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=uplifting-upbeat-corporate-inspiration.mp3' },
-    { name: '温馨柔和 - Soft', mood: 'calm', url: 'https://cdn.pixabay.com/download/audio/2022/10/25/audio_946bc7ebc8.mp3?filename=acoustic-guitar-soft-instrumental-bg.mp3' },
-    { name: '电子节奏 - Electronic', mood: 'energetic', url: 'https://cdn.pixabay.com/download/audio/2022/02/22/audio_d171c86b8d.mp3?filename=electronic-future-beats.mp3' },
-    { name: '电影感 - Cinematic', mood: 'epic', url: 'https://cdn.pixabay.com/download/audio/2022/08/02/audio_884fe92c6b.mp3?filename=cinematic-epic-emotional.mp3' },
-  ]
+    // 免费兜底：Pixabay 第 1 首（实测可用的）
+    const freeTrack = {
+      id: 999,
+      name: '轻松愉快 - Uplifting',
+      mood: 'happy',
+      url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=uplifting-upbeat-corporate-inspiration.mp3',
+    }
 
-  return NextResponse.json({
-    success: true,
-    poweredBy: 'Pixabay 免版税音乐',
-    pixabayConfigured,
-    count: tracks.length,
-    data: tracks,
-  })
+    return NextResponse.json({
+      success: true,
+      poweredBy: '公共音乐库 + Pixabay 免费',
+      count: aiTracks.length + 1,
+      data: [...aiTracks, freeTrack],
+    })
+  } catch (e: any) {
+    // 数据库异常时兜底免费曲
+    return NextResponse.json({
+      success: true,
+      poweredBy: 'Pixabay 免费（库异常兜底）',
+      count: 1,
+      data: [{
+        id: 999,
+        name: '轻松愉快 - Uplifting',
+        mood: 'happy',
+        url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=uplifting-upbeat-corporate-inspiration.mp3',
+      }],
+    })
+  }
 }
 
-// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
+// 强制动态渲染：读数据库
 export const dynamic = 'force-dynamic'

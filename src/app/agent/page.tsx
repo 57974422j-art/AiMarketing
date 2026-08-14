@@ -652,6 +652,7 @@ export default function AgentPage() {
     { path: '/accounts', title: '账号管理', color: 'teal', roles: ['admin', 'editor', 'end-user'] },
     { path: '/digital-human', title: '数字人', color: 'orange', roles: ['admin', 'editor', 'end-user'] },
     { path: '/my-subscription', title: '我的套餐', color: 'amber', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/music-library', title: '音乐库', color: 'cyan', roles: ['admin', 'editor', 'end-user'] },
     // 代理+管理可见
     { path: '/dashboard', title: '数据看板', color: 'rose', roles: ['admin', 'editor'] },
     { path: '/lead-collector', title: '意向采集', color: 'orange', roles: ['admin', 'editor'] },
@@ -2169,6 +2170,8 @@ export default function AgentPage() {
               className={`w-full text-left px-2.5 py-2 rounded-lg text-[10px] transition ${mediaOpen ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/[0.03] hover:bg-white/[0.06] text-gray-400'}`}>
               🎵 媒体舞台 {mediaOpen ? '· 收起' : mediaData ? `· ${mediaData.bgm.length}曲 / ${mediaData.records.length}条` : '· 音乐/AI生成'}
             </button>
+            <a href="/music-library" onClick={(e) => { e.preventDefault(); openApp('/music-library') }}
+              className="ml-1 px-2 py-1.5 rounded-lg text-[10px] bg-white/[0.03] hover:bg-white/[0.06] text-gray-400 hover:text-cyan-300 transition">🎵 音乐库</a>
             {mediaOpen && (
               <div className="mt-2 space-y-2 max-h-56 overflow-y-auto pr-1">
                 {mediaLoading ? (
