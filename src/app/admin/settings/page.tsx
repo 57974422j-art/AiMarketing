@@ -24,6 +24,7 @@ export default function SettingsPage() {
   const [siliconflowKey, setSiliconflowKey] = useState('')
   const [dashscopeKey, setDashscopeKey] = useState('')
   const [minimaxKey, setMinimaxKey] = useState('')  // 2026-08-14 Minimax AI 音乐
+  const [musicModel, setMusicModel] = useState('music-3.0-free')  // 2026-08-14 音乐模型
   const [showMinimaxKey, setShowMinimaxKey] = useState(false)
   const [testingMinimax, setTestingMinimax] = useState(false)
   const [showDeepseekKey, setShowDeepseekKey] = useState(false)
@@ -169,6 +170,7 @@ export default function SettingsPage() {
       setSiliconflowKey(d.siliconflowConfigured ? '********' : '')
       setDashscopeKey(d.dashscopeConfigured ? '********' : '')
       setMinimaxKey(d.minimaxConfigured ? '********' : '')
+      setMusicModel(d.musicModel || 'music-3.0-free')
       // TTS
       setTtsAppId(d.ttsAppIdConfigured ? '********' : '')
       setTtsAccessKey(d.ttsAccessKeyConfigured ? '********' : '')
@@ -257,6 +259,7 @@ export default function SettingsPage() {
           siliconflowKey: mask(siliconflowKey),
           dashscopeKey: mask(dashscopeKey),
           minimaxKey: mask(minimaxKey),
+          musicModel: musicModel || undefined,
           ossRegion: ossRegion || undefined,
           ossAccessKeyId: mask(ossAccessKeyId),
           ossAccessKeySecret: mask(ossAccessKeySecret),
@@ -485,6 +488,7 @@ export default function SettingsPage() {
         <ApiKeyPanel
           deepseekKey={deepseekKey} volcanoKey={volcanoKey}
           siliconflowKey={siliconflowKey} dashscopeKey={dashscopeKey} minimaxKey={minimaxKey}
+          musicModel={musicModel} setMusicModel={setMusicModel}
           showDeepseekKey={showDeepseekKey} showVolcanoKey={showVolcanoKey}
           showSiliconflowKey={showSiliconflowKey} showDashscopeKey={showDashscopeKey}
           showMinimaxKey={showMinimaxKey} testingMinimax={testingMinimax}

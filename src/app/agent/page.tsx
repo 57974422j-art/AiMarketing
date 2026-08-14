@@ -753,6 +753,15 @@ export default function AgentPage() {
     } : prev)
     setMusicGenMsg('已加入音乐库（本次会话可用）')
   }
+  // 2026-08-14: 客户画像实时加载（不再点击才拉取）
+  const loadBrainMemories = async () => {
+    try {
+      const r = await fetch('/api/agent/memories', { credentials: 'include' })
+      const d = await r.json()
+      if (d.success) setBrainMemories(d.items || [])
+    } catch {}
+  }
+  useEffect(() => { loadBrainMemories(); loadMedia() }, [])
   const toggleMedia = () => {
     const next = !mediaOpen
     setMediaOpen(next)
@@ -1212,6 +1221,8 @@ export default function AgentPage() {
           steps: data.data.steps,
           scene: data.data.scene,
         }])
+        // 2026-08-14: 对话后实时刷新客户画像（记忆可能已更新）
+        loadBrainMemories()
         // onboarding 收尾：AGENT 给出"已记住/随时服务"类收尾语即结束摸底
         if (onboarding) {
           const tail = data.data.reply || ''
@@ -2138,13 +2149,7 @@ export default function AgentPage() {
             <button onClick={async () => {
               const next = !showBrain
               setShowBrain(next)
-              if (next) {
-                try {
-                  const r = await fetch('/api/agent/memories', { credentials: 'include' })
-                  const d = await r.json()
-                  if (d.success) setBrainMemories(d.items || [])
-                } catch {}
-              }
+              if (next) loadBrainMemories()
             }}
               className={`w-full text-left px-2.5 py-2 rounded-lg text-[10px] transition ${showBrain ? 'bg-purple-500/20 text-purple-300' : 'bg-white/[0.03] hover:bg-white/[0.06] text-gray-400'}`}>
               {showBrain ? `已记录 ${brainMemories.length} 条 · 点击收起` : `共 ${brainMemories.length} 条需求/偏好 · 点击展开`}

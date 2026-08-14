@@ -13,6 +13,8 @@ interface ApiKeyPanelProps {
   siliconflowKey: string
   dashscopeKey: string
   minimaxKey: string  // 2026-08-14 Minimax AI 音乐
+  musicModel: string
+  setMusicModel: (v: string) => void
   showDeepseekKey: boolean
   showVolcanoKey: boolean
   showSiliconflowKey: boolean
@@ -99,7 +101,7 @@ function EyeButton({ show, onToggle }: { show: boolean; onToggle: () => void }) 
 }
 
 export default function ApiKeyPanel({
-  deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, minimaxKey,
+  deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, minimaxKey, musicModel, setMusicModel,
   showDeepseekKey, showVolcanoKey, showSiliconflowKey, showDashscopeKey, showMinimaxKey,
   testingDeepseek, testingVolcano, testingSiliconflow, testingDashscope, testingMinimax,
   testResult, statusMap,
@@ -272,6 +274,15 @@ export default function ApiKeyPanel({
                 value={minimaxKey} show={showMinimaxKey} onShowChange={() => s.setShowMinimaxKey(!showMinimaxKey)}
                 testing={testingMinimax} onTest={() => testKey('minimax', minimaxKey, 'Minimax API Key')}
                 hint="minimaxi.com 控制台获取" />
+              {/* 2026-08-14: 音乐模型选择 */}
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-[10px] text-gray-500 font-mono shrink-0">音乐模型</span>
+                <select value={s.musicModel} onChange={(e) => s.setMusicModel(e.target.value)}
+                  className="flex-1 bg-black/30 border border-white/10 rounded-md px-2 py-1 text-[11px] text-gray-300 outline-none focus:border-cyan-500/40">
+                  <option value="music-3.0-free">music-3.0-free（免费，RPM 3）</option>
+                  <option value="music-3.0">music-3.0（1 元/首 ≈ 100 点）</option>
+                </select>
+              </div>
             </div>
 
             {/* Volcano */}

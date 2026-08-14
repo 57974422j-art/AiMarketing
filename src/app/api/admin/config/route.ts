@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, vvhanApiKey, vvhanApiBase, serperKey, minimaxKey, ssServer, ssPort, ssPassword, ssMethod } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, vvhanApiKey, vvhanApiBase, serperKey, minimaxKey, musicModel, ssServer, ssPort, ssPassword, ssMethod } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -292,6 +292,14 @@ SERPER_API_KEY=${serperKey}`;
 MINIMAX_API_KEY=${minimaxKey}`;
       process.env.MINIMAX_API_KEY = minimaxKey
     }
+    // 音乐模型（2026-08-14：music-3.0-free 免费 / music-3.0 付费 1 元/首）
+    if (musicModel !== undefined && ['music-3.0-free', 'music-3.0'].includes(String(musicModel))) {
+      const pmM = new RegExp('^MINIMAX_MUSIC_MODEL=.*$', 'm');
+      if (pmM.test(envContent)) envContent = envContent.replace(pmM, `MINIMAX_MUSIC_MODEL=${musicModel}`);
+      else envContent += `
+MINIMAX_MUSIC_MODEL=${musicModel}`;
+      process.env.MINIMAX_MUSIC_MODEL = musicModel
+    }
 
     // 下载代理（Shadowsocks，2026-08-09：夜间视频下载用）
     for (const [k, v] of [['SS_SERVER', ssServer], ['SS_PORT', ssPort], ['SS_PASSWORD', ssPassword], ['SS_METHOD', ssMethod]]) {
@@ -409,7 +417,8 @@ export async function GET(request: NextRequest) {
     const volcAsrAppKey = await readEnv('VOLC_ASR_APP_KEY');
     const volcAsrAccessKey = await readEnv('VOLC_ASR_ACCESS_KEY');
     const volcAsrResourceId = await readEnv('VOLC_ASR_RESOURCE_ID');
-    const minimaxKey = await readEnv('MINIMAX_API_KEY');  // 2026-08-14
+    const minimaxKey = await readEnv('MINIMAX_API_KEY');
+    const musicModel = (await readEnv('MINIMAX_MUSIC_MODEL')) || 'music-3.0-free';  // 2026-08-14
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -449,7 +458,8 @@ export async function GET(request: NextRequest) {
         vvhanApiConfigured: !!vvhanApiKey,
         vvhanApiBase: vvhanApiBase || 'https://v1.vvhan.com',
         serperKeyConfigured: !!serperKey,
-        minimaxConfigured: !!minimaxKey,  // 2026-08-14
+        minimaxConfigured: !!minimaxKey,
+      musicModel,  // 2026-08-14
         ssServer: ssServer,
         ssPort: ssPort,
         ssMethod: ssMethod || 'aes-256-gcm',
