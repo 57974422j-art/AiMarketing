@@ -9,9 +9,9 @@ export async function POST(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
   if (!auth || auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员' }, { status: 403 })
   try {
-    const cwd = process.cwd()
-    const cmd = `node --env-file=.env.local scripts/fetch-cheerself-prompts.mjs > /tmp/cheerself-sync.log 2>&1 &`
-    exec(cmd, { cwd, shell: '/bin/bash' })
+    // 2026-08-14: standalone cwd 是 .next/standalone——cd 到项目根再跑脚本（服务器 /root/AiMarketing；本地 dev cwd 即项目根）
+    const cmd = `cd /root/AiMarketing 2>/dev/null || true; node --env-file=.env.local scripts/fetch-cheerself-prompts.mjs > /tmp/cheerself-sync.log 2>&1 &`
+    exec(cmd, { shell: '/bin/bash' })
     return NextResponse.json({ success: true, message: '同步已启动（后台运行，约 2-5 分钟）' })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e?.message || '启动失败' }, { status: 500 })
