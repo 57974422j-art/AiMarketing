@@ -29,6 +29,13 @@ const MODELS = [
   { value: 'h3-2k', label: 'MiniMax H3 2K', desc: '80点/秒 · 高清' },
   { value: 'happyhorse', label: '快乐小马', desc: '自动配音' },
 ]
+// 2026-08-14: 模型联动配置（选模型自动切换控件）
+const MODEL_CFG: Record<string, { res: string[]; durs: number[]; long: boolean; refVideo: boolean; rate: number }> = {
+  '':      { res: ['480P', '720P', '1080P'], durs: [5, 10, 15], long: true, refVideo: true, rate: 100 },
+  'wan2.7':{ res: ['480P', '720P', '1080P'], durs: [5, 10, 15], long: true, refVideo: true, rate: 100 },
+  'h3-768p':{ res: ['768P'], durs: [4, 5, 10, 15], long: false, refVideo: false, rate: 50 },
+  'h3-2k': { res: ['2K'], durs: [4, 5, 10, 15], long: false, refVideo: false, rate: 80 },
+}
 
 export default function TextToVideoPage() {
   const { t } = useLocale()
@@ -114,7 +121,7 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
     } catch {} finally { setLoading(false) }
   }
 
-  const allDurations = longVideo ? longDurations : durations
+  const allDurations = longVideo ? longDurations : (MODEL_CFG[model]?.durs || durations)
 
   const handleGenerate = async () => {
     const effectivePrompts = longVideo && editSegments && segmentPrompts.length > 0
@@ -257,7 +264,7 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
                   <div>
                     <label className="block text-label mb-1">分辨率</label>
                     <div className="flex gap-1 flex-wrap">
-                      {['480P', '720P', '1080P'].map(r => (
+                      {(MODEL_CFG[model]?.res || ['480P', '720P', '1080P']).map(r => (
                         <button key={r} type="button" onClick={() => setResolution(r)}
                           className={`px-2 py-1.5 rounded text-xs ${resolution === r ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
                           {r}
@@ -271,7 +278,7 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
                 <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
                   <div className="flex items-center gap-3">
                     <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" checked={longVideo} onChange={e => { 
+                      <input type="checkbox" checked={longVideo} disabled={!MODEL_CFG[model]?.long} onChange={e => { 
                         const v = e.target.checked
                         setLongVideo(v)
                         setManualMode(false)
@@ -289,7 +296,7 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
                     </label>
                     <div>
                       <span className="text-sm text-gray-300 font-mono">长视频模式</span>
-                      <p className="text-[10px] text-gray-600">按「每段时长」切分多段分别生成后自动合成</p>
+                      <p className="text-[10px] text-gray-600">按「每段时长」切分多段分别生成后自动合成{MODEL_CFG[model]?.long ? '' : '（当前模型仅支持单段 ≤15s）'}</p>
                     </div>
                   </div>
                   {longVideo && (
@@ -491,7 +498,7 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
                   <div className="space-y-2">
                     <p className="text-xs text-gray-500">克隆视频：以参考视频的风格 / 画面为参考，生成一段新视频。请描述新视频的内容。</p>
                     <div className="flex items-center gap-2">
-                      <input value={refVideoUrl} onChange={e => setRefVideoUrl(e.target.value)} placeholder="粘贴参考视频链接（也可点击素材库「克隆视频」按钮带入）"
+                      <input value={refVideoUrl} onChange={e => setRefVideoUrl(e.target.value)} disabled={!MODEL_CFG[model]?.refVideo} placeholder="粘贴参考视频链接（也可点击素材库「克隆视频」按钮带入）"
                         className="flex-1 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-500/50" />
                     </div>
                     {refVideoUrl && (
@@ -530,10 +537,11 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
                     <label className="block text-label mb-1">
                       视频模型 / MODEL
                       <span className="text-[10px] text-emerald-400 ml-2">管理员</span>
+                      <span className="text-[10px] text-cyan-400 ml-2">≈ {duration * (MODEL_CFG[model]?.rate || 100)} 点（{(MODEL_CFG[model]?.rate || 100)}点/秒 × {duration}秒）</span>
                     </label>
                     <div className="flex gap-1 flex-wrap">
                       {MODELS.map(m => (
-                        <button key={m.value} type="button" onClick={() => setModel(m.value)}
+                        <button key={m.value} type="button" onClick={() => { setModel(m.value); const cfg = MODEL_CFG[m.value] || MODEL_CFG['']; setResolution(cfg.res[0] || '720P'); setDuration(cfg.durs[0] || 5); if (!cfg.long) setLongVideo(false) }}
                           className={`px-3 py-1.5 rounded text-xs ${model === m.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
                           {m.label}
                           <span className="text-[10px] ml-1 opacity-60">{m.desc}</span>
