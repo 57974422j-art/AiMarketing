@@ -43,6 +43,7 @@ const sections: CardSection[] = [
       { title: '任务模板', desc: '配置自动任务（关键词/时间/动作）', href: '/admin/automation-templates', icon: '📋', roles: ['admin', 'editor'] },
       { title: '提示词模板库', desc: 'AI 生图提示词模板管理（浏览/标签筛选/编辑）', href: '/admin/prompt-templates', icon: '🖼️', roles: ['admin', 'editor'] },
       { title: '提示词源管理', desc: '开源提示词仓库 · 定时自动拉取入库（canvas.best 同源）', href: '/admin/prompt-sources', icon: '📚', roles: ['admin'] },
+      { title: '🎵 音乐库', desc: 'AI 生成背景音乐 · 试听 / 设为公开（一键成片 BGM）', href: '/music-library', icon: '🎵', roles: ['admin', 'editor'] },
     ],
   },
   {
