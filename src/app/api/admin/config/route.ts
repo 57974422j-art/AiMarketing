@@ -407,6 +407,7 @@ export async function GET(request: NextRequest) {
     const volcAsrAppKey = await readEnv('VOLC_ASR_APP_KEY');
     const volcAsrAccessKey = await readEnv('VOLC_ASR_ACCESS_KEY');
     const volcAsrResourceId = await readEnv('VOLC_ASR_RESOURCE_ID');
+    const minimaxKey = await readEnv('MINIMAX_API_KEY');  // 2026-08-14
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -446,6 +447,7 @@ export async function GET(request: NextRequest) {
         vvhanApiConfigured: !!vvhanApiKey,
         vvhanApiBase: vvhanApiBase || 'https://v1.vvhan.com',
         serperKeyConfigured: !!serperKey,
+        minimaxConfigured: !!minimaxKey,  // 2026-08-14
         ssServer: ssServer,
         ssPort: ssPort,
         ssMethod: ssMethod || 'aes-256-gcm',
