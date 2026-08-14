@@ -109,18 +109,12 @@ export default function SettingsPage() {
   const [showAgnesKey, setShowAgnesKey] = useState(false)
   const [agnesBaseUrl, setAgnesBaseUrl] = useState('')
 
-  // ====== 天行 API（热点榜：抖音/微博/微信等，有则优先，无则走 vvhan 免费兜底） ======
-  const [vvhanApiKey, setVvhanApiKey] = useState('')
-  const [vvhanApiBase, setVvhanApiBase] = useState('https://v1.vvhan.com')
   const [serperKey, setSerperKey] = useState('')
   // 下载代理（Shadowsocks，2026-08-09）
   const [ssServer, setSsServer] = useState('')
   const [ssPort, setSsPort] = useState('')
   const [ssPassword, setSsPassword] = useState('')
   const [ssMethod, setSsMethod] = useState('aes-256-gcm')
-  const [showTianApiKey, setShowTianApiKey] = useState(false)
-  const [testingTianApi, setTestingTianApi] = useState(false)
-  const [tianApiTestMsg, setTianApiTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [showSerperKey, setShowSerperKey] = useState(false)
   const [serperTestMsg, setSerperTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -200,9 +194,6 @@ export default function SettingsPage() {
       // Agnes AI
       setAgnesKey(d.agnesConfigured ? '********' : '')
       setAgnesBaseUrl(d.agnesBaseUrl || '')
-      // 天行 API
-      setVvhanApiKey(d.vvhanApiConfigured ? '********' : '')
-      setVvhanApiBase(d.vvhanApiBase || 'https://v1.vvhan.com')
       setSerperKey(d.serperKeyConfigured ? '********' : '')
       setSsServer(d.ssServer || '')
       setSsPort(d.ssPort || '')
@@ -233,7 +224,6 @@ export default function SettingsPage() {
         giphy: d.giphyConfigured ? 'ok' : null,
         gemini: d.geminiConfigured ? 'ok' : null,
         agnes: d.agnesConfigured ? 'ok' : null,
-        vvhan: d.vvhanApiConfigured ? 'ok' : null,
         serper: d.serperKeyConfigured ? 'ok' : null,
         wechat: d.agentWebhookWechatConfigured ? 'ok' : null,
         feishu: d.agentWebhookFeishuConfigured ? 'ok' : null,
@@ -284,8 +274,6 @@ export default function SettingsPage() {
           agnesBaseUrl: agnesBaseUrl || undefined,
           agentWebhookWechat: agentWebhookWechat || undefined,
           agentWebhookFeishu: agentWebhookFeishu || undefined,
-          vvhanApiKey: mask(vvhanApiKey),
-          vvhanApiBase: vvhanApiBase.trim() || 'https://v1.vvhan.com',
           serperKey: mask(serperKey),
           ssServer: ssServer || undefined,
           ssPort: ssPort || undefined,
@@ -379,8 +367,6 @@ export default function SettingsPage() {
   const testAgnesKey = () =>
     testProvider('agnes', setTestingAgnes, setAgnesTestMsg, { key: agnesKey, baseUrl: agnesBaseUrl, proxy: overseasProxy })
 
-  const testVvhanApiKey = () =>
-    testProvider('vvhan', setTestingTianApi, setTianApiTestMsg, { key: vvhanApiKey }, () => setStatusMap(prev => ({ ...prev, vvhan: 'ok' })), () => setStatusMap(prev => ({ ...prev, vvhan: 'fail' })))
   // Serper 测试（2026-08-11：接入统一状态）
   const [testingSerper, setTestingSerper] = useState(false)
   const [serperTestMsg2, setSerperTestMsg2] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -451,7 +437,7 @@ export default function SettingsPage() {
               { g: 'AI 核心', keys: ['deepseek', 'volcano', 'dashscope', 'siliconflow', 'agnes'], total: 5 },
               { g: '语音', keys: ['tts'], total: 1 },
               { g: '存储', keys: ['oss'], total: 1 },
-              { g: '搜索热点', keys: ['serper', 'vvhan'], total: 2 },
+              { g: '搜索热点', keys: ['serper'], total: 1 },
               { g: '媒体', keys: ['pixabay', 'giphy'], total: 2 },
               { g: '推送', keys: ['wechat', 'feishu'], total: 2 },
             ].map(grp => {
@@ -714,46 +700,6 @@ export default function SettingsPage() {
               文生图 agnes-image-2.1-flash · 文生视频 agnes-video-v2.0（异步轮询）。免费额度，谨慎高频调用。
             </p>
           </div>
-        </div>
-
-        {/* 天行 API（热点榜：抖音/微博/微信等，有则优先，无则走 vvhan 免费兜底） */}
-        <div className="bg-gray-900/60 backdrop-blur-xl rounded-xl border border-white/5 p-4 mb-4">
-          <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-white font-bold mb-2"><span className="text-purple-400">//</span> vvhan 热点 API
-              {statusMap.vvhan === 'ok'
-                ? <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">✅ 已配置</span>
-                : <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-500 border border-white/10">❌ 未配置（内置兜底可用）</span>}
-            </h3>
-          </div>
-          <p className="text-gray-400 text-xs mb-4">填写后，AGENT 热点榜（微博/抖音/知乎/小红书/头条/百度）优先走 vvhan v1 官方接口。申请：<a href="https://v1.vvhan.com/" target="_blank" rel="noreferrer" className="text-cyan-400 underline">v1.vvhan.com</a>（VH-BunAPI 控制台）</p>
-          <div className="flex gap-2 mb-2">
-            <input
-              type={showTianApiKey ? 'text' : 'password'}
-              value={vvhanApiKey}
-              onChange={e => setVvhanApiKey(e.target.value)}
-              placeholder="vvhan API Key（留空=用内置兜底）"
-              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50"
-            />
-            <button onClick={() => setShowTianApiKey(v => !v)}
-              className="px-3 py-2 bg-white/5 border border-white/10 text-gray-400 rounded-lg hover:bg-white/10 font-mono text-sm">
-              {showTianApiKey ? '🙈' : '👁'}
-            </button>
-          </div>
-          <div className="flex gap-2 mb-2">
-            <input value={vvhanApiBase} onChange={e => setVvhanApiBase(e.target.value)}
-              placeholder="API 域名（默认 https://v1.vvhan.com）"
-              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500/50" />
-          </div>
-          {/* 2026-08-11：掩码（已配置）状态也可测试——后端用已存 key 测 */}
-          <button onClick={testVvhanApiKey} disabled={testingTianApi}
-            className="mt-2 px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-500/30 disabled:opacity-50 font-mono text-xs whitespace-nowrap">
-            {testingTianApi ? '测试中...' : '测试连接'}
-          </button>
-          {tianApiTestMsg && (
-            <div className={`mt-2 text-xs font-mono px-3 py-1.5 rounded-lg inline-block ${
-              tianApiTestMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-            }`}>{tianApiTestMsg.text}</div>
-          )}
         </div>
 
         {/* Google 搜索（Serper）— 网页/视频/新闻搜索信源 */}

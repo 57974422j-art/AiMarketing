@@ -422,6 +422,8 @@ export default function AgentPage() {
         // 用现有接口：先取最近会话列表 → 再取该会话消息
         const s = await fetch('/api/agent/chat?action=sessions', { credentials: 'include' }).then(r => r.json())
         const sessions = Array.isArray(s?.data) ? s.data : []
+        setHistSessions(sessions)
+        setSessionCount(sessions.length)
         if (sessions.length > 0) {
           const sid = sessions[0].id
           const m = await fetch(`/api/agent/chat?action=messages&sessionId=${sid}`, { credentials: 'include' }).then(r => r.json())
@@ -491,6 +493,10 @@ export default function AgentPage() {
   const [selfChecking, setSelfChecking] = useState(false)
   const [showSelfCheck, setShowSelfCheck] = useState(false)
   const [sessionStart] = useState(Date.now())
+  // 2026-08-14: 历史会话面板
+  const [histOpen, setHistOpen] = useState(false)
+  const [histSessions, setHistSessions] = useState<{ id: number; title: string; updatedAt: string }[]>([])
+  const [sessionCount, setSessionCount] = useState(0)
   const [appVersion, setAppVersion] = useState('1.0.19')
   useEffect(() => {
     try {
@@ -762,6 +768,26 @@ export default function AgentPage() {
     } catch {}
   }
   useEffect(() => { loadBrainMemories(); loadMedia() }, [])
+  // 2026-08-14: 历史会话——列表加载 + 切换
+  const loadSessions = async () => {
+    try {
+      const r = await fetch('/api/agent/chat?action=sessions', { credentials: 'include' }).then(r => r.json())
+      const list = Array.isArray(r?.data) ? r.data : []
+      setHistSessions(list)
+      setSessionCount(list.length)
+    } catch {}
+  }
+  const loadSession = async (sid: number) => {
+    try {
+      const m = await fetch(`/api/agent/chat?action=messages&sessionId=${sid}`, { credentials: 'include' }).then(r => r.json())
+      const msgs = Array.isArray(m?.data?.messages) ? m.data.messages : []
+      setMessages(msgs.map((x: any) => ({ role: x.role, content: x.content })))
+      setSessionId(sid)
+      setWelcomeMsg(null)
+      setOnboarding(false)
+      setHistOpen(false)
+    } catch {}
+  }
   const toggleMedia = () => {
     const next = !mediaOpen
     setMediaOpen(next)
@@ -1614,7 +1640,26 @@ export default function AgentPage() {
             </div>
             {user ? (
               /* 2026-08-11：右侧一排三卡片——设置 / 管理(按角色跳转) / 退出 */
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="relative flex items-center gap-1.5 shrink-0">
+                <button onClick={() => { setHistOpen(v => !v); if (!histSessions.length) loadSessions() }}
+                  className="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-white/10 transition" title="历史会话">📜 历史</button>
+                {histOpen && (
+                  <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-xl border border-white/10 bg-[#0d1428]/95 backdrop-blur-xl shadow-2xl max-h-72 overflow-y-auto">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 sticky top-0 bg-[#0d1428]/95">
+                      <span className="text-[10px] text-gray-400 font-mono">📜 历史会话（{sessionCount}）</span>
+                      <button onClick={() => { setMessages([]); setSessionId(null); setWelcomeMsg('你好呀！我是你的 AI 营销助手，想聊点什么？'); setHistOpen(false) }}
+                        className="text-[9px] text-emerald-300 hover:text-emerald-200">＋ 新对话</button>
+                    </div>
+                    {histSessions.length === 0 && <p className="px-3 py-3 text-[10px] text-gray-600">暂无历史会话</p>}
+                    {histSessions.map((s: any) => (
+                      <button key={s.id} onClick={() => loadSession(s.id)}
+                        className={`w-full text-left px-3 py-2 text-[10px] border-b border-white/5 hover:bg-white/5 transition ${sessionId === s.id ? 'text-emerald-300 bg-emerald-500/10' : 'text-gray-300'}`}>
+                        <span className="block truncate">{s.title || '未命名会话'}</span>
+                        <span className="text-[8px] text-gray-600">{s.updatedAt ? new Date(s.updatedAt).toLocaleString('zh-CN') : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button onClick={() => setShowPrefs(true)}
                   className="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-white/10 transition" title="AI 设置（含改名）">设置</button>
                 <button onClick={() => router.push(user?.role === 'admin' ? '/admin' : user?.role === 'editor' ? '/ai-tools' : '/workspace')}
@@ -2053,8 +2098,8 @@ export default function AgentPage() {
                 <span className="truncate">🧠 {selfModel?.brain || '—'} <span className="text-gray-600">· {selfChecks.find(c => c.key === 'memory')?.detail || ''}</span></span>
               </div>
               <div className="text-[9px] text-gray-600 border-t border-white/[0.05] pt-1.5 flex items-center justify-between">
-                <span>会话 {Math.floor((Date.now() - sessionStart) / 60000)} 分钟</span>
-                <span>请求 {sessionReqs} 次</span>
+                <span>💬 历史 {sessionCount} 会话</span>
+                <span>本次 {sessionReqs} 次请求</span>
               </div>
             </div>
           </div>
