@@ -18,7 +18,7 @@ export function pickInBox(b: ButtonBox): { x: number; y: number } {
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { mkdir, writeFile, unlink } from 'fs/promises'
-import { execFile } from 'child_process'
+import { execFile, execFileSync } from 'child_process'
 import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
@@ -873,7 +873,101 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
   }
 }
 
-// ==================== 百炼千寻数字人 ====================
+/* ==================== 万相数字人（wan2.2-s2v，主方案） ====================
+ * createDigitalHumanVideo(photoUrl, audioUrl)
+ * <=20s 直接 wan2.2-s2v；>20s FFmpeg 切段 → 每段生成 → concat 拼接
+ */
+async function wanS2vSegment(photoUrl: string, audioUrl: string): Promise<string | null> {
+  const key = getDashScopeKey()
+  if (!key) return null
+  try {
+    let bbox: { face_bbox?: number[]; ext_bbox?: number[] } = {}
+    try {
+      const det = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
+        body: JSON.stringify({ model: 'wan2.2-s2v-detect', input: { image_url: photoUrl }, parameters: { resolution: 480 } }),
+      })
+      const rr = det?.output?.results?.[0]
+      if (rr) { bbox.face_bbox = rr.face_bbox || rr.face_bboxes?.[0]; bbox.ext_bbox = rr.ext_bbox || rr.ext_bboxes?.[0] }
+    } catch (e) { console.log('[数字人] detect 失败:', e?.message || e) }
+    const input: any = { image_url: photoUrl, audio_url: audioUrl }
+    if (bbox.face_bbox) input.face_bbox = bbox.face_bbox
+    if (bbox.ext_bbox) input.ext_bbox = bbox.ext_bbox
+    const data = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
+      body: JSON.stringify({ model: 'wan2.2-s2v', input, parameters: { resolution: '480P', duration: 5 } }),
+    })
+    const taskId = data?.output?.task_id || data?.task_id
+    if (!taskId) { console.error('[数字人] wan2.2-s2v 创建失败:', JSON.stringify(data).substring(0, 200)); return null }
+    const dashBase = 'https://dashscope.aliyuncs.com'
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 5000))
+      try {
+        const q = await fetchJSON(`${dashBase}/api/v1/tasks/${taskId}`, { headers: { 'Authorization': `Bearer ${key}` } })
+        const st = q?.output?.task_status || q?.status
+        if (st === 'SUCCEEDED') {
+          const url = q?.output?.video_url || q?.output?.results?.[0]?.url || ''
+          if (url) return url
+        }
+        if (st === 'FAILED' || st === 'CANCELED') { console.error('[数字人] 任务失败:', JSON.stringify(q).substring(0, 200)); return null }
+      } catch {}
+    }
+    return null
+  } catch (e) { console.error('[数字人] wan2.2-s2v 异常:', e?.message || e); return null }
+}
+
+// 照片+音频数字人（自动分段拼接）；返回最终视频 URL
+export async function createDigitalHumanVideo(photoUrl: string, audioUrl: string): Promise<{ videoUrl?: string; segments?: number; error?: string } | null> {
+  if (!photoUrl || !audioUrl) return { error: '缺少照片或音频' }
+  let audioDur = 0
+  try {
+    const out = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', audioUrl], { timeout: 20000 }).toString().trim()
+    audioDur = parseFloat(out) || 0
+  } catch { audioDur = 0 }
+  if (audioDur <= 0) return { error: '无法读取音频时长' }
+  if (audioDur <= 20) {
+    const url = await wanS2vSegment(photoUrl, audioUrl)
+    return url ? { videoUrl: url, segments: 1 } : { error: '数字人生成失败（可能照片非人像/音频过短）' }
+  }
+  try {
+    const os = await import('os')
+    const { join } = await import('path')
+    const tmp = join(os.tmpdir(), 'dh-' + Date.now())
+    const { mkdirSync, writeFileSync } = await import('fs')
+    mkdirSync(tmp, { recursive: true })
+    const audioLocal = join(tmp, 'audio.mp3')
+    const buf = Buffer.from(await (await fetch(audioUrl)).arrayBuffer())
+    writeFileSync(audioLocal, buf)
+    const segCount = Math.ceil(audioDur / 20)
+    const segUrls: string[] = []
+    for (let i = 0; i < segCount; i++) {
+      const seg = join(tmp, `seg_${i}.mp3`)
+      execFileSync('ffmpeg', ['-y', '-i', audioLocal, '-ss', String(i * 20), '-t', '20', '-c', 'copy', seg], { timeout: 30000 })
+      const { uploadToOSS } = await import('@/lib/oss')
+      const ossUrl = await uploadToOSS(seg, `dh-tmp/${Date.now()}_${i}.mp3`)
+      if (!ossUrl) { console.error('[数字人] 段音频上传失败'); return { error: '分段音频上传失败' } }
+      const url = await wanS2vSegment(photoUrl, ossUrl)
+      if (url) segUrls.push(url)
+      else console.error(`[数字人] 第${i + 1}段生成失败`)
+    }
+    if (segUrls.length === 0) return { error: '全部分段生成失败' }
+    if (segUrls.length === 1) return { videoUrl: segUrls[0], segments: segCount }
+    const parts = join(tmp, 'parts.txt')
+    writeFileSync(parts, segUrls.map(u => "file '" + u + "'").join(String.fromCharCode(10)))
+    const out = join(tmp, 'final.mp4')
+    execFileSync('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', parts, '-c', 'copy', out], { timeout: 120000 })
+    const { uploadToOSS } = await import('@/lib/oss')
+    const finalUrl = await uploadToOSS(out, `digital-human/${Date.now()}.mp4`)
+    return finalUrl ? { videoUrl: finalUrl, segments: segCount } : { error: '拼接上传失败' }
+  } catch (e: any) {
+    console.error('[数字人] 长口播分段异常:', e?.message || e)
+    return { error: '分段处理失败: ' + (e?.message || e) }
+  }
+}
+
+// ==================== 百炼千寻数字人（降级保留） ====================
 
 // 2026-08-14: 数字人默认 wan2.2-s2v（万相-数字人，实测有权限；liveportrait 提示即将下线）
 // wan2.2-s2v 限制：音频<15MB且<20s、输出<=20s、仅北京region（当前 key 已测可用）
