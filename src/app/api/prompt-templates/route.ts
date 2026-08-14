@@ -67,6 +67,7 @@ export async function GET(request: NextRequest) {
     const industry = searchParams.get('industry')
     const type = searchParams.get('type') // 'image' | 'video'
     const model = searchParams.get('model') // 2026-08-14 按模型（Seedance/H3/GPT-Image 等）
+    const source = searchParams.get('source') // 2026-08-14 按来源（cheerselfai 学习库等）
     let sql = 'SELECT * FROM PromptTemplate'
     const params: any[] = []
     const conditions: string[] = []
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
     if (type === 'image') { conditions.push("(category = '文生图' OR category NOT IN ('文生视频'))") }
     if (type === 'video') { conditions.push("category = '文生视频'") }
     if (model) { conditions.push('model = ?'); params.push(model) }
+    if (source) { conditions.push('source = ?'); params.push(source) }
 
     if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ')
     sql += ' ORDER BY id ASC'

@@ -12,7 +12,7 @@ const LIBS = [
   { slug: 'flux-3',         model: 'FLUX 3',         category: '视频提示词' },
   { slug: 'ecommerce-image',model: 'GPT Image 2',    category: '电商图片提示词' },
 ]
-const limit = parseInt(process.argv.find(a => a.startsWith('--limit='))?.split('=')[1] || '50', 10)
+const limit = parseInt(process.argv.find(a => a.startsWith('--limit='))?.split('=')[1] || '60', 10)
 const only = process.argv.find(a => a.startsWith('--lib='))?.split('=')[1]
 
 function stripTags(h) {
@@ -40,7 +40,7 @@ async function fetchLib(slug) {
     const after = html.substring(a, a + 900)
     const mAuthor = after.match(/@([A-Za-z0-9_\-\.]+)/)
     const mX = after.match(/https:\/\/x\.com\/[^"\s'\)]+/)
-    if (prompt.length > 50) items.push({ prompt, author: mAuthor?.[1] || '', xurl: mX?.[0] || '' })
+    if (prompt.length > 20) items.push({ prompt, author: mAuthor?.[1] || '', xurl: mX?.[0] || '' })
   }
   return items
 }

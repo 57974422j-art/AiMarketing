@@ -42,7 +42,7 @@ const VID_MODELS = [
   { value: 'happyhorse', label: '快乐小马', desc: '自动配音' },
 ]
 
-type ModeTab = 'image' | 'video' | 'scene' | 'digital' | 'all'
+type ModeTab = 'image' | 'video' | 'scene' | 'digital' | 'learn' | 'all'
 type MainTab = 'manage' | 'fetch' | 'generate' | 'maintain'
 
 const SUB_CATS: any = {
@@ -142,6 +142,7 @@ export default function AdminPromptTemplatesPage() {
       else if (modeTab === 'digital') params.set('category', '数字人')
       else if (modeTab === 'image') params.set('type', 'image')
       else if (modeTab === 'video') params.set('type', 'video')
+      else if (modeTab === 'learn') params.set('source', 'cheerselfai')
       if (industryFilter) params.set('industry', industryFilter)
       if (modelFilter) params.set('model', modelFilter)
       const url = '/api/prompt-templates?' + params.toString()
@@ -425,6 +426,8 @@ export default function AdminPromptTemplatesPage() {
                 className={`px-3 py-1.5 rounded-lg text-xs border ${modeTab === 'scene' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10'}`}>场景</button>
               <button onClick={() => { setModeTab('digital'); setFilterCat(''); setSelectedIds(new Set()) }}
                 className={`px-3 py-1.5 rounded-lg text-xs border ${modeTab === 'digital' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-gray-400 border-white/10'}`}>数字人</button>
+              <button onClick={() => { setModeTab('learn'); setFilterCat(''); setSelectedIds(new Set()) }}
+                className={`px-3 py-1.5 rounded-lg text-xs border ${modeTab === 'learn' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' : 'bg-white/5 text-gray-400 border-white/10'}`}>📚 学习库</button>
               <select value={modelFilter} onChange={(e) => { setModelFilter(e.target.value); setSelectedIds(new Set()) }}
                 className="px-2 py-1.5 rounded-lg text-xs border bg-black/30 border-white/10 text-gray-300 outline-none focus:border-emerald-500/40">
                 <option value="">全部模型</option>
