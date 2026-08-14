@@ -427,6 +427,15 @@ export default function SettingsPage() {
             </button>
           ))}
         </div>
+        {/* 2026-08-14: 全局保存按钮（分页后放 Tab 下方，避免找不到保存按钮） */}
+        <div className="flex justify-end mb-4">
+          <button onClick={saveAllSettings} disabled={saving}
+            className={`px-6 py-2.5 rounded-xl text-sm text-white font-mono transition-colors ${
+              saving ? 'bg-gray-600 cursor-wait' : 'bg-emerald-500 hover:bg-emerald-600'
+            }`}>
+            {saving ? '⏳ 保存中...' : '💾 保存所有配置'}
+          </button>
+        </div>
         {/* 标题栏 */}
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -873,16 +882,6 @@ export default function SettingsPage() {
             setShowAddProxy, setNewProxy, setProxies, setProxyStats, setProxyGlobalEnabled, setStatusMap,
           }}
         />
-
-        {/* 保存按钮 */}
-        <div className="flex justify-end mt-6">
-          <button onClick={saveAllSettings} disabled={saving}
-            className={`px-6 py-3 rounded-xl text-white font-mono transition-colors ${
-              saving ? 'bg-gray-600 cursor-wait' : 'bg-emerald-500 hover:bg-emerald-600'
-            }`}>
-            {saving ? '⏳ 保存中...' : '保存所有配置'}
-          </button>
-        </div>
 
         </div>{/* engine 组结束 */}
         <div className={cfgTab === 'system' ? '' : 'hidden'}>
