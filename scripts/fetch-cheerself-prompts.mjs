@@ -116,7 +116,9 @@ async function main() {
       console.log(`[${lib.slug}] 解析到 ${items.length} 条`)
       let inserted = 0
       for (const it of items.slice(0, limit)) {
-        const exist = await prisma.promptTemplate.findFirst({ where: { model: lib.model, originalUrl: it.xurl || undefined } })
+        const exist = it.xurl
+          ? await prisma.promptTemplate.findFirst({ where: { model: lib.model, originalUrl: it.xurl } })
+          : await prisma.promptTemplate.findFirst({ where: { model: lib.model, prompt: it.prompt } })
         if (exist) {
           // 已存在但无封面 → 补转 OSS
           if (!exist.previewUrl && (it.cover || it.coverMp4)) {
