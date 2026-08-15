@@ -10,6 +10,8 @@ const CATS = {
   'gpt-image-2': '图像提示词', 'seedream-5-pro': '图像提示词', 'ecommerce-image': '电商图片提示词',
 }
 const nocover = process.argv.includes('--nocover')
+// 2026-08-15: prompt 归一化去重（去空白/换行差异——滚动抓取同一提示词可能微差）
+const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
 const only = process.argv.find(a => a.startsWith('--lib='))?.split('=')[1]
 
 let ossClient = null
@@ -66,7 +68,8 @@ for (const slug of Object.keys(data)) {
     const it = lib.items[i]
     const exist = it.xurl
       ? await prisma.promptTemplate.findFirst({ where: { model: lib.model, originalUrl: it.xurl } })
-      : await prisma.promptTemplate.findFirst({ where: { model: lib.model, prompt: it.prompt } })
+      : await prisma.promptTemplate.findMany({ where: { model: lib.model }, take: 2000, select: { id: true, prompt: true } })
+          .then(rows => rows.find(r => norm(r.prompt) === norm(it.prompt)))
     let previewUrl = null
     if (!exist && !nocover) {
       // 2026-08-15: poster(pbs 被墙)失败 → fallback mp4(r2.dev 可达) 抽帧
