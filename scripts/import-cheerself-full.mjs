@@ -10,6 +10,7 @@ const CATS = {
   'gpt-image-2': '图像提示词', 'seedream-5-pro': '图像提示词', 'ecommerce-image': '电商图片提示词',
 }
 const nocover = process.argv.includes('--nocover')
+const doVideo = process.argv.includes('--video')
 // 2026-08-15: prompt 归一化去重（去空白/换行差异——滚动抓取同一提示词可能微差）
 const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
 const only = process.argv.find(a => a.startsWith('--lib='))?.split('=')[1]
@@ -22,6 +23,20 @@ function getOss() {
   ossClient = new OSS({ region: r, accessKeyId: k, accessKeySecret: s, bucket: b, authorizationV4: true, endpoint: `https://${r}.aliyuncs.com` })
   return ossClient
 }
+async function videoToOss(url, slug, idx) {
+  try {
+    const oss = getOss()
+    if (!oss || !url) return null
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(120000) })
+    if (!r.ok) return null
+    const buf = Buffer.from(await r.arrayBuffer())
+    if (buf.length < 10000 || buf.length > 100 * 1024 * 1024) return null
+    const key = `prompts/cheerselfai/${slug}/video-${idx}.mp4`
+    await oss.put(key, buf, { headers: { 'Content-Type': 'video/mp4' } })
+    return `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION}.aliyuncs.com/${key}`
+  } catch { return null }
+}
+
 async function coverToOss(url, slug, idx) {
   try {
     const oss = getOss()
@@ -71,6 +86,8 @@ for (const slug of Object.keys(data)) {
       : await prisma.promptTemplate.findMany({ where: { model: lib.model }, take: 2000, select: { id: true, prompt: true } })
           .then(rows => rows.find(r => norm(r.prompt) === norm(it.prompt)))
     let previewUrl = null
+    let videoUrl = null
+    if (doVideo && it.mp4) videoUrl = await videoToOss(it.mp4, slug, i)
     if (!exist && !nocover) {
       // 2026-08-15: poster(pbs 被墙)失败 → fallback mp4(r2.dev 可达) 抽帧
       let cover = it.poster || ''
@@ -86,6 +103,7 @@ for (const slug of Object.keys(data)) {
         let pv = cover ? await coverToOss(cover, slug, i) : null
         if (!pv && it.mp4) pv = await coverToOss(it.mp4, slug, i)
         if (pv) await prisma.promptTemplate.update({ where: { id: exist.id }, data: { previewUrl: pv, coverUrl: pv } })
+        if (doVideo && videoUrl && !exist.videoUrl) await prisma.promptTemplate.update({ where: { id: exist.id }, data: { videoUrl } })
       }
       continue
     }
