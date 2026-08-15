@@ -1898,7 +1898,33 @@ export default function AgentPage() {
                       {/* 阶段二·Scene 投影：AGENT 返回结构化卡片原生渲染 */}
                       {msg.role === 'assistant' && msg.scene && (
                                                 <div className="mt-2 rounded-xl bg-white/[0.03] border border-white/[0.08] p-3 scene-in">
-                          {msg.scene.type === 'image' ? (
+                          {msg.scene.type === 'template' && Array.isArray(msg.scene.items) ? (
+                            <div className="flex flex-col gap-2">
+                              <p className="text-[11px] text-emerald-300 font-medium">🎨 参考风格（选 1 个生成，或说「换一批」）</p>
+                              {msg.scene.items.map((it: any, i: number) => it.type === 'video' ? (
+                                <div key={i} className="rounded-lg bg-white/[0.04] border border-white/[0.08] p-2">
+                                  <video src={it.url} controls preload="metadata" className="w-full max-h-44 rounded bg-black" />
+                                  <div className="flex items-center justify-between mt-1.5 gap-2">
+                                    <p className="text-[10px] text-gray-300 truncate">{it.title} <span className="text-purple-400/80">({it.model})</span></p>
+                                    <button onClick={() => sendMessage(it.prompt || `用第 ${i + 1} 个风格生成：${it.title}`)}
+                                      className="shrink-0 px-2.5 py-1 rounded bg-emerald-500/20 text-[10px] text-emerald-300 hover:bg-emerald-500/30">用这个生成</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.04] border border-white/[0.08] p-2">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={it.url} alt={it.title} className="w-16 h-16 object-cover rounded bg-white/10" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[10px] text-gray-300 truncate">{it.title} <span className="text-purple-400/80">({it.model})</span></p>
+                                    <button onClick={() => sendMessage(it.prompt || `用第 ${i + 1} 个风格生成：${it.title}`)}
+                                      className="mt-1 px-2.5 py-1 rounded bg-emerald-500/20 text-[10px] text-emerald-300 hover:bg-emerald-500/30">用这个生成</button>
+                                  </div>
+                                </div>
+                              ))}
+                              <button onClick={() => sendMessage('换一批风格')}
+                                className="self-end px-2.5 py-1 rounded bg-white/5 text-[10px] text-gray-400 hover:text-white hover:bg-white/10">🔄 换一批</button>
+                            </div>
+                          ) : msg.scene.type === 'image' ? (
                             <div className="flex flex-col items-center">
                               {msg.scene.title && <p className="text-[11px] text-emerald-300 font-medium mb-2 text-center">{msg.scene.title}</p>}
                               {msg.scene.url && (

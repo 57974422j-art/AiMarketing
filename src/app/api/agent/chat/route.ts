@@ -1354,21 +1354,29 @@ export async function POST(request: NextRequest) {
         `\n【今日热点上下文（用户主页展示的真实热榜，可主动结合做内容，但只在相关时提及，不要每条都硬塞）】\n${hotContext}`
       )
     }
-    // 2026-08-14: 生成意图 → 自动搜提示词模板注入 system（AI 回复带推荐，不依赖 AI 调工具）
+    // 2026-08-15: 生成意图 → 挑 3 条风格模板（图像库带封面图 / 视频库带视频）+ 后端兜底 scene 卡片
+    let templateScene: any = null
     try {
-      const GEN_INTENT = /海报|生图|生成图|生成图片|广告图|产品图|设计图|封面|图片|广告片|短片|生视频|视频/
-      if (GEN_INTENT.test(userContent || '')) {
-        const kw = (String(userContent || '').match(/[\u4e00-\u9fa5]{2,6}/g) || []).slice(0, 2).join(' ') || '海报'
-        const tpls = await prisma.promptTemplate.findMany({
-          where: { OR: [
-            { title: { contains: kw } }, { prompt: { contains: kw } },
-            { category: { contains: kw } }, { model: { contains: kw } },
-          ] },
-          take: 5,
-        }).catch(() => [])
-        if (tpls.length) {
-          sysBlocks.push('\n【可参考的提示词模板（用户正要做生成任务，回复时主动推荐 1-3 个，标注模型名，并提示可去提示词库查看/复制）】\n'
-            + tpls.map((t: any, i: number) => `${i + 1}. ${t.title} [${t.category || ''}] (${t.model || '通用'})`).join('\n'))
+      const GEN_IMG = /海报|生图|生成图|生成图片|广告图|产品图|设计图|封面|图片/
+      const GEN_VID = /视频|广告片|短片|生视频/
+      const uc = String(userContent || '')
+      if (GEN_IMG.test(uc) || GEN_VID.test(uc) || /换一批|换风格|换几个/.test(uc)) {
+        const isVid = GEN_VID.test(uc)
+        const skip = Math.floor(Math.random() * 6) // 随机起点——「换一批」出不同风格
+        const tpls = isVid
+          ? await prisma.promptTemplate.findMany({ where: { source: 'cheerselfai', videoUrl: { not: null } }, orderBy: { id: 'desc' }, skip, take: 12 }).catch(() => [])
+          : await prisma.promptTemplate.findMany({ where: { source: 'cheerselfai', coverUrl: { not: null } }, orderBy: { id: 'desc' }, skip, take: 12 }).catch(() => [])
+        const cards = tpls.slice(0, 3).map((t: any) => ({
+          type: isVid ? 'video' : 'image',
+          url: isVid ? t.videoUrl : t.coverUrl,
+          title: (t.title || '风格模板').substring(0, 18),
+          prompt: t.prompt,
+          model: t.model || '通用',
+        }))
+        if (cards.length) {
+          templateScene = { type: 'template', items: cards }
+          sysBlocks.push('\n【可参考风格模板（用户生成任务——回复时引导选 1/2/3 或用「换一批」，每条是真实库里的风格，标注模型；不要编造库里没有的风格）】\n'
+            + cards.map((t: any, i: number) => `${i + 1}. ${t.title} (${t.model})`).join('\n'))
         }
       }
     } catch {}
@@ -1488,7 +1496,7 @@ export async function POST(request: NextRequest) {
       }
       return NextResponse.json({
         success: true,
-        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, steps, scene, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
+        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, steps, scene: scene || templateScene, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
       })
     }
 
@@ -1539,7 +1547,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({
       success: true,
-      data: { reply, intent: 'chat', toolUsed: false, sessionId, scene, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
+      data: { reply, intent: 'chat', toolUsed: false, sessionId, scene: scene || templateScene, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
     })
   } catch (error: any) {
     console.error('[Agent API]', error)
