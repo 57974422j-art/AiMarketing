@@ -32,6 +32,8 @@ export default function PromptLibraryPage() {
   const [items, setItems] = useState<PItem[]>([])
   const [loading, setLoading] = useState(false)
   const [copiedId, setCopiedId] = useState<number | null>(null)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [deleting, setDeleting] = useState(false)
   const PAGE_SIZE = 20
 
   const load = useCallback(async () => {
@@ -54,6 +56,16 @@ export default function PromptLibraryPage() {
       setCopiedId(it.id); setTimeout(() => setCopiedId(null), 1500)
     }).catch(() => {})
   }
+  const delItems = async (ids: number[]) => {
+    setDeleting(true)
+    try {
+      for (const id of ids) await fetch(`/api/prompt-templates?id=${id}`, { method: 'DELETE', credentials: 'include' })
+      setSelected(new Set())
+      load()
+    } catch {} finally { setDeleting(false) }
+  }
+  const toggleSel = (id: number) => setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const allSelected = items.length > 0 && items.every(i => selected.has(i.id))
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   if (authLoading || !user) return <div className="min-h-screen bg-[#0a0f1c] text-white p-6 text-sm text-gray-500">加载中…</div>
@@ -79,13 +91,25 @@ export default function PromptLibraryPage() {
             {MODELS.map(m => <option key={m || 'all'} value={m}>{m || '全部模型'}</option>)}
           </select>
           <span className="text-[10px] text-gray-600">第 {page}/{totalPages} 页</span>
+          <button onClick={() => setSelected(allSelected ? new Set() : new Set(items.map(i => i.id)))}
+            className="px-3 py-1.5 rounded-lg text-xs border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10">{allSelected ? '取消全选' : `全选本页（${items.length}）`}</button>
+          {selected.size > 0 && (
+            <button onClick={() => { if (confirm(`删除选中的 ${selected.size} 条？`)) delItems([...selected]) }} disabled={deleting}
+              className="px-3 py-1.5 rounded-lg text-xs bg-red-500/20 border border-red-500/30 text-red-300 hover:bg-red-500/30 disabled:opacity-50">
+              {deleting ? '删除中…' : `🗑 删除选中（${selected.size}）`}
+            </button>
+          )}
         </div>
 
         {loading ? <p className="text-xs text-gray-600">加载中…</p> : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {items.map(it => (
-                <div key={it.id} className="rounded-xl border border-white/[0.08] bg-white/[0.03] overflow-hidden flex flex-col">
+                <div key={it.id} className={`rounded-xl border bg-white/[0.03] overflow-hidden flex flex-col relative ${selected.has(it.id) ? 'border-emerald-500/50' : 'border-white/[0.08]'}`}>
+                  <label className="absolute top-2 left-2 z-10 flex items-center gap-1 cursor-pointer bg-black/40 rounded px-1.5 py-0.5">
+                    <input type="checkbox" checked={selected.has(it.id)} onChange={() => toggleSel(it.id)} className="accent-emerald-500" />
+                    <span className="text-[9px] text-gray-300">{it.id}</span>
+                  </label>
                   {it.previewUrl || it.coverUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={it.previewUrl || it.coverUrl} alt={it.title || 'prompt'} className="w-full h-36 object-cover bg-black/40"
@@ -109,6 +133,8 @@ export default function PromptLibraryPage() {
                         <a href={it.originalUrl} target="_blank" rel="noreferrer"
                           className="px-2.5 py-1 rounded-md text-[10px] bg-white/5 text-gray-400 border border-white/10 hover:text-cyan-300">原文 ↗</a>
                       )}
+                      <button onClick={() => { if (confirm('删除这条？')) delItems([it.id]) }}
+                        className="px-2 py-1 rounded-md text-[10px] bg-red-500/10 text-red-300 border border-red-500/20 hover:bg-red-500/20">🗑</button>
                     </div>
                   </div>
                 </div>
