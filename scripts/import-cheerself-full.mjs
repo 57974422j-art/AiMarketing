@@ -95,6 +95,7 @@ for (const slug of Object.keys(data)) {
         prompt: it.prompt,
         previewUrl,
         coverUrl: previewUrl || undefined,
+        videoUrl: videoUrl || undefined,
         category: CATS[slug] || '提示词',
         model: lib.model,
         source: 'cheerselfai',
