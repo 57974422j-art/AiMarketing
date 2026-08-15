@@ -66,6 +66,17 @@ export default function PromptLibraryPage() {
       setCopiedId(it.id); setTimeout(() => setCopiedId(null), 1500)
     }).catch(() => {})
   }
+  const uploadMedia = async (it: PItem, file: File) => {
+    setFetchingId(it.id)
+    try {
+      const fd = new FormData()
+      fd.append('id', String(it.id)); fd.append('file', file)
+      const r = await fetch('/api/prompt-templates/upload', { method: 'POST', credentials: 'include', body: fd })
+      const d = await r.json()
+      if (d.success) load()
+      else alert(d.message || '上传失败')
+    } catch { alert('上传失败（网络）') } finally { setFetchingId(null) }
+  }
   const fetchImage = async (it: PItem) => {
     setFetchingId(it.id)
     try {
@@ -161,6 +172,11 @@ export default function PromptLibraryPage() {
                         className="px-2.5 py-1 rounded-md text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25">
                         {copiedId === it.id ? '✅ 已复制' : '📋 复制'}
                       </button>
+                      <label className="px-2 py-1 rounded-md text-[10px] bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/25 cursor-pointer">
+                        📤 上传{fetchingId === it.id ? '中…' : ''}
+                        <input type="file" accept="image/*,video/*" className="hidden"
+                          onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMedia(it, f); e.target.value = '' }} />
+                      </label>
                       {it.originalUrl && (
                         <a href={it.originalUrl} target="_blank" rel="noreferrer"
                           className="px-2.5 py-1 rounded-md text-[10px] bg-white/5 text-gray-400 border border-white/10 hover:text-cyan-300">原文 ↗</a>
