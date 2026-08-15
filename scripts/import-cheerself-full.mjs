@@ -69,14 +69,19 @@ for (const slug of Object.keys(data)) {
       : await prisma.promptTemplate.findFirst({ where: { model: lib.model, prompt: it.prompt } })
     let previewUrl = null
     if (!exist && !nocover) {
-      const cover = it.poster || it.mp4 || (it.img ? (it.img.startsWith('/') ? 'https://cheerselfai.com' + it.img : it.img) : '')
+      // 2026-08-15: poster(pbs 被墙)失败 → fallback mp4(r2.dev 可达) 抽帧
+      let cover = it.poster || ''
+      if (!cover && it.img) cover = it.img.startsWith('/') ? 'https://cheerselfai.com' + it.img : it.img
       if (cover) previewUrl = await coverToOss(cover, slug, i)
+      if (!previewUrl && it.mp4) previewUrl = await coverToOss(it.mp4, slug, i)
       if (previewUrl) covered++
     }
     if (exist) {
       if (!exist.previewUrl && !nocover) {
-        const cover = it.poster || it.mp4 || (it.img ? (it.img.startsWith('/') ? 'https://cheerselfai.com' + it.img : it.img) : '')
-        const pv = cover ? await coverToOss(cover, slug, i) : null
+        let cover = it.poster || ''
+        if (!cover && it.img) cover = it.img.startsWith('/') ? 'https://cheerselfai.com' + it.img : it.img
+        let pv = cover ? await coverToOss(cover, slug, i) : null
+        if (!pv && it.mp4) pv = await coverToOss(it.mp4, slug, i)
         if (pv) await prisma.promptTemplate.update({ where: { id: exist.id }, data: { previewUrl: pv, coverUrl: pv } })
       }
       continue
