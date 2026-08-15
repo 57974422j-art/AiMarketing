@@ -11,6 +11,7 @@ const CATS = {
 }
 const nocover = process.argv.includes('--nocover')
 const doVideo = process.argv.includes('--video')
+const mediaOnly = process.argv.includes('--media-only')  // 2026-08-15: 只导入有封面图/视频的（跳过空词条）
 // 2026-08-15: prompt 归一化去重（去空白/换行差异——滚动抓取同一提示词可能微差）
 const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
 const only = process.argv.find(a => a.startsWith('--lib='))?.split('=')[1]
@@ -85,6 +86,8 @@ for (const slug of Object.keys(data)) {
   const byPrompt = new Map(allRows.map(r => [norm(r.prompt), r]))
   for (let i = 0; i < lib.items.length; i++) {
     const it = lib.items[i]
+    // --media-only: 跳过无图/无视频的条目（图片库懒加载空词条不入库）
+    if (mediaOnly && !it.poster && !it.mp4 && !it.img) continue
     const exist = it.xurl ? byXurl.get(it.xurl) : byPrompt.get(norm(it.prompt))
     let previewUrl = null
     let videoUrl = null
