@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
-import { listObjects } from '@/lib/oss'
+import { listObjects, putObject } from '@/lib/oss'
 import { saveToPersonalRepo, ensureThumb } from '@/lib/personal-storage'
 
 const MAX_QUOTA = 500 * 1024 * 1024 // 500MB
@@ -81,7 +81,28 @@ export async function POST(request: NextRequest) {
 
   try {
     const res = await saveToPersonalRepo({ userId: auth.userId, buffer, ext, mime })
-    return NextResponse.json({ success: true, data: { name: res.name, size: file.size } })
+    // 2026-08-15: 视频抽 3 帧存 OSS——Agent 发视频时 AI 能"看"内容（提取提示词/描述）
+    let frames: string[] = []
+    if (mime.startsWith('video/')) {
+      try {
+        const os = await import('os'); const path = await import('path'); const fsx = await import('fs'); const cp = await import('child_process')
+        const tmp = path.join(os.tmpdir(), `frame-src-${auth.userId}-${Date.now()}.${ext}`)
+        fsx.writeFileSync(tmp, buffer)
+        const framesB = []
+        for (let f = 0; f < 3; f++) {
+          let out: Buffer | null = null
+          try { out = cp.execSync(`ffmpeg -y -ss ${f * 2} -i "${tmp}" -frames:v 1 -vf scale=480:-1 -f image2pipe -vcodec mjpeg - 2>/dev/null`, { timeout: 30000 }) } catch {}
+          if (out && out.length > 500) {
+            const fk = `storage/${auth.userId}/frame-${Date.now()}-${f}.jpg`
+            await putObject(fk, out, 'image/jpeg')
+            framesB.push(`/api/storage/file?userId=${auth.userId}&name=${encodeURIComponent(fk.split('/').pop() || fk)}`)
+          }
+        }
+        frames = framesB
+        try { fsx.unlinkSync(tmp) } catch {}
+      } catch (e2) { console.warn('[storage] 视频抽帧失败', e2?.message) }
+    }
+    return NextResponse.json({ success: true, data: { name: res.name, size: file.size, frames } })
   } catch (e) {
     const message = e instanceof Error ? e.message : '保存失败'
     return NextResponse.json({ success: false, message }, { status: 413 })

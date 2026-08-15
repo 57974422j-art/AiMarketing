@@ -1351,7 +1351,7 @@ export default function AgentPage() {
       const d = await r.json()
       if (d.success && d.data?.name) {
         const url = `/api/storage/file?userId=${user?.id}&name=${encodeURIComponent(d.data.name)}`
-        setAttachments(prev => [...prev, { name: file.name, url, type: isVideo ? 'video' : 'image' }])
+        setAttachments(prev => [...prev, { name: file.name, url, type: isVideo ? 'video' : 'image', frames: d.data?.frames || [] }])
       }
     })
     if (fileInputRef.current) fileInputRef.current.value = ''
