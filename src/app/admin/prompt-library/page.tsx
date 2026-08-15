@@ -35,6 +35,9 @@ export default function PromptLibraryPage() {
   const [copiedId, setCopiedId] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  const [keyword, setKeyword] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const [fetchingId, setFetchingId] = useState<number | null>(null)
   const PAGE_SIZE = 20
 
   const load = useCallback(async () => {
@@ -43,6 +46,7 @@ export default function PromptLibraryPage() {
       const q = new URLSearchParams()
       if (source) q.set('source', source)
       if (model) q.set('model', model)
+      if (keyword) q.set('keyword', keyword)
       q.set('page', String(page)); q.set('pageSize', String(PAGE_SIZE))
       const r = await fetch('/api/prompt-templates?' + q.toString(), { credentials: 'include' })
       const d = await r.json()
@@ -51,11 +55,25 @@ export default function PromptLibraryPage() {
   }, [source, model, page])
 
   useEffect(() => { if (!authLoading && user) load() }, [load, authLoading, user])
+  // 防抖搜索（输入停止 500ms 后触发）
+  useEffect(() => {
+    const t = setTimeout(() => { setKeyword(searchInput.trim()); setPage(1) }, 500)
+    return () => clearTimeout(t)
+  }, [searchInput])
 
   const copyPrompt = (it: PItem) => {
     navigator.clipboard?.writeText(it.prompt).then(() => {
       setCopiedId(it.id); setTimeout(() => setCopiedId(null), 1500)
     }).catch(() => {})
+  }
+  const fetchImage = async (it: PItem) => {
+    setFetchingId(it.id)
+    try {
+      const r = await fetch(`/api/prompt-templates/fetch-image?id=${it.id}`, { method: 'POST', credentials: 'include' })
+      const d = await r.json()
+      if (d.success) load()
+      else alert(d.message || '拉图失败')
+    } catch { alert('拉图失败（网络）') } finally { setFetchingId(null) }
   }
   const delItems = async (ids: number[]) => {
     setDeleting(true)
@@ -81,6 +99,12 @@ export default function PromptLibraryPage() {
           </div>
         </div>
 
+        {/* 搜索框（按提示词内容搜） */}
+        <div className="mb-3">
+          <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="🔍 搜索提示词/标题/模型（粘贴提示词片段查是否已存在）"
+            className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 outline-none focus:border-emerald-500/40" />
+        </div>
         {/* 筛选栏 */}
         <div className="flex gap-2 mb-4 flex-wrap items-center">
           <select value={source} onChange={(e) => { setSource(e.target.value); setPage(1) }}
@@ -118,7 +142,12 @@ export default function PromptLibraryPage() {
                     <img src={it.previewUrl || it.coverUrl} alt={it.title || 'prompt'} className="w-full h-36 object-cover bg-black/40"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                   ) : (
-                    <div className="w-full h-20 bg-gradient-to-br from-white/5 to-transparent flex items-center justify-center text-[10px] text-gray-700">无封面</div>
+                    <div className="w-full h-20 bg-gradient-to-br from-white/5 to-transparent flex items-center justify-center">
+                      <button onClick={() => fetchImage(it)} disabled={fetchingId === it.id}
+                        className="px-2.5 py-1 rounded-md text-[10px] bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 disabled:opacity-50">
+                        {fetchingId === it.id ? '拉取中…' : '🖼 拉取图片'}
+                      </button>
+                    </div>
                   )}
                   <div className="p-3 flex flex-col flex-1 min-h-0">
                     <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
