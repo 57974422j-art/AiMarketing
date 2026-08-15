@@ -89,6 +89,7 @@ for (const slug of Object.keys(data)) {
     let previewUrl = null
     let videoUrl = null
     if (doVideo && it.mp4) videoUrl = await videoToOss(it.mp4, slug, i)
+    if (doVideo && i % 20 === 0) console.log(`  [${slug}] ${i}/${lib.items.length} 条（本轮 video: ${videoUrl ? 'OK' : '-'}）`)
     if (!exist && !nocover) {
       // 2026-08-15: poster(pbs 被墙)失败 → fallback mp4(r2.dev 可达) 抽帧
       let cover = it.poster || ''
