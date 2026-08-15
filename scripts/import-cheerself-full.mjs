@@ -113,7 +113,7 @@ for (const slug of Object.keys(data)) {
       if (doVideo && videoUrl && !exist.videoUrl) await prisma.promptTemplate.update({ where: { id: exist.id }, data: { videoUrl } })
       continue
     }
-    await prisma.promptTemplate.create({
+    const created = await prisma.promptTemplate.create({
       data: {
         title: it.prompt.substring(0, 40),
         prompt: it.prompt,
