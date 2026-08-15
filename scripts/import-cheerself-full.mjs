@@ -105,8 +105,9 @@ for (const slug of Object.keys(data)) {
         let pv = cover ? await coverToOss(cover, slug, i) : null
         if (!pv && it.mp4) pv = await coverToOss(it.mp4, slug, i)
         if (pv) await prisma.promptTemplate.update({ where: { id: exist.id }, data: { previewUrl: pv, coverUrl: pv } })
-        if (doVideo && videoUrl && !exist.videoUrl) await prisma.promptTemplate.update({ where: { id: exist.id }, data: { videoUrl } })
       }
+      // 2026-08-15: videoUrl 更新独立于 nocover（--video --nocover 时视频也要写库）
+      if (doVideo && videoUrl && !exist.videoUrl) await prisma.promptTemplate.update({ where: { id: exist.id }, data: { videoUrl } })
       continue
     }
     await prisma.promptTemplate.create({
