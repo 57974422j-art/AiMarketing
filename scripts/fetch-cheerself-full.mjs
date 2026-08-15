@@ -38,7 +38,8 @@ async function fetchFull(slug) {
       return false
     }).catch(() => false)
     if (!clicked) break
-    await page.waitForTimeout(2500)
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    await page.waitForTimeout(4000)
     rounds++
     if (rounds % 5 === 0) {
       const n = (await page.content()).match(/imagePromptCard/g || []).length || 0
@@ -61,7 +62,12 @@ async function fetchFull(slug) {
     prompt = prompt.replace(/^[\s:：]*/, '').replace(/当前浏览器不支持视频播放\s*$/, '').replace(/\s+$/g, '').trim()
     const poster = cardHtml.match(/poster="([^"]+)/)?.[1] || ''
     const mp4 = cardHtml.match(/<source[^>]*src="([^"]+\.mp4[^"]*)"/)?.[1] || ''
-    const img = cardHtml.match(/<img[^>]*src="([^"]+)/)?.[1] || ''
+    // 2026-08-15: 图片懒加载——src 可能空，补 srcset/data-src；srcset 取第一张
+    let img = cardHtml.match(/<img[^>]*src="([^"]+)/)?.[1] || ''
+    if (!img) img = (cardHtml.match(/srcset="([^"]+)/)?.[1] || '').split(' ')[0] || ''
+    if (!img) img = cardHtml.match(/data-src="([^"]+)/)?.[1] || ''
+    if (img && img.startsWith('/_next/image?url=')) img = decodeURIComponent(img.split('url=')[1].split('&')[0])
+    if (img && img.startsWith('/')) img = 'https://cheerselfai.com' + img
     const after = html.substring(a, a + 900)
     const author = after.match(/@([A-Za-z0-9_\-\.]+)/)?.[1] || ''
     const xurl = after.match(/https:\/\/x\.com\/[^"\s'\)]+/)?.[0] || ''
