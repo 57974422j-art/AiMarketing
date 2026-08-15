@@ -13,7 +13,7 @@ const nocover = process.argv.includes('--nocover')
 const doVideo = process.argv.includes('--video')
 const mediaOnly = process.argv.includes('--media-only')  // 2026-08-15: 只导入有封面图/视频的（跳过空词条）
 // 2026-08-15: prompt 归一化去重（去空白/换行差异——滚动抓取同一提示词可能微差）
-const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
+const norm = (s) => String(s || '').replace(/复制并生图/gi, '').replace(/\s+/g, ' ').trim().toLowerCase()  // 2026-08-15: 忽略 action 噪音去重
 const only = process.argv.find(a => a.startsWith('--lib='))?.split('=')[1]
 
 let ossClient = null

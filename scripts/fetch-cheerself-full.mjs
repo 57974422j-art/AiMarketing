@@ -59,7 +59,7 @@ async function fetchFull(slug) {
     let prompt = stripTags(cardHtml)
     const ti = prompt.indexOf('提示词')
     if (ti >= 0 && ti < 30) prompt = prompt.substring(ti + 3).trim()
-    prompt = prompt.replace(/^[\s:：]*/, '').replace(/当前浏览器不支持视频播放\s*$/, '').replace(/\s+$/g, '').trim()
+    prompt = prompt.replace(/^[\s:：]*/, '').replace(/当前浏览器不支持视频播放\s*$/, '').replace(/复制并生图[\s\S]*$/, '').replace(/\s+$/g, '').trim()  // 2026-08-15: 去尾部 action 噪音
     const poster = cardHtml.match(/poster="([^"]+)/)?.[1] || ''
     const mp4 = cardHtml.match(/<source[^>]*src="([^"]+\.mp4[^"]*)"/)?.[1] || ''
     // 2026-08-15: 图片懒加载——src 可能空，补 srcset/data-src；srcset 取第一张
