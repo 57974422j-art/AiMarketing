@@ -212,7 +212,31 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
-      name: 'read_knowledge',
+      name: 'add_knowledge_site',
+    description: '把用户给的网站 URL 加入知识库（用户说"加入知识库/收藏这个网站"时调用）。参数 url + 可选 title/desc/category。',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: '网站完整 URL' },
+        title: { type: 'string', description: '站点标题（可选）' },
+        desc: { type: 'string', description: '站点说明（可选）' },
+        category: { type: 'string', description: '分类：提示词/素材/灵感/教程（可选）' },
+      }, required: ['url'],
+    },
+  },
+  {
+    name: 'search_knowledge',
+    description: '搜索知识库站点（用户问"知识库有什么/找某个方向的网站"时调用）。找到后如需要内容，再配合 crawl_web 抓取。',
+    parameters: {
+      type: 'object',
+      properties: {
+        keyword: { type: 'string', description: '关键词（标题/说明/分类）' },
+        category: { type: 'string', description: '分类（可选）' },
+      },
+    },
+  },
+  {
+    name: 'read_knowledge',
       description: '读取用户知识库文档（AI 智能体训练文档：产品介绍/项目说明/行业知识等）。触发词："了解我的项目""读文档""我的知识库""产品是什么"。返回文档标题+内容摘要，供回答引用。',
       parameters: { type: 'object', properties: { query: { type: 'string', description: '可选：想了解的关键词' } } },
     },
@@ -884,6 +908,31 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     }
 
     // ── 模板 ──
+    case 'add_knowledge_site': {
+      try {
+        if (!args?.url) return 'KNOWLEDGE_RESULT:缺少 URL'
+        const r = await fetch(`${baseUrl}/api/knowledge-sites`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth.userId}` } : {}) },
+          body: JSON.stringify({ url: args.url, title: args.title || '', desc: args.desc || '', category: args.category || '' }),
+        })
+        const d = await r.json()
+        return d.success ? `KNOWLEDGE_RESULT:已加入知识库（${args.url}）` : `KNOWLEDGE_RESULT:${d.message || '加入失败'}`
+      } catch (e: any) { return `KNOWLEDGE_RESULT:加入失败 ${e?.message}` }
+    }
+    case 'search_knowledge': {
+      try {
+        const q = new URLSearchParams()
+        if (args?.category) q.set('category', args.category)
+        const r = await fetch(`${baseUrl}/api/knowledge-sites?${q}`, { headers: auth ? { Authorization: `Bearer ${auth.userId}` } : {} })
+        const d = await r.json()
+        if (!d.success) return 'KNOWLEDGE_RESULT:查询失败'
+        const list = (d.data || [])
+        const kw = (args?.keyword || '').toLowerCase()
+        const filtered = kw ? list.filter((s: any) => (s.title + s.desc + s.category + s.url).toLowerCase().includes(kw)) : list
+        if (!filtered.length) return 'KNOWLEDGE_RESULT:知识库暂无匹配站点'
+        return 'KNOWLEDGE_RESULT:知识库站点（可用 crawl_web 抓取查看内容）：\n' + filtered.slice(0, 8).map((s: any, i: number) => `${i + 1}. ${s.title || s.url} [${s.category || '未分类'}] ${s.url}`).join('\n')
+      } catch (e: any) { return `KNOWLEDGE_RESULT:查询失败 ${e?.message}` }
+    }
     case 'search_templates': {
       try {
         const params = new URLSearchParams()

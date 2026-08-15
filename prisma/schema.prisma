@@ -587,6 +587,17 @@ model AccountGroupItem {
   @@unique([groupId, socialAccountId])
 }
 
+model KnowledgeSite {
+  id        Int      @id @default(autoincrement())
+  url       String
+  title     String   @default("")
+  desc      String   @default("")
+  category  String   @default("")   // 提示词/素材/灵感/教程等
+  addedBy   Int      @default(0)    // 添加人 userId（0=系统）
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
 model MediaAsset {
   id           Int      @id @default(autoincrement())
   title        String
