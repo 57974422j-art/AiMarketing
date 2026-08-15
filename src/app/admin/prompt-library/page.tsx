@@ -13,6 +13,7 @@ interface PItem {
   originalUrl?: string
   previewUrl?: string
   coverUrl?: string
+  videoUrl?: string
 }
 
 const SOURCES = [
@@ -110,7 +111,9 @@ export default function PromptLibraryPage() {
                     <input type="checkbox" checked={selected.has(it.id)} onChange={() => toggleSel(it.id)} className="accent-emerald-500" />
                     <span className="text-[9px] text-gray-300">{it.id}</span>
                   </label>
-                  {it.previewUrl || it.coverUrl ? (
+                  {it.videoUrl ? (
+                    <video src={it.videoUrl} controls preload="metadata" className="w-full h-40 object-cover bg-black/60" />
+                  ) : it.previewUrl || it.coverUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={it.previewUrl || it.coverUrl} alt={it.title || 'prompt'} className="w-full h-36 object-cover bg-black/40"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
