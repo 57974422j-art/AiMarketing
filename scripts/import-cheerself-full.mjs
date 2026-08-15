@@ -79,12 +79,13 @@ for (const slug of Object.keys(data)) {
   const lib = data[slug]
   if (!lib?.items?.length) continue
   let inserted = 0, covered = 0
+  // 2026-08-15: 高效去重——一次拉该库全量到内存 Map（O(1) 查）
+  const allRows = await prisma.promptTemplate.findMany({ where: { source: 'cheerselfai', model: lib.model }, select: { id: true, prompt: true, originalUrl: true, previewUrl: true, videoUrl: true } })
+  const byXurl = new Map(allRows.filter(r => r.originalUrl).map(r => [r.originalUrl, r]))
+  const byPrompt = new Map(allRows.map(r => [norm(r.prompt), r]))
   for (let i = 0; i < lib.items.length; i++) {
     const it = lib.items[i]
-    const exist = it.xurl
-      ? await prisma.promptTemplate.findFirst({ where: { model: lib.model, originalUrl: it.xurl } })
-      : await prisma.promptTemplate.findMany({ where: { model: lib.model }, take: 2000, select: { id: true, prompt: true } })
-          .then(rows => rows.find(r => norm(r.prompt) === norm(it.prompt)))
+    const exist = it.xurl ? byXurl.get(it.xurl) : byPrompt.get(norm(it.prompt))
     let previewUrl = null
     let videoUrl = null
     if (doVideo && it.mp4) videoUrl = await videoToOss(it.mp4, slug, i)
@@ -123,6 +124,8 @@ for (const slug of Object.keys(data)) {
         isActive: true,
       },
     })
+    byPrompt.set(norm(it.prompt), { id: created.id, prompt: it.prompt, originalUrl: it.xurl || null, previewUrl: previewUrl || null, videoUrl: videoUrl || null })
+    if (it.xurl) byXurl.set(it.xurl, { id: created.id, prompt: it.prompt, originalUrl: it.xurl, previewUrl: previewUrl || null, videoUrl: videoUrl || null })
     inserted++
   }
   total += inserted
