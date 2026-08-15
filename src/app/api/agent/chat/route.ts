@@ -1280,6 +1280,10 @@ export async function POST(request: NextRequest) {
       for (const a of attachments as any[]) {
         if (typeof a.url === 'string' && (a.type || '').startsWith('image')) {
           blocks.push({ type: 'image_url', image_url: { url: a.url } })
+        } else if (Array.isArray((a as any).frames) && (a as any).frames.length) {
+          // 2026-08-15: 视频已抽帧——帧图作为视觉块，AI 能"看"视频内容（提取提示词/描述）
+          blocks.push({ type: 'text', text: '\n[用户上传了视频，以下是视频关键帧（请分析画面内容）]' })
+          for (const f of (a as any).frames) blocks.push({ type: 'image_url', image_url: { url: f } })
         } else {
           blocks.push({ type: 'text', text: `\n[用户上传了附件:${a.type || 'file'}:${a.url}]` })
         }
