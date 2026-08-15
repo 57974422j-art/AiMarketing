@@ -191,13 +191,30 @@ export default function PromptLibraryPage() {
 
             {items.length === 0 && <p className="text-xs text-gray-600 py-10 text-center">无匹配内容</p>}
 
-            {/* 分页 */}
-            <div className="flex items-center justify-center gap-3 mt-6">
+            {/* 分页：页码条（当前窗口 10 页 + 首/尾跳转） */}
+            <div className="flex items-center justify-center gap-1.5 mt-6 flex-wrap">
+              <button onClick={() => setPage(1)} disabled={page <= 1}
+                className="px-3 py-1.5 rounded-lg text-xs border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-40">« 首页</button>
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-                className="px-4 py-1.5 rounded-lg text-xs border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-40">← 上一页</button>
-              <span className="text-xs text-gray-500">{page} / {totalPages}</span>
+                className="px-3 py-1.5 rounded-lg text-xs border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-40">‹</button>
+              {(() => {
+                const win = 10
+                const start = Math.max(1, Math.floor((page - 1) / win) * win + 1)
+                const end = Math.min(totalPages, start + win - 1)
+                const btns = []
+                for (let p = start; p <= end; p++) {
+                  btns.push(
+                    <button key={p} onClick={() => setPage(p)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs border ${page === p ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'border-white/10 bg-white/5 text-gray-400 hover:bg-white/10'}`}>{p}</button>
+                  )
+                }
+                return btns
+              })()}
               <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-                className="px-4 py-1.5 rounded-lg text-xs border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-40">下一页 →</button>
+                className="px-3 py-1.5 rounded-lg text-xs border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-40">›</button>
+              <button onClick={() => setPage(totalPages)} disabled={page >= totalPages}
+                className="px-3 py-1.5 rounded-lg text-xs border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10 disabled:opacity-40">尾页 »</button>
+              <span className="text-xs text-gray-600 ml-2">第 {page}/{totalPages} 页 · 共 {total} 条</span>
             </div>
           </>
         )}
