@@ -163,16 +163,6 @@ export default function AdminPromptTemplatesPage() {
     finally { setLoading(false); setLoadingMore(false) }  // 2026-08-16: 失败也重置（避免"加载中…"卡死）
   }
 
-  // 2026-08-16: 滚动到底自动加载下一页（懒加载——避免全量卡死）
-  useEffect(() => {
-    const onScroll = () => {
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 400 && hasMore && !loadingMore) {
-        setLoadingMore(true); setPage(p => p + 1)
-      }
-    }
-    window.addEventListener('scroll', onScroll)
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [hasMore, loadingMore])
   useEffect(() => { if (!authLoading && user && user.role === 'admin') { setPage(1); loadItems() } }, [filterCat, modeTab, modelFilter])
 
   const filteredItems = tagFilter ? items.filter(i => (i.tags || '').includes(tagFilter)) : items
@@ -581,8 +571,15 @@ export default function AdminPromptTemplatesPage() {
                     </div>
                   ))}
                 </div>
-                <div className="text-center py-4 text-[10px] text-gray-600">
-                  {loadingMore ? '加载中…' : hasMore ? '↓ 向下滚动加载更多' : '— 已全部加载 —'}
+                <div className="text-center py-4">
+                  {hasMore ? (
+                    <button onClick={() => { setLoadingMore(true); setPage(p => p + 1) }} disabled={loadingMore}
+                      className="px-4 py-1.5 rounded-lg text-[11px] border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50">
+                      {loadingMore ? '加载中…' : `加载更多（已显示 ${items.length} 条）`}
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-gray-600">— 已全部加载（{items.length} 条）—</span>
+                  )}
                 </div>
               </div>}
           </div>
