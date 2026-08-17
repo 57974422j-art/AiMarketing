@@ -1334,7 +1334,7 @@ export async function POST(request: NextRequest) {
           blocks.push({ type: 'text', text: '\n[用户上传了视频，以下是视频关键帧（请分析画面内容）]' })
           for (const f of (a as any).frames) blocks.push({ type: 'image_url', image_url: { url: f } })
         } else {
-          blocks.push({ type: 'text', text: `\n[用户上传了附件:${a.type || 'file'}:${a.url}]` })
+          blocks.push({ type: 'text', text: '\n[用户上传了附件，请直接分析素材内容，回复中不要引用/重复素材 URL 或链接]' })
         }
       }
       userContent = blocks

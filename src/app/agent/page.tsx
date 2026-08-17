@@ -2065,10 +2065,17 @@ export default function AgentPage() {
               {attachments.length > 0 && (
                 <div className="flex gap-2 mb-2 flex-wrap">
                   {attachments.map((a, i) => (
-                    <span key={i} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 text-[10px] text-gray-400">
-                      {a.type === 'image' ? '🖼' : a.type === 'video' ? '🎬' : '🎵'} {a.name}
-                      <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} className="text-gray-600 hover:text-red-400">×</button>
-                    </span>
+                    <div key={i} className="relative">
+                      {a.type === 'image' ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={a.url} alt={a.name} className="w-14 h-14 object-cover rounded-lg border border-white/10" />
+                      ) : a.type === 'video' ? (
+                        <video src={a.url} className="w-14 h-14 object-cover rounded-lg border border-white/10" muted />
+                      ) : (
+                        <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 text-[10px] text-gray-400">🎵 {a.name}</span>
+                      )}
+                      <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/70 text-[9px] text-red-400 hover:bg-black">×</button>
+                    </div>
                   ))}
                 </div>
               )}
