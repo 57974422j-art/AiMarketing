@@ -156,7 +156,17 @@ export default function AdminPromptTemplatesPage() {
     finally { setLoading(false) }
   }
 
-  useEffect(() => { if (!authLoading && user && user.role === 'admin') loadItems() }, [filterCat, modeTab, modelFilter])
+  // 2026-08-16: 滚动到底自动加载下一页（懒加载——避免全量卡死）
+  useEffect(() => {
+    const onScroll = () => {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 400 && hasMore && !loadingMore) {
+        setLoadingMore(true); setPage(p => p + 1)
+      }
+    }
+    window.addEventListener('scroll', onScroll)
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [hasMore, loadingMore])
+  useEffect(() => { if (!authLoading && user && user.role === 'admin') { setPage(1); loadItems() } }, [filterCat, modeTab, modelFilter])
 
   const filteredItems = tagFilter ? items.filter(i => (i.tags || '').includes(tagFilter)) : items
   const allTags = Array.from(new Set((items || []).flatMap(i => (i.tags || '').split(',').map(t => t.trim()).filter(Boolean))))
