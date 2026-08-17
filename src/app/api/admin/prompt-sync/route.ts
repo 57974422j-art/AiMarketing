@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
+import { migrateCover } from '@/lib/cover'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
@@ -30,12 +31,12 @@ async function syncSource(url: string, sourceKeyPrefix: string): Promise<{ added
           title: String(it.title || '').substring(0, 120) || null,
           prompt,
           category: String(it.tags?.join(',') || it.category || '').substring(0, 200) || null,
-          previewUrl: String(it.coverUrl || '') || null,
+          previewUrl: String(it.coverUrl || '') ? await migrateCover(String(it.coverUrl), 'prompt-sync') : null,
           industry: String(it.sourceId || sourceKeyPrefix) || null,
           originalUrl: String(it.sourceUrl || '') || null,
           tags: Array.isArray(it.tags) ? it.tags.join(',').substring(0, 200) : (String(it.tags || '') || null),
           author: String(it.author || '').substring(0, 100) || null,
-          coverUrl: String(it.coverUrl || '') || null,
+          coverUrl: String(it.coverUrl || '') ? await migrateCover(String(it.coverUrl), 'prompt-sync') : null,
           imageMode: String(it.imageMode || '') || null,
           sourceKey: key,
         },

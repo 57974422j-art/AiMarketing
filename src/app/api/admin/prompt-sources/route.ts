@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
+import { migrateCover } from '@/lib/cover'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
@@ -22,24 +23,6 @@ async function ensureBuiltins() {
       await prisma.promptSource.create({ data: { name: s.name, url: s.url, homepage: s.homepage, builtIn: s.builtIn } })
     }
   }
-}
-
-// 封面转存 OSS（2026-08-10：外链封面 → 我们 OSS，防链接失效裂图）
-async function migrateCover(url: string, prefix: string): Promise<string> {
-  if (!url || !/^https?:\/\//.test(url) || url.includes('aliyuncs.com')) return url
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
-    if (!res.ok) return url
-    const buf = Buffer.from(await res.arrayBuffer())
-    if (buf.length < 100) return url
-    const m = url.split('?')[0].match(/\.(png|jpe?g|webp|gif|svg|avif)/i)
-    const ext = (m ? m[1] : 'jpg').toLowerCase()
-    const key = `prompt-covers/${prefix}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
-    const { getOSSClient } = await import('@/lib/oss')
-    const client = await getOSSClient()
-    await client.put(key, buf, { headers: { 'x-oss-object-acl': 'public-read' } })
-    return `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION}.aliyuncs.com/${key}`
-  } catch { return url }
 }
 
 // 同步单个源：拉 JSON → 按 sourceKey 去重入库 → 更新状态/条数
