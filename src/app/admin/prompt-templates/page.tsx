@@ -531,6 +531,7 @@ export default function AdminPromptTemplatesPage() {
                               className="w-4 h-4 rounded border-white/40 bg-black/30 accent-emerald-500" />
                             <div className="flex gap-1">
                               <button onClick={() => openEdit(item)} className="px-1.5 py-0.5 text-[10px] bg-black/50 text-gray-200 rounded hover:bg-black/70">编辑</button>
+                              <button onClick={async () => { const r = await fetch('/api/media-library/promote', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ promptId: item.id }) }); const d = await r.json(); alert(d.success ? '✅ 已添加到公共素材库' : (d.message || '添加失败')) }} className="px-1.5 py-0.5 text-[10px] bg-amber-500/50 text-white rounded hover:bg-amber-500/70">素材库</button>
                               <button onClick={() => handleDelete(item.id)} className="px-1.5 py-0.5 text-[10px] bg-red-500/50 text-white rounded hover:bg-red-500/70">删</button>
                             </div>
                           </div>
@@ -555,6 +556,7 @@ export default function AdminPromptTemplatesPage() {
                           <p className="text-gray-500 text-[10px] mt-1 line-clamp-2">{item.prompt}</p>
                           <div className="flex gap-2 mt-2">
                             <button onClick={() => openEdit(item)} className="px-2 py-1 text-[10px] bg-white/10 text-gray-300 rounded">编辑</button>
+                            <button onClick={async () => { const r = await fetch('/api/media-library/promote', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ promptId: item.id }) }); const d = await r.json(); alert(d.success ? '✅ 已添加到公共素材库' : (d.message || '添加失败')) }} className="px-2 py-1 text-[10px] bg-amber-500/20 text-amber-400 rounded">素材库</button>
                             <button onClick={() => handleDelete(item.id)} className="px-2 py-1 text-[10px] bg-red-500/20 text-red-400 rounded">删</button>
                           </div>
                         </div>

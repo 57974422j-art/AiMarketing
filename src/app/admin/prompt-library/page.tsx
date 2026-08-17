@@ -172,6 +172,12 @@ export default function PromptLibraryPage() {
                         className="px-2.5 py-1 rounded-md text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25">
                         {copiedId === it.id ? '✅ 已复制' : '📋 复制'}
                       </button>
+                      <button onClick={async () => {
+                        const r = await fetch('/api/media-library/promote', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ promptId: it.id }) })
+                        const d = await r.json()
+                        alert(d.success ? '✅ 已添加到公共素材库' : (d.message || '添加失败'))
+                      }}
+                        className="px-2 py-1 rounded-md text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25">📥 素材库</button>
                       <label className="px-2 py-1 rounded-md text-[10px] bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/25 cursor-pointer">
                         📤 上传{fetchingId === it.id ? '中…' : ''}
                         <input type="file" accept="image/*,video/*" className="hidden"

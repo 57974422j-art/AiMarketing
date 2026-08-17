@@ -27,7 +27,7 @@ export default function MediaLibraryPage() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
 
-  const [tab, setTab] = useState<TabKey>('landscape')
+  const [tab, setTab] = useState<TabKey>('prompts')  // 2026-08-16: 默认提示词库（公共素材可能空）
   // 2026-08-12: 支持 ?tab=prompts 直达提示词库（agent 首页卡片入口）
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab')
