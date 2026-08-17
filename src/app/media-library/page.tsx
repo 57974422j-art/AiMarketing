@@ -228,7 +228,10 @@ export default function MediaLibraryPage() {
                       <p className="text-[11px] text-gray-200 truncate flex-1">{a.title || '素材'}</p>
                       {a.category && <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[9px]">{a.category}</span>}
                     </div>
+                    {a.prompt && <p className="mt-1 text-[10px] text-gray-400 leading-snug line-clamp-2">{a.prompt}</p>}
                     <div className="flex items-center gap-1.5 mt-2">
+                      <button onClick={() => { const t = a.prompt || a.ossUrl; navigator.clipboard?.writeText(t); alert('已复制' + (a.prompt ? '提示词' : '链接')) }}
+                        className="px-2 py-1 rounded-md text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25">📋 复制</button>
                       <button onClick={() => window.open(a.ossUrl, '_blank')}
                         className="px-2 py-1 rounded-md text-[10px] bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10">查看</button>
                       <button onClick={() => router.push(`/agent?media=${encodeURIComponent(a.ossUrl)}&mt=${isVideo ? 'video' : 'image'}`)}
@@ -240,6 +243,10 @@ export default function MediaLibraryPage() {
                       {isVideo && (
                         <button onClick={() => openClone(a.ossUrl, a.title)}
                           className="px-2 py-1 rounded-md text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25">🎬 克隆</button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => { if (confirm('删除这条素材？')) deleteOne(a.id) }}
+                          className="px-2 py-1 rounded-md text-[10px] bg-red-500/15 text-red-300 border border-red-500/30 hover:bg-red-500/25">🗑</button>
                       )}
                     </div>
                   </div>
