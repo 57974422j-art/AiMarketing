@@ -15,9 +15,8 @@ interface Asset {
 }
 
 const TABS = [
-  { key: 'landscape', label: '横屏' },
-  { key: 'portrait', label: '竖屏' },
-  { key: 'prompts', label: '💡 提示词' },
+  { key: 'image', label: '🖼 图片' },
+  { key: 'video', label: '🎬 视频' },
 ] as const
 
 type TabKey = (typeof TABS)[number]['key']
@@ -27,11 +26,11 @@ export default function MediaLibraryPage() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
 
-  const [tab, setTab] = useState<TabKey>('prompts')  // 2026-08-16: 默认提示词库（公共素材可能空）
+  const [tab, setTab] = useState<TabKey>('image')
   // 2026-08-12: 支持 ?tab=prompts 直达提示词库（agent 首页卡片入口）
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab')
-    if (t === 'prompts') setTab('prompts')
+    if (t === 'prompts' || t === 'image' || t === 'video') setTab(t)
   }, [])
   const [items, setItems] = useState<Asset[]>([])
   const [promptList, setPromptList] = useState<any[]>([])
@@ -74,7 +73,7 @@ export default function MediaLibraryPage() {
         .finally(() => setLoading(false))
       return
     }
-    fetch(`/api/media-library?source=public&orientation=${tab}&limit=20&offset=${(page - 1) * 20}`, { credentials: 'include' })
+    fetch(`/api/media-library?source=public&type=${tab === 'image' ? 'image' : 'video'}&limit=20&offset=${(page - 1) * 20}`, { credentials: 'include' })
       .then(r => r.json())
       .then(d => { const list = Array.isArray(d?.data) ? d.data : []; setItems(prev => page === 1 ? list : [...prev, ...list]); setHasMore(list.length === 20); setLoadingMore(false) })
       .catch(() => setItems([]))
@@ -141,7 +140,6 @@ export default function MediaLibraryPage() {
     <div className="min-h-screen bg-[#0a0e17] text-white">
       <header className="border-b border-white/10 bg-[#0a0e17]/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center gap-3 flex-wrap">
-          <button onClick={() => router.back()} className="text-gray-400 hover:text-white text-sm">← 返回</button>
           <h1 className="text-lg font-semibold">🗂️ 公共素材库</h1>
           <span className="text-xs text-gray-500 hidden sm:inline">所有成员共享 · 悬停卡片可查看 / 克隆</span>
           <div className="flex-1" />
