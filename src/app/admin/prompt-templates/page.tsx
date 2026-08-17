@@ -160,7 +160,7 @@ export default function AdminPromptTemplatesPage() {
         setLoadingMore(false)
       }
     } catch { console.error('load failed') }
-    finally { setLoading(false) }
+    finally { setLoading(false); setLoadingMore(false) }  // 2026-08-16: 失败也重置（避免"加载中…"卡死）
   }
 
   // 2026-08-16: 滚动到底自动加载下一页（懒加载——避免全量卡死）
