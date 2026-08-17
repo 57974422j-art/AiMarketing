@@ -55,6 +55,9 @@ const SUB_CATS: any = {
 export default function AdminPromptTemplatesPage() {
   const { user, loading: authLoading } = useAuth()
   const [items, setItems] = useState<PromptItem[]>([])
+  const [page, setPage] = useState(1)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editItem, setEditItem] = useState<PromptItem | null>(null)
@@ -146,11 +149,15 @@ export default function AdminPromptTemplatesPage() {
       else params.set('source', 'self')  // 2026-08-14: manage 只显示自建（学习库/源抓取另页）
       if (industryFilter) params.set('industry', industryFilter)
       if (modelFilter) params.set('model', modelFilter)
+      params.set('page', String(page)); params.set('pageSize', '20')
       const url = '/api/prompt-templates?' + params.toString()
       const r = await fetch(url, { credentials: 'include' })
       if (r.ok) {
         const data = await r.json()
-        setItems(data.data || [])
+        const newRows = data.data || []
+        setItems(prev => page === 1 ? newRows : [...prev, ...newRows])
+        setHasMore((data.total || 0) > page * 20)
+        setLoadingMore(false)
       }
     } catch { console.error('load failed') }
     finally { setLoading(false) }
@@ -573,6 +580,9 @@ export default function AdminPromptTemplatesPage() {
                       )}
                     </div>
                   ))}
+                </div>
+                <div className="text-center py-4 text-[10px] text-gray-600">
+                  {loadingMore ? '加载中…' : hasMore ? '↓ 向下滚动加载更多' : '— 已全部加载 —'}
                 </div>
               </div>}
           </div>
