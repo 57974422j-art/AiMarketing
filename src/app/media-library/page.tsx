@@ -214,54 +214,34 @@ export default function MediaLibraryPage() {
             {filtered.map(a => {
               const isVideo = (a.type || (a.ossUrl?.match(/\.(mp4|webm|mov|m3u8)$/i) ? 'video' : 'image')) === 'video'
               return (
-                <div key={a.id} className={`group relative rounded-xl overflow-hidden border bg-white/5 transition-all hover:border-emerald-400/40 hover:shadow-[0_0_18px_rgba(16,185,129,0.12)] ${manageMode && checked.has(a.id) ? 'border-red-400/60 ring-2 ring-red-400/30' : 'border-white/10'}`}>
-                  {isAdmin && manageMode && (
-                    <input type="checkbox" checked={checked.has(a.id)} onChange={() => toggleCheck(a.id)}
-                      className="absolute top-2 left-2 z-10 accent-red-400 w-4 h-4 cursor-pointer" />
-                  )}
-                  <div className={isPortrait ? 'aspect-[9/16]' : 'aspect-video'}>
-                    {isVideo
-                      ? <video src={a.ossUrl} muted playsInline preload="metadata" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
-                      : <img src={a.ossUrl} alt={a.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" loading="lazy" />}
-                  </div>
-
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent pointer-events-none" />
-                  <div className="absolute bottom-0 left-0 right-0 p-2.5">
-                    <div className="text-white text-xs font-medium truncate">{a.title}</div>
-                    {a.category && (
-                      <span className="mt-1 inline-block px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        {a.category}
-                      </span>
+                <div key={a.id} className="rounded-xl border border-white/[0.08] bg-white/[0.03] overflow-hidden flex flex-col">
+                  <div className="relative">
+                    {isVideo ? (
+                      <video src={a.ossUrl} controls playsInline preload="metadata" className="w-full h-40 object-cover bg-black/60" />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={a.ossUrl} alt={a.title} className="w-full h-36 object-cover bg-black/40 transition-transform duration-300 hover:scale-105" loading="lazy" />
                     )}
                   </div>
-
-                  <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => window.open(a.ossUrl, '_blank')}
-                      className="px-3 py-1.5 rounded-lg bg-white/15 backdrop-blur-sm text-white/90 text-xs border border-white/25 hover:bg-white/25 transition-colors">
-                      查看
-                    </button>
-                    <button onClick={() => router.push(`/agent?media=${encodeURIComponent(a.ossUrl)}&mt=${isVideo ? 'video' : 'image'}`)}
-                      className="px-3 py-1.5 rounded-lg bg-purple-500/25 backdrop-blur-sm text-purple-200 text-xs border border-purple-400/40 hover:bg-purple-500/40 transition-colors">
-                      🤖 推给 AGENT
-                    </button>
-                    {!isVideo && (
-                      <button onClick={() => router.push(`/image-generator?media=${encodeURIComponent(a.ossUrl)}`)}
-                        className="px-3 py-1.5 rounded-lg bg-cyan-500/25 backdrop-blur-sm text-cyan-200 text-xs border border-cyan-400/40 hover:bg-cyan-500/40 transition-colors">
-                        🎨 推生图
-                      </button>
-                    )}
-                    {isVideo && (
-                      <button onClick={() => openClone(a.ossUrl, a.title)}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-500/25 backdrop-blur-sm text-emerald-200 text-xs border border-emerald-400/40 hover:bg-emerald-500/40 transition-colors">
-                        🎬 克隆
-                      </button>
-                    )}
-                    {isAdmin && !manageMode && (
-                      <button onClick={() => deleteOne(a.id)}
-                        className="px-3 py-1.5 rounded-lg bg-red-500/25 backdrop-blur-sm text-red-200 text-xs border border-red-400/40 hover:bg-red-500/40 transition-colors">
-                        🗑 删除
-                      </button>
-                    )}
+                  <div className="p-2.5 flex flex-col flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-[11px] text-gray-200 truncate flex-1">{a.title || '素材'}</p>
+                      {a.category && <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[9px]">{a.category}</span>}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <button onClick={() => window.open(a.ossUrl, '_blank')}
+                        className="px-2 py-1 rounded-md text-[10px] bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10">查看</button>
+                      <button onClick={() => router.push(`/agent?media=${encodeURIComponent(a.ossUrl)}&mt=${isVideo ? 'video' : 'image'}`)}
+                        className="px-2 py-1 rounded-md text-[10px] bg-purple-500/15 text-purple-300 border border-purple-500/30 hover:bg-purple-500/25">🤖 AGENT</button>
+                      {!isVideo && (
+                        <button onClick={() => router.push(`/image-generator?media=${encodeURIComponent(a.ossUrl)}`)}
+                          className="px-2 py-1 rounded-md text-[10px] bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25">🎨 生图</button>
+                      )}
+                      {isVideo && (
+                        <button onClick={() => openClone(a.ossUrl, a.title)}
+                          className="px-2 py-1 rounded-md text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25">🎬 克隆</button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )
