@@ -8,31 +8,37 @@ export async function POST(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
   if (!auth) return NextResponse.json({ success: false, message: '未认证' }, { status: 401 })
   try {
-    const { promptId } = await request.json().catch(() => ({}))
-    if (!promptId) return NextResponse.json({ success: false, message: '缺少 promptId' }, { status: 400 })
-    const tpl = await prisma.promptTemplate.findFirst({ where: { id: Number(promptId) } })
-    if (!tpl) return NextResponse.json({ success: false, message: '提示词不存在' }, { status: 404 })
+    const { promptId, promptIds } = await request.json().catch(() => ({}))
+    const ids = promptIds && Array.isArray(promptIds) ? promptIds.map(Number) : (promptId ? [Number(promptId)] : [])
+    if (!ids.length || ids.some((x: number) => !x)) return NextResponse.json({ success: false, message: '缺少 promptId' }, { status: 400 })
 
-    // 已添加过（同 prompt 同标题）则跳过
-    const exist = await prisma.mediaAsset.findFirst({ where: { source: 'public', prompt: tpl.prompt } })
-    if (exist) return NextResponse.json({ success: false, message: '该素材已在公共素材库' }, { status: 409 })
+    const tpls = await prisma.promptTemplate.findMany({ where: { id: { in: ids } } })
+    if (!tpls.length) return NextResponse.json({ success: false, message: '提示词不存在' }, { status: 404 })
 
-    const mediaUrl = tpl.videoUrl || tpl.coverUrl || tpl.previewUrl || ''
-    if (!mediaUrl) return NextResponse.json({ success: false, message: '该条目无图/视频，无法添加到素材库' }, { status: 400 })
-    const isVideo = !!tpl.videoUrl
-    const asset = await prisma.mediaAsset.create({
-      data: {
-        title: tpl.title || '素材',
-        ossUrl: mediaUrl,
-        url: mediaUrl,
-        type: isVideo ? 'video' : 'image',
-        prompt: tpl.prompt || '',
-        category: tpl.category || '',
-        source: 'public',
-        ownerId: auth.userId,
-      },
-    })
-    return NextResponse.json({ success: true, data: asset, isVideo })
+    let added = 0, skipped = 0, noMedia = 0
+    const results = []
+    for (const tpl of tpls) {
+      const exist = await prisma.mediaAsset.findFirst({ where: { source: 'public', prompt: tpl.prompt } })
+      if (exist) { skipped++; continue }
+      const mediaUrl = tpl.videoUrl || tpl.coverUrl || tpl.previewUrl || ''
+      if (!mediaUrl) { noMedia++; continue }
+      const isVideo = !!tpl.videoUrl
+      const asset = await prisma.mediaAsset.create({
+        data: {
+          title: tpl.title || '素材',
+          ossUrl: mediaUrl,
+          url: mediaUrl,
+          type: isVideo ? 'video' : 'image',
+          prompt: tpl.prompt || '',
+          category: tpl.category || '',
+          source: 'public',
+          ownerId: auth.userId,
+        },
+      })
+      added++
+      results.push({ id: asset.id, isVideo })
+    }
+    return NextResponse.json({ success: true, data: results, added, skipped, noMedia })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e?.message || '添加失败' }, { status: 500 })
   }

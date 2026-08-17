@@ -77,6 +77,16 @@ export default function PromptLibraryPage() {
       else alert(d.message || '上传失败')
     } catch { alert('上传失败（网络）') } finally { setFetchingId(null) }
   }
+  const [promoting, setPromoting] = useState(false)
+  const promoteBatch = async (ids: number[]) => {
+    setPromoting(true)
+    try {
+      const r = await fetch('/api/media-library/promote', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ promptIds: ids }) })
+      const d = await r.json()
+      alert(d.success ? `✅ 已添加 ${d.added || 0} 条（跳过 ${d.skipped || 0} 重复 / ${d.noMedia || 0} 无图）` : (d.message || '失败'))
+      load()
+    } catch { alert('推送失败（网络）') } finally { setPromoting(false) }
+  }
   const fetchImage = async (it: PItem) => {
     setFetchingId(it.id)
     try {
@@ -129,6 +139,10 @@ export default function PromptLibraryPage() {
           <span className="text-[10px] text-gray-600">第 {page}/{totalPages} 页</span>
           <button onClick={() => setSelected(allSelected ? new Set() : new Set(items.map(i => i.id)))}
             className="px-3 py-1.5 rounded-lg text-xs border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10">{allSelected ? '取消全选' : `全选本页（${items.length}）`}</button>
+          <button onClick={() => { if (confirm(`将本页 ${items.length} 条全部推送到公共素材库？`)) promoteBatch(items.map(i => i.id)) }} disabled={promoting || items.length === 0}
+            className="px-3 py-1.5 rounded-lg text-xs border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 disabled:opacity-50">
+            {promoting ? '推送中…' : `📥 全选本页推素材库（${items.length}）`}
+          </button>
           {selected.size > 0 && (
             <button onClick={() => { if (confirm(`删除选中的 ${selected.size} 条？`)) delItems([...selected]) }} disabled={deleting}
               className="px-3 py-1.5 rounded-lg text-xs bg-red-500/20 border border-red-500/30 text-red-300 hover:bg-red-500/30 disabled:opacity-50">
