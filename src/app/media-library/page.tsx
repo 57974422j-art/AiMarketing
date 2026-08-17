@@ -192,8 +192,7 @@ export default function MediaLibraryPage() {
                       : <div className="w-full h-full flex items-center justify-center text-2xl opacity-30">💡</div>}
                   </div>
                   <div className="p-2.5 flex flex-col flex-1">
-                    <div className="text-xs font-medium line-clamp-1">{pt.title || '未命名提示词'}</div>
-                    <div className="mt-1 text-[9px] text-gray-500 line-clamp-2">{pt.prompt}</div>
+                    <div className="text-[11px] text-gray-200 leading-snug whitespace-pre-wrap break-words max-h-28 overflow-y-auto">{pt.prompt || pt.title || '未命名提示词'}</div>
                     {pt.tags && <div className="mt-1.5 flex gap-1 flex-wrap">{pt.tags.split(',').slice(0, 3).map((t: string) => <span key={t} className="px-1 py-0.5 rounded text-[8px] bg-violet-500/20 text-violet-300">{t}</span>)}</div>}
                     <div className="mt-auto pt-2 flex gap-1.5">
                       <button onClick={() => navigator.clipboard?.writeText(pt.prompt)} className="flex-1 px-1.5 py-1 rounded bg-white/10 text-[10px] text-gray-200 hover:bg-white/20">📋 复制</button>
@@ -225,10 +224,10 @@ export default function MediaLibraryPage() {
                   </div>
                   <div className="p-2.5 flex flex-col flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="text-[11px] text-gray-200 truncate flex-1">{a.title || '素材'}</p>
+                      <p className="text-[11px] text-gray-200 leading-snug whitespace-pre-wrap break-words flex-1 max-h-24 overflow-y-auto">{a.prompt || a.title || '素材'}</p>
                       {a.category && <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[9px]">{a.category}</span>}
                     </div>
-                    {a.prompt && <p className="mt-1 text-[10px] text-gray-400 leading-snug line-clamp-2">{a.prompt}</p>}
+
                     <div className="flex items-center gap-1.5 mt-2">
                       <button onClick={() => { const t = a.prompt || a.ossUrl; navigator.clipboard?.writeText(t); alert('已复制' + (a.prompt ? '提示词' : '链接')) }}
                         className="px-2 py-1 rounded-md text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25">📋 复制</button>
