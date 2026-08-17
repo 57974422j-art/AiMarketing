@@ -37,29 +37,49 @@ export default function MediaLibraryPage() {
   const [promptList, setPromptList] = useState<any[]>([])
   const [promptTotal, setPromptTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
   const [search, setSearch] = useState('')
   const [manageMode, setManageMode] = useState(false)
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  // 2026-08-16: 滚动到底加载下一页
+  useEffect(() => {
+    const onScroll = () => {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 400 && hasMore && !loadingMore) {
+        setLoadingMore(true); setPage(p => p + 1)
+      }
+    }
+    window.addEventListener('scroll', onScroll)
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [hasMore, loadingMore])
+  useEffect(() => { setPage(1) }, [tab, search])
 
   const isPortrait = tab === 'portrait'
 
   const load = useCallback(() => {
     setLoading(true)
     if (tab === 'prompts') {
-      fetch(`/api/prompts-public?limit=120${search.trim() ? '&keyword=' + encodeURIComponent(search.trim()) : ''}`, { credentials: 'include' })
+      fetch(`/api/prompts-public?limit=20&offset=${(page - 1) * 20}${search.trim() ? '&keyword=' + encodeURIComponent(search.trim()) : ''}`, { credentials: 'include' })
         .then(r => r.json())
-        .then(d => { setPromptList(Array.isArray(d?.data?.list) ? d.data.list : []); setPromptTotal(d?.data?.total || 0) })
+        .then(d => {
+          const list = Array.isArray(d?.data?.list) ? d.data.list : []
+          setPromptList(prev => page === 1 ? list : [...prev, ...list])
+          setPromptTotal(d?.data?.total || 0)
+          setHasMore((d?.data?.total || 0) > page * 20)
+          setLoadingMore(false)
+        })
         .catch(() => setPromptList([]))
         .finally(() => setLoading(false))
       return
     }
-    fetch(`/api/media-library?source=public&orientation=${tab}`, { credentials: 'include' })
+    fetch(`/api/media-library?source=public&orientation=${tab}&limit=20&offset=${(page - 1) * 20}`, { credentials: 'include' })
       .then(r => r.json())
-      .then(d => setItems(Array.isArray(d?.data) ? d.data : []))
+      .then(d => { const list = Array.isArray(d?.data) ? d.data : []; setItems(prev => page === 1 ? list : [...prev, ...list]); setHasMore(list.length === 20); setLoadingMore(false) })
       .catch(() => setItems([]))
       .finally(() => setLoading(false))
-  }, [tab, search])
+  }, [tab, search, page])
 
   useEffect(() => { load() }, [load])
 

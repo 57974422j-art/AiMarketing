@@ -52,7 +52,11 @@ export async function GET(request: NextRequest) {
     if (source) { conds.push('source = ?'); params.push(source) }
     if (orientation && orientation !== 'all') { conds.push('orientation = ?'); params.push(orientation) }
     if (conds.length > 0) sql += ' WHERE ' + conds.join(' AND ')
+    // 2026-08-16: 分页（滚动懒加载）
+    const limitRaw = parseInt(searchParams.get('limit') || '0')
+    const offsetRaw = parseInt(searchParams.get('offset') || '0')
     sql += ' ORDER BY createdAt DESC'
+    if (limitRaw > 0) sql += ` LIMIT ${Math.min(limitRaw, 200)} OFFSET ${Math.max(offsetRaw, 0)}`
 
     const data = params.length > 0
       ? await prisma.$queryRawUnsafe(sql, ...params)
