@@ -129,12 +129,7 @@ export default function MediaLibraryPage() {
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="搜索素材…"
               className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-gray-600 focus:border-emerald-400/50 focus:outline-none w-44" />
-            {isAdmin && (
-              <button onClick={() => { setManageMode(m => !m); setChecked(new Set()) }}
-                className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${manageMode ? 'bg-red-500/20 text-red-300 border-red-500/40' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
-                {manageMode ? '退出管理' : '🔧 管理'}
-              </button>
-            )}
+
           </div>
         </div>
       </header>
@@ -208,8 +203,8 @@ export default function MediaLibraryPage() {
                   )}
                   <div className={isPortrait ? 'aspect-[9/16]' : 'aspect-video'}>
                     {isVideo
-                      ? <video src={a.ossUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
-                      : <img src={a.ossUrl} alt={a.title} className="w-full h-full object-cover" loading="lazy" />}
+                      ? <video src={a.ossUrl} muted playsInline preload="metadata" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
+                      : <img src={a.ossUrl} alt={a.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" loading="lazy" />}
                   </div>
 
                   <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent pointer-events-none" />
@@ -227,6 +222,16 @@ export default function MediaLibraryPage() {
                       className="px-3 py-1.5 rounded-lg bg-white/15 backdrop-blur-sm text-white/90 text-xs border border-white/25 hover:bg-white/25 transition-colors">
                       查看
                     </button>
+                    <button onClick={() => router.push(`/agent?media=${encodeURIComponent(a.ossUrl)}&mt=${isVideo ? 'video' : 'image'}`)}
+                      className="px-3 py-1.5 rounded-lg bg-purple-500/25 backdrop-blur-sm text-purple-200 text-xs border border-purple-400/40 hover:bg-purple-500/40 transition-colors">
+                      🤖 推给 AGENT
+                    </button>
+                    {!isVideo && (
+                      <button onClick={() => router.push(`/image-generator?media=${encodeURIComponent(a.ossUrl)}`)}
+                        className="px-3 py-1.5 rounded-lg bg-cyan-500/25 backdrop-blur-sm text-cyan-200 text-xs border border-cyan-400/40 hover:bg-cyan-500/40 transition-colors">
+                        🎨 推生图
+                      </button>
+                    )}
                     {isVideo && (
                       <button onClick={() => openClone(a.ossUrl, a.title)}
                         className="px-3 py-1.5 rounded-lg bg-emerald-500/25 backdrop-blur-sm text-emerald-200 text-xs border border-emerald-400/40 hover:bg-emerald-500/40 transition-colors">

@@ -415,6 +415,19 @@ export default function AgentPage() {
   const [sessionId, setSessionId] = useState<number | null>(null)
   // 2026-08-11：登录后恢复最近对话历史（界面不空；有历史则跳过欢迎/onboarding）
   const [historyLoaded, setHistoryLoaded] = useState(false)
+  // 2026-08-15: 从公共素材库「推送给 AGENT」跳转进来——media 参数作为附件自动发送
+  useEffect(() => {
+    if (!user) return
+    const sp = new URLSearchParams(window.location.search)
+    const media = sp.get('media')
+    const mt = sp.get('mt') || 'image'
+    if (media) {
+      setAttachments(prev => [...prev, { name: '推送素材', url: media, type: mt, frames: [] }])
+      const t = setTimeout(() => sendMessage('请帮我看看这个素材，提取提示词或给出使用建议'), 800)
+      return () => clearTimeout(t)
+    }
+  }, [user])
+
   useEffect(() => {
     if (!user || historyLoaded) return
     ;(async () => {
