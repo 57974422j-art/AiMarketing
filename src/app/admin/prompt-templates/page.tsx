@@ -146,7 +146,7 @@ export default function AdminPromptTemplatesPage() {
       else if (modeTab === 'image') params.set('type', 'image')
       else if (modeTab === 'video') params.set('type', 'video')
       else if (modeTab === 'learn') params.set('source', 'cheerselfai')
-      else params.set('source', 'self')  // 2026-08-14: manage 只显示自建（学习库/源抓取另页）
+      // 2026-08-16: all（默认）不传 source——显示全部（自建+学习库+源抓取），分类全量可见
       if (industryFilter) params.set('industry', industryFilter)
       if (modelFilter) params.set('model', modelFilter)
       params.set('page', String(page)); params.set('pageSize', '20')
