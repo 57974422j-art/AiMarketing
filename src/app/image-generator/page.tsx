@@ -69,6 +69,14 @@ export default function ImageGeneratorPage() {
   useEffect(() => {
     const sp = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
     if (sp?.get('prompt')) setPrompt(decodeURIComponent(sp.get('prompt')!))
+    // 2026-08-15: 公共素材库「推生图」——media URL 下载转参考图
+    const media = sp?.get('media')
+    if (media) {
+      fetch(media).then(r => r.blob()).then(b => {
+        const f = new File([b], 'ref-' + Date.now() + '.jpg', { type: b.type || 'image/jpeg' })
+        setReferenceImage(f); setReferencePreview(media)
+      }).catch(() => {})
+    }
   }, [])
 
   // 获取用户收藏
