@@ -200,9 +200,25 @@ sys.path.insert(0, '${getMediaCrawlerPath()}')
 os.chdir('${getMediaCrawlerPath()}')
 
 async def _do():
+    p = ${paramsJson}
+    if '${action}' == 'trending':
+        # 2026-08-16: 抖音热榜（免费源，替代 MediaCrawler 未实现的 trending）
+        import urllib.request, json as _json
+        try:
+            req = urllib.request.Request('https://api.vvhan.com/api/hotlist/douyinHot', headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = _json.loads(r.read().decode('utf-8'))
+            items = data.get('data', []) if isinstance(data, dict) else data
+            out = []
+            for it in (items or [])[:int(p.get('count', 20))]:
+                try: heat = float(str(it.get('hot', 0)).replace(',', ''))
+                except Exception: heat = 0
+                out.append({'title': str(it.get('title', '')), 'heat': heat, 'url': str(it.get('url', ''))})
+            return out
+        except Exception as e:
+            return {'error': type(e).__name__ + ': ' + str(e)}
     from media_platform.douyin.client import DouYinClient
     client = DouYinClient()
-    p = ${paramsJson}
     if '${action}' == 'search':
         return await client.search_info_by_keyword(keyword=p.get('keyword',''))
     elif '${action}' == 'comments':
@@ -211,8 +227,7 @@ async def _do():
         return await client.get_user_info(sec_user_id=p.get('sec_user_id',''))
     elif '${action}' == 'detail':
         return await client.get_video_by_id(aweme_id=p.get('aweme_id',''))
-    elif '${action}' == 'trending':
-        return {"error":"请用 main.py --platform dy --type search 搜索"}
+
     return {"error":"Unknown: ${action}"}
 
 try:

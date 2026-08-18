@@ -19,6 +19,26 @@ export async function GET(req: NextRequest) {
 
     const result = await crawl('trending', { category, count })
 
+    // 2026-08-16: 入库 CrawledTrending（upsert 去重）——data-center/trending 页可查
+    if (result.success && Array.isArray((result as any).data)) {
+      const { PrismaClient } = await import('@prisma/client')
+      const prisma = new PrismaClient()
+      const items = (result as any).data as any[]
+      for (let i = 0; i < items.length; i++) {
+        const title = String(items[i]?.title || '').trim()
+        if (!title) continue
+        try {
+          await prisma.crawledTrending.upsert({
+            where: { platform_category_title: { platform: '抖音', category, title } },
+            update: { heatValue: Number(items[i]?.heat) || 0, rank: i + 1, crawledAt: new Date() },
+            create: { platform: '抖音', category, title, heatValue: Number(items[i]?.heat) || 0, rank: i + 1 },
+          })
+        } catch (_) {}
+      }
+      await prisma.$disconnect()
+      return NextResponse.json({ success: true, data: items, stored: true })
+    }
+
     return NextResponse.json(result)
   } catch (e: unknown) {
     console.error('[API /mediacrawler/trending]', e)
