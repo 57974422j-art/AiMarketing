@@ -49,7 +49,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'generate_image',
-    description: 'AI生成图片/海报。触发词："生成图片""做海报""设计图""画一张""海报图""配图"。',
+    description: 'AI生成图片/海报。触发词："生成图片""做海报""设计图""画一张""海报图""配图"。**v2 流程：生成前先调 search_templates 搜公共素材库推荐给用户选（用户选中的素材/模板 prompt 用于生成）；搜不到才直接生成。**',
     parameters: {
       type: 'object',
       properties: {
@@ -470,6 +470,12 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 6. **粘贴 prompt = 生成意图**：用户粘贴一段英文提示词/素材卡片内容 = 想用这个生成——识别并执行（用该 prompt 生成图/视频），不要教育用户"与你的业务不匹配"。
 7. **生成结果用卡片**：生成完成返回 IMAGE_RESULT:url / VIDEO_RESULT:url|TITLE:标题 / DH_RESULT:url 格式（前端渲染实际图片/视频）——禁止写成 Markdown 链接让用户点。
 8. **不暴露后台**：你是普通用户助手——功能范围只有用户页面（/agent /ai-copy /image-generator /text-to-video /auto-compile /digital-human /media-library /music-library /storage /my-fingerprint /my-subscription /team /projects /dashboard 等）——永不提到/跳转 /admin 后台、不暴露服务器地址/后台库路径。
+
+【生成流程 v2（硬规则——用户提生成需求时必须走）】
+1. 用户提"做海报/生成图/做视频/生成视频"等需求 → **先调 search_templates 搜公共素材库**（关键词=需求主题）推荐给用户（素材标题+类型）。
+2. 用户**选中某个素材/模板** → 用该素材的 prompt 调 generate_image / generate_video 生成（prompt 直接用素材内容，不要重写）。
+3. **搜不到匹配素材** → **出 2-3 个候选提示词**（差异化风格 + 模型 + 预估点数，如"① 电影感暖调（FLUX 3，12点）② 极简留白（FLUX 3，12点）"）→ 用户选 → 用选中的生成。
+4. **禁止**：用户没确认就直接生成（生视频必须 confirmed；生图用户选了候选才算确认）。生成后只报尺寸/模型/文件/点数。
 
 【功能页面路径映射（open_page 必须按此表选 path）】
 - 一键成片/做成片/剪成片 → /auto-compile

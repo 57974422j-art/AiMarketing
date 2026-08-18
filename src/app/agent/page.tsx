@@ -1492,6 +1492,18 @@ export default function AgentPage() {
     }
     // 结果卡片（支持 VIDEO_RESULT / VIDEO_WEB :url|TITLE:标题 触发全局播放器真播放）
     const resRe = /(DH_RESULT|VIDEO_RESULT|VIDEO_WEB|IMAGE_RESULT):([^|]+)(?:\|TITLE:([^|\n]+))?/
+    // 2026-08-18: 点数不足 → 充值引导卡片（AI 返回 TOOL_REJECT 含点数不足）
+    if (content.includes('TOOL_REJECT') && (content.includes('点数') || content.includes('套餐') || content.includes('点卡'))) {
+      return (
+        <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+          <p className="text-sm text-amber-300 mb-1">⚠️ 点数不足</p>
+          <p className="text-xs text-gray-400 mb-2">{content.replace(/TOOL_REJECT:/g, '').slice(0, 120)}</p>
+          <div className="flex gap-2">
+            <button onClick={() => window.open('/my-subscription', '_blank')} className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition">💳 去充值</button>
+          </div>
+        </div>
+      )
+    }
     const rm = content.match(resRe)
     if (rm) {
       const url = rm[2].trim()
