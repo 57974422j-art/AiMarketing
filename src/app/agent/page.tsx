@@ -1287,6 +1287,9 @@ export default function AgentPage() {
         // 场景协议：open_page 唤起功能（2026-08-05 改为应用随行——在 Agent 工作区内打开 iframe 大屏，
         // AI 对话栏右侧常驻不离场，而非跳转独立页面）
         if (data.data.scene?.type === 'open_page') {
+          // 2026-08-18: 路径白名单——普通用户路由，禁 admin 后台
+          const p2 = (data.data.scene?.path || '').split('?')[0]
+          if (p2.startsWith('/admin')) { console.warn('SCENE 拦截 admin 路径:', p2); data.data.scene = null }
           const path = data.data.scene.path || '/'
           const params = data.data.scene.params || {}
           const qs = new URLSearchParams(params).toString()
@@ -1433,11 +1436,21 @@ export default function AgentPage() {
       }
     }
     // 结果卡片（支持 VIDEO_RESULT / VIDEO_WEB :url|TITLE:标题 触发全局播放器真播放）
-    const resRe = /(DH_RESULT|VIDEO_RESULT|VIDEO_WEB):([^|]+)(?:\|TITLE:([^|\n]+))?/
+    const resRe = /(DH_RESULT|VIDEO_RESULT|VIDEO_WEB|IMAGE_RESULT):([^|]+)(?:\|TITLE:([^|\n]+))?/
     const rm = content.match(resRe)
     if (rm) {
       const url = rm[2].trim()
       const title = (rm[3] || '').trim()
+      // 2026-08-18: 图片结果 → 渲染实际图片（不再只给链接）
+      if (rm[1] === 'IMAGE_RESULT') {
+        return (
+          <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <p className="text-sm text-emerald-300 mb-2">{title || '已为你生成图片'}</p>
+            <img src={url} alt={title || '生成图片'} className="w-full rounded-lg max-h-96 object-contain bg-black/40" loading="lazy" />
+            <button onClick={() => navigator.clipboard?.writeText(url)} className="mt-2 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-medium transition">📋 复制图片链接</button>
+          </div>
+        )
+      }
       // 视频类结果：弹出全局播放器真播放（路线1：B站/YouTube/直链 iframe 均支持）
       if (rm[1] === 'VIDEO_RESULT' || rm[1] === 'VIDEO_WEB') {
         if (typeof window !== 'undefined') openVideoFromUrl(url, title)

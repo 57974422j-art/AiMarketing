@@ -461,6 +461,16 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 - 抓取失败/页面无文本（视频页/需登录/动态加载）时，如实告诉用户"抓取失败/无文本"，并给出建议（换 URL/该站需登录）。
 - 抓取成功后，按用户目的提炼（总结/提取价格/竞品分析/文案素材），不要原样堆砌全部文本。
 
+【诚实红线（硬规则，违反=严重错误）】
+1. **禁止编造品牌/店名/产品名**：用户没告诉过的事实（店名、地址、产品、预算）——绝不替用户设定。需要这些信息时明确问用户。
+2. **禁止编造生成结果细节**：生图/生视频/成片完成后只报：尺寸、模型、文件、消耗点数——禁止编造画面细节（"末帧0.5秒黑场""拉花细腻到奶泡微弧"这类描述一律禁止——你没看过生成结果）。
+3. **禁止编造模板/库字段**：search_templates/素材库返回什么就引用什么——禁止编造"模板关键词"等不存在的字段。
+4. **画像必须用户确认**：你从对话推断的用户偏好——先列清单让用户确认（"我理解的你是：……对吗？"），用户确认后才 upsert_memory 保存。禁止自动把推断当事实存记忆。
+5. **无法执行/无法确认**：明确说"这个我无法直接完成（原因）+ 替代方案或入口"，或"我无法确认这个信息（不在系统里），请你提供 X"。禁止假装"已执行/已生成/已发布"。
+6. **粘贴 prompt = 生成意图**：用户粘贴一段英文提示词/素材卡片内容 = 想用这个生成——识别并执行（用该 prompt 生成图/视频），不要教育用户"与你的业务不匹配"。
+7. **生成结果用卡片**：生成完成返回 IMAGE_RESULT:url / VIDEO_RESULT:url|TITLE:标题 / DH_RESULT:url 格式（前端渲染实际图片/视频）——禁止写成 Markdown 链接让用户点。
+8. **不暴露后台**：你是普通用户助手——功能范围只有用户页面（/agent /ai-copy /image-generator /text-to-video /auto-compile /digital-human /media-library /music-library /storage /my-fingerprint /my-subscription /team /projects /dashboard 等）——永不提到/跳转 /admin 后台、不暴露服务器地址/后台库路径。
+
 【功能页面路径映射（open_page 必须按此表选 path）】
 - 一键成片/做成片/剪成片 → /auto-compile
 - 文生视频/AI视频 → /text-to-video
@@ -940,22 +950,27 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       } catch (e: any) { return `KNOWLEDGE_RESULT:查询失败 ${e?.message}` }
     }
     case 'search_templates': {
+      // 2026-08-18: 数据源改为公共素材库 MediaAsset（含提示词的素材）——prompt-library 后台不再对普通用户开放
       try {
-        const params = new URLSearchParams()
-        if (args.category) params.set('category', args.category)
-        if (args.keyword) params.set('keyword', args.keyword)
-        const res = await fetch(`${baseUrl}/api/prompt-templates?${params}`, {
-          headers: auth ? { Authorization: `Bearer ${auth.userId}` } : {},
+        const kw = args.keyword || ''
+        const cat = args.category || ''
+        const where: any = { source: 'public', prompt: { not: '' } }
+        if (kw) where.prompt = { contains: kw }
+        const rows = await prisma.mediaAsset.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          take: 8,
+          select: { id: true, title: true, prompt: true, type: true, category: true },
         })
-        const data = await res.json()
-        if (data.success && data.data?.length) {
-          const items = data.data.slice(0, 6).map((t: any, i: number) =>
-            `${i + 1}. ${t.title}${t.category ? ` [${t.category}]` : ''}${t.model ? ` (${t.model})` : ''}`
+        const filtered = rows.filter(r => !cat || (r.category || '').includes(cat) || (r.type || '').includes(cat))
+        if (filtered.length) {
+          const items = filtered.slice(0, 6).map((t: any, i: number) =>
+            `${i + 1}. ${(t.title || t.prompt || '').substring(0, 30)}${t.category ? ` [${t.category}]` : ''}${t.type ? ` (${t.type})` : ''}`
           ).join('\n')
-          return `TEMPLATE_RESULT:${data.data.length}个模板:\n${items}`
+          return `TEMPLATE_RESULT:公共素材库找到${filtered.length}个相关素材:\n${items}\n（提示：回复用户"用第几个生成"即可直接生成）`
         }
-        return 'TEMPLATE_RESULT:暂无匹配模板'
-      } catch { return 'TEMPLATE_RESULT:模板查询失败' }
+        return 'TEMPLATE_RESULT:公共素材库暂无匹配素材'
+      } catch (e: any) { return 'TEMPLATE_RESULT:模板查询失败（' + e.message + '）' }
     }
 
     case 'read_knowledge': {
@@ -1027,7 +1042,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           take: 5,
         })
         if (!accts.length) {
-          return `PUBLISH_NEED_LOGIN:你还没有绑定${label}的指纹浏览器账号。请去【账号管理】登记一个 bindType=manual 的${label}账号，然后在【指纹浏览器】页启动并登录该平台（扫码），登录好之后就可以发布了。`
+          return `PUBLISH_NEED_LOGIN:系统未检测到已登记的${label}账号。若你已在客户端【指纹浏览器】页扫码登录过${label}，可直接创建发布任务（客户端会自动执行）；建议在【账号管理】登记一个 ${label} 账号（bindType=manual）以便状态跟踪。要我直接创建发布任务吗？`
         }
         const list = accts.map(a => `- ${a.username}（${label}）`).join('\n')
         // C2 发布闭环（2026-08-05）：视频/文案齐备 → 创建发布任务，客户端自动发布（复用 7 平台脚本）
