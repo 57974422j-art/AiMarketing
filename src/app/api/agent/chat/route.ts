@@ -262,6 +262,11 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'query_publish_tasks',
+    description: '查询发布任务状态（Agent 创建的发布任务是否已执行/成功/失败）。触发词："发布了吗""任务状态""发了没有""我的发布"。返回最近发布任务列表及状态。',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
     name: 'automation_check',
     description: '查看自动化任务和定时任务状态。触发词："自动化""定时""自动发布""互关""机器人"。',
     parameters: {
@@ -377,6 +382,7 @@ const TOOL_STEP_LABEL: Record<string, string> = {
   list_personal_files: '读取个人仓库',
   search_templates: '查找模板',
   publish_content: '核对发布账号',
+  query_publish_tasks: '查询发布任务',
   automation_check: '查看自动化任务',
   search_memory: '回忆长期记忆',
   upsert_memory: '写入长期记忆',
@@ -1053,6 +1059,21 @@ ${list}
         const captionLine = args.caption ? `\n📝 文案：${args.caption}` : ''
         return `PUBLISH_READY:${label}已绑定 ${accts.length} 个指纹浏览器账号:\n${list}${contentLine}${captionLine}\n\n👉 告诉我要发哪个视频（素材仓库名）和文案，我直接创建发布任务；或去客户端【指纹浏览器】页手动发布。\n⚠️ 如果发布时提示「该账号未登录平台」，点账号卡片上的「🔓 去登录」扫码登录后重试（我不代你登录）。`
       } catch { return 'PUBLISH_READY:账号查询失败，请稍后重试' }
+    }
+
+    case 'query_publish_tasks': {
+      try {
+        const tasks = await prisma.agentPublishTask.findMany({
+          where: { userId: auth?.userId }, orderBy: { createdAt: 'desc' }, take: 10,
+        })
+        if (!tasks.length) return '还没有发布任务。用「发布到抖音/小红书/...」创建第一个发布任务。'
+        const lines = tasks.map((t: any) => {
+          const st = t.status === 'pending' ? '⏳ 等待执行' : t.status === 'executing' ? '▶️ 执行中' : t.status === 'succeeded' ? '✅ 已发布' : '❌ 失败'
+          const topics = (() => { try { const a = JSON.parse(t.topics || '[]'); return Array.isArray(a) ? a.join(' ') : '' } catch { return '' } })()
+          return `#${t.id} [${t.platform}] ${t.videoName} — ${st}${t.error ? '（' + t.error + '）' : ''}${t.title ? ' | ' + t.title : ''}${topics ? ' | ' + topics : ''}`
+        })
+        return '最近发布任务（' + tasks.length + ' 条）：\n' + lines.join('\n') + '\n\n提示：任务在客户端【指纹浏览器】页自动执行；pending 表示等待客户端页面执行，succeeded 表示已发布成功。'
+      } catch { return '查询发布任务失败，请稍后重试' }
     }
 
     // ── 自动化 ──

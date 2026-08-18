@@ -199,7 +199,41 @@ async function dispatchWriteEngine(ctx: EngineContext): Promise<AutomationResult
     }
   }
 
-  // 返回引擎配置信息，由调用方决定如何执行
+  // 2026-08-16: publish 写操作 → 创建 Agent 发布任务（客户端指纹浏览器页 3s 轮询自动接任务真发）
+  if (action === 'publish') {
+    const videoName = String(params?.videoName || params?.contentUrl || '')
+    const title = String(params?.title || params?.videoName || '')
+    const description = String(params?.caption || params?.description || '')
+    const topics = Array.isArray(params?.topics) ? params.topics : []
+    if (!videoName || !title) {
+      return { success: false, message: '发布需要 videoName（素材文件名）+ title（标题）', provider: 'fingerprint', data: { error: 'PUBLISH_PARAM_MISSING' } }
+    }
+    try {
+      const { PrismaClient } = await import('@prisma/client')
+      const prisma = new PrismaClient()
+      const task = await prisma.agentPublishTask.create({
+        data: {
+          userId: ctx.userId,
+          platform: String(platform || 'douyin').toLowerCase(),
+          videoName,
+          title,
+          description,
+          topics: JSON.stringify(topics),
+        },
+      })
+      await prisma.$disconnect()
+      return {
+        success: true,
+        message: `发布任务已创建（#${task.id}），客户端指纹浏览器页将自动执行发布到${platform}`,
+        provider: 'fingerprint',
+        data: { taskId: task.id, action, platform, status: 'queued' }
+      }
+    } catch (e: any) {
+      return { success: false, message: '创建发布任务失败: ' + e.message, provider: 'fingerprint', data: { error: 'PUBLISH_TASK_CREATE_FAILED' } }
+    }
+  }
+
+  // 其它写操作（like/comment/follow/share/dm）暂返回路由信息（无指纹脚本，待后续接入）
   const { getAutomationConfig } = await import('./automation/config')
   const config = getAutomationConfig()
 

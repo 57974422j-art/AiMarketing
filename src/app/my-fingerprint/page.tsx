@@ -45,6 +45,7 @@ interface PublishTask {
   copyrightSelf?: boolean     // B站授权声明：内容为自制，禁止转载
   status: 'pending' | 'publishing' | 'done' | 'failed'
   errorMsg?: string
+  platform?: string          // Agent 任务指定平台（决定用哪个模板发，避免发错平台）
 }
 
 // ── 平台配置 ──
@@ -205,7 +206,8 @@ export default function MyFingerprintPage() {
   /** 定时轮询浏览器列表 */
   function pollBrowserList() {
     refreshBrowserList()
-    const interval = setInterval(refreshBrowserList, 3000)
+    importAgentTasks()
+    const interval = setInterval(() => { refreshBrowserList(); importAgentTasks() }, 3000)
     return () => clearInterval(interval)
   }
 
@@ -591,11 +593,16 @@ export default function MyFingerprintPage() {
           location: '',
           publishNow: true,
           status: 'pending',
+          platform: t.platform || undefined,
         }))
         setTaskQueue(prev => {
           const exist = new Set(prev.map(x => x.id))
           const fresh = tasks.filter(x => !exist.has(x.id))
-          if (fresh.length) showToast(`已自动导入 ${fresh.length} 个待发布任务`, 'success')
+          if (fresh.length) {
+            showToast(`已自动导入 ${fresh.length} 个待发布任务`, 'success')
+            // 2026-08-16: Agent 任务自动执行（页面开着 → 导入后自动开始发布）
+            setTimeout(() => { if (!batchRunning && selectedAccount && runningPort !== null) executeBatch() }, 800)
+          }
           return [...prev, ...fresh]
         })
       }
@@ -798,6 +805,17 @@ export default function MyFingerprintPage() {
       }
 
       const task = pendingTasks[i]
+
+      // 2026-08-16: Agent 任务平台校验——任务指定平台与当前账号不符时跳过（避免发错平台）
+      if (task.platform && selectedAccount && task.platform !== selectedAccount.platform) {
+        failCount++
+        setTaskQueue(prev => prev.map(t =>
+          t.id === task.id ? { ...t, status: 'failed' as const, errorMsg: `平台不匹配：任务指定发「${task.platform}」，当前账号是「${selectedAccount.platform}」。请切换账号后重试` } : t
+        ))
+        reportAgentTask(task.id, 'failed', `平台不匹配：任务指定发「${task.platform}」，当前账号是「${selectedAccount.platform}」`)
+        setExecLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 跳过 ${task.videoName}：任务平台(${task.platform}) ≠ 账号平台(${selectedAccount.platform})`])
+        continue
+      }
 
       // 标记为发布中
       setTaskQueue(prev => prev.map(t =>
