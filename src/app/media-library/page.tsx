@@ -35,6 +35,8 @@ export default function MediaLibraryPage() {
   const [items, setItems] = useState<Asset[]>([])
   const [promptList, setPromptList] = useState<any[]>([])
   const [promptTotal, setPromptTotal] = useState(0)
+  // 2026-08-16: 各 Tab 总数（徽标显示）
+  const [totals, setTotals] = useState<Record<string, number>>({ image: 0, video: 0, prompts: 0 })
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -75,7 +77,7 @@ export default function MediaLibraryPage() {
     }
     fetch(`/api/media-library?source=public&type=${tab === 'image' ? 'image' : 'video'}&limit=20&offset=${(page - 1) * 20}`, { credentials: 'include' })
       .then(r => r.json())
-      .then(d => { const list = Array.isArray(d?.data) ? d.data : []; setItems(prev => page === 1 ? list : [...prev, ...list]); setHasMore(list.length === 20); setLoadingMore(false) })
+      .then(d => { const list = Array.isArray(d?.data) ? d.data : []; setItems(prev => page === 1 ? list : [...prev, ...list]); setHasMore(list.length === 20); if (typeof d?.total === 'number') setTotals(t => ({ ...t, [tab]: d.total })); setLoadingMore(false) })
       .catch(() => setItems([]))
       .finally(() => setLoading(false))
   }, [tab, search, page])
@@ -160,7 +162,7 @@ export default function MediaLibraryPage() {
               {t.label}
             </button>
           ))}
-          <span className="ml-auto self-center text-xs text-gray-500">{filtered.length} 条素材</span>
+          <span className="ml-auto self-center text-xs text-gray-500">共 {tab === 'prompts' ? promptTotal : (totals[tab] ?? 0)} 条素材</span>
         </div>
 
         {/* admin 管理条（仅 admin 可见，防止普通用户全选克隆报错） */}

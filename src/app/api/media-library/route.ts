@@ -61,7 +61,13 @@ export async function GET(request: NextRequest) {
     const data = params.length > 0
       ? await prisma.$queryRawUnsafe(sql, ...params)
       : await prisma.$queryRawUnsafe(sql)
-    return NextResponse.json({ success: true, data })
+    // 2026-08-16: 总数（同 where，用于 Tab 徽标显示）
+    const countSql = 'SELECT COUNT(*) AS cnt FROM MediaAsset' + (conds.length > 0 ? ' WHERE ' + conds.join(' AND ') : '')
+    const countRows: any = params.length > 0
+      ? await prisma.$queryRawUnsafe(countSql, ...params)
+      : await prisma.$queryRawUnsafe(countSql)
+    const total = Number(countRows?.[0]?.cnt || 0)
+    return NextResponse.json({ success: true, data, total })
   } catch (e) {
     console.error(e)
     return NextResponse.json({ success: false, message: '服务器错误' }, { status: 500 })
