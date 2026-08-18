@@ -414,6 +414,16 @@ async function step7_publish(page, params, log) {
     log('  ✅ 点击「发布」')
   } catch (e) {
     log('  ⚠️ 常规点击「发布」失败（快手发布键是 div 非 button），改用 CDP 坐标点击: ' + e.message)
+    // 2026-08-16: 发布按钮在长表单底部，先滚动进视口再 CDP 点击（_cdpClick 要求元素在视口内，否则坐标点空）
+    await page.evaluate(() => {
+      const els = [...document.querySelectorAll('button,a,div')].filter(el => {
+        const t = (el.innerText || '').trim()
+        return (t === '发布' || t === '立即发布' || t.startsWith('发布')) && t.length < 30 && el.offsetParent !== null
+      })
+      const target = els.sort((a, b) => a.innerText.length - b.innerText.length)[0]
+      if (target) target.scrollIntoView({ block: 'center' })
+    }).catch(() => {})
+    await page.waitForTimeout(600)
     if (await clickByTextCDP(page, log, ['立即发布', '发布'], 30, ['button', 'a', 'div'])) step1 = true
   }
 
