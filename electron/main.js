@@ -6,6 +6,11 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(permission === 'media' || permission === 'microphone' || permission === 'audioCapture')
   })
+  // 2026-08-18: 补权限检查（Electron 33 需要）——远程页面 getUserMedia 之前先"检查"，
+  // 缺 CheckHandler 时 Chromium 不暴露音频设备 → Requested device not found
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
+    return ['media', 'microphone', 'audioCapture'].includes(permission)
+  })
 })
 const path = require('path')
 const fs = require('fs')

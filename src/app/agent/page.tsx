@@ -879,6 +879,8 @@ export default function AgentPage() {
   const audioCtxRef = useRef<AudioContext | null>(null)
   // 讯飞 RTASR 流式（2026-08-07）
   const xfWsRef = useRef<WebSocket | null>(null)
+  const webRecRef = useRef<any>(null)          // 网页版 MediaRecorder
+  const webRecChunksRef = useRef<BlobPart[]>([]) // 网页版录音块
   const xfCtxRef = useRef<AudioContext | null>(null)
   const xfProcRef = useRef<ScriptProcessorNode | null>(null)
   const idleTimerRef = useRef<any>(null)
@@ -980,6 +982,28 @@ export default function AgentPage() {
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
+      // 2026-08-18: 网页版支持语音——MediaRecorder 录完上传服务器 ASR（不依赖本地代理）
+      const isElectron = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
+      if (!isElectron) {
+        webRecRef.current = null
+        webRecChunksRef.current = []
+        try {
+          const MR = (window as any).MediaRecorder
+          if (MR && (window as any).MediaRecorder.isTypeSupported('audio/webm')) {
+            const rec = new MR(stream, { mimeType: 'audio/webm' })
+            webRecRef.current = rec
+            rec.ondataavailable = (e: any) => { if (e.data?.size) webRecChunksRef.current.push(e.data) }
+            rec.onstop = () => {
+              const blob = new Blob(webRecChunksRef.current, { type: 'audio/webm' })
+              uploadWebRecording(blob)
+            }
+            rec.start(500)
+          }
+        } catch (_) {}
+        setOrbState('listening'); setIsRecording(true)
+        setRecordingTip('🎤 我在听，说完了点声纹球停止')
+        return
+      }
       await fetch('/api/agent/asr-config', { credentials: 'include' }).catch(() => {})
       const ws = new WebSocket('ws://127.0.0.1:8766')
       xfWsRef.current = ws
@@ -1036,7 +1060,35 @@ export default function AgentPage() {
       setRecordingTip(e?.name === 'NotAllowedError' ? '麦克风权限被拒绝' : '语音启动失败：' + (e?.message || e))
     }
   }
+  // 2026-08-18: 网页版录音上传服务器 ASR（百炼识别）
+  const uploadWebRecording = async (blob: Blob) => {
+    setOrbState('thinking')
+    setRecordingTip('识别中…')
+    try {
+      const fd = new FormData()
+      fd.append('audio', blob, 'record.webm')
+      const ac = new AbortController()
+      const t = setTimeout(() => ac.abort(), 45000)
+      const r = await fetch('/api/agent/asr', { method: 'POST', body: fd, credentials: 'include', signal: ac.signal })
+      clearTimeout(t)
+      const d = await r.json()
+      if (d.success && d.text) {
+        setStreamText(d.text)
+        setRecordingTip('已识别')
+        sendMessage(d.text)
+      } else {
+        setRecordingTip('识别失败：' + (d.message || '请重试'))
+      }
+    } catch { setRecordingTip('识别失败，请重试') }
+    setIsRecording(false)
+    setOrbState('idle')
+    try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
+    mediaStreamRef.current = null
+  }
+
   const stopVoiceListen = () => {
+    // 2026-08-18: 网页版——停止 MediaRecorder 触发上传
+    if (webRecRef.current) { try { webRecRef.current.stop() } catch {}; webRecRef.current = null; return }
     cleanupXf()
     setIsRecording(false)
     if (orbStateRef.current !== 'speaking') setOrbState('idle')
@@ -1051,7 +1103,10 @@ export default function AgentPage() {
       voice?.stop()
       setRecordingTip('已停止')
       cleanupXf()
+      webRecRef.current = null // 打断：丢弃录音不上传
       try { mediaRecorderRef.current?.stop() } catch {}
+      try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
+      mediaStreamRef.current = null
       setIsRecording(false)
       setOrbState('idle')
       return
