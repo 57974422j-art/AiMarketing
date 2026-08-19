@@ -1158,7 +1158,7 @@ app.on('before-quit', (event) => {
 //  前端录 PCM(16k) → IPC → 本地离线识别 → 文本（不依赖服务器/代理）
 // ════════════════════════════════════════
 let localRecognizer = null
-let localAsrBusy = false // 2026-08-19: 识别互斥——并发调用直接返回（防 native 崩溃）
+let localAsrSession = null // { stream, lastText }——流式会话（2026-08-19 实时识别）
 function getSherpaModelDir() {
   // 打包：resources/models/sherpa；开发：electron/models/sherpa
   const candidates = [
@@ -1168,38 +1168,53 @@ function getSherpaModelDir() {
   for (const c of candidates) { if (fs.existsSync(path.join(c, 'tokens.txt'))) return c }
   return candidates[1]
 }
-ipcMain.handle('asr:recognize-local', async (_e, payload) => {
-  if (localAsrBusy) return { success: false, error: '上一条还在识别中', busy: true }
-  localAsrBusy = true
-  try {
-    const sherpa = require('sherpa-onnx-node')
-    const samples = payload && payload.samples ? Array.from(payload.samples) : []
-    const sampleRate = payload.sampleRate || 16000
-    if (!samples.length) return { success: false, error: '无音频样本' }
-    const modelDir = getSherpaModelDir()
-    if (!fs.existsSync(path.join(modelDir, 'tokens.txt'))) {
-      return { success: false, error: '本地语音模型未安装（sherpa models 缺失）', needFallback: true }
-    }
-    if (!localRecognizer) {
-      localRecognizer = new sherpa.OfflineRecognizer({
-        featConfig: { sampleRate, featureDim: 80 },
-        modelConfig: {
-          transducer: {
-            encoder: path.join(modelDir, 'encoder-epoch-99-avg-1.int8.onnx'),
-            decoder: path.join(modelDir, 'decoder-epoch-99-avg-1.int8.onnx'),
-            joiner: path.join(modelDir, 'joiner-epoch-99-avg-1.int8.onnx'),
-          },
-          tokens: path.join(modelDir, 'tokens.txt'),
+function ensureLocalRecognizer() {
+  const sherpa = require('sherpa-onnx-node')
+  const modelDir = getSherpaModelDir()
+  if (!fs.existsSync(path.join(modelDir, 'tokens.txt'))) throw new Error('本地语音模型未安装（sherpa models 缺失）')
+  if (!localRecognizer) {
+    localRecognizer = new sherpa.OnlineRecognizer({
+      featConfig: { sampleRate: 16000, featureDim: 80 },
+      modelConfig: {
+        transducer: {
+          encoder: path.join(modelDir, 'encoder-epoch-99-avg-1.int8.onnx'),
+          decoder: path.join(modelDir, 'decoder-epoch-99-avg-1.int8.onnx'),
+          joiner: path.join(modelDir, 'joiner-epoch-99-avg-1.int8.onnx'),
         },
-      })
-    }
-    const stream = localRecognizer.createStream()
-    stream.acceptWaveform({ samples: new Float32Array(samples), sampleRate })
-    const text = localRecognizer.decode(stream)
-    return { success: true, text: String(text || '').trim() }
-  } catch (e) {
-    return { success: false, error: e && e.message ? e.message : String(e), needFallback: true }
-  } finally {
-    localAsrBusy = false
+        tokens: path.join(modelDir, 'tokens.txt'),
+      },
+    })
   }
+  return { sherpa, modelDir }
+}
+// 流式识别会话（实时——边说边出字，学白龙马）
+ipcMain.handle('asr:session-start', async () => {
+  try {
+    const { sherpa } = ensureLocalRecognizer()
+    localAsrSession = { stream: localRecognizer.createStream(), lastText: '' }
+    return { success: true }
+  } catch (e) { return { success: false, error: e && e.message ? e.message : String(e) } }
 })
+ipcMain.handle('asr:audio', async (_e, payload) => {
+  try {
+    if (!localAsrSession) return { success: false, error: '识别会话未开始' }
+    const samples = payload && payload.samples ? Array.from(payload.samples) : []
+    if (!samples.length) return { success: true, text: localAsrSession.lastText }
+    localAsrSession.stream.acceptWaveform({ samples: new Float32Array(samples), sampleRate: 16000 })
+    localRecognizer.decode(localAsrSession.stream)
+    const r = localRecognizer.getResult(localAsrSession.stream)
+    const text = String((r && r.text) || '').trim()
+    localAsrSession.lastText = text
+    return { success: true, text, isFinal: false }
+  } catch (e) { return { success: false, error: e && e.message ? e.message : String(e) } }
+})
+ipcMain.handle('asr:session-end', async () => {
+  try {
+    if (!localAsrSession) return { success: false, error: '识别会话未开始' }
+    const text = localAsrSession.lastText
+    localAsrSession = null
+    return { success: true, text, isFinal: true }
+  } catch (e) { return { success: false, error: e && e.message ? e.message : String(e) } }
+})
+ipcMain.handle('asr:session-abort', async () => { localAsrSession = null; return { success: true } })
+

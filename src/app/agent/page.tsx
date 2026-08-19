@@ -882,6 +882,7 @@ export default function AgentPage() {
   const webRecRef = useRef<any>(null)          // 录音控制器（PCM 采集用）
   const webRecCtxRef = useRef<any>(null)       // PCM AudioContext
   let webRecSampleRate = 16000                 // PCM 采样率
+  const webRecBufRef = useRef<Float32Array[]>([]) // 实时发送缓冲
   const webRecChunksRef = useRef<BlobPart[]>([]) // 网页版录音块
   const xfCtxRef = useRef<AudioContext | null>(null)
   const xfProcRef = useRef<ScriptProcessorNode | null>(null)
@@ -989,10 +990,19 @@ export default function AgentPage() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
       // 2026-08-19: 统一 MediaRecorder → 上传服务器 ASR（壳/网页都不依赖本地代理——C 方案）
-      // 2026-08-19: PCM 采集（16k mono Float32）——本地 sherpa 识别（A）+ 服务器兜底（C）
+      // 2026-08-19: PCM 采集（16k mono Float32）→ 实时流式本地识别（sherpa OnlineRecognizer——边说边出字）
       webRecRef.current = null
       webRecChunksRef.current = []
       webRecSampleRate = 16000
+      webRecBufRef.current = []
+      setInterimText('')
+      // 启动本地流式会话（Electron）
+      if (window.electronAPI?.asrSessionStart) {
+        const sr = await window.electronAPI.asrSessionStart()
+        if (!sr?.success) { setRecordingTip('本地语音启动失败：' + (sr?.error || '')); return }
+      } else {
+        setRecordingTip('语音识别需在客户端使用（本地离线识别）'); return
+      }
       try {
         const AC = (window as any).AudioContext || (window as any).webkitAudioContext
         const ctx = new AC({ sampleRate: 16000 })
@@ -1003,7 +1013,21 @@ export default function AgentPage() {
           const ch = e.inputBuffer.getChannelData(0)
           const f = new Float32Array(ch.length)
           f.set(ch)
-          webRecChunksRef.current.push(f)
+          // 实时送识别（每 ~0.5s 一批——2 块）
+          webRecBufRef.current.push(f)
+          if (webRecBufRef.current.length >= 2) {
+            const parts = webRecBufRef.current
+            webRecBufRef.current = []
+            const total = parts.reduce((n: number, a: Float32Array) => n + a.length, 0)
+            const batch = new Float32Array(total)
+            let off = 0
+            for (const a of parts) { batch.set(a, off); off += a.length }
+            if (window.electronAPI?.asrAudio) {
+              window.electronAPI.asrAudio(Array.from(batch)).then((r: any) => {
+                if (r?.success && r.text) { setInterimText(r.text) }
+              }).catch(() => {})
+            }
+          }
           let rms = 0
           for (let i = 0; i < ch.length; i += 64) { const v = ch[i]; rms += v * v }
           setMicVolume(Math.min(1, Math.sqrt(rms / (ch.length / 64)) * 4))
@@ -1012,7 +1036,7 @@ export default function AgentPage() {
         webRecRef.current = { stop: () => { try { src.disconnect(); proc.disconnect() } catch {} } }
       } catch (_) {}
       setOrbState('listening'); setIsRecording(true)
-      setRecordingTip('🎤 我在听，说完了点声纹球停止')
+      setRecordingTip('🎤 我在听（实时识别），说完了点声纹球停止')
       return
       await fetch('/api/agent/asr-config', { credentials: 'include' }).catch(() => {})
       const ws = new WebSocket('ws://127.0.0.1:8766')
@@ -1126,13 +1150,30 @@ export default function AgentPage() {
       webRecRef.current = null
       try { webRecCtxRef.current?.close?.() } catch {}
       webRecCtxRef.current = null
-      const all = webRecChunksRef.current
-      const total = all.reduce((n: number, f: Float32Array) => n + f.length, 0)
-      const samples = new Float32Array(total)
-      let off = 0
-      for (const f of all) { samples.set(f, off); off += f.length }
-      webRecChunksRef.current = []
-      if (total > 0) recognizeAudio(samples, webRecSampleRate)
+      webRecBufRef.current = []
+      // 2026-08-19: 结束流式会话 → final 文本 → 发送（实时识别，非先录音再识别）
+      const finalize = async () => {
+        recognizingRef.current = true
+        setOrbState('thinking')
+        try {
+          if (window.electronAPI?.asrSessionEnd) {
+            const r = await window.electronAPI.asrSessionEnd()
+            const text = r?.success ? String(r.text || '') : ''
+            if (text.trim()) {
+              setInterimText('')
+              setStreamText(text)
+              setRecordingTip('已识别')
+              sendMessage(text.trim())
+            } else setRecordingTip('没听清，请再说一次')
+          }
+        } catch {}
+        setIsRecording(false)
+        setOrbState('idle')
+        recognizingRef.current = false
+        try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
+        mediaStreamRef.current = null
+      }
+      finalize()
       return
     }
     cleanupXf()
@@ -1149,7 +1190,8 @@ export default function AgentPage() {
       voice?.stop()
       setRecordingTip('已停止')
       cleanupXf()
-      webRecRef.current = null // 打断：丢弃录音不上传
+      webRecRef.current = null // 打断：丢弃
+      window.electronAPI?.asrSessionAbort?.().catch(() => {}) // 2026-08-19: 打断取消流式会话
       try { mediaRecorderRef.current?.stop() } catch {}
       try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
       mediaStreamRef.current = null

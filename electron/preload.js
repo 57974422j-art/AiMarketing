@@ -53,7 +53,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   fpExecute: (port, templateType, params) => ipcRenderer.invoke('fp:execute', { port, templateType, params }),
   // 2026-08-19: 本地语音识别（sherpa-onnx——A 方案）
-  asrRecognizeLocal: (payload) => ipcRenderer.invoke('asr:recognize-local', payload),
+  asrSessionStart: () => ipcRenderer.invoke('asr:session-start'),
+  asrAudio: (samples) => ipcRenderer.invoke('asr:audio', { samples }),
+  asrSessionEnd: () => ipcRenderer.invoke('asr:session-end'),
+  asrSessionAbort: () => ipcRenderer.invoke('asr:session-abort'),
 
   /** 停止当前正在执行的模板脚本 */
   fpScriptStop: () => ipcRenderer.invoke('fp:scriptStop'),
