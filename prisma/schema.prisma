@@ -1130,6 +1130,7 @@ model AgentPublishTask {
   title           String
   description     String   @default("")
   topics          String   @default("[]")      // JSON 数组
+  coverUrl        String?                        // 2026-08-18: 封面（AI 推荐/AI 生成，可选）
   status          String   @default("pending") // pending/executing/succeeded/failed
   error           String?
   createdAt       DateTime @default(now())

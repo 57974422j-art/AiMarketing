@@ -257,7 +257,11 @@ const AGENT_TOOLS: ToolDefinition[] = [
         platform: { type: 'string', description: '平台：douyin/xiaohongshu/kuaishou/shipinhao/bilibili（或中文名）' },
         contentUrl: { type: 'string', description: '要发布的内容URL（个人仓库文件URL或生成结果URL）' },
         videoName: { type: 'string', description: '素材仓库中的视频文件名（如 xxx.mp4），与 contentUrl 二选一，优先用这个' },
-        caption: { type: 'string', description: '文案/标题（含话题标签）' },
+        caption: { type: 'string', description: '文案/标题（含话题标签，如 #咖啡 #探店）' },
+        topics: { type: 'string', description: '话题标签（可选，逗号分隔；不传则从文案自动提取#标签）' },
+        coverUrl: { type: 'string', description: '封面图URL（可选，不传用平台智能封面）' },
+        platforms: { type: 'array', items: { type: 'string' }, description: '多平台发布（可选，如 ["douyin","kuaishou"]；不传用 platform）' },
+        fromSource: { type: 'string', description: '视频来源：self(用户自有/AI生成，可发) / public(公共素材库，版权提示) / web(网络，版权提示)' },
       }, required: ['platform'],
     },
   },
@@ -1066,22 +1070,37 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
 📝 文案：${args.caption}` : ''
         if (videoName && args.caption) {
           try {
-            const task = await prisma.agentPublishTask.create({
-              data: {
-                userId: auth.userId,
-                platform,
-                socialAccountId: accts[0]?.id || null,
-                videoName,
-                title: String(args.caption).slice(0, 80),
-                description: String(args.caption),
-                topics: JSON.stringify([]),
-                status: 'pending',
-              },
-            })
-            return `PUBLISH_QUEUED:已为「${label}」创建发布任务 #${task.id}（视频：${videoName}）。客户端【指纹浏览器】页会自动执行发布（3秒轮询自动上传+填标题+发布）；若执行时提示账号未登录，到指纹浏览器页扫码后任务会自动重试。${captionLine0}`
+            // 2026-08-18: 话题从文案提取 #标签（或用户显式传 topics）
+            const hashTags = String(args.caption || '').match(/#[^\s#，,。]+/g) || []
+            const topicsArr = args.topics
+              ? String(args.topics).split(/[,，]/).map((t: string) => t.trim()).filter(Boolean)
+              : hashTags.map((t: string) => t.replace('#', ''))
+            // 多平台：platforms 数组（或单 platform）
+            const platformList: string[] = Array.isArray(args.platforms) && args.platforms.length
+              ? args.platforms.map((pl: string) => PLATFORM_ALIAS[String(pl).toLowerCase()] || String(pl).toLowerCase())
+              : [platform]
+            const taskIds: number[] = []
+            for (const pl of platformList) {
+              const plLabel = PLATFORM_LABEL[pl] || pl
+              const task = await prisma.agentPublishTask.create({
+                data: {
+                  userId: auth.userId,
+                  platform: pl,
+                  socialAccountId: null,
+                  videoName,
+                  title: String(args.caption).slice(0, 80),
+                  description: String(args.caption),
+                  topics: JSON.stringify(topicsArr),
+                  coverUrl: args.coverUrl || null,
+                  status: 'pending',
+                },
+              })
+              taskIds.push(task.id)
+            }
+            const idTxt = taskIds.map((id, i) => `${PLATFORM_LABEL[platformList[i]] || platformList[i]} #${id}`).join('、')
+            return `PUBLISH_QUEUED:已为「${idTxt}」创建发布任务（视频：${videoName}）${topicsArr.length ? '，话题：#' + topicsArr.join(' #') : ''}。客户端【指纹浏览器】页会自动执行发布（自动启动浏览器+上传+填标题+发布）；若执行时提示账号未登录，到指纹浏览器页扫码后任务会自动重试。${captionLine0}`
           } catch (e: any) {
-            return `PUBLISH_READY:创建发布任务失败（${e.message}），${label}已绑定账号：
-${list}
+            return `PUBLISH_READY:创建发布任务失败（${e.message}）。
 👉 可手动去客户端【指纹浏览器】页发布。`
           }
         }
