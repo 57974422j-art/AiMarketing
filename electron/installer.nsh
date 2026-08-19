@@ -11,3 +11,12 @@
   RMDir /r "$INSTDIR\resources\ms-playwright"
   RMDir /r "$INSTDIR\resources\scripts"
 !macroend
+
+; 2026-08-19：安装/更新完成后重建桌面与开始菜单快捷方式（electron-updater 更新后旧快捷方式可能指向被替换的 exe）
+!macro customInstall
+  ; 桌面快捷方式（指向安装目录 exe，防止更新后失效）
+  CreateShortCut "$DESKTOP\AI营销助手.lnk" "$INSTDIR\AI营销助手.exe" "" "$INSTDIR\AI营销助手.exe" 0
+  ; 开始菜单快捷方式
+  CreateDirectory "$SMPROGRAMS\AI营销助手"
+  CreateShortCut "$SMPROGRAMS\AI营销助手\AI营销助手.lnk" "$INSTDIR\AI营销助手.exe" "" "$INSTDIR\AI营销助手.exe" 0
+!macroend
