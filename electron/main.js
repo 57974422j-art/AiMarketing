@@ -1151,3 +1151,50 @@ app.on('before-quit', (event) => {
     app.exit(0)
   })()
 })
+
+
+// ════════════════════════════════════════
+//  本地语音识别（sherpa-onnx——A 方案，2026-08-19）
+//  前端录 PCM(16k) → IPC → 本地离线识别 → 文本（不依赖服务器/代理）
+// ════════════════════════════════════════
+let localRecognizer = null
+function getSherpaModelDir() {
+  // 打包：resources/models/sherpa；开发：electron/models/sherpa
+  const candidates = [
+    path.join(process.resourcesPath || '', 'models', 'sherpa'),
+    path.join(__dirname, 'models', 'sherpa'),
+  ]
+  for (const c of candidates) { if (fs.existsSync(path.join(c, 'tokens.txt'))) return c }
+  return candidates[1]
+}
+ipcMain.handle('asr:recognize-local', async (_e, payload) => {
+  try {
+    const sherpa = require('sherpa-onnx-node')
+    const samples = payload && payload.samples ? Array.from(payload.samples) : []
+    const sampleRate = payload.sampleRate || 16000
+    if (!samples.length) return { success: false, error: '无音频样本' }
+    const modelDir = getSherpaModelDir()
+    if (!fs.existsSync(path.join(modelDir, 'tokens.txt'))) {
+      return { success: false, error: '本地语音模型未安装（sherpa models 缺失）', needFallback: true }
+    }
+    if (!localRecognizer) {
+      localRecognizer = new sherpa.OfflineRecognizer({
+        featConfig: { sampleRate, featureDim: 80 },
+        modelConfig: {
+          transducer: {
+            encoder: path.join(modelDir, 'encoder-epoch-99-avg-1.int8.onnx'),
+            decoder: path.join(modelDir, 'decoder-epoch-99-avg-1.int8.onnx'),
+            joiner: path.join(modelDir, 'joiner-epoch-99-avg-1.int8.onnx'),
+          },
+          tokens: path.join(modelDir, 'tokens.txt'),
+        },
+      })
+    }
+    const stream = localRecognizer.createStream()
+    stream.acceptWaveform({ samples: new Float32Array(samples), sampleRate })
+    const text = localRecognizer.decode(stream)
+    return { success: true, text: String(text || '').trim() }
+  } catch (e) {
+    return { success: false, error: e && e.message ? e.message : String(e), needFallback: true }
+  }
+})

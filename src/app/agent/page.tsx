@@ -879,7 +879,9 @@ export default function AgentPage() {
   const audioCtxRef = useRef<AudioContext | null>(null)
   // 讯飞 RTASR 流式（2026-08-07）
   const xfWsRef = useRef<WebSocket | null>(null)
-  const webRecRef = useRef<any>(null)          // 网页版 MediaRecorder
+  const webRecRef = useRef<any>(null)          // 录音控制器（PCM 采集用）
+  const webRecCtxRef = useRef<any>(null)       // PCM AudioContext
+  let webRecSampleRate = 16000                 // PCM 采样率
   const webRecChunksRef = useRef<BlobPart[]>([]) // 网页版录音块
   const xfCtxRef = useRef<AudioContext | null>(null)
   const xfProcRef = useRef<ScriptProcessorNode | null>(null)
@@ -983,20 +985,27 @@ export default function AgentPage() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
       // 2026-08-19: 统一 MediaRecorder → 上传服务器 ASR（壳/网页都不依赖本地代理——C 方案）
+      // 2026-08-19: PCM 采集（16k mono Float32）——本地 sherpa 识别（A）+ 服务器兜底（C）
       webRecRef.current = null
       webRecChunksRef.current = []
+      webRecSampleRate = 16000
       try {
-        const MR = (window as any).MediaRecorder
-        if (MR && (window as any).MediaRecorder.isTypeSupported('audio/webm')) {
-          const rec = new MR(stream, { mimeType: 'audio/webm' })
-          webRecRef.current = rec
-          rec.ondataavailable = (e: any) => { if (e.data?.size) webRecChunksRef.current.push(e.data) }
-          rec.onstop = () => {
-            const blob = new Blob(webRecChunksRef.current, { type: 'audio/webm' })
-            uploadWebRecording(blob)
-          }
-          rec.start(500)
+        const AC = (window as any).AudioContext || (window as any).webkitAudioContext
+        const ctx = new AC({ sampleRate: 16000 })
+        webRecCtxRef.current = ctx
+        const src = ctx.createMediaStreamSource(stream)
+        const proc = ctx.createScriptProcessor(4096, 1, 1)
+        proc.onaudioprocess = (e: any) => {
+          const ch = e.inputBuffer.getChannelData(0)
+          const f = new Float32Array(ch.length)
+          f.set(ch)
+          webRecChunksRef.current.push(f)
+          let rms = 0
+          for (let i = 0; i < ch.length; i += 64) { const v = ch[i]; rms += v * v }
+          setMicVolume(Math.min(1, Math.sqrt(rms / (ch.length / 64)) * 4))
         }
+        src.connect(proc); proc.connect(ctx.destination)
+        webRecRef.current = { stop: () => { try { src.disconnect(); proc.disconnect() } catch {} } }
       } catch (_) {}
       setOrbState('listening'); setIsRecording(true)
       setRecordingTip('🎤 我在听，说完了点声纹球停止')
@@ -1058,25 +1067,48 @@ export default function AgentPage() {
     }
   }
   // 2026-08-18: 网页版录音上传服务器 ASR（百炼识别）
-  const uploadWebRecording = async (blob: Blob) => {
+  // 2026-08-19: PCM → 本地 sherpa 识别（A）→ 失败兜底服务器（C）
+  const encodeWav = (samples: Float32Array, sampleRate: number): ArrayBuffer => {
+    const buf = new ArrayBuffer(44 + samples.length * 2)
+    const dv = new DataView(buf)
+    const ws = (o: number, s: string) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)) }
+    ws(0, 'RIFF'); dv.setUint32(4, 36 + samples.length * 2, true); ws(8, 'WAVE')
+    ws(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true)
+    dv.setUint32(24, sampleRate, true); dv.setUint32(28, sampleRate * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true)
+    ws(36, 'data'); dv.setUint32(40, samples.length * 2, true)
+    for (let i = 0; i < samples.length; i++) { const s = Math.max(-1, Math.min(1, samples[i])); dv.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true) }
+    return buf
+  }
+  const recognizeAudio = async (samples: Float32Array, sampleRate: number) => {
     setOrbState('thinking')
     setRecordingTip('识别中…')
+    let text = ''
     try {
-      const fd = new FormData()
-      fd.append('audio', blob, 'record.webm')
-      const ac = new AbortController()
-      const t = setTimeout(() => ac.abort(), 45000)
-      const r = await fetch('/api/agent/asr', { method: 'POST', body: fd, credentials: 'include', signal: ac.signal })
-      clearTimeout(t)
-      const d = await r.json()
-      if (d.success && d.text) {
-        setStreamText(d.text)
-        setRecordingTip('已识别')
-        sendMessage(d.text)
-      } else {
-        setRecordingTip('识别失败：' + (d.message || '请重试'))
+      // A：本地 sherpa（Electron 客户端）
+      if (window.electronAPI?.asrRecognizeLocal) {
+        const r = await window.electronAPI.asrRecognizeLocal({ samples: Array.from(samples), sampleRate })
+        if (r?.success && r.text) text = r.text
       }
-    } catch { setRecordingTip('识别失败，请重试') }
+      // C 兜底：上传服务器 ASR（PCM → wav）
+      if (!text) {
+        const wav = encodeWav(samples, sampleRate)
+        const fd = new FormData()
+        fd.append('audio', new Blob([wav], { type: 'audio/wav' }), 'record.wav')
+        const ac = new AbortController()
+        const t = setTimeout(() => ac.abort(), 45000)
+        const resp = await fetch('/api/agent/asr', { method: 'POST', body: fd, credentials: 'include', signal: ac.signal })
+        clearTimeout(t)
+        const d = await resp.json()
+        if (d.success && d.text) text = d.text
+      }
+    } catch { /* 静默 */ }
+    if (text && text.trim()) {
+      setStreamText(text)
+      setRecordingTip('已识别')
+      sendMessage(text)
+    } else {
+      setRecordingTip('识别失败，请重试')
+    }
     setIsRecording(false)
     setOrbState('idle')
     try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
@@ -1084,8 +1116,21 @@ export default function AgentPage() {
   }
 
   const stopVoiceListen = () => {
-    // 2026-08-18: 网页版——停止 MediaRecorder 触发上传
-    if (webRecRef.current) { try { webRecRef.current.stop() } catch {}; webRecRef.current = null; return }
+    // 2026-08-19: 停止录音 → 合并 PCM → 本地/服务器识别
+    if (webRecRef.current) {
+      try { webRecRef.current.stop?.() } catch {}
+      webRecRef.current = null
+      try { webRecCtxRef.current?.close?.() } catch {}
+      webRecCtxRef.current = null
+      const all = webRecChunksRef.current
+      const total = all.reduce((n: number, f: Float32Array) => n + f.length, 0)
+      const samples = new Float32Array(total)
+      let off = 0
+      for (const f of all) { samples.set(f, off); off += f.length }
+      webRecChunksRef.current = []
+      if (total > 0) recognizeAudio(samples, webRecSampleRate)
+      return
+    }
     cleanupXf()
     setIsRecording(false)
     if (orbStateRef.current !== 'speaking') setOrbState('idle')

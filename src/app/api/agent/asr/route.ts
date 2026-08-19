@@ -35,9 +35,23 @@ export async function POST(request: NextRequest) {
     }
 
     // 2026-08-06：优先调常驻 FunASR 服务（模型加载一次，识别秒级）；服务未启动则启动，失败回退脚本模式
-    let result = await recognizeViaServer(wavPath)
+    // 2026-08-19: C 兜底——优先 API ASR（硅基 SenseVoice，服务器 key），失败再走本地 FunASR
+    let result = { success: false, text: '', error: '' } as { success: boolean; text: string; error?: string }
+    try {
+      const fs2 = await import('fs')
+      const buf = fs2.readFileSync(wavPath)
+      const { transcribeAudio } = await import('@/lib/ai-providers')
+      const text = await transcribeAudio(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), 'audio.wav')
+      if (text && text.trim()) result = { success: true, text: text.trim() }
+      else result = { success: false, text: '', error: 'API ASR 无结果' }
+    } catch (e: any) {
+      result = { success: false, text: '', error: 'API ASR 异常: ' + (e?.message || '') }
+      console.warn('[ASR] API 识别失败，转 FunASR:', e?.message)
+    }
     if (!result.success) {
-      result = await recognizeWithFunasr(wavPath)
+      const r2 = await recognizeViaServer(wavPath)
+      if (r2.success) result = r2
+      else { const r3 = await recognizeWithFunasr(wavPath); if (r3.success) result = r3 }
     }
     // 清理临时目录
     try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}

@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @param {object} params - 模板参数
    */
   fpExecute: (port, templateType, params) => ipcRenderer.invoke('fp:execute', { port, templateType, params }),
+  // 2026-08-19: 本地语音识别（sherpa-onnx——A 方案）
+  asrRecognizeLocal: (payload) => ipcRenderer.invoke('asr:recognize-local', payload),
 
   /** 停止当前正在执行的模板脚本 */
   fpScriptStop: () => ipcRenderer.invoke('fp:scriptStop'),
