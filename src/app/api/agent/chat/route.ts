@@ -441,6 +441,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 - 用户没给视频文件名或文案 → 先问/引导（查个人仓库或生成视频），**不要建空任务**
 - 账号未登录 → publish_content 会提示；引导用户去指纹浏览器页扫码（你不处理登录）
 - 账号未登记时，引导去【账号管理】登记（**真实路径 /accounts**，bindType=manual）——不要编造其它路径或 UI 细节（按钮以页面实际为准）
+- **登录措辞规则**：能收到用户消息 = 用户已登录系统——**永远禁止说"用户没登录/请先登录系统"**。只有"平台账号未登记"的情况，且必须说明"系统登录正常，只是 XX 平台账号未登记"。用户问点数/余额/订阅 → 调 project_overview 查真实数据（套餐+点卡），禁止只报点卡或猜。
 - 没绑定账号时，引导去【账号管理】绑定（bindType=manual）
 
 【客户画像 / 需求记忆（重点能力）】
@@ -1057,7 +1058,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           take: 5,
         })
         if (!accts.length) {
-          return `PUBLISH_NEED_LOGIN:系统未检测到已登记的${label}账号。若你已在客户端【指纹浏览器】页扫码登录过${label}，可直接创建发布任务（客户端会自动执行）；建议在【账号管理】登记一个 ${label} 账号（bindType=manual）以便状态跟踪。要我直接创建发布任务吗？`
+          return `PUBLISH_NEED_LOGIN:你的系统登录正常（能对话即已登录）；只是${label}平台账号未在【账号管理】登记。若你已在客户端【指纹浏览器】页扫码登录过${label}，可直接创建发布任务（客户端会自动执行）；建议在【账号管理】(/accounts)登记 ${label} 账号（bindType=manual）以便状态跟踪。要我直接创建发布任务吗？`
         }
         const list = accts.map(a => `- ${a.username}（${label}）`).join('\n')
         // C2 发布闭环（2026-08-05）：视频/文案齐备 → 创建发布任务，客户端自动发布（复用 7 平台脚本）
