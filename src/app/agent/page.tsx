@@ -1492,6 +1492,22 @@ export default function AgentPage() {
     }
     // 结果卡片（支持 VIDEO_RESULT / VIDEO_WEB :url|TITLE:标题 触发全局播放器真播放）
     const resRe = /(DH_RESULT|VIDEO_RESULT|VIDEO_WEB|IMAGE_RESULT):([^|]+)(?:\|TITLE:([^|\n]+))?/
+    // 2026-08-18: 发布任务已创建 → 自动打开指纹浏览器页 + 卡片（任务会自动执行）
+    if (content.includes('PUBLISH_QUEUED')) {
+      const mId = content.match(/#(\d+)/)
+      if (typeof window !== 'undefined' && !(window as any).__fpOpenedThisTask) {
+        (window as any).__fpOpenedThisTask = true
+        setTimeout(() => { try { window.open('/my-fingerprint', '_blank') } catch {} }, 1500)
+        setTimeout(() => { (window as any).__fpOpenedThisTask = false }, 8000)
+      }
+      return (
+        <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+          <p className="text-sm text-emerald-300 mb-1">📤 发布任务已创建{mId ? ` #${mId[1]}` : ''}</p>
+          <p className="text-xs text-gray-400 mb-2">客户端指纹浏览器页会自动执行发布（上传+填文案+发布），保持页面打开即可。</p>
+          <button onClick={() => window.open('/my-fingerprint', '_blank')} className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-medium transition">🌐 打开指纹浏览器</button>
+        </div>
+      )
+    }
     // 2026-08-18: 点数不足 → 充值引导卡片（AI 返回 TOOL_REJECT 含点数不足）
     if (content.includes('TOOL_REJECT') && (content.includes('点数') || content.includes('套餐') || content.includes('点卡'))) {
       return (
