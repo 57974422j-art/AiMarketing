@@ -250,7 +250,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   {
     name: 'publish_content',
-    description: '发布/准备发布内容到自媒体平台（抖音/小红书/快手/视频号/B站）。触发词："发布""发抖音""发小红书""投稿""上传视频"。会检查该平台绑定账号并给出发布指引；真实发布在客户端指纹浏览器执行，账号未登录平台时需用户先去登录（你不处理登录）。',
+    description: '发布/准备发布内容到自媒体平台（抖音/小红书/快手/视频号/B站）。触发词："发布""发抖音""发小红书""投稿""上传视频"。**不需要账号登记/绑定——只要用户给了视频文件名(videoName)和文案(caption)就直接创建发布任务**，客户端指纹浏览器页自动执行；执行时若检测到平台未登录会提示扫码（你不处理登录、不检查账号绑定）。',
     parameters: {
       type: 'object',
       properties: {
@@ -435,6 +435,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 3. 素材不合适就换下一个来源，不要卡住反问；实在缺关键信息（如产品名/平台）再问
 
 【发布规则（2026-08-18 修正——真实链路，禁止编造假流程）】
+- **发布不检查账号登记**：publish_content 不需要绑定账号——用户给了视频文件名+文案就建任务。**禁止**用 project_overview 的"绑定账号 0 个"判断能否发布、禁止让用户先去【账号管理】绑定——直接建任务，未登录在客户端执行时检测
 - 发布前确认三要素：平台、视频文件名（个人仓库 storage 里的 videoName）、文案 caption
 - **publish_content 建任务后 = 任务自动执行**：客户端指纹浏览器页 3 秒轮询自动导入 → Playwright 全自动发布（填标题/传视频/点发布全自动）——**用户只需保持指纹浏览器页打开，不需要手动点发布，也不需要你"唤起发布页/预填"**
 - **禁止**：编造任务 ID（真实返回格式是数字，如 #123）、说"已唤起发布页/已预填内容/你去点发布"——这些都不存在。任务建好就告诉用户"任务已创建（#id），打开客户端指纹浏览器页会自动发布"，并可用 query_publish_tasks 查状态
@@ -1026,7 +1027,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         return [
           `【项目概况 · ${user?.username || ''}】`,
           `- 套餐：${user?.plan || 'free'} ｜ 点数余额：${user?.pointBalance ?? 0}`,
-          `- 绑定平台账号：${socialCount} 个（${platformSet.join('、') || '无'}）`,
+          `- 绑定平台账号：${socialCount} 个（${platformSet.join('、') || '无'}——登记用于状态跟踪，发布不依赖登记，任务建好后客户端自动执行）`,
           `- 素材库：${assetCount} 条${assets.length ? '（最近：' + assets.map(a => a.title).join('、') + '）' : ''}`,
           `- AI 生成记录：${genCount} 条${recentGens.length ? '（最近：' + recentGens.map(g => g.type + (g.prompt ? '「' + g.prompt.slice(0, 12) + '」' : '')).join('、') + '）' : ''}`,
           `- 已发布任务可查客户端【指纹浏览器】队列。`,
