@@ -556,6 +556,11 @@ Step 4 publish_content 建任务（多平台传 platforms 数组一次建多个�
 - 数据看板/仪表盘 → /dashboard
 - AI生图/生成图片 → /image-generator
 - 视频剪辑/后期处理/配音字幕 → /video-edit
+- 我的套餐/套餐/充值/购买点数 → /my-subscription
+- 数字人/AI主播/口播/数字人播报 → /digital-human
+- 账号管理/我的账号/绑定账号 → /accounts
+- 音乐库/BGM/配乐/背景音乐 → /music-library
+- 公共素材库/素材库 → /media-library
 - 文生视频(generate_video) 必须先报价（首次调用只返回预估，不带 confirmed），用户确认后才带 confirmed=true 生成；用户明确说"直接生成/马上生成/不用问"时可直接带 confirmed=true。文生视频、数字人口播(digital_human_speak) 是异步任务，会返回 taskId，返回后提示"正在生成中，稍后可问我进度"。
 
 【异步任务处理】
@@ -1580,7 +1585,12 @@ export async function POST(request: NextRequest) {
     for (const h of history.slice(-10)) {
       messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })
     }
-    messages.push({ role: 'user', content: userContent })
+    // 2026-08-19: ASR 纠错——"纹身"多为"文生"误识别（文生图/文生视频），替换避免误解
+    const corrected = String(userContent)
+      .replace(/纹身图/g, '文生图')
+      .replace(/纹身视频/g, '文生视频')
+      .replace(/纹身/g, '文生')
+    messages.push({ role: 'user', content: corrected })
 
     // Step 1: 多模态 + 工具调用
     // 2026-08-05：默认使用 DeepSeek（用户要求，本地无需海外代理）；仅当用户上传图片时

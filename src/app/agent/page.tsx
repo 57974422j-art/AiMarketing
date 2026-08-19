@@ -982,28 +982,25 @@ export default function AgentPage() {
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
-      // 2026-08-18: 网页版支持语音——MediaRecorder 录完上传服务器 ASR（不依赖本地代理）
-      const isElectron = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
-      if (!isElectron) {
-        webRecRef.current = null
-        webRecChunksRef.current = []
-        try {
-          const MR = (window as any).MediaRecorder
-          if (MR && (window as any).MediaRecorder.isTypeSupported('audio/webm')) {
-            const rec = new MR(stream, { mimeType: 'audio/webm' })
-            webRecRef.current = rec
-            rec.ondataavailable = (e: any) => { if (e.data?.size) webRecChunksRef.current.push(e.data) }
-            rec.onstop = () => {
-              const blob = new Blob(webRecChunksRef.current, { type: 'audio/webm' })
-              uploadWebRecording(blob)
-            }
-            rec.start(500)
+      // 2026-08-19: 统一 MediaRecorder → 上传服务器 ASR（壳/网页都不依赖本地代理——C 方案）
+      webRecRef.current = null
+      webRecChunksRef.current = []
+      try {
+        const MR = (window as any).MediaRecorder
+        if (MR && (window as any).MediaRecorder.isTypeSupported('audio/webm')) {
+          const rec = new MR(stream, { mimeType: 'audio/webm' })
+          webRecRef.current = rec
+          rec.ondataavailable = (e: any) => { if (e.data?.size) webRecChunksRef.current.push(e.data) }
+          rec.onstop = () => {
+            const blob = new Blob(webRecChunksRef.current, { type: 'audio/webm' })
+            uploadWebRecording(blob)
           }
-        } catch (_) {}
-        setOrbState('listening'); setIsRecording(true)
-        setRecordingTip('🎤 我在听，说完了点声纹球停止')
-        return
-      }
+          rec.start(500)
+        }
+      } catch (_) {}
+      setOrbState('listening'); setIsRecording(true)
+      setRecordingTip('🎤 我在听，说完了点声纹球停止')
+      return
       await fetch('/api/agent/asr-config', { credentials: 'include' }).catch(() => {})
       const ws = new WebSocket('ws://127.0.0.1:8766')
       xfWsRef.current = ws
