@@ -33,7 +33,9 @@ export async function ttsQwen3(text: string, voice: string, workDir: string, idx
       headers: {
         'Authorization': `Bearer ${KEY}`,
         'Content-Type': 'application/json',
-        'Accept': 'audio/mpeg',
+        // 2026-08-19: 百炼该接口只支持 event-stream/json——音频在 SSE 事件里（base64），改 Accept + SSE 解析
+        'Accept': 'text/event-stream',
+        'X-DashScope-SSE': 'enable',
       },
       body: JSON.stringify({
         model: 'qwen-tts',
@@ -44,11 +46,46 @@ export async function ttsQwen3(text: string, voice: string, workDir: string, idx
           rate: 1.0,
         },
       }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(20000),
     })
 
-    // 检查响应类型
+    // 解析 SSE 流：事件里 data: {"audio": "base64..."}
     const contentType = res.headers.get('content-type') || ''
+    if (contentType.includes('event-stream') || contentType.includes('json') || contentType.includes('text')) {
+      const raw = await res.text()
+      // 提取所有 audio base64（data: 行里 {"audio":"..."}）
+      const audioB64s: string[] = []
+      const dataLines = raw.split('
+').filter(l => l.startsWith('data:'))
+      for (const line of dataLines) {
+        const payload = line.replace(/^data:\s*/, '').trim()
+        if (!payload || payload === '[DONE]') continue
+        try {
+          const obj = JSON.parse(payload)
+          if (obj.audio) audioB64s.push(obj.audio)
+        } catch {}
+      }
+      // 兼容：整体是 JSON（非流式变体）
+      if (audioB64s.length === 0) {
+        try {
+          const obj = JSON.parse(raw)
+          if (obj.output?.audio) audioB64s.push(obj.output.audio)
+          if (obj.audio) audioB64s.push(obj.audio)
+        } catch {}
+      }
+      if (audioB64s.length === 0) {
+        console.warn(`[Qwen3TTS] 未提取到音频段: ${raw.slice(0, 200)}`)
+        throw new Error('响应无音频数据')
+      }
+      const buf = Buffer.from(audioB64s.join(''), 'base64')
+      if (buf.length < 500) throw new Error('音频太短')
+      const outPath = path.join(workDir, `tts${idx}.mp3`)
+      fs.writeFileSync(outPath, buf)
+      const dur = await getMP3Duration(outPath)
+      return { ok: true, path: outPath, duration: dur }
+    }
+
+    // 兼容：直接音频流
     if (contentType.includes('audio')) {
       const buf = Buffer.from(await res.arrayBuffer())
       if (buf.length < 500) throw new Error('音频太短')
