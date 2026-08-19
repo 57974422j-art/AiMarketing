@@ -188,6 +188,8 @@ function setupAutoPublish() {
             contextIsolation: true,
             nodeIntegration: false,
             nodeIntegrationInSubFrames: true,
+            // 2026-08-18: 隐藏窗口必须禁后台节流——否则页面 setInterval 轮询被暂停，任务不会自动执行
+            backgroundThrottling: false,
           },
         })
         fpWindow.loadURL(`${serverUrl}/my-fingerprint`)
@@ -195,7 +197,7 @@ function setupAutoPublish() {
       }
     } catch (e) { /* 静默：网络/未登录等 */ }
   }
-  setInterval(checkPending, 8000)
+  setInterval(checkPending, 6000)
   setTimeout(checkPending, 5000)
 }
 
