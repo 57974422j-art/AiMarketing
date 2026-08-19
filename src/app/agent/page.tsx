@@ -1495,11 +1495,6 @@ export default function AgentPage() {
     // 2026-08-18: 发布任务已创建 → 自动打开指纹浏览器页 + 卡片（任务会自动执行）
     if (content.includes('PUBLISH_QUEUED')) {
       const mId = content.match(/#(\d+)/)
-      if (typeof window !== 'undefined' && !(window as any).__fpOpenedThisTask) {
-        (window as any).__fpOpenedThisTask = true
-        setTimeout(() => { try { window.open('/my-fingerprint', '_blank') } catch {} }, 1500)
-        setTimeout(() => { (window as any).__fpOpenedThisTask = false }, 8000)
-      }
       return (
         <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
           <p className="text-sm text-emerald-300 mb-1">📤 发布任务已创建{mId ? ` #${mId[1]}` : ''}</p>

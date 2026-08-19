@@ -609,9 +609,15 @@ export default function MyFingerprintPage() {
                 || accounts.find(a => normalizePlatform(a.platform) === targetPlatform)
               if (acct) {
                 showMsg(`自动启动 ${acct.platform} 浏览器执行发布任务...`, 'info')
-                await handleStart(acct)
+                const started = await handleStart(acct).then(() => true).catch(() => false)
+                if (!started) {
+                  // 2026-08-18: 启动失败 → 回传任务失败原因（AI 可查）
+                  for (const t of fresh) reportAgentTask(t.id, 'failed', '指纹浏览器自动启动失败，请在指纹浏览器页手动启动浏览器后重试')
+                  return
+                }
                 setTimeout(() => executeBatch(), 2500)
               } else {
+                for (const t of fresh) reportAgentTask(t.id, 'failed', `未找到 ${fresh[0].platform || ''} 平台账号，请在指纹浏览器页选择账号后重试`)
                 showMsg(`未找到 ${fresh[0].platform || ''} 平台账号，请在指纹浏览器页选择账号启动后自动执行`, 'error')
               }
             }, 800)

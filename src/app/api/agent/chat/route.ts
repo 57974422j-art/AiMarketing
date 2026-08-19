@@ -447,6 +447,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 【发布状态规则（硬规则）】
 - **AI 无法看到执行过程**（上传中/填标题/点发布/预计时间全部看不到）——**禁止编造任何执行细节和进度**
 - 只能报告 query_publish_tasks 查到的真实状态：⏳ pending / ✅ succeeded / ❌ failed
+- **pending = 任务在等客户端指纹浏览器页执行**——告诉用户"任务已建好，正在等指纹浏览器页执行——请确认指纹浏览器页已打开且浏览器已启动（选账号启动）；若一直 pending 且页面已开，可能是浏览器未启动或平台未登录，看页面日志"；failed 时如实报告 error（页面会回传具体失败原因）
 - 用户问"发了吗/进度" → 必须调 query_publish_tasks 查真实状态再答；不知道就说"我查一下"
 - **没有自动通知/状态监听能力**——禁止说"静默轮询/完成会通知你"——只能建议"过会儿问查发布状态"
 - 多轮对话中任务已创建过就不要再创建（先 query_publish_tasks 查历史）
