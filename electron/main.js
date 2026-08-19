@@ -151,6 +151,52 @@ function createWindow() {
   if (app.isPackaged) {
     setupAutoUpdater(mainWindow)
   }
+
+  // ── 2026-08-18: 客户端常驻自动发布——定时检查 pending 任务，自动打开指纹浏览器页执行 ──
+  setupAutoPublish()
+}
+
+/**
+ * 客户端常驻自动发布：Electron 后台定时拉取 pending 发布任务，
+ * 有任务时自动打开（隐藏窗口）指纹浏览器页 → 页面 3s 轮询自动导入并执行（自动启动浏览器+发布）。
+ * 用户无需手动打开页面；主窗口保持当前页面不动。
+ */
+function setupAutoPublish() {
+  if (global.__autoPublishStarted) return
+  global.__autoPublishStarted = true
+  let fpWindow = null
+  const checkPending = async () => {
+    try {
+      const cookies = await session.defaultSession.cookies.get({ name: 'token' })
+      if (!cookies.length) return // 未登录
+      const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc'
+      const res = await fetch(`${serverUrl}/api/agent/publish-tasks?status=pending`, {
+        headers: { cookie: `token=${encodeURIComponent(cookies[0].value)}` },
+      })
+      const d = await res.json()
+      const hasPending = d && d.success && Array.isArray(d.data) && d.data.length > 0
+      if (!hasPending) {
+        if (fpWindow && !fpWindow.isDestroyed()) { try { fpWindow.close() } catch {} fpWindow = null }
+        return
+      }
+      // 有 pending 任务 → 打开指纹浏览器页（隐藏窗口，后台轮询执行）
+      if (!fpWindow || fpWindow.isDestroyed()) {
+        fpWindow = new BrowserWindow({
+          width: 1200, height: 800, show: false,
+          webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            nodeIntegrationInSubFrames: true,
+          },
+        })
+        fpWindow.loadURL(`${serverUrl}/my-fingerprint`)
+        fpWindow.on('closed', () => { fpWindow = null })
+      }
+    } catch (e) { /* 静默：网络/未登录等 */ }
+  }
+  setInterval(checkPending, 8000)
+  setTimeout(checkPending, 5000)
 }
 
 // ════════════════════════════════════════
