@@ -182,7 +182,7 @@ function setupAutoPublish() {
       // 有 pending 任务 → 打开指纹浏览器页（隐藏窗口，后台轮询执行）
       if (!fpWindow || fpWindow.isDestroyed()) {
         fpWindow = new BrowserWindow({
-          width: 1200, height: 800, show: false,
+          width: 1200, height: 800, show: true, // 2026-08-19: 可见——用户能确认客户端正在执行发布（不再隐藏，避免"没打开"困惑）
           webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
