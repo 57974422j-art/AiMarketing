@@ -273,9 +273,12 @@ async function runTask(
     const ttsResults: Array<{ path: string; duration: number }> = []
     for (let i = 0; i < ln.length; i++) {
       const r = await ttsQwen3(ln[i], voice, wd, i)
-      ttsResults.push({ path: r.path, duration: r.duration })
+      // 2026-08-19: 过滤失败段（r.ok=false / 文件不存在）——避免空路径进 concat 列表导致 ffmpeg 报错
+      if (r.ok && r.path && fs.existsSync(r.path)) ttsResults.push({ path: r.path, duration: r.duration })
+      else console.warn(`[成片] 第${i}句 TTS 失败已跳过: ${(r as any).message || '未知'}（原文：${(ln[i] || '').slice(0, 30)}）`)
       task.progress = 10 + Math.round((i + 1) / ln.length * 10)
     }
+    if (ttsResults.length === 0) throw new Error('TTS 合成全部失败，请检查后台百炼语音配置（DASHSCOPE_API_KEY / qwen-tts 模型）')
     const ap = path.join(wd, 't.mp3')
     if (ln.length === 1) {
       fs.copyFileSync(ttsResults[0].path, ap)
