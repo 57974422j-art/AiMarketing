@@ -68,3 +68,4 @@
 | 6 | /api/admin/editor-quota 恒 403（(request as any).user 从未注入） | 2026-08-05 | 改为 getAuthFromHeaders 标准鉴权（401/403），语法通过；前端暂无页面调用（配额管理走 admin/users） |
 | 1 | middleware 只解 JWT payload 不验签名，可伪造 X-User-* 头提权 | 2026-08-05 | 方案A：Edge Web Crypto HMAC-SHA256 验签，密钥与 login 一致；本地 4 用例测试通过（真token放行/篡改拒绝/错误密钥拒绝/损坏拒绝） |
 | 26 | Windows 本地打包反复失败（7za 符号链接/zip 损坏/win-unpacked 占用需重建） | 2026-08-05 | 已脚本化根治：scripts/build-local.mjs 一键打包（清残留+7za补丁+zip校验+镜像）；main.js 退出残留修复待重新打包生效；根治需开开发者模式重启 |
+| 🔴 | 2026-08-18 | Agent 发布链路认知错误：AI 编造任务 ID/已唤起发布页/预填（真实：任务建好客户端自动发）；open_page 不能带参唤起发布页，AI 禁承诺 | chat route 系统提示 + 前端 scene | 待修 |
