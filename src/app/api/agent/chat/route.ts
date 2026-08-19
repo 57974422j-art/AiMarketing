@@ -1052,14 +1052,12 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
 
         if (!auth?.userId) return 'PUBLISH_NEED_LOGIN:请先登录平台账号后再发布。'
 
-        // 查该平台已绑定的指纹浏览器账号（bindType=manual）
+        // 2026-08-18: 不再检查账号登记——默认用户已在指纹浏览器登录，直接建任务；
+        // 若执行时客户端检测到未登录（fp 脚本 needLogin），任务会标记失败并提示扫码
         const accts = await prisma.socialAccount.findMany({
           where: { userId: auth.userId, platform },
           take: 5,
         })
-        if (!accts.length) {
-          return `PUBLISH_NEED_LOGIN:你的系统登录正常（能对话即已登录）；只是${label}平台账号未在【账号管理】登记。若你已在客户端【指纹浏览器】页扫码登录过${label}，可直接创建发布任务（客户端会自动执行）；建议在【账号管理】(/accounts)登记 ${label} 账号（bindType=manual）以便状态跟踪。要我直接创建发布任务吗？`
-        }
         const list = accts.map(a => `- ${a.username}（${label}）`).join('\n')
         // C2 发布闭环（2026-08-05）：视频/文案齐备 → 创建发布任务，客户端自动发布（复用 7 平台脚本）
         const videoName = args.videoName || (typeof args.contentUrl === 'string' ? args.contentUrl.split('/').pop()?.split('?')[0] : '')
@@ -1079,7 +1077,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                 status: 'pending',
               },
             })
-            return `PUBLISH_QUEUED:已为「${label}」创建发布任务 #${task.id}（视频：${videoName}）。打开客户端【指纹浏览器】页会自动执行发布，也可在【应用 → 指纹浏览器】里查看队列。${captionLine0}`
+            return `PUBLISH_QUEUED:已为「${label}」创建发布任务 #${task.id}（视频：${videoName}）。客户端【指纹浏览器】页会自动执行发布（3秒轮询自动上传+填标题+发布）；若执行时提示账号未登录，到指纹浏览器页扫码后任务会自动重试。${captionLine0}`
           } catch (e: any) {
             return `PUBLISH_READY:创建发布任务失败（${e.message}），${label}已绑定账号：
 ${list}
@@ -1088,7 +1086,7 @@ ${list}
         }
         const contentLine = args.contentUrl ? `\n📎 待发内容：${args.contentUrl}` : '\n📎 待发内容：还未确定，可从个人仓库选一个成片'
         const captionLine = args.caption ? `\n📝 文案：${args.caption}` : ''
-        return `PUBLISH_READY:${label}已绑定 ${accts.length} 个指纹浏览器账号:\n${list}${contentLine}${captionLine}\n\n👉 告诉我要发哪个视频（素材仓库名）和文案，我直接创建发布任务；或去客户端【指纹浏览器】页手动发布。\n⚠️ 如果发布时提示「该账号未登录平台」，点账号卡片上的「🔓 去登录」扫码登录后重试（我不代你登录）。`
+        return `PUBLISH_READY:${label}发布准备:${contentLine}${captionLine}\n\n👉 告诉我要发哪个视频（素材仓库名）和文案，我直接创建发布任务；或去客户端【指纹浏览器】页手动发布。\n⚠️ 如果发布时提示「该账号未登录平台」，点账号卡片上的「🔓 去登录」扫码登录后重试（我不代你登录）。`
       } catch { return 'PUBLISH_READY:账号查询失败，请稍后重试' }
     }
 
