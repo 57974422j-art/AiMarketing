@@ -600,8 +600,21 @@ export default function MyFingerprintPage() {
           const fresh = tasks.filter(x => !exist.has(x.id))
           if (fresh.length) {
             showToast(`已自动导入 ${fresh.length} 个待发布任务`, 'success')
-            // 2026-08-16: Agent 任务自动执行（页面开着 → 导入后自动开始发布）
-            setTimeout(() => { if (!batchRunning && selectedAccount && runningPort !== null) executeBatch() }, 800)
+            // 2026-08-18: Agent 任务自动执行——浏览器没启动/没选账号时按任务平台自动选账号启动
+            setTimeout(async () => {
+              if (batchRunning) return
+              if (runningPort !== null && selectedAccount) { executeBatch(); return }
+              const targetPlatform = normalizePlatform(fresh[0].platform)
+              const acct = accounts.find(a => normalizePlatform(a.platform) === targetPlatform && (a.status === 'logged' || a.isBound))
+                || accounts.find(a => normalizePlatform(a.platform) === targetPlatform)
+              if (acct) {
+                showMsg(`自动启动 ${acct.platform} 浏览器执行发布任务...`, 'info')
+                await handleStart(acct)
+                setTimeout(() => executeBatch(), 2500)
+              } else {
+                showMsg(`未找到 ${fresh[0].platform || ''} 平台账号，请在指纹浏览器页选择账号启动后自动执行`, 'error')
+              }
+            }, 800)
           }
           return [...prev, ...fresh]
         })
