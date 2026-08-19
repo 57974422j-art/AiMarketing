@@ -106,6 +106,8 @@ const build = {
     { from: 'scripts/platform-tools', to: 'scripts/platform-tools' },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
+    // 2026-08-19: 本地语音识别模型（sherpa-onnx）——随包分发
+    { from: 'electron/models/sherpa', to: 'models/sherpa', filter: ['**/*'] },
   ],
   win: pkg.build.win,
   publish: pkg.build.publish,
