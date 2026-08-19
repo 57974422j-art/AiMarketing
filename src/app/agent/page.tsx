@@ -982,6 +982,10 @@ export default function AgentPage() {
       if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
         setRecordingTip('当前环境不支持语音'); return
       }
+      // 2026-08-19: 清理上次残留（旧流/旧 AudioContext）——防点多次资源累积崩溃
+      try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
+      try { webRecCtxRef.current?.close?.() } catch {}
+      webRecCtxRef.current = null
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
       // 2026-08-19: 统一 MediaRecorder → 上传服务器 ASR（壳/网页都不依赖本地代理——C 方案）

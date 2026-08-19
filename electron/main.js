@@ -1158,6 +1158,7 @@ app.on('before-quit', (event) => {
 //  前端录 PCM(16k) → IPC → 本地离线识别 → 文本（不依赖服务器/代理）
 // ════════════════════════════════════════
 let localRecognizer = null
+let localAsrBusy = false // 2026-08-19: 识别互斥——并发调用直接返回（防 native 崩溃）
 function getSherpaModelDir() {
   // 打包：resources/models/sherpa；开发：electron/models/sherpa
   const candidates = [
@@ -1168,6 +1169,8 @@ function getSherpaModelDir() {
   return candidates[1]
 }
 ipcMain.handle('asr:recognize-local', async (_e, payload) => {
+  if (localAsrBusy) return { success: false, error: '上一条还在识别中', busy: true }
+  localAsrBusy = true
   try {
     const sherpa = require('sherpa-onnx-node')
     const samples = payload && payload.samples ? Array.from(payload.samples) : []
@@ -1196,5 +1199,7 @@ ipcMain.handle('asr:recognize-local', async (_e, payload) => {
     return { success: true, text: String(text || '').trim() }
   } catch (e) {
     return { success: false, error: e && e.message ? e.message : String(e), needFallback: true }
+  } finally {
+    localAsrBusy = false
   }
 })
