@@ -55,8 +55,7 @@ export async function ttsQwen3(text: string, voice: string, workDir: string, idx
       const raw = await res.text()
       // 提取所有 audio base64（data: 行里 {"audio":"..."}）
       const audioB64s: string[] = []
-      const dataLines = raw.split('
-').filter(l => l.startsWith('data:'))
+      const dataLines = raw.split('\n').filter(l => l.startsWith('data:'))
       for (const line of dataLines) {
         const payload = line.replace(/^data:\s*/, '').trim()
         if (!payload || payload === '[DONE]') continue
