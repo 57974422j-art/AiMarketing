@@ -7,9 +7,9 @@ interface WorkspaceData {
   name: string
   role: string
   isAdmin: boolean
-  features: {
-    aiCopy: { limit: number; used: number; remaining: number }
-    videoEdit: { usedCount: number }
+  features?: {
+    aiCopy?: { limit: number; used: number; remaining: number }
+    videoEdit?: { usedCount: number }
   }
 }
 
@@ -23,8 +23,7 @@ const featureCards = [
     color: 'from-blue-500/20 to-blue-600/10 border-blue-500/30',
     hoverColor: 'hover:border-blue-400/50 hover:shadow-blue-500/10',
     path: '/ai-copy',
-    badgeKey: 'aiCopy', // 显示配额
-    badgeDefault: '免费使用',
+    badgeDefault: 'AI 生成',
     badgeColor: 'bg-emerald-500/20 text-emerald-400',
   },
   {
@@ -173,8 +172,7 @@ export default function WorkspacePage() {
   )
 
   const getBadgeText = (card: typeof featureCards[0]) => {
-    if (!card.badgeKey || !data) return card.badgeDefault
-    if (card.badgeKey === 'aiCopy') return `今日剩余 ${data.features.aiCopy.remaining}/${data.features.aiCopy.limit}`
+    // 2026-08-18: 旧 AI 文案配额体系已废弃——文案直接走 Agent（按对话计费），无每日次数限制
     return card.badgeDefault
   }
 
