@@ -138,7 +138,7 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
-### 2026-08-18 客户端常驻自动发布（🔴 高，待执行——需重打包）
+### 2026-08-18 客户端常驻自动发布（✅ 已实现——需重打包分发）
 - **目标**：Electron 启动后自动拉起指纹浏览器 + 后台轮询 agentPublishTask（pending→自动执行），**用户不开页面也能自动发布**（登录态一直在本地，比爬虫直发安全）
 - **方案**：electron/main.js 定时拉 /api/agent/publish-tasks?status=pending → 匹配账号 fp:start（若未启动）→ fp:execute → 回写 done；页面打开时与页面轮询互斥（同一任务不双发）
 - **替代否决**：服务器 Playwright 直发（IP/设备指纹不一致→封号风险）——不采用
