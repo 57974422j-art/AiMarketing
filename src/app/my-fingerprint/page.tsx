@@ -617,8 +617,20 @@ export default function MyFingerprintPage() {
                 }
                 setTimeout(() => executeBatch(), 2500)
               } else {
-                for (const t of fresh) reportAgentTask(t.id, 'failed', `未找到 ${fresh[0].platform || ''} 平台账号，请在指纹浏览器页选择账号后重试`)
-                showMsg(`未找到 ${fresh[0].platform || ''} 平台账号，请在指纹浏览器页选择账号启动后自动执行`, 'error')
+                // 2026-08-19: 无账号记录不阻塞——尝试启动默认平台浏览器（登录态在本地 profile；若未登录，用户扫码一次即保存，下次自动用）
+                const targetPlat = fresh[0].platform || 'douyin'
+                const dummyAcct: Account = {
+                  id: 0, platform: targetPlat, accountName: targetPlat, accountId: '',
+                  cdpPort: null, isBound: false, bindType: 'manual', status: 'unknown',
+                  remark: '', createdAt: '',
+                }
+                showMsg(`未找到登记的${targetPlat}账号，尝试启动默认${targetPlat}浏览器（若未登录请扫码，登录后自动保存）...`, 'info')
+                try {
+                  await handleStart(dummyAcct)
+                  setTimeout(() => executeBatch(), 3000)
+                } catch (e: any) {
+                  for (const t of fresh) reportAgentTask(t.id, 'failed', `浏览器启动失败：${e?.message || '未知'}，请在指纹浏览器页手动启动`)
+                }
               }
             }, 800)
           }
