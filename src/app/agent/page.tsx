@@ -1503,8 +1503,11 @@ export default function AgentPage() {
       return (
         <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
           <p className="text-sm text-emerald-300 mb-1">📤 发布任务已创建{mId ? ` #${mId[1]}` : ''}</p>
-          <p className="text-xs text-gray-400 mb-2">客户端指纹浏览器页会自动执行发布（上传+填文案+发布），保持页面打开即可。</p>
-          <button onClick={() => window.open('/my-fingerprint', '_blank')} className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-medium transition">🌐 打开指纹浏览器</button>
+          <p className="text-xs text-gray-400 mb-2">客户端指纹浏览器页会自动启动浏览器并执行发布（上传+填文案+发布），保持页面打开即可。</p>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => window.open('/my-fingerprint', '_blank')} className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-medium transition">🌐 打开指纹浏览器</button>
+            <button onClick={() => { const id = mId ? mId[1] : ''; fetch(`/api/agent/publish-tasks?status=all`, { credentials: 'include' }).then(r => r.json()).then(d => { const t = (d.data || []).find((x: any) => String(x.id) === id); const st = t ? (t.status === 'succeeded' ? '✅ 已发布' : t.status === 'failed' ? '❌ 失败：' + (t.error || '') : t.status === 'executing' ? '▶️ 执行中' : '⏳ 等待执行') : '未找到'; alert('任务 #' + id + '：' + st) }) }} className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300 text-xs font-medium transition">🔍 查状态</button>
+          </div>
         </div>
       )
     }
