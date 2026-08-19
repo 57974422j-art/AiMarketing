@@ -138,6 +138,12 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-08-18 客户端常驻自动发布（🔴 高，待执行——需重打包）
+- **目标**：Electron 启动后自动拉起指纹浏览器 + 后台轮询 agentPublishTask（pending→自动执行），**用户不开页面也能自动发布**（登录态一直在本地，比爬虫直发安全）
+- **方案**：electron/main.js 定时拉 /api/agent/publish-tasks?status=pending → 匹配账号 fp:start（若未启动）→ fp:execute → 回写 done；页面打开时与页面轮询互斥（同一任务不双发）
+- **替代否决**：服务器 Playwright 直发（IP/设备指纹不一致→封号风险）——不采用
+- **连带**：真实中间状态回传（executing+阶段）→ AI 可报真实进度（可选二期）
+
 ### 2026-08-18 Agent 发布链路认知修正（🔴 高，测试暴露）
 - **问题**：AI 不知"自动发布"真实链路（publish_content 建任务→客户端 3s 轮询自动执行→用户无需点发布），编造"唤起发布页/预填/你点发布"假流程 + 假任务 ID（pub_xhs_...非真实格式）
 - **修**：①系统提示写清真实链路（任务建好=客户端自动发，用户只需打开指纹浏览器页）②AI 引用工具返回必须原文（#数字ID），禁编 ID/已执行 ③open_page 明确不支持 my-fingerprint 带参预填，AI 禁承诺
