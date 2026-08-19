@@ -27,6 +27,7 @@
 
 ## 2026-08-10
 | 日期 | 操作内容 | 改动文件 | 结果 |
+2026-08-18 | 发布流程v3：四步流程（确认视频含版权规则→推荐封面/标题/标签可跳过→确认参数→建任务多平台自动执行）+ publish_content 多平台/topics提取/coverUrl + 前端自动启动浏览器 | chat/route.ts、my-fingerprint/page.tsx、schema（AgentPublishTask.coverUrl） | ✅ 12ea0b2+c40dde2+已推
 2026-08-18 | 隐患②③④⑤：spendTokens 事务化；checkout 惰性清理过期订单；删 subscription-guard 死代码；周卡防重复确认 | token-wallet.ts、payment-config.ts、两 checkout、subscription-guard 删除 | ✅ 已推
 2026-08-18 | ②数据中台+③发布真执行：my-fingerprint 3s 轮询接 Agent 任务+平台绑定+自动执行+平台校验；dispatcher publish→agentPublishTask；Agent 新增 query_publish_tasks；MediaCrawler trending 真实现（抖音热榜+入库 CrawledTrending） | my-fingerprint/page.tsx、engine-dispatcher.ts、agent/chat/route.ts、crawler-client.ts、mediacrawler/trending/route.ts | ✅ 781b8e1+1e6b3f0 已推，待部署验证
 |---|---|---|---|
