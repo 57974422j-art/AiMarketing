@@ -603,34 +603,21 @@ export default function MyFingerprintPage() {
             // 2026-08-18: Agent 任务自动执行——浏览器没启动/没选账号时按任务平台自动选账号启动
             setTimeout(async () => {
               if (batchRunning) return
-              if (runningPort !== null && selectedAccount) { executeBatch(); return }
-              const targetPlatform = normalizePlatform(fresh[0].platform)
-              const acct = accounts.find(a => normalizePlatform(a.platform) === targetPlatform && (a.status === 'logged' || a.isBound))
-                || accounts.find(a => normalizePlatform(a.platform) === targetPlatform)
-              if (acct) {
-                showMsg(`自动启动 ${acct.platform} 浏览器执行发布任务...`, 'info')
-                const started = await handleStart(acct).then(() => true).catch(() => false)
-                if (!started) {
-                  // 2026-08-18: 启动失败 → 回传任务失败原因（AI 可查）
-                  for (const t of fresh) reportAgentTask(t.id, 'failed', '指纹浏览器自动启动失败，请在指纹浏览器页手动启动浏览器后重试')
-                  return
-                }
-                setTimeout(() => executeBatch(), 2500)
-              } else {
-                // 2026-08-19: 无账号记录不阻塞——尝试启动默认平台浏览器（登录态在本地 profile；若未登录，用户扫码一次即保存，下次自动用）
-                const targetPlat = fresh[0].platform || 'douyin'
-                const dummyAcct: Account = {
-                  id: 0, platform: targetPlat, accountName: targetPlat, accountId: '',
-                  cdpPort: null, isBound: false, bindType: 'manual', status: 'unknown',
-                  remark: '', createdAt: '',
-                }
-                showMsg(`未找到登记的${targetPlat}账号，尝试启动默认${targetPlat}浏览器（若未登录请扫码，登录后自动保存）...`, 'info')
-                try {
-                  await handleStart(dummyAcct)
-                  setTimeout(() => executeBatch(), 3000)
-                } catch (e: any) {
-                  for (const t of fresh) reportAgentTask(t.id, 'failed', `浏览器启动失败：${e?.message || '未知'}，请在指纹浏览器页手动启动`)
-                }
+              if (runningPort !== null) { executeBatch(); return }
+              // 2026-08-19: 不查账号表、不匹配账号（无登录态数据）——直接启动对应平台浏览器，
+              // 执行时脚本 isLoggedIn 检测登录：已登录直接发，未登录提示扫码
+              const targetPlat = fresh[0].platform || 'douyin'
+              const dummyAcct: Account = {
+                id: 0, platform: targetPlat, accountName: targetPlat, accountId: '',
+                cdpPort: null, isBound: false, bindType: 'manual', status: 'unknown',
+                remark: '', createdAt: '',
+              }
+              showMsg(`正在启动 ${targetPlat} 浏览器执行发布（打开平台发布链接）...`, 'info')
+              try {
+                await handleStart(dummyAcct)
+                setTimeout(() => executeBatch(), 3000)
+              } catch (e: any) {
+                for (const t of fresh) reportAgentTask(t.id, 'failed', `浏览器启动失败：${e?.message || '未知'}，请在指纹浏览器页手动启动`)
               }
             }, 800)
           }
