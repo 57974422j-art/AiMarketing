@@ -1485,6 +1485,22 @@ export async function POST(request: NextRequest) {
         }
       }
     } catch {}
+    // 2026-08-18: 注入用户上下文（登录/套餐/点数）——AI 回复生成/发布类请求前必须参考真实数据
+    try {
+      if (auth?.userId) {
+        const { getTokenWallet } = await import('@/lib/token-wallet')
+        const w = await getTokenWallet(auth.userId)
+        const subTxt = !w.hasSubscription ? '无套餐' : (w.subRemaining < 0 ? '套餐：' + (w.planName || '') + '（无限额度）' : '套餐：' + (w.planName || '') + '（剩 ' + w.subRemaining + '/' + w.allowance + ' 点）')
+        const ctx = [
+          '【用户上下文（真实数据，回复生成/发布类请求前必须参考）】',
+          '- 用户已登录系统（能对话即已登录，禁止说用户未登录）',
+          '- ' + subTxt + '；点卡余额 ' + w.pointBalance + ' 点；当前可用 ' + w.remaining + ' 点',
+          '- 生成类操作会扣点数（生图12点/张、视频按秒、对话1点/条）；可用点数不足以完成请求时：先告知"点数不足（可用X点，需要Y点）"并引导去 /my-subscription 充值——不要先答应做再失败',
+        ].join('\n')
+        sysBlocks.push(ctx)
+      }
+    } catch {}
+
     const messages: AgentChatMessage[] = [
       { role: 'system', content: sysBlocks.join('\n') },
     ]
