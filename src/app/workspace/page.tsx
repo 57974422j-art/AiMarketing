@@ -151,7 +151,7 @@ const featureCards = [
 ]
 
 export default function WorkspacePage() {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [data, setData] = useState<WorkspaceData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -164,6 +164,22 @@ export default function WorkspacePage() {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  // 2026-08-18: 登录守卫——未登录显示登录提示页（不自动跳转，避免网络/iframe 误判）
+  if (authLoading) return (
+    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+      <p className="text-gray-400 font-mono">加载中...</p>
+    </div>
+  )
+  if (!user) return (
+    <div className="min-h-screen bg-[#0a0a0f] flex flex-col items-center justify-center gap-4">
+      <p className="text-gray-300 text-lg">请先登录后使用工作台</p>
+      <a href="/login?redirect=/workspace"
+        className="px-6 py-2.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-sm font-medium transition">
+        去登录
+      </a>
+    </div>
+  )
 
   if (loading) return (
     <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">

@@ -440,6 +440,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 - **禁止**：编造任务 ID（真实返回格式是数字，如 #123）、说"已唤起发布页/已预填内容/你去点发布"——这些都不存在。任务建好就告诉用户"任务已创建（#id），打开客户端指纹浏览器页会自动发布"，并可用 query_publish_tasks 查状态
 - 用户没给视频文件名或文案 → 先问/引导（查个人仓库或生成视频），**不要建空任务**
 - 账号未登录 → publish_content 会提示；引导用户去指纹浏览器页扫码（你不处理登录）
+- 账号未登记时，引导去【账号管理】登记（**真实路径 /accounts**，bindType=manual）——不要编造其它路径或 UI 细节（按钮以页面实际为准）
 - 没绑定账号时，引导去【账号管理】绑定（bindType=manual）
 
 【客户画像 / 需求记忆（重点能力）】
