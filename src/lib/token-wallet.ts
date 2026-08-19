@@ -154,30 +154,44 @@ export async function checkTokens(userId: number, cost: number): Promise<TokenCh
 export async function spendTokens(userId: number, cost: number, reason: string): Promise<void> {
   if (cost <= 0) return
   try {
-    const wallet = await getTokenWallet(userId)
-    const fromSub = Math.min(cost, wallet.subRemaining)
-    const fromBalance = cost - fromSub
-    if (fromSub > 0) {
-      await prisma.usageLog.create({
-        data: { userId, action: TOKEN_ACTION, tokens: fromSub, count: 1, model: reason },
+    // 2026-08-18 隐患②: 扣款+记账事务化（并发防重复扣）
+    await prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { pointBalance: true } })
+      const monthStart = new Date(new Date().toISOString().slice(0, 7) + '-01')
+      const agg = await tx.usageLog.aggregate({
+        where: { userId, action: TOKEN_ACTION, createdAt: { gte: monthStart } },
+        _sum: { tokens: true },
       })
-    }
-    if (fromBalance > 0) {
-      // 2026-08-10：点卡余额不扣成负数（下限 0）
-      await prisma.user.update({
-        where: { id: userId },
-        data: { pointBalance: Math.max(0, wallet.pointBalance - fromBalance) },
+      const spent = agg._sum.tokens || 0
+      const sub = await tx.userSubscription.findFirst({
+        where: { userId, status: 'active', endDate: { gte: new Date() } },
+        orderBy: { endDate: 'desc' },
       })
-      await prisma.usageLog.create({
-        data: { userId, action: POINT_CARD_ACTION, tokens: fromBalance, count: 1, model: reason },
-      })
-    }
+      const plan = sub ? await tx.subscriptionPlan.findUnique({ where: { id: sub.planId } }) : null
+      const allowance = plan ? planMonthlyTokens(plan) : 0
+      const subRemaining = Math.max(0, allowance - spent)
+      const fromSub = Math.min(cost, subRemaining)
+      const fromBalance = cost - fromSub
+      if (fromSub > 0) {
+        await tx.usageLog.create({
+          data: { userId, action: TOKEN_ACTION, tokens: fromSub, count: 1, model: reason },
+        })
+      }
+      if (fromBalance > 0) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { pointBalance: Math.max(0, (user?.pointBalance || 0) - fromBalance) },
+        })
+        await tx.usageLog.create({
+          data: { userId, action: POINT_CARD_ACTION, tokens: fromBalance, count: 1, model: reason },
+        })
+      }
+    })
   } catch (e: any) {
     console.error('[TokenWallet] 记账失败:', e?.message)
   }
 }
 
-/** 给某用户充值点卡余额（支付回调成功时调用）。amount 为点数，orderNo 仅用于日志 */
 export async function addPointBalance(userId: number, amount: number, reason = 'pointcard'): Promise<void> {
   if (amount <= 0) return
   try {

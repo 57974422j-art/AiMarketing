@@ -5,6 +5,7 @@ import { getPaymentConfig } from '@/lib/payment-config'
 import { buildPagePayUrl, AlipayConfig } from '@/lib/alipay'
 
 const prisma = new PrismaClient()
+import { cleanupExpiredOrders } from '@/lib/payment-config'
 
 /** 从 cookie token 解析 userId（HMAC-SHA256，与 login 保持一致） */
 function getUserIdFromRequest(req: NextRequest): number | null {
@@ -37,6 +38,7 @@ function genOrderNo(): string {
  */
 export async function POST(req: NextRequest) {
   try {
+    await cleanupExpiredOrders().catch(() => {}) // 2026-08-18: 惰性清理过期订单
     const userId = getUserIdFromRequest(req)
     if (!userId) return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
 

@@ -47,3 +47,15 @@ export async function getPaymentConfig(): Promise<Partial<PaymentConfig>> {
     return {}
   }
 }
+
+
+/** 2026-08-18 隐患③: 清理过期 pending 订单（惰性——下单/查单时调用） */
+export async function cleanupExpiredOrders(): Promise<number> {
+  try {
+    const r = await prisma.paymentOrder.updateMany({
+      where: { status: 'pending', expireAt: { lt: new Date() } },
+      data: { status: 'closed' },
+    })
+    return r.count
+  } catch { return 0 }
+}

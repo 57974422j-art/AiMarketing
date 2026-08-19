@@ -4,10 +4,12 @@ import { buildPagePayUrl } from '@/lib/alipay'
 import { getAuthFromCookie } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
+import { cleanupExpiredOrders } from '@/lib/payment-config'
 
 /** POST /api/point-cards/checkout — 购买点卡下单，返回支付宝付款链接 */
 export async function POST(req: NextRequest) {
   try {
+    await cleanupExpiredOrders().catch(() => {}) // 2026-08-18: 惰性清理过期订单
     const auth = getAuthFromCookie(req)
     const userId = auth?.userId ?? 0
     if (!userId) return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
