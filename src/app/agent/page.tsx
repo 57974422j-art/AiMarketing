@@ -271,7 +271,10 @@ function useAgentVoice(onVolume?: (v: number) => void) {
     } catch {}
   }
 
-  const speak = async (text: string, voice?: string): Promise<void> => {
+  // ── 2026-08-20: TTS 队列串行化——同一条朗读未完不插入第二条（修复"一条没结束又来一条又开始读"）；stop 清空排队 ──
+  const ttsQueueRef = useRef<Array<{ text: string; voice?: string; resolve: () => void }>>([])
+  const ttsPlayingRef = useRef(false)
+  const _doSpeak = async (text: string, voice?: string): Promise<void> => {
     if (!text) return
     try {
       const res = await fetch('/api/agent/tts', {
@@ -319,6 +322,7 @@ function useAgentVoice(onVolume?: (v: number) => void) {
   }
 
   const stop = () => {
+    ttsQueueRef.current = []   // 清空排队（停止后不再自动读后续）
     if (audioRef.current) {
       audioRef.current.pause()
       onVolume?.(0)
@@ -326,6 +330,24 @@ function useAgentVoice(onVolume?: (v: number) => void) {
       audioRef.current.onended?.()
       audioRef.current = null
     }
+  }
+
+  const pumpTts = async () => {
+    const q = ttsQueueRef.current
+    if (ttsPlayingRef.current || !q.length) return
+    const job = q.shift()!
+    ttsPlayingRef.current = true
+    try { await _doSpeak(job.text, job.voice) } catch {} finally {
+      ttsPlayingRef.current = false
+      job.resolve()
+      pumpTts()
+    }
+  }
+  const speak = (text: string, voice?: string): Promise<void> => {
+    return new Promise<void>((resolve) => {
+      ttsQueueRef.current.push({ text, voice, resolve })
+      pumpTts()
+    })
   }
 
   return { speak, stop, blip }

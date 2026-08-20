@@ -242,6 +242,8 @@ export default function VoiceOrb({ state, size = 200, volume = 0, className }: P
       ctx.fillStyle = cg
       ctx.beginPath(); ctx.arc(cp.x, cp.y, coreR, 0, TAU); ctx.fill()
 
+      // ===== 声纹波动环色相（提前声明——修复 TDZ：能量弧先使用 waveHue，原声明在下方导致说话时崩溃"球空"）=====
+      const waveHue = stateRef.current === 'speaking' ? 270 : 200
       // ===== 语音能量弧（2026-08-10：随音量伸缩的弧线仪表，直观"声音有多大"）=====
       if (aInt > 0.12) {
         const arcFrac = Math.min(1, (aInt - 0.12) / 0.7)   // 0~1 随音量
@@ -266,7 +268,6 @@ export default function VoiceOrb({ state, size = 200, volume = 0, className }: P
       }
 
       // ===== 声纹波动环（2026-08-10：波纹随音量增多、线宽加大、能量脉冲扩散）=====
-      const waveHue = stateRef.current === 'speaking' ? 270 : 200
       if (aInt > 0.03) {
         const waves = 3 + Math.floor(aInt * 4)  // 音量越大波纹越多（最多 7）
         for (let i = 0; i < waves; i++) {
