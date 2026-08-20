@@ -397,3 +397,11 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 - 🟡 语音：ws watchdog 已放宽 8s（3.5s 误判重连丢上下文）；若仍"听不到"→ 检查服务器 voice-ws 重启加载最新代理 + 百炼响应
 - 🟡 OpenCLI（github.com/jackwener/OpenCLI）接入评估：DOM 级浏览器操作 + 已登录 Chrome 复用——自动发布替代 fp-templates 坐标方案的候选——**排期评估**
 - 🟡 favicon.ico 404：无害，后续放图标消除
+
+
+### 发布执行方案推演定稿（2026-08-20，暂不改代码）
+**前提**：账号登录态由用户手动维护（指纹浏览器/本地浏览器都已登录），脚本只负责"找发布页→填→传→点发布"。
+- **方案 1（最优，采纳）**：指纹浏览器 + fp-templates **坐标点击 → DOM 选择器**化（借鉴 OpenCLI DOM 级思路：open/click/fill/wait，选择器+显式等待+120s超时[已加]）。隔离保留、登录态用户维护、只维护 6 平台选择器。
+- **方案 2（不采纳）**：OpenCLI 全量替换——核心平台缺 publish 适配器（仅小红书有，抖音/快手/视频号/B站/微博 5/6 缺）、多账号切换差于指纹浏览器、新依赖+用户装 OpenCLIApp 分发成本。
+- **方案 3（暂缓）**：混合——主链路同方案 1，OpenCLI 仅作个人号补充通道；双套执行层维护成本高，待方案 1 落地后评估是否值得。
+- **P1 任务**：6 平台发布脚本坐标→DOM 选择器化（douyin/xhs/kuaishou/shipinhao/bilibili/weibo）。
