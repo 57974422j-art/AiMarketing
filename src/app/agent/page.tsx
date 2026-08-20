@@ -504,6 +504,7 @@ export default function AgentPage() {
         getSendMessage: (opts: any) => { const t = typeof opts === 'string' ? opts : (opts?.text || ''); if (t.trim()) sendMessage(t.trim()) },
         getLang: () => 'zh-CN',
       })
+      core.startRenderLoop()   // 2026-08-20: 启动渲染循环——否则主球 canvas 空白（idle 点阵球不显示）
       const continuous = contMod.createContinuousPolicy(core, { getAutoSend: () => true })
       // 4 个 TTS 全局（白龙马打断依赖——映射我们的 voice）
       ;(window as any).stopTTS = () => { try { voice?.stop() } catch {} }
