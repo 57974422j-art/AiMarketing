@@ -457,6 +457,49 @@ export default function AgentPage() {
   // 首次登录对话式 onboarding（纯对话、无按钮/标签，区别于被回退的 ada9740 按钮条）
   const [onboarded, setOnboarded] = useState(false)
   const [onboarding, setOnboarding] = useState(false)
+  // ── 2026-08-20: 白龙马语音 1:1 复刻（点阵球 + 常开 + 自动断句发送 + barge-in）──
+  useEffect(() => {
+    if (!blmCanvasRef.current) return
+    let disposed = false
+    Promise.all([
+      import('@/lib/voice/voice-core'),
+      import('@/lib/voice/voice-continuous'),
+      import('@/lib/voice/voice-ptt'),
+    ]).then(([coreMod, contMod, pttMod]) => {
+      if (disposed) return
+      // transcript 伪元素（textContent → setInterimText）
+      const fakeTranscript: any = {}
+      Object.defineProperty(fakeTranscript, 'textContent', { set(v: string) { if (!disposed) setInterimText(v) } })
+      const core = coreMod.createVoiceCore({
+        canvas: blmCanvasRef.current,
+        transcript: fakeTranscript,
+        getChatInput: () => inputRef.current?.value || '',
+        getSendMessage: (opts: any) => { const t = typeof opts === 'string' ? opts : (opts?.text || ''); if (t.trim()) sendMessage(t.trim()) },
+        getLang: () => 'zh-CN',
+      })
+      const continuous = contMod.createContinuousPolicy(core, { getAutoSend: () => true })
+      // 4 个 TTS 全局（白龙马打断依赖——映射我们的 voice）
+      ;(window as any).stopTTS = () => { try { voice?.stop() } catch {} }
+      ;(window as any).duckTTS = () => {}
+      ;(window as any).unduckTTS = () => {}
+      ;(window as any).resumeTTSIfNoSpeech = () => {}
+      core.setOnFrame((vol: number, frame: any) => { continuous.onFrame(vol, frame) })
+      core.setOnTranscript((msg: any, isFinal: boolean) => { continuous.onTranscript(msg, isFinal) })
+      core.setOnSessionStop(() => continuous.onSessionStop())
+      core.setOnSuspendForTTS(() => continuous.onSuspendForTTS())
+      core.setOnResume(() => continuous.onResume())
+      // 点球 = 两态开关（白龙马 toggleVoice）
+      if (blmCanvasRef.current) {
+        blmCanvasRef.current.onclick = () => {
+          if (core.micActive) { core.stopSession(); setRecordingTip('') }
+          else { core.startSession(); setRecordingTip('🎤 聆听中（说一句话停顿自动发送，再点关闭）') }
+        }
+      }
+      blmCoreRef.current = core
+    }).catch(e => console.error('[白龙马语音] 初始化失败:', e))
+    return () => { disposed = true; try { blmCoreRef.current?.stopSession?.() } catch {} }
+  }, [])
+
   // 欢迎词单独存放，不进 messages，避免顶掉 BaiLongma 风格的主页欢迎区（声纹球+卡片）
   const [welcomeMsg, setWelcomeMsg] = useState<string | null>(null)
   // 画像快速登记（2026-08-10：首登结构化登记，写 AgentMemory）
@@ -880,6 +923,8 @@ export default function AgentPage() {
   // 讯飞 RTASR 流式（2026-08-07）
   const xfWsRef = useRef<WebSocket | null>(null)
   const recognizingRef = useRef(false)           // 识别中互斥（防重复启动崩溃）
+  const blmCanvasRef = useRef<HTMLCanvasElement | null>(null)   // 白龙马点阵球 canvas
+  const blmCoreRef = useRef<any>(null)                          // 白龙马 voice core
   const webRecRef = useRef<any>(null)          // 录音控制器（PCM 采集用）
   const webRecCtxRef = useRef<any>(null)       // PCM AudioContext
   let webRecSampleRate = 16000                 // PCM 采样率
@@ -1923,6 +1968,10 @@ export default function AgentPage() {
                 className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
                 title={isRecording ? '点击停止' : '点击说话'} />
             </div>
+            {/* 2026-08-20: 白龙马点阵球（1:1 复刻——点=开听/再点=关，静默2s自动断句发送）*/}
+            <canvas ref={blmCanvasRef} width={290} height={290}
+              className="w-[290px] h-[290px] cursor-pointer select-none touch-none"
+              style={{ filter: 'drop-shadow(0 0 10px rgba(255,159,28,0.22))' }} />
           </div>
 
           {/* 应用入口（2026-08-05：一键成片等 iframe 大屏，AI 对话栏右 1/3 常驻） */}
