@@ -1962,17 +1962,11 @@ export default function AgentPage() {
             <div className="relative">
               <div className="pointer-events-none absolute -inset-px rounded-full opacity-25 blur-3xl"
                 style={{ background: 'radial-gradient(circle, #ff9f1c, transparent 70%)' }} />
-              <VoiceOrb state={orbState} volume={Math.max(micVolume, ttsVolume)} size={290}
-                className="relative drop-shadow-[0_0_10px_rgba(255,159,28,0.22)]" />
-              <button onClick={toggleRecording}
-                className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
-                title={isRecording ? '点击停止' : '点击说话'} />
+              {/* 2026-08-20: 白龙马点阵球（1:1 复刻——唯一主球：点=开听/再点=关，静默2s自动断句发送）*/}
+              <canvas ref={blmCanvasRef} width={290} height={290}
+                className="relative w-[290px] h-[290px] cursor-pointer select-none touch-none"
+                style={{ filter: 'drop-shadow(0 0 10px rgba(255,159,28,0.22))' }} />
             </div>
-            {/* 2026-08-20: 白龙马点阵球（1:1 复刻——点=开听/再点=关，静默2s自动断句发送）*/}
-            <canvas ref={blmCanvasRef} width={290} height={290}
-              className="w-[290px] h-[290px] cursor-pointer select-none touch-none"
-              style={{ filter: 'drop-shadow(0 0 10px rgba(255,159,28,0.22))' }} />
-          </div>
 
           {/* 应用入口（2026-08-05：一键成片等 iframe 大屏，AI 对话栏右 1/3 常驻） */}
           {/* 2026-08-11：flex-1 弹性占满剩余空间——底部「呼出热点大屏」按钮顶到最底部，不贴应用卡 */}
