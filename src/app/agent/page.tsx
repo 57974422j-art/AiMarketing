@@ -987,8 +987,10 @@ export default function AgentPage() {
       try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
       try { webRecCtxRef.current?.close?.() } catch {}
       webRecCtxRef.current = null
+      console.log('[语音] 开始 getUserMedia...')
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
+      console.log('[语音] getUserMedia OK, tracks:', stream.getAudioTracks().length)
       // 2026-08-19: 统一 MediaRecorder → 上传服务器 ASR（壳/网页都不依赖本地代理——C 方案）
       // 2026-08-20 方案一：PCM 采集（录音完上传服务器百炼识别——不加载本地 sherpa，不崩）
       webRecRef.current = null
@@ -999,6 +1001,7 @@ export default function AgentPage() {
         const AC = (window as any).AudioContext || (window as any).webkitAudioContext
         const ctx = new AC()
         webRecCtxRef.current = ctx
+        console.log('[语音] AudioContext OK, sampleRate=', ctx.sampleRate)
         webRecSampleRate = ctx.sampleRate || 16000 // 2026-08-20: 真实设备采样率（可能 48000）——IPC 带真实 sr 由 sherpa 重采样
         const src = ctx.createMediaStreamSource(stream)
         const proc = ctx.createScriptProcessor(4096, 1, 1)
@@ -1015,7 +1018,8 @@ export default function AgentPage() {
         webRecRef.current = { stop: () => { try { src.disconnect(); proc.disconnect() } catch {} } }
       } catch (_) {}
       setOrbState('listening'); setIsRecording(true)
-      setRecordingTip('🎤 我在听（实时识别），说完了点声纹球停止')
+      setRecordingTip('🎤 我在听，说完了点声纹球停止')
+      console.log('[语音] 录音已启动（方案一服务器上传）')
       return
       await fetch('/api/agent/asr-config', { credentials: 'include' }).catch(() => {})
       const ws = new WebSocket('ws://127.0.0.1:8766')
@@ -1070,7 +1074,8 @@ export default function AgentPage() {
       }
       ws.onerror = () => { setRecordingTip('百炼语音服务连接失败'); stopVoiceListen() }
     } catch (e: any) {
-      setRecordingTip(e?.name === 'NotAllowedError' ? '麦克风权限被拒绝' : '语音启动失败：' + (e?.message || e))
+      console.error('[语音] 启动失败:', e?.name, e?.message, e)
+      setRecordingTip(e?.name === 'NotAllowedError' ? '麦克风权限被拒绝' : '语音启动失败：' + (e?.name || '') + ' ' + (e?.message || e))
     }
   }
   // 2026-08-18: 网页版录音上传服务器 ASR（百炼识别）
@@ -1167,8 +1172,9 @@ export default function AgentPage() {
             setInterimText('')
             setStreamText(text)
             setRecordingTip('已识别')
+            console.log('[语音] 识别成功:', text)
             sendMessage(text.trim())
-          } else setRecordingTip('没听清，请再说一次')
+          } else { setRecordingTip('没听清，请再说一次'); console.log('[语音] 识别无结果（音频长度:', total, '采样率:', webRecSampleRate, '）') }
         } catch {}
         setIsRecording(false)
         setOrbState('idle')
