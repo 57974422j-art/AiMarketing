@@ -49,7 +49,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'generate_image',
-    description: 'AI生成图片/海报。触发词："生成图片""做海报""设计图""画一张""海报图""配图"。**v2 流程：生成前先调 search_templates 搜公共素材库推荐给用户选（用户选中的素材/模板 prompt 用于生成）；搜不到才直接生成。**',
+    description: 'AI生成图片/海报。触发词："生成图片""做海报""设计图""画一张""海报图""配图"。**v2 流程：生成前先调 search_templates 搜公共素材库推荐给用户选（用户选中的素材/模板 prompt 用于生成）；搜不到才直接生成。**前缀区分：用户说"打开AI生图/去生图页"是跳转（open_page /image-generator），不是生成——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -60,7 +60,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'generate_video',
-    description: 'AI生成视频（百炼 wan2.7）。触发词："做视频""生成视频""短视频""拍一个"。注意：首次调用必须先报费用预估（不要带 confirmed），用户确认后再带 confirmed=true 真正生成；时长超过15秒会自动分段拼接（每段用上一段尾帧做参考，保证衔接）。',
+    description: 'AI生成视频（百炼 wan2.7）。触发词："做视频""生成视频""短视频""拍一个"。注意：首次调用必须先报费用预估（不要带 confirmed），用户确认后再带 confirmed=true 真正生成；时长超过15秒会自动分段拼接（每段用上一段尾帧做参考，保证衔接）。**前缀区分：用户说"打开文生视频/去文生视频"是跳转页面（open_page /text-to-video），不是生成——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -87,7 +87,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'create_ai_video',
-    description: '一句话 AI 成片：内部自动分镜并创建后台生成任务（无需用户先要分镜）。触发词："帮我做个视频""一键成片""自动做视频""做一条视频"。规则同 generate_video：首次调用不带 confirmed 只报费用预估，用户确认后带 confirmed=true 才真正分镜+建任务。返回任务ID，可用 query_storyboard 查进度。',
+    description: '一句话 AI 成片：内部自动分镜并创建后台生成任务（无需用户先要分镜）。触发词："帮我做个视频""一键成片""自动做视频""做一条视频"。规则同 generate_video：首次调用不带 confirmed 只报费用预估，用户确认后带 confirmed=true 才真正分镜+建任务。返回任务ID，可用 query_storyboard 查进度。**前缀区分：用户说"打开一键成片/去一键成片"是跳转页面（open_page /auto-compile），不是做视频——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -546,6 +546,12 @@ Step 4 publish_content 建任务（多平台传 platforms 数组一次建多个�
 - open_page 只能跳转内部页面（见下表路径）——**不能带入/预填第三方平台发布内容**（视频/文案/标签都不会自动填入）
 - **禁止承诺"已打开发布页并预填内容"**——发布靠任务自动执行（见发布规则），不靠跳转
 - 用户要看发布队列/执行情况 → open_page /my-fingerprint（页面自己轮询任务并自动执行）
+
+【"打开/跳转"前缀硬规则（最高优先，先判前缀再判意图）】
+- 用户消息以「打开/跳转/进入/去/带我去/看下」+ 功能名开头 = **意图跳转页面**——直接输出 open_page（按下方映射表选 path），**禁止调用任何生成/搜索/发布/查询工具、禁止推荐素材、禁止讨论内容、禁止报价**。
+- **"打开XX"≠"生成XX"**（关键区分）："打开文生视频"≠"生成视频"、"打开AI生图"≠"生成图片"、"打开一键成片"≠"做一条视频"、"打开数字人"≠"生成数字人口播"、"打开AI文案"≠"写文案"、"打开发布/指纹浏览器"≠"发布内容"、"打开素材库"≠"搜素材/推荐模板"。
+- 只有用户**明确**说「生成/做/制作/写/帮我做个/帮我生成 + 内容」才调用对应生成工具。
+- 若用户"打开XX"后**紧跟内容指令**（如"打开文生视频，帮我生成一个奶茶广告"）→ 先 open_page 跳转，再按内容指令执行（此时才允许调生成工具）。
 
 【功能页面路径映射（open_page 必须按此表选 path）】
 - 一键成片/做成片/剪成片 → /auto-compile
