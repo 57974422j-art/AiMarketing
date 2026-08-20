@@ -415,3 +415,9 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 - **设想 A（采纳）**：平台适配器注册表——每平台声明式适配器（发布页 URL/上传/标题/发布按钮/成功验证选择器）+ 统一引擎执行；加平台=加适配器，平台改版=改适配器，不重写流程脚本。
 - **设想 C（采纳辅助）**：借用 OpenCLI 工具链（opencli-adapter-author recon/verify）辅助生成/维护适配器；运行时仍用指纹浏览器（隔离保留），OpenCLI 仅是"写适配器的工具"非运行依赖。
 - **设想 B（不采纳）**：运行时接入 OpenCLI 本体（核心平台缺 publish 适配器 + 共享 Chrome 失隔离）。
+
+
+### 发布"错平台/不执行"根因确认（2026-08-20，暂不改代码）
+**用户要求**："不要点账号、要点启动、不用检查账号"——Agent 任务执行时**直接按任务平台启动对应浏览器执行**，不受 selectedAccount 影响。
+**现状（代码实证）**：执行链路（executeBatch/publishNow）多处直接读 `selectedAccount.platform`（670/684/704/762/802 行），802 行 `!selectedAccount` 直接 return。selectedAccount 被"用户手动启动过的账号"占用后，Agent 任务（如抖音）会：①平台校验不匹配→failed 不发布；或②用错平台浏览器执行。**这就是"找第一个（视频号）启动/发抖音却点视频号"的根因。**
+**改进方向（P2）**：Agent 任务执行去 selectedAccount 化——按任务 platform 直接启动对应浏览器（dummyAcct 平台即任务平台，handleStart 已按平台启动）→ executeBatch 用"本次启动的账号"而非全局 selectedAccount；手动路径保留 selectedAccount（用户自己选）。
