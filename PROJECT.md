@@ -399,9 +399,10 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 - 🟡 favicon.ico 404：无害，后续放图标消除
 
 
-### 发布执行方案推演定稿（2026-08-20，暂不改代码）
-**前提**：账号登录态由用户手动维护（指纹浏览器/本地浏览器都已登录），脚本只负责"找发布页→填→传→点发布"。
-- **方案 1（最优，采纳）**：指纹浏览器 + fp-templates **坐标点击 → DOM 选择器**化（借鉴 OpenCLI DOM 级思路：open/click/fill/wait，选择器+显式等待+120s超时[已加]）。隔离保留、登录态用户维护、只维护 6 平台选择器。
-- **方案 2（不采纳）**：OpenCLI 全量替换——核心平台缺 publish 适配器（仅小红书有，抖音/快手/视频号/B站/微博 5/6 缺）、多账号切换差于指纹浏览器、新依赖+用户装 OpenCLIApp 分发成本。
-- **方案 3（暂缓）**：混合——主链路同方案 1，OpenCLI 仅作个人号补充通道；双套执行层维护成本高，待方案 1 落地后评估是否值得。
-- **P1 任务**：6 平台发布脚本坐标→DOM 选择器化（douyin/xhs/kuaishou/shipinhao/bilibili/weibo）。
+### 发布"真执行"推演定稿（2026-08-20，暂不改代码）
+**目标**：Agent 说"发布"→ 真正完成发布（不是假发布/不发布）。**核心结论：真发布取决于脚本结果验证闭环，不取决于浏览器方案**。
+**事实（douyin-publish.js 实证）**：已有真发逻辑（找发布按钮→点→等8s→检测"发布成功/manage"），但有两个假成功漏洞：找不到发布按钮→`success:true,needConfirm`（没发报成功）；点后8s未确认→`success:true,needConfirm`（可能没发成报成功）。前端收到 success 就 reportAgentTask(succeeded)→任务假成功。
+- **路径 A（采纳）**：Agent→任务→指纹浏览器执行 + **发布结果真验证闭环**——点发布后轮询 30-60s 验证页面进入"已发布/审核中"，确认才 succeeded；未确认一律 failed（可重试）；needConfirm/需人工确认场景回传 pending 提示（不 success）。隔离/自动/登录态用户维护/超时兜底均已具备。
+- **路径 B（不采纳）**：Agent 对话实时驱动（跳任务层）——无审计/重试/状态回传，可靠性不增。
+- **路径 C（不采纳）**：OpenCLI——核心平台无 publish 适配器（仅小红书有，6 平台 5 缺）。
+- **P1 任务**：①6 平台脚本坐标→DOM 化 ②点发布后轮询验证真成功（douyin 已有雏形；xhs/kuaishou/shipinhao/bilibili/weibo 全核对补齐）③未确认一律 failed ④人工确认场景回传 pending。
