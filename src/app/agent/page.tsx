@@ -1199,6 +1199,8 @@ export default function AgentPage() {
     vadEnding = false
     if (!continueListening) {
       setIsRecording(false)
+      setRecordingTip('')
+      setInterimText('')
       try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
       mediaStreamRef.current = null
     }
@@ -1212,6 +1214,8 @@ export default function AgentPage() {
       try { webRecCtxRef.current?.close?.() } catch {}
       webRecCtxRef.current = null
       uploadAndSend(false)
+      setRecordingTip('')
+      setInterimText('')
       return
     }
     cleanupXf()
@@ -1270,21 +1274,20 @@ export default function AgentPage() {
     }
     mediaRecorderRef.current?.stop()
   }
+  // 2026-08-20: 克隆白龙马两态纯开关（点=开听/再点=关，任何状态点都关）——不再三态混乱
   const toggleRecording = () => {
-    // 朗读中点击声纹球 = 打断朗读（不进入录音）
-    if (orbState === 'speaking') {
-      voice.stop()
-      setOrbState('idle')
-      return
-    }
-    if (dialogMode) {
+    if (isRecording || recognizingRef.current) {
+      // 开 → 关（朗读中一并打断 TTS）
+      if (orbState === 'speaking') { try { voice.stop() } catch {} }
       setDialogMode(false)
       stopVoiceListen()
-      setRecordingTip('已退出对话，点击声纹球重新开始')
+      setRecordingTip('')
+      setInterimText('')
       return
     }
     setDialogMode(true)
     startVoiceListen()
+  }
   }
 
   // 朗读某条消息（自动朗读时会在收到助手消息后调用）
