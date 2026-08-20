@@ -40,6 +40,11 @@ export async function GET(request: NextRequest) {
   if (!auth) return NextResponse.json({ success: false, message: '未认证，请先登录' }, { status: 401 })
   try {
     const status = request.nextUrl.searchParams.get('status') || 'pending'
+    // 2026-08-20: 服务器兜底——pending 超过 2 小时自动标 failed（客户端执行卡死/未回传时，任务不再永久 pending）
+    await prisma.agentPublishTask.updateMany({
+      where: { userId: auth.userId, status: 'pending', updatedAt: { lt: new Date(Date.now() - 2 * 3600 * 1000) } },
+      data: { status: 'failed', error: '执行超时（超过2小时未完成），已自动终止' },
+    })
     const tasks = await prisma.agentPublishTask.findMany({
       where: { userId: auth.userId, status },
       orderBy: { createdAt: 'asc' },

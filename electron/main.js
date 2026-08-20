@@ -828,6 +828,10 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
 
     // 重置停止标志
     global.__fpAbort = false
+    // 2026-08-20: 发布执行超时保护——脚本卡住（平台未登录等元素/上传卡死）120s 强制终止，
+    // 否则任务永远 pending → 客户端循环开窗执行（已实测卡死循环）
+    const withTimeout = (p, ms) =>
+      Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('发布执行超时(120s)，已终止——请确认平台已登录后重试')), ms))])
     let result
     switch (templateType) {
       case 'douyin-publish':
@@ -840,7 +844,7 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
             return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
           }
         }
-        result = await executeDouyinPublish(instance.page, params, log)
+        result = await withTimeout(executeDouyinPublish(instance.page, params, log), 120000)
         break
       case 'douyin-like':
         result = await executeDouyinLike(instance.page, params, log)
@@ -858,7 +862,7 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
             return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
           }
         }
-        result = await executeXiaohongshuPublish(instance.page, params, log)
+        result = await withTimeout(executeXiaohongshuPublish(instance.page, params, log), 120000)
         break
       case 'kuaishou-publish':
         // 如果是从素材仓库选择视频，先下载到本地（含本地缓存复用；404 多为文件在仓库已不存在）
@@ -870,7 +874,7 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
             return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
           }
         }
-        result = await executeKuaishouPublish(instance.page, params, log)
+        result = await withTimeout(executeKuaishouPublish(instance.page, params, log), 120000)
         break
       case 'shipinhao-publish':
         // 如果是从素材仓库选择视频，先下载到本地（含本地缓存复用；404 多为文件在仓库已不存在）
@@ -882,7 +886,7 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
             return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
           }
         }
-        result = await executeShipinhaoPublish(instance.page, params, log)
+        result = await withTimeout(executeShipinhaoPublish(instance.page, params, log), 120000)
         break
       case 'bilibili-publish':
         // 如果是从素材仓库选择视频，先下载到本地（含本地缓存复用；404 多为文件在仓库已不存在）
@@ -894,11 +898,11 @@ ipcMain.handle('fp:execute', async (_event, { port, templateType, params }) => {
             return { success: false, logs, message: `素材仓库下载失败: ${e.message}` }
           }
         }
-        result = await executeBilibiliPublish(instance.page, params, log)
+        result = await withTimeout(executeBilibiliPublish(instance.page, params, log), 120000)
         break
       case 'weibo-publish':
         // 微博脚本内部自行处理素材仓库下载与登录检测
-        result = await executeWeiboPublish(instance.page, params, log)
+        result = await withTimeout(executeWeiboPublish(instance.page, params, log), 120000)
         break
       default:
         throw new Error(`未知模板类型: ${templateType}`)
