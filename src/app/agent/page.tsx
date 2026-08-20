@@ -884,6 +884,9 @@ export default function AgentPage() {
   const webRecCtxRef = useRef<any>(null)       // PCM AudioContext
   let webRecSampleRate = 16000                 // PCM 采样率
   const webRecBufRef = useRef<Float32Array[]>([]) // 实时发送缓冲
+  let vadSilenceMs = 0                            // VAD 静音累计（ms）
+  let vadLastVoiceMs = 0                          // 上次有声音时间
+  let vadEnding = false                           // 正在结束本句（防重复）
   const webRecChunksRef = useRef<BlobPart[]>([]) // 网页版录音块
   const xfCtxRef = useRef<AudioContext | null>(null)
   const xfProcRef = useRef<ScriptProcessorNode | null>(null)
@@ -1013,7 +1016,20 @@ export default function AgentPage() {
           webRecChunksRef.current.push(f)
           let rms = 0
           for (let i = 0; i < ch.length; i += 64) { const v = ch[i]; rms += v * v }
-          setMicVolume(Math.min(1, Math.sqrt(rms / (ch.length / 64)) * 4))
+          const vol = Math.min(1, Math.sqrt(rms / (ch.length / 64)) * 4)
+          setMicVolume(vol)
+          // 2026-08-20 VAD：静音 2.5s → 自动发送本句（实时对话，不用点停止）
+          const now = Date.now()
+          if (vol > 0.03) { vadLastVoiceMs = now; vadSilenceMs = 0 }
+          else if (vadLastVoiceMs > 0 && !vadEnding) {
+            vadSilenceMs += (ch.length / webRecSampleRate) * 1000
+            if (vadSilenceMs > 2500 && webRecChunksRef.current.length > 8) {
+              vadEnding = true
+              vadLastVoiceMs = 0; vadSilenceMs = 0
+              setRecordingTip('识别中…')
+              uploadAndSend(true) // 自动发送本句，继续听
+            }
+          }
         }
         src.connect(proc); proc.connect(ctx.destination)
         webRecRef.current = { stop: () => { try { src.disconnect(); proc.disconnect() } catch {} } }
@@ -1150,40 +1166,52 @@ export default function AgentPage() {
     mediaStreamRef.current = null
   }
 
+  // 2026-08-20: 上传当前录音句 → 识别 → 发送（continueListening=true 继续听下一句 / false 全停）
+  const uploadAndSend = async (continueListening: boolean) => {
+    const all = webRecChunksRef.current
+    const total = all.reduce((n: number, f: Float32Array) => n + f.length, 0)
+    webRecChunksRef.current = []
+    if (total === 0) {
+      vadEnding = false
+      if (!continueListening) {
+        setIsRecording(false); recognizingRef.current = false
+        try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
+        mediaStreamRef.current = null
+      }
+      return
+    }
+    recognizingRef.current = true
+    setRecordingTip('识别中…')
+    try {
+      const samples = new Float32Array(total)
+      let off = 0
+      for (const f of all) { samples.set(f, off); off += f.length }
+      const text = await uploadForAsr(samples, webRecSampleRate)
+      if (text && text.trim()) {
+        setInterimText('')
+        setStreamText(text)
+        setRecordingTip(continueListening ? '已发送，继续听…' : '已识别')
+        console.log('[语音] 识别成功:', text)
+        sendMessage(text.trim())
+      } else setRecordingTip(continueListening ? '没听清，继续说…' : '没听清，请再说一次')
+    } catch {}
+    recognizingRef.current = false
+    vadEnding = false
+    if (!continueListening) {
+      setIsRecording(false)
+      try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
+      mediaStreamRef.current = null
+    }
+  }
+
   const stopVoiceListen = () => {
-    // 2026-08-19: 停止录音 → 合并 PCM → 本地/服务器识别
+    // 手动停止：上传剩余句 → 全停
     if (webRecRef.current) {
       try { webRecRef.current.stop?.() } catch {}
       webRecRef.current = null
       try { webRecCtxRef.current?.close?.() } catch {}
       webRecCtxRef.current = null
-      // 2026-08-20 方案一：PCM 合并 → wav → 上传服务器百炼识别
-      const all = webRecChunksRef.current
-      const total = all.reduce((n: number, f: Float32Array) => n + f.length, 0)
-      webRecChunksRef.current = []
-      const finalize = async () => {
-        recognizingRef.current = true
-        setRecordingTip('识别中…')
-        try {
-          const samples = new Float32Array(total)
-          let off = 0
-          for (const f of all) { samples.set(f, off); off += f.length }
-          const text = await uploadForAsr(samples, webRecSampleRate)
-          if (text && text.trim()) {
-            setInterimText('')
-            setStreamText(text)
-            setRecordingTip('已识别')
-            console.log('[语音] 识别成功:', text)
-            sendMessage(text.trim())
-          } else { setRecordingTip('没听清，请再说一次'); console.log('[语音] 识别无结果（音频长度:', total, '采样率:', webRecSampleRate, '）') }
-        } catch {}
-        setIsRecording(false)
-        setOrbState('idle')
-        recognizingRef.current = false
-        try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
-        mediaStreamRef.current = null
-      }
-      finalize()
+      uploadAndSend(false)
       return
     }
     cleanupXf()
