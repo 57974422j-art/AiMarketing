@@ -1288,7 +1288,6 @@ export default function AgentPage() {
     setDialogMode(true)
     startVoiceListen()
   }
-  }
 
   // 朗读某条消息（自动朗读时会在收到助手消息后调用）
   const speakMessage = (content: string) => {
