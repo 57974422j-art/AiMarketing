@@ -74,7 +74,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'generate_storyboard',
-    description: '生成视频分镜脚本（只出方案，不生成视频）。触发词："分镜""脚本""镜头方案"。根据用户视频创意输出分镜JSON（每镜：画面描述/英文prompt/时长/镜头感）+ 总费用预估。用户确认分镜后，再用 generate_video（confirmed=true）逐镜生成。',
+    description: '生成视频分镜脚本（只出方案，不生成视频）。触发词："分镜""脚本""镜头方案"。根据用户视频创意输出分镜JSON（每镜：画面描述/英文prompt/时长/镜头感）+ 总费用预估。用户确认分镜后，再用 generate_video（confirmed=true）逐镜生成。**前缀区分：用户消息以"打开/去/进入"开头是跳转页面（open_page），不是生成——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -101,7 +101,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'create_storyboard_task',
-    description: '创建分镜成片任务（后台逐镜生成，可查进度）。在 generate_storyboard 出分镜且用户确认费用后调用。返回任务ID。',
+    description: '创建分镜成片任务（后台逐镜生成，可查进度）。在 generate_storyboard 出分镜且用户确认费用后调用。返回任务ID。**前缀区分：用户消息以"打开/去/进入"开头是跳转页面（open_page），不是生成——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -157,7 +157,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'digital_human_speak',
-    description: '创建数字人口播视频：上传照片+选择声音+输入文案。触发词："数字人""口播""虚拟人""AI主播"。',
+    description: '创建数字人口播视频：上传照片+选择声音+输入文案。触发词："数字人""口播""虚拟人""AI主播"。**前缀区分：用户说"打开数字人/去数字人"是跳转页面（open_page /digital-human），不是生成口播——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -202,7 +202,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'search_templates',
-    description: '搜索提示词模板库。触发词："模板""场景""有什么可以用的"。',
+    description: '搜索提示词模板库。触发词："模板""场景""有什么可以用的"。**前缀区分："打开素材库/公共素材库"是跳转页面（open_page /media-library 或 /storage），不是搜模板——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -250,7 +250,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   {
     name: 'publish_content',
-    description: '发布/准备发布内容到自媒体平台（抖音/小红书/快手/视频号/B站）。触发词："发布""发抖音""发小红书""投稿""上传视频"。**不需要账号登记/绑定——只要用户给了视频文件名(videoName)和文案(caption)就直接创建发布任务**，客户端指纹浏览器页自动执行；执行时若检测到平台未登录会提示扫码（你不处理登录、不检查账号绑定）。',
+    description: '发布/准备发布内容到自媒体平台（抖音/小红书/快手/视频号/B站）。触发词："发布""发抖音""发小红书""投稿""上传视频"。**不需要账号登记/绑定——只要用户给了视频文件名(videoName)和文案(caption)就直接创建发布任务**，客户端指纹浏览器页自动执行；执行时若检测到平台未登录会提示扫码（你不处理登录、不检查账号绑定）。**前缀区分：用户说"打开指纹浏览器/打开发布"是跳转页面（open_page /my-fingerprint），不是立即发布——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -1457,6 +1457,38 @@ export async function POST(request: NextRequest) {
     }
 
     const userMessage = message.trim()
+
+    // ═══ 2026-08-20: "打开/去/进入+功能名" 前缀拦截（方案 A——代码层 100% 命中，不依赖 AI 理解）═══
+    const OPEN_NAV: Array<[RegExp, string, string]> = [
+      [/文生视频|AI视频|视频生成页/, '/text-to-video', '文生视频'],
+      [/一键成片|做成片|剪成片/, '/auto-compile', '一键成片'],
+      [/AI生图|生图页|图片生成/, '/image-generator', 'AI生图'],
+      [/AI文案|文案页/, '/ai-copy', 'AI文案'],
+      [/素材仓库|个人仓库|我的素材|打开仓库/, '/storage', '个人仓库'],
+      [/指纹浏览器|发布工作台/, '/my-fingerprint', '指纹浏览器'],
+      [/数据看板|仪表盘/, '/dashboard', '数据看板'],
+      [/视频剪辑|后期处理|配音字幕/, '/video-edit', '视频剪辑'],
+      [/我的套餐|套餐|充值|购买点数/, '/my-subscription', '我的套餐'],
+      [/数字人|AI主播|口播/, '/digital-human', '数字人'],
+      [/账号管理|我的账号|绑定账号/, '/accounts', '账号管理'],
+      [/音乐库|BGM|配乐|背景音乐/, '/music-library', '音乐库'],
+      [/公共素材/, '/media-library', '公共素材库'],
+    ]
+    // 匹配"打开/去/进入 + 功能名"；若后面紧跟生成指令（如"打开文生视频，帮我生成奶茶广告"）→ 不短路，走 AI（跳转+生成都由模型处理）
+    const navMatch = userMessage.match(/^(打开|跳转|进入|去|带我去|看下)\s*(一下|下)?\s*(.{1,24})/)
+    if (navMatch && !/生成|做|制作|写|帮我|做一个|生成一/.test(userMessage.slice(navMatch[0].length))) {
+      const rest = navMatch[3] || ''
+      for (const [re, path, title] of OPEN_NAV) {
+        if (re.test(rest)) {
+          return NextResponse.json({ success: true, data: {
+            reply: `已为你打开「${title}」，我一直在旁边。想让我帮你做什么？比如：结合当前页面给建议、生成内容、或告诉我下一步。`,
+            intent: 'nav_open', toolUsed: false,
+            scene: { type: 'open_page', path, params: {} },
+            sessionId: sid || null, pointsSpent: 0,
+          } })
+        }
+      }
+    }
 
     // 组装附件：图像作为视觉块(image_url)让模型"看到"，视频等非图像以文本说明
     let userContent: any = userMessage
