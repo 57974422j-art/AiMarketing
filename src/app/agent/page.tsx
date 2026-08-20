@@ -1105,7 +1105,7 @@ export default function AgentPage() {
       const fd = new FormData()
       fd.append('audio', new Blob([buf], { type: 'audio/wav' }), 'record.wav')
       const ac = new AbortController()
-      const t = setTimeout(() => ac.abort(), 90000)
+      const t = setTimeout(() => ac.abort(), 30000)
       const resp = await fetch('/api/agent/asr', { method: 'POST', body: fd, credentials: 'include', signal: ac.signal })
       clearTimeout(t)
       const d = await resp.json()

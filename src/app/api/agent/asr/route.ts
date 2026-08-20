@@ -87,8 +87,8 @@ async function recognizeViaBailian(wavPath: string): Promise<{ success: boolean;
     const sub = await submitRes.json()
     const taskId = sub?.output?.task_id
     if (!taskId) return { success: false, text: '', error: '百炼提交失败: ' + JSON.stringify(sub).slice(0, 200) }
-    // 轮询（最多 90s）
-    for (let i = 0; i < 90; i++) {
+    // 轮询（最多 30s——避免前端卡住）
+    for (let i = 0; i < 30; i++) {
       const pollRes = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${KEY}` },
