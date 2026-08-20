@@ -990,19 +990,11 @@ export default function AgentPage() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
       // 2026-08-19: 统一 MediaRecorder → 上传服务器 ASR（壳/网页都不依赖本地代理——C 方案）
-      // 2026-08-19: PCM 采集（16k mono Float32）→ 实时流式本地识别（sherpa OnlineRecognizer——边说边出字）
+      // 2026-08-20 方案一：PCM 采集（录音完上传服务器百炼识别——不加载本地 sherpa，不崩）
       webRecRef.current = null
       webRecChunksRef.current = []
       webRecSampleRate = 16000
-      webRecBufRef.current = []
       setInterimText('')
-      // 启动本地流式会话（Electron）
-      if (window.electronAPI?.asrSessionStart) {
-        const sr = await window.electronAPI.asrSessionStart()
-        if (!sr?.success) { setRecordingTip('本地语音启动失败：' + (sr?.error || '')); return }
-      } else {
-        setRecordingTip('语音识别需在客户端使用（本地离线识别）'); return
-      }
       try {
         const AC = (window as any).AudioContext || (window as any).webkitAudioContext
         const ctx = new AC()
@@ -1014,21 +1006,7 @@ export default function AgentPage() {
           const ch = e.inputBuffer.getChannelData(0)
           const f = new Float32Array(ch.length)
           f.set(ch)
-          // 实时送识别（每 ~0.5s 一批——2 块）
-          webRecBufRef.current.push(f)
-          if (webRecBufRef.current.length >= 2) {
-            const parts = webRecBufRef.current
-            webRecBufRef.current = []
-            const total = parts.reduce((n: number, a: Float32Array) => n + a.length, 0)
-            const batch = new Float32Array(total)
-            let off = 0
-            for (const a of parts) { batch.set(a, off); off += a.length }
-            if (window.electronAPI?.asrAudio) {
-              window.electronAPI.asrAudio(Array.from(batch), webRecSampleRate).then((r: any) => {
-                if (r?.success && r.text) { setInterimText(r.text) }
-              }).catch(() => {})
-            }
-          }
+          webRecChunksRef.current.push(f)
           let rms = 0
           for (let i = 0; i < ch.length; i += 64) { const v = ch[i]; rms += v * v }
           setMicVolume(Math.min(1, Math.sqrt(rms / (ch.length / 64)) * 4))
@@ -1108,6 +1086,27 @@ export default function AgentPage() {
     for (let i = 0; i < samples.length; i++) { const s = Math.max(-1, Math.min(1, samples[i])); dv.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true) }
     return buf
   }
+  // 2026-08-20 方案一：PCM → wav → 上传服务器 ASR（百炼 paraformer）
+  const uploadForAsr = async (samples: Float32Array, sampleRate: number): Promise<string> => {
+    try {
+      const buf = new ArrayBuffer(44 + samples.length * 2)
+      const dv = new DataView(buf)
+      const ws = (o: number, s: string) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)) }
+      ws(0, 'RIFF'); dv.setUint32(4, 36 + samples.length * 2, true); ws(8, 'WAVE')
+      ws(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true)
+      dv.setUint32(24, sampleRate, true); dv.setUint32(28, sampleRate * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true)
+      ws(36, 'data'); dv.setUint32(40, samples.length * 2, true)
+      for (let i = 0; i < samples.length; i++) { const s = Math.max(-1, Math.min(1, samples[i])); dv.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true) }
+      const fd = new FormData()
+      fd.append('audio', new Blob([buf], { type: 'audio/wav' }), 'record.wav')
+      const ac = new AbortController()
+      const t = setTimeout(() => ac.abort(), 90000)
+      const resp = await fetch('/api/agent/asr', { method: 'POST', body: fd, credentials: 'include', signal: ac.signal })
+      clearTimeout(t)
+      const d = await resp.json()
+      return d?.success && d.text ? String(d.text) : ''
+    } catch { return '' }
+  }
   const recognizeAudio = async (samples: Float32Array, sampleRate: number) => {
     setOrbState('thinking')
     setRecordingTip('识别中…')
@@ -1151,22 +1150,25 @@ export default function AgentPage() {
       webRecRef.current = null
       try { webRecCtxRef.current?.close?.() } catch {}
       webRecCtxRef.current = null
-      webRecBufRef.current = []
-      // 2026-08-19: 结束流式会话 → final 文本 → 发送（实时识别，非先录音再识别）
+      // 2026-08-20 方案一：PCM 合并 → wav → 上传服务器百炼识别
+      const all = webRecChunksRef.current
+      const total = all.reduce((n: number, f: Float32Array) => n + f.length, 0)
+      webRecChunksRef.current = []
       const finalize = async () => {
         recognizingRef.current = true
         setOrbState('thinking')
+        setRecordingTip('识别中…')
         try {
-          if (window.electronAPI?.asrSessionEnd) {
-            const r = await window.electronAPI.asrSessionEnd()
-            const text = r?.success ? String(r.text || '') : ''
-            if (text.trim()) {
-              setInterimText('')
-              setStreamText(text)
-              setRecordingTip('已识别')
-              sendMessage(text.trim())
-            } else setRecordingTip('没听清，请再说一次')
-          }
+          const samples = new Float32Array(total)
+          let off = 0
+          for (const f of all) { samples.set(f, off); off += f.length }
+          const text = await uploadForAsr(samples, webRecSampleRate)
+          if (text && text.trim()) {
+            setInterimText('')
+            setStreamText(text)
+            setRecordingTip('已识别')
+            sendMessage(text.trim())
+          } else setRecordingTip('没听清，请再说一次')
         } catch {}
         setIsRecording(false)
         setOrbState('idle')

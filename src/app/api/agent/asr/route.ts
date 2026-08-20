@@ -35,18 +35,18 @@ export async function POST(request: NextRequest) {
     }
 
     // 2026-08-06：优先调常驻 FunASR 服务（模型加载一次，识别秒级）；服务未启动则启动，失败回退脚本模式
-    // 2026-08-19: C 兜底——优先 API ASR（硅基 SenseVoice，服务器 key），失败再走本地 FunASR
+    // 2026-08-20 方案一：百炼 paraformer-v2 优先 → 硅基 SenseVoice → FunASR
     let result = { success: false, text: '', error: '' } as { success: boolean; text: string; error?: string }
-    try {
-      const fs2 = await import('fs')
-      const buf = fs2.readFileSync(wavPath)
-      const { transcribeAudio } = await import('@/lib/ai-providers')
-      const text = await transcribeAudio(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), 'audio.wav')
-      if (text && text.trim()) result = { success: true, text: text.trim() }
-      else result = { success: false, text: '', error: 'API ASR 无结果' }
-    } catch (e: any) {
-      result = { success: false, text: '', error: 'API ASR 异常: ' + (e?.message || '') }
-      console.warn('[ASR] API 识别失败，转 FunASR:', e?.message)
+    result = await recognizeViaBailian(wavPath)
+    if (!result.success) {
+      console.warn('[ASR] 百炼失败，转硅基:', result.error)
+      try {
+        const fs2 = await import('fs')
+        const buf = fs2.readFileSync(wavPath)
+        const { transcribeAudio } = await import('@/lib/ai-providers')
+        const text = await transcribeAudio(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), 'audio.wav')
+        if (text && text.trim()) result = { success: true, text: text.trim() }
+      } catch (e: any) { console.warn('[ASR] 硅基失败:', e?.message) }
     }
     if (!result.success) {
       const r2 = await recognizeViaServer(wavPath)
@@ -66,6 +66,54 @@ export async function POST(request: NextRequest) {
 }
 
 // 调常驻 FunASR 服务（127.0.0.1:8765）；未启动则 spawn 启动（首次加载模型 ~20s，之后秒级）
+// 2026-08-20 方案一：百炼 paraformer-v2 文件转录（OSS 上传 → 提交 → 轮询）
+async function recognizeViaBailian(wavPath: string): Promise<{ success: boolean; text: string; error?: string }> {
+  try {
+    const KEY = process.env.DASHSCOPE_API_KEY
+    if (!KEY) return { success: false, text: '', error: '无 DASHSCOPE_API_KEY' }
+    const fs2 = await import('fs')
+    const { putObject, signedUrl } = await import('@/lib/oss')
+    const buf = fs2.readFileSync(wavPath)
+    const key = `asr-tmp/${Date.now()}-${Math.random().toString(36).slice(2)}.wav`
+    await putObject(key, buf, 'audio/wav')
+    const url = await signedUrl(key, 3600)
+    // 提交任务
+    const submitRes = await fetch('https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${KEY}`, 'Content-Type': 'application/json', 'X-DashScope-Async': 'enable' },
+      body: JSON.stringify({ model: 'paraformer-v2', input: { file_urls: [url] }, parameters: { language_hints: ['zh'], channel_id: [0] } }),
+      signal: AbortSignal.timeout(20000),
+    })
+    const sub = await submitRes.json()
+    const taskId = sub?.output?.task_id
+    if (!taskId) return { success: false, text: '', error: '百炼提交失败: ' + JSON.stringify(sub).slice(0, 200) }
+    // 轮询（最多 90s）
+    for (let i = 0; i < 90; i++) {
+      const pollRes = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${KEY}` },
+        signal: AbortSignal.timeout(10000),
+      })
+      const pd = await pollRes.json()
+      const status = pd?.output?.task_status
+      if (status === 'SUCCEEDED') {
+        const trUrl = pd?.output?.results?.[0]?.transcription_url
+        if (trUrl) {
+          const tr = await fetch(trUrl).then(r => r.json())
+          const text = (tr?.transcripts || []).map((t: any) => t.text || '').join('')
+          if (text.trim()) return { success: true, text: text.trim() }
+        }
+        break
+      }
+      if (status === 'FAILED' || pd?.code) return { success: false, text: '', error: '百炼任务失败: ' + JSON.stringify(pd).slice(0, 200) }
+      await new Promise(r => setTimeout(r, 1000))
+    }
+    return { success: false, text: '', error: '百炼识别超时' }
+  } catch (e: any) {
+    return { success: false, text: '', error: '百炼异常: ' + (e?.message || String(e)) }
+  }
+}
+
 async function recognizeViaServer(wavPath: string): Promise<{ success: boolean; text: string; error?: string }> {
   const PORT = 8765
   const { spawn } = require('child_process')
