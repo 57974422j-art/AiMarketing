@@ -924,6 +924,10 @@ export default function AgentPage() {
   const xfWsRef = useRef<WebSocket | null>(null)
   const recognizingRef = useRef(false)           // 识别中互斥（防重复启动崩溃）
   const blmCanvasRef = useRef<HTMLCanvasElement | null>(null)   // 白龙马点阵球 canvas
+  // 2026-08-20: 旧球点击转发到白龙马（点=开听/再点=关）
+  const blmToggle = () => {
+    if (blmCanvasRef.current) blmCanvasRef.current.dispatchEvent(new MouseEvent('click'))
+  }
   const blmCoreRef = useRef<any>(null)                          // 白龙马 voice core
   const webRecRef = useRef<any>(null)          // 录音控制器（PCM 采集用）
   const webRecCtxRef = useRef<any>(null)       // PCM AudioContext
@@ -1967,6 +1971,7 @@ export default function AgentPage() {
                 className="relative w-[290px] h-[290px] cursor-pointer select-none touch-none"
                 style={{ filter: 'drop-shadow(0 0 10px rgba(255,159,28,0.22))' }} />
             </div>
+          </div>
 
           {/* 应用入口（2026-08-05：一键成片等 iframe 大屏，AI 对话栏右 1/3 常驻） */}
           {/* 2026-08-11：flex-1 弹性占满剩余空间——底部「呼出热点大屏」按钮顶到最底部，不贴应用卡 */}
@@ -2006,9 +2011,9 @@ export default function AgentPage() {
               <div className="relative shrink-0">
                 <VoiceOrb state={orbState} volume={Math.max(micVolume, ttsVolume)} size={44}
                   className="relative drop-shadow-[0_0_8px_rgba(255,159,28,0.3)]" />
-                <button onClick={toggleRecording}
+                <button onClick={blmToggle}
                   className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
-                  title={isRecording ? '点击停止' : '点击说话'} />
+                  title={'点一下开听/再点关闭'} />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[10px] font-medium text-gray-200">
@@ -2032,9 +2037,9 @@ export default function AgentPage() {
                   <div className="relative">
                     <VoiceOrb state={orbState} volume={Math.max(micVolume, ttsVolume)} size={132}
                       className="relative drop-shadow-[0_0_10px_rgba(255,159,28,0.22)]" />
-                    <button onClick={toggleRecording}
+                    <button onClick={blmToggle}
                       className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
-                      title={isRecording ? '点击停止' : '点击说话'} />
+                      title={'点一下开听/再点关闭'} />
                   </div>
                   <p className="text-[11px] text-orange-300/80 text-center mt-3">
                     {orbState === 'listening' ? '🎤 正在聆听…' : orbState === 'recognizing' ? '🔍 识别中…' : orbState === 'thinking' ? '💭 思考中…' : orbState === 'speaking' ? '🔊 朗读中…' : '声纹球待命 · 点击说话'}
