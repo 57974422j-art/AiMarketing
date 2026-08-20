@@ -1018,9 +1018,10 @@ export default function AgentPage() {
         src.connect(proc); proc.connect(ctx.destination)
         webRecRef.current = { stop: () => { try { src.disconnect(); proc.disconnect() } catch {} } }
       } catch (_) {}
-      setOrbState('listening'); setIsRecording(true)
+      // 2026-08-20: 不切 orbState('listening')——声纹球动画 rAF 有 TDZ 会卡死主线程（录音后无法停止/上传）
+      setIsRecording(true)
       setRecordingTip('🎤 我在听，说完了点声纹球停止')
-      console.log('[语音] 录音已启动（方案一服务器上传）')
+      console.log('[语音] 录音已启动（方案一服务器上传，orbState 保持 idle）')
       return
       await fetch('/api/agent/asr-config', { credentials: 'include' }).catch(() => {})
       const ws = new WebSocket('ws://127.0.0.1:8766')
@@ -1162,7 +1163,6 @@ export default function AgentPage() {
       webRecChunksRef.current = []
       const finalize = async () => {
         recognizingRef.current = true
-        setOrbState('thinking')
         setRecordingTip('识别中…')
         try {
           const samples = new Float32Array(total)
