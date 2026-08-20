@@ -879,6 +879,7 @@ export default function AgentPage() {
   const audioCtxRef = useRef<AudioContext | null>(null)
   // 讯飞 RTASR 流式（2026-08-07）
   const xfWsRef = useRef<WebSocket | null>(null)
+  const recognizingRef = useRef(false)           // 识别中互斥（防重复启动崩溃）
   const webRecRef = useRef<any>(null)          // 录音控制器（PCM 采集用）
   const webRecCtxRef = useRef<any>(null)       // PCM AudioContext
   let webRecSampleRate = 16000                 // PCM 采样率
