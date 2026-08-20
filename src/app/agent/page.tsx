@@ -460,6 +460,11 @@ export default function AgentPage() {
   // ── 2026-08-20: 白龙马语音 1:1 复刻（点阵球 + 常开 + 自动断句发送 + barge-in）──
   useEffect(() => {
     if (!blmCanvasRef.current) return
+    // 2026-08-20: 语音 ws 地址——生产连服务器 wss（nginx 反代 /voice/cloud→3721），本地 dev 用 127.0.0.1
+    ;(window as any).__voiceWsUrl =
+      typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+        ? 'ws://127.0.0.1:3721/voice/cloud'
+        : 'wss://ai-niuma.cc/voice/cloud'
     let disposed = false
     Promise.all([
       import('@/lib/voice/voice-core'),
