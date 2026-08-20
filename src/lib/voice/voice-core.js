@@ -426,7 +426,7 @@ export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessa
   // 转录 → 主动关连接触发重连，把识别任务滚动重启接活。不依赖云端发任何结束/错误事件，
   // 也就修了「说到几十个字球变绿后不再出字」。localStorage 'bailongma-voice-watchdog'='0' 可关。
   const WATCHDOG_ON = localStorage.getItem('bailongma-voice-watchdog') !== '0';
-  const STALL_RECONNECT_MS = 3500;   // 仍在说却这么久没转录 → 判定停滞
+  const STALL_RECONNECT_MS = 8000;   // 2026-08-20: 3500→8000——说话停顿/百炼首包慢时误判停滞反复重连丢上下文（日志 watchdog stalled 循环），放宽减少误判
   const WATCHDOG_SPEECH_VOL = 0.05;  // 判定「人在说话」的音量阈值（与 continuous SPEECH_VOL 同量级）
   let watchdogTimer = null;
   let lastInboundTs = 0;             // 最近收到转录的时刻（Date.now）

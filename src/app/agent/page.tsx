@@ -2037,11 +2037,10 @@ export default function AgentPage() {
           {(activeApp || player.open) && (
             <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-white/[0.06] bg-white/[0.03]">
               <div className="relative shrink-0">
-                <VoiceOrb state={orbState} volume={Math.max(micVolume, ttsVolume)} size={44}
-                  className="relative drop-shadow-[0_0_8px_rgba(255,159,28,0.3)]" />
-                <button onClick={blmToggle}
-                  className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
-                  title={'点一下开听/再点关闭'} />
+                {/* 2026-08-20: 随行入口换成白龙马风格 CSS 圆（不再用旧 VoiceOrb 动画组件），点击转发主球开关 */}
+                <div onClick={blmToggle}
+                  className="w-11 h-11 rounded-full border border-orange-300/40 bg-orange-300/10 flex items-center justify-center text-orange-300/90 text-base cursor-pointer select-none shadow-[0_0_10px_rgba(255,159,28,0.25)]"
+                  title={'点一下开听/再点关闭'}>🎤</div>
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[10px] font-medium text-gray-200">
@@ -2063,11 +2062,10 @@ export default function AgentPage() {
                   <div className="pointer-events-none absolute -top-6 h-40 w-40 rounded-full opacity-25 blur-3xl"
                     style={{ background: 'radial-gradient(circle, #ff9f1c, transparent 70%)' }} />
                   <div className="relative">
-                    <VoiceOrb state={orbState} volume={Math.max(micVolume, ttsVolume)} size={132}
-                      className="relative drop-shadow-[0_0_10px_rgba(255,159,28,0.22)]" />
-                    <button onClick={blmToggle}
-                      className="absolute inset-0 w-full h-full rounded-full cursor-pointer"
-                      title={'点一下开听/再点关闭'} />
+                    {/* 2026-08-20: 小屏兜底入口同样换成 CSS 圆（旧 VoiceOrb 不再使用） */}
+                    <div onClick={blmToggle}
+                      className="w-[132px] h-[132px] rounded-full border-2 border-orange-300/40 bg-orange-300/10 flex items-center justify-center text-orange-300/90 text-3xl cursor-pointer select-none shadow-[0_0_18px_rgba(255,159,28,0.25)]"
+                      title={'点一下开听/再点关闭'}>🎤</div>
                   </div>
                   <p className="text-[11px] text-orange-300/80 text-center mt-3">
                     {orbState === 'listening' ? '🎤 正在聆听…' : orbState === 'recognizing' ? '🔍 识别中…' : orbState === 'thinking' ? '💭 思考中…' : orbState === 'speaking' ? '🔊 朗读中…' : '声纹球待命 · 点击说话'}

@@ -391,3 +391,9 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 | **EXECUTION_LOG.md** | 执行修改记录：每次操作后追加（日期/操作/文件/结果） |
 
 > 历史文档已全部清理删除（git 历史可恢复）；本目录为唯一真相源。
+
+### 排期处理（2026-08-20 登记）
+- 🔴 声纹球：朗读中点球不停 TTS（stopSession 不含 TTS——需加进点球逻辑/stopSession）——**暂不改，排期**
+- 🟡 语音：ws watchdog 已放宽 8s（3.5s 误判重连丢上下文）；若仍"听不到"→ 检查服务器 voice-ws 重启加载最新代理 + 百炼响应
+- 🟡 OpenCLI（github.com/jackwener/OpenCLI）接入评估：DOM 级浏览器操作 + 已登录 Chrome 复用——自动发布替代 fp-templates 坐标方案的候选——**排期评估**
+- 🟡 favicon.ico 404：无害，后续放图标消除
