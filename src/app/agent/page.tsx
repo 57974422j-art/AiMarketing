@@ -1005,8 +1005,9 @@ export default function AgentPage() {
       }
       try {
         const AC = (window as any).AudioContext || (window as any).webkitAudioContext
-        const ctx = new AC({ sampleRate: 16000 })
+        const ctx = new AC()
         webRecCtxRef.current = ctx
+        webRecSampleRate = ctx.sampleRate || 16000 // 2026-08-20: 真实设备采样率（可能 48000）——IPC 带真实 sr 由 sherpa 重采样
         const src = ctx.createMediaStreamSource(stream)
         const proc = ctx.createScriptProcessor(4096, 1, 1)
         proc.onaudioprocess = (e: any) => {
@@ -1023,7 +1024,7 @@ export default function AgentPage() {
             let off = 0
             for (const a of parts) { batch.set(a, off); off += a.length }
             if (window.electronAPI?.asrAudio) {
-              window.electronAPI.asrAudio(Array.from(batch)).then((r: any) => {
+              window.electronAPI.asrAudio(Array.from(batch), webRecSampleRate).then((r: any) => {
                 if (r?.success && r.text) { setInterimText(r.text) }
               }).catch(() => {})
             }
@@ -2282,6 +2283,11 @@ export default function AgentPage() {
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
                 </button>
                 <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFilePick} multiple />
+                {interimText && (
+                  <div className="px-3 py-1.5 mb-1 text-sm text-emerald-300/90 bg-emerald-500/5 rounded-lg border border-emerald-500/20">
+                    🎤 识别中：{interimText}
+                  </div>
+                )}
                 <textarea ref={inputRef} value={input}
                   onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
                   placeholder="输入需求，或输入 / 唤起命令..."

@@ -1199,8 +1199,9 @@ ipcMain.handle('asr:audio', async (_e, payload) => {
   try {
     if (!localAsrSession) return { success: false, error: '识别会话未开始' }
     const samples = payload && payload.samples ? Array.from(payload.samples) : []
+    const sr = payload && payload.sampleRate ? payload.sampleRate : 16000
     if (!samples.length) return { success: true, text: localAsrSession.lastText }
-    localAsrSession.stream.acceptWaveform({ samples: new Float32Array(samples), sampleRate: 16000 })
+    localAsrSession.stream.acceptWaveform({ samples: new Float32Array(samples), sampleRate: sr })
     localRecognizer.decode(localAsrSession.stream)
     const r = localRecognizer.getResult(localAsrSession.stream)
     const text = String((r && r.text) || '').trim()
