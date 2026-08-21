@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { margin:0; background:#0d0d14; color:#e5e7eb; font-family:"Microsoft YaHei",system-ui,sans-serif; display:flex; align-items:center; justify-content:center; min-height:100vh; }
+  .box { width:340px; text-align:center; }
+  .logo { font-size:15px; font-weight:600; margin-bottom:6px; }
+  .logo span { color:#f59e0b; }
+  .status { font-size:13px; color:#9ca3af; margin-bottom:14px; min-height:18px; }
+  .bar-wrap { height:8px; background:#1f2937; border-radius:4px; overflow:hidden; margin-bottom:10px; }
+  .bar { height:100%; width:0%; background:linear-gradient(90deg,#f59e0b,#fbbf24); border-radius:4px; transition:width .3s; }
+  .pct { font-size:20px; font-weight:700; color:#fbbf24; }
+  .btn { display:none; margin-top:12px; padding:8px 22px; border:none; border-radius:6px; background:#f59e0b; color:#111; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn:hover { background:#fbbf24; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="logo">AI 营销助手 <span>更新</span></div>
+    <div class="status" id="status">正在检查更新...</div>
+    <div class="bar-wrap"><div class="bar" id="bar"></div></div>
+    <div class="pct" id="pct">0%</div>
+    <button class="btn" id="restartBtn">立即重启更新</button>
+  </div>
+</body>
+</html>

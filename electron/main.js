@@ -210,23 +210,43 @@ function setupAutoUpdater(win) {
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 
-  // 检测到有新版本
+  // 2026-08-21: 更新弹窗+进度窗口——打开客户端检测到更新即弹独立小窗显示下载进度，不再依赖主页面（太隐蔽）
+  let updWin = null
+  const showUpdateWindow = () => {
+    if (updWin && !updWin.isDestroyed()) { updWin.show(); return }
+    updWin = new BrowserWindow({
+      width: 400, height: 260, resizable: false, maximizable: false, minimizable: false,
+      title: 'AI 营销助手更新', autoHideMenuBar: true,
+      webPreferences: { contextIsolation: true, nodeIntegration: false },
+    })
+    updWin.setMenuBarVisibility(false)
+    updWin.loadFile(path.join(__dirname, 'renderer', 'update.html'))
+    updWin.on('closed', () => { updWin = null })
+    return updWin
+  }
+  const setUpd = (js) => { try { updWin?.webContents.executeJavaScript(js) } catch {} }
+
+  // 检测到有新版本 → 弹窗显示
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] 发现新版本:', info.version)
+    showUpdateWindow()
+    setTimeout(() => setUpd(`document.getElementById('status').textContent='发现新版本 v${info.version}，正在下载...'`), 400)
     win?.webContents.send('app:update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes })
   })
 
-  // 新版本下载进度
+  // 新版本下载进度 → 进度条实时更新
   autoUpdater.on('download-progress', (progressObj) => {
     const pct = Math.floor(progressObj.percent || 0)
+    setUpd(`document.getElementById('bar').style.width='${pct}%';document.getElementById('pct').textContent='${pct}%';document.getElementById('status').textContent='正在下载更新...'`)
     win?.webContents.send('app:update-status', { status: 'downloading', percent: pct })
   })
 
-  // 下载完成，提示重启并自动安装（silent auto-update：用户无需手动操作即可收敛到最新版）
+  // 下载完成，弹窗提示重启并自动安装
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[Updater] 下载完成:', info.version)
+    setUpd(`document.getElementById('status').textContent='更新完成 v${info.version}，即将重启安装...';document.getElementById('pct').textContent='100%';document.getElementById('bar').style.width='100%'`)
     win?.webContents.send('app:update-status', { status: 'ready', version: info.version, releaseNotes: info.releaseNotes })
-    // 留 12 秒让前端展示「重启更新」按钮；若用户未手动点击，则自动退出并安装重启
+    // 留 12 秒让用户看提示；若未手动操作，自动退出并安装重启
     setTimeout(() => {
       try {
         autoUpdater.quitAndInstall(true, true)
