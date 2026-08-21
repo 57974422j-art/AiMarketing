@@ -1647,3 +1647,31 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
     return { success: true, awemeId, url: 'https://www.douyin.com/video/' + awemeId }
   } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
 })
+
+// ════════════════════════════════════════
+//  P1: opencli_run 客户端执行（2026-08-21）——白名单命令，opencli CLI 驱动
+// ════════════════════════════════════════
+const OPENCLI_READ_SITES = ['bilibili', 'xiaohongshu', 'weibo', 'douyin', 'web', 'account']
+ipcMain.handle('opencli:run', async (_e, payload) => {
+  try {
+    const site = String(payload && payload.site || '').trim().toLowerCase()
+    const command = String(payload && payload.command || '').trim().toLowerCase()
+    const args = String(payload && payload.args || '').trim()
+    if (!site || !command) return { success: false, error: '缺少 site/command' }
+    if (!OPENCLI_READ_SITES.includes(site)) return { success: false, error: '不支持的站点: ' + site }
+    const cmd = ['opencli', site, command, args].filter(Boolean).join(' ')
+    const { exec } = require('child_process')
+    const { promisify } = require('util')
+    const execP = promisify(exec)
+    const { stdout, stderr } = await execP(cmd, { timeout: 120000, windowsHide: true, maxBuffer: 10 * 1024 * 1024 })
+    const out = String(stdout || '').trim()
+    if (!out && stderr) return { success: false, error: String(stderr).slice(0, 300) }
+    return { success: true, output: out.slice(-3000) }
+  } catch (e) {
+    const msg = (e && e.message) || String(e)
+    // 未安装/未登录区分
+    if (/not found|not recognized|Cannot find/i.test(msg)) return { success: false, error: 'OpenCLI 未安装或命令不可用（需装 OpenCLIApp）' }
+    if (/login|cookie|auth|登录|登陆/i.test(msg)) return { success: false, error: '需要登录（浏览器中登录对应平台后重试）', needLogin: true }
+    return { success: false, error: (msg||'').slice(0,200) }
+  }
+})
