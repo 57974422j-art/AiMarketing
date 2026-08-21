@@ -1233,13 +1233,6 @@ export default function MyFingerprintPage() {
             </button>
             {ocResult && <pre className="text-[10px] text-gray-400 whitespace-pre-wrap break-all max-h-28 overflow-y-auto">{ocResult}</pre>}
             <p className="text-[9px] text-gray-600 leading-relaxed">需安装 OpenCLI（opencli.info/download）并在 Chrome 装 Browser Bridge 扩展；仅抖音/小红书/微博支持</p>
-            <button onClick={async () => {
-              if (!confirm('确定清理客户端残留缓存？不影响账号登录态')) return
-              const r = await (window as any).electronAPI?.cleanupResidue()
-              showToast(r?.success ? '✅ 残留已清理' : '❌ ' + (r?.error || '清理失败'), r?.success ? 'success' : 'error')
-            }} className="w-full py-1.5 rounded-lg bg-gray-700/30 border border-white/10 text-gray-400 text-[11px] hover:bg-gray-700/50">
-              🗑 清理客户端残留缓存
-            </button>
           </div>
 
           {/* ═══ 跨平台排队发布开关 ═══ */}

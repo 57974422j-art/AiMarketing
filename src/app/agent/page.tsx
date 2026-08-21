@@ -2001,6 +2001,17 @@ export default function AgentPage() {
             </div>
           </div>
 
+          {/* 2026-08-21: 清理客户端残留缓存（放 AGENT 左面板——用户要求不放指纹页） */}
+          <button onClick={async () => {
+            if (!confirm('确定清理客户端残留缓存？不影响账号登录态')) return
+            try {
+              const r = await (window as any).electronAPI?.cleanupResidue()
+              setRecordingTip(r?.success ? '✅ 残留已清理' : '❌ ' + (r?.error || '清理失败'))
+            } catch (e: any) { setRecordingTip('❌ ' + (e?.message || e)) }
+          }} className="mx-auto mb-1 px-3 py-1 rounded-lg bg-gray-700/20 border border-white/10 text-gray-500 text-[10px] hover:bg-gray-700/40 hover:text-gray-300">
+            🗑 清理残留缓存
+          </button>
+
           {/* 应用入口（2026-08-05：一键成片等 iframe 大屏，AI 对话栏右 1/3 常驻） */}
           {/* 2026-08-11：flex-1 弹性占满剩余空间——底部「呼出热点大屏」按钮顶到最底部，不贴应用卡 */}
           <div className="px-4 py-3 border-t border-white/[0.06] flex-1 min-h-0 flex flex-col">
