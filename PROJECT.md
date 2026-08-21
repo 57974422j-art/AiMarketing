@@ -421,3 +421,23 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 **用户要求**："不要点账号、要点启动、不用检查账号"——Agent 任务执行时**直接按任务平台启动对应浏览器执行**，不受 selectedAccount 影响。
 **现状（代码实证）**：执行链路（executeBatch/publishNow）多处直接读 `selectedAccount.platform`（670/684/704/762/802 行），802 行 `!selectedAccount` 直接 return。selectedAccount 被"用户手动启动过的账号"占用后，Agent 任务（如抖音）会：①平台校验不匹配→failed 不发布；或②用错平台浏览器执行。**这就是"找第一个（视频号）启动/发抖音却点视频号"的根因。**
 **改进方向（P2）**：Agent 任务执行去 selectedAccount 化——按任务 platform 直接启动对应浏览器（dummyAcct 平台即任务平台，handleStart 已按平台启动）→ executeBatch 用"本次启动的账号"而非全局 selectedAccount；手动路径保留 selectedAccount（用户自己选）。
+
+
+### 客户端更新发布流程（2026-08-21 定稿，防遗忘）
+**改版本必须同步 3 处**（否则下载页/更新链错乱）：
+1. `package.json` version
+2. `electron/version.json`：**version + downloadUrl 都要改**（downloadUrl 曾漏改卡在旧版）
+3. `electron/changelog.json`：顶部加新条目（title 写描述，非版本号）
+
+**发布步骤**：
+1. `node scripts/build-local.mjs`（~15 分钟，产出 dist-rel/AI-Marketing-Setup-{ver}.exe + latest.yml + blockmap）
+2. 上传三件套到服务器 `public/updates/`
+3. 服务器：`cp public/updates/* .next/standalone/public/updates/ && pm2 restart aimarketing`
+4. 验证：`curl https://ai-niuma.cc/api/client-info`（version + downloadUrl 必须是最新）+ `curl -o /dev/null -w "%{http_code}" https://ai-niuma.cc/updates/latest.yml`（200）
+5. 客户端（旧版）打开 → 弹更新窗（v1.0.40+ 功能：独立小窗显示下载进度，12s 自动重启安装）
+
+**踩坑记录**：
+- downloadUrl 曾漏改（只改 version）→ 下载页版本对但下载地址旧
+- changelog 不加条目 → 下载页不显示新版本
+- latest.yml 不更新 → 旧客户端检测不到更新（不弹窗）
+- public/updates 已排除 git（485d141），git 部署不会覆盖上传文件
