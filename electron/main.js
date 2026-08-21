@@ -1277,3 +1277,20 @@ ipcMain.handle('opencli:publish', async (_e, payload) => {
     }
   }
 })
+
+// ════════════════════════════════════════
+//  清理残留（2026-08-21）——删除缓存/临时文件（不含登录态 APPDATA，只清可重建数据）
+// ════════════════════════════════════════
+ipcMain.handle('app:cleanup-residue', async () => {
+  try {
+    const removed = []
+    const targets = [
+      path.join(os.tmpdir(), 'aimarketing-videos'),
+      path.join(os.homedir(), 'AppData', 'Local', 'ai-marketing-updater'),
+    ]
+    for (const t of targets) {
+      try { if (fs.existsSync(t)) { fs.rmSync(t, { recursive: true, force: true }); removed.push(t) } } catch {}
+    }
+    return { success: true, removed }
+  } catch (e) { return { success: false, error: e.message } }
+})
