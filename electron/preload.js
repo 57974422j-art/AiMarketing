@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   opencliCheck: () => ipcRenderer.invoke('opencli:check'),
   opencliSetupGuide: () => ipcRenderer.invoke('opencli:setup-guide'),
   cleanupResidue: () => ipcRenderer.invoke('app:cleanup-residue'),
+  browserBind: () => ipcRenderer.invoke('browser:bind'),
+  browserAccounts: () => ipcRenderer.invoke('browser:accounts'),
 
   isElectron: true,
 

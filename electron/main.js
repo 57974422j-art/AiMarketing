@@ -1361,3 +1361,70 @@ ipcMain.handle('opencli:setup-guide', async () => {
     }
   } catch (e) { return { success: false, error: e.message } }
 })
+
+// ════════════════════════════════════════
+//  方案A CDP：绑定浏览器 + 登录态检测（2026-08-21，P0）
+//  客户端拉起用户日常 Chrome/Edge（--remote-debugging-port，127.0.0.1）
+//  → 通过 CDP 读各平台登录 cookie → 个人号发布走这里（无扩展/无 OpenCLIApp 依赖）
+// ════════════════════════════════════════
+const CDP_PORT = 9333
+let boundProc = null
+const BROWSER_CANDIDATES = [
+  process.env.PROGRAMFILES + '\Google\Chrome\Application\chrome.exe',
+  process.env['PROGRAMFILES(X86)'] + '\Google\Chrome\Application\chrome.exe',
+  process.env.LOCALAPPDATA + '\Google\Chrome\Application\chrome.exe',
+  process.env.PROGRAMFILES + '\Microsoft\Edge\Application\msedge.exe',
+  process.env['PROGRAMFILES(X86)'] + '\Microsoft\Edge\Application\msedge.exe',
+]
+function findBrowserExe() {
+  for (const p2 of BROWSER_CANDIDATES) { if (p2 && fs.existsSync(p2)) return p2 }
+  return null
+}
+ipcMain.handle('browser:bind', async () => {
+  try {
+    const exe = findBrowserExe()
+    if (!exe) return { success: false, error: '未找到 Chrome/Edge 浏览器' }
+    // 用用户默认 profile（已登录）启动，带 CDP 调试端口（仅本机）
+    const { spawn } = require('child_process')
+    const proc = spawn(exe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--no-first-run', 'https://www.douyin.com'], { detached: true, stdio: 'ignore' })
+    proc.unref()
+    boundProc = proc
+    // 等 CDP 就绪
+    for (let i = 0; i < 20; i++) {
+      try {
+        const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) })
+        if (r.ok) return { success: true, port: CDP_PORT, exe }
+      } catch {}
+      await new Promise((r2) => setTimeout(r2, 500))
+    }
+    return { success: true, port: CDP_PORT, exe, warn: 'CDP 端口未确认（浏览器可能已用该端口启动过）' }
+  } catch (e) { return { success: false, error: e.message } }
+})
+ipcMain.handle('browser:accounts', async () => {
+  // 通过 CDP 读已登录平台（访问各平台域，检查登录 cookie）
+  try {
+    const { chromium } = require('playwright')
+    const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+    const ctxs = browser.contexts()
+    const accounts = []
+    const PLATFORMS = [
+      { id: 'douyin', name: '抖音', url: 'https://www.douyin.com', cookie: 'sessionid' },
+      { id: 'xiaohongshu', name: '小红书', url: 'https://www.xiaohongshu.com', cookie: 'web_session' },
+      { id: 'weibo', name: '微博', url: 'https://weibo.com', cookie: 'SUB' },
+      { id: 'bilibili', name: 'B站', url: 'https://www.bilibili.com', cookie: 'SESSDATA' },
+      { id: 'kuaishou', name: '快手', url: 'https://www.kuaishou.com', cookie: 'did' },
+      { id: 'youtube', name: 'YouTube', url: 'https://www.youtube.com', cookie: 'SID' },
+    ]
+    for (const ctx of ctxs) {
+      const cookies = await ctx.cookies()
+      for (const pf of PLATFORMS) {
+        const has = cookies.some((ck) => ck.domain.includes(pf.id === 'douyin' ? 'douyin.com' : pf.id === 'xiaohongshu' ? 'xiaohongshu.com' : pf.id) && ck.name === pf.cookie)
+        if (has) accounts.push({ id: pf.id, name: pf.name, loggedIn: true })
+      }
+    }
+    await browser.close().catch(() => {})
+    return { success: true, accounts, bound: !!boundProc }
+  } catch (e) {
+    return { success: false, error: '浏览器未绑定或 CDP 未连接：' + e.message, accounts: [], bound: !!boundProc }
+  }
+})

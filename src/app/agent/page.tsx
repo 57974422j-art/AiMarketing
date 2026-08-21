@@ -740,6 +740,7 @@ export default function AgentPage() {
     { path: '/media-library', title: '公共素材', color: 'lime', roles: ['admin', 'editor', 'end-user'] },
     { path: '/media-library?tab=prompts', title: '提示词库', color: 'violet', roles: ['admin', 'editor', 'end-user'] },
     { path: '/accounts', title: '账号管理', color: 'teal', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/browser-accounts', title: '浏览器账号', color: 'sky', roles: ['admin', 'editor', 'end-user'] },
     { path: '/digital-human', title: '数字人', color: 'orange', roles: ['admin', 'editor', 'end-user'] },
     { path: '/my-subscription', title: '我的套餐', color: 'amber', roles: ['admin', 'editor', 'end-user'] },
     { path: '/music-library', title: '音乐库', color: 'cyan', roles: ['admin', 'editor', 'end-user'] },
