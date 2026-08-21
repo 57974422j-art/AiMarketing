@@ -1515,7 +1515,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '请输入消息' }, { status: 400 })
     }
 
-    const userMessage = message.trim()
+    let userMessage = message.trim()
 
     // ═══ 2026-08-20: "打开/去/进入+功能名" 前缀拦截（方案 A——代码层 100% 命中，不依赖 AI 理解）═══
     const OPEN_NAV: Array<[RegExp, string, string]> = [
