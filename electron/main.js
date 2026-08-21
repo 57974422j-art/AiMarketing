@@ -1504,8 +1504,75 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
     } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
   }
   if (platform === 'xiaohongshu') {
-    // 小红书：OpenCLI 仅有图文（图片）发布（DOM）；视频发布适配器待开发（选择器未定）——P0 后续
-    return { success: false, error: '小红书发布适配器开发中（暂支持抖音/微博）；需要时先走指纹浏览器线', platform: 'xiaohongshu' }
+    // 小红书视频发布（P0-2，DOM——参考 opencli 图文选择器，target=video 上传视频）
+    const { chromium } = require('playwright')
+    try {
+      const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+      const ctx = browser.contexts()[0]
+      if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
+      const page = ctx.pages().find((p2) => p2.url().includes('xiaohongshu.com')) || await ctx.newPage()
+      const videoPath = payload && payload.videoPath
+      const title = (payload && payload.title) || ''
+      const desc = (payload && payload.caption) || ''
+      if (!videoPath || !fs.existsSync(videoPath)) return { success: false, error: '视频文件不存在: ' + videoPath }
+      await page.goto('https://creator.xiaohongshu.com/publish/publish?target=video', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+      await page.waitForTimeout(2000)
+      if (!page.url().includes('xiaohongshu.com')) return { success: false, error: '请先登录小红书（浏览器中）', needLogin: true, platform: 'xiaohongshu' }
+      // 上传视频（通用 file input，accept 视频）
+      const uploaded = await page.evaluate(() => {
+        const vis = (el) => !!el && el.offsetParent !== null
+        for (const inp of document.querySelectorAll('input[type="file"]')) {
+          const acc = (inp.getAttribute('accept') || '').toLowerCase()
+          if (vis(inp) && (acc.includes('video') || acc.includes('mp4') || acc === '')) return true
+        }
+        return false
+      })
+      if (!uploaded) return { success: false, error: '未找到小红书视频上传入口（页面结构可能变化）' }
+      const inputSel = await page.evaluate(() => {
+        const vis = (el) => !!el && el.offsetParent !== null
+        const inputs = [...document.querySelectorAll('input[type="file"]')].filter(inp => vis(inp))
+        const target = inputs.find(inp => (inp.getAttribute('accept') || '').toLowerCase().includes('video')) || inputs[inputs.length - 1]
+        if (!target) return ''
+        target.setAttribute('data-xhs-video', '1')
+        return 'input[data-xhs-video="1"]'
+      })
+      if (!inputSel) return { success: false, error: '未找到上传输入框' }
+      await page.setInputFiles(inputSel, videoPath)
+      // 等上传完成（简单等待 + 填标题/正文）
+      await page.waitForTimeout(6000)
+      const fillTitle = title ? await page.evaluate((t) => {
+        for (const sel of ['input[placeholder*="title" i]', 'input[class*="title"]', '.note-title input', '.title-input input']) {
+          const el = document.querySelector(sel)
+          if (el && el.offsetParent !== null) {
+            const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+            if (set) set.call(el, t)
+            el.dispatchEvent(new Event('input', { bubbles: true }))
+            return true
+          }
+        }
+        return false
+      }, title) : false
+      if (title && !fillTitle) return { success: false, error: '未找到小红书标题输入框' }
+      if (desc) {
+        await page.evaluate((d) => {
+          const el = [...document.querySelectorAll('[contenteditable="true"]')].filter(e => e.offsetParent !== null && !String(e.getAttribute('placeholder') || '').includes('标题'))[0]
+          if (el) { el.focus(); document.execCommand('insertText', false, d) }
+        }, desc)
+      }
+      // 点发布
+      await page.waitForTimeout(1000)
+      const sent = await page.evaluate(() => {
+        const vis = (el) => !!el && el.offsetParent !== null && !el.disabled
+        for (const label of ['发布', '发布笔记']) {
+          for (const btn of document.querySelectorAll('button, [role="button"]')) {
+            if (((btn.innerText || btn.textContent || '').trim() === label) && vis(btn)) { btn.click(); return label }
+          }
+        }
+        return ''
+      })
+      if (!sent) return { success: false, error: '未找到「发布」按钮（可能上传未完成）' }
+      return { success: true, message: '小红书发布已提交（发布中/审核中）' }
+    } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
   }
   // 抖音发布（P0-2，复用 OpenCLI 官方 API 流程：vod-upload/tos-upload/create_v2，CDP page 内 fetch）
   try {
