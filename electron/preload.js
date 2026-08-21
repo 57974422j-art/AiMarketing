@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  opencliPublish: (payload) => ipcRenderer.invoke('opencli:publish', payload),
+  opencliCheck: () => ipcRenderer.invoke('opencli:check'),
+
   isElectron: true,
 
   // ── ADB（原有）──

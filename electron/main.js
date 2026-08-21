@@ -1243,3 +1243,37 @@ ipcMain.handle('asr:session-end', async () => {
 })
 ipcMain.handle('asr:session-abort', async () => { localAsrSession = null; return { success: true } })
 
+
+
+// ════════════════════════════════════════
+//  OpenCLI 发布通道（2026-08-21）——驱动用户已登录 Chrome 真发布（独立于指纹浏览器）
+//  依赖：用户装 OpenCLI（opencli.info/download 的 OpenCLIApp 自带命令）+ Chrome Browser Bridge 扩展
+// ════════════════════════════════════════
+const { exec: execCb } = require('child_process')
+const { promisify } = require('util')
+const execP = promisify(execCb)
+ipcMain.handle('opencli:check', async () => {
+  try {
+    await execP('opencli doctor', { timeout: 15000, windowsHide: true })
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e && e.message ? (e.message||'').slice(0,120) : '未安装' }
+  }
+})
+ipcMain.handle('opencli:publish', async (_e, payload) => {
+  // payload: { site: 'douyin'|'xiaohongshu'|'weibo', args: ['标题', '视频路径', ...] }
+  try {
+    const site = payload && payload.site ? String(payload.site).trim() : ''
+    if (!site) return { success: false, error: '缺少平台（site）' }
+    const args = (payload.args || []).map(String)
+    const cmd = ['opencli', site, 'publish', ...args].join(' ')
+    const { stdout, stderr } = await execP(cmd, { timeout: 240000, windowsHide: true, maxBuffer: 10 * 1024 * 1024 })
+    return { success: true, output: String(stdout || '').slice(-2000), err: String(stderr || '').slice(-1000) }
+  } catch (e) {
+    return {
+      success: false,
+      error: e && e.message ? (e.message||'').slice(0,120) : String(e),
+      hint: '需安装 OpenCLI（opencli.info/download OpenCLIApp）并在 Chrome 安装 Browser Bridge 扩展；抖音/小红书/微博支持 publish，B站/快手/视频号暂无适配器',
+    }
+  }
+})

@@ -1,6 +1,6 @@
 {
   "name": "ai-marketing",
-  "version": "1.0.40",
+  "version": "1.0.41",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -19,6 +19,7 @@
     "@capacitor/android": "^8.4.0",
     "@capacitor/cli": "^8.4.0",
     "@capacitor/core": "^8.4.0",
+    "@jackwener/opencli": "^1.8.6",
     "@prisma/client": "^5.22.0",
     "@types/three": "^0.185.3",
     "ali-oss": "^6.23.0",

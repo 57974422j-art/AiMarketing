@@ -134,6 +134,25 @@ export default function MyFingerprintPage() {
   const [formDeclExtras, setFormDeclExtras] = useState<string[]>([])
   const [formCopyrightSelf, setFormCopyrightSelf] = useState(false)
 
+  // ── OpenCLI 发布（2026-08-21：驱动用户已登录 Chrome 真发布——抖音/小红书/微博）──
+  const [ocSite, setOcSite] = useState('douyin')
+  const [ocTitle, setOcTitle] = useState('')
+  const [ocVideo, setOcVideo] = useState('')
+  const [ocResult, setOcResult] = useState('')
+  const [ocBusy, setOcBusy] = useState(false)
+  const opencliPublish = async () => {
+    if (!ocTitle.trim()) { showToast('请填写标题', 'error'); return }
+    setOcBusy(true); setOcResult('')
+    try {
+      const args: string[] = [ocTitle.trim()]
+      if (ocVideo.trim()) args.push(ocVideo.trim())
+      const r = await (window as any).electronAPI?.opencliPublish({ site: ocSite, args })
+      setOcResult(r?.success ? '✅ 发布完成：' + (r.output || '') : '❌ ' + (r?.error || '失败') + (r?.hint ? '
+' + r.hint : ''))
+    } catch (e: any) { setOcResult('❌ ' + (e.message || e)) }
+    setOcBusy(false)
+  }
+
   // 封面缩微图下方的文件名显示：去掉多余 URL，只展示可读文件名
   const coverDisplayName = (() => {
     const raw = formCoverImage
@@ -1195,6 +1214,27 @@ export default function MyFingerprintPage() {
         {/* ═══ 右侧：批量发布面板 ═══ */}
         <div className="space-y-4">
           <h2 className="text-sm font-semibold text-gray-300">批量发布</h2>
+
+          {/* ═══ OpenCLI 发布（2026-08-21：驱动用户已登录 Chrome 真发布——独立于指纹浏览器）═══ */}
+          <div className="bg-gradient-to-b from-purple-500/10 to-gray-800/30 border border-purple-500/20 rounded-xl p-3 space-y-2">
+            <p className="text-xs font-medium text-purple-300">⚡ OpenCLI 发布（Chrome 真发）</p>
+            <select value={ocSite} onChange={e => setOcSite(e.target.value)}
+              className="w-full bg-gray-800 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gray-200">
+              <option value="douyin">抖音</option>
+              <option value="xiaohongshu">小红书</option>
+              <option value="weibo">微博</option>
+            </select>
+            <input value={ocTitle} onChange={e => setOcTitle(e.target.value)} placeholder="标题/文案"
+              className="w-full bg-gray-800 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gray-200" />
+            <input value={ocVideo} onChange={e => setOcVideo(e.target.value)} placeholder="视频路径（可选，默认打开发布页）"
+              className="w-full bg-gray-800 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-gray-200" />
+            <button onClick={opencliPublish} disabled={ocBusy}
+              className="w-full py-2 rounded-lg bg-purple-500/20 border border-purple-500/40 text-purple-200 text-xs font-medium hover:bg-purple-500/30 disabled:opacity-50">
+              {ocBusy ? '发布中...' : '🚀 用 OpenCLI 发布'}
+            </button>
+            {ocResult && <pre className="text-[10px] text-gray-400 whitespace-pre-wrap break-all max-h-28 overflow-y-auto">{ocResult}</pre>}
+            <p className="text-[9px] text-gray-600 leading-relaxed">需安装 OpenCLI（opencli.info/download）并在 Chrome 装 Browser Bridge 扩展；仅抖音/小红书/微博支持</p>
+          </div>
 
           {/* ═══ 跨平台排队发布开关 ═══ */}
           <div className="bg-gradient-to-b from-sky-500/10 to-gray-800/30 border border-sky-500/20 rounded-xl p-3 space-y-2">
