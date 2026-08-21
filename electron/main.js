@@ -1325,9 +1325,22 @@ ipcMain.handle('opencli:setup-guide', async () => {
       path.join(__dirname, 'resources', 'opencli-extension'),
     ]
     const extDir = candidates.find((d) => fs.existsSync(path.join(d, 'manifest.json'))) || candidates[1]
-    // 打开 chrome://extensions（用户开开发者模式 + 加载已解压扩展）
-    try { require('child_process').exec('start chrome://extensions', { windowsHide: true }) } catch {}
-    try { require('child_process').exec('start msedge://extensions', { windowsHide: true }) } catch {}
+    // 2026-08-21: 打开扩展页——检测 Chrome/Edge 实际路径（start chrome:// 走默认浏览器 Edge 不认 → 弹商店）
+    const { execSync: execSync2 } = require('child_process')
+    const chromeCandidates = [
+      process.env.PROGRAMFILES + '\Google\Chrome\Application\chrome.exe',
+      process.env['PROGRAMFILES(X86)'] + '\Google\Chrome\Application\chrome.exe',
+      process.env.LOCALAPPDATA + '\Google\Chrome\Application\chrome.exe',
+    ]
+    const edgeCandidates = [
+      process.env.PROGRAMFILES + '\Microsoft\Edge\Application\msedge.exe',
+      process.env['PROGRAMFILES(X86)'] + '\Microsoft\Edge\Application\msedge.exe',
+    ]
+    const chromePath = chromeCandidates.find((p2) => fs.existsSync(p2))
+    const edgePath = edgeCandidates.find((p2) => fs.existsSync(p2))
+    let opened = ''
+    if (chromePath) { try { execSync2('"' + chromePath + '" chrome://extensions', { windowsHide: true, stdio: 'ignore' }); opened = 'Chrome' } catch {} }
+    if (!opened && edgePath) { try { execSync2('"' + edgePath + '" edge://extensions', { windowsHide: true, stdio: 'ignore' }); opened = 'Edge（Chrome 未安装）' } catch {} }
     // opencli 命令检测
     let opencliInstalled = false
     try {
@@ -1340,10 +1353,10 @@ ipcMain.handle('opencli:setup-guide', async () => {
       extDir,
       opencliInstalled,
       steps: [
-        '① 已自动打开 chrome://extensions（若无反应请手动打开）',
-        '② 打开右上角【开发者模式】开关',
+        '① 已自动打开' + (opened || '浏览器') + ' 扩展页（edge://extensions 或 chrome://extensions；无反应请手动打开）',
+        '② 打开左下角/右上角【开发者模式】开关',
         '③ 点【加载已解压的扩展程序】→ 选择目录：' + extDir,
-        '④ 装好后在客户端说"发布抖音/小红书/微博"即自动发布（需先在 Chrome 登录对应平台）',
+        '④ 装好后在客户端说"发布抖音/小红书/微博"即自动发布（需先在浏览器登录对应平台）',
       ],
     }
   } catch (e) { return { success: false, error: e.message } }
