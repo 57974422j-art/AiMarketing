@@ -1313,3 +1313,38 @@ ipcMain.handle('app:cleanup-residue', async () => {
     return { success: true, removed }
   } catch (e) { return { success: false, error: e.message } }
 })
+
+// ════════════════════════════════════════
+//  OpenCLI 安装引导（2026-08-21，方案1）——扩展随包分发，用户只需开发者模式加载
+// ════════════════════════════════════════
+ipcMain.handle('opencli:setup-guide', async () => {
+  try {
+    // 扩展目录：打包在 resources/opencli-extension；开发在 electron/resources/opencli-extension
+    const candidates = [
+      path.join(process.resourcesPath || '', 'opencli-extension'),
+      path.join(__dirname, 'resources', 'opencli-extension'),
+    ]
+    const extDir = candidates.find((d) => fs.existsSync(path.join(d, 'manifest.json'))) || candidates[1]
+    // 打开 chrome://extensions（用户开开发者模式 + 加载已解压扩展）
+    try { require('child_process').exec('start chrome://extensions', { windowsHide: true }) } catch {}
+    try { require('child_process').exec('start msedge://extensions', { windowsHide: true }) } catch {}
+    // opencli 命令检测
+    let opencliInstalled = false
+    try {
+      const { execSync } = require('child_process')
+      execSync('opencli --version', { timeout: 8000, windowsHide: true, stdio: 'ignore' })
+      opencliInstalled = true
+    } catch {}
+    return {
+      success: true,
+      extDir,
+      opencliInstalled,
+      steps: [
+        '① 已自动打开 chrome://extensions（若无反应请手动打开）',
+        '② 打开右上角【开发者模式】开关',
+        '③ 点【加载已解压的扩展程序】→ 选择目录：' + extDir,
+        '④ 装好后在客户端说"发布抖音/小红书/微博"即自动发布（需先在 Chrome 登录对应平台）',
+      ],
+    }
+  } catch (e) { return { success: false, error: e.message } }
+})

@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   opencliPublish: (payload) => ipcRenderer.invoke('opencli:publish', payload),
   opencliCheck: () => ipcRenderer.invoke('opencli:check'),
+  opencliSetupGuide: () => ipcRenderer.invoke('opencli:setup-guide'),
   cleanupResidue: () => ipcRenderer.invoke('app:cleanup-residue'),
 
   isElectron: true,

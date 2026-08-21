@@ -108,6 +108,8 @@ const build = {
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
     // 2026-08-19: 本地语音识别模型（sherpa-onnx）——随包分发
     { from: 'electron/models/sherpa', to: 'models/sherpa', filter: ['**/*'] },
+    // 2026-08-21: OpenCLI 浏览器扩展（打包分发——用户免商店/免代理，开发者模式加载即可）
+    { from: 'electron/resources/opencli-extension', to: 'opencli-extension', filter: ['**/*'] },
   ],
   win: pkg.build.win,
   publish: pkg.build.publish,
