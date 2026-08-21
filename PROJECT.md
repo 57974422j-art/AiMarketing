@@ -450,3 +450,5 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 - **P2**：browser-accounts 独立页（登录态显示绿/红点 + 每日 12 点刷新，仿 OpenCLI）——与 /accounts（服务器账号登记）完全分开
 - **P3**：双通道分流细化（账号类型 → 个人号走浏览器 A / 矩阵号走指纹 B）
 - **登录提示模式**：opencli_run 返回 needLogin(platform) → AI 回复"未登录，已打开登录页→扫码登录一次→说继续自动重试"；客户端 shell.openExternal 打开 AI 给的 URL
+
+**P0-2 关键发现（2026-08-21）**：OpenCLI douyin publish 是**官方 API 直调**（TOS 上传 + create_v2 发布，`browserFetch`=page.evaluate 浏览器内 fetch 带 cookie+a_bogus 自动）——**不是 DOM 点按钮**。我们的 CDP page 完全兼容 browserFetch → **发布可复用 OpenCLI 全套 API 流程（clis/douyin/_shared/*），无扩展依赖**。路径：CDP connectOverCDP → 打开发布页（page）→ 移植 publish.js 8 阶段（getUploadAuthV5Credentials/tosUpload/create_v2）。比 DOM 操作稳。

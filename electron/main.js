@@ -1428,3 +1428,19 @@ ipcMain.handle('browser:accounts', async () => {
     return { success: false, error: '浏览器未绑定或 CDP 未连接：' + e.message, accounts: [], bound: !!boundProc }
   }
 })
+
+// 2026-08-21: CDP 发布通道（P0-2）——复用 OpenCLI 官方 API 流程（page.evaluate 浏览器内 fetch，a_bogus 自动）
+// 关键发现：OpenCLI douyin publish 是官方 API（vod-upload/tos-upload/create_v2），不是 DOM 点按钮；
+// browserFetch(page,...) 用浏览器上下文 fetch——我们的 CDP page 完全兼容（无扩展依赖）
+ipcMain.handle('browser:publish', async (_e, payload) => {
+  try {
+    const { chromium } = require('playwright')
+    const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+    const ctx = browser.contexts()[0]
+    if (!ctx) return { success: false, error: '浏览器无页面上下文，请先打开浏览器' }
+    const page = ctx.pages().find((p2) => p2.url().includes('creator.douyin.com')) || await ctx.newPage()
+    await page.goto('https://creator.douyin.com/creator-micro/content/upload', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+    // P0-2 下一步：移植 opencli clis/douyin/publish.js 8 阶段（browserFetch 用此 page）
+    return { success: true, message: 'CDP 发布通道已就绪（发布执行器移植中）', platform: payload?.platform, port: CDP_PORT }
+  } catch (e) { return { success: false, error: e.message } }
+})
