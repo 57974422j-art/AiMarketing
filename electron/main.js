@@ -179,6 +179,32 @@ function setupAutoPublish() {
         if (fpWindow && !fpWindow.isDestroyed()) { try { fpWindow.close() } catch {} fpWindow = null }
         return
       }
+      // 2026-08-21: 通道分流——OpenCLI 平台（抖音/小红书/微博）任务由 OpenCLI 驱动已登录 Chrome 发布，不进指纹窗
+      const opencliPlatforms = ['douyin', 'xiaohongshu', 'weibo']
+      const ocTasks = d.data.filter((t) => opencliPlatforms.includes(String(t.platform || '').toLowerCase()))
+      if (ocTasks.length) {
+        console.log('[AutoPublish] OpenCLI 通道任务:', ocTasks.length, '个')
+        for (const t of ocTasks.slice(0, 3)) {
+          try {
+            const { exec: execCb2 } = require('child_process')
+            const cmd = ['opencli', String(t.platform).toLowerCase(), 'publish', t.title || t.videoName || '', t.videoName || ''].join(' ')
+            console.log('[AutoPublish] opencli:', cmd.slice(0, 120))
+            execCb2(cmd, { timeout: 240000, windowsHide: true }, (err, stdout) => {
+              console.log('[AutoPublish] opencli 结果:', err ? ('ERR ' + err.message) : String(stdout || '').slice(-300))
+              if (!err) {
+                // 发布成功回写
+                fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ status: 'succeeded' }),
+                }).catch(() => {})
+              }
+            })
+          } catch (e) { console.log('[AutoPublish] opencli 调用异常:', e.message) }
+        }
+      }
+      // 其余平台 → 指纹浏览器窗口
+      const fpTasks = d.data.filter((t) => !opencliPlatforms.includes(String(t.platform || '').toLowerCase()))
+      if (!fpTasks.length) return
       // 有 pending 任务 → 打开指纹浏览器页（隐藏窗口，后台轮询执行）
       if (!fpWindow || fpWindow.isDestroyed()) {
         fpWindow = new BrowserWindow({
