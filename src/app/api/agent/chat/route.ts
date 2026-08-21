@@ -1860,6 +1860,16 @@ export async function POST(request: NextRequest) {
       }
       await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
     }
+    // #5 模型标注 + #6 敏感过滤（2026-08-21：回复末尾标注实际模型；剔除后台链接/IP/API key）
+    const usedModel = (fcResult as any)?.model || (hasImage ? 'agnes-2.5-flash' : 'qwen-plus')
+    reply = String(reply || '')
+    if (reply && !/（模型：/.test(reply)) {
+      reply = reply + String.fromCharCode(10, 10) + '（模型：' + usedModel + '）'
+    }
+    reply = reply
+      .replace(/https?:\/\/[^\s）)]*(?:admin|120\.55\.43\.195)[^\s）)]*/g, '[内部链接已隐藏]')
+      .replace(/\/admin/g, '')
+      .replace(/sk-[A-Za-z0-9_-]{10,}/g, '******')
     return NextResponse.json({
       success: true,
       data: { reply, intent: 'chat', toolUsed: false, sessionId, scene: scene || templateScene, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
