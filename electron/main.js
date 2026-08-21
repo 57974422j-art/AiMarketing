@@ -1605,7 +1605,7 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
 
     // 复用 OpenCLI 官方上传流程（动态 import，绝对路径绕过 exports；打包需 asarUnpack @jackwener）
     const { pathToFileURL } = require('url')
-    const base = pathToFileURL(path.join(app.getAppPath(), 'node_modules', '@jackwener', 'opencli', 'clis', 'douyin', '_shared')).href + '/'
+    const base = pathToFileURL(path.join(String(app.getAppPath()).replace('.asar', '.asar.unpacked'), 'node_modules', '@jackwener', 'opencli', 'clis', 'douyin', '_shared')).href + '/'
     const vod = await import(base + 'vod-upload.js')
     const tosMod = await import(base + 'tos-upload.js')
 

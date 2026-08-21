@@ -101,7 +101,7 @@ const build = {
   directories: { output: 'dist-rel' },
   // 2026-08-13 v1.0.30 纯壳：files 只含 electron/preload；无 standalone/无 next build
   files: pkg.build.files,
-  asarUnpack: ['**/*.node', '**/*.exe', '**/*.dll'],
+  asarUnpack: ['**/*.node', '**/*.exe', '**/*.dll', '@jackwener/opencli/**'],
   extraResources: [
     { from: 'scripts/platform-tools', to: 'scripts/platform-tools' },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },

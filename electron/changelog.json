@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.0.45",
+    "date": "2026-08-21",
+    "title": "浏览器通道（CDP）——绑定浏览器+三平台发布+采集",
+    "items": [
+      "CDP 绑定浏览器：客户端拉起 Chrome/Edge 读已登录账号（独立页 browser-accounts，与账号登记分开）",
+      "三平台发布执行器：抖音（官方API）/微博（DOM）/小红书（DOM视频）——用已登录浏览器真发，无扩展无OpenCLIApp依赖",
+      "opencli_run 工具接 AGENT：热点/搜索/评论/feed/web2md/账户（白名单），客户端执行，未登录提示",
+      "OpenCLI 引导修复：自动检测 Chrome/Edge 打开对应扩展页；清理残留按钮移除（靠脚本）",
+      "平台名规范化（中文→英文）"
+    ]
+  },
+  {
     "version": "1.0.44",
     "date": "2026-08-21",
     "title": "OpenCLI 安装引导 + 发布确认",
