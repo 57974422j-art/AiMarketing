@@ -147,8 +147,7 @@ export default function MyFingerprintPage() {
       const args: string[] = [ocTitle.trim()]
       if (ocVideo.trim()) args.push(ocVideo.trim())
       const r = await (window as any).electronAPI?.opencliPublish({ site: ocSite, args })
-      setOcResult(r?.success ? '✅ 发布完成：' + (r.output || '') : '❌ ' + (r?.error || '失败') + (r?.hint ? '
-' + r.hint : ''))
+      setOcResult(r?.success ? '✅ 发布完成：' + (r.output || '') : '❌ ' + (r?.error || '失败') + (r?.hint ? ' ' + r.hint : ''))
     } catch (e: any) { setOcResult('❌ ' + (e.message || e)) }
     setOcBusy(false)
   }
