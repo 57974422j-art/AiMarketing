@@ -7,7 +7,11 @@ import {
 import { searchTrendsReal } from '@/lib/gemini'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { spendTokens, checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
-import { listObjects } from '@/lib/oss'
+import { listObjects, signedUrl } from '@/lib/oss'
+import { execSync } from 'child_process'
+import fs from 'fs'
+import path from 'path'
+import os from 'os'
 import { getSystemConfigs } from '@/lib/quota'
 import { PrismaClient } from '@prisma/client'
 
@@ -33,6 +37,9 @@ export const runtime = 'nodejs'
 const prisma = new PrismaClient()
 
 // ==================== 工具定义 ====================
+
+// 2026-08-21: 发布抽帧暂存（userId → 帧列表，"用第N帧"取用）
+const frameStore = new Map<number, { frames: { idx: number; url: string }[]; videoName: string }>()
 
 const AGENT_TOOLS: ToolDefinition[] = [
   {
@@ -356,6 +363,16 @@ const AGENT_TOOLS: ToolDefinition[] = [
         name: { type: 'string', description: '助手名字，如 小白、龙马、小助手' },
         persona: { type: 'string', description: '性格/人设描述（可选），如 活泼幽默、专业干练' },
       },
+    },
+  },
+  {
+    name: 'extract_video_frames',
+    description: '发布前抽视频帧给用户选封面。触发词：发布流程选中视频后自动调用（如"发布XX视频"→抽帧展示）。参数 videoName（仓库文件名）。抽 4 帧（开头/1/3/结尾）→ 返回 SCENE video_frames 卡片让用户选帧；用户选帧后（"用第N帧"）再基于该帧识别画面/推荐标题/设计封面。**禁止在未抽帧看画面前凭文件名/记忆生成封面标题。**',
+    parameters: {
+      type: 'object',
+      properties: {
+        videoName: { type: 'string', description: '个人仓库视频文件名（如 20260821_001.mp4）' },
+      }, required: ['videoName'],
     },
   },
   {
@@ -1322,6 +1339,48 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     }
 
     // ── 搜索全球真实热点（舆情，带降级）──
+    case 'extract_video_frames': {
+      if (!auth?.userId) return '请先登录'
+      try {
+        const videoName = String(args.videoName || '').trim()
+        if (!videoName) return '缺少视频文件名'
+        const prefix = `storage/${auth.userId}/`
+        const objects = await listObjects(prefix)
+        const hit = objects.find(o => o.name === prefix + videoName || o.name.endsWith('/' + videoName))
+        if (!hit) return '仓库中未找到视频 ' + videoName
+        const url = await signedUrl(hit.name)
+        const tmp = path.join(os.tmpdir(), 'agentframes-' + auth.userId + '-' + Date.now())
+        fs.mkdirSync(tmp, { recursive: true })
+        const srcPath = path.join(tmp, 'src.mp4')
+        execSync(`curl -s -o "${srcPath}" "${url}"`, { timeout: 60000 })
+        if (!fs.existsSync(srcPath) || fs.statSync(srcPath).size < 1000) return '视频下载失败'
+        const ts = String(Date.now())
+        const outDir = path.join(process.cwd(), 'public', 'frames', String(auth.userId), ts)
+        fs.mkdirSync(outDir, { recursive: true })
+        let dur = 5
+        try { dur = parseFloat(execSync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${srcPath}"`, { timeout: 15000, encoding: 'utf8' })) || 5 } catch {}
+        const pcts = [0, 25, 75, 99]
+        const frames: string[] = []
+        for (let i = 0; i < pcts.length; i++) {
+          const t = (dur * pcts[i]) / 100
+          const out = path.join(outDir, 'f' + i + '.jpg')
+          try {
+            execSync(`ffmpeg -y -ss ${t.toFixed(2)} -i "${srcPath}" -frames:v 1 -vf "scale=640:-2" -q:v 5 "${out}"`, { timeout: 30000 })
+            if (fs.existsSync(out)) frames.push(`/frames/${auth.userId}/${ts}/f${i}.jpg`)
+          } catch {}
+        }
+        if (!frames.length) return '抽帧失败，视频可能无法解码'
+        frameStore.set(auth.userId, { frames: frames.map((u, idx) => ({ idx: idx + 1, url: u })), videoName })
+        try {
+          const base = path.join(process.cwd(), 'public', 'frames', String(auth.userId))
+          if (fs.existsSync(base)) for (const d of fs.readdirSync(base)) {
+            const p = path.join(base, d)
+            if (Date.now() - fs.statSync(p).mtimeMs > 3600000) fs.rmSync(p, { recursive: true, force: true })
+          }
+        } catch {}
+        return 'FRAMES_OK:' + JSON.stringify({ frames, videoName })
+      } catch (e: any) { return '抽帧失败: ' + (e.message || e) }
+    }
     case 'search_trends': {
       try {
         const keyword = (args.keyword || '').trim()
