@@ -1989,6 +1989,49 @@ export async function agnesChat(
       break
     }
   }
+  // 2026-08-21: agnes 全挂 → 百炼 qwen-vl-max 兜底（OpenAI 兼容多模态：能看图片 + 工具调用）
+  const dashKey = getDashScopeKey()
+  if (dashKey) {
+    try {
+      const body: Record<string, any> = {
+        model: 'qwen-vl-max',
+        messages: messages.map((m) => {
+          const o: Record<string, any> = { role: m.role, content: m.content }
+          if (m.role === 'tool' && m.tool_call_id) o.tool_call_id = m.tool_call_id
+          if (m.name) o.name = m.name
+          return o
+        }),
+        temperature: 0.3,
+        max_tokens: maxTokens,
+      }
+      if (tools.length > 0) {
+        body.tools = tools.map((t) => ({
+          type: 'function',
+          function: { name: t.name, description: t.description, parameters: t.parameters || { type: 'object', properties: {} } },
+        }))
+      }
+      const res = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dashKey}` },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error('HTTP ' + res.status)
+      const j = await res.json()
+      const choice = j.choices?.[0]
+      if (!choice) return { content: null }
+      console.warn('[Agnes Chat] agnes 全挂，已兜底百炼 qwen-vl-max')
+      const rawCalls = choice.message?.tool_calls || []
+      const toolCalls = rawCalls.map((tc: any) => ({ id: tc.id, name: tc.function?.name, arguments: tc.function?.arguments || '{}' }))
+      const u = j.usage || {}
+      return {
+        content: choice.message?.content || null,
+        toolCalls: toolCalls.length ? toolCalls : undefined,
+        usage: { promptTokens: Number(u.prompt_tokens) || 0, completionTokens: Number(u.completion_tokens) || 0, totalTokens: Number(u.total_tokens) || 0 },
+      }
+    } catch (e: any) {
+      console.error('[Agnes Chat] 百炼兜底也失败:', e?.message)
+    }
+  }
   console.error('[Agnes Chat] 调用失败:', lastErr)
   return { content: null }
 }
@@ -2054,12 +2097,15 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
     console.log(`[文生视频] H3 失败: ${res?.error}`)
     return null
   }
-  // 指定 Agnes（主用模型，失败不降级）
+  // 指定 Agnes（主用模型）——2026-08-21: 失败降级百炼 wan2.7 → happyhorse（不再"无降级"）
   if (_model === 'agnes') {
     const result = await agnesGenerateVideo(prompt, _duration, _resolution, _ratio)
     if (result) return result
-    console.log(`[文生视频] Agnes 失败, 无降级`)
-    return null
+    console.log(`[文生视频] Agnes 失败, 降级到百炼 wan2.7-t2v`)
+    const dash27 = await dashscopeGenerateVideo(prompt, _duration, _resolution, _ratio, 'wan2.7-t2v')
+    if (dash27) return dash27
+    console.log(`[文生视频] 百炼wan降级到 happyhorse-1.0-t2v`)
+    return await dashscopeGenerateVideo(prompt, _duration, '720P', _ratio, 'happyhorse-1.0-t2v')
   }
   // 指定了模型 → 直接调用百炼对应模型
   if (_model) {
