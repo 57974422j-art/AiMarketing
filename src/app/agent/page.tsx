@@ -1521,6 +1521,31 @@ export default function AgentPage() {
           steps: data.data.steps,
           scene: data.data.scene,
         }])
+        // 2026-08-21 P1: CLIENT_OPENCLI 拦截——AI 返回 opencli 指令 → 客户端执行 → 结果追加显示
+        const ocMatch = String(data.data.reply || '').match(/CLIENT_OPENCLI:site=([^|]+)\|command=([^|]+)\|args=([^|]*)/)
+        if (ocMatch) {
+          const payload = { site: ocMatch[1].trim(), command: ocMatch[2].trim(), args: ocMatch[3].trim() }
+          try {
+            const r = await (window as any).electronAPI?.opencliRun(payload)
+            const note = r?.success
+              ? '
+
+⚡ 浏览器通道结果：
+' + (r.output || '（无输出）')
+              : '
+
+⚠️ ' + (r?.error || '执行失败') + (r?.needLogin ? '——请先在浏览器登录 ' + payload.site + ' 后重试' : '')
+            setMessages(prev => prev.map(m => m.id === lastMsgIdRef.current
+              ? { ...m, content: m.content + note }
+              : m))
+          } catch (e: any) {
+            setMessages(prev => prev.map(m => m.id === lastMsgIdRef.current
+              ? { ...m, content: m.content + '
+
+⚠️ 客户端执行失败：' + (e?.message || e) }
+              : m))
+          }
+        }
         // 2026-08-14: 对话后实时刷新客户画像（记忆可能已更新）
         loadBrainMemories()
         // onboarding 收尾：AGENT 给出"已记住/随时服务"类收尾语即结束摸底
