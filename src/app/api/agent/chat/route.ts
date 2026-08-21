@@ -376,6 +376,18 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'opencli_run',
+    description: '调用浏览器通道（OpenCLI）执行采集/热点/搜索/发布。触发词："查XX热点""搜小红书XX""B站热榜""抓这个网页""看XX账号"。命令白名单：bilibili hot/search、xiaohongshu search/comments/feed、weibo hot、douyin videos/search、web2md（任意URL转Markdown）、account（登录态）。发布类：douyin/xiaohongshu/weibo publish（须用户明确确认+素材齐全）。返回 CLIENT_OPENCLI 指令由客户端执行；若未绑定浏览器/未登录会提示。',
+    parameters: {
+      type: 'object',
+      properties: {
+        site: { type: 'string', description: '平台/站点：bilibili/xiaohongshu/weibo/douyin/web/account' },
+        command: { type: 'string', description: '命令：hot/search/comments/feed/videos/web2md/account/publish' },
+        args: { type: 'string', description: '参数（如搜索关键词、URL），可空' },
+      }, required: ['site', 'command'],
+    },
+  },
+  {
     name: 'search_trends',
     description: '搜索国内外真实热点/趋势（舆情）。当用户问"最近有什么热点/海外在火什么/YouTube上xx热不热/TikTok趋势"时调用。国内走免费热榜，海外优先 Google grounding，失败时降级到 DuckDuckGo/Reddit 真实源。',
     parameters: {
@@ -1384,6 +1396,22 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         } catch {}
         return 'FRAMES_OK:' + JSON.stringify({ frames, videoName })
       } catch (e: any) { return '抽帧失败: ' + (e.message || e) }
+    }
+    case 'opencli_run': {
+      const site = String(args.site || '').trim().toLowerCase()
+      const command = String(args.command || '').trim().toLowerCase()
+      const cmdArgs = String(args.args || '').trim()
+      // 白名单
+      const READ_CMDS = ['hot', 'search', 'comments', 'feed', 'videos', 'web2md', 'account']
+      const PUBLISH_CMDS = ['publish']
+      const readOk = READ_CMDS.includes(command)
+      const pubOk = PUBLISH_CMDS.includes(command) && ['douyin', 'xiaohongshu', 'weibo'].includes(site)
+      if (!readOk && !pubOk) return 'CLIENT_OPENCLI:不支持的命令（site=' + site + ' command=' + command + '）——白名单：热点/搜索/评论/feed/视频/web2md/账户；发布限抖音/小红书/微博'
+      if (pubOk && command === 'publish') {
+        // 发布须用户确认（工具描述已约束）；返回指令由客户端执行
+        return 'CLIENT_OPENCLI:site=' + site + '|command=publish|args=' + cmdArgs + '|needConfirm=1'
+      }
+      return 'CLIENT_OPENCLI:site=' + site + '|command=' + command + '|args=' + cmdArgs
     }
     case 'search_trends': {
       try {
