@@ -1549,6 +1549,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 2026-08-21: "用第N帧"——用户从 video_frames 卡片选帧 → 注入该帧为 image_url，让视觉模型看画面（识别内容/推荐标题/设计封面）
+    const framePick = userMessage.match(/^用第([一二三四五1-4])帧/)
+    if (framePick && auth?.userId && frameStore.has(auth.userId)) {
+      const picked = ['一', '二', '三', '四', '五', '1', '2', '3', '4'].indexOf(framePick[1]) % 5 + 1
+      const store = frameStore.get(auth.userId)!
+      const frame = store.frames.find(f => f.idx === picked)
+      if (frame) {
+        const host = request.headers.get('host') || 'ai-niuma.cc'
+        const proto = request.headers.get('x-forwarded-proto') || 'https'
+        const abs = `${proto}://${host}${frame.url}`
+        userMessage = userMessage + `（选中第${picked}帧：${abs}）`
+      }
+    }
+
     // 组装附件：图像作为视觉块(image_url)让模型"看到"，视频等非图像以文本说明
     let userContent: any = userMessage
     if (attachments?.length) {
