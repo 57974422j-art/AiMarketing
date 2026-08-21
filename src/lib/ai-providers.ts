@@ -1906,6 +1906,7 @@ export interface AgentChatResult {
   content: string | null
   toolCalls?: Array<{ id: string; name: string; arguments: string }>
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
+  model?: string
 }
 
 export async function agnesChat(
@@ -1971,6 +1972,7 @@ export async function agnesChat(
           completionTokens: Number(u.completion_tokens) || 0,
           totalTokens: Number(u.total_tokens) || 0,
         },
+        model: tryModel,
       }
     } catch (e: any) {
       const msg = String(e?.message || e)
@@ -2027,6 +2029,7 @@ export async function agnesChat(
         content: choice.message?.content || null,
         toolCalls: toolCalls.length ? toolCalls : undefined,
         usage: { promptTokens: Number(u.prompt_tokens) || 0, completionTokens: Number(u.completion_tokens) || 0, totalTokens: Number(u.total_tokens) || 0 },
+        model: 'qwen-vl-max',
       }
     } catch (e: any) {
       console.error('[Agnes Chat] 百炼兜底也失败:', e?.message)
