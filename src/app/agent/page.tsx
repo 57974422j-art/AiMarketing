@@ -2001,27 +2001,6 @@ export default function AgentPage() {
             </div>
           </div>
 
-          {/* 2026-08-21: 清理客户端残留缓存（放 AGENT 左面板——用户要求不放指纹页） */}
-          <button onClick={async () => {
-            if (!confirm('确定清理客户端残留缓存？不影响账号登录态')) return
-            try {
-              const r = await (window as any).electronAPI?.cleanupResidue()
-              setRecordingTip(r?.success ? '✅ 残留已清理' : '❌ ' + (r?.error || '清理失败'))
-            } catch (e: any) { setRecordingTip('❌ ' + (e?.message || e)) }
-          }} className="mx-auto mb-1 px-3 py-1 rounded-lg bg-gray-700/20 border border-white/10 text-gray-500 text-[10px] hover:bg-gray-700/40 hover:text-gray-300">
-            🗑 清理残留缓存
-          </button>
-          {/* 2026-08-21: OpenCLI 安装引导（方案1：扩展随包，用户开发者模式加载） */}
-          <button onClick={async () => {
-            try {
-              const r = await (window as any).electronAPI?.opencliSetupGuide()
-              if (r?.success) {
-                setRecordingTip('OpenCLI 引导：' + (r.steps || []).join(' → '))
-              } else setRecordingTip('❌ ' + (r?.error || '引导失败'))
-            } catch (e: any) { setRecordingTip('❌ ' + (e?.message || e)) }
-          }} className="mx-auto mb-1 px-3 py-1 rounded-lg bg-purple-700/20 border border-purple-500/30 text-purple-400 text-[10px] hover:bg-purple-700/40">
-            ⚡ OpenCLI 安装引导
-          </button>
 
           {/* 应用入口（2026-08-05：一键成片等 iframe 大屏，AI 对话栏右 1/3 常驻） */}
           {/* 2026-08-11：flex-1 弹性占满剩余空间——底部「呼出热点大屏」按钮顶到最底部，不贴应用卡 */}
