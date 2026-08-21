@@ -202,25 +202,18 @@ function setupAutoPublish() {
           } catch (e) { console.log('[AutoPublish] opencli 调用异常:', e.message) }
         }
       }
-      // 其余平台 → 指纹浏览器窗口
+      // 非 OpenCLI 平台（快手/视频号/B站等）→ 2026-08-21: AGENT 发布完全走 OpenCLI，不支持的平台直接回传 failed（不再自动开指纹窗）
       const fpTasks = d.data.filter((t) => !opencliPlatforms.includes(String(t.platform || '').toLowerCase()))
-      if (!fpTasks.length) return
-      // 有 pending 任务 → 打开指纹浏览器页（隐藏窗口，后台轮询执行）
-      if (!fpWindow || fpWindow.isDestroyed()) {
-        fpWindow = new BrowserWindow({
-          width: 1200, height: 800, show: true, // 2026-08-19: 可见——用户能确认客户端正在执行发布（不再隐藏，避免"没打开"困惑）
-          webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
-            contextIsolation: true,
-            nodeIntegration: false,
-            nodeIntegrationInSubFrames: true,
-            // 2026-08-18: 隐藏窗口必须禁后台节流——否则页面 setInterval 轮询被暂停，任务不会自动执行
-            backgroundThrottling: false,
-          },
-        })
-        fpWindow.loadURL(`${serverUrl}/my-fingerprint`)
-        fpWindow.on('closed', () => { fpWindow = null })
+      for (const t of fpTasks) {
+        try {
+          fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'failed', error: '该平台（' + (t.platform || '未知') + '）暂不支持 AI 自动发布（OpenCLI 仅支持抖音/小红书/微博）' }),
+          }).catch(() => {})
+        } catch {}
       }
+      if (fpTasks.length) { console.log('[AutoPublish] 非 OpenCLI 平台任务已标记失败:', fpTasks.map((t) => t.platform).join(',')) }
+      return
     } catch (e) { /* 静默：网络/未登录等 */ }
   }
   setInterval(checkPending, 6000)
