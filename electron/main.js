@@ -1432,7 +1432,81 @@ ipcMain.handle('browser:accounts', async () => {
 // 2026-08-21: CDP 发布通道（P0-2）——复用 OpenCLI 官方 API 流程（page.evaluate 浏览器内 fetch，a_bogus 自动）
 // 关键发现：OpenCLI douyin publish 是官方 API（vod-upload/tos-upload/create_v2），不是 DOM 点按钮；
 // browserFetch(page,...) 用浏览器上下文 fetch——我们的 CDP page 完全兼容（无扩展依赖）
+// 微博发布（P0-2，DOM UI 自动化——移植 OpenCLI weibo publish）
+async function publishWeibo(page, payload) {
+  try {
+    const text = String(payload && payload.text || payload && payload.title || '').trim()
+    if (!text) return { success: false, error: '微博内容为空' }
+    if (text.length > 2000) return { success: false, error: '微博内容超过 2000 字' }
+    await page.goto('https://weibo.com', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+    await page.waitForTimeout(2500)
+    // 登录检测：URL 是否还停留在 weibo.com（未登录可能跳 login）
+    if (!page.url().includes('weibo.com')) return { success: false, error: '请先登录微博（浏览器中）', needLogin: true, platform: 'weibo' }
+    // 点"发微博"打开编辑器
+    const opened = await page.evaluate(() => {
+      const vis = (el) => !!el && el.offsetParent !== null && !el.disabled
+      for (const btn of document.querySelectorAll('button[title="发微博"], button[title="写微博"]')) {
+        if (vis(btn)) { btn.click(); return true }
+      }
+      return false
+    })
+    if (!opened) return { success: false, error: '未找到「发微博」按钮（可能未登录）', needLogin: true, platform: 'weibo' }
+    // 等 textarea 出现
+    let taOk = false
+    for (let i = 0; i < 10; i++) {
+      taOk = await page.evaluate(() => {
+        for (const sel of ['textarea[placeholder*="新鲜事"]']) {
+          for (const t of document.querySelectorAll(sel)) if (t.offsetParent !== null) return true
+        }
+        return false
+      })
+      if (taOk) break
+      await page.waitForTimeout(800)
+    }
+    if (!taOk) return { success: false, error: '微博编辑器未出现' }
+    // 填内容（native setter 保留 React 状态）
+    await page.evaluate((content) => {
+      const ta = [...document.querySelectorAll('textarea[placeholder*="新鲜事"]')].filter(t => t.offsetParent !== null).pop()
+      if (!ta) return
+      ta.focus()
+      const nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+      if (nativeSetter) nativeSetter.call(ta, content)
+      ta.dispatchEvent(new Event('input', { bubbles: true }))
+    }, text)
+    // 点"发送/发布"
+    await page.waitForTimeout(600)
+    const sent = await page.evaluate(() => {
+      const vis = (el) => !!el && el.offsetParent !== null && !el.disabled
+      for (const label of ['发送', '发布']) {
+        for (const btn of document.querySelectorAll('button, [role="button"]')) {
+          const t = (btn.innerText || btn.textContent || '').trim()
+          if (t === label && vis(btn)) { btn.click(); return label }
+        }
+      }
+      return ''
+    })
+    if (!sent) return { success: false, error: '未找到「发送」按钮' }
+    await page.waitForTimeout(2000)
+    return { success: true, message: '微博已发布' }
+  } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
+}
+
 ipcMain.handle('browser:publish', async (_e, payload) => {
+  const platform = payload && payload.platform
+  if (platform === 'weibo') {
+    const { chromium } = require('playwright')
+    try {
+      const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+      const ctx = browser.contexts()[0]
+      if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
+      const page = ctx.pages().find((p2) => p2.url().includes('weibo.com')) || await ctx.newPage()
+      return await publishWeibo(page, payload)
+    } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
+  }
+  if (platform === 'xiaohongshu') {
+    // 小红书：OpenCLI 仅有图文（图片）发布（DOM）；视频发布适配器待开发（选择器未定）——P0 后续
+    return { success: false, error: '小红书发布适配器开发中（暂支持抖音/微博）；需要时先走指纹浏览器线', platform: 'xiaohongshu' }
+  }
   // 抖音发布（P0-2，复用 OpenCLI 官方 API 流程：vod-upload/tos-upload/create_v2，CDP page 内 fetch）
   try {
     const { chromium } = require('playwright')
