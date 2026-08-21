@@ -441,3 +441,12 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 - changelog 不加条目 → 下载页不显示新版本
 - latest.yml 不更新 → 旧客户端检测不到更新（不弹窗）
 - public/updates 已排除 git（485d141），git 部署不会覆盖上传文件
+
+
+### 浏览器通道（方案 A CDP）排期定稿（2026-08-21）
+**定位**：用户日常浏览器通道（个人号发布/采集/热点/网页转MD/登录态检测），与指纹通道（矩阵号）分开。
+- **P0**：CDP 执行器——客户端绑定浏览器（拉起 Chrome/Edge --remote-debugging-port，127.0.0.1+token 鉴权）→ 检测已登录平台 → 个人号发布（抖音/小红书/微博，移植 OpenCLI 开源适配器选择器，自研 CDP 执行）
+- **P1**：`opencli_run` 工具接 AGENT（采集/热点/网页/账户，白名单命令）+ **未登录提示**（工具返回 needLogin(platform) → AI 自出 URL + SCENE open_login 打开登录页 + "继续"重试——不搞映射表，AI 自己知道平台地址）
+- **P2**：browser-accounts 独立页（登录态显示绿/红点 + 每日 12 点刷新，仿 OpenCLI）——与 /accounts（服务器账号登记）完全分开
+- **P3**：双通道分流细化（账号类型 → 个人号走浏览器 A / 矩阵号走指纹 B）
+- **登录提示模式**：opencli_run 返回 needLogin(platform) → AI 回复"未登录，已打开登录页→扫码登录一次→说继续自动重试"；客户端 shell.openExternal 打开 AI 给的 URL
