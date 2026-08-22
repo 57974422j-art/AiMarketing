@@ -1466,6 +1466,10 @@ export default function AgentPage() {
   const [calData, setCalData] = useState<Record<string, any[]>>({})
   const [calFavs, setCalFavs] = useState<any[]>([])
   const [calDay, setCalDay] = useState<string | null>(null)
+  // ── 浏览器账号（CDP 检测，右侧折叠显示；不显示指纹）──
+  const [browserAccts, setBrowserAccts] = useState<any[]>([])
+  const [browserOpen, setBrowserOpen] = useState(false)
+  useEffect(() => { (async () => { try { const r = await (window as any).electronAPI?.browserAccounts(); if (r?.success) setBrowserAccts(r.accounts || []) } catch {} })() }, [])
   // ── 功能提示标签（新手引导——点击填入输入框）──
   const FEATURE_TIPS = [
     '帮我发一条抖音视频', '帮我写一个小红书文案', '帮我生成一张产品海报',
@@ -2608,6 +2612,26 @@ export default function AgentPage() {
                 <span>💬 历史 {sessionCount} 会话</span>
                 <span>本次 {sessionReqs} 次请求</span>
               </div>
+            </div>
+            {/* 2026-08-21: 浏览器账号（CDP 检测——发布通道已登录平台，不显示指纹） */}
+            <div className="mt-1.5 rounded-xl border border-white/[0.07] bg-white/[0.02] p-2">
+              <button onClick={() => setBrowserOpen(o => !o)} className="w-full flex items-center justify-between text-[10px] text-gray-300">
+                <span>🌐 浏览器账号（发布通道）</span>
+                <span className="text-gray-600">{browserOpen ? '▾' : '▸'}</span>
+              </button>
+              {browserOpen && (
+                <div className="mt-1.5 space-y-1">
+                  {browserAccts.map(a => (
+                    <div key={a.id} className="flex items-center justify-between text-[10px]">
+                      <span className="text-gray-400">{a.name}</span>
+                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] ${a.loggedIn ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/15 text-red-400'}`}>
+                        {a.loggedIn ? '已登录' : '未登录'}
+                      </span>
+                    </div>
+                  ))}
+                  {!browserAccts.length && <p className="text-[9px] text-gray-600">客户端绑定浏览器后显示（抖音/小红书/微博可自动发布）</p>}
+                </div>
+              )}
             </div>
           </div>
 
