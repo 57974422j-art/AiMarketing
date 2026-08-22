@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     if (pending.length > 0) {
       suggestions.push({
         type: 'task',
-        title: `你有 ${pending.length} 个生成任务进行中`,
+        title: `你有 ${pending.length} 个生成任务进行中（生成中，完成后自动显示结果；可随时问我进度）`,
         desc: pending[0].prompt ? `「${pending[0].prompt.slice(0, 24)}…」` : 'AI 生成中',
         prompt: '帮我查一下我最近的生成任务进度',
       })
