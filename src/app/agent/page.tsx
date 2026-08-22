@@ -1469,7 +1469,7 @@ export default function AgentPage() {
       setWelcomeMsg(welcome)
       // 2026-08-06：欢迎语仅文字展示，不自动朗读（消除双声）
     })()
-  }, [])
+  }, [user])
 
   // 加载素材仓库
   const loadStorageForPicker = async () => {
