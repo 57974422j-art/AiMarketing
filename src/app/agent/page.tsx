@@ -452,6 +452,20 @@ export default function AgentPage() {
     }
   }, [user])
 
+  // 2026-08-22: 换号切换上下文——user 变 → 重置加载标记+清 UI（库数据保留，重新加载该账号会话；换回恢复）
+  const prevUserRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (user && prevUserRef.current !== null && prevUserRef.current !== String(user.id)) {
+      setHistoryLoaded(false)
+      setMessages([])
+      setSessionId(null)
+      setWelcomeMsg(null)
+      setOnboarding(false)
+      loadCalendar()
+    }
+    prevUserRef.current = user ? String(user.id) : null
+  }, [user])
+
   useEffect(() => {
     if (!user || historyLoaded) return
     ;(async () => {
