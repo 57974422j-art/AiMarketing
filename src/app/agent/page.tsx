@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useAuth } from '@/app/providers'
 import { Solar } from 'lunar-javascript'
+import { createPortal } from 'react-dom'
 import VoiceOrb from '@/components/VoiceOrb'
 
 // 3D 地球（three.js 纯客户端组件，禁用 SSR 避免服务端预渲染时 require('three') 失败）
@@ -2422,7 +2423,7 @@ export default function AgentPage() {
                 <span className="flex-1 flex items-center justify-center text-sm font-extrabold text-red-500 bg-gradient-to-b from-white to-gray-100">{new Date().getDate()}</span>
                 <span className="flex-1 flex items-center justify-center text-[9px] text-white bg-gradient-to-b from-amber-400 to-amber-500">{lunarOf(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()) || ''}</span>
               </button>
-              {calOpen && (
+              {calOpen && createPortal(
                 <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] w-[760px] max-w-[94vw] max-h-[85vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#14141c]/95 backdrop-blur-xl shadow-2xl p-5">
                   <div className="flex items-center justify-between mb-2">
                     <button onClick={() => setCalM(m => (m === 0 ? (setCalY(y => y - 1), 11) : m - 1))} className="px-2 py-1 rounded bg-white/5 text-gray-400 text-xs hover:bg-white/10">‹</button>
@@ -2478,8 +2479,7 @@ export default function AgentPage() {
                     ))}
                     {!calFavs.length && <p className="text-[10px] text-gray-600">暂无收藏</p>}
                   </div>
-                </div>
-              )}
+                </div>, document.body)}
             </div>
             <div className="max-w-3xl mx-auto">
               {recordingTip && (
