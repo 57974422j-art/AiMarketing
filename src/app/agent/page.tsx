@@ -1466,6 +1466,12 @@ export default function AgentPage() {
   const [calData, setCalData] = useState<Record<string, any[]>>({})
   const [calFavs, setCalFavs] = useState<any[]>([])
   const [calDay, setCalDay] = useState<string | null>(null)
+  // ── 功能提示标签（新手引导——点击填入输入框）──
+  const FEATURE_TIPS = [
+    '帮我发一条抖音视频', '帮我写一个小红书文案', '帮我生成一张产品海报',
+    '帮我查一下今日热点', '帮我生成一个数字人口播', '帮我做一条 AI 视频',
+    '帮我配一段背景音乐', '帮我搜一下小红书「奶茶」', '帮我记录一件事：明天要交房租',
+  ]
   // 2026-08-21: 跨天自动新会话——进入检测（客户端可能不常开）+ 12 点定时（开着时）
   useEffect(() => {
     const checkDay = () => {
