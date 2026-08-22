@@ -2423,7 +2423,7 @@ export default function AgentPage() {
                 <span className="flex-1 flex items-center justify-center text-[9px] text-white bg-gradient-to-b from-amber-400 to-amber-500">{lunarOf(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()) || ''}</span>
               </button>
               {calOpen && (
-                <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] w-[400px] max-h-[80vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#14141c]/95 backdrop-blur-xl shadow-2xl p-4">
+                <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] w-[760px] max-w-[94vw] max-h-[85vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#14141c]/95 backdrop-blur-xl shadow-2xl p-5">
                   <div className="flex items-center justify-between mb-2">
                     <button onClick={() => setCalM(m => (m === 0 ? (setCalY(y => y - 1), 11) : m - 1))} className="px-2 py-1 rounded bg-white/5 text-gray-400 text-xs hover:bg-white/10">‹</button>
                     <span className="text-sm font-semibold text-gray-200">{calY} 年 {calM + 1} 月</span>
