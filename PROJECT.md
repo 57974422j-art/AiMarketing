@@ -452,3 +452,26 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 - **登录提示模式**：opencli_run 返回 needLogin(platform) → AI 回复"未登录，已打开登录页→扫码登录一次→说继续自动重试"；客户端 shell.openExternal 打开 AI 给的 URL
 
 **P0-2 关键发现（2026-08-21）**：OpenCLI douyin publish 是**官方 API 直调**（TOS 上传 + create_v2 发布，`browserFetch`=page.evaluate 浏览器内 fetch 带 cookie+a_bogus 自动）——**不是 DOM 点按钮**。我们的 CDP page 完全兼容 browserFetch → **发布可复用 OpenCLI 全套 API 流程（clis/douyin/_shared/*），无扩展依赖**。路径：CDP connectOverCDP → 打开发布页（page）→ 移植 publish.js 8 阶段（getUploadAuthV5Credentials/tosUpload/create_v2）。比 DOM 操作稳。
+
+
+### 打包前必查清单（2026-08-22 定稿，防遗漏）
+1. **rebuildShortcuts 在 main.js**（自动更新后重建桌面+开始菜单快捷方式——曾被后续改动删丢）
+2. **版本三处同步**：package.json / version.json（version **+ downloadUrl**）/ changelog.json
+3. **build-local.mjs asarUnpack** 含 `@jackwener/opencli/**`（ESM import 需解包）
+4. **新常量定义完整**（FEATURE_TIPS 等——构建前 grep"定义+使用"都在；createSourceFile 不查引用）
+5. 本地 `npx tsc --noEmit` 或 `npm run build` 验证（createSourceFile 不查 const 重赋值/未定义引用——服务器 build 才暴露）
+6. 服务器部署需 **npm install**（新依赖 lunar-javascript 等）
+7. 打包前核对 PROJECT.md 本清单 + 更新计划
+
+### 更新计划（待办，2026-08-22）
+- **换号按账号加载（非清理）**：user 切换 → historyLoaded 重置 + 按 userId 加载该账号会话（换回恢复）——**不是清空丢弃**，防跨账号串记忆（"探店v2.mp4"事件）
+- 第二段操作引导（首登设置登记完成后：一键成片/文生图/文生视频/素材库逐个演示）
+- 画像统一（行业/昵称存 AgentMemory agent_profile + User.agentName）
+- 已登录账号折叠区自动刷新（CDP）
+- 30 天自动清理旧会话 ✅ 已做
+
+### 关键决策记录（防遗忘）
+- **AGENT 发布只走浏览器通道（CDP）**：抖音/小红书/微博自动；快手/视频号/B站推指纹页手动；指纹发布纯用户手动（AGENT 不碰，像一键成片只呼出）
+- **首登设置登记引导**：无画像自动开设置（①昵称闪烁+语音→保存→②行业输入框+语音→保存→完成；取消即停）
+- opencli_run 只读类（采集/热点/搜索）；发布走 CDP 专用（browser:publish）
+- 浏览器账号（发布通道）右侧折叠显示（CDP 检测，不显示指纹）
