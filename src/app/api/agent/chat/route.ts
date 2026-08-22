@@ -1923,6 +1923,12 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const action = url.searchParams.get('action') || 'sessions'
   const sessionId = parseInt(url.searchParams.get('sessionId') || '')
+  // 2026-08-21: 30 天自动清理旧会话（非收藏的 30 天前会话——懒清理，查询时触发）
+  try {
+    await prisma.chatSession.deleteMany({
+      where: { userId: auth.userId, favorite: false, updatedAt: { lt: new Date(Date.now() - 30 * 24 * 3600 * 1000) } },
+    })
+  } catch {}
   // 2026-08-21 日历：按天查会话（回档用）
   if (action === 'sessionsByDate') {
     try {
