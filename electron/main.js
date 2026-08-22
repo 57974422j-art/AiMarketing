@@ -1415,10 +1415,31 @@ ipcMain.handle('browser:bind', async () => {
   } catch (e) { return { success: false, error: e.message } }
 })
 ipcMain.handle('browser:accounts', async () => {
-  // 通过 CDP 读已登录平台（访问各平台域，检查登录 cookie）
+  // 通过 CDP 读已登录平台（访问各平台域，检查登录 cookie）——未绑定时自动拉起（自动扫描）
   try {
     const { chromium } = require('playwright')
-    const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+    let browser
+    try {
+      browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+    } catch (e0) {
+      // 未绑定 → 自动拉起浏览器（复用 bind 逻辑）
+      const exe = findBrowserExe()
+      if (exe) {
+        const { spawn } = require('child_process')
+        const proc = spawn(exe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--no-first-run', 'https://www.douyin.com'], { detached: true, stdio: 'ignore' })
+        proc.unref()
+        boundProc = proc
+        for (let i = 0; i < 24; i++) {
+          try {
+            const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) })
+            if (r.ok) break
+          } catch {}
+          await new Promise((r2) => setTimeout(r2, 500))
+        }
+        browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+      }
+    }
+    if (!browser) return { success: false, error: '未找到浏览器，无法自动绑定', accounts: [], bound: false }
     const ctxs = browser.contexts()
     const accounts = []
     const PLATFORMS = [

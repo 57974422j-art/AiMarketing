@@ -98,6 +98,10 @@ export default function AdminContentSubmissionsPage() {
   }
 
   const canReview = user.role === 'admin' || user.role === 'editor'
+  // 2026-08-21: 权限守卫——普通用户不能访问 admin 审核页
+  useEffect(() => {
+    if (!authLoading && user && !canReview) window.location.href = '/'
+  }, [authLoading, user, canReview])
 
   return (
     <div className="min-h-screen bg-gray-950">
