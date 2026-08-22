@@ -2414,8 +2414,8 @@ export default function AgentPage() {
 
           {/* 输入区 */}
           <footer className="relative border-t border-white/[0.04] backdrop-blur-xl bg-[#0a0a0f]/80 px-2 sm:px-6 py-2 sm:py-3 shrink-0">
-            {/* 2026-08-21 日历键（输入容器外）：上半白底红字渐变日期，下半浅黄白字农历 */}
-            <div className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 z-30">
+            {/* 2026-08-21 日历键（输入容器外，顶部）：transform 会影响 fixed 弹层定位（贴边/挤压）——不用 translate */}
+            <div className="absolute left-2 sm:left-6 top-2 z-30">
               <button onClick={() => { setCalOpen(o => !o); if (!calOpen) loadCalendar() }}
                 className="w-11 h-12 rounded-xl overflow-hidden flex flex-col shadow-lg border border-white/10 hover:brightness-110 transition"
                 title="日历·历史会话">
