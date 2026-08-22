@@ -260,9 +260,23 @@ function setupAutoUpdater(win) {
     win?.webContents.send('app:update-status', { status: 'downloading', percent: pct })
   })
 
+  // 2026-08-21: 自动更新后重建快捷方式（桌面+开始菜单）——electron-updater 不走 NSIS，快捷方式会失效
+  const rebuildShortcuts = () => {
+    try {
+      const { execSync } = require('child_process')
+      const exe = process.execPath
+      const ps = `$ws=New-Object -ComObject WScript.Shell;` +
+        `$d=$ws.CreateShortcut([Environment]::GetFolderPath('Desktop')+'\AI营销助手.lnk');$d.TargetPath='${exe}';$d.Save();` +
+        `$s=$ws.CreateShortcut([Environment]::GetFolderPath('Programs')+'\AI营销助手.lnk');$s.TargetPath='${exe}';$s.Save()`
+      execSync('powershell -NoProfile -Command "' + ps + '"', { windowsHide: true, stdio: 'ignore' })
+      console.log('[Updater] 快捷方式已重建（桌面+开始菜单）')
+    } catch (e) { console.log('[Updater] 快捷方式重建失败:', e.message) }
+  }
+
   // 下载完成，弹窗提示重启并自动安装
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[Updater] 下载完成:', info.version)
+    rebuildShortcuts()
     setUpd(`document.getElementById('status').textContent='更新完成 v${info.version}，即将重启安装...';document.getElementById('pct').textContent='100%';document.getElementById('bar').style.width='100%'`)
     win?.webContents.send('app:update-status', { status: 'ready', version: info.version, releaseNotes: info.releaseNotes })
     // 留 12 秒让用户看提示；若未手动操作，自动退出并安装重启
