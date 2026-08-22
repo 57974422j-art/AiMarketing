@@ -25,6 +25,7 @@
     "ali-oss": "^6.23.0",
     "crypto-js": "^4.2.0",
     "electron-updater": "^6.3.0",
+    "lunar-javascript": "^1.7.7",
     "next": "14.2.0",
     "playwright": "1.60.0",
     "playwright-extra": "^4.3.6",

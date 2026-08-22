@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useAuth } from '@/app/providers'
+import { Solar } from 'lunar-javascript'
 import VoiceOrb from '@/components/VoiceOrb'
 
 // 3D 地球（three.js 纯客户端组件，禁用 SSR 避免服务端预渲染时 require('three') 失败）
@@ -1457,6 +1458,37 @@ export default function AgentPage() {
     } catch {}
   }
 
+  // ── 日历（2026-08-21：按天回档会话 + 收藏 + 农历）──
+  const [calOpen, setCalOpen] = useState(false)
+  const [calY, setCalY] = useState(() => new Date().getFullYear())
+  const [calM, setCalM] = useState(() => new Date().getMonth())
+  const [calData, setCalData] = useState<Record<string, any[]>>({})
+  const [calFavs, setCalFavs] = useState<any[]>([])
+  const [calDay, setCalDay] = useState<string | null>(null)
+  const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') }
+  const lunarOf = (y: number, m: number, d: number) => { try { return Solar.fromYmd(y, m + 1, d).getLunar().getDayInChinese() } catch { return '' } }
+  const loadCalendar = async () => {
+    try {
+      const r = await fetch('/api/agent/chat?action=sessionsByDate', { credentials: 'include' }).then(r => r.json())
+      if (r.success) { setCalData(r.data || {}); setCalFavs(r.favorites || []) }
+    } catch {}
+  }
+  const toggleFav = async (id: number, fav: boolean) => {
+    await fetch(`/api/agent/chat?action=favoriteToggle&id=${id}&fav=${fav ? 1 : 0}`, { credentials: 'include' }).catch(() => {})
+    loadCalendar()
+  }
+  const openCalDay = async (d: string) => { setCalDay(d); await loadCalendar() }
+  const loadSessionByDate = async (sid: number) => {
+    try {
+      const m = await fetch(`/api/agent/chat?action=messages&sessionId=${sid}`, { credentials: 'include' }).then(r => r.json())
+      if (m.success && Array.isArray(m.data?.messages)) {
+        setMessages(m.data.messages.map((x: any) => ({ id: String(x.id), role: x.role, content: x.content, timestamp: Date.now(), intent: x.intent, toolUsed: x.toolUsed })))
+        setSessionId(sid)
+        setCalOpen(false)
+      }
+    } catch {}
+  }
+
   const sendMessage = async (text?: string) => {
     const msgText = (text || input).trim()
     if ((!msgText && !attachments.length) || loading) return
@@ -2427,6 +2459,68 @@ export default function AgentPage() {
                   className="shrink-0 w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-500 hover:text-gray-300 transition">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
                 </button>
+                {/* 2026-08-21 日历键：44×44 上日期下农历，点击打开月历回档会话 */}
+                <div className="relative shrink-0">
+                  <button onClick={() => { setCalOpen(o => !o); if (!calOpen) loadCalendar() }}
+                    className="w-11 h-11 rounded-xl flex flex-col items-center justify-center bg-white/[0.04] hover:bg-white/[0.09] border border-white/[0.08] transition"
+                    title="日历·历史会话">
+                    <span className="text-sm font-bold text-gray-200 leading-none">{new Date().getDate()}</span>
+                    <span className="text-[8px] text-gray-500 leading-none mt-0.5">{lunarOf(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()) || ''}</span>
+                  </button>
+                  {calOpen && (
+                    <div className="absolute bottom-12 left-0 z-50 w-[320px] rounded-2xl border border-white/10 bg-[#14141c]/95 backdrop-blur-xl shadow-2xl p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <button onClick={() => setCalM(m => (m === 0 ? (setCalY(y => y - 1), 11) : m - 1))} className="px-2 py-1 rounded bg-white/5 text-gray-400 text-xs hover:bg-white/10">‹</button>
+                        <span className="text-sm font-semibold text-gray-200">{calY} 年 {calM + 1} 月</span>
+                        <button onClick={() => setCalM(m => (m === 11 ? (setCalY(y => y + 1), 0) : m + 1))} className="px-2 py-1 rounded bg-white/5 text-gray-400 text-xs hover:bg-white/10">›</button>
+                      </div>
+                      <div className="grid grid-cols-7 gap-1 text-center mb-1">
+                        {['日', '一', '二', '三', '四', '五', '六'].map(d => <span key={d} className="text-[9px] text-gray-600">{d}</span>)}
+                      </div>
+                      {(() => {
+                        const first = new Date(calY, calM, 1).getDay()
+                        const days = new Date(calY, calM + 1, 0).getDate()
+                        const cells = []
+                        for (let i = 0; i < first; i++) cells.push(<div key={'b' + i} />)
+                        for (let d = 1; d <= days; d++) {
+                          const ds = calY + '-' + String(calM + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0')
+                          const has = (calData[ds] || []).length
+                          const isToday = ds === todayStr()
+                          cells.push(
+                            <button key={d} onClick={() => openCalDay(ds)}
+                              className={`relative flex flex-col items-center py-1 rounded-lg text-xs transition ${isToday ? 'bg-amber-500/20 text-amber-300' : has ? 'bg-white/[0.06] text-gray-200 hover:bg-white/10' : 'text-gray-600 hover:bg-white/5'}`}>
+                              <span>{d}</span>
+                              <span className="text-[7px] leading-none">{lunarOf(calY, calM, d)}</span>
+                              {has > 0 && <span className="absolute top-0.5 right-0.5 w-1 h-1 rounded-full bg-amber-400" />}
+                            </button>
+                          )
+                        }
+                        return cells
+                      })()}
+                      {calDay && (
+                        <div className="mt-2 border-t border-white/10 pt-2 max-h-40 overflow-y-auto space-y-1">
+                          <p className="text-[10px] text-gray-500">{calDay} 会话（{((calData[calDay] || []).length)}）</p>
+                          {(calData[calDay] || []).map((s: any) => (
+                            <div key={s.id} className="flex items-center gap-2 rounded-lg bg-white/[0.04] px-2 py-1.5">
+                              <button onClick={() => loadSessionByDate(s.id)} className="flex-1 text-left text-[11px] text-gray-200 truncate hover:text-amber-300">{s.title || ('会话 #' + s.id)} <span className="text-gray-600">({s.msgCount}条)</span></button>
+                              <button onClick={() => toggleFav(s.id, !s.favorite)} className={`text-xs ${s.favorite ? 'text-amber-400' : 'text-gray-600 hover:text-amber-400'}`}>★</button>
+                            </div>
+                          ))}
+                          {!(calData[calDay] || []).length && <p className="text-[10px] text-gray-600">当天无会话</p>}
+                        </div>
+                      )}
+                      <div className="mt-2 border-t border-white/10 pt-2">
+                        <p className="text-[10px] text-gray-500 mb-1">⭐ 收藏的会话</p>
+                        {calFavs.map((f: any) => (
+                          <div key={f.id} className="flex items-center gap-2 py-1">
+                            <button onClick={() => loadSessionByDate(f.id)} className="flex-1 text-left text-[11px] text-amber-300/90 truncate">{f.title || ('会话 #' + f.id)} <span className="text-gray-600">{f.date}</span></button>
+                          </div>
+                        ))}
+                        {!calFavs.length && <p className="text-[10px] text-gray-600">暂无收藏</p>}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFilePick} multiple />
                 {interimText && (
                   <div className="px-3 py-1.5 mb-1 text-sm text-emerald-300/90 bg-emerald-500/5 rounded-lg border border-emerald-500/20">
