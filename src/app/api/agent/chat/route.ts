@@ -475,6 +475,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 2b. **登录引导（硬规则）**：发布不需要账号登记、不需要去【账号管理】填表单——**禁止引导"去账号管理登记账号"**。正确说法："客户端会自动启动XX浏览器；若弹出登录页，扫码登录一次即可（登录态自动保存，以后直接发）"。执行时若任务失败（error 含"未找到账号/未登录"），如实引用 error 并提示扫码即可，不要引导表单登记。
 3. 素材缺（没视频/没文案）→ 才问一句（"发哪个视频？文案？"）——缺哪个问哪个，不多问
 4. publish_content 建任务后回固定模板："发布任务已创建（#数字）。客户端指纹浏览器页会自动启动浏览器并执行。查进度说「查发布状态」。"
+4c. **通道分流（2026-08-21）**：AGENT 发布**只走浏览器通道（CDP）**——抖音/小红书/微博自动发布；**快手/视频号/B站无适配器 → 提示"暂不支持自动发布"，并 [SCENE_JSON]{"type":"open_page","path":"/my-fingerprint"} 推送指纹发布页让用户手动发**（AGENT 不操作指纹，像一键成片一样只呼出）。指纹发布页=纯用户手动。
 4b. **发布确认（硬规则，2026-08-21）**：只有 publish_content 工具**返回了任务 ID** 才能回复"任务已创建（#数字）"；**禁止**未调用工具/未拿到任务 ID 就说"已发布/发布成功/正在发布"。建任务后必须引导用户说「查发布状态」确认真实结果——AI 只能报告 query_publish_tasks 查到的真实状态（⏳ pending / ✅ succeeded / ❌ failed），禁止编造执行进度或结果。
 5. 多平台（"发抖音和快手"）→ platforms 数组一次建多任务
 6. 版权：公共素材库/网络视频 → 提示"可能涉及版权，只能参考学习"引导修改/克隆；用户坚持 → 警告后发
@@ -1763,12 +1764,14 @@ export async function POST(request: NextRequest) {
         })),
       } as any)
 
-      const steps: { tool: string; label: string }[] = []
+      const steps: { tool: string; label: string; args?: string }[] = []
       for (const tc of normCalls) {
         let args: Record<string, any> = {}
         try { args = JSON.parse(tc.arguments) } catch { args = {} }
         const stepLabel = TOOL_STEP_LABEL[tc.name] || tc.name
-        steps.push({ tool: tc.name, label: stepLabel })
+        let argsSum = ''
+        try { const a = JSON.parse(tc.arguments || '{}'); argsSum = JSON.stringify(a).slice(0, 100) } catch {}
+        steps.push({ tool: tc.name, label: stepLabel, args: argsSum })
         console.log(`[Agent] 🔧 ${tc.name}`, JSON.stringify(args).substring(0, 100))
         const result = await executeToolCall(tc.name, args, auth)
         // 2026-08-13: 网页抓取失败拦截——直接如实返回失败（禁止模型用知识编造网页内容冒充抓取结果）

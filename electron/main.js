@@ -208,7 +208,7 @@ function setupAutoPublish() {
         try {
           fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'failed', error: '该平台（' + (t.platform || '未知') + '）暂不支持 AI 自动发布（OpenCLI 仅支持抖音/小红书/微博）' }),
+            body: JSON.stringify({ status: 'failed', error: '该平台（' + (t.platform || '未知') + '）暂不支持自动发布——请到指纹浏览器页手动发布' }),
           }).catch(() => {})
         } catch {}
       }
