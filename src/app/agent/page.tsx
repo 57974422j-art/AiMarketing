@@ -1466,6 +1466,25 @@ export default function AgentPage() {
   const [calData, setCalData] = useState<Record<string, any[]>>({})
   const [calFavs, setCalFavs] = useState<any[]>([])
   const [calDay, setCalDay] = useState<string | null>(null)
+  // 2026-08-21: 跨天自动新会话——进入检测（客户端可能不常开）+ 12 点定时（开着时）
+  useEffect(() => {
+    const checkDay = () => {
+      const today = new Date().toDateString()
+      const last = localStorage.getItem('agent-last-date')
+      if (last && last !== today) {
+        setMessages([])
+        setSessionId(null)
+        setRecordingTip('新的一天开始了，已为你开启新会话（昨天的对话在日历里可回档）')
+      }
+      localStorage.setItem('agent-last-date', today)
+    }
+    checkDay()
+    const timer = setInterval(() => {
+      const now = new Date()
+      if (now.getHours() === 12 && now.getMinutes() < 5) checkDay()
+    }, 60000)
+    return () => clearInterval(timer)
+  }, [])
   const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') }
   const lunarOf = (y: number, m: number, d: number) => { try { return Solar.fromYmd(y, m + 1, d).getLunar().getDayInChinese() } catch { return '' } }
   const loadCalendar = async () => {
