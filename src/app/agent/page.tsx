@@ -2637,6 +2637,14 @@ export default function AgentPage() {
               思考步骤流
             </p>
             <p className="text-[9px] text-gray-600 mt-0.5">实时展示助手执行链路</p>
+            <button onClick={() => {
+              const last = [...messages].reverse().find(m => m.role === 'assistant' && m.steps?.length)
+              if (!last) return
+              const txt = last.steps.map((s: any) => (s.label + ' [' + (s.tool || '') + ']' + (s.args ? ' args=' + s.args : ''))).join(String.fromCharCode(10))
+              navigator.clipboard.writeText(txt).then(() => setRecordingTip('✅ 执行链已复制')).catch(() => setRecordingTip('复制失败'))
+            }} className="shrink-0 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-gray-400 text-[9px]">
+              复制执行链
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {liveSteps.length === 0 && !loading ? (
@@ -2659,6 +2667,7 @@ export default function AgentPage() {
                         <span className="w-1 h-1 rounded-full bg-cyan-400/70" />
                         {TOOL_STEP_LABEL[s.tool] || s.tool}
                       </p>
+                      {s.args && <p className="text-[8px] text-gray-600 mt-0.5 break-all">{s.args}</p>}
                     </div>
                   </div>
                 ))
@@ -2689,6 +2698,7 @@ export default function AgentPage() {
                         <span className="w-1 h-1 rounded-full bg-cyan-400/70" />
                         {TOOL_STEP_LABEL[s.tool] || s.tool}
                       </p>
+                      {s.args && <p className="text-[8px] text-gray-600 mt-0.5 break-all">{s.args}</p>}
                     </div>
                   </div>
                 ))}
