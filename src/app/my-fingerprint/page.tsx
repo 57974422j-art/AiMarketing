@@ -134,9 +134,6 @@ export default function MyFingerprintPage() {
   const [formDeclExtras, setFormDeclExtras] = useState<string[]>([])
   const [formCopyrightSelf, setFormCopyrightSelf] = useState(false)
 
-  // ── OpenCLI 发布（2026-08-21：驱动用户已登录 Chrome 真发布——抖音/小红书/微博）──
-}
-
   // 封面缩微图下方的文件名显示：去掉多余 URL，只展示可读文件名
   const coverDisplayName = (() => {
     const raw = formCoverImage
@@ -1809,7 +1806,8 @@ export default function MyFingerprintPage() {
                   <p key={i} className="text-gray-500">{log}</p>
                 ))}
               </div>
-              )}
+            </div>
+          )}
         </div>
 
       </div>
