@@ -1920,6 +1920,32 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const action = url.searchParams.get('action') || 'sessions'
   const sessionId = parseInt(url.searchParams.get('sessionId') || '')
+  // 2026-08-21 日历：按天查会话（回档用）
+  if (action === 'sessionsByDate') {
+    try {
+      const sessions = await prisma.chatSession.findMany({
+        where: { userId: auth.userId },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        select: { id: true, title: true, favorite: true, createdAt: true, updatedAt: true, _count: { select: { messages: true } } },
+      })
+      const byDate: Record<string, any[]> = {}
+      for (const s of sessions) {
+        const d = s.createdAt.toISOString().slice(0, 10)
+        ;(byDate[d] = byDate[d] || []).push({ id: s.id, title: s.title, favorite: s.favorite, msgCount: s._count.messages, updatedAt: s.updatedAt.toISOString() })
+      }
+      return NextResponse.json({ success: true, data: byDate, favorites: sessions.filter(s => s.favorite).map(s => ({ id: s.id, title: s.title, date: s.createdAt.toISOString().slice(0, 10) })) })
+    } catch (e: any) { return NextResponse.json({ success: false, message: e.message }, { status: 500 }) }
+  }
+  // 2026-08-21 日历：收藏/取消收藏会话
+  if (action === 'favoriteToggle') {
+    try {
+      const id = parseInt(url.searchParams.get('id') || '0')
+      const fav = url.searchParams.get('fav') === '1'
+      await prisma.chatSession.updateMany({ where: { id, userId: auth.userId }, data: { favorite: fav } })
+      return NextResponse.json({ success: true, favorite: fav })
+    } catch (e: any) { return NextResponse.json({ success: false, message: e.message }, { status: 500 }) }
+  }
 
   try {
     if (action === 'sessions') {

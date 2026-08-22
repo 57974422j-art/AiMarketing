@@ -1055,6 +1055,7 @@ model ChatSession {
   id        Int           @id @default(autoincrement())
   title     String        @default("新对话")
   userId    Int
+  favorite  Boolean       @default(false)
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   user      User          @relation(fields: [userId], references: [id])
