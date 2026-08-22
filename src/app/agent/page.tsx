@@ -2423,7 +2423,7 @@ export default function AgentPage() {
                 <span className="flex-1 flex items-center justify-center text-[9px] text-white bg-gradient-to-b from-amber-400 to-amber-500">{lunarOf(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()) || ''}</span>
               </button>
               {calOpen && (
-                <div className="absolute left-0 top-14 z-50 w-[340px] rounded-2xl border border-white/10 bg-[#14141c]/95 backdrop-blur-xl shadow-2xl p-3">
+                <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] w-[400px] max-h-[80vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#14141c]/95 backdrop-blur-xl shadow-2xl p-4">
                   <div className="flex items-center justify-between mb-2">
                     <button onClick={() => setCalM(m => (m === 0 ? (setCalY(y => y - 1), 11) : m - 1))} className="px-2 py-1 rounded bg-white/5 text-gray-400 text-xs hover:bg-white/10">‹</button>
                     <span className="text-sm font-semibold text-gray-200">{calY} 年 {calM + 1} 月</span>
@@ -2443,13 +2443,13 @@ export default function AgentPage() {
                       const isToday = ds === todayStr()
                       const dayFav = (calData[ds] || []).every((s: any) => s.favorite)
                       cells.push(
-                        <div key={d} className={`relative rounded-lg border p-0.5 ${isToday ? 'border-amber-500/40 bg-amber-500/10' : has ? 'border-white/15 bg-white/[0.06]' : 'border-white/5 bg-white/[0.02]'}`}>
-                          <button onClick={() => openCalDay(ds)} className="w-full flex flex-col items-center py-0.5">
-                            <span className={`text-xs ${isToday ? 'text-amber-300 font-bold' : has ? 'text-gray-200' : 'text-gray-600'}`}>{d}</span>
-                            <span className="text-[7px] leading-none text-gray-500">{lunarOf(calY, calM, d)}</span>
+                        <div key={d} className={`relative rounded-lg border overflow-hidden transition-transform duration-150 hover:scale-105 ${isToday ? 'border-amber-500/50 bg-amber-500/10' : has ? 'border-white/15 bg-white/[0.06] hover:bg-white/10' : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.05]'}`}>
+                          <button onClick={() => openCalDay(ds)} className="w-full flex flex-col items-center">
+                            <span className={`w-full flex items-center justify-center h-7 text-base ${isToday ? 'text-amber-300 font-bold' : has ? 'text-gray-100 font-medium' : 'text-gray-500'}`}>{d}</span>
+                            <span className="w-full flex items-center justify-center h-3.5 text-[8px] leading-none text-gray-500">{lunarOf(calY, calM, d)}</span>
                           </button>
                           <button onClick={() => { const list = (calData[ds] || []); list.forEach((s: any) => toggleFav(s.id, !dayFav)) }}
-                            className={`absolute top-0 right-0 text-[9px] px-0.5 ${dayFav && has ? 'text-amber-400' : 'text-gray-700 hover:text-amber-400'}`}>★</button>
+                            className={`absolute top-0 right-0 text-[10px] px-1 ${dayFav && has ? 'text-amber-400' : 'text-gray-700 hover:text-amber-400'}`}>★</button>
                         </div>
                       )
                     }
