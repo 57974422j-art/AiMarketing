@@ -2432,6 +2432,7 @@ export default function AgentPage() {
                   <div className="grid grid-cols-7 gap-1 text-center mb-1">
                     {['日', '一', '二', '三', '四', '五', '六'].map(d => <span key={d} className="text-[9px] text-gray-600">{d}</span>)}
                   </div>
+                  <div className="grid grid-cols-7 gap-1">
                   {(() => {
                     const first = new Date(calY, calM, 1).getDay()
                     const days = new Date(calY, calM + 1, 0).getDate()
@@ -2455,6 +2456,7 @@ export default function AgentPage() {
                     }
                     return cells
                   })()}
+                  </div>
                   {calDay && (
                     <div className="mt-2 border-t border-white/10 pt-2 max-h-40 overflow-y-auto space-y-1">
                       <p className="text-[10px] text-gray-500">{calDay} 会话（{((calData[calDay] || []).length)}）</p>
