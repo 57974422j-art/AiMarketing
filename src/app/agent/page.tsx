@@ -566,6 +566,7 @@ export default function AgentPage() {
   const [nameInput, setNameInput] = useState('')
   // ⚙️ AI 设置（2026-08-07：音色/温度/语音灵敏度）
   const [showPrefs, setShowPrefs] = useState(false)
+  const [guideStep, setGuideStep] = useState(0) // 首登引导：0无/1填昵称/2填行业（2026-08-22）
   const [showLogout, setShowLogout] = useState(false) // 2026-08-11：退出用自定义弹窗（不用浏览器 confirm）
   const [ttsVoice, setTtsVoice] = useState('longxiaochun')
   const [temperature, setTemperature] = useState(0.7)
@@ -1437,7 +1438,10 @@ export default function AgentPage() {
           return
         }
       } catch {}
-      // 无画像 → 进入 onboarding，注入欢迎词（用独立 welcomeMsg，不进 messages，保住声纹球主页区）
+      // 2026-08-22: 无画像 → 自动打开设置引导（填昵称+行业），不再只发欢迎词
+      setGuideStep(1)
+      setShowPrefs(true)
+      setTimeout(() => { try { voice?.speak('你好！我是你的 AI 助手。先给我起个名字吧，在设置里输入后点保存。') } catch {} }, 800)
       setOnboarding(true)
       const welcome = '嗨，我是你的营销搭子～先聊两句我就能更懂你：你目前在做什么行业、平常最头疼的是写内容还是发内容？你想让我帮你干点啥，直接说，我记一下就好。'
       setWelcomeMsg(welcome)
@@ -1904,13 +1908,19 @@ export default function AgentPage() {
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowPrefs(false)}>
           <div className="w-[340px] max-h-[80vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0d0d14] p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-white mb-1">⚙️ AI 设置</h3>
+            {guideStep > 0 && (
+              <div className="mb-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-300">
+                {guideStep === 1 ? '🎯 第 1 步：给 AI 起个名字（输入后点保存）' : '🎯 第 2 步：填写你的行业/职业（输入后点保存）'}
+                <span className="block mt-0.5 text-[9px] text-amber-400/70">不想设置可直接点「取消」跳过</span>
+              </div>
+            )}
             <div className="mb-3 p-2.5 rounded-lg bg-white/[0.04] border border-white/10">
               <div className="text-[10px] text-gray-400 mb-1.5">✎ 给 AI 起个名字（显示在标题栏与对话中）</div>
               <div className="flex gap-1.5">
                 <input value={nameInput} onChange={e => setNameInput(e.target.value)} maxLength={20}
                   placeholder={agentName || '例如：小美 / 麦子'}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder-gray-600 outline-none focus:border-emerald-400/50" />
-                <button onClick={saveAgentName}
+                  className={`flex-1 bg-white/5 border rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder-gray-600 outline-none focus:border-emerald-400/50 ${guideStep === 1 ? 'border-amber-400/70 animate-pulse' : 'border-white/10'}`} />
+                <button onClick={() => { saveAgentName(); if (guideStep === 1) { setGuideStep(2); try { voice?.speak('很好！再告诉我，你从事什么行业？方便我按行业给你推热点和内容。') } catch {} } }}
                   className="shrink-0 rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition">保存</button>
               </div>
             </div>
@@ -1926,15 +1936,10 @@ export default function AgentPage() {
                 className="shrink-0 rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition">试听</button>
             </div>
 
-            <p className="text-[11px] text-gray-400 mb-1.5">🏷 我的行业 <span className="text-emerald-300">{industry || '未设置'}</span></p>
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {['餐饮', '美业', '教育', '电商', '房产', '健身', '旅游', '服装'].map(ind => (
-                <button key={ind} onClick={() => setIndustry(ind)}
-                  className={`px-2 py-1 rounded border text-[10px] transition ${industry === ind ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-white/[0.04] text-gray-400 border-white/10 hover:bg-white/10'}`}>
-                  {ind}
-                </button>
-              ))}
-            </div>
+            <p className="text-[11px] text-gray-400 mb-1.5">🏷 我的行业/职业 <span className="text-emerald-300">{industry || '未设置'}</span></p>
+            <input value={industry} onChange={e => setIndustry(e.target.value)} maxLength={30}
+              placeholder="例如：餐饮 / 美业 / 电商运营…（按行业推热点与内容）"
+              className={`w-full bg-white/5 border rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder-gray-600 outline-none focus:border-emerald-400/50 mb-3 ${guideStep === 2 ? 'border-amber-400/70 animate-pulse' : 'border-white/10'}`} />
             <p className="text-[9px] text-gray-600 mb-3">按行业推送每日参考视频与热点（可在设置随时改）</p>
 
             <p className="text-[11px] text-gray-400 mb-1.5">🎛 回复温度：<span className="text-emerald-300">{temperature.toFixed(1)}</span></p>
@@ -1953,8 +1958,9 @@ export default function AgentPage() {
             <p className="text-[9px] text-gray-600 mb-4">短=反应快（一句话说完立即执行），长=等更久（防误判）</p>
 
             <div className="flex gap-2">
-              <button onClick={() => setShowPrefs(false)} className="flex-1 rounded-lg bg-white/[0.06] py-2 text-[11px] text-gray-400 hover:bg-white/10 transition">取消</button>
-              <button onClick={savePrefs} disabled={savingPrefs}
+              <button onClick={() => { setGuideStep(0); setShowPrefs(false); }} className="flex-1 rounded-lg bg-white/[0.06] py-2 text-[11px] text-gray-400 hover:bg-white/10 transition">取消</button>
+              <button onClick={() => { savePrefs(); if (guideStep === 2) { setGuideStep(0); setShowPrefs(false); try { voice?.speak('设置完成！你已经认识了基本功能，随时可以让我帮你干活。') } catch {} } }}
+                disabled={savingPrefs}
                 className="flex-1 rounded-lg bg-emerald-500/20 py-2 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition">{savingPrefs ? '保存中…' : '保存'}</button>
             </div>
           </div>
