@@ -581,6 +581,14 @@ export default function AgentPage() {
   // ⚙️ AI 设置（2026-08-07：音色/温度/语音灵敏度）
   const [showPrefs, setShowPrefs] = useState(false)
   const [guideStep, setGuideStep] = useState(0) // 首登引导：0无/1填昵称/2填行业（2026-08-22）
+  const [guideTour, setGuideTour] = useState(false) // 第二段功能演示（2026-08-22：设置完成后自动弹）
+  // 功能演示步骤：依次展示 一键成片/文生图/文生视频/素材库
+  const TOUR_STEPS = [
+    { name: '🎞 一键成片', path: '/auto-compile', desc: '选素材→自动剪辑配音出片，适合快速做视频' },
+    { name: '🖼 AI 生图', path: '/image-generator', desc: '文字描述生成海报/配图（12 点/张）' },
+    { name: '🎬 AI 视频', path: '/text-to-video', desc: '一句话生成视频（按秒计费，先报费用）' },
+    { name: '📦 素材库', path: '/storage', desc: '你的个人仓库（上传/管理视频图片）' },
+  ]
   const [showLogout, setShowLogout] = useState(false) // 2026-08-11：退出用自定义弹窗（不用浏览器 confirm）
   const [ttsVoice, setTtsVoice] = useState('longxiaochun')
   const [temperature, setTemperature] = useState(0.7)
@@ -1918,6 +1926,29 @@ export default function AgentPage() {
       )}
 
       {/* ⚙️ AI 设置弹窗（2026-08-07：音色/温度/语音灵敏度） */}
+      {/* 第二段功能演示（2026-08-22：首登设置登记完成后自动弹） */}
+      {guideTour && (
+        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-black/70 backdrop-blur-md" onClick={() => setGuideTour(false)}>
+          <div className="w-[420px] rounded-2xl border border-white/10 bg-[#0d0d14] p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-white mb-1">🎉 设置完成！带你认识常用功能</h3>
+            <p className="text-[10px] text-gray-500 mb-3">点卡片可打开对应功能看看（随时可回来）</p>
+            <div className="space-y-2">
+              {TOUR_STEPS.map(t => (
+                <button key={t.path} onClick={() => window.location.href = t.path}
+                  className="w-full flex items-center gap-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 px-3 py-2.5 text-left transition">
+                  <span className="text-lg">{t.name.split(' ')[0]}</span>
+                  <span>
+                    <span className="block text-[11px] text-gray-200">{t.name.split(' ').slice(1).join(' ')}</span>
+                    <span className="block text-[9px] text-gray-500 mt-0.5">{t.desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setGuideTour(false)}
+              className="mt-4 w-full rounded-lg bg-emerald-500/20 py-2 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition">开始体验 🚀</button>
+          </div>
+        </div>
+      )}
       {showPrefs && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowPrefs(false)}>
           <div className="w-[340px] max-h-[80vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0d0d14] p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -1973,7 +2004,7 @@ export default function AgentPage() {
 
             <div className="flex gap-2">
               <button onClick={() => { setGuideStep(0); setShowPrefs(false); }} className="flex-1 rounded-lg bg-white/[0.06] py-2 text-[11px] text-gray-400 hover:bg-white/10 transition">取消</button>
-              <button onClick={() => { savePrefs(); if (guideStep === 2) { setGuideStep(0); setShowPrefs(false); try { voice?.speak('设置完成！你已经认识了基本功能，随时可以让我帮你干活。') } catch {} } }}
+              <button onClick={() => { savePrefs(); if (guideStep === 2) { setGuideStep(0); setShowPrefs(false); setGuideTour(true); try { voice?.speak('设置完成！带你认识几个常用功能：一键成片、AI生图、AI视频、素材库。看完点开始体验。') } catch {} } }}
                 disabled={savingPrefs}
                 className="flex-1 rounded-lg bg-emerald-500/20 py-2 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition">{savingPrefs ? '保存中…' : '保存'}</button>
             </div>
