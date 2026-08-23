@@ -21,6 +21,12 @@ export default function ImageGeneratorPage() {
   const [templatesLoading, setTemplatesLoading] = useState(true)
   const [filterCat, setFilterCat] = useState('')
   const [prompt, setPrompt] = useState('')
+  // 2026-08-23: 引导演示自动填（tour-step=3：预填提示词，不真执行）
+  useEffect(() => {
+    const ts = parseInt(sessionStorage.getItem('tour-step') || '0')
+    if (ts === 3) setPrompt('一只戴着墨镜的柴犬，站在海边，日落金光，电影质感，广告海报风格')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)

@@ -45,6 +45,12 @@ export default function TextToVideoPage() {
   const [loading, setLoading] = useState(true)
   const [title, setTitle] = useState('')
   const [prompt, setPrompt] = useState('')
+  // 2026-08-23: 引导演示自动填（tour-step=4：预填脚本，不真执行）
+  useEffect(() => {
+    const ts = parseInt(sessionStorage.getItem('tour-step') || '0')
+    if (ts === 4) { setTitle('AI 产品宣传片'); setPrompt('清晨的城市天际线，镜头缓慢上升，阳光穿透云层，电影感运镜') }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [duration, setDuration] = useState(5)
   const [style, setStyle] = useState('电影感')

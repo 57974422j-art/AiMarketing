@@ -7,6 +7,20 @@ import StoryboardEditor from './components/StoryboardEditor'
 
 export default function AutoCompilePage() {
   const [mode, setMode] = useState<'free' | 'smart' | 'storage' | 'storyboard'>('free')
+  // 2026-08-23: 引导演示自动填（tour-step=2：演示文案 + 3 张演示素材，不真执行）
+  useEffect(() => {
+    const ts = parseInt(sessionStorage.getItem('tour-step') || '0')
+    if (ts === 2) {
+      setMode('free')
+      setText('AI 品牌宣传片——智能成片演示')
+      setMaterialList([
+        { id: 'demo-1', url: '/landing/compile.png', thumb: '/landing/compile.png', title: '演示素材 1', source: 'search' },
+        { id: 'demo-2', url: '/landing/video.png', thumb: '/landing/video.png', title: '演示素材 2', source: 'search' },
+        { id: 'demo-3', url: '/landing/publish.png', thumb: '/landing/publish.png', title: '演示素材 3', source: 'search' },
+      ])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [text, setText] = useState('')
   const [images, setImages] = useState<File[]>([])
   const [voice, setVoice] = useState('zh_female_vv_uranus_bigtts')
