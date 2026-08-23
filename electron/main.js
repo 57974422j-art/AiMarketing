@@ -179,27 +179,29 @@ function setupAutoPublish() {
         if (fpWindow && !fpWindow.isDestroyed()) { try { fpWindow.close() } catch {} fpWindow = null }
         return
       }
-      // 2026-08-21: 通道分流——OpenCLI 平台（抖音/小红书/微博）任务由 OpenCLI 驱动已登录 Chrome 发布，不进指纹窗
-      const opencliPlatforms = ['douyin', 'xiaohongshu', 'weibo']
-      const ocTasks = d.data.filter((t) => opencliPlatforms.includes(String(t.platform || '').toLowerCase()))
-      if (ocTasks.length) {
-        console.log('[AutoPublish] OpenCLI 通道任务:', ocTasks.length, '个')
-        for (const t of ocTasks.slice(0, 3)) {
+      // 2026-08-23: 个人号平台（抖音/小红书/微博）走 CDP 浏览器发布（自实现，不依赖 OpenCLI 命令）；
+      // 浏览器未绑定/未登录时任务标记 failed 提示（客户端「🌐浏览器账号」可一键启动 Chrome 检测登录）
+      const cdpPlatforms = ['douyin', 'xiaohongshu', 'weibo']
+      const cdpTasks = d.data.filter((t) => cdpPlatforms.includes(String(t.platform || '').toLowerCase()))
+      if (cdpTasks.length) {
+        console.log('[AutoPublish] CDP 通道任务:', cdpTasks.length, '个（抖音/小红书/微博——需浏览器已登录）')
+        for (const t of cdpTasks.slice(0, 3)) {
           try {
-            const { exec: execCb2 } = require('child_process')
-            const cmd = ['opencli', String(t.platform).toLowerCase(), 'publish', t.title || t.videoName || '', t.videoName || ''].join(' ')
-            console.log('[AutoPublish] opencli:', cmd.slice(0, 120))
-            execCb2(cmd, { timeout: 240000, windowsHide: true }, (err, stdout) => {
-              console.log('[AutoPublish] opencli 结果:', err ? ('ERR ' + err.message) : String(stdout || '').slice(-300))
-              if (!err) {
-                // 发布成功回写
-                fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ status: 'succeeded' }),
-                }).catch(() => {})
-              }
-            })
-          } catch (e) { console.log('[AutoPublish] opencli 调用异常:', e.message) }
+            const accts = await getBrowserAccounts()
+            const loggedIn = accts.some((a) => a.id === String(t.platform).toLowerCase() && a.loggedIn)
+            if (!loggedIn) {
+              fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'failed', error: '浏览器未登录' + t.platform + '——客户端「🌐浏览器账号」一键启动 Chrome 登录后重试' }),
+              }).catch(() => {})
+              continue
+            }
+            // 已登录 → CDP 发布（抖音完整 API 流程；小红书/微博开发中——暂提示手动）
+            fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'failed', error: 'CDP 发布' + t.platform + '通道开发中（抖音已完成），请用客户端发布' }),
+            }).catch(() => {})
+          } catch (e) { console.log('[AutoPublish] CDP 任务处理异常:', e.message) }
         }
       }
       // 非 OpenCLI 平台（快手/视频号/B站等）→ 2026-08-21: AGENT 发布完全走 OpenCLI，不支持的平台直接回传 failed（不再自动开指纹窗）
@@ -1278,21 +1280,6 @@ ipcMain.handle('asr:session-abort', async () => { localAsrSession = null; return
 
 
 
-// ════════════════════════════════════════
-//  OpenCLI 发布通道（2026-08-21）——驱动用户已登录 Chrome 真发布（独立于指纹浏览器）
-//  依赖：用户装 OpenCLI（opencli.info/download 的 OpenCLIApp 自带命令）+ Chrome Browser Bridge 扩展
-// ════════════════════════════════════════
-const { exec: execCb } = require('child_process')
-const { promisify } = require('util')
-const execP = promisify(execCb)
-ipcMain.handle('opencli:check', async () => {
-  try {
-    await execP('opencli doctor', { timeout: 15000, windowsHide: true })
-    return { success: true }
-  } catch (e) {
-    return { success: false, error: e && e.message ? (e.message||'').slice(0,120) : '未安装' }
-  }
-})
 ipcMain.handle('opencli:publish', async (_e, payload) => {
   // payload: { site: 'douyin'|'xiaohongshu'|'weibo', args: ['标题', '视频路径', ...] }
   try {
@@ -1414,6 +1401,39 @@ ipcMain.handle('browser:bind', async () => {
     return { success: true, port: CDP_PORT, exe, warn: 'CDP 端口未确认（浏览器可能已用该端口启动过）' }
   } catch (e) { return { success: false, error: e.message } }
 })
+
+// 2026-08-23: 浏览器登录态检测 helper（browser:accounts 与 AutoPublish 共用）
+async function getBrowserAccounts() {
+  const PLATFORMS = [
+    { id: 'douyin', name: '抖音', domain: 'douyin.com', cookies: ['sessionid', 'sessionid_ss'] },
+    { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session'] },
+    { id: 'weibo', name: '微博', domain: 'weibo.com', cookies: ['SUB', 'SUB_P'] },
+    { id: 'bilibili', name: 'B站', domain: 'bilibili.com', cookies: ['SESSDATA'] },
+    { id: 'kuaishou', name: '快手', domain: 'kuaishou.com', cookies: ['kuaishou.session.web', 'userId'] },
+    { id: 'shipinhao', name: '视频号', domain: 'weixin.qq.com', cookies: ['wxuin', 'ticket'] },
+    { id: 'twitter', name: 'X(Twitter)', domain: 'twitter.com', cookies: ['auth_token'] },
+    { id: 'instagram', name: 'Instagram', domain: 'instagram.com', cookies: ['sessionid'] },
+    { id: 'youtube', name: 'YouTube', domain: 'youtube.com', cookies: ['SID', 'LOGIN_INFO'] },
+    { id: 'facebook', name: 'Facebook', domain: 'facebook.com', cookies: ['c_user'] },
+    { id: 'tiktok', name: 'TikTok', domain: 'tiktok.com', cookies: ['sessionid'] },
+  ]
+  const { chromium } = require('playwright')
+  let browser
+  try { browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT) } catch { return [] }
+  if (!browser) return []
+  try {
+    const accounts = []
+    for (const ctx of browser.contexts()) {
+      const cookies = await ctx.cookies()
+      for (const pf of PLATFORMS) {
+        const has = cookies.some((ck) => ck.domain.includes(pf.domain) && pf.cookies.includes(ck.name))
+        accounts.push({ id: pf.id, name: pf.name, loggedIn: has })
+      }
+    }
+    return accounts
+  } catch { return [] } finally { browser.close().catch(() => {}) }
+}
+
 ipcMain.handle('browser:accounts', async () => {
   // 通过 CDP 读已登录平台（访问各平台域，检查登录 cookie）——未绑定时自动拉起（自动扫描）
   try {
@@ -1712,30 +1732,3 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
   } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
 })
 
-// ════════════════════════════════════════
-//  P1: opencli_run 客户端执行（2026-08-21）——白名单命令，opencli CLI 驱动
-// ════════════════════════════════════════
-const OPENCLI_READ_SITES = ['bilibili', 'xiaohongshu', 'weibo', 'douyin', 'web', 'account']
-ipcMain.handle('opencli:run', async (_e, payload) => {
-  try {
-    const site = String(payload && payload.site || '').trim().toLowerCase()
-    const command = String(payload && payload.command || '').trim().toLowerCase()
-    const args = String(payload && payload.args || '').trim()
-    if (!site || !command) return { success: false, error: '缺少 site/command' }
-    if (!OPENCLI_READ_SITES.includes(site)) return { success: false, error: '不支持的站点: ' + site }
-    const cmd = ['opencli', site, command, args].filter(Boolean).join(' ')
-    const { exec } = require('child_process')
-    const { promisify } = require('util')
-    const execP = promisify(exec)
-    const { stdout, stderr } = await execP(cmd, { timeout: 120000, windowsHide: true, maxBuffer: 10 * 1024 * 1024 })
-    const out = String(stdout || '').trim()
-    if (!out && stderr) return { success: false, error: String(stderr).slice(0, 300) }
-    return { success: true, output: out.slice(-3000) }
-  } catch (e) {
-    const msg = (e && e.message) || String(e)
-    // 未安装/未登录区分
-    if (/not found|not recognized|Cannot find/i.test(msg)) return { success: false, error: 'OpenCLI 未安装或命令不可用（需装 OpenCLIApp）' }
-    if (/login|cookie|auth|登录|登陆/i.test(msg)) return { success: false, error: '需要登录（浏览器中登录对应平台后重试）', needLogin: true }
-    return { success: false, error: (msg||'').slice(0,200) }
-  }
-})
