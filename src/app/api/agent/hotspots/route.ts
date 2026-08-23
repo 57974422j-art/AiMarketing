@@ -67,7 +67,7 @@ const FALLBACK: Record<string, HotItem[]> = {
     { title: '乡村篮球赛火了', hot: '312万' },
     { title: '手艺人在快手的一天', hot: '276万' },
   ],
-  36氪: [
+  '36氪': [
     { title: 'AI Agent 赛道融资盘点', hot: '23万阅读' },
     { title: '新能源车企第三季度财报解读', hot: '18万阅读' },
     { title: '出海品牌如何做本地化', hot: '15万阅读' },
