@@ -475,3 +475,22 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 - **首登设置登记引导**：无画像自动开设置（①昵称闪烁+语音→保存→②行业输入框+语音→保存→完成；取消即停）
 - opencli_run 只读类（采集/热点/搜索）；发布走 CDP 专用（browser:publish）
 - 浏览器账号（发布通道）右侧折叠显示（CDP 检测，不显示指纹）
+
+
+### 浏览器通道设计规划定稿（2026-08-23，防失忆）
+**定位**：用户日常浏览器通道（个人号发布/采集热点/搜索/登录态检测），**独立备用系统**——原设计（自有热点 API + 指纹手动脚本）**全保留**，随时切换；**AGENT 页不参与浏览器采集**（AI 只用自有 API：/api/agent/hotspots + search_trends，避免两套系统 AI 混乱）。
+
+**铁律（用户拍板）**：
+- **运行时零 OpenCLI**：用户只装我们的客户端，**不装 OpenCLI、不装任何插件**；OpenCLI 仅作**源码参考**（本地 npm 包 176 clis，9 个发布适配器）——复制其适配器/API 流程自实现进客户端，防它不更新
+- **浏览器**：Chrome / Edge（CDP 完整支持；国内用户预装 Edge 最友好）。客户端自动检测系统已装浏览器 → 一键启动（--remote-debugging-port）→ 用户**登录一次自己账号** → cookie 检测（**按平台域名独立存**：登录抖音只有 douyin.com 有 cookie，登录啥检测啥）
+- **发布 9 平台**（移植 opencli publish.js 自实现 CDP）：抖音✅（API 流程完整）/ 微博🟡（DOM 版已有补全）/ 小红书（1423行最大）/ 视频号 / 闲鱼 / X(Twitter) / Instagram / 即刻 / band —— 用户都要试
+- **采集（备用）**：B站（hot/ranking/search/feed/comment 全）/ 36kr / 1point3acres / 51job/BOSS / amazon / reddit / bluesky / bbc/bloomberg / 东方财富/雪球 / 12306（查票非抢票）等——**仅用户已登录平台可用，未登录不提供**
+- **指纹发布手动脚本不动**（给用户手动支持，等更好替代再说）；**AGENT 不自动执行指纹发布**
+
+**AGENT 防幻觉红线**：
+- publish_content 工具：AI 创建任务后**必须等客户端执行结果回传**（成功/失败原因/未登录提示）才能回复；**未收到结果前禁止回复"已发布"**——只可"已创建发布任务，等待执行结果"
+- 系统提示注入：禁止编造任务 ID / 发布成功 / 执行进度；browser-accounts 右侧边栏显示真实登录态（绿/红点，12 点刷新），不显示指纹
+
+**动手顺序**：①微博补全 + 小红书移植（用户最常用）+ AGENT 防幻觉红线/工具注册 ②其余 7 平台逐个移植 ③browser-accounts 右侧边栏 ④登录态检测实测（cookie 映射验证）
+
+**现状检查（2026-08-23 打包前）**：main.js 已删 opencli:run/publish/setup-guide IPC + preload 清理；setupAutoPublish 改 CDP 分流（getBrowserAccounts helper）；browser:accounts 11 平台（含未登录展示）+ browser:bind-mine 一键启动；CLIENT_OPENCLI 前端拦截已移除；@jackwener/opencli npm 包保留（抖音 vod/tos 上传 import 依赖，asarUnpack 打包，用户无感知）
