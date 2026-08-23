@@ -1509,8 +1509,24 @@ async function publishWeibo(page, payload) {
       return ''
     })
     if (!sent) return { success: false, error: '未找到「发送」按钮' }
-    await page.waitForTimeout(2000)
-    return { success: true, message: '微博已发布' }
+    // 2026-08-23: 发布结果轮询确认——不假报成功（等发送成功提示或编辑器关闭）
+    let confirmed = false
+    let failHint = ''
+    for (let i = 0; i < 20; i++) {
+      await page.waitForTimeout(500)
+      const st = await page.evaluate(() => {
+        const vis = (el) => !!el && el.offsetParent !== null
+        const bodyTxt = (document.body.innerText || '').slice(0, 600)
+        const editorGone = ![...document.querySelectorAll('textarea[placeholder*="新鲜事"], textarea._input_13iqr_8')].some(el => vis(el))
+        const okHint = /发送成功|发布成功|已发送|微博发送|分享成功/.test(bodyTxt)
+        const errHint = /发送失败|发布失败|内容包含|操作频繁|登录过期|请登录/.test(bodyTxt)
+        return { okHint, errHint, editorGone, bodyTxt }
+      })
+      if (st.okHint || st.editorGone) { confirmed = true; break }
+      if (st.errHint) { failHint = st.bodyTxt.match(/发送失败|发布失败|内容包含|操作频繁|登录过期|请登录/)?.[0] || ''; break }
+    }
+    if (!confirmed) return { success: false, error: '微博发布结果未确认（' + (failHint || '未收到成功反馈，请到浏览器查看') + '）——请勿告知用户已发布' }
+    return { success: true, message: '微博已发布（已确认）' }
   } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
 }
 
