@@ -57,6 +57,24 @@ const FALLBACK: Record<string, HotItem[]> = {
     { title: '夏季避暑游热度攀升', hot: '312万' },
     { title: 'AI 写作工具使用规范出台', hot: '276万' },
   ],
+  微信: [
+    { title: '公众号改版后阅读量回升', hot: '32万' },
+    { title: '视频号本地生活成新风口', hot: '28万' },
+    { title: '私域运营的三个关键动作', hot: '21万' },
+    { title: '企业微信连接消费者新玩法', hot: '17万' },
+  ],
+  HackerNews: [
+    { title: 'Show HN: A new open-source vector database' },
+    { title: 'Why we migrated off microservices' },
+    { title: 'The state of Rust in 2026' },
+    { title: 'Building local-first AI apps' },
+  ],
+  Reddit: [
+    { title: 'Self-hosting is easier than ever now' },
+    { title: 'What is your favorite terminal setup?' },
+    { title: 'AI coding assistants changed my workflow' },
+    { title: 'Small teams shipping fast with Rust' },
+  ],
   B站: [
     { title: 'AI 绘画登上百大UP主年度盘点', hot: '452万' },
     { title: '硬核拆解国产大模型训练成本', hot: '331万' },
@@ -81,26 +99,6 @@ const FALLBACK: Record<string, HotItem[]> = {
     { title: 'CBA 新赛季揭幕战引热议', hot: '12万讨论' },
     { title: '国足球迷心态变化', hot: '9万讨论' },
     { title: '跑步装备测评哪家强', hot: '7万讨论' },
-  ],
-}
-
-  微信: [
-    { title: '公众号改版后阅读量回升', hot: '32万' },
-    { title: '视频号本地生活成新风口', hot: '28万' },
-    { title: '私域运营的三个关键动作', hot: '21万' },
-    { title: '企业微信连接消费者新玩法', hot: '17万' },
-  ],
-  HackerNews: [
-    { title: 'Show HN: A new open-source vector database' },
-    { title: 'Why we migrated off microservices' },
-    { title: 'The state of Rust in 2026' },
-    { title: 'Building local-first AI apps' },
-  ],
-  Reddit: [
-    { title: 'Self-hosting is easier than ever now' },
-    { title: 'What is your favorite terminal setup?' },
-    { title: 'AI coding assistants changed my workflow' },
-    { title: 'Small teams shipping fast with Rust' },
   ],
 }
 
