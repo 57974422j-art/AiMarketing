@@ -1944,7 +1944,7 @@ export default function AgentPage() {
                 </button>
               ))}
             </div>
-            <button onClick={() => setGuideTour(false)}
+            <button onClick={() => { setGuideTour(false); sessionStorage.setItem('tour-step', '1'); window.location.href = '/storage' }}
               className="mt-4 w-full rounded-lg bg-emerald-500/20 py-2 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition">开始体验 🚀</button>
           </div>
         </div>
@@ -2082,8 +2082,8 @@ export default function AgentPage() {
             {user ? (
               /* 2026-08-11：右侧一排三卡片——设置 / 管理(按角色跳转) / 退出 */
               <div className="relative flex items-center gap-1.5 shrink-0">
-                <button onClick={() => { setHistOpen(v => !v); if (!histSessions.length) loadSessions() }}
-                  className="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-white/10 transition" title="历史会话">📜 历史</button>
+                <button onClick={() => { sessionStorage.setItem('tour-step', '1'); window.location.href = '/storage' }}
+                  className="px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-[9px] text-amber-300 hover:bg-amber-500/25 transition" title="全自动功能引导（5秒自动进下一步，不真执行）">🎓 引导</button>
                 {histOpen && (
                   <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-xl border border-white/10 bg-[#0d1428]/95 backdrop-blur-xl shadow-2xl max-h-72 overflow-y-auto">
                     <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 sticky top-0 bg-[#0d1428]/95">
