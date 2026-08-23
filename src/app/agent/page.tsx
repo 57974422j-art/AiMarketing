@@ -2663,7 +2663,7 @@ export default function AgentPage() {
               </button>
               {browserOpen && (
                 <div className="mt-1.5 space-y-1">
-                  {browserAccts.map(a => (
+                  {(Array.isArray(browserAccts) ? browserAccts : []).map(a => (
                     <div key={a.id} className="flex items-center justify-between text-[10px]">
                       <span className="text-gray-400">{a.name}</span>
                       <span className={`px-1.5 py-0.5 rounded-full text-[9px] ${a.loggedIn ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-gray-500'}`}>
