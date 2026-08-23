@@ -104,6 +104,8 @@ if (app.isPackaged) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    // 2026-08-23: 主窗口引用给服务器回调读 cookie 用
+    // (global.__mainWin 在下方赋值)
     width: 1400,
     height: 900,
     webPreferences: {
@@ -140,7 +142,8 @@ function createWindow() {
   // 页面/功能永远服务器最新；AI 能力全在服务器；本地能力（指纹/语音/摄像头）走 preload 桥
   const isDev = process.env.NODE_ENV !== 'production'
   if (app.isPackaged && !process.env.SERVER_URL) {
-    mainWindow.loadURL('https://ai-niuma.cc')
+    global.__mainWin = mainWindow
+  mainWindow.loadURL('https://ai-niuma.cc')
   } else {
     // 开发模式 / 显式指定 SERVER_URL：加载远程或本地 dev server
     const serverUrl = process.env.SERVER_URL || 'http://localhost:3000'
@@ -161,6 +164,17 @@ function createWindow() {
  * 有任务时自动打开（隐藏窗口）指纹浏览器页 → 页面 3s 轮询自动导入并执行（自动启动浏览器+发布）。
  * 用户无需手动打开页面；主窗口保持当前页面不动。
  */
+
+// 2026-08-23: 服务器回调带登录 cookie（主进程从 Electron session 读——middleware 无 token 会 401）
+async function getServerCookie() {
+  try {
+    const win = global.__mainWin
+    if (!win || !win.webContents) return ''
+    const cookies = await win.webContents.session.cookies.get({ url: serverUrl })
+    return cookies.map((c) => c.name + '=' + c.value).join('; ')
+  } catch { return '' }
+}
+
 function setupAutoPublish() {
   if (global.__autoPublishStarted) return
   global.__autoPublishStarted = true
@@ -213,7 +227,7 @@ function setupAutoPublish() {
           // 已登录：CDP 3 平台真发布（publishXxx），其余提示手动
           if (!cdpPublish.includes(plat)) {
             fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, 'Cookie': await getServerCookie(),
               body: JSON.stringify({ status: 'failed', error: '浏览器已登录' + (t.platform || '') + '，但该平台自动发布通道未开通——请到浏览器手动发布' }),
             }).catch(() => {})
             continue
@@ -234,7 +248,7 @@ function setupAutoPublish() {
                 let vp = t.videoPath || t.localVideoPath || ''
                 if (!vp && t.id) {
                   try {
-                    const dl = await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/download-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(20000) }).then((r2) => r2.json())
+                    const dl = await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/download-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, 'Cookie': await getServerCookie(), body: '{}', signal: AbortSignal.timeout(20000) }).then((r2) => r2.json())
                     if (dl && dl.success && dl.url) {
                       const tmpDir = require('os').tmpdir()
                       const localName = 'aim-v-' + t.id + '-' + Date.now() + '.mp4'
@@ -257,7 +271,7 @@ function setupAutoPublish() {
             const body = { status }
             if (error) body.error = error
             fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, 'Cookie': await getServerCookie(), body: JSON.stringify(body),
             }).catch(() => {})
             console.log('[AutoPublish]', plat, '任务#', t.id, status, error || '')
           }
