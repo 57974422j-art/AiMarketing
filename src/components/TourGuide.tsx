@@ -19,6 +19,26 @@ export default function TourGuide() {
     if (s >= 1 && s <= 4) { setStep(s); setShow(true) }
   }, [])
 
+  // 语音解说：每步播报说明（浏览器 SpeechSynthesis 中文；用户点过「开始体验」满足自动播放策略）
+  useEffect(() => {
+    if (!show || step === null) return
+    const cur = TOUR_STEPS.find(t => t.step === step)!
+    const say = () => {
+      try {
+        if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+        window.speechSynthesis.cancel()
+        const u = new SpeechSynthesisUtterance(cur.desc.replace(/[【】（）()·]/g, ''))
+        u.lang = 'zh-CN'; u.rate = 1.02
+        const voices = window.speechSynthesis.getVoices()
+        const zh = voices.find(v => v.lang && v.lang.startsWith('zh'))
+        if (zh) u.voice = zh
+        window.speechSynthesis.speak(u)
+      } catch {}
+    }
+    const t = setTimeout(say, 600)
+    return () => { clearTimeout(t); try { window.speechSynthesis.cancel() } catch {} }
+  }, [show, step])
+
   useEffect(() => {
     if (!show || step === null) return
     const timer = setTimeout(() => {
@@ -29,7 +49,7 @@ export default function TourGuide() {
         sessionStorage.removeItem('tour-step')
         window.location.href = '/'
       }
-    }, 5000)
+    }, 6500)  // 语音播报完再跳（5 秒播放 + 1.5 秒余量）
     return () => clearTimeout(timer)
   }, [show, step])
 
