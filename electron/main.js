@@ -1610,7 +1610,24 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
         return ''
       })
       if (!sent) return { success: false, error: '未找到「发布」按钮（可能上传未完成）' }
-      return { success: true, message: '小红书发布已提交（发布中/审核中）' }
+      // 2026-08-23: 发布结果轮询确认——不假报（等"发布成功/审核中"提示或跳转；失败如实报）
+      let xhsConfirmed = false
+      let xhsFail = ''
+      for (let i = 0; i < 30; i++) {
+        await page.waitForTimeout(500)
+        const st = await page.evaluate(() => {
+          const t = (document.body.innerText || '').slice(0, 800)
+          return {
+            ok: /发布成功|发布笔记成功|笔记发布成功|已发布|审核中|审核通过|发布中/.test(t),
+            err: /发布失败|发布不成功|上传失败|违规|操作频繁|请重新登录|登录已过期/.test(t),
+            gone: !location.href.includes('publish/publish'),
+          }
+        })
+        if (st.ok || st.gone) { xhsConfirmed = true; break }
+        if (st.err) { xhsFail = '小红书发布失败提示（浏览器可见）'; break }
+      }
+      if (!xhsConfirmed) return { success: false, error: '小红书发布结果未确认（' + (xhsFail || '未收到成功反馈，请到浏览器查看——请勿告知用户已发布') + '）' }
+      return { success: true, message: '小红书发布已确认（发布中/审核中）' }
     } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
   }
   // 抖音发布（P0-2，复用 OpenCLI 官方 API 流程：vod-upload/tos-upload/create_v2，CDP page 内 fetch）
