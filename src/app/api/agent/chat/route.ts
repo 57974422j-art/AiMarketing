@@ -1155,6 +1155,19 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
 
     // ── 发布 ──
     case 'publish_content': {
+      {
+        // 2026-08-23: 发布前查浏览器登录态（客户端上报）——未登录平台告知用户，不盲发
+        try {
+          const { getBrowserStatus } = await import('@/lib/browser-status')
+          const accts = getBrowserStatus(Number(auth?.userId || 0))
+          const plat = String(args.platform || '').toLowerCase()
+          const hit = accts.find((a) => a.id === plat)
+          if (hit && !hit.loggedIn) {
+            return 'BROWSER_LOGIN_REQUIRED:' + plat + '——你的浏览器未登录该平台，发布时会自动打开登录页，扫码登录后继续'
+          }
+        } catch {}
+      }
+
       try {
         // 平台名归一化（中文/英文 -> 统一 key）
         const raw = String(args.platform || 'douyin').toLowerCase()

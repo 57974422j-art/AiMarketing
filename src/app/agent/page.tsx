@@ -1499,7 +1499,7 @@ export default function AgentPage() {
   // ── 浏览器账号（CDP 检测，右侧折叠显示；不显示指纹）──
   const [browserAccts, setBrowserAccts] = useState<any[]>([])
   const [browserOpen, setBrowserOpen] = useState(false)
-  useEffect(() => { (async () => { try { const r = await (window as any).electronAPI?.browserAccounts(); if (r?.success) setBrowserAccts(r.accounts || []) } catch {} })() }, [])
+  useEffect(() => { (async () => { try { const r = await (window as any).electronAPI?.browserAccounts(); if (r?.success) { setBrowserAccts(r.accounts || []); setBrowserNeedBind(!!r.needBind); if (r.accounts && r.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: r.accounts }), credentials: 'include' }).catch(() => {}) } } catch {} })() }, [])
   // ── 功能提示标签（新手引导——点击填入输入框）──
   const FEATURE_TIPS = [
     '帮我发一条抖音视频', '帮我写一个小红书文案', '帮我生成一张产品海报',
