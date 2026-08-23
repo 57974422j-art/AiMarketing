@@ -1,4 +1,5 @@
 'use client'
+import TourGuide from '@/components/TourGuide'
 
 import { useState, useEffect } from 'react'
 import { useLocale } from '@/i18n/context'
@@ -380,6 +381,7 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
                       const segDur = isLast && duration ? duration - idx * segDuration : segDuration
                       return (
                       <div key={idx} className="mb-2">
+        <TourGuide />
                         <label className="block text-[10px] text-gray-500 mb-1 font-mono">
                           片段 {idx + 1}/{segmentPrompts.length} ({segDur || segDuration}s)
                         </label>

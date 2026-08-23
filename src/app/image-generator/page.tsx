@@ -1,4 +1,5 @@
 'use client'
+import TourGuide from '@/components/TourGuide'
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/providers'
 import PromptLibraryDialog from '@/components/prompts/PromptLibraryDialog'
@@ -155,6 +156,7 @@ export default function ImageGeneratorPage() {
     <>
     <PromptLibraryDialog open={libraryOpen} onClose={() => setLibraryOpen(false)} onSelect={(t) => { setPrompt(t); setShowFav(false); setFilterCat(''); showToast('已填入提示词') }} />
     <div className="min-h-screen bg-gray-950">
+        <TourGuide />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <p className="text-label mb-2"><span>创作工具</span><span className="text-xs opacity-50 ml-1">/ TOOLS</span></p>

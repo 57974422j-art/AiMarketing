@@ -1,4 +1,5 @@
 'use client'
+import TourGuide from '@/components/TourGuide'
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/app/providers'
 import { showToast } from '@/components/Toast'
@@ -74,6 +75,7 @@ export default function StoragePage() {
 
   return (
     <div className="min-h-screen bg-gray-950">
+        <TourGuide />
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">

@@ -1,4 +1,5 @@
 'use client'
+import TourGuide from '@/components/TourGuide'
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { showToast } from '@/components/Toast'
 import { useAuth } from '@/app/providers'
@@ -443,6 +444,7 @@ const genId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
 
   return (
     <div className="min-h-screen bg-gray-950 p-4">
+        <TourGuide />
       <div className="max-w-5xl mx-auto">
         <div className="mb-6">
           <p className="text-label mb-2">AI 工具 / AUTO COMPILE</p>
