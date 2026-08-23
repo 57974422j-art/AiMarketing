@@ -191,7 +191,7 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
 
   return (
     <>
-    <PromptLibraryDialog open={libraryOpen} onClose={() => setLibraryOpen(false)} onSelect={(t) => { setPrompt(t); setVideoUrl('') }} />
+    <PromptLibraryDialog open={libraryOpen} mode="video" onClose={() => setLibraryOpen(false)} onSelect={(t) => { setPrompt(t); setVideoUrl('') }} />
     <div className="min-h-screen bg-gray-950">
       {toast && (
         <div className="fixed top-4 right-4 z-50 bg-gray-900 border border-gray-700 text-white px-4 py-3 rounded-xl shadow-2xl font-mono text-sm">

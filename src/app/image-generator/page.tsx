@@ -160,7 +160,7 @@ export default function ImageGeneratorPage() {
 
   return (
     <>
-    <PromptLibraryDialog open={libraryOpen} onClose={() => setLibraryOpen(false)} onSelect={(t) => { setPrompt(t); setShowFav(false); setFilterCat(''); showToast('已填入提示词') }} />
+    <PromptLibraryDialog open={libraryOpen} mode="image" onClose={() => setLibraryOpen(false)} onSelect={(t) => { setPrompt(t); setShowFav(false); setFilterCat(''); showToast('已填入提示词') }} />
     <div className="min-h-screen bg-gray-950">
         <TourGuide />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
