@@ -1614,21 +1614,7 @@ export default function AgentPage() {
           steps: data.data.steps,
           scene: data.data.scene,
         }])
-              // 2026-08-21 P1: CLIENT_OPENCLI 拦截（opencli 指令由客户端执行）
-        const ocMatch = String(data.data.reply || '').match(/CLIENT_OPENCLI:site=([^|]+)[|]command=([^|]+)[|]args=([^|]*)/)
-        if (ocMatch) {
-          const payload = { site: ocMatch[1].trim(), command: ocMatch[2].trim(), args: ocMatch[3].trim() }
-          const NL = String.fromCharCode(10, 10)
-          try {
-            const r = await (window as any).electronAPI?.opencliRun(payload)
-            const note = r && r.success
-              ? NL + String.fromCharCode(9889) + ' 浏览器通道结果：' + NL + ((r.output) || '（无输出）')
-              : NL + String.fromCharCode(9888) + ' ' + ((r && r.error) || '执行失败') + (r && r.needLogin ? ('——请先在浏览器登录 ' + payload.site + ' 后重试') : '')
-            setMessages(prev => prev.map(m => m.id === lastMsgIdRef.current ? { ...m, content: m.content + note } : m))
-          } catch (e: any) {
-            setMessages(prev => prev.map(m => m.id === lastMsgIdRef.current ? { ...m, content: m.content + NL + '⚠️ 客户端执行失败：' + ((e && e.message) || e) } : m))
-          }
-        }
+              // 2026-08-23: 浏览器通道指令（原 CLIENT_OPENCLI）——opencli 依赖已清除，采集类用自有热点/搜索 API
         // 2026-08-14: 对话后实时刷新客户画像（记忆可能已更新）
         loadBrainMemories()
         // onboarding 收尾：AGENT 给出"已记住/随时服务"类收尾语即结束摸底

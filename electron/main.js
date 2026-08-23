@@ -204,8 +204,8 @@ function setupAutoPublish() {
           } catch (e) { console.log('[AutoPublish] CDP 任务处理异常:', e.message) }
         }
       }
-      // 非 OpenCLI 平台（快手/视频号/B站等）→ 2026-08-21: AGENT 发布完全走 OpenCLI，不支持的平台直接回传 failed（不再自动开指纹窗）
-      const fpTasks = d.data.filter((t) => !opencliPlatforms.includes(String(t.platform || '').toLowerCase()))
+      // 非 CDP 平台（快手/视频号/B站等）→ 暂不支持自动发布，回传 failed 提示
+      const fpTasks = d.data.filter((t) => !cdpPlatforms.includes(String(t.platform || '').toLowerCase()))
       for (const t of fpTasks) {
         try {
           fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
@@ -1280,23 +1280,6 @@ ipcMain.handle('asr:session-abort', async () => { localAsrSession = null; return
 
 
 
-ipcMain.handle('opencli:publish', async (_e, payload) => {
-  // payload: { site: 'douyin'|'xiaohongshu'|'weibo', args: ['标题', '视频路径', ...] }
-  try {
-    const site = payload && payload.site ? String(payload.site).trim() : ''
-    if (!site) return { success: false, error: '缺少平台（site）' }
-    const args = (payload.args || []).map(String)
-    const cmd = ['opencli', site, 'publish', ...args].join(' ')
-    const { stdout, stderr } = await execP(cmd, { timeout: 240000, windowsHide: true, maxBuffer: 10 * 1024 * 1024 })
-    return { success: true, output: String(stdout || '').slice(-2000), err: String(stderr || '').slice(-1000) }
-  } catch (e) {
-    return {
-      success: false,
-      error: e && e.message ? (e.message||'').slice(0,120) : String(e),
-      hint: '需安装 OpenCLI（opencli.info/download OpenCLIApp）并在 Chrome 安装 Browser Bridge 扩展；抖音/小红书/微博支持 publish，B站/快手/视频号暂无适配器',
-    }
-  }
-})
 
 // ════════════════════════════════════════
 //  清理残留（2026-08-21）——删除缓存/临时文件（不含登录态 APPDATA，只清可重建数据）
@@ -1318,50 +1301,6 @@ ipcMain.handle('app:cleanup-residue', async () => {
 // ════════════════════════════════════════
 //  OpenCLI 安装引导（2026-08-21，方案1）——扩展随包分发，用户只需开发者模式加载
 // ════════════════════════════════════════
-ipcMain.handle('opencli:setup-guide', async () => {
-  try {
-    // 扩展目录：打包在 resources/opencli-extension；开发在 electron/resources/opencli-extension
-    const candidates = [
-      path.join(process.resourcesPath || '', 'opencli-extension'),
-      path.join(__dirname, 'resources', 'opencli-extension'),
-    ]
-    const extDir = candidates.find((d) => fs.existsSync(path.join(d, 'manifest.json'))) || candidates[1]
-    // 2026-08-21: 打开扩展页——检测 Chrome/Edge 实际路径（start chrome:// 走默认浏览器 Edge 不认 → 弹商店）
-    const { execSync: execSync2 } = require('child_process')
-    const chromeCandidates = [
-      process.env.PROGRAMFILES + '\Google\Chrome\Application\chrome.exe',
-      process.env['PROGRAMFILES(X86)'] + '\Google\Chrome\Application\chrome.exe',
-      process.env.LOCALAPPDATA + '\Google\Chrome\Application\chrome.exe',
-    ]
-    const edgeCandidates = [
-      process.env.PROGRAMFILES + '\Microsoft\Edge\Application\msedge.exe',
-      process.env['PROGRAMFILES(X86)'] + '\Microsoft\Edge\Application\msedge.exe',
-    ]
-    const chromePath = chromeCandidates.find((p2) => fs.existsSync(p2))
-    const edgePath = edgeCandidates.find((p2) => fs.existsSync(p2))
-    let opened = ''
-    if (chromePath) { try { execSync2('"' + chromePath + '" chrome://extensions', { windowsHide: true, stdio: 'ignore' }); opened = 'Chrome' } catch {} }
-    if (!opened && edgePath) { try { execSync2('"' + edgePath + '" edge://extensions', { windowsHide: true, stdio: 'ignore' }); opened = 'Edge（Chrome 未安装）' } catch {} }
-    // opencli 命令检测
-    let opencliInstalled = false
-    try {
-      const { execSync } = require('child_process')
-      execSync('opencli --version', { timeout: 8000, windowsHide: true, stdio: 'ignore' })
-      opencliInstalled = true
-    } catch {}
-    return {
-      success: true,
-      extDir,
-      opencliInstalled,
-      steps: [
-        '① 已自动打开' + (opened || '浏览器') + ' 扩展页（edge://extensions 或 chrome://extensions；无反应请手动打开）',
-        '② 打开左下角/右上角【开发者模式】开关',
-        '③ 点【加载已解压的扩展程序】→ 选择目录：' + extDir,
-        '④ 装好后在客户端说"发布抖音/小红书/微博"即自动发布（需先在浏览器登录对应平台）',
-      ],
-    }
-  } catch (e) { return { success: false, error: e.message } }
-})
 
 // ════════════════════════════════════════
 //  方案A CDP：绑定浏览器 + 登录态检测（2026-08-21，P0）
