@@ -1439,29 +1439,58 @@ ipcMain.handle('browser:accounts', async () => {
         browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
       }
     }
-    if (!browser) return { success: false, error: '未找到浏览器，无法自动绑定', accounts: [], bound: false }
+    if (!browser) return { success: false, error: '未找到浏览器，无法自动绑定', accounts: [], bound: false, needBind: true }
     const ctxs = browser.contexts()
     const accounts = []
+    // 2026-08-23: 国内外 11 平台 + cookie 多候选（任一命中即已登录）——检测用户日常 Chrome 登录态
     const PLATFORMS = [
-      { id: 'douyin', name: '抖音', url: 'https://www.douyin.com', cookie: 'sessionid' },
-      { id: 'xiaohongshu', name: '小红书', url: 'https://www.xiaohongshu.com', cookie: 'web_session' },
-      { id: 'weibo', name: '微博', url: 'https://weibo.com', cookie: 'SUB' },
-      { id: 'bilibili', name: 'B站', url: 'https://www.bilibili.com', cookie: 'SESSDATA' },
-      { id: 'kuaishou', name: '快手', url: 'https://www.kuaishou.com', cookie: 'did' },
-      { id: 'youtube', name: 'YouTube', url: 'https://www.youtube.com', cookie: 'SID' },
+      { id: 'douyin', name: '抖音', domain: 'douyin.com', cookies: ['sessionid', 'sessionid_ss'] },
+      { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session'] },
+      { id: 'weibo', name: '微博', domain: 'weibo.com', cookies: ['SUB', 'SUB_P'] },
+      { id: 'bilibili', name: 'B站', domain: 'bilibili.com', cookies: ['SESSDATA'] },
+      { id: 'kuaishou', name: '快手', domain: 'kuaishou.com', cookies: ['kuaishou.session.web', 'userId'] },
+      { id: 'shipinhao', name: '视频号', domain: 'weixin.qq.com', cookies: ['wxuin', 'ticket'] },
+      { id: 'twitter', name: 'X(Twitter)', domain: 'twitter.com', cookies: ['auth_token'] },
+      { id: 'instagram', name: 'Instagram', domain: 'instagram.com', cookies: ['sessionid'] },
+      { id: 'youtube', name: 'YouTube', domain: 'youtube.com', cookies: ['SID', 'LOGIN_INFO'] },
+      { id: 'facebook', name: 'Facebook', domain: 'facebook.com', cookies: ['c_user'] },
+      { id: 'tiktok', name: 'TikTok', domain: 'tiktok.com', cookies: ['sessionid'] },
     ]
     for (const ctx of ctxs) {
       const cookies = await ctx.cookies()
       for (const pf of PLATFORMS) {
-        const has = cookies.some((ck) => ck.domain.includes(pf.id === 'douyin' ? 'douyin.com' : pf.id === 'xiaohongshu' ? 'xiaohongshu.com' : pf.id) && ck.name === pf.cookie)
+        const has = cookies.some((ck) => ck.domain.includes(pf.domain) && pf.cookies.includes(ck.name))
         if (has) accounts.push({ id: pf.id, name: pf.name, loggedIn: true })
       }
     }
     await browser.close().catch(() => {})
-    return { success: true, accounts, bound: !!boundProc }
+    return { success: true, accounts, bound: true, needBind: false }
   } catch (e) {
-    return { success: false, error: '浏览器未绑定或 CDP 未连接：' + e.message, accounts: [], bound: !!boundProc }
+    return { success: false, error: '浏览器未绑定或 CDP 未连接：' + e.message, accounts: [], bound: !!boundProc, needBind: true }
   }
+})
+
+// 2026-08-23: 一键启动用户自己的 Chrome（默认 profile，带 CDP 端口）——检测日常登录态
+ipcMain.handle('browser:bind-mine', async () => {
+  try {
+    const exe = findBrowserExe()
+    if (!exe) return { success: false, error: '未找到 Chrome/Edge 浏览器' }
+    try {
+      const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(1500) })
+      if (r.ok) return { success: true, already: true, message: '浏览器已在调试模式' }
+    } catch {}
+    const { spawn } = require('child_process')
+    const proc = spawn(exe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--no-first-run', 'about:blank'], { detached: true, stdio: 'ignore' })
+    proc.unref(); boundProc = proc
+    for (let i = 0; i < 24; i++) {
+      try {
+        const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) })
+        if (r.ok) return { success: true }
+      } catch {}
+      await new Promise((r2) => setTimeout(r2, 500))
+    }
+    return { success: false, error: '启动超时（若 Chrome 已在运行请先完全关闭再试）' }
+  } catch (e) { return { success: false, error: e.message } }
 })
 
 // 2026-08-21: CDP 发布通道（P0-2）——复用 OpenCLI 官方 API 流程（page.evaluate 浏览器内 fetch，a_bogus 自动）
