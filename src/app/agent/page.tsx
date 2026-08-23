@@ -468,6 +468,7 @@ export default function AgentPage() {
 
   useEffect(() => {
     if (!user || historyLoaded) return
+    if (sessionStorage.getItem('agent-fresh-day')) { setHistoryLoaded(true); sessionStorage.removeItem('agent-fresh-day'); return }  // 跨天新会话：不恢复昨天历史
     ;(async () => {
       try {
         // 用现有接口：先取最近会话列表 → 再取该会话消息
@@ -1513,6 +1514,7 @@ export default function AgentPage() {
       if (last && last !== today) {
         setMessages([])
         setSessionId(null)
+        sessionStorage.setItem('agent-fresh-day', '1')  // 2026-08-23: 跨天标记——本次开客户端不恢复昨天会话（真新会话，显示推荐/热点/提示词）
         setRecordingTip('新的一天开始了，已为你开启新会话（昨天的对话在日历里可回档）')
       }
       localStorage.setItem('agent-last-date', today)

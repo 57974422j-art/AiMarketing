@@ -928,7 +928,23 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     // ── 一键成片进度查询（AGENT 不主动发起一键成片，仅当用户从一键成片页带参数回来问进度时查询）──
     case 'query_video_task': {
       const taskId = args.taskId
-      if (!taskId) return '缺少 taskId'
+      if (!taskId) {
+        // 2026-08-23: 用户问"最近任务进度"无 ID——查最近 5 条生成任务返回状态
+        try {
+          const recent = await prisma.videoTask.findMany({
+            where: { userId: auth?.userId },
+            orderBy: { createdAt: 'desc' }, take: 5,
+            select: { id: true, status: true, videoUrl: true, createdAt: true },
+          })
+          if (recent.length) {
+            const lines = recent.map((t, i) => `${i + 1}. 任务#${t.id} 状态:${t.status || '处理中'}${t.videoUrl ? ' ✅已完成' : ''}`)
+            return `VIDEO_PROGRESS:最近 ${recent.length} 个生成任务：
+${lines.join('
+')}`
+          }
+          return 'VIDEO_PROGRESS:暂无生成任务（可让我"生成一段视频"开始）'
+        } catch { return 'VIDEO_PROGRESS:任务查询失败' }
+      }
       try {
         const r = await queryVideoTask(taskId)
         if (!r) return `VIDEO_PROGRESS:查询失败|TASK:${taskId}`
