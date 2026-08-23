@@ -10,7 +10,7 @@ type HotItem = { title: string; hot?: string; url?: string }
 type HotSource = { source: string; region: 'cn' | 'global'; items: HotItem[] }
 
 // 主源：免 key 聚合（hot-api.vhan.eu.org/v2?type=all，一次拿全部榜单）——2026-08-11：vvhan 官方接口已失效，彻底清除
-const CN_SOURCES = ['微博', '抖音', '知乎', '小红书', '今日头条', '百度热搜']
+const CN_SOURCES = ['微博', '抖音', '知乎', '小红书', '今日头条', '百度热搜', 'B站', '快手', '36氪', '网易', '虎扑']
 
 // 内置兜底热点：当免 key 源 / tophub 全部拉取失败时返回
 const FALLBACK: Record<string, HotItem[]> = {
@@ -57,6 +57,33 @@ const FALLBACK: Record<string, HotItem[]> = {
     { title: '夏季避暑游热度攀升', hot: '312万' },
     { title: 'AI 写作工具使用规范出台', hot: '276万' },
   ],
+  B站: [
+    { title: 'AI 绘画登上百大UP主年度盘点', hot: '452万' },
+    { title: '硬核拆解国产大模型训练成本', hot: '331万' },
+    { title: '非遗技艺在B站找到新观众', hot: '287万' },
+  ],
+  快手: [
+    { title: '老铁直播间助农卖出百万单', hot: '398万' },
+    { title: '乡村篮球赛火了', hot: '312万' },
+    { title: '手艺人在快手的一天', hot: '276万' },
+  ],
+  36氪: [
+    { title: 'AI Agent 赛道融资盘点', hot: '23万阅读' },
+    { title: '新能源车企第三季度财报解读', hot: '18万阅读' },
+    { title: '出海品牌如何做本地化', hot: '15万阅读' },
+  ],
+  网易: [
+    { title: '多地文旅消费券发放', hot: '286万' },
+    { title: '国产游戏出海成绩亮眼', hot: '233万' },
+    { title: '人工智能落地新场景', hot: '198万' },
+  ],
+  虎扑: [
+    { title: 'CBA 新赛季揭幕战引热议', hot: '12万讨论' },
+    { title: '国足球迷心态变化', hot: '9万讨论' },
+    { title: '跑步装备测评哪家强', hot: '7万讨论' },
+  ],
+}
+
   微信: [
     { title: '公众号改版后阅读量回升', hot: '32万' },
     { title: '视频号本地生活成新风口', hot: '28万' },

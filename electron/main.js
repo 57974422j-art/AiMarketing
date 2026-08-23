@@ -190,11 +190,24 @@ function setupAutoPublish() {
             const accts = await getBrowserAccounts()
             const loggedIn = accts.some((a) => a.id === String(t.platform).toLowerCase() && a.loggedIn)
             if (!loggedIn) {
-              fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'failed', error: '浏览器未登录' + t.platform + '——客户端「🌐浏览器账号」一键启动 Chrome 登录后重试' }),
-              }).catch(() => {})
-              continue
+              // 2026-08-23: 发布先查登录——未登录 → 打开平台登录页（新 tab，仅一次）+ 任务留 pending，用户登录后下次轮询自动重试
+              try {
+                if (!global.__loginPrompted) global.__loginPrompted = {}
+                if (!global.__loginPrompted[t.id]) {
+                  global.__loginPrompted[t.id] = true
+                  const { chromium } = require('playwright')
+                  const b2 = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+                  const ctx2 = b2.contexts()[0]
+                  if (ctx2) {
+                    const LOGIN_URLS = { douyin: 'https://creator.douyin.com', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish', weibo: 'https://weibo.com' }
+                    const pg = await ctx2.newPage()
+                    await pg.goto(LOGIN_URLS[String(t.platform).toLowerCase()] || 'https://www.douyin.com', { waitUntil: 'domcontentloaded' }).catch(() => {})
+                    console.log('[AutoPublish] 平台未登录，已打开登录页:', t.platform, '任务#', t.id)
+                  }
+                  b2.close().catch(() => {})
+                }
+              } catch (e) { console.log('[AutoPublish] 打开登录页失败:', e.message) }
+              continue  // 留 pending，等用户登录后自动重试
             }
             // 已登录 → CDP 发布（抖音完整 API 流程；小红书/微博开发中——暂提示手动）
             fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
