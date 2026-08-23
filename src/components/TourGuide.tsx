@@ -5,9 +5,9 @@ import { useEffect, useState } from 'react'
 // 读取 sessionStorage 'tour-step'（1-4）；无则返回 null（正常页面）
 const TOUR_STEPS = [
   { step: 1, name: '📦 素材库', path: '/storage', desc: '这是你的个人仓库：上传视频/图片，AI 成片和发布都用这里的素材。' },
-  { step: 2, name: '🎞 一键成片', path: '/auto-compile', desc: '选素材或 5 张演示图 → 免费模式 → 自动配音字幕 BGM。看右上角「一键合成」按钮，点了就出片（演示不执行）。' },
-  { step: 3, name: '🖼 AI 生图', path: '/image-generator', desc: '输入描述或选演示图 → 点「生成」出海报（12 点/张，演示不执行）。' },
-  { step: 4, name: '🎬 AI 视频', path: '/text-to-video', desc: '一句话描述 → 点「生成」出视频（按秒计费，演示不执行）。' },
+  { step: 2, name: '🎞 一键成片', path: '/auto-compile', desc: '选素材或 5 张演示图 → 免费模式 → 自动配音字幕 BGM。看右上角「一键合成」按钮，点了就出片。' },
+  { step: 3, name: '🖼 AI 生图', path: '/image-generator', desc: '输入描述或选演示图 → 点「生成」出海报（12 点/张）。' },
+  { step: 4, name: '🎬 AI 视频', path: '/text-to-video', desc: '一句话描述 → 点「生成」出视频（按秒计费）。' },
 ]
 
 export default function TourGuide() {
@@ -35,7 +35,7 @@ export default function TourGuide() {
         window.speechSynthesis.speak(u)
       } catch {}
     }
-    const t = setTimeout(say, 600)
+    const t = setTimeout(say, 1400)  // 切换页面后读（等页面加载完成）
     return () => { clearTimeout(t); try { window.speechSynthesis.cancel() } catch {} }
   }, [show, step])
 
@@ -49,7 +49,7 @@ export default function TourGuide() {
         sessionStorage.removeItem('tour-step')
         window.location.href = '/'
       }
-    }, 6500)  // 语音播报完再跳（5 秒播放 + 1.5 秒余量）
+    }, 15000)  // 2026-08-23: 每页 15 秒（用户要求节奏放慢），语音播完停留展示
     return () => clearTimeout(timer)
   }, [show, step])
 
@@ -60,7 +60,7 @@ export default function TourGuide() {
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[200] w-[420px] max-w-[92vw] rounded-2xl border border-amber-500/40 bg-[#0d0d14]/95 backdrop-blur-xl shadow-2xl p-4 pointer-events-none">
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px] font-semibold text-amber-300">{cur.name}</span>
-        <span className="text-[9px] text-gray-500">引导 {step}/4 · 5 秒后自动下一步</span>
+        <span className="text-[9px] text-gray-500">引导 {step}/4 · 15 秒后自动下一步</span>
       </div>
       <p className="text-[11px] text-gray-200 leading-relaxed mb-3">{cur.desc}</p>
       <div className="flex gap-1">
