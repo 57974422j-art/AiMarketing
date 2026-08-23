@@ -179,55 +179,72 @@ function setupAutoPublish() {
         if (fpWindow && !fpWindow.isDestroyed()) { try { fpWindow.close() } catch {} fpWindow = null }
         return
       }
-      // 2026-08-23: 个人号平台（抖音/小红书/微博）走 CDP 浏览器发布（自实现，不依赖 OpenCLI 命令）；
-      // 浏览器未绑定/未登录时任务标记 failed 提示（客户端「🌐浏览器账号」可一键启动 Chrome 检测登录）
-      const cdpPlatforms = ['douyin', 'xiaohongshu', 'weibo']
-      const cdpTasks = d.data.filter((t) => cdpPlatforms.includes(String(t.platform || '').toLowerCase()))
-      if (cdpTasks.length) {
-        console.log('[AutoPublish] CDP 通道任务:', cdpTasks.length, '个（抖音/小红书/微博——需浏览器已登录）')
-        for (const t of cdpTasks.slice(0, 3)) {
-          try {
-            const accts = await getBrowserAccounts()
-            const loggedIn = accts.some((a) => a.id === String(t.platform).toLowerCase() && a.loggedIn)
-            if (!loggedIn) {
-              // 2026-08-23: 发布先查登录——未登录 → 打开平台登录页（新 tab，仅一次）+ 任务留 pending，用户登录后下次轮询自动重试
-              try {
-                if (!global.__loginPrompted) global.__loginPrompted = {}
-                if (!global.__loginPrompted[t.id]) {
-                  global.__loginPrompted[t.id] = true
-                  const { chromium } = require('playwright')
-                  const b2 = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
-                  const ctx2 = b2.contexts()[0]
-                  if (ctx2) {
-                    const LOGIN_URLS = { douyin: 'https://creator.douyin.com', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish', weibo: 'https://weibo.com' }
-                    const pg = await ctx2.newPage()
-                    await pg.goto(LOGIN_URLS[String(t.platform).toLowerCase()] || 'https://www.douyin.com', { waitUntil: 'domcontentloaded' }).catch(() => {})
-                    console.log('[AutoPublish] 平台未登录，已打开登录页:', t.platform, '任务#', t.id)
-                  }
-                  b2.close().catch(() => {})
-                }
-              } catch (e) { console.log('[AutoPublish] 打开登录页失败:', e.message) }
-              continue  // 留 pending，等用户登录后自动重试
+      // 2026-08-23: 发布兜底——看到发布任务就立刻检查账号+浏览器：未登录 → 直开平台登录页（新tab一次）+留pending；已登录 → 3平台CDP发布，其余提示手动
+      const cdpPublish = ['douyin', 'xiaohongshu', 'weibo']
+      const LOGIN_URLS = {
+        douyin: 'https://creator.douyin.com', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish',
+        weibo: 'https://weibo.com', bilibili: 'https://www.bilibili.com', kuaishou: 'https://cp.kuaishou.com',
+        shipinhao: 'https://channels.weixin.qq.com/platform/post/create', twitter: 'https://x.com',
+        jike: 'https://web.okjike.com', xianyu: 'https://www.goofish.com', instagram: 'https://www.instagram.com',
+      }
+      const tasks = d.data.slice(0, 5)
+      for (const t of tasks) {
+        const plat = String(t.platform || '').toLowerCase()
+        try {
+          const accts = await getBrowserAccounts()
+          const loggedIn = accts.some((a) => a.id === plat && a.loggedIn)
+          if (!loggedIn) {
+            // 未登录 → 打开平台登录页（仅一次）+ 任务留 pending，登录后自动重试
+            if (!global.__loginPrompted) global.__loginPrompted = {}
+            if (!global.__loginPrompted[t.id]) {
+              global.__loginPrompted[t.id] = true
+              const { chromium } = require('playwright')
+              const b2 = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+              const ctx2 = b2.contexts()[0]
+              if (ctx2) {
+                const pg = await ctx2.newPage()
+                await pg.goto(LOGIN_URLS[plat] || 'https://www.google.com', { waitUntil: 'domcontentloaded' }).catch(() => {})
+                console.log('[AutoPublish] 平台未登录，已直开登录页:', plat, '任务#', t.id)
+              }
+              b2.close().catch(() => {})
             }
-            // 已登录 → CDP 发布（抖音完整 API 流程；小红书/微博开发中——暂提示手动）
+            continue  // 留 pending，等用户登录后自动重试
+          }
+          // 已登录：CDP 3 平台真发布（publishXxx），其余提示手动
+          if (!cdpPublish.includes(plat)) {
             fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ status: 'failed', error: 'CDP 发布' + t.platform + '通道开发中（抖音已完成），请用客户端发布' }),
+              body: JSON.stringify({ status: 'failed', error: '浏览器已登录' + (t.platform || '') + '，但该平台自动发布通道未开通——请到浏览器手动发布' }),
             }).catch(() => {})
-          } catch (e) { console.log('[AutoPublish] CDP 任务处理异常:', e.message) }
-        }
+            continue
+          }
+          // 3 平台已登录 → 执行 CDP 发布
+          const { chromium } = require('playwright')
+          const b3 = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+          const ctx3 = b3.contexts()[0]
+          if (ctx3) {
+            const page = ctx3.pages().find((p2) => p2.url().includes(plat)) || await ctx3.newPage()
+            let r = { success: false, error: '未知平台' }
+            try {
+              if (plat === 'weibo') r = await publishWeibo(page, { text: t.title || t.description || '' })
+              else if (plat === 'xiaohongshu') {
+                r = await publishXhsImages(page, { images: [], title: t.title || '', desc: t.description || '' })
+              } else {
+                r = { success: false, error: '抖音 CDP 发布需在客户端页面触发（自动通道完善中）' }
+              }
+            } catch (e) { r = { success: false, error: e.message } }
+            const status = r && r.success ? 'succeeded' : 'failed'
+            const error = r && !r.success ? (r.error || '发布失败') : undefined
+            const body = { status }
+            if (error) body.error = error
+            fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+            }).catch(() => {})
+            console.log('[AutoPublish]', plat, '任务#', t.id, status, error || '')
+          }
+          b3.close().catch(() => {})
+        } catch (e) { console.log('[AutoPublish] 任务处理异常:', e.message) }
       }
-      // 非 CDP 平台（快手/视频号/B站等）→ 暂不支持自动发布，回传 failed 提示
-      const fpTasks = d.data.filter((t) => !cdpPlatforms.includes(String(t.platform || '').toLowerCase()))
-      for (const t of fpTasks) {
-        try {
-          fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'failed', error: '该平台（' + (t.platform || '未知') + '）暂不支持自动发布——请到指纹浏览器页手动发布' }),
-          }).catch(() => {})
-        } catch {}
-      }
-      if (fpTasks.length) { console.log('[AutoPublish] 非 OpenCLI 平台任务已标记失败:', fpTasks.map((t) => t.platform).join(',')) }
       return
     } catch (e) { /* 静默：网络/未登录等 */ }
   }
