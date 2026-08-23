@@ -1545,6 +1545,123 @@ async function publishXhsImages(page, payload) {
   return { success: true, message: '小红书图文已发布（已确认）' }
 }
 
+
+// 2026-08-23: 视频号发布（参考 opencli：wujie shadow DOM，deepQuery 处理）
+async function publishShipinhao(page, payload) {
+  const videoPath = payload && payload.videoPath
+  const title = (payload && payload.title) || ''
+  const desc = (payload && payload.desc) || ''
+  if (!videoPath || !fs.existsSync(videoPath)) return { success: false, error: '视频文件不存在: ' + videoPath }
+  await page.goto('https://channels.weixin.qq.com/platform/post/create', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
+  await page.waitForTimeout(3000)
+  if (!page.url().includes('channels.weixin.qq.com')) return { success: false, error: '请先登录视频号助手（浏览器中）', needLogin: true, platform: 'shipinhao' }
+  // 上传视频（shadow DOM 穿透查找 file input）
+  const upSel = await page.evaluate(() => {
+    const deepQ = (sel) => {
+      const el = document.querySelector(sel); if (el) return el
+      for (const sr of document.querySelectorAll('*')) { if (sr.shadowRoot) { const f = sr.shadowRoot.querySelector(sel); if (f) return f } }
+      return null
+    }
+    const vis = (el) => !!el && el.offsetParent !== null
+    const inp = deepQ('input[type="file"]')
+    if (!inp) return ''
+    inp.setAttribute('data-wxsp', '1')
+    return 'input[data-wxsp="1"]'
+  })
+  if (!upSel) return { success: false, error: '未找到视频号上传入口（页面结构可能变化）' }
+  await page.setInputFiles(upSel, videoPath)
+  // 等上传+转码（轮询"上传/转码"文字消失，最多 60s）
+  let upOk = false
+  for (let i = 0; i < 60; i++) {
+    await page.waitForTimeout(1000)
+    const st = await page.evaluate(() => {
+      const t = (document.body.innerText || '').slice(0, 600)
+      return { busy: /上传中|转码中|处理中|%/.test(t) && !/上传失败/.test(t), err: /上传失败|格式不支持|文件过大/.test(t) }
+    })
+    if (st.err) return { success: false, error: '视频号上传失败（浏览器可见错误）' }
+    if (!st.busy && i > 5) { upOk = true; break }
+  }
+  if (!upOk) return { success: false, error: '视频号上传超时' }
+  // 填标题（主要内容）+ 描述（shadow DOM）
+  if (title || desc) {
+    await page.evaluate(({ t, d }) => {
+      const deepAll = (sel) => {
+        const out = [...document.querySelectorAll(sel)]
+        for (const sr of document.querySelectorAll('*')) { if (sr.shadowRoot) out.push(...sr.shadowRoot.querySelectorAll(sel)) }
+        return out
+      }
+      const setVal = (el, v) => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set; if (set) set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })) }
+      if (t) { const inp = deepAll('input').find(e => e.offsetParent !== null); if (inp) setVal(inp, t) }
+      if (d) { const ed = deepAll('[contenteditable="true"]').find(e => e.offsetParent !== null); if (ed) { ed.focus(); document.execCommand('insertText', false, d) } }
+    }, { t: title, d: desc })
+  }
+  // 点发布
+  await page.waitForTimeout(1500)
+  const sent = await page.evaluate(() => {
+    const vis = (el) => !!el && el.offsetParent !== null && !el.disabled
+    for (const el of document.querySelectorAll('*')) { if (el.shadowRoot) { const b = [...el.shadowRoot.querySelectorAll('button')].find(x => vis(x) && /发表|发布/.test(x.innerText || '')); if (b) { b.click(); return true } } }
+    for (const btn of document.querySelectorAll('button')) { if (vis(btn) && (/^(发表|发布)$/.test((btn.innerText || '').trim()))) { btn.click(); return true } }
+    return false
+  })
+  if (!sent) return { success: false, error: '未找到「发表/发布」按钮（可能上传未完成）' }
+  // 轮询确认
+  let confirmed = false
+  for (let i = 0; i < 30; i++) {
+    await page.waitForTimeout(500)
+    const st = await page.evaluate(() => {
+      const t = (document.body.innerText || '').slice(0, 800)
+      return { ok: /已发表|发布成功|发表成功|审核中/.test(t), err: /发布失败|发表失败|违规|请登录|操作频繁/.test(t) }
+    })
+    if (st.ok) { confirmed = true; break }
+    if (st.err) break
+  }
+  if (!confirmed) return { success: false, error: '视频号发布结果未确认（请到浏览器查看——请勿告知用户已发布）' }
+  return { success: true, message: '视频号已发布（已确认）' }
+}
+
+// 2026-08-23: X(Twitter) 发推（参考 opencli post.js：compose 页 + 内容 + 可选图 + 提交）
+async function publishTwitter(page, payload) {
+  const text = String(payload && payload.text || payload && payload.title || '').trim()
+  if (!text) return { success: false, error: '推文内容为空' }
+  await page.goto('https://x.com/compose/post', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+  await page.waitForTimeout(2500)
+  if (!/x\.com|twitter\.com/.test(page.url())) return { success: false, error: '请先登录 X（浏览器中）', needLogin: true, platform: 'twitter' }
+  // 输入内容（contenteditable）
+  const typed = await page.evaluate((t) => {
+    const el = [...document.querySelectorAll('[contenteditable="true"]')].find(e => e.offsetParent !== null)
+    if (!el) return false
+    el.focus()
+    document.execCommand('insertText', false, t)
+    return true
+  }, text)
+  if (!typed) return { success: false, error: '未找到推文输入框' }
+  // 可选图片
+  const images = (payload && payload.images) || []
+  if (images.length) {
+    const ok = await page.evaluate(() => { const inp = document.querySelector('input[data-testid="fileInput"]'); if (inp) { inp.setAttribute('data-x-f', '1'); return true } return false })
+    if (!ok) return { success: false, error: '未找到 X 图片上传入口' }
+    await page.setInputFiles('input[data-x-f="1"]', images)
+    await page.waitForTimeout(3000)
+  }
+  // 提交（发帖按钮）
+  await page.waitForTimeout(800)
+  const sent = await page.evaluate(() => {
+    const vis = (el) => !!el && el.offsetParent !== null && !el.disabled
+    for (const btn of document.querySelectorAll('button[data-testid="tweetButton"], button[data-testid="tweetButtonInline"]')) { if (vis(btn)) { btn.click(); return true } }
+    for (const btn of document.querySelectorAll('button')) { if (vis(btn) && /^Post$|发布/.test((btn.innerText || '').trim())) { btn.click(); return true } }
+    return false
+  })
+  if (!sent) return { success: false, error: '未找到「发帖」按钮' }
+  // 轮询确认（compose 页关闭）
+  let confirmed = false
+  for (let i = 0; i < 24; i++) {
+    await page.waitForTimeout(500)
+    if (!page.url().includes('/compose/post')) { confirmed = true; break }
+  }
+  if (!confirmed) return { success: false, error: 'X 发布结果未确认（请到浏览器查看——请勿告知用户已发布）' }
+  return { success: true, message: 'X 已发布（已确认）' }
+}
+
 async function publishWeibo(page, payload) {
   try {
     const text = String(payload && payload.text || payload && payload.title || '').trim()
@@ -1629,6 +1746,26 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
       if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
       const page = ctx.pages().find((p2) => p2.url().includes('weibo.com')) || await ctx.newPage()
       return await publishWeibo(page, payload)
+    } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
+  }
+  if (platform === 'shipinhao') {
+    const { chromium } = require('playwright')
+    try {
+      const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+      const ctx = browser.contexts()[0]
+      if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
+      const page = ctx.pages().find((p2) => p2.url().includes('channels.weixin.qq.com')) || await ctx.newPage()
+      return await publishShipinhao(page, payload)
+    } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
+  }
+  if (platform === 'twitter') {
+    const { chromium } = require('playwright')
+    try {
+      const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+      const ctx = browser.contexts()[0]
+      if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
+      const page = ctx.pages().find((p2) => /x\.com|twitter\.com/.test(p2.url())) || await ctx.newPage()
+      return await publishTwitter(page, payload)
     } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
   }
   if (platform === 'xiaohongshu') {
