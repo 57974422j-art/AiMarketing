@@ -1461,6 +1461,9 @@ export default function AgentPage() {
         }
       } catch {}
       // 2026-08-22: 无画像 → 自动打开设置引导（填昵称+行业），不再只发欢迎词
+      // 2026-08-23: 仅首次登录弹一次（localStorage 标记），之后开客户端不再自动弹（🎓引导按钮可手动重看）
+      const guideDone = localStorage.getItem(`aim_guide_done_${user?.id || 'guest'}`)
+      if (guideDone) return
       setGuideStep(1)
       setShowPrefs(true)
       setTimeout(() => { try { voice?.speak('你好！我是你的 AI 助手。先给我起个名字吧，在设置里输入后点保存。') } catch {} }, 800)
@@ -2004,7 +2007,7 @@ export default function AgentPage() {
 
             <div className="flex gap-2">
               <button onClick={() => { setGuideStep(0); setShowPrefs(false); }} className="flex-1 rounded-lg bg-white/[0.06] py-2 text-[11px] text-gray-400 hover:bg-white/10 transition">取消</button>
-              <button onClick={() => { savePrefs(); if (guideStep === 2) { setGuideStep(0); setShowPrefs(false); setGuideTour(true); try { voice?.speak('设置完成！带你认识几个常用功能：一键成片、AI生图、AI视频、素材库。看完点开始体验。') } catch {} } }}
+              <button onClick={() => { savePrefs(); localStorage.setItem(`aim_guide_done_${user?.id || 'guest'}`, '1'); if (guideStep === 2) { setGuideStep(0); setShowPrefs(false); setGuideTour(true); try { voice?.speak('设置完成！带你认识几个常用功能：一键成片、AI生图、AI视频、素材库。看完点开始体验。') } catch {} } }}
                 disabled={savingPrefs}
                 className="flex-1 rounded-lg bg-emerald-500/20 py-2 text-[11px] text-emerald-300 hover:bg-emerald-500/30 transition">{savingPrefs ? '保存中…' : '保存'}</button>
             </div>
