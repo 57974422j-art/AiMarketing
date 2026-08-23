@@ -230,9 +230,23 @@ function setupAutoPublish() {
               else if (plat === 'xiaohongshu') {
                 r = await publishXhsImages(page, { images: [], title: t.title || '', desc: t.description || '' })
               } else if (plat === 'douyin') {
-                // 抖音：opencli 方式（官方 API）——需视频本地路径（任务 videoPath 字段；无则提示）
-                const vp = t.videoPath || t.localVideoPath || ''
-                if (!vp) { r = { success: false, error: '抖音自动发布需视频本地路径（任务缺 videoPath）——请从客户端选择视频后发布' } }
+                // 抖音：opencli 方式（官方 API）——videoPath 本地优先；无则从仓库下载（签名 URL → %TEMP%）再发
+                let vp = t.videoPath || t.localVideoPath || ''
+                if (!vp && t.id) {
+                  try {
+                    const dl = await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/download-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(20000) }).then((r2) => r2.json())
+                    if (dl && dl.success && dl.url) {
+                      const tmpDir = require('os').tmpdir()
+                      const localName = 'aim-v-' + t.id + '-' + Date.now() + '.mp4'
+                      const dest = require('path').join(tmpDir, localName)
+                      const buf = Buffer.from(await (await fetch(dl.url, { signal: AbortSignal.timeout(120000) })).arrayBuffer())
+                      require('fs').writeFileSync(dest, buf)
+                      vp = dest
+                      console.log('[AutoPublish] 仓库视频已下载到本地:', dest, buf.length, '字节')
+                    }
+                  } catch (e) { console.log('[AutoPublish] 视频下载失败:', e.message) }
+                }
+                if (!vp) { r = { success: false, error: '视频获取失败（本地路径/仓库下载均不可用）' } }
                 else { r = await publishDouyinViaCDP({ videoPath: vp, title: t.title || '', caption: t.description || '' }) }
               } else {
                 r = { success: false, error: '未知平台' }
