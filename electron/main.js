@@ -1662,6 +1662,50 @@ async function publishTwitter(page, payload) {
   return { success: true, message: 'X 已发布（已确认）' }
 }
 
+
+// 2026-08-23: 即刻发布（web.okjike.com 首页内联发帖框 → 输入 → 发送）
+async function publishJike(page, payload) {
+  const text = String(payload && payload.text || payload && payload.title || '').trim()
+  if (!text) return { success: false, error: '动态内容为空' }
+  await page.goto('https://web.okjike.com', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+  await page.waitForTimeout(2500)
+  if (!page.url().includes('okjike.com')) return { success: false, error: '请先登录即刻（浏览器中）', needLogin: true, platform: 'jike' }
+  // 发帖框（_postForm_ 容器 contenteditable）
+  const typed = await page.evaluate((t) => {
+    const form = document.querySelector('[class*="_postForm_"]')
+    const el = (form ? form.querySelector('[contenteditable="true"]') : null) || document.querySelector('[contenteditable="true"]')
+    if (!el) return false
+    el.focus()
+    document.execCommand('insertText', false, t)
+    return true
+  }, text)
+  if (!typed) return { success: false, error: '未找到即刻发帖输入框' }
+  // 点"发送"
+  await page.waitForTimeout(800)
+  const sent = await page.evaluate(() => {
+    const vis = (el) => !!el && el.offsetParent !== null && !el.disabled
+    for (const btn of document.querySelectorAll('button, [role="button"]')) {
+      if (((btn.innerText || btn.textContent || '').trim() === '发送') && vis(btn)) { btn.click(); return true }
+    }
+    return false
+  })
+  if (!sent) return { success: false, error: '未找到「发送」按钮' }
+  // 轮询确认（发帖框清空/成功）
+  let confirmed = false
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(500)
+    const st = await page.evaluate(() => {
+      const t = (document.body.innerText || '').slice(0, 500)
+      const form = document.querySelector('[class*="_postForm_"]')
+      const el = form ? form.querySelector('[contenteditable="true"]') : null
+      return { ok: /发布成功|发送成功/.test(t) || (el && (el.innerText || '').trim() === '' && i > 2) }
+    })
+    if (st.ok) { confirmed = true; break }
+  }
+  if (!confirmed) return { success: false, error: '即刻发布结果未确认（请到浏览器查看——请勿告知用户已发布）' }
+  return { success: true, message: '即刻动态已发布（已确认）' }
+}
+
 async function publishWeibo(page, payload) {
   try {
     const text = String(payload && payload.text || payload && payload.title || '').trim()
@@ -1746,6 +1790,16 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
       if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
       const page = ctx.pages().find((p2) => p2.url().includes('weibo.com')) || await ctx.newPage()
       return await publishWeibo(page, payload)
+    } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
+  }
+  if (platform === 'jike') {
+    const { chromium } = require('playwright')
+    try {
+      const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+      const ctx = browser.contexts()[0]
+      if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
+      const page = ctx.pages().find((p2) => p2.url().includes('okjike.com')) || await ctx.newPage()
+      return await publishJike(page, payload)
     } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
   }
   if (platform === 'shipinhao') {
