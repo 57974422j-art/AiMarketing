@@ -1706,6 +1706,63 @@ async function publishJike(page, payload) {
   return { success: true, message: '即刻动态已发布（已确认）' }
 }
 
+
+// 2026-08-23: 闲鱼发布（goofish.com/publish 商品发布：标题/描述/价格/传图 → 发布 → 确认）
+async function publishXianyu(page, payload) {
+  const title = String(payload && payload.title || '').trim()
+  const desc = String(payload && payload.desc || payload && payload.caption || '').trim()
+  const price = String(payload && payload.price || '1').trim()
+  const images = (payload && payload.images) || []
+  if (!title) return { success: false, error: '商品标题为空' }
+  await page.goto('https://www.goofish.com/publish', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
+  await page.waitForTimeout(3000)
+  if (!page.url().includes('goofish.com')) return { success: false, error: '请先登录闲鱼（浏览器中）', needLogin: true, platform: 'xianyu' }
+  // 填标题/描述/价格
+  await page.evaluate(({ t, d, pr }) => {
+    const setV = (el, v) => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set || Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+      if (set) { el.focus(); set.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })) }
+    }
+    const vis = (el) => !!el && el.offsetParent !== null
+    const ti = document.querySelector('input[id*="title"], input[placeholder*="标题"], [class*="titleInput"]')
+    if (ti && vis(ti)) setV(ti, t)
+    if (d) { const di = document.querySelector('textarea[id*="desc"], textarea[id*="description"], [class*="descInput"]'); if (di && vis(di)) setV(di, d) }
+    const pi = document.querySelector('input[id*="price"], input[placeholder*="价"], input[class*="price"]')
+    if (pi && vis(pi)) setV(pi, pr)
+  }, { t: title, d: desc, pr: price })
+  // 传图
+  if (images.length) {
+    const ok = await page.evaluate(() => { const inp = document.querySelector('input[type="file"]'); if (inp) { inp.setAttribute('data-goofish', '1'); return true } return false })
+    if (!ok) return { success: false, error: '未找到闲鱼图片上传入口' }
+    await page.setInputFiles('input[data-goofish="1"]', images)
+    await page.waitForTimeout(5000)
+  }
+  // 点发布
+  await page.waitForTimeout(1500)
+  const sent = await page.evaluate(() => {
+    const vis = (el) => !!el && el.offsetParent !== null && !el.disabled
+    const clean = (v) => String(v || '').replace(/\s+/g, ' ').trim()
+    const btn = [...document.querySelectorAll('button')].find(b => vis(b) && /发布|提交|上架|确认/.test(clean(b.textContent || '')) && !/取消/.test(clean(b.textContent || '')))
+    if (btn) { btn.click(); return true }
+    return false
+  })
+  if (!sent) return { success: false, error: '未找到「发布/上架」按钮' }
+  // 轮询确认（URL 变商品详情 /item?id= 或 发布成功）
+  let confirmed = false
+  for (let i = 0; i < 30; i++) {
+    await page.waitForTimeout(500)
+    const st = await page.evaluate(() => {
+      const t = (document.body.innerText || '').slice(0, 800)
+      const u = location.href || ''
+      return { ok: /item\?id=\d+/.test(u) || /发布成功|上架成功|发布完成/.test(t), err: /发布失败|上架失败|请重新登录|操作频繁/.test(t) }
+    })
+    if (st.ok) { confirmed = true; break }
+    if (st.err) break
+  }
+  if (!confirmed) return { success: false, error: '闲鱼发布结果未确认（请到浏览器查看——请勿告知用户已发布）' }
+  return { success: true, message: '闲鱼已发布（已确认）' }
+}
+
 async function publishWeibo(page, payload) {
   try {
     const text = String(payload && payload.text || payload && payload.title || '').trim()
@@ -1790,6 +1847,16 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
       if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
       const page = ctx.pages().find((p2) => p2.url().includes('weibo.com')) || await ctx.newPage()
       return await publishWeibo(page, payload)
+    } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
+  }
+  if (platform === 'xianyu') {
+    const { chromium } = require('playwright')
+    try {
+      const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+      const ctx = browser.contexts()[0]
+      if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
+      const page = ctx.pages().find((p2) => p2.url().includes('goofish.com')) || await ctx.newPage()
+      return await publishXianyu(page, payload)
     } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
   }
   if (platform === 'jike') {
