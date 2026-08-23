@@ -58,7 +58,7 @@ export default function PromptLibraryDialog({ open, onClose, onSelect, mode = 'p
         const r = await fetch(`/api/media-library?source=public&type=${mode}&limit=${PAGE}&offset=${pg * PAGE}`, { credentials: 'include' })
         const d = await r.json()
         if (seq !== reqSeq.current) return
-        const rows: MediaItem[] = d?.data?.list || d?.data?.data || []
+        const rows: MediaItem[] = Array.isArray(d?.data) ? d.data : []
         setMediaList(prev => append ? [...prev, ...rows] : rows)
         setTotal(d?.data?.total || rows.length || 0)
         return
@@ -101,7 +101,7 @@ export default function PromptLibraryDialog({ open, onClose, onSelect, mode = 'p
         <div className="w-[200px] shrink-0 border-r border-white/10 p-4 overflow-y-auto">
           <div className="text-xs text-gray-400 mb-2">数据源 / SOURCE</div>
           <div className="text-[10px] text-gray-500 leading-relaxed">
-            {mode === 'video' ? '🎬 公共视频素材库（{total} 条）——每条自带 AI 提示词，点击填入生成框' : '🖼 公共图片素材库（{total} 条）——点击填入提示词'}
+            {mode === 'video' ? `🎬 公共视频素材库（${total} 条）——每条自带 AI 提示词，点击填入生成框` : `🖼 公共图片素材库（${total} 条）——点击填入提示词`}
             <div className="mt-3 pt-3 border-t border-white/10 text-gray-600">素材来自公共资源，可作参考</div>
           </div>
         </div>
