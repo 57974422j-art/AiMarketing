@@ -937,10 +937,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             select: { id: true, status: true, videoUrl: true, createdAt: true },
           })
           if (recent.length) {
-            const lines = recent.map((t, i) => `${i + 1}. 任务#${t.id} 状态:${t.status || '处理中'}${t.videoUrl ? ' ✅已完成' : ''}`)
-            return `VIDEO_PROGRESS:最近 ${recent.length} 个生成任务：
-${lines.join('
-')}`
+            const lines = recent.map((t, i) => i + 1 + '. 任务#' + t.id + ' 状态:' + (t.status || '处理中') + (t.videoUrl ? ' 已完成' : ''))
+            return 'VIDEO_PROGRESS:最近 ' + recent.length + ' 个生成任务： ' + lines.join(' | ')
           }
           return 'VIDEO_PROGRESS:暂无生成任务（可让我"生成一段视频"开始）'
         } catch { return 'VIDEO_PROGRESS:任务查询失败' }
