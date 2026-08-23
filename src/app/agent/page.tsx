@@ -2680,12 +2680,18 @@ export default function AgentPage() {
                   {browserAccts.map(a => (
                     <div key={a.id} className="flex items-center justify-between text-[10px]">
                       <span className="text-gray-400">{a.name}</span>
-                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] ${a.loggedIn ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/15 text-red-400'}`}>
+                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] ${a.loggedIn ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-gray-500'}`}>
                         {a.loggedIn ? '已登录' : '未登录'}
                       </span>
                     </div>
                   ))}
-                  {!browserAccts.length && <p className="text-[9px] text-gray-600">客户端绑定浏览器后显示（抖音/小红书/微博可自动发布）</p>}
+                  {browserNeedBind && (
+                    <button onClick={bindMyChrome} disabled={bindingMine}
+                      className="w-full mt-1.5 px-2 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[9px] text-emerald-300 hover:bg-emerald-500/25 transition disabled:opacity-50">
+                      {bindingMine ? '启动中…' : '🚀 一键启动我的 Chrome 检测登录态'}
+                    </button>
+                  )}
+                  {!browserNeedBind && !browserAccts.length && <p className="text-[9px] text-gray-600">点上方「🌐 浏览器账号」刷新检测</p>}
                 </div>
               )}
             </div>
