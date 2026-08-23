@@ -1456,6 +1456,95 @@ ipcMain.handle('browser:bind-mine', async () => {
 // 关键发现：OpenCLI douyin publish 是官方 API（vod-upload/tos-upload/create_v2），不是 DOM 点按钮；
 // browserFetch(page,...) 用浏览器上下文 fetch——我们的 CDP page 完全兼容（无扩展依赖）
 // 微博发布（P0-2，DOM UI 自动化——移植 OpenCLI weibo publish）
+
+// 2026-08-23: 小红书图文发布（参考 opencli publish.js：setInputFiles 上传图 → 标题/正文 → 发布 → 轮询确认）
+async function publishXhsImages(page, payload) {
+  const images = (payload && payload.images) || []
+  const title = (payload && payload.title) || ''
+  const desc = (payload && payload.desc) || (payload && payload.caption) || ''
+  if (!images.length || !images.every((p2) => fs.existsSync(p2))) return { success: false, error: '图片文件不存在' }
+  await page.goto('https://creator.xiaohongshu.com/publish/publish', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+  await page.waitForTimeout(2000)
+  if (!page.url().includes('xiaohongshu.com')) return { success: false, error: '请先登录小红书（浏览器中）', needLogin: true, platform: 'xiaohongshu' }
+  // 上传图片（accept image 的 file input）
+  const imgSel = await page.evaluate(() => {
+    const vis = (el) => !!el && el.offsetParent !== null
+    const inputs = [...document.querySelectorAll('input[type="file"]')].filter(inp => vis(inp))
+    const target = inputs.find(inp => (inp.getAttribute('accept') || '').toLowerCase().includes('image')) || inputs[0]
+    if (!target) return ''
+    target.setAttribute('data-xhs-img', '1')
+    return 'input[data-xhs-img="1"]'
+  })
+  if (!imgSel) return { success: false, error: '未找到小红书图片上传入口（页面结构可能变化）' }
+  await page.setInputFiles(imgSel, images)
+  // 等上传完成（轮询"上传中/进度"消失，最多 40s）
+  let uploadDone = false
+  for (let i = 0; i < 40; i++) {
+    await page.waitForTimeout(1000)
+    const st = await page.evaluate(() => {
+      const t = (document.body.innerText || '').slice(0, 800)
+      const uploading = /上传中|上传进度|%/.test(t) && /上传失败/.test(t) === false
+      return { uploading, err: /上传失败|图片格式不支持|图片过大/.test(t) }
+    })
+    if (st.err) return { success: false, error: '小红书图片上传失败（浏览器可见错误）' }
+    if (!st.uploading && i > 3) { uploadDone = true; break }
+  }
+  if (!uploadDone) return { success: false, error: '小红书图片上传超时' }
+  // 填标题
+  if (title) {
+    const ok = await page.evaluate((t) => {
+      for (const sel of ['input[placeholder*="标题"]', 'input[placeholder*="填写标题"]', '.note-title input', '.title-input input']) {
+        const el = document.querySelector(sel)
+        if (el && el.offsetParent !== null) {
+          const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+          if (set) set.call(el, t)
+          el.dispatchEvent(new Event('input', { bubbles: true }))
+          return true
+        }
+      }
+      return false
+    }, title)
+    if (!ok) return { success: false, error: '未找到小红书标题输入框' }
+  }
+  // 填正文
+  if (desc) {
+    await page.evaluate((d) => {
+      const el = [...document.querySelectorAll('[contenteditable="true"]')].filter(e => e.offsetParent !== null && !String(e.getAttribute('placeholder') || '').includes('标题'))[0]
+      if (el) { el.focus(); document.execCommand('insertText', false, d) }
+    }, desc)
+  }
+  // 点发布（xhs-publish-btn 或文字"发布"）
+  await page.waitForTimeout(1500)
+  const sent = await page.evaluate(() => {
+    const vis = (el) => !!el && el.offsetParent !== null && !el.disabled
+    for (const el of document.querySelectorAll('xhs-publish-btn')) { if (vis(el)) { el.click(); return 'btn' } }
+    for (const label of ['发布', '发布笔记']) {
+      for (const btn of document.querySelectorAll('button, [role="button"]')) {
+        if (((btn.innerText || btn.textContent || '').trim() === label) && vis(btn)) { btn.click(); return label }
+      }
+    }
+    return ''
+  })
+  if (!sent) return { success: false, error: '未找到「发布」按钮（可能上传未完成）' }
+  // 轮询确认（发布成功/上传成功/跳转）
+  let confirmed = false
+  for (let i = 0; i < 30; i++) {
+    await page.waitForTimeout(500)
+    const st = await page.evaluate(() => {
+      const t = (document.body.innerText || '').slice(0, 800)
+      return {
+        ok: /发布成功|上传成功|已发布|审核中/.test(t),
+        err: /发布失败|上传失败|违规|操作频繁|请重新登录|登录已过期/.test(t),
+        gone: !location.href.includes('/publish/publish'),
+      }
+    })
+    if (st.ok || st.gone) { confirmed = true; break }
+    if (st.err) break
+  }
+  if (!confirmed) return { success: false, error: '小红书发布结果未确认（请到浏览器查看——请勿告知用户已发布）' }
+  return { success: true, message: '小红书图文已发布（已确认）' }
+}
+
 async function publishWeibo(page, payload) {
   try {
     const text = String(payload && payload.text || payload && payload.title || '').trim()
@@ -1543,13 +1632,16 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
     } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
   }
   if (platform === 'xiaohongshu') {
-    // 小红书视频发布（P0-2，DOM——参考 opencli 图文选择器，target=video 上传视频）
+    // 小红书发布：图文（images 数组）或 视频（videoPath）——DOM，参考 opencli 选择器
     const { chromium } = require('playwright')
     try {
       const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
       const ctx = browser.contexts()[0]
       if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
       const page = ctx.pages().find((p2) => p2.url().includes('xiaohongshu.com')) || await ctx.newPage()
+      if (payload && payload.images && payload.images.length) {
+        return await publishXhsImages(page, payload)
+      }
       const videoPath = payload && payload.videoPath
       const title = (payload && payload.title) || ''
       const desc = (payload && payload.caption) || ''
