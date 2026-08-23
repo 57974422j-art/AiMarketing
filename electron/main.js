@@ -229,8 +229,13 @@ function setupAutoPublish() {
               if (plat === 'weibo') r = await publishWeibo(page, { text: t.title || t.description || '' })
               else if (plat === 'xiaohongshu') {
                 r = await publishXhsImages(page, { images: [], title: t.title || '', desc: t.description || '' })
+              } else if (plat === 'douyin') {
+                // 抖音：opencli 方式（官方 API）——需视频本地路径（任务 videoPath 字段；无则提示）
+                const vp = t.videoPath || t.localVideoPath || ''
+                if (!vp) { r = { success: false, error: '抖音自动发布需视频本地路径（任务缺 videoPath）——请从客户端选择视频后发布' } }
+                else { r = await publishDouyinViaCDP({ videoPath: vp, title: t.title || '', caption: t.description || '' }) }
               } else {
-                r = { success: false, error: '抖音 CDP 发布需在客户端页面触发（自动通道完善中）' }
+                r = { success: false, error: '未知平台' }
               }
             } catch (e) { r = { success: false, error: e.message } }
             const status = r && r.success ? 'succeeded' : 'failed'
@@ -1853,6 +1858,81 @@ async function publishWeibo(page, payload) {
   } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
 }
 
+async function publishDouyinViaCDP(payload) {
+  // 抖音发布（P0-2，复用 OpenCLI 官方 API 流程：vod-upload/tos-upload/create_v2，CDP page 内 fetch）
+  try {
+    const { chromium } = require('playwright')
+    const videoPath = payload && payload.videoPath
+    const title = (payload && payload.title) || ''
+    const caption = (payload && payload.caption) || ''
+    if (!videoPath || !fs.existsSync(videoPath)) return { success: false, error: '视频文件不存在: ' + videoPath }
+    const fileSize = fs.statSync(videoPath).size
+    if (title.length > 30) return { success: false, error: '标题不能超过 30 字' }
+    if (caption.length > 1000) return { success: false, error: '正文不能超过 1000 字' }
+
+    const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+    const ctx = browser.contexts()[0]
+    if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
+    let page = ctx.pages().find((p2) => p2.url().includes('creator.douyin.com'))
+    if (!page) { page = await ctx.newPage(); await page.goto('https://creator.douyin.com/creator-micro/content/upload', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {}) }
+    // 确保已在 creator.douyin.com（未登录会跳登录）
+    if (!page.url().includes('creator.douyin.com')) return { success: false, error: '请先登录抖音创作者平台（浏览器中）', needLogin: true, platform: 'douyin' }
+
+    // browserFetch：在浏览器上下文 fetch（cookie+a_bogus 自动）
+    const browserFetch = (method, url, options) => page.evaluate(({ m, u, o }) => {
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve({ status_code: -1, status_msg: 'timeout' }), 40000)
+        fetch(u, { method: m, credentials: 'include', headers: { 'Content-Type': 'application/json', ...(o.headers || {}) }, ...(o.body ? { body: JSON.stringify(o.body) } : {}) })
+          .then(r => r.text()).then(t => { clearTimeout(timer); try { resolve(JSON.parse(t)) } catch { resolve({ status_code: -2, status_msg: t.slice(0, 300) }) } })
+          .catch(e => { clearTimeout(timer); resolve({ status_code: -1, status_msg: String(e && e.message || e) }) })
+      })
+    }, { m: method, u: url, o: options })
+
+    // 复用 OpenCLI 官方上传流程（动态 import，绝对路径绕过 exports；打包需 asarUnpack @jackwener）
+    const { pathToFileURL } = require('url')
+    const base = pathToFileURL(path.join(String(app.getAppPath()).replace('.asar', '.asar.unpacked'), 'node_modules', '@jackwener', 'opencli', 'clis', 'douyin', '_shared')).href + '/'
+    const vod = await import(base + 'vod-upload.js')
+    const tosMod = await import(base + 'tos-upload.js')
+
+    // Phase 1-3: 上传鉴权 → 申请上传 → TOS 分片上传 → 提交
+    const credentials = await vod.getUploadAuthV5Credentials({ evaluate: (js) => page.evaluate(js) })
+    const tosUploadInfo = await vod.applyVideoUploadInner(fileSize, credentials)
+    await tosMod.tosUpload({ filePath: videoPath, uploadInfo: tosUploadInfo, credentials, onProgress: () => {} })
+    const committed = await vod.commitVideoUploadInner(tosUploadInfo, credentials)
+    const videoId = committed.video_id
+    if (!videoId) return { success: false, error: '上传提交失败: ' + JSON.stringify(committed).slice(0, 300) }
+    const coverUri = committed.poster_uri || ''
+    const coverWidth = committed.width || 720
+    const coverHeight = committed.height || 1280
+
+    // Phase 8: create_v2 发布（立即——timing=now；抖音 web 若仅支持定时会返回错误，届时提示）
+    const DEVICE = 'aid=1128&cookie_enabled=true&screen_width=1512&screen_height=982&browser_language=zh-CN&browser_platform=MacIntel&browser_name=Mozilla&browser_online=true&timezone_name=Asia%2FTokyo&support_h265=1'
+    const publishUrl = 'https://creator.douyin.com/web/api/media/aweme/create_v2/?read_aid=2906&' + DEVICE
+    const publishText = caption ? title + ' ' + caption : title
+    const body = {
+      item: {
+        common: {
+          text: publishText, caption: caption || '', item_title: title,
+          activity: '[]', text_extra: '[]', challenges: '[]', mentions: '[]', hashtag_source: '', hot_sentence: '',
+          interaction_stickers: '[]', visibility_type: 0, download: 0,
+          timing: Math.floor(Date.now() / 1000), creation_id: String(Date.now()) + Math.random().toString(36).slice(2, 10),
+          media_type: 4, video_id: videoId, music_source: 0, music_id: null,
+        },
+        cover: { poster: coverUri, custom_cover_image_height: coverHeight, custom_cover_image_width: coverWidth, poster_delay: 0,
+          cover_tools_info: '{"video_cover_source":2,"cover_timestamp":0,"recommend_timestamp":0,"is_cover_edit":0,"is_cover_template":0,"cover_template_id":"","is_text_template":0,"text_template_id":"","text_template_content":"","is_text":0,"text_num":0,"text_content":"","is_use_sticker":0,"sticker_id":"","is_use_filter":0,"filter_id":"","is_cover_modify":0,"to_status":0,"cover_type":0,"initial_cover_uri":"","cut_coordinate":""}',
+          cover_tools_extend_info: '{}' },
+        mix: {}, chapter: { chapter: JSON.stringify({ chapter_abstract: '', chapter_details: [], chapter_type: 0 }) },
+        anchor: {}, sync: { should_sync: false, sync_to_toutiao: 0 }, open_platform: {},
+        assistant: { is_preview: 0, is_post_assistant: 1 }, declare: { user_declare_info: '{}' },
+      },
+    }
+    const publishRes = await browserFetch('POST', publishUrl, { body })
+    const awemeId = publishRes.aweme_id || publishRes.item_id
+    if (!awemeId) return { success: false, error: '发布未返回 aweme_id（可能需定时发布）：' + JSON.stringify(publishRes).slice(0, 300) }
+    return { success: true, awemeId, url: 'https://www.douyin.com/video/' + awemeId }
+  } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
+}
+
 ipcMain.handle('browser:publish', async (_e, payload) => {
   const platform = payload && payload.platform
   if (platform === 'weibo') {
@@ -1996,77 +2076,6 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
       return { success: true, message: '小红书发布已确认（发布中/审核中）' }
     } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
   }
-  // 抖音发布（P0-2，复用 OpenCLI 官方 API 流程：vod-upload/tos-upload/create_v2，CDP page 内 fetch）
-  try {
-    const { chromium } = require('playwright')
-    const videoPath = payload && payload.videoPath
-    const title = (payload && payload.title) || ''
-    const caption = (payload && payload.caption) || ''
-    if (!videoPath || !fs.existsSync(videoPath)) return { success: false, error: '视频文件不存在: ' + videoPath }
-    const fileSize = fs.statSync(videoPath).size
-    if (title.length > 30) return { success: false, error: '标题不能超过 30 字' }
-    if (caption.length > 1000) return { success: false, error: '正文不能超过 1000 字' }
-
-    const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
-    const ctx = browser.contexts()[0]
-    if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
-    let page = ctx.pages().find((p2) => p2.url().includes('creator.douyin.com'))
-    if (!page) { page = await ctx.newPage(); await page.goto('https://creator.douyin.com/creator-micro/content/upload', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {}) }
-    // 确保已在 creator.douyin.com（未登录会跳登录）
-    if (!page.url().includes('creator.douyin.com')) return { success: false, error: '请先登录抖音创作者平台（浏览器中）', needLogin: true, platform: 'douyin' }
-
-    // browserFetch：在浏览器上下文 fetch（cookie+a_bogus 自动）
-    const browserFetch = (method, url, options) => page.evaluate(({ m, u, o }) => {
-      return new Promise((resolve) => {
-        const timer = setTimeout(() => resolve({ status_code: -1, status_msg: 'timeout' }), 40000)
-        fetch(u, { method: m, credentials: 'include', headers: { 'Content-Type': 'application/json', ...(o.headers || {}) }, ...(o.body ? { body: JSON.stringify(o.body) } : {}) })
-          .then(r => r.text()).then(t => { clearTimeout(timer); try { resolve(JSON.parse(t)) } catch { resolve({ status_code: -2, status_msg: t.slice(0, 300) }) } })
-          .catch(e => { clearTimeout(timer); resolve({ status_code: -1, status_msg: String(e && e.message || e) }) })
-      })
-    }, { m: method, u: url, o: options })
-
-    // 复用 OpenCLI 官方上传流程（动态 import，绝对路径绕过 exports；打包需 asarUnpack @jackwener）
-    const { pathToFileURL } = require('url')
-    const base = pathToFileURL(path.join(String(app.getAppPath()).replace('.asar', '.asar.unpacked'), 'node_modules', '@jackwener', 'opencli', 'clis', 'douyin', '_shared')).href + '/'
-    const vod = await import(base + 'vod-upload.js')
-    const tosMod = await import(base + 'tos-upload.js')
-
-    // Phase 1-3: 上传鉴权 → 申请上传 → TOS 分片上传 → 提交
-    const credentials = await vod.getUploadAuthV5Credentials({ evaluate: (js) => page.evaluate(js) })
-    const tosUploadInfo = await vod.applyVideoUploadInner(fileSize, credentials)
-    await tosMod.tosUpload({ filePath: videoPath, uploadInfo: tosUploadInfo, credentials, onProgress: () => {} })
-    const committed = await vod.commitVideoUploadInner(tosUploadInfo, credentials)
-    const videoId = committed.video_id
-    if (!videoId) return { success: false, error: '上传提交失败: ' + JSON.stringify(committed).slice(0, 300) }
-    const coverUri = committed.poster_uri || ''
-    const coverWidth = committed.width || 720
-    const coverHeight = committed.height || 1280
-
-    // Phase 8: create_v2 发布（立即——timing=now；抖音 web 若仅支持定时会返回错误，届时提示）
-    const DEVICE = 'aid=1128&cookie_enabled=true&screen_width=1512&screen_height=982&browser_language=zh-CN&browser_platform=MacIntel&browser_name=Mozilla&browser_online=true&timezone_name=Asia%2FTokyo&support_h265=1'
-    const publishUrl = 'https://creator.douyin.com/web/api/media/aweme/create_v2/?read_aid=2906&' + DEVICE
-    const publishText = caption ? title + ' ' + caption : title
-    const body = {
-      item: {
-        common: {
-          text: publishText, caption: caption || '', item_title: title,
-          activity: '[]', text_extra: '[]', challenges: '[]', mentions: '[]', hashtag_source: '', hot_sentence: '',
-          interaction_stickers: '[]', visibility_type: 0, download: 0,
-          timing: Math.floor(Date.now() / 1000), creation_id: String(Date.now()) + Math.random().toString(36).slice(2, 10),
-          media_type: 4, video_id: videoId, music_source: 0, music_id: null,
-        },
-        cover: { poster: coverUri, custom_cover_image_height: coverHeight, custom_cover_image_width: coverWidth, poster_delay: 0,
-          cover_tools_info: '{"video_cover_source":2,"cover_timestamp":0,"recommend_timestamp":0,"is_cover_edit":0,"is_cover_template":0,"cover_template_id":"","is_text_template":0,"text_template_id":"","text_template_content":"","is_text":0,"text_num":0,"text_content":"","is_use_sticker":0,"sticker_id":"","is_use_filter":0,"filter_id":"","is_cover_modify":0,"to_status":0,"cover_type":0,"initial_cover_uri":"","cut_coordinate":""}',
-          cover_tools_extend_info: '{}' },
-        mix: {}, chapter: { chapter: JSON.stringify({ chapter_abstract: '', chapter_details: [], chapter_type: 0 }) },
-        anchor: {}, sync: { should_sync: false, sync_to_toutiao: 0 }, open_platform: {},
-        assistant: { is_preview: 0, is_post_assistant: 1 }, declare: { user_declare_info: '{}' },
-      },
-    }
-    const publishRes = await browserFetch('POST', publishUrl, { body })
-    const awemeId = publishRes.aweme_id || publishRes.item_id
-    if (!awemeId) return { success: false, error: '发布未返回 aweme_id（可能需定时发布）：' + JSON.stringify(publishRes).slice(0, 300) }
-    return { success: true, awemeId, url: 'https://www.douyin.com/video/' + awemeId }
-  } catch (e) { return { success: false, error: (e && e.message) || String(e) } }
+  return await publishDouyinViaCDP(payload)
 })
 
