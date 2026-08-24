@@ -2757,12 +2757,28 @@ export default function AgentPage() {
             {liveSteps.length === 0 && !loading ? (
               (() => {
                 // 从对话历史取最新一条 assistant 的步骤，保证右栏始终有内容
-                const last = [...messages].reverse().find(m => m.role === 'assistant' && m.steps?.length)
+                const last = [...messages].reverse().find(m => m.role === 'assistant')
                 if (!last) return (
                   <p className="text-[10px] text-gray-700 px-1 py-4 text-center">
                     发一条消息，看助手怎么拆解执行
                   </p>
                 )
+                if (!last.steps?.length) {
+                  // 2026-08-23: D 纯对话（无工具调用）也显示思考摘要
+                  return (
+                    <div className="flex flex-col gap-1.5">
+                      {['分析用户意图', '组织回复'].map((t, i) => (
+                        <div key={i} className="flex items-start gap-2 rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2">
+                          <span className="mt-0.5 w-4 h-4 rounded-full bg-violet-500/20 text-violet-300 flex items-center justify-center text-[9px] shrink-0 font-semibold">⚡</span>
+                          <div className="min-w-0">
+                            <p className="text-[10px] text-gray-300 leading-snug">{t}</p>
+                            <p className="text-[8px] text-violet-400/60 mt-0.5">快速响应（无工具调用）</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
                 return last.steps!.map((s, i) => (
                   <div key={i} className="flex items-start gap-2 rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2">
                     <span className="mt-0.5 w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[9px] shrink-0 font-semibold">
