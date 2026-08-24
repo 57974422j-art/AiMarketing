@@ -680,8 +680,21 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       if (!gChk.allowed) return `TOOL_REJECT:${gChk.message}`
       const result = await generateImage(args.prompt || '商业海报', args.size || '1024*1024')
       if (result?.url) {
+        // 2026-08-24: 防丢——agent 生成图片也转存 storage/{userId}/ + 入仓库 + 落记录，返回 OSS URL（不再一次性）
+        let finalUrl = result.url
+        try {
+          const imgKey = 'storage/' + uid + '/ai_' + Date.now() + '.png'
+          const imgBuf = Buffer.from(await (await fetch(result.url, { signal: AbortSignal.timeout(60000) })).arrayBuffer())
+          const oss = await getOSSClient()
+          await oss.put(imgKey, imgBuf)
+          finalUrl = await signedUrl(imgKey, 86400)
+          await prisma.mediaAsset.create({
+            data: { title: String(args.prompt || 'AI生成图片').slice(0, 30), ossUrl: finalUrl, type: 'image', prompt: String(args.prompt || '').slice(0, 200), category: 'AI生成', source: 'private', ownerId: uid, orientation: 'landscape' },
+          })
+          try { const rec = await createRecord({ userId: uid, type: 'text2img', prompt: String(args.prompt || 'AI生成图片'), costPoints: gCost }); await finalizeSuccess(rec, uid, { platformUrl: result.url, costPoints: gCost, reason: 'text2img' }) } catch {}
+        } catch (e) { console.error('[generate_image] 转存失败:', e) }
         await spendTokens(uid, gCost, 'agent_generate_image')
-        return `IMAGE_RESULT:${result.url}|MODEL:${result.model}|COST:${gCost}点`
+        return `IMAGE_RESULT:${finalUrl}|MODEL:${result.model}|COST:${gCost}点`
       }
       return '图片生成暂不可用，请检查AI配置'
     }
