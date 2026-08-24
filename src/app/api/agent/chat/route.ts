@@ -1783,7 +1783,22 @@ export async function POST(request: NextRequest) {
       .replace(/纹身图/g, '文生图')
       .replace(/纹身视频/g, '文生视频')
       .replace(/纹身/g, '文生')
-    messages.push({ role: 'user', content: corrected })
+    // 2026-08-23: 附件解析——用户发本地视频附件（📎 URL）→ 提取仓库视频文件名注入 AI，AI 就能识别走发布流程
+    let attachNote = ''
+    try {
+      if (Array.isArray(attachments)) {
+        const vids = attachments
+          .filter((a: any) => a && (String(a.type || '').includes('video') || /\.(mp4|mov|avi|mkv|webm)$/i.test(String(a.name || '')) || String(a.url || '').includes('storage/file')))
+          .map((a: any) => {
+            const m = String(a.url || '').match(/[?&]name=([^&]+)/)
+            return decodeURIComponent(m ? m[1] : String(a.name || ''))
+          })
+          .filter(Boolean)
+        if (vids.length) attachNote = '
+【用户附件视频：' + [...new Set(vids)].join('、') + '——来自个人仓库，可确认后走发布流程（抽帧/发布）】'
+      }
+    } catch {}
+    messages.push({ role: 'user', content: corrected + attachNote })
 
     // Step 1: 多模态 + 工具调用
     // 2026-08-05：默认使用 DeepSeek（用户要求，本地无需海外代理）；仅当用户上传图片时
