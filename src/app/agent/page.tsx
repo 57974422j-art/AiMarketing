@@ -438,6 +438,33 @@ export default function AgentPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [pendingLabel, setPendingLabel] = useState('')  // 2026-08-24: 生成中反馈文案（类型化）
+  // 2026-08-24: 视频任务自动轮询——VIDEO_TASK 消息出现后每 10s 查进度，完成/失败自动提醒（用户不再干等催）
+  useEffect(() => {
+    const lastVt = [...messages].reverse().find(m => m.role === 'assistant' && m.content && /VIDEO_TASK:([^|]+)/.test(m.content))
+    if (!lastVt) return
+    const m2 = lastVt.content.match(/VIDEO_TASK:([^|]+)/)
+    if (!m2) return
+    const taskId = m2[1].trim()
+    let stopped = false
+    const iv = setInterval(async () => {
+      try {
+        const r = await fetch('/api/agent/video-task-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId }), credentials: 'include' }).then(r2 => r2.json())
+        if (!r.success) return
+        if (r.done) {
+          clearInterval(iv)
+          if (!stopped) {
+            setRecordingTip(r.videoUrl ? '✅ 视频已生成（已存个人仓库）' : '✅ 视频已生成')
+            setTimeout(() => setRecordingTip(''), 6000)
+          }
+        } else if (r.failed) {
+          clearInterval(iv)
+          if (!stopped) { setRecordingTip('❌ 视频生成失败（请重试）'); setTimeout(() => setRecordingTip(''), 6000) }
+        }
+      } catch {}
+    }, 10000)
+    return () => { stopped = true; clearInterval(iv) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages])
   const [sessionId, setSessionId] = useState<number | null>(null)
   // 2026-08-11：登录后恢复最近对话历史（界面不空；有历史则跳过欢迎/onboarding）
   const [historyLoaded, setHistoryLoaded] = useState(false)
