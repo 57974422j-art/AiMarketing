@@ -7,7 +7,8 @@ import {
 import { searchTrendsReal } from '@/lib/gemini'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { spendTokens, checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
-import { listObjects, signedUrl } from '@/lib/oss'
+import { listObjects, signedUrl, getOSSClient } from '@/lib/oss'
+import { createRecord, finalizeSuccess } from '@/lib/generation-record'
 import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
@@ -708,7 +709,12 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         return '长视频生成失败（分段模型可能不可用，可重试或换 wan2.7-t2v）'
       }
       const result = await generateVideo(gvPrompt, gvDuration, '720P', gvRatio)
-      if (result?.taskId && result.status === 'running') { await spendTokens(uid2, gvCost, 'agent_generate_video'); return `VIDEO_TASK:${result.taskId}|PROMPT:${gvPrompt}|COST:${gvCost}点` }
+      if (result?.taskId && result.status === 'running') {
+        // 2026-08-24: 生成即落库（可追踪/断网可恢复）
+        try { await createRecord({ userId: uid2, type: 'text2video', prompt: gvPrompt, costPoints: gvCost }) } catch {}
+        await spendTokens(uid2, gvCost, 'agent_generate_video')
+        return `VIDEO_TASK:${result.taskId}|PROMPT:${gvPrompt}|COST:${gvCost}点`
+      }
       if (result?.videoUrl) { await spendTokens(uid2, gvCost, 'agent_generate_video'); return `VIDEO_RESULT:${result.videoUrl}|COST:${gvCost}点` }
       return '视频生成暂不可用'
     }
@@ -948,7 +954,25 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         const r = await queryVideoTask(taskId)
         if (!r) return `VIDEO_PROGRESS:查询失败|TASK:${taskId}`
         if (r.status === 'completed' || r.status === 'SUCCEEDED' || r.status === 'done') {
-          return `VIDEO_RESULT:${r.videoUrl || ''}`
+          // 2026-08-24: 防丢——完成即转存 OSS + 自动入个人仓库 + 落生成记录（URL 不再是一次性的）
+          let finalUrl = r.videoUrl || ''
+          try {
+            if (r.videoUrl && auth?.userId) {
+              const key = 'generations/' + auth.userId + '/t2v_' + Date.now() + '.mp4'
+              const buf = Buffer.from(await (await fetch(r.videoUrl, { signal: AbortSignal.timeout(120000) })).arrayBuffer())
+              const oss = await getOSSClient()
+              await oss.put(key, buf)
+              finalUrl = await signedUrl(key, 86400)
+              await prisma.mediaAsset.create({
+                data: { title: 'AI生成视频', ossUrl: finalUrl, type: 'video', prompt: String(args.prompt || 'AI生成视频').slice(0, 100), category: 'AI生成', source: 'private', ownerId: auth.userId, orientation: 'landscape' },
+              })
+              try {
+                const rec = await createRecord({ userId: auth.userId, type: 'text2video', prompt: String(args.prompt || 'AI生成视频'), costPoints: 0 })
+                await finalizeSuccess(rec, auth.userId, { platformUrl: r.videoUrl, costPoints: 0, reason: 'text2video' })
+              } catch {}
+            }
+          } catch (e) { console.error('[query_video_task] 视频转存失败:', e) }
+          return `VIDEO_RESULT:${finalUrl}`
         }
         return `VIDEO_PROGRESS:${r.status || '处理中'}|TASK:${taskId}`
       } catch { return `VIDEO_PROGRESS:查询失败|TASK:${taskId}` }
