@@ -2,6 +2,23 @@
 - 2026-08-14 API key 保存后丢失/未配置：根因 ① config 写 cwd/standalone 被 rm -rf 删（修：DOTENV_CONFIG_PATH 统一）② 16 段保存没排除 ******** 掩码覆盖（修）③ statusMap minimax 未初始化显示未配置（修）——服务器验证 MINIMAX 保存成功
 - 2026-08-14 settings 一页堆叠全部配置难用（修：分页 Tab 密钥/媒体/引擎/系统）
 
+## ✅ 已解决（2026-08-24）
+- **#301 无限重渲染**（Application error，mbb 会话118 触发）：renderTaskCard 渲染期调 openVideoFromUrl(setState)→循环；已改顶层 useEffect + ref 防重复
+- **视频生成不落库不转存**（taskId 只在消息文本，视频做完即丢）：generate_video 生成即落库 + query_video_task 完成即转存 storage/ + 入仓库
+- **丢失视频找回**：recover-video-task.mjs（taskId→百炼→下载→转存 OSS）；mbb 12秒"数字员工宣传片"已找回入仓库
+- **frames 封面破碎图 404**：standalone 静态目录不服务运行时文件；改写 standalone public + /api/frames 读盘 API 兜底
+- **附件视频显示链接**：renderContent 渲染 📎 视频为 video 卡片
+- **一键成片不自动入仓库**：完成后自动上传 storage/{userId}/
+- **浏览器账号一键启动崩溃**：补 bindMyChrome/browserNeedBind/bindingMine 定义
+- **二次打开显示昨天记录**：恢复历史检查 updatedAt 非今天不恢复
+- **服务器回调 401 静默失败**（done/download-url）：主进程读 session cookie 带上
+- **agent 生成图片不转存**：generate_image 转存 storage/ + 入仓库 + 落记录
+
+## 🟡 已知（2026-08-24）
+- 视频任务提交即扣费、百炼最终失败不退点——自动退有漏洞风险，暂人工审核退点（待做：失败标记+人工退）
+- 一键成片旧成片（修复前）在 public/generated 不在仓库——新成片自动上传
+- frames 运行时文件在 standalone public——重启保留，但部署 rm -rf .next 会清（重新抽帧即可）
+- 封面"AI生成封面"按钮已加，i2i 后端待接（generateImage 无参考图参数）
 # AiMarketing 问题清单（ISSUES）
 
 > 已知问题 / Bug / 风险 / 隐患。与 PROJECT.md 分开维护。

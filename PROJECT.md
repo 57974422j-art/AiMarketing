@@ -494,3 +494,14 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 **动手顺序**：①微博补全 + 小红书移植（用户最常用）+ AGENT 防幻觉红线/工具注册 ②其余 7 平台逐个移植 ③browser-accounts 右侧边栏 ④登录态检测实测（cookie 映射验证）
 
 **现状检查（2026-08-23 打包前）**：main.js 已删 opencli:run/publish/setup-guide IPC + preload 清理；setupAutoPublish 改 CDP 分流（getBrowserAccounts helper）；browser:accounts 11 平台（含未登录展示）+ browser:bind-mine 一键启动；CLIENT_OPENCLI 前端拦截已移除；@jackwener/opencli npm 包保留（抖音 vod/tos 上传 import 依赖，asarUnpack 打包，用户无感知）
+
+### 2026-08-24 生成防丢 + 反馈闭环（✅ 已完成，待部署）
+- **视频/图片生成防丢**：generate_video 生成即落库(text2video) + query_video_task 完成即转存 OSS(storage/{userId}/) + 自动入个人仓库 + 落记录——URL 不再一次性；客户端崩溃/断网不丢（可查 DB/OSS 找回）
+- **丢失视频找回**：scripts/recover-video-task.mjs（taskId→百炼→下载→转存）；mbb 12秒视频已找回
+- **#301 修复**：renderTaskCard 渲染期 setState 副作用→顶层 useEffect（视频自动播放 ref 防重复）
+- **一键成片入仓库**：普通/智能成片完成后自动上传 storage/{userId}/（/storage 页可见）
+- **生成中反馈**：loading 气泡类型化文案（生成图片/合成视频/写文案）+ 视频任务自动轮询（video-task-status API 10s 查进度自动提醒）
+- **图片自动入库**：generate-image（页面+agent对话）成功即入 MediaAsset；自检加仓库条目（>80% 提示转移本地）
+- **封面 3 选 1**：AI推荐帧✨ + 九宫格🧩 + AI生成封面🎨（多 SCENE_JSON 渲染）
+- **视觉理解前置**：抽帧后百炼 qwen-vl-max 看帧总结（AI 不再瞎编）；附件视频渲染卡片；frames API 兜底
+- **待办**：①退点（失败任务标记+人工审核，防自动漏洞）②封面 AI 生成 i2i 后端 ③文档持续更新
