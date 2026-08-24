@@ -1749,6 +1749,16 @@ export default function AgentPage() {
   // Markdown 渲染
   const renderContent = (content: string) => {
     if (!content) return null
+    // 2026-08-23: 📎 附件视频 → 渲染 video 播放卡片（用户发视频不再显示链接文本）
+    const attachMatch = content.match(/📎\s*\[([^\]]+)\]\(([^)]+)\)/)
+    if (attachMatch && /\.(mp4|mov|avi|mkv|webm)(\?|$)/i.test(attachMatch[2])) {
+      return (
+        <div className="mt-2">
+          <video src={attachMatch[2]} controls className="w-full max-h-64 rounded-lg bg-black border border-white/10" />
+          <p className="text-[9px] text-gray-500 mt-1">{attachMatch[1]}</p>
+        </div>
+      )
+    }
     // 图片展示
     const imgMatch = content.match(/!\[([^\]]*)\]\(([^)]+)\)/)
     const parts = content.split(/(```[\s\S]*?```)/g)

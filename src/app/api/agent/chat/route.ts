@@ -1401,7 +1401,11 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         execSync(`curl -s -o "${srcPath}" "${url}"`, { timeout: 60000 })
         if (!fs.existsSync(srcPath) || fs.statSync(srcPath).size < 1000) return '视频下载失败'
         const ts = String(Date.now())
-        const outDir = path.join(process.cwd(), 'public', 'frames', String(auth.userId), ts)
+        // 2026-08-23: frames 输出到真实静态目录——standalone 部署用 .next/standalone/public（否则 /frames/... 404 破碎图），dev 用 public
+        const pubRoot = fs.existsSync(path.join(process.cwd(), '.next', 'standalone', 'public'))
+          ? path.join(process.cwd(), '.next', 'standalone', 'public')
+          : path.join(process.cwd(), 'public')
+        const outDir = path.join(pubRoot, 'frames', String(auth.userId), ts)
         fs.mkdirSync(outDir, { recursive: true })
         let dur = 5
         try { dur = parseFloat(execSync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${srcPath}"`, { timeout: 15000, encoding: 'utf8' })) || 5 } catch {}
@@ -1418,7 +1422,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         if (!frames.length) return '抽帧失败，视频可能无法解码'
         frameStore.set(auth.userId, { frames: frames.map((u, idx) => ({ idx: idx + 1, url: u })), videoName })
         try {
-          const base = path.join(process.cwd(), 'public', 'frames', String(auth.userId))
+          const base = path.join(pubRoot, 'frames', String(auth.userId))
           if (fs.existsSync(base)) for (const d of fs.readdirSync(base)) {
             const p = path.join(base, d)
             if (Date.now() - fs.statSync(p).mtimeMs > 3600000) fs.rmSync(p, { recursive: true, force: true })
