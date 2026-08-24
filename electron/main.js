@@ -1373,14 +1373,23 @@ ipcMain.handle('app:cleanup-residue', async () => {
 const CDP_PORT = 9333
 let boundProc = null
 const BROWSER_CANDIDATES = [
+  process.env.LOCALAPPDATA + '\Google\Chrome\Application\chrome.exe',
   process.env.PROGRAMFILES + '\Google\Chrome\Application\chrome.exe',
   process.env['PROGRAMFILES(X86)'] + '\Google\Chrome\Application\chrome.exe',
-  process.env.LOCALAPPDATA + '\Google\Chrome\Application\chrome.exe',
+  process.env.LOCALAPPDATA + '\Microsoft\Edge\Application\msedge.exe',
   process.env.PROGRAMFILES + '\Microsoft\Edge\Application\msedge.exe',
   process.env['PROGRAMFILES(X86)'] + '\Microsoft\Edge\Application\msedge.exe',
 ]
 function findBrowserExe() {
+  // 2026-08-24: 标准路径 + where 命令兜底（任意安装位置/绿色版）
   for (const p2 of BROWSER_CANDIDATES) { if (p2 && fs.existsSync(p2)) return p2 }
+  try {
+    const { execSync } = require('child_process')
+    for (const name of ['chrome', 'msedge']) {
+      const out = execSync('where ' + name, { timeout: 5000, windowsHide: true, shell: true }).toString().trim().split('\n')[0]
+      if (out && fs.existsSync(out)) return out
+    }
+  } catch {}
   return null
 }
 ipcMain.handle('browser:bind', async () => {
