@@ -2374,7 +2374,7 @@ export default function AgentPage() {
                             </div>
                           ) : msg.scene.type === 'video_frames' && Array.isArray(msg.scene.frames) ? (
                             <div className="flex flex-col gap-2">
-                              <p className="text-[11px] text-amber-300 font-medium">🎬 {msg.scene.videoName || '视频'} — 选一帧做封面</p>
+                              <p className="text-[11px] text-amber-300 font-medium">🎬 {msg.scene.videoName || '视频'} — 选封面（3 种方式）</p>
                               <div className="grid grid-cols-2 gap-2">
                                 {msg.scene.frames.map((f: string, fi: number) => (
                                   <button key={fi} onClick={() => sendMessage(`用第${fi + 1}帧`)}
@@ -2382,10 +2382,27 @@ export default function AgentPage() {
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={f} alt={`第${fi + 1}帧`} className="w-full aspect-video object-cover" />
                                     <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/70 text-[9px] text-amber-300">第{fi + 1}帧</span>
+                                    {msg.scene.recommended === fi && <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded-full bg-amber-500/90 text-[8px] text-black font-bold">✨AI推荐</span>}
                                   </button>
                                 ))}
                               </div>
-                              <p className="text-[9px] text-gray-500">点选后 AI 识别该帧画面，推荐标题并设计封面</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {msg.scene.grid && (
+                                  <button onClick={() => sendMessage('用九宫格封面')}
+                                    className="group relative rounded-lg overflow-hidden border border-white/10 hover:border-emerald-400/60 bg-black">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={msg.scene.grid} alt="九宫格封面" className="w-full aspect-video object-cover" />
+                                    <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/70 text-[9px] text-emerald-300">🧩 九宫格</span>
+                                  </button>
+                                )}
+                                <button onClick={() => sendMessage('用AI生成封面')}
+                                  className="rounded-lg border border-dashed border-white/15 hover:border-violet-400/60 bg-white/[0.03] flex flex-col items-center justify-center gap-1 p-2 aspect-video">
+                                  <span className="text-[18px]">🎨</span>
+                                  <span className="text-[9px] text-violet-300">AI 生成封面</span>
+                                  <span className="text-[8px] text-gray-500">标题+滤镜（12点）</span>
+                                </button>
+                              </div>
+                              <p className="text-[9px] text-gray-500">选帧后 AI 识别画面、推荐标题并设计封面；九宫格/AI封面直接生成</p>
                             </div>
                           ) : msg.scene.type === 'image' ? (
                             <div className="flex flex-col items-center">
