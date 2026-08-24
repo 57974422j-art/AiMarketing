@@ -1749,6 +1749,18 @@ export default function AgentPage() {
   }
 
   // Markdown 渲染
+  // 2026-08-24: 视频结果自动播放（从渲染函数移出——渲染期 setState 曾导致 #301 无限重渲染）
+  const lastVideoPlayedRef = useRef('')
+  useEffect(() => {
+    const last = [...messages].reverse().find(m => m.role === 'assistant' && m.content && (m.content.includes('VIDEO_RESULT:') || m.content.includes('VIDEO_WEB:')))
+    if (last && last.content !== lastVideoPlayedRef.current) {
+      lastVideoPlayedRef.current = last.content
+      const rm = last.content.match(/(?:VIDEO_RESULT|VIDEO_WEB):([^|]+)(?:\|TITLE:([^|
+]+))?/)
+      if (rm) setTimeout(() => { try { openVideoFromUrl(rm[1], rm[2] || '') } catch {} }, 300)
+    }
+  }, [messages])
+
   const renderContent = (content: string) => {
     if (!content) return null
     // 2026-08-23: 📎 附件视频 → 渲染 video 播放卡片（用户发视频不再显示链接文本）
@@ -1864,7 +1876,7 @@ export default function AgentPage() {
       }
       // 视频类结果：弹出全局播放器真播放（路线1：B站/YouTube/直链 iframe 均支持）
       if (rm[1] === 'VIDEO_RESULT' || rm[1] === 'VIDEO_WEB') {
-        if (typeof window !== 'undefined') openVideoFromUrl(url, title)
+        // 2026-08-24: 修复 #301——渲染函数内禁止 setState（openVideoFromUrl 会导致无限重渲染）；自动播放移到顶层 useEffect
         return (
           <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
             <p className="text-sm text-emerald-300 mb-2">{title || '已为你找到视频，正在播放…'}</p>
