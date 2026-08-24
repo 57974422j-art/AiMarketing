@@ -1448,7 +1448,28 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           for (const f of tileIn) { try { fs.rmSync(f, { force: true }) } catch {} }
         } catch {}
         const recommended = frames.length >= 4 ? 3 : 1  // 规则：75% 帧（idx3）暂代 AI 推荐
-        return 'FRAMES_OK:' + JSON.stringify({ frames, videoName, grid, recommended })
+        // 2026-08-23: 视觉理解前置——百炼 qwen-vl-max 看帧总结内容（AI 基于真实内容写标题/推荐封面，杜绝瞎编）
+        let visualDesc = ''
+        try {
+          const vKey = process.env.DASHSCOPE_API_KEY
+          if (vKey && frames.length) {
+            const abs = 'https://ai-niuma.cc' + (process.env.NODE_ENV === 'production' ? '' : '')
+            const images = frames.slice(0, 6).map((u) => ({ type: 'image_url', image_url: { url: abs + u } }))
+            const vr = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + vKey },
+              body: JSON.stringify({
+                model: 'qwen-vl-max',
+                messages: [{ role: 'user', content: [{ type: 'text', text: '这是视频的几个画面帧。请用中文简洁总结：1.视频内容是什么（主体/场景/动作/人物）2.视频风格 3.适合的短视频主题。3-4句，不要客套。' }, ...images] }],
+                max_tokens: 300,
+              }),
+              signal: AbortSignal.timeout(60000),
+            }).then((r) => r.json())
+            visualDesc = vr?.choices?.[0]?.message?.content?.[0]?.text || vr?.choices?.[0]?.message?.content || ''
+            if (visualDesc) visualDesc = String(visualDesc).trim().slice(0, 500)
+          }
+        } catch {}
+        return 'FRAMES_OK:' + JSON.stringify({ frames, videoName, grid, recommended, visualDesc })
       } catch (e: any) { return '抽帧失败: ' + (e.message || e) }
     }
     case 'opencli_run': {
