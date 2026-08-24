@@ -1272,11 +1272,7 @@ export default function AgentPage() {
     setRecordingTip('识别中…')
     let text = ''
     try {
-      // A：本地 sherpa（Electron 客户端）
-      if (window.electronAPI?.asrRecognizeLocal) {
-        const r = await window.electronAPI.asrRecognizeLocal({ samples: Array.from(samples), sampleRate })
-        if (r?.success && r.text) text = r.text
-      }
+      // 2026-08-24: sherpa 本地识别已弃用（打包崩溃）——直接走服务器 ASR
       // C 兜底：上传服务器 ASR（PCM → wav）
       if (!text) {
         const wav = encodeWav(samples, sampleRate)
