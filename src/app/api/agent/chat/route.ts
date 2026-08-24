@@ -958,7 +958,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           let finalUrl = r.videoUrl || ''
           try {
             if (r.videoUrl && auth?.userId) {
-              const key = 'generations/' + auth.userId + '/t2v_' + Date.now() + '.mp4'
+              const key = 'storage/' + auth.userId + '/ai_' + Date.now() + '.mp4'  // 2026-08-24: AI生成视频直接进个人仓库目录(storage/{userId}/)，/storage页可见
               const buf = Buffer.from(await (await fetch(r.videoUrl, { signal: AbortSignal.timeout(120000) })).arrayBuffer())
               const oss = await getOSSClient()
               await oss.put(key, buf)
