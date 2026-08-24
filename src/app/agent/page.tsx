@@ -2783,7 +2783,16 @@ export default function AgentPage() {
                       {bindingMine ? '启动中…' : '🚀 一键启动我的 Chrome 检测登录态'}
                     </button>
                   )}
-                  {!browserNeedBind && !browserAccts.length && <p className="text-[9px] text-gray-600">点上方「🌐 浏览器账号」刷新检测</p>}
+                  {!browserNeedBind && !browserAccts.length && (
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={bindMyChrome} disabled={bindingMine}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-emerald-500/15 hover:border-emerald-500/30 hover:text-emerald-300 transition disabled:opacity-50"
+                        title="打开本地浏览器，手动输入平台地址登录登记（如抖音/B站/小红书），登录后自动检测">
+                        <span className="text-[12px] leading-none">＋</span> 打开浏览器登记
+                      </button>
+                      <span className="text-[9px] text-gray-600">{bindingMine ? '启动中…' : '或点上方🌐刷新检测'}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
