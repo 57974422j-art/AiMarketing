@@ -4,6 +4,10 @@ import { generateImage } from '@/lib/ai-providers'
 import { checkFeatureAccess, FeatureCodes } from '@/lib/quota'
 import { checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
 import { createRecord, finalizeSuccess, finalizeFailure } from '@/lib/generation-record'
+import { PrismaClient } from '@prisma/client'
+import { signedUrl } from '@/lib/oss'
+
+const prisma = new PrismaClient()
 
 export async function POST(request: NextRequest) {
   try {
@@ -53,9 +57,18 @@ export async function POST(request: NextRequest) {
     console.log('[生成图片] 成功, 模型:', result.model, 'URL:', result.url.substring(0, 60) + '...')
     const pointsSpent = TOKEN_COSTS.IMAGE_PER_PIC
     // 成功后扣款 + 平台图片下载转存 OSS（防平台链接过期）
-    await finalizeSuccess(recId, auth.userId, {
+    const storageKey = await finalizeSuccess(recId, auth.userId, {
       platformUrl: result.url, costPoints: pointsSpent, reason: 'text2img',
     })
+    // 2026-08-24: 自动存入个人仓库（用户制作的图片主动入库，仓库纳入自检）
+    try {
+      if (storageKey) {
+        const ossUrl = await signedUrl(storageKey, 86400)
+        await prisma.mediaAsset.create({
+          data: { title: String(prompt).slice(0, 30) || 'AI生成图片', ossUrl, type: 'image', prompt, category: 'AI生成', source: 'private', ownerId: auth.userId, orientation: 'landscape' },
+        })
+      }
+    } catch (e) { console.error('[生成图片] 自动入库失败:', e) }
     return NextResponse.json({ success: true, data: { url: result.url, model: result.model }, pointsSpent })
   } catch (e) {
     console.error('[生成图片] 异常:', e)

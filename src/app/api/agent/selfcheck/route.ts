@@ -106,6 +106,21 @@ export async function GET(request: NextRequest) {
     }
     checks.push({ key: 'model', label: '当前模型', ok: true, detail: `大脑 ${modelInfo.brain} / 识别 ${modelInfo.asr} / 朗读 cosyvoice` })
 
+    // 8) 个人仓库（2026-08-24：AI 生成自动入库；容量超 80% 提示转移本地仓库）
+    try {
+      const assetCount = await prisma.mediaAsset.count({ where: { ownerId: auth.userId } })
+      const QUOTA = 500 * 1024 * 1024  // 500MB（估算配额）
+      let used = 0
+      try {
+        const { listObjects } = await import('@/lib/oss')
+        const objs = await listObjects(`storage/${auth.userId}/`, 1000)
+        used = objs.reduce((s: number, o: any) => s + (o.size || 0), 0)
+      } catch {}
+      const pct = QUOTA > 0 ? Math.min(99, Math.round((used / QUOTA) * 100)) : 0
+      const over80 = pct >= 80
+      checks.push({ key: 'storage', label: '个人仓库', ok: !over80, detail: `${assetCount} 条素材 · 已用 ${pct}%${over80 ? ' ⚠️ 超过 80%——建议转移到本地仓库（导出）' : ''}` })
+    } catch { checks.push({ key: 'storage', label: '个人仓库', ok: true, detail: '查询失败' }) }
+
     return NextResponse.json({ success: true, data: { checks, model: modelInfo } })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message }, { status: 500 })
