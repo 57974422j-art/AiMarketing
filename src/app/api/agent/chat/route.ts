@@ -1586,14 +1586,17 @@ function formatToolResult(output: string): string {
 
 // 从回复中提取并剥离 SCENE_JSON 场景卡片（2026-08-05：工具分支与纯聊天分支共用，
 // 避免模型未调工具直接输出场景卡片时前端显示原文）
-async function extractSceneFromReply(raw: string): Promise<{ reply: string; scene: any }> {
+async function extractSceneFromReply(raw: string): Promise<{ reply: string; scene: any; scenes: any[] }> {
   let reply = raw
   let scene: any = null
-  const sceneMatch = reply.match(/\[SCENE_JSON\]([\s\S]*?)\[\/SCENE_JSON\]/)
-  if (sceneMatch) {
-    try { scene = JSON.parse(sceneMatch[1]) } catch {}
-    reply = reply.replace(sceneMatch[0], '').trim()
+  const scenes: any[] = []
+  // 2026-08-23: 提取所有 SCENE_JSON（AI 可能一次输出多个封面候选）→ scenes 数组，前端全部渲染
+  const all = reply.matchAll(/\[SCENE_JSON\]([\s\S]*?)\[\/SCENE_JSON\]/g)
+  for (const m of all) {
+    try { scenes.push(JSON.parse(m[1])) } catch {}
+    reply = reply.replace(m[0], '').trim()
   }
+  scene = scenes[0] || null
   // 客服二维码场景：从 SystemConfig 读取 service_qrcode 并注入为图片卡片
   if (scene && scene.type === 'service_qrcode') {
     try {
@@ -1608,7 +1611,7 @@ async function extractSceneFromReply(raw: string): Promise<{ reply: string; scen
       scene = null
     }
   }
-  return { reply, scene }
+  return { reply, scene, scenes }
 }
 
 export async function POST(request: NextRequest) {
@@ -1934,7 +1937,7 @@ export async function POST(request: NextRequest) {
       }
       return NextResponse.json({
         success: true,
-        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, steps, scene: scene || templateScene, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
+        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, steps, scene: scene || templateScene, scenes: extracted.scenes.length > 1 ? extracted.scenes : undefined, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
       })
     }
 
@@ -1944,6 +1947,7 @@ export async function POST(request: NextRequest) {
     const extractedChat = await extractSceneFromReply(reply)
     reply = extractedChat.reply
     const scene = extractedChat.scene
+    const scenes = extractedChat.scenes.length > 1 ? extractedChat.scenes : undefined
     // 2026-08-05：AI 自由度——仅输出场景卡片而无正文时，给一句自然引导（不让回复为空）
     if (!reply.trim() && scene) {
       if (scene.type === 'open_page') {
@@ -1995,7 +1999,7 @@ export async function POST(request: NextRequest) {
       .replace(/sk-[A-Za-z0-9_-]{10,}/g, '******')
     return NextResponse.json({
       success: true,
-      data: { reply, intent: 'chat', toolUsed: false, sessionId, scene: scene || templateScene, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
+      data: { reply, intent: 'chat', toolUsed: false, sessionId, scene: scene || templateScene, scenes, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
     })
   } catch (error: any) {
     console.error('[Agent API]', error)
