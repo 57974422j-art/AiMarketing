@@ -379,6 +379,7 @@ interface Message {
   toolUsed?: boolean
   steps?: { tool: string; label: string }[]
   scene?: SceneCard | null
+  scenes?: SceneCard[] | null
 }
 
 interface Attachment { name: string; url: string; type: string }
@@ -1631,6 +1632,7 @@ export default function AgentPage() {
           toolUsed: data.data.toolUsed,
           steps: data.data.steps,
           scene: data.data.scene,
+          scenes: data.data.scenes || (data.data.scene ? [data.data.scene] : null),
         }])
               // 2026-08-23: 浏览器通道指令（原 CLIENT_OPENCLI）——opencli 依赖已清除，采集类用自有热点/搜索 API
         // 2026-08-14: 对话后实时刷新客户画像（记忆可能已更新）
@@ -2353,6 +2355,17 @@ export default function AgentPage() {
                       )}
                       <div className="text-gray-300 whitespace-pre-wrap">{renderContent(msg.content)}</div>
                       {renderTaskCard(msg.content)}
+                    {msg.scenes && msg.scenes.length > 1 && (
+                      <div className="mt-2 flex flex-col gap-2">
+                        {msg.scenes.map((sc: any, sci: number) => sc?.type === 'image' && sc.url ? (
+                          <div key={sci} className="rounded-xl overflow-hidden border border-white/10 bg-black">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={sc.url} alt={sc.title || '图片'} className="w-full max-h-64 object-contain bg-black" />
+                            {(sc.title || sc.desc) && <p className="px-2 py-1.5 text-[9px] text-gray-400 bg-black/60">{sc.title}{sc.desc ? ' — ' + sc.desc : ''}</p>}
+                          </div>
+                        ) : null)}
+                      </div>
+                    )}
                       {/* 阶段二·Scene 投影：AGENT 返回结构化卡片原生渲染 */}
                       {msg.role === 'assistant' && msg.scene && (
                                                 <div className="mt-2 rounded-xl bg-white/[0.03] border border-white/[0.08] p-3 scene-in">
