@@ -227,10 +227,10 @@ export async function POST(req: NextRequest) {
       // 分镜时长（按字数比例计算，-1 表示用默认等分）
       let shotDurations: number[] = []
       try { shotDurations = JSON.parse((f.get('shotDurations') as string) || '[]') } catch {}
-      startSmartTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, titleStyle as any, titlePos as any, titleTiming as any, colorFilter, subtitleMode as any, smartOptions, customSrt, shotDurations)
+      startSmartTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, titleStyle as any, titlePos as any, titleTiming as any, colorFilter, subtitleMode as any, smartOptions, customSrt, shotDurations, userId)
     } else {
       // ── 普通成片模式（原有逻辑不变）──
-      startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, titleStyle as any, titlePos as any, titleTiming as any, colorFilter, subtitleMode as any, customSrt)
+      startTask(taskId, wd, mp, text, voice, ratio, resolution, subtitleSize, bgp, duration, showSubs, stickerText, stickerPos, titleText, titleStyle as any, titlePos as any, titleTiming as any, colorFilter, subtitleMode as any, customSrt, userId)
     }
 
     return NextResponse.json({ success: true, data: { taskId } })

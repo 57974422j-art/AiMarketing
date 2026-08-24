@@ -2,6 +2,7 @@ import { execSync, execFileSync, execFile } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { runFFmpeg, getQueueStatus } from './ffmpeg'
+import { getOSSClient, signedUrl } from './oss'
 
 /** SRT 时间戳 "00:01:23,456" → 秒数 */
 function parseHms(hms: string): number {
@@ -190,6 +191,19 @@ function generateManualSubtitles(
   return srtPath
 }
 
+
+// 2026-08-24: 成片完成后上传 OSS 个人仓库（storage/{userId}/——/storage 页自动可见）
+async function uploadCompiledToOss(task: any, op: string) {
+  if (!task?.userId || !op || !fs.existsSync(op)) return
+  try {
+    const key = 'storage/' + task.userId + '/ai_compile_' + task.id + '.mp4'
+    const buf = fs.readFileSync(op)
+    const oss = await getOSSClient()
+    await oss.put(key, buf)
+    console.log('[成片] 已上传个人仓库:', key, (buf.length / 1048576).toFixed(1) + 'MB')
+  } catch (e) { console.error('[成片] 上传OSS失败:', e.message) }
+}
+
 export function startTask(
   taskId: string,
   workDir: string,
@@ -210,9 +224,10 @@ export function startTask(
   titleTiming: 'intro' | 'full' = 'intro',
   colorFilter: string = '',
   subtitleMode: SubtitleMode = 'tts-sync',
-  customSrt: string = ''
+  customSrt: string = '',
+  userId?: string
 ) {
-  const task: VideoTask = { id: taskId, status: 'queued', progress: 0 }
+  const task: VideoTask = { id: taskId, status: 'queued', progress: 0, userId }
   tasks.set(taskId, task)
   const runFn = () => runTask(task, workDir, mediaPaths, text, voice, ratio, resolution, subtitleSize, bgmPath, duration, showSubs, stickerText, stickerPos, titleText, titleStyle, titlePos, titleTiming, colorFilter, subtitleMode, customSrt)
   const onDone = () => {}
@@ -444,6 +459,7 @@ async function runTask(
     console.log(`[合成] ✅ 完成 task=${task.id} 时长=${totalDur}s 模式=${subtitleMode}`)
     task.status = 'completed'
     task.videoUrl = `/api/video/get?id=${task.id}.mp4`
+    await uploadCompiledToOss(task, op)
 
     fs.rmSync(wd, { recursive: true, force: true })
   } catch (e: any) {
@@ -501,9 +517,10 @@ export function startSmartTask(
   subtitleMode: SubtitleMode = 'tts-sync',
   smartOptions: SmartCompileOptions,
   customSrt: string = '',
-  shotDurations: number[] = []
+  shotDurations: number[] = [],
+  userId?: string
 ): VideoTask {
-  const task: VideoTask = { id: taskId, status: 'queued', progress: 0 }
+  const task: VideoTask = { id: taskId, status: 'queued', progress: 0, userId }
   tasks.set(taskId, task)
 
   // 费用预估算
@@ -691,6 +708,7 @@ async function runSmartTask(
     console.log(`[智能成片] ✅ 完成 task=${task.id} 时长=${totalDur}s 转场=${smartOptions.transition} KenBurns=${smartOptions.kenBurns}`)
     task.status = 'completed'
     task.videoUrl = `/api/video/get?id=${task.id}.mp4`
+    await uploadCompiledToOss(task, op)
 
     fs.rmSync(wd, { recursive: true, force: true })
   } catch (e: any) {
