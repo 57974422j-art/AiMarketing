@@ -1,12 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  opencliCheck: () => ipcRenderer.invoke('opencli:check'),
-  opencliSetupGuide: () => ipcRenderer.invoke('opencli:setup-guide'),
   cleanupResidue: () => ipcRenderer.invoke('app:cleanup-residue'),
   browserBind: () => ipcRenderer.invoke('browser:bind'),
   browserAccounts: () => ipcRenderer.invoke('browser:accounts'),
   browserBindMine: () => ipcRenderer.invoke('browser:bind-mine'),
+  browserPublish: (payload) => ipcRenderer.invoke('browser:publish', payload),
 
   isElectron: true,
 
