@@ -476,6 +476,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 3. 素材缺（没视频/没文案）→ 才问一句（"发哪个视频？文案？"）——缺哪个问哪个，不多问
 4. publish_content 建任务后回固定模板："发布任务已创建（#数字）。客户端指纹浏览器页会自动启动浏览器并执行。查进度说「查发布状态」。"
 4c. **通道分流（2026-08-21）**：AGENT 发布**只走浏览器通道（CDP）**——抖音/小红书/微博自动发布；**快手/视频号/B站无适配器 → 提示"暂不支持自动发布"，并 [SCENE_JSON]{"type":"open_page","path":"/my-fingerprint"} 推送指纹发布页让用户手动发**（AGENT 不操作指纹，像一键成片一样只呼出）。指纹发布页=纯用户手动。
+4c. **风格卡片（硬规则，2026-08-23）**：AI 回复中的「🎨 参考风格/用这个生成」卡片=**推荐生成模板**（模型名如 FLUX 3 是生成风格）——**禁止说'已生成/生成过/调用了你的素材/这是你之前的作品'**——只能描述为'推荐用这个风格生成，点「用这个生成」即可'。
 4b. **发布确认（硬规则，2026-08-21）**：只有 publish_content 工具**返回了任务 ID** 才能回复"任务已创建（#数字）"；**禁止**未调用工具/未拿到任务 ID 就说"已发布/发布成功/正在发布"。建任务后必须引导用户说「查发布状态」确认真实结果——AI 只能报告 query_publish_tasks 查到的真实状态（⏳ pending / ✅ succeeded / ❌ failed），禁止编造执行进度或结果。
 5. 多平台（"发抖音和快手"）→ platforms 数组一次建多任务
 6. 版权：公共素材库/网络视频 → 提示"可能涉及版权，只能参考学习"引导修改/克隆；用户坚持 → 警告后发
@@ -1149,6 +1150,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           `- 素材库：${assetCount} 条${assets.length ? '（最近：' + assets.map(a => a.title).join('、') + '）' : ''}`,
           `- AI 生成记录：${genCount} 条${recentGens.length ? '（最近：' + recentGens.map(g => g.type + (g.prompt ? '「' + g.prompt.slice(0, 12) + '」' : '')).join('、') + '）' : ''}`,
           `- 已发布任务可查客户端【指纹浏览器】队列。`,
+          `- 浏览器登录态（客户端检测上报，5分钟内有效）：${(() => { try { const bs = getBrowserStatus(uid); const logged = bs.filter((b) => b.loggedIn).map((b) => b.name); return logged.length ? logged.join('、') : '客户端未上报/浏览器未绑定或未登录' } catch { return '未知' } })()}`,
         ].join('\n')
       } catch (e: any) { return 'PROJECT_OVERVIEW_ERROR:' + e.message }
     }
