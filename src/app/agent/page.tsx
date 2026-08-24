@@ -1551,9 +1551,7 @@ export default function AgentPage() {
         setTimeout(async () => { try { const rr = await (window as any).electronAPI?.browserAccounts(); if (rr?.success) { setBrowserAccts(rr.accounts || []); setBrowserNeedBind(!!rr.needBind); if (rr.accounts && rr.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: rr.accounts }), credentials: 'include' }).catch(() => {}) } } catch {} }, 4000)
       } else {
         // 失败：最常见是 Chrome/Edge 已打开（无调试端口，同 profile 锁）——明确指引
-        alert((r?.error || '启动失败') + '
-
-操作指引：请先【完全关闭】已打开的 Chrome/Edge，再点「＋打开浏览器登记」——客户端会以调试模式重新打开浏览器，你在里面登录平台即可')
+        alert((r?.error || '启动失败') + '\n\n操作指引：请先【完全关闭】已打开的 Chrome/Edge，再点「＋打开浏览器登记」——客户端会以调试模式重新打开浏览器，你在里面登录平台即可')
       }
     } catch (e: any) { alert('打开浏览器失败：' + ((e && e.message) || e)) }
     setBindingMine(false)
