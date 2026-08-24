@@ -1755,8 +1755,7 @@ export default function AgentPage() {
     const last = [...messages].reverse().find(m => m.role === 'assistant' && m.content && (m.content.includes('VIDEO_RESULT:') || m.content.includes('VIDEO_WEB:')))
     if (last && last.content !== lastVideoPlayedRef.current) {
       lastVideoPlayedRef.current = last.content
-      const rm = last.content.match(/(?:VIDEO_RESULT|VIDEO_WEB):([^|]+)(?:\|TITLE:([^|
-]+))?/)
+      const rm = last.content.match(/(?:VIDEO_RESULT|VIDEO_WEB):([^|]+)(?:\|TITLE:([^|]+))?/)
       if (rm) setTimeout(() => { try { openVideoFromUrl(rm[1], rm[2] || '') } catch {} }, 300)
     }
   }, [messages])
