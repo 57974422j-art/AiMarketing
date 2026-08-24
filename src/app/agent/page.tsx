@@ -437,6 +437,7 @@ export default function AgentPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [pendingLabel, setPendingLabel] = useState('')  // 2026-08-24: 生成中反馈文案（类型化）
   const [sessionId, setSessionId] = useState<number | null>(null)
   // 2026-08-11：登录后恢复最近对话历史（界面不空；有历史则跳过欢迎/onboarding）
   const [historyLoaded, setHistoryLoaded] = useState(false)
@@ -1601,6 +1602,14 @@ export default function AgentPage() {
     setLoading(true)
     setOrbState('thinking')
     setLiveSteps([])
+    // 2026-08-24: 生成中反馈——根据意图显示类型化文案（避免用户干等一直催）
+    const ft = (finalText || '').toLowerCase()
+    setPendingLabel(
+      /图|海报|插画|画|生成.*图/.test(ft) ? '🎨 正在生成图片…' :
+      /视频|成片|做.*视|生成.*视频/.test(ft) ? '🎬 正在合成视频（约 1-2 分钟）…' :
+      /文案|标题|脚本|文章/.test(ft) ? '✍️ 正在写文案…' :
+      '💭 正在处理…'
+    )
 
     try {
       const t0 = Date.now()
@@ -2539,10 +2548,11 @@ export default function AgentPage() {
                   <div>
                     <p className="text-[9px] text-gray-500 mb-1">{agentName}</p>
                     <div className="rounded-2xl rounded-bl-md bg-white/[0.04] border border-white/[0.06] px-4 py-3">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                         <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '120ms' }} />
                         <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '240ms' }} />
+                        <span className="text-[10px] text-gray-400 ml-1">{pendingLabel || '💭 正在处理…'}</span>
                       </div>
                     </div>
                   </div>
