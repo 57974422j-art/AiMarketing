@@ -18,6 +18,7 @@ const API_WHITELIST = [
   '/api/tasks/mine',
   '/api/tts',
   '/api/mediacrawler/qrcode',
+  '/api/frames', // 2026-08-23: 封面帧读盘（公开图片）
   '/api/admin/industry-videos/upload', // 2026-08-10：本机脚本上传行业视频（路由内已校验本机/admin）
   '/api/agent/hotspots', // 2026-08-11：热点是公开榜单数据，免登录可看 + 自检可验证（避免 401 误报 0 来源）
 ]

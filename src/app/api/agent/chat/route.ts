@@ -1416,7 +1416,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           const out = path.join(outDir, 'f' + i + '.jpg')
           try {
             execSync(`ffmpeg -y -ss ${t.toFixed(2)} -i "${srcPath}" -frames:v 1 -vf "scale=640:-2" -q:v 5 "${out}"`, { timeout: 30000 })
-            if (fs.existsSync(out)) frames.push(`/frames/${auth.userId}/${ts}/f${i}.jpg`)
+            if (fs.existsSync(out)) frames.push(`/api/frames/${auth.userId}/${ts}/f${i}.jpg`)
           } catch {}
         }
         if (!frames.length) return '抽帧失败，视频可能无法解码'
@@ -1443,7 +1443,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             execSync(`ffmpeg -y -ss 0 -t 0.9 -i "${srcPath}" -vf "select='not(mod(n,10))',scale=200:-2,tile=3x3" -frames:v 1 -q:v 6 "${gridOut}"`, { timeout: 30000 }).catch?.(() => {})
             // tile filter 若失败，退化为首帧缩放
             if (!fs.existsSync(gridOut)) { execSync(`ffmpeg -y -ss 0 -i "${srcPath}" -frames:v 1 -vf "scale=200:-2" -q:v 6 "${gridOut}"`, { timeout: 20000 }) }
-            if (fs.existsSync(gridOut)) grid = `/frames/${auth.userId}/${ts}/grid.jpg`
+            if (fs.existsSync(gridOut)) grid = `/api/frames/${auth.userId}/${ts}/grid.jpg`
           }
           for (const f of tileIn) { try { fs.rmSync(f, { force: true }) } catch {} }
         } catch {}
