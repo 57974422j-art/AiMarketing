@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cleanupResidue: () => ipcRenderer.invoke('app:cleanup-residue'),
   browserBind: () => ipcRenderer.invoke('browser:bind'),
   browserAccounts: () => ipcRenderer.invoke('browser:accounts'),
+  browserBindMine: () => ipcRenderer.invoke('browser:bind-mine'),
 
   isElectron: true,
 

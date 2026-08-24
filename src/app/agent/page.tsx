@@ -1538,8 +1538,13 @@ export default function AgentPage() {
     setBindingMine(true)
     try {
       // 2026-08-24: 网页版无 electronAPI——明确提示用客户端
-      if (!(window as any).electronAPI?.browserBindMine) {
+      if (!(window as any).electronAPI) {
         alert('此功能需桌面客户端（打开本地浏览器登记登录态）——请用 AI营销助手 客户端操作')
+        setBindingMine(false)
+        return
+      }
+      if (!(window as any).electronAPI.browserBindMine) {
+        alert('客户端版本过旧——请更新到最新版（v1.0.51+）后再用「打开浏览器登记」')
         setBindingMine(false)
         return
       }
