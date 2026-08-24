@@ -477,6 +477,10 @@ export default function AgentPage() {
         setHistSessions(sessions)
         setSessionCount(sessions.length)
         if (sessions.length > 0) {
+          // 2026-08-23: 最近会话不是今天更新的 → 不恢复（新的一天新会话，显示推荐/热点/提示词）
+          const upd = sessions[0].updatedAt ? new Date(sessions[0].updatedAt) : null
+          const isToday = !!upd && !isNaN(upd.getTime()) && upd.toDateString() === new Date().toDateString()
+          if (!isToday) { setHistoryLoaded(true); return }
           const sid = sessions[0].id
           const m = await fetch(`/api/agent/chat?action=messages&sessionId=${sid}`, { credentials: 'include' }).then(r => r.json())
           const msgs = Array.isArray(m?.data?.messages) ? m.data.messages : []
@@ -1499,6 +1503,20 @@ export default function AgentPage() {
   // ── 浏览器账号（CDP 检测，右侧折叠显示；不显示指纹）──
   const [browserAccts, setBrowserAccts] = useState<any[]>([])
   const [browserOpen, setBrowserOpen] = useState(false)
+  const [browserNeedBind, setBrowserNeedBind] = useState(false)
+  const [bindingMine, setBindingMine] = useState(false)
+  const bindMyChrome = async () => {
+    setBindingMine(true)
+    try {
+      const r = await (window as any).electronAPI?.browserBindMine()
+      if (r?.success) {
+        setTimeout(async () => { try { const rr = await (window as any).electronAPI?.browserAccounts(); if (rr?.success) { setBrowserAccts(rr.accounts || []); setBrowserNeedBind(!!rr.needBind); if (rr.accounts && rr.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: rr.accounts }), credentials: 'include' }).catch(() => {}) } } catch {} }, 2500)
+      } else {
+        alert(r?.error || '启动失败（若 Chrome 已在运行请先完全关闭）')
+      }
+    } catch {}
+    setBindingMine(false)
+  }
   useEffect(() => { (async () => { try { const r = await (window as any).electronAPI?.browserAccounts(); if (r?.success) { setBrowserAccts(r.accounts || []); setBrowserNeedBind(!!r.needBind); if (r.accounts && r.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: r.accounts }), credentials: 'include' }).catch(() => {}) } } catch {} })() }, [])
   // ── 功能提示标签（新手引导——点击填入输入框）──
   const FEATURE_TIPS = [
