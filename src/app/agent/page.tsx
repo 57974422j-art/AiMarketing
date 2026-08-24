@@ -1537,13 +1537,25 @@ export default function AgentPage() {
   const bindMyChrome = async () => {
     setBindingMine(true)
     try {
-      const r = await (window as any).electronAPI?.browserBindMine()
-      if (r?.success) {
-        setTimeout(async () => { try { const rr = await (window as any).electronAPI?.browserAccounts(); if (rr?.success) { setBrowserAccts(rr.accounts || []); setBrowserNeedBind(!!rr.needBind); if (rr.accounts && rr.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: rr.accounts }), credentials: 'include' }).catch(() => {}) } } catch {} }, 2500)
-      } else {
-        alert(r?.error || '启动失败（若 Chrome 已在运行请先完全关闭）')
+      // 2026-08-24: 网页版无 electronAPI——明确提示用客户端
+      if (!(window as any).electronAPI?.browserBindMine) {
+        alert('此功能需桌面客户端（打开本地浏览器登记登录态）——请用 AI营销助手 客户端操作')
+        setBindingMine(false)
+        return
       }
-    } catch {}
+      const r = await (window as any).electronAPI.browserBindMine()
+      if (r?.success) {
+        // 成功/已调试模式 → 提示手动登记
+        const tip = r.already ? '浏览器已在调试模式——请直接在浏览器输入平台地址登录（抖音/B站/小红书…），登录后点「🌐 刷新检测」' : '已打开浏览器——请手动输入平台地址登录（抖音/B站/小红书…），登录后点「🌐 刷新检测」'
+        alert(tip)
+        setTimeout(async () => { try { const rr = await (window as any).electronAPI?.browserAccounts(); if (rr?.success) { setBrowserAccts(rr.accounts || []); setBrowserNeedBind(!!rr.needBind); if (rr.accounts && rr.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: rr.accounts }), credentials: 'include' }).catch(() => {}) } } catch {} }, 4000)
+      } else {
+        // 失败：最常见是 Chrome/Edge 已打开（无调试端口，同 profile 锁）——明确指引
+        alert((r?.error || '启动失败') + '
+
+操作指引：请先【完全关闭】已打开的 Chrome/Edge，再点「＋打开浏览器登记」——客户端会以调试模式重新打开浏览器，你在里面登录平台即可')
+      }
+    } catch (e: any) { alert('打开浏览器失败：' + ((e && e.message) || e)) }
     setBindingMine(false)
   }
   useEffect(() => { (async () => { try { const r = await (window as any).electronAPI?.browserAccounts(); if (r?.success) { setBrowserAccts(r.accounts || []); setBrowserNeedBind(!!r.needBind); if (r.accounts && r.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: r.accounts }), credentials: 'include' }).catch(() => {}) } } catch {} })() }, [])
