@@ -1794,8 +1794,7 @@ export async function POST(request: NextRequest) {
             return decodeURIComponent(m ? m[1] : String(a.name || ''))
           })
           .filter(Boolean)
-        if (vids.length) attachNote = '
-【用户附件视频：' + [...new Set(vids)].join('、') + '——来自个人仓库，可确认后走发布流程（抽帧/发布）】'
+        if (vids.length) attachNote = '\n【用户附件视频：' + [...new Set(vids)].join('、') + '——来自个人仓库，可确认后走发布流程（抽帧/发布）】'
       }
     } catch {}
     messages.push({ role: 'user', content: corrected + attachNote })
