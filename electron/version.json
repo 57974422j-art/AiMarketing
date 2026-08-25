@@ -1,8 +1,8 @@
 {
-  "version": "1.0.52",
+  "version": "1.0.53",
   "buildDate": "2026-08-24",
   "channel": "stable",
   "minSupportedVersion": "1.0.0",
-  "downloadUrl": "https://ai-niuma.cc/updates/AI-Marketing-Setup-1.0.52.exe",
+  "downloadUrl": "https://ai-niuma.cc/updates/AI-Marketing-Setup-1.0.53.exe",
   "notes": "客户端版本号记录（独立维护，不改动 package.json）。打包上传前务必在此递增 version，并同步 electron/changelog.json 顶部新增对应条目。【唯一权威访问域名】ai-niuma.cc / www.ai-niuma.cc（已备案+HTTPS）。downloadUrl 一律用 https://ai-niuma.cc/updates，禁止写 IP:3000；IP:3000 仅用于 Electron 客户端进程内直连（electron/main.js 的 SERVER_URL 默认值），二者用途不同、勿混淆。"
 }
