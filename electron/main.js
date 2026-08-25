@@ -1523,9 +1523,27 @@ async function getBrowserAccounts() {
 ipcMain.handle('browser:open-url', async (_e, url) => {
   try {
     const { chromium } = require('playwright')
-    const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
-    const ctx = browser.contexts()[0]
-    if (!ctx) return { success: false, error: '内置浏览器未启动——请先点「打开浏览器登记」' }
+    let browser = null
+    try { browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT) } catch {
+      // 2026-08-25: 浏览器没开 → 自动启动内置（一次，防抖由 __bindInProgress 保证）
+      if (global.__bindInProgress) return { success: false, error: '浏览器正在启动，请稍候…' }
+      global.__bindInProgress = true
+      try {
+        const builtinExe = chromium.executablePath()
+        if (builtinExe && fs.existsSync(builtinExe)) {
+          const profileDir = path.join(app.getPath('userData'), 'browser-profile')
+          fs.mkdirSync(profileDir, { recursive: true })
+          try { for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) { const sp = path.join(profileDir, f); if (fs.existsSync(sp)) fs.rmSync(sp, { force: true }) } } catch {}
+          const { spawn } = require('child_process')
+          const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', 'about:blank'], { detached: true, stdio: 'ignore' })
+          proc.unref(); boundProc = proc
+          for (let i = 0; i < 30; i++) { try { const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) }); if (r.ok) break } catch {} await new Promise((r2) => setTimeout(r2, 500)) }
+          browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+        }
+      } catch {} finally { global.__bindInProgress = false }
+    }
+    const ctx = browser ? browser.contexts()[0] : null
+    if (!ctx) return { success: false, error: '内置浏览器启动失败' }
     // 复用同域已有 tab（避免多窗口堆积）
     const host = String(url || '').replace(/^https?:\/\//, '').split('/')[0]
     let page = ctx.pages().find(p2 => p2.url().includes(host))
