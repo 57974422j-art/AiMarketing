@@ -1478,13 +1478,29 @@ async function keepaliveBrowser() {
       if (!url) continue
       try {
         const host = url.replace(/^https?:\/\//, '').split('/')[0]
-        const pg = ctx.pages().find(p2 => p2.url().includes(host)) || await ctx.newPage()
+        const pg = await getTargetPage(ctx, host)
         await pg.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-        if (pg.url() === 'about:blank') await pg.close().catch(() => {})
       } catch {}
     }
     console.log('[保活] 已访问', loggedIn.length, '个已登记平台（刷新登录态）')
   } catch {}
+}
+
+
+// 2026-08-25: 统一 tab 获取——①同平台tab复用 ②about:blank空tab复用（不新建）③清理多余空tab（保留1个）
+async function getTargetPage(ctx, host) {
+  const pages = ctx.pages()
+  // 清理多余 about:blank（保留 1 个复用）
+  const blanks = pages.filter(p => p.url().startsWith('about:'))
+  for (const b of blanks.slice(1)) { try { await b.close().catch(() => {}) } catch {} }
+  // ① 同平台 tab 复用（非 blank）
+  const same = pages.find(p => p.url().includes(host) && !p.url().startsWith('about:'))
+  if (same) return same
+  // ② about:blank 复用（用第一个跳转）
+  const blank = pages.find(p => p.url().startsWith('about:'))
+  if (blank) return blank
+  // ③ 新建
+  return ctx.newPage()
 }
 
 async function getBrowserAccounts() {
@@ -1544,10 +1560,9 @@ ipcMain.handle('browser:open-url', async (_e, url) => {
     }
     const ctx = browser ? browser.contexts()[0] : null
     if (!ctx) return { success: false, error: '内置浏览器启动失败' }
-    // 复用同域已有 tab（避免多窗口堆积）
+    // 复用同平台/空tab（避免多窗口堆积）
     const host = String(url || '').replace(/^https?:\/\//, '').split('/')[0]
-    let page = ctx.pages().find(p2 => p2.url().includes(host))
-    if (!page) page = await ctx.newPage()
+    const page = await getTargetPage(ctx, host)
     await page.goto(String(url || 'https://www.google.com'), { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
     page.bringToFront().catch(() => {})
     return { success: true }
