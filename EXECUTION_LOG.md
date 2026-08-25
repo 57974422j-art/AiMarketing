@@ -21,6 +21,7 @@
 | 2026-08-16 | 公共素材库改造：去删除/管理；卡片悬浮放大+推送(🤖推AGENT带media参数自动发附件 / 🎨推生图)；image-generator 读?media=下载转参考图 | media-library/image-generator/agent 页 | 0aff4b9/3b60b23 |
 | 2026-08-16 | 封面自动转 OSS（prompt-sync 定时同步自动 migrateCover 外链→OSS）+ 抽公共 lib/cover.ts——6 源封面失效根因 | cover.ts/prompt-sync/prompt-sources | 待部署 |
 ---
+| 2026-08-25 | 浏览器通道登记中心（A内置Chromium优先/B前端平台清单+C平台能力表+D设计入档+引导⑥发布通道）| main.js/preload/agent页/TourGuide/chat route/PROJECT | 全部语法0已推送；待打包1.0.55 |
 | 2026-08-24 | 视频/图片生成防丢 + #301修复 + 找回丢失视频 + 封面3选1 + 生成中反馈 + 自动轮询 + 一键成片入仓库 + 附件视频卡片 + frames API + 视觉理解前置 + 登录态注入 + 自动入库/自检80% | chat route / agent页 / video-task-manager / auto-compile / selfcheck / recover脚本 / video-task-status API / frames API / generate-image | 全部语法0已推送；服务器待部署；v1.0.51打包中 |
 | 2026-08-14 | 数字人全链路 wan2.2-s2v：TTS 改百炼 CosyVoice(edge-tts 弃用)、异步提交+查询(修复504)、live 直播片段适配(照片+文案→口播)、Minimax 后台接入(key 输入+测试+保存)、crawl4ai B/C 方案(文本抓取修复 markdown dict+阈值；截图+视觉读图) | ai-providers/digital-human/live-stream-engine/live 页/settings/ApiKeyPanel/config/test-key/crawl4ai | 数字人异步提交验证通过(taskId+PENDING)；待部署测试 |
 | 2026-08-13 | 客户端改回纯壳 v1.0.30（彻底解决 code14/数据空/两套）：根因=Next standalone 把后端+管理后台+API key+本地库配置(.env.local 含 DATABASE_URL/全部 key)全打包进客户端→login 本地执行+代理与本地路由互相干扰。方案 A 纯壳：main.js 直接 loadURL(https://ai-niuma.cc)，build-local 不再 next build/不打包 standalone，本地能力(指纹/语音/摄像头)走 preload 桥，管理后台仅网页。另修 login cookie secure 按 x-forwarded-proto 判断(f86ba55) | electron/main.js / scripts/build-local.mjs / src/app/api/auth/login/route.ts | v1.0.30 打包 275MB，CDP 验证页面加载 ai-niuma.cc/login；待部署 |

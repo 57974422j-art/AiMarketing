@@ -2,6 +2,11 @@
 - 2026-08-14 API key 保存后丢失/未配置：根因 ① config 写 cwd/standalone 被 rm -rf 删（修：DOTENV_CONFIG_PATH 统一）② 16 段保存没排除 ******** 掩码覆盖（修）③ statusMap minimax 未初始化显示未配置（修）——服务器验证 MINIMAX 保存成功
 - 2026-08-14 settings 一页堆叠全部配置难用（修：分页 Tab 密钥/媒体/引擎/系统）
 
+## ✅ 已解决（2026-08-25）
+- **"＋打开浏览器登记"弹启动超时**：系统 Chrome 在跑时 spawn 附加失败（同 profile 锁）——bind-mine 优先内置 Chromium（独立 profile 必通 CDP）
+- **登记账号无反应**：绑定成功后需刷新检测——现在登记中心每行平台卡实时绿点
+- **浏览器找不到（跨机器）**：写死 Program Files + 注册表 App Paths + 内置 Chromium 兜底（三层）
+- **AI 发布话术不一致**：平台能力表 4c3 注入（先登记任何平台→支持就发/不支持如实）
 ## ✅ 已解决（2026-08-24）
 - **#301 无限重渲染**（Application error，mbb 会话118 触发）：renderTaskCard 渲染期调 openVideoFromUrl(setState)→循环；已改顶层 useEffect + ref 防重复
 - **视频生成不落库不转存**（taskId 只在消息文本，视频做完即丢）：generate_video 生成即落库 + query_video_task 完成即转存 storage/ + 入仓库
