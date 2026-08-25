@@ -4,6 +4,19 @@
 > 最后更新：2026-08-14 ｜2026-08-06 ｜ 配套文档：[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
+
+## 📌 会话恢复速查（防压缩丢失——压缩后先读这里，5秒恢复）
+**当前版本**：v1.0.54（打包中 ~15min）；服务器已部署 1.0.53 代码
+**当前重点**：发布通道浏览器检测（A+B：写死路径+注册表+内置Chromium 兜底）；生成防丢（视频/图片/一键成片自动入仓库）
+**下一步（按序）**：
+1. 1.0.54 打包完成 → 上传三件套 → 验证浏览器检测（+打开浏览器登记）
+2. AI 生成封面 i2i 后端（按钮已加）
+3. 退点（失败任务标记+人工审核，防自动漏洞）
+4. 思考链 A/B/C（列入计划未实施）
+5. 文档三件套持续更新（EXECUTION_LOG/PROJECT/ISSUES）
+**最近重大修复**：#301无限重渲染 / 视频找回(recover脚本) / 生成防丢 / 指纹话术同步浏览器通道 / 浏览器路径+内置Chromium / changelog同步(bump-version脚本)
+**部署方式**：阿里云网页终端 → `cd /root/AiMarketing && git fetch origin && git reset --hard origin/master && bash scripts/deploy-server.sh`
+**强制纪律**：每次实质操作后必须更新本速查段 + EXECUTION_LOG/PROJECT/ISSUES（缺一不可）
 ## 🚨 架构定案（2026-08-06，最重要，勿再偏离）
 
 **一切本地，不连服务器：**
