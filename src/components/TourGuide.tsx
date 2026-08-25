@@ -8,6 +8,7 @@ const TOUR_STEPS = [
   { step: 2, name: '🎞 一键成片', path: '/auto-compile', desc: '选素材或 5 张演示图 → 免费模式 → 自动配音字幕 BGM。看右上角「一键合成」按钮，点了就出片。' },
   { step: 3, name: '🖼 AI 生图', path: '/image-generator', desc: '输入描述或选演示图 → 点「生成」出海报（12 点/张）。' },
   { step: 4, name: '🎬 AI 视频', path: '/text-to-video', desc: '一句话描述 → 点「生成」出视频（按秒计费）。' },
+  { step: 5, name: '🌐 发布通道', path: '/', desc: '最后一步：点左侧「🌐 浏览器账号」→「＋打开浏览器登记」→ 在打开的浏览器登录你要发布的平台（抖音/小红书/微博…）。登录一次长期有效。' },
 ]
 
 export default function TourGuide() {
@@ -42,7 +43,7 @@ export default function TourGuide() {
   useEffect(() => {
     if (!show || step === null) return
     const timer = setTimeout(() => {
-      if (step < 4) {
+      if (step < 5) {
         sessionStorage.setItem('tour-step', String(step + 1))
         window.location.href = TOUR_STEPS[step].path
       } else {
@@ -60,7 +61,7 @@ export default function TourGuide() {
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[200] w-[420px] max-w-[92vw] rounded-2xl border border-amber-500/40 bg-[#0d0d14]/95 backdrop-blur-xl shadow-2xl p-4 pointer-events-none">
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px] font-semibold text-amber-300">{cur.name}</span>
-        <span className="text-[9px] text-gray-500">引导 {step}/4 · 15 秒后自动下一步</span>
+        <span className="text-[9px] text-gray-500">引导 {step}/5 · 15 秒后自动下一步</span>
       </div>
       <p className="text-[11px] text-gray-200 leading-relaxed mb-3">{cur.desc}</p>
       <div className="flex gap-1">
