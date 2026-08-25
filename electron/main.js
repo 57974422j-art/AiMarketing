@@ -1620,7 +1620,8 @@ ipcMain.handle('browser:bind-mine', async () => {
       await new Promise((r2) => setTimeout(r2, 500))
     }
     return { success: false, error: '启动超时（若 Chrome 已在运行请先完全关闭再试）' }
-  } catch (e) { return { success: false, error: e.message } }
+  } catch (e) { global.__bindInProgress = false; return { success: false, error: e.message } }
+  finally { global.__bindInProgress = false }
 })
 
 // 2026-08-21: CDP 发布通道（P0-2）——复用 OpenCLI 官方 API 流程（page.evaluate 浏览器内 fetch，a_bogus 自动）
