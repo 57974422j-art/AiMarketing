@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.0.53",
+    "date": "2026-08-24",
+    "title": "修复：找不到Chrome/Edge + 打开浏览器登记 + preload补齐",
+    "items": [
+      "修复找不到 Chrome/Edge：补全 LOCALAPPDATA 路径 + where 命令兜底（任意安装位置）",
+      "修复打开浏览器登记误报'需桌面客户端'（preload 漏 browserBindMine 已补）",
+      "preload 补 browserPublish + 清理 opencli 残留；sherpa 死代码移除",
+      "浏览器账号区「＋打开浏览器登记」直接打开本地浏览器手动登记"
+    ]
+  },
+  {
     "version": "1.0.52",
     "date": "2026-08-24",
     "title": "发布调度+生成防丢+浏览器登记+升级前检查清理",
