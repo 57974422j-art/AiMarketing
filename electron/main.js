@@ -221,6 +221,7 @@ function setupAutoPublish() {
                   if (builtinExe && fs.existsSync(builtinExe)) {
                     const profileDir = path.join(app.getPath('userData'), 'browser-profile')
                     fs.mkdirSync(profileDir, { recursive: true })
+                    try { for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) { const sp = path.join(profileDir, f); if (fs.existsSync(sp)) fs.rmSync(sp, { force: true }) } } catch {}
                     const { spawn } = require('child_process')
                     const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', '--disable-first-run-ui', 'about:blank'], { detached: true, stdio: 'ignore' })
                     proc.unref(); boundProc = proc
@@ -1551,6 +1552,8 @@ ipcMain.handle('browser:bind-mine', async () => {
     if (builtinExe && fs.existsSync(builtinExe)) {
       const profileDir = path.join(app.getPath('userData'), 'browser-profile')
       fs.mkdirSync(profileDir, { recursive: true })
+      // 登录态持久保证：清理 profile 锁（非正常关闭残留 → 下次启动失败会重建 profile → 丢登录态）
+      try { for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) { const sp = path.join(profileDir, f); if (fs.existsSync(sp)) fs.rmSync(sp, { force: true }) } } catch {}
       const { spawn } = require('child_process')
       const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', '--disable-sync', '--disable-infobars', 'about:blank'], { detached: true, stdio: 'ignore' })
       proc.unref(); boundProc = proc
