@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 
 // 2026-08-22: 引导二 v2——全自动演示（不真执行），每步 5 秒自动进下一个
-// 读取 sessionStorage 'tour-step'（1-4）；无则返回 null（正常页面）
+// 读取 sessionStorage 'tour-step'（1-5）；无则返回 null（正常页面）
 const TOUR_STEPS = [
   { step: 1, name: '📦 素材库', path: '/storage', desc: '这是你的个人仓库：上传视频/图片，AI 成片和发布都用这里的素材。' },
   { step: 2, name: '🎞 一键成片', path: '/auto-compile', desc: '选素材或 5 张演示图 → 免费模式 → 自动配音字幕 BGM。看右上角「一键合成」按钮，点了就出片。' },
@@ -17,7 +17,7 @@ export default function TourGuide() {
 
   useEffect(() => {
     const s = parseInt(sessionStorage.getItem('tour-step') || '0')
-    if (s >= 1 && s <= 4) { setStep(s); setShow(true) }
+    if (s >= 1 && s <= 5) { setStep(s); setShow(true) }
   }, [])
 
   // 语音解说：每步播报说明（浏览器 SpeechSynthesis 中文；用户点过「开始体验」满足自动播放策略）
