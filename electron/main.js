@@ -194,7 +194,7 @@ function setupAutoPublish() {
         return
       }
       // 2026-08-23: 发布兜底——看到发布任务就立刻检查账号+浏览器：未登录 → 直开平台登录页（新tab一次）+留pending；已登录 → 3平台CDP发布，其余提示手动
-      const cdpPublish = ['douyin', 'xiaohongshu', 'weibo']
+      const cdpPublish = ['douyin', 'xiaohongshu', 'weibo', 'shipinhao', 'twitter', 'jike', 'xianyu']
       const LOGIN_URLS = {
         douyin: 'https://creator.douyin.com', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish',
         weibo: 'https://weibo.com', bilibili: 'https://www.bilibili.com', kuaishou: 'https://cp.kuaishou.com',
@@ -240,31 +240,31 @@ function setupAutoPublish() {
             const page = ctx3.pages().find((p2) => p2.url().includes(plat)) || await ctx3.newPage()
             let r = { success: false, error: '未知平台' }
             try {
-              if (plat === 'weibo') r = await publishWeibo(page, { text: t.title || t.description || '' })
-              else if (plat === 'xiaohongshu') {
-                r = await publishXhsImages(page, { images: [], title: t.title || '', desc: t.description || '' })
-              } else if (plat === 'douyin') {
-                // 抖音：opencli 方式（官方 API）——videoPath 本地优先；无则从仓库下载（签名 URL → %TEMP%）再发
-                let vp = t.videoPath || t.localVideoPath || ''
-                if (!vp && t.id) {
-                  try {
-                    const dl = await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/download-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, 'Cookie': await getServerCookie(), body: '{}', signal: AbortSignal.timeout(20000) }).then((r2) => r2.json())
-                    if (dl && dl.success && dl.url) {
-                      const tmpDir = require('os').tmpdir()
-                      const localName = 'aim-v-' + t.id + '-' + Date.now() + '.mp4'
-                      const dest = require('path').join(tmpDir, localName)
-                      const buf = Buffer.from(await (await fetch(dl.url, { signal: AbortSignal.timeout(120000) })).arrayBuffer())
-                      require('fs').writeFileSync(dest, buf)
-                      vp = dest
-                      console.log('[AutoPublish] 仓库视频已下载到本地:', dest, buf.length, '字节')
-                    }
-                  } catch (e) { console.log('[AutoPublish] 视频下载失败:', e.message) }
-                }
-                if (!vp) { r = { success: false, error: '视频获取失败（本地路径/仓库下载均不可用）' } }
-                else { r = await publishDouyinViaCDP({ videoPath: vp, title: t.title || '', caption: t.description || '' }) }
-              } else {
-                r = { success: false, error: '未知平台' }
+              // 2026-08-25: 7 平台自动发布——需视频的平台（抖音/小红书视频/视频号/闲鱼）先取本地路径（任务带或仓库下载）
+              let vp = t.videoPath || t.localVideoPath || ''
+              if (!vp && t.id && ['douyin', 'xiaohongshu', 'shipinhao', 'xianyu'].includes(plat)) {
+                try {
+                  const dl = await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/download-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, 'Cookie': await getServerCookie(), body: '{}', signal: AbortSignal.timeout(20000) }).then((r2) => r2.json())
+                  if (dl && dl.success && dl.url) {
+                    const tmpDir = require('os').tmpdir()
+                    const dest = require('path').join(tmpDir, 'aim-v-' + t.id + '-' + Date.now() + '.mp4')
+                    const buf = Buffer.from(await (await fetch(dl.url, { signal: AbortSignal.timeout(120000) })).arrayBuffer())
+                    require('fs').writeFileSync(dest, buf)
+                    vp = dest
+                    console.log('[AutoPublish] 仓库视频已下载到本地:', dest, buf.length, '字节')
+                  }
+                } catch (e) { console.log('[AutoPublish] 视频下载失败:', e.message) }
               }
+              const needVp = ['douyin', 'xiaohongshu', 'shipinhao', 'xianyu'].includes(plat)
+              if (needVp && !vp) { r = { success: false, error: '视频获取失败（本地路径/仓库下载均不可用）' } }
+              else if (plat === 'weibo') r = await publishWeibo(page, { text: t.title || t.description || '' })
+              else if (plat === 'xiaohongshu') r = await publishXhsImages(page, { images: [], title: t.title || '', desc: t.description || '' })
+              else if (plat === 'douyin') r = await publishDouyinViaCDP({ videoPath: vp, title: t.title || '', caption: t.description || '' })
+              else if (plat === 'shipinhao') r = await publishShipinhao(page, { videoPath: vp, title: t.title || '', desc: t.description || '' })
+              else if (plat === 'twitter') r = await publishTwitter(page, { text: t.title || t.description || '' })
+              else if (plat === 'jike') r = await publishJike(page, { text: t.title || t.description || '' })
+              else if (plat === 'xianyu') r = await publishXianyu(page, { title: t.title || '', desc: t.description || '', price: '1', images: [] })
+              else r = { success: false, error: '未知平台' }
             } catch (e) { r = { success: false, error: e.message } }
             const status = r && r.success ? 'succeeded' : 'failed'
             const error = r && !r.success ? (r.error || '发布失败') : undefined
