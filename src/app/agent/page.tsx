@@ -38,8 +38,8 @@ function HotListCard({ source, items, accent, onPick, collapsed, onToggle }: {
 }) {
   const rankColor = (i: number) => (i === 0 ? '#ff4444' : i === 1 ? '#ff8800' : i === 2 ? '#ffcc00' : '#6b7180')
   return (
-    <TourGuide />
-      <div className="flex flex-col min-h-0 bg-[#0c1119]/60 border-b border-white/[0.05]">
+    <div className="flex flex-col min-h-0 bg-[#0c1119]/60 border-b border-white/[0.05]">
+      <TourGuide />
       <button
         onClick={onToggle}
         className="flex items-center gap-1.5 px-2.5 py-2 border-b border-white/[0.05] hover:bg-white/[0.04] transition text-left w-full"
