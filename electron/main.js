@@ -1458,6 +1458,20 @@ async function getBrowserAccounts() {
   } catch { return [] } finally { browser.close().catch(() => {}) }
 }
 
+
+// 2026-08-25: 打开内置浏览器跳转指定地址（登记平台登录页）
+ipcMain.handle('browser:open-url', async (_e, url) => {
+  try {
+    const { chromium } = require('playwright')
+    const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+    const ctx = browser.contexts()[0]
+    if (!ctx) return { success: false, error: '内置浏览器未启动——请先点「打开浏览器登记」' }
+    const page = await ctx.newPage()
+    await page.goto(String(url || 'https://www.google.com'), { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+    return { success: true }
+  } catch (e) { return { success: false, error: e.message } }
+})
+
 ipcMain.handle('browser:accounts', async () => {
   // 通过 CDP 读已登录平台（访问各平台域，检查登录 cookie）——未绑定时自动拉起（自动扫描）
   try {

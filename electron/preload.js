@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   browserAccounts: () => ipcRenderer.invoke('browser:accounts'),
   browserBindMine: () => ipcRenderer.invoke('browser:bind-mine'),
   browserPublish: (payload) => ipcRenderer.invoke('browser:publish', payload),
+  browserOpenUrl: (url) => ipcRenderer.invoke('browser:open-url', url),
 
   isElectron: true,
 
