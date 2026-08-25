@@ -1493,9 +1493,10 @@ async function getTargetPage(ctx, host) {
   // 清理多余 about:blank（保留 1 个复用）
   const blanks = pages.filter(p => p.url().startsWith('about:'))
   for (const b of blanks.slice(1)) { try { await b.close().catch(() => {}) } catch {} }
-  // ① 同平台 tab 复用（非 blank）
-  const same = pages.find(p => p.url().includes(host) && !p.url().startsWith('about:'))
-  if (same) return same
+  // ① 同平台 tab：保留第一个，关闭其余重复（防历史重复堆积）
+  const same = pages.filter(p => p.url().includes(host) && !p.url().startsWith('about:'))
+  for (const s of same.slice(1)) { try { await s.close().catch(() => {}) } catch {} }
+  if (same.length) return same[0]
   // ② about:blank 复用（用第一个跳转）
   const blank = pages.find(p => p.url().startsWith('about:'))
   if (blank) return blank
