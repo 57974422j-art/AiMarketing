@@ -1531,8 +1531,10 @@ export default function AgentPage() {
   const [browserOpen, setBrowserOpen] = useState(false)
   const [browserNeedBind, setBrowserNeedBind] = useState(false)
   const [bindingMine, setBindingMine] = useState(false)
+  const bindingRef = useRef(false)  // 2026-08-25: ref 同步防抖（state 异步——快速连点防不住）
   const bindMyChrome = async () => {
-    if (bindingMine) return  // 2026-08-25: 防抖——进行中不重复（避免重复 spawn 多窗口）
+    if (bindingRef.current) return
+    bindingRef.current = true
     setBindingMine(true)
     try {
       // 2026-08-24: 网页版无 electronAPI——明确提示用客户端
@@ -1557,6 +1559,7 @@ export default function AgentPage() {
         alert((r?.error || '启动失败') + '\n\n操作指引：请先【完全关闭】已打开的 Chrome/Edge，再点「＋打开浏览器登记」——客户端会以调试模式重新打开浏览器，你在里面登录平台即可')
       }
     } catch (e: any) { alert('打开浏览器失败：' + ((e && e.message) || e)) }
+    bindingRef.current = false
     setBindingMine(false)
   }
   useEffect(() => {
