@@ -1503,12 +1503,32 @@ ipcMain.handle('browser:accounts', async () => {
 // 2026-08-23: 一键启动用户自己的 Chrome（默认 profile，带 CDP 端口）——检测日常登录态
 ipcMain.handle('browser:bind-mine', async () => {
   try {
-    const exe = findBrowserExe()
-    if (!exe) return { success: false, error: '未找到 Chrome/Edge 浏览器' }
+    // 已有调试实例 → 直接复用
     try {
       const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(1500) })
       if (r.ok) return { success: true, already: true, message: '浏览器已在调试模式' }
     } catch {}
+    // 2026-08-25: 优先内置 Chromium（独立 profile——必通 CDP，不受系统 Chrome 是否在跑影响）
+    let builtinExe = null
+    try { const { chromium } = require('playwright'); builtinExe = chromium.executablePath() } catch {}
+    if (builtinExe && fs.existsSync(builtinExe)) {
+      const profileDir = path.join(app.getPath('userData'), 'browser-profile')
+      fs.mkdirSync(profileDir, { recursive: true })
+      const { spawn } = require('child_process')
+      const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', 'about:blank'], { detached: true, stdio: 'ignore' })
+      proc.unref(); boundProc = proc
+      for (let i = 0; i < 30; i++) {
+        try {
+          const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) })
+          if (r.ok) return { success: true, builtin: true, message: '内置浏览器已启动——请在浏览器登录需要的平台' }
+        } catch {}
+        await new Promise((r2) => setTimeout(r2, 500))
+      }
+      return { success: false, error: '内置浏览器启动超时' }
+    }
+    // 备用：系统浏览器（写死路径/注册表）
+    const exe = findBrowserExe()
+    if (!exe) return { success: false, error: '未找到浏览器' }
     const { spawn } = require('child_process')
     const proc = spawn(exe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--no-first-run', 'about:blank'], { detached: true, stdio: 'ignore' })
     proc.unref(); boundProc = proc
