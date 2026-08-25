@@ -1429,13 +1429,13 @@ ipcMain.handle('browser:bind', async () => {
 // 2026-08-23: 浏览器登录态检测 helper（browser:accounts 与 AutoPublish 共用）
 async function getBrowserAccounts() {
   const PLATFORMS = [
-    { id: 'douyin', name: '抖音', domain: 'douyin.com', cookies: ['sessionid', 'sessionid_ss'] },
-    { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session'] },
-    { id: 'weibo', name: '微博', domain: 'weibo.com', cookies: ['SUB', 'SUB_P'] },
-    { id: 'bilibili', name: 'B站', domain: 'bilibili.com', cookies: ['SESSDATA'] },
+    { id: 'douyin', name: '抖音', domain: 'douyin.com', cookies: ['sessionid', 'uid_tt', 'passport_csrf_token'] },
+    { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session', 'web_session_SSO'] },
+    { id: 'weibo', name: '微博', domain: 'weibo.com', cookies: ['SUB', 'SUBP'] },
+    { id: 'bilibili', name: 'B站', domain: 'bilibili.com', cookies: ['SESSDATA', 'DedeUserID'] },
     { id: 'kuaishou', name: '快手', domain: 'kuaishou.com', cookies: ['kuaishou.session.web', 'userId'] },
-    { id: 'shipinhao', name: '视频号', domain: 'weixin.qq.com', cookies: ['wxuin', 'ticket'] },
-    { id: 'twitter', name: 'X(Twitter)', domain: 'twitter.com', cookies: ['auth_token'] },
+    { id: 'shipinhao', name: '视频号', domain: 'channels.weixin.qq.com', cookies: ['sessionid'] },
+    { id: 'twitter', name: 'X(Twitter)', domain: 'twitter.com', cookies: ['auth_token', 'ct0'] },
     { id: 'instagram', name: 'Instagram', domain: 'instagram.com', cookies: ['sessionid'] },
     { id: 'youtube', name: 'YouTube', domain: 'youtube.com', cookies: ['SID', 'LOGIN_INFO'] },
     { id: 'facebook', name: 'Facebook', domain: 'facebook.com', cookies: ['c_user'] },
@@ -1488,13 +1488,13 @@ ipcMain.handle('browser:accounts', async () => {
     const accounts = []
     // 2026-08-23: 国内外 11 平台 + cookie 多候选（任一命中即已登录）——检测用户日常 Chrome 登录态
     const PLATFORMS = [
-      { id: 'douyin', name: '抖音', domain: 'douyin.com', cookies: ['sessionid', 'sessionid_ss'] },
-      { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session'] },
-      { id: 'weibo', name: '微博', domain: 'weibo.com', cookies: ['SUB', 'SUB_P'] },
-      { id: 'bilibili', name: 'B站', domain: 'bilibili.com', cookies: ['SESSDATA'] },
+      { id: 'douyin', name: '抖音', domain: 'douyin.com', cookies: ['sessionid', 'uid_tt', 'passport_csrf_token'] },
+      { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session', 'web_session_SSO'] },
+      { id: 'weibo', name: '微博', domain: 'weibo.com', cookies: ['SUB', 'SUBP'] },
+      { id: 'bilibili', name: 'B站', domain: 'bilibili.com', cookies: ['SESSDATA', 'DedeUserID'] },
       { id: 'kuaishou', name: '快手', domain: 'kuaishou.com', cookies: ['kuaishou.session.web', 'userId'] },
-      { id: 'shipinhao', name: '视频号', domain: 'weixin.qq.com', cookies: ['wxuin', 'ticket'] },
-      { id: 'twitter', name: 'X(Twitter)', domain: 'twitter.com', cookies: ['auth_token'] },
+      { id: 'shipinhao', name: '视频号', domain: 'channels.weixin.qq.com', cookies: ['sessionid'] },
+      { id: 'twitter', name: 'X(Twitter)', domain: 'twitter.com', cookies: ['auth_token', 'ct0'] },
       { id: 'instagram', name: 'Instagram', domain: 'instagram.com', cookies: ['sessionid'] },
       { id: 'youtube', name: 'YouTube', domain: 'youtube.com', cookies: ['SID', 'LOGIN_INFO'] },
       { id: 'facebook', name: 'Facebook', domain: 'facebook.com', cookies: ['c_user'] },
