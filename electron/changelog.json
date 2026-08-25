@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.0.58",
+    "date": "2026-08-25",
+    "title": "登记/检测修复：小红书判定 + 多窗口 + 返回刷新",
+    "items": [
+      "小红书登录判定加 creator 域登录态（x-user-id-creator/galaxy_creator_session_id）——之前只查 web_session 查不到",
+      "点平台卡/保活复用同平台 tab（不再一次开 5 个窗口）",
+      "返回 AGENT / 窗口聚焦自动重新检测（不再显示旧未登录）；检测失败保留上次状态不闪",
+      "bind 防抖（进行中不重复 spawn）"
+    ]
+  },
+  {
     "version": "1.0.57",
     "date": "2026-08-25",
     "title": "登录态持久 + 登录保活",
