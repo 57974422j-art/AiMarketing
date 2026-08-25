@@ -1,6 +1,6 @@
 {
   "name": "ai-marketing",
-  "version": "1.0.53",
+  "version": "1.0.54",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -58,7 +58,9 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "asarUnpack": ["**/node_modules/@jackwener/opencli/**"],
+    "asarUnpack": [
+      "**/node_modules/@jackwener/opencli/**"
+    ],
     "appId": "com.aimarketing.app",
     "productName": "AI营销助手",
     "directories": {

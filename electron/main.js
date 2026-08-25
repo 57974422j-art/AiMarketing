@@ -1397,6 +1397,12 @@ function findBrowserExe() {
       } catch {}
     }
   } catch {}
+  try {
+    // B方案：内置 Chromium 兜底（打包含 ms-playwright）——任何机器都可用，不依赖系统浏览器
+    const { chromium } = require('playwright')
+    const exe = chromium.executablePath()
+    if (exe && fs.existsSync(exe)) return exe
+  } catch {}
   return null
 }
 ipcMain.handle('browser:bind', async () => {

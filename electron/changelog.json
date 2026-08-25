@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.0.54",
+    "date": "2026-08-25",
+    "title": "浏览器检测 A+B：写死Program Files+注册表+内置Chromium兜底",
+    "items": [
+      "A 强化检测：写死 Program Files/(x86) 真实路径 + 注册表 App Paths（env 不可靠问题根治）",
+      "B 内置 Chromium 兜底：系统浏览器找不到时用客户端内置浏览器（已打包 ms-playwright）——任何机器可用",
+      "bump-version 脚本（版本三处同步）+ deploy-server.sh（服务器一键部署）"
+    ]
+  },
+  {
     "version": "1.0.53",
     "date": "2026-08-24",
     "title": "修复：找不到Chrome/Edge + 打开浏览器登记 + preload补齐",
