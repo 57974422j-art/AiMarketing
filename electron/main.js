@@ -208,13 +208,28 @@ function setupAutoPublish() {
           const accts = await getBrowserAccounts()
           const loggedIn = accts.some((a) => a.id === plat && a.loggedIn)
           if (!loggedIn) {
-            // 未登录 → 打开平台登录页（仅一次）+ 任务留 pending，登录后自动重试
+            // 未登录 → 打开平台登录页（仅一次）+ 任务留 pending，登录后自动重试；浏览器未开先自动启动内置
             if (!global.__loginPrompted) global.__loginPrompted = {}
             if (!global.__loginPrompted[t.id]) {
               global.__loginPrompted[t.id] = true
               const { chromium } = require('playwright')
-              const b2 = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
-              const ctx2 = b2.contexts()[0]
+              let b2 = null
+              try { b2 = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT) } catch {
+                // 浏览器没开 → 自动启动内置 Chromium（独立 profile 必通）
+                try {
+                  const builtinExe = chromium.executablePath()
+                  if (builtinExe && fs.existsSync(builtinExe)) {
+                    const profileDir = path.join(app.getPath('userData'), 'browser-profile')
+                    fs.mkdirSync(profileDir, { recursive: true })
+                    const { spawn } = require('child_process')
+                    const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', '--disable-first-run-ui', 'about:blank'], { detached: true, stdio: 'ignore' })
+                    proc.unref(); boundProc = proc
+                    for (let i = 0; i < 30; i++) { try { const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) }); if (r.ok) break } catch {} await new Promise((r2) => setTimeout(r2, 500)) }
+                    b2 = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+                  }
+                } catch {}
+              }
+              const ctx2 = b2 ? b2.contexts()[0] : null
               if (ctx2) {
                 const pg = await ctx2.newPage()
                 await pg.goto(LOGIN_URLS[plat] || 'https://www.google.com', { waitUntil: 'domcontentloaded' }).catch(() => {})
@@ -258,7 +273,15 @@ function setupAutoPublish() {
               const needVp = ['douyin', 'xiaohongshu', 'shipinhao', 'xianyu'].includes(plat)
               if (needVp && !vp) { r = { success: false, error: '视频获取失败（本地路径/仓库下载均不可用）' } }
               else if (plat === 'weibo') r = await publishWeibo(page, { text: t.title || t.description || '' })
-              else if (plat === 'xiaohongshu') r = await publishXhsImages(page, { images: [], title: t.title || '', desc: t.description || '' })
+              else if (plat === 'xiaohongshu') {
+                // 图文：从任务 description 提取图片 URL（AI 传 http(s) 图片）→ 下载本地 → 发布
+                const imgUrls = (t.description || '').match(/https?:\/\/[^\s"']+\.(?:jpg|jpeg|png|webp)/gi) || []
+                const imgs = []
+                for (const u of imgUrls.slice(0, 9)) {
+                  try { const buf = Buffer.from(await (await fetch(u, { signal: AbortSignal.timeout(60000) })).arrayBuffer()); const p2 = require('path').join(require('os').tmpdir(), 'xhs-i-' + Date.now() + '-' + imgs.length + '.jpg'); require('fs').writeFileSync(p2, buf); imgs.push(p2) } catch {}
+                }
+                r = imgs.length ? await publishXhsImages(page, { images: imgs, title: t.title || '', desc: t.description || '' }) : await publishXhsImages(page, { images: [], title: t.title || '', desc: t.description || '' })
+              }
               else if (plat === 'douyin') r = await publishDouyinViaCDP({ videoPath: vp, title: t.title || '', caption: t.description || '' })
               else if (plat === 'shipinhao') r = await publishShipinhao(page, { videoPath: vp, title: t.title || '', desc: t.description || '' })
               else if (plat === 'twitter') r = await publishTwitter(page, { text: t.title || t.description || '' })
@@ -1529,7 +1552,7 @@ ipcMain.handle('browser:bind-mine', async () => {
       const profileDir = path.join(app.getPath('userData'), 'browser-profile')
       fs.mkdirSync(profileDir, { recursive: true })
       const { spawn } = require('child_process')
-      const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', 'about:blank'], { detached: true, stdio: 'ignore' })
+      const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', '--disable-sync', '--disable-infobars', 'about:blank'], { detached: true, stdio: 'ignore' })
       proc.unref(); boundProc = proc
       for (let i = 0; i < 30; i++) {
         try {
@@ -1544,7 +1567,7 @@ ipcMain.handle('browser:bind-mine', async () => {
     const exe = findBrowserExe()
     if (!exe) return { success: false, error: '未找到浏览器' }
     const { spawn } = require('child_process')
-    const proc = spawn(exe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--no-first-run', 'about:blank'], { detached: true, stdio: 'ignore' })
+    const proc = spawn(exe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', 'about:blank'], { detached: true, stdio: 'ignore' })
     proc.unref(); boundProc = proc
     for (let i = 0; i < 24; i++) {
       try {
