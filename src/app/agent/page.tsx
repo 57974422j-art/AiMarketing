@@ -39,7 +39,6 @@ function HotListCard({ source, items, accent, onPick, collapsed, onToggle }: {
   const rankColor = (i: number) => (i === 0 ? '#ff4444' : i === 1 ? '#ff8800' : i === 2 ? '#ffcc00' : '#6b7180')
   return (
     <div className="flex flex-col min-h-0 bg-[#0c1119]/60 border-b border-white/[0.05]">
-      <TourGuide />
       <button
         onClick={onToggle}
         className="flex items-center gap-1.5 px-2.5 py-2 border-b border-white/[0.05] hover:bg-white/[0.04] transition text-left w-full"
@@ -3195,6 +3194,7 @@ export default function AgentPage() {
               </div>
               {/* 中柱：地球 + 辅助信息（复刻 BaiLongma 结构，地球 flex:1 1 0 + min-h-0） */}
               <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        <TourGuide />
                 {/* 地球容器：占满中柱剩余高度(flex-1 min-h-0)，内部正方形以高定宽，绝不挤压底部卡片 */}
                 <div className="flex-1 min-h-0 flex items-center justify-center py-2">
                   <div className="relative h-full aspect-square max-w-full" style={{ background: 'radial-gradient(ellipse at center, #0a1a2e 0%, #050b14 100%)' }}>

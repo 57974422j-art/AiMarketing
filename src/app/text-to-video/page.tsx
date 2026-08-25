@@ -193,6 +193,7 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
     <>
     <PromptLibraryDialog open={libraryOpen} mode="video" onClose={() => setLibraryOpen(false)} onSelect={(t) => { setPrompt(t); setVideoUrl('') }} />
     <div className="min-h-screen bg-gray-950">
+      <TourGuide />
       {toast && (
         <div className="fixed top-4 right-4 z-50 bg-gray-900 border border-gray-700 text-white px-4 py-3 rounded-xl shadow-2xl font-mono text-sm">
           {toast}
@@ -387,7 +388,6 @@ const [lastPoints, setLastPoints] = useState<number | null>(null)
                       const segDur = isLast && duration ? duration - idx * segDuration : segDuration
                       return (
                       <div key={idx} className="mb-2">
-        <TourGuide />
                         <label className="block text-[10px] text-gray-500 mb-1 font-mono">
                           片段 {idx + 1}/{segmentPrompts.length} ({segDur || segDuration}s)
                         </label>
