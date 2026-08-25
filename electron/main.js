@@ -1476,7 +1476,12 @@ async function keepaliveBrowser() {
     for (const a of loggedIn) {
       const url = KEEP_URLS[a.id]
       if (!url) continue
-      try { const pg = await ctx.newPage(); await pg.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {}); await pg.close().catch(() => {}) } catch {}
+      try {
+        const host = url.replace(/^https?:\/\//, '').split('/')[0]
+        const pg = ctx.pages().find(p2 => p2.url().includes(host)) || await ctx.newPage()
+        await pg.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+        if (pg.url() === 'about:blank') await pg.close().catch(() => {})
+      } catch {}
     }
     console.log('[保活] 已访问', loggedIn.length, '个已登记平台（刷新登录态）')
   } catch {}
@@ -1485,7 +1490,7 @@ async function keepaliveBrowser() {
 async function getBrowserAccounts() {
   const PLATFORMS = [
     { id: 'douyin', name: '抖音', domain: 'douyin.com', cookies: ['sessionid', 'uid_tt', 'passport_csrf_token'] },
-    { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session', 'web_session_SSO'] },
+    { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session', 'web_session_SSO', 'x-user-id-creator.xiaohongshu.com', 'galaxy_creator_session_id'] },
     { id: 'weibo', name: '微博', domain: 'weibo.com', cookies: ['SUB', 'SUBP'] },
     { id: 'bilibili', name: 'B站', domain: 'bilibili.com', cookies: ['SESSDATA', 'DedeUserID'] },
     { id: 'kuaishou', name: '快手', domain: 'kuaishou.com', cookies: ['kuaishou.session.web', 'userId'] },
@@ -1521,8 +1526,12 @@ ipcMain.handle('browser:open-url', async (_e, url) => {
     const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
     const ctx = browser.contexts()[0]
     if (!ctx) return { success: false, error: '内置浏览器未启动——请先点「打开浏览器登记」' }
-    const page = await ctx.newPage()
+    // 复用同域已有 tab（避免多窗口堆积）
+    const host = String(url || '').replace(/^https?:\/\//, '').split('/')[0]
+    let page = ctx.pages().find(p2 => p2.url().includes(host))
+    if (!page) page = await ctx.newPage()
     await page.goto(String(url || 'https://www.google.com'), { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+    page.bringToFront().catch(() => {})
     return { success: true }
   } catch (e) { return { success: false, error: e.message } }
 })
@@ -1544,7 +1553,7 @@ ipcMain.handle('browser:accounts', async () => {
     // 2026-08-23: 国内外 11 平台 + cookie 多候选（任一命中即已登录）——检测用户日常 Chrome 登录态
     const PLATFORMS = [
       { id: 'douyin', name: '抖音', domain: 'douyin.com', cookies: ['sessionid', 'uid_tt', 'passport_csrf_token'] },
-      { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session', 'web_session_SSO'] },
+      { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session', 'web_session_SSO', 'x-user-id-creator.xiaohongshu.com', 'galaxy_creator_session_id'] },
       { id: 'weibo', name: '微博', domain: 'weibo.com', cookies: ['SUB', 'SUBP'] },
       { id: 'bilibili', name: 'B站', domain: 'bilibili.com', cookies: ['SESSDATA', 'DedeUserID'] },
       { id: 'kuaishou', name: '快手', domain: 'kuaishou.com', cookies: ['kuaishou.session.web', 'userId'] },

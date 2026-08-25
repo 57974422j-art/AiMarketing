@@ -1532,6 +1532,7 @@ export default function AgentPage() {
   const [browserNeedBind, setBrowserNeedBind] = useState(false)
   const [bindingMine, setBindingMine] = useState(false)
   const bindMyChrome = async () => {
+    if (bindingMine) return  // 2026-08-25: 防抖——进行中不重复（避免重复 spawn 多窗口）
     setBindingMine(true)
     try {
       // 2026-08-24: 网页版无 electronAPI——明确提示用客户端
@@ -1558,7 +1559,21 @@ export default function AgentPage() {
     } catch (e: any) { alert('打开浏览器失败：' + ((e && e.message) || e)) }
     setBindingMine(false)
   }
-  useEffect(() => { (async () => { try { const r = await (window as any).electronAPI?.browserAccounts(); if (r?.success) { setBrowserAccts(r.accounts || []); setBrowserNeedBind(!!r.needBind); if (r.accounts && r.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: r.accounts }), credentials: 'include' }).catch(() => {}) } } catch {} })() }, [])
+  useEffect(() => {
+    const detect = async () => {
+      try {
+        const r = await (window as any).electronAPI?.browserAccounts()
+        // 失败/未绑定时保留上次已检测状态（不闪"未登录"）；成功才更新
+        if (r?.success && r.accounts) { setBrowserAccts(r.accounts); setBrowserNeedBind(!!r.needBind); if (r.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: r.accounts }), credentials: 'include' }).catch(() => {}) }
+      } catch {}
+    }
+    detect()
+    // 2026-08-25: 切页返回/窗口聚焦时重新检测（不再显示旧"未登录"）
+    const onVis = () => { if (document.visibilityState === 'visible') setTimeout(detect, 800) }
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('focus', onVis)
+    return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis) }
+  }, [])
   // ── 功能提示标签（新手引导——点击填入输入框）──
   const FEATURE_TIPS = [
     '帮我发一条抖音视频', '帮我写一个小红书文案', '帮我生成一张产品海报',
