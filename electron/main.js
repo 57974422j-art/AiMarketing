@@ -1381,13 +1381,20 @@ const BROWSER_CANDIDATES = [
   process.env['PROGRAMFILES(X86)'] + '\Microsoft\Edge\Application\msedge.exe',
 ]
 function findBrowserExe() {
-  // 2026-08-24: 标准路径 + where 命令兜底（任意安装位置/绿色版）
+  // 2026-08-24: ①标准路径 ②写死 Program Files（Electron env 不可靠+系统级装不在PATH）③注册表 App Paths
   for (const p2 of BROWSER_CANDIDATES) { if (p2 && fs.existsSync(p2)) return p2 }
+  const hardPaths = ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe']
+  for (const p2 of hardPaths) { if (fs.existsSync(p2)) return p2 }
   try {
-    const { execSync } = require('child_process')
+    const { execFileSync } = require('child_process')
     for (const name of ['chrome', 'msedge']) {
-      const out = execSync('where ' + name, { timeout: 5000, windowsHide: true, shell: true }).toString().trim().split('\n')[0]
-      if (out && fs.existsSync(out)) return out
+      try {
+        const key = 'HKLM' + '\\SOFTWARE' + '\\Microsoft' + '\\Windows' + '\\CurrentVersion' + '\\App Paths' + '\\' + name + '.exe'
+        const reg = execFileSync('reg', ['query', key, '/ve'], { timeout: 5000, windowsHide: true, encoding: 'utf8' })
+        const m = reg.match(/REG_SZ\s+([^\r\n]+)/)
+        const p2 = m ? m[1].trim() : ''
+        if (p2 && fs.existsSync(p2)) return p2
+      } catch {}
     }
   } catch {}
   return null
