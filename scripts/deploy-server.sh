@@ -8,8 +8,8 @@ mkdir -p /root/db-backup
 sqlite3 prisma/dev.db ".backup '/root/db-backup/dev-$(date +%Y%m%d-%H%M).db'" || cp prisma/dev.db /root/db-backup/dev-$(date +%Y%m%d-%H%M).db
 echo "[2/7] 拉取代码…"
 git fetch origin && git reset --hard origin/master
-echo "[3/7] 判断是否需要 npm install…"
-if git diff HEAD^ HEAD --stat | grep -qE "package(-lock)?.json"; then npm install; else echo "依赖没变，跳过 install"; fi
+echo "[3/7] 判断是否需要 npm install（lock 变才是依赖真变——版本号改动不触发）…"
+if git diff HEAD^ HEAD --name-only | grep -q "package-lock.json"; then npm install; else echo "依赖没变，跳过 install（版本号改动不触发）"; fi
 echo "[4/7] 构建…"
 rm -rf .next && npm run build
 echo "[5/7] 复制静态资源…"
