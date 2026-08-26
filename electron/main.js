@@ -277,7 +277,7 @@ function setupAutoPublish() {
           // 已登录：CDP 3 平台真发布（publishXxx），其余提示手动
           if (!cdpPublish.includes(plat)) {
             fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, 'Cookie': await getServerCookie(),
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'Cookie': await getServerCookie() },
               body: JSON.stringify({ status: 'failed', error: '浏览器已登录' + (t.platform || '') + '，但该平台自动发布通道未开通——请到浏览器手动发布' }),
             }).catch(() => {})
             continue
@@ -301,7 +301,7 @@ function setupAutoPublish() {
                   const vis = (el) => el.offsetParent !== null
                   const all = Array.from(document.querySelectorAll('button, [class*="publish" i], [class*="release" i]'))
                   return all.some((el) => vis(el) && /发布/.test(el.textContent || ''))
-                }).catch(() => false)
+                }, { timeout: 8000 }).catch(() => false)
                 const loggedOut = page.url().includes('login') || page.url().includes('passport')
                 // 通过条件：到达上传页（url 含 content/upload 或 creator-micro/content）且未跳登录；发布按钮在未选视频时可能不出现——页面可达即算通道通
                 const atUpload = page.url().includes('content/upload') || page.url().includes('creator-micro/content')
@@ -309,7 +309,7 @@ function setupAutoPublish() {
                   : (loggedOut ? { success: false, error: '未登录抖音创作者平台' } : { success: false, error: '未能到达上传发布页' })
               } catch (e4) { r = { success: false, error: '测试异常: ' + (e4.message || e4) } }
               // 测试完成：标 done 并跳过真发流程
-              try { await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cookie: await getServerCookie(), body: JSON.stringify(r) }).catch(() => {}) } catch {}
+              try { await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/done', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Cookie': await getServerCookie() }, body: JSON.stringify(r) }).catch(() => {}) } catch {}
               b3.close().catch(() => {})
               continue
             }
@@ -319,7 +319,7 @@ function setupAutoPublish() {
               let vp = t.videoPath || t.localVideoPath || ''
               if (!vp && t.id && ['douyin', 'xiaohongshu', 'shipinhao', 'xianyu'].includes(plat)) {
                 try {
-                  const dl = await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/download-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, 'Cookie': await getServerCookie(), body: '{}', signal: AbortSignal.timeout(20000) }).then((r2) => r2.json())
+                  const dl = await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/download-url', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Cookie': await getServerCookie() }, body: '{}', signal: AbortSignal.timeout(20000) }).then((r2) => r2.json())
                   if (dl && dl.success && dl.url) {
                     const tmpDir = require('os').tmpdir()
                     const dest = require('path').join(tmpDir, 'aim-v-' + t.id + '-' + Date.now() + '.mp4')
@@ -354,7 +354,7 @@ function setupAutoPublish() {
             const body = { status }
             if (error) body.error = error
             fetch(`${serverUrl}/api/agent/publish-tasks/${t.id}/done`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, 'Cookie': await getServerCookie(), body: JSON.stringify(body),
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'Cookie': await getServerCookie() }, body: JSON.stringify(body),
             }).catch(() => {})
             console.log('[AutoPublish]', plat, '任务#', t.id, status, error || '')
           }
