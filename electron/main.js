@@ -187,7 +187,8 @@ function setupAutoPublish() {
   let fpWindow = null
   const checkPending = async () => {
     try {
-      const cookies = await session.defaultSession.cookies.get({ name: 'token' })
+      // 2026-08-26: 必须带 url 读取（带域 cookie 不指定 url 查不到→轮询每次提前退出→任务永远 pending→“假发”）；与 getServerCookie 一致
+      const cookies = await session.defaultSession.cookies.get({ url: 'https://ai-niuma.cc', name: 'token' })
       if (!cookies.length) return // 未登录
       const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc'
       const res = await fetch(`${serverUrl}/api/agent/publish-tasks?status=pending`, {

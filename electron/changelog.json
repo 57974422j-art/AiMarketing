@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.64",
+    "date": "2026-08-26",
+    "title": "修复：发布任务假发（轮询读不到token）+ Google 检测",
+    "items": [
+      "修复假发根因：轮询读 token 必须带 url（带域 cookie 不带 url 查不到 → 每次轮询提前退出 → 任务永远 pending → 浏览器不动）",
+      "登录态检测加 Google（SID/__Secure-1PSID/HSID）"
+    ]
+  },
+  {
     "version": "1.0.63",
     "date": "2026-08-25",
     "title": "隐藏测试版横幅 + 登录态恢复",
