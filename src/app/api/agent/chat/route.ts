@@ -8,7 +8,7 @@ import { searchTrendsReal } from '@/lib/gemini'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { spendTokens, checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
 import { listObjects, signedUrl, getOSSClient, putObject } from '@/lib/oss'
-import { createRecord, finalizeSuccess } from '@/lib/generation-record'
+import { createRecord, finalizeSuccessByTaskId, finalizeSuccess } from '@/lib/generation-record'
 import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
@@ -993,6 +993,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
               const oss = await getOSSClient()
               await oss.put(key, buf)
               finalUrl = await signedUrl(key, 86400)
+              // 2026-08-26 B方案：成片完成才扣（finalizeSuccessByTaskId 原子认领——pending→processing→扣款，防重复）
+              try { await finalizeSuccessByTaskId(String(taskId), finalUrl) } catch (e7) { console.error('[charge] 成片扣费失败:', e7) }
               await prisma.mediaAsset.create({
                 data: { title: 'AI生成视频', ossUrl: finalUrl, type: 'video', prompt: String(args.prompt || 'AI生成视频').slice(0, 100), category: 'AI生成', source: 'private', ownerId: auth.userId, orientation: 'landscape' },
               })
