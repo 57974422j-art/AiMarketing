@@ -1595,6 +1595,7 @@ ipcMain.handle('browser:accounts', async () => {
       { id: 'twitter', name: 'X(Twitter)', domain: 'twitter.com', cookies: ['auth_token', 'ct0'] },
       { id: 'instagram', name: 'Instagram', domain: 'instagram.com', cookies: ['sessionid'] },
       { id: 'youtube', name: 'YouTube', domain: 'youtube.com', cookies: ['SID', 'LOGIN_INFO'] },
+      { id: 'google', name: 'Google', domain: 'google.com', cookies: ['SID', '__Secure-1PSID', 'HSID'] },
       { id: 'facebook', name: 'Facebook', domain: 'facebook.com', cookies: ['c_user'] },
       { id: 'tiktok', name: 'TikTok', domain: 'tiktok.com', cookies: ['sessionid'] },
     ]
