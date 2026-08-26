@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.67",
+    "date": "2026-08-26",
+    "title": "修复：任务done永远失败（Cookie在headers外）",
+    "items": [
+      "4处 done/download-url fetch 的 Cookie 移进 headers（之前顶层被fetch忽略→401→任务永远pending）",
+      "测试分支 evaluate 加 8s 超时防卡"
+    ]
+  },
+  {
     "version": "1.0.66",
     "date": "2026-08-26",
     "title": "修复：测试发布停在首页（goto条件bug）",
