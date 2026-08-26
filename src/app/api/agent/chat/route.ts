@@ -270,6 +270,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
         coverUrl: { type: 'string', description: '封面图URL（可选，不传用平台智能封面）' },
         platforms: { type: 'array', items: { type: 'string' }, description: '多平台发布（可选，如 ["douyin","kuaishou"]；不传用 platform）' },
         fromSource: { type: 'string', description: '视频来源：self(用户自有/AI生成，可发) / public(公共素材库，版权提示) / web(网络，版权提示)' },
+        test: { type: 'boolean', description: '测试模式：用户说“测试发布/测试一下发布流程/发布自检”时传 true——客户端执行到“发布按钮前”停止（不真发），找到发布按钮即认为通过' },
       }, required: ['platform'],
     },
   },
@@ -1266,7 +1267,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                   socialAccountId: null,
                   videoName,
                   title: String(args.caption).slice(0, 80),
-                  description: String(args.caption),
+                  description: (args.test === true ? '[TEST] ' : '') + String(args.caption),
                   topics: JSON.stringify(topicsArr),
                   coverUrl: args.coverUrl || null,
                   status: 'pending',
@@ -1275,6 +1276,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
               taskIds.push(task.id)
             }
             const idTxt = taskIds.map((id, i) => `${PLATFORM_LABEL[platformList[i]] || platformList[i]} #${id}`).join('、')
+            if (args.test === true) return `PUBLISH_QUEUED:已为「${idTxt}」创建【测试发布任务】（视频：${videoName}）——客户端将执行到"发布按钮前"停止（不上传不真发），找到发布按钮即测试通过。查结果说「查发布状态」。`
             return `PUBLISH_QUEUED:已为「${idTxt}」创建发布任务（视频：${videoName}）${topicsArr.length ? '，话题：#' + topicsArr.join(' #') : ''}。客户端【指纹浏览器】页会自动执行发布（自动启动浏览器+上传+填标题+发布）；若执行时提示账号未登录，到指纹浏览器页扫码后任务会自动重试。${captionLine0}`
           } catch (e: any) {
             return `PUBLISH_READY:创建发布任务失败（${e.message}）。

@@ -157,6 +157,8 @@ function createWindow() {
 
   // ── 2026-08-18: 客户端常驻自动发布——定时检查 pending 任务，自动打开指纹浏览器页执行 ──
   setupAutoPublish()
+  // 2026-08-26: 启动检查未完成任务提示（确认才继续执行）
+  startupTaskCheck().catch(() => { global.__allowResume = true })
   // 2026-08-25: 登录保活——启动时一次 + 每天 11:30 定时（对齐 OpenCLI 中午保活）
   setTimeout(() => { try { keepaliveBrowser() } catch {} }, 8000)
   setInterval(() => {
@@ -181,12 +183,37 @@ async function getServerCookie() {
   } catch { return '' }
 }
 
+// 2026-08-26: 启动检查——有未完成任务（发布/视频）先弹窗提示，用户确认"继续执行"才开轮询（防止启动自动执行/任务没完成被忽略）
+async function startupTaskCheck() {
+  try {
+    const cookies = await session.defaultSession.cookies.get({ url: 'https://ai-niuma.cc', name: 'token' })
+    if (!cookies.length) { global.__allowResume = true; return }
+    const ck = 'token=' + encodeURIComponent(cookies[0].value)
+    const [pub, vid] = await Promise.all([
+      fetch('https://ai-niuma.cc/api/agent/publish-tasks?status=pending', { headers: { cookie: ck } }).then((r) => r.json()).catch(() => null),
+      fetch('https://ai-niuma.cc/api/video/tasks?status=processing', { headers: { cookie: ck } }).then((r) => r.json()).catch(() => null),
+    ])
+    const pubN = pub && Array.isArray(pub.data) ? pub.data.length : 0
+    const vidN = vid && Array.isArray(vid.data) ? vid.data.length : 0
+    if (!pubN && !vidN) { global.__allowResume = true; return }
+    const { dialog } = require('electron')
+    const r = await dialog.showMessageBox(mainWindow, {
+      type: 'warning', buttons: ['继续执行', '暂不执行'], defaultId: 1, cancelId: 1,
+      title: '有未完成的任务',
+      message: '检测到未完成的任务',
+      detail: '发布任务 ' + pubN + ' 个、视频生成任务 ' + vidN + ' 个未完成。是否继续执行？（不执行则保持待办，可稍后手动触发）',
+    })
+    global.__allowResume = r.response === 0
+  } catch { global.__allowResume = true }
+}
+
 function setupAutoPublish() {
   if (global.__autoPublishStarted) return
   global.__autoPublishStarted = true
   let fpWindow = null
   const checkPending = async () => {
     try {
+      if (!global.__allowResume) return // 2026-08-26: 启动未确认不自动执行（提示后用户选“继续执行”才开）
       // 2026-08-26: 必须带 url 读取（带域 cookie 不指定 url 查不到→轮询每次提前退出→任务永远 pending→“假发”）；与 getServerCookie 一致
       const cookies = await session.defaultSession.cookies.get({ url: 'https://ai-niuma.cc', name: 'token' })
       if (!cookies.length) return // 未登录
@@ -261,6 +288,26 @@ function setupAutoPublish() {
           const ctx3 = b3.contexts()[0]
           if (ctx3) {
             const page = ctx3.pages().find((p2) => p2.url().includes(plat)) || await ctx3.newPage()
+            // 2026-08-26: 测试模式（[TEST] 前缀任务）——走页面 DOM 到"发布按钮前"停止，不传视频不真发
+            const isTest = (t.description || '').startsWith('[TEST]')
+            if (isTest && plat === 'douyin') {
+              try {
+                if (!page.url().includes('creator.douyin.com')) await page.goto('https://creator.douyin.com/creator-micro/content/upload', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
+                await page.waitForTimeout(2500)
+                const btnFound = await page.evaluate(() => {
+                  const vis = (el) => el.offsetParent !== null
+                  const all = Array.from(document.querySelectorAll('button, [class*="publish" i], [class*="release" i]'))
+                  return all.some((el) => vis(el) && /发布/.test(el.textContent || ''))
+                }).catch(() => false)
+                const loggedOut = page.url().includes('login') || page.url().includes('passport')
+                r = btnFound ? { success: true, test: true, message: '✅ 发布通道测试通过：上传页可达、发布按钮就位（未真发）' }
+                  : (loggedOut ? { success: false, error: '未登录抖音创作者平台' } : { success: false, error: '未找到发布按钮' })
+              } catch (e4) { r = { success: false, error: '测试异常: ' + (e4.message || e4) } }
+              // 测试完成：标 done 并跳过真发流程
+              try { await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cookie: await getServerCookie(), body: JSON.stringify(r) }).catch(() => {}) } catch {}
+              b3.close().catch(() => {})
+              continue
+            }
             let r = { success: false, error: '未知平台' }
             try {
               // 2026-08-25: 7 平台自动发布——需视频的平台（抖音/小红书视频/视频号/闲鱼）先取本地路径（任务带或仓库下载）
