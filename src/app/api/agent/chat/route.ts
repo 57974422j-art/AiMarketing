@@ -7,7 +7,7 @@ import {
 import { searchTrendsReal } from '@/lib/gemini'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { spendTokens, checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
-import { listObjects, signedUrl, getOSSClient } from '@/lib/oss'
+import { listObjects, signedUrl, getOSSClient, putObject } from '@/lib/oss'
 import { createRecord, finalizeSuccess } from '@/lib/generation-record'
 import { execSync } from 'child_process'
 import fs from 'fs'
@@ -471,6 +471,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 1. 用户说"发布/发 xx 到平台" → 确认三要素：平台、视频（仓库文件名）、文案（无文案可只用视频名作标题）
 2. **发布标准流程（2026-08-21 升级，一条龙不再一路问）**：
    - 有视频（仓库名）→ **先调 extract_video_frames 抽 4 帧展示**（帧图卡片）→ 用户选帧（"用第N帧"）→ 基于该帧画面识别内容 → **自动推荐标题/话题标签 + 用该帧设计封面（IMAGE_RESULT 直接展示）——默认动作，不要问"要不要推荐封面/标题"**
+   - **重新分析思考链（2026-08-26）**：用户说“重新分析/再看视频/分析错了”时，**必须重新调用 extract_video_frames**（重新抽帧看原视频），不得凭旧有信息直接生成。视觉分析失败时（FRAMES_OK 中 visualDesc 为空），**不得编造画面内容**，明确告知用户“画面分析失败，请重试”。
    - 用户确认标题/封面后 → **直接调 publish_content 建任务（不要问"要发布吗/需要发布吗"——确认即发）**
    - 例外：用户明确说"直接发布/不用封面/简单发" → 跳过抽帧，直接 publish_content
 2b. **登录引导（硬规则）**：发布不需要账号登记、不需要去【账号管理】填表单——**禁止引导"去账号管理登记账号"**。正确说法："客户端会自动启动XX浏览器；若弹出登录页，扫码登录一次即可（登录态自动保存，以后直接发）"。执行时若任务失败（error 含"未找到账号/未登录"），如实引用 error 并提示扫码即可，不要引导表单登记。
@@ -558,6 +559,7 @@ Step 4 publish_content 建任务（多平台传 platforms 数组一次建多个�
 【热点驱动选题（像白龙马一样主动）】
 - 系统会在对话开头注入【今日热点上下文】（来自 vvhan/微博/抖音/知乎/小红书/HackerNews/Reddit 等）。
 - 当用户点热点卡片、或说"今天发什么/给我个选题/日更内容"等模糊指令时，直接结合热点上下文给 2~3 个具体选题方向（带标题+文案要点+建议用哪个工具做），不要空泛、不要先反问"你是做什么的"——热点本身就是素材，先出方案再说。
+- **热榜结合规则（2026-08-26）**：发视频/推荐封面/推荐标题时，热榜必须与视频实际画面（visualDesc）相关；只有生成新闻/泛内容时才可直接用热点话题。禁止将与视频无关的热榜硬套进文案。
 - 如果用户行业不在热点里覆盖，可在出完方案后顺带问一句"你主要做哪个行业，我记一下以后更精准"，但绝不要阻塞出方案。
 
 【一键成片（唤起页面，不代跑）】
@@ -1499,8 +1501,21 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         try {
           const vKey = process.env.DASHSCOPE_API_KEY
           if (vKey && frames.length) {
-            const abs = 'https://ai-niuma.cc' + (process.env.NODE_ENV === 'production' ? '' : '')
-            const images = frames.slice(0, 6).map((u) => ({ type: 'image_url', image_url: { url: abs + u } }))
+            // 2026-08-26: 帧读本地 → 传 OSS（signedUrl 公网可达）→ 视觉模型才能真正看到画面（之前写死 ai-niuma.cc 本地帧 404 → visualDesc 空 → AI 瞎编）
+            const images: any[] = []
+            for (const u of frames.slice(0, 6)) {
+              try {
+                const rel = String(u).replace('/api/frames/', '')
+                const fp = path.join(pubRoot, 'frames', rel)
+                if (fs.existsSync(fp)) {
+                  const buf = fs.readFileSync(fp)
+                  const okey = 'frames/' + rel
+                  await putObject(okey, buf, 'image/jpeg')
+                  images.push({ type: 'image_url', image_url: { url: signedUrl(okey, 900) } })
+                }
+              } catch (e3) { console.error('[visual] 帧传 OSS 失败:', rel, e3) }
+            }
+            if (!images.length) { console.error('[visual] 无帧可传（本地帧缺失）——视觉分析跳过') }
             const vr = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + vKey },
@@ -1513,8 +1528,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             }).then((r) => r.json())
             visualDesc = vr?.choices?.[0]?.message?.content?.[0]?.text || vr?.choices?.[0]?.message?.content || ''
             if (visualDesc) visualDesc = String(visualDesc).trim().slice(0, 500)
+            else console.error('[visual] 视觉模型无输出（帧不可达或模型失败）')
           }
-        } catch {}
+        } catch (e2) { console.error('[visual] 视觉分析异常:', e2) }
         return 'FRAMES_OK:' + JSON.stringify({ frames, videoName, grid, recommended, visualDesc })
       } catch (e: any) { return '抽帧失败: ' + (e.message || e) }
     }
