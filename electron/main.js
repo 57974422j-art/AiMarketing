@@ -1552,7 +1552,7 @@ ipcMain.handle('browser:open-url', async (_e, url) => {
           fs.mkdirSync(profileDir, { recursive: true })
           try { for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) { const sp = path.join(profileDir, f); if (fs.existsSync(sp)) fs.rmSync(sp, { force: true }) } } catch {}
           const { spawn } = require('child_process')
-          const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', 'about:blank'], { detached: true, stdio: 'ignore' })
+          const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', '--disable-infobars', '--disable-component-update', 'about:blank'], { detached: true, stdio: 'ignore' })
           proc.unref(); boundProc = proc
           for (let i = 0; i < 30; i++) { try { const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) }); if (r.ok) break } catch {} await new Promise((r2) => setTimeout(r2, 500)) }
           browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
@@ -1644,7 +1644,7 @@ ipcMain.handle('browser:bind-mine', async () => {
     const exe = findBrowserExe()
     if (!exe) return { success: false, error: '未找到浏览器' }
     const { spawn } = require('child_process')
-    const proc = spawn(exe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', 'about:blank'], { detached: true, stdio: 'ignore' })
+    const proc = spawn(exe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', '--disable-infobars', '--disable-component-update', 'about:blank'], { detached: true, stdio: 'ignore' })
     proc.unref(); boundProc = proc
     for (let i = 0; i < 24; i++) {
       try {
