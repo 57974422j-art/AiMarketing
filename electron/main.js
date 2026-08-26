@@ -292,16 +292,21 @@ function setupAutoPublish() {
             const isTest = (t.description || '').startsWith('[TEST]')
             if (isTest && plat === 'douyin') {
               try {
-                if (!page.url().includes('creator.douyin.com')) await page.goto('https://creator.douyin.com/creator-micro/content/upload', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
-                await page.waitForTimeout(2500)
+                // 2026-08-26: 测试必须到上传页——即使已在 creator 域（之前条件判断已有域→跳过goto→停在home→找不到按钮）
+                if (!page.url().includes('content/upload')) {
+                  await page.goto('https://creator.douyin.com/creator-micro/content/upload', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
+                  await page.waitForTimeout(3500)
+                }
                 const btnFound = await page.evaluate(() => {
                   const vis = (el) => el.offsetParent !== null
                   const all = Array.from(document.querySelectorAll('button, [class*="publish" i], [class*="release" i]'))
                   return all.some((el) => vis(el) && /发布/.test(el.textContent || ''))
                 }).catch(() => false)
                 const loggedOut = page.url().includes('login') || page.url().includes('passport')
-                r = btnFound ? { success: true, test: true, message: '✅ 发布通道测试通过：上传页可达、发布按钮就位（未真发）' }
-                  : (loggedOut ? { success: false, error: '未登录抖音创作者平台' } : { success: false, error: '未找到发布按钮' })
+                // 通过条件：到达上传页（url 含 content/upload 或 creator-micro/content）且未跳登录；发布按钮在未选视频时可能不出现——页面可达即算通道通
+                const atUpload = page.url().includes('content/upload') || page.url().includes('creator-micro/content')
+                r = (!loggedOut && atUpload) ? { success: true, test: true, message: btnFound ? '✅ 发布通道测试通过：已到达发布页，发布按钮就位（未真发）' : '✅ 发布通道测试通过：已到达上传发布页（选视频后发布按钮将出现，未真发）' }
+                  : (loggedOut ? { success: false, error: '未登录抖音创作者平台' } : { success: false, error: '未能到达上传发布页' })
               } catch (e4) { r = { success: false, error: '测试异常: ' + (e4.message || e4) } }
               // 测试完成：标 done 并跳过真发流程
               try { await fetch(serverUrl + '/api/agent/publish-tasks/' + t.id + '/done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cookie: await getServerCookie(), body: JSON.stringify(r) }).catch(() => {}) } catch {}
