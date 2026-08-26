@@ -736,9 +736,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const result = await generateVideo(gvPrompt, gvDuration, '720P', gvRatio)
       if (result?.taskId && result.status === 'running') {
         // 2026-08-24: 生成即落库（可追踪/断网可恢复）
-        try { await createRecord({ userId: uid2, type: 'text2video', prompt: gvPrompt, costPoints: gvCost }) } catch {}
-        await spendTokens(uid2, gvCost, 'agent_generate_video')
-        return `VIDEO_TASK:${result.taskId}|PROMPT:${gvPrompt}|COST:${gvCost}点`
+        // 2026-08-26 B方案：提交不扣——成片成功（query_video_task 查到成功）才扣
+        try { await createRecord({ userId: uid2, type: 'text2video', prompt: gvPrompt, costPoints: gvCost, platformTaskId: String(result.taskId) }) } catch {}
+        return `VIDEO_TASK:${result.taskId}|PROMPT:${gvPrompt}|COST:${gvCost}点（成片完成后扣费）`
       }
       if (result?.videoUrl) { await spendTokens(uid2, gvCost, 'agent_generate_video'); return `VIDEO_RESULT:${result.videoUrl}|COST:${gvCost}点` }
       return '视频生成暂不可用'
@@ -771,6 +771,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       if (!uid3) return 'TOOL_REJECT:未登录'
       const avChk = await checkTokens(uid3, avCost)
       if (!avChk.allowed) return `TOOL_REJECT:${avChk.message}`
+      // 2026-08-26 B方案：提交不扣——成片成功（query_storyboard 查到 videoUrl）才扣
       // 分镜：调 LLM 出分镜 JSON
       const avShots = Math.max(2, Math.ceil(avDuration / 5))
       const avPrompt = `你是短视频分镜导演。根据主题「${args.topic || ''}」生成 ${avShots} 个镜头的分镜脚本（总时长约${avDuration}秒，每镜约5秒，${avRatio}画面）。只输出 JSON 数组（不要任何其它文字或代码块标记），每镜对象：{shot:序号, desc:"中文画面描述", prompt:"英文视频生成提示词，含主体/动作/场景/光影/运镜，80词内", duration:5, camera:"镜头感"}。风格：${args.style || '通用写实'}。`
@@ -792,7 +793,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           ratio: avRatio, style: args.style || null, duration: avDuration, shots: JSON.stringify(normalized),
           status: 'pending', totalShots: normalized.length, costPoints: avCost },
       })
-      await spendTokens(uid3, avCost, 'agent_create_ai_video')
+      // 2026-08-26 B：不再提交扣（query_storyboard 完成扣）
       const mod = await import('../storyboard/route')
       mod.runShots(task.id, normalized, avRatio).catch(e => console.error('[Storyboard]', e))
       return `AI_VIDEO_TASK:${task.id}|SHOTS:${normalized.length}|COST:${avCost}点（约¥${(avCost / 100).toFixed(1)}）。已自动分镜并开始后台生成，约每镜1-3分钟，可随时问我进度。`
@@ -836,6 +837,10 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const shots = JSON.parse(task.shots || '[]')
       const progress = shots.map((s: any) => `${s.shot}镜:${s.status === 'done' ? '✅' : s.status === 'failed' ? '❌' : '⏳'}${s.error ? '(' + s.error + ')' : ''}`).join(' ')
       const base = `分镜任务#${task.id} 状态:${task.status} 完成:${task.doneShots}/${task.totalShots} ${progress}`
+      // 2026-08-26 B方案：成片出现才扣费（收到成片后扣）；costPoints 扣完置 0 防重复
+      if (task.videoUrl && task.costPoints > 0) {
+        try { await spendTokens(task.userId, task.costPoints, 'agent_video_complete'); await p3.storyboardTask.update({ where: { id: tid }, data: { costPoints: 0 } }) } catch (e6) { console.error('[charge] 成片扣费失败:', e6) }
+      }
       return task.videoUrl ? `${base} 成品:${task.videoUrl}` : `${base}（未完成/无成品，可稍后问我或重试失败镜）`
     }
 
