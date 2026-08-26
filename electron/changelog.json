@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.0.68",
+    "date": "2026-08-26",
+    "title": "最终修复：done Cookie 根因 + 不再全开页面",
+    "items": [
+      "getServerCookie 补 serverUrl 定义（之前 ReferenceError→空→done 401→任务永远 pending——所有版本测试卡上传页的根因）",
+      "keepalive 不再遍历打开各平台页面（启动 8s 全开 N 个 tab 的元凶）——改静默读 cookie 刷新，不开页不跳转",
+      "登录态检测：浏览器没开不再自动拉起——引导一次性「打开浏览器登记」验证"
+    ]
+  },
+  {
     "version": "1.0.67",
     "date": "2026-08-26",
     "title": "修复：任务done永远失败（Cookie在headers外）",

@@ -178,6 +178,7 @@ async function getServerCookie() {
   try {
     const win = global.__mainWin
     if (!win || !win.webContents) return ''
+    const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc' // 2026-08-26: 显式定义（之前引用未定义→ReferenceError→空→done 401→任务永远pending）
     const cookies = await win.webContents.session.cookies.get({ url: serverUrl })
     return cookies.map((c) => c.name + '=' + c.value).join('; ')
   } catch { return '' }
@@ -1513,29 +1514,14 @@ ipcMain.handle('browser:bind', async () => {
 
 // 2026-08-25: 登录保活——每天定时 + 启动时访问已登记平台（刷新 cookie 有效期，对齐 OpenCLI 中午保活）
 async function keepaliveBrowser() {
+  // 2026-08-26: 不再遍历打开各平台页面（每次启动全开N个tab是此函数造成）——只静默读 cookie 刷新登录态（不新开 tab、不跳转）
   try {
-    const accts = await getBrowserAccounts()
-    const loggedIn = accts.filter(a => a.loggedIn)
-    if (!loggedIn.length) return
-    const KEEP_URLS = {
-      douyin: 'https://creator.douyin.com', xiaohongshu: 'https://creator.xiaohongshu.com/new/home',
-      weibo: 'https://weibo.com', bilibili: 'https://www.bilibili.com',
-      shipinhao: 'https://channels.weixin.qq.com/platform/post/create', twitter: 'https://x.com',
-    }
     const { chromium } = require('playwright')
-    const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+    const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT).catch(() => null)
+    if (!browser) return // 浏览器没开不自动拉起
     const ctx = browser.contexts()[0]
-    if (!ctx) return
-    for (const a of loggedIn) {
-      const url = KEEP_URLS[a.id]
-      if (!url) continue
-      try {
-        const host = url.replace(/^https?:\/\//, '').split('/')[0]
-        const pg = await getTargetPage(ctx, host)
-        await pg.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-      } catch {}
-    }
-    console.log('[保活] 已访问', loggedIn.length, '个已登记平台（刷新登录态）')
+    if (ctx) { const cookies = await ctx.cookies().catch(() => []); console.log('[保活] 静默刷新登录态（读取', cookies.length, '个cookie，未打开任何页面）') }
+    browser.close().catch(() => {})
   } catch {}
 }
 
@@ -1631,8 +1617,8 @@ ipcMain.handle('browser:accounts', async () => {
     try {
       browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
     } catch (e0) {
-      // 2026-08-23: 不再自动拉起空实例——引导用户「一键启动我的 Chrome」（日常浏览器登录态检测）
-      return { success: false, error: '未绑定浏览器', accounts: [], bound: false, needBind: true }
+      // 2026-08-26: 不自动拉起浏览器（避免每次自动开一堆页面）——引导用户手动「＋打开浏览器登记」一次性验证；平时检测不打扰
+      return { success: false, error: '浏览器未打开（登录态检测需浏览器在线，点「打开浏览器登记」一次性验证后自动记忆）', accounts: [], bound: false, needBind: true }
     }
     if (!browser) return { success: false, error: '未找到浏览器', accounts: [], bound: false, needBind: true }
     const ctxs = browser.contexts()
