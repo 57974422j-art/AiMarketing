@@ -264,7 +264,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
       properties: {
         platform: { type: 'string', description: '平台：douyin/xiaohongshu/kuaishou/shipinhao/bilibili（或中文名）' },
         contentUrl: { type: 'string', description: '要发布的内容URL（个人仓库文件URL或生成结果URL）' },
-        videoName: { type: 'string', description: '素材仓库中的视频文件名（如 xxx.mp4），与 contentUrl 二选一，优先用这个' },
+        videoName: { type: 'string', description: '仓库视频（日期+编号命名，如 20260826_001.mp4）。**用户没说哪个视频→ 不要问名字，不传 videoName → 工具自动列仓库最新 3 个编号让用户选；用户给编号/说用最新→ 传该文件名**' },
         caption: { type: 'string', description: '文案/标题（含话题标签，如 #咖啡 #探店）' },
         topics: { type: 'string', description: '话题标签（可选，逗号分隔；不传则从文案自动提取#标签）' },
         coverUrl: { type: 'string', description: '封面图URL（可选，不传用平台智能封面）' },
@@ -1263,6 +1263,16 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         const list = accts.map(a => `- ${a.username}（${label}）`).join('\n')
         // C2 发布闭环（2026-08-05）：视频/文案齐备 → 创建发布任务，客户端自动发布（复用 7 平台脚本）
         const videoName = args.videoName || (typeof args.contentUrl === 'string' ? args.contentUrl.split('/').pop()?.split('?')[0] : '')
+        // 2026-08-27 发布工作流：视频是日期+编号命名——用户没说具体哪个 → 列仓库最新3个编号让选（绝不问"视频叫什么名字"）
+        if (!videoName) {
+          try {
+            const { listObjects } = await import('@/lib/oss')
+            const objs = await listObjects('storage/' + auth.userId + '/')
+            const vids = (objs || []).filter((o: any) => /\.(mp4|mov|avi|mkv|webm)$/i.test(o.name || '')).sort((a: any, b: any) => (b.lastModified || 0) - (a.lastModified || 0)).slice(0, 3)
+            if (vids.length) return `WORKFLOW_NEED_VIDEO:发布工作流——你的仓库最近 ${vids.length} 个视频（日期+编号命名）：${vids.map((v: any, i: number) => i + 1 + '. ' + v.name.split('/').pop()).join(' | ')} —— 回复编号（如 1）或说“用最新”即发布。若都不对，可到个人仓库页选或本地上传。`
+          } catch {}
+          return 'WORKFLOW_NEED_VIDEO:发布工作流——未指定视频。请到个人仓库页选择要发布的视频，或直接本地上传后告诉我。'
+        }
         const captionLine0 = args.caption ? `
 📝 文案：${args.caption}` : ''
         if (videoName && args.caption) {
