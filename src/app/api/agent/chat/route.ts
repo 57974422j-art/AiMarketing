@@ -1994,6 +1994,26 @@ export async function POST(request: NextRequest) {
       const finalResult = hasImage
         ? await agnesChat(messages, [])
         : await dashscopeFunctionCall(messages as any, [], 2000, userTemperature)
+      // 2026-08-27 强制发布工作流：用户发布意图 + 本轮未调 publish_content → 代码强制补调（不依赖模型调工具，模型再也无法编“已创建/已抽帧”）
+      try {
+        const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
+        const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
+        if (pubIntent && !calledPublish) {
+          // 从用户消息提取平台+视频文件名（如 发布抖音20260826_001.mp4）
+          const platMatch = userMessage.match(/(抖音|小红书|微博|视频号)/)
+          const platMap: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao' }
+          const platform = platMatch ? (platMap[platMatch[1]] || 'douyin') : 'douyin'
+          const vfMatch = userMessage.match(/([\w\-]+\.(?:mp4|mov|avi|mkv|webm))/i)
+          const vfName = vfMatch ? vfMatch[1] : ''
+          const wfArgs: any = { platform }
+          if (vfName) wfArgs.videoName = vfName
+          console.log('[发布工作流] 强制触发:', JSON.stringify(wfArgs))
+          const wfResult = await executeToolCall('publish_content', wfArgs, auth)
+          const wfId = 'wf-' + Date.now()
+          messages.push({ role: 'tool', tool_call_id: wfId, content: String(wfResult) } as any)
+          if (normCalls.length === 0) normCalls.push({ id: wfId, name: 'publish_content', arguments: JSON.stringify(wfArgs) } as any)
+        }
+      } catch (ePub2) { console.error('[发布工作流] 异常:', ePub2) }
       const toolMsg = messages.filter(m => (m as any).role === 'tool').pop() as AgentChatMessage | undefined
       const toolRaw = toolMsg?.content
       const toolText = typeof toolRaw === 'string' ? toolRaw : (toolRaw ? JSON.stringify(toolRaw) : '')
