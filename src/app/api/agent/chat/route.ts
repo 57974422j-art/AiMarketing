@@ -1262,7 +1262,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         })
         const list = accts.map(a => `- ${a.username}（${label}）`).join('\n')
         // C2 发布闭环（2026-08-05）：视频/文案齐备 → 创建发布任务，客户端自动发布（复用 7 平台脚本）
-        const videoName = args.videoName || (typeof args.contentUrl === 'string' ? args.contentUrl.split('/').pop()?.split('?')[0] : '')
+        // 2026-08-27: V4 flash 可能用 file/title/desc 参数名——兼容别名（videoName=file，caption=desc/title）
+        const videoName = args.videoName || args.file || (typeof args.contentUrl === 'string' ? args.contentUrl.split('/').pop()?.split('?')[0] : '')
         // 2026-08-27 发布工作流：视频是日期+编号命名——用户没说具体哪个 → 列仓库最新3个编号让选（绝不问"视频叫什么名字"）
         if (!videoName) {
           try {
@@ -1273,12 +1274,13 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           } catch {}
           return 'WORKFLOW_NEED_VIDEO:发布工作流——未指定视频。请到个人仓库页选择要发布的视频，或直接本地上传后告诉我。'
         }
-        const captionLine0 = args.caption ? `
-📝 文案：${args.caption}` : ''
+        const pubCaption = args.caption || args.desc || args.title || '' // V4 别名兼容
+        const captionLine0 = pubCaption ? `
+📝 文案：${pubCaption}` : ''
         if (videoName && (args.caption || true)) { // 2026-08-27: caption 空也建任务（用视频名作标题）——用户只说“发布抖音xx.mp4”不说文案也要建
           try {
             // 2026-08-18: 话题从文案提取 #标签（或用户显式传 topics）
-            const hashTags = String(args.caption || '').match(/#[^\s#，,。]+/g) || []
+            const hashTags = String(pubCaption || '').match(/#[^\s#，,。]+/g) || []
             const topicsArr = args.topics
               ? String(args.topics).split(/[,，]/).map((t: string) => t.trim()).filter(Boolean)
               : hashTags.map((t: string) => t.replace('#', ''))
@@ -1295,8 +1297,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                   platform: pl,
                   socialAccountId: null,
                   videoName,
-                  title: String(args.caption || videoName).slice(0, 80),
-                  description: (args.test === true ? '[TEST] ' : '') + String(args.caption || videoName),
+                  title: String(pubCaption || videoName).slice(0, 80),
+                  description: (args.test === true ? '[TEST] ' : '') + String(pubCaption || videoName),
                   topics: JSON.stringify(topicsArr),
                   coverUrl: args.coverUrl || null,
                   status: 'pending',
@@ -1313,7 +1315,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           }
         }
         const contentLine = args.contentUrl ? `\n📎 待发内容：${args.contentUrl}` : '\n📎 待发内容：还未确定，可从个人仓库选一个成片'
-        const captionLine = args.caption ? `\n📝 文案：${args.caption}` : ''
+        const captionLine = args.caption ? `\n📝 文案：${pubCaption}` : ''
         return `PUBLISH_READY:${label}发布准备:${contentLine}${captionLine}\n\n👉 告诉我要发哪个视频（素材仓库名）和文案，我直接创建发布任务；或去客户端【指纹浏览器】页手动发布。\n⚠️ 如果发布时提示「该账号未登录平台」，点账号卡片上的「🔓 去登录」扫码登录后重试（我不代你登录）。`
       } catch { return 'PUBLISH_READY:账号查询失败，请稍后重试' }
     }
