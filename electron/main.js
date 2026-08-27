@@ -2112,8 +2112,9 @@ async function publishDouyinViaCDP(payload) {
     const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
     const ctx = browser.contexts()[0]
     if (!ctx) return { success: false, error: '浏览器未绑定/无页面，请先「绑定浏览器」' }
-    let page = ctx.pages().find((p2) => p2.url().includes('creator.douyin.com'))
-    if (!page) { page = await ctx.newPage(); await page.goto('https://creator.douyin.com/creator-micro/content/upload', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {}) }
+    // 2026-08-27: 发布执行也复用 getTargetPage（同平台tab复用+清blank）——不再每次执行 newPage 堆积抖音tab
+    let page = await getTargetPage(ctx, 'creator.douyin.com')
+    if (!page.url().includes('creator.douyin.com')) { await page.goto('https://creator.douyin.com/creator-micro/content/upload', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {}) }
     // 确保已在 creator.douyin.com（未登录会跳登录）
     if (!page.url().includes('creator.douyin.com')) return { success: false, error: '请先登录抖音创作者平台（浏览器中）', needLogin: true, platform: 'douyin' }
 
