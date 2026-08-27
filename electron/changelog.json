@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.0.70",
+    "date": "2026-08-26",
+    "title": "最终根因：opencli 未 unpack → 发布只开页面",
+    "items": [
+      "build-local.mjs asarUnpack 缺 node_modules 前缀 → @jackwener/opencli 全留在 asar → vod-upload.js 找不到 → 动态import失败 → 发布永远只打开发布页（所有版本的真根因）",
+      "修复 asarUnpack 加 node_modules/@jackwener/opencli/**（确保 unpack 到 app.asar.unpacked）",
+      "AGENT 工具描述强化：说「测试发布/测试发布任务」必须传 test:true"
+    ]
+  },
+  {
     "version": "1.0.69",
     "date": "2026-08-26",
     "title": "修复：浏览器每次都恢复旧tab（会话恢复）",

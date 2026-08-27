@@ -270,7 +270,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
         coverUrl: { type: 'string', description: '封面图URL（可选，不传用平台智能封面）' },
         platforms: { type: 'array', items: { type: 'string' }, description: '多平台发布（可选，如 ["douyin","kuaishou"]；不传用 platform）' },
         fromSource: { type: 'string', description: '视频来源：self(用户自有/AI生成，可发) / public(公共素材库，版权提示) / web(网络，版权提示)' },
-        test: { type: 'boolean', description: '测试模式：用户说“测试发布/测试一下发布流程/发布自检”时传 true——客户端执行到“发布按钮前”停止（不真发），找到发布按钮即认为通过' },
+        test: { type: 'boolean', description: '测试模式：用户说“测试发布/测试发布任务/模拟发布/发布流程测试”时必须传 true（强制）——客户端执行到“发布页”停止，不上传不真发；用户没说“测试”就不要传 true' },
       }, required: ['platform'],
     },
   },

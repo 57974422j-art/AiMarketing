@@ -101,7 +101,7 @@ const build = {
   directories: { output: 'dist-rel' },
   // 2026-08-13 v1.0.30 纯壳：files 只含 electron/preload；无 standalone/无 next build
   files: pkg.build.files,
-  asarUnpack: ['**/*.node', '**/*.exe', '**/*.dll', '@jackwener/opencli/**'],
+  asarUnpack: ['**/*.node', '**/*.exe', '**/*.dll', '**/node_modules/@jackwener/opencli/**', 'node_modules/@jackwener/opencli/**'], // 2026-08-26: 缺 node_modules 前缀→@jackwener 未 unpack→vod-upload.js 找不到→发布只开页面
   extraResources: [
     { from: 'scripts/platform-tools', to: 'scripts/platform-tools' },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
