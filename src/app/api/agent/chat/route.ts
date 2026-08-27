@@ -2031,13 +2031,18 @@ export async function POST(request: NextRequest) {
                 console.log('[发布工作流] ①抽帧:', vfNameW)
                 const frW = await executeToolCall('extract_video_frames', { videoName: vfNameW }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
                 const frTxtW = String(frW)
-                const frJsonW = frTxtW.startsWith('FRAMES_OK:') ? frTxtW.slice(10) : ''
+                if (!frTxtW.startsWith('FRAMES_OK:')) {
+                  // 2026-08-27: 抽帧失败显示原因（不再“发布未进入工作流”误导）
+                  wfEarlyReply = '① 抽帧失败：' + frTxtW.slice(0, 150) + '。请检查视频文件/服务器 ffmpeg/仓库访问。'
+                } else {
+                const frJsonW = frTxtW.slice(10)
                 let frParsedW: any = {}
                 try { frParsedW = JSON.parse(frJsonW) } catch {}
                 const framesW = Array.isArray(frParsedW.frames) ? frParsedW.frames : []
                 PUBLISH_DRAFT.set(uidW, { videoName: vfNameW, frames: framesW, visualDesc: frParsedW.visualDesc || '', step: 'frame' })
                 wfEarlyReply = `① 已抽帧（${framesW.length || 0}帧）请选帧作封面基础：${framesW.map((f: any, i: number) => '（' + (i + 1) + '）').join(' ')}
 回复编号 1-${framesW.length || 4} 选帧，或“换一批”重抽。`
+                }
               }
             } else if (draftW.step === 'frame') {
               // 用户选帧
