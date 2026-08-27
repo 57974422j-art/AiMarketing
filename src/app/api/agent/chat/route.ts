@@ -2018,8 +2018,7 @@ export async function POST(request: NextRequest) {
             if (vfName) {
               try {
                 const prevAsst = [...messages].reverse().find((m: any) => m.role === 'assistant' && typeof m.content === 'string' && m.content.indexOf('标题') >= 0)
-                const tm = prevAsst ? String((prevAsst as any).content).match(/标题[\s:]*[：:]?([^
-]{2,40})/) : null
+                const tm = prevAsst ? String((prevAsst as any).content).match(/标题[\s:]*[：:]?([^\n]{2,40})/) : null
                 if (tm) wfArgs.caption = tm[1].trim()
               } catch {}
             }
