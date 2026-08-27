@@ -2011,7 +2011,7 @@ export async function POST(request: NextRequest) {
         const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
-        if (pubIntent) {
+        if (pubIntent || PUBLISH_DRAFT.has(auth?.userId || 0)) {
           // 2026-08-27 发布工作流（多轮确认，草稿 Map 持久）——①抽帧选帧 → ②标题 → ③话题 → ④封面 → ⑤确认发布
           try {
             const uidW = auth?.userId || 0
@@ -2045,7 +2045,16 @@ export async function POST(request: NextRequest) {
                 }
               }
             } else if (draftW.step === 'frame') {
-              // 用户选帧
+              // 用户选帧 / 换一批重抽
+              if (/换一批|重抽/.test(userMessage)) {
+                const frW2 = await executeToolCall('extract_video_frames', { videoName: draftW.videoName }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
+                const frTxt2 = String(frW2)
+                if (frTxt2.startsWith('FRAMES_OK:')) {
+                  try { const p2 = JSON.parse(frTxt2.slice(10)); draftW.frames = Array.isArray(p2.frames) ? p2.frames : []; draftW.visualDesc = p2.visualDesc || '' } catch {}
+                }
+wfEarlyReply = `wfEarlyReply = '① 已重新抽帧（4 帧）请选帧作封面基础：' + draftW.frames.map((f: any, i: number) => '（' + (i + 1) + '）').join(' ') + '
+回复编号 1-4 选帧，或“换一批”重抽。`
+              } else {
               const pickW = userMessage.trim().match(/^([1-4])$/);
               if (pickW && draftW.frames && draftW.frames[Number(pickW[1]) - 1]) {
                 draftW.selectedFrame = draftW.frames[Number(pickW[1]) - 1]
@@ -2056,7 +2065,8 @@ export async function POST(request: NextRequest) {
                 wfEarlyReply = `② 标题候选 3 个：
 ${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
 回复编号选标题，或“换一批”。`
-              } else wfEarlyReply = '请回复帧编号 1-4 选帧。'
+              } else wfEarlyReply = '请回复帧编号 1-4 选帧，或“换一批”重抽。'
+              }
             } else if (draftW.step === 'title') {
               const pickT = userMessage.trim().match(/^([1-3])$/)
               if (pickT) {
