@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     // 3) 长期记忆
     try {
       const memCount = await prisma.agentMemory.count({ where: { userId: String(user.id) } })
-      checks.push({ key: 'memory', label: '长期记忆', ok: true, detail: `${memCount} 条` })
+      checks.push({ key: 'memory', label: '长期记忆', ok: true, detail: memCount > 0 ? `${memCount} 条` : '未建立（对话后自动记忆用户偏好）' })
     } catch (e: any) {
       checks.push({ key: 'memory', label: '长期记忆', ok: false, detail: '查询失败: ' + e.message })
     }
@@ -97,14 +97,28 @@ export async function GET(request: NextRequest) {
       })
     } catch { checks.push({ key: 'hotspots', label: '热点大屏', ok: true, detail: '正常（内置兜底）' }) }
 
-    // 7) 当前模型配置
+    // 7) 当前模型配置（验证模型是否通——实际调用 DeepSeek V4 flash 测连通）
     const modelInfo = {
-      brain: process.env.AGENT_BRAIN_MODEL || 'qwen-plus（百炼）',
+      brain: process.env.AGENT_BRAIN_MODEL || 'deepseek-v4-flash（DeepSeek）',
       asr: 'paraformer-realtime-v2（百炼流式）',
       tts: 'cosyvoice-v1（百炼）',
       asrEngine: process.env.ASR_ENGINE || 'bailian',
     }
-    checks.push({ key: 'model', label: '当前模型', ok: true, detail: `大脑 ${modelInfo.brain} / 识别 ${modelInfo.asr} / 朗读 cosyvoice` })
+    let modelStatus = '未验证'
+    try {
+      const dsKey = process.env.DEEPSEEK_API_KEY
+      if (!dsKey) modelStatus = '未配置 DEEPSEEK_API_KEY'
+      else {
+        const mr = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dsKey },
+          body: JSON.stringify({ model: 'deepseek-v4-flash', messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
+          signal: AbortSignal.timeout(15000),
+        }).catch(() => null)
+        modelStatus = mr && mr.ok ? '✅ deepseek-v4-flash 可用' : '❌ deepseek-v4-flash 不可用（HTTP ' + (mr ? mr.status : '时间超') + '）'
+      }
+    } catch (eM) { modelStatus = '❌ deepseek-v4-flash 不可用: ' + (eM?.message || eM) }
+    checks.push({ key: 'model', label: '当前模型', ok: modelStatus.startsWith('✅'), detail: `大脑 ${modelStatus} / 识别 ${modelInfo.asr} / 朗读 cosyvoice` })
 
     // 8) 个人仓库（2026-08-24：AI 生成自动入库；容量超 80% 提示转移本地仓库）
     try {
