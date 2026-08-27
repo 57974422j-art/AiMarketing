@@ -2005,8 +2005,8 @@ export async function POST(request: NextRequest) {
         ? await agnesChat(messages, [])
         : await dashscopeFunctionCall(messages as any, [], 2000, userTemperature)
       // 2026-08-27 强制发布工作流：用户发布意图 + 本轮未调 publish_content → 代码强制补调（不依赖模型调工具，模型再也无法编“已创建/已抽帧”）
+      let wfEarlyReply = '' // 2026-08-27 函数级（必须在 try 外，2119 reply 处读用）
       try {
-      let wfEarlyReply = '' // fn-level
 
         const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
