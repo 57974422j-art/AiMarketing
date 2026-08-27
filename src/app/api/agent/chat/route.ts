@@ -1297,7 +1297,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                   platform: pl,
                   socialAccountId: null,
                   videoName,
-                  title: String(pubCaption || videoName).slice(0, 80),
+                  title: String(pubCaption || videoName).slice(0, 30), // 2026-08-27: 抖音标题限 30 字——自动截断防“标题超长”失败（#10 根因）
                   description: (args.test === true ? '[TEST] ' : '') + String(pubCaption || videoName),
                   topics: JSON.stringify(topicsArr),
                   coverUrl: args.coverUrl || null,
