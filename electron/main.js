@@ -1513,6 +1513,18 @@ ipcMain.handle('browser:bind', async () => {
 // 2026-08-23: 浏览器登录态检测 helper（browser:accounts 与 AutoPublish 共用）
 
 // 2026-08-25: 登录保活——每天定时 + 启动时访问已登记平台（刷新 cookie 有效期，对齐 OpenCLI 中午保活）
+// 2026-08-26: 每次打开浏览器前清会话文件（Last Session/Tabs）——配合 --no-restore-session-state 双保险，彻底不恢复旧tab
+function clearBrowserSessionFiles() {
+  try {
+    const profileDir = path.join(app.getPath('userData'), 'browser-profile')
+    for (const f of ['Last Session', 'Last Tabs', 'Current Session', 'Current Tabs', 'Last Browser', 'Last Version']) {
+      const sp = path.join(profileDir, f)
+      if (fs.existsSync(sp)) { try { fs.rmSync(sp, { force: true }) } catch {} }
+    }
+    console.log('[浏览器] 已清理会话文件（下次打开全新）')
+  } catch {}
+}
+
 async function keepaliveBrowser() {
   // 2026-08-26: 不再遍历打开各平台页面（每次启动全开N个tab是此函数造成）——只静默读 cookie 刷新登录态（不新开 tab、不跳转）
   try {
@@ -1578,6 +1590,7 @@ async function getBrowserAccounts() {
 // 2026-08-25: 打开内置浏览器跳转指定地址（登记平台登录页）
 ipcMain.handle('browser:open-url', async (_e, url) => {
   try {
+    clearBrowserSessionFiles() // 2026-08-26: 打开前清会话——不恢复旧tab
     const { chromium } = require('playwright')
     let browser = null
     try { browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT) } catch {
@@ -1655,6 +1668,7 @@ ipcMain.handle('browser:accounts', async () => {
 // 2026-08-23: 一键启动用户自己的 Chrome（默认 profile，带 CDP 端口）——检测日常登录态
 ipcMain.handle('browser:bind-mine', async () => {
   try {
+    clearBrowserSessionFiles() // 2026-08-26: 打开前清会话——不恢复旧tab
     // 已有调试实例 → 直接复用
     try {
       const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(1500) })
