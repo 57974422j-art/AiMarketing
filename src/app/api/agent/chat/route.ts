@@ -2133,14 +2133,14 @@ ${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
         const userWantsPublish = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
         const hasPublishToolResult = /PUBLISH_QUEUED|WORKFLOW_NEED_VIDEO|CANCEL_OK|FRAMES_OK|测试发布任务/.test(toolText) // 2026-08-27: FRAMES_OK(首轮看视频)也算工作流进行中——不误拦
         const claimsCreated = /已创建|创建发布任务|发布任务已创建|已为「/.test(reply)
-        if (userWantsPublish && claimsCreated && !hasPublishToolResult) {
+        if (userWantsPublish && !wfEarlyReply && claimsCreated && !hasPublishToolResult) {
           console.error('[发布校验] 模型话术“已创建”但工具未返回，强制纠正:', userMessage.slice(0, 50))
           reply = toolText.includes('WORKFLOW_NEED_VIDEO')
             ? '⚠️ 发布任务未真正创建。' + toolText
             : '⚠️ 发布任务未真正创建。请说“发布抖音 XX 视频”（XX 为仓库视频编号），或到个人仓库页选择要发布的视频。'
         }
         // 2026-08-27 扩大校验：用户发布意图 + 本轮未真调发布工具（无 PUBLISH_QUEUED/WORKFLOW_NEED_VIDEO）→ 不管模型说什么（“检测到 pending”/“打开指纹浏览器”等）均强制走工作流
-        if (userWantsPublish && !hasPublishToolResult && !/CANCEL_OK/.test(toolText)) {
+        if (userWantsPublish && !wfEarlyReply && !hasPublishToolResult && !/CANCEL_OK/.test(toolText)) {
           console.error('[发布校验] 用户要发布但本轮未调发布工具，强制引导工作流:', userMessage.slice(0, 50))
           reply = toolText.includes('WORKFLOW_NEED_VIDEO')
             ? '⚠️ 发布未进入工作流（本轮未触发发布工具）。' + toolText
