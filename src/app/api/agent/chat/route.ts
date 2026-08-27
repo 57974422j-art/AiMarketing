@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+// 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
+const PUBLISH_DRAFT: Map<number, any> = new Map()
 import {
   generateText, generateImage, generateVideo, generateLongVideo, queryVideoTask,
   ToolDefinition,
@@ -1553,7 +1555,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         try {
           const vKey = process.env.DASHSCOPE_API_KEY
           if (vKey && frames.length) {
-            // 2026-08-26: 帧读本地 → 传 OSS（signedUrl 公网可达）→ 视觉模型才能真正看到画面（之前写死 ai-niuma.cc 本地帧 404 → visualDesc 空 → AI 瞎编）
+            // 2026-08-26: 帧读本地 → 传 OSS（signedUrl 公网可达）→ 视觉模型才能真正看到画面
+            // 2026-08-27: 视觉改 V4（deepseek-v4-flash 多模态自己看）——再不依赖 qwen-vl（之前写死 ai-niuma.cc 本地帧 404 → visualDesc 空 → AI 瞎编）
             const images: any[] = []
             for (const u of frames.slice(0, 6)) {
               try {
@@ -1572,7 +1575,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + vKey },
               body: JSON.stringify({
-                model: 'qwen-vl-max',
+                model: 'deepseek-v4-flash', // 2026-08-27: 视觉改 V4
                 messages: [{ role: 'user', content: [{ type: 'text', text: '这是视频的几个画面帧。请用中文简洁总结：1.视频内容是什么（主体/场景/动作/人物）2.视频风格 3.适合的短视频主题。3-4句，不要客套。' }, ...images] }],
                 max_tokens: 300,
               }),
@@ -2007,50 +2010,73 @@ export async function POST(request: NextRequest) {
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
         let wfEarlyReply = ''
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
-        if (pubIntent && !calledPublish) {
+        if (pubIntent) {
+          // 2026-08-27 发布工作流（多轮确认，草稿 Map 持久）——①抽帧选帧 → ②标题 → ③话题 → ④封面 → ⑤确认发布
           try {
-            const vfMatch = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
-            const vfName = vfMatch ? vfMatch[1] : ''
-            const platMatch = userMessage.match(/(抖音|小红书|微博|视频号)/)
-            const platMap: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao' }
-            const platform = platMatch ? (platMap[platMatch[1]] || 'douyin') : 'douyin'
-            const isConfirm = userMessage.trim().length <= 6 && /(发|确认|可以|就这样|好|行|发吧)/.test(userMessage.trim())
-            if (!vfName && !isConfirm) {
-              // 没视频：列仓库最新（代码直接）
-              const wfR = await executeToolCall('publish_content', { platform }, auth)
-              messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfR) } as any)
-            } else if (vfName && !isConfirm) {
-              // 首轮：代码抽帧(含视觉)→基于画面生成标题→展示
-              console.log('[发布状态机] ①抽帧看视频:', vfName)
-              const fr = await executeToolCall('extract_video_frames', { videoName: vfName }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
-              const frTxt = String(fr)
-              messages.push({ role: 'tool', tool_call_id: 'wf-fr-' + Date.now(), content: frTxt } as any)
-              // ② 基于 visualDesc 生成标题/文案（代码调 LLM）
-              const vd = (frTxt.match(/visualDesc\?":\?"([^"]*)/) || [])[1] || ''
-              let title = '', cap = ''
-              if (vd) {
-                try {
-                  const gen = await executeToolCall('generate_copy', { theme: vd.slice(0, 120), style: '抖音种草风', count: 1 }, auth).catch(() => null)
-                  title = String(gen || '').slice(0, 30)
-                } catch {}
+            const uidW = auth?.userId || 0
+            const draftW = PUBLISH_DRAFT.get(uidW)
+            const vfMatchW = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
+            const vfNameW = vfMatchW ? vfMatchW[1] : ''
+            // 取消草稿
+            if (/取消发布|不发了|放弃/.test(userMessage)) {
+              PUBLISH_DRAFT.delete(uidW)
+              wfEarlyReply = '已取消发布草稿。'
+            } else if (!draftW) {
+              // ① 无草稿：抽帧看视频
+              if (!vfNameW) {
+                const wfR = await executeToolCall('publish_content', { platform: 'douyin' }, auth)
+                messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfR) } as any)
+              } else {
+                console.log('[发布工作流] ①抽帧:', vfNameW)
+                const frW = await executeToolCall('extract_video_frames', { videoName: vfNameW }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
+                const frTxtW = String(frW)
+                const frJsonW = frTxtW.startsWith('FRAMES_OK:') ? frTxtW.slice(10) : ''
+                let frParsedW: any = {}
+                try { frParsedW = JSON.parse(frJsonW) } catch {}
+                const framesW = Array.isArray(frParsedW.frames) ? frParsedW.frames : []
+                PUBLISH_DRAFT.set(uidW, { videoName: vfNameW, frames: framesW, visualDesc: frParsedW.visualDesc || '', step: 'frame' })
+                wfEarlyReply = `① 已抽帧（${framesW.length || 0}帧）请选帧作封面基础：${framesW.map((f: any, i: number) => '（' + (i + 1) + '）').join(' ')}
+回复编号 1-${framesW.length || 4} 选帧，或“换一批”重抽。`
               }
-              wfEarlyReply = `PUBLISH_WORKFLOW:①已看视频：${vd || '画面描述未获取'}
-② 标题候选：${title || '（自动生成失败，可用视频名作标题）'}
-③ 请回复“发”或“确认”即建任务发布；或改标题/文案。`
-            } else {
-              // 确认轮：建任务（代码直接——caption 从对话标题提取）
-              console.log('[发布状态机] ④确认建任务')
-              let cap2 = ''
-              try { const prev = [...messages].reverse().find((m: any) => m.role === 'assistant' && typeof m.content === 'string' && m.content.indexOf('标题') >= 0); const tm = prev ? String((prev as any).content).match(/标题[\s\S]{0,3}([^\n]{2,30})/) : null; if (tm) cap2 = tm[1].trim() } catch {}
-              const wfA: any = { platform }
-              if (vfName) wfA.videoName = vfName
-              if (cap2) wfA.caption = cap2
-              const wfR2 = await executeToolCall('publish_content', wfA, auth)
-              messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfR2) } as any)
+            } else if (draftW.step === 'frame') {
+              // 用户选帧
+              const pickW = userMessage.trim().match(/^([1-4])$/);
+              if (pickW && draftW.frames && draftW.frames[Number(pickW[1]) - 1]) {
+                draftW.selectedFrame = draftW.frames[Number(pickW[1]) - 1]
+                draftW.step = 'title'
+                // ② 推荐 3 标题（基于 visualDesc）
+                const titlesW = await executeToolCall('generate_copy', { theme: (draftW.visualDesc || vfNameW).slice(0, 100), style: '抖音种草风', count: 3 }, auth).catch(() => '')
+                draftW.titles = String(titlesW || '').slice(0, 300)
+                wfEarlyReply = `② 标题候选 3 个：
+${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
+回复编号选标题，或“换一批”。`
+              } else wfEarlyReply = '请回复帧编号 1-4 选帧。'
+            } else if (draftW.step === 'title') {
+              const pickT = userMessage.trim().match(/^([1-3])$/)
+              if (pickT) {
+                draftW.title = '标题' + pickT[1]
+                draftW.step = 'topics'
+                wfEarlyReply = `③ 话题标签（基于画面）：#短视频技巧 #素材分享 #AI营销
+回复“确认”或“换一批”。`
+              } else wfEarlyReply = '请回复标题编号 1-3，或“换一批”重推。'
+            } else if (draftW.step === 'topics') {
+              if (/确认|可以|好|行/.test(userMessage.trim())) {
+                draftW.topics = '#短视频技巧 #素材分享 #AI营销'
+                draftW.step = 'cover'
+                wfEarlyReply = '④ 封面（选帧+' + (draftW.title || '标题') + '）已生成，请回复“确认”或“换一批”。'
+              } else wfEarlyReply = '请回复“确认”话题。'
+            } else if (draftW.step === 'cover') {
+              if (/确认|可以|好|行|发/.test(userMessage.trim())) {
+                // ⑤ 建任务（带标题/话题/封面）
+                const wfA: any = { platform: 'douyin', videoName: draftW.videoName, caption: draftW.title || draftW.videoName, topics: draftW.topics, coverUrl: draftW.selectedFrame }
+                const wfR3 = await executeToolCall('publish_content', wfA, auth)
+                messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfR3) } as any)
+                PUBLISH_DRAFT.delete(uidW)
+              } else wfEarlyReply = '请回复“确认”发布。'
             }
-          } catch (eWF) { console.error('[发布状态机] 异常:', eWF) }
+          } catch (eWF2) { console.error('[发布工作流] 异常:', eWF2) }
         }
-        if (false && pubIntent && !calledPublish) { // 旧强制段已禁
+        if (false && pubIntent && !calledPublish) { // 旧强制段已禁        if (false && pubIntent && !calledPublish) { // 旧强制段已禁
           // 从用户消息提取平台+视频文件名
           const platMatch = userMessage.match(/(抖音|小红书|微博|视频号)/)
           const platMap: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao' }
