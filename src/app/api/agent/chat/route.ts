@@ -2012,6 +2012,14 @@ export async function POST(request: NextRequest) {
           const wfId = 'wf-' + Date.now()
           messages.push({ role: 'tool', tool_call_id: wfId, content: String(wfResult) } as any)
           if (normCalls.length === 0) normCalls.push({ id: wfId, name: 'publish_content', arguments: JSON.stringify(wfArgs) } as any)
+          // 2026-08-27 强制抽帧：发布视频时本轮未调 extract_video_frames → 代码强制补调（AGENT 再也无法编“已抽帧/帧N…画面”）
+          if (vfName && !normCalls.some((tc2: any) => tc2.name === 'extract_video_frames')) {
+            try {
+              console.log('[发布工作流] 强制抽帧:', vfName)
+              const frResult = await executeToolCall('extract_video_frames', { videoName: vfName }, auth)
+              messages.push({ role: 'tool', tool_call_id: 'wf-fr-' + Date.now(), content: String(frResult) } as any)
+            } catch (eFr) { console.error('[抽帧] 强制抽帧异常:', eFr) }
+          }
         }
       } catch (ePub2) { console.error('[发布工作流] 异常:', ePub2) }
       const toolMsg = messages.filter(m => (m as any).role === 'tool').pop() as AgentChatMessage | undefined
