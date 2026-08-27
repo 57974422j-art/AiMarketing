@@ -45,7 +45,10 @@ export async function GET(request: NextRequest) {
       const { getTokenWallet } = await import('@/lib/token-wallet')
       const wallet = await getTokenWallet(user.id)
       if (wallet.hasSubscription) {
-        const subTxt = wallet.subRemaining < 0 ? '无限额度' : `${wallet.subRemaining} 点（套餐额度，月${wallet.allowance < 0 ? '?' : wallet.allowance}）`
+        // 2026-08-27: 按实际订阅周期显示（周卡=周额度/月卡=月额度/年卡=年额度）——不再盲目显“月”
+        const planT = String(user.plan || 'monthly').toLowerCase()
+        const periodTxt = planT.includes('week') ? '周' : planT.includes('year') ? '年' : '月'
+        const subTxt = wallet.subRemaining < 0 ? '无限额度' : `${wallet.subRemaining} 点（${periodTxt}套餐额度，${periodTxt}${wallet.allowance < 0 ? '?' : wallet.allowance}）`
         pointsDetail = `${subTxt} + 点卡 ${wallet.pointBalance} 点`
         pointsOk = wallet.remaining > 0
       }
