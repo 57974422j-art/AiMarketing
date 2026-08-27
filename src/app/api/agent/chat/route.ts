@@ -1275,7 +1275,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         }
         const captionLine0 = args.caption ? `
 📝 文案：${args.caption}` : ''
-        if (videoName && args.caption) {
+        if (videoName && (args.caption || true)) { // 2026-08-27: caption 空也建任务（用视频名作标题）——用户只说“发布抖音xx.mp4”不说文案也要建
           try {
             // 2026-08-18: 话题从文案提取 #标签（或用户显式传 topics）
             const hashTags = String(args.caption || '').match(/#[^\s#，,。]+/g) || []
@@ -1295,8 +1295,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                   platform: pl,
                   socialAccountId: null,
                   videoName,
-                  title: String(args.caption).slice(0, 80),
-                  description: (args.test === true ? '[TEST] ' : '') + String(args.caption),
+                  title: String(args.caption || videoName).slice(0, 80),
+                  description: (args.test === true ? '[TEST] ' : '') + String(args.caption || videoName),
                   topics: JSON.stringify(topicsArr),
                   coverUrl: args.coverUrl || null,
                   status: 'pending',
