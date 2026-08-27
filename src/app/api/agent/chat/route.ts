@@ -2016,6 +2016,13 @@ export async function POST(request: NextRequest) {
             ? '⚠️ 发布任务未真正创建。' + toolText
             : '⚠️ 发布任务未真正创建。请说“发布抖音 XX 视频”（XX 为仓库视频编号），或到个人仓库页选择要发布的视频。'
         }
+        // 2026-08-27 扩大校验：用户发布意图 + 本轮未真调发布工具（无 PUBLISH_QUEUED/WORKFLOW_NEED_VIDEO）→ 不管模型说什么（“检测到 pending”/“打开指纹浏览器”等）均强制走工作流
+        if (userWantsPublish && !hasPublishToolResult && !/CANCEL_OK/.test(toolText)) {
+          console.error('[发布校验] 用户要发布但本轮未调发布工具，强制引导工作流:', userMessage.slice(0, 50))
+          reply = toolText.includes('WORKFLOW_NEED_VIDEO')
+            ? '⚠️ 发布未进入工作流（本轮未触发发布工具）。' + toolText
+            : '⚠️ 发布未进入工作流。请说“发布抖音 XX 视频”（XX=仓库视频编号），或到个人仓库页选择。已启用发布工作流，不再使用指纹浏览器流程。'
+        }
       } catch (ePub) { console.error('[发布校验]异常:', ePub) }
       // 清理模型偶发吐出的工具调用 XML 脏标签（<tool_call> <function_calls> <invoke> 等）
       reply = stripToolCallTags(reply)
