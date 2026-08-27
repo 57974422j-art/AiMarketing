@@ -2005,7 +2005,51 @@ export async function POST(request: NextRequest) {
       try {
         const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
-        if (false && pubIntent && !calledPublish) { // 2026-08-27: 禁用强制段——V4 原生 Function Calling 自己按工作流调工具，不需要代码强制
+        // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
+        if (pubIntent && !calledPublish) {
+          try {
+            const vfMatch = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
+            const vfName = vfMatch ? vfMatch[1] : ''
+            const platMatch = userMessage.match(/(抖音|小红书|微博|视频号)/)
+            const platMap: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao' }
+            const platform = platMatch ? (platMap[platMatch[1]] || 'douyin') : 'douyin'
+            const isConfirm = userMessage.trim().length <= 6 && /(发|确认|可以|就这样|好|行|发吧)/.test(userMessage.trim())
+            if (!vfName && !isConfirm) {
+              // 没视频：列仓库最新（代码直接）
+              const wfR = await executeToolCall('publish_content', { platform }, auth)
+              messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfR) } as any)
+            } else if (vfName && !isConfirm) {
+              // 首轮：代码抽帧(含视觉)→基于画面生成标题→展示
+              console.log('[发布状态机] ①抽帧看视频:', vfName)
+              const fr = await executeToolCall('extract_video_frames', { videoName: vfName }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
+              const frTxt = String(fr)
+              messages.push({ role: 'tool', tool_call_id: 'wf-fr-' + Date.now(), content: frTxt } as any)
+              // ② 基于 visualDesc 生成标题/文案（代码调 LLM）
+              const vd = (frTxt.match(/visualDesc\?":\?"([^"]*)/) || [])[1] || ''
+              let title = '', cap = ''
+              if (vd) {
+                try {
+                  const gen = await executeToolCall('generate_copy', { theme: vd.slice(0, 120), style: '抖音种草风', count: 1 }, auth).catch(() => null)
+                  title = String(gen || '').slice(0, 30)
+                } catch {}
+              }
+              return `PUBLISH_WORKFLOW:①已看视频：${vd || '画面描述未获取'}
+② 标题候选：${title || '（自动生成失败，可用视频名作标题）'}
+③ 请回复“发”或“确认”即建任务发布；或改标题/文案。`
+            } else {
+              // 确认轮：建任务（代码直接——caption 从对话标题提取）
+              console.log('[发布状态机] ④确认建任务')
+              let cap2 = ''
+              try { const prev = [...messages].reverse().find((m: any) => m.role === 'assistant' && typeof m.content === 'string' && m.content.indexOf('标题') >= 0); const tm = prev ? String((prev as any).content).match(/标题[\s\S]{0,3}([^\n]{2,30})/) : null; if (tm) cap2 = tm[1].trim() } catch {}
+              const wfA: any = { platform }
+              if (vfName) wfA.videoName = vfName
+              if (cap2) wfA.caption = cap2
+              const wfR2 = await executeToolCall('publish_content', wfA, auth)
+              messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfR2) } as any)
+            }
+          } catch (eWF) { console.error('[发布状态机] 异常:', eWF) }
+        }
+        if (false && pubIntent && !calledPublish) { // 旧强制段已禁
           // 从用户消息提取平台+视频文件名
           const platMatch = userMessage.match(/(抖音|小红书|微博|视频号)/)
           const platMap: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao' }
