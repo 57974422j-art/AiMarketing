@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
     // 3) 长期记忆
     try {
       const memCount = await prisma.agentMemory.count({ where: { userId: String(user.id) } })
-      checks.push({ key: 'memory', label: '长期记忆', ok: true, detail: memCount > 0 ? `${memCount} 条` : '未建立（对话后自动记忆用户偏好）' })
+      checks.push({ key: 'memory', label: '长期记忆', ok: true, detail: memCount > 0 ? `✅ 功能正常（${memCount} 条记忆）` : '✅ 功能正常（暂无记忆，对话后自动记录用户偏好）' })
     } catch (e: any) {
       checks.push({ key: 'memory', label: '长期记忆', ok: false, detail: '查询失败: ' + e.message })
     }
