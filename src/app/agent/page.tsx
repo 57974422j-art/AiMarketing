@@ -389,7 +389,6 @@ const SUGGESTIONS = [
   '今天有什么热点可以蹭？给我 3 个选题',
   '帮我写一条小红书种草文案',
   '用这张图做个数字人口播',
-  '把这段文案一键成片',
   '帮我做一个产品宣传视频',
   '帮我把这条内容发到抖音',
   '查一下海外 YouTube 上最近什么最火',
@@ -403,7 +402,6 @@ const SLASH_COMMANDS: { cmd: string; desc: string; fill: string }[] = [
   { cmd: '/生视频', desc: '文生视频', fill: '帮我生成一段视频：' },
   { cmd: '/文案', desc: '写一条种草文案', fill: '帮我写一条小红书种草文案，主题是：' },
   { cmd: '/口播', desc: '数字人口播', fill: '用这张图做个数字人口播，台词是：' },
-  { cmd: '/成片', desc: '文案一键成片', fill: '把这段文案一键成片：' },
   { cmd: '/素材', desc: '检索个人仓库', fill: '帮我在个人仓库里找：' },
   { cmd: '/发布', desc: '发布到平台', fill: '帮我把这条内容发到抖音' },
   { cmd: '/记忆', desc: '查看长期记忆', fill: '看看你都记住了我哪些偏好' },
@@ -619,7 +617,6 @@ export default function AgentPage() {
   const [guideTour, setGuideTour] = useState(false) // 第二段功能演示（2026-08-22：设置完成后自动弹）
   // 功能演示步骤：依次展示 一键成片/文生图/文生视频/素材库
   const TOUR_STEPS = [
-    { name: '🎞 一键成片', path: '/auto-compile', desc: '选素材→自动剪辑配音出片，适合快速做视频' },
     { name: '🖼 AI 生图', path: '/image-generator', desc: '文字描述生成海报/配图（12 点/张）' },
     { name: '🎬 AI 视频', path: '/text-to-video', desc: '一句话生成视频（按秒计费，先报费用）' },
     { name: '📦 素材库', path: '/storage', desc: '你的个人仓库（上传/管理视频图片）' },
@@ -792,7 +789,7 @@ export default function AgentPage() {
   // 应用卡片（2026-08-08：按角色过滤 + 颜色区分 + 文字宽度自适应 + 错落排列）
   const APPS = [
     // 全员可见（营销核心工具）
-    { path: '/auto-compile', title: '一键成片', color: 'emerald', roles: ['admin', 'editor', 'end-user'] },
+    { path: '/auto-compile', title: '一键成片', color: 'emerald', roles: ['admin'] },
     { path: '/text-to-video', title: '文生视频', color: 'cyan', roles: ['admin', 'editor', 'end-user'] },
     { path: '/ai-copy', title: 'AI 文案', color: 'amber', roles: ['admin', 'editor', 'end-user'] },
     { path: '/image-generator', title: 'AI 生图', color: 'violet', roles: ['admin', 'editor', 'end-user'] },
