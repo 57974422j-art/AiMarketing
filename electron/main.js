@@ -199,7 +199,7 @@ async function startupTaskCheck() {
     if (!pubN && !vidN) { global.__allowResume = true; return }
     const { dialog } = require('electron')
     const r = await dialog.showMessageBox(mainWindow, {
-      type: 'warning', buttons: ['继续执行', '暂不执行'], defaultId: 1, cancelId: 1,
+      type: 'warning', buttons: ['继续执行', '暂不执行'], defaultId: 0, cancelId: 0, // 2026-08-27: 默认继续执行（建了任务就要发；点 X/关闭=继续，点“暂不执行”才跳过）
       title: '有未完成的任务',
       message: '检测到未完成的任务',
       detail: '发布任务 ' + pubN + ' 个、视频生成任务 ' + vidN + ' 个未完成。是否继续执行？（不执行则保持待办，可稍后手动触发）',
