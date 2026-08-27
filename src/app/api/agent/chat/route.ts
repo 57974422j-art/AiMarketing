@@ -2005,6 +2005,7 @@ export async function POST(request: NextRequest) {
       try {
         const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
+        let wfEarlyReply = ''
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
         if (pubIntent && !calledPublish) {
           try {
@@ -2033,7 +2034,7 @@ export async function POST(request: NextRequest) {
                   title = String(gen || '').slice(0, 30)
                 } catch {}
               }
-              return `PUBLISH_WORKFLOW:①已看视频：${vd || '画面描述未获取'}
+              wfEarlyReply = `PUBLISH_WORKFLOW:①已看视频：${vd || '画面描述未获取'}
 ② 标题候选：${title || '（自动生成失败，可用视频名作标题）'}
 ③ 请回复“发”或“确认”即建任务发布；或改标题/文案。`
             } else {
@@ -2088,6 +2089,7 @@ export async function POST(request: NextRequest) {
       const toolText = typeof toolRaw === 'string' ? toolRaw : (toolRaw ? JSON.stringify(toolRaw) : '')
 
       let reply: string
+      if (wfEarlyReply) { reply = wfEarlyReply } else
       // 若模型在 Step2 又返回了 tool_calls（异常），忽略它，用工具结果兜底，避免死循环与脏输出
       if (finalResult.toolCalls && finalResult.toolCalls.length > 0) {
         reply = formatToolResult(toolText)
