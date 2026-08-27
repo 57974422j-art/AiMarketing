@@ -1999,26 +1999,37 @@ export async function POST(request: NextRequest) {
         const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
         if (pubIntent && !calledPublish) {
-          // 从用户消息提取平台+视频文件名（如 发布抖音20260826_001.mp4）
+          // 从用户消息提取平台+视频文件名
           const platMatch = userMessage.match(/(抖音|小红书|微博|视频号)/)
           const platMap: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao' }
           const platform = platMatch ? (platMap[platMatch[1]] || 'douyin') : 'douyin'
-          const vfMatch = userMessage.match(/([\w\-]+\.(?:mp4|mov|avi|mkv|webm))/i)
+          const vfMatch = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
           const vfName = vfMatch ? vfMatch[1] : ''
           const wfArgs: any = { platform }
           if (vfName) wfArgs.videoName = vfName
-          console.log('[发布工作流] 强制触发:', JSON.stringify(wfArgs))
-          const wfResult = await executeToolCall('publish_content', wfArgs, auth)
-          const wfId = 'wf-' + Date.now()
-          messages.push({ role: 'tool', tool_call_id: wfId, content: String(wfResult) } as any)
-          if (normCalls.length === 0) normCalls.push({ id: wfId, name: 'publish_content', arguments: JSON.stringify(wfArgs) } as any)
-          // 2026-08-27 强制抽帧：发布视频时本轮未调 extract_video_frames → 代码强制补调（AGENT 再也无法编“已抽帧/帧N…画面”）
-          if (vfName && !normCalls.some((tc2: any) => tc2.name === 'extract_video_frames')) {
-            try {
-              console.log('[发布工作流] 强制抽帧:', vfName)
-              const frResult = await executeToolCall('extract_video_frames', { videoName: vfName }, auth)
-              messages.push({ role: 'tool', tool_call_id: 'wf-fr-' + Date.now(), content: String(frResult) } as any)
-            } catch (eFr) { console.error('[抽帧] 强制抽帧异常:', eFr) }
+          const isConfirm = userMessage.trim().length <= 6 && /(发|确认|可以|就这样|好|行|发吧)/.test(userMessage.trim())
+          if (vfName && !isConfirm) {
+            // 首轮：只强制抽帧看视频（visualDesc 注入→AGENT 基于真实画面出标题/文案）——不建任务
+            console.log('[发布工作流] 首轮看视频:', vfName)
+            const frResult = await executeToolCall('extract_video_frames', { videoName: vfName }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
+            messages.push({ role: 'tool', tool_call_id: 'wf-fr-' + Date.now(), content: String(frResult) } as any)
+          } else {
+            // 确认轮/没视频：强制建任务（caption 从对话上轮标题提取，无则用视频名兕底）
+            if (vfName) {
+              try {
+                const prevAsst = [...messages].reverse().find((m: any) => m.role === 'assistant' && typeof m.content === 'string' && m.content.indexOf('标题') >= 0)
+                const tm = prevAsst ? String((prevAsst as any).content).match(/标题[\s:]*[：:]?([^
+]{2,40})/) : null
+                if (tm) wfArgs.caption = tm[1].trim()
+              } catch {}
+            }
+            console.log('[发布工作流] 确认建任务:', JSON.stringify(wfArgs))
+            const wfResult = await executeToolCall('publish_content', wfArgs, auth)
+            messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfResult) } as any)
+            if (normCalls.length === 0) normCalls.push({ id: 'wf-' + Date.now(), name: 'publish_content', arguments: JSON.stringify(wfArgs) } as any)
+            if (vfName) {
+              try { const fr2 = await executeToolCall('extract_video_frames', { videoName: vfName }, auth).catch((e: any) => '抽帧失败'); messages.push({ role: 'tool', tool_call_id: 'wf-fr-' + Date.now(), content: String(fr2) } as any) } catch {}
+            }
           }
         }
       } catch (ePub2) { console.error('[发布工作流] 异常:', ePub2) }
