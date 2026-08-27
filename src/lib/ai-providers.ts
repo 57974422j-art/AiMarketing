@@ -1229,7 +1229,7 @@ export async function dashscopeFunctionCall(
   if (dsKey) {
     try {
       const dsBody: any = { model: 'deepseek-v4-flash', messages, max_tokens: maxTokens, temperature, stream: false }
-      if (tools.length > 0) { dsBody.tools = tools; dsBody.tool_choice = 'auto' }
+      if (tools.length > 0) { dsBody.tools = tools.map((t: any) => ({ type: 'function', function: { name: t.name, description: t.description || '', parameters: t.parameters || {} } })); dsBody.tool_choice = 'auto' } // 2026-08-27: DeepSeek 要求 tools[].type=function——补上（否则 HTTP 400 降级百炼）
       const dsRes = await fetchJSON('https://api.deepseek.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dsKey },
