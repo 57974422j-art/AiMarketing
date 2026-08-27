@@ -1937,9 +1937,8 @@ export async function POST(request: NextRequest) {
     // 2026-08-05：默认使用 DeepSeek（用户要求，本地无需海外代理）；仅当用户上传图片时
     // 才用 Agnes（多模态视觉），否则 DeepSeek 纯文本模型无法处理 image_url
     const hasImage = messages.some(m => Array.isArray(m.content) && (m.content as any[]).some((b: any) => b?.type === 'image_url'))
-    const fcResult = hasImage
-      ? await agnesChat(messages, AGENT_TOOLS)
-      : await dashscopeFunctionCall(messages as any, AGENT_TOOLS, 2000, userTemperature)
+    // 2026-08-27: DeepSeek V4 flash 支持图片识别→图片/文本均走 dashscopeFunctionCall（内部 DeepSeek 优先）
+    const fcResult = await dashscopeFunctionCall(messages as any, AGENT_TOOLS, 2000, userTemperature)
     const toolCalls = fcResult.toolCalls || []
     // 2026-08-05：兼容 OpenAI 格式 tool_calls（百炼 qwen：{function:{name,arguments}}）与扁平格式（{name,arguments}）
     const normTool = (tc: any) => ({

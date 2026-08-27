@@ -1224,6 +1224,26 @@ export async function dashscopeFunctionCall(
   const key = getDashScopeKey()
   if (!key) return { content: null }
 
+  // 2026-08-27: AGENT 模型换 DeepSeek V4 flash（支持图片识别多模态）——DEEPSEEK_API_KEY 有则用 DeepSeek，否则百炼 qwen-plus
+  const dsKey = process.env.DEEPSEEK_API_KEY || readEnvFile('DEEPSEEK_API_KEY')
+  if (dsKey) {
+    try {
+      const dsBody: any = { model: 'deepseek-v4-flash', messages, max_tokens: maxTokens, temperature, stream: false }
+      if (tools.length > 0) { dsBody.tools = tools; dsBody.tool_choice = 'auto' }
+      const dsRes = await fetchJSON('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dsKey },
+        body: JSON.stringify(dsBody),
+        signal: AbortSignal.timeout(120000),
+      })
+      const dsChoice = dsRes?.choices?.[0]
+      if (dsChoice) {
+        return { content: dsChoice.message?.content || null, toolCalls: dsChoice.message?.tool_calls || undefined, model: 'deepseek-v4-flash' }
+      }
+      console.error('[deepseek] V4 flash 调用异常:', JSON.stringify(dsRes).slice(0, 200))
+    } catch (eDs) { console.error('[deepseek] 异常降级百炼:', eDs?.message || eDs) }
+  }
+
   try {
     const body: Record<string, any> = {
       model: 'qwen-plus',
