@@ -2165,6 +2165,20 @@ async function publishDouyinViaCDP(payload) {
         assistant: { is_preview: 0, is_post_assistant: 1 }, declare: { user_declare_info: '{}' },
       },
     }
+    // 2026-08-27: 抖音内容安全预检（opencli Phase 7）——跳过预检直接 create_v2 会 200 空响应（发布被拒根因）
+    try {
+      const safetyUrl = 'https://creator.douyin.com/aweme/v1/post_assistant/fast_detect/pre_check'
+      const safetyBody = { video_id: videoId, title: title || '', desc: caption || '' }
+      await browserFetch('POST', safetyUrl, { body: safetyBody }).catch(() => {})
+      const pollUrl = 'https://creator.douyin.com/aweme/v1/post_assistant/fast_detect/poll'
+      const sDeadline = Date.now() + 30000
+      while (Date.now() < sDeadline) {
+        const sp = await browserFetch('POST', pollUrl, { body: safetyBody })
+        if (sp && sp.ok) break
+        await new Promise((r2) => setTimeout(r2, 3000))
+      }
+      console.log('[douyin] 内容安全预检完成')
+    } catch (ePre) { console.error('[douyin] 预检异常（继续发布）:', ePre?.message || ePre) }
     const publishRes = await browserFetch('POST', publishUrl, { body })
     const awemeId = publishRes.aweme_id || publishRes.item_id
     if (!awemeId) return { success: false, error: '发布未返回 aweme_id（可能需定时发布）：' + JSON.stringify(publishRes).slice(0, 300) }
