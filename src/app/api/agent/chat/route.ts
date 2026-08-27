@@ -2045,7 +2045,7 @@ export async function POST(request: NextRequest) {
       // 2026-08-27: 发布话术强制校验——模型说“已创建”但工具未真返回 PUBLISH_QUEUED → 强制纠正（不信模型话术，信工具结果）
       try {
         const userWantsPublish = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
-        const hasPublishToolResult = /PUBLISH_QUEUED|WORKFLOW_NEED_VIDEO|CANCEL_OK|测试发布任务/.test(toolText)
+        const hasPublishToolResult = /PUBLISH_QUEUED|WORKFLOW_NEED_VIDEO|CANCEL_OK|FRAMES_OK|测试发布任务/.test(toolText) // 2026-08-27: FRAMES_OK(首轮看视频)也算工作流进行中——不误拦
         const claimsCreated = /已创建|创建发布任务|发布任务已创建|已为「/.test(reply)
         if (userWantsPublish && claimsCreated && !hasPublishToolResult) {
           console.error('[发布校验] 模型话术“已创建”但工具未返回，强制纠正:', userMessage.slice(0, 50))
