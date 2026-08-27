@@ -275,6 +275,11 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'cancel_publish_task',
+    description: '取消指定发布任务（用户说“取消任务#N/取消发布/不发了”时）。取消后客户端不再执行。只能取消自己的未完成任务。',
+    parameters: { type: 'object', properties: { taskId: { type: 'number', description: '任务编号（如 7）' } }, required: ['taskId'] },
+  },
+  {
     name: 'query_publish_tasks',
     description: '查询发布任务状态（Agent 创建的发布任务是否已执行/成功/失败）。触发词："发布了吗""任务状态""发了没有""我的发布"。返回最近发布任务列表及状态。',
     parameters: { type: 'object', properties: {} },
@@ -1296,6 +1301,19 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       } catch { return 'PUBLISH_READY:账号查询失败，请稍后重试' }
     }
 
+    case 'cancel_publish_task': {
+      try {
+        const { PrismaClient } = await import('@prisma/client')
+        const pc = new PrismaClient()
+        const tid = parseInt(args.taskId || '0')
+        if (!tid) return 'CANCEL_REJECT:缺少任务编号'
+        const t = await pc.agentPublishTask.findFirst({ where: { id: tid, userId: auth?.userId || 0 } })
+        if (!t) return 'CANCEL_REJECT:任务#' + tid + ' 不存在'
+        if (t.status !== 'pending') return 'CANCEL_REJECT:任务#' + tid + ' 当前状态为 ' + t.status + '（只能取消未执行任务）'
+        await pc.agentPublishTask.update({ where: { id: tid }, data: { status: 'cancelled', error: '用户取消' } })
+        return 'CANCEL_OK:已取消发布任务#' + tid + '（客户端不再执行）。需要重新发布可随时说“发布…”重新建任务。'
+      } catch (e9) { return 'CANCEL_REJECT:取消异常: ' + (e9.message || e9) }
+    }
     case 'query_publish_tasks': {
       try {
         const tasks = await prisma.agentPublishTask.findMany({
