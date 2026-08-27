@@ -2005,6 +2005,18 @@ export async function POST(request: NextRequest) {
       } else {
         reply = finalResult.content || formatToolResult(toolText)
       }
+      // 2026-08-27: 发布话术强制校验——模型说“已创建”但工具未真返回 PUBLISH_QUEUED → 强制纠正（不信模型话术，信工具结果）
+      try {
+        const userWantsPublish = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
+        const hasPublishToolResult = /PUBLISH_QUEUED|WORKFLOW_NEED_VIDEO|CANCEL_OK|测试发布任务/.test(toolText)
+        const claimsCreated = /已创建|创建发布任务|发布任务已创建|已为「/.test(reply)
+        if (userWantsPublish && claimsCreated && !hasPublishToolResult) {
+          console.error('[发布校验] 模型话术“已创建”但工具未返回，强制纠正:', userMessage.slice(0, 50))
+          reply = toolText.includes('WORKFLOW_NEED_VIDEO')
+            ? '⚠️ 发布任务未真正创建。' + toolText
+            : '⚠️ 发布任务未真正创建。请说“发布抖音 XX 视频”（XX 为仓库视频编号），或到个人仓库页选择要发布的视频。'
+        }
+      } catch (ePub) { console.error('[发布校验]异常:', ePub) }
       // 清理模型偶发吐出的工具调用 XML 脏标签（<tool_call> <function_calls> <invoke> 等）
       reply = stripToolCallTags(reply)
       // 解析 Scene 投影协议（工具分支，2026-08-05 提取共用函数）
