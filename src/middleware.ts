@@ -109,7 +109,9 @@ export async function middleware(request: NextRequest) {
 
   let token = getBearerToken(request)
   if (!token) {
-    token = request.cookies.get('token')?.value || null
+    // 2026-08-28: 多个 token cookie 时取最新（新写的在后）——防旧账号 token 生效（串号漏洞）
+    const allT = request.cookies.getAll('token')
+    token = allT.length ? allT[allT.length - 1].value : null
   }
   if (!token) {
     return NextResponse.json({ success: false, message: '未登录，请先登录' }, { status: 401 })

@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   cleanupResidue: () => ipcRenderer.invoke('app:cleanup-residue'),
+  clearSession: () => ipcRenderer.invoke('app:clear-session'),
   browserBind: () => ipcRenderer.invoke('browser:bind'),
   browserAccounts: () => ipcRenderer.invoke('browser:accounts'),
   browserBindMine: () => ipcRenderer.invoke('browser:bind-mine'),

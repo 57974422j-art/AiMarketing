@@ -62,6 +62,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('退出失败:', error)
     }
+    // 2026-08-28: 退出清所有 agent_ 本地缓存（换账号不残留）+ 通知客户端清 session cookie
+    try { if (typeof localStorage !== 'undefined') { for (let i = localStorage.length - 1; i >= 0; i--) { const k = localStorage.key(i); if (k && k.startsWith('agent_')) localStorage.removeItem(k) } } } catch {}
+    try { (window as any).electronAPI?.clearSession?.() } catch {}
     setUser(null)
     setIsLoggedIn(false)
     window.location.href = '/login'

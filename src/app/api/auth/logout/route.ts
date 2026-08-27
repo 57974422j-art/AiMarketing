@@ -13,6 +13,9 @@ export async function POST() {
   })
   
   // 同时设置空值确保覆盖
+  // 2026-08-28: 清多 path/domain——防止旧 token cookie 残留（换账号串号漏洞）
+  for (const cp of ['/api', '/agent']) { response.cookies.set('token', '', { expires: new Date(0), path: cp, httpOnly: true, secure: false, sameSite: 'strict' }) }
+  for (const cd of ['ai-niuma.cc', '.ai-niuma.cc']) { response.cookies.set('token', '', { expires: new Date(0), path: '/', domain: cd, httpOnly: true, secure: false, sameSite: 'strict' }) }
   response.cookies.delete('token')
   
   return response

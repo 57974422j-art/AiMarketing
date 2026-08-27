@@ -463,6 +463,11 @@ function setupAutoUpdater(win) {
 // 必须注册在顶层，不能放在 setupAutoUpdater 内部：
 // 打包后的 app 因 NODE_ENV 未设为 'production' 导致 isDev 恒为 true，
 // setupAutoUpdater 在 isDev 时不执行，app:get-version 永不注册 → 导航栏「版本加载中…」。
+// 2026-08-28: 换账号清客户端 session cookie（防旧 token 残留串号）
+ipcMain.handle('app:clear-session', async () => {
+  try { await session.defaultSession.clearStorageData({ storages: ['cookies'] }); await session.defaultSession.clearCookies() } catch {}
+  return { success: true }
+})
 ipcMain.handle('app:get-version', async () => {
   try {
     const vPath = path.join(__dirname, 'version.json')
