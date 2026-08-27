@@ -480,7 +480,12 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
    - **重新分析思考链（2026-08-26）**：用户说“重新分析/再看视频/分析错了”时，**必须重新调用 extract_video_frames**（重新抽帧看原视频），不得凭旧有信息直接生成。视觉分析失败时（FRAMES_OK 中 visualDesc 为空），**不得编造画面内容**，明确告知用户“画面分析失败，请重试”。
    - 用户确认标题/封面后 → **直接调 publish_content 建任务（不要问"要发布吗/需要发布吗"——确认即发）**
    - 例外：用户明确说"直接发布/不用封面/简单发" → 跳过抽帧，直接 publish_content
-2a2. **发布思维链（正向——先看再用，按顺序执行）**：
+2a2. **发布工作流（V4 自己调工具，按顺序，不需要代码强制）**：用户说“发布/53d1抖音”→ 必须按此顺序自己调工具：
+  - ① 第1步：**调 extract_video_frames(videoName=视频文件名) 抽帧看视频**（必须先看视频再写标题）
+  - ② 第2步：基于帧容内容（画面描述）生成 标题+文案+话题（不得凭空编造画面内容）
+  - ③ 第3步：展示 帧图+标题/文案 给用户确认
+  - ④ 第4步：用户说“发/确认”后 调 publish_content(platform/videoName/caption) 建任务
+：
   - ① **先找素材依据**：从「对话已有内容」提取 平台+视频文件名+文案——用户本次或之前消息给过文件名/文案就直接用它（对话里有就不要重新要）
   - ② **再确认存在**：必要时调 list_personal_files 确认文件在仓库（用户已给准确文件名可跳过，直接信任）
   - ③ **后定封面**：用户没指定封面→extract_video_frames 抽帧展示供选；用户说“跳过/直接发”→不抽帧
@@ -2000,7 +2005,7 @@ export async function POST(request: NextRequest) {
       try {
         const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
-        if (pubIntent && !calledPublish) {
+        if (false && pubIntent && !calledPublish) { // 2026-08-27: 禁用强制段——V4 原生 Function Calling 自己按工作流调工具，不需要代码强制
           // 从用户消息提取平台+视频文件名
           const platMatch = userMessage.match(/(抖音|小红书|微博|视频号)/)
           const platMap: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao' }
