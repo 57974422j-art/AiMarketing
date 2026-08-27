@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.69",
+    "date": "2026-08-26",
+    "title": "修复：浏览器每次都恢复旧tab（会话恢复）",
+    "items": [
+      "spawn 加 --no-restore-session-state/--disable-session-crashed-bubble——Chromium 不再恢复上次未关闭的6平台tab（之前keepalive全开的残留被每次恢复）",
+      "点平台卡/打开浏览器 = 全新1窗口"
+    ]
+  },
+  {
     "version": "1.0.68",
     "date": "2026-08-26",
     "title": "最终修复：done Cookie 根因 + 不再全开页面",
