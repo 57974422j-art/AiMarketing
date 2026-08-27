@@ -2041,10 +2041,8 @@ export async function POST(request: NextRequest) {
                 try { frParsedW = JSON.parse(frJsonW) } catch {}
                 const framesW = Array.isArray(frParsedW.frames) ? frParsedW.frames : []
                 PUBLISH_DRAFT.set(uidW, { videoName: vfNameW, frames: framesW, visualDesc: frParsedW.visualDesc || '', step: 'frame' })
-                wfEarlyReply = `① 已抽帧（4 帧）——请选帧作封面基础：
-${framesW.map((f: any, i: number) => '（' + (i + 1) + '） 帧' + (i + 1) + '：![帧' + (i + 1) + '](' + f + ')
-').join('')}
-回复编号 1-4 选帧，或“换一批”重抽。`
+                wfEarlyReply = `① 已抽帧（${framesW.length || 0}帧）请选帧作封面基础：${framesW.map((f: any, i: number) => '（' + (i + 1) + '）').join(' ')}
+回复编号 1-${framesW.length || 4} 选帧，或“换一批”重抽。`
                 }
               }
             } else if (draftW.step === 'frame') {
