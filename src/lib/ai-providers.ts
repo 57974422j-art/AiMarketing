@@ -1723,12 +1723,12 @@ async function dashscopeGenerateImage(prompt: string, size = '1280*1280', _model
   }
   // 2026-08-10 升级：默认 wan2.6-t2i → qwen-image-3.0-pro（中文文字渲染官方最强，修复乱码）
   const model = _model ? (modelMap[_model] || _model) : 'qwen-image-3.0-pro'
-  console.log(`[文生图] 尝试百炼 ${model} (同步调用)...`)
+  console.log(`[文生图] 百炼 ${model} (image-generation 异步+轮询)...`)
   try {
-    // wan2.6/qwen-image 支持 HTTP 同步调用，无需异步+轮询
-    const res = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', {
+    // 2026-08-28: 官方正确接口 image-generation/generation（旧 multimodal-generation 对 qwen-image-3.0 不支持→卡死）；异步提交+轮询（排队久就等，不降级）
+    const res = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/image-generation/generation', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body: JSON.stringify({
         model,
         input: {
@@ -1744,27 +1744,35 @@ async function dashscopeGenerateImage(prompt: string, size = '1280*1280', _model
           n: 1,
           prompt_extend: true,
           watermark: false,
-          negative_prompt: '',
         },
       }),
-      signal: AbortSignal.timeout(120000),
+      signal: AbortSignal.timeout(30000),
     })
 
     if (!res.ok) {
       const err = await res.text()
-      console.log('[文生图] 百炼同步调用失败:', res.status, err.substring(0, 300))
+      console.log('[文生图] 百炼创建失败:', res.status, err.substring(0, 300))
       return null
     }
 
     const data = await res.json()
-    const imageUrl = data?.output?.choices?.[0]?.message?.content?.[0]?.image
-    if (!imageUrl) console.log('[文生图] 百炼响应无图片:', JSON.stringify(data).substring(0, 300))
-    else console.log('[文生图] 百炼成功:', String(imageUrl).substring(0, 80))
-    if (!imageUrl) {
-      console.log('[文生图] 百炼未返回图片URL:', JSON.stringify(data).substring(0, 300))
-      return null
+    const taskId = data?.output?.task_id
+    if (!taskId) { console.log('[文生图] 百炼无 task_id:', JSON.stringify(data).substring(0, 200)); return null }
+    console.log('[文生图] 百炼任务已提交:', taskId.substring(0, 8), '——排队生成中（最多等 180s，不降级）')
+    const deadline = Date.now() + 180000
+    while (Date.now() < deadline) {
+      await new Promise((r2) => setTimeout(r2, 4000))
+      const q = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + taskId, {
+        headers: { 'Authorization': `Bearer ${key}` },
+        signal: AbortSignal.timeout(15000),
+      }).then((r3) => r3.json()).catch(() => null)
+      const st = q?.output?.task_status || q?.task_status
+      const img = q?.output?.choices?.[0]?.message?.content?.[0]?.image
+      if (img) { console.log('[文生图] 百炼成功（约等' + Math.round((deadline - Date.now()) / 1000) + 's内）:', String(img).substring(0, 80)); return img }
+      if (st === 'FAILED' || st === 'UNKNOWN') { console.log('[文生图] 百炼任务失败:', JSON.stringify(q).substring(0, 200)); return null }
     }
-    return imageUrl
+    console.log('[文生图] 百炼 180s 超时（排队中——未降级，可重试）')
+    return null
   } catch (e) {
     console.error('[DashScope 文生图] 失败:', e)
     return null
