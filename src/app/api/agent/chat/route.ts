@@ -1258,7 +1258,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           bilibili: 'bilibili', 'b站': 'bilibili', 'B站': 'bilibili', 'bili': 'bilibili', '哔哩哔哩': 'bilibili',
         }
         const platform = PLATFORM_ALIAS[raw] || PLATFORM_ALIAS[args.platform] || raw
-        const PLATFORM_LABEL: Record<string, string> = { douyin: '抖音', xiaohongshu: '小红书', kuaishou: '快手', shipinhao: '视频号', bilibili: 'B站' }
+        const PLATFORM_LABEL: Record<string, string> = { douyin: '抖音', xiaohongshu: '小红书', kuaishou: '快手', shipinhao: '视频号', bilibili: 'B站', weibo: '微博', xianyu: '闲鱼' } // 2026-08-28: 接 opencli 已有平台（微博/闲鱼）
         const label = PLATFORM_LABEL[platform] || args.platform
 
         if (!auth?.userId) return 'PUBLISH_NEED_LOGIN:请先登录平台账号后再发布。'
