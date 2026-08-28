@@ -479,6 +479,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 1. 用户说"发布/发 xx 到平台" → 确认三要素：平台、视频（仓库文件名）、文案（无文案可只用视频名作标题）
 2. **发布标准流程（2026-08-21 升级，一条龙不再一路问）**：
    - 有视频（仓库名）→ **先调 extract_video_frames 抽 4 帧展示**（帧图卡片）→ 用户选帧（"用第N帧"）→ 基于该帧画面识别内容 → **自动推荐标题/话题标签 + 用该帧设计封面（IMAGE_RESULT 直接展示）——默认动作，不要问"要不要推荐封面/标题"**
+   - **选帧后直接出方案（2026-08-28）**：用户选帧/选完帧后，**直接输出 ②标题 3 个候选 + ③话题标签 + ④封面推荐**，严禁问“要不要推荐/确认吗”——只有视觉分析失败时才提示用户补充描述。
    - **重新分析思考链（2026-08-26）**：用户说“重新分析/再看视频/分析错了”时，**必须重新调用 extract_video_frames**（重新抽帧看原视频），不得凭旧有信息直接生成。视觉分析失败时（FRAMES_OK 中 visualDesc 为空），**不得编造画面内容**，明确告知用户“画面分析失败，请重试”。
    - 用户确认标题/封面后 → **直接调 publish_content 建任务（不要问"要发布吗/需要发布吗"——确认即发）**
    - 例外：用户明确说"直接发布/不用封面/简单发" → 跳过抽帧，直接 publish_content
@@ -1575,8 +1576,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + vKey },
               body: JSON.stringify({
-                model: 'deepseek-v4-flash', // 2026-08-27: 视觉改 V4
-                messages: [{ role: 'user', content: [{ type: 'text', text: '这是视频的几个画面帧。请用中文简洁总结：1.视频内容是什么（主体/场景/动作/人物）2.视频风格 3.适合的短视频主题。3-4句，不要客套。' }, ...images] }],
+                model: 'qwen-vl-max', // 2026-08-28: 回百炼真视觉（V4 不支持图）
+                messages: [{ role: 'user', content: [...images, { type: 'text', text: '这是视频的几个画面帧。请用中文简洁总结：1.视频内容是什么（主体/场景/动作/人物）2.视频风格 3.适合的短视频主题。3-4句，不要客套。' }, ...images] }],
                 max_tokens: 300,
               }),
               signal: AbortSignal.timeout(60000),
