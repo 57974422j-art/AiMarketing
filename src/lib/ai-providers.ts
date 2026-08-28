@@ -2071,6 +2071,25 @@ export async function agnesChat(
 }
 
 // 5. 文生图（返回 {url, model}，model 标明实际使用的模型）
+/** 2026-08-29: 生图异步化——只提交百炼任务，返回 taskId（不轮询——避免长请求断） */
+export async function dashscopeGenerateImageAsync(prompt: string, size = '1280*1280'): Promise<{ taskId: string } | null> {
+  try {
+    const key = getDashScopeKey()
+    if (!key) return null
+    const res = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/image-generation/generation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
+      body: JSON.stringify({ model: 'qwen-image-3.0-pro', input: { messages: [{ role: 'user', content: [{ text: prompt }] }] }, parameters: { size, n: 1, prompt_extend: true, watermark: false } }),
+      signal: AbortSignal.timeout(30000),
+    })
+    const data = await res.json().catch(() => null)
+    const taskId = data?.output?.task_id
+    if (!taskId) { console.log('[生图异步] 提交失败:', JSON.stringify(data).substring(0, 200)); return null }
+    console.log('[生图异步] 已提交 task:', taskId.substring(0, 8))
+    return { taskId }
+  } catch (e) { console.error('[生图异步] 提交异常:', e?.message || e); return null }
+}
+
 export async function generateImage(prompt: string, size = '1280*1280', provider?: string): Promise<{ url: string; model: string } | null> {
   const labelMap: Record<string, string> = {
     'qwen-image-2.0': '通义千问 2.0',

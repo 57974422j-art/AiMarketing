@@ -43,6 +43,8 @@ const prisma = new PrismaClient()
 
 // 2026-08-21: 发布抽帧暂存（userId → 帧列表，"用第N帧"取用）
 const frameStore = new Map<number, { frames: { idx: number; url: string }[]; videoName: string }>()
+// 2026-08-29: 生图异步化——提交后立即返回，后台轮询+转存（避免长请求被网络层掐断"网络连接失败"）
+const pendingImages = new Map<number, { taskId: string; ts: number; url?: string; fileName?: string; done: boolean }>()
 
 const AGENT_TOOLS: ToolDefinition[] = [
   {
@@ -724,31 +726,37 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     case 'generate_image': {
       const uid = auth?.userId
       if (!uid) return 'TOOL_REJECT:未登录'
-      const gCount = Math.max(1, parseInt(args.count) || 1)
-      const gCost = TOKEN_COSTS.IMAGE_PER_PIC * gCount
-      const gChk = await checkTokens(uid, gCost)
+      const gChk = await checkFeatureAccess(uid, 'generate_image')
       if (!gChk.allowed) return `TOOL_REJECT:${gChk.message}`
-      const result = await generateImage(args.prompt || '商业海报', args.size || '1024*1024')
-      if (result?.url) {
-        // 2026-08-24: 防丢——agent 生成图片也转存 storage/{userId}/ + 入仓库 + 落记录，返回 OSS URL（不再一次性）
-        let finalUrl = result.url
+      const gCost = 12
+      // 2026-08-29: 异步化——提交即返回（长轮询被网络层掐→"网络连接失败"）；后台轮询+转存
+      const sub = await dashscopeGenerateImageAsync(String(args.prompt || 'AI生成图片'), String(args.size || '1280*1280').replace(/\*/g, 'x'))
+      if (!sub?.taskId) return '图片生成失败（提交被拒）——请稍后重试'
+      pendingImages.set(uid, { taskId: sub.taskId, ts: Date.now(), done: false })
+      // 后台轮询（不阻塞 chat）——完成转存 OSS + 入仓库
+      ;(async () => {
         try {
-          const imgKey = 'storage/' + uid + '/ai_' + Date.now() + '.png'
-          const imgBuf = Buffer.from(await (await fetch(result.url, { signal: AbortSignal.timeout(60000) })).arrayBuffer())
-          const oss = await getOSSClient()
-          await oss.put(imgKey, imgBuf)
-          finalUrl = await signedUrl(imgKey, 86400)
-          await prisma.mediaAsset.create({
-            data: { title: String(args.prompt || 'AI生成图片').slice(0, 30), ossUrl: finalUrl, type: 'image', prompt: String(args.prompt || '').slice(0, 200), category: 'AI生成', source: 'private', ownerId: uid, orientation: 'landscape' },
-          })
-          try { const rec = await createRecord({ userId: uid, type: 'text2img', prompt: String(args.prompt || 'AI生成图片'), costPoints: gCost }); await finalizeSuccess(rec, uid, { platformUrl: result.url, costPoints: gCost, reason: 'text2img' }) } catch {}
-        } catch (e) { console.error('[generate_image] 转存失败:', e) }
-        await spendTokens(uid, gCost, 'agent_generate_image')
-        // 2026-08-28: 转存后返回仓库名（不依赖签名 URL）——AI 发布时 coverUrl 传文件名，客户端从 OSS 读
-        const imgFileName = imgKey ? imgKey.replace('storage/' + uid + '/', '') : ''
-        return `IMAGE_RESULT:${finalUrl}|STORED:${imgFileName}|MODEL:${result.model}|COST:${gCost}点（已入个人仓库：${imgFileName}——发布封面传这个文件名）`
-      }
-      return '图片生成暂不可用，请检查AI配置'
+          const deadline = Date.now() + 240000
+          while (Date.now() < deadline) {
+            await new Promise((r2) => setTimeout(r2, 5000))
+            const q = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + sub.taskId, { headers: { 'Authorization': 'Bearer ' + process.env.DASHSCOPE_API_KEY } }).then((r3) => r3.json()).catch(() => null)
+            const img = q?.output?.choices?.[0]?.message?.content?.[0]?.image
+            const st = q?.output?.task_status || q?.task_status
+            if (img) {
+              const imgBuf = Buffer.from(await (await fetch(img, { signal: AbortSignal.timeout(60000) })).arrayBuffer())
+              const imgKey = 'storage/' + uid + '/ai_' + Date.now() + '.png'
+              await putObject(imgKey, imgBuf, 'image/png')
+              const url = await signedUrl(imgKey, 86400)
+              await prisma.mediaAsset.create({ data: { title: String(args.prompt || 'AI生成图片').slice(0, 30), ossUrl: url, type: 'image', prompt: String(args.prompt || '').slice(0, 200), category: 'AI生成', source: 'private', ownerId: uid, orientation: 'landscape' } }).catch(() => {})
+              pendingImages.set(uid, { taskId: sub.taskId, ts: Date.now(), url, fileName: imgKey.replace('storage/' + uid + '/', ''), done: true })
+              console.log('[生图异步] 完成转存:', imgKey)
+              break
+            }
+            if (st === 'FAILED' || st === 'UNKNOWN') { pendingImages.set(uid, { taskId: sub.taskId, ts: Date.now(), done: true }); break }
+          }
+        } catch (eBk) { console.error('[生图异步] 后台轮询异常:', eBk?.message || eBk) }
+      })()
+      return 'IMAGE_PENDING:封面生成中（约1-3分钟）——生成后自动存入个人仓库，稍后说"封面好了吗"我会帮你查'
     }
 
     // ── 视频 ──
