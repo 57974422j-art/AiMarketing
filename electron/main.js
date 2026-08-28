@@ -341,7 +341,29 @@ function setupAutoPublish() {
                 for (const u of imgUrls.slice(0, 9)) {
                   try { const buf = Buffer.from(await (await fetch(u, { signal: AbortSignal.timeout(60000) })).arrayBuffer()); const p2 = require('path').join(require('os').tmpdir(), 'xhs-i-' + Date.now() + '-' + imgs.length + '.jpg'); require('fs').writeFileSync(p2, buf); imgs.push(p2) } catch {}
                 }
-                r = imgs.length ? await publishXhsImages(page, { images: imgs, title: t.title || '', desc: t.description || '' }) : await publishXhsImages(page, { images: [], title: t.title || '', desc: t.description || '' })
+                // 2026-08-28: description 无图 → coverUrl 兜底（封面当图——之前已转 OSS 持久代理）；再无可下视频当图
+                let xhsImgs = imgs
+                if (!xhsImgs.length && t.coverUrl) {
+                  try { const buf = Buffer.from(await (await fetch(t.coverUrl, { signal: AbortSignal.timeout(60000) })).arrayBuffer()); const p3 = require('path').join(require('os').tmpdir(), 'xhs-c-' + Date.now() + '.jpg'); require('fs').writeFileSync(p3, buf); xhsImgs = [p3] } catch (eCov) { console.log('[xhs] 封面下载失败:', eCov.message) }
+                }
+                if (!xhsImgs.length && vp && require('fs').existsSync(vp)) {
+                  // 有视频无图：小红书视频发布（CDP 版——参考 fp-templates/xiaohongshu-publish.js：上传视频→填标题→发布）
+                  try {
+                    await page.goto('https://creator.xiaohongshu.com/publish/publish?source=official', { waitUntil: 'domcontentloaded', timeout: 40000 }).catch(() => {})
+                    await page.waitForTimeout(2500)
+                    await page.setInputFiles('input[type="file"]', vp).catch(async () => { const vis2 = await page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const inp = [...document.querySelectorAll('input[type="file"]')].find(i => vis(i)); if (inp) { inp.setAttribute('data-xhs-v', '1'); return 'input[data-xhs-v="1"]' } return '' }); if (vis2) await page.setInputFiles(vis2, vp) })
+                    await page.waitForTimeout(12000)
+                    const titleSel = await page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const el = [...document.querySelectorAll('input, textarea')].find(i => vis(i) && (i.placeholder || '').includes('标题')); if (el) { el.setAttribute('data-xhs-t', '1'); return 'input[data-xhs-t="1"], textarea[data-xhs-t="1"]' } return '' })
+                    if (titleSel) { await page.fill(titleSel, (t.title || '').slice(0, 20)); await page.waitForTimeout(1500) }
+                    const bodySel = await page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const el = [...document.querySelectorAll('[contenteditable="true"], textarea')].find(i => vis(i)); if (el) { el.setAttribute('data-xhs-b', '1'); return '[data-xhs-b="1"]' } return '' })
+                    if (bodySel) { await page.click(bodySel); await page.keyboard.type((t.description || '').slice(0, 500), { delay: 10 }); await page.waitForTimeout(1500) }
+                    const pubSel = await page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const btns = [...document.querySelectorAll('button, [class*="publish"], [class*="release"]')].filter(b => vis(b) && /发布/.test(b.textContent || '')); const t = btns.find(b => (b.textContent || '').includes('发布')) || btns[btns.length - 1]; if (t) { t.setAttribute('data-xhs-p', '1'); return '[data-xhs-p="1"]' } return '' })
+                    if (pubSel) { await page.click(pubSel); await page.waitForTimeout(3000); r = { success: true, test: false, message: '小红书视频发布已点击' } }
+                    else r = { success: false, error: '未找到小红书发布按钮' }
+                  } catch (eXhs) { r = { success: false, error: '小红书视频发布异常: ' + (eXhs.message || eXhs) } }
+                } else {
+                  r = xhsImgs.length ? await publishXhsImages(page, { images: xhsImgs, title: t.title || '', desc: t.description || '' }) : { success: false, error: '小红书缺材料：无图无视频无封面' }
+                }
               }
               else if (plat === 'douyin') r = await publishDouyinViaCDP({ videoPath: vp, title: t.title || '', caption: t.description || '' })
               else if (plat === 'shipinhao') r = await publishShipinhao(page, { videoPath: vp, title: t.title || '', desc: t.description || '' })
