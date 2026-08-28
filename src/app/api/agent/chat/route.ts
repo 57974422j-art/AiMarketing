@@ -483,6 +483,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
    - **小红书发布规则（2026-08-28）**：小红书发布**必须带素材**（视频 videoName 或图片 URL）——不允许纯文字建任务。本尊会话已选过封面/抽过帧的视频，发多平台时**复用该视频名+封面**（publish_content 传 videoName + coverUrl）；无素材则先引导选视频/封面再建任务。
    - **选帧后直接出方案（2026-08-28）**：用户选帧/选完帧后，**直接输出 ②标题 3 个候选 + ③话题标签 + ④封面推荐**，严禁问“要不要推荐/确认吗”——只有视觉分析失败时才提示用户补充描述。
    - **重新分析思考链（2026-08-26）**：用户说“重新分析/再看视频/分析错了”时，**必须重新调用 extract_video_frames**（重新抽帧看原视频），不得凭旧有信息直接生成。视觉分析失败时（FRAMES_OK 中 visualDesc 为空），**不得编造画面内容**，明确告知用户“画面分析失败，请重试”。
+   - 发布确认时列多平台（2026-08-28）：确认发布时加一句“同时发送：小红书 / 微博（回“全部发”同时发）”——用户回“全部发”时 publish_content 传 platforms:[抖音,小红书,微博] 同时建任务。
    - 用户确认标题/封面后 → **直接调 publish_content 建任务（不要问"要发布吗/需要发布吗"——确认即发）**
    - 例外：用户明确说"直接发布/不用封面/简单发" → 跳过抽帧，直接 publish_content
 2a2. **发布工作流（V4 自己调工具，按顺序，不需要代码强制）**：用户说“发布/53d1抖音”→ 必须按此顺序自己调工具：
@@ -702,7 +703,19 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const platform = args.platform || '多平台'
       const style = args.style || '专业'
       const p = `为"${product}"生成${platform}营销文案，风格${style}。吸引眼球有卖点。输出3条，用【文案1】【文案2】【文案3】标记。`
-      return await generateText(p) || '文案生成暂不可用'
+      const copyRaw = (await generateText(p)) || ''
+      if (copyRaw && copyRaw !== '文案生成暂不可用') {
+        try {
+          const uidC = auth?.userId
+          if (uidC) {
+            const cKey = 'storage/' + uidC + '/copy_' + Date.now() + '.txt'
+            await putObject(cKey, Buffer.from(copyRaw, 'utf8'), 'text/plain')
+            console.log('[generate_copy] 文案已转存:', cKey)
+            return copyRaw + String.fromCharCode(10, 10) + '[OK] 已存入个人仓库: copy_' + cKey.split('_').pop()
+          }
+        } catch (eCp) { console.error('[generate_copy] 转存失败:', eCp?.message || eCp) }
+      }
+      return copyRaw || '文案生成暂不可用'
     }
 
     // ── 图片（#2 2026-08-12: 工具前移扣费——执行前 check，成功后 spend）──

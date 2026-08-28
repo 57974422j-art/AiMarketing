@@ -1948,6 +1948,7 @@ export default function AgentPage() {
           <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
             <p className="text-sm text-emerald-300 mb-2">{title || '已为你生成图片'}</p>
             <img src={url} alt={title || '生成图片'} className="w-full rounded-lg max-h-96 object-contain bg-black/40" loading="lazy" />
+            <button onClick={() => { setInput(url); setTimeout(() => { const btn = document.querySelector('button[data-send-msg]'); if (btn) (btn as any).click() }, 200) }} className="mt-2 px-3 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 text-xs mr-2" title="push-to-agent">PUSH-AGENT</button>
             <button onClick={() => navigator.clipboard?.writeText(url)} className="mt-2 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-medium transition">📋 复制图片链接</button>
           </div>
         )
