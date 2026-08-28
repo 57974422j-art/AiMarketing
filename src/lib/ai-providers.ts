@@ -2102,16 +2102,11 @@ export async function generateImage(prompt: string, size = '1280*1280', provider
     return null
   }
   // auto（默认主用 Agnes，其他厂商降级兜底）: Agnes → 百炼(wan2.6-t2i) → 硅基流动 → null
-  const agnesUrl = await agnesGenerateImage(prompt, size)
-  if (agnesUrl) return { url: agnesUrl, model: 'Agnes AI' }
-
+  // 2026-08-28: auto = 百炼 qwen-image-3.0-pro 主（等 180s 不降级）——agnes 429 不稳定、硅基制图确认不行——全部移除
   const dashUrl = await dashscopeGenerateImage(prompt, size)
-  if (dashUrl) return { url: dashUrl, model: '百炼 wan2.6' }
+  if (dashUrl) return { url: dashUrl, model: '百炼 qwen-image-3.0-pro' }
 
-  const siliconUrl = await siliconGenerateImage(prompt, size.replace(/\*/g, 'x'))
-  if (siliconUrl) return { url: siliconUrl, model: '硅基 Z-Image' }
-
-  console.warn('[文生图] 服务不可用');
+  console.warn('[文生图] 百炼不可用（排队超 180s 或失败）——不降级，请重试');
   return null
 }
 
