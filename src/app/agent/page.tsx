@@ -1646,7 +1646,7 @@ export default function AgentPage() {
       content: attachments.length
         ? `${finalText}
 
-📎 ${attachments.map(a => `[${a.name}](${a.url})`).join(' ')}`
+📎 ${attachments.map((a) => (a.type === 'image' ? `![${a.name}](${a.url})` : `[${a.name}](${a.url})`)).join(' ')}`
         : finalText,
       timestamp: Date.now(),
     }
