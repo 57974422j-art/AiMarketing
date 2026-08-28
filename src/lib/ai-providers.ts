@@ -1783,6 +1783,7 @@ async function dashscopeTTS(text: string, voice = 'longxiaochun'): Promise<Array
         model: 'cosyvoice-v1',
         input: { text },
         parameters: { voice, format: 'mp3' },
+        action: 'run', // 2026-08-28: 百炼 TTS 缺 action 报 "task can not be null"——补上
       }),
       signal: AbortSignal.timeout(30000),
     })
