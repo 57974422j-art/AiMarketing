@@ -1004,7 +1004,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       try {
         const r = await queryVideoTask(taskId)
         if (!r) return `VIDEO_PROGRESS:查询失败|TASK:${taskId}`
-        if (r.status === 'completed' || r.status === 'SUCCEEDED' || r.status === 'done') {
+        if (r.status === 'completed' || r.status === 'SUCCEEDED' || r.status === 'succeeded' || r.status === 'success' || r.status === 'done') { // 2026-08-28: 火山返回小写 succeeded
           // 2026-08-24: 防丢——完成即转存 OSS + 自动入个人仓库 + 落生成记录（URL 不再是一次性的）
           let finalUrl = r.videoUrl || ''
           try {
@@ -1039,7 +1039,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         if (args.keyword) where.title = { contains: args.keyword }
         const items = await prisma.mediaAsset.findMany({ where, orderBy: { createdAt: 'desc' }, take: 8 })
         if (items.length) {
-          const list = items.map((m, i) => `${i + 1}. ${m.title} [${m.type}] ${m.url}`).join('\n')
+          const list = items.map((m, i) => `${i + 1}. ${m.title} [${m.type}] ${m.ossUrl || m.url || ''}`).join('\n')
           return `STORAGE_RESULT:项目素材库找到${items.length}个素材（URL可直接用于配图/发布）:\n${list}`
         }
         return 'STORAGE_RESULT:项目素材库暂无匹配内容。可以试试个人仓库(list_personal_files)、网上找图，或让我AI生成。'
@@ -1079,7 +1079,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             const where: any = { type: 'video' }
             if (kw) where.title = { contains: kw }
             const items = await prisma.mediaAsset.findMany({ where, orderBy: { createdAt: 'desc' }, take: 5 })
-            found.push(...items.map(m => ({ url: m.url, title: m.title })))
+            found.push(...items.map(m => ({ url: m.ossUrl || m.url || '', title: m.title }))) // 2026-08-28: 同上——AI 可见
           } catch { /* 忽略 */ }
         }
 
@@ -1298,6 +1298,21 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
               ? args.platforms.map((pl: string) => PLATFORM_ALIAS[String(pl).toLowerCase()] || String(pl).toLowerCase())
               : [platform]
             const taskIds: number[] = []
+            // 2026-08-28: 封面持久化——args.coverUrl 若是 /api/frames/ 临时帧（1h 后清理）→ 转存 OSS 永久代理 URL（克端可读不过期）
+            let coverPersist = args.coverUrl || null
+            if (coverPersist && coverPersist.includes('/api/frames/')) {
+              try {
+                const cRel = String(coverPersist).replace('/api/frames/', '')
+                const cFp = path.join(pubRoot, 'frames', cRel)
+                if (fs.existsSync(cFp)) {
+                  const cBuf = fs.readFileSync(cFp)
+                  const cKey = 'storage/' + auth.userId + '/cover_' + Date.now() + '.jpg'
+                  await putObject(cKey, cBuf, 'image/jpeg')
+                  coverPersist = '/api/storage/file?name=' + cKey.replace('storage/' + auth.userId + '/', '') + '&persist=1'
+                  console.log('[publish] 封面已转 OSS 永久:', cKey)
+                }
+              } catch (eCov) { console.error('[publish] 封面转 OSS 失败:', eCov?.message || eCov) }
+            }
             for (const pl of platformList) {
               const plLabel = PLATFORM_LABEL[pl] || pl
               const task = await prisma.agentPublishTask.create({
@@ -1309,7 +1324,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                   title: String(pubCaption || videoName).slice(0, 30), // 2026-08-27: 抖音标题限 30 字——自动截断防“标题超长”失败（#10 根因）
                   description: (args.test === true ? '[TEST] ' : '') + String(pubCaption || videoName),
                   topics: JSON.stringify(topicsArr),
-                  coverUrl: args.coverUrl || null,
+                  coverUrl: coverPersist,
                   status: 'pending',
                 },
               })

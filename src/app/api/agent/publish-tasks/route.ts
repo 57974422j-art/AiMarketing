@@ -18,10 +18,18 @@ export async function POST(request: NextRequest) {
     if (!platform || !videoName || !title) {
       return NextResponse.json({ success: false, message: '缺少参数（platform/videoName/title）' }, { status: 400 })
     }
+    // 2026-08-21: 平台名规范化——中文→英文（"抖音".toLowerCase() 不会变 douyin，导致 OpenCLI 分流/指纹模板不认）
+    const PLATFORM_MAP: Record<string, string> = {
+      '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '快手': 'kuaishou',
+      '视频号': 'shipinhao', 'b站': 'bilibili', 'B站': 'bilibili', '哔哩哔哩': 'bilibili',
+      'douyin': 'douyin', 'xiaohongshu': 'xiaohongshu', 'weibo': 'weibo', 'kuaishou': 'kuaishou',
+      'shipinhao': 'shipinhao', 'bilibili': 'bilibili',
+    }
+    const normPlatform = PLATFORM_MAP[String(platform).trim()] || PLATFORM_MAP[String(platform).toLowerCase().trim()] || String(platform).toLowerCase().trim()
     const task = await prisma.agentPublishTask.create({
       data: {
         userId: auth.userId,
-        platform: String(platform).toLowerCase(),
+        platform: normPlatform,
         videoName,
         title,
         description,
@@ -60,6 +68,7 @@ export async function GET(request: NextRequest) {
         description: t.description,
         topics: (() => { try { return JSON.parse(t.topics || '[]') } catch { return [] } })(),
         socialAccountId: t.socialAccountId,
+        coverUrl: t.coverUrl, // 2026-08-28: 封面连链——克端可拿到封面（转 OSS 后永久代理 URL）
         status: t.status,
         error: t.error,
         createdAt: t.createdAt,
