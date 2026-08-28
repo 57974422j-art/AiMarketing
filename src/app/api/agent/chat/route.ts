@@ -1554,7 +1554,11 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         // 2026-08-23: 视觉理解前置——百炼 qwen-vl-max 看帧总结内容（AI 基于真实内容写标题/推荐封面，杜绝瞎编）
         let visualDesc = ''
         try {
-          const vKey = process.env.DASHSCOPE_API_KEY
+          // 2026-08-28: DEEPSEEK_API_KEY 优先（官方 vision-exp 支持图片）→ 无则百炼 qwen-vl-max 兑底
+          const dsVisKey = process.env.DEEPSEEK_API_KEY
+          const vKey = dsVisKey || process.env.DASHSCOPE_API_KEY
+          const visBase = dsVisKey ? 'https://api.deepseek.com/v1/chat/completions' : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+          const visModel = dsVisKey ? 'deepseek-v4-flash-vision-exp' : 'qwen-vl-max'
           if (vKey && frames.length) {
             // 2026-08-26: 帧读本地 → 传 OSS（signedUrl 公网可达）→ 视觉模型才能真正看到画面
             // 2026-08-27: 视觉改 V4（deepseek-v4-flash 多模态自己看）——再不依赖 qwen-vl（之前写死 ai-niuma.cc 本地帧 404 → visualDesc 空 → AI 瞎编）
@@ -1572,11 +1576,11 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
               } catch (e3) { console.error('[visual] 帧传 OSS 失败:', rel, e3) }
             }
             if (!images.length) { console.error('[visual] 无帧可传（本地帧缺失）——视觉分析跳过') }
-            const vr = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+            const vr = await fetch(visBase, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + vKey },
               body: JSON.stringify({
-                model: 'qwen-vl-max', // 2026-08-28: 回百炼真视觉（V4 不支持图）
+                model: visModel,
                 messages: [{ role: 'user', content: [...images, { type: 'text', text: '这是视频的几个画面帧。请用中文简洁总结：1.视频内容是什么（主体/场景/动作/人物）2.视频风格 3.适合的短视频主题。3-4句，不要客套。' }, ...images] }],
                 max_tokens: 300,
               }),
