@@ -1758,6 +1758,8 @@ async function dashscopeGenerateImage(prompt: string, size = '1280*1280', _model
 
     const data = await res.json()
     const imageUrl = data?.output?.choices?.[0]?.message?.content?.[0]?.image
+    if (!imageUrl) console.log('[文生图] 百炼响应无图片:', JSON.stringify(data).substring(0, 300))
+    else console.log('[文生图] 百炼成功:', String(imageUrl).substring(0, 80))
     if (!imageUrl) {
       console.log('[文生图] 百炼未返回图片URL:', JSON.stringify(data).substring(0, 300))
       return null
