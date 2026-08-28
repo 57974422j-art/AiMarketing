@@ -1575,6 +1575,22 @@ export default function AgentPage() {
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis) }
   }, [])
   // ── 功能提示标签（新手引导——点击填入输入框）──
+  // 2026-08-28: 任务进度带（会话上方可折叠——从最近回复解析发布工作流步骤）
+  const [todoOpen, setTodoOpen] = useState(true)
+  const todoInfo = (() => {
+    const lastAsst = [...messages].reverse().find((mm: any) => mm.role === 'assistant' && typeof mm.content === 'string')
+    const txt = lastAsst ? String(lastAsst.content) : ''
+    const allTxt = messages.map((mm: any) => String(mm.content || '')).join(' ')
+    const isPub = allTxt.indexOf('发布') >= 0 || allTxt.indexOf('抽帧') >= 0 || allTxt.indexOf('封面') >= 0
+    const defs = [
+      { k: '①', label: '视频确认 + 抽帧选帧' },
+      { k: '②', label: '标题（3 个候选）' },
+      { k: '③', label: '话题标签' },
+      { k: '④', label: '封面设计' },
+      { k: '⑤', label: '确认发布（向客户端下达）' },
+    ]
+    return { isPub, done: defs.map((d) => txt.indexOf(d.k) >= 0), defs }
+  })()
   const FEATURE_TIPS = [
     '帮我发一条抖音视频', '帮我写一个小红书文案', '帮我生成一张产品海报',
     '帮我查一下今日热点', '帮我生成一个数字人口播', '帮我做一条 AI 视频',
@@ -2409,6 +2425,24 @@ export default function AgentPage() {
 
             {messages.length > 0 && (
               <div className="flex-1 flex flex-col justify-end space-y-3 pt-3">
+                {/* 2026-08-28: 任务进度带（发布工作流——可折叠） */}
+                {todoInfo.isPub && (
+                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                    <button onClick={() => setTodoOpen(!todoOpen)} className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] text-gray-400 hover:text-gray-200">
+                      <span>📋 任务进度（发布工作流）</span><span>{todoOpen ? '收起 ▲' : '展开 ▼'}</span>
+                    </button>
+                    {todoOpen && (
+                      <div className="px-2.5 pb-2 flex flex-col gap-1">
+                        {todoInfo.defs.map((d: any, i: number) => (
+                          <div key={i} className="flex items-center gap-1.5 text-[9px]">
+                            <span className={`w-3 h-3 rounded-full flex items-center justify-center text-[8px] ${todoInfo.done[i] ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/[0.06] text-gray-500'}`}>{todoInfo.done[i] ? '✓' : ''}</span>
+                            <span className={todoInfo.done[i] ? 'text-emerald-300/80' : 'text-gray-500'}>{d.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {messages.map(msg => (
               <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
                 <div className={`flex items-start gap-2 max-w-[88%] sm:max-w-[75%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
