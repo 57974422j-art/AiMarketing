@@ -1556,10 +1556,13 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         try {
           // 2026-08-28: DEEPSEEK_API_KEY 优先（官方 vision-exp 支持图片）→ 无则百炼 qwen-vl-max 兑底
           const dsVisKey = process.env.DEEPSEEK_API_KEY
-          const vKey = dsVisKey || process.env.DASHSCOPE_API_KEY
-          const visBase = dsVisKey ? 'https://api.deepseek.com/v1/chat/completions' : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
-          const visModel = dsVisKey ? 'deepseek-v4-flash-vision-exp' : 'qwen-vl-max'
-          if (vKey && frames.length) {
+          const dsVisBase = 'https://api.deepseek.com/v1/chat/completions'
+          const qwKey = process.env.DASHSCOPE_API_KEY
+          const qwBase = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+          const visAttempts: { base: string; key: string; model: string; thinking: boolean }[] = []
+          if (dsVisKey) visAttempts.push({ base: dsVisBase, key: dsVisKey, model: 'deepseek-v4-flash-vision-exp', thinking: true })
+          if (qwKey) visAttempts.push({ base: qwBase, key: qwKey, model: 'qwen-vl-max', thinking: false })
+          if (visAttempts.length && frames.length) {
             // 2026-08-26: 帧读本地 → 传 OSS（signedUrl 公网可达）→ 视觉模型才能真正看到画面
             // 2026-08-27: 视觉改 V4（deepseek-v4-flash 多模态自己看）——再不依赖 qwen-vl（之前写死 ai-niuma.cc 本地帧 404 → visualDesc 空 → AI 瞎编）
             // 2026-08-28: base64 内联（DeepSeek 官方推荐——不依赖 OSS URL；海外访问国内 OSS 超时导致无输出）
@@ -1575,20 +1578,23 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
               } catch (e3) { console.error('[visual] 帧读取/base64 失败:', rel, e3) }
             }
             if (!images.length) { console.error('[visual] 无帧可传（本地帧缺失）——视觉分析跳过') }
-            const vr = await fetch(visBase, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + vKey },
-              body: JSON.stringify({
-                model: visModel,
-                messages: [{ role: 'user', content: [...images, { type: 'text', text: '这是视频的几个画面帧。请用中文简洁总结：1.视频内容是什么（主体/场景/动作/人物）2.视频风格 3.适合的短视频主题。3-4句，不要客套。' }, ...images] }],
+            for (const at of visAttempts) {
+              const body: any = {
+                model: at.model,
+                messages: [{ role: 'user', content: [...images, { type: 'text', text: '这是视频的几个画面帧。请用中文简洁总结画面内容（主体/场景/动作/文字），后续将基于它生成标题/话题/封面。' }] }],
                 max_tokens: 300,
-              }),
-              signal: AbortSignal.timeout(60000),
-            }).then((r) => r.json())
-            visualDesc = vr?.choices?.[0]?.message?.content?.[0]?.text || vr?.choices?.[0]?.message?.content || ''
-            if (visualDesc) visualDesc = String(visualDesc).trim().slice(0, 500)
-            else console.error('[visual] 视觉模型无输出，响应:', JSON.stringify(vr).slice(0, 400))
-          }
+              }
+              if (at.thinking) body.thinking = { type: 'disabled' }
+              const vr = await fetch(at.base, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + at.key },
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(60000),
+              }).then((r) => r.json())
+              visualDesc = vr?.choices?.[0]?.message?.content?.[0]?.text || vr?.choices?.[0]?.message?.content || vr?.choices?.[0]?.message?.reasoning_content || ''
+              if (visualDesc) { visualDesc = String(visualDesc).trim().replace(/^[\s\S]*?thinking process[\s\S]*?:\s*/, '').slice(0, 500); break }
+              console.error('[visual] ' + at.model + ' 无输出，响应:', JSON.stringify(vr).slice(0, 300))
+            }          }
         } catch (e2) { console.error('[visual] 视觉分析异常:', e2) }
         return 'FRAMES_OK:' + JSON.stringify({ frames, videoName, grid, recommended, visualDesc })
       } catch (e: any) { return '抽帧失败: ' + (e.message || e) }
