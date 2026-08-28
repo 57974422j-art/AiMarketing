@@ -2620,8 +2620,8 @@ export default function AgentPage() {
           {/* 输入区 */}
           <footer className="relative border-t border-white/[0.04] backdrop-blur-xl bg-[#0a0a0f]/80 px-2 sm:px-6 py-2 sm:py-3 shrink-0">
                         <div className="max-w-3xl mx-auto">
-              {messages.length === 0 && (
-                <div className="mb-2 flex gap-1.5 flex-wrap">
+              {/* 2026-08-28: 常配快捷卡片（不再仅新开会话显示）——点击填入输入框 */}
+              <div className="mb-2 flex gap-1.5 flex-wrap">
                   {FEATURE_TIPS.map((t, i) => (
                     <button key={i} onClick={() => { setInput(t); inputRef.current?.focus() }}
                       className="px-2.5 py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[10px] text-gray-400 hover:text-amber-300 transition">
@@ -2629,7 +2629,6 @@ export default function AgentPage() {
                     </button>
                   ))}
                 </div>
-              )}
               {recordingTip && (
                 <div className={`mb-2 text-center text-[10px] py-1 rounded-lg ${isRecording ? 'bg-red-500/15 text-red-300' : 'bg-white/5 text-gray-400'}`}>
                   {isRecording && <span className="inline-block w-1.5 h-1.5 bg-red-400 rounded-full mr-1 animate-pulse" />}
