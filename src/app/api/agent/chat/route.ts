@@ -1562,6 +1562,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           if (vKey && frames.length) {
             // 2026-08-26: 帧读本地 → 传 OSS（signedUrl 公网可达）→ 视觉模型才能真正看到画面
             // 2026-08-27: 视觉改 V4（deepseek-v4-flash 多模态自己看）——再不依赖 qwen-vl（之前写死 ai-niuma.cc 本地帧 404 → visualDesc 空 → AI 瞎编）
+            // 2026-08-28: base64 内联（DeepSeek 官方推荐——不依赖 OSS URL；海外访问国内 OSS 超时导致无输出）
             const images: any[] = []
             for (const u of frames.slice(0, 6)) {
               try {
@@ -1569,11 +1570,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                 const fp = path.join(pubRoot, 'frames', rel)
                 if (fs.existsSync(fp)) {
                   const buf = fs.readFileSync(fp)
-                  const okey = 'frames/' + rel
-                  await putObject(okey, buf, 'image/jpeg')
-                  images.push({ type: 'image_url', image_url: { url: signedUrl(okey, 900) } })
+                  images.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + buf.toString('base64') } })
                 }
-              } catch (e3) { console.error('[visual] 帧传 OSS 失败:', rel, e3) }
+              } catch (e3) { console.error('[visual] 帧读取/base64 失败:', rel, e3) }
             }
             if (!images.length) { console.error('[visual] 无帧可传（本地帧缺失）——视觉分析跳过') }
             const vr = await fetch(visBase, {
@@ -1588,7 +1587,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             }).then((r) => r.json())
             visualDesc = vr?.choices?.[0]?.message?.content?.[0]?.text || vr?.choices?.[0]?.message?.content || ''
             if (visualDesc) visualDesc = String(visualDesc).trim().slice(0, 500)
-            else console.error('[visual] 视觉模型无输出（帧不可达或模型失败）')
+            else console.error('[visual] 视觉模型无输出，响应:', JSON.stringify(vr).slice(0, 400))
           }
         } catch (e2) { console.error('[visual] 视觉分析异常:', e2) }
         return 'FRAMES_OK:' + JSON.stringify({ frames, videoName, grid, recommended, visualDesc })
