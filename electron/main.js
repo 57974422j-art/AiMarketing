@@ -336,7 +336,8 @@ function setupAutoPublish() {
               else if (plat === 'weibo') r = await publishWeibo(page, { text: t.title || t.description || '' })
               else if (plat === 'xiaohongshu') {
                 // 图文：从任务 description 提取图片 URL（AI 传 http(s) 图片）→ 下载本地 → 发布
-                const imgUrls = (t.description || '').match(/https?:\/\/[^\s"']+\.(?:jpg|jpeg|png|webp)/gi) || []
+                // 2026-08-28: 完整 URL（含 ?OSSAccessKeyId 签吏参数——不在扩展名处截断，否则下载 403）
+                const imgUrls = (t.description || '').match(/https?:\/\/[^\s"']+/gi)?.filter((u2) => /\.(?:jpg|jpeg|png|webp)/i.test(u2)) || []
                 const imgs = []
                 for (const u of imgUrls.slice(0, 9)) {
                   try { const buf = Buffer.from(await (await fetch(u, { signal: AbortSignal.timeout(60000) })).arrayBuffer()); const p2 = require('path').join(require('os').tmpdir(), 'xhs-i-' + Date.now() + '-' + imgs.length + '.jpg'); require('fs').writeFileSync(p2, buf); imgs.push(p2) } catch {}
