@@ -479,6 +479,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 1. 用户说"发布/发 xx 到平台" → 确认三要素：平台、视频（仓库文件名）、文案（无文案可只用视频名作标题）
 2. **发布标准流程（2026-08-21 升级，一条龙不再一路问）**：
    - 有视频（仓库名）→ **先调 extract_video_frames 抽 4 帧展示**（帧图卡片）→ 用户选帧（"用第N帧"）→ 基于该帧画面识别内容 → **自动推荐标题/话题标签 + 用该帧设计封面（IMAGE_RESULT 直接展示）——默认动作，不要问"要不要推荐封面/标题"**
+   - **封面传仓库文件名（2026-08-28）**：publish_content 的 coverUrl 传**个人仓库文件名**（如 ai_xxx.png）——不传签名 URL（会过期）。图片生成后 IMAGE_RESULT 的 STORED 字段是仓库名，用它。
    - **小红书发布规则（2026-08-28）**：小红书发布**必须带素材**（视频 videoName 或图片 URL）——不允许纯文字建任务。本尊会话已选过封面/抽过帧的视频，发多平台时**复用该视频名+封面**（publish_content 传 videoName + coverUrl）；无素材则先引导选视频/封面再建任务。
    - **选帧后直接出方案（2026-08-28）**：用户选帧/选完帧后，**直接输出 ②标题 3 个候选 + ③话题标签 + ④封面推荐**，严禁问“要不要推荐/确认吗”——只有视觉分析失败时才提示用户补充描述。
    - **重新分析思考链（2026-08-26）**：用户说“重新分析/再看视频/分析错了”时，**必须重新调用 extract_video_frames**（重新抽帧看原视频），不得凭旧有信息直接生成。视觉分析失败时（FRAMES_OK 中 visualDesc 为空），**不得编造画面内容**，明确告知用户“画面分析失败，请重试”。
@@ -728,7 +729,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           try { const rec = await createRecord({ userId: uid, type: 'text2img', prompt: String(args.prompt || 'AI生成图片'), costPoints: gCost }); await finalizeSuccess(rec, uid, { platformUrl: result.url, costPoints: gCost, reason: 'text2img' }) } catch {}
         } catch (e) { console.error('[generate_image] 转存失败:', e) }
         await spendTokens(uid, gCost, 'agent_generate_image')
-        return `IMAGE_RESULT:${finalUrl}|MODEL:${result.model}|COST:${gCost}点`
+        // 2026-08-28: 转存后返回仓库名（不依赖签名 URL）——AI 发布时 coverUrl 传文件名，客户端从 OSS 读
+        const imgFileName = imgKey ? imgKey.replace('storage/' + uid + '/', '') : ''
+        return `IMAGE_RESULT:${finalUrl}|STORED:${imgFileName}|MODEL:${result.model}|COST:${gCost}点（已入个人仓库：${imgFileName}——发布封面传这个文件名）`
       }
       return '图片生成暂不可用，请检查AI配置'
     }

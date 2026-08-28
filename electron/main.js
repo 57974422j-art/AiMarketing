@@ -344,7 +344,10 @@ function setupAutoPublish() {
                 // 2026-08-28: description 无图 → coverUrl 兜底（封面当图——之前已转 OSS 持久代理）；再无可下视频当图
                 let xhsImgs = imgs
                 if (!xhsImgs.length && t.coverUrl) {
-                  try { const buf = Buffer.from(await (await fetch(t.coverUrl, { signal: AbortSignal.timeout(60000) })).arrayBuffer()); const p3 = require('path').join(require('os').tmpdir(), 'xhs-c-' + Date.now() + '.jpg'); require('fs').writeFileSync(p3, buf); xhsImgs = [p3] } catch (eCov) { console.log('[xhs] 封面下载失败:', eCov.message) }
+                  try {
+                    // 2026-08-28: coverUrl 文件名（非 http）→ 走 /api/storage/file?name= 代理下载（带 cookie 不过期）
+                    const cov = t.coverUrl.startsWith('http') ? t.coverUrl : serverUrl.replace(/\/$/, '') + '/api/storage/file?name=' + encodeURIComponent(t.coverUrl)
+                    const buf = Buffer.from(await (await fetch(cov, { signal: AbortSignal.timeout(60000) })).arrayBuffer()); const p3 = require('path').join(require('os').tmpdir(), 'xhs-c-' + Date.now() + '.jpg'); require('fs').writeFileSync(p3, buf); xhsImgs = [p3] } catch (eCov) { console.log('[xhs] 封面下载失败:', eCov.message) }
                 }
                 if (!xhsImgs.length && vp && require('fs').existsSync(vp)) {
                   // 有视频无图：小红书视频发布（CDP 版——参考 fp-templates/xiaohongshu-publish.js：上传视频→填标题→发布）
