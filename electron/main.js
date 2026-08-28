@@ -2160,7 +2160,8 @@ async function publishDouyinViaCDP(payload) {
           text: publishText, caption: caption || '', item_title: title,
           activity: '[]', text_extra: '[]', challenges: '[]', mentions: '[]', hashtag_source: '', hot_sentence: '',
           interaction_stickers: '[]', visibility_type: 0, download: 0,
-          timing: Math.floor(Date.now() / 1000), creation_id: String(Date.now()) + Math.random().toString(36).slice(2, 10),
+          timing: Math.floor(Date.now() / 1000) + 7200, // 2026-08-28: 抖音 create_v2 要求≥2h（立即被拒-2）——改 2 小时后定时，验证链路
+          creation_id: String(Date.now()) + Math.random().toString(36).slice(2, 10),
           media_type: 4, video_id: videoId, music_source: 0, music_id: null,
         },
         cover: { poster: coverUri, custom_cover_image_height: coverHeight, custom_cover_image_width: coverWidth, poster_delay: 0,
