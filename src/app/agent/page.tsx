@@ -2904,6 +2904,14 @@ function AgentPageInner() {
                       <span className="text-[9px] text-gray-600">{bindingMine ? '启动中…' : '或点上方🌐刷新检测'}</span>
                     </div>
                   )}
+                  {/* 2026-08-29: Browser Use 登记（AI 浏览器专用——bu_profile 扫码登录） */}
+                  <button onClick={async () => {
+                    if (!(window as any).electronAPI?.buOpen) { alert('需客户端 v1.0.77+'); return }
+                    const r = await (window as any).electronAPI.buOpen()
+                    alert(r?.message || r?.error || '打开失败')
+                  }} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500/10 border border-sky-500/30 text-[9px] text-sky-300 hover:bg-sky-500/20" title="打开 Browser Use 专用浏览器（bu_profile）扫码登录——AI 发布用">
+                    <span className="text-[12px] leading-none">🤖</span> Browser Use 登记
+                  </button>
                 </div>
               )}
             </div>
