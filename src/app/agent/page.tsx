@@ -426,7 +426,27 @@ const TOOL_STEP_LABEL: Record<string, string> = {
   search_trends: '搜索全球热点',
 }
 
-export default function AgentPage() {
+// 2026-08-29: 错误边界——React 水合/嵌套错误时不白屏（显示提示+保留数据）
+class AgentErrorBoundary extends React.Component<{ children: any }, { err: string | null }> {
+  state = { err: null as string | null }
+  static getDerivedStateFromError(e: any) { return { err: (e && e.message) || String(e) } }
+  componentDidCatch(e: any) { console.error('[AgentPage] 渲染异常:', e) }
+  render() {
+    if (this.state.err) return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0a0a0f] text-gray-300 p-6">
+        <div className="max-w-md text-center">
+          <p className="text-lg mb-3">页面渲染出现异常</p>
+          <p className="text-xs text-gray-500 mb-4 break-all">{(this.state.err).slice(0, 200)}</p>
+          <button onClick={() => window.location.reload()} className="px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-sm">刷新重试</button>
+          <p className="text-[10px] text-gray-600 mt-4">会话数据已存服务器，刷新后自动恢复</p>
+        </div>
+      </div>
+    )
+    return this.props.children
+  }
+}
+
+function AgentPageInner() {
   const { user, logout, loading: authLoading } = useAuth() || ({ user: undefined, logout: async () => {}, loading: true } as any)
   const router = useRouter()
   // 2026-08-11：未登录访问首页 → 跳转 /landing（5 动画落地页）；已登录正常进对话
@@ -3351,4 +3371,8 @@ export default function AgentPage() {
       </div>
     </div>
   )
+}
+
+export default function AgentPage() {
+  return <AgentErrorBoundary><AgentPageInner /></AgentErrorBoundary>
 }
