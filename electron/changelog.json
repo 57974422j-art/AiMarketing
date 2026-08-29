@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.0.81",
+    "date": "2026-08-29",
+    "title": "修复 browser 执行器",
+    "items": [
+      "checkBrowserTasks serverUrl 未定义（ReferenceError→任务永远不执行——浏览器不开）"
+    ]
+  },
+  {
     "version": "1.0.80",
     "date": "2026-08-29",
     "title": "修复 browser-use 执行路径",
