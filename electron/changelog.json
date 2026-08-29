@@ -1,5 +1,54 @@
 [
   {
+    "version": "1.0.77",
+    "date": "2026-08-29",
+    "title": "AGENT工具箱 + BrowserUse 融合",
+    "items": [
+      "工具箱：AgentTool 注册表（admin 添加/开关/角色）——AGENT 自动注入（关闭不可见）",
+      "browser_use_execute 注册（admin 测）——AI 驱动浏览器发布（复用已登录 profile）",
+      "客户端执行器：Electron→Python(browser-use) 执行→回结果",
+      "admin 工具箱管理页 /admin/agent-tools"
+    ]
+  },
+  {
+    "version": "1.0.75",
+    "date": "2026-08-28",
+    "title": "小红书两条线+发布链完整",
+    "items": [
+      "小红书图文不再被needVp拦（排除xiaohongshu）",
+      "AI主动回顾上下文视频名（发视频线）",
+      "客户端小红书图片URL完整提取（签名不截断）",
+      "AI识别图片链接非网页（禁止crawl_web）",
+      "推送带语义（图片素材）"
+    ]
+  },
+  {
+    "version": "1.0.74",
+    "date": "2026-08-28",
+    "title": "发布链+素材持久化+多平台",
+    "items": [
+      "A 封面转存个人仓库——AI用文件名不用签名URL（客户端OSS代理下载不过期）",
+      "B 长文案转存个人仓库（OSS txt）",
+      "C 发布确认列多平台（全部发=抖音+小红书+微博）",
+      "D 图片卡片PUSH-AGENT按钮（一键推送）",
+      "小红书发布补齐（coverUrl兜底+视频CDP+AI必带素材）",
+      "抖音2h定时发布"
+    ]
+  },
+  {
+    "version": "1.0.73",
+    "date": "2026-08-28",
+    "title": "抖音发布改 2 小时定时 + opencli 平台对齐",
+    "items": [
+      "抖音 create_v2 timing+2h（抖音要求≥2h 定时——立即被拒 -2）",
+      "平台标签接 opencli 已有平台（微博/闲鱼）",
+      "生图链新接口（image-generation 异步轮询——等 180s 不降级）",
+      "视觉帧 base64 内联 + thinking 关闭（visualDesc 稳定出）",
+      "TTS 百炼加 action 修复",
+      "发布链：素材 ossUrl 读取/封面转 OSS 持久"
+    ]
+  },
+  {
     "version": "1.0.72",
     "date": "2026-08-27",
     "title": "发布执行修复：内容安全预检 + tab复用 + 工作流步骤化",

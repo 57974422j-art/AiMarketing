@@ -21,6 +21,7 @@
 | 2026-08-16 | 公共素材库改造：去删除/管理；卡片悬浮放大+推送(🤖推AGENT带media参数自动发附件 / 🎨推生图)；image-generator 读?media=下载转参考图 | media-library/image-generator/agent 页 | 0aff4b9/3b60b23 |
 | 2026-08-16 | 封面自动转 OSS（prompt-sync 定时同步自动 migrateCover 外链→OSS）+ 抽公共 lib/cover.ts——6 源封面失效根因 | cover.ts/prompt-sync/prompt-sources | 待部署 |
 ---
+| 2026-08-26 | 视频内容分析链路修复：①帧传OSS(公网URL给视觉模型,治根瞄编)②重新分析=回去看原视频+诚实③热榜只结合相关④上传不再自动切帧 | src/app/api/agent/chat/route.ts · src/app/api/storage/files/route.ts | 已推送 7b91d3e，语法 0 |
 | 2026-08-25 | 浏览器通道登记中心（A内置Chromium优先/B前端平台清单+C平台能力表+D设计入档+引导⑥发布通道）| main.js/preload/agent页/TourGuide/chat route/PROJECT | 全部语法0已推送；待打包1.0.55 |
 | 2026-08-24 | 视频/图片生成防丢 + #301修复 + 找回丢失视频 + 封面3选1 + 生成中反馈 + 自动轮询 + 一键成片入仓库 + 附件视频卡片 + frames API + 视觉理解前置 + 登录态注入 + 自动入库/自检80% | chat route / agent页 / video-task-manager / auto-compile / selfcheck / recover脚本 / video-task-status API / frames API / generate-image | 全部语法0已推送；服务器待部署；v1.0.51打包中 |
 | 2026-08-14 | 数字人全链路 wan2.2-s2v：TTS 改百炼 CosyVoice(edge-tts 弃用)、异步提交+查询(修复504)、live 直播片段适配(照片+文案→口播)、Minimax 后台接入(key 输入+测试+保存)、crawl4ai B/C 方案(文本抓取修复 markdown dict+阈值；截图+视觉读图) | ai-providers/digital-human/live-stream-engine/live 页/settings/ApiKeyPanel/config/test-key/crawl4ai | 数字人异步提交验证通过(taskId+PENDING)；待部署测试 |
@@ -28,6 +29,7 @@
 | 2026-08-12 | 25 条隐患批量修复（v1.0.29）：#1 JWT_SECRET 去 fallback+代理模式跳过本地验签; #2 Agent 工具链前移扣费(文生图12点/张/视频100点/秒/成片, 不足 TOOL_REJECT 弹套餐); #3-6 debug-oss admin-only/proxy-download 防SSRF/storage IDOR/video-get 路径遍历; #7 adb:shell 防注入+will-navigate 拦 file://; #9 token-wallet 异常拒绝+两步查询容错; #10 storyboard retry 防并发; #12-16/18-21/24 中低危; 套餐额度显示修复(年卡 500 点) | middleware/login/token-wallet/chat/storage/video-get/debug-oss/proxy-download/main.js/export/tts/prompts-public/digital-human/agent/PromptLibraryDialog | 本地验证通过(对话扣费/selfcheck 499点/全页面 200); 打包 v1.0.29 待完成
 
 ## 2026-08-10
+| 2026-08-29 | AGENT工具箱+BrowserUse融合：AgentTool注册表/API/注入/管理页/browser_use_execute注册（admin）/AgentBrowserTask/客户端执行器（Electron→Python browser-use）+ bu_exec.py | prisma/schema.prisma, src/app/api/admin/agent-tools/*, src/app/api/agent/chat/route.ts, src/app/admin/agent-tools/page.tsx, src/app/api/agent/browser-tasks/route.ts, scripts/browser-use/bu_exec.py, scripts/seed-agent-tool.cjs, electron/main.js | 本地语法全过+db push成功；待部署/打包验证 |
 | 日期 | 操作内容 | 改动文件 | 结果 |
 2026-08-18 | 发布流程v3：四步流程（确认视频含版权规则→推荐封面/标题/标签可跳过→确认参数→建任务多平台自动执行）+ publish_content 多平台/topics提取/coverUrl + 前端自动启动浏览器 | chat/route.ts、my-fingerprint/page.tsx、schema（AgentPublishTask.coverUrl） | ✅ 12ea0b2+c40dde2+已推
 2026-08-18 | 隐患②③④⑤：spendTokens 事务化；checkout 惰性清理过期订单；删 subscription-guard 死代码；周卡防重复确认 | token-wallet.ts、payment-config.ts、两 checkout、subscription-guard 删除 | ✅ 已推
