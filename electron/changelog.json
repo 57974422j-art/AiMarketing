@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.79",
+    "date": "2026-08-29",
+    "title": "修复 Browser Use 执行",
+    "items": [
+      "bu_exec.py 打包进客户端（之前缺失→browser 任务永远 pending）",
+      "工具箱 browser_use_execute 全链路"
+    ]
+  },
+  {
     "version": "1.0.78",
     "date": "2026-08-29",
     "title": "工具箱入口 + Browser Use 登记 + opencli 清理",
