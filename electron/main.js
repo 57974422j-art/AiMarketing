@@ -394,6 +394,46 @@ function setupAutoPublish() {
   }
   setInterval(checkPending, 6000)
   setTimeout(checkPending, 5000)
+  // 2026-08-29: 工具箱 browser_use_execute——轮询 AgentBrowserTask pending → Python(browser-use) 执行 → 回结果
+  setInterval(checkBrowserTasks, 8000)
+}
+
+// browser-use 任务执行（Electron 调 Python——复用 D:u_profile 登录态）
+const BU_PYTHON = process.env.BU_PYTHON || "C:/Users/wo'shen/AppData/Local/Programs/Python/Python314/python.exe"
+const BU_SCRIPT = path.join(String(app.getAppPath()).replace('.asar', '.asar.unpacked'), 'scripts', 'browser-use', 'bu_exec.py')
+const BU_PROFILE = process.env.BU_PROFILE || 'D:/bu_profile'
+
+async function checkBrowserTasks() {
+  try {
+    const cookie = await getServerCookie()
+    if (!cookie) return
+    const tasks = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks?status=pending', { headers: { cookie } }).then(r => r.json()).catch(() => null)
+    if (!tasks?.success || !tasks.data?.length) return
+    for (const t of tasks.data) {
+      let files = []
+      try { files = JSON.parse(t.files || '[]') } catch {}
+      // 标记 executing
+      await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'executing' }) }).catch(() => {})
+      console.log('[browser_use] 执行任务 #' + t.id + ':', String(t.task).slice(0, 60))
+      try {
+        const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', files.join(','), '--profile', BU_PROFILE]
+        const { spawn } = require('child_process')
+        const out = await new Promise((resolve, reject) => {
+          const py = spawn(BU_PYTHON, args, { windowsHide: true })
+          let so = '', se = ''
+          py.stdout.on('data', d => so += d)
+          py.stderr.on('data', d => se += d)
+          py.on('close', code => resolve({ code, so, se }))
+          py.on('error', e => reject(e))
+          setTimeout(() => { py.kill(); resolve({ code: -1, so, se: 'timeout' }) }, 420000) // 7 分钟超时
+        })
+        const parsed = (() => { try { const i = out.so.lastIndexOf('{'); return JSON.parse(out.so.slice(i)) } catch { return null } })()
+        await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: parsed?.success ? 'succeeded' : 'failed', result: parsed?.result || '', error: parsed?.error || out.se.slice(0, 500) || ('执行失败 code=' + out.code) }) }).catch(() => {})
+      } catch (e) {
+        await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'failed', error: String(e && e.message || e).slice(0, 500) }) }).catch(() => {})
+      }
+    }
+  } catch (e) { console.log('[browser_use] 轮询异常:', e?.message || e) }
 }
 
 // ════════════════════════════════════════
