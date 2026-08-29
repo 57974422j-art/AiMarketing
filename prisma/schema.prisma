@@ -1122,6 +1122,33 @@ model Feedback {
 
 // 用户发布内容草稿箱（AI 生成/手填的标题文案话题封面，可保存后列表提取再发布）
 // Agent 发布任务（C2 发布闭环：Agent 生成待发布任务，客户端 my-fingerprint 自动执行发布，复用 7 平台脚本）
+model AgentTool {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique              // 工具名（如 browser_use_execute）
+  title       String                       // 显示名（如 AI浏览器操作）
+  description String   @default("")         // 给模型的描述（注入 AGENT_TOOLS）
+  parameters  String   @default("{}")       // JSON schema（参数定义）
+  endpoint    String   @default("")         // 执行端点/处理器标识
+  enabled     Boolean  @default(true)       // 开关（关闭=模型不可见）
+  roles       String   @default("all")      // all / admin / editor（可见角色）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AgentBrowserTask {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  task      String                       // 自然语言任务描述（AI 生成）
+  files     String   @default("[]")       // JSON 数组（要上传的文件路径/URL）
+  status    String   @default("pending") // pending/executing/succeeded/failed
+  result    String?
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
 model AgentPublishTask {
   id              Int      @id @default(autoincrement())
   userId          Int

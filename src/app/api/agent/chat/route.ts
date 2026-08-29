@@ -1262,6 +1262,21 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     }
 
     // ── 发布 ──
+    // 2026-08-29: 工具箱第一条——browser_use_execute（AI 驱动浏览器操作——admin 添加注册）
+    case 'browser_use_execute': {
+      const uidB = auth?.userId
+      if (!uidB) return 'TOOL_REJECT:未登录'
+      // 工具必须注册且 enabled（admin 关闭则不可见——这里再兜底）
+      const regT = await prisma.agentTool.findUnique({ where: { name: 'browser_use_execute' } }).catch(() => null)
+      if (!regT || !regT.enabled) return 'TOOL_REJECT:工具未启用'
+      const taskB = String(args.task || '').trim()
+      if (!taskB) return 'TOOL_REJECT:缺少任务描述（task）'
+      const filesB = Array.isArray(args.files) ? args.files.map((f: any) => String(f)) : []
+      const tB = await prisma.agentBrowserTask.create({ data: { userId: uidB, task: taskB, files: JSON.stringify(filesB) } })
+      console.log('[browser_use] 任务已建 #' + tB.id + ':', taskB.slice(0, 50))
+      return 'BROWSER_TASK_QUEUED:已创建浏览器自动化任务（#' + tB.id + '）——客户端将用 AI 浏览器（browser-use）执行，稍后说"查任务状态"看结果。任务：' + taskB
+    }
+
     case 'publish_content': {
       {
         // 2026-08-23: 发布前查浏览器登录态（客户端上报）——未登录平台告知用户，不盲发
@@ -2013,7 +2028,23 @@ export async function POST(request: NextRequest) {
     // 才用 Agnes（多模态视觉），否则 DeepSeek 纯文本模型无法处理 image_url
     const hasImage = messages.some(m => Array.isArray(m.content) && (m.content as any[]).some((b: any) => b?.type === 'image_url'))
     // 2026-08-27: DeepSeek V4 flash 支持图片识别→图片/文本均走 dashscopeFunctionCall（内部 DeepSeek 优先）
-    const fcResult = await dashscopeFunctionCall(messages as any, AGENT_TOOLS, 2000, userTemperature)
+    // 2026-08-29: 工具箱——注册表工具合并（enabled + 角色过滤）——admin 添加的工具自动可用/关闭不可见
+    let toolsAll = AGENT_TOOLS
+    try {
+      const regTools = await prisma.agentTool.findMany({ where: { enabled: true }, orderBy: { id: 'asc' } })
+      if (regTools.length) {
+        const uRole = auth?.role || ''
+        const visible = regTools.filter((rt) => rt.roles === 'all' || rt.roles === uRole || (rt.roles === 'admin' && uRole === 'admin'))
+        if (visible.length) {
+          toolsAll = [...AGENT_TOOLS, ...visible.map((rt) => {
+            let params = {}
+            try { params = JSON.parse(rt.parameters || '{}') } catch {}
+            return { name: rt.name, description: rt.description || rt.title, parameters: { type: 'object', properties: params } }
+          }) as any]
+        }
+      }
+    } catch (eT) { console.error('[工具箱] 注册工具加载失败:', eT?.message || eT) }
+    const fcResult = await dashscopeFunctionCall(messages as any, toolsAll, 2000, userTemperature)
     const toolCalls = fcResult.toolCalls || []
     // 2026-08-05：兼容 OpenAI 格式 tool_calls（百炼 qwen：{function:{name,arguments}}）与扁平格式（{name,arguments}）
     const normTool = (tc: any) => ({
