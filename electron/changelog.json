@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.0.80",
+    "date": "2026-08-29",
+    "title": "修复 browser-use 执行路径",
+    "items": [
+      "BU_SCRIPT 路径修正（extraResources resources/——之前找 asar.unpacked 找不到→任务 pending 不执行）"
+    ]
+  },
+  {
     "version": "1.0.79",
     "date": "2026-08-29",
     "title": "修复 Browser Use 执行",
