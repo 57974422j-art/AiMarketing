@@ -30,6 +30,7 @@
 
 ## 2026-08-10
 | 2026-08-29 | AGENT工具箱+BrowserUse融合：AgentTool注册表/API/注入/管理页/browser_use_execute注册（admin）/AgentBrowserTask/客户端执行器（Electron→Python browser-use）+ bu_exec.py | prisma/schema.prisma, src/app/api/admin/agent-tools/*, src/app/api/agent/chat/route.ts, src/app/admin/agent-tools/page.tsx, src/app/api/agent/browser-tasks/route.ts, scripts/browser-use/bu_exec.py, scripts/seed-agent-tool.cjs, electron/main.js | 本地语法全过+db push成功；待部署/打包验证 |
+| 2026-08-29 | Browser Use 全链路修复：bu_exec key/Chrome锁定/SingletonLock + main.js spawn传key/bu:open改Chrome + browser-config API——本地实测小红书登录态正常 | scripts/browser-use/bu_exec.py, electron/main.js, src/app/api/agent/browser-config/route.ts | 通过（小红书发布页登录态） |
 | 日期 | 操作内容 | 改动文件 | 结果 |
 2026-08-18 | 发布流程v3：四步流程（确认视频含版权规则→推荐封面/标题/标签可跳过→确认参数→建任务多平台自动执行）+ publish_content 多平台/topics提取/coverUrl + 前端自动启动浏览器 | chat/route.ts、my-fingerprint/page.tsx、schema（AgentPublishTask.coverUrl） | ✅ 12ea0b2+c40dde2+已推
 2026-08-18 | 隐患②③④⑤：spendTokens 事务化；checkout 惰性清理过期订单；删 subscription-guard 死代码；周卡防重复确认 | token-wallet.ts、payment-config.ts、两 checkout、subscription-guard 删除 | ✅ 已推

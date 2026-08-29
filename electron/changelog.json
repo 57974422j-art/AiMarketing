@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.0.82",
+    "date": "2026-08-29",
+    "title": "Browser Use 全链路修复（登录态保持）",
+    "items": [
+      "bu_exec：API key 环境变量优先 + executable_path 锁系统 Chrome + SingletonLock 检查（防登录态丢）",
+      "main.js：spawn 传 key + bu:open 改系统 Chrome（登记=执行同浏览器同profile）",
+      "browser-config API（admin 取 key）",
+      "本地实测：小红书发布页登录态正常"
+    ]
+  },
+  {
     "version": "1.0.81",
     "date": "2026-08-29",
     "title": "修复 browser 执行器",
