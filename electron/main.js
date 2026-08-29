@@ -358,9 +358,9 @@ function setupAutoPublish() {
                     await page.waitForTimeout(2500)
                     await page.setInputFiles('input[type="file"]', vp).catch(async () => { const vis2 = await page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const inp = [...document.querySelectorAll('input[type="file"]')].find(i => vis(i)); if (inp) { inp.setAttribute('data-xhs-v', '1'); return 'input[data-xhs-v="1"]' } return '' }); if (vis2) await page.setInputFiles(vis2, vp) })
                     await page.waitForTimeout(12000)
-                    const titleSel = await page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const el = [...document.querySelectorAll('input, textarea')].find(i => vis(i) && (i.placeholder || '').includes('标题')); if (el) { el.setAttribute('data-xhs-t', '1'); return 'input[data-xhs-t="1"], textarea[data-xhs-t="1"]' } return '' })
+                    const titleSel = await page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const cand = [...document.querySelectorAll('input[placeholder*="标题"], input[placeholder*="填写标题"], div[contenteditable="true"][data-placeholder*="标题"]')]; const el = cand.find(i => vis(i)); if (el) { el.setAttribute('data-xhs-t', '1'); return 'input[data-xhs-t="1"], div[data-xhs-t="1"]' } return '' })
                     if (titleSel) { await page.fill(titleSel, (t.title || '').slice(0, 20)); await page.waitForTimeout(1500) }
-                    const bodySel = await page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const el = [...document.querySelectorAll('[contenteditable="true"], textarea')].find(i => vis(i)); if (el) { el.setAttribute('data-xhs-b', '1'); return '[data-xhs-b="1"]' } return '' })
+                    const bodySel = await page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const cand = [...document.querySelectorAll('div[contenteditable="true"][data-placeholder*="正文"], div[contenteditable="true"][data-placeholder*="描述"], div[contenteditable="true"][data-placeholder*="分享"], textarea[placeholder*="正文"]')]; const el = cand.find(i => vis(i)) || [...document.querySelectorAll('div[contenteditable="true"]')].find(i => vis(i)); if (el) { el.setAttribute('data-xhs-b', '1'); return '[data-xhs-b="1"]' } return '' })
                     if (bodySel) { await page.click(bodySel); await page.keyboard.type((t.description || '').slice(0, 500), { delay: 10 }); await page.waitForTimeout(1500) }
                     const pubSel = await page.evaluate(() => { const vis = (el) => !!el && el.offsetParent !== null; const btns = [...document.querySelectorAll('button, [class*="publish"], [class*="release"]')].filter(b => vis(b) && /发布/.test(b.textContent || '')); const t = btns.find(b => (b.textContent || '').includes('发布')) || btns[btns.length - 1]; if (t) { t.setAttribute('data-xhs-p', '1'); return '[data-xhs-p="1"]' } return '' })
                     if (pubSel) { await page.click(pubSel); await page.waitForTimeout(3000); r = { success: true, test: false, message: '小红书视频发布已点击' } }
@@ -2187,7 +2187,7 @@ async function publishDouyinViaCDP(payload) {
           text: publishText, caption: caption || '', item_title: title,
           activity: '[]', text_extra: '[]', challenges: '[]', mentions: '[]', hashtag_source: '', hot_sentence: '',
           interaction_stickers: '[]', visibility_type: 0, download: 0,
-          timing: Math.floor(Date.now() / 1000) + 7200, // 2026-08-28: 抖音 create_v2 要求≥2h（立即被拒-2）——改 2 小时后定时，验证链路
+          timing: Math.floor(Date.now() / 1000) + 10800, // 2026-08-29: 定时 3 小时后（之前 2h 边界仍 -2，保险加到 3h）
           creation_id: String(Date.now()) + Math.random().toString(36).slice(2, 10),
           media_type: 4, video_id: videoId, music_source: 0, music_id: null,
         },
