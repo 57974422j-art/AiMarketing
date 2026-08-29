@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
         const end = new Date(sub.endDate)
         const expired = end.getTime() < Date.now()
         subOk = !expired
-        subInfo = expired ? `已于 ${end.toLocaleDateString('zh-CN')} 过期` : `订阅至 ${end.toLocaleDateString('zh-CN')}`
+        subInfo = expired ? `已于 ${end.toLocaleString('zh-CN')} 过期` : `订阅至 ${end.toLocaleString('zh-CN')}`
       } else { subInfo = '无订阅' }
     } catch {}
     const points = user.pointBalance ?? 0
@@ -47,7 +47,8 @@ export async function GET(request: NextRequest) {
       if (wallet.hasSubscription) {
         // 2026-08-27: 按实际订阅周期显示（周卡=周额度/月卡=月额度/年卡=年额度）——不再盲目显“月”
         const planT = String(user.plan || 'monthly').toLowerCase()
-        const periodTxt = planT.includes('week') ? '周' : planT.includes('year') ? '年' : '月'
+        // 2026-08-29: plan 存的是中文名（如'免费周卡'）——中英文都认
+        const periodTxt = (planT.includes('week') || planT.includes('周')) ? '周' : (planT.includes('year') || planT.includes('年')) ? '年' : '月'
         const subTxt = wallet.subRemaining < 0 ? '无限额度' : `${wallet.subRemaining} 点（${periodTxt}套餐额度，${periodTxt}${wallet.allowance < 0 ? '?' : wallet.allowance}）`
         pointsDetail = `${subTxt} + 点卡 ${wallet.pointBalance} 点`
         pointsOk = wallet.remaining > 0
