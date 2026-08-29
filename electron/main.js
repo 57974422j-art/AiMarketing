@@ -408,6 +408,7 @@ const BU_PROFILE = process.env.BU_PROFILE || 'D:/bu_profile'
 
 async function checkBrowserTasks() {
   try {
+    const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc' // 2026-08-29: 必须显式定义（同 getServerCookie 坑——未定义→ReferenceError→执行器永远失败→任务不执行）
     const cookie = await getServerCookie()
     if (!cookie) return
     const tasks = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks?status=pending', { headers: { cookie } }).then(r => r.json()).catch(() => null)
