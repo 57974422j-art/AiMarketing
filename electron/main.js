@@ -1785,7 +1785,7 @@ async function publishXhsImages(page, payload) {
   // 填标题
   if (title) {
     const ok = await page.evaluate((t) => {
-      for (const sel of ['input[placeholder*="标题"]', 'input[placeholder*="填写标题"]', '.note-title input', '.title-input input']) {
+      for (const sel of ['input[placeholder*="标题"]', 'input[placeholder*="填写标题"]', 'div[contenteditable="true"][data-placeholder*="标题"]', '.note-title input', '.title-input input']) {
         const el = document.querySelector(sel)
         if (el && el.offsetParent !== null) {
           const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -1809,11 +1809,16 @@ async function publishXhsImages(page, payload) {
   await page.waitForTimeout(1500)
   const sent = await page.evaluate(() => {
     const vis = (el) => !!el && el.offsetParent !== null && !el.disabled
-    for (const el of document.querySelectorAll('xhs-publish-btn')) { if (vis(el)) { el.click(); return 'btn' } }
-    for (const label of ['发布', '发布笔记']) {
-      for (const btn of document.querySelectorAll('button, [role="button"]')) {
-        if (((btn.innerText || btn.textContent || '').trim() === label) && vis(btn)) { btn.click(); return label }
-      }
+    // 2026-08-29: shadowRoot 穿透（fp 实测发布红键在 closed shadow 内——宿主 click 无效）
+    const deepFind = (root, label) => {
+      const all = root.querySelectorAll ? root.querySelectorAll('button, [role="button"], xhs-publish-btn') : []
+      for (const el of all) { const t = (el.innerText || el.textContent || '').trim(); if ((t === label || t.includes(label)) && vis(el)) return el }
+      for (const el of (root.querySelectorAll ? root.querySelectorAll('*') : [])) { if (el.shadowRoot) { const hit = deepFind(el.shadowRoot, label); if (hit) return hit } }
+      return null
+    }
+    for (const label of ['发布', '发布笔记', '发 布']) {
+      const hit = deepFind(document, label)
+      if (hit) { hit.click(); return label }
     }
     return ''
   })
@@ -2077,7 +2082,7 @@ async function publishWeibo(page, payload) {
     let taOk = false
     for (let i = 0; i < 10; i++) {
       taOk = await page.evaluate(() => {
-        for (const sel of ['textarea[placeholder*="新鲜事"]']) {
+        for (const sel of ['textarea[placeholder*="新鲜事"], div[contenteditable="true"][data-placeholder*="新鲜事"], div[contenteditable="true"][data-placeholder*="分享"], div[contenteditable="true"][data-placeholder*="说点什么"]']) {
           for (const t of document.querySelectorAll(sel)) if (t.offsetParent !== null) return true
         }
         return false
