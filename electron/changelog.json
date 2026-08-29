@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.0.78",
+    "date": "2026-08-29",
+    "title": "工具箱入口 + Browser Use 登记 + opencli 清理",
+    "items": [
+      "agent页「工具箱」卡片（仅admin——/admin/agent-tools）",
+      "Browser Use 登记（bu_profile 扫码——AI 发布登录态）",
+      "opencli_run/search_trends/publish_content 工具隐藏（发布统一 browser_use_execute）"
+    ]
+  },
+  {
     "version": "1.0.77",
     "date": "2026-08-29",
     "title": "AGENT工具箱 + BrowserUse 融合",
