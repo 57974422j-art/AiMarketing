@@ -4,7 +4,7 @@ const PUBLISH_DRAFT: Map<number, any> = new Map()
 import {
   generateText, generateImage, generateVideo, generateLongVideo, queryVideoTask,
   ToolDefinition,
-  agnesChat, dashscopeFunctionCall, type AgentChatMessage,
+  agnesChat, dashscopeFunctionCall, dashscopeGenerateImageAsync, type AgentChatMessage,
 } from '@/lib/ai-providers'
 import { searchTrendsReal } from '@/lib/gemini'
 import { getAuthFromHeaders } from '@/lib/api-auth'
