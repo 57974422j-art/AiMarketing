@@ -261,24 +261,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
       },
     },
   {
-    // [隐藏] name: 'publish_content',
-    description: '发布/准备发布内容到自媒体平台（抖音/小红书/快手/视频号/B站）。触发词："发布""发抖音""发小红书""投稿""上传视频"。**不需要账号登记/绑定——只要用户给了视频文件名(videoName)和文案(caption)就直接创建发布任务**，客户端自动执行；**通道：抖音/小红书/微博走浏览器通道（用户已登录 Chrome 真发）；快手/视频号/B站呼出指纹页用户手动发**。**防幻觉红线：本工具只创建任务；未收到客户端执行结果（成功/失败原因/未登录）前，禁止回复\"已发布\"\"发布成功\"——只可回复\"已创建发布任务，正在等待客户端执行结果\"**。执行时若未登录会提示。**前缀区分：用户说"打开指纹浏览器/打开发布"是跳转页面（open_page /my-fingerprint），不是立即发布——禁止调用本工具。**',
-    parameters: {
-      type: 'object',
-      properties: {
-        platform: { type: 'string', description: '平台：douyin/xiaohongshu/kuaishou/shipinhao/bilibili（或中文名）' },
-        contentUrl: { type: 'string', description: '要发布的内容URL（个人仓库文件URL或生成结果URL）' },
-        videoName: { type: 'string', description: '仓库视频（日期+编号命名，如 20260826_001.mp4）。**用户没说哪个视频→ 不要问名字，不传 videoName → 工具自动列仓库最新 3 个编号让用户选；用户给编号/说用最新→ 传该文件名**' },
-        caption: { type: 'string', description: '文案/标题（含话题标签，如 #咖啡 #探店）' },
-        topics: { type: 'string', description: '话题标签（可选，逗号分隔；不传则从文案自动提取#标签）' },
-        coverUrl: { type: 'string', description: '封面图URL（可选，不传用平台智能封面）' },
-        platforms: { type: 'array', items: { type: 'string' }, description: '多平台发布（可选，如 ["douyin","kuaishou"]；不传用 platform）' },
-        fromSource: { type: 'string', description: '视频来源：self(用户自有/AI生成，可发) / public(公共素材库，版权提示) / web(网络，版权提示)' },
-        test: { type: 'boolean', description: '测试模式：用户说“测试发布/测试发布任务/模拟发布/发布流程测试”时必须传 true（强制）——客户端执行到“发布页”停止，不上传不真发；用户没说“测试”就不要传 true' },
-      }, required: ['platform'],
-    },
-  },
-  {
+    // [已移除]
     name: 'cancel_publish_task',
     description: '取消指定发布任务（用户说“取消任务#N/取消发布/不发了”时）。取消后客户端不再执行。只能取消自己的未完成任务。',
     parameters: { type: 'object', properties: { taskId: { type: 'number', description: '任务编号（如 7）' } }, required: ['taskId'] },
@@ -386,31 +369,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
       }, required: ['videoName'],
     },
   },
-  {
-    // [隐藏] name: 'opencli_run',
-    description: '调用浏览器通道（OpenCLI）执行采集/热点/搜索/发布。触发词："查XX热点""搜小红书XX""B站热榜""抓这个网页""看XX账号"。命令白名单：bilibili hot/search、xiaohongshu search/comments/feed、weibo hot、douyin videos/search、web2md（任意URL转Markdown）、account（登录态）。发布类：douyin/xiaohongshu/weibo publish（须用户明确确认+素材齐全）。返回 CLIENT_OPENCLI 指令由客户端执行；若未绑定浏览器/未登录会提示。',
-    parameters: {
-      type: 'object',
-      properties: {
-        site: { type: 'string', description: '平台/站点：bilibili/xiaohongshu/weibo/douyin/web/account' },
-        command: { type: 'string', description: '命令：hot/search/comments/feed/videos/web2md/account/publish' },
-        args: { type: 'string', description: '参数（如搜索关键词、URL），可空' },
-      }, required: ['site', 'command'],
-    },
-  },
-  {
-    // [隐藏] name: 'search_trends',
-    description: '搜索国内外真实热点/趋势（舆情）。当用户问"最近有什么热点/海外在火什么/YouTube上xx热不热/TikTok趋势"时调用。国内走免费热榜，海外优先 Google grounding，失败时降级到 DuckDuckGo/Reddit 真实源。',
-    parameters: {
-      type: 'object',
-      properties: {
-        keyword: { type: 'string', description: '话题关键词' },
-        platforms: { type: 'string', description: '平台范围：domestic(国内)/global(海外)/all(全部)，默认 all' },
-        count: { type: 'number', description: '返回条数，默认 8' },
-      },
-      required: ['keyword'],
-    },
-  },
+  // [已移除]
 ]
 
 // 思考流步骤中文标签（前端展示用）
