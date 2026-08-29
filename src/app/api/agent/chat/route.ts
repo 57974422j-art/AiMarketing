@@ -387,7 +387,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: 'opencli_run',
+    // [隐藏] name: 'opencli_run',
     description: '调用浏览器通道（OpenCLI）执行采集/热点/搜索/发布。触发词："查XX热点""搜小红书XX""B站热榜""抓这个网页""看XX账号"。命令白名单：bilibili hot/search、xiaohongshu search/comments/feed、weibo hot、douyin videos/search、web2md（任意URL转Markdown）、account（登录态）。发布类：douyin/xiaohongshu/weibo publish（须用户明确确认+素材齐全）。返回 CLIENT_OPENCLI 指令由客户端执行；若未绑定浏览器/未登录会提示。',
     parameters: {
       type: 'object',
@@ -399,7 +399,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: 'search_trends',
+    // [隐藏] name: 'search_trends',
     description: '搜索国内外真实热点/趋势（舆情）。当用户问"最近有什么热点/海外在火什么/YouTube上xx热不热/TikTok趋势"时调用。国内走免费热榜，海外优先 Google grounding，失败时降级到 DuckDuckGo/Reddit 真实源。',
     parameters: {
       type: 'object',
