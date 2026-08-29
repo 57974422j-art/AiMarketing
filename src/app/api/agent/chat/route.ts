@@ -15,7 +15,7 @@ import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { getSystemConfigs } from '@/lib/quota'
+import { getSystemConfigs, checkFeatureAccess } from '@/lib/quota'
 import { PrismaClient } from '@prisma/client'
 
 // 已接入的发布平台（其余视为"未接入需求"收集）
