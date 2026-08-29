@@ -104,6 +104,8 @@ const build = {
   asarUnpack: ['**/*.node', '**/*.exe', '**/*.dll', '**/node_modules/@jackwener/opencli/**', 'node_modules/@jackwener/opencli/**'], // 2026-08-26: 缺 node_modules 前缀→@jackwener 未 unpack→vod-upload.js 找不到→发布只开页面
   extraResources: [
     { from: 'scripts/platform-tools', to: 'scripts/platform-tools' },
+    // 2026-08-29: Browser Use 执行器（bu_exec.py——AGENT 工具箱 browser_use_execute）
+    { from: 'scripts/browser-use', to: 'scripts/browser-use', filter: ['**/*'] },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
     // 2026-08-19: 本地语音识别模型（sherpa-onnx）——随包分发
