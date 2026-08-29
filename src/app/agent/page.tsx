@@ -828,6 +828,7 @@ function AgentPageInner() {
     // 仅 admin（管理/自动化）
     { path: '/my-fingerprint', title: '指纹发布', color: 'pink', roles: ['admin', 'editor', 'end-user'] },
     { path: '/admin', title: '管理后台', color: 'red', roles: ['admin'] },
+    { path: '/admin/agent-tools', title: '工具箱', color: 'fuchsia', roles: ['admin'] },
     { path: '/data-center', title: '数据中台', color: 'teal', roles: ['admin'] },
     { path: '/live', title: '直播引擎', color: 'fuchsia', roles: ['admin'] },
     { path: '/trendvideo', title: '趋势猎手', color: 'lime', roles: ['admin', 'editor'] },
