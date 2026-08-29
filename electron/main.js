@@ -411,6 +411,8 @@ async function checkBrowserTasks() {
     const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc' // 2026-08-29: 必须显式定义（同 getServerCookie 坑——未定义→ReferenceError→执行器永远失败→任务不执行）
     const cookie = await getServerCookie()
     if (!cookie) return
+    let dashKey = ''
+    try { const bc = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-config', { headers: { cookie } }).then(r => r.json()).catch(() => null); dashKey = bc?.data?.dashscopeKey || '' } catch {}
     const tasks = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks?status=pending', { headers: { cookie } }).then(r => r.json()).catch(() => null)
     if (!tasks?.success || !tasks.data?.length) return
     for (const t of tasks.data) {
@@ -423,7 +425,7 @@ async function checkBrowserTasks() {
         const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', files.join(','), '--profile', BU_PROFILE]
         const { spawn } = require('child_process')
         const out = await new Promise((resolve, reject) => {
-          const py = spawn(BU_PYTHON, args, { windowsHide: true })
+          const py = spawn(BU_PYTHON, args, { windowsHide: true, env: { ...process.env, DASHSCOPE_API_KEY: dashKey || process.env.DASHSCOPE_API_KEY || '' } })
           let so = '', se = ''
           py.stdout.on('data', d => so += d)
           py.stderr.on('data', d => se += d)
@@ -999,10 +1001,13 @@ const BU_PROFILE_DIR = process.env.BU_PROFILE || 'D:/bu_profile'
 ipcMain.handle('bu:open', async () => {
   try {
     const { spawn } = require('child_process')
+    // 2026-08-29: spawn 系统 Chrome --user-data-dir（同浏览器同 profile——登录态一致）——弃 python -m playwright（无包）
+    const chromeCands = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe', process.env.LOCALAPPDATA + '/Google/Chrome/Application/chrome.exe']
+    const chrome = chromeCands.find(p => require('fs').existsSync(p))
+    if (!chrome) return { success: false, error: '未找到系统 Chrome' }
     const prof = String(BU_PROFILE_DIR)
-    const pyCmd = 'import subprocess,sys; subprocess.Popen([sys.executable, "-m", "playwright", "open", "--user-data-dir=' + prof + '", "https://creator.xiaohongshu.com/publish/publish"])'
-    const py = spawn(BU_PYTHON, ['-c', pyCmd], { windowsHide: true, stdio: 'ignore' })
-    py.unref()
+    const ch = spawn(chrome, ['--user-data-dir=' + prof, '--no-first-run', 'https://creator.xiaohongshu.com/publish/publish'], { windowsHide: false, detached: true, stdio: 'ignore' })
+    ch.unref()
     return { success: true, message: '已打开 Browser Use 浏览器（bu_profile）——请扫码登录目标平台，登录后点「刷新检测」' }
   } catch (e) { return { success: false, error: String(e && e.message || e) } }
 })
