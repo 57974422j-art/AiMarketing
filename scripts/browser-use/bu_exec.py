@@ -53,9 +53,11 @@ async def main():
     llm = ChatOpenAI(model='qwen3.8-flash', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
     # 文件路径提示（正斜杠——browser-use 严格匹配）
     file_hint = ('，文件路径：' + ','.join([p.replace(chr(92), '/') for p in local_files]) + '（用正斜杠/）') if local_files else ''
+    # 2026-08-29: URL 与中文分开——防 LLM 把中文拼进 URL
+    task_clean = args.task.replace('https://', ' https:// ').replace('http://', ' http:// ')
     agent = Agent(
         available_file_paths=[p.replace(chr(92), '/') for p in local_files],
-        task=args.task + file_hint,
+        task=task_clean + file_hint,
         llm=llm, browser=browser, max_steps=args.max_steps,
     )
     r = await agent.run()
