@@ -400,7 +400,10 @@ function setupAutoPublish() {
 
 // browser-use 任务执行（Electron 调 Python——复用 D:u_profile 登录态）
 const BU_PYTHON = process.env.BU_PYTHON || "C:/Users/wo'shen/AppData/Local/Programs/Python/Python314/python.exe"
-const BU_SCRIPT = path.join(String(app.getAppPath()).replace('.asar', '.asar.unpacked'), 'scripts', 'browser-use', 'bu_exec.py')
+// 2026-08-29: bu_exec.py 在 extraResources（resources/scripts/browser-use——不是 asar.unpacked）——之前路径错→spawn找不到→任务pending
+const BU_SCRIPT = app.isPackaged
+  ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_exec.py')
+  : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_exec.py')
 const BU_PROFILE = process.env.BU_PROFILE || 'D:/bu_profile'
 
 async function checkBrowserTasks() {
