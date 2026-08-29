@@ -727,7 +727,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     case 'generate_image': {
       const uid = auth?.userId
       if (!uid) return 'TOOL_REJECT:未登录'
-      const gChk = await checkFeatureAccess(uid, 'generate_image')
+      // 2026-08-29: featureCode 对齐——周卡/套餐 paidFeatures 写入 'image-generator'（之前查 'generate_image' 永远不匹配→'需要充值'）
+      const gChk = await checkFeatureAccess(uid, 'image-generator')
       if (!gChk.allowed) return `TOOL_REJECT:${gChk.message}`
       const gCost = 12
       // 2026-08-29: 异步化——提交即返回（长轮询被网络层掐→"网络连接失败"）；后台轮询+转存
