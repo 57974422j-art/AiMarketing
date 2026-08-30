@@ -2095,7 +2095,7 @@ export async function POST(request: NextRequest) {
       let wfEarlyReply = '' // 2026-08-27 函数级（必须在 try 外，2119 reply 处读用）
       try {
 
-        const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
+        const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到|发一条|发个视频|发条|帮我发|发个/.test(userMessage)
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
         // 2026-08-30: 自由模式（mode=free）→ 状态机完全跳过——AI 自己调工具发挥（测试用）
@@ -2143,8 +2143,14 @@ export async function POST(request: NextRequest) {
             } else if (!draftW) {
               // ① 无草稿：抽帧看视频
               if (!vfNameW) {
-                const wfR = await executeToolCall('publish_content', { platform: 'douyin' }, auth)
-                messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfR) } as any)
+                // 2026-08-30: 无视频名 → 列仓库视频让用户选（不再 publish_content 废弃提示）
+                const lstR = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
+                const lstTxt = String(lstR || '')
+                const vids = (lstTxt.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/gi) || []).slice(0, 5)
+                wfEarlyReply = vids.length
+                  ? '你的个人仓库有 ' + vids.length + ' 条视频，发哪一条？' + bs + bs + vids.map((v: string, i2: number) => (i2 + 1) + '. ' + v).join(bs + bs) + bs + bs + '回复编号或文件名。'
+                  : '仓库暂无视频——请先上传视频（个人仓库），或提供视频文件名（如“发布 xx.mp4 到抖音”）。'
+                PUBLISH_DRAFT.set(uidW, { step: 'pick' })
               } else {
                 console.log('[发布工作流] ①抽帧:', vfNameW)
                 const frW = await executeToolCall('extract_video_frames', { videoName: vfNameW }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
