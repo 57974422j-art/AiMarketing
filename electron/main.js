@@ -464,15 +464,21 @@ async function checkBrowserTasks() {
       try {
         const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', files.join(','), '--profile', BU_PROFILE]
         const { spawn } = require('child_process')
-        const out = await new Promise((resolve, reject) => {
-          const py = spawn(BU_PYTHON, args, { windowsHide: true, env: { ...process.env, DASHSCOPE_API_KEY: dashKey || process.env.DASHSCOPE_API_KEY || '' } })
-          let so = '', se = ''
-          py.stdout.on('data', d => so += d)
-          py.stderr.on('data', d => se += d)
-          py.on('close', code => resolve({ code, so, se }))
-          py.on('error', e => reject(e))
-          setTimeout(() => { py.kill(); resolve({ code: -1, so, se: 'timeout' }) }, 420000) // 7 分钟超时
-        })
+        // 2026-08-30: 失败重试（browser-use AgentOutput/LLM 偶发失败——重试 2 次不白跑）
+        let out = { code: -2, so: '', se: 'not run' }
+        for (let retry = 0; retry < 3; retry++) {
+          out = await new Promise((resolve, reject) => {
+            const py = spawn(BU_PYTHON, args, { windowsHide: true, env: { ...process.env, DASHSCOPE_API_KEY: dashKey || process.env.DASHSCOPE_API_KEY || '' } })
+            let so = '', se = ''
+            py.stdout.on('data', d => so += d)
+            py.stderr.on('data', d => se += d)
+            py.on('close', code => resolve({ code, so, se }))
+            py.on('error', e => reject(e))
+            setTimeout(() => { py.kill(); resolve({ code: -1, so, se: 'timeout' }) }, 420000)
+          })
+          if (out.code === 0 && /"success": ?true|RESULT:/.test(out.so)) break
+          console.log('[browser_use] 任务 #' + t.id + ' 第' + (retry + 1) + '次失败（code=' + out.code + '），重试中...')
+        }
         const parsed = (() => { try { const i = out.so.lastIndexOf('{'); return JSON.parse(out.so.slice(i)) } catch { return null } })()
         await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: parsed?.success ? 'succeeded' : 'failed', result: parsed?.result || '', error: parsed?.error || out.se.slice(0, 500) || ('执行失败 code=' + out.code) }) }).catch(() => {})
       } catch (e) {
