@@ -33,7 +33,8 @@ def kill_chrome():
     """2026-08-30: 发布前杀系统 Chrome（释放 Cookies 独占锁——否则 WinError 32 同步失败）"""
     try:
         if os.name == 'nt':
-            os.system('taskkill /F /IM chrome.exe >nul 2>&1')
+            # 只杀 bu_profile 的 Chrome（--user-data-dir bu_profile）——不杀用户系统 Chrome
+            os.system('wmic process where "commandline like '%bu_profile%' and name=\"chrome.exe\"" call terminate >nul 2>&1')
             import time; time.sleep(2)
             print('KILL_CHROME: 系统 Chrome 已关闭（释放 Cookies 锁——发布完成后可重新打开）')
         else:
@@ -108,8 +109,8 @@ async def main():
 
     chrome = find_chrome()
     # 显式锁浏览器二进制（系统 Chrome——与 profile 一致）——防打包后 PLAYWRIGHT_BROWSERS_PATH 混用 chromium-1223
-    # 2026-08-30: 同步系统 Chrome 登录态（用日常登录态——不单独登 bu_profile）
-    sync_system_login(args.profile)
+    # 2026-08-30: 不用同步复制（Chrome 不认复制登录态——bu_profile 用自己的登录态——30 天有效）
+    # 发布前 kill_chrome 已释放 bu_profile 锁（浏览器可打开）
     browser = Browser(
         user_data_dir=args.profile,
         executable_path=chrome,  # 显式（None 则 browser-use 自行查找）
