@@ -1232,7 +1232,7 @@ export async function dashscopeFunctionCall(
     const qwBody: any = { model: 'qwen3.8-flash', messages, max_tokens: maxTokens, temperature, stream: false }
     if (tools.length > 0) { qwBody.tools = tools.map((t: any) => ({ type: 'function', function: { name: t.name, description: t.description || '', parameters: t.parameters || {} } })); qwBody.tool_choice = 'auto' }
     const qwRes = await fetchJSON('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
-      method: 'POST', body: qwBody,
+      method: 'POST', body: JSON.stringify(qwBody),
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + qwKey },
       timeoutMs: 60000,
     }).catch((eQw: any) => { console.error('[qwen3.8] 调用异常:', eQw?.message || eQw); return null })
