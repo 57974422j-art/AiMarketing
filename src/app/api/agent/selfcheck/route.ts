@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
 
     // 7) 当前模型配置（验证模型是否通——实际调用 DeepSeek V4 flash 测连通）
     const modelInfo = {
-      brain: process.env.AGENT_BRAIN_MODEL || 'deepseek-v4-flash（DeepSeek）',
+      brain: process.env.AGENT_BRAIN_MODEL || 'qwen3.8-flash（百炼）',
       asr: 'paraformer-realtime-v2（百炼流式）',
       tts: 'cosyvoice-v1（百炼）',
       asrEngine: process.env.ASR_ENGINE || 'bailian',
@@ -116,10 +116,10 @@ export async function GET(request: NextRequest) {
         const mr = await fetch('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dsKey },
-          body: JSON.stringify({ model: 'deepseek-v4-flash', messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
+          body: JSON.stringify({ model: 'qwen3.8-flash', messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
           signal: AbortSignal.timeout(15000),
         }).catch(() => null)
-        modelStatus = mr && mr.ok ? '✅ deepseek-v4-flash 可用' : '❌ deepseek-v4-flash 不可用（HTTP ' + (mr ? mr.status : '时间超') + '）'
+        modelStatus = mr && mr.ok ? '✅ qwen3.8-flash 可用' : '❌ qwen3.8-flash 不可用（HTTP ' + (mr ? mr.status : '时间超') + '）'
       }
     } catch (eM) { modelStatus = '❌ deepseek-v4-flash 不可用: ' + (eM?.message || eM) }
     checks.push({ key: 'model', label: '当前模型', ok: modelStatus.startsWith('✅'), detail: `大脑 ${modelStatus} / 识别 ${modelInfo.asr} / 朗读 cosyvoice` })
