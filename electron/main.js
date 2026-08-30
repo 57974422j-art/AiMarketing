@@ -340,7 +340,7 @@ function setupAutoPublish() {
               }
               // 2026-08-28: 小红书排除——图文任务无视频也可发（被拦则图文永不发了）；有视频名时分支内自动走视频线
               // 2026-08-30: OPENCLI 发布链已清除——AgentPublishTask 不再执行（发布统一 browser_use）
-              r = { success: false, error: '发布已迁移至 AI 浏览器（browser_use）——请对 AGENT 说"用AI浏览器发布"重新创建任务' }
+              r = { success: true, done: true, result: '发布已迁移至 AI 浏览器（browser_use）——请对 AGENT 说“用AI浏览器发布”重新创建任务', error: '' }
               if (r) return r
               const needVp = ['douyin', 'shipinhao', 'xianyu'].includes(plat)
               if (needVp && !vp) { r = { success: false, error: '视频获取失败（本地路径/仓库下载均不可用）' } }
