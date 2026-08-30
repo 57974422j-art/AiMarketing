@@ -2882,20 +2882,22 @@ function AgentPageInner() {
                         )
                       })}
                     </div>
-                    <div className="mt-1.5 flex gap-1">
+                    {false && (<div className="mt-1.5 flex gap-1">
                       <input id="custom-reg-url" placeholder="自定义地址（如 https://xxx.com）"
                         className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-white/10 bg-black/30 text-[9px] text-gray-300 outline-none focus:border-emerald-500/40" />
                       <button onClick={() => { const u = (document.getElementById('custom-reg-url') as HTMLInputElement)?.value?.trim(); if (!u) return; try { (window as any).electronAPI?.browserOpenUrl(u) } catch {} }}
                         className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-emerald-500/15 hover:border-emerald-500/30 transition">打开登记</button>
-                    </div>
+                    </div>)}
+
                   </div>
-                  {browserNeedBind && (
+                  {/* 2026-08-30: 旧内置浏览器登记隐藏（指纹有单独账号中心）——只留 Browser Use 登记 */}
+                  {false && browserNeedBind && (
                     <button onClick={bindMyChrome} disabled={bindingMine}
                       className="w-full mt-1.5 px-2 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[9px] text-emerald-300 hover:bg-emerald-500/25 transition disabled:opacity-50">
                       {bindingMine ? '启动中…' : '🚀 一键启动我的 Chrome 检测登录态'}
                     </button>
                   )}
-                  {!browserNeedBind && !browserAccts.length && (
+                  {false && !browserNeedBind && !browserAccts.length && (
                     <div className="flex items-center gap-1.5">
                       <button onClick={bindMyChrome} disabled={bindingMine}
                         className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-emerald-500/15 hover:border-emerald-500/30 hover:text-emerald-300 transition disabled:opacity-50"
