@@ -84,10 +84,11 @@ async def main():
     llm = ChatOpenAI(model='qwen3.8-flash', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
     file_hint = ('，文件路径：' + ','.join([p.replace(chr(92), '/') for p in local_files]) + '（用正斜杠/）') if local_files else ''
     task_clean = args.task.replace('https://', ' https:// ').replace('http://', ' http:// ')
+    # 2026-08-30 实测: qwen3.8 必须 use_thinking=False（思考模式 AgentOutput 验证失败——flash/无思考模式成功）
     agent = Agent(
         available_file_paths=[p.replace(chr(92), '/') for p in local_files],
         task=task_clean + file_hint,
-        llm=llm, browser=browser, max_steps=args.max_steps,
+        llm=llm, browser=browser, use_thinking=False, max_steps=args.max_steps,
     )
     r = await agent.run()
     result = r.final_result() or ''
