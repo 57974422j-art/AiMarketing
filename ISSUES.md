@@ -1,4 +1,11 @@
 ### ✅ 已解决
+- 🟡 **Browser Use「打不开浏览器」问题总结（2026-08-30——以后排查速查）**：
+  分层排查（L1服务器→L2执行器→L3轮询fetch→L4 Python→L5浏览器）：
+  1) L3 服务器 500：getAuthFromHeaders() 没传 req（agent-tools/browser-tasks 同坑）→ request undefined → headers in undefined → 修传 req（2c14b8b）
+  2) L2 执行器没跑：checkBrowserTasks serverUrl 未定义（ReferenceError——0d7f2b3）；BU_SCRIPT 路径（extraResources→resources 非 asar.unpacked——c33c2cc）；bu_exec.py 没打包（1913b2d）
+  3) L3 cookie 空：getServerCookie url 精确读不到 → 多域 fallback（3381cf7）
+  4) 旧任务累积：pending 全捡→连续开浏览器——需「执行/跳过/全部清除」管理（会话框显示——不弹窗）
+  5) 发布仍走 publish_content（opencli 旧链——抖音 -2 定时）——应改 browser_use（待办）
 - 🟡 **工具箱扩展计划（2026-08-30 定案）**：
   - **A（先做）**：内置工具集（browser_use 已验证 / P图IOPaint / 爬虫 等——由开发接入——工具箱只管开关/角色）——**仅 admin 可用**（测试成熟后开放普通用户由 AGENT 调用）
   - **B（排期——后续）**：真插件化（admin 填 git URL/脚本 → 自动安装依赖 → 自动注册+执行端点——即④ git/MCP 工具）
