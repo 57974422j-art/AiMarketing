@@ -6,7 +6,7 @@ const prisma = new PrismaClient()
 
 /** 浏览器任务（客户端执行器用）：GET ?status=pending 拉任务 / POST 回执结果 */
 export async function GET(req: NextRequest) {
-  const auth = getAuthFromHeaders()
+  const auth = getAuthFromHeaders(req)
   if (!auth?.userId) return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
   const status = req.nextUrl.searchParams.get('status') || 'pending'
   const tasks = await prisma.agentBrowserTask.findMany({ where: { userId: auth.userId, status }, orderBy: { id: 'asc' }, take: 5 })
@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = getAuthFromHeaders()
+  const auth = getAuthFromHeaders(req)
   if (!auth?.userId) return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
   try {
     const b = await req.json()
