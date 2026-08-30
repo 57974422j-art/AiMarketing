@@ -1252,12 +1252,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     case 'publish_content': {
       {
         // 2026-08-30: OPENCLI 发布链已清除——发布走 AI 浏览器（browser_use 状态机⑤）。AI 若仍调此工具 → 提示改走状态机
-        const srcPlat = String(args.platform || '')
-        const srcFile = String(args.fileUrl || args.videoName || '')
         if (!args._wf) {
-          return 'PUBLISH_MIGRATED:发布已迁移至 AI 浏览器（browser_use）——请按状态机走：先提供视频（如"发布 20260821_001.mp4 到抖音"），确认后系统自动创建 AI 浏览器发布任务。不要直接建发布任务。'
+          return 'PUBLISH_MIGRATED: 发布已迁移至 AI 浏览器（browser_use）——请按状态机走：先提供视频（如“发布 20260821_001.mp4 到抖音”），确认后系统自动创建 AI 浏览器发布任务。'
         }
-        {
         // 2026-08-23: 发布前查浏览器登录态（客户端上报）——未登录平台告知用户，不盲发
         // 2026-08-23: 发布前查浏览器登录态（客户端上报）——未登录平台告知用户，不盲发
         try {
