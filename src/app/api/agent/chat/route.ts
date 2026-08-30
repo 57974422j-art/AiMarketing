@@ -2173,11 +2173,51 @@ export async function POST(request: NextRequest) {
                 let frParsedW: any = {}
                 try { frParsedW = JSON.parse(frJsonW) } catch {}
                 const framesW = Array.isArray(frParsedW.frames) ? frParsedW.frames : []
-                PUBLISH_DRAFT.set(uidW, { videoName: vfNameW, frames: framesW, visualDesc: frParsedW.visualDesc || '', step: 'frame' })
-                wfEarlyReply = `① 视频确认：${vfNameW}（个人仓库 storage/${uidW}/）——已抽帧（${framesW.length || 0}帧）请选帧作封面基础：${framesW.map((f: any, i: number) => '（' + (i + 1) + '）').join(' ')}
-回复编号 1-${framesW.length || 4} 选帧，或“换一批”重抽。`
+                PUBLISH_DRAFT.set(uidW, { videoName: vfNameW, frames: framesW, visualDesc: frParsedW.visualDesc || '', step: 'abc' })
+                wfEarlyReply = `① 视频确认：${vfNameW}（个人仓库 storage/${uidW}/）——封面/标题/标签，你选哪种？
+A. 我推荐（抽帧选封面 + 推荐标题/标签）
+B. 用你自己的文案（发我标题+正文+标签）
+C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选择）
+回复 A / B / C（C 直接发，A 走完整流程）`
                 }
               }
+            } else if (draftW.step === 'pick') {
+              const pickM = userMessage.trim().match(/^([1-5])$/)
+              if (pickM) {
+                const lstP = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
+                const vidsP = (String(lstP || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/gi) || [])
+                const vPick = vidsP[Number(pickM[1]) - 1]
+                if (vPick) {
+                  draftW.videoName = vPick; draftW.step = 'abc'
+                  wfEarlyReply = '已选 ' + vPick + '——封面/标题/标签：A 我推荐 / B 你的文案 / C 全默认直接发（回复 A/B/C，C 直接发）'
+                } else wfEarlyReply = '编号无效，回复 1-' + vidsP.length + ' 或文件名。'
+              } else if (/^[A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm)$/i.test(userMessage.trim())) {
+                draftW.videoName = userMessage.trim(); draftW.step = 'abc'
+                wfEarlyReply = '已选 ' + draftW.videoName + '——A 我推荐 / B 你的文案 / C 全默认直接发（回复 A/B/C）'
+              } else if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发/.test(userMessage)) {
+                const lstC = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
+                const vqC = String(lstC || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
+                if (vqC) { draftW.videoName = vqC[1]; (global as any).__quickVideo = vqC[1] }
+                wfEarlyReply = 'ok'
+              } else wfEarlyReply = '回复编号 1-5 选视频，或 C 全默认直接发。'
+            } else if (draftW.step === 'abc') {
+              if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发|跳过/.test(userMessage)) {
+                (global as any).__quickVideo = draftW.videoName || ''
+                const q2 = await executeToolCall('browser_use_execute', { task: '快速发布：' + (draftW.videoName || '') + ' 到抖音（全默认）' }, auth).catch(() => '')
+                wfEarlyReply = String(q2).startsWith('BROWSER_TASK_QUEUED') ? 'C 全默认——已直接创建 AI 浏览器发布任务，客户端自动执行。' : ('C 全默认——' + String(q2).slice(0, 120))
+                PUBLISH_DRAFT.delete(uidW)
+              } else if (/^b$/i.test(userMessage.trim()) || /自己/.test(userMessage)) {
+                draftW.step = 'usercopy'
+                wfEarlyReply = 'B 收到——把你的标题+正文+标签发我（一次发全），我直接建任务。'
+              } else {
+                if (draftW.frames?.length) { draftW.step = 'frame'; wfEarlyReply = 'A 推荐——选封面帧：' + draftW.frames.map((f: any, i: number) => (i + 1) + '.').join(' ') + ' 回复编号 1-' + (draftW.frames?.length || 4) }
+                else { draftW.step = 'frame'; wfEarlyReply = 'A 推荐——请回复“换一批”或编号选封面帧。' }
+              }
+            } else if (draftW.step === 'usercopy') {
+              (global as any).__quickVideo = draftW.videoName || ''
+              const q3 = await executeToolCall('browser_use_execute', { task: '发布视频 ' + (draftW.videoName || '') + ' 到抖音，标题/正文：' + userMessage.slice(0, 100) + '（全默认封面）' }, auth).catch(() => '')
+              wfEarlyReply = String(q3).startsWith('BROWSER_TASK_QUEUED') ? 'B 收到——已创建 AI 浏览器发布任务（含你的文案）。' : ('建任务失败：' + String(q3).slice(0, 120))
+              PUBLISH_DRAFT.delete(uidW)
             } else if (draftW.step === 'frame') {
               // 用户选帧 / 换一批重抽
               if (/换一批|重抽/.test(userMessage)) {
