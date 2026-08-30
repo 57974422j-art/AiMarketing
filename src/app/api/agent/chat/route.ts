@@ -2105,6 +2105,35 @@ export async function POST(request: NextRequest) {
             const draftW = PUBLISH_DRAFT.get(uidW)
             const vfMatchW = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
             const vfNameW = vfMatchW ? vfMatchW[1] : ''
+            // 2026-08-30: 快速发布通道——用户“直接发/跳过/确认发布”→ 抽帧看画面→自动标题→直接建任务（跳过中间确认）
+            const quickPub = /(直接发|跳过|直接发布|确认发布|发吧|别问|不用选|直接吧)/.test(userMessage) && vfNameW
+            if (quickPub) {
+              try {
+                const frQ = await executeToolCall('extract_video_frames', { videoName: vfNameW }, auth).catch((e: any) => '')
+                const frTxtQ = String(frQ)
+                let visQ = ''
+                if (frTxtQ.startsWith('FRAMES_OK:')) { try { visQ = (JSON.parse(frTxtQ.slice(10))?.visualDesc || '') } catch {} }
+                let titleQ = vfNameW.replace(/\.mp4$/, '')
+                if (visQ) {
+                  const cpQ = await executeToolCall('generate_copy', { theme: visQ.slice(0, 300), style: '严格基于视频画面写标题——不得编造', count: 1 }, auth).catch(() => '')
+                  if (cpQ && !String(cpQ).startsWith('ERROR')) titleQ = String(cpQ).slice(0, 60)
+                }
+                let fileUrlsQ: string[] = []
+                try {
+                  const vCands = [path.join(pubRoot, 'storage', String(auth?.userId || 0), vfNameW), path.join(pubRoot, 'generated', vfNameW), path.join(pubRoot, vfNameW)]
+                  const vFpQ = vCands.find((fp: string) => fs.existsSync(fp))
+                  if (vFpQ) {
+                    const vKeyQ = 'storage/' + auth?.userId + '/pub_' + Date.now() + '_' + vfNameW
+                    await putObject(vKeyQ, fs.readFileSync(vFpQ), 'video/mp4')
+                    fileUrlsQ.push('/api/storage/file?name=' + vKeyQ.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
+                  }
+                } catch {}
+                const buTaskQ = '发布视频到抖音：打开创作者中心上传页，上传视频，标题：' + titleQ + '，用平台智能封面，然后点击发布'
+                const buTQ = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTaskQ, files: JSON.stringify(fileUrlsQ) } })
+                wfEarlyReply = '已创建 AI 浏览器发布任务（#' + buTQ.id + '）——客户端自动执行：打开抖音→上传→标题「' + titleQ.slice(0, 40) + '」→发布。'
+                PUBLISH_DRAFT.delete(uidW)
+              } catch (eQp) { console.error('[快速发布] 异常:', eQp?.message || eQp); wfEarlyReply = '快速发布失败：' + String(eQp?.message || eQp).slice(0, 100) }
+            } else
             // 取消草稿
             if (/取消发布|不发了|放弃/.test(userMessage)) {
               PUBLISH_DRAFT.delete(uidW)
