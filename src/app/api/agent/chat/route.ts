@@ -2118,7 +2118,7 @@ export async function POST(request: NextRequest) {
               } catch {}
             }
             if (quickPub && (vfNameW || (global as any).__quickVideo)) {
-              const vfNameW22 = vfNameW2 || (global as any).__quickVideo || ''
+              const vfNameW2 = vfNameW || (global as any).__quickVideo || ''
               global.__quickVideo = undefined
               try {
                 const frQ = await executeToolCall('extract_video_frames', { videoName: vfNameW2 }, auth).catch((e: any) => '')
