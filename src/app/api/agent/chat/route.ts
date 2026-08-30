@@ -2108,24 +2108,34 @@ export async function POST(request: NextRequest) {
             const vfMatchW = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
             const vfNameW = vfMatchW ? vfMatchW[1] : ''
             // 2026-08-30: 快速发布通道——用户“直接发/跳过/确认发布”→ 抽帧看画面→自动标题→直接建任务（跳过中间确认）
-            const quickPub = /(直接发|跳过|直接发布|确认发布|发吧|别问|不用选|直接吧)/.test(userMessage) && vfNameW
-            if (quickPub) {
+            let quickPub = /(直接发|跳过|直接发布|确认发布|发吧|别问|不用选|直接吧|^c$|全默认|默认发|随便发)/i.test(userMessage.trim())
+            if (quickPub && !vfNameW) {
+              // 无视频名时自动取仓库最新视频（C 全默认使用）
               try {
-                const frQ = await executeToolCall('extract_video_frames', { videoName: vfNameW }, auth).catch((e: any) => '')
+                const lstQ = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
+                const vq = String(lstQ || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
+                if (vq) { (global as any).__quickVideo = vq[1] }
+              } catch {}
+            }
+            if (quickPub && (vfNameW || (global as any).__quickVideo)) {
+              const vfNameW22 = vfNameW2 || (global as any).__quickVideo || ''
+              global.__quickVideo = undefined
+              try {
+                const frQ = await executeToolCall('extract_video_frames', { videoName: vfNameW2 }, auth).catch((e: any) => '')
                 const frTxtQ = String(frQ)
                 let visQ = ''
                 if (frTxtQ.startsWith('FRAMES_OK:')) { try { visQ = (JSON.parse(frTxtQ.slice(10))?.visualDesc || '') } catch {} }
-                let titleQ = vfNameW.replace(/\.mp4$/, '')
+                let titleQ = vfNameW2.replace(/\.mp4$/, '')
                 if (visQ) {
                   const cpQ = await executeToolCall('generate_copy', { theme: visQ.slice(0, 300), style: '严格基于视频画面写标题——不得编造', count: 1 }, auth).catch(() => '')
                   if (cpQ && !String(cpQ).startsWith('ERROR')) titleQ = String(cpQ).slice(0, 60)
                 }
                 let fileUrlsQ: string[] = []
                 try {
-                  const vCands = [path.join(pubRoot, 'storage', String(auth?.userId || 0), vfNameW), path.join(pubRoot, 'generated', vfNameW), path.join(pubRoot, vfNameW)]
+                  const vCands = [path.join(pubRoot, 'storage', String(auth?.userId || 0), vfNameW2), path.join(pubRoot, 'generated', vfNameW2), path.join(pubRoot, vfNameW2)]
                   const vFpQ = vCands.find((fp: string) => fs.existsSync(fp))
                   if (vFpQ) {
-                    const vKeyQ = 'storage/' + auth?.userId + '/pub_' + Date.now() + '_' + vfNameW
+                    const vKeyQ = 'storage/' + auth?.userId + '/pub_' + Date.now() + '_' + vfNameW2
                     await putObject(vKeyQ, fs.readFileSync(vFpQ), 'video/mp4')
                     fileUrlsQ.push('/api/storage/file?name=' + vKeyQ.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
                   }
