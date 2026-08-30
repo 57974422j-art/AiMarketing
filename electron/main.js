@@ -421,7 +421,9 @@ async function checkBrowserTasks() {
     if (!cookie) { console.log('[browser_use] 轮询跳过：getServerCookie 空（未登录/读不到 token）'); return }
     let dashKey = ''
     try { const bc = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-config', { headers: { cookie } }).then(r => r.json()).catch(() => null); dashKey = bc?.data?.dashscopeKey || '' } catch {}
-    const tasks = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks?status=pending', { headers: { cookie } }).then(r => r.json()).catch(() => null)
+    const tasksRes = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks?status=pending', { headers: { cookie } }).catch(() => null)
+    const tasks = tasksRes ? await tasksRes.json().catch(() => null) : null
+    console.log('[browser_use] 轮询：cookie=' + (cookie ? cookie.slice(0, 20) + '...' : '空') + ' HTTP=' + (tasksRes?.status || '?') + ' success=' + (tasks?.success ?? '?') + ' tasks=' + (tasks?.data?.length ?? 0))
     if (!tasks?.success || !tasks.data?.length) return
     for (const t of tasks.data) {
       let files = []
