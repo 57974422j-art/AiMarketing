@@ -2357,7 +2357,7 @@ PUBLISH_DRAFT.delete(uidW)
       await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
     }
     // #5 模型标注 + #6 敏感过滤（2026-08-21：回复末尾标注实际模型；剔除后台链接/IP/API key）
-    const usedModel = (fcResult as any)?.model || (hasImage ? 'agnes-2.5-flash' : 'qwen-plus')
+    const usedModel = (fcResult as any)?.model || (hasImage ? 'qwen3.8-flash' : 'qwen3.8-flash') // 2026-08-30: 统一 qwen3.8（不切 qwen-plus）
     reply = String(reply || '')
     if (reply && !/（模型：/.test(reply)) {
       reply = reply + String.fromCharCode(10, 10) + '（模型：' + usedModel + '）'

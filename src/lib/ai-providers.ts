@@ -423,7 +423,7 @@ async function dashscopeChat(prompt: string, maxTokens = 2000): Promise<string |
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'qwen-plus',
+        model: 'deepseek-v4-flash', // 2026-08-30: 兜底用 V4（不再 qwen-plus）
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
         max_tokens: maxTokens,
@@ -1224,8 +1224,24 @@ export async function dashscopeFunctionCall(
   const key = getDashScopeKey()
   if (!key) return { content: null }
 
-  // 2026-08-27: AGENT 模型换 DeepSeek V4 flash（支持图片识别多模态）——DEEPSEEK_API_KEY 有则用 DeepSeek，否则百炼 qwen-plus
+  // 2026-08-30 定案：AGENT 统一 qwen3.8-flash（百炼——工具稳定）→ 失败 DeepSeek V4 兜底——去掉 qwen-plus 降级
   const dsKey = process.env.DEEPSEEK_API_KEY || readEnvFile('DEEPSEEK_API_KEY')
+  const qwKey = getDashScopeKey()
+  try {
+    // ① qwen3.8-flash 主（百炼 OpenAI 兼容——支持 function calling）
+    const qwBody: any = { model: 'qwen3.8-flash', messages, max_tokens: maxTokens, temperature, stream: false }
+    if (tools.length > 0) { qwBody.tools = tools.map((t: any) => ({ type: 'function', function: { name: t.name, description: t.description || '', parameters: t.parameters || {} } })); qwBody.tool_choice = 'auto' }
+    const qwRes = await fetchJSON('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+      method: 'POST', body: qwBody,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + qwKey },
+      timeoutMs: 60000,
+    }).catch((eQw: any) => { console.error('[qwen3.8] 调用异常:', eQw?.message || eQw); return null })
+    const qwChoice = qwRes?.choices?.[0]
+    if (qwChoice?.message) {
+      return { content: qwChoice.message?.content || null, toolCalls: qwChoice.message?.tool_calls || undefined, model: 'qwen3.8-flash' }
+    }
+    console.error('[qwen3.8] 无有效响应，走 V4 兜底:', JSON.stringify(qwRes || {}).slice(0, 150))
+  } catch (eQw2) { console.error('[qwen3.8] 异常走 V4 兜底:', eQw2?.message || eQw2) }
   if (dsKey) {
     try {
       const dsBody: any = { model: 'deepseek-v4-flash', messages, max_tokens: maxTokens, temperature, stream: false }
@@ -1246,7 +1262,7 @@ export async function dashscopeFunctionCall(
 
   try {
     const body: Record<string, any> = {
-      model: 'qwen-plus',
+      model: 'deepseek-v4-flash', // 2026-08-30: 兜底用 V4（不再 qwen-plus）
       messages,
       temperature,
       max_tokens: maxTokens,
