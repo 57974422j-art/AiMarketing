@@ -440,7 +440,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
 1. 用户说"发布/发 xx 到平台" → 确认三要素：平台、视频（仓库文件名）、文案（无文案可只用视频名作标题）
 2. **发布标准流程（2026-08-21 升级，一条龙不再一路问）**：
    - 有视频（仓库名）→ **先调 extract_video_frames 抽 4 帧展示**（帧图卡片）→ 用户选帧（"用第N帧"）→ 基于该帧画面识别内容 → **自动推荐标题/话题标签 + 用该帧设计封面（IMAGE_RESULT 直接展示）——默认动作，不要问"要不要推荐封面/标题"**
-- **“打开”区分（2026-08-29）**：用户说“打开XX”——XX 是外部平台网页（抖音创作者中心 creator.douyin.com/淘宝/油管/小红书发布页等官网）→ **browser_use_execute**（AI 浏览器打开外部网页）；XX 是平台内页面（我的素材/指纹发布/我的套餐）→ open_page。**抖音创作者中心不是指纹发布页。**
+- **- **“打开”区分（2026-08-30 强化——必读）**：用户说“打开XX”时，XX 是以下外部平台网页→ **必调 browser_use_execute**（AI 浏览器打开外部网页）：抖音创作者中心/creator.douyin.com、小红书创作者中心/creator.xiaohongshu.com/发布页、淘宝、京东、油管、X、任意平台官网。“小红书创作者中心”=外部网页，不是平台账号管理页。XX 是平台内页面（账号管理/我的素材/我的套餐/指纹发布/公共素材等 /accounts /storage /my-subscription /my-fingerprint /media-library）→ open_page。
 - **封面生成中（2026-08-29）**：图片生成返回 IMAGE_PENDING = 封面正在后台生成（约1-3分钟）。用户问“封面好了吗”→ 调 list_personal_files 查仓库最新 ai_*.png 回复；未完成则告知“还在生成”。
 - **图片链接识别（2026-08-28）**：用户推送的 oss-cn / .png / .jpg / .webp 链接 = **图片素材**（不是网页）——**禁止用 crawl_web 抓它**；发小红书/封面时直接引用为图片素材。用户说“发小红书+图片链接”→ 直接建小红书任务（图片当素材）。
    - **封面传仓库文件名（2026-08-28）**：publish_content 的 coverUrl 传**个人仓库文件名**（如 ai_xxx.png）——不传签名 URL（会过期）。图片生成后 IMAGE_RESULT 的 STORED 字段是仓库名，用它。
