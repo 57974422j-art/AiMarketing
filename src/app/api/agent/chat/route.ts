@@ -2190,10 +2190,13 @@ ${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
                 if (tm) wfArgs.caption = tm[1].trim()
               } catch {}
             }
-            console.log('[发布工作流] 确认建任务:', JSON.stringify(wfArgs))
-            const wfResult = await executeToolCall('publish_content', wfArgs, auth)
+            console.log('[发布工作流] 确认建任务（browser_use 发布——opencli 链已清除）:', JSON.stringify(wfArgs))
+            // 2026-08-30: 发布统一走 browser_use（AI 浏览器）——不再 opencli（create_v2 定时-2/旧 DOM）
+            const buTask = '发布视频到' + (wfArgs.platform || '抖音') + '：打开对应创作者中心上传页，上传个人仓库视频 ' + (wfArgs.videoName || '') + '，标题：' + (wfArgs.caption || wfArgs.title || '') + '，话题：' + (wfArgs.topics || '') + (wfArgs.coverUrl ? '，封面：' + wfArgs.coverUrl : '，用平台智能封面') + '，然后点击发布'
+            const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify([]) } })
+            const wfResult = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行（打开平台→上传→填标题→发布）。任务：' + buTask
             messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfResult) } as any)
-            if (normCalls.length === 0) normCalls.push({ id: 'wf-' + Date.now(), name: 'publish_content', arguments: JSON.stringify(wfArgs) } as any)
+            if (normCalls.length === 0) normCalls.push({ id: 'wf-' + Date.now(), name: 'browser_use_execute', arguments: JSON.stringify({ task: buTask }) } as any)
             if (vfName) {
               try { const fr2 = await executeToolCall('extract_video_frames', { videoName: vfName }, auth).catch((e: any) => '抽帧失败'); messages.push({ role: 'tool', tool_call_id: 'wf-fr-' + Date.now(), content: String(fr2) } as any) } catch {}
             }
