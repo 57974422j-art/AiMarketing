@@ -110,18 +110,19 @@ export async function GET(request: NextRequest) {
     }
     let modelStatus = '未验证'
     try {
-      const dsKey = process.env.DEEPSEEK_API_KEY
-      if (!dsKey) modelStatus = '未配置 DEEPSEEK_API_KEY'
+      // 2026-08-30: 连通测试用百炼（qwen3.8 主模型）——之前错打 DeepSeek URL + DeepSeek key → 400
+      const qwKey = process.env.DASHSCOPE_API_KEY || process.env.DASHSCOPE_API_KEY_BAILIAN
+      if (!qwKey) modelStatus = '未配置 DASHSCOPE_API_KEY（百炼）'
       else {
-        const mr = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        const mr = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dsKey },
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + qwKey },
           body: JSON.stringify({ model: 'qwen3.8-flash', messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
           signal: AbortSignal.timeout(15000),
         }).catch(() => null)
         modelStatus = mr && mr.ok ? '✅ qwen3.8-flash 可用' : '❌ qwen3.8-flash 不可用（HTTP ' + (mr ? mr.status : '时间超') + '）'
       }
-    } catch (eM) { modelStatus = '❌ deepseek-v4-flash 不可用: ' + (eM?.message || eM) }
+    } catch (eM) { modelStatus = '❌ qwen3.8-flash 不可用: ' + (eM?.message || eM) }
     checks.push({ key: 'model', label: '当前模型', ok: modelStatus.startsWith('✅'), detail: `大脑 ${modelStatus} / 识别 ${modelInfo.asr} / 朗读 cosyvoice` })
 
     // 8) 个人仓库（2026-08-24：AI 生成自动入库；容量超 80% 提示转移本地仓库）
