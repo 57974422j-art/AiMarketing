@@ -465,6 +465,8 @@ async function checkBrowserTasks() {
 function setupAutoUpdater(win) {
   if (process.env.DISABLE_AUTO_UPDATE === '1') { console.log('[Updater] 已禁用（DISABLE_AUTO_UPDATE=1）'); return }
   autoUpdater.autoDownload = true
+  // 2026-08-30: 差分更新（blockmap）在 85→86 卡 0——强制全量下载（575MB 慢但能下——根治卡 0）
+  autoUpdater.disableDifferentialDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 
   // 2026-08-21: 更新弹窗+进度窗口——打开客户端检测到更新即弹独立小窗显示下载进度，不再依赖主页面（太隐蔽）
