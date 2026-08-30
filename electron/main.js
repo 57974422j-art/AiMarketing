@@ -396,6 +396,7 @@ function setupAutoPublish() {
   setTimeout(checkPending, 5000)
   // 2026-08-29: 工具箱 browser_use_execute——轮询 AgentBrowserTask pending → Python(browser-use) 执行 → 回结果
   setInterval(checkBrowserTasks, 8000)
+  console.log('[browser_use] 执行器已启动（checkBrowserTasks 轮询 8s）——v1.0.82+ 有此日志=main.js 为新版')
 }
 
 // browser-use 任务执行（Electron 调 Python——复用 D:u_profile 登录态）
@@ -410,7 +411,7 @@ async function checkBrowserTasks() {
   try {
     const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc' // 2026-08-29: 必须显式定义（同 getServerCookie 坑——未定义→ReferenceError→执行器永远失败→任务不执行）
     const cookie = await getServerCookie()
-    if (!cookie) return
+    if (!cookie) { console.log('[browser_use] 轮询跳过：getServerCookie 空（未登录/读不到 token）'); return }
     let dashKey = ''
     try { const bc = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-config', { headers: { cookie } }).then(r => r.json()).catch(() => null); dashKey = bc?.data?.dashscopeKey || '' } catch {}
     const tasks = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks?status=pending', { headers: { cookie } }).then(r => r.json()).catch(() => null)
