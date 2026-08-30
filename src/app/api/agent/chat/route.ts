@@ -2140,7 +2140,7 @@ export async function POST(request: NextRequest) {
                     fileUrlsQ.push('/api/storage/file?name=' + vKeyQ.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
                   }
                 } catch {}
-                const buTaskQ = '发布视频到抖音：打开创作者中心上传页，上传视频，标题：' + titleQ + '，用平台智能封面，然后点击发布'
+                const buTaskQ = '发布视频到抖音：先打开 https://creator.douyin.com/creator-micro/content/upload （如返回登录页说明未登录，直接告知结束），上传视频，标题：' + titleQ + '，用平台智能封面，然后点击发布'
                 const buTQ = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTaskQ, files: JSON.stringify(fileUrlsQ) } })
                 wfEarlyReply = '已创建 AI 浏览器发布任务（#' + buTQ.id + '）——客户端自动执行：打开抖音→上传→标题「' + titleQ.slice(0, 40) + '」→发布。'
                 PUBLISH_DRAFT.delete(uidW)
@@ -2238,7 +2238,7 @@ ${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
                     console.log('[发布⑤] 视频已转 OSS:', vKey)
                   } else { console.log('[发布⑤] 视频本地未找到（可能已在 OSS）:', vRel) }
                 } catch (ePv: any) { console.error('[发布⑤] 视频转 OSS 失败:', ePv?.message || ePv) }
-                const buTask = '发布视频到' + (wfA.platform === 'douyin' ? '抖音' : wfA.platform || '抖音') + '：打开对应创作者中心上传页，上传视频，标题：' + (wfA.caption || '') + '，话题：' + (wfA.topics || '') + '，用平台智能封面，然后点击发布'
+                const buTask = '发布视频到' + (wfA.platform === 'douyin' ? '抖音' : wfA.platform || '抖音') + '：先打开 https://creator.douyin.com/creator-micro/content/upload （如返回登录页说明未登录，直接告知结束），上传视频，标题：' + (wfA.caption || '') + '，话题：' + (wfA.topics || '') + '，用平台智能封面，然后点击发布'
                 const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify(fileUrls) } })
                 const wfR3 = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行（打开平台→上传→填标题→发布）。' + (fileUrls.length ? '视频已就绪（AI 浏览器自动上传）。' : '')
                 messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfR3) } as any)

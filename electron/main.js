@@ -437,6 +437,30 @@ async function checkBrowserTasks() {
       // 标记 executing
       await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'executing' }) }).catch(() => {})
       console.log('[browser_use] 执行任务 #' + t.id + ':', String(t.task).slice(0, 60))
+      // 2026-08-30: 登录态预检——未登录目标平台不白跑（直接失败提示扫码/登记）
+      try {
+        const platKey = String(t.task || '').match(/(抖音|小红书|微博|视频号|快手|B站|bilibili)/)?.[0] || ''
+        if (platKey) {
+          const buChk = await new Promise((resolve) => {
+            const pyc = spawn(BU_PYTHON, ['-u', BU_CHECK_SCRIPT, String(BU_PROFILE_DIR)], { windowsHide: true })
+            let so2 = ''
+            pyc.stdout.on('data', (d) => so2 += d)
+            pyc.on('close', () => resolve(so2.trim()))
+            pyc.on('error', () => resolve(''))
+            setTimeout(() => { pyc.kill(); resolve('') }, 10000)
+          })
+          const m2 = buChk.match(/PLATS:([^\r\n]+)/)
+          if (m2) {
+            const platId = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao', '快手': 'kuaishou' }[platKey] || ''
+            const st = m2[1].split(',').map((s2) => s2.split(':')).find((kv) => kv[0] === platId)
+            if (st && st[1] === '0') {
+              console.log('[browser_use] 任务 #' + t.id + ' 未登录' + platKey + '——不执行')
+              await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'failed', error: platKey + ' 未登录——请先通过「浏览器通道」打开登记页扫码登录（点左侧登记平台的「打开浏览器」登录后回来）' }) }).catch(() => {})
+              continue
+            }
+          }
+        }
+      } catch (eLg) { console.log('[browser_use] 登录态预检异常（继续执行）:', eLg?.message || eLg) }
       try {
         const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', files.join(','), '--profile', BU_PROFILE]
         const { spawn } = require('child_process')
