@@ -2098,7 +2098,9 @@ export async function POST(request: NextRequest) {
         const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到/.test(userMessage)
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
-        if (pubIntent || PUBLISH_DRAFT.has(auth?.userId || 0)) {
+        // 2026-08-30: 自由模式（mode=free）→ 状态机完全跳过——AI 自己调工具发挥（测试用）
+        const freeMode = (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free'
+        if ((pubIntent && !freeMode) || PUBLISH_DRAFT.has(auth?.userId || 0)) {
           // 2026-08-27 发布工作流（多轮确认，草稿 Map 持久）——①抽帧选帧 → ②标题 → ③话题 → ④封面 → ⑤确认发布
           try {
             const uidW = auth?.userId || 0

@@ -626,6 +626,8 @@ function AgentPageInner() {
   const [storageItems, setStorageItems] = useState<any[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [agentMode, setAgentMode] = useState<'standard' | 'free'>('standard') // 2026-08-30: 标准/自由（自由=状态机跳过 AI 完全发挥）
+  const [clearMsg, setClearMsg] = useState('') // 2026-08-30: 清理任务结果提示
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [lastPoints, setLastPoints] = useState<number | null>(null)
   // 助手人设名字（来自记忆中的 agent_profile，白龙马式自定义名）
@@ -1662,6 +1664,15 @@ function AgentPageInner() {
     } catch {}
   }
 
+  // 2026-08-30: 清理今日任务（按钮）——清今天所有 pending/executing 的 AgentBrowserTask
+  const clearTodayTasks = async () => {
+    try {
+      const r = await fetch('/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'clear-today' }) }).then(r => r.json())
+      setClearMsg(r.success ? '已清理 ' + (r.cleared || 0) + ' 条今日任务' : ('清理失败：' + (r.message || '')))
+      setTimeout(() => setClearMsg(''), 4000)
+    } catch { setClearMsg('清理失败'); setTimeout(() => setClearMsg(''), 4000) }
+  }
+
   const sendMessage = async (text?: string) => {
     const msgText = (text || input).trim()
     if ((!msgText && !attachments.length) || loading) return
@@ -1707,7 +1718,7 @@ function AgentPageInner() {
       const t0 = Date.now()
       pushTerm(`POST /api/agent/chat  ${finalText.slice(0, 24) || '(附件)'}`)
       const history = messages.slice(-10).map(m => ({ role: m.role, content: m.content }))
-      const body: any = { message: finalText, history, sessionId: sessionId || undefined }
+      const body: any = { message: finalText, history, sessionId: sessionId || undefined, mode: agentMode }
       if (activeApp) body.currentApp = activeApp.title
       if (onboarding) body.onboarding = true
       if (attachments.length) body.attachments = attachments
@@ -2796,6 +2807,18 @@ function AgentPageInner() {
                     🎤 识别中：{interimText}
                   </div>
                 )}
+                <div className="flex flex-col items-center gap-1 shrink-0 mr-1">
+                  <button onClick={() => setAgentMode(agentMode === 'standard' ? 'free' : 'standard')}
+                    title={agentMode === 'standard' ? '标准模式（发布走状态机防编）——点击切自由' : '自由模式（AI 完全发挥）——点击切标准'}
+                    className={`w-9 h-5 rounded-full relative transition ${agentMode === 'standard' ? 'bg-emerald-500/60' : 'bg-purple-500/60'}`}>
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${agentMode === 'standard' ? 'left-0.5' : 'left-[18px]'}`} />
+                  </button>
+                  <span className={`text-[7px] leading-none ${agentMode === 'standard' ? 'text-emerald-400' : 'text-purple-400'}`}>{agentMode === 'standard' ? '标准' : '自由'}</span>
+                </div>
+                <button onClick={clearTodayTasks} title="清理今日任务（清空今天所有 AI 浏览器任务）"
+                  className="shrink-0 w-6 h-6 rounded-md bg-white/5 hover:bg-red-500/20 text-gray-500 hover:text-red-400 flex items-center justify-center mr-0.5">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
                 <textarea ref={inputRef} value={input}
                   onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
                   placeholder="输入需求，或输入 / 唤起命令..."
@@ -2813,6 +2836,7 @@ function AgentPageInner() {
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2m7 9v3"/></svg>
                 </button>
               </div>
+              {clearMsg && <p className="text-[8px] text-emerald-400/90 text-center mt-0.5">{clearMsg}</p>}
               <p className="text-[8px] text-gray-700 text-center mt-1 hidden sm:block">Enter 发送 · Shift+Enter 换行 · / 命令 · 📎 图片/视频 · 🎤 点击声纹球说话</p>
             </div>
           </footer>

@@ -18,6 +18,15 @@ export async function POST(req: NextRequest) {
   if (!auth?.userId) return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
   try {
     const b = await req.json()
+    // 2026-08-30: 清理今日任务（用户"清理任务"按钮——清今天所有 pending）
+    if (b.action === 'clear-today') {
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+      const r = await prisma.agentBrowserTask.updateMany({
+        where: { userId: auth.userId, status: { in: ['pending', 'executing'] }, createdAt: { gte: todayStart } },
+        data: { status: 'cancelled', error: '用户清理（' + new Date().toISOString() + '）' },
+      })
+      return NextResponse.json({ success: true, cleared: r.count })
+    }
     const id = Number(b.id)
     const t = await prisma.agentBrowserTask.findFirst({ where: { id, userId: auth.userId } })
     if (!t) return NextResponse.json({ success: false, message: '任务不存在' }, { status: 404 })
