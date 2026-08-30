@@ -416,6 +416,9 @@ const BU_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_exec.py')
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_exec.py')
 const BU_PROFILE = process.env.BU_PROFILE || 'D:/bu_profile'
+const BU_CHECK_SCRIPT = app.isPackaged
+  ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_check.py')
+  : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_check.py')
 
 async function checkBrowserTasks() {
   try {
