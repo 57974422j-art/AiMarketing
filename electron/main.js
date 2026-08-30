@@ -201,7 +201,7 @@ async function startupTaskCheck() {
       fetch('https://ai-niuma.cc/api/agent/publish-tasks?status=pending', { headers: { cookie: ck } }).then((r) => r.json()).catch(() => null),
       fetch('https://ai-niuma.cc/api/video/tasks?status=processing', { headers: { cookie: ck } }).then((r) => r.json()).catch(() => null),
     ])
-    const pubN = pub && Array.isArray(pub.data) ? pub.data.length : 0
+    const pubN = 0 // opencli 发布已迁移 browser_use——不再弹 AgentPublishTask（视频任务仍提示）
     const vidN = vid && Array.isArray(vid.data) ? vid.data.length : 0
     if (!pubN && !vidN) { global.__allowResume = true; return }
     const { dialog } = require('electron')

@@ -386,6 +386,7 @@ const TOOL_STEP_LABEL: Record<string, string> = {
   search_templates: '查找模板',
   publish_content: '核对发布账号',
   query_publish_tasks: '查询发布任务',
+  query_browser_tasks: 'query browser tasks list/progress (browser_use exec - publish/web ops) - return id/task/status/result',
   automation_check: '查看自动化任务',
   search_memory: '回忆长期记忆',
   upsert_memory: '写入长期记忆',
@@ -1241,6 +1242,13 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       return 'BROWSER_TASK_QUEUED:已创建浏览器自动化任务（#' + tB.id + '）——客户端将用 AI 浏览器（browser-use）执行，稍后说"查任务状态"看结果。任务：' + taskB
     }
 
+    case 'query_browser_tasks': {
+        try {
+          const bt = await prisma.agentBrowserTask.findMany({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' }, take: 10 })
+          if (!bt.length) return 'BROWSER_TASKS:no browser tasks yet.'
+          return 'BROWSER_TASKS:' + bs + bs + bt.map((t: any) => '#' + t.id + ' [' + (t.status || 'pending') + '] ' + String(t.task || '').slice(0, 60) + (t.error ? '(' + String(t.error).slice(0, 80) + ')' : '') + (t.result ? ' -> ' + String(t.result).slice(0, 60) : '')).join(bs + bs)
+        } catch (eQ: any) { return 'BROWSER_TASKS_ERROR:' + String(eQ?.message || eQ).slice(0, 100) }
+      }
     case 'publish_content': {
       {
         // 2026-08-23: 发布前查浏览器登录态（客户端上报）——未登录平台告知用户，不盲发
