@@ -33,6 +33,13 @@ export default function AgentToolsPage() {
     <div className="min-h-screen bg-[#0a0a0f] text-gray-200 p-6">
       <h1 className="text-xl mb-4">🔧 AGENT 工具箱（注册工具管理）</h1>
       {msg && <p className="text-emerald-400 text-sm mb-3">{msg}</p>}
+      <div className="mb-4 p-4 rounded-lg border border-white/10 bg-white/[0.03] text-xs text-gray-400 leading-relaxed">
+        <p className="text-sm text-gray-200 mb-2">📘 说明</p>
+        <p>• 内置工具（生图/视频/文案等 33 个）在代码里——不在本页显示（本页只管理【动态注册工具】）</p>
+        <p>• browser_use_execute = 动态注册的第一个（AI 浏览器操作）——点「已启用/已关闭」切换；点「编辑」改描述/角色</p>
+        <p>• 添加工具：填 name/显示名/描述/角色 → 注册后 AGENT 自动看到；但【执行端点】需代码实现（见下方说明）</p>
+        <p className="text-amber-300 mt-1">⚠️ 添加的工具能注入 AGENT（模型可见可调）——但真正执行需代码有对应处理（endpoint）——目前 browser_use_execute 有执行；新增工具的执行逻辑需开发接入（下一步）</p>
+      </div>
       <div className="mb-6 p-4 rounded-lg border border-white/10 bg-white/[0.03]">
         <p className="text-sm mb-3">添加工具（注册后 AGENT 自动看到并调用；关闭=模型不可见）</p>
         <div className="flex gap-2 flex-wrap">
@@ -53,6 +60,7 @@ export default function AgentToolsPage() {
               <p className="text-sm font-medium">{t.title} <span className="text-gray-500 text-xs">({t.name} · {t.roles} · {t.endpoint || '无端点'})</span></p>
               <p className="text-xs text-gray-400 line-clamp-1">{t.description}</p>
             </div>
+            <button onClick={() => { const nt = prompt('显示名', t.title); const nd = prompt('描述', t.description); const nr = prompt('角色 all/admin/editor', t.roles); if (nt || nd || nr) fetch(`/api/admin/agent-tools/${t.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ title: nt || t.title, description: nd ?? t.description, roles: nr || t.roles }) }).then(r => r.json()).then(() => load()) }} className="px-2 py-1 text-xs text-sky-300 hover:bg-sky-500/10 rounded">编辑</button>
             <button onClick={() => del(t)} className="px-2 py-1 text-xs text-red-300 hover:bg-red-500/10 rounded">删除</button>
           </div>
         ))}

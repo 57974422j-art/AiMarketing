@@ -1653,8 +1653,23 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       }
     }
 
-    default:
+    default: {
+      // 2026-08-30: 动态工具（工具箱注册）——查 endpoint 分发
+      const regT = await prisma.agentTool.findUnique({ where: { name } }).catch(() => null)
+      if (regT?.enabled) {
+        if (regT.endpoint === 'browser_use') {
+          const uidB2 = auth?.userId
+          const taskB2 = String(args?.task || '').trim()
+          if (!uidB2) return 'TOOL_REJECT:未登录'
+          if (!taskB2) return 'TOOL_REJECT:缺少任务描述（task）'
+          const filesB2 = Array.isArray(args?.files) ? args.files.map((f: any) => String(f)) : []
+          const tB2 = await prisma.agentBrowserTask.create({ data: { userId: uidB2, task: taskB2, files: JSON.stringify(filesB2) } })
+          return 'BROWSER_TASK_QUEUED:已创建浏览器自动化任务（#' + tB2.id + '）——客户端 AI 浏览器执行，稍后说"查任务状态"看结果。任务：' + taskB2
+        }
+        return `DYNAMIC_TOOL_NOT_IMPLEMENTED:工具「${regT.title || name}」已注册但执行端点未接入（endpoint=${regT.endpoint || '无'}）——请开发接入`
+      }
       return `未知工具: ${name}`
+    }
   }
 }
 
