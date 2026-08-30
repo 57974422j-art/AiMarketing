@@ -29,6 +29,25 @@ def find_chrome():
         if os.path.exists(c): return c
     return None
 
+def sync_system_login(profile):
+    """2026-08-30: 同步系统 Chrome 登录态 → bu_profile（每次执行前——用日常 Chrome 登录态——不用 bu_profile 单独重登）"""
+    try:
+        sys_default = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data', 'Default')
+        sys_ck = os.path.join(sys_default, 'Network', 'Cookies')
+        if not os.path.exists(sys_ck):
+            print('SYNC: 系统 Chrome Cookies 不存在（未装 Chrome？）'); return False
+        dst = os.path.join(profile, 'Default')
+        os.makedirs(os.path.join(dst, 'Network'), exist_ok=True)
+        shutil.copy2(sys_ck, os.path.join(dst, 'Network', 'Cookies'))  # 共享读——Chrome 运行中也常可读
+        ls = os.path.join(os.path.dirname(sys_default), 'Local State')
+        if os.path.exists(ls):
+            os.makedirs(profile, exist_ok=True)
+            shutil.copy2(ls, os.path.join(profile, 'Local State'))
+        print('SYNC: 已同步系统 Chrome 登录态到 ' + profile)
+        return True
+    except Exception as e:
+        print('SYNC_FAIL: ' + str(e)[:120]); return False
+
 def check_singleton(profile):
     """SingletonLock 存在 = 有浏览器占用该 profile——报错（防退避临时目录丢登录态）"""
     lock = os.path.join(profile, 'SingletonLock')
@@ -76,6 +95,8 @@ async def main():
 
     chrome = find_chrome()
     # 显式锁浏览器二进制（系统 Chrome——与 profile 一致）——防打包后 PLAYWRIGHT_BROWSERS_PATH 混用 chromium-1223
+    # 2026-08-30: 同步系统 Chrome 登录态（用日常登录态——不单独登 bu_profile）
+    sync_system_login(args.profile)
     browser = Browser(
         user_data_dir=args.profile,
         executable_path=chrome,  # 显式（None 则 browser-use 自行查找）

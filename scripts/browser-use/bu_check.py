@@ -2,7 +2,24 @@
 # bu_profile 平台登录态检测——读 Chrome Cookies(SQLite) 查平台域名
 import sqlite3, os, sys, shutil, tempfile, datetime
 prof = sys.argv[1] if len(sys.argv) > 1 else 'D:/bu_profile'
+def sync_system_login(profile):
+    try:
+        sys_default = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data', 'Default')
+        sys_ck = os.path.join(sys_default, 'Network', 'Cookies')
+        if not os.path.exists(sys_ck): return
+        dst = os.path.join(profile, 'Default')
+        os.makedirs(os.path.join(dst, 'Network'), exist_ok=True)
+        shutil.copy2(sys_ck, os.path.join(dst, 'Network', 'Cookies'))
+        ls = os.path.join(os.path.dirname(sys_default), 'Local State')
+        if os.path.exists(ls):
+            os.makedirs(profile, exist_ok=True)
+            shutil.copy2(ls, os.path.join(profile, 'Local State'))
+        print('SYNC: OK')
+    except Exception as e:
+        print('SYNC_FAIL:', str(e)[:100])
+
 PLATS = [('douyin', 'douyin.com'), ('xiaohongshu', 'xiaohongshu.com'), ('weibo', 'weibo.com'), ('bilibili', 'bilibili.com'), ('shipinhao', 'weixin.qq.com'), ('x', 'x.com')]
+sync_system_login(prof)
 ck = os.path.join(prof, 'Default', 'Network', 'Cookies')
 if not os.path.exists(ck):
     print('NO_COOKIES_FILE:' + ck); sys.exit(0)
