@@ -374,7 +374,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
 
 // 思考流步骤中文标签（前端展示用）
 const TOOL_STEP_LABEL: Record<string, string> = {
-  generate_copy: '撰写营销文案',
+  generate_copy: '撰写营销文案（必须严格基于提供的主题/画面内容——不得编造主题未提及的产品/功效/场景——画面分析为空时不得编）',
   generate_image: 'AI 生成配图',
   generate_video: 'AI 生成视频',
   search_web_images: '上网搜索参考图',
@@ -2138,21 +2138,27 @@ export async function POST(request: NextRequest) {
                 const frTxt2 = String(frW2)
                 if (frTxt2.startsWith('FRAMES_OK:')) {
                   try { const p2 = JSON.parse(frTxt2.slice(10)); draftW.frames = Array.isArray(p2.frames) ? p2.frames : []; draftW.visualDesc = p2.visualDesc || '' } catch {}
-                }
-wfEarlyReply = `wfEarlyReply = '① 已重新抽帧（4 帧）请选帧作封面基础：' + draftW.frames.map((f: any, i: number) => '（' + (i + 1) + '）').join(' ') + '
-回复编号 1-4 选帧，或“换一批”重抽。`
+                  wfEarlyReply = '① 已重新抽帧（' + (draftW.frames?.length || 4) + ' 帧）请选帧作封面基础，回复编号 1-4，或“换一批”重抽。'
+                } else wfEarlyReply = '重抽失败，请重试。'
               } else {
               const pickW = userMessage.trim().match(/^([1-4])$/);
               if (pickW && draftW.frames && draftW.frames[Number(pickW[1]) - 1]) {
                 draftW.selectedFrame = draftW.frames[Number(pickW[1]) - 1]
                 draftW.step = 'title'
                 // ② 推荐 3 标题（基于 visualDesc）
-                const titlesW = await executeToolCall('generate_copy', { theme: (draftW.visualDesc || vfNameW).slice(0, 100), style: '抖音种草风', count: 3 }, auth).catch(() => '')
-                draftW.titles = String(titlesW || '').slice(0, 300)
-                wfEarlyReply = `② 标题候选 3 个：
+                // 2026-08-30: 画面分析空 → 不编标题（防 AI 凭文件名睡编）
+                if (!draftW.visualDesc) {
+                  wfEarlyReply = '② 画面分析失败（visualDesc 空）——请回复“重新分析”重抽帧，或换个视频。'
+                  PUBLISH_DRAFT.delete(uidW)
+                } else {
+                  const titlesW = await executeToolCall('generate_copy', { theme: draftW.visualDesc.slice(0, 300), style: '严格基于视频画面写标题——不得编造画面中不存在的内容（产品/功效/场景）', count: 3 }, auth).catch(() => '')
+                  draftW.titles = String(titlesW || '').slice(0, 300)
+                  draftW.step = 'title'
+                  wfEarlyReply = `② 标题候选 3 个：
 ${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
 回复编号选标题，或“换一批”。`
-              } else wfEarlyReply = '请回复帧编号 1-4 选帧，或“换一批”重抽。'
+                }
+                } else wfEarlyReply = '请回复帧编号 1-4 选帧，或“换一批”重抽。'
               }
             } else if (draftW.step === 'title') {
               const pickT = userMessage.trim().match(/^([1-3])$/)
