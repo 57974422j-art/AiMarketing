@@ -415,7 +415,7 @@ const BU_PYTHON = process.env.BU_PYTHON || "C:/Users/wo'shen/AppData/Local/Progr
 const BU_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_exec.py')
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_exec.py')
-const BU_PROFILE = process.env.BU_PROFILE || 'D:/bu_profile'
+const BU_PROFILE = process.env.BU_PROFILE || path.join(app.getPath('userData'), 'browser-profile') // 2026-08-30: 用 browser-profile（登记页登录态所在——AI 发布复用）
 const BU_CHECK_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_check.py')
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_check.py')
@@ -1045,7 +1045,7 @@ ipcMain.handle('fp:markLogin', async (_event, { accountId }) => {
 })
 
 // 2026-08-29: Browser Use 登记（bu_profile 扫码登录——Browser Use 专用登录态）
-const BU_PROFILE_DIR = process.env.BU_PROFILE || 'D:/bu_profile'
+const BU_PROFILE_DIR = process.env.BU_PROFILE || path.join(app.getPath('userData'), 'browser-profile')
 ipcMain.handle('bu:open', async () => {
   try {
     const { spawn } = require('child_process')
