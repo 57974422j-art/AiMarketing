@@ -577,6 +577,7 @@ export default function MyFingerprintPage() {
 
   /** 添加任务到队列 */
   // C2 发布闭环（2026-08-05）：自动导入 Agent 创建的待发布任务（AgentPublishTask → 队列）
+  // 2026-08-30: AgentPublishTask 已迁移 browser_use——不再自动导入指纹执行
   const importAgentTasks = async () => {
     try {
       const r = await fetch('/api/agent/publish-tasks?status=pending', { credentials: 'include' })
