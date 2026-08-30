@@ -178,10 +178,17 @@ async function getServerCookie() {
   try {
     const win = global.__mainWin
     if (!win || !win.webContents) return ''
-    const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc' // 2026-08-26: 显式定义（之前引用未定义→ReferenceError→空→done 401→任务永远pending）
-    const cookies = await win.webContents.session.cookies.get({ url: serverUrl })
+    const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc'
+    // 2026-08-30: 多域读——url 精确可能读不到（域/路径不匹配）——先精确后全量 fallback
+    let cookies = await win.webContents.session.cookies.get({ url: serverUrl }).catch(() => [])
+    if (!cookies.length) {
+      const all = await win.webContents.session.cookies.get({}).catch(() => [])
+      const tok = all.filter((c) => ['token', 'auth', 'sid'].includes(c.name))
+      cookies = tok.length ? tok : all.filter((c) => c.domain.includes('ai-niuma.cc'))
+    }
+    if (!cookies.length) { console.log('[getServerCookie] 空（读不到 token cookie——session/域问题）'); return '' }
     return cookies.map((c) => c.name + '=' + c.value).join('; ')
-  } catch { return '' }
+  } catch (e) { console.error('[getServerCookie] 异常:', e?.message || e); return '' }
 }
 
 // 2026-08-26: 启动检查——有未完成任务（发布/视频）先弹窗提示，用户确认"继续执行"才开轮询（防止启动自动执行/任务没完成被忽略）
