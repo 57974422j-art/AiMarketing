@@ -29,8 +29,21 @@ def find_chrome():
         if os.path.exists(c): return c
     return None
 
+def kill_chrome():
+    """2026-08-30: 发布前杀系统 Chrome（释放 Cookies 独占锁——否则 WinError 32 同步失败）"""
+    try:
+        if os.name == 'nt':
+            os.system('taskkill /F /IM chrome.exe >nul 2>&1')
+            import time; time.sleep(2)
+            print('KILL_CHROME: 系统 Chrome 已关闭（释放 Cookies 锁——发布完成后可重新打开）')
+        else:
+            os.system('pkill -f chrome 2>/dev/null; sleep 1')
+    except Exception as e:
+        print('KILL_CHROME_FAIL:', str(e)[:80])
+
 def sync_system_login(profile):
-    """2026-08-30: 同步系统 Chrome 登录态 → bu_profile（每次执行前——用日常 Chrome 登录态——不用 bu_profile 单独重登）"""
+    """2026-08-30: 同步系统 Chrome 登录态 → bu_profile（每次执行前——先杀 Chrome 释放锁——用日常登录态）"""
+    kill_chrome()
     try:
         sys_default = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data', 'Default')
         sys_ck = os.path.join(sys_default, 'Network', 'Cookies')
