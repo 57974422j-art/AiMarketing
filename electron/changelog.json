@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.0.83",
+    "date": "2026-08-30",
+    "title": "执行器诊断日志",
+    "items": [
+      "执行器启动日志 + getServerCookie 空日志（重启可确认 82 main.js 加载/定位不捡任务）"
+    ]
+  },
+  {
     "version": "1.0.82",
     "date": "2026-08-29",
     "title": "Browser Use 全链路修复（登录态保持）",
