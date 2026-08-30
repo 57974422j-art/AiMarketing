@@ -1664,13 +1664,15 @@ function AgentPageInner() {
     } catch {}
   }
 
-  // 2026-08-30: 清理今日任务（按钮）——清今天所有 pending/executing 的 AgentBrowserTask
+  // 2026-08-30: 清会话按钮——清聊天记录（messages + 会话 localStorage）（用户原意：清历史记录）
   const clearTodayTasks = async () => {
     try {
-      const r = await fetch('/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'clear-today' }) }).then(r => r.json())
-      setClearMsg(r.success ? '已清理 ' + (r.cleared || 0) + ' 条今日任务' : ('清理失败：' + (r.message || '')))
-      setTimeout(() => setClearMsg(''), 4000)
-    } catch { setClearMsg('清理失败'); setTimeout(() => setClearMsg(''), 4000) }
+      setMessages([])
+      try { localStorage.removeItem('agent_session_' + (sessionId || '')); localStorage.removeItem('agent_messages') } catch {}
+      if (sessionId) { try { await fetch('/api/agent/session/' + sessionId, { method: 'DELETE' }).catch(() => {}) } catch {} }
+      setClearMsg('已清空会话（聊天记录已清）')
+      setTimeout(() => setClearMsg(''), 3000)
+    } catch { setClearMsg('清理失败'); setTimeout(() => setClearMsg(''), 3000) }
   }
 
   const sendMessage = async (text?: string) => {
@@ -2815,7 +2817,7 @@ function AgentPageInner() {
                   </button>
                   <span className={`text-[7px] leading-none ${agentMode === 'standard' ? 'text-emerald-400' : 'text-purple-400'}`}>{agentMode === 'standard' ? '标准' : '自由'}</span>
                 </div>
-                <button onClick={clearTodayTasks} title="清理今日任务（清空今天所有 AI 浏览器任务）"
+                <button onClick={clearTodayTasks} title="清会话（清空聊天记录）"
                   className="shrink-0 w-6 h-6 rounded-md bg-white/5 hover:bg-red-500/20 text-gray-500 hover:text-red-400 flex items-center justify-center mr-0.5">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                 </button>
