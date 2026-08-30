@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.84",
+    "date": "2026-08-30",
+    "title": "修复执行器 cookie 读取",
+    "items": [
+      "getServerCookie 多域读+fallback（url精确读不到→全量找token——执行器cookie空→任务不捡的L3修复）",
+      "本地dev实证：执行器启动+轮询正常（渲染崩为测试环境GPU——用户正常开不崩）"
+    ]
+  },
+  {
     "version": "1.0.83",
     "date": "2026-08-30",
     "title": "执行器诊断日志",
