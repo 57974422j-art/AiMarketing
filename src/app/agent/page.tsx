@@ -1601,6 +1601,7 @@ function AgentPageInner() {
   // ── 功能提示标签（新手引导——点击填入输入框）──
   // 2026-08-28: 任务进度带（会话上方可折叠——从最近回复解析发布工作流步骤）
   const [todoOpen, setTodoOpen] = useState(true)
+  const [todoSkips, setTodoSkips] = useState<boolean[]>([]) // 2026-08-31: 任务进度勾选（勾掉=跳过该步——平台默认）
   const todoInfo = (() => {
     const lastAsst = [...messages].reverse().find((mm: any) => mm.role === 'assistant' && typeof mm.content === 'string')
     const txt = lastAsst ? String(lastAsst.content) : ''
@@ -1613,7 +1614,11 @@ function AgentPageInner() {
       { k: '④', label: '封面设计' },
       { k: '⑤', label: '确认发布（向客户端下达）' },
     ]
-    return { isPub, done: defs.map((d) => txt.indexOf(d.k) >= 0), defs }
+    // 2026-08-31: 当前步（最近回复里最大的标记 ①-⑤）——执行状态同步
+    let cur = -1
+    defs.forEach((d, di) => { if (txt.indexOf(d.k) >= 0) cur = Math.max(cur, di) })
+    if (todoSkips.length !== defs.length) setTodoSkips(defs.map(() => false))
+    return { isPub, done: defs.map((d) => txt.indexOf(d.k) >= 0), defs, current: cur }
   })()
   const FEATURE_TIPS = [
     '帮我发一条抖音视频', '帮我写一个小红书文案', '帮我生成一张产品海报',
