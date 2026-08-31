@@ -2167,6 +2167,18 @@ export async function POST(request: NextRequest) {
                 wfEarlyReply = '已创建 AI 浏览器发布任务（#' + buTQ.id + '）——客户端自动执行：打开抖音→上传→标题「' + titleQ.slice(0, 40) + '」→发布。'
                 PUBLISH_DRAFT.delete(uidW)
               } catch (eQp) { console.error('[快速发布] 异常:', eQp?.message || eQp); wfEarlyReply = '快速发布失败：' + String(eQp?.message || eQp).slice(0, 100) }
+            }
+            // 2026-08-31: 重试/重来——测试卡住时（'重来'重置回①/'重试'当前步）
+            if (/重来|重新开始|从头/.test(userMessage)) {
+              PUBLISH_DRAFT.delete(uidW)
+              prisma.agentMemory.deleteMany({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } }).catch(() => {})
+              wfEarlyReply = '已重置发布流程——请重新说「发布一条视频」或选视频。'
+            } else if (/重试|再来一次|重新试/.test(userMessage)) {
+              if (draftW?.step === 'frame' && draftW?.videoName) {
+                const frR = await executeToolCall('extract_video_frames', { videoName: draftW.videoName }, auth).catch(() => '')
+                if (String(frR).startsWith('FRAMES_OK:')) { try { const pR = JSON.parse(String(frR).slice(10)); draftW.frames = Array.isArray(pR.frames) ? pR.frames : []; draftW.visualDesc = pR.visualDesc || ''; wfEarlyReply = '已重试抽帧——' + draftW.frames.map((f: any, i: number) => '![' + (i + 1) + '](' + String(typeof f === 'string' ? f : (f?.url || '')).trim() + ')  ').join('') + '回复编号选帧。' } catch {} }
+                else wfEarlyReply = '重试抽帧失败——请回「重来」重置。'
+              } else wfEarlyReply = '重试当前步——' + (draftW?.step === 'abc' ? '回复 A/B/C 继续。' : draftW?.step === 'title' ? '回复编号选标题。' : '回复「重来」重置或继续操作。')
             } else if (/取消发布|不发了|放弃/.test(userMessage)) {
               PUBLISH_DRAFT.delete(uidW)
               wfEarlyReply = '已取消发布草稿。'
@@ -2182,7 +2194,9 @@ export async function POST(request: NextRequest) {
                   ? 'WF_JSON:' + JSON.stringify({ step: 'select_video', videos: vids.map((v: string) => ({ name: v, url: '/api/storage/file?userId=' + (auth?.userId || 0) + '&name=' + v })), hint: '选视频：回复编号/文件名，或 C 全默认直接发（勾掉自定义=平台默认）' })
                   : '仓库暂无视频——请先上传视频（个人仓库），或提供视频文件名（如“发布 xx.mp4 到抖音”）。'
                 PUBLISH_DRAFT.set(uidW, { step: 'pick', wf2: { step: 'select_video', chain: [{ t: 'select_video', at: new Date().toISOString() }] } })
-                prisma.agentMemory.upsert({ where: { userId_content: { userId: String(uidW), content: 'pub_draft' } }, create: { userId: String(uidW), content: JSON.stringify({ videoName: vfNameW, step: 'pick', wf2: { step: 'select_video' } }), tags: 'pub_draft', salience: 0.5 }, update: { content: JSON.stringify({ videoName: vfNameW, step: 'pick', wf2: { step: 'select_video' } }) } }).catch(() => {})
+                prisma.agentMemory.findFirst({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } }).then((em) => em
+                  ? prisma.agentMemory.update({ where: { id: em.id }, data: { content: JSON.stringify({ videoName: vfNameW, step: 'pick', wf2: { step: 'select_video' } }) } })
+                  : prisma.agentMemory.create({ data: { userId: String(uidW), content: JSON.stringify({ videoName: vfNameW, step: 'pick', wf2: { step: 'select_video' } }), tags: 'pub_draft', salience: 0.5 } })).catch(() => {})
               } else {
                 console.log('[发布工作流] ①抽帧:', vfNameW)
                 const frW = await executeToolCall('extract_video_frames', { videoName: vfNameW }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
@@ -2214,8 +2228,10 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                   wfEarlyReply = '已选 ' + vPick + '——封面/标题/标签：A 我推荐 / B 你的文案 / C 全默认直接发（回复 A/B/C，C 直接发）'
                 } else wfEarlyReply = '编号无效，回复 1-' + vidsP.length + ' 或文件名。'
               } else if (/^[A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm)$/i.test(userMessage.trim())) {
-                draftW.videoName = userMessage.trim(); draftW.step = 'abc'
-                wfEarlyReply = '已选 ' + draftW.videoName + '——A 我推荐 / B 你的文案 / C 全默认直接发（回复 A/B/C）'
+                draftW.videoName = userMessage.trim()
+                // 2026-08-31: 平台最后确认（“发布一条视频”无平台→先问）
+                if (!draftW.platform) { draftW.step = 'plat'; wfEarlyReply = '发到哪个平台？回复 1 抖音 / 2 小红书 / 3 微博 / 4 B站（回复编号）' }
+                else { draftW.step = 'abc'; wfEarlyReply = '已选 ' + draftW.videoName + '（' + (draftW.platform || '抖音') + '）——A 我推荐 / B 你的文案 / C 全默认直接发（回复 A/B/C）' }
               } else if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发/.test(userMessage)) {
                 // 2026-08-31: pick 阶段回 C → 直接建任务（不再两轮）
                 const lstC = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
@@ -2227,6 +2243,12 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                 } else wfEarlyReply = '仓库暂无视频，请先上传。'
                 PUBLISH_DRAFT.delete(uidW)
               } else wfEarlyReply = '回复编号 1-5 选视频，或 C 全默认直接发。'
+            } else if (draftW.step === 'plat') {
+              // 平台确认：1 抖音 / 2 小红书 / 3 微博 / 4 B站
+              const platMap2: Record<string, string> = { '1': 'douyin', '2': 'xiaohongshu', '3': 'weibo', '4': 'bilibili' }
+              const pk = userMessage.trim()
+              if (platMap2[pk]) { draftW.platform = platMap2[pk]; draftW.step = 'abc'; wfEarlyReply = '已选平台（' + ({ douyin: '抖音', xiaohongshu: '小红书', weibo: '微博', bilibili: 'B站' } as Record<string, string>)[draftW.platform] + '）——A 我推荐 / B 你的文案 / C 全默认（回复 A/B/C）' }
+              else wfEarlyReply = '回复 1 抖音 / 2 小红书 / 3 微博 / 4 B站。'
             } else if (draftW.step === 'abc') {
               if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发|跳过/.test(userMessage)) {
                 ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = draftW.videoName || ''
