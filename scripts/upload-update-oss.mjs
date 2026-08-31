@@ -44,6 +44,12 @@ const main = async () => {
     .replace('url: ' + exeName, 'url: ' + OSS_URL + '/' + exeName)
     .replace('path: ' + exeName, 'path: ' + OSS_URL + '/' + exeName)
   fs.writeFileSync(path.join(fromDir, 'latest-oss.yml'), newYml)
+  // 2026-08-31: 自动更新 latest.yml（检查走服务器——下载走 OSS）——服务器一条命令完成
+  try {
+    fs.copyFileSync(path.join(fromDir, 'latest-oss.yml'), path.join(fromDir, 'latest.yml'))
+    console.log('✅ 已自动更新 ' + fromDir + '/latest.yml（url 指向 OSS）')
+    console.log('   下一步：cp ' + fromDir + '/latest.yml .next/standalone/public/updates/latest.yml && pm2 restart aimarketing')
+  } catch (e) { console.log('⚠️ 自动更新 latest.yml 失败（手动 cp）:', e.message) }
   console.log('✅ 已上传 OSS updates/' + exeName + ' + blockmap')
   console.log('✅ 服务器版 latest.yml → dist-rel/latest-oss.yml（检查走服务器——url 指向 OSS）')
   console.log('   url: ' + OSS_URL + '/' + exeName)
