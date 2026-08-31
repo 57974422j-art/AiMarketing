@@ -2156,9 +2156,10 @@ export async function POST(request: NextRequest) {
                 const lstTxt = String(lstR || '')
                 const vids = Array.from(new Set((lstTxt.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/gi) || []))).slice(0, 5)
                 wfEarlyReply = vids.length
-                  ? '你的个人仓库有 ' + vids.length + ' 条视频，发哪一条？' + '\n' + '\n' + vids.map((v: string, i2: number) => (i2 + 1) + '. ' + v).join('\n') + '\n' + '\n' + '回复编号或文件名。'
+                  // 2026-08-31 v2: 列视频返回 JSON（前端卡片渲染）+ 思维链
+                  ? 'WF_JSON:' + JSON.stringify({ step: 'select_video', videos: vids.map((v: string) => ({ name: v, url: '/api/storage/file?userId=' + (auth?.userId || 0) + '&name=' + v })), hint: '选视频：回复编号/文件名，或 C 全默认直接发（勾掉自定义=平台默认）' })
                   : '仓库暂无视频——请先上传视频（个人仓库），或提供视频文件名（如“发布 xx.mp4 到抖音”）。'
-                PUBLISH_DRAFT.set(uidW, { step: 'pick' })
+                PUBLISH_DRAFT.set(uidW, { step: 'pick', wf2: { step: 'select_video', chain: [{ t: 'select_video', at: new Date().toISOString() }] } })
               } else {
                 console.log('[发布工作流] ①抽帧:', vfNameW)
                 const frW = await executeToolCall('extract_video_frames', { videoName: vfNameW }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
