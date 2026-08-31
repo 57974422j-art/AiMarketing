@@ -2483,106 +2483,6 @@ function AgentPageInner() {
               <div className="flex-1 flex flex-col justify-end space-y-3 pt-3">
 
                 {/* 附件按钮 */}
-                <button onClick={() => fileInputRef.current?.click()}
-                  className="shrink-0 w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-500 hover:text-gray-300 transition">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
-                </button>
-                                {/* 2026-08-21 日历键（输入框内，上传前，同风格）：只显示日期，点击开月历回档 */}
-                <div className="relative shrink-0">
-                  <button onClick={() => { setCalOpen(o => !o); if (!calOpen) loadCalendar() }}
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold transition ${calOpen ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10'}`}
-                    title="日历·历史会话">{new Date().getDate()}</button>
-                  {calOpen && createPortal(
-                    <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[80] w-[680px] max-w-[94vw] max-h-[85vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#14141c]/97 backdrop-blur-xl shadow-2xl p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <button onClick={() => setCalM(m => (m === 0 ? (setCalY(y => y - 1), 11) : m - 1))} className="px-2 py-1 rounded bg-white/5 text-gray-400 text-xs hover:bg-white/10">‹</button>
-                        <span className="text-sm font-semibold text-gray-200">{calY} 年 {calM + 1} 月</span>
-                        <button onClick={() => setCalM(m => (m === 11 ? (setCalY(y => y + 1), 0) : m + 1))} className="px-2 py-1 rounded bg-white/5 text-gray-400 text-xs hover:bg-white/10">›</button>
-                      </div>
-                      <div className="grid grid-cols-7 gap-1 text-center mb-1">
-                        {['日', '一', '二', '三', '四', '五', '六'].map(d => <span key={d} className="text-[9px] text-gray-600">{d}</span>)}
-                      </div>
-                      <div className="grid grid-cols-7 gap-1">
-                      {(() => {
-                        const first = new Date(calY, calM, 1).getDay()
-                        const days = new Date(calY, calM + 1, 0).getDate()
-                        const cells = []
-                        for (let i = 0; i < first; i++) cells.push(<div key={'b' + i} />)
-                        for (let d = 1; d <= days; d++) {
-                          const ds = calY + '-' + String(calM + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0')
-                          const has = (calData[ds] || []).length
-                          const isToday = ds === todayStr()
-                          const dayFav = (calData[ds] || []).every((s: any) => s.favorite)
-                          cells.push(
-                            <div key={d} className={`relative rounded-lg border overflow-hidden transition-transform duration-150 hover:scale-105 ${isToday ? 'border-amber-500/50 bg-amber-500/10' : has ? 'border-white/15 bg-white/[0.06] hover:bg-white/10' : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.05]'}`}>
-                              <button onClick={() => openCalDay(ds)} className={`w-full h-8 flex items-center justify-center text-sm ${isToday ? 'text-amber-300 font-bold' : has ? 'text-gray-100 font-medium' : 'text-gray-500'}`}>{d}</button>
-                              <button onClick={() => { const list = (calData[ds] || []); list.forEach((s: any) => toggleFav(s.id, !dayFav)) }}
-                                className={`absolute top-0 right-0 text-[10px] px-1 ${dayFav && has ? 'text-amber-400' : 'text-gray-700 hover:text-amber-400'}`}>★</button>
-                            </div>
-                          )
-                        }
-                        return cells
-                      })()}
-                      </div>
-                      {calDay && (
-                        <div className="mt-2 border-t border-white/10 pt-2 max-h-40 overflow-y-auto space-y-1">
-                          <p className="text-[10px] text-gray-500">{calDay} 会话（{((calData[calDay] || []).length)}）</p>
-                          {(calData[calDay] || []).map((s: any) => (
-                            <div key={s.id} className="flex items-center gap-2 rounded-lg bg-white/[0.04] px-2 py-1.5">
-                              <button onClick={() => loadSessionByDate(s.id)} className="flex-1 text-left text-[11px] text-gray-200 truncate hover:text-amber-300">{s.title || ('会话 #' + s.id)} <span className="text-gray-600">({s.msgCount}条)</span></button>
-                              <button onClick={() => toggleFav(s.id, !s.favorite)} className={`text-xs ${s.favorite ? 'text-amber-400' : 'text-gray-600 hover:text-amber-400'}`}>★</button>
-                            </div>
-                          ))}
-                          {!(calData[calDay] || []).length && <p className="text-[10px] text-gray-600">当天无会话</p>}
-                        </div>
-                      )}
-                      <div className="mt-2 border-t border-white/10 pt-2">
-                        <p className="text-[10px] text-gray-500 mb-1">⭐ 收藏的会话</p>
-                        {calFavs.map((f: any) => (
-                          <div key={f.id} className="flex items-center gap-2 py-1">
-                            <button onClick={() => loadSessionByDate(f.id)} className="flex-1 text-left text-[11px] text-amber-300/90 truncate">{f.title || ('会话 #' + f.id)} <span className="text-gray-600">{f.date}</span></button>
-                          </div>
-                        ))}
-                        {!calFavs.length && <p className="text-[10px] text-gray-600">暂无收藏</p>}
-                      </div>
-                    </div>, document.body)}
-                </div>
-                <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFilePick} multiple />
-                {interimText && (
-                  <div className="px-3 py-1.5 mb-1 text-sm text-emerald-300/90 bg-emerald-500/5 rounded-lg border border-emerald-500/20">
-                    🎤 识别中：{interimText}
-                  </div>
-                )}
-                <div className="flex flex-col items-center gap-1 shrink-0 mr-1">
-                  <button onClick={() => setAgentMode(agentMode === 'standard' ? 'free' : 'standard')}
-                    title={agentMode === 'standard' ? '标准模式（发布走状态机防编）——点击切自由' : '自由模式（AI 完全发挥）——点击切标准'}
-                    className={`w-9 h-5 rounded-full relative transition ${agentMode === 'standard' ? 'bg-emerald-500/60' : 'bg-purple-500/60'}`}>
-                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${agentMode === 'standard' ? 'left-0.5' : 'left-[18px]'}`} />
-                  </button>
-                  <span className={`text-[7px] leading-none ${agentMode === 'standard' ? 'text-emerald-400' : 'text-purple-400'}`}>{agentMode === 'standard' ? '标准' : '自由'}</span>
-                </div>
-                <button onClick={clearTodayTasks} title="清会话（清空聊天记录）"
-                  className="shrink-0 w-6 h-6 rounded-md bg-white/5 hover:bg-red-500/20 text-gray-500 hover:text-red-400 flex items-center justify-center mr-0.5">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                </button>
-                {/* 2026-08-28: 任务进度带（发布工作流——可折叠） */}
-                {todoInfo.isPub && (
-                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02]">
-                    <button onClick={() => setTodoOpen(!todoOpen)} className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] text-gray-400 hover:text-gray-200">
-                      <span>📋 任务进度（发布工作流）</span><span>{todoOpen ? '收起 ▲' : '展开 ▼'}</span>
-                    </button>
-                    {todoOpen && (
-                      <div className="px-2.5 pb-2 flex flex-col gap-1">
-                        {todoInfo.defs.map((d: any, i: number) => (
-                          <div key={i} className="flex items-center gap-1.5 text-[9px]">
-                            <span className={`w-3 h-3 rounded-full flex items-center justify-center text-[8px] ${todoInfo.done[i] ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/[0.06] text-gray-500'}`}>{todoInfo.done[i] ? '✓' : ''}</span>
-                            <span className={todoInfo.done[i] ? 'text-emerald-300/80' : 'text-gray-500'}>{d.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
                 {messages.map(msg => (
               <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
                 <div className={`flex items-start gap-2 max-w-[88%] sm:max-w-[75%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
@@ -2841,7 +2741,107 @@ function AgentPageInner() {
                   <p className="text-[8px] text-gray-700 px-2.5 pt-1">↑↓ 选择 · Enter 确认 · Esc 取消</p>
                 </div>
               )}
-              <div className="relative flex items-end gap-1.5 bg-white/[0.03] border border-white/[0.06] rounded-2xl px-2 sm:px-3 py-1.5 focus-within:border-emerald-500/30 transition-colors">                <textarea ref={inputRef} value={input}
+                {/* 2026-08-28: 任务进度带（发布工作流——可折叠） */}
+                {todoInfo.isPub && (
+                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                    <button onClick={() => setTodoOpen(!todoOpen)} className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] text-gray-400 hover:text-gray-200">
+                      <span>📋 任务进度（发布工作流）</span><span>{todoOpen ? '收起 ▲' : '展开 ▼'}</span>
+                    </button>
+                    {todoOpen && (
+                      <div className="px-2.5 pb-2 flex flex-col gap-1">
+                        {todoInfo.defs.map((d: any, i: number) => (
+                          <div key={i} className="flex items-center gap-1.5 text-[9px]">
+                            <span className={`w-3 h-3 rounded-full flex items-center justify-center text-[8px] ${todoInfo.done[i] ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/[0.06] text-gray-500'}`}>{todoInfo.done[i] ? '✓' : ''}</span>
+                            <span className={todoInfo.done[i] ? 'text-emerald-300/80' : 'text-gray-500'}>{d.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              <div className="relative flex items-end gap-1.5 bg-white/[0.03] border border-white/[0.06] rounded-2xl px-2 sm:px-3 py-1.5 focus-within:border-emerald-500/30 transition-colors">
+                <button onClick={() => fileInputRef.current?.click()}
+                  className="shrink-0 w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-500 hover:text-gray-300 transition">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                </button>
+                                {/* 2026-08-21 日历键（输入框内，上传前，同风格）：只显示日期，点击开月历回档 */}
+                <div className="relative shrink-0">
+                  <button onClick={() => { setCalOpen(o => !o); if (!calOpen) loadCalendar() }}
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold transition ${calOpen ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10'}`}
+                    title="日历·历史会话">{new Date().getDate()}</button>
+                  {calOpen && createPortal(
+                    <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[80] w-[680px] max-w-[94vw] max-h-[85vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#14141c]/97 backdrop-blur-xl shadow-2xl p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <button onClick={() => setCalM(m => (m === 0 ? (setCalY(y => y - 1), 11) : m - 1))} className="px-2 py-1 rounded bg-white/5 text-gray-400 text-xs hover:bg-white/10">‹</button>
+                        <span className="text-sm font-semibold text-gray-200">{calY} 年 {calM + 1} 月</span>
+                        <button onClick={() => setCalM(m => (m === 11 ? (setCalY(y => y + 1), 0) : m + 1))} className="px-2 py-1 rounded bg-white/5 text-gray-400 text-xs hover:bg-white/10">›</button>
+                      </div>
+                      <div className="grid grid-cols-7 gap-1 text-center mb-1">
+                        {['日', '一', '二', '三', '四', '五', '六'].map(d => <span key={d} className="text-[9px] text-gray-600">{d}</span>)}
+                      </div>
+                      <div className="grid grid-cols-7 gap-1">
+                      {(() => {
+                        const first = new Date(calY, calM, 1).getDay()
+                        const days = new Date(calY, calM + 1, 0).getDate()
+                        const cells = []
+                        for (let i = 0; i < first; i++) cells.push(<div key={'b' + i} />)
+                        for (let d = 1; d <= days; d++) {
+                          const ds = calY + '-' + String(calM + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0')
+                          const has = (calData[ds] || []).length
+                          const isToday = ds === todayStr()
+                          const dayFav = (calData[ds] || []).every((s: any) => s.favorite)
+                          cells.push(
+                            <div key={d} className={`relative rounded-lg border overflow-hidden transition-transform duration-150 hover:scale-105 ${isToday ? 'border-amber-500/50 bg-amber-500/10' : has ? 'border-white/15 bg-white/[0.06] hover:bg-white/10' : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.05]'}`}>
+                              <button onClick={() => openCalDay(ds)} className={`w-full h-8 flex items-center justify-center text-sm ${isToday ? 'text-amber-300 font-bold' : has ? 'text-gray-100 font-medium' : 'text-gray-500'}`}>{d}</button>
+                              <button onClick={() => { const list = (calData[ds] || []); list.forEach((s: any) => toggleFav(s.id, !dayFav)) }}
+                                className={`absolute top-0 right-0 text-[10px] px-1 ${dayFav && has ? 'text-amber-400' : 'text-gray-700 hover:text-amber-400'}`}>★</button>
+                            </div>
+                          )
+                        }
+                        return cells
+                      })()}
+                      </div>
+                      {calDay && (
+                        <div className="mt-2 border-t border-white/10 pt-2 max-h-40 overflow-y-auto space-y-1">
+                          <p className="text-[10px] text-gray-500">{calDay} 会话（{((calData[calDay] || []).length)}）</p>
+                          {(calData[calDay] || []).map((s: any) => (
+                            <div key={s.id} className="flex items-center gap-2 rounded-lg bg-white/[0.04] px-2 py-1.5">
+                              <button onClick={() => loadSessionByDate(s.id)} className="flex-1 text-left text-[11px] text-gray-200 truncate hover:text-amber-300">{s.title || ('会话 #' + s.id)} <span className="text-gray-600">({s.msgCount}条)</span></button>
+                              <button onClick={() => toggleFav(s.id, !s.favorite)} className={`text-xs ${s.favorite ? 'text-amber-400' : 'text-gray-600 hover:text-amber-400'}`}>★</button>
+                            </div>
+                          ))}
+                          {!(calData[calDay] || []).length && <p className="text-[10px] text-gray-600">当天无会话</p>}
+                        </div>
+                      )}
+                      <div className="mt-2 border-t border-white/10 pt-2">
+                        <p className="text-[10px] text-gray-500 mb-1">⭐ 收藏的会话</p>
+                        {calFavs.map((f: any) => (
+                          <div key={f.id} className="flex items-center gap-2 py-1">
+                            <button onClick={() => loadSessionByDate(f.id)} className="flex-1 text-left text-[11px] text-amber-300/90 truncate">{f.title || ('会话 #' + f.id)} <span className="text-gray-600">{f.date}</span></button>
+                          </div>
+                        ))}
+                        {!calFavs.length && <p className="text-[10px] text-gray-600">暂无收藏</p>}
+                      </div>
+                    </div>, document.body)}
+                </div>
+                <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFilePick} multiple />
+                {interimText && (
+                  <div className="px-3 py-1.5 mb-1 text-sm text-emerald-300/90 bg-emerald-500/5 rounded-lg border border-emerald-500/20">
+                    🎤 识别中：{interimText}
+                  </div>
+                )}
+                <div className="flex flex-col items-center gap-1 shrink-0 mr-1">
+                  <button onClick={() => setAgentMode(agentMode === 'standard' ? 'free' : 'standard')}
+                    title={agentMode === 'standard' ? '标准模式（发布走状态机防编）——点击切自由' : '自由模式（AI 完全发挥）——点击切标准'}
+                    className={`w-9 h-5 rounded-full relative transition ${agentMode === 'standard' ? 'bg-emerald-500/60' : 'bg-purple-500/60'}`}>
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${agentMode === 'standard' ? 'left-0.5' : 'left-[18px]'}`} />
+                  </button>
+                  <span className={`text-[7px] leading-none ${agentMode === 'standard' ? 'text-emerald-400' : 'text-purple-400'}`}>{agentMode === 'standard' ? '标准' : '自由'}</span>
+                </div>
+                <button onClick={clearTodayTasks} title="清会话（清空聊天记录）"
+                  className="shrink-0 w-6 h-6 rounded-md bg-white/5 hover:bg-red-500/20 text-gray-500 hover:text-red-400 flex items-center justify-center mr-0.5">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>                <textarea ref={inputRef} value={input}
                   onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
                   placeholder="输入需求，或输入 / 唤起命令..."
                   rows={1}
