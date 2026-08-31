@@ -1889,6 +1889,21 @@ function AgentPageInner() {
     if (content.startsWith('WF_JSON:')) {
       try {
         const wj = JSON.parse(content.slice(8))
+        if (wj.step === 'prep' && Array.isArray(wj.frames)) {
+          return (
+            <div className="mt-1 space-y-1">
+              <p className="text-[9px] text-gray-400">🎞 已抽帧——选封面帧（点击切片选）：</p>
+              <div className="grid grid-cols-4 gap-1">
+                {wj.frames.map((v: any, i: number) => (
+                  <button key={i} onClick={() => sendMessage(String(i + 1))} className="rounded-lg overflow-hidden border border-white/[0.08] hover:border-emerald-500/50 transition">
+                    <img src={v.url} alt={'帧' + (i + 1)} className="w-full h-16 object-cover" />
+                    <span className="block text-center text-[8px] text-gray-400 py-0.5">{i + 1}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )
+        }
         if (wj.step === 'select_video' && Array.isArray(wj.videos)) {
           return (
             <div className="mt-1 space-y-1">
