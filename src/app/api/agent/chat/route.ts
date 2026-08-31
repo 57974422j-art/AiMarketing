@@ -2294,6 +2294,13 @@ ${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
               if (/确认|可以|好|行|发/.test(userMessage.trim())) {
                                 // ⑤ 建任务（browser_use AI 浏览器发布——opencli 链已清除 2026-08-30）
                 const wfA: any = { platform: 'douyin', videoName: draftW.videoName, caption: draftW.title || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
+                // 2026-08-31 v2③: 封面生成（文生图替代——i2i 百炼 400 待研究——框描述+标题 → 封面）
+                if (!wfA.coverUrl && draftW.visualDesc) {
+                  try {
+                    const covR = await dashscopeGenerateImageAsync((draftW.visualDesc.slice(0, 200) + '，营销封面风格，标题文字：' + (wfA.caption || '')).trim(), '768*1344').catch(() => null)
+                    if (covR?.url) { wfA.coverUrl = covR.url; draftW.coverUrl = covR.url }
+                  } catch {}
+                }
                 let fileUrls: string[] = []
                 try {
                   const vRel = String(wfA.videoName || '')
