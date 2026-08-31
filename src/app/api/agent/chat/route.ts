@@ -2277,7 +2277,10 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                   if (frA2.startsWith('FRAMES_OK:')) {
                     try { const pA = JSON.parse(frA2.slice(10)); draftW.frames = Array.isArray(pA.frames) ? pA.frames : []; draftW.visualDesc = pA.visualDesc || '' } catch {}
                   }
-                  // 2026-08-31: 抽帧后转 OSS（放个人仓库——链接保险——前端必显示，不依赖 /api/frames/）
+                }
+                if (draftW.frames?.length) {
+                  draftW.step = 'frame'
+                  // 2026-08-31: prep 前统一转 OSS（无论新旧 frames——帧图放个人仓库——链接保险）
                   const newFrames: any[] = []
                   for (const frIt of (draftW.frames || [])) {
                     let fp = String(typeof frIt === 'string' ? frIt : (frIt?.url || ''))
@@ -2289,14 +2292,12 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                         const fKey = 'storage/' + auth?.userId + '/frame_' + Date.now() + '_' + path.basename(fRel)
                         await putObject(fKey, fs.readFileSync(fFp), 'image/jpeg')
                         fp = 'https://ai-niuma.cc/api/storage/file?name=' + fKey.replace('storage/' + auth?.userId + '/', '') + '&persist=1'
+                        console.log('[prep] 帧转 OSS:', fKey)
                       }
                     } catch {}
                     newFrames.push(typeof frIt === 'string' ? fp : { ...frIt, url: fp })
                   }
                   draftW.frames = newFrames
-                }
-                if (draftW.frames?.length) {
-                  draftW.step = 'frame'
                   // 2026-08-31 A: prep 步 WF_JSON（切片数据——前端渲染+面板亮①）
                   wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'prep', frames: draftW.frames.map((f: any, i: number) => ({ name: String(typeof f === 'string' ? f : (f?.url || '')), url: String(typeof f === 'string' ? f : (f?.url || '')).trim().startsWith('/') ? 'https://ai-niuma.cc' + String(typeof f === 'string' ? f : (f?.url || '')).trim() : String(typeof f === 'string' ? f : (f?.url || '')).trim() })), hint: 'A 推荐——已抽帧，选封面帧（点击切片选——回复编号 1-' + draftW.frames.length + ' 或换一批）' })
                 }
