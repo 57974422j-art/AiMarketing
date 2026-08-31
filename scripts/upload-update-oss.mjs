@@ -23,7 +23,8 @@ if (!ak || !sk) { console.error('OSS key 未配置（.env.local）'); process.ex
 const client = new OSS({ region, accessKeyId: ak, accessKeySecret: sk, bucket, authorizationV4: true })
 
 // 读 latest.yml 拿版本
-const yml = fs.readFileSync('dist-rel/latest.yml', 'utf8')
+const fromDir = process.argv[2] || 'dist-rel'
+const yml = fs.readFileSync(path.join(fromDir, 'latest.yml'), 'utf8')
 const ver = (yml.match(/^version:\s*(.+)$/m) || [])[1]?.trim()
 if (!ver) { console.error('latest.yml 无 version'); process.exit(1) }
 const exeName = `AI-Marketing-Setup-${ver}.exe`
@@ -36,13 +37,13 @@ const up = async (local, remote) => {
 }
 
 const main = async () => {
-  await up(path.join('dist-rel', exeName), exeName)
-  await up(path.join('dist-rel', blockName), blockName)
+  await up(path.join(fromDir, exeName), exeName)
+  await up(path.join(fromDir, blockName), blockName)
   // 生成服务器版 latest.yml（url 指向 OSS——下载走 OSS）
   const newYml = yml
     .replace('url: ' + exeName, 'url: ' + OSS_URL + '/' + exeName)
     .replace('path: ' + exeName, 'path: ' + OSS_URL + '/' + exeName)
-  fs.writeFileSync('dist-rel/latest-oss.yml', newYml)
+  fs.writeFileSync(path.join(fromDir, 'latest-oss.yml'), newYml)
   console.log('✅ 已上传 OSS updates/' + exeName + ' + blockmap')
   console.log('✅ 服务器版 latest.yml → dist-rel/latest-oss.yml（检查走服务器——url 指向 OSS）')
   console.log('   url: ' + OSS_URL + '/' + exeName)
