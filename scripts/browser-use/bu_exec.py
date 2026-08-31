@@ -86,6 +86,8 @@ async def main():
     ap.add_argument('--max-steps', type=int, default=15)
     args = ap.parse_args()
 
+    # 2026-08-31: 发布前杀 Chrome 释放 profile 锁（之前未调用——被占时 check_singleton 报“窗口未关闭”死锁）
+    kill_chrome()
     # SingletonLock 检查（登录态保持关键）
     lock_err = check_singleton(args.profile)
     if lock_err:

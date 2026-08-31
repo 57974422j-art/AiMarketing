@@ -462,7 +462,7 @@ async function checkBrowserTasks() {
         }
       } catch (eLg) { console.log('[browser_use] 登录态预检异常（继续执行）:', eLg?.message || eLg) }
       try {
-        const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', files.join(','), '--profile', BU_PROFILE]
+        const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', files.join(','), '--profile', BU_PROFILE, '--max-steps', '40']
         const { spawn } = require('child_process')
         // 2026-08-30: 失败重试（browser-use AgentOutput/LLM 偶发失败——重试 2 次不白跑）
         let out = { code: -2, so: '', se: 'not run' }

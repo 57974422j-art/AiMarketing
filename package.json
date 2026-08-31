@@ -83,6 +83,10 @@
         "to": "scripts/scrcpy"
       },
       {
+        "from": "scripts/browser-use",
+        "to": "scripts/browser-use"
+      },
+      {
         "from": "C:/Users/Administrator/AppData/Local/ms-playwright",
         "to": "ms-playwright",
         "filter": [

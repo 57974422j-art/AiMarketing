@@ -18,7 +18,7 @@ def sync_system_login(profile):
     except Exception as e:
         print('SYNC_FAIL:', str(e)[:100])
 
-PLATS = [('douyin', 'douyin.com'), ('xiaohongshu', 'xiaohongshu.com'), ('weibo', 'weibo.com'), ('bilibili', 'bilibili.com'), ('shipinhao', 'weixin.qq.com'), ('x', 'x.com')]
+PLATS = [('douyin', 'douyin.com'), ('xiaohongshu', 'xiaohongshu.com'), ('weibo', 'weibo.com'), ('bilibili', 'bilibili.com'), ('shipinhao', 'weixin.qq.com'), ('kuaishou', 'kuaishou.com'), ('x', 'x.com')]
 # sync_system_login(prof)  # 2026-08-31: 预检不覆盖（防死循环——bu_profile 自己的登录态优先）
 ck = os.path.join(prof, 'Default', 'Network', 'Cookies')
 if not os.path.exists(ck):

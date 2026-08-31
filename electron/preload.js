@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   browserBindMine: () => ipcRenderer.invoke('browser:bind-mine'),
   browserPublish: (payload) => ipcRenderer.invoke('browser:publish', payload),
   browserOpenUrl: (url) => ipcRenderer.invoke('browser:open-url', url),
+  // 2026-08-31: Browser Use 登记（bu_profile/browser-profile 登录）——之前未暴露按钮失效
+  buOpen: () => ipcRenderer.invoke('bu:open'),
+  buCheck: () => ipcRenderer.invoke('bu:check'),
 
   isElectron: true,
 

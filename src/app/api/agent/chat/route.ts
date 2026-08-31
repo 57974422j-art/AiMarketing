@@ -44,7 +44,13 @@ const prisma = new PrismaClient()
 // 2026-08-21: 发布抽帧暂存（userId → 帧列表，"用第N帧"取用）
 const frameStore = new Map<number, { frames: { idx: number; url: string }[]; videoName: string }>()
 // 2026-08-29: 生图异步化——提交后立即返回，后台轮询+转存（避免长请求被网络层掐断"网络连接失败"）
-const pendingImages = new Map<number, { taskId: string; ts: number; url?: string; fileName?: string; done: boolean }>()
+const pendingImages = new Map<number, { taskId: string; ts: number; url?: string; fileName?: stri              } else if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发/.test(userMessage)) {
+                // 2026-08-31: pick 阶段回 C → 直接建任务（不再两轮）
+                const lstC = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
+                const vqC = String(lstC || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
+                if (vqC) { ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = vqC[1]; wfEarlyReply = 'C 全默认——正在建任务...'; }
+                else wfEarlyReply = '仓库暂无视频，请先上传。'
+                PUBLISH_DRAFT.delete(uidW)done: boolean }>()
 
 const AGENT_TOOLS: ToolDefinition[] = [
   {
@@ -2134,7 +2140,7 @@ export async function POST(request: NextRequest) {
                   if (vFpQ) {
                     const vKeyQ = 'storage/' + auth?.userId + '/pub_' + Date.now() + '_' + vfNameW2
                     await putObject(vKeyQ, fs.readFileSync(vFpQ), 'video/mp4')
-                    fileUrlsQ.push('/api/storage/file?name=' + vKeyQ.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
+                    fileUrlsQ.push('https://ai-niuma.cc/api/storage/file?name=' + vKeyQ.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
                   }
                 } catch {}
                 const buTaskQ = '发布视频到抖音：先打开 https://creator.douyin.com/creator-micro/content/upload （如返回登录页说明未登录，直接告知结束），上传视频，标题：' + titleQ + '，用平台智能封面，然后点击发布'
@@ -2272,7 +2278,7 @@ ${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
                     const vBuf = fs.readFileSync(vFp)
                     const vKey = 'storage/' + auth?.userId + '/pub_' + Date.now() + '_' + vRel
                     await putObject(vKey, vBuf, 'video/mp4')
-                    fileUrls.push('/api/storage/file?name=' + vKey.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
+                    fileUrls.push('https://ai-niuma.cc/api/storage/file?name=' + vKey.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
                     console.log('[发布⑤] 视频已转 OSS:', vKey)
                   } else { console.log('[发布⑤] 视频本地未找到（可能已在 OSS）:', vRel) }
                 } catch (ePv: any) { console.error('[发布⑤] 视频转 OSS 失败:', ePv?.message || ePv) }
