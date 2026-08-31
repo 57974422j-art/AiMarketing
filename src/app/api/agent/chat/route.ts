@@ -2326,7 +2326,19 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                 const frTxt2 = String(frW2)
                 if (frTxt2.startsWith('FRAMES_OK:')) {
                   try { const p2 = JSON.parse(frTxt2.slice(10)); draftW.frames = Array.isArray(p2.frames) ? p2.frames : []; draftW.visualDesc = p2.visualDesc || '' } catch {}
-                  wfEarlyReply = '① 已重新抽帧（' + (draftW.frames?.length || 4) + ' 帧）请选帧作封面基础，回复编号 1-4，或“换一批”重抽。'
+                  // 2026-08-31: 换一批也转 OSS（帧图保险——不再 /api/frames/）
+                  const nF2: any[] = []
+                  for (const fr2 of (draftW.frames || [])) {
+                    let fp2 = String(typeof fr2 === 'string' ? fr2 : (fr2?.url || ''))
+                    try {
+                      const fRel2 = fp2.replace('/api/frames/', '')
+                      const fFp2 = [path.join(pubRoot, 'frames', fRel2), path.join(pubRoot, 'frames', String(auth?.userId || 0), fRel2)].find((x: string) => fs.existsSync(x))
+                      if (fFp2) { const fK2 = 'storage/' + auth?.userId + '/frame_' + Date.now() + '_' + path.basename(fRel2); await putObject(fK2, fs.readFileSync(fFp2), 'image/jpeg'); fp2 = 'https://ai-niuma.cc/api/storage/file?name=' + fK2.replace('storage/' + auth?.userId + '/', '') + '&persist=1' }
+                    } catch {}
+                    nF2.push(typeof fr2 === 'string' ? fp2 : { ...fr2, url: fp2 })
+                  }
+                  draftW.frames = nF2
+                  wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'prep', frames: draftW.frames.map((f: any, i: number) => ({ name: String(typeof f === 'string' ? f : (f?.url || '')), url: String(typeof f === 'string' ? f : (f?.url || '')).trim() })), hint: '已重新抽帧——选封面帧（回复编号 1-' + (draftW.frames?.length || 4) + '）' })
                 } else wfEarlyReply = '重抽失败，请重试。'
               } else {
               const pickW = userMessage.trim().match(/^([1-4])$/);
