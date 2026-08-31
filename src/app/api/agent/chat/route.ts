@@ -2117,7 +2117,14 @@ export async function POST(request: NextRequest) {
           // 2026-08-27 发布工作流（多轮确认，草稿 Map 持久）——①抽帧选帧 → ②标题 → ③话题 → ④封面 → ⑤确认发布
           try {
             const uidW = auth?.userId || 0
-            const draftW = PUBLISH_DRAFT.get(uidW)
+            let draftW = PUBLISH_DRAFT.get(uidW)
+            // 2026-08-31: 草稿持久化——内存无时从 AgentMemory 读（刷新/重启不丢）
+            if (!draftW) {
+              try {
+                const dm = await prisma.agentMemory.findFirst({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } }, orderBy: { updatedAt: 'desc' } })
+                if (dm?.content) { try { draftW = JSON.parse(dm.content); PUBLISH_DRAFT.set(uidW, draftW) } catch {} }
+              } catch {}
+            }
             const vfMatchW = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
             const vfNameW = vfMatchW ? vfMatchW[1] : ''
             // 2026-08-30: 快速发布通道——用户“直接发/跳过/确认发布”→ 抽帧看画面→自动标题→直接建任务（跳过中间确认）
@@ -2175,6 +2182,7 @@ export async function POST(request: NextRequest) {
                   ? 'WF_JSON:' + JSON.stringify({ step: 'select_video', videos: vids.map((v: string) => ({ name: v, url: '/api/storage/file?userId=' + (auth?.userId || 0) + '&name=' + v })), hint: '选视频：回复编号/文件名，或 C 全默认直接发（勾掉自定义=平台默认）' })
                   : '仓库暂无视频——请先上传视频（个人仓库），或提供视频文件名（如“发布 xx.mp4 到抖音”）。'
                 PUBLISH_DRAFT.set(uidW, { step: 'pick', wf2: { step: 'select_video', chain: [{ t: 'select_video', at: new Date().toISOString() }] } })
+                prisma.agentMemory.upsert({ where: { userId_content: { userId: String(uidW), content: 'pub_draft' } }, create: { userId: String(uidW), content: JSON.stringify({ videoName: vfNameW, step: 'pick', wf2: { step: 'select_video' } }), tags: 'pub_draft', salience: 0.5 }, update: { content: JSON.stringify({ videoName: vfNameW, step: 'pick', wf2: { step: 'select_video' } }) } }).catch(() => {})
               } else {
                 console.log('[发布工作流] ①抽帧:', vfNameW)
                 const frW = await executeToolCall('extract_video_frames', { videoName: vfNameW }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
