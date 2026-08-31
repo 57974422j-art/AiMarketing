@@ -1384,7 +1384,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       try {
         const bt2 = await prisma.agentBrowserTask.findMany({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' }, take: 5 })
         if (!bt2.length) return 'PUBLISH_TASKS:暂无发布/浏览器任务。'
-        return 'PUBLISH_TASKS:' + bs + bs + bt2.map((t: any) => '#' + t.id + ' [' + (t.status || 'pending') + '] ' + String(t.task || '').slice(0, 50) + (t.error ? '（' + String(t.error).slice(0, 80) + '）' : '') + (t.result ? ' → ' + String(t.result).slice(0, 50) : '')).join(bs + bs)
+        return 'PUBLISH_TASKS:' + '\n' + '\n' + bt2.map((t: any) => '#' + t.id + ' [' + (t.status || 'pending') + '] ' + String(t.task || '').slice(0, 50) + (t.error ? '（' + String(t.error).slice(0, 80) + '）' : '') + (t.result ? ' → ' + String(t.result).slice(0, 50) : '')).join('\n')
       } catch (eQ: any) { return 'PUBLISH_TASKS_ERROR:' + String(eQ?.message || eQ).slice(0, 100) }
     }
 
@@ -2152,7 +2152,7 @@ export async function POST(request: NextRequest) {
                 const lstTxt = String(lstR || '')
                 const vids = (lstTxt.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/gi) || []).slice(0, 5)
                 wfEarlyReply = vids.length
-                  ? '你的个人仓库有 ' + vids.length + ' 条视频，发哪一条？' + bs + bs + vids.map((v: string, i2: number) => (i2 + 1) + '. ' + v).join(bs + bs) + bs + bs + '回复编号或文件名。'
+                  ? '你的个人仓库有 ' + vids.length + ' 条视频，发哪一条？' + '\n' + '\n' + vids.map((v: string, i2: number) => (i2 + 1) + '. ' + v).join('\n') + '\n' + '\n' + '回复编号或文件名。'
                   : '仓库暂无视频——请先上传视频（个人仓库），或提供视频文件名（如“发布 xx.mp4 到抖音”）。'
                 PUBLISH_DRAFT.set(uidW, { step: 'pick' })
               } else {
