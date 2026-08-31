@@ -29,7 +29,7 @@ const ver = (yml.match(/^version:\s*(.+)$/m) || [])[1]?.trim()
 if (!ver) { console.error('latest.yml 无 version'); process.exit(1) }
 const exeName = `AI-Marketing-Setup-${ver}.exe`
 const blockName = exeName + '.blockmap'
-const OSS_URL = `https://${bucket}.oss-${region}.aliyuncs.com/updates`
+const OSS_URL = `https://${bucket}.${region}.aliyuncs.com/updates`
 
 const up = async (local, remote) => {
   console.log(`上传 ${local} → updates/${remote} ...`)
