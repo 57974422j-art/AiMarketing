@@ -2755,7 +2755,8 @@ function AgentPageInner() {
                     {todoOpen && (
                       <div className="px-2.5 pb-2 flex flex-col gap-1">
                         {todoInfo.defs.map((d: any, i: number) => (
-                          <div key={i} className="flex items-center gap-1.5 text-[9px]">
+                          <div key={i} className={`flex items-center gap-1.5 text-[9px] ${todoInfo.current === i ? 'bg-emerald-500/10 rounded px-0.5' : ''}`}>
+                            <input type="checkbox" checked={!todoSkips[i]} onChange={() => { const ns = [...todoSkips]; ns[i] = !ns[i]; setTodoSkips(ns) }} className="w-2.5 h-2.5 accent-emerald-500" title="勾掉=跳过该步（平台默认）" />
                             <span className={`w-3 h-3 rounded-full flex items-center justify-center text-[8px] ${todoInfo.done[i] ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/[0.06] text-gray-500'}`}>{todoInfo.done[i] ? '✓' : ''}</span>
                             <span className={todoInfo.done[i] ? 'text-emerald-300/80' : 'text-gray-500'}>{d.label}</span>
                           </div>
