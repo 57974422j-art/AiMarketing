@@ -2093,7 +2093,7 @@ export async function POST(request: NextRequest) {
       let wfEarlyReply = '' // 2026-08-27 函数级（必须在 try 外，2119 reply 处读用）
       try {
 
-        const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到|发一条|发个视频|发条|帮我发|发个|直接发|快速发/.test(userMessage)
+        const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到|发一条|发个视频|发条|帮我发|发个|直接发|快速发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
         // 2026-08-30: 自由模式（mode=free）→ 状态机完全跳过——AI 自己调工具发挥（测试用）
