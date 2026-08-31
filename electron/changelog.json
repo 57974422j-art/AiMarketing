@@ -1,5 +1,18 @@
 [
   {
+    "version": "1.0.91",
+    "date": "2026-08-31",
+    "title": "AI 浏览器发布全链路修复版（含全部 review/security/探索修复）",
+    "items": [
+      "发布链路：视频完整 URL 传递 + download_file 文件名正确 + pick C 一步建任务",
+      "登录态：browser-profile 统一 + 预检真实（会话 cookie 有效期）+ 发布前杀 Chrome 释放锁",
+      "标准模式：ABC 状态机（C 全默认直接发）+ 快速通道 + 查发布状态改查 AI 浏览器任务",
+      "模型：qwen3.8-flash 主（use_thinking=False——browser-use 稳定）+ V4 兜底",
+      "安全：封面路径遍历防护 + bu IPC senderFrame 校验 + 清会话修复",
+      "多平台：快手预检补充 + max_steps 40 + BU_PYTHON fallback"
+    ]
+  },
+  {
     "version": "1.0.90",
     "date": "2026-08-31",
     "title": "发布链路 review 修复（90 含全部）",
