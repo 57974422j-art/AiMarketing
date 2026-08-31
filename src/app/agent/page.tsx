@@ -1616,7 +1616,10 @@ function AgentPageInner() {
     ]
     // 2026-08-31: 当前步（最近回复里最大的标记 ①-⑤）——执行状态同步
     let cur = -1
-    defs.forEach((d, di) => { if (txt.indexOf(d.k) >= 0) cur = Math.max(cur, di) })
+    // 2026-08-31 A: 优先从 WF_JSON step 映射（prep→① title→② topics→③ cover→④ publish→⑤）——正相关
+    const wj = txt.match(/WF_JSON:\{.*?\"step\":\"([a-z_]+)\"/)
+    if (wj) { const sm: Record<string, number> = { prep: 0, title: 1, topics: 2, cover: 3, publish: 4 }; if (sm[wj[1]] !== undefined) cur = sm[wj[1]] }
+    else defs.forEach((d, di) => { if (txt.indexOf(d.k) >= 0) cur = Math.max(cur, di) })
     if (todoSkips.length !== defs.length) setTodoSkips(defs.map(() => false))
     return { isPub, done: defs.map((d) => txt.indexOf(d.k) >= 0), defs, current: cur }
   })()
