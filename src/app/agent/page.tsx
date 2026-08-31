@@ -1876,6 +1876,25 @@ function AgentPageInner() {
 
   const renderContent = (content: string) => {
     if (!content) return null
+    // 2026-08-31 v2: WF_JSON 结构化消息（状态机——视频卡片可点击选）
+    if (content.startsWith('WF_JSON:')) {
+      try {
+        const wj = JSON.parse(content.slice(8))
+        if (wj.step === 'select_video' && Array.isArray(wj.videos)) {
+          return (
+            <div className="mt-1 space-y-1">
+              <p className="text-[9px] text-gray-400">📹 选择视频（点击选中——勾掉自定义=平台默认）：</p>
+              {wj.videos.map((v: any, i: number) => (
+                <button key={i} onClick={() => sendMessage(String(i + 1))}
+                  className="w-full text-left rounded-lg bg-white/[0.04] hover:bg-emerald-500/15 border border-white/[0.08] px-2 py-1.5 text-[11px] text-gray-200 flex items-center gap-2 transition">
+                  <span className="text-emerald-400">▶</span> {v.name}
+                </button>
+              ))}
+            </div>
+          )
+        }
+      } catch {}
+    }
     // 2026-08-23: 📎 附件视频 → 渲染 video 播放卡片（用户发视频不再显示链接文本）
     const attachMatch = content.match(/📎\s*\[([^\]]+)\]\(([^)]+)\)/)
     if (attachMatch && /\.(mp4|mov|avi|mkv|webm)(\?|$)/i.test(attachMatch[2])) {
