@@ -4,7 +4,7 @@
 2) executable_path 显式锁系统 Chrome（与扫码登录 profile 一致——防二进制混用 cookie 解密失败）
 3) SingletonLock 检查——防 browser-use 退避临时目录（登录态丢主因）
 """
-import asyncio, os, sys, json, io, argparse, tempfile, urllib.request, glob, time
+import asyncio, os, sys, json, io, argparse, tempfile, urllib.request, glob, time, shutil
 
 def read_key():
     """key 来源：环境变量优先 → 项目 .env.local（开发）"""
@@ -70,7 +70,14 @@ def check_singleton(profile):
     return None
 
 def download_file(url, dest_dir):
-    name = url.split('/')[-1].split('?')[0] or 'file_' + str(abs(hash(url)) % 10000) + '.mp4'
+    # 2026-08-31: 文件名从 query name= 取（?name=xx.mp4 时 split('?')[0] 得 'file' 无扩展名——平台上传无法识别）
+    qn = ''
+    try:
+        from urllib.parse import urlparse, parse_qs, unquote
+        qn = unquote(parse_qs(urlparse(url).query).get('name', [''])[0])
+    except Exception:
+        qn = ''
+    name = qn if qn else (url.split('/')[-1].split('?')[0] or 'file_' + str(abs(hash(url)) % 10000) + '.mp4')
     dest = os.path.join(dest_dir, name)
     try:
         urllib.request.urlretrieve(url, dest)
