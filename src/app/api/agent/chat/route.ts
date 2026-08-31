@@ -2086,15 +2086,21 @@ export async function POST(request: NextRequest) {
       }
 
       // Step 2: 回传结果（不再让模型二次决定调工具，直接用结果文本，避免脏标签）
-      // 2026-08-31: AI 汇总失败不致命（catch——状态机 wfEarlyReply 兜底——之前 qwen3.8 失败→chat 异常）
+      // 2026-08-31 根治: 有发布草稿时跳过 AI 汇总（状态机直接处理——AI 不自由——否则 qwen3.8 自由回复覆盖 wfEarlyReply）
+      const hasDraft = PUBLISH_DRAFT.has(auth?.userId || 0)
       let finalResult: any = null
-      try {
-        finalResult = hasImage
-          ? await agnesChat(messages, [])
-          : await dashscopeFunctionCall(messages as any, [], 2000, userTemperature)
-      } catch (eChat) {
-        console.error('[chat] AI 汇总失败（状态机兜底）:', eChat?.message || eChat)
+      if (hasDraft) {
+        console.log('[chat] 有发布草稿——跳过 AI 汇总（状态机直接处理）')
         finalResult = ''
+      } else {
+        try {
+          finalResult = hasImage
+            ? await agnesChat(messages, [])
+            : await dashscopeFunctionCall(messages as any, [], 2000, userTemperature)
+        } catch (eChat) {
+          console.error('[chat] AI 汇总失败（状态机兜底）:', eChat?.message || eChat)
+          finalResult = ''
+        }
       }
       // 2026-08-27 强制发布工作流：用户发布意图 + 本轮未调 publish_content → 代码强制补调（不依赖模型调工具，模型再也无法编“已创建/已抽帧”）
       let wfEarlyReply = '' // 2026-08-27 函数级（必须在 try 外，2119 reply 处读用）
@@ -2147,7 +2153,7 @@ export async function POST(request: NextRequest) {
                     fileUrlsQ.push('https://ai-niuma.cc/api/storage/file?name=' + vKeyQ.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
                   }
                 } catch {}
-                const buTaskQ = '发布视频到抖音：先打开 https://creator.douyin.com/creator-micro/content/upload （如返回登录页说明未登录，直接告知结束），上传视频，标题：' + titleQ + '，用平台智能封面，然后点击发布'
+                const buTaskQ = '按步骤执行，不要把整个任务当地址输入：' + '\n' + '1. 导航到 https://creator.douyin.com/creator-micro/content/upload（地址栏只输这个 URL）' + '\n' + '2. 上传视频文件（files 提供的路径）' + '\n' + '3. 标题栏填入：' + titleQ + '\n' + '4. 用平台智能封面，点击发布'
                 const buTQ = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTaskQ, files: JSON.stringify(fileUrlsQ) } })
                 wfEarlyReply = '已创建 AI 浏览器发布任务（#' + buTQ.id + '）——客户端自动执行：打开抖音→上传→标题「' + titleQ.slice(0, 40) + '」→发布。'
                 PUBLISH_DRAFT.delete(uidW)
