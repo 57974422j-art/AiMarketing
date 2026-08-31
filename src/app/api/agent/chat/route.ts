@@ -2277,6 +2277,23 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                   if (frA2.startsWith('FRAMES_OK:')) {
                     try { const pA = JSON.parse(frA2.slice(10)); draftW.frames = Array.isArray(pA.frames) ? pA.frames : []; draftW.visualDesc = pA.visualDesc || '' } catch {}
                   }
+                  // 2026-08-31: 抽帧后转 OSS（放个人仓库——链接保险——前端必显示，不依赖 /api/frames/）
+                  const newFrames: any[] = []
+                  for (const frIt of (draftW.frames || [])) {
+                    let fp = String(typeof frIt === 'string' ? frIt : (frIt?.url || ''))
+                    try {
+                      const fRel = fp.replace('/api/frames/', '')
+                      const fCand = [path.join(pubRoot, 'frames', fRel), path.join(pubRoot, 'frames', String(auth?.userId || 0), fRel), path.join(pubRoot, fRel)]
+                      const fFp = fCand.find((x: string) => fs.existsSync(x))
+                      if (fFp) {
+                        const fKey = 'storage/' + auth?.userId + '/frame_' + Date.now() + '_' + path.basename(fRel)
+                        await putObject(fKey, fs.readFileSync(fFp), 'image/jpeg')
+                        fp = 'https://ai-niuma.cc/api/storage/file?name=' + fKey.replace('storage/' + auth?.userId + '/', '') + '&persist=1'
+                      }
+                    } catch {}
+                    newFrames.push(typeof frIt === 'string' ? fp : { ...frIt, url: fp })
+                  }
+                  draftW.frames = newFrames
                 }
                 if (draftW.frames?.length) {
                   draftW.step = 'frame'
