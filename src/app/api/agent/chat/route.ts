@@ -2154,7 +2154,7 @@ export async function POST(request: NextRequest) {
                 // 2026-08-30: 无视频名 → 列仓库视频让用户选（不再 publish_content 废弃提示）
                 const lstR = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
                 const lstTxt = String(lstR || '')
-                const vids = (lstTxt.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/gi) || []).slice(0, 5)
+                const vids = Array.from(new Set((lstTxt.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/gi) || []))).slice(0, 5)
                 wfEarlyReply = vids.length
                   ? '你的个人仓库有 ' + vids.length + ' 条视频，发哪一条？' + '\n' + '\n' + vids.map((v: string, i2: number) => (i2 + 1) + '. ' + v).join('\n') + '\n' + '\n' + '回复编号或文件名。'
                   : '仓库暂无视频——请先上传视频（个人仓库），或提供视频文件名（如“发布 xx.mp4 到抖音”）。'
@@ -2206,7 +2206,18 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
             } else if (draftW.step === 'abc') {
               if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发|跳过/.test(userMessage)) {
                 ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = draftW.videoName || ''
-                const q2 = await executeToolCall('browser_use_execute', { task: '快速发布：' + (draftW.videoName || '') + ' 到抖音（全默认）' }, auth).catch(() => '')
+                // 2026-08-31: 视频转 OSS → files 传 URL（之前没传——AI 无法上传）
+                let fileUrlsA: string[] = []
+                try {
+                  const vCandsA = [path.join(pubRoot, 'storage', String(auth?.userId || 0), String(draftW.videoName || '')), path.join(pubRoot, 'generated', String(draftW.videoName || '')), path.join(pubRoot, String(draftW.videoName || ''))]
+                  const vFpA = vCandsA.find((fp: string) => fs.existsSync(fp))
+                  if (vFpA) {
+                    const vKeyA = 'storage/' + auth?.userId + '/pub_' + Date.now() + '_' + (draftW.videoName || '')
+                    await putObject(vKeyA, fs.readFileSync(vFpA), 'video/mp4')
+                    fileUrlsA.push('https://ai-niuma.cc/api/storage/file?name=' + vKeyA.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
+                  }
+                } catch {}
+                const q2 = await executeToolCall('browser_use_execute', { task: '快速发布：' + (draftW.videoName || '') + ' 到抖音（全默认）', files: fileUrlsA }, auth).catch(() => '')
                 wfEarlyReply = String(q2).startsWith('BROWSER_TASK_QUEUED') ? 'C 全默认——已直接创建 AI 浏览器发布任务，客户端自动执行。' : ('C 全默认——' + String(q2).slice(0, 120))
                 PUBLISH_DRAFT.delete(uidW)
               } else if (/^b$/i.test(userMessage.trim()) || /自己/.test(userMessage)) {
@@ -2218,7 +2229,18 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
               }
             } else if (draftW.step === 'usercopy') {
               ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = draftW.videoName || ''
-              const q3 = await executeToolCall('browser_use_execute', { task: '发布视频 ' + (draftW.videoName || '') + ' 到抖音，标题/正文：' + userMessage.slice(0, 100) + '（全默认封面）' }, auth).catch(() => '')
+              // 2026-08-31: 视频转 OSS → files
+              let fileUrlsB: string[] = []
+              try {
+                const vCandsB = [path.join(pubRoot, 'storage', String(auth?.userId || 0), String(draftW.videoName || '')), path.join(pubRoot, 'generated', String(draftW.videoName || '')), path.join(pubRoot, String(draftW.videoName || ''))]
+                const vFpB = vCandsB.find((fp: string) => fs.existsSync(fp))
+                if (vFpB) {
+                  const vKeyB = 'storage/' + auth?.userId + '/pub_' + Date.now() + '_' + (draftW.videoName || '')
+                  await putObject(vKeyB, fs.readFileSync(vFpB), 'video/mp4')
+                  fileUrlsB.push('https://ai-niuma.cc/api/storage/file?name=' + vKeyB.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
+                }
+              } catch {}
+              const q3 = await executeToolCall('browser_use_execute', { task: '发布视频 ' + (draftW.videoName || '') + ' 到抖音，标题/正文：' + userMessage.slice(0, 100) + '（全默认封面）', files: fileUrlsB }, auth).catch(() => '')
               wfEarlyReply = String(q3).startsWith('BROWSER_TASK_QUEUED') ? 'B 收到——已创建 AI 浏览器发布任务（含你的文案）。' : ('建任务失败：' + String(q3).slice(0, 120))
               PUBLISH_DRAFT.delete(uidW)
             } else if (draftW.step === 'frame') {
