@@ -2086,9 +2086,16 @@ export async function POST(request: NextRequest) {
       }
 
       // Step 2: 回传结果（不再让模型二次决定调工具，直接用结果文本，避免脏标签）
-      const finalResult = hasImage
-        ? await agnesChat(messages, [])
-        : await dashscopeFunctionCall(messages as any, [], 2000, userTemperature)
+      // 2026-08-31: AI 汇总失败不致命（catch——状态机 wfEarlyReply 兜底——之前 qwen3.8 失败→chat 异常）
+      let finalResult: string | null = null
+      try {
+        finalResult = hasImage
+          ? await agnesChat(messages, [])
+          : await dashscopeFunctionCall(messages as any, [], 2000, userTemperature)
+      } catch (eChat) {
+        console.error('[chat] AI 汇总失败（状态机兜底）:', eChat?.message || eChat)
+        finalResult = ''
+      }
       // 2026-08-27 强制发布工作流：用户发布意图 + 本轮未调 publish_content → 代码强制补调（不依赖模型调工具，模型再也无法编“已创建/已抽帧”）
       let wfEarlyReply = '' // 2026-08-27 函数级（必须在 try 外，2119 reply 处读用）
       try {
