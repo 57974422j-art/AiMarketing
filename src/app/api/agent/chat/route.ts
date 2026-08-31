@@ -1324,7 +1324,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             let coverPersist = args.coverUrl || null
             if (coverPersist && coverPersist.includes('/api/frames/')) {
               try {
-                const cRel = String(coverPersist).replace('/api/frames/', '')
+                // 2026-08-31 security: 路径遍历防护（去 ../ 和分隔符——限死 frames 目录）
+                const cRel = String(coverPersist).replace('/api/frames/', '').replace(/\.\./g, '').replace(/[\/]/g, '')
                 const cFp = path.join(pubRoot, 'frames', cRel)
                 if (fs.existsSync(cFp)) {
                   const cBuf = fs.readFileSync(cFp)

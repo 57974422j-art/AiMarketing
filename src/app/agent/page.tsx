@@ -1669,7 +1669,7 @@ function AgentPageInner() {
     try {
       setMessages([])
       try { localStorage.removeItem('agent_session_' + (sessionId || '')); localStorage.removeItem('agent_messages') } catch {}
-      if (sessionId) { try { await fetch('/api/agent/session/' + sessionId, { method: 'DELETE' }).catch(() => {}) } catch {} }
+      // 2026-08-31: 该路由不存在（静默 404）——本地清 messages 即可（会话已在前端清） }
       setClearMsg('已清空会话（聊天记录已清）')
       setTimeout(() => setClearMsg(''), 3000)
     } catch { setClearMsg('清理失败'); setTimeout(() => setClearMsg(''), 3000) }

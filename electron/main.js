@@ -1046,7 +1046,15 @@ ipcMain.handle('fp:markLogin', async (_event, { accountId }) => {
 
 // 2026-08-29: Browser Use 登记（bu_profile 扫码登录——Browser Use 专用登录态）
 const BU_PROFILE_DIR = process.env.BU_PROFILE || path.join(app.getPath('userData'), 'browser-profile')
-ipcMain.handle('bu:open', async () => {
+// 2026-08-31 security: IPC 校验 sender（只允许客户端本地页面/受控域调用——防远程 XSS 命令本机开浏览器）
+const isTrustedSender = (event) => {
+  try {
+    const u = event?.senderFrame?.url || event?.sender?.getURL?.() || ''
+    return !u || u.startsWith('file://') || u.startsWith('http://127.0.0.1') || u.startsWith('http://localhost') || u.includes('ai-niuma.cc')
+  } catch { return false }
+}
+ipcMain.handle('bu:open', async (event) => {
+  if (!isTrustedSender(event)) return { success: false, error: 'untrusted sender' }
   try {
     const { spawn } = require('child_process')
     // 2026-08-29: spawn 系统 Chrome --user-data-dir（同浏览器同 profile——登录态一致）——弃 python -m playwright（无包）
@@ -1059,7 +1067,8 @@ ipcMain.handle('bu:open', async () => {
     return { success: true, message: '已打开 Browser Use 浏览器（bu_profile）——请扫码登录目标平台，登录后点「刷新检测」' }
   } catch (e) { return { success: false, error: String(e && e.message || e) } }
 })
-ipcMain.handle('bu:check', async () => {
+ipcMain.handle('bu:check', async (event) => {
+  if (!isTrustedSender(event)) return { success: false, error: 'untrusted sender' }
   try {
     // 读 bu_profile Cookies——查各平台是否已登录
     const fs2 = require('fs')
