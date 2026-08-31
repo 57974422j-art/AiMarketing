@@ -2087,7 +2087,7 @@ export async function POST(request: NextRequest) {
 
       // Step 2: 回传结果（不再让模型二次决定调工具，直接用结果文本，避免脏标签）
       // 2026-08-31: AI 汇总失败不致命（catch——状态机 wfEarlyReply 兜底——之前 qwen3.8 失败→chat 异常）
-      let finalResult: string | null = null
+      let finalResult: any = null
       try {
         finalResult = hasImage
           ? await agnesChat(messages, [])
