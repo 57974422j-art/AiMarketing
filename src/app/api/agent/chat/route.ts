@@ -2316,7 +2316,18 @@ ${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
                 } catch (ePv: any) { console.error('[发布⑤] 视频转 OSS 失败:', ePv?.message || ePv) }
                 const buTask = '发布视频到' + (wfA.platform === 'douyin' ? '抖音' : wfA.platform || '抖音') + '：先打开 https://creator.douyin.com/creator-micro/content/upload （如返回登录页说明未登录，直接告知结束），上传视频，标题：' + (wfA.caption || '') + '，话题：' + (wfA.topics || '') + '，用平台智能封面，然后点击发布'
                 const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify(fileUrls) } })
-                const wfR3 = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行（打开平台→上传→填标题→发布）。' + (fileUrls.length ? '视频已就绪（AI 浏览器自动上传）。' : '')
+                // 2026-08-31 v2④: 完整报告（MD——封面/标题/话题/视频——跨平台素材包）
+                const reportMd = '## 发布素材包（reportId: ' + buT.id + '）
+- 视频：' + (wfA.videoName || '') + '
+- 封面：' + (wfA.coverUrl ? '![](' + wfA.coverUrl + ')' : '平台智能封面') + '
+- 标题：' + (wfA.caption || '') + '
+- 话题：' + (wfA.topics || '') + '
+- 平台：' + (wfA.platform || 'douyin') + '
+
+> 此素材包已存库——后续说「发小红书/微博」即可复用（AI 读取 reportId 直接用）'
+                const wfR3 = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行（打开平台→上传→填标题→发布）。' + (fileUrls.length ? '视频已就绪（AI 浏览器自动上传）。' : '') + '
+
+' + reportMd
                 messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfR3) } as any)
 PUBLISH_DRAFT.delete(uidW)
               } else wfEarlyReply = '请回复“确认”发布。'
