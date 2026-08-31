@@ -30,7 +30,7 @@ try:
     con = sqlite3.connect(tmp)
     # 2026-08-30: 有效期判断——过期 cookie 不算登录（会话 cookie 24h 失效——之前只看存在误导）
     # 关键会话 cookie（a1/webId 等游客标识不算登录——acw_tc/sessionid/SUB/uid 等会话才算）
-    KEY_NAMES = {'douyin': ['sessionid', 'sessionid_ss', 'uid_tt', 'sid_tt'], 'xiaohongshu': ['web_session', 'acw_tc', 'xsecappid'], 'weibo': ['SUB', 'SUB2', 'WBPSESS'], 'bilibili': ['SESSDATA', 'bili_jct'], 'shipinhao': ['wxuin', 'wxsid'], 'x': ['auth_token', 'ct0']}
+    KEY_NAMES = {'douyin': ['sessionid', 'sessionid_ss', 'uid_tt', 'sid_tt'], 'xiaohongshu': ['web_session', 'acw_tc', 'xsecappid'], 'weibo': ['SUB', 'SUB2', 'WBPSESS'], 'bilibili': ['SESSDATA', 'bili_jct'], 'shipinhao': ['wxuin', 'wxsid'], 'kuaishou': ['kuaishou.session.web', 'userId'], 'x': ['auth_token', 'ct0']}
     rows = con.execute("SELECT host_key, name, expires_utc FROM cookies").fetchall()
     con.close()
     now_ms = (datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000) + 11644473600000000

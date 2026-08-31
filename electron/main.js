@@ -410,7 +410,8 @@ function setupAutoPublish() {
 }
 
 // browser-use 任务执行（Electron 调 Python——复用 D:u_profile 登录态）
-const BU_PYTHON = process.env.BU_PYTHON || "C:/Users/wo'shen/AppData/Local/Programs/Python/Python314/python.exe"
+// 2026-08-31: BU_PYTHON fallback（硬编码打包机路径——发布机无则 ENOENT）——python/py 兜底
+const BU_PYTHON = process.env.BU_PYTHON || (require('child_process').spawnSync('python', ['--version']).status === 0 ? 'python' : (require('child_process').spawnSync('py', ['--version']).status === 0 ? 'py' : "C:/Users/wo'shen/AppData/Local/Programs/Python/Python314/python.exe"))
 // 2026-08-29: bu_exec.py 在 extraResources（resources/scripts/browser-use——不是 asar.unpacked）——之前路径错→spawn找不到→任务pending
 const BU_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_exec.py')

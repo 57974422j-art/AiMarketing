@@ -44,13 +44,7 @@ const prisma = new PrismaClient()
 // 2026-08-21: 发布抽帧暂存（userId → 帧列表，"用第N帧"取用）
 const frameStore = new Map<number, { frames: { idx: number; url: string }[]; videoName: string }>()
 // 2026-08-29: 生图异步化——提交后立即返回，后台轮询+转存（避免长请求被网络层掐断"网络连接失败"）
-const pendingImages = new Map<number, { taskId: string; ts: number; url?: string; fileName?: stri              } else if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发/.test(userMessage)) {
-                // 2026-08-31: pick 阶段回 C → 直接建任务（不再两轮）
-                const lstC = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
-                const vqC = String(lstC || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
-                if (vqC) { ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = vqC[1]; wfEarlyReply = 'C 全默认——正在建任务...'; }
-                else wfEarlyReply = '仓库暂无视频，请先上传。'
-                PUBLISH_DRAFT.delete(uidW)done: boolean }>()
+const pendingImages = new Map<number, { taskId: string; ts: number; url?: string; fileName?: string; done: boolean }>()
 
 const AGENT_TOOLS: ToolDefinition[] = [
   {
@@ -1228,7 +1222,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           `- 素材库：${assetCount} 条${assets.length ? '（最近：' + assets.map(a => a.title).join('、') + '）' : ''}`,
           `- AI 生成记录：${genCount} 条${recentGens.length ? '（最近：' + recentGens.map(g => g.type + (g.prompt ? '「' + g.prompt.slice(0, 12) + '」' : '')).join('、') + '）' : ''}`,
           `- 已发布任务可查客户端【指纹浏览器】队列。`,
-          `- 浏览器登录态（客户端检测上报，5分钟内有效）：${(() => { try { const bs = getBrowserStatus(uid); const logged = bs.filter((b) => b.loggedIn).map((b) => b.name); return logged.length ? logged.join('、') : '客户端未上报/浏览器未绑定或未登录' } catch { return '未知' } })()}`,
+          `- 浏览器登录态：以客户端自检为准（登记页查看）。`,
         ].join('\n')
       } catch (e: any) { return 'PROJECT_OVERVIEW_ERROR:' + e.message }
     }
@@ -1257,6 +1251,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         } catch (eQ: any) { return 'BROWSER_TASKS_ERROR:' + String(eQ?.message || eQ).slice(0, 100) }
       }
     case 'publish_content': {
+      const pubRoot = fs.existsSync(path.join(process.cwd(), '.next', 'standalone', 'public')) ? path.join(process.cwd(), '.next', 'standalone', 'public') : path.join(process.cwd(), 'public')
+
       {
         // 2026-08-30: OPENCLI 发布链已清除——发布走 AI 浏览器（browser_use 状态机⑤）。AI 若仍调此工具 → 提示改走状态机
         if (!args._wf) {
@@ -1572,7 +1568,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         // 2026-08-23: C 封面3选1——九宫格封面（9 帧 3x3 拼图）+ AI 推荐帧标记（规则取 75% 帧，真视觉推荐下轮接）
         let grid = ''
         try {
-          const tileIn = []
+          const tileIn: string[] = []
           for (let i = 0; i < 9; i++) {
             const t = (dur * i) / 8
             const o = path.join(outDir, 't' + i + '.jpg')
@@ -1581,7 +1577,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           }
           if (tileIn.length === 9) {
             const gridOut = path.join(outDir, 'grid.jpg')
-            execSync(`ffmpeg -y -ss 0 -t 0.9 -i "${srcPath}" -vf "select='not(mod(n,10))',scale=200:-2,tile=3x3" -frames:v 1 -q:v 6 "${gridOut}"`, { timeout: 30000 }).catch?.(() => {})
+            try { execSync(`ffmpeg -y -ss 0 -t 0.9 -i "${srcPath}" -vf "select='not(mod(n,10))',scale=200:-2,tile=3x3" -frames:v 1 -q:v 6 "${gridOut}"`, { timeout: 30000 }) } catch {}
             // tile filter 若失败，退化为首帧缩放
             if (!fs.existsSync(gridOut)) { execSync(`ffmpeg -y -ss 0 -i "${srcPath}" -frames:v 1 -vf "scale=200:-2" -q:v 6 "${gridOut}"`, { timeout: 20000 }) }
             if (fs.existsSync(gridOut)) grid = `/api/frames/${auth.userId}/${ts}/grid.jpg`
@@ -1613,7 +1609,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                   const buf = fs.readFileSync(fp)
                   images.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + buf.toString('base64') } })
                 }
-              } catch (e3) { console.error('[visual] 帧读取/base64 失败:', rel, e3) }
+              } catch (e3) { console.error('[visual] 帧读取/base64 失败:', e3?.message || e3) }
             }
             if (!images.length) { console.error('[visual] 无帧可传（本地帧缺失）——视觉分析跳过') }
             for (const at of visAttempts) {
@@ -1885,13 +1881,13 @@ export async function POST(request: NextRequest) {
     // 用户级 AI 设置（2026-08-07：温度）
     let userTemperature = 0.7
     try {
-      const u0 = await prisma.user.findUnique({ where: { id: auth?.userId || '' }, select: { agentTemperature: true } })
+      const u0 = await prisma.user.findUnique({ where: { id: auth?.userId || 0 }, select: { agentTemperature: true } })
       if (typeof u0?.agentTemperature === 'number') userTemperature = u0.agentTemperature
     } catch {}
     let agentProfile: { name?: string; persona?: string } | undefined
     try {
       const profMem = await prisma.agentMemory.findFirst({
-        where: { userId: auth?.userId || '', tags: { contains: 'agent_profile' } },
+        where: { userId: String(auth?.userId || 0), tags: { contains: 'agent_profile' } },
         orderBy: { updatedAt: 'desc' },
       })
       if (profMem) {
@@ -1921,8 +1917,8 @@ export async function POST(request: NextRequest) {
       if (foundPlat || indMatch) {
         const { PrismaClient } = await import('@prisma/client')
         const pm = new PrismaClient()
-        const u = await pm.user.findUnique({ where: { id: auth.userId }, select: { username: true } })
-        const uid = u?.username || String(auth.userId)
+        const u = await pm.user.findUnique({ where: { id: auth?.userId || 0 }, select: { username: true } })
+        const uid = u?.username || String(auth?.userId || 0)
         const parts: string[] = []
         if (indMatch) parts.push('行业/业务：' + indMatch[1])
         if (foundPlat) parts.push('主要平台：' + foundPlat)
@@ -2083,7 +2079,7 @@ export async function POST(request: NextRequest) {
           const rejMsg = result.substring('TOOL_REJECT:'.length)
           return NextResponse.json({ success: true, data: {
             reply: '⚠️ ' + rejMsg + '——已为你打开「我的套餐」页面，可在其中开通套餐或购买点卡补充点数。',
-            intent: 'no_quota', toolUsed: false, scene: { type: 'open_page', path: '/my-subscription', params: {} }, sessionId: sid || null, pointsSpent: 0,
+            intent: 'no_quota', toolUsed: false, scene: { type: 'open_page', path: '/my-subscription', params: {} }, sessionId: undefined || null, pointsSpent: 0,
           } })
         }
         messages.push({ role: 'tool', tool_call_id: tc.id, content: result } as any)
@@ -2120,6 +2116,7 @@ export async function POST(request: NextRequest) {
               } catch {}
             }
             const quickVideoUid = ((global as any).__quickVideoByUid || {})[auth?.userId || 0] || ''
+            const pubRoot = fs.existsSync(path.join(process.cwd(), '.next', 'standalone', 'public')) ? path.join(process.cwd(), '.next', 'standalone', 'public') : path.join(process.cwd(), 'public')
             if (quickPub && (vfNameW || quickVideoUid)) {
               const vfNameW2 = vfNameW || quickVideoUid
               delete (global as any).__quickVideoByUid?.[auth?.userId || 0]
@@ -2196,10 +2193,15 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                 draftW.videoName = userMessage.trim(); draftW.step = 'abc'
                 wfEarlyReply = '已选 ' + draftW.videoName + '——A 我推荐 / B 你的文案 / C 全默认直接发（回复 A/B/C）'
               } else if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发/.test(userMessage)) {
+                // 2026-08-31: pick 阶段回 C → 直接建任务（不再两轮）
                 const lstC = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
                 const vqC = String(lstC || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
-                if (vqC) { draftW.videoName = vqC[1]; ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = vqC[1] }
-                wfEarlyReply = 'ok'
+                if (vqC) {
+                  ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = vqC[1]
+                  const qc = await executeToolCall('browser_use_execute', { task: '快速发布：' + vqC[1] + ' 到抖音（全默认）' }, auth).catch(() => '')
+                  wfEarlyReply = String(qc).startsWith('BROWSER_TASK_QUEUED') ? 'C 全默认——已直接创建 AI 浏览器发布任务。' : ('C 全默认——' + String(qc).slice(0, 120))
+                } else wfEarlyReply = '仓库暂无视频，请先上传。'
+                PUBLISH_DRAFT.delete(uidW)
               } else wfEarlyReply = '回复编号 1-5 选视频，或 C 全默认直接发。'
             } else if (draftW.step === 'abc') {
               if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发|跳过/.test(userMessage)) {
@@ -2295,9 +2297,9 @@ PUBLISH_DRAFT.delete(uidW)
           // 从用户消息提取平台+视频文件名
           const platMatch = userMessage.match(/(抖音|小红书|微博|视频号)/)
           const platMap: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao' }
-          const platform = platMatch ? (platMap[platMatch[1]] || 'douyin') : 'douyin'
+          const platform = platMatch ? (platMap[platMatch![1] || ''] || 'douyin') : 'douyin'
           const vfMatch = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
-          const vfName = vfMatch ? vfMatch[1] : ''
+          const vfName = vfMatch ? (vfMatch![1] || '') : ''
           const wfArgs: any = { platform }
           if (vfName) wfArgs.videoName = vfName
           const isConfirm = userMessage.trim().length <= 6 && /(发|确认|可以|就这样|好|行|发吧)/.test(userMessage.trim())
@@ -2312,7 +2314,7 @@ PUBLISH_DRAFT.delete(uidW)
               try {
                 const prevAsst = [...messages].reverse().find((m: any) => m.role === 'assistant' && typeof m.content === 'string' && m.content.indexOf('标题') >= 0)
                 const tm = prevAsst ? String((prevAsst as any).content).match(/标题[\s:]*[：:]?([^\n]{2,40})/) : null
-                if (tm) wfArgs.caption = tm[1].trim()
+                if (tm) wfArgs.caption = (tm![1] || '').trim()
               } catch {}
             }
             console.log('[发布工作流] 确认建任务（browser_use 发布——opencli 链已清除）:', JSON.stringify(wfArgs))
@@ -2390,7 +2392,7 @@ PUBLISH_DRAFT.delete(uidW)
         if (!tok.allowed) {
           return NextResponse.json({ success: true, data: {
             reply: '⚠️ ' + (tok.message || '点数不足') + '——已为你打开「我的套餐」页面，可在其中开通套餐或购买点卡。',
-            intent: 'no_quota', toolUsed: false, scene: { type: 'open_page', path: '/my-subscription', params: {} }, sessionId: session?.id || null, pointsSpent: 0,
+            intent: 'no_quota', toolUsed: false, scene: { type: 'open_page', path: '/my-subscription', params: {} }, sessionId: sessionId, pointsSpent: 0,
           } })
         }
         await spendTokens(auth.userId, TOKEN_COSTS.CHAT_PER_MSG, 'agent_chat')
