@@ -2240,8 +2240,19 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                 draftW.step = 'usercopy'
                 wfEarlyReply = 'B 收到——把你的标题+正文+标签发我（一次发全），我直接建任务。'
               } else {
-                if (draftW.frames?.length) { draftW.step = 'frame'; wfEarlyReply = 'A 推荐——选封面帧：' + draftW.frames.map((f: any, i: number) => (i + 1) + '.').join(' ') + ' 回复编号 1-' + (draftW.frames?.length || 4) }
-                else { draftW.step = 'frame'; wfEarlyReply = 'A 推荐——请回复“换一批”或编号选封面帧。' }
+                // 2026-08-31: A=完整流程——frames 空时自动抽帧显示切片（不再只提示"换一批"）
+                if (!draftW.frames?.length && draftW.videoName) {
+                  const frA = await executeToolCall('extract_video_frames', { videoName: draftW.videoName }, auth).catch((e: any) => '')
+                  const frA2 = String(frA)
+                  if (frA2.startsWith('FRAMES_OK:')) {
+                    try { const pA = JSON.parse(frA2.slice(10)); draftW.frames = Array.isArray(pA.frames) ? pA.frames : []; draftW.visualDesc = pA.visualDesc || '' } catch {}
+                  }
+                }
+                if (draftW.frames?.length) {
+                  draftW.step = 'frame'
+                  wfEarlyReply = 'A 推荐——已抽帧，选封面帧（点击编号选帧——' + bs + bs + draftW.frames.map((f: any, i: number) => '![' + (i + 1) + '](' + String(typeof f === 'string' ? f : (f?.url || '')).trim() + ')  ').join('') + bs + bs + '回复编号 1-' + draftW.frames.length + ' 选帧，或“换一批”重抽。'
+                }
+                else { draftW.step = 'frame'; wfEarlyReply = 'A 推荐——抽帧失败，请回复“换一批”重试。' }
               }
             } else if (draftW.step === 'usercopy') {
               ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = draftW.videoName || ''
