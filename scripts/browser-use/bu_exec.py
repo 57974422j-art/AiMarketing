@@ -77,7 +77,10 @@ def download_file(url, dest_dir):
         qn = unquote(parse_qs(urlparse(url).query).get('name', [''])[0])
     except Exception:
         qn = ''
-    name = qn if qn else (url.split('/')[-1].split('?')[0] or 'file_' + str(abs(hash(url)) % 10000) + '.mp4')
+    # 2026-08-31 security: 文件名清洗（去 ../ 和分隔符——防 name= 目录遍历写出）
+    if qn:
+        qn = qn.replace('..', '').replace('/', '').replace(chr(92), '')
+    name = (qn if qn else (url.split('/')[-1].split('?')[0] or 'file_' + str(abs(hash(url)) % 10000) + '.mp4'))
     dest = os.path.join(dest_dir, name)
     try:
         urllib.request.urlretrieve(url, dest)
