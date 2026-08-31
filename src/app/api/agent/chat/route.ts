@@ -2280,7 +2280,8 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                 }
                 if (draftW.frames?.length) {
                   draftW.step = 'frame'
-                  wfEarlyReply = 'A 推荐——已抽帧，选封面帧（点击编号选帧——' + bs + bs + draftW.frames.map((f: any, i: number) => '![' + (i + 1) + '](' + String(typeof f === 'string' ? f : (f?.url || '')).trim() + ')  ').join('') + bs + bs + '回复编号 1-' + draftW.frames.length + ' 选帧，或“换一批”重抽。'
+                  // 2026-08-31 A: prep 步 WF_JSON（切片数据——前端渲染+面板亮①）
+                  wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'prep', frames: draftW.frames.map((f: any, i: number) => ({ name: String(typeof f === 'string' ? f : (f?.url || '')), url: String(typeof f === 'string' ? f : (f?.url || '')).trim() })), hint: 'A 推荐——已抽帧，选封面帧（点击切片选——回复编号 1-' + draftW.frames.length + ' 或换一批）' })
                 }
                 else { draftW.step = 'frame'; wfEarlyReply = 'A 推荐——抽帧失败，请回复“换一批”重试。' }
               }
