@@ -19,7 +19,7 @@ def sync_system_login(profile):
         print('SYNC_FAIL:', str(e)[:100])
 
 PLATS = [('douyin', 'douyin.com'), ('xiaohongshu', 'xiaohongshu.com'), ('weibo', 'weibo.com'), ('bilibili', 'bilibili.com'), ('shipinhao', 'weixin.qq.com'), ('x', 'x.com')]
-sync_system_login(prof)
+# sync_system_login(prof)  # 2026-08-31: 预检不覆盖（防死循环——bu_profile 自己的登录态优先）
 ck = os.path.join(prof, 'Default', 'Network', 'Cookies')
 if not os.path.exists(ck):
     print('NO_COOKIES_FILE:' + ck); sys.exit(0)
@@ -39,7 +39,7 @@ try:
         names = KEY_NAMES.get(pid, [])
         hit = False
         for h, n, exp in rows:
-            if h.endswith(dom) and n in names and exp and exp > now_ms:
+            if h.endswith(dom) and n in names and (exp == 0 or (exp and exp > now_ms)):  # exp=0 会话 cookie 本会话有效
                 hit = True; break
         out.append(pid + ':' + ('1' if hit else '0'))
     print('PLATS:' + ','.join(out))

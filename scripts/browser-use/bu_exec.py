@@ -33,8 +33,8 @@ def kill_chrome():
     """2026-08-30: 发布前杀系统 Chrome（释放 Cookies 独占锁——否则 WinError 32 同步失败）"""
     try:
         if os.name == 'nt':
-            # 只杀 bu_profile 的 Chrome（--user-data-dir bu_profile）——不杀用户系统 Chrome
-            os.system('wmic process where "commandline like '%bu_profile%' and name=\"chrome.exe\"" call terminate >nul 2>&1')
+            # 2026-08-31: 发布前杀所有 Chrome（释放所有 profile 锁——wmic 匹配不到 browser-profile 已废弃）
+            os.system('taskkill /F /IM chrome.exe >nul 2>&1')
             import time; time.sleep(2)
             print('KILL_CHROME: 系统 Chrome 已关闭（释放 Cookies 锁——发布完成后可重新打开）')
         else:

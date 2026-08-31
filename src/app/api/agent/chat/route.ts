@@ -1247,7 +1247,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         try {
           const bt = await prisma.agentBrowserTask.findMany({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' }, take: 10 })
           if (!bt.length) return 'BROWSER_TASKS:no browser tasks yet.'
-          return 'BROWSER_TASKS:' + bs + bs + bt.map((t: any) => '#' + t.id + ' [' + (t.status || 'pending') + '] ' + String(t.task || '').slice(0, 60) + (t.error ? '(' + String(t.error).slice(0, 80) + ')' : '') + (t.result ? ' -> ' + String(t.result).slice(0, 60) : '')).join(bs + bs)
+          return 'BROWSER_TASKS:' + '\n' + '\n' + bt.map((t: any) => '#' + t.id + ' [' + (t.status || 'pending') + '] ' + String(t.task || '').slice(0, 60) + (t.error ? '(' + String(t.error).slice(0, 80) + ')' : '') + (t.result ? ' -> ' + String(t.result).slice(0, 60) : '')).join('\n')
         } catch (eQ: any) { return 'BROWSER_TASKS_ERROR:' + String(eQ?.message || eQ).slice(0, 100) }
       }
     case 'publish_content': {
@@ -1380,18 +1380,12 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       } catch (e9) { return 'CANCEL_REJECT:取消异常: ' + (e9.message || e9) }
     }
     case 'query_publish_tasks': {
+      // 2026-08-31: 发布已统一 AI 浏览器——查 AgentBrowserTask（旧表 agentPublishTask 无新任务）
       try {
-        const tasks = await prisma.agentPublishTask.findMany({
-          where: { userId: auth?.userId }, orderBy: { createdAt: 'desc' }, take: 10,
-        })
-        if (!tasks.length) return '还没有发布任务。用「发布到抖音/小红书/...」创建第一个发布任务。'
-        const lines = tasks.map((t: any) => {
-          const st = t.status === 'pending' ? '⏳ 等待执行' : t.status === 'executing' ? '▶️ 执行中' : t.status === 'succeeded' ? '✅ 已发布' : '❌ 失败'
-          const topics = (() => { try { const a = JSON.parse(t.topics || '[]'); return Array.isArray(a) ? a.join(' ') : '' } catch { return '' } })()
-          return `#${t.id} [${t.platform}] ${t.videoName} — ${st}${t.error ? '（' + t.error + '）' : ''}${t.title ? ' | ' + t.title : ''}${topics ? ' | ' + topics : ''}`
-        })
-        return '最近发布任务（' + tasks.length + ' 条）：\n' + lines.join('\n') + '\n\n提示：任务在客户端【指纹浏览器】页自动执行；pending 表示等待客户端页面执行，succeeded 表示已发布成功。'
-      } catch { return '查询发布任务失败，请稍后重试' }
+        const bt2 = await prisma.agentBrowserTask.findMany({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' }, take: 5 })
+        if (!bt2.length) return 'PUBLISH_TASKS:暂无发布/浏览器任务。'
+        return 'PUBLISH_TASKS:' + bs + bs + bt2.map((t: any) => '#' + t.id + ' [' + (t.status || 'pending') + '] ' + String(t.task || '').slice(0, 50) + (t.error ? '（' + String(t.error).slice(0, 80) + '）' : '') + (t.result ? ' → ' + String(t.result).slice(0, 50) : '')).join(bs + bs)
+      } catch (eQ: any) { return 'PUBLISH_TASKS_ERROR:' + String(eQ?.message || eQ).slice(0, 100) }
     }
 
     // ── 自动化 ──
@@ -2115,12 +2109,13 @@ export async function POST(request: NextRequest) {
               try {
                 const lstQ = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
                 const vq = String(lstQ || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
-                if (vq) { (global as any).__quickVideo = vq[1] }
+                if (vq) { ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = vq[1] }
               } catch {}
             }
-            if (quickPub && (vfNameW || (global as any).__quickVideo)) {
-              const vfNameW2 = vfNameW || (global as any).__quickVideo || ''
-              global.__quickVideo = undefined
+            const quickVideoUid = ((global as any).__quickVideoByUid || {})[auth?.userId || 0] || ''
+            if (quickPub && (vfNameW || quickVideoUid)) {
+              const vfNameW2 = vfNameW || quickVideoUid
+              delete (global as any).__quickVideoByUid?.[auth?.userId || 0]
               try {
                 const frQ = await executeToolCall('extract_video_frames', { videoName: vfNameW2 }, auth).catch((e: any) => '')
                 const frTxtQ = String(frQ)
@@ -2146,9 +2141,7 @@ export async function POST(request: NextRequest) {
                 wfEarlyReply = '已创建 AI 浏览器发布任务（#' + buTQ.id + '）——客户端自动执行：打开抖音→上传→标题「' + titleQ.slice(0, 40) + '」→发布。'
                 PUBLISH_DRAFT.delete(uidW)
               } catch (eQp) { console.error('[快速发布] 异常:', eQp?.message || eQp); wfEarlyReply = '快速发布失败：' + String(eQp?.message || eQp).slice(0, 100) }
-            } else
-            // 取消草稿
-            if (/取消发布|不发了|放弃/.test(userMessage)) {
+            } else if (/取消发布|不发了|放弃/.test(userMessage)) {
               PUBLISH_DRAFT.delete(uidW)
               wfEarlyReply = '已取消发布草稿。'
             } else if (!draftW) {
@@ -2198,12 +2191,12 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
               } else if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发/.test(userMessage)) {
                 const lstC = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
                 const vqC = String(lstC || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
-                if (vqC) { draftW.videoName = vqC[1]; (global as any).__quickVideo = vqC[1] }
+                if (vqC) { draftW.videoName = vqC[1]; ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = vqC[1] }
                 wfEarlyReply = 'ok'
               } else wfEarlyReply = '回复编号 1-5 选视频，或 C 全默认直接发。'
             } else if (draftW.step === 'abc') {
               if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发|跳过/.test(userMessage)) {
-                (global as any).__quickVideo = draftW.videoName || ''
+                ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = draftW.videoName || ''
                 const q2 = await executeToolCall('browser_use_execute', { task: '快速发布：' + (draftW.videoName || '') + ' 到抖音（全默认）' }, auth).catch(() => '')
                 wfEarlyReply = String(q2).startsWith('BROWSER_TASK_QUEUED') ? 'C 全默认——已直接创建 AI 浏览器发布任务，客户端自动执行。' : ('C 全默认——' + String(q2).slice(0, 120))
                 PUBLISH_DRAFT.delete(uidW)
@@ -2215,7 +2208,7 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                 else { draftW.step = 'frame'; wfEarlyReply = 'A 推荐——请回复“换一批”或编号选封面帧。' }
               }
             } else if (draftW.step === 'usercopy') {
-              (global as any).__quickVideo = draftW.videoName || ''
+              ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = draftW.videoName || ''
               const q3 = await executeToolCall('browser_use_execute', { task: '发布视频 ' + (draftW.videoName || '') + ' 到抖音，标题/正文：' + userMessage.slice(0, 100) + '（全默认封面）' }, auth).catch(() => '')
               wfEarlyReply = String(q3).startsWith('BROWSER_TASK_QUEUED') ? 'B 收到——已创建 AI 浏览器发布任务（含你的文案）。' : ('建任务失败：' + String(q3).slice(0, 120))
               PUBLISH_DRAFT.delete(uidW)
@@ -2251,7 +2244,10 @@ ${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
             } else if (draftW.step === 'title') {
               const pickT = userMessage.trim().match(/^([1-3])$/)
               if (pickT) {
-                draftW.title = '标题' + pickT[1]
+                // 2026-08-31: 从 titlesW 提取第 N 个标题（不再存'标题N'字面量）
+                const tSegs = String(draftW.titles || '').split(/[\n\r]+/).map((s: string) => s.replace(/^\d+[.、、）)]*\s*/, '').trim()).filter((s: string) => s.length > 3)
+
+                draftW.title = tSegs[Number(pickT[1]) - 1] || ('标题' + pickT[1])
                 draftW.step = 'topics'
                 wfEarlyReply = `③ 话题标签（基于画面）：#短视频技巧 #素材分享 #AI营销
 回复“确认”或“换一批”。`
