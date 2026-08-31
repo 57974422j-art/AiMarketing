@@ -20,7 +20,7 @@ const sk = env('OSS_ACCESS_KEY_SECRET')
 const bucket = env('OSS_BUCKET') || 'aimarketing-1'
 if (!ak || !sk) { console.error('OSS key 未配置（.env.local）'); process.exit(1) }
 
-const client = new OSS({ region, accessKeyId: ak, accessKeySecret: sk, bucket, authorizationV4: true })
+const client = new OSS({ region, accessKeyId: ak, accessKeySecret: sk, bucket, authorizationV4: true, timeout: '600s' })
 
 // 读 latest.yml 拿版本
 const fromDir = process.argv[2] || 'dist-rel'
