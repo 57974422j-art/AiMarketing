@@ -2316,6 +2316,8 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                 }
                 if (draftW.frames?.length) {
                   draftW.step = 'frame'
+                  // 2026-08-31: prep 分支内直接持久化（选帧"1"时草稿必在 frame 步——不再因持久化失败 AI 自由）
+                  try { prisma.agentMemory.upsert({ where: { id: 'pub_draft_' + (auth?.userId || 0) }, create: { id: 'pub_draft_' + (auth?.userId || 0), userId: String(auth?.userId || 0), content: '发布草稿:' + JSON.stringify(draftW), tags: 'pub_draft', salience: 0.9, visibility: 'self' }, update: { content: '发布草稿:' + JSON.stringify(draftW) } }).catch(() => {}) } catch {}
                   // 2026-08-31: prep 前统一转 OSS（无论新旧 frames——帧图放个人仓库——链接保险）
                   const newFrames: any[] = []
                   for (const frIt of (draftW.frames || [])) {
