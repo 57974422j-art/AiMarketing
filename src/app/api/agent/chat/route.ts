@@ -2284,6 +2284,7 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                 }
               }
             } else if (draftW.step === 'pick') {
+              console.log('[状态机] 分支进入 pick——消息=', String(userMessage).slice(0, 10), '草稿step=', (draftW as any)?.step, 'frames=', (draftW as any)?.frames?.length || 0)
               const pickM = userMessage.trim().match(/^([1-5])$/)
               if (pickM) {
                 try {
