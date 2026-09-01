@@ -2285,13 +2285,15 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
             } else if (draftW.step === 'pick') {
               const pickM = userMessage.trim().match(/^([1-5])$/)
               if (pickM) {
-                const lstP = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
-                const vidsP = (String(lstP || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/gi) || [])
-                const vPick = vidsP[Number(pickM[1]) - 1]
-                if (vPick) {
-                  draftW.videoName = vPick; draftW.step = 'abc'
-                  wfEarlyReply = '已选 ' + vPick + '——封面/标题/标签：A 我推荐 / B 你的文案 / C 全默认直接发（回复 A/B/C，C 直接发）'
-                } else wfEarlyReply = '编号无效，回复 1-' + vidsP.length + ' 或文件名。'
+                try {
+                  const lstP = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
+                  const vidsP = (String(lstP || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/gi) || [])
+                  const vPick = vidsP[Number(pickM[1]) - 1]
+                  if (vPick) {
+                    draftW.videoName = vPick; draftW.step = 'abc'
+                    wfEarlyReply = '已选 ' + vPick + '——封面/标题/标签：A 我推荐 / B 你的文案 / C 全默认直接发（回复 A/B/C，C 直接发）'
+                  } else wfEarlyReply = '编号无效，回复 1-' + vidsP.length + ' 或文件名。'
+                } catch (ePk: any) { console.error('[状态机] pick 分支异常:', ePk?.message || ePk); wfEarlyReply = '选视频失败（仓库读取异常）——请回复「重试」或「帮我发一个视频」重新开始。' }
               } else if (/^[A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm)$/i.test(userMessage.trim())) {
                 draftW.videoName = userMessage.trim()
                 // 2026-08-31: 平台最后确认（“发布一条视频”无平台→先问）
