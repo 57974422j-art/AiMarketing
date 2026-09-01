@@ -2141,7 +2141,8 @@ export async function POST(request: NextRequest) {
         // 2026-08-31: 状态机词（编号/换一批/重抽/重试/重来/abc/确认/用推荐）无任务 → 块外拦截（不 AI 自由）
         const stWordNoTask = !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /^\d$/.test(userMessage.trim()) || !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /换一批|重抽|重试|重来|用推荐|确认|^[abc]$/i.test(userMessage.trim())
         if (stWordNoTask) {
-          finalResult = '发布流程未开始——请说「帮我发一个视频」开始任务。'
+          wfEarlyReply = '发布流程未开始——请说「帮我发一个视频」开始任务。'
+          finalResult = wfEarlyReply
           console.log('[状态机] 状态机词无任务——拦截（不 AI 自由）')
         } else if ((pubIntent && !freeMode) || PUBLISH_DRAFT.has(auth?.userId || 0)) {
           // 2026-08-27 发布工作流（多轮确认，草稿 Map 持久）——①抽帧选帧 → ②标题 → ③话题 → ④封面 → ⑤确认发布
@@ -2512,10 +2513,10 @@ PUBLISH_DRAFT.delete(uidW)
       let reply: string
       if (wfEarlyReply) { reply = wfEarlyReply; console.log('[状态机] wfEarlyReply 已设:', String(wfEarlyReply).slice(0, 60)) } else
       // 若模型在 Step2 又返回了 tool_calls（异常），忽略它，用工具结果兜底，避免死循环与脏输出
-      if (finalResult.toolCalls && finalResult.toolCalls.length > 0) {
+      if (finalResult && finalResult.toolCalls && finalResult.toolCalls.length > 0) {
         reply = formatToolResult(toolText)
       } else {
-        reply = finalResult.content || formatToolResult(toolText)
+        reply = (typeof finalResult === 'string' ? finalResult : finalResult?.content) || formatToolResult(toolText)
       }
       // 2026-08-27: 发布话术强制校验——模型说“已创建”但工具未真返回 PUBLISH_QUEUED → 强制纠正（不信模型话术，信工具结果）
       try {
