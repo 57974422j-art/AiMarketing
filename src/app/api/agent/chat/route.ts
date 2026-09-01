@@ -2057,8 +2057,10 @@ export async function POST(request: NextRequest) {
         }
       }
     } catch (eT) { console.error('[工具箱] 注册工具加载失败:', eT?.message || eT) }
-    const fcResult = await dashscopeFunctionCall(messages as any, toolsAll, 2000, userTemperature)
-    const toolCalls = fcResult.toolCalls || []
+    // 2026-08-31 完全隔离 Step1：标准模式 + 有发布草稿 → 模型不碰工具（直接状态机——FRAMES_OK 不再由模型产生）
+    const skipModelStep1 = PUBLISH_DRAFT.has(auth?.userId || 0) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
+    const fcResult = skipModelStep1 ? { toolCalls: [], content: '' } : await dashscopeFunctionCall(messages as any, toolsAll, 2000, userTemperature)
+    const toolCalls = (fcResult as any)?.toolCalls || []
     // 2026-08-05：兼容 OpenAI 格式 tool_calls（百炼 qwen：{function:{name,arguments}}）与扁平格式（{name,arguments}）
     const normTool = (tc: any) => ({
       id: tc.id || '',
