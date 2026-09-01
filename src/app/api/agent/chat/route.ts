@@ -2241,9 +2241,6 @@ export async function POST(request: NextRequest) {
             } else if (!draftW && /^\d$/.test(userMessage.trim()) || !draftW && /换一批|重抽|重试|重来|用推荐|^[abc]$/i.test(userMessage.trim())) {
               // 2026-08-31: 状态机词无草稿——拦截（AI 不自由吐帧图/文案）
               wfEarlyReply = '发布流程未开始——请说「发布一条视频」或选视频。'
-            } else if (draftW) {
-              // 2026-08-31: 状态机每步尾持久化草稿（重启不丢）
-              try { prisma.agentMemory.updateMany({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, data: { content: '发布草稿:' + JSON.stringify(draftW) } }).catch(() => {}) } catch {}
             } else if (!draftW) {
               // ① 无草稿：抽帧看视频
               if (!vfNameW) {
