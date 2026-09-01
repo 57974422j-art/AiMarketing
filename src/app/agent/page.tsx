@@ -1911,7 +1911,7 @@ function AgentPageInner() {
           return (
             <div className="mb-2 p-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06]">
               <div className="text-xs text-amber-400 mb-2">{wj.hint || '发布方案已生成'}</div>
-              {wj.coverUrl ? <img src={wj.coverUrl} alt="封面" className="w-full max-h-40 object-contain rounded-lg mb-2" onError={(e: any) => { (e.target as any).style.display = 'none' }} /> : <div className="text-xs text-red-400 mb-1">封面生成失败——换一批重做</div>}
+              {wj.coverUrl ? <img src={wj.coverUrl} alt="封面" className="w-full max-h-40 object-contain rounded-lg mb-2" onError={(e: any) => { (e.target as any).style.display = 'none' }} /> : <div className="text-xs text-amber-400 mb-1">封面生成中（后台生成——稍等确认时带出，或换一批重做）</div>}
               <div className="text-sm mb-1">🎬 {wj.videoName || ''}</div>
               <div className="text-sm mb-1">📝 {Array.isArray(wj.titles) ? wj.titles.join(' / ') : (wj.titles || '')}</div>
               <div className="text-xs text-gray-400 mb-2">🏷 {wj.topics || ''}</div>
