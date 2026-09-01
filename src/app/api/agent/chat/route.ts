@@ -2059,6 +2059,13 @@ export async function POST(request: NextRequest) {
     } catch (eT) { console.error('[工具箱] 注册工具加载失败:', eT?.message || eT) }
     // 2026-08-31 完全隔离 Step1：标准模式 + 有发布草稿 → 模型不碰工具（直接状态机——FRAMES_OK 不再由模型产生）
     const skipModelStep1 = PUBLISH_DRAFT.has(auth?.userId || 0) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
+    // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
+    if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/^\d$/.test(userMessage) || /换一批|重抽|重试|重来|用推荐|确认|^[abc]$|发布|发一个视频|发一条|帮我发/i.test(userMessage))) {
+      try {
+        const dmR0 = await prisma.agentMemory.findFirst({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, orderBy: { updatedAt: 'desc' } })
+        if (dmR0?.content) { const dpR0 = JSON.parse(dmR0.content); if (dpR0?.videoName || dpR0?.step) { PUBLISH_DRAFT.set(auth?.userId || 0, dpR0); console.log('[状态机] Step1前恢复草稿——step=', dpR0.step) } }
+      } catch {}
+    }
     const fcResult = skipModelStep1 ? { toolCalls: [], content: '' } : await dashscopeFunctionCall(messages as any, toolsAll, 2000, userTemperature)
     const toolCalls = (fcResult as any)?.toolCalls || []
     // 2026-08-05：兼容 OpenAI 格式 tool_calls（百炼 qwen：{function:{name,arguments}}）与扁平格式（{name,arguments}）
