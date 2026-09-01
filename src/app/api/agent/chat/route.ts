@@ -2248,9 +2248,13 @@ export async function POST(request: NextRequest) {
                   ? 'WF_JSON:' + JSON.stringify({ step: 'select_video', videos: vids.map((v: string) => ({ name: v, url: '/api/storage/file?userId=' + (auth?.userId || 0) + '&name=' + v })), hint: '选视频：回复编号/文件名，或 C 全默认直接发（勾掉自定义=平台默认）' })
                   : '仓库暂无视频——请先上传视频（个人仓库），或提供视频文件名（如“发布 xx.mp4 到抖音”）。'
                 PUBLISH_DRAFT.set(uidW, { step: 'pick', wf2: { step: 'select_video', chain: [{ t: 'select_video', at: new Date().toISOString() }] } })
-                prisma.agentMemory.findFirst({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } }).then((em) => em
-                  ? prisma.agentMemory.update({ where: { id: em.id }, data: { content: JSON.stringify({ videoName: vfNameW, step: 'pick', wf2: { step: 'select_video' } }) } })
-                  : prisma.agentMemory.create({ data: { userId: String(uidW), content: JSON.stringify({ videoName: vfNameW, step: 'pick', wf2: { step: 'select_video' } }), tags: 'pub_draft', salience: 0.5 } })).catch(() => {})
+                // 2026-08-31: 持久化改 await（原 .then 异步——"1"下一请求时可能没写完→恢复失败→落纯聊天"繁忙"）
+                try {
+                  const em0 = await prisma.agentMemory.findFirst({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } })
+                  const dContent0 = JSON.stringify({ videoName: vfNameW, step: 'pick', wf2: { step: 'select_video' } })
+                  if (em0) await prisma.agentMemory.update({ where: { id: em0.id }, data: { content: dContent0 } })
+                  else await prisma.agentMemory.create({ data: { userId: String(uidW), content: dContent0, tags: 'pub_draft', salience: 0.5 } })
+                } catch {}
               } else {
                 console.log('[发布工作流] ①抽帧:', vfNameW)
                 const frW = await executeToolCall('extract_video_frames', { videoName: vfNameW }, auth).catch((e: any) => '抽帧失败: ' + (e.message || e))
