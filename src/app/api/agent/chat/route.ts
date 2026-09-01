@@ -2137,6 +2137,13 @@ export async function POST(request: NextRequest) {
         const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到|发一条|发个视频|发一个视频|发条|帮我发|发个|直接发|快速发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
         console.log('[状态机] 发布意图=', pubIntent, '草稿=', PUBLISH_DRAFT.has(auth?.userId || 0), '消息=', String(userMessage).slice(0, 30))
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
+        // 2026-08-31: 块外先恢复草稿（内存丢（服务器重启）——AgentMemory 有 pub_draft 也恢复——"1"才能进状态机）
+        if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/^\d$/.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|确认|^[abc]$|发布|发一个视频|发一条/i.test(userMessage.trim()))) {
+          try {
+            const dmR = await prisma.agentMemory.findFirst({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, orderBy: { updatedAt: 'desc' } })
+            if (dmR?.content) { const dpR = JSON.parse(dmR.content); if (dpR?.videoName || dpR?.step) { PUBLISH_DRAFT.set(auth?.userId || 0, dpR); console.log('[状态机] 块外恢复草稿——step=', dpR.step) } }
+          } catch {}
+        }
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
         // 2026-08-30: 自由模式（mode=free）→ 状态机完全跳过——AI 自己调工具发挥（测试用）
         const freeMode = (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free'
