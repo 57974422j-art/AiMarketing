@@ -2077,7 +2077,6 @@ export async function POST(request: NextRequest) {
       arguments: typeof tc.arguments === 'string' ? tc.arguments : (tc.function?.arguments ? String(tc.function.arguments) : '{}'),
     })
     const normCalls = toolCalls.map(normTool)
-    if (skipModelStep1 && normCalls.length === 0) normCalls.push({ id: 'wf-skip-' + Date.now(), name: 'browser_use_execute', arguments: '{}' } as any)  // 2026-09-01 review: 伪 normCalls 触发状态机块（否则块不执行→'繁忙'）
 
     if (normCalls.length > 0) {
       // 按 OpenAI 兼容格式回传 assistant(tool_calls) + tool(tool_call_id)
