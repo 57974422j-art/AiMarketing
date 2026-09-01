@@ -2059,7 +2059,7 @@ export async function POST(request: NextRequest) {
     } catch (eT) { console.error('[工具箱] 注册工具加载失败:', eT?.message || eT) }
     // 2026-08-31 完全隔离 Step1：标准模式 + 有发布草稿 → 模型不碰工具（直接状态机——FRAMES_OK 不再由模型产生）
     // 2026-09-01: 状态机词（\d|abc|换|重|确认|选|发）standard 无条件跳过模型（不依赖草稿恢复——彻底防'1'模型自由）
-    const stWordInput = /\d/.test(userMessage) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|确认|选|发布|发一个视频|发一条|帮我发|发/.test(userMessage)
+    const stWordInput = /^\d{1,2}$/.test(userMessage.trim()) || /^[abc]$/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|确认|选第|帮我发|发一个视频|发一条|发布|直接发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
     const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || stWordInput) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
     // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
     if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|确认|选|发布|发一个视频|发一条|帮我发|发/i.test(userMessage))) {
@@ -2077,6 +2077,7 @@ export async function POST(request: NextRequest) {
       arguments: typeof tc.arguments === 'string' ? tc.arguments : (tc.function?.arguments ? String(tc.function.arguments) : '{}'),
     })
     const normCalls = toolCalls.map(normTool)
+    if (skipModelStep1 && normCalls.length === 0) normCalls.push({ id: 'wf-skip-' + Date.now(), name: 'browser_use_execute', arguments: '{}' } as any)  // 2026-09-01 review: 伪 normCalls 触发状态机块（否则块不执行→'繁忙'）
 
     if (normCalls.length > 0) {
       // 按 OpenAI 兼容格式回传 assistant(tool_calls) + tool(tool_call_id)
