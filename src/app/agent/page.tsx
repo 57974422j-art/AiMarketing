@@ -1915,9 +1915,8 @@ function AgentPageInner() {
               <div className="text-sm mb-1">🎬 {wj.videoName || ''}</div>
               <div className="text-sm mb-1">📝 {Array.isArray(wj.titles) ? wj.titles.join(' / ') : (wj.titles || '')}</div>
               <div className="text-xs text-gray-400 mb-2">🏷 {wj.topics || ''}</div>
-              {Array.isArray(wj.frames) && wj.frames.length ? (
-                <div className="flex gap-1 mb-2">{wj.frames.slice(0, 4).map((f: any, i: number) => <img key={i} src={(f.url || '').startsWith('/') ? 'https://ai-niuma.cc' + f.url : f.url} alt={'帧' + (i + 1)} className="w-14 h-10 object-cover rounded" onError={(e: any) => { (e.target as any).style.display = 'none' }} />)}</div>
-              ) : null}
+                            {/* 2026-09-01: 帧图不给用户看（给 AI 看图用）——去掉显示 */}
+
               <div className="flex gap-2">
                 <button onClick={() => sendMessage('确认')} className="px-4 py-1.5 rounded-lg bg-amber-500/40 hover:bg-amber-500/60 text-sm">确认方案</button>
                 <button onClick={() => sendMessage('换一批')} className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm">换一批（全重做）</button>
