@@ -1774,7 +1774,7 @@ function AgentPageInner() {
         if (data.data.sessionId) setSessionId(data.data.sessionId)
         setOrbState('idle')
         // AI 回复自动朗读（2026-08-07：所有回复都朗读，对话模式朗读完自动再听）
-        if (data.data.reply) {
+        if (data.data.reply && dialogMode) {  // 2026-08-31: 自动朗读默认关——仅语音对话模式
           const plain = String(data.data.reply).replace(/【[^]]*】/g, '').replace(/https?:\/\/[^\s]+/g, '（链接已发到对话）').replace(/\n+/g, '。').slice(0, 400)
           setOrbState('speaking')
           voice.speak(plain, ttsVoice).then(() => {
