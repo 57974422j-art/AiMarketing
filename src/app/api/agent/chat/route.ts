@@ -2423,13 +2423,9 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                 } else {
                   // 2026-09-01: 标题用画面关键词模板（不调 generate_copy——AI 会编——跟视频无关）
                   const vdTxt = String(draftW.visualDesc || draftW.videoName || '视频').replace(/[\s]+/g, ' ').slice(0, 40)
-                  const kwMatch = vdTxt.match(/(?:展示|演示|是一个|呈现|画面)[:：]?\s*([^，。；
-]{2,20})/) || vdTxt.match(/([^，。；
-]{4,16})/)
+                  const kwMatch = vdTxt.match(/(?:展示|演示|是一个|呈现|画面)[:：]?\s*([^，。；\n]{2,20})/) || vdTxt.match(/([^，。；\n]{4,16})/)
                   const kw = (kwMatch?.[1] || vdTxt).slice(0, 14)
-                  const titlesW = '【文案1】' + kw + '——3秒看懂核心
-【文案2】' + kw + '，原来还能这样用
-【文案3】揭秘' + kw + '的细节'
+                  const titlesW = '【文案1】' + kw + '——3秒看懂核心\n【文案2】' + kw + '，原来还能这样用\n【文案3】揭秘' + kw + '的细节'
                 }
                 } else wfEarlyReply = '请回复帧编号 1-4 选帧，或“换一批”重抽。'
               }
