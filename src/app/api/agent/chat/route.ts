@@ -2289,8 +2289,38 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                   const vidsP = (String(lstP || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/gi) || [])
                   const vPick = vidsP[Number(pickM[1]) - 1]
                   if (vPick) {
-                    draftW.videoName = vPick; draftW.step = 'abc'
-                    wfEarlyReply = '已选 ' + vPick + '——封面/标题/标签：A 我推荐 / B 你的文案 / C 全默认直接发（回复 A/B/C，C 直接发）'
+                    // 2026-09-01 新方法: 选视频后一次全做（抽帧→标题模板→话题→封面图→WF_JSON full——完整方案）
+                    draftW.videoName = vPick
+                    try {
+                      const frN = await executeToolCall('extract_video_frames', { videoName: vPick }, auth).catch(() => '')
+                      const frNs = String(frN)
+                      let framesN: any[] = []; let visN = ''
+                      if (frNs.startsWith('FRAMES_OK:')) { try { const pN = JSON.parse(frNs.slice(10)); framesN = Array.isArray(pN.frames) ? pN.frames : []; visN = pN.visualDesc || '' } catch {} }
+                      const nF: any[] = []
+                      for (const fIt of framesN) {
+                        let fpN = String(typeof fIt === 'string' ? fIt : (fIt?.url || ''))
+                        try {
+                          const fReln = fpN.replace('/api/frames/', '')
+                          const fFpn = [path.join(pubRoot, 'frames', fReln), path.join(pubRoot, 'frames', String(auth?.userId || 0), fReln)].find((x: string) => fs.existsSync(x))
+                          if (fFpn) { const fKn = 'storage/' + auth?.userId + '/frame_' + Date.now() + '_' + path.basename(fReln); await putObject(fKn, fs.readFileSync(fFpn), 'image/jpeg'); fpN = 'https://ai-niuma.cc/api/storage/file?name=' + fKn.replace('storage/' + auth?.userId + '/', '') + '&persist=1' }
+                        } catch {}
+                        nF.push(typeof fIt === 'string' ? fpN : { ...fIt, url: fpN })
+                      }
+                      draftW.frames = nF; draftW.visualDesc = visN
+                      const vdT = String(visN || vPick).replace(/[\s]+/g, ' ').slice(0, 40)
+                      const kwM = vdT.match(/(?:展示|演示|是一个|呈现|画面)[::：]?\s*([^，。；
+]{2,20})/) || vdT.match(/([^，。；
+]{4,16})/)
+                      const kwN = (kwM?.[1] || vdT).slice(0, 14)
+                      const titlesN = ['【文案1】' + kwN + '——3秒看懂核心', '【文案2】' + kwN + '，原来还能这样用', '【文案3】揭秘' + kwN + '的细节']
+                      const topicsN = '#短视频 #精品内容 #AI工具'
+                      draftW.titles = titlesN.join('
+'); draftW.topics = topicsN
+                      let covN = ''
+                      if (visN) { try { const covR = await dashscopeGenerateImageAsync((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN).trim(), '768*1344').catch(() => null); if (covR?.taskId) { for (let pi = 0; pi < 3; pi++) { await new Promise((res) => setTimeout(res, 4000)); const qt = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + covR.taskId, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY } }).then((r) => r.json()).catch(() => null); if (qt?.output?.task_status === 'SUCCEEDED') { const u = qt.output.results?.[0]?.url; if (u) { covN = u; break } } } } } catch {} }
+                      draftW.coverUrl = covN; draftW.step = 'full'
+                      wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'full', videoName: vPick, frames: nF, titles: titlesN, topics: topicsN, coverUrl: covN, hint: '发布方案一次生成完成——封面/标题/话题均做好，确认或「换一批」全重做，最后确认平台发布' })
+                    } catch (eFull: any) { console.error('[状态机] 一次全做异常:', eFull?.message || eFull); wfEarlyReply = '素材生成失败——请回「重试」或「换一批」。' }
                   } else wfEarlyReply = '编号无效，回复 1-' + vidsP.length + ' 或文件名。'
                 } catch (ePk: any) { console.error('[状态机] pick 分支异常:', ePk?.message || ePk); wfEarlyReply = '选视频失败（仓库读取异常）——请回复「重试」或「帮我发一个视频」重新开始。' }
               } else if (/^[A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm)$/i.test(userMessage.trim())) {
