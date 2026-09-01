@@ -2138,7 +2138,12 @@ export async function POST(request: NextRequest) {
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
         // 2026-08-30: 自由模式（mode=free）→ 状态机完全跳过——AI 自己调工具发挥（测试用）
         const freeMode = (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free'
-        if ((pubIntent && !freeMode) || PUBLISH_DRAFT.has(auth?.userId || 0)) {
+        // 2026-08-31: 状态机词（编号/换一批/重抽/重试/重来/abc/确认/用推荐）无任务 → 块外拦截（不 AI 自由）
+        const stWordNoTask = !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /^\d$/.test(userMessage.trim()) || !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /换一批|重抽|重试|重来|用推荐|确认|^[abc]$/i.test(userMessage.trim())
+        if (stWordNoTask) {
+          finalResult = '发布流程未开始——请说「帮我发一个视频」开始任务。'
+          console.log('[状态机] 状态机词无任务——拦截（不 AI 自由）')
+        } else if ((pubIntent && !freeMode) || PUBLISH_DRAFT.has(auth?.userId || 0)) {
           // 2026-08-27 发布工作流（多轮确认，草稿 Map 持久）——①抽帧选帧 → ②标题 → ③话题 → ④封面 → ⑤确认发布
           try {
             const uidW = auth?.userId || 0
