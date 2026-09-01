@@ -2147,6 +2147,13 @@ export async function POST(request: NextRequest) {
                 if (dm?.content) { try { draftW = JSON.parse(dm.content); PUBLISH_DRAFT.set(uidW, draftW) } catch {} }
               } catch {}
             }
+            // 2026-08-31: 新发布指令（发一条/发布/发视频/发个——非"继续/重试/重来"）→ 重置旧草稿（重新开始——防旧草稿 step 错位 → AI 自由）
+            if (draftW && /发一条|发布|发视频|发个|发到|帮我发/.test(userMessage) && !/继续|重试|重来/.test(userMessage)) {
+              PUBLISH_DRAFT.delete(uidW)
+              prisma.agentMemory.deleteMany({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } }).catch(() => {})
+              draftW = undefined
+              console.log('[状态机] 新发布指令——重置旧草稿（重新开始）')
+            }
             const vfMatchW = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
             const vfNameW = vfMatchW ? vfMatchW[1] : ''
             // 2026-08-30: 快速发布通道——用户“直接发/跳过/确认发布”→ 抽帧看画面→自动标题→直接建任务（跳过中间确认）
