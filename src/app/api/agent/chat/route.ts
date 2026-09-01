@@ -2308,9 +2308,7 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                       }
                       draftW.frames = nF; draftW.visualDesc = visN
                       const vdT = String(visN || vPick).replace(/[\s]+/g, ' ').slice(0, 40)
-                      const kwM = vdT.match(/(?:展示|演示|是一个|呈现|画面)[::：]?\s*([^，。；
-]{2,20})/) || vdT.match(/([^，。；
-]{4,16})/)
+                      const kwM = vdT.match(/(?:展示|演示|是一个|呈现|画面)[::：]?\s*([^，。；\n]{2,20})/) || vdT.match(/([^，。；\n]{4,16})/)
                       const kwN = (kwM?.[1] || vdT).slice(0, 14)
                       const titlesN = ['【文案1】' + kwN + '——3秒看懂核心', '【文案2】' + kwN + '，原来还能这样用', '【文案3】揭秘' + kwN + '的细节']
                       const topicsN = '#短视频 #精品内容 #AI工具'
