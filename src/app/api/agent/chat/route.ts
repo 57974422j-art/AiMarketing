@@ -2369,9 +2369,7 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                   const titlesW = await executeToolCall('generate_copy', { theme: draftW.visualDesc.slice(0, 300), style: '严格基于视频画面写标题——不得编造画面中不存在的内容（产品/功效/场景）', count: 3 }, auth).catch(() => '')
                   draftW.titles = String(titlesW || '').slice(0, 300)
                   draftW.step = 'title'
-                  wfEarlyReply = `② 标题候选 3 个：
-${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
-回复编号选标题，或“换一批”。`
+                  wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'title', titles: String(titlesW || '').split(/\s+/).map((s: string) => s.replace(/^\d+[.、、）)]*\s*/, '').trim()).filter((s: string) => s.length > 3).slice(0, 3), hint: '② 标题候选——点击选标题或回复编号 1-3' })
                 }
                 } else wfEarlyReply = '请回复帧编号 1-4 选帧，或“换一批”重抽。'
               }
@@ -2383,33 +2381,37 @@ ${String(titlesW || '生成失败，用视频名作标题').slice(0, 200)}
 
                 draftW.title = tSegs[Number(pickT[1]) - 1] || ('标题' + pickT[1])
                 draftW.step = 'topics'
-                wfEarlyReply = `③ 话题标签（基于画面）：#短视频技巧 #素材分享 #AI营销
-回复“确认”或“换一批”。`
+                draftW.topics = '#短视频技巧 #素材分享 #AI营销'
+                wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'topics', topics: ['#短视频技巧', '#素材分享', '#AI营销'], hint: '③ 话题标签——点击选或回复“确认/换一批”' })
               } else wfEarlyReply = '请回复标题编号 1-3，或“换一批”重推。'
             } else if (draftW.step === 'topics') {
               if (/确认|可以|好|行/.test(userMessage.trim())) {
-                draftW.topics = '#短视频技巧 #素材分享 #AI营销'
                 draftW.step = 'cover'
-                wfEarlyReply = '④ 封面（选帧+' + (draftW.title || '标题') + '）已生成，请回复“确认”或“换一批”。'
-              } else wfEarlyReply = '请回复“确认”话题。'
-            } else if (draftW.step === 'cover') {
-              if (/确认|可以|好|行|发/.test(userMessage.trim())) {
-                                // ⑤ 建任务（browser_use AI 浏览器发布——opencli 链已清除 2026-08-30）
-                const wfA: any = { platform: 'douyin', videoName: draftW.videoName, caption: draftW.title || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
-                // 2026-08-31 v2③: 封面生成（文生图替代——i2i 百炼 400 待研究——框描述+标题 → 封面）
-                if (!wfA.coverUrl && draftW.visualDesc) {
+                // 2026-08-31 v2③: ④ 真生成封面（文生图——visualDesc+标题 → 封面）——不再等 ⑤
+                let covU = draftW.coverUrl || ''
+                if (!covU && draftW.visualDesc) {
                   try {
-                    const covR = await dashscopeGenerateImageAsync((draftW.visualDesc.slice(0, 200) + '，营销封面风格，标题文字：' + (wfA.caption || '')).trim(), '768*1344').catch(() => null)
+                    const covR = await dashscopeGenerateImageAsync((draftW.visualDesc.slice(0, 200) + '，营销封面风格，标题文字：' + (draftW.title || '')).trim(), '768*1344').catch(() => null)
                     if (covR?.taskId) {
-                      // 提交后轮询拿 url（生图异步任务）
                       for (let pi = 0; pi < 4; pi++) {
                         await new Promise((res) => setTimeout(res, 4000))
                         const qt = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + covR.taskId, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY } }).then((r) => r.json()).catch(() => null)
-                        if (qt?.output?.task_status === 'SUCCEEDED') { const u = qt.output.results?.[0]?.url; if (u) { wfA.coverUrl = u; draftW.coverUrl = u } break }
+                        if (qt?.output?.task_status === 'SUCCEEDED') { const u = qt.output.results?.[0]?.url; if (u) { covU = u; draftW.coverUrl = u } break }
                       }
                     }
                   } catch {}
                 }
+                wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'cover', coverUrl: covU, hint: '④ 封面已生成' + (covU ? '' : '（失败——可重试）') + '——确认或换一批' })
+              } else wfEarlyReply = '请回复“确认”话题。'
+            } else if (draftW.step === 'cover') {
+              if (/确认|可以|好|行/.test(userMessage.trim())) {
+                // 2026-08-31 v2④: ⑤ 确认发布——先吐 WF_JSON publish（报告预览——确认键）——用户确认后再建任务
+                draftW.step = 'publish'
+                wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'publish', videoName: draftW.videoName, title: draftW.title || '', topics: draftW.topics || '', coverUrl: draftW.coverUrl || '', hint: '⑤ 确认发布到抖音——检查素材包，点「确认发布」执行' })
+              } else wfEarlyReply = '请回复“确认”封面。'
+            } else if (draftW.step === 'publish') {
+              if (/确认发布|确认|发|好|行/.test(userMessage.trim())) {
+                const wfA: any = { platform: 'douyin', videoName: draftW.videoName, caption: draftW.title || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
                 let fileUrls: string[] = []
                 try {
                   const vRel = String(wfA.videoName || '')
