@@ -1906,6 +1906,25 @@ function AgentPageInner() {
             </div>
           )
         }
+        if (wj.step === 'full') {
+          // 2026-09-01: 完整方案卡（封面图/标题/话题/帧图——确认/换一批——最后平台发布）
+          return (
+            <div className="mb-2 p-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06]">
+              <div className="text-xs text-amber-400 mb-2">{wj.hint || '发布方案已生成'}</div>
+              {wj.coverUrl ? <img src={wj.coverUrl} alt="封面" className="w-full max-h-40 object-contain rounded-lg mb-2" onError={(e: any) => { (e.target as any).style.display = 'none' }} /> : <div className="text-xs text-red-400 mb-1">封面生成失败——换一批重做</div>}
+              <div className="text-sm mb-1">🎬 {wj.videoName || ''}</div>
+              <div className="text-sm mb-1">📝 {Array.isArray(wj.titles) ? wj.titles.join(' / ') : (wj.titles || '')}</div>
+              <div className="text-xs text-gray-400 mb-2">🏷 {wj.topics || ''}</div>
+              {Array.isArray(wj.frames) && wj.frames.length ? (
+                <div className="flex gap-1 mb-2">{wj.frames.slice(0, 4).map((f: any, i: number) => <img key={i} src={(f.url || '').startsWith('/') ? 'https://ai-niuma.cc' + f.url : f.url} alt={'帧' + (i + 1)} className="w-14 h-10 object-cover rounded" onError={(e: any) => { (e.target as any).style.display = 'none' }} />)}</div>
+              ) : null}
+              <div className="flex gap-2">
+                <button onClick={() => sendMessage('确认')} className="px-4 py-1.5 rounded-lg bg-amber-500/40 hover:bg-amber-500/60 text-sm">确认方案</button>
+                <button onClick={() => sendMessage('换一批')} className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm">换一批（全重做）</button>
+              </div>
+            </div>
+          )
+        }
         if (wj.step === 'title' && Array.isArray(wj.titles)) {
           // ② 标题候选卡片（点击选——发编号）
           return (
