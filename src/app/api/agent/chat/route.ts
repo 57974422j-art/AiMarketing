@@ -1804,6 +1804,8 @@ export async function DELETE(request: NextRequest) {
   } catch { return NextResponse.json({ ok: false }) }
 }
 
+export const maxDuration = 300 // 2026-09-01: 一次全做封面硬等（300s）——防请求超时
+
 export async function POST(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
 
