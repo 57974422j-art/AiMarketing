@@ -1606,7 +1606,7 @@ function AgentPageInner() {
     const lastAsst = [...messages].reverse().find((mm: any) => mm.role === 'assistant' && typeof mm.content === 'string')
     const txt = lastAsst ? String(lastAsst.content) : ''
     const allTxt = messages.map((mm: any) => String(mm.content || '')).join(' ')
-    const isPub = txt.indexOf('发布') >= 0 || txt.indexOf('WF_JSON') >= 0 || txt.indexOf('抽帧') >= 0 || txt.indexOf('选视频') >= 0 || txt.indexOf('选标题') >= 0 || txt.indexOf('话题') >= 0 || txt.indexOf('封面') >= 0
+    const isPub = txt.indexOf('发布') >= 0 || txt.indexOf('WF_JSON') >= 0 || txt.indexOf('FRAMES_OK') >= 0 || txt.indexOf('抽帧') >= 0 || txt.indexOf('选视频') >= 0 || txt.indexOf('选标题') >= 0 || txt.indexOf('话题') >= 0 || txt.indexOf('封面') >= 0
     const defs = [
       { k: '①', label: '选视频' },
       { k: '②', label: '抽帧选帧' },
