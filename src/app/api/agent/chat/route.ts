@@ -2421,10 +2421,16 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                   wfEarlyReply = '② 画面分析失败（visualDesc 空）——请回复“重新分析”重抽帧，或换个视频。'
                   PUBLISH_DRAFT.delete(uidW)
                 } else {
-                  const titlesW = await executeToolCall('generate_copy', { theme: draftW.visualDesc.slice(0, 300), style: '严格基于视频画面写标题——不得编造画面中不存在的内容（产品/功效/场景）', count: 3 }, auth).catch(() => '')
-                  draftW.titles = String(titlesW || '').slice(0, 300)
-                  draftW.step = 'title'
-                  wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'title', titles: String(titlesW || '').split(/\s+/).map((s: string) => s.replace(/^\d+[.、、）)]*\s*/, '').trim()).filter((s: string) => s.length > 3).slice(0, 3), hint: '② 标题候选——点击选标题或回复编号 1-3' })
+                  // 2026-09-01: 标题用画面关键词模板（不调 generate_copy——AI 会编——跟视频无关）
+                  const vdTxt = String(draftW.visualDesc || draftW.videoName || '视频').replace(/[
+]+/g, ' ').slice(0, 40)
+                  const kwMatch = vdTxt.match(/(?:展示|演示|是一个|呈现|画面)[:：]?\s*([^，。；
+]{2,20})/) || vdTxt.match(/([^，。；
+]{4,16})/)
+                  const kw = (kwMatch?.[1] || vdTxt).slice(0, 14)
+                  const titlesW = '【文案1】' + kw + '——3秒看懂核心
+【文案2】' + kw + '，原来还能这样用
+【文案3】揭秘' + kw + '的细节'
                 }
                 } else wfEarlyReply = '请回复帧编号 1-4 选帧，或“换一批”重抽。'
               }
