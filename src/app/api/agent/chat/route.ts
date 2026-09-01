@@ -2182,6 +2182,9 @@ export async function POST(request: NextRequest) {
             } else if (/取消发布|不发了|放弃/.test(userMessage)) {
               PUBLISH_DRAFT.delete(uidW)
               wfEarlyReply = '已取消发布草稿。'
+            } else if (!draftW && /^\d$/.test(userMessage.trim()) || !draftW && /换一批|重抽|重试|重来|用推荐|^[abc]$/i.test(userMessage.trim())) {
+              // 2026-08-31: 状态机词无草稿——拦截（AI 不自由吐帧图/文案）
+              wfEarlyReply = '发布流程未开始——请说「发布一条视频」或选视频。'
             } else if (!draftW) {
               // ① 无草稿：抽帧看视频
               if (!vfNameW) {
