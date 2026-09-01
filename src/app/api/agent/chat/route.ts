@@ -2311,6 +2311,8 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                 } else wfEarlyReply = '仓库暂无视频，请先上传。'
                 PUBLISH_DRAFT.delete(uidW)
               } else wfEarlyReply = '回复编号 1-5 选视频，或 C 全默认直接发。'
+              // 2026-09-01: pick 分支末尾兑底（任何路径都设回复——防块尾空）
+              if (!wfEarlyReply) wfEarlyReply = '回复编号 1-5 选视频，或 C 全默认直接发。'
             } else if (draftW.step === 'plat') {
               // 平台确认：1 抖音 / 2 小红书 / 3 微博 / 4 B站
               const platMap2: Record<string, string> = { '1': 'douyin', '2': 'xiaohongshu', '3': 'weibo', '4': 'bilibili' }
@@ -2541,6 +2543,7 @@ PUBLISH_DRAFT.delete(uidW)
         reply = formatToolResult(toolText)
       } else {
         reply = (typeof finalResult === 'string' ? finalResult : finalResult?.content) || formatToolResult(toolText)
+      if (!reply) reply = '发布流程处理中——请回复“重试”或继续操作。'  // 2026-09-01: 回复空兑底（不白屏' 已执行'）
       }
       // 2026-08-27: 发布话术强制校验——模型说“已创建”但工具未真返回 PUBLISH_QUEUED → 强制纠正（不信模型话术，信工具结果）
       try {
