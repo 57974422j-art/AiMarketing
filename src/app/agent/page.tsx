@@ -1905,6 +1905,57 @@ function AgentPageInner() {
             </div>
           )
         }
+        if (wj.step === 'title' && Array.isArray(wj.titles)) {
+          // ② 标题候选卡片（点击选——发编号）
+          return (
+            <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
+              <div className="text-xs text-emerald-400 mb-2">{wj.hint || '选标题'}</div>
+              <div className="flex flex-col gap-2">
+                {wj.titles.map((t: any, i: number) => (
+                  <button key={i} onClick={() => sendMessage(String(i + 1))} className="text-left px-3 py-2 rounded-lg bg-white/[0.05] hover:bg-emerald-500/20 border border-white/[0.08] transition text-sm">{t}</button>
+                ))}
+              </div>
+            </div>
+          )
+        }
+        if (wj.step === 'topics' && Array.isArray(wj.topics)) {
+          // ③ 话题标签卡片（点击确认）
+          return (
+            <div className="mb-2 p-3 rounded-xl border border-sky-500/30 bg-sky-500/[0.06]">
+              <div className="text-xs text-sky-400 mb-2">{wj.hint || '选话题'}</div>
+              <div className="flex flex-wrap gap-2 mb-2">{wj.topics.map((t: any, i: number) => <span key={i} className="px-2 py-1 rounded-full bg-white/[0.06] text-xs">{t}</span>)}</div>
+              <button onClick={() => sendMessage('确认')} className="px-4 py-1.5 rounded-lg bg-sky-500/30 hover:bg-sky-500/50 text-sm">确认话题</button>
+            </div>
+          )
+        }
+        if (wj.step === 'cover') {
+          // ④ 封面卡片（预览——确认/换一批）
+          return (
+            <div className="mb-2 p-3 rounded-xl border border-violet-500/30 bg-violet-500/[0.06]">
+              <div className="text-xs text-violet-400 mb-2">{wj.hint || '封面已生成'}</div>
+              {wj.coverUrl ? <img src={wj.coverUrl} alt="封面" className="w-full max-h-48 object-contain rounded-lg mb-2" onError={(e: any) => { e.target.style.display = 'none' }} /> : <div className="text-xs text-red-400 mb-2">封面生成失败——换一批重试</div>}
+              <div className="flex gap-2">
+                <button onClick={() => sendMessage('确认')} className="px-4 py-1.5 rounded-lg bg-violet-500/30 hover:bg-violet-500/50 text-sm">确认封面</button>
+                <button onClick={() => sendMessage('换一批')} className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm">换一批</button>
+              </div>
+            </div>
+          )
+        }
+        if (wj.step === 'publish') {
+          // ⑤ 发布确认卡片（完整素材包——确认键）
+          return (
+            <div className="mb-2 p-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06]">
+              <div className="text-xs text-amber-400 mb-2">{wj.hint || '确认发布'}</div>
+              <div className="text-sm space-y-1 mb-2">
+                <div>🎬 视频：{wj.videoName || ''}</div>
+                <div>📝 标题：{wj.title || ''}</div>
+                <div>🏷 话题：{wj.topics || ''}</div>
+                {wj.coverUrl ? <div>🖼 封面：<img src={wj.coverUrl} alt="封面" className="w-24 h-16 object-cover rounded-lg inline-block align-middle ml-1" /></div> : null}
+              </div>
+              <button onClick={() => sendMessage('确认发布')} className="px-5 py-2 rounded-lg bg-amber-500/40 hover:bg-amber-500/60 text-sm font-medium">确认发布</button>
+            </div>
+          )
+        }
         if (wj.step === 'select_video' && Array.isArray(wj.videos)) {
           return (
             <div className="mt-1 space-y-1">
