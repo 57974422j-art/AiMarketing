@@ -1792,14 +1792,16 @@ async function extractSceneFromReply(raw: string): Promise<{ reply: string; scen
 }
 
 export async function DELETE(request: NextRequest) {
-  // 2026-08-31: 清除键全量清——清发布草稿（PUBLISH_DRAFT + AgentMemory pub_draft）——方便重新测试
+  // 2026-08-31: 清除键全量清——清发布草稿（PUBLISH_DRAFT + AgentMemory pub_draft）+ 删会话（sessionId 参数）——方便重新测试
   try {
     const auth2 = await getAuthFromHeaders()
-    if (auth2?.userId) {
-      PUBLISH_DRAFT.delete(auth2.userId)
-      prisma.agentMemory.deleteMany({ where: { userId: String(auth2.userId), tags: { contains: 'pub_draft' } } }).catch(() => {})
-    }
-    return NextResponse.json({ ok: true })
+    if (!auth2) return NextResponse.json({ success: false, message: '请登录' }, { status: 401 })
+    const url2 = new URL(request.url)
+    const sessionId = parseInt(url2.searchParams.get('sessionId') || '')
+    if (sessionId) await prisma.chatSession.deleteMany({ where: { id: sessionId, userId: auth2.userId } })
+    PUBLISH_DRAFT.delete(auth2.userId)
+    prisma.agentMemory.deleteMany({ where: { userId: String(auth2.userId), tags: { contains: 'pub_draft' } } }).catch(() => {})
+    return NextResponse.json({ success: true })
   } catch { return NextResponse.json({ ok: false }) }
 }
 
@@ -1907,7 +1909,15 @@ export async function POST(request: NextRequest) {
         const m = profMem.content.match(/名字[:：]\s*([^\n;；]+)/)
         const p = profMem.content.match(/人设[:：]\s*([^\n;；]+)/)
         agentProfile = { name: m?.[1]?.trim(), persona: p?.[1]?.trim() }
-      }
+  
+      // 2026-08-31: 发布草稿恢复（AgentMemory pub_draft——重启不丢——hasDraft 时序）
+      try {
+        const dMem = await prisma.agentMemory.findFirst({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, orderBy: { updatedAt: 'desc' } })
+        if (dMem) {
+          const dp = JSON.parse(String(dMem.content).replace(/^发布草稿:/, ''))
+          if (dp?.videoName) PUBLISH_DRAFT.set(auth?.userId || 0, dp)
+        }
+      } catch {}    }
     } catch {}
     // 自定义名称兜底（2026-08-07）：用户级 User.agentName > 全局 SystemConfig.agent_name
     try {
@@ -2193,10 +2203,14 @@ export async function POST(request: NextRequest) {
               } else wfEarlyReply = '重试当前步——' + (draftW?.step === 'abc' ? '回复 A/B/C 继续。' : draftW?.step === 'title' ? '回复编号选标题。' : '回复「重来」重置或继续操作。')
             } else if (/取消发布|不发了|放弃/.test(userMessage)) {
               PUBLISH_DRAFT.delete(uidW)
+
               wfEarlyReply = '已取消发布草稿。'
             } else if (!draftW && /^\d$/.test(userMessage.trim()) || !draftW && /换一批|重抽|重试|重来|用推荐|^[abc]$/i.test(userMessage.trim())) {
               // 2026-08-31: 状态机词无草稿——拦截（AI 不自由吐帧图/文案）
               wfEarlyReply = '发布流程未开始——请说「发布一条视频」或选视频。'
+            } else if (draftW) {
+              // 2026-08-31: 状态机每步尾持久化草稿（重启不丢）
+              try { prisma.agentMemory.upsert({ where: { id: 'pub_draft_' + (auth?.userId || 0) }, create: { id: 'pub_draft_' + (auth?.userId || 0), userId: String(auth?.userId || 0), content: '发布草稿:' + JSON.stringify(draftW), tags: 'pub_draft', salience: 0.9, visibility: 'self' }, update: { content: '发布草稿:' + JSON.stringify(draftW) } }).catch(() => {}) } catch {}
             } else if (!draftW) {
               // ① 无草稿：抽帧看视频
               if (!vfNameW) {
@@ -2680,20 +2694,4 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// DELETE: 删除会话
-export async function DELETE(request: NextRequest) {
-  const auth = getAuthFromHeaders(request)
-  if (!auth) return NextResponse.json({ success: false, message: '请登录' }, { status: 401 })
-  const url = new URL(request.url)
-  const sessionId = parseInt(url.searchParams.get('sessionId') || '')
-  if (!sessionId) return NextResponse.json({ success: false, message: '缺少会话ID' }, { status: 400 })
-  try {
-    await prisma.chatSession.deleteMany({ where: { id: sessionId, userId: auth.userId } })
-    return NextResponse.json({ success: true })
-  } catch (e: any) {
-    return NextResponse.json({ success: false, message: e.message }, { status: 500 })
-  }
-}
-
-// 强制动态渲染：API 路由依赖 request.headers / 鉴权，禁止 Next 在构建期静态预渲染
 export const dynamic = 'force-dynamic'
