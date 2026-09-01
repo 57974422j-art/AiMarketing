@@ -1606,19 +1606,20 @@ function AgentPageInner() {
     const lastAsst = [...messages].reverse().find((mm: any) => mm.role === 'assistant' && typeof mm.content === 'string')
     const txt = lastAsst ? String(lastAsst.content) : ''
     const allTxt = messages.map((mm: any) => String(mm.content || '')).join(' ')
-    const isPub = allTxt.indexOf('发布') >= 0 || allTxt.indexOf('抽帧') >= 0 || allTxt.indexOf('封面') >= 0
+    const isPub = txt.indexOf('发布') >= 0 || txt.indexOf('WF_JSON') >= 0 || txt.indexOf('抽帧') >= 0 || txt.indexOf('选视频') >= 0 || txt.indexOf('选标题') >= 0 || txt.indexOf('话题') >= 0 || txt.indexOf('封面') >= 0
     const defs = [
-      { k: '①', label: '视频确认 + 抽帧选帧' },
-      { k: '②', label: '标题（3 个候选）' },
-      { k: '③', label: '话题标签' },
-      { k: '④', label: '封面设计' },
-      { k: '⑤', label: '确认发布（向客户端下达）' },
+      { k: '①', label: '选视频' },
+      { k: '②', label: '抽帧选帧' },
+      { k: '③', label: '标题（3 个候选）' },
+      { k: '④', label: '话题标签' },
+      { k: '⑤', label: '封面' },
+      { k: '⑥', label: '确认发布（向客户端下达）' },
     ]
     // 2026-08-31: 当前步（最近回复里最大的标记 ①-⑤）——执行状态同步
     let cur = -1
     // 2026-08-31 A: 优先从 WF_JSON step 映射（prep→① title→② topics→③ cover→④ publish→⑤）——正相关
     const wj = txt.match(/WF_JSON:\{.*?\"step\":\"([a-z_]+)\"/)
-    if (wj) { const sm: Record<string, number> = { prep: 0, title: 1, topics: 2, cover: 3, publish: 4 }; if (sm[wj[1]] !== undefined) cur = sm[wj[1]] }
+    if (wj) { const sm: Record<string, number> = { select_video: 0, prep: 1, title: 2, topics: 3, cover: 4, publish: 5 }; if (sm[wj[1]] !== undefined) cur = sm[wj[1]] }
     else defs.forEach((d, di) => { if (txt.indexOf(d.k) >= 0) cur = Math.max(cur, di) })
     if (todoSkips.length !== defs.length) setTodoSkips(defs.map(() => false))
     return { isPub, done: defs.map((d) => txt.indexOf(d.k) >= 0), defs, current: cur }
