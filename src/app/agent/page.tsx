@@ -1898,7 +1898,7 @@ function AgentPageInner() {
               <div className="grid grid-cols-4 gap-1">
                 {wj.frames.map((v: any, i: number) => (
                   <button key={i} onClick={() => sendMessage(String(i + 1))} className="rounded-lg overflow-hidden border border-white/[0.08] hover:border-emerald-500/50 transition">
-                    <img src={(v.url || '').startsWith('/') ? 'https://ai-niuma.cc' + v.url : v.url} alt={'帧' + (i + 1)} className="w-full h-16 object-cover" onError={(e: any) => { e.target.style.display = 'none' }} />
+                    <img src={(v.url || '').startsWith('/') ? 'https://ai-niuma.cc' + v.url : v.url} alt={'帧' + (i + 1)} className="w-full h-16 object-cover" onError={(e: any) => { (e.target as any).style.display='none'; const p2=(e.target as any).closest('button'); if(p2){const d=document.createElement('div');d.className='text-[8px] text-red-400 truncate';d.textContent='图失败:'+((e.target as any).src||'').slice(0,70);p2.parentNode?.insertBefore(d,p2.nextSibling)}}} onError={(e: any) => { e.target.style.display = 'none' }} />
                     <span className="block text-center text-[8px] text-gray-400 py-0.5">{i + 1}</span>
                   </button>
                 ))}
