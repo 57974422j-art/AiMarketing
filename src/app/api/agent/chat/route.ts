@@ -1791,6 +1791,18 @@ async function extractSceneFromReply(raw: string): Promise<{ reply: string; scen
   return { reply, scene, scenes }
 }
 
+export async function DELETE(request: NextRequest) {
+  // 2026-08-31: 清除键全量清——清发布草稿（PUBLISH_DRAFT + AgentMemory pub_draft）——方便重新测试
+  try {
+    const auth2 = await getAuthFromHeaders()
+    if (auth2?.userId) {
+      PUBLISH_DRAFT.delete(auth2.userId)
+      prisma.agentMemory.deleteMany({ where: { userId: String(auth2.userId), tags: { contains: 'pub_draft' } } }).catch(() => {})
+    }
+    return NextResponse.json({ ok: true })
+  } catch { return NextResponse.json({ ok: false }) }
+}
+
 export async function POST(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
 

@@ -1676,6 +1676,7 @@ function AgentPageInner() {
   const clearTodayTasks = async () => {
     try {
       setMessages([])
+      try { fetch('/api/agent/chat', { method: 'DELETE' }).catch(() => {}) } catch {}
       try { localStorage.removeItem('agent_session_' + (sessionId || '')); localStorage.removeItem('agent_messages') } catch {}
       // 2026-08-31: 该路由不存在（静默 404）——本地清 messages 即可（会话已在前端清） }
       setClearMsg('已清空会话（聊天记录已清）')
