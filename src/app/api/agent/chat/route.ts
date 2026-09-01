@@ -2312,8 +2312,7 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                       const kwN = (kwM?.[1] || vdT).slice(0, 14)
                       const titlesN = ['【文案1】' + kwN + '——3秒看懂核心', '【文案2】' + kwN + '，原来还能这样用', '【文案3】揭秘' + kwN + '的细节']
                       const topicsN = '#短视频 #精品内容 #AI工具'
-                      draftW.titles = titlesN.join('
-'); draftW.topics = topicsN
+                      draftW.titles = titlesN.join('\n'); draftW.topics = topicsN
                       let covN = ''
                       if (visN) { try { const covR = await dashscopeGenerateImageAsync((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN).trim(), '768*1344').catch(() => null); if (covR?.taskId) { for (let pi = 0; pi < 3; pi++) { await new Promise((res) => setTimeout(res, 4000)); const qt = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + covR.taskId, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY } }).then((r) => r.json()).catch(() => null); if (qt?.output?.task_status === 'SUCCEEDED') { const u = qt.output.results?.[0]?.url; if (u) { covN = u; break } } } } } catch {} }
                       draftW.coverUrl = covN; draftW.step = 'full'
