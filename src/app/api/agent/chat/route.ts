@@ -2114,7 +2114,7 @@ export async function POST(request: NextRequest) {
       let finalResult: any = null
       // 2026-08-31 完全隔离：标准模式 + 任务词（帮我发/帮我写/帮我做/帮我生成/帮我配/帮我搜/帮我查/帮我记录/帮我开）——状态机是唯一路径——绝不 AI 兜底
       const isTaskCmd = /帮我发|帮我写|帮我做|帮我生成|帮我配|帮我搜|帮我查|帮我记录|帮我开/.test(userMessage)
-      if (hasDraft || (isTaskCmd && !freeMode)) {
+      if (hasDraft || (isTaskCmd && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free')) {
         console.log('[chat] 任务模式——跳过 AI 汇总（状态机唯一路径——AI 不自由）')
         finalResult = ''
       } else {
