@@ -2078,7 +2078,7 @@ export async function POST(request: NextRequest) {
     })
     const normCalls = toolCalls.map(normTool)
 
-    if (normCalls.length > 0) {
+    if (skipModelStep1 || normCalls.length > 0) {  // 2026-09-01: skip 直接进状态机块（伪 normCalls 会被工具执行报错——改入口条件）
       // 按 OpenAI 兼容格式回传 assistant(tool_calls) + tool(tool_call_id)
       messages.push({
         role: 'assistant',
