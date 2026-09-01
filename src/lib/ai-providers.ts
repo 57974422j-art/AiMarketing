@@ -2095,7 +2095,7 @@ export async function dashscopeGenerateImageAsync(prompt: string, size = '1280*1
     const res = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/image-generation/generation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
-      body: JSON.stringify({ model: 'qwen-image-3.0-pro', input: { messages: [{ role: 'user', content: prompt }] }, parameters: { size, n: 1, prompt_extend: true, watermark: false } }),
+      body: JSON.stringify({ model: 'qwen-image-3.0-pro', input: { messages: [{ role: 'user', content: [{ text: prompt }] }, parameters: { size, n: 1, prompt_extend: true, watermark: false } }),
       signal: AbortSignal.timeout(30000),
     })
     const data = await res.json().catch(() => null)
