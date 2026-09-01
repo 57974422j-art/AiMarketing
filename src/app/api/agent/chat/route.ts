@@ -2112,6 +2112,7 @@ export async function POST(request: NextRequest) {
       // 2026-08-31 根治: 有发布草稿时跳过 AI 汇总（状态机直接处理——AI 不自由——否则 qwen3.8 自由回复覆盖 wfEarlyReply）
       const hasDraft = PUBLISH_DRAFT.has(auth?.userId || 0)
       let finalResult: any = null
+      console.log('[chat] Step2 finalResult 状态——hasDraft=', hasDraft, '任务词=', /帮我发|帮我写|帮我做|帮我生成|帮我配|帮我搜|帮我查|帮我记录|帮我开/.test(userMessage), '模式=', (body as any)?.mode)
       // 2026-08-31 完全隔离：标准模式 + 任务词（帮我发/帮我写/帮我做/帮我生成/帮我配/帮我搜/帮我查/帮我记录/帮我开）——状态机是唯一路径——绝不 AI 兜底
       const isTaskCmd = /帮我发|帮我写|帮我做|帮我生成|帮我配|帮我搜|帮我查|帮我记录|帮我开/.test(userMessage)
       if (hasDraft || (isTaskCmd && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free')) {
