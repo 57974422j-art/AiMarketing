@@ -2112,8 +2112,10 @@ export async function POST(request: NextRequest) {
       // 2026-08-31 根治: 有发布草稿时跳过 AI 汇总（状态机直接处理——AI 不自由——否则 qwen3.8 自由回复覆盖 wfEarlyReply）
       const hasDraft = PUBLISH_DRAFT.has(auth?.userId || 0)
       let finalResult: any = null
-      if (hasDraft) {
-        console.log('[chat] 有发布草稿——跳过 AI 汇总（状态机直接处理）')
+      // 2026-08-31 完全隔离：标准模式 + 任务词（帮我发/帮我写/帮我做/帮我生成/帮我配/帮我搜/帮我查/帮我记录/帮我开）——状态机是唯一路径——绝不 AI 兜底
+      const isTaskCmd = /帮我发|帮我写|帮我做|帮我生成|帮我配|帮我搜|帮我查|帮我记录|帮我开/.test(userMessage)
+      if (hasDraft || (isTaskCmd && !freeMode)) {
+        console.log('[chat] 任务模式——跳过 AI 汇总（状态机唯一路径——AI 不自由）')
         finalResult = ''
       } else {
         try {
@@ -2129,7 +2131,7 @@ export async function POST(request: NextRequest) {
       let wfEarlyReply = '' // 2026-08-27 函数级（必须在 try 外，2119 reply 处读用）
       try {
 
-        const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到|发一条|发个视频|发条|帮我发|发个|直接发|快速发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
+        const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到|发一条|发个视频|发一个视频|发条|帮我发|发个|直接发|快速发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
         console.log('[状态机] 发布意图=', pubIntent, '草稿=', PUBLISH_DRAFT.has(auth?.userId || 0), '消息=', String(userMessage).slice(0, 30))
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）

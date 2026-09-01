@@ -1625,7 +1625,7 @@ function AgentPageInner() {
     return { isPub, done: defs.map((d) => txt.indexOf(d.k) >= 0), defs, current: cur }
   })()
   const FEATURE_TIPS = [
-    '帮我发一条抖音视频', '帮我写一个小红书文案', '帮我生成一张产品海报',
+    '帮我发一个视频', '帮我写一个小红书文案', '帮我生成一张产品海报',
     '帮我查一下今日热点', '帮我生成一个数字人口播', '帮我做一条 AI 视频',
     '帮我配一段背景音乐', '帮我搜一下小红书「奶茶」', '帮我记录一件事：明天要交房租',
   ]
