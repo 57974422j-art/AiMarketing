@@ -2476,7 +2476,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 let covU = draftW.coverUrl || ''
                 if (!covU && draftW.visualDesc) {
                   try {
-                    const covR = await dashscopeGenerateImageAsync((draftW.visualDesc.slice(0, 200) + '，营销封面风格，标题文字：' + (draftW.title || '')).trim(), '768*1344').catch(() => null)
+                    const covR = await dashscopeGenerateImageAsync((draftW.visualDesc.slice(0, 200) + '，营销封面风格，标题文字：' + (draftW.title || '')).trim(), '720*1440').catch(() => null)
                     if (covR?.taskId) {
                       for (let pi = 0; pi < 4; pi++) {
                         await new Promise((res) => setTimeout(res, 4000))
