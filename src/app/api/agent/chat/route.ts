@@ -1565,25 +1565,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             if (Date.now() - fs.statSync(p).mtimeMs > 3600000) fs.rmSync(p, { recursive: true, force: true })
           }
         } catch {}
-        // 2026-08-23: C 封面3选1——九宫格封面（9 帧 3x3 拼图）+ AI 推荐帧标记（规则取 75% 帧，真视觉推荐下轮接）
-        let grid = ''
-        try {
-          const tileIn: string[] = []
-          for (let i = 0; i < 9; i++) {
-            const t = (dur * i) / 8
-            const o = path.join(outDir, 't' + i + '.jpg')
-            try { execSync(`ffmpeg -y -ss ${t.toFixed(2)} -t 0.1 -i "${srcPath}" -frames:v 1 -vf "scale=200:-2" -q:v 6 "${o}"`, { timeout: 20000 }) } catch {}
-            if (fs.existsSync(o)) tileIn.push(o)
-          }
-          if (tileIn.length === 9) {
-            const gridOut = path.join(outDir, 'grid.jpg')
-            try { execSync(`ffmpeg -y -ss 0 -t 0.9 -i "${srcPath}" -vf "select='not(mod(n,10))',scale=200:-2,tile=3x3" -frames:v 1 -q:v 6 "${gridOut}"`, { timeout: 30000 }) } catch {}
-            // tile filter 若失败，退化为首帧缩放
-            if (!fs.existsSync(gridOut)) { execSync(`ffmpeg -y -ss 0 -i "${srcPath}" -frames:v 1 -vf "scale=200:-2" -q:v 6 "${gridOut}"`, { timeout: 20000 }) }
-            if (fs.existsSync(gridOut)) grid = `/api/frames/${auth.userId}/${ts}/grid.jpg`
-          }
-          for (const f of tileIn) { try { fs.rmSync(f, { force: true }) } catch {} }
-        } catch {}
+        const grid = ''
         const recommended = frames.length >= 4 ? 3 : 1  // 规则：75% 帧（idx3）暂代 AI 推荐
         // 2026-08-23: 视觉理解前置——百炼 qwen-vl-max 看帧总结内容（AI 基于真实内容写标题/推荐封面，杜绝瞎编）
         let visualDesc = ''
