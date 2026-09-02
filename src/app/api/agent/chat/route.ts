@@ -2318,6 +2318,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                       let covN = ''
                       try { const gen = await generateImage((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN).trim() || '营销封面', '720*1440', 'auto'); if (gen?.url) { try { const cRes = await fetch(gen.url, { signal: AbortSignal.timeout(30000) }).catch(() => null); if (cRes?.ok) { const cBuf = Buffer.from(await cRes.arrayBuffer()); const cKey = 'storage/' + auth?.userId + '/cover_' + Date.now() + '.jpg'; await putObject(cKey, cBuf, 'image/jpeg'); covN = 'https://ai-niuma.cc/api/storage/file?name=' + cKey.replace('storage/' + auth?.userId + '/', '') + '&userId=' + (auth?.userId || 0) + '&persist=1'; try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: covN, source: 'private', category: '封面', ownerId: auth?.userId || 0 } }).catch(() => {}) } catch {} } } catch {} } } catch {}
                       draftW.coverUrl = covN; draftW.step = 'full'
+                    try { prisma.agentMemory.updateMany({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, data: { content: '发布草稿:' + JSON.stringify(draftW) } }).catch(() => {}) } catch {}
                       wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'full', videoName: vPick, frames: nF, titles: titlesN, topics: topicsN, coverUrl: covN, hint: '发布方案一次生成完成——封面/标题/话题均做好，确认或「换一批」全重做，最后确认平台发布' })
                     } catch (eFull: any) { console.error('[状态机] 一次全做异常:', eFull?.message || eFull); wfEarlyReply = '素材生成失败——请回「重试」或「换一批」。' }
                   } else wfEarlyReply = '编号无效，回复 1-' + vidsP.length + ' 或文件名。'
@@ -2506,7 +2507,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 wfEarlyReply = '已重置——请重新说「发一个视频」选视频重做。'
               } else wfEarlyReply = '回复「确认」进平台选择，或「换一批」全部重做。'
             }
-            } else if (draftW.step === 'publish') {
+            else if (draftW.step === 'publish') {
               if (/确认发布|确认|发|好|行/.test(userMessage.trim())) {
                 const wfA: any = { platform: 'douyin', videoName: draftW.videoName, caption: draftW.title || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
                 let fileUrls: string[] = []
