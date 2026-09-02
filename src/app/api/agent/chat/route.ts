@@ -2324,7 +2324,9 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                             if (covR && covR.taskId) {
                               const tid = covR.taskId
                               let covDone = false
-                              while (!covDone) {
+                              let covWait = 0
+                              while (!covDone && covWait < 120) {
+                                covWait += 10
                                 await new Promise((r) => setTimeout(r, 10000))
                                 const qt = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + tid, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY } }).then((r) => r.json()).catch(() => null)
                                 if (qt && qt.output && qt.output.task_status === 'SUCCEEDED') {
@@ -2339,14 +2341,14 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                                         const covU = 'https://ai-niuma.cc/api/storage/file?name=' + cKey.replace('storage/' + auth.userId + '/', '') + '&userId=' + (auth.userId || 0) + '&persist=1'
                                         try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: covU, source: 'private', category: '封面', ownerId: auth.userId || 0 } }).catch(() => {}) } catch {}
                                         const dm5 = await prisma.agentMemory.findFirst({ where: { userId: String(auth.userId || 0), tags: { contains: 'pub_draft' } } })
-                                        if (dm5) { const dp5 = JSON.parse(String(dm5.content).replace(/^发布草稿:/, '') || '{}'); await prisma.agentMemory.update({ where: { id: dm5.id }, data: { content: '发布草稿:' + JSON.stringify(Object.assign({}, dp5, { coverUrl: covU })) } }).catch(() => {}) }
+                                        if (dm5) { const dp5 = JSON.parse(String(dm5.content).replace(/^发布草稿:/, '') || '{}'); if (dp5.videoName === vPick) { await prisma.agentMemory.update({ where: { id: dm5.id }, data: { content: '发布草稿:' + JSON.stringify(Object.assign({}, dp5, { coverUrl: covU })) } }).catch(() => {}) } }
                                         console.log('[封面异步] 生成完成存草稿:', cKey)
                                       }
                                     } catch (eCv2) { console.error('[封面异步] 转 OSS 异常:', (eCv2 && eCv2.message) || eCv2) }
                                   }
                                   covDone = true
                                 } else if (qt && qt.output && qt.output.task_status === 'FAILED') {
-                                  console.log('[封面异步] 生成 FAILED——重试一次:', tid)
+                                  console.log('[封面异步] 生成 FAILED——请换一批重做:', tid)
                                   covDone = true
                                 }
                               }
