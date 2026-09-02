@@ -2376,8 +2376,8 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                     let fpN = String(typeof fIt === 'string' ? fIt : ((fIt || {}).url || ''))
                     try {
                       const fReln = fpN.replace('/api/frames/', '')
-                      const fFpn = [path.join(pubRoot, 'frames', fReln), path.join(pubRoot, 'frames', String(auth.userId || 0), fReln)].find((x) => fs.existsSync(x))
-                      if (fFpn) { const fKn = 'storage/' + auth.userId + '/frame_' + Date.now() + '_' + path.basename(fReln); await putObject(fKn, fs.readFileSync(fFpn), 'image/jpeg'); fpN = 'https://ai-niuma.cc/api/storage/file?name=' + fKn.replace('storage/' + auth.userId + '/', '') + '&userId=' + (auth.userId || 0) + '&persist=1' }
+                      const fFpn = [path.join(pubRoot, 'frames', fReln), path.join(pubRoot, 'frames', String((auth && auth.userId) || 0), fReln)].find((x) => fs.existsSync(x))
+                      if (fFpn) { const fKn = 'storage/' + (auth && auth.userId) + '/frame_' + Date.now() + '_' + path.basename(fReln); await putObject(fKn, fs.readFileSync(fFpn), 'image/jpeg'); fpN = 'https://ai-niuma.cc/api/storage/file?name=' + fKn.replace('storage/' + (auth && auth.userId) + '/', '') + '&userId=' + ((auth && auth.userId) || 0) + '&persist=1' }
                     } catch {}
                     nF.push(typeof fIt === 'string' ? fpN : Object.assign({}, fIt as any, { url: fpN }))
                   }
