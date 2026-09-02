@@ -1790,6 +1790,8 @@ async function extractSceneFromReply(raw: string): Promise<{ reply: string; scen
   return { reply, scene, scenes }
 }
 
+function _isSafeImgUrl(u: string): boolean { try { const h = String(u || '').match(/^https?:\/\/([^\/]+)/i); return !!h && /(?:aliyuncs\.com|dashscope|oss-)/i.test(h[1]) } catch { return false } }
+
 export async function DELETE(request: NextRequest) {
   // 2026-08-31: 清除键全量清——清发布草稿（PUBLISH_DRAFT + AgentMemory pub_draft）+ 删会话（sessionId 参数）——方便重新测试
   try {
@@ -2389,9 +2391,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                   const topicsN2 = '#短视频 #精品内容 #AI工具'
                   draftW.titles = titlesN2.join(''); draftW.topics = topicsN2
                   let covN2 = ''
-                  if (_isSafeImgUrl(String(u2 || ''))) {
                   try { const covR2 = await dashscopeGenerateImageAsync((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN2).trim() || '营销封面', '720*1440'); if (covR2 && covR2.taskId) { const tid2 = covR2.taskId; setTimeout(async () => { try { let w2 = 0; while (w2 < 120) { w2 += 10; await new Promise((r) => setTimeout(r, 10000)); const qt2 = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + tid2, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY }, signal: AbortSignal.timeout(20000) }).then((r) => r.json()).catch(() => null); if (qt2 && qt2.output && qt2.output.task_status === 'SUCCEEDED') { const u2 = qt2.output.results && qt2.output.results[0] ? qt2.output.results[0].url : ''; if (u2) { try { const cR2 = await fetch(u2, { signal: AbortSignal.timeout(30000) }).catch(() => null); if (cR2 && cR2.ok) { const cB2 = Buffer.from(await cR2.arrayBuffer()); const cK2 = 'storage/' + ((auth && auth.userId) || 0) + '/cover_' + Date.now() + '.jpg'; await putObject(cK2, cB2, 'image/jpeg'); const cU2 = 'https://ai-niuma.cc/api/storage/file?name=' + cK2.replace('storage/' + ((auth && auth.userId) || 0) + '/', '') + '&userId=' + ((auth && auth.userId) || 0) + '&persist=1'; const dm6 = await prisma.agentMemory.findFirst({ where: { userId: String((auth && auth.userId) || 0), tags: { contains: 'pub_draft' } } }); if (dm6) { const dp6 = JSON.parse(String(dm6.content).replace(/^发布草稿:/, '') || '{}'); if (dp6.videoName === vPickF) { await prisma.agentMemory.update({ where: { id: dm6.id }, data: { content: '发布草稿:' + JSON.stringify(Object.assign({}, dp6, { coverUrl: cU2 })) } }).catch(() => {}) } } } } catch {} } break } else if (qt2 && qt2.output && qt2.output.task_status === 'FAILED') break } } catch {} }, 10) } } catch {}
-                  }
                   draftW.coverUrl = covN2; draftW.step = 'full'
                   try { prisma.agentMemory.updateMany({ where: { userId: String((auth && auth.userId) || 0), tags: { contains: 'pub_draft' } }, data: { content: '发布草稿:' + JSON.stringify(draftW) } }).catch(() => {}) } catch {}
                   wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'full', videoName: vPickF, frames: nF, titles: titlesN2, topics: topicsN2, coverUrl: covN2, hint: '发布方案一次生成完成——确认或「换一批」全重做，最后确认平台发布' })
