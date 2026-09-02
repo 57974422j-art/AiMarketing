@@ -2367,10 +2367,8 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                     nF.push(typeof fIt === 'string' ? fpN : Object.assign({}, fIt as any, { url: fpN }))
                   }
                   draftW.frames = nF; draftW.visualDesc = visN
-                  const vdT2 = String(visN || vPickF).replace(/s+/g, ' ').slice(0, 40)
-                  const kwM2 = vdT2.match(/[“"「『]([^”"」』]{2,20})[”"」』]/) || vdT2.match(/(?:展示了一个名为|名为|是同一个|是一款|是一个)[::：]?\s*([^，。；
-]{2,20})/) || vdT2.match(/([^，。；
-]{4,16})/)
+                  const vdT2 = String(visN || vPickF).replace(/\s+/g, ' ').slice(0, 40)
+                  const kwM2 = vdT2.match(/[“"「『]([^”"」』]{2,20})[”"」』]/) || vdT2.match(/(?:展示了一个名为|名为|是同一个|是一款|是一个)[::：]?\s*([^，。；]{2,20})/) || vdT2.match(/([^，。；]{4,16})/)
                   const kwN2 = (kwM2 && kwM2[1] ? kwM2[1] : vdT2).slice(0, 14)
                   const titlesN2 = ['【文案1】' + kwN2 + '——3秒看懂核心', '【文案2】' + kwN2 + '，原来还能这样用', '【文案3】揭秘' + kwN2 + '的细节']
                   const topicsN2 = '#短视频 #精品内容 #AI工具'
