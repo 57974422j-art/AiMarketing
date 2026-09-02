@@ -2187,7 +2187,7 @@ export async function POST(request: NextRequest) {
             const vfMatchW = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
             const vfNameW = vfMatchW ? vfMatchW[1] : ''
             // 2026-08-30: 快速发布通道——用户“直接发/跳过/确认发布”→ 抽帧看画面→自动标题→直接建任务（跳过中间确认）
-            let quickPub = /(直接发|跳过|直接发布|确认发布|发吧|别问|不用选|直接吧|^c$|全默认|默认发|随便发)/i.test(userMessage.trim())
+            let quickPub = /(直接发|跳过|直接发布|确认发布|发吧|别问|不用选|直接吧|^c$|全默认|确认|发这条|就这个|发布它默认发|随便发)/i.test(userMessage.trim())
             if (quickPub && !vfNameW) {
               // 无视频名时自动取仓库最新视频（C 全默认使用）
               try {
@@ -2221,7 +2221,8 @@ export async function POST(request: NextRequest) {
                     fileUrlsQ.push('https://ai-niuma.cc/api/storage/file?name=' + vKeyQ.replace('storage/' + auth?.userId + '/', '') + '&persist=1')
                   }
                 } catch {}
-                const buTaskQ = '按步骤执行，不要把整个任务当地址输入：' + '\n' + '1. 导航到 https://creator.douyin.com/creator-micro/content/upload（地址栏只输这个 URL）' + '\n' + '2. 上传视频文件（files 提供的路径）' + '\n' + '3. 标题栏填入：' + titleQ + '\n' + '4. 用平台智能封面，点击发布'
+                const buTaskQ = 'https://creator.douyin.com/creator-micro/content/upload' + String.fromCharCode(10) + '1. 导航到上面的 URL（地址栏只输 URL）' + String.fromCharCode(10) + '2. 上传视频文件（files 提供的路径）' + String.fromCharCode(10) + '3. 标题栏填入：' + titleQ + String.fromCharCode(10) + '4. 点发布'
+'.join(['1. 导航到上面的 URL（地址栏只输 URL）', '2. 上传视频文件（files 提供的路径）', '3. 标题栏填入：' + titleQ, '4. 点发布'])
                 const buTQ = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTaskQ, files: JSON.stringify(fileUrlsQ) } })
                 wfEarlyReply = '已创建 AI 浏览器发布任务（#' + buTQ.id + '）——客户端自动执行：打开抖音→上传→标题「' + titleQ.slice(0, 40) + '」→发布。'
                 PUBLISH_DRAFT.delete(uidW)
