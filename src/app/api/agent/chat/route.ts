@@ -1624,7 +1624,6 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + at.key },
                 body: JSON.stringify(body),
-                signal: AbortSignal.timeout(60000),
               }).then((r) => r.json())
               visualDesc = vr?.choices?.[0]?.message?.content?.[0]?.text || vr?.choices?.[0]?.message?.content || vr?.choices?.[0]?.message?.reasoning_content || ''
               if (visualDesc) { visualDesc = String(visualDesc).trim().replace(/^[\s\S]*?thinking process[\s\S]*?:\s*/, '').slice(0, 500); break }
