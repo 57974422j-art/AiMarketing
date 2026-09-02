@@ -677,9 +677,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const copyRaw = (await generateText(p)) || ''
       if (copyRaw && copyRaw !== '文案生成暂不可用') {
         try {
-          const uidC = auth?.userId
-          if (uidC) {
-            const cKey = 'storage/' + uidC + '/copy_' + Date.now() + '.txt'
+          const auth.userId = auth?.userId
+          if (auth.userId) {
+            const cKey = 'storage/' + auth.userId + '/copy_' + Date.now() + '.txt'
             await putObject(cKey, Buffer.from(copyRaw, 'utf8'), 'text/plain')
             console.log('[generate_copy] 文案已转存:', cKey)
             return copyRaw + String.fromCharCode(10, 10) + '[OK] 已存入个人仓库: copy_' + cKey.split('_').pop()
@@ -1004,7 +1004,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           let finalUrl = r.videoUrl || ''
           try {
             if (r.videoUrl && auth?.userId) {
-              const key = 'storage/' + uidC + '/ai_' + Date.now() + '.mp4'  // 2026-08-24: AI生成视频直接进个人仓库目录(storage/{userId}/)，/storage页可见
+              const key = 'storage/' + auth.userId + '/ai_' + Date.now() + '.mp4'  // 2026-08-24: AI生成视频直接进个人仓库目录(storage/{userId}/)，/storage页可见
               const buf = Buffer.from(await (await fetch(r.videoUrl, { signal: AbortSignal.timeout(120000) })).arrayBuffer())
               const oss = await getOSSClient()
               await oss.put(key, buf)
@@ -1301,7 +1301,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         if (!videoName) {
           try {
             const { listObjects } = await import('@/lib/oss')
-            const objs = await listObjects('storage/' + uidC + '/')
+            const objs = await listObjects('storage/' + auth.userId + '/')
             const vids = (objs || []).filter((o: any) => /\.(mp4|mov|avi|mkv|webm)$/i.test(o.name || '')).sort((a: any, b: any) => (b.lastModified || 0) - (a.lastModified || 0)).slice(0, 3)
             if (vids.length) return `WORKFLOW_NEED_VIDEO:发布工作流——你的仓库最近 ${vids.length} 个视频（日期+编号命名）：${vids.map((v: any, i: number) => i + 1 + '. ' + v.name.split('/').pop()).join(' | ')} —— 回复编号（如 1）或说“用最新”即发布。若都不对，可到个人仓库页选或本地上传。`
           } catch {}
@@ -1331,9 +1331,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                 const cFp = path.join(pubRoot, 'frames', cRel)
                 if (fs.existsSync(cFp)) {
                   const cBuf = fs.readFileSync(cFp)
-                  const cKey = 'storage/' + uidC + '/cover_' + Date.now() + '.jpg'
+                  const cKey = 'storage/' + auth.userId + '/cover_' + Date.now() + '.jpg'
                   await putObject(cKey, cBuf, 'image/jpeg')
-                  coverPersist = '/api/storage/file?name=' + cKey.replace('storage/' + uidC + '/', '') + '&persist=1'
+                  coverPersist = '/api/storage/file?name=' + cKey.replace('storage/' + auth.userId + '/', '') + '&persist=1'
                   console.log('[publish] 封面已转 OSS 永久:', cKey)
                 }
               } catch (eCov) { console.error('[publish] 封面转 OSS 失败:', eCov?.message || eCov) }
@@ -1532,7 +1532,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         const hit = objects.find(o => o.name === prefix + videoName || o.name.endsWith('/' + videoName))
         if (!hit) return '仓库中未找到视频 ' + videoName
         const url = await signedUrl(hit.name)
-        const tmp = path.join(os.tmpdir(), 'agentframes-' + uidC + '-' + Date.now())
+        const tmp = path.join(os.tmpdir(), 'agentframes-' + auth.userId + '-' + Date.now())
         fs.mkdirSync(tmp, { recursive: true })
         const srcPath = path.join(tmp, 'src.mp4')
         execSync(`curl -s -o "${srcPath}" "${url}"`, { timeout: 60000 })
