@@ -1746,6 +1746,7 @@ function AgentPageInner() {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(240000), // 2026-09-02: 同步封面生成（45-75s）+抽帧——240s 防前端早断
       })
       const data = await res.json()
       if (data.success) {
