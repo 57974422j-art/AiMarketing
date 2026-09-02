@@ -128,7 +128,7 @@ async def main():
         executable_path=chrome,  # 显式（None 则 browser-use 自行查找）
         headless=False,
     )
-    llm = ChatOpenAI(model='qwen3.8-flash', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
+    llm = ChatOpenAI(model='qwen-plus', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
     file_hint = ('，文件路径：' + ','.join([p.replace(chr(92), '/') for p in local_files]) + '（用正斜杠/）') if local_files else ''
     task_clean = args.task.replace('https://', ' https:// ').replace('http://', ' http:// ')
     # 2026-08-30 实测: qwen3.8 必须 use_thinking=False（思考模式 AgentOutput 验证失败——flash/无思考模式成功）
