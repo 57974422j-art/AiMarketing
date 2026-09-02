@@ -2339,7 +2339,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                                         const cBuf = Buffer.from(await cRes.arrayBuffer())
                                         const cKey = 'storage/' + uidC + '/cover_' + Date.now() + '.jpg'
                                         await putObject(cKey, cBuf, 'image/jpeg')
-                                        const covU = 'https://ai-niuma.cc/api/storage/file?name=' + cKey.replace('storage/' + uidC + '/', '') + '&userId=' + (auth.userId || 0) + '&persist=1'
+                                        const covU = 'https://ai-niuma.cc/api/storage/file?name=' + cKey.replace('storage/' + uidC + '/', '') + '&userId=' + (uidC || 0) + '&persist=1'
                                         try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: covU, source: 'private', category: '封面', ownerId: uidC } }).catch(() => {}) } catch {}
                                         const dm5 = await prisma.agentMemory.findFirst({ where: { userId: String(uidC), tags: { contains: 'pub_draft' } } })
                                         if (dm5) { const dp5 = JSON.parse(String(dm5.content).replace(/^发布草稿:/, '') || '{}'); if (dp5.videoName === vPick) { await prisma.agentMemory.update({ where: { id: dm5.id }, data: { content: '发布草稿:' + JSON.stringify(Object.assign({}, dp5, { coverUrl: covU })) } }).catch(() => {}) } }
