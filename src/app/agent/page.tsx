@@ -1808,11 +1808,17 @@ function AgentPageInner() {
           content: data.message || '出错了', timestamp: Date.now(),
         }])
       }
-    } catch {
-      pushTerm('chat 异常：网络请求失败', 'err')
+    } catch (eNet: any) {
+      // 2026-09-02: 失败要有原因（超时/网络/服务器状态）
+      const errName = String(eNet?.name || '')
+      const errMsg = String(eNet?.message || '')
+      let failReason = '网络连接失败'
+      if (errName === 'TimeoutError' || errMsg.includes('timeout')) failReason = '请求超时（服务器处理超过 240s——封面生成慢）——请重试'
+      else if (errMsg.includes('fetch')) failReason = '网络请求失败（请检查网络/服务器）'
+      pushTerm('chat 异常：' + failReason, 'err')
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(), role: 'assistant',
-        content: '网络连接失败', timestamp: Date.now(),
+        content: failReason, timestamp: Date.now(),
       }])
     } finally { setLoading(false) }
   }
