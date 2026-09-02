@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
       success: true,
       data: {
         version: version.version,
+        buildCommit: (process.env.BUILD_COMMIT || (function(){ try { return execSync('git rev-parse --short HEAD', { cwd: process.cwd(), encoding: 'utf8' }).trim() } catch (e) { return 'dev' } })()),
         buildDate: version.buildDate,
         channel: version.channel,
         minSupportedVersion: version.minSupportedVersion,

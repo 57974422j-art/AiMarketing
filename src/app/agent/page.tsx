@@ -183,7 +183,7 @@ function VideoPlayer({ state, onClose }: {
   useEffect(() => {
     try {
       fetch('/api/client-info', { credentials: 'include' }).then(r => r.json()).then((vj: any) => {
-        const v = vj?.data?.version || ''
+        const v = vj?.data?.buildCommit || vj?.data?.version || ''
         if (v) {
           const oldV = localStorage.getItem('agent_version')
           if (oldV && oldV !== v) { localStorage.setItem('agent_version', v); location.reload() }
