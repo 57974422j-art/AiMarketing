@@ -1620,6 +1620,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
               }
               if (at.thinking) body.thinking = { type: 'disabled' }
               const vr = await fetch(at.base, {
+                signal: AbortSignal.timeout(60000),
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + at.key },
                 body: JSON.stringify(body),
