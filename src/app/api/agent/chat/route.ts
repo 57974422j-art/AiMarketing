@@ -2323,7 +2323,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                     } catch (eFull: any) { console.error('[状态机] 一次全做异常:', eFull?.message || eFull); wfEarlyReply = '素材生成失败——请回「重试」或「换一批」。' }
                   } else wfEarlyReply = '编号无效，回复 1-' + vidsP.length + ' 或文件名。'
                 } catch (ePk: any) { console.error('[状态机] pick 分支异常:', ePk?.message || ePk); wfEarlyReply = '选视频失败（仓库读取异常）——请回复「重试」或「帮我发一个视频」重新开始。' }
-              } else if (/^[A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm)$/i.test(userMessage.trim())) {
+              } else if (/^[A-Za-z0-9_\-一-龥 ]+\.(?:mp4|mov|avi|mkv|webm)$/i.test(userMessage.trim())) {
                 draftW.videoName = userMessage.trim()
                 // 2026-08-31: 平台最后确认（“发布一条视频”无平台→先问）
                 if (!draftW.platform) { draftW.step = 'plat'; wfEarlyReply = '发到哪个平台？回复 1 抖音 / 2 小红书 / 3 微博 / 4 B站（回复编号）' }
