@@ -3,6 +3,10 @@ import fs from 'fs'
 import path from 'path'
 
 // 公开接口：返回客户端版本号与更新日志（数据唯一来源为 electron/version.json + electron/changelog.json）
+let _buildCommitRef: { current: string } = { current: '' }
+function _getBuildCommit(): string { try { return execSync('git rev-parse --short HEAD', { cwd: process.cwd(), encoding: 'utf8' }).trim() } catch (e) { return 'dev' } }
+if (!_buildCommitRef.current) { try { _buildCommitRef.current = _getBuildCommit() } catch (e) { _buildCommitRef.current = 'dev' } }
+
 export async function GET(req: NextRequest) {
   try {
     const root = process.cwd()
@@ -22,7 +26,7 @@ export async function GET(req: NextRequest) {
       success: true,
       data: {
         version: version.version,
-        buildCommit: (process.env.BUILD_COMMIT || (function(){ try { return execSync('git rev-parse --short HEAD', { cwd: process.cwd(), encoding: 'utf8' }).trim() } catch (e) { return 'dev' } })()),
+        buildCommit: (process.env.BUILD_COMMIT || _buildCommitRef.current || 'dev'),
         buildDate: version.buildDate,
         channel: version.channel,
         minSupportedVersion: version.minSupportedVersion,
