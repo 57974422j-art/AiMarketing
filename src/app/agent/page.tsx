@@ -2632,7 +2632,7 @@ function AgentPageInner() {
                       {/* 阶段二·Scene 投影：AGENT 返回结构化卡片原生渲染 */}
                       {msg.role === 'assistant' && msg.scene && (
                                                 <div className="mt-2 rounded-xl bg-white/[0.03] border border-white/[0.08] p-3 scene-in">
-                          {msg.scene.type === 'template' && Array.isArray(msg.scene.items) && false // 2026-09-02: 参考风格卡不显示（发布不需要） ? (
+                          {msg.scene.type === 'template' && Array.isArray(msg.scene.items) && false ? (
                             <div className="flex flex-col gap-2">
                               <p className="text-[11px] text-emerald-300 font-medium">🎨 参考风格（选 1 个生成，或说「换一批」）</p>
                               {msg.scene.items.map((it: any, i: number) => it.type === 'video' ? (
