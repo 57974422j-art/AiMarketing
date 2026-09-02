@@ -1004,7 +1004,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           let finalUrl = r.videoUrl || ''
           try {
             if (r.videoUrl && auth?.userId) {
-              const key = 'storage/' + auth.userId + '/ai_' + Date.now() + '.mp4'  // 2026-08-24: AI生成视频直接进个人仓库目录(storage/{userId}/)，/storage页可见
+              const key = 'storage/' + uidC + '/ai_' + Date.now() + '.mp4'  // 2026-08-24: AI生成视频直接进个人仓库目录(storage/{userId}/)，/storage页可见
               const buf = Buffer.from(await (await fetch(r.videoUrl, { signal: AbortSignal.timeout(120000) })).arrayBuffer())
               const oss = await getOSSClient()
               await oss.put(key, buf)
@@ -1301,7 +1301,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         if (!videoName) {
           try {
             const { listObjects } = await import('@/lib/oss')
-            const objs = await listObjects('storage/' + auth.userId + '/')
+            const objs = await listObjects('storage/' + uidC + '/')
             const vids = (objs || []).filter((o: any) => /\.(mp4|mov|avi|mkv|webm)$/i.test(o.name || '')).sort((a: any, b: any) => (b.lastModified || 0) - (a.lastModified || 0)).slice(0, 3)
             if (vids.length) return `WORKFLOW_NEED_VIDEO:发布工作流——你的仓库最近 ${vids.length} 个视频（日期+编号命名）：${vids.map((v: any, i: number) => i + 1 + '. ' + v.name.split('/').pop()).join(' | ')} —— 回复编号（如 1）或说“用最新”即发布。若都不对，可到个人仓库页选或本地上传。`
           } catch {}
@@ -1331,9 +1331,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                 const cFp = path.join(pubRoot, 'frames', cRel)
                 if (fs.existsSync(cFp)) {
                   const cBuf = fs.readFileSync(cFp)
-                  const cKey = 'storage/' + auth.userId + '/cover_' + Date.now() + '.jpg'
+                  const cKey = 'storage/' + uidC + '/cover_' + Date.now() + '.jpg'
                   await putObject(cKey, cBuf, 'image/jpeg')
-                  coverPersist = '/api/storage/file?name=' + cKey.replace('storage/' + auth.userId + '/', '') + '&persist=1'
+                  coverPersist = '/api/storage/file?name=' + cKey.replace('storage/' + uidC + '/', '') + '&persist=1'
                   console.log('[publish] 封面已转 OSS 永久:', cKey)
                 }
               } catch (eCov) { console.error('[publish] 封面转 OSS 失败:', eCov?.message || eCov) }
@@ -1532,7 +1532,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         const hit = objects.find(o => o.name === prefix + videoName || o.name.endsWith('/' + videoName))
         if (!hit) return '仓库中未找到视频 ' + videoName
         const url = await signedUrl(hit.name)
-        const tmp = path.join(os.tmpdir(), 'agentframes-' + auth.userId + '-' + Date.now())
+        const tmp = path.join(os.tmpdir(), 'agentframes-' + uidC + '-' + Date.now())
         fs.mkdirSync(tmp, { recursive: true })
         const srcPath = path.join(tmp, 'src.mp4')
         execSync(`curl -s -o "${srcPath}" "${url}"`, { timeout: 60000 })
@@ -2316,6 +2316,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                       const topicsN = '#短视频 #精品内容 #AI工具'
                       draftW.titles = titlesN.join('\n'); draftW.topics = topicsN
                                             let covN = ''
+                      const uidC = auth?.userId || 0
                       // 2026-09-02: 封面异步（提交秒回——后台轮询生成存草稿——前端秒数显示——不阻塞请求防'网络连接失败'）
                       if (visN || kwN) {
                         const covTask = async () => {
@@ -2336,11 +2337,11 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                                       const cRes = await fetch(u, { signal: AbortSignal.timeout(30000) }).catch(() => null)
                                       if (cRes && cRes.ok) {
                                         const cBuf = Buffer.from(await cRes.arrayBuffer())
-                                        const cKey = 'storage/' + auth.userId + '/cover_' + Date.now() + '.jpg'
+                                        const cKey = 'storage/' + uidC + '/cover_' + Date.now() + '.jpg'
                                         await putObject(cKey, cBuf, 'image/jpeg')
-                                        const covU = 'https://ai-niuma.cc/api/storage/file?name=' + cKey.replace('storage/' + auth.userId + '/', '') + '&userId=' + (auth.userId || 0) + '&persist=1'
-                                        try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: covU, source: 'private', category: '封面', ownerId: auth.userId || 0 } }).catch(() => {}) } catch {}
-                                        const dm5 = await prisma.agentMemory.findFirst({ where: { userId: String(auth.userId || 0), tags: { contains: 'pub_draft' } } })
+                                        const covU = 'https://ai-niuma.cc/api/storage/file?name=' + cKey.replace('storage/' + uidC + '/', '') + '&userId=' + (auth.userId || 0) + '&persist=1'
+                                        try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: covU, source: 'private', category: '封面', ownerId: uidC } }).catch(() => {}) } catch {}
+                                        const dm5 = await prisma.agentMemory.findFirst({ where: { userId: String(uidC), tags: { contains: 'pub_draft' } } })
                                         if (dm5) { const dp5 = JSON.parse(String(dm5.content).replace(/^发布草稿:/, '') || '{}'); if (dp5.videoName === vPick) { await prisma.agentMemory.update({ where: { id: dm5.id }, data: { content: '发布草稿:' + JSON.stringify(Object.assign({}, dp5, { coverUrl: covU })) } }).catch(() => {}) } }
                                         console.log('[封面异步] 生成完成存草稿:', cKey)
                                       }
