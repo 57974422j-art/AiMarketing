@@ -179,6 +179,20 @@ function VideoPlayer({ state, onClose }: {
   state: { open: boolean; url: string; title: string }
   onClose: () => void
 }) {
+  // 2026-09-02: 版本校验自动刷新（部署后新前端——自动 reload 拿新 chunk——不用手动 Ctrl+F5）
+  useEffect(() => {
+    try {
+      fetch('/api/client-info', { credentials: 'include' }).then(r => r.json()).then((vj: any) => {
+        const v = vj?.data?.version || ''
+        if (v) {
+          const oldV = localStorage.getItem('agent_version')
+          if (oldV && oldV !== v) { localStorage.setItem('agent_version', v); location.reload() }
+          else if (!oldV) localStorage.setItem('agent_version', v)
+        }
+      }).catch(() => {})
+    } catch {}
+  }, [])
+
   useEffect(() => {
     document.body.classList.toggle('video-mode', state.open)
     // 2026-08-11：视频呼出与应用呼出一致——进入 app-mode（对话收窄右 34% + 声纹球头部）
