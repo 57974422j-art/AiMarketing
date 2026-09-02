@@ -2396,8 +2396,8 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                   try { prisma.agentMemory.updateMany({ where: { userId: String((auth && auth.userId) || 0), tags: { contains: 'pub_draft' } }, data: { content: '发布草稿:' + JSON.stringify(draftW) } }).catch(() => {}) } catch {}
                   wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'full', videoName: vPickF, frames: nF, titles: titlesN2, topics: topicsN2, coverUrl: covN2, hint: '发布方案一次生成完成——确认或「换一批」全重做，最后确认平台发布' })
                 } catch (eF2) { console.error('[状态机] 文件名一次全做异常:', (eF2 && eF2.message) || eF2); wfEarlyReply = '素材生成失败——请回「换一批」重做。' }
-                wfEarlyReply = '已选 ' + draftW.videoName + '——生成发布方案中...'
-                // 2026-08-31: pick 阶段回 C → 直接建任务（不再两轮）
+              } else if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发|跳过|就这个|发布它/.test(userMessage)) {
+                // C 全默认：直接建 AI 浏览器发布任务
                 const lstC = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
                 const vqC = String(lstC || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
                 if (vqC) {
