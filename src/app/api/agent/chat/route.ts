@@ -2365,10 +2365,36 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 } catch (ePk: any) { console.error('[状态机] pick 分支异常:', ePk?.message || ePk); wfEarlyReply = '选视频失败（仓库读取异常）——请回复「重试」或「帮我发一个视频」重新开始。' }
               } else if (/^[A-Za-z0-9_\-一-龥 ]+\.(?:mp4|mov|avi|mkv|webm)$/i.test(userMessage.trim())) {
                 draftW.videoName = userMessage.trim()
-                // 2026-08-31: 平台最后确认（“发布一条视频”无平台→先问）
-                if (!draftW.platform) { draftW.step = 'plat'; wfEarlyReply = '发到哪个平台？回复 1 抖音 / 2 小红书 / 3 微博 / 4 B站（回复编号）' }
-                else { draftW.step = 'abc'; wfEarlyReply = '已选 ' + draftW.videoName + '（' + (draftW.platform || '抖音') + '）——A 我推荐 / B 你的文案 / C 全默认直接发（回复 A/B/C）' }
-              } else if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发/.test(userMessage)) {
+                const vPickF = userMessage.trim()
+                try {
+                  const frN = await executeToolCall('extract_video_frames', { videoName: vPickF }, auth).catch(() => '')
+                  const frNs = String(frN)
+                  let framesN: any[] = []; let visN = ''
+                  if (frNs.startsWith('FRAMES_OK:')) { try { const pN = JSON.parse(frNs.slice(10)); framesN = Array.isArray(pN.frames) ? pN.frames : []; visN = pN.visualDesc || '' } catch {} }
+                  const nF: any[] = []
+                  for (const fIt of framesN) {
+                    let fpN = String(typeof fIt === 'string' ? fIt : ((fIt || {}).url || ''))
+                    try {
+                      const fReln = fpN.replace('/api/frames/', '')
+                      const fFpn = [path.join(pubRoot, 'frames', fReln), path.join(pubRoot, 'frames', String(auth.userId || 0), fReln)].find((x) => fs.existsSync(x))
+                      if (fFpn) { const fKn = 'storage/' + auth.userId + '/frame_' + Date.now() + '_' + path.basename(fReln); await putObject(fKn, fs.readFileSync(fFpn), 'image/jpeg'); fpN = 'https://ai-niuma.cc/api/storage/file?name=' + fKn.replace('storage/' + auth.userId + '/', '') + '&userId=' + (auth.userId || 0) + '&persist=1' }
+                    } catch {}
+                    nF.push(typeof fIt === 'string' ? fpN : Object.assign({}, fIt as any, { url: fpN }))
+                  }
+                  draftW.frames = nF; draftW.visualDesc = visN
+                  const vdT2 = String(visN || vPickF).replace(/s+/g, ' ').slice(0, 40)
+                  const kwM2 = vdT2.match(/(?:展示|演示|是一个|呈现|画面)[::：]?s*([^，。；]{2,20})/) || vdT2.match(/([^，。；]{4,16})/)
+                  const kwN2 = (kwM2 && kwM2[1] ? kwM2[1] : vdT2).slice(0, 14)
+                  const titlesN2 = ['【文案1】' + kwN2 + '——3秒看懂核心', '【文案2】' + kwN2 + '，原来还能这样用', '【文案3】揭秘' + kwN2 + '的细节']
+                  const topicsN2 = '#短视频 #精品内容 #AI工具'
+                  draftW.titles = titlesN2.join(''); draftW.topics = topicsN2
+                  let covN2 = ''
+                  try { const covR2 = await dashscopeGenerateImageAsync((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN2).trim() || '营销封面', '720*1440'); if (covR2 && covR2.taskId) { const tid2 = covR2.taskId; setTimeout(async () => { try { let w2 = 0; while (w2 < 120) { w2 += 10; await new Promise((r) => setTimeout(r, 10000)); const qt2 = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + tid2, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY }, signal: AbortSignal.timeout(20000) }).then((r) => r.json()).catch(() => null); if (qt2 && qt2.output && qt2.output.task_status === 'SUCCEEDED') { const u2 = qt2.output.results && qt2.output.results[0] ? qt2.output.results[0].url : ''; if (u2) { try { const cR2 = await fetch(u2, { signal: AbortSignal.timeout(30000) }).catch(() => null); if (cR2 && cR2.ok) { const cB2 = Buffer.from(await cR2.arrayBuffer()); const cK2 = 'storage/' + (auth.userId || 0) + '/cover_' + Date.now() + '.jpg'; await putObject(cK2, cB2, 'image/jpeg'); const cU2 = 'https://ai-niuma.cc/api/storage/file?name=' + cK2.replace('storage/' + (auth.userId || 0) + '/', '') + '&userId=' + (auth.userId || 0) + '&persist=1'; const dm6 = await prisma.agentMemory.findFirst({ where: { userId: String(auth.userId || 0), tags: { contains: 'pub_draft' } } }); if (dm6) { const dp6 = JSON.parse(String(dm6.content).replace(/^发布草稿:/, '') || '{}'); if (dp6.videoName === vPickF) { await prisma.agentMemory.update({ where: { id: dm6.id }, data: { content: '发布草稿:' + JSON.stringify(Object.assign({}, dp6, { coverUrl: cU2 })) } }).catch(() => {}) } } } } catch {} } break } else if (qt2 && qt2.output && qt2.output.task_status === 'FAILED') break } } catch {} }, 10) } } catch {}
+                  draftW.coverUrl = covN2; draftW.step = 'full'
+                  try { prisma.agentMemory.updateMany({ where: { userId: String(auth.userId || 0), tags: { contains: 'pub_draft' } }, data: { content: '发布草稿:' + JSON.stringify(draftW) } }).catch(() => {}) } catch {}
+                  wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'full', videoName: vPickF, frames: nF, titles: titlesN2, topics: topicsN2, coverUrl: covN2, hint: '发布方案一次生成完成——确认或「换一批」全重做，最后确认平台发布' })
+                } catch (eF2) { console.error('[状态机] 文件名一次全做异常:', (eF2 && eF2.message) || eF2); wfEarlyReply = '素材生成失败——请回「换一批」重做。' }
+                wfEarlyReply = '已选 ' + draftW.videoName + '——生成发布方案中...'
                 // 2026-08-31: pick 阶段回 C → 直接建任务（不再两轮）
                 const lstC = await executeToolCall('list_personal_files', { type: 'video' }, auth).catch(() => '')
                 const vqC = String(lstC || '').match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
