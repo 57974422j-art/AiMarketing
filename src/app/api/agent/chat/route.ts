@@ -2329,7 +2329,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                               while (!covDone && covWait < 120) {
                                 covWait += 10
                                 await new Promise((r) => setTimeout(r, 10000))
-                                const qt = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + tid, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY } }).then((r) => r.json()).catch(() => null)
+                                const qt = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + tid, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY }, signal: AbortSignal.timeout(20000) }).then((r) => r.json()).catch(() => null)
                                 if (qt && qt.output && qt.output.task_status === 'SUCCEEDED') {
                                   const u = qt.output.results && qt.output.results[0] ? qt.output.results[0].url : ''
                                   if (u) {
