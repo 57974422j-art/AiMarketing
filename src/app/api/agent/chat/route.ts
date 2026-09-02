@@ -2304,7 +2304,7 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                         try {
                           const fReln = fpN.replace('/api/frames/', '')
                           const fFpn = [path.join(pubRoot, 'frames', fReln), path.join(pubRoot, 'frames', String(auth?.userId || 0), fReln)].find((x: string) => fs.existsSync(x))
-                          if (fFpn) { const fKn = 'storage/' + auth?.userId + '/frame_' + Date.now() + '_' + path.basename(fReln); await putObject(fKn, fs.readFileSync(fFpn), 'image/jpeg'); fpN = 'https://ai-niuma.cc/api/storage/file?name=' + fKn.replace('storage/' + auth?.userId + '/', '') + '&persist=1' }
+                          if (fFpn) { const fKn = 'storage/' + auth?.userId + '/frame_' + Date.now() + '_' + path.basename(fReln); await putObject(fKn, fs.readFileSync(fFpn), 'image/jpeg'); fpN = 'https://ai-niuma.cc/api/storage/file?name=' + fKn.replace('storage/' + auth?.userId + '/', '') + '&userId=' + (auth?.userId || 0) + '&persist=1' }
                         } catch {}
                         nF.push(typeof fIt === 'string' ? fpN : { ...fIt, url: fpN })
                       }
@@ -2316,7 +2316,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                       const topicsN = '#短视频 #精品内容 #AI工具'
                       draftW.titles = titlesN.join('\n'); draftW.topics = topicsN
                       let covN = ''
-                      try { const gen = await generateImage((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN).trim() || '营销封面', '720*1440', 'auto'); if (gen?.url) { try { const cRes = await fetch(gen.url, { signal: AbortSignal.timeout(30000) }).catch(() => null); if (cRes?.ok) { const cBuf = Buffer.from(await cRes.arrayBuffer()); const cKey = 'storage/' + auth?.userId + '/cover_' + Date.now() + '.jpg'; await putObject(cKey, cBuf, 'image/jpeg'); covN = 'https://ai-niuma.cc/api/storage/file?name=' + cKey.replace('storage/' + auth?.userId + '/', '') + '&persist=1'; try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: covN, source: 'private', category: '封面', ownerId: auth?.userId || 0 } }).catch(() => {}) } catch {} } } catch {} } } catch {}
+                      try { const gen = await generateImage((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN).trim() || '营销封面', '720*1440', 'auto'); if (gen?.url) { try { const cRes = await fetch(gen.url, { signal: AbortSignal.timeout(30000) }).catch(() => null); if (cRes?.ok) { const cBuf = Buffer.from(await cRes.arrayBuffer()); const cKey = 'storage/' + auth?.userId + '/cover_' + Date.now() + '.jpg'; await putObject(cKey, cBuf, 'image/jpeg'); covN = 'https://ai-niuma.cc/api/storage/file?name=' + cKey.replace('storage/' + auth?.userId + '/', '') + '&userId=' + (auth?.userId || 0) + '&persist=1'; try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: covN, source: 'private', category: '封面', ownerId: auth?.userId || 0 } }).catch(() => {}) } catch {} } } catch {} } } catch {}
                       draftW.coverUrl = covN; draftW.step = 'full'
                       wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'full', videoName: vPick, frames: nF, titles: titlesN, topics: topicsN, coverUrl: covN, hint: '发布方案一次生成完成——封面/标题/话题均做好，确认或「换一批」全重做，最后确认平台发布' })
                     } catch (eFull: any) { console.error('[状态机] 一次全做异常:', eFull?.message || eFull); wfEarlyReply = '素材生成失败——请回「重试」或「换一批」。' }
