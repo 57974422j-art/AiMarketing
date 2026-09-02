@@ -677,9 +677,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const copyRaw = (await generateText(p)) || ''
       if (copyRaw && copyRaw !== '文案生成暂不可用') {
         try {
-          const auth.userId = auth?.userId
-          if (auth.userId) {
-            const cKey = 'storage/' + auth.userId + '/copy_' + Date.now() + '.txt'
+          const uidC = auth?.userId
+          if (uidC) {
+            const cKey = 'storage/' + uidC + '/copy_' + Date.now() + '.txt'
             await putObject(cKey, Buffer.from(copyRaw, 'utf8'), 'text/plain')
             console.log('[generate_copy] 文案已转存:', cKey)
             return copyRaw + String.fromCharCode(10, 10) + '[OK] 已存入个人仓库: copy_' + cKey.split('_').pop()
