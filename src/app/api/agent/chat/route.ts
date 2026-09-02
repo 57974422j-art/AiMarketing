@@ -2506,7 +2506,6 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 wfEarlyReply = '已重置——请重新说「发一个视频」选视频重做。'
               } else wfEarlyReply = '回复「确认」进平台选择，或「换一批」全部重做。'
             }
-            }
             } else if (draftW.step === 'publish') {
               if (/确认发布|确认|发|好|行/.test(userMessage.trim())) {
                 const wfA: any = { platform: 'douyin', videoName: draftW.videoName, caption: draftW.title || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
