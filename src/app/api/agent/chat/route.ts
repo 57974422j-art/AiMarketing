@@ -2315,9 +2315,46 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                       const titlesN = ['【文案1】' + kwN + '——3秒看懂核心', '【文案2】' + kwN + '，原来还能这样用', '【文案3】揭秘' + kwN + '的细节']
                       const topicsN = '#短视频 #精品内容 #AI工具'
                       draftW.titles = titlesN.join('\n'); draftW.topics = topicsN
-                      let covN = ''
-                      try { const gen = await generateImage((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN).trim() || '营销封面', '720*1440', 'auto'); if (gen?.url) { try { const cRes = await fetch(gen.url, { signal: AbortSignal.timeout(30000) }).catch(() => null); if (cRes?.ok) { const cBuf = Buffer.from(await cRes.arrayBuffer()); const cKey = 'storage/' + auth?.userId + '/cover_' + Date.now() + '.jpg'; await putObject(cKey, cBuf, 'image/jpeg'); covN = 'https://ai-niuma.cc/api/storage/file?name=' + cKey.replace('storage/' + auth?.userId + '/', '') + '&userId=' + (auth?.userId || 0) + '&persist=1'; try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: covN, source: 'private', category: '封面', ownerId: auth?.userId || 0 } }).catch(() => {}) } catch {} } } catch {} } } catch {}
-                      draftW.coverUrl = covN; draftW.step = 'full'
+                                            let covN = ''
+                      // 2026-09-02: 封面异步（提交秒回——后台轮询生成存草稿——前端秒数显示——不阻塞请求防'网络连接失败'）
+                      if (visN || kwN) {
+                        const covTask = async () => {
+                          try {
+                            const covR = await dashscopeGenerateImageAsync((visN.slice(0, 200) + '营销封面风格，标题文字：' + kwN).trim() || '营销封面', '720*1440')
+                            if (covR && covR.taskId) {
+                              const tid = covR.taskId
+                              let covDone = false
+                              while (!covDone) {
+                                await new Promise((r) => setTimeout(r, 10000))
+                                const qt = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + tid, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY } }).then((r) => r.json()).catch(() => null)
+                                if (qt && qt.output && qt.output.task_status === 'SUCCEEDED') {
+                                  const u = qt.output.results && qt.output.results[0] ? qt.output.results[0].url : ''
+                                  if (u) {
+                                    try {
+                                      const cRes = await fetch(u, { signal: AbortSignal.timeout(30000) }).catch(() => null)
+                                      if (cRes && cRes.ok) {
+                                        const cBuf = Buffer.from(await cRes.arrayBuffer())
+                                        const cKey = 'storage/' + auth.userId + '/cover_' + Date.now() + '.jpg'
+                                        await putObject(cKey, cBuf, 'image/jpeg')
+                                        const covU = 'https://ai-niuma.cc/api/storage/file?name=' + cKey.replace('storage/' + auth.userId + '/', '') + '&userId=' + (auth.userId || 0) + '&persist=1'
+                                        try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: covU, source: 'private', category: '封面', ownerId: auth.userId || 0 } }).catch(() => {}) } catch {}
+                                        const dm5 = await prisma.agentMemory.findFirst({ where: { userId: String(auth.userId || 0), tags: { contains: 'pub_draft' } } })
+                                        if (dm5) { const dp5 = JSON.parse(String(dm5.content).replace(/^发布草稿:/, '') || '{}'); await prisma.agentMemory.update({ where: { id: dm5.id }, data: { content: '发布草稿:' + JSON.stringify(Object.assign({}, dp5, { coverUrl: covU })) } }).catch(() => {}) }
+                                        console.log('[封面异步] 生成完成存草稿:', cKey)
+                                      }
+                                    } catch (eCv2) { console.error('[封面异步] 转 OSS 异常:', (eCv2 && eCv2.message) || eCv2) }
+                                  }
+                                  covDone = true
+                                } else if (qt && qt.output && qt.output.task_status === 'FAILED') {
+                                  console.log('[封面异步] 生成 FAILED——重试一次:', tid)
+                                  covDone = true
+                                }
+                              }
+                            }
+                          } catch (eGv2) { console.error('[封面异步] 生成异常:', (eGv2 && eGv2.message) || eGv2) }
+                        }
+                        covTask()
+                      }draftW.coverUrl = covN; draftW.step = 'full'
                     try { prisma.agentMemory.updateMany({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, data: { content: '发布草稿:' + JSON.stringify(draftW) } }).catch(() => {}) } catch {}
                       wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'full', videoName: vPick, frames: nF, titles: titlesN, topics: topicsN, coverUrl: covN, hint: '发布方案一次生成完成——封面/标题/话题均做好，确认或「换一批」全重做，最后确认平台发布' })
                     } catch (eFull: any) { console.error('[状态机] 一次全做异常:', eFull?.message || eFull); wfEarlyReply = '素材生成失败——请回「重试」或「换一批」。' }

@@ -2001,7 +2001,7 @@ function AgentPageInner() {
             <div className="mt-1 space-y-1">
               <p className="text-[9px] text-gray-400">📹 选择视频（点击选中——勾掉自定义=平台默认）：</p>
               {wj.videos.map((v: any, i: number) => (
-                <button key={i} onClick={() => sendMessage(String(i + 1))}
+                <button key={i} onClick={() => sendMessage(v.name || String(i + 1))}
                   className="w-full text-left rounded-lg bg-white/[0.04] hover:bg-emerald-500/15 border border-white/[0.08] px-2 py-1.5 text-[11px] text-gray-200 flex items-center gap-2 transition">
                   <span className="text-emerald-400">▶</span> {v.name}
                 </button>
@@ -2632,7 +2632,7 @@ function AgentPageInner() {
                       {/* 阶段二·Scene 投影：AGENT 返回结构化卡片原生渲染 */}
                       {msg.role === 'assistant' && msg.scene && (
                                                 <div className="mt-2 rounded-xl bg-white/[0.03] border border-white/[0.08] p-3 scene-in">
-                          {msg.scene.type === 'template' && Array.isArray(msg.scene.items) ? (
+                          {msg.scene.type === 'template' && Array.isArray(msg.scene.items) && false // 2026-09-02: 参考风格卡不显示（发布不需要） ? (
                             <div className="flex flex-col gap-2">
                               <p className="text-[11px] text-emerald-300 font-medium">🎨 参考风格（选 1 个生成，或说「换一批」）</p>
                               {msg.scene.items.map((it: any, i: number) => it.type === 'video' ? (
