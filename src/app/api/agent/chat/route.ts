@@ -2494,6 +2494,18 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 draftW.step = 'publish'
                 wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'publish', videoName: draftW.videoName, title: draftW.title || '', topics: draftW.topics || '', coverUrl: draftW.coverUrl || '', hint: '⑤ 确认发布到抖音——检查素材包，点「确认发布」执行' })
               } else wfEarlyReply = '请回复“确认”封面。'
+            } else if (draftW.step === 'full') {
+              // 2026-09-02: 确认方案 → 问平台 → 发布（full 步——一次全做后）
+              if (/确认|可以|好|行/.test(userMessage.trim())) {
+                draftW.step = 'plat'
+                wfEarlyReply = '发到哪个平台？回复 1 抖音 / 2 小红书 / 3 微博 / 4 B站 / 5 快手'
+              } else if (/换一批|重做/.test(userMessage)) {
+                PUBLISH_DRAFT.delete(uidW)
+                prisma.agentMemory.deleteMany({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } }).catch(() => {})
+                draftW = undefined
+                wfEarlyReply = '已重置——请重新说「发一个视频」选视频重做。'
+              } else wfEarlyReply = '回复「确认」进平台选择，或「换一批」全部重做。'
+            }
             } else if (draftW.step === 'publish') {
               if (/确认发布|确认|发|好|行/.test(userMessage.trim())) {
                 const wfA: any = { platform: 'douyin', videoName: draftW.videoName, caption: draftW.title || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
