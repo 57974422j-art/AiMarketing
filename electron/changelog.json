@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.0.97",
+    "date": "2026-09-03",
+    "title": "发布链路：平台按钮直发 + upload_file 上传",
+    "items": [
+      "方案卡平台按钮（点一下直接发布）",
+      "封面进 files（视频+封面都传 AI）",
+      "buTask 结构化",
+      "browser-use upload_file（不弹系统对话框）",
+      "每步日志 BU_STEP"
+    ]
+  },
+  {
     "version": "1.0.96",
     "date": "2026-09-03",
     "title": "发布链路修复：browser-use 手册+日志 + 仓库批量删除下载 + 封面/标题/下载修复",
