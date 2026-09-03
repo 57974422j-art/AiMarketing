@@ -1912,6 +1912,12 @@ function AgentPageInner() {
     if (content.startsWith('WF_JSON:')) {
       try {
         const wj = JSON.parse(content.slice(8))
+        // 2026-09-03 时机A：full 方案卡出现 → 镜像封面+视频到本地仓库（单向 OSS→本地——发布时 bu_exec 直接用）
+        if (wj.step === 'full') {
+          const covUrl = wj.coverUrl || ''
+          if (covUrl) (window as any).electronAPI?.storageMirror?.(covUrl)
+          if (wj.videoName) { try { const vUrl = `/api/storage/file?name=${encodeURIComponent(wj.videoName)}&persist=1`; (window as any).electronAPI?.storageMirror?.(vUrl) } catch {} }
+        }
         if (wj.step === 'prep' && Array.isArray(wj.frames)) {
           return (
             <div className="mt-1 space-y-1">

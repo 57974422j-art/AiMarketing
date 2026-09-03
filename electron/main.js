@@ -592,6 +592,25 @@ ipcMain.handle('app:clear-session', async () => {
   try { await session.defaultSession.clearStorageData({ storages: ['cookies'] }); await session.defaultSession.clearCookies() } catch {}
   return { success: true }
 })
+ipcMain.handle('storage:mirror', async (_event, url) => {
+  // 2026-09-03: 本地仓库镜像（单向 OSS→本地）——上传/生成成功后下载素材到本地仓库
+  try {
+    if (!url || typeof url !== 'string') return { success: false, error: '无 URL' }
+    const u = new URL(url)
+    const name = u.searchParams.get('name') || decodeURIComponent(u.pathname.split('/').pop() || '')
+    if (!name) return { success: false, error: '无文件名' }
+    const dest = path.join(LOCAL_STORAGE, name)
+    if (fs.existsSync(dest)) return { success: true, path: dest, cached: true }
+    fs.mkdirSync(LOCAL_STORAGE, { recursive: true })
+    const resp = await fetch(url)
+    if (!resp.ok) return { success: false, error: 'HTTP ' + resp.status }
+    const buf = Buffer.from(await resp.arrayBuffer())
+    fs.writeFileSync(dest, buf)
+    console.log('[storage:mirror] 已镜像到本地仓库:', name)
+    return { success: true, path: dest }
+  } catch (e) { return { success: false, error: e.message } }
+})
+
 ipcMain.handle('app:get-version', async () => {
   try {
     const vPath = path.join(__dirname, 'version.json')

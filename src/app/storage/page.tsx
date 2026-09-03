@@ -41,7 +41,7 @@ export default function StoragePage() {
     try {
       const r = await fetch('/api/storage/files', { method: 'POST', body: fd, credentials: 'include' })
       const d = await r.json()
-      if (d.success) { showToast('上传成功', 'success'); load() }
+      if (d.success) { showToast('上传成功', 'success'); load(); const upUrl = `/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}&persist=1`; (window as any).electronAPI?.storageMirror?.(upUrl) }
       else showToast(d.message || '上传失败', 'error')
     } catch { showToast('上传失败', 'error') }
   }
