@@ -1941,7 +1941,7 @@ function AgentPageInner() {
               <div className="flex gap-2">
                 <div className="flex flex-wrap gap-1.5 mb-2">
                 {['抖音','小红书','微博','B站','快手'].map((pl: string) => (
-                  <button key={pl} onClick={() => sendMessage('发布到' + pl)} className="px-3 py-1.5 rounded-lg bg-amber-500/40 hover:bg-amber-500/70 text-xs text-white font-medium">{pl}</button>
+                  <button key={pl} onClick={() => sendMessage('平台:' + pl)} className="px-3 py-1.5 rounded-lg bg-amber-500/40 hover:bg-amber-500/70 text-xs text-white font-medium">{pl}</button>
                 ))}
               </div>
                 <button onClick={() => sendMessage('换一批')} className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm">换一批（全重做）</button>

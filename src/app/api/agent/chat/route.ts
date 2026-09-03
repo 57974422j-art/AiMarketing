@@ -2549,7 +2549,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
               } else wfEarlyReply = '请回复“确认”封面。'
             } else if (draftW.step === 'full') {
               // 2026-09-03: 点平台按钮（"发布到X"）→ 直接建任务（视频+封面+标题+话题全打包——不再问编号）
-              const pkM = userMessage.match(/^发布到(.+)/)
+              const pkM = userMessage.match(/^平台:(.+)/)
               if (pkM) {
                 const platName = pkM[1].trim()
                 const platMapF: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', 'B站': 'bilibili', '快手': 'kuaishou' }
