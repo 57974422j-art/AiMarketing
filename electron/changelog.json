@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.0.99",
+    "date": "2026-09-03",
+    "title": "本地仓库单向镜像 + 发布链路修复",
+    "items": [
+      "本地仓库（exe/storage，单向 OSS→本地）",
+      "上传/生成后立即镜像",
+      "browser-use 发布用本地仓库路径（不下载OSS）",
+      "视频进 files + 标题修复 + buTask 写死 URL"
+    ]
+  },
+  {
     "version": "1.0.98",
     "date": "2026-09-03",
     "title": "发布 buTask 写死平台 URL + 文件指令明确",
