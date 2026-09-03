@@ -147,13 +147,12 @@ log('完成。本地启动测试: SERVER_URL=http://localhost:3000 "dist-rel/win
 
 // 2026-09-03: 打包后自动把 latest.yml 的 url/path 改成 OSS（否则客户端下载走服务器 404/0%）
 try {
-  const fs = require('fs'); const path = require('path')
-  const ymlPath = path.join(__dirname, '..', 'dist-rel', 'latest.yml')
-  const ver = require(path.join(__dirname, '..', 'package.json')).version
+  const ymlPath = resolve(process.cwd(), 'dist-rel', 'latest.yml')
+  const ver = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')).version
   const OSS_URL = 'https://aimarketing-1.oss-cn-hangzhou.aliyuncs.com/updates/AI-Marketing-Setup-' + ver + '.exe'
-  let y = fs.readFileSync(ymlPath, 'utf8')
+  let y = readFileSync(ymlPath, 'utf8')
   y = y.replace('url: AI-Marketing-Setup-' + ver + '.exe', 'url: ' + OSS_URL).replace('path: AI-Marketing-Setup-' + ver + '.exe', 'path: ' + OSS_URL)
-  fs.writeFileSync(ymlPath, y)
+  writeFileSync(ymlPath, y)
   log('latest.yml url 已指 OSS（自动）')
 } catch (e) { log('latest.yml OSS 化失败: ' + e.message) }
 
