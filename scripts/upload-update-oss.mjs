@@ -37,8 +37,10 @@ const up = async (local, remote) => {
 }
 
 const main = async () => {
-  await up(path.join(fromDir, exeName), exeName)
-  await up(path.join(fromDir, blockName), blockName)
+  // 2026-09-03: 上传失败（bucket acl/无写权限）不阻断——exe 可手动传 OSS，latest.yml 照常生成
+  for (const [f, r] of [[path.join(fromDir, exeName), exeName], [path.join(fromDir, blockName), blockName]]) {
+    try { await up(f, r) } catch (e) { console.log('⚠️ 上传 ' + r + ' 失败（可手动传 OSS）:', e.message) }
+  }
   // 生成服务器版 latest.yml（url 指向 OSS——下载走 OSS）
   const newYml = yml
     .replace('url: ' + exeName, 'url: ' + OSS_URL + '/' + exeName)
