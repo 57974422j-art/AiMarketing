@@ -72,8 +72,17 @@ export default function StoragePage() {
   const toggleAll = () => {
     setSelected(allSelected ? new Set() : new Set(files.map(f => f.name)))
   }
-  const download = (name: string) => {
-    window.open(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(name)}&download=1`)
+  const download = async (name: string) => {
+    try {
+      const r = await fetch(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(name)}&download=1`, { credentials: 'include' })
+      if (!r.ok) { showToast('下载失败：未登录或无权限', 'error'); return }
+      const blob = await r.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = name
+      document.body.appendChild(a); a.click()
+      document.body.removeChild(a); URL.revokeObjectURL(url)
+    } catch { showToast('下载失败', 'error') }
   }
 
   const doPush = async () => {
