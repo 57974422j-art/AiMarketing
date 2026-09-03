@@ -416,7 +416,9 @@ const BU_PYTHON = process.env.BU_PYTHON || (require('child_process').spawnSync('
 const BU_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_exec.py')
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_exec.py')
-const BU_PROFILE = process.env.BU_PROFILE || path.join(app.getPath('userData'), 'browser-profile') // 2026-08-30: 用 browser-profile（登记页登录态所在——AI 发布复用）
+const BU_PROFILE = process.env.BU_PROFILE || path.join(app.getPath('userData'), 'browser-profile')
+// 2026-09-03: 本地仓库（个人仓库 OSS 的本地镜像——exe 同级 storage，跟安装盘走，不占 C 盘；单向：只 OSS→本地）
+const LOCAL_STORAGE = process.env.LOCAL_STORAGE || path.join(path.dirname(process.execPath), 'storage') // 2026-08-30: 用 browser-profile（登记页登录态所在——AI 发布复用）
 const BU_CHECK_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_check.py')
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_check.py')
@@ -463,7 +465,7 @@ async function checkBrowserTasks() {
         }
       } catch (eLg) { console.log('[browser_use] 登录态预检异常（继续执行）:', eLg?.message || eLg) }
       try {
-        const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', files.join(','), '--profile', BU_PROFILE, '--max-steps', '40']
+        const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', files.join(','), '--profile', BU_PROFILE, '--storage-dir', LOCAL_STORAGE, '--max-steps', '40']
         const { spawn } = require('child_process')
         // 2026-08-30: 失败重试（browser-use AgentOutput/LLM 偶发失败——重试 2 次不白跑）
         let out = { code: -2, so: '', se: 'not run' }

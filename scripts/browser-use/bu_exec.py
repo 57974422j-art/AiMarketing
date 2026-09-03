@@ -94,6 +94,7 @@ async def main():
     ap.add_argument('--files', default='')
     ap.add_argument('--profile', default=r'D:\bu_profile')
     ap.add_argument('--max-steps', type=int, default=15)
+    ap.add_argument('--storage-dir', default='')  # 本地仓库目录（exe/storage——持久镜像，复用不重复下载）
     args = ap.parse_args()
 
     # 2026-08-31: 发布前杀 Chrome 释放 profile 锁（之前未调用——被占时 check_singleton 报“窗口未关闭”死锁）
@@ -111,11 +112,26 @@ async def main():
     from browser_use.llm.openai.chat import ChatOpenAI
 
     local_files = []
-    tmp = tempfile.mkdtemp(prefix='bu_files_')
+    # 本地仓库目录（持久镜像——优先复用本地已有文件，没有才下载；不下载临时目录）
+    storage_dir = args.storage_dir or tempfile.mkdtemp(prefix='bu_files_')
+    try:
+        os.makedirs(storage_dir, exist_ok=True)
+    except Exception:
+        pass
     for f in [x.strip() for x in args.files.split(',') if x.strip()]:
         if f.startswith('http'):
-            p = download_file(f, tmp)
-            if p: local_files.append(p)
+            # 从 URL 取文件名，先查本地仓库是否已有（复用，不重复下载）
+            try:
+                from urllib.parse import urlparse, parse_qs, unquote
+                _qn = unquote(parse_qs(urlparse(f).query).get('name', [''])[0])
+            except Exception:
+                _qn = ''
+            _cached = os.path.join(storage_dir, _qn) if _qn else ''
+            if _cached and os.path.exists(_cached):
+                local_files.append(_cached)
+            else:
+                p = download_file(f, storage_dir)
+                if p: local_files.append(p)
         elif os.path.exists(f):
             local_files.append(f)
 
