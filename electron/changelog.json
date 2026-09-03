@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.0.96",
+    "date": "2026-09-03",
+    "title": "发布链路修复：browser-use 手册+日志 + 仓库批量删除下载 + 封面/标题/下载修复",
+    "items": [
+      "browser-use 发布手册（5步）+ 每步日志（BU_STEP）",
+      "个人仓库批量删除+下载",
+      "下载改 fetch+blob（不再弹系统浏览器未登录）",
+      "封面字段修复 + 标题提取 + nginx 300s",
+      "downloadUrl 改 OSS"
+    ]
+  },
+  {
     "version": "1.0.95",
     "date": "2026-09-02",
     "title": "发布链路修复：封面出图 + 浏览器 qwen-plus",
