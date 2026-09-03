@@ -12,7 +12,7 @@ writeFileSync(join(root, 'package.json'), JSON.stringify(pkg, null, 2) + '\n')
 // ② electron/version.json（version + downloadUrl）
 const ver = JSON.parse(readFileSync(join(root, 'electron', 'version.json'), 'utf8'))
 ver.version = v
-ver.downloadUrl = 'https://ai-niuma.cc/updates/AI-Marketing-Setup-' + v + '.exe'
+ver.downloadUrl = 'https://aimarketing-1.oss-cn-hangzhou.aliyuncs.com/updates/AI-Marketing-Setup-' + v + '.exe'
 writeFileSync(join(root, 'electron', 'version.json'), JSON.stringify(ver, null, 2) + '\n')
 // ③ electron/changelog.json（自动插新条目——title 需手动补描述）
 const ch = JSON.parse(readFileSync(join(root, 'electron', 'changelog.json'), 'utf8'))
