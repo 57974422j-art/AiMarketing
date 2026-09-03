@@ -2548,10 +2548,32 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'publish', videoName: draftW.videoName, title: draftW.title || '', topics: draftW.topics || '', coverUrl: draftW.coverUrl || '', hint: '⑤ 确认发布到抖音——检查素材包，点「确认发布」执行' })
               } else wfEarlyReply = '请回复“确认”封面。'
             } else if (draftW.step === 'full') {
-              // 2026-09-02: 确认方案 → 问平台 → 发布（full 步——一次全做后）
-              if (/确认|可以|好|行/.test(userMessage.trim())) {
-                draftW.step = 'plat'
-                wfEarlyReply = '发到哪个平台？回复 1 抖音 / 2 小红书 / 3 微博 / 4 B站 / 5 快手'
+              // 2026-09-03: 点平台按钮（"发布到X"）→ 直接建任务（视频+封面+标题+话题全打包——不再问编号）
+              const pkM = userMessage.match(/^发布到(.+)/)
+              if (pkM) {
+                const platName = pkM[1].trim()
+                const platMapF: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', 'B站': 'bilibili', '快手': 'kuaishou' }
+                draftW.platform = platMapF[platName] || platName
+                const wfA: any = { platform: draftW.platform, videoName: draftW.videoName, caption: draftW.title || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
+                let fileUrls: string[] = []
+                try {
+                  const vRel = String(wfA.videoName || '')
+                  const vCands = [path.join(pubRoot, 'storage', String(auth?.userId || 0), vRel), path.join(pubRoot, 'generated', vRel), path.join(pubRoot, 'storage', vRel)].filter((x: string) => x)
+                  const vFp = vCands.find((fp: string) => fs.existsSync(fp))
+                  if (vFp) {
+                    const vBuf = fs.readFileSync(vFp)
+                    const vKey = 'storage/' + auth?.userId + '/pub_' + Date.now() + '_' + vRel
+                    await putObject(vKey, vBuf, 'video/mp4')
+                    fileUrls.push('https://ai-niuma.cc/api/storage/file?name=' + vKey.replace('storage/' + auth?.userId + '/', '') + '&userId=' + (auth?.userId || 0) + '&persist=1')
+                    console.log('[发布] 视频转 OSS:', vKey)
+                  } else { console.log('[发布] 视频本地未找到（可能已在 OSS/仓库）:', vRel) }
+                } catch (ePv: any) { console.error('[发布] 视频转 OSS 失败:', ePv?.message || ePv) }
+                if (wfA.coverUrl) fileUrls.push(wfA.coverUrl)
+                const buTask = '发布视频到' + platName + '：视频文件=available_file_paths[0]，封面文件=available_file_paths[1]，标题=' + wfA.caption + '，话题=' + (wfA.topics || '') + '。步骤：①go_to_url 发布页 ②upload_file 视频 ③upload_file 封面 ④填标题话题 ⑤点发布'
+                const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify(fileUrls) } })
+                wfEarlyReply = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行发布到' + platName + '。'
+                PUBLISH_DRAFT.delete(uidW)
+                prisma.agentMemory.deleteMany({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } }).catch(() => {})
               } else if (/换一批|重做/.test(userMessage)) {
                 PUBLISH_DRAFT.delete(uidW)
                 prisma.agentMemory.deleteMany({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } }).catch(() => {})
