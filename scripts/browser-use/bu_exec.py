@@ -98,6 +98,11 @@ async def main():
 
     # 2026-08-31: 发布前杀 Chrome 释放 profile 锁（之前未调用——被占时 check_singleton 报“窗口未关闭”死锁）
     kill_chrome()
+    # 2026-09-03: 同步系统 Chrome 登录态（抖音在 Default/tao Zhou）→ bu_profile（之前只定义没调用——导致无登录态）
+    try:
+        sync_system_login(args.profile)
+    except Exception as eSync:
+        print('SYNC 异常:', str(eSync)[:120])
     # SingletonLock 检查（登录态保持关键）
     lock_err = check_singleton(args.profile)
     if lock_err:
