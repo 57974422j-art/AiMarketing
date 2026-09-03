@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.0.98",
+    "date": "2026-09-03",
+    "title": "发布 buTask 写死平台 URL + 文件指令明确",
+    "items": [
+      "buTask 写死 5 平台发布页 URL",
+      "文件指令明确（upload_file，别把文件名当网址）",
+      "MANUAL 第1/3步强化"
+    ]
+  },
+  {
     "version": "1.0.97",
     "date": "2026-09-03",
     "title": "发布链路：平台按钮直发 + upload_file 上传",
