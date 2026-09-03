@@ -2561,7 +2561,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 if (wfA.coverUrl) fileUrls.push(wfA.coverUrl)
                 const platUrlMap: Record<string, string> = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish', weibo: 'https://weibo.com/upload', bilibili: 'https://member.bilibili.com/platform/upload/video/frame', kuaishou: 'https://cp.kuaishou.com/creator/video/upload' }
                 const pubUrl = platUrlMap[draftW.platform] || platUrlMap.douyin
-                const buTask = '发布视频到' + platName + '：' + '①第一步必须 go_to_url 导航到 ' + pubUrl + '（完整网址，禁止搜索、禁止打开其他网址）②用 upload_file 上传视频文件（available_file_paths 里扩展名是 .mp4/.mov 的那个文件——这是文件不是网址，不要打开文件名）③用 upload_file 上传封面图（available_file_paths 里扩展名是 .jpg/.png 的那个文件）④标题填 ' + wfA.caption + '，话题填 ' + (wfA.topics || '') + '⑤点发布'
+                const buTask = '发布视频到' + platName + '（' + pubUrl + '）：用 upload_file 上传 available_file_paths 里的视频文件（.mp4）和封面图（.jpg），标题填「' + wfA.caption + '」，话题填「' + (wfA.topics || '') + '」，然后点发布按钮。'
                 const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify(fileUrls) } })
                 wfEarlyReply = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行发布到' + platName + '。'
                 PUBLISH_DRAFT.delete(uidW)
