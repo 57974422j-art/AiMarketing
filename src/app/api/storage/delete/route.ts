@@ -6,14 +6,17 @@ export async function DELETE(request: NextRequest) {
   const auth = getAuthFromHeaders(request)
   if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
 
-  const { name } = await request.json()
-  if (!name) return NextResponse.json({ success: false, message: '缺少文件名' }, { status: 400 })
-
-  const key = `storage/${auth.userId}/${name}`
+  const { name, names } = await request.json()
+  const list: string[] = Array.isArray(names) && names.length ? names : (name ? [name] : [])
+  if (!list.length) return NextResponse.json({ success: false, message: '缺少文件名' }, { status: 400 })
 
   try {
-    await deleteObject(key)
-    return NextResponse.json({ success: true, message: '删除成功' })
+    let failed = 0
+    for (const n of list) {
+      if (!/^[a-zA-Z0-9._\-]+$/.test(n)) { failed++; continue }
+      try { await deleteObject(`storage/${auth.userId}/${n}`) } catch { failed++ }
+    }
+    return NextResponse.json({ success: true, message: `已删除 ${list.length - failed} 个` + (failed ? `，失败 ${failed} 个` : '') })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message || '删除失败' }, { status: 500 })
   }

@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
   const key = `storage/${userId}/${name}`
   const ext = name.split('.').pop()?.toLowerCase() || ''
   const mime = MIME_MAP[ext] || 'application/octet-stream'
-  const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(ext)
+  const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(name)
+  const isDownload = request.nextUrl.searchParams.get('download') === '1'
 
   try {
     const oss = await getOSSClient()
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
       if (!resp.ok) throw new Error(`OSS读取失败: ${resp.status}`)
       const buffer = Buffer.from(await resp.arrayBuffer())
       return new NextResponse(buffer, {
-        headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=86400' },
+        headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=86400', ...(isDownload ? { 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(name) } : {}) },
       })
     }
 
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     const result = await oss.get(key)
     const buffer = result.content as Buffer
     return new NextResponse(buffer, {
-      headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=86400' },
+      headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=86400', ...(isDownload ? { 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(name) } : {}) },
     })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message || '文件不存在' }, { status: 404 })

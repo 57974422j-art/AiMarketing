@@ -16,6 +16,7 @@ export default function StoragePage() {
   const [pushFile, setPushFile] = useState<string | null>(null)
   const [pushLoading, setPushLoading] = useState(false)
   const [showPushDlg, setShowPushDlg] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [devices, setDevices] = useState<any[]>([])
   const [pushDevice, setPushDevice] = useState<any>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -51,6 +52,28 @@ export default function StoragePage() {
       const d = await r.json()
       if (d.success) { showToast('已删除', 'success'); load() }
     } catch {}
+  }
+
+  const delBatch = async () => {
+    if (!selected.size) return
+    const names = Array.from(selected)
+    try {
+      const r = await fetch('/api/storage/delete', { method: 'DELETE', body: JSON.stringify({ names }), headers: { 'Content-Type': 'application/json' }, credentials: 'include' })
+      const d = await r.json()
+      if (d.success) { showToast(d.message || '已删除', 'success'); setSelected(new Set()); load() }
+      else showToast(d.message || '删除失败', 'error')
+    } catch { showToast('删除失败', 'error') }
+  }
+
+  const toggleSelect = (name: string) => {
+    setSelected(prev => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s })
+  }
+  const allSelected = files.length > 0 && files.every(f => selected.has(f.name))
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(files.map(f => f.name)))
+  }
+  const download = (name: string) => {
+    window.open(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(name)}&download=1`)
   }
 
   const doPush = async () => {
@@ -142,7 +165,8 @@ export default function StoragePage() {
                       else showToast(d.data?.length === 0 ? '暂无绑定设备' : d.message || '获取失败', 'error')
                     }} className="btn-secondary flex-1 text-[9px] py-1">📤 推送</button>
                   )}
-                  <button onClick={() => del(f.name)} className="w-6 h-6 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition">×</button>
+                  <button onClick={() => download(f.name)} className="w-6 h-6 bg-sky-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition" title="下载">⬇</button>
+                  <button onClick={() => del(f.name)} className="w-6 h-6 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition" title="删除">×</button>
                 </div>
               </div>
             ))}
