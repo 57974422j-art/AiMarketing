@@ -131,7 +131,7 @@ async def main():
     llm = ChatOpenAI(model='qwen-plus', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
     file_hint = ('，文件路径：' + ','.join([p.replace(chr(92), '/') for p in local_files]) + '（用正斜杠/）') if local_files else ''
     task_clean = args.task
-    MANUAL = '【发布任务——严格按以下步骤执行，禁止搜索、禁止导航到任务指定之外的地址】' + chr(10) + '第1步：用 go_to_url 导航到任务里指定的发布页 URL' + chr(10) + '第2步：确认已登录（看到上传按钮=已登录；出现登录/扫码界面则停止并报告未登录）' + chr(10) + '第3步：用 upload_file 动作上传 available_file_paths 里的视频文件（不要点击上传按钮弹出系统文件对话框——直接用 upload_file 传文件路径）' + chr(10) + '第4步：等上传完成，标题框填任务里的标题、话题框填话题' + chr(10) + '第5步：点发布按钮' + chr(10) + '每步只做一个动作，完成后报告每一步做了什么'
+    MANUAL = '【发布任务——严格按以下步骤执行，禁止搜索、禁止导航到任务指定之外的地址】' + chr(10) + '第1步：用 go_to_url 导航到任务里给出的完整网址（禁止搜索、禁止导航其他网址）' + chr(10) + '第2步：确认已登录（看到上传按钮=已登录；出现登录/扫码界面则停止并报告未登录）' + chr(10) + '第3步：用 upload_file 动作上传 available_file_paths 第一个文件（这是本地文件不是网址，禁止打开文件名、禁止把文件名当网址输入）' + chr(10) + '第4步：等上传完成，标题框填任务里的标题、话题框填话题' + chr(10) + '第5步：点发布按钮' + chr(10) + '每步只做一个动作，完成后报告每一步做了什么'
     async def on_step(state, output, n):
         url = getattr(state, 'url', '') or ''
         try:
