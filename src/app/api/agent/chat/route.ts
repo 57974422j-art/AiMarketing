@@ -2554,20 +2554,10 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 const platName = pkM[1].trim()
                 const platMapF: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', 'B站': 'bilibili', '快手': 'kuaishou' }
                 draftW.platform = platMapF[platName] || platName
-                const wfA: any = { platform: draftW.platform, videoName: draftW.videoName, caption: draftW.title || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
+                const wfA: any = { platform: draftW.platform, videoName: draftW.videoName, caption: (draftW.titles && draftW.titles[0]) || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
                 let fileUrls: string[] = []
-                try {
-                  const vRel = String(wfA.videoName || '')
-                  const vCands = [path.join(pubRoot, 'storage', String(auth?.userId || 0), vRel), path.join(pubRoot, 'generated', vRel), path.join(pubRoot, 'storage', vRel)].filter((x: string) => x)
-                  const vFp = vCands.find((fp: string) => fs.existsSync(fp))
-                  if (vFp) {
-                    const vBuf = fs.readFileSync(vFp)
-                    const vKey = 'storage/' + auth?.userId + '/pub_' + Date.now() + '_' + vRel
-                    await putObject(vKey, vBuf, 'video/mp4')
-                    fileUrls.push('https://ai-niuma.cc/api/storage/file?name=' + vKey.replace('storage/' + auth?.userId + '/', '') + '&userId=' + (auth?.userId || 0) + '&persist=1')
-                    console.log('[发布] 视频转 OSS:', vKey)
-                  } else { console.log('[发布] 视频本地未找到（可能已在 OSS/仓库）:', vRel) }
-                } catch (ePv: any) { console.error('[发布] 视频转 OSS 失败:', ePv?.message || ePv) }
+                // 视频已在个人仓库 OSS——直接构造 storage URL（不在服务器本地 fs，之前 fs.existsSync 找不到→没 push 视频→browser-use 只有封面没视频）
+                if (wfA.videoName) fileUrls.push('https://ai-niuma.cc/api/storage/file?name=' + encodeURIComponent(wfA.videoName) + '&userId=' + (auth?.userId || 0) + '&persist=1')
                 if (wfA.coverUrl) fileUrls.push(wfA.coverUrl)
                 const platUrlMap: Record<string, string> = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish', weibo: 'https://weibo.com/upload', bilibili: 'https://member.bilibili.com/platform/upload/video/frame', kuaishou: 'https://cp.kuaishou.com/creator/video/upload' }
                 const pubUrl = platUrlMap[draftW.platform] || platUrlMap.douyin
