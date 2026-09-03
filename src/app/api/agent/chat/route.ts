@@ -2132,7 +2132,7 @@ export async function POST(request: NextRequest) {
         console.log('[状态机] 发布意图=', pubIntent, '草稿=', PUBLISH_DRAFT.has(auth?.userId || 0), '消息=', String(userMessage).slice(0, 30))
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
         // 2026-08-31: 块外先恢复草稿（内存丢（服务器重启）——AgentMemory 有 pub_draft 也恢复——"1"才能进状态机）
-        if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage.trim()) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|确认|选|发布|发一个视频|发一条|帮我发|发/i.test(userMessage.trim()))) {
+        if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage.trim()) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|确认|选|发布|发一个视频|发一条|帮我发|^平台:|发/i.test(userMessage.trim()))) {
           try {
             const dmR = await prisma.agentMemory.findFirst({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, orderBy: { updatedAt: 'desc' } })
             if (dmR?.content) { const dpR = JSON.parse(dmR.content); if (dpR?.videoName || dpR?.step) { PUBLISH_DRAFT.set(auth?.userId || 0, dpR); console.log('[状态机] 块外恢复草稿——step=', dpR.step) } }
