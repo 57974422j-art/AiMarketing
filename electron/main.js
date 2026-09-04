@@ -480,7 +480,7 @@ async function checkBrowserTasks() {
         let out = { code: -2, so: '', se: 'not run' }
         for (let retry = 0; retry < 3; retry++) {
           out = await new Promise((resolve, reject) => {
-            const py = spawn(BU_PYTHON, args, { windowsHide: true, env: { ...process.env, DASHSCOPE_API_KEY: dashKey || process.env.DASHSCOPE_API_KEY || '' } })
+            const py = spawn(BU_PYTHON, args, { windowsHide: true, env: { ...process.env, BU_COOKIE: cookie, DASHSCOPE_API_KEY: dashKey || process.env.DASHSCOPE_API_KEY || '' } })
             let so = '', se = ''
             py.stdout.on('data', d => so += d)
             py.stderr.on('data', d => se += d)
@@ -611,8 +611,9 @@ ipcMain.handle('storage:mirror', async (_event, url) => {
     const dest = path.join(LOCAL_STORAGE, name)
     if (fs.existsSync(dest)) return { success: true, path: dest, cached: true }
     fs.mkdirSync(LOCAL_STORAGE, { recursive: true })
-    const resp = await fetch(url)
-    if (!resp.ok) return { success: false, error: 'HTTP ' + resp.status }
+    const cookie = await getServerCookie().catch(() => '')
+    const resp = await fetch(url, { headers: cookie ? { cookie } : {} })
+    if (!resp.ok) return { success: false, error: 'HTTP ' + resp.status + '（未登录/鉴权失败）' }
     const buf = Buffer.from(await resp.arrayBuffer())
     fs.writeFileSync(dest, buf)
     console.log('[storage:mirror] 已镜像到本地仓库:', name)

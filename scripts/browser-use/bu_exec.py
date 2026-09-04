@@ -83,7 +83,9 @@ def download_file(url, dest_dir):
     name = (qn if qn else (url.split('/')[-1].split('?')[0] or 'file_' + str(abs(hash(url)) % 10000) + '.mp4'))
     dest = os.path.join(dest_dir, name)
     try:
-        urllib.request.urlretrieve(url, dest)
+        # 带登录 cookie（storage/file 需鉴权——不带 401）
+        req = urllib.request.Request(url, headers={'cookie': os.environ.get('BU_COOKIE', '')})
+        urllib.request.urlretrieve(req, dest)
         return dest
     except Exception:
         return None
