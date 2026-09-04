@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.0.103",
+    "date": "2026-09-04",
+    "title": "加客户端执行日志 bu_debug.log",
+    "items": [
+      "bu_debug.log 定位\"浏览器没打开\""
+    ]
+  },
+  {
     "version": "1.0.102",
     "date": "2026-09-04",
     "title": "browser-use 换 qwen3-max",
