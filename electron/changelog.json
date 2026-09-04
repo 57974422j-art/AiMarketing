@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.0.102",
+    "date": "2026-09-04",
+    "title": "browser-use 换 qwen3-max",
+    "items": [
+      "模型 qwen-plus→qwen3-max（发布理解力大幅提升）"
+    ]
+  },
+  {
     "version": "1.0.101",
     "date": "2026-09-04",
     "title": "发布指令简化（一句人话）",
