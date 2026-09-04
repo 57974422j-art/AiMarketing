@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.104",
+    "date": "2026-09-04",
+    "title": "路径统一 E 盘 + 下载带 cookie",
+    "items": [
+      "userData 统一到安装盘 data/",
+      "storage:mirror/download_file 下载带登录 cookie（修复 storage 空）"
+    ]
+  },
+  {
     "version": "1.0.103",
     "date": "2026-09-04",
     "title": "加客户端执行日志 bu_debug.log",
