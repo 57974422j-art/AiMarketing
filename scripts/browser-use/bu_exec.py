@@ -144,7 +144,7 @@ async def main():
         executable_path=chrome,  # 显式（None 则 browser-use 自行查找）
         headless=False,
     )
-    llm = ChatOpenAI(model='qwen-plus', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
+    llm = ChatOpenAI(model='qwen3-max', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
     file_hint = ('，文件路径：' + ','.join([p.replace(chr(92), '/') for p in local_files]) + '（用正斜杠/）') if local_files else ''
     task_clean = args.task
     MANUAL = '按任务描述执行发布：打开任务里给出的网址，用 upload_file 上传视频文件和封面图，在对应输入框填标题和话题，最后点发布按钮。每步只做一个动作。'
