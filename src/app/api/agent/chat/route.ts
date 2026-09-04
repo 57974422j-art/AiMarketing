@@ -2561,12 +2561,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 if (wfA.coverUrl) fileUrls.push(wfA.coverUrl)
                 const platUrlMap: Record<string, string> = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish', weibo: 'https://weibo.com/upload', bilibili: 'https://member.bilibili.com/platform/upload/video/frame', kuaishou: 'https://cp.kuaishou.com/creator/video/upload' }
                 const pubUrl = platUrlMap[draftW.platform] || platUrlMap.douyin
-                const buTask = '发布视频到' + platName + '。
-第1步：打开这个网址（单独一行，完整网址）：
-' + pubUrl + '
-第2步：上传视频文件和封面图（文件已准备好，在文件列表里，视频是 .mp4 封面是 .jpg）
-第3步：标题框填「' + wfA.caption + '」，话题框填「' + (wfA.topics || '') + '」
-第4步：点发布按钮'
+                const buTask = '发布视频到' + platName + '。\n第1步：打开这个网址（单独一行，完整网址）：\n' + pubUrl + '\n第2步：上传视频文件和封面图（文件已准备好，在文件列表里，视频是 .mp4 封面是 .jpg）\n第3步：标题框填「' + wfA.caption + '」，话题框填「' + (wfA.topics || '') + '」\n第4步：点发布按钮'
                 const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify(fileUrls) } })
                 wfEarlyReply = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行发布到' + platName + '。'
                 PUBLISH_DRAFT.delete(uidW)
