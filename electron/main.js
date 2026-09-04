@@ -423,6 +423,14 @@ const BU_CHECK_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_check.py')
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_check.py')
 
+function buLog(msg) {
+  try {
+    const { app } = require('electron')
+    const p = path.join(app.getPath('userData'), 'bu_debug.log')
+    fs.appendFileSync(p, '[' + new Date().toLocaleString() + '] ' + msg + String.fromCharCode(10))
+  } catch {}
+}
+
 async function checkBrowserTasks() {
   try {
     const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc' // 2026-08-29: 必须显式定义（同 getServerCookie 坑——未定义→ReferenceError→执行器永远失败→任务不执行）
@@ -457,6 +465,7 @@ async function checkBrowserTasks() {
             const platId = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao', '快手': 'kuaishou' }[platKey] || ''
             const st = m2[1].split(',').map((s2) => s2.split(':')).find((kv) => kv[0] === platId)
             if (st && st[1] === '0') {
+              buLog('任务#' + t.id + ' 登录态预检=' + buChk.trim() + ' → 未登录' + platKey + '，不执行（浏览器没开的原因）')
               console.log('[browser_use] 任务 #' + t.id + ' 未登录' + platKey + '——不执行')
               await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'failed', error: platKey + ' 未登录——请先通过「浏览器通道」打开登记页扫码登录（点左侧登记平台的「打开浏览器」登录后回来）' }) }).catch(() => {})
               continue
