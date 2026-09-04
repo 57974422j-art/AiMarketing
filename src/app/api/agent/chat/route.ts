@@ -2557,7 +2557,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 const wfA: any = { platform: draftW.platform, videoName: draftW.videoName, caption: (draftW.titles && draftW.titles[0]) || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
                 let fileUrls: string[] = []
                 // 视频已在个人仓库 OSS——直接构造 storage URL（不在服务器本地 fs，之前 fs.existsSync 找不到→没 push 视频→browser-use 只有封面没视频）
-                if (wfA.videoName) fileUrls.push('https://ai-niuma.cc/api/storage/file?name=' + encodeURIComponent(wfA.videoName) + '&userId=' + (auth?.userId || 0) + '&persist=1')
+                if (wfA.videoName) { try { const vKey2 = 'storage/' + (auth?.userId || 0) + '/' + wfA.videoName; fileUrls.push(await signedUrl(vKey2, 86400)) } catch { fileUrls.push('https://ai-niuma.cc/api/storage/file?name=' + encodeURIComponent(wfA.videoName) + '&userId=' + (auth?.userId || 0) + '&persist=1') } }
                 if (wfA.coverUrl) fileUrls.push(wfA.coverUrl)
                 const platUrlMap: Record<string, string> = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish', weibo: 'https://weibo.com/upload', bilibili: 'https://member.bilibili.com/platform/upload/video/frame', kuaishou: 'https://cp.kuaishou.com/creator/video/upload' }
                 const pubUrl = platUrlMap[draftW.platform] || platUrlMap.douyin
