@@ -13,6 +13,8 @@ app.whenReady().then(() => {
   })
 })
 const path = require('path')
+// 2026-09-04: 统一 userData 到安装盘（exe 同级 data/）——登录态/日志/指纹 profile 全跟安装盘，不再走 C 盘 AppData（根治 AI-Marketing/ai-marketing/AI营销助手 残留）
+try { app.setPath('userData', path.join(path.dirname(process.execPath), 'data')) } catch (e) { console.log('[main] setPath userData 失败:', e.message) }
 const fs = require('fs')
 const os = require('os')
 const { execSync, spawn } = require('child_process')
