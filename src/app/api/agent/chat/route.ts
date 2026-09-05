@@ -2053,7 +2053,7 @@ export async function POST(request: NextRequest) {
         if (dmR0?.content) { const dpR0 = JSON.parse(dmR0.content); if (dpR0?.videoName || dpR0?.step) { PUBLISH_DRAFT.set(auth?.userId || 0, dpR0); console.log('[状态机] Step1前恢复草稿——step=', dpR0.step) } }
       } catch {}
     }
-    const fcResult = skipModelStep1 ? { toolCalls: [], content: '' } : await dashscopeFunctionCall(messages as any, toolsAll, 2000, userTemperature)
+    const fcResult = skipModelStep1 ? { toolCalls: [], content: '' } : await dashscopeFunctionCall(messages as any, toolsAll, 2000, userTemperature, (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free')
     const toolCalls = (fcResult as any)?.toolCalls || []
     // 2026-08-05：兼容 OpenAI 格式 tool_calls（百炼 qwen：{function:{name,arguments}}）与扁平格式（{name,arguments}）
     const normTool = (tc: any) => ({
