@@ -437,11 +437,12 @@ async function checkBrowserTasks() {
   try {
     const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc' // 2026-08-29: 必须显式定义（同 getServerCookie 坑——未定义→ReferenceError→执行器永远失败→任务不执行）
     const cookie = await getServerCookie()
-    if (!cookie) { console.log('[browser_use] 轮询跳过：getServerCookie 空（未登录/读不到 token）'); return }
+    if (!cookie) { buLog('轮询跳过：getServerCookie 空（未登录/读不到 token）'); console.log('[browser_use] 轮询跳过：getServerCookie 空（未登录/读不到 token）'); return }
     let dashKey = ''
     try { const bc = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-config', { headers: { cookie } }).then(r => r.json()).catch(() => null); dashKey = bc?.data?.dashscopeKey || '' } catch {}
     const tasksRes = await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks?status=pending', { headers: { cookie } }).catch(() => null)
     const tasks = tasksRes ? await tasksRes.json().catch(() => null) : null
+    buLog('轮询：HTTP=' + (tasksRes?.status || '?') + ' 任务数=' + (tasks?.data?.length ?? 0))
     console.log('[browser_use] 轮询：cookie=' + (cookie ? cookie.slice(0, 20) + '...' : '空') + ' HTTP=' + (tasksRes?.status || '?') + ' success=' + (tasks?.success ?? '?') + ' tasks=' + (tasks?.data?.length ?? 0))
     if (!tasks?.success || !tasks.data?.length) return
     for (const t of tasks.data) {
