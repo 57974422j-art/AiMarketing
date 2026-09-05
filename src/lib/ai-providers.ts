@@ -491,7 +491,7 @@ async function dashscopeImageToVideo(prompt: string, refImageUrl: string, _durat
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body: JSON.stringify({
-        model: 'wan2.7-t2v',
+        model: 'wan2.7-i2v',
         input: { prompt, image_url: refImageUrl },
         parameters: { resolution: _resolution, ratio: _ratio, duration: _duration },
       }),
@@ -1219,7 +1219,8 @@ export async function dashscopeFunctionCall(
   messages: Array<{ role: string; content: string | any; tool_call_id?: string; name?: string }>,
   tools: ToolDefinition[] = [],
   maxTokens = 2000,
-  temperature = 0.3 // 2026-08-07：用户级 AI 设置可调
+  temperature = 0.3, // 2026-08-07：用户级 AI 设置可调
+  forceVL = false // 2026-09-05：自由模式/带图强制多模态（qwen3-max——看图 + 工具）
 ): Promise<FunctionCallResult> {
   const key = getDashScopeKey()
   if (!key) return { content: null }
@@ -1227,9 +1228,12 @@ export async function dashscopeFunctionCall(
   // 2026-08-30 定案：AGENT 统一 qwen3.8-flash（百炼——工具稳定）→ 失败 DeepSeek V4 兜底——去掉 qwen-plus 降级
   const dsKey = process.env.DEEPSEEK_API_KEY || readEnvFile('DEEPSEEK_API_KEY')
   const qwKey = getDashScopeKey()
+  // 2026-09-05: 有图/自由模式 → qwen3-max（多模态看图 + 工具）；无图 → qwen3.8-flash（快）
+  const hasImg = messages.some((m) => Array.isArray(m.content) && m.content.some((b: any) => b?.type === 'image_url'))
+  const useVL = forceVL || hasImg
   try {
-    // ① qwen3.8-flash 主（百炼 OpenAI 兼容——支持 function calling）
-    const qwBody: any = { model: 'qwen3.8-flash', messages, max_tokens: maxTokens, temperature, stream: false }
+    // ① 主模型（百炼 OpenAI 兼容——支持 function calling）
+    const qwBody: any = { model: useVL ? 'qwen3-max' : 'qwen3.8-flash', messages, max_tokens: maxTokens, temperature, stream: false }
     if (tools.length > 0) { qwBody.tools = tools.map((t: any) => ({ type: 'function', function: { name: t.name, description: t.description || '', parameters: t.parameters || {} } })); qwBody.tool_choice = 'auto' }
     const qwRes = await fetchJSON('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
       method: 'POST', body: JSON.stringify(qwBody),
@@ -1238,7 +1242,7 @@ export async function dashscopeFunctionCall(
     }).catch((eQw: any) => { console.error('[qwen3.8] 调用异常:', eQw?.message || eQw); return null })
     const qwChoice = qwRes?.choices?.[0]
     if (qwChoice?.message) {
-      return { content: qwChoice.message?.content || null, toolCalls: qwChoice.message?.tool_calls || undefined, model: 'qwen3.8-flash' }
+      return { content: qwChoice.message?.content || null, toolCalls: qwChoice.message?.tool_calls || undefined, model: useVL ? 'qwen3-max' : 'qwen3.8-flash' }
     }
     console.error('[qwen3.8] 无有效响应，走 V4 兜底:', JSON.stringify(qwRes || {}).slice(0, 150))
   } catch (eQw2) { console.error('[qwen3.8] 异常走 V4 兜底:', eQw2?.message || eQw2) }

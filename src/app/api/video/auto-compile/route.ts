@@ -103,6 +103,7 @@ export async function POST(req: NextRequest) {
 
     // 收集素材（三种来源）
     const mp: string[] = []
+    let userId = req.headers.get('X-User-Id') || '' // 2026-09-05: 提到顶层（storage 块内 let 导致块外 startTask 用 userId 时 ReferenceError）
     if (mode === 'smart') {
       // 智能模式：网络URL（图片/视频混合）
       const urls: string[] = JSON.parse((f.get('imageUrls') as string) || '[]')
@@ -135,7 +136,7 @@ export async function POST(req: NextRequest) {
       const { getOSSClient } = await import('@/lib/oss')
       const oss = await getOSSClient()
       // 从 auth 获取 userId（middleware 已经解析 JWT 并注入 X-User-Id）
-      let userId = req.headers.get('X-User-Id') || ''
+      userId = req.headers.get('X-User-Id') || ''
       if (!userId) {
         // fallback: 尝试从 formData 中获取
         userId = (f.get('userId') as string) || ''
