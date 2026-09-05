@@ -1563,6 +1563,7 @@ function AgentPageInner() {
   const [calDay, setCalDay] = useState<string | null>(null)
   // ── 浏览器账号（CDP 检测，右侧折叠显示；不显示指纹）──
   const [browserAccts, setBrowserAccts] = useState<any[]>([])
+  const [buAccounts, setBuAccounts] = useState<any[]>([]) // 2026-09-05: Browser Use 静默扫描登录态
   const [browserOpen, setBrowserOpen] = useState(false)
   const [browserNeedBind, setBrowserNeedBind] = useState(false)
   const [bindingMine, setBindingMine] = useState(false)
@@ -1604,6 +1605,7 @@ function AgentPageInner() {
         // 失败/未绑定时保留上次已检测状态（不闪"未登录"）；成功才更新
         if (r?.success && r.accounts) { setBrowserAccts(r.accounts); setBrowserNeedBind(!!r.needBind); if (r.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: r.accounts }), credentials: 'include' }).catch(() => {}) }
       } catch {}
+      try { const br = await (window as any).electronAPI?.buCheck(); if (br?.success && Array.isArray(br.accounts)) setBuAccounts(br.accounts) } catch {}
     }
     detect()
     // 2026-08-25: 切页返回/窗口聚焦时重新检测（不再显示旧"未登录"）
@@ -3044,7 +3046,7 @@ function AgentPageInner() {
                         { id: 'shipinhao', name: '📺视频号', url: 'https://channels.weixin.qq.com/platform/post/create' },
                         { id: 'twitter', name: '🐦X', url: 'https://x.com' },
                       ].map(pf => {
-                        const hit = browserAccts.find(a => a.id === pf.id)
+                        const hit = buAccounts.find(a => a.id === pf.id)
                         return (
                           <button key={pf.id} onClick={() => { try { (window as any).electronAPI?.browserOpenUrl(pf.url) } catch {} }}
                             className={`px-1.5 py-0.5 rounded border text-[9px] transition ${hit?.loggedIn ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-white/10 text-gray-400 hover:border-white/30 hover:text-gray-200'}`}

@@ -261,7 +261,7 @@ function setupAutoPublish() {
               try { b2 = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT) } catch {
                 // 浏览器没开 → 自动启动内置 Chromium（独立 profile 必通）
                 try {
-                  const builtinExe = chromium.executablePath()
+                  const builtinExe = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find(p => fs.existsSync(p)) || chromium.executablePath()
                   if (builtinExe && fs.existsSync(builtinExe)) {
                     const profileDir = path.join(app.getPath('userData'), 'browser-profile')
                     fs.mkdirSync(profileDir, { recursive: true })
@@ -1121,25 +1121,31 @@ ipcMain.handle('bu:open', async (event) => {
     return { success: true, message: '已打开 Browser Use 浏览器（bu_profile）——请扫码登录目标平台，登录后点「刷新检测」' }
   } catch (e) { return { success: false, error: String(e && e.message || e) } }
 })
-ipcMain.handle('bu:check', async (event) => {
-  if (!isTrustedSender(event)) return { success: false, error: 'untrusted sender' }
-  try {
-    // 读 bu_profile Cookies——查各平台是否已登录
-    const fs2 = require('fs')
-    const cookieFile = BU_PROFILE_DIR + '/Default/Network/Cookies'
-    if (!fs2.existsSync(cookieFile)) return { success: true, accounts: [], buDir: BU_PROFILE_DIR }
-    // Cookies 是 SQLite——用简单方式：找各平台 cookie 文件大小/存在性（登录态检测后续精确化）
-    const dir = BU_PROFILE_DIR + '/Default'
-    const PLATS = [['douyin', 'douyin.com'], ['xiaohongshu', 'xiaohongshu.com'], ['weibo', 'weibo.com'], ['bilibili', 'bilibili.com'], ['shipinhao', 'weixin.qq.com'], ['x', 'x.com']]
-    const accounts = []
-    for (const [id, dom] of PLATS) {
-      // 近似：Local Storage / Cookies 数据库大小>0 且含该域名（简化——精确检测后续）
-      accounts.push({ id, platform: id, loggedIn: true, domain: dom })
-    }
-    return { success: true, accounts, buDir: BU_PROFILE_DIR }
-  } catch (e) { return { success: false, error: String(e && e.message || e) } }
-})
-
+  ipcMain.handle('bu:check', async (event) => {
+    if (!isTrustedSender(event)) return { success: false, error: 'untrusted sender' }
+    try {
+      const { spawn } = require('child_process')
+      const out = await new Promise((resolve) => {
+        let so = ''
+        const py = spawn(BU_PYTHON, ['-u', BU_CHECK_SCRIPT, String(BU_PROFILE_DIR)], { windowsHide: true })
+        py.stdout.on('data', (d) => { so += d })
+        py.stderr.on('data', () => {})
+        py.on('close', () => resolve(so.trim()))
+        py.on('error', () => resolve(''))
+        setTimeout(() => { try { py.kill() } catch {} ; resolve(so.trim()) }, 8000)
+      })
+      const m = out.match(/PLATS:([A-Za-z0-9_:,]+)/)
+      const labels = { douyin: '抖音', xiaohongshu: '小红书', weibo: '微博', bilibili: 'B站', kuaishou: '快手', shipinhao: '视频号' }
+      const accounts = []
+      if (m) {
+        for (const kv of m[1].split(',')) {
+          const seg = kv.split(':')
+          accounts.push({ id: seg[0], platform: seg[0], name: labels[seg[0]] || seg[0], loggedIn: seg[1] === '1' })
+        }
+      }
+      return { success: true, accounts, buDir: BU_PROFILE_DIR }
+    } catch (e) { return { success: false, error: String(e && e.message || e) } }
+  })
 ipcMain.handle('fp:loginState', async (_event, { accountId }) => {
   try {
     if (!accountId) return { success: true, data: { loggedIn: false } }
