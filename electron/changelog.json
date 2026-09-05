@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.109",
+    "date": "2026-09-05",
+    "title": "登录态持久化修复（userData 移安装目录外）",
+    "items": [
+      "userData 定稿 E:\u0007imarketing-data",
+      "安装/卸载/更新不再丢登录态"
+    ]
+  },
+  {
     "version": "1.0.108",
     "date": "2026-09-05",
     "title": "浏览器统一 + 登录态静默扫描",
