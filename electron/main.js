@@ -447,6 +447,25 @@ async function checkBrowserTasks() {
     for (const t of tasks.data) {
       let files = []
       try { files = JSON.parse(t.files || '[]') } catch {}
+      // 2026-09-04: 先把 files 下载到本地仓库（Electron fetch 带 cookie——比 bu_exec Python urllib 可靠；OSS 签名 URL 无需 cookie 直接可下）
+      const localFiles = []
+      for (const fu of files) {
+        try {
+          const uu = new URL(fu)
+          const fn = uu.searchParams.get('name') || decodeURIComponent(uu.pathname.split('/').pop() || '')
+          if (!fn) continue
+          const dest2 = path.join(LOCAL_STORAGE, fn)
+          if (!fs.existsSync(dest2)) {
+            const rsp = await fetch(fu, { headers: cookie ? { cookie } : {} })
+            if (rsp.ok) {
+              fs.mkdirSync(LOCAL_STORAGE, { recursive: true })
+              fs.writeFileSync(dest2, Buffer.from(await rsp.arrayBuffer()))
+            }
+          }
+          if (fs.existsSync(dest2)) localFiles.push(dest2)
+        } catch (eDl) { console.log('[browser_use] 下载 files 失败:', String(fu).slice(0, 60), eDl?.message || eDl) }
+      }
+      buLog('任务#' + t.id + ' files 下载：' + localFiles.length + '/' + files.length + ' 个落地本地仓库')
       // 标记 executing
       await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'executing' }) }).catch(() => {})
       console.log('[browser_use] 执行任务 #' + t.id + ':', String(t.task).slice(0, 60))
@@ -476,7 +495,7 @@ async function checkBrowserTasks() {
         }
       } catch (eLg) { console.log('[browser_use] 登录态预检异常（继续执行）:', eLg?.message || eLg) }
       try {
-        const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', files.join(','), '--profile', BU_PROFILE, '--storage-dir', LOCAL_STORAGE, '--max-steps', '40']
+        const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', (localFiles.length ? localFiles : files).join(','), '--profile', BU_PROFILE, '--storage-dir', LOCAL_STORAGE, '--max-steps', '40']
         const { spawn } = require('child_process')
         // 2026-08-30: 失败重试（browser-use AgentOutput/LLM 偶发失败——重试 2 次不白跑）
         let out = { code: -2, so: '', se: 'not run' }
