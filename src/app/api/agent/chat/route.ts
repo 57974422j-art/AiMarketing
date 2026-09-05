@@ -1597,16 +1597,16 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             for (const at of visAttempts) {
               const body: any = {
                 model: at.model,
-                messages: [{ role: 'user', content: [...images, { type: 'text', text: '这是视频的几个画面帧。请用中文简洁总结画面内容（主体/场景/动作/文字），后续将基于它生成标题/话题/封面。' }] }],
+                messages: [{ role: 'user', content: [...images, { type: 'text', text: '这是视频的几个画面帧。请用中文完成并严格按格式返回（三段，用分号分隔）：总结：画面内容总结（主体/场景/动作，50字内）；标题：一个吸引人的发布标题（30字内，直接标题文字，不要前缀）；话题：3个话题标签（#开头，空格分隔）' }] }],
                 max_tokens: 300,
-              }
-              if (at.thinking) body.thinking = { type: 'disabled' }
-              const vr = await fetch(at.base, {
-                signal: AbortSignal.timeout(60000),
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + at.key },
-                body: JSON.stringify(body),
-              }).then((r) => r.json())
+                }
+                if (at.thinking) body.thinking = { type: 'disabled' }
+                const vr = await fetch(at.base, {
+                  signal: AbortSignal.timeout(60000),
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + at.key },
+                  body: JSON.stringify(body),
+                }).then((r) => r.json())
               visualDesc = vr?.choices?.[0]?.message?.content?.[0]?.text || vr?.choices?.[0]?.message?.content || vr?.choices?.[0]?.message?.reasoning_content || ''
               if (visualDesc) { visualDesc = String(visualDesc).trim().replace(/^[\s\S]*?thinking process[\s\S]*?:\s*/, '').slice(0, 500); break }
               console.error('[visual] ' + at.model + ' 无输出，响应:', JSON.stringify(vr).slice(0, 300))
@@ -2296,8 +2296,12 @@ C. 全默认直接发（平台智能封面 + 自动标题——跳过所有选�
                       const vdT = String(visN || vPick).replace(/[\s]+/g, ' ').slice(0, 40)
 const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT.match(/名为[::：]?\s*([^，。；\n]{2,20})/) || vdT.replace(/内容总结|主体|场景|动作|文字|总结要素|\*\*/g, '').match(/(AI|AR|VR|短视频|营销|工具|平台|创作|展示)[^，。；\n]{0,12}/) || vdT.match(/([^，。；\n]{4,16})/)
                       const kwN = (kwM?.[1] || vdT).slice(0, 14)
-                      const titlesN = ['【文案1】' + kwN + '——3秒看懂核心', '【文案2】' + kwN + '，原来还能这样用', '【文案3】揭秘' + kwN + '的细节']
-                      const topicsN = '#短视频 #精品内容 #AI工具'
+                      const _tt = String(visN || '')
+                      const _titleM = _tt.match(/标题[::：]?\s*([^；;]+)/)
+                      const _topicM = _tt.match(/话题[::：]?\s*([^；;]+)/)
+                      const _title = String(_titleM && _titleM[1] ? _titleM[1] : kwN).replace(/[【】\[\]]/g, '').slice(0, 30)
+                      const titlesN = [_title]
+                      const topicsN = String(_topicM && _topicM[1] ? _topicM[1] : '#短视频 #精品内容 #AI工具')
                       draftW.titles = titlesN.join('\n'); draftW.topics = topicsN
                                             let covN = ''
                       const uidC = auth?.userId || 0
@@ -2370,8 +2374,12 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                   const vdT2 = String(visN || vPickF).replace(/\s+/g, ' ').slice(0, 40)
                   const kwM2 = vdT2.match(/[“"「『]([^”"」』]{2,20})[”"」』]/) || vdT2.match(/(?:展示了一个名为|名为|是同一个|是一款|是一个)[::：]?\s*([^，。；]{2,20})/) || vdT2.match(/([^，。；]{4,16})/)
                   const kwN2 = (kwM2 && kwM2[1] ? kwM2[1] : vdT2).slice(0, 14)
-                  const titlesN2 = ['【文案1】' + kwN2 + '——3秒看懂核心', '【文案2】' + kwN2 + '，原来还能这样用', '【文案3】揭秘' + kwN2 + '的细节']
-                  const topicsN2 = '#短视频 #精品内容 #AI工具'
+                  const _tt2 = String(visN || '')
+                  const _titleM2 = _tt2.match(/标题[::：]?\s*([^；;]+)/)
+                  const _topicM2 = _tt2.match(/话题[::：]?\s*([^；;]+)/)
+                  const _title2 = String(_titleM2 && _titleM2[1] ? _titleM2[1] : kwN2).replace(/[【】\[\]]/g, '').slice(0, 30)
+                  const titlesN2 = [_title2]
+                  const topicsN2 = String(_topicM2 && _topicM2[1] ? _topicM2[1] : '#短视频 #精品内容 #AI工具')
                   draftW.titles = titlesN2.join(''); draftW.topics = topicsN2
                   let covN2 = ''
                   try { const covR2 = await dashscopeGenerateImageAsync((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN2).trim() || '营销封面', '720*1440'); if (covR2 && covR2.taskId) { const tid2 = covR2.taskId; try { let w2 = 0; while (w2 < 180) { w2 += 10; await new Promise((r) => setTimeout(r, 10000)); const qt2 = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + tid2, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY }, signal: AbortSignal.timeout(20000) }).then((r) => r.json()).catch(() => null); if (qt2 && qt2.output && qt2.output.task_status === 'SUCCEEDED') { const u2 = qt2.output.choices && qt2.output.choices[0] && qt2.output.choices[0].message && qt2.output.choices[0].message.content ? (qt2.output.choices[0].message.content[0] ? qt2.output.choices[0].message.content[0].image : '') : ''; if (u2 && _isSafeImgUrl(String(u2))) { try { const cR2 = await fetch(u2, { signal: AbortSignal.timeout(30000) }).catch(() => null); if (cR2 && cR2.ok) { const cB2 = Buffer.from(await cR2.arrayBuffer()); const cK2 = 'storage/' + ((auth && auth.userId) || 0) + '/cover_' + Date.now() + '.jpg'; await putObject(cK2, cB2, 'image/jpeg'); const cU2 = 'https://ai-niuma.cc/api/storage/file?name=' + cK2.replace('storage/' + ((auth && auth.userId) || 0) + '/', '') + '&userId=' + ((auth && auth.userId) || 0) + '&persist=1'; covN2 = cU2; try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: cU2, source: 'private', category: '封面', ownerId: (auth && auth.userId) || 0 } }).catch(() => {}) } catch {}; const dm6 = await prisma.agentMemory.findFirst({ where: { userId: String((auth && auth.userId) || 0), tags: { contains: 'pub_draft' } } }); if (dm6) { const dp6 = JSON.parse(String(dm6.content).replace(/^发布草稿:/, '') || '{}'); if (dp6.videoName === vPickF) { await prisma.agentMemory.update({ where: { id: dm6.id }, data: { content: '发布草稿:' + JSON.stringify(Object.assign({}, dp6, { coverUrl: cU2 })) } }).catch(() => {}) } } } } catch {} } break } else if (qt2 && qt2.output && qt2.output.task_status === 'FAILED' || qt2.output.task_status === 'UNKNOWN') break } } catch {} } } catch {}
@@ -2551,17 +2559,25 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
               // 2026-09-03: 点平台按钮（"发布到X"）→ 直接建任务（视频+封面+标题+话题全打包——不再问编号）
               const pkM = userMessage.match(/^平台:(.+)/)
               if (pkM) {
-                const platName = pkM[1].trim()
+                const platName = pkM[1].replace(/&skip=.*$/, '').trim()
+                const skM = pkM[1].match(/&skip=([^&]+)/)
+                const skips = skM ? String(skM[1]).split(/[,，]/).map((s: string) => s.trim()).filter(Boolean) : []
                 const platMapF: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', 'B站': 'bilibili', '快手': 'kuaishou' }
                 draftW.platform = platMapF[platName] || platName
-                const wfA: any = { platform: draftW.platform, videoName: draftW.videoName, caption: (draftW.titles && draftW.titles[0]) || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
+                const wfA: any = { platform: draftW.platform, videoName: draftW.videoName, caption: draftW.title || (typeof draftW.titles === 'string' ? draftW.titles : (Array.isArray(draftW.titles) ? draftW.titles[0] : '')) || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
                 let fileUrls: string[] = []
                 // 视频已在个人仓库 OSS——直接构造 storage URL（不在服务器本地 fs，之前 fs.existsSync 找不到→没 push 视频→browser-use 只有封面没视频）
                 if (wfA.videoName) { try { const vKey2 = 'storage/' + (auth?.userId || 0) + '/' + wfA.videoName; fileUrls.push(await signedUrl(vKey2, 86400)) } catch { fileUrls.push('https://ai-niuma.cc/api/storage/file?name=' + encodeURIComponent(wfA.videoName) + '&userId=' + (auth?.userId || 0) + '&persist=1') } }
-                if (wfA.coverUrl) fileUrls.push(wfA.coverUrl)
+                if (wfA.coverUrl && !skips.includes('封面') && !skips.includes('抽帧')) fileUrls.push(wfA.coverUrl)
                 const platUrlMap: Record<string, string> = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish', weibo: 'https://weibo.com/upload', bilibili: 'https://member.bilibili.com/platform/upload/video/frame', kuaishou: 'https://cp.kuaishou.com/creator/video/upload' }
                 const pubUrl = platUrlMap[draftW.platform] || platUrlMap.douyin
-                const buTask = '发布视频到' + platName + '。\n第1步：打开这个网址（单独一行，完整网址）：\n' + pubUrl + '\n第2步：上传视频文件和封面图（文件已准备好，在文件列表里，视频是 .mp4 封面是 .jpg）\n第3步：标题框填「' + wfA.caption + '」，话题框填「' + (wfA.topics || '') + '」\n第4步：点发布按钮'
+                let _stp = 1
+                const _steps = ['第' + _stp++ + '步：打开这个网址（单独一行，完整网址）：\n' + pubUrl, '第' + _stp++ + '步：上传视频文件（.mp4）']
+                if (!skips.includes('封面') && !skips.includes('抽帧')) _steps.push('第' + _stp++ + '步：上传封面图（.jpg）')
+                if (!skips.includes('标题')) _steps.push('第' + _stp++ + '步：标题框填「' + wfA.caption + '」')
+                if (!skips.includes('话题')) _steps.push('第' + _stp++ + '步：话题框填「' + (wfA.topics || '') + '」')
+                _steps.push('最后：点发布按钮')
+                const buTask = '发布视频到' + platName + '。\n' + _steps.join('\n')
                 const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify(fileUrls) } })
                 wfEarlyReply = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行发布到' + platName + '。'
                 PUBLISH_DRAFT.delete(uidW)
