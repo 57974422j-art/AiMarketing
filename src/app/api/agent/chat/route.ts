@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 // 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 import {
-  generateText, generateImage, generateVideo, generateLongVideo, queryVideoTask,
+  generateText, generateImage, generateVideo, generateLongVideo, generateImageToVideo, queryVideoTask,
   ToolDefinition,
   agnesChat, dashscopeFunctionCall, dashscopeGenerateImageAsync, type AgentChatMessage,
 } from '@/lib/ai-providers'
@@ -80,6 +80,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
         duration: { type: 'number', description: '时长(秒)，默认5；单次上限15秒，超过15秒自动分段拼接' },
         ratio: { type: 'string', description: '比例：16:9横屏 / 9:16竖屏' },
         confirmed: { type: 'boolean', description: '用户是否已确认费用。false/缺省=只报预估；true=真正生成' },
+        refImage: { type: 'string', description: '参考图 URL（图生视频/克隆用——用户发图时从消息里图片URL列表选一张传入；不传=文生视频）' },
         segModel: { type: 'string', description: '分段模型（仅>15s时用），可选 wan2.7-t2v / happyhorse-1.0-t2v，缺省自动' },
       }, required: ['prompt'],
     },
@@ -757,6 +758,14 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         const lv = await generateLongVideo([gvPrompt], gvDuration, '720P', gvRatio, undefined, 5, segModel)
         if (lv?.videoUrl) { await spendTokens(uid2, gvCost, 'agent_generate_video'); return `VIDEO_RESULT:${lv.videoUrl}|DURATION:${gvDuration}s|COST:${gvCost}点` }
         return '长视频生成失败（分段模型可能不可用，可重试或换 wan2.7-t2v）'
+      }
+      if (args.refImage) {
+        const i2vR = await generateImageToVideo(gvPrompt, String(args.refImage), gvDuration, '720P', gvRatio)
+        if (i2vR?.taskId && i2vR.status === 'running') {
+          try { await createRecord({ userId: uid2, type: 'image2video', prompt: gvPrompt, costPoints: gvCost, platformTaskId: String(i2vR.taskId) }) } catch {}
+          return `VIDEO_TASK:${i2vR.taskId}|PROMPT:${gvPrompt}|COST:${gvCost}点（成片完成后扣费）`
+        }
+        return '图生视频生成暂不可用（参考图处理失败，可重试）'
       }
       const result = await generateVideo(gvPrompt, gvDuration, '720P', gvRatio)
       if (result?.taskId && result.status === 'running') {
