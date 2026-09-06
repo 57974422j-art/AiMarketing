@@ -507,6 +507,59 @@ function AgentPageInner() {
     return () => { stopped = true; clearInterval(iv) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages])
+  // 2026-09-06: 生图任务自动轮询——IMAGE_PENDING 消息出现后每 5s 查，完成后图片卡片推进对话
+  useEffect(() => {
+    const lastIp = [...messages].reverse().find(m => m.role === 'assistant' && m.content && /IMAGE_PENDING:([^|]+)/.test(m.content))
+    if (!lastIp) return
+    const mIp = lastIp.content.match(/IMAGE_PENDING:([^|]+)/)
+    if (!mIp) return
+    const taskId = mIp[1].trim()
+    let stopped = false
+    const iv = setInterval(async () => {
+      try {
+        const r = await fetch('/api/agent/image-task-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId }) }).then(r => r.json())
+        if (!r.success) return
+        if (r.done && r.url) {
+          clearInterval(iv)
+          if (!stopped) {
+            setMessages(prev => [...prev, { id: 'img-' + Date.now(), role: 'assistant', content: 'IMAGE_RESULT:' + r.url + '|TITLE:已生成图片' }])
+          }
+        }
+      } catch {}
+    }, 5000)
+    return () => { stopped = true; clearInterval(iv) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages])
+
+  // 2026-09-06: 数字人口播自动轮询——DH_TASK 消息出现后每 8s 查，完成后口播视频卡片推进对话
+  useEffect(() => {
+    const lastDh = [...messages].reverse().find(m => m.role === 'assistant' && m.content && /DH_TASK:([^|]+)/.test(m.content))
+    if (!lastDh) return
+    const mDh = lastDh.content.match(/DH_TASK:([^|]+)/)
+    if (!mDh) return
+    const taskId = mDh[1].trim()
+    let stopped = false
+    const iv = setInterval(async () => {
+      try {
+        const r = await fetch('/api/digital-human', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'query', taskId }) }).then(r => r.json())
+        if (!r || !r.success) return
+        if (r.avatarUrl) {
+          clearInterval(iv)
+          if (!stopped) {
+            setMessages(prev => [...prev, { id: 'dh-' + Date.now(), role: 'assistant', content: 'DH_RESULT:' + r.avatarUrl + '|TITLE:数字人口播已生成' }])
+          }
+        } else if (r.status === 'FAILED' || r.status === 'CANCELED') {
+          clearInterval(iv)
+          if (!stopped) {
+            setMessages(prev => [...prev, { id: 'dh-' + Date.now(), role: 'assistant', content: '❌ 数字人口播生成失败——本次未扣点，可重试。' }])
+          }
+        }
+      } catch {}
+    }, 8000)
+    return () => { stopped = true; clearInterval(iv) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages])
+
   const [sessionId, setSessionId] = useState<number | null>(null)
   // 2026-08-11：登录后恢复最近对话历史（界面不空；有历史则跳过欢迎/onboarding）
   const [historyLoaded, setHistoryLoaded] = useState(false)

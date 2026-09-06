@@ -44,7 +44,9 @@ const prisma = new PrismaClient()
 // 2026-08-21: 发布抽帧暂存（userId → 帧列表，"用第N帧"取用）
 const frameStore = new Map<number, { frames: { idx: number; url: string }[]; videoName: string }>()
 // 2026-08-29: 生图异步化——提交后立即返回，后台轮询+转存（避免长请求被网络层掐断"网络连接失败"）
-const pendingImages = new Map<number, { taskId: string; ts: number; url?: string; fileName?: string; done: boolean }>()
+// 2026-09-06: pendingImages 抽到 globalThis——image-task-status API 跨模块读结果（生图轮询闭环）
+const pendingImages: Map<number, { taskId: string; ts: number; url?: string; fileName?: string; done: boolean }> =
+  (globalThis as any).__pendingImages || ((globalThis as any).__pendingImages = new Map())
 
 const AGENT_TOOLS: ToolDefinition[] = [
   {
@@ -735,7 +737,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           }
         } catch (eBk) { console.error('[生图异步] 后台轮询异常:', eBk?.message || eBk) }
       })()
-      return 'IMAGE_PENDING:封面生成中（约1-3分钟）——生成后自动存入个人仓库，稍后说"封面好了吗"我会帮你查'
+            return 'IMAGE_PENDING:' + sub.taskId + '|封面生成中（约1-3分钟）——生成后自动出现'
     }
 
     // ── 视频 ──
