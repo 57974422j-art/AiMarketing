@@ -60,7 +60,6 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  try {
   const auth = getAuthFromHeaders(request)
   if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
 
@@ -80,13 +79,13 @@ export async function POST(request: NextRequest) {
   const mimeMap: Record<string, string> = { mp4: 'video/mp4', mov: 'video/quicktime', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' }
   const mime = mimeMap[ext.toLowerCase()] || 'application/octet-stream'
 
+  try {
     const res = await saveToPersonalRepo({ userId: auth.userId, buffer, ext, mime })
     // 2026-08-26: 不再自动抽帧（用户要求：上传视频不切图；发视频时按需抽帧在 extract_video_frames 工具内）
     return NextResponse.json({ success: true, data: { name: res.name, size: file.size, frames: [] } })
   } catch (e) {
-    console.error('[storage/files] POST 上传异常:', e)
-    const message = e instanceof Error ? e.message : '上传失败'
-    return NextResponse.json({ success: false, message }, { status: 500 })
+    const message = e instanceof Error ? e.message : '保存失败'
+    return NextResponse.json({ success: false, message }, { status: 413 })
   }
 }
 
