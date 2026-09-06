@@ -51,7 +51,7 @@ const pendingImages: Map<number, { taskId: string; ts: number; url?: string; fil
 const AGENT_TOOLS: ToolDefinition[] = [
   {
     name: 'generate_copy',
-    description: '为用户生成营销文案、广告语、社交媒体内容。触发词："写文案""推广""广告""小红书""抖音脚本""帮我写"。',
+    description: '为用户生成营销文案、广告语、社交媒体内容。',
     parameters: {
       type: 'object',
       properties: {
@@ -63,7 +63,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'generate_image',
-    description: 'AI生成图片/海报。触发词："生成图片""做海报""设计图""画一张""海报图""配图"。**v2 流程：生成前先调 search_templates 搜公共素材库推荐给用户选（用户选中的素材/模板 prompt 用于生成）；搜不到才直接生成。**前缀区分：用户说"打开AI生图/去生图页"是跳转（open_page /image-generator），不是生成——禁止调用本工具。**',
+    description: 'AI生成图片/海报。**v2 流程：生成前先调 search_templates 搜公共素材库推荐给用户选（用户选中的素材/模板 prompt 用于生成）；搜不到才直接生成。**前缀区分：用户说"打开AI生图/去生图页"是跳转（open_page /image-generator），不是生成——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -74,7 +74,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'generate_video',
-    description: 'AI生成视频（百炼 wan2.7）。触发词："做视频""生成视频""短视频""拍一个"。注意：首次调用必须先报费用预估（不要带 confirmed），用户确认后再带 confirmed=true 真正生成；时长超过15秒会自动分段拼接（每段用上一段尾帧做参考，保证衔接）。**前缀区分：用户说"打开文生视频/去文生视频"是跳转页面（open_page /text-to-video），不是生成——禁止调用本工具。**',
+    description: 'AI生成视频（百炼 wan2.7）。注意：首次调用必须先报费用预估（不要带 confirmed），用户确认后再带 confirmed=true 真正生成；时长超过15秒会自动分段拼接（每段用上一段尾帧做参考，保证衔接）。**前缀区分：用户说"打开文生视频/去文生视频"是跳转页面（open_page /text-to-video），不是生成——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -89,7 +89,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'generate_storyboard',
-    description: '生成视频分镜脚本（只出方案，不生成视频）。触发词："分镜""脚本""镜头方案"。根据用户视频创意输出分镜JSON（每镜：画面描述/英文prompt/时长/镜头感）+ 总费用预估。用户确认分镜后，再用 generate_video（confirmed=true）逐镜生成。**前缀区分：用户消息以"打开/去/进入"开头是跳转页面（open_page），不是生成——禁止调用本工具。**',
+    description: '生成视频分镜脚本（只出方案，不生成视频）。根据用户视频创意输出分镜JSON（每镜：画面描述/英文prompt/时长/镜头感）+ 总费用预估。用户确认分镜后，再用 generate_video（confirmed=true）逐镜生成。**前缀区分：用户消息以"打开/去/进入"开头是跳转页面（open_page），不是生成——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -102,7 +102,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'create_ai_video',
-    description: '一句话 AI 成片：内部自动分镜并创建后台生成任务（无需用户先要分镜）。触发词："帮我做个视频""一键成片""自动做视频""做一条视频"。规则同 generate_video：首次调用不带 confirmed 只报费用预估，用户确认后带 confirmed=true 才真正分镜+建任务。返回任务ID，可用 query_storyboard 查进度。**前缀区分：用户说"打开一键成片/去一键成片"是跳转页面（open_page /auto-compile），不是做视频——禁止调用本工具。**',
+    description: '一句话 AI 成片：内部自动分镜并创建后台生成任务（无需用户先要分镜）。规则同 generate_video：首次调用不带 confirmed 只报费用预估，用户确认后带 confirmed=true 才真正分镜+建任务。返回任务ID，可用 query_storyboard 查进度。**前缀区分：用户说"打开一键成片/去一键成片"是跳转页面（open_page /auto-compile），不是做视频——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -138,7 +138,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'search_web_images',
-    description: '网络搜图。触发词："找图片""搜图""有没有XX的图片""帮我找一张"。',
+    description: '网络搜图：查互联网上的图片、参考图、素材图。',
     parameters: {
       type: 'object',
       properties: {
@@ -150,7 +150,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
 
   {
     name: 'search_web',
-    description: '实时搜索互联网（Google，2026-08-07）。触发词："帮我搜""查一下""搜索""找找XX""看看XX新闻""找XX视频"。可搜网页/视频/新闻三种，视频会给出可播放的链接。',
+    description: '实时搜索互联网（Google，2026-08-07）。可搜网页/视频/新闻三种，视频会给出可播放的链接。',
     parameters: {
       type: 'object',
       properties: {
@@ -161,7 +161,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'crawl_web',
-    description: '抓取任意网页内容并转成 Markdown（2026-08-13，crawl4ai）。**用户消息中出现 http/https 链接时必须无条件调用（不要凭常识判断链接有效性/内容——抓了才知道）**。触发词："看看这个网页""抓取这个页面""这个链接内容""竞品网站""这个文章讲了什么"。',
+    description: '抓取任意网页内容并转成 Markdown（2026-08-13，crawl4ai）。**用户消息中出现 http/https 链接时必须无条件调用（不要凭常识判断链接有效性/内容——抓了才知道）**。',
     parameters: {
       type: 'object',
       properties: {
@@ -172,7 +172,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'digital_human_speak',
-    description: '创建数字人口播视频：上传照片+选择声音+输入文案。触发词："数字人""口播""虚拟人""AI主播"。**前缀区分：用户说"打开数字人/去数字人"是跳转页面（open_page /digital-human），不是生成口播——禁止调用本工具。**',
+    description: '创建数字人口播视频：上传照片+选择声音+输入文案。**前缀区分：用户说"打开数字人/去数字人"是跳转页面（open_page /digital-human），不是生成口播——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -184,7 +184,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'search_storage',
-    description: '搜索项目素材库（MediaAsset，平台级素材：趋势视频/BGM/图片等）。触发词："素材库""媒体库""项目素材""找视频""找图片"。制作日常内容时可主动调用挑选可用素材。注意：只返回数据库真实条目（标题/ID/条数）；没有时返回空，禁止编造素材清单。',
+    description: '搜索项目素材库（MediaAsset，平台级素材：趋势视频/BGM/图片等）。制作日常内容时可主动调用挑选可用素材。注意：只返回数据库真实条目（标题/ID/条数）；没有时返回空，禁止编造素材清单。',
     parameters: {
       type: 'object',
       properties: {
@@ -195,7 +195,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'search_video',
-    description: '搜索并可播放视频。用于对话/语音"找视频播放""帮我找个XX视频看看""播放白龙马的视频"。触发词："找视频""搜视频""播放""看看视频""找个XX的视频"。返回 VIDEO_RESULT(可直接播放的URL，前端自动弹播放器真播，支持B站/YouTube/直链iframe)；本地库无结果且用户要外站视频时返回 VIDEO_WEB(外站搜索/播放链接)。优先个人仓库与项目素材库，其次可外链播放。',
+        description: '搜索并播放视频（本地库或外站），用户想看某类视频时用。',
     parameters: {
       type: 'object',
       properties: {
@@ -206,7 +206,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'list_personal_files',
-    description: '列出用户个人仓库（OSS 私有存储）的文件，含用户自己上传的视频/图片。触发词："我的仓库""个人素材""我上传的""之前传的视频"。发布内容前可主动调用挑选成片；返回的每个文件带可直接使用的URL。',
+    description: '列出用户个人仓库（OSS 私有存储）的文件，含用户自己上传的视频/图片。发布内容前可主动调用挑选成片；返回的每个文件带可直接使用的URL。',
     parameters: {
       type: 'object',
       properties: {
@@ -217,7 +217,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'search_templates',
-    description: '搜索提示词模板库。触发词："模板""场景""有什么可以用的"。**前缀区分："打开素材库/公共素材库"是跳转页面（open_page /media-library 或 /storage），不是搜模板——禁止调用本工具。**',
+    description: '搜索提示词模板库。**前缀区分："打开素材库/公共素材库"是跳转页面（open_page /media-library 或 /storage），不是搜模板——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -252,12 +252,12 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'read_knowledge',
-      description: '读取用户知识库文档（AI 智能体训练文档：产品介绍/项目说明/行业知识等）。触发词："了解我的项目""读文档""我的知识库""产品是什么"。返回文档标题+内容摘要，供回答引用。',
+      description: '读取用户知识库文档（AI 智能体训练文档：产品介绍/项目说明/行业知识等）。返回文档标题+内容摘要，供回答引用。',
       parameters: { type: 'object', properties: { query: { type: 'string', description: '可选：想了解的关键词' } } },
     },
   {
       name: 'project_overview',
-      description: '查看用户项目概况（绑定平台账号、素材数量、生成记录、套餐状态）。触发词："我的项目""我的账号""看看我的情况""我有什么素材""帮我了解下我的账号"。',
+      description: '查看用户项目概况（绑定平台账号、素材数量、生成记录、套餐状态）。',
       parameters: {
         type: 'object',
         properties: { detail: { type: 'string', description: '可选：想要的重点（账号/素材/生成/全部）' } },
@@ -271,12 +271,12 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'query_publish_tasks',
-    description: '查询发布任务状态（Agent 创建的发布任务是否已执行/成功/失败）。触发词："发布了吗""任务状态""发了没有""我的发布"。返回最近发布任务列表及状态。',
+    description: '查询发布任务状态（Agent 创建的发布任务是否已执行/成功/失败）。返回最近发布任务列表及状态。',
     parameters: { type: 'object', properties: {} },
   },
   {
     name: 'automation_check',
-    description: '查看自动化任务和定时任务状态。触发词："自动化""定时""自动发布""互关""机器人"。',
+    description: '查看自动化任务和定时任务状态。',
     parameters: {
       type: 'object',
       properties: {
@@ -286,7 +286,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'search_memory',
-    description: '回顾与用户相关的长期记忆（偏好、品牌信息、过往约定）。触发词："你还记得""之前说的""我的偏好""上次"。',
+    description: '回顾与用户相关的长期记忆（偏好、品牌信息、过往约定）。',
     parameters: {
       type: 'object',
       properties: {
@@ -364,7 +364,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'extract_video_frames',
-    description: '发布前抽视频帧给用户选封面。触发词：发布流程选中视频后自动调用（如"发布XX视频"→抽帧展示）。参数 videoName（仓库文件名）。抽 4 帧（开头/1/3/结尾）→ 返回 SCENE video_frames 卡片让用户选帧；用户选帧后（"用第N帧"）再基于该帧识别画面/推荐标题/设计封面。**禁止在未抽帧看画面前凭文件名/记忆生成封面标题。**',
+    description: '发布前抽视频帧给用户选封面。参数 videoName（仓库文件名）。抽 4 帧（开头/1/3/结尾）→ 返回 SCENE video_frames 卡片让用户选帧；用户选帧后（"用第N帧"）再基于该帧识别画面/推荐标题/设计封面。**禁止在未抽帧看画面前凭文件名/记忆生成封面标题。**',
     parameters: {
       type: 'object',
       properties: {
@@ -404,9 +404,11 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
   if (freeMode) {
     const nm = profile?.name ? `你叫「${profile.name}」，` : ''
     return `${nm}你是 AiMarketing 的 AI 运营助手。
-【自由模式】用户给需求 → 你自己判断调哪个工具完成，不要一步步问。
-能力：文生图/文生视频/图生视频(克隆)/数字人口播/一键成片/写文案/搜素材/搜热点/查视频任务/发布视频。
-图生视频触发：用户发图或视频 + 说"做视频/生成视频/克隆" → 调 generate_video，refImage 传消息里【图片URL】的值（视频用其首帧/视频URL），不要只描述图片而忘了真正生成视频。
+【自由模式】先理解用户整句话想完成什么，再决定要不要调工具：
+1. 你自己能直接做的（聊天、分析、解释、看图描述、写文案草稿、出主意）→ 直接回答，不要调工具
+2. 只有你自己做不到的（生成图片/视频、查互联网实时信息、发布到平台、读写长期记忆、查进度）→ 才查工具
+3. 选工具要读懂整句意图，禁止因为句子里出现一两个词就调工具；拿不准就选最匹配「完整意图」的那个
+能力：文生图 / 文生视频 / 图生视频(发图+说做视频时 refImage 传图片URL) / 数字人口播 / 一键成片 / 写文案 / 搜图 / 搜互联网 / 找视频 / 查视频任务进度 / 读写记忆 / 知识库 / 热点。
 发布红线：用户要发布/发视频 → 必须调 browser_use_execute 建任务（唯一通道，客户端 AI 浏览器执行）。
 诚实原则：不编造素材/内容/进度，素材不足引导用户上传；语音同音错字（纹身=文生、热恋=热点）要纠正。`
   }
