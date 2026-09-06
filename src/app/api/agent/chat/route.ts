@@ -42,7 +42,7 @@ const prisma = new PrismaClient()
 // ==================== 工具定义 ====================
 
 // 2026-08-21: 发布抽帧暂存（userId → 帧列表，"用第N帧"取用）
-const frameStore = new Map<number, { frames: { idx: number; url: string }[]; videoName: string }>()
+const frameStore = new Map<number, { frames: { idx: number; url: string }[]; videoName: string; orientation?: 'landscape' | 'portrait' }>()
 // 2026-08-29: 生图异步化——提交后立即返回，后台轮询+转存（避免长请求被网络层掐断"网络连接失败"）
 // 2026-09-06: pendingImages 抽到 globalThis——image-task-status API 跨模块读结果（生图轮询闭环）
 const pendingImages: Map<number, { taskId: string; ts: number; url?: string; fileName?: string; done: boolean }> =
@@ -1568,6 +1568,12 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         const outDir = path.join(pubRoot, 'frames', String(auth.userId), ts)
         fs.mkdirSync(outDir, { recursive: true })
         let dur = 5
+        let orientation: 'landscape' | 'portrait' | undefined = undefined
+        try {
+          const wh = execSync(`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${srcPath}"`).toString().trim()
+          const whp = wh.split(',').map(Number)
+          if (whp[0] && whp[1]) orientation = whp[0] > whp[1] ? 'landscape' : 'portrait'
+        } catch {}
         try { dur = parseFloat(execSync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${srcPath}"`, { timeout: 15000, encoding: 'utf8' })) || 5 } catch {}
         const pcts = [0, 25, 75, 99]
         const frames: string[] = []
@@ -1580,7 +1586,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           } catch {}
         }
         if (!frames.length) return '抽帧失败，视频可能无法解码'
-        frameStore.set(auth.userId, { frames: frames.map((u, idx) => ({ idx: idx + 1, url: u })), videoName })
+        frameStore.set(auth.userId, { frames: frames.map((u, idx) => ({ idx: idx + 1, url: u })), videoName, orientation })
         try {
           const base = path.join(pubRoot, 'frames', String(auth.userId))
           if (fs.existsSync(base)) for (const d of fs.readdirSync(base)) {
@@ -2363,7 +2369,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                       if (visN || kwN) {
                         const covTask = async () => {
                           try {
-                            const covR = await dashscopeGenerateImageAsync((visN.slice(0, 200) + '营销封面风格，标题文字：' + kwN).trim() || '营销封面', '720*960')
+                            const covR = await dashscopeGenerateImageAsync((visN.slice(0, 200) + '营销封面风格，标题文字：' + kwN).trim() || '营销封面', (frameStore.get(auth?.userId || 0)?.orientation === 'landscape' ? '960*720' : '720*960'))
                             if (covR && covR.taskId) {
                               const tid = covR.taskId
                               let covDone = false
@@ -2436,7 +2442,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                   const topicsN2 = String(_topicM2 && _topicM2[1] ? _topicM2[1] : '#短视频 #精品内容 #AI工具')
                   draftW.titles = titlesN2.join(''); draftW.topics = topicsN2
                   let covN2 = ''
-                  try { const covR2 = await dashscopeGenerateImageAsync((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN2).trim() || '营销封面', '720*960'); if (covR2 && covR2.taskId) { const tid2 = covR2.taskId; try { let w2 = 0; while (w2 < 180) { w2 += 10; await new Promise((r) => setTimeout(r, 10000)); const qt2 = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + tid2, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY }, signal: AbortSignal.timeout(20000) }).then((r) => r.json()).catch(() => null); if (qt2 && qt2.output && qt2.output.task_status === 'SUCCEEDED') { const u2 = qt2.output.choices && qt2.output.choices[0] && qt2.output.choices[0].message && qt2.output.choices[0].message.content ? (qt2.output.choices[0].message.content[0] ? qt2.output.choices[0].message.content[0].image : '') : ''; if (u2 && _isSafeImgUrl(String(u2))) { try { const cR2 = await fetch(u2, { signal: AbortSignal.timeout(30000) }).catch(() => null); if (cR2 && cR2.ok) { const cB2 = Buffer.from(await cR2.arrayBuffer()); const cK2 = 'storage/' + ((auth && auth.userId) || 0) + '/cover_' + Date.now() + '.jpg'; await putObject(cK2, cB2, 'image/jpeg'); const cU2 = 'https://ai-niuma.cc/api/storage/file?name=' + cK2.replace('storage/' + ((auth && auth.userId) || 0) + '/', '') + '&userId=' + ((auth && auth.userId) || 0) + '&persist=1'; covN2 = cU2; try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: cU2, source: 'private', category: '封面', ownerId: (auth && auth.userId) || 0 } }).catch(() => {}) } catch {}; const dm6 = await prisma.agentMemory.findFirst({ where: { userId: String((auth && auth.userId) || 0), tags: { contains: 'pub_draft' } } }); if (dm6) { const dp6 = JSON.parse(String(dm6.content).replace(/^发布草稿:/, '') || '{}'); if (dp6.videoName === vPickF) { await prisma.agentMemory.update({ where: { id: dm6.id }, data: { content: '发布草稿:' + JSON.stringify(Object.assign({}, dp6, { coverUrl: cU2 })) } }).catch(() => {}) } } } } catch {} } break } else if (qt2 && qt2.output && qt2.output.task_status === 'FAILED' || qt2.output.task_status === 'UNKNOWN') break } } catch {} } } catch {}
+                  try { const covR2 = await dashscopeGenerateImageAsync((visN.slice(0, 200) + '，营销封面风格，标题文字：' + kwN2).trim() || '营销封面', (frameStore.get(auth?.userId || 0)?.orientation === 'landscape' ? '960*720' : '720*960')); if (covR2 && covR2.taskId) { const tid2 = covR2.taskId; try { let w2 = 0; while (w2 < 180) { w2 += 10; await new Promise((r) => setTimeout(r, 10000)); const qt2 = await fetch('https://dashscope.aliyuncs.com/api/v1/tasks/' + tid2, { headers: { Authorization: 'Bearer ' + process.env.DASHSCOPE_API_KEY }, signal: AbortSignal.timeout(20000) }).then((r) => r.json()).catch(() => null); if (qt2 && qt2.output && qt2.output.task_status === 'SUCCEEDED') { const u2 = qt2.output.choices && qt2.output.choices[0] && qt2.output.choices[0].message && qt2.output.choices[0].message.content ? (qt2.output.choices[0].message.content[0] ? qt2.output.choices[0].message.content[0].image : '') : ''; if (u2 && _isSafeImgUrl(String(u2))) { try { const cR2 = await fetch(u2, { signal: AbortSignal.timeout(30000) }).catch(() => null); if (cR2 && cR2.ok) { const cB2 = Buffer.from(await cR2.arrayBuffer()); const cK2 = 'storage/' + ((auth && auth.userId) || 0) + '/cover_' + Date.now() + '.jpg'; await putObject(cK2, cB2, 'image/jpeg'); const cU2 = 'https://ai-niuma.cc/api/storage/file?name=' + cK2.replace('storage/' + ((auth && auth.userId) || 0) + '/', '') + '&userId=' + ((auth && auth.userId) || 0) + '&persist=1'; covN2 = cU2; try { await prisma.mediaAsset.create({ data: { title: '封面_' + Date.now(), type: 'image', ossUrl: cU2, source: 'private', category: '封面', ownerId: (auth && auth.userId) || 0 } }).catch(() => {}) } catch {}; const dm6 = await prisma.agentMemory.findFirst({ where: { userId: String((auth && auth.userId) || 0), tags: { contains: 'pub_draft' } } }); if (dm6) { const dp6 = JSON.parse(String(dm6.content).replace(/^发布草稿:/, '') || '{}'); if (dp6.videoName === vPickF) { await prisma.agentMemory.update({ where: { id: dm6.id }, data: { content: '发布草稿:' + JSON.stringify(Object.assign({}, dp6, { coverUrl: cU2 })) } }).catch(() => {}) } } } } catch {} } break } else if (qt2 && qt2.output && qt2.output.task_status === 'FAILED' || qt2.output.task_status === 'UNKNOWN') break } } catch {} } } catch {}
                   if (!covN2) { console.log('[封面同步] 文件名分支 covN2 空（dashscope 180s 内未出图/失败）') }
                   draftW.coverUrl = covN2; draftW.step = 'full'
                   try { prisma.agentMemory.updateMany({ where: { userId: String((auth && auth.userId) || 0), tags: { contains: 'pub_draft' } }, data: { content: '发布草稿:' + JSON.stringify(draftW) } }).catch(() => {}) } catch {}
@@ -2591,7 +2597,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 let covU = draftW.coverUrl || ''
                 if (!covU && draftW.visualDesc) {
                   try {
-                    const covR = await dashscopeGenerateImageAsync((draftW.visualDesc.slice(0, 200) + '，营销封面风格，标题文字：' + (draftW.title || '')).trim(), '720*960').catch(() => null)
+                    const covR = await dashscopeGenerateImageAsync((draftW.visualDesc.slice(0, 200) + '，营销封面风格，标题文字：' + (draftW.title || '')).trim(), (frameStore.get(auth?.userId || 0)?.orientation === 'landscape' ? '960*720' : '720*960')).catch(() => null)
                     if (covR?.taskId) {
                       for (let pi = 0; pi < 4; pi++) {
                         await new Promise((res) => setTimeout(res, 4000))
