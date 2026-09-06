@@ -1,3 +1,27 @@
+## 🔧 tsc 类型错误待清（2026-09-06 盘点——核心 11 处已清，剩 72 处）
+
+**已清（cb65872）**：chat route 6 处 + ai-providers 5 处（含 3 个真 bug：videoUrl 字段名错 / uploadToOSS 不存在 / timeoutMs 不生效）。
+
+**剩余 72 处（按文件，待分批清）**：
+- 🟡 agent/page.tsx 30（SceneCard.items/frames 类型、BlobPart、asrSessionAbort、JSX 重复属性等）
+- 🟡 prompt-templates/page.tsx 7（null 判断）
+- 🟡 media-library/page.tsx 5
+- 🟡 live-stream-engine.ts 4（uploadOSS 不存在——同类 bug，数字人/直播上传）
+- 🟡 my-fingerprint/page.tsx 4
+- 🟡 ApiKeyPanel.tsx 4（setMinimaxKey/musicModel 缺）
+- 🟡 login/route.ts 3
+- 🟡 video-task-manager.ts 2
+- 🟡 GlobeTrends.tsx 2 + prompt-library 2
+- 🟡 其他零散 9（middleware/Navbar/digital-human/subscription×2/music/media-library-promote/content-draft/client-info/publish-stats/agent-tools/ settings）
+
+**待办（功能桩/缺陷，另开轮清）**：
+- 🔴 自动化引擎 engine.ts 四实现全是桩（mock/官方API/真机/指纹）——功能没落地
+- 🟡 opencli_run 死桩（要装命令才能用——应隐藏/删）
+- 🟡 digital_human_speak 参数错位
+- 🟡 热点无国内源
+- 🟡 一键成片 TTS/合成间歇失败（qwen3-tts + ffmpeg）
+- 🟡 标准/自由模式文件级隔离（free-flow.ts / standard-flow.ts 物理抽取——已完成状态机块整体 if(!isFreeMode) 包裹 5c42abf，抽文件待测通后做）
+
 ### ✅ 已解决
 - 🟡 **Browser Use「打不开浏览器」问题总结（2026-08-30——以后排查速查）**：
   分层排查（L1服务器→L2执行器→L3轮询fetch→L4 Python→L5浏览器）：
