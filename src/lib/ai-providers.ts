@@ -493,7 +493,7 @@ async function dashscopeImageToVideo(prompt: string, refImageUrl: string, _durat
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
       body: JSON.stringify({
         model: 'wan2.7-i2v',
-        input: { prompt, image_url: refImageUrl },
+        input: { prompt, media: [{ type: 'first_frame', url: refImageUrl }] },
         parameters: { resolution: _resolution, ratio: _ratio, duration: _duration },
       }),
     })

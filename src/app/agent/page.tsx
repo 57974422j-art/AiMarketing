@@ -473,11 +473,13 @@ function AgentPageInner() {
   const [loading, setLoading] = useState(false)
   const [pendingLabel, setPendingLabel] = useState('')  // 2026-08-24: 生成中反馈文案（类型化）
   // 2026-08-24: 视频任务自动轮询——VIDEO_TASK 消息出现后每 10s 查进度，完成/失败自动提醒（用户不再干等催）
+  const handledVideoTasks = useRef(new Set<string>()) // 2026-09-06: 已处理过的视频任务——防失败/成功后重复轮询弹多条
   useEffect(() => {
     const lastVt = [...messages].reverse().find(m => m.role === 'assistant' && ((m as any).videoTaskId || (m.content && /VIDEO_TASK:([^|]+)/.test(m.content))))
     if (!lastVt) return
     const taskId = (((lastVt as any).videoTaskId) || ((lastVt.content || '').match(/VIDEO_TASK:([^|]+)/) || [])[1] || '').trim()
     if (!taskId) return
+    if (handledVideoTasks.current.has(taskId)) return
     let stopped = false
     const iv = setInterval(async () => {
       try {
@@ -485,6 +487,7 @@ function AgentPageInner() {
         if (!r.success) return
         if (r.done) {
           clearInterval(iv)
+          handledVideoTasks.current.add(taskId)
           if (!stopped) {
             if (r.videoUrl) {
               // 2026-09-06: 成片成功——视频卡片推进对话（复用 VIDEO_RESULT 渲染，可播放）
@@ -496,9 +499,11 @@ function AgentPageInner() {
           }
         } else if (r.failed) {
           clearInterval(iv)
+          handledVideoTasks.current.add(taskId)
           if (!stopped) {
-            const why = r.errMsg ? ('：' + r.errMsg) : ''
-            setMessages(prev => [...prev, { id: 'video-' + Date.now(), role: 'assistant', content: '❌ 视频生成失败' + why + '——本次未扣点，可重试或换描述再生成。' }])
+            const raw = r.errMsg || ''
+            const why = raw.includes('input.media') ? '参考图未正确传入（图生视频）' : (raw.includes('insufficient') ? '余额不足' : raw)
+            setMessages(prev => [...prev, { id: 'video-' + Date.now(), role: 'assistant', content: '❌ 视频生成失败' + (why ? ('：' + why) : '') + '——本次未扣点，可重试或换描述再生成。' }])
           }
         }
       } catch {}
