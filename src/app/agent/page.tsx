@@ -1887,10 +1887,13 @@ function AgentPageInner() {
       const fd = new FormData()
       fd.append('file', file)
       const r = await fetch('/api/storage/files', { method: 'POST', body: fd, credentials: 'include' })
-      const d = await r.json()
+      let d: any = null
+      try { d = await r.json() } catch { d = { success: false, message: '响应解析失败(' + r.status + ')' } }
       if (d.success && d.data?.name) {
         const url = `/api/storage/file?userId=${user?.id}&name=${encodeURIComponent(d.data.name)}`
         setAttachments(prev => [...prev, { name: file.name, url, type: isVideo ? 'video' : 'image', frames: d.data?.frames || [] }])
+      } else {
+        alert('上传失败：' + (d.message || d.error || ('HTTP ' + r.status)))
       }
     })
     if (fileInputRef.current) fileInputRef.current.value = ''
