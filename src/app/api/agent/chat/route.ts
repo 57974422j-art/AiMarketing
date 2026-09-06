@@ -396,7 +396,16 @@ const TOOL_STEP_LABEL: Record<string, string> = {
   search_trends: '搜索全球热点',
 }
 
-function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboarding?: boolean): string {
+function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboarding?: boolean, freeMode = false): string {
+  // 2026-09-06: 自由模式 = 多模态 AI 完全自由、独立一条线——极简 header（不做状态机控制，只留发布红线 + 诚实）
+  if (freeMode) {
+    const nm = profile?.name ? `你叫「${profile.name}」，` : ''
+    return `${nm}你是 AiMarketing 的 AI 运营助手。
+【自由模式】用户给需求 → 你自己判断调哪个工具完成，不要一步步问。
+能力：文生图/文生视频/图生视频(克隆)/数字人口播/一键成片/写文案/搜素材/搜热点/查视频任务/发布视频。
+发布红线：用户要发布/发视频 → 必须调 browser_use_execute 建任务（唯一通道，客户端 AI 浏览器执行）。
+诚实原则：不编造素材/内容/进度，素材不足引导用户上传；语音同音错字（纹身=文生、热恋=热点）要纠正。`
+  }
   let header = `你是 AiMarketing 的 AI 运营助手，核心使命：帮用户执行自媒体运营的日常任务——每天的内容制作与发布（抖音/小红书/快手/视频号/B站）。
 注意：用户的语音输入可能包含同音错字（例如「纹身视频」其实是「文生视频」、「热恋」是「热点」），请结合上下文理解真实意图后再执行，不要被错字误导。`
   if (profile?.name) {
@@ -1944,7 +1953,7 @@ export async function POST(request: NextRequest) {
     } catch {}
 
     // 构建消息（Agnes 多模态对话格式）
-    const sysBlocks: string[] = [buildSystemPrompt(agentProfile, onboarding === true)]
+    const sysBlocks: string[] = [buildSystemPrompt(agentProfile, onboarding === true, (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free')]
     // 2026-08-05：应用随行模式——用户在当前功能大屏内，让 AI 结合场景回答
     if (currentApp) sysBlocks.push(`【当前页面】用户正在使用「${currentApp}」应用（左侧功能大屏内操作）。请结合该应用场景简洁指导/回答，必要时给出下一步操作建议。`)
     if (hotContext && typeof hotContext === 'string' && hotContext.trim()) {
