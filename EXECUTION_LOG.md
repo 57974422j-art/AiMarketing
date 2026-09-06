@@ -4,6 +4,7 @@
 > 同步维护：PROJECT.md 六「当前进度/待办」、ISSUES.md 问题状态。
 > 开始日期：2026-08-05
 
+| 2026-09-06 | ①自由模式独立线：header 分流（自由模式极简宽松 header，只留发布红线+诚实；标准 header 不动）②多模态 forceVL→qwen3-max（图片不再乱码）③图生视频 t2v→i2v ④一键成片 userId 提顶层 ⑤封面尺寸 720×960 | ai-providers.ts / chat route / auto-compile route / page.tsx | 已提交 b22d106 |
 | 2026-08-14 | API key 根因修复：①config 读写 .env.local 统一 DOTENV_CONFIG_PATH（之前写 cwd/standalone 被 rm -rf 删）；②16 段保存排除 ******** 掩码覆盖；③statusMap 加 minimax（配置后显示已配置）；④settings 分页 Tab（密钥/媒体/引擎/系统 4 组）；⑤Minimax 音乐测试命令 | config/route.ts / settings/page.tsx | 服务器验证 MINIMAX_API_KEY 保存成功；settings 语法 0；分页提交 2c18a72 |
 | 2026-08-14 | Minimax AI 音乐生成接入：/api/music/generate（api.minimax.io music-3.0-free 同步返回 URL，2061 提示充值）+ 媒体舞台「AI 生成 BGM」（输入描述→生成→试听→用做背景乐） | minimax-music.ts / api/music/generate/route.ts / agent/page.tsx | 本地验证 401/400/key未配 链路通过；用户充值后即用 |
 | 2026-08-14 | TTS 统一百炼：textToSpeech 去火山兜底（百炼 CosyVoice→硅基）；qwen3-tts 去火山 fallback（DASHSCOPE 缺失明确报错）——用户已删火山配置，防止一键成片/朗读因火山缺失失败 | ai-providers.ts / qwen3-tts.ts | 本地 agent TTS 百炼合成成功 |
