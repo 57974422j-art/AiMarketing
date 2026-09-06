@@ -396,6 +396,8 @@ interface Message {
   steps?: { tool: string; label: string }[]
   scene?: SceneCard | null
   scenes?: SceneCard[] | null
+  attachments?: { name: string; url: string; type: string; frames?: string[] }[]  // 2026-09-06: 附件独立字段（不再塞 content Markdown）
+  videoUrl?: string  // 2026-09-06: 视频结果独立字段（不再塞 content 技术标记）
 }
 
 interface Attachment { name: string; url: string; type: string }
@@ -490,8 +492,9 @@ function AgentPageInner() {
           handledVideoTasks.current.add(taskId)
           if (!stopped) {
             if (r.videoUrl) {
-              // 2026-09-06: 成片成功——视频卡片推进对话（复用 VIDEO_RESULT 渲染，可播放）
-              setMessages(prev => [...prev, { id: 'video-' + Date.now(), role: 'assistant', content: 'VIDEO_RESULT:' + r.videoUrl + '|TITLE:视频已生成' }])
+              // 2026-09-06: 成片成功——content 只放人话，videoUrl 独立字段；镜像到本地仓库（防丢作品）
+              try { (window as any).electronAPI?.storageMirror?.(r.videoUrl) } catch {}
+              setMessages(prev => [...prev, { id: 'video-' + Date.now(), role: 'assistant', content: '视频已生成 ✅（已存个人仓库）', videoUrl: r.videoUrl }])
             } else {
               setRecordingTip('✅ 视频已生成（已存个人仓库）')
               setTimeout(() => setRecordingTip(''), 6000)
@@ -1785,11 +1788,8 @@ function AgentPageInner() {
 
     const userMsg: Message = {
       id: Date.now().toString(), role: 'user',
-      content: attachments.length
-        ? `${finalText}
-
-📎 ${attachments.map((a) => (a.type === 'image' ? `![${a.name}](${a.url})` : `[${a.name}](${a.url})`)).join(' ')}`
-        : finalText,
+      content: finalText,
+      attachments: attachments.length ? attachments : undefined,
       timestamp: Date.now(),
     }
     setMessages(prev => [...prev, userMsg])
@@ -2697,8 +2697,23 @@ function AgentPageInner() {
                           <span className="w-1 h-1 bg-emerald-400 rounded-full" /> 已执行{msg.intent ? ` · ${msg.intent}` : ''}
                         </p>
                       )}
+                      {(msg as any).attachments?.length ? (
+                        <div className="flex flex-wrap gap-1.5 mt-1 mb-1">
+                          {(msg as any).attachments.map((a: any, ai: number) => a?.type === 'image' && a?.url ? (
+                            <img key={ai} src={(a.url || '').startsWith('/') ? 'https://ai-niuma.cc' + a.url : a.url} alt={a.name || '附件'} className="w-16 h-16 object-cover rounded-lg border border-white/10 bg-black/40" />
+                          ) : (
+                            <span key={ai} className="text-[10px] text-gray-400 px-1.5 py-0.5 rounded bg-white/5">📎 {a?.name || '附件'}</span>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="text-gray-300 whitespace-pre-wrap">{renderContent(msg.content)}</div>
                       {renderTaskCard(msg.content)}
+                      {(msg as any).videoUrl ? (
+                        <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                          <p className="text-sm text-emerald-300 mb-2">视频已生成</p>
+                          <button onClick={() => openVideoFromUrl((msg as any).videoUrl, '视频已生成')} className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-medium transition">▶ 点击播放</button>
+                        </div>
+                      ) : null}
                     {msg.scenes && msg.scenes.length > 1 && (
                       <div className="mt-2 flex flex-col gap-2">
                         {msg.scenes.map((sc: any, sci: number) => sc?.type === 'image' && sc.url ? (
