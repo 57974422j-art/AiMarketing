@@ -2065,6 +2065,11 @@ export async function POST(request: NextRequest) {
         }
       }
     } catch (eT) { console.error('[工具箱] 注册工具加载失败:', eT?.message || eT) }
+    // 2026-09-06: 自由模式不暴露标准模式发布流程/状态机专用工具（干扰 AI 判断——如抽帧选封面）
+    if ((body as any)?.mode === 'free') {
+      const EXCLUDE_FREE = new Set(['extract_video_frames', 'publish_content', 'cancel_publish_task', 'automation_check', 'collect_unmet_need'])
+      toolsAll = toolsAll.filter((t: any) => !EXCLUDE_FREE.has(t.name))
+    }
     // 2026-08-31 完全隔离 Step1：标准模式 + 有发布草稿 → 模型不碰工具（直接状态机——FRAMES_OK 不再由模型产生）
     // 2026-09-01: 状态机词（\d|abc|换|重|确认|选|发）standard 无条件跳过模型（不依赖草稿恢复——彻底防'1'模型自由）
     const stWordInput = /^\d{1,2}$/.test(userMessage.trim()) || /^[abc]$/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|确认|选第|帮我发|发一个视频|发一条|发布|直接发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
