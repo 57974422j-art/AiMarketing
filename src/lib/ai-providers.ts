@@ -25,10 +25,11 @@ const execFileAsync = promisify(execFile)
 
 // ==================== 基础工具 ====================
 
-async function fetchJSON(url: string, options: RequestInit, retries = 1): Promise<any> {
+async function fetchJSON(url: string, options: RequestInit & { timeoutMs?: number }, retries = 1): Promise<any> {
   for (let i = 0; i <= retries; i++) {
     try {
-      const res = await fetch(url, options);
+      const { timeoutMs, ...restOpts } = options as any
+      const res = await fetch(url, timeoutMs ? { ...restOpts, signal: AbortSignal.timeout(timeoutMs) } : restOpts);
       const text = await res.text();
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.substring(0, 200)}`);
       return JSON.parse(text);
@@ -1159,6 +1160,7 @@ export interface FunctionCallResult {
     name: string
     arguments: string
   }>
+  model?: string
 }
 
 /**

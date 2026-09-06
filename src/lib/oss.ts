@@ -60,6 +60,19 @@ export async function putObject(key: string, buffer: Buffer | string, mime?: str
   await oss.put(key, buffer, options)
 }
 
+/** 上传本地文件到 OSS，返回签名 URL（数字人等用文件路径上传的场景） */
+export async function uploadToOSS(filePath: string, key: string, mime?: string): Promise<string | null> {
+  try {
+    const { readFile } = await import('fs/promises')
+    const buf = await readFile(filePath)
+    await putObject(key, buf, mime)
+    return await signedUrl(key, 86400)
+  } catch (e) {
+    console.error('[uploadToOSS] 上传失败:', e)
+    return null
+  }
+}
+
 /** 删除文件 */
 export async function deleteObject(key: string): Promise<void> {
   const oss = await getOSSClient()

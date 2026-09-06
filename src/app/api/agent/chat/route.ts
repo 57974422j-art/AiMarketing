@@ -763,7 +763,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       if (args.refImage) {
         const i2vR = await generateImageToVideo(gvPrompt, String(args.refImage), gvDuration, '720P', gvRatio)
         if (i2vR?.taskId && i2vR.status === 'running') {
-          try { await createRecord({ userId: uid2, type: 'image2video', prompt: gvPrompt, costPoints: gvCost, platformTaskId: String(i2vR.taskId) }) } catch {}
+          try { await createRecord({ userId: uid2, type: 'image2video', provider: 'dashscope', prompt: gvPrompt, costPoints: gvCost, platformTaskId: String(i2vR.taskId) }) } catch {}
           return `VIDEO_TASK:${i2vR.taskId}|PROMPT:${gvPrompt}|COST:${gvCost}点（成片完成后扣费）`
         }
         return '图生视频生成暂不可用（参考图处理失败，可重试）'
@@ -772,7 +772,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       if (result?.taskId && result.status === 'running') {
         // 2026-08-24: 生成即落库（可追踪/断网可恢复）
         // 2026-08-26 B方案：提交不扣——成片成功（query_video_task 查到成功）才扣
-        try { await createRecord({ userId: uid2, type: 'text2video', prompt: gvPrompt, costPoints: gvCost, platformTaskId: String(result.taskId) }) } catch {}
+        try { await createRecord({ userId: uid2, type: 'text2video', provider: 'dashscope', prompt: gvPrompt, costPoints: gvCost, platformTaskId: String(result.taskId) }) } catch {}
         return `VIDEO_TASK:${result.taskId}|PROMPT:${gvPrompt}|COST:${gvCost}点（成片完成后扣费）`
       }
       if (result?.videoUrl) { await spendTokens(uid2, gvCost, 'agent_generate_video'); return `VIDEO_RESULT:${result.videoUrl}|COST:${gvCost}点` }
@@ -1006,10 +1006,10 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           const recent = await prisma.videoTask.findMany({
             where: { userId: auth?.userId },
             orderBy: { createdAt: 'desc' }, take: 5,
-            select: { id: true, status: true, videoUrl: true, createdAt: true },
+            select: { id: true, status: true, outputPath: true, createdAt: true },
           })
           if (recent.length) {
-            const lines = recent.map((t, i) => i + 1 + '. 任务#' + t.id + ' 状态:' + (t.status || '处理中') + (t.videoUrl ? ' 已完成' : ''))
+            const lines = recent.map((t, i) => i + 1 + '. 任务#' + t.id + ' 状态:' + (t.status || '处理中') + (t.outputPath ? ' 已完成' : ''))
             return 'VIDEO_PROGRESS:最近 ' + recent.length + ' 个生成任务： ' + lines.join(' | ')
           }
           return 'VIDEO_PROGRESS:暂无生成任务（可让我"生成一段视频"开始）'
@@ -1034,7 +1034,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                 data: { title: 'AI生成视频', ossUrl: finalUrl, type: 'video', prompt: String(args.prompt || 'AI生成视频').slice(0, 100), category: 'AI生成', source: 'private', ownerId: auth.userId, orientation: 'landscape' },
               })
               try {
-                const rec = await createRecord({ userId: auth.userId, type: 'text2video', prompt: String(args.prompt || 'AI生成视频'), costPoints: 0 })
+                const rec = await createRecord({ userId: auth.userId, type: 'text2video', provider: 'dashscope', prompt: String(args.prompt || 'AI生成视频'), costPoints: 0 })
                 await finalizeSuccess(rec, auth.userId, { platformUrl: r.videoUrl, costPoints: 0, reason: 'text2video' })
               } catch {}
             }
@@ -1796,7 +1796,7 @@ function _isSafeImgUrl(u: string): boolean { try { const h = String(u || '').mat
 export async function DELETE(request: NextRequest) {
   // 2026-08-31: 清除键全量清——清发布草稿（PUBLISH_DRAFT + AgentMemory pub_draft）+ 删会话（sessionId 参数）——方便重新测试
   try {
-    const auth2 = await getAuthFromHeaders()
+    const auth2 = await getAuthFromHeaders(request)
     if (!auth2) return NextResponse.json({ success: false, message: '请登录' }, { status: 401 })
     const url2 = new URL(request.url)
     const sessionId = parseInt(url2.searchParams.get('sessionId') || '')
