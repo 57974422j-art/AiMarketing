@@ -2147,6 +2147,8 @@ export async function POST(request: NextRequest) {
       }
       // 2026-08-27 强制发布工作流：用户发布意图 + 本轮未调 publish_content → 代码强制补调（不依赖模型调工具，模型再也无法编“已创建/已抽帧”）
       let wfEarlyReply = '' // 2026-08-27 函数级（必须在 try 外，2119 reply 处读用）
+      const isFreeMode = (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free' // 2026-09-06: 状态机块整体跳过（自由模式不碰任何状态机逻辑）
+      if (!isFreeMode) {
       try {
 
         const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到|发一条|发个视频|发一个视频|发条|帮我发|发个|直接发|快速发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
@@ -2161,14 +2163,13 @@ export async function POST(request: NextRequest) {
         }
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
         // 2026-08-30: 自由模式（mode=free）→ 状态机完全跳过——AI 自己调工具发挥（测试用）
-        const freeMode = (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free'
         // 2026-08-31: 状态机词（编号/换一批/重抽/重试/重来/abc/确认/用推荐）无任务 → 块外拦截（不 AI 自由）
         const stWordNoTask = !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /^\d$/.test(userMessage.trim()) || !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /换一批|重抽|重试|重来|用推荐|确认|^[abc]$/i.test(userMessage.trim())
         if (stWordNoTask) {
           wfEarlyReply = '发布流程未开始——请说「帮我发一个视频」开始任务。'
           finalResult = wfEarlyReply
           console.log('[状态机] 状态机词无任务——拦截（不 AI 自由）')
-        } else if ((pubIntent && !freeMode) || PUBLISH_DRAFT.has(auth?.userId || 0)) {
+        } else if (pubIntent || PUBLISH_DRAFT.has(auth?.userId || 0)) {
           // 2026-08-27 发布工作流（多轮确认，草稿 Map 持久）——①抽帧选帧 → ②标题 → ③话题 → ④封面 → ⑤确认发布
           try {
             const uidW = auth?.userId || 0
@@ -2676,6 +2677,7 @@ PUBLISH_DRAFT.delete(uidW)
         }
       } catch (ePub2) { console.error('[发布工作流] 异常:', ePub2) }
       console.log('[状态机] 块尾——step=', (PUBLISH_DRAFT.get(auth?.userId || 0) as any)?.step, 'wfEarlyReply=', wfEarlyReply ? String(wfEarlyReply).slice(0, 60) : '(空——未设回复)', '消息=', String(userMessage).slice(0, 20))
+ }
       const toolMsg = messages.filter(m => (m as any).role === 'tool').pop() as AgentChatMessage | undefined
       const toolRaw = toolMsg?.content
       const toolText = typeof toolRaw === 'string' ? toolRaw : (toolRaw ? JSON.stringify(toolRaw) : '')
