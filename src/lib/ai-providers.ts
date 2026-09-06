@@ -800,7 +800,7 @@ async function pollVideoTask(taskId: string, maxWait = 900000): Promise<{ videoU
   return null
 }
 
-async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string; errMsg?: string } | null> {
   const key = getDashScopeKey();
   if (!key) return null;
   const shortId = taskId.substring(0, 8)
@@ -867,7 +867,7 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
       console.log(`[百炼查询][警告] task=${shortId}... SUCCEEDED 但未找到 video_url, 完整output: ${JSON.stringify(rawOutput).substring(0, 500)}`)
     }
 
-    return { taskId, status, videoUrl };
+    return { taskId, status, videoUrl, errMsg };
   } catch (e: any) {
     console.error(`[百炼查询][网络异常] task=${shortId}..., 类型=${e?.name || typeof e}, 消息=${e?.message || e}`);
     return null;
@@ -2206,7 +2206,7 @@ export async function generateVideo(prompt: string, _duration = 5, _resolution =
 }
 
 // 7. 查询视频任务状态
-export async function queryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
+export async function queryVideoTask(taskId: string): Promise<{ taskId: string; status: string; videoUrl?: string; errMsg?: string } | null> {
   // Agnes 任务（taskId 以 agnes: 前缀）单独路由
   if (taskId.startsWith('agnes:')) {
     return agnesQueryVideoTask(taskId.substring(6));
@@ -2245,7 +2245,7 @@ export async function queryVideoTask(taskId: string): Promise<{ taskId: string; 
       }
       // 火山有明确结果（非unknown）→ 用火山的结果
       if (status !== 'unknown' || videoUrl) {
-        return { taskId, status, videoUrl };
+        return { taskId, status, videoUrl, errMsg };
       }
     } catch (e) {
       console.error(`[火山查询] 网络异常: ${e?.name || typeof e}, ${e?.message || e}`);

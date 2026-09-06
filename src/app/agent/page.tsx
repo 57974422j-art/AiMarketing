@@ -487,12 +487,20 @@ function AgentPageInner() {
         if (r.done) {
           clearInterval(iv)
           if (!stopped) {
-            setRecordingTip(r.videoUrl ? '✅ 视频已生成（已存个人仓库）' : '✅ 视频已生成')
-            setTimeout(() => setRecordingTip(''), 6000)
+            if (r.videoUrl) {
+              // 2026-09-06: 成片成功——视频卡片推进对话（复用 VIDEO_RESULT 渲染，可播放）
+              setMessages(prev => [...prev, { id: 'video-' + Date.now(), role: 'assistant', content: 'VIDEO_RESULT:' + r.videoUrl + '|TITLE:视频已生成' }])
+            } else {
+              setRecordingTip('✅ 视频已生成（已存个人仓库）')
+              setTimeout(() => setRecordingTip(''), 6000)
+            }
           }
         } else if (r.failed) {
           clearInterval(iv)
-          if (!stopped) { setRecordingTip('❌ 视频生成失败（请重试）'); setTimeout(() => setRecordingTip(''), 6000) }
+          if (!stopped) {
+            const why = r.errMsg ? ('：' + r.errMsg) : ''
+            setMessages(prev => [...prev, { id: 'video-' + Date.now(), role: 'assistant', content: '❌ 视频生成失败' + why + '——本次未扣点，可重试或换描述再生成。' }])
+          }
         }
       } catch {}
     }, 10000)
