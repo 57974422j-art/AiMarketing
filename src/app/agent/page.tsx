@@ -474,11 +474,10 @@ function AgentPageInner() {
   const [pendingLabel, setPendingLabel] = useState('')  // 2026-08-24: 生成中反馈文案（类型化）
   // 2026-08-24: 视频任务自动轮询——VIDEO_TASK 消息出现后每 10s 查进度，完成/失败自动提醒（用户不再干等催）
   useEffect(() => {
-    const lastVt = [...messages].reverse().find(m => m.role === 'assistant' && m.content && /VIDEO_TASK:([^|]+)/.test(m.content))
+    const lastVt = [...messages].reverse().find(m => m.role === 'assistant' && ((m as any).videoTaskId || (m.content && /VIDEO_TASK:([^|]+)/.test(m.content))))
     if (!lastVt) return
-    const m2 = lastVt.content.match(/VIDEO_TASK:([^|]+)/)
-    if (!m2) return
-    const taskId = m2[1].trim()
+    const taskId = (((lastVt as any).videoTaskId) || ((lastVt.content || '').match(/VIDEO_TASK:([^|]+)/) || [])[1] || '').trim()
+    if (!taskId) return
     let stopped = false
     const iv = setInterval(async () => {
       try {
@@ -1831,6 +1830,7 @@ function AgentPageInner() {
         setMessages(prev => [...prev, {
           id: (Date.now() + 1).toString(), role: 'assistant',
           content: data.data.reply, timestamp: Date.now(),
+          videoTaskId: data.data.videoTaskId || '',
           intent: data.data.intent?.join?.(',') || data.data.intent,
           toolUsed: data.data.toolUsed,
           steps: data.data.steps,

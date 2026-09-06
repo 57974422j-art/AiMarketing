@@ -2106,6 +2106,7 @@ export async function POST(request: NextRequest) {
       } as any)
 
       const steps: { tool: string; label: string; args?: string }[] = []
+      let videoTaskId = '' // 2026-09-06: 提取视频任务ID（不靠 AI 汇总保留 VIDEO_TASK 标记——前端从 data.videoTaskId 轮询）
       for (const tc of normCalls) {
         let args: Record<string, any> = {}
         try { args = JSON.parse(tc.arguments) } catch { args = {} }
@@ -2115,6 +2116,8 @@ export async function POST(request: NextRequest) {
         steps.push({ tool: tc.name, label: stepLabel, args: argsSum })
         console.log(`[Agent] 🔧 ${tc.name}`, JSON.stringify(args).substring(0, 100))
         const result = await executeToolCall(tc.name, args, auth)
+        const vtM = typeof result === 'string' ? result.match(/VIDEO_TASK:([^|]+)/) : null
+        if (vtM) videoTaskId = vtM[1].trim()
         // 2026-08-13: 网页抓取失败拦截——直接如实返回失败（禁止模型用知识编造网页内容冒充抓取结果）
         if (typeof result === 'string' && (result.startsWith('CRAWL_FAIL:') || result.startsWith('CRAWL_EMPTY:') || result.startsWith('CRAWL_INVALID:'))) {
           const cwMsg = result.substring(result.indexOf(':') + 1).trim()
@@ -2757,7 +2760,7 @@ PUBLISH_DRAFT.delete(uidW)
       }
       return NextResponse.json({
         success: true,
-        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, steps, scene: scene || templateScene, scenes: extracted.scenes.length > 1 ? extracted.scenes : undefined, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG },
+        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, steps, scene: scene || templateScene, scenes: extracted.scenes.length > 1 ? extracted.scenes : undefined, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG, videoTaskId },
       })
     }
 
