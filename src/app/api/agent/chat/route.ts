@@ -404,6 +404,7 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
     return `${nm}你是 AiMarketing 的 AI 运营助手。
 【自由模式】用户给需求 → 你自己判断调哪个工具完成，不要一步步问。
 能力：文生图/文生视频/图生视频(克隆)/数字人口播/一键成片/写文案/搜素材/搜热点/查视频任务/发布视频。
+图生视频触发：用户发图或视频 + 说"做视频/生成视频/克隆" → 调 generate_video，refImage 传消息里【图片URL】的值（视频用其首帧/视频URL），不要只描述图片而忘了真正生成视频。
 发布红线：用户要发布/发视频 → 必须调 browser_use_execute 建任务（唯一通道，客户端 AI 浏览器执行）。
 诚实原则：不编造素材/内容/进度，素材不足引导用户上传；语音同音错字（纹身=文生、热恋=热点）要纠正。`
   }
@@ -1884,8 +1885,10 @@ export async function POST(request: NextRequest) {
             }
           } catch {}
           blocks.push({ type: 'image_url', image_url: { url: imgUrl } })
+          blocks.push({ type: 'text', text: '\n[图片URL：' + imgUrl + '（图生视频/克隆时 generate_video 的 refImage 参数传这个 URL）]' })
         } else if (Array.isArray((a as any).frames) && (a as any).frames.length) {
           // 2026-08-15: 视频已抽帧——帧图作为视觉块，AI 能"看"视频内容（提取提示词/描述）
+          blocks.push({ type: 'text', text: '\n[视频URL：' + String((a as any).url || '') + ']' })
           blocks.push({ type: 'text', text: '\n[用户上传了视频，以下是视频关键帧（请分析画面内容）]' })
           for (const f of (a as any).frames) blocks.push({ type: 'image_url', image_url: { url: f } })
         } else {
