@@ -2026,16 +2026,27 @@ export async function POST(request: NextRequest) {
       messages.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })
     }
     // 2026-08-19: ASR 纠错——"纹身"多为"文生"误识别（文生图/文生视频），替换避免误解
-    const corrected = String(userContent)
-      .replace(/纹身图/g, '文生图')
-      .replace(/纹身视频/g, '文生视频')
-      .replace(/纹身/g, '文生')
+    let corrected: any
+    if (Array.isArray(userContent)) {
+      // 2026-09-06: 有图片附件（blocks 数组含 image_url 视觉块）——只对 text 块做 ASR 纠错，保留视觉块（String() 会毁掉 image_url）
+      corrected = userContent.map((b: any) => {
+        if (b && b.type === 'text' && typeof b.text === 'string') {
+          return { ...b, text: b.text.replace(/纹身图/g, '文生图').replace(/纹身视频/g, '文生视频').replace(/纹身/g, '文生') }
+        }
+        return b
+      })
+    } else {
+      corrected = String(userContent)
+        .replace(/纹身图/g, '文生图')
+        .replace(/纹身视频/g, '文生视频')
+        .replace(/纹身/g, '文生')
+    }
     // 2026-08-23: 附件解析——用户发本地视频附件（📎 URL）→ 提取仓库视频文件名注入 AI，AI 就能识别走发布流程
     let attachNote = ''
     try {
       if (Array.isArray(attachments)) {
         const vids = attachments
-          .filter((a: any) => a && (String(a.type || '').includes('video') || /\.(mp4|mov|avi|mkv|webm)$/i.test(String(a.name || '')) || String(a.url || '').includes('storage/file')))
+          .filter((a: any) => a && (String(a.type || '').includes('video') || /\.(mp4|mov|avi|mkv|webm)$/i.test(String(a.name || ''))))
           .map((a: any) => {
             const m = String(a.url || '').match(/[?&]name=([^&]+)/)
             return decodeURIComponent(m ? m[1] : String(a.name || ''))
@@ -2044,7 +2055,16 @@ export async function POST(request: NextRequest) {
         if (vids.length) attachNote = '\n【用户附件视频：' + [...new Set(vids)].join('、') + '——来自个人仓库，可确认后走发布流程（抽帧/发布）】'
       }
     } catch {}
-    messages.push({ role: 'user', content: corrected + attachNote })
+    if (Array.isArray(corrected)) {
+      if (attachNote) {
+        const lastText = [...corrected].reverse().find((b: any) => b && b.type === 'text')
+        if (lastText) lastText.text = (lastText.text || '') + attachNote
+        else corrected.push({ type: 'text', text: attachNote })
+      }
+      messages.push({ role: 'user', content: corrected })
+    } else {
+      messages.push({ role: 'user', content: corrected + attachNote })
+    }
 
     // Step 1: 多模态 + 工具调用
     // 2026-08-05：默认使用 DeepSeek（用户要求，本地无需海外代理）；仅当用户上传图片时
