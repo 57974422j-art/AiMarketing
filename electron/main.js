@@ -408,7 +408,22 @@ function setupAutoPublish() {
   setTimeout(checkPending, 5000)
   // 2026-08-29: 工具箱 browser_use_execute——轮询 AgentBrowserTask pending → Python(browser-use) 执行 → 回结果
   setInterval(checkBrowserTasks, 8000)
-  console.log('[browser_use] 执行器已启动（checkBrowserTasks 轮询 8s）——v1.0.82+ 有此日志=main.js 为新版')
+  console.log('[browser_use] 执行器已启动（checkBrowserTasks 轮询 8s）——v1.0.82+ 有此日志=main.js 为最新版')
+  // 2026-09-07: 启动回收——上次客户端关闭遗留的 executing 孤儿任务 → failed（进程已没，不会再回写）
+  setTimeout(async () => {
+    try {
+      const sUrl = process.env.SERVER_URL || 'https://ai-niuma.cc'
+      const ck = await getServerCookie()
+      if (!ck) return
+      const r = await fetch(sUrl.replace(/\/$/, '') + '/api/agent/browser-tasks?status=executing', { headers: { cookie: ck } }).catch(() => null)
+      const j = r ? await r.json().catch(() => null) : null
+      const list = (j?.data) || []
+      for (const t of list) {
+        await fetch(sUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie: ck }, body: JSON.stringify({ id: t.id, status: 'failed', error: '客户端关闭中断（启动回收孤儿任务）' }) }).catch(() => {})
+        buLog('启动回收孤儿任务 #' + t.id + ' → failed')
+      }
+    } catch (e) { /* 静默 */ }
+  }, 3000)
 }
 
 // browser-use 任务执行（Electron 调 Python——复用 D:u_profile 登录态）
