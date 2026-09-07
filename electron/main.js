@@ -504,7 +504,7 @@ async function checkBrowserTasks() {
           out = await new Promise((resolve, reject) => {
             const py = spawn(BU_PYTHON, args, { windowsHide: true, env: { ...process.env, BU_COOKIE: cookie, DASHSCOPE_API_KEY: dashKey || process.env.DASHSCOPE_API_KEY || '' } })
             let so = '', se = ''
-            py.stdout.on('data', d => so += d)
+            py.stdout.on('data', d => { so += d; const ds = String(d); if (ds.includes('[BU_STEP]') || ds.includes('[BU_DONE]')) buLog(ds.replace(/\s+$/g, '')) })
             py.stderr.on('data', d => se += d)
             py.on('close', code => resolve({ code, so, se }))
             py.on('error', e => reject(e))
