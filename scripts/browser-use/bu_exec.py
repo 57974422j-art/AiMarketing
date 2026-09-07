@@ -149,7 +149,7 @@ async def main():
     llm = ChatOpenAI(model='qwen3-max', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
     file_hint = ('，文件路径：' + ','.join([p.replace(chr(92), '/') for p in local_files]) + '（用正斜杠/）') if local_files else ''
     task_clean = args.task
-    MANUAL = '按任务描述执行发布：打开任务里给出的网址，用 upload_file 上传视频文件和封面图，在对应输入框填标题和话题，最后点发布按钮。每步只做一个动作。'
+    MANUAL = '按任务描述执行发布：打开任务里给出的网址，用 upload_file 上传视频文件和封面图，在对应输入框填标题和话题，最后点发布按钮。每步只做一个动作。上传文件或填写后，如果页面弹出确认/裁切/提示弹窗（如封面编辑弹窗），必须先点弹窗里的确认按钮（保存/保持/完成/确定/确认）关闭弹窗，再继续下一步。'
     async def on_step(state, output, n):
         url = getattr(state, 'url', '') or ''
         try:
