@@ -2650,7 +2650,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 const _steps = ['第' + _stp++ + '步：打开这个网址（单独一行，完整网址）：\n' + pubUrl, '第' + _stp++ + '步：上传视频文件（.mp4——只传视频，不要传封面）', '第' + _stp++ + '步：等视频转码完成、页面自动跳到编辑页(post/video)']
                 if (!skips.includes('标题')) _steps.push('第' + _stp++ + '步：标题框填「' + wfA.caption + '」')
                 if (!skips.includes('话题')) _steps.push('第' + _stp++ + '步：话题框填「' + (wfA.topics || '') + '」')
-                if (!skips.includes('封面') && !skips.includes('抽帧')) _steps.push('第' + _stp++ + '步：点「设置封面」→ 选择封面（横/竖）→ 弹窗里点「上传封面」上传封面文件(.jpg) → 点「完成」确认')
+                if (!skips.includes('封面') && !skips.includes('抽帧')) _steps.push('第' + _stp++ + '步：点「设置封面」→ 点「选择封面」（横封面4:3 或 竖封面3:4）→ 等封面弹窗出现（页面显示优质封面示例/上传封面按钮）→ 在弹窗里点「上传封面」上传封面文件(.jpg) → 点「完成」')
                 _steps.push('最后：点发布按钮')
                 const buTask = '发布视频到' + platName + '。\n' + _steps.join('\n')
                 const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify(fileUrls) } })
