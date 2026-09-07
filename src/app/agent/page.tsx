@@ -1629,43 +1629,9 @@ function AgentPageInner() {
   const [calData, setCalData] = useState<Record<string, any[]>>({})
   const [calFavs, setCalFavs] = useState<any[]>([])
   const [calDay, setCalDay] = useState<string | null>(null)
-  // ── 浏览器账号（CDP 检测，右侧折叠显示；不显示指纹）──
-  const [browserAccts, setBrowserAccts] = useState<any[]>([])
+  // ── 浏览器登录登记（系统 Chrome 一条线——bu_check 读 browser-profile Cookies）──
   const [buAccounts, setBuAccounts] = useState<any[]>([]) // 2026-09-05: Browser Use 静默扫描登录态
   const [browserOpen, setBrowserOpen] = useState(false)
-  const [browserNeedBind, setBrowserNeedBind] = useState(false)
-  const [bindingMine, setBindingMine] = useState(false)
-  const bindingRef = useRef(false)  // 2026-08-25: ref 同步防抖（state 异步——快速连点防不住）
-  const bindMyChrome = async () => {
-    if (bindingRef.current) return
-    bindingRef.current = true
-    setBindingMine(true)
-    try {
-      // 2026-08-24: 网页版无 electronAPI——明确提示用客户端
-      if (!(window as any).electronAPI) {
-        alert('此功能需桌面客户端（打开本地浏览器登记登录态）——请用 AI营销助手 客户端操作')
-        setBindingMine(false)
-        return
-      }
-      if (!(window as any).electronAPI.browserBindMine) {
-        alert('客户端版本过旧——请更新到最新版（v1.0.51+）后再用「打开浏览器登记」')
-        setBindingMine(false)
-        return
-      }
-      const r = await (window as any).electronAPI.browserBindMine()
-      if (r?.success) {
-        // 成功/已调试模式 → 提示手动登记
-        const tip = r.already ? '浏览器已在调试模式——请直接在浏览器输入平台地址登录（抖音/B站/小红书…），登录后点「🌐 刷新检测」' : '已打开浏览器——请手动输入平台地址登录（抖音/B站/小红书…），登录后点「🌐 刷新检测」'
-        alert(tip)
-        setTimeout(async () => { try { const rr = await (window as any).electronAPI?.browserAccounts(); if (rr?.success) { setBrowserAccts(rr.accounts || []); setBrowserNeedBind(!!rr.needBind); if (rr.accounts && rr.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: rr.accounts }), credentials: 'include' }).catch(() => {}) } } catch {} }, 4000)
-      } else {
-        // 失败：最常见是 Chrome/Edge 已打开（无调试端口，同 profile 锁）——明确指引
-        alert((r?.error || '启动失败') + '\n\n操作指引：请先【完全关闭】已打开的 Chrome/Edge，再点「＋打开浏览器登记」——客户端会以调试模式重新打开浏览器，你在里面登录平台即可')
-      }
-    } catch (e: any) { alert('打开浏览器失败：' + ((e && e.message) || e)) }
-    bindingRef.current = false
-    setBindingMine(false)
-  }
   useEffect(() => {
     const detect = async () => {
       // 2026-09-07: 统一 buCheck（读 browser-profile Cookies）——登记/发布一条线，删 Playwright CDP 检测
@@ -3138,24 +3104,7 @@ function AgentPageInner() {
                     </div>)}
 
                   </div>
-                  {/* 2026-08-30: 旧内置浏览器登记隐藏（指纹有单独账号中心）——只留 Browser Use 登记 */}
-                  {false && browserNeedBind && (
-                    <button onClick={bindMyChrome} disabled={bindingMine}
-                      className="w-full mt-1.5 px-2 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[9px] text-emerald-300 hover:bg-emerald-500/25 transition disabled:opacity-50">
-                      {bindingMine ? '启动中…' : '🚀 一键启动我的 Chrome 检测登录态'}
-                    </button>
-                  )}
-                  {false && !browserNeedBind && !browserAccts.length && (
-                    <div className="flex items-center gap-1.5">
-                      <button onClick={bindMyChrome} disabled={bindingMine}
-                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-emerald-500/15 hover:border-emerald-500/30 hover:text-emerald-300 transition disabled:opacity-50"
-                        title="打开本地浏览器，手动输入平台地址登录登记（如抖音/B站/小红书），登录后自动检测">
-                        <span className="text-[12px] leading-none">＋</span> 打开浏览器登记
-                      </button>
-                      <span className="text-[9px] text-gray-600">{bindingMine ? '启动中…' : '或点上方🌐刷新检测'}</span>
-                    </div>
-                  )}
-                  {/* 2026-08-29: Browser Use 登记（AI 浏览器专用——bu_profile 扫码登录） */}
+                  {/* 2026-08-29: Browser Use 登记（系统 Chrome——bu_profile 登录） */}
                   <button onClick={async () => {
                     if (!(window as any).electronAPI?.buOpen) { alert('需客户端 v1.0.77+'); return }
                     const r = await (window as any).electronAPI.buOpen()

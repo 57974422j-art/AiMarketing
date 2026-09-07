@@ -1717,27 +1717,6 @@ function findBrowserExe() {
   } catch {}
   return null
 }
-ipcMain.handle('browser:bind', async () => {
-  try {
-    const exe = findBrowserExe()
-    if (!exe) return { success: false, error: '未找到 Chrome/Edge 浏览器' }
-    // 用用户默认 profile（已登录）启动，带 CDP 调试端口（仅本机）
-    const { spawn } = require('child_process')
-    const proc = spawn(exe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--no-first-run', 'https://www.douyin.com'], { detached: true, stdio: 'ignore' })
-    proc.unref()
-    boundProc = proc
-    // 等 CDP 就绪
-    for (let i = 0; i < 20; i++) {
-      try {
-        const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) })
-        if (r.ok) return { success: true, port: CDP_PORT, exe }
-      } catch {}
-      await new Promise((r2) => setTimeout(r2, 500))
-    }
-    return { success: true, port: CDP_PORT, exe, warn: 'CDP 端口未确认（浏览器可能已用该端口启动过）' }
-  } catch (e) { return { success: false, error: e.message } }
-})
-
 // 2026-08-23: 浏览器登录态检测 helper（browser:accounts 与 AutoPublish 共用）
 
 // 2026-08-25: 登录保活——每天定时 + 启动时访问已登记平台（刷新 cookie 有效期，对齐 OpenCLI 中午保活）
@@ -1857,52 +1836,6 @@ ipcMain.handle('browser:accounts', async () => {
 })
 
 // 2026-08-23: 一键启动用户自己的 Chrome（默认 profile，带 CDP 端口）——检测日常登录态
-ipcMain.handle('browser:bind-mine', async () => {
-  try {
-    clearBrowserSessionFiles() // 2026-08-26: 打开前清会话——不恢复旧tab
-    // 已有调试实例 → 直接复用
-    try {
-      const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(1500) })
-      if (r.ok) return { success: true, already: true, message: '浏览器已在调试模式' }
-    } catch {}
-    // 2026-08-25: 优先内置 Chromium（独立 profile——必通 CDP，不受系统 Chrome 是否在跑影响）
-    let builtinExe = null
-    try { const { chromium } = require('playwright'); builtinExe = chromium.executablePath() } catch {}
-    if (builtinExe && fs.existsSync(builtinExe)) {
-      const profileDir = path.join(app.getPath('userData'), 'browser-profile')
-      fs.mkdirSync(profileDir, { recursive: true })
-      // 登录态持久保证：清理 profile 锁（非正常关闭残留 → 下次启动失败会重建 profile → 丢登录态）
-      try { for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) { const sp = path.join(profileDir, f); if (fs.existsSync(sp)) fs.rmSync(sp, { force: true }) } } catch {}
-      const { spawn } = require('child_process')
-      const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', '--disable-sync', '--disable-infobars', 'about:blank'], { detached: true, stdio: 'ignore' })
-      proc.unref(); boundProc = proc
-      for (let i = 0; i < 30; i++) {
-        try {
-          const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) })
-          if (r.ok) return { success: true, builtin: true, message: '内置浏览器已启动——请在浏览器登录需要的平台' }
-        } catch {}
-        await new Promise((r2) => setTimeout(r2, 500))
-      }
-      return { success: false, error: '内置浏览器启动超时' }
-    }
-    // 备用：系统浏览器（写死路径/注册表）
-    const exe = findBrowserExe()
-    if (!exe) return { success: false, error: '未找到浏览器' }
-    const { spawn } = require('child_process')
-    const proc = spawn(exe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', '--disable-infobars', '--disable-component-update', '--no-restore-session-state', '--disable-session-crashed-bubble', '--no-restore-session-state', '--disable-session-crashed-bubble', 'about:blank'], { detached: true, stdio: 'ignore' })
-    proc.unref(); boundProc = proc
-    for (let i = 0; i < 24; i++) {
-      try {
-        const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) })
-        if (r.ok) return { success: true }
-      } catch {}
-      await new Promise((r2) => setTimeout(r2, 500))
-    }
-    return { success: false, error: '启动超时（若 Chrome 已在运行请先完全关闭再试）' }
-  } catch (e) { global.__bindInProgress = false; return { success: false, error: e.message } }
-  finally { global.__bindInProgress = false }
-})
-
 // 2026-08-21: CDP 发布通道（P0-2）——复用 OpenCLI 官方 API 流程（page.evaluate 浏览器内 fetch，a_bogus 自动）
 // 关键发现：OpenCLI douyin publish 是官方 API（vod-upload/tos-upload/create_v2），不是 DOM 点按钮；
 // browserFetch(page,...) 用浏览器上下文 fetch——我们的 CDP page 完全兼容（无扩展依赖）
