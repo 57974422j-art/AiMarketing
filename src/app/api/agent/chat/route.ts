@@ -2109,6 +2109,21 @@ export async function POST(request: NextRequest) {
         if (dmR0?.content) { const dpR0 = JSON.parse(dmR0.content); if (dpR0?.videoName || dpR0?.step) { PUBLISH_DRAFT.set(auth?.userId || 0, dpR0); console.log('[状态机] Step1前恢复草稿——step=', dpR0.step) } }
       } catch {}
     }
+    // 2026-09-07: 重发历史发布任务（#N 重新发布 / 发布失败 / 重发）——复制 task+files 建新任务，客户端自动重跑
+    const rePubN = userMessage.match(/^#(\d+)\s*(重新发布|重发|再发|重新发|重跑)/i)
+    const rePubRecent = /^(发布失败|重新发布|重发|再发一次|重来一次|重跑)$/i.test(userMessage.trim())
+    if ((rePubN || rePubRecent) && (body as any)?.mode !== 'free') {
+      try {
+        const oldTask = rePubN
+          ? await prisma.agentBrowserTask.findFirst({ where: { id: parseInt(rePubN[1]), userId: auth?.userId || 0 } })
+          : await prisma.agentBrowserTask.findFirst({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' } })
+        if (oldTask) {
+          const nu = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: oldTask.task, files: oldTask.files, status: 'pending' } })
+          return NextResponse.json({ success: true, data: { reply: '已重新创建发布任务（#' + nu.id + '）——复用 #' + oldTask.id + ' 的视频/封面/标题/话题，客户端 AI 浏览器会重新执行。', toolUsed: true, steps: [], sessionId: sid || null, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG } })
+        }
+        return NextResponse.json({ success: true, data: { reply: '未找到可重发的发布任务' + (rePubN ? '（#' + rePubN[1] + '）' : '') + '——请先发一个视频。', toolUsed: false, sessionId: sid || null, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG } })
+      } catch (eR) { console.error('[重发] 异常:', eR?.message || eR) }
+    }
     const fcResult = skipModelStep1 ? { toolCalls: [], content: '' } : await dashscopeFunctionCall(messages as any, toolsAll, 2000, userTemperature, (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free')
     const toolCalls = (fcResult as any)?.toolCalls || []
     // 2026-08-05：兼容 OpenAI 格式 tool_calls（百炼 qwen：{function:{name,arguments}}）与扁平格式（{name,arguments}）
