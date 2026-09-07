@@ -1817,80 +1817,43 @@ async function getBrowserAccounts() {
 
 // 2026-08-25: 打开内置浏览器跳转指定地址（登记平台登录页）
 ipcMain.handle('browser:open-url', async (_e, url) => {
+  // 2026-09-07: 改用系统 Chrome + browser-profile（统一一条线——登记/发布同一引擎同一登录态；删 Playwright CDP）
   try {
-    clearBrowserSessionFiles() // 2026-08-26: 打开前清会话——不恢复旧tab
-    const { chromium } = require('playwright')
-    let browser = null
-    try { browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT) } catch {
-      // 2026-08-25: 浏览器没开 → 自动启动内置（一次，防抖由 __bindInProgress 保证）
-      if (global.__bindInProgress) return { success: false, error: '浏览器正在启动，请稍候…' }
-      global.__bindInProgress = true
-      try {
-        const builtinExe = chromium.executablePath()
-        if (builtinExe && fs.existsSync(builtinExe)) {
-          const profileDir = path.join(app.getPath('userData'), 'browser-profile')
-          fs.mkdirSync(profileDir, { recursive: true })
-          try { for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) { const sp = path.join(profileDir, f); if (fs.existsSync(sp)) fs.rmSync(sp, { force: true }) } } catch {}
-          const { spawn } = require('child_process')
-          const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', '--disable-first-run-ui', '--no-default-browser-check', '--disable-infobars', '--disable-component-update', '--no-restore-session-state', '--disable-session-crashed-bubble', '--no-restore-session-state', '--disable-session-crashed-bubble', 'about:blank'], { detached: true, stdio: 'ignore' })
-          proc.unref(); boundProc = proc
-          for (let i = 0; i < 30; i++) { try { const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) }); if (r.ok) break } catch {} await new Promise((r2) => setTimeout(r2, 500)) }
-          browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
-        }
-      } catch {} finally { global.__bindInProgress = false }
-    }
-    const ctx = browser ? browser.contexts()[0] : null
-    if (!ctx) return { success: false, error: '内置浏览器启动失败' }
-    // 复用同平台/空tab（避免多窗口堆积）
-    const host = String(url || '').replace(/^https?:\/\//, '').split('/')[0]
-    const page = await getTargetPage(ctx, host)
-    await page.goto(String(url || 'https://www.google.com'), { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
-    page.bringToFront().catch(() => {})
-    return { success: true }
-  } catch (e) { return { success: false, error: e.message } }
+    const { spawn } = require('child_process')
+    const chromeCands = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe', require('os').homedir() + '\AppData\Local\Google\Chrome\Application\chrome.exe']
+    const chrome = chromeCands.find(p2 => fs.existsSync(p2))
+    if (!chrome) return { success: false, error: '未找到系统 Chrome' }
+    const prof = String(BU_PROFILE_DIR)
+    const ch = spawn(chrome, ['--user-data-dir=' + prof, '--no-first-run', String(url || 'https://www.google.com')])
+    ch.unref()
+    return { success: true, message: '已打开浏览器（系统 Chrome + browser-profile）' }
+  } catch (e) { return { success: false, error: String(e && e.message || e) } }
 })
 
 ipcMain.handle('browser:accounts', async () => {
-  // 通过 CDP 读已登录平台（访问各平台域，检查登录 cookie）——未绑定时自动拉起（自动扫描）
+  // 2026-09-07: 改用 bu_check.py 读 browser-profile Cookies（统一系统 Chrome 一条线，删 Playwright CDP）
   try {
-    const { chromium } = require('playwright')
-    let browser
-    try {
-      browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
-    } catch (e0) {
-      // 2026-08-26: 不自动拉起浏览器（避免每次自动开一堆页面）——引导用户手动「＋打开浏览器登记」一次性验证；平时检测不打扰
-      return { success: false, error: '浏览器未打开（登录态检测需浏览器在线，点「打开浏览器登记」一次性验证后自动记忆）', accounts: [], bound: false, needBind: true }
-    }
-    if (!browser) return { success: false, error: '未找到浏览器', accounts: [], bound: false, needBind: true }
-    const ctxs = browser.contexts()
+    const { spawn } = require('child_process')
+    const out = await new Promise((resolve) => {
+      let so = ''
+      const py = spawn(BU_PYTHON, ['-u', BU_CHECK_SCRIPT, String(BU_PROFILE_DIR)], { windowsHide: true })
+      py.stdout.on('data', (d) => { so += d })
+      py.stderr.on('data', () => {})
+      py.on('close', () => resolve(so.trim()))
+      py.on('error', () => resolve(''))
+      setTimeout(() => { try { py.kill() } catch {} ; resolve(so.trim()) }, 8000)
+    })
+    const m = out.match(/PLATS:([A-Za-z0-9_:,]+)/)
+    const labels = { douyin: '抖音', xiaohongshu: '小红书', weibo: '微博', bilibili: 'B站', shipinhao: '视频号', kuaishou: '快手', x: 'X(Twitter)', google: 'Google' }
     const accounts = []
-    // 2026-08-23: 国内外 11 平台 + cookie 多候选（任一命中即已登录）——检测用户日常 Chrome 登录态
-    const PLATFORMS = [
-      { id: 'douyin', name: '抖音', domain: 'douyin.com', cookies: ['sessionid', 'uid_tt', 'passport_csrf_token'] },
-      { id: 'xiaohongshu', name: '小红书', domain: 'xiaohongshu.com', cookies: ['web_session', 'web_session_SSO', 'x-user-id-creator.xiaohongshu.com', 'galaxy_creator_session_id'] },
-      { id: 'weibo', name: '微博', domain: 'weibo.com', cookies: ['SUB', 'SUBP'] },
-      { id: 'bilibili', name: 'B站', domain: 'bilibili.com', cookies: ['SESSDATA', 'DedeUserID'] },
-      { id: 'kuaishou', name: '快手', domain: 'kuaishou.com', cookies: ['kuaishou.session.web', 'userId'] },
-      { id: 'shipinhao', name: '视频号', domain: 'channels.weixin.qq.com', cookies: ['sessionid'] },
-      { id: 'twitter', name: 'X(Twitter)', domain: 'twitter.com', cookies: ['auth_token', 'ct0'] },
-      { id: 'instagram', name: 'Instagram', domain: 'instagram.com', cookies: ['sessionid'] },
-      { id: 'youtube', name: 'YouTube', domain: 'youtube.com', cookies: ['SID', 'LOGIN_INFO'] },
-      { id: 'google', name: 'Google', domain: 'google.com', cookies: ['SID', '__Secure-1PSID', 'HSID'] },
-      { id: 'facebook', name: 'Facebook', domain: 'facebook.com', cookies: ['c_user'] },
-      { id: 'tiktok', name: 'TikTok', domain: 'tiktok.com', cookies: ['sessionid'] },
-    ]
-    for (const ctx of ctxs) {
-      const cookies = await ctx.cookies()
-      for (const pf of PLATFORMS) {
-        const has = cookies.some((ck) => ck.domain.includes(pf.domain) && pf.cookies.includes(ck.name))
-        if (has) accounts.push({ id: pf.id, name: pf.name, loggedIn: true })
+    if (m) {
+      for (const kv of m[1].split(',')) {
+        const seg = kv.split(':')
+        if (seg[1] === '1') accounts.push({ id: seg[0], name: labels[seg[0]] || seg[0], loggedIn: true })
       }
     }
-    await browser.close().catch(() => {})
     return { success: true, accounts, bound: true, needBind: false }
-  } catch (e) {
-    return { success: false, error: '浏览器未绑定或 CDP 未连接：' + e.message, accounts: [], bound: !!boundProc, needBind: true }
-  }
+  } catch (e) { return { success: false, error: String(e && e.message || e), accounts: [], bound: false, needBind: true } }
 })
 
 // 2026-08-23: 一键启动用户自己的 Chrome（默认 profile，带 CDP 端口）——检测日常登录态

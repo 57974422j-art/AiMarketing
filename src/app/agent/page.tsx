@@ -1668,11 +1668,7 @@ function AgentPageInner() {
   }
   useEffect(() => {
     const detect = async () => {
-      try {
-        const r = await (window as any).electronAPI?.browserAccounts()
-        // 失败/未绑定时保留上次已检测状态（不闪"未登录"）；成功才更新
-        if (r?.success && r.accounts) { setBrowserAccts(r.accounts); setBrowserNeedBind(!!r.needBind); if (r.accounts.length) fetch('/api/agent/browser-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accounts: r.accounts }), credentials: 'include' }).catch(() => {}) }
-      } catch {}
+      // 2026-09-07: 统一 buCheck（读 browser-profile Cookies）——登记/发布一条线，删 Playwright CDP 检测
       try { const br = await (window as any).electronAPI?.buCheck(); if (br?.success && Array.isArray(br.accounts)) setBuAccounts(br.accounts) } catch {}
     }
     detect()
@@ -3107,19 +3103,11 @@ function AgentPageInner() {
             {/* 2026-08-21: 浏览器账号（CDP 检测——发布通道已登录平台，不显示指纹） */}
             <div className="mt-1.5 rounded-xl border border-white/[0.07] bg-white/[0.02] p-2">
               <button onClick={() => setBrowserOpen(o => !o)} className="w-full flex items-center justify-between text-[10px] text-gray-300">
-                <span>🌐 浏览器账号（发布通道）</span>
+                <span>🌐 浏览器登录登记</span>
                 <span className="text-gray-600">{browserOpen ? '▾' : '▸'}</span>
               </button>
               {browserOpen && (
                 <div className="mt-1.5 space-y-1">
-                  {(Array.isArray(browserAccts) ? browserAccts : []).map(a => (
-                    <div key={a.id} className="flex items-center justify-between text-[10px]">
-                      <span className="text-gray-400">{a.name}</span>
-                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] ${a.loggedIn ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-gray-500'}`}>
-                        {a.loggedIn ? '已登录' : '未登录'}
-                      </span>
-                    </div>
-                  ))}
                   <div className="mt-2 pt-2 border-t border-white/10">
                     <p className="text-[9px] text-gray-500 mb-1">登记平台（点击打开内置浏览器登录）</p>
                     <div className="flex flex-wrap gap-1">
