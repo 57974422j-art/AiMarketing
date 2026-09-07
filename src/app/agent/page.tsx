@@ -2814,12 +2814,12 @@ function AgentPageInner() {
                               </button>
                             </div>
                           ) : msg.scene.type === 'link' || msg.scene.type === 'card' ? (
-                            <a href={/^https?:/.test(msg.scene.link?.url || msg.scene.url || '') ? (msg.scene.link?.url || msg.scene.url) : '#'} target="_blank" rel="noopener noreferrer"  // #14 只允许 http(s)
-                              className="flex flex-col gap-1 rounded-lg bg-white/[0.04] border border-white/[0.08] p-2.5 hover:border-emerald-400/40 transition">
+                            <button onClick={() => { const u = msg.scene.link?.url || msg.scene.url || ''; if (!u) return; if ((window as any).electronAPI?.browserOpenUrl) { try { (window as any).electronAPI.browserOpenUrl(u) } catch {} } else if (/^https?:/.test(u)) window.open(u, '_blank') }}
+                              className="flex flex-col gap-1 rounded-lg bg-white/[0.04] border border-white/[0.08] p-2.5 hover:border-emerald-400/40 transition text-left">
                               {msg.scene.title && <p className="text-[11px] text-emerald-300 font-medium">{msg.scene.title}</p>}
                               {msg.scene.desc && <p className="text-[10px] text-gray-400">{msg.scene.desc}</p>}
-                              <span className="text-[9px] text-gray-500 mt-0.5">↗ 打开链接</span>
-                            </a>
+                              <span className="text-[9px] text-gray-500 mt-0.5">↗ 打开链接（系统 Chrome · 带登录态）</span>
+                            </button>
                           ) : msg.scene.type === 'task' ? (
                             <div className="flex flex-col gap-1.5">
                               {msg.scene.title && <p className="text-[11px] text-emerald-300 font-medium">{msg.scene.title}</p>}
