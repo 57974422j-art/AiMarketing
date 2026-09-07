@@ -4,6 +4,7 @@
 > 同步维护：PROJECT.md 六「当前进度/待办」、ISSUES.md 问题状态。
 > 开始日期：2026-08-05
 
+| 2026-09-07 | ①视频落个人仓库+本地镜像+技术标记剥离 ②封面尺寸跟随横竖屏+过抖音1000x752 ③订阅周期读durationMonths+周卡7天 ④浏览器统一系统Chrome+删Playwright CDP残留 ⑤AI打开外部网页走link卡片 ⑥发布顺序纠正(视频→等转码→标题→话题→封面) ⑦对话内重发#N ⑧userData改回安装目录data/ ⑨BU_STEP落盘 | chat route/ai-providers/selfcheck/notify/my-usage/claim-weekly/electron main+preload/page.tsx/bu_exec.py | 打包v1.0.113；封面browser-use上传与抖音弹窗冲突待解决 |
 | 2026-09-06 | ①自由模式独立线：header 分流（自由模式极简宽松 header，只留发布红线+诚实；标准 header 不动）②多模态 forceVL→qwen3-max（图片不再乱码）③图生视频 t2v→i2v ④一键成片 userId 提顶层 ⑤封面尺寸 720×960 | ai-providers.ts / chat route / auto-compile route / page.tsx | 已提交 b22d106 |
 | 2026-08-14 | API key 根因修复：①config 读写 .env.local 统一 DOTENV_CONFIG_PATH（之前写 cwd/standalone 被 rm -rf 删）；②16 段保存排除 ******** 掩码覆盖；③statusMap 加 minimax（配置后显示已配置）；④settings 分页 Tab（密钥/媒体/引擎/系统 4 组）；⑤Minimax 音乐测试命令 | config/route.ts / settings/page.tsx | 服务器验证 MINIMAX_API_KEY 保存成功；settings 语法 0；分页提交 2c18a72 |
 | 2026-08-14 | Minimax AI 音乐生成接入：/api/music/generate（api.minimax.io music-3.0-free 同步返回 URL，2061 提示充值）+ 媒体舞台「AI 生成 BGM」（输入描述→生成→试听→用做背景乐） | minimax-music.ts / api/music/generate/route.ts / agent/page.tsx | 本地验证 401/400/key未配 链路通过；用户充值后即用 |
