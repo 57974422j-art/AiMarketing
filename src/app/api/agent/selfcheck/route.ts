@@ -45,10 +45,14 @@ export async function GET(request: NextRequest) {
       const { getTokenWallet } = await import('@/lib/token-wallet')
       const wallet = await getTokenWallet(user.id)
       if (wallet.hasSubscription) {
-        // 2026-08-27: 按实际订阅周期显示（周卡=周额度/月卡=月额度/年卡=年额度）——不再盲目显“月”
-        const planT = String(user.plan || 'monthly').toLowerCase()
-        // 2026-08-29: plan 存的是中文名（如'免费周卡'）——中英文都认
-        const periodTxt = (planT.includes('week') || planT.includes('周')) ? '周' : (planT.includes('year') || planT.includes('年')) ? '年' : '月'
+        // 2026-09-07: 周期改读订阅套餐 durationMonths（12=年/3=季/1=月/0=周）——不再猜 user.plan 字符串（年卡显示月卡的根因）
+        let periodTxt = '月'
+        try {
+          const subP = await prisma.userSubscription.findFirst({ where: { userId: user.id, status: 'active', endDate: { gte: new Date() } }, orderBy: { endDate: 'desc' } })
+          const p = subP ? await prisma.subscriptionPlan.findUnique({ where: { id: subP.planId } }) : null
+          const dm = p?.durationMonths ?? 1
+          periodTxt = dm >= 12 ? '年' : (dm >= 3 ? '季' : (dm <= 0 ? '周' : '月'))
+        } catch {}
         const subTxt = wallet.subRemaining < 0 ? '无限额度' : `${wallet.subRemaining} 点（${periodTxt}套餐额度，${periodTxt}${wallet.allowance < 0 ? '?' : wallet.allowance}）`
         pointsDetail = `${subTxt} + 点卡 ${wallet.pointBalance} 点`
         pointsOk = wallet.remaining > 0

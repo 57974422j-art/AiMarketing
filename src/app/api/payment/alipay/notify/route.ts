@@ -98,7 +98,12 @@ async function activateSubscription(userId: number, planId: number, orderNo: str
 
   const startDate = new Date()
   const endDate = new Date()
-  endDate.setMonth(endDate.getMonth() + (plan.durationMonths || 1))
+  // 2026-09-07: 周卡固定 7 天（durationMonths<=0 或名字含"周"），其余按 durationMonths 月
+  if ((plan.durationMonths ?? 1) <= 0 || (plan.name || '').includes('周')) {
+    endDate.setTime(endDate.getTime() + 7 * 24 * 60 * 60 * 1000)
+  } else {
+    endDate.setMonth(endDate.getMonth() + (plan.durationMonths || 1))
+  }
 
   // 取消已有 active 订阅
   await prisma.userSubscription.updateMany({

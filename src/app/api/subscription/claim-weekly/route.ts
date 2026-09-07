@@ -18,7 +18,7 @@ async function ensureWeeklyPlan() {
         description: '每账号限领一次 · 7天试用（含 500 TOKEN 体验额度）',
         price: 0,
         discountPrice: null,
-        durationMonths: 1, // 实际生效期按 7 天算
+        durationMonths: 0, // 周卡固定 7 天（0=非月计费，activateSubscription/my-usage 按 7 天处理）
         llmTokens: 10000,
         text2imgQuota: 20,
         text2videoQuota: 1,

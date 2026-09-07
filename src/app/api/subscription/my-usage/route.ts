@@ -35,7 +35,11 @@ export async function GET(req: NextRequest) {
         if (!plan) continue
         const startDate = new Date()
         const endDate = new Date()
-        endDate.setMonth(endDate.getMonth() + (plan.durationMonths || 1))
+        if ((plan.durationMonths ?? 1) <= 0 || (plan.name || '').includes('周')) {
+          endDate.setTime(endDate.getTime() + 7 * 24 * 60 * 60 * 1000)
+        } else {
+          endDate.setMonth(endDate.getMonth() + (plan.durationMonths || 1))
+        }
         await prisma.userSubscription.updateMany({ where: { userId, status: 'active' }, data: { status: 'expired' } })
         await prisma.userSubscription.create({
           data: { userId, planId: plan.id, startDate, endDate, status: 'active', orderNo: paidOrder.orderNo, paymentMethod: paidOrder.channel },
