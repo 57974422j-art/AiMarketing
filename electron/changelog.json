@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.0.112",
+    "date": "2026-09-07",
+    "title": "浏览器统一系统 Chrome 一条线 + 打开网页直接打开",
+    "items": [
+      "登记平台/打开网页/AI发布全部统一系统 Chrome + browser-profile（删 Playwright CDP 残留）",
+      "AI「打开外部网页」直接系统 Chrome 打开（带登录态），不再浏览器命令输入",
+      "登录后前台自动渲染打勾（bu_check 读 browser-profile Cookies）",
+      "清理登记链路残留（browser:bind/bind-mine/CDP 检测等 -124 行）"
+    ]
+  },
+  {
     "version": "1.0.111",
     "date": "2026-09-07",
     "title": "订阅周期显示根治 + 发布弹窗处理 + 步骤日志",
