@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.0.120",
+    "date": "2026-09-08",
+    "title": "发布改 CDP 连接（不杀浏览器/不导航/直接复用登记登录态）",
+    "items": [
+      "bu_exec 不再杀 Chrome、不再自己导航——改 CDP 连接登记通道打开的 bu_profile 浏览器（9222 调试端口），登录态常驻复用",
+      "登记通道 browser:open-url 打开浏览器带 --remote-debugging-port=9222（登记=发布同一实例）",
+      "MANUAL 去掉\"打开网址\"指令——页面已由登记通道开到发布页，AI 从上传开始"
+    ]
+  },
+  {
     "version": "1.0.119",
     "date": "2026-09-08",
     "title": "browser_use 换视觉模型 qwen3-vl-plus（每步截图看页面认元素）",

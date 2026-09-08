@@ -4,7 +4,7 @@
 2) executable_path 显式锁系统 Chrome（与扫码登录 profile 一致——防二进制混用 cookie 解密失败）
 3) SingletonLock 检查——防 browser-use 退避临时目录（登录态丢主因）
 """
-import asyncio, os, sys, json, io, argparse, tempfile, urllib.request, glob, time, shutil
+import asyncio, os, sys, json, io, argparse, tempfile, urllib.request, glob, time, shutil, subprocess, re
 
 def read_key():
     """key 来源：环境变量优先 → 项目 .env.local（开发）"""
@@ -28,6 +28,33 @@ def find_chrome():
     for c in cands:
         if os.path.exists(c): return c
     return None
+
+def ensure_cdp_browser(url, profile, chrome, port=9222):
+    """2026-09-08: 确保 bu_profile 浏览器已在 9222 调试端口运行（登录态常驻，不杀任何浏览器）
+    不在则用登记同款方式打开（bu_profile + 调试端口 + 发布页 URL）——AI 不需要导航，页面直接到发布页
+    返回 True=CDP 已就绪；False=打开失败（回退 user_data_dir 新开）"""
+    def cdp_alive():
+        try:
+            with urllib.request.urlopen('http://127.0.0.1:%d/json/version' % port, timeout=2) as r:
+                return r.status == 200
+        except Exception:
+            return False
+    if cdp_alive():
+        print('CDP: 已连接运行中的 bu_profile 浏览器（端口 %d）——复用登录态，不杀不重开' % port, flush=True)
+        return True
+    if chrome and profile and os.path.exists(profile):
+        try:
+            subprocess.Popen([chrome, '--user-data-dir=' + profile, '--remote-debugging-port=%d' % port, '--no-first-run', url or 'chrome://newtab/'])
+            print('CDP: 已打开 bu_profile 浏览器（调试端口 %d）→ %s' % (port, url or ''), flush=True)
+        except Exception as e:
+            print('CDP_OPEN_FAIL: ' + str(e)[:100], flush=True)
+    for _ in range(12):
+        time.sleep(1)
+        if cdp_alive():
+            print('CDP: 浏览器就绪（登录态直接可用）', flush=True)
+            return True
+    print('CDP: 浏览器未就绪——回退 user_data_dir 新开', flush=True)
+    return False
 
 def kill_chrome():
     """2026-08-30: 发布前杀系统 Chrome（释放 Cookies 独占锁——否则 WinError 32 同步失败）"""
@@ -99,12 +126,8 @@ async def main():
     ap.add_argument('--storage-dir', default='')  # 本地仓库目录（exe/storage——持久镜像，复用不重复下载）
     args = ap.parse_args()
 
-    # 2026-08-31: 发布前杀 Chrome 释放 profile 锁（之前未调用——被占时 check_singleton 报“窗口未关闭”死锁）
-    kill_chrome()
-    # SingletonLock 检查（登录态保持关键）
-    lock_err = check_singleton(args.profile)
-    if lock_err:
-        print(json.dumps({'success': False, 'error': lock_err})); return
+    # 2026-09-08: 不杀任何浏览器、不做 SingletonLock 检查——CDP 连接已登记的 bu_profile 浏览器（登记=发布同一条线）
+    # 浏览器没开时 ensure_cdp_browser 用登记同款方式打开（bu_profile + 调试端口 + 发布页），登录态直接复用
 
     dsk = read_key()
     if not dsk:
@@ -138,12 +161,13 @@ async def main():
             local_files.append(f)
 
     chrome = find_chrome()
-    # 显式锁浏览器二进制（系统 Chrome——与 profile 一致）——防打包后 PLAYWRIGHT_BROWSERS_PATH 混用 chromium-1223
-    # 2026-08-30: 不用同步复制（Chrome 不认复制登录态——bu_profile 用自己的登录态——30 天有效）
-    # 发布前 kill_chrome 已释放 bu_profile 锁（浏览器可打开）
-    browser = Browser(
+    # 2026-09-08: 不再杀浏览器/不再 user_data_dir 新开——CDP 连接已登记的 bu_profile 浏览器（9222 端口）
+    # 页面由登记通道直接开到发布页（带调试端口），AI 不做导航，登录态常驻复用
+    m_url = re.search(r'https?://[A-Za-z0-9._\-/:?&=%#]+', args.task)
+    cdp_ok = ensure_cdp_browser(m_url.group(0) if m_url else '', args.profile, chrome)
+    browser = Browser(cdp_url='http://127.0.0.1:9222') if cdp_ok else Browser(
         user_data_dir=args.profile,
-        executable_path=chrome,  # 显式（None 则 browser-use 自行查找）
+        executable_path=chrome,
         headless=False,
     )
     llm = ChatOpenAI(model='qwen3-vl-plus', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')  # 2026-09-08: 换视觉模型——browser_use 每步截图给模型看（认抖音封面按钮/方向tab/问号 vs 真按钮），比 qwen3-max 看 DOM 文本准
@@ -167,7 +191,7 @@ async def main():
     except Exception:
         cover_dir_hint = ''
     task_clean = args.task
-    MANUAL = '按任务描述执行发布：打开任务里给出的网址，用 upload_file 上传视频文件和封面图，在对应输入框填标题和话题，最后点发布按钮。每步只做一个动作。填完标题或话题后，如果页面有联想下拉框/浮层弹出挡着下面的内容，先点击浮层外任意位置（页面空白处/标题区/页面其他区域）把它关掉，再继续下一步。上传封面必须严格按此顺序（缺一步封面就会不生效/错乱）：①点「设置封面」打开封面弹窗 ②【先选方向】——严格按任务说明里【封面方向提示】选对应选项卡（提示横屏4:3就点「横屏4:3」，提示竖屏3:4就点「竖屏3:4」，先看提示再操作，不要自己猜视频横竖、不要乱切方向）；方向选项在封面弹窗/编辑器顶部或比例图标处，必须先选方向再上传③选好方向后点「上传封面」上传封面文件 ④上传后封面图出现在编辑器里：【必须点击一下封面图片中央】激活虚线裁切框/选区——很多版本不点这一下直接点保存无效；若图片比例与选区不一致出现拖拽/缩放调整提示，也先点一下图片让选区激活，不要强行拖拽 ⑤确认虚线框住封面主要画面后，再点【保存/下一步】⑥若弹确认窗口点【确认/确定】。绝不能在没选方向、没点图片激活裁切时直接点保存。填标题话题若字数超限，删超出部分再提交，不要反复重试输入。同一目标连点超过2次没变化就停下换思路；不要点问号/帮助图标（无用且会开浮层）。若页面弹手机短信/滑块/扫码等人工验证→立即停止，报告「需要人工验证码，请用户处理」，绝不反复点击或假装成功。'
+    MANUAL = '按任务描述执行发布：页面已由登记通道打开到目标平台的发布页（登录态在），【绝对不要打开/导航/输入任何网址】，直接从上传开始：用 upload_file 上传视频文件和封面图，在对应输入框填标题和话题，最后点发布按钮。每步只做一个动作。填完标题或话题后，如果页面有联想下拉框/浮层弹出挡着下面的内容，先点击浮层外任意位置（页面空白处/标题区/页面其他区域）把它关掉，再继续下一步。上传封面必须严格按此顺序（缺一步封面就会不生效/错乱）：①点「设置封面」打开封面弹窗 ②【先选方向】——严格按任务说明里【封面方向提示】选对应选项卡（提示横屏4:3就点「横屏4:3」，提示竖屏3:4就点「竖屏3:4」，先看提示再操作，不要自己猜视频横竖、不要乱切方向）；方向选项在封面弹窗/编辑器顶部或比例图标处，必须先选方向再上传③选好方向后点「上传封面」上传封面文件 ④上传后封面图出现在编辑器里：【必须点击一下封面图片中央】激活虚线裁切框/选区——很多版本不点这一下直接点保存无效；若图片比例与选区不一致出现拖拽/缩放调整提示，也先点一下图片让选区激活，不要强行拖拽 ⑤确认虚线框住封面主要画面后，再点【保存/下一步】⑥若弹确认窗口点【确认/确定】。绝不能在没选方向、没点图片激活裁切时直接点保存。填标题话题若字数超限，删超出部分再提交，不要反复重试输入。同一目标连点超过2次没变化就停下换思路；不要点问号/帮助图标（无用且会开浮层）。若页面弹手机短信/滑块/扫码等人工验证→立即停止，报告「需要人工验证码，请用户处理」，绝不反复点击或假装成功。'
     async def on_step(state, output, n):
         url = getattr(state, 'url', '') or ''
         try:

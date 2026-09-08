@@ -1879,7 +1879,8 @@ ipcMain.handle('browser:open-url', async (_e, url) => {
     const chrome = chromeCands.find(p2 => fs.existsSync(p2))
     if (!chrome) return { success: false, error: '未找到系统 Chrome' }
     const prof = String(BU_PROFILE_DIR)
-    const ch = spawn(chrome, ['--user-data-dir=' + prof, '--no-first-run', String(url || 'https://www.google.com')])
+    // 2026-09-08: 带调试端口 9222——发布的 bu_exec 用 CDP 直接连接这个已登录浏览器（不杀不重开不导航）
+    const ch = spawn(chrome, ['--user-data-dir=' + prof, '--remote-debugging-port=9222', '--no-first-run', String(url || 'https://www.google.com')])
     ch.unref()
     return { success: true, message: '已打开浏览器（系统 Chrome + browser-profile）' }
   } catch (e) { return { success: false, error: String(e && e.message || e) } }
