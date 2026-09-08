@@ -148,8 +148,26 @@ async def main():
     )
     llm = ChatOpenAI(model='qwen3-max', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
     file_hint = ('，文件路径：' + ','.join([p.replace(chr(92), '/') for p in local_files]) + '（用正斜杠/）') if local_files else ''
+    # 2026-09-08: 封面方向确定性——读封面图片实际尺寸，注入方向指令（不让 AI 猜横竖/乱切）
+    cover_dir_hint = ''
+    try:
+        from PIL import Image as _PILImage
+        for _f in local_files:
+            if _f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                _im = _PILImage.open(_f)
+                _w, _h = _im.size
+                _ratio = _w / float(_h)
+                if _ratio > 1.1:
+                    cover_dir_hint = '【封面方向提示】封面图是横屏4:3（' + str(_w) + 'x' + str(_h) + '）——抖音封面编辑器选「横屏4:3」选项卡再上传；若发布页强制竖屏(跟随竖视频)，横封面会被裁竖属正常，点图激活选区即可'
+                elif _ratio < 0.9:
+                    cover_dir_hint = '【封面方向提示】封面图是竖屏3:4（' + str(_w) + 'x' + str(_h) + '）——抖音封面编辑器选「竖屏3:4」选项卡再上传'
+                else:
+                    cover_dir_hint = '【封面方向提示】封面图近似方形（' + str(_w) + 'x' + str(_h) + '）——按发布页默认方向上传'
+                break
+    except Exception:
+        cover_dir_hint = ''
     task_clean = args.task
-    MANUAL = '按任务描述执行发布：打开任务里给出的网址，用 upload_file 上传视频文件和封面图，在对应输入框填标题和话题，最后点发布按钮。每步只做一个动作。填完标题或话题后，如果页面有联想下拉框/浮层弹出挡着下面的内容，先点击浮层外任意位置（页面空白处/标题区/页面其他区域）把它关掉，再继续下一步。上传封面必须严格按此顺序（缺一步封面就会不生效/错乱）：①点「设置封面」打开封面弹窗 ②【先选方向】——发布的是竖屏视频（9:16/3:4）就选「竖屏3:4」，横屏视频选「横屏4:3」（方向选项在封面弹窗/编辑器顶部或比例图标处，必须先选方向再上传，不能跳过、不能用 upload_file 直接塞图代替选方向+上传）③选好方向后点「上传封面」上传封面文件 ④上传后封面图出现在编辑器里：【必须点击一下封面图片中央】激活虚线裁切框/选区——很多版本不点这一下直接点保存无效；若图片比例与选区不一致出现拖拽/缩放调整提示，也先点一下图片让选区激活，不要强行拖拽 ⑤确认虚线框住封面主要画面后，再点【保存/下一步】⑥若弹确认窗口点【确认/确定】。绝不能在没选方向、没点图片激活裁切时直接点保存。填标题话题若字数超限，删超出部分再提交，不要反复重试输入。'
+    MANUAL = '按任务描述执行发布：打开任务里给出的网址，用 upload_file 上传视频文件和封面图，在对应输入框填标题和话题，最后点发布按钮。每步只做一个动作。填完标题或话题后，如果页面有联想下拉框/浮层弹出挡着下面的内容，先点击浮层外任意位置（页面空白处/标题区/页面其他区域）把它关掉，再继续下一步。上传封面必须严格按此顺序（缺一步封面就会不生效/错乱）：①点「设置封面」打开封面弹窗 ②【先选方向】——严格按任务说明里【封面方向提示】选对应选项卡（提示横屏4:3就点「横屏4:3」，提示竖屏3:4就点「竖屏3:4」，先看提示再操作，不要自己猜视频横竖、不要乱切方向）；方向选项在封面弹窗/编辑器顶部或比例图标处，必须先选方向再上传③选好方向后点「上传封面」上传封面文件 ④上传后封面图出现在编辑器里：【必须点击一下封面图片中央】激活虚线裁切框/选区——很多版本不点这一下直接点保存无效；若图片比例与选区不一致出现拖拽/缩放调整提示，也先点一下图片让选区激活，不要强行拖拽 ⑤确认虚线框住封面主要画面后，再点【保存/下一步】⑥若弹确认窗口点【确认/确定】。绝不能在没选方向、没点图片激活裁切时直接点保存。填标题话题若字数超限，删超出部分再提交，不要反复重试输入。同一目标连点超过2次没变化就停下换思路；不要点问号/帮助图标（无用且会开浮层）。若页面弹手机短信/滑块/扫码等人工验证→立即停止，报告「需要人工验证码，请用户处理」，绝不反复点击或假装成功。'
     async def on_step(state, output, n):
         url = getattr(state, 'url', '') or ''
         try:
@@ -161,7 +179,7 @@ async def main():
     # 2026-08-30 实测: qwen3.8 必须 use_thinking=False（思考模式 AgentOutput 验证失败——flash/无思考模式成功）
     agent = Agent(
         available_file_paths=[p.replace(chr(92), '/') for p in local_files],
-        task=task_clean + file_hint,
+        task=task_clean + file_hint + cover_dir_hint,
         llm=llm, browser=browser, use_thinking=False, max_steps=args.max_steps,
         extend_system_message=MANUAL,
         register_new_step_callback=on_step,
