@@ -146,7 +146,7 @@ async def main():
         executable_path=chrome,  # 显式（None 则 browser-use 自行查找）
         headless=False,
     )
-    llm = ChatOpenAI(model='qwen3-max', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
+    llm = ChatOpenAI(model='qwen3-vl-plus', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')  # 2026-09-08: 换视觉模型——browser_use 每步截图给模型看（认抖音封面按钮/方向tab/问号 vs 真按钮），比 qwen3-max 看 DOM 文本准
     file_hint = ('，文件路径：' + ','.join([p.replace(chr(92), '/') for p in local_files]) + '（用正斜杠/）') if local_files else ''
     # 2026-09-08: 封面方向确定性——读封面图片实际尺寸，注入方向指令（不让 AI 猜横竖/乱切）
     cover_dir_hint = ''
@@ -180,7 +180,7 @@ async def main():
     agent = Agent(
         available_file_paths=[p.replace(chr(92), '/') for p in local_files],
         task=task_clean + file_hint + cover_dir_hint,
-        llm=llm, browser=browser, use_thinking=False, max_steps=args.max_steps,
+        llm=llm, browser=browser, use_thinking=False, use_vision=True, max_steps=args.max_steps,
         extend_system_message=MANUAL,
         register_new_step_callback=on_step,
     )

@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.119",
+    "date": "2026-09-08",
+    "title": "browser_use 换视觉模型 qwen3-vl-plus（每步截图看页面认元素）",
+    "items": [
+      "bu_exec 模型 qwen3-max → qwen3-vl-plus + use_vision=True——browser_use 每步截图给模型看（认封面按钮/方向tab/问号vs真按钮），不再只读 DOM 文本",
+      "已验证：qwen3-vl-plus 看图+tool calling 均可用"
+    ]
+  },
+  {
     "version": "1.0.118",
     "date": "2026-09-08",
     "title": "发布封面方向确定性 + 防傻动作",
