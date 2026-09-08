@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.116",
+    "date": "2026-09-08",
+    "title": "自动更新保留登录态修复（installer.nsh 备份恢复 data/python/storage）",
+    "items": [
+      "根治自动更新丢登录态：electron-builder 更新机制会删整个安装目录，现改为更新前把 data（登录态/browser-profile）/python（88MB 环境）/storage（本地仓库）备份到临时目录，装完新版自动恢复",
+      "封面编辑器顺序修正（先选方向→上传→点图激活裁切→再保存）"
+    ]
+  },
+  {
     "version": "1.0.115",
     "date": "2026-09-08",
     "title": "封面编辑器顺序修正（先选方向→上传→点图激活→保存）",
