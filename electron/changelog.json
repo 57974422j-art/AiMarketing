@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.117",
+    "date": "2026-09-08",
+    "title": "自动更新保留登录态（customRemoveFiles 根治——更新只删 app 文件，data/python/storage 原地保留）",
+    "items": [
+      "根治：用 electron-builder 官方 customRemoveFiles hook 替换默认整目录删除——更新时只删程序文件，data（登录态）/python（88MB 环境）/storage（本地仓库）原地保留不删除不复制",
+      "手动卸载才全删（含 data）；彻底告别\"更新后重新登录\""
+    ]
+  },
+  {
     "version": "1.0.116",
     "date": "2026-09-08",
     "title": "自动更新保留登录态修复（installer.nsh 备份恢复 data/python/storage）",
