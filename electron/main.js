@@ -440,6 +440,59 @@ const BU_CHECK_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_check.py')
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_check.py')
 
+// 2026-09-08: 内置 Python 运行环境（OSS python-bu.zip 一键下载——用户零安装）
+const BUILTIN_PY_DIR = path.join(path.dirname(process.execPath), 'python', 'buvenv-test')
+const BUILTIN_PY = path.join(BUILTIN_PY_DIR, 'Scripts', 'python.exe')
+const PY_BU_URL = 'https://aimarketing-1.oss-cn-hangzhou.aliyuncs.com/updates/python-bu.zip'
+const BU_PY_DOWNLOADING = path.join(path.dirname(process.execPath), 'python', '.downloading')
+function getBuPython() {
+  if (fs.existsSync(BUILTIN_PY)) return BUILTIN_PY
+  if (process.env.BU_PYTHON) return process.env.BU_PYTHON
+  const sp = require('child_process').spawnSync
+  try { if (sp('python', ['--version']).status === 0) return 'python' } catch {}
+  try { if (sp('py', ['--version']).status === 0) return 'py' } catch {}
+  return BUILTIN_PY // 兜底（不存在→触发一键安装）
+}
+function buPythonReady(py) {
+  try {
+    const r = require('child_process').spawnSync(py, ['-c', 'import browser_use'], { timeout: 20000, windowsHide: true })
+    return r.status === 0
+  } catch { return false }
+}
+async function ensureBuPython() {
+  const py = getBuPython()
+  if (buPythonReady(py)) return { ok: true, py }
+  const { dialog, BrowserWindow } = require('electron')
+  const win = BrowserWindow.getAllWindows()[0]
+  const choice = await dialog.showMessageBox(win || {}, {
+    type: 'info', buttons: ['一键安装(88MB)', '取消'], defaultId: 0, cancelId: 1,
+    message: '发布功能需要运行环境',
+    detail: '本机未安装 AI 发布运行环境(Python + browser-use)。点「一键安装」自动下载(约88MB)并安装到本程序目录，安装后即可发布。只装一次，之后自动使用。'
+  })
+  if (choice.response !== 0) return { ok: false, cancelled: true }
+  try {
+    if (fs.existsSync(BU_PY_DOWNLOADING)) return { ok: false, error: '正在安装中，请稍候' }
+    fs.writeFileSync(BU_PY_DOWNLOADING, '1')
+    fs.mkdirSync(path.dirname(process.execPath) + '/python', { recursive: true })
+    const zipPath = path.join(path.dirname(process.execPath), 'python', 'python-bu.zip')
+    buLog('[bu-python] 开始下载运行环境...')
+    const rsp = await fetch(PY_BU_URL)
+    if (!rsp.ok) return { ok: false, error: '下载失败 HTTP ' + rsp.status }
+    fs.writeFileSync(zipPath, Buffer.from(await rsp.arrayBuffer()))
+    buLog('[bu-python] 下载完成，解压中...')
+    // Windows 用 PowerShell Expand-Archive 解压
+    const { execSync } = require('child_process')
+    execSync(`powershell -NoProfile -Command "Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${path.join(path.dirname(process.execPath), 'python').replace(/'/g, "''")}' -Force"`, { timeout: 300000, windowsHide: true })
+    try { fs.unlinkSync(zipPath) } catch {}
+    try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch {}
+    if (fs.existsSync(BUILTIN_PY)) { buLog('[bu-python] 运行环境安装完成: ' + BUILTIN_PY); return { ok: true, py: BUILTIN_PY } }
+    return { ok: false, error: '解压失败（未找到 python.exe）' }
+  } catch (e) {
+    try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch {}
+    return { ok: false, error: String(e && e.message || e) }
+  }
+}
+
 function buLog(msg) {
   try {
     const { app } = require('electron')
@@ -485,12 +538,20 @@ async function checkBrowserTasks() {
       // 标记 executing
       await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'executing' }) }).catch(() => {})
       console.log('[browser_use] 执行任务 #' + t.id + ':', String(t.task).slice(0, 60))
+      // 2026-09-08: 确保 Python 运行环境就绪（缺则一键下载安装 OSS python-bu.zip——用户零手动）
+      const envR = await ensureBuPython()
+      if (!envR.ok) {
+        buLog('任务#' + t.id + ' 缺 Python 运行环境：' + (envR.error || '用户取消一键安装') + '——跳过')
+        await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: envR.cancelled ? 'pending' : 'failed', error: envR.cancelled ? '等待安装运行环境' : ('缺 Python 运行环境：' + (envR.error || '')) }) }).catch(() => {})
+        continue
+      }
+      const PY = envR.py
       // 2026-08-30: 登录态预检——未登录目标平台不白跑（直接失败提示扫码/登记）
       try {
         const platKey = String(t.task || '').match(/(抖音|小红书|微博|视频号|快手|B站|bilibili)/)?.[0] || ''
         if (platKey) {
           const buChk = await new Promise((resolve) => {
-            const pyc = spawn(BU_PYTHON, ['-u', BU_CHECK_SCRIPT, String(BU_PROFILE_DIR)], { windowsHide: true })
+            const pyc = spawn(PY, ['-u', BU_CHECK_SCRIPT, String(BU_PROFILE_DIR)], { windowsHide: true })
             let so2 = ''
             pyc.stdout.on('data', (d) => so2 += d)
             pyc.on('close', () => resolve(so2.trim()))
@@ -517,7 +578,7 @@ async function checkBrowserTasks() {
         let out = { code: -2, so: '', se: 'not run' }
         for (let retry = 0; retry < 3; retry++) {
           out = await new Promise((resolve, reject) => {
-            const py = spawn(BU_PYTHON, args, { windowsHide: true, env: { ...process.env, BU_COOKIE: cookie, DASHSCOPE_API_KEY: dashKey || process.env.DASHSCOPE_API_KEY || '' } })
+            const py = spawn(PY, args, { windowsHide: true, env: { ...process.env, BU_COOKIE: cookie, DASHSCOPE_API_KEY: dashKey || process.env.DASHSCOPE_API_KEY || '' } })
             let so = '', se = ''
             py.stdout.on('data', d => { so += d; const ds = String(d); if (ds.includes('[BU_STEP]') || ds.includes('[BU_DONE]')) buLog(ds.replace(/\s+$/g, '')) })
             py.stderr.on('data', d => se += d)
