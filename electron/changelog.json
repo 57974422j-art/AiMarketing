@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.0.122",
+    "date": "2026-09-08",
+    "title": "browser_use 模型改 qwen3.8-max（旗舰多模态——看图+自主执行都强）",
+    "items": [
+      "bu_exec 模型 vl-plus → qwen3.8-max（原生视觉+强agentic，实测看图准+tool calling好）——vl-plus 三次第一步放弃不适合自主操作",
+      "保留 use_vision=True：每步截图给 qwen3.8-max 看页面认元素"
+    ]
+  },
+  {
     "version": "1.0.121",
     "date": "2026-09-08",
     "title": "发布链路日志可读化（UTF-8 + 去ANSI）+ task 指令自洽",
