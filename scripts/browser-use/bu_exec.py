@@ -5,6 +5,13 @@
 3) SingletonLock 检查——防 browser-use 退避临时目录（登录态丢主因）
 """
 import asyncio, os, sys, json, io, argparse, tempfile, urllib.request, glob, time, shutil, subprocess, re
+# 2026-09-08: 强制 UTF-8 输出（Windows 默认 GBK → 日志/服务器中文乱码根因）
+if hasattr(sys.stdout, 'reconfigure'):
+    try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception: pass
+if hasattr(sys.stderr, 'reconfigure'):
+    try: sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception: pass
 
 def read_key():
     """key 来源：环境变量优先 → 项目 .env.local（开发）"""
