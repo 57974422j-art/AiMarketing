@@ -177,7 +177,7 @@ async def main():
         executable_path=chrome,
         headless=False,
     )
-    llm = ChatOpenAI(model='qwen3.8-flash', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')  # 2026-09-09: flash(快，browser_use 大 DOM 不超时)  # 2026-09-08: qwen3.8-max 旗舰(原生多模态看图+强agentic)——browser_use use_vision 每步截图看页面，认上传框/封面按钮/方向tab——browser_use 每步截图给模型看（认抖音封面按钮/方向tab/问号 vs 真按钮），比 qwen3-max 看 DOM 文本准
+    llm = ChatOpenAI(model='qwen3.8-max', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')
     file_hint = ('，文件路径：' + ','.join([p.replace(chr(92), '/') for p in local_files]) + '（用正斜杠/）') if local_files else ''
     # 2026-09-08: 封面方向确定性——读封面图片实际尺寸，注入方向指令（不让 AI 猜横竖/乱切）
     cover_dir_hint = ''
@@ -198,7 +198,7 @@ async def main():
     except Exception:
         cover_dir_hint = ''
     task_clean = args.task
-    MANUAL = '页面已由登记通道打开到发布页(登录态在)，勿导航勿输网址，直接从上传开始。严格执行顺序，每步只做一个动作，不跳步：第1步 upload_file 上传视频mp4；第2步 等转码自动跳编辑页；第3步 标题框填标题；第4步 话题框填话题，填完用 send_keys 按 Escape 关闭联想浮层；第5步 设置封面：点设置封面，按封面方向提示选方向选项卡(竖屏3:4或横屏4:3)，点上传封面传封面jpg，点一下封面图激活，点完成关闭封面弹窗；第6步 确认封面弹窗已关且预览封面已是上传的图，才点发布按钮；封面没走完上传到激活到完成的全流程、预览没见本图，禁止点发布，回到第5步重做。某步页面没变化先按 Escape 再继续下一步，不原地犹豫。遇人工验证码就停下报告。'
+    MANUAL = '发布这个视频到抖音：上传视频文件，等转码后填标题和话题，设置封面（按封面方向提示选方向，上传封面，图出现后点完成关弹窗），最后点发布。封面必须先完成再发布。'
     async def on_step(state, output, n):
         url = getattr(state, 'url', '') or ''
         try:

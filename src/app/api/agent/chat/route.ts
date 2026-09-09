@@ -2654,7 +2654,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 const platUrlMap: Record<string, string> = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish', weibo: 'https://weibo.com/upload', bilibili: 'https://member.bilibili.com/platform/upload/video/frame', kuaishou: 'https://cp.kuaishou.com/creator/video/upload' }
                 const pubUrl = platUrlMap[draftW.platform] || platUrlMap.douyin
                 let _stp = 1
-                const _steps = ['发布页已由客户端登记通道打开到（登录态在，勿重复打开/导航网址）：\n' + pubUrl, '第' + _stp++ + '步：上传视频文件（.mp4——只传视频，不要传封面）', '第' + _stp++ + '步：等视频转码完成、页面自动跳到编辑页(post/video)']
+const _steps = ['用 browser_use 把这个视频发布到抖音。页面已在发布页(登录态在)。视频和封面文件路径已给出。流程：上传视频->等转码->填标题->填话题->设置封面(按提示选方向)->点发布。']
                 if (!skips.includes('标题')) _steps.push('第' + _stp++ + '步：标题框填「' + wfA.caption + '」')
                 if (!skips.includes('话题')) _steps.push('第' + _stp++ + '步：话题框填「' + (wfA.topics || '') + '」')
                 if (!skips.includes('封面') && !skips.includes('抽帧')) _steps.push('第' + _stp++ + '步：点「设置封面」→ 点「选择封面」（横封面4:3 或 竖封面3:4）→ 等封面弹窗出现（页面显示优质封面示例/上传封面按钮）→ 在弹窗里点「上传封面」上传封面文件(.jpg) → 点「完成」')
