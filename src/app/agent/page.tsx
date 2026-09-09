@@ -1951,7 +1951,7 @@ function AgentPageInner() {
   const renderContent = (content: string) => {
     if (!content) return null
     // 2026-09-09: AI 浏览器发布任务已建消息 → 卡片带「重发」按钮
-    const buQ = content.match(/BROWSER_TASK_QUEUED|已创建 AI 浏览器发布任务（#(\d+)）/)
+    const buM = content.match(/已创建 AI 浏览器发布任务（#(\d+)）/); const buQ = content.includes('BROWSER_TASK_QUEUED') ? buM : null
     if (buQ) {
       const buId = buQ[1] ? Number(buQ[1]) : 0
       return (

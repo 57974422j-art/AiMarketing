@@ -39,6 +39,13 @@ const UNMET_PLATFORM_ALIAS: Record<string, string> = {
 export const runtime = 'nodejs'
 const prisma = new PrismaClient()
 
+// 2026-09-09: 建浏览器任务——每账号独立编号 seq（该用户第 N 个从 1 起，跨账号不混）
+async function buCreate(uid: number, task: string, filesStr: string, status = 'pending') {
+  const last = await prisma.agentBrowserTask.findFirst({ where: { userId: uid }, orderBy: { seq: 'desc' }, select: { seq: true } }).catch(() => null)
+  const seq = (last?.seq ?? 0) + 1
+  return prisma.agentBrowserTask.create({ data: { userId: uid, task, files: filesStr, status, seq } })
+}
+
 // ==================== 工具定义 ====================
 
 // 2026-08-21: 发布抽帧暂存（userId → 帧列表，"用第N帧"取用）
@@ -1261,9 +1268,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const taskB = String(args.task || '').trim()
       if (!taskB) return 'TOOL_REJECT:缺少任务描述（task）'
       const filesB = Array.isArray(args.files) ? args.files.map((f: any) => String(f)) : []
-      const tB = await prisma.agentBrowserTask.create({ data: { userId: uidB, task: taskB, files: JSON.stringify(filesB) } })
+      const tB = await buCreate(uidB, taskB, JSON.stringify(filesB))
       console.log('[browser_use] 任务已建 #' + tB.id + ':', taskB.slice(0, 50))
-      return 'BROWSER_TASK_QUEUED:已创建浏览器自动化任务（#' + tB.id + '）——客户端将用 AI 浏览器（browser-use）执行，稍后说"查任务状态"看结果。任务：' + taskB
+      return 'BROWSER_TASK_QUEUED:已创建浏览器自动化任务（#' + (tB.seq ?? tB.id) + '）——客户端将用 AI 浏览器（browser-use）执行，稍后说"查任务状态"看结果。任务：' + taskB
     }
 
     case 'query_browser_tasks': {
@@ -1685,8 +1692,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           if (!uidB2) return 'TOOL_REJECT:未登录'
           if (!taskB2) return 'TOOL_REJECT:缺少任务描述（task）'
           const filesB2 = Array.isArray(args?.files) ? args.files.map((f: any) => String(f)) : []
-          const tB2 = await prisma.agentBrowserTask.create({ data: { userId: uidB2, task: taskB2, files: JSON.stringify(filesB2) } })
-          return 'BROWSER_TASK_QUEUED:已创建浏览器自动化任务（#' + tB2.id + '）——客户端 AI 浏览器执行，稍后说"查任务状态"看结果。任务：' + taskB2
+          const tB2 = await buCreate(uidB2, taskB2, JSON.stringify(filesB2))
+          return 'BROWSER_TASK_QUEUED:已创建浏览器自动化任务（#' + (tB2.seq ?? tB2.id) + '）——客户端 AI 浏览器执行，稍后说"查任务状态"看结果。任务：' + taskB2
         }
         return `DYNAMIC_TOOL_NOT_IMPLEMENTED:工具「${regT.title || name}」已注册但执行端点未接入（endpoint=${regT.endpoint || '无'}）——请开发接入`
       }
@@ -2115,11 +2122,11 @@ export async function POST(request: NextRequest) {
     if ((rePubN || rePubRecent) && (body as any)?.mode !== 'free') {
       try {
         const oldTask = rePubN
-          ? await prisma.agentBrowserTask.findFirst({ where: { id: parseInt(rePubN[1]), userId: auth?.userId || 0 } })
+          ? await prisma.agentBrowserTask.findFirst({ where: { userId: auth?.userId || 0, OR: [{ seq: parseInt(rePubN[1]) }, { seq: null, id: parseInt(rePubN[1]) }] } })
           : await prisma.agentBrowserTask.findFirst({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' } })
         if (oldTask) {
-          const nu = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: oldTask.task, files: oldTask.files, status: 'pending' } })
-          return NextResponse.json({ success: true, data: { reply: '已重新创建发布任务（#' + nu.id + '）——复用 #' + oldTask.id + ' 的视频/封面/标题/话题，客户端 AI 浏览器会重新执行。', toolUsed: true, steps: [], sessionId: sid || null, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG } })
+          const nu = await buCreate(auth?.userId || 0, oldTask.task, oldTask.files)
+          return NextResponse.json({ success: true, data: { reply: '已重新创建发布任务（#' + (nu.seq ?? nu.id) + '）——复用 #' + (oldTask.seq ?? oldTask.id) + ' 的视频/封面/标题/话题，客户端 AI 浏览器会重新执行。', toolUsed: true, steps: [], sessionId: sid || null, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG } })
         }
         return NextResponse.json({ success: true, data: { reply: '未找到可重发的发布任务' + (rePubN ? '（#' + rePubN[1] + '）' : '') + '——请先发一个视频。', toolUsed: false, sessionId: sid || null, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG } })
       } catch (eR) { console.error('[重发] 异常:', eR?.message || eR) }
@@ -2279,8 +2286,8 @@ export async function POST(request: NextRequest) {
                   }
                 } catch {}
                 const buTaskQ = 'https://creator.douyin.com/creator-micro/content/upload' + String.fromCharCode(10) + '1. 导航到上面的 URL（地址栏只输 URL）' + String.fromCharCode(10) + '2. 上传视频文件（files 提供的路径）' + String.fromCharCode(10) + '3. 标题栏填入：' + titleQ + String.fromCharCode(10) + '4. 点发布'
-                const buTQ = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTaskQ, files: JSON.stringify(fileUrlsQ) } })
-                wfEarlyReply = '已创建 AI 浏览器发布任务（#' + buTQ.id + '）——客户端自动执行：打开抖音→上传→标题「' + titleQ.slice(0, 40) + '」→发布。'
+                const buTQ = await buCreate(auth?.userId || 0, buTaskQ, JSON.stringify(fileUrlsQ))
+                wfEarlyReply = '已创建 AI 浏览器发布任务（#' + (buTQ.seq ?? buTQ.id) + '）——客户端自动执行：打开抖音→上传→标题「' + titleQ.slice(0, 40) + '」→发布。'
                 PUBLISH_DRAFT.delete(uidW)
               } catch (eQp) { console.error('[快速发布] 异常:', eQp?.message || eQp); wfEarlyReply = '快速发布失败：' + String(eQp?.message || eQp).slice(0, 100) }
             }
@@ -2653,8 +2660,8 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 if (!skips.includes('封面') && !skips.includes('抽帧')) _steps.push('第' + _stp++ + '步：点「设置封面」→ 点「选择封面」（横封面4:3 或 竖封面3:4）→ 等封面弹窗出现（页面显示优质封面示例/上传封面按钮）→ 在弹窗里点「上传封面」上传封面文件(.jpg) → 点「完成」')
                 _steps.push('最后：点发布按钮')
                 const buTask = '发布视频到' + platName + '。\n' + _steps.join('\n')
-                const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify(fileUrls) } })
-                wfEarlyReply = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行发布到' + platName + '。'
+                const buT = await buCreate(auth?.userId || 0, buTask, JSON.stringify(fileUrls))
+                wfEarlyReply = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + (buT.seq ?? buT.id) + '）——客户端 AI 浏览器自动执行发布到' + platName + '。'
                 PUBLISH_DRAFT.delete(uidW)
                 prisma.agentMemory.deleteMany({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } }).catch(() => {})
               } else if (/换一批|重做/.test(userMessage)) {
@@ -2681,11 +2688,11 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                   } else { console.log('[发布⑤] 视频本地未找到（可能已在 OSS）:', vRel) }
                 } catch (ePv: any) { console.error('[发布⑤] 视频转 OSS 失败:', ePv?.message || ePv) }
                 const buTask = '发布视频到' + (wfA.platform === 'douyin' ? '抖音' : wfA.platform || '抖音') + '：客户端已打开到 https://creator.douyin.com/creator-micro/content/upload （如返回登录页说明未登录，直接告知结束），上传视频，标题：' + (wfA.caption || '') + '，话题：' + (wfA.topics || '') + '，用平台智能封面，然后点击发布'
-                const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify(fileUrls) } })
+                const buT = await buCreate(auth?.userId || 0, buTask, JSON.stringify(fileUrls))
                 // 2026-08-31 v2④: 完整报告（MD——封面/标题/话题/视频——跨平台素材包）
                 const reportMd = '## 发布素材包（reportId: ' + buT.id + '）' + '\n' + '- 视频：' + (wfA.videoName || '') + '\n' + '- 封面：' + (wfA.coverUrl ? '![](' + wfA.coverUrl + ')' : '平台智能封面') + '\n' + '- 标题：' + (wfA.caption || '') + '\n' + '- 话题：' + (wfA.topics || '') + '\n' + '- 平台：' + (wfA.platform || 'douyin') + '\n' + '\n' + '- 此素材包已存库——后续说「发小红书/微博」即可复用（AI 读取 reportId 直接用）'
 
-                const wfR3 = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行。' + (fileUrls.length ? '视频已就绪。' : '') + '\n' + '\n' + reportMd
+                const wfR3 = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + (buT.seq ?? buT.id) + '）——客户端 AI 浏览器自动执行。' + (fileUrls.length ? '视频已就绪。' : '') + '\n' + '\n' + reportMd
                 messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfR3) } as any)
 PUBLISH_DRAFT.delete(uidW)
               } else wfEarlyReply = '请回复“确认”发布。'
@@ -2719,8 +2726,8 @@ PUBLISH_DRAFT.delete(uidW)
             console.log('[发布工作流] 确认建任务（browser_use 发布——opencli 链已清除）:', JSON.stringify(wfArgs))
             // 2026-08-30: 发布统一走 browser_use（AI 浏览器）——不再 opencli（create_v2 定时-2/旧 DOM）
             const buTask = '发布视频到' + (wfArgs.platform || '抖音') + '：在客户端已打开的创作者中心发布页上传个人仓库视频 ' + (wfArgs.videoName || '') + '，标题：' + (wfArgs.caption || wfArgs.title || '') + '，话题：' + (wfArgs.topics || '') + (wfArgs.coverUrl ? '，封面：' + wfArgs.coverUrl : '，用平台智能封面') + '，然后点击发布'
-            const buT = await prisma.agentBrowserTask.create({ data: { userId: auth?.userId || 0, task: buTask, files: JSON.stringify([]) } })
-            const wfResult = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + buT.id + '）——客户端 AI 浏览器自动执行（打开平台→上传→填标题→发布）。任务：' + buTask
+            const buT = await buCreate(auth?.userId || 0, buTask, '[]')
+            const wfResult = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + (buT.seq ?? buT.id) + '）——客户端 AI 浏览器自动执行（打开平台→上传→填标题→发布）。任务：' + buTask
             messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfResult) } as any)
             if (normCalls.length === 0) normCalls.push({ id: 'wf-' + Date.now(), name: 'browser_use_execute', arguments: JSON.stringify({ task: buTask }) } as any)
             if (vfName) {
