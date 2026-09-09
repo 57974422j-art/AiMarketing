@@ -177,7 +177,7 @@ async def main():
         executable_path=chrome,
         headless=False,
     )
-    llm = ChatOpenAI(model='qwen3.8-max', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')  # 2026-09-08: qwen3.8-max 旗舰(原生多模态看图+强agentic)——browser_use use_vision 每步截图看页面，认上传框/封面按钮/方向tab——browser_use 每步截图给模型看（认抖音封面按钮/方向tab/问号 vs 真按钮），比 qwen3-max 看 DOM 文本准
+    llm = ChatOpenAI(model='qwen3.8-flash', api_key=dsk, base_url='https://dashscope.aliyuncs.com/compatible-mode/v1')  # 2026-09-09: flash(快，browser_use 大 DOM 不超时)  # 2026-09-08: qwen3.8-max 旗舰(原生多模态看图+强agentic)——browser_use use_vision 每步截图看页面，认上传框/封面按钮/方向tab——browser_use 每步截图给模型看（认抖音封面按钮/方向tab/问号 vs 真按钮），比 qwen3-max 看 DOM 文本准
     file_hint = ('，文件路径：' + ','.join([p.replace(chr(92), '/') for p in local_files]) + '（用正斜杠/）') if local_files else ''
     # 2026-09-08: 封面方向确定性——读封面图片实际尺寸，注入方向指令（不让 AI 猜横竖/乱切）
     cover_dir_hint = ''
