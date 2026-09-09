@@ -485,7 +485,7 @@ async function ensureBuPython() {
     execSync(`powershell -NoProfile -Command "Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${path.join(path.dirname(process.execPath), 'python').replace(/'/g, "''")}' -Force"`, { timeout: 300000, windowsHide: true })
     try { fs.unlinkSync(zipPath) } catch {}
     try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch {}
-    if (fs.existsSync(BUILTIN_PY)) { buLog('[bu-python] 运行环境安装完成: ' + BUILTIN_PY); return { ok: true, py: BUILTIN_PY } }
+    if (fs.existsSync(BUILTIN_PY)) { buLog('[bu-python] 运行环境安装完成: ' + BUILTIN_PY); try { await dialog.showMessageBox(win || {}, { type: 'info', message: '✅ AI 发布环境安装完成', detail: 'Python + browser_use 已就绪——正在继续执行发布任务…' }) } catch {} ; return { ok: true, py: BUILTIN_PY } }
     return { ok: false, error: '解压失败（未找到 python.exe）' }
   } catch (e) {
     try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch {}

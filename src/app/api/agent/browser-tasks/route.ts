@@ -27,6 +27,15 @@ export async function POST(req: NextRequest) {
       })
       return NextResponse.json({ success: true, cleared: r.count })
     }
+    // 2026-09-09: 前端「重发」按钮——复制旧任务建新 pending（不管旧任务成功/失败都再发一次）
+    if (b.action === 'rebuild') {
+      const old = await prisma.agentBrowserTask.findFirst({ where: { id: Number(b.taskId), userId: auth.userId } })
+      if (!old) return NextResponse.json({ success: false, message: '原任务不存在' }, { status: 404 })
+      const nu = await prisma.agentBrowserTask.create({
+        data: { userId: auth.userId, task: String(old.task), files: String(old.files || ''), status: 'pending' },
+      })
+      return NextResponse.json({ success: true, newId: nu.id, msg: '已重建发布任务（#' + nu.id + '）——客户端将重新执行' })
+    }
     const id = Number(b.id)
     const t = await prisma.agentBrowserTask.findFirst({ where: { id, userId: auth.userId } })
     if (!t) return NextResponse.json({ success: false, message: '任务不存在' }, { status: 404 })

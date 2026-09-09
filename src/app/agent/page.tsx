@@ -1939,8 +1939,32 @@ function AgentPageInner() {
     }
   }, [messages])
 
+  // 2026-09-09: 重发浏览器发布任务（前端按钮——不管原任务成功/失败都重建一条让客户端再执行）
+  const rebuildTask = async (taskId: number) => {
+    try {
+      const r = await fetch('/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'rebuild', taskId }) })
+      const j = await r.json().catch(() => null)
+      alert(j?.success ? '已重发——新任务 #' + (j?.newId ?? '') + '，客户端将自动重新执行。' : ('重发失败：' + ((j && j.message) || ('HTTP ' + r.status))))
+    } catch (e: any) { alert('重发失败：' + ((e && e.message) || e)) }
+  }
+
   const renderContent = (content: string) => {
     if (!content) return null
+    // 2026-09-09: AI 浏览器发布任务已建消息 → 卡片带「重发」按钮
+    const buQ = content.match(/BROWSER_TASK_QUEUED|已创建 AI 浏览器发布任务（#(\d+)）/)
+    if (buQ) {
+      const buId = buQ[1] ? Number(buQ[1]) : 0
+      return (
+        <div className="mt-1 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2">
+          <div className="text-xs text-emerald-200 whitespace-pre-wrap">{content}</div>
+          {buId > 0 && (
+            <button onClick={() => rebuildTask(buId)} className="mt-2 px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs">
+              🔁 重发（不管成功与否，再发一次）
+            </button>
+          )}
+        </div>
+      )
+    }
     // 2026-08-31 v2: WF_JSON 结构化消息（状态机——视频卡片可点击选）
     if (content.startsWith('WF_JSON:')) {
       try {
