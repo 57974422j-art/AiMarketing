@@ -455,8 +455,13 @@ function getBuPython() {
 }
 function buPythonReady(py) {
   try {
-    const r = require('child_process').spawnSync(py, ['-c', 'import browser_use'], { timeout: 20000, windowsHide: true })
-    return r.status === 0
+    const sp = require('child_process').spawnSync
+    // 2026-09-10: 发布脚本硬依赖 playwright.sync_api——之前只查 browser_use，
+    //   系统 python 装了 browser_use 但缺 playwright 时被误判"就绪"→ 脚本 ModuleNotFoundError（任务 74/75 实测）
+    const r1 = sp(py, ['-c', 'import playwright.sync_api'], { timeout: 25000, windowsHide: true })
+    if (r1.status !== 0) return false
+    const r2 = sp(py, ['-c', 'import browser_use'], { timeout: 25000, windowsHide: true })
+    return r2.status === 0
   } catch { return false }
 }
 async function ensureBuPython() {
