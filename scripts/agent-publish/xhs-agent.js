@@ -85,17 +85,31 @@ async function main() {
   //   注意：React 只认真实鼠标点击（page.locator().click()），JS evaluate click 无效
   if (coverFile && fs.existsSync(coverFile)) {
     try {
-      // ① 确保 ＋号出现：轮询等（PK 未开则真实点击开关）
+      // ① 确保 ＋号出现：先判 PK 开关状态（已开就别再点，否则会关掉！），再轮询等＋号
       const addSel = '.pk-cover-list-add-btn'
       const addN = () => page.$$eval(addSel, (els) => els.filter((e) => e.offsetParent !== null).length).catch(() => 0)
+      const pkOn = () => page.evaluate(() => {
+        const s = document.querySelector('.pk-title-switch .d-switch-simulator')
+        return !!(s && /checked/.test(String(s.className)))
+      }).catch(() => null)
       let n = await addN()
       if (n === 0) {
-        log('点 PK 开关开封面…')
-        await page.locator('.pk-title-switch').first().click({ timeout: 4000 }).catch(() => {})
-        for (let i = 0; i < 8; i++) { await sleep(1000); if ((await addN()) > 0) break }   // ★轮询最多 8s
+        let on = await pkOn()
+        log('PK 开关状态=' + on)
+        if (on !== true) {                                   // 未开才点（避免把已开的关掉）
+          await page.locator('.pk-title-switch').first().click({ timeout: 4000 }).catch(() => {})
+          log('已点开 PK 封面')
+        }
+        for (let i = 0; i < 8; i++) { await sleep(1000); if ((await addN()) > 0) break }   // 轮询等＋号
+        if ((await addN()) === 0 && (await pkOn()) === true) {  // 已开但仍无＋号 → 重点一次重置
+          await page.locator('.pk-title-switch').first().click({ timeout: 4000 }).catch(() => {})
+          await sleep(1200)
+          await page.locator('.pk-title-switch').first().click({ timeout: 4000 }).catch(() => {})
+          for (let i = 0; i < 6; i++) { await sleep(1000); if ((await addN()) > 0) break }
+        }
       }
       n = await addN()
-      log('封面＋号数=' + n)
+      log('封面＋号数=' + n + ' PK开关=' + (await pkOn()))
       log('封面＋号数=' + n)
       if (n > 0) {
         const [fc] = await Promise.all([
