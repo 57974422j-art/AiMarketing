@@ -533,42 +533,46 @@ async function step6_covers(page, params, log) {
         if (localCoverPath && require('fs').existsSync(localCoverPath)) {
           // ══ 路线A：有自定义封面 → 上传 ══
           var uploaded = false
-          // 等弹窗内按钮渲染
+          // 2026-09-10 重写（按弹窗真实结构 semi-design）：①点方向按钮 ②点 .semi-upload-drag-area 触发文件框 ③兜底 .semi-upload-hidden-input
           await page.waitForTimeout(1500)
           try {
-            // 取所有含"上传封面"的元素，挑第一个【可见】的（避免 .first() 命中隐藏弹窗里的同名按钮）
-            var upAll = await page.$$(
-              'button:has-text("上传封面"), [role="button"]:has-text("上传封面"), [class*="upload"]'
-            ).catch(function() { return [] })
-            var upLoc = null
-            for (var u = 0; u < upAll.length; u++) {
-              if (await upAll[u].isVisible().catch(function() { return false })) { upLoc = upAll[u]; break }
-            }
-            if (upLoc) {
-              var fcResult = await Promise.all([
-                page.waitForEvent('filechooser', { timeout: 5000 }).catch(function() { return null }),
-                upLoc.click({ timeout: 2000 }).catch(function() {})
-              ])
-              if (fcResult[0]) {
-                await fcResult[0].setFiles(localCoverPath)
-                uploaded = true
-                log('    ✅ 已上传自定义封面')
-                await page.waitForTimeout(3000)
-              } else {
-                var covIn = await page.$('input[name="upload-btn"][accept*="image"]').catch(function() { return null }); if (!covIn) covIn = await page.$('input[accept*="image/png"]').catch(function() { return null }); var fip = covIn
-                if (fip) { await fip.setInputFiles(localCoverPath).catch(function() {}); uploaded = true; log('    ✅ 已上传自定义封面(弹窗封面input)'); await page.waitForTimeout(3000) }
-              }
-            } else {
-              log('    ⚠️ 未找到可见的上传封面按钮（尝试直接定位 input）')
-              var fip2 = await page.$('input[type=file]').catch(function() { return null })
-              if (fip2) { await fip2.setInputFiles(localCoverPath).catch(function() {}); uploaded = true; log('    ✅ 已上传自定义封面(弹窗封面input)'); await page.waitForTimeout(3000) }
-            }
+            var dirLabel = _wantLandscape ? "设置横封面" : "设置竖封面"
+            var db = await page.$("button:has-text(\"" + dirLabel + "\")").catch(function() { return null })
+            if (db && await db.isVisible().catch(function() { return false })) {
+              await db.click({ timeout: 2500 }).catch(function() {})
+              log("    ✅ 已选方向: " + dirLabel)
+              await page.waitForTimeout(1500)
+            } else { log("    ⚠️ 未找到方向按钮: " + dirLabel) }
           } catch (_) {}
-          if (!uploaded) log('    ⚠️ 未找到上传封面按钮')
+          try {
+            var upArea = await page.$(".semi-upload-drag-area").catch(function() { return null })
+            if (upArea) {
+              var fc2 = await Promise.all([
+                page.waitForEvent("filechooser", { timeout: 6000 }).catch(function() { return null }),
+                upArea.click({ timeout: 2500 }).catch(function() {})
+              ])
+              if (fc2[0]) {
+                await fc2[0].setFiles(localCoverPath)
+                uploaded = true
+                log("    ✅ 已上传自定义封面(点上传区触发文件框)")
+                await page.waitForTimeout(3500)
+              } else { log("    ⚠️ 点上传区未触发文件框") }
+            } else { log("    ⚠️ 未找到 .semi-upload-drag-area") }
+          } catch (_) {}
+          if (!uploaded) {
+            try {
+              var si = await page.$(".semi-upload-hidden-input").catch(function() { return null })
+              if (si) {
+                await si.setInputFiles(localCoverPath).catch(function() {})
+                uploaded = true
+                log("    ✅ 已上传自定义封面(semi input 兜底)")
+                await page.waitForTimeout(3500)
+              }
+            } catch (_) {}
+          }
+          if (!uploaded) log("    ⚠️ 封面上传失败")
           else selectedCover = true
         }
-
-        // ── 点「完成」确认封面选择（仅当已选封面时）──
         if (selectedCover) {
           try {
             var sv = await page.$('button:has-text("保存")').catch(function() { return null })
