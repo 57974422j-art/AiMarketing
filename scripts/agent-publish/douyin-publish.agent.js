@@ -535,7 +535,9 @@ async function step6_covers(page, params, log) {
             } else { log("    ⚠️ 未找到方向按钮: " + dirLabel) }
           } catch (_) {}
           try {
-            var upArea = await page.$(".semi-upload-drag-area").catch(function() { return null })
+            // ★实测：弹窗内有两个 .semi-upload-drag-area——-custom 是「生成参考图」区，必须排除
+            var upArea = await page.$(".semi-upload-drag-area:not(.semi-upload-drag-area-custom)").catch(function() { return null })
+            if (!upArea) upArea = await page.$("[class*='upload-ZOJTUA']").catch(function() { return null })
             if (upArea) {
               var fc2 = await Promise.all([
                 page.waitForEvent("filechooser", { timeout: 6000 }).catch(function() { return null }),
