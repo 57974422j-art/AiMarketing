@@ -15,7 +15,7 @@
  */
 
 const path = require('path')
-const { resolveLocalVideoPath } = require('./_common')
+const { resolveLocalVideoPath } = require(path.join(__dirname, '..', '..', 'electron', 'fp-templates', '_common.js'))
 
 // ════════════════════════════════════
 // 工具函数
@@ -555,13 +555,13 @@ async function step6_covers(page, params, log) {
                 log('    ✅ 已上传自定义封面')
                 await page.waitForTimeout(3000)
               } else {
-                var fip = await page.$('input[type=file]').catch(function() { return null })
-                if (fip) { await fip.setInputFiles(localCoverPath).catch(function() {}); uploaded = true; log('    ✅ 已上传自定义封面(直传input)'); await page.waitForTimeout(3000) }
+                var covIn = await page.$('input[name="upload-btn"][accept*="image"]').catch(function() { return null }); if (!covIn) covIn = await page.$('input[accept*="image/png"]').catch(function() { return null }); var fip = covIn
+                if (fip) { await fip.setInputFiles(localCoverPath).catch(function() {}); uploaded = true; log('    ✅ 已上传自定义封面(弹窗封面input)'); await page.waitForTimeout(3000) }
               }
             } else {
               log('    ⚠️ 未找到可见的上传封面按钮（尝试直接定位 input）')
               var fip2 = await page.$('input[type=file]').catch(function() { return null })
-              if (fip2) { await fip2.setInputFiles(localCoverPath).catch(function() {}); uploaded = true; log('    ✅ 已上传自定义封面(直传input)'); await page.waitForTimeout(3000) }
+              if (fip2) { await fip2.setInputFiles(localCoverPath).catch(function() {}); uploaded = true; log('    ✅ 已上传自定义封面(弹窗封面input)'); await page.waitForTimeout(3000) }
             }
           } catch (_) {}
           if (!uploaded) log('    ⚠️ 未找到上传封面按钮')
@@ -570,6 +570,10 @@ async function step6_covers(page, params, log) {
 
         // ── 点「完成」确认封面选择（仅当已选封面时）──
         if (selectedCover) {
+          try {
+            var sv = await page.$('button:has-text("保存")').catch(function() { return null })
+            if (sv && await sv.isVisible().catch(function() { return false })) { await sv.click({ timeout: 2500 }).catch(function() {}); log('    ✅ 已点保存'); await page.waitForTimeout(2000) }
+          } catch (_) {}
           var doneOk = false
           try {
             // 优先用 button 选择器，避免 .first() 误命中隐藏的"完成"文本节点

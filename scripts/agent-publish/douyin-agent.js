@@ -56,7 +56,7 @@ async function main() {
     coverImage: a.cover || '',      // 仓库文件名（脚本内部下载）；留空 → 平台默认
     userId: a.userId || '1',
     coverDir: (a['cover-file'] && fs.existsSync(a['cover-file'])) ? imgOrientation(a['cover-file']) : (a['cover-dir'] || 'portrait'),
-    publishNow: 'true',
+    publishNow: a['no-publish'] !== undefined ? 'false' : 'true',   // --no-publish → 只到封面设置不发布（测试用）
     autoMusic: '',
     location: '',
   }
