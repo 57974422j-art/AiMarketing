@@ -197,6 +197,16 @@ def main():
         if pub:
             for i in range(8):
                 page.wait_for_timeout(3000)
+                # 2026-09-10: 发布后可能有二次确认（小红书弹「确认发布」等）——逐轮点掉
+                for _t in ['确认发布', '确定', '确认']:
+                    try:
+                        _loc = page.get_by_text(_t, exact=True)
+                        if _loc.count() > 0 and _loc.first.is_visible():
+                            _loc.first.click(timeout=2500)
+                            log('已点发布二次确认：「' + _t + '」')
+                            break
+                    except Exception:
+                        continue
                 u = page.url
                 try:
                     body = page.inner_text('body')[:600]
