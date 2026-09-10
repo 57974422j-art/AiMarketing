@@ -106,6 +106,17 @@ def main():
             pass
         log('当前 URL=' + page.url)
 
+        # Step0 确保在发布页（确定性导航——不管浏览器当前停在哪）
+        UPLOAD_URL = 'https://creator.douyin.com/creator-micro/content/upload'
+        if 'content/upload' not in page.url:
+            log('不在发布页 → 导航到 ' + UPLOAD_URL)
+            try:
+                page.goto(UPLOAD_URL, wait_until='domcontentloaded', timeout=40000)
+                page.wait_for_timeout(3500)
+                log('导航后 URL=' + page.url)
+            except Exception as e:
+                log('导航失败: ' + str(e)[:100])
+
         # Step1 上传视频
         if 'content/upload' in page.url:
             done = False
