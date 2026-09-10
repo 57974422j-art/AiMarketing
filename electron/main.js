@@ -464,17 +464,34 @@ function buPythonReady(py) {
     return r2.status === 0
   } catch { return false }
 }
+// 2026-09-10: 环境自动就绪（用户零手动）——①内置环境 ②系统 python 缺库则 pip 补装 ③都没有→下载内置环境
+//   背景：一台机器存在两套 python（系统 3.14 有 browser_use 无 playwright / 内置 python-bu 未装）
+//   → 统一成"能跑就用、缺库自动补"，不再弹窗问用户
 async function ensureBuPython() {
-  const py = getBuPython()
-  if (buPythonReady(py)) return { ok: true, py }
-  const { dialog, BrowserWindow } = require('electron')
-  const win = BrowserWindow.getAllWindows()[0]
-  const choice = await dialog.showMessageBox(win || {}, {
-    type: 'info', buttons: ['一键安装(88MB)', '取消'], defaultId: 0, cancelId: 1,
-    message: '发布功能需要运行环境',
-    detail: '本机未安装 AI 发布运行环境(Python + browser-use)。点「一键安装」自动下载(约88MB)并安装到本程序目录，安装后即可发布。只装一次，之后自动使用。'
-  })
-  if (choice.response !== 0) return { ok: false, cancelled: true }
+  // ① 内置环境（BUILTIN_PY）就绪 → 首选
+  if (fs.existsSync(BUILTIN_PY) && buPythonReady(BUILTIN_PY)) {
+    buLog('[bu-python] 使用内置环境（就绪）')
+    return { ok: true, py: BUILTIN_PY }
+  }
+  // ② 系统 python 存在但缺库 → pip 自动补装（几秒，免下 88MB）
+  const { execSync } = require('child_process')
+  const sp = require('child_process').spawnSync
+  let sysPy = ''
+  try { if (sp('python', ['--version'], { windowsHide: true }).status === 0) sysPy = 'python' } catch {}
+  if (!sysPy) { try { if (sp('py', ['--version'], { windowsHide: true }).status === 0) sysPy = 'py' } catch {} }
+  if (sysPy && !buPythonReady(sysPy)) {
+    buLog('[bu-python] 系统 python(' + sysPy + ') 缺库 → 自动 pip 补装 playwright + browser_use')
+    try {
+      execSync(sysPy + ' -m pip install --quiet playwright browser_use', { timeout: 600000, windowsHide: true, stdio: 'ignore' })
+      if (buPythonReady(sysPy)) {
+        buLog('[bu-python] pip 补装成功 → 使用系统 python（' + sysPy + '）')
+        return { ok: true, py: sysPy }
+      }
+      buLog('[bu-python] pip 补装后仍不可用，转内置环境')
+    } catch (ePip) { buLog('[bu-python] pip 补装失败：' + String(ePip && ePip.message || ePip).slice(0, 200)) }
+  }
+  if (sysPy && buPythonReady(sysPy)) return { ok: true, py: sysPy }
+  // ③ 都没有 → 静默下载内置环境（失败才提示）
   try {
     if (fs.existsSync(BU_PY_DOWNLOADING)) return { ok: false, error: '正在安装中，请稍候' }
     fs.writeFileSync(BU_PY_DOWNLOADING, '1')
@@ -490,7 +507,7 @@ async function ensureBuPython() {
     execSync(`powershell -NoProfile -Command "Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${path.join(path.dirname(process.execPath), 'python').replace(/'/g, "''")}' -Force"`, { timeout: 300000, windowsHide: true })
     try { fs.unlinkSync(zipPath) } catch {}
     try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch {}
-    if (fs.existsSync(BUILTIN_PY)) { buLog('[bu-python] 运行环境安装完成: ' + BUILTIN_PY); try { await dialog.showMessageBox(win || {}, { type: 'info', message: '✅ AI 发布环境安装完成', detail: 'Python + browser_use 已就绪——正在继续执行发布任务…' }) } catch {} ; return { ok: true, py: BUILTIN_PY } }
+    if (fs.existsSync(BUILTIN_PY)) { buLog('[bu-python] 运行环境安装完成: ' + BUILTIN_PY); try { const { dialog, BrowserWindow } = require('electron'); await dialog.showMessageBox(BrowserWindow.getAllWindows()[0] || {}, { type: 'info', message: '✅ AI 发布环境安装完成', detail: 'Python + browser_use 已就绪——正在继续执行发布任务…' }) } catch {} ; return { ok: true, py: BUILTIN_PY } }
     return { ok: false, error: '解压失败（未找到 python.exe）' }
   } catch (e) {
     try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch {}
