@@ -642,7 +642,7 @@ async function checkBrowserTasks() {
       try { tp = JSON.parse(String(t.task)) } catch (e) { tp = null }
       if (tp && tp.kind === 'publish') {
         const plat = String(tp.platform || '')
-        const scriptMap = { douyin: 'bu_pub_douyin.py', xiaohongshu: 'bu_pub_xhs.py', weibo: 'bu_pub_weibo.py' }
+        const scriptMap = { douyin: 'bu_pub_douyin.py', xiaohongshu: 'bu_pub_xhs.py', weibo: 'bu_pub_weibo.py', shipinhao: 'bu_pub_shipinhao.py' }
         const sname = scriptMap[plat]
         if (sname) {
           const scriptPath = path.join(process.resourcesPath, 'scripts', 'agent-publish', sname)
@@ -664,7 +664,7 @@ async function checkBrowserTasks() {
             buLog('任务#' + (t.seq ?? t.id) + ' 登记浏览器未开（CDP 9222 不通）——自动启动')
             const _chrome = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find((p2) => fs.existsSync(p2))
             if (_chrome) {
-              const platUrlMap2 = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish?from=menu&target=video', weibo: 'https://weibo.com/upload/channel' }
+              const platUrlMap2 = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish?from=menu&target=video', weibo: 'https://weibo.com/upload/channel', shipinhao: 'https://channels.weixin.qq.com/platform/post/create' }
               spawn(_chrome, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--no-first-run', platUrlMap2[plat] || platUrlMap2.douyin], { detached: true, stdio: 'ignore' }).unref()
               await new Promise((r2) => setTimeout(r2, 7000))
               buLog('已启动登记浏览器，继续执行脚本')
