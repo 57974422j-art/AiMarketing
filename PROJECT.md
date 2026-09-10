@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-08-14 ｜2026-08-06 ｜ 配套文档：[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-09-10 ｜2026-08-06 ｜ 配套文档：[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
@@ -154,6 +154,20 @@ dashboard(+insights/sop)、workspace、ai-tools、ai-copy、image-generator、au
 i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
+
+### 2026-09-10 AGENT 发布确定性脚本（✅ 抖音/小红书已通——待端到端验证）
+- **方向变更**：AGENT 发布从 browser_use（AI 逐步决策，慢且不稳）改为**确定性 Playwright 脚本**；browser_use 保留作**无脚本平台**兜底（不放弃）
+- **三层接线（已提交）**：
+  1. `chat route` 建任务时 task 存 JSON：`{kind:'publish', platform, videoName, title, topics, cover, task(人话)}`
+  2. `electron/main.js checkBrowserTasks` 解析 JSON → 抖音/小红书 spawn `bu_pub_douyin.py` / `bu_pub_xhs.py`；其他平台 → `bu_exec.py`
+  3. 脚本随包下发：**必须改 `scripts/build-local.mjs` 的 extraResources**（它自己生成 build.local.json——改 package.json 无效）
+- **抖音封面**：点 `[class*="coverControl"]` 层才开弹窗（cover-tip 文本层无效）→ 按封面图尺寸选入口（竖图→竖封面3:4）→ 弹窗内 `.semi-upload-drag-area:not(.semi-upload-drag-area-custom)`（排除 AI 参考图区）→ `button:has-text("完成")`
+- **小红书封面**：读 PK 开关状态（`.pk-title-switch .d-switch-simulator` 含 `checked`）→ 未开才点 → 轮询等＋号（`.pk-cover-list-add-btn`）→ 系统文件框 → setFiles（PK 模式上传即生效）
+- **话题联想浮层**：末尾再打一个 `#` 即消失（实测）
+- ✅ 两平台 `--no-publish` 全流程实测通过；**1.0.129 已打包**（包内脚本已校验）
+- ⏳ 待做：①服务器部署（chat route 改了）②装 1.0.129 端到端验证（AGENT 里发抖音/小红书）③套快手/视频号/微博/B站 ④browser_use 兜底路径回归
+- 📌 方法论已存长期记忆：`aimarketing-publish-script-method`
+
 
 ### 2026-08-18 客户端常驻自动发布（✅ 已实现——需重打包分发）
 - **目标**：Electron 启动后自动拉起指纹浏览器 + 后台轮询 agentPublishTask（pending→自动执行），**用户不开页面也能自动发布**（登录态一直在本地，比爬虫直发安全）

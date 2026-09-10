@@ -4,6 +4,9 @@
 > 同步维护：PROJECT.md 六「当前进度/待办」、ISSUES.md 问题状态。
 > 开始日期：2026-08-05
 
+| 2026-09-10 | **AGENT 发布确定性脚本（抖音+小红书）**：三层接线（chat route 任务带 JSON 结构化参数 kind/platform/videoName/title/topics/cover → main.js checkBrowserTasks 按平台分发 → Python 脚本 bu_pub_douyin.py/bu_pub_xhs.py，无脚本平台回退 bu_exec.py）+ 抖音封面（coverControl 层点击/按图方向选入口/排除 semi custom AI参考图区/button 完成）+ 小红书封面（PK 开关状态判断→＋号→系统文件框）+ 话题 # 技改关联想浮层 | src/app/api/agent/chat/route.ts、electron/main.js、scripts/agent-publish/bu_pub_douyin.py、bu_pub_xhs.py、scripts/build-local.mjs、package.json | ✅ 两平台 --no-publish 实测通过；1.0.129 打包（脚本进包已验证）|
+| 2026-09-10 | 打包遗漏修复：build-local.mjs 自己生成 build.local.json（extraResources 硬编码）——package.json 的 extraResources 不生效 → 在 build-local.mjs 加 scripts/agent-publish | scripts/build-local.mjs | ✅ 包内校验脚本存在 |
+| 2026-09-10 | 客户端更新保数据：electron-builder 自动更新会 RMDir /r 整个安装目录（data/python/storage 全删）→ installer.nsh customInit 备份 data/python/storage 到 $TEMP + customInstall 恢复 | electron/installer.nsh | ✅ 已打包（1.0.117 起）|
 | 2026-09-07 | ①视频落个人仓库+本地镜像+技术标记剥离 ②封面尺寸跟随横竖屏+过抖音1000x752 ③订阅周期读durationMonths+周卡7天 ④浏览器统一系统Chrome+删Playwright CDP残留 ⑤AI打开外部网页走link卡片 ⑥发布顺序纠正(视频→等转码→标题→话题→封面) ⑦对话内重发#N ⑧userData改回安装目录data/ ⑨BU_STEP落盘 | chat route/ai-providers/selfcheck/notify/my-usage/claim-weekly/electron main+preload/page.tsx/bu_exec.py | 打包v1.0.113；封面browser-use上传与抖音弹窗冲突待解决 |
 | 2026-09-06 | ①自由模式独立线：header 分流（自由模式极简宽松 header，只留发布红线+诚实；标准 header 不动）②多模态 forceVL→qwen3-max（图片不再乱码）③图生视频 t2v→i2v ④一键成片 userId 提顶层 ⑤封面尺寸 720×960 | ai-providers.ts / chat route / auto-compile route / page.tsx | 已提交 b22d106 |
 | 2026-08-14 | API key 根因修复：①config 读写 .env.local 统一 DOTENV_CONFIG_PATH（之前写 cwd/standalone 被 rm -rf 删）；②16 段保存排除 ******** 掩码覆盖；③statusMap 加 minimax（配置后显示已配置）；④settings 分页 Tab（密钥/媒体/引擎/系统 4 组）；⑤Minimax 音乐测试命令 | config/route.ts / settings/page.tsx | 服务器验证 MINIMAX_API_KEY 保存成功；settings 语法 0；分页提交 2c18a72 |
