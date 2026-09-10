@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       const nu = await prisma.agentBrowserTask.create({
         data: { userId: auth.userId, task: String(old.task), files: String(old.files || ''), status: 'pending', seq: (lastS?.seq ?? 0) + 1 },
       })
-      return NextResponse.json({ success: true, newId: nu.id, msg: '已重建发布任务（#' + nu.id + '）——客户端将重新执行' })
+      return NextResponse.json({ success: true, newId: nu.id, msg: '已重建发布任务（#' + (nu.seq ?? nu.id) + '）——客户端将重新执行' })
     }
     const id = Number(b.id)
     const t = await prisma.agentBrowserTask.findFirst({ where: { id, userId: auth.userId } })

@@ -1275,9 +1275,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
 
     case 'query_browser_tasks': {
         try {
-          const bt = await prisma.agentBrowserTask.findMany({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' }, take: 10 })
+          const bt = await prisma.agentBrowserTask.findMany({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' }, take: 10, select: { id: true, seq: true, status: true, task: true, error: true, createdAt: true } })
           if (!bt.length) return 'BROWSER_TASKS:no browser tasks yet.'
-          return 'BROWSER_TASKS:' + '\n' + '\n' + bt.map((t: any) => '#' + t.id + ' [' + (t.status || 'pending') + '] ' + String(t.task || '').slice(0, 60) + (t.error ? '(' + String(t.error).slice(0, 80) + ')' : '') + (t.result ? ' -> ' + String(t.result).slice(0, 60) : '')).join('\n')
+          return 'BROWSER_TASKS:' + '\n' + '\n' + bt.map((t: any) => '#' + (t.seq ?? t.id) + ' [' + (t.status || 'pending') + '] ' + String(t.task || '').slice(0, 60) + (t.error ? '(' + String(t.error).slice(0, 80) + ')' : '') + (t.result ? ' -> ' + String(t.result).slice(0, 60) : '')).join('\n')
         } catch (eQ: any) { return 'BROWSER_TASKS_ERROR:' + String(eQ?.message || eQ).slice(0, 100) }
       }
     case 'publish_content': {
@@ -1415,9 +1415,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     case 'query_publish_tasks': {
       // 2026-08-31: 发布已统一 AI 浏览器——查 AgentBrowserTask（旧表 agentPublishTask 无新任务）
       try {
-        const bt2 = await prisma.agentBrowserTask.findMany({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' }, take: 5 })
+        const bt2 = await prisma.agentBrowserTask.findMany({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' }, take: 5, select: { id: true, seq: true, status: true, task: true, createdAt: true } })
         if (!bt2.length) return 'PUBLISH_TASKS:暂无发布/浏览器任务。'
-        return 'PUBLISH_TASKS:' + '\n' + '\n' + bt2.map((t: any) => '#' + t.id + ' [' + (t.status || 'pending') + '] ' + String(t.task || '').slice(0, 50) + (t.error ? '（' + String(t.error).slice(0, 80) + '）' : '') + (t.result ? ' → ' + String(t.result).slice(0, 50) : '')).join('\n')
+        return 'PUBLISH_TASKS:' + '\n' + '\n' + bt2.map((t: any) => '#' + (t.seq ?? t.id) + ' [' + (t.status || 'pending') + '] ' + String(t.task || '').slice(0, 50) + (t.error ? '（' + String(t.error).slice(0, 80) + '）' : '') + (t.result ? ' → ' + String(t.result).slice(0, 50) : '')).join('\n')
       } catch (eQ: any) { return 'PUBLISH_TASKS_ERROR:' + String(eQ?.message || eQ).slice(0, 100) }
     }
 
