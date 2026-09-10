@@ -428,7 +428,7 @@ function setupAutoPublish() {
 
 // browser-use 任务执行（Electron 调 Python——复用 D:u_profile 登录态）
 // 2026-08-31: BU_PYTHON fallback（硬编码打包机路径——发布机无则 ENOENT）——python/py 兜底
-const BU_PYTHON = process.env.BU_PYTHON || (require('child_process').spawnSync('python', ['--version']).status === 0 ? 'python' : (require('child_process').spawnSync('py', ['--version']).status === 0 ? 'py' : "C:/Users/wo'shen/AppData/Local/Programs/Python/Python314/python.exe"))
+let BU_PYTHON = process.env.BU_PYTHON || ''   // 2026-09-10: 改懒赋值（原来模块加载时 spawnSync 探测 python → 阻塞启动）；用时走 getBuPython()
 // 2026-08-29: bu_exec.py 在 extraResources（resources/scripts/browser-use——不是 asar.unpacked）——之前路径错→spawn找不到→任务pending
 const BU_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_exec.py')
@@ -445,73 +445,105 @@ const BUILTIN_PY_DIR = path.join(path.dirname(process.execPath), 'python', 'buve
 const BUILTIN_PY = path.join(BUILTIN_PY_DIR, 'Scripts', 'python.exe')
 const PY_BU_URL = 'https://aimarketing-1.oss-cn-hangzhou.aliyuncs.com/updates/python-bu.zip'
 const BU_PY_DOWNLOADING = path.join(path.dirname(process.execPath), 'python', '.downloading')
+let _buPy = ''   // 2026-09-10: python 路径缓存（异步探测后填充——避免启动时同步探测阻塞界面）
 function getBuPython() {
+  if (_buPy) return _buPy
   if (fs.existsSync(BUILTIN_PY)) return BUILTIN_PY
   if (process.env.BU_PYTHON) return process.env.BU_PYTHON
-  const sp = require('child_process').spawnSync
-  try { if (sp('python', ['--version']).status === 0) return 'python' } catch {}
-  try { if (sp('py', ['--version']).status === 0) return 'py' } catch {}
-  return BUILTIN_PY // 兜底（不存在→触发一键安装）
+  return BUILTIN_PY   // 未探测时的兜底（异步探测完成会更新 _buPy）
 }
-function buPythonReady(py) {
-  try {
-    const sp = require('child_process').spawnSync
-    // 2026-09-10: 发布脚本硬依赖 playwright.sync_api——之前只查 browser_use，
-    //   系统 python 装了 browser_use 但缺 playwright 时被误判"就绪"→ 脚本 ModuleNotFoundError（任务 74/75 实测）
-    const r1 = sp(py, ['-c', 'import playwright.sync_api'], { timeout: 25000, windowsHide: true })
-    if (r1.status !== 0) return false
-    const r2 = sp(py, ['-c', 'import browser_use'], { timeout: 25000, windowsHide: true })
-    return r2.status === 0
-  } catch { return false }
+
+// 2026-09-10: 异步执行外部命令（不阻塞主进程）
+//   背景：原 spawnSync/execSync 同步调用会让界面"未响应"——pip 装 browser_use 最长 10 分钟、
+//   Expand-Archive 解压 88MB 几分钟、spawnSync 探测 python 几秒，全在主进程同步跑
+function runAsync(exe, args, opts) {
+  const o = opts || {}
+  return new Promise((resolve) => {
+    let done = false
+    const fin = (r) => { if (!done) { done = true; resolve(r) } }
+    try {
+      const p = spawn(exe, args, { windowsHide: true })
+      let out = '', err = ''
+      const t = setTimeout(() => { try { p.kill() } catch (e) {} fin({ code: -1, stdout: out, stderr: 'timeout' }) }, o.timeout || 300000)
+      if (p.stdout) p.stdout.on('data', (d) => { out += String(d) })
+      if (p.stderr) p.stderr.on('data', (d) => { err += String(d) })
+      p.on('close', (code) => { clearTimeout(t); fin({ code, stdout: out, stderr: err }) })
+      p.on('error', (e) => { clearTimeout(t); fin({ code: -9, stdout: '', stderr: String((e && e.message) || e) }) })
+    } catch (e) { fin({ code: -9, stdout: '', stderr: String((e && e.message) || e) }) }
+  })
 }
-// 2026-09-10: 环境自动就绪（用户零手动）——①内置环境 ②系统 python 缺库则 pip 补装 ③都没有→下载内置环境
-//   背景：一台机器存在两套 python（系统 3.14 有 browser_use 无 playwright / 内置 python-bu 未装）
-//   → 统一成"能跑就用、缺库自动补"，不再弹窗问用户
+
+// 异步就绪检查（playwright + browser_use 都必须能 import）
+async function buPythonReadyAsync(py) {
+  if (!py) return false
+  const r1 = await runAsync(py, ['-c', 'import playwright.sync_api'], { timeout: 25000 })
+  if (r1.code !== 0) return false
+  const r2 = await runAsync(py, ['-c', 'import browser_use'], { timeout: 25000 })
+  return r2.code === 0
+}
+
+// 异步解析可用的 python（内置 → env → python → py → 兜底内置路径）
+async function resolveBuPythonAsync() {
+  if (fs.existsSync(BUILTIN_PY)) {
+    if (await buPythonReadyAsync(BUILTIN_PY)) { _buPy = BUILTIN_PY; return BUILTIN_PY }
+  }
+  if (process.env.BU_PYTHON) { _buPy = process.env.BU_PYTHON; return _buPy }
+  for (const cand of ['python', 'py']) {
+    const r = await runAsync(cand, ['--version'], { timeout: 8000 })
+    if (r.code === 0) { _buPy = cand; return cand }
+  }
+  _buPy = BUILTIN_PY
+  return BUILTIN_PY
+}
+
+// 2026-09-10: 发布环境自动就绪（全异步，不阻塞界面）
+//   ① 内置环境就绪 → 首选  ② 系统 python 缺库 → 异步 pip 补装  ③ 都没有 → 异步下载内置 zip 解压
 async function ensureBuPython() {
-  // ① 内置环境（BUILTIN_PY）就绪 → 首选
-  if (fs.existsSync(BUILTIN_PY) && buPythonReady(BUILTIN_PY)) {
+  if (fs.existsSync(BUILTIN_PY) && await buPythonReadyAsync(BUILTIN_PY)) {
+    _buPy = BUILTIN_PY
     buLog('[bu-python] 使用内置环境（就绪）')
     return { ok: true, py: BUILTIN_PY }
   }
-  // ② 系统 python 存在但缺库 → pip 自动补装（几秒，免下 88MB）
-  const { execSync } = require('child_process')
-  const sp = require('child_process').spawnSync
   let sysPy = ''
-  try { if (sp('python', ['--version'], { windowsHide: true }).status === 0) sysPy = 'python' } catch {}
-  if (!sysPy) { try { if (sp('py', ['--version'], { windowsHide: true }).status === 0) sysPy = 'py' } catch {} }
-  if (sysPy && !buPythonReady(sysPy)) {
-    buLog('[bu-python] 系统 python(' + sysPy + ') 缺库 → 自动 pip 补装 playwright + browser_use')
-    try {
-      execSync(sysPy + ' -m pip install --quiet playwright browser_use', { timeout: 600000, windowsHide: true, stdio: 'ignore' })
-      if (buPythonReady(sysPy)) {
-        buLog('[bu-python] pip 补装成功 → 使用系统 python（' + sysPy + '）')
-        return { ok: true, py: sysPy }
-      }
-      buLog('[bu-python] pip 补装后仍不可用，转内置环境')
-    } catch (ePip) { buLog('[bu-python] pip 补装失败：' + String(ePip && ePip.message || ePip).slice(0, 200)) }
+  for (const cand of ['python', 'py']) {
+    const r = await runAsync(cand, ['--version'], { timeout: 8000 })
+    if (r.code === 0) { sysPy = cand; break }
   }
-  if (sysPy && buPythonReady(sysPy)) return { ok: true, py: sysPy }
-  // ③ 都没有 → 静默下载内置环境（失败才提示）
+  if (sysPy && !(await buPythonReadyAsync(sysPy))) {
+    buLog('[bu-python] 系统 python(' + sysPy + ') 缺库 → 异步 pip 补装 playwright + browser_use（界面不阻塞）')
+    await runAsync(sysPy, ['-m', 'pip', 'install', '--quiet', 'playwright', 'browser_use'], { timeout: 900000 })
+    if (await buPythonReadyAsync(sysPy)) {
+      _buPy = sysPy
+      buLog('[bu-python] pip 补装成功 → 使用系统 python（' + sysPy + '）')
+      return { ok: true, py: sysPy }
+    }
+    buLog('[bu-python] pip 补装后仍不可用，转内置环境')
+  }
+  if (sysPy && await buPythonReadyAsync(sysPy)) { _buPy = sysPy; return { ok: true, py: sysPy } }
+  // ③ 都没有 → 异步下载内置环境 zip 并解压
   try {
     if (fs.existsSync(BU_PY_DOWNLOADING)) return { ok: false, error: '正在安装中，请稍候' }
     fs.writeFileSync(BU_PY_DOWNLOADING, '1')
     fs.mkdirSync(path.dirname(process.execPath) + '/python', { recursive: true })
     const zipPath = path.join(path.dirname(process.execPath), 'python', 'python-bu.zip')
-    buLog('[bu-python] 开始下载运行环境...')
+    buLog('[bu-python] 开始下载运行环境（异步，不阻塞界面）...')
     const rsp = await fetch(PY_BU_URL)
-    if (!rsp.ok) return { ok: false, error: '下载失败 HTTP ' + rsp.status }
+    if (!rsp.ok) { try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch (e) {} return { ok: false, error: '下载失败 HTTP ' + rsp.status } }
     fs.writeFileSync(zipPath, Buffer.from(await rsp.arrayBuffer()))
-    buLog('[bu-python] 下载完成，解压中...')
-    // Windows 用 PowerShell Expand-Archive 解压
-    const { execSync } = require('child_process')
-    execSync(`powershell -NoProfile -Command "Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${path.join(path.dirname(process.execPath), 'python').replace(/'/g, "''")}' -Force"`, { timeout: 300000, windowsHide: true })
-    try { fs.unlinkSync(zipPath) } catch {}
-    try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch {}
-    if (fs.existsSync(BUILTIN_PY)) { buLog('[bu-python] 运行环境安装完成: ' + BUILTIN_PY); try { const { dialog, BrowserWindow } = require('electron'); await dialog.showMessageBox(BrowserWindow.getAllWindows()[0] || {}, { type: 'info', message: '✅ AI 发布环境安装完成', detail: 'Python + browser_use 已就绪——正在继续执行发布任务…' }) } catch {} ; return { ok: true, py: BUILTIN_PY } }
+    buLog('[bu-python] 下载完成，异步解压中...')
+    const destDir = path.join(path.dirname(process.execPath), 'python')
+    await runAsync('powershell', ['-NoProfile', '-Command', 'Expand-Archive -Path "' + zipPath + '" -DestinationPath "' + destDir + '" -Force'], { timeout: 900000 })
+    try { fs.unlinkSync(zipPath) } catch (e) {}
+    try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch (e) {}
+    if (fs.existsSync(BUILTIN_PY)) {
+      _buPy = BUILTIN_PY
+      buLog('[bu-python] 运行环境安装完成: ' + BUILTIN_PY)
+      return { ok: true, py: BUILTIN_PY }
+    }
     return { ok: false, error: '解压失败（未找到 python.exe）' }
   } catch (e) {
-    try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch {}
-    return { ok: false, error: String(e && e.message || e) }
+    try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch (e2) {}
+    return { ok: false, error: String((e && e.message) || e) }
   }
 }
 
@@ -1290,7 +1322,7 @@ ipcMain.handle('bu:open', async (event) => {
       const { spawn } = require('child_process')
       const out = await new Promise((resolve) => {
         let so = ''
-        const py = spawn(BU_PYTHON, ['-u', BU_CHECK_SCRIPT, String(BU_PROFILE_DIR)], { windowsHide: true })
+        const py = spawn(BU_PYTHON || getBuPython(), ['-u', BU_CHECK_SCRIPT, String(BU_PROFILE_DIR)], { windowsHide: true })
         py.stdout.on('data', (d) => { so += d })
         py.stderr.on('data', () => {})
         py.on('close', () => resolve(so.trim()))
@@ -1981,7 +2013,7 @@ ipcMain.handle('browser:accounts', async () => {
     const { spawn } = require('child_process')
     const out = await new Promise((resolve) => {
       let so = ''
-      const py = spawn(BU_PYTHON, ['-u', BU_CHECK_SCRIPT, String(BU_PROFILE_DIR)], { windowsHide: true })
+      const py = spawn(BU_PYTHON || getBuPython(), ['-u', BU_CHECK_SCRIPT, String(BU_PROFILE_DIR)], { windowsHide: true })
       py.stdout.on('data', (d) => { so += d })
       py.stderr.on('data', () => {})
       py.on('close', () => resolve(so.trim()))
