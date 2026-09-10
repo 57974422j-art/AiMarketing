@@ -81,30 +81,31 @@ async function main() {
     } catch (e) { log('话题失败: ' + e.message.slice(0, 60)) }
   }
 
-  // Step5 封面（点「设置封面」→ 上传）
+  // Step5 封面（★实测：点封面列表的「＋」号 → 系统文件框 → 选图 → 完成）
   if (coverFile && fs.existsSync(coverFile)) {
     try {
-      await page.getByText('设置封面', { exact: true }).first().click({ timeout: 4000 }).catch(() => {})
-      log('已点「设置封面」')
-      await sleep(2500)
-      const [fc] = await Promise.all([
-        page.waitForEvent('filechooser', { timeout: 6000 }).catch(() => null),
-        (async () => {
-          const up = page.getByText('上传封面', { exact: false }).first()
-          if (await up.isVisible().catch(() => false)) await up.click({ timeout: 2500 }).catch(() => {})
-        })(),
-      ])
-      if (fc) { await fc.setFiles(coverFile); log('✅ 封面已上传(filechooser)'); await sleep(3000) }
-      else {
-        const ci = await page.$('input[type="file"][accept*="image"]')
-        if (ci) { await ci.setInputFiles(coverFile); log('✅ 封面已上传(input)'); await sleep(3000) }
-        else log('⚠️ 封面上传入口未找到')
-      }
-      // 完成/应用
-      for (const t of ['完成', '确定', '应用', '保存']) {
-        const btn = page.getByText(t, { exact: true }).first()
-        if (await btn.isVisible().catch(() => false)) { await btn.click({ timeout: 2500 }).catch(() => {}); log('✅ 已点「' + t + '」'); await sleep(2000); break }
-      }
+      const addSel = '.pk-cover-list-add-btn, .pk-cover-list-add-icon, [class*="cover-list-add"]'
+      const n = (await page.$$(addSel)).length
+      log('封面＋号元素数=' + n)
+      if (n > 0) {
+        const [fc] = await Promise.all([
+          page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null),
+          page.locator(addSel).first().click({ timeout: 4000 }).catch(() => {}),
+        ])
+        if (fc) {
+          await fc.setFiles(coverFile)
+          log('✅ 封面已上传（＋号→文件框）')
+          await sleep(4000)
+          for (const t of ['完成', '确定', '保存']) {
+            const btn = page.getByText(t, { exact: true }).first()
+            if (await btn.isVisible().catch(() => false)) { await btn.click({ timeout: 2500 }).catch(() => {}); log('✅ 点了「' + t + '」'); await sleep(2000); break }
+          }
+        } else {
+          const ci = await page.$('input.upload-input[accept*="image"]')
+          if (ci) { await ci.setInputFiles(coverFile); log('✅ 封面已上传（image input 兜底）'); await sleep(3500) }
+          else log('⚠️ ＋号未触发文件框，且无 image input')
+        }
+      } else log('⚠️ 未找到封面＋号（封面列表可能未渲染）')
     } catch (e) { log('封面异常: ' + e.message.slice(0, 80)) }
   } else log('无封面 → 平台默认')
 
