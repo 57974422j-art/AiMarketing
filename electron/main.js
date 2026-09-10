@@ -521,7 +521,9 @@ async function checkBrowserTasks() {
       for (const fu of files) {
         try {
           const uu = new URL(fu)
-          const fn = uu.searchParams.get('name') || decodeURIComponent(uu.pathname.split('/').pop() || '')
+          let fn = uu.searchParams.get('name') || decodeURIComponent(uu.pathname.split('/').pop() || '')
+          // 2026-09-10 修：name 参数常带子路径（storage/1/xxx.mp4），本地仓库是平铺的 → 只取文件名
+          fn = String(fn).split('/').filter(Boolean).pop() || ''
           if (!fn) continue
           const dest2 = path.join(LOCAL_STORAGE, fn)
           if (!fs.existsSync(dest2)) {
