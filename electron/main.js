@@ -573,7 +573,7 @@ async function checkBrowserTasks() {
       // 2026-09-08: 确保 Python 运行环境就绪（缺则一键下载安装 OSS python-bu.zip——用户零手动）
       // 2026-09-10: 发布时只检查不安装（安装放启动自检——不打断发布）
       const _c = buEnv && buEnv.getCached()
-      const envR = (_c && _c.ok) ? { ok: true, py: _c.py } : (buEnv ? buEnv.getBuEnvInfo() : { ok: false, error: 'bu-env 未加载' })
+      const envR = (_c && _c.ok) ? { ok: true, py: _c.py } : (buEnv ? await buEnv.getBuEnvInfo() : { ok: false, error: 'bu-env 未加载' })
       if (!envR.ok) {
         buLog('任务#' + (t.seq ?? t.id) + ' 缺 Python 运行环境：' + (envR.error || '用户取消一键安装') + '——跳过')
         await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: envR.cancelled ? 'pending' : 'failed', error: envR.cancelled ? '等待安装运行环境' : ('缺 Python 运行环境：' + (envR.error || '')) }) }).catch(() => {})

@@ -2,25 +2,46 @@
  * 发布运行环境自检（2026-09-10）
  * 用户要求：① 打开客户端时自检 + 后台静默安装 ② 装完弹窗告知"已安装哪些组件"
  *          ③ 发布时只检查不安装（不打断发布）
+ * 2026-09-10 修复：环境探测改用【异步 spawn】——原来用 spawnSync 同步调 python 3 次
+ *   （每次 timeout 25s）会阻塞 Electron 主进程，最长 ~75s 界面"未响应"（另一台机器实测卡死）
  */
 module.exports = function createBuEnv(deps) {
   const { BUILTIN_PY, getBuPython, getServerCookie, ensureBuPython, buLog } = deps
   let cached = null
 
-  function getBuEnvInfo(pyOverride) {
+  /** 异步跑 python（不阻塞主进程） */
+  function runPy(py, args, timeoutMs) {
+    return new Promise((resolve) => {
+      let done = false
+      const finish = (r) => { if (!done) { done = true; resolve(r) } }
+      try {
+        const { spawn } = require('child_process')
+        const p = spawn(py, args, { windowsHide: true })
+        let out = '', err = ''
+        const t = setTimeout(() => { try { p.kill() } catch (e) {} finish({ code: -1, stdout: out, stderr: 'timeout' }) }, timeoutMs)
+        p.stdout.on('data', (d) => { out += String(d) })
+        p.stderr.on('data', (d) => { err += String(d) })
+        p.on('close', (code) => { clearTimeout(t); finish({ code, stdout: out, stderr: err }) })
+        p.on('error', (e) => { clearTimeout(t); finish({ code: -9, stdout: '', stderr: String((e && e.message) || e) }) })
+      } catch (e) {
+        finish({ code: -9, stdout: '', stderr: String((e && e.message) || e) })
+      }
+    })
+  }
+
+  async function getBuEnvInfo(pyOverride) {
     const py = pyOverride || getBuPython()
     const info = {
       py, pythonPath: py, pythonVersion: '', playwright: '', browserUse: '',
       ok: false, builtin: py === BUILTIN_PY,
     }
-    const sp = require('child_process').spawnSync
     try {
-      const r3 = sp(py, ['-c', 'import sys; print(sys.version.split()[0])'], { timeout: 20000, windowsHide: true, encoding: 'utf8' })
-      if (r3.status === 0) info.pythonVersion = String(r3.stdout || '').trim()
-      const r1 = sp(py, ['-c', 'import playwright; print(getattr(playwright, "__version__", "ok"))'], { timeout: 25000, windowsHide: true, encoding: 'utf8' })
-      if (r1.status === 0) info.playwright = String(r1.stdout || '').trim() || 'ok'
-      const r2 = sp(py, ['-c', 'import browser_use'], { timeout: 25000, windowsHide: true })
-      if (r2.status === 0) info.browserUse = 'ok'
+      const r3 = await runPy(py, ['-c', 'import sys; print(sys.version.split()[0])'], 20000)
+      if (r3.code === 0) info.pythonVersion = String(r3.stdout || '').trim()
+      const r1 = await runPy(py, ['-c', 'import playwright; print(getattr(playwright, "__version__", "ok"))'], 25000)
+      if (r1.code === 0) info.playwright = String(r1.stdout || '').trim() || 'ok'
+      const r2 = await runPy(py, ['-c', 'import browser_use'], 25000)
+      if (r2.code === 0) info.browserUse = 'ok'
       info.ok = !!(info.playwright && info.browserUse)
     } catch (e) { info.error = String((e && e.message) || e) }
     return info
@@ -46,13 +67,13 @@ module.exports = function createBuEnv(deps) {
   async function ensureBuEnvOnStartup() {
     try {
       buLog('[bu-env] 启动自检：检查发布环境...')
-      let info = getBuEnvInfo()
+      let info = await getBuEnvInfo()
       if (info.ok) {
         buLog('[bu-env] 环境已就绪：' + JSON.stringify(info))
       } else {
         buLog('[bu-env] 缺组件 → 后台安装：' + JSON.stringify(info))
         const r = await ensureBuPython()
-        info = getBuEnvInfo(r && r.py ? r.py : undefined)
+        info = await getBuEnvInfo(r && r.py ? r.py : undefined)
         buLog('[bu-env] 安装后：' + JSON.stringify(info))
         try {
           const { dialog, BrowserWindow } = require('electron')

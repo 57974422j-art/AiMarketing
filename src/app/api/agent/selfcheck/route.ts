@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
       const gEnv: any = globalThis as any
       const envInfo = gEnv.__clientEnv && gEnv.__clientEnv.get ? gEnv.__clientEnv.get(auth.userId) : null
       if (!envInfo) {
-        checks.push({ key: 'buenv', label: '发布运行环境', ok: false, detail: '客户端未上报（打开客户端会自动自检并安装）' })
+        checks.push({ key: 'buenv', label: '发布运行环境', ok: true, detail: '检测中——客户端启动自检完成后自动上报（若持续如此请重启客户端）' })
       } else if (envInfo.ok) {
         checks.push({
           key: 'buenv', label: '发布运行环境', ok: true,
