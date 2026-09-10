@@ -4,6 +4,13 @@
 > 同步维护：PROJECT.md 六「当前进度/待办」、ISSUES.md 问题状态。
 > 开始日期：2026-08-05
 
+| 2026-09-10 | **发布环境自检改造**（用户要求：不要在发布时装/弹窗）：①客户端启动 8s 后静默自检+后台安装（ensureBuEnvOnStartup，electron/bu-env.js 新模块）②装完弹窗告知已安装组件（Python版本内置/系统 + playwright + browser_use + 位置）③发布时只检查不安装（未就绪报错提示重启）④AGENT 自检新增「发布运行环境」项 + 新 API /api/agent/client-env（客户端上报）| electron/bu-env.js、electron/main.js、src/app/api/agent/client-env/route.ts、selfcheck/route.ts | ✅ 1.0.134 打包 |
+| 2026-09-10 | **任务编号统一 seq**（用户二次反馈：创建显示#15、查询显示#76 混编）：BROWSER_TASKS/PUBLISH_TASKS 列表查询加 select seq + 显示改 seq；API rebuild 返回改 seq（之前只改了创建处，漏了查询处）| src/app/api/agent/chat/route.ts、browser-tasks/route.ts | ✅ 已推送（部署后生效 + 需回填历史 seq）|
+| 2026-09-10 | **客户端 Python 环境三层自动就绪**：①内置环境 ②系统 python 缺库自动 pip 补装 ③都没有则下载内置 zip（不再弹窗）｜buPythonReady 改为必须校验 playwright（之前只查 browser_use → 系统 python 有 browser_use 无 playwright 被误判就绪 → 脚本 ModuleNotFoundError，任务74/75 实测）| electron/main.js | ✅ 1.0.132 |
+| 2026-09-10 | **python-bu.zip 补 playwright**：OSS 上的内置环境 zip（88MB）根本没有 playwright/greenlet/pyee → 客户机器自动装完照样跑不了；追加 284 条目（playwright 1.62 + greenlet cp314 + pyee）→ 新 zip 89.5MB | scripts/add-pw-to-zip.py、upload-python-bu.mjs、python-bu.zip | ⏳ 待上传 OSS（本地 key 无写权限，需服务器跑 upload 脚本）|
+| 2026-09-10 | **Chrome 路径转义修复**（浏览器不打开根因）：'C:\Program Files\...' 在 JS 里 \P 等无效转义 → 路径变 C:ProgramFilesGoogle... → existsSync 永远 false → 日志「未找到 Chrome」→ 脚本连不上 CDP；修正斜杠 + BROWSER_CANDIDATES 五处 | electron/main.js | ✅ 1.0.133 |
+| 2026-09-10 | **files 下载 basename 修复**：name 参数带子路径（storage/1/xxx.mp4）导致本地仓库 0/1 落地 → 脚本拿不到视频；只取文件名 | electron/main.js | ✅ 1.0.130 |
+| 2026-09-10 | **AGENT 发布确定性脚本（抖音+小红书）**：三层接线（chat route 任务 JSON → main.js 按平台分发 → bu_pub_douyin/xhs.py）；抖音封面 coverControl 层+按图方向+排除 semi -custom+button完成；小红书 PK 开关判断+＋号+系统文件框；话题 # 技改关联想浮层 | chat/route.ts、electron/main.js、scripts/agent-publish/*.py、build-local.mjs | ✅ 两平台 --no-publish 实测通过；用户实测「非常丝滑」|
 | 2026-09-10 | **AGENT 发布确定性脚本（抖音+小红书）**：三层接线（chat route 任务带 JSON 结构化参数 kind/platform/videoName/title/topics/cover → main.js checkBrowserTasks 按平台分发 → Python 脚本 bu_pub_douyin.py/bu_pub_xhs.py，无脚本平台回退 bu_exec.py）+ 抖音封面（coverControl 层点击/按图方向选入口/排除 semi custom AI参考图区/button 完成）+ 小红书封面（PK 开关状态判断→＋号→系统文件框）+ 话题 # 技改关联想浮层 | src/app/api/agent/chat/route.ts、electron/main.js、scripts/agent-publish/bu_pub_douyin.py、bu_pub_xhs.py、scripts/build-local.mjs、package.json | ✅ 两平台 --no-publish 实测通过；1.0.129 打包（脚本进包已验证）|
 | 2026-09-10 | 打包遗漏修复：build-local.mjs 自己生成 build.local.json（extraResources 硬编码）——package.json 的 extraResources 不生效 → 在 build-local.mjs 加 scripts/agent-publish | scripts/build-local.mjs | ✅ 包内校验脚本存在 |
 | 2026-09-10 | 客户端更新保数据：electron-builder 自动更新会 RMDir /r 整个安装目录（data/python/storage 全删）→ installer.nsh customInit 备份 data/python/storage 到 $TEMP + customInstall 恢复 | electron/installer.nsh | ✅ 已打包（1.0.117 起）|
