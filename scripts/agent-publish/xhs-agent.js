@@ -81,12 +81,21 @@ async function main() {
     } catch (e) { log('话题失败: ' + e.message.slice(0, 60)) }
   }
 
-  // Step5 封面（★实测：点封面列表的「＋」号 → 系统文件框 → 选图 → 完成）
+  // Step5 封面（★实测定稿：开 PK 封面 → 点＋号 → 系统文件框 → 选图 → 完成）
+  //   注意：React 只认真实鼠标点击（page.locator().click()），JS evaluate click 无效
   if (coverFile && fs.existsSync(coverFile)) {
     try {
-      const addSel = '.pk-cover-list-add-btn, .pk-cover-list-add-icon, [class*="cover-list-add"]'
+      // ① 开 PK 封面（.pk-title-switch 真实点击）
+      const sw = page.locator('.pk-title-switch').first()
+      if ((await page.$$('.pk-title-switch')).length > 0) {
+        await sw.click({ timeout: 4000 }).catch(() => {})
+        log('已开 PK 封面')
+        await sleep(2000)
+      }
+      // ② 点＋号 → 文件框
+      const addSel = '.pk-cover-list-add-btn'
       const n = (await page.$$(addSel)).length
-      log('封面＋号元素数=' + n)
+      log('封面＋号数=' + n)
       if (n > 0) {
         const [fc] = await Promise.all([
           page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null),
@@ -103,9 +112,9 @@ async function main() {
         } else {
           const ci = await page.$('input.upload-input[accept*="image"]')
           if (ci) { await ci.setInputFiles(coverFile); log('✅ 封面已上传（image input 兜底）'); await sleep(3500) }
-          else log('⚠️ ＋号未触发文件框，且无 image input')
+          else log('⚠️ ＋号未触发文件框')
         }
-      } else log('⚠️ 未找到封面＋号（封面列表可能未渲染）')
+      } else log('⚠️ 未找到封面＋号（PK 未开或列表未渲染）')
     } catch (e) { log('封面异常: ' + e.message.slice(0, 80)) }
   } else log('无封面 → 平台默认')
 
