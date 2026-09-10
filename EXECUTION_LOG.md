@@ -4,6 +4,9 @@
 > 同步维护：PROJECT.md 六「当前进度/待办」、ISSUES.md 问题状态。
 > 开始日期：2026-08-05
 
+| 2026-09-10 | **发布脚本四平台全通（抖音/小红书/微博/视频号）**：抖音(封面 coverControl 层+按图方向+排除 semi -custom+button完成+话题#技巧)｜小红书(封面 PK开关判断+加号+系统文件框；发表按钮 xhs-publish-btn closed shadow → 像素定位)｜微博(严格锁定 upload/channel 视频页不在首页操作；类型原创+标题 input[type=text]+封面完成+正文)｜视频号(iframe 内 locator 全失效→遍历 frames 传文件+描述 .input-editor/短标题 input；发表用 CDP 穿透点击) | scripts/agent-publish/bu_pub_{douyin,xhs,weibo,shipinhao}.py、_cdp_click.py、electron/main.js(scriptMap) | 四平台均实测发布成功；1.0.139 打包 |
+| 2026-09-10 | **CDP 穿透点击（Python 移植 _cdp_click.py）**：移植 electron/fp-templates/_cdpClick.js——DOM.getDocument(pierce) 穿透 closed shadow+iframe → getBoxModel 准确视口坐标 → mouse.click。解决视频号 iframe 内自算坐标偏 400px 点空的问题（发表一击成功 (1496,801)→跳 post/list） | scripts/agent-publish/_cdp_click.py | 视频号发表验证有效 |
+| 2026-09-10 | 微博/视频号发布流程手动逐步跑通（用户要求先跑明白再写脚本）：微博 9 步（页面锁定→真按钮上传→类型原创→标题 input[type=text]→封面完成→正文→发布校验）｜视频号 6 步（frame 遍历上传→描述/短标题坐标输入→封面编辑上传确认→CDP 穿透发表） | scripts/agent-publish/bu_pub_weibo.py、bu_pub_shipinhao.py | 均发布成功 |
 | 2026-09-10 | **发布环境自检改造**（用户要求：不要在发布时装/弹窗）：①客户端启动 8s 后静默自检+后台安装（ensureBuEnvOnStartup，electron/bu-env.js 新模块）②装完弹窗告知已安装组件（Python版本内置/系统 + playwright + browser_use + 位置）③发布时只检查不安装（未就绪报错提示重启）④AGENT 自检新增「发布运行环境」项 + 新 API /api/agent/client-env（客户端上报）| electron/bu-env.js、electron/main.js、src/app/api/agent/client-env/route.ts、selfcheck/route.ts | ✅ 1.0.134 打包 |
 | 2026-09-10 | **任务编号统一 seq**（用户二次反馈：创建显示#15、查询显示#76 混编）：BROWSER_TASKS/PUBLISH_TASKS 列表查询加 select seq + 显示改 seq；API rebuild 返回改 seq（之前只改了创建处，漏了查询处）| src/app/api/agent/chat/route.ts、browser-tasks/route.ts | ✅ 已推送（部署后生效 + 需回填历史 seq）|
 | 2026-09-10 | **客户端 Python 环境三层自动就绪**：①内置环境 ②系统 python 缺库自动 pip 补装 ③都没有则下载内置 zip（不再弹窗）｜buPythonReady 改为必须校验 playwright（之前只查 browser_use → 系统 python 有 browser_use 无 playwright 被误判就绪 → 脚本 ModuleNotFoundError，任务74/75 实测）| electron/main.js | ✅ 1.0.132 |
