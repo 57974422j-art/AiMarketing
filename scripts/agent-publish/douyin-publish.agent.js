@@ -454,26 +454,16 @@ async function step6_covers(page, params, log) {
   try {
     // 查找封面入口按钮：竖封面3:4 / 横封面4:3（点开各自弹窗）
     var covers = []
-    var coverEntries = ['竖封面3:4', '横封面4:3']
-    for (var ce = 0; ce < coverEntries.length; ce++) {
-      try {
-        var ceHandles = await page.getByText(coverEntries[ce], { exact: true }).elementHandles()
-        for (var ch = 0; ch < ceHandles.length; ch++) {
-          if (await ceHandles[ch].isVisible().catch(function() { return false })) covers.push(ceHandles[ch])
-        }
-      } catch (_) {}
+    // 2026-09-10 实测：只有 coverControl 那层可点开弹窗（cover-tip 文本层/controlContainer 层点了无效）
+    var covers = []
+    var _ctrlEls = await page.$$("[class*=\"coverControl\"]").catch(function() { return [] })
+    for (var _ci = 0; _ci < _ctrlEls.length; _ci++) {
+      var _ct = String(await _ctrlEls[_ci].innerText().catch(function() { return "" }))
+      if (_ct.indexOf("横封面") >= 0) covers[1] = _ctrlEls[_ci]
+      else if (_ct.indexOf("竖封面") >= 0) covers[0] = _ctrlEls[_ci]
     }
-    if (!covers.length) {
-      // 兜底：按 class 关键词找封面入口
-      try {
-        var alt = await page.$$('[class*="cover"] button, [class*="cover"] div[role="button"]').catch(function() { return [] })
-        for (var a = 0; a < alt.length; a++) {
-          var at = (await alt[a].innerText()).catch(function() { return '' })
-          if (at && (at.indexOf('竖封面') >= 0 || at.indexOf('横封面') >= 0 || at.indexOf('选择封面') >= 0)) covers.push(alt[a])
-        }
-      } catch (_) {}
-    }
-    log('  找到 ' + covers.length + ' 个封面入口')
+    covers = covers.filter(function(x) { return !!x })
+    log(" 找到 " + covers.length + " 个封面入口(coverControl 层)")
 
     // 如果有自定义封面图片，先下载到本地
     var localCoverPath = null
