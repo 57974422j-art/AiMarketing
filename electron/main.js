@@ -522,6 +522,10 @@ function buLog(msg) {
     fs.appendFileSync(p, '[' + new Date().toLocaleString() + '] ' + msg + String.fromCharCode(10))
   } catch {}
 }
+// 2026-09-10: 发布环境自检模块（启动静默装 + 装完弹窗；发布时只检查）
+let buEnv = null
+try { buEnv = require('./bu-env')({ BUILTIN_PY, getBuPython, getServerCookie, ensureBuPython, buLog }) }
+catch (eBE) { console.log('[bu-env] 模块加载失败:', eBE && eBE.message) }
 
 async function checkBrowserTasks() {
   try {
@@ -567,7 +571,9 @@ async function checkBrowserTasks() {
       await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'executing' }) }).catch(() => {})
       console.log('[browser_use] 执行任务 #' + t.id + ':', String(t.task).slice(0, 60))
       // 2026-09-08: 确保 Python 运行环境就绪（缺则一键下载安装 OSS python-bu.zip——用户零手动）
-      const envR = await ensureBuPython()
+      // 2026-09-10: 发布时只检查不安装（安装放启动自检——不打断发布）
+      const _c = buEnv && buEnv.getCached()
+      const envR = (_c && _c.ok) ? { ok: true, py: _c.py } : (buEnv ? buEnv.getBuEnvInfo() : { ok: false, error: 'bu-env 未加载' })
       if (!envR.ok) {
         buLog('任务#' + (t.seq ?? t.id) + ' 缺 Python 运行环境：' + (envR.error || '用户取消一键安装') + '——跳过')
         await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: envR.cancelled ? 'pending' : 'failed', error: envR.cancelled ? '等待安装运行环境' : ('缺 Python 运行环境：' + (envR.error || '')) }) }).catch(() => {})
@@ -1698,6 +1704,8 @@ async function showChangelogOnStartup() {
 app.whenReady().then(() => {
   createWindow()
   showChangelogOnStartup()
+  // 2026-09-10: 启动 8 秒后静默自检发布环境（缺则后台安装，装完弹窗告知）
+  setTimeout(() => { try { buEnv && buEnv.ensureBuEnvOnStartup() } catch (e) {} }, 8000)
 })
 
 // 2026-08-10：渲染进程崩溃监控（诊断客户端闪退）

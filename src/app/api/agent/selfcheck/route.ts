@@ -105,6 +105,30 @@ export async function GET(request: NextRequest) {
       })
     } catch { checks.push({ key: 'hotspots', label: '热点大屏', ok: true, detail: '正常（内置兜底）' }) }
 
+    // 8) 发布运行环境（客户端上报：Python / playwright / browser_use——2026-09-10）
+    try {
+      const gEnv: any = globalThis as any
+      const envInfo = gEnv.__clientEnv && gEnv.__clientEnv.get ? gEnv.__clientEnv.get(auth.userId) : null
+      if (!envInfo) {
+        checks.push({ key: 'buenv', label: '发布运行环境', ok: false, detail: '客户端未上报（打开客户端会自动自检并安装）' })
+      } else if (envInfo.ok) {
+        checks.push({
+          key: 'buenv', label: '发布运行环境', ok: true,
+          detail: '✅ 已安装：Python ' + (envInfo.pythonVersion || '?') + (envInfo.builtin ? '（内置环境）' : '（系统 Python）')
+            + ' + playwright ' + (envInfo.playwright || '?') + ' + browser_use',
+        })
+      } else {
+        checks.push({
+          key: 'buenv', label: '发布运行环境', ok: false,
+          detail: '缺组件：playwright ' + (envInfo.playwright || '未装') + ' / browser_use ' + (envInfo.browserUse || '未装')
+            + ' / Python ' + (envInfo.pythonVersion || '未装') + '（重启客户端会自动安装）',
+        })
+      }
+    } catch (eEnv: any) {
+      checks.push({ key: 'buenv', label: '发布运行环境', ok: false, detail: '检查失败: ' + (eEnv && eEnv.message) })
+    }
+
+
     // 7) 当前模型配置（验证模型是否通——实际调用 DeepSeek V4 flash 测连通）
     const modelInfo = {
       brain: process.env.AGENT_BRAIN_MODEL || 'qwen3.8-flash（百炼）',
