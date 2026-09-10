@@ -2660,7 +2660,9 @@ const _steps = ['用 browser_use 把这个视频发布到抖音。页面已在�
                 if (!skips.includes('封面') && !skips.includes('抽帧')) _steps.push('第' + _stp++ + '步：点「设置封面」→ 点「选择封面」（横封面4:3 或 竖封面3:4）→ 等封面弹窗出现（页面显示优质封面示例/上传封面按钮）→ 在弹窗里点「上传封面」上传封面文件(.jpg) → 点「完成」')
                 _steps.push('最后：点发布按钮')
                 const buTask = '发布视频到' + platName + '。\n' + _steps.join('\n')
-                const buT = await buCreate(auth?.userId || 0, buTask, JSON.stringify(fileUrls))
+                // 2026-09-10: 任务带结构化参数（客户端优先走确定性脚本；无脚本平台回退 browser_use）
+                const buTaskJson = JSON.stringify({ kind: 'publish', platform: draftW.platform, videoName: wfA.videoName || '', title: wfA.caption || '', topics: wfA.topics || '', cover: wfA.coverUrl || '', skips, task: buTask })
+                const buT = await buCreate(auth?.userId || 0, buTaskJson, JSON.stringify(fileUrls))
                 wfEarlyReply = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + (buT.seq ?? buT.id) + '）——客户端 AI 浏览器自动执行发布到' + platName + '。'
                 PUBLISH_DRAFT.delete(uidW)
                 prisma.agentMemory.deleteMany({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } }).catch(() => {})
@@ -2688,7 +2690,9 @@ const _steps = ['用 browser_use 把这个视频发布到抖音。页面已在�
                   } else { console.log('[发布⑤] 视频本地未找到（可能已在 OSS）:', vRel) }
                 } catch (ePv: any) { console.error('[发布⑤] 视频转 OSS 失败:', ePv?.message || ePv) }
                 const buTask = '发布视频到' + (wfA.platform === 'douyin' ? '抖音' : wfA.platform || '抖音') + '：客户端已打开到 https://creator.douyin.com/creator-micro/content/upload （如返回登录页说明未登录，直接告知结束），上传视频，标题：' + (wfA.caption || '') + '，话题：' + (wfA.topics || '') + '，用平台智能封面，然后点击发布'
-                const buT = await buCreate(auth?.userId || 0, buTask, JSON.stringify(fileUrls))
+                // 2026-09-10: 任务带结构化参数（客户端优先走确定性脚本）
+                const buTaskJson2 = JSON.stringify({ kind: 'publish', platform: wfA.platform || 'douyin', videoName: wfA.videoName || '', title: wfA.caption || '', topics: wfA.topics || '', cover: wfA.coverUrl || '', task: buTask })
+                const buT = await buCreate(auth?.userId || 0, buTaskJson2, JSON.stringify(fileUrls))
                 // 2026-08-31 v2④: 完整报告（MD——封面/标题/话题/视频——跨平台素材包）
                 const reportMd = '## 发布素材包（reportId: ' + buT.id + '）' + '\n' + '- 视频：' + (wfA.videoName || '') + '\n' + '- 封面：' + (wfA.coverUrl ? '![](' + wfA.coverUrl + ')' : '平台智能封面') + '\n' + '- 标题：' + (wfA.caption || '') + '\n' + '- 话题：' + (wfA.topics || '') + '\n' + '- 平台：' + (wfA.platform || 'douyin') + '\n' + '\n' + '- 此素材包已存库——后续说「发小红书/微博」即可复用（AI 读取 reportId 直接用）'
 

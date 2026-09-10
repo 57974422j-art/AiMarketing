@@ -571,6 +571,47 @@ async function checkBrowserTasks() {
           }
         }
       } catch (eLg) { console.log('[browser_use] 登录态预检异常（继续执行）:', eLg?.message || eLg) }
+      // 2026-09-10: 发布任务带结构化参数 → 有确定性脚本的平台直接跑脚本（稳/快），无脚本平台回退 browser_use
+      let tp = null
+      try { tp = JSON.parse(String(t.task)) } catch (e) { tp = null }
+      if (tp && tp.kind === 'publish') {
+        const plat = String(tp.platform || '')
+        const scriptMap = { douyin: 'bu_pub_douyin.py', xiaohongshu: 'bu_pub_xhs.py' }
+        const sname = scriptMap[plat]
+        if (sname) {
+          const scriptPath = path.join(process.resourcesPath, 'scripts', 'agent-publish', sname)
+          const vName = String(tp.videoName || '')
+          const videoLocal = localFiles.find((f) => vName && f.indexOf(vName) >= 0)
+            || localFiles.find((f) => /\.(mp4|mov|mkv|avi)$/i.test(f)) || ''
+          let cName = ''
+          try { cName = decodeURIComponent(new URL(String(tp.cover || '')).searchParams.get('name') || '').split('/').pop() || '' } catch (e) { cName = '' }
+          const coverLocal = localFiles.find((f) => cName && f.indexOf(cName) >= 0)
+            || localFiles.find((f) => /\.(jpg|jpeg|png)$/i.test(f)) || ''
+          if (!videoLocal) {
+            buLog('任务#' + t.id + ' 脚本发布缺本地视频文件——跳过')
+            await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'failed', error: '本地仓库缺视频文件（' + vName + '）——请确认已在个人仓库' }) }).catch(() => {})
+            continue
+          }
+          const sArgs = ['-u', scriptPath, '--video', videoLocal, '--title', String(tp.title || ''), '--topics', String(tp.topics || '')]
+          if (coverLocal) sArgs.push('--cover', coverLocal)
+          buLog('任务#' + t.id + ' 走确定性脚本 ' + sname + ' 视频=' + path.basename(videoLocal) + ' 封面=' + (coverLocal ? path.basename(coverLocal) : '无'))
+          console.log('[pub-script] ' + sname + ' video=' + videoLocal)
+          const out2 = await new Promise((resolve) => {
+            const py2 = spawn(PY, sArgs, { windowsHide: false, env: { ...process.env, BU_COOKIE: cookie } })
+            let so2 = '', se2 = ''
+            py2.stdout.on('data', (d) => { const ds = String(d).replace(/\[[0-9;]*m/g, ''); so2 += ds; ds.split('\n').filter((l) => l.trim()).forEach((l) => buLog('   ' + l.trim().slice(0, 200))) })
+            py2.stderr.on('data', (d) => { se2 += String(d) })
+            py2.on('close', (c2) => resolve({ code: c2, so: so2, se: se2 }))
+            py2.on('error', (e2) => resolve({ code: -9, so: '', se: String(e2) }))
+            setTimeout(() => { try { py2.kill() } catch (e) {} resolve({ code: -1, so: so2, se: 'timeout 600s' }) }, 600000)
+          })
+          const ok2 = out2.code === 0 && /"success": ?true/.test(out2.so)
+          buLog('任务#' + t.id + ' 脚本' + (ok2 ? '执行完成' : '执行失败 code=' + out2.code + ' ' + String(out2.se).slice(0, 200)))
+          await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: ok2 ? 'done' : 'failed', result: String(out2.so).slice(-1500), error: ok2 ? '' : ('脚本失败 code=' + out2.code + ' ' + String(out2.se).slice(0, 300)) }) }).catch(() => {})
+          continue
+        }
+      }
+
       try {
         const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', (localFiles.length ? localFiles : files).join(','), '--profile', BU_PROFILE, '--storage-dir', LOCAL_STORAGE, '--max-steps', '40']
         const { spawn } = require('child_process')

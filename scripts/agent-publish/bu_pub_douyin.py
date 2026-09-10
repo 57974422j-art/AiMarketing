@@ -1,23 +1,21 @@
 # -*- coding: utf-8 -*-
-"""AGENT 抖音发布执行器（确定性步骤——借鉴 fp-templates/douyin-publish.js）
-跑在登记的 bu_profile 浏览器（CDP 9222），不依赖 AI 决策。
+"""AGENT 抖音发布执行器（Python 版——复用客户端 buvenv 环境，与 bu_exec.py 同机制）
+关键经验：
+  1) React 页面必须真实鼠标点击（locator.click），JS evaluate click 无效
+  2) 封面弹窗入口是 coverControl 层（hash 类名用前缀匹配）；弹窗内上传用 .semi-upload-drag-area（排除 -custom）
+  3) 封面横竖按封面图实际尺寸选（竖→竖封面3:4 / 横→横封面4:3）
 用法: python bu_pub_douyin.py --video <path> --title <t> --topics <t> [--cover <path>]
 """
 import sys, os, time, argparse, json
 if hasattr(sys.stdout, 'reconfigure'):
-    try:
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    except Exception:
-        pass
+    try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception: pass
 from playwright.sync_api import sync_playwright
 
-
-def log(m):
-    print('[PUB] ' + str(m), flush=True)
-
+def log(m): print('[PUB] ' + str(m), flush=True)
 
 def img_orientation(p):
-    """返回 portrait/landscape（读图尺寸——PIL 优先，失败读 PNG/JPEG 头）"""
+    """竖 portrait / 横 landscape（PIL 优先，失败手读 PNG/JPEG 尺寸）"""
     try:
         from PIL import Image
         w, h = Image.open(p).size
@@ -34,57 +32,59 @@ def img_orientation(p):
         i = 2
         while i < len(d) - 9:
             if d[i] != 0xFF:
-                i += 1
-                continue
+                i += 1; continue
             m = d[i + 1]
             if m in (0xC0, 0xC1, 0xC2):
                 h, w = struct.unpack('>HH', d[i + 5:i + 9])
                 return 'portrait' if h >= w else 'landscape'
             if m in (0xD8, 0xD9) or 0xD0 <= m <= 0xD7:
-                i += 2
-                continue
-            seg = struct.unpack('>H', d[i + 2:i + 4])[0]
-            i += 2 + seg
+                i += 2; continue
+            i += 2 + struct.unpack('>H', d[i + 2:i + 4])[0]
     except Exception:
         pass
     return 'portrait'
 
-
-def click_by_text(page, texts, exclude=None, max_len=8):
-    """按可见文本点击元素（借鉴 JS：遍历可见元素匹配文本）"""
-    for t in texts:
-        for sel in ['button', 'span', 'div', 'a', 'label']:
+def visible(page, sel):
+    try:
+        for e in page.query_selector_all(sel):
             try:
-                for e in page.query_selector_all(sel):
-                    try:
-                        if not e.is_visible():
-                            continue
-                        txt = (e.inner_text() or '').strip()
-                        if not txt or len(txt) > max_len + len(t):
-                            continue
-                        if txt == t or (len(t) >= 3 and t in txt and len(txt) <= len(t) + 6):
-                            if exclude and any(x in txt for x in exclude):
-                                continue
-                            e.click(timeout=2500)
-                            log('已点击: ' + txt)
-                            return True
-                    except Exception:
-                        continue
-            except Exception:
-                continue
-    return False
-
-
-def find_title_input(page):
-    for sel in ['input[placeholder*="作品标题"]', 'input[placeholder*="填写作品标题"]', 'input[placeholder*="标题"]']:
-        try:
-            el = page.query_selector(sel)
-            if el and el.is_visible():
-                return el
-        except Exception:
-            continue
+                if e.is_visible(): return e
+            except Exception: continue
+    except Exception: pass
     return None
 
+def click_text(page, texts, exclude=None):
+    """按文本真实点击（playwright locator——React 只认真实点击）"""
+    for t in texts:
+        try:
+            loc = page.get_by_text(t, exact=True)
+            n = loc.count()
+            for i in range(min(n, 4)):
+                el = loc.nth(i)
+                try:
+                    if not el.is_visible(): continue
+                    if exclude and any(x in (el.inner_text() or '') for x in exclude): continue
+                    el.click(timeout=3000)
+                    log('已点击文本: ' + t)
+                    return True
+                except Exception: continue
+        except Exception: continue
+    return False
+
+def click_selector_prefix(page, prefix, exclude=None):
+    """按 class 前缀真实点击（hash 类名——coverControl-xxxx）"""
+    try:
+        for e in page.query_selector_all('[class*="' + prefix + '"]'):
+            try:
+                if not e.is_visible(): continue
+                cls = e.get_attribute('class') or ''
+                if exclude and any(x in cls for x in exclude): continue
+                e.click(timeout=3000)
+                log('已点击 [class*=' + prefix + ']')
+                return True
+            except Exception: continue
+    except Exception: pass
+    return False
 
 def main():
     ap = argparse.ArgumentParser()
@@ -92,169 +92,129 @@ def main():
     ap.add_argument('--title', default='')
     ap.add_argument('--topics', default='')
     ap.add_argument('--cover', default='')
-    ap.add_argument('--port', type=int, default=9222)
+    ap.add_argument('--no-publish', action='store_true', help='只做到封面不点发布（测试用）')
     a = ap.parse_args()
     log('视频=' + a.video + ' 封面=' + (a.cover or '无'))
-
     with sync_playwright() as pw:
-        b = pw.chromium.connect_over_cdp('http://127.0.0.1:%d' % a.port)
+        b = pw.chromium.connect_over_cdp('http://127.0.0.1:9222')
         ctx = b.contexts[0] if b.contexts else b.new_context()
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        try:
-            page.bring_to_front()
-        except Exception:
-            pass
-        log('当前 URL=' + page.url)
-
-        # Step0 确保在发布页（确定性导航——不管浏览器当前停在哪）
-        UPLOAD_URL = 'https://creator.douyin.com/creator-micro/content/upload'
+        page.bring_to_front()
+        log('URL=' + page.url)
+        # 不在 upload 页则导航（保险）
         if 'content/upload' not in page.url:
-            log('不在发布页 → 导航到 ' + UPLOAD_URL)
             try:
-                page.goto(UPLOAD_URL, wait_until='domcontentloaded', timeout=40000)
-                page.wait_for_timeout(3500)
-                log('导航后 URL=' + page.url)
-            except Exception as e:
-                log('导航失败: ' + str(e)[:100])
+                page.goto('https://creator.douyin.com/creator-micro/content/upload', wait_until='domcontentloaded', timeout=30000)
+                log('已导航到上传页')
+                page.wait_for_timeout(3000)
+            except Exception as e: log('导航失败: ' + str(e)[:80])
 
-        # Step1 上传视频
-        if 'content/upload' in page.url:
-            done = False
+        # ── Step1 上传视频 ──
+        ok = False
+        fi = page.query_selector('input[type="file"]')  # file input 隐藏——不判可见
+        if fi:
             try:
-                for fi in page.query_selector_all('input[type="file"]'):
-                    acc = (fi.get_attribute('accept') or '')
-                    if 'video' in acc or acc == '':
-                        fi.set_input_files(a.video)
-                        log('✅ 视频已设置(file input)')
-                        done = True
-                        break
-            except Exception as e:
-                log('file input 失败: ' + str(e)[:80])
-            if not done:
-                try:
-                    with page.expect_file_chooser(timeout=6000) as fc:
-                        click_by_text(page, ['点击上传', '上传'])
-                    fc.value.set_files(a.video)
-                    log('✅ 视频已设置(filechooser)')
-                except Exception as e:
-                    log('❌ 视频上传失败: ' + str(e)[:100])
+                fi.set_input_files(a.video); log('✅ 视频已设置(input)'); ok = True
+            except Exception as e: log('set_input_files 失败: ' + str(e)[:80])
+        if not ok:
+            try:
+                with page.expect_file_chooser(timeout=8000) as fc:
+                    click_text(page, ['上传视频', '点击上传', '上传'])
+                fc.value.set_files(a.video); log('✅ 视频已设置(filechooser)')
+            except Exception as e: log('❌ 视频上传失败: ' + str(e)[:100])
 
-        # Step2 等转码/编辑页就绪（页面文字判断，借鉴 JS）
-        t0 = time.time()
-        ready = False
-        while time.time() - t0 < 270:
+        # ── Step2 等转码/编辑页 ──
+        t0 = time.time(); ready = False
+        while time.time() - t0 < 280:
             try:
-                if '/post/video' in page.url and (page.inner_text('body')[:9000].find('选择封面') >= 0
-                                                  or page.inner_text('body')[:9000].find('智能推荐封面') >= 0
-                                                  or find_title_input(page) is not None):
-                    ready = True
-                    break
-            except Exception:
-                pass
+                body = page.inner_text('body')[:9000]
+                if '选择封面' in body or '作品标题' in body or '发布时间' in body:
+                    ready = True; break
+            except Exception: pass
             page.wait_for_timeout(3000)
-        log(('✅ 编辑页就绪' if ready else '⚠️ 等转码超时') + ' 用时 ' + str(int(time.time() - t0)) + 's URL=' + page.url)
+        log(('✅ 编辑页就绪' if ready else '⚠️ 等转码超时') + ' 用时 %ds URL=%s' % (int(time.time() - t0), page.url))
 
-        # Step3 标题
+        # ── Step3 标题 ──
         if a.title:
-            el = find_title_input(page)
-            if el is not None:
-                try:
-                    el.click()
-                    el.fill(a.title)
-                    log('✅ 标题已填: ' + a.title[:20])
-                except Exception as e:
-                    log('标题填写失败: ' + str(e)[:80])
-            else:
-                log('⚠️ 未找到标题框')
+            for sel in ['input[placeholder*="作品标题"]', 'input[placeholder*="填写作品标题"]', 'input[placeholder*="标题"]']:
+                el = visible(page, sel)
+                if el:
+                    try:
+                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:20]); break
+                    except Exception as e: log('标题填失败: ' + str(e)[:60])
+            else: log('⚠️ 未找到标题框')
 
-        # Step4 话题（contenteditable 正文区）
+        # ── Step4 话题（contenteditable 正文）──
         if a.topics:
-            try:
-                ce = None
-                for c in page.query_selector_all('div[contenteditable="true"]'):
-                    if c.is_visible():
-                        ce = c
-                        break
-                if ce is not None:
-                    ce.click()
-                    page.wait_for_timeout(300)
-                    page.keyboard.type(a.topics, delay=25)
+            ce = visible(page, 'div[contenteditable="true"]')
+            if ce:
+                try:
+                    ce.click(); page.wait_for_timeout(300)
+                    page.keyboard.type(a.topics, delay=30)
                     page.wait_for_timeout(600)
                     page.keyboard.press('Escape')
                     log('✅ 话题已填: ' + a.topics[:30])
-                else:
-                    log('⚠️ 未找到话题编辑区')
-            except Exception as e:
-                log('话题填写失败: ' + str(e)[:80])
+                except Exception as e: log('话题填失败: ' + str(e)[:60])
+            else: log('⚠️ 未找到话题区')
 
-        # Step5 封面（★修复：按封面图方向选对应 tab，不再两个都点）
+        # ── Step5 封面（真实点击 coverControl → 弹窗 → 选方向 → 上传 → 点图 → 完成）──
         if a.cover and os.path.exists(a.cover):
             ori = img_orientation(a.cover)
             entry = '竖封面3:4' if ori == 'portrait' else '横封面4:3'
-            log('封面方向=' + ori + ' → 选入口: ' + entry)
-            page.wait_for_timeout(1000)
-            opened = click_by_text(page, [entry], max_len=12) or click_by_text(page, ['选择封面'], max_len=12)
+            log('封面方向=' + ori + ' → ' + entry)
+            page.wait_for_timeout(800)
+            opened = click_selector_prefix(page, 'coverControl')
+            if not opened: opened = click_text(page, ['选择封面', '设置封面'])
             if opened:
                 page.wait_for_timeout(2500)
+                # 方向 tab（在弹窗内——真实点击）
+                click_text(page, [entry])
+                page.wait_for_timeout(800)
+                # 上传：优先 semi-upload-drag-area（排除 custom=AI 参考图区）
                 up = False
-                try:
-                    for fi in page.query_selector_all('input[type="file"]'):
-                        acc = (fi.get_attribute('accept') or '')
-                        if 'image' in acc:
-                            fi.set_input_files(a.cover)
-                            log('✅ 封面已上传(input)')
-                            up = True
-                            break
-                except Exception as e:
-                    log('封面 input 失败: ' + str(e)[:60])
-                if not up:
+                for e in page.query_selector_all('.semi-upload-drag-area'):
                     try:
-                        with page.expect_file_chooser(timeout=6000) as fc:
-                            click_by_text(page, ['上传封面', '点击上传', '上传'], max_len=10)
-                        fc.value.set_files(a.cover)
-                        log('✅ 封面已上传(chooser)')
-                        up = True
-                    except Exception as e:
-                        log('❌ 封面上传失败: ' + str(e)[:100])
+                        cls = e.get_attribute('class') or ''
+                        if 'custom' in cls or not e.is_visible(): continue
+                        with page.expect_file_chooser(timeout=8000) as fc:
+                            e.click()
+                        fc.value.set_files(a.cover); log('✅ 封面已上传(drag-area)'); up = True
+                        break
+                    except Exception: continue
+                if not up:
+                    for fi2 in page.query_selector_all('input[type="file"]'):
+                        try:
+                            acc = fi2.get_attribute('accept') or ''
+                            if 'image' in acc:
+                                fi2.set_input_files(a.cover); log('✅ 封面已上传(image input)'); up = True; break
+                        except Exception: continue
                 if up:
                     page.wait_for_timeout(3500)
                     try:
-                        cv = page.query_selector('canvas')
-                        if cv and cv.is_visible():
-                            cv.click(timeout=2000)
-                            log('已点封面图激活裁切')
-                    except Exception:
-                        pass
-                    page.wait_for_timeout(800)
-                    if click_by_text(page, ['完成', '确定', '保存'], max_len=6):
-                        log('✅ 封面已确认(完成)')
-                    else:
-                        log('⚠️ 未找到完成按钮')
+                        cv = visible(page, 'canvas') or visible(page, '[class*="cover"] img')
+                        if cv: cv.click(timeout=2000); log('已点封面图激活裁切')
+                    except Exception: pass
+                    page.wait_for_timeout(1000)
+                    if click_text(page, ['完成', '确定', '保存']): log('✅ 封面已确认')
+                    else: log('⚠️ 未找到完成按钮')
                     page.wait_for_timeout(1500)
+            else:
+                log('⚠️ 未找到封面入口（coverControl/选择封面）')
         else:
-            log('无自定义封面 → 用平台默认')
+            log('无自定义封面 → 平台默认')
 
-        # Step6 发布（遍历可见按钮匹配"发布"，排除"离开/定时"）
-        page.wait_for_timeout(1200)
-        pub = click_by_text(page, ['发布', '立即发布'], exclude=['离开', '定时'])
-        if pub:
-            log('✅ 已点击发布')
-            page.wait_for_timeout(6000)
+        if a.no_publish:
+            log('--no-publish：跳过发布（测试模式）')
+            print(json.dumps({'success': True, 'url': page.url, 'dryRun': True}))
+            return
+        # ── Step6 发布 ──
+        page.wait_for_timeout(1000)
+        if click_text(page, ['发布', '立即发布'], exclude=['离开', '定时']):
+            log('✅ 已点发布')
+            page.wait_for_timeout(8000)
             log('发布后 URL=' + page.url)
         else:
-            log('⚠️ 首轮未找到发布按钮——滚动后再试')
-            try:
-                page.mouse.wheel(0, 1200)
-                page.wait_for_timeout(1200)
-                if click_by_text(page, ['发布', '立即发布'], exclude=['离开', '定时']):
-                    log('✅ 已点击发布(滚动后)')
-                    page.wait_for_timeout(5000)
-                    log('发布后 URL=' + page.url)
-                else:
-                    log('❌ 未找到发布按钮')
-            except Exception as e:
-                log('发布失败: ' + str(e)[:80])
-        print(json.dumps({'success': True, 'url': page.url}, ensure_ascii=False))
-
+            log('❌ 未找到发布按钮')
+        print(json.dumps({'success': True, 'url': page.url}))
 
 main()
