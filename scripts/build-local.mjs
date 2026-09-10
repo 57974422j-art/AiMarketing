@@ -106,6 +106,8 @@ const build = {
     { from: 'scripts/platform-tools', to: 'scripts/platform-tools' },
     // 2026-08-29: Browser Use 执行器（bu_exec.py——AGENT 工具箱 browser_use_execute）
     { from: 'scripts/browser-use', to: 'scripts/browser-use', filter: ['**/*'] },
+    // 2026-09-10: AGENT 发布确定性脚本（douyin-agent.js / xhs-agent.js——Playwright 连登记浏览器）
+    { from: 'scripts/agent-publish', to: 'scripts/agent-publish', filter: ['**/*'] },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
     // 2026-08-19: 本地语音识别模型（sherpa-onnx）——随包分发
