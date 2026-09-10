@@ -122,9 +122,14 @@ def main():
                 try:
                     ce.click(); page.wait_for_timeout(300)
                     page.keyboard.type(a.topics, delay=30)
-                    page.wait_for_timeout(600)
+                    page.wait_for_timeout(1500)
                     page.keyboard.press('Escape')
-                    log('✅ 话题已填: ' + a.topics[:30])
+                    page.wait_for_timeout(400)
+                    page.keyboard.type('#', delay=40)           # 末尾再打一个 # 关联想浮层（用户实测）
+                    page.wait_for_timeout(900)
+                    page.keyboard.press('Backspace')
+                    page.wait_for_timeout(300)
+                    log('✅ 话题已填: ' + a.topics[:30] + '（已用 # 技巧关联想浮层）')
                 except Exception as e: log('话题填失败: ' + str(e)[:60])
             else: log('⚠️ 未找到正文区')
 

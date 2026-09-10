@@ -53,6 +53,22 @@ def visible(page, sel):
     except Exception: pass
     return None
 
+def click_cover_entry(page, want_landscape):
+    """按方向选封面入口（coverControl 层可点，文本含 竖封面3:4 / 横封面4:3）——取第一个会传错方向"""
+    key = '横封面4:3' if want_landscape else '竖封面3:4'
+    try:
+        for e in page.query_selector_all('[class*="coverControl"]'):
+            try:
+                if not e.is_visible(): continue
+                if key in (e.inner_text() or ''):
+                    e.click(timeout=3000)
+                    log('已点封面入口: ' + key)
+                    return True
+            except Exception: continue
+    except Exception: pass
+    # 兜底：文本定位
+    return click_text(page, [key])
+
 def click_text(page, texts, exclude=None):
     """按文本真实点击（playwright locator——React 只认真实点击）"""
     for t in texts:
@@ -109,6 +125,18 @@ def main():
                 page.wait_for_timeout(3000)
             except Exception as e: log('导航失败: ' + str(e)[:80])
 
+        # 处理"上次未发布的视频，是否继续编辑"弹窗（点放弃——干净开始）
+        try:
+            for t in ['放弃', '取消']:
+                loc = page.get_by_text(t, exact=True)
+                if loc.count() > 0 and loc.first.is_visible():
+                    loc.first.click(timeout=2500)
+                    log('已关闭"继续编辑"弹窗(点' + t + ')')
+                    page.wait_for_timeout(1500)
+                    break
+        except Exception as e:
+            log('弹窗处理跳过: ' + str(e)[:50])
+
         # ── Step1 上传视频 ──
         ok = False
         fi = page.query_selector('input[type="file"]')  # file input 隐藏——不判可见
@@ -151,9 +179,14 @@ def main():
                 try:
                     ce.click(); page.wait_for_timeout(300)
                     page.keyboard.type(a.topics, delay=30)
-                    page.wait_for_timeout(600)
-                    page.keyboard.press('Escape')
-                    log('✅ 话题已填: ' + a.topics[:30])
+                    page.wait_for_timeout(1500)                # 等联想下拉出现
+                    page.keyboard.press('Escape')               # 先试 Esc
+                    page.wait_for_timeout(400)
+                    page.keyboard.type('#', delay=40)           # ★用户实测：末尾再打一个 # 联想下拉就消失
+                    page.wait_for_timeout(900)
+                    page.keyboard.press('Backspace')            # 删掉多余的 #
+                    page.wait_for_timeout(300)
+                    log('✅ 话题已填: ' + a.topics[:30] + '（已用 # 技巧关联想浮层）')
                 except Exception as e: log('话题填失败: ' + str(e)[:60])
             else: log('⚠️ 未找到话题区')
 
@@ -163,18 +196,19 @@ def main():
             entry = '竖封面3:4' if ori == 'portrait' else '横封面4:3'
             log('封面方向=' + ori + ' → ' + entry)
             page.wait_for_timeout(800)
-            opened = click_selector_prefix(page, 'coverControl')
+            opened = click_cover_entry(page, ori == 'landscape')
             if not opened: opened = click_text(page, ['选择封面', '设置封面'])
             if opened:
                 page.wait_for_timeout(2500)
-                # 方向 tab（在弹窗内——真实点击）
-                click_text(page, [entry])
-                page.wait_for_timeout(800)
+                # 点方向按钮（与入口方向一致——JS 副本同款；找不到就跳过）
+                click_text(page, ['设置竖封面' if ori == 'portrait' else '设置横封面'])
+                page.wait_for_timeout(600)
                 # 上传：优先 semi-upload-drag-area（排除 custom=AI 参考图区）
                 up = False
                 for e in page.query_selector_all('.semi-upload-drag-area'):
                     try:
                         cls = e.get_attribute('class') or ''
+                        # 早上实测：-custom 是 AI 参考图区（传这里封面不生效）——必须排除
                         if 'custom' in cls or not e.is_visible(): continue
                         with page.expect_file_chooser(timeout=8000) as fc:
                             e.click()
@@ -195,8 +229,16 @@ def main():
                         if cv: cv.click(timeout=2000); log('已点封面图激活裁切')
                     except Exception: pass
                     page.wait_for_timeout(1000)
-                    if click_text(page, ['完成', '确定', '保存']): log('✅ 封面已确认')
-                    else: log('⚠️ 未找到完成按钮')
+                    done_ok = False
+                    for sel in ['button:has-text("完成")', 'button:has-text("保存")', 'button:has-text("确定")']:
+                        try:
+                            e = page.query_selector(sel)
+                            if e and e.is_visible():
+                                e.click(timeout=2500); log('✅ 封面已确认（' + sel + '）'); done_ok = True; break
+                        except Exception: continue
+                    if not done_ok:
+                        if click_text(page, ['完成', '保存', '确定']): done_ok = True
+                    if not done_ok: log('⚠️ 未点中完成按钮')
                     page.wait_for_timeout(1500)
             else:
                 log('⚠️ 未找到封面入口（coverControl/选择封面）')
