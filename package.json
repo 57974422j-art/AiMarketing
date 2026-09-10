@@ -1,6 +1,6 @@
 {
   "name": "ai-marketing",
-  "version": "1.0.126",
+  "version": "1.0.127",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -85,6 +85,10 @@
       {
         "from": "scripts/browser-use",
         "to": "scripts/browser-use"
+      },
+      {
+        "from": "scripts/agent-publish",
+        "to": "scripts/agent-publish"
       },
       {
         "from": "C:/Users/Administrator/AppData/Local/ms-playwright",
