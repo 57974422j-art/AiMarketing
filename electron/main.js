@@ -531,6 +531,10 @@ async function checkBrowserTasks() {
             if (rsp.ok) {
               fs.mkdirSync(LOCAL_STORAGE, { recursive: true })
               fs.writeFileSync(dest2, Buffer.from(await rsp.arrayBuffer()))
+            } else {
+              // 2026-09-10: 之前静默失败（只报 0/1 看不到原因）——打印状态码+URL
+              buLog('任务#' + t.id + ' 下载失败 HTTP=' + rsp.status + ' url=' + String(fu).slice(0, 120) + ' 目标=' + fn)
+              console.log('[browser_use] 下载失败 HTTP=' + rsp.status + ' url=' + String(fu).slice(0, 120))
             }
           }
           if (fs.existsSync(dest2)) localFiles.push(dest2)
@@ -593,6 +597,18 @@ async function checkBrowserTasks() {
             buLog('任务#' + t.id + ' 脚本发布缺本地视频文件——跳过')
             await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'failed', error: '本地仓库缺视频文件（' + vName + '）——请确认已在个人仓库' }) }).catch(() => {})
             continue
+          }
+          // 2026-09-10: 脚本连的是"已打开的登记浏览器"(CDP 9222)——没开就连不上，这里自动拉起
+          const cdpOk = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(3000) }).then((r) => r.ok).catch(() => false)
+          if (!cdpOk) {
+            buLog('任务#' + t.id + ' 登记浏览器未开（CDP 9222 不通）——自动启动')
+            const _chrome = ['C:\Program Files\Google\Chrome\Application\chrome.exe', 'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe'].find((p2) => fs.existsSync(p2))
+            if (_chrome) {
+              const platUrlMap2 = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish?from=menu&target=video' }
+              spawn(_chrome, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--no-first-run', platUrlMap2[plat] || platUrlMap2.douyin], { detached: true, stdio: 'ignore' }).unref()
+              await new Promise((r2) => setTimeout(r2, 7000))
+              buLog('已启动登记浏览器，继续执行脚本')
+            } else buLog('未找到 Chrome（登记浏览器无法启动）')
           }
           const sArgs = ['-u', scriptPath, '--video', videoLocal, '--title', String(tp.title || ''), '--topics', String(tp.topics || '')]
           if (coverLocal) sArgs.push('--cover', coverLocal)
