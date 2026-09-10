@@ -187,13 +187,46 @@ def main():
             print(json.dumps({'success': True, 'url': page.url, 'dryRun': True}))
             return
         # ── Step6 发布 ──
+        # 2026-09-10 实测：小红书提交按钮 = <xhs-publish-btn>（Vue 自定义元素，内部是 closed shadow DOM
+        #   → DOM 完全查不到内部按钮；elementFromPoint 只返回宿主；只有【像素定位 + 坐标点击】有效。
+        #   实测：红色按钮区 x888-981 y880-919 → 点中心(934,900) → 跳 /publish/success「发布成功」）
         page.wait_for_timeout(1000)
         pub = False
         try:
-            page.locator('div.publish-video span.btn-text').first.click(timeout=5000)
-            log('✅ 已点「发布笔记」(selector)'); pub = True
-        except Exception: pass
-        if not pub and click_text(page, ['发布笔记', '发布']): pub = True
+            box = page.evaluate("() => { const el = document.querySelector('xhs-publish-btn'); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; }")
+            if box and box.get('w', 0) > 50:
+                import tempfile, os as _os
+                shot = _os.path.join(tempfile.gettempdir(), 'xhs_pub_btn.png')
+                page.screenshot(path=shot)
+                try:
+                    from PIL import Image
+                    im = Image.open(shot).convert('RGB'); _px = im.load()
+                    _x0, _y0 = int(box['x']), int(box['y'])
+                    _x1, _y1 = int(box['x'] + box['w']), int(box['y'] + box['h'])
+                    xs, ys = [], []
+                    for y in range(max(0, _y0), min(im.size[1], _y1)):
+                        for x in range(max(0, _x0), min(im.size[0], _x1), 2):
+                            r, g, b = _px[x, y]
+                            if r > 180 and g < 110 and b < 130:
+                                xs.append(x); ys.append(y)
+                    if xs:
+                        cx, cy = sum(xs) // len(xs), sum(ys) // len(ys)
+                        page.mouse.move(cx, cy); page.wait_for_timeout(300)
+                        page.mouse.click(cx, cy)
+                        log('✅ 已点发布按钮（像素定位 %d,%d，命中 %d 点）' % (cx, cy, len(xs)))
+                        pub = True
+                    else:
+                        log('⚠️ 未在按钮区找到红色像素')
+                except Exception as e2:
+                    log('像素定位失败: ' + str(e2)[:70])
+        except Exception as e1:
+            log('发布按钮定位异常: ' + str(e1)[:70])
+        if not pub:
+            try:
+                page.locator('xhs-publish-btn').first.click(timeout=4000)
+                log('✅ 已点 xhs-publish-btn（元素点击兜底）'); pub = True
+            except Exception:
+                pass
         if pub:
             for i in range(8):
                 page.wait_for_timeout(3000)
