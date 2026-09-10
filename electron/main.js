@@ -555,21 +555,21 @@ async function checkBrowserTasks() {
               fs.writeFileSync(dest2, Buffer.from(await rsp.arrayBuffer()))
             } else {
               // 2026-09-10: 之前静默失败（只报 0/1 看不到原因）——打印状态码+URL
-              buLog('任务#' + t.id + ' 下载失败 HTTP=' + rsp.status + ' url=' + String(fu).slice(0, 120) + ' 目标=' + fn)
+              buLog('任务#' + (t.seq ?? t.id) + ' 下载失败 HTTP=' + rsp.status + ' url=' + String(fu).slice(0, 120) + ' 目标=' + fn)
               console.log('[browser_use] 下载失败 HTTP=' + rsp.status + ' url=' + String(fu).slice(0, 120))
             }
           }
           if (fs.existsSync(dest2)) localFiles.push(dest2)
         } catch (eDl) { console.log('[browser_use] 下载 files 失败:', String(fu).slice(0, 60), eDl?.message || eDl) }
       }
-      buLog('任务#' + t.id + ' files 下载：' + localFiles.length + '/' + files.length + ' 个落地本地仓库')
+      buLog('任务#' + (t.seq ?? t.id) + ' files 下载：' + localFiles.length + '/' + files.length + ' 个落地本地仓库')
       // 标记 executing
       await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'executing' }) }).catch(() => {})
       console.log('[browser_use] 执行任务 #' + t.id + ':', String(t.task).slice(0, 60))
       // 2026-09-08: 确保 Python 运行环境就绪（缺则一键下载安装 OSS python-bu.zip——用户零手动）
       const envR = await ensureBuPython()
       if (!envR.ok) {
-        buLog('任务#' + t.id + ' 缺 Python 运行环境：' + (envR.error || '用户取消一键安装') + '——跳过')
+        buLog('任务#' + (t.seq ?? t.id) + ' 缺 Python 运行环境：' + (envR.error || '用户取消一键安装') + '——跳过')
         await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: envR.cancelled ? 'pending' : 'failed', error: envR.cancelled ? '等待安装运行环境' : ('缺 Python 运行环境：' + (envR.error || '')) }) }).catch(() => {})
         continue
       }
@@ -591,7 +591,7 @@ async function checkBrowserTasks() {
             const platId = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao', '快手': 'kuaishou' }[platKey] || ''
             const st = m2[1].split(',').map((s2) => s2.split(':')).find((kv) => kv[0] === platId)
             if (st && st[1] === '0') {
-              buLog('任务#' + t.id + ' 登录态预检=' + buChk.trim() + ' → 未登录' + platKey + '，不执行（浏览器没开的原因）')
+              buLog('任务#' + (t.seq ?? t.id) + ' 登录态预检=' + buChk.trim() + ' → 未登录' + platKey + '，不执行（浏览器没开的原因）')
               console.log('[browser_use] 任务 #' + t.id + ' 未登录' + platKey + '——不执行')
               await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'failed', error: platKey + ' 未登录——请先通过「浏览器通道」打开登记页扫码登录（点左侧登记平台的「打开浏览器」登录后回来）' }) }).catch(() => {})
               continue
@@ -616,15 +616,15 @@ async function checkBrowserTasks() {
           const coverLocal = localFiles.find((f) => cName && f.indexOf(cName) >= 0)
             || localFiles.find((f) => /\.(jpg|jpeg|png)$/i.test(f)) || ''
           if (!videoLocal) {
-            buLog('任务#' + t.id + ' 脚本发布缺本地视频文件——跳过')
+            buLog('任务#' + (t.seq ?? t.id) + ' 脚本发布缺本地视频文件——跳过')
             await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: 'failed', error: '本地仓库缺视频文件（' + vName + '）——请确认已在个人仓库' }) }).catch(() => {})
             continue
           }
           // 2026-09-10: 脚本连的是"已打开的登记浏览器"(CDP 9222)——没开就连不上，这里自动拉起
           const cdpOk = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(3000) }).then((r) => r.ok).catch(() => false)
           if (!cdpOk) {
-            buLog('任务#' + t.id + ' 登记浏览器未开（CDP 9222 不通）——自动启动')
-            const _chrome = ['C:\Program Files\Google\Chrome\Application\chrome.exe', 'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe'].find((p2) => fs.existsSync(p2))
+            buLog('任务#' + (t.seq ?? t.id) + ' 登记浏览器未开（CDP 9222 不通）——自动启动')
+            const _chrome = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find((p2) => fs.existsSync(p2))
             if (_chrome) {
               const platUrlMap2 = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish?from=menu&target=video' }
               spawn(_chrome, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--no-first-run', platUrlMap2[plat] || platUrlMap2.douyin], { detached: true, stdio: 'ignore' }).unref()
@@ -634,7 +634,7 @@ async function checkBrowserTasks() {
           }
           const sArgs = ['-u', scriptPath, '--video', videoLocal, '--title', String(tp.title || ''), '--topics', String(tp.topics || '')]
           if (coverLocal) sArgs.push('--cover', coverLocal)
-          buLog('任务#' + t.id + ' 走确定性脚本 ' + sname + ' 视频=' + path.basename(videoLocal) + ' 封面=' + (coverLocal ? path.basename(coverLocal) : '无'))
+          buLog('任务#' + (t.seq ?? t.id) + ' 走确定性脚本 ' + sname + ' 视频=' + path.basename(videoLocal) + ' 封面=' + (coverLocal ? path.basename(coverLocal) : '无'))
           console.log('[pub-script] ' + sname + ' video=' + videoLocal)
           const out2 = await new Promise((resolve) => {
             const py2 = spawn(PY, sArgs, { windowsHide: false, env: { ...process.env, BU_COOKIE: cookie } })
@@ -646,7 +646,7 @@ async function checkBrowserTasks() {
             setTimeout(() => { try { py2.kill() } catch (e) {} resolve({ code: -1, so: so2, se: 'timeout 600s' }) }, 600000)
           })
           const ok2 = out2.code === 0 && /"success": ?true/.test(out2.so)
-          buLog('任务#' + t.id + ' 脚本' + (ok2 ? '执行完成' : '执行失败 code=' + out2.code + ' ' + String(out2.se).slice(0, 200)))
+          buLog('任务#' + (t.seq ?? t.id) + ' 脚本' + (ok2 ? '执行完成' : '执行失败 code=' + out2.code + ' ' + String(out2.se).slice(0, 200)))
           await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: ok2 ? 'done' : 'failed', result: String(out2.so).slice(-1500), error: ok2 ? '' : ('脚本失败 code=' + out2.code + ' ' + String(out2.se).slice(0, 300)) }) }).catch(() => {})
           continue
         }
@@ -1842,11 +1842,11 @@ ipcMain.handle('app:cleanup-residue', async () => {
 const CDP_PORT = 9333
 let boundProc = null
 const BROWSER_CANDIDATES = [
-  process.env.LOCALAPPDATA + '\Google\Chrome\Application\chrome.exe',
-  process.env.PROGRAMFILES + '\Google\Chrome\Application\chrome.exe',
-  process.env['PROGRAMFILES(X86)'] + '\Google\Chrome\Application\chrome.exe',
-  process.env.LOCALAPPDATA + '\Microsoft\Edge\Application\msedge.exe',
-  process.env.PROGRAMFILES + '\Microsoft\Edge\Application\msedge.exe',
+  process.env.LOCALAPPDATA + '/Google/Chrome/Application/chrome.exe',
+  process.env.PROGRAMFILES + '/Google/Chrome/Application/chrome.exe',
+  process.env['PROGRAMFILES(X86)'] + '/Google/Chrome/Application/chrome.exe',
+  process.env.LOCALAPPDATA + '/Microsoft/Edge/Application/msedge.exe',
+  process.env.PROGRAMFILES + '/Microsoft/Edge/Application/msedge.exe',
   process.env['PROGRAMFILES(X86)'] + '\Microsoft\Edge\Application\msedge.exe',
 ]
 function findBrowserExe() {
