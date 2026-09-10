@@ -39,9 +39,13 @@ function imgOrientation(file) {
 
 function parseArgs() {
   const a = {}
-  for (let i = 2; i < process.argv.length - 1; i++) {
+  for (let i = 2; i < process.argv.length; i++) {
     const k = process.argv[i]
-    if (k.startsWith('--')) a[k.replace(/^--/, '')] = process.argv[i + 1]
+    if (!k.startsWith('--')) continue
+    const name = k.replace(/^--/, '')
+    const nxt = process.argv[i + 1]
+    if (nxt === undefined || nxt.startsWith('--')) { a[name] = 'true' }  // 无值 flag（如 --no-publish）
+    else { a[name] = nxt; i++ }
   }
   return a
 }
