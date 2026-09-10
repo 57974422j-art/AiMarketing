@@ -8,6 +8,7 @@
  */
 const path = require('path')
 const fs = require('fs')
+const http = require('http')
 const { chromium } = require('playwright')
 
 // 直接引用指纹模板里已调好的 7 步流程（不修改原文件）
@@ -35,6 +36,19 @@ async function main() {
     autoMusic: '',
     location: '',
   }
+  // 封面走本地：--cover-file 传本地封面路径 → 起临时服务供脚本"下载"（免鉴权，绕过 /api/storage/file 401）
+  let coverSrv = null
+  if (a['cover-file'] && fs.existsSync(a['cover-file'])) {
+    const buf = fs.readFileSync(a['cover-file'])
+    coverSrv = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'image/jpeg' })
+      res.end(buf)
+    })
+    await new Promise((r) => coverSrv.listen(0, '127.0.0.1', r))
+    process.env.SERVER_URL = 'http://127.0.0.1:' + coverSrv.address().port
+    params.coverImage = path.basename(a['cover-file'])
+  }
+
   // 带时间戳日志——便于观察每步（用户要求看得到步骤）
   const log = (m) => console.log('[' + new Date().toLocaleTimeString('zh-CN') + '] ' + m)
 
@@ -58,6 +72,7 @@ async function main() {
   log('已连接登记浏览器 当前URL=' + page.url())
 
   const r = await executeDouyinPublish(page, params, log)  // 签名=(page, params, log)
+  if (coverSrv) { try { coverSrv.close() } catch (_) {} }
   log('结果: ' + JSON.stringify(r))
   // 只断开 CDP，不关闭浏览器
   await browser.close().catch(() => {})
