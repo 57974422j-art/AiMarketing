@@ -1,0 +1,69 @@
+/**
+ * AGENT 抖音发布入口——复用已调好的 douyin-publish.js（不改原文件）
+ * 连接登记的 bu_profile 浏览器（CDP 9222），不需要 AI 决策。
+ *
+ * 用法:
+ *   node douyin-agent.js --video "E:\path\a.mp4" --title "标题" --topics "#话题1 #话题2" --cover cover_xxx.jpg --userId 1
+ *   （cover 传仓库文件名——脚本会从服务器下载；留空用平台默认）
+ */
+const path = require('path')
+const fs = require('fs')
+const { chromium } = require('playwright')
+
+// 直接引用指纹模板里已调好的 7 步流程（不修改原文件）
+const { executeDouyinPublish } = require(path.join(__dirname, '..', '..', 'electron', 'fp-templates', 'douyin-publish.js'))
+
+function parseArgs() {
+  const a = {}
+  for (let i = 2; i < process.argv.length - 1; i++) {
+    const k = process.argv[i]
+    if (k.startsWith('--')) a[k.replace(/^--/, '')] = process.argv[i + 1]
+  }
+  return a
+}
+
+async function main() {
+  const a = parseArgs()
+  const params = {
+    videoPath: a.video || '',
+    title: a.title || '',
+    description: a.desc || '',
+    topics: a.topics || '',
+    coverImage: a.cover || '',      // 仓库文件名（脚本内部下载）；留空 → 平台默认
+    userId: a.userId || '1',
+    publishNow: 'true',
+    autoMusic: '',
+    location: '',
+  }
+  // 带时间戳日志——便于观察每步（用户要求看得到步骤）
+  const log = (m) => console.log('[' + new Date().toLocaleTimeString('zh-CN') + '] ' + m)
+
+  if (!params.videoPath || !fs.existsSync(params.videoPath)) {
+    console.error('[AGENT] 视频文件不存在: ' + params.videoPath)
+    process.exit(1)
+  }
+  log('视频=' + params.videoPath)
+  log('标题=' + params.title + ' 话题=' + params.topics + ' 封面=' + (params.coverImage || '平台默认'))
+
+  let browser = null
+  try {
+    browser = await chromium.connectOverCDP('http://127.0.0.1:9222')
+  } catch (e) {
+    console.error('[AGENT] 连接登记浏览器失败（先用客户端点登记打开浏览器）: ' + e.message)
+    process.exit(1)
+  }
+  const ctx = browser.contexts()[0]
+  const page = (ctx.pages() && ctx.pages()[0]) || (await ctx.newPage())
+  await page.bringToFront().catch(() => {})
+  log('已连接登记浏览器 当前URL=' + page.url())
+
+  const r = await executeDouyinPublish(page, params, log)  // 签名=(page, params, log)
+  log('结果: ' + JSON.stringify(r))
+  // 只断开 CDP，不关闭浏览器
+  await browser.close().catch(() => {})
+}
+
+main().catch((e) => {
+  console.error('[AGENT] 异常: ' + (e && e.message))
+  process.exit(1)
+})
