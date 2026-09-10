@@ -85,16 +85,17 @@ async function main() {
   //   注意：React 只认真实鼠标点击（page.locator().click()），JS evaluate click 无效
   if (coverFile && fs.existsSync(coverFile)) {
     try {
-      // ① 开 PK 封面（.pk-title-switch 真实点击）
-      const sw = page.locator('.pk-title-switch').first()
-      if ((await page.$$('.pk-title-switch')).length > 0) {
-        await sw.click({ timeout: 4000 }).catch(() => {})
-        log('已开 PK 封面')
-        await sleep(2000)
-      }
-      // ② 点＋号 → 文件框
+      // ① 确保 ＋号出现：轮询等（PK 未开则真实点击开关）
       const addSel = '.pk-cover-list-add-btn'
-      const n = (await page.$$(addSel)).length
+      const addN = () => page.$$eval(addSel, (els) => els.filter((e) => e.offsetParent !== null).length).catch(() => 0)
+      let n = await addN()
+      if (n === 0) {
+        log('点 PK 开关开封面…')
+        await page.locator('.pk-title-switch').first().click({ timeout: 4000 }).catch(() => {})
+        for (let i = 0; i < 8; i++) { await sleep(1000); if ((await addN()) > 0) break }   // ★轮询最多 8s
+      }
+      n = await addN()
+      log('封面＋号数=' + n)
       log('封面＋号数=' + n)
       if (n > 0) {
         const [fc] = await Promise.all([
