@@ -610,8 +610,16 @@ async function checkBrowserTasks() {
       console.log('[browser_use] 执行任务 #' + t.id + ':', String(t.task).slice(0, 60))
       // 2026-09-08: 确保 Python 运行环境就绪（缺则一键下载安装 OSS python-bu.zip——用户零手动）
       // 2026-09-10: 发布时只检查不安装（安装放启动自检——不打断发布）
-      const _c = buEnv && buEnv.getCached()
-      const envR = (_c && _c.ok) ? { ok: true, py: _c.py } : (buEnv ? await buEnv.getBuEnvInfo() : { ok: false, error: 'bu-env 未加载' })
+      let _c = buEnv && buEnv.getCached()
+      let envR = (_c && _c.ok) ? { ok: true, py: _c.py } : (buEnv ? await buEnv.getBuEnvInfo() : { ok: false, error: 'bu-env 未加载' })
+      // 2026-09-10: 发布时若环境未就绪 → 【静默安装】后继续（不弹窗、不打断——用户要求"发布时不弹安装提示"，但发布也必须能跑）
+      if (!envR.ok) {
+        buLog('任务#' + (t.seq ?? t.id) + ' 发布环境未就绪 → 静默安装运行环境（不弹窗）…')
+        try { await ensureBuPython() } catch (eIns) { buLog('静默安装异常：' + String((eIns && eIns.message) || eIns).slice(0, 150)) }
+        _c = buEnv && buEnv.getCached()
+        envR = (_c && _c.ok) ? { ok: true, py: _c.py } : (buEnv ? await buEnv.getBuEnvInfo() : { ok: false, error: 'bu-env 未加载' })
+        buLog('任务#' + (t.seq ?? t.id) + ' 静默安装后环境：ok=' + envR.ok + ' py=' + String(envR.py || '').slice(0, 60))
+      }
       if (!envR.ok) {
         buLog('任务#' + (t.seq ?? t.id) + ' 缺 Python 运行环境：' + (envR.error || '用户取消一键安装') + '——跳过')
         await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: envR.cancelled ? 'pending' : 'failed', error: envR.cancelled ? '等待安装运行环境' : ('缺 Python 运行环境：' + (envR.error || '')) }) }).catch(() => {})
