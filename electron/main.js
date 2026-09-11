@@ -559,8 +559,14 @@ let buEnv = null
 try { buEnv = require('./bu-env')({ BUILTIN_PY, getBuPython, getServerCookie, ensureBuPython, buLog }) }
 catch (eBE) { console.log('[bu-env] 模块加载失败:', eBE && eBE.message) }
 
+let _lastEnvReport = 0
 async function checkBrowserTasks() {
   try {
+    // 2026-09-10: 环境是机器级的——定期重报（≤5 分钟），换账号后自检才能读到本机环境
+    if (buEnv && Date.now() - _lastEnvReport > 300000) {
+      _lastEnvReport = Date.now()
+      try { const _i = await buEnv.getBuEnvInfo(); await buEnv.reportBuEnv(_i) } catch (e) {}
+    }
     const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc' // 2026-08-29: 必须显式定义（同 getServerCookie 坑——未定义→ReferenceError→执行器永远失败→任务不执行）
     const cookie = await getServerCookie()
     if (!cookie) { buLog('轮询跳过：getServerCookie 空（未登录/读不到 token）'); console.log('[browser_use] 轮询跳过：getServerCookie 空（未登录/读不到 token）'); return }
