@@ -193,6 +193,7 @@ def main():
                     ti.fill(tv)
                     page.keyboard.press('Tab')
                     log('标题已填: ' + tv[:40])
+                    page.wait_for_timeout(2000)   # ★2026-09-12 步间延时
                 else:
                     log('未找到标题框')
             except Exception as e:
@@ -212,6 +213,7 @@ def main():
                     if desc:
                         page.keyboard.type(desc, delay=25)
                         log('简介已填(含话题): ' + desc[:50])
+                        page.wait_for_timeout(2000)   # ★步间延时
                 else:
                     log('未找到简介框')
             except Exception as e:
@@ -238,6 +240,7 @@ def main():
                         page.keyboard.press('Enter')
                         page.wait_for_timeout(400)
                     log('标签已填(含回车)')
+                    page.wait_for_timeout(2000)   # ★步间延时
                 else:
                     log('未找到标签框')
             except Exception as e:
@@ -301,6 +304,7 @@ def main():
             if ck:
                 if click_text(page, ['完成'], '（封面完成）'):
                     log('封面已确认（弹窗已关）')
+                    page.wait_for_timeout(5000)   # ★封面完成后 5 秒
                 page.wait_for_timeout(2000)
                 # 再校验封面区（主页面）
                 try:
@@ -319,6 +323,7 @@ def main():
         # ── 投稿 ──
         # ★2026-09-12 B站投稿按钮实测：span.submit-add「立即投稿」(802,873) / span.submit-draft「存草稿」
         #   —— 用 get_by_text 可能点到外层 DIV（不触发），因此优先精确点 .submit-add
+        page.wait_for_timeout(3000)   # ★2026-09-12 投稿前统一 3 秒
         ok = False
         try:
             el = page.query_selector('span.submit-add') or page.query_selector('.submit-add')
