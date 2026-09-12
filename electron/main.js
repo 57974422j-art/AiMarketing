@@ -258,23 +258,16 @@ function setupAutoPublish() {
               global.__loginPrompted[t.id] = true
               const { chromium } = require('playwright')
               let b2 = null
-              try { b2 = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT) } catch {
-                // 浏览器没开 → 自动启动内置 Chromium（独立 profile 必通）
-                try {
-                  const builtinExe = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find(p => fs.existsSync(p)) || chromium.executablePath()
-                  if (builtinExe && fs.existsSync(builtinExe)) {
-                    const profileDir = path.join(app.getPath('userData'), 'browser-profile')
-                    fs.mkdirSync(profileDir, { recursive: true })
-                    try { for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) { const sp = path.join(profileDir, f); if (fs.existsSync(sp)) fs.rmSync(sp, { force: true }) } } catch {}
-                    const { spawn } = require('child_process')
-                    const proc = spawn(builtinExe, ['--remote-debugging-port=' + CDP_PORT, '--remote-allow-origins=*', '--user-data-dir=' + profileDir, '--no-first-run', '--disable-first-run-ui', 'about:blank'], { detached: true, stdio: 'ignore' })
-                    proc.unref(); boundProc = proc
-                    for (let i = 0; i < 30; i++) { try { const r = await fetch('http://127.0.0.1:' + CDP_PORT + '/json/version', { signal: AbortSignal.timeout(2000) }); if (r.ok) break } catch {} await new Promise((r2) => setTimeout(r2, 500)) }
-                    b2 = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
-                  }
-                } catch {}
-              }
-              const ctx2 = b2 ? b2.contexts()[0] : null
+              // 2026-09-12: 统一启动——原来这里自启一个 9333 实例（同 profile），与发布 9222 抢写 Cookies → 登录态丢
+              try {
+                await ensureChromeForPublish(LOGIN_URLS[plat] || 'https://www.google.com')
+                for (let i2 = 0; i2 < 20; i2++) {
+                  try { const r = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(1000) }); if (r.ok) break } catch (e) {}
+                  await new Promise((r) => setTimeout(r, 700))
+                }
+                b2 = await chromium.connectOverCDP('http://127.0.0.1:9222')
+              } catch (e) { try { buLog('[bind] 连登记浏览器失败: ' + String(e).slice(0, 80)) } catch (e2) {} }
+const ctx2 = b2 ? b2.contexts()[0] : null
               if (ctx2) {
                 const pg = await ctx2.newPage()
                 await pg.goto(LOGIN_URLS[plat] || 'https://www.google.com', { waitUntil: 'domcontentloaded' }).catch(() => {})
@@ -679,7 +672,7 @@ async function checkBrowserTasks() {
             const _chrome = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find((p2) => fs.existsSync(p2))
             if (_chrome) {
               const platUrlMap2 = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish?from=menu&target=video', weibo: 'https://weibo.com/upload/channel', shipinhao: 'https://channels.weixin.qq.com/platform/post/create' }
-              spawn(_chrome, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--no-first-run', platUrlMap2[plat] || platUrlMap2.douyin], { detached: true, stdio: 'ignore' }).unref()
+              await ensureChromeForPublish(platUrlMap2[plat] || platUrlMap2.douyin)
               await new Promise((r2) => setTimeout(r2, 7000))
               buLog('已启动登记浏览器，继续执行脚本')
             } else buLog('未找到 Chrome（登记浏览器无法启动）')
@@ -1325,7 +1318,7 @@ ipcMain.handle('bu:open', async (event) => {
     const chrome = chromeCands.find(p => require('fs').existsSync(p))
     if (!chrome) return { success: false, error: '未找到系统 Chrome' }
     const prof = String(BU_PROFILE_DIR)
-    const ch = spawn(chrome, ['--user-data-dir=' + prof, '--no-first-run', 'https://creator.xiaohongshu.com/publish/publish'], { windowsHide: false, detached: true, stdio: 'ignore' })
+    await ensureChromeForPublish('https://creator.xiaohongshu.com/publish/publish')   // 2026-09-12: 走统一启动（原来不带 9222 → 与发布实例抢 profile → 登录态丢）
     ch.unref()
     return { success: true, message: '已打开 Browser Use 浏览器（bu_profile）——请扫码登录目标平台，登录后点「刷新检测」' }
   } catch (e) { return { success: false, error: String(e && e.message || e) } }
@@ -1893,7 +1886,7 @@ ipcMain.handle('app:cleanup-residue', async () => {
 //  客户端拉起用户日常 Chrome/Edge（--remote-debugging-port，127.0.0.1）
 //  → 通过 CDP 读各平台登录 cookie → 个人号发布走这里（无扩展/无 OpenCLIApp 依赖）
 // ════════════════════════════════════════
-const CDP_PORT = 9333
+const CDP_PORT = 9222   // 2026-09-12: 统一 9222（原 9333 与发布 9222 抢同一 profile → 登录态丢）
 let boundProc = null
 const BROWSER_CANDIDATES = [
   process.env.LOCALAPPDATA + '/Google/Chrome/Application/chrome.exe',
@@ -2015,7 +2008,7 @@ ipcMain.handle('browser:open-url', async (_e, url) => {
     if (!chrome) return { success: false, error: '未找到系统 Chrome' }
     const prof = String(BU_PROFILE_DIR)
     // 2026-09-08: 带调试端口 9222——发布的 bu_exec 用 CDP 直接连接这个已登录浏览器（不杀不重开不导航）
-    const ch = spawn(chrome, ['--user-data-dir=' + prof, '--remote-debugging-port=9222', '--no-first-run', String(url || 'https://www.google.com')])
+    await ensureChromeForPublish(String(url || 'https://www.google.com'))   // 2026-09-12: 统一启动
     ch.unref()
     return { success: true, message: '已打开浏览器（系统 Chrome + browser-profile）' }
   } catch (e) { return { success: false, error: String(e && e.message || e) } }
@@ -2675,3 +2668,38 @@ ipcMain.handle('browser:publish', async (_e, payload) => {
   return await publishDouyinViaCDP(payload)
 })
 
+// ══════════════════════════════════════════════════════════════
+// 2026-09-12: 统一 Chrome 启动（登录态丢失根治）
+// 铁律：一个 profile 只能有一个 Chrome 进程——同时两个会互相覆盖 Cookies（登录态丢）
+//   ① 9222 通       → 直接复用，绝不启新进程
+//   ② 本进程已启过   → 等待就绪，不重复启
+//   ③ 都没有        → 启一个（带 9222 + 同一 profile）
+// ══════════════════════════════════════════════════════════════
+let _chromeStartedByUs = false
+const CHROME_CANDS = [
+  'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+]
+async function ensureChromeForPublish(url) {
+  const cdpOk = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(2000) })
+    .then((r) => r.ok).catch(() => false)
+  if (cdpOk) {
+    try { buLog('[chrome] 9222 已通——复用现有登记浏览器（不启新进程）') } catch (e) {}
+    return true
+  }
+  if (_chromeStartedByUs) {
+    try { buLog('[chrome] 本进程已启过登记浏览器——等待 9222 就绪') } catch (e) {}
+    await new Promise((r) => setTimeout(r, 4000))
+    return true
+  }
+  const ch = CHROME_CANDS.find((p2) => fs.existsSync(p2))
+  if (!ch) {
+    try { buLog('[chrome] 未找到 chrome.exe（登记浏览器无法启动）') } catch (e) {}
+    return false
+  }
+  spawn(ch, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--remote-allow-origins=*', '--no-first-run', String(url || 'https://www.google.com')], { detached: true, stdio: 'ignore' }).unref()
+  _chromeStartedByUs = true
+  try { buLog('[chrome] 已启动登记浏览器（9222 + 同一 profile = ' + BU_PROFILE_DIR + '）') } catch (e) {}
+  await new Promise((r) => setTimeout(r, 6000))
+  return true
+}
