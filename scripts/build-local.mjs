@@ -101,6 +101,8 @@ const build = {
   directories: { output: 'dist-rel' },
   // 2026-08-13 v1.0.30 纯壳：files 只含 electron/preload；无 standalone/无 next build
   files: pkg.build.files,
+  // 2026-09-10 瘦身：只保留中英语言包（原来 41M 全语言）
+  electronLanguages: ['zh-CN', 'en-US'],
   asarUnpack: ['**/*.node', '**/*.exe', '**/*.dll', '**/node_modules/@jackwener/opencli/**', 'node_modules/@jackwener/opencli/**'], // 2026-08-26: 缺 node_modules 前缀→@jackwener 未 unpack→vod-upload.js 找不到→发布只开页面
   extraResources: [
     { from: 'scripts/platform-tools', to: 'scripts/platform-tools' },
@@ -111,7 +113,6 @@ const build = {
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
     // 2026-08-19: 本地语音识别模型（sherpa-onnx）——随包分发
-    { from: 'electron/models/sherpa', to: 'models/sherpa', filter: ['**/*'] },
     // 2026-08-21: OpenCLI 浏览器扩展（打包分发——用户免商店/免代理，开发者模式加载即可）
     { from: 'electron/resources/opencli-extension', to: 'opencli-extension', filter: ['**/*'] },
   ],

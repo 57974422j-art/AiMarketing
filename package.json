@@ -67,7 +67,6 @@
       "output": "dist-rel"
     },
     "files": [
-      ".next/**/*",
       "electron/**/*",
       "public/**/*",
       "!public/updates/**",
