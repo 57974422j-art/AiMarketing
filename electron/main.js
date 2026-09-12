@@ -671,7 +671,7 @@ async function checkBrowserTasks() {
             buLog('任务#' + (t.seq ?? t.id) + ' 登记浏览器未开（CDP 9222 不通）——自动启动')
             const _chrome = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find((p2) => fs.existsSync(p2))
             if (_chrome) {
-              const platUrlMap2 = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish?from=menu&target=video', weibo: 'https://weibo.com/upload/channel', shipinhao: 'https://channels.weixin.qq.com/platform/post/create' }
+              const platUrlMap2 = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish?from=menu&target=video', weibo: 'https://weibo.com/upload/channel', shipinhao: 'https://channels.weixin.qq.com/platform/post/create', kuaishou: 'https://cp.kuaishou.com/article/publish/video', bilibili: 'https://member.bilibili.com/platform/upload/video/frame' }   // 2026-09-12: 补 kuaishou/bilibili（原缺 → 点B站/快手会先打开抖音页）
               await ensureChromeForPublish(platUrlMap2[plat] || platUrlMap2.douyin)
               await new Promise((r2) => setTimeout(r2, 7000))
               buLog('已启动登记浏览器，继续执行脚本')
