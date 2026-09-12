@@ -26,6 +26,23 @@ except Exception:
 URL = 'https://weibo.com/upload/channel'
 HOME = 'https://weibo.com/'
 
+
+
+def connect_cdp(pw, url='http://127.0.0.1:9222', tries=15, gap=2, log=None):
+    """★2026-09-12: 等登记浏览器(9222)就绪再连——客户端刚 spawn Chrome 时端口还没监听，
+    原脚本一启动就 connect → ECONNREFUSED → 1 秒内崩（客户端日志 code=1 Traceback）"""
+    import time as _t
+    last = None
+    for i in range(tries):
+        try:
+            return pw.chromium.connect_over_cdp(url)
+        except Exception as e:
+            last = e
+            if i == 0 and log:
+                try: log('  等登记浏览器(9222)就绪…')
+                except Exception: pass
+            _t.sleep(gap)
+    raise RuntimeError('连不上登记浏览器(9222)，等了 %ds：%s' % (tries * gap, str(last)[:90]))
 def log(m): print('[PUB] ' + str(m), flush=True)
 
 def valid(page):
@@ -84,7 +101,7 @@ def main():
     log('视频=' + a.video + ' 标题=' + (a.title or '(无)') + ' 封面=' + (a.cover or '(无)'))
 
     with sync_playwright() as pw:
-        b = pw.chromium.connect_over_cdp('http://127.0.0.1:9222')
+        b = connect_cdp(pw, log=log)
         ctx = b.contexts[0] if b.contexts else b.new_context()
         page, how = pick_video_page(ctx)
         if page is None:
@@ -220,4 +237,14 @@ def main():
                 log('⑨ ✅ 发布成功迹象（%ds）' % ((i + 1) * 3)); ok_pub = True; break
         print(json.dumps({'success': ok_pub, 'url': page.url}))
 
-main()
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as e:
+        # 2026-09-12: 加异常兜底——原来裸调 main()，异常直接崩、Traceback 被日志截断，看不到真因
+        import traceback
+        traceback.print_exc()
+        try:
+            print(json.dumps({'success': False, 'result': str(e)[:300]}))
+        except Exception:
+            print('{"success": false, "result": "脚本异常"}')

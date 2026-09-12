@@ -16,6 +16,23 @@ try:
 except Exception:
     cdp_click_text = None
 
+
+
+def connect_cdp(pw, url='http://127.0.0.1:9222', tries=15, gap=2, log=None):
+    """★2026-09-12: 等登记浏览器(9222)就绪再连——客户端刚 spawn Chrome 时端口还没监听，
+    原脚本一启动就 connect → ECONNREFUSED → 1 秒内崩（客户端日志 code=1 Traceback）"""
+    import time as _t
+    last = None
+    for i in range(tries):
+        try:
+            return pw.chromium.connect_over_cdp(url)
+        except Exception as e:
+            last = e
+            if i == 0 and log:
+                try: log('  等登记浏览器(9222)就绪…')
+                except Exception: pass
+            _t.sleep(gap)
+    raise RuntimeError('连不上登记浏览器(9222)，等了 %ds：%s' % (tries * gap, str(last)[:90]))
 def log(m): print('[PUB] ' + str(m), flush=True)
 
 def img_orientation(p):
@@ -116,7 +133,7 @@ def main():
     a = ap.parse_args()
     log('视频=' + a.video + ' 封面=' + (a.cover or '无'))
     with sync_playwright() as pw:
-        b = pw.chromium.connect_over_cdp('http://127.0.0.1:9222')
+        b = connect_cdp(pw, log=log)
         ctx = b.contexts[0] if b.contexts else b.new_context()
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.bring_to_front()
@@ -275,4 +292,14 @@ def main():
             log('❌ 未找到发布按钮（CDP + 文本都失败）')
         print(json.dumps({'success': True, 'url': page.url}))
 
-main()
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as e:
+        # 2026-09-12: 加异常兜底——原来裸调 main()，异常直接崩、Traceback 被日志截断，看不到真因
+        import traceback
+        traceback.print_exc()
+        try:
+            print(json.dumps({'success': False, 'result': str(e)[:300]}))
+        except Exception:
+            print('{"success": false, "result": "脚本异常"}')
