@@ -1,6 +1,6 @@
 {
   "name": "ai-marketing",
-  "version": "1.0.142",
+  "version": "1.0.143",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -70,7 +70,16 @@
       "electron/**/*",
       "public/**/*",
       "!public/updates/**",
-      "package.json"
+      "package.json",
+      "!node_modules/next/**",
+      "!node_modules/@next/**",
+      "!node_modules/prisma/**",
+      "!node_modules/@prisma/**",
+      "!node_modules/sherpa-onnx-node/**",
+      "!node_modules/sherpa-onnx-win-x64/**",
+      "!node_modules/@img/**",
+      "!node_modules/react/**",
+      "!node_modules/react-dom/**"
     ],
     "extraResources": [
       {
