@@ -54,6 +54,7 @@
 2026-08-18 | 隐患②③④⑤：spendTokens 事务化；checkout 惰性清理过期订单；删 subscription-guard 死代码；周卡防重复确认 | token-wallet.ts、payment-config.ts、两 checkout、subscription-guard 删除 | ✅ 已推
 2026-08-18 | ②数据中台+③发布真执行：my-fingerprint 3s 轮询接 Agent 任务+平台绑定+自动执行+平台校验；dispatcher publish→agentPublishTask；Agent 新增 query_publish_tasks；MediaCrawler trending 真实现（抖音热榜+入库 CrawledTrending） | my-fingerprint/page.tsx、engine-dispatcher.ts、agent/chat/route.ts、crawler-client.ts、mediacrawler/trending/route.ts | ✅ 781b8e1+1e6b3f0 已推，待部署验证
 |---|---|---|---|
+| 2026-09-12 | 发布链路大修 8 项（浏览器不打开/视频号 detached/脚本秒崩/点B站开抖音/打勾不生效/延时统一/平台按钮补视频号/文案过时）+ 模式隔离第1步（抽 tools.ts + prompts.ts + 状态机块边界注释 + 文档） | electron/main.js, scripts/agent-publish/*.py, src/lib/agent/{tools,prompts,publish-task}.ts, src/app/api/agent/chat/route.ts, src/app/agent/page.tsx, PROJECT.md | ✅ 已提交，打包 1.0.150 |
 | 08-11 | 修复下载 404：上传更新文件到 public/updates 后需 cp 进 .next/standalone/public/updates + pm2 restart（否则 standalone 服务旧快照）；v1.0.20 发布（landing/左栏重构/头部三卡片/指纹发布/热点去 vvhan/历史恢复） | 多文件 | ✅ 已记录流程 |
 | 08-11 | admin/settings 改造：修 Serper 保存无效 + statusMap 全量状态 + 顶部汇总条 + vvhan/Serper 徽章/测试 + test-key 加 serper/vvhan；selfcheck 优化（点数显示套餐额度/ASR 改 8765/热点 401 修复）；热点白名单；spendTokens 下限 0；套餐编辑 PUT 修复；sync-db.cmd | 多文件 | ✅ 0dde31c 已推送，待部署 |
 | 08-10 | 生成历史+查看提示词（/api/generation-records + image/text-to-video 历史区：prompt 复制/模型/复用）+ 文生图升级 qwen-image-3.0-pro（修中文乱码）+ 用户画像登记表单（首登 → AgentMemory） | src/app/api/generation-records、image-generator、text-to-video、ai-providers、agent/page.tsx、memories | ✅ 已推送（见 git log） |

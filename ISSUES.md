@@ -26,7 +26,7 @@
 - 🟡 digital_human_speak 参数错位
 - 🟡 热点无国内源
 - 🟡 一键成片 TTS/合成间歇失败（qwen3-tts + ffmpeg）
-- 🟡 标准/自由模式文件级隔离（free-flow.ts / standard-flow.ts 物理抽取——已完成状态机块整体 if(!isFreeMode) 包裹 5c42abf，抽文件待测通后做）
+- 🟡 标准/自由模式文件级隔离（free-flow.ts / standard-flow.ts 物理抽取）——**2026-09-12 更新**：第1步已完成（抽出 tools.ts 354行 / prompts.ts 290行 + 状态机块边界注释 L1586-2235 + freeMode 5 个分叉点清单写入 PROJECT.md）；第2步（状态机块物理搬 standard-flow.ts）待 6 平台真发验证通过后做
 
 ### ✅ 已解决
 - 🟡 **Browser Use「打不开浏览器」问题总结（2026-08-30——以后排查速查）**：
