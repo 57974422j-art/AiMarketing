@@ -609,3 +609,39 @@ scripts/browser-use/bu_exec.py：
 - ✅ 抖音 / 小红书 / 微博 / 视频号 **4 平台脚本已通**
 - ✅ 小红书 2026-09 改版适配完成（PK 开关类名 `.pk-cover-switch-trigger` + 隐藏 `input.pk-cover-list-file-input` 直传封面 + PK 满 3 张点 X 腾位）
 - ⏳ 待办：快手 / B站 脚本 · 打包发版 · **登录态根治**（main.js 3 处启动 Chrome 收敛成 1 个函数——同一 profile 被两个进程抢写 Cookies）
+
+---
+
+## 🧩 标准/自由模式隔离进度（2026-09-12 更新——防压缩/接手人失忆）
+
+### ✅ 已完成的隔离
+
+| 层次 | 状态 | 位置 |
+|---|---|---|
+| **工具定义** | ✅ **已抽文件** | `src/lib/agent/tools.ts`（AGENT_TOOLS + TOOL_STEP_LABEL，354 行）|
+| **系统提示** | ✅ **已抽文件** | `src/lib/agent/prompts.ts`（buildSystemPrompt，含 freeMode 分叉，290 行）|
+| **发布任务** | ✅ 已抽文件 | `src/lib/agent/publish-task.ts`（createPublishTask / parsePublishTask）|
+| **状态机** | ✅ **已加边界注释** | `chat/route.ts` **L1586 ~ L2235**（标准模式专属，648 行）|
+| 前端任务进度带 | ✅ 条件渲染 | `page.tsx` L2951 `agentMode === 'standard'` |
+| 前端快捷卡片 | ✅ 条件渲染 | `page.tsx` L2902 `agentMode === 'standard'` |
+| 模型分流 | ✅ | freeMode → forceVL=true（整体切多模态 qwen3-max）|
+| 状态机分流 | ✅ | `chat/route.ts` L1585 `if (!isFreeMode)`（唯一分叉点）|
+
+**chat/route.ts 行数变化**：2990 → 2362（抽出 tools 350 行 + prompts 280 行）
+
+### ★ freeMode 全部分叉点（改标准模式时对照此清单，避免波及自由模式）
+
+| # | 位置 | 作用 |
+|---|---|---|
+| 1 | `prompts.ts` — buildSystemPrompt 开头 `if (freeMode)` | 返回自由模式极简 header（只讲意图理解 + 发布红线 + 诚实，无状态机步骤/WF_JSON）|
+| 2 | `chat/route.ts` **L1585** `if (!isFreeMode) {` … **L2235** | 发布状态机整块（自由模式跳过）|
+| 3 | `chat/route.ts` 模型调用（dashscopeFunctionCall 调用处）| freeMode 时 forceVL=true |
+| 4 | `page.tsx` L2902（快捷卡片）/ L2951（任务进度带）| 仅标准模式渲染 |
+| 5 | `page.tsx` L3041 | 标准/自由模式切换开关 |
+
+### ⏳ 待做（第 2 步——文件级彻底隔离）
+
+- 把状态机块（L1586-2235）物理搬进 `src/lib/agent/standard-flow.ts`
+- 自由模式分支搬进 `src/lib/agent/free-flow.ts`
+- **前置条件**：6 平台发布全部真发验证通过后再做（否则两条线同时动，风险叠加）
+- 现状态记录于 ISSUES.md「标准/自由模式文件级隔离」条目（🟡）
