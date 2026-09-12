@@ -180,6 +180,27 @@ def main():
                 # ★2026-09-12 小红书改版：PK 封面框是【隐藏 input.pk-cover-list-file-input】(accept=.jpg,.jpeg,.png)
                 # → 直接 set_input_files（不必点＋号；＋号被 tooltip-trigger 遮挡，点了也不弹框）
                 try:
+                    # ★2026-09-12：PK 列表最多 3 张（默认已被智能推荐占满）→ 先点 X 删一张腾位
+                    try:
+                        _full = page.evaluate("() => document.querySelectorAll('.pk-cover-list-card-img').length")
+                        log('PK 封面现有=' + str(_full) + ' 张')
+                        for _try in range(3):
+                            if (page.evaluate("() => document.querySelectorAll('.pk-cover-list-card-img').length") or 0) < 3:
+                                break
+                            _x = page.query_selector('.pk-cover-list-slide-close')
+                            if not _x:
+                                break
+                            _xb = _x.bounding_box()
+                            if _xb:
+                                page.mouse.move(_xb['x'] + _xb['width'] / 2, _xb['y'] + _xb['height'] / 2)
+                                page.wait_for_timeout(400)
+                                page.mouse.click(_xb['x'] + _xb['width'] / 2, _xb['y'] + _xb['height'] / 2)
+                            else:
+                                _x.click(timeout=3000)
+                            page.wait_for_timeout(1800)
+                            log('已删一张 PK 封面（腾位）→ 剩 ' + str(page.evaluate("() => document.querySelectorAll('.pk-cover-list-card-img').length")))
+                    except Exception as _e9:
+                        log('删除 PK 封面失败: ' + str(_e9)[:50])
                     _pk_in = page.query_selector('input.pk-cover-list-file-input') or page.query_selector('input[type="file"][accept*=".jpg"]')
                     if _pk_in:
                         _pk_in.set_input_files(a.cover)
