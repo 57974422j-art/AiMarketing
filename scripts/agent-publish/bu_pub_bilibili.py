@@ -260,11 +260,27 @@ def main():
             print(json.dumps({'success': True, 'result': '已填完（未投稿）'}))
             return
         # ── 投稿 ──
-        ok = click_text(page, ['立即投稿', '投稿', '发布'], '（投稿）')
+        # ★2026-09-12 B站投稿按钮实测：span.submit-add「立即投稿」(802,873) / span.submit-draft「存草稿」
+        #   —— 用 get_by_text 可能点到外层 DIV（不触发），因此优先精确点 .submit-add
+        ok = False
+        try:
+            el = page.query_selector('span.submit-add') or page.query_selector('.submit-add')
+            if el:
+                el.scroll_into_view_if_needed()
+                page.wait_for_timeout(600)
+                bb = el.bounding_box()
+                if bb:
+                    page.mouse.move(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
+                    page.wait_for_timeout(300)
+                    page.mouse.click(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
+                    ok = True
+                    log('已点「立即投稿」(span.submit-add)')
+        except Exception as e:
+            log('  点 .submit-add 失败: ' + str(e)[:60])
+        if not ok:
+            ok = click_text(page, ['立即投稿'], '（投稿）')
         if not ok and cdp_click_text:
             ok = cdp_click_text(page, '立即投稿', tag='', log=log, exact=True, prefer_bottom_right=True)
-            if not ok:
-                ok = cdp_click_text(page, '投稿', tag='', log=log, exact=True, prefer_bottom_right=True)
         page.wait_for_timeout(3000)
         click_text(page, ['确认', '确定'], '（二次确认）')
         page.wait_for_timeout(8000)
