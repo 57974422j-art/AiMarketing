@@ -1954,14 +1954,21 @@ function AgentPageInner() {
     const buM = content.match(/已创建 AI 浏览器发布任务（#(\d+)）/); const buQ = content.includes('BROWSER_TASK_QUEUED') ? buM : null
     if (buQ) {
       const buId = buQ[1] ? Number(buQ[1]) : 0
+      // 2026-09-12: 任务回复可能【同时带 WF_JSON(step=full)】→ 前半显示任务卡，后半继续渲染方案卡（平台按钮还在 → 可连续发多平台）
+      const wfIdx = content.indexOf('WF_JSON:')
+      const headTxt = wfIdx >= 0 ? content.slice(0, wfIdx).trim() : content
+      const tail = wfIdx >= 0 ? content.slice(wfIdx) : ''
       return (
-        <div className="mt-1 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2">
-          <div className="text-xs text-emerald-200 whitespace-pre-wrap">{content}</div>
-          {buId > 0 && (
-            <button onClick={() => rebuildTask(buId)} className="mt-2 px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs">
-              🔁 重发（不管成功与否，再发一次）
-            </button>
-          )}
+        <div className="mt-1 space-y-1">
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2">
+            <div className="text-xs text-emerald-200 whitespace-pre-wrap">{headTxt}</div>
+            {buId > 0 && (
+              <button onClick={() => rebuildTask(buId)} className="mt-2 px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs">
+                🔁 重发（不管成功与否，再发一次）
+              </button>
+            )}
+          </div>
+          {tail ? renderContent(tail) : null}
         </div>
       )
     }
