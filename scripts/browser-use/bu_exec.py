@@ -170,8 +170,14 @@ async def main():
     chrome = find_chrome()
     # 2026-09-08: 不再杀浏览器/不再 user_data_dir 新开——CDP 连接已登记的 bu_profile 浏览器（9222 端口）
     # 页面由登记通道直接开到发布页（带调试端口），AI 不做导航，登录态常驻复用
-    m_url = re.search(r'https?://[A-Za-z0-9._\-/:?&=%#]+', args.task)
-    cdp_ok = ensure_cdp_browser(m_url.group(0) if m_url else '', args.profile, chrome)
+    # 2026-09-09: 平台发布页 URL 内置（task 极简后不含 URL——按平台名取，浏览器直接开对地址）
+    _PLAT_URLS = {'抖音': 'https://creator.douyin.com/creator-micro/content/upload', '小红书': 'https://creator.xiaohongshu.com/publish/publish', '快手': 'https://cp.kuaishou.com/creator/video/upload', '视频号': 'https://channels.weixin.qq.com/platform/post/create', 'B站': 'https://member.bilibili.com/platform/upload/video/frame', 'bilibili': 'https://member.bilibili.com/platform/upload/video/frame', '微博': 'https://weibo.com/upload'}
+    _t = str(args.task)
+    _u = next((u for k, u in _PLAT_URLS.items() if k in _t), '')
+    if not _u:
+        _mm = re.search(r'https?://[A-Za-z0-9._\-/:?&=%#]+', _t)
+        _u = _mm.group(0) if _mm else ''
+    cdp_ok = ensure_cdp_browser(_u, args.profile, chrome)
     browser = Browser(cdp_url='http://127.0.0.1:9222') if cdp_ok else Browser(
         user_data_dir=args.profile,
         executable_path=chrome,
