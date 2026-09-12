@@ -146,7 +146,9 @@ def main():
         fr = frame_of(page)
 
         # ── 描述（contenteditable）——用 CDP 取准确坐标点击 + 键盘输入 ──
-        if a.topics:
+        if SK_TOPIC:
+            log('④ 描述(话题)——用户勾掉，跳过')
+        elif a.topics:
             try:
                 xy = fr.evaluate("""() => { const e = document.querySelector('.input-editor'); if (!e) return null; e.scrollIntoView({block:'center'}); const b = e.getBoundingClientRect(); return Math.round(b.x+b.width/2)+','+Math.round(b.y+b.height/2); }""")
                 if xy:
@@ -160,12 +162,15 @@ def main():
                     page.wait_for_timeout(700)
                     v = fr.evaluate("() => { const e = document.querySelector('.input-editor'); return e ? (e.innerText||'').trim() : null; }")
                     log('④ 描述已填（值=%s）' % repr(v))
+                    page.wait_for_timeout(2000)   # ★2026-09-12 步间延时
                 else:
                     log('④ ⚠️ 未找到描述框(.input-editor)')
             except Exception as e:
                 log('④ 描述失败: ' + str(e)[:70])
         # ── 短标题 ──
-        if a.title:
+        if SK_TITLE:
+            log('⑤ 短标题——用户勾掉，跳过')
+        elif a.title:
             try:
                 xy2 = fr.evaluate("""() => { const i = document.querySelector('input[placeholder*="短标题"]'); if (!i) return null; i.scrollIntoView({block:'center'}); const b = i.getBoundingClientRect(); return Math.round(b.x+40)+','+Math.round(b.y+b.height/2); }""")
                 if xy2:
@@ -178,13 +183,16 @@ def main():
                     page.wait_for_timeout(600)
                     v2 = fr.evaluate("""() => { const i = document.querySelector('input[placeholder*="短标题"]'); return i ? i.value : null; }""")
                     log('⑤ 短标题已填（值=%s）' % repr(v2))
+                    page.wait_for_timeout(2000)   # ★步间延时
                 else:
                     log('⑤ ⚠️ 未找到短标题框')
             except Exception as e:
                 log('⑤ 短标题失败: ' + str(e)[:70])
 
         # ── 封面（封面区「编辑」→ 弹窗「上传封面」→ 文件框 → 「确认」）──
-        if a.cover and os.path.exists(a.cover):
+        if SK_COVER:
+            log('⑥ 封面——用户勾掉，跳过（用平台默认）')
+        elif a.cover and os.path.exists(a.cover):
             try:
                 # 点封面区「编辑」（CDP 找 button/div 文本"编辑"——取最靠上的）
                 edit_xy = fr.evaluate("""() => { const vis=(e)=>!!(e&&e.offsetParent!==null);

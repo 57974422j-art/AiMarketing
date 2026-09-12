@@ -187,7 +187,7 @@ def main():
             log('等待超时——继续尝试')
         page.wait_for_timeout(3000)
         kill_joyride(page)
-        if not a.only_cover:
+        if not a.only_cover and not (SK_TITLE and SK_TOPIC):
             desc = None
             for s in ['textarea[placeholder*="简介"]', 'textarea[placeholder*="描述"]', 'textarea[placeholder*="介绍"]', 'div[contenteditable="true"]']:
                 el = page.query_selector(s)
@@ -216,6 +216,7 @@ def main():
                         else:
                             page.keyboard.type(txt, delay=30)
                         log('标题已填: ' + txt[:30])
+                        page.wait_for_timeout(2000)   # ★2026-09-12 步间延时
                     except Exception as e:
                         log('  标题填写失败: ' + str(e)[:60])
                 tps = [x for x in re.split(r'[\s,，#]+', (a.topics or '').strip()) if x][:3]
@@ -230,7 +231,9 @@ def main():
                     except Exception as e:
                         log('  话题填写失败: ' + str(e)[:60])
             page.wait_for_timeout(1500)
-        if a.cover and os.path.exists(a.cover):
+        if SK_COVER:
+            log('封面——用户勾掉，跳过（用平台默认）')
+        elif a.cover and os.path.exists(a.cover):
             # ★2026-09-12 快手封面（2026-09 版）：封面区在【第 1 步·作品信息】里
             #   结构：_high-cover-editor-wrapper → _pk-upload(PK封面上传区) + _default-cover + _recommend-cover
             #   封面文件框 = input[type=file][accept*="image"]（隐藏，可直接灌）

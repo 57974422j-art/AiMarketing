@@ -178,7 +178,11 @@ def main():
         if not a.only_cover:
             # ── 标题（B站会自动填视频文件名 → 必须先全选清空）──
             try:
-                ti = page.query_selector('input[placeholder*="标题"]')
+                if SK_TITLE:
+                    log('标题——用户勾掉，跳过')
+                    ti = None
+                else:
+                    ti = page.query_selector('input[placeholder*="标题"]')
                 if ti and vis(page, 'input[placeholder*="标题"]'):
                     ti.click(timeout=3000)
                     page.wait_for_timeout(300)
@@ -240,7 +244,9 @@ def main():
                 log('  标签填写失败: ' + str(e)[:60])
             page.wait_for_timeout(1500)
         # ── 封面（best-effort）──
-        if a.cover and os.path.exists(a.cover):
+        if SK_COVER:
+            log('封面——用户勾掉，跳过（用平台默认）')
+        elif a.cover and os.path.exists(a.cover):
             # ★2026-09-12 B站封面（实测）：点「添加封面」→ 弹出「封面制作」对话框
             #   （智能/模版/文字/贴纸/滤镜 + 上传封面区 + 4:3/16:9 预览 + 取消/完成）
             #   封面框 = .cover-editor input[type=file][accept*="image"]（隐藏，直传）
