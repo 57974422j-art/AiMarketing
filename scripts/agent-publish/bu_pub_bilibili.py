@@ -236,23 +236,49 @@ def main():
                         log('已点「添加封面」打开封面制作弹窗')
             except Exception as e:
                 log('  打开封面弹窗失败: ' + str(e)[:50])
+            # ★2026-09-12 修：直传隐藏 input 不可靠（日志说成功、页面其实没变）——改为
+            #   ① 点弹窗内「上传封面」触发 filechooser（真按钮）→ setFiles
+            #   ② 直传 image input 作兜底
+            #   ③ ★每步校验：弹窗内预览图是否出现（否则视为失败）
+            up_ok = False
             try:
-                fi = page.query_selector('.cover-editor input[type=file][accept*="image"]') or page.query_selector('input[type=file][accept*="image"]')
-                if fi:
-                    fi.set_input_files(a.cover)
-                    ck = True
-                    log('封面已上传(弹窗 image input 直传)')
-                else:
-                    log('未找到封面 image input → 平台默认')
+                with page.expect_file_chooser(timeout=6000) as fc:
+                    if not click_text(page, ['上传封面'], '（弹窗内）'):
+                        raise RuntimeError('未找到「上传封面」')
+                fc.value.set_files(a.cover)
+                up_ok = True
+                log('封面已上传(点「上传封面」→文件框)')
             except Exception as e:
-                log('  封面直传失败: ' + str(e)[:60])
+                log('  点「上传封面」失败: ' + str(e)[:60])
+            if not up_ok:
+                try:
+                    fi = page.query_selector('.cover-editor input[type=file][accept*="image"]') or page.query_selector('input[type=file][accept*="image"]')
+                    if fi:
+                        fi.set_input_files(a.cover)
+                        up_ok = True
+                        log('封面已上传(隐藏 image input 兜底)')
+                except Exception as e:
+                    log('  image input 兜底失败: ' + str(e)[:50])
+            # ★校验：弹窗里出现预览图（自然尺寸 > 100 才算真进了）
+            page.wait_for_timeout(4000)
+            try:
+                prev = page.evaluate("() => { const d = document.querySelector('.cover-editor') || document; return Array.from(d.querySelectorAll('img')).filter(e => e.naturalWidth > 100).length; }")
+                log('  封面弹窗预览图数量=' + str(prev) + ('（正常）' if prev > 0 else '（⚠️ 可能没上传成功）'))
+                ck = prev > 0
+            except Exception:
+                ck = up_ok
             if ck:
-                page.wait_for_timeout(4500)
                 if click_text(page, ['完成'], '（封面完成）'):
                     log('封面已确认（弹窗已关）')
-                else:
-                    log('未找到「完成」按钮（可能已自动应用）')
-                page.wait_for_timeout(1500)
+                page.wait_for_timeout(2000)
+                # 再校验封面区（主页面）
+                try:
+                    q = page.evaluate("() => { const c = document.querySelector('.cover'); return c ? Array.from(c.querySelectorAll('img')).filter(e => e.naturalWidth > 100).length : -1; }")
+                    log('  主页面封面区图数量=' + str(q) + ('（✅ 已生效）' if q > 0 else '（⚠️ 封面区没图）'))
+                except Exception:
+                    pass
+            else:
+                log('封面未生效 → 平台默认')
         else:
             log('无自定义封面 → 平台默认')
         if a.no_publish or a.only_cover:
