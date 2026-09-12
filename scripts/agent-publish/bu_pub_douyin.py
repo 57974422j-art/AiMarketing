@@ -130,8 +130,17 @@ def main():
     ap.add_argument('--topics', default='')
     ap.add_argument('--cover', default='')
     ap.add_argument('--no-publish', action='store_true', help='只做到封面不点发布（测试用）')
+    ap.add_argument('--skips', default='', help='跳过步骤（逗号分隔）：标题,话题,封面')
     a = ap.parse_args()
     log('视频=' + a.video + ' 封面=' + (a.cover or '无'))
+    # 2026-09-12: 用户勾掉的步骤（方案卡 checkbox → main.js --skips）
+    _sk = [s.strip() for s in str(getattr(a, 'skips', '') or '').replace('，', ',').split(',') if s.strip()]
+    SK_TITLE = '标题' in _sk
+    SK_TOPIC = '话题' in _sk
+    SK_COVER = ('封面' in _sk) or ('抽帧' in _sk)
+    if _sk:
+        log('跳过步骤: ' + ','.join(_sk))
+
     with sync_playwright() as pw:
         b = connect_cdp(pw, log=log)
         ctx = b.contexts[0] if b.contexts else b.new_context()
@@ -184,17 +193,21 @@ def main():
         log(('✅ 编辑页就绪' if ready else '⚠️ 等转码超时') + ' 用时 %ds URL=%s' % (int(time.time() - t0), page.url))
 
         # ── Step3 标题 ──
-        if a.title:
+        if SK_TITLE:
+            log('③ 标题——用户勾掉，跳过（用平台默认）')
+        elif a.title:
             for sel in ['input[placeholder*="作品标题"]', 'input[placeholder*="填写作品标题"]', 'input[placeholder*="标题"]']:
                 el = visible(page, sel)
                 if el:
                     try:
-                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:20]); break
+                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:20]); page.wait_for_timeout(2000)   # ★步间延时; break
                     except Exception as e: log('标题填失败: ' + str(e)[:60])
             else: log('⚠️ 未找到标题框')
 
         # ── Step4 话题（contenteditable 正文）──
-        if a.topics:
+        if SK_TOPIC:
+            log('④ 话题——用户勾掉，跳过')
+        elif a.topics:
             ce = visible(page, 'div[contenteditable="true"]')
             if ce:
                 try:
@@ -208,11 +221,14 @@ def main():
                     page.keyboard.press('Backspace')            # 删掉多余的 #
                     page.wait_for_timeout(300)
                     log('✅ 话题已填: ' + a.topics[:30] + '（已用 # 技巧关联想浮层）')
+                    page.wait_for_timeout(2000)   # ★步间延时
                 except Exception as e: log('话题填失败: ' + str(e)[:60])
             else: log('⚠️ 未找到话题区')
 
         # ── Step5 封面（真实点击 coverControl → 弹窗 → 选方向 → 上传 → 点图 → 完成）──
-        if a.cover and os.path.exists(a.cover):
+        if SK_COVER:
+            log('⑤ 封面——用户勾掉，跳过（用平台默认）')
+        elif a.cover and os.path.exists(a.cover):
             ori = img_orientation(a.cover)
             entry = '竖封面3:4' if ori == 'portrait' else '横封面4:3'
             log('封面方向=' + ori + ' → ' + entry)
@@ -255,7 +271,7 @@ def main():
                         try:
                             e = page.query_selector(sel)
                             if e and e.is_visible():
-                                e.click(timeout=2500); log('✅ 封面已确认（' + sel + '）'); done_ok = True; break
+                                e.click(timeout=2500); log('✅ 封面已确认（' + sel + '）'); done_ok = True; page.wait_for_timeout(5000)   # ★封面完成后 5 秒; break
                         except Exception: continue
                     if not done_ok:
                         if click_text(page, ['完成', '保存', '确定']): done_ok = True
@@ -273,7 +289,7 @@ def main():
         # ── Step6 发布 ──
         # 2026-09-12: 原来用 click_text 严格文本匹配 → 客户端实测"未找到发布按钮"
         #   （页面渲染差异/文本带图标/不在视口都会失败）→ 改【CDP 穿透点击】，文本点击作兜底
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(3000)   # ★2026-09-12 发布前统一等 3 秒
         pub_ok = False
         if cdp_click_text is not None:
             try:

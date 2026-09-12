@@ -90,9 +90,18 @@ def main():
     ap.add_argument('--topics', default='')
     ap.add_argument('--cover', default='')
     ap.add_argument('--no-publish', action='store_true')
+    ap.add_argument('--skips', default='', help='跳过步骤（逗号分隔）：标题,话题,封面')
     ap.add_argument('--only-cover', action='store_true')
     a = ap.parse_args()
     log('视频=' + a.video + ' 封面=' + (a.cover or '无'))
+    # 2026-09-12: 用户勾掉的步骤（方案卡 checkbox → main.js --skips）
+    _sk = [s.strip() for s in str(getattr(a, 'skips', '') or '').replace('，', ',').split(',') if s.strip()]
+    SK_TITLE = '标题' in _sk
+    SK_TOPIC = '话题' in _sk
+    SK_COVER = ('封面' in _sk) or ('抽帧' in _sk)
+    if _sk:
+        log('跳过步骤: ' + ','.join(_sk))
+
     with sync_playwright() as pw:
         b = connect_cdp(pw, log=log)
         ctx = b.contexts[0]

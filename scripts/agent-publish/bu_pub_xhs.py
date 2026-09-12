@@ -89,9 +89,18 @@ def main():
     ap.add_argument('--topics', default='')
     ap.add_argument('--cover', default='')
     ap.add_argument('--no-publish', action='store_true', help='只做到封面不点发布（测试用）')
+    ap.add_argument('--skips', default='', help='跳过步骤（逗号分隔）：标题,话题,封面')
     ap.add_argument('--only-cover', action='store_true', help='跳过上传/标题/话题，只做封面（页面已有内容时调试用）')
     a = ap.parse_args()
     log('视频=' + a.video + ' 封面=' + (a.cover or '无'))
+    # 2026-09-12: 用户勾掉的步骤（方案卡 checkbox → main.js --skips）
+    _sk = [s.strip() for s in str(getattr(a, 'skips', '') or '').replace('，', ',').split(',') if s.strip()]
+    SK_TITLE = '标题' in _sk
+    SK_TOPIC = '话题' in _sk
+    SK_COVER = ('封面' in _sk) or ('抽帧' in _sk)
+    if _sk:
+        log('跳过步骤: ' + ','.join(_sk))
+
     with sync_playwright() as pw:
         b = connect_cdp(pw, log=log)
         ctx = b.contexts[0] if b.contexts else b.new_context()
@@ -140,16 +149,21 @@ def main():
             log(('✅ 编辑页就绪' if ready else '⚠️ 等编辑页超时') + ' 用时 %ds' % int(time.time() - t0))
 
             # ── Step3 标题 ──
-            if a.title:
+            if SK_TITLE:
+                log('Step3 标题——用户勾掉，跳过')
+            elif a.title:
                 el = visible(page, 'input[placeholder*="填写标题会有更多赞哦"]') or visible(page, 'input[placeholder*="标题"]')
                 if el:
                     try:
                         el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:20])
+                        page.wait_for_timeout(2000)   # ★2026-09-12 步间延时
                     except Exception as e: log('标题填失败: ' + str(e)[:60])
                 else: log('⚠️ 未找到标题框')
 
             # ── Step4 正文/话题 ──
-            if a.topics:
+            if SK_TOPIC:
+                log('Step4 话题——用户勾掉，跳过')
+            elif a.topics:
                 ce = visible(page, '.tiptap.ProseMirror') or visible(page, 'div[contenteditable="true"]')
                 if ce:
                     try:
@@ -163,11 +177,14 @@ def main():
                         page.keyboard.press('Backspace')
                         page.wait_for_timeout(300)
                         log('✅ 话题已填: ' + a.topics[:30] + '（已用 # 技巧关联想浮层）')
+                        page.wait_for_timeout(2000)   # ★步间延时
                     except Exception as e: log('话题填失败: ' + str(e)[:60])
                 else: log('⚠️ 未找到正文区')
 
         # ── Step5 封面（PK 开关 → ＋号 → 文件框 → 完成）──
-        if a.cover and os.path.exists(a.cover):
+        if SK_COVER:
+            log('Step5 封面——用户勾掉，跳过（用平台默认）')
+        elif a.cover and os.path.exists(a.cover):
             add_sel = '.pk-cover-list-add-btn'
             n = count_visible(page, add_sel)
             if n == 0:
@@ -263,6 +280,7 @@ def main():
                     if click_text(page, ['完成', '确定', '保存', '应用']): log('✅ 封面已确认')
                     else: log('（PK 封面无确认按钮——上传即生效，正常）')
                     page.wait_for_timeout(1500)
+                    page.wait_for_timeout(5000)   # ★封面完成后 5 秒（你要求的）
             else:
                 log('⚠️ 无封面＋号（PK 未开或列表未渲染）')
         else:
