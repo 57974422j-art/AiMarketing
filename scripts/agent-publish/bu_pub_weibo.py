@@ -18,6 +18,10 @@ if hasattr(sys.stdout, 'reconfigure'):
     try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception: pass
 from playwright.sync_api import sync_playwright
+try:
+    from _cdp_click import cdp_click_text
+except Exception:
+    cdp_click_text = None
 
 URL = 'https://weibo.com/upload/channel'
 HOME = 'https://weibo.com/'
@@ -196,9 +200,15 @@ def main():
         # ── ⑨ 发布 + 校验 ──
         try:
             page.locator('button:has-text("发布")').first.click(timeout=8000)
-            log('⑨ ✅ 已点「发布」')
+            log('⑨ ✅ 已点「发布」(locator)')
         except Exception as e:
-            log('⑨ ❌ 发布点击失败: ' + str(e)[:70])
+            log('⑨ locator 点击失败（试 CDP 穿透）: ' + str(e)[:60])
+            if cdp_click_text is not None:
+                try:
+                    _ok, _msg = cdp_click_text(page, '发布', tag='', log=log)
+                    log('⑨ CDP 穿透点「发布」→ %s (%s)' % (_ok, _msg))
+                except Exception as e2:
+                    log('⑨ ❌ CDP 也失败: ' + str(e2)[:60])
         ok_pub = False
         for i in range(9):
             page.wait_for_timeout(3000)

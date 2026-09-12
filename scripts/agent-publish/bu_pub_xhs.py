@@ -12,6 +12,10 @@ if hasattr(sys.stdout, 'reconfigure'):
     try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception: pass
 from playwright.sync_api import sync_playwright
+try:
+    from _cdp_click import cdp_click_text
+except Exception:
+    cdp_click_text = None
 
 URL = 'https://creator.xiaohongshu.com/publish/publish?from=menu&target=video'
 
@@ -192,6 +196,14 @@ def main():
         #   实测：红色按钮区 x888-981 y880-919 → 点中心(934,900) → 跳 /publish/success「发布成功」）
         page.wait_for_timeout(1000)
         pub = False
+        # 2026-09-12: 优先 CDP 穿透点「发布」（xhs-publish-btn 在 closed shadow——CDP 能穿）
+        if cdp_click_text is not None:
+            try:
+                _ok, _msg = cdp_click_text(page, '发布', tag='', log=log)
+                log('CDP 穿透点「发布」→ %s (%s)' % (_ok, _msg))
+                pub = bool(_ok)
+            except Exception as e_cdp:
+                log('CDP 点击异常（回落像素定位）: ' + str(e_cdp)[:60])
         try:
             box = page.evaluate("() => { const el = document.querySelector('xhs-publish-btn'); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; }")
             if box and box.get('w', 0) > 50:

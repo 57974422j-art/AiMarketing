@@ -11,6 +11,10 @@ if hasattr(sys.stdout, 'reconfigure'):
     try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception: pass
 from playwright.sync_api import sync_playwright
+try:
+    from _cdp_click import cdp_click_text
+except Exception:
+    cdp_click_text = None
 
 def log(m): print('[PUB] ' + str(m), flush=True)
 
@@ -250,13 +254,25 @@ def main():
             print(json.dumps({'success': True, 'url': page.url, 'dryRun': True}))
             return
         # ── Step6 发布 ──
-        page.wait_for_timeout(1000)
-        if click_text(page, ['发布', '立即发布'], exclude=['离开', '定时']):
+        # 2026-09-12: 原来用 click_text 严格文本匹配 → 客户端实测"未找到发布按钮"
+        #   （页面渲染差异/文本带图标/不在视口都会失败）→ 改【CDP 穿透点击】，文本点击作兜底
+        page.wait_for_timeout(1500)
+        pub_ok = False
+        if cdp_click_text is not None:
+            try:
+                _ok, _msg = cdp_click_text(page, '发布', tag='', log=log)
+                log('CDP 穿透点「发布」→ %s (%s)' % (_ok, _msg))
+                pub_ok = bool(_ok)
+            except Exception as e_cdp:
+                log('CDP 点击异常（回退文本）: ' + str(e_cdp)[:70])
+        if not pub_ok:
+            pub_ok = click_text(page, ['发布', '立即发布'], exclude=['离开', '定时'])
+        if pub_ok:
             log('✅ 已点发布')
             page.wait_for_timeout(8000)
             log('发布后 URL=' + page.url)
         else:
-            log('❌ 未找到发布按钮')
+            log('❌ 未找到发布按钮（CDP + 文本都失败）')
         print(json.dumps({'success': True, 'url': page.url}))
 
 main()
