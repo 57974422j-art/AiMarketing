@@ -205,7 +205,7 @@ def main():
             log('⑨ locator 点击失败（试 CDP 穿透）: ' + str(e)[:60])
             if cdp_click_text is not None:
                 try:
-                    _ok, _msg = cdp_click_text(page, '发布', tag='', log=log)
+                    _ok, _msg = cdp_click_text(page, '发布', tag='button', log=log, exact=True, prefer_bottom_right=True)
                     log('⑨ CDP 穿透点「发布」→ %s (%s)' % (_ok, _msg))
                 except Exception as e2:
                     log('⑨ ❌ CDP 也失败: ' + str(e2)[:60])

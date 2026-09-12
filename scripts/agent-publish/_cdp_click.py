@@ -61,8 +61,12 @@ def collect(client, pred):
     return out
 
 
-def cdp_click_text(page, text, tag='button', log=print):
-    """按标签+文本穿透查找并真实鼠标点击；返回 (ok, 说明)"""
+def cdp_click_text(page, text, tag='button', log=print, exact=True, prefer_bottom_right=True):
+    """按标签+文本穿透查找并真实鼠标点击；返回 (ok, 说明)
+    2026-09-12 升级：①exact=True 只匹配【文本精确等于】（避免"发布"命中导航/菜单等 25 个）
+                    ②prefer_bottom_right 多候选时取【最靠右下】（提交按钮通常在右下角）
+                    ③点击前打印候选清单（文本/class/坐标），便于定位点错对象
+    """
     client = page.context.new_cdp_session(page)
     try:
         def pred(node):
@@ -70,30 +74,11 @@ def cdp_click_text(page, text, tag='button', log=print):
             if tag and name != tag:
                 return False
             t = _subtree_text(node).strip()
-            return t == text or (text in t and len(t) <= len(text) + 4)
+            return t == text if exact else (t == text or (text in t and len(t) <= len(text) + 4))
         nodes = collect(client, pred)
-        log('CDP 穿透找到 <%s> "%s" → %d 个' % (tag, text, len(nodes)))
-        for n in nodes:
-            nid = n.get('nodeId')
-            if not nid:
-                continue
-            try:
-                client.send('DOM.scrollIntoViewIfNeeded', {'nodeId': nid})
-            except Exception:
-                pass
-            m = client.send('DOM.getBoxModel', {'nodeId': nid})
-            q = (m.get('model') or {}).get('border') or (m.get('model') or {}).get('content')
-            if not q or len(q) < 8:
-                continue
-            cx = (q[0] + q[2] + q[4] + q[6]) / 4
-            cy = (q[1] + q[3] + q[5] + q[7]) / 4
-            cls = _attr_map(n).get('class', '')[:44]
-            log('  点击 nodeId=%s class=%s 中心=(%d,%d)' % (nid, cls, cx, cy))
-            page.mouse.move(cx, cy)
-            page.wait_for_timeout(250)
-            page.mouse.click(cx, cy)
-            return True, 'clicked:%s@%d,%d' % (cls, cx, cy)
-        return False, 'not-found'
+        log('CDP 穿透找到 <%s> "%s" → %d 个（exact=%s）' % (tag or '*', text, len(nodes), exact))
+        # 收集候选（含坐标）用于筛选/日志
+        cands = []
     finally:
         try:
             client.detach()

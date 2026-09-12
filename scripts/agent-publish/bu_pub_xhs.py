@@ -199,7 +199,7 @@ def main():
         # 2026-09-12: 优先 CDP 穿透点「发布」（xhs-publish-btn 在 closed shadow——CDP 能穿）
         if cdp_click_text is not None:
             try:
-                _ok, _msg = cdp_click_text(page, '发布', tag='', log=log)
+                _ok, _msg = cdp_click_text(page, '发布', tag='', log=log, exact=True, prefer_bottom_right=True)
                 log('CDP 穿透点「发布」→ %s (%s)' % (_ok, _msg))
                 pub = bool(_ok)
             except Exception as e_cdp:
