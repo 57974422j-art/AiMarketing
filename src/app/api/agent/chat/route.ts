@@ -498,11 +498,11 @@ function buildSystemPrompt(profile?: { name?: string; persona?: string }, onboar
   - **指纹浏览器 = 纯手动工具页**（矩阵号/手动发布）——AI 不操作、不自动执行；只有用户明确"打开"时才跳转
 4c3. **平台能力表（2026-08-25，铁律——AI 必须按此回复，禁止瞎编）**：
   - **自动发布支持**：抖音/小红书/微博/视频号/X(Twitter)/即刻/闲鱼（浏览器通道，用户已登录 Chrome/内置浏览器真发）
-  - **可登记但暂不支持自动发布**：B站/快手/其他平台（用户可登记账号（打开登录页），但自动发布暂不支持——明确告知，可引导手动发布）
+  - **可登记且支持自动发布的平台（6 个，2026-09-12 更新）**：抖音 / 小红书 / 微博 / 视频号 / B站 / 快手。未适配平台（TikTok/YouTube/Instagram/淘宝等）：可登记登录，但自动发布暂不支持——如实告知，不要承诺
   - **发布处理流程**：用户要发布到 X → ①先确认/引导登记 X（打开登录页，任何平台都能登记）②登记后：支持列表→建任务自动发；不在列表→如实"已登记但自动发布暂不支持"（不假装能发，不编造）
   - **登记方式**：客户端「🌐浏览器账号」区——点平台卡片打开内置浏览器登录（Google 登一次连带 YouTube）
 4b2. **发布执行说明（2026-08-27）**：发布任务创建后由客户端自动执行（opencli 上传+提交），**不需要用户打开任何页面/不要引导用户去指纹发布页/不要叫用户手动发**。任务 pending 超过 1 分钟时提示“请确认客户端已开启并保持运行，切换到客户端查看”，不得引导去指纹页。
-4c. **通道分流（2026-08-21）**：AGENT 发布**只走浏览器通道（CDP）**——抖音/小红书/微博自动发布；**快手/视频号/B站无适配器 → 提示"暂不支持自动发布"，并 [SCENE_JSON]{"type":"open_page","path":"/my-fingerprint"} 推送指纹发布页让用户手动发**（AGENT 不操作指纹，像一键成片一样只呼出）。指纹发布页=纯用户手动。
+4c. **通道分流（2026-09-12 更新）**：AGENT 发布**走浏览器通道（CDP + 平台确定性脚本）**——**已支持 6 个平台全部可自动发布：抖音 / 小红书 / 微博 / 视频号 / B站 / 快手**。其他平台（TikTok/YouTube/Instagram 等）未适配 → 如实告知暂不支持，不要承诺能发。
 
 5. 多平台（"发抖音和快手"）→ platforms 数组一次建多任务
 6. 版权：公共素材库/网络视频 → 提示"可能涉及版权，只能参考学习"引导修改/克隆；用户坚持 → 警告后发
@@ -655,7 +655,7 @@ Step 4 publish_content 建任务（多平台传 platforms 数组一次建多个�
 今天是 ${new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}（${new Date().getFullYear()}年${new Date().getMonth() + 1}月${new Date().getDate()}日）。引用新闻/热点/日期时必须基于此。
 
 【未接入需求收集（重要）】
-- 我们只接入了 5 个平台：抖音、小红书、快手、视频号、B站。如果客户提出 TikTok、YouTube、微博、Instagram、Facebook、X(Twitter)、淘宝、京东 等我们暂未接入的平台/能力，不要说"我不支持"就结束。
+- 我们已接入 6 个平台且都可自动发布：抖音、小红书、微博、视频号、B站、快手。
 - 正确做法：调用 collect_unmet_need 工具记录该需求（平台+简述），然后回复："已记录你的需求：在{平台}上{做什么}。目前该平台还在接入中，我帮您登记了，人工客服会尽快与你联系～"
 - 紧接着用场景卡片把客服微信二维码推给用户：在回复中输出 [SCENE_JSON]{"type":"service_qrcode","title":"扫码联系客服","desc":"人工客服会尽快与你联系"}[/SCENE_JSON]（二维码图由系统自动填充，你无需写URL）。
 - 如果客户主动说"跳过/算了/不用了/先不用"，立即停止收集，转去聊别的，不要纠缠。
@@ -2667,7 +2667,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 const platName = pkM[1].replace(/&skip=.*$/, '').trim()
                 const skM = pkM[1].match(/&skip=([^&]+)/)
                 const skips = skM ? String(skM[1]).split(/[,，]/).map((s: string) => s.trim()).filter(Boolean) : []
-                const platMapF: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', 'B站': 'bilibili', '快手': 'kuaishou' }
+                const platMapF: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao', 'B站': 'bilibili', '快手': 'kuaishou' }
                 draftW.platform = platMapF[platName] || platName
                 const wfA: any = { platform: draftW.platform, videoName: draftW.videoName, caption: draftW.title || (typeof draftW.titles === 'string' ? draftW.titles : (Array.isArray(draftW.titles) ? draftW.titles[0] : '')) || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
                 let fileUrls: string[] = []
@@ -2677,7 +2677,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 const platUrlMap: Record<string, string> = { douyin: 'https://creator.douyin.com/creator-micro/content/upload', xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish', weibo: 'https://weibo.com/upload', bilibili: 'https://member.bilibili.com/platform/upload/video/frame', kuaishou: 'https://cp.kuaishou.com/creator/video/upload' }
                 const pubUrl = platUrlMap[draftW.platform] || platUrlMap.douyin
                 let _stp = 1
-const _steps = ['用 browser_use 把这个视频发布到抖音。页面已在发布页(登录态在)。视频和封面文件路径已给出。流程：上传视频->等转码->填标题->填话题->设置封面(按提示选方向)->点发布。']
+const _steps = ['用浏览器把这条视频发布到' + platName + '。页面已打开在该平台发布页（登录态在），视频与封面文件路径已给出。流程：上传视频->等转码->填标题->填话题->设置封面（按提示选方向）->点发布。']
                 if (!skips.includes('标题')) _steps.push('第' + _stp++ + '步：标题框填「' + wfA.caption + '」')
                 if (!skips.includes('话题')) _steps.push('第' + _stp++ + '步：话题框填「' + (wfA.topics || '') + '」')
                 if (!skips.includes('封面') && !skips.includes('抽帧')) _steps.push('第' + _stp++ + '步：点「设置封面」→ 点「选择封面」（横封面4:3 或 竖封面3:4）→ 等封面弹窗出现（页面显示优质封面示例/上传封面按钮）→ 在弹窗里点「上传封面」上传封面文件(.jpg) → 点「完成」')
