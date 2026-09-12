@@ -656,7 +656,7 @@ async function checkBrowserTasks() {
       try { tp = JSON.parse(String(t.task)) } catch (e) { tp = null }
       if (tp && tp.kind === 'publish') {
         const plat = String(tp.platform || '')
-        const scriptMap = { douyin: 'bu_pub_douyin.py', xiaohongshu: 'bu_pub_xhs.py', weibo: 'bu_pub_weibo.py', shipinhao: 'bu_pub_shipinhao.py', kuaishou: 'bu_pub_kuaishou.py' }   // 2026-09-12: 加快手
+        const scriptMap = { douyin: 'bu_pub_douyin.py', xiaohongshu: 'bu_pub_xhs.py', weibo: 'bu_pub_weibo.py', shipinhao: 'bu_pub_shipinhao.py', kuaishou: 'bu_pub_kuaishou.py', bilibili: 'bu_pub_bilibili.py' }   // 2026-09-12: 加快手
         const sname = scriptMap[plat]
         if (sname) {
           const scriptPath = path.join(process.resourcesPath, 'scripts', 'agent-publish', sname)
