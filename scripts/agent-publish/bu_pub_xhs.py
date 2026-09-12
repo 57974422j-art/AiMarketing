@@ -2,7 +2,7 @@
 """AGENT 小红书发布执行器（Python 版——复用客户端 buvenv）
 关键经验（实测）：
   1) React 页面必须真实鼠标点击（locator.click），JS evaluate click 无效
-  2) 封面：先判 PK 开关状态(.pk-title-switch .d-switch-simulator.checked)
+  2) 封面：先判 PK 开关状态(.pk-cover-switch-trigger .d-switch-simulator.checked —— 2026-09-12 小红书改版后新类名；仍兼容旧 .pk-title-switch)
      → ＋号(.pk-cover-list-add-btn) 触发系统文件框 → setFiles → 完成
   3) 已开 PK 时不要再点开关（会关掉）；无＋号要轮询等
 用法: python bu_pub_xhs.py --video <path> --title <t> --topics <t> [--cover <path>]
@@ -59,7 +59,7 @@ def click_text(page, texts, exclude=None):
 def pk_on(page):
     try:
         return page.evaluate("""() => {
-            const s = document.querySelector('.pk-title-switch .d-switch-simulator')
+            const s = (document.querySelector('.pk-cover-switch-trigger .d-switch-simulator') || document.querySelector('.pk-title-switch .d-switch-simulator'))
             return !!(s && /checked/.test(String(s.className)))
         }""")
     except Exception:
@@ -72,6 +72,7 @@ def main():
     ap.add_argument('--topics', default='')
     ap.add_argument('--cover', default='')
     ap.add_argument('--no-publish', action='store_true', help='只做到封面不点发布（测试用）')
+    ap.add_argument('--only-cover', action='store_true', help='跳过上传/标题/话题，只做封面（页面已有内容时调试用）')
     a = ap.parse_args()
     log('视频=' + a.video + ' 封面=' + (a.cover or '无'))
     with sync_playwright() as pw:
@@ -86,56 +87,67 @@ def main():
                 log('已导航到发布页'); page.wait_for_timeout(3000)
             except Exception as e: log('导航失败: ' + str(e)[:80])
 
-        # ── Step1 上传视频 ──
-        ok = False
-        fi = page.query_selector('input.upload-input') or page.query_selector('input[type="file"]')  # 同 JS 版：不带 accept 过滤（file input 隐藏，不判可见）
-        if fi:
+        # 2026-09-12: 页面已有视频/且只要封面 → 跳过前四步（避免重复上传）
+        skip_front = bool(a.only_cover)
+        if not skip_front:
             try:
-                fi.set_input_files(a.video); log('✅ 视频已设置'); ok = True
-            except Exception as e: log('set_input_files 失败: ' + str(e)[:70])
-        if not ok:
-            try:
-                with page.expect_file_chooser(timeout=8000) as fc:
-                    click_text(page, ['上传视频', '点击上传'])
-                fc.value.set_files(a.video); log('✅ 视频已设置(filechooser)')
-            except Exception as e: log('❌ 视频上传失败: ' + str(e)[:90])
+                _has = page.evaluate("() => { const t = document.body.innerText || ''; return t.indexOf('重新上传') >= 0 || t.indexOf('视频文件') >= 0; }")
+                if _has and a.only_cover:
+                    skip_front = True
+            except Exception:
+                pass
 
-        # ── Step2 等编辑页 ──
-        t0 = time.time(); ready = False
-        while time.time() - t0 < 280:
-            try:
-                if 'publish/publish' in page.url and (visible(page, 'input[placeholder*="标题"]') or visible(page, '.tiptap.ProseMirror')):
-                    ready = True; break
-            except Exception: pass
-            page.wait_for_timeout(3000)
-        log(('✅ 编辑页就绪' if ready else '⚠️ 等编辑页超时') + ' 用时 %ds' % int(time.time() - t0))
-
-        # ── Step3 标题 ──
-        if a.title:
-            el = visible(page, 'input[placeholder*="填写标题会有更多赞哦"]') or visible(page, 'input[placeholder*="标题"]')
-            if el:
+        if not skip_front:
+            # ── Step1 上传视频 ──
+            ok = False
+            fi = page.query_selector('input.upload-input') or page.query_selector('input[type="file"]')  # 同 JS 版：不带 accept 过滤（file input 隐藏，不判可见）
+            if fi:
                 try:
-                    el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:20])
-                except Exception as e: log('标题填失败: ' + str(e)[:60])
-            else: log('⚠️ 未找到标题框')
-
-        # ── Step4 正文/话题 ──
-        if a.topics:
-            ce = visible(page, '.tiptap.ProseMirror') or visible(page, 'div[contenteditable="true"]')
-            if ce:
+                    fi.set_input_files(a.video); log('✅ 视频已设置'); ok = True
+                except Exception as e: log('set_input_files 失败: ' + str(e)[:70])
+            if not ok:
                 try:
-                    ce.click(); page.wait_for_timeout(300)
-                    page.keyboard.type(a.topics, delay=30)
-                    page.wait_for_timeout(1500)
-                    page.keyboard.press('Escape')
-                    page.wait_for_timeout(400)
-                    page.keyboard.type('#', delay=40)           # 末尾再打一个 # 关联想浮层（用户实测）
-                    page.wait_for_timeout(900)
-                    page.keyboard.press('Backspace')
-                    page.wait_for_timeout(300)
-                    log('✅ 话题已填: ' + a.topics[:30] + '（已用 # 技巧关联想浮层）')
-                except Exception as e: log('话题填失败: ' + str(e)[:60])
-            else: log('⚠️ 未找到正文区')
+                    with page.expect_file_chooser(timeout=8000) as fc:
+                        click_text(page, ['上传视频', '点击上传'])
+                    fc.value.set_files(a.video); log('✅ 视频已设置(filechooser)')
+                except Exception as e: log('❌ 视频上传失败: ' + str(e)[:90])
+
+            # ── Step2 等编辑页 ──
+            t0 = time.time(); ready = False
+            while time.time() - t0 < 280:
+                try:
+                    if 'publish/publish' in page.url and (visible(page, 'input[placeholder*="标题"]') or visible(page, '.tiptap.ProseMirror')):
+                        ready = True; break
+                except Exception: pass
+                page.wait_for_timeout(3000)
+            log(('✅ 编辑页就绪' if ready else '⚠️ 等编辑页超时') + ' 用时 %ds' % int(time.time() - t0))
+
+            # ── Step3 标题 ──
+            if a.title:
+                el = visible(page, 'input[placeholder*="填写标题会有更多赞哦"]') or visible(page, 'input[placeholder*="标题"]')
+                if el:
+                    try:
+                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:20])
+                    except Exception as e: log('标题填失败: ' + str(e)[:60])
+                else: log('⚠️ 未找到标题框')
+
+            # ── Step4 正文/话题 ──
+            if a.topics:
+                ce = visible(page, '.tiptap.ProseMirror') or visible(page, 'div[contenteditable="true"]')
+                if ce:
+                    try:
+                        ce.click(); page.wait_for_timeout(300)
+                        page.keyboard.type(a.topics, delay=30)
+                        page.wait_for_timeout(1500)
+                        page.keyboard.press('Escape')
+                        page.wait_for_timeout(400)
+                        page.keyboard.type('#', delay=40)           # 末尾再打一个 # 关联想浮层（用户实测）
+                        page.wait_for_timeout(900)
+                        page.keyboard.press('Backspace')
+                        page.wait_for_timeout(300)
+                        log('✅ 话题已填: ' + a.topics[:30] + '（已用 # 技巧关联想浮层）')
+                    except Exception as e: log('话题填失败: ' + str(e)[:60])
+                else: log('⚠️ 未找到正文区')
 
         # ── Step5 封面（PK 开关 → ＋号 → 文件框 → 完成）──
         if a.cover and os.path.exists(a.cover):
@@ -146,7 +158,7 @@ def main():
                 log('PK 开关状态=' + str(on))
                 if on is not True:
                     try:
-                        page.locator('.pk-title-switch').first.click(timeout=4000)
+                        page.locator('.pk-cover-switch-trigger').first.click(timeout=4000)
                         log('已点开 PK 封面')
                     except Exception as e: log('开关点击失败: ' + str(e)[:50])
                 for i in range(8):
@@ -154,9 +166,9 @@ def main():
                     if count_visible(page, add_sel) > 0: break
                 if count_visible(page, add_sel) == 0 and pk_on(page) is True:
                     try:
-                        page.locator('.pk-title-switch').first.click(timeout=3000)   # 关
+                        page.locator('.pk-cover-switch-trigger').first.click(timeout=3000)   # 关
                         page.wait_for_timeout(1200)
-                        page.locator('.pk-title-switch').first.click(timeout=3000)   # 再开（重置）
+                        page.locator('.pk-cover-switch-trigger').first.click(timeout=3000)   # 再开（重置）
                     except Exception: pass
                     for i in range(6):
                         page.wait_for_timeout(1000)
@@ -165,11 +177,43 @@ def main():
             log('封面＋号数=' + str(n) + ' PK=' + str(pk_on(page)))
             if n > 0:
                 up = False
+                # ★2026-09-12 小红书改版：PK 封面框是【隐藏 input.pk-cover-list-file-input】(accept=.jpg,.jpeg,.png)
+                # → 直接 set_input_files（不必点＋号；＋号被 tooltip-trigger 遮挡，点了也不弹框）
                 try:
-                    with page.expect_file_chooser(timeout=8000) as fc:
-                        page.locator(add_sel).first.click(timeout=4000)
+                    _pk_in = page.query_selector('input.pk-cover-list-file-input') or page.query_selector('input[type="file"][accept*=".jpg"]')
+                    if _pk_in:
+                        _pk_in.set_input_files(a.cover)
+                        page.wait_for_timeout(4000)
+                        log('✅ 封面已上传(PK 隐藏 input 直传)')
+                        up = True
+                except Exception as _e0:
+                    log('PK input 直传失败: ' + str(_e0)[:60])
+                try:
+                    if up:
+                        raise RuntimeError('__skip__')
+                    with page.expect_file_chooser(timeout=9000) as fc:
+                        # ★2026-09-12 小红书改版：.pk-cover-list-add-tooltip-trigger 盖在 .pk-cover-list-add-btn 上
+                        # （点 add-btn 会被判"被遮挡"→ 超时）→ 依次尝试，最后真实鼠标点坐标兜底
+                        _clicked = False
+                        for _s in ['.pk-cover-list-add-tooltip-trigger', '.pk-cover-list-add-btn']:
+                            _el = page.query_selector(_s)
+                            if _el and _el.is_visible():
+                                try:
+                                    _el.scroll_into_view_if_needed()
+                                    _el.click(timeout=4000)
+                                    _clicked = True; log('已点＋号 ← ' + _s)
+                                    break
+                                except Exception as _e2:
+                                    log('  ' + _s + ' 点击失败: ' + str(_e2)[:46])
+                        if not _clicked:
+                            _el2 = page.query_selector('.pk-cover-list-add-tooltip-trigger') or page.query_selector(add_sel)
+                            _bb = _el2.bounding_box() if _el2 else None
+                            if _bb:
+                                page.mouse.click(_bb['x'] + _bb['width'] / 2, _bb['y'] + _bb['height'] / 2)
+                                _clicked = True; log('已用真实鼠标点＋号中心')
                     fc.value.set_files(a.cover); log('✅ 封面已上传(＋→文件框)'); up = True
-                except Exception as e: log('＋号文件框失败: ' + str(e)[:70])
+                except Exception as e:
+                    if '__skip__' not in str(e): log('＋号文件框失败: ' + str(e)[:70])
                 if not up:
                     ci = page.query_selector('input.upload-input[accept*="image"]') or page.query_selector('input[type="file"][accept*="image"]')
                     if ci:
