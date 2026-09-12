@@ -4,6 +4,9 @@
 > 同步维护：PROJECT.md 六「当前进度/待办」、ISSUES.md 问题状态。
 > 开始日期：2026-08-05
 
+| 2026-09-12 | 客户端瘦身（547MB→333MB）：build.files 去 .next + 17 条 node_modules 排除（next/@next/prisma/@prisma/sherpa/@img/react/three/@capacitor/ali-oss 等）；electronLanguages 只留中英；extraResources 去 models/sherpa。保留 ms-playwright（指纹内核）/scrcpy+platform-tools（群控）/browser-use/agent-publish | package.json、scripts/build-local.mjs | 1.0.142~144 打包验证；启动实测无模块缺失 |
+| 2026-09-12 | 4 平台发布统一 CDP 穿透点击：抖音（原纯文本严格匹配→客户端"未找到发布按钮"）/小红书（像素定位改 CDP 优先）/微博（locator+CDP 兜底）/视频号（原 CDP） | scripts/agent-publish/bu_pub_*.py、_cdp_click.py | 任务#15 显示 CDP 命中 25 个"发布"点了左侧导航 → 已升级精确匹配+右下优先+候选日志 |
+| 2026-09-12 | 封面硬等：服务器轮询 180s→570s（3 处）、前端 fetch 240s→600s；修 topics 分支取值字段（results[0].url → choices[0].message.content[0].image）。实测百炼生图 81/105/81 秒 | src/app/api/agent/chat/route.ts、src/app/agent/page.tsx | nginx 已由用户改 600s；待部署验证 |
 | 2026-09-10 | **发布脚本四平台全通（抖音/小红书/微博/视频号）**：抖音(封面 coverControl 层+按图方向+排除 semi -custom+button完成+话题#技巧)｜小红书(封面 PK开关判断+加号+系统文件框；发表按钮 xhs-publish-btn closed shadow → 像素定位)｜微博(严格锁定 upload/channel 视频页不在首页操作；类型原创+标题 input[type=text]+封面完成+正文)｜视频号(iframe 内 locator 全失效→遍历 frames 传文件+描述 .input-editor/短标题 input；发表用 CDP 穿透点击) | scripts/agent-publish/bu_pub_{douyin,xhs,weibo,shipinhao}.py、_cdp_click.py、electron/main.js(scriptMap) | 四平台均实测发布成功；1.0.139 打包 |
 | 2026-09-10 | **CDP 穿透点击（Python 移植 _cdp_click.py）**：移植 electron/fp-templates/_cdpClick.js——DOM.getDocument(pierce) 穿透 closed shadow+iframe → getBoxModel 准确视口坐标 → mouse.click。解决视频号 iframe 内自算坐标偏 400px 点空的问题（发表一击成功 (1496,801)→跳 post/list） | scripts/agent-publish/_cdp_click.py | 视频号发表验证有效 |
 | 2026-09-10 | 微博/视频号发布流程手动逐步跑通（用户要求先跑明白再写脚本）：微博 9 步（页面锁定→真按钮上传→类型原创→标题 input[type=text]→封面完成→正文→发布校验）｜视频号 6 步（frame 遍历上传→描述/短标题坐标输入→封面编辑上传确认→CDP 穿透发表） | scripts/agent-publish/bu_pub_weibo.py、bu_pub_shipinhao.py | 均发布成功 |

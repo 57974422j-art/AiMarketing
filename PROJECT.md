@@ -1,41 +1,47 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-09-10 ｜2026-08-06 ｜ 配套文档：[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-09-12 ｜2026-08-06 ｜ 配套文档：[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
-## 📌 会话恢复速查（防压缩丢失——压缩后先读这里，5秒恢复）
-**当前版本**：v1.0.55（待打包）；服务器已部署 1.0.53 代码（pm2 版本列旧是快照无害）
-**当前重点**：发布通道浏览器检测（A+B：写死路径+注册表+内置Chromium 兜底）；生成防丢（视频/图片/一键成片自动入仓库）
-**下一步（按序）**：
-1. 打包 1.0.55（登记中心 A/B/C/D + 引导⑥）→ 上传三件套 → 验证：内置浏览器登记（任何平台）→ 绿点 → 发布
-2. AI 封面 i2i 后端（按钮已加）
-3. 退点（失败任务标记+人工审核，防自动漏洞）
-4. 思考链 A/B/C（列入计划未实施）
-5. 文档三件套持续更新
-2. AI 生成封面 i2i 后端（按钮已加）
-3. 退点（失败任务标记+人工审核，防自动漏洞）
-4. 思考链 A/B/C（列入计划未实施）
-5. 文档三件套持续更新（EXECUTION_LOG/PROJECT/ISSUES）
-**最近重大修复**：#301无限重渲染 / 视频找回(recover脚本) / 生成防丢 / 指纹话术同步浏览器通道 / 浏览器路径+内置Chromium / changelog同步(bump-version脚本)
-**部署方式**：阿里云网页终端 → `cd /root/AiMarketing && git fetch origin && git reset --hard origin/master && bash scripts/deploy-server.sh`
-**强制纪律**：每次实质操作后必须更新本速查段 + EXECUTION_LOG/PROJECT/ISSUES（缺一不可）
-## 🚨 架构定案（2026-08-06，最重要，勿再偏离）
+## 📌 会话恢复速查（2026-09-12，压缩后先读这段）
 
-**一切本地，不连服务器：**
-- ✅ **前端本地**（打包进客户端，Electron 内置 standalone server 渲染，端口 3377）
-- ✅ **后端本地**（API 全部本地执行，**无任何代理**；next.config.js 已移除 rewrites）
-- ✅ **数据库本地**（`prisma/dev.db`，打包时复制进 standalone；登录/AI/热点/数据全走本地库）
-- ✅ **AI key 本地**（`.env.local`，admin/settings 读写本地文件）
-- ✅ **语音本地**（TTS 用本地 key、ASR 用本地 FunASR）
-- ❌ **不连服务器**：客户端不请求 ai-niuma.cc / 120.55.43.195；服务器数据完全不动；**本地测试不跑通前不上传 GIT**
-- ⚠️ **登录账号**：本地库 `admin / admin123`（本地插入，role=admin）；服务器账号与本地无关
+## 当前版本与产物
+- **1.0.146（333MB）已打包未发布**；`dist-rel/` 里有 1.0.141~146
+- 打包：`node scripts/bump-version.mjs X.Y.Z && node scripts/build-local.mjs`（~13 分钟）
+- 发版：scp 三件套 → 服务器 `node scripts/update-oss`（实际脚本 `upload-update-oss.mjs public/updates`）→ cp latest.yml → pm2 restart
 
-**关键机制（踩过的坑，勿改）：**
-- 数据库连接：`prisma/schema.prisma` 的 `url = env("DATABASE_URL")`；dev 时 `.env.local` 设 `DATABASE_URL=file:./prisma/dev.db`；客户端打包时 `electron/main.js` 启动 server 注入 `DATABASE_URL=file:<standalone绝对路径>/dev.db`
-- 打包：`node scripts/build-local.mjs`（自动复制 dev.db 进 standalone + extraResources + 清理 updates）
-- 开发：`npm run dev`（本地全栈，连本地库）
+## 客户端（Electron 纯壳）
+- 加载远程页面 `https://ai-niuma.cc`（`loadURL`）——**前端改动只需服务器部署，不用重打包**
+- **userData = 安装目录\data\**（登录态/browser-profile/bu_debug.log）；本地仓库 = 安装目录\storage\
+- 安装包瘦身已完成（547→333MB）：`build.files` 去 `.next` + 17 条 node_modules 排除；`electronLanguages` 中英；extraResources 去 models/sherpa
+- **必须保留**：`ms-playwright`（指纹发布内核）、`scripts/{scrcpy,platform-tools}`（群控发布）、`scripts/{browser-use,agent-publish}`、`opencli`
+- ⚠️ `package.json.bak-sl` / `scripts/build-local.mjs.bak-sl` 是**瘦身前旧备份**，勿覆盖回去
+
+## AGENT 发布（四平台，确定性脚本）
+- 链路：chat route 建任务（task 存 JSON）→ 客户端 `checkBrowserTasks` → `scriptMap` 分发
+  - `douyin→bu_pub_douyin.py`｜`xiaohongshu→bu_pub_xhs.py`｜`weibo→bu_pub_weibo.py`｜`shipinhao→bu_pub_shipinhao.py`
+  - 无脚本平台 → 回退 `bu_exec.py`（browser-use）
+- 脚本目录：`scripts/agent-publish/`（客户端里在 `resources/scripts/agent-publish/`）
+- **发布按钮统一用 CDP 穿透点击**（`_cdp_click.py`）：`DOM.getDocument(pierce)` → `getBoxModel` 准确坐标 → `mouse.click`；**参数 exact=True（精确文本）+ prefer_bottom_right（右下优先）+ 候选日志**
+- 踩过的坑：文本【包含】匹配会命中导航/菜单（任务#15 点了左侧导航）；`frame.evaluate` 自算坐标会偏（视频号 iframe 偏 400px）
+
+## 封面生成（百炼生图）
+- 常态 **81~105 秒**（实测 3/3 成功），偶发更久 → **硬等**：服务器轮询 **570s**、前端 fetch **600s**、nginx **600s**
+- 取值字段：`output.choices[0].message.content[0].image`（**不是** `results[0].url`）
+- 提示要点：prompt 含标题文字，偶发会触发审核/失败
+
+## 环境自检（客户端 Python）
+- 启动 8 秒后静默自检 + 缺则后台装（内置→系统 pip→下载 zip）；**装完弹窗告知已安装组件**
+- 发布时未就绪 → **静默补装**（不弹窗）
+- **禁止主进程同步调用**（spawnSync/execSync）→ 一律 `runAsync`（曾致界面未响应）
+- `python-bu.zip`（OSS updates/，89,581,744 字节）**已含 playwright/greenlet/pyee**
+
+## 常用命令
+- 服务器部署：`cd /root/AiMarketing && git fetch origin && git reset --hard origin/master && bash scripts/deploy-server.sh`
+- 客户端日志：`安装目录\data\bu_debug.log`
+- 服务器日志：`pm2 logs aimarketing --lines 200 --nostream`
 
 ---
 
