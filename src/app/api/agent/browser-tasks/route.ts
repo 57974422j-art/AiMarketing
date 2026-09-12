@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { getAuthFromHeaders } from '@/lib/api-auth'
+import { createPublishTask, parsePublishTask, PLATFORM_NAME } from '@/lib/agent/publish-task'
 
 const prisma = new PrismaClient()
 
@@ -31,11 +32,20 @@ export async function POST(req: NextRequest) {
     if (b.action === 'rebuild') {
       const old = await prisma.agentBrowserTask.findFirst({ where: { userId: auth.userId, OR: [{ seq: Number(b.taskId) }, { seq: null, id: Number(b.taskId) }] } })
       if (!old) return NextResponse.json({ success: false, message: '原任务不存在' }, { status: 404 })
+      // 2026-09-12: ★重发统一走 createPublishTask——新格式任务重新签名 files（旧签名会过期）+ 客户端走确定性脚本
+      // 可选 b.platform：把这条内容改发到别的平台（"这条再发到小红书"）
+      const pp = parsePublishTask(String(old.task || ''))
+      if (pp) {
+        if (b.platform) pp.platform = String(b.platform)
+        const r = await createPublishTask(auth.userId, pp)
+        return NextResponse.json({ success: true, newId: r.task.id, msg: '已重建发布任务（#' + (r.task.seq ?? r.task.id) + '）——发布到' + (PLATFORM_NAME[pp.platform] || pp.platform) + '，客户端将执行' })
+      }
+      // 老格式（人话文本——早期 browser_use 任务）：原样复制（客户端回退 browser_use）
       const lastS = await prisma.agentBrowserTask.findFirst({ where: { userId: auth.userId }, orderBy: { seq: 'desc' }, select: { seq: true } }).catch(() => null)
       const nu = await prisma.agentBrowserTask.create({
         data: { userId: auth.userId, task: String(old.task), files: String(old.files || ''), status: 'pending', seq: (lastS?.seq ?? 0) + 1 },
       })
-      return NextResponse.json({ success: true, newId: nu.id, msg: '已重建发布任务（#' + (nu.seq ?? nu.id) + '）——客户端将重新执行' })
+      return NextResponse.json({ success: true, newId: nu.id, msg: '已重建发布任务（#' + (nu.seq ?? nu.id) + '）（老任务格式——走兜底执行）' })
     }
     const id = Number(b.id)
     const t = await prisma.agentBrowserTask.findFirst({ where: { id, userId: auth.userId } })

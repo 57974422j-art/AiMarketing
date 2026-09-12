@@ -17,6 +17,7 @@ import path from 'path'
 import os from 'os'
 import { getSystemConfigs, checkFeatureAccess } from '@/lib/quota'
 import { PrismaClient } from '@prisma/client'
+import { createPublishTask } from '@/lib/agent/publish-task'
 
 // 已接入的发布平台（其余视为"未接入需求"收集）
 const SUPPORTED_PLATFORMS: Record<string, string> = {
@@ -2671,8 +2672,17 @@ const _steps = ['用 browser_use 把这个视频发布到抖音。页面已在�
                 _steps.push('最后：点发布按钮')
                 const buTask = '发布视频到' + platName + '。\n' + _steps.join('\n')
                 // 2026-09-10: 任务带结构化参数（客户端优先走确定性脚本；无脚本平台回退 browser_use）
-                const buTaskJson = JSON.stringify({ kind: 'publish', platform: draftW.platform, videoName: wfA.videoName || '', title: wfA.caption || '', topics: wfA.topics || '', cover: wfA.coverUrl || '', skips, task: buTask })
-                const buT = await buCreate(auth?.userId || 0, buTaskJson, JSON.stringify(fileUrls))
+                // 2026-09-12: ★统一入口（点平台/重发同一函数——task 格式、files 签名、编号只有一处实现）
+                const buR = await createPublishTask(auth?.userId || 0, {
+                  platform: draftW.platform,
+                  videoName: wfA.videoName || '',
+                  title: wfA.caption || '',
+                  topics: wfA.topics || '',
+                  coverUrl: wfA.coverUrl || '',
+                  coverFrames: draftW.coverFrames || [],
+                  skips,
+                }, buTask)
+                const buT = buR.task
                 createdTaskThisTurn = true
                 wfEarlyReply = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + (buT.seq ?? buT.id) + '）——客户端 AI 浏览器自动执行发布到' + platName + '。\n\n💡 同一套内容还能继续发其它平台——直接点下面的平台按钮即可；要全部重做请点「换一批」。\n' + 'WF_JSON:' + JSON.stringify({ step: 'full', videoName: draftW.videoName, title: draftW.title || '', topics: draftW.topics || '', coverUrl: draftW.coverUrl || '', coverFrames: draftW.coverFrames || [], skips: draftW.skips || [], platform: draftW.platform })
                 // 2026-09-12: ★不再清草稿——支持"同一套内容连续发多个平台"（之前建完任务就删草稿，导致点第二个平台提示"发布流程未开始"）
