@@ -17,7 +17,7 @@ import path from 'path'
 import os from 'os'
 import { getSystemConfigs, checkFeatureAccess } from '@/lib/quota'
 import { PrismaClient } from '@prisma/client'
-import { createPublishTask } from '@/lib/agent/publish-task'
+import { createPublishTask, parsePublishTask } from '@/lib/agent/publish-task'
 
 // 已接入的发布平台（其余视为"未接入需求"收集）
 const SUPPORTED_PLATFORMS: Record<string, string> = {
@@ -2108,10 +2108,10 @@ export async function POST(request: NextRequest) {
     }
     // 2026-08-31 完全隔离 Step1：标准模式 + 有发布草稿 → 模型不碰工具（直接状态机——FRAMES_OK 不再由模型产生）
     // 2026-09-01: 状态机词（\d|abc|换|重|确认|选|发）standard 无条件跳过模型（不依赖草稿恢复——彻底防'1'模型自由）
-    const stWordInput = /^\d{1,2}$/.test(userMessage.trim()) || /^[abc]$/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推|平台:|确认|发布到荐|确认|选第|帮我发|发一个视频|发一条|发布|直接发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
+    const stWordInput = /^\d{1,2}$/.test(userMessage.trim()) || /^[abc]$/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|平台:|确认|选第|帮我发|发一个视频|发一条|发布|直接发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
     const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || stWordInput) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
     // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
-    if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推|平台:|确认|发布到荐|确认|选|发布|发一个视频|发一条|帮我发|发/i.test(userMessage))) {
+    if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|平台:|确认|选|发布|发一个视频|发一条|帮我发|发/i.test(userMessage))) {
       try {
         const dmR0 = await prisma.agentMemory.findFirst({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, orderBy: { updatedAt: 'desc' } })
         if (dmR0?.content) { const dpR0 = JSON.parse(dmR0.content); if (dpR0?.videoName || dpR0?.step) { PUBLISH_DRAFT.set(auth?.userId || 0, dpR0); console.log('[状态机] Step1前恢复草稿——step=', dpR0.step) } }
@@ -2217,16 +2217,28 @@ export async function POST(request: NextRequest) {
         console.log('[状态机] 发布意图=', pubIntent, '草稿=', PUBLISH_DRAFT.has(auth?.userId || 0), '消息=', String(userMessage).slice(0, 30))
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
         // 2026-08-31: 块外先恢复草稿（内存丢（服务器重启）——AgentMemory 有 pub_draft 也恢复——"1"才能进状态机）
-        if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage.trim()) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推|平台:|确认|发布到荐|确认|选|发布|发一个视频|发一条|帮我发|^平台:|发/i.test(userMessage.trim()))) {
+        if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage.trim()) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|平台:|确认|选|发布|发一个视频|发一条|帮我发|^平台:|发/i.test(userMessage.trim()))) {
           try {
             const dmR = await prisma.agentMemory.findFirst({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, orderBy: { updatedAt: 'desc' } })
             if (dmR?.content) { const dpR = JSON.parse(dmR.content); if (dpR?.videoName || dpR?.step) { PUBLISH_DRAFT.set(auth?.userId || 0, dpR); console.log('[状态机] 块外恢复草稿——step=', dpR.step) } }
           } catch {}
+          // 2026-09-12 ★兜底：AgentMemory 也没有草稿 → 用【最近一条发布任务】重建
+          //   目的：点「平台:小红书」时即使草稿丢了，也能用上次那套内容继续发到别的平台（"连续发多平台"不再依赖内存草稿）
+          if (!PUBLISH_DRAFT.has(auth?.userId || 0) && /平台:/.test(String(userMessage))) {
+            try {
+              const lastT = await prisma.agentBrowserTask.findFirst({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' } })
+              const lp = lastT ? parsePublishTask(String(lastT.task || '')) : null
+              if (lp && lp.videoName) {
+                PUBLISH_DRAFT.set(auth?.userId || 0, { step: 'full', videoName: lp.videoName, title: lp.title || '', topics: lp.topics || '', coverUrl: lp.coverUrl || '', coverFrames: lp.coverFrames || [], skips: lp.skips || [], platform: lp.platform || 'douyin' } as any)
+                console.log('[状态机] 草稿丢失 → 用最近任务重建: ' + lp.videoName + ' / ' + lp.platform)
+              }
+            } catch (e) { console.log('[状态机] 最近任务重建失败: ' + String(e).slice(0, 80)) }
+          }
         }
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
         // 2026-08-30: 自由模式（mode=free）→ 状态机完全跳过——AI 自己调工具发挥（测试用）
         // 2026-08-31: 状态机词（编号/换一批/重抽/重试/重来/abc/确认/用推荐）无任务 → 块外拦截（不 AI 自由）
-        const stWordNoTask = !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /^\d$/.test(userMessage.trim()) || !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /换一批|重抽|重试|重来|用推|平台:|确认|发布到荐|确认|^[abc]$/i.test(userMessage.trim())
+        const stWordNoTask = !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /^\d$/.test(userMessage.trim()) || !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /换一批|重抽|重试|重来|用推荐|平台:|确认|^[abc]$/i.test(userMessage.trim())
         if (stWordNoTask) {
           wfEarlyReply = '发布流程未开始——请说「帮我发一个视频」开始任务。'
           finalResult = wfEarlyReply
@@ -2308,7 +2320,7 @@ export async function POST(request: NextRequest) {
               PUBLISH_DRAFT.delete(uidW)
 
               wfEarlyReply = '已取消发布草稿。'
-            } else if (!draftW && /^\d$/.test(userMessage.trim()) || !draftW && /换一批|重抽|重试|重来|用推|平台:|确认|发布到荐|^[abc]$/i.test(userMessage.trim())) {
+            } else if (!draftW && /^\d$/.test(userMessage.trim()) || !draftW && /换一批|重抽|重试|重来|用推荐|平台:|确认|^[abc]$/i.test(userMessage.trim())) {
               // 2026-08-31: 状态机词无草稿——拦截（AI 不自由吐帧图/文案）
               wfEarlyReply = '发布流程未开始——请说「发布一条视频」或选视频。'
             } else if (!draftW) {
