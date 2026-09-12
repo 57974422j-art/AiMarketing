@@ -24,7 +24,7 @@ def connect_cdp(pw, tries=15, gap=2, log=print):
     last = None
     for i in range(tries):
         try:
-            return connect_cdp(pw, log=log)
+            return pw.chromium.connect_over_cdp(CDP)
         except Exception as e:
             last = e
             if i == 0:

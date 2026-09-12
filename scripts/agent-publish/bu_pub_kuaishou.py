@@ -24,7 +24,7 @@ def connect_cdp(pw, tries=15, gap=2, log=print):
     last = None
     for i in range(tries):
         try:
-            return connect_cdp(pw, log=log)
+            return pw.chromium.connect_over_cdp(CDP)
         except Exception as e:
             last = e
             if i == 0:
@@ -238,6 +238,26 @@ def main():
             #   结构：_high-cover-editor-wrapper → _pk-upload(PK封面上传区) + _default-cover + _recommend-cover
             #   封面文件框 = input[type=file][accept*="image"]（隐藏，可直接灌）
             ck = False
+            # ★★ 2026-09-13 用户定的规则：先找 PK 封面 → 有就打开 → 再上传
+            #    已开就直接上传【绝不点】（点了会关掉，用户明确提醒）
+            try:
+                sw = page.query_selector('.ant-switch')
+                if sw:
+                    _cls = str(sw.get_attribute('class') or '')
+                    if 'ant-switch-checked' in _cls:
+                        log('PK封面：已是开 → 直接上传（不点开关）')
+                    else:
+                        _bb = sw.bounding_box()
+                        if _bb:
+                            page.mouse.move(_bb['x'] + _bb['width'] / 2, _bb['y'] + _bb['height'] / 2)
+                            page.wait_for_timeout(300)
+                            page.mouse.click(_bb['x'] + _bb['width'] / 2, _bb['y'] + _bb['height'] / 2)
+                            page.wait_for_timeout(2500)
+                            log('PK封面：已打开 ✅（再上传）')
+                else:
+                    log('PK封面：未找到开关（跳过）')
+            except Exception as e:
+                log('  PK 开关处理失败: ' + str(e)[:60])
             try:
                 fi = page.query_selector('input[type=file][accept*="image"]')
                 if fi:
