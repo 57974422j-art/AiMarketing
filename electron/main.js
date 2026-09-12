@@ -2680,26 +2680,39 @@ const CHROME_CANDS = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
 ]
-async function ensureChromeForPublish(url) {
-  const cdpOk = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(2000) })
+async function probe9222(timeoutMs) {
+  return await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(timeoutMs || 2000) })
     .then((r) => r.ok).catch(() => false)
-  if (cdpOk) {
+}
+async function ensureChromeForPublish(url) {
+  // ① 先探（通了就复用，绝不启新进程——避免同 profile 两实例抢写 Cookies）
+  if (await probe9222(2000)) {
     try { buLog('[chrome] 9222 已通——复用现有登记浏览器（不启新进程）') } catch (e) {}
     return true
   }
-  if (_chromeStartedByUs) {
-    try { buLog('[chrome] 本进程已启过登记浏览器——等待 9222 就绪') } catch (e) {}
-    await new Promise((r) => setTimeout(r, 4000))
-    return true
-  }
+  // ② ★2026-09-12 修：不再依赖 _chromeStartedByUs "已启过"标记
+  //    （原逻辑：标记为 true 就只等不启 → 浏览器被关掉后永远不再启动 → 脚本等 30s 超时失败，任务#79 实测）
   const ch = CHROME_CANDS.find((p2) => fs.existsSync(p2))
   if (!ch) {
     try { buLog('[chrome] 未找到 chrome.exe（登记浏览器无法启动）') } catch (e) {}
     return false
   }
-  spawn(ch, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--remote-allow-origins=*', '--no-first-run', String(url || 'https://www.google.com')], { detached: true, stdio: 'ignore' }).unref()
-  _chromeStartedByUs = true
-  try { buLog('[chrome] 已启动登记浏览器（9222 + 同一 profile = ' + BU_PROFILE_DIR + '）') } catch (e) {}
-  await new Promise((r) => setTimeout(r, 6000))
-  return true
+  try {
+    spawn(ch, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--remote-allow-origins=*', '--no-first-run', String(url || 'https://www.google.com')], { detached: true, stdio: 'ignore' }).unref()
+    _chromeStartedByUs = true
+    buLog('[chrome] 已启动登记浏览器（9222 + profile=' + BU_PROFILE_DIR + '）')
+  } catch (e) {
+    try { buLog('[chrome] 启动失败: ' + String(e).slice(0, 80)) } catch (e2) {}
+    return false
+  }
+  // ③ 等就绪（最多 15s，每秒探一次）——Port 一旦监听就返回，不白等
+  for (let i = 0; i < 15; i++) {
+    await new Promise((r) => setTimeout(r, 1000))
+    if (await probe9222(1000)) {
+      try { buLog('[chrome] 9222 已就绪（等待 ' + (i + 1) + 's）') } catch (e) {}
+      return true
+    }
+  }
+  try { buLog('[chrome] 等了 15s 仍未就绪（9222 不通）') } catch (e) {}
+  return false
 }
