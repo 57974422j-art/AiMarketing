@@ -77,8 +77,48 @@ def cdp_click_text(page, text, tag='button', log=print, exact=True, prefer_botto
             return t == text if exact else (t == text or (text in t and len(t) <= len(text) + 4))
         nodes = collect(client, pred)
         log('CDP 穿透找到 <%s> "%s" → %d 个（exact=%s）' % (tag or '*', text, len(nodes), exact))
-        # 收集候选（含坐标）用于筛选/日志
+        if not nodes:
+            return (False, '未找到「%s」' % text)
+        # 2026-09-12 修复：原函数在这里就 return None 了（点击逻辑整段缺失）→ 所有 CDP 点击实际都没点
         cands = []
+        for n in nodes:
+            nid = n.get('nodeId')
+            if not nid:
+                continue
+            try:
+                client.send('DOM.scrollIntoViewIfNeeded', {'nodeId': nid})
+                bm = client.send('DOM.getBoxModel', {'nodeId': nid})
+                model = (bm or {}).get('model') or {}
+                q = model.get('border') or model.get('content') or []
+                if not q or len(q) < 8:
+                    # 退化：用元素的文本/属性无从取坐标 → 跳过
+                    continue
+                xs = q[0::2]
+                ys = q[1::2]
+                cx = sum(xs) / float(len(xs))
+                cy = sum(ys) / float(len(ys))
+                cls = (_attr_map(n).get('class') or '')[:40]
+                cands.append((cx, cy, cls, _subtree_text(n).strip()[:14]))
+            except Exception:
+                continue
+        if not cands:
+            return (False, '候选无坐标（%d 个节点）' % len(nodes))
+        for _c in cands:
+            log('        候选 %.0f,%.0f  %s  "%s"' % (_c[0], _c[1], _c[2], _c[3]))
+        if prefer_bottom_right:
+            cands.sort(key=lambda x: (x[0] + x[1]), reverse=True)
+        cx, cy, cls, _tx = cands[0]
+        log('        选中 %.0f,%.0f  %s ← %s' % (cx, cy, cls, '右下那个' if prefer_bottom_right else '第一个'))
+        try:
+            page.mouse.move(cx, cy)
+            page.wait_for_timeout(150)
+            page.mouse.click(cx, cy)
+            page.wait_for_timeout(400)
+        except Exception as e:
+            return (False, '鼠标点击失败: ' + str(e)[:80])
+        return (True, '已点击(%.0f,%.0f) %s' % (cx, cy, cls))
+    except Exception as e:
+        return (False, 'cdp_click 异常: ' + str(e)[:90])
     finally:
         try:
             client.detach()
