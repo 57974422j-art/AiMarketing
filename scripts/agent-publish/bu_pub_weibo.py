@@ -155,6 +155,22 @@ def main():
                 bd = ''
             if '类型' in bd and '标题' in bd:
                 break
+        # ★★ 2026-09-13 防「假成功」（用户实测）：微博 /upload/channel 页面只有【图片上传框】
+        #    set_input_files(视频) 被静默忽略，但原脚本报成功 → 这里校验页面是否真出现视频
+        try:
+            _hasVid = page.evaluate("() => Array.from(document.querySelectorAll('video')).some(e => (e.videoWidth || 0) > 0)")
+            _txt = ''
+            try: _txt = page.inner_text('body')[:600]
+            except Exception: pass
+            _formOk = any(k in _txt for k in ['上传完成', '重新上传', '编辑封面', '选择封面', '设置封面'])
+            if not _hasVid and not _formOk:
+                log('❌ 视频上传未生效——微博当前入口只有图片框（应改走首页「视频」入口）')
+                print(json.dumps({'success': False, 'result': '微博视频上传未生效：/upload/channel 只有图片上传框，需改走首页视频入口'}))
+                return
+            log('✅ 校验：视频已就位' if _hasVid else '✅ 校验：编辑表单已就绪')
+        except Exception as e:
+            log('  上传校验异常（继续）: ' + str(e)[:60])
+
         log('③ 编辑区就绪 用时 %ds' % int(time.time() - t0))
 
         # ── ④ 类型：原创（校验 radio）──
