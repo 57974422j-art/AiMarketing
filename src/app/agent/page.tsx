@@ -3115,6 +3115,7 @@ function AgentPageInner() {
                         { id: 'weibo', name: '📘微博', url: 'https://weibo.com' },
                         { id: 'bilibili', name: '📙B站', url: 'https://www.bilibili.com' },
                         { id: 'shipinhao', name: '📺视频号', url: 'https://channels.weixin.qq.com/platform/post/create' },
+                        { id: 'kuaishou', name: '⚡快手', url: 'https://cp.kuaishou.com/profile' },
                         { id: 'twitter', name: '🐦X', url: 'https://x.com' },
                       ].map(pf => {
                         const hit = buAccounts.find(a => a.id === pf.id)
@@ -3127,7 +3128,7 @@ function AgentPageInner() {
                         )
                       })}
                     </div>
-                    {false && (<div className="mt-1.5 flex gap-1">
+                    {true && (<div className="mt-1.5 flex gap-1">
                       <input id="custom-reg-url" placeholder="自定义地址（如 https://xxx.com）"
                         className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-white/10 bg-black/30 text-[9px] text-gray-300 outline-none focus:border-emerald-500/40" />
                       <button onClick={() => { const u = (document.getElementById('custom-reg-url') as HTMLInputElement)?.value?.trim(); if (!u) return; try { (window as any).electronAPI?.browserOpenUrl(u) } catch {} }}
