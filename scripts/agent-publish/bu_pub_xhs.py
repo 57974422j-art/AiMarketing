@@ -198,15 +198,8 @@ def main():
                 for i in range(8):
                     page.wait_for_timeout(1000)
                     if count_visible(page, add_sel) > 0: break
-                if count_visible(page, add_sel) == 0 and pk_on(page) is True:
-                    try:
-                        page.locator('.pk-cover-switch-trigger').first.click(timeout=3000)   # 关
-                        page.wait_for_timeout(1200)
-                        page.locator('.pk-cover-switch-trigger').first.click(timeout=3000)   # 再开（重置）
-                    except Exception: pass
-                    for i in range(6):
-                        page.wait_for_timeout(1000)
-                        if count_visible(page, add_sel) > 0: break
+                # ★2026-09-13 用户定的规则：已开就【不点】——删掉原来"关掉再开（重置）"的兜底
+                #   （现已改为隐藏 input 直传，不再依赖＋号；乱点开关反而会把已开的关掉）
             n = count_visible(page, add_sel)
             log('封面＋号数=' + str(n) + ' PK=' + str(pk_on(page)))
             if n > 0:

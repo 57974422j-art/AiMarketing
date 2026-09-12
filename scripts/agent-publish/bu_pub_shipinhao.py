@@ -98,6 +98,24 @@ def main():
             page.goto(URL, wait_until='domcontentloaded', timeout=40000)
             page.wait_for_timeout(5000)
         page.bring_to_front()
+        # ★★ 2026-09-13 登录态检测（用户实测：登录态丢时页面=login.html，导致后面每步都"假成功"）
+        try:
+            page.wait_for_timeout(1500)
+            _u = page.url
+            if 'login' in _u or 'login.html' in _u:
+                log('❌ 视频号【未登录】（页面=' + _u[:70] + '）——请在登记浏览器里重新扫码登录视频号')
+                print(json.dumps({'success': False, 'result': '视频号未登录（页面跳到了登录页），请先在登记浏览器登录视频号'}))
+                return
+            _t = ''
+            try: _t = page.inner_text('body')[:300]
+            except Exception: pass
+            if '扫码登录' in _t or '请使用微信扫码' in _t:
+                log('❌ 视频号【未登录】（页面显示扫码登录）')
+                print(json.dumps({'success': False, 'result': '视频号未登录（显示扫码登录），请先登录'}))
+                return
+            log('✅ 登录态 OK')
+        except Exception as e:
+            log('  登录态检测异常（继续）: ' + str(e)[:60])
         log('① 页面=' + page.url)
 
         # ── 上传视频（★2026-09-12 改用 locator：视频号页面会重渲染，旧 handle 会 detached，
