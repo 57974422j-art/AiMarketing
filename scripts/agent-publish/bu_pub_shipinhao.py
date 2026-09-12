@@ -91,21 +91,37 @@ def main():
         page.bring_to_front()
         log('① 页面=' + page.url)
 
-        # ── 上传视频（遍历 frame 找 file input）──
-        f, el = find_frame_input(page, 'video')
-        if el is not None:
+        # ── 上传视频（★2026-09-12 改用 locator：视频号页面会重渲染，旧 handle 会 detached，
+        #    报 "Cannot set input files to detached element"；locator 每次操作前自动重新解析，不怕 detached）──
+        up_ok = False
+        for f in page.frames:
             try:
-                el.set_input_files(a.video)
-                log('② ✅ 视频已设置（frame=' + str(f.url[:50]) + '）')
+                loc = f.locator('input[type="file"][accept*="video"]').first
+                if loc.count() == 0:
+                    continue
+                loc.set_input_files(a.video, timeout=15000)
+                up_ok = True
+                log('② ✅ 视频已设置（locator，frame=' + str(f.url[:48]) + '）')
+                break
             except Exception as e:
-                log('② 直接设置失败（detached）→ 重试: ' + str(e)[:60])
+                log('  该 frame 上传失败: ' + str(e)[:60])
+                continue
+        if not up_ok:
+            # 兜底：旧方式（frame + handle），每次重新查找
+            for _try in range(4):
                 page.wait_for_timeout(1500)
                 f2, el2 = find_frame_input(page, 'video')
-                if el2 is not None:
+                if el2 is None:
+                    continue
+                try:
                     el2.set_input_files(a.video)
-                    log('② ✅ 视频已设置（重试成功）')
-        else:
-            log('② ❌ 未找到视频 file input')
+                    up_ok = True
+                    log('② ✅ 视频已设置（重试 %d 次成功）' % (_try + 1))
+                    break
+                except Exception as e:
+                    log('  重试 %d 失败: %s' % (_try + 1, str(e)[:50]))
+        if not up_ok:
+            log('② ❌ 未能设置视频 file input（frame 遍历 + 重试都失败）')
         # 等编辑区
         t0 = time.time()
         while time.time() - t0 < 240:
