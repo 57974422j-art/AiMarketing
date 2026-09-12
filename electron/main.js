@@ -679,6 +679,8 @@ async function checkBrowserTasks() {
           }
           const sArgs = ['-u', scriptPath, '--video', videoLocal, '--title', String(tp.title || ''), '--topics', String(tp.topics || '')]
           if (coverLocal) sArgs.push('--cover', coverLocal)
+          // 2026-09-12: 传用户勾掉的步骤（方案卡 checkbox）→ 脚本按 skips 跳过对应步骤
+          try { const _sk = Array.isArray(tp.skips) ? tp.skips.join(',') : String(tp.skips || ''); if (_sk) sArgs.push('--skips', _sk) } catch (e) {}
           buLog('任务#' + (t.seq ?? t.id) + ' 走确定性脚本 ' + sname + ' 视频=' + path.basename(videoLocal) + ' 封面=' + (coverLocal ? path.basename(coverLocal) : '无'))
           console.log('[pub-script] ' + sname + ' video=' + videoLocal)
           const out2 = await new Promise((resolve) => {

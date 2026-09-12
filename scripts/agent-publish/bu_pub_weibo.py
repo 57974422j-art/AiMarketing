@@ -97,8 +97,17 @@ def main():
     ap.add_argument('--topics', default='')
     ap.add_argument('--cover', default='')
     ap.add_argument('--no-publish', action='store_true')
+    ap.add_argument('--skips', default='', help='跳过步骤（逗号分隔）：标题,话题,封面')
     a = ap.parse_args()
     log('视频=' + a.video + ' 标题=' + (a.title or '(无)') + ' 封面=' + (a.cover or '(无)'))
+
+    # 2026-09-12: 用户勾掉的步骤（方案卡 checkbox → main.js --skips）
+    _sk = [s.strip() for s in str(getattr(a, 'skips', '') or '').replace('，', ',').split(',') if s.strip()]
+    SK_TITLE = '标题' in _sk
+    SK_TOPIC = '话题' in _sk
+    SK_COVER = ('封面' in _sk) or ('抽帧' in _sk)
+    if _sk:
+        log('跳过步骤: ' + ','.join(_sk))
 
     with sync_playwright() as pw:
         b = connect_cdp(pw, log=log)
@@ -158,7 +167,9 @@ def main():
             log('④ 类型选择失败: ' + str(e)[:60])
 
         # ── ⑤ 标题（点「标题」→ input[type=text] → 校验 value）──
-        if a.title:
+        if SK_TITLE:
+            log('⑤ 标题——用户勾掉，跳过（用平台默认）')
+        elif a.title:
             try:
                 page.get_by_text('标题', exact=True).first.click(timeout=5000)
                 page.wait_for_timeout(1000)
@@ -168,11 +179,14 @@ def main():
                 page.wait_for_timeout(600)
                 v = page.evaluate("""() => { const i = document.querySelector('input[type=text]'); return i ? i.value : null; }""")
                 log('⑤ 标题已填（value=%s）' % repr(v))
+                page.wait_for_timeout(2000)   # ★2026-09-12 步间延时（其它平台没有，统一补）
             except Exception as e:
                 log('⑤ 标题失败: ' + str(e)[:60])
 
         # ── ⑥ 封面（上传 → 点「完成」关弹窗）──
-        if a.cover and os.path.exists(a.cover):
+        if SK_COVER:
+            log('⑥ 封面——用户勾掉，跳过（用平台截帧）')
+        elif a.cover and os.path.exists(a.cover):
             try:
                 with page.expect_file_chooser(timeout=10000) as fc:
                     page.get_by_text('上传封面', exact=True).first.click(timeout=6000)
@@ -189,22 +203,27 @@ def main():
                         continue
                 if not done:
                     log('⑥ ⚠️ 封面已上传但未找到「完成」')
+                page.wait_for_timeout(5000)   # ★2026-09-12 封面完成后等 5 秒再继续（你要求的）
             except Exception as e:
                 log('⑥ 封面失败: ' + str(e)[:60])
         else:
             log('⑥ 无自定义封面 → 用平台截帧')
 
         # ── ⑦ 话题（正文 textarea → 校验 value）──
-        if a.topics:
+        if SK_TOPIC:
+            log('⑦ 话题——用户勾掉，跳过')
+        elif a.topics:
             try:
                 ta = page.locator('textarea').last
                 ta.fill(a.topics, timeout=8000)
                 page.wait_for_timeout(600)
                 v = page.evaluate("""() => { const t = document.querySelectorAll('textarea'); return t.length ? t[t.length-1].value : null; }""")
                 log('⑦ 话题已填（value=%s）' % repr(v))
+                page.wait_for_timeout(2000)   # ★步间延时
             except Exception as e:
                 log('⑦ 话题失败: ' + str(e)[:60])
 
+        page.wait_for_timeout(3000)   # ★2026-09-12 发布前统一等 3 秒（让前面填写生效）
         # ── 发布按钮状态 ──
         st = page.evaluate("""() => { const b = Array.from(document.querySelectorAll('button')).find(e => /发布/.test((e.innerText||'').trim())); return b ? !!b.disabled : null; }""")
         log('⑧ 发布按钮 disabled=' + str(st))
