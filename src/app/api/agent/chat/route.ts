@@ -2107,10 +2107,10 @@ export async function POST(request: NextRequest) {
     }
     // 2026-08-31 完全隔离 Step1：标准模式 + 有发布草稿 → 模型不碰工具（直接状态机——FRAMES_OK 不再由模型产生）
     // 2026-09-01: 状态机词（\d|abc|换|重|确认|选|发）standard 无条件跳过模型（不依赖草稿恢复——彻底防'1'模型自由）
-    const stWordInput = /^\d{1,2}$/.test(userMessage.trim()) || /^[abc]$/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|确认|选第|帮我发|发一个视频|发一条|发布|直接发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
+    const stWordInput = /^\d{1,2}$/.test(userMessage.trim()) || /^[abc]$/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推|平台:|确认|发布到荐|确认|选第|帮我发|发一个视频|发一条|发布|直接发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
     const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || stWordInput) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
     // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
-    if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|确认|选|发布|发一个视频|发一条|帮我发|发/i.test(userMessage))) {
+    if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推|平台:|确认|发布到荐|确认|选|发布|发一个视频|发一条|帮我发|发/i.test(userMessage))) {
       try {
         const dmR0 = await prisma.agentMemory.findFirst({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, orderBy: { updatedAt: 'desc' } })
         if (dmR0?.content) { const dpR0 = JSON.parse(dmR0.content); if (dpR0?.videoName || dpR0?.step) { PUBLISH_DRAFT.set(auth?.userId || 0, dpR0); console.log('[状态机] Step1前恢复草稿——step=', dpR0.step) } }
@@ -2206,16 +2206,17 @@ export async function POST(request: NextRequest) {
         }
       }
       // 2026-08-27 强制发布工作流：用户发布意图 + 本轮未调 publish_content → 代码强制补调（不依赖模型调工具，模型再也无法编“已创建/已抽帧”）
-      let wfEarlyReply = '' // 2026-08-27 函数级（必须在 try 外，2119 reply 处读用）
+      let wfEarlyReply = ''
+      let createdTaskThisTurn = false   // 2026-09-12: 本轮是否真建了发布任务（防 AI 编造） // 2026-08-27 函数级（必须在 try 外，2119 reply 处读用）
       const isFreeMode = (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free' // 2026-09-06: 状态机块整体跳过（自由模式不碰任何状态机逻辑）
       if (!isFreeMode) {
       try {
 
-        const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|发到|发一条|发个视频|发一个视频|发条|帮我发|发个|直接发|快速发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
+        const pubIntent = /发布|发抖音|发小红书|发微博|发视频号|平台:|发到|发一条|发个视频|发一个视频|发条|帮我发|发个|直接发|快速发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
         console.log('[状态机] 发布意图=', pubIntent, '草稿=', PUBLISH_DRAFT.has(auth?.userId || 0), '消息=', String(userMessage).slice(0, 30))
         const calledPublish = normCalls.some((tc: any) => tc.name === 'publish_content' || tc.name === 'cancel_publish_task')
         // 2026-08-31: 块外先恢复草稿（内存丢（服务器重启）——AgentMemory 有 pub_draft 也恢复——"1"才能进状态机）
-        if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage.trim()) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|确认|选|发布|发一个视频|发一条|帮我发|^平台:|发/i.test(userMessage.trim()))) {
+        if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage.trim()) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推|平台:|确认|发布到荐|确认|选|发布|发一个视频|发一条|帮我发|^平台:|发/i.test(userMessage.trim()))) {
           try {
             const dmR = await prisma.agentMemory.findFirst({ where: { userId: String(auth?.userId || 0), tags: { contains: 'pub_draft' } }, orderBy: { updatedAt: 'desc' } })
             if (dmR?.content) { const dpR = JSON.parse(dmR.content); if (dpR?.videoName || dpR?.step) { PUBLISH_DRAFT.set(auth?.userId || 0, dpR); console.log('[状态机] 块外恢复草稿——step=', dpR.step) } }
@@ -2224,7 +2225,7 @@ export async function POST(request: NextRequest) {
         // 2026-08-27 发布状态机（代码全自动——AGENT 不参与流程，只生成文案）
         // 2026-08-30: 自由模式（mode=free）→ 状态机完全跳过——AI 自己调工具发挥（测试用）
         // 2026-08-31: 状态机词（编号/换一批/重抽/重试/重来/abc/确认/用推荐）无任务 → 块外拦截（不 AI 自由）
-        const stWordNoTask = !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /^\d$/.test(userMessage.trim()) || !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /换一批|重抽|重试|重来|用推荐|确认|^[abc]$/i.test(userMessage.trim())
+        const stWordNoTask = !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /^\d$/.test(userMessage.trim()) || !pubIntent && !PUBLISH_DRAFT.has(auth?.userId || 0) && /换一批|重抽|重试|重来|用推|平台:|确认|发布到荐|确认|^[abc]$/i.test(userMessage.trim())
         if (stWordNoTask) {
           wfEarlyReply = '发布流程未开始——请说「帮我发一个视频」开始任务。'
           finalResult = wfEarlyReply
@@ -2306,7 +2307,7 @@ export async function POST(request: NextRequest) {
               PUBLISH_DRAFT.delete(uidW)
 
               wfEarlyReply = '已取消发布草稿。'
-            } else if (!draftW && /^\d$/.test(userMessage.trim()) || !draftW && /换一批|重抽|重试|重来|用推荐|^[abc]$/i.test(userMessage.trim())) {
+            } else if (!draftW && /^\d$/.test(userMessage.trim()) || !draftW && /换一批|重抽|重试|重来|用推|平台:|确认|发布到荐|^[abc]$/i.test(userMessage.trim())) {
               // 2026-08-31: 状态机词无草稿——拦截（AI 不自由吐帧图/文案）
               wfEarlyReply = '发布流程未开始——请说「发布一条视频」或选视频。'
             } else if (!draftW) {
@@ -2672,6 +2673,7 @@ const _steps = ['用 browser_use 把这个视频发布到抖音。页面已在�
                 // 2026-09-10: 任务带结构化参数（客户端优先走确定性脚本；无脚本平台回退 browser_use）
                 const buTaskJson = JSON.stringify({ kind: 'publish', platform: draftW.platform, videoName: wfA.videoName || '', title: wfA.caption || '', topics: wfA.topics || '', cover: wfA.coverUrl || '', skips, task: buTask })
                 const buT = await buCreate(auth?.userId || 0, buTaskJson, JSON.stringify(fileUrls))
+                createdTaskThisTurn = true
                 wfEarlyReply = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + (buT.seq ?? buT.id) + '）——客户端 AI 浏览器自动执行发布到' + platName + '。\n\n💡 同一套内容还能继续发其它平台——直接点下面的平台按钮即可；要全部重做请点「换一批」。\n' + 'WF_JSON:' + JSON.stringify({ step: 'full', videoName: draftW.videoName, title: draftW.title || '', topics: draftW.topics || '', coverUrl: draftW.coverUrl || '', coverFrames: draftW.coverFrames || [], skips: draftW.skips || [], platform: draftW.platform })
                 // 2026-09-12: ★不再清草稿——支持"同一套内容连续发多个平台"（之前建完任务就删草稿，导致点第二个平台提示"发布流程未开始"）
                 // 仅「换一批」时重置（见下面分支）
@@ -2762,6 +2764,11 @@ PUBLISH_DRAFT.delete(uidW)
         reply = formatToolResult(toolText)
       } else {
         reply = (typeof finalResult === 'string' ? finalResult : finalResult?.content) || formatToolResult(toolText)
+        // 2026-09-12: ★防 AI 编造「已创建任务」（本轮没真建任务却声称已创建 → 拦掉——用户会被误导以为发出去了）
+        if (!createdTaskThisTurn && /已创建|已提交|任务已建|已发布到|发布任务/.test(String(reply))) {
+          console.log('[防编造] AI 声称已创建任务但本轮未建——已拦下：', String(reply).slice(0, 60))
+          reply = '⚠️ 纠正一下：我刚才说的「已创建任务」并不准确——本轮**没有真正创建发布任务**。' + String.fromCharCode(10) + '要发布请说「帮我发一个视频」走完整流程（选视频 → 标题 → 话题 → 封面 → 点平台按钮）。'
+        }
       if (!reply) reply = '发布流程处理中——请回复“重试”或继续操作。'  // 2026-09-01: 回复空兑底（不白屏' 已执行'）
       }
       // 2026-08-27: 发布话术强制校验——模型说“已创建”但工具未真返回 PUBLISH_QUEUED → 强制纠正（不信模型话术，信工具结果）
