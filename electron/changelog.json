@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.0.144",
+    "date": "2026-09-12",
+    "title": "安装包瘦身（第2批）",
+    "items": [
+      "继续排除客户端用不到的依赖（three/pptxgenjs/capacitor/ali-oss 等）"
+    ]
+  },
+  {
     "version": "1.0.143",
     "date": "2026-09-12",
     "title": "安装包继续瘦身",
