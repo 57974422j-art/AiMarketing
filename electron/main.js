@@ -18,6 +18,8 @@ try { app.setPath('userData', path.join(path.dirname(process.execPath), 'data'))
 const fs = require('fs')
 const os = require('os')
 const { execSync, spawn } = require('child_process')
+// 2026-09-13: 发布平台名单统一来自 src/lib/agent/platforms.ts（构建前由 scripts/gen-platforms-js.mjs 生成）
+const { PLATFORM_KEY, PLATFORM_NAME } = require('./platforms.generated.js')
 
 // ── 自动更新 ──
 const { autoUpdater } = require('electron-updater')
@@ -633,7 +635,7 @@ async function checkBrowserTasks() {
           })
           const m2 = buChk.match(/PLATS:([^\r\n]+)/)
           if (m2) {
-            const platId = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao', '快手': 'kuaishou' }[platKey] || ''
+            const platId = PLATFORM_KEY[platKey] || ''   // 2026-09-13: 原手写名单漏 B站，改取自生成常量
             const st = m2[1].split(',').map((s2) => s2.split(':')).find((kv) => kv[0] === platId)
             if (st && st[1] === '0') {
               buLog('任务#' + (t.seq ?? t.id) + ' 登录态预检=' + buChk.trim() + ' → 未登录' + platKey + '，不执行（浏览器没开的原因）')
@@ -1339,7 +1341,7 @@ ipcMain.handle('bu:open', async (event) => {
         setTimeout(() => { try { py.kill() } catch {} ; resolve(so.trim()) }, 8000)
       })
       const m = out.match(/PLATS:([A-Za-z0-9_:,]+)/)
-      const labels = { douyin: '抖音', xiaohongshu: '小红书', weibo: '微博', bilibili: 'B站', kuaishou: '快手', shipinhao: '视频号' }
+      const labels = PLATFORM_NAME   // 2026-09-13: 取自 platforms.generated.js
       const accounts = []
       if (m) {
         for (const kv of m[1].split(',')) {
@@ -2030,7 +2032,7 @@ ipcMain.handle('browser:accounts', async () => {
       setTimeout(() => { try { py.kill() } catch {} ; resolve(so.trim()) }, 8000)
     })
     const m = out.match(/PLATS:([A-Za-z0-9_:,]+)/)
-    const labels = { douyin: '抖音', xiaohongshu: '小红书', weibo: '微博', bilibili: 'B站', shipinhao: '视频号', kuaishou: '快手', x: 'X(Twitter)', google: 'Google' }
+    const labels = { ...PLATFORM_NAME, x: 'X(Twitter)', google: 'Google' }   // 2026-09-13: 发布平台取自常量，x/google 为非发布平台保留
     const accounts = []
     if (m) {
       for (const kv of m[1].split(',')) {

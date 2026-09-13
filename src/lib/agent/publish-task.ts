@@ -5,22 +5,28 @@ import { signedUrl } from '@/lib/oss'
 
 const prisma = new PrismaClient()
 
-export const PLATFORM_KEY: Record<string, string> = {
-  '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo',
-  'B站': 'bilibili', '快手': 'kuaishou', '视频号': 'shipinhao',
-}
-export const PLATFORM_NAME: Record<string, string> = {
-  douyin: '抖音', xiaohongshu: '小红书', weibo: '微博',
-  bilibili: 'B站', kuaishou: '快手', shipinhao: '视频号',
-}
-// 各平台发布页（客户端脚本兜底/展示用）
-export const PLATFORM_URL: Record<string, string> = {
-  douyin: 'https://creator.douyin.com/creator-micro/content/upload',
-  xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish?from=menu&target=video',
-  weibo: 'https://weibo.com',
-  bilibili: 'https://member.bilibili.com/platform/upload/video/frame',
-  kuaishou: 'https://cp.kuaishou.com/article/publish/video',
-  shipinhao: 'https://channels.weixin.qq.com/platform/post/create',
+// 2026-09-13: 三个平台映射【统一从 platforms.ts 派生】——唯一真源，这里只做转发
+//   保留原来的导出名，故所有 `import { PLATFORM_KEY } from '@/lib/agent/publish-task'` 零改动
+import {
+  PLATFORM_KEY,
+  PLATFORM_NAME,
+  PLATFORM_URL,
+  PLATFORM_LOGIN_URL,
+  PLATFORM_ICON,
+  PLATFORM_NAMES,
+  PLATFORM_IDS,
+  isSupportedPlatform,
+} from '@/lib/agent/platforms'
+
+export {
+  PLATFORM_KEY,
+  PLATFORM_NAME,
+  PLATFORM_URL,
+  PLATFORM_LOGIN_URL,
+  PLATFORM_ICON,
+  PLATFORM_NAMES,
+  PLATFORM_IDS,
+  isSupportedPlatform,
 }
 
 export type PublishParams = {

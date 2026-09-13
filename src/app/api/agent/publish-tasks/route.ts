@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
+import { PLATFORM_KEY, PLATFORM_IDS } from '@/lib/agent/platforms'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
@@ -19,11 +20,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '缺少参数（platform/videoName/title）' }, { status: 400 })
     }
     // 2026-08-21: 平台名规范化——中文→英文（"抖音".toLowerCase() 不会变 douyin，导致 OpenCLI 分流/指纹模板不认）
+    // 2026-09-13: 发布平台名归一 —— 主体取自 platforms.ts，仅保留额外别名
     const PLATFORM_MAP: Record<string, string> = {
-      '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '快手': 'kuaishou',
-      '视频号': 'shipinhao', 'b站': 'bilibili', 'B站': 'bilibili', '哔哩哔哩': 'bilibili',
-      'douyin': 'douyin', 'xiaohongshu': 'xiaohongshu', 'weibo': 'weibo', 'kuaishou': 'kuaishou',
-      'shipinhao': 'shipinhao', 'bilibili': 'bilibili',
+      ...PLATFORM_KEY,                                   // 中文 → id
+      ...Object.fromEntries(PLATFORM_IDS.map((id) => [id, id])),  // id → id
+      'b站': 'bilibili', '哔哩哔哩': 'bilibili',
     }
     const normPlatform = PLATFORM_MAP[String(platform).trim()] || PLATFORM_MAP[String(platform).toLowerCase().trim()] || String(platform).toLowerCase().trim()
     const task = await prisma.agentPublishTask.create({

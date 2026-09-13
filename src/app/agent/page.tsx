@@ -4,6 +4,7 @@ import React from 'react'
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
+import { PLATFORM_NAMES, PLATFORMS } from '@/lib/agent/platforms'
 import { useAuth } from '@/app/providers'
 import TourGuide from '@/components/TourGuide'
 import { Solar } from 'lunar-javascript'
@@ -2010,7 +2011,7 @@ function AgentPageInner() {
 
               <div className="flex gap-2">
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                {['抖音','小红书','微博','视频号','B站','快手'].map((pl: string) => (
+                {PLATFORM_NAMES.map((pl: string) => (   // 2026-09-13: 取自 platforms.ts
                   <button key={pl} onClick={() => { const _lbl = ['选视频','抽帧','标题','话题','封面','确认']; const _sk = todoSkips.map((s: any, i: number) => s ? _lbl[i] : null).filter(Boolean); sendMessage('平台:' + pl + (_sk.length ? '&skip=' + _sk.join(',') : '')) }} className="px-3 py-1.5 rounded-lg bg-amber-500/40 hover:bg-amber-500/70 text-xs text-white font-medium">{pl}</button>
                 ))}
               </div>
@@ -3110,12 +3111,8 @@ function AgentPageInner() {
                     <div className="flex flex-wrap gap-1">
                       {[
                         { id: 'google', name: '🇬 Google', url: 'https://accounts.google.com', note: '连带YouTube' },
-                        { id: 'douyin', name: '📕抖音', url: 'https://creator.douyin.com/' },
-                        { id: 'xiaohongshu', name: '📗小红书', url: 'https://creator.xiaohongshu.com/' },
-                        { id: 'weibo', name: '📘微博', url: 'https://weibo.com/login.php' },
-                        { id: 'bilibili', name: '📙B站', url: 'https://passport.bilibili.com/login' },
-                        { id: 'shipinhao', name: '📺视频号', url: 'https://channels.weixin.qq.com/' },
-                        { id: 'kuaishou', name: '⚡快手', url: 'https://passport.kuaishou.com/pc/account/login/' },
+                        // 2026-09-13: 6 个发布平台取自 platforms.ts（图标 + 登录页 URL）
+                        ...PLATFORMS.map(p => ({ id: p.id, name: p.icon + p.name, url: p.loginUrl })),
                         { id: 'twitter', name: '🐦X', url: 'https://x.com' },
                       ].map(pf => {
                         const hit = buAccounts.find(a => a.id === pf.id)

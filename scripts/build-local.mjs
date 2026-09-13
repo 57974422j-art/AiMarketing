@@ -81,6 +81,12 @@ log('4/7 纯壳模式：跳过 Next standalone 构建（页面/API 全在服务�
 // 纯壳：无 standalone 复制（客户端加载服务器页面）
 
 // ── 5) 生成临时打包配置（ms-playwright 指向本机）───────
+// 2026-09-13: 构建前从 src/lib/agent/platforms.ts 生成 electron/platforms.generated.js
+try {
+  const { execFileSync } = await import('node:child_process')
+  execFileSync(process.execPath, [resolve(ROOT, 'scripts/gen-platforms-js.mjs')], { stdio: 'inherit' })
+} catch (e) { log('WARN gen-platforms-js 失败（不阻断）: ' + (e.message || e)) }
+
 log('5/7 生成 build.local.json…')
 const pkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8'))
 const loc = String(process.env.LOCALAPPDATA || '').split(String.fromCharCode(92)).join('/')

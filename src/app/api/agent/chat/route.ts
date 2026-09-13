@@ -20,11 +20,14 @@ import { PrismaClient } from '@prisma/client'
 import { createPublishTask, parsePublishTask } from '@/lib/agent/publish-task'
 import { AGENT_TOOLS, TOOL_STEP_LABEL } from '@/lib/agent/tools'
 import { buildSystemPrompt } from '@/lib/agent/prompts'
+import {
+  PLATFORM_NAME,
+  PLATFORM_KEY,
+} from '@/lib/agent/platforms'
 
 // 已接入的发布平台（其余视为"未接入需求"收集）
-const SUPPORTED_PLATFORMS: Record<string, string> = {
-  douyin: '抖音', xiaohongshu: '小红书', kuaishou: '快手', shipinhao: '视频号', bilibili: 'B站',
-}
+// 2026-09-13: 改为从 platforms.ts 派生（原来手写只有 5 个、漏了微博）
+const SUPPORTED_PLATFORMS: Record<string, string> = PLATFORM_NAME
 // 用户可能提的、我们暂未接入的平台（识别为未接入需求）
 const UNMET_PLATFORM_ALIAS: Record<string, string> = {
   tiktok: 'TikTok', tik: 'TikTok', '抖音国际版': 'TikTok',
@@ -684,8 +687,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           shipinhao: 'shipinhao', '视频号': 'shipinhao', weixin: 'shipinhao', '微信视频号': 'shipinhao',
           bilibili: 'bilibili', 'b站': 'bilibili', 'B站': 'bilibili', 'bili': 'bilibili', '哔哩哔哩': 'bilibili',
         }
-        const platform = PLATFORM_ALIAS[raw] || PLATFORM_ALIAS[args.platform] || raw
-        const PLATFORM_LABEL: Record<string, string> = { douyin: '抖音', xiaohongshu: '小红书', kuaishou: '快手', shipinhao: '视频号', bilibili: 'B站', weibo: '微博', xianyu: '闲鱼' } // 2026-08-28: 接 opencli 已有平台（微博/闲鱼）
+        // 2026-09-13: 中文名映射从 platforms.ts 补（英文别名保留上面手写的）
+        const platform = PLATFORM_ALIAS[raw] || PLATFORM_KEY[String(args.platform)] || PLATFORM_ALIAS[args.platform] || raw
+        const PLATFORM_LABEL: Record<string, string> = PLATFORM_NAME   // 2026-09-13: 取自 platforms.ts
         const label = PLATFORM_LABEL[platform] || args.platform
 
         if (!auth?.userId) return 'PUBLISH_NEED_LOGIN:请先登录平台账号后再发布。'
@@ -1877,11 +1881,11 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
               // 2026-09-01: pick 分支末尾兑底（任何路径都设回复——防块尾空）
               if (!wfEarlyReply) wfEarlyReply = '回复编号 1-5 选视频，或 C 全默认直接发。'
             } else if (draftW.step === 'plat') {
-              // 平台确认：1 抖音 / 2 小红书 / 3 微博 / 4 B站
-              const platMap2: Record<string, string> = { '1': 'douyin', '2': 'xiaohongshu', '3': 'weibo', '4': 'bilibili' }
+              // 平台确认：编号 → 平台（2026-09-13: 从 platforms.ts 动态生成，原来只写 4 个、漏视频号/快手）
+              const platMap2: Record<string, string> = Object.fromEntries(PLATFORM_NAMES.map((nm, i) => [String(i + 1), PLATFORM_KEY[nm]]))
               const pk = userMessage.trim()
               if (platMap2[pk]) { draftW.platform = platMap2[pk]; draftW.step = 'abc'; wfEarlyReply = '已选平台（' + ({ douyin: '抖音', xiaohongshu: '小红书', weibo: '微博', bilibili: 'B站' } as Record<string, string>)[draftW.platform] + '）——A 我推荐 / B 你的文案 / C 全默认（回复 A/B/C）' }
-              else wfEarlyReply = '回复 1 抖音 / 2 小红书 / 3 微博 / 4 B站。'
+              else wfEarlyReply = '回复编号选择平台：' + PLATFORM_NAMES.map((nm, i) => (i + 1) + ' ' + nm).join(' / ') + '。'
             } else if (draftW.step === 'abc') {
               if (/^c$/i.test(userMessage.trim()) || /全默认|默认发|直接发|跳过/.test(userMessage)) {
                 ((global as any).__quickVideoByUid = (global as any).__quickVideoByUid || {})[auth?.userId || 0] = draftW.videoName || ''
@@ -2051,7 +2055,7 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 const platName = pkM[1].replace(/&skip=.*$/, '').trim()
                 const skM = pkM[1].match(/&skip=([^&]+)/)
                 const skips = skM ? String(skM[1]).split(/[,，]/).map((s: string) => s.trim()).filter(Boolean) : []
-                const platMapF: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao', 'B站': 'bilibili', '快手': 'kuaishou' }
+                const platMapF: Record<string, string> = PLATFORM_KEY   // 2026-09-13: 取自 platforms.ts
                 draftW.platform = platMapF[platName] || platName
                 const wfA: any = { platform: draftW.platform, videoName: draftW.videoName, caption: draftW.title || (typeof draftW.titles === 'string' ? draftW.titles : (Array.isArray(draftW.titles) ? draftW.titles[0] : '')) || draftW.videoName, topics: draftW.topics, coverUrl: draftW.coverUrl || '' }
                 let fileUrls: string[] = []
@@ -2106,7 +2110,7 @@ const _steps = ['用浏览器把这条视频发布到' + platName + '。页面�
                     console.log('[发布⑤] 视频已转 OSS:', vKey)
                   } else { console.log('[发布⑤] 视频本地未找到（可能已在 OSS）:', vRel) }
                 } catch (ePv: any) { console.error('[发布⑤] 视频转 OSS 失败:', ePv?.message || ePv) }
-                const buTask = '发布视频到' + (wfA.platform === 'douyin' ? '抖音' : wfA.platform || '抖音') + '：客户端已打开到 https://creator.douyin.com/creator-micro/content/upload （如返回登录页说明未登录，直接告知结束），上传视频，标题：' + (wfA.caption || '') + '，话题：' + (wfA.topics || '') + '，用平台智能封面，然后点击发布'
+                const buTask = '发布视频到' + (PLATFORM_NAME[wfA.platform] || wfA.platform || PLATFORM_NAME.douyin) + '：客户端已打开到 https://creator.douyin.com/creator-micro/content/upload （如返回登录页说明未登录，直接告知结束），上传视频，标题：' + (wfA.caption || '') + '，话题：' + (wfA.topics || '') + '，用平台智能封面，然后点击发布'
                 // 2026-09-10: 任务带结构化参数（客户端优先走确定性脚本）
                 const buTaskJson2 = JSON.stringify({ kind: 'publish', platform: wfA.platform || 'douyin', videoName: wfA.videoName || '', title: wfA.caption || '', topics: wfA.topics || '', cover: wfA.coverUrl || '', task: buTask })
                 const buT = await buCreate(auth?.userId || 0, buTaskJson2, JSON.stringify(fileUrls))
@@ -2123,7 +2127,7 @@ PUBLISH_DRAFT.delete(uidW)
         if (false && pubIntent && !calledPublish) { // 旧强制段已禁        if (false && pubIntent && !calledPublish) { // 旧强制段已禁
           // 从用户消息提取平台+视频文件名
           const platMatch = userMessage.match(/(抖音|小红书|微博|视频号)/)
-          const platMap: Record<string, string> = { '抖音': 'douyin', '小红书': 'xiaohongshu', '微博': 'weibo', '视频号': 'shipinhao' }
+          const platMap: Record<string, string> = PLATFORM_KEY   // 2026-09-13: 取自 platforms.ts（原只 4 个、漏 B站/快手）
           const platform = platMatch ? (platMap[platMatch![1] || ''] || 'douyin') : 'douyin'
           const vfMatch = userMessage.match(/([A-Za-z0-9_-]+\.(?:mp4|mov|avi|mkv|webm))/i)
           const vfName = vfMatch ? (vfMatch![1] || '') : ''
@@ -2146,7 +2150,7 @@ PUBLISH_DRAFT.delete(uidW)
             }
             console.log('[发布工作流] 确认建任务（browser_use 发布——opencli 链已清除）:', JSON.stringify(wfArgs))
             // 2026-08-30: 发布统一走 browser_use（AI 浏览器）——不再 opencli（create_v2 定时-2/旧 DOM）
-            const buTask = '发布视频到' + (wfArgs.platform || '抖音') + '：在客户端已打开的创作者中心发布页上传个人仓库视频 ' + (wfArgs.videoName || '') + '，标题：' + (wfArgs.caption || wfArgs.title || '') + '，话题：' + (wfArgs.topics || '') + (wfArgs.coverUrl ? '，封面：' + wfArgs.coverUrl : '，用平台智能封面') + '，然后点击发布'
+            const buTask = '发布视频到' + (PLATFORM_NAME[wfArgs.platform] || wfArgs.platform || PLATFORM_NAME.douyin) + '：在客户端已打开的创作者中心发布页上传个人仓库视频 ' + (wfArgs.videoName || '') + '，标题：' + (wfArgs.caption || wfArgs.title || '') + '，话题：' + (wfArgs.topics || '') + (wfArgs.coverUrl ? '，封面：' + wfArgs.coverUrl : '，用平台智能封面') + '，然后点击发布'
             const buT = await buCreate(auth?.userId || 0, buTask, '[]')
             const wfResult = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + (buT.seq ?? buT.id) + '）——客户端 AI 浏览器自动执行（打开平台→上传→填标题→发布）。任务：' + buTask
             messages.push({ role: 'tool', tool_call_id: 'wf-' + Date.now(), content: String(wfResult) } as any)
