@@ -41,6 +41,19 @@ def read_cookies(profile):
     if not os.path.exists(ck):
         print('NO_COOKIES:' + ck)
         return []
+    # 2026-09-13: 【immutable 直读】——Chrome 运行时独占锁 Cookie 库，copy 会 WinError 32；
+    #   而用 sqlite 的 immutable=1 只读模式可以绕过锁（实测有效）。失败再退回拷贝。
+    uri = 'file:///' + ck.replace(os.sep, '/').lstrip('/') + '?immutable=1'
+    try:
+        con = sqlite3.connect(uri, uri=True)
+        rows = con.execute('SELECT host_key, name, value FROM cookies').fetchall()
+        con.close()
+        if rows:
+            print('（immutable 直读成功，%d 条 cookie）' % len(rows))
+            return rows
+    except Exception as e:
+        print('IMMUTABLE_FAIL:' + str(e)[:80])
+
     tmp = os.path.join(tempfile.gettempdir(), 'bu_hot_cookies.db')
     for i in range(4):
         try:
@@ -132,19 +145,100 @@ COLLECTORS = {
 }
 
 
+
+# ═══════════════════════════════════════════════════════════════
+# BROWSER_COLLECT_V1（2026-09-13）：B 类采集——开标签 → 页内 fetch（签名由页面算）→ 关标签
+#   抖音/快手 实测可行；小红书接口在 edith 域（跨域），改用 www 域内可见的接口
+# ═══════════════════════════════════════════════════════════════
+CDP_URL = 'http://127.0.0.1:9222'
+
+JS_DOUYIN = """async () => {
+  const r = await fetch('https://www.douyin.com/aweme/v1/web/hot/search/list/?device_platform=webapp&aid=6383&channel=channel_pc_web&detail_list=1', {
+    headers: { 'accept': 'application/json' }, credentials: 'include',
+  });
+  const j = await r.json();
+  const list = (j && j.data && j.data.word_list) || [];
+  return JSON.stringify(list.map(function (it, i) {
+    return { title: String(it.word || it.sentence_id || '').trim(), hot: it.hot_value ? String(it.hot_value) : null, rank: i + 1 };
+  }).filter(function (x) { return x.title; }));
+}"""
+
+JS_KUAISHOU = """async () => {
+  const r = await fetch('https://www.kuaishou.com/graphql', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include',
+    body: JSON.stringify({ operationName: 'visionHotRank', variables: {},
+      query: 'query visionHotRank { visionHotRank { result items { id name hotValue } } }' })
+  });
+  const j = await r.json();
+  const items = (j && j.data && j.data.visionHotRank && j.data.visionHotRank.items) || [];
+  return JSON.stringify(items.map(function (it, i) {
+    return { title: String(it.name || it.id || '').trim(), hot: it.hotValue ? String(it.hotValue) : null, rank: i + 1 };
+  }).filter(function (x) { return x.title; }));
+}"""
+
+BROWSER_JOBS = [
+    ('抖音', 'https://www.douyin.com/hot', JS_DOUYIN),
+    ('快手', 'https://www.kuaishou.com/', JS_KUAISHOU),
+]
+
+
+def collect_by_browser(only=None):
+    """开标签 → 页内 fetch → 关标签（只有浏览器可用时才做）"""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as e:
+        print('  浏览器采集跳过（无 playwright）:', str(e)[:60])
+        return {}
+    out = {}
+    try:
+        with sync_playwright() as pw:
+            b = pw.chromium.connect_over_cdp(CDP_URL)
+            ctx = b.contexts[0]
+            for name, url, js in BROWSER_JOBS:
+                if only and name not in only:
+                    continue
+                pg = None
+                try:
+                    pg = ctx.new_page()
+                    pg.goto(url, wait_until='domcontentloaded', timeout=25000)
+                    pg.wait_for_timeout(4000)
+                    raw = pg.evaluate(js)
+                    items = json.loads(raw) if isinstance(raw, str) else (raw or [])
+                    if items:
+                        out[name] = {'items': items[:20], 'fetchedAt': int(time.time() * 1000)}
+                        print('  [%s] ✅ 采到 %d 条（例：%s）' % (name, len(items), items[0]['title'][:26]))
+                    else:
+                        print('  [%s] 未采到' % name)
+                except Exception as e:
+                    print('  [%s] 失败: %s' % (name, str(e)[:80]))
+                finally:
+                    try:
+                        if pg:
+                            pg.close()
+                    except Exception:
+                        pass
+    except Exception as e:
+        print('  浏览器不可用（跳过）:', str(e)[:90])
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--profile', required=True, help='browser-profile 目录')
     ap.add_argument('--post', default='', help='服务器地址，如 http://127.0.0.1:3000（空=只打印不提交）')
     ap.add_argument('--cookie', default='', help='登录 cookie（HTTP 头形式），用于提交上报')
     ap.add_argument('--only', default='', help='只采指定平台（逗号分隔）')
+    ap.add_argument('--browser', action='store_true', help='启用浏览器采集（抖音/快手，需 9222 可用）')
     a = ap.parse_args()
 
     rows = read_cookies(a.profile)
     if not rows:
-        print('采集失败：读不到 cookie')
-        return
-    print('cookie 总数:', len(rows))
+        # 2026-09-13: 【不能因此中止】——读不到 cookie 只影响 A 类（微博/B站）；
+        #   B 类（抖音/快手）走浏览器页内 fetch，用的是浏览器自己的登录态，不需要读 cookie 文件
+        #   （Chrome 运行时锁 Cookie 库 → copy 失败是常态）
+        print('读不到 cookie（Chrome 可能正锁着）→ 跳过 A 类，继续 B 类（浏览器采集）')
+    else:
+        print('cookie 总数:', len(rows))
 
     only = [s.strip() for s in a.only.split(',') if s.strip()] if a.only else None
     result = {}
@@ -169,6 +263,15 @@ def main():
             print('  [%s] ✅ 采到 %d 条（例：%s）' % (name, len(items), items[0]['title'][:26]))
         else:
             print('  [%s] 已登录但没采到（接口可能改版/风控）' % name)
+
+    # ★BROWSER_COLLECT_V1：浏览器采集（抖音/快手）——只在 --browser 且 9222 可用时做
+    if a.browser:
+        print()
+        print('浏览器采集（开标签→页内 fetch→关标签）…')
+        try:
+            result.update(collect_by_browser(only))
+        except Exception as e:
+            print('  浏览器采集异常:', str(e)[:90])
 
     print()
     print('采集结果：', ', '.join('%s(%d条)' % (k, len(v['items'])) for k, v in result.items()) or '（空）')
