@@ -179,3 +179,11 @@
 - **快手封面**：PK 开关已开则不点（避免被关掉）✅
 - **6 脚本 connect_cdp 自我递归** BUG（快手/B站永远连不上浏览器）✅
 
+## 🟢 已解决（2026-09-13 登录态专项）
+
+- **重装丢登录态**：卸载器 `customRemoveFiles` 的手动卸载分支原来是 `RMDir /r "$INSTDIR"`（连 data/python/storage 全删）→ 改为只删程序文件、保留三目录。**用户决策 B：data 继续放安装目录内，只改卸载器保住它**
+- **打开浏览器 → 平台 ✓ 标记 1 秒后全消失**：根因 = `bu_check.py` 用 `shutil.copy2` 读 `browser-profile/Default/Network/Cookies`，而打开浏览器时 Chrome **独占锁定**该文件 → `WinError 32` → 打印 `CHECK_ERR`（不返回任何数据）→ 前端 `setBuAccounts([])` 清空。
+  修法三层：① bu_check 复制重试 4 次×1.5s ② 读成功写 `bu_login_cache.txt`、读失败回退该缓存 ③ 前端拿到空结果时保留上次显示。
+  **实测**：Chrome 运行且文件锁定下仍输出 `PLATS:douyin:1,...,kuaishou:1` + `CACHED:1` ✅
+- **参考**：OpenCLIApp 的做法（AppData\Local\BrowserBridge，自带 EBWebView + 常驻服务 tcp://127.0.0.1:19826 + account-archive.sqlite3 落库）——它"不登录也能拿到登录态"的本质是【用自己的浏览器 + 结果落库】，我们学的是"缓存/不因一次失败清空"。
+
