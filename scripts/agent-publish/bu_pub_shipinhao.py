@@ -207,76 +207,76 @@ def main():
             except Exception as e:
                 log('⑤ 短标题失败: ' + str(e)[:70])
 
-        # ── 封面（封面区「编辑」→ 弹窗「上传封面」→ 文件框 → 「确认」）──
+        # ── 封面（COVER_TWO_SLOTS_V1：视频号两个封面位都要传）──
+        #   页面：封面预览 | 编辑 | 个人主页卡片 3:4 | 编辑 | 分享卡片 4:3
+        #   原来只传一张 → 只进「分享卡片」，「个人主页卡片(3:4 竖)」空着（用户实测）
         if SK_COVER:
             log('⑥ 封面——用户勾掉，跳过（用平台默认）')
         elif a.cover and os.path.exists(a.cover):
-            try:
-                # 点封面区「编辑」（CDP 找 button/div 文本"编辑"——取最靠上的）
-                edit_xy = fr.evaluate("""() => { const vis=(e)=>!!(e&&e.offsetParent!==null);
-                  const els = Array.from(document.querySelectorAll('.edit-btn')).filter(vis);
-                  if (!els.length) return null; const b = els[0].getBoundingClientRect();
-                  return Math.round(b.x+b.width/2)+','+Math.round(b.y+b.height/2); }""")
-                if edit_xy:
-                    off3 = fr.evaluate("() => { const fe = window.frameElement; const b = fe ? fe.getBoundingClientRect() : {x:0,y:0}; return Math.round(b.x)+','+Math.round(b.y); }")
-                    ox3, oy3 = [int(v) for v in off3.split(',')]
-                    x3, y3 = [int(v) for v in edit_xy.split(',')]
-                    page.mouse.click(ox3 + x3, oy3 + y3)
+            JS_EDIT_BTN = """(name) => {
+              const vis = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+              let blk = null;
+              document.querySelectorAll('div').forEach(e => {
+                if (blk || !vis(e)) return;
+                const t = (e.innerText || '').trim();
+                if (t.length < 60 && t.indexOf(name) >= 0) blk = e;
+              });
+              if (!blk) return null;
+              let btn = null;
+              blk.querySelectorAll('*').forEach(e => {
+                if (btn || !vis(e)) return;
+                if ((e.innerText || '').trim() === '编辑') btn = e;
+              });
+              if (!btn) return null;
+              const b = btn.getBoundingClientRect();
+              return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+            }"""
+            for _nm in ['个人主页卡片', '分享卡片']:
+                hit = None
+                for fr in page.frames:
+                    try:
+                        hit = fr.evaluate(JS_EDIT_BTN, _nm)
+                    except Exception:
+                        hit = None
+                    if hit:
+                        break
+                if not hit:
+                    log('⑥ %s：未找到「编辑」按钮（跳过）' % _nm)
+                    continue
+                try:
+                    page.mouse.click(hit['x'], hit['y'])
+                    log('⑥ %s：已点「编辑」(%d,%d)' % (_nm, hit['x'], hit['y']))
+                except Exception as e:
+                    log('⑥ %s：点「编辑」失败 %s' % (_nm, str(e)[:44]))
+                    continue
+                page.wait_for_timeout(2500)
+                # 弹窗里直传 image input
+                done = False
+                for fr2 in page.frames:
+                    try:
+                        fi = fr2.query_selector('input[type=file][accept*="image"]')
+                        if fi:
+                            fi.set_input_files(a.cover)
+                            done = True
+                            break
+                    except Exception as e:
+                        log('   直传失败(%s): %s' % (_nm, str(e)[:40]))
+                if done:
+                    log('⑥ ✅ %s 封面已上传' % _nm)
                     page.wait_for_timeout(2500)
-                    up_xy = fr.evaluate("""() => { const vis=(e)=>!!(e&&e.offsetParent!==null);
-                      const el = Array.from(document.querySelectorAll('*')).find(e => vis(e) && (e.innerText||'').trim() === '上传封面');
-                      if (!el) return null; const b = el.getBoundingClientRect();
-                      return Math.round(b.x+b.width/2)+','+Math.round(b.y+b.height/2); }""")
-                    if up_xy:
-                        off4 = fr.evaluate("() => { const fe = window.frameElement; const b = fe ? fe.getBoundingClientRect() : {x:0,y:0}; return Math.round(b.x)+','+Math.round(b.y); }")
-                        ox4, oy4 = [int(v) for v in off4.split(',')]
-                        x4, y4 = [int(v) for v in up_xy.split(',')]
-                        with page.expect_file_chooser(timeout=12000) as fc:
-                            page.mouse.click(ox4 + x4, oy4 + y4)
-                        fc.value.set_files(a.cover)
-                        log('⑥ ✅ 封面已上传')
-                        page.wait_for_timeout(3000)
-                        if click_by_text_cdp_any(page, '确认'):
-                            log('⑥ ✅ 已点「确认」关封面弹窗')
-                    else:
-                        log('⑥ ⚠️ 未找到「上传封面」')
+                    for t in ['确认', '完成', '确定']:
+                        try:
+                            loc = page.get_by_text(t, exact=True)
+                            if loc.count() > 0 and loc.first.is_visible():
+                                loc.first.click(timeout=3000)
+                                log('   已点「%s」' % t)
+                                break
+                        except Exception:
+                            continue
+                    page.wait_for_timeout(2000)
                 else:
-                    log('⑥ ⚠️ 未找到封面「编辑」按钮')
-            except Exception as e:
-                log('⑥ 封面失败: ' + str(e)[:70])
-        page.wait_for_timeout(1500)
+                    log('⑥ ⚠️ %s 未找到上传入口' % _nm)
+        else:
+            log('⑥ 无自定义封面 → 平台默认')
 
-        if a.no_publish:
-            log('--no-publish：跳过发表（测试模式）')
-            print(json.dumps({'success': True, 'url': page.url, 'dryRun': True}))
-            return
-
-        # ── 发表（★CDP 穿透点击——frame.evaluate 自算坐标会偏）──
-        ok = click_by_text_cdp_any(page, '发表')
-        log('⑦ 发表点击 → ' + str(ok))
-        done = False
-        for i in range(10):
-            page.wait_for_timeout(3000)
-            u = page.url
-            if '/post/create' not in u:
-                log('⑦ ✅ 页面跳转（发表成功）: ' + u[:70]); done = True; break
-            try:
-                fr2 = frame_of(page)
-                t = fr2.evaluate("() => (document.body.innerText||'').slice(0,300)")
-            except Exception:
-                t = ''
-            if any(k in t for k in ['发表成功', '已提交', '审核']):
-                log('⑦ ✅ 发表成功迹象'); done = True; break
-        print(json.dumps({'success': done, 'url': page.url}))
-
-if __name__ == '__main__':
-    try:
-        main()
-    except Exception as e:
-        # 2026-09-12: 加异常兜底——原来裸调 main()，异常直接崩、Traceback 被日志截断，看不到真因
-        import traceback
-        traceback.print_exc()
-        try:
-            print(json.dumps({'success': False, 'result': str(e)[:300]}))
-        except Exception:
-            print('{"success": false, "result": "脚本异常"}')
+        
