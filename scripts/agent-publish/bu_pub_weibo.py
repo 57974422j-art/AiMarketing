@@ -70,7 +70,7 @@ def pick_video_page(ctx, page_hint=None):
             if (!vis(e)) continue;
             if ((e.innerText || "").trim() === "视频") {
               const b = e.getBoundingClientRect();
-              return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y - 6) };
+              return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };   // FIX_CENTER_V9：用元素中心（上次 b.y-6 点到 181 空）
             }
           }
           return null;
@@ -156,11 +156,8 @@ def main():
                     log('② ✅ 已点「上传视频」真按钮 → 选文件')
                 except Exception as e:
                     log('② 真按钮失败（' + str(e)[:50] + '）→ file input 兜底')
-                if not up:
-                    fi = page.query_selector('input[type="file"]')
-                    if fi:
-                        fi.set_input_files(a.video, timeout=60000)
-                        log('② ✅ file input 兜底上传')
+            if not up:
+                log('② ❌ 未找到「上传视频」真按钮（不再用图片 input 兜底，避免假成功）')
         # 等编辑区
         t0 = time.time()
         while time.time() - t0 < 240:
