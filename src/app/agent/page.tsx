@@ -1658,31 +1658,7 @@ function AgentPageInner() {
     return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis) }
   }, [])
   // ── 功能提示标签（新手引导——点击填入输入框）──
-  // 2026-08-28: 任务进度带（会话上方可折叠——从最近回复解析发布工作流步骤）
-  const [todoOpen, setTodoOpen] = useState(true)
-  const [todoSkips, setTodoSkips] = useState<boolean[]>([]) // 2026-08-31: 任务进度勾选（勾掉=跳过该步——平台默认）
-  const todoInfo = (() => {
-    const lastAsst = [...messages].reverse().find((mm: any) => mm.role === 'assistant' && typeof mm.content === 'string')
-    const txt = lastAsst ? String(lastAsst.content) : ''
-    const allTxt = messages.map((mm: any) => String(mm.content || '')).join(' ')
-    const isPub = txt.indexOf('发布') >= 0 || txt.indexOf('WF_JSON') >= 0 || txt.indexOf('FRAMES_OK') >= 0 || txt.indexOf('抽帧') >= 0 || txt.indexOf('选视频') >= 0 || txt.indexOf('选标题') >= 0 || txt.indexOf('话题') >= 0 || txt.indexOf('封面') >= 0
-    const defs = [
-      { k: '①', label: '选视频' },
-      { k: '②', label: '抽帧选帧' },
-      { k: '③', label: '标题（3 个候选）' },
-      { k: '④', label: '话题标签' },
-      { k: '⑤', label: '封面' },
-      { k: '⑥', label: '确认发布（向客户端下达）' },
-    ]
-    // 2026-08-31: 当前步（最近回复里最大的标记 ①-⑤）——执行状态同步
-    let cur = -1
-    // 2026-08-31 A: 优先从 WF_JSON step 映射（prep→① title→② topics→③ cover→④ publish→⑤）——正相关
-    const wj = txt.match(/WF_JSON:\{.*?\"step\":\"([a-z_]+)\"/)
-    if (wj) { const sm: Record<string, number> = { select_video: 0, prep: 1, title: 2, topics: 3, cover: 4, publish: 5 }; if (sm[wj[1]] !== undefined) cur = sm[wj[1]] }
-    else defs.forEach((d, di) => { if (txt.indexOf(d.k) >= 0) cur = Math.max(cur, di) })
-    if (todoSkips.length !== defs.length) setTodoSkips(defs.map(() => false))
-    return { isPub, done: defs.map((d) => txt.indexOf(d.k) >= 0), defs, current: cur }
-  })()
+  // 2026-09-13: 任务进度带 + 勾选跳过【已删除】（用户确定：逻辑多易错乱，改为固定 6 步全做；以后换成「日常任务」）
   const FEATURE_TIPS = [
     '帮我发一个视频', '帮我写一个小红书文案', '帮我生成一张产品海报',
     '帮我查一下今日热点', '帮我生成一个数字人口播', '帮我做一条 AI 视频',
@@ -2024,7 +2000,7 @@ function AgentPageInner() {
               <div className="flex gap-2">
                 <div className="flex flex-wrap gap-1.5 mb-2">
                 {PLATFORM_NAMES.map((pl: string) => (   // 2026-09-13: 取自 platforms.ts
-                  <button key={pl} onClick={() => { const _lbl = ['选视频','抽帧','标题','话题','封面','确认']; const _sk = todoSkips.map((s: any, i: number) => s ? _lbl[i] : null).filter(Boolean); sendMessage('平台:' + pl + (_sk.length ? '&skip=' + _sk.join(',') : '')) }} className="px-3 py-1.5 rounded-lg bg-amber-500/40 hover:bg-amber-500/70 text-xs text-white font-medium">{pl}</button>
+                  <button key={pl} onClick={() => { sendMessage('平台:' + pl) }} className="px-3 py-1.5 rounded-lg bg-amber-500/40 hover:bg-amber-500/70 text-xs text-white font-medium">{pl}</button>
                 ))}
               </div>
                 <button onClick={() => sendMessage('换一批')} className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm">换一批（全重做）</button>
@@ -2960,25 +2936,6 @@ function AgentPageInner() {
                   <p className="text-[8px] text-gray-700 px-2.5 pt-1">↑↓ 选择 · Enter 确认 · Esc 取消</p>
                 </div>
               )}
-                {/* 2026-08-28: 任务进度带（发布工作流——可折叠） */}
-                {agentMode === 'standard' && todoInfo.isPub && (
-                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02]">
-                    <button onClick={() => setTodoOpen(!todoOpen)} className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] text-gray-400 hover:text-gray-200">
-                      <span>📋 任务进度（发布工作流）</span><span>{todoOpen ? '收起 ▲' : '展开 ▼'}</span>
-                    </button>
-                    {todoOpen && (
-                      <div className="px-2.5 pb-2 flex flex-col gap-1">
-                        {todoInfo.defs.map((d: any, i: number) => (
-                          <div key={i} className={`flex items-center gap-1.5 text-[9px] ${todoInfo.current === i ? 'bg-emerald-500/10 rounded px-0.5' : ''}`}>
-                            <input type="checkbox" checked={!todoSkips[i]} onChange={() => { const ns = [...todoSkips]; ns[i] = !ns[i]; setTodoSkips(ns) }} className="w-2.5 h-2.5 accent-emerald-500" title="勾掉=跳过该步（平台默认）" />
-                            <span className={`w-3 h-3 rounded-full flex items-center justify-center text-[8px] ${todoInfo.done[i] ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/[0.06] text-gray-500'}`}>{todoInfo.done[i] ? '✓' : ''}</span>
-                            <span className={todoInfo.done[i] ? 'text-emerald-300/80' : 'text-gray-500'}>{d.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               <div className="relative flex items-end gap-1.5 bg-white/[0.03] border border-white/[0.06] rounded-2xl px-2 sm:px-3 py-1.5 focus-within:border-emerald-500/30 transition-colors">
                 <button onClick={() => fileInputRef.current?.click()}
                   className="shrink-0 w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-500 hover:text-gray-300 transition">
