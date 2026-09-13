@@ -75,22 +75,12 @@ module.exports = function createBuEnv(deps) {
         const r = await ensureBuPython()
         info = await getBuEnvInfo(r && r.py ? r.py : undefined)
         buLog('[bu-env] 安装后：' + JSON.stringify(info))
-        try {
-          const { dialog, BrowserWindow } = require('electron')
-          const w = BrowserWindow.getAllWindows()[0]
-          const NL = String.fromCharCode(10)
-          const detail = 'Python：' + (info.pythonVersion || '?') + (info.builtin ? '（内置环境）' : '（系统 Python）')
-            + NL + 'playwright：' + (info.playwright || '未安装')
-            + NL + 'browser_use：' + (info.browserUse || '未安装')
-            + NL + '位置：' + String(info.pythonPath || '').slice(0, 90)
-            + (info.ok ? '' : NL + NL + '（可稍后重试；如持续失败请检查网络后重启客户端）')
-          await dialog.showMessageBox(w || {}, {
-            type: info.ok ? 'info' : 'warning',
-            title: '发布运行环境自检',
-            message: info.ok ? '发布运行环境已就绪' : '发布运行环境未就绪',
-            detail,
-          })
-        } catch (e2) { buLog('[bu-env] 弹窗失败：' + String((e2 && e2.message) || e2)) }
+        // 2026-09-13: 【删除白色弹窗】（用户要求）——原来装完会弹 dialog 说"Python 3.14.0/playwright/browser_use"
+        //   ① 与自检重复：下面 reportBuEnv(info) 已上报服务器，AGENT 自检的「发布运行环境」项直接读它
+        //   ② 与自动更新抢焦点：更新小窗弹出时被它插一脚，看着乱
+        //   ③ 用户原话："感觉很怪"、"和自检在一起已经够了"
+        //   现在：只写 buLog（日志可查）+ 上报服务器（自检展示）；环境未就绪时也不再弹窗打断
+        buLog('[bu-env] 环境状态（不弹窗）：' + JSON.stringify(info))
       }
       cached = info
       try { await reportBuEnv(info) } catch (e3) { buLog('[bu-env] 上报失败：' + String((e3 && e3.message) || e3)) }
