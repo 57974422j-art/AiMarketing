@@ -3110,12 +3110,12 @@ function AgentPageInner() {
                     <div className="flex flex-wrap gap-1">
                       {[
                         { id: 'google', name: '🇬 Google', url: 'https://accounts.google.com', note: '连带YouTube' },
-                        { id: 'douyin', name: '📕抖音', url: 'https://creator.douyin.com' },
-                        { id: 'xiaohongshu', name: '📗小红书', url: 'https://creator.xiaohongshu.com/publish/publish' },
-                        { id: 'weibo', name: '📘微博', url: 'https://weibo.com' },
-                        { id: 'bilibili', name: '📙B站', url: 'https://www.bilibili.com' },
-                        { id: 'shipinhao', name: '📺视频号', url: 'https://channels.weixin.qq.com/platform/post/create' },
-                        { id: 'kuaishou', name: '⚡快手', url: 'https://cp.kuaishou.com/profile' },
+                        { id: 'douyin', name: '📕抖音', url: 'https://creator.douyin.com/' },
+                        { id: 'xiaohongshu', name: '📗小红书', url: 'https://creator.xiaohongshu.com/' },
+                        { id: 'weibo', name: '📘微博', url: 'https://weibo.com/login.php' },
+                        { id: 'bilibili', name: '📙B站', url: 'https://passport.bilibili.com/login' },
+                        { id: 'shipinhao', name: '📺视频号', url: 'https://channels.weixin.qq.com/' },
+                        { id: 'kuaishou', name: '⚡快手', url: 'https://passport.kuaishou.com/pc/account/login/' },
                         { id: 'twitter', name: '🐦X', url: 'https://x.com' },
                       ].map(pf => {
                         const hit = buAccounts.find(a => a.id === pf.id)

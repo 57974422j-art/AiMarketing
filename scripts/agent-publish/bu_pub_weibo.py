@@ -23,7 +23,7 @@ try:
 except Exception:
     cdp_click_text = None
 
-URL = 'https://weibo.com/upload/channel'
+URL = 'https://weibo.com'   # HOME_INPUT_V3
 HOME = 'https://weibo.com/'
 
 
@@ -119,9 +119,22 @@ def main():
             page.goto(URL, wait_until='domcontentloaded', timeout=30000)
             how = '新页导航'
         page.bring_to_front()
+        # ★ FORCE_HOME_V4（2026-09-13）：复用已开页面时，若不在首页要强制回首页
+        #   （否则会停在旧的 /upload/channel 上传页 → 那页 input 是 accept=image → 塞视频假成功）
+        try:
+            if '/upload/' in page.url or 'weibo.com' not in page.url:
+                log('  当前页=%s → 强制导航回首页' % page.url[:60])
+                page.goto(URL, wait_until='domcontentloaded', timeout=40000)
+                page.wait_for_timeout(6000)
+                how = '强制回首页'
+        except Exception as _e:
+            log('  强制回首页失败: ' + str(_e)[:60])
         log('① 页面=%s（%s）' % (page.url, how))
 
-        # ── ② 上传视频（已有编辑区则跳过）──
+        # ── ② 上传视频（HOME_INPUT_V3：走首页的隐藏 input，不直接开上传页）──
+        #   ★ 2026-09-13 实测：https://weibo.com 首页存在 'input[type=file][accept*="video"]'
+        #     （其 accept 同时含 image 与 video）—— set_input_files 即可，3 秒内出现视频元素。
+        #   ★ 不用 /upload/channel：那是上传页、地址会变，且那页的 input 是 accept=image（塞视频无效）。
         has_editor = False
         try:
             body0 = page.inner_text('body')[:800]
@@ -129,22 +142,21 @@ def main():
         except Exception:
             pass
         if has_editor:
-            log('② 已有视频/编辑区 → 跳过上传')
+            log('② 已有视频/编辑区 -> 跳过上传')
         else:
             up = False
             try:
-                with page.expect_file_chooser(timeout=12000) as fc:
-                    page.locator('button:has-text("上传视频")').first.click(timeout=8000)
-                fc.value.set_files(a.video)
-                up = True
-                log('② ✅ 已点「上传视频」真按钮 → 选文件')
+                _fi = page.query_selector('input[type=file][accept*="video"]')
+                if _fi:
+                    _fi.set_input_files(a.video)
+                    up = True
+                    log('② OK 首页 input[accept*=video] 直传成功')
+                else:
+                    log('② FAIL 首页未找到 accept 含 video 的 file input')
             except Exception as e:
-                log('② 真按钮失败（' + str(e)[:50] + '）→ file input 兜底')
+                log('② FAIL 直传失败: ' + str(e)[:70])
             if not up:
-                fi = page.query_selector('input[type="file"]')
-                if fi:
-                    fi.set_input_files(a.video, timeout=60000)
-                    log('② ✅ file input 兜底上传')
+                log('② FAIL 上传未完成（不再用图片 input 兜底，避免假成功）')
         # 等编辑区
         t0 = time.time()
         while time.time() - t0 < 240:

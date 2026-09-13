@@ -17,7 +17,7 @@ export const PLATFORM_NAME: Record<string, string> = {
 export const PLATFORM_URL: Record<string, string> = {
   douyin: 'https://creator.douyin.com/creator-micro/content/upload',
   xiaohongshu: 'https://creator.xiaohongshu.com/publish/publish?from=menu&target=video',
-  weibo: 'https://weibo.com/upload/channel',
+  weibo: 'https://weibo.com',
   bilibili: 'https://member.bilibili.com/platform/upload/video/frame',
   kuaishou: 'https://cp.kuaishou.com/article/publish/video',
   shipinhao: 'https://channels.weixin.qq.com/platform/post/create',
