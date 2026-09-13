@@ -3255,7 +3255,7 @@ function AgentPageInner() {
           <div className="p-3 border-t border-white/5">
             <button onClick={toggleMedia}
               className={`w-full text-left px-2.5 py-2 rounded-lg text-[10px] transition ${mediaOpen ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/[0.03] hover:bg-white/[0.06] text-gray-400'}`}>
-              🎵 媒体舞台 {mediaOpen ? '· 收起' : mediaData ? `· ${mediaData.bgm.length}曲 / ${mediaData.records.length}条` : '· 音乐/AI生成'}
+              🎵 媒体舞台 {mediaOpen ? '· 收起' : mediaData ? `· ${mediaData.bgm.length}曲` : '· 音乐库'}
             </button>
             <a href="/music-library" onClick={(e) => { e.preventDefault(); openApp('/music-library') }}
               className="ml-1 px-2 py-1.5 rounded-lg text-[10px] bg-white/[0.03] hover:bg-white/[0.06] text-gray-400 hover:text-cyan-300 transition">🎵 音乐库</a>
@@ -3293,22 +3293,8 @@ function AgentPageInner() {
                         <span className="shrink-0 ml-2">{mediaPlayingId === b.id ? '⏸ 停止' : '▶ 试听'}</span>
                       </button>
                     ))}
-                    <p className="text-[9px] text-gray-500 pt-1">🎬 AI 生成</p>
-                    {(mediaData?.records.length ? mediaData.records : []).map(r => (
-                      <div key={r.id} className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-1.5">
-                        {r.type === 'text2video' && r.url ? (
-                          <video src={r.url} controls className="w-full max-h-36 rounded-md bg-black" />
-                        ) : r.type === 'text2img' && r.url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={r.url} alt="生成图" className="w-full max-h-28 object-contain rounded-md bg-black/40" />
-                        ) : (
-                          <p className="text-[9px] text-gray-500 truncate">{r.type} · {r.prompt || '已生成'}</p>
-                        )}
-                        <p className="text-[8px] text-gray-600 mt-1 truncate">{r.prompt || r.type}</p>
-                      </div>
-                    ))}
-                    {(!mediaData?.bgm.length && !mediaData?.records.length) && (
-                      <p className="text-[9px] text-gray-700 px-1">暂无媒体 · 用文生视频/文生图生成后这里会显示</p>
+                    {(!mediaData?.bgm.length) && (
+                      <p className="text-[9px] text-gray-700 px-1">暂无音乐 · 用上方「🎼 生成」添加</p>
                     )}
                   </>
                 )}
