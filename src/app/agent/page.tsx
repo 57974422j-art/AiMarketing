@@ -847,7 +847,7 @@ function AgentPageInner() {
   // 语音实时识别中间文本
   const [interimText, setInterimText] = useState('')
   // 今日热点（融合 BaiLongma 热点推荐：真实热榜注入主页 + 对话上下文）
-  const [hotTopics, setHotTopics] = useState<{ source: string; region: 'cn' | 'global'; items: { title: string; hot?: string; url?: string }[] }[]>([])
+  const [hotTopics, setHotTopics] = useState<{ source: string; region: 'cn' | 'global'; items: { title: string; hot?: string; url?: string; fetchedAt?: number; }[] }[]>([])
   // 大屏视频推荐 + 发布统计（2026-08-08）
   const [trendVideos, setTrendVideos] = useState<{ platform: string; title: string; url: string; thumbnail?: string; duration?: string }[]>([])
   const [publishStats, setPublishStats] = useState<{ platform: string; count: number }[]>([])
@@ -3384,6 +3384,16 @@ function AgentPageInner() {
           // 情绪指数（2026-08-08：热榜标题情感词库规则，正面/负面词占比 → 0-100）
           const POS_WORDS = ['爆', '涨', '红', '火', '热', '喜', '赢', '新', '强', '大', '赞', '好', '增', '破', '领', '佳', '美', '爱']
           const NEG_WORDS = ['跌', '亏', '难', '痛', '忧', '罚', '禁', '查', '危', '乱', '骗', '假', '坏', '暗', '疑', '下']
+          // 2026-09-13: 数据时间（用户要求——一眼看出新旧，避免再被一年半前的数据骗）
+          const hotLatestAt = hotTopics.reduce((m: number, s: any) => Math.max(m, Number(s.fetchedAt) || 0), 0)
+          const hotTimeLabel = (() => {
+            if (!hotLatestAt) return '—'
+            const d = new Date(hotLatestAt)
+            const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+            const hours = (Date.now() - hotLatestAt) / 3600000
+            const ago = hours < 1 ? '刚刚' : hours < 24 ? Math.round(hours) + '小时前' : Math.round(hours / 24) + '天前'
+            return hhmm + '（' + ago + '）'
+          })()
           const allTitles = hotTopics.flatMap((s) => s.items.map((i) => i.title)).join('')
           let pos = 0, neg = 0
           for (const w of POS_WORDS) { const n = allTitles.split(w).length - 1; pos += n }
@@ -3426,6 +3436,7 @@ function AgentPageInner() {
                 ['全球信源', String(globalSources.length), '#4f8cff'],
                 ['监测话题', String(totalItems), '#3ad29f'],
                 ['实时抓取率', `${Math.round((hotTopics.length / (cnSources.length + globalSources.length || 1)) * 100)}%`, '#b098f0'],
+                ['数据时间', hotTimeLabel, '#ffd166'],
               ].map(([label, val, color], i) => (
                 <div key={i} className="flex-1 flex items-center gap-2 px-4 border-r border-white/[0.05]">
                   <span className="text-[#6b7180]">{label}</span>
