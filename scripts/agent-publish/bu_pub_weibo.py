@@ -100,6 +100,80 @@ def pick_video_page(ctx, page_hint=None):
             return pg, '兜底-任意上传页'
     return ctx.pages[0], "兜底-首页"
 
+
+JS_UPLOAD_STATE = """() => {
+  const NL = String.fromCharCode(10);
+  const t = document.body.innerText || '';
+  const vids = [];
+  document.querySelectorAll('video').forEach(e => { try { vids.push(e.videoWidth); } catch (e2) {} });
+  return {
+    uploading: (t.indexOf('上传中') >= 0) || (t.indexOf('正在上传') >= 0) || (t.indexOf('处理中') >= 0),
+    finished: (t.indexOf('上传完成') >= 0) || (t.indexOf('重新上传') >= 0) || (t.indexOf('设置封面') >= 0) || (t.indexOf('编辑封面') >= 0) || (t.indexOf('删除视频') >= 0),
+    vw: vids.length ? Math.max.apply(null, vids) : 0,
+    files: Array.from(document.querySelectorAll('input[type=file]')).length,
+  };
+}"""
+
+
+def wait_video_ready(page, max_s=180, log=print):
+    """WAIT_UPLOAD_V10：等视频【真上传完】——不能只看"编辑区出现"（长视频还在传）
+    判定成功（任一）：① video.videoWidth > 0 且 无"上传中"  ② 出现"上传完成/重新上传/设置封面" 且 无"上传中"
+    返回 True/False + 用时秒数
+    """
+    import time as _t
+    t0 = _t.time()
+    last = None
+    while _t.time() - t0 < max_s:
+        page.wait_for_timeout(3000)
+        try:
+            st = page.evaluate(JS_UPLOAD_STATE)
+        except Exception as e:
+            log('  等上传：页面探测失败 ' + str(e)[:50])
+            continue
+        last = st
+        el = int(_t.time() - t0)
+        if (not st['uploading']) and (st['vw'] > 0 or st['finished']):
+            log('  ✅ 视频上传完成（%ds，videoWidth=%s finished=%s）' % (el, st['vw'], st['finished']))
+            return True
+        if el % 15 < 3:
+            log('    等视频上传… %ds（上传中=%s videoWidth=%s）' % (el, st['uploading'], st['vw']))
+    log('  ⚠️ 等上传超时 %ds（最后状态 %s）' % (max_s, last))
+    return False
+
+
+JS_COVER_STATE = """() => {
+  const vis = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+  const NL = String.fromCharCode(10);
+  const t = document.body.innerText || '';
+  const imgs = Array.from(document.querySelectorAll('img')).filter(e => { try { return e.naturalWidth > 120 && vis(e); } catch (e2) { return false; } });
+  return {
+    coverImgs: imgs.length,
+    uploadingWord: (t.indexOf('上传中') >= 0) || (t.indexOf('封面上传中') >= 0),
+    okay: (t.indexOf('封面设置完成') >= 0) || (t.indexOf('更换封面') >= 0),
+  };
+}"""
+
+
+def wait_cover_ready(page, max_s=60, log=print):
+    """WAIT_UPLOAD_V10：封面上传后等【封面预览图出现】（naturalWidth>120），最多 60s"""
+    import time as _t
+    t0 = _t.time()
+    base = None
+    while _t.time() - t0 < max_s:
+        page.wait_for_timeout(2500)
+        try:
+            st = page.evaluate(JS_COVER_STATE)
+        except Exception:
+            continue
+        el = int(_t.time() - t0)
+        if base is None:
+            base = st['coverImgs']
+        if (not st['uploadingWord']) and (st['okay'] or st['coverImgs'] > base):
+            log('  ✅ 封面已就绪（%ds，预览图 %d→%d）' % (el, base, st['coverImgs']))
+            return True
+    log('  ⚠️ 等封面超时 %ds（用平台默认/先继续）' % max_s)
+    return False
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--video', required=True)
@@ -158,18 +232,12 @@ def main():
                     log('② 真按钮失败（' + str(e)[:50] + '）→ file input 兜底')
             if not up:
                 log('② ❌ 未找到「上传视频」真按钮（不再用图片 input 兜底，避免假成功）')
-        # 等编辑区
-        t0 = time.time()
-        while time.time() - t0 < 240:
-            page.wait_for_timeout(3000)
-            try:
-                bd = page.inner_text('body')[:800]
-            except Exception:
-                bd = ''
-            if '类型' in bd and '标题' in bd:
-                break
-        log('③ 编辑区就绪 用时 %ds' % int(time.time() - t0))
-
+        # ★WAIT_UPLOAD_V10：等视频【真上传完】（不能只看编辑区出现——长视频还在传）
+        #   判断：video.videoWidth>0 且 无「上传中」；或出现「上传完成/重新上传/设置封面」且无「上传中」
+        _t_up = time.time()
+        _ok_up = wait_video_ready(page, max_s=240, log=log)
+        log('③ 上传阶段结束 用时 %ds（%s）' % (int(time.time() - _t_up), '成功' if _ok_up else '超时-继续'))
+        page.wait_for_timeout(2000)   # 上传后稳一下再填内容
         # ── ④ 类型：原创（校验 radio）──
         try:
             page.get_by_text('原创', exact=True).first.click(timeout=5000)
@@ -215,6 +283,10 @@ def main():
                 log('⑥ 封面失败: ' + str(e)[:60])
         else:
             log('⑥ 无自定义封面 → 用平台截帧')
+
+        # ★WAIT_UPLOAD_V10：等封面【真传完】（预览图 naturalWidth>120），最多 60s
+        wait_cover_ready(page, max_s=60, log=log)
+        page.wait_for_timeout(2000)   # 封面后稳一下（你要求的）
 
         # ── ⑦ 话题（正文 textarea → 校验 value）──
         if a.topics:
