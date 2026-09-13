@@ -44,7 +44,10 @@ async function fetchBaidu(): Promise<HotItem[]> {
     if (!r.ok) return []
     const d = await r.json()
     const cards = (d?.data?.cards as any[]) || []
-    const items = (cards[0]?.content as any[]) || []
+    // 2026-09-13 修：百度返回多包了一层——真正列表在 cards[0].content[0].content
+    //   原来取 cards[0].content → 只有 1 个元素且无 query/word 字段 → 被过滤 → 百度榜全空
+    const lvl1 = (cards[0]?.content as any[]) || []
+    const items = ((lvl1[0]?.content as any[]) || (Array.isArray(cards[0]?.content) && !lvl1[0]?.content ? lvl1 : []))
     return items.slice(0, 12).map((it, i) => ({
       title: String(it?.query || it?.word || '').trim(),
       hot: it?.hotScore ? String(it.hotScore) : undefined,
