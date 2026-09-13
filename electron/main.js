@@ -435,6 +435,11 @@ const BU_CHECK_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_check.py')
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_check.py')
 
+// 2026-09-13: 热点采集脚本（每天首次启动跑一次）
+const BU_HOT_SCRIPT = app.isPackaged
+  ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_hot.py')
+  : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_hot.py')
+
 // 2026-09-08: 内置 Python 运行环境（OSS python-bu.zip 一键下载——用户零安装）
 const BUILTIN_PY_DIR = path.join(path.dirname(process.execPath), 'python', 'buvenv-test')
 const BUILTIN_PY = path.join(BUILTIN_PY_DIR, 'Scripts', 'python.exe')
@@ -1744,11 +1749,51 @@ async function showChangelogOnStartup() {
   }
 }
 
+// 2026-09-13: 热点采集（每天第一次打开客户端才采一次；只采已登录平台；静默无进度）
+//   微博/B站/抖音/小红书/快手的榜单接口要 cookie 或签名，服务器直调拿不到 -> 客户端读 browser-profile 的 cookie 采集
+//   采完 POST /api/agent/hotspot-report -> 服务器缓存 -> 热点大屏读
+async function collectHotspotsDaily() {
+  try {
+    const store = path.join(app.getPath('userData'), 'hotspot-last.json')
+    const today = new Date().toISOString().slice(0, 10)
+    let last = ''
+    try { last = JSON.parse(fs.readFileSync(store, 'utf-8')).date || '' } catch (e) {}
+    if (last === today) { buLog('[hot] 今天已采集过，跳过'); return }
+
+    const py = BU_PYTHON || getBuPython()
+    if (!py) { buLog('[hot] 无 python，跳过采集'); return }
+    if (!fs.existsSync(BU_HOT_SCRIPT)) { buLog('[hot] 脚本不存在: ' + BU_HOT_SCRIPT); return }
+
+    let cookie = ''
+    try { cookie = (await getServerCookie()) || '' } catch (e) {}
+    const args = ['-u', BU_HOT_SCRIPT, '--profile', String(BU_PROFILE_DIR)]
+    if (cookie) args.push('--post', 'https://ai-niuma.cc', '--cookie', cookie)
+    else buLog('[hot] 未取到登录 cookie -- 只采集不上报')
+
+    buLog('[hot] 开始采集热点（每天一次，静默）...')
+    const p = spawn(py, args, { windowsHide: true })
+    let out = ''
+    p.stdout.on('data', (d) => { out += String(d) })
+    p.stderr.on('data', () => {})
+    p.on('error', (e) => buLog('[hot] 采集进程失败: ' + String(e).slice(0, 120)))
+    p.on('close', (code) => {
+      const brief = out.slice(-420).split(String.fromCharCode(10)).join(' ')
+      buLog('[hot] 采集结束 code=' + code + ' | ' + brief)
+      try { fs.writeFileSync(store, JSON.stringify({ date: today, at: Date.now() })) } catch (e) {}
+    })
+  } catch (e) {
+    buLog('[hot] 采集异常: ' + String(e).slice(0, 140))
+  }
+}
+
+
 app.whenReady().then(() => {
   createWindow()
   showChangelogOnStartup()
   // 2026-09-10: 启动 8 秒后静默自检发布环境（缺则后台安装，装完弹窗告知）
   setTimeout(() => { try { buEnv && buEnv.ensureBuEnvOnStartup() } catch (e) {} }, 8000)
+  // 2026-09-13: 启动 25 秒后采集热点（每天首次一次；静默；只采已登录平台）
+  setTimeout(() => { try { collectHotspotsDaily() } catch (e) {} }, 25000)
 })
 
 // 2026-08-10：渲染进程崩溃监控（诊断客户端闪退）
@@ -2020,6 +2065,7 @@ ipcMain.handle('browser:open-url', async (_e, url) => {
 
 ipcMain.handle('browser:accounts', async () => {
   // 2026-09-07: 改用 bu_check.py 读 browser-profile Cookies（统一系统 Chrome 一条线，删 Playwright CDP）
+
   try {
     const { spawn } = require('child_process')
     const out = await new Promise((resolve) => {
