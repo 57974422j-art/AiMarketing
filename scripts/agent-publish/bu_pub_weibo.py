@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """AGENT 微博发布执行器（2026-09-10 手动逐步跑通后固化）
 跑通的 9 步（每步都验证过）：
-  1) 页面必须锁定 weibo.com/upload/channel（视频发布页）——绝不在首页发布框操作
+  1) ★必须【从首页点「视频」进入上传页】（首页 → 点工具栏「视频」→ 微博自己跳到 /upload/channel）；
+     ❌ 直接 goto /upload/channel 【不行】（无登录态/上下文）——2026-09-13 用户实测纠正
   2) 若没有视频页：从首页点工具栏「视频」按钮 → 会新开标签页
   3) 点【真按钮】button「上传视频」→ 系统文件框 → setFiles
   4) 等「上传完成」
@@ -18,31 +19,10 @@ if hasattr(sys.stdout, 'reconfigure'):
     try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception: pass
 from playwright.sync_api import sync_playwright
-try:
-    from _cdp_click import cdp_click_text
-except Exception:
-    cdp_click_text = None
 
-URL = 'https://weibo.com'   # HOME_INPUT_V3
+URL = 'https://weibo.com'   # HOME_CLICK_VIDEO_V7：入口就是首页（上传页必须由微博自己跳出来）
 HOME = 'https://weibo.com/'
 
-
-
-def connect_cdp(pw, url='http://127.0.0.1:9222', tries=15, gap=2, log=None):
-    """★2026-09-12: 等登记浏览器(9222)就绪再连——客户端刚 spawn Chrome 时端口还没监听，
-    原脚本一启动就 connect → ECONNREFUSED → 1 秒内崩（客户端日志 code=1 Traceback）"""
-    import time as _t
-    last = None
-    for i in range(tries):
-        try:
-            return pw.chromium.connect_over_cdp(url)
-        except Exception as e:
-            last = e
-            if i == 0 and log:
-                try: log('  等登记浏览器(9222)就绪…')
-                except Exception: pass
-            _t.sleep(gap)
-    raise RuntimeError('连不上登记浏览器(9222)，等了 %ds：%s' % (tries * gap, str(last)[:90]))
 def log(m): print('[PUB] ' + str(m), flush=True)
 
 def valid(page):
@@ -52,7 +32,10 @@ def valid(page):
         return False
 
 def pick_video_page(ctx, page_hint=None):
-    """严格选【视频发布页】：优先已有编辑区的 → 任意视频页 → 从首页点「视频」新开"""
+    """HOME_CLICK_VIDEO_V7：★必须从【首页点「视频」】进入上传页（微博自己跳）
+       用户实测：直接 goto /upload/channel 不行（无登录态/上下文），必须由首页点出来
+    """
+    # ① 已有带编辑区的上传页 → 直接用
     for pg in ctx.pages:
         if 'upload/channel' not in pg.url:
             continue
@@ -60,35 +43,62 @@ def pick_video_page(ctx, page_hint=None):
             if '类型' in pg.inner_text('body')[:1500]:
                 return pg, '已有编辑区'
         except Exception:
-            continue
+            pass
+    # ② ★从首页点「视频」→ 微博新开标签页（这是唯一正确入口）
+    home = None
+    for pg in ctx.pages:
+        if pg.url.rstrip('/') == 'https://weibo.com':
+            home = pg
+            break
+    if home is None:
+        home = ctx.new_page()
+        home.goto(HOME, wait_until="domcontentloaded", timeout=40000)
+        home.wait_for_timeout(6000)
+    try:
+        home.bring_to_front()
+        home.wait_for_timeout(1500)
+        before = len(ctx.pages)
+        hit = home.evaluate("""() => {
+          const vis = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+          const box = document.querySelector('[class*="_box_vkpry_"]');
+          if (!box) return null;
+          const kids = box.querySelectorAll("*");
+          for (let i = 0; i < kids.length; i++) {
+            const e = kids[i];
+            if (!vis(e)) continue;
+            if ((e.innerText || "").trim() === "视频") {
+              const b = e.getBoundingClientRect();
+              return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+            }
+          }
+          return null;
+        }""")
+        if hit:
+            home.mouse.move(hit["x"], hit["y"])
+            home.wait_for_timeout(400)
+            home.mouse.click(hit["x"], hit["y"])
+            log("  已点首页「视频」(%d,%d)，等微博跳转…" % (hit["x"], hit["y"]))
+        else:
+            log("  ⚠️ 首页未找到发布框里的「视频」二字")
+        home.wait_for_timeout(5000)
+        # 新开的标签页 = 上传页
+        if len(ctx.pages) > before:
+            npg = ctx.pages[-1]
+            try:
+                npg.wait_for_timeout(2000)
+            except Exception:
+                pass
+            return npg, "点「视频」新开"
+        # 或当前页自己跳过去
+        if 'upload/channel' in home.url:
+            return home, "点「视频」当前页跳转"
+    except Exception as e:
+        log("  点「视频」失败: " + str(e)[:70])
+    # ③ 最后兜底：任意 upload/channel 页
     for pg in ctx.pages:
         if 'upload/channel' in pg.url:
-            return pg, '空白视频页'
-    # 没有视频页 → 找首页点「视频」按钮新开
-    for pg in ctx.pages:
-        try:
-            if 'weibo.com' in pg.url and 'upload' not in pg.url:
-                pg.bring_to_front()
-                loc = pg.get_by_text('视频', exact=True)
-                n = loc.count()
-                for i in range(min(n, 5)):
-                    try:
-                        el = loc.nth(i)
-                        box = el.bounding_box()
-                        # 工具栏的「视频」在页面上方（y<300）
-                        if box and box['y'] < 300:
-                            before = len(ctx.pages)
-                            el.click(timeout=4000)
-                            for _ in range(6):
-                                pg.wait_for_timeout(1000)
-                                if len(ctx.pages) > before:
-                                    return ctx.pages[-1], '点「视频」新开'
-                            break
-                    except Exception:
-                        continue
-        except Exception:
-            continue
-    return None, '未找到/未能打开视频页'
+            return pg, '兜底-任意上传页'
+    return ctx.pages[0], "兜底-首页"
 
 def main():
     ap = argparse.ArgumentParser()
@@ -97,20 +107,11 @@ def main():
     ap.add_argument('--topics', default='')
     ap.add_argument('--cover', default='')
     ap.add_argument('--no-publish', action='store_true')
-    ap.add_argument('--skips', default='', help='跳过步骤（逗号分隔）：标题,话题,封面')
     a = ap.parse_args()
     log('视频=' + a.video + ' 标题=' + (a.title or '(无)') + ' 封面=' + (a.cover or '(无)'))
 
-    # 2026-09-12: 用户勾掉的步骤（方案卡 checkbox → main.js --skips）
-    _sk = [s.strip() for s in str(getattr(a, 'skips', '') or '').replace('，', ',').split(',') if s.strip()]
-    SK_TITLE = '标题' in _sk
-    SK_TOPIC = '话题' in _sk
-    SK_COVER = ('封面' in _sk) or ('抽帧' in _sk)
-    if _sk:
-        log('跳过步骤: ' + ','.join(_sk))
-
     with sync_playwright() as pw:
-        b = connect_cdp(pw, log=log)
+        b = pw.chromium.connect_over_cdp('http://127.0.0.1:9222')
         ctx = b.contexts[0] if b.contexts else b.new_context()
         page, how = pick_video_page(ctx)
         if page is None:
@@ -119,22 +120,9 @@ def main():
             page.goto(URL, wait_until='domcontentloaded', timeout=30000)
             how = '新页导航'
         page.bring_to_front()
-        # ★ FORCE_HOME_V4（2026-09-13）：复用已开页面时，若不在首页要强制回首页
-        #   （否则会停在旧的 /upload/channel 上传页 → 那页 input 是 accept=image → 塞视频假成功）
-        try:
-            if '/upload/' in page.url or 'weibo.com' not in page.url:
-                log('  当前页=%s → 强制导航回首页' % page.url[:60])
-                page.goto(URL, wait_until='domcontentloaded', timeout=40000)
-                page.wait_for_timeout(6000)
-                how = '强制回首页'
-        except Exception as _e:
-            log('  强制回首页失败: ' + str(_e)[:60])
         log('① 页面=%s（%s）' % (page.url, how))
 
-        # ── ② 上传视频（HOME_INPUT_V3：走首页的隐藏 input，不直接开上传页）──
-        #   ★ 2026-09-13 实测：https://weibo.com 首页存在 'input[type=file][accept*="video"]'
-        #     （其 accept 同时含 image 与 video）—— set_input_files 即可，3 秒内出现视频元素。
-        #   ★ 不用 /upload/channel：那是上传页、地址会变，且那页的 input 是 accept=image（塞视频无效）。
+        # ── ② 上传视频（已有编辑区则跳过）──
         has_editor = False
         try:
             body0 = page.inner_text('body')[:800]
@@ -142,21 +130,22 @@ def main():
         except Exception:
             pass
         if has_editor:
-            log('② 已有视频/编辑区 -> 跳过上传')
+            log('② 已有视频/编辑区 → 跳过上传')
         else:
             up = False
             try:
-                _fi = page.query_selector('input[type=file][accept*="video"]')
-                if _fi:
-                    _fi.set_input_files(a.video)
-                    up = True
-                    log('② OK 首页 input[accept*=video] 直传成功')
-                else:
-                    log('② FAIL 首页未找到 accept 含 video 的 file input')
+                with page.expect_file_chooser(timeout=12000) as fc:
+                    page.locator('button:has-text("上传视频")').first.click(timeout=8000)
+                fc.value.set_files(a.video)
+                up = True
+                log('② ✅ 已点「上传视频」真按钮 → 选文件')
             except Exception as e:
-                log('② FAIL 直传失败: ' + str(e)[:70])
+                log('② 真按钮失败（' + str(e)[:50] + '）→ file input 兜底')
             if not up:
-                log('② FAIL 上传未完成（不再用图片 input 兜底，避免假成功）')
+                fi = page.query_selector('input[type="file"]')
+                if fi:
+                    fi.set_input_files(a.video, timeout=60000)
+                    log('② ✅ file input 兜底上传')
         # 等编辑区
         t0 = time.time()
         while time.time() - t0 < 240:
@@ -167,22 +156,6 @@ def main():
                 bd = ''
             if '类型' in bd and '标题' in bd:
                 break
-        # ★★ 2026-09-13 防「假成功」（用户实测）：微博 /upload/channel 页面只有【图片上传框】
-        #    set_input_files(视频) 被静默忽略，但原脚本报成功 → 这里校验页面是否真出现视频
-        try:
-            _hasVid = page.evaluate("() => Array.from(document.querySelectorAll('video')).some(e => (e.videoWidth || 0) > 0)")
-            _txt = ''
-            try: _txt = page.inner_text('body')[:600]
-            except Exception: pass
-            _formOk = any(k in _txt for k in ['上传完成', '重新上传', '编辑封面', '选择封面', '设置封面'])
-            if not _hasVid and not _formOk:
-                log('❌ 视频上传未生效——微博当前入口只有图片框（应改走首页「视频」入口）')
-                print(json.dumps({'success': False, 'result': '微博视频上传未生效：/upload/channel 只有图片上传框，需改走首页视频入口'}))
-                return
-            log('✅ 校验：视频已就位' if _hasVid else '✅ 校验：编辑表单已就绪')
-        except Exception as e:
-            log('  上传校验异常（继续）: ' + str(e)[:60])
-
         log('③ 编辑区就绪 用时 %ds' % int(time.time() - t0))
 
         # ── ④ 类型：原创（校验 radio）──
@@ -195,9 +168,7 @@ def main():
             log('④ 类型选择失败: ' + str(e)[:60])
 
         # ── ⑤ 标题（点「标题」→ input[type=text] → 校验 value）──
-        if SK_TITLE:
-            log('⑤ 标题——用户勾掉，跳过（用平台默认）')
-        elif a.title:
+        if a.title:
             try:
                 page.get_by_text('标题', exact=True).first.click(timeout=5000)
                 page.wait_for_timeout(1000)
@@ -207,14 +178,11 @@ def main():
                 page.wait_for_timeout(600)
                 v = page.evaluate("""() => { const i = document.querySelector('input[type=text]'); return i ? i.value : null; }""")
                 log('⑤ 标题已填（value=%s）' % repr(v))
-                page.wait_for_timeout(2000)   # ★2026-09-12 步间延时（其它平台没有，统一补）
             except Exception as e:
                 log('⑤ 标题失败: ' + str(e)[:60])
 
         # ── ⑥ 封面（上传 → 点「完成」关弹窗）──
-        if SK_COVER:
-            log('⑥ 封面——用户勾掉，跳过（用平台截帧）')
-        elif a.cover and os.path.exists(a.cover):
+        if a.cover and os.path.exists(a.cover):
             try:
                 with page.expect_file_chooser(timeout=10000) as fc:
                     page.get_by_text('上传封面', exact=True).first.click(timeout=6000)
@@ -231,27 +199,22 @@ def main():
                         continue
                 if not done:
                     log('⑥ ⚠️ 封面已上传但未找到「完成」')
-                page.wait_for_timeout(5000)   # ★2026-09-12 封面完成后等 5 秒再继续（你要求的）
             except Exception as e:
                 log('⑥ 封面失败: ' + str(e)[:60])
         else:
             log('⑥ 无自定义封面 → 用平台截帧')
 
         # ── ⑦ 话题（正文 textarea → 校验 value）──
-        if SK_TOPIC:
-            log('⑦ 话题——用户勾掉，跳过')
-        elif a.topics:
+        if a.topics:
             try:
                 ta = page.locator('textarea').last
                 ta.fill(a.topics, timeout=8000)
                 page.wait_for_timeout(600)
                 v = page.evaluate("""() => { const t = document.querySelectorAll('textarea'); return t.length ? t[t.length-1].value : null; }""")
                 log('⑦ 话题已填（value=%s）' % repr(v))
-                page.wait_for_timeout(2000)   # ★步间延时
             except Exception as e:
                 log('⑦ 话题失败: ' + str(e)[:60])
 
-        page.wait_for_timeout(3000)   # ★2026-09-12 发布前统一等 3 秒（让前面填写生效）
         # ── 发布按钮状态 ──
         st = page.evaluate("""() => { const b = Array.from(document.querySelectorAll('button')).find(e => /发布/.test((e.innerText||'').trim())); return b ? !!b.disabled : null; }""")
         log('⑧ 发布按钮 disabled=' + str(st))
@@ -264,15 +227,9 @@ def main():
         # ── ⑨ 发布 + 校验 ──
         try:
             page.locator('button:has-text("发布")').first.click(timeout=8000)
-            log('⑨ ✅ 已点「发布」(locator)')
+            log('⑨ ✅ 已点「发布」')
         except Exception as e:
-            log('⑨ locator 点击失败（试 CDP 穿透）: ' + str(e)[:60])
-            if cdp_click_text is not None:
-                try:
-                    _ok, _msg = cdp_click_text(page, '发布', tag='button', log=log, exact=True, prefer_bottom_right=True)
-                    log('⑨ CDP 穿透点「发布」→ %s (%s)' % (_ok, _msg))
-                except Exception as e2:
-                    log('⑨ ❌ CDP 也失败: ' + str(e2)[:60])
+            log('⑨ ❌ 发布点击失败: ' + str(e)[:70])
         ok_pub = False
         for i in range(9):
             page.wait_for_timeout(3000)
@@ -284,14 +241,4 @@ def main():
                 log('⑨ ✅ 发布成功迹象（%ds）' % ((i + 1) * 3)); ok_pub = True; break
         print(json.dumps({'success': ok_pub, 'url': page.url}))
 
-if __name__ == '__main__':
-    try:
-        main()
-    except Exception as e:
-        # 2026-09-12: 加异常兜底——原来裸调 main()，异常直接崩、Traceback 被日志截断，看不到真因
-        import traceback
-        traceback.print_exc()
-        try:
-            print(json.dumps({'success': False, 'result': str(e)[:300]}))
-        except Exception:
-            print('{"success": false, "result": "脚本异常"}')
+main()
