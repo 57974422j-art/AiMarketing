@@ -1636,7 +1636,19 @@ function AgentPageInner() {
   useEffect(() => {
     const detect = async () => {
       // 2026-09-07: 统一 buCheck（读 browser-profile Cookies）——登记/发布一条线，删 Playwright CDP 检测
-      try { const br = await (window as any).electronAPI?.buCheck(); if (br?.success && Array.isArray(br.accounts)) setBuAccounts(br.accounts) } catch {}
+      // KEEP_LAST_ACCOUNTS (2026-09-13 用户要求)：打开浏览器时 Chrome 会锁 Cookies → buCheck 可能读失败
+      //   → 原来拿到空数组就把平台 ✓ 全清（显示"登录态消失"）
+      //   → 现在：① 只有拿到【非空】结果才覆盖   ② 服务端读失败时会回退上次缓存（bu_check.py）
+      try {
+        const br = await (window as any).electronAPI?.buCheck()
+        if (br?.success && Array.isArray(br.accounts) && br.accounts.length > 0) {
+          setBuAccounts(br.accounts)
+        } else if (!br?.success) {
+          // 读失败 → 保留上次结果，不清空（避免误判"未登录"）
+        } else {
+          setBuAccounts(br.accounts || [])
+        }
+      } catch {}
     }
     detect()
     // 2026-08-25: 切页返回/窗口聚焦时重新检测（不再显示旧"未登录"）

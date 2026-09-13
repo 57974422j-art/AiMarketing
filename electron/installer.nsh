@@ -12,8 +12,12 @@
     ; 删所有子目录，跳过 data/python/storage
     nsExec::Exec 'cmd /c for /d %i in ("$INSTDIR\*") do @if /i not "%i"=="$INSTDIR\data" if /i not "%i"=="$INSTDIR\python" if /i not "%i"=="$INSTDIR\storage" rd /s /q "%i"'
   ${else}
-    ; ===== 手动卸载：删整个安装目录（含 data/python/storage）=====
-    RMDir /r "$INSTDIR"
+    ; ===== 手动卸载（KEEP_DATA_ON_UNINSTALL 2026-09-13 用户要求）=====
+    ;   ★ 原来 RMDir /r "$INSTDIR" 会把 data（登录态）/python（环境）/storage（本地仓库）一起删掉
+    ;   → 用户重装后必须【重新登录所有平台】——被明确否决
+    ;   改为：和"更新"完全一样——只删程序文件，保留三个数据目录
+    nsExec::Exec 'cmd /c del /q "$INSTDIR\*.*"'
+    nsExec::Exec 'cmd /c for /d %i in ("$INSTDIR\*") do @if /i not "%i"=="$INSTDIR\data" if /i not "%i"=="$INSTDIR\python" if /i not "%i"=="$INSTDIR\storage" rd /s /q "%i"'
   ${endIf}
 !macroend
 

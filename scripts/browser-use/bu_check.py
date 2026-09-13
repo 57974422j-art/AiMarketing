@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # bu_profile 平台登录态检测——读 Chrome Cookies(SQLite) 查平台域名
-import sqlite3, os, sys, shutil, tempfile, datetime
+import sqlite3, os, sys, shutil, tempfile, datetime, time
 prof = sys.argv[1] if len(sys.argv) > 1 else 'D:/bu_profile'
 def sync_system_login(profile):
     try:
@@ -24,9 +24,37 @@ ck = os.path.join(prof, 'Default', 'Network', 'Cookies')
 if not os.path.exists(ck):
     print('NO_COOKIES_FILE:' + ck); sys.exit(0)
 # Chrome 锁——复制读（防锁）
+# RETRY_AND_CACHE_V1 (2026-09-13): Chrome 打开时独占锁 Cookies -> WinError 32
+#   1) 重试 4 次(每次1.5s) 2) 成功写缓存 3) 失败回退缓存(不返回空)
+CACHE = os.path.join(os.path.dirname(os.path.abspath(prof.rstrip('/'))), 'bu_login_cache.txt')
 tmp = os.path.join(tempfile.gettempdir(), 'bu_cookies_copy.db')
+_copy_ok = False
+_last_err = ''
+for _try in range(4):
+    try:
+        shutil.copy2(ck, tmp)
+        _copy_ok = True
+        break
+    except Exception as _e:
+        _last_err = str(_e)[:110]
+        if _try < 3:
+            time.sleep(1.5)
+
+if not _copy_ok:
+    try:
+        if os.path.exists(CACHE):
+            _cached = open(CACHE, 'r', encoding='utf-8').read().strip()
+            if _cached:
+                print('PLATS:' + _cached)
+                print('CACHED:1')
+                print('COPY_ERR:' + _last_err)
+                sys.exit(0)
+    except Exception:
+        pass
+    print('CHECK_ERR:' + _last_err)
+    sys.exit(0)
+
 try:
-    shutil.copy2(ck, tmp)
     con = sqlite3.connect(tmp)
     # 2026-08-30: 有效期判断——过期 cookie 不算登录（会话 cookie 24h 失效——之前只看存在误导）
     # 关键会话 cookie（a1/webId 等游客标识不算登录——acw_tc/sessionid/SUB/uid 等会话才算）
@@ -42,6 +70,11 @@ try:
             if h.endswith(dom) and n in names and (exp == 0 or (exp and exp > now_ms)):  # exp=0 会话 cookie 本会话有效
                 hit = True; break
         out.append(pid + ':' + ('1' if hit else '0'))
-    print('PLATS:' + ','.join(out))
+    _result = ','.join(out)
+    print('PLATS:' + _result)
+    try:
+        open(CACHE, 'w', encoding='utf-8').write(_result)
+    except Exception:
+        pass
 except Exception as e:
     print('CHECK_ERR:' + str(e)[:120])
