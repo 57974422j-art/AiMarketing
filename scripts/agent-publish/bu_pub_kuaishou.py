@@ -203,7 +203,7 @@ def main():
                 except Exception:
                     pass
                 page.wait_for_timeout(400)
-                txt = (a.title or '').strip()[:20]
+                txt = (a.title or '').strip()[:16]   # TITLE16
                 is_ta = False
                 try:
                     is_ta = page.evaluate("(e) => e.tagName === 'TEXTAREA'", desc)

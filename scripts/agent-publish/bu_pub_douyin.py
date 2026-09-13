@@ -200,7 +200,7 @@ def main():
                 el = visible(page, sel)
                 if el:
                     try:
-                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:20]); page.wait_for_timeout(2000)   # ★步间延时; break
+                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:16]); page.wait_for_timeout(2000)   # ★步间延时; break
                     except Exception as e: log('标题填失败: ' + str(e)[:60])
             else: log('⚠️ 未找到标题框')
 

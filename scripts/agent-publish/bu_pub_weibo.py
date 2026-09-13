@@ -254,7 +254,7 @@ def main():
                 page.wait_for_timeout(1000)
                 el = page.locator('input[type="text"]').first
                 el.click(timeout=4000)
-                el.fill(a.title[:30])
+                el.fill(a.title[:16])
                 page.wait_for_timeout(600)
                 v = page.evaluate("""() => { const i = document.querySelector('input[type=text]'); return i ? i.value : null; }""")
                 log('⑤ 标题已填（value=%s）' % repr(v))

@@ -189,7 +189,7 @@ def main():
                     page.keyboard.press('ControlOrMeta+A')
                     page.keyboard.press('Backspace')
                     page.wait_for_timeout(300)
-                    tv = (a.title or '').strip()[:80]
+                    tv = (a.title or '').strip()[:16]   # TITLE16
                     ti.fill(tv)
                     page.keyboard.press('Tab')
                     log('标题已填: ' + tv[:40])

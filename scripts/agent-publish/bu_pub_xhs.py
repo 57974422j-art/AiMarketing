@@ -155,7 +155,7 @@ def main():
                 el = visible(page, 'input[placeholder*="填写标题会有更多赞哦"]') or visible(page, 'input[placeholder*="标题"]')
                 if el:
                     try:
-                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:20])
+                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:16])
                         page.wait_for_timeout(2000)   # ★2026-09-12 步间延时
                     except Exception as e: log('标题填失败: ' + str(e)[:60])
                 else: log('⚠️ 未找到标题框')

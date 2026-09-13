@@ -197,7 +197,7 @@ def main():
                     x2, y2 = [int(v) for v in xy2.split(',')]
                     page.mouse.click(ox2 + x2, oy2 + y2)
                     page.wait_for_timeout(400)
-                    page.keyboard.type(a.title[:30], delay=25)
+                    page.keyboard.type(a.title[:16], delay=25)
                     page.wait_for_timeout(600)
                     v2 = fr.evaluate("""() => { const i = document.querySelector('input[placeholder*="短标题"]'); return i ? i.value : null; }""")
                     log('⑤ 短标题已填（值=%s）' % repr(v2))

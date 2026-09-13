@@ -749,7 +749,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                   platform: pl,
                   socialAccountId: null,
                   videoName,
-                  title: String(pubCaption || videoName).slice(0, 30), // 2026-08-27: 抖音标题限 30 字——自动截断防“标题超长”失败（#10 根因）
+                  title: String(pubCaption || videoName).slice(0, 16),  // ★TITLE16_V1：全平台标题统一 16 字 // 2026-08-27: 抖音标题限 30 字——自动截断防“标题超长”失败（#10 根因）
                   description: (args.test === true ? '[TEST] ' : '') + String(pubCaption || videoName),
                   topics: JSON.stringify(topicsArr),
                   coverUrl: coverPersist,
@@ -1006,7 +1006,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             for (const at of visAttempts) {
               const body: any = {
                 model: at.model,
-                messages: [{ role: 'user', content: [...images, { type: 'text', text: '这是视频的几个画面帧。请用中文完成并严格按格式返回（三段，用分号分隔）：总结：画面内容总结（主体/场景/动作，50字内）；标题：一个吸引人的发布标题（30字内，直接标题文字，不要前缀）；话题：3个话题标签（#开头，空格分隔）' }] }],
+                messages: [{ role: 'user', content: [...images, { type: 'text', text: '这是视频的几个画面帧。请用中文完成并严格按格式返回（三段，用分号分隔）：总结：画面内容总结（主体/场景/动作，50字内）；标题：一个吸引人的发布标题（★严格16个字，尽量用满16字、不得少于12字，直接标题文字，不要前缀）；话题：3个话题标签（#开头，空格分隔）' }] }],
                 max_tokens: 300,
                 }
                 if (at.thinking) body.thinking = { type: 'disabled' }
@@ -1989,8 +1989,13 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                   // 2026-09-01: 标题用画面关键词模板（不调 generate_copy——AI 会编——跟视频无关）
                   const vdTxt = String(draftW.visualDesc || draftW.videoName || '视频').replace(/[\s]+/g, ' ').slice(0, 40)
                   const kwMatch = vdTxt.match(/(?:展示|演示|是一个|呈现|画面)[:：]?\s*([^，。；\n]{2,20})/) || vdTxt.match(/([^，。；\n]{4,16})/)
-                  const kw = (kwMatch?.[1] || vdTxt).slice(0, 14)
-                  const titlesW = '【文案1】' + kw + '——3秒看懂核心\n【文案2】' + kw + '，原来还能这样用\n【文案3】揭秘' + kw + '的细节'
+                  // ★TITLE16_V1（2026-09-13 用户要求）：标题统一 16 字（必须达到，不能只写几个字）
+                  //   原来 kw 最长 14 字 + 后缀 → 长度不定、还会很短；还有「【文案N】」前缀不是纯标题
+                  const kw = (kwMatch?.[1] || vdTxt).replace(/^[\s:：]+|[\s:：]+$/g, '').slice(0, 6)
+                  const _k = kw || '这条视频'
+                  const _mk16 = (s: string) => { const x = String(s).replace(/\s+/g, ''); return x.length > 16 ? x.slice(0, 16) : x }
+                  // ★TITLE16_V2：前缀改「1. 」——「【文案1】」占 5 字会让真标题只剩 11 字
+                  const titlesW = '1. ' + _mk16(_k + '——3秒看懂核心内容') + '\n2. ' + _mk16(_k + '，原来还能这样用真的绝') + '\n3. ' + _mk16('揭秘' + _k + '背后的关键细节')
                 }
                 } else wfEarlyReply = '请回复帧编号 1-4 选帧，或“换一批”重抽。'
               }
