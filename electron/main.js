@@ -1766,21 +1766,30 @@ async function collectHotspotsDaily() {
 
     let cookie = ''
     try { cookie = (await getServerCookie()) || '' } catch (e) {}
-    const args = ['-u', BU_HOT_SCRIPT, '--profile', String(BU_PROFILE_DIR)]
-    if (cookie) args.push('--post', 'https://ai-niuma.cc', '--cookie', cookie)
+    const base = ['-u', BU_HOT_SCRIPT, '--profile', String(BU_PROFILE_DIR)]
+    if (cookie) base.push('--post', 'https://ai-niuma.cc', '--cookie', cookie)
     else buLog('[hot] 未取到登录 cookie -- 只采集不上报')
 
-    buLog('[hot] 开始采集热点（每天一次，静默）...')
-    const p = spawn(py, args, { windowsHide: true })
-    let out = ''
-    p.stdout.on('data', (d) => { out += String(d) })
-    p.stderr.on('data', () => {})
-    p.on('error', (e) => buLog('[hot] 采集进程失败: ' + String(e).slice(0, 120)))
-    p.on('close', (code) => {
-      const brief = out.slice(-420).split(String.fromCharCode(10)).join(' ')
-      buLog('[hot] 采集结束 code=' + code + ' | ' + brief)
-      try { fs.writeFileSync(store, JSON.stringify({ date: today, at: Date.now() })) } catch (e) {}
+    // 2026-09-13: 【分两步】① A 类（微博/B站）需要读 cookie 文件——必须趁浏览器没开时先读
+    //                    ② B 类（抖音/快手）要开浏览器页内 fetch——它会把 cookie 库锁住
+    //   若顺序反了：浏览器先开 → cookie 被锁 → A 类全跳过
+    const runOnce = (args, tag) => new Promise((resolve) => {
+      buLog('[hot] ' + tag + ' 开始...')
+      const p = spawn(py, args, { windowsHide: true })
+      let out = ''
+      p.stdout.on('data', (d) => { out += String(d) })
+      p.stderr.on('data', () => {})
+      p.on('error', (e) => { buLog('[hot] ' + tag + ' 进程失败: ' + String(e).slice(0, 120)); resolve() })
+      p.on('close', (code) => {
+        const brief = out.slice(-500).split(String.fromCharCode(10)).join(' ')
+        buLog('[hot] ' + tag + ' 结束 code=' + code + ' | ' + brief)
+        resolve()
+      })
     })
+
+    await runOnce(base.slice(), 'A类(微博/B站)')
+    await runOnce(base.concat(['--browser']), 'B类(抖音/快手)')
+    try { fs.writeFileSync(store, JSON.stringify({ date: today, at: Date.now() })) } catch (e) {}
   } catch (e) {
     buLog('[hot] 采集异常: ' + String(e).slice(0, 140))
   }
