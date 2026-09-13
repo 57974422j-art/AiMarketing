@@ -32,8 +32,10 @@ def valid(page):
         return False
 
 def pick_video_page(ctx, page_hint=None):
-    """HOME_CLICK_VIDEO_V7：★必须从【首页点「视频」】进入上传页（微博自己跳）
-       用户实测：直接 goto /upload/channel 不行（无登录态/上下文），必须由首页点出来
+    """VERIFIED_FLOW_V8（2026-09-13 手动验证成功的流程）
+       首页 → 点发布框里「视频」的【图标】→ 微博自己新开 /upload/channel 标签页
+       ★ 关键：点【图标】(x≈734,y≈208)，不是文字(≈220)——点文字无反应
+       ★ 不能直接 goto /upload/channel（无登录态/上下文，用户实测不行）
     """
     # ① 已有带编辑区的上传页 → 直接用
     for pg in ctx.pages:
@@ -44,7 +46,7 @@ def pick_video_page(ctx, page_hint=None):
                 return pg, '已有编辑区'
         except Exception:
             pass
-    # ② ★从首页点「视频」→ 微博新开标签页（这是唯一正确入口）
+    # ② ★从首页点「视频」图标 → 微博新开上传页
     home = None
     for pg in ctx.pages:
         if pg.url.rstrip('/') == 'https://weibo.com':
@@ -68,7 +70,7 @@ def pick_video_page(ctx, page_hint=None):
             if (!vis(e)) continue;
             if ((e.innerText || "").trim() === "视频") {
               const b = e.getBoundingClientRect();
-              return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+              return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y - 6) };
             }
           }
           return null;
@@ -77,24 +79,22 @@ def pick_video_page(ctx, page_hint=None):
             home.mouse.move(hit["x"], hit["y"])
             home.wait_for_timeout(400)
             home.mouse.click(hit["x"], hit["y"])
-            log("  已点首页「视频」(%d,%d)，等微博跳转…" % (hit["x"], hit["y"]))
+            log("  已点首页发布框「视频」图标(%d,%d)，等微博新开上传页…" % (hit["x"], hit["y"]))
         else:
-            log("  ⚠️ 首页未找到发布框里的「视频」二字")
-        home.wait_for_timeout(5000)
-        # 新开的标签页 = 上传页
+            log("  ⚠️ 首页未找到发布框里的「视频」")
+        home.wait_for_timeout(6000)
         if len(ctx.pages) > before:
             npg = ctx.pages[-1]
             try:
-                npg.wait_for_timeout(2000)
+                npg.wait_for_timeout(2500)
             except Exception:
                 pass
             return npg, "点「视频」新开"
-        # 或当前页自己跳过去
         if 'upload/channel' in home.url:
             return home, "点「视频」当前页跳转"
     except Exception as e:
         log("  点「视频」失败: " + str(e)[:70])
-    # ③ 最后兜底：任意 upload/channel 页
+    # ③ 兜底
     for pg in ctx.pages:
         if 'upload/channel' in pg.url:
             return pg, '兜底-任意上传页'
@@ -122,30 +122,45 @@ def main():
         page.bring_to_front()
         log('① 页面=%s（%s）' % (page.url, how))
 
-        # ── ② 上传视频（已有编辑区则跳过）──
-        has_editor = False
+        # ★ VERIFIED_FLOW_V8：优先用真按钮 button[id^=video_button_upload]（实测 882,432 一击成功）
+        _done = False
         try:
-            body0 = page.inner_text('body')[:800]
-            has_editor = ('类型' in body0 and '标题' in body0)
-        except Exception:
+            _btn = page.locator('button[id^="video_button_upload"]').first
+            if _btn.count() > 0 and _btn.is_visible():
+                with page.expect_file_chooser(timeout=15000) as _fc:
+                    _btn.click(timeout=10000)
+                _fc.value.set_files(a.video)
+                _done = True
+                log("② ✅ 点真按钮「上传视频」(id^=video_button_upload) → 文件框")
+        except Exception as _e:
+            log("  真按钮方式失败: " + str(_e)[:60])
+        if _done:
             pass
-        if has_editor:
-            log('② 已有视频/编辑区 → 跳过上传')
         else:
-            up = False
+            # ── ② 上传视频（已有编辑区则跳过）──
+            has_editor = False
             try:
-                with page.expect_file_chooser(timeout=12000) as fc:
-                    page.locator('button:has-text("上传视频")').first.click(timeout=8000)
-                fc.value.set_files(a.video)
-                up = True
-                log('② ✅ 已点「上传视频」真按钮 → 选文件')
-            except Exception as e:
-                log('② 真按钮失败（' + str(e)[:50] + '）→ file input 兜底')
-            if not up:
-                fi = page.query_selector('input[type="file"]')
-                if fi:
-                    fi.set_input_files(a.video, timeout=60000)
-                    log('② ✅ file input 兜底上传')
+                body0 = page.inner_text('body')[:800]
+                has_editor = ('类型' in body0 and '标题' in body0)
+            except Exception:
+                pass
+            if has_editor:
+                log('② 已有视频/编辑区 → 跳过上传')
+            else:
+                up = False
+                try:
+                    with page.expect_file_chooser(timeout=12000) as fc:
+                        page.locator('button:has-text("上传视频")').first.click(timeout=8000)
+                    fc.value.set_files(a.video)
+                    up = True
+                    log('② ✅ 已点「上传视频」真按钮 → 选文件')
+                except Exception as e:
+                    log('② 真按钮失败（' + str(e)[:50] + '）→ file input 兜底')
+                if not up:
+                    fi = page.query_selector('input[type="file"]')
+                    if fi:
+                        fi.set_input_files(a.video, timeout=60000)
+                        log('② ✅ file input 兜底上传')
         # 等编辑区
         t0 = time.time()
         while time.time() - t0 < 240:
