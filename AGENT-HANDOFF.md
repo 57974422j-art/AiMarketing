@@ -3,7 +3,7 @@
 > **用途**：换工具 / 换机器时的**唯一接手入口**。读完本文即可接手。
 > **范围**：只覆盖 **AGENT 页相关**（发布链路 / 热点 / 客户端环境 / 账号隔离）。
 > ❌ 不管：`admin/*`、`my-automation`、`my-fingerprint`、`ai-copy`、`i18n` 等**手动功能页面**（那是用户手动用的，与 AGENT 无关）。
-> **最后更新**：2026-09-14 12:45 ｜ 相关：[EXECUTION_LOG.md](./EXECUTION_LOG.md)（操作流水）、[ISSUES.md](./ISSUES.md)（问题清单）、[PROJECT.md](./PROJECT.md)（总文档）
+> **最后更新**：2026-09-14 13:40 ｜ 相关：[EXECUTION_LOG.md](./EXECUTION_LOG.md)（操作流水）、[ISSUES.md](./ISSUES.md)（问题清单）、[PROJECT.md](./PROJECT.md)（总文档）
 
 ---
 
@@ -11,7 +11,7 @@
 
 ```
 最近提交：aa386d5(文档) ← 513d831(★点平台真因修复) ← 521fba7(v1.0.160) ← 58b6cdb(getter 回归修复) ← ad23732(抖音封面)
-客户端：v1.0.160 已打包（dist-rel/AI-Marketing-Setup-1.0.160.exe，349MB，11:41）含全部客户端修复
+客户端：v1.0.161 已打包（含账号隔离竞态修复 A+C）（dist-rel/AI-Marketing-Setup-1.0.160.exe，349MB，11:41）含全部客户端修复
 服务端：★ 513d831 【尚未部署】→ 不部署则"点平台没反应"依旧
 
 当前唯一阻塞 = 【部署服务器】
@@ -153,6 +153,7 @@ userId 来源：启动 did-finish-load 后从登录 cookie 解 JWT payload（syn
 ### ✅ 已完成 且 已在客户机验证
 ```
 · 账号隔离（browser-profile\7 + storage\7；迁移 44 项成功）—— 日志 [iso] 当前账号 userId=7
+· 账号隔离竞态已修（86457bc / v1.0.161）：启动时先解析账号再 loadURL，前端首帧即拿到正确 profile —— 待装 1.0.161 验证
 · 客户端执行链路（任务#33 小红书：建任务→启动 Chrome→跑脚本）
 · 6 平台 URL 映射齐全（main.js platUrlMap2 含 douyin/xiaohongshu/weibo/shipinhao/kuaishou/bilibili）
 · 登录态预检在工作（PLATS:douyin:1,xiaohongshu:1,weibo:1,bilibili:0,shipinhao:1,kuaishou:1,x:0）

@@ -231,3 +231,59 @@ bu_debug.log          → 【只有轮询】，一条 [bu-env] / [bu-python] 都
 - **小红书脚本**：`PK 开关状态=True` 但 `封面＋号数=0` → `⚠️ 无封面＋号`，最后
   `Target page, context or browser has been closed` 失败；用户反馈还有"一直显示禁止笔记"（输入格式问题）
   → **用户要求：等他本地手动实测跑通后再改脚本**
+
+
+## 2026-09-14 第三轮 ★账号隔离竞态（用户实测："更新后所有登录态没有了，又变成点一次才能默认登录态"）
+
+### 根因（我 2026-09-14 账号隔离引入）
+```
+userId 由 syncClientUser() 在【页面加载之后】异步解析：
+   createWindow() → loadURL → page.tsx 挂载 → useEffect → buCheck() → IPC bu:check
+                                              ↑ 此刻 __clientUserId 仍是 ''
+   → getProfileDir() 退回 'default' → 读 browser-profile\default（不存在）→ Cookies 读不到
+   → 登记簿【所有平台】显示未登录（bu:check 返回 6 个账号但 loggedIn 全 false）
+   → 用户"点一次/刷新检测"时 userId 已就绪 → 读 browser-profile\{userId} → 恢复正常
+```
+改动前 profile 路径是**写死常量**，任何时刻都正确 → 所以这个竞态是账号隔离新引入的。
+
+### 影响面盘点（9 个消费方，全部逐一核对）
+| 位置 | 用途 | 时机 | 风险 |
+|---|---|---|---|
+| `bu:check` L1393 | 登记簿登录态 | ★ 页面挂载即调 | 🔴 本次现象 |
+| `browser:accounts` L2205 | 账号列表 | 前端加载 | 🔴 高 |
+| `browser:open-url` L2190 | 打开登记浏览器 | 用户点击 | 🟡 会开 default 空 profile |
+| `storage:mirror` L878 | 本地仓库下载 | 前端触发 | 🟡 中 |
+| `checkBrowserTasks` L604 | 轮询（预检/素材） | 启动即轮询 | 🟡 低 |
+| 发布脚本 `--profile` L751 | 发布 | 有任务时 | 🟢 低 |
+| `collectHotspotsDaily` L1874 | 热点采集 | 启动后 8s | 🟢 低（也加了等待）|
+| `ensureChromeForPublish` L2890 | 启动 Chrome | 发布/登记 | 🟡 中 |
+| `migrateProfileOnce` | 一次性迁移 | did-finish-load | 🟢 |
+
+### 修复（commit `86457bc`）—— A(治本) + C(兜底)
+**A**
+1. 新增 `ensureUserResolved(ms)`：**幂等 + 硬超时（默认 2500ms）** 的账号就绪门
+2. `createWindow()` 改 `async`；在 **`loadURL` 之前** `await preloadClientUserOnce()`（解析 + 迁移）
+   → 前端首帧请求就拿到正确 profile（此时 `global.__mainWin` 已赋值、页面 JS 还没跑）
+   → dev 分支顺带补 `global.__mainWin`（原来只有打包分支有 → dev 下 getServerCookie 一直返回 ''）
+3. `did-finish-load` 回调改为调用幂等门（不再重复解析）
+4. 6 个消费方统一 `await ensureUserResolved(2500)` 兜底：checkBrowserTasks / bu:check /
+   collectHotspotsDaily / browser:open-url / browser:accounts / storage:mirror
+
+**C**
+5. `page.tsx` `detect()`：首次"**一个平台都没登录**"→ 1.5s 后自动重查一次（只重试一次，防循环）
+
+### 不变式（为什么不会 Again 改坏）
+- 不动 getter 结构 / `bu_check.py` / 浏览器启动方式 —— 只"加等待"，不改行为
+- 未登录场景：解析返回 '' → 仍用 `'default'`（与旧行为完全一致）
+- 已解析后 `Promise.resolve` → 零成本；未解析最多等 2.5s（超时不阻塞）
+- `createWindow` 变 async：调用处（L1913/L1955）不依赖返回值 → 无副作用
+- 不自动杀 Chrome（换账号只更新路径 + 记日志）
+
+### 验证
+- `node --check electron/main.js` ✅
+- `npx tsc --noEmit`：无【新增】错误（报的都是既有：SceneCard 类型/BlobPart/asrSessionAbort 等）
+- 打包 **v1.0.161**（`cd33271`）
+
+### 待用户验证
+重启客户端（1.0.161）→ 日志应出现 `[iso] 启动前预解析完成 userId=N | profile=...`；
+且**首次打开登记簿就有登录态**（不再"点一次"）。
