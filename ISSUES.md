@@ -216,3 +216,19 @@
 - 已按用户要求实现【绝对隔离】（`1e996bb`）
 - 遗留：`D:\aimarketing-data`、`D:\...\Programs\aimarketing-data` 等旧残留目录
   （不影响运行；Administrator 机器上的一份 browser-profile 含登录态，另一份没有）
+
+
+## ✅ 已修（2026-09-14 「点平台没反应」）
+
+- **真因**：`chat/route.ts` L1885/L1888 用 `PLATFORM_NAMES` 但漏 import → 运行时 ReferenceError → API 500 → 前端无任何显示（2026-09-13 收拢平台名单时引入）
+- **修复**：`513d831`（补 import + 点平台一律建任务 + 素材兜底 + 不再静默）
+- **状态**：⏳ **代码已推送，等部署服务器生效**（客户端无需重新打包）
+- **验证方法**：部署后点一次微博 → 日志应出现 `任务#N 走确定性脚本 bu_pub_weibo.py`
+
+## 🔴 待处理（2026-09-14 小红书脚本 —— 用户要求等他本地实测）
+
+- **现象**：`PK 开关状态=True` → `封面＋号数=0` → `⚠️ 无封面＋号（PK 未开或列表未渲染）` → 最后
+  `{"success": false, "result": "Page.wait_for_timeout: Target page, context or browser has been closed"}`
+- **另有**：用户反馈"一直显示禁止笔记"（疑似**输入格式/标题正文标签格式**问题）
+- **处理方式（用户定）**：**先不写脚本**，用户在本地**手动逐步实测跑通**，拿到确定的选择器/格式后再改
+- **相关**：`scripts/agent-publish/bu_pub_xhs.py`、`scripts/agent-publish/_cdp_click.py`、参考 `electron/fp-templates/*.js`

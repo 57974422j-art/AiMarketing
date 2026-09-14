@@ -183,3 +183,51 @@ bu_debug.log          → 【只有轮询】，一条 [bu-env] / [bu-python] 都
 - 打包 1.0.159（用户要求"打包时等我确认"）
 - 旧目录清理（D:\aimarketing-data 等；已备份 data-backup-20260914）
 - 小红书热点跨域；真自检 TTS/ASR 探活；登记簿知乎入口；白窗剩余 2 个
+
+
+## 2026-09-14 第二轮 ★「点平台按钮没反应」真因（我自己引入的）+ 点平台一律建任务
+
+用户现象（客户机 Administrator）：**点小红书正常、点微博没反应（不建任务、不打开浏览器）**；
+客户机日志：`轮询：HTTP=200 任务数=0` 一直不变。
+
+### 排查过程（用证据一步步排掉）
+1. 客户机 `bu_debug.log` 里出现 `[iso] 当前账号 userId=7 | profile=...\browser-profile\7 | storage=...\storage\7`
+   → **账号隔离在客户机生效**；`[bu-env] 模块加载成功` 也在 → 装的是含改动的包
+2. 客户机 exe 时间 `2026-09-14 11:41` = 本地 `dist-rel/AI-Marketing-Setup-1.0.160.exe` 时间
+   → **客户机就是 1.0.160**，包内含 `getLocalStorageDir()` 8 处（getter 修复在）→ 所以 `任务#33 files 下载：2/2` 没崩
+3. 任务#33（小红书）从建任务→启动 Chrome→跑 `bu_pub_xhs.py` 全链路走通 → **客户端执行链路本身是好的**
+4. `npx tsc --noEmit` → **抓到真凶**：
+   ```
+   src/app/api/agent/chat/route.ts(1885,75): error TS2552: Cannot find name 'PLATFORM_NAMES'
+   src/app/api/agent/chat/route.ts(1888,49): error TS2552: Cannot find name 'PLATFORM_NAMES'
+   ```
+
+### 根因（2026-09-13 收拢平台名单时我留下的）
+`chat/route.ts` 的 `draftW.step === 'plat'` 分支用了 `PLATFORM_NAMES`（L1885/L1888），
+但 import 只加了 `PLATFORM_NAME, PLATFORM_KEY` →**运行时 `ReferenceError` → API 500 → 前端什么都不显示**。
+- 点**小红书**那次草稿 `step='full'` → 走 L2051（不经过该分支）→ 正常 ✅
+- 点**微博**那次草稿 `step='plat'` → 命中该分支 → 崩 ❌
+→ 完美解释"有的平台行、有的没反应"。
+
+### 修复（commit `513d831`，仅服务端代码）
+| # | 内容 |
+|---|---|
+| ① | **补 `PLATFORM_NAMES` import**（真因修复）|
+| ② | **点平台按钮一律建任务**：原来是 `draftW.step === 'full'` 才建；草稿从 AgentMemory/最近任务恢复出来的 step 可能是 `pick`/`abc`，此时点平台会掉到最后的 `else` 只回一句提示 → 改为 `step === 'full' \|\| /^平台:/.test(msg)` |
+| ③ | **素材兜底**：草稿 `videoName` 为空时，用**最近一条发布任务**补齐 title/topics/cover |
+| ④ | **不再静默**：素材实在拿不到 → 明确回「发布素材缺失——请先说『帮我发一个视频』生成方案，再点平台按钮。」|
+
+### ⚠️ 生效前提（重要）
+- `chat/route.ts` 是 **Next.js 服务端代码** → **必须部署服务器**才生效：
+  `cd /root/AiMarketing && git fetch origin && git reset --hard origin/master && bash scripts/deploy-server.sh`
+- **客户端不需要重新打包**（main.js 本次零改动，1.0.160 已含全部客户端修复）
+
+### 客户机已验证正常的部分
+账号隔离（userId=7 / 迁移 44 项）、环境自检（系统 python 3.14.4 + playwright ok + browser_use ok）、
+登录态预检（`PLATS:douyin:1,xiaohongshu:1,weibo:1,bilibili:0,shipinhao:1,kuaishou:1,x:0`）、
+任务创建与执行、6 平台 URL 映射齐全（`platUrlMap2`）。
+
+### 仍未解决（用户明确"先不管"）
+- **小红书脚本**：`PK 开关状态=True` 但 `封面＋号数=0` → `⚠️ 无封面＋号`，最后
+  `Target page, context or browser has been closed` 失败；用户反馈还有"一直显示禁止笔记"（输入格式问题）
+  → **用户要求：等他本地手动实测跑通后再改脚本**
