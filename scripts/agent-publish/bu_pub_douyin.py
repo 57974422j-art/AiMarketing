@@ -35,36 +35,6 @@ def connect_cdp(pw, url='http://127.0.0.1:9222', tries=15, gap=2, log=None):
     raise RuntimeError('连不上登记浏览器(9222)，等了 %ds：%s' % (tries * gap, str(last)[:90]))
 def log(m): print('[PUB] ' + str(m), flush=True)
 
-def img_orientation(p):
-    """竖 portrait / 横 landscape（PIL 优先，失败手读 PNG/JPEG 尺寸）"""
-    try:
-        from PIL import Image
-        w, h = Image.open(p).size
-        return 'portrait' if h >= w else 'landscape'
-    except Exception:
-        pass
-    try:
-        import struct
-        with open(p, 'rb') as f:
-            d = f.read(300000)
-        if d[:8] == b'\x89PNG\r\n\x1a\n':
-            w, h = struct.unpack('>II', d[16:24])
-            return 'portrait' if h >= w else 'landscape'
-        i = 2
-        while i < len(d) - 9:
-            if d[i] != 0xFF:
-                i += 1; continue
-            m = d[i + 1]
-            if m in (0xC0, 0xC1, 0xC2):
-                h, w = struct.unpack('>HH', d[i + 5:i + 9])
-                return 'portrait' if h >= w else 'landscape'
-            if m in (0xD8, 0xD9) or 0xD0 <= m <= 0xD7:
-                i += 2; continue
-            i += 2 + struct.unpack('>H', d[i + 2:i + 4])[0]
-    except Exception:
-        pass
-    return 'portrait'
-
 def visible(page, sel):
     try:
         for e in page.query_selector_all(sel):
@@ -73,22 +43,6 @@ def visible(page, sel):
             except Exception: continue
     except Exception: pass
     return None
-
-def click_cover_entry(page, want_landscape):
-    """按方向选封面入口（coverControl 层可点，文本含 竖封面3:4 / 横封面4:3）——取第一个会传错方向"""
-    key = '横封面4:3' if want_landscape else '竖封面3:4'
-    try:
-        for e in page.query_selector_all('[class*="coverControl"]'):
-            try:
-                if not e.is_visible(): continue
-                if key in (e.inner_text() or ''):
-                    e.click(timeout=3000)
-                    log('已点封面入口: ' + key)
-                    return True
-            except Exception: continue
-    except Exception: pass
-    # 兜底：文本定位
-    return click_text(page, [key])
 
 def click_text(page, texts, exclude=None):
     """按文本真实点击（playwright locator——React 只认真实点击）"""
@@ -229,17 +183,16 @@ def main():
         if SK_COVER:
             log('⑤ 封面——用户勾掉，跳过（用平台默认）')
         elif a.cover and os.path.exists(a.cover):
-            ori = img_orientation(a.cover)
-            entry = '竖封面3:4' if ori == 'portrait' else '横封面4:3'
-            log('封面方向=' + ori + ' → ' + entry)
+            # ★NO_COVER_ORIENT_V1（2026-09-14 用户要求）：
+            #   抖音上传封面后【它自己会识别横竖】——脚本不需要判断方向、更不该去点「设置横封面」。
+            #   旧逻辑的 click_text('设置横封面', exact=True) 会和「设置横封面获更多流量」引导弹窗里
+            #   的同名按钮撞车 → 点错 → 弹窗弹出挡住上传区 → 后续操作卡死（用户实测反复出现）。
+            #   今天全部删除：只保留"打开封面设置 → 上传 → 点完成"。
+            log('⑤ 封面上传（不判断横竖，抖音自动识别）')
             page.wait_for_timeout(800)
-            opened = click_cover_entry(page, ori == 'landscape')
-            if not opened: opened = click_text(page, ['选择封面', '设置封面'])
+            opened = click_text(page, ['选择封面', '设置封面'])
             if opened:
                 page.wait_for_timeout(2500)
-                # 点方向按钮（与入口方向一致——JS 副本同款；找不到就跳过）
-                click_text(page, ['设置竖封面' if ori == 'portrait' else '设置横封面'])
-                page.wait_for_timeout(600)
                 # 上传：优先 semi-upload-drag-area（排除 custom=AI 参考图区）
                 up = False
                 for e in page.query_selector_all('.semi-upload-drag-area'):
