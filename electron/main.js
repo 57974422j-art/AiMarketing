@@ -777,6 +777,9 @@ async function checkBrowserTasks() {
       }
     }
   } catch (e) { console.log('[browser_use] 轮询异常:', e?.message || e) }
+  // ★__LAYOUT_RESTORE_HOOK__（LAYOUT_V1）：本轮任务处理完 → 延时恢复客户端窗口
+  //   （不立即恢复：连续发平台时避免窗口反复缩放；期间有新任务会重新计时）
+  try { scheduleClientLayoutRestore(15000) } catch (e) {}   // LAYOUT_V1_FIX: 没分栏过则内部 no-op
 }
 
 // ════════════════════════════════════════
@@ -2919,6 +2922,51 @@ async function probe9222(timeoutMs) {
   return await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(timeoutMs || 2000) })
     .then((r) => r.ok).catch(() => false)
 }
+// ═══ LAYOUT_V1（2026-09-14 用户要求）：打开浏览器时【客户端缩左、浏览器靠右】，让用户看得见 ═══
+//   动机：外部 Chrome 原来停在客户端窗口【背后】→ 用户看不到，以为卡住；
+//         且后期会有大量【采集类任务】（采集数据/采集回复等），都需要"看得见浏览器"。
+//   原则：只在【确实要新启动浏览器】时调用（复用已有浏览器时不改窗口布局，避免无谓打扰）。
+//   恢复：任务跑完由 checkBrowserTasks 调 scheduleClientLayoutRestore()（默认 15s 内无新任务则恢复）。
+let __savedClientBounds = null
+let __clientLayoutTimer = null
+
+function layoutSideBySide() {
+  try {
+    const { screen } = require('electron')
+    const wa = screen.getPrimaryDisplay().workAreaSize
+    if (!mainWindow || !wa) return null
+    const leftW = Math.max(880, Math.round(wa.width * 0.58))
+    const rightW = Math.max(620, wa.width - leftW)
+    if (!__savedClientBounds) { try { __savedClientBounds = mainWindow.getBounds() } catch (e) {} }
+    try { if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false) } catch (e) {}   // ★全屏/最大化会忽略 setBounds → 先退出
+    try { if (mainWindow.isMaximized()) mainWindow.unmaximize() } catch (e) {}
+    mainWindow.setBounds({ x: 0, y: 0, width: leftW, height: wa.height })
+    buLog('[layout] 分栏：客户端 ' + leftW + 'px（左）｜浏览器区 ' + rightW + 'px（右）')
+    return { x: leftW, y: 0, width: rightW, height: wa.height }
+  } catch (e) {
+    buLog('[layout] 分栏失败（忽略）: ' + String(e).slice(0, 120))
+    return null
+  }
+}
+
+function restoreClientLayout() {
+  try {
+    if (!__savedClientBounds || !mainWindow) return
+    mainWindow.setBounds(__savedClientBounds)
+    buLog('[layout] 客户端窗口已恢复原大小')
+    __savedClientBounds = null
+  } catch (e) {}
+}
+
+function scheduleClientLayoutRestore(delayMs) {
+  // LAYOUT_V1_FIX：没分栏过（__savedClientBounds 为空）→ 直接 no-op。
+  //   否则每 8s 的轮询都会重置计时器 → 永远不会恢复。
+  if (!__savedClientBounds) return
+  try { if (__clientLayoutTimer) clearTimeout(__clientLayoutTimer) } catch (e) {}
+  __clientLayoutTimer = setTimeout(() => { restoreClientLayout() }, delayMs || 15000)
+}
+
+
 async function ensureChromeForPublish(url) {
   // ① 先探（通了就复用，绝不启新进程——避免同 profile 两实例抢写 Cookies）
   if (await probe9222(2000)) {
@@ -2933,7 +2981,10 @@ async function ensureChromeForPublish(url) {
     return false
   }
   try {
-    spawn(ch, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--remote-allow-origins=*', '--no-first-run', String(url || 'https://www.google.com')], { detached: true, stdio: 'ignore' }).unref()
+    // ★LAYOUT_V1：要新启动浏览器 → 先分栏（客户端缩左、浏览器靠右），并给它窗口位置
+    const _rect = layoutSideBySide()
+    const _wp = _rect ? ['--window-position=' + _rect.x + ',' + _rect.y, '--window-size=' + _rect.width + ',' + _rect.height] : []
+    spawn(ch, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--remote-allow-origins=*', '--no-first-run'].concat(_wp).concat([String(url || 'https://www.google.com')]), { detached: true, stdio: 'ignore' }).unref()
     _chromeStartedByUs = true
     buLog('[chrome] 已启动登记浏览器（9222 + profile=' + BU_PROFILE_DIR + '）')
   } catch (e) {
