@@ -7,7 +7,7 @@
   3) 已开 PK 时不要再点开关（会关掉）；无＋号要轮询等
 用法: python bu_pub_xhs.py --video <path> --title <t> --topics <t> [--cover <path>]
 """
-import sys, os, time, argparse, json
+import sys, os, time, argparse, json, random
 if hasattr(sys.stdout, 'reconfigure'):
     try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception: pass
@@ -37,6 +37,53 @@ def connect_cdp(pw, url='http://127.0.0.1:9222', tries=15, gap=2, log=None):
             _t.sleep(gap)
     raise RuntimeError('连不上登记浏览器(9222)，等了 %ds：%s' % (tries * gap, str(last)[:90]))
 def log(m): print('[PUB] ' + str(m), flush=True)
+
+# ═══ HUMANIZE_V1（2026-09-14 用户要求·仅小红书）：降低自动化特征，降低风控风险 ═══
+#   背景：小红书账号被限制发布；纯脚本的特征很显眼——瞬间填值(fill)、固定延时、
+#         鼠标瞬移点击（无轨迹）。这里做"拟人化"，只改本脚本，不动共享模块 _cdp_click.py。
+#   注意：拟人化只能【降低】风险，不能保证不被风控；根本上仍建议走官方开放平台 API。
+def _hrand(lo, hi):
+    try: return random.uniform(lo, hi)
+    except Exception: return (lo + hi) / 2.0
+
+def human_pause(page, lo=0.5, hi=1.6):
+    """拟人停顿（随机区间，替代固定 wait_for_timeout）"""
+    try: page.wait_for_timeout(int(_hrand(lo, hi) * 1000))
+    except Exception: pass
+
+def human_type(page, text, lo=0.055, hi=0.20):
+    """逐字输入 + 随机间隔（替代 fill——fill 是瞬间填值，机器特征最明显）"""
+    try:
+        for ch in str(text):
+            page.keyboard.type(ch, delay=int(_hrand(lo, hi) * 1000))
+            if random.random() < 0.08: page.wait_for_timeout(int(_hrand(120, 380)))
+    except Exception as e:
+        try: log('  ⚠️ 拟人输入异常: ' + str(e)[:60])
+        except Exception: pass
+
+def human_move_click(page, x, y):
+    """先画鼠标轨迹再点击（原来 mouse.move+click = 瞬移，机器特征明显）"""
+    try:
+        sx, sy = x - _hrand(40, 130), y - _hrand(55, 170)
+        page.mouse.move(sx, sy)
+        steps = random.randint(4, 8)
+        for i in range(1, steps + 1):
+            page.mouse.move(sx + (x - sx) * i / steps, sy + (y - sy) * i / steps)
+            page.wait_for_timeout(int(_hrand(16, 52)))
+        page.mouse.click(x + _hrand(-3, 3), y + _hrand(-2, 2))
+    except Exception:
+        try: page.mouse.click(x, y)
+        except Exception: pass
+
+def human_scroll(page, times=2):
+    """发布前"拟人浏览"：随机滚动 + 停留，避免一进来就点发布"""
+    try:
+        for _ in range(max(0, int(times))):
+            page.mouse.wheel(0, int(_hrand(180, 520)))
+            page.wait_for_timeout(int(_hrand(480, 1150)))
+        page.mouse.wheel(0, -int(_hrand(80, 240)))
+        page.wait_for_timeout(int(_hrand(380, 860)))
+    except Exception: pass
 
 def visible(page, sel):
     try:
@@ -155,8 +202,14 @@ def main():
                 el = visible(page, 'input[placeholder*="填写标题会有更多赞哦"]') or visible(page, 'input[placeholder*="标题"]')
                 if el:
                     try:
-                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:16])
-                        page.wait_for_timeout(2000)   # ★2026-09-12 步间延时
+                        el.click(); human_pause(page, 0.35, 0.9)
+                        human_type(page, a.title)     # ★HUMANIZE_V1：逐字输入替代瞬间 fill
+                        try:
+                            if not str(el.input_value() or '').strip():   # 拟人输入没进去 → 回退，保功能
+                                el.fill(a.title); log('  ⚠️ 拟人输入未生效 → 回退 fill')
+                        except Exception: pass
+                        log('✅ 标题已填: ' + a.title[:16])
+                        human_pause(page, 1.4, 3.2)   # ★拟人化：步间延时改为随机
                     except Exception as e: log('标题填失败: ' + str(e)[:60])
                 else: log('⚠️ 未找到标题框')
 
@@ -167,12 +220,12 @@ def main():
                 ce = visible(page, '.tiptap.ProseMirror') or visible(page, 'div[contenteditable="true"]')
                 if ce:
                     try:
-                        ce.click(); page.wait_for_timeout(300)
-                        page.keyboard.type(a.topics, delay=30)
-                        page.wait_for_timeout(1500)
+                        ce.click(); human_pause(page, 0.25, 0.7)
+                        page.keyboard.type(a.topics, delay=int(_hrand(28, 78)))   # ★HUMANIZE_V1：打字间隔随机
+                        human_pause(page, 1.2, 2.4)
                         page.keyboard.press('Escape')
                         page.wait_for_timeout(400)
-                        page.keyboard.type('#', delay=40)           # 末尾再打一个 # 关联想浮层（用户实测）
+                        page.keyboard.type('#', delay=int(_hrand(35, 95)))   # HUMANIZE_V1           # 末尾再打一个 # 关联想浮层（用户实测）
                         page.wait_for_timeout(900)
                         page.keyboard.press('Backspace')
                         page.wait_for_timeout(300)
@@ -219,9 +272,7 @@ def main():
                                 break
                             _xb = _x.bounding_box()
                             if _xb:
-                                page.mouse.move(_xb['x'] + _xb['width'] / 2, _xb['y'] + _xb['height'] / 2)
-                                page.wait_for_timeout(400)
-                                page.mouse.click(_xb['x'] + _xb['width'] / 2, _xb['y'] + _xb['height'] / 2)
+                                human_move_click(page, _xb['x'] + _xb['width'] / 2, _xb['y'] + _xb['height'] / 2)   # ★HUMANIZE_V1
                             else:
                                 _x.click(timeout=3000)
                             page.wait_for_timeout(1800)
@@ -257,7 +308,7 @@ def main():
                             _el2 = page.query_selector('.pk-cover-list-add-tooltip-trigger') or page.query_selector(add_sel)
                             _bb = _el2.bounding_box() if _el2 else None
                             if _bb:
-                                page.mouse.click(_bb['x'] + _bb['width'] / 2, _bb['y'] + _bb['height'] / 2)
+                                human_move_click(page, _bb['x'] + _bb['width'] / 2, _bb['y'] + _bb['height'] / 2)   # ★HUMANIZE_V1
                                 _clicked = True; log('已用真实鼠标点＋号中心')
                     fc.value.set_files(a.cover); log('✅ 封面已上传(＋→文件框)'); up = True
                 except Exception as e:
@@ -287,7 +338,10 @@ def main():
         # 2026-09-10 实测：小红书提交按钮 = <xhs-publish-btn>（Vue 自定义元素，内部是 closed shadow DOM
         #   → DOM 完全查不到内部按钮；elementFromPoint 只返回宿主；只有【像素定位 + 坐标点击】有效。
         #   实测：红色按钮区 x888-981 y880-919 → 点中心(934,900) → 跳 /publish/success「发布成功」）
-        page.wait_for_timeout(1000)
+        human_pause(page, 1.0, 2.2)
+        # ★HUMANIZE_V1：发布前先"浏览"页面（滚动+停留）——避免一进来就点发布
+        human_scroll(page, 2)
+        human_pause(page, 0.8, 1.9)
         pub = False
         # 2026-09-12: 优先 CDP 穿透点「发布」（xhs-publish-btn 在 closed shadow——CDP 能穿）
         if cdp_click_text is not None:
@@ -316,8 +370,7 @@ def main():
                                 xs.append(x); ys.append(y)
                     if xs:
                         cx, cy = sum(xs) // len(xs), sum(ys) // len(ys)
-                        page.mouse.move(cx, cy); page.wait_for_timeout(300)
-                        page.mouse.click(cx, cy)
+                        human_move_click(page, cx, cy)   # ★HUMANIZE_V1：轨迹点击替代瞬移
                         log('✅ 已点发布按钮（像素定位 %d,%d，命中 %d 点）' % (cx, cy, len(xs)))
                         pub = True
                     else:
