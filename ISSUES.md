@@ -187,3 +187,19 @@
   **实测**：Chrome 运行且文件锁定下仍输出 `PLATS:douyin:1,...,kuaishou:1` + `CACHED:1` ✅
 - **参考**：OpenCLIApp 的做法（AppData\Local\BrowserBridge，自带 EBWebView + 常驻服务 tcp://127.0.0.1:19826 + account-archive.sqlite3 落库）——它"不登录也能拿到登录态"的本质是【用自己的浏览器 + 结果落库】，我们学的是"缓存/不因一次失败清空"。
 
+## 🔴 待修（2026-09-14 热点采集上报 401）
+
+- **现象**：客户端热点采集【全部成功】（微博20/B站20/抖音49/快手49，日志已证），
+  但上报服务器失败：`上报失败: HTTP Error 401: Unauthorized` → 数据进不了服务器 → 热点大屏看不到新增
+- **根因（代码定位）**：`scripts/browser-use/bu_hot.py` 上报请求头写法错——
+  ```python
+  headers={'Cookie': a.cookie, 'Authorization': 'Bearer ' + (a.cookie or '')}
+  ```
+  `a.cookie` 是完整 Cookie 字符串（形如 `token=eyJxxx; other=yyy`），
+  拼成 `Authorization: Bearer token=eyJxxx; other=yyy` → 服务端解析不出有效 token → 401
+- **修法（1~2 行）**：二选一——
+  ① 只发 `Cookie` 头（middleware 会从 cookie 取 token）→ 删掉 Authorization 那行
+  ② 或 `Authorization: Bearer <纯 token 值>`（不能带 `token=` 前缀、不能夹其它 cookie）
+- **影响**：热点功能"看得见采集、看不见结果"；服务端 `data/hotspot-report.json` 始终为空
+- **状态**：⏸ 用户要求【暂不修改，先记录】（2026-09-14）
+
