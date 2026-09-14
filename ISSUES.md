@@ -187,7 +187,7 @@
   **实测**：Chrome 运行且文件锁定下仍输出 `PLATS:douyin:1,...,kuaishou:1` + `CACHED:1` ✅
 - **参考**：OpenCLIApp 的做法（AppData\Local\BrowserBridge，自带 EBWebView + 常驻服务 tcp://127.0.0.1:19826 + account-archive.sqlite3 落库）——它"不登录也能拿到登录态"的本质是【用自己的浏览器 + 结果落库】，我们学的是"缓存/不因一次失败清空"。
 
-## 🔴 待修（2026-09-14 热点采集上报 401）
+## ✅ 已修（2026-09-14 热点采集上报 401）
 
 - **现象**：客户端热点采集【全部成功】（微博20/B站20/抖音49/快手49，日志已证），
   但上报服务器失败：`上报失败: HTTP Error 401: Unauthorized` → 数据进不了服务器 → 热点大屏看不到新增
@@ -201,5 +201,18 @@
   ① 只发 `Cookie` 头（middleware 会从 cookie 取 token）→ 删掉 Authorization 那行
   ② 或 `Authorization: Bearer <纯 token 值>`（不能带 `token=` 前缀、不能夹其它 cookie）
 - **影响**：热点功能"看得见采集、看不见结果"；服务端 `data/hotspot-report.json` 始终为空
-- **状态**：⏸ 用户要求【暂不修改，先记录】（2026-09-14）
+- **状态**：✅ 已修（`80a33f0`）——改为只发 Cookie 头。待装 1.0.159 验证
 
+## 🔴 待观察（2026-09-14 客户机环境）
+
+- **根因**：客户机常【没有真 Python】（只有 Windows 应用商店存根）+ 内置环境没装成功
+- **已修**：`1be752e`（环境自检不再静默）+ `a90bdeb`（假 Python 真探测 + 安装每步记日志）
+- **待验证**：装 1.0.159 后，客户机上应能看到 `[bu-python]` / `[bu-env]` 完整日志，
+  若仍失败，日志会直接给出原因（HTTP 状态 / 解压退出码 / 哪个候选不是真 python）
+- **仍缺**：环境不可用时【用户可见提示 + 一键安装】（前端自检项目前只上报，未做交互按钮）
+
+## 🟡 待讨论（2026-09-14 同机换账号）
+
+- 已按用户要求实现【绝对隔离】（`1e996bb`）
+- 遗留：`D:\aimarketing-data`、`D:\...\Programs\aimarketing-data` 等旧残留目录
+  （不影响运行；Administrator 机器上的一份 browser-profile 含登录态，另一份没有）

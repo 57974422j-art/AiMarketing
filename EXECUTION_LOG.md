@@ -139,3 +139,47 @@
 | 新建问题清单（已知问题/风险/隐患，与项目文档分开） | ISSUES.md（新，56 行） | ✅ |
 | 新建执行修改记录（本文件，每次操作后追加） | EXECUTION_LOG.md（新） | ✅ |
 | 更新长期记忆：项目总览/模块索引/当前状态 3 条 + 新增「操作后更新记录」规则 + 新增「禁止 git 提交」硬规则 | —（记忆） | ✅ |
+
+## 2026-09-14 账号绝对隔离 + 客户机环境可见性 + 热点上报 401
+
+用户要求（原话）：
+- 「账号要绝对隔离 任何信息都不要串 包括个人仓库和本地仓库」
+- 「那个账号调那个账号的登陆态」
+- 「a 自动迁移一次」
+- 起因：Administrator 机器实测——登记簿显示未登录（点开浏览器其实是登着的）、点发抖音没反应、热点不更新
+
+### 根因（那台机器，一锤定音）
+```
+python --version      → 零输出，EXIT=9009
+where.exe python      → C:\Users\Administrator\AppData\Local\Microsoft\WindowsApps\python.exe（★ 应用商店存根，不是真 Python）
+内置环境               → 安装目录\python\buvenv-test\Scripts\python.exe 不存在
+bu_debug.log          → 【只有轮询】，一条 [bu-env] / [bu-python] 都没有
+```
+→ **一个根因解释三个现象**：没有可用 Python + 环境自检静默失败（加载失败只 console.log，不写文件）
+
+### 改动（均已提交推送）
+| # | 内容 | commit |
+|---|---|---|
+| 改1+改2 | browser-profile 按账号分 `userData\browser-profile\{userId}\`；本地仓库按账号分 `安装目录\storage\{userId}\`。手法：**getter 对象**替代字符串常量（15 处调用点零改动）。启动 did-finish-load 后从登录 cookie 解 JWT 取 userId → setClientUserId。**一次性自动迁移**旧 profile（写 `.profile-migrated-v1` 防重复）。顺带去掉重复启动 setTimeout（自检/采集原来跑两次）| `1e996bb` |
+| 改3 | 热点上报 401：`bu_hot.py` 原来发 `Authorization: Bearer <完整cookie串>`（形如 `Bearer token=eyJ...; other=...`）→ 服务端解析不出 token → 401 → 数据进不了服务器。改为只发 Cookie 头 | `80a33f0` |
+| 改4 | 环境可见性：`bu-env` 模块加载失败原来只 `console.log`（不写 bu_debug.log）→ 客户机上毫无痕迹。改 `buLog`+堆栈；自检跳过（buEnv 未加载）/抛异常都记账 | `1be752e` |
+| 改5+改6 | 假 Python 识别：新增 `isRealPython()` 用 `-c print(1)` 真执行校验（`--version` 不可靠——存根可能返回 9009 或 0），`resolveBuPythonAsync`/`ensureBuPython` 两处改用；内置环境下载/解压每步记日志（HTTP 状态/包体大小/解压退出码+stderr）| `a90bdeb` |
+
+### 验证
+- `node --check electron/main.js` 每步都过
+- `npx tsc --noEmit`：无【新增】错误（报的都是预先存在的 backup-* / admin\prompt-* / .next\types）
+- `py_compile bu_hot.py` 通过；已同步到本机客户端
+
+### 待验证（装 1.0.159 后观察）
+```
+[iso] 当前账号 userId=xxx | profile=... | storage=...
+[iso] 旧 browser-profile 已迁移到 ...（N 项）
+[bu-env] 模块加载成功
+[bu-python] ...（真探测/下载/解压各步）
+[hot] 采集结果：... → 上报成功（不再 401）
+```
+
+### 未做（用户明确暂缓）
+- 打包 1.0.159（用户要求"打包时等我确认"）
+- 旧目录清理（D:\aimarketing-data 等；已备份 data-backup-20260914）
+- 小红书热点跨域；真自检 TTS/ASR 探活；登记簿知乎入口；白窗剩余 2 个
