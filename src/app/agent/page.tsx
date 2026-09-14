@@ -1634,6 +1634,10 @@ function AgentPageInner() {
   const [buAccounts, setBuAccounts] = useState<any[]>([]) // 2026-09-05: Browser Use 静默扫描登录态
   const [browserOpen, setBrowserOpen] = useState(false)
   useEffect(() => {
+    // USER_READY_V1_C（2026-09-14）：竞态兜底只重试一次
+    //   客户端刚启动时主进程可能还没解析出 userId（会先读到空的 default profile）→ 所有平台显示未登录，
+    //   用户要"点一次/刷新检测"才恢复。若首次【一个平台都没登录】，1.5s 后自动重查一次即可恢复。
+    let retriedOnce = false
     const detect = async () => {
       // 2026-09-07: 统一 buCheck（读 browser-profile Cookies）——登记/发布一条线，删 Playwright CDP 检测
       // KEEP_LAST_ACCOUNTS (2026-09-13 用户要求)：打开浏览器时 Chrome 会锁 Cookies → buCheck 可能读失败
@@ -1641,12 +1645,15 @@ function AgentPageInner() {
       //   → 现在：① 只有拿到【非空】结果才覆盖   ② 服务端读失败时会回退上次缓存（bu_check.py）
       try {
         const br = await (window as any).electronAPI?.buCheck()
-        if (br?.success && Array.isArray(br.accounts) && br.accounts.length > 0) {
-          setBuAccounts(br.accounts)
+        const accts: any[] = Array.isArray(br?.accounts) ? br.accounts : []
+        const anyLoggedIn = accts.some((a: any) => a && a.loggedIn)
+        if (br?.success && accts.length > 0) {
+          setBuAccounts(accts)
+          if (!anyLoggedIn && !retriedOnce) { retriedOnce = true; setTimeout(detect, 1500) }
         } else if (!br?.success) {
           // 读失败 → 保留上次结果，不清空（避免误判"未登录"）
         } else {
-          setBuAccounts(br.accounts || [])
+          setBuAccounts(accts)
         }
       } catch {}
     }

@@ -106,7 +106,7 @@ if (app.isPackaged) {
   }
 }
 
-function createWindow() {
+async function createWindow() {   // USER_READY_V1: 需要在 loadURL 前 await 解析账号
   mainWindow = new BrowserWindow({
     // 2026-08-23: 主窗口引用给服务器回调读 cookie 用
     // (global.__mainWin 在下方赋值)
@@ -147,10 +147,14 @@ function createWindow() {
   const isDev = process.env.NODE_ENV !== 'production'
   if (app.isPackaged && !process.env.SERVER_URL) {
     global.__mainWin = mainWindow
-  mainWindow.loadURL('https://ai-niuma.cc')
+    // ★USER_READY_V1：先把账号解析好再加载页面 —— 前端首帧 bu:check 就能拿到正确的 profile
+    await preloadClientUserOnce()
+    mainWindow.loadURL('https://ai-niuma.cc')
   } else {
     // 开发模式 / 显式指定 SERVER_URL：加载远程或本地 dev server
     const serverUrl = process.env.SERVER_URL || 'http://localhost:3000'
+    global.__mainWin = mainWindow   // USER_READY_V1: 原来只有打包分支赋值（dev 下 getServerCookie 一直拿不到）
+    await preloadClientUserOnce()
     mainWindow.loadURL(serverUrl)
   }
 
@@ -602,6 +606,7 @@ try {
 
 let _lastEnvReport = 0
 async function checkBrowserTasks() {
+  await ensureUserResolved(2500).catch(() => {})   // USER_READY_V1：等账号就绪（幂等）
   try {
     // 2026-09-10: 环境是机器级的——定期重报（≤5 分钟），换账号后自检才能读到本机环境
     if (buEnv && Date.now() - _lastEnvReport > 300000) {
@@ -876,6 +881,7 @@ ipcMain.handle('app:clear-session', async () => {
   return { success: true }
 })
 ipcMain.handle('storage:mirror', async (_event, url) => {
+  await ensureUserResolved(2500).catch(() => {})   // USER_READY_V1：本地仓库按 userId 分目录
   // 2026-09-03: 本地仓库镜像（单向 OSS→本地）——上传/生成成功后下载素材到本地仓库
   try {
     if (!url || typeof url !== 'string') return { success: false, error: '无 URL' }
@@ -1357,6 +1363,9 @@ ipcMain.handle('fp:markLogin', async (_event, { accountId }) => {
 //   手法：getter 对象（不是字符串）→ 所有 String(BU_PROFILE_DIR) / + BU_PROFILE_DIR 自动取最新值，
 //        下面 15 处调用点【一行不用改】
 let __clientUserId = ''
+// USER_READY_V1：账号解析就绪标记（供各消费方 await，防竞态读到 default 目录）
+let __userResolved = false
+let __userResolvePromise = null
 function setClientUserId(uid) { __clientUserId = String(uid || '') }
 function getClientUserId() { return __clientUserId }
 
@@ -1392,6 +1401,7 @@ ipcMain.handle('bu:open', async (event) => {
 })
   ipcMain.handle('bu:check', async (event) => {
     if (!isTrustedSender(event)) return { success: false, error: 'untrusted sender' }
+    await ensureUserResolved(2500).catch(() => {})   // USER_READY_V1：等账号就绪（幂等；修"首次全显示未登录"）
     try {
       const { spawn } = require('child_process')
       const out = await new Promise((resolve) => {
@@ -1854,10 +1864,43 @@ async function syncClientUser() {
   }
 }
 
+// ═══ USER_READY_V1（2026-09-14）：账号解析就绪门（修"更新后首次显示所有平台未登录"的竞态）═══
+//   现象：客户端更新后第一次打开，登记簿【所有平台】显示未登录；点一次（刷新检测）就恢复正常。
+//   根因：userId 由 syncClientUser() 在【页面加载之后】异步解析；而前端 page.tsx 一挂载就调 bu:check
+//        → 那一刻 __clientUserId 还是 '' → getProfileDir() 退回 'default' → 读不到 Cookies → 全 0。
+//   修法：① 启动期在 loadURL【之前】先解析好（页面 JS 还没跑）
+//        ② 所有用到 profile/storage 的入口都 await 本函数兜底
+//        ③ 幂等：已解析时立即返回（零成本）；带超时：未登录/读不到也不会卡住
+function ensureUserResolved(timeoutMs) {
+  const t = (timeoutMs == null) ? 2500 : timeoutMs
+  if (__userResolved) return Promise.resolve(__clientUserId)
+  if (!__userResolvePromise) {
+    __userResolvePromise = syncClientUser()
+      .then((uid) => { __userResolved = true; return uid })
+      .catch(() => { __userResolved = true; return __clientUserId })
+  }
+  return Promise.race([
+    __userResolvePromise,
+    new Promise((r) => setTimeout(() => r(__clientUserId), t)),
+  ])
+}
+
+// 启动期一次性准备：解析账号 → 迁移旧 profile（在 loadURL 之前调用）
+async function preloadClientUserOnce() {
+  try {
+    const uid = await ensureUserResolved(2500)
+    migrateProfileOnce(uid)
+    buLog('[iso] 启动前预解析完成 userId=' + (uid || '(未登录)') + ' | profile=' + getProfileDir() + ' | storage=' + getLocalStorageDir())
+  } catch (e) {
+    buLog('[iso] 启动前预解析失败（继续，用 default）: ' + String(e).slice(0, 120))
+  }
+}
+
 // 2026-09-13: 热点采集（每天第一次打开客户端才采一次；只采已登录平台；静默无进度）
 //   微博/B站/抖音/小红书/快手的榜单接口要 cookie 或签名，服务器直调拿不到 -> 客户端读 browser-profile 的 cookie 采集
 //   采完 POST /api/agent/hotspot-report -> 服务器缓存 -> 热点大屏读
 async function collectHotspotsDaily() {
+  await ensureUserResolved(2500).catch(() => {})   // USER_READY_V1：采集也要用正确的 profile
   try {
     const store = path.join(app.getPath('userData'), 'hotspot-last.json')
     const today = new Date().toISOString().slice(0, 10)
@@ -1917,7 +1960,8 @@ app.whenReady().then(() => {
     const w = global.__mainWin
     if (w && w.webContents) {
       w.webContents.once('did-finish-load', async () => {
-        const uid = await syncClientUser()
+        // USER_READY_V1：改为幂等门（启动期已在 loadURL 前解析过 → 这里立即返回）
+        const uid = await ensureUserResolved(2500)
         migrateProfileOnce(uid)
         // 迁移完，环境自检/采集才用新目录
         setTimeout(() => {
@@ -2188,6 +2232,7 @@ async function getBrowserAccounts() {
 
 // 2026-08-25: 打开内置浏览器跳转指定地址（登记平台登录页）
 ipcMain.handle('browser:open-url', async (_e, url) => {
+  await ensureUserResolved(2500).catch(() => {})   // USER_READY_V1：否则会开出 default 空 profile 浏览器
   // 2026-09-07: 改用系统 Chrome + browser-profile（统一一条线——登记/发布同一引擎同一登录态；删 Playwright CDP）
   try {
     const { spawn } = require('child_process')
@@ -2203,6 +2248,7 @@ ipcMain.handle('browser:open-url', async (_e, url) => {
 })
 
 ipcMain.handle('browser:accounts', async () => {
+  await ensureUserResolved(2500).catch(() => {})   // USER_READY_V1
   // 2026-09-07: 改用 bu_check.py 读 browser-profile Cookies（统一系统 Chrome 一条线，删 Playwright CDP）
 
   try {
