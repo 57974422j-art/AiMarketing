@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-09-12 ｜2026-08-06 ｜ 配套文档：[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-09-14 ｜2026-08-06 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
@@ -647,9 +647,14 @@ scripts/browser-use/bu_exec.py：
 - 现状态记录于 ISSUES.md「标准/自由模式文件级隔离」条目（🟡）
 
 
-### 2026-09-14 进度
-- ✅ 账号绝对隔离（browser-profile / 本地仓库 按 userId 分 + 一次性自动迁移）— `1e996bb`
-- ✅ 热点上报 401 修复 — `80a33f0`
-- ✅ 客户机环境可见性（自检不再静默）— `1be752e`
-- ✅ 假 Python 识别 + 内置环境安装日志 — `a90bdeb`
-- ⏸ 打包 1.0.159：**等用户确认**
+### 2026-09-14 进度（AGENT 页专项 —— 详细接手见 [AGENT-HANDOFF.md](./AGENT-HANDOFF.md)）
+- ✅ 账号绝对隔离（browser-profile / 本地仓库 按 userId 分 + 一次性自动迁移）— `1e996bb`（**客户机已验证**：userId=7、迁移 44 项）
+- ✅ 热点上报 401 修复（bu_hot.py 只发 Cookie 头）— `80a33f0`
+- ✅ 客户机环境可见性（自检不再静默，加载失败写日志）— `1be752e`
+- ✅ 假 Python 识别（isRealPython 真执行校验）+ 内置环境安装每步日志 — `a90bdeb`
+- ✅ 抖音封面删掉"判断横竖屏"（与引导弹窗同名按钮撞车致卡死）— `ad23732`
+- ✅ **修我自己引入的 getter 回归**（path.join/fs 传对象 → TypeError → 发布中断）— `58b6cdb`
+- ✅ 打包 **v1.0.160**（含以上全部客户端修复）— `521fba7`；⚠️ v1.0.159 含 getter bug，**不要发**
+- ✅ **修"点平台按钮没反应"真因**：chat/route.ts 用 `PLATFORM_NAMES` 漏 import → ReferenceError → API 500 → 前端无任何显示；同时放宽为"点平台一律建任务" + 素材兜底 + 不再静默 — `513d831`
+- ⏳ **待用户操作**：部署服务器（`bash scripts/deploy-server.sh`）—— 不部署则 `513d831` 不生效
+- 🔴 待办：小红书脚本（PK/封面＋号 + "禁止笔记"格式）等**用户本地手动实测跑通**后再改；环境不可用的**前端提示+一键安装**未做；微博/视频号/B站/快手脚本未验证
