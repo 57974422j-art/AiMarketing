@@ -325,12 +325,16 @@ def main():
     # 提交到服务器
     if a.post and result:
         try:
+            # FIX_401_V1（2026-09-14）：原来发 `Authorization: Bearer <完整cookie串>`
+            #   （形如 `Bearer token=eyJxxx; other=yyy`）→ 服务端解析不出有效 token → 401
+            #   正确：只发 Cookie 头（middleware 会从 cookie 里取 token 验签）
+            _hdr = {'Content-Type': 'application/json'}
+            if a.cookie:
+                _hdr['Cookie'] = a.cookie
             req = urllib.request.Request(
                 a.post.rstrip('/') + '/api/agent/hotspot-report',
                 data=json.dumps(result).encode('utf-8'),
-                headers={'Content-Type': 'application/json',
-                         'Cookie': a.cookie or '',
-                         'Authorization': 'Bearer ' + (a.cookie or '')},
+                headers=_hdr,
                 method='POST')
             with urllib.request.urlopen(req, timeout=20) as resp:
                 print('上报结果:', resp.read().decode('utf-8')[:200])
