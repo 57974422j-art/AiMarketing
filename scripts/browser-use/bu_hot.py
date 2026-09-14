@@ -182,13 +182,59 @@ BROWSER_JOBS = [
 ]
 
 
-def collect_by_browser(only=None):
+CHROME_CANDS = [
+    r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+    r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+]
+
+
+def cdp_alive(timeout=2):
+    try:
+        import urllib.request
+        with urllib.request.urlopen(CDP_URL + '/json/version', timeout=timeout) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def start_chrome(profile):
+    """AUTO_START_CHROME_V1（2026-09-13）：客户端启动时浏览器通常没开——
+    原来只 connect 已开的 9222，连不上就跳过 → 永远不会自己开。
+    现在：找不到 chrome 就自己起一个（同 profile + 9222），采完由调用方关不关都行。"""
+    import subprocess as _sp
+    ch = next((p for p in CHROME_CANDS if os.path.exists(p)), None)
+    if not ch:
+        print('  未找到 Chrome（无法自动启动）')
+        return False
+    try:
+        _sp.Popen([ch, '--user-data-dir=' + str(profile), '--remote-debugging-port=9222',
+                   '--remote-allow-origins=*', '--no-first-run', 'about:blank'],
+                  stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+        print('  已启动浏览器（9222 + profile）等待就绪…')
+    except Exception as e:
+        print('  启动浏览器失败:', str(e)[:80])
+        return False
+    for _ in range(15):
+        time.sleep(1)
+        if cdp_alive():
+            print('  浏览器就绪')
+            return True
+    print('  浏览器等待超时')
+    return False
+
+
+def collect_by_browser(only=None, profile=None):
     """开标签 → 页内 fetch → 关标签（只有浏览器可用时才做）"""
     try:
         from playwright.sync_api import sync_playwright
     except Exception as e:
         print('  浏览器采集跳过（无 playwright）:', str(e)[:60])
         return {}
+    # ★AUTO_START_CHROME_V1：没开就自己开
+    if not cdp_alive():
+        print('  CDP 9222 不通 → 自动启动浏览器')
+        if not start_chrome(profile):
+            return {}
     out = {}
     try:
         with sync_playwright() as pw:
@@ -269,7 +315,7 @@ def main():
         print()
         print('浏览器采集（开标签→页内 fetch→关标签）…')
         try:
-            result.update(collect_by_browser(only))
+            result.update(collect_by_browser(only, a.profile))
         except Exception as e:
             print('  浏览器采集异常:', str(e)[:90])
 
