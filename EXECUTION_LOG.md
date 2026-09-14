@@ -287,3 +287,64 @@ userId 由 syncClientUser() 在【页面加载之后】异步解析：
 ### 待用户验证
 重启客户端（1.0.161）→ 日志应出现 `[iso] 启动前预解析完成 userId=N | profile=...`；
 且**首次打开登记簿就有登录态**（不再"点一次"）。
+
+
+## 2026-09-14 第四轮 ★视频号"网页打开但不上传/不执行脚本"（脚本入口缺失）
+
+用户实测：微博✅（9 步全过、发布成功）；**视频号网页正常打开，但好像上传失败**。
+
+### 日志铁证（客户机 14:35 起，已装 1.0.161）
+```
+[14:35:06] [iso] 启动前预解析完成 userId=7 | profile=...\browser-profile\7   ← ★ 上一轮 A 修复已生效 ✅
+[14:58:36] 任务#35 走确定性脚本 bu_pub_weibo.py       → 同秒即 [PUB] 输出 → 9 步全过 → 发布成功 ✅
+[15:00:04] 任务#36 走确定性脚本 bu_pub_shipinhao.py   → ★ 同秒 "脚本执行失败 code=0"，【没有任何 [PUB] 输出】
+```
+
+### 根因
+`scripts/agent-publish/bu_pub_shipinhao.py` 文件末尾**漏了 `main()` 调用**：
+```
+微博末尾：  print(json.dumps({...}))  ⏎⏎  main()        ← 有调用 ✅
+视频号末尾：log('⑥ 无自定义封面 → 平台默认')  ⏎(空行+8空格)  ← 【没有调用】❌
+```
+→ python 执行该文件只做"定义"就退出：**exit code 0 / stdout & stderr 全空 / 任何步骤都不执行**。
+→ 所以**不是"上传失败"，而是脚本压根没跑**；网页能打开是 `main.js ensureChromeForPublish` 干的，与脚本无关。
+
+### 修复（commit `6f59379`）
+补标准入口：
+```python
+if __name__ == '__main__':
+    main()
+```
+自检：`python bu_pub_shipinhao.py --help` 正常输出 argparse 帮助（修复前零输出）→ 证明 main 已被调用。
+其余 5 个脚本核对：douyin/xhs/kuaishou/bilibili 有 `if __name__` 入口、weibo 用裸 `main()`，**均可正常执行**，仅 shipinhao 缺失。
+
+### 打包
+**v1.0.162**（`03bc328`）
+
+---
+
+## 2026-09-14 讨论记录：客户端"内嵌浏览器" vs 现状"外部打开"（未实施，仅记录）
+
+**用户观察**：打开浏览器的操作现在是**外部弹出窗口**，看起来怪；IDE 跑测试可以内嵌，是否能改成客户端内执行、有什么好处。
+
+**现状原因（不是随便写的）**：定稿「浏览器一条线」= 唯一引擎系统 Chrome + 唯一 profile；发布脚本用
+`Playwright connect_over_cdp('127.0.0.1:9222')` 驱动那个 Chrome → 必须有**独立可连 CDP 的 Chrome 进程**。
+
+**内嵌的硬障碍**：
+1. Electron 的 webview/BrowserView 的 session 只能落在 **Electron userData 下的 Partitions/**，
+   而登录态在 `安装目录\data\browser-profile`（真 Chrome 目录）→ **读不到现有登录态** → 回到"两套浏览器两套登录态"老路
+2. Electron 33 内置 Chromium ≈130，系统 Chrome 版本更高；内嵌视图**不提供独立 CDP 端口**，
+   Playwright 连的是 Electron 而非 Chrome → **6 个发布脚本 + _cdp_click.py 全部要重写驱动层**
+3. Chromium 大版本差异 → profile（含 Cookies 加密）可能互相迁移/破坏（项目已踩过）
+
+**好处**（真实痛点）：观感统一、用户能看见 AI 在做什么（现在窗口可能被盖住→以为卡住）、
+登录/扫码同窗口完成、不会被最小化而"消失"、多账号可 tab 并排。
+
+**代价**：重做「浏览器一条线」+ 重写 6 个脚本驱动层 + 全平台重测 + 内嵌视图崩溃会带崩客户端 + CDP 暴露面变大。
+
+**低成本折中（建议优先）**：
+- A. Chrome 用 `--app=<url>` 启动（无地址栏，像个独立应用窗口）+ `--window-position` 贴靠 → 改 1 行
+- B. 客户端内做"实时预览"（CDP `Page.captureScreenshot` 定期截图显示）→ 观感接近内嵌、只读不接管、不动驱动层
+- C. 打开时把 Chrome 定位到客户端窗口旁（视觉分栏）
+
+**结论**：**不是 UI 优化，是架构选择** → 等 6 平台发布全部稳定后再做独立版本评估，不要混在修 bug 里。
