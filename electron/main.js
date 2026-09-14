@@ -428,7 +428,14 @@ let BU_PYTHON = process.env.BU_PYTHON || ''   // 2026-09-10: 改懒赋值（原�
 const BU_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_exec.py')
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_exec.py')
-const BU_PROFILE = process.env.BU_PROFILE || path.join(app.getPath('userData'), 'browser-profile')
+// BU_PROFILE_GETTER_V1（2026-09-14）：它和 BU_PROFILE_DIR 语义相同（都是 browser-profile），
+//   但账号隔离只改了 BU_PROFILE_DIR，漏了这个 → 【发布脚本(L744)仍拿旧的共用路径】，
+//   而登录态检测拿的是 {userId} 目录 → 两边不是同一个 → 发布异常。
+//   现在它委托同一个 getProfileDir()。注意：getProfileDir 在下面才定义，函数声明提升可用。
+const BU_PROFILE = {
+  toString() { return getProfileDir() },
+  valueOf() { return getProfileDir() },
+}
 // 2026-09-03: 本地仓库（个人仓库 OSS 的本地镜像——exe 同级 storage，跟安装盘走，不占 C 盘；单向：只 OSS→本地）
 // ACCOUNT_ISOLATION_V1：本地仓库也按账号分（安装目录\storage\{userId}\），素材/视频不串号
 function getLocalStorageDir() {
@@ -623,11 +630,11 @@ async function checkBrowserTasks() {
           // 2026-09-10 修：name 参数常带子路径（storage/1/xxx.mp4），本地仓库是平铺的 → 只取文件名
           fn = String(fn).split('/').filter(Boolean).pop() || ''
           if (!fn) continue
-          const dest2 = path.join(LOCAL_STORAGE, fn)
+          const dest2 = path.join(getLocalStorageDir(), fn)   // ISO_GETTER_FIX_V1
           if (!fs.existsSync(dest2)) {
             const rsp = await fetch(fu, { headers: cookie ? { cookie } : {} })
             if (rsp.ok) {
-              fs.mkdirSync(LOCAL_STORAGE, { recursive: true })
+              fs.mkdirSync(getLocalStorageDir(), { recursive: true })
               fs.writeFileSync(dest2, Buffer.from(await rsp.arrayBuffer()))
             } else {
               // 2026-09-10: 之前静默失败（只报 0/1 看不到原因）——打印状态码+URL
@@ -741,7 +748,7 @@ async function checkBrowserTasks() {
       }
 
       try {
-        const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', (localFiles.length ? localFiles : files).join(','), '--profile', BU_PROFILE, '--storage-dir', LOCAL_STORAGE, '--max-steps', '40']
+        const args = ['-u', BU_SCRIPT, '--task', String(t.task), '--files', (localFiles.length ? localFiles : files).join(','), '--profile', String(BU_PROFILE), '--storage-dir', String(LOCAL_STORAGE), '--max-steps', '40']
         const { spawn } = require('child_process')
         // 2026-08-30: 失败重试（browser-use AgentOutput/LLM 偶发失败——重试 2 次不白跑）
         let out = { code: -2, so: '', se: 'not run' }
@@ -875,9 +882,9 @@ ipcMain.handle('storage:mirror', async (_event, url) => {
     const u = new URL(url)
     const name = u.searchParams.get('name') || decodeURIComponent(u.pathname.split('/').pop() || '')
     if (!name) return { success: false, error: '无文件名' }
-    const dest = path.join(LOCAL_STORAGE, name)
+    const dest = path.join(getLocalStorageDir(), name)   // ISO_GETTER_FIX_V1
     if (fs.existsSync(dest)) return { success: true, path: dest, cached: true }
-    fs.mkdirSync(LOCAL_STORAGE, { recursive: true })
+    fs.mkdirSync(getLocalStorageDir(), { recursive: true })
     const cookie = await getServerCookie().catch(() => '')
     const resp = await fetch(url, { headers: cookie ? { cookie } : {} })
     if (!resp.ok) return { success: false, error: 'HTTP ' + resp.status + '（未登录/鉴权失败）' }
@@ -1405,7 +1412,7 @@ ipcMain.handle('bu:open', async (event) => {
           accounts.push({ id: seg[0], platform: seg[0], name: labels[seg[0]] || seg[0], loggedIn: seg[1] === '1' })
         }
       }
-      return { success: true, accounts, buDir: BU_PROFILE_DIR }
+      return { success: true, accounts, buDir: String(BU_PROFILE_DIR) }   // ISO_GETTER_FIX_V1
     } catch (e) { return { success: false, error: String(e && e.message || e) } }
   })
 ipcMain.handle('fp:loginState', async (_event, { accountId }) => {
