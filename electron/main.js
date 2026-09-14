@@ -554,9 +554,18 @@ async function ensureBuPython() {
   if (sysPy && await buPythonReadyAsync(sysPy)) { _buPy = sysPy; return { ok: true, py: sysPy } }
   // ③ 都没有 → 异步下载内置环境 zip 并解压
   try {
-    if (fs.existsSync(BU_PY_DOWNLOADING)) return { ok: false, error: '正在安装中，请稍候' }
-    fs.writeFileSync(BU_PY_DOWNLOADING, '1')
+    // ★PY_INSTALL_FIX_V1（2026-09-14）根因修复：
+    //   原顺序是【先 writeFileSync(标记) 再 mkdirSync(父目录)】→ 干净机器上 python 目录不存在
+    //   → writeFileSync 抛 ENOENT → 安装从未成功（且日志连"开始下载"都打不出来）。
+    //   现在：先建目录，再写标记。
+    if (fs.existsSync(BU_PY_DOWNLOADING)) return { ok: false, error: '正在安装中，请稍候（若长时间无进展，删除 安装目录\python\.downloading 后重试）' }
+    // ★已装过（内置 python.exe 存在）却探测失败 → 不再重复下载 85MB，直接报告原因
+    if (fs.existsSync(BUILTIN_PY)) {
+      buLog('[bu-python] 内置环境已存在但不可用 → 不重复下载，直接报告（如需强制重装：删除 安装目录\\python 目录后重启）')
+      return { ok: false, error: '内置环境已存在但无法运行（可能解压不完整/缺少组件）——可删除 安装目录\\python 后重启以强制重装' }
+    }
     fs.mkdirSync(path.dirname(process.execPath) + '/python', { recursive: true })
+    fs.writeFileSync(BU_PY_DOWNLOADING, '1')
     const zipPath = path.join(path.dirname(process.execPath), 'python', 'python-bu.zip')
     buLog('[bu-python] 开始下载运行环境（异步，不阻塞界面）...')
     const rsp = await fetch(PY_BU_URL)
@@ -659,15 +668,17 @@ async function checkBrowserTasks() {
       let _c = buEnv && buEnv.getCached()
       let envR = (_c && _c.ok) ? { ok: true, py: _c.py } : (buEnv ? await buEnv.getBuEnvInfo() : { ok: false, error: 'bu-env 未加载' })
       // 2026-09-10: 发布时若环境未就绪 → 【静默安装】后继续（不弹窗、不打断——用户要求"发布时不弹安装提示"，但发布也必须能跑）
+      let _insR = null   // ★PY_INSTALL_FIX_V1：声明提到 if 外（下方第二个 if 检测失败原因时也要用）
       if (!envR.ok) {
         buLog('任务#' + (t.seq ?? t.id) + ' 发布环境未就绪 → 静默安装运行环境（不弹窗）…')
-        try { await ensureBuPython() } catch (eIns) { buLog('静默安装异常：' + String((eIns && eIns.message) || eIns).slice(0, 150)) }
+        try { _insR = await ensureBuPython() } catch (eIns) { buLog('静默安装异常：' + String((eIns && eIns.message) || eIns).slice(0, 150)) }
+        if (_insR && _insR.ok === false) buLog('[bu-python] 静默安装返回失败原因: ' + String(_insR.error || '(无)').slice(0, 160))
         _c = buEnv && buEnv.getCached()
         envR = (_c && _c.ok) ? { ok: true, py: _c.py } : (buEnv ? await buEnv.getBuEnvInfo() : { ok: false, error: 'bu-env 未加载' })
         buLog('任务#' + (t.seq ?? t.id) + ' 静默安装后环境：ok=' + envR.ok + ' py=' + String(envR.py || '').slice(0, 60))
       }
       if (!envR.ok) {
-        buLog('任务#' + (t.seq ?? t.id) + ' 缺 Python 运行环境：' + (envR.error || '用户取消一键安装') + '——跳过')
+        buLog('任务#' + (t.seq ?? t.id) + ' 缺 Python 运行环境：' + (envR.error || (_insR && _insR.error) || '环境未就绪（安装未完成或被阻塞）') + '——跳过')
         await fetch(serverUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie }, body: JSON.stringify({ id: t.id, status: envR.cancelled ? 'pending' : 'failed', error: envR.cancelled ? '等待安装运行环境' : ('缺 Python 运行环境：' + (envR.error || '')) }) }).catch(() => {})
         continue
       }
