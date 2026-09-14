@@ -280,3 +280,9 @@ def main():
             log('⑥ 无自定义封面 → 平台默认')
 
         
+
+# MAIN_ENTRY_V1（2026-09-14）：★原来这里【漏了 main() 调用】——
+#   导致 python 执行本文件只做"定义"就退出：exit 0 / stdout&stderr 全空 / 不做任何事。
+#   客户机日志表现：[走确定性脚本 bu_pub_shipinhao.py] 与 [脚本执行失败 code=0] 同一秒、无任何 [PUB] 输出。
+if __name__ == '__main__':
+    main()
