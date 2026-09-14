@@ -22,6 +22,7 @@ import { AGENT_TOOLS, TOOL_STEP_LABEL } from '@/lib/agent/tools'
 import { buildSystemPrompt } from '@/lib/agent/prompts'
 import {
   PLATFORM_NAME,
+  PLATFORM_NAMES,
   PLATFORM_KEY,
 } from '@/lib/agent/platforms'
 
@@ -2048,10 +2049,29 @@ const kwM = vdT.match(/[“"\「『]([^”"\」』]{2,20})[”"\」』]/) || vdT
                 draftW.step = 'publish'
                 wfEarlyReply = 'WF_JSON:' + JSON.stringify({ step: 'publish', videoName: draftW.videoName, title: draftW.title || '', topics: draftW.topics || '', coverUrl: draftW.coverUrl || '', hint: '⑤ 确认发布到抖音——检查素材包，点「确认发布」执行' })
               } else wfEarlyReply = '请回复“确认”封面。'
-            } else if (draftW.step === 'full') {
+            } else if (draftW.step === 'full' || /^平台:/.test(String(userMessage).trim())) {
               // 2026-09-03: 点平台按钮（"发布到X"）→ 直接建任务（视频+封面+标题+话题全打包——不再问编号）
+              // ★2026-09-14 放宽条件（用户实测"点微博没反应、客户机日志任务数一直是 0"）：
+              //   原来只有 draftW.step === 'full' 才建任务。但草稿恢复出来（服务端重启 → 从 AgentMemory /
+              //   最近一条任务重建）的 step 可能是 pick/abc/...，此时点平台按钮会掉到最后那个 else，
+              //   只回一句"回复「确认」进平台选择…" —— 表现为【点了没反应、不建任务、不打开浏览器】。
+              //   现在：只要用户点平台按钮（消息形如 `平台:抖音`），不论草稿在哪一步，都直接建任务。
               const pkM = userMessage.match(/^平台:(.+)/)
-              if (pkM) {
+              // ★素材兜底：草稿里 videoName 为空（如 step=pick 只存了选择项）时，用最近一条发布任务补齐
+              if (pkM && !draftW.videoName) {
+                try {
+                  const lt2 = await prisma.agentBrowserTask.findFirst({ where: { userId: auth?.userId || 0 }, orderBy: { id: 'desc' } })
+                  const lp2 = lt2 ? parsePublishTask(String(lt2.task || '')) : null
+                  if (lp2 && lp2.videoName) {
+                    draftW.videoName = lp2.videoName
+                    if (!draftW.title) draftW.title = lp2.title || ''
+                    if (!draftW.topics) draftW.topics = lp2.topics || ''
+                    if (!draftW.coverUrl) draftW.coverUrl = lp2.coverUrl || ''
+                    console.log('[状态机] 点平台——草稿素材不全，已用最近任务补齐: ' + lp2.videoName)
+                  }
+                } catch (eFB) { console.log('[状态机] 素材兜底失败: ' + String(eFB).slice(0, 80)) }
+              }
+              if (pkM && draftW.videoName) {
                 const platName = pkM[1].replace(/&skip=.*$/, '').trim()
                 const skM = pkM[1].match(/&skip=([^&]+)/)
                 const skips = skM ? String(skM[1]).split(/[,，]/).map((s: string) => s.trim()).filter(Boolean) : []
@@ -2087,6 +2107,10 @@ const _steps = ['用浏览器把这条视频发布到' + platName + '。页面�
                 wfEarlyReply = 'BROWSER_TASK_QUEUED:已创建 AI 浏览器发布任务（#' + (buT.seq ?? buT.id) + '）——客户端 AI 浏览器自动执行发布到' + platName + '。\n\n💡 同一套内容还能继续发其它平台——直接点下面的平台按钮即可；要全部重做请点「换一批」。\n' + 'WF_JSON:' + JSON.stringify({ step: 'full', videoName: draftW.videoName, title: draftW.title || '', topics: draftW.topics || '', coverUrl: draftW.coverUrl || '', coverFrames: draftW.coverFrames || [], skips: draftW.skips || [], platform: draftW.platform })
                 // 2026-09-12: ★不再清草稿——支持"同一套内容连续发多个平台"（之前建完任务就删草稿，导致点第二个平台提示"发布流程未开始"）
                 // 仅「换一批」时重置（见下面分支）
+              } else if (pkM) {
+                // ★2026-09-14：草稿和最近任务都拿不到素材 → 明确提示（原来这里静默无响应）
+                console.log('[状态机] 点平台但素材缺失——已明确提示用户')
+                wfEarlyReply = '发布素材缺失——请先说「帮我发一个视频」生成方案，再点平台按钮。'
               } else if (/换一批|重做/.test(userMessage)) {
                 PUBLISH_DRAFT.delete(uidW)
                 prisma.agentMemory.deleteMany({ where: { userId: String(uidW), tags: { contains: 'pub_draft' } } }).catch(() => {})
