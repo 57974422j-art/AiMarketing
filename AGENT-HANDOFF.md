@@ -11,7 +11,7 @@
 
 ```
 最近提交：aa386d5(文档) ← 513d831(★点平台真因修复) ← 521fba7(v1.0.160) ← 58b6cdb(getter 回归修复) ← ad23732(抖音封面)
-客户端：v1.0.162 已打包（含账号隔离竞态修复 A+C + 视频号脚本入口修复）（dist-rel/AI-Marketing-Setup-1.0.160.exe，349MB，11:41）含全部客户端修复
+客户端：v1.0.163 已打包（含窗口分栏 LAYOUT_V1 + 视频号脚本入口修复 + 账号隔离竞态修复）（dist-rel/AI-Marketing-Setup-1.0.160.exe，349MB，11:41）含全部客户端修复
 服务端：★ 513d831 【尚未部署】→ 不部署则"点平台没反应"依旧
 
 当前唯一阻塞 = 【部署服务器】
@@ -35,6 +35,8 @@
 
 **客户端目录约定（定稿，勿改）**
 ```
+★ 窗口分栏（LAYOUT_V1）：需要打开浏览器时 → 客户端缩到左侧 58%、浏览器靠右；任务结束 15s 后恢复
+  （实现于 main.js：layoutSideBySide / restoreClientLayout / scheduleClientLayoutRestore；仅"要新启动浏览器"时触发）
 userData   = 安装目录\data\        ← 登录态 / browser-profile / bu_debug.log
 本地素材仓库 = 安装目录\storage\     ← 视频/封面（发布脚本从这里读）
 ★ 2026-09-14 起都按账号分：data\browser-profile\{userId}\ 、storage\{userId}\
