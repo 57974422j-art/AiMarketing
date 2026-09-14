@@ -565,8 +565,15 @@ function buLog(msg) {
 }
 // 2026-09-10: 发布环境自检模块（启动静默装 + 装完弹窗；发布时只检查）
 let buEnv = null
-try { buEnv = require('./bu-env')({ BUILTIN_PY, getBuPython, getServerCookie, ensureBuPython, buLog }) }
-catch (eBE) { console.log('[bu-env] 模块加载失败:', eBE && eBE.message) }
+// ENV_VISIBLE_V1（2026-09-14）：原来 catch 只 console.log —— 而 console.log 不写 bu_debug.log，
+//   于是"环境自检加载失败"在客户机上【毫无痕迹】（那台 Administrator 机器就是这样：
+//   日志里只有轮询，一条 [bu-env] 都没有，无从判断）。改为写文件日志。
+try {
+  buEnv = require('./bu-env')({ BUILTIN_PY, getBuPython, getServerCookie, ensureBuPython, buLog })
+  buLog('[bu-env] 模块加载成功')
+} catch (eBE) {
+  buLog('[bu-env] ⚠️ 模块加载失败（发布环境自检将不可用）: ' + String((eBE && eBE.stack) || eBE).slice(0, 400))
+}
 
 let _lastEnvReport = 0
 async function checkBrowserTasks() {
@@ -1888,7 +1895,12 @@ app.whenReady().then(() => {
         const uid = await syncClientUser()
         migrateProfileOnce(uid)
         // 迁移完，环境自检/采集才用新目录
-        setTimeout(() => { try { buEnv && buEnv.ensureBuEnvOnStartup() } catch (e) {} }, 3000)
+        setTimeout(() => {
+          try {
+            if (!buEnv) { buLog('[bu-env] ⚠️ 自检被跳过：buEnv 未加载'); return }
+            buEnv.ensureBuEnvOnStartup()
+          } catch (e) { buLog('[bu-env] 自检异常: ' + String(e).slice(0, 200)) }
+        }, 3000)
         setTimeout(() => { try { collectHotspotsDaily() } catch (e) {} }, 8000)
       })
     }
