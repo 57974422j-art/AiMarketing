@@ -1833,26 +1833,68 @@ async function showChangelogOnStartup() {
 
 // ═══ ISO_SYNC_V1（2026-09-14）：从登录 cookie 解出 userId → 决定 profile / 本地仓库目录 ═══
 //   为什么需要：BU_PROFILE_DIR / LOCAL_STORAGE 现在是 getter，靠 __clientUserId 区分账号
-function migrateProfileOnce(uid) {
+// ═══ ACCOUNT_PROFILE_V1（2026-09-15）：账号登录态目录【幂等就绪】 ═══
+//   替代原 migrateProfileOnce。原版三个致命缺陷（用户实测"登录态反复消失"的根源）：
+//     ① 只要存在 .profile-migrated-v1 标记就直接 return —— 一次性，失败后【永不重试】
+//     ② 子项复制失败用 `catch (e) {}` 静默吞掉，不留任何痕迹
+//     ③ 【不校验结果就写标记】→ 即使 Cookies 没复制成功，也标记成"已迁移"
+//     ④ 也不检查 Chrome 是否在运行（Cookies 被它独占，复制必然失败）
+//   本版对【任何机器、任何账号（userId 各不相同）】都成立：
+//     · 每次启动都检查（不依赖一次性标记）
+//     · 账号目录已有 Cookies → 直接完成（最常见路径，零成本）
+//     · 账号目录缺、但共用目录有 → 复制补上
+//     · Chrome 在跑（9222 通）→ 本次跳过，下次启动再补（避免复制失败）
+//     · 复制后【校验】\Default\Network\Cookies；不通过 → 不写标记 + 告警 → 下次重试
+//     · 逐项失败都写日志
+//     · 旧共用目录【保留不删】→ 永远是兜底数据源
+async function ensureAccountProfile() {
   try {
     const base = app.getPath('userData')
-    const marker = path.join(base, '.profile-migrated-v1')
-    if (fs.existsSync(marker)) return
-    const old = path.join(base, 'browser-profile')
-    const oldCk = path.join(old, 'Default', 'Network', 'Cookies')
-    if (!fs.existsSync(oldCk)) { try { fs.writeFileSync(marker, '1') } catch (e) {} ; return }
-    // 旧的直接是 profile（不是按账号分的）→ 复制进 {uid} 子目录
-    const sub = String(uid || 'default')
-    const dst = path.join(old, sub)
-    fs.mkdirSync(dst, { recursive: true })
-    let copied = 0
-    for (const name of fs.readdirSync(old)) {
-      if (name === sub) continue                     // 跳过 uid 目录本身，避免递归
-      try { fs.cpSync(path.join(old, name), path.join(dst, name), { recursive: true }); copied++ } catch (e) {}
+    const shared = path.join(base, 'browser-profile')
+    const uid = String(getClientUserId() || '')
+    if (!uid) { buLog('[iso] 账号未就绪 → 本次跳过登录态目录检查'); return false }
+    const mine = path.join(shared, uid)
+    const myCk = path.join(mine, 'Default', 'Network', 'Cookies')
+    // ① 已就绪（最常见）
+    if (fs.existsSync(myCk)) return true
+    // ② 共用目录也没有登录态 → 本机是新环境（第一次用），无需迁移
+    const sharedCk = path.join(shared, 'Default', 'Network', 'Cookies')
+    if (!fs.existsSync(sharedCk)) {
+      buLog('[iso] 账号目录暂无登录态、共用目录也没有（新环境）→ 请在「登记」里登录一次')
+      return true
     }
-    try { fs.writeFileSync(marker, JSON.stringify({ at: Date.now(), to: dst, copied })) } catch (e) {}
-    buLog('[iso] 旧 browser-profile 已迁移到 ' + dst + '（' + copied + ' 项）')
-  } catch (e) { buLog('[iso] 迁移失败: ' + String(e).slice(0, 120)) }
+    // ③ Chrome 在运行 → Cookies 被独占，跳过迁移（原版就是在这里复制失败且被静默吞掉）
+    const cdpOk = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(2500) }).then((r) => r.ok).catch(() => false)
+    if (cdpOk) {
+      buLog('[iso] Chrome 正在运行 → 本次跳过登录态迁移（避免复制失败），下次启动再补')
+      return false
+    }
+    // ④ 复制（逐项记日志，不再静默）
+    fs.mkdirSync(mine, { recursive: true })
+    let okN = 0
+    const fails = []
+    for (const name of fs.readdirSync(shared)) {
+      if (name === uid) continue
+      try {
+        fs.cpSync(path.join(shared, name), path.join(mine, name), { recursive: true })
+        okN++
+      } catch (e2) {
+        fails.push(name + '(' + String((e2 && e2.message) || e2).slice(0, 40) + ')')
+      }
+    }
+    // ⑤ 校验：Cookies 真到位才写标记（否则下次启动重试）
+    if (fs.existsSync(myCk)) {
+      buLog('[iso] ✅ 登录态已就绪到账号目录（' + okN + ' 项' + (fails.length ? '，失败 ' + fails.length + ' 项' : '') + '）profile=' + mine)
+      if (fails.length) buLog('[iso]   （失败项示例：' + fails.slice(0, 5).join(', ') + '）')
+      try { fs.writeFileSync(path.join(base, '.profile-migrated-v1'), JSON.stringify({ at: Date.now(), to: mine, okN, fails: fails.length })) } catch (e) {}
+      return true
+    }
+    buLog('[iso] ⚠️ 复制完成但未找到 Cookies（失败 ' + fails.length + ' 项）→ 不记标记，下次启动重试')
+    return false
+  } catch (e) {
+    buLog('[iso] 登录态目录检查异常: ' + String(e).slice(0, 140))
+    return false
+  }
 }
 
 async function syncClientUser() {
@@ -1903,7 +1945,7 @@ function ensureUserResolved(timeoutMs) {
 async function preloadClientUserOnce() {
   try {
     const uid = await ensureUserResolved(2500)
-    migrateProfileOnce(uid)
+    await ensureAccountProfile()   // ACCOUNT_PROFILE_V1：幂等就绪（改回可补漏/可校验）
     buLog('[iso] 启动前预解析完成 userId=' + (uid || '(未登录)') + ' | profile=' + getProfileDir() + ' | storage=' + getLocalStorageDir())
   } catch (e) {
     buLog('[iso] 启动前预解析失败（继续，用 default）: ' + String(e).slice(0, 120))
@@ -1976,7 +2018,7 @@ app.whenReady().then(() => {
       w.webContents.once('did-finish-load', async () => {
         // USER_READY_V1：改为幂等门（启动期已在 loadURL 前解析过 → 这里立即返回）
         const uid = await ensureUserResolved(2500)
-        migrateProfileOnce(uid)
+        await ensureAccountProfile()   // ACCOUNT_PROFILE_V1
         // 迁移完，环境自检/采集才用新目录
         setTimeout(() => {
           try {
