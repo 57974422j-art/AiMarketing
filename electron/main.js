@@ -1783,13 +1783,21 @@ async function collectHotspotsDaily() {
       p.on('close', (code) => {
         const brief = out.slice(-500).split(String.fromCharCode(10)).join(' ')
         buLog('[hot] ' + tag + ' 结束 code=' + code + ' | ' + brief)
-        resolve()
+        resolve(out)
       })
     })
 
-    await runOnce(base.slice(), 'A类(微博/B站)')
-    await runOnce(base.concat(['--browser']), 'B类(抖音/快手)')
-    try { fs.writeFileSync(store, JSON.stringify({ date: today, at: Date.now() })) } catch (e) {}
+    const outA = await runOnce(base.slice(), 'A类(微博/B站)')
+    const outB = await runOnce(base.concat(['--browser']), 'B类(抖音/快手)')
+    // 2026-09-14: 【只有真的采到东西才写"今天已采"】——之前失败也写，
+    //   导致当天不再重试（用户实测：08:52 那次 B 类只跑 2 秒失败，却把 09-14 标记成已采）
+    const gotAny = /采集结果：\s*[^（]/.test(String(outA) + String(outB)) && !/采集结果：\s*（空）/.test(String(outA) + String(outB))
+    if (gotAny) {
+      try { fs.writeFileSync(store, JSON.stringify({ date: today, at: Date.now() })) } catch (e) {}
+      buLog('[hot] 本次采集有效 → 记录今天已采')
+    } else {
+      buLog('[hot] 本次采集【无结果】→ 不记标记（下次启动会重试）')
+    }
   } catch (e) {
     buLog('[hot] 采集异常: ' + String(e).slice(0, 140))
   }
