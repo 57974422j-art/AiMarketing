@@ -482,6 +482,14 @@ function runAsync(exe, args, opts) {
   })
 }
 
+// FAKE_PY_DETECT_V1（2026-09-14）：识别"假 Python"（Windows 应用商店存根）
+//   背景：客户机常只有 WindowsApps\python.exe 这个存根 —— `python --version` 可能弹应用商店
+//   且退出码不确定（实测有的返回 9009，有的 0）→ 用 `-c print` 真执行代码来判定
+async function isRealPython(exe) {
+  const r = await runAsync(exe, ['-c', 'print(1)'], { timeout: 10000 })
+  return r.code === 0 && String(r.stdout).trim().indexOf('1') >= 0
+}
+
 // 异步就绪检查（playwright + browser_use 都必须能 import）
 async function buPythonReadyAsync(py) {
   if (!py) return false
@@ -498,8 +506,12 @@ async function resolveBuPythonAsync() {
   }
   if (process.env.BU_PYTHON) { _buPy = process.env.BU_PYTHON; return _buPy }
   for (const cand of ['python', 'py']) {
-    const r = await runAsync(cand, ['--version'], { timeout: 8000 })
-    if (r.code === 0) { _buPy = cand; return cand }
+    if (await isRealPython(cand)) {                    // ★FAKE_PY_DETECT_V1 不看 --version，真跑代码
+      if (await buPythonReadyAsync(cand)) { _buPy = cand; return cand }
+      buLog('[bu-python] 系统 python(' + cand + ') 是真 python 但缺库')
+    } else {
+      buLog('[bu-python] 候选 ' + cand + ' 不是真 python（可能是 Windows 应用商店存根）→ 跳过')
+    }
   }
   _buPy = BUILTIN_PY
   return BUILTIN_PY
@@ -515,8 +527,8 @@ async function ensureBuPython() {
   }
   let sysPy = ''
   for (const cand of ['python', 'py']) {
-    const r = await runAsync(cand, ['--version'], { timeout: 8000 })
-    if (r.code === 0) { sysPy = cand; break }
+    if (await isRealPython(cand)) { sysPy = cand; break }     // ★FAKE_PY_DETECT_V1
+    buLog('[bu-python] ' + cand + ' 不可用（假 python / 无此命令）')
   }
   if (sysPy && !(await buPythonReadyAsync(sysPy))) {
     buLog('[bu-python] 系统 python(' + sysPy + ') 缺库 → 异步 pip 补装 playwright + browser_use（界面不阻塞）')
@@ -537,11 +549,17 @@ async function ensureBuPython() {
     const zipPath = path.join(path.dirname(process.execPath), 'python', 'python-bu.zip')
     buLog('[bu-python] 开始下载运行环境（异步，不阻塞界面）...')
     const rsp = await fetch(PY_BU_URL)
-    if (!rsp.ok) { try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch (e) {} return { ok: false, error: '下载失败 HTTP ' + rsp.status } }
-    fs.writeFileSync(zipPath, Buffer.from(await rsp.arrayBuffer()))
-    buLog('[bu-python] 下载完成，异步解压中...')
+    if (!rsp.ok) {
+      buLog('[bu-python] ⚠️ 下载运行环境失败: HTTP ' + rsp.status + '（' + PY_BU_URL + '）')
+      try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch (e) {}
+      return { ok: false, error: '下载失败 HTTP ' + rsp.status }
+    }
+    const _buf = Buffer.from(await rsp.arrayBuffer())
+    fs.writeFileSync(zipPath, _buf)
+    buLog('[bu-python] 下载完成（' + Math.round(_buf.length / 1048576) + 'MB）→ 异步解压中...')
     const destDir = path.join(path.dirname(process.execPath), 'python')
-    await runAsync('powershell', ['-NoProfile', '-Command', 'Expand-Archive -Path "' + zipPath + '" -DestinationPath "' + destDir + '" -Force'], { timeout: 900000 })
+    const _ex = await runAsync('powershell', ['-NoProfile', '-Command', 'Expand-Archive -Path "' + zipPath + '" -DestinationPath "' + destDir + '" -Force'], { timeout: 900000 })
+    if (_ex.code !== 0) buLog("[bu-python] ⚠️ 解压返回 code=" + _ex.code + " stderr=" + String(_ex.stderr).slice(0, 200))
     try { fs.unlinkSync(zipPath) } catch (e) {}
     try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch (e) {}
     if (fs.existsSync(BUILTIN_PY)) {
