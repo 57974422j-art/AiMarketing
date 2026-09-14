@@ -430,7 +430,16 @@ const BU_SCRIPT = app.isPackaged
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_exec.py')
 const BU_PROFILE = process.env.BU_PROFILE || path.join(app.getPath('userData'), 'browser-profile')
 // 2026-09-03: 本地仓库（个人仓库 OSS 的本地镜像——exe 同级 storage，跟安装盘走，不占 C 盘；单向：只 OSS→本地）
-const LOCAL_STORAGE = process.env.LOCAL_STORAGE || path.join(path.dirname(process.execPath), 'storage') // 2026-08-30: 用 browser-profile（登记页登录态所在——AI 发布复用）
+// ACCOUNT_ISOLATION_V1：本地仓库也按账号分（安装目录\storage\{userId}\），素材/视频不串号
+function getLocalStorageDir() {
+  if (process.env.LOCAL_STORAGE) return process.env.LOCAL_STORAGE
+  const sub = __clientUserId || 'default'
+  return path.join(path.dirname(process.execPath), 'storage', sub)
+}
+const LOCAL_STORAGE = {
+  toString() { return getLocalStorageDir() },
+  valueOf() { return getLocalStorageDir() },
+} // 2026-08-30: 用 browser-profile（登记页登录态所在——AI 发布复用）
 const BU_CHECK_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'scripts', 'browser-use', 'bu_check.py')
   : path.join(String(app.getAppPath()), 'scripts', 'browser-use', 'bu_check.py')
@@ -1310,7 +1319,24 @@ ipcMain.handle('fp:markLogin', async (_event, { accountId }) => {
 })
 
 // 2026-08-29: Browser Use 登记（bu_profile 扫码登录——Browser Use 专用登录态）
-const BU_PROFILE_DIR = process.env.BU_PROFILE || path.join(app.getPath('userData'), 'browser-profile')
+// ═══ ACCOUNT_ISOLATION_V1（2026-09-14 用户要求：账号绝对隔离，任何信息不串）═══
+//   原来：所有客户端账号共用 userData\browser-profile —— A 账号登的抖音，B 账号能看到/误用
+//   现在：userData\browser-profile\{userId}\ —— 每个账号独立
+//   手法：getter 对象（不是字符串）→ 所有 String(BU_PROFILE_DIR) / + BU_PROFILE_DIR 自动取最新值，
+//        下面 15 处调用点【一行不用改】
+let __clientUserId = ''
+function setClientUserId(uid) { __clientUserId = String(uid || '') }
+function getClientUserId() { return __clientUserId }
+
+function getProfileDir() {
+  if (process.env.BU_PROFILE) return process.env.BU_PROFILE
+  const sub = __clientUserId || 'default'
+  return path.join(app.getPath('userData'), 'browser-profile', sub)
+}
+const BU_PROFILE_DIR = {
+  toString() { return getProfileDir() },
+  valueOf() { return getProfileDir() },
+}
 // 2026-08-31 security: IPC 校验 sender（只允许客户端本地页面/受控域调用——防远程 XSS 命令本机开浏览器）
 const isTrustedSender = (event) => {
   try {
@@ -1749,6 +1775,53 @@ async function showChangelogOnStartup() {
   }
 }
 
+// ═══ ISO_SYNC_V1（2026-09-14）：从登录 cookie 解出 userId → 决定 profile / 本地仓库目录 ═══
+//   为什么需要：BU_PROFILE_DIR / LOCAL_STORAGE 现在是 getter，靠 __clientUserId 区分账号
+function migrateProfileOnce(uid) {
+  try {
+    const base = app.getPath('userData')
+    const marker = path.join(base, '.profile-migrated-v1')
+    if (fs.existsSync(marker)) return
+    const old = path.join(base, 'browser-profile')
+    const oldCk = path.join(old, 'Default', 'Network', 'Cookies')
+    if (!fs.existsSync(oldCk)) { try { fs.writeFileSync(marker, '1') } catch (e) {} ; return }
+    // 旧的直接是 profile（不是按账号分的）→ 复制进 {uid} 子目录
+    const sub = String(uid || 'default')
+    const dst = path.join(old, sub)
+    fs.mkdirSync(dst, { recursive: true })
+    let copied = 0
+    for (const name of fs.readdirSync(old)) {
+      if (name === sub) continue                     // 跳过 uid 目录本身，避免递归
+      try { fs.cpSync(path.join(old, name), path.join(dst, name), { recursive: true }); copied++ } catch (e) {}
+    }
+    try { fs.writeFileSync(marker, JSON.stringify({ at: Date.now(), to: dst, copied })) } catch (e) {}
+    buLog('[iso] 旧 browser-profile 已迁移到 ' + dst + '（' + copied + ' 项）')
+  } catch (e) { buLog('[iso] 迁移失败: ' + String(e).slice(0, 120)) }
+}
+
+async function syncClientUser() {
+  try {
+    const ck = await getServerCookie()
+    if (!ck) { buLog('[iso] 无登录 cookie（未登录状态）→ 用 default 目录'); return '' }
+    const m = String(ck).match(/token=([^;]+)/)
+    if (!m) { buLog('[iso] cookie 里没有 token → 用 default 目录'); return '' }
+    const parts = String(m[1]).split('.')
+    if (parts.length < 2) return ''
+    const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8'))
+    const uid = String(payload.userId || payload.id || payload.sub || payload.uid || '')
+    if (uid) {
+      setClientUserId(uid)
+      buLog('[iso] 当前账号 userId=' + uid + ' | profile=' + getProfileDir() + ' | storage=' + getLocalStorageDir())
+    } else {
+      buLog('[iso] JWT 里没找到 userId（payload keys: ' + Object.keys(payload).join(',') + '）')
+    }
+    return uid
+  } catch (e) {
+    buLog('[iso] 解析登录账号失败: ' + String(e).slice(0, 120))
+    return ''
+  }
+}
+
 // 2026-09-13: 热点采集（每天第一次打开客户端才采一次；只采已登录平台；静默无进度）
 //   微博/B站/抖音/小红书/快手的榜单接口要 cookie 或签名，服务器直调拿不到 -> 客户端读 browser-profile 的 cookie 采集
 //   采完 POST /api/agent/hotspot-report -> 服务器缓存 -> 热点大屏读
@@ -1806,11 +1879,23 @@ async function collectHotspotsDaily() {
 
 app.whenReady().then(() => {
   createWindow()
+  // ★ISO_SYNC_V1：等页面加载完（cookie 就绪）→ 解 userId → 一次性迁移旧 profile
+  //   必须在任何用到 BU_PROFILE_DIR 的逻辑（发布/检测/采集）之前完成
+  try {
+    const w = global.__mainWin
+    if (w && w.webContents) {
+      w.webContents.once('did-finish-load', async () => {
+        const uid = await syncClientUser()
+        migrateProfileOnce(uid)
+        // 迁移完，环境自检/采集才用新目录
+        setTimeout(() => { try { buEnv && buEnv.ensureBuEnvOnStartup() } catch (e) {} }, 3000)
+        setTimeout(() => { try { collectHotspotsDaily() } catch (e) {} }, 8000)
+      })
+    }
+  } catch (e) { buLog('[iso] 挂载 did-finish-load 失败: ' + String(e).slice(0, 100)) }
   showChangelogOnStartup()
   // 2026-09-10: 启动 8 秒后静默自检发布环境（缺则后台安装，装完弹窗告知）
-  setTimeout(() => { try { buEnv && buEnv.ensureBuEnvOnStartup() } catch (e) {} }, 8000)
   // 2026-09-13: 启动 25 秒后采集热点（每天首次一次；静默；只采已登录平台）
-  setTimeout(() => { try { collectHotspotsDaily() } catch (e) {} }, 25000)
 })
 
 // 2026-08-10：渲染进程崩溃监控（诊断客户端闪退）
