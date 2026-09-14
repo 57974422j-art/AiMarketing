@@ -1,6 +1,6 @@
 {
   "name": "ai-marketing",
-  "version": "1.0.163",
+  "version": "1.0.164",
   "private": true,
   "scripts": {
     "dev": "next dev",
