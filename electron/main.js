@@ -349,8 +349,13 @@ async function detectLoginState(win) {
 }
 
 // 进入主界面（自检页点「确认进入」时调用）
+let __enteredMain = false   // ★WHITE_WINDOW_FIX_V2：是否已进入主界面（幂等，防重复）
 function enterMainApp() {
+  if (__enteredMain) return
+  __enteredMain = true
   try {
+    console.log('[winshow] enterMainApp 被调用')
+    try { buLog('[winshow] enterMainApp 被调用（即将显示主窗口）') } catch (e) {}
     const url = (app.isPackaged && !process.env.SERVER_URL) ? 'https://ai-niuma.cc' : (process.env.SERVER_URL || 'http://localhost:3000')
     if (mainWindow && !mainWindow.isDestroyed()) {
       buLog('[startup] 自检确认 → 加载主界面 ' + url)
@@ -460,6 +465,13 @@ if (!gotLock) {
       try { if (splashWin.isMinimized()) splashWin.restore(); splashWin.show(); splashWin.focus() } catch (e) {}
       return
     }
+    // ★WHITE_WINDOW_FIX_V2：主窗口若仍停在占位页（从未进主界面）→ 走 enterMainApp
+    //   （loadURL 主界面 + show）。否则就会把一个"空白的主窗口"显示出来 —— 用户看到白/黑屏。
+    try {
+      const cur = (mainWindow && !mainWindow.isDestroyed()) ? String(mainWindow.webContents.getURL() || '') : ''
+      const _blank = (!cur) || cur === 'about:blank' || cur.startsWith('data:')
+      if (_blank) { buLog('[winshow] 第二次启动：主窗口仍是占位页 → 走 enterMainApp'); enterMainApp(); return }
+    } catch (e) {}
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
@@ -555,6 +567,18 @@ function createSplashWindow() {
   splashWin.once('ready-to-show', _showSplash)
   setTimeout(_showSplash, 3000)
   splashWin.loadFile(path.join(__dirname, 'splash.html'))
+  splashWin.on('show', () => { console.log('[winshow] splashWin show'); try { buLog('[winshow] splashWin 显示了') } catch (e) {} })
+  splashWin.on('close', () => {
+    console.log('[winshow] splashWin close')
+    try { buLog('[winshow] splashWin 正在关闭') } catch (e) {}
+    // ★WHITE_WINDOW_FIX_V2：用户直接关掉自检窗口（点 X）→ 自动进入主界面，
+    //   避免"关了自检窗什么都没了 / 再点图标出现空白主窗口"
+    try {
+      if (!__enteredMain) { buLog('[winshow] 自检窗被关闭 → 自动进入主界面'); enterMainApp() }
+    } catch (e2) {}
+  })
+  splashWin.webContents.on('did-finish-load', () => { console.log('[winshow] splashWin did-finish-load'); try { buLog('[winshow] splashWin 加载完成') } catch (e) {} })
+  splashWin.webContents.on('did-fail-load', (e3, code, desc) => { console.log('[winshow] splashWin did-fail-load ' + code + ' ' + desc); try { buLog('[winshow] splashWin 加载失败 code=' + code + ' ' + desc) } catch (e) {} })
   splashWin.on('closed', () => { splashWin = null })
   buLog('[startup] 自检窗口已打开')
   return splashWin
@@ -581,6 +605,19 @@ async function createWindow() {   // USER_READY_V1: 需要在 loadURL 前 await 
       nodeIntegrationInSubFrames: true,
     },
     icon: path.join(__dirname, '../public/icon.png'),
+  })
+  // ★WHITE_DEBUG_V1：窗口事件打点（定位"谁显示了窗口"）
+  mainWindow.on('show', () => { console.log('[winshow] mainWindow show'); try { buLog('[winshow] mainWindow 显示了') } catch (e) {} })
+  mainWindow.on('hide', () => { console.log('[winshow] mainWindow hide'); try { buLog('[winshow] mainWindow 隐藏了') } catch (e) {} })
+  mainWindow.webContents.on('did-finish-load', () => {
+    let u = ''
+    try { u = mainWindow.webContents.getURL().slice(0, 90) } catch (e) {}
+    console.log('[winshow] mainWindow did-finish-load ' + u)
+    try { buLog('[winshow] mainWindow 加载完成 url=' + u) } catch (e) {}
+  })
+  mainWindow.webContents.on('did-fail-load', (e2, code, desc, u) => {
+    console.log('[winshow] mainWindow did-fail-load ' + code + ' ' + desc + ' ' + String(u).slice(0, 80))
+    try { buLog('[winshow] mainWindow 加载失败 code=' + code + ' ' + desc + ' url=' + String(u).slice(0, 80)) } catch (e) {}
   })
 
   // 外链/新窗口策略（阶段1 Scene 卡片外链）：http(s) 外链走系统浏览器，内部路径留在本地壳
