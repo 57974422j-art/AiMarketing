@@ -23,7 +23,7 @@ function __hotCollectedToday() {
 async function runStartupChecks(win) {
   const w = win || splashWin || mainWindow
   const send = (d) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', d) } catch (e) {} }
-  const item = (id, state, detail, done) => send({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done })
+  const item = (id, state, detail, done, progress) => send({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) })
   try { send({ type: 'meta', version: app.getVersion() }) } catch (e) {}
 
   // ① 版本
@@ -41,7 +41,10 @@ async function runStartupChecks(win) {
     let r1 = null
     const tried = []
     const cands = [BUILTIN_PY, 'python', 'py']
+    let _ei = 0
     for (const cd of cands) {
+      _ei++
+      item('env', 'run', '正在检测候选 ' + _ei + '/' + cands.length + '：' + (cd === BUILTIN_PY ? '内置环境' : cd), false, Math.round((_ei / (cands.length + 1)) * 100))
       if (cd === BUILTIN_PY && !fs.existsSync(BUILTIN_PY)) { tried.push('内置(未安装)'); continue }
       const rr = await runAsync(cd, ['-c', 'import sys;print(sys.version.split()[0])'], { timeout: 15000 })
       if (rr.code === 0 && String(rr.stdout || '').trim()) { py = cd; r1 = rr; break }
@@ -68,8 +71,12 @@ async function runStartupChecks(win) {
     const dir = path.join(process.resourcesPath, 'scripts', 'agent-publish')
     const need = ['bu_pub_douyin.py', 'bu_pub_xhs.py', 'bu_pub_weibo.py', 'bu_pub_shipinhao.py', 'bu_pub_kuaishou.py', 'bu_pub_bilibili.py', '_cdp_click.py']
     const miss = []; const empty = []
+    let _di = 0
     for (const f of need) {
       try { const st = fs.statSync(path.join(dir, f)); if (st.size < 50) empty.push(f) } catch (e) { miss.push(f) }
+      _di++
+      // ★STEP2_PROGRESS_V1：逐个文件推进度（真实进度）
+      item('files', 'run', '正在校验脚本 ' + _di + '/' + need.length + '：' + f, false, Math.round((_di / need.length) * 100))
     }
     if (miss.length || empty.length) {
       item('files', 'bad', (miss.length ? '缺失：' + miss.join(', ') : '') + (miss.length && empty.length ? '\n' : '') + (empty.length ? '内容异常（可能不完整）：' + empty.join(', ') : ''), true)
@@ -145,7 +152,7 @@ async function runStartupChecks(win) {
 //   顺序：必须在【选定账号 + 该账号登录态检测之后】调用（账号决定读哪个 profile）
 async function collectHotspotsWithProgress(win) {
   const w = win || splashWin || mainWindow
-  const item = (id, state, detail, done) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done }) } catch (e) {} }
+  const item = (id, state, detail, done, progress) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }) } catch (e) {} }
   if (__hotCollecting) { item('collect', 'warn', '已有采集在进行中 → 本次跳过', true); return }
   __hotCollecting = true
   try {
@@ -178,7 +185,10 @@ async function collectHotspotsWithProgress(win) {
     const lines = String(out).split(/[\r\n]+/)
     const names = ['抖音', '小红书', '微博', '视频号', 'B站', '快手']
     const stat = []
+    let _ci = 0
     for (const nm of names) {
+      _ci++
+      item('collect', 'run', '正在整理 ' + _ci + '/' + names.length + '：' + nm, false, Math.round((_ci / names.length) * 100))
       const ln = lines.find((x) => x.indexOf('[' + nm + ']') >= 0)
       if (!ln) { stat.push('· ' + nm + '：未涉及'); continue }
       if (ln.indexOf('未登录') >= 0) stat.push('· ' + nm + '：未登录（登录后下次启动自动采）')
@@ -203,7 +213,7 @@ async function collectHotspotsWithProgress(win) {
 // 检测【当前选定账号】的平台登录态（ACCOUNT_PICK_V1 从 ⑤ 拆出来）
 async function detectLoginState(win) {
   const w = win || splashWin || mainWindow
-  const item = (id, state, detail, done) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done }) } catch (e) {} }
+  const item = (id, state, detail, done, progress) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }) } catch (e) {} }
   try {
     item('login', 'run', '正在检测各平台登录态（账号 userId=' + (getClientUserId() || '?') + '，需要几秒）…')
     const py2 = getBuPython()
@@ -263,7 +273,7 @@ ipcMain.handle('startup-check:pick-account', async (event, userId) => {
   try {
     const uid = String(userId || '')
     const w = BrowserWindow.fromWebContents(event.sender) || splashWin || mainWindow
-    const item = (id, state, detail, done) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done }) } catch (e) {} }
+    const item = (id, state, detail, done, progress) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }) } catch (e) {} }
     if (!uid) { item('account', 'warn', '未选择账号', true); return { success: false } }
     setClientUserId(uid)                       // 切账号 → getProfileDir() 随之指向 browser-profile\{uid}
     item('account', 'ok', '已选择账号 userId=' + uid + '\nprofile=' + getProfileDir(), true)
