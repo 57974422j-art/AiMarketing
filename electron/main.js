@@ -40,8 +40,28 @@ async function runStartupChecks(win) {
       _vr = await checkUpdateOnce(15000)
     }
     if (_vr.state === 'available') {
-      // 有新版本 → 本项【保持"进行中"】（下载进度由 autoUpdater 的 download-progress 推送进来）
-      item('version', 'run', '发现新版本 v' + (_vr.version || '') + '，正在下载…（下载完自动重启安装；下载中可见百分比）', false, 0)
+      // ★UPDATE_NO_STUCK_V1（1.0.186）：等下载，但必须能"失败/超时放行"——
+      //   否则一旦新版本的安装包在 OSS 上不存在（404），自检会永远停在第 1 项。
+      const _ver = String(_vr.version || '')
+      item('version', 'run', '发现新版本 v' + _ver + '，正在下载…（下载完成会自动重启安装；期间可见百分比）', false, 0)
+      const _dl = await new Promise((resolve) => {
+        let _d2 = false
+        const _f2 = (r) => { if (!_d2) { _d2 = true; resolve(r) } }
+        const _t2 = setTimeout(() => _f2({ s: 'timeout' }), 300000)   // 5 分钟
+        try {
+          autoUpdater.once('update-downloaded', () => { clearTimeout(_t2); _f2({ s: 'downloaded' }) })
+          autoUpdater.once('error', (e2) => { clearTimeout(_t2); _f2({ s: 'error', err: String((e2 && e2.message) || e2) }) })
+        } catch (e2) { clearTimeout(_t2); _f2({ s: 'error', err: String((e2 && e2.message) || e2) }) }
+      })
+      if (_dl.s === 'downloaded') {
+        item('version', 'run', '新版本 v' + _ver + ' 下载完成 → 即将自动重启安装\n窗口稍后会【自动重新打开】，请不要手动启动（安装期间桌面图标可能短暂异常，属正常）', false, 100)
+      } else if (_dl.s === 'error') {
+        item('version', 'warn', '新版本 v' + _ver + ' 下载失败：' + String(_dl.err || '').slice(0, 140) +
+          '\n→ 可先点「确认进入」正常使用（这属于更新通道问题，不影响发布/采集等功能）', true)
+      } else {
+        item('version', 'warn', '新版本 v' + _ver + ' 下载超时（网络较慢）' +
+          '\n→ 可先点「确认进入」正常使用，稍后重启客户端会再次尝试更新', true)
+      }
     } else if (_vr.state === 'latest') {
       item('version', 'ok', '当前版本 ' + app.getVersion() + '（已是最新）', true)
     } else if (_vr.state === 'timeout') {
