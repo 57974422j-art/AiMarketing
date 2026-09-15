@@ -29,7 +29,7 @@ async function runStartupChecks(win) {
   // ① 版本
   try {
     item('version', 'run', '正在检查版本…')
-    item('version', 'ok', '当前版本 ' + app.getVersion(), true)
+    item('version', 'ok', '当前版本 ' + app.getVersion() + '（已是最新；若有新版会自动下载并重启安装）', true)
   } catch (e) { item('version', 'bad', String(e).slice(0, 160), true) }
 
   // ② 运行环境（真的执行一次 Python + import 两个库）
@@ -1220,18 +1220,36 @@ function setupAutoUpdater(win) {
     return updWin
   }
   const setUpd = (js) => { try { updWin?.webContents.executeJavaScript(js) } catch {} }
+  // ★STEP4_UNIFY_UPDATE_V1：把更新进度并入【自检窗口】——返回 true 表示已由自检窗接管（不再单弹 updWin）
+  const toSplash = (state, detail, done, progress) => {
+    try {
+      if (splashWin && !splashWin.isDestroyed()) {
+        splashWin.webContents.send('startup-check:progress', {
+          type: 'item', id: 'version', state: state,
+          detail: detail == null ? undefined : String(detail),
+          done: !!done,
+          progress: (typeof progress === 'number' ? progress : undefined),
+        })
+        return true
+      }
+    } catch (e) {}
+    return false
+  }
 
   // 检测到有新版本 → 弹窗显示
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] 发现新版本:', info.version)
-    showUpdateWindow()
-    setTimeout(() => setUpd(`document.getElementById('status').textContent='发现新版本 v${info.version}，正在下载...'`), 400)
+    // ★STEP4_UNIFY_UPDATE_V1：自检窗在场 → 由它显示（不再单弹 updWin）；不在场才兜底弹
+    const handled = toSplash('run', '发现新版本 v' + info.version + '，正在下载…（下载完会自动重启安装，窗口会自己重新打开）', false, 0)
+    if (!handled) { showUpdateWindow(); setTimeout(() => setUpd(`document.getElementById('status').textContent='发现新版本 v${info.version}，正在下载...'`), 400) }
     win?.webContents.send('app:update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes })
   })
 
   // 新版本下载进度 → 进度条实时更新
   autoUpdater.on('download-progress', (progressObj) => {
     const pct = Math.floor(progressObj.percent || 0)
+    // ★STEP4_UNIFY_UPDATE_V1：进度条第 1 段（下载）——直接在自检窗的"版本"项里走
+    toSplash('run', '正在下载新版本… ' + pct + '%（下载完会自动重启安装）', false, pct)
     setUpd(`document.getElementById('bar').style.width='${pct}%';document.getElementById('pct').textContent='${pct}%';document.getElementById('status').textContent='正在下载更新...'`)
     win?.webContents.send('app:update-status', { status: 'downloading', percent: pct })
   })
@@ -1253,6 +1271,8 @@ function setupAutoUpdater(win) {
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[Updater] 下载完成:', info.version)
     rebuildShortcuts()
+    // ★STEP4_UNIFY_UPDATE_V1：进度条第 2 段（安装）——明确告知会重启、窗口会自动重开（消除"客户端坏了"的错觉）
+    toSplash('run', '新版本 v' + info.version + ' 下载完成 → 正在安装…\n窗口稍后会【自动重新打开】，请不要手动启动（安装期间桌面图标可能短暂异常，属正常）', false, 100)
     setUpd(`document.getElementById('status').textContent='更新完成 v${info.version}，即将重启安装...';document.getElementById('pct').textContent='100%';document.getElementById('bar').style.width='100%'`)
     win?.webContents.send('app:update-status', { status: 'ready', version: info.version, releaseNotes: info.releaseNotes })
     // 留 12 秒让用户看提示；若未手动操作，自动退出并安装重启
