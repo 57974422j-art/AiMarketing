@@ -413,6 +413,12 @@ if (!gotLock) {
   app.quit()
 } else {
   app.on('second-instance', () => {
+    // ★SPLASH_SECOND_INSTANCE_FIX：自检还没完成时，主窗口还停在 about:blank（白页）——
+    //   此时只把【自检窗口】提到前面，绝不显示主窗口（否则用户看到"一个白色的客户端"）
+    if (splashWin && !splashWin.isDestroyed()) {
+      try { if (splashWin.isMinimized()) splashWin.restore(); splashWin.show(); splashWin.focus() } catch (e) {}
+      return
+    }
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
@@ -548,7 +554,8 @@ async function createWindow() {   // USER_READY_V1: 需要在 loadURL 前 await 
   //   用户点「确认进入」后才加载主界面（见 startup-check:enter）
   // ★SPLASH_PLACEHOLDER_V1：主窗口加载一个占位页 —— 否则它的 did-finish-load 不触发，
   //   挂在它上面的 ensureAccountProfile / bu-env 自检 / 采集定时任务就都不会跑
-  try { mainWindow.loadURL('about:blank') } catch (e) {}
+  // ★SPLASH_SECOND_INSTANCE_FIX：用【深色】空白页替代 about:blank（纯白）——万一主窗口被意外显示出来（单实例/激活等路径）也不会是刺眼的白色
+  try { mainWindow.loadURL('data:text/html,<body style="margin:0;background:%230a1620"></body>') } catch (e) {}
   // ★SPLASH_WINDOW_V1：自检改成【独立窗口】（不是主窗口里的一层覆盖页）
   try {
     createSplashWindow()
