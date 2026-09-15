@@ -150,7 +150,12 @@ async function collectHotspotsWithProgress(win) {
   __hotCollecting = true
   try {
     item('collect', 'run', '正在采集热点（读取本机已登录平台…）')
-    const base = ['-u', BU_HOT_SCRIPT, '--profile', String(BU_PROFILE_DIR)]
+    // ★HOT_POST_FIX_V1：必须带 --post（上报服务器）+ --cookie（鉴权），否则采集到了前端也看不到
+    let __ck = ''
+    try { __ck = await getServerCookie() } catch (e) { __ck = '' }
+    const __server = process.env.SERVER_URL || 'https://ai-niuma.cc'
+    const base = ['-u', BU_HOT_SCRIPT, '--profile', String(BU_PROFILE_DIR), '--post', __server]
+    if (__ck) base.push('--cookie', __ck)
     // ★HOT_COLLECT_FIX_V1：原实现只跑 A 类（读 cookie：微博/B站），漏了 --browser
     //   → 导致早已实现（0400bf5 实测通过）的 B 类（抖音/快手，页内取数）根本没被调用
     const runHot = (args, ms) => new Promise((resolve) => {
@@ -2266,6 +2271,7 @@ async function collectHotspotsDaily() {
     const py = BU_PYTHON || getBuPython()
     if (!py) { buLog('[hot] 无 python，跳过采集'); return }
     if (!fs.existsSync(BU_HOT_SCRIPT)) { buLog('[hot] 脚本不存在: ' + BU_HOT_SCRIPT); return }
+    // ★HOT_POST_FIX_V1：同上——必须 --post + --cookie，否则采了也不上报
 
     let cookie = ''
     try { cookie = (await getServerCookie()) || '' } catch (e) {}
