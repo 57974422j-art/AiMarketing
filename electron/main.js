@@ -2,6 +2,134 @@ const { app, BrowserWindow, ipcMain, dialog, session } = require('electron')
 // 2026-08-07：允许无手势自动播放（TTS 朗读回复不被浏览器策略拦截）
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 // 2026-08-06：授予麦克风/媒体权限（否则 getUserMedia 被拒，声纹球点击无响应）
+// ═══ STARTUP_CHECK_V1（2026-09-15 用户要求）：启动自检（真检 + 报错 + 确认键才进主界面）═══
+//   6 项：版本 / 运行环境（真执行）/ 关键脚本插件 / 目录可写 / 当前账号 / 平台登录态
+//   每项都往 splash 页面推 { type:'item', id, state: run|ok|warn|bad, detail, done }
+//   state=bad 视为未通过（页面会提示），但【仍允许"确认进入"】——绝不把用户卡死
+async function runStartupChecks(win) {
+  const w = win || mainWindow
+  const send = (d) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', d) } catch (e) {} }
+  const item = (id, state, detail, done) => send({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done })
+  try { send({ type: 'meta', version: app.getVersion() }) } catch (e) {}
+
+  // ① 版本
+  try {
+    item('version', 'run', '正在检查版本…')
+    item('version', 'ok', '当前版本 ' + app.getVersion(), true)
+  } catch (e) { item('version', 'bad', String(e).slice(0, 160), true) }
+
+  // ② 运行环境（真的执行一次 Python + import 两个库）
+  try {
+    item('env', 'run', '正在实际执行运行环境（需要几秒）…')
+    const py = getBuPython()
+    const r1 = await runAsync(py, ['-c', 'import sys;print(sys.version.split()[0])'], { timeout: 20000 })
+    if (r1.code !== 0) {
+      item('env', 'bad', '运行环境不可用（Python 无法执行）\n' + String(r1.stderr || '').slice(0, 180), true)
+    } else {
+      const r2 = await runAsync(py, ['-c', 'import playwright.sync_api, browser_use;print("ok")'], { timeout: 30000 })
+      if (r2.code !== 0) {
+        item('env', 'bad', 'Python ' + String(r1.stdout).trim() + ' 可运行，但缺少依赖（playwright / browser_use）\n' + String(r2.stderr || '').slice(0, 180), true)
+      } else {
+        item('env', 'ok', 'Python ' + String(r1.stdout).trim() + ' + playwright + browser_use 均正常', true)
+      }
+    }
+  } catch (e) { item('env', 'bad', String(e).slice(0, 160), true) }
+
+  // ③ 关键脚本 / 插件（6 平台脚本 + CDP 点击模块）
+  try {
+    item('files', 'run', '正在校验发布脚本…')
+    const dir = path.join(process.resourcesPath, 'scripts', 'agent-publish')
+    const need = ['bu_pub_douyin.py', 'bu_pub_xhs.py', 'bu_pub_weibo.py', 'bu_pub_shipinhao.py', 'bu_pub_kuaishou.py', 'bu_pub_bilibili.py', '_cdp_click.py']
+    const miss = []; const empty = []
+    for (const f of need) {
+      try { const st = fs.statSync(path.join(dir, f)); if (st.size < 50) empty.push(f) } catch (e) { miss.push(f) }
+    }
+    if (miss.length || empty.length) {
+      item('files', 'bad', (miss.length ? '缺失：' + miss.join(', ') : '') + (miss.length && empty.length ? '\n' : '') + (empty.length ? '内容异常（可能不完整）：' + empty.join(', ') : ''), true)
+    } else item('files', 'ok', '6 个平台脚本 + _cdp_click.py 齐备可读', true)
+  } catch (e) { item('files', 'bad', String(e).slice(0, 160), true) }
+
+  // ④ 目录可写（实际写文件再删）
+  try {
+    item('dirs', 'run', '正在检查目录可写…')
+    const bad = []
+    const pairs = [['data', app.getPath('userData')], ['storage', path.join(path.dirname(process.execPath), 'storage')]]
+    for (const pr of pairs) {
+      try {
+        fs.mkdirSync(pr[1], { recursive: true })
+        const t = path.join(pr[1], '.write-test-' + Date.now())
+        fs.writeFileSync(t, '1'); fs.unlinkSync(t)
+      } catch (e) { bad.push(pr[0] + '（' + String((e && e.message) || e).slice(0, 60) + '）') }
+    }
+    if (bad.length) item('dirs', 'bad', '不可写：' + bad.join(' / '), true)
+    else item('dirs', 'ok', 'data\\ 与 storage\\ 均可写', true)
+  } catch (e) { item('dirs', 'bad', String(e).slice(0, 160), true) }
+
+  // ⑤ 当前账号
+  try {
+    item('account', 'run', '正在解析当前登录账号…')
+    const uid = await ensureUserResolved(4000).catch(() => getClientUserId())
+    if (!uid) item('account', 'warn', '尚未登录（登录后重启客户端即可）', true)
+    else item('account', 'ok', '账号 userId=' + uid + '\nprofile=' + getProfileDir(), true)
+  } catch (e) { item('account', 'bad', String(e).slice(0, 160), true) }
+
+  // ⑥ 平台登录态（逐个平台真读 Cookies）
+  try {
+    item('login', 'run', '正在检测各平台登录态（需要几秒）…')
+    const py2 = getBuPython()
+    const out = await new Promise((resolve) => {
+      let so = ''
+      try {
+        const p2 = spawn(py2, ['-u', BU_CHECK_SCRIPT, String(BU_PROFILE_DIR)], { windowsHide: true })
+        p2.stdout.on('data', (d) => { so += String(d) })
+        p2.stderr.on('data', () => {})
+        p2.on('close', () => resolve(so.trim()))
+        p2.on('error', () => resolve(''))
+        setTimeout(() => { try { p2.kill() } catch (e) {} ; resolve(so.trim()) }, 15000)
+      } catch (e) { resolve('') }
+    })
+    const m = out.match(/PLATS:([A-Za-z0-9_:,]+)/)
+    if (!m) {
+      item('login', 'warn', '检测未返回结果（可先进入使用；若平台显示未登录，请在「登记」里登录）', true)
+    } else {
+      const names = PLATFORM_NAME
+      const on = []; const off = []
+      for (const kv of m[1].split(',')) {
+        const seg = kv.split(':')
+        if (!names[seg[0]]) continue
+        ;(seg[1] === '1' ? on : off).push(names[seg[0]])
+      }
+      if (on.length) {
+        item('login', 'ok', '已登录：' + on.join(' / ') + (off.length ? '\n未登录：' + off.join(' / ') + '（登录后重启客户端会再次自检）' : ''), true)
+      } else {
+        item('login', 'warn', '各平台均未登录 → 请在「登记」里登录（登录后重启客户端会自动再检）', true)
+      }
+    }
+  } catch (e) { item('login', 'bad', String(e).slice(0, 160), true) }
+}
+
+// 进入主界面（自检页点「确认进入」时调用）
+function enterMainApp() {
+  try {
+    const url = (app.isPackaged && !process.env.SERVER_URL) ? 'https://ai-niuma.cc' : (process.env.SERVER_URL || 'http://localhost:3000')
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      buLog('[startup] 自检确认 → 加载主界面 ' + url)
+      mainWindow.loadURL(url)
+    }
+  } catch (e) { buLog('[startup] 进入主界面失败: ' + String(e).slice(0, 140)) }
+}
+
+ipcMain.handle('startup-check:run', async (event) => {
+  try {
+    const w = BrowserWindow.fromWebContents(event.sender) || mainWindow
+    await runStartupChecks(w)
+    return { success: true }
+  } catch (e) { return { success: false, error: String((e && e.message) || e) } }
+})
+ipcMain.handle('startup-check:enter', async () => {
+  try { enterMainApp(); return { success: true } } catch (e) { return { success: false, error: String((e && e.message) || e) } }
+})
+
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(permission === 'media' || permission === 'microphone' || permission === 'audioCapture')
@@ -145,18 +273,18 @@ async function createWindow() {   // USER_READY_V1: 需要在 loadURL 前 await 
   // 2026-08-13 v1.0.30 纯壳：客户端不再内置后端/standalone/代理——直接加载服务器页面
   // 页面/功能永远服务器最新；AI 能力全在服务器；本地能力（指纹/语音/摄像头）走 preload 桥
   const isDev = process.env.NODE_ENV !== 'production'
-  if (app.isPackaged && !process.env.SERVER_URL) {
-    global.__mainWin = mainWindow
-    // ★USER_READY_V1：先把账号解析好再加载页面 —— 前端首帧 bu:check 就能拿到正确的 profile
-    await preloadClientUserOnce()
-    mainWindow.loadURL('https://ai-niuma.cc')
-  } else {
-    // 开发模式 / 显式指定 SERVER_URL：加载远程或本地 dev server
-    const serverUrl = process.env.SERVER_URL || 'http://localhost:3000'
-    global.__mainWin = mainWindow   // USER_READY_V1: 原来只有打包分支赋值（dev 下 getServerCookie 一直拿不到）
-    await preloadClientUserOnce()
-    mainWindow.loadURL(serverUrl)
+  global.__mainWin = mainWindow
+  // ★STARTUP_CHECK_V1（2026-09-15）：先显示【本地启动自检页】（秒开，不依赖网络/远程页面）
+  //   目的：① 把"哪里不对"在进入界面之前就展示出来 ② 覆盖"更新后重启+需要等 2~3 分钟"的无感空等
+  //   用户点「确认进入」后才加载主界面（见 startup-check:enter）
+  try {
+    mainWindow.loadFile(path.join(__dirname, 'splash.html'))
+  } catch (e) {
+    buLog('[startup] 加载自检页失败 → 直接进主界面: ' + String(e).slice(0, 140))
+    try { mainWindow.loadURL((app.isPackaged && !process.env.SERVER_URL) ? 'https://ai-niuma.cc' : (process.env.SERVER_URL || 'http://localhost:3000')) } catch (e2) {}
   }
+  // ★USER_READY_V1 保持：账号在【主界面加载之前】就解析好（现在更稳：主界面延后到用户点确认）
+  await preloadClientUserOnce()
 
   // ── 自动更新检测（打包后的生产环境）──
   if (app.isPackaged) {

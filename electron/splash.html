@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AI营销助手 · 启动自检</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #0f2b3d 0%, #0a1620 45%, #070d13 100%);
+    color: #e6edf3; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 28px; -webkit-user-select: none; user-select: none;
+  }
+  .box { width: 100%; max-width: 560px; }
+  .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #22d3ee; box-shadow: 0 0 12px #22d3ee; }
+  h1 { font-size: 19px; font-weight: 700; letter-spacing: .3px; }
+  .ver { font-size: 12px; color: #6b8496; margin: 4px 0 18px 20px; }
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .it {
+    display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; border-radius: 10px;
+    background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07);
+    transition: background .2s, border-color .2s;
+  }
+  .it.run { border-color: rgba(34,211,238,.45); background: rgba(34,211,238,.07); }
+  .it.ok  { border-color: rgba(52,211,153,.35); background: rgba(52,211,153,.06); }
+  .it.bad { border-color: rgba(248,113,113,.5);  background: rgba(248,113,113,.08); }
+  .it.warn{ border-color: rgba(251,191,36,.45);  background: rgba(251,191,36,.07); }
+  .ic { width: 18px; flex: 0 0 18px; text-align: center; font-size: 13px; line-height: 1.5; }
+  .nm { font-size: 13px; font-weight: 600; color: #cfe0ec; }
+  .dt { font-size: 11.5px; color: #7f97a8; margin-top: 3px; line-height: 1.5; word-break: break-all; white-space: pre-wrap; }
+  .it.bad .dt { color: #fca5a5; }
+  .it.warn .dt { color: #fcd34d; }
+  .sp { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(34,211,238,.35);
+        border-top-color: #22d3ee; border-radius: 50%; animation: sp .7s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .bar { height: 4px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; margin: 16px 0 14px; }
+  .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#22d3ee,#34d399); transition: width .35s; }
+  .ft { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .hint { font-size: 11.5px; color: #6b8496; line-height: 1.5; }
+  button {
+    font-family: inherit; font-size: 13.5px; font-weight: 600; color: #06202b; cursor: pointer;
+    background: linear-gradient(135deg,#22d3ee,#34d399); border: 0; border-radius: 9px; padding: 10px 22px;
+    transition: opacity .2s, transform .1s;
+  }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button:not(:disabled):active { transform: translateY(1px); }
+  .cont { background: transparent; color: #9fb6c5; border: 1px solid rgba(255,255,255,.18); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="hd"><span class="dot"></span><h1>AI营销助手 · 启动自检</h1></div>
+  <div class="ver" id="ver">正在准备…</div>
+  <div class="list" id="list"></div>
+  <div class="bar"><i id="bar"></i></div>
+  <div class="ft">
+    <div class="hint" id="hint">正在自检，请稍候…</div>
+    <div style="display:flex;gap:8px">
+      <button class="cont" id="skip" style="display:none">仍要继续</button>
+      <button id="enter" disabled>确认进入</button>
+    </div>
+  </div>
+</div>
+<script>
+  const ITEMS = [
+    { id: 'version', name: '版本' },
+    { id: 'env',     name: '运行环境' },
+    { id: 'files',   name: '关键脚本 / 插件' },
+    { id: 'dirs',    name: '目录可写' },
+    { id: 'account', name: '当前账号' },
+    { id: 'login',   name: '平台登录态' },
+  ]
+  const list = document.getElementById('list')
+  const bar = document.getElementById('bar')
+  const hint = document.getElementById('hint')
+  const enter = document.getElementById('enter')
+  const skip = document.getElementById('skip')
+  const verEl = document.getElementById('ver')
+  const nodes = {}
+  let anyBad = false, doneN = 0
+
+  // 渲染 6 项
+  ITEMS.forEach((it) => {
+    const d = document.createElement('div')
+    d.className = 'it'
+    d.innerHTML = '<span class="ic">·</span><div style="flex:1;min-width:0"><div class="nm">' + it.name + '</div><div class="dt">等待…</div></div>'
+    list.appendChild(d)
+    nodes[it.id] = { row: d, ic: d.querySelector('.ic'), dt: d.querySelector('.dt') }
+  })
+
+  function setItem(id, state, detail) {
+    const n = nodes[id]; if (!n) return
+    n.row.className = 'it' + (state ? ' ' + state : '')
+    n.ic.innerHTML = state === 'run' ? '<span class="sp"></span>'
+                  : state === 'ok'  ? '<span style="color:#34d399">✓</span>'
+                  : state === 'warn'? '<span style="color:#fbbf24">!</span>'
+                  : state === 'bad' ? '<span style="color:#f87171">✕</span>' : '·'
+    if (detail != null) n.dt.textContent = String(detail)
+  }
+
+  function bump() {
+    doneN++
+    bar.style.width = Math.round((doneN / ITEMS.length) * 100) + '%'
+    if (doneN >= ITEMS.length) {
+      enter.disabled = false
+      skip.style.display = 'none'
+      hint.textContent = anyBad
+        ? '有项目未通过 —— 可直接点「确认进入」使用，或按提示修复后重启客户端'
+        : '自检全部通过 ✓'
+      hint.style.color = anyBad ? '#fcd34d' : '#6b8496'
+    }
+  }
+
+  try {
+    const api = window.electronAPI || {}
+    if (api.onStartupProgress) {
+      api.onStartupProgress((d) => {
+        if (!d) return
+        if (d.type === 'meta') { if (d.version) verEl.textContent = '客户端版本 ' + d.version; return }
+        if (d.type === 'item') {
+          setItem(d.id, d.state, d.detail)
+          if (d.done) { if (d.state === 'bad') anyBad = true; bump() }
+          else if (d.state === 'bad') { anyBad = true }
+          return
+        }
+      })
+    }
+    document.getElementById('enter').onclick = () => { try { (window.electronAPI || {}).startupCheckEnter && window.electronAPI.startupCheckEnter() } catch (e) {} }
+    skip.onclick = () => { try { (window.electronAPI || {}).startupCheckEnter && window.electronAPI.startupCheckEnter() } catch (e) {} }
+    // 触发自检
+    if ((window.electronAPI || {}).startupCheckRun) window.electronAPI.startupCheckRun()
+    else { hint.textContent = '无法启动自检（桥接未就绪）'; enter.disabled = false }
+  } catch (e) {
+    hint.textContent = '自检初始化异常：' + (e && e.message)
+    enter.disabled = false
+  }
+</script>
+</body>
+</html>

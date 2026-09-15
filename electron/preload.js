@@ -9,6 +9,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storageMirror: (url) => ipcRenderer.invoke('storage:mirror', url),
   buCheck: () => ipcRenderer.invoke('bu:check'),
 
+  // ★STARTUP_CHECK_V1：启动自检（本地自检页用）
+  startupCheckRun: () => ipcRenderer.invoke('startup-check:run'),
+  startupCheckEnter: () => ipcRenderer.invoke('startup-check:enter'),
+  onStartupProgress: (cb) => {
+    try { ipcRenderer.on('startup-check:progress', (_e, d) => { try { cb(d) } catch (e2) {} }) } catch (e) {}
+  },
+
   isElectron: true,
 
   // ── ADB（原有）──
