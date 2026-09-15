@@ -315,6 +315,8 @@ function enterMainApp() {
     const url = (app.isPackaged && !process.env.SERVER_URL) ? 'https://ai-niuma.cc' : (process.env.SERVER_URL || 'http://localhost:3000')
     if (mainWindow && !mainWindow.isDestroyed()) {
       buLog('[startup] 自检确认 → 加载主界面 ' + url)
+      // ★NO_WHITE_WINDOW_V1：显示前再设一次底色（此时它是深色占位页，不会是白的）
+      try { mainWindow.setBackgroundColor('#0a1620') } catch (e) {}
       mainWindow.loadURL(url)
       mainWindow.show()                       // ★ 显示主窗口
       try { if (splashWin && !splashWin.isDestroyed()) splashWin.close() } catch (e) {}   // ★ 关自检窗口
@@ -493,13 +495,26 @@ function createSplashWindow() {
   splashWin = new BrowserWindow({
     width: 680, height: 780, resizable: false, maximizable: false, minimizable: false,
     title: 'AI营销助手 · 启动自检', autoHideMenuBar: true, backgroundColor: '#0a1620',
-    show: true,
+    // ★NO_WHITE_WINDOW_V1（1.0.179）：先不显示，等页面准备好（ready-to-show）再显示 ——
+    //   避免窗口出现瞬间的白色闪烁；3 秒兜底，保证一定能出来
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false,
     },
   })
   try { splashWin.setMenuBarVisibility(false) } catch (e) {}
+  // ★NO_WHITE_WINDOW_V1：页面准备好再显示（+3 秒兜底）
+  let _splashShown = false
+  const _showSplash = () => {
+    try {
+      if (_splashShown) return
+      _splashShown = true
+      if (splashWin && !splashWin.isDestroyed()) { splashWin.show(); splashWin.focus() }
+    } catch (e) {}
+  }
+  splashWin.once('ready-to-show', _showSplash)
+  setTimeout(_showSplash, 3000)
   splashWin.loadFile(path.join(__dirname, 'splash.html'))
   splashWin.on('closed', () => { splashWin = null })
   buLog('[startup] 自检窗口已打开')
@@ -508,6 +523,9 @@ function createSplashWindow() {
 
 async function createWindow() {   // USER_READY_V1: 需要在 loadURL 前 await 解析账号
   mainWindow = new BrowserWindow({
+    // ★NO_WHITE_WINDOW_V1（1.0.179）：必须给底色 —— Windows 下不设 backgroundColor，
+    //   Electron 创建窗口的瞬间会先画一帧【白色】→ 这就是"看到白色客户端"的来源之一
+    backgroundColor: '#0a1620',
     // ★SPLASH_WINDOW_V1：主窗口【先隐藏创建】——它的 session 要供自检读 cookie 用，
     //   但界面先不显示；等自检窗口里点「确认进入」再 show() 出来
     show: false,
