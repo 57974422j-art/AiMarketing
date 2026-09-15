@@ -51,8 +51,47 @@ async function runStartupChecks(win) {
       tried.push((cd === BUILTIN_PY ? '内置' : cd) + '(不可用)')
     }
     if (!py) {
-      item('env', 'bad', '本机未找到可用的 Python（已尝试：' + tried.join(' / ') + '）\n' +
-        '→ 可点「确认进入」继续使用；客户端会在后台自动下载内置运行环境（约 85MB），装好后重启即正常', true)
+      // ★AUTO_INSTALL_IN_CHECK_V1（1.0.180，用户要求）：
+      //   "自检知道没有就应该立刻下载安装，而不是只出个提示" —— 自检【当场装】
+      item('env', 'run', '本机没有可用的 Python（' + tried.join(' / ') + '）→ 正在下载安装内置运行环境…' +
+        '\n约 85MB，视网速需要几分钟；★安装期间请保持客户端打开', false)
+      let _instErr = ''
+      let _instOk = false
+      try {
+        const _ir = await Promise.race([
+          ensureBuPython(),
+          new Promise((res) => setTimeout(() => res({ ok: false, error: '安装超时（10 分钟）' }), 600000)),
+        ])
+        _instOk = !!(_ir && _ir.ok !== false)
+        if (!_instOk) _instErr = String((_ir && _ir.error) || '')
+      } catch (e) { _instErr = String((e && e.message) || e) }
+
+      // 装完复检：内置环境是否存在 + 真执行 playwright start/stop
+      let _finalOk = false
+      let _finalMsg = ''
+      try {
+        if (fs.existsSync(BUILTIN_PY)) {
+          const rr2 = await runAsync(BUILTIN_PY, ['-c',
+            'from playwright.sync_api import sync_playwright;p=sync_playwright().start();p.stop();print("start ok")'], { timeout: 60000 })
+          if (rr2.code === 0 && String(rr2.stdout || '').indexOf('start ok') >= 0) {
+            _finalOk = true
+            _finalMsg = '内置运行环境已安装完成并验证通过（真执行 playwright ✓）'
+          } else {
+            _finalMsg = '内置环境已下载，但真执行未通过：\n' + String((rr2.stderr || rr2.stdout) || '').slice(0, 220)
+          }
+        } else {
+          _finalMsg = '内置运行环境安装失败' + (_instErr ? '：' + _instErr : '（未返回具体原因）')
+        }
+      } catch (e) { _finalMsg = '安装后复检异常：' + String((e && e.message) || e).slice(0, 160) }
+
+      if (_finalOk) {
+        item('env', 'ok', _finalMsg, true)
+      } else {
+        item('env', 'bad', _finalMsg +
+          '\n→ 可手动下载后解压到：' + path.dirname(BUILTIN_PY) +
+          '\n   下载地址：' + PY_BU_URL +
+          '\n   （也可点「确认进入」先用着，环境装好后重启即正常）', true)
+      }
     } else {
       const which = (py === BUILTIN_PY) ? '内置' : ('系统 ' + py)
       const r2 = await runAsync(py, ['-c', 'import playwright.sync_api, browser_use;print("ok")'], { timeout: 30000 })
