@@ -60,7 +60,15 @@ async function runStartupChecks(win) {
         item('env', 'bad', which + ' Python ' + String(r1.stdout).trim() + ' 可运行，但缺少依赖（playwright / browser_use）\n' +
           String(r2.stderr || '').slice(0, 180) + '\n→ 客户端会在后台自动补装，装好后重启即正常', true)
       } else {
-        item('env', 'ok', which + ' Python ' + String(r1.stdout).trim() + ' + playwright + browser_use 均正常', true)
+        // ★STEP3_REALCHECK_V1：import 通过 ≠ 真能用 —— 再【真执行一步】playwright start/stop
+        item('env', 'run', which + ' Python ' + String(r1.stdout).trim() + '：正在真执行 playwright（start/stop）…', false, 90)
+        const r3 = await runAsync(py, ['-c', 'from playwright.sync_api import sync_playwright;p=sync_playwright().start();p.stop();print("start ok")'], { timeout: 40000 })
+        if (r3.code === 0 && String(r3.stdout).indexOf('start ok') >= 0) {
+          item('env', 'ok', which + ' Python ' + String(r1.stdout).trim() + ' + playwright + browser_use 均正常（已真执行 start/stop ✓）', true)
+        } else {
+          item('env', 'warn', which + ' Python ' + String(r1.stdout).trim() + ' 能 import，但【真执行 playwright 失败】——发布可能报错\n' +
+            String((r3.stderr || r3.stdout) || '').slice(0, 200), true)
+        }
       }
     }
   } catch (e) { item('env', 'bad', String(e).slice(0, 160), true) }
@@ -78,9 +86,31 @@ async function runStartupChecks(win) {
       // ★STEP2_PROGRESS_V1：逐个文件推进度（真实进度）
       item('files', 'run', '正在校验脚本 ' + _di + '/' + need.length + '：' + f, false, Math.round((_di / need.length) * 100))
     }
+    // ★STEP3_REALCHECK_V1：与上次比对变化（大小+mtime 签名）——让"改了没改"有据可查
+    let _diffTxt = ''
+    try {
+      const _stFile = path.join(app.getPath('userData'), 'scripts-state.json')
+      let _prev = {}
+      try { _prev = JSON.parse(fs.readFileSync(_stFile, 'utf-8')) || {} } catch (e) { _prev = {} }
+      const _cur = {}; const _chg = []; let _same = 0
+      for (const f of need) {
+        try {
+          const _s = fs.statSync(path.join(dir, f))
+          const _sig = _s.size + '-' + Math.round(_s.mtimeMs)
+          _cur[f] = _sig
+          if (_prev[f] === undefined) _chg.push(f + '(新增)')
+          else if (_prev[f] !== _sig) _chg.push(f)
+          else _same++
+        } catch (e2) {}
+      }
+      try { fs.writeFileSync(_stFile, JSON.stringify(_cur, null, 2)) } catch (e2) {}
+      _diffTxt = _chg.length
+        ? '\n与上次相比【已变化 ' + _chg.length + ' 个】：' + _chg.slice(0, 4).join(' / ') + (_chg.length > 4 ? ' …' : '') + '（未变化 ' + _same + ' 个）'
+        : '\n与上次相比【全部未变化】（' + _same + ' 个）'
+    } catch (e) { _diffTxt = '' }
     if (miss.length || empty.length) {
-      item('files', 'bad', (miss.length ? '缺失：' + miss.join(', ') : '') + (miss.length && empty.length ? '\n' : '') + (empty.length ? '内容异常（可能不完整）：' + empty.join(', ') : ''), true)
-    } else item('files', 'ok', '6 个平台脚本 + _cdp_click.py 齐备可读', true)
+      item('files', 'bad', (miss.length ? '缺失：' + miss.join(', ') : '') + (miss.length && empty.length ? '\n' : '') + (empty.length ? '内容异常（可能不完整）：' + empty.join(', ') : '') + _diffTxt, true)
+    } else item('files', 'ok', '6 个平台脚本 + _cdp_click.py 齐备可读' + _diffTxt, true)
   } catch (e) { item('files', 'bad', String(e).slice(0, 160), true) }
 
   // ④ 目录可写（实际写文件再删）
@@ -98,6 +128,37 @@ async function runStartupChecks(win) {
     if (bad.length) item('dirs', 'bad', '不可写：' + bad.join(' / '), true)
     else item('dirs', 'ok', 'data\\ 与 storage\\ 均可写', true)
   } catch (e) { item('dirs', 'bad', String(e).slice(0, 160), true) }
+
+  // ④b ★STEP3_REALCHECK_V1：发布前置预检（Chrome / 网络 / 9222 / profile Cookies）
+  //   用户问"发布好像不只靠脚本，其它是否要检查" —— 这几项缺一个发布就失败
+  try {
+    item('preflight', 'run', '正在预检运行前置条件…')
+    const _p = []
+    let _pi = 0
+    const _step = (label, okv, extra) => { _pi++; item('preflight', 'run', label, false, Math.round((_pi / 4) * 100)); _p.push((okv ? '· ' : '· ✗ ') + extra) }
+    // a. 系统 Chrome（发布全靠它）
+    let _chrome = ''
+    try { _chrome = (CHROME_CANDS || []).find((p2) => fs.existsSync(p2)) || '' } catch (e) {}
+    _step('chrome', !!_chrome, _chrome ? ('系统 Chrome：' + _chrome) : '系统 Chrome：未找到（发布无法执行）')
+    // b. 网络（能否到服务器）
+    let _net = 0
+    try {
+      const _su = process.env.SERVER_URL || 'https://ai-niuma.cc'
+      const _r = await fetch(_su, { method: 'HEAD', signal: AbortSignal.timeout(8000) })
+      _net = _r.status
+    } catch (e) { _net = 0 }
+    _step('net', _net > 0, _net > 0 ? ('网络：可访问服务器（HTTP ' + _net + '）') : '网络：无法访问服务器（发布/更新会失败）')
+    // c. 9222（发布/采集都要它）
+    let _cdpOk = false
+    try { _cdpOk = await probe9222(1500) } catch (e) {}
+    _step('cdp', true, _cdpOk ? '调试端口 9222：已开启（正在被使用或可用）' : '调试端口 9222：当前未开启（发布/采集时会自动启动浏览器）')
+    // d. 本账号 profile 的 Cookies
+    let _hasCk = false
+    try { _hasCk = fs.existsSync(path.join(getProfileDir(), 'Default', 'Network', 'Cookies')) } catch (e) {}
+    _step('ck', true, _hasCk ? '账号登录文件：已就绪' : '账号登录文件：尚未就绪（可在「登记」里登录一次）')
+    const _hardFail = (!_chrome) || (_net === 0)
+    item('preflight', _hardFail ? 'bad' : 'ok', _p.join('\n'), true)
+  } catch (e) { item('preflight', 'warn', '预检异常（不影响进入）: ' + String(e).slice(0, 140), true) }
 
   // ⑤ 账号（ACCOUNT_PICK_V1）：列出本机【用过的账号】让用户选择
   //   ★ 必须先确定账号 —— 否则不知道该读哪个 browser-profile\{userId} 的 Cookie，登录态检测无从谈起
