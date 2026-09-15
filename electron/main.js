@@ -88,7 +88,7 @@ async function runStartupChecks(win) {
         item('env', 'ok', _finalMsg, true)
       } else {
         item('env', 'bad', _finalMsg +
-          '\n→ 可手动下载后解压到：' + path.dirname(BUILTIN_PY) +
+          '\n→ 可手动下载后【解压到】：' + path.join(path.dirname(process.execPath), 'python') + '（压缩包内已含 buvenv-test/Scripts/ 层级，解压到该目录即可）' +
           '\n   下载地址：' + PY_BU_URL +
           '\n   （也可点「确认进入」先用着，环境装好后重启即正常）', true)
       }
@@ -1046,6 +1046,25 @@ async function ensureBuPython() {
     const _ex = await runAsync('powershell', ['-NoProfile', '-Command', 'Expand-Archive -Path "' + zipPath + '" -DestinationPath "' + destDir + '" -Force'], { timeout: 900000 })
     if (_ex.code !== 0) buLog("[bu-python] ⚠️ 解压返回 code=" + _ex.code + " stderr=" + String(_ex.stderr).slice(0, 200))
     try { fs.unlinkSync(zipPath) } catch (e) {}
+    // ★ENV_STRUCT_COMPAT_V1（1.0.181）：兼容"旧结构"压缩包（根目录直接是 python.exe）。
+    //   客户端期望 {安装目录}\python\buvenv-test\Scripts\python.exe；若发现解压出来的是
+    //   {安装目录}\python\python.exe（官方 embeddable 结构），自动迁移到位 —— 免得因为
+    //   OSS 上还挂着旧结构的包而永远装不上。
+    try {
+      if (!fs.existsSync(BUILTIN_PY)) {
+        const _pdir = path.join(path.dirname(process.execPath), 'python')
+        const _rootPy = path.join(_pdir, 'python.exe')
+        if (fs.existsSync(_rootPy)) {
+          buLog('[bu-python] 检测到旧结构包（python.exe 在根）→ 自动迁移到 buvenv-test\\Scripts\\')
+          const _dst = path.join(_pdir, 'buvenv-test', 'Scripts')
+          try { fs.mkdirSync(_dst, { recursive: true }) } catch (e0) {}
+          // 用 PowerShell 移动（排除 buvenv-test 自身，避免递归）
+          const _ps = "Get-ChildItem -LiteralPath '" + _pdir + "' -Force | Where-Object { $_.Name -ne 'buvenv-test' } | ForEach-Object { Move-Item -LiteralPath $_.FullName -Destination '" + _dst + "' -Force }"
+          const _mv = await runAsync('powershell', ['-NoProfile', '-Command', _ps], { timeout: 300000 })
+          buLog('[bu-python] 迁移完成 code=' + _mv.code + ' 存在=' + fs.existsSync(BUILTIN_PY))
+        }
+      }
+    } catch (eMv) { buLog('[bu-python] 结构兼容迁移异常（忽略）: ' + String((eMv && eMv.message) || eMv).slice(0, 150)) }
     try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch (e) {}
     if (fs.existsSync(BUILTIN_PY)) {
       _buPy = BUILTIN_PY
