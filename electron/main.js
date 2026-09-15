@@ -20,17 +20,30 @@ async function runStartupChecks(win) {
 
   // ② 运行环境（真的执行一次 Python + import 两个库）
   try {
-    item('env', 'run', '正在实际执行运行环境（需要几秒）…')
-    const py = getBuPython()
-    const r1 = await runAsync(py, ['-c', 'import sys;print(sys.version.split()[0])'], { timeout: 20000 })
-    if (r1.code !== 0) {
-      item('env', 'bad', '运行环境不可用（Python 无法执行）\n' + String(r1.stderr || '').slice(0, 180), true)
+    item('env', 'run', '正在实际执行运行环境（内置 + 系统 Python 都试，需要几秒）…')
+    // ★ENV_CHECK_FIX_V1：依次尝试【内置 → 系统 python → py】，用"真执行"判定，
+    //   原实现直接用 getBuPython()（兜底返回内置路径）→ 没装内置的机器一律误报 ENOENT
+    let py = ''
+    let r1 = null
+    const tried = []
+    const cands = [BUILTIN_PY, 'python', 'py']
+    for (const cd of cands) {
+      if (cd === BUILTIN_PY && !fs.existsSync(BUILTIN_PY)) { tried.push('内置(未安装)'); continue }
+      const rr = await runAsync(cd, ['-c', 'import sys;print(sys.version.split()[0])'], { timeout: 15000 })
+      if (rr.code === 0 && String(rr.stdout || '').trim()) { py = cd; r1 = rr; break }
+      tried.push((cd === BUILTIN_PY ? '内置' : cd) + '(不可用)')
+    }
+    if (!py) {
+      item('env', 'bad', '本机未找到可用的 Python（已尝试：' + tried.join(' / ') + '）\n' +
+        '→ 可点「确认进入」继续使用；客户端会在后台自动下载内置运行环境（约 85MB），装好后重启即正常', true)
     } else {
+      const which = (py === BUILTIN_PY) ? '内置' : ('系统 ' + py)
       const r2 = await runAsync(py, ['-c', 'import playwright.sync_api, browser_use;print("ok")'], { timeout: 30000 })
       if (r2.code !== 0) {
-        item('env', 'bad', 'Python ' + String(r1.stdout).trim() + ' 可运行，但缺少依赖（playwright / browser_use）\n' + String(r2.stderr || '').slice(0, 180), true)
+        item('env', 'bad', which + ' Python ' + String(r1.stdout).trim() + ' 可运行，但缺少依赖（playwright / browser_use）\n' +
+          String(r2.stderr || '').slice(0, 180) + '\n→ 客户端会在后台自动补装，装好后重启即正常', true)
       } else {
-        item('env', 'ok', 'Python ' + String(r1.stdout).trim() + ' + playwright + browser_use 均正常', true)
+        item('env', 'ok', which + ' Python ' + String(r1.stdout).trim() + ' + playwright + browser_use 均正常', true)
       }
     }
   } catch (e) { item('env', 'bad', String(e).slice(0, 160), true) }
