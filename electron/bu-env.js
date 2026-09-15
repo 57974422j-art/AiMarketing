@@ -7,6 +7,8 @@
  */
 module.exports = function createBuEnv(deps) {
   const { BUILTIN_PY, getBuPython, getServerCookie, ensureBuPython, buLog } = deps
+  // ★BUILTIN_PY_DYNAMIC_V1：内置 python 的实际路径可能在不同层级 → 优先用动态解析
+  const getBuiltinPy = deps.getBuiltinPy || (() => BUILTIN_PY)
   let cached = null
 
   /** 异步跑 python（不阻塞主进程） */
@@ -30,10 +32,18 @@ module.exports = function createBuEnv(deps) {
   }
 
   async function getBuEnvInfo(pyOverride) {
-    const py = pyOverride || getBuPython()
+    // ★BUILTIN_PY_DYNAMIC_V1：未显式指定时，先看内置（动态路径）是否可用，再走 getBuPython()
+    let py = pyOverride || ''
+    if (!py) {
+      try {
+        const _b = getBuiltinPy()
+        if (_b && require('fs').existsSync(_b)) py = _b
+      } catch (e) {}
+      if (!py) py = getBuPython()
+    }
     const info = {
       py, pythonPath: py, pythonVersion: '', playwright: '', browserUse: '',
-      ok: false, builtin: py === BUILTIN_PY,
+      ok: false, builtin: (() => { try { return py === getBuiltinPy() } catch (e) { return py === BUILTIN_PY } })(),
     }
     try {
       const r3 = await runPy(py, ['-c', 'import sys; print(sys.version.split()[0])'], 20000)

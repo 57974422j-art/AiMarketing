@@ -504,3 +504,49 @@ if __name__ == '__main__':
 - 上传 `dist-rel/python-bu.zip` 到 OSS；客户机删一次 `安装目录\python` 后重启（自动装新版）
 - 部署服务器（点平台修复 `513d831` + 前端兜底）
 - 装 v1.0.167 验证启动自检
+
+
+## 2026-09-15 ★启动自检四步改造（微信 v1.0.174~177）+ 两个重要纠正
+
+### 一、四步改造（用户定的设计：独立窗口 → 逐项真检 → 完成才开真客户端）
+| 步骤 | commit | 内容 |
+|---|---|---|
+| 第1步 | `4832171` | **独立窗口化 SPLASH_WINDOW_V1**：自检从"客户端内覆盖页"改成"先弹出的独立窗口"（`createSplashWindow`，680x780，沿用现有暗色卡片设计）；`mainWindow` 改为 `{show:false}` 隐藏创建（session 仍需供自检读 cookie）`+ loadURL('about:blank')` 占位（否则它的 did-finish-load 不触发）；`enterMainApp()` 关闭自检窗 + 加载主界面 + `mainWindow.show()` |
+| 第2步 | `1c64f1d` | **每项进度条 STEP2_PROGRESS_V1**：自检页每项含独立进度条；`item()` 增加第 5 参 progress(0-100)；脚本项逐文件、采集项逐平台、环境项分步推进；拿不到百分比的阶段走流动动效(indeterminate)；加 30 秒兜底 |
+| 第3步 | `be9f6fc` | **真检测 STEP3_REALCHECK_V1**：① 关键脚本项加"与上次比对变化"（大小+mtime 签名存 `data/scripts-state.json`）② 运行环境 import 通过后再**真执行 playwright start/stop** ③ **新增"发布前置预检"项**（系统 Chrome / 网络到服务器 / 9222 / 本账号 Cookies） |
+| 第4步 | `8adc0b9` | **统一更新入口 STEP4_UNIFY_UPDATE_V1**：更新进度并入自检窗（`toSplash()`）——update-available/下载百分比(第1段)/下载完成提示"正在安装，窗口会自动重开，请勿手动启动"(第2段)；老的 `updWin`(renderer/update.html) 仅作兜底 |
+
+**现状**：自检共 8 项 = 版本(含更新检测) / 运行环境 / 关键脚本插件 / 目录可写 / **发布前置预检** / 账号(可选) / 平台登录态 / 热点采集
+
+### 二、★★ 重要纠正：playwright/driver【必须保留】（我删错了）
+```
+我重打 python-bu.zip 时删掉 playwright/driver（101MB），理由"只连系统 Chrome、不需要自带 driver"
+→ ★ 这个判断是错的：
+  · Playwright 的 Python 端必须靠 driver（它自己的 node 服务）才能工作
+  · sync_playwright().start() 就必须启动 driver；connect_over_cdp 也走 driver
+  · 删掉 driver = playwright 整套不可用 → 发布脚本 bu_pub_*.py 全部失败
+★ 而 OSS 上的 python-bu.zip（72637453 字节）就是我打的那个【坏版本】
+  → 必须【重打（含 driver，体积回到 ~170MB）→ 重新上传 OSS 覆盖】
+★ 是被第 3 步的"真执行 start/stop"照出来的（说明真检测有价值）
+★ 之前我的"验证"只测了 import + callable(sync_playwright)，漏了 .start() → 没发现
+```
+
+### 三、已知问题：点快捷方式先出现【白色客户端】
+```
+现象：点快捷图标 → 先弹出白色客户端窗口 → 关掉再打开才好
+原因（第 1 步引入）：mainWindow 现在是 {show:false} + loadURL('about:blank')（纯白占位页）
+ · 而 electron/main.js 的单实例逻辑：app.on('second-instance', ...) 会 mainWindow.show() + focus()
+ · 客户端已在运行时，用户再点快捷方式（或任务栏图标）→ 触发它 → 把主窗口显示出来
+ → 此时主窗口还是 about:blank → ★ 屏幕上就是"一个白色客户端"
+待修：把 second-instance / app.on('activate') 等"显示已有窗口"的路径改为——
+      自检窗还在 → 只把【自检窗】提到前面；已进主界面 → 才显示主窗口
+```
+
+### 四、待办
+```
+① 重打 python-bu.zip（含 driver）→ 用户上传 OSS 覆盖 → 环境异常机器删 python 目录后重启
+② 修白窗（second-instance 显示 about:blank）
+③ 小红书 B 类采集（接口在 edith 域跨域，需改走 www 域）；视频号未纳入 B 类
+④ 服务器部署（点平台修复 513d831 + 前端兜底）—— 一直没做
+⑤ 下一版才能验证"自动更新"（本版是装上它的那一版）
+```

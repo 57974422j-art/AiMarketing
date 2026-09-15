@@ -11,7 +11,7 @@
 
 ```
 最近提交：aa386d5(文档) ← 513d831(★点平台真因修复) ← 521fba7(v1.0.160) ← 58b6cdb(getter 回归修复) ← ad23732(抖音封面)
-客户端：v1.0.167 已打包（启动自检 STARTUP_CHECK_V1 + 登录态自愈 ACCOUNT_PROFILE_V1 + 内置环境 embeddable + 窗口分栏 + 小红书拟人化 + 视频号入口修复）（dist-rel/AI-Marketing-Setup-1.0.160.exe，349MB，11:41）含全部客户端修复
+客户端：v1.0.177 已打包（启动自检四步：独立窗口 SPLASH_WINDOW_V1 / 每项进度条 STEP2_PROGRESS_V1 / 真检测 STEP3_REALCHECK_V1 / 统一更新入口 STEP4_UNIFY_UPDATE_V1）+ 登录态自愈 + 窗口分栏 + 小红书拟人化 + 视频号入口修复（dist-rel/AI-Marketing-Setup-1.0.160.exe，349MB，11:41）含全部客户端修复
 服务端：★ 513d831 【尚未部署】→ 不部署则"点平台没反应"依旧
 
 当前唯一阻塞 = 【部署服务器】

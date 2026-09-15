@@ -96,8 +96,32 @@ async function runStartupChecks(win) {
       const which = (py === BUILTIN_PY) ? '内置' : ('系统 ' + py)
       const r2 = await runAsync(py, ['-c', 'import playwright.sync_api, browser_use;print("ok")'], { timeout: 30000 })
       if (r2.code !== 0) {
-        item('env', 'bad', which + ' Python ' + String(r1.stdout).trim() + ' 可运行，但缺少依赖（playwright / browser_use）\n' +
-          String(r2.stderr || '').slice(0, 180) + '\n→ 客户端会在后台自动补装，装好后重启即正常', true)
+        // ★ENV_ERR_FIX_V1（1.0.183）：① 不再截断错误（Traceback 的真正错误行在【末尾】）
+        const _rawErr = String((r2.stderr || '') + (r2.stdout || ''))
+        const _keyLine = (_rawErr.split('\n').filter((l) => /No module named|ModuleNotFoundError|ImportError|Error/.test(l)).pop() || '').trim()
+        const _tailErr = _keyLine || _rawErr.slice(-400).trim()
+        // ② 缺依赖 → 【当场补装】（用这个 python 自己的 pip）
+        item('env', 'run', which + ' Python ' + String(r1.stdout).trim() + ' 缺依赖 → 正在用它的 pip 安装 playwright / browser_use…' +
+          '\n（需要联网，可能几分钟；★安装期间请保持客户端打开）\n原始错误：' + _tailErr.slice(0, 200), false)
+        let _pipOut = ''
+        try {
+          const _pi = await runAsync(py, ['-m', 'pip', 'install', '--no-warn-script-location', '--quiet',
+            'playwright==1.62.0', 'browser_use==0.13.10'], { timeout: 900000 })
+          _pipOut = String((_pi.stderr || '') + (_pi.stdout || '')).slice(-300).trim()
+          buLog('[bu-env] 自检补装 pip code=' + _pi.code + ' 输出尾部=' + _pipOut.slice(0, 200))
+        } catch (ePip) { _pipOut = 'pip 执行异常: ' + String((ePip && ePip.message) || ePip).slice(0, 160) }
+
+        const r2b = await runAsync(py, ['-c', 'import playwright.sync_api, browser_use;print("ok")'], { timeout: 30000 })
+        if (r2b.code === 0) {
+          item('env', 'ok', which + ' Python ' + String(r1.stdout).trim() + ' 依赖已自动补装完成（playwright + browser_use ✓）', true)
+        } else {
+          const _rawErr2 = String((r2b.stderr || '') + (r2b.stdout || ''))
+          const _key2 = (_rawErr2.split('\n').filter((l) => /No module named|ModuleNotFoundError|ImportError|Error/.test(l)).pop() || '').trim()
+          item('env', 'bad', which + ' Python ' + String(r1.stdout).trim() + ' 缺依赖，自动补装【未成功】\n' +
+            '原因：' + (_key2 || _rawErr2.slice(-400).trim()) + '\n' +
+            (_pipOut ? 'pip 输出：' + _pipOut + '\n' : '') +
+            '→ 可手动执行：\n   ' + String(r1.stdout).trim() + '\n   ' + py + ' -m pip install playwright browser_use', true)
+        }
       } else {
         // ★STEP3_REALCHECK_V1：import 通过 ≠ 真能用 —— 再【真执行一步】playwright start/stop
         item('env', 'run', which + ' Python ' + String(r1.stdout).trim() + '：正在真执行 playwright（start/stop）…', false, 90)
@@ -964,13 +988,37 @@ const BU_HOT_SCRIPT = app.isPackaged
 
 // 2026-09-08: 内置 Python 运行环境（OSS python-bu.zip 一键下载——用户零安装）
 const BUILTIN_PY_DIR = path.join(path.dirname(process.execPath), 'python', 'buvenv-test')
-const BUILTIN_PY = path.join(BUILTIN_PY_DIR, 'Scripts', 'python.exe')
+const BUILTIN_PY = path.join(BUILTIN_PY_DIR, 'Scripts', 'python.exe')   // 兼容旧代码的"名义路径"
+// ★BUILTIN_PY_DYNAMIC_V1（1.0.183）：内置 python.exe 实际可能落在不同层级（zip 结构差异）——
+//   在 安装目录\python 下【动态查找】，找到就用，不再依赖固定路径，也不需要"搬文件"。
+function findBuiltinPy() {
+  const root = path.join(path.dirname(process.execPath), 'python')
+  const cands = [
+    path.join(root, 'buvenv-test', 'Scripts', 'python.exe'),
+    path.join(root, 'python.exe'),
+    path.join(root, 'Scripts', 'python.exe'),
+    path.join(root, 'buvenv-test', 'python.exe'),
+  ]
+  for (const p of cands) { try { if (fs.existsSync(p)) return p } catch (e) {} }
+  try {
+    for (const d1 of fs.readdirSync(root)) {
+      const p1 = path.join(root, d1)
+      try { if (!fs.statSync(p1).isDirectory()) continue } catch (e) { continue }
+      const c1 = path.join(p1, 'python.exe'); if (fs.existsSync(c1)) return c1
+      const c2 = path.join(p1, 'Scripts', 'python.exe'); if (fs.existsSync(c2)) return c2
+      const c3 = path.join(p1, 'buvenv-test', 'Scripts', 'python.exe'); if (fs.existsSync(c3)) return c3
+    }
+  } catch (e) {}
+  return ''   // 未安装
+}
+function getBuiltinPy() { return findBuiltinPy() || BUILTIN_PY }
 const PY_BU_URL = 'https://aimarketing-1.oss-cn-hangzhou.aliyuncs.com/updates/python-bu.zip'
 const BU_PY_DOWNLOADING = path.join(path.dirname(process.execPath), 'python', '.downloading')
 let _buPy = ''   // 2026-09-10: python 路径缓存（异步探测后填充——避免启动时同步探测阻塞界面）
 function getBuPython() {
   if (_buPy) return _buPy
-  if (fs.existsSync(BUILTIN_PY)) return BUILTIN_PY
+  const _fb = findBuiltinPy()   // ★BUILTIN_PY_DYNAMIC_V1
+  if (_fb) return _fb
   if (process.env.BU_PYTHON) return process.env.BU_PYTHON
   return BUILTIN_PY   // 未探测时的兜底（异步探测完成会更新 _buPy）
 }
@@ -1014,8 +1062,10 @@ async function buPythonReadyAsync(py) {
 
 // 异步解析可用的 python（内置 → env → python → py → 兜底内置路径）
 async function resolveBuPythonAsync() {
-  if (fs.existsSync(BUILTIN_PY)) {
-    if (await buPythonReadyAsync(BUILTIN_PY)) { _buPy = BUILTIN_PY; return BUILTIN_PY }
+  const _fb = findBuiltinPy()   // ★BUILTIN_PY_DYNAMIC_V1
+  if (_fb) {
+    if (await buPythonReadyAsync(_fb)) { _buPy = _fb; return _fb }
+    buLog('[bu-python] 内置环境存在但不可用（缺库/不完整）: ' + _fb)
   }
   if (process.env.BU_PYTHON) { _buPy = process.env.BU_PYTHON; return _buPy }
   for (const cand of ['python', 'py']) {
@@ -1083,32 +1133,17 @@ async function ensureBuPython() {
     const _ex = await runAsync('powershell', ['-NoProfile', '-Command', 'Expand-Archive -Path "' + zipPath + '" -DestinationPath "' + destDir + '" -Force'], { timeout: 900000 })
     if (_ex.code !== 0) buLog("[bu-python] ⚠️ 解压返回 code=" + _ex.code + " stderr=" + String(_ex.stderr).slice(0, 200))
     try { fs.unlinkSync(zipPath) } catch (e) {}
-    // ★ENV_STRUCT_COMPAT_V1（1.0.181）：兼容"旧结构"压缩包（根目录直接是 python.exe）。
-    //   客户端期望 {安装目录}\python\buvenv-test\Scripts\python.exe；若发现解压出来的是
-    //   {安装目录}\python\python.exe（官方 embeddable 结构），自动迁移到位 —— 免得因为
-    //   OSS 上还挂着旧结构的包而永远装不上。
-    try {
-      if (!fs.existsSync(BUILTIN_PY)) {
-        const _pdir = path.join(path.dirname(process.execPath), 'python')
-        const _rootPy = path.join(_pdir, 'python.exe')
-        if (fs.existsSync(_rootPy)) {
-          buLog('[bu-python] 检测到旧结构包（python.exe 在根）→ 自动迁移到 buvenv-test\\Scripts\\')
-          const _dst = path.join(_pdir, 'buvenv-test', 'Scripts')
-          try { fs.mkdirSync(_dst, { recursive: true }) } catch (e0) {}
-          // 用 PowerShell 移动（排除 buvenv-test 自身，避免递归）
-          const _ps = "Get-ChildItem -LiteralPath '" + _pdir + "' -Force | Where-Object { $_.Name -ne 'buvenv-test' } | ForEach-Object { Move-Item -LiteralPath $_.FullName -Destination '" + _dst + "' -Force }"
-          const _mv = await runAsync('powershell', ['-NoProfile', '-Command', _ps], { timeout: 300000 })
-          buLog('[bu-python] 迁移完成 code=' + _mv.code + ' 存在=' + fs.existsSync(BUILTIN_PY))
-        }
-      }
-    } catch (eMv) { buLog('[bu-python] 结构兼容迁移异常（忽略）: ' + String((eMv && eMv.message) || eMv).slice(0, 150)) }
+    // ★BUILTIN_PY_DYNAMIC_V1（1.0.183）：不再"搬文件"（Move-Item 不可靠，可能只搬一部分 →
+    //   出现"python.exe 在、Lib/site-packages 缺"的半残状态）。改为安装后【动态查找 + 验证】。
     try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch (e) {}
-    if (fs.existsSync(BUILTIN_PY)) {
-      _buPy = BUILTIN_PY
-      buLog('[bu-python] 运行环境安装完成: ' + BUILTIN_PY)
-      return { ok: true, py: BUILTIN_PY }
+    // ★BUILTIN_PY_DYNAMIC_V1：解压后【动态查找】python.exe（zip 结构可能不同）
+    const _found = findBuiltinPy()
+    if (_found) {
+      _buPy = _found
+      buLog('[bu-python] 运行环境安装完成: ' + _found)
+      return { ok: true, py: _found }
     }
-    return { ok: false, error: '解压失败（未找到 python.exe）' }
+    return { ok: false, error: '解压失败（未在 python 目录下找到 python.exe）' }
   } catch (e) {
     try { fs.unlinkSync(BU_PY_DOWNLOADING) } catch (e2) {}
     return { ok: false, error: String((e && e.message) || e) }
@@ -1128,7 +1163,7 @@ let buEnv = null
 //   于是"环境自检加载失败"在客户机上【毫无痕迹】（那台 Administrator 机器就是这样：
 //   日志里只有轮询，一条 [bu-env] 都没有，无从判断）。改为写文件日志。
 try {
-  buEnv = require('./bu-env')({ BUILTIN_PY, getBuPython, getServerCookie, ensureBuPython, buLog })
+  buEnv = require('./bu-env')({ BUILTIN_PY, getBuiltinPy, getBuPython, getServerCookie, ensureBuPython, buLog })
   buLog('[bu-env] 模块加载成功')
 } catch (eBE) {
   buLog('[bu-env] ⚠️ 模块加载失败（发布环境自检将不可用）: ' + String((eBE && eBE.stack) || eBE).slice(0, 400))
