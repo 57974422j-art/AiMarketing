@@ -135,17 +135,24 @@ async function collectHotspotsWithProgress(win) {
   try {
     item('collect', 'run', '正在采集热点（读取本机已登录平台…）')
     const base = ['-u', BU_HOT_SCRIPT, '--profile', String(BU_PROFILE_DIR)]
-    let out = ''
-    try {
-      out = await new Promise((resolve) => {
-        let so = ''
-        const p = spawn(getBuPython(), base, { windowsHide: true })
+    // ★HOT_COLLECT_FIX_V1：原实现只跑 A 类（读 cookie：微博/B站），漏了 --browser
+    //   → 导致早已实现（0400bf5 实测通过）的 B 类（抖音/快手，页内取数）根本没被调用
+    const runHot = (args, ms) => new Promise((resolve) => {
+      let so = ''
+      try {
+        const p = spawn(getBuPython(), args, { windowsHide: true })
         p.stdout.on('data', (d) => { so += String(d) })
         p.stderr.on('data', () => {})
         p.on('close', () => resolve(so))
         p.on('error', () => resolve(''))
-        setTimeout(() => { try { p.kill() } catch (e) {} ; resolve(so) }, 90000)
-      })
+        setTimeout(() => { try { p.kill() } catch (e) {} ; resolve(so) }, ms || 120000)
+      } catch (e) { resolve('') }
+    })
+    let out = ''
+    try {
+      const outA2 = await runHot(base, 60000)                                   // A 类：微博/B站（读 cookie，快）
+      const outB2 = await runHot(base.concat(['--browser']), 180000)            // B 类：抖音/快手（开浏览器页内取数）
+      out = String(outA2) + String.fromCharCode(10) + String(outB2)
     } catch (e) { out = '' }
     const lines = String(out).split(/[\r\n]+/)
     const names = ['抖音', '小红书', '微博', '视频号', 'B站', '快手']
@@ -154,7 +161,7 @@ async function collectHotspotsWithProgress(win) {
       const ln = lines.find((x) => x.indexOf('[' + nm + ']') >= 0)
       if (!ln) { stat.push('· ' + nm + '：未涉及'); continue }
       if (ln.indexOf('未登录') >= 0) stat.push('· ' + nm + '：未登录（登录后下次启动自动采）')
-      else if (ln.indexOf('暂未实现') >= 0) stat.push('· ' + nm + '：待实现（需浏览器页内取数）')
+      else if (ln.indexOf('暂未实现') >= 0) stat.push('· ' + nm + '：该平台需用浏览器方式采集（本次未启用）')
       else if (ln.indexOf('采到') >= 0 && ln.indexOf('✅') >= 0) stat.push('· ' + nm + '：已采集 ' + (String(ln).split('采到')[1] || '').trim())
       else if (ln.indexOf('没采到') >= 0) stat.push('· ' + nm + '：已登录但没采到（接口可能改版）')
       else stat.push('· ' + nm + '：' + String(ln).replace(/^\s*\[[^\]]+\]\s*/, '').slice(0, 36))
