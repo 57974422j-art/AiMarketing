@@ -465,3 +465,42 @@ if __name__ == '__main__':
 
 **附**：那台"缺 Python"的机器装 **v1.0.164** 后，环境会自动安装（`isRealPython` 真执行校验 + 每步日志，
 `[bu-python]` 可见过程）；v1.0.164 还修了视频号脚本入口缺失（`6f59379`）。
+
+
+## 2026-09-15 ★启动自检（STARTUP_CHECK_V1）+ 登录态自愈（ACCOUNT_PROFILE_V1）+ 内置环境根因
+
+用户要求（原话要点）：
+- 「打开客户端就自检」「这个插件自检要真自检，出现问题最好有反馈错误」
+- 「都自检完留一个确认键，点确认再启动客户端」
+- 「能弥补我们更新完客户端重启、改桌面标签、再启动需要等 2-3 分钟的问题」
+
+### 一、启动自检（`9b6cd24`，v1.0.167）
+| 项 | 内容 |
+|---|---|
+| 形态 | 新增 `electron/splash.html`（**本地页，秒开**，不依赖网络）；`createWindow` 改为**先 `loadFile(splash.html)`**，失败则兜底直接 `loadURL` |
+| 6 项【真检】 | ① 版本 ② **运行环境**（实际执行 Python + `import playwright.sync_api/browser_use`，不是看文件在不在）③ 关键脚本/插件（6 平台脚本 + `_cdp_click.py` 存在且非空）④ 目录可写（`data\`/`storage\` 实际写文件再删）⑤ 当前账号（userId + profile 路径）⑥ 平台登录态（`bu_check` 逐个平台真读 Cookies）|
+| 进度 | 每项经 IPC `startup-check:progress` 实时推给自检页（✅/⏳/⚠️/❌ + 具体错误原文）|
+| 确认键 | 全部完成后启用「确认进入」→ `startup-check:enter` → 才 `loadURL` 主界面；**失败也允许「仍要继续」**（绝不把用户卡死）|
+| 附带价值 | 覆盖"更新后重启需等 2~3 分钟"的**无感空等**（那段时间现在显示自检进度）|
+| preload | 暴露 `startupCheckRun` / `startupCheckEnter` / `onStartupProgress` |
+
+### 二、账号登录态自愈（`3b75072`，v1.0.166）—— 修"登录态反复消失"
+**根因**：账号隔离把 profile 从【共用】改为【按账号 `browser-profile\{userId}`】，迁移用一次性复制，代码三处缺陷：
+① 见 `.profile-migrated-v1` 标记就 return（**一次性，失败永不重试**）
+② 子项复制失败 `catch (e) {}` **静默吞掉**
+③ **不校验结果就写标记**（Cookies 没复制成功也算"已迁移"）
+④ 不检查 Chrome 是否在运行（Cookies 被独占 → 复制必失败）→ 客户机 `\7` 缺 Cookies 正是如此。
+
+**修复**：换成幂等的 `ensureAccountProfile()`：每次启动都检查（不依赖一次性标记）；已就绪零成本；缺而共用目录有则补；**Chrome 在跑（9222 通）则本次跳过、下次再补**；复制后**校验 `\Default\Network\Cookies` 真到位才写标记**，否则告警 + 下次重试；逐项失败写日志；旧共用目录**保留不删**作兜底源。
+→ 对**任意 userId / 任意机器**都成立（用户要求"项目不是给一个人用，不要换机器账号又出问题"）。
+
+### 三、内置 Python 环境两个根因（`b17c59d`，v1.0.165）
+1. **不可移植**：内置环境 zip 是 `python -m venv` 建的虚拟环境，其 `Scripts\python.exe` 只是**转发器**，靠 `pyvenv.cfg` 的 `home` 找基础 Python（硬编码为打包机 `C:\Users\wo'shen\...\Python314`）→ 任何别的机器报 `did not find executable at 'C:\Users\wo'shen\...'`
+   **已修**：改用**官方 embeddable Python 3.14.4** 重打 zip（自包含：真解释器 + `python314.zip` 标准库 + `vcruntime140.dll`），实测解压到独立目录 `prefix` 跟随目录、`import playwright.sync_api/browser_use` OK、`sync_playwright` 可用，**69.3MB**；产物在 `dist-rel/python-bu.zip`（**待用户上传 OSS**：`node scripts/upload-python-bu.mjs <zip>` 必须在服务器跑）
+2. **顺序错误**：`ensureBuPython` 里先 `writeFileSync`(标记) 再 `mkdirSync`(父目录) → 干净机器父目录不存在 → `ENOENT` → 安装从未成功（日志连"开始下载"都打不出）
+   **已修**：先建目录、再写标记；并加 ①已装过不再重下 85MB ②文案不再显示误导的"用户取消一键安装" ③`let _insR` 作用域修正
+
+### 待用户操作
+- 上传 `dist-rel/python-bu.zip` 到 OSS；客户机删一次 `安装目录\python` 后重启（自动装新版）
+- 部署服务器（点平台修复 `513d831` + 前端兜底）
+- 装 v1.0.167 验证启动自检
