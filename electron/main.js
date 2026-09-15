@@ -21,7 +21,7 @@ function __hotCollectedToday() {
 //   每项都往 splash 页面推 { type:'item', id, state: run|ok|warn|bad, detail, done }
 //   state=bad 视为未通过（页面会提示），但【仍允许"确认进入"】——绝不把用户卡死
 async function runStartupChecks(win) {
-  const w = win || mainWindow
+  const w = win || splashWin || mainWindow
   const send = (d) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', d) } catch (e) {} }
   const item = (id, state, detail, done) => send({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done })
   try { send({ type: 'meta', version: app.getVersion() }) } catch (e) {}
@@ -144,7 +144,7 @@ async function runStartupChecks(win) {
 //   现状：A 类（微博/B站，读 cookie 直调）已可用；B 类（抖音/小红书/快手，需浏览器页内取数）尚未实现 → 明确标注
 //   顺序：必须在【选定账号 + 该账号登录态检测之后】调用（账号决定读哪个 profile）
 async function collectHotspotsWithProgress(win) {
-  const w = win || mainWindow
+  const w = win || splashWin || mainWindow
   const item = (id, state, detail, done) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done }) } catch (e) {} }
   if (__hotCollecting) { item('collect', 'warn', '已有采集在进行中 → 本次跳过', true); return }
   __hotCollecting = true
@@ -202,7 +202,7 @@ async function collectHotspotsWithProgress(win) {
 
 // 检测【当前选定账号】的平台登录态（ACCOUNT_PICK_V1 从 ⑤ 拆出来）
 async function detectLoginState(win) {
-  const w = win || mainWindow
+  const w = win || splashWin || mainWindow
   const item = (id, state, detail, done) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done }) } catch (e) {} }
   try {
     item('login', 'run', '正在检测各平台登录态（账号 userId=' + (getClientUserId() || '?') + '，需要几秒）…')
@@ -245,6 +245,8 @@ function enterMainApp() {
     if (mainWindow && !mainWindow.isDestroyed()) {
       buLog('[startup] 自检确认 → 加载主界面 ' + url)
       mainWindow.loadURL(url)
+      mainWindow.show()                       // ★ 显示主窗口
+      try { if (splashWin && !splashWin.isDestroyed()) splashWin.close() } catch (e) {}   // ★ 关自检窗口
     }
   } catch (e) { buLog('[startup] 进入主界面失败: ' + String(e).slice(0, 140)) }
 }
@@ -260,7 +262,7 @@ ipcMain.handle('startup-check:pick-account', async (event, userId) => {
   // ACCOUNT_PICK_V1：用户选定账号 → 先切到该账号的 profile，再检测它的平台登录态
   try {
     const uid = String(userId || '')
-    const w = BrowserWindow.fromWebContents(event.sender) || mainWindow
+    const w = BrowserWindow.fromWebContents(event.sender) || splashWin || mainWindow
     const item = (id, state, detail, done) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done }) } catch (e) {} }
     if (!uid) { item('account', 'warn', '未选择账号', true); return { success: false } }
     setClientUserId(uid)                       // 切账号 → getProfileDir() 随之指向 browser-profile\{uid}
@@ -406,8 +408,32 @@ if (app.isPackaged) {
   }
 }
 
+// ═══ SPLASH_WINDOW_V1（2026-09-15 用户要求）：启动自检独立窗口 ═══
+//   设计风格沿用现有 splash.html（暗色卡片），后面再逐步加"每项进度条"
+let splashWin = null
+function createSplashWindow() {
+  if (splashWin && !splashWin.isDestroyed()) { splashWin.show(); splashWin.focus(); return splashWin }
+  splashWin = new BrowserWindow({
+    width: 680, height: 780, resizable: false, maximizable: false, minimizable: false,
+    title: 'AI营销助手 · 启动自检', autoHideMenuBar: true, backgroundColor: '#0a1620',
+    show: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true, nodeIntegration: false,
+    },
+  })
+  try { splashWin.setMenuBarVisibility(false) } catch (e) {}
+  splashWin.loadFile(path.join(__dirname, 'splash.html'))
+  splashWin.on('closed', () => { splashWin = null })
+  buLog('[startup] 自检窗口已打开')
+  return splashWin
+}
+
 async function createWindow() {   // USER_READY_V1: 需要在 loadURL 前 await 解析账号
   mainWindow = new BrowserWindow({
+    // ★SPLASH_WINDOW_V1：主窗口【先隐藏创建】——它的 session 要供自检读 cookie 用，
+    //   但界面先不显示；等自检窗口里点「确认进入」再 show() 出来
+    show: false,
     // 2026-08-23: 主窗口引用给服务器回调读 cookie 用
     // (global.__mainWin 在下方赋值)
     width: 1400,
@@ -449,11 +475,15 @@ async function createWindow() {   // USER_READY_V1: 需要在 loadURL 前 await 
   // ★STARTUP_CHECK_V1（2026-09-15）：先显示【本地启动自检页】（秒开，不依赖网络/远程页面）
   //   目的：① 把"哪里不对"在进入界面之前就展示出来 ② 覆盖"更新后重启+需要等 2~3 分钟"的无感空等
   //   用户点「确认进入」后才加载主界面（见 startup-check:enter）
+  // ★SPLASH_PLACEHOLDER_V1：主窗口加载一个占位页 —— 否则它的 did-finish-load 不触发，
+  //   挂在它上面的 ensureAccountProfile / bu-env 自检 / 采集定时任务就都不会跑
+  try { mainWindow.loadURL('about:blank') } catch (e) {}
+  // ★SPLASH_WINDOW_V1：自检改成【独立窗口】（不是主窗口里的一层覆盖页）
   try {
-    mainWindow.loadFile(path.join(__dirname, 'splash.html'))
+    createSplashWindow()
   } catch (e) {
-    buLog('[startup] 加载自检页失败 → 直接进主界面: ' + String(e).slice(0, 140))
-    try { mainWindow.loadURL((app.isPackaged && !process.env.SERVER_URL) ? 'https://ai-niuma.cc' : (process.env.SERVER_URL || 'http://localhost:3000')) } catch (e2) {}
+    buLog('[startup] 创建自检窗口失败 → 直接进主界面: ' + String(e).slice(0, 140))
+    enterMainApp()
   }
   // ★USER_READY_V1 保持：账号在【主界面加载之前】就解析好（现在更稳：主界面延后到用户点确认）
   await preloadClientUserOnce()
