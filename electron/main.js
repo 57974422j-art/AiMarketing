@@ -124,6 +124,50 @@ async function runStartupChecks(win) {
   return
 }
 
+// ═══ HOT_COLLECT_V1（2026-09-15 用户要求）：启动自检里的热点采集（逐平台进度）═══
+//   用户定稿："登记了就一个一个采集；检测不到登录就提示下次打开时采；登记了几个显示几个；
+//             进度要包括 抖音完成 → 小红 书完成 → 下一个"
+//   现状：A 类（微博/B站，读 cookie 直调）已可用；B 类（抖音/小红书/快手，需浏览器页内取数）尚未实现 → 明确标注
+//   顺序：必须在【选定账号 + 该账号登录态检测之后】调用（账号决定读哪个 profile）
+async function collectHotspotsWithProgress(win) {
+  const w = win || mainWindow
+  const item = (id, state, detail, done) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done }) } catch (e) {} }
+  try {
+    item('collect', 'run', '正在采集热点（读取本机已登录平台…）')
+    const base = ['-u', BU_HOT_SCRIPT, '--profile', String(BU_PROFILE_DIR)]
+    let out = ''
+    try {
+      out = await new Promise((resolve) => {
+        let so = ''
+        const p = spawn(getBuPython(), base, { windowsHide: true })
+        p.stdout.on('data', (d) => { so += String(d) })
+        p.stderr.on('data', () => {})
+        p.on('close', () => resolve(so))
+        p.on('error', () => resolve(''))
+        setTimeout(() => { try { p.kill() } catch (e) {} ; resolve(so) }, 90000)
+      })
+    } catch (e) { out = '' }
+    const lines = String(out).split(/[\r\n]+/)
+    const names = ['抖音', '小红书', '微博', '视频号', 'B站', '快手']
+    const stat = []
+    for (const nm of names) {
+      const ln = lines.find((x) => x.indexOf('[' + nm + ']') >= 0)
+      if (!ln) { stat.push('· ' + nm + '：未涉及'); continue }
+      if (ln.indexOf('未登录') >= 0) stat.push('· ' + nm + '：未登录（登录后下次启动自动采）')
+      else if (ln.indexOf('暂未实现') >= 0) stat.push('· ' + nm + '：待实现（需浏览器页内取数）')
+      else if (ln.indexOf('采到') >= 0 && ln.indexOf('✅') >= 0) stat.push('· ' + nm + '：已采集 ' + (String(ln).split('采到')[1] || '').trim())
+      else if (ln.indexOf('没采到') >= 0) stat.push('· ' + nm + '：已登录但没采到（接口可能改版）')
+      else stat.push('· ' + nm + '：' + String(ln).replace(/^\s*\[[^\]]+\]\s*/, '').slice(0, 36))
+    }
+    const gotAny = /采集结果：\s*[^（]/.test(out) && !/采集结果：\s*（空）/.test(out)
+    item('collect', gotAny ? 'ok' : 'warn',
+      stat.join('\n') + (gotAny ? '' : '\n（本次没有采到数据：未登录、待实现的平台不会采集）'), true)
+    buLog('[hot] 自检采集完成 gotAny=' + gotAny + ' | ' + stat.join(' / '))
+  } catch (e) {
+    item('collect', 'bad', String(e).slice(0, 160), true)
+  }
+}
+
 // 检测【当前选定账号】的平台登录态（ACCOUNT_PICK_V1 从 ⑤ 拆出来）
 async function detectLoginState(win) {
   const w = win || mainWindow
@@ -191,6 +235,7 @@ ipcMain.handle('startup-check:pick-account', async (event, userId) => {
     item('account', 'ok', '已选择账号 userId=' + uid + '\nprofile=' + getProfileDir(), true)
     await ensureAccountProfile()               // 该账号目录的就绪/补漏（幂等）
     await detectLoginState(w)                  // ★ 再检测【这个账号】的登录态
+    await collectHotspotsWithProgress(w)       // ★HOT_COLLECT_V1：账号确定后再采集（逐平台进度）
     return { success: true, profile: getProfileDir() }
   } catch (e) { return { success: false, error: String((e && e.message) || e) } }
 })
