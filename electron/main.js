@@ -2,6 +2,20 @@ const { app, BrowserWindow, ipcMain, dialog, session } = require('electron')
 // 2026-08-07：允许无手势自动播放（TTS 朗读回复不被浏览器策略拦截）
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 // 2026-08-06：授予麦克风/媒体权限（否则 getUserMedia 被拒，声纹球点击无响应）
+// ═══ HOT_COLLECT_MUTEX_V1（2026-09-15）：采集互斥开关 ═══
+//   避免"自检采集"与"启动后 collectHotspotsDaily"同时跑（互抢 9222 与 Cookies 锁 →
+//   表现成"检测说已登录、采集说全未登录"）。同一时刻只允许一个采集在跑。
+let __hotCollecting = false
+function __hotTodayMark() { try { return path.join(app.getPath('userData'), 'hotspot-last.json') } catch (e) { return '' } }
+function __hotCollectedToday() {
+  try {
+    const f = __hotTodayMark()
+    if (!f || !fs.existsSync(f)) return false
+    const j = JSON.parse(fs.readFileSync(f, 'utf-8'))
+    return String(j && j.date) === new Date().toISOString().slice(0, 10)
+  } catch (e) { return false }
+}
+
 // ═══ STARTUP_CHECK_V1（2026-09-15 用户要求）：启动自检（真检 + 报错 + 确认键才进主界面）═══
 //   6 项：版本 / 运行环境（真执行）/ 关键脚本插件 / 目录可写 / 当前账号 / 平台登录态
 //   每项都往 splash 页面推 { type:'item', id, state: run|ok|warn|bad, detail, done }
@@ -132,6 +146,8 @@ async function runStartupChecks(win) {
 async function collectHotspotsWithProgress(win) {
   const w = win || mainWindow
   const item = (id, state, detail, done) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done }) } catch (e) {} }
+  if (__hotCollecting) { item('collect', 'warn', '已有采集在进行中 → 本次跳过', true); return }
+  __hotCollecting = true
   try {
     item('collect', 'run', '正在采集热点（读取本机已登录平台…）')
     const base = ['-u', BU_HOT_SCRIPT, '--profile', String(BU_PROFILE_DIR)]
@@ -170,8 +186,12 @@ async function collectHotspotsWithProgress(win) {
     item('collect', gotAny ? 'ok' : 'warn',
       stat.join('\n') + (gotAny ? '' : '\n（本次没有采到数据：未登录、待实现的平台不会采集）'), true)
     buLog('[hot] 自检采集完成 gotAny=' + gotAny + ' | ' + stat.join(' / '))
+    // 采到东西才记"今天已采"（与 collectHotspotsDaily 的规则一致）
+    if (gotAny) { try { fs.writeFileSync(__hotTodayMark(), JSON.stringify({ date: new Date().toISOString().slice(0, 10), at: Date.now() })) } catch (e) {} }
   } catch (e) {
     item('collect', 'bad', String(e).slice(0, 160), true)
+  } finally {
+    __hotCollecting = false
   }
 }
 
@@ -2231,7 +2251,11 @@ async function preloadClientUserOnce() {
 //   微博/B站/抖音/小红书/快手的榜单接口要 cookie 或签名，服务器直调拿不到 -> 客户端读 browser-profile 的 cookie 采集
 //   采完 POST /api/agent/hotspot-report -> 服务器缓存 -> 热点大屏读
 async function collectHotspotsDaily() {
+  // ★HOT_COLLECT_MUTEX_V1：与"自检采集"互斥——同一时刻只允许一个采集在跑
+  if (__hotCollecting) { buLog('[hot] 已有采集在进行 → 本次跳过（避免抢浏览器/Cookies）'); return }
+  if (__hotCollectedToday()) { buLog('[hot] 今天已采集过（含自检阶段采的）→ 跳过'); return }
   await ensureUserResolved(2500).catch(() => {})   // USER_READY_V1：采集也要用正确的 profile
+  __hotCollecting = true
   try {
     const store = path.join(app.getPath('userData'), 'hotspot-last.json')
     const today = new Date().toISOString().slice(0, 10)
@@ -2279,6 +2303,8 @@ async function collectHotspotsDaily() {
     }
   } catch (e) {
     buLog('[hot] 采集异常: ' + String(e).slice(0, 140))
+  } finally {
+    __hotCollecting = false   // HOT_MUTEX_FINALLY_V1：无论成败都释放，避免永久锁死采集
   }
 }
 
