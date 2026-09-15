@@ -65,17 +65,58 @@ async function runStartupChecks(win) {
     else item('dirs', 'ok', 'data\\ 与 storage\\ 均可写', true)
   } catch (e) { item('dirs', 'bad', String(e).slice(0, 160), true) }
 
-  // ⑤ 当前账号
+  // ⑤ 账号（ACCOUNT_PICK_V1）：列出本机【用过的账号】让用户选择
+  //   ★ 必须先确定账号 —— 否则不知道该读哪个 browser-profile\{userId} 的 Cookie，登录态检测无从谈起
   try {
-    item('account', 'run', '正在解析当前登录账号…')
-    const uid = await ensureUserResolved(4000).catch(() => getClientUserId())
-    if (!uid) item('account', 'warn', '尚未登录（登录后重启客户端即可）', true)
-    else item('account', 'ok', '账号 userId=' + uid + '\nprofile=' + getProfileDir(), true)
+    item('account', 'run', '正在读取本机账号…')
+    const cur = String(await ensureUserResolved(4000).catch(() => getClientUserId()) || '')
+    const accFile = path.join(app.getPath('userData'), 'accounts.json')
+    let list = []
+    try { const j = JSON.parse(fs.readFileSync(accFile, 'utf-8')); if (Array.isArray(j)) list = j } catch (e) { list = [] }
+    // 当前登录账号：记录 token（用于之后切换回它）
+    if (cur) {
+      let tk = ''
+      try { const ck = await getServerCookie(); tk = (String(ck).match(/token=([^;]+)/) || [])[1] || '' } catch (e) {}
+      const i = list.findIndex((a) => String(a.userId) === cur)
+      const rec = { userId: cur, name: (i >= 0 && list[i].name) ? list[i].name : ('账号 ' + cur), token: tk || ((i >= 0 && list[i].token) || ''), lastUsed: Date.now() }
+      if (i >= 0) list[i] = rec; else list.push(rec)
+    }
+    // 本机 browser-profile 下出现过的账号目录（有平台登录态，但可能没有产品 token）
+    try {
+      const shared = path.join(app.getPath('userData'), 'browser-profile')
+      for (const nm of fs.readdirSync(shared)) {
+        if (!/^\d+$/.test(nm)) continue
+        if (!list.some((a) => String(a.userId) === nm)) list.push({ userId: nm, name: '账号 ' + nm, token: '', lastUsed: 0 })
+      }
+    } catch (e) {}
+    list.sort((a, b) => (Number(b.lastUsed) || 0) - (Number(a.lastUsed) || 0))
+    try { fs.writeFileSync(accFile, JSON.stringify(list, null, 2)) } catch (e) {}
+    const payload = list.map((a) => ({
+      userId: String(a.userId),
+      name: String(a.name || ('账号 ' + a.userId)),
+      current: String(a.userId) === cur,
+      canSwitch: !!a.token,
+    }))
+    try { w.webContents.send('startup-check:accounts', { current: cur, list: payload }) } catch (e) {}
+    if (!payload.length) {
+      item('account', 'warn', '本机还没有账号记录（可点下方「登录新账号」）', true)
+    } else {
+      // 不 done —— 等用户在自检页选择后再由 pick-account 继续
+      item('account', 'run', '请选择要使用的账号（共 ' + payload.length + ' 个）', false)
+    }
   } catch (e) { item('account', 'bad', String(e).slice(0, 160), true) }
 
-  // ⑥ 平台登录态（逐个平台真读 Cookies）
+  // ⑥ 平台登录态（ACCOUNT_PICK_V1）：【等用户在自检页选定账号后】才执行
+  //   （由 IPC startup-check:pick-account 调用 detectLoginState()）
+  return
+}
+
+// 检测【当前选定账号】的平台登录态（ACCOUNT_PICK_V1 从 ⑤ 拆出来）
+async function detectLoginState(win) {
+  const w = win || mainWindow
+  const item = (id, state, detail, done) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done }) } catch (e) {} }
   try {
-    item('login', 'run', '正在检测各平台登录态（需要几秒）…')
+    item('login', 'run', '正在检测各平台登录态（账号 userId=' + (getClientUserId() || '?') + '，需要几秒）…')
     const py2 = getBuPython()
     const out = await new Promise((resolve) => {
       let so = ''
@@ -126,8 +167,49 @@ ipcMain.handle('startup-check:run', async (event) => {
     return { success: true }
   } catch (e) { return { success: false, error: String((e && e.message) || e) } }
 })
-ipcMain.handle('startup-check:enter', async () => {
-  try { enterMainApp(); return { success: true } } catch (e) { return { success: false, error: String((e && e.message) || e) } }
+ipcMain.handle('startup-check:pick-account', async (event, userId) => {
+  // ACCOUNT_PICK_V1：用户选定账号 → 先切到该账号的 profile，再检测它的平台登录态
+  try {
+    const uid = String(userId || '')
+    const w = BrowserWindow.fromWebContents(event.sender) || mainWindow
+    const item = (id, state, detail, done) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done }) } catch (e) {} }
+    if (!uid) { item('account', 'warn', '未选择账号', true); return { success: false } }
+    setClientUserId(uid)                       // 切账号 → getProfileDir() 随之指向 browser-profile\{uid}
+    item('account', 'ok', '已选择账号 userId=' + uid + '\nprofile=' + getProfileDir(), true)
+    await ensureAccountProfile()               // 该账号目录的就绪/补漏（幂等）
+    await detectLoginState(w)                  // ★ 再检测【这个账号】的登录态
+    return { success: true, profile: getProfileDir() }
+  } catch (e) { return { success: false, error: String((e && e.message) || e) } }
+})
+
+ipcMain.handle('startup-check:enter', async (_e, userId) => {
+  // ACCOUNT_PICK_V1：按用户在自检页选定的账号进入
+  //   · 与当前账号相同 → 直接进
+  //   · 不同 → ① 写该账号的 token 到 session cookie ② 切 profile（browser-profile\{userId}）
+  //   · 该账号没有 token（本机没存过）→ 清登录态，让用户在主界面重新登录
+  try {
+    const uid = String(userId || '')
+    const cur = String(getClientUserId() || '')
+    if (uid && uid !== cur) {
+      const accFile = path.join(app.getPath('userData'), 'accounts.json')
+      let list = []
+      try { const j = JSON.parse(fs.readFileSync(accFile, 'utf-8')); if (Array.isArray(j)) list = j } catch (e) { list = [] }
+      const a = list.find((x) => String(x.userId) === uid)
+      if (a && a.token) {
+        const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc'
+        try { await mainWindow.webContents.session.cookies.set({ url: serverUrl, name: 'token', value: a.token, path: '/' }) } catch (e) {}
+        setClientUserId(uid)
+        buLog('[startup] 已切换账号 → userId=' + uid + '（token 已写入 session）')
+      } else {
+        try { await mainWindow.webContents.session.clearStorageData({ storages: ['cookies'] }) } catch (e) {}
+        setClientUserId(uid)
+        buLog('[startup] 选定账号 ' + uid + ' 本机无登录凭证 → 已清除登录态，请在界面内重新登录')
+      }
+      try { await ensureAccountProfile() } catch (e) {}
+    }
+    enterMainApp()
+    return { success: true }
+  } catch (e) { return { success: false, error: String((e && e.message) || e) } }
 })
 
 app.whenReady().then(() => {

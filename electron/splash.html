@@ -9,13 +9,13 @@
     font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
     background: radial-gradient(1200px 600px at 50% -10%, #0f2b3d 0%, #0a1620 45%, #070d13 100%);
     color: #e6edf3; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    padding: 28px; -webkit-user-select: none; user-select: none;
+    padding: 26px; -webkit-user-select: none; user-select: none;
   }
-  .box { width: 100%; max-width: 560px; }
+  .box { width: 100%; max-width: 580px; }
   .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: #22d3ee; box-shadow: 0 0 12px #22d3ee; }
   h1 { font-size: 19px; font-weight: 700; letter-spacing: .3px; }
-  .ver { font-size: 12px; color: #6b8496; margin: 4px 0 18px 20px; }
+  .ver { font-size: 12px; color: #6b8496; margin: 4px 0 16px 20px; }
   .list { display: flex; flex-direction: column; gap: 8px; }
   .it {
     display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; border-radius: 10px;
@@ -34,7 +34,7 @@
   .sp { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(34,211,238,.35);
         border-top-color: #22d3ee; border-radius: 50%; animation: sp .7s linear infinite; }
   @keyframes sp { to { transform: rotate(360deg); } }
-  .bar { height: 4px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; margin: 16px 0 14px; }
+  .bar { height: 4px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; margin: 15px 0 13px; }
   .bar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#22d3ee,#34d399); transition: width .35s; }
   .ft { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .hint { font-size: 11.5px; color: #6b8496; line-height: 1.5; }
@@ -46,6 +46,16 @@
   button:disabled { opacity: .35; cursor: not-allowed; }
   button:not(:disabled):active { transform: translateY(1px); }
   .cont { background: transparent; color: #9fb6c5; border: 1px solid rgba(255,255,255,.18); font-weight: 500; }
+  #accWrap { display: none; flex-direction: column; gap: 6px; margin: 0 0 2px 28px; }
+  #accWrap .acc {
+    text-align: left; font-family: inherit; font-size: 12.5px; font-weight: 500; padding: 9px 12px;
+    border-radius: 9px; cursor: pointer; border: 1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.04); color: #cfe0ec;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  #accWrap .acc .tag { font-size: 10.5px; color: #7f97a8; }
+  #accWrap .acc.sel { border-color: rgba(34,211,238,.7); background: rgba(34,211,238,.14); }
+  #accWrap .acc.dis { opacity: .5; }
 </style>
 </head>
 <body>
@@ -68,7 +78,7 @@
     { id: 'env',     name: '运行环境' },
     { id: 'files',   name: '关键脚本 / 插件' },
     { id: 'dirs',    name: '目录可写' },
-    { id: 'account', name: '当前账号' },
+    { id: 'account', name: '账号（请选择）' },
     { id: 'login',   name: '平台登录态' },
   ]
   const list = document.getElementById('list')
@@ -77,15 +87,18 @@
   const enter = document.getElementById('enter')
   const skip = document.getElementById('skip')
   const verEl = document.getElementById('ver')
+  const accWrap = document.createElement('div')
+  accWrap.id = 'accWrap'
   const nodes = {}
   let anyBad = false, doneN = 0
 
-  // 渲染 6 项
+  // 渲染 6 项（账号项下方挂账号选择列表）
   ITEMS.forEach((it) => {
     const d = document.createElement('div')
     d.className = 'it'
     d.innerHTML = '<span class="ic">·</span><div style="flex:1;min-width:0"><div class="nm">' + it.name + '</div><div class="dt">等待…</div></div>'
     list.appendChild(d)
+    if (it.id === 'account') list.appendChild(accWrap)
     nodes[it.id] = { row: d, ic: d.querySelector('.ic'), dt: d.querySelector('.dt') }
   })
 
@@ -112,6 +125,32 @@
     }
   }
 
+  // ── 账号选择（ACCOUNT_PICK_V1）：先确定账号，才能查该账号下的浏览器登录态 ──
+  let accSelected = ''
+  function renderAccounts(d) {
+    if (!d || !Array.isArray(d.list)) return
+    accWrap.innerHTML = ''
+    if (!d.list.length) { accWrap.style.display = 'none'; return }
+    d.list.forEach((a) => {
+      const b = document.createElement('button')
+      b.type = 'button'
+      b.className = 'acc' + (a.canSwitch || a.current ? '' : ' dis')
+      b.innerHTML = '<span>' + a.name + '</span><span class="tag">' + (a.current ? '当前登录' : (a.canSwitch ? '可切换' : '需重新登录')) + '</span>'
+      b.onclick = () => {
+        accSelected = a.userId
+        Array.prototype.forEach.call(accWrap.children, (x) => x.classList.remove('sel'))
+        b.classList.add('sel')
+        try { if (window.electronAPI && window.electronAPI.pickAccount) window.electronAPI.pickAccount(a.userId) } catch (e) {}
+      }
+      accWrap.appendChild(b)
+    })
+    accWrap.style.display = 'flex'
+    // 默认选中"当前登录"的账号，并立即触发它的登录态检测
+    let idx = d.list.findIndex((a) => a.current)
+    if (idx < 0) idx = d.list.findIndex((a) => a.canSwitch)
+    if (idx >= 0) { try { accWrap.children[idx].click() } catch (e) {} }
+  }
+
   try {
     const api = window.electronAPI || {}
     if (api.onStartupProgress) {
@@ -126,10 +165,10 @@
         }
       })
     }
-    document.getElementById('enter').onclick = () => { try { (window.electronAPI || {}).startupCheckEnter && window.electronAPI.startupCheckEnter() } catch (e) {} }
-    skip.onclick = () => { try { (window.electronAPI || {}).startupCheckEnter && window.electronAPI.startupCheckEnter() } catch (e) {} }
-    // 触发自检
-    if ((window.electronAPI || {}).startupCheckRun) window.electronAPI.startupCheckRun()
+    if (api.onStartupAccounts) api.onStartupAccounts(renderAccounts)
+    enter.onclick = () => { try { if (api.startupCheckEnter) api.startupCheckEnter(accSelected) } catch (e) {} }
+    skip.onclick = () => { try { if (api.startupCheckEnter) api.startupCheckEnter(accSelected) } catch (e) {} }
+    if (api.startupCheckRun) api.startupCheckRun()
     else { hint.textContent = '无法启动自检（桥接未就绪）'; enter.disabled = false }
   } catch (e) {
     hint.textContent = '自检初始化异常：' + (e && e.message)

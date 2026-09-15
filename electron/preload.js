@@ -11,7 +11,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ★STARTUP_CHECK_V1：启动自检（本地自检页用）
   startupCheckRun: () => ipcRenderer.invoke('startup-check:run'),
-  startupCheckEnter: () => ipcRenderer.invoke('startup-check:enter'),
+  startupCheckEnter: (userId) => ipcRenderer.invoke('startup-check:enter', userId),
+  pickAccount: (userId) => ipcRenderer.invoke('startup-check:pick-account', userId),
+  onStartupAccounts: (cb) => {
+    try { ipcRenderer.on('startup-check:accounts', (_e, d) => { try { cb(d) } catch (e2) {} }) } catch (e) {}
+  },
   onStartupProgress: (cb) => {
     try { ipcRenderer.on('startup-check:progress', (_e, d) => { try { cb(d) } catch (e2) {} }) } catch (e) {}
   },
