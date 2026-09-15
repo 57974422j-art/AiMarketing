@@ -24,12 +24,33 @@ async function runStartupChecks(win) {
   const w = win || splashWin || mainWindow
   const send = (d) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', d) } catch (e) {} }
   const item = (id, state, detail, done, progress) => send({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) })
+  // ★STARTUP_STOPWATCH_V1：记录自检耗时（便于发现"哪一项拖慢了整体"）
+  const __t0 = Date.now()
+  const __cost = () => Math.round((Date.now() - __t0) / 100) / 10
   try { send({ type: 'meta', version: app.getVersion() }) } catch (e) {}
+  buLog('[startup] 自检开始 v' + app.getVersion())
 
-  // ① 版本
+  // ① 版本（★PRIORITY_FIX_V1：第一项就【主动检查更新】，不再等后台 autoUpdater）
   try {
-    item('version', 'run', '正在检查版本…')
-    item('version', 'ok', '当前版本 ' + app.getVersion() + '（已是最新；若有新版会自动下载并重启安装）', true)
+    item('version', 'run', '当前版本 ' + app.getVersion() + '，正在检查更新…', false)
+    let _vr = { state: 'unknown' }
+    if (process.env.DISABLE_AUTO_UPDATE === '1') {
+      _vr = { state: 'disabled' }
+    } else {
+      _vr = await checkUpdateOnce(15000)
+    }
+    if (_vr.state === 'available') {
+      // 有新版本 → 本项【保持"进行中"】（下载进度由 autoUpdater 的 download-progress 推送进来）
+      item('version', 'run', '发现新版本 v' + (_vr.version || '') + '，正在下载…（下载完自动重启安装；下载中可见百分比）', false, 0)
+    } else if (_vr.state === 'latest') {
+      item('version', 'ok', '当前版本 ' + app.getVersion() + '（已是最新）', true)
+    } else if (_vr.state === 'timeout') {
+      item('version', 'warn', '当前版本 ' + app.getVersion() + '，检查更新超时（网络较慢）——可稍后在界面里更新；若有新版会自动下载', true)
+    } else if (_vr.state === 'disabled') {
+      item('version', 'ok', '当前版本 ' + app.getVersion() + '（自动更新已禁用）', true)
+    } else {
+      item('version', 'warn', '当前版本 ' + app.getVersion() + '，检查更新失败：' + String(_vr.err || '').slice(0, 160) + '（不影响使用）', true)
+    }
   } catch (e) { item('version', 'bad', String(e).slice(0, 160), true) }
 
   // ② 运行环境（真的执行一次 Python + import 两个库）
@@ -53,45 +74,17 @@ async function runStartupChecks(win) {
     if (!py) {
       // ★AUTO_INSTALL_IN_CHECK_V1（1.0.180，用户要求）：
       //   "自检知道没有就应该立刻下载安装，而不是只出个提示" —— 自检【当场装】
-      item('env', 'run', '本机没有可用的 Python（' + tried.join(' / ') + '）→ 正在下载安装内置运行环境…' +
-        '\n约 85MB，视网速需要几分钟；★安装期间请保持客户端打开', false)
-      let _instErr = ''
-      let _instOk = false
+      // ★PRIORITY_FIX_V1（1.0.184）：不再阻塞自检 —— 改为【后台安装】，自检继续往下走
+      item('env', 'run', '本机没有可用的 Python（' + tried.join(' / ') + '）→ 已在【后台】开始下载安装内置运行环境（约 85MB）' +
+        '\n★可点「确认进入」先使用；装好后重启客户端，本项即变绿（进度见日志）', false)
       try {
-        const _ir = await Promise.race([
-          ensureBuPython(),
-          new Promise((res) => setTimeout(() => res({ ok: false, error: '安装超时（10 分钟）' }), 600000)),
-        ])
-        _instOk = !!(_ir && _ir.ok !== false)
-        if (!_instOk) _instErr = String((_ir && _ir.error) || '')
-      } catch (e) { _instErr = String((e && e.message) || e) }
-
-      // 装完复检：内置环境是否存在 + 真执行 playwright start/stop
-      let _finalOk = false
-      let _finalMsg = ''
-      try {
-        if (fs.existsSync(BUILTIN_PY)) {
-          const rr2 = await runAsync(BUILTIN_PY, ['-c',
-            'from playwright.sync_api import sync_playwright;p=sync_playwright().start();p.stop();print("start ok")'], { timeout: 60000 })
-          if (rr2.code === 0 && String(rr2.stdout || '').indexOf('start ok') >= 0) {
-            _finalOk = true
-            _finalMsg = '内置运行环境已安装完成并验证通过（真执行 playwright ✓）'
-          } else {
-            _finalMsg = '内置环境已下载，但真执行未通过：\n' + String((rr2.stderr || rr2.stdout) || '').slice(0, 220)
-          }
-        } else {
-          _finalMsg = '内置运行环境安装失败' + (_instErr ? '：' + _instErr : '（未返回具体原因）')
+        if (!global.__buInstalling) {
+          global.__buInstalling = true
+          ensureBuPython()
+            .then((r) => { buLog('[bu-env] 后台安装结束: ' + JSON.stringify(r || {}).slice(0, 200)); global.__buInstalling = false })
+            .catch((e2) => { buLog('[bu-env] 后台安装异常: ' + String((e2 && e2.message) || e2).slice(0, 160)); global.__buInstalling = false })
         }
-      } catch (e) { _finalMsg = '安装后复检异常：' + String((e && e.message) || e).slice(0, 160) }
-
-      if (_finalOk) {
-        item('env', 'ok', _finalMsg, true)
-      } else {
-        item('env', 'bad', _finalMsg +
-          '\n→ 可手动下载后【解压到】：' + path.join(path.dirname(process.execPath), 'python') + '（压缩包内已含 buvenv-test/Scripts/ 层级，解压到该目录即可）' +
-          '\n   下载地址：' + PY_BU_URL +
-          '\n   （也可点「确认进入」先用着，环境装好后重启即正常）', true)
-      }
+      } catch (e2) {}
     } else {
       const which = (py === BUILTIN_PY) ? '内置' : ('系统 ' + py)
       const r2 = await runAsync(py, ['-c', 'import playwright.sync_api, browser_use;print("ok")'], { timeout: 30000 })
@@ -101,27 +94,28 @@ async function runStartupChecks(win) {
         const _keyLine = (_rawErr.split('\n').filter((l) => /No module named|ModuleNotFoundError|ImportError|Error/.test(l)).pop() || '').trim()
         const _tailErr = _keyLine || _rawErr.slice(-400).trim()
         // ② 缺依赖 → 【当场补装】（用这个 python 自己的 pip）
-        item('env', 'run', which + ' Python ' + String(r1.stdout).trim() + ' 缺依赖 → 正在用它的 pip 安装 playwright / browser_use…' +
-          '\n（需要联网，可能几分钟；★安装期间请保持客户端打开）\n原始错误：' + _tailErr.slice(0, 200), false)
-        let _pipOut = ''
+        // ★PRIORITY_FIX_V1B（1.0.184）：补装放【后台】——自检不再等它（pip 可能几分钟）
+        item('env', 'warn', which + ' Python ' + String(r1.stdout).trim() + ' 缺依赖（playwright / browser_use）' +
+          '\n→ 已在【后台】用它的 pip 补装（需要联网，可能几分钟）\n★可点「确认进入」先使用；装好后重启客户端即变绿' +
+          '\n原始错误：' + _tailErr.slice(0, 160), true)
         try {
-          const _pi = await runAsync(py, ['-m', 'pip', 'install', '--no-warn-script-location', '--quiet',
-            'playwright==1.62.0', 'browser_use==0.13.10'], { timeout: 900000 })
-          _pipOut = String((_pi.stderr || '') + (_pi.stdout || '')).slice(-300).trim()
-          buLog('[bu-env] 自检补装 pip code=' + _pi.code + ' 输出尾部=' + _pipOut.slice(0, 200))
-        } catch (ePip) { _pipOut = 'pip 执行异常: ' + String((ePip && ePip.message) || ePip).slice(0, 160) }
-
-        const r2b = await runAsync(py, ['-c', 'import playwright.sync_api, browser_use;print("ok")'], { timeout: 30000 })
-        if (r2b.code === 0) {
-          item('env', 'ok', which + ' Python ' + String(r1.stdout).trim() + ' 依赖已自动补装完成（playwright + browser_use ✓）', true)
-        } else {
-          const _rawErr2 = String((r2b.stderr || '') + (r2b.stdout || ''))
-          const _key2 = (_rawErr2.split('\n').filter((l) => /No module named|ModuleNotFoundError|ImportError|Error/.test(l)).pop() || '').trim()
-          item('env', 'bad', which + ' Python ' + String(r1.stdout).trim() + ' 缺依赖，自动补装【未成功】\n' +
-            '原因：' + (_key2 || _rawErr2.slice(-400).trim()) + '\n' +
-            (_pipOut ? 'pip 输出：' + _pipOut + '\n' : '') +
-            '→ 可手动执行：\n   ' + String(r1.stdout).trim() + '\n   ' + py + ' -m pip install playwright browser_use', true)
-        }
+          if (!global.__buPipInstalling) {
+            global.__buPipInstalling = true
+            ;(async () => {
+              try {
+                const _pi = await runAsync(py, ['-m', 'pip', 'install', '--no-warn-script-location', '--quiet',
+                  'playwright==1.62.0', 'browser_use==0.13.10'], { timeout: 900000 })
+                buLog('[bu-env] 后台补装 pip code=' + _pi.code + ' 输出尾部=' + String((_pi.stderr || '') + (_pi.stdout || '')).slice(-200))
+              } catch (ePip) { buLog('[bu-env] 后台补装异常: ' + String((ePip && ePip.message) || ePip).slice(0, 160)) }
+              try {
+                const _c2 = buEnv && buEnv.getCached()
+                if (buEnv) { const _i2 = await buEnv.getBuEnvInfo(); await buEnv.reportBuEnv(_i2) }
+                buLog('[bu-env] 后台补装后复检完成')
+              } catch (e3) {}
+              global.__buPipInstalling = false
+            })()
+          }
+        } catch (ePip2) {}
       } else {
         // ★STEP3_REALCHECK_V1：import 通过 ≠ 真能用 —— 再【真执行一步】playwright start/stop
         item('env', 'run', which + ' Python ' + String(r1.stdout).trim() + '：正在真执行 playwright（start/stop）…', false, 90)
@@ -388,6 +382,9 @@ function enterMainApp() {
       mainWindow.loadURL(url)
       mainWindow.show()                       // ★ 显示主窗口
       try { if (splashWin && !splashWin.isDestroyed()) splashWin.close() } catch (e) {}   // ★ 关自检窗口
+      // ★ORDER_FIX_V1：进入主界面后【兜底补采】——若今天还没采过（例如用户没走自检的采集）
+      //   有 __hotCollecting 互斥 + __hotCollectedToday() 判断，不会与自检采集重复
+      setTimeout(() => { try { collectHotspotsDaily() } catch (e) {} }, 8000)
     }
   } catch (e) { buLog('[startup] 进入主界面失败: ' + String(e).slice(0, 140)) }
 }
@@ -410,7 +407,15 @@ ipcMain.handle('startup-check:pick-account', async (event, userId) => {
     item('account', 'ok', '已选择账号 userId=' + uid + '\nprofile=' + getProfileDir(), true)
     await ensureAccountProfile()               // 该账号目录的就绪/补漏（幂等）
     await detectLoginState(w)                  // ★ 再检测【这个账号】的登录态
-    await collectHotspotsWithProgress(w)       // ★HOT_COLLECT_V1：账号确定后再采集（逐平台进度）
+    // ★PRIORITY_FIX_V1C（1.0.184）：采集要开浏览器、可能几分钟 —— 限时 100 秒，
+    //   超时后让它在后台继续（自检不再卡在这一项上）
+    await Promise.race([
+      collectHotspotsWithProgress(w),
+      new Promise((res) => setTimeout(() => {
+        try { item('collect', 'warn', '采集耗时较长 → 已转后台继续（不影响进入客户端）', true) } catch (e) {}
+        res()
+      }, 100000)),
+    ])
     return { success: true, profile: getProfileDir() }
   } catch (e) { return { success: false, error: String((e && e.message) || e) } }
 })
@@ -674,6 +679,9 @@ async function createWindow() {   // USER_READY_V1: 需要在 loadURL 前 await 
   //   挂在它上面的 ensureAccountProfile / bu-env 自检 / 采集定时任务就都不会跑
   // ★SPLASH_SECOND_INSTANCE_FIX：用【深色】空白页替代 about:blank（纯白）——万一主窗口被意外显示出来（单实例/激活等路径）也不会是刺眼的白色
   try { mainWindow.loadURL('data:text/html,<body style="margin:0;background:%230a1620"></body>') } catch (e) {}
+  // ★ORDER_FIX_V1（1.0.185）：更新器【先于自检窗口】初始化 —— 否则自检第一项调
+  //   checkForUpdates() 时 autoUpdater 可能还没配好 feedURL → 检查失败
+  try { setupAutoUpdater(mainWindow) } catch (eAu) { buLog('[Updater] 初始化异常（忽略）: ' + String((eAu && eAu.message) || eAu).slice(0, 120)) }
   // ★SPLASH_WINDOW_V1：自检改成【独立窗口】（不是主窗口里的一层覆盖页）
   try {
     createSplashWindow()
@@ -685,9 +693,8 @@ async function createWindow() {   // USER_READY_V1: 需要在 loadURL 前 await 
   await preloadClientUserOnce()
 
   // ── 自动更新检测（打包后的生产环境）──
-  if (app.isPackaged) {
-    setupAutoUpdater(mainWindow)
-  }
+  // ★ORDER_FIX_V1：已提前到自检窗口创建之前初始化（见上）
+  // if (app.isPackaged) { setupAutoUpdater(mainWindow) }
 
   // ── 2026-08-18: 客户端常驻自动发布——定时检查 pending 任务，自动打开指纹浏览器页执行 ──
   setupAutoPublish()
@@ -1013,6 +1020,25 @@ function findBuiltinPy() {
 }
 function getBuiltinPy() { return findBuiltinPy() || BUILTIN_PY }
 const PY_BU_URL = 'https://aimarketing-1.oss-cn-hangzhou.aliyuncs.com/updates/python-bu.zip'
+// ★ORDER_FIX_V1：更新检查闸门 —— 同一时刻只允许一次 checkForUpdates（自检与 setupAutoUpdater 共用）
+let __updateCheckPromise = null
+function checkUpdateOnce(timeoutMs) {
+  // 开发环境不查（没配 dev 更新源，会误报 error）
+  if (!app.isPackaged && process.env.FORCE_UPDATE !== '1') return Promise.resolve({ state: 'disabled' })
+  if (__updateCheckPromise) return __updateCheckPromise
+  __updateCheckPromise = new Promise((resolve) => {
+    let done = false
+    const fin = (r) => { if (!done) { done = true; resolve(r) } }
+    const t = setTimeout(() => fin({ state: 'timeout' }), timeoutMs || 15000)
+    try {
+      autoUpdater.once('update-available', (i) => { clearTimeout(t); fin({ state: 'available', version: i && i.version }) })
+      autoUpdater.once('update-not-available', () => { clearTimeout(t); fin({ state: 'latest' }) })
+      autoUpdater.once('error', (e) => { clearTimeout(t); fin({ state: 'error', err: String((e && e.message) || e) }) })
+      autoUpdater.checkForUpdates().catch((e) => fin({ state: 'error', err: String((e && e.message) || e) }))
+    } catch (e) { clearTimeout(t); fin({ state: 'error', err: String((e && e.message) || e) }) }
+  })
+  return __updateCheckPromise
+}
 const BU_PY_DOWNLOADING = path.join(path.dirname(process.execPath), 'python', '.downloading')
 let _buPy = ''   // 2026-09-10: python 路径缓存（异步探测后填充——避免启动时同步探测阻塞界面）
 function getBuPython() {
@@ -1455,6 +1481,10 @@ function setupAutoUpdater(win) {
   // 启动后延迟 5 秒检查更新（2026-08-08：加 catch，更新检查失败不再导致进程崩溃退出）
   setTimeout(() => {
     console.log('[Updater] 正在检查更新...')
+    // ★ORDER_FIX_V1：走统一闸门（若自检已经查过，这里直接复用结果，不重复请求）
+    checkUpdateOnce(15000).catch(() => {})
+    return
+    // eslint-disable-next-line no-unreachable
     autoUpdater.checkForUpdates().catch((err) => {
       console.error('[Updater] 检查失败（忽略，不影响使用）:', err?.message || err)
     })
@@ -2601,15 +2631,12 @@ app.whenReady().then(() => {
       w.webContents.once('did-finish-load', async () => {
         // USER_READY_V1：改为幂等门（启动期已在 loadURL 前解析过 → 这里立即返回）
         const uid = await ensureUserResolved(2500)
-        await ensureAccountProfile()   // ACCOUNT_PROFILE_V1
-        // 迁移完，环境自检/采集才用新目录
-        setTimeout(() => {
-          try {
-            if (!buEnv) { buLog('[bu-env] ⚠️ 自检被跳过：buEnv 未加载'); return }
-            buEnv.ensureBuEnvOnStartup()
-          } catch (e) { buLog('[bu-env] 自检异常: ' + String(e).slice(0, 200)) }
-        }, 3000)
-        setTimeout(() => { try { collectHotspotsDaily() } catch (e) {} }, 8000)
+        await ensureAccountProfile()   // ACCOUNT_PROFILE_V1：该账号目录就绪/补漏
+        // ★ORDER_FIX_V1（1.0.185）：这里【不再】抢跑"环境自检安装"和"热点采集" ——
+        //   自检改成独立窗口后，这两个定时任务会在自检还没走完时就执行，
+        //   造成"账号还没选、登录态还没验，热点已经采完了"的错乱。
+        //   现在：环境自检安装 → 由自检页的"运行环境"项负责；热点采集 → 自检页按顺序（选账号→登录态→采集）执行。
+        buLog('[startup] 账号/profile 就绪（userId=' + String(uid || '') + '）——环境自检与采集交由自检页按顺序执行')
       })
     }
   } catch (e) { buLog('[iso] 挂载 did-finish-load 失败: ' + String(e).slice(0, 100)) }

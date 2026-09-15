@@ -101,13 +101,13 @@
   const nodes = {}
   let anyBad = false, doneN = 0
 
-  ITEMS.forEach((it) => {
+  ITEMS.forEach((it, idx) => {   // ★ORDER_FIX_V1：显示 1. 2. 3.… 序号，顺序一眼可见
     const d = document.createElement('div')
     d.className = 'it'
     d.innerHTML =
       '<span class="ic">·</span>' +
       '<div style="flex:1;min-width:0">' +
-        '<div class="nm"><span>' + it.name + '</span><span class="pct"></span></div>' +
+        '<div class="nm"><span>' + (idx + 1) + '. ' + it.name + '</span><span class="pct"></span></div>' +
         '<div class="dt">等待…</div>' +
         '<div class="iprog"><i></i></div>' +
       '</div>'
