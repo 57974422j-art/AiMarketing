@@ -629,23 +629,47 @@ function usernameFromToken(tk) {
 //        迁移到 browser-profile\{userId} 时只搬走了一部分，Default/ 等留在了根目录。
 //   安全前提：所有账号目录都已有 Cookies（数据就绪）才动手；否则只记日志。
 function cleanupProfileResidue() {
+  // ★PROFILE_SAFETY_FIX_V1（用户实测：登录态被接错地方）：
+  //   原来会把 browser-profile\Default\ 也挪走 —— 而 Default/ 正是【共用 profile 时期的登录态所在】，
+  //   "账号目录里有 Cookies 文件"根本区分不出"有登录态"和"Chrome 空模板（90112 字节）"。
+  //   现在：① 绝不动 Default/ ② 只挪真正的垃圾（缓存类目录）
+  //        ③ 先做【恢复】：账号目录缺 Cookies 而根目录有 Default/Cookies → 复制回去
   try {
     const root = path.join(path.dirname(process.execPath), 'data', 'browser-profile')
     if (!fs.existsSync(root)) return
-    const entries = fs.readdirSync(root)
-    const numeric = entries.filter((n) => /^\d+$/.test(n))
-    const residue = entries.filter((n) => !/^\d+$/.test(n))
-    if (!residue.length) return
-    if (!numeric.length) { buLog('[profile] 发现 ' + residue.length + ' 项残留，但没有账号目录 → 暂不清理'); return }
-    const allReady = numeric.every((n) => { try { return fs.existsSync(path.join(root, n, 'Default', 'Network', 'Cookies')) } catch (e) { return false } })
-    if (!allReady) { buLog('[profile] 有 ' + residue.length + ' 项残留，但账号目录尚未全部就绪 → 暂不清理'); return }
-    const bak = path.join(path.dirname(root), 'browser-profile-residue-' + Date.now())
+    const numeric = fs.readdirSync(root).filter((n) => /^\d+$/.test(n))
+
+    // ③ 恢复：账号目录没有 Cookies 时，从根目录的 Default/ 捞回来（这才是"把登录态接回去"）
+    let restored = 0
+    for (const n of numeric) {
+      try {
+        const mine = path.join(root, n, 'Default', 'Network', 'Cookies')
+        const srcCk = path.join(root, 'Default', 'Network', 'Cookies')
+        if (!fs.existsSync(srcCk)) continue
+        // ★按【大小】比较：账号目录那份若 >= 共用目录那份（例如都是 90112 空模板）就不动；
+        //   只有共用目录那份【更大】才回填（更可能是真登录态）
+        try {
+          if (fs.existsSync(mine) && fs.statSync(mine).size >= fs.statSync(srcCk).size) continue
+        } catch (e) {}
+        fs.mkdirSync(path.join(root, n, 'Default', 'Network'), { recursive: true })
+        fs.cpSync(srcCk, mine)
+        restored++
+        buLog('[profile] 已把共用目录的登录态恢复给账号 ' + n)
+      } catch (e) {}
+    }
+    if (restored) buLog('[profile] 恢复登录态：' + restored + ' 个账号')
+
+    // ①② 只挪"明确的垃圾"：绝不动 Default、账号目录、备份夹
+    const JUNK = ['Crashpad', 'BrowserMetrics', 'CrashpadMetrics-active.pma', 'ShaderCache', 'GrShaderCache',
+      'GPUPersistentCache', 'component_crx_cache', 'extensions_crx_cache', 'optimization_guide_model_store',
+      'segmentation_platform', 'DeferredBrowserMetrics']
+    const junk = fs.readdirSync(root).filter((n) => JUNK.indexOf(n) >= 0)
+    if (!junk.length) return
+    const bak = path.join(path.dirname(root), 'browser-profile-junk-' + Date.now())
     try { fs.mkdirSync(bak, { recursive: true }) } catch (e) {}
     let moved = 0
-    for (const n of residue) {
-      try { fs.renameSync(path.join(root, n), path.join(bak, n)); moved++ } catch (e) {}
-    }
-    buLog('[profile] 已把 ' + moved + '/' + residue.length + ' 项历史残留挪到 ' + bak)
+    for (const n of junk) { try { fs.renameSync(path.join(root, n), path.join(bak, n)); moved++ } catch (e) {} }
+    buLog('[profile] 已挪走 ' + moved + ' 项缓存垃圾（Default/ 与账号目录保持不动）')
   } catch (e) {}
 }
 
@@ -2587,6 +2611,11 @@ async function ensureAccountProfile() {
     const fails = []
     for (const name of fs.readdirSync(shared)) {
       if (name === uid) continue
+      // ★PROFILE_SAFETY_FIX_V1（用户实测：账号目录被弄乱/登录态丢失）：
+      //   ① 绝不复制【别的账号目录】（纯数字）—— 否则会嵌套进当前账号目录里
+      //   ② 绝不复制【备份夹】
+      if (/^\d+$/.test(name)) continue
+      if (name.indexOf('browser-profile-residue-') === 0) continue
       try {
         fs.cpSync(path.join(shared, name), path.join(mine, name), { recursive: true })
         okN++
