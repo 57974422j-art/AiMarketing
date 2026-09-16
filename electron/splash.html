@@ -181,11 +181,21 @@
 
   try {
     const api = window.electronAPI || {}
+    const lockUI = (v) => {
+      // ★UPDATE_GUARD_V1：新版本正在安装 → 禁用"确认进入/仍要继续"，避免用户在安装中途进入
+      try {
+        enter.disabled = true
+        skip.style.display = 'none'
+        hint.textContent = '新版本 v' + (v || '') + ' 正在安装，窗口稍后会自动重新打开 —— 请勿关闭本窗口或手动启动客户端'
+        hint.style.color = '#fcd34d'
+      } catch (e) {}
+    }
     const rxEl = document.getElementById('rx')
     let rxN = 0
     if (api.onStartupProgress) {
       api.onStartupProgress((d) => {
         if (!d) return
+        if (d.type === 'lock') { lockUI(d.version); return }   // ★UPDATE_GUARD_V1
         try { rxN++; if (rxEl) rxEl.textContent = String(rxN) } catch (e) {}   // ★SELFCHECK_RX_COUNTER_V1
         if (d.type === 'meta') { if (d.version) verEl.textContent = '客户端版本 ' + d.version; return }
         if (d.type === 'item') {

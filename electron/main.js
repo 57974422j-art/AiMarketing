@@ -24,9 +24,8 @@ async function runStartupChecks(win) {
   const w = win || splashWin || mainWindow
   const send = (d) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', d) } catch (e) {} }
   const item = (id, state, detail, done, progress) => {
-    const payload = { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }
-    try { sendProgress(payload, w) } catch (e) {}
-    try { send(payload) } catch (e) {}
+    // ★UPDATE_GUARD_V1：只发一次（原来 send() + sendProgress() 各发一遍 → 前端收到重复事件）
+    sendProgress({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }, w)
   }
   // ★STARTUP_STOPWATCH_V1：记录自检耗时（便于发现"哪一项拖慢了整体"）
   const __t0 = Date.now()
@@ -408,7 +407,14 @@ async function detectLoginState(win) {
 
 // 进入主界面（自检页点「确认进入」时调用）
 let __enteredMain = false   // ★WHITE_WINDOW_FIX_V2：是否已进入主界面（幂等，防重复）
+let __installing = false    // ★UPDATE_GUARD_V1：新版本【正在安装】——期间禁止进入主界面
 function enterMainApp() {
+  // ★UPDATE_GUARD_V1（用户指出）：下载完成 → 安装 → 重启，这条链没走完前【不允许进入主界面】，
+  //   否则会在"正在安装"的进程里操作，可能与安装器/重启冲突。
+  if (__installing) {
+    try { buLog('[startup] 新版本正在安装 → 暂不进入主界面（等待自动重启）') } catch (e) {}
+    return
+  }
   if (__enteredMain) return
   __enteredMain = true
   try {
@@ -1549,8 +1555,11 @@ function setupAutoUpdater(win) {
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[Updater] 下载完成:', info.version)
     rebuildShortcuts()
+    // ★UPDATE_GUARD_V1：置位"安装中" → 期间点「确认进入」或关窗都【不会进入主界面】
+    __installing = true
+    try { if (splashWin && !splashWin.isDestroyed()) splashWin.webContents.send('startup-check:progress', { type: 'lock', version: info.version }) } catch (e) {}
     // ★STEP4_UNIFY_UPDATE_V1：进度条第 2 段（安装）——明确告知会重启、窗口会自动重开（消除"客户端坏了"的错觉）
-    toSplash('run', '新版本 v' + info.version + ' 下载完成 → 正在安装…\n窗口稍后会【自动重新打开】，请不要手动启动（安装期间桌面图标可能短暂异常，属正常）', false, 100)
+    toSplash('run', '新版本 v' + info.version + ' 下载完成 → 正在安装…\n窗口稍后会【自动重新打开】，请不要手动启动也不要关闭窗口（安装期间桌面图标可能短暂异常，属正常）', false, 100)
     setUpd(`document.getElementById('status').textContent='更新完成 v${info.version}，即将重启安装...';document.getElementById('pct').textContent='100%';document.getElementById('bar').style.width='100%'`)
     win?.webContents.send('app:update-status', { status: 'ready', version: info.version, releaseNotes: info.releaseNotes })
     // 留 12 秒让用户看提示；若未手动操作，自动退出并安装重启
