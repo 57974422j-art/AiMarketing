@@ -3269,19 +3269,39 @@ function AgentPageInner() {
               if (next) loadBrainMemories()
             }}
               className={`w-full text-left px-2.5 py-2 rounded-lg text-[10px] transition ${showBrain ? 'bg-purple-500/20 text-purple-300' : 'bg-white/[0.03] hover:bg-white/[0.06] text-gray-400'}`}>
-              {showBrain ? `已记录 ${brainMemories.length} 条 · 点击收起` : `共 ${brainMemories.length} 条需求/偏好 · 点击展开`}
+              {showBrain
+                ? `画像 ${brainMemories.filter((m: any) => String(m.tags || '').includes('画像')).length} 条 · 点击收起`
+                : `共 ${brainMemories.length} 条记忆 · 点击展开`}
             </button>
             {showBrain && (
               <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
                 {brainMemories.length === 0 ? (
                   <p className="text-[9px] text-gray-700 px-1">聊天中让助手「记住我的行业/偏好…」即生成画像</p>
                 ) : (
-                  brainMemories.slice(0, 20).map((m, i) => (
-                    <div key={i} className="rounded-lg bg-purple-500/5 border border-purple-500/15 px-2 py-1.5">
-                      <p className="text-[10px] text-gray-300 leading-snug">{m.content}</p>
-                      {m.tags && <p className="text-[8px] text-purple-400/70 mt-0.5">#{m.tags}</p>}
-                    </div>
-                  ))
+                  <>
+                    {/* ★PROFILE_FIX_V1 补：画像 / 未接入需求 分组显示（原来混在一起） */}
+                    {brainMemories.filter((m: any) => String(m.tags || '').includes('画像')).map((m, i) => (
+                      <div key={'p' + i} className="rounded-lg bg-purple-500/5 border border-purple-500/15 px-2 py-1.5">
+                        <p className="text-[10px] text-gray-300 leading-snug">{m.content}</p>
+                        {m.tags && <p className="text-[8px] text-purple-400/70 mt-0.5">#{m.tags}</p>}
+                      </div>
+                    ))}
+                    {brainMemories.filter((m: any) => String(m.tags || '').includes('未接入')).length > 0 && (
+                      <>
+                        <p className="text-[9px] text-amber-500/70 px-1 pt-1.5">📝 未接入需求（产品改进反馈）</p>
+                        {brainMemories.filter((m: any) => String(m.tags || '').includes('未接入')).map((m, i) => (
+                          <div key={'n' + i} className="rounded-lg bg-amber-500/5 border border-amber-500/15 px-2 py-1.5">
+                            <p className="text-[10px] text-gray-300 leading-snug">{m.content}</p>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {brainMemories.filter((m: any) => !String(m.tags || '').includes('画像') && !String(m.tags || '').includes('未接入')).length > 0 && (
+                      <p className="text-[9px] text-gray-600 px-1 pt-1">
+                        另有 {brainMemories.filter((m: any) => !String(m.tags || '').includes('画像') && !String(m.tags || '').includes('未接入')).length} 条其它记忆
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             )}
