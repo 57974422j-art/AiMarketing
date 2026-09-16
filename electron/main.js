@@ -346,7 +346,12 @@ async function collectHotspotsWithProgress(win) {
     for (const nm of names) {
       _ci++
       item('collect', 'run', '正在整理 ' + _ci + '/' + names.length + '：' + nm, false, Math.round((_ci / names.length) * 100))
-      const ln = lines.find((x) => x.indexOf('[' + nm + ']') >= 0)
+      // ★HOT_STAT_FIX_V1（用户实测："怎么都是本次未启用"）：
+      //   A 类先跑会对抖音/快手/小红书打印 "[X] 已登录，但需开浏览器采集（暂未实现）"，
+      //   B 类后跑才打印 "[X] ✅ 采到 N 条"。原来 find 只取【第一条】→ 永远命中 A 类那条
+      //   → 显示"本次未启用"（即使 B 类已经采到了）。现在：优先取带 ✅/采到 的那条，否则取最后一条。
+      const _cands = lines.filter((x) => x.indexOf('[' + nm + ']') >= 0)
+      const ln = _cands.find((x) => x.indexOf('✅') >= 0 || x.indexOf('采到') >= 0) || _cands[_cands.length - 1] || ''
       if (!ln) { stat.push('· ' + nm + '：未涉及'); continue }
       if (ln.indexOf('未登录') >= 0) stat.push('· ' + nm + '：未登录（登录后下次启动自动采）')
       else if (ln.indexOf('暂未实现') >= 0) stat.push('· ' + nm + '：该平台需用浏览器方式采集（本次未启用）')
