@@ -202,6 +202,9 @@ async function searchByKeywords(keywords: string[]): Promise<HotSource[]> {
   const ts = Date.now()
   const out: HotSource[] = []
   await Promise.all(keywords.slice(0, 4).map(async (kw) => {
+    // ★TOPIC_GROUP_V1：中文关键词【跳过 HN】—— HN 是英文技术站，搜中文几乎没结果（用户实测"智能体"只出 1 条）
+    //   中文主题等中文源（客户端已登录浏览器搜 微博/B站/抖音/快手）做好后再接
+    if (/[\u4e00-\u9fa5]/.test(String(kw))) return
     try {
       const u = 'https://hn.algolia.com/api/v1/search?tags=story&hitsPerPage=8&query=' + encodeURIComponent(kw)
       const r = await fetch(u, { headers: { 'User-Agent': 'AiMarketing/1.0' }, signal: AbortSignal.timeout(12000) })

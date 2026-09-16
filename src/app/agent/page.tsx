@@ -2619,12 +2619,17 @@ function AgentPageInner() {
                       {hotLoading ? '正在获取热榜…' : '暂无热点数据'}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                      {hotTopics.slice(0, 3).map((src) => (
+                    (() => {
+                      // ★TOPIC_GROUP_V1（用户批准）：分组显示 —— 🎯 我的主题 / 🔥 全网热搜 分开；
+                      // 不再只显示前 3 个源（原来 slice(0,3)：主题源排最前会把百度热搜/HackerNews 挤掉）
+                      const isTopicSrc = (s: any) => String((s && s.source) || '').indexOf('HN·') === 0
+                      const topicList = hotTopics.filter(isTopicSrc)
+                      const generalList = hotTopics.filter((s: any) => !isTopicSrc(s))
+                      const HotCard = (src: any) => (
                         <div key={src.source} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                           <div className="text-[11px] font-semibold text-orange-300/90 mb-2">{src.source}</div>
                           <ul className="space-y-1.5">
-                            {src.items.slice(0, 5).map((it, i) => (
+                            {src.items.slice(0, 5).map((it: any, i: number) => (
                               <li key={i}>
                                 <button
                                   onClick={() => sendMessage(`结合「${it.title}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
@@ -2637,8 +2642,24 @@ function AgentPageInner() {
                             ))}
                           </ul>
                         </div>
-                      ))}
-                    </div>
+                      )
+                      return (
+                        <>
+                          {topicList.length > 0 && (
+                            <div className="mb-3">
+                              <div className="text-[10px] text-cyan-300/80 mb-1.5">🎯 我的主题（按你关心的主题搜到的）</div>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">{topicList.map(HotCard)}</div>
+                            </div>
+                          )}
+                          {generalList.length > 0 && (
+                            <div>
+                              <div className="text-[10px] text-orange-300/70 mb-1.5">🔥 全网热搜</div>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">{generalList.map(HotCard)}</div>
+                            </div>
+                          )}
+                        </>
+                      )
+                    })()
                   )}
                 </div>
 
