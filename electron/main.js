@@ -1184,12 +1184,33 @@ function checkUpdateOnce(timeoutMs) {
 }
 const BU_PY_DOWNLOADING = path.join(path.dirname(process.execPath), 'python', '.downloading')
 let _buPy = ''   // 2026-09-10: python 路径缓存（异步探测后填充——避免启动时同步探测阻塞界面）
+// ★PY_RESOLVE_FIX_V1：系统 Python 常见安装位置（同步 existsSync，快，不算阻塞）
+function findSystemPythonSync() {
+  const u = process.env.USERNAME || ''
+  const cands = [
+    'C:/Users/' + u + '/AppData/Local/Programs/Python/Python314/python.exe',
+    'C:/Users/' + u + '/AppData/Local/Programs/Python/Python313/python.exe',
+    'C:/Users/' + u + '/AppData/Local/Programs/Python/Python312/python.exe',
+    'C:/Program Files/Python314/python.exe',
+    'C:/Program Files/Python313/python.exe',
+    'C:/Program Files/Python312/python.exe',
+    'C:/Python314/python.exe',
+    'C:/Python313/python.exe',
+    'C:/Python312/python.exe',
+  ]
+  for (const p of cands) { try { if (fs.existsSync(p)) return p } catch (e) {} }
+  return ''
+}
+
 function getBuPython() {
   if (_buPy) return _buPy
   const _fb = findBuiltinPy()   // ★BUILTIN_PY_DYNAMIC_V1
   if (_fb) return _fb
   if (process.env.BU_PYTHON) return process.env.BU_PYTHON
-  return BUILTIN_PY   // 未探测时的兜底（异步探测完成会更新 _buPy）
+  // ★PY_RESOLVE_FIX_V1：内置没装时，别再返回"不存在的内置路径"（那会让 bu_check/bu_hot 全废）
+  const _sys = findSystemPythonSync()
+  if (_sys) { _buPy = _sys; return _sys }
+  return 'python'   // 最后兜底交给 PATH（spawn 会去找）
 }
 
 // 2026-09-10: 异步执行外部命令（不阻塞主进程）
@@ -2783,6 +2804,9 @@ app.whenReady().then(() => {
         // USER_READY_V1：改为幂等门（启动期已在 loadURL 前解析过 → 这里立即返回）
         const uid = await ensureUserResolved(2500)
         await ensureAccountProfile()   // ACCOUNT_PROFILE_V1：该账号目录就绪/补漏
+        // ★PY_RESOLVE_FIX_V1：显式解析可用的 Python（内置→系统→py）并填充 _buPy。
+        //   185 删掉 ensureBuEnvOnStartup 后没人做这件事 → bu_check/bu_hot 全跑不起来（自检"检测未返回结果"）
+        try { resolveBuPythonAsync().then((py) => buLog('[bu-python] 启动解析结果: ' + String(py))).catch(() => {}) } catch (e) {}
         try { cleanupProfileResidue() } catch (e) {}   // ★ACCOUNT_NAME_AND_RESIDUE_V1：清 browser-profile 根目录的历史残留（安全前提见函数注释）
         // ★ORDER_FIX_V1（1.0.185）：这里【不再】抢跑"环境自检安装"和"热点采集" ——
         //   自检改成独立窗口后，这两个定时任务会在自检还没走完时就执行，
