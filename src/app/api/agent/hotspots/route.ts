@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+// ★TOPIC_SEARCH_V1：热点接口在 middleware 白名单里（免登录），所以要自己从 cookie 解析用户
+import { getAuthFromCookie } from '@/lib/api-auth'
 
 // 今日热点接口（融合 BaiLongma 热点推荐：多源聚合，免 key，本地缓存 1 小时）
 // 取法参考 BaiLongma trending.js / hotspots.js：中国热榜走免 key 聚合 + 全球走 HackerNews/Reddit，
@@ -170,6 +172,56 @@ async function getReportedSources(): Promise<HotSource[]> {
 let cache: { at: number; data: HotSource[] } | null = null
 const TTL = 60 * 60 * 1000
 
+// ═══ ★TOPIC_SEARCH_V1（2026-09-16 第3批）：按用户画像里的主题去【搜索】热点 ═══
+//   诉求：不再只推"大家都一样的总榜"，而是按用户关心的主题推（如 admin 的 AI）
+//   主题来源：User.industry（主主题）+ AgentMemory 标签含 '画像,主题' 的「用户关注主题」
+async function getUserKeywords(userId: number): Promise<string[]> {
+  const kws: string[] = []
+  try {
+    const { PrismaClient } = await import('@prisma/client')
+    const p = new PrismaClient()
+    const u = await p.user.findUnique({ where: { id: userId }, select: { username: true, industry: true } })
+    const username = u?.username || String(userId)
+    if (u?.industry) kws.push(String(u.industry).trim())
+    const ms = await p.agentMemory.findMany({
+      where: { userId: username, tags: { contains: '画像,主题' } }, take: 5,
+    })
+    for (const m of ms) {
+      String(m.content || '').replace(/^用户关注主题[：:]\s*/, '').split(/[,，、]/).forEach((x) => {
+        const t = x.trim()
+        if (t && !kws.includes(t)) kws.push(t)
+      })
+    }
+    await p.$disconnect()
+  } catch (e) {}
+  return kws.filter(Boolean).slice(0, 4)
+}
+
+// 按关键词搜索（先用 HackerNews Algolia —— 服务器实测可访问、官方 API、JSON 好解析）
+async function searchByKeywords(keywords: string[]): Promise<HotSource[]> {
+  const ts = Date.now()
+  const out: HotSource[] = []
+  await Promise.all(keywords.slice(0, 4).map(async (kw) => {
+    try {
+      const u = 'https://hn.algolia.com/api/v1/search?tags=story&hitsPerPage=8&query=' + encodeURIComponent(kw)
+      const r = await fetch(u, { headers: { 'User-Agent': 'AiMarketing/1.0' }, signal: AbortSignal.timeout(12000) })
+      if (!r.ok) return
+      const d: any = await r.json()
+      const items = (d.hits || [])
+        .filter((h: any) => h && h.title)
+        .slice(0, 8)
+        .map((h: any, i: number) => ({
+          title: String(h.title),
+          hot: String(h.points ?? ''),
+          url: h.url || ('https://news.ycombinator.com/item?id=' + h.objectID),
+          rank: i + 1,
+        }))
+      if (items.length) out.push({ source: 'HN·' + kw, region: 'global', items, fetchedAt: ts })
+    } catch (e) {}
+  }))
+  return out
+}
+
 export async function GET(request: NextRequest) {
   try {
     const now = Date.now()
@@ -181,8 +233,10 @@ export async function GET(request: NextRequest) {
     // 2026-09-13 改造：① 服务器直调【今日头条 + 百度热搜】（实测 200，秒级）
     //              ② 客户端采集上报（微博/B站/抖音/小红书/快手——需 cookie/签名，见 /api/agent/hotspot-report）
     //              ③ 抓不到就【不显示该源】——不再用假数据兜底
-    const [toutiao, baidu, hn, reddit, reported] = await Promise.all([
-      fetchToutiao(), fetchBaidu(), fetchHackerNews(), fetchReddit(), getReportedSources(),
+    // ★TOPIC_SEARCH_V1：摘掉 Reddit —— 实测服务器网络到不了（HTTP 000 超时），
+    //   每次都白等并拖慢整条链路；fetchReddit 定义保留，将来网络可达可再启用
+    const [toutiao, baidu, hn, reported] = await Promise.all([
+      fetchToutiao(), fetchBaidu(), fetchHackerNews(), getReportedSources(),
     ])
 
     const cnSources: HotSource[] = []
@@ -194,11 +248,22 @@ export async function GET(request: NextRequest) {
     const sources: HotSource[] = [
       ...cnSources,
       ...(hn.length ? [{ source: 'HackerNews', region: 'global' as const, items: hn, fetchedAt: ts }] : []),
-      ...(reddit.length ? [{ source: 'Reddit', region: 'global' as const, items: reddit, fetchedAt: ts }] : []),
     ]
 
     cache = { at: now, data: sources }
-    return NextResponse.json({ success: true, sources, cached: false })
+
+    // ★TOPIC_SEARCH_V1：按【当前用户的主题】搜索 —— 这部分【不进全局缓存】（每人主题不同）
+    let topicSources: HotSource[] = []
+    try {
+      const auth = getAuthFromCookie(request as any)
+      if (auth?.userId) {
+        const kws = await getUserKeywords(auth.userId)
+        if (kws.length) topicSources = await searchByKeywords(kws)
+      }
+    } catch (e) {}
+
+    // 主题结果排前面：用户一眼看到"跟我相关的"
+    return NextResponse.json({ success: true, sources: [...topicSources, ...sources], cached: false })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message }, { status: 500 })
   }
