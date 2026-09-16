@@ -38,12 +38,27 @@ def _query_cookies(conn):
     return _r
 
 rows = None
-try:   # ① immutable 直读
-    _uri = 'file:///' + ck.replace(os.sep, '/').lstrip('/') + '?immutable=1'
-    rows = _query_cookies(sqlite3.connect(_uri, uri=True))
-except Exception as _e:
-    _last_err = 'immutable: ' + str(_e)[:90]
+
+# ★CDP_COOKIE_V1（方案 A）：优先用主进程通过 9222 导出的 cookie。
+#   实测：Chrome 运行时独占锁 Cookies 文件 → immutable/普通读/PowerShell 复制【全部失败】，
+#        只有通过 9222 问 Chrome 才拿得到。主进程会在检测前先导出到 <userData>/bu_cookies_cdp.json。
+try:
+    _cdpfile = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(prof.rstrip('/')))), 'bu_cookies_cdp.json')
+    if os.path.exists(_cdpfile):
+        import json as _json
+        _cd = _json.load(open(_cdpfile, encoding='utf-8'))
+        if _cd and _cd.get('cookies') and (time.time() * 1000 - (_cd.get('at') or 0)) < 600000:
+            rows = [(x.get('host_key', ''), x.get('name', ''), x.get('expires_utc', 0)) for x in _cd['cookies']]
+except Exception:
     rows = None
+
+try:   # ① immutable 直读（仅当 CDP 没拿到时）
+    if rows is None:
+        _uri = 'file:///' + ck.replace(os.sep, '/').lstrip('/') + '?immutable=1'
+        rows = _query_cookies(sqlite3.connect(_uri, uri=True))
+except Exception as _e:
+    if rows is None:
+        _last_err = 'immutable: ' + str(_e)[:90]
 
 if rows is None:   # ② 复制读（回退）
     for _try in range(4):

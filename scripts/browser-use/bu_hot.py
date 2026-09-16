@@ -41,6 +41,20 @@ def read_cookies(profile):
     if not os.path.exists(ck):
         print('NO_COOKIES:' + ck)
         return []
+    # ★CDP_COOKIE_V1（方案 A）：优先用主进程通过 9222 导出的 cookie
+    #   （实测：Chrome 运行时独占锁 Cookies 文件，读文件/复制/immutable 全部失败，只能问 Chrome 要）
+    try:
+        import json as _json
+        _cdpfile = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(profile.rstrip('/')))), 'bu_cookies_cdp.json')
+        if os.path.exists(_cdpfile):
+            _cd = _json.load(open(_cdpfile, encoding='utf-8'))
+            if _cd and _cd.get('cookies') and (time.time() * 1000 - (_cd.get('at') or 0)) < 600000:
+                _rows = [(x.get('host_key', ''), x.get('name', ''), x.get('value', '')) for x in _cd['cookies']]
+                if _rows:
+                    print('（CDP 导出直读成功，%d 条 cookie）' % len(_rows))
+                    return _rows
+    except Exception as _e:
+        print('CDP_COOKIES_FAIL:' + str(_e)[:80])
     # 2026-09-13: 【immutable 直读】——Chrome 运行时独占锁 Cookie 库，copy 会 WinError 32；
     #   而用 sqlite 的 immutable=1 只读模式可以绕过锁（实测有效）。失败再退回拷贝。
     uri = 'file:///' + ck.replace(os.sep, '/').lstrip('/') + '?immutable=1'

@@ -314,6 +314,8 @@ async function collectHotspotsWithProgress(win) {
   __hotCollecting = true
   try {
     item('collect', 'run', '正在采集热点（读取本机已登录平台…）')
+    // ★CDP_COOKIE_V1：Chrome 开着时先通过 9222 导出一份 cookie
+    try { item('collect', 'run', '正在准备登录态…'); await dumpCookiesViaCDP('热点采集前') } catch (e) {}
     // ★HOT_POST_FIX_V1：必须带 --post（上报服务器）+ --cookie（鉴权），否则采集到了前端也看不到
     let __ck = ''
     try { __ck = await getServerCookie() } catch (e) { __ck = '' }
@@ -335,8 +337,9 @@ async function collectHotspotsWithProgress(win) {
     })
     let out = ''
     try {
-      const outA2 = await runHot(base, 60000)                                   // A 类：微博/B站（读 cookie，快）
-      const outB2 = await runHot(base.concat(['--browser']), 180000)            // B 类：抖音/快手（开浏览器页内取数）
+      // ★CDP_COOKIE_V1：放宽子步骤时限（用户要求不限制时间；这里只作"防永久挂死"的兜底）
+      const outA2 = await runHot(base, 300000)                                  // A 类：微博/B站（读 cookie）
+      const outB2 = await runHot(base.concat(['--browser']), 600000)            // B 类：抖音/快手（开浏览器页内取数）
       out = String(outA2) + String.fromCharCode(10) + String(outB2)
     } catch (e) { out = '' }
     const lines = String(out).split(/[\r\n]+/)
@@ -375,6 +378,8 @@ async function collectHotspotsWithProgress(win) {
 // 检测【当前选定账号】的平台登录态（ACCOUNT_PICK_V1 从 ⑤ 拆出来）
 async function detectLoginState(win) {
   const w = win || splashWin || mainWindow
+  // ★CDP_COOKIE_V1：Chrome 开着时先通过 9222 导出一份 cookie（读文件会被锁，实测确认）
+  try { await dumpCookiesViaCDP('登录态检测前') } catch (e) {}
   const item = (id, state, detail, done, progress) => sendProgress({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }, w)
   try {
     item('login', 'run', '正在检测各平台登录态（账号 userId=' + (getClientUserId() || '?') + '，需要几秒）…')
@@ -458,15 +463,9 @@ ipcMain.handle('startup-check:pick-account', async (event, userId) => {
     item('account', 'ok', '已选择账号 userId=' + uid + '\nprofile=' + getProfileDir(), true)
     await ensureAccountProfile()               // 该账号目录的就绪/补漏（幂等）
     await detectLoginState(w)                  // ★ 再检测【这个账号】的登录态
-    // ★PRIORITY_FIX_V1C（1.0.184）：采集要开浏览器、可能几分钟 —— 限时 100 秒，
-    //   超时后让它在后台继续（自检不再卡在这一项上）
-    await Promise.race([
-      collectHotspotsWithProgress(w),
-      new Promise((res) => setTimeout(() => {
-        try { item('collect', 'warn', '采集耗时较长 → 已转后台继续（不影响进入客户端）', true) } catch (e) {}
-        res()
-      }, 100000)),
-    ])
+    // ★CDP_COOKIE_V1（用户要求）：去掉 100 秒硬超时 —— 采集是必要流程，该等就等；
+    //   一个平台一个平台地走，成功/失败都会显示（失败带原因）。全失败也不影响进入。
+    await collectHotspotsWithProgress(w)
     return { success: true, profile: getProfileDir() }
   } catch (e) { return { success: false, error: String((e && e.message) || e) } }
 })
@@ -694,6 +693,54 @@ function cleanupProfileResidue() {
     buLog('[profile] 已收敛 ' + moved + '/' + junk.length + ' 项历史遗留 → ' + bak + '（只移动未删除，可回退）')
   } catch (e) {}
 }
+// ═══ ★CDP_COOKIE_V1（方案 A）：Chrome 开着时，通过 9222 向 Chrome 要 cookie ═══
+//   实测：Windows 下 Chrome 独占锁 Cookies 文件 → immutable 直读 / 普通读 / PowerShell 复制 全部失败；
+//        只有 9222（CDP）可用。所以检测/采集前先试着从 9222 导一份 cookie 给脚本用。
+//   成功 → 写 data\bu_cookies_cdp.json（脚本优先读）；失败/没开 → 什么都不做（脚本走原路）。
+async function dumpCookiesViaCDP(reason) {
+  try {
+    const r = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(2500) })
+    if (!r.ok) return false
+    const v = await r.json()
+    const wsUrl = v && v.webSocketDebuggerUrl
+    if (!wsUrl) return false
+    const WS = require('ws')
+    const cookies = await new Promise((resolve) => {
+      let done = false
+      const fin = (x) => { if (!done) { done = true; resolve(x) } }
+      try {
+        const ws = new WS(wsUrl)
+        const t = setTimeout(() => { try { ws.close() } catch (e) {} ; fin(null) }, 10000)
+        ws.on('open', () => { try { ws.send(JSON.stringify({ id: 1, method: 'Storage.getCookies' })) } catch (e) { clearTimeout(t); fin(null) } })
+        ws.on('message', (d) => {
+          try {
+            const m = JSON.parse(String(d))
+            if (m && m.id === 1) {
+              clearTimeout(t)
+              fin((m.result && m.result.cookies) || [])
+              try { ws.close() } catch (e) {}
+            }
+          } catch (e) {}
+        })
+        ws.on('error', () => { clearTimeout(t); fin(null) })
+      } catch (e) { fin(null) }
+    })
+    if (!cookies || !cookies.length) return false
+    // 转成脚本要的字段（host_key / name / value / expires_utc）
+    const norm = cookies.map((k) => ({
+      host_key: String(k.domain || ''),
+      name: String(k.name || ''),
+      value: String(k.value || ''),
+      // Chrome 内部时间 = Unix 秒 * 1e6 + 11644473600000000（1601 基准）；会话 cookie（-1/0）记 0
+      expires_utc: (k.expires && k.expires > 0) ? Math.round(k.expires * 1000000 + 11644473600000000) : 0,
+    }))
+    const file = path.join(app.getPath('userData'), 'bu_cookies_cdp.json')
+    try { fs.writeFileSync(file, JSON.stringify({ at: Date.now(), reason: reason || '', cookies: norm })) } catch (e) { return false }
+    buLog('[cdp] 已通过 9222 导出 ' + norm.length + ' 条 cookie（' + (reason || '') + '）')
+    return true
+  } catch (e) { return false }
+}
+
 // ═══ ★SELFCHECK_PROGRESS_FIX_V1：自检进度事件的统一发送口 ═══
 //   背景：用户点账号后按钮高亮、采集也跑了（IPC 通），但"平台登录态"等项不更新
 //        → 说明 startup-check:progress 没回到自检窗。这里改成【多窗口都发】+ 写日志，
