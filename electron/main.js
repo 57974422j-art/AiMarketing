@@ -629,50 +629,66 @@ function usernameFromToken(tk) {
 //        迁移到 browser-profile\{userId} 时只搬走了一部分，Default/ 等留在了根目录。
 //   安全前提：所有账号目录都已有 Cookies（数据就绪）才动手；否则只记日志。
 function cleanupProfileResidue() {
-  // ★PROFILE_SAFETY_FIX_V1（用户实测：登录态被接错地方）：
-  //   原来会把 browser-profile\Default\ 也挪走 —— 而 Default/ 正是【共用 profile 时期的登录态所在】，
-  //   "账号目录里有 Cookies 文件"根本区分不出"有登录态"和"Chrome 空模板（90112 字节）"。
-  //   现在：① 绝不动 Default/ ② 只挪真正的垃圾（缓存类目录）
-  //        ③ 先做【恢复】：账号目录缺 Cookies 而根目录有 Default/Cookies → 复制回去
+  // ★PROFILE_UNIFY_V1（方案甲定稿，用户拍板）：登录态唯一位置 = browser-profile\{账号Id}\Default\Network\Cookies
+  //   本函数负责把历史遗留"收敛"过来：① 把根目录 Default 的登录态分发给缺登录态的账号
+  //   ② 把根目录的非数字项、账号目录里的【嵌套数字目录】（如 7\1\）移进垃圾夹
+  //   ★ 只"移动不删除"，全部写日志，方便回退
   try {
-    const root = path.join(path.dirname(process.execPath), 'data', 'browser-profile')
+    const base = app.getPath('userData')
+    const root = path.join(base, 'browser-profile')
     if (!fs.existsSync(root)) return
-    const numeric = fs.readdirSync(root).filter((n) => /^\d+$/.test(n))
+    const size = (p) => { try { return fs.statSync(p).size } catch (e) { return -1 } }
+    const entries = fs.readdirSync(root)
+    const numeric = entries.filter((n) => /^\d+$/.test(n))
 
-    // ③ 恢复：账号目录没有 Cookies 时，从根目录的 Default/ 捞回来（这才是"把登录态接回去"）
-    let restored = 0
+    // ① 分发：根目录 Default 里的登录态，给"缺登录态或那份更小"的账号各复制一份
+    try {
+      const srcCk = path.join(root, 'Default', 'Network', 'Cookies')
+      if (fs.existsSync(srcCk)) {
+        const srcSize = size(srcCk)
+        let gave = 0
+        for (const n of numeric) {
+          const mine = path.join(root, n, 'Default', 'Network', 'Cookies')
+          if (size(mine) >= srcSize) continue
+          try {
+            fs.mkdirSync(path.join(root, n, 'Default', 'Network'), { recursive: true })
+            fs.cpSync(srcCk, mine)
+            gave++
+          } catch (e) {}
+        }
+        if (gave) buLog('[profile] 已把共用(Default)登录态分发给 ' + gave + ' 个账号')
+      }
+    } catch (e) {}
+
+    // 收集要移走的
+    const junk = []
+    // ② 根目录的非数字项（Default/、缓存目录…）——方案甲下都不该留在根目录
+    for (const n of entries) {
+      if (/^\d+$/.test(n)) continue
+      junk.push(n)
+    }
+    // ③ 账号目录里的【嵌套数字目录】（7\1\ 这种，由老的复制 bug 造成）
     for (const n of numeric) {
       try {
-        const mine = path.join(root, n, 'Default', 'Network', 'Cookies')
-        const srcCk = path.join(root, 'Default', 'Network', 'Cookies')
-        if (!fs.existsSync(srcCk)) continue
-        // ★按【大小】比较：账号目录那份若 >= 共用目录那份（例如都是 90112 空模板）就不动；
-        //   只有共用目录那份【更大】才回填（更可能是真登录态）
-        try {
-          if (fs.existsSync(mine) && fs.statSync(mine).size >= fs.statSync(srcCk).size) continue
-        } catch (e) {}
-        fs.mkdirSync(path.join(root, n, 'Default', 'Network'), { recursive: true })
-        fs.cpSync(srcCk, mine)
-        restored++
-        buLog('[profile] 已把共用目录的登录态恢复给账号 ' + n)
+        for (const sub of fs.readdirSync(path.join(root, n))) {
+          if (!/^\d+$/.test(sub)) continue
+          junk.push(path.join(n, sub))
+        }
       } catch (e) {}
     }
-    if (restored) buLog('[profile] 恢复登录态：' + restored + ' 个账号')
+    if (!junk.length) { buLog('[profile] 无历史遗留需要收敛（目录已干净）'); return }
 
-    // ①② 只挪"明确的垃圾"：绝不动 Default、账号目录、备份夹
-    const JUNK = ['Crashpad', 'BrowserMetrics', 'CrashpadMetrics-active.pma', 'ShaderCache', 'GrShaderCache',
-      'GPUPersistentCache', 'component_crx_cache', 'extensions_crx_cache', 'optimization_guide_model_store',
-      'segmentation_platform', 'DeferredBrowserMetrics']
-    const junk = fs.readdirSync(root).filter((n) => JUNK.indexOf(n) >= 0)
-    if (!junk.length) return
-    const bak = path.join(path.dirname(root), 'browser-profile-junk-' + Date.now())
+    const bak = path.join(base, 'browser-profile-junk-' + Date.now())
     try { fs.mkdirSync(bak, { recursive: true }) } catch (e) {}
     let moved = 0
-    for (const n of junk) { try { fs.renameSync(path.join(root, n), path.join(bak, n)); moved++ } catch (e) {} }
-    buLog('[profile] 已挪走 ' + moved + ' 项缓存垃圾（Default/ 与账号目录保持不动）')
+    for (const j of junk) {
+      const src = path.join(root, j)
+      const dst = path.join(bak, String(j).replace(/[\\/]/g, '__'))
+      try { fs.renameSync(src, dst); moved++ } catch (e) {}
+    }
+    buLog('[profile] 已收敛 ' + moved + '/' + junk.length + ' 项历史遗留 → ' + bak + '（只移动未删除，可回退）')
   } catch (e) {}
 }
-
 // ═══ ★SELFCHECK_PROGRESS_FIX_V1：自检进度事件的统一发送口 ═══
 //   背景：用户点账号后按钮高亮、采集也跑了（IPC 通），但"平台登录态"等项不更新
 //        → 说明 startup-check:progress 没回到自检窗。这里改成【多窗口都发】+ 写日志，
@@ -2961,7 +2977,9 @@ function findBrowserExe() {
 // 2026-08-26: 每次打开浏览器前清会话文件（Last Session/Tabs）——配合 --no-restore-session-state 双保险，彻底不恢复旧tab
 function clearBrowserSessionFiles() {
   try {
-    const profileDir = path.join(app.getPath('userData'), 'browser-profile')
+    // ★PROFILE_UNIFY_V1（方案甲定稿）：登录态统一在 browser-profile\{账号Id}\ ——
+    //   这里原来用的是【根目录】（没有账号 Id），属于漏网点
+    const profileDir = getProfileDir()
     for (const f of ['Last Session', 'Last Tabs', 'Current Session', 'Current Tabs', 'Last Browser', 'Last Version']) {
       const sp = path.join(profileDir, f)
       if (fs.existsSync(sp)) { try { fs.rmSync(sp, { force: true }) } catch {} }
