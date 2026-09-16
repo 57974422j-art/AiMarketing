@@ -254,7 +254,15 @@ async function runStartupChecks(win) {
       let tk = ''
       try { const ck = await getServerCookie(); tk = (String(ck).match(/token=([^;]+)/) || [])[1] || '' } catch (e) {}
       const i = list.findIndex((a) => String(a.userId) === cur)
-      const rec = { userId: cur, name: (i >= 0 && list[i].name) ? list[i].name : ('账号 ' + cur), token: tk || ((i >= 0 && list[i].token) || ''), lastUsed: Date.now() }
+      // ★ACCOUNT_NAME_AND_RESIDUE_V1：优先用 token 里的 username（admin / mbb…），不再只显示"账号 1"
+      const uname = usernameFromToken(tk) || usernameFromToken((i >= 0 && list[i].token) || '')
+      const rec = {
+        userId: cur,
+        name: uname || ((i >= 0 && list[i].name) ? list[i].name : ('账号 ' + cur)),
+        username: uname || ((i >= 0 && list[i].username) || ''),
+        token: tk || ((i >= 0 && list[i].token) || ''),
+        lastUsed: Date.now(),
+      }
       if (i >= 0) list[i] = rec; else list.push(rec)
     }
     // 本机 browser-profile 下出现过的账号目录（有平台登录态，但可能没有产品 token）
@@ -267,12 +275,17 @@ async function runStartupChecks(win) {
     } catch (e) {}
     list.sort((a, b) => (Number(b.lastUsed) || 0) - (Number(a.lastUsed) || 0))
     try { fs.writeFileSync(accFile, JSON.stringify(list, null, 2)) } catch (e) {}
-    const payload = list.map((a) => ({
-      userId: String(a.userId),
-      name: String(a.name || ('账号 ' + a.userId)),
-      current: String(a.userId) === cur,
-      canSwitch: !!a.token,
-    }))
+    const payload = list.map((a) => {
+      // ★ACCOUNT_NAME_AND_RESIDUE_V1：能解析出 username 就用它（admin / mbb…）
+      const un = usernameFromToken(a.token) || String(a.username || '')
+      const nm = un || String(a.name || '') || ('账号 ' + a.userId)
+      return {
+        userId: String(a.userId),
+        name: nm,
+        current: String(a.userId) === cur,
+        canSwitch: !!a.token,
+      }
+    })
     try { w.webContents.send('startup-check:accounts', { current: cur, list: payload }) } catch (e) {}
     if (!payload.length) {
       item('account', 'warn', '本机还没有账号记录（可点下方「登录新账号」）', true)
@@ -589,6 +602,42 @@ if (app.isPackaged) {
     process.env.PLAYWRIGHT_BROWSERS_PATH = bundledBrowsers
     console.log('[FP] 使用打包内浏览器:', bundledBrowsers)
   }
+}
+
+// ★ACCOUNT_NAME_AND_RESIDUE_V1：从登录 token 的 payload 里取用户名（token 里本来就有）
+function usernameFromToken(tk) {
+  try {
+    const seg = String(tk || '').split('.')[1]
+    if (!seg) return ''
+    const b64 = seg.replace(/-/g, '+').replace(/_/g, '/')
+    const j = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'))
+    return String((j && j.username) || '')
+  } catch (e) { return '' }
+}
+
+// ★ACCOUNT_NAME_AND_RESIDUE_V1：清理 browser-profile\ 根目录里的历史残留（非数字项）
+//   背景：早期是"共用 profile"（Chrome 的 user-data-dir 就是 browser-profile 本身），
+//        迁移到 browser-profile\{userId} 时只搬走了一部分，Default/ 等留在了根目录。
+//   安全前提：所有账号目录都已有 Cookies（数据就绪）才动手；否则只记日志。
+function cleanupProfileResidue() {
+  try {
+    const root = path.join(path.dirname(process.execPath), 'data', 'browser-profile')
+    if (!fs.existsSync(root)) return
+    const entries = fs.readdirSync(root)
+    const numeric = entries.filter((n) => /^\d+$/.test(n))
+    const residue = entries.filter((n) => !/^\d+$/.test(n))
+    if (!residue.length) return
+    if (!numeric.length) { buLog('[profile] 发现 ' + residue.length + ' 项残留，但没有账号目录 → 暂不清理'); return }
+    const allReady = numeric.every((n) => { try { return fs.existsSync(path.join(root, n, 'Default', 'Network', 'Cookies')) } catch (e) { return false } })
+    if (!allReady) { buLog('[profile] 有 ' + residue.length + ' 项残留，但账号目录尚未全部就绪 → 暂不清理'); return }
+    const bak = path.join(path.dirname(root), 'browser-profile-residue-' + Date.now())
+    try { fs.mkdirSync(bak, { recursive: true }) } catch (e) {}
+    let moved = 0
+    for (const n of residue) {
+      try { fs.renameSync(path.join(root, n), path.join(bak, n)); moved++ } catch (e) {}
+    }
+    buLog('[profile] 已把 ' + moved + '/' + residue.length + ' 项历史残留挪到 ' + bak)
+  } catch (e) {}
 }
 
 // ═══ ★SELFCHECK_PROGRESS_FIX_V1：自检进度事件的统一发送口 ═══
@@ -2677,6 +2726,7 @@ app.whenReady().then(() => {
         // USER_READY_V1：改为幂等门（启动期已在 loadURL 前解析过 → 这里立即返回）
         const uid = await ensureUserResolved(2500)
         await ensureAccountProfile()   // ACCOUNT_PROFILE_V1：该账号目录就绪/补漏
+        try { cleanupProfileResidue() } catch (e) {}   // ★ACCOUNT_NAME_AND_RESIDUE_V1：清 browser-profile 根目录的历史残留（安全前提见函数注释）
         // ★ORDER_FIX_V1（1.0.185）：这里【不再】抢跑"环境自检安装"和"热点采集" ——
         //   自检改成独立窗口后，这两个定时任务会在自检还没走完时就执行，
         //   造成"账号还没选、登录态还没验，热点已经采完了"的错乱。
