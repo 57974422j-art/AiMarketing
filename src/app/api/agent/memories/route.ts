@@ -41,19 +41,28 @@ export async function POST(request: NextRequest) {
   const occupation = String(body.occupation || '').trim()
   const needs = String(body.needs || '').trim()
   const platforms = Array.isArray(body.platforms) ? body.platforms.join(',') : String(body.platforms || '')
-  if (!industry && !occupation && !needs) return NextResponse.json({ success: false, message: '请至少填写一项' }, { status: 400 })
+  // ★PROFILE_FIX_V1：新增「我关心的主题」（逗号分隔）—— 将来"按画像推热点"取的就是它
+  const topics = Array.isArray(body.topics) ? body.topics.join(',') : String(body.topics || '').trim()
+  if (!industry && !occupation && !needs && !topics) return NextResponse.json({ success: false, message: '请至少填写一项' }, { status: 400 })
   const user = await prisma.user.findUnique({ where: { id: auth.userId }, select: { username: true } })
   const uid = user?.username || String(auth.userId)
   // 幂等：先清旧画像（onboarding 登记的），避免重复
   await prisma.agentMemory.deleteMany({ where: { userId: uid, tags: { contains: 'onboarding' } } })
   const entries = [
     { content: `用户行业：${industry}`, tags: '画像,行业,onboarding' },
+    { content: `用户关注主题：${topics}`, tags: '画像,主题,onboarding' },
     { content: `用户职业/身份：${occupation}`, tags: '画像,职业,onboarding' },
     { content: `用户核心需求：${needs}`, tags: '画像,需求,onboarding' },
     { content: `常用平台：${platforms}`, tags: '画像,平台,onboarding' },
-  ].filter(e => e.content.replace('用户行业：', '').replace('用户职业/身份：', '').replace('用户核心需求：', '').replace('常用平台：', '').trim())
+    // ★PROFILE_FIX_V1：filter 改用正则（原来逐个 replace，新增条目会漏判）
+  ].filter(e => e.content.replace(/^用户[^：]*：/, '').trim())
   for (const e of entries) {
     await prisma.agentMemory.create({ data: { userId: uid, content: e.content, tags: e.tags, salience: 0.9, visibility: 'user' } })
+  }
+  // ★PROFILE_FIX_V1：同步写入现成字段 User.industry（视频/热点按行业推送要用它）
+  const industryField = (industry || topics.split(/[,，]/)[0] || '').trim()
+  if (industryField) {
+    try { await prisma.user.update({ where: { id: auth.userId }, data: { industry: industryField.slice(0, 40) } }) } catch (e) {}
   }
   return NextResponse.json({ success: true, message: `画像已登记 ${entries.length} 条` })
 }

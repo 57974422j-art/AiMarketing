@@ -877,9 +877,15 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         const platform = (args.platform || '').trim()
         const detail = (args.detail || '').trim()
         const content = `【未接入需求】平台/功能：${platform}；需求：${need}${detail ? `；细节：${detail}` : ''}`
-        await p.agentMemory.create({
-          data: { userId, content, tags: '未接入需求,平台', salience: 0.9 },
-        })
+        // ★PROFILE_FIX_V1：加幂等（同用户同内容只留一条，之前会重复两条）
+        const existNeed = await p.agentMemory.findFirst({ where: { userId, tags: { contains: '未接入需求' }, content } })
+        if (existNeed) {
+          await p.agentMemory.update({ where: { id: existNeed.id }, data: { updatedAt: new Date() } })
+        } else {
+          await p.agentMemory.create({
+            data: { userId, content, tags: '未接入需求,平台', salience: 0.9 },
+          })
+        }
         await p.$disconnect()
         return `UNMET_NEED:已记录|PLATFORM:${platform}|NEED:${need}`
       } catch (e: any) {
@@ -1343,16 +1349,32 @@ export async function POST(request: NextRequest) {
         const pm = new PrismaClient()
         const u = await pm.user.findUnique({ where: { id: auth?.userId || 0 }, select: { username: true } })
         const uid = u?.username || String(auth?.userId || 0)
-        const parts: string[] = []
-        if (indMatch) parts.push('行业/业务：' + indMatch[1])
-        if (foundPlat) parts.push('主要平台：' + foundPlat)
-        if (parts.length) {
-          const content = parts.join('；')
-          const exist = await pm.agentMemory.findFirst({ where: { userId: uid, content: { contains: content.substring(0, 8) } } })
-          if (exist) {
-            await pm.agentMemory.update({ where: { id: exist.id }, data: { content, tags: '画像,行业', salience: 0.9, updatedAt: new Date() } })
+        // ★PROFILE_FIX_V1（2026-09-16）修三个 bug：
+        //   ① 标签与内容不匹配（"主要平台：X" 曾被打上 '画像,行业' → 任何按"行业"取画像的地方都读到平台）
+        //   ② 查重太粗（只比前 8 字符）→ 每提一个平台就新建一条，越积越多
+        //   ③ "对话里提过的平台" ≠ 永久画像（可能只是一次性动作）
+        //   现在：只有【行业/业务】写成画像（标签 '画像,行业'）；平台单独归 '画像,平台' 且低权重
+        if (indMatch) {
+          const icontent = '行业/业务：' + indMatch[1]
+          const iexist = await pm.agentMemory.findFirst({ where: { userId: uid, tags: { contains: '画像,行业' }, content: icontent } })
+          if (iexist) {
+            await pm.agentMemory.update({ where: { id: iexist.id }, data: { salience: 0.9, updatedAt: new Date() } })
           } else {
-            await pm.agentMemory.create({ data: { userId: uid, content, tags: '画像,行业', salience: 0.9 } })
+            await pm.agentMemory.create({ data: { userId: uid, content: icontent, tags: '画像,行业', salience: 0.9 } })
+          }
+          // 若 User.industry 还空着，顺手补上（这是"视频/热点按行业推送"读的字段）
+          try {
+            const uu = await pm.user.findUnique({ where: { id: auth?.userId || 0 }, select: { industry: true } })
+            if (uu && !uu.industry) {
+              await pm.user.update({ where: { id: auth?.userId || 0 }, data: { industry: String(indMatch[1]).slice(0, 40) } })
+            }
+          } catch (e) {}
+        }
+        if (foundPlat) {
+          const pcontent = '使用过的平台：' + foundPlat
+          const pexist = await pm.agentMemory.findFirst({ where: { userId: uid, tags: { contains: '画像,平台' }, content: pcontent } })
+          if (!pexist) {
+            await pm.agentMemory.create({ data: { userId: uid, content: pcontent, tags: '画像,平台', salience: 0.4 } })
           }
         }
         await pm.$disconnect()
