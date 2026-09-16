@@ -23,7 +23,11 @@ function __hotCollectedToday() {
 async function runStartupChecks(win) {
   const w = win || splashWin || mainWindow
   const send = (d) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', d) } catch (e) {} }
-  const item = (id, state, detail, done, progress) => send({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) })
+  const item = (id, state, detail, done, progress) => {
+    const payload = { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }
+    try { sendProgress(payload, w) } catch (e) {}
+    try { send(payload) } catch (e) {}
+  }
   // ★STARTUP_STOPWATCH_V1：记录自检耗时（便于发现"哪一项拖慢了整体"）
   const __t0 = Date.now()
   const __cost = () => Math.round((Date.now() - __t0) / 100) / 10
@@ -290,7 +294,7 @@ async function runStartupChecks(win) {
 //   顺序：必须在【选定账号 + 该账号登录态检测之后】调用（账号决定读哪个 profile）
 async function collectHotspotsWithProgress(win) {
   const w = win || splashWin || mainWindow
-  const item = (id, state, detail, done, progress) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }) } catch (e) {} }
+  const item = (id, state, detail, done, progress) => sendProgress({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }, w)
   if (__hotCollecting) { item('collect', 'warn', '已有采集在进行中 → 本次跳过', true); return }
   __hotCollecting = true
   try {
@@ -351,7 +355,7 @@ async function collectHotspotsWithProgress(win) {
 // 检测【当前选定账号】的平台登录态（ACCOUNT_PICK_V1 从 ⑤ 拆出来）
 async function detectLoginState(win) {
   const w = win || splashWin || mainWindow
-  const item = (id, state, detail, done, progress) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }) } catch (e) {} }
+  const item = (id, state, detail, done, progress) => sendProgress({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }, w)
   try {
     item('login', 'run', '正在检测各平台登录态（账号 userId=' + (getClientUserId() || '?') + '，需要几秒）…')
     const py2 = getBuPython()
@@ -421,7 +425,7 @@ ipcMain.handle('startup-check:pick-account', async (event, userId) => {
   try {
     const uid = String(userId || '')
     const w = BrowserWindow.fromWebContents(event.sender) || splashWin || mainWindow
-    const item = (id, state, detail, done, progress) => { try { if (w && !w.isDestroyed()) w.webContents.send('startup-check:progress', { type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }) } catch (e) {} }
+    const item = (id, state, detail, done, progress) => sendProgress({ type: 'item', id, state, detail: detail == null ? undefined : String(detail), done: !!done, progress: (typeof progress === 'number' ? progress : undefined) }, w)
     if (!uid) { item('account', 'warn', '未选择账号', true); return { success: false } }
     setClientUserId(uid)                       // 切账号 → getProfileDir() 随之指向 browser-profile\{uid}
     item('account', 'ok', '已选择账号 userId=' + uid + '\nprofile=' + getProfileDir(), true)
@@ -584,6 +588,27 @@ if (app.isPackaged) {
   if (fs.existsSync(bundledBrowsers)) {
     process.env.PLAYWRIGHT_BROWSERS_PATH = bundledBrowsers
     console.log('[FP] 使用打包内浏览器:', bundledBrowsers)
+  }
+}
+
+// ═══ ★SELFCHECK_PROGRESS_FIX_V1：自检进度事件的统一发送口 ═══
+//   背景：用户点账号后按钮高亮、采集也跑了（IPC 通），但"平台登录态"等项不更新
+//        → 说明 startup-check:progress 没回到自检窗。这里改成【多窗口都发】+ 写日志，
+//          下次看 bu_debug.log 就能判断"是没发出去，还是前端没收/没渲染"。
+function sendProgress(payload, preferWin) {
+  try {
+    buLog('[selfcheck] → ' + String(payload && payload.id) + ' ' + String(payload && payload.state) + (payload && payload.done ? ' done' : ''))
+  } catch (e) {}
+  const targets = []
+  try { if (preferWin) targets.push(preferWin) } catch (e) {}
+  try { if (splashWin) targets.push(splashWin) } catch (e) {}
+  try { if (mainWindow) targets.push(mainWindow) } catch (e) {}
+  for (const win of targets) {
+    try {
+      if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+        win.webContents.send('startup-check:progress', payload)
+      }
+    } catch (e) {}
   }
 }
 

@@ -222,11 +222,29 @@ async function searchByKeywords(keywords: string[]): Promise<HotSource[]> {
   return out
 }
 
+// ★TOPIC_MERGE_FIX：把"按主题搜索 + 合并"抽出来 —— 缓存分支与正常分支都要调用
+//   （原来只在正常分支做，导致命中 1h 缓存时主题源永远不出现）
+async function withTopicSources(request: NextRequest, base: HotSource[]): Promise<HotSource[]> {
+  try {
+    const auth = getAuthFromCookie(request as any)
+    if (auth?.userId) {
+      const kws = await getUserKeywords(auth.userId)
+      if (kws.length) {
+        const topicSources = await searchByKeywords(kws)
+        return [...topicSources, ...base]   // 主题结果排最前
+      }
+    }
+  } catch (e) {}
+  return base
+}
+
 export async function GET(request: NextRequest) {
   try {
     const now = Date.now()
     if (cache && now - cache.at < TTL) {
-      return NextResponse.json({ success: true, sources: cache.data, cached: true })
+      // ★TOPIC_MERGE_FIX：缓存分支【也要】追加主题源（主题结果本身不进缓存）
+      const merged = await withTopicSources(request, cache.data)
+      return NextResponse.json({ success: true, sources: merged, cached: true })
     }
 
     const ts = Date.now()
@@ -253,17 +271,7 @@ export async function GET(request: NextRequest) {
     cache = { at: now, data: sources }
 
     // ★TOPIC_SEARCH_V1：按【当前用户的主题】搜索 —— 这部分【不进全局缓存】（每人主题不同）
-    let topicSources: HotSource[] = []
-    try {
-      const auth = getAuthFromCookie(request as any)
-      if (auth?.userId) {
-        const kws = await getUserKeywords(auth.userId)
-        if (kws.length) topicSources = await searchByKeywords(kws)
-      }
-    } catch (e) {}
-
-    // 主题结果排前面：用户一眼看到"跟我相关的"
-    return NextResponse.json({ success: true, sources: [...topicSources, ...sources], cached: false })
+    return NextResponse.json({ success: true, sources: await withTopicSources(request, sources), cached: false })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message }, { status: 500 })
   }
