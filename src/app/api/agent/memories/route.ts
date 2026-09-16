@@ -46,23 +46,26 @@ export async function POST(request: NextRequest) {
   if (!industry && !occupation && !needs && !topics) return NextResponse.json({ success: false, message: '请至少填写一项' }, { status: 400 })
   const user = await prisma.user.findUnique({ where: { id: auth.userId }, select: { username: true } })
   const uid = user?.username || String(auth.userId)
-  // 幂等：先清旧画像（onboarding 登记的），避免重复
-  await prisma.agentMemory.deleteMany({ where: { userId: uid, tags: { contains: 'onboarding' } } })
-  const entries = [
-    { content: `用户行业：${industry}`, tags: '画像,行业,onboarding' },
-    { content: `用户关注主题：${topics}`, tags: '画像,主题,onboarding' },
-    { content: `用户职业/身份：${occupation}`, tags: '画像,职业,onboarding' },
-    { content: `用户核心需求：${needs}`, tags: '画像,需求,onboarding' },
-    { content: `常用平台：${platforms}`, tags: '画像,平台,onboarding' },
-    // ★PROFILE_FIX_V1：filter 改用正则（原来逐个 replace，新增条目会漏判）
-  ].filter(e => e.content.replace(/^用户[^：]*：/, '').trim())
-  for (const e of entries) {
-    await prisma.agentMemory.create({ data: { userId: uid, content: e.content, tags: e.tags, salience: 0.9, visibility: 'user' } })
+  // ★PROFILE_FIX_V1 第2批：改为【按标签独立更新】——只处理本次传了的字段，其它保留不动。
+  //   原因：设置页只想改「我关心的主题」时，不能把行业/需求/平台一起删掉。
+  const slots = [
+    { tag: '画像,行业,onboarding', content: industry ? `用户行业：${industry}` : '' },
+    { tag: '画像,主题,onboarding', content: topics ? `用户关注主题：${topics}` : '' },
+    { tag: '画像,职业,onboarding', content: occupation ? `用户职业/身份：${occupation}` : '' },
+    { tag: '画像,需求,onboarding', content: needs ? `用户核心需求：${needs}` : '' },
+    { tag: '画像,平台,onboarding', content: platforms ? `常用平台：${platforms}` : '' },
+  ]
+  let written = 0
+  for (const s of slots) {
+    if (!s.content) continue
+    await prisma.agentMemory.deleteMany({ where: { userId: uid, tags: s.tag } })
+    await prisma.agentMemory.create({ data: { userId: uid, content: s.content, tags: s.tag, salience: 0.9, visibility: 'user' } })
+    written++
   }
   // ★PROFILE_FIX_V1：同步写入现成字段 User.industry（视频/热点按行业推送要用它）
   const industryField = (industry || topics.split(/[,，]/)[0] || '').trim()
   if (industryField) {
     try { await prisma.user.update({ where: { id: auth.userId }, data: { industry: industryField.slice(0, 40) } }) } catch (e) {}
   }
-  return NextResponse.json({ success: true, message: `画像已登记 ${entries.length} 条` })
+  return NextResponse.json({ success: true, message: `画像已更新 ${written} 项` })
 }

@@ -684,13 +684,14 @@ function AgentPageInner() {
   // 欢迎词单独存放，不进 messages，避免顶掉 BaiLongma 风格的主页欢迎区（声纹球+卡片）
   const [welcomeMsg, setWelcomeMsg] = useState<string | null>(null)
   // 画像快速登记（2026-08-10：首登结构化登记，写 AgentMemory）
-  const [onboardForm, setOnboardForm] = useState({ industry: '', occupation: '', needs: '', platforms: [] as string[] })
+  // ★PROFILE_FIX_V1 第2批：新增 topics「我关心的主题」—— 按画像推热点就用它
+  const [onboardForm, setOnboardForm] = useState({ industry: '', occupation: '', needs: '', topics: '', platforms: [] as string[] })
   const [onboardSaving, setOnboardSaving] = useState(false)
   const PLATFORM_OPTS = ['抖音', '小红书', '视频号', '快手', 'B站', '淘宝直播', '公众号']
   const INDUSTRY_OPTS = ['餐饮', '美业', '教育', '电商', '旅游', '健身', '汽车', '房产', '其他']
   const submitOnboard = async () => {
-    const { industry, occupation, needs, platforms } = onboardForm
-    if (!industry && !occupation && !needs) { alert('请至少填写行业或需求'); return }
+    const { industry, occupation, needs, topics, platforms } = onboardForm
+    if (!industry && !occupation && !needs && !topics) { alert('请至少填写行业、需求或主题'); return }
     setOnboardSaving(true)
     try {
       const r = await fetch('/api/agent/memories', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -734,6 +735,9 @@ function AgentPageInner() {
   const [vadSilence, setVadSilence] = useState(1800)
   const [ttsVoices, setTtsVoices] = useState<{ id: string; label: string }[]>([])
   const [industry, setIndustry] = useState('') // 行业（视频/热点按行业推送，2026-08-09）
+  // ★PROFILE_FIX_V1 第2批：我关心的主题（热点按这些词搜）
+  //   注意：变量名用 myTopics —— hotTopics 已被"热榜数据数组"占用（大屏渲染在用）
+  const [myTopics, setMyTopics] = useState('')
   // ── 自检 + 左侧信息面板（2026-08-08：账号/订阅/点数/模型/记忆 + A+B 自检）──
   const [selfChecks, setSelfChecks] = useState<{ key: string; label: string; ok: boolean; detail?: string }[]>([])
   const [selfModel, setSelfModel] = useState<{ brain: string; asr: string; tts: string } | null>(null)
@@ -810,12 +814,25 @@ function AgentPageInner() {
         }
       })
       .catch(() => {})
+    // ★PROFILE_FIX_V1 第2批：回填「我关心的主题」（存在 AgentMemory 的 画像,主题 记录里）
+    fetch('/api/agent/memories', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => {
+        const t = (d.items || []).find((m: any) => String(m.tags || '').includes('画像,主题'))
+        if (t) setMyTopics(String(t.content || '').replace(/^用户关注主题：/, ''))
+      })
+      .catch(() => {})
   }, [user])
   // 保存设置
   const savePrefs = async () => {
     setSavingPrefs(true)
     try {
       await fetch('/api/agent/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ttsVoice, temperature, vadThreshold, vadSilence, industry }), credentials: 'include' })
+      // ★PROFILE_FIX_V1 第2批：主题一并写入画像（同时把行业同步进画像；没填的字段不会被动到）
+      try {
+        await fetch('/api/agent/memories', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topics: myTopics, industry }), credentials: 'include' })
+      } catch {}
     } catch {}
     setSavingPrefs(false)
     setShowPrefs(false)
@@ -2339,6 +2356,13 @@ function AgentPageInner() {
               className={`w-full bg-white/5 border rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder-gray-600 outline-none focus:border-emerald-400/50 mb-3 ${guideStep === 2 ? 'border-amber-400/70 animate-pulse' : 'border-white/10'}`} />
             <p className="text-[9px] text-gray-600 mb-3">按行业推送每日参考视频与热点（可在设置随时改）</p>
 
+            {/* ★PROFILE_FIX_V1 第2批：我关心的主题 —— 热点会按这些词去搜，而不只是推总榜 */}
+            <p className="text-[11px] text-gray-400 mb-1.5">🎯 我关心的主题 <span className="text-emerald-300">{myTopics || '未设置'}</span></p>
+            <input value={myTopics} onChange={e => setMyTopics(e.target.value)} maxLength={80}
+              placeholder="逗号分隔，如：AI,大模型,智能体（热点按这些词搜给你）"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder-gray-600 outline-none focus:border-emerald-400/50 mb-1" />
+            <p className="text-[9px] text-gray-600 mb-3">填了它，热点大屏/栏目就按这些主题搜（留空则显示总榜）</p>
+
             <p className="text-[11px] text-gray-400 mb-1.5">🎛 回复温度：<span className="text-emerald-300">{temperature.toFixed(1)}</span></p>
             <input type="range" min="0" max="1.5" step="0.1" value={temperature} onChange={e => setTemperature(parseFloat(e.target.value))}
               className="w-full mb-1 accent-emerald-400" />
@@ -2647,6 +2671,10 @@ function AgentPageInner() {
                         <textarea value={onboardForm.needs} onChange={e => setOnboardForm({ ...onboardForm, needs: e.target.value })}
                           placeholder="主要需求，如：想每天做短视频获客但没时间写文案"
                           rows={2} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs mb-2 text-white placeholder-gray-600" />
+                        {/* ★PROFILE_FIX_V1 第2批：我关心的主题（热点按这些词搜给你看） */}
+                        <input value={onboardForm.topics} onChange={e => setOnboardForm({ ...onboardForm, topics: e.target.value })}
+                          placeholder="★ 我关心的主题（逗号分隔，如：AI,大模型,智能体）"
+                          maxLength={80} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs mb-2 text-white placeholder-gray-600" />
                         <div className="flex gap-1 flex-wrap mb-2">
                           {PLATFORM_OPTS.map(pf => (
                             <button key={pf} type="button" onClick={() => setOnboardForm(prev => ({ ...prev, platforms: prev.platforms.includes(pf) ? prev.platforms.filter(x => x !== pf) : [...prev.platforms, pf] }))}
