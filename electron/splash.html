@@ -69,6 +69,8 @@
 <div class="box">
   <div class="hd"><span class="dot"></span><h1>AI营销助手 · 启动自检</h1></div>
   <div class="ver" id="ver">正在准备…</div>
+  <!-- ★SELFCHECK_RX_COUNTER_V1：诊断用 —— 前端收到了多少条进度事件（点账号后数字不涨 = 事件没到前端） -->
+  <div style="font-size:11px;color:#5b7488;margin:-8px 0 10px 20px">已收到进度 <span id="rx" style="color:#22d3ee">0</span> 条</div>
   <div class="list" id="list"></div>
   <div class="bar"><i id="bar"></i></div>
   <div class="ft">
@@ -179,9 +181,12 @@
 
   try {
     const api = window.electronAPI || {}
+    const rxEl = document.getElementById('rx')
+    let rxN = 0
     if (api.onStartupProgress) {
       api.onStartupProgress((d) => {
         if (!d) return
+        try { rxN++; if (rxEl) rxEl.textContent = String(rxN) } catch (e) {}   // ★SELFCHECK_RX_COUNTER_V1
         if (d.type === 'meta') { if (d.version) verEl.textContent = '客户端版本 ' + d.version; return }
         if (d.type === 'item') {
           setItem(d.id, d.state, d.detail, d.progress)

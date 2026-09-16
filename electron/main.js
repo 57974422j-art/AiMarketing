@@ -278,10 +278,13 @@ async function runStartupChecks(win) {
     const payload = list.map((a) => {
       // ★ACCOUNT_NAME_AND_RESIDUE_V1：能解析出 username 就用它（admin / mbb…）
       const un = usernameFromToken(a.token) || String(a.username || '')
+      // ★SELFCHECK_RX_COUNTER_V1：没有用户名（token 为空 = 本机没登录过该账号）时标注清楚
       const nm = un || String(a.name || '') || ('账号 ' + a.userId)
+      const named = un || (/^(?!账号 )/.test(String(a.name || '')) ? String(a.name) : '')
+      const nmFinal = named || (String(nm).startsWith('账号 ') ? String(nm) + '（未登录过，无用户名）' : String(nm))
       return {
         userId: String(a.userId),
-        name: nm,
+        name: nmFinal,
         current: String(a.userId) === cur,
         canSwitch: !!a.token,
       }
