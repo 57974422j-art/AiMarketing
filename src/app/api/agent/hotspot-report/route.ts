@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuthFromHeaders } from '@/lib/api-auth'
+// ★HOT_REPORT_AUTH_V1：不再需要鉴权（热点是公开榜单数据）
 
 // 2026-09-13: 客户端热点上报端点
 //   背景：微博/B站/抖音/小红书/快手 的榜单接口需要 cookie 或签名，服务器直调拿不到；
@@ -15,10 +15,8 @@ type Payload = Record<string, { items: Item[]; fetchedAt?: number }>
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = getAuthFromHeaders(request.headers as any)
-    if (!auth?.userId) {
-      return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
-    }
+    // ★HOT_REPORT_AUTH_V1（2026-09-16）：热点上报是【公开榜单数据】→ 不强制登录。
+    //   原来必须登录 → 客户端采集成功后上报一直 401 → 服务器拿不到 → 大屏只有服务器直调的源。
     const body = (await request.json()) as Payload
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ success: false, message: '参数错误' }, { status: 400 })

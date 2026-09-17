@@ -21,6 +21,7 @@ const API_WHITELIST = [
   '/api/frames', // 2026-08-23: 封面帧读盘（公开图片）
   '/api/admin/industry-videos/upload', // 2026-08-10：本机脚本上传行业视频（路由内已校验本机/admin）
   '/api/agent/hotspots', // 2026-08-11：热点是公开榜单数据，免登录可看 + 自检可验证（避免 401 误报 0 来源）
+  '/api/agent/hotspot-report', // ★HOT_REPORT_AUTH_V1（2026-09-16）：客户端采集【上报】的也是公开榜单数据 → 免登录。原来被 middleware 拦 → 客户端一直 401 → 大屏看不到微博/B站/抖音/快手
 ]
 
 function base64UrlDecode(str: string): string {
