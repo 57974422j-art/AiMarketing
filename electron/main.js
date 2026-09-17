@@ -43,10 +43,15 @@ async function runStartupChecks(win) {
       _vr = await checkUpdateOnce(15000)
     }
     if (_vr.state === 'available') {
-      // ★UPDATE_NO_STUCK_V1（1.0.186）：等下载，但必须能"失败/超时放行"——
-      //   否则一旦新版本的安装包在 OSS 上不存在（404），自检会永远停在第 1 项。
+      // ★UPDATE_EXCLUSIVE_V1（用户定稿）：发现更新 → 本轮【只做更新】，
+      //   其它检查项（运行环境/脚本/账号/登录态/热点采集…）一律不跑；
+      //   等安装重启后（新版本）再重新走一遍自检。这样就不会出现"更新还没装完就在采集"。
       const _ver = String(_vr.version || '')
-      item('version', 'run', '发现新版本 v' + _ver + '，正在下载…（下载完成会自动重启安装；期间可见百分比）', false, 0)
+      // ① 从"发现更新"起就禁止进入主界面（含下载期间）
+      __installing = true
+      try { if (splashWin && !splashWin.isDestroyed()) splashWin.webContents.send('startup-check:progress', { type: 'lock', version: _ver }) } catch (e) {}
+      buLog('[startup] 发现新版本 v' + _ver + ' → 本轮只做更新，其余检查项一律跳过')
+      item('version', 'run', '发现新版本 v' + _ver + '，正在下载…（下载完成会自动重启安装；安装期间请勿操作）', false, 0)
       const _dl = await new Promise((resolve) => {
         let _d2 = false
         const _f2 = (r) => { if (!_d2) { _d2 = true; resolve(r) } }
@@ -57,13 +62,22 @@ async function runStartupChecks(win) {
         } catch (e2) { clearTimeout(_t2); _f2({ s: 'error', err: String((e2 && e2.message) || e2) }) }
       })
       if (_dl.s === 'downloaded') {
-        item('version', 'run', '新版本 v' + _ver + ' 下载完成 → 即将自动重启安装\n窗口稍后会【自动重新打开】，请不要手动启动（安装期间桌面图标可能短暂异常，属正常）', false, 100)
-      } else if (_dl.s === 'error') {
+        item('version', 'run', '新版本 v' + _ver + ' 下载完成 → 正在安装…\n窗口稍后会【自动重新打开】并继续检查，请不要手动启动（安装期间桌面图标可能短暂异常，属正常）', false, 100)
+        // ★UPDATE_EXCLUSIVE_V1：★【这里直接结束自检】—— 2~8 项一个都不跑，
+        //   等安装重启后（新版本）再重新走一遍。__installing 保持 true（禁止进入）。
+        buLog('[startup] 更新已下载 → 结束本轮自检，等待安装重启')
+        return
+      }
+      // 下载失败/超时 → 解除锁定，继续正常自检（用户要求："提示更新失败支持进入自检就行了"）
+      __installing = false
+      try { if (splashWin && !splashWin.isDestroyed()) splashWin.webContents.send('startup-check:progress', { type: 'unlock' }) } catch (e) {}
+      try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('startup-check:progress', { type: 'unlock' }) } catch (e) {}
+      if (_dl.s === 'error') {
         item('version', 'warn', '新版本 v' + _ver + ' 下载失败：' + String(_dl.err || '').slice(0, 140) +
-          '\n→ 可先点「确认进入」正常使用（这属于更新通道问题，不影响发布/采集等功能）', true)
+          '\n→ 本次跳过更新，继续自检（这属于更新通道问题，不影响发布/采集等功能）', true)
       } else {
         item('version', 'warn', '新版本 v' + _ver + ' 下载超时（网络较慢）' +
-          '\n→ 可先点「确认进入」正常使用，稍后重启客户端会再次尝试更新', true)
+          '\n→ 本次跳过更新，继续自检；稍后重启客户端会再次尝试更新', true)
       }
     } else if (_vr.state === 'latest') {
       item('version', 'ok', '当前版本 ' + app.getVersion() + '（已是最新）', true)

@@ -196,6 +196,10 @@
       api.onStartupProgress((d) => {
         if (!d) return
         if (d.type === 'lock') { lockUI(d.version); return }   // ★UPDATE_GUARD_V1
+        if (d.type === 'unlock') {   // ★UPDATE_EXCLUSIVE_V1：更新失败 → 解除锁定，继续自检
+          try { enter.disabled = false; hint.textContent = '更新失败 → 本次跳过更新，继续自检'; hint.style.color = '#fcd34d' } catch (e) {}
+          return
+        }
         try { rxN++; if (rxEl) rxEl.textContent = String(rxN) } catch (e) {}   // ★SELFCHECK_RX_COUNTER_V1
         if (d.type === 'meta') { if (d.version) verEl.textContent = '客户端版本 ' + d.version; return }
         if (d.type === 'item') {
