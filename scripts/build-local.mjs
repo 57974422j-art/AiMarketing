@@ -114,7 +114,9 @@ const build = {
     { from: 'scripts/platform-tools', to: 'scripts/platform-tools' },
     // 2026-08-29: Browser Use 执行器（bu_exec.py——AGENT 工具箱 browser_use_execute）
     { from: 'scripts/browser-use', to: 'scripts/browser-use', filter: ['**/*'] },
-    // 2026-09-10: AGENT 发布确定性脚本（douyin-agent.js / xhs-agent.js——Playwright 连登记浏览器）
+    // ★ARCHIVE_AGENT_PUBLISH_V1（2026-09-17）：本目录现在【只放真正被调用的】bu_pub_*.py + _cdp_click.py。
+    //   旧注释提到的 douyin-agent.js / xhs-agent.js 等 38 个历史脚本已归档到 scripts/_archive/agent-publish/
+    //   （该目录【故意不打包】）；归档原因与目录约定见 scripts/agent-publish/README.md
     { from: 'scripts/agent-publish', to: 'scripts/agent-publish', filter: ['**/*'] },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
