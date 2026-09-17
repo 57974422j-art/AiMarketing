@@ -1,6 +1,6 @@
 // ⚠️ 本文件由 scripts/gen-platforms-js.mjs 自动生成 —— 请勿手改
 // 源：src/lib/agent/platforms.ts（唯一真源）
-// 生成时间：2026-09-17T11:15:52.092Z
+// 生成时间：2026-09-17T12:05:35.152Z
 'use strict'
 
 const PLATFORMS = [
@@ -36,14 +36,14 @@ const PLATFORMS = [
     "id": "bilibili",
     "name": "B站",
     "publishUrl": "https://member.bilibili.com/platform/upload/video/frame",
-    "loginUrl": "https://passport.bilibili.com/login",
+    "loginUrl": "https://www.bilibili.com/",
     "icon": "📙"
   },
   {
     "id": "kuaishou",
     "name": "快手",
     "publishUrl": "https://cp.kuaishou.com/article/publish/video",
-    "loginUrl": "https://passport.kuaishou.com/pc/account/login/",
+    "loginUrl": "https://www.kuaishou.com/",
     "icon": "⚡"
   }
 ]

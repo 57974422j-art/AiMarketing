@@ -62,14 +62,21 @@ export const PLATFORMS: PlatformDef[] = [
     id: 'bilibili',
     name: 'B站',
     publishUrl: 'https://member.bilibili.com/platform/upload/video/frame',
-    loginUrl: 'https://passport.bilibili.com/login',
+    // ★2026-09-17 用户实测：原来打开 passport.bilibili.com/login（纯登录表单页）——
+    //   即使已登录也【永远显示登录框】，用户以为"登录态没保持住"、反复登录。
+    //   改为官网首页：已登录→能看出登录态；未登录→站点自己跳登录。
+    loginUrl: 'https://www.bilibili.com/',
     icon: '📙',
   },
   {
     id: 'kuaishou',
     name: '快手',
     publishUrl: 'https://cp.kuaishou.com/article/publish/video',
-    loginUrl: 'https://passport.kuaishou.com/pc/account/login/',
+    // ★2026-09-17 用户实测（同一个坑）：原来打开 passport.kuaishou.com/pc/account/login/
+    //   纯登录表单页 → 无论登录与否都显示登录框 → 用户"登 3 次都以为没成功"。
+    //   改为官网首页：已登录→能看出登录态；未登录→站点自己跳登录。
+    //   （实测：用同一 profile 打开发布页能显示账号「周涛」，证明登录态一直是好的）
+    loginUrl: 'https://www.kuaishou.com/',
     icon: '⚡',
   },
 ]
