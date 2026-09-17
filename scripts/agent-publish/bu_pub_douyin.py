@@ -108,6 +108,30 @@ def main():
                 log('已导航到上传页')
                 page.wait_for_timeout(3000)
             except Exception as e: log('导航失败: ' + str(e)[:80])
+        # ★LOGIN_HONEST_V1（2026-09-17 用户要求：登录失效必须明确报，哪个平台都要）：
+        #   抖音原来【没有登录检测】→ 登录态失效时会继续往下跑、报一堆看不懂的错。
+        #   这里明确判定：URL 跳登录页 或 页面出现登录提示 → 直接报"未登录"退出。
+        try:
+            _u = (page.url or '')
+            _t = ''
+            try:
+                _t = page.inner_text('body')[:3000]
+            except Exception:
+                pass
+            _notlogin = None
+            if ('login' in _u.lower()) or ('passport' in _u.lower()):
+                _notlogin = '页面跳到了登录页（' + _u[:70] + '）'
+            else:
+                for _kw in ('扫码登录', '密码登录', '登录后即可', '请先登录', '登录/注册', '手机号登录'):
+                    if _kw in _t:
+                        _notlogin = '页面出现登录提示（' + _kw + '）'
+                        break
+            if _notlogin:
+                log('❌ 抖音【未登录】：' + _notlogin + ' —— 请在登记浏览器里重新登录抖音')
+                print(json.dumps({'success': False, 'result': '抖音未登录（' + _notlogin + '），请先在登记浏览器登录抖音'}))
+                return
+        except Exception:
+            pass
 
         # 处理"上次未发布的视频，是否继续编辑"弹窗（点放弃——干净开始）
         try:
@@ -217,28 +241,85 @@ def main():
                                 fi2.set_input_files(a.cover); log('✅ 封面已上传(image input)'); up = True; break
                         except Exception: continue
                 if up:
-                    page.wait_for_timeout(3500)
+                    # ★COVER_READY_WAIT_V1（2026-09-17 用户实测找到的真凶，本机复现）：
+                    #   原来这里【死等 3500ms】就点「完成」。实测：3.5 秒时封面图还在"生成中"，
+                    #   点「完成」不生效 → 抖音紧接着弹出【第二个窗口】
+                    #   「已基于横封面为你生成竖封面。效果不满意？独立编辑」。
+                    #   那个窗口里【既没有「完成」也没有可点的「发布」】→ 脚本一直卡着（#48 失败就是这么来的）。
+                    #   同一份代码：等 5 秒点=正常，等 3.5 秒点=出第二窗口 → 纯时序问题。
+                    #   改为：轮询等「完成」按钮【可点击】（最多 20 秒），再点。
+                    def _cover_done_btn():
+                        for s in ['button:has-text("完成")', 'button:has-text("保存")', 'button:has-text("确定")']:
+                            for e in page.query_selector_all(s):
+                                try:
+                                    if not e.is_visible():
+                                        continue
+                                    cls = (e.get_attribute('class') or '')
+                                    # semi-button-disabled 只是 CSS 类，不是 HTML disabled → 两个都要判
+                                    if e.is_disabled() or 'disabled' in cls:
+                                        continue
+                                    return s, e
+                                except Exception:
+                                    continue
+                        return None, None
+
+                    sel_ok, btn_ok = None, None
+                    for _i in range(40):          # 40 × 500ms = 20s
+                        sel_ok, btn_ok = _cover_done_btn()
+                        if btn_ok:
+                            log('✅ 封面已就绪（等了 %.1fs，按钮=%s）' % ((_i + 1) * 0.5, sel_ok))
+                            break
+                        page.wait_for_timeout(500)
+                    if not btn_ok:
+                        log('⚠️ 封面 20s 仍未就绪（继续尝试点击）')
+
                     try:
                         cv = visible(page, 'canvas') or visible(page, '[class*="cover"] img')
                         if cv: cv.click(timeout=2000); log('已点封面图激活裁切')
                     except Exception: pass
                     page.wait_for_timeout(1000)
+
+                    # 点「完成」并【真校验】：弹窗里按钮消失 = 弹窗已关；否则重试
                     done_ok = False
-                    for sel in ['button:has-text("完成")', 'button:has-text("保存")', 'button:has-text("确定")']:
+                    for _try in range(3):
+                        sel_ok, btn_ok = _cover_done_btn()
+                        if not btn_ok:
+                            done_ok = True
+                            log('✅ 封面已确认（弹窗已关闭，第 %d 次确认）' % (_try + 1))
+                            break
                         try:
-                            e = page.query_selector(sel)
-                            if e and e.is_visible():
-                                e.click(timeout=2500); log('✅ 封面已确认（' + sel + '）'); done_ok = True; page.wait_for_timeout(5000)   # ★封面完成后 5 秒
-                                # ★COVER_DONE_BREAK_V1（2026-09-17 用户实测找到的真凶）：
-                                #   原来这里的 break 被写进了注释（成了 "; break" 文本）→ 循环【不中断】→
-                                #   点中「完成」后【还会继续找「保存」/「确定」并点】→ 命中的正是
-                                #   【上层"封面比例/横竖"弹窗】里的按钮 → 弹窗弹出 → 挡住发布按钮 → 发布失败。
-                                #   用户原话："这个横竖窗我们已经反复删几次了，动不动又跑出来了"（之前删的是别的写法）
-                                break
-                        except Exception: continue
+                            btn_ok.click(timeout=2500)
+                            log('已点「%s」（第 %d 次）' % (sel_ok or '完成', _try + 1))
+                        except Exception as e:
+                            log('  点完成异常: ' + str(e)[:60])
+                        page.wait_for_timeout(3000)
                     if not done_ok:
-                        if click_text(page, ['完成', '保存', '确定']): done_ok = True
-                    if not done_ok: log('⚠️ 未点中完成按钮')
+                        log('⚠️ 封面确认后弹窗仍未关闭（已重试 3 次）')
+                    # ★COVER_DONE_BREAK_V1 保留说明：旧代码此处 "; break" 被写进注释导致循环不中断，
+                    #   点完「完成」还会去点「保存」/「确定」→ 命中上层横竖弹窗的按钮 → 挡住发布按钮。
+                    #   现在改为"点后校验弹窗是否关闭"，从根上避免连点。
+
+                    # ★COVER_ALT_MODAL_V1：抖音可能弹「已基于横封面为你生成竖封面…」提示层，
+                    #   它盖住发布按钮 → 主动关掉，避免后续找不到发布按钮
+                    try:
+                        alt = page.query_selector('.semi-portal')
+                        if alt and alt.is_visible():
+                            txt = (alt.inner_text() or '')
+                            if ('竖封面' in txt) or ('横封面' in txt):
+                                log('⚠️ 检测到封面提示层：' + txt.replace('\n', ' ')[:40])
+                                for cs in ['.semi-portal .semi-modal-close',
+                                           '.semi-portal button[aria-label="关闭"]',
+                                           'button:has-text("知道了")',
+                                           'button:has-text("我知道了")']:
+                                    try:
+                                        ce2 = page.query_selector(cs)
+                                        if ce2 and ce2.is_visible():
+                                            ce2.click(timeout=1500)
+                                            log('已关闭封面提示层（' + cs + '）')
+                                            break
+                                    except Exception:
+                                        continue
+                    except Exception: pass
                     page.wait_for_timeout(1500)
             else:
                 log('⚠️ 未找到封面入口（coverControl/选择封面）')

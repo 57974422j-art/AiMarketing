@@ -89,15 +89,35 @@ def main():
         b = connect_cdp(pw, log=log)
         ctx = b.contexts[0] if b.contexts else b.new_context()
         # ── 锁定视频号发布页 ──
+        # ★PAGE_LOCK_V1（2026-09-17 用户实测）：旧逻辑"只要 url 含 channels.weixin.qq.com 就抓"，
+        #   抓到视频号首页/别的页【也不导航】→ 后续每一步都对着错误页面操作（假成功）。
+        #   现在：① 优先已在 post/create 的页 ② 否则任意视频号页 → 导航过去 ③ 都没有 → 新开页
+        #   ④ 导航后【复验】必须真停在 post/create，否则明确报错退出。
         page = None
         for pg in ctx.pages:
-            if 'channels.weixin.qq.com' in pg.url:
+            if 'channels.weixin.qq.com' in pg.url and 'post/create' in pg.url:
                 page = pg; break
         if page is None:
+            for pg in ctx.pages:
+                if 'channels.weixin.qq.com' in pg.url:
+                    page = pg; break
+        if page is None:
             page = ctx.new_page()
-            page.goto(URL, wait_until='domcontentloaded', timeout=40000)
-            page.wait_for_timeout(5000)
         page.bring_to_front()
+        try:
+            if 'post/create' not in (page.url or ''):
+                page.goto(URL, wait_until='domcontentloaded', timeout=40000)
+                page.wait_for_timeout(5000)
+        except Exception as _e:
+            log('导航视频号发布页失败: ' + str(_e)[:70])
+        if 'post/create' not in (page.url or ''):
+            _u0 = (page.url or '')[:90]
+            log('❌ 未停在视频号发布页（当前=' + _u0 + '）')
+            if 'login' in _u0:
+                print(json.dumps({'success': False, 'result': '视频号未登录（跳到了登录页），请先在登记浏览器登录视频号'}))
+            else:
+                print(json.dumps({'success': False, 'result': '视频号未进入发布页（当前页面=' + _u0 + '）'}))
+            return
         # ★★ 2026-09-13 登录态检测（用户实测：登录态丢时页面=login.html，导致后面每步都"假成功"）
         try:
             page.wait_for_timeout(1500)

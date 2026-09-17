@@ -1670,7 +1670,9 @@ function AgentPageInner() {
         } else if (!br?.success) {
           // 读失败 → 保留上次结果，不清空（避免误判"未登录"）
         } else {
-          setBuAccounts(accts)
+          // ★BUCHECK_HONEST_V1_C（2026-09-17）：上面注释说要"只有非空才覆盖"，但旧代码这里
+          //   照样 setBuAccounts(accts)（可能是空数组）→ 平台被全清 → 用户看到"全部未登录"
+          //   （用户实测：重登 3 次仍显示未登录）。现在空数组【不再覆盖】，保留上次结果。
         }
       } catch {}
     }

@@ -63,13 +63,36 @@ def body(page):
 
 
 def logged_in(page):
-    u = page.url
+    """★LOGIN_HONEST_V1（2026-09-17 用户实测）：登录态失效必须【明确报未登录】，不得误报 OK。
+       旧逻辑：URL 不跳登录页 + 页面没出现"扫码登录"字样 → 直接 return True。
+       实测坑：登录态失效时页面可能停在 cp.kuaishou.com 且【页面刚好没渲染完】，
+       文本里既没有"扫码登录"、又恰好含有"发布"字样 → 被判"已登录" →
+       后面所有步骤"假成功"，直到用户以为脚本坏了（本次排查就绕了一圈）。
+       新逻辑：① URL 跳登录页 → False
+               ② 等页面出现实质内容（最多 6 秒）；始终空白 → 不敢确认 → False
+               ③ 出现登录文案 → False
+               ④ 页面明确含"上传"或"发布"字样 → True
+               ⑤ 其余（无法确认）→ False，宁可让用户去登录，也不假报 OK"""
+    try:
+        u = page.url or ''
+    except Exception:
+        u = ''
     if 'passport.kuaishou.com' in u or '/login' in u:
         return False
-    t = body(page)
-    if ('扫码登录' in t or '密码登录' in t or '机构服务' in t) and not ('上传' in t or '发布' in t):
+    t = ''
+    for _ in range(6):
+        t = body(page)
+        if t and len(t.strip()) > 40:
+            break
+        try:
+            page.wait_for_timeout(1000)
+        except Exception:
+            break
+    if not t or len(t.strip()) < 40:
+        return False                      # 页面空白/未渲染 → 不能确认已登录
+    if ('扫码登录' in t or '密码登录' in t or '机构服务' in t):
         return False
-    return True
+    return ('上传' in t) or ('发布' in t)
 
 
 def click_text(page, texts, what=''):

@@ -111,8 +111,18 @@ def main():
         if 'upload/video' not in page.url:
             page.goto(PUB_URL, wait_until='domcontentloaded', timeout=40000)
             page.wait_for_timeout(5000)
+        # ★PAGE_LOCK_V1（2026-09-17 用户实测："B站直接就跳到首页去了"）：
+        #   goto 之后【必须复验】是否真停在上传页 —— B站登录态失效时会把你重定向到首页，
+        #   旧代码不复验 → 停在首页继续"假操作"，用户只看到"跳到首页"。
+        if 'upload/video' not in page.url:
+            _u2 = page.url[:90]
+            log('❌ 未停在上传页（当前=' + _u2 + '）')
+            if 'member.bilibili.com' not in _u2:
+                log('   → 被重定向到非创作中心页面，多半是【B站登录态已失效】')
+                print(json.dumps({'success': False, 'result': 'B站未进入上传页（登录态可能已失效，请在登记浏览器重新登录B站）'}))
+                return
         if not logged_in(page):
-            log('未登录（B站登录态不在）')
+            log('未登录（B站登录态不在）——请在登记浏览器里重新登录B站')
             print(json.dumps({'success': False, 'result': 'B站未登录'}))
             return
         log('登录态 OK')

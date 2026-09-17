@@ -118,6 +118,10 @@ const build = {
     //   旧注释提到的 douyin-agent.js / xhs-agent.js 等 38 个历史脚本已归档到 scripts/_archive/agent-publish/
     //   （该目录【故意不打包】）；归档原因与目录约定见 scripts/agent-publish/README.md
     { from: 'scripts/agent-publish', to: 'scripts/agent-publish', filter: ['**/*'] },
+    // ★KEEP_ALIVE_PACK_V1（2026-09-17）：登录态保活脚本——【必须打进包】。
+    //   它在 scripts/ 根目录（不在 agent-publish/ 里），上面那条覆盖不到 → 1.0.203 首次打包
+    //   实测确实缺它（计划任务指向的脚本在用户机器上不存在 = 保活失效）。
+    { from: 'scripts/keep-login-alive.mjs', to: 'scripts/keep-login-alive.mjs' },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
     // 2026-08-19: 本地语音识别模型（sherpa-onnx）——随包分发

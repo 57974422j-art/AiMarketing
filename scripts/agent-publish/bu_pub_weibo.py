@@ -196,6 +196,31 @@ def main():
         page.bring_to_front()
         log('① 页面=%s（%s）' % (page.url, how))
 
+        # ★LOGIN_HONEST_V1（2026-09-17 用户要求：登录失效必须明确报，哪个平台都要）：
+        #   微博原来没有登录检测 —— 登录态失效时 pick_video_page 会兜底到首页，
+        #   后面步骤"假成功"，用户看不出是登录掉了。这里明确判定并退出。
+        try:
+            _u = (page.url or '')
+            _t = ''
+            try:
+                _t = page.inner_text('body')[:3000]
+            except Exception:
+                pass
+            _nl = None
+            if ('login' in _u.lower()) or ('passport' in _u.lower()):
+                _nl = '页面跳到了登录页（' + _u[:70] + '）'
+            else:
+                for _kw in ('扫码登录', '立即登录', '登录/注册', '请先登录', '手机号登录'):
+                    if _kw in _t:
+                        _nl = '页面出现登录提示（' + _kw + '）'
+                        break
+            if _nl:
+                log('❌ 微博【未登录】：' + _nl + ' —— 请在登记浏览器里重新登录微博')
+                print(json.dumps({'success': False, 'result': '微博未登录（' + _nl + '），请先在登记浏览器登录微博'}))
+                return
+        except Exception:
+            pass
+
         # ★ VERIFIED_FLOW_V8：优先用真按钮 button[id^=video_button_upload]（实测 882,432 一击成功）
         _done = False
         try:

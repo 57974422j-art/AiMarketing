@@ -159,6 +159,29 @@ def main():
                 page.goto(URL, wait_until='domcontentloaded', timeout=30000)
                 log('已导航到发布页'); page.wait_for_timeout(3000)
             except Exception as e: log('导航失败: ' + str(e)[:80])
+        # ★LOGIN_HONEST_V1（2026-09-17 用户要求：登录失效必须明确报，哪个平台都要）：
+        #   小红书原来【没有登录检测】→ 登录态失效时会继续跑、报一堆看不懂的错。
+        try:
+            _u = (page.url or '')
+            _t = ''
+            try:
+                _t = page.inner_text('body')[:3000]
+            except Exception:
+                pass
+            _nl = None
+            if ('login' in _u.lower()) or ('passport' in _u.lower()):
+                _nl = '页面跳到了登录页（' + _u[:70] + '）'
+            else:
+                for _kw in ('扫码登录', '手机号登录', '登录后即可', '请先登录', '登录/注册', '登录小红书'):
+                    if _kw in _t:
+                        _nl = '页面出现登录提示（' + _kw + '）'
+                        break
+            if _nl:
+                log('❌ 小红书【未登录】：' + _nl + ' —— 请在登记浏览器里重新登录小红书')
+                print(json.dumps({'success': False, 'result': '小红书未登录（' + _nl + '），请先在登记浏览器登录小红书'}))
+                return
+        except Exception:
+            pass
 
         # 2026-09-12: 页面已有视频/且只要封面 → 跳过前四步（避免重复上传）
         skip_front = bool(a.only_cover)

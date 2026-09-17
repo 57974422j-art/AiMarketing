@@ -2266,15 +2266,39 @@ ipcMain.handle('bu:open', async (event) => {
         py.on('error', () => resolve(''))
         setTimeout(() => { try { py.kill() } catch {} ; resolve(so.trim()) }, 8000)
       })
-      const m = out.match(/PLATS:([A-Za-z0-9_:,]+)/)
       const labels = PLATFORM_NAME   // 2026-09-13: 取自 platforms.generated.js
-      const accounts = []
-      if (m) {
-        for (const kv of m[1].split(',')) {
+      const parsePlats = (s) => {
+        const mm = String(s || '').match(/PLATS:([A-Za-z0-9_:,]+)/)
+        if (!mm) return null
+        const arr = []
+        for (const kv of mm[1].split(',')) {
           const seg = kv.split(':')
-          accounts.push({ id: seg[0], platform: seg[0], name: labels[seg[0]] || seg[0], loggedIn: seg[1] === '1' })
+          arr.push({ id: seg[0], platform: seg[0], name: labels[seg[0]] || seg[0], loggedIn: seg[1] === '1' })
         }
+        return arr
       }
+      // ★BUCHECK_HONEST_V1（2026-09-17 用户实测）：本轮修。
+      //   旧行为：python 无输出/超时/报错时也 return { success: true, accounts: [] }
+      //   → 前端把它当"所有平台都未登录" → 平台全清（用户实测：重登 3 次仍显示未登录）。
+      //   新行为：① 解析成功才 success:true
+      //           ② 拿不到输出 → 回退读 bu_check.py 写的缓存文件（browser-profile/bu_login_cache.txt）
+      //           ③ 两者都没有 → success:false（前端保留上次结果，不再误清）
+      let accounts = parsePlats(out)
+      let from = 'live'
+      if (!accounts) {
+        try {
+          const cacheFile = path.join(app.getPath('userData'), 'browser-profile', 'bu_login_cache.txt')
+          if (fs.existsSync(cacheFile)) {
+            accounts = parsePlats(fs.readFileSync(cacheFile, 'utf8'))
+            if (accounts) from = 'cache'
+          }
+        } catch (e) {}
+      }
+      if (!accounts) {
+        try { buLog('[bucheck] 检测无结果（python 无输出/超时）→ 返回 success:false（不再谎报空列表）') } catch (e) {}
+        return { success: false, error: 'check-no-output', buDir: String(BU_PROFILE_DIR) }
+      }
+      try { buLog('[bucheck] 登录态来源=' + from + ' | ' + accounts.map((a) => a.id + ':' + (a.loggedIn ? 1 : 0)).join(',')) } catch (e) {}
       return { success: true, accounts, buDir: String(BU_PROFILE_DIR) }   // ISO_GETTER_FIX_V1
     } catch (e) { return { success: false, error: String(e && e.message || e) } }
   })

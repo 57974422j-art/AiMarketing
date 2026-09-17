@@ -34,6 +34,12 @@
 - 🟡 标准/自由模式文件级隔离（free-flow.ts / standard-flow.ts 物理抽取）——**2026-09-12 更新**：第1步已完成（抽出 tools.ts 354行 / prompts.ts 290行 + 状态机块边界注释 L1586-2235 + freeMode 5 个分叉点清单写入 PROJECT.md）；第2步（状态机块物理搬 standard-flow.ts）待 6 平台真发验证通过后做
 
 ### ✅ 已解决
+- ✅ **agent 发布链路 5 个真问题（2026-09-17 修复——用户逐条实测发现）**：
+  1) **登录态"丢失"（重登 N 次登记仍显示未登录）**：`bu:check` 在 python 无输出/超时时也 `return {success:true, accounts:[]}` → 前端 `else` 分支把空数组当"所有平台都没登录"→ 全清。用户实测：重登快手 3 次登记仍显示未登录，而 `bu_check.py` 单独跑输出 `kuaishou:1` 是对的（打开浏览器的瞬间 Chrome 独占锁 Cookies，读不到即产出空）。修：① 不谎报 success ② 拿不到输出回退读 `browser-profile/bu_login_cache.txt` ③ 前端不再用空数组覆盖（`electron/main.js` bu:check + `src/app/agent/page.tsx`）。
+  2) **抖音发布卡在封面（任务 #48 失败根因，本机已复现）**：旧代码"上传封面后死等 3500ms 就点完成"，实测此时封面图仍在"生成中"、这一下点击无效 → 抖音紧接着弹出【第二个窗口】「已基于横封面为你生成竖封面。效果不满意？独立编辑」，该窗口里【没有「完成」也没有可点的「发布」】→ 一直卡着（同代码等 5s 点=正常、等 3.5s 点=出第二窗口，纯时序）。修：轮询等「完成」按钮可点击（≤20s，含 `semi-button-disabled` CSS 类判断）+ 点后【校验弹窗是否真关闭】+ 重试 + 兜底关闭该提示层。
+  3) **登录失效"假成功"**：抖音/小红书/微博原来【完全没有】登录检测；快手 `logged_in()` 太宽松（URL 不跳登录页 + 没出现"扫码登录"就判已登录，页面没渲染完会误判）。修：6 平台统一明确报"XX 未登录，请在登记浏览器登录"。
+  4) **平台跳错页**：B站 goto 后【不复验】（登录失效被重定向到首页仍继续操作 → 用户看到"B站直接跳到首页去了"）；视频号原来"只要 url 含 channels.weixin.qq.com 就抓"、抓到首页也不导航。修：两者都导航到正确发布页 + 复验 URL。
+  5) **视频号登录态每天必丢**：微信的 sessionid 每天换值、久不访问即作废（实测 cookie 有效期 395 天，不是到期失效）。新增 `scripts/keep-login-alive.mjs` + Windows 计划任务 `AiMarketing-KeepLogin`（每天 11:30；独立端口 9223 不抢发布 9222、窗口移到屏幕外、Chrome 单例检测"已在运行则跳过"、taskkill 兜底关闭）。
 - 🟡 **Browser Use「打不开浏览器」问题总结（2026-08-30——以后排查速查）**：
   分层排查（L1服务器→L2执行器→L3轮询fetch→L4 Python→L5浏览器）：
   1) L3 服务器 500：getAuthFromHeaders() 没传 req（agent-tools/browser-tasks 同坑）→ request undefined → headers in undefined → 修传 req（2c14b8b）
