@@ -32,6 +32,7 @@ async function fetchToutiao(): Promise<HotItem[]> {
     return ((d?.data as any[]) || []).slice(0, 12).map((it, i) => ({
       title: String(it?.Title || '').trim(),
       hot: it?.HotValue ? String(it.HotValue) : undefined,
+      url: it?.Url ? String(it.Url) : undefined,   // ★HOT_LINK_V1：带上原文链接（用户点标题/AI 读原文都要它）
       rank: i + 1,
     })).filter((it) => it.title)
   } catch { return [] }
@@ -53,6 +54,7 @@ async function fetchBaidu(): Promise<HotItem[]> {
     return items.slice(0, 12).map((it, i) => ({
       title: String(it?.query || it?.word || '').trim(),
       hot: it?.hotScore ? String(it.hotScore) : undefined,
+      url: it?.url ? String(it.url) : undefined,   // ★HOT_LINK_V1
       rank: i + 1,
     })).filter((it) => it.title)
   } catch { return [] }

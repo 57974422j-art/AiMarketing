@@ -2632,7 +2632,7 @@ function AgentPageInner() {
                             {src.items.slice(0, 5).map((it: any, i: number) => (
                               <li key={i}>
                                 <button
-                                  onClick={() => sendMessage(`结合「${it.title}」这个热点，帮我出一个适合自媒体发布的内容方案`)}
+                                  onClick={() => sendMessage(`结合这个热点：${it.title}${it.url ? '（原文链接：' + it.url + ' —— 请先抓取原文，再结合原文内容' : ''}，帮我出一个适合自媒体发布的内容方案`)}
                                   className="text-left text-[11px] text-gray-400 hover:text-gray-100 leading-snug transition line-clamp-1"
                                   title={it.title}
                                 >
