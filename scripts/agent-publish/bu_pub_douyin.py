@@ -154,7 +154,11 @@ def main():
                 el = visible(page, sel)
                 if el:
                     try:
-                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:16]); page.wait_for_timeout(2000)   # ★步间延时; break
+                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:16]); page.wait_for_timeout(2000)
+                        # ★FILL_DONE_BREAK_V1（2026-09-17）：原来 break 被写进了注释（"; break"）→ 循环不中断 →
+                        #   会依次试 3 个选择器、每个都填一遍标题（日志里"标题已填 ×3"就是这个），
+                        #   而且 for...else 会在循环正常走完后误报"未找到标题框"。恢复 break：填中一个就停。
+                        break
                     except Exception as e: log('标题填失败: ' + str(e)[:60])
             else: log('⚠️ 未找到标题框')
 
@@ -224,7 +228,13 @@ def main():
                         try:
                             e = page.query_selector(sel)
                             if e and e.is_visible():
-                                e.click(timeout=2500); log('✅ 封面已确认（' + sel + '）'); done_ok = True; page.wait_for_timeout(5000)   # ★封面完成后 5 秒; break
+                                e.click(timeout=2500); log('✅ 封面已确认（' + sel + '）'); done_ok = True; page.wait_for_timeout(5000)   # ★封面完成后 5 秒
+                                # ★COVER_DONE_BREAK_V1（2026-09-17 用户实测找到的真凶）：
+                                #   原来这里的 break 被写进了注释（成了 "; break" 文本）→ 循环【不中断】→
+                                #   点中「完成」后【还会继续找「保存」/「确定」并点】→ 命中的正是
+                                #   【上层"封面比例/横竖"弹窗】里的按钮 → 弹窗弹出 → 挡住发布按钮 → 发布失败。
+                                #   用户原话："这个横竖窗我们已经反复删几次了，动不动又跑出来了"（之前删的是别的写法）
+                                break
                         except Exception: continue
                     if not done_ok:
                         if click_text(page, ['完成', '保存', '确定']): done_ok = True
