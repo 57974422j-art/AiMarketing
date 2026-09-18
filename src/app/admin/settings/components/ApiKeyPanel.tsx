@@ -128,7 +128,7 @@ export default function ApiKeyPanel({
 }: ApiKeyPanelProps) {
 
   // ---- 测试 API Key ----
-  const testKey = async (provider: string, key: string, label: string) => {
+  const testKey = async (provider: string, key: string, label: string, extra?: Record<string, any>) => {
     // ★H3_RELAY_V1（2026-09-18）：h3 允许【留空】—— 后端会回退到 env 里的中转/官方 key，
     //   这样只想测官方通道（未填中转）时也能点测试；其余 provider 仍要求先填 key
     if ((!key || key === '********') && provider !== 'h3') {
@@ -160,11 +160,13 @@ export default function ApiKeyPanel({
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider, key }),
+          body: JSON.stringify({ provider, key, ...(extra || {}) }),
         })
         const result = await res.json()
         s.setTestResult({ type: result.valid ? 'success' : 'error', message: result.message })
-        s.setStatusMap(prev => ({ ...prev, [provider]: result.valid ? 'ok' : 'fail' }))
+        // ★H3_RELAY_V1：h3 的状态点落在 h3base / h3key（界面上那两行），其余 provider 仍用 provider 名
+        if (provider === 'h3') s.setStatusMap(prev => ({ ...prev, h3base: result.valid ? 'ok' : 'fail', h3key: result.valid ? 'ok' : 'fail' }))
+        else s.setStatusMap(prev => ({ ...prev, [provider]: result.valid ? 'ok' : 'fail' }))
       }
     } catch {
       s.setTestResult({ type: 'error', message: '测试请求失败' })
@@ -316,11 +318,11 @@ export default function ApiKeyPanel({
               </p>
               <KeyInputRow label="H3 中转地址" sub="中转" name="h3base"
                 value={s.h3BaseUrl} show onShowChange={() => {}}
-                testing={false} onTest={() => testKey('h3', s.h3ApiKey, 'H3 中转 Key')}
+                testing={false} onTest={() => testKey('h3', s.h3ApiKey, 'H3 中转 Key', { baseUrl: s.h3BaseUrl })}
                 hint="如 https://h3.submodel.ai（末尾不要带 /）" />
               <KeyInputRow label="H3 中转 Key" sub="中转" name="h3key"
                 value={s.h3ApiKey} show={s.showH3Key} onShowChange={() => s.setShowH3Key(!s.showH3Key)}
-                testing={s.testingH3} onTest={() => testKey('h3', s.h3ApiKey, 'H3 中转 Key')}
+                testing={s.testingH3} onTest={() => testKey('h3', s.h3ApiKey, 'H3 中转 Key', { baseUrl: s.h3BaseUrl })}
                 hint="中转站发的 key（sk_...）" />
               <div className="mt-2 flex items-center gap-2">
                 <span className="text-[10px] text-gray-500 font-mono shrink-0">H3 模型</span>

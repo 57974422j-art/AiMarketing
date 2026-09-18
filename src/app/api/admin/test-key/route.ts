@@ -396,7 +396,8 @@ export async function POST(request: NextRequest) {
       case 'h3': {
         // ★H3_RELAY_V1（2026-09-18）：H3 通道测试 —— 中转（若已配）优先，再测官方
         //   手法：只查一个【不存在的任务】→ key 有效会返回 TASK_NOT_FOUND，不消耗额度
-        const relayBase = (process.env.H3_BASE_URL || '').replace(/\/+$/, '');
+        // ★未保存也能测：优先用前端传的地址（用户刚填完还没点保存时）
+        const relayBase = String(baseUrl || process.env.H3_BASE_URL || '').replace(/\/+$/, '');
         const relayKey = (key && key !== '********' ? key : '') || process.env.H3_API_KEY || '';
         const officialKey = process.env.MINIMAX_API_KEY || '';
         const targets: Array<{ base: string; k: string; label: string }> = [];
