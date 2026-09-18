@@ -1,6 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 // 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
 const PUBLISH_DRAFT: Map<number, any> = new Map()
+
+// ★统一入库规则（2026-09-18 用户要求：与发布/上传走同一套）：
+//   生成物 → 个人仓库（OSS `storage/{userId}/日期序号.mp4`）→ 前端 `storage:mirror` 下载到本地仓库
+//   返回 `/api/storage/file?name=...&persist=1`（与 agent/page.tsx 里既有 mirror 调用同形式）；失败回退原始 URL，不阻断出片
+async function saveGeneratedVideoToRepo(userId: number | string, srcUrl: string): Promise<string> {
+  try {
+    const vr = await fetch(srcUrl, { signal: AbortSignal.timeout(180000) })
+    if (!vr.ok) return srcUrl
+    const buf = Buffer.from(await vr.arrayBuffer())
+    const { saveToPersonalRepo } = await import('@/lib/personal-storage')
+    const saved = await saveToPersonalRepo({ userId: String(userId), buffer: buf, ext: 'mp4', mime: 'video/mp4' })
+    return `/api/storage/file?name=${encodeURIComponent(saved.name)}&persist=1`
+  } catch (e: any) {
+    console.error('[generate_video] 个人仓库入库失败（回退原始 URL）:', e?.message || e)
+    return srcUrl
+  }
+}
 import {
   generateText, generateImage, generateVideo, generateLongVideo, generateImageToVideo, queryVideoTask,
   ToolDefinition,
@@ -131,6 +148,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const gvDuration = parseInt(args.duration) || 5
       const gvPrompt = args.prompt || '产品展示'
       const gvRatio = args.ratio || '16:9'
+      // ★H3_RELAY_V1：标记是否走 H3（只用于生成记录的 provider，**不参与计费**）
+      //   计费按用户 2026-09-18 指示【暂时不动，后面统一设计】→ 仍按 100 点/秒预估
+      const gvIsH3 = args.model === 'h3-768p' || args.model === 'h3-2k'
       const gvCost = Math.ceil(gvDuration * 100) // 100 点/秒
       // A2 成本确认：未确认只报预估
       if (!args.confirmed) {
@@ -145,7 +165,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       if (gvDuration > 15) {
         const segModel = args.segModel === 'wan2.7-t2v' ? 'wan2.7-t2v' : undefined // 缺省用引擎默认
         const lv = await generateLongVideo([gvPrompt], gvDuration, '720P', gvRatio, undefined, 5, segModel)
-        if (lv?.videoUrl) { await spendTokens(uid2, gvCost, 'agent_generate_video'); return `VIDEO_RESULT:${lv.videoUrl}|DURATION:${gvDuration}s|COST:${gvCost}点` }
+        if (lv?.videoUrl) { await spendTokens(uid2, gvCost, 'agent_generate_video'); const u = await saveGeneratedVideoToRepo(uid2, lv.videoUrl); return `VIDEO_RESULT:${u}|DURATION:${gvDuration}s|COST:${gvCost}点` }
         return '长视频生成失败（分段模型可能不可用，可重试或换 wan2.7-t2v）'
       }
       if (args.refImage) {
@@ -156,14 +176,20 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         }
         return '图生视频生成暂不可用（参考图处理失败，可重试）'
       }
-      const result = await generateVideo(gvPrompt, gvDuration, '720P', gvRatio)
+      // ★H3_RELAY_V1：带上 model（h3-768p / h3-2k → 走 H3 中转优先；缺省=百炼 wan2.7）
+      const result = await generateVideo(gvPrompt, gvDuration, '720P', gvRatio, args.model ? String(args.model) : undefined)
       if (result?.taskId && result.status === 'running') {
         // 2026-08-24: 生成即落库（可追踪/断网可恢复）
         // 2026-08-26 B方案：提交不扣——成片成功（query_video_task 查到成功）才扣
-        try { await createRecord({ userId: uid2, type: 'text2video', provider: 'dashscope', prompt: gvPrompt, costPoints: gvCost, platformTaskId: String(result.taskId) }) } catch {}
+        try { await createRecord({ userId: uid2, type: 'text2video', provider: gvIsH3 ? 'minimax' : 'dashscope', prompt: gvPrompt, costPoints: gvCost, platformTaskId: String(result.taskId) }) } catch {}
         return `VIDEO_TASK:${result.taskId}|PROMPT:${gvPrompt}|COST:${gvCost}点（成片完成后扣费）`
       }
-      if (result?.videoUrl) { await spendTokens(uid2, gvCost, 'agent_generate_video'); return `VIDEO_RESULT:${result.videoUrl}|COST:${gvCost}点` }
+      if (result?.videoUrl) {
+        await spendTokens(uid2, gvCost, 'agent_generate_video')
+        // ★统一入库：先落个人仓库（H3 的视频在中转站域名上，必须转存），再交给前端 mirror 到本地
+        const u = await saveGeneratedVideoToRepo(uid2, result.videoUrl)
+        return `VIDEO_RESULT:${u}|COST:${gvCost}点`
+      }
       return '视频生成暂不可用'
     }
 

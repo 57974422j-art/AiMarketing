@@ -20,6 +20,8 @@ export interface H3VideoResult {
   error?: string
   /** ★H3_RELAY_V1：实际使用的通道（中转 / 官方），便于日志与前台提示 */
   via?: string
+  /** ★H3_RELAY_V1：任务真实产出秒数（usage.output_seconds）——可用于精确计费/对账 */
+  seconds?: number
 }
 
 type H3Target = { base: string; key: string; model: string; label: string }
@@ -77,7 +79,9 @@ async function submitAndPoll(
   const taskId = d?.task_id
   if (!taskId) return { ok: false, error: `${t.label}未返回 task_id`, via: t.label }
 
-  for (let i = 0; i < 36; i++) {
+  // ★实测（2026-09-18，中转站 Turbo）：6 秒片 created_at→updated_at = 101s
+  //   → 原 36×5s=180s 上限余量太小（排队/长片必超时），改为 120×5s=600s
+  for (let i = 0; i < 120; i++) {
     await sleep(5000)
     try {
       const q = await fetch(`${t.base}/v2/query/video_generation/${taskId}`, {
@@ -87,7 +91,12 @@ async function submitAndPoll(
       const qd = await q.json().catch(() => ({} as any))
       const task = qd?.task
       if (!task) continue
-      if (task.status === 'succeeded') return { ok: true, videoUrl: task.content?.url || '', taskId, via: t.label }
+      if (task.status === 'succeeded') {
+        return {
+          ok: true, videoUrl: task.content?.url || '', taskId, via: t.label,
+          seconds: Number(task.usage?.output_seconds) || undefined,
+        }
+      }
       if (task.status === 'failed') {
         // 任务失败=内容/prompt 问题（如敏感）→ 换通道也一样失败，不降级
         return { ok: false, error: task.error?.message || 'H3 生成失败（可能敏感内容）', taskId, via: `${t.label}(不降级)` }
@@ -95,7 +104,7 @@ async function submitAndPoll(
       if (task.status === 'cancelled') return { ok: false, error: 'H3 任务已取消', taskId, via: t.label }
     } catch { /* 单次查询失败继续轮询 */ }
   }
-  return { ok: false, error: `${t.label}生成超时（180s）`, taskId, via: t.label }
+  return { ok: false, error: `${t.label}生成超时（600s）`, taskId, via: t.label }
 }
 
 export async function generateH3Video(

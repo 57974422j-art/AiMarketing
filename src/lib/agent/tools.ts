@@ -38,6 +38,8 @@ export const AGENT_TOOLS: ToolDefinition[] = [
         confirmed: { type: 'boolean', description: '用户是否已确认费用。false/缺省=只报预估；true=真正生成' },
         refImage: { type: 'string', description: '参考图 URL（图生视频/克隆用——用户发图时从消息里图片URL列表选一张传入；不传=文生视频）' },
         segModel: { type: 'string', description: '分段模型（仅>15s时用），可选 wan2.7-t2v / happyhorse-1.0-t2v，缺省自动' },
+        // ★H3_RELAY_V1（2026-09-18）：H3 视频通道（后台配中转站，中转优先 → 官方 → 百炼兜底）
+        model: { type: 'string', description: '视频模型。缺省 = 百炼 wan2.7（便宜、默认，按 100 点/秒）；h3-768p = MiniMax H3 768P（50 点/秒）；h3-2k = MiniMax H3 2K（80 点/秒）。**仅当用户明确说"用 H3 / MiniMax / 高质量真实感视频"时才传**，否则不要传（默认百炼更便宜）。' },
       }, required: ['prompt'],
     },
   },

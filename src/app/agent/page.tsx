@@ -1818,7 +1818,7 @@ function AgentPageInner() {
     setPendingLabel(
       /图|海报|插画|画|生成.*图/.test(ft) ? '🎨 正在生成图片…' :
       /发布|发.*视频|发.*抖音|发.*小红书|帮我发/.test(ft) ? '🚀 正在准备发布…' :
-      /生成.*视频|合成|成片|文生视频|做视频/.test(ft) ? '🎬 正在合成视频（约 1-2 分钟）…' :
+      /生成.*视频|合成|成片|文生视频|做视频|做个视频|做一条视频|出片|视频生成|h3/.test(ft) ? '🎬 正在生成视频（约 1-3 分钟，H3/百炼）…' :
       /文案|标题|脚本|文章/.test(ft) ? '✍️ 正在写文案…' :
       '💭 正在处理…'
     )
@@ -1842,7 +1842,7 @@ function AgentPageInner() {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(600000), // 2026-09-02: 同步封面生成（45-75s）+抽帧——240s 防前端早断
+        signal: AbortSignal.timeout(660000), // 2026-09-18: 后端 H3 轮询上限 600s（Turbo 实测 101s）+入库 —— 前端必须大于后端，否则后端还在等、前端先断
       })
       const data = await res.json()
       if (data.success) {
