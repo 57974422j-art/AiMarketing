@@ -56,7 +56,7 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'create_ai_video',
-    description: '一句话 AI 成片：内部自动分镜并创建后台生成任务（无需用户先要分镜）。规则同 generate_video：首次调用不带 confirmed 只报费用预估，用户确认后带 confirmed=true 才真正分镜+建任务。返回任务ID，可用 query_storyboard 查进度。**前缀区分：用户说"打开一键成片/去一键成片"是跳转页面（open_page /auto-compile），不是做视频——禁止调用本工具。**',
+    description: '★不要抢本地成片的活：用户只说"帮我做个视频/宣传片/讲解片"（没提 AI 生成画面）时，应该用 make_ai_video（本地渲染，便宜快）；本工具只在用户**明确**要"AI 生成画面/文生视频/真人感画面"时才用（贵，按秒计费）。一句话 AI 成片：内部自动分镜并创建后台生成任务（无需用户先要分镜）。规则同 generate_video：首次调用不带 confirmed 只报费用预估，用户确认后带 confirmed=true 才真正分镜+建任务。返回任务ID，可用 query_storyboard 查进度。**前缀区分：用户说"打开一键成片/去一键成片"是跳转页面（open_page /auto-compile），不是做视频——禁止调用本工具。**',
     parameters: {
       type: 'object',
       properties: {
@@ -73,7 +73,7 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     //   卡片/图文 + 火山 TTS 配音 + 自动字幕，几秒到几十秒出片（便宜、快、稳定）。
     //   适用：宣传片/讲解片/图文卡点视频。用户说"帮我做一条视频/做个宣传片"时优先用它。
     name: 'make_ai_video',
-    description: '本地成片：把用户要宣传的内容做成带配音、字幕、动态卡片的视频（本地渲染，不靠 AI 逐镜画图，快且便宜）。**推荐做法：你自己先排好分镜（plan）再调本工具**——分镜质量直接决定成片效果。可用卡片类型：title(标题卡) / list(列表逐项揭示) / number(大数字递增) / quote(引用) / compare(左右对比) / chart(横条数据) / bgimage(图片底+文字) / end(结尾CTA)。首次调用不带 confirmed 只报预估费用；用户确认后带 confirmed=true 才真正生成。',
+    description: '★默认选它：用户说"帮我做一条视频/做个宣传片/讲解片/把文案做成视频"等**泛指**时，一律用本工具（本地渲染，便宜、快，几秒到几分钟出片）；只有用户明确要"AI 生成画面 / 文生视频 / 真人感画面"时才改用 create_ai_video。本地成片：把用户要宣传的内容做成带配音、字幕、动态卡片的视频（本地渲染，不靠 AI 逐镜画图，快且便宜）。**推荐做法：你自己先排好分镜（plan）再调本工具**——分镜质量直接决定成片效果。可用卡片类型：title(标题卡) / list(列表逐项揭示) / number(大数字递增) / quote(引用) / compare(左右对比) / chart(横条数据) / bgimage(图片底+文字) / end(结尾CTA)。首次调用不带 confirmed 只报预估费用；用户确认后带 confirmed=true 才真正生成。',
     parameters: {
       type: 'object',
       properties: {

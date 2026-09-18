@@ -25,6 +25,13 @@ export default function SettingsPage() {
   const [dashscopeKey, setDashscopeKey] = useState('')
   const [minimaxKey, setMinimaxKey] = useState('')  // 2026-08-14 Minimax AI 音乐
   const [musicModel, setMusicModel] = useState('music-3.0-free')  // 2026-08-14 音乐模型
+  // ★H3_RELAY_V1（2026-09-18）：H3 视频通道（中转优先 → 官方降级）
+  const [h3BaseUrl, setH3BaseUrl] = useState('')
+  const [h3ApiKey, setH3ApiKey] = useState('')
+  const [h3Model, setH3Model] = useState('MiniMax-H3-Turbo')
+  const [h3UseContextIr, setH3UseContextIr] = useState(true)
+  const [showH3Key, setShowH3Key] = useState(false)
+  const [testingH3, setTestingH3] = useState(false)
   const [showMinimaxKey, setShowMinimaxKey] = useState(false)
   const [testingMinimax, setTestingMinimax] = useState(false)
   const [showDeepseekKey, setShowDeepseekKey] = useState(false)
@@ -165,6 +172,11 @@ export default function SettingsPage() {
       setDashscopeKey(d.dashscopeConfigured ? '********' : '')
       setMinimaxKey(d.minimaxConfigured ? '********' : '')
       setMusicModel(d.musicModel || 'music-3.0-free')
+      // ★H3_RELAY_V1（2026-09-18）
+      setH3BaseUrl(d.h3BaseUrl || '')
+      setH3ApiKey(d.h3KeyConfigured ? '********' : '')
+      setH3Model(d.h3Model || 'MiniMax-H3-Turbo')
+      setH3UseContextIr(d.h3UseContextIr !== false)
       // TTS
       setTtsAppId(d.ttsAppIdConfigured ? '********' : '')
       setTtsAccessKey(d.ttsAccessKeyConfigured ? '********' : '')
@@ -250,6 +262,11 @@ export default function SettingsPage() {
           dashscopeKey: mask(dashscopeKey),
           minimaxKey: mask(minimaxKey),
           musicModel: musicModel || undefined,
+          // ★H3_RELAY_V1（2026-09-18）：H3 中转通道
+          h3BaseUrl: h3BaseUrl || undefined,
+          h3ApiKey: mask(h3ApiKey),
+          h3Model: h3Model || undefined,
+          h3UseContextIr,
           ossRegion: ossRegion || undefined,
           ossAccessKeyId: mask(ossAccessKeyId),
           ossAccessKeySecret: mask(ossAccessKeySecret),
@@ -499,6 +516,8 @@ export default function SettingsPage() {
             setShowTtsAppId, setShowTtsAccessKey, setShowTtsResourceId, setTestingTTS,
             setOssRegion, setOssAccessKeyId, setOssAccessKeySecret, setOssBucket,
             setShowOssSecret, setTestingOSS,
+            h3BaseUrl, setH3BaseUrl, h3ApiKey, setH3ApiKey, h3Model, setH3Model,
+            h3UseContextIr, setH3UseContextIr, showH3Key, setShowH3Key, testingH3, setTestingH3,
           }}
         />
 

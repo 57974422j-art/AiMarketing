@@ -1,3 +1,20 @@
+## ✅ 已解决（2026-09-18 Minimax 测试端点不一致）
+
+- **问题**：设置页「测试」按钮测 Minimax 打的是**国际站** `api.minimax.chat/v1/text/chatcompletion_v2`，而实际功能（AI 音乐 / H3 视频）走的是**国内站** `api.minimaxi.com` → 点测试可能误报。
+- **修复**：`test-key` 新增 `case 'h3'` —— 按**实际通道**测（中转优先 → 官方），手法是"查一个不存在的任务"，**不消耗额度**。原 `minimax` 分支保留未动（仍服务于音乐）。
+- **遗留（低优先）**：若要让"音乐"也测国内站，可把 `minimax` 分支改成打 `api.minimaxi.com/v1/music_generation`。
+
+---
+
+## ✅ 已解决（2026-09-18 Git 误提交 26146 个文件）
+
+- **症状**：本地 `git add -A` 提交 1.0.205 时把 `temp/`（Python 环境副本、`playwright/driver/node.exe` 88.3MB×2、`oss-check.zip` 85.5MB…）**26146 个文件**一起提交 → 服务器 `git fetch` 要拉 **55.10 MiB / 19955 objects**（用户及时 Ctrl+C 中止 —— `&&` 短路，所以 `reset --hard` 没执行、服务器代码未被破坏）、本地 `.git` 涨到 **894.9MB**（`.git/index` 3.8MB）。
+- **修复**：`git reset --soft 188ec178^` + `git reset`（文件无损）→ **按路径白名单**重新 `git add` → 提交 `cbb9766a`（20 files / 1960 insertions）→ `git push --force-with-lease origin master`（仅传 **768 bytes / 4 objects**）。
+- **防复发**：① 新增 `temp/.gitignore`（`*` + `!.gitignore`，按目录整体忽略）② 根目录 6 个临时文件已删（`tsconfig.tsbuildinfo`/`viag-shot*.png`/`xhs-shot.png`/`zipsize.txt`）、`package.json.bak-sl` 移出工作区 ③ 规则已写进 `AGENTS.md`：**禁止 `git add -A` / `git add .`，提交前必看 `git status --short`**。
+- **待办（低优先）**：本地 `.git` 那 ~895MB 不可达对象，需要时 `git gc --prune=now` 回收。
+
+---
+
 ## 🔴 服务器侧部署前提（2026-09-18 本地成片上服务器）
 
 > 本地成片（`scripts/video-factory`）已按 **Linux 服务器** 适配（★VF_LINUX_V1 / ★VF_REPO_V1），但下面三条不做，线上依然跑不起来：

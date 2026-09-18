@@ -393,6 +393,45 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ valid: false, message: `Minimax 连接失败: ${e?.message || e}` });
         }
       }
+      case 'h3': {
+        // ★H3_RELAY_V1（2026-09-18）：H3 通道测试 —— 中转（若已配）优先，再测官方
+        //   手法：只查一个【不存在的任务】→ key 有效会返回 TASK_NOT_FOUND，不消耗额度
+        const relayBase = (process.env.H3_BASE_URL || '').replace(/\/+$/, '');
+        const relayKey = (key && key !== '********' ? key : '') || process.env.H3_API_KEY || '';
+        const officialKey = process.env.MINIMAX_API_KEY || '';
+        const targets: Array<{ base: string; k: string; label: string }> = [];
+        if (relayBase && relayKey) targets.push({ base: relayBase, k: relayKey, label: `中转 ${relayBase}` });
+        if (officialKey) targets.push({ base: 'https://api.minimaxi.com', k: officialKey, label: '官方 api.minimaxi.com' });
+        if (!targets.length) {
+          return NextResponse.json({ valid: false, message: '未配置 H3 通道：请填【中转地址 + 中转 Key】，或填官方 MINIMAX_API_KEY' }, { status: 400 });
+        }
+        const results: string[] = [];
+        for (const t of targets) {
+          try {
+            const r = await fetch(`${t.base}/v2/query/video_generation/00000000-0000-0000-0000-000000000000`, {
+              headers: { Authorization: `Bearer ${t.k}` },
+              signal: AbortSignal.timeout(15000),
+            });
+            const j = await r.json().catch(() => ({}));
+            const code = j?.error?.code || '';
+            const msg = j?.error?.message || '';
+            if (r.status === 401 || r.status === 403 || /AUTHENTICATION_FAILED|authorized_error/i.test(String(code))) {
+              results.push(`❌ ${t.label}：key 无效（${msg || r.status}）`);
+            } else if (r.ok || /TASK_NOT_FOUND/i.test(String(code)) || /not found/i.test(String(msg))) {
+              results.push(`✅ ${t.label}：key 有效`);
+            } else {
+              results.push(`⚠️ ${t.label}：HTTP ${r.status} ${msg || code}`);
+            }
+          } catch (e: any) {
+            results.push(`❌ ${t.label}：连接失败（${e?.message || e}）`);
+          }
+        }
+        const h3ok = results.some(x => x.startsWith('✅'));
+        return NextResponse.json({
+          valid: h3ok,
+          message: `H3 通道测试（模型 ${process.env.H3_MODEL || 'MiniMax-H3-Turbo'}，use_context_ir=${process.env.H3_USE_CONTEXT_IR === '0' ? '关' : '开'}）：\n` + results.join('\n'),
+        });
+      }
       case 'serper': {
         const k = (key && key !== '********' ? key : '') || process.env.SERPER_API_KEY || '';
         if (!k) return NextResponse.json({ valid: false, message: '未配置 Serper API Key' }, { status: 400 });

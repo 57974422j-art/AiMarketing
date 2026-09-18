@@ -9,6 +9,9 @@
 1. **禁止任何 Git 写入动作**：除非用户**明文说明**「可以提交」，否则不做 `git add` / `git commit` / `git push`。
    仓库里有其它 AI 制作的版本，不能搞乱。纯查看（`git status` / `git log` / `git diff`）可以。
    改动只停留在工作区，不暂存不提交。
+   - **禁止 `git add -A` / `git add .`**：必须先 `git status --short` 看清待提交内容，再**按路径白名单**逐个 `git add`。
+     2026-09-18 事故：`git add -A` 把 `temp/`（Python 环境副本、88MB 的 playwright driver、85MB zip 等 **26146 个文件**）一起提交 → 服务器 `fetch` 要拉 55MB / 19955 对象、`.git` 涨到 895MB。已用 `reset --soft` + 白名单重做 + `--force-with-lease` 修复（新提交 `cbb9766a`，20 文件 / 1960 行；push 仅 768 bytes）。
+   - 临时产物目录（`temp/`、`_pytest*`、`backup-*`、`buvenv-test/`）一律用**目录级 `.gitignore`**（内容 `*` + `!.gitignore`）兜底；根 `.gitignore` 是 UTF-16 且有历史乱码，**别用脚本追加**，容易写坏编码。
 
 2. **每次实质操作后必须同步三份文档**（缺一不可）：
    - `EXECUTION_LOG.md`：顶部 `---` 之后、最新在上，追加 `日期 | 操作内容 | 改动文件 | 结果`

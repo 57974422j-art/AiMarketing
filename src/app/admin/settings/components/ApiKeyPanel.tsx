@@ -79,6 +79,20 @@ interface ApiKeyPanelProps {
     setOssBucket: (v: string) => void
     setShowOssSecret: (v: boolean) => void
     setTestingOSS: (v: boolean) => void
+    // ★H3_RELAY_V1（2026-09-18）：H3 视频通道（中转优先 → 官方降级）
+    //   值 + setter 一起放在这里，避免给 ApiKeyPanelProps 再加 12 个顶层字段
+    h3BaseUrl: string
+    setH3BaseUrl: (v: string) => void
+    h3ApiKey: string
+    setH3ApiKey: (v: string) => void
+    h3Model: string
+    setH3Model: (v: string) => void
+    h3UseContextIr: boolean
+    setH3UseContextIr: (v: boolean) => void
+    showH3Key: boolean
+    setShowH3Key: (v: boolean) => void
+    testingH3: boolean
+    setTestingH3: (v: boolean) => void
   }
 }
 
@@ -115,13 +129,16 @@ export default function ApiKeyPanel({
 
   // ---- 测试 API Key ----
   const testKey = async (provider: string, key: string, label: string) => {
-    if (!key || key === '********') {
+    // ★H3_RELAY_V1（2026-09-18）：h3 允许【留空】—— 后端会回退到 env 里的中转/官方 key，
+    //   这样只想测官方通道（未填中转）时也能点测试；其余 provider 仍要求先填 key
+    if ((!key || key === '********') && provider !== 'h3') {
       s.setTestResult({ type: 'error', message: `请输入有效的 ${label}` })
       return
     }
     const setLoading = provider === 'deepseek' ? s.setTestingDeepseek
       : provider === 'volcano' ? s.setTestingVolcano
       : provider === 'siliconflow' ? s.setTestingSiliconflow
+      : provider === 'h3' ? s.setTestingH3
       : s.setTestingDashscope
     setLoading(true)
     s.setTestResult(null)
@@ -282,6 +299,37 @@ export default function ApiKeyPanel({
                   <option value="music-3.0-free">music-3.0-free（免费，RPM 3）</option>
                   <option value="music-3.0">music-3.0（1 元/首 ≈ 100 点）</option>
                 </select>
+              </div>
+            </div>
+
+            {/* ★H3_RELAY_V1（2026-09-18）：H3 视频通道（中转优先 → 官方降级）—— 独立分节，与 Minimax 音乐平级 */}
+            <div className="mt-6 pt-6 border-t border-white/10">
+              <h4 className="text-label mb-4 flex items-center gap-2">
+                🎬 H3 视频通道（中转优先）
+              </h4>
+              <p className="text-sm text-gray-500 mb-4 font-mono">
+                中转站 = 朋友机房自建（与官方 API 同构）。填了【中转地址 + 中转 Key】→ 中转优先，失败自动降级官方（api.minimaxi.com）；
+                两者都不通再降级百炼 wan2.7。不填则只走官方。
+              </p>
+              <KeyInputRow label="H3 中转地址" sub="中转" name="h3base"
+                value={s.h3BaseUrl} show onShowChange={() => {}}
+                testing={false} onTest={() => testKey('h3', s.h3ApiKey, 'H3 中转 Key')}
+                hint="如 https://h3.submodel.ai（末尾不要带 /）" />
+              <KeyInputRow label="H3 中转 Key" sub="中转" name="h3key"
+                value={s.h3ApiKey} show={s.showH3Key} onShowChange={() => s.setShowH3Key(!s.showH3Key)}
+                testing={s.testingH3} onTest={() => testKey('h3', s.h3ApiKey, 'H3 中转 Key')}
+                hint="中转站发的 key（sk_...）" />
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-[10px] text-gray-500 font-mono shrink-0">H3 模型</span>
+                <select value={s.h3Model} onChange={(e) => s.setH3Model(e.target.value)}
+                  className="flex-1 bg-black/30 border border-white/10 rounded-md px-2 py-1 text-[11px] text-gray-300 outline-none focus:border-cyan-500/40">
+                  <option value="MiniMax-H3-Turbo">MiniMax-H3-Turbo（加速，推荐）</option>
+                  <option value="MiniMax-H3">MiniMax-H3（标准，质量优先）</option>
+                </select>
+                <label className="flex items-center gap-1 text-[10px] text-gray-400 shrink-0">
+                  <input type="checkbox" checked={s.h3UseContextIr} onChange={(e) => s.setH3UseContextIr(e.target.checked)} />
+                  use_context_ir（自动增强提示词）
+                </label>
               </div>
             </div>
 

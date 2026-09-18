@@ -2160,11 +2160,17 @@ const MODEL_MAP: Record<string, string> = {
 }
 export async function generateVideo(prompt: string, _duration = 5, _resolution = '720P', _ratio = '16:9', _model?: string): Promise<{ taskId: string; status: string; videoUrl?: string } | null> {
   // 2026-08-14: MiniMax H3（前端可选模型——768P 50点/秒 / 2K 80点/秒）
+  // ★2026-09-18 H3_RELAY_V1：H3 = 【中转优先 → 官方降级】（在 minimax-h3.ts 内完成），
+  //   两端都不通 → 降级百炼 wan2.7-t2v（生视频主力仍是百炼）
   if (_model === 'h3-768p' || _model === 'h3-2k') {
+    const h3Res: '768P' | '2K' = _model === 'h3-2k' ? '2K' : '768P'
     const { generateH3Video } = await import('./minimax-h3')
-    const res = await generateH3Video(prompt, _duration, _model === 'h3-2k' ? '2K' : '768P', _ratio || '16:9')
+    const res = await generateH3Video(prompt, _duration, h3Res, _ratio || '16:9')
     if (res?.ok && res.videoUrl) return { taskId: res.taskId || '', status: 'succeeded', videoUrl: res.videoUrl }
-    console.log(`[文生视频] H3 失败: ${res?.error}`)
+    console.log(`[文生视频] H3(${res?.via || '?'}) 失败: ${res?.error} → 降级百炼 wan2.7-t2v`)
+    const dash27 = await dashscopeGenerateVideo(prompt, _duration, h3Res, _ratio || '16:9', 'wan2.7-t2v')
+    if (dash27) return dash27
+    console.log('[文生视频] 百炼 wan2.7-t2v 也失败 → 放弃')
     return null
   }
   // 指定 Agnes（主用模型）——2026-08-21: 失败降级百炼 wan2.7 → happyhorse（不再"无降级"）

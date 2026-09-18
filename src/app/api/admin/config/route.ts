@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const auth = getAuthFromHeaders(request)
     if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
     if (auth.role !== 'admin') return NextResponse.json({ success: false, message: '仅管理员可操作' }, { status: 403 })
-    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, serperKey, minimaxKey, musicModel, ssServer, ssPort, ssPassword, ssMethod } = await request.json();
+    const { deepseekKey, volcanoKey, siliconflowKey, dashscopeKey, ttsAppId, ttsAccessKey, ttsResourceId, volcAsrApiKey, volcAsrAppKey, volcAsrAccessKey, volcAsrResourceId, ossRegion, ossAccessKeyId, ossAccessKeySecret, ossBucket, automationEngine, actionEngine, mcPath, mcPythonBin, pixabayKey, musicApiType, musicApiKey, musicApiUrl, giphyKey, overseasProxy, geminiKey, geminiBaseUrl, agnesKey, agnesBaseUrl, agentWebhookWechat, agentWebhookFeishu, serperKey, minimaxKey, musicModel, h3BaseUrl, h3ApiKey, h3Model, h3UseContextIr, ssServer, ssPort, ssPassword, ssMethod } = await request.json();
 
     console.log('[Admin-Config] 收到保存请求');
 
@@ -287,6 +287,21 @@ MINIMAX_MUSIC_MODEL=${musicModel}`;
       process.env.MINIMAX_MUSIC_MODEL = musicModel
     }
 
+    // ★H3_RELAY_V1（2026-09-18）：H3 中转站（朋友机房自建）—— 中转优先，官方兜底
+    //   没配中转时不写这几个键，minimax-h3.ts 自动只走官方（老行为完全不变）
+    for (const [k, v] of ([
+      ['H3_BASE_URL', h3BaseUrl],
+      ['H3_API_KEY', h3ApiKey && h3ApiKey !== '********' ? h3ApiKey : undefined],
+      ['H3_MODEL', h3Model],
+      ['H3_USE_CONTEXT_IR', h3UseContextIr === undefined ? undefined : (h3UseContextIr ? '1' : '0')],
+    ] as [string, any][])) {
+      if (v === undefined || v === null) continue
+      const p = new RegExp(`^${k}=.*$`, 'm');
+      if (p.test(envContent)) envContent = envContent.replace(p, `${k}=${v}`);
+      else envContent += `\n${k}=${v}`;
+      process.env[k] = String(v)
+    }
+
     // 下载代理（Shadowsocks，2026-08-09：夜间视频下载用）
     for (const [k, v] of [['SS_SERVER', ssServer], ['SS_PORT', ssPort], ['SS_PASSWORD', ssPassword], ['SS_METHOD', ssMethod]]) {
       if (v !== undefined) {
@@ -401,6 +416,11 @@ export async function GET(request: NextRequest) {
     const volcAsrResourceId = await readEnv('VOLC_ASR_RESOURCE_ID');
     const minimaxKey = await readEnv('MINIMAX_API_KEY');
     const musicModel = (await readEnv('MINIMAX_MUSIC_MODEL')) || 'music-3.0-free';  // 2026-08-14
+    // ★H3_RELAY_V1（2026-09-18）：H3 通道（中转优先 → 官方兜底）
+    const h3BaseUrl = await readEnv('H3_BASE_URL');
+    const h3ApiKey = await readEnv('H3_API_KEY');
+    const h3Model = (await readEnv('H3_MODEL')) || 'MiniMax-H3-Turbo';
+    const h3UseContextIr = (await readEnv('H3_USE_CONTEXT_IR')) !== '0';
 
     // 检查 OSS 是否完整配置
     const ossConfigured = !!(ossRegion && ossAkId && ossAkSecret && ossBucket);
@@ -440,6 +460,12 @@ export async function GET(request: NextRequest) {
             serperKeyConfigured: !!serperKey,
         minimaxConfigured: !!minimaxKey,
       musicModel,  // 2026-08-14
+        // ★H3_RELAY_V1（2026-09-18）：H3 通道状态
+        h3BaseUrl: h3BaseUrl || '',
+        h3BaseUrlConfigured: !!h3BaseUrl,
+        h3KeyConfigured: !!h3ApiKey,
+        h3Model,
+        h3UseContextIr,
         ssServer: ssServer,
         ssPort: ssPort,
         ssMethod: ssMethod || 'aes-256-gcm',

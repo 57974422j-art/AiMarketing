@@ -161,6 +161,15 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-09-18 H3 视频通道接入中转站（★H3_RELAY_V1，✅ 代码完成，待配置 + 验证）
+
+- **背景**：用户提供朋友机房自建中转站 `https://h3.submodel.ai`（与官方 MiniMax H3 API 同构）；要求**中转优先、后台可配、只改 AGENT 做视频这一路**。
+- ✅ **实测确认**：`POST /v2/video_generation` 提交成功（拿到 `task_id`）；`GET /v2/query/video_generation/{id}` 查不存在的任务返回 `TASK_NOT_FOUND`（= key 通过鉴权，**且不消耗额度**，可作轻量验 key 手法）；**顶层 `use_context_ir` 被接受**；turbo = 把 model 改成 `MiniMax-H3-Turbo`。
+- ✅ **通道逻辑**（`minimax-h3.ts`）：中转（配了 `H3_BASE_URL`+`H3_API_KEY` 时）→ 官方 `api.minimaxi.com` → 两端都不通再**降级百炼 wan2.7-t2v**（`ai-providers.ts`）。任务 `failed`（内容/prompt 问题）**不降级**，避免白跑。
+- ✅ **后台可配**：Settings →「AI 密钥」新增「🎬 H3 视频通道（中转优先）」：中转地址 / 中转 Key / 模型（`MiniMax-H3-Turbo` 或 `MiniMax-H3`）/ `use_context_ir` 开关。
+- ✅ **测试按钮**：`test-key` 新增 `h3` 分支（查不存在任务 → **不花钱**验 key）；顺带修掉原先 minimax 测试打**国际站**、而实际功能走**国内站**的不一致。
+- ⏳ **待做**：① 后台填入中转地址 + Key ② 跑一次真生成验证 ③ `tsc` 校验（shell 故障，尚未跑）
+
 ### 2026-09-18 本地成片（video-factory）Linux 服务器适配（✅ 代码完成，待 push/部署）
 
 - **背景**：`make_ai_video` 在 `chat/route.ts` 里 spawn `scripts/video-factory/make.py` → 跑在 **API 所在机器**；用户确认成片跑在**服务器（Linux /root/AiMarketing）**，而原实现是照 Windows 本机写的。
