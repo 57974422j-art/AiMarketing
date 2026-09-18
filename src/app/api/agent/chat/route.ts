@@ -167,6 +167,124 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       return '视频生成暂不可用'
     }
 
+    // ── 本地成片（★VF_AGENT_V1）：文案 → 分镜 → 配音 → FFmpeg 渲染（全本地）──
+    //   与 create_ai_video 的区别：那个走 AI 逐镜生成画面（贵、慢）；
+    //   这个走【本地渲染】（tts.py + render.py），快、便宜、画面是模板化卡片/图文。
+    case 'make_ai_video': {
+      const vfScript = String(args.script || args.topic || '').trim()
+      // ★VF_PLAN_V1：允许 AI 直接给分镜（plan），比"按标点自动切句"好得多
+      const vfPlan = args.plan ? (typeof args.plan === 'string' ? args.plan : JSON.stringify(args.plan)) : ''
+      if (!vfScript && !vfPlan) return 'TOOL_REJECT:缺少 script（文案/主题）或 plan（分镜 JSON）'
+      const vfTheme = String(args.theme || 'dark')
+      const vfCost = Math.max(1, Math.ceil((vfScript || vfPlan).length / 20))
+      if (!args.confirmed) {
+        const what = vfPlan ? 'AI 分镜' : `文案 ${vfScript.length} 字`
+        return `MAKE_VIDEO_COST:${what} → 本地配音+成片约 ${vfCost} 点（约¥${(vfCost / 100).toFixed(1)}）。请向用户报价并等确认（用户说"确认/生成吧/可以"即确认），确认后带 confirmed=true 开始生成。`
+      }
+      const uidVF = auth?.userId
+      if (!uidVF) return 'TOOL_REJECT:未登录'
+      const vfChk = await checkTokens(uidVF, vfCost)
+      if (!vfChk.allowed) return `TOOL_REJECT:${vfChk.message}`
+      const { spawn } = await import('child_process')
+      const pathVF = await import('path')
+      const fsVF = await import('fs')
+      const rootVF = process.cwd()
+      const mkPy = pathVF.join(rootVF, 'scripts', 'video-factory', 'make.py')
+      if (!fsVF.existsSync(mkPy)) return 'TOOL_REJECT:未找到本地成片脚本 scripts/video-factory/make.py'
+      const outDir = pathVF.join(process.env.LOCAL_STORAGE || pathVF.join(rootVF, 'storage'), String(uidVF), 'video-factory')
+      fsVF.mkdirSync(outDir, { recursive: true })
+      const vfOut = pathVF.join(outDir, `vf_${Date.now()}.mp4`)
+      // ★VF_LINUX_V1（2026-09-18）：解释器名跨平台 —— Linux 服务器通常只有 python3，
+      //   原来默认 'python' → spawn ENOENT → 成片直接失败。服务器可显式设 BU_PYTHON。
+      const py = process.env.BU_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
+      const argsVF = vfPlan
+        ? [mkPy, '--plan', vfPlan, '--theme', vfTheme, '--out', vfOut, '--workdir', pathVF.join(outDir, 'work')]
+        : [mkPy, '--script', vfScript, '--theme', vfTheme, '--out', vfOut, '--workdir', pathVF.join(outDir, 'work')]
+      // ★VF_ASYNC_V1（2026-09-18）：改成【后台任务】——不再同步等 8 分钟。
+      //   长片（3 分钟以上）同步等会超时/卡住对话；改后台跑 + 落任务文件，用户可随时问进度。
+      const vfTaskId = 'vf' + Date.now()
+      const vfTaskFile = pathVF.join(outDir, vfTaskId + '.json')
+      const vfStarted = new Date().toISOString()
+      const writeVfTask = (o: Record<string, any>) => {
+        try { fsVF.writeFileSync(vfTaskFile, JSON.stringify(o, null, 2)) } catch (e) {}
+      }
+      writeVfTask({ id: vfTaskId, status: 'running', startedAt: vfStarted,
+                    out: vfOut, cost: vfCost, script: String(vfScript || '').slice(0, 200) })
+      try {
+        const ch = spawn(py, argsVF, { windowsHide: true })
+        let so = ''
+        const push = (d: any) => { so = (so + String(d)).slice(-5000) }
+        ch.stdout.on('data', push)
+        ch.stderr.on('data', push)
+        ch.on('close', async (code: number | null) => {
+          const okDone = code === 0 && fsVF.existsSync(vfOut)
+          // ★VF_REPO_V1（2026-09-18）：成片转 OSS + 入个人仓库。
+          //   原来只把服务器本地路径写进任务文件 → 用户在客户端根本拿不到文件。
+          let repoExtra: Record<string, any> = {}
+          if (okDone) {
+            try {
+              const { readFile } = await import('fs/promises')
+              const { saveToPersonalRepo } = await import('@/lib/personal-storage')
+              const { signedUrl } = await import('@/lib/oss')
+              const buf = await readFile(vfOut)
+              const { name } = await saveToPersonalRepo({
+                userId: String(uidVF), buffer: buf, ext: 'mp4', mime: 'video/mp4',
+              })
+              repoExtra = { repoName: name, url: await signedUrl(`storage/${uidVF}/${name}`, 86400) }
+            } catch (e: any) {
+              repoExtra = { repoError: String(e?.message || e).slice(0, 200) }
+            }
+          }
+          writeVfTask({ id: vfTaskId, status: okDone ? 'done' : 'failed',
+                        startedAt: vfStarted, finishedAt: new Date().toISOString(),
+                        out: vfOut, cost: vfCost, code: code,
+                        tail: so.split('\n').filter(Boolean).slice(-8),
+                        ...repoExtra })
+          if (okDone) { spendTokens(uidVF, vfCost, 'make_ai_video').catch(() => {}) }
+        })
+        ch.on('error', (e: any) => {
+          writeVfTask({ id: vfTaskId, status: 'failed', startedAt: vfStarted,
+                        finishedAt: new Date().toISOString(), error: String(e).slice(0, 300) })
+        })
+      } catch (e: any) {
+        writeVfTask({ id: vfTaskId, status: 'failed', startedAt: vfStarted,
+                      finishedAt: new Date().toISOString(), error: String(e).slice(0, 300) })
+        return 'MAKE_VIDEO_FAIL:后台启动失败 ' + String(e).slice(0, 120)
+      }
+      return `MAKE_VIDEO_TASK:${vfTaskId} 本地成片已在后台开始（配音 + 字幕 + 画面）。过程中可随时问我"视频做得怎么样了"查看进度。`
+    }
+
+    // ── 查询本地成片任务进度（★VF_ASYNC_V1 配套）──
+    case 'query_make_video': {
+      const uidQ = auth?.userId
+      if (!uidQ) return 'TOOL_REJECT:未登录'
+      const pathQ = await import('path')
+      const fsQ = await import('fs')
+      const outDirQ = pathQ.join(process.env.LOCAL_STORAGE || pathQ.join(process.cwd(), 'storage'), String(uidQ), 'video-factory')
+      const wantId = String(args.taskId || '').trim()
+      try {
+        let files: string[] = fsQ.existsSync(outDirQ)
+          ? (fsQ.readdirSync(outDirQ) as string[]).filter((f) => /^vf\d+\.json$/.test(f)).sort().reverse()
+          : []
+        if (wantId) files = files.filter((f) => f.indexOf(wantId) >= 0)
+        if (!files.length) return 'MAKE_VIDEO_PROGRESS:没有找到本地成片任务（可让我"帮我做一条视频"开始）'
+        const t = JSON.parse(fsQ.readFileSync(pathQ.join(outDirQ, files[0]), 'utf8'))
+        const icon = t.status === 'done' ? '✅ 已完成' : (t.status === 'failed' ? '❌ 失败' : '⏳ 进行中')
+        const dur = t.startedAt ? Math.round((Date.now() - new Date(t.startedAt).getTime()) / 1000) : 0
+        let msg = `MAKE_VIDEO_PROGRESS:任务 ${t.id} ${icon}（已跑 ${dur}s）`
+        if (t.status === 'done') {
+          msg += `\n成片文件：${t.repoName || t.out}`
+          if (t.url) msg += `\n个人仓库下载链接（24h 有效）：${t.url}`
+          if (t.repoError) msg += `\n（入库失败：${t.repoError}）`
+        }
+        if (t.status === 'failed') msg += `\n失败原因/日志尾部：\n${t.error || (t.tail || []).join('\n')}`
+        if (t.status === 'running') msg += `\n（还在渲染，稍后再问我一次）`
+        return msg
+      } catch (e: any) {
+        return 'MAKE_VIDEO_PROGRESS:查询失败 ' + String(e).slice(0, 120)
+      }
+    }
+
     // ── 分镜协议（A3）──
     case 'generate_storyboard': {
       const sbDuration = Math.min(180, parseInt(args.duration) || 30)

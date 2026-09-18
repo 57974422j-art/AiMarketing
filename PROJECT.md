@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-09-14 ｜2026-08-06 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-09-18 ｜2026-08-06 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
@@ -160,6 +160,17 @@ dashboard(+insights/sop)、workspace、ai-tools、ai-copy、image-generator、au
 i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
+
+### 2026-09-18 本地成片（video-factory）Linux 服务器适配（✅ 代码完成，待 push/部署）
+
+- **背景**：`make_ai_video` 在 `chat/route.ts` 里 spawn `scripts/video-factory/make.py` → 跑在 **API 所在机器**；用户确认成片跑在**服务器（Linux /root/AiMarketing）**，而原实现是照 Windows 本机写的。
+- ✅ **① 火山凭据**（tts.py）：硬编码 `D:\AiMarketing\.env.local` → 改「进程环境变量 → `VF_ENV_FILE` → 从脚本位置逐级向上找 `.env.local` → cwd」；缺凭据时明确警告（不再静默出无声片）。
+- ✅ **② 中文字体**（render.py）：`FONT_CANDS` 补 Noto CJK / 文泉驿 / DejaVu + CJK 回退顺序 + 缓存；字幕 `FontName` 由写死的 `Microsoft YaHei` 改为 `sub_font_name()` 按平台选。
+- ✅ **③ python 命令名**：make.py 子进程改 `sys.executable`；route.ts `BU_PYTHON || 'python'` → 非 Windows 默认 `python3`。
+- ✅ **④ 成片交付**：完成后 `saveToPersonalRepo()` 转 OSS 入个人仓库 + 写 `repoName`/`url`（24h 签名直链）；`make-video-status` 透出，前端完成消息与 `query_make_video` 都给下载链接。
+- ✅ **⑤ 配音引擎改百炼**（tts.py，★VF_DASHSCOPE_V1）：用户明确「TTS 以百炼为主」→ `tts_one` 改为【百炼 CosyVoice 主用 → 火山兜底 → 都没有则明确警告】，协议与 `ai-providers.ts` 的 `dashscopeTTS` 一致；`--speaker` 默认改空（按引擎取默认音色：百炼 `longxiaochun` / 火山 `zh_female_vv_uranus_bigtts`）。
+- ⏳ **待做**：① `git push`（否则服务器上没有 `scripts/video-factory`）② 服务器 `apt-get install -y fonts-noto-cjk` ③ 部署后实测一次成片（含配音 + 中文画面）
+- ⚠️ 本次改动**未经编译验证**（本机 shell 环境故障，py_compile / tsc / 打包 / git push 均无法执行）——详见 ISSUES.md「服务器侧部署前提」。
 
 ### 2026-09-17 AGENT 发布链路 5 项修复（✅ 代码+实测完成，待打包分发）
 - **背景**：用户逐条实测发现"登录态老丢 / 抖音卡封面 / B站跳首页 / 快手抓不到"，本轮全部定位到根因并修复。

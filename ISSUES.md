@@ -1,3 +1,13 @@
+## 🔴 服务器侧部署前提（2026-09-18 本地成片上服务器）
+
+> 本地成片（`scripts/video-factory`）已按 **Linux 服务器** 适配（★VF_LINUX_V1 / ★VF_REPO_V1），但下面三条不做，线上依然跑不起来：
+
+1. **必须 `git push` + 服务器部署**：`make_ai_video` 在 chat route 里 spawn `scripts/video-factory/make.py`（跑在 API 机器上）。`scripts/video-factory` 目前只在本机 → 不 push 的话服务器上 `fs.existsSync` 判定失败，直接返回 `TOOL_REJECT:未找到本地成片脚本`。
+2. **服务器装中文字体**：`apt-get install -y fonts-noto-cjk`（或 `fonts-wqy-zenhei`）。不装 → 成片里的中文会渲染成方块（已加 Noto/文泉驿候选 + 回退，但没有字体文件就是没有）。
+3. **服务器要有 python3 + ffmpeg + TTS 凭据**：`python3` 在 PATH（或设 `BU_PYTHON=/usr/bin/python3`）、`ffmpeg` 在 PATH（或设 `FFMPEG_PATH`）、`DASHSCOPE_API_KEY`（**主用百炼 CosyVoice**，服务器现有 key 即可；音色可用 `DASHSCOPE_TTS_VOICE` 覆盖，默认 `longxiaochun`）。火山 `VOLCANO_TTS_*` 仅作兜底、可缺。都没有时 tts.py 会明确打一行警告并出**无声片**（不再静默）。
+
+---
+
 ## 🔴 发布链路待解决（2026-09-07）
 
 - 🟡 **微博入口的正确写法（2026-09-13 实测定稿——修正此前误判）**：

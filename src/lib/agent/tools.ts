@@ -69,6 +69,33 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    // ★VF_AGENT_V1（2026-09-17）：本地成片 —— 不调 AI 生成画面，而是用本地 FFmpeg 渲染
+    //   卡片/图文 + 火山 TTS 配音 + 自动字幕，几秒到几十秒出片（便宜、快、稳定）。
+    //   适用：宣传片/讲解片/图文卡点视频。用户说"帮我做一条视频/做个宣传片"时优先用它。
+    name: 'make_ai_video',
+    description: '本地成片：把用户要宣传的内容做成带配音、字幕、动态卡片的视频（本地渲染，不靠 AI 逐镜画图，快且便宜）。**推荐做法：你自己先排好分镜（plan）再调本工具**——分镜质量直接决定成片效果。可用卡片类型：title(标题卡) / list(列表逐项揭示) / number(大数字递增) / quote(引用) / compare(左右对比) / chart(横条数据) / bgimage(图片底+文字) / end(结尾CTA)。首次调用不带 confirmed 只报预估费用；用户确认后带 confirmed=true 才真正生成。',
+    parameters: {
+      type: 'object',
+      properties: {
+        script: { type: 'string', description: '文案（不排分镜时用；会按标点自动切句成卡片）' },
+        plan: { type: 'string', description: '★推荐：你自己排的分镜 JSON 数组字符串。每项如 {"type":"title","text":"主标题","dur":3}、{"type":"list","title":"要点","items":["A","B","C"]}、{"type":"number","value":300,"suffix":"+","label":"已服务客户"}、{"type":"quote","text":"用了效率翻三倍","from":"某运营"}、{"type":"compare","left":"以前","leftDesc":"手动发","right":"现在","rightDesc":"一句话发"}、{"type":"chart","title":"数据","items":[{"label":"发布量","value":300}]}、{"type":"end","text":"AI Marketing","cta":"现在就试试"}。(dur 可省略，会按配音真实时长自动定)' },
+        theme: { type: 'string', description: '主题：dark(深色) / light(浅色) / tech(科技)，默认 dark' },
+        confirmed: { type: 'boolean', description: '用户是否已确认费用。false/缺省=只报预估；true=直接生成' },
+      }, required: [],
+    },
+  },
+  {
+    // ★VF_ASYNC_V1（2026-09-18）：本地成片进度查询（配套 make_ai_video）
+    name: 'query_make_video',
+    description: '查询本地成片（make_ai_video）的进度。用户问"视频做得怎么样了/成片好了吗"时调用。返回：进行中 / 已完成（含成片文件路径）/ 失败（含日志尾部）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: '可选：make_ai_video 返回的任务ID；不传则查最近一个' },
+      }, required: [],
+    },
+  },
+  {
     name: 'create_storyboard_task',
     description: '创建分镜成片任务（后台逐镜生成，可查进度）。在 generate_storyboard 出分镜且用户确认费用后调用。返回任务ID。**前缀区分：用户消息以"打开/去/进入"开头是跳转页面（open_page），不是生成——禁止调用本工具。**',
     parameters: {
@@ -334,6 +361,8 @@ export const TOOL_STEP_LABEL: Record<string, string> = {
   generate_copy: '撰写营销文案（必须严格基于提供的主题/画面内容——不得编造主题未提及的产品/功效/场景——画面分析为空时不得编）',
   generate_image: 'AI 生成配图',
   generate_video: 'AI 生成视频',
+  make_ai_video: '本地成片（配音+字幕+动态卡片，快且便宜）',
+  query_make_video: '查询本地成片进度',
   search_web_images: '上网搜索参考图',
   search_web: '实时搜索互联网',
   digital_human_speak: '生成数字人口播',

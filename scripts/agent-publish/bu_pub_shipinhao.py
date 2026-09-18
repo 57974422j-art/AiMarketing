@@ -271,16 +271,25 @@ def main():
                     continue
                 page.wait_for_timeout(2500)
                 # 弹窗里直传 image input
+                # ★SHIPINHAO_DETACHED_RETRY_V1（2026-09-18 测试机实测）：
+                #   旧写法 query_selector + set_input_files，一旦报
+                #   "Cannot set input files to detached element"（SPA 重渲染换掉了 input）
+                #   就【没有重试】→ 直接判"未找到上传入口"→ 整条脚本失败退出。
+                #   改为：用 locator（Playwright 自动重取元素）+ 最多 4 轮轮询重试。
                 done = False
-                for fr2 in page.frames:
-                    try:
-                        fi = fr2.query_selector('input[type=file][accept*="image"]')
-                        if fi:
-                            fi.set_input_files(a.cover)
-                            done = True
-                            break
-                    except Exception as e:
-                        log('   直传失败(%s): %s' % (_nm, str(e)[:40]))
+                for _att in range(4):
+                    for fr2 in page.frames:
+                        try:
+                            loc2 = fr2.locator('input[type=file][accept*="image"]')
+                            if loc2.count() > 0:
+                                loc2.first.set_input_files(a.cover)
+                                done = True
+                                break
+                        except Exception as e:
+                            log('   直传尝试%d失败(%s): %s' % (_att + 1, _nm, str(e)[:36]))
+                    if done:
+                        break
+                    page.wait_for_timeout(1500)
                 if done:
                     log('⑥ ✅ %s 封面已上传' % _nm)
                     page.wait_for_timeout(2500)

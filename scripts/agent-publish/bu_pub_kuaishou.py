@@ -313,13 +313,32 @@ def main():
             log('跳过发布（测试模式）')
             print(json.dumps({'success': True, 'result': '已填完（未发布）'}))
             return
-        ok1 = click_text(page, ['立即发布', '发布'], '（第一步）')
+        # ═══ ★KS_PUBLISH_BTN_FIX_V1（2026-09-18 本机 dump 页面抓到的真凶）═══
+        #   实测页面按钮清单：
+        #     · 「立即发布」(295,1092) = ant-radio-wrapper 【发布时间选项的 radio】，不是按钮！
+        #     · 「定时发布」(398,1092) = 另一个 radio
+        #     · 「发布」  (212,1207) = _button_primary  ← ★【真正的发布按钮】
+        #     · 页面上【从来没有】「确认发布」这个按钮
+        #   旧代码：先点「立即发布」(radio) → 再找「确认发布」→ 永远找不到 → 判失败（= 不点发布）。
+        #   现在：① 确保选中「立即发布」radio（默认已选，失败也不影响）
+        #         ② 点真正的「发布」按钮（精确匹配 + CDP 穿透兜底）
+        #         ③ 不再找「确认发布」
+        try:
+            loc = page.get_by_text('立即发布', exact=True)
+            if loc.count() > 0:
+                try:
+                    loc.first.click(timeout=2000)
+                    log('已选「立即发布」选项（发布时间）')
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        page.wait_for_timeout(1200)
+
+        ok1 = click_text(page, ['发布'], '（发布按钮）')
         if not ok1 and cdp_click_text:
             ok1 = cdp_click_text(page, '发布', tag='', log=log, exact=True, prefer_bottom_right=True)
-        page.wait_for_timeout(2500)
-        ok2 = click_text(page, ['确认发布'], '（第二步）')
-        if not ok2 and cdp_click_text:
-            ok2 = cdp_click_text(page, '确认发布', tag='', log=log, exact=True)
+        ok2 = ok1   # 该平台只有一次点击，无二次确认；保留变量兼容日志
         page.wait_for_timeout(8000)
         kill_joyride(page)
         t = body(page)

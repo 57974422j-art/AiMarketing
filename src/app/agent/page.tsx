@@ -477,6 +477,7 @@ function AgentPageInner() {
   const [pendingLabel, setPendingLabel] = useState('')  // 2026-08-24: 生成中反馈文案（类型化）
   // 2026-08-24: 视频任务自动轮询——VIDEO_TASK 消息出现后每 10s 查进度，完成/失败自动提醒（用户不再干等催）
   const handledVideoTasks = useRef(new Set<string>()) // 2026-09-06: 已处理过的视频任务——防失败/成功后重复轮询弹多条
+  const handledMakeVideos = useRef(new Set<string>()) // ★VF_ASYNC_V1: 本地成片任务（防重复轮询）
   useEffect(() => {
     const lastVt = [...messages].reverse().find(m => m.role === 'assistant' && ((m as any).videoTaskId || (m.content && /VIDEO_TASK:([^|]+)/.test(m.content))))
     if (!lastVt) return
@@ -538,6 +539,43 @@ function AgentPageInner() {
     return () => { stopped = true; clearInterval(iv) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages])
+
+  // ★VF_ASYNC_V1（2026-09-18）：本地成片（make_ai_video）自动轮询
+  //   MAKE_VIDEO_TASK 消息出现后每 6s 查一次进度；完成/失败都往对话里推一条结果。
+  useEffect(() => {
+    const lastMv = [...messages].reverse().find(m => m.role === 'assistant' && m.content && m.content.includes('MAKE_VIDEO_TASK:'))
+    if (!lastMv) return
+    const mMv = (lastMv.content || '').match(/MAKE_VIDEO_TASK:(\S+)/)
+    if (!mMv) return
+    const taskId = mMv[1].trim()
+    if (!taskId) return
+    if (handledMakeVideos.current.has(taskId)) return
+    let stopped = false
+    let ticks = 0
+    const iv = setInterval(async () => {
+      ticks++
+      if (ticks > 300) { clearInterval(iv); return }   // 最多看 ~30 分钟
+      try {
+        const r = await fetch('/api/agent/make-video-status?userId=' + (user?.id || '') + '&taskId=' + taskId, { credentials: 'include' }).then(r2 => r2.json())
+        if (!r?.success || !Array.isArray(r.tasks) || !r.tasks.length) return
+        const t = r.tasks.find((x: any) => x.id === taskId) || r.tasks[0]
+        if (t.status === 'done') {
+          clearInterval(iv)
+          handledMakeVideos.current.add(taskId)
+          if (!stopped) {
+            setMessages(prev => [...prev, { id: 'mv-' + Date.now(), role: 'assistant', content: 'MAKE_VIDEO_DONE:本地成片已完成 ✅（配音 + 字幕 + 画面）\n已存入个人仓库：' + (t.repoName || t.out || '') + (t.url ? '\n下载：' + t.url : '') + (t.repoError ? '\n（入库失败：' + t.repoError + '）' : '') }])
+          }
+        } else if (t.status === 'failed') {
+          clearInterval(iv)
+          handledMakeVideos.current.add(taskId)
+          if (!stopped) {
+            setMessages(prev => [...prev, { id: 'mv-' + Date.now(), role: 'assistant', content: '❌ 本地成片失败（已跑 ' + (t.elapsedSec || 0) + 's）\n' + ((t.error || (t.tail || []).join('\n')) || '（无日志）') + '\n可让我重试。' }])
+          }
+        }
+      } catch {}
+    }, 6000)
+    return () => { stopped = true; clearInterval(iv) }
+  }, [messages, user?.id])
 
   // 2026-09-06: 数字人口播自动轮询——DH_TASK 消息出现后每 8s 查，完成后口播视频卡片推进对话
   useEffect(() => {

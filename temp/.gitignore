@@ -1,0 +1,6 @@
+# 临时产物目录 —— 整体忽略。
+# ★2026-09-18 教训：曾用 `git add -A` 把 temp/ 下 26146 个文件（Python 环境副本、
+#   playwright/driver/node.exe 88MB ×2、oss-check.zip 85.5MB …）提进仓库，导致
+#   服务器 fetch 要拉 55MB+/19955 对象、.git 涨到 895MB。此处按目录整体忽略，永不复发。
+*
+!.gitignore
