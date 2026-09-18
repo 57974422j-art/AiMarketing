@@ -227,13 +227,16 @@ export default function ApiKeyPanel({
                 else if (name === 'siliconflow') s.setSiliconflowKey(e.target.value)
                 else if (name === 'dashscope') s.setDashscopeKey(e.target.value)
                 else if (name === 'minimax') s.setMinimaxKey(e.target.value)
+                // ★H3_RELAY_V1（2026-09-18）：H3 中转通道的两个输入（原来漏了 → 敲不进去字）
+                else if (name === 'h3base') s.setH3BaseUrl(e.target.value)
+                else if (name === 'h3key') s.setH3ApiKey(e.target.value)
               }}
               placeholder={placeholder}
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 font-mono pr-20" />
             <EyeButton show={show} onToggle={onShowChange} />
           </div>
           <button type="button" onClick={onTest}
-            disabled={testing || !value || value === '********'}
+            disabled={testing || (name !== 'h3base' && name !== 'h3key' && (!value || value === '********'))}
             className="px-4 py-3 bg-blue-500/20 border border-blue-500/30 text-blue-400 rounded-xl hover:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-sm whitespace-nowrap">
             {testing ? '测试中...' : '测试连接'}
           </button>

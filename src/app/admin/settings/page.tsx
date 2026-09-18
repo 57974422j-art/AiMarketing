@@ -229,6 +229,9 @@ export default function SettingsPage() {
         siliconflow: d.siliconflowConfigured ? 'ok' : null,
         dashscope: d.dashscopeConfigured ? 'ok' : null,
         minimax: d.minimaxConfigured ? 'ok' : null,  // 2026-08-14
+        // ★H3_RELAY_V1（2026-09-18）：中转地址 / 中转 Key 的状态点（都有才显示"已连接"）
+        h3base: d.h3BaseUrlConfigured ? 'ok' : null,
+        h3key: (d.h3BaseUrlConfigured && d.h3KeyConfigured) ? 'ok' : null,
         volcano: d.volcanoConfigured ? 'ok' : null,
         tts: (d.ttsAppIdConfigured && d.ttsAccessKeyConfigured && d.ttsResourceIdConfigured) ? 'ok' : null,
         oss: d.ossConfigured ? 'ok' : null,
