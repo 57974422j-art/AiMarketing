@@ -2029,11 +2029,37 @@ function AgentPageInner() {
     if (content.startsWith('VF_JSON:')) {
       try {
         const vj = JSON.parse(content.slice(8))
+        if (vj.step === 'source') {
+          return (
+            <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
+              <div className="text-xs text-fuchsia-300 mb-2">{vj.hint || '这条视频用什么素材？'}</div>
+              {vj.topic ? <div className="text-[10px] text-gray-500 mb-2">主题：{vj.topic}</div> : null}
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => sendMessage('用我的素材库')}
+                  className="px-3 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">🎞 用我的素材库</button>
+                <button onClick={() => sendMessage('我上传素材')}
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-200">📤 我上传</button>
+              </div>
+              <div className="text-[10px] text-gray-500 mt-2">直接把主题打在输入框里也行（我就用素材库 + 今日热点）</div>
+            </div>
+          )
+        }
         if (vj.step === 'script') {
           return (
             <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
               <div className="text-xs text-fuchsia-300 mb-2">{vj.hint || '① 文案确认'}</div>
               {vj.topic ? <div className="text-[10px] text-gray-500 mb-1">主题：{vj.topic}</div> : null}
+              {(vj.usedImages > 0 || (vj.shots && vj.shots.length)) ? (
+                <div className="text-[10px] text-emerald-300/80 mb-1">
+                  📸 看完你仓库里 {vj.usedImages || 0} 张图，排了 {(vj.shots || []).length} 个镜头{(vj.shots || []).some((s: any) => s.type === 'bgimage') ? '（画面用你的素材）' : ''}
+                </div>
+              ) : null}
+              {vj.brief ? (
+                <details className="mb-2">
+                  <summary className="text-[10px] text-gray-500 cursor-pointer">素材识别结果</summary>
+                  <pre className="text-[10px] text-gray-400 whitespace-pre-wrap mt-1">{vj.brief}</pre>
+                </details>
+              ) : null}
               <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap mb-3">{vj.script}</div>
               {Array.isArray(vj.voices) && vj.voices.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-3">
