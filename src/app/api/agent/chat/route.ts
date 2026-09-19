@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 // 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
-import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRootDir, vfStorageRoot } from '@/lib/agent/video-material'
+import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRootDir, vfStorageRoot, probeMaterialSizes } from '@/lib/agent/video-material'
 
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
@@ -2387,7 +2387,7 @@ PUBLISH_DRAFT.delete(uidW)
               VIDEO_DRAFT.set(uidVF2, vd)
               await saveVfDraft(uidVF2, vd)
               wfEarlyReply = 'VF_JSON:' + JSON.stringify({
-                step: 'source', topic: vfTopic0,
+                step: 'source', topic: vfTopic0, aspect: 'auto',
                 hint: '这条视频用什么素材？（点一下就走，不用打字；也可以直接补一句主题）',
               })
               finalResult = wfEarlyReply
@@ -2396,7 +2396,16 @@ PUBLISH_DRAFT.delete(uidW)
               // ── 用户选了【画面来源】→ 素材合成 / 素材+AI 混合 / 全部 AI / 上传 ──
               const vfPickAI = /全部\s*AI|全\s*AI|纯\s*AI|AI\s*生成|AI\s*制作/.test(userMessage)
               const vfPickMix = /混合|素材\s*\+\s*AI|素材加\s*AI/.test(userMessage)
-              if (vfPickAI || vfPickMix) {
+              // ★VF_ASPECT_V1（2026-09-19）：用户单独切画幅——只更新选择并重出卡，不启动出片
+              if (/^竖屏|^横屏|^自动/.test(userMessage.trim())) {
+                vd.aspect = /竖屏/.test(userMessage) ? 'portrait' : (/横屏/.test(userMessage) ? 'landscape' : 'auto')
+                VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
+                const _asName = vd.aspect === 'portrait' ? '竖屏 9:16' : (vd.aspect === 'landscape' ? '横屏 16:9' : '自动（按素材判断）')
+                vfLog(uidVF2, `[画幅] 用户选了 ${vd.aspect}`)
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: vd.topic || '', aspect: vd.aspect,
+                  hint: `画幅已设为「${_asName}」——现在点【🎞 素材合成】开始出片` })
+                finalResult = wfEarlyReply
+              } else if (vfPickAI || vfPickMix) {
                 // ⏳ 未实现：AI 逐镜生成（要接 H3/百炼 + 逐镜拼接）——先诚实告知，别让用户白等
                 vd.mode = vfPickAI ? 'ai' : 'mix'
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
@@ -2420,6 +2429,12 @@ PUBLISH_DRAFT.delete(uidW)
                 }
                 const vfMats = await listRepoMaterials(uidVF2, 40)
                 const vfBrief = await summarizeMaterials(uidVF2, vfMats, 10)
+                // ★VF_ASPECT_V1：定画布——用户指定优先，否则按素材判断（素材多为横图 → 出横屏，绝不硬塞竖屏）
+                const vfSz = await probeMaterialSizes(uidVF2, vfMats)
+                const vfAspect = (vd.aspect && vd.aspect !== 'auto') ? vd.aspect : (vfSz.landscape > vfSz.portrait ? 'landscape' : 'portrait')
+                const vfSize = vfAspect === 'landscape' ? [1920, 1080] : [1080, 1920]
+                vd.aspectResolved = vfAspect; vd.size = vfSize
+                vfLog(uidVF2, `[画幅] 判定=${vfAspect}（横${vfSz.landscape}/竖${vfSz.portrait}/方${vfSz.square}，探测${vfSz.total}张）`)
                 let vfProfile = ''
                 try {
                   const u: any = await prisma.user.findUnique({ where: { id: uidVF2 }, select: { industry: true, name: true } as any })
@@ -2434,7 +2449,7 @@ PUBLISH_DRAFT.delete(uidW)
                     vfHot = arr.map((x: any) => String(x?.title || x?.word || '')).filter(Boolean).slice(0, 5).join('｜').slice(0, 180)
                   }
                 } catch {}
-                const vfPlanRaw = await generateText(`你是短视频编导。根据下面的材料做一条${vd.topic ? `主题为「${vd.topic}」的` : ''}30~40 秒竖屏短视频。\n【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材（图）】\n${vfBrief || '（仓库里没有可用图片）'}\n\n要求：\n1) 只输出严格 JSON（不要 markdown 代码块、不要任何解释）：{"script":"口播文案 60~90 字，句子用。！断句","shots":[镜头…]}\n2) 镜头 4~6 个，每个是以下之一：\n   {"type":"bgimage","pick":图号,"text":"图上大字(≤12字)","dur":4}  ← 【有合适的图就优先用它，pick 必须是上面列出的图号，至少一半镜头用这个】\n   {"type":"title","text":"标题","dur":3} / {"type":"list","title":"要点","items":["A","B","C"],"dur":5} / {"type":"number","value":300,"suffix":"+","label":"已服务客户","dur":3} / {"type":"end","text":"结尾语","cta":"点击咨询","dur":3}\n3) 不要编造素材里没有的东西（例如图里没有的场景不要写）。`) || ''
+                const vfPlanRaw = await generateText(`你是短视频编导。根据下面的材料做一条${vd.topic ? `主题为「${vd.topic}」的` : ''}约 30 秒短视频（画幅 ${vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}）。\n【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材（图）】\n${vfBrief || '（仓库里没有可用图片）'}\n\n要求：\n1) 只输出严格 JSON（不要 markdown 代码块、不要任何解释）：{"script":"口播文案 120~150 字（中文语速约 30 秒），句子用。！断句","shots":[镜头…]}\n2) 镜头 5~7 个，【各镜头的 dur 相加应约等于 30 秒】，每个是以下之一：\n   {"type":"bgimage","pick":图号,"text":"图上大字(≤12字)","dur":4}  ← 【有合适的图就优先用它，pick 必须是上面列出的图号，至少一半镜头用这个】\n   {"type":"title","text":"标题","dur":3} / {"type":"list","title":"要点","items":["A","B","C"],"dur":5} / {"type":"number","value":300,"suffix":"+","label":"已服务客户","dur":3} / {"type":"end","text":"结尾语","cta":"点击咨询","dur":3}\n3) 不要编造素材里没有的东西（例如图里没有的场景不要写）。`) || ''
                 let vfPlanObj: any = null
                 try {
                   const m0 = String(vfPlanRaw).match(/\{[\s\S]*\}/)
@@ -2470,7 +2485,9 @@ PUBLISH_DRAFT.delete(uidW)
                     { id: 'zh_female_vv_uranus_bigtts', name: '火山女声（需配火山）' },
                   ],
                   voice: vd.voice, theme: vd.theme, cost: vfCost2,
-                  hint: `看完你仓库里 ${vfLocal.length} 张图，排了 ${vfShots.length} 个镜头${vfHasPlan ? '（画面用你的素材）' : ''}——回复「确认」开始出片；也可说要改什么（如「改成更活泼」）`,
+                  aspect: vfAspect,
+                  aspectName: vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16',
+                  hint: `看完你仓库里 ${vfLocal.length} 张图，排了 ${vfShots.length} 个镜头（画面用你的素材·${vfAspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}）——回复「确认」开始出片；也可说要改什么（如「改成更活泼」）`,
                 })
                 finalResult = wfEarlyReply
                 vfLog(uidVF2, `[起草] 图${vfLocal.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
@@ -2478,7 +2495,7 @@ PUBLISH_DRAFT.delete(uidW)
             } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$/i.test(userMessage.trim())) {
               // ── 确认 → 后台出片（确定性，走现有 make_ai_video：报价已在上一步给过，这里直接 confirmed）──
               const vfRun = await executeToolCall('make_ai_video', vd.shots?.length
-                ? { plan: JSON.stringify({ size: [1080, 1920], fps: 25, shots: vd.shots }), theme: vd.theme || 'dark', confirmed: true }
+                ? { plan: JSON.stringify({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }), theme: vd.theme || 'dark', confirmed: true }
                 : { script: vd.script, theme: vd.theme || 'dark', confirmed: true }, auth)
               vd.step = 'running'
               VIDEO_DRAFT.set(uidVF2, vd)

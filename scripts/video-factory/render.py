@@ -321,19 +321,30 @@ def card_chart(shot, th, W, H, fps):
 
 
 def card_bgimage(shot, th, W, H, fps):
-    """图片背景 + 文字叠加 + 暗化（适合"实景底 + 标语"）"""
+    """图片背景 + 文字叠加 + 暗化（适合"实景底 + 标语"）
+
+    ★2026-09-19 改（用户实测：横屏素材被收窄/切边）：
+      老做法 = scale(force_original_aspect_ratio=increase) + crop → 放大到填满画布再切掉超出
+               ⇒ 横图放进竖屏会被切掉左右，竖图放进横屏会被切掉上下。
+      新做法（不裁切）：
+        底层 [bg0] 放大填满 + 高斯模糊 + 压暗  → 做画布底纹（不出现突兀黑边）
+        上层 [fg0] 按 contain 缩放（完整图，不裁切）→ 居中 overlay
+    """
     src = shot.get('src', '')
     dur = float(shot.get('dur', 4))
     font = esc_path(find_font(th.get('font', 'msyh')))
     fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
     txc = th.get('text', 'white')
-    frames = max(1, int(dur * fps))
-    vf = (f"scale={W * 2}:{H * 2}:force_original_aspect_ratio=increase,crop={W * 2}:{H * 2},"
-          f"zoompan=zoom='min(1+0.08*on/{frames},1.08)':d={frames}:s={W}x{H}:fps={fps},"
-          f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.45:t=fill,"
-          f"drawtext=fontfile='{font}':text='{esc_text(shot.get('text', ''))}':fontsize={fs}:"
-          f"fontcolor={txc}:x=(w-text_w)/2:y=(h-text_h)/2:alpha='min(max(t-0.3,0)/0.7,1)',"
-          f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p")
+    vf = (
+        f"split=2[bg0][fg0];"
+        f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
+        f"[fg0]scale={W}:{H}:force_original_aspect_ratio=decrease[fgs];"
+        f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,"
+        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.42:t=fill,"
+        f"drawtext=fontfile='{font}':text='{esc_text(shot.get('text', ''))}':fontsize={fs}:"
+        f"fontcolor={txc}:x=(w-text_w)/2:y=(h-text_h)/2:alpha='min(max(t-0.3,0)/0.7,1)',"
+        f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"
+    )
     return (f"-loop 1 -t {dur} -i \"{src}\"", vf, dur)
 
 

@@ -71,6 +71,60 @@ export function vfStorageRoot(): string {
   return process.env.LOCAL_STORAGE || path.join(vfRootDir() || process.cwd(), 'storage')
 }
 
+/**
+ * ★VF_PROBE_V1（2026-09-19）：读图片宽高——纯 JS 解析文件头，零依赖、零子进程
+ *   用途：判断画幅（素材多为横图 → 出横屏，不硬塞竖屏）
+ */
+export function probeImageSize(buf: Buffer): { w: number; h: number } | null {
+  try {
+    // PNG：\x89PNG\r\n\x1a\n + IHDR（宽高在 16/20 字节）
+    if (buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+      return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) }
+    }
+    // JPEG：扫 SOF0/1/2 段取宽高
+    if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+      let i = 2
+      while (i < buf.length - 9) {
+        if (buf[i] !== 0xff) { i++; continue }
+        const m = buf[i + 1]
+        if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+          return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) }
+        }
+        const len = buf.readUInt16BE(i + 2)
+        if (len < 2) break
+        i += 2 + len
+      }
+    }
+    // GIF：前 10 字节（宽高小端）
+    if (buf.length > 10 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) {
+      return { w: buf.readUInt16LE(6), h: buf.readUInt16LE(8) }
+    }
+  } catch {}
+  return null
+}
+
+/** 统计素材横竖比例（用于自动定画布） */
+export async function probeMaterialSizes(
+  userId: string | number,
+  items: RepoMaterial[],
+): Promise<{ portrait: number; landscape: number; square: number; total: number }> {
+  const withLocal = await downloadMaterials(userId, items.filter((i) => i.kind === 'image').slice(0, 20))
+  let portrait = 0, landscape = 0, square = 0, total = 0
+  for (const m of withLocal) {
+    if (!m.localPath) continue
+    try {
+      const sz = probeImageSize(fs.readFileSync(m.localPath))
+      if (!sz?.w || !sz?.h) continue
+      total++
+      const r = sz.w / sz.h
+      if (r > 1.15) landscape++
+      else if (r < 0.87) portrait++
+      else square++
+    } catch {}
+  }
+  return { portrait, landscape, square, total }
+}
+
 /** 素材本地工作目录（与 make.py 的 --workdir 同区域，随用户隔离） */
 export function materialDir(userId: string | number): string {
   return path.join(vfStorageRoot(), String(userId), 'video-factory', 'material')

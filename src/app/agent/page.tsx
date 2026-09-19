@@ -2067,6 +2067,20 @@ function AgentPageInner() {
                   className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-200">📤 我上传</button>
               </div>
               <div className="text-[10px] text-gray-500 mt-2">画面来源：素材合成 = 用你仓库的图拼片（最省）；混合 / 全 AI = 缺的镜头用 AI 生成（开发中）</div>
+              {/* ★VF_ASPECT_V1：画幅——能让用户自己选就让他选；不选则按素材判断（素材多为横图就出横屏，不硬塞竖屏） */}
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <span className="text-[10px] text-gray-500">画幅：</span>
+                {[
+                  { id: 'portrait', label: '竖屏 9:16', send: '竖屏' },
+                  { id: 'landscape', label: '横屏 16:9', send: '横屏' },
+                  { id: 'auto', label: '自动', send: '自动' },
+                ].map((a: any) => (
+                  <button key={a.id} onClick={() => sendMessage(a.send)}
+                    className={`px-2 py-0.5 rounded text-[10px] border transition ${(vj.aspect || 'auto') === a.id ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>{a.label}</button>
+                ))}
+                {vj.aspectName ? <span className="text-[10px] text-emerald-300/80">→ 当前 {vj.aspectName}</span> : null}
+              </div>
+              <div className="text-[10px] text-gray-500 mt-1">不选就按你的素材自动判断（素材多为横图 → 出横屏）；横竖不一致时用模糊铺底 + 完整图居中，不裁切</div>
             </div>
           )
         }
