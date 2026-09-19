@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 // 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
-import { listRepoMaterials, summarizeMaterials, downloadMaterials } from '@/lib/agent/video-material'
+import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog } from '@/lib/agent/video-material'
 
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
@@ -2361,6 +2361,8 @@ PUBLISH_DRAFT.delete(uidW)
             if (_r0?.step) { VIDEO_DRAFT.set(uidVF2, _r0); console.log('[成片状态机] 块外恢复草稿——step=', _r0.step) }
           } catch {}
         }
+        // ★VF_LOG_V1（2026-09-19）：成片入口日志（服务器侧 <storage>/<uid>/video-factory/vf_debug.log）——排查用
+        vfLog(uidVF2, `[入口] msg="${String(userMessage).slice(0, 60)}" vfIntent=${vfIntent} 内存草稿=${VIDEO_DRAFT.has(uidVF2) ? '有' : '无'}`)
         if (vfIntent || VIDEO_DRAFT.has(uidVF2)) {
           try {
             let vd = VIDEO_DRAFT.get(uidVF2)
@@ -2458,7 +2460,7 @@ PUBLISH_DRAFT.delete(uidW)
                   hint: `看完你仓库里 ${vfLocal.length} 张图，排了 ${vfShots.length} 个镜头${vfHasPlan ? '（画面用你的素材）' : ''}——回复「确认」开始出片；也可说要改什么（如「改成更活泼」）`,
                 })
                 finalResult = wfEarlyReply
-                console.log('[成片状态机] 素材起草——图', vfLocal.length, '镜', vfShots.length, 'script=', String(vd.script).slice(0, 30))
+                vfLog(uidVF2, `[起草] 图${vfLocal.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
               }
             } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$/i.test(userMessage.trim())) {
               // ── 确认 → 后台出片（确定性，走现有 make_ai_video：报价已在上一步给过，这里直接 confirmed）──
@@ -2470,7 +2472,7 @@ PUBLISH_DRAFT.delete(uidW)
               await saveVfDraft(uidVF2, vd)
               wfEarlyReply = String(vfRun)
               finalResult = wfEarlyReply
-              console.log('[成片状态机] 已入队出片——', String(vfRun).slice(0, 60))
+              vfLog(uidVF2, `[入队] ${String(vfRun).slice(0, 100)}`)
             } else if (vd.step === 'script') {
               // ── 文案微调 / 换音色 / 换主题（★AI 出场①）──
               const vfIsVoice = /音色|声音|女声|男声|龙小淳|龙嫗|longxiaochun|longyuan|火山/.test(userMessage)

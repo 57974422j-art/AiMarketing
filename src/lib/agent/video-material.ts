@@ -31,6 +31,22 @@ function kindOf(name: string): MaterialKind {
   return 'other'
 }
 
+/**
+ * ★VF_LOG_V1（2026-09-19）：成片调试日志（服务器侧）
+ *   位置：`<storage>/<userId>/video-factory/vf_debug.log`
+ *   用途：和客户端的 `bu_debug.log`（发布用）对应，但成片跑在【服务器】，所以日志在服务器侧。
+ *   记：状态机每步（入口/素材来源/起草/入队）、素材下载、视觉理解结果、make.py 的 tail。
+ */
+export function vfLog(userId: string | number, msg: string): void {
+  const line = `[${new Date().toISOString()}] ${msg}`
+  try {
+    const dir = path.join(process.env.LOCAL_STORAGE || path.join(process.cwd(), 'storage'), String(userId), 'video-factory')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.appendFileSync(path.join(dir, 'vf_debug.log'), line + '\n')
+  } catch { /* 日志失败不影响主流程 */ }
+  console.log('[VF]', msg)
+}
+
 /** 素材本地工作目录（与 make.py 的 --workdir 同区域，随用户隔离） */
 export function materialDir(userId: string | number): string {
   const root = process.env.LOCAL_STORAGE || path.join(process.cwd(), 'storage')
