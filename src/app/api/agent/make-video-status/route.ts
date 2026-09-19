@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'node:path'
 import fs from 'node:fs'
+import { vfStorageRoot } from '@/lib/agent/video-material'
 
 // ★VF_ASYNC_V1（2026-09-18）：本地成片任务进度查询（给前端进度卡片轮询用）
 //   任务文件由 chat/route.ts 的 make_ai_video 写入：
@@ -14,8 +15,7 @@ export async function GET(request: NextRequest) {
     const taskId = request.nextUrl.searchParams.get('taskId') || ''
     if (!userId) return NextResponse.json({ success: false, message: '缺少 userId' }, { status: 400 })
 
-    const root = process.env.LOCAL_STORAGE || path.join(process.cwd(), 'storage')
-    const dir = path.join(root, String(userId), 'video-factory')
+    const dir = path.join(vfStorageRoot(), String(userId), 'video-factory')
     if (!fs.existsSync(dir)) return NextResponse.json({ success: true, tasks: [] })
 
     let files = (fs.readdirSync(dir) as string[])

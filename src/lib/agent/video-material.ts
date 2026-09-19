@@ -47,10 +47,33 @@ export function vfLog(userId: string | number, msg: string): void {
   console.log('[VF]', msg)
 }
 
+/**
+ * ★VF_ROOT_V1（2026-09-19）：找项目根目录（成片脚本 / storage 都基于它）
+ *   坑：pm2 跑的是 next standalone（`.next/standalone/server.js`）→ process.cwd() 指向
+ *   `.next/standalone`，而不是项目根 → 写死 cwd 会导致「找不到 scripts/video-factory/make.py」。
+ *   候选顺序：VF_ROOT 环境变量 → cwd → cwd 上两级 → /root/AiMarketing
+ */
+export function vfRootDir(): string {
+  const cands = [
+    process.env.VF_ROOT || '',
+    process.cwd(),
+    path.join(process.cwd(), '..', '..'),
+    '/root/AiMarketing',
+  ].filter(Boolean) as string[]
+  for (const d of cands) {
+    try { if (fs.existsSync(path.join(d, 'scripts', 'video-factory', 'make.py'))) return d } catch {}
+  }
+  return ''
+}
+
+/** 成片输出/任务文件的根目录（★必须全局统一——写任务和查进度要同一个地方） */
+export function vfStorageRoot(): string {
+  return process.env.LOCAL_STORAGE || path.join(vfRootDir() || process.cwd(), 'storage')
+}
+
 /** 素材本地工作目录（与 make.py 的 --workdir 同区域，随用户隔离） */
 export function materialDir(userId: string | number): string {
-  const root = process.env.LOCAL_STORAGE || path.join(process.cwd(), 'storage')
-  return path.join(root, String(userId), 'video-factory', 'material')
+  return path.join(vfStorageRoot(), String(userId), 'video-factory', 'material')
 }
 
 /**

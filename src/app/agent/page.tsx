@@ -2035,12 +2035,16 @@ function AgentPageInner() {
               <div className="text-xs text-fuchsia-300 mb-2">{vj.hint || '这条视频用什么素材？'}</div>
               {vj.topic ? <div className="text-[10px] text-gray-500 mb-2">主题：{vj.topic}</div> : null}
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => sendMessage('用我的素材库')}
-                  className="px-3 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">🎞 用我的素材库</button>
+                <button onClick={() => sendMessage('素材合成')}
+                  className="px-3 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">🎞 素材合成（用我仓库的素材）</button>
+                <button onClick={() => sendMessage('素材加AI混合')}
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">✨ 素材 + AI 混合（开发中）</button>
+                <button onClick={() => sendMessage('全部AI生成')}
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">🎨 全部 AI 生成（开发中）</button>
                 <button onClick={() => sendMessage('我上传素材')}
                   className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-200">📤 我上传</button>
               </div>
-              <div className="text-[10px] text-gray-500 mt-2">直接把主题打在输入框里也行（我就用素材库 + 今日热点）</div>
+              <div className="text-[10px] text-gray-500 mt-2">画面来源：素材合成 = 用你仓库的图拼片（最省）；混合 / 全 AI = 缺的镜头用 AI 生成（开发中）</div>
             </div>
           )
         }

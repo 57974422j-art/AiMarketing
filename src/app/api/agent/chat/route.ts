@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 // 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
-import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog } from '@/lib/agent/video-material'
+import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRootDir, vfStorageRoot } from '@/lib/agent/video-material'
 
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
@@ -238,10 +238,12 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const { spawn } = await import('child_process')
       const pathVF = await import('path')
       const fsVF = await import('fs')
-      const rootVF = process.cwd()
+      // ★VF_ROOT_V1（2026-09-19）：pm2 跑的是 next standalone（cwd = .next/standalone），
+      //   写死 process.cwd() 会找不到脚本 → 用 vfRootDir() 多候选向上找。
+      const rootVF = vfRootDir()
+      if (!rootVF) return 'TOOL_REJECT:未找到本地成片脚本 scripts/video-factory/make.py（已试 VF_ROOT / cwd / 上级 / /root/AiMarketing）'
       const mkPy = pathVF.join(rootVF, 'scripts', 'video-factory', 'make.py')
-      if (!fsVF.existsSync(mkPy)) return 'TOOL_REJECT:未找到本地成片脚本 scripts/video-factory/make.py'
-      const outDir = pathVF.join(process.env.LOCAL_STORAGE || pathVF.join(rootVF, 'storage'), String(uidVF), 'video-factory')
+      const outDir = pathVF.join(vfStorageRoot(), String(uidVF), 'video-factory')
       fsVF.mkdirSync(outDir, { recursive: true })
       const vfOut = pathVF.join(outDir, `vf_${Date.now()}.mp4`)
       // ★VF_LINUX_V1（2026-09-18）：解释器名跨平台 —— Linux 服务器通常只有 python3，
@@ -310,7 +312,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       if (!uidQ) return 'TOOL_REJECT:未登录'
       const pathQ = await import('path')
       const fsQ = await import('fs')
-      const outDirQ = pathQ.join(process.env.LOCAL_STORAGE || pathQ.join(process.cwd(), 'storage'), String(uidQ), 'video-factory')
+      const outDirQ = pathQ.join(vfStorageRoot(), String(uidQ), 'video-factory')
       const wantId = String(args.taskId || '').trim()
       try {
         let files: string[] = fsQ.existsSync(outDirQ)
@@ -2391,8 +2393,18 @@ PUBLISH_DRAFT.delete(uidW)
               finalResult = wfEarlyReply
               console.log('[成片状态机] 素材来源——topic=', vfTopic0.slice(0, 20))
             } else if (vd.step === 'source') {
-              // ── 用户选了素材来源 → 取素材 + 视觉理解 + 画像/热点 → AI 写文案&排分镜（AI 出场①②）──
-              if (/上传|我传|我自己|本地传/.test(userMessage)) {
+              // ── 用户选了【画面来源】→ 素材合成 / 素材+AI 混合 / 全部 AI / 上传 ──
+              const vfPickAI = /全部\s*AI|全\s*AI|纯\s*AI|AI\s*生成|AI\s*制作/.test(userMessage)
+              const vfPickMix = /混合|素材\s*\+\s*AI|素材加\s*AI/.test(userMessage)
+              if (vfPickAI || vfPickMix) {
+                // ⏳ 未实现：AI 逐镜生成（要接 H3/百炼 + 逐镜拼接）——先诚实告知，别让用户白等
+                vd.mode = vfPickAI ? 'ai' : 'mix'
+                VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
+                vfLog(uidVF2, `[画面来源] ${vd.mode} —— 暂未实现，已提示用户`)
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: vd.topic || '',
+                  hint: '「全部 AI 生成 / 素材+AI 混合」还在开发中（要接 AI 逐镜生成 + 拼接）。现在先用【素材合成】最快最省——点它就行 🙂' })
+                finalResult = wfEarlyReply
+              } else if (/上传|我传|我自己|本地传/.test(userMessage)) {
                 vd.step = 'upload'
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
                 wfEarlyReply = '好，点输入框左边的 📎 把图片（或现成文案）传给我，我拿到就开工 🙂'
