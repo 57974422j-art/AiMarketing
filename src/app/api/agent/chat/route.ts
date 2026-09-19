@@ -2396,7 +2396,7 @@ PUBLISH_DRAFT.delete(uidW)
               VIDEO_DRAFT.set(uidVF2, vd)
               await saveVfDraft(uidVF2, vd)
               wfEarlyReply = 'VF_JSON:' + JSON.stringify({
-                step: 'source', topic: vfTopic0, aspect: 'auto',
+                step: 'source', topic: vfTopic0, aspect: 'auto', dur: 30,
                 hint: '这条视频用什么素材？（点一下就走，不用打字；也可以直接补一句主题）',
               })
               finalResult = wfEarlyReply
@@ -2405,14 +2405,27 @@ PUBLISH_DRAFT.delete(uidW)
               // ── 用户选了【画面来源】→ 素材合成 / 素材+AI 混合 / 全部 AI / 上传 ──
               const vfPickAI = /全部\s*AI|全\s*AI|纯\s*AI|AI\s*生成|AI\s*制作/.test(userMessage)
               const vfPickMix = /混合|素材\s*\+\s*AI|素材加\s*AI/.test(userMessage)
-              // ★VF_ASPECT_V1（2026-09-19）：用户单独切画幅——只更新选择并重出卡，不启动出片
-              if (/^竖屏|^横屏|^自动/.test(userMessage.trim())) {
+              // ★VF_DUR_V1（2026-09-20，用户要求）：时长可设（30/60/90/180 或自定义秒数）
+              //   为什么必须让 AI 知道时长：它不知道时长 → 不知道文案写多长、排几镜
+              //   （用户实测：要 30 秒却只出 14 秒，因为 AI 只写了 ~60 字）
+              const _mDur = userMessage.trim().match(/^时长\s*(\d{1,4})/)
+              if (_mDur) {
+                vd.dur = Math.min(900, Math.max(5, parseInt(_mDur[1]) || 30))
+                VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
+                vfLog(uidVF2, `[时长] 用户设 ${vd.dur}s（文案约 ${Math.round(vd.dur * 4.5)} 字）`)
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: vd.topic || '', aspect: vd.aspect || 'auto', dur: vd.dur,
+                  hint: `时长已设为 ${vd.dur} 秒（AI 会按约 ${Math.round(vd.dur * 4.5)} 字写文案）——现在点【🎞 素材合成】开始出片` })
+                finalResult = wfEarlyReply
+              } else if (/^竖屏|^横屏|^自动/.test(userMessage.trim())) {
                 vd.aspect = /竖屏/.test(userMessage) ? 'portrait' : (/横屏/.test(userMessage) ? 'landscape' : 'auto')
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
                 const _asName = vd.aspect === 'portrait' ? '竖屏 9:16' : (vd.aspect === 'landscape' ? '横屏 16:9' : '自动（按素材判断）')
                 vfLog(uidVF2, `[画幅] 用户选了 ${vd.aspect}`)
-                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: vd.topic || '', aspect: vd.aspect,
-                  hint: `画幅已设为「${_asName}」——现在点【🎞 素材合成】开始出片` })
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({
+                  step: 'source', topic: vd.topic || '', aspect: vd.aspect,
+                  dur: vd.dur || 30,
+                  hint: `画幅已设为「${_asName}」——现在点【🎞 素材合成】开始出片`,
+                })
                 finalResult = wfEarlyReply
               } else if (vfPickAI || vfPickMix) {
                 // ⏳ 未实现：AI 逐镜生成（要接 H3/百炼 + 逐镜拼接）——先诚实告知，别让用户白等
@@ -2437,13 +2450,23 @@ PUBLISH_DRAFT.delete(uidW)
                   vd.topic = /^(用我的素材库|我上传|上传素材|素材库|用素材库|素材合成|素材加AI混合|素材加ai混合|素材AI混合|全部AI生成|全AI生成|素材和AI混合|混合)$/.test(_t) ? '' : _t
                 }
                 const vfMats = await listRepoMaterials(uidVF2, 40)
-                const vfBrief = await summarizeMaterials(uidVF2, vfMats, 10)
+                const _dur0 = Math.max(5, Math.min(900, parseInt(vd.dur) || 30))
+                // ★VF_MATN_V1（2026-09-20，用户要求）：素材张数跟时长走——【每 30 秒约 5 张】
+                //   30s→5 张、60s→10 张、90s→15 张、180s→30 张；仓库不够就有多少用多少。
+                //   视觉理解张数（喂 VL）单独限：8~20 张（成本控制，每张约 0.2 点）
+                const vfVisN = Math.max(8, Math.min(20, Math.round(_dur0 / 30) * 5))
+                const vfBrief = await summarizeMaterials(uidVF2, vfMats, vfVisN)
                 // ★VF_ASPECT_V1：定画布——用户指定优先，否则按素材判断（素材多为横图 → 出横屏，绝不硬塞竖屏）
                 const vfSz = await probeMaterialSizes(uidVF2, vfMats)
                 const vfAspect = (vd.aspect && vd.aspect !== 'auto') ? vd.aspect : (vfSz.landscape > vfSz.portrait ? 'landscape' : 'portrait')
                 const vfSize = vfAspect === 'landscape' ? [1920, 1080] : [1080, 1920]
                 vd.aspectResolved = vfAspect; vd.size = vfSize
-                vfLog(uidVF2, `[画幅] 判定=${vfAspect}（横${vfSz.landscape}/竖${vfSz.portrait}/方${vfSz.square}，探测${vfSz.total}张）`)
+                // ★VF_DUR_V1：时长驱动【文案字数 + 镜头数】——用户要求"让 AI 知道时长"
+                //   （中文配音约 4.5 字/秒；镜头按 5 秒一个估）
+                const vfDur = Math.max(5, Math.min(900, parseInt(vd.dur) || 30))
+                const vfShotN = Math.max(4, Math.min(30, Math.round(vfDur / 5)))
+                vfLog(uidVF2, `[画幅] 判定=${vfAspect}（横${vfSz.landscape}/竖${vfSz.portrait}/方${vfSz.square}，探测${vfSz.total}张） 时长=${vfDur}s`)
+                vd.dur = vfDur
                 let vfProfile = ''
                 try {
                   const u: any = await prisma.user.findUnique({ where: { id: uidVF2 }, select: { industry: true, name: true } as any })
@@ -2458,14 +2481,17 @@ PUBLISH_DRAFT.delete(uidW)
                     vfHot = arr.map((x: any) => String(x?.title || x?.word || '')).filter(Boolean).slice(0, 5).join('｜').slice(0, 180)
                   }
                 } catch {}
-                const vfPlanRaw = await generateText(`你是短视频编导。根据下面的材料做一条${vd.topic ? `主题为「${vd.topic}」的` : ''}约 30 秒短视频（画幅 ${vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}）。\n【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材（图）】\n${vfBrief || '（仓库里没有可用图片）'}\n\n要求：\n1) 只输出严格 JSON（不要 markdown 代码块、不要任何解释）：{"script":"口播文案，【必须 120~150 字，少于 100 字不合格】，句子用。！断句","shots":[镜头…]}\n2) 镜头 5~7 个，【各镜头的 dur 相加应约等于 30 秒】，每个是以下之一：\n   {"type":"bgimage","pick":图号,"text":"画面大字【只能是 4~8 个字的短语，禁止写整句】","dur":4}  ← 【有合适的图就优先用它；【每个 bgimage 的 pick 必须尽量用不同的图号】（手上有 10 张图，就多换几张）；至少一半镜头用这个】\n   {"type":"title","text":"标题","dur":3} / {"type":"list","title":"要点","items":["A","B","C"],"dur":5} / {"type":"number","value":300,"suffix":"+","label":"已服务客户","dur":3} / {"type":"end","text":"结尾语","cta":"点击咨询","dur":3}\n3) 不要编造素材里没有的东西（例如图里没有的场景不要写）。`) || ''
+                const vfPlanRaw = await generateText(`你是短视频编导。根据下面的材料做一条${vd.topic ? `主题为「${vd.topic}」的` : ''}约 ${vfDur} 秒短视频（画幅 ${vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}）。\n【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材（图）】\n${vfBrief || '（仓库里没有可用图片）'}\n\n要求：\n1) 只输出严格 JSON（不要 markdown 代码块、不要任何解释）：{"script":"口播文案，【必须 ${Math.round(vfDur * 4.5)} 字左右（${vfDur} 秒 × 约 4.5 字/秒），少于 ${Math.round(vfDur * 3)} 字不合格】，句子用。！断句","shots":[镜头…]}\n2) 镜头 ${vfShotN} 个左右，【各镜头的 dur 相加应约等于 ${vfDur} 秒】，每个是以下之一：\n   {"type":"bgimage","pick":图号,"text":"画面大字【只能是 4~8 个字的短语，禁止写整句】","dur":4}  ← 【有合适的图就优先用它；【每个 bgimage 的 pick 必须尽量用不同的图号】（手上有 10 张图，就多换几张）；至少一半镜头用这个】\n   {"type":"title","text":"标题","dur":3} / {"type":"list","title":"要点","items":["A","B","C"],"dur":5} / {"type":"number","value":300,"suffix":"+","label":"已服务客户","dur":3} / {"type":"end","text":"结尾语","cta":"点击咨询","dur":3}\n3) 不要编造素材里没有的东西（例如图里没有的场景不要写）。`) || ''
                 let vfPlanObj: any = null
                 try {
                   const m0 = String(vfPlanRaw).match(/\{[\s\S]*\}/)
                   vfPlanObj = JSON.parse(m0 ? m0[0] : '{}')
                 } catch { vfPlanObj = null }
                 const vfScript2 = String(vfPlanObj?.script || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 600)
-                const vfImgList = vfMats.filter((m: any) => m.kind === 'image').slice(0, 10)
+                // ★VF_MATN_V1：排分镜可用的图 = 每 30 秒 5 张（上限 40；仓库不够就有多少用多少）
+                const vfMatN = Math.max(5, Math.min(40, Math.round(vfDur / 30) * 5))
+                const vfImgList = vfMats.filter((m: any) => m.kind === 'image').slice(0, vfMatN)
+                vfLog(uidVF2, `[素材配比] 时长${vfDur}s → 取图上限 ${vfMatN} 张（仓库实际 ${vfMats.filter((m: any) => m.kind === 'image').length} 张）`)
                 const vfLocal = await downloadMaterials(uidVF2, vfImgList)
                 let vfShots: any[] = Array.isArray(vfPlanObj?.shots) ? vfPlanObj.shots : []
                 // ★2026-09-19 修（用户实测：有 10 张图，4 个镜头却全用同一张）：

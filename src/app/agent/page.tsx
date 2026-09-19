@@ -473,6 +473,7 @@ function AgentPageInner() {
   }, [user, authLoading, router])
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
+  const [durInput, setDurInput] = useState('')   // ★VF_DUR_V1：成片时长自定义输入框
   const [loading, setLoading] = useState(false)
   const [pendingLabel, setPendingLabel] = useState('')  // 2026-08-24: 生成中反馈文案（类型化）
   // 2026-08-24: 视频任务自动轮询——VIDEO_TASK 消息出现后每 10s 查进度，完成/失败自动提醒（用户不再干等催）
@@ -2087,6 +2088,22 @@ function AgentPageInner() {
                 {vj.aspectName ? <span className="text-[10px] text-emerald-300/80">→ 当前 {vj.aspectName}</span> : null}
               </div>
               <div className="text-[10px] text-gray-500 mt-1">不选就按你的素材自动判断（素材多为横图 → 出横屏）；横竖不一致时用模糊铺底 + 完整图居中，不裁切</div>
+              {/* ★VF_DUR_V1（2026-09-20）：时长——点按钮或直接输入秒数；AI 靠它决定文案多长、排几镜 */}
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <span className="text-[10px] text-gray-500">时长：</span>
+                {[30, 60, 90, 180].map((s: number) => (
+                  <button key={s} onClick={() => sendMessage('时长' + s)}
+                    className={`px-2 py-0.5 rounded text-[10px] border transition ${(vj.dur || 30) === s ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>{s}秒</button>
+                ))}
+                <input
+                  value={durInput}
+                  onChange={(e: any) => setDurInput(String(e.target.value).replace(/[^\d]/g, '').slice(0, 4))}
+                  onKeyDown={(e: any) => { if (e.key === 'Enter' && durInput) { sendMessage('时长' + durInput); setDurInput('') } }}
+                  placeholder="自定义秒数"
+                  className="w-[78px] px-2 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none"
+                />
+                {vj.dur ? <span className="text-[10px] text-emerald-300/80">→ 当前 {vj.dur} 秒（约 {Math.round(vj.dur * 4.5)} 字文案）</span> : null}
+              </div>
             </div>
           )
         }
