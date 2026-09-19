@@ -2348,8 +2348,19 @@ PUBLISH_DRAFT.delete(uidW)
         //   ⏳ 待接线（见 PROJECT.md 成片规划，按顺序）：6.5 画面来源（我的素材/AI 生成/混合）、
         //      分镜编排（AI 出场②）、卡片/主题扩充、程序化逐帧、词级字幕、首镜硬节点
         const uidVF2 = auth?.userId || 0
-        const vfIntent = /帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|本地成片|做一条视频|做个视频|做成片|做个宣传片/.test(userMessage)
-          && !/发布|发到|发抖音|发小红书|发微博|发视频号|平台:/.test(userMessage) // 不抢发布状态机的活
+        // ★2026-09-19 修（用户实测：点音色被当成确认 + 点确认又回到第一步）：
+        //   ① 流程词（确认/开始/生成吧/出片…）不算“新的成片指令”→ 否则会把草稿重置回第 0 步
+        //   ② 草稿恢复必须放在【块外】（仿发布状态机 L1773）——否则服务器重启后内存 Map 为空，
+        //      hasDraft=false 会让这一轮走 AI 自由发挥（用户看到“✅ 配音已选定…”那种话术）
+        const vfFlowWord = /确认|开始|生成吧|出片|就这个|^行$|^好$|^OK$/i.test(userMessage.trim())
+        const vfIntent = (/帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|本地成片|做一条视频|做个视频|做成片|做个宣传片/.test(userMessage)
+          && !/发布|发到|发抖音|发小红书|发微博|发视频号|平台:/.test(userMessage)) && !vfFlowWord // 不抢发布状态机的活；流程词不算新指令
+        if (!VIDEO_DRAFT.has(uidVF2)) {
+          try {
+            const _r0 = await loadVfDraft(uidVF2)
+            if (_r0?.step) { VIDEO_DRAFT.set(uidVF2, _r0); console.log('[成片状态机] 块外恢复草稿——step=', _r0.step) }
+          } catch {}
+        }
         if (vfIntent || VIDEO_DRAFT.has(uidVF2)) {
           try {
             let vd = VIDEO_DRAFT.get(uidVF2)
@@ -2387,7 +2398,11 @@ PUBLISH_DRAFT.delete(uidW)
                 console.log('[成片状态机] 等用户上传素材')
               } else {
                 // 默认走【个人仓库素材】
-                if (!vd.topic) vd.topic = String(userMessage).replace(/^[\s:：,，,。、]+/, '').trim()
+                if (!vd.topic) {
+                  const _t = String(userMessage).replace(/^[\s:：,，,。、]+/, '').trim()
+                  // 排除按钮文本（"用我的素材库"/"我上传素材"）——它不是主题
+                  vd.topic = /^(用我的素材库|我上传|上传素材|素材库|用素材库)$/.test(_t) ? '' : _t
+                }
                 const vfMats = await listRepoMaterials(uidVF2, 40)
                 const vfBrief = await summarizeMaterials(uidVF2, vfMats, 10)
                 let vfProfile = ''
