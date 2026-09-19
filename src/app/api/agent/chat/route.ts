@@ -1678,7 +1678,13 @@ export async function POST(request: NextRequest) {
     // 2026-08-31 完全隔离 Step1：标准模式 + 有发布草稿 → 模型不碰工具（直接状态机——FRAMES_OK 不再由模型产生）
     // 2026-09-01: 状态机词（\d|abc|换|重|确认|选|发）standard 无条件跳过模型（不依赖草稿恢复——彻底防'1'模型自由）
     const stWordInput = /^\d{1,2}$/.test(userMessage.trim()) || /^[abc]$/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|平台:|确认|选第|帮我发|发一个视频|发一条|发布|直接发/.test(userMessage) && !/发我看|发我|发群里|发给你|发一份|发过去/.test(userMessage)
-    const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || stWordInput) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
+    // ★VF_ENTRY_V1（2026-09-19，用户实测"时好时坏"的根因）：
+    //   下面入口条件是 `if (skipModelStep1 || normCalls.length > 0)` ——
+    //   即"AI 那一步调了工具"才进状态机块。成片入口词原本没算进 skipModelStep1，
+    //   于是 AI 若直接开口聊天（不调工具）→ normCalls=0 → 整块跳过 → 成片状态机一行不跑
+    //   → 落到 AI 自由发挥（时好时坏）。这里把【成片草稿 + 成片入口词】补进去。
+    const vfEntryWord = /帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|本地成片|做一条视频|做个视频|做成片|做个宣传片/.test(userMessage)
+    const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0) || vfEntryWord || stWordInput) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
     // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
     if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|平台:|确认|选|发布|发一个视频|发一条|帮我发|发/i.test(userMessage))) {
       try {
