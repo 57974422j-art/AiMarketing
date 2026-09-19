@@ -2025,6 +2025,45 @@ function AgentPageInner() {
         </div>
       )
     }
+    // ★VF_FLOW_V1（2026-09-18）：成片状态机结构化消息（VF_JSON —— 文案确认卡）
+    if (content.startsWith('VF_JSON:')) {
+      try {
+        const vj = JSON.parse(content.slice(8))
+        if (vj.step === 'script') {
+          return (
+            <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
+              <div className="text-xs text-fuchsia-300 mb-2">{vj.hint || '① 文案确认'}</div>
+              {vj.topic ? <div className="text-[10px] text-gray-500 mb-1">主题：{vj.topic}</div> : null}
+              <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap mb-3">{vj.script}</div>
+              {Array.isArray(vj.voices) && vj.voices.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {vj.voices.map((v: any, i: number) => (
+                    <button key={i} onClick={() => sendMessage(String(v.name || '').split(' ')[0])}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] border transition ${vj.voice === v.id ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
+                      🔊 {v.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => sendMessage('确认')}
+                  className="px-4 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">
+                  确认出片{vj.cost ? `（约 ${vj.cost} 点）` : ''}
+                </button>
+                <span className="text-[10px] text-gray-500">也可直接说「改成…」调文案，或点上面换音色</span>
+              </div>
+            </div>
+          )
+        }
+        if (vj.step === 'running') {
+          return (
+            <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
+              <div className="text-xs text-fuchsia-300">🎬 本地成片已在后台渲染（配音 + 字幕 + 卡片画面）——完成后自动推给你</div>
+            </div>
+          )
+        }
+      } catch {}
+    }
     // 2026-08-31 v2: WF_JSON 结构化消息（状态机——视频卡片可点击选）
     if (content.startsWith('WF_JSON:')) {
       try {

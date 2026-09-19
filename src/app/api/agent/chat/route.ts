@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 // 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
 const PUBLISH_DRAFT: Map<number, any> = new Map()
+// ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
+const VIDEO_DRAFT: Map<number, any> = new Map()
 
 // ★统一入库规则（2026-09-18 用户要求：与发布/上传走同一套）：
 //   生成物 → 个人仓库（OSS `storage/{userId}/日期序号.mp4`）→ 前端 `storage:mirror` 下载到本地仓库
@@ -1731,7 +1733,9 @@ export async function POST(request: NextRequest) {
 
       // Step 2: 回传结果（不再让模型二次决定调工具，直接用结果文本，避免脏标签）
       // 2026-08-31 根治: 有发布草稿时跳过 AI 汇总（状态机直接处理——AI 不自由——否则 qwen3.8 自由回复覆盖 wfEarlyReply）
-      const hasDraft = PUBLISH_DRAFT.has(auth?.userId || 0)
+      // ★VF_FLOW_V1（2026-09-18）：成片草稿也算「有草稿」——否则「确认」那一轮会多调一次 AI
+      //   （虽然 wfEarlyReply 最终会覆盖它，但白花 token、还慢一拍）
+      const hasDraft = PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0)
       let finalResult: any = null
       console.log('[chat] Step2 finalResult 状态——hasDraft=', hasDraft, '任务词=', /帮我发|帮我写|帮我做|帮我生成|帮我配|帮我搜|帮我查|帮我记录|帮我开/.test(userMessage), '模式=', (body as any)?.mode)
       // 2026-08-31 完全隔离：标准模式 + 任务词（帮我发/帮我写/帮我做/帮我生成/帮我配/帮我搜/帮我查/帮我记录/帮我开）——状态机是唯一路径——绝不 AI 兜底
@@ -2313,6 +2317,85 @@ PUBLISH_DRAFT.delete(uidW)
               } else wfEarlyReply = '请回复“确认”发布。'
             }
           } catch (eWF2) { console.error('[发布工作流] 异常:', eWF2) }
+        }
+
+        // ═══════════════ 成片状态机（★VF_FLOW_V1，2026-09-18）═══════════════
+        //   与发布状态机【完全独立】：独立草稿 VIDEO_DRAFT / 独立意图正则 / 独立卡片前缀 VF_JSON
+        //   目的：用户说「帮我做一条视频」→ 确定性状态机接管（AI 只在 2 处出场：①润色文案 ②排分镜）
+        //   最小闭环（复用现有 make.py 链路）：起稿 → 确认（文案+音色）→ 后台出片 → 进度 → 成品
+        //   ⏳ 待接线（见 PROJECT.md 成片规划，按顺序）：6.5 画面来源（我的素材/AI 生成/混合）、
+        //      分镜编排（AI 出场②）、卡片/主题扩充、程序化逐帧、词级字幕、首镜硬节点
+        const uidVF2 = auth?.userId || 0
+        const vfIntent = /帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|本地成片|做一条视频|做个视频|做成片|做个宣传片/.test(userMessage)
+          && !/发布|发到|发抖音|发小红书|发微博|发视频号|平台:/.test(userMessage) // 不抢发布状态机的活
+        if (vfIntent || VIDEO_DRAFT.has(uidVF2)) {
+          try {
+            let vd = VIDEO_DRAFT.get(uidVF2)
+            // 新的成片指令 → 重置旧草稿（防 step 错位 → 又跑回 AI 自由调工具）
+            if (vd && vfIntent) { VIDEO_DRAFT.delete(uidVF2); vd = undefined }
+
+            if (!vd) {
+              // ── 第 1 步 起稿（★AI 出场①：润色成口播文案，保留数字/术语，不改写）──
+              const vfTopic = String(userMessage)
+                .replace(/帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|本地成片|做一条视频|做个视频|做成片|做个宣传片/g, '')
+                .replace(/^[\s:：,，]+/, '').trim() || '产品介绍'
+              const vfRaw = await generateText(`你是短视频口播文案写手。把下面的主题写成一段 60~90 字的中文口播文案。\n要求：①开头 3 秒抓人 ②每句一个信息点，句末用「。」「！」（便于自动切句成卡）③不改写用户给的数字与专业术语 ④只输出文案本身，不要标题、不要解释、不要 markdown、不要引号。\n主题：${vfTopic}`) || ''
+              const vfScript = String(vfRaw).replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 600)
+              vd = { step: 'script', topic: vfTopic, script: vfScript, voice: 'longxiaochun', theme: 'dark' }
+              VIDEO_DRAFT.set(uidVF2, vd)
+              const vfCostEst = Math.max(1, Math.ceil(vfScript.length / 20))
+              wfEarlyReply = 'VF_JSON:' + JSON.stringify({
+                step: 'script', topic: vfTopic, script: vfScript,
+                voices: [
+                  { id: 'longxiaochun', name: '龙小淳 · 女声（默认）' },
+                  { id: 'longyuan', name: '龙嫗 · 温柔女声' },
+                  { id: 'zh_female_vv_uranus_bigtts', name: '火山女声（需配火山）' },
+                ],
+                voice: vd.voice, theme: vd.theme, cost: vfCostEst,
+                hint: `① 文案已拟好（约 ${vfCostEst} 点）——回复「确认」开始出片；也可直接说要改什么（如「改成更活泼一点」）；回复音色名可换音色`,
+              })
+              finalResult = wfEarlyReply
+              console.log('[成片状态机] 起稿——topic=', vfTopic.slice(0, 20), 'script=', vfScript.slice(0, 40))
+            } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$/i.test(userMessage.trim())) {
+              // ── 确认 → 后台出片（确定性，走现有 make_ai_video：报价已在上一步给过，这里直接 confirmed）──
+              const vfRun = await executeToolCall('make_ai_video', { script: vd.script, theme: vd.theme || 'dark', confirmed: true }, auth)
+              vd.step = 'running'
+              VIDEO_DRAFT.set(uidVF2, vd)
+              wfEarlyReply = String(vfRun)
+              finalResult = wfEarlyReply
+              console.log('[成片状态机] 已入队出片——', String(vfRun).slice(0, 60))
+            } else if (vd.step === 'script') {
+              // ── 文案微调 / 换音色 / 换主题（★AI 出场①）──
+              const vfIsVoice = /音色|声音|女声|男声|龙小淳|龙嫗|longxiaochun|longyuan|火山/.test(userMessage)
+              if (vfIsVoice) {
+                const vid = /longyuan|龙嫗|温柔/.test(userMessage) ? 'longyuan'
+                  : /火山|uranus/.test(userMessage) ? 'zh_female_vv_uranus_bigtts' : 'longxiaochun'
+                vd.voice = vid
+                VIDEO_DRAFT.set(uidVF2, vd)
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voices: [
+                  { id: 'longxiaochun', name: '龙小淳 · 女声（默认）' },
+                  { id: 'longyuan', name: '龙嫗 · 温柔女声' },
+                  { id: 'zh_female_vv_uranus_bigtts', name: '火山女声（需配火山）' },
+                ], theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: `已换成「${vid}」——回复「确认」出片` })
+              } else {
+                const vfNew = await generateText(`按用户要求修改下面这段口播文案，保留数字与专业术语，仍用「。」「！」断句，只输出文案：\n原文：${vd.script}\n用户要求：${userMessage}`)
+                const vfNewScript = String(vfNew || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 600)
+                if (vfNewScript) vd.script = vfNewScript
+                VIDEO_DRAFT.set(uidVF2, vd)
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voices: [
+                  { id: 'longxiaochun', name: '龙小淳 · 女声（默认）' },
+                  { id: 'longyuan', name: '龙嫗 · 温柔女声' },
+                  { id: 'zh_female_vv_uranus_bigtts', name: '火山女声（需配火山）' },
+                ], theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: '文案已更新——回复「确认」出片' })
+              }
+              finalResult = wfEarlyReply
+              console.log('[成片状态机] 文案轮——', String(userMessage).slice(0, 20))
+            } else if (vd.step === 'running') {
+              // 出片中：拦下 AI（进度由前端轮询 make-video-status 推）
+              wfEarlyReply = '本地成片已在后台渲染中——完成后会自动推结果给你（也可问「视频做得怎么样了」）。'
+              finalResult = wfEarlyReply
+            }
+          } catch (eVF: any) { console.error('[成片状态机] 异常:', eVF?.message || eVF) }
         }
         if (false && pubIntent && !calledPublish) { // 旧强制段已禁        if (false && pubIntent && !calledPublish) { // 旧强制段已禁
           // 从用户消息提取平台+视频文件名
