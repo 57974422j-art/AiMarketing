@@ -563,7 +563,9 @@ function AgentPageInner() {
           clearInterval(iv)
           handledMakeVideos.current.add(taskId)
           if (!stopped) {
-            setMessages(prev => [...prev, { id: 'mv-' + Date.now(), role: 'assistant', content: 'MAKE_VIDEO_DONE:本地成片已完成 ✅（配音 + 字幕 + 画面）\n已存入个人仓库：' + (t.repoName || t.out || '') + (t.url ? '\n下载：' + t.url : '') + (t.repoError ? '\n（入库失败：' + t.repoError + '）' : '') }])
+            // ★2026-09-19：不再把 OSS 签名链接吐进对话（24h 过期 + 点了是下载 + 暴露直链）
+            //   传结构化数据 → 前端渲染成【内嵌播放卡】，源用自己的 /api/storage/file
+            setMessages(prev => [...prev, { id: 'mv-' + Date.now(), role: 'assistant', content: 'MAKE_VIDEO_DONE:' + JSON.stringify({ repoName: t.repoName || '', out: t.out || '', url: t.url || '', repoError: t.repoError || '' }) }])
           }
         } else if (t.status === 'failed') {
           clearInterval(iv)
@@ -2024,6 +2026,26 @@ function AgentPageInner() {
           {tail ? renderContent(tail) : null}
         </div>
       )
+    }
+    // ★2026-09-19：成片完成卡——内嵌播放（不显示 OSS 链接），并按项目规则自动镜像到本地仓库
+    if (content.startsWith('MAKE_VIDEO_DONE:')) {
+      try {
+        const md = JSON.parse(content.slice(16))
+        const src = md.repoName ? ('/api/storage/file?userId=' + (user?.id || '') + '&name=' + encodeURIComponent(md.repoName) + '&persist=1') : ''
+        if (src) { try { (window as any).electronAPI?.storageMirror?.(src) } catch {} }
+        return (
+          <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
+            <div className="text-xs text-emerald-300 mb-2">🎬 本地成片已完成（配音 + 字幕 + 画面）</div>
+            {src ? (
+              <video src={src} controls playsInline preload="metadata" className="w-full max-h-[420px] rounded-lg bg-black" />
+            ) : (
+              <div className="text-xs text-amber-400">成片已生成，但仓库文件名缺失（{md.out || '未知'}）</div>
+            )}
+            {md.repoName ? <div className="text-[10px] text-gray-500 mt-2">已入个人仓库：{md.repoName}（本地仓库自动同步）</div> : null}
+            {md.repoError ? <div className="text-[10px] text-amber-400 mt-1">入库提示：{md.repoError}</div> : null}
+          </div>
+        )
+      } catch {}
     }
     // ★VF_FLOW_V1（2026-09-18）：成片状态机结构化消息（VF_JSON —— 文案确认卡）
     if (content.startsWith('VF_JSON:')) {

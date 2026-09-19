@@ -161,6 +161,15 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-09-19 成片状态机打通 + 两个真因修复（✅ 代码完成，待部署实测）
+
+- **状态机全线跑通**：素材来源卡 → 看仓库 10 张图（视觉理解）→ 排 5 镜 → 文案卡 → 确认入队 ✅
+- **真因①（我造成的）**：`prompts.ts` 红线里的**反引号**落在模板字符串内 → 提前闭合 → build 失败 → `deploy-server.sh` 因 `set -e` 退出 → **pm2 没重启** → 连续几轮"改了没反应 / AI 自由发挥"（**不是代码逻辑问题，是压根没上线**）
+- **真因②（我造成的）**：pm2 跑 `.next/standalone/server.js`，`process.cwd()` ≠ 项目根 → 写死 cwd 导致 `TOOL_REJECT:未找到本地成片脚本`。**修**：`vfRootDir()` / `vfStorageRoot()`（VF_ROOT→cwd→上级→/root/AiMarketing），`make_ai_video` / `query_make_video` / `make-video-status` / `materialDir` 四处统一
+- **附带**：画面来源三选卡（素材合成 / 素材+AI 混合 / 全部 AI，后两个诚实回"开发中"）；提示词加 **VF_JSON 红线**（实测 AI 会模仿 VF_JSON 装成状态机）
+- **服务器环境已确认全绿**：脚本 ✅ / ffmpeg ✅ / python3 ✅ / NotoSansCJK+文泉驿 ✅ / **无第三方依赖（纯标准库，不用装 pillow/numpy）**
+- ⏳ **待做**：部署实测 → 之后做「**客户端优先（打包带 ffmpeg + 主进程渲染链路）→ 服务器兜底**」双路成片
+
 ### 2026-09-19 成片状态机 v2：一键出发（✅ 代码完成，待 push/部署实测）
 
 - **用户点「帮我做一个视频」→ 不再要求补主题**：第 0 步出**素材来源卡**（`🎞 用我的素材库` / `📤 我上传`），点一下就开工（= 一键出发）

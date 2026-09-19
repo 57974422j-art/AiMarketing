@@ -2415,7 +2415,8 @@ PUBLISH_DRAFT.delete(uidW)
                 if (!vd.topic) {
                   const _t = String(userMessage).replace(/^[\s:：,，,。、]+/, '').trim()
                   // 排除按钮文本（"用我的素材库"/"我上传素材"）——它不是主题
-                  vd.topic = /^(用我的素材库|我上传|上传素材|素材库|用素材库)$/.test(_t) ? '' : _t
+                  // ★2026-09-19：排除【所有按钮文本】——它们是操作指令，不是主题
+                  vd.topic = /^(用我的素材库|我上传|上传素材|素材库|用素材库|素材合成|素材加AI混合|素材加ai混合|素材AI混合|全部AI生成|全AI生成|素材和AI混合|混合)$/.test(_t) ? '' : _t
                 }
                 const vfMats = await listRepoMaterials(uidVF2, 40)
                 const vfBrief = await summarizeMaterials(uidVF2, vfMats, 10)
