@@ -563,9 +563,15 @@ function AgentPageInner() {
           clearInterval(iv)
           handledMakeVideos.current.add(taskId)
           if (!stopped) {
-            // ★2026-09-19：不再把 OSS 签名链接吐进对话（24h 过期 + 点了是下载 + 暴露直链）
-            //   传结构化数据 → 前端渲染成【内嵌播放卡】，源用自己的 /api/storage/file
-            setMessages(prev => [...prev, { id: 'mv-' + Date.now(), role: 'assistant', content: 'MAKE_VIDEO_DONE:' + JSON.stringify({ repoName: t.repoName || '', out: t.out || '', url: t.url || '', repoError: t.repoError || '' }) }])
+            // ★2026-09-19 修（用户实测：上次做好的视频会在下次会话/刷新后又冒出来）：
+            //   任务文件一直在（status=done 不会消失），而 handledMakeVideos 是内存 ref
+            //   → 刷新/新会话清空 → 轮询又查到 done → 再推一条完成卡 → 重复。
+            //   这里按 taskId 去重（完成卡里带上 taskId，推之前查历史有没有）。
+            setMessages(prev => {
+              const dup = prev.some((m: any) => typeof m.content === 'string' && m.content.startsWith('MAKE_VIDEO_DONE:') && m.content.includes(taskId))
+              if (dup) return prev
+              return [...prev, { id: 'mv-' + Date.now(), role: 'assistant', content: 'MAKE_VIDEO_DONE:' + JSON.stringify({ taskId, repoName: t.repoName || '', out: t.out || '', url: t.url || '', repoError: t.repoError || '' }) }]
+            })
           }
         } else if (t.status === 'failed') {
           clearInterval(iv)

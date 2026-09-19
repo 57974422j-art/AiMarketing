@@ -249,9 +249,12 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       // ★VF_LINUX_V1（2026-09-18）：解释器名跨平台 —— Linux 服务器通常只有 python3，
       //   原来默认 'python' → spawn ENOENT → 成片直接失败。服务器可显式设 BU_PYTHON。
       const py = process.env.BU_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
+      // ★2026-09-19：workdir 按任务独立（原来所有任务共用 work/ → 并发会互相覆盖，
+      //   也导致事后无法回溯"这次到底怎么排的镜"；独立后可直接读该任务的 storyboard.voiced.json）
+      const vfWorkDir = pathVF.join(outDir, 'work_' + Date.now())
       const argsVF = vfPlan
-        ? [mkPy, '--plan', vfPlan, '--theme', vfTheme, '--out', vfOut, '--workdir', pathVF.join(outDir, 'work')]
-        : [mkPy, '--script', vfScript, '--theme', vfTheme, '--out', vfOut, '--workdir', pathVF.join(outDir, 'work')]
+        ? [mkPy, '--plan', vfPlan, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir]
+        : [mkPy, '--script', vfScript, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir]
       // ★VF_ASYNC_V1（2026-09-18）：改成【后台任务】——不再同步等 8 分钟。
       //   长片（3 分钟以上）同步等会超时/卡住对话；改后台跑 + 落任务文件，用户可随时问进度。
       const vfTaskId = 'vf' + Date.now()
@@ -2455,7 +2458,7 @@ PUBLISH_DRAFT.delete(uidW)
                     vfHot = arr.map((x: any) => String(x?.title || x?.word || '')).filter(Boolean).slice(0, 5).join('｜').slice(0, 180)
                   }
                 } catch {}
-                const vfPlanRaw = await generateText(`你是短视频编导。根据下面的材料做一条${vd.topic ? `主题为「${vd.topic}」的` : ''}约 30 秒短视频（画幅 ${vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}）。\n【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材（图）】\n${vfBrief || '（仓库里没有可用图片）'}\n\n要求：\n1) 只输出严格 JSON（不要 markdown 代码块、不要任何解释）：{"script":"口播文案 120~150 字（中文语速约 30 秒），句子用。！断句","shots":[镜头…]}\n2) 镜头 5~7 个，【各镜头的 dur 相加应约等于 30 秒】，每个是以下之一：\n   {"type":"bgimage","pick":图号,"text":"图上大字(≤12字)","dur":4}  ← 【有合适的图就优先用它，pick 必须是上面列出的图号，至少一半镜头用这个】\n   {"type":"title","text":"标题","dur":3} / {"type":"list","title":"要点","items":["A","B","C"],"dur":5} / {"type":"number","value":300,"suffix":"+","label":"已服务客户","dur":3} / {"type":"end","text":"结尾语","cta":"点击咨询","dur":3}\n3) 不要编造素材里没有的东西（例如图里没有的场景不要写）。`) || ''
+                const vfPlanRaw = await generateText(`你是短视频编导。根据下面的材料做一条${vd.topic ? `主题为「${vd.topic}」的` : ''}约 30 秒短视频（画幅 ${vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}）。\n【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材（图）】\n${vfBrief || '（仓库里没有可用图片）'}\n\n要求：\n1) 只输出严格 JSON（不要 markdown 代码块、不要任何解释）：{"script":"口播文案，【必须 120~150 字，少于 100 字不合格】，句子用。！断句","shots":[镜头…]}\n2) 镜头 5~7 个，【各镜头的 dur 相加应约等于 30 秒】，每个是以下之一：\n   {"type":"bgimage","pick":图号,"text":"画面大字【只能是 4~8 个字的短语，禁止写整句】","dur":4}  ← 【有合适的图就优先用它；【每个 bgimage 的 pick 必须尽量用不同的图号】（手上有 10 张图，就多换几张）；至少一半镜头用这个】\n   {"type":"title","text":"标题","dur":3} / {"type":"list","title":"要点","items":["A","B","C"],"dur":5} / {"type":"number","value":300,"suffix":"+","label":"已服务客户","dur":3} / {"type":"end","text":"结尾语","cta":"点击咨询","dur":3}\n3) 不要编造素材里没有的东西（例如图里没有的场景不要写）。`) || ''
                 let vfPlanObj: any = null
                 try {
                   const m0 = String(vfPlanRaw).match(/\{[\s\S]*\}/)
@@ -2465,9 +2468,17 @@ PUBLISH_DRAFT.delete(uidW)
                 const vfImgList = vfMats.filter((m: any) => m.kind === 'image').slice(0, 10)
                 const vfLocal = await downloadMaterials(uidVF2, vfImgList)
                 let vfShots: any[] = Array.isArray(vfPlanObj?.shots) ? vfPlanObj.shots : []
+                // ★2026-09-19 修（用户实测：有 10 张图，4 个镜头却全用同一张）：
+                //   AI 常不给 pick / 给重复值 → 老逻辑 parseInt(s.pick)||1 全部落到第 1 张。
+                //   改成：没给或越界时按镜头顺序轮换（至少让多张图真的用上）。
+                let vfPickSeq = 0
                 vfShots = vfShots.map((s: any) => {
                   if (s?.type === 'bgimage' || s?.type === 'image') {
-                    const idx = Math.max(1, Math.min(vfLocal.length, parseInt(s.pick) || 1)) - 1
+                    const pickN = parseInt(s.pick)
+                    const useSeq = (Number.isFinite(pickN) && pickN >= 1 && pickN <= vfLocal.length)
+                      ? pickN - 1
+                      : (vfPickSeq++ % Math.max(1, vfLocal.length))
+                    const idx = Math.max(0, Math.min(vfLocal.length - 1, useSeq))
                     const lp = vfLocal[idx]?.localPath
                     if (!lp) return { type: 'title', text: String(s.text || vd.topic || '看点').slice(0, 14), dur: 3.5 }
                     return { type: 'bgimage', src: lp, text: String(s.text || '').slice(0, 14), dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)) }
@@ -2497,6 +2508,8 @@ PUBLISH_DRAFT.delete(uidW)
                 })
                 finalResult = wfEarlyReply
                 vfLog(uidVF2, `[起草] 图${vfLocal.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
+                // ★2026-09-19：把 AI 的原始分镜也写进日志（事后回溯"它到底怎么排的"）
+                vfLog(uidVF2, `[AI原始plan] ${String(vfPlanRaw).replace(/\n/g, ' ').slice(0, 500)}`)
               }
             } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$/i.test(userMessage.trim())) {
               // ── 确认 → 后台出片（确定性，走现有 make_ai_video：报价已在上一步给过，这里直接 confirmed）──
