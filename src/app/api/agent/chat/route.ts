@@ -2362,7 +2362,7 @@ PUBLISH_DRAFT.delete(uidW)
           } catch {}
         }
         // ★VF_LOG_V1（2026-09-19）：成片入口日志（服务器侧 <storage>/<uid>/video-factory/vf_debug.log）——排查用
-        vfLog(uidVF2, `[入口] msg="${String(userMessage).slice(0, 60)}" vfIntent=${vfIntent} 内存草稿=${VIDEO_DRAFT.has(uidVF2) ? '有' : '无'}`)
+        vfLog(uidVF2, `[入口] msg="${String(userMessage).slice(0, 60)}" vfIntent=${vfIntent} 内存草稿=${VIDEO_DRAFT.has(uidVF2) ? '有' : '无'} 自由模式=${isFreeMode} 任务词=${isTaskCmd}`)
         if (vfIntent || VIDEO_DRAFT.has(uidVF2)) {
           try {
             let vd = VIDEO_DRAFT.get(uidVF2)
@@ -2503,8 +2503,20 @@ PUBLISH_DRAFT.delete(uidW)
               // 出片中：拦下 AI（进度由前端轮询 make-video-status 推）
               wfEarlyReply = '本地成片已在后台渲染中——完成后会自动推结果给你（也可问「视频做得怎么样了」）。'
               finalResult = wfEarlyReply
+            } else {
+              // ★兜底1（2026-09-19）：草稿 step 不认识（如 upload / 异常残留）→ 也出卡，绝不让这轮落到 AI 自由发挥
+              vfLog(uidVF2, `[兜底-块内] step=${vd?.step} 未匹配分支——强制出素材来源卡`)
+              wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: vd?.topic || '', hint: '这条视频用什么素材？（点一下就走）' })
+              finalResult = wfEarlyReply
             }
-          } catch (eVF: any) { console.error('[成片状态机] 异常:', eVF?.message || eVF) }
+          } catch (eVF: any) { console.error('[成片状态机] 异常:', eVF?.message || eVF); vfLog(uidVF2, '[异常] ' + String(eVF?.message || eVF).slice(0, 200)) }
+        }
+        // ★兜底2（2026-09-19）：消息明显是“做视频”意图、但状态机没给回复 → 强制出素材来源卡
+        //   目的：即使进块条件/分支判断出了意外，也绝不让这一轮落到 AI 自由发挥（用户实测过的现象）
+        if (!wfEarlyReply && /做.{0,4}视频|成片|做视频/.test(userMessage)) {
+          vfLog(uidVF2, '[兜底-块外] 状态机未出回复，已强制出素材来源卡')
+          wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: '', hint: '这条视频用什么素材？（点一下就走，不用打字）' })
+          finalResult = wfEarlyReply
         }
         if (false && pubIntent && !calledPublish) { // 旧强制段已禁        if (false && pubIntent && !calledPublish) { // 旧强制段已禁
           // 从用户消息提取平台+视频文件名
