@@ -13,13 +13,13 @@ async function saveVfDraft(userId: number | string, draft: any): Promise<void> {
     const ex = await prisma.agentMemory.findFirst({ where: { userId: String(userId), tags: { contains: 'vf_draft' } } })
     if (ex) await prisma.agentMemory.update({ where: { id: ex.id }, data: { content } })
     else await prisma.agentMemory.create({ data: { userId: String(userId), content, tags: 'vf_draft', salience: 0.5 } })
-  } catch (e: any) { console.error('[成片状态机] 草稿保存失败:', e?.message || e) }
+  } catch (e: any) { console.error('[成片状态机] 草稿保存失败:', e?.message || e); try { vfLog(userId, '[草稿保存失败] ' + String(e?.message || e).slice(0, 200)) } catch {} }
 }
 async function loadVfDraft(userId: number | string): Promise<any | null> {
   try {
     const dm = await prisma.agentMemory.findFirst({ where: { userId: String(userId), tags: { contains: 'vf_draft' } }, orderBy: { updatedAt: 'desc' } })
     if (dm?.content) return JSON.parse(String(dm.content).replace(/^成片草稿:/, ''))
-  } catch {}
+  } catch (e: any) { try { vfLog(userId, '[草稿读取失败] ' + String(e?.message || e).slice(0, 200)) } catch {} }
   return null
 }
 async function clearVfDraft(userId: number | string): Promise<void> {
