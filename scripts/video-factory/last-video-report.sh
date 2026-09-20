@@ -16,7 +16,16 @@ cd "$(dirname "$0")/../.." || exit 1
 UID_="${1:-1}"
 
 echo "===== ① 起草 + 渲染日志（含 [VF] [概要]/[覆盖率]/[扩镜]/[上传]/[画幅]/[画布]）====="
-pm2 logs aimarketing --lines 800 --nostream 2>/dev/null | grep -E "\[VF\]|\[TTS\]|\[MAKE\]" | tail -80
+# ★2026-09-20 修：原来写 `2>/dev/null` —— 但 pm2 logs 有内容走 stderr，会被整段丢掉
+#   （用户实测：① 段是空的）→ 必须 `2>&1` 把 stderr 合并进来。
+_LOG=$(pm2 logs aimarketing --lines 800 --nostream 2>&1 | grep -E "\[VF\]|\[TTS\]|\[MAKE\]" | tail -80)
+if [ -n "$_LOG" ]; then
+  echo "$_LOG"
+else
+  echo "（空）可能原因：① 这条视频是在【部署之前】做的 —— deploy-server.sh 会 pm2 flush 清日志"
+  echo "  ② pm2 日志轮转/重启清空。补救：看下面 ③ 段的任务 JSON（tail 里含渲染阶段日志）；"
+  echo "  想补看起草阶段，再做一条视频后立刻跑本脚本。"
+fi
 
 echo
 echo "===== ② 最近成片的实际参数（时长 / 分辨率 / 音轨）====="
