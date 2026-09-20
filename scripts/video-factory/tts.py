@@ -29,12 +29,44 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SPEAKER = ''                     # 留空 = 用所选引擎的默认音色（百炼 longxiaochun / 火山 zh_female_vv_uranus_bigtts）
 VOLCANO_SPEAKER = 'zh_female_vv_uranus_bigtts'
+# ★VF_VOICE_MAP_V1（2026-09-20，用户实测“成片只有 BGM、没有人声”的根因）：
+#   网页表单里的音色是【百炼】id（longxiaochun…），TS 侧原样透传成 --speaker，
+#   火山兜底收到百炼音色名 → 火山不认识 → **每一镜都失败** → 无声片（时长停在 AI 默认值）。
+#   这里把百炼音色映射到项目内已在用的火山音色（清单见 src/app/video-edit/page.tsx）。
+VOLCANO_VOICE_MAP = {
+    'longxiaochun': 'zh_female_vv_magic_bigtts',    # 女声温柔
+    'longxiaoxia': 'zh_female_vv_uranus_bigtts',   # 女声清亮（通用女声）
+    'cherry': 'zh_female_vv_yuheng_bigtts',        # 女声甜美
+    'longshu': 'zh_male_vv_shuhao_bigtts',         # 男声沉稳
+    'longchen': 'zh_male_vv_yezhu_bigtts',         # 男声浑厚（磁性）
+    'longjing': 'zh_male_vv_uranus_bigtts',        # 男声知性（通用男声）
+    'longxiaohui': 'zh_male_xiaoming_bigtts',      # 男声阳光
+}
+
+
+def volcano_speaker(sp):
+    """把音色名规整成【火山】能认的：已是火山 id（zh_/en_ 开头）或为空 → 原样/默认；
+    否则按百炼→火山映射（认不出的克隆音色 → 默认女声，宁可出声也不静音）。"""
+    s = (sp or '').strip()
+    if not s:
+        return VOLCANO_SPEAKER
+    if s.startswith('zh_') or s.startswith('en_'):
+        return s
+    m = VOLCANO_VOICE_MAP.get(s)
+    if m:
+        print('[TTS] 音色映射: %s（百炼）→ %s（火山）' % (s, m))
+        return m
+    print('[TTS] ⚠️ 未知音色「%s」→ 用火山默认 %s（克隆音色火山不支持，宁可出声不静音）' % (s, VOLCANO_SPEAKER))
+    return VOLCANO_SPEAKER
+
+
 DASHSCOPE_VOICE = os.environ.get('DASHSCOPE_TTS_VOICE') or 'longxiaochun'
 URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional'
 DASHSCOPE_TTS_URL = 'https://dashscope.aliyuncs.com/api/v1/services/tts/generation'
@@ -95,6 +127,8 @@ def load_env(paths=None):
 
 ENV = load_env()
 _CRED_WARNED = [False]
+# ★VF_TTSERR_V1：百炼失败一次后，本次运行不再重试（否则每一镜都白跑一遍、还刷一堆日志）
+_DASH_DEAD = [False]
 
 
 def env_get(key, default=''):
@@ -102,19 +136,95 @@ def env_get(key, default=''):
     return (os.environ.get(key) or ENV.get(key) or default)
 
 
+def _tts_order():
+    """★VF_TTS_ORDER_V1（2026-09-20）：配音引擎顺序可配（不用改代码）。
+    默认 'dashscope,volcano' = **保持原行为**；想换引擎就在 .env.local 写：
+      VF_TTS_ORDER=dashscope,minimax,silicon,volcano
+    每行一个序列，按顺序尝试，第一个出声的胜出。"""
+    return [x.strip() for x in (env_get('VF_TTS_ORDER') or 'dashscope,volcano').split(',') if x.strip()]
+
+
+# 跨引擎音色映射：表单里用户选的是【百炼】id → 各引擎认自己的名字
+# 火山已实测可用；Minimax 的 voice_id 需按官方列表核对（可用 MINIMAX_TTS_VOICE 直接覆盖）
+MINIMAX_VOICE_MAP = {
+    'longxiaochun': 'female-shaonv',
+    'longxiaoxia': 'female-yujie',
+    'cherry': 'female-tianmei',
+    'longshu': 'male-qn-qingse',
+    'longchen': 'male-qn-jingying',
+    'longjing': 'male-qn-badao',
+    'longxiaohui': 'male-qn-daxuesheng',
+}
+
+
+def minimax_voice(sp):
+    """百炼音色 → Minimax voice_id（认不出 → 用 MINIMAX_TTS_VOICE 或默认女声）"""
+    s = (sp or '').strip()
+    if s and not s.startswith('zh_') and not s.startswith('en_'):
+        m = MINIMAX_VOICE_MAP.get(s)
+        if m:
+            return m
+    return env_get('MINIMAX_TTS_VOICE') or 'female-shaonv'
+
+
+def _dig_audio_url(obj, depth=0):
+    """在返回 JSON 里“挖”出音频 url（兼容“同步直出”与各种嵌套）"""
+    if depth > 6:
+        return ''
+    if isinstance(obj, dict):
+        for k in ('url', 'audio_url', 'audio'):
+            v = obj.get(k)
+            if isinstance(v, str) and v.startswith('http'):
+                return v
+        for v in obj.values():
+            r = _dig_audio_url(v, depth + 1)
+            if r:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = _dig_audio_url(v, depth + 1)
+            if r:
+                return r
+    return ''
+
+
+def _write_audio(buf, out_path):
+    """写音频文件 → 返回时长秒（失败 0.0）"""
+    if not buf or len(buf) < 200:
+        return 0.0
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    with open(out_path, 'wb') as f:
+        f.write(buf)
+    return mp3_duration(out_path)
+
+
 def _tts_dashscope(text, out_path, voice):
-    """百炼 CosyVoice（异步提交 + 轮询 + 下载 mp3）—— 与 ai-providers.ts 的 dashscopeTTS 同协议。
-    未配 key / 失败 时返回 0.0（交给下一引擎兜底）。"""
+    """百炼（异步提交 + 轮询 + 下载 mp3）。未配 key / 失败 时返回 0.0（交给下一引擎兜底）。
+
+    ★VF_DASH_CFG_V1（2026-09-20）：端点/模型/请求体风格**全可配**（填 .env.local 即可，不用改代码）：
+      DASHSCOPE_TTS_URL    默认 https://dashscope.aliyuncs.com/api/v1/services/tts/generation
+                           （★实测该路径 400；百炼文档路径是
+                             https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation）
+      DASHSCOPE_TTS_MODEL  默认 cosyvoice-v1（官方已推荐迁移到 cosyvoice-v3-flash / qwen3-tts-flash）
+      DASHSCOPE_TTS_STYLE  'v1'（parameters.voice，老协议）| 'v3'（input.voice，新协议）
+      DASHSCOPE_TTS_VOICE  音色
+    """
+    if _DASH_DEAD[0]:
+        return 0.0
     key = env_get('DASHSCOPE_API_KEY')
     if not key:
         return 0.0
-    body = json.dumps({
-        'model': 'cosyvoice-v1',
-        'input': {'text': text},
-        'parameters': {'voice': voice or DASHSCOPE_VOICE, 'format': 'mp3'},
-        'action': 'run',
-    }, ensure_ascii=False).encode('utf-8')
-    req = urllib.request.Request(DASHSCOPE_TTS_URL, data=body, method='POST', headers={
+    url = env_get('DASHSCOPE_TTS_URL') or DASHSCOPE_TTS_URL
+    model = env_get('DASHSCOPE_TTS_MODEL') or 'cosyvoice-v1'
+    style = (env_get('DASHSCOPE_TTS_STYLE') or 'v1').lower()
+    v = voice or env_get('DASHSCOPE_TTS_VOICE') or DASHSCOPE_VOICE
+    if style == 'v3':
+        payload = {'model': model, 'input': {'text': text, 'voice': v}}
+    else:
+        payload = {'model': model, 'input': {'text': text},
+                   'parameters': {'voice': v, 'format': 'mp3'}, 'action': 'run'}
+    body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+    req = urllib.request.Request(url, data=body, method='POST', headers={
         'Content-Type': 'application/json',
         'Authorization': 'Bearer %s' % key,
         'X-DashScope-Async': 'enable',
@@ -122,11 +232,30 @@ def _tts_dashscope(text, out_path, voice):
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             data = json.loads(r.read() or b'{}')
+    except urllib.error.HTTPError as e:
+        # ★VF_TTSERR_V1：原来只打“HTTP Error 400: Bad Request”，根本看不到百炼在报什么
+        try:
+            _b = e.read().decode('utf-8', 'replace')[:300]
+        except Exception:
+            _b = ''
+        print('  [tts] 百炼创建任务失败: HTTP %s %s | %s' % (e.code, e.reason, _b))
+        _DASH_DEAD[0] = True
+        return 0.0
     except Exception as e:
         print('  [tts] 百炼创建任务失败: %s' % str(e)[:140])
         return 0.0
     task_id = (data.get('output') or {}).get('task_id')
     if not task_id:
+        # ★VF_DASH_SYNC_V1：有的端点同步直出（没 task_id）→ 尽力从返回里“挖”音频 url 直接用
+        u = _dig_audio_url(data)
+        if u:
+            try:
+                with urllib.request.urlopen(u, timeout=60) as ar:
+                    d = _write_audio(ar.read(), out_path)
+                if d:
+                    return d
+            except Exception as e:
+                print('  [tts] 百炼音频下载失败: %s' % str(e)[:140])
         print('  [tts] 百炼未返回 task_id: %s' % json.dumps(data, ensure_ascii=False)[:200])
         return 0.0
     for _ in range(60):                      # 最多约 2 分钟
@@ -162,20 +291,37 @@ def _tts_dashscope(text, out_path, voice):
 
 def tts_one(text, out_path, speaker=''):
     """合成一句 → 写 mp3，返回 (ok, 时长秒)。
-    ★VF_DASHSCOPE_V1：百炼 CosyVoice 主用 → 火山兜底 → 都没有则明确警告（无声片）。"""
+
+    ★VF_TTS_ORDER_V1（2026-09-20）：引擎顺序由 VF_TTS_ORDER 决定
+      （默认 dashscope,volcano = **原行为不变**；可填 dashscope,minimax,silicon,volcano）
+      可选：dashscope（百炼）/ minimax / silicon（硅基）/ volcano（火山）
+      音色：表单选的是【百炼 id】，各引擎自己映射。"""
     txt = (text or '').strip()
     if not txt:
         return False, 0.0
-    dur = _tts_dashscope(txt, out_path, speaker)
-    if dur:
-        return True, dur
-    dur = _tts_volcano(txt, out_path, speaker or VOLCANO_SPEAKER)
-    if dur:
-        return True, dur
+    engines = {
+        'dashscope': lambda: _tts_dashscope(txt, out_path, speaker),
+        'minimax': lambda: _tts_minimax(txt, out_path, speaker),
+        'silicon': lambda: _tts_silicon(txt, out_path, speaker),
+        'volcano': lambda: _tts_volcano(txt, out_path, speaker or VOLCANO_SPEAKER),
+    }
+    for name in _tts_order():
+        fn = engines.get(name)
+        if not fn:
+            print('  [tts] 未知引擎「%s」（可选：%s）' % (name, '/'.join(engines.keys())))
+            continue
+        try:
+            dur = fn()
+        except Exception as e:
+            print('  [tts] %s 异常: %s' % (name, str(e)[:120]))
+            dur = 0.0
+        if dur:
+            print('[TTS] 引擎=%s' % name)
+            return True, dur
     if not _CRED_WARNED[0]:
         _CRED_WARNED[0] = True
-        print('[TTS] ⚠️ 没有可用的 TTS 凭据（需 DASHSCOPE_API_KEY，或火山 VOLCANO_TTS_*）'
-              '（已查环境变量与 .env.local）→ 本次将出无声片')
+        print('[TTS] ⚠️ 全部引擎都失败（顺序 %s）→ 本次将出无声片。'
+              '可配 VF_TTS_ORDER 换引擎；凭据查 .env.local' % ','.join(_tts_order()))
     return False, 0.0
 
 
@@ -189,10 +335,12 @@ def _tts_volcano(text, out_path, speaker=''):
     txt = (text or '').strip()
     if not txt:
         return 0.0
+    # ★VF_VOICE_MAP_V1：关键！把百炼音色名转成火山认的名字（否则火山 100% 失败 → 无声片）
+    spk = volcano_speaker(speaker)
     body = json.dumps({
         'user': {'uid': app_id},
         'req_params': {
-            'text': txt, 'speaker': speaker,
+            'text': txt, 'speaker': spk,
             'audio_params': {'format': 'mp3', 'sample_rate': 24000},
             'volume': 2.0,
         },
@@ -232,6 +380,94 @@ def _tts_volcano(text, out_path, speaker=''):
     with open(out_path, 'wb') as f:
         f.write(audio)
     return mp3_duration(out_path)
+
+
+def _tts_minimax(text, out_path, voice):
+    """★Minimax 语音合成（/v1/t2a_v2，与 minimax-music.ts 同一个 MINIMAX_API_KEY）。
+    端点/模型/音色可配：MINIMAX_TTS_URL / MINIMAX_TTS_MODEL / MINIMAX_TTS_VOICE；
+    若把 MINIMAX_TTS_URL 指向你的中转，则走后转。未配 key → 0.0。
+    返回 JSON，音频为 hex（output_format=hex）或 url。"""
+    key = env_get('MINIMAX_API_KEY')
+    if not key:
+        return 0.0
+    url = env_get('MINIMAX_TTS_URL') or 'https://api.minimaxi.com/v1/t2a_v2'
+    model = env_get('MINIMAX_TTS_MODEL') or 'speech-02-hd'
+    v = voice if (voice or '').startswith('female-') or (voice or '').startswith('male-') else minimax_voice(voice)
+    body = json.dumps({
+        'model': model,
+        'text': text,
+        'stream': False,
+        'voice_setting': {'voice_id': v, 'speed': 1.0, 'vol': 1.0, 'pitch': 0},
+        'audio_setting': {'sample_rate': 32000, 'bitrate': 128000, 'format': 'mp3', 'channel': 1},
+        'output_format': 'hex',
+    }, ensure_ascii=False).encode('utf-8')
+    req = urllib.request.Request(url, data=body, method='POST', headers={
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer %s' % key,
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=90) as r:
+            data = json.loads(r.read() or b'{}')
+    except urllib.error.HTTPError as e:
+        try:
+            _b = e.read().decode('utf-8', 'replace')[:300]
+        except Exception:
+            _b = ''
+        print('  [tts] Minimax HTTP %s %s | %s' % (e.code, e.reason, _b))
+        return 0.0
+    except Exception as e:
+        print('  [tts] Minimax 请求失败: %s' % str(e)[:140])
+        return 0.0
+    br = data.get('base_resp') or {}
+    if br.get('status_code') not in (0, None):
+        print('  [tts] Minimax 报错: %s' % json.dumps(br, ensure_ascii=False)[:200])
+        return 0.0
+    hexa = (data.get('data') or {}).get('audio')
+    if isinstance(hexa, str) and len(hexa) > 400:
+        try:
+            return _write_audio(bytes.fromhex(hexa), out_path)
+        except Exception as e:
+            print('  [tts] Minimax hex 解码失败: %s' % str(e)[:120])
+            return 0.0
+    u = _dig_audio_url(data)
+    if u:
+        try:
+            with urllib.request.urlopen(u, timeout=60) as ar:
+                return _write_audio(ar.read(), out_path)
+        except Exception as e:
+            print('  [tts] Minimax 音频下载失败: %s' % str(e)[:140])
+    print('  [tts] Minimax 未返回音频: %s' % json.dumps(data, ensure_ascii=False)[:200])
+    return 0.0
+
+
+def _tts_silicon(text, out_path, voice):
+    """★硅基流动 TTS（OpenAI 兼容 /v1/audio/speech，与 ai-providers.ts 的 siliconTTS 一致）。
+    ★这条正好是 textToSpeech（AGENT 语音）的兜底 —— 若 AGENT 语音能出声，这条就是活的。"""
+    key = env_get('SILICONFLOW_API_KEY')
+    if not key:
+        return 0.0
+    url = env_get('SILICON_TTS_URL') or 'https://api.siliconflow.cn/v1/audio/speech'
+    model = env_get('SILICON_TTS_MODEL') or 'FunAudioLLM/CosyVoice2-0.5B'
+    v = voice if (voice or '').startswith('FunAudioLLM/') else (env_get('SILICON_TTS_VOICE') or 'FunAudioLLM/CosyVoice2-0.5B:alex')
+    body = json.dumps({'model': model, 'input': text, 'voice': v,
+                       'response_format': 'mp3', 'sample_rate': 44100}, ensure_ascii=False).encode('utf-8')
+    req = urllib.request.Request(url, data=body, method='POST', headers={
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer %s' % key,
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=90) as r:
+            return _write_audio(r.read(), out_path)
+    except urllib.error.HTTPError as e:
+        try:
+            _b = e.read().decode('utf-8', 'replace')[:300]
+        except Exception:
+            _b = ''
+        print('  [tts] 硅基 HTTP %s %s | %s' % (e.code, e.reason, _b))
+        return 0.0
+    except Exception as e:
+        print('  [tts] 硅基请求失败: %s' % str(e)[:140])
+        return 0.0
 
 
 def mp3_duration(path):

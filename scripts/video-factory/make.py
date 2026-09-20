@@ -79,10 +79,25 @@ def run(cmd, label):
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
                        encoding='utf-8', errors='replace')
     out = (r.stdout or '') + (r.stderr or '')
-    for ln in out.splitlines()[-6:]:
-        if ln.strip():
+    lines = [ln for ln in out.splitlines() if ln.strip()]
+    ok = r.returncode == 0
+    # ★VF_LOGFIX_V1（2026-09-20）：原来【只打最后 6 行】→ tts.py 的失败原因
+    #   （如"⚠️ 没有可用的 TTS 凭据"，只在第一镜打印一次）被截掉 → "无声片"查不到因。
+    #   改成：成功打最后 6 行；**失败打前 12 行 + 后 12 行**（首尾都要，真因常在开头）。
+    if ok:
+        for ln in lines[-6:]:
             print('   ' + ln[:150])
-    return r.returncode == 0
+    else:
+        print('   ⚠️ %s 失败（退出码 %s），输出共 %d 行 —— 首 12 / 尾 12：'
+              % (label, r.returncode, len(lines)))
+        head, tail = lines[:12], lines[-12:]
+        for ln in head:
+            print('   ' + ln[:200])
+        if len(lines) > 24:
+            print('   …（省略 %d 行）' % (len(lines) - 24))
+        for ln in (tail if lines[:12] != lines[-12:] else []):
+            print('   ' + ln[:200])
+    return ok
 
 
 def main():
