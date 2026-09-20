@@ -408,7 +408,14 @@ def card_bgimage(shot, th, W, H, fps):
     _frames = max(1, int(dur * fps))
     # ★VF_SYNC_V1（C3）：画面大字逐字浮现（跟配音卡点）；拿不到 text 就不加这些滤镜
     _reveal = _reveal_seq(shot, font, fs, txc, dur)
-    _chain = [f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.42:t=fill"] + _reveal + [
+    # ★VF_LESSDARK_V1（2026-09-20 用户实测"整体黑白/发灰"）：黑遮罩 0.42 → 0.15
+    #   原来整幅盖 42% 黑（为保字幕可读）→ 图片颜色全被压掉、观感"黑白"。
+    #   现在改成：全屏只轻压 15%（保色彩）+【底部字幕区】单独再压 30%（保字幕对比度）。
+    _bar_y = int(H * 0.72)
+    _chain = [
+        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
+        f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
+    ] + _reveal + [
         f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"]
     vf = (
         f"split=2[bg0][fg0];"
@@ -633,19 +640,26 @@ def mux_audio(video, audio, out, ffmpeg, bgm=''):
     """
     has_voice = bool(audio) and os.path.exists(audio)
     has_bgm = bool(bgm) and os.path.exists(bgm)
+    # ★2026-09-20：BGM 传了但文件不存在时要明说 —— 否则"选了自动配乐却没混进去"会静默发生
+    if bgm and not has_bgm:
+        print('[VF] ⚠️ BGM 文件不存在，已跳过配乐: %s' % bgm)
     if not has_voice and not has_bgm:
         import shutil
         shutil.copyfile(video, out)
         return out
     if has_voice and has_bgm:
+        # ★2026-09-20：把走过的分支打出来 —— 否则“选了配乐到底混没混进去”无法从日志判定
+        print('[VF] 混音：人声 + BGM（BGM 音量 0.12，-stream_loop 循环铺底）')
         cmd = (f'"{ffmpeg}" -y -i "{video}" -i "{audio}" -stream_loop -1 -i "{bgm}" '
                f'-filter_complex "[1:a]volume=1.0[voc];[2:a]volume=0.12[bg];'
                f'[voc][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]" '
                f'-map 0:v -map "[aout]" -c:v copy -c:a aac -shortest "{out}"')
     elif has_voice:
+        print('[VF] 混音：仅人声（无 BGM）')
         cmd = (f'"{ffmpeg}" -y -i "{video}" -i "{audio}" -c:v copy -c:a aac '
                f'-shortest "{out}"')
     else:
+        print('[VF] 混音：仅 BGM（无人声，音量 0.18）')
         cmd = (f'"{ffmpeg}" -y -i "{video}" -stream_loop -1 -i "{bgm}" '
                f'-filter_complex "[1:a]volume=0.18[aout]" '
                f'-map 0:v -map "[aout]" -c:v copy -c:a aac -shortest "{out}"')

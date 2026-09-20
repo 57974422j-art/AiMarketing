@@ -103,26 +103,37 @@ export function probeImageSize(buf: Buffer): { w: number; h: number } | null {
   return null
 }
 
-/** 统计素材横竖比例（用于自动定画布） */
+/** 统计素材横竖比例 + 尺寸（用于自动定画布 / 过滤低清图）
+ *  ★VF_SIZEFIT_V1（2026-09-20，用户实测“图片都是糊的”）：
+ *    ① 探测张数 20 → **30**（与“实际取图 30 张”对齐，避免“判定用一批、出图用另一批”）
+ *    ② 额外返回每张尺寸 + 最大边（供“低清图不进画面”和“画布跟素材走”用）
+ */
 export async function probeMaterialSizes(
   userId: string | number,
   items: RepoMaterial[],
-): Promise<{ portrait: number; landscape: number; square: number; total: number }> {
-  const withLocal = await downloadMaterials(userId, items.filter((i) => i.kind === 'image').slice(0, 20))
-  let portrait = 0, landscape = 0, square = 0, total = 0
+): Promise<{
+  portrait: number; landscape: number; square: number; total: number
+  maxSide: number; sizes: { key: string; w: number; h: number }[]
+}> {
+  const withLocal = await downloadMaterials(userId, items.filter((i) => i.kind === 'image').slice(0, 30))
+  let portrait = 0, landscape = 0, square = 0, total = 0, maxSide = 0
+  const sizes: { key: string; w: number; h: number }[] = []
   for (const m of withLocal) {
     if (!m.localPath) continue
     try {
       const sz = probeImageSize(fs.readFileSync(m.localPath))
       if (!sz?.w || !sz?.h) continue
       total++
+      sizes.push({ key: m.key || m.name, w: sz.w, h: sz.h })
+      if (sz.w > maxSide) maxSide = sz.w
+      if (sz.h > maxSide) maxSide = sz.h
       const r = sz.w / sz.h
       if (r > 1.15) landscape++
       else if (r < 0.87) portrait++
       else square++
     } catch {}
   }
-  return { portrait, landscape, square, total }
+  return { portrait, landscape, square, total, maxSide, sizes }
 }
 
 /** 素材本地工作目录（与 make.py 的 --workdir 同区域，随用户隔离） */
@@ -176,7 +187,7 @@ function spreadMaterials(imgItems: RepoMaterial[], limit: number): RepoMaterial[
   return out.slice(0, limit)
 }
 
-export async function listRepoMaterials(userId: string | number, limit = 40): Promise<RepoMaterial[]> {
+export async function listRepoMaterials(userId: string | number, limit = 40, mode: 'spread' | 'recent' = 'spread'): Promise<RepoMaterial[]> {
   const uid = String(userId)
   try {
     const objs = await listObjects(`storage/${uid}/`, 1000)
@@ -192,6 +203,11 @@ export async function listRepoMaterials(userId: string | number, limit = 40): Pr
           updatedAt: o.lastModified ? new Date(o.lastModified).getTime() : 0,
         } as RepoMaterial
       })
+    // ★VF_UPLOAD_V1（2026-09-20）：mode='recent' —— **只用最近上传的**
+    //   供表单「📤 我上传素材」：用户刚传的那批就是最新的，直接按时间倒序取。
+    if (mode === 'recent') {
+      return all.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit)
+    }
     // ★VF_MATSPREAD_V1：图片走"分批均匀抽样"，视频另留少量（画面以图为主）
     const imgs = all.filter((o) => o.kind === 'image')
     const vids = all.filter((o) => o.kind === 'video')

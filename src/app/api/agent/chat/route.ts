@@ -2685,22 +2685,15 @@ PUBLISH_DRAFT.delete(uidW)
                 wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: vd.topic || '',
                   hint: '「全部 AI 生成 / 素材+AI 混合」还在开发中（要接 AI 逐镜生成 + 拼接）。现在先用【素材合成】最快最省——点它就行 🙂' })
                 finalResult = wfEarlyReply
-              } else if ((vd.formSource === 'upload') || /上传|我传|我自己|本地传/.test(userMessage)) {
-                // ★2026-09-20 修（我自己引入的死路）：新表单加了「📤 我上传」，但状态机
-                //   **没有 `step === 'upload'` 分支** → 原来会把草稿打成 'upload'，下一句话就掉进兜底
-                //   （还会显示旧版卡片，与新表单不一致）。改为：不进入无分支状态，保持在 'form'，
-                //   并**诚实说明"上传成片未接通"**，给出可走的路。
-                vd.step = 'form'
-                VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
-                vfLog(uidVF2, '[上传] 未接通 —— 回退到表单')
-                wfEarlyReply = 'VF_JSON:' + JSON.stringify({
-                  step: 'form', topic: vd.topic || '', aspect: vd.aspect || 'auto', dur: vd.dur || 30,
-                  voice: vd.voice || 'longxiaochun', voices: (vd.voiceList || VF_VOICE_BASE),
-                  hint: '「用上传素材出片」还没接通（下个版本）。现在请选【🎞 素材合成】——素材从你的个人仓库取；要指定内容就把主题写在下面',
-                })
-                finalResult = wfEarlyReply
               } else {
                 // 默认走【个人仓库素材】
+                // ★VF_UPLOAD_V1（2026-09-20）：上传素材**真的接通**了——
+                //   前端「📤 我上传素材」直接把文件传到个人仓库（POST /api/storage/files），
+                //   这里只标记“本次从【最近上传】取素材”，然后走同一套起草流程（不再有死路）。
+                if ((vd.formSource === 'upload') || /上传|我传|我自己|本地传/.test(userMessage)) {
+                  vd.useRecent = true
+                  vfLog(uidVF2, '[上传] 本次成片只用【最近上传】的素材')
+                }
                 if (!vd.topic) {
                   const _t = String(userMessage).replace(/^[\s:：,，,。、]+/, '').trim()
                   // 排除按钮文本（"用我的素材库"/"我上传素材"）——它不是主题
@@ -2711,7 +2704,7 @@ PUBLISH_DRAFT.delete(uidW)
                     || /^(VF_FORM|VF_JSON|MAKE_VIDEO|BROWSER_TASK|FRAMES_OK|TOOL_REJECT|VIDEO_RESULT)/i.test(_t)
                     || _t.startsWith('{') || _t.startsWith('[')) ? '' : _t
                 }
-                const vfMats = await listRepoMaterials(uidVF2, 40)
+                const vfMats = await listRepoMaterials(uidVF2, 40, vd.useRecent ? 'recent' : 'spread')
                 const _dur0 = Math.max(5, Math.min(900, parseInt(vd.dur) || 30))
                 // ★VF_MATN_V1（2026-09-20，用户要求）：素材张数跟时长走——【每 30 秒约 5 张】
                 //   30s→5 张、60s→10 张、90s→15 张、180s→30 张；仓库不够就有多少用多少。
@@ -2721,7 +2714,13 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_ASPECT_V1：定画布——用户指定优先，否则按素材判断（素材多为横图 → 出横屏，绝不硬塞竖屏）
                 const vfSz = await probeMaterialSizes(uidVF2, vfMats)
                 const vfAspect = (vd.aspect && vd.aspect !== 'auto') ? vd.aspect : (vfSz.landscape > vfSz.portrait ? 'landscape' : 'portrait')
-                const vfSize = vfAspect === 'landscape' ? [1920, 1080] : [1080, 1920]
+                // ★VF_SIZEFIT_V1（2026-09-20 用户实测“图片都是糊的”）：**画布分辨率跟素材走**——
+                //   素材最大边不到 1920 就别硬上 1080p（640×304 铺到 1920 要放大 3 倍 = 极糊）。
+                const _ms = vfSz.maxSide || 0
+                const vfSize = vfAspect === 'landscape'
+                  ? (_ms >= 1920 ? [1920, 1080] : (_ms >= 1280 ? [1280, 720] : [960, 540]))
+                  : (_ms >= 1920 ? [1080, 1920] : (_ms >= 1280 ? [720, 1280] : [540, 960]))
+                vfLog(uidVF2, `[画布] 素材最大边 ${_ms}px → 输出 ${vfSize[0]}x${vfSize[1]}（不放大）`)
                 vd.aspectResolved = vfAspect; vd.size = vfSize
                 // ★VF_DUR_V1：时长驱动【文案字数 + 镜头数】——用户要求"让 AI 知道时长"
                 //   （中文配音约 4.5 字/秒；镜头按 5 秒一个估）
@@ -2748,7 +2747,18 @@ PUBLISH_DRAFT.delete(uidW)
                 //   → JSON.parse 失败 → shots 空 + script 空 → 0 镜、报价 fallback 到 1 点。
                 //   改成【两次调用】：① 只写文案（输出小）  ② 只排分镜（输出小）
                 const vfMatN = Math.max(5, Math.min(40, Math.round(vfDur / 30) * 5))
-                const vfImgList = vfMats.filter((m: any) => m.kind === 'image').slice(0, vfMatN)
+                // ★VF_HDONLY_V1（2026-09-20 用户实测“图片都是糊的”）：**低清图不进画面**——
+                //   仓库里混着发布时抽的帧 `frame_*.jpg`（640×304），铺到画布要放大数倍 = 极糊。
+                //   做法：① 用上面探测到的 sizes 给每张图打“短边”分 ② 过滤掉短边 < 640 的
+                //        ③ 其余按短边降序（高清优先）④ 过滤后不足 5 张 → 放弃过滤（宁可糊也别没图）
+                const _szMap = new Map<string, number>()
+                for (const s of (vfSz.sizes || [])) _szMap.set(s.key, Math.min(s.w, s.h))
+                const _allImg = vfMats.filter((m: any) => m.kind === 'image')
+                const _hdImg = _allImg
+                  .filter((m: any) => { const mn = _szMap.get(m.key); return mn == null ? true : mn >= 640 })
+                  .sort((a: any, b: any) => (_szMap.get(b.key) || 0) - (_szMap.get(a.key) || 0))
+                const vfImgList = (_hdImg.length >= 5 ? _hdImg : _allImg).slice(0, vfMatN)
+                if (_hdImg.length < _allImg.length) vfLog(uidVF2, `[清晰度] 低清图过滤：${_allImg.length} → ${_hdImg.length} 张（短边 < 640 的不进画面）`)
                 const vfLocal = await downloadMaterials(uidVF2, vfImgList)
                 vfLog(uidVF2, `[素材配比] 时长${vfDur}s → 取图上限 ${vfMatN} 张（仓库实际 ${vfMats.filter((m: any) => m.kind === 'image').length} 张，可用 ${vfLocal.length} 张）`)
                 const vfNeed = Math.round(vfDur * 4.5)
