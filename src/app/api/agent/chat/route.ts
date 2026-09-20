@@ -2481,28 +2481,40 @@ PUBLISH_DRAFT.delete(uidW)
                     vfHot = arr.map((x: any) => String(x?.title || x?.word || '')).filter(Boolean).slice(0, 5).join('｜').slice(0, 180)
                   }
                 } catch {}
-                const vfPlanRaw = await generateText(`你是短视频编导。根据下面的材料做一条${vd.topic ? `主题为「${vd.topic}」的` : ''}约 ${vfDur} 秒短视频（画幅 ${vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}）。\n【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材（图）】\n${vfBrief || '（仓库里没有可用图片）'}\n\n要求：\n1) 只输出严格 JSON（不要 markdown 代码块、不要任何解释）：{"script":"口播文案，【必须 ${Math.round(vfDur * 4.5)} 字左右（${vfDur} 秒 × 约 4.5 字/秒），少于 ${Math.round(vfDur * 3)} 字不合格】，句子用。！断句","shots":[镜头…]}\n2) 镜头 ${vfShotN} 个左右，【各镜头的 dur 相加应约等于 ${vfDur} 秒】，每个是以下之一：\n   {"type":"bgimage","pick":图号,"text":"画面大字【只能是 4~8 个字的短语，禁止写整句】","dur":4}  ← 【有合适的图就优先用它；【每个 bgimage 的 pick 必须尽量用不同的图号】（手上有 10 张图，就多换几张）；至少一半镜头用这个】\n   {"type":"title","text":"标题","dur":3} / {"type":"list","title":"要点","items":["A","B","C"],"dur":5} / {"type":"number","value":300,"suffix":"+","label":"已服务客户","dur":3} / {"type":"end","text":"结尾语","cta":"点击咨询","dur":3}\n3) 不要编造素材里没有的东西（例如图里没有的场景不要写）。`) || ''
-                let vfPlanObj: any = null
-                try {
-                  const m0 = String(vfPlanRaw).match(/\{[\s\S]*\}/)
-                  vfPlanObj = JSON.parse(m0 ? m0[0] : '{}')
-                } catch { vfPlanObj = null }
-                let vfScript2 = String(vfPlanObj?.script || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 3000)
-                // ★VF_DURLEN_V1（2026-09-20，用户实测：选 180 秒却只出 15 秒）：
-                //   光在 prompt 里"要求字数"没用（AI 会自行缩水）→ 代码校验，不够就让它扩写一次
+                // ★VF_SPLIT_V1（2026-09-20，用户实测：选 180 秒 →“排了 0 个镜头”+报价 1 点）：
+                //   根因：一次让 AI 输出「810 字文案 + 30 镜 JSON」太大 → 被 max_tokens 截断
+                //   → JSON.parse 失败 → shots 空 + script 空 → 0 镜、报价 fallback 到 1 点。
+                //   改成【两次调用】：① 只写文案（输出小）  ② 只排分镜（输出小）
+                const vfMatN = Math.max(5, Math.min(40, Math.round(vfDur / 30) * 5))
+                const vfImgList = vfMats.filter((m: any) => m.kind === 'image').slice(0, vfMatN)
+                const vfLocal = await downloadMaterials(uidVF2, vfImgList)
+                vfLog(uidVF2, `[素材配比] 时长${vfDur}s → 取图上限 ${vfMatN} 张（仓库实际 ${vfMats.filter((m: any) => m.kind === 'image').length} 张，可用 ${vfLocal.length} 张）`)
                 const vfNeed = Math.round(vfDur * 4.5)
+                const vfCtx = `【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材】${vfBrief ? '\n' + vfBrief : '（仓库里没有可用图片）'}`
+                // ① 文案（单独调用——长视频也不会被截断）
+                let vfScript2 = ''
+                try {
+                  const vfS1 = await generateText(`你是短视频口播文案写手。写一条约 ${vfDur} 秒的中文口播文案。\n${vfCtx}\n【主题】${vd.topic || '（自行决定，贴合素材与画像）'}\n要求：①【必须 ${vfNeed} 字左右，不得少于 ${Math.round(vfDur * 3)} 字】②开头 3 秒抓人 ③句子用「。」「！」断句 ④保留数字与专业术语 ⑤只输出文案本身，不要标题、不要解释、不要 markdown、不要引号。`) || ''
+                  vfScript2 = String(vfS1).replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 4000)
+                  vfLog(uidVF2, `[文案] ${vfScript2.length} 字（目标 ${vfNeed}）`)
+                } catch (e: any) { vfLog(uidVF2, '[文案失败] ' + String(e?.message || e).slice(0, 120)) }
+                // 字数不足 → 补一次（不让它缩水）
                 if (vfScript2 && vfScript2.length < vfNeed * 0.75) {
                   try {
                     const vfEx = await generateText(`把下面这段口播文案扩写到 ${vfNeed} 字左右（现在只有 ${vfScript2.length} 字）。要求：保留全部数字与专业术语、不改主题、不啰嗦重复、句子仍用「。」「！」断句、只输出文案本身。\n原文：${vfScript2}`)
-                    const vfEx2 = String(vfEx || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 3000)
+                    const vfEx2 = String(vfEx || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 4000)
                     if (vfEx2.length > vfScript2.length) { vfLog(uidVF2, `[扩写] ${vfScript2.length} → ${vfEx2.length} 字（目标 ${vfNeed}）`); vfScript2 = vfEx2 }
                   } catch {}
                 }
-                // ★VF_MATN_V1：排分镜可用的图 = 每 30 秒 5 张（上限 40；仓库不够就有多少用多少）
-                const vfMatN = Math.max(5, Math.min(40, Math.round(vfDur / 30) * 5))
-                const vfImgList = vfMats.filter((m: any) => m.kind === 'image').slice(0, vfMatN)
-                vfLog(uidVF2, `[素材配比] 时长${vfDur}s → 取图上限 ${vfMatN} 张（仓库实际 ${vfMats.filter((m: any) => m.kind === 'image').length} 张）`)
-                const vfLocal = await downloadMaterials(uidVF2, vfImgList)
+                // ② 分镜（只排镜头、不重复写文案 → 输出小，不会被截断）
+                let vfPlanObj: any = { shots: [] }
+                try {
+                  const vfS2 = await generateText(`你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${vfDur} 秒，镜头数约 ${vfShotN} 个，【各镜 dur 相加应约等于 ${vfDur} 秒】。\n【可用的图】共 ${vfLocal.length} 张（图号 1~${vfLocal.length}）${vfBrief ? '，内容：\n' + vfBrief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释）：\n[{"type":"bgimage","pick":图号,"text":"4~8字短语","dur":5},{"type":"title","text":"标题","dur":4},{"type":"list","title":"要点","items":["A","B"],"dur":6},{"type":"number","value":300,"suffix":"+","label":"标签","dur":4},{"type":"end","text":"结尾","cta":"点击咨询","dur":4}]\n要求：①【每个 bgimage 的 pick 尽量用不同图号】（有 ${vfLocal.length} 张就多换几张）②画面 text 只能是 4~8 字短语 ③不要编造素材里没有的东西。\n编镜依据（文案）：\n${vfScript2}`) || ''
+                  const m2 = String(vfS2).match(/\[[\s\S]*\]/)
+                  const arr = JSON.parse(m2 ? m2[0] : '[]')
+                  vfPlanObj = { shots: Array.isArray(arr) ? arr : [] }
+                  vfLog(uidVF2, `[分镜] ${vfPlanObj.shots.length} 镜`)
+                } catch (e: any) { vfLog(uidVF2, '[分镜解析失败] ' + String(e?.message || e).slice(0, 150)) }
                 let vfShots: any[] = Array.isArray(vfPlanObj?.shots) ? vfPlanObj.shots : []
                 // ★2026-09-19 修（用户实测：有 10 张图，4 个镜头却全用同一张）：
                 //   AI 常不给 pick / 给重复值 → 老逻辑 parseInt(s.pick)||1 全部落到第 1 张。
