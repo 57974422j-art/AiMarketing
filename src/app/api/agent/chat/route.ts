@@ -17,6 +17,84 @@ const VF_VOICE_BASE = [
   { id: 'longxiaohui', name: '龙小辉 · 男声阳光' },
 ]
 
+// ★VF_PICKFIX_V1（2026-09-20，用户实测“排了 0 个镜头”的根因）：
+//   AI 把示例里的占位符照抄，输出 `"pick":图1`（带汉字、无引号）→ **JSON 非法** →
+//   解析失败 → 0 镜 → 只能走规则切句 → **成片没有任何素材画面**。
+//   两层保险：① prompt 给合法示例（见 genVideoShots）② 解析前用正则修回来。
+function vfFixJsonArray(raw: string): string {
+  return String(raw || '')
+    .replace(/[“”]/g, '"')
+    .replace(/"pick"\s*:\s*"?\s*(?:图|第|img|image)?\s*(\d{1,3})\s*(?:张|号)?\s*"?/gi, '"pick":$1')
+    .replace(/,\s*([\]}])/g, '$1')
+}
+
+function vfParseShots(raw: string): any[] | null {
+  const m = String(raw || '').match(/\[[\s\S]*\]/)
+  if (!m) return null
+  try { const a = JSON.parse(m[0]); if (Array.isArray(a)) return a } catch {}
+  try { const a = JSON.parse(vfFixJsonArray(m[0])); if (Array.isArray(a)) return a } catch {}
+  return null
+}
+
+/** ★VF_SHOTGEN_V1：生成分镜（prompt + 解析 + 正则容错 + **自动重试一次修正 JSON**）
+ *  起草与“重试分镜”共用同一份逻辑，避免两处走偏；返回的镜头已把 pick 换成【真实本地路径】。
+ */
+async function genVideoShots(o: {
+  uid: number | string; aspect: string; dur: number; shotN: number
+  imgPaths: string[]; brief: string; script: string
+}): Promise<any[]> {
+  const imgs = (o.imgPaths || []).filter(Boolean)
+  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，镜头数约 ${o.shotN} 个，【各镜 dur 相加应约等于 ${o.dur} 秒】。\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】）：\n[{"type":"bgimage","pick":1,"text":"4~8字短语（画面大字）","subtitle":"这一镜要念的文案（约 25~40 字）","dur":7},{"type":"title","text":"标题","subtitle":"这一镜念的文案","dur":5},{"type":"list","title":"要点","items":["A","B"],"subtitle":"这一镜念的文案","dur":6},{"type":"number","value":300,"suffix":"+","label":"标签","subtitle":"这一镜念的文案","dur":5},{"type":"end","text":"结尾","cta":"点击咨询","subtitle":"这一镜念的文案","dur":5}]\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来 = 完整覆盖下面那段文案】（一镜说 1~2 句，共约 ${String(o.script || '').length} 字）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。\n编镜依据（文案）：\n${o.script}`
+  let raw = ''
+  try { raw = (await generateText(prompt)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
+  let arr = vfParseShots(raw)
+  if (!arr) {
+    // ★自动重试一次：把非法输出回喂给 AI，**只让它修 JSON 语法**（用户选定方案）
+    try {
+      vfLog(o.uid, '[分镜重试] 首次输出不合法 → 回喂修 JSON')
+      const fixed = (await generateText(`下面这段本应是 JSON 数组但语法有误（常见：数字被写成了“图1”这类带汉字的字符串、中文引号、尾随逗号）。请【只修正 JSON 语法、不改内容】，只输出修正后的 JSON 数组，不要任何解释：\n${String(raw).slice(0, 6000)}`)) || ''
+      arr = vfParseShots(fixed)
+      vfLog(o.uid, arr ? `[分镜重试] 成功 ${arr.length} 镜` : '[分镜重试] 仍失败')
+    } catch (e: any) { vfLog(o.uid, '[分镜重试异常] ' + String(e?.message || e).slice(0, 120)) }
+  }
+  if (!arr) { vfLog(o.uid, '[分镜] 0 镜（解析失败，已重试）'); return [] }
+  let seq = 0
+  const shots = arr.map((s: any) => {
+    if (s?.type === 'bgimage' || s?.type === 'image') {
+      const n = parseInt(s.pick)
+      const use = (Number.isFinite(n) && n >= 1 && n <= imgs.length) ? n - 1 : (seq++ % Math.max(1, imgs.length))
+      const lp = imgs[Math.max(0, Math.min(imgs.length - 1, use))]
+      if (!lp) return { type: 'title', text: String(s.text || '看点').slice(0, 14), subtitle: String(s.subtitle || s.text || '').slice(0, 200), dur: 3.5 }
+      return { type: 'bgimage', src: lp, text: String(s.text || '').slice(0, 14), subtitle: String(s.subtitle || '').slice(0, 200), dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)) }
+    }
+    return s
+  }).slice(0, Math.max(4, Math.min(40, o.shotN || 8)))
+  vfLog(o.uid, `[分镜] ${shots.length} 镜`)
+  return shots
+}
+
+/** ★VF_GATE_V1：拼“确认卡”。shotsFailed=true 时【不给确认出片】（用户实测：0 镜也放行 → 成片没画面） */
+function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect: string): string {
+  const voiceName = (vd.voiceList || VF_VOICE_BASE).find((v: any) => v.id === vd.voice)?.name || vd.voice || ''
+  const cost = Math.max(1, Math.ceil(String(vd.script || '').length / 20))
+  if (!shots || shots.length < 2) {
+    return 'VF_JSON:' + JSON.stringify({
+      step: 'script', topic: vd.topic, script: vd.script, shotsFailed: true,
+      usedImages: imgN, brief: String(brief || '').slice(0, 400),
+      voice: vd.voice, voiceName, cost,
+      hint: `文案好了（${String(vd.script || '').length} 字），但**分镜没生成成功**（已自动重试一次）。回「重试」我再排一次；若只想先要一条只有字幕配音、没有素材画面的版本，回「先出字幕版」`,
+    })
+  }
+  return 'VF_JSON:' + JSON.stringify({
+    step: 'script', topic: vd.topic, script: vd.script,
+    shots: shots.map((s: any) => ({ type: s.type, text: s.text || s.title || String(s.value ?? '') })),
+    usedImages: imgN, brief: String(brief || '').slice(0, 400),
+    voice: vd.voice, voiceName, theme: vd.theme, cost,
+    aspect, aspectName: aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16',
+    hint: `看完你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（画面用你的素材·${aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}·配音 ${voiceName}）——回复「确认」开始出片；也可说要改什么`,
+  })
+}
+
 // ★VF_FLOW_V1：成片草稿持久化（仿发布 pub_draft —— 服务器重启 / 页面刷新不丢步骤）
 async function saveVfDraft(userId: number | string, draft: any): Promise<void> {
   const content = '成片草稿:' + JSON.stringify(draft)
@@ -2515,7 +2593,11 @@ PUBLISH_DRAFT.delete(uidW)
                   const _t = String(userMessage).replace(/^[\s:：,，,。、]+/, '').trim()
                   // 排除按钮文本（"用我的素材库"/"我上传素材"）——它不是主题
                   // ★2026-09-19：排除【所有按钮文本】——它们是操作指令，不是主题
-                  vd.topic = /^(用我的素材库|我上传|上传素材|素材库|用素材库|素材合成|素材加AI混合|素材加ai混合|素材AI混合|全部AI生成|全AI生成|素材和AI混合|混合)$/.test(_t) ? '' : _t
+                  // ★VF_TOPIC_V1（2026-09-20，用户实测：主题被写成 `VF_FORM:{...}` 原文）：
+                  //   协议串 / 按钮文本一律不算主题 —— 否则会污染卡片显示，还会被喂进写文案的 prompt
+                  vd.topic = (/^(用我的素材库|我上传|上传素材|素材库|用素材库|素材合成|素材加AI混合|素材加ai混合|素材AI混合|全部AI生成|全AI生成|素材和AI混合|混合)$/.test(_t)
+                    || /^(VF_FORM|VF_JSON|MAKE_VIDEO|BROWSER_TASK|FRAMES_OK|TOOL_REJECT|VIDEO_RESULT)/i.test(_t)
+                    || _t.startsWith('{') || _t.startsWith('[')) ? '' : _t
                 }
                 const vfMats = await listRepoMaterials(uidVF2, 40)
                 const _dur0 = Math.max(5, Math.min(900, parseInt(vd.dur) || 30))
@@ -2578,67 +2660,61 @@ PUBLISH_DRAFT.delete(uidW)
                     if (vfEx2.length > vfScript2.length) { vfLog(uidVF2, `[扩写] ${vfScript2.length} → ${vfEx2.length} 字（目标 ${vfNeed}）`); vfScript2 = vfEx2 }
                   } catch {}
                 }
-                // ② 分镜（只排镜头、不重复写文案 → 输出小，不会被截断）
-                let vfPlanObj: any = { shots: [] }
-                try {
-                  const vfS2 = await generateText(`你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${vfDur} 秒，镜头数约 ${vfShotN} 个，【各镜 dur 相加应约等于 ${vfDur} 秒】。\n【可用的图】共 ${vfLocal.length} 张（图号 1~${vfLocal.length}）${vfBrief ? '，内容：\n' + vfBrief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释）：\n[{"type":"bgimage","pick":图号,"text":"4~8字短语（画面上的大字）","subtitle":"这一镜要念的文案（约 25~40 字，就是字幕）","dur":7},{"type":"title","text":"标题","subtitle":"这一镜念的文案","dur":5},{"type":"list","title":"要点","items":["A","B"],"subtitle":"这一镜念的文案","dur":6},{"type":"number","value":300,"suffix":"+","label":"标签","subtitle":"这一镜念的文案","dur":5},{"type":"end","text":"结尾","cta":"点击咨询","subtitle":"这一镜念的文案","dur":5}]\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来 = 完整覆盖上面那段文案】（一镜说 1~2 句，共约 ${String(vfScript2).length} 字，不得偷懒只写几个字）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【每个 bgimage 的 pick 尽量用不同图号】（有 ${vfLocal.length} 张就多换几张）\n④ 不要编造素材里没有的东西。\n编镜依据（文案）：\n${vfScript2}`) || ''
-                  const m2 = String(vfS2).match(/\[[\s\S]*\]/)
-                  const arr = JSON.parse(m2 ? m2[0] : '[]')
-                  vfPlanObj = { shots: Array.isArray(arr) ? arr : [] }
-                  vfLog(uidVF2, `[分镜] ${vfPlanObj.shots.length} 镜`)
-                } catch (e: any) { vfLog(uidVF2, '[分镜解析失败] ' + String(e?.message || e).slice(0, 150)) }
-                let vfShots: any[] = Array.isArray(vfPlanObj?.shots) ? vfPlanObj.shots : []
-                // ★2026-09-19 修（用户实测：有 10 张图，4 个镜头却全用同一张）：
-                //   AI 常不给 pick / 给重复值 → 老逻辑 parseInt(s.pick)||1 全部落到第 1 张。
-                //   改成：没给或越界时按镜头顺序轮换（至少让多张图真的用上）。
-                let vfPickSeq = 0
-                vfShots = vfShots.map((s: any) => {
-                  if (s?.type === 'bgimage' || s?.type === 'image') {
-                    const pickN = parseInt(s.pick)
-                    const useSeq = (Number.isFinite(pickN) && pickN >= 1 && pickN <= vfLocal.length)
-                      ? pickN - 1
-                      : (vfPickSeq++ % Math.max(1, vfLocal.length))
-                    const idx = Math.max(0, Math.min(vfLocal.length - 1, useSeq))
-                    const lp = vfLocal[idx]?.localPath
-                    if (!lp) return { type: 'title', text: String(s.text || vd.topic || '看点').slice(0, 14), dur: 3.5 }
-                    return { type: 'bgimage', src: lp, text: String(s.text || '').slice(0, 14), dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)) }
-                  }
-                  return s
-                }).slice(0, Math.max(4, Math.min(40, vfShotN || 8)))
+                // ② 分镜（★VF_SHOTGEN_V1：prompt 给合法示例 + 解析正则容错 + **自动重试一次修 JSON**）
+                const vfImgs = vfLocal.map((m: any) => m.localPath).filter(Boolean)
+                const vfShots = await genVideoShots({
+                  uid: uidVF2, aspect: vfAspect, dur: vfDur, shotN: vfShotN,
+                  imgPaths: vfImgs, brief: String(vfBrief || ''), script: vfScript2,
+                })
+                // 存进草稿：**「重试分镜」时不用重新取素材/看图**（直接复用）
+                vd.imgs = vfImgs
+                vd.brief = String(vfBrief || '').slice(0, 1500)
                 const vfHasPlan = vfShots.length >= 2 && !!vfScript2
                 vd.script = vfScript2 || vd.topic || '看这条视频'
                 vd.shots = vfHasPlan ? vfShots : undefined
                 vd.step = 'script'
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
-                const vfCost2 = Math.max(1, Math.ceil(String(vd.script).length / 20))
-                wfEarlyReply = 'VF_JSON:' + JSON.stringify({
-                  step: 'script', topic: vd.topic, script: vd.script,
-                  shots: (vfShots || []).map((s: any) => ({ type: s.type, text: s.text || s.title || String(s.value ?? '') })),
-                  usedImages: vfLocal.length,
-                  brief: String(vfBrief || '').slice(0, 400),
-                  voices: (vd.voiceList || VF_VOICE_BASE),
-                  voice: vd.voice, theme: vd.theme, cost: vfCost2,
-                  aspect: vfAspect,
-                  aspectName: vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16',
-                  hint: `看完你仓库里 ${vfLocal.length} 张图，排了 ${vfShots.length} 个镜头（画面用你的素材·${vfAspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}）——回复「确认」开始出片；也可说要改什么（如「改成更活泼」）`,
-                })
+                if (!vfHasPlan) vfLog(uidVF2, `[分镜门禁] 只有 ${vfShots.length} 镜 → **不给确认出片**，改为提示重试/字幕版`)
+                wfEarlyReply = vfScriptCard(vd, vfShots, vfImgs.length, String(vfBrief || ''), vfAspect)
                 finalResult = wfEarlyReply
-                vfLog(uidVF2, `[起草] 图${vfLocal.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
-                // ★2026-09-20 修：原来这里打印 vfPlanRaw —— 但 VF_SPLIT_V1 拆成两次调用后**该变量已不存在**
-                //   （ReferenceError 会被外层 catch 吞掉，只留一条假“异常”日志）→ 改为记录镜头构成
-                vfLog(uidVF2, `[分镜构成] ${(vfShots || []).map((x: any) => x.type).join(',')}`)
+                vfLog(uidVF2, `[起草] 图${vfImgs.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
+                vfLog(uidVF2, `[分镜构成] ${vfShots.map((x: any) => x.type).join(',')}`)
               }
-            } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$/i.test(userMessage.trim())) {
-              // ── 确认 → 后台出片（确定性，走现有 make_ai_video：报价已在上一步给过，这里直接 confirmed）──
-              const vfRun = await executeToolCall('make_ai_video', vd.shots?.length
-                ? { plan: JSON.stringify({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }), theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }
-                : { script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }, auth)
-              vd.step = 'running'
-              VIDEO_DRAFT.set(uidVF2, vd)
-              await saveVfDraft(uidVF2, vd)
-              wfEarlyReply = String(vfRun)
+            } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$|先出字幕版|强制出片/i.test(userMessage.trim())) {
+              const vfForce = /先出字幕版|强制出片|就这样出/.test(userMessage)
+              // ★VF_GATE_V1（2026-09-20，用户实测：0 镜也放行 → 成片没有素材画面）：
+              //   没有分镜就**不许出片**；只有用户明确要“字幕版”时才放行走 --script。
+              if (!vd.shots?.length && !vfForce) {
+                vfLog(uidVF2, '[分镜门禁] 无分镜，已拦下“确认出片”')
+                wfEarlyReply = '分镜还没成功，先不出片（否则出来的片子没有素材画面）。\n回「重试」我再排一次；若你只想先要一条**只有字幕配音、没有素材画面**的版本，回「先出字幕版」。'
+                finalResult = wfEarlyReply
+              } else {
+                // ── 确认 → 后台出片（确定性，走现有 make_ai_video）──
+                const vfRun = await executeToolCall('make_ai_video', (vd.shots?.length && !vfForce)
+                  ? { plan: JSON.stringify({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }), theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }
+                  : { script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }, auth)
+                vd.step = 'running'
+                VIDEO_DRAFT.set(uidVF2, vd)
+                await saveVfDraft(uidVF2, vd)
+                wfEarlyReply = String(vfRun)
+                finalResult = wfEarlyReply
+                vfLog(uidVF2, `[入队] ${String(vfRun).slice(0, 100)}`)
+              }
+            } else if (vd.step === 'script' && !vd.shots?.length && /^重试|重新排|再排一次|重排分镜/.test(userMessage.trim())) {
+              // ★「重试分镜」：复用草稿里存的素材清单（vd.imgs/vd.brief），只重跑分镜
+              vfLog(uidVF2, '[重试分镜] 用户要求重排')
+              const vfAgain = await genVideoShots({
+                uid: uidVF2,
+                aspect: vd.aspectResolved || (vd.aspect === 'landscape' ? 'landscape' : 'portrait'),
+                dur: vd.dur || 30,
+                shotN: Math.max(4, Math.min(40, Math.round((vd.dur || 30) / 5))),
+                imgPaths: (vd.imgs || []), brief: String(vd.brief || ''), script: String(vd.script || ''),
+              })
+              vd.shots = vfAgain.length >= 2 ? vfAgain : undefined
+              VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
+              vfLog(uidVF2, `[重试分镜] 结果 ${vfAgain.length} 镜`)
+              wfEarlyReply = vfScriptCard(vd, vfAgain, (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait')
               finalResult = wfEarlyReply
-              vfLog(uidVF2, `[入队] ${String(vfRun).slice(0, 100)}`)
             } else if (vd.step === 'script') {
               // ── 文案微调 / 换音色 / 换主题（★AI 出场①）──
               const vfIsVoice = /音色|声音|女声|男声|龙小淳|龙小夏|豆豆|龙书|龙陈|龙靖|龙小辉/.test(userMessage)
@@ -2652,13 +2728,14 @@ PUBLISH_DRAFT.delete(uidW)
                   : 'longxiaochun'
                 vd.voice = vid
                 VIDEO_DRAFT.set(uidVF2, vd)
-                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voices: (vd.voiceList || VF_VOICE_BASE), theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: `已换成「${vid}」——回复「确认」出片` })
+                const _vn = (vd.voiceList || VF_VOICE_BASE).find((v: any) => v.id === vid)?.name || vid
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voiceName: _vn, theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: `已换成「${_vn}」——回复「确认」出片` })
               } else {
                 const vfNew = await generateText(`按用户要求修改下面这段口播文案，保留数字与专业术语，仍用「。」「！」断句，只输出文案：\n原文：${vd.script}\n用户要求：${userMessage}`)
                 const vfNewScript = String(vfNew || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 600)
                 if (vfNewScript) vd.script = vfNewScript
                 VIDEO_DRAFT.set(uidVF2, vd)
-                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voices: (vd.voiceList || VF_VOICE_BASE), theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: '文案已更新——回复「确认」出片' })
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voiceName: vd.voice, theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: '文案已更新——回复「确认」出片' })
               }
               finalResult = wfEarlyReply
               console.log('[成片状态机] 文案轮——', String(userMessage).slice(0, 20))

@@ -2212,7 +2212,9 @@ function AgentPageInner() {
             <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
               <div className="text-xs text-fuchsia-300 mb-2">{vj.hint || '① 文案确认'}</div>
               {vj.topic ? <div className="text-[10px] text-gray-500 mb-1">主题：{vj.topic}</div> : null}
-              {(vj.usedImages > 0 || (vj.shots && vj.shots.length)) ? (
+              {vj.shotsFailed ? (
+                <div className="text-[10px] text-amber-300/90 mb-1">⚠️ 分镜没生成成功（文案已就绪，已自动重试一次）</div>
+              ) : (vj.usedImages > 0 || (vj.shots && vj.shots.length)) ? (
                 <div className="text-[10px] text-emerald-300/80 mb-1">
                   📸 看完你仓库里 {vj.usedImages || 0} 张图，排了 {(vj.shots || []).length} 个镜头{(vj.shots || []).some((s: any) => s.type === 'bgimage') ? '（画面用你的素材）' : ''}
                 </div>
@@ -2235,11 +2237,21 @@ function AgentPageInner() {
                 </div>
               )}
               <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={() => sendMessage('确认')}
-                  className="px-4 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">
-                  确认出片{vj.cost ? `（约 ${vj.cost} 点）` : ''}
-                </button>
-                <span className="text-[10px] text-gray-500">也可直接说「改成…」调文案，或点上面换音色</span>
+                {/* ★VF_GATE_V1：分镜失败时**不给「确认出片」**（否则出来的是没有素材画面的片子） */}
+                {vj.shotsFailed ? (
+                  <>
+                    <button onClick={() => sendMessage('重试')}
+                      className="px-4 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">🔄 重试分镜</button>
+                    <button onClick={() => sendMessage('先出字幕版')}
+                      className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">▶️ 先出字幕版（无素材画面）</button>
+                  </>
+                ) : (
+                  <button onClick={() => sendMessage('确认')}
+                    className="px-4 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">
+                    确认出片{vj.cost ? `（约 ${vj.cost} 点）` : ''}
+                  </button>
+                )}
+                <span className="text-[10px] text-gray-500">也可直接说「改成…」调文案{vj.voiceName ? `（当前配音：${vj.voiceName}）` : ''}</span>
               </div>
             </div>
           )
