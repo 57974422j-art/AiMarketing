@@ -5,6 +5,17 @@ import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRoot
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
 const VIDEO_DRAFT: Map<number, any> = new Map()
+// ★VF_VOICE_V1（2026-09-20）：百炼官方音色（与 /api/agent/prefs 的 TTS_VOICES 对齐）
+//   注意：原代码写死的 longyuan/龙嫗 **不在官方列表**（无效），已全部改掉；克隆音色按用户追加
+const VF_VOICE_BASE = [
+  { id: 'longxiaochun', name: '龙小淳 · 女声温柔（默认）' },
+  { id: 'longxiaoxia', name: '龙小夏 · 女声清亮' },
+  { id: 'cherry', name: '豆豆 · 女声甜美' },
+  { id: 'longshu', name: '龙书 · 男声沉稳' },
+  { id: 'longchen', name: '龙陈 · 男声浑厚' },
+  { id: 'longjing', name: '龙靖 · 男声知性' },
+  { id: 'longxiaohui', name: '龙小辉 · 男声阳光' },
+]
 
 // ★VF_FLOW_V1：成片草稿持久化（仿发布 pub_draft —— 服务器重启 / 页面刷新不丢步骤）
 async function saveVfDraft(userId: number | string, draft: any): Promise<void> {
@@ -252,9 +263,28 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       // ★2026-09-19：workdir 按任务独立（原来所有任务共用 work/ → 并发会互相覆盖，
       //   也导致事后无法回溯"这次到底怎么排的镜"；独立后可直接读该任务的 storyboard.voiced.json）
       const vfWorkDir = pathVF.join(outDir, 'work_' + Date.now())
+      const vfSpeaker = String(args.speaker || args.voice || '')
       const argsVF = vfPlan
-        ? [mkPy, '--plan', vfPlan, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir]
-        : [mkPy, '--script', vfScript, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir]
+        ? [mkPy, '--plan', vfPlan, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir, '--speaker', vfSpeaker]
+        : [mkPy, '--script', vfScript, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir, '--speaker', vfSpeaker]
+      // ★VF_BGM_V1（2026-09-20）：BGM —— args.bgm==='auto' 时从【AI 音乐库】挑一首
+      //   并下载到本地（render.py 要的是本地文件）。直接查库不调 HTTP（避开服务端鉴权）
+      if (String(args.bgm || '') === 'auto') {
+        try {
+          const _m: any = await prisma.mediaAsset.findFirst({ where: { source: 'public', type: 'audio', category: 'music' }, orderBy: { createdAt: 'desc' } })
+          if (_m?.ossUrl) {
+            const _rb = await fetch(String(_m.ossUrl), { signal: AbortSignal.timeout(30000) })
+            if (_rb.ok) {
+              const _bp = pathVF.join(outDir, 'bgm_' + Date.now() + '.mp3')
+              fsVF.writeFileSync(_bp, Buffer.from(await _rb.arrayBuffer()))
+              argsVF.push('--bgm', _bp)
+              vfLog(String(uidVF), `[BGM] 已下载音乐库曲目 -> ${pathVF.basename(_bp)}`)
+            }
+          } else {
+            vfLog(String(uidVF), '[BGM] 音乐库没公开曲目，跳过')
+          }
+        } catch (eB: any) { console.error('[成片] BGM 准备失败:', eB?.message || eB); vfLog(String(uidVF), '[BGM] 失败: ' + String(eB?.message || eB).slice(0, 100)) }
+      }
       // ★VF_ASYNC_V1（2026-09-18）：改成【后台任务】——不再同步等 8 分钟。
       //   长片（3 分钟以上）同步等会超时/卡住对话；改后台跑 + 落任务文件，用户可随时问进度。
       const vfTaskId = 'vf' + Date.now()
@@ -2392,19 +2422,49 @@ PUBLISH_DRAFT.delete(uidW)
                 .replace(/^(用|请用|请|来|帮我|帮忙|给我|麻烦)\s*/, '')
                 .replace(/^(用|请|来)\s*/, '')
                 .replace(/^[\s:：,，,。、]+/, '').trim()
-              vd = { step: 'source', topic: vfTopic0, voice: 'longxiaochun', theme: 'dark' }
+              vd = { step: 'form', topic: vfTopic0, voice: 'longxiaochun', theme: 'dark', aspect: 'auto', dur: 30 }
               VIDEO_DRAFT.set(uidVF2, vd)
               await saveVfDraft(uidVF2, vd)
+              // ★VF_FORM_V1（2026-09-20，用户要求）：改成【一张表单、一次提交】——
+              //   老流程“点一个返回一次”要 3~4 轮（用户原话：“感觉有点怪”）；
+              //   现在表单一次选完（含默认值，什么都不改也能直接点开始）
+              // ★VF_VOICE_V1（2026-09-20）：音色列表 = 百炼官方音色 + 我的克隆音色
+              //   原来写死的 3 个里「龙嫗/longyuan」并不在官方列表（可能无效），改为官方 7 个
+              const _vcM = await prisma.agentMemory.findFirst({ where: { userId: String(uidVF2), tags: { contains: 'voice_clone' } }, orderBy: { updatedAt: 'desc' } }).catch(() => null)
+              const _vList: any[] = VF_VOICE_BASE.slice()
+              try {
+                const _vc = _vcM?.content ? JSON.parse(String(_vcM.content).replace(/^声音克隆:/, '')) : null
+                if (_vc?.id) _vList.push({ id: String(_vc.id), name: '🎙 ' + String(_vc.name || '我的克隆音色') + '（克隆）' })
+              } catch {}
+              vd.voiceList = _vList   // ★存进草稿：文案卡/换音色卡都用同一份，不再各写一份
               wfEarlyReply = 'VF_JSON:' + JSON.stringify({
-                step: 'source', topic: vfTopic0, aspect: 'auto', dur: 30,
-                hint: '这条视频用什么素材？（点一下就走，不用打字；也可以直接补一句主题）',
+                step: 'form', topic: vfTopic0, aspect: 'auto', dur: 30, voice: 'longxiaochun',
+                voices: _vList,
+                hint: '选好点「🚀 开始出片」（都有默认值，不改也能直接开始）',
               })
               finalResult = wfEarlyReply
               console.log('[成片状态机] 素材来源——topic=', vfTopic0.slice(0, 20))
-            } else if (vd.step === 'source') {
+            } else if (vd.step === 'form' || vd.step === 'source') {
               // ── 用户选了【画面来源】→ 素材合成 / 素材+AI 混合 / 全部 AI / 上传 ──
-              const vfPickAI = /全部\s*AI|全\s*AI|纯\s*AI|AI\s*生成|AI\s*制作/.test(userMessage)
-              const vfPickMix = /混合|素材\s*\+\s*AI|素材加\s*AI/.test(userMessage)
+              // ★VF_FORM_V1：表单一次性提交（前端发 VF_FORM:{aspect,dur,source,voice,topic}）
+              const _mForm = userMessage.trim().match(/^VF_FORM:(\{[\s\S]*\})/)
+              if (_mForm) {
+                try {
+                  const f = JSON.parse(_mForm[1]) || {}
+                  if (f.aspect) vd.aspect = String(f.aspect)
+                  if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
+                  if (f.voice) vd.voice = String(f.voice)
+                  if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = f.topic.trim().slice(0, 300)
+                  if (f.script && String(f.script).trim()) vd.formScript = String(f.script).trim().slice(0, 4000) // 用户直接贴了文案
+                  if (f.source) vd.formSource = String(f.source)   // ★表单选的画面来源（repo/upload/mix/ai）——下面分支要按它走
+                  if (f.bgm !== undefined) vd.bgm = (String(f.bgm) === 'auto') ? 'auto' : ''
+                  vfLog(uidVF2, `[表单] aspect=${vd.aspect} dur=${vd.dur} voice=${vd.voice} source=${f.source || 'repo'} topic="${String(vd.topic).slice(0, 30)}"`)
+                } catch (e: any) { vfLog(uidVF2, '[表单解析失败] ' + String(e?.message || e).slice(0, 120)) }
+              }
+              // ★2026-09-20 修：表单发的是英文 id（repo/upload/mix/ai），老分支只认中文词
+              //   → 在表单里选“我上传”会被当成“素材合成”（走错路）。这里把 formSource 一起纳入判断。
+              const vfPickAI = (vd.formSource === 'ai') || /全部\s*AI|全\s*AI|纯\s*AI|AI\s*生成|AI\s*制作/.test(userMessage)
+              const vfPickMix = (vd.formSource === 'mix') || /混合|素材\s*\+\s*AI|素材加\s*AI/.test(userMessage)
               // ★VF_DUR_V1（2026-09-20，用户要求）：时长可设（30/60/90/180 或自定义秒数）
               //   为什么必须让 AI 知道时长：它不知道时长 → 不知道文案写多长、排几镜
               //   （用户实测：要 30 秒却只出 14 秒，因为 AI 只写了 ~60 字）
@@ -2435,12 +2495,20 @@ PUBLISH_DRAFT.delete(uidW)
                 wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: vd.topic || '',
                   hint: '「全部 AI 生成 / 素材+AI 混合」还在开发中（要接 AI 逐镜生成 + 拼接）。现在先用【素材合成】最快最省——点它就行 🙂' })
                 finalResult = wfEarlyReply
-              } else if (/上传|我传|我自己|本地传/.test(userMessage)) {
-                vd.step = 'upload'
+              } else if ((vd.formSource === 'upload') || /上传|我传|我自己|本地传/.test(userMessage)) {
+                // ★2026-09-20 修（我自己引入的死路）：新表单加了「📤 我上传」，但状态机
+                //   **没有 `step === 'upload'` 分支** → 原来会把草稿打成 'upload'，下一句话就掉进兜底
+                //   （还会显示旧版卡片，与新表单不一致）。改为：不进入无分支状态，保持在 'form'，
+                //   并**诚实说明"上传成片未接通"**，给出可走的路。
+                vd.step = 'form'
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
-                wfEarlyReply = '好，点输入框左边的 📎 把图片（或现成文案）传给我，我拿到就开工 🙂'
+                vfLog(uidVF2, '[上传] 未接通 —— 回退到表单')
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({
+                  step: 'form', topic: vd.topic || '', aspect: vd.aspect || 'auto', dur: vd.dur || 30,
+                  voice: vd.voice || 'longxiaochun', voices: (vd.voiceList || VF_VOICE_BASE),
+                  hint: '「用上传素材出片」还没接通（下个版本）。现在请选【🎞 素材合成】——素材从你的个人仓库取；要指定内容就把主题写在下面',
+                })
                 finalResult = wfEarlyReply
-                console.log('[成片状态机] 等用户上传素材')
               } else {
                 // 默认走【个人仓库素材】
                 if (!vd.topic) {
@@ -2491,15 +2559,19 @@ PUBLISH_DRAFT.delete(uidW)
                 vfLog(uidVF2, `[素材配比] 时长${vfDur}s → 取图上限 ${vfMatN} 张（仓库实际 ${vfMats.filter((m: any) => m.kind === 'image').length} 张，可用 ${vfLocal.length} 张）`)
                 const vfNeed = Math.round(vfDur * 4.5)
                 const vfCtx = `【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材】${vfBrief ? '\n' + vfBrief : '（仓库里没有可用图片）'}`
-                // ① 文案（单独调用——长视频也不会被截断）
-                let vfScript2 = ''
-                try {
-                  const vfS1 = await generateText(`你是短视频口播文案写手。写一条约 ${vfDur} 秒的中文口播文案。\n${vfCtx}\n【主题】${vd.topic || '（自行决定，贴合素材与画像）'}\n要求：①【必须 ${vfNeed} 字左右，不得少于 ${Math.round(vfDur * 3)} 字】②开头 3 秒抓人 ③句子用「。」「！」断句 ④保留数字与专业术语 ⑤只输出文案本身，不要标题、不要解释、不要 markdown、不要引号。`) || ''
-                  vfScript2 = String(vfS1).replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 4000)
-                  vfLog(uidVF2, `[文案] ${vfScript2.length} 字（目标 ${vfNeed}）`)
-                } catch (e: any) { vfLog(uidVF2, '[文案失败] ' + String(e?.message || e).slice(0, 120)) }
-                // 字数不足 → 补一次（不让它缩水）
-                if (vfScript2 && vfScript2.length < vfNeed * 0.75) {
+                // ① 文案：用户在表单里直接贴了文案就用他的（★VF_FORM_V1），否则 AI 写
+                let vfScript2 = String(vd.formScript || '').slice(0, 4000)
+                if (vfScript2) {
+                  vfLog(uidVF2, `[文案] 用用户贴的文案 ${vfScript2.length} 字（目标 ${vfNeed}）`)
+                } else {
+                  try {
+                    const vfS1 = await generateText(`你是短视频口播文案写手。写一条约 ${vfDur} 秒的中文口播文案。\n${vfCtx}\n【主题】${vd.topic || '（自行决定，贴合素材与画像）'}\n要求：①【必须 ${vfNeed} 字左右，不得少于 ${Math.round(vfDur * 3)} 字】②开头 3 秒抓人 ③句子用「。」「！」断句 ④保留数字与专业术语 ⑤只输出文案本身，不要标题、不要解释、不要 markdown、不要引号。`) || ''
+                    vfScript2 = String(vfS1).replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 4000)
+                    vfLog(uidVF2, `[文案] AI 写 ${vfScript2.length} 字（目标 ${vfNeed}）`)
+                  } catch (e: any) { vfLog(uidVF2, '[文案失败] ' + String(e?.message || e).slice(0, 120)) }
+                }
+                // 字数不足 → 补一次（用户自己贴的文案不擅自扩写）
+                if (!vd.formScript && vfScript2 && vfScript2.length < vfNeed * 0.75) {
                   try {
                     const vfEx = await generateText(`把下面这段口播文案扩写到 ${vfNeed} 字左右（现在只有 ${vfScript2.length} 字）。要求：保留全部数字与专业术语、不改主题、不啰嗦重复、句子仍用「。」「！」断句、只输出文案本身。\n原文：${vfScript2}`)
                     const vfEx2 = String(vfEx || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 4000)
@@ -2509,7 +2581,7 @@ PUBLISH_DRAFT.delete(uidW)
                 // ② 分镜（只排镜头、不重复写文案 → 输出小，不会被截断）
                 let vfPlanObj: any = { shots: [] }
                 try {
-                  const vfS2 = await generateText(`你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${vfDur} 秒，镜头数约 ${vfShotN} 个，【各镜 dur 相加应约等于 ${vfDur} 秒】。\n【可用的图】共 ${vfLocal.length} 张（图号 1~${vfLocal.length}）${vfBrief ? '，内容：\n' + vfBrief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释）：\n[{"type":"bgimage","pick":图号,"text":"4~8字短语","dur":5},{"type":"title","text":"标题","dur":4},{"type":"list","title":"要点","items":["A","B"],"dur":6},{"type":"number","value":300,"suffix":"+","label":"标签","dur":4},{"type":"end","text":"结尾","cta":"点击咨询","dur":4}]\n要求：①【每个 bgimage 的 pick 尽量用不同图号】（有 ${vfLocal.length} 张就多换几张）②画面 text 只能是 4~8 字短语 ③不要编造素材里没有的东西。\n编镜依据（文案）：\n${vfScript2}`) || ''
+                  const vfS2 = await generateText(`你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${vfDur} 秒，镜头数约 ${vfShotN} 个，【各镜 dur 相加应约等于 ${vfDur} 秒】。\n【可用的图】共 ${vfLocal.length} 张（图号 1~${vfLocal.length}）${vfBrief ? '，内容：\n' + vfBrief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释）：\n[{"type":"bgimage","pick":图号,"text":"4~8字短语（画面上的大字）","subtitle":"这一镜要念的文案（约 25~40 字，就是字幕）","dur":7},{"type":"title","text":"标题","subtitle":"这一镜念的文案","dur":5},{"type":"list","title":"要点","items":["A","B"],"subtitle":"这一镜念的文案","dur":6},{"type":"number","value":300,"suffix":"+","label":"标签","subtitle":"这一镜念的文案","dur":5},{"type":"end","text":"结尾","cta":"点击咨询","subtitle":"这一镜念的文案","dur":5}]\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来 = 完整覆盖上面那段文案】（一镜说 1~2 句，共约 ${String(vfScript2).length} 字，不得偷懒只写几个字）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【每个 bgimage 的 pick 尽量用不同图号】（有 ${vfLocal.length} 张就多换几张）\n④ 不要编造素材里没有的东西。\n编镜依据（文案）：\n${vfScript2}`) || ''
                   const m2 = String(vfS2).match(/\[[\s\S]*\]/)
                   const arr = JSON.parse(m2 ? m2[0] : '[]')
                   vfPlanObj = { shots: Array.isArray(arr) ? arr : [] }
@@ -2544,11 +2616,7 @@ PUBLISH_DRAFT.delete(uidW)
                   shots: (vfShots || []).map((s: any) => ({ type: s.type, text: s.text || s.title || String(s.value ?? '') })),
                   usedImages: vfLocal.length,
                   brief: String(vfBrief || '').slice(0, 400),
-                  voices: [
-                    { id: 'longxiaochun', name: '龙小淳 · 女声（默认）' },
-                    { id: 'longyuan', name: '龙嫗 · 温柔女声' },
-                    { id: 'zh_female_vv_uranus_bigtts', name: '火山女声（需配火山）' },
-                  ],
+                  voices: (vd.voiceList || VF_VOICE_BASE),
                   voice: vd.voice, theme: vd.theme, cost: vfCost2,
                   aspect: vfAspect,
                   aspectName: vfAspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16',
@@ -2556,14 +2624,15 @@ PUBLISH_DRAFT.delete(uidW)
                 })
                 finalResult = wfEarlyReply
                 vfLog(uidVF2, `[起草] 图${vfLocal.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
-                // ★2026-09-19：把 AI 的原始分镜也写进日志（事后回溯"它到底怎么排的"）
-                vfLog(uidVF2, `[AI原始plan] ${String(vfPlanRaw).replace(/\n/g, ' ').slice(0, 500)}`)
+                // ★2026-09-20 修：原来这里打印 vfPlanRaw —— 但 VF_SPLIT_V1 拆成两次调用后**该变量已不存在**
+                //   （ReferenceError 会被外层 catch 吞掉，只留一条假“异常”日志）→ 改为记录镜头构成
+                vfLog(uidVF2, `[分镜构成] ${(vfShots || []).map((x: any) => x.type).join(',')}`)
               }
             } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$/i.test(userMessage.trim())) {
               // ── 确认 → 后台出片（确定性，走现有 make_ai_video：报价已在上一步给过，这里直接 confirmed）──
               const vfRun = await executeToolCall('make_ai_video', vd.shots?.length
-                ? { plan: JSON.stringify({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }), theme: vd.theme || 'dark', confirmed: true }
-                : { script: vd.script, theme: vd.theme || 'dark', confirmed: true }, auth)
+                ? { plan: JSON.stringify({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }), theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }
+                : { script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }, auth)
               vd.step = 'running'
               VIDEO_DRAFT.set(uidVF2, vd)
               await saveVfDraft(uidVF2, vd)
@@ -2572,27 +2641,24 @@ PUBLISH_DRAFT.delete(uidW)
               vfLog(uidVF2, `[入队] ${String(vfRun).slice(0, 100)}`)
             } else if (vd.step === 'script') {
               // ── 文案微调 / 换音色 / 换主题（★AI 出场①）──
-              const vfIsVoice = /音色|声音|女声|男声|龙小淳|龙嫗|longxiaochun|longyuan|火山/.test(userMessage)
+              const vfIsVoice = /音色|声音|女声|男声|龙小淳|龙小夏|豆豆|龙书|龙陈|龙靖|龙小辉/.test(userMessage)
               if (vfIsVoice) {
-                const vid = /longyuan|龙嫗|温柔/.test(userMessage) ? 'longyuan'
-                  : /火山|uranus/.test(userMessage) ? 'zh_female_vv_uranus_bigtts' : 'longxiaochun'
+                const vid = /龙小夏|清亮/.test(userMessage) ? 'longxiaoxia'
+                  : /豆豆|甜美/.test(userMessage) ? 'cherry'
+                  : /龙书|沉稳/.test(userMessage) ? 'longshu'
+                  : /龙陈|浑厚/.test(userMessage) ? 'longchen'
+                  : /龙靖|知性/.test(userMessage) ? 'longjing'
+                  : /龙小辉|阳光/.test(userMessage) ? 'longxiaohui'
+                  : 'longxiaochun'
                 vd.voice = vid
                 VIDEO_DRAFT.set(uidVF2, vd)
-                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voices: [
-                  { id: 'longxiaochun', name: '龙小淳 · 女声（默认）' },
-                  { id: 'longyuan', name: '龙嫗 · 温柔女声' },
-                  { id: 'zh_female_vv_uranus_bigtts', name: '火山女声（需配火山）' },
-                ], theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: `已换成「${vid}」——回复「确认」出片` })
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voices: (vd.voiceList || VF_VOICE_BASE), theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: `已换成「${vid}」——回复「确认」出片` })
               } else {
                 const vfNew = await generateText(`按用户要求修改下面这段口播文案，保留数字与专业术语，仍用「。」「！」断句，只输出文案：\n原文：${vd.script}\n用户要求：${userMessage}`)
                 const vfNewScript = String(vfNew || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 600)
                 if (vfNewScript) vd.script = vfNewScript
                 VIDEO_DRAFT.set(uidVF2, vd)
-                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voices: [
-                  { id: 'longxiaochun', name: '龙小淳 · 女声（默认）' },
-                  { id: 'longyuan', name: '龙嫗 · 温柔女声' },
-                  { id: 'zh_female_vv_uranus_bigtts', name: '火山女声（需配火山）' },
-                ], theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: '文案已更新——回复「确认」出片' })
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voices: (vd.voiceList || VF_VOICE_BASE), theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: '文案已更新——回复「确认」出片' })
               }
               finalResult = wfEarlyReply
               console.log('[成片状态机] 文案轮——', String(userMessage).slice(0, 20))

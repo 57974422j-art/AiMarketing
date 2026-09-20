@@ -161,6 +161,22 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-09-20 成片 D 批：克隆音色闭环 + 词级字幕（✅ 代码完成，待部署实测）
+
+- **D3 克隆音色**：原来只存客户端 `localStorage.dh_voice_id`，成片（跑在服务器）读不到 → 补闭环：数字人页克隆后 `PUT /api/agent/prefs {voiceClone}` → 存 `AgentMemory`(tag `voice_clone`) → 成片表单音色列表末尾出现「🎙 我的克隆音色」
+- **顺手修**：表单音色原来写死 3 个，其中 `longyuan/龙嫗` **不在百炼官方列表** → 改为官方 7 个（longxiaochun/longxiaoxia/cherry/longshu/longchen/longjing/longxiaohui）
+- **D4 词级字幕**：新增 `build_ass()` 生成 **ASS karaoke 逐字高亮**；**不依赖 funasr**（服务器未必装，客户端才有），改用「每镜 `subtitle` + 该镜真实配音时长」按字数均分生成 `\k`；`burn_subtitles` 支持 `.ass`（不覆盖自带样式）；**生成失败自动回落 SRT**
+- **D2 BGM** ✅：表单「🎵 自动配乐 / 🔇 不要 BGM」→ 查 `MediaAsset(public/audio/music)` 取最新一首下载 → `make.py --bgm` → `render.py` 用 `-stream_loop -1` 循环 + 音量 0.12 + `amix normalize=0`（**必须关归一化**，否则人声被压低）
+- **C3 配音卡点** ✅：`_reveal_seq()` 把画面大字拆成前缀序列、逐字浮现（镜头时长=配音时长 → 天然卡点）
+- **C4 主色底板** ✅：`_avg_rgb()`（ffmpeg 缩 1x1 读原始 RGB，**绕开没装 PIL**）+ `_blend_dark()` 把素材平均色混进底板色 → 纯色卡跟素材色相统一
+- **字幕字号自适应**：`--sub-size` 原默认写死 26（1920×1080 下仅屏高 2.4%，偏小）→ 未指定时按 `max(26, int(H*0.042))`（≈4.2%）；显式传值优先
+- **文档**：本批问题已整理进 `ISSUES.md`（9 个实测 + 3 个自查，含代码级根因）；服务器部署前提三条核实**已解除**
+- **一致性补丁**：`card_image` / `card_video` 也改为**不裁切**（原来只有 `bgimage` 改了）；`tts.py` 取词兜底**对齐** `render.py` 的 `_shot_text`（避免 compare/chart/cta 卡"字幕有配音无"）
+- ⚠️ **如实标注（不当作已实现）**：C 批的"转场"实际是**每镜淡入淡出**（`fade=t=in/out` ≤0.2s，镜间轻微黑场），**不是 xfade 叠化** —— xfade 会缩短总时长导致音画失步（`voice.m4a` 按逐镜片段拼），须同步重算音频时间轴；本会话无法实测故不做，详见 `ISSUES.md` 遗留区
+- **自检升级**：`render.py --selftest` 现会**自造测试图**并跑 `bgimage` 镜 → 覆盖模糊铺底/Ken Burns/逐字浮现/ASS 卡拉OK/底板取色（造图失败自动降级）；服务器上 `python3 render.py --selftest --workdir /tmp/vf --out /tmp/vf/selftest.mp4` 一条命令即可验证整条渲染链
+- **⚠️ 待提交/验证清单已固化**：`docs/成片待提交与验证清单-20260920.md`（白名单 add + commit message + 部署 + 3 项验证含 `--selftest` 逐行期望输出 + 已知折中 5 条）—— 因本会话 shell 故障，我无法推送也无法跑运行时验证，此清单让**用户可独立走完**
+- ⏳ **仅剩**：**D1 客户端播本地**（要改 `electron/` → 需重打包发版；用户决定放下个版本）；其余 A/B/C/D 全部代码完成，**等部署统一实测**
+
 ### 2026-09-19 成片状态机打通 + 两个真因修复（✅ 代码完成，待部署实测）
 
 - **状态机全线跑通**：素材来源卡 → 看仓库 10 张图（视觉理解）→ 排 5 镜 → 文案卡 → 确认入队 ✅

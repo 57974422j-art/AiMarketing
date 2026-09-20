@@ -133,7 +133,16 @@ export default function DigitalHumanPage() {
       if (d.success) {
         setVoiceId(d.voiceId)
         localStorage.setItem('dh_voice_id', d.voiceId)
-        showToast('声音克隆成功！', 'success')
+        // ★VF_VOICE_V1（2026-09-20）：同时把克隆音色存到【服务端】（AgentMemory, tag=voice_clone）
+        //   —— 否则成片（跑在服务器）拿不到这个 voice_id，成片表单里就选不到"我的克隆音色"
+        try {
+          await fetch('/api/agent/prefs', {
+            method: 'PUT', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ voiceClone: { id: d.voiceId, name: '我的克隆音色' } }),
+          })
+        } catch {}
+        showToast('声音克隆成功！（已同步到成片音色列表）', 'success')
       } else { showToast(d.message, 'error') }
     } catch { showToast('注册失败', 'error') }
     setVoiceEnrolling(false)

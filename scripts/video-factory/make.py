@@ -95,6 +95,7 @@ def main():
     ap.add_argument('--out', default='out.mp4')
     ap.add_argument('--workdir', default='')
     ap.add_argument('--speaker', default='', help='音色，留空用引擎默认（百炼 longxiaochun / 火山 zh_female_vv_uranus_bigtts）')
+    ap.add_argument('--bgm', default='', help='背景音乐文件（★VF_BGM_V1：循环铺底 + 压低音量）')
     a = ap.parse_args()
 
     if not a.script and not a.storyboard and not a.plan:
@@ -152,9 +153,9 @@ def main():
         print('[MAKE] ⚠️ 无配音，出无声片')
 
     # ③ 渲染成片
-    ok2 = run('"%s" "%s" --storyboard "%s" --workdir "%s" --audio "%s" --out "%s"'
+    ok2 = run('"%s" "%s" --storyboard "%s" --workdir "%s" --audio "%s" --bgm "%s" --out "%s"'
               % (sys.executable, os.path.join(HERE, 'render.py'), use_sb,
-                 os.path.join(wd, 'render'), use_voice, a.out), '渲染成片')
+                 os.path.join(wd, 'render'), use_voice, a.bgm, a.out), '渲染成片')
     if ok2 and os.path.exists(a.out):
         sz = os.path.getsize(a.out)
         print('[MAKE] ✅ 成片: %s  (%.1f MB)' % (a.out, sz / 1048576.0))

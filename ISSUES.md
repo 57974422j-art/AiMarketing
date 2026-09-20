@@ -1,3 +1,43 @@
+## ✅ 已解决（2026-09-20 成片 v1 实测暴露的 8 个问题 —— 全部定位并修复）
+
+> 这批问题的**共性**：几乎全是"**字段/参数/路径对不上**"，不是算法问题。定位手段统一为**看真实数据**（`storyboard.voiced.json` / `render/*.srt` / 任务 JSON 的 `tail` / `vf_debug.log`），而不是猜。
+
+| # | 症状 | 根因（代码级） | 修复 |
+|---|---|---|---|
+| 1 | 「帮我做一个视频」**时好时坏**：有时进状态机、有时 AI 自由发挥 | `chat/route.ts:1714` 入口条件是 `if (skipModelStep1 \|\| normCalls.length > 0)` —— 即"AI 那一步调了工具"才进状态机块；而 `skipModelStep1`（L1681）只算了**发布**草稿 + `stWordInput`（发布词），**成片草稿与入口词都没算** → AI 若不调工具则整块跳过 | `skipModelStep1` 补入 `VIDEO_DRAFT.has()` 与成片入口词（★VF_ENTRY_V1） |
+| 2 | build 失败 → **pm2 没重启** → 连续几轮"改了没反应" | `prompts.ts` 红线里的**反引号**落在**模板字符串**内 → 提前闭合 → `Expected ':', got 'VF_JSON'` → `deploy-server.sh` 因 `set -e` 退出 | 去掉反引号（改用普通文本） |
+| 3 | `TOOL_REJECT:未找到本地成片脚本 make.py`（脚本明明在 git 里） | pm2 跑 `.next/standalone/server.js` → `process.cwd()` = `.next/standalone` ≠ 项目根；代码写死 `process.cwd()` | 新增 `vfRootDir()`/`vfStorageRoot()`（VF_ROOT→cwd→上级→/root/AiMarketing），**4 处入口统一**（写任务/查进度/轮询/素材目录，原先后两者可能不在同一目录） |
+| 4 | 10 张图，4 个镜头**全用同一张** | `parseInt(s.pick) \|\| 1` —— AI 不给 `pick` 或给无效值时全落第 1 张 | 无效/越界时**按镜头序号轮换**（`vfPickSeq++ % 图数`）+ prompt 要求 pick 尽量不同 |
+| 5 | 有一镜**有配音却无字幕** | `build_srt` 只认 `text` 字段，而 `list/number/compare/chart` 卡用的是 `title/items/label/value` → `txt` 为空 → 整镜跳过 | `shot_text()` 补全所有字段并提为模块级（SRT/ASS 共用）+ 长句折行 |
+| 6 | "**双字幕**"：画面大字与底部字幕同句重复 | 画面大字（drawtext）与字幕取**同一个 `text`** | prompt 改为「大字只能是 4~8 字短语，禁止整句」→ 大字=标语、字幕=配音句 |
+| 7 | 选 180 秒**只出 14/50 秒**、字幕只有屏幕上几个字 | **根因（关键）**：`tts.py:292` 与 `render.py:427` 都是 `s.get('subtitle') or s.get('text')` —— AI **没给 `subtitle`** → 回落到 `text`（4~8 字大字）→ **配音念的是大字、字幕也是大字**，800 字文案**从未被念**（24 镜 × ~2 秒 = 50.8 秒，与实测吻合） | 分镜 prompt 改为**每镜必须给 `subtitle`** 且「所有 subtitle 拼起来覆盖整段文案」；**Python 侧零改动**（本来就优先读 subtitle） |
+| 8 | 选 180 秒 → **排了 0 个镜头** + 报价掉到 1 点 | 一次让 AI 输出「810 字文案 + 30 镜 JSON」**超出 `max_tokens` 被截断** → `JSON.parse` 失败 → shots/script 皆空 | **拆成两次调用**（① 只写文案 ② 只排分镜，各自输出小）+ 字数不足自动补写（★VF_SPLIT_V1 / ★VF_DURLEN_V1） |
+| 9 | 前端播放**每 3 秒卡一下**（像暂停） | `/api/storage/file` 把**整个视频读进 Node 内存**再吐出，且**不返回 `Accept-Ranges`** → 浏览器无法 Range 请求 → 必须整段下完才能续播 | 播放改 **302 到 OSS 签名地址**（OSS 原生 Range、服务器零内存）；下载仍走原路（`?download=1`） |
+
+**自查另外抓到 3 个**：① 表单/文案卡/换音色卡**三处各写一份音色列表**，其中两处留**无效的 `longyuan/龙嫗`**（不在百炼官方列表）→ 统一为 `VF_VOICE_BASE`（官方 7 个）② `VF_SPLIT_V1` 拆分后**旧日志行仍引用 `vfPlanRaw`** → ReferenceError 被 catch 吞掉（只留假"异常"日志）③ 表单发英文 `source:"upload"`，而分支只认中文 `/上传/` → **表单里点「我上传」会走成"素材合成"**。
+
+---
+
+## ✅ 已确认（2026-09-20 服务器部署前提三条 —— 原 🔴 已解除）
+
+- **脚本已进 git**：`scripts/video-factory/{make,render,tts}.py` 早已被跟踪（`git ls-files` 有），当初的 `TOOL_REJECT` 实为**路径问题**（见上表 #3），不是没提交。
+- **中文字体已装**：`fonts-noto-cjk` + `fonts-wqy-zenhei` 均为 already newest；`/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`（`render.py` 首选路径）**存在**。
+- **python3 / ffmpeg 均在 PATH**：`/usr/bin/python3`、`/usr/bin/ffmpeg`。
+- **Python 依赖**：三个脚本**只用标准库**（argparse/json/os/re/subprocess/sys/tempfile/base64/time/urllib/shutil）→ **无需 pip 安装**（此前误查 `PIL` 是错的，已纠正）。
+
+---
+
+## 🟡 成片遗留（2026-09-20）
+
+- 🟡 **C 批「叠化转场」实际是"每镜淡入淡出"，不是真叠化（如实标注，不当已实现）**：当前为 `fade=t=in/out` 各 ≤0.2s（镜间一次轻微黑场过渡），**不是 xfade crossfade**。原因：`xfade` 会把总时长缩短 `(N-1)×d`，而 `voice.m4a` 是按逐镜片段拼出来的 → **音画必然失步**，必须同时对音频做等量交叉淡化并重算时间轴；在**本会话无法运行验证**的前提下动时间轴风险太高。要真叠化：拼接阶段做视频 xfade + 音频等量交叉淡化，**改完必须实跑一次**。
+- 🟡 **「📤 我上传素材」出片未接通**：表单里有这个入口，但成片链路**不消费聊天附件**（`messages` 里的 image 块没有落到草稿/素材目录）→ 已在点击时**诚实提示"下个版本"**并退回表单（不再进入无分支的 `upload` 状态造成死路）。要做真功能需：附件落盘到任务目录 → 当作素材参与排镜。
+
+- 🟡 **D1 客户端播本地库**：成片完成后客户端已镜像到本地（现有机制），但播放仍走服务器/OSS。要让 Electron 直接播 `安装目录\storage\xxx.mp4` 需改 `electron/` → **必须重打包发版** → 用户决定**放到下个版本**。
+- 🟡 **A~D 整批待部署实测**：subtitle / 302 / build_srt / 表单化 / Ken Burns / 镜间过渡 / 配音卡点 / 主色底板 / BGM / 克隆音色 / 词级字幕(ASS karaoke) **代码全部完成**，但**一次都还没跑过**（本会话 shell 工具故障，无法本地验证 Python/ffmpeg）。
+- ✅ **已核对（不是问题）**：ASS 与 SRT **都**经 `sub_font_name()` 取名，该函数**按文件存在性回退**（`Microsoft YaHei` → `Noto Sans CJK SC` → `WenQuanYi Zen Hei/Micro Hei`）；服务器三类字体齐备 → 无回退隐患。（我最初误记为"ASS 路径未做回退"，已核实纠正。）
+
+---
+
 ## ✅ 已解决（2026-09-18 Minimax 测试端点不一致）
 
 - **问题**：设置页「测试」按钮测 Minimax 打的是**国际站** `api.minimax.chat/v1/text/chatcompletion_v2`，而实际功能（AI 音乐 / H3 视频）走的是**国内站** `api.minimaxi.com` → 点测试可能误报。

@@ -290,11 +290,26 @@ def main():
     print('[TTS] 共 %d 镜，逐镜配音（每镜时长 = 该镜配音真实时长）' % len(shots))
     for i, s in enumerate(shots):
         txt = (s.get('subtitle') or s.get('text') or '').strip()
-        # 列表/数字卡没有整句口播时，用其 title/label 兜底
-        if not txt and s.get('type') == 'list':
-            txt = (s.get('title') or '') + '：' + '，'.join(s.get('items', []))
-        if not txt and s.get('type') == 'number':
-            txt = '%s%s' % (s.get('value', ''), s.get('label') or '')
+        # ★2026-09-20：兜底逻辑与 render.py 的 `_shot_text` **对齐**。
+        #   原先只覆盖 list/number → compare(left/right)/chart/带 cta 的卡会出现
+        #   “字幕有、配音没有” → 那一镜静音（且时长停在 AI 默认值）。
+        #   现在统一：title + items + label + value+suffix + left/right + cta，
+        #   这样【配音文本 == 字幕文本】，不会再对不上。
+        if not txt:
+            _p = []
+            if s.get('title'):
+                _p.append(str(s['title']).strip())
+            if isinstance(s.get('items'), list):
+                _p.extend([str(x).strip() for x in s['items'] if str(x).strip()])
+            if s.get('label'):
+                _p.append(str(s['label']).strip())
+            if s.get('value') is not None:
+                _p.append((str(s.get('value')) + str(s.get('suffix') or '')).strip())
+            if s.get('left') or s.get('right'):
+                _p.append((str(s.get('left') or '') + ' vs ' + str(s.get('right') or '')).strip())
+            if s.get('cta'):
+                _p.append(str(s['cta']).strip())
+            txt = '，'.join([x for x in _p if x])[:80]
         if not txt:
             print('[TTS] 第 %d 镜无文案，跳过配音' % (i + 1))
             continue

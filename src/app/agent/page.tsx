@@ -464,6 +464,99 @@ class AgentErrorBoundary extends React.Component<{ children: any }, { err: strin
   }
 }
 
+// ★VF_FORM_V1（2026-09-20，用户要求）：成片设置表单——一次选完、一次提交
+//   背景：老流程“点一个→返回→再点一个”要 3~4 轮（用户原话“感觉有点怪”）。
+//   现表单一次提交 VF_FORM:{aspect,dur,voice,source,topic,script}，服务端一次算完。
+function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void }) {
+  const [source, setSource] = useState('repo')
+  const [aspect, setAspect] = useState(vj.aspect || 'auto')
+  const [dur, setDur] = useState(String(vj.dur || 30))
+  const [voice, setVoice] = useState(vj.voice || 'longxiaochun')
+  const [topic, setTopic] = useState(vj.topic || '')
+  const [script, setScript] = useState('')
+  const [bgm, setBgm] = useState('auto')   // ★VF_BGM_V1：默认自动配乐（AI 音乐库挑一首）
+  const [openAdv, setOpenAdv] = useState(false)
+
+  const R = (cur: string, val: string, label: string, set: (v: string) => void, dis = false) => (
+    <button key={val} disabled={dis} onClick={() => set(val)}
+      className={`px-2 py-1 rounded text-[11px] border transition ${cur === val ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : dis ? 'bg-white/[0.03] border-white/[0.06] text-gray-600 cursor-not-allowed' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>{label}</button>
+  )
+
+  return (
+    <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
+      <div className="text-xs text-fuchsia-300 mb-3">🎬 成片设置{typeof vj.hint === 'string' && vj.hint ? ' · ' + vj.hint : ''}</div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">画面来源</div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(source, 'repo', '🎞 素材合成（用我仓库）', setSource)}
+          {R(source, 'mix', '✨ 素材+AI 混合（开发中）', setSource, true)}
+          {R(source, 'ai', '🎨 全部 AI 生成（开发中）', setSource, true)}
+          {R(source, 'upload', '📤 我上传素材', setSource)}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">画幅</div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(aspect, 'auto', '自动（按素材判断）', setAspect)}
+          {R(aspect, 'portrait', '竖屏 9:16', setAspect)}
+          {R(aspect, 'landscape', '横屏 16:9', setAspect)}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">时长</div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {['30', '60', '90', '180'].map((s) => R(dur, s, s + '秒', setDur))}
+          <input value={dur} onChange={(e: any) => setDur(String(e.target.value).replace(/[^\d]/g, '').slice(0, 4))}
+            placeholder="自定义秒数"
+            className="w-[86px] px-2 py-0.5 rounded text-[11px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+          <span className="text-[10px] text-emerald-300/70">≈ {Math.round((parseInt(dur) || 30) * 4.5)} 字文案</span>
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">配音音色</div>
+        <div className="flex flex-wrap gap-1.5">
+          {(Array.isArray(vj.voices) ? vj.voices : []).map((v: any) => R(voice, String(v.id), '🔊 ' + String(v.name || v.id), setVoice))}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">主题 <span className="text-gray-600">（留空由 AI 决定；也可在下面直接贴文案）</span></div>
+        <input value={topic} onChange={(e: any) => setTopic(e.target.value.slice(0, 200))}
+          placeholder="例如：咖啡店开业，第二杯半价"
+          className="w-full px-2 py-1.5 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">背景音乐 <span className="text-gray-600">（AI 音乐库；无人声时也会铺底）</span></div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(bgm, 'auto', '🎵 自动配乐', setBgm)}
+          {R(bgm, 'none', '🔇 不要 BGM', setBgm)}
+        </div>
+      </div>
+
+      <button onClick={() => setOpenAdv(!openAdv)} className="text-[10px] text-gray-500 hover:text-gray-300 mb-2">
+        {openAdv ? '▲ 收起「我已有文案」' : '▼ 我已有文案（点这里贴）'}
+      </button>
+      {openAdv ? (
+        <textarea value={script} onChange={(e: any) => setScript(e.target.value.slice(0, 4000))}
+          rows={4} placeholder="把你的文案整段贴这里；贴了就用你的，不再由 AI 写"
+          className="w-full mb-3 px-2 py-1.5 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+      ) : null}
+
+      <button
+        onClick={() => onStart('VF_FORM:' + JSON.stringify({ aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm }))}
+        className="w-full px-4 py-2 rounded-lg bg-fuchsia-500/50 hover:bg-fuchsia-500/80 text-sm text-white font-medium">
+        🚀 开始出片
+      </button>
+      <div className="text-[10px] text-gray-500 mt-1">点一下就走 —— 服务器一次算完（取素材 + 写文案 + 排分镜），然后给你确认卡</div>
+    </div>
+  )
+}
+
 function AgentPageInner() {
   const { user, logout, loading: authLoading } = useAuth() || ({ user: undefined, logout: async () => {}, loading: true } as any)
   const router = useRouter()
@@ -2033,6 +2126,13 @@ function AgentPageInner() {
           {tail ? renderContent(tail) : null}
         </div>
       )
+    }
+    // ★VF_FORM_V1（2026-09-20）：成片设置表单（一次选完一次提交）
+    if (content.startsWith('VF_JSON:')) {
+      try {
+        const _vj = JSON.parse(content.slice(8))
+        if (_vj && _vj.step === 'form') return <VideoFormCard vj={_vj} onStart={sendMessage} />
+      } catch {}
     }
     // ★2026-09-19：成片完成卡——内嵌播放（不显示 OSS 链接），并按项目规则自动镜像到本地仓库
     if (content.startsWith('MAKE_VIDEO_DONE:')) {
