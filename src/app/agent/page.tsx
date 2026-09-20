@@ -2213,7 +2213,11 @@ function AgentPageInner() {
               <div className="text-xs text-fuchsia-300 mb-2">{vj.hint || '① 文案确认'}</div>
               {vj.topic ? <div className="text-[10px] text-gray-500 mb-1">主题：{vj.topic}</div> : null}
               {vj.shotsFailed ? (
-                <div className="text-[10px] text-amber-300/90 mb-1">⚠️ 分镜没生成成功（文案已就绪，已自动重试一次）</div>
+                <div className="text-[10px] text-amber-300/90 mb-1">
+                  ⚠️ 分镜没排好{vj.coverage != null && vj.coverage < 0.8
+                    ? `：只覆盖文案 ${Math.round(vj.coverage * 100)}%（预计 ${vj.estSec || 0} 秒 / 目标 ${vj.targetSec || 0} 秒）`
+                    : '（文案已就绪，已自动重试一次）'}
+                </div>
               ) : (vj.usedImages > 0 || (vj.shots && vj.shots.length)) ? (
                 <div className="text-[10px] text-emerald-300/80 mb-1">
                   📸 看完你仓库里 {vj.usedImages || 0} 张图，排了 {(vj.shots || []).length} 个镜头{(vj.shots || []).some((s: any) => s.type === 'bgimage') ? '（画面用你的素材）' : ''}

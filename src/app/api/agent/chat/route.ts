@@ -41,10 +41,12 @@ function vfParseShots(raw: string): any[] | null {
  */
 async function genVideoShots(o: {
   uid: number | string; aspect: string; dur: number; shotN: number
-  imgPaths: string[]; brief: string; script: string
+  imgPaths: string[]; brief: string; script: string; retryHint?: string
 }): Promise<any[]> {
   const imgs = (o.imgPaths || []).filter(Boolean)
-  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，镜头数约 ${o.shotN} 个，【各镜 dur 相加应约等于 ${o.dur} 秒】。\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】）：\n[{"type":"bgimage","pick":1,"text":"4~8字短语（画面大字）","subtitle":"这一镜要念的文案（约 25~40 字）","dur":7},{"type":"title","text":"标题","subtitle":"这一镜念的文案","dur":5},{"type":"list","title":"要点","items":["A","B"],"subtitle":"这一镜念的文案","dur":6},{"type":"number","value":300,"suffix":"+","label":"标签","subtitle":"这一镜念的文案","dur":5},{"type":"end","text":"结尾","cta":"点击咨询","subtitle":"这一镜念的文案","dur":5}]\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来 = 完整覆盖下面那段文案】（一镜说 1~2 句，共约 ${String(o.script || '').length} 字）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。\n编镜依据（文案）：\n${o.script}`
+  const charN = String(o.script || '').length
+  const avgN = Math.max(8, Math.round(charN / Math.max(1, o.shotN)))
+  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】）：\n[{"type":"bgimage","pick":1,"text":"4~8字短语（画面大字）","subtitle":"这一镜要念的文案（20~60 字，覆盖全文）","dur":7},{"type":"title","text":"标题","subtitle":"这一镜念的文案","dur":5},{"type":"list","title":"要点","items":["A","B"],"subtitle":"这一镜念的文案","dur":6},{"type":"number","value":300,"suffix":"+","label":"标签","subtitle":"这一镜念的文案","dur":5},{"type":"end","text":"结尾","cta":"点击咨询","subtitle":"这一镜念的文案","dur":5}]\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。\n编镜依据（文案）：\n${o.script}`
   let raw = ''
   try { raw = (await generateText(prompt)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
   let arr = vfParseShots(raw)
@@ -74,15 +76,22 @@ async function genVideoShots(o: {
 }
 
 /** ★VF_GATE_V1：拼“确认卡”。shotsFailed=true 时【不给确认出片】（用户实测：0 镜也放行 → 成片没画面） */
-function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect: string): string {
+function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect: string, cover = 1, estSec = 0): string {
   const voiceName = (vd.voiceList || VF_VOICE_BASE).find((v: any) => v.id === vd.voice)?.name || vd.voice || ''
   const cost = Math.max(1, Math.ceil(String(vd.script || '').length / 20))
-  if (!shots || shots.length < 2) {
+  const charN = String(vd.script || '').length
+  const targetSec = Math.round(Number(vd.dur) || 0)
+  // ★覆盖不足也算“不给确认”（不然出来的片子只有 110 秒 / 只念 30%）
+  if (!shots || shots.length < 2 || cover < 0.8) {
+    const why = (!shots || shots.length < 2)
+      ? '**分镜没生成成功**（已自动重试一次）'
+      : `分镜只覆盖了文案的 **${Math.round(cover * 100)}%**（预计 ${estSec} 秒 / 目标 ${targetSec} 秒）——直接出片只会念一部分`
     return 'VF_JSON:' + JSON.stringify({
       step: 'script', topic: vd.topic, script: vd.script, shotsFailed: true,
       usedImages: imgN, brief: String(brief || '').slice(0, 400),
       voice: vd.voice, voiceName, cost,
-      hint: `文案好了（${String(vd.script || '').length} 字），但**分镜没生成成功**（已自动重试一次）。回「重试」我再排一次；若只想先要一条只有字幕配音、没有素材画面的版本，回「先出字幕版」`,
+      coverage: cover, estSec, targetSec, shotCount: (shots || []).length,
+      hint: `文案好了（${charN} 字），但 ${why}。回「重试」我再排一次；若只想先要一条只有字幕配音、没有素材画面的版本，回「先出字幕版」`,
     })
   }
   return 'VF_JSON:' + JSON.stringify({
@@ -91,7 +100,8 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
     usedImages: imgN, brief: String(brief || '').slice(0, 400),
     voice: vd.voice, voiceName, theme: vd.theme, cost,
     aspect, aspectName: aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16',
-    hint: `看完你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（画面用你的素材·${aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}·配音 ${voiceName}）——回复「确认」开始出片；也可说要改什么`,
+    coverage: cover, estSec, targetSec,
+    hint: `看完你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}·配音 ${voiceName}）——回复「确认」开始出片；也可说要改什么`,
   })
 }
 
@@ -2614,7 +2624,7 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_DUR_V1：时长驱动【文案字数 + 镜头数】——用户要求"让 AI 知道时长"
                 //   （中文配音约 4.5 字/秒；镜头按 5 秒一个估）
                 const vfDur = Math.max(5, Math.min(900, parseInt(vd.dur) || 30))
-                const vfShotN = Math.max(4, Math.min(30, Math.round(vfDur / 5)))
+                const vfShotN = Math.max(4, Math.min(40, Math.round(vfDur / 5)))
                 vfLog(uidVF2, `[画幅] 判定=${vfAspect}（横${vfSz.landscape}/竖${vfSz.portrait}/方${vfSz.square}，探测${vfSz.total}张） 时长=${vfDur}s`)
                 vd.dur = vfDur
                 let vfProfile = ''
@@ -2660,6 +2670,26 @@ PUBLISH_DRAFT.delete(uidW)
                     if (vfEx2.length > vfScript2.length) { vfLog(uidVF2, `[扩写] ${vfScript2.length} → ${vfEx2.length} 字（目标 ${vfNeed}）`); vfScript2 = vfEx2 }
                   } catch {}
                 }
+                // ★VF_LENFIX_V1（2026-09-20，**用户定案“严格 180 秒”**）：
+                //   实测：目标 810 字，AI 写了 1370 字（+69%）→ 分镜根本覆盖不完 → 成片只念 30%、
+                //   时长也只有 110 秒。所以**超额必须压回来**（用户自己贴的文案不动）。
+                if (!vd.formScript && vfScript2 && vfScript2.length > vfNeed * 1.15) {
+                  try {
+                    const vfSh = await generateText(`把下面这段口播文案【压缩】到 ${vfNeed} 字（现在 ${vfScript2.length} 字，必须删掉约 ${vfScript2.length - vfNeed} 字）。要求：① 保留核心卖点、数字、术语 ② 删掉重复表达与铺垫 ③ 保持原顺序和「。」「！」断句 ④ 只输出压缩后的文案本身，不要解释。\n原文：${vfScript2}`)
+                    const vfSh2 = String(vfSh || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 4000)
+                    if (vfSh2.length >= vfNeed * 0.6 && vfSh2.length < vfScript2.length) {
+                      vfLog(uidVF2, `[压缩] ${vfScript2.length} → ${vfSh2.length} 字（目标 ${vfNeed}）`)
+                      vfScript2 = vfSh2
+                    } else vfLog(uidVF2, `[压缩] 无效（得到 ${vfSh2.length} 字），保留原文`)
+                  } catch (e: any) { vfLog(uidVF2, '[压缩失败] ' + String(e?.message || e).slice(0, 100)) }
+                }
+                // 兼底：压缩后仍远超目标（AI 不听话）→ 在句末硬截到 ~1.1 倍（用户定案“超额就压缩”）
+                if (!vd.formScript && vfScript2.length > vfNeed * 1.35) {
+                  const cut = vfScript2.slice(0, Math.round(vfNeed * 1.1))
+                  const lastP = Math.max(cut.lastIndexOf('。'), cut.lastIndexOf('！'), cut.lastIndexOf('？'))
+                  vfScript2 = lastP > vfNeed * 0.6 ? cut.slice(0, lastP + 1) : cut
+                  vfLog(uidVF2, `[硬截] → ${vfScript2.length} 字（目标 ${vfNeed}）`)
+                }
                 // ② 分镜（★VF_SHOTGEN_V1：prompt 给合法示例 + 解析正则容错 + **自动重试一次修 JSON**）
                 const vfImgs = vfLocal.map((m: any) => m.localPath).filter(Boolean)
                 const vfShots = await genVideoShots({
@@ -2669,13 +2699,24 @@ PUBLISH_DRAFT.delete(uidW)
                 // 存进草稿：**「重试分镜」时不用重新取素材/看图**（直接复用）
                 vd.imgs = vfImgs
                 vd.brief = String(vfBrief || '').slice(0, 1500)
-                const vfHasPlan = vfShots.length >= 2 && !!vfScript2
+                // ★VF_COVER_V1（2026-09-20，用户定案“严格 180 秒 = 文案要写成 ~810 字且被念完”）：
+                //   实测 1370 字文案 + 17 镜 → subtitle 只覆盖 ~30% → 成片 110 秒、后 70% 文案从没被念。
+                //   → 这里算**覆盖率**，不达标就不给出片（状态机门槛）。
+                const vfSubLen = vfShots.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
+                const vfCover = vfScript2 ? vfSubLen / vfScript2.length : 0
+                const vfEstSec = Math.round(vfSubLen / 4.5)
+                vfLog(uidVF2, `[覆盖率] subtitle ${vfSubLen} 字 / 文案 ${vfScript2.length} 字 = ${Math.round(vfCover * 100)}%（预计 ${vfEstSec} 秒 / 目标 ${vfDur} 秒）`)
+                const vfHasPlan = vfShots.length >= 2 && !!vfScript2 && vfCover >= 0.8
                 vd.script = vfScript2 || vd.topic || '看这条视频'
                 vd.shots = vfHasPlan ? vfShots : undefined
+                vd.cover = vfCover
+                vd.subLen = vfSubLen
+                vd.shotN = vfShotN
+                vd.dur = vfDur
                 vd.step = 'script'
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
-                if (!vfHasPlan) vfLog(uidVF2, `[分镜门禁] 只有 ${vfShots.length} 镜 → **不给确认出片**，改为提示重试/字幕版`)
-                wfEarlyReply = vfScriptCard(vd, vfShots, vfImgs.length, String(vfBrief || ''), vfAspect)
+                if (!vfHasPlan) vfLog(uidVF2, `[分镜门禁] ${vfShots.length} 镜 / 覆盖 ${Math.round(vfCover * 100)}% → **不给确认出片**`)
+                wfEarlyReply = vfScriptCard(vd, vfShots, vfImgs.length, String(vfBrief || ''), vfAspect, vfCover, vfEstSec)
                 finalResult = wfEarlyReply
                 vfLog(uidVF2, `[起草] 图${vfImgs.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
                 vfLog(uidVF2, `[分镜构成] ${vfShots.map((x: any) => x.type).join(',')}`)
@@ -2703,17 +2744,26 @@ PUBLISH_DRAFT.delete(uidW)
             } else if (vd.step === 'script' && !vd.shots?.length && /^重试|重新排|再排一次|重排分镜/.test(userMessage.trim())) {
               // ★「重试分镜」：复用草稿里存的素材清单（vd.imgs/vd.brief），只重跑分镜
               vfLog(uidVF2, '[重试分镜] 用户要求重排')
+              const vfShotN2 = Math.max(4, Math.min(40, Math.round((vd.dur || 30) / 5)))
               const vfAgain = await genVideoShots({
                 uid: uidVF2,
                 aspect: vd.aspectResolved || (vd.aspect === 'landscape' ? 'landscape' : 'portrait'),
                 dur: vd.dur || 30,
-                shotN: Math.max(4, Math.min(40, Math.round((vd.dur || 30) / 5))),
+                shotN: vfShotN2,
                 imgPaths: (vd.imgs || []), brief: String(vd.brief || ''), script: String(vd.script || ''),
+                // ★把上次失败原因带上：AI 这次才知道“要覆盖全文、要排够镜数”
+                retryHint: vd.cover != null
+                  ? `上次 subtitle 一共只写了 ${vd.subLen || 0} 字，文案共 ${String(vd.script || '').length} 字，只覆盖了 ${Math.round((vd.cover || 0) * 100)}%。这次**必须覆盖全文**（平均每镜约 ${Math.round(String(vd.script || '').length / vfShotN2)} 字），镜头数 ${vfShotN2} 个。`
+                  : '上次没排出合规 JSON。这次只输出严格 JSON 数组，pick 用纯数字。',
               })
-              vd.shots = vfAgain.length >= 2 ? vfAgain : undefined
+              const vfAgainSub = vfAgain.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
+              const vfAgainCover = vd.script ? vfAgainSub / String(vd.script).length : 0
+              const vfAgainEst = Math.round(vfAgainSub / 4.5)
+              vd.shots = (vfAgain.length >= 2 && vfAgainCover >= 0.8) ? vfAgain : undefined
+              vd.cover = vfAgainCover; vd.subLen = vfAgainSub
               VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
-              vfLog(uidVF2, `[重试分镜] 结果 ${vfAgain.length} 镜`)
-              wfEarlyReply = vfScriptCard(vd, vfAgain, (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait')
+              vfLog(uidVF2, `[重试分镜] ${vfAgain.length} 镜，覆盖 ${Math.round(vfAgainCover * 100)}%（预计 ${vfAgainEst} 秒 / 目标 ${vd.dur} 秒）`)
+              wfEarlyReply = vfScriptCard(vd, vfAgain, (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait', vfAgainCover, vfAgainEst)
               finalResult = wfEarlyReply
             } else if (vd.step === 'script') {
               // ── 文案微调 / 换音色 / 换主题（★AI 出场①）──
