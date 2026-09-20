@@ -329,7 +329,8 @@ def tts_one(text, out_path, speaker=''):
     """合成一句 → 写 mp3，返回 (ok, 时长秒)。
 
     ★VF_TTS_ORDER_V1（2026-09-20）：引擎顺序由 VF_TTS_ORDER 决定
-      （默认 dashscope,volcano = **原行为不变**；可填 dashscope,minimax,silicon,volcano）
+      （默认 **dashscope,minimax,silicon** = 百炼 qwen3-tts-flash → Minimax → 硅基；
+       要启用火山就填 dashscope,minimax,silicon,volcano）
       可选：dashscope（百炼）/ minimax / silicon（硅基）/ volcano（火山）
       音色：表单选的是【百炼 id】，各引擎自己映射。"""
     txt = (text or '').strip()
