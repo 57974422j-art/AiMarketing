@@ -134,11 +134,53 @@ export function materialDir(userId: string | number): string {
  * 列个人仓库素材（新的在前）
  * @param limit 最多返回多少条（默认 40；视觉理解另按 maxImages 控制）
  */
+/** ★VF_MATSPREAD_V1（2026-09-20，用户实测"画面单调"的根因）：
+ *   个人仓库的常见形态是"一批封面图 + 一批同一视频切帧（高度相似）"，
+ *   而原来这里是 `按 updatedAt 倒序 + 取前 N` → **取到的全是同一批最新相似帧**。
+ *   改成：① 封面图（cover_*）优先 ② 按"文件名批次前缀"分组、**组间轮转交织**取
+ *        → 来源尽量分散，不再被某一批淹没。
+ */
+function spreadMaterials(imgItems: RepoMaterial[], limit: number): RepoMaterial[] {
+  if (limit <= 0) return []
+  const keyOf = (n: string): string => {
+    const b = n.replace(/\.[a-z0-9]+$/i, '')
+    if (/^cover[_-]/i.test(b)) return 'cover'          // 以前做的封面图 → 单独一组且优先
+    const m = b.match(/^([a-zA-Z]*\d{4,8})/)           // 20260920_001 → '20260920'（同批次）
+    return m ? m[1] : (b.split(/[_-]/)[0] || b).slice(0, 8)
+  }
+  const groups = new Map<string, RepoMaterial[]>()
+  for (const it of imgItems) {
+    const k = keyOf(it.name)
+    if (!groups.has(k)) groups.set(k, [])
+    groups.get(k)!.push(it)
+  }
+  const keys = [...groups.keys()].sort((a, b) => (a === 'cover' ? -1 : b === 'cover' ? 1 : a.localeCompare(b)))
+  const lists = keys.map((k) => (groups.get(k) || []).slice().sort((a, b) => b.updatedAt - a.updatedAt))
+  const out: RepoMaterial[] = []
+  let round = 0
+  // 轮转：每轮从每组各取 1 张（组内按均匀步长前进）→ 天然交织、不偏向某一批
+  while (out.length < limit && round < 300) {
+    let added = false
+    for (const lst of lists) {
+      if (out.length >= limit) break
+      if (!lst.length) continue
+      const span = Math.max(1, Math.ceil(limit / Math.max(1, lists.length)))
+      const pos = Math.min(lst.length - 1, Math.floor(round * lst.length / span))
+      const it = lst[pos]
+      if (it && !out.includes(it)) { out.push(it); added = true }
+    }
+    if (!added) break
+    round++
+  }
+  for (const lst of lists) for (const it of lst) { if (out.length >= limit) break; if (!out.includes(it)) out.push(it) }
+  return out.slice(0, limit)
+}
+
 export async function listRepoMaterials(userId: string | number, limit = 40): Promise<RepoMaterial[]> {
   const uid = String(userId)
   try {
     const objs = await listObjects(`storage/${uid}/`, 1000)
-    return objs
+    const all = objs
       .filter((o) => !o.name.includes('/.thumbs/') && !o.name.endsWith('/'))
       .map((o) => {
         const name = o.name.split('/').pop() || o.name
@@ -150,8 +192,12 @@ export async function listRepoMaterials(userId: string | number, limit = 40): Pr
           updatedAt: o.lastModified ? new Date(o.lastModified).getTime() : 0,
         } as RepoMaterial
       })
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, limit)
+    // ★VF_MATSPREAD_V1：图片走"分批均匀抽样"，视频另留少量（画面以图为主）
+    const imgs = all.filter((o) => o.kind === 'image')
+    const vids = all.filter((o) => o.kind === 'video')
+    const vidKeep = Math.min(vids.length, 6)
+    const picked = spreadMaterials(imgs, Math.max(1, limit - vidKeep))
+    return [...picked, ...vids.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, vidKeep)].slice(0, limit)
   } catch (e: any) {
     console.error('[成片素材] 列仓库失败:', e?.message || e)
     return []

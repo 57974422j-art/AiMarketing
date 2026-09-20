@@ -38,7 +38,9 @@
 - **⑥【分镜卡 type 被 AI 自造】实测 `[分镜构成]` 出现 `subtitle` 这种 type**（我只给 5 种）→ `render.py` 不认（丢画面）+ 覆盖率统计漏掉其文案（34% 虚低）。**根因还有一半在我**：prompt 要求"每镜 20~60 字"，**示例却只写 7 字** → AI 照写 11 字/镜。**修**：prompt 加 type 红线 + 示例 subtitle 改 28~33 字真实句子 + `★VF_TYPEFIX_V1` 未知 type 归一化为 bgimage/title 并捞出文案 + **`★VF_SUBFILL_V1` 字幕兜底**（覆盖率 <80% 时**代码把文案按顺序切成 N 段填入每镜 subtitle**，只增不减 → 覆盖率必然 ~100%）。
 - **⑦【成片只有 BGM、没有人声】真因＝百炼音色名被喂给了火山** → **已升级为"TTS 四引擎实测"**：**Minimax ✅ / 硅基 ✅ 可用**；**百炼新端点 + `qwen3-tts-flash` 报 403 `"current user api does not support asynchronous calls"`（说明端点对、只是不能带 `X-DashScope-Async` 头）**；老端点 400；`cosyvoice-v3-flash` 400 `"url error"`；火山映射对但该音色返回 0 字节。**修**：`VF_TTS_ORDER` 引擎顺序可配 + 新增 Minimax/硅基引擎 + 百炼端点可配（v3 走同步）+ qwen3 音色映射 + 火山音色降级重试。**立即可用**：`VF_TTS_ORDER=minimax,silicon`：表单音色 `longxiaochun` 是**百炼 id**，`chat/route.ts:398` 原样透传 `--speaker` → 百炼链 HTTP 400（项目内同 body 的 `ai-providers.ts:1811` 也不通）→ 火山兜底**不认识这个音色名** → 每镜失败 → 无声片 + dur 停在 AI 值（**64 秒**，而卡片写"预计 182 秒"）。**修**：`★VF_VOICE_MAP_V1` 百炼→火山音色映射 + `★VF_TTSERR_V1` 打印百炼响应体 + 百炼失败即停重试 + `make.py` 失败打首尾行。**验证方法（无需 build）**：`python3 scripts/video-factory/tts.py --text "测试" --speaker longxiaochun --out /tmp/t.mp3` 应输出 `ok=True`
 - **⑧【新发现·待调研】克隆音色与本轮新 TTS 冲突**：声音复刻（"我的克隆音色"）仍写 `cosyvoice-v1`（`ai-providers.ts:2391/2412`），而百炼 TTS 已换成 **`qwen3-tts-flash`**（只认 `Cherry/Serena/Ethan/Chelsie`）→ **CosyVoice 系克隆音色无法用于 qwen3-tts 合成**（官方明确"克隆音色只能用于**同族**合成"）。**待办**：查百炼是否仍提供 cosyvoice-v3 系列合成入口以支持克隆音色；否则"克隆音色"功能需在 UI 上标注限制，或单独走 cosyvoice 端点。
-- **待确认**：部署后再跑一条 180 秒 —— 应看到 `[VF] [覆盖率] ≥80%`（门禁放行）+ 成片**有配音（本次应是人声，不再是只有 BGM）**、念完整篇、时长接近 180 秒。
+- **⑨【镜数/节奏】AI 排不够镜头 → 一镜 24 秒太闷**：实测 `13 镜 / 188.5 秒`，第 9 镜 **107 字字幕 = 24.4 秒**一个字幕不动；前 4 镜 24~49 字正常、后 9 镜 57~107 字（兜底按"AI 给的 13 镜"切 + `per*1.6` 阈值让长句段落攒到 100+ 字）。**修**：`★VF_SPLIT2_V1`（限长 45 + 长句二级切 + 劈最长段）+ `★VF_SHOTCOUNT_V1`（镜数 < 目标×0.7 → 按目标镜数重排）。**待验证**：应出现 `[VF] [扩镜] ... → 36 镜（每镜约 23 字 ≈ 5 秒）`
+- **⑩【素材选取】按更新时间取前 N → 全是同一批相似帧**：`listRepoMaterials` 原来 `.sort(updatedAt 倒序).slice(0, limit)`，用户一次上传 32 张同一视频的切帧 → **取到的全是相似帧**（画面单调）。**修**：`★VF_MATSPREAD_V1` 封面图优先 + 按文件名批次分组 + 组间轮转交织。
+- **待确认**：再跑一条 180 秒 —— 应看到 `[VF] [扩镜]`、每镜 dur 5~8 秒、卡型仍有多样性。
 
 ## 🟡 成片遗留（2026-09-20）
 

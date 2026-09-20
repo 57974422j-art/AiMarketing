@@ -86,33 +86,93 @@ async function genVideoShots(o: {
     if (!lp2) return { type: 'title', text: head2, subtitle: sub2, dur: dur2 }
     return { type: 'bgimage', src: lp2, text: head2, subtitle: sub2, dur: dur2 }
   }).filter(Boolean).slice(0, Math.max(4, Math.min(40, o.shotN || 8)))
+  // ★VF_SHOTCOUNT_V1（2026-09-20 用户实测“13 镜/190 秒、一镜 14.6 秒太闷”）：
+  //   AI 常排不够镜头（目标 36 只给 13），而兜底又是“按现有镜数切” → 一镜 24 秒。
+  //   这里直接按【目标镜数】重排：文案切 N 段 + 保留 AI 的解说卡骨架（按位置摊开）
+  //   + 其余用素材图卡轮换 → 每镜回到 ~5 秒的正常节奏。
+  if (shots.length >= 2 && shots.length < o.shotN * 0.7 && charN > 0) {
+    const beforeN = shots.length
+    const segs = vfSplitScript(o.script, o.shotN)
+    if (segs.length > shots.length) {
+      const specials = shots.filter((s: any) => s?.type && s.type !== 'bgimage' && s.type !== 'image')
+      const slotMap = new Map<number, any>()
+      specials.forEach((s: any, k: number) => {
+        const slot = Math.max(0, Math.min(segs.length - 1, Math.round((k + 0.5) * segs.length / Math.max(1, specials.length))))
+        slotMap.set(slot, s)
+      })
+      const rebuilt: any[] = []
+      for (let i = 0; i < segs.length; i++) {
+        const sub = String(segs[i] || '')
+        const sp = slotMap.get(i)
+        if (sp) rebuilt.push({ ...sp, subtitle: sub.slice(0, 300) })
+        else rebuilt.push({ type: 'bgimage', src: imgs[i % Math.max(1, imgs.length)], text: '', subtitle: sub.slice(0, 300), dur: 5 })
+      }
+      vfLog(o.uid, `[扩镜] AI 只排 ${beforeN} 镜（目标 ${o.shotN}）→ 按目标重排 ${rebuilt.length} 镜（每镜约 ${Math.round(charN / Math.max(1, rebuilt.length))} 字 ≈ ${Math.round(charN / Math.max(1, rebuilt.length) / 4.5)} 秒）`)
+      return rebuilt
+    }
+  }
   vfLog(o.uid, `[分镜] ${shots.length} 镜`)
   return shots
 }
 
-/** ★VF_SUBFILL_V1：把口播文案**按顺序**切成 n 段（尽量在句末断开）
+/** ★VF_SUBFILL_V1 / ★VF_SPLIT2_V1：把口播文案**按顺序**切成 n 段。
  *  用于 subtitle 兜底 —— 文案本来就是连续口播稿，顺序切分自洽，覆盖率必然 ~100%。
+ *  ★2026-09-20 实测修正（一镜 24 秒 / 107 字 → “画面停太久”的真因）：
+ *    ① 句子超过 maxLen 时按「，、；」二级切（否则“每段限长”根本做不到）
+ *    ② 装箱阈值降为 min(maxLen, per*1.35) → 段长更均匀
+ *    ③ 段数不足 n 时**把最长段劈开**（原来是补空段 → 空段 = 一镜没字幕没配音）
  */
-function vfSplitScript(script: string, n: number): string[] {
-  const sents: string[] = []
+function vfSplitScript(script: string, n: number, maxLen = 45): string[] {
+  // ① 一级：按句末切
+  const raw: string[] = []
   let cur = ''
   for (const ch of String(script || '')) {
     cur += ch
-    if ('。！？!?'.includes(ch)) { const t = cur.trim(); if (t) sents.push(t); cur = '' }
+    if ('。！？!?'.includes(ch)) { const t = cur.trim(); if (t) raw.push(t); cur = '' }
   }
-  if (cur.trim()) sents.push(cur.trim())
-  if (!sents.length || n <= 0) return []
+  if (cur.trim()) raw.push(cur.trim())
+  if (!raw.length || n <= 0) return []
+  // ② 二级：超长句按「，、；」再切
+  const sents: string[] = []
+  for (const s of raw) {
+    if (s.length <= maxLen) { sents.push(s); continue }
+    let buf = ''
+    for (const ch of s) {
+      buf += ch
+      if (buf.length >= maxLen * 0.6 && '，、；,;'.includes(ch)) { const t = buf.trim(); if (t) sents.push(t); buf = '' }
+    }
+    if (buf.trim()) sents.push(buf.trim())
+  }
+  // ③ 装箱：尽量凑到 per，但**不许超过 maxLen**
   const total = sents.reduce((a, s) => a + s.length, 0)
   const per = total / n
+  const cap = Math.max(12, Math.min(maxLen, per * 1.35))
   const out: string[] = []
   let acc = ''
   for (const s of sents) {
-    // 加上这句会明显超一倍 → 先收一段（且还剩有余量开新段）
-    if (acc && (acc.length + s.length) > per * 1.6 && out.length < n - 1) { out.push(acc); acc = s }
+    if (acc && (acc.length + s.length > cap) && out.length < n - 1) { out.push(acc); acc = s }
     else acc += s
   }
   if (acc) out.push(acc)
-  while (out.length < n) out.push('')                       // 段数不足 → 空段占位（不硬拆句）
+  // ④ 段数不足 → 劈最长段（不再补空段）
+  let guard = 0
+  while (out.length < n && guard++ < n * 4) {
+    let mi = 0
+    for (let i = 1; i < out.length; i++) if ((out[i] || '').length > (out[mi] || '').length) mi = i
+    const long = out[mi] || ''
+    if (long.length < 10) break
+    const half = Math.max(1, Math.floor(long.length / 2))
+    let cut = -1
+    for (let i = half; i < Math.min(long.length, half + 12); i++) {
+      if ('，、；,;。！？'.includes(long[i])) { cut = i + 1; break }
+    }
+    if (cut < 0) for (let i = half; i > Math.max(1, half - 12); i--) {
+      if ('，、；,;。！？'.includes(long[i])) { cut = i + 1; break }
+    }
+    if (cut <= 0) cut = half
+    out.splice(mi, 1, long.slice(0, cut).trim(), long.slice(cut).trim())
+  }
+  // ⑤ 段数过多 → 尾部合并
   while (out.length > n) { const last = out.pop() || ''; out[out.length - 1] = (out[out.length - 1] || '') + last }
   return out
 }
