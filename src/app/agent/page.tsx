@@ -593,7 +593,12 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
       ) : null}
 
       <button
-        onClick={() => onStart('VF_FORM:' + JSON.stringify({ aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm }))}
+        onClick={() => onStart('VF_FORM:' + JSON.stringify({
+          aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm,
+          // ★VF_UPLOAD_V2（2026-09-20）：把**刚上传的文件名**一起发给后端 → 成片精确只用这几张
+          //   （不再靠后端"按时间猜最近"，也就不会再挑到旧素材）
+          ...(uploaded.length ? { uploaded } : {}),
+        }))}
         className="w-full px-4 py-2 rounded-lg bg-fuchsia-500/50 hover:bg-fuchsia-500/80 text-sm text-white font-medium">
         🚀 开始出片
       </button>

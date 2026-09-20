@@ -2648,6 +2648,9 @@ PUBLISH_DRAFT.delete(uidW)
                   if (f.script && String(f.script).trim()) vd.formScript = String(f.script).trim().slice(0, 4000) // 用户直接贴了文案
                   if (f.source) vd.formSource = String(f.source)   // ★表单选的画面来源（repo/upload/mix/ai）——下面分支要按它走
                   if (f.bgm !== undefined) vd.bgm = (String(f.bgm) === 'auto') ? 'auto' : ''
+                  // ★VF_UPLOAD_V2（2026-09-20，用户实测“上传 8 张却用了旧图”）：前端把**刚上传的文件名列表**
+                  //   一起发过来 → 后端按名字精确取，不再靠“按时间猜最近”。确定性优先。
+                  if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x)).slice(0, 60)
                   vfLog(uidVF2, `[表单] aspect=${vd.aspect} dur=${vd.dur} voice=${vd.voice} source=${f.source || 'repo'} topic="${String(vd.topic).slice(0, 30)}"`)
                 } catch (e: any) { vfLog(uidVF2, '[表单解析失败] ' + String(e?.message || e).slice(0, 120)) }
               }
@@ -2704,7 +2707,21 @@ PUBLISH_DRAFT.delete(uidW)
                     || /^(VF_FORM|VF_JSON|MAKE_VIDEO|BROWSER_TASK|FRAMES_OK|TOOL_REJECT|VIDEO_RESULT)/i.test(_t)
                     || _t.startsWith('{') || _t.startsWith('[')) ? '' : _t
                 }
-                const vfMats = await listRepoMaterials(uidVF2, 40, vd.useRecent ? 'recent' : 'spread')
+                // ★VF_UPLOAD_V2：若前端带了“刚上传的文件名”，就**精确只用这些**（确定性）；
+                //   否则回退到“最近上传”（兼容老前端）。
+                const _wanted: string[] = Array.isArray(vd.uploaded) ? vd.uploaded.map((x: any) => String(x)) : []
+                const vfMatsAll = await listRepoMaterials(uidVF2, Math.max(40, _wanted.length + 20), vd.useRecent ? 'recent' : 'spread')
+                let vfMats = vfMatsAll
+                if (vd.useRecent && _wanted.length) {
+                  const _byName = new Map(vfMatsAll.map((m: any) => [String(m.name), m]))
+                  const _picked = _wanted.map((n: string) => _byName.get(n)).filter(Boolean) as any[]
+                  if (_picked.length) {
+                    vfMats = _picked
+                    vfLog(uidVF2, `[上传] 精确使用刚上传的 ${_picked.length}/${_wanted.length} 张：${_picked.map((m: any) => m.name).slice(0, 6).join('、')}${_picked.length > 6 ? '…' : ''}`)
+                  } else {
+                    vfLog(uidVF2, `[上传] ⚠️ 名单里 ${_wanted.length} 个文件在仓库里没找到 → 回退“最近上传”`)
+                  }
+                }
                 const _dur0 = Math.max(5, Math.min(900, parseInt(vd.dur) || 30))
                 // ★VF_MATN_V1（2026-09-20，用户要求）：素材张数跟时长走——【每 30 秒约 5 张】
                 //   30s→5 张、60s→10 张、90s→15 张、180s→30 张；仓库不够就有多少用多少。
@@ -2746,7 +2763,10 @@ PUBLISH_DRAFT.delete(uidW)
                 //   根因：一次让 AI 输出「810 字文案 + 30 镜 JSON」太大 → 被 max_tokens 截断
                 //   → JSON.parse 失败 → shots 空 + script 空 → 0 镜、报价 fallback 到 1 点。
                 //   改成【两次调用】：① 只写文案（输出小）  ② 只排分镜（输出小）
-                const vfMatN = Math.max(5, Math.min(40, Math.round(vfDur / 30) * 5))
+                // ★VF_UPLOAD_V2：上传模式下**以用户上传的张数为准**（他传了 8 张就该用 8 张，
+                //   不被“每 30 秒 5 张”的配比截断）；上限 40 张防极端。
+                const _vfMatN0 = Math.max(5, Math.min(40, Math.round(vfDur / 30) * 5))
+                const vfMatN = (_wanted.length ? Math.max(_vfMatN0, Math.min(40, _wanted.length)) : _vfMatN0)
                 // ★VF_HDONLY_V1（2026-09-20 用户实测“图片都是糊的”）：**低清图不进画面**——
                 //   仓库里混着发布时抽的帧 `frame_*.jpg`（640×304），铺到画布要放大数倍 = 极糊。
                 //   做法：① 用上面探测到的 sizes 给每张图打“短边”分 ② 过滤掉短边 < 640 的
@@ -2754,9 +2774,13 @@ PUBLISH_DRAFT.delete(uidW)
                 const _szMap = new Map<string, number>()
                 for (const s of (vfSz.sizes || [])) _szMap.set(s.key, Math.min(s.w, s.h))
                 const _allImg = vfMats.filter((m: any) => m.kind === 'image')
-                const _hdImg = _allImg
-                  .filter((m: any) => { const mn = _szMap.get(m.key); return mn == null ? true : mn >= 640 })
-                  .sort((a: any, b: any) => (_szMap.get(b.key) || 0) - (_szMap.get(a.key) || 0))
+                // ★VF_HDONLY_V2（2026-09-20 用户实测“上传 8 张却用了旧图”）：**只过滤、不重排** ——
+                //   原来这里多了个“按分辨率降序”，把 recent（最新优先）的顺序打乱 →
+                //   刚上传的图被高分旧图挤掉（实测：用的是 1280×1280/1280×960 两张旧图）。
+                const _hdImg = _allImg.filter((m: any) => {
+                  const mn = _szMap.get(String(m.key))
+                  return mn == null ? true : mn >= 640
+                })
                 const vfImgList = (_hdImg.length >= 5 ? _hdImg : _allImg).slice(0, vfMatN)
                 if (_hdImg.length < _allImg.length) vfLog(uidVF2, `[清晰度] 低清图过滤：${_allImg.length} → ${_hdImg.length} 张（短边 < 640 的不进画面）`)
                 const vfLocal = await downloadMaterials(uidVF2, vfImgList)
