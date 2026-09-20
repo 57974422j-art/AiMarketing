@@ -476,6 +476,37 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
   const [script, setScript] = useState('')
   const [bgm, setBgm] = useState('auto')   // ★VF_BGM_V1：默认自动配乐（AI 音乐库挑一首）
   const [openAdv, setOpenAdv] = useState(false)
+  // ★VF_UPLOAD_V1（2026-09-20）：「📤 我上传素材」真正可用 —— 选文件 → 传到个人仓库
+  //   （POST /api/storage/files，与素材页同一个接口）→ 本次成片只从【最近上传】取画面。
+  // ★VF_UPLOAD_FIX_V1（2026-09-20，用户实测“点了点不动/不弹窗，重启客户端也一样”）：
+  //   对比“聊天输入框的上传图片”（能用）：两边写法几乎一致，**唯一实质差异是表单按钮写了
+  //   `disabled={uploading}`** —— 一旦 uploading 卡住，按钮就是【静默点不动】：不报错、不弹框。
+  //   这里**照抄能用的那套**：① 不加 disabled ② ref 类型对齐 ③ 用可选链 .click()
+  //   ④ input 挪出 flex 行 ⑤ 重复保护改用内部守卫（不再禁用按钮）
+  const [uploading, setUploading] = useState(false)
+  const [uploaded, setUploaded] = useState<string[]>([])
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const doUpload = async (files: FileList | null) => {
+    if (!files || !files.length) return
+    setSource('upload')
+    setUploading(true)
+    const okNames: string[] = []
+    try {
+      for (const f of Array.from(files).slice(0, 30)) {
+        try {
+          const fd = new FormData()
+          fd.append('file', f)
+          const r = await fetch('/api/storage/files', { method: 'POST', body: fd })
+          const j = await r.json().catch(() => null)
+          if (j && j.success) okNames.push(String((j.data && j.data.name) || f.name))
+        } catch {}
+      }
+    } finally {
+      setUploading(false)
+      setUploaded(okNames)
+    }
+  }
 
   const R = (cur: string, val: string, label: string, set: (v: string) => void, dis = false) => (
     <button key={val} disabled={dis} onClick={() => set(val)}
@@ -492,8 +523,22 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
           {R(source, 'repo', '🎞 素材合成（用我仓库）', setSource)}
           {R(source, 'mix', '✨ 素材+AI 混合（开发中）', setSource, true)}
           {R(source, 'ai', '🎨 全部 AI 生成（开发中）', setSource, true)}
-          {R(source, 'upload', '📤 我上传素材', setSource)}
+          {/* ★VF_UPLOAD_FIX_V1：照抄“聊天那个能用的写法” —— 不加 disabled（否则可能永久点不动） */}
+          <button onClick={() => { if (uploading) return; if (fileRef.current) fileRef.current.click() }}
+            className={`px-2 py-1 rounded text-[11px] border transition ${source === 'upload' ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
+            {uploading ? '⏳ 上传中…' : '📤 我上传素材'}
+          </button>
         </div>
+        <input ref={fileRef} type="file" accept="image/*,video/*" multiple className="hidden"
+          onChange={(e: any) => { doUpload(e.target.files); e.target.value = '' }} />
+        {uploaded.length > 0 && (
+          <div className="text-[10px] text-emerald-300/80 mt-1">
+            ✅ 已上传 {uploaded.length} 个到个人仓库 —— 本次成片的画面只从这批里取
+          </div>
+        )}
+        {source === 'upload' && !uploaded.length && !uploading && (
+          <div className="text-[10px] text-amber-300/80 mt-1">点「📤 我上传素材」选图或选视频（可多选）；不选则用仓库现有的</div>
+        )}
       </div>
 
       <div className="mb-3">
