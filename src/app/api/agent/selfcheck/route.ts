@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
     const modelInfo = {
       brain: process.env.AGENT_BRAIN_MODEL || 'qwen3.8-flash（百炼）',
       asr: 'paraformer-realtime-v2（百炼流式）',
-      tts: 'cosyvoice-v1（百炼）',
+      tts: 'qwen3-tts-flash（百炼）',
       asrEngine: process.env.ASR_ENGINE || 'bailian',
     }
     let modelStatus = '未验证'
@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
         modelStatus = mr && mr.ok ? '✅ qwen3.8-flash 可用' : '❌ qwen3.8-flash 不可用（HTTP ' + (mr ? mr.status : '时间超') + '）'
       }
     } catch (eM) { modelStatus = '❌ qwen3.8-flash 不可用: ' + (eM?.message || eM) }
-    checks.push({ key: 'model', label: '当前模型', ok: modelStatus.startsWith('✅'), detail: `大脑 ${modelStatus} / 识别 ${modelInfo.asr} / 朗读 cosyvoice` })
+    checks.push({ key: 'model', label: '当前模型', ok: modelStatus.startsWith('✅'), detail: `大脑 ${modelStatus} / 识别 ${modelInfo.asr} / 朗读 qwen3-tts` })
 
     // 8) 个人仓库（2026-08-24：AI 生成自动入库；容量超 80% 提示转移本地仓库）
     try {

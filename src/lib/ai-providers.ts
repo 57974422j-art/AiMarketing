@@ -1729,7 +1729,7 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
     console.log(`[TTS] 硅基成功: ${siliconResult.byteLength} bytes`);
     return siliconResult;
   }
-  console.warn('[TTS] 火山+百炼+硅基均失败');
+  console.warn('[TTS] 百炼+硅基均失败');
   return null;
 }
 
@@ -1803,34 +1803,66 @@ async function dashscopeGenerateImage(prompt: string, size = '1280*1280', _model
 
 // ==================== 百炼 CosyVoice TTS ====================
 
+// ★VF_QWEN3_TTS_V1（2026-09-20 实测）：百炼 TTS 已换代 ——
+//   老：services/tts/generation + cosyvoice-v1（异步）→ 400 "task can not be null"（**该端点已下线**）
+//   新：services/aigc/multimodal-generation/generation + qwen3-tts-flash（**同步**）
+//   ★同步接口**绝不能**带 X-DashScope-Async，否则 403 "current user api does not support asynchronous calls"
+const QWEN3_TTS_VOICE_MAP: Record<string, string> = {
+  longxiaochun: 'Cherry', longxiaoxia: 'Serena', cherry: 'Chelsie',
+  longshu: 'Ethan', longchen: 'Ethan', longjing: 'Ethan', longxiaohui: 'Ethan',
+}
+function qwenTtsVoice(voice: string): string {
+  const v = (voice || '').trim()
+  if (['Cherry', 'Serena', 'Ethan', 'Chelsie'].includes(v)) return v
+  return QWEN3_TTS_VOICE_MAP[v] || 'Cherry'
+}
+/** 在返回 JSON 里挖音频 url（兼容“同步直出”与各种嵌套结构） */
+function digAudioUrl(obj: any, depth = 0): string {
+  if (!obj || depth > 6) return ''
+  if (Array.isArray(obj)) { for (const v of obj) { const r = digAudioUrl(v, depth + 1); if (r) return r } return '' }
+  if (typeof obj === 'object') {
+    for (const k of ['url', 'audio_url', 'audio']) {
+      const v = obj[k]
+      if (typeof v === 'string' && v.startsWith('http')) return v
+    }
+    for (const v of Object.values(obj)) { const r = digAudioUrl(v, depth + 1); if (r) return r }
+  }
+  return ''
+}
+
 async function dashscopeTTS(text: string, voice = 'longxiaochun'): Promise<ArrayBuffer | null> {
   const key = getDashScopeKey()
   if (!key) return null
-  console.log(`[DashScope TTS] 请求: voice=${voice}, text_len=${text.length}`)
+  const url = process.env.DASHSCOPE_TTS_URL || 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'
+  const model = process.env.DASHSCOPE_TTS_MODEL || 'qwen3-tts-flash'
+  const qv = qwenTtsVoice(voice)
+  console.log(`[DashScope TTS] 请求: model=${model}, voice=${voice}→${qv}, text_len=${text.length}`)
   try {
-    const res = await fetch('https://dashscope.aliyuncs.com/api/v1/services/tts/generation', {
+    const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
-      body: JSON.stringify({
-        model: 'cosyvoice-v1',
-        input: { text },
-        parameters: { voice, format: 'mp3' },
-        action: 'run', // 2026-08-28: 百炼 TTS 缺 action 报 "task can not be null"——补上
-      }),
-      signal: AbortSignal.timeout(30000),
+      // ★不要带 X-DashScope-Async（qwen3-tts-flash 是同步接口，带了会 403）
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({ model, input: { text, voice: qv } }),
+      signal: AbortSignal.timeout(60000),
     })
     if (!res.ok) {
       const err = await res.text()
-      console.log('[DashScope TTS] 创建任务失败:', res.status, err.substring(0, 200))
+      console.log('[DashScope TTS] 创建任务失败:', res.status, err.substring(0, 300))
       return null
     }
     const data = await res.json()
+    // ① 同步直出：返回体里直接带音频 url
+    const u = digAudioUrl(data)
+    if (u) {
+      const audioRes = await fetch(u, { signal: AbortSignal.timeout(30000) })
+      if (audioRes.ok) return await audioRes.arrayBuffer()
+    }
+    // ② 兼容老的异步协议（task_id + 轮询）
     const taskId = data?.output?.task_id
     if (!taskId) {
-      console.log('[DashScope TTS] 未返回 task_id')
+      console.log('[DashScope TTS] 未返回音频/task_id:', JSON.stringify(data).substring(0, 300))
       return null
     }
-    // 轮询结果
     for (let i = 0; i < 30; i++) {
       await new Promise(r => setTimeout(r, 2000))
       const pollRes = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
@@ -1841,10 +1873,10 @@ async function dashscopeTTS(text: string, voice = 'longxiaochun'): Promise<Array
       const pollData = await pollRes.json()
       const status = pollData?.output?.task_status
       if (status === 'SUCCEEDED') {
-        const audioUrl = pollData?.output?.results?.[0]?.url
-        if (audioUrl) {
-          const audioRes = await fetch(audioUrl, { signal: AbortSignal.timeout(30000) })
-          return await audioRes.arrayBuffer()
+        const u2 = digAudioUrl(pollData)
+        if (u2) {
+          const ar = await fetch(u2, { signal: AbortSignal.timeout(30000) })
+          return await ar.arrayBuffer()
         }
         return null
       }

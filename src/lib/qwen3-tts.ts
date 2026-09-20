@@ -18,19 +18,21 @@ const QWEN_VOICE_MAP: Record<string, string> = {
  * 失败时不会抛异常，返回 ok:false
  */
 export async function ttsQwen3(text: string, voice: string, workDir: string, idx: number): Promise<{ ok: boolean; path: string; duration: number }> {
-  // 2026-08-20: 一键成片 TTS 降级链——火山 →（百炼→硅基 textToSpeech）；弃用 qwen-tts（模型是声音复刻，url error）
+  // ★VF_QWEN3_ORDER_V1（2026-09-20 用户定案）：降级链改为 **百炼(qwen3-tts-flash) → 硅基 → 火山(最后兜底)**
+  //   原因：百炼已换代（qwen3-tts-flash 音质最好，实测 1.8s/84KB）；火山按用户要求降为最后兜底。
   const cleaned = (text || '').trim()
   if (!cleaned) return { ok: false, path: '', duration: 0 }
   const outPath = path.join(workDir, `tts${idx}.mp3`)
   try {
     const { volcanoTTS, textToSpeech } = await import('./ai-providers')
     let buf: ArrayBuffer | null = null
-    // 1) 火山优先（用户已配火山 TTS key）
-    try { buf = await volcanoTTS(cleaned) } catch {}
-    // 2) 百炼 → 硅基（textToSpeech 降级链）
-    if (!buf || buf.byteLength <= 100) { try { buf = await textToSpeech(cleaned) } catch {} }
+    // 1) 百炼（qwen3-tts-flash）→ 2) 硅基：textToSpeech 内部就是这个顺序
+    //    ★把用户选的音色传进去（内部会映射到 qwen3 的 Cherry/Serena/Ethan/Chelsie）
+    try { buf = await textToSpeech(cleaned, voice) } catch {}
+    // 3) 火山最后兜底（仅当前面都失败）
+    if (!buf || buf.byteLength <= 100) { try { buf = await volcanoTTS(cleaned) } catch {} }
     if (!buf || buf.byteLength <= 100) {
-      console.warn('[Qwen3TTS] 火山/百炼/硅基 全部失败')
+      console.warn('[Qwen3TTS] 百炼/硅基/火山 全部失败')
       return { ok: false, path: '', duration: 0 }
     }
     fs.writeFileSync(outPath, Buffer.from(buf))

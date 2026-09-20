@@ -69,7 +69,12 @@ def volcano_speaker(sp):
 
 DASHSCOPE_VOICE = os.environ.get('DASHSCOPE_TTS_VOICE') or 'longxiaochun'
 URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional'
-DASHSCOPE_TTS_URL = 'https://dashscope.aliyuncs.com/api/v1/services/tts/generation'
+# ★VF_DASH_DEFAULT_V1（2026-09-20 实测）：百炼 TTS 已换代——
+#   老：services/tts/generation + cosyvoice-v1（异步）→ **实测 400 "task can not be null"**（已下线）
+#   新：services/aigc/multimodal-generation/generation + qwen3-tts-flash（**同步**，不能带 X-DashScope-Async）
+DASHSCOPE_TTS_URL = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'
+DASHSCOPE_TTS_MODEL_DEFAULT = 'qwen3-tts-flash'
+DASHSCOPE_TTS_STYLE_DEFAULT = 'v3'
 DASHSCOPE_TASK_URL = 'https://dashscope.aliyuncs.com/api/v1/tasks/%s'
 FFMPEG_CANDS = [os.environ.get('FFMPEG_PATH', ''), r'C:\ffmpeg\bin\ffmpeg.exe', 'ffmpeg']
 FFPROBE_CANDS = [os.environ.get('FFPROBE_PATH', ''), r'C:\ffmpeg\bin\ffprobe.exe', 'ffprobe']
@@ -138,10 +143,9 @@ def env_get(key, default=''):
 
 def _tts_order():
     """★VF_TTS_ORDER_V1（2026-09-20）：配音引擎顺序可配（不用改代码）。
-    默认 'dashscope,volcano' = **保持原行为**；想换引擎就在 .env.local 写：
-      VF_TTS_ORDER=dashscope,minimax,silicon,volcano
-    每行一个序列，按顺序尝试，第一个出声的胜出。"""
-    return [x.strip() for x in (env_get('VF_TTS_ORDER') or 'dashscope,volcano').split(',') if x.strip()]
+    默认 'dashscope,minimax,silicon' = **百炼(qwen3-tts-flash，音质最好) → Minimax → 硅基**。
+    ★火山已从默认链移除（用户定案）；要启用就在 .env.local 写 VF_TTS_ORDER=...,volcano"""
+    return [x.strip() for x in (env_get('VF_TTS_ORDER') or 'dashscope,minimax,silicon').split(',') if x.strip()]
 
 
 # 跨引擎音色映射：表单里用户选的是【百炼】id → 各引擎认自己的名字
@@ -240,8 +244,8 @@ def _tts_dashscope(text, out_path, voice):
     if not key:
         return 0.0
     url = env_get('DASHSCOPE_TTS_URL') or DASHSCOPE_TTS_URL
-    model = env_get('DASHSCOPE_TTS_MODEL') or 'cosyvoice-v1'
-    style = (env_get('DASHSCOPE_TTS_STYLE') or 'v1').lower()
+    model = env_get('DASHSCOPE_TTS_MODEL') or DASHSCOPE_TTS_MODEL_DEFAULT
+    style = (env_get('DASHSCOPE_TTS_STYLE') or DASHSCOPE_TTS_STYLE_DEFAULT).lower()
     v3 = (style == 'v3')
     if v3:
         # ★v3 = 新协议（同步）：音色必须是 qwen3 的 Cherry/Serena/Ethan/Chelsie
