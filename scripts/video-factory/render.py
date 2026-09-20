@@ -413,20 +413,49 @@ def concat_shots(files, workdir, ffmpeg, W, H, fps):
 
 def build_srt(shots, path):
     """从分镜生成 SRT：每镜的 text（或 subtitle）覆盖该镜时间区间。
-       ★ 这是"唯一真相源"的落地：字幕时间 = 各镜时长累加，不另算。"""
+       ★ 这是"唯一真相源"的落地：字幕时间 = 各镜时长累加，不另算。
+
+    ★2026-09-19 修（用户实测：有一镜有配音却没字幕）：
+      list/number/compare/chart 这些卡**没有 text 字段**（用 title/items/label/value），
+      老逻辑只看 text → txt 为空 → 整镜被跳过 → 该镜有配音但没字幕。这里补全各字段。
+    """
     def fmt(t):
         h = int(t // 3600)
         m = int((t % 3600) // 60)
         s = t % 60
         return '%02d:%02d:%02d,%03d' % (h, m, int(s), int(round((s - int(s)) * 1000)))
+
+    def shot_text(s):
+        """取该镜可读文本：优先 subtitle/text，其次 title+items+label+value+cta"""
+        t0 = (s.get('subtitle') or s.get('text') or '').strip()
+        if t0:
+            return t0
+        parts = []
+        if s.get('title'):
+            parts.append(str(s['title']).strip())
+        if isinstance(s.get('items'), list):
+            parts.extend([str(x).strip() for x in s['items'] if str(x).strip()])
+        if s.get('label'):
+            parts.append(str(s['label']).strip())
+        if s.get('value') is not None:
+            parts.append((str(s.get('value')) + str(s.get('suffix') or '')).strip())
+        if s.get('left') or s.get('right'):
+            parts.append((str(s.get('left') or '') + ' vs ' + str(s.get('right') or '')).strip())
+        if s.get('cta'):
+            parts.append(str(s['cta']).strip())
+        return '，'.join([p for p in parts if p])[:60]
+
     out = []
     t = 0.0
     n = 0
     for s in shots:
         dur = float(s.get('dur', 3))
-        txt = (s.get('subtitle') or s.get('text') or '').strip()
+        txt = shot_text(s)
         if txt:
             n += 1
+            # 长句自动折行（SRT 原生多行，subtitles 滤镜支持）
+            if len(txt) > 18:
+                txt = '\n'.join([txt[i:i + 18] for i in range(0, len(txt), 18)])
             out.append('%d\n%s --> %s\n%s\n' % (n, fmt(t), fmt(t + dur), txt))
         t += dur
     if out:
