@@ -167,6 +167,31 @@ def minimax_voice(sp):
     return env_get('MINIMAX_TTS_VOICE') or 'female-shaonv'
 
 
+# ★VF_QWEN3_VOICE_V1（2026-09-20 实测）：百炼新端点（multimodal-generation）+ qwen3-tts-flash
+#   只认 Cherry / Serena / Ethan / Chelsie 这几个音色。
+QWEN3_VOICE_MAP = {
+    'longxiaochun': 'Cherry',    # 女声温柔（默认）
+    'longxiaoxia': 'Serena',     # 女声清亮
+    'cherry': 'Chelsie',         # 女声甜美
+    'longshu': 'Ethan',          # 男声沉稳
+    'longchen': 'Ethan',         # 男声浑厚
+    'longjing': 'Ethan',         # 男声知性
+    'longxiaohui': 'Ethan',      # 男声阳光
+}
+
+
+def qwen3_voice(sp):
+    """百炼音色 → qwen3-tts 音色"""
+    s = (sp or '').strip()
+    if s in ('Cherry', 'Serena', 'Ethan', 'Chelsie'):
+        return s
+    m = QWEN3_VOICE_MAP.get(s)
+    if m:
+        print('[TTS] 音色映射: %s（百炼）→ %s（qwen3-tts）' % (s, m))
+        return m
+    return 'Cherry'
+
+
 def _dig_audio_url(obj, depth=0):
     """在返回 JSON 里“挖”出音频 url（兼容“同步直出”与各种嵌套）"""
     if depth > 6:
@@ -217,18 +242,25 @@ def _tts_dashscope(text, out_path, voice):
     url = env_get('DASHSCOPE_TTS_URL') or DASHSCOPE_TTS_URL
     model = env_get('DASHSCOPE_TTS_MODEL') or 'cosyvoice-v1'
     style = (env_get('DASHSCOPE_TTS_STYLE') or 'v1').lower()
-    v = voice or env_get('DASHSCOPE_TTS_VOICE') or DASHSCOPE_VOICE
-    if style == 'v3':
+    v3 = (style == 'v3')
+    if v3:
+        # ★v3 = 新协议（同步）：音色必须是 qwen3 的 Cherry/Serena/Ethan/Chelsie
+        v = env_get('DASHSCOPE_TTS_VOICE') or qwen3_voice(voice)
         payload = {'model': model, 'input': {'text': text, 'voice': v}}
     else:
+        v = voice or env_get('DASHSCOPE_TTS_VOICE') or DASHSCOPE_VOICE
         payload = {'model': model, 'input': {'text': text},
                    'parameters': {'voice': v, 'format': 'mp3'}, 'action': 'run'}
     body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-    req = urllib.request.Request(url, data=body, method='POST', headers={
+    hdrs = {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer %s' % key,
-        'X-DashScope-Async': 'enable',
-    })
+    }
+    if not v3:
+        # ★实测：新端点（multimodal-generation）带上这个头会 403
+        #   "current user api does not support asynchronous calls" → 同步接口不能带
+        hdrs['X-DashScope-Async'] = 'enable'
+    req = urllib.request.Request(url, data=body, method='POST', headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             data = json.loads(r.read() or b'{}')
@@ -326,7 +358,21 @@ def tts_one(text, out_path, speaker=''):
 
 
 def _tts_volcano(text, out_path, speaker=''):
-    """火山 openspeech v3（兜底）。合成一句 → 写 mp3，返回【时长秒，0.0 = 失败】"""
+    """火山 openspeech v3（兜底）。先试映射音色；**没出声就用已验证可用的默认音色重试**。
+    ★VF_VOLCANO_RETRY_V1（2026-09-20 实测）：zh_female_vv_magic_bigtts 返回 0 字节
+      （账号音色包可能不含它）→ 降级用 VOLCANO_SPEAKER，宁可音色不理想也要有声。"""
+    spk = volcano_speaker(speaker)
+    dur = _volcano_once(text, out_path, spk)
+    if dur:
+        return dur
+    if spk != VOLCANO_SPEAKER:
+        print('  [tts] 火山「%s」没出声 → 用默认音色 %s 重试' % (spk, VOLCANO_SPEAKER))
+        return _volcano_once(text, out_path, VOLCANO_SPEAKER)
+    return 0.0
+
+
+def _volcano_once(text, out_path, spk):
+    """火山单次合成（返回【时长秒，0.0 = 失败】）"""
     app_id = env_get('VOLCANO_TTS_APP_ID')
     ak = env_get('VOLCANO_TTS_ACCESS_KEY')
     rid = env_get('VOLCANO_TTS_RESOURCE_ID')
@@ -335,8 +381,6 @@ def _tts_volcano(text, out_path, speaker=''):
     txt = (text or '').strip()
     if not txt:
         return 0.0
-    # ★VF_VOICE_MAP_V1：关键！把百炼音色名转成火山认的名字（否则火山 100% 失败 → 无声片）
-    spk = volcano_speaker(speaker)
     body = json.dumps({
         'user': {'uid': app_id},
         'req_params': {
