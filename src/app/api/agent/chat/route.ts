@@ -63,7 +63,12 @@ async function genVideoShots(o: {
   // ★VF_TYPEFIX_V1：合法 type 白名单（未知 type 会归一化成 bgimage/title，别丢内容）
   // ★2026-09-20：`timeline` 已移出白名单 —— render.py 的 CARDS 派发表里没有这个卡型，
   //   放行它会让 render.py 抛"未知配方卡"（现已同时改成降级 title，见 VF_UNKNOWNCARD_V1）。
-  const KNOWN_TYPES = ['bgimage', 'image', 'title', 'list', 'number', 'compare', 'chart', 'end']
+  // ★2026-09-20 收口：白名单只保留【prompt 会产出的 7 种】——
+  //   原来还放着 `image`/`timeline`：`image` 卡需要 AI 给出**本地 src 路径**（它根本给不出）
+  //   → 放行会让 render.py 拿到空路径 → 整镜渲染失败（与上轮 timeline 同一类问题）。
+  //   移除后，自造 `image`/`video`/`quote`/`timeline` 一律走"未知 type → 归一化成 bgimage/title"，
+  //   而那条路径**还会自动给它配图** —— 比放行更安全。
+  const KNOWN_TYPES = ['bgimage', 'title', 'list', 'number', 'compare', 'chart', 'end']
   // ★VF_PICKSPREAD_V1（2026-09-20 用户实测“6 镜只用到 2 张图”）：
   //   AI 给的 pick 常常反复用同一张 → 画面重复。改成**“用得最少优先 + 相邻不重复”**：
   //   ① AI 的 pick 只当“倾向”；若该图已超过合理次数、或与上一镜相同 → 换用得最少的
@@ -230,6 +235,10 @@ function vfSplitScript(script: string, n: number, maxLen = 45): string[] {
 /** ★VF_GATE_V1：拼“确认卡”。shotsFailed=true 时【不给确认出片】（用户实测：0 镜也放行 → 成片没画面） */
 function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect: string, cover = 1, estSec = 0): string {
   const voiceName = (vd.voiceList || VF_VOICE_BASE).find((v: any) => v.id === vd.voice)?.name || vd.voice || ''
+  // ★VF_THEMENAME_V1（2026-09-20）：风格 id → 用户看得懂的名字（卡片上显示“当前风格”，
+  //   否则用户选完风格，回头在确认卡上看不到自己选了哪个）
+  const _THEME_NAME: Record<string, string> = { dark: '深蓝科技', tech: '深青科技', light: '浅色纸感' }
+  const themeName = _THEME_NAME[String(vd.theme || 'dark')] || '深蓝科技'
   const cost = Math.max(1, Math.ceil(String(vd.script || '').length / 20))
   const charN = String(vd.script || '').length
   const targetSec = Math.round(Number(vd.dur) || 0)
@@ -248,12 +257,24 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
   }
   return 'VF_JSON:' + JSON.stringify({
     step: 'script', topic: vd.topic, script: vd.script,
-    shots: shots.map((s: any) => ({ type: s.type, text: s.text || s.title || String(s.value ?? '') })),
+    shots: shots.map((s: any) => ({
+      type: s.type,
+      // ★2026-09-20：原来只取 text/title/value → compare（左右对比）与 chart（数据条）
+      //   在卡片上是空的。补上这两类的可读摘要，让"分镜清单"能看出每镜讲什么。
+      text: s.text || s.title
+        || (s.type === 'compare' ? `${s.left || ''} vs ${s.right || ''}` : '')
+        || (s.type === 'chart' && Array.isArray(s.items)
+          ? s.items.map((x: any) => x && x.label).filter(Boolean).join(' / ') : '')
+        || String(s.value ?? ''),
+      // ★VF_SHOTDUR_V1（2026-09-20）：把【每镜时长】也传给卡片 ——
+      //   用户在"分镜清单"里就能看出哪一镜偏长（如 14 秒），不必等成片、也不必跑脚本。
+      dur: Math.round((Number(s.dur) || 0) * 10) / 10,
+    })),
     usedImages: imgN, brief: String(brief || '').slice(0, 400),
     voice: vd.voice, voiceName, theme: vd.theme, cost,
     aspect, aspectName: aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16',
     coverage: cover, estSec, targetSec,
-    hint: `看完你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}·配音 ${voiceName}）——回复「确认」开始出片；也可说要改什么`,
+    hint: `看完你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}·风格 ${themeName}·配音 ${voiceName}）——回复「确认」开始出片；也可说要改什么`,
   })
 }
 
@@ -477,7 +498,20 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const vfPlan = args.plan ? (typeof args.plan === 'string' ? args.plan : JSON.stringify(args.plan)) : ''
       if (!vfScript && !vfPlan) return 'TOOL_REJECT:缺少 script（文案/主题）或 plan（分镜 JSON）'
       const vfTheme = String(args.theme || 'dark')
-      const vfCost = Math.max(1, Math.ceil((vfScript || vfPlan).length / 20))
+      // ★VF_COSTFIX_V1（2026-09-20 端到端推演发现）：计费**不能用 plan 的 JSON 长度**（它比文案长一个量级）——
+      //   调用处走 plan 时**不传 script** → vfScript 为空 → 原来用 vfPlan.length 算价 →
+      //   36 镜的 JSON 约 5.4KB → 约 270 点，而卡片报价只有 41 点 → **实扣多出好几倍**。
+      //   现在：有 script 就用 script；只有 plan 时按【分镜 subtitle 总字数】估算 —— 与卡片报价同口径。
+      let vfBillChars = vfScript.length
+      if (!vfBillChars && vfPlan) {
+        try {
+          const _p = JSON.parse(vfPlan)
+          const _sh = Array.isArray(_p) ? _p : (_p && _p.shots) || []
+          vfBillChars = (Array.isArray(_sh) ? _sh : []).reduce(
+            (a: number, s: any) => a + String((s && (s.subtitle || s.text)) || '').length, 0)
+        } catch { vfBillChars = 0 }
+      }
+      const vfCost = Math.max(1, Math.ceil(vfBillChars / 20))
       if (!args.confirmed) {
         const what = vfPlan ? 'AI 分镜' : `文案 ${vfScript.length} 字`
         return `MAKE_VIDEO_COST:${what} → 本地配音+成片约 ${vfCost} 点（约¥${(vfCost / 100).toFixed(1)}）。请向用户报价并等确认（用户说"确认/生成吧/可以"即确认），确认后带 confirmed=true 开始生成。`
@@ -538,7 +572,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       try {
         const ch = spawn(py, argsVF, { windowsHide: true })
         let so = ''
-        const push = (d: any) => { so = (so + String(d)).slice(-5000) }
+        const push = (d: any) => { so = (so + String(d)).slice(-20000) }
         ch.stdout.on('data', push)
         ch.stderr.on('data', push)
         ch.on('close', async (code: number | null) => {
@@ -563,7 +597,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           writeVfTask({ id: vfTaskId, status: okDone ? 'done' : 'failed',
                         startedAt: vfStarted, finishedAt: new Date().toISOString(),
                         out: vfOut, cost: vfCost, code: code,
-                        tail: so.split('\n').filter(Boolean).slice(-8),
+                        tail: so.split('\n').filter(Boolean).slice(-40),
                         ...repoExtra })
           if (okDone) { spendTokens(uidVF, vfCost, 'make_ai_video').catch(() => {}) }
         })
@@ -2940,7 +2974,7 @@ PUBLISH_DRAFT.delete(uidW)
               } else {
                 // ── 确认 → 后台出片（确定性，走现有 make_ai_video）──
                 const vfRun = await executeToolCall('make_ai_video', (vd.shots?.length && !vfForce)
-                  ? { plan: JSON.stringify({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }), theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }
+                  ? { plan: JSON.stringify({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }), script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }
                   : { script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }, auth)
                 vd.step = 'running'
                 VIDEO_DRAFT.set(uidVF2, vd)

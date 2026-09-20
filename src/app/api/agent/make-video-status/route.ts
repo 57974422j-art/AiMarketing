@@ -28,13 +28,19 @@ export async function GET(request: NextRequest) {
     const tasks = files.map((f) => {
       try {
         const t = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
-        const dur = t.startedAt ? Math.round((Date.now() - new Date(t.startedAt).getTime()) / 1000) : 0
+        // ★VF_ELAPSED_V1（2026-09-20 端到端推演发现）：已完成的任务原来也用 Date.now() 算耗时
+        //   → 前端会一直显示"跑了 N 小时"（数字还在涨）。有 finishedAt 就用它，没有才用当前时间。
+        const _t0 = t.startedAt ? new Date(t.startedAt).getTime() : 0
+        const _t1 = t.finishedAt ? new Date(t.finishedAt).getTime() : Date.now()
+        const dur = _t0 ? Math.round((_t1 - _t0) / 1000) : 0
         return {
           id: t.id, status: t.status, elapsedSec: dur,
           out: t.out || '', cost: t.cost || 0,
           // ★VF_REPO_V1（2026-09-18）：成片入库后的仓库文件名 + 24h 签名直链（前端给下载入口）
           repoName: t.repoName || '', url: t.url || '',
-          tail: (t.tail || []).slice(-6),
+          // ★VF_TAIL_V2（2026-09-20）：任务文件里现在留 40 行，而这里原来又砍到 6 行
+          //   （等于上层的扩容白做）→ 放宽到 30 行，诊断时能看到 TTS/渲染的关键行。
+          tail: (t.tail || []).slice(-30),
           error: t.error || '',
         }
       } catch (e) {

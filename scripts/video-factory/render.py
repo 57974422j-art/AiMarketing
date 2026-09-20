@@ -781,14 +781,19 @@ def main():
 
     print('[VF] ffmpeg=%s  字体=%s' % (ffmpeg, find_font(th.get('font', 'msyh')) or '(无)'))
     files = []
+    _total_dur = 0.0
     for i, shot in enumerate(sb.get('shots', [])):
         p = render_shot(shot, th, wd, i, W, H, fps, ffmpeg)
-        print('[VF] 第 %d 镜 OK  %-8s -> %s' % (i + 1, shot.get('type'), os.path.basename(p)))
+        # ★VF_SHOTLOG_V1（2026-09-20）：日志带上【本镜时长】—— 不必再跑 Python 脚本查"每镜几秒"
+        #   （对"一镜 14 秒太闷"这类问题，一眼就能从日志看出是否正常）
+        _d = float(shot.get('dur', 0) or 0)
+        _total_dur += _d
+        print('[VF] 第 %d 镜 OK  %-8s %5.1fs -> %s' % (i + 1, shot.get('type'), _d, os.path.basename(p)))
         files.append(p)
     if not files:
         print('[VF] 没有镜头'); sys.exit(3)
     merged = concat_shots(files, wd, ffmpeg, W, H, fps)
-    print('[VF] 拼接完成 -> %s' % merged)
+    print('[VF] 拼接完成 -> %s（共 %d 镜 %.1f 秒）' % (merged, len(files), _total_dur))
 
     # ★ 字幕（默认开）：由分镜时长累加生成 SRT —— 唯一真相源，不另算时间
     video_for_audio = merged

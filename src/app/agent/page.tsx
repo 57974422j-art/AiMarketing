@@ -475,6 +475,9 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
   const [topic, setTopic] = useState(vj.topic || '')
   const [script, setScript] = useState('')
   const [bgm, setBgm] = useState('auto')   // ★VF_BGM_V1：默认自动配乐（AI 音乐库挑一首）
+  // ★VF_THEME_UI_V1（2026-09-20）：画面风格 —— render.py 早就有 3 套主题预设（dark/tech/light），
+  //   之前没在表单里暴露 → 用户永远只能拿到 dark。这里加一栏让用户选。
+  const [theme, setTheme] = useState(vj.theme || 'dark')
   const [openAdv, setOpenAdv] = useState(false)
   // ★VF_UPLOAD_V1（2026-09-20）：「📤 我上传素材」真正可用 —— 选文件 → 传到个人仓库
   //   （POST /api/storage/files，与素材页同一个接口）→ 本次成片只从【最近上传】取画面。
@@ -583,6 +586,15 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
         </div>
       </div>
 
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">画面风格 <span className="text-gray-600">（底色/文字/强调色）</span></div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(theme, 'dark', '🌌 深蓝科技', setTheme)}
+          {R(theme, 'tech', '🧊 深青科技', setTheme)}
+          {R(theme, 'light', '📄 浅色纸感', setTheme)}
+        </div>
+      </div>
+
       <button onClick={() => setOpenAdv(!openAdv)} className="text-[10px] text-gray-500 hover:text-gray-300 mb-2">
         {openAdv ? '▲ 收起「我已有文案」' : '▼ 我已有文案（点这里贴）'}
       </button>
@@ -594,7 +606,7 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
 
       <button
         onClick={() => onStart('VF_FORM:' + JSON.stringify({
-          aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm,
+          aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme,
           // ★VF_UPLOAD_V2（2026-09-20）：把**刚上传的文件名**一起发给后端 → 成片精确只用这几张
           //   （不再靠后端"按时间猜最近"，也就不会再挑到旧素材）
           ...(uploaded.length ? { uploaded } : {}),
@@ -698,11 +710,24 @@ function AgentPageInner() {
     let ticks = 0
     const iv = setInterval(async () => {
       ticks++
-      if (ticks > 300) { clearInterval(iv); return }   // 最多看 ~30 分钟
+      if (ticks > 300) {
+        // ★VF_POLLTIMEOUT_V1（2026-09-20 端到端推演发现）：原来超时是【悄悄 clearInterval】
+        //   → 用户不知道发生了什么，一直在等。改成明确告知。
+        clearInterval(iv)
+        if (!stopped) {
+          setMessages(prev => [...prev, { id: 'mv-' + Date.now(), role: 'assistant',
+            content: '⏱️ 这条成片任务等太久了（超过 30 分钟还没有结果）——可能服务器忙或中途中断了。\n你可以问我"视频做得怎么样了"看进度，或让我重新做一条。' }])
+        }
+        return
+      }
       try {
         const r = await fetch('/api/agent/make-video-status?userId=' + (user?.id || '') + '&taskId=' + taskId, { credentials: 'include' }).then(r2 => r2.json())
         if (!r?.success || !Array.isArray(r.tasks) || !r.tasks.length) return
-        const t = r.tasks.find((x: any) => x.id === taskId) || r.tasks[0]
+        // ★VF_POLLMATCH_V1（2026-09-20 端到端推演发现）：原来 `find(...) || r.tasks[0]` ——
+        //   接口返回的是【最近 5 个任务】，一旦 find 没命中就会拿到**别的任务**的状态
+        //   → 可能误报"完成/失败"（并发任务、或任务文件被清理时尤其危险）。必须精确命中。
+        const t = r.tasks.find((x: any) => x.id === taskId)
+        if (!t) return
         if (t.status === 'done') {
           clearInterval(iv)
           handledMakeVideos.current.add(taskId)
@@ -2189,7 +2214,11 @@ function AgentPageInner() {
       try {
         const md = JSON.parse(content.slice(16))
         const src = md.repoName ? ('/api/storage/file?userId=' + (user?.id || '') + '&name=' + encodeURIComponent(md.repoName) + '&persist=1') : ''
-        if (src) { try { (window as any).electronAPI?.storageMirror?.(src) } catch {} }
+        // ★VF_MIRRORHONEST_V1（2026-09-20 端到端推演发现）：`storageMirror` 只在**客户端**存在
+        //   （浏览器里没有 electronAPI，会静默失败），但卡片原来**无条件**写"（本地仓库自动同步）"
+        //   → 浏览器里/镜像失败时这句是**假的**。这里按实际能力说。
+        const _canMirror = typeof window !== 'undefined' && !!(window as any).electronAPI?.storageMirror
+        if (src && _canMirror) { try { (window as any).electronAPI.storageMirror(src) } catch {} }
         return (
           <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
             <div className="text-xs text-emerald-300 mb-2">🎬 本地成片已完成（配音 + 字幕 + 画面）</div>
@@ -2198,7 +2227,7 @@ function AgentPageInner() {
             ) : (
               <div className="text-xs text-amber-400">成片已生成，但仓库文件名缺失（{md.out || '未知'}）</div>
             )}
-            {md.repoName ? <div className="text-[10px] text-gray-500 mt-2">已入个人仓库：{md.repoName}（本地仓库自动同步）</div> : null}
+            {md.repoName ? <div className="text-[10px] text-gray-500 mt-2">已入个人仓库：{md.repoName}{_canMirror ? '（已同步到本地仓库）' : '（在客户端里打开会自动同步到本地）'}</div> : null}
             {md.repoError ? <div className="text-[10px] text-amber-400 mt-1">入库提示：{md.repoError}</div> : null}
           </div>
         )
@@ -2273,6 +2302,26 @@ function AgentPageInner() {
                   📸 看完你仓库里 {vj.usedImages || 0} 张图，排了 {(vj.shots || []).length} 个镜头{(vj.shots || []).some((s: any) => s.type === 'bgimage') ? '（画面用你的素材）' : ''}
                 </div>
               ) : null}
+              {/* ★VF_SHOTLIST_V1（2026-09-20）：可展开的「分镜清单」——
+                  用户问过"只有这一种效果吗"，但卡片原来只显示"N 个镜头"，
+                  看不到【用了哪些卡型】【每镜讲什么】。现在展开就能看到。 */}
+              {Array.isArray(vj.shots) && vj.shots.length > 0 && (
+                <details className="mb-2">
+                  <summary className="text-[10px] text-gray-500 cursor-pointer">
+                    分镜清单（{vj.shots.length} 镜 · {Array.from(new Set(vj.shots.map((s: any) => String(s.type || '')))).join(' / ')}）
+                  </summary>
+                  <div className="mt-1 space-y-0.5">
+                    {vj.shots.map((s: any, i: number) => (
+                      <div key={i} className="text-[10px] text-gray-400">
+                        <span className="text-gray-600">{i + 1}.</span>{' '}
+                        <span className="text-gray-500">{String(s.type || '')}</span>{' '}
+                        <span className="text-emerald-300/60">{s.dur ? s.dur + 's' : ''}</span>{' '}
+                        {String(s.text || '')}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
               {vj.brief ? (
                 <details className="mb-2">
                   <summary className="text-[10px] text-gray-500 cursor-pointer">素材识别结果</summary>
