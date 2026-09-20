@@ -46,7 +46,7 @@ async function genVideoShots(o: {
   const imgs = (o.imgPaths || []).filter(Boolean)
   const charN = String(o.script || '').length
   const avgN = Math.max(8, Math.round(charN / Math.max(1, o.shotN)))
-  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 5 种：bgimage / title / list / number / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。\n编镜依据（文案）：\n${o.script}`
+  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。\n编镜依据（文案）：\n${o.script}`
   let raw = ''
   try { raw = (await generateText(prompt)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
   let arr = vfParseShots(raw)
@@ -60,31 +60,81 @@ async function genVideoShots(o: {
     } catch (e: any) { vfLog(o.uid, '[分镜重试异常] ' + String(e?.message || e).slice(0, 120)) }
   }
   if (!arr) { vfLog(o.uid, '[分镜] 0 镜（解析失败，已重试）'); return [] }
-  let seq = 0
-  // ★VF_TYPEFIX_V1（2026-09-20，实测 [分镜构成] 出现 `subtitle` 这种**自造 type**：
-  //   render.py 不认 → 画面丢失；我统计覆盖率时也漏掉它里面的文案 → 覆盖率虚低（34%）。
-  //   处理：① 合法 type 原样通过 ② 未知 type 归一化成 bgimage/title，**文案从 subtitle/text/content 里捞**。
-  const KNOWN_TYPES = ['bgimage', 'image', 'title', 'list', 'number', 'compare', 'chart', 'timeline', 'end']
+  // ★VF_TYPEFIX_V1：合法 type 白名单（未知 type 会归一化成 bgimage/title，别丢内容）
+  // ★2026-09-20：`timeline` 已移出白名单 —— render.py 的 CARDS 派发表里没有这个卡型，
+  //   放行它会让 render.py 抛"未知配方卡"（现已同时改成降级 title，见 VF_UNKNOWNCARD_V1）。
+  const KNOWN_TYPES = ['bgimage', 'image', 'title', 'list', 'number', 'compare', 'chart', 'end']
+  // ★VF_PICKSPREAD_V1（2026-09-20 用户实测“6 镜只用到 2 张图”）：
+  //   AI 给的 pick 常常反复用同一张 → 画面重复。改成**“用得最少优先 + 相邻不重复”**：
+  //   ① AI 的 pick 只当“倾向”；若该图已超过合理次数、或与上一镜相同 → 换用得最少的
+  //   ② 每用一次计数 +1 → 天然均匀分布
+  // ★VF_NOCLONE_V1（2026-09-20 用户实测“画面大字一直没变过”）：
+  //   AI 会**照抄 prompt 示例里的文字**（示例：效率翻10倍/AI营销系统/三大能力/评论区见…）
+  //   → 命中示例词的一律清掉：宁可这一镜没有大字，也不要每条成片都一样。
+  const usedCnt = new Array(Math.max(1, imgs.length)).fill(0)
+  let lastIdx = -1
+  // ★VF_NOCLONE_V1：示例词黑名单（照抄的"特征词"；太通用的（如 AI / 人工）故意不收，避免误伤）
+  const DEMO_WORDS = new Set([
+    '效率翻10倍', 'AI营销系统', '三大能力', '效率提升', '评论区见', '点击咨询', '写文案', '做视频', '自动发布',
+    '旧做法', '新做法', '一句话说明', '效果对比',
+  ])
+  const notDemo = (v: any): string => {
+    const t = String(v == null ? '' : v).trim()
+    return t && !DEMO_WORDS.has(t) ? t : ''
+  }
+  const nextIdx = (want: number): number => {
+    const n = imgs.length
+    if (!n) return -1
+    const cap = Math.max(1, Math.ceil((o.shotN || 8) / n))   // 每张图的合理上限（按目标镜数摊）
+    let idx = (Number.isFinite(want) && want >= 1 && want <= n) ? want - 1 : -1
+    if (idx < 0 || idx === lastIdx || usedCnt[idx] > cap) {
+      let best = -1
+      for (let k = 0; k < n; k++) {
+        if (k === lastIdx) continue
+        if (best < 0 || usedCnt[k] < usedCnt[best]) best = k
+      }
+      idx = best >= 0 ? best : (lastIdx + 1) % n
+    }
+    if (idx >= 0 && idx < n) usedCnt[idx]++
+    lastIdx = idx
+    return idx
+  }
   const shots = arr.map((s: any) => {
     const ty = String(s?.type || '')
     if (ty === 'bgimage' || ty === 'image') {
-      const n = parseInt(s.pick)
-      const use = (Number.isFinite(n) && n >= 1 && n <= imgs.length) ? n - 1 : (seq++ % Math.max(1, imgs.length))
-      const lp = imgs[Math.max(0, Math.min(imgs.length - 1, use))]
-      // 注意：bgimage 的 text 是“画面大字”，**不能**当配音文案，所以这里只取 subtitle
       const sub = String(s.subtitle || '').slice(0, 200)
-      if (!lp) return { type: 'title', text: String(s.text || '看点').slice(0, 14), subtitle: sub, dur: 3.5 }
-      return { type: 'bgimage', src: lp, text: String(s.text || '').slice(0, 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)) }
+      const idx = nextIdx(parseInt(s.pick))
+      const lp = idx >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, idx))] : ''
+      if (!lp) return { type: 'title', text: notDemo(s.text), subtitle: sub, dur: 3.5 }
+      // 注意：bgimage 的 text 是“画面大字”，**不能**当配音文案，所以这里只取 subtitle
+      return { type: 'bgimage', src: lp, text: notDemo(s.text).slice(0, 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)) }
     }
-    if (KNOWN_TYPES.includes(ty)) return s
+    if (KNOWN_TYPES.includes(ty)) {
+      // ★VF_NOCLONE_V1：清掉照抄的示例文字（text/title/label/cta/items）
+      const o: any = { ...s }
+      if (o.text !== undefined) o.text = notDemo(o.text)
+      if (o.title !== undefined) o.title = notDemo(o.title)
+      if (o.label !== undefined) o.label = notDemo(o.label)
+      if (o.cta !== undefined) o.cta = notDemo(o.cta)
+      if (Array.isArray(o.items)) {
+        // ★2026-09-20 修（放开 chart 卡时核对下游发现）：items 有两种形态 ——
+        //   list 卡是 string[]；**chart 卡是 [{label,value}] 对象数组**。
+        //   原来一律 notDemo(x) → 对象会被 String() 成 "[object Object]" → card_chart 渲染崩。分形态处理。
+        o.items = o.items
+          .map((x: any) => (x && typeof x === 'object' ? { ...x, label: notDemo(x.label) } : notDemo(x)))
+          .filter((x: any) => (x && typeof x === 'object' ? true : !!x))
+      }
+      return o
+    }
     // 未知 type（AI 自造）→ 别丢内容：文案取 subtitle/text/content/script，画面用素材轮换
     const sub2 = String(s?.subtitle || s?.text || s?.content || s?.script || '').trim().slice(0, 200)
     if (!sub2) return null
-    const lp2 = imgs[seq++ % Math.max(1, imgs.length)]
-    const head2 = String(s?.title || s?.text || sub2.slice(0, 8)).slice(0, 14)
+    const idx2 = nextIdx(-1)
+    const lp2 = idx2 >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, idx2))] : ''
+    const head2 = notDemo(s?.title) || notDemo(s?.text) || sub2.slice(0, 8)
     const dur2 = Math.min(8, Math.max(2, parseInt(s?.dur) || 5))
-    if (!lp2) return { type: 'title', text: head2, subtitle: sub2, dur: dur2 }
-    return { type: 'bgimage', src: lp2, text: head2, subtitle: sub2, dur: dur2 }
+    if (!lp2) return { type: 'title', text: String(head2).slice(0, 14), subtitle: sub2, dur: dur2 }
+    return { type: 'bgimage', src: lp2, text: String(head2).slice(0, 14), subtitle: sub2, dur: dur2 }
   }).filter(Boolean).slice(0, Math.max(4, Math.min(40, o.shotN || 8)))
   // ★VF_SHOTCOUNT_V1（2026-09-20 用户实测“13 镜/190 秒、一镜 14.6 秒太闷”）：
   //   AI 常排不够镜头（目标 36 只给 13），而兜底又是“按现有镜数切” → 一镜 24 秒。
@@ -2643,6 +2693,9 @@ PUBLISH_DRAFT.delete(uidW)
                   const f = JSON.parse(_mForm[1]) || {}
                   if (f.aspect) vd.aspect = String(f.aspect)
                   if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
+                  // ★VF_THEME_UI_V1（2026-09-20）：画面风格（dark / tech / light）—— 之前表单没暴露，只能默认 dark
+                  //   ★白名单校验：make.py 的 --theme 是 choices=[dark,light,tech]，传别的值 argparse 会直接报错
+                  if (f.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(f.theme)) ? String(f.theme) : 'dark'
                   if (f.voice) vd.voice = String(f.voice)
                   if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = f.topic.trim().slice(0, 300)
                   if (f.script && String(f.script).trim()) vd.formScript = String(f.script).trim().slice(0, 4000) // 用户直接贴了文案
@@ -2870,6 +2923,8 @@ PUBLISH_DRAFT.delete(uidW)
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
                 if (!vfHasPlan) vfLog(uidVF2, `[分镜门禁] ${vfShots.length} 镜 / 覆盖 ${Math.round(vfCover * 100)}% → **不给确认出片**`)
                 wfEarlyReply = vfScriptCard(vd, vfShots, vfImgs.length, String(vfBrief || ''), vfAspect, vfCover, vfEstSec)
+                // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
+                vfLog(uidVF2, `[概要] 图${vfImgs.length}张 镜${vfShots.length}个 风格=${vd.theme || 'dark'} 画幅=${vfAspect}(${vfSize[0]}x${vfSize[1]}) 配音=${vd.voice || '-'} 时长≈${Math.round(vfSubLen / 4.5)}秒`)
                 finalResult = wfEarlyReply
                 vfLog(uidVF2, `[起草] 图${vfImgs.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
                 vfLog(uidVF2, `[分镜构成] ${vfShots.map((x: any) => x.type).join(',')}`)

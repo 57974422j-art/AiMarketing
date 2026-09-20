@@ -12,7 +12,7 @@
 
 用法:
   python render.py --storyboard sb.json --out out.mp4 [--workdir temp/vf] [--audio voice.m4a]
-  python render.py --selftest        # 跑一遍内置样例，验证 5 张配方卡
+  python render.py --selftest        # 跑一遍内置样例，验证 8 种卡型（含 compare/chart/quote）
 
 支持的配方卡（先 5 张）:
   title    标题卡（大字 + 淡入）
@@ -383,9 +383,13 @@ def _reveal_seq(shot, font, fs, txc, dur):
     for i in range(1, nch + 1):
         st = t0 + step * (i - 1)
         en = dur if i == nch else (t0 + step * i)
+        # ★VF_TEXTSTROKE_V1（2026-09-20）：画面大字是压在【素材照片】上的，底色不可控 ——
+        #   加一圈深色描边，浅色主题 / 亮底素材也能看清
+        #   （加"浅色纸感"主题后才发现：light 主题字色近黑，压在深色照片上会糊）
         out.append(
             f"drawtext=fontfile='{font}':text='{esc_text(''.join(chars[:i]))}':fontsize={fs}:"
-            f"fontcolor={txc}:x=(w-text_w)/2:y=(h-text_h)/2:enable='between(t,{st:.2f},{en:.2f})'"
+            f"fontcolor={txc}:borderw=2:bordercolor=black@0.65:"
+            f"x=(w-text_w)/2:y=(h-text_h)/2:enable='between(t,{st:.2f},{en:.2f})'"
         )
     return out
 
@@ -464,7 +468,15 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
     typ = shot.get('type', 'title')
     fn = CARDS.get(typ)
     if not fn:
-        raise RuntimeError('未知配方卡: ' + typ)
+        # ★VF_UNKNOWNCARD_V1（2026-09-20）：AI 可能自造卡型（实测出现过 `subtitle` 卡）——
+        #   原来直接 raise → **整镜渲染失败**（严重时整片出不来）。
+        #   改为**降级成 title 卡**：宁可这一镜样式朴素，也不要整条视频挂掉。
+        print('[VF] ⚠️ 未知配方卡「%s」→ 降级为 title 卡' % typ)
+        shot = dict(shot)
+        shot['type'] = 'title'
+        shot['text'] = str(shot.get('text') or shot.get('title') or shot.get('subtitle') or '')[:24]
+        fn = card_title
+        typ = 'title'
     inp, vf, dur = fn(shot, th, W, H, fps)
     out = os.path.join(workdir, 'shot%02d.mp4' % idx)
     # ★VF_TRANS_V1（2026-09-20）：每镜首尾轻微淡入淡出（≤0.2s）——比硬切自然；
@@ -717,6 +729,17 @@ def main():
                  "items": ["做内容", "发视频", "看数据"], "dur": 6},
                 {"type": "number", "value": 300, "suffix": "+", "label": "已服务客户",
                  "subtitle": "已经服务三百家客户", "dur": 3},
+                # ★VF_SELFTEST_V2（2026-09-20）：把【compare / chart / quote】也纳入自检 ——
+                #   上轮刚把 prompt 白名单放开到 7 种（新增 compare/chart），却从没验证过它们能渲染；
+                #   quote 属"兜底归一化"路径，一并验证渲染器没坏。
+                {"type": "compare", "left": "手工剪辑", "right": "本地成片",
+                 "leftDesc": "一条要半天", "rightDesc": "五分钟出片",
+                 "subtitle": "对比一下两种做法的耗时", "dur": 4},
+                {"type": "chart", "title": "出片效率",
+                 "items": [{"label": "手工", "value": 32}, {"label": "本地成片", "value": 78}],
+                 "subtitle": "效率差距大约是这个比例", "dur": 5},
+                {"type": "quote", "text": "省下来的时间就是钱",
+                 "from": "某位内测用户", "subtitle": "有位内测用户这么说", "dur": 4},
                 {"type": "end", "text": "开始出片", "cta": "点击咨询", "subtitle": "现在就试试", "dur": 2.5},
             ],
         }
