@@ -2487,7 +2487,17 @@ PUBLISH_DRAFT.delete(uidW)
                   const m0 = String(vfPlanRaw).match(/\{[\s\S]*\}/)
                   vfPlanObj = JSON.parse(m0 ? m0[0] : '{}')
                 } catch { vfPlanObj = null }
-                const vfScript2 = String(vfPlanObj?.script || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 600)
+                let vfScript2 = String(vfPlanObj?.script || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 3000)
+                // ★VF_DURLEN_V1（2026-09-20，用户实测：选 180 秒却只出 15 秒）：
+                //   光在 prompt 里"要求字数"没用（AI 会自行缩水）→ 代码校验，不够就让它扩写一次
+                const vfNeed = Math.round(vfDur * 4.5)
+                if (vfScript2 && vfScript2.length < vfNeed * 0.75) {
+                  try {
+                    const vfEx = await generateText(`把下面这段口播文案扩写到 ${vfNeed} 字左右（现在只有 ${vfScript2.length} 字）。要求：保留全部数字与专业术语、不改主题、不啰嗦重复、句子仍用「。」「！」断句、只输出文案本身。\n原文：${vfScript2}`)
+                    const vfEx2 = String(vfEx || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 3000)
+                    if (vfEx2.length > vfScript2.length) { vfLog(uidVF2, `[扩写] ${vfScript2.length} → ${vfEx2.length} 字（目标 ${vfNeed}）`); vfScript2 = vfEx2 }
+                  } catch {}
+                }
                 // ★VF_MATN_V1：排分镜可用的图 = 每 30 秒 5 张（上限 40；仓库不够就有多少用多少）
                 const vfMatN = Math.max(5, Math.min(40, Math.round(vfDur / 30) * 5))
                 const vfImgList = vfMats.filter((m: any) => m.kind === 'image').slice(0, vfMatN)
@@ -2510,7 +2520,7 @@ PUBLISH_DRAFT.delete(uidW)
                     return { type: 'bgimage', src: lp, text: String(s.text || '').slice(0, 14), dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)) }
                   }
                   return s
-                }).slice(0, 8)
+                }).slice(0, Math.max(4, Math.min(40, vfShotN || 8)))
                 const vfHasPlan = vfShots.length >= 2 && !!vfScript2
                 vd.script = vfScript2 || vd.topic || '看这条视频'
                 vd.shots = vfHasPlan ? vfShots : undefined

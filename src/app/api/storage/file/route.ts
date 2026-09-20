@@ -30,14 +30,24 @@ export async function GET(request: NextRequest) {
   try {
     const oss = await getOSSClient()
 
-    // 视频用 fetch 签名 URL（已验证可正常播放/显示首帧）
+    // ★2026-09-20 修（用户实测：播放每 3 秒卡一下、像暂停）
+    //   老做法：把整个视频 fetch 进 Node 内存再吐出去，且不返回 Accept-Ranges
+    //   → 浏览器无法 Range 请求 → 必须整段下完才能续播 → 长视频必卡（还吃服务器内存）
+    //   新做法（仅播放，非下载）：302 跳到 OSS 签名 URL —— OSS 原生支持 Range/边下边播，
+    //   服务器零内存开销；签名 1 小时有效且每次请求重新签，不会过期
+    if (isVideo && !isDownload) {
+      const url = await signedUrl(key, 3600)
+      return NextResponse.redirect(url, 302)
+    }
+
+    // 视频下载 / 图片等小文件：保持读回来的方式
     if (isVideo) {
       const url = await signedUrl(key)
       const resp = await fetch(url)
       if (!resp.ok) throw new Error(`OSS读取失败: ${resp.status}`)
       const buffer = Buffer.from(await resp.arrayBuffer())
       return new NextResponse(buffer, {
-        headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=86400', ...(isDownload ? { 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(name) } : {}) },
+        headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=86400', 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(name) },
       })
     }
 
