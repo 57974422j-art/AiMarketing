@@ -46,7 +46,7 @@ async function genVideoShots(o: {
   const imgs = (o.imgPaths || []).filter(Boolean)
   const charN = String(o.script || '').length
   const avgN = Math.max(8, Math.round(charN / Math.max(1, o.shotN)))
-  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】）：\n[{"type":"bgimage","pick":1,"text":"4~8字短语（画面大字）","subtitle":"这一镜要念的文案（20~60 字，覆盖全文）","dur":7},{"type":"title","text":"标题","subtitle":"这一镜念的文案","dur":5},{"type":"list","title":"要点","items":["A","B"],"subtitle":"这一镜念的文案","dur":6},{"type":"number","value":300,"suffix":"+","label":"标签","subtitle":"这一镜念的文案","dur":5},{"type":"end","text":"结尾","cta":"点击咨询","subtitle":"这一镜念的文案","dur":5}]\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。\n编镜依据（文案）：\n${o.script}`
+  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 5 种：bgimage / title / list / number / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。\n编镜依据（文案）：\n${o.script}`
   let raw = ''
   try { raw = (await generateText(prompt)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
   let arr = vfParseShots(raw)
@@ -61,18 +61,60 @@ async function genVideoShots(o: {
   }
   if (!arr) { vfLog(o.uid, '[分镜] 0 镜（解析失败，已重试）'); return [] }
   let seq = 0
+  // ★VF_TYPEFIX_V1（2026-09-20，实测 [分镜构成] 出现 `subtitle` 这种**自造 type**：
+  //   render.py 不认 → 画面丢失；我统计覆盖率时也漏掉它里面的文案 → 覆盖率虚低（34%）。
+  //   处理：① 合法 type 原样通过 ② 未知 type 归一化成 bgimage/title，**文案从 subtitle/text/content 里捞**。
+  const KNOWN_TYPES = ['bgimage', 'image', 'title', 'list', 'number', 'compare', 'chart', 'timeline', 'end']
   const shots = arr.map((s: any) => {
-    if (s?.type === 'bgimage' || s?.type === 'image') {
+    const ty = String(s?.type || '')
+    if (ty === 'bgimage' || ty === 'image') {
       const n = parseInt(s.pick)
       const use = (Number.isFinite(n) && n >= 1 && n <= imgs.length) ? n - 1 : (seq++ % Math.max(1, imgs.length))
       const lp = imgs[Math.max(0, Math.min(imgs.length - 1, use))]
-      if (!lp) return { type: 'title', text: String(s.text || '看点').slice(0, 14), subtitle: String(s.subtitle || s.text || '').slice(0, 200), dur: 3.5 }
-      return { type: 'bgimage', src: lp, text: String(s.text || '').slice(0, 14), subtitle: String(s.subtitle || '').slice(0, 200), dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)) }
+      // 注意：bgimage 的 text 是“画面大字”，**不能**当配音文案，所以这里只取 subtitle
+      const sub = String(s.subtitle || '').slice(0, 200)
+      if (!lp) return { type: 'title', text: String(s.text || '看点').slice(0, 14), subtitle: sub, dur: 3.5 }
+      return { type: 'bgimage', src: lp, text: String(s.text || '').slice(0, 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)) }
     }
-    return s
-  }).slice(0, Math.max(4, Math.min(40, o.shotN || 8)))
+    if (KNOWN_TYPES.includes(ty)) return s
+    // 未知 type（AI 自造）→ 别丢内容：文案取 subtitle/text/content/script，画面用素材轮换
+    const sub2 = String(s?.subtitle || s?.text || s?.content || s?.script || '').trim().slice(0, 200)
+    if (!sub2) return null
+    const lp2 = imgs[seq++ % Math.max(1, imgs.length)]
+    const head2 = String(s?.title || s?.text || sub2.slice(0, 8)).slice(0, 14)
+    const dur2 = Math.min(8, Math.max(2, parseInt(s?.dur) || 5))
+    if (!lp2) return { type: 'title', text: head2, subtitle: sub2, dur: dur2 }
+    return { type: 'bgimage', src: lp2, text: head2, subtitle: sub2, dur: dur2 }
+  }).filter(Boolean).slice(0, Math.max(4, Math.min(40, o.shotN || 8)))
   vfLog(o.uid, `[分镜] ${shots.length} 镜`)
   return shots
+}
+
+/** ★VF_SUBFILL_V1：把口播文案**按顺序**切成 n 段（尽量在句末断开）
+ *  用于 subtitle 兜底 —— 文案本来就是连续口播稿，顺序切分自洽，覆盖率必然 ~100%。
+ */
+function vfSplitScript(script: string, n: number): string[] {
+  const sents: string[] = []
+  let cur = ''
+  for (const ch of String(script || '')) {
+    cur += ch
+    if ('。！？!?'.includes(ch)) { const t = cur.trim(); if (t) sents.push(t); cur = '' }
+  }
+  if (cur.trim()) sents.push(cur.trim())
+  if (!sents.length || n <= 0) return []
+  const total = sents.reduce((a, s) => a + s.length, 0)
+  const per = total / n
+  const out: string[] = []
+  let acc = ''
+  for (const s of sents) {
+    // 加上这句会明显超一倍 → 先收一段（且还剩有余量开新段）
+    if (acc && (acc.length + s.length) > per * 1.6 && out.length < n - 1) { out.push(acc); acc = s }
+    else acc += s
+  }
+  if (acc) out.push(acc)
+  while (out.length < n) out.push('')                       // 段数不足 → 空段占位（不硬拆句）
+  while (out.length > n) { const last = out.pop() || ''; out[out.length - 1] = (out[out.length - 1] || '') + last }
+  return out
 }
 
 /** ★VF_GATE_V1：拼“确认卡”。shotsFailed=true 时【不给确认出片】（用户实测：0 镜也放行 → 成片没画面） */
@@ -2702,10 +2744,27 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_COVER_V1（2026-09-20，用户定案“严格 180 秒 = 文案要写成 ~810 字且被念完”）：
                 //   实测 1370 字文案 + 17 镜 → subtitle 只覆盖 ~30% → 成片 110 秒、后 70% 文案从没被念。
                 //   → 这里算**覆盖率**，不达标就不给出片（状态机门槛）。
-                const vfSubLen = vfShots.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
-                const vfCover = vfScript2 ? vfSubLen / vfScript2.length : 0
+                let vfSubLen = vfShots.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
+                let vfCover = vfScript2 ? vfSubLen / vfScript2.length : 0
+                vfLog(uidVF2, `[覆盖率] subtitle ${vfSubLen} 字 / 文案 ${vfScript2.length} 字 = ${Math.round(vfCover * 100)}%`)
+                // ★VF_SUBFILL_V1（2026-09-20）：AI 常把 subtitle 写太短（实测 11 字/镜 → 只覆盖 34%）。
+                //   兜底（确定性）：**把文案按顺序切成 N 段，逐镜填进 subtitle**（type/画面都不动）。
+                if (vfShots.length >= 2 && vfCover < 0.8 && String(vfScript2 || '').length > 0) {
+                  const before = Math.round(vfCover * 100)
+                  const segs = vfSplitScript(vfScript2, vfShots.length)
+                  let sum = 0
+                  for (let i = 0; i < vfShots.length; i++) {
+                    const curSub = String(vfShots[i]?.subtitle || '')
+                    const seg = String(segs[i] || '')
+                    const useIt = seg.length > curSub.length ? seg : curSub   // 只增不减
+                    vfShots[i] = { ...vfShots[i], subtitle: useIt.slice(0, 300) }
+                    sum += useIt.length
+                  }
+                  vfSubLen = sum
+                  vfCover = vfScript2 ? vfSubLen / vfScript2.length : 0
+                  vfLog(uidVF2, `[字幕兜底] AI 只覆盖 ${before}% → 按顺序切成 ${vfShots.length} 段填入 → 覆盖 ${Math.round(vfCover * 100)}%（预计 ${Math.round(vfSubLen / 4.5)} 秒）`)
+                }
                 const vfEstSec = Math.round(vfSubLen / 4.5)
-                vfLog(uidVF2, `[覆盖率] subtitle ${vfSubLen} 字 / 文案 ${vfScript2.length} 字 = ${Math.round(vfCover * 100)}%（预计 ${vfEstSec} 秒 / 目标 ${vfDur} 秒）`)
                 const vfHasPlan = vfShots.length >= 2 && !!vfScript2 && vfCover >= 0.8
                 vd.script = vfScript2 || vd.topic || '看这条视频'
                 vd.shots = vfHasPlan ? vfShots : undefined
