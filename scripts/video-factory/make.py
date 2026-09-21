@@ -100,6 +100,196 @@ def run(cmd, label):
     return ok
 
 
+# ==================== ★VF_AIVIDEO_V1（2026-09-20）：AI 生成片段（MiniMax H3） ====================
+# 「AI 直接成片」：把每镜的画面从"素材图 + Ken Burns"换成"AI 生成的视频片段"。
+#
+# 为什么放在 make.py 而不是 Node 端：
+#   **"先配音拿每镜真实时长"这一步本来就在本文件**（tts.py 回填 storyboard.voiced.json），
+#   插在同处改动最小。代价是 Python 里要重写一遍 H3 调用 —— 因此下面与
+#   src/lib/minimax-h3.ts **刻意保持同构**（同样的环境变量、同样的"中转优先→官方降级"、
+#   同样的 /v2/video_generation 端点与 600s 轮询上限），以后改一处要想到另一处。
+
+H3_OFFICIAL_BASE = 'https://api.minimaxi.com'
+H3_DEFAULT_MODEL = 'MiniMax-H3'
+# H3 运镜指令（官方支持 [指令] 写法；同组建议 ≤3 个）——按镜轮换，避免每镜画面运动方式雷同
+_H3_CAM = ['[Push in]', '[Pan right]', '[Tilt up]', '[Zoom in]',
+           '[Tracking shot]', '[Pan left]', '[Pull out]', '[Static shot]']
+
+
+def _h3_use_context_ir():
+    """use_context_ir：默认开（自动增强提示词）；H3_USE_CONTEXT_IR=0/false 关闭"""
+    v = (os.environ.get('H3_USE_CONTEXT_IR') or '').strip().lower()
+    return v not in ('0', 'false', 'off')
+
+
+def _h3_targets():
+    """候选通道：中转优先 → 官方兜底（与 minimax-h3.ts 的 h3Targets 完全一致）"""
+    relay_base = (os.environ.get('H3_BASE_URL') or '').strip().rstrip('/')
+    relay_key = (os.environ.get('H3_API_KEY') or '').strip()
+    official_key = (os.environ.get('MINIMAX_API_KEY') or '').strip()
+    model = (os.environ.get('H3_MODEL') or H3_DEFAULT_MODEL).strip()
+    out = []
+    if relay_base and relay_key:
+        out.append({'base': relay_base, 'key': relay_key, 'model': model, 'label': '中转'})
+    if official_key and relay_base != H3_OFFICIAL_BASE:
+        out.append({'base': H3_OFFICIAL_BASE, 'key': official_key,
+                    'model': H3_DEFAULT_MODEL, 'label': '官方'})
+    return out
+
+
+def _h3_http(method, url, key, body=None, timeout=30):
+    """极简 HTTP（**只用标准库**，不给客户端环境加依赖）→ 返回 dict（失败返回带 error 的 dict）"""
+    from urllib.request import Request, urlopen
+    from urllib.error import HTTPError
+    data = json.dumps(body).encode('utf-8') if body is not None else None
+    req = Request(url, data=data, method=method,
+                  headers={'Content-Type': 'application/json', 'Authorization': 'Bearer %s' % key})
+    try:
+        with urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode('utf-8', 'replace') or '{}')
+    except HTTPError as e:
+        try:
+            return json.loads(e.read().decode('utf-8', 'replace') or '{}')
+        except Exception:
+            return {'error': {'message': 'HTTP %s' % e.code}}
+    except Exception as e:
+        return {'error': {'message': str(e)[:150]}}
+
+
+def _h3_download(url, dest, timeout=180):
+    """下载片段到本地（成功且不是空壳才算 True）"""
+    from urllib.request import urlopen
+    with urlopen(url, timeout=timeout) as r, open(dest, 'wb') as f:
+        f.write(r.read())
+    return os.path.getsize(dest) > 1024
+
+
+def _probe_sec(path):
+    """ffprobe 拿视频秒数（拿不到返回 0）"""
+    import shutil
+    exe = shutil.which('ffprobe') or 'ffprobe'
+    try:
+        r = subprocess.run('"%s" -v error -show_entries format=duration -of default=nw=1:nk=1 "%s"'
+                           % (exe, path), shell=True, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace', timeout=20)
+        return float((r.stdout or '0').strip() or 0)
+    except Exception:
+        return 0.0
+
+
+def _h3_prompt(shot, idx):
+    """分镜 → H3 画面提示词。优先 AI 写的 prompt 字段；否则用中文文案拼一个兜底描述。
+    末尾追加运镜指令（按镜轮换）。明确要求"不要出现文字"——文字由 render.py 的字幕负责。"""
+    p = (shot.get('prompt') or '').strip()
+    if not p:
+        core = (shot.get('subtitle') or shot.get('text') or shot.get('title') or '').strip()
+        items = shot.get('items') or []
+        if not core and items:
+            core = '、'.join(str(i.get('label') if isinstance(i, dict) else i) for i in items[:3])
+        p = ('%s。短视频画面：镜头自然运动、光影真实、主体清晰、'
+             '画面中下部留出空间给字幕，**画面里不要出现任何文字**' % core) if core \
+            else '现代科技感的短视频实景空镜，镜头自然运动，画面里不要出现文字'
+    return '%s %s' % (p[:600], _H3_CAM[idx % len(_H3_CAM)])
+
+
+def _h3_gen_one(prompt, want_sec, resolution, ratio):
+    """单镜生成（同步阻塞）。返回 (本地下载前的 url 或 None, 通道 label, 真实秒数)"""
+    import time
+    targets = _h3_targets()
+    if not targets:
+        return (None, '未配置', 0.0)
+    last_via = '未配置'
+    for t in targets:
+        last_via = t['label']
+        body = {
+            'model': t['model'],
+            'content': [{'type': 'text', 'text': prompt[:7000]}],
+            'resolution': resolution,
+            # H3 单段只支持 4~15 秒整数 → 按配音时长四舍五入后在范围内夹紧
+            'duration': max(4, min(15, int(round(want_sec)))),
+            'ratio': ratio,
+        }
+        if _h3_use_context_ir():
+            body['use_context_ir'] = True
+        d = _h3_http('POST', '%s/v2/video_generation' % t['base'], t['key'], body, timeout=30)
+        task_id = (d or {}).get('task_id')
+        if not task_id:
+            msg = (((d or {}).get('error') or {}).get('message')) or '无 task_id'
+            print('[H3] %s 提交失败: %s' % (t['label'], str(msg)[:160]))
+            continue
+        # 轮询：120 × 5s = 600s（实测 6 秒片约 101s，与 Node 版上限一致）
+        for _ in range(120):
+            time.sleep(5)
+            q = _h3_http('GET', '%s/v2/query/video_generation/%s' % (t['base'], task_id),
+                         t['key'], None, timeout=20)
+            task = (q or {}).get('task') or {}
+            st = task.get('status')
+            if st == 'succeeded':
+                url = ((task.get('content') or {}).get('url') or '')
+                usage = task.get('usage') if isinstance(task.get('usage'), dict) else {}
+                return (url or None, t['label'], float((usage or {}).get('output_seconds') or 0))
+            if st == 'failed':
+                # 任务失败 = 内容/prompt 问题（如敏感）→ 换通道也一样失败，**不降级**
+                print('[H3] %s 生成失败: %s（内容问题，不降级）'
+                      % (t['label'], str((task.get('error') or {}).get('message'))[:160]))
+                return (None, '%s(不降级)' % t['label'], 0.0)
+            if st == 'cancelled':
+                print('[H3] %s 任务已取消' % t['label'])
+                return (None, t['label'], 0.0)
+        print('[H3] %s 生成超时（600s）' % t['label'])
+    return (None, last_via, 0.0)
+
+
+def gen_ai_clips(sb_path, wd, resolution='768P'):
+    """★VF_AIVIDEO_V1：把故事板里每一镜的画面换成 AI 生成的视频片段。
+
+    **必须在配音之后调用**（要按每镜真实时长决定生成几秒）。
+    落盘 <wd>/clips/shotNN.mp4，并回写 shot 的 type='aivideo' / src / src_dur。
+    **任一镜失败 → 该镜保留原样**（继续用素材图/原卡型），**绝不整片失败**。
+    返回 (新的故事板路径, 成功镜数, 总秒数, 最后通道)
+    """
+    sb = json.load(open(sb_path, encoding='utf-8'))
+    shots = sb.get('shots') or []
+    clips = os.path.join(wd, 'clips')
+    os.makedirs(clips, exist_ok=True)
+    W, H = sb.get('size', [1280, 720])
+    ratio = '9:16' if H > W else ('16:9' if W > H else '1:1')
+    total_sec, ok_n, via_last = 0.0, 0, ''
+    for i, shot in enumerate(shots):
+        want = float(shot.get('dur', 5) or 5)
+        # 重跑时已生成过的直接复用（省钱）
+        _s = str(shot.get('src') or '')
+        if shot.get('type') == 'aivideo' and _s and os.path.exists(_s):
+            ok_n += 1
+            total_sec += float(shot.get('src_dur') or 0)
+            continue
+        prompt = _h3_prompt(shot, i)
+        print('[H3] 第 %d/%d 镜 生成中…（目标 %.1fs）%s' % (i + 1, len(shots), want, prompt[:70]))
+        url, via, sec = _h3_gen_one(prompt, want, resolution, ratio)
+        via_last = via
+        if not url:
+            print('[H3] ⚠️ 第 %d 镜 AI 生成失败（%s）→ **该镜回退用原画面**（不整片失败）' % (i + 1, via))
+            continue
+        dest = os.path.join(clips, 'shot%02d.mp4' % i)
+        try:
+            if not _h3_download(url, dest):
+                raise RuntimeError('下载内容过小（可能 0 字节）')
+        except Exception as e:
+            print('[H3] ⚠️ 第 %d 镜下载失败: %s → 回退用原画面' % (i + 1, str(e)[:120]))
+            continue
+        real = float(sec or 0) or _probe_sec(dest)
+        shot['type'] = 'aivideo'
+        shot['src'] = dest
+        shot['src_dur'] = round(float(real or 0), 2)
+        ok_n += 1
+        total_sec += float(real or 0)
+        print('[H3] ✅ 第 %d 镜 OK  %s  %.1fs -> %s' % (i + 1, via, float(real or 0), os.path.basename(dest)))
+    out_path = os.path.join(wd, 'storyboard.ai.json')
+    json.dump(sb, open(out_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    print('[H3] 生成完成：**%d/%d 镜**，共 %.1f 秒，通道=%s' % (ok_n, len(shots), total_sec, via_last))
+    return (out_path, ok_n, total_sec, via_last)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--script', default='', help='一段文案（自动切句成卡）')
@@ -111,6 +301,11 @@ def main():
     ap.add_argument('--workdir', default='')
     ap.add_argument('--speaker', default='', help='音色，留空用引擎默认（百炼 longxiaochun / 火山 zh_female_vv_uranus_bigtts）')
     ap.add_argument('--bgm', default='', help='背景音乐文件（★VF_BGM_V1：循环铺底 + 压低音量）')
+    # ★VF_AIVIDEO_V1（2026-09-20）：「AI 直接成片」——画面来源
+    ap.add_argument('--source', default='', choices=['', 'ai', 'mix'],
+                    help='画面来源：留空=素材合成（默认）；ai=全部 AI 生成（MiniMax H3）；mix=素材+AI 混合（未实现）')
+    ap.add_argument('--ai-resolution', default='768P', choices=['768P', '2K'],
+                    help='AI 生成清晰度（768P=50点/秒，2K=80点/秒）')
     a = ap.parse_args()
 
     if not a.script and not a.storyboard and not a.plan:
@@ -166,6 +361,26 @@ def main():
     use_voice = voice if os.path.exists(voice) else ''
     if not use_voice:
         print('[MAKE] ⚠️ 无配音，出无声片')
+
+    # ②.5 ★VF_AIVIDEO_V1（2026-09-20）：「AI 直接成片」——**必须在配音之后**（才能拿到每镜真实
+    #   时长）、渲染之前，把每镜画面换成 AI 生成的视频片段。失败镜自动回退原画面，绝不整片失败。
+    if a.source == 'ai':
+        _sb_in = use_sb if os.path.exists(use_sb) else sb_path
+        print('[MAKE] ★画面来源=全部 AI 生成 → 调用 MiniMax H3（清晰度 %s，%s 点/秒）'
+              % (a.ai_resolution, '50' if a.ai_resolution == '768P' else '80'))
+        try:
+            ai_sb, ai_n, ai_sec, ai_via = gen_ai_clips(_sb_in, wd, a.ai_resolution)
+        except Exception as e:
+            print('[MAKE] ⚠️ AI 生成环节异常: %s → 回退成素材合成' % str(e)[:160])
+            ai_sb, ai_n, ai_sec, ai_via = '', 0, 0.0, ''
+        if ai_n > 0:
+            use_sb = ai_sb
+            print('[MAKE] AI 片段就绪：%d 镜 / %.1f 秒（通道 %s）→ 用 storyboard.ai.json 渲染'
+                  % (ai_n, ai_sec, ai_via))
+        else:
+            print('[MAKE] ⚠️ 没有任何 AI 片段生成成功 → **自动回退成素材合成**（不整片失败）')
+    elif a.source == 'mix':
+        print('[MAKE] ⚠️ 「素材+AI 混合」尚未实现（方案第 2 步）—— 本次按【素材合成】出片')
 
     # ③ 渲染成片
     ok2 = run('"%s" "%s" --storyboard "%s" --workdir "%s" --audio "%s" --bgm "%s" --out "%s"'

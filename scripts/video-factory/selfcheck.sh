@@ -6,7 +6,7 @@
 #
 # 它检查 4 件事：
 #   ① 三个 Python 脚本语法（tts/make/render）—— 语法错会让成片整条挂掉
-#   ② 渲染自检：造 8 种卡型的测试片（title/bgimage/list/number/compare/chart/quote/end）
+#   ② 渲染自检：造 9 种卡型的测试片（title/bgimage/aivideo/list/number/compare/chart/quote/end）
 #      —— 同时验证 黑遮罩/大字描边/主色底板/逐字浮现/未知卡型降级
 #   ③ 配音四引擎各合成一句（dashscope / minimax / silicon / volcano）
 #   ④ 关键改动是否在位（grep 标记）—— 防止"改了没生效/被回退"
@@ -32,7 +32,7 @@ for f in tts make render; do
   fi
 done
 
-line "② 渲染自检（8 种卡型，逐镜打 OK）"
+line "② 渲染自检（9 种卡型，逐镜打 OK）"
 python3 scripts/video-factory/render.py --selftest --workdir "$TMP/render" --out "$TMP/render/selftest.mp4" 2>&1 | tail -14
 if [ -f "$TMP/render/selftest.mp4" ]; then
   echo "OK   测试片已生成：$TMP/render/selftest.mp4"
@@ -64,6 +64,10 @@ ck 'VF_POLLMATCH_V1'                'src/app/agent/page.tsx' 1           # 轮�
 ck 'VF_MIRRORHONEST_V1'             'src/app/agent/page.tsx' 1           # 同步文案按能力显示
 ck 'VF_ELAPSED_V1'                  'src/app/api/agent/make-video-status/route.ts' 1
 ck 'VF_UNKNOWNCARD_V1'              'scripts/video-factory/render.py' 1  # 未知卡型降级
+ck 'VF_AIVIDEO_V1'                  'scripts/video-factory/render.py' 1  # ★AI 直接成片：aivideo 卡型（时长自适应）
+ck 'VF_AIVIDEO_V1'                  'scripts/video-factory/make.py' 3    # ★AI 直接成片：H3 调用/通道/生成（≥3 处）
+ck 'gen_ai_clips'                   'scripts/video-factory/make.py' 1    # ★AI 直接成片：Python 侧入口
+ck 'H3_BASE_URL'                    'scripts/video-factory/make.py' 1    # 与 minimax-h3.ts 同构的通道配置
 ck 'VF_SELFTEST_V2'                 'scripts/video-factory/render.py' 1  # 自检覆盖 8 卡型
 ck 'VF_MATSPREAD_V1'                'src/lib/agent/video-material.ts' 1  # 素材抽样
 ck 'VF_HDONLY_V2'                   'src/app/api/agent/chat/route.ts' 1  # 低清图过滤

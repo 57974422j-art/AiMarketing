@@ -12,7 +12,7 @@
 
 用法:
   python render.py --storyboard sb.json --out out.mp4 [--workdir temp/vf] [--audio voice.m4a]
-  python render.py --selftest        # 跑一遍内置样例，验证 8 种卡型（含 compare/chart/quote）
+  python render.py --selftest        # 跑一遍内置样例，验证 9 种卡型（含 compare/chart/quote/aivideo）
 
 支持的配方卡（先 5 张）:
   title    标题卡（大字 + 淡入）
@@ -255,6 +255,37 @@ def card_video(shot, th, W, H, fps):
     return (f"-ss {start} -t {dur} -i \"{src}\"", vf, dur)
 
 
+def card_aivideo(shot, th, W, H, fps):
+    """★VF_AIVIDEO_V1（2026-09-20）：AI 生成的视频片段（MiniMax H3 / 百炼 wan 降级）
+
+    与 card_video 的区别（这是「AI 直接成片」的镜头源）：
+      1) **时长自适应**：AI 片段是**整数秒**（H3 支持 4~15s），而配音是小数秒
+         （如 7.2s）→ 片段比目标短时用 setpts **轻微放慢**补足（上限 1.35 倍，避免明显慢动作）；
+         若放慢到上限仍不够，用 -stream_loop -1 **循环**兜底（宁可循环也不要黑尾/冻结）。
+      2) **不加 Ken Burns 推拉**：画面本身在动，再推拉会晕。
+      3) **不带声音**：AI 片段自带音轨 → 渲染时统一 `-an`（音频由后面 mux_audio 铺人声+BGM）。
+    """
+    src = shot.get('src', '')
+    dur = float(shot.get('dur', 5))
+    # src_dur：片段自身秒数（由 make.py 生成时用 ffprobe 写入；缺省 0 = 未知，则不放慢只循环兜底）
+    src_dur = float(shot.get('src_dur', 0) or 0)
+    k = 1.0
+    if src_dur > 0.2 and dur > src_dur:
+        k = min(1.35, dur / src_dur)
+    _slow = '' if k <= 1.001 else 'setpts=PTS*%.4f,' % k
+    vf = (
+        f"split=2[bg0][fg0];"
+        f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
+        f"[fg0]scale={W}:{H}:force_original_aspect_ratio=decrease[fgs];"
+        f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,"
+        f"{_slow}trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"
+    )
+    if k > 1.001:
+        print('[VF]   aivideo 时长对齐：片段 %.0fs → 镜 %.1fs（放慢 %.2f 倍）' % (src_dur, dur, k))
+    # -stream_loop -1：片段不够长时循环补足（配合上面的放慢，双保险不出现黑尾）
+    return (f"-stream_loop -1 -t {dur} -i \"{src}\"", vf, dur)
+
+
 def card_quote(shot, th, W, H, fps):
     """引用卡：大引号 + 引文 + 出处（适合"客户说/专家说"）"""
     font = esc_path(find_font(th.get('font', 'msyh')))
@@ -456,6 +487,8 @@ CARDS = {
     'number': card_number,
     'image': card_image,
     'video': card_video,
+    # ★VF_AIVIDEO_V1（2026-09-20）：AI 生成的视频片段（「AI 直接成片」的镜头源）
+    'aivideo': card_aivideo,
     'quote': card_quote,
     'compare': card_compare,
     'chart': card_chart,
@@ -483,7 +516,11 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
     #   不改时长（不碰音频时间轴），拼接后就是“柔和的镜间过渡”
     _fd = min(0.2, max(0.05, dur / 10.0))
     vf2 = f"{vf},fade=t=in:st=0:d={_fd:.2f},fade=t=out:st={max(0.0, dur - _fd):.2f}:d={_fd:.2f}"
-    cmd = (f'"{ffmpeg}" -y {inp} -vf "{vf2}" -c:v libx264 -preset fast '
+    # ★VF_AIVIDEO_V1（2026-09-20）：video / aivideo 的输入**自带音轨**（AI 片段可能有环境音/人声）——
+    #   单镜统一 `-an` 静音，音频由最后的 mux_audio 阶段铺【配音 + BGM】，
+    #   否则 concat 时各镜音轨错乱。
+    _an = '-an ' if typ in ('video', 'aivideo') else ''
+    cmd = (f'"{ffmpeg}" -y {inp} -vf "{vf2}" {_an}-c:v libx264 -preset fast '
            f'-pix_fmt yuv420p -r {fps} -t {dur} "{out}"')
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
                        encoding='utf-8', errors='replace')
@@ -713,6 +750,26 @@ def main():
                 _testimg = _tp
         except Exception:
             _testimg = ''
+        # ★VF_AIVIDEO_V1（2026-09-20）：「AI 直接成片」用的 aivideo 卡型必须纳入自检 ——
+        #   否则要等真实 H3 生成才能验证（贵且慢，一条 600 点起）。
+        #   这里造一段 **2 秒**测试视频，故意让它**短于**镜时长（3.5s），
+        #   用来验证"时长对齐"这条路（放慢 + -stream_loop 循环兜底）。
+        _testvid = ''
+        try:
+            _vp = os.path.join(wd, 'selftest-src.mp4')
+            subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi',
+                            '-i', 'testsrc=duration=2:size=640x360:rate=25',
+                            '-pix_fmt', 'yuv420p', _vp],
+                           capture_output=True, timeout=60)
+            if os.path.exists(_vp):
+                _testvid = _vp
+        except Exception:
+            _testvid = ''
+        _aishot = ({"type": "aivideo", "src": _testvid, "src_dur": 2.0,
+                    "subtitle": "这一镜用来验证 AI 生成片段的渲染链路", "dur": 3.5}
+                   if _testvid else
+                   {"type": "title", "text": "AI 生成（造视频失败，已跳过 aivideo）",
+                    "subtitle": "这一镜用来验证 AI 生成片段的渲染链路", "dur": 3.5})
         # 造图失败时不能让自检直接崩（bgimage 的 src 为空会让 ffmpeg 输入报错）→ 降级成 title 卡
         _bgshot = ({"type": "bgimage", "src": _testimg, "text": "素材合成",
                     "subtitle": "这一镜用来验证素材合成链路是否正常", "dur": 3.0}
@@ -725,6 +782,8 @@ def main():
             "shots": [
                 {"type": "title", "text": "AI Marketing 自检", "subtitle": "这是一条自检视频", "dur": 2.5},
                 _bgshot,
+                # ★VF_AIVIDEO_V1（2026-09-20）：第 3 镜 = AI 生成片段（素材合成 / AI 生成 两条链路都在自检里）
+                _aishot,
                 {"type": "list", "title": "三步走", "subtitle": "做内容，发视频，看数据",
                  "items": ["做内容", "发视频", "看数据"], "dur": 6},
                 {"type": "number", "value": 300, "suffix": "+", "label": "已服务客户",

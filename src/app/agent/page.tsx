@@ -525,7 +525,12 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
         <div className="flex flex-wrap gap-1.5">
           {R(source, 'repo', '🎞 素材合成（用我仓库）', setSource)}
           {R(source, 'mix', '✨ 素材+AI 混合（开发中）', setSource, true)}
-          {R(source, 'ai', '🎨 全部 AI 生成（开发中）', setSource, true)}
+          {/* ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」**已接通** ——
+              原来标"（开发中）"且**第 5 个参数传了 true（= disabled）→ 按钮是灰的、点不动**，
+              这正是用户说的"按钮有啊、只是没接"。后端已接住（source='ai' → 不取素材 + 768P
+              + 按秒报价 → make.py 调 H3），所以这里**去掉禁用**，并把价格标在按钮上
+              —— 它比素材合成贵两个数量级，不说清楚用户会吓一跳。 */}
+          {R(source, 'ai', '🎨 全部 AI 生成（约 50 点/秒）', setSource)}
           {/* ★VF_UPLOAD_FIX_V1：照抄“聊天那个能用的写法” —— 不加 disabled（否则可能永久点不动） */}
           <button onClick={() => { if (uploading) return; if (fileRef.current) fileRef.current.click() }}
             className={`px-2 py-1 rounded text-[11px] border transition ${source === 'upload' ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
@@ -2247,12 +2252,15 @@ function AgentPageInner() {
                   className="px-3 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">🎞 素材合成（用我仓库的素材）</button>
                 <button onClick={() => sendMessage('素材加AI混合')}
                   className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">✨ 素材 + AI 混合（开发中）</button>
+                {/* ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」已接通 —— 去掉"开发中"，
+                    并把价格写进 title（悬停可见），避免用户不知道这条贵。 */}
                 <button onClick={() => sendMessage('全部AI生成')}
-                  className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">🎨 全部 AI 生成（开发中）</button>
+                  title="画面全部由 AI 逐镜生成（MiniMax H3，约 50 点/秒）——比素材合成贵两个数量级，建议先用短时长试"
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">🎨 全部 AI 生成（约 50 点/秒）</button>
                 <button onClick={() => sendMessage('我上传素材')}
                   className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-200">📤 我上传</button>
               </div>
-              <div className="text-[10px] text-gray-500 mt-2">画面来源：素材合成 = 用你仓库的图拼片（最省）；混合 / 全 AI = 缺的镜头用 AI 生成（开发中）</div>
+              <div className="text-[10px] text-gray-500 mt-2">画面来源：<b className="text-gray-400">素材合成</b> = 用你仓库的图拼片（最省，30 秒约 7 点）；<b className="text-gray-400">全部 AI</b> = 每一镜都用 AI 生成画面（MiniMax H3，约 50 点/秒，30 秒约 1500 点）；<b className="text-gray-400">混合</b> = 两者结合（开发中）。</div>
               {/* ★VF_ASPECT_V1：画幅——能让用户自己选就让他选；不选则按素材判断（素材多为横图就出横屏，不硬塞竖屏） */}
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 <span className="text-[10px] text-gray-500">画幅：</span>

@@ -511,10 +511,25 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             (a: number, s: any) => a + String((s && (s.subtitle || s.text)) || '').length, 0)
         } catch { vfBillChars = 0 }
       }
-      const vfCost = Math.max(1, Math.ceil(vfBillChars / 20))
+      // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」判定 —— 工具参数（AI 主动传）或表单草稿
+      //   （用户在表单里选的）任一为 ai 即算。
+      const _vdCur: any = VIDEO_DRAFT.get(uid) || {}
+      const vfSrcAI = (String(args.source || args.mode || '') === 'ai') || (String(_vdCur.source || '') === 'ai')
+      // ★VF_AIVIDEO_V1：**计费口径分两种** ——
+      //   素材合成：按文案字数（ceil(字数/20)），30 秒片约 7 点；
+      //   全部 AI 生成：按【秒 × 50 点】（768P；2K 为 80），30 秒片约 1500 点 —— 差两个数量级。
+      //   （上次"多扣费数倍"的教训：报价与实扣必须同口径，这里就按生成秒数算。）
+      const vfCost = vfSrcAI
+        ? Math.max(1, Math.ceil(Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30) * 50))
+        : Math.max(1, Math.ceil(vfBillChars / 20))
       if (!args.confirmed) {
-        const what = vfPlan ? 'AI 分镜' : `文案 ${vfScript.length} 字`
-        return `MAKE_VIDEO_COST:${what} → 本地配音+成片约 ${vfCost} 点（约¥${(vfCost / 100).toFixed(1)}）。请向用户报价并等确认（用户说"确认/生成吧/可以"即确认），确认后带 confirmed=true 开始生成。`
+        const what = vfSrcAI
+          ? `全部 AI 生成（MiniMax H3 逐镜生成画面，约 ${Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30)} 秒）`
+          : (vfPlan ? 'AI 分镜' : `文案 ${vfScript.length} 字`)
+        const _aiNote = vfSrcAI
+          ? ' ⚠️ 这条是【AI 逐镜生成画面】（约 50 点/秒），比素材合成贵两个数量级 —— 请务必先确认。'
+          : ''
+        return `MAKE_VIDEO_COST:${what} → 本地配音+成片约 ${vfCost} 点（约¥${(vfCost / 100).toFixed(1)}）。${_aiNote}请向用户报价并等确认（用户说"确认/生成吧/可以"即确认），确认后带 confirmed=true 开始生成。`
       }
       const uidVF = auth?.userId
       if (!uidVF) return 'TOOL_REJECT:未登录'
@@ -541,6 +556,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const argsVF = vfPlan
         ? [mkPy, '--plan', vfPlan, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir, '--speaker', vfSpeaker]
         : [mkPy, '--script', vfScript, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir, '--speaker', vfSpeaker]
+      // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」→ 让 make.py 在【配音之后、渲染之前】
+      //   逐镜调 MiniMax H3 生成画面（768P=50点/秒）。单镜失败 make.py 会自动回退成素材图，不整片挂。
+      if (vfSrcAI) argsVF.push('--source', 'ai', '--ai-resolution', '768P')
       // ★VF_BGM_V1（2026-09-20）：BGM —— args.bgm==='auto' 时从【AI 音乐库】挑一首
       //   并下载到本地（render.py 要的是本地文件）。直接查库不调 HTTP（避开服务端鉴权）
       if (String(args.bgm || '') === 'auto') {
@@ -2767,15 +2785,28 @@ PUBLISH_DRAFT.delete(uidW)
                   hint: `画幅已设为「${_asName}」——现在点【🎞 素材合成】开始出片`,
                 })
                 finalResult = wfEarlyReply
-              } else if (vfPickAI || vfPickMix) {
-                // ⏳ 未实现：AI 逐镜生成（要接 H3/百炼 + 逐镜拼接）——先诚实告知，别让用户白等
-                vd.mode = vfPickAI ? 'ai' : 'mix'
+              } else if (vfPickMix) {
+                // ⏳ 仍未实现：「素材+AI 混合」（要先决定"哪几镜用 AI" —— 见方案第 2 步）
+                vd.mode = 'mix'
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
-                vfLog(uidVF2, `[画面来源] ${vd.mode} —— 暂未实现，已提示用户`)
+                vfLog(uidVF2, '[画面来源] mix —— 暂未实现，已提示用户')
                 wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: vd.topic || '',
-                  hint: '「全部 AI 生成 / 素材+AI 混合」还在开发中（要接 AI 逐镜生成 + 拼接）。现在先用【素材合成】最快最省——点它就行 🙂' })
+                  hint: '「素材+AI 混合」还在开发中。想整片 AI 生成请点【🎨 全部 AI 生成】；想最快最省请点【🎞 素材合成】🙂' })
                 finalResult = wfEarlyReply
               } else {
+                // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」**已接通**（原来这里是"暂未实现"占位）。
+                //   与素材合成走**同一条起草流程**（文案 → 分镜 → 确认卡 → make.py），差别只在四处：
+                //     ① 不取素材图（画面由 make.py 调 MiniMax H3 逐镜生成）
+                //     ② 画幅默认竖屏（没有素材可判）
+                //     ③ 画布按 AI 清晰度定（768P）
+                //     ④ 确认卡显示 AI 成本（按秒计价，比素材合成贵几十倍 → 必须让用户确认）
+                const vfAI = vfPickAI || (vd.formSource === 'ai')
+                if (vfAI) {
+                  vd.mode = 'ai'; vd.source = 'ai'
+                  if (!vd.aspect || vd.aspect === 'auto') vd.aspect = 'portrait'
+                  VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
+                  vfLog(uidVF2, `[画面来源] 全部 AI 生成（MiniMax H3）—— 画幅=${vd.aspect}，**不取素材**，画面由 AI 逐镜生成`)
+                }
                 // 默认走【个人仓库素材】
                 // ★VF_UPLOAD_V1（2026-09-20）：上传素材**真的接通**了——
                 //   前端「📤 我上传素材」直接把文件传到个人仓库（POST /api/storage/files），
@@ -2797,7 +2828,8 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_UPLOAD_V2：若前端带了“刚上传的文件名”，就**精确只用这些**（确定性）；
                 //   否则回退到“最近上传”（兼容老前端）。
                 const _wanted: string[] = Array.isArray(vd.uploaded) ? vd.uploaded.map((x: any) => String(x)) : []
-                const vfMatsAll = await listRepoMaterials(uidVF2, Math.max(40, _wanted.length + 20), vd.useRecent ? 'recent' : 'spread')
+                // ★VF_AIVIDEO_V1：AI 模式**不需要素材图**（画面由 H3 逐镜生成）→ 不查仓库（省一次 DB/OSS 往返）
+                const vfMatsAll = vfAI ? [] : await listRepoMaterials(uidVF2, Math.max(40, _wanted.length + 20), vd.useRecent ? 'recent' : 'spread')
                 let vfMats = vfMatsAll
                 if (vd.useRecent && _wanted.length) {
                   const _byName = new Map(vfMatsAll.map((m: any) => [String(m.name), m]))
@@ -2814,17 +2846,26 @@ PUBLISH_DRAFT.delete(uidW)
                 //   30s→5 张、60s→10 张、90s→15 张、180s→30 张；仓库不够就有多少用多少。
                 //   视觉理解张数（喂 VL）单独限：8~20 张（成本控制，每张约 0.2 点）
                 const vfVisN = Math.max(8, Math.min(20, Math.round(_dur0 / 30) * 5))
-                const vfBrief = await summarizeMaterials(uidVF2, vfMats, vfVisN)
+                const vfBrief = vfAI ? '' : await summarizeMaterials(uidVF2, vfMats, vfVisN)
                 // ★VF_ASPECT_V1：定画布——用户指定优先，否则按素材判断（素材多为横图 → 出横屏，绝不硬塞竖屏）
-                const vfSz = await probeMaterialSizes(uidVF2, vfMats)
+                // ★VF_AIVIDEO_V1：AI 模式没有素材可探测 → 给空结构（画幅已在上面按"用户选择 / 默认竖屏"定好）
+                const vfSz: any = vfAI
+                  ? { portrait: 0, landscape: 0, square: 0, total: 0, maxSide: 0, sizes: [] }
+                  : await probeMaterialSizes(uidVF2, vfMats)
                 const vfAspect = (vd.aspect && vd.aspect !== 'auto') ? vd.aspect : (vfSz.landscape > vfSz.portrait ? 'landscape' : 'portrait')
                 // ★VF_SIZEFIT_V1（2026-09-20 用户实测“图片都是糊的”）：**画布分辨率跟素材走**——
                 //   素材最大边不到 1920 就别硬上 1080p（640×304 铺到 1920 要放大 3 倍 = 极糊）。
                 const _ms = vfSz.maxSide || 0
-                const vfSize = vfAspect === 'landscape'
-                  ? (_ms >= 1920 ? [1920, 1080] : (_ms >= 1280 ? [1280, 720] : [960, 540]))
-                  : (_ms >= 1920 ? [1080, 1920] : (_ms >= 1280 ? [720, 1280] : [540, 960]))
-                vfLog(uidVF2, `[画布] 素材最大边 ${_ms}px → 输出 ${vfSize[0]}x${vfSize[1]}（不放大）`)
+                // ★VF_AIVIDEO_V1：AI 生成只有 768P / 2K 两档 → 画布直接用 **768P**（竖 720×1280 / 横 1280×720），
+                //   不跟素材走（AI 模式本来就没有素材可跟）。选了 2K 时再放大到 1080P 档。
+                const vfSize = vfAI
+                  ? (vfAspect === 'landscape' ? [1280, 720] : [720, 1280])
+                  : (vfAspect === 'landscape'
+                    ? (_ms >= 1920 ? [1920, 1080] : (_ms >= 1280 ? [1280, 720] : [960, 540]))
+                    : (_ms >= 1920 ? [1080, 1920] : (_ms >= 1280 ? [720, 1280] : [540, 960])))
+                vfLog(uidVF2, vfAI
+                  ? `[画布] AI 生成 768P → 输出 ${vfSize[0]}x${vfSize[1]}`
+                  : `[画布] 素材最大边 ${_ms}px → 输出 ${vfSize[0]}x${vfSize[1]}（不放大）`)
                 vd.aspectResolved = vfAspect; vd.size = vfSize
                 // ★VF_DUR_V1：时长驱动【文案字数 + 镜头数】——用户要求"让 AI 知道时长"
                 //   （中文配音约 4.5 字/秒；镜头按 5 秒一个估）
