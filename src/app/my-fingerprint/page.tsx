@@ -99,6 +99,12 @@ declare global {
       fpMarkLogin?: (accountId: number | string) => Promise<{ success: boolean; error?: string }>
       fpLoginState?: (accountId: number | string) => Promise<{ success: boolean; data?: { loggedIn: boolean }; error?: string }>
       fpLogout?: (accountId: number | string) => Promise<{ success: boolean; error?: string }>
+      // ★TYPE_CLEAN_V1（2026-09-21）：ASR 流式会话（打断用）—— `electron/preload.js` 早就暴露了
+      //   `asrSessionStart / asrSessionEnd / asrSessionAbort`，只是这份全局声明漏了它们 →
+      //   agent 页调用 `window.electronAPI?.asrSessionAbort?.()` 时 IDE 报"属性不存在"（运行时其实正常）。
+      asrSessionStart?: (opts?: any) => Promise<any>
+      asrSessionEnd?: () => Promise<any>
+      asrSessionAbort?: () => Promise<any>
     }
   }
 }

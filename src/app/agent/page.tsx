@@ -131,7 +131,9 @@ function VideoFeedBar({ videos, onPlay }: {
 
 // 全局视频播放器（路线1·真播放：复刻 BaiLongma video-surface，支持 B站/YouTube/直链 iframe 真播放）
 // URL 归一：B站/youtube 链接转可嵌入 iframe；直链 .mp4/.webm 用 <video>；其余走 iframe 尝试。
-function iframeUrlFor(raw: string): { kind: 'iframe' | 'video'; url: string } {
+// ★TYPE_CLEAN_V1（2026-09-21）：返回类型补 `'link'` —— 下面 TikTok/X 分支确实会返回 'link'
+//   （历史上就是运行时正确、只是类型注解没跟上 → IDE 报 3 条错、且 `kind === 'link'` 被判成"不可能的比较"）
+function iframeUrlFor(raw: string): { kind: 'iframe' | 'video' | 'link'; url: string } {
   if (!raw) return { kind: 'iframe', url: '' }
   let u = raw.trim()
   const lower = u.toLowerCase()
@@ -2226,7 +2228,9 @@ function AgentPageInner() {
           const known = APPS.find(a => a.path === path)
           const title = known?.title || (path.split('/').filter(Boolean).pop() || '功能')
           if (hotspotOpen) setHotspotOpen(false)
-          openApp(target, title)
+          // ★TYPE_CLEAN_V1（2026-09-21）：openApp 只收 1 个参数（标题由它内部 `APPS.find` 推断），
+          //   这里原来多传了一个 title —— 运行时被忽略（无害），但 IDE 报"应有 1 个参数，但获得 2 个"。
+          openApp(target)
         }
       } else {
         pushTerm(`chat 失败 · ${Date.now() - t0}ms · ${data.message || res.status}`, 'err')
@@ -2565,7 +2569,9 @@ function AgentPageInner() {
               <div className="grid grid-cols-4 gap-1">
                 {wj.frames.map((v: any, i: number) => (
                   <button key={i} onClick={() => sendMessage(v.name || String(i + 1))} className="rounded-lg overflow-hidden border border-white/[0.08] hover:border-emerald-500/50 transition">
-                    <img src={(v.url || '').startsWith('/') ? 'https://ai-niuma.cc' + v.url : v.url} alt={'帧' + (i + 1)} className="w-full h-16 object-cover" onError={(e: any) => { (e.target as any).style.display='none'; const p2=(e.target as any).closest('button'); if(p2){const d=document.createElement('div');d.className='text-[8px] text-red-400 truncate';d.textContent='图失败:'+((e.target as any).src||'').slice(0,70);p2.parentNode?.insertBefore(d,p2.nextSibling)}}} onError={(e: any) => { e.target.style.display = 'none' }} />
+                    {/* ★TYPE_CLEAN_V1（2026-09-21）：这里原来写了**两个 `onError`**（TS17001）——
+                        后一个把前一个覆盖 → 那个"图失败: xxx"提示**永远不会显示**。保留带提示的那个。 */}
+                    <img src={(v.url || '').startsWith('/') ? 'https://ai-niuma.cc' + v.url : v.url} alt={'帧' + (i + 1)} className="w-full h-16 object-cover" onError={(e: any) => { (e.target as any).style.display='none'; const p2=(e.target as any).closest('button'); if(p2){const d=document.createElement('div');d.className='text-[8px] text-red-400 truncate';d.textContent='图失败:'+((e.target as any).src||'').slice(0,70);p2.parentNode?.insertBefore(d,p2.nextSibling)}}} />
                     <span className="block text-center text-[8px] text-gray-400 py-0.5">{i + 1}</span>
                   </button>
                 ))}
