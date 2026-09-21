@@ -314,7 +314,13 @@ async function saveVfDraft(userId: number | string, draft: any): Promise<void> {
 async function loadVfDraft(userId: number | string): Promise<any | null> {
   try {
     const dm = await prisma.agentMemory.findFirst({ where: { userId: String(userId), tags: { contains: 'vf_draft' } }, orderBy: { updatedAt: 'desc' } })
-    if (dm?.content) return JSON.parse(String(dm.content).replace(/^成片草稿:/, ''))
+    if (dm?.content) {
+      const _d = JSON.parse(String(dm.content).replace(/^成片草稿:/, ''))
+      // ★VF_RUN_EXPIRE_V1（2026-09-21）：带上草稿最后更新时间 —— 供「running 超时自动作废」判断。
+      //   草稿存在 DB 里跨会话/跨天都活着；不判超时的话，一次残留的 running 会让用户永远做不了第二条。
+      if (_d && typeof _d === 'object') _d.__savedAt = dm.updatedAt ? new Date(dm.updatedAt).getTime() : 0
+      return _d
+    }
   } catch (e: any) { try { vfLog(userId, '[草稿读取失败] ' + String(e?.message || e).slice(0, 200)) } catch {} }
   return null
 }
@@ -2831,7 +2837,16 @@ PUBLISH_DRAFT.delete(uidW)
             // 内存没有 → 从 AgentMemory 恢复（仿发布：服务器重启/刷新不丢）
             if (!vd) { const _r = await loadVfDraft(uidVF2); if (_r?.step) { vd = _r; VIDEO_DRAFT.set(uidVF2, vd) } }
             // 新的成片指令 → 重置旧草稿（防 step 错位 → 又跑回 AI 自由调工具）
-            if (vd && vfIntent) { VIDEO_DRAFT.delete(uidVF2); clearVfDraft(uidVF2); vd = undefined }
+            // ★VF_RUN_RESET_V1（2026-09-21，用户实测：上传图片模式下第二次提交回「已在后台渲染中」）：
+            //   草稿停在 step='running' 时，用户【再提交一次表单】= 想再做一条 → 旧草稿必须作废，
+            //   否则会落到下面 L3211 的 running 拦截（回「已在后台渲染中」，其实什么都没在渲染）。
+            // ★只清 running：step='form'/'script' 时的表单提交是「改选项」，绝不能清（否则会把正在进行的流程打断）。
+            const _vfIsForm = /^VF_FORM:/.test(String(userMessage || '').trim())
+            // ★VF_RUN_EXPIRE_V1（2026-09-21）：第三重保险 —— running 草稿超过 30 分钟 = 早就结束的任务残留 → 直接作废。
+            //   （出片是分钟级；一条片不可能 running 半小时。有了这道，即使前两条都没覆盖也不会永久卡死。）
+            const _vfStale = (vd?.step === 'running') && !!vd.__savedAt && (Date.now() - Number(vd.__savedAt) > 30 * 60 * 1000)
+            if (_vfStale) vfLog(uidVF2, `[草稿过期] running 草稿已停留 ${Math.round((Date.now() - Number(vd.__savedAt)) / 60000)} 分钟 → 自动作废`)
+            if (vd && (vfIntent || _vfStale || (_vfIsForm && vd.step === 'running'))) { VIDEO_DRAFT.delete(uidVF2); clearVfDraft(uidVF2); vd = undefined }
 
             if (!vd) {
               // ── 第 1 步 起稿（★AI 出场①：润色成口播文案，保留数字/术语，不改写）──
@@ -3118,6 +3133,24 @@ PUBLISH_DRAFT.delete(uidW)
                   vfSubLen = sum
                   vfCover = vfScript2 ? vfSubLen / vfScript2.length : 0
                   vfLog(uidVF2, `[字幕兜底] AI 只覆盖 ${before}% → 按顺序切成 ${vfShots.length} 段填入 → 覆盖 ${Math.round(vfCover * 100)}%（预计 ${Math.round(vfSubLen / 4.5)} 秒）`)
+                }
+                // ★VF_DURFIX_V1（2026-09-21，用户实测：选 60 秒却出成 180 秒）：
+                //   genVideoShots 的 prompt 里写了「各镜 dur 相加必须约等于目标秒数」，但**没有任何代码校验** ——
+                //   AI 不遵守时没人纠正（对比：字幕覆盖率有 VF_SUBFILL_V1 兜底，时长却没有 → 这就是缺口）。
+                //   这里做**确定性修正**：分镜合计时长偏离目标 >25% 就按比例缩放每镜 dur。
+                //   clamp 4~15 秒/镜：AI 制片线 H3 单镜只支持 4~15 整数秒；素材线 Ken Burns 同样适用。
+                {
+                  const _dfTarget = Math.max(5, Math.min(900, Number(vfDur) || 30))
+                  const _dfSum = vfShots.reduce((a: number, s: any) => a + (Number(s?.dur) || 0), 0)
+                  if (_dfSum > 0 && Math.abs(_dfSum - _dfTarget) / _dfTarget > 0.25) {
+                    const _dfScale = _dfTarget / _dfSum
+                    let _dfNew = 0
+                    for (const s of vfShots) {
+                      const d = Math.max(4, Math.min(15, Math.round((Number(s?.dur) || 5) * _dfScale)))
+                      s.dur = d; _dfNew += d
+                    }
+                    vfLog(uidVF2, `[时长护栏] 分镜合计 ${Math.round(_dfSum)} 秒 偏离目标 ${_dfTarget} 秒 >25% → 按比例缩放到 ${_dfNew} 秒（每镜 clamp 4~15 秒）`)
+                  }
                 }
                 const vfEstSec = Math.round(vfSubLen / 4.5)
                 const vfHasPlan = vfShots.length >= 2 && !!vfScript2 && vfCover >= 0.8
