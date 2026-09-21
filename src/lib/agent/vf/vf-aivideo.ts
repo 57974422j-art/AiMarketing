@@ -62,6 +62,8 @@ export interface VfAiCtx {
   genVideoShots: (o: {
     uid: number | string; aspect: string; dur: number; shotN: number
     imgPaths: string[]; brief: string; script: string
+    /** ★VF_AIONLY_V1（2026-09-21）：AI 制片 = 文生视频 → 只产出"不需要素材图"的卡型 */
+    aiOnly?: boolean
     retryHint?: string; wantPrompt?: boolean
   }) => Promise<any[]>
   generateText: (prompt: string) => Promise<string>
@@ -290,9 +292,11 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
             brief = await ctx.summarizeMaterials(uid, use.slice(0, 12), Math.max(3, Math.min(10, Math.round((Number(vd.dur) || 30) / 30) * 5)))
           } catch { /* ignore */ }
           vd.brief = String(brief || '').slice(0, 1200)
+          // ★VF_AIONLY_V1（2026-09-21 用户定案）：AI 制片是**文生视频** ——
+          //   「除了第一步看用户，其它都不拿个人仓库素材」→ 写文案**不再喂素材摘要**，
+          //   题材已经由第一步（看素材猜出的）【主题】承载了。
           const p = `你是短视频编导。为「${vd.topic || 'AI 营销'}」写一条约 ${vd.dur} 秒的口播文案，` +
             `**约 ${need} 字**（中文配音约 4.5 字/秒），口语化、开场 3 秒抓人、结尾有行动号召。` +
-            (vd.brief ? `\n【参考：用户的素材/业务背景（用它理解题材，不要在文案里罗列素材）】\n${vd.brief}` : '') +
             `\n只输出文案本身，不要标题、不要解释、不要 markdown。`
           vd.script = String(await ctx.generateText(p) || '').trim().slice(0, 4000)
           ctx.log(uid, `[VF-A] 文案 ${vd.script.length} 字（目标 ${need}）`)
@@ -405,8 +409,13 @@ async function draftAndCard(ctx: VfAiCtx, vd: VfAiDraft, retryHint: string): Pro
   const imgs: string[] = []   // ★AI 制片画面全 AI 生成 → 不给素材图（素材只当"题材依据"）
   const shots = await ctx.genVideoShots({
     uid, aspect, dur, shotN,
-    imgPaths: imgs, brief: vd.brief || '', script: vd.script,
+    // ★VF_AIONLY_V1（2026-09-21 用户定案）：**AI 制片 = 文生视频** ——
+    //   素材只在"第一步看素材库猜题材"用一次；之后一路不碰素材库：
+    //   ① 不带素材图（imgPaths 为空）② 不带素材摘要（brief 空）③ aiOnly → 只产出不需要图的卡型
+    //   （`bgimage`/`image` 一律降级成 title，绝不出现"要素材图却没有图"的镜 → 渲染必崩的那种）
+    imgPaths: imgs, brief: '', script: vd.script,
     wantPrompt: true,                    // ★要英文画面描述（喂 H3）
+    aiOnly: true,                        // ★只允许"不需要素材图"的卡型
     ...(retryHint ? { retryHint } : {}),
   })
 

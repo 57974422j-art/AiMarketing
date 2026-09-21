@@ -319,7 +319,11 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
         url, via, sec = _h3_gen_one(prompt, want, resolution, ratio)
         via_last = via
         if not url:
-            print('[H3] ⚠️ 第 %d 镜 AI 生成失败（%s）→ **该镜回退用原画面**（不整片失败）' % (i + 1, via))
+            # ★VF_AIFAIL_V1（2026-09-21）：不再承诺"该镜回退用原画面" ——
+            #   素材线/混合线本来就有素材图，退回素材是它们的正常行为；
+            #   但 **AI 制片是"文生视频"、没有素材**，缺镜就是"AI 制作失败"（由 main() 统一判定）。
+            print('[H3] ⚠️ 第 %d 镜 AI 画面没拿到（%s）→ 素材线/混合线可回退素材；'
+                  'AI 制片线这一镜**算失败**（最后由 main 统一判定）' % (i + 1, via))
             continue
         dest = os.path.join(clips, 'shot%02d.mp4' % i)
         try:
@@ -328,7 +332,7 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
         except Exception as e:
             # ★H3_DLDIAG_V1（2026-09-21）：把**失败的 URL** 一起打出来 ——
             #   原来只有 "HTTP Error 403: Forbidden"，看不出是哪个地址失败（换 key/换站时没法验证）。
-            print('[H3] ⚠️ 第 %d 镜下载失败: %s  url=%s → 回退用原画面'
+            print('[H3] ⚠️ 第 %d 镜下载失败: %s  url=%s（AI 制片线这一镜**算失败**）'
                   % (i + 1, str(e)[:120], str(url)[:110]))
             continue
         real = float(sec or 0) or _probe_sec(dest)
@@ -435,6 +439,15 @@ def main():
             print('[MAKE] ⚠️ AI 生成环节异常: %s → 回退成素材合成' % str(e)[:160])
             ai_sb, ai_n, ai_sec, ai_via = '', 0, 0.0, ''
         if ai_n > 0:
+            # ★VF_AIFAIL_V1（2026-09-21 用户定案：「AI 制片就是除了第一步看用户，其它都不拿个人仓库素材；
+            #   失败了就是 AI 制作失败」「不要什么降级」）：
+            #   **AI 制片必须每一镜都是 AI 画面** —— 缺任何一镜都不许用素材/文字卡顶替 → 直接判失败。
+            _tot = len(sb.get('shots', []) or [])
+            if (not _isMix) and a.source == 'ai' and ai_n < _tot:
+                print('[MAKE] ❌ AI 制片：只拿到 %d/%d 镜的 AI 画面 → **不用素材顶、不降级 = AI 制作失败**'
+                      % (ai_n, _tot))
+                print('[MAKE]    ↑ 病因看上面的 [H3] 行；这是"文生视频"，缺镜不能拿素材凑。')
+                sys.exit(5)
             use_sb = ai_sb
             print('[MAKE] AI 片段就绪：%d 镜 / %.1f 秒（通道 %s）→ 用 storyboard.ai.json 渲染'
                   % (ai_n, ai_sec, ai_via))

@@ -53,6 +53,8 @@
 | `VF_NOIMG_V1` | `RuntimeError: 第 0 镜渲染失败(bgimage) … : No such file or directory` | `card_bgimage` 拿到空/不存在的 `src` 时直接崩 → **整镜失败 → 整片失败** | 无图 → **降级为 title 卡**（与 `VF_UNKNOWNCARD_V1` 同原则） |
 | `H3_DLDIAG_V1` | 只有 "HTTP Error 403: Forbidden"，看不出**是哪个地址**失败 | 下载失败时没打 URL | 失败时把 URL 片段一起打进日志 |
 
+| `VF_AIONLY_V1` / `VF_AIFAIL_V1` | AI 制片的分镜里出现 `bgimage`（**需要素材图**的卡）→ 渲染 `No such file or directory` → 整片失败；失败后还"回退素材合成" | ① AI 制片线**沿用了素材线那套"素材配图"的分镜归一化**（`bgimage` / 未知 type 都会尝试配图）；② `make.py` 的"缺镜就回退素材合成"对**没有素材**的 AI 制片是错的（用户："我做的 10 秒视频 好合成干嘛？"） | **AI 制片 = 文生视频**：`aiOnly` 只产出"不需素材图"的卡 + **缺任何一镜即整体失败**（不回退、不降级）；素材线/混合线行为完全不变 |
+
 **⚠️ 四条结论记档（后来人必读）**
 1. **素材成片的时长**由「文案字数 ÷ 4.5」+ `tts.py` 逐镜真实配音时长决定；**改分镜的 `dur` 不会改变最终时长**（要改就改文案字数/字幕覆盖）。
 2. **一个用户只有一条成片草稿**（`AgentMemory` tag `vf_draft`，`findFirst` + 覆盖写）——不是"两个草稿叠加"，而是"**旧草稿把新输入吃掉了**"。

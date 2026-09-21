@@ -53,6 +53,11 @@ async function genVideoShots(o: {
   /** ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」时，额外要求每镜给一个【英文画面描述】，
    *  作为 MiniMax H3 的生成提示词。**不传时输出与原来完全一致**（素材合成不受任何影响）。 */
   wantPrompt?: boolean
+  /** ★VF_AIONLY_V1（2026-09-21 用户定案）：**AI 制片 = 文生视频** ——
+   *  除了"第一步看素材猜题材"之外，**全程不碰素材库**。所以归一化时**只允许不需要素材图的卡**
+   *  （title / list / number / compare / chart / end）：`bgimage` / `image` 一律降级成 `title`（不配图）。
+   *  不传时行为与原来完全一致（素材线 / 混合线不受任何影响）。 */
+  aiOnly?: boolean
 }): Promise<any[]> {
   const imgs = (o.imgPaths || []).filter(Boolean)
   const charN = String(o.script || '').length
@@ -125,7 +130,7 @@ async function genVideoShots(o: {
       //   `prompt`（英文画面描述）**丢掉**，导致 make.py 只能用中文 subtitle 兜底。
       //   只在真有 prompt 时附带该字段 → 素材合成的输出结构与原来完全一致。
       const _pp = s.prompt ? { prompt: String(s.prompt).slice(0, 900) } : {}
-      if (!lp) return { type: 'title', text: notDemo(s.text), subtitle: sub, dur: 3.5, ..._pp }
+      if (!lp || o.aiOnly) return { type: 'title', text: notDemo(s.text), subtitle: sub, dur: 3.5, ..._pp }
       // 注意：bgimage 的 text 是“画面大字”，**不能**当配音文案，所以这里只取 subtitle
       return { type: 'bgimage', src: lp, text: notDemo(s.text).slice(0, 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)), ..._pp }
     }
@@ -153,7 +158,7 @@ async function genVideoShots(o: {
     const lp2 = idx2 >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, idx2))] : ''
     const head2 = notDemo(s?.title) || notDemo(s?.text) || sub2.slice(0, 8)
     const dur2 = Math.min(8, Math.max(2, parseInt(s?.dur) || 5))
-    if (!lp2) return { type: 'title', text: String(head2).slice(0, 14), subtitle: sub2, dur: dur2 }
+    if (!lp2 || o.aiOnly) return { type: 'title', text: String(head2).slice(0, 14), subtitle: sub2, dur: dur2 }
     return { type: 'bgimage', src: lp2, text: String(head2).slice(0, 14), subtitle: sub2, dur: dur2 }
   }).filter(Boolean).slice(0, Math.max(4, Math.min(40, o.shotN || 8)))
   // ★VF_SHOTCOUNT_V1（2026-09-20 用户实测“13 镜/190 秒、一镜 14.6 秒太闷”）：
