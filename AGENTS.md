@@ -38,8 +38,23 @@
 
 - 本地开发：`npm run dev`
 - 打包：`node scripts/bump-version.mjs X.Y.Z` → `node scripts/build-local.mjs`（~13-15 分钟，产出 `dist-rel/`）
+  - bump 后**必须补 `electron/changelog.json` 里那条的说明**（bump 只插"（待补充变更说明）"空占位）
+  - ⚠️ 写中文说明时**不要用英文双引号**（会把 changelog.json 的 JSON 写坏 → bump 报错），用「」
+- **提交推送**（★ 必须先有用户明文授权，否则禁止）：`git add <白名单路径>` → `git commit -m "…"` → `git push origin master`
 - 服务器部署（唯一命令）：`cd /root/AiMarketing && git fetch origin && git reset --hard origin/master && bash scripts/deploy-server.sh`
 - 发版上传 OSS：`node scripts/upload-update-oss.mjs dist-rel`
+  - ★ 三件套必须同步，**latest.yml 最后传**（先传 exe + blockmap，否则客户端更新会 404/转圈）
+- 成片自检：`cd /root/AiMarketing && bash scripts/video-factory/selfcheck.sh`（4 段：语法 / 9 种卡型渲染 / 4 个 TTS 引擎 / 17 个改动标记）
+
+## 看日志（排查必备）
+
+| 看什么 | 命令 / 路径 |
+|---|---|
+| 客户端日志 | `安装目录\data\bu_debug.log`（`electron/main.js` 的 `buLog` 写这里） |
+| 服务器进程日志 | `pm2 logs aimarketing --lines 200 --nostream` |
+| 成片任务状态 | `cat /root/AiMarketing/storage/<userId>/video-factory/vf<时间戳>.json` → 看 `status`（running/done/failed）+ `tail[]` |
+| 成片入口日志 | `…/video-factory/vf_debug.log`（⚠️ 目前实际没生成，见 `docs/AI交接文档-三条成片线-20260921.md`） |
+| nginx | `/var/log/nginx/access.log`、`/var/log/nginx/error.log` |
 
 ## 仓库边界
 
