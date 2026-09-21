@@ -142,16 +142,28 @@ def _h3_http(method, url, key, body=None, timeout=30):
     from urllib.request import Request, urlopen
     from urllib.error import HTTPError
     data = json.dumps(body).encode('utf-8') if body is not None else None
+    # ★H3_UA_V1（2026-09-21 实测定因）：Python 的 urllib 默认 UA 是 `Python-urllib/3.x`，
+    #   中转站前置网关（Cloudflare 类）会直接 **403 且响应体不是 JSON** → 我们只看到 "HTTP 403"，
+    #   很容易误判成"key 没权限"（真·权限问题会返回 JSON 错误体，不会退化成纯 "HTTP 403"）。
+    #   这里补一个正常 UA 规避。
     req = Request(url, data=data, method=method,
-                  headers={'Content-Type': 'application/json', 'Authorization': 'Bearer %s' % key})
+                  headers={'Content-Type': 'application/json', 'Authorization': 'Bearer %s' % key,
+                           'User-Agent': 'curl/8.5.0'})
     try:
         with urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode('utf-8', 'replace') or '{}')
     except HTTPError as e:
+        # ★H3_DIAG_V1（2026-09-21）：响应体不是 JSON 时，把【原始响应体前 200 字】一起报出来
+        #   ——否则日志永远只有一句 "HTTP 403"，分不清是"网关拦"还是"key 无权/欠费"。
         try:
-            return json.loads(e.read().decode('utf-8', 'replace') or '{}')
+            raw = e.read()
         except Exception:
-            return {'error': {'message': 'HTTP %s' % e.code}}
+            raw = b''
+        try:
+            return json.loads(raw.decode('utf-8', 'replace') or '{}')
+        except Exception:
+            snip = raw.decode('utf-8', 'replace').replace('\r', ' ').replace('\n', ' ')[:200]
+            return {'error': {'message': 'HTTP %s%s' % (e.code, ('  body=' + snip) if snip else '  (空响应体)')}}
     except Exception as e:
         return {'error': {'message': str(e)[:150]}}
 

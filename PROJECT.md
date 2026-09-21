@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-09-18 ｜2026-08-06 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-09-21 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
@@ -160,6 +160,16 @@ dashboard(+insights/sop)、workspace、ai-tools、ai-copy、image-generator、au
 i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
+
+### 2026-09-21 素材成片：两条真 bug 修复 + 中转站 403 真因（✅ 代码完成，待部署实测）
+
+- **①「第二条被吃掉」与「选 60 秒出成 200 秒」是同一个根因**：成片草稿（`AgentMemory` tag `vf_draft`）停在 `running`/`script` 时，用户提交的 `VF_FORM:{...}` **只在 `step=form/source` 才被解析** → 要么被 running 分支拦下回"渲染中"，要么**落进「文案微调」分支被当成"改文案的要求"喂给 AI**（时长 + 上传名单全丢）→ 接着点确认就用**旧草稿的 180 秒分镜**出片（200 秒 ≈ 900 字 ≈ 180 秒目标的字数）。
+  **修**：`VF_FORM_CLAIM_V1`（孤儿草稿 → 作废 + 用本次表单重新起草，一次点击到位）+ `VF_RUN_CLOSE_V1`（**入队即作废草稿**，顺带修掉"之后最长 30 分钟内任何消息都被回『已在后台渲染中』"）
+- **②主题被写成协议串**：`VF_TOPIC_GUARD_V1` + `VF_TOPIC_CLEAN_V1`（含清理历史脏草稿）
+- **③中转站 403 真因（实测三组对照）**：Python `urllib` 默认 UA 被 Cloudflare 拦（403 且响应体非 JSON）；同一请求换 curl / Node UA → **400 JSON（key 有效、通道通）** → "服务器测试通过、实际成片全 403"对得上。**修**：`make.py` 补 `User-Agent`（`H3_UA_V1`）+ 响应体非 JSON 时把原始前 200 字入日志（`H3_DIAG_V1`）
+- **④时长认知纠正**：素材成片**最终时长 = 文案字数 ÷ 4.5**，且由 `tts.py` **逐镜真实配音时长回填**（`s['dur']` 覆盖分镜 `dur`）→「时长护栏」只能管"无配音的镜头"（`VF_DURFIX_NOTE_V1` 日志写实）
+- **⑤并发结论**：**不同用户完全隔离**（草稿 / 任务文件 / 出片 workdir / 素材仓库 / 配额全按 userId；出片 workdir 已按 `work_<时间戳>` 独立，不会互相覆盖）；**同一用户连做两条**才需要上面的"草稿认领"逻辑。⚠️ pm2 须保持 `instances=1`（`VIDEO_DRAFT` 是进程内 Map）
+- ⚠️ **待用户实测**：连做两条（应免"点两次"、时长按本次所选）；出片日志应见 `[H3] ✅ 第 N 镜 OK 中转`（不再 403）
 
 ### 2026-09-20 成片 D 批：克隆音色闭环 + 词级字幕（✅ 代码完成，待部署实测）
 

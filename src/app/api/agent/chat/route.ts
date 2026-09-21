@@ -2846,7 +2846,25 @@ PUBLISH_DRAFT.delete(uidW)
             //   （出片是分钟级；一条片不可能 running 半小时。有了这道，即使前两条都没覆盖也不会永久卡死。）
             const _vfStale = (vd?.step === 'running') && !!vd.__savedAt && (Date.now() - Number(vd.__savedAt) > 30 * 60 * 1000)
             if (_vfStale) vfLog(uidVF2, `[草稿过期] running 草稿已停留 ${Math.round((Date.now() - Number(vd.__savedAt)) / 60000)} 分钟 → 自动作废`)
-            if (vd && (vfIntent || _vfStale || (_vfIsForm && vd.step === 'running'))) { VIDEO_DRAFT.delete(uidVF2); clearVfDraft(uidVF2); vd = undefined }
+            // ★VF_FORM_CLAIM_V1（2026-09-21，用户实测「选 60 秒出成 200 秒」＋「第二条被拦」）：
+            //   表单提交（VF_FORM:）撞上【不是 form/source 的孤儿草稿】时，旧行为有三种错法：
+            //     · running → 回「已在后台渲染中」（其实什么都没在渲染）
+            //     · script  → 落到「文案微调」分支，被当成"改文案的要求"喂给 AI（时长/上传名单全丢）
+            //     · 未知    → 兜底出"素材来源卡"（参数同样丢）
+            //   三种都会让"我选的时长/上传没生效" → 现在一律【作废旧草稿】并用本次表单重新起草。
+            //   ★仍然只清"孤儿"：step=form/source 时的表单提交是「改选项」，绝不能清。
+            const _vfOrphan = _vfIsForm && !!vd && vd.step !== 'form' && vd.step !== 'source'
+            if (_vfOrphan) vfLog(uidVF2, `[草稿认领] 本次是表单提交，旧草稿 step=${vd?.step} → 作废，用本次表单重新起草`)
+            if (vd && (vfIntent || _vfStale || _vfOrphan)) { VIDEO_DRAFT.delete(uidVF2); clearVfDraft(uidVF2); vd = undefined }
+
+            // ★VF_FORM_CLAIM_V1（第二段）：草稿刚被作废、而本次正是表单提交 → 直接起一条干净草稿，
+            //   交给下面 `else if (vd.step === 'form' || 'source')` 去解析本次表单并一路起草到底。
+            //   不这么做就会走「第 1 步 起稿」→ 只回一张空表单卡 → 用户得再点一次，且这次填的全丢。
+            if (!vd && _vfIsForm) {
+              vd = { step: 'form', topic: '', voice: 'longxiaochun', theme: 'dark', aspect: 'auto', dur: 30, voiceList: VF_VOICE_BASE.slice() }
+              VIDEO_DRAFT.set(uidVF2, vd)
+              vfLog(uidVF2, '[草稿认领] 已按本次表单参数重新起草（不再回表单卡）')
+            }
 
             if (!vd) {
               // ── 第 1 步 起稿（★AI 出场①：润色成口播文案，保留数字/术语，不改写）──
@@ -2858,7 +2876,11 @@ PUBLISH_DRAFT.delete(uidW)
                 .replace(/^(用|请用|请|来|帮我|帮忙|给我|麻烦)\s*/, '')
                 .replace(/^(用|请|来)\s*/, '')
                 .replace(/^[\s:：,，,。、]+/, '').trim()
-              vd = { step: 'form', topic: vfTopic0, voice: 'longxiaochun', theme: 'dark', aspect: 'auto', dur: 30 }
+              // ★VF_TOPIC_GUARD_V1（2026-09-21）：协议串绝不能当主题（与 2026-09-20 那次
+              //   "主题被写成 VF_FORM:{...} 原文" 是同一类事故）—— 起稿这条路也要挡。
+              const _vfTopic0Clean = (/^(VF_FORM|VF_JSON|MAKE_VIDEO|BROWSER_TASK|FRAMES_OK|TOOL_REJECT|VIDEO_RESULT)/i.test(vfTopic0)
+                || vfTopic0.startsWith('{') || vfTopic0.startsWith('[')) ? '' : vfTopic0
+              vd = { step: 'form', topic: _vfTopic0Clean, voice: 'longxiaochun', theme: 'dark', aspect: 'auto', dur: 30 }
               VIDEO_DRAFT.set(uidVF2, vd)
               await saveVfDraft(uidVF2, vd)
               // ★VF_FORM_V1（2026-09-20，用户要求）：改成【一张表单、一次提交】——
@@ -2874,12 +2896,12 @@ PUBLISH_DRAFT.delete(uidW)
               } catch {}
               vd.voiceList = _vList   // ★存进草稿：文案卡/换音色卡都用同一份，不再各写一份
               wfEarlyReply = 'VF_JSON:' + JSON.stringify({
-                step: 'form', topic: vfTopic0, aspect: 'auto', dur: 30, voice: 'longxiaochun',
+                step: 'form', topic: _vfTopic0Clean, aspect: 'auto', dur: 30, voice: 'longxiaochun',
                 voices: _vList,
                 hint: '选好点「🚀 开始出片」（都有默认值，不改也能直接开始）',
               })
               finalResult = wfEarlyReply
-              console.log('[成片状态机] 素材来源——topic=', vfTopic0.slice(0, 20))
+              console.log('[成片状态机] 素材来源——topic=', _vfTopic0Clean.slice(0, 20))
             } else if (vd.step === 'form' || vd.step === 'source') {
               // ── 用户选了【画面来源】→ 素材合成 / 素材+AI 混合 / 全部 AI / 上传 ──
               // ★VF_FORM_V1：表单一次性提交（前端发 VF_FORM:{aspect,dur,source,voice,topic}）
@@ -2962,6 +2984,13 @@ PUBLISH_DRAFT.delete(uidW)
                 if ((vd.formSource === 'upload') || /上传|我传|我自己|本地传/.test(userMessage)) {
                   vd.useRecent = true
                   vfLog(uidVF2, '[上传] 本次成片只用【最近上传】的素材')
+                }
+                // ★VF_TOPIC_CLEAN_V1（2026-09-21）：草稿里若已存着协议串主题（历史 bug 留的脏值）就清掉 ——
+                //   下面 `if (!vd.topic)` 只在【空】时才重新推导，脏值会一直被带进写文案的 prompt。
+                if (vd.topic && (/^(VF_FORM|VF_JSON|MAKE_VIDEO|BROWSER_TASK|FRAMES_OK|TOOL_REJECT|VIDEO_RESULT)/i.test(String(vd.topic).trim())
+                  || String(vd.topic).trim().startsWith('{') || String(vd.topic).trim().startsWith('['))) {
+                  vfLog(uidVF2, '[主题清洗] 草稿主题是协议串 → 已清空')
+                  vd.topic = ''
                 }
                 if (!vd.topic) {
                   const _t = String(userMessage).replace(/^[\s:：,，,。、]+/, '').trim()
@@ -3149,7 +3178,10 @@ PUBLISH_DRAFT.delete(uidW)
                       const d = Math.max(4, Math.min(15, Math.round((Number(s?.dur) || 5) * _dfScale)))
                       s.dur = d; _dfNew += d
                     }
-                    vfLog(uidVF2, `[时长护栏] 分镜合计 ${Math.round(_dfSum)} 秒 偏离目标 ${_dfTarget} 秒 >25% → 按比例缩放到 ${_dfNew} 秒（每镜 clamp 4~15 秒）`)
+                    // ★VF_DURFIX_NOTE_V1（2026-09-21 核对结论）：素材成片的**最终时长由 tts.py 逐镜配音真实时长决定**
+                    //   （tts.py 会 `s['dur'] = round(dur+0.35, 2)` 覆盖这里缩放的 dur），
+                    //   所以本护栏只对【无配音的镜头】有意义，别指望它把 60 秒压回来。
+                    vfLog(uidVF2, `[时长护栏] 分镜合计 ${Math.round(_dfSum)} 秒 偏离目标 ${_dfTarget} 秒 >25% → 缩放到 ${_dfNew} 秒（每镜 clamp 4~15；有配音时最终时长由 TTS 决定）`)
                   }
                 }
                 const vfEstSec = Math.round(vfSubLen / 4.5)
@@ -3184,9 +3216,12 @@ PUBLISH_DRAFT.delete(uidW)
                 const vfRun = await executeToolCall('make_ai_video', (vd.shots?.length && !vfForce)
                   ? { plan: JSON.stringify({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }), script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }
                   : { script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }, auth)
-                vd.step = 'running'
-                VIDEO_DRAFT.set(uidVF2, vd)
-                await saveVfDraft(uidVF2, vd)
+                // ★VF_RUN_CLOSE_V1（2026-09-21，用户实测「做完一条第二条要点两次」＋「之后随便说句话都被回
+                //   『已在后台渲染中』」）：任务一旦入队就【立即作废草稿】——进度已由独立的
+                //   <storage>/<uid>/video-factory/vf<ts>.json 跟踪，草稿留着只会挡住下一条（最长挡 30 分钟）。
+                vfLog(uidVF2, '[草稿收尾] 已入队 → 旧草稿作废（下一条不必再点两次）')
+                VIDEO_DRAFT.delete(uidVF2)
+                await clearVfDraft(uidVF2)
                 wfEarlyReply = String(vfRun)
                 finalResult = wfEarlyReply
                 vfLog(uidVF2, `[入队] ${String(vfRun).slice(0, 100)}`)
