@@ -516,6 +516,13 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
       className={`px-2 py-1 rounded text-[11px] border transition ${cur === val ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : dis ? 'bg-white/[0.03] border-white/[0.06] text-gray-600 cursor-not-allowed' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>{label}</button>
   )
 
+  // ★VF_AIVIDEO_V1（2026-09-20）：切到「全部 AI 生成」时，画幅固定为竖屏 ——
+  //   因为该模式下「自动（按素材判断）」已置灰，若不主动落一格，界面会停在"没选"的状态上。
+  //   **只在 source==='ai' 时生效**：素材合成模式下用户选什么就是什么，一行都不碰。
+  useEffect(() => {
+    if (source === 'ai' && aspect === 'auto') setAspect('portrait')
+  }, [source, aspect])
+
   return (
     <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
       <div className="text-xs text-fuchsia-300 mb-3">🎬 成片设置{typeof vj.hint === 'string' && vj.hint ? ' · ' + vj.hint : ''}</div>
@@ -532,14 +539,23 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
               —— 它比素材合成贵两个数量级，不说清楚用户会吓一跳。 */}
           {R(source, 'ai', '🎨 全部 AI 生成（约 50 点/秒）', setSource)}
           {/* ★VF_UPLOAD_FIX_V1：照抄“聊天那个能用的写法” —— 不加 disabled（否则可能永久点不动） */}
-          <button onClick={() => { if (uploading) return; if (fileRef.current) fileRef.current.click() }}
-            className={`px-2 py-1 rounded text-[11px] border transition ${source === 'upload' ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
-            {uploading ? '⏳ 上传中…' : '📤 我上传素材'}
+          {/* ★VF_AIVIDEO_V1（2026-09-20）：AI 模式下不用上传素材（画面由 AI 生成）→ 置灰，
+              避免"以为能上传、结果白传"；也避免残留的 uploaded 名单让人误会它参与了。
+              **素材合成模式下这个按钮和以前完全一样**（可上传、真的会用）。 */}
+          <button
+            disabled={source === 'ai'}
+            onClick={() => { if (source === 'ai' || uploading) return; if (fileRef.current) fileRef.current.click() }}
+            className={source === 'ai'
+              ? 'px-2 py-1 rounded text-[11px] border bg-white/[0.03] border-white/[0.06] text-gray-600 cursor-not-allowed'
+              : `px-2 py-1 rounded text-[11px] border transition ${source === 'upload' ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
+            {source === 'ai' ? '📤 我上传素材（AI 模式不用）' : (uploading ? '⏳ 上传中…' : '📤 我上传素材')}
           </button>
         </div>
         <input ref={fileRef} type="file" accept="image/*,video/*" multiple className="hidden"
           onChange={(e: any) => { doUpload(e.target.files); e.target.value = '' }} />
-        {uploaded.length > 0 && (
+        {/* ★VF_AIVIDEO_V1：AI 模式下不显示这句 —— "画面只从这批里取"在那里是**假话**
+            （AI 模式的画面由 H3 生成，素材只当参考）。 */}
+        {uploaded.length > 0 && source !== 'ai' && (
           <div className="text-[10px] text-emerald-300/80 mt-1">
             ✅ 已上传 {uploaded.length} 个到个人仓库 —— 本次成片的画面只从这批里取
           </div>
@@ -552,7 +568,11 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">画幅</div>
         <div className="flex flex-wrap gap-1.5">
-          {R(aspect, 'auto', '自动（按素材判断）', setAspect)}
+          {/* ★VF_AIVIDEO_V1（2026-09-20）：「自动（按素材判断）」在 AI 模式下**无意义** ——
+              画面是由 AI 生成的，没有"用哪张素材"可判 → 置灰；
+              并配合下面的 useEffect 强制落到「竖屏」（用户原话："纯 AI 制作，它知道竖屏横屏"）。
+              注意：**素材合成模式下这两个按钮行为和以前一模一样**（不改既有逻辑）。 */}
+          {R(aspect, 'auto', `自动（按素材判断）${source === 'ai' ? ' · AI 模式不适用' : ''}`, setAspect, source === 'ai')}
           {R(aspect, 'portrait', '竖屏 9:16', setAspect)}
           {R(aspect, 'landscape', '横屏 16:9', setAspect)}
         </div>
@@ -614,7 +634,9 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
           aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme,
           // ★VF_UPLOAD_V2（2026-09-20）：把**刚上传的文件名**一起发给后端 → 成片精确只用这几张
           //   （不再靠后端"按时间猜最近"，也就不会再挑到旧素材）
-          ...(uploaded.length ? { uploaded } : {}),
+          // ★VF_AIVIDEO_V1（2026-09-20）：AI 模式下**不提交 uploaded** —— 免得日志与后续判断里
+          //   残留"这次用了刚上传的图"的错觉（AI 模式的画面由 H3 生成，素材只当参考）。
+          ...(uploaded.length && source !== 'ai' ? { uploaded } : {}),
         }))}
         className="w-full px-4 py-2 rounded-lg bg-fuchsia-500/50 hover:bg-fuchsia-500/80 text-sm text-white font-medium">
         🚀 开始出片
@@ -2307,7 +2329,12 @@ function AgentPageInner() {
                 </div>
               ) : (vj.usedImages > 0 || (vj.shots && vj.shots.length)) ? (
                 <div className="text-[10px] text-emerald-300/80 mb-1">
-                  📸 看完你仓库里 {vj.usedImages || 0} 张图，排了 {(vj.shots || []).length} 个镜头{(vj.shots || []).some((s: any) => s.type === 'bgimage') ? '（画面用你的素材）' : ''}
+                  📸 看完你仓库里 {vj.usedImages || 0} 张图，排了 {(vj.shots || []).length} 个镜头
+                  {/* ★VF_AIVIDEO_V1（2026-09-20）：AI 模式的画面**不是**你的素材 →
+                      原来那句"（画面用你的素材）"在那里是**假话**，必须换成实话。 */}
+                  {vj.source === 'ai'
+                    ? '（🎨 画面由 AI 逐镜生成，约 50 点/秒）'
+                    : ((vj.shots || []).some((s: any) => s.type === 'bgimage') ? '（画面用你的素材）' : '')}
                 </div>
               ) : null}
               {/* ★VF_SHOTLIST_V1（2026-09-20）：可展开的「分镜清单」——
@@ -2358,8 +2385,11 @@ function AgentPageInner() {
                   </>
                 ) : (
                   <button onClick={() => sendMessage('确认')}
+                    title={vj.source === 'ai'
+                      ? '画面将由 AI 逐镜生成（约 50 点/秒）；生成较慢，实测每 6 秒画面约需 100 秒'
+                      : undefined}
                     className="px-4 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">
-                    确认出片{vj.cost ? `（约 ${vj.cost} 点）` : ''}
+                    确认出片{vj.cost ? `（约 ${vj.cost} 点）` : ''}{vj.source === 'ai' ? ' · 🎨 AI 画面' : ''}
                   </button>
                 )}
                 <span className="text-[10px] text-gray-500">也可直接说「改成…」调文案{vj.voiceName ? `（当前配音：${vj.voiceName}）` : ''}</span>
