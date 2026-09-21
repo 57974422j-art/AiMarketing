@@ -273,12 +273,27 @@ def card_aivideo(shot, th, W, H, fps):
     if src_dur > 0.2 and dur > src_dur:
         k = min(1.35, dur / src_dur)
     _slow = '' if k <= 1.001 else 'setpts=PTS*%.4f,' % k
+    # ★VF_AIVIDEO_V2（2026-09-20）：**补齐「压暗 + 画面大字」** ——
+    #   原来这里只有"视频 + 模糊铺底"，导致 AI 模式成片：① **没有画面标语**（素材合成有，AI 模式没有）
+    #   ② **字幕没对比度**（AI 片段的亮度完全不受控，字幕压在亮画面上会看不清）。
+    #   现复用 card_bgimage 的同款处理：全屏压 15% + 底部字幕区压 30% + 画面大字逐字浮现。
+    #   大字取 shot['text']（gen_ai_clips 只改 type/src/src_dur，text 本就保留）。
+    font = esc_path(find_font(th.get('font', 'msyh')))
+    fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
+    txc = th.get('text', 'white')
+    _reveal = _reveal_seq(shot, font, fs, txc, dur)
+    _bar_y = int(H * 0.72)
+    _chain = [
+        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
+        f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
+    ] + _reveal
     vf = (
         f"split=2[bg0][fg0];"
         f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
         f"[fg0]scale={W}:{H}:force_original_aspect_ratio=decrease[fgs];"
         f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,"
-        f"{_slow}trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"
+        f"{_slow}" + ','.join(_chain) + ','
+        f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"
     )
     if k > 1.001:
         print('[VF]   aivideo 时长对齐：片段 %.0fs → 镜 %.1fs（放慢 %.2f 倍）' % (src_dur, dur, k))
@@ -765,7 +780,9 @@ def main():
                 _testvid = _vp
         except Exception:
             _testvid = ''
-        _aishot = ({"type": "aivideo", "src": _testvid, "src_dur": 2.0,
+        # ★VF_AIVIDEO_V2（2026-09-20）：给镜加 text —— 这样自检能一起验证"压暗 + 画面大字"两层
+        #   （否则 aivideo 只验证到"铺视频"，而不会发现大字缺失）
+        _aishot = ({"type": "aivideo", "src": _testvid, "src_dur": 2.0, "text": "AI 生成画面",
                     "subtitle": "这一镜用来验证 AI 生成片段的渲染链路", "dur": 3.5}
                    if _testvid else
                    {"type": "title", "text": "AI 生成（造视频失败，已跳过 aivideo）",

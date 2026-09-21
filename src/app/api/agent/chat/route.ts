@@ -42,11 +42,14 @@ function vfParseShots(raw: string): any[] | null {
 async function genVideoShots(o: {
   uid: number | string; aspect: string; dur: number; shotN: number
   imgPaths: string[]; brief: string; script: string; retryHint?: string
+  /** ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」时，额外要求每镜给一个【英文画面描述】，
+   *  作为 MiniMax H3 的生成提示词。**不传时输出与原来完全一致**（素材合成不受任何影响）。 */
+  wantPrompt?: boolean
 }): Promise<any[]> {
   const imgs = (o.imgPaths || []).filter(Boolean)
   const charN = String(o.script || '').length
   const avgN = Math.max(8, Math.round(charN / Math.max(1, o.shotN)))
-  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。\n编镜依据（文案）：\n${o.script}`
+  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。${o.wantPrompt ? `\n★★【本片画面由 AI 逐镜生成】所以每个镜头还必须多给一个 prompt 字段：**英文**的画面生成提示词，含【主体 + 动作 + 场景 + 光影 + 镜头感（如推近/平移/航拍）】，60~80 词；只描述画面，**不要在画面里出现任何文字**（文字由字幕层负责）。prompt 必须与该镜的 subtitle 语义一致 —— 文案说什么，画面就演什么。\n  示例（注意 prompt 是英文）：{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案。","prompt":"A young marketer working late at a desk at night, laptop glow on his face, camera slowly pushes in, cinematic warm lighting, shallow depth of field","dur":7}` : ''}\n编镜依据（文案）：\n${o.script}`
   let raw = ''
   try { raw = (await generateText(prompt)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
   let arr = vfParseShots(raw)
@@ -110,9 +113,13 @@ async function genVideoShots(o: {
       const sub = String(s.subtitle || '').slice(0, 200)
       const idx = nextIdx(parseInt(s.pick))
       const lp = idx >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, idx))] : ''
-      if (!lp) return { type: 'title', text: notDemo(s.text), subtitle: sub, dur: 3.5 }
+      // ★VF_AIVIDEO_V1（2026-09-20）：这里是**显式造对象**（不是 {...s}）→ 原来会把 AI 给的
+      //   `prompt`（英文画面描述）**丢掉**，导致 make.py 只能用中文 subtitle 兜底。
+      //   只在真有 prompt 时附带该字段 → 素材合成的输出结构与原来完全一致。
+      const _pp = s.prompt ? { prompt: String(s.prompt).slice(0, 900) } : {}
+      if (!lp) return { type: 'title', text: notDemo(s.text), subtitle: sub, dur: 3.5, ..._pp }
       // 注意：bgimage 的 text 是“画面大字”，**不能**当配音文案，所以这里只取 subtitle
-      return { type: 'bgimage', src: lp, text: notDemo(s.text).slice(0, 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)) }
+      return { type: 'bgimage', src: lp, text: notDemo(s.text).slice(0, 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)), ..._pp }
     }
     if (KNOWN_TYPES.includes(ty)) {
       // ★VF_NOCLONE_V1：清掉照抄的示例文字（text/title/label/cta/items）
@@ -239,9 +246,16 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
   //   否则用户选完风格，回头在确认卡上看不到自己选了哪个）
   const _THEME_NAME: Record<string, string> = { dark: '深蓝科技', tech: '深青科技', light: '浅色纸感' }
   const themeName = _THEME_NAME[String(vd.theme || 'dark')] || '深蓝科技'
-  const cost = Math.max(1, Math.ceil(String(vd.script || '').length / 20))
   const charN = String(vd.script || '').length
   const targetSec = Math.round(Number(vd.dur) || 0)
+  const aspectName = aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'
+  // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」时，卡片成本**必须与 make_ai_video 的扣费同口径**
+  //   （按【秒 × 50 点】，768P）——否则就是"卡片报 7 点、实扣 500 点"，
+  //   与之前那次"多扣费"是同一类事故（只是方向相反）。报价与实扣同源，是硬要求。
+  const _isAI = String(vd.source || vd.mode || '') === 'ai'
+  const cost = _isAI
+    ? Math.max(1, Math.ceil(Math.max(4, targetSec || 30) * 50))
+    : Math.max(1, Math.ceil(charN / 20))
   // ★覆盖不足也算“不给确认”（不然出来的片子只有 110 秒 / 只念 30%）
   if (!shots || shots.length < 2 || cover < 0.8) {
     const why = (!shots || shots.length < 2)
@@ -251,6 +265,7 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
       step: 'script', topic: vd.topic, script: vd.script, shotsFailed: true,
       usedImages: imgN, brief: String(brief || '').slice(0, 400),
       voice: vd.voice, voiceName, cost,
+      source: _isAI ? 'ai' : '',
       coverage: cover, estSec, targetSec, shotCount: (shots || []).length,
       hint: `文案好了（${charN} 字），但 ${why}。回「重试」我再排一次；若只想先要一条只有字幕配音、没有素材画面的版本，回「先出字幕版」`,
     })
@@ -272,9 +287,13 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
     })),
     usedImages: imgN, brief: String(brief || '').slice(0, 400),
     voice: vd.voice, voiceName, theme: vd.theme, cost,
-    aspect, aspectName: aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16',
+    // ★VF_AIVIDEO_V1（2026-09-20）：把画面来源透给卡片 —— 前端可据此显示"这条是 AI 出片"
+    source: _isAI ? 'ai' : '',
+    aspect, aspectName,
     coverage: cover, estSec, targetSec,
-    hint: `看完你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}·风格 ${themeName}·配音 ${voiceName}）——回复「确认」开始出片；也可说要改什么`,
+    // ★VF_AIVIDEO_V1：AI 模式下措辞要变 —— 画幅不是"按素材定"（画面是 AI 生成的），
+    //   并明确写出"画面由 AI 逐镜生成"，避免用户以为用的是自己的图。
+    hint: `看完了你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${_isAI ? `${aspectName}·**画面由 AI 逐镜生成**` : (aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏')}·风格 ${themeName}·配音 ${voiceName}）——回复「确认」开始出片；也可说要改什么`,
   })
 }
 
@@ -2802,10 +2821,14 @@ PUBLISH_DRAFT.delete(uidW)
                 //     ④ 确认卡显示 AI 成本（按秒计价，比素材合成贵几十倍 → 必须让用户确认）
                 const vfAI = vfPickAI || (vd.formSource === 'ai')
                 if (vfAI) {
+                  // ★VF_AIVIDEO_V1（2026-09-20，用户定案）：AI 模式**只标记**，其余一切照旧 ——
+                  //   **仍然看素材**（文案/分镜/画幅/画布都按素材走，用户原话"看了素材让它自己决定"），
+                  //   差别只在最后：`--source ai` 让 make.py 把画面换成 AI 逐镜生成的片段。
+                  //   （早前版本在这里跳过取素材、并把画幅强制成竖屏 —— 已撤回：那会把素材合成的
+                  //    判断链污染，而用户明确要求"不要修改别把现在素材成片给搞乱了"。）
                   vd.mode = 'ai'; vd.source = 'ai'
-                  if (!vd.aspect || vd.aspect === 'auto') vd.aspect = 'portrait'
                   VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
-                  vfLog(uidVF2, `[画面来源] 全部 AI 生成（MiniMax H3）—— 画幅=${vd.aspect}，**不取素材**，画面由 AI 逐镜生成`)
+                  vfLog(uidVF2, '[画面来源] 全部 AI 生成（MiniMax H3）—— 仍按素材写文案/分镜/画幅，画面改由 AI 逐镜生成')
                 }
                 // 默认走【个人仓库素材】
                 // ★VF_UPLOAD_V1（2026-09-20）：上传素材**真的接通**了——
@@ -2828,8 +2851,7 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_UPLOAD_V2：若前端带了“刚上传的文件名”，就**精确只用这些**（确定性）；
                 //   否则回退到“最近上传”（兼容老前端）。
                 const _wanted: string[] = Array.isArray(vd.uploaded) ? vd.uploaded.map((x: any) => String(x)) : []
-                // ★VF_AIVIDEO_V1：AI 模式**不需要素材图**（画面由 H3 逐镜生成）→ 不查仓库（省一次 DB/OSS 往返）
-                const vfMatsAll = vfAI ? [] : await listRepoMaterials(uidVF2, Math.max(40, _wanted.length + 20), vd.useRecent ? 'recent' : 'spread')
+                const vfMatsAll = await listRepoMaterials(uidVF2, Math.max(40, _wanted.length + 20), vd.useRecent ? 'recent' : 'spread')
                 let vfMats = vfMatsAll
                 if (vd.useRecent && _wanted.length) {
                   const _byName = new Map(vfMatsAll.map((m: any) => [String(m.name), m]))
@@ -2846,26 +2868,24 @@ PUBLISH_DRAFT.delete(uidW)
                 //   30s→5 张、60s→10 张、90s→15 张、180s→30 张；仓库不够就有多少用多少。
                 //   视觉理解张数（喂 VL）单独限：8~20 张（成本控制，每张约 0.2 点）
                 const vfVisN = Math.max(8, Math.min(20, Math.round(_dur0 / 30) * 5))
-                const vfBrief = vfAI ? '' : await summarizeMaterials(uidVF2, vfMats, vfVisN)
+                const vfBrief = await summarizeMaterials(uidVF2, vfMats, vfVisN)
                 // ★VF_ASPECT_V1：定画布——用户指定优先，否则按素材判断（素材多为横图 → 出横屏，绝不硬塞竖屏）
-                // ★VF_AIVIDEO_V1：AI 模式没有素材可探测 → 给空结构（画幅已在上面按"用户选择 / 默认竖屏"定好）
-                const vfSz: any = vfAI
-                  ? { portrait: 0, landscape: 0, square: 0, total: 0, maxSide: 0, sizes: [] }
-                  : await probeMaterialSizes(uidVF2, vfMats)
+                // ★VF_AIVIDEO_V1（2026-09-20，用户定案）：**AI 模式也照常看素材**——"看了素材让它自己决定"。
+                //   素材在这里的用途是【给 AI 依据】：AI 因此知道你在卖什么，写出的文案与画面描述才贴合。
+                //   （注意：AI 出片是"AI 画全新画面"，不是"把素材图动起来"——两者不同。）
+                const vfSz = await probeMaterialSizes(uidVF2, vfMats)
                 const vfAspect = (vd.aspect && vd.aspect !== 'auto') ? vd.aspect : (vfSz.landscape > vfSz.portrait ? 'landscape' : 'portrait')
                 // ★VF_SIZEFIT_V1（2026-09-20 用户实测“图片都是糊的”）：**画布分辨率跟素材走**——
                 //   素材最大边不到 1920 就别硬上 1080p（640×304 铺到 1920 要放大 3 倍 = 极糊）。
                 const _ms = vfSz.maxSide || 0
-                // ★VF_AIVIDEO_V1：AI 生成只有 768P / 2K 两档 → 画布直接用 **768P**（竖 720×1280 / 横 1280×720），
-                //   不跟素材走（AI 模式本来就没有素材可跟）。选了 2K 时再放大到 1080P 档。
-                const vfSize = vfAI
-                  ? (vfAspect === 'landscape' ? [1280, 720] : [720, 1280])
-                  : (vfAspect === 'landscape'
-                    ? (_ms >= 1920 ? [1920, 1080] : (_ms >= 1280 ? [1280, 720] : [960, 540]))
-                    : (_ms >= 1920 ? [1080, 1920] : (_ms >= 1280 ? [720, 1280] : [540, 960])))
-                vfLog(uidVF2, vfAI
-                  ? `[画布] AI 生成 768P → 输出 ${vfSize[0]}x${vfSize[1]}`
-                  : `[画布] 素材最大边 ${_ms}px → 输出 ${vfSize[0]}x${vfSize[1]}（不放大）`)
+                // ★VF_AIVIDEO_V1（2026-09-20，用户定案）：**画布照旧跟素材走**（AI 模式一样）。
+                //   为什么不按"AI 生成 768P"定画布：那会让素材合成的判断被污染，而用户明确要求
+                //   "不要修改，别把现在素材成片给搞乱了"。AI 片段由 render.py 的 aivideo 卡
+                //   缩放裁切到画布（小幅放大可接受），不反过来改画布。
+                const vfSize = vfAspect === 'landscape'
+                  ? (_ms >= 1920 ? [1920, 1080] : (_ms >= 1280 ? [1280, 720] : [960, 540]))
+                  : (_ms >= 1920 ? [1080, 1920] : (_ms >= 1280 ? [720, 1280] : [540, 960]))
+                vfLog(uidVF2, `[画布] 素材最大边 ${_ms}px → 输出 ${vfSize[0]}x${vfSize[1]}（不放大）`)
                 vd.aspectResolved = vfAspect; vd.size = vfSize
                 // ★VF_DUR_V1：时长驱动【文案字数 + 镜头数】——用户要求"让 AI 知道时长"
                 //   （中文配音约 4.5 字/秒；镜头按 5 秒一个估）
@@ -2959,6 +2979,9 @@ PUBLISH_DRAFT.delete(uidW)
                 const vfShots = await genVideoShots({
                   uid: uidVF2, aspect: vfAspect, dur: vfDur, shotN: vfShotN,
                   imgPaths: vfImgs, brief: String(vfBrief || ''), script: vfScript2,
+                  // ★VF_AIVIDEO_V1（2026-09-20）：AI 模式额外要一镜一个英文画面描述（喂 H3）。
+                  //   非 AI 模式不传 → 输出与原来完全一致（素材合成零影响）。
+                  wantPrompt: vfAI,
                 })
                 // 存进草稿：**「重试分镜」时不用重新取素材/看图**（直接复用）
                 vd.imgs = vfImgs
@@ -2999,7 +3022,8 @@ PUBLISH_DRAFT.delete(uidW)
                 if (!vfHasPlan) vfLog(uidVF2, `[分镜门禁] ${vfShots.length} 镜 / 覆盖 ${Math.round(vfCover * 100)}% → **不给确认出片**`)
                 wfEarlyReply = vfScriptCard(vd, vfShots, vfImgs.length, String(vfBrief || ''), vfAspect, vfCover, vfEstSec)
                 // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
-                vfLog(uidVF2, `[概要] 图${vfImgs.length}张 镜${vfShots.length}个 风格=${vd.theme || 'dark'} 画幅=${vfAspect}(${vfSize[0]}x${vfSize[1]}) 配音=${vd.voice || '-'} 时长≈${Math.round(vfSubLen / 4.5)}秒`)
+                // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
+                vfLog(uidVF2, `[概要] 图${vfImgs.length}张 镜${vfShots.length}个 风格=${vd.theme || 'dark'} 画幅=${vfAspect}(${vfSize[0]}x${vfSize[1]}) 配音=${vd.voice || '-'} 时长≈${Math.round(vfSubLen / 4.5)}秒${vfAI ? ' 画面来源=全部AI生成' : ''}`)
                 finalResult = wfEarlyReply
                 vfLog(uidVF2, `[起草] 图${vfImgs.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
                 vfLog(uidVF2, `[分镜构成] ${vfShots.map((x: any) => x.type).join(',')}`)
@@ -3034,6 +3058,8 @@ PUBLISH_DRAFT.delete(uidW)
                 dur: vd.dur || 30,
                 shotN: vfShotN2,
                 imgPaths: (vd.imgs || []), brief: String(vd.brief || ''), script: String(vd.script || ''),
+                // ★VF_AIVIDEO_V1（2026-09-20）：重试时也要（重试分支不在 vfAI 的作用域，用草稿上的 source）
+                wantPrompt: vd.source === 'ai',
                 // ★把上次失败原因带上：AI 这次才知道“要覆盖全文、要排够镜数”
                 retryHint: vd.cover != null
                   ? `上次 subtitle 一共只写了 ${vd.subLen || 0} 字，文案共 ${String(vd.script || '').length} 字，只覆盖了 ${Math.round((vd.cover || 0) * 100)}%。这次**必须覆盖全文**（平均每镜约 ${Math.round(String(vd.script || '').length / vfShotN2)} 字），镜头数 ${vfShotN2} 个。`
