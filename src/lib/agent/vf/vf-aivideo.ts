@@ -212,6 +212,19 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
       return '已退出 AI 制片（本线草稿已清）。想重来就说「AI 制片」；想用素材成片说「用本地成片帮我做一条视频」。'
     }
 
+    // ★VF_AILINE_RESTART_V1（2026-09-21 用户实测：说「AI 制片帮我做一条视频」被回
+    //   「AI 制片：请在上面选好 横竖屏/时长/风格，点「下一步」」）：
+    //   **根因** —— 上一轮残留在 `ai_opts`（或 `script`）的草稿把【新指令】吞了：不进起稿，
+    //   直接落到那一步的兜底话术。素材线早就有"入口词 → 清草稿重来"（route.ts 的 vfIntent），
+    //   **本线漏了**（又是"只接了一半"）。
+    //   规则：**本线入口词 = 再开一条**（不是"继续上一条"）→ 作废旧草稿，走起稿发主题卡。
+    //   注意：只认入口词 —— 「确认 / 下一步 / VF_FORM」这些**绝不**重置，否则会打断正在进行的流程。
+    if (vd && matchesAiLine(userMessage)) {
+      await clearVfAiDraft(ctx.prisma, uid)
+      vd = undefined
+      try { ctx.log(uid, '[VF-A] 检测到本线入口词 → 旧草稿作废，重新起稿（=再做一条）') } catch { /* ignore */ }
+    }
+
     /* ── 第 1 步：起稿（还没有草稿）→ 发"主题卡"（主题 + 上传素材） ── */
     if (!vd) {
       const topic = String(userMessage)

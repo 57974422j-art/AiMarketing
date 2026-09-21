@@ -134,6 +134,10 @@ export async function shouldTakeOverMixLine(db: any, uid: number, userMessage: s
   //   与 AI 制片线同一条规则：本线有草稿时也不能吞掉【明确说了素材成片】的消息，
   //   否则素材智能成片永远进不去（用户实测："进入不了状态机了"）。
   if (/本地成片|素材成片|素材合成|素材智能成片|用我的素材|用我上传的素材|用素材库/.test(m)) return false
+  // ★VF_ENTRY_PRIORITY_V1 补充（2026-09-21）：**AI 制片的入口词也要让出** ——
+  //   本线分派在 AI 制片线【之前】，若本线有残留草稿，就会把「AI 制片帮我做一条视频」抢走
+  //   （与"素材线的『确认』被 AI 线抢走"是同一类错，只是方向相反 —— 所以两边都要排）。
+  if (/AI\s*制片|AI\s*成片|全部\s*AI|全\s*AI|纯\s*AI|整片\s*AI|AI\s*制作|AI\s*生成/.test(m)) return false
   // ★VF_MIX_RUNCLOSE_V1（2026-09-21）：与 AI 制片线同一条缺陷 ——「入队后草稿停在 running 没人收尾」
   //   会让本线"有草稿必接管"终身吞掉所有消息（含素材线的「确认」）。
   //   running 一律视为僵尸：自清 + 不接管（本线现在也是"入队即清草稿"，只剩历史僵尸这一瞬）。
@@ -169,6 +173,16 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
       await clearVfMixDraft(ctx.prisma, uid)
       try { ctx.log(uid, '[VF-X] 用户取消 → 本线草稿已清（不影响素材线/AI制片线）') } catch { /* ignore */ }
       return '已退出「素材+AI 创作」（本线草稿已清）。想重来说「素材+AI创作」。'
+    }
+
+    // ★VF_MIXLINE_RESTART_V1（2026-09-21）：与 AI 制片线同一条规则（各写各的）——
+    //   **本线入口词 = 再开一条** → 作废旧草稿、走起稿。否则上一轮残留在 script/ai_opts 的草稿
+    //   会把新指令吞掉（只回那一步的兜底话术，用户以为"状态机不进"）。
+    //   只认入口词：「确认 / 下一步 / VF_FORM」绝不重置。
+    if (vd && matchesMixLine(userMessage)) {
+      await clearVfMixDraft(ctx.prisma, uid)
+      vd = undefined
+      try { ctx.log(uid, '[VF-X] 检测到本线入口词 → 旧草稿作废，重新起稿（=再做一条）') } catch { /* ignore */ }
     }
 
     /* ── 起稿 ── */
