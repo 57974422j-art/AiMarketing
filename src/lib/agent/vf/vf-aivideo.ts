@@ -149,8 +149,16 @@ export async function hasAiDraft(db: any, uid: number): Promise<boolean> {
 
 /** 本线是否该接管这一轮（有本线草稿 → 一定接管，否则草稿会永远卡住） */
 export async function shouldTakeOverAiLine(db: any, uid: number, userMessage: string): Promise<boolean> {
+  const m = String(userMessage || '')
+  // ★VF_ENTRY_PRIORITY_V1（2026-09-21 用户实测指出）：【别线的明确入口词】优先于【本线残留草稿】。
+  //   问题：原来第一句就是"有本线草稿 → 一定接管" → AI 线草稿一残留，就把【所有】消息吞掉：
+  //        用户说「用本地成片帮我做一条视频」（明明是素材智能成片的词，素材线 vfIntent=true）
+  //        却被 AI 线抢走，回一句"请点开始出片" —— 素材线永远进不去（用户实测"进入不了状态机"）。
+  //   规则：消息明确带【素材线】的词 → 本线不接管（让素材线接手）。
+  //   （MIX 线早就这么做了：vf-mix.ts 的 matchesMixLine 里先排除"素材合成/素材智能成片/用我的素材库"）
+  if (/本地成片|素材成片|素材合成|素材智能成片|用我的素材|用我上传的素材|用素材库/.test(m)) return false
   if (await hasAiDraft(db, uid)) return true
-  return matchesAiLine(userMessage)
+  return matchesAiLine(m)
 }
 
 /* ==================== ④ 常量 ==================== */
@@ -167,6 +175,15 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
   try {
     let vd = VF_AI_DRAFT.get(uid)
     if (!vd) { const r = await loadVfAiDraft(ctx.prisma, uid); if (r?.step) { vd = r; VF_AI_DRAFT.set(uid, vd) } }
+
+    // ★VF_EXIT_V1（2026-09-21 用户实测指出）：卡住时的【退出口】。
+    //   原来没有退出口 → 只要本线有草稿，这一线就永远占着这一轮（用户："进入不了状态机了"）。
+    //   用户说这些词 → 清本线草稿，回到可重新开始的状态（不动别线草稿）。
+    if (vd && /^(重新开始|取消|退出|重来|不做了|算了|清空|重置|退出制片)$/.test(String(userMessage).trim())) {
+      await clearVfAiDraft(ctx.prisma, uid)
+      try { ctx.log(uid, '[VF-A] 用户取消 → 本线草稿已清（不影响素材线/混合线）') } catch { /* ignore */ }
+      return '已退出 AI 制片（本线草稿已清）。想重来就说「AI 制片」；想用素材成片说「用本地成片帮我做一条视频」。'
+    }
 
     /* ── 第 1 步：起稿（还没有草稿）→ 发"主题卡"（主题 + 上传素材） ── */
     if (!vd) {

@@ -117,8 +117,13 @@ export async function hasMixDraft(db: any, uid: number): Promise<boolean> {
 
 /** 本线是否该接管这一轮（有本线草稿 → 一定接管，否则草稿会永远卡住） */
 export async function shouldTakeOverMixLine(db: any, uid: number, userMessage: string): Promise<boolean> {
+  const m = String(userMessage || '')
+  // ★VF_ENTRY_PRIORITY_V1（2026-09-21）：【别线的明确入口词】优先于本线残留草稿。
+  //   与 AI 制片线同一条规则：本线有草稿时也不能吞掉【明确说了素材成片】的消息，
+  //   否则素材智能成片永远进不去（用户实测："进入不了状态机了"）。
+  if (/本地成片|素材成片|素材合成|素材智能成片|用我的素材|用我上传的素材|用素材库/.test(m)) return false
   if (await hasMixDraft(db, uid)) return true
-  return matchesMixLine(userMessage)
+  return matchesMixLine(m)
 }
 
 /* ==================== ③ 常量 ==================== */
@@ -135,6 +140,14 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
   try {
     let vd = VF_MIX_DRAFT.get(uid)
     if (!vd) { const r = await loadVfMixDraft(ctx.prisma, uid); if (r?.step) { vd = r; VF_MIX_DRAFT.set(uid, vd) } }
+
+    // ★VF_EXIT_V1（2026-09-21）：卡住时的【退出口】（与 AI 制片线同规则、各写各的）。
+    //   清本线草稿，不动别线；用户说这些词即退出本线。
+    if (vd && /^(重新开始|取消|退出|重来|不做了|算了|清空|重置|退出制片)$/.test(String(userMessage).trim())) {
+      await clearVfMixDraft(ctx.prisma, uid)
+      try { ctx.log(uid, '[VF-X] 用户取消 → 本线草稿已清（不影响素材线/AI制片线）') } catch { /* ignore */ }
+      return '已退出「素材+AI 创作」（本线草稿已清）。想重来说「素材+AI创作」。'
+    }
 
     /* ── 起稿 ── */
     if (!vd) {
