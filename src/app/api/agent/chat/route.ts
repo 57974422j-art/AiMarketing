@@ -2721,7 +2721,41 @@ PUBLISH_DRAFT.delete(uidW)
         }
         // ★VF_LOG_V1（2026-09-19）：成片入口日志（服务器侧 <storage>/<uid>/video-factory/vf_debug.log）——排查用
         vfLog(uidVF2, `[入口] msg="${String(userMessage).slice(0, 60)}" vfIntent=${vfIntent} 内存草稿=${VIDEO_DRAFT.has(uidVF2) ? '有' : '无'} 自由模式=${isFreeMode} 任务词=${isTaskCmd}`)
-        if (vfIntent || VIDEO_DRAFT.has(uidVF2)) {
+        // ═══════════════════════════════════════════════════════════════════════
+        // ★VF_AILINE_V1（2026-09-21）【AI 制片】独立线分派（用户定案：
+        //   「把现在的视频状态机**先不动**，抽你需要的做 AI 制片。不用制作牵涉太广。」）
+        //   · 只有 AI 制片那套自己说"该我接管"（`shouldTakeOverAiLine`）时才进它；
+        //   · 它【内部绝不 throw】（异常转成人话），所以**不会连累素材合成**；
+        //   · 本分派放在成片入口之前，为的是**先分流**；下面的素材合成状态机一行没改，
+        //     只是多了一个 `!vfAiHandled` —— 没接管时该标记恒为 false，行为与之前完全一致。
+        //   （这次事故的教训：两条线共用一段可执行代码 → 一条坏两条全坏。这里改为"各写各的"。）
+        // ═══════════════════════════════════════════════════════════════════════
+        let vfAiHandled = false
+        try {
+          const { shouldTakeOverAiLine, handleAiLine } = await import('@/lib/agent/vf/vf-aivideo')
+          if (await shouldTakeOverAiLine(prisma, uidVF2, userMessage)) {
+            vfAiHandled = true
+            wfEarlyReply = await handleAiLine({
+              uid: uidVF2, userMessage, auth,
+              prisma,
+              executeToolCall, genVideoShots, generateText, vfScriptCard,
+              log: (u: any, m: string) => vfLog(u, m),
+              voiceList: VF_VOICE_BASE,
+              listRepoMaterials, summarizeMaterials, probeMaterialSizes,
+              splitScript: vfSplitScript,
+              parseForm: (msg: string) => {
+                const m = String(msg || '').trim().match(/^VF_FORM:(\{[\s\S]*\})/)
+                try { return m ? JSON.parse(m[1]) : null } catch { return null }
+              },
+            })
+            finalResult = wfEarlyReply
+          }
+        } catch (eAI: any) {
+          // 分派本身出错也要"可见"，并且【不能】影响素材合成 → 放开这条路让它照常走
+          vfAiHandled = false
+          try { vfLog(uidVF2, '[VF-A] 分派异常: ' + String(eAI?.message || eAI).slice(0, 200)) } catch { /* ignore */ }
+        }
+        if (!vfAiHandled && (vfIntent || VIDEO_DRAFT.has(uidVF2))) {
           try {
             let vd = VIDEO_DRAFT.get(uidVF2)
             // 内存没有 → 从 AgentMemory 恢复（仿发布：服务器重启/刷新不丢）

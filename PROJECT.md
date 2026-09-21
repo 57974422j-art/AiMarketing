@@ -187,6 +187,16 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 - 🧪 **一键自检**：`bash scripts/video-factory/selfcheck.sh`（4 段 17 项：Python 语法 / 渲染 8 卡型 / TTS 四引擎 / 关键改动在位）—— 部署后跑这一条就能确认整体没退化
 - 📊 **成片诊断**：`bash scripts/video-factory/last-video-report.sh`（打完最后一条成片的全部信息：起草/渲染日志、成片时长分辨率音轨、`cost` 扣点、分镜明细）
 - 🎬 **「AI 直接成片」接入方案**：`docs/AI直接成片-接入方案-20260920.md`（用户指定**优先 MiniMax H3**；结论=**底座已存在**（`src/lib/minimax-h3.ts` 完整可用），只需新增第 3 种镜头源 `aivideo`；三种画面来源成本：**素材合成 6 点 / 素材+AI 混合 / 全部 AI 生成 ≈1500~2400 点**）
+- ✅ **「全部 AI 生成」已接通（2026-09-20）**：表单「🎨 全部 AI 生成」→ 后端 `source='ai'` → `make.py --source ai` 在**配音之后**逐镜调 **MiniMax H3** → `render.py` 的 `aivideo` 卡型。**AI 模式仍读素材**（用户定案："看了素材让它自己决定"），**起草阶段与素材合成完全相同**，只在末处分叉。**计费按秒**（768P=50 点/秒），**报价与实扣同源**；单镜失败回退素材图、全失败回退素材合成。详见 `docs/成片功能现状总表-20260920.md` 第七节
+- ✅★ **【AI 制片】独立线（2026-09-21，用户定案）**：`src/lib/agent/vf/vf-aivideo.ts` —— 把 AI 成片**从素材合成那条线里彻底分出来**，两条线各写各的（用户原话：「**把现在的视频状态机先不动，抽你需要的做 AI 制片**」「**不要设计公用层**……最怕设计了共用，不如不拆，出问题都不能用」）。
+  - **该文件【零 import】**：`prisma` / `executeToolCall` / `genVideoShots` / `generateText` / `vfScriptCard` / 素材三函数 / `splitScript` / `parseForm` / `voiceList` **全部由 `route.ts` 通过 `ctx` 注入** → **它不可能连累其它代码**
+  - **自己的草稿**：内存 Map + DB tag `vf_draft_ai`（**与素材合成的 `vf_draft` 分开，绝不串线**）
+  - **内部绝不 throw**（异常转成人话返回 + 写日志）
+  - **`route.ts` 只加一处分派**（约 25 行，在成片入口之前）；成片块条件改为 `if (!vfAiHandled && …)` —— **没接管时 `vfAiHandled` 恒为 false，素材合成行为一字未变**
+  - **出片时显式传 `source:'ai'` + `duration`** → `make_ai_video` **不再需要读草稿去猜**（这正是 2026-09-21 那次事故的根因）
+  - 方案与边界见 `docs/三套状态机拆分方案-20260921.md`
+  - **⚠️ 前端未动**（用户"不用牵涉太广"）：起稿卡带 `aiLine:true`，供日后前端隐藏/置灰无关控件
+  - **⚠️ `vf-material.ts`（素材合成抽文件）暂不做** —— 用户明确"先不动现有的"
 
 ### 2026-09-19 成片状态机打通 + 两个真因修复（✅ 代码完成，待部署实测）
 
