@@ -131,7 +131,17 @@ export async function shouldTakeOverMixLine(db: any, uid: number, userMessage: s
   //   与 AI 制片线同一条规则：本线有草稿时也不能吞掉【明确说了素材成片】的消息，
   //   否则素材智能成片永远进不去（用户实测："进入不了状态机了"）。
   if (/本地成片|素材成片|素材合成|素材智能成片|用我的素材|用我上传的素材|用素材库/.test(m)) return false
-  if (await hasMixDraft(db, uid)) return true
+  // ★VF_MIX_RUNCLOSE_V1（2026-09-21）：与 AI 制片线同一条缺陷 ——「入队后草稿停在 running 没人收尾」
+  //   会让本线"有草稿必接管"终身吞掉所有消息（含素材线的「确认」）。
+  //   running 一律视为僵尸：自清 + 不接管（本线现在也是"入队即清草稿"，只剩历史僵尸这一瞬）。
+  if (await hasMixDraft(db, uid)) {
+    const _d = await loadVfMixDraft(db, uid)
+    if (_d?.step === 'running') {
+      await clearVfMixDraft(db, uid)
+      return matchesMixLine(m)
+    }
+    return true
+  }
   return matchesMixLine(m)
 }
 
@@ -215,9 +225,11 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
       const aiSec = Math.max(4, Math.round((vd.shots || []).reduce(
         (a: number, s: any, i: number) => a + ((vd.aiShots || []).includes(i + 1) ? (Number(s.dur) || 0) : 0), 0)))
       const cost = Math.max(1, Math.ceil(aiSec * 50) + Math.ceil(String(vd.script || '').length / 20))
-      vd.step = 'running'
-      VF_MIX_DRAFT.set(uid, vd)
-      await saveVfMixDraft(ctx.prisma, uid, vd)
+      // ★VF_MIX_RUNCLOSE_V1（2026-09-21）：入队即【作废本线草稿】（与素材线/AI制片线同款）——
+      //   否则草稿永远停在 running，本线"有草稿必接管"会终身吞掉后续所有消息。
+      VF_MIX_DRAFT.delete(uid)
+      await clearVfMixDraft(ctx.prisma, uid)
+      try { ctx.log(uid, '[VF-X] 已入队 → 本线草稿作废（不再吞掉后续消息）') } catch { /* ignore */ }
       const run = await ctx.executeToolCall('make_ai_video', {
         plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots }),
         script: vd.script,

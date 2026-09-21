@@ -169,7 +169,18 @@ export async function shouldTakeOverAiLine(db: any, uid: number, userMessage: st
   //   规则：消息明确带【素材线】的词 → 本线不接管（让素材线接手）。
   //   （MIX 线早就这么做了：vf-mix.ts 的 matchesMixLine 里先排除"素材合成/素材智能成片/用我的素材库"）
   if (/本地成片|素材成片|素材合成|素材智能成片|用我的素材|用我上传的素材|用素材库/.test(m)) return false
-  if (await hasAiDraft(db, uid)) return true
+  // ★VF_AI_RUNCLOSE_V1（2026-09-21 用户实测：素材线的「确认」被本线抢走 → 回"AI 制片已在后台生成中"）：
+  //   本线"有草稿必接管"本身没错，但**入队后草稿停在 running 且没人收尾**（僵尸）→
+  //   它会【终身】吞掉所有消息（含别线的「确认」）。→ running 草稿一律视为僵尸：自清 + 不接管。
+  //   （本线现在"入队即清草稿"，所以只剩历史僵尸与"渲染中"这一瞬，绝不再吞别线的确认。）
+  if (await hasAiDraft(db, uid)) {
+    const _d = await loadVfAiDraft(db, uid)
+    if (_d?.step === 'running') {
+      await clearVfAiDraft(db, uid)
+      return matchesAiLine(m)
+    }
+    return true
+  }
   return matchesAiLine(m)
 }
 
@@ -309,9 +320,12 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
     if (vd.step === 'script' && AI_FLOW_WORD.test(userMessage.trim())) {
       if (!vd.shots?.length) return 'AI 制片：分镜还没排好，先不出片。回「重试」我再排一次。'
       const cost = Math.max(1, Math.ceil(Math.max(4, Number(vd.dur) || 30) * 50))
-      vd.step = 'running'
-      VF_AI_DRAFT.set(uid, vd)
-      await saveVfAiDraft(ctx.prisma, uid, vd)
+      // ★VF_AI_RUNCLOSE_V1（2026-09-21）：入队即【作废本线草稿】——与素材线的 VF_RUN_CLOSE_V1 同款。
+      //   进度由 <storage>/<uid>/video-factory/vf<ts>.json 独立跟踪，草稿留着没有用处；
+      //   留着反而会让本线"有草稿必接管"终身吞掉后续所有消息（实测：素材线的「确认」被本线抢走）。
+      VF_AI_DRAFT.delete(uid)
+      await clearVfAiDraft(ctx.prisma, uid)
+      try { ctx.log(uid, '[VF-A] 已入队 → 本线草稿作废（不再吞掉后续消息）') } catch { /* ignore */ }
       // ★显式传 source:'ai' + style（不读草稿去猜 —— 上次事故的根因就是"读错草稿"）
       const run = await ctx.executeToolCall('make_ai_video', {
         plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots, style: vd.styleResolved || '', musicType: vd.musicType || '' }),
