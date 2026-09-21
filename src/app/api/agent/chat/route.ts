@@ -532,7 +532,13 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       }
       // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」判定 —— 工具参数（AI 主动传）或表单草稿
       //   （用户在表单里选的）任一为 ai 即算。
-      const _vdCur: any = VIDEO_DRAFT.get(uid) || {}
+      //   ★2026-09-21 修（用户在客户端实测「点确认出片 → 回『发布流程未开始』」）：
+      //     这里我原来写的是 `VIDEO_DRAFT.get(uid)`，而本函数签名是 executeToolCall(name, args, auth)
+      //     —— **根本没有 uid**（同段落用的是 uidVF）；uid 的 const 定义都在别的 case 块（如 L425）。
+      //     → 这一行抛异常 → 被外层 catch 吞掉 → 成片块没能覆盖发布状态机的兜底文案
+      //       （"发布流程未开始——请说「帮我发一个视频」开始任务。"）→ 出片直接中断。
+      //     改用 auth?.userId || 0，**与成片块写草稿时用的 key（uidVF2 = auth?.userId || 0）完全一致**。
+      const _vdCur: any = VIDEO_DRAFT.get(auth?.userId || 0) || {}
       const vfSrcAI = (String(args.source || args.mode || '') === 'ai') || (String(_vdCur.source || '') === 'ai')
       // ★VF_AIVIDEO_V1：**计费口径分两种** ——
       //   素材合成：按文案字数（ceil(字数/20)），30 秒片约 7 点；
