@@ -646,25 +646,108 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
   )
 }
 
-// ★VF_LINES_V1（2026-09-21）：【AI 制片】专属极简卡 —— **不复用素材合成那张完整表单**
-//   用户实测指出："这和我现在『用本地成片帮我做一条视频』有什么区别？不是让你把该减的剪掉，你搞 2 个一样的。"
-//   他此前也定过："AI 制作就纯 AI 制作了……音乐、字幕 AI 它都能自己把握。"
-//   → 所以这里**只保留【主题 + 时长 + 开始出片】**，画面/画幅/音色/配乐/风格**全部不出现**（交给 AI）。
+// ★VF_LINES_V1（2026-09-21）：【AI 制片】专属卡（用户定案的三步流程）
+//   卡1 `ai_setup`：主题（可留空→看素材库猜）+ 上传素材（防止素材库混乱把文案带偏）
+//   卡2 `ai_opts` ：文案写好后确认 横竖屏 / 时长 / 成片风格（一张卡；配音配乐不上卡）
+//   卡3 `script`  ：分镜清单（含收尾镜）→ 确认出片
+//   ⚠️ 不再复用素材合成那张完整表单（用户实测："你搞 2 个一样的"）。
+
+/** 卡1：主题（可留空）+ 上传素材 */
 function VfAiSetupCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void }) {
   const [topic, setTopic] = useState<string>(String(vj.topic || ''))
-  const [dur, setDur] = useState<string>(String(vj.dur || 30))
-  const rate = Number(vj.costRate) || 50
-  const d = parseInt(dur) || 30
+  const [uploading, setUploading] = useState(false)
+  const [uploaded, setUploaded] = useState<string[]>([])
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const doUpload = async (files: FileList | null) => {
+    if (!files || !files.length) return
+    setUploading(true)
+    const okNames: string[] = []
+    try {
+      for (const f of Array.from(files).slice(0, 30)) {
+        try {
+          const fd = new FormData()
+          fd.append('file', f)
+          const r = await fetch('/api/storage/files', { method: 'POST', body: fd })
+          const j = await r.json().catch(() => null)
+          if (j && j.success) okNames.push(String((j.data && j.data.name) || f.name))
+        } catch { /* 单张失败继续 */ }
+      }
+    } finally {
+      setUploading(false)
+      setUploaded((prev) => prev.concat(okNames))
+    }
+  }
+
+  const go = () => onStart('VF_FORM:' + JSON.stringify({
+    topic: topic.trim(),
+    ...(uploaded.length ? { uploaded } : {}),
+  }))
+
   return (
     <div className="mb-2 p-3 rounded-xl border border-violet-500/30 bg-violet-500/[0.06]">
       <div className="text-xs text-violet-300 mb-3">{vj.hint || 'AI 制片'}</div>
+
       <div className="mb-2">
-        <div className="text-[10px] text-gray-400 mb-1">主题（留空由 AI 自己决定）</div>
+        <div className="text-[10px] text-gray-400 mb-1">主题（留空我就看你的素材库猜）</div>
         <input value={topic} onChange={(e: any) => setTopic(e.target.value)}
           placeholder="例如：咖啡店开业，第二杯半价"
           className="w-full px-2 py-1 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
       </div>
+
       <div className="mb-3">
+        <button onClick={() => { if (uploading) return; fileRef.current?.click() }}
+          className={`px-2.5 py-1 rounded text-[11px] border transition ${uploaded.length ? 'bg-emerald-500/25 border-emerald-400/40 text-emerald-100' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
+          {uploading ? '⏳ 上传中…' : (uploaded.length ? `📤 已上传 ${uploaded.length} 张（只看这几张）` : '📤 上传这次的素材（可选）')}
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={(e: any) => { doUpload(e.target.files); e.target.value = '' }} />
+        {vj.hintUpload ? <div className="text-[10px] text-gray-500 mt-1">{vj.hintUpload}</div> : null}
+      </div>
+
+      <button onClick={go}
+        className="px-4 py-1.5 rounded-lg bg-violet-500/40 hover:bg-violet-500/70 text-sm text-white font-medium">
+        🚀 开始出片
+      </button>
+      <div className="text-[10px] text-gray-500 mt-2">
+        画面 / 文案 / 分镜 / 配音 / 字幕 / 配乐 —— **全部自动**。费用按秒计（约 50 点/秒，30 秒 ≈ 1500 点）。
+      </div>
+    </div>
+  )
+}
+
+/** 卡2：确认 横竖屏 / 时长 / 成片风格（+ 文案可直接改） */
+function VfAiOptsCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void }) {
+  const [script, setScript] = useState<string>(String(vj.script || ''))
+  const [aspect, setAspect] = useState<string>(String(vj.aspect || 'portrait'))
+  const [dur, setDur] = useState<string>(String(vj.dur || 30))
+  const [style, setStyle] = useState<string>('')
+  const list: any[] = Array.isArray(vj.styles) ? vj.styles : []
+  const d = parseInt(dur) || 30
+  const go = () => onStart('VF_FORM:' + JSON.stringify({ script: script.trim(), aspect, dur: d, style }))
+  return (
+    <div className="mb-2 p-3 rounded-xl border border-violet-500/30 bg-violet-500/[0.06]">
+      <div className="text-xs text-violet-300 mb-2">{vj.hint || 'AI 制片 · 确认'}</div>
+      {vj.topic ? <div className="text-[10px] text-gray-500 mb-2">主题：{vj.topic}</div> : null}
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">文案（可直接改）</div>
+        <textarea value={script} onChange={(e: any) => setScript(e.target.value)} rows={4}
+          className="w-full px-2 py-1 rounded text-[12px] leading-relaxed bg-white/[0.05] border border-white/[0.08] text-gray-200 outline-none resize-y" />
+        <div className="text-[10px] text-gray-500 mt-0.5">{script.length} 字 ≈ {Math.round(script.length / 4.5)} 秒</div>
+      </div>
+
+      <div className="mb-2">
+        <div className="text-[10px] text-gray-400 mb-1">横屏 / 竖屏</div>
+        <div className="flex flex-wrap gap-1.5">
+          {[{ id: 'portrait', label: '竖屏 9:16' }, { id: 'landscape', label: '横屏 16:9' }].map((a) => (
+            <button key={a.id} onClick={() => setAspect(a.id)}
+              className={`px-2.5 py-1 rounded text-[11px] border ${aspect === a.id ? 'bg-violet-500/30 border-violet-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>{a.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-2">
         <div className="text-[10px] text-gray-400 mb-1">时长</div>
         <div className="flex flex-wrap gap-1.5">
           {['10', '30', '60', '90'].map((s) => (
@@ -673,13 +756,26 @@ function VfAiSetupCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
           ))}
         </div>
       </div>
-      <button
-        onClick={() => onStart('VF_FORM:' + JSON.stringify({ source: 'ai', topic: topic.trim(), dur: d, aspect: 'portrait' }))}
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">成片风格（不选 = AI 按文案自己挑）</div>
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={() => setStyle('')}
+            title="让 AI 根据文案自动决定风格"
+            className={`px-2.5 py-1 rounded text-[11px] border ${style === '' ? 'bg-violet-500/30 border-violet-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>🤖 AI 自选</button>
+          {list.map((s: any) => (
+            <button key={s.id} onClick={() => setStyle(s.id)} title={s.desc || ''}
+              className={`px-2.5 py-1 rounded text-[11px] border ${style === s.id ? 'bg-violet-500/30 border-violet-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>{s.name}</button>
+          ))}
+        </div>
+      </div>
+
+      <button onClick={go}
         className="px-4 py-1.5 rounded-lg bg-violet-500/40 hover:bg-violet-500/70 text-sm text-white font-medium">
-        🚀 开始出片
+        ▶️ 下一步（排分镜）
       </button>
       <div className="text-[10px] text-gray-500 mt-2">
-        画面 / 文案 / 分镜 / 配音 / 字幕 / 配乐 —— **全部自动**，不用你选。费用按秒计（约 {rate} 点/秒，{d} 秒 ≈ {rate * d} 点）。
+        配音音色 / 背景音乐 **自动**（不用选）；成片风格会决定画面质感、字幕配色与配乐类型。
       </div>
     </div>
   )
@@ -2272,8 +2368,9 @@ function AgentPageInner() {
     if (content.startsWith('VF_JSON:')) {
       try {
         const _vj = JSON.parse(content.slice(8))
-        // ★VF_LINES_V1（2026-09-21）：AI 制片走**专属极简卡**（只 主题+时长）；素材合成仍走完整表单
+        // ★VF_LINES_V1（2026-09-21）：AI 制片走**专属卡**（卡1 主题+上传 / 卡2 横竖屏+时长+风格）
         if (_vj && _vj.step === 'ai_setup') return <VfAiSetupCard vj={_vj} onStart={sendMessage} />
+        if (_vj && _vj.step === 'ai_opts') return <VfAiOptsCard vj={_vj} onStart={sendMessage} />
         if (_vj && _vj.step === 'form') return <VideoFormCard vj={_vj} onStart={sendMessage} />
       } catch {}
     }

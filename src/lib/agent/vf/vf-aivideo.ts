@@ -3,47 +3,52 @@
 // 用户定案（原话）：
 //   「把现在的视频状态机先不动，抽你需要的做 AI 制片。不用制作牵涉太广。」
 //   「不要设计公用层……最怕你们设计了共用，不如不拆，出问题都不能用。」
+//   「第一输入主题按主题来，没输入看素材库，知道这个用户平时是干什么的……然后确认横屏竖屏、
+//     确认时长、确认风格。**风格不要什么深蓝深青这些**，用真正的**广告/日常/影视级**风格来定义，
+//     譬如动画，这些**制片风格**加一些标签。然后让 AI 按文案做分镜、收尾帧，这些再确认。」
+//   「素材是让 AI 知道这人干什么的、要做什么题材；**上传素材是为了防止有些用户素材库混乱**
+//     （平时美食、旅游等记录乱七八糟都放个人仓库，导致 AI 写文案混乱）。」
+//   「配音/配乐保持自动（不上卡）；配乐牵扯版权，让 AI 自己配，能留个音乐类型就行。」
 //
-// ── 本文件的设计约束（遵守用户的三条铁律） ─────────────────────────────
-//   1. **自成一套**：入口判定 / 草稿 / 文案 / 分镜 / 确认卡 / 门禁 / 出片，全部在这个文件里。
-//   2. **不共用逻辑**：**不 import 素材合成那条线的任何状态机代码**（宁可重复）。
-//      允许依赖的只有【无状态的纯工具】（prisma / vfLog / genVideoShots / vfScriptCard），
-//      而且**通过 ctx 注入**（这样本文件反过来不 import route.ts，避免循环依赖）。
-//   3. **零侵入**：本文件只在 route.ts 里被"分派"一次；**不改动**素材合成的任何一行。
+// ── 本文件的设计约束 ────────────────────────────────────────────────────
+//   1. **自成一套**：入口 / 草稿 / 文案 / 分镜 / 确认卡 / 出片全在本文件。
+//   2. **零 import**：prisma / 工具函数全部由 `ctx` 注入 → **不可能连累其它两条线**。
+//      （代价：**每个引用的常量都必须在本文件定义** —— 曾因跨文件引用 `TOOL_INTENT` 踩过 ReferenceError）
+//   3. **自己的草稿**：内存 Map + DB tag `vf_draft_ai`（与 `vf_draft` / `vf_draft_mix` 都不同）。
+//   4. **内部绝不 throw**：异常转成人话返回 + 写日志。
 //
-// ── 与素材合成的【唯一差别】（其余流程完全一样） ────────────────────────
-//   · 分镜要求 AI 多给一个 `prompt`（英文画面描述）→ 给 MiniMax H3 当提示词
-//   · 计费按【秒 × 50 点】（768P），不是按文案字数
-//   · 出片时显式传 `source: 'ai'`（不再让对方读草稿去猜）
-//   —— 正因为"差别只有这三点"，才**必须各自写一份**：共用一段就会"一个坏两个坏"。
+// ── 流程（用户定的 3 步） ──────────────────────────────────────────────
+//   卡1 `ai_setup`  主题（可留空→看素材库/上传图推断"我猜你在做 XX"）+ 上传素材（可选）
+//   卡2 `ai_opts`   文案写好后：**横屏/竖屏 + 时长 + 成片风格**（一张卡；配音/配乐不上卡）
+//   卡3 `script`    分镜清单（含收尾镜）+ 约 X 点 → 确认出片
 //
-// ── AI 制片**仍然看素材**（用户定案："看了素材让它自己决定"） ─────────────
-//   素材在这里的作用是【给 AI 依据】：AI 因此知道你在卖什么，文案与画面描述才贴合。
-//   **不是**"把素材图用进片子"——AI 出片是"AI 画全新画面"（要"让素材动起来"是另一个功能）。
-
-//   —— 不 import 项目内部的 prisma 封装（项目里根本没有 `@/lib/prisma`），
-//      改为**由 route.ts 注入**数据库客户端（`ctx.prisma`）。注入的是"连接"，不是"共用业务逻辑"。
+// ── AI 制片**仍然看素材**，但只看"干净的依据" ──────────────────────────
+//   素材在中作是【知道你在做什么题材】。**若用户上传了图 → 只看上传的**（避免仓库里
+//   美食/旅游/日常混杂把文案带偏）。**上传的图不入片** —— AI 制片画面全部由 AI 生成。
 
 /* ==================== 类型（本线自己定义，不设共用类型文件） ==================== */
 
 export interface VfAiDraft {
-  step: 'form' | 'script' | 'running'
+  step: 'ai_setup' | 'ai_opts' | 'script' | 'running'
   topic: string
-  aspect: string          // portrait | landscape | auto
+  aspect: string          // portrait | landscape
   dur: number
+  /** ★成片风格标签（用户定案：广告/日常/影视级…；空 = AI 自动挑） */
+  style: string
   voice: string
-  theme: string
-  bgm: string             // 'auto' | ''
-  script: string          // 文案（AI 写或用户贴）
-  source: 'ai'            // 恒为 'ai'（本线专用）
+  theme: string           // 配色（保留但不上卡：仍决定字幕色/压暗，跟风格自动配）
+  bgm: string
+  musicType: string       // ★音乐类型（用户定案："能留个音乐类型就行"）
+  script: string
+  uploaded: string[]      // ★用户本次上传的文件名（只当"干净的依据"，不入片）
+  source: 'ai'
   shots?: any[]
   size?: number[]
   aspectResolved?: string
-  imgs?: string[]
   brief?: string
-  voiceList?: any[]
   cover?: number
   subLen?: number
+  styleResolved?: string
 }
 
 /** 依赖注入：由 route.ts 提供（本文件不 import 项目内部路径，避免循环依赖/路径写错） */
@@ -53,33 +58,43 @@ export interface VfAiCtx {
   auth: any
   /** 数据库客户端（由 route.ts 注入 —— 是"连接"，不是共用业务逻辑） */
   prisma: any
-  /** 工具执行器（出片走它） */
   executeToolCall: (name: string, args: Record<string, any>, auth: any) => Promise<string>
-  /** 排分镜（素材合成那套的同一实现——它是**无状态纯函数**，允许共用） */
   genVideoShots: (o: {
     uid: number | string; aspect: string; dur: number; shotN: number
     imgPaths: string[]; brief: string; script: string
     retryHint?: string; wantPrompt?: boolean
   }) => Promise<any[]>
-  /** 文案生成（无状态） */
   generateText: (prompt: string) => Promise<string>
-  /** 确认卡（**本线自己算成本**，所以这里只做渲染） */
   vfScriptCard: (vd: any, shots: any[], imgN: number, brief: string, aspect: string, cover?: number, estSec?: number) => string
-  /** 自己的日志（会带 [VF-A] 前缀） */
   log: (uid: number | string, msg: string) => void
-  /** 音色列表（纯数据；只用于起稿卡让用户选音色 —— 不填则前端该区为空） */
   voiceList: any[]
-  /** 素材相关（纯工具，无状态） */
   listRepoMaterials: (userId: number | string, limit?: number, mode?: 'spread' | 'recent') => Promise<any[]>
   summarizeMaterials: (userId: number | string, mats: any[], visN: number) => Promise<string>
   probeMaterialSizes: (userId: number | string, mats: any[]) => Promise<any>
-  /** 按标点切段（出片前兜底填 subtitle 用） */
+  downloadMaterials: (userId: number | string, mats: any[]) => Promise<any[]>
   splitScript: (script: string, n: number, maxLen?: number) => string[]
-  /** 主题/画幅等表单协议解析（纯函数） */
   parseForm: (userMessage: string) => Record<string, any> | null
 }
 
-/* ==================== ① 草稿：本线自己一份（内存 Map + DB tag 都和素材合成不同） ==================== */
+/* ==================== ① 成片风格（★本线自己一份；用户要我"补充成片风格"） ==================== */
+
+/** 成片风格标签 → 喂给 AI 生成画面的英文关键词 + 建议的配色（theme）与音乐类型 */
+export const AI_STYLES: Array<{ id: string; name: string; en: string; theme: string; music: string; desc: string }> = [
+  { id: 'cinematic', name: '影视级', en: 'cinematic, film grain, dramatic lighting, shallow depth of field, anamorphic', theme: 'dark', music: '史诗感/弦乐', desc: '品牌大片、要高级感' },
+  { id: 'commercial', name: '广告片', en: 'commercial product shot, clean studio lighting, glossy, hero angle, macro detail', theme: 'light', music: '轻快电子', desc: '卖货、促销、产品展示' },
+  { id: 'vlog', name: '日常记录', en: 'casual vlog, natural light, handheld camera, real life, soft tones', theme: 'light', music: '清新民谣', desc: '探店、日常、真人感' },
+  { id: 'anime', name: '动画', en: 'anime style, 2D illustration, cel shading, vivid colors, clean line art', theme: 'dark', music: '活泼电子', desc: '抽象概念、年轻向' },
+  { id: 'toy3d', name: '3D 潮玩', en: '3D render, claymation, toy-like, soft studio light, pastel palette', theme: 'light', music: '可爱轻音', desc: '产品、可爱、年轻' },
+  { id: 'tech', name: '科技感', en: 'futuristic, neon glow, holographic UI, cyber, dark background with cyan accents', theme: 'tech', music: '科技律动', desc: '软件、AI、数码' },
+  { id: 'documentary', name: '纪实访谈', en: 'documentary style, interview framing, natural skin tones, available light', theme: 'light', music: '舒缓钢琴', desc: '人物故事、客户案例' },
+  { id: 'ink', name: '国风水墨', en: 'ink painting, hand-drawn, oriental, minimal, rice paper texture', theme: 'light', music: '古风民乐', desc: '文化、文艺、茶叶养生' },
+]
+
+function styleOf(id: string) {
+  return AI_STYLES.find((s) => s.id === id) || null
+}
+
+/* ==================== ② 草稿（本线自己一份） ==================== */
 
 const VF_AI_DRAFT = new Map<number, VfAiDraft>()
 const VF_AI_TAG = 'vf_draft_ai'          // ★与素材合成的 'vf_draft' 分开 → 绝不串线
@@ -106,31 +121,25 @@ export async function clearVfAiDraft(db: any, uid: number | string): Promise<voi
   try { await db.agentMemory.deleteMany({ where: { userId: String(uid), tags: { contains: VF_AI_TAG } } }) } catch { /* ignore */ }
 }
 
-/* ==================== ② 入口判定（本线自己的词表） ==================== */
+/* ==================== ③ 入口判定（本线自己的词表） ==================== */
 
-/** 工具类意图（不是"出成片"）——三条线共用同一份判断（**纯规则，不是业务逻辑**） */
+/** 工具类意图（不是"出成片"）—— ★本文件自己一份（零 import 铁律） */
 const TOOL_INTENT = /(写|生成|做).{0,4}(文案|脚本|标题|话题)|海报|图片|插画|今日热点|热点|数字人|口播视频|背景音乐|配乐|BGM|搜一下|搜索|记录一件事|记一下|提醒/
-/** 若"工具词命中"且"完全没有出片词" → 这不是出片意图（避免"帮我写一个 AI 制片文案"被误当出片） */
 function isToolIntentOnly(m: string): boolean {
   return TOOL_INTENT.test(m) && !/成片|制片|做视频|做个视频|做一条视频|剪辑|出片/.test(m)
 }
 
-/** 是否"AI 制片"意图（三条线之一：素材智能成片 / AI 制片 / 素材+AI 创作） */
+/** 是否"AI 制片"意图 */
 export function matchesAiLine(msg: string): boolean {
   const m = String(msg || '')
-  // 不抢发布状态机的活；也不抢"写文案/海报/热点…"这类工具的活
   if (/发布|发到|发抖音|发小红书|发微博|发视频号|平台:/.test(m)) return false
   if (isToolIntentOnly(m)) return false
-  // ① 明确说"AI 制片/AI 成片"；② "全部/纯/整片 AI"；③ "用 AI（帮我）做一条视频"
-  //   ★注意：本函数【优先于】素材合成的 vfIntent 判断（分派在成片入口之前），
-  //     所以"用 AI 帮我做一条视频"会归这里，而"用本地成片帮我做一条视频"不含 AI → 仍归素材智能成片。
   if (/AI\s*制片|AI\s*成片|全部\s*AI|全\s*AI|纯\s*AI|整片\s*AI|AI\s*制作|AI\s*生成/.test(m)) return true
   if (/(用|帮我用|通过|走)\s*AI\s*.{0,8}(做|生成|制作|拍|出).{0,6}视频/.test(m)) return true
   if (/AI\s*.{0,6}(做|制作|生成|出).{0,6}视频/.test(m)) return true
   return false
 }
 
-/** 本线是否有进行中的草稿（有则**必须继续本线**，绝不被素材合成接管） */
 export async function hasAiDraft(db: any, uid: number): Promise<boolean> {
   if (VF_AI_DRAFT.has(uid)) return true
   const d = await loadVfAiDraft(db, uid)
@@ -138,169 +147,211 @@ export async function hasAiDraft(db: any, uid: number): Promise<boolean> {
   return false
 }
 
-/** 本线自己的"流程词"（不算新指令，否则会把草稿重置回第一步） */
-const AI_FLOW_WORD = /确认|开始|生成吧|出片|就这个|^行$|^好$|^OK$|可以|强制出片/i
+/** 本线是否该接管这一轮（有本线草稿 → 一定接管，否则草稿会永远卡住） */
+export async function shouldTakeOverAiLine(db: any, uid: number, userMessage: string): Promise<boolean> {
+  if (await hasAiDraft(db, uid)) return true
+  return matchesAiLine(userMessage)
+}
 
-const ASPECTS: Record<string, string> = { portrait: '竖屏 9:16', landscape: '横屏 16:9', auto: '自动' }
-const THEME_NAMES: Record<string, string> = { dark: '深蓝科技', tech: '深青科技', light: '浅色纸感' }
+/* ==================== ④ 常量 ==================== */
 
-/* ==================== ③ 主流程 ==================== */
+const AI_FLOW_WORD = /确认|开始|生成吧|出片|就这个|^行$|^好$|^OK$|可以|下一步|强制出片/i
+/** ★剥"AI 制片"这类入口词 —— 之前只剥了「AI 制作」，导致「AI 制片」被当成主题（用户实测） */
+const AI_ENTRY_WORDS = /全部\s*AI|全\s*AI|纯\s*AI|整片\s*AI|AI\s*制片|AI\s*成片|AI\s*制作|AI\s*生成/g
+const VIDEO_WORDS = /本地成片|帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|做一条视频|做个视频|做成片|做个宣传片/g
 
-/**
- * AI 制片的一整轮处理。
- * 返回要回给前端/用户的字符串（一律是 `VF_JSON:{...}` 卡片协议或纯文本）。
- * **绝不抛异常**：内部全部包住 → 出错时返回"人话"，不再"静默吞掉"（这次事故的教训）。
- */
+/* ==================== ⑤ 主流程 ==================== */
+
 export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
   const { uid, userMessage } = ctx
   try {
     let vd = VF_AI_DRAFT.get(uid)
     if (!vd) { const r = await loadVfAiDraft(ctx.prisma, uid); if (r?.step) { vd = r; VF_AI_DRAFT.set(uid, vd) } }
 
-    /* ── 第 1 步：起稿（还没有草稿）→ 发"AI 制片设置"卡 ── */
+    /* ── 第 1 步：起稿（还没有草稿）→ 发"主题卡"（主题 + 上传素材） ── */
     if (!vd) {
       const topic = String(userMessage)
-        .replace(/全部\s*AI|全\s*AI|纯\s*AI|AI\s*制作|AI\s*生成|整片\s*AI/g, '')
-        .replace(/本地成片|帮我做.{0,3}(一条|个|条)?视频|帮我成片|做一条视频|做个视频|做成片/g, '')
+        .replace(AI_ENTRY_WORDS, '')
+        .replace(VIDEO_WORDS, '')
         .replace(/^(用|请用|请|来|帮我|帮忙|给我|麻烦)\s*/, '')
         .replace(/^[\s:：,，,。、]+/, '').trim()
+
+      let guess = ''
+      if (!topic) {
+        // ★用户定案：没输入主题 → 看素材库（上传的优先），推断"这人平时在做什么"
+        //   注意：**只做一句推断、用户可改**；不做画像（用户："先不画像，画像不完整，怕四不像"）
+        try {
+          const mats = await ctx.listRepoMaterials(uid, 20, 'recent')
+          const visN = Math.min(8, Math.max(3, (mats || []).length))
+          const brief = await ctx.summarizeMaterials(uid, (mats || []).slice(0, 12), visN)
+          if (brief && String(brief).trim().length >= 2) {
+            const g = await ctx.generateText(
+              `下面是某位用户素材库里的内容摘要。请用【不超过 18 个字】一句话猜"他平时是做什么生意/做什么题材的内容"，` +
+              `只输出这一句话，不要解释、不要标点以外的任何文字。\n摘要：\n${String(brief).slice(0, 800)}`)
+            guess = String(g || '').trim().replace(/^["'「]|["'」]$/g, '').slice(0, 30)
+            ctx.log(uid, `[VF-A] 没给主题 → 按素材库猜："${guess}"`)
+          }
+        } catch (e: any) {
+          ctx.log(uid, '[VF-A] 素材库推断失败（不影响）: ' + String(e?.message || e).slice(0, 120))
+        }
+      }
+
       vd = {
-        step: 'form', topic, aspect: 'portrait',   // ★AI 制片默认竖屏（用户定案：「它知道竖屏横屏」）
-        dur: 30, voice: 'longxiaochun', theme: 'dark', bgm: 'auto',
-        script: '', source: 'ai',
+        step: 'ai_setup', topic: topic || guess, aspect: 'portrait', dur: 30,
+        style: '', voice: 'longxiaochun', theme: 'dark', bgm: 'auto', musicType: '',
+        script: '', uploaded: [], source: 'ai',
       }
       VF_AI_DRAFT.set(uid, vd)
       await saveVfAiDraft(ctx.prisma, uid, vd)
-      ctx.log(uid, `[VF-A] 起稿（AI 制片）topic="${topic.slice(0, 30)}"`)
-      // ★AI 制片【专属极简卡】（用户定案："AI 制作就纯 AI 制作了……音乐、字幕 AI 它都能自己把握"）
-      //   → **不再复用素材合成那张完整表单**（那张有画面来源/画幅/音色/BGM/风格 —— 对 AI 制片全是多余的；
-      //     上一版因此做成了"两张几乎一样的卡"，用户实测直接指出"你搞 2 个一样的"）。
-      //   这里只发 `step:'ai_setup'`，**只要【主题 + 时长】**；前端按它渲染极简卡。
-      //   提交时前端仍发 VF_FORM（只带 source/topic/dur），下面 `parseForm` 完全兼容。
+      ctx.log(uid, `[VF-A] 起稿（AI 制片）topic="${vd.topic.slice(0, 30)}"（guess=${guess ? '有' : '无'}）`)
       return 'VF_JSON:' + JSON.stringify({
-        step: 'ai_setup',
-        aiLine: true,
-        topic,
-        dur: 30,
-        costRate: 50,
-        hint: 'AI 制片：你只给主题，**画面 / 文案 / 分镜 / 配音 / 字幕 / 配乐**全部自动完成。',
+        step: 'ai_setup', aiLine: true, topic: vd.topic, guess: guess || '',
+        hint: guess
+          ? `我没看到主题，**按你的素材库猜的**：「${guess}」（不对就直接改）。其余（画面/文案/分镜/配音/字幕/配乐）全自动。`
+          : '你说个主题就行（留空我就看你的素材库猜）。其余（画面/文案/分镜/配音/字幕/配乐）全自动。',
+        hintUpload: '如果素材库里啥都有（美食/旅游/日常混着），**上传几张这次的图**，我就只看这几张，文案不会被带偏。',
       })
     }
 
-    /* ── 第 2 步：表单提交（VF_FORM:{...}）→ 写文案 + 排分镜 + 出确认卡 ── */
+    /* ── 第 2 步：主题卡提交（VF_FORM:{topic,uploaded}）→ 写文案 → 发"选项卡" ── */
     const f = ctx.parseForm(userMessage)
-    if (f && (vd.step === 'form' || vd.step === 'ai_setup' || vd.step === 'script')) {
-      if (f.aspect) vd.aspect = ['portrait', 'landscape', 'auto'].includes(String(f.aspect)) ? String(f.aspect) : 'portrait'
-      if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
-      if (f.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(f.theme)) ? String(f.theme) : 'dark'
-      if (f.voice) vd.voice = String(f.voice)
+    if (f && (vd.step === 'ai_setup' || vd.step === 'ai_opts' || vd.step === 'script')) {
       if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = f.topic.trim().slice(0, 300)
-      if (f.script && String(f.script).trim()) vd.script = String(f.script).trim().slice(0, 4000)
-      if (f.bgm !== undefined) vd.bgm = String(f.bgm) === 'auto' ? 'auto' : ''
-      ctx.log(uid, `[VF-A] 表单 dur=${vd.dur} aspect=${vd.aspect} theme=${vd.theme} topic="${vd.topic.slice(0, 20)}"`)
-      return await draftAndCard(ctx, vd, '')
-    }
+      if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x)).slice(0, 30)
 
-    /* ── 第 2.5 步：用户【没点表单】，直接在对话里说了主题 → 当成主题，直接起草 ──
-       （不补这条路径的话，用户说"咖啡店开业"会被忽略，只回一句"请点开始出片"——
-         与素材合成那条线的体验不一致。） */
-    if (vd.step === 'form' && !f && !AI_FLOW_WORD.test(userMessage.trim())
-        && userMessage.trim().length >= 2
-        && !/^(竖屏|横屏|自动|竖屏 9:16|横屏 16:9)$/.test(userMessage.trim())
-        && !/^VF_JSON|^MAKE_VIDEO|^\{|^\[/.test(userMessage.trim())) {
-      vd.topic = userMessage.trim().slice(0, 300)
-      ctx.log(uid, `[VF-A] 对话里给了主题="${vd.topic.slice(0, 30)}" → 直接起草`)
-      return await draftAndCard(ctx, vd, '')
-    }
-
-    /* ── 第 3 步：确认 → 出片 ── */
-    if (vd.step === 'script' && AI_FLOW_WORD.test(userMessage.trim())) {
-      if (!vd.shots?.length) {
-        return 'AI 制片：分镜还没排好，先不出片。回「重试」我再排一次。'
+      // 第一部分：主题卡 → 写文案 → 发选项卡
+      if (vd.step === 'ai_setup') {
+        if (!vd.script) {
+          const need = Math.round((Number(vd.dur) || 30) * 4.5)
+          let brief = ''
+          try {
+            const mats = await ctx.listRepoMaterials(uid, 40, vd.uploaded.length ? 'recent' : 'spread')
+            const use = vd.uploaded.length
+              ? (mats || []).filter((m: any) => vd.uploaded.includes(String(m.name)))   // ★只看上传的
+              : (mats || [])
+            if (vd.uploaded.length) ctx.log(uid, `[VF-A] 只看本次上传的 ${use.length}/${vd.uploaded.length} 张（不被仓库杂图带偏）`)
+            brief = await ctx.summarizeMaterials(uid, use.slice(0, 12), Math.max(3, Math.min(10, Math.round((Number(vd.dur) || 30) / 30) * 5)))
+          } catch { /* ignore */ }
+          vd.brief = String(brief || '').slice(0, 1200)
+          const p = `你是短视频编导。为「${vd.topic || 'AI 营销'}」写一条约 ${vd.dur} 秒的口播文案，` +
+            `**约 ${need} 字**（中文配音约 4.5 字/秒），口语化、开场 3 秒抓人、结尾有行动号召。` +
+            (vd.brief ? `\n【参考：用户的素材/业务背景（用它理解题材，不要在文案里罗列素材）】\n${vd.brief}` : '') +
+            `\n只输出文案本身，不要标题、不要解释、不要 markdown。`
+          vd.script = String(await ctx.generateText(p) || '').trim().slice(0, 4000)
+          ctx.log(uid, `[VF-A] 文案 ${vd.script.length} 字（目标 ${need}）`)
+        }
+        vd.step = 'ai_opts'
+        VF_AI_DRAFT.set(uid, vd)
+        await saveVfAiDraft(ctx.prisma, uid, vd)
+        return 'VF_JSON:' + JSON.stringify({
+          step: 'ai_opts', aiLine: true,
+          topic: vd.topic, script: vd.script, dur: vd.dur, aspect: vd.aspect,
+          styles: AI_STYLES.map((s) => ({ id: s.id, name: s.name, desc: s.desc })),
+          hint: '文案写好了（可在下面直接改）。确认三件事：**横屏还是竖屏 / 时长 / 成片风格**（风格可不选，让 AI 自己挑）。',
+        })
       }
+
+      // 第二部分：选项卡 → 排分镜 → 发确认卡
+      if (vd.step === 'ai_opts') {
+        if (f.aspect) vd.aspect = String(f.aspect) === 'landscape' ? 'landscape' : 'portrait'
+        if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
+        if (f.style !== undefined) vd.style = styleOf(String(f.style)) ? String(f.style) : ''
+        if (f.script && String(f.script).trim()) vd.script = String(f.script).trim().slice(0, 4000)
+        const st = styleOf(vd.style)
+        if (st) { vd.theme = st.theme; vd.musicType = st.music }   // 配色/音乐类型跟风格自动走
+        ctx.log(uid, `[VF-A] 选项 aspect=${vd.aspect} dur=${vd.dur} style=${vd.style || '(AI自选)'} → 排分镜`)
+        return await draftAndCard(ctx, vd, '')
+      }
+    }
+
+    /* ── 第 2.5 步：主题卡上用户【直接打字】给了主题 → 当成主题继续 ── */
+    if (vd.step === 'ai_setup' && !f && !AI_FLOW_WORD.test(userMessage.trim())
+        && userMessage.trim().length >= 2
+        && !/^(竖屏|横屏|自动)$/.test(userMessage.trim())
+        && !/^VF_JSON|^MAKE_VIDEO|^\{|^\[/.test(userMessage.trim())) {
+      vd.topic = userMessage.trim().replace(VIDEO_WORDS, '').replace(/^[\s:：,，,。、]+/, '').trim().slice(0, 300)
+      ctx.log(uid, `[VF-A] 对话里给了主题="${vd.topic.slice(0, 30)}" → 写文案`)
+      VF_AI_DRAFT.set(uid, vd); await saveVfAiDraft(ctx.prisma, uid, vd)
+      // 复用"主题卡提交"逻辑：直接进第 2 步的第一部分
+      return await handleAiLine({ ...ctx, userMessage: 'VF_FORM:' + JSON.stringify({ topic: vd.topic }) })
+    }
+
+    /* ── 第 3 步：确认分镜 → 出片 ── */
+    if (vd.step === 'script' && AI_FLOW_WORD.test(userMessage.trim())) {
+      if (!vd.shots?.length) return 'AI 制片：分镜还没排好，先不出片。回「重试」我再排一次。'
       const cost = Math.max(1, Math.ceil(Math.max(4, Number(vd.dur) || 30) * 50))
       vd.step = 'running'
       VF_AI_DRAFT.set(uid, vd)
       await saveVfAiDraft(ctx.prisma, uid, vd)
-      // ★显式传 source:'ai'（不读草稿去猜 —— 这正是上次事故的根因）
+      // ★显式传 source:'ai' + style（不读草稿去猜 —— 上次事故的根因就是"读错草稿"）
       const run = await ctx.executeToolCall('make_ai_video', {
-        plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots }),
+        plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots, style: vd.styleResolved || '', musicType: vd.musicType || '' }),
         script: vd.script,
         theme: vd.theme,
         speaker: vd.voice,
         bgm: vd.bgm,
         source: 'ai',
+        style: vd.styleResolved || '',
+        musicType: vd.musicType || '',
         duration: vd.dur,
         confirmed: true,
       }, ctx.auth)
-      ctx.log(uid, `[VF-A] 出片入队（约 ${cost} 点 / ${vd.dur} 秒）→ ${String(run).slice(0, 100)}`)
+      ctx.log(uid, `[VF-A] 出片入队（约 ${cost} 点 / ${vd.dur} 秒 / 风格 ${vd.styleResolved || 'AI自选'}）→ ${String(run).slice(0, 100)}`)
       return String(run)
     }
 
     /* ── 第 4 步：重试分镜 ── */
     if (vd.step === 'script' && /^重试|重新排|再排一次|重排分镜/.test(userMessage.trim())) {
       ctx.log(uid, '[VF-A] 重排分镜')
-      return await draftAndCard(ctx, vd, '上次分镜不达标，这次必须覆盖全文、排够镜头。')
+      return await draftAndCard(ctx, vd, '上次分镜不达标，这次必须覆盖全文、排够镜头，且最后一镜要有收尾。')
     }
 
-    /* ── 第 5 步：出片中，或其它 → 给明确回应（不留白） ── */
-    if (vd.step === 'running') {
-      return 'AI 制片已在后台生成中——完成后自动推结果（也可问「视频做得怎么样了」）。'
-    }
+    /* ── 兜底：给明确回应（不留白） ── */
+    if (vd.step === 'running') return 'AI 制片已在后台生成中——完成后自动推结果（也可问「视频做得怎么样了」）。'
+    if (vd.step === 'ai_setup') return 'AI 制片：说个主题就行（或点「🚀 开始出片」）。'
+    if (vd.step === 'ai_opts') return 'AI 制片：请在上面选好 横竖屏 / 时长 / 风格，点「下一步」。'
     return 'AI 制片：请点「🚀 开始出片」，或直接回「确认」。'
   } catch (e: any) {
-    // ★这次事故的教训：异常绝不静默。写日志 + 给用户可读可转发的句
     const msg = String(e?.message || e).slice(0, 200)
     try { ctx.log(uid, '[VF-A] ❌ 异常: ' + msg) } catch { /* ignore */ }
-    return `AI 制片环节出错：${msg}\n（把这句话发我即可定位；这次没有静默失败。）`
+    return `AI 制片环节出错：${msg}\n（把这句发我即可定位；这次没有静默失败。）`
   }
 }
 
-/* ==================== ④ 起草（写文案 → 排分镜 → 确认卡） ==================== */
+/* ==================== ⑥ 起草（排分镜 → 确认卡） ==================== */
 
 async function draftAndCard(ctx: VfAiCtx, vd: VfAiDraft, retryHint: string): Promise<string> {
   const { uid } = ctx
   const dur = Math.max(5, Math.min(900, Number(vd.dur) || 30))
-  const need = Math.round(dur * 4.5)                    // 中文配音约 4.5 字/秒
-
-  // ① 文案
-  if (!vd.script) {
-    const p = `你是短视频编导。为「${vd.topic || 'AI 营销'}」写一条约 ${dur} 秒的口播文案，` +
-      `**约 ${need} 字**（中文配音约 4.5 字/秒），口语化、有钩子、结尾有行动号召。` +
-      `只输出文案本身，不要标题、不要解释、不要分段标记。`
-    vd.script = String(await ctx.generateText(p) || '').trim().slice(0, 4000)
-    ctx.log(uid, `[VF-A] 文案 ${vd.script.length} 字（目标 ${need}）`)
-  }
-
-  // ② 素材（只当"依据"：让 AI 知道你在卖什么）
-  let brief = ''
-  let imgN = 0
-  try {
-    const mats = await ctx.listRepoMaterials(uid, 40, 'spread')
-    imgN = (mats || []).length
-    brief = await ctx.summarizeMaterials(uid, mats || [], Math.max(8, Math.min(20, Math.round(dur / 30) * 5)))
-  } catch { /* 素材拿不到也继续（AI 制片不依赖素材图） */ }
-  vd.imgs = []
-  vd.brief = String(brief || '').slice(0, 1500)
-
-  // ③ 画幅 / 画布（AI 制片画布按 H3 的 768P 档）
-  const aspect = (vd.aspect === 'landscape' || vd.aspect === 'portrait') ? vd.aspect : 'portrait'
+  const aspect = vd.aspect === 'landscape' ? 'landscape' : 'portrait'
   vd.aspectResolved = aspect
   vd.size = aspect === 'landscape' ? [1280, 720] : [720, 1280]
+  // ★风格：用户没选 → 让 AI 按文案自动挑一个（挑完记下来，H3 的 prompt 与配色都用它）
+  let styleId = vd.style
+  if (!styleOf(styleId)) {
+    try {
+      const list = AI_STYLES.map((s) => `${s.id}=${s.name}（${s.desc}）`).join(' / ')
+      const pick = String(await ctx.generateText(
+        `下面这条短视频文案，最适合哪种【成片风格】？只回 id 一个词，不要解释。\n可选：${list}\n文案：\n${String(vd.script).slice(0, 500)}`) || '').trim().toLowerCase()
+      styleId = styleOf(pick) ? pick : 'cinematic'
+      ctx.log(uid, `[VF-A] 未选风格 → AI 自选「${styleOf(styleId)?.name}」`)
+    } catch { styleId = 'cinematic' }
+  }
+  vd.styleResolved = styleId
+  const st = styleOf(styleId)
+  if (st) { vd.theme = st.theme; if (!vd.musicType) vd.musicType = st.music }
 
-  // ④ 分镜（★本线专有：wantPrompt=true → 要英文画面描述给 H3）
   const shotN = Math.max(4, Math.min(40, Math.round(dur / 5)))
+  const imgs: string[] = []   // ★AI 制片画面全 AI 生成 → 不给素材图（素材只当"题材依据"）
   const shots = await ctx.genVideoShots({
     uid, aspect, dur, shotN,
-    imgPaths: [],                      // AI 制片不用素材图（素材只当依据）
-    brief: vd.brief,
-    script: vd.script,
-    wantPrompt: true,                  // ★要 prompt
+    imgPaths: imgs, brief: vd.brief || '', script: vd.script,
+    wantPrompt: true,                    // ★要英文画面描述（喂 H3）
     ...(retryHint ? { retryHint } : {}),
   })
 
-  // ⑤ 覆盖率门禁 + 兜底填 subtitle（与素材合成同口径：<80% 不给确认）
-  let subLen = (shots || []).reduce((a, s) => a + String(s.subtitle || '').length, 0)
+  // 覆盖率门禁 + 字幕兜底（与另两条线同口径：<80% 不给确认）
+  let subLen = (shots || []).reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
   let cover = vd.script ? subLen / vd.script.length : 0
   ctx.log(uid, `[VF-A] 覆盖率 ${Math.round(cover * 100)}%（subtitle ${subLen} / 文案 ${vd.script.length}）`)
   if ((shots || []).length >= 2 && cover < 0.8 && vd.script) {
@@ -318,21 +369,11 @@ async function draftAndCard(ctx: VfAiCtx, vd: VfAiDraft, retryHint: string): Pro
   vd.step = 'script'
   VF_AI_DRAFT.set(uid, vd)
   await saveVfAiDraft(ctx.prisma, uid, vd)
-  ctx.log(uid, `[VF-A] 分镜 ${(shots || []).length} 镜 / 覆盖 ${Math.round(cover * 100)}% / 预计 ${estSec} 秒 / 画幅 ${ASPECTS[aspect]} / 风格 ${THEME_NAMES[vd.theme] || vd.theme}`)
+  ctx.log(uid, `[VF-A] 分镜 ${(shots || []).length} 镜 / 覆盖 ${Math.round(cover * 100)}% / 预计 ${estSec} 秒 / 画幅 ${aspect} / 风格 ${st?.name}`)
 
-  // ⑥ 确认卡 —— **成本按秒**（与 make_ai_video 的扣费同口径）
-  const card = ctx.vfScriptCard({ ...vd, source: 'ai' }, shots, imgN, vd.brief, aspect, cover, estSec)
+  // 确认卡：成本按秒（与 make_ai_video 同口径）+ 把风格/画幅透给卡片
+  const card = ctx.vfScriptCard(
+    { ...vd, source: 'ai', styleName: st?.name || '', aspectName: aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16' },
+    shots, 0, vd.brief || '', aspect, cover, estSec)
   return card
-}
-
-/* ==================== ⑤ 供 route.ts 分派用的最小接口 ==================== */
-
-/** 本线是否该接管这一轮 */
-export async function shouldTakeOverAiLine(db: any, uid: number, userMessage: string): Promise<boolean> {
-  // ★【有本线草稿 → 一定接管】（用户定案"状态机直接执行，不把复杂判断交给 AI"）：
-  //   否则用户随口说一句（既不是流程词、不是表单、也不含"AI"）就会被判为"不接管"
-  //   → 这一轮掉回【素材合成】那条线，而那条线看不到本线草稿 → 变成"AI 自由发挥"，
-  //     本线草稿就**永远卡在做不完的状态**。所以只要本线有草稿，就必须由本线继续。
-  if (await hasAiDraft(db, uid)) return true
-  return matchesAiLine(userMessage)
 }

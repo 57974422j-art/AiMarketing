@@ -177,7 +177,21 @@ def _probe_sec(path):
         return 0.0
 
 
-def _h3_prompt(shot, idx):
+# ★VF_STYLE_V1（2026-09-21，用户定案"用真正的广告/日常/影视级…成片风格"）：
+#   成片风格 id → 喂给 H3 的英文关键词（与 src/lib/agent/vf/vf-aivideo.ts 的 AI_STYLES 保持一致）
+H3_STYLE_EN = {
+    'cinematic': 'cinematic, film grain, dramatic lighting, shallow depth of field, anamorphic',
+    'commercial': 'commercial product shot, clean studio lighting, glossy, hero angle, macro detail',
+    'vlog': 'casual vlog, natural light, handheld camera, real life, soft tones',
+    'anime': 'anime style, 2D illustration, cel shading, vivid colors, clean line art',
+    'toy3d': '3D render, claymation, toy-like, soft studio light, pastel palette',
+    'tech': 'futuristic, neon glow, holographic UI, cyber, dark background with cyan accents',
+    'documentary': 'documentary style, interview framing, natural skin tones, available light',
+    'ink': 'ink painting, hand-drawn, oriental, minimal, rice paper texture',
+}
+
+
+def _h3_prompt(shot, idx, style_en=''):
     """分镜 → H3 画面提示词。优先 AI 写的 prompt 字段；否则用中文文案拼一个兜底描述。
     末尾追加运镜指令（按镜轮换）。明确要求"不要出现文字"——文字由 render.py 的字幕负责。"""
     p = (shot.get('prompt') or '').strip()
@@ -189,7 +203,7 @@ def _h3_prompt(shot, idx):
         p = ('%s。短视频画面：镜头自然运动、光影真实、主体清晰、'
              '画面中下部留出空间给字幕，**画面里不要出现任何文字**' % core) if core \
             else '现代科技感的短视频实景空镜，镜头自然运动，画面里不要出现文字'
-    return '%s %s' % (p[:600], _H3_CAM[idx % len(_H3_CAM)])
+    return '%s %s %s' % (p[:600], style_en, _H3_CAM[idx % len(_H3_CAM)])
 
 
 def _h3_gen_one(prompt, want_sec, resolution, ratio):
@@ -254,6 +268,10 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
     _only = set(int(x) for x in (only_idx or []) if str(x).strip().isdigit())
     sb = json.load(open(sb_path, encoding='utf-8'))
     shots = sb.get('shots') or []
+    # ★VF_STYLE_V1：成片风格（顶层字段，由 vf-aivideo.ts 写进 plan）→ 每镜 prompt 都会带上
+    _style_en = H3_STYLE_EN.get(str(sb.get('style') or ''), '')
+    if _style_en:
+        print('[H3] 成片风格=%s → %s' % (sb.get('style'), _style_en[:50]))
     clips = os.path.join(wd, 'clips')
     os.makedirs(clips, exist_ok=True)
     W, H = sb.get('size', [1280, 720])
@@ -272,7 +290,7 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
             ok_n += 1
             total_sec += float(shot.get('src_dur') or 0)
             continue
-        prompt = _h3_prompt(shot, i)
+        prompt = _h3_prompt(shot, i, _style_en)
         print('[H3] 第 %d/%d 镜 生成中…（目标 %.1fs）%s' % (i + 1, len(shots), want, prompt[:70]))
         url, via, sec = _h3_gen_one(prompt, want, resolution, ratio)
         via_last = via

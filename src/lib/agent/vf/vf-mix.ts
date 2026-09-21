@@ -139,7 +139,7 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
     /* ── 起稿 ── */
     if (!vd) {
       const topic = String(userMessage)
-        .replace(/素材\s*[+＋加和与]\s*AI|素材\s*AI\s*(创作|混合)|混合\s*创作|AI\s*混合/g, '')
+        .replace(/素材\s*[+＋加和与]\s*AI|素材\s*AI\s*(创作|混合)|混合\s*创作|AI\s*混合|半\s*AI/g, '')
         .replace(/本地成片|帮我做.{0,3}(一条|个|条)?视频|帮我成片|做一条视频|做个视频|做成片/g, '')
         .replace(/^(用|请用|请|来|帮我|帮忙|给我|麻烦)\s*/, '')
         .replace(/^[\s:：,，,。、]+/, '').trim()

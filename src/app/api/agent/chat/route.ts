@@ -613,9 +613,22 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       if (_mixShots) argsVF.push('--mix', _mixShots)
       // ★VF_BGM_V1（2026-09-20）：BGM —— args.bgm==='auto' 时从【AI 音乐库】挑一首
       //   并下载到本地（render.py 要的是本地文件）。直接查库不调 HTTP（避开服务端鉴权）
+      // ★VF_STYLE_V1（2026-09-21）：用户定案「配乐牵扯版权，让 AI 自己配，**能留个音乐类型就行**」
+      //   → 若带了 musicType（由成片风格推出来，如"史诗感/弦乐""轻快电子"），**优先按它挑**；
+      //     库里没有匹配的 → 回退"最新一首"（行为与以前一致）。
       if (String(args.bgm || '') === 'auto') {
         try {
-          const _m: any = await prisma.mediaAsset.findFirst({ where: { source: 'public', type: 'audio', category: 'music' }, orderBy: { createdAt: 'desc' } })
+          const _mt = String(args.musicType || '').trim()
+          let _m: any = null
+          if (_mt) {
+            _m = await prisma.mediaAsset.findFirst({
+              where: { source: 'public', type: 'audio', category: 'music', OR: [{ title: { contains: _mt } }, { prompt: { contains: _mt } }] },
+              orderBy: { createdAt: 'desc' },
+            })
+            if (_m) vfLog(String(uidVF), `[BGM] 按音乐类型「${_mt}」命中：${String(_m.title || '').slice(0, 20)}`)
+            else vfLog(String(uidVF), `[BGM] 音乐类型「${_mt}」库里没有 → 回退最新一首`)
+          }
+          if (!_m) _m = await prisma.mediaAsset.findFirst({ where: { source: 'public', type: 'audio', category: 'music' }, orderBy: { createdAt: 'desc' } })
           if (_m?.ossUrl) {
             const _rb = await fetch(String(_m.ossUrl), { signal: AbortSignal.timeout(30000) })
             if (_rb.ok) {
