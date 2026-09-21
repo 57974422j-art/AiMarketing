@@ -150,11 +150,14 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
       VF_MIX_DRAFT.set(uid, vd)
       await saveVfMixDraft(ctx.prisma, uid, vd)
       ctx.log(uid, `[VF-X] 起稿（素材+AI 创作）topic="${topic.slice(0, 30)}"`)
+      // ★同 AI 制片：走**专属极简卡**（`step:'ai_setup'`），不再复用素材合成那张完整表单
+      //   （否则又是一张"几乎一样的卡"）。混合线同样**不需要**用户选画幅/音色/配乐 ——
+      //   它只需要知道"主题 + 时长"，其余（含"哪几镜用 AI"）由 AI 自己判断。
       return 'VF_JSON:' + JSON.stringify({
-        step: 'form', mixLine: true,
-        topic, aspect: 'portrait', dur: 30, voice: 'longxiaochun', theme: 'dark',
-        voices: Array.isArray(ctx.voiceList) ? ctx.voiceList : [],
-        hint: '素材+AI 创作：**能用素材的镜用素材，AI 判断该"动起来"的镜才调 AI**（省钱）。选好点「🚀 开始出片」。',
+        step: 'ai_setup',
+        mixLine: true,
+        topic, dur: 30, costRate: 50,
+        hint: '素材 + AI 创作：**能用你素材图的镜就用素材，AI 判断"该动起来"的镜才调 AI**（省钱）。你只给主题。',
       })
     }
 

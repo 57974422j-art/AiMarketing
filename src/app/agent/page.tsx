@@ -646,6 +646,45 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
   )
 }
 
+// ★VF_LINES_V1（2026-09-21）：【AI 制片】专属极简卡 —— **不复用素材合成那张完整表单**
+//   用户实测指出："这和我现在『用本地成片帮我做一条视频』有什么区别？不是让你把该减的剪掉，你搞 2 个一样的。"
+//   他此前也定过："AI 制作就纯 AI 制作了……音乐、字幕 AI 它都能自己把握。"
+//   → 所以这里**只保留【主题 + 时长 + 开始出片】**，画面/画幅/音色/配乐/风格**全部不出现**（交给 AI）。
+function VfAiSetupCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void }) {
+  const [topic, setTopic] = useState<string>(String(vj.topic || ''))
+  const [dur, setDur] = useState<string>(String(vj.dur || 30))
+  const rate = Number(vj.costRate) || 50
+  const d = parseInt(dur) || 30
+  return (
+    <div className="mb-2 p-3 rounded-xl border border-violet-500/30 bg-violet-500/[0.06]">
+      <div className="text-xs text-violet-300 mb-3">{vj.hint || 'AI 制片'}</div>
+      <div className="mb-2">
+        <div className="text-[10px] text-gray-400 mb-1">主题（留空由 AI 自己决定）</div>
+        <input value={topic} onChange={(e: any) => setTopic(e.target.value)}
+          placeholder="例如：咖啡店开业，第二杯半价"
+          className="w-full px-2 py-1 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+      </div>
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">时长</div>
+        <div className="flex flex-wrap gap-1.5">
+          {['10', '30', '60', '90'].map((s) => (
+            <button key={s} onClick={() => setDur(s)}
+              className={`px-2.5 py-1 rounded text-[11px] border ${dur === s ? 'bg-violet-500/30 border-violet-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>{s}秒</button>
+          ))}
+        </div>
+      </div>
+      <button
+        onClick={() => onStart('VF_FORM:' + JSON.stringify({ source: 'ai', topic: topic.trim(), dur: d, aspect: 'portrait' }))}
+        className="px-4 py-1.5 rounded-lg bg-violet-500/40 hover:bg-violet-500/70 text-sm text-white font-medium">
+        🚀 开始出片
+      </button>
+      <div className="text-[10px] text-gray-500 mt-2">
+        画面 / 文案 / 分镜 / 配音 / 字幕 / 配乐 —— **全部自动**，不用你选。费用按秒计（约 {rate} 点/秒，{d} 秒 ≈ {rate * d} 点）。
+      </div>
+    </div>
+  )
+}
+
 function AgentPageInner() {
   const { user, logout, loading: authLoading } = useAuth() || ({ user: undefined, logout: async () => {}, loading: true } as any)
   const router = useRouter()
@@ -2233,6 +2272,8 @@ function AgentPageInner() {
     if (content.startsWith('VF_JSON:')) {
       try {
         const _vj = JSON.parse(content.slice(8))
+        // ★VF_LINES_V1（2026-09-21）：AI 制片走**专属极简卡**（只 主题+时长）；素材合成仍走完整表单
+        if (_vj && _vj.step === 'ai_setup') return <VfAiSetupCard vj={_vj} onStart={sendMessage} />
         if (_vj && _vj.step === 'form') return <VideoFormCard vj={_vj} onStart={sendMessage} />
       } catch {}
     }

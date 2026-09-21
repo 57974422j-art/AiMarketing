@@ -172,20 +172,24 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
       VF_AI_DRAFT.set(uid, vd)
       await saveVfAiDraft(ctx.prisma, uid, vd)
       ctx.log(uid, `[VF-A] 起稿（AI 制片）topic="${topic.slice(0, 30)}"`)
-      // 复用前端的"成片设置"表单卡（step:'form'），但对 AI 制片只暴露必要项
+      // ★AI 制片【专属极简卡】（用户定案："AI 制作就纯 AI 制作了……音乐、字幕 AI 它都能自己把握"）
+      //   → **不再复用素材合成那张完整表单**（那张有画面来源/画幅/音色/BGM/风格 —— 对 AI 制片全是多余的；
+      //     上一版因此做成了"两张几乎一样的卡"，用户实测直接指出"你搞 2 个一样的"）。
+      //   这里只发 `step:'ai_setup'`，**只要【主题 + 时长】**；前端按它渲染极简卡。
+      //   提交时前端仍发 VF_FORM（只带 source/topic/dur），下面 `parseForm` 完全兼容。
       return 'VF_JSON:' + JSON.stringify({
-        step: 'form',
-        aiLine: true,                       // ★前端据此把"画幅/我上传素材/素材+AI混合"藏掉或置灰
+        step: 'ai_setup',
+        aiLine: true,
         topic,
-        aspect: 'portrait', dur: 30, voice: 'longxiaochun', theme: 'dark',
-        voices: Array.isArray(ctx.voiceList) ? ctx.voiceList : [],   // 音色列表（纯数据）
-        hint: 'AI 制片：画面、字幕、配音、配乐**全自动**。选好点「🚀 开始出片」。',
+        dur: 30,
+        costRate: 50,
+        hint: 'AI 制片：你只给主题，**画面 / 文案 / 分镜 / 配音 / 字幕 / 配乐**全部自动完成。',
       })
     }
 
     /* ── 第 2 步：表单提交（VF_FORM:{...}）→ 写文案 + 排分镜 + 出确认卡 ── */
     const f = ctx.parseForm(userMessage)
-    if (f && (vd.step === 'form' || vd.step === 'script')) {
+    if (f && (vd.step === 'form' || vd.step === 'ai_setup' || vd.step === 'script')) {
       if (f.aspect) vd.aspect = ['portrait', 'landscape', 'auto'].includes(String(f.aspect)) ? String(f.aspect) : 'portrait'
       if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
       if (f.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(f.theme)) ? String(f.theme) : 'dark'
