@@ -3386,7 +3386,12 @@ PUBLISH_DRAFT.delete(uidW)
         }
         // ★兜底2（2026-09-19）：消息明显是“做视频”意图、但状态机没给回复 → 强制出素材来源卡
         //   目的：即使进块条件/分支判断出了意外，也绝不让这一轮落到 AI 自由发挥（用户实测过的现象）
-        if (!wfEarlyReply && /做.{0,4}视频|成片|做视频/.test(userMessage)) {
+        // ★STD_QUERY_V1（2026-09-21 用户实测 22:07）：**查询/进度类消息绝不触发** ——
+        //   用户问「查询任务 vf… 的最新进度」时，消息里**带着 MAKE_VIDEO_TASK 的整段文案**
+        //   （含"本地成片已在后台开始/视频做得怎么样了"）→ 命中下面的 `成片` → 被这条兜底抢走，
+        //   回了「这条视频用什么素材？」（完全不相干的卡片）→ 看起来像"状态机又乱接"。
+        const _isQueryMsg = /进度|做得怎么样|怎么样了|查询任务|query_video_task|最新进度/.test(userMessage)
+        if (!wfEarlyReply && !_isQueryMsg && /做.{0,4}视频|成片|做视频/.test(userMessage)) {
           vfLog(uidVF2, '[兜底-块外] 状态机未出回复，已强制出素材来源卡')
           wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: '', hint: '这条视频用什么素材？（点一下就走，不用打字）' })
           finalResult = wfEarlyReply

@@ -299,6 +299,29 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
             `**约 ${need} 字**（中文配音约 4.5 字/秒），口语化、开场 3 秒抓人、结尾有行动号召。` +
             `\n只输出文案本身，不要标题、不要解释、不要 markdown。`
           vd.script = String(await ctx.generateText(p) || '').trim().slice(0, 4000)
+          // ★VF_AIDUR_V1（2026-09-21 用户实测：选 10 秒，AI 却写了 83 字 ≈ 18 秒 → 成片预计 25 秒）：
+          //   AI 制片线原来**没有任何"按目标字数"的护栏**（素材线有压缩 + 硬截）→ 时长永远不可控。
+          //   这里补同口径的两道：超 1.15 倍让 AI 压缩；仍超 1.35 倍就按句末硬截到 1.1 倍。
+          //   （中文配音约 4.5 字/秒 → 字数就是时长，所以护栏必须卡在文案这一步。）
+          try {
+            if (vd.script.length > need * 1.15) {
+              const _sh = String(await ctx.generateText(
+                `把下面这段口播文案【压缩】到 ${need} 字（现在 ${vd.script.length} 字，必须删掉约 ${vd.script.length - need} 字）。` +
+                `要求：① 保留核心卖点 ② 删掉重复表达与铺垫 ③ 保持原顺序和「。」「！」断句 ④ 只输出压缩后的文案本身，不要解释。\n原文：${vd.script}`) || '').trim()
+              if (_sh.length >= need * 0.6 && _sh.length < vd.script.length) {
+                ctx.log(uid, `[VF-A] 文案压缩 ${vd.script.length} → ${_sh.length} 字（目标 ${need}）`)
+                vd.script = _sh.slice(0, 4000)
+              }
+            }
+            if (vd.script.length > need * 1.35) {
+              const _cut = vd.script.slice(0, Math.round(need * 1.1))
+              const _lastP = Math.max(_cut.lastIndexOf('。'), _cut.lastIndexOf('！'))
+              vd.script = _lastP > need * 0.6 ? _cut.slice(0, _lastP + 1) : _cut
+              ctx.log(uid, `[VF-A] 文案硬截 → ${vd.script.length} 字（目标 ${need}）`)
+            }
+          } catch (e: any) {
+            ctx.log(uid, '[VF-A] 文案时长护栏异常（不影响出片）: ' + String(e?.message || e).slice(0, 100))
+          }
           ctx.log(uid, `[VF-A] 文案 ${vd.script.length} 字（目标 ${need}）`)
         }
         vd.step = 'ai_opts'
