@@ -2085,7 +2085,16 @@ export async function POST(request: NextRequest) {
     //   → **AI 自由发挥**（实测它会把「AI 制片」理解成"打开一键成片网页"）→ **状态机整块都没进**。
     //   加上这两个判断后：这几句话会直接进状态机块 → 由下面的【三分派】接管。
     const vfLineWord = matchesAiLine(userMessage) || matchesMixLine(userMessage)
-    const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0) || vfEntryWord || stWordInput || vfLineWord) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
+    // ★VF_PROTO_V1（2026-09-21，用户实测：AI 制片走到「▶️ 下一步（排分镜）」时掉出状态机 →
+    //   AI 自由发挥，自己**编了一张假卡**（`step:'ai_plan'` —— 这个卡型代码里根本不存在），
+    //   还带上了「（模型：qwen3.8-flash）」尾巴（那个尾巴只加在 AI 自由发挥的回复上，是铁证））。
+    //   **根因**：卡片提交发的是 `VF_FORM:{...}`（协议串），它**不是任何一条线的"入口词"**
+    //   → `skipModelStep1=false` → 整个状态机块被跳过（模型那步是否调工具又是不确定的，
+    //     所以表现为"时好时坏"：卡1 侥幸进了、卡2 没进）。
+    //   → 把【协议串本身】也算"状态机入口信号"：**卡片提交一定由状态机接管**，不再看模型脸色。
+    //   （这些前缀只有卡片/工具会产生，用户不会手打；若三条线都不认领，行为退回现状，不会更坏。）
+    const vfProtoWord = /^(VF_FORM|VF_JSON|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT)\s*[:{]/.test(userMessage.trim())
+    const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0) || vfEntryWord || stWordInput || vfLineWord || vfProtoWord) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
     // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
     if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|平台:|确认|选|发布|发一个视频|发一条|帮我发|发/i.test(userMessage))) {
       try {

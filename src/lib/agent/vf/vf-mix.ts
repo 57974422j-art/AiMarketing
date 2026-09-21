@@ -102,7 +102,10 @@ export function matchesMixLine(msg: string): boolean {
   const m = String(msg || '')
   if (/发布|发到|发抖音|发小红书|发微博|发视频号|平台:/.test(m)) return false
   // 工具类意图（写文案/海报/热点…）不算出片
-  if (TOOL_INTENT.test(m) && !/成片|制片|做视频|做个视频|做一条视频|剪辑|出片/.test(m)) return false
+  // ★VF_PROTO_V1（2026-09-21）：**协议串（卡片提交）不是"工具意图"** —— 表单里带的文案正文
+  //   若含"写标题/海报"等词，会被误判成"想写文案"→ 本线不认领（与 AI 制片线同一条修法、各写各的）。
+  const _isProto = /^(VF_FORM|VF_JSON)\s*[:{]/.test(m.trim())
+  if (!_isProto && TOOL_INTENT.test(m) && !/成片|制片|做视频|做个视频|做一条视频|剪辑|出片/.test(m)) return false
   // ★必须【先排除】素材智能成片与 AI 制片：本线只在明确说"素材+AI / 混合创作"时接管
   if (/^(素材合成|素材智能成片|用我的素材库)$/.test(m.trim())) return false
   return /素材\s*[+＋加和与]\s*AI|素材\s*AI\s*创作|素材\s*AI\s*混合|混合\s*创作|AI\s*混合|半\s*AI/.test(m)

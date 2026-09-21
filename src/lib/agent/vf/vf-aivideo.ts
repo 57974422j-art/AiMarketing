@@ -126,6 +126,10 @@ export async function clearVfAiDraft(db: any, uid: number | string): Promise<voi
 /** 工具类意图（不是"出成片"）—— ★本文件自己一份（零 import 铁律） */
 const TOOL_INTENT = /(写|生成|做).{0,4}(文案|脚本|标题|话题)|海报|图片|插画|今日热点|热点|数字人|口播视频|背景音乐|配乐|BGM|搜一下|搜索|记录一件事|记一下|提醒/
 function isToolIntentOnly(m: string): boolean {
+  // ★VF_PROTO_V1（2026-09-21）：**协议串（卡片提交）不是"工具意图"** —— 否则表单里带的【文案正文】
+  //   只要出现"写标题/海报/图片"这类词，整条消息就被判成"用户想写文案" → 本线不认领 →
+  //   连 skipModelStep1 的 vfLineWord 也变 false → 掉出状态机（用户实测：AI 制片走到"下一步"就断）。
+  if (/^(VF_FORM|VF_JSON)\s*[:{]/.test(String(m || '').trim())) return false
   return TOOL_INTENT.test(m) && !/成片|制片|做视频|做个视频|做一条视频|剪辑|出片/.test(m)
 }
 
