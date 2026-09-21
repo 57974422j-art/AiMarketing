@@ -2952,12 +2952,12 @@ PUBLISH_DRAFT.delete(uidW)
                 })
                 finalResult = wfEarlyReply
               } else if (vfPickMix) {
-                // ⏳ 仍未实现：「素材+AI 混合」（要先决定"哪几镜用 AI" —— 见方案第 2 步）
-                vd.mode = 'mix'
-                VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
-                vfLog(uidVF2, '[画面来源] mix —— 暂未实现，已提示用户')
-                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: vd.topic || '',
-                  hint: '「素材+AI 混合」还在开发中。想整片 AI 生成请点【🎨 全部 AI 生成】；想最快最省请点【🎞 素材合成】🙂' })
+                // ★VF_SRC_SPLIT_V1（2026-09-21，用户定案）：本卡的「素材+AI 混合」按钮**已拆掉** ——
+                //   混合是【独立的一条线】（`src/lib/agent/vf/vf-mix.ts`，入口词「素材+AI创作做一条视频」）。
+                //   这里只作为【老前端 / 历史消息】的兜底：不再说"开发中"（那是假话），改为指路，
+                //   并且**不改草稿**（原实现会写 vd.mode='mix' 存库，纯属污染）。
+                vfLog(uidVF2, '[画面来源] mix（老入口）→ 已指路到混合线')
+                wfEarlyReply = '「素材+AI 混合」现在是**独立的一条线**：直接说「素材+AI创作做一条视频」就行（AI 只挑该动的镜用 AI，其余用你的素材）。\n本卡只有两个来源：素材合成 / 我上传素材。'
                 finalResult = wfEarlyReply
               } else {
                 // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」**已接通**（原来这里是"暂未实现"占位）。

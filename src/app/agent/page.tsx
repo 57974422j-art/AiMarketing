@@ -516,13 +516,8 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
       className={`px-2 py-1 rounded text-[11px] border transition ${cur === val ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : dis ? 'bg-white/[0.03] border-white/[0.06] text-gray-600 cursor-not-allowed' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>{label}</button>
   )
 
-  // ★VF_AIVIDEO_V1（2026-09-20）：切到「全部 AI 生成」时，画幅固定为竖屏 ——
-  //   因为该模式下「自动（按素材判断）」已置灰，若不主动落一格，界面会停在"没选"的状态上。
-  //   **只在 source==='ai' 时生效**：素材合成模式下用户选什么就是什么，一行都不碰。
-  useEffect(() => {
-    if (source === 'ai' && aspect === 'auto') setAspect('portrait')
-  }, [source, aspect])
-
+  // ★VF_SRC_SPLIT_V1（2026-09-21，用户定案）：本卡原来的「全部 AI 生成」已拆到独立的 AI 制片线 →
+  //   原来那条"切到 AI 模式就把画幅强制成竖屏"的 useEffect 一并删除（本卡不再有 AI 模式档）。
   return (
     <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
       <div className="text-xs text-fuchsia-300 mb-3">🎬 成片设置{typeof vj.hint === 'string' && vj.hint ? ' · ' + vj.hint : ''}</div>
@@ -531,35 +526,24 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
         <div className="text-[10px] text-gray-400 mb-1">画面来源</div>
         <div className="flex flex-wrap gap-1.5">
           {R(source, 'repo', '🎞 素材合成（用我仓库）', setSource)}
-          {/* ★VF_MIXLINE_V1（2026-09-21）：【素材+AI 混合】**已接通**（后端 src/lib/agent/vf/vf-mix.ts）
-              —— 原来标"（开发中）"且第 5 个参数传了 true（= disabled，按钮灰的、点不动）。
-              现在去掉禁用与"开发中"，并把它的特点写在按钮上（AI 只挑该动的镜用 AI，其余用素材 → 比全 AI 便宜）。
-              另外：三条成片线各有自己的入口词（见 FEATURE_TIPS），点这里 = 选素材线内部的"画面来源"。 */}
-          {R(source, 'mix', '✨ 素材+AI 混合（AI 挑该动的镜）', setSource)}
-          {/* ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」**已接通** ——
-              原来标"（开发中）"且**第 5 个参数传了 true（= disabled）→ 按钮是灰的、点不动**，
-              这正是用户说的"按钮有啊、只是没接"。后端已接住（source='ai' → 不取素材 + 768P
-              + 按秒报价 → make.py 调 H3），所以这里**去掉禁用**，并把价格标在按钮上
-              —— 它比素材合成贵两个数量级，不说清楚用户会吓一跳。 */}
-          {R(source, 'ai', '🎨 全部 AI 生成（约 50 点/秒）', setSource)}
+          {/* ★VF_SRC_SPLIT_V1（2026-09-21，用户定案）：本卡**只留素材线自己的两个来源** ——
+              「✨ 素材+AI 混合」与「🎨 全部 AI 生成」**已从这里拆掉**：它们各自是**独立的线**
+              （`src/lib/agent/vf/vf-mix.ts` / `vf-aivideo.ts`，各有自己的入口词与卡片）。
+              用户原话：「把『用本地成片帮我做一条视频』中的 素材+AI混合、全部AI生成 帮我拆掉，
+              免得你搞不清。」→ 一个概念只留一条路，杜绝"同一个按钮落在不同线"。
+              要那两种：直接说「素材+AI创作做一条视频」/「AI 制片帮我做一条视频」。 */}
           {/* ★VF_UPLOAD_FIX_V1：照抄“聊天那个能用的写法” —— 不加 disabled（否则可能永久点不动） */}
-          {/* ★VF_AIVIDEO_V1（2026-09-20）：AI 模式下不用上传素材（画面由 AI 生成）→ 置灰，
-              避免"以为能上传、结果白传"；也避免残留的 uploaded 名单让人误会它参与了。
-              **素材合成模式下这个按钮和以前完全一样**（可上传、真的会用）。 */}
+          {/* ★VF_SRC_SPLIT_V1（2026-09-21）：「全部 AI 生成」已从本卡拆掉 → `source==='ai'` 的
+              置灰逻辑一并删除（本卡不再有 AI 模式这一档；AI 画面请走 AI 制片那条线）。 */}
           <button
-            disabled={source === 'ai'}
-            onClick={() => { if (source === 'ai' || uploading) return; if (fileRef.current) fileRef.current.click() }}
-            className={source === 'ai'
-              ? 'px-2 py-1 rounded text-[11px] border bg-white/[0.03] border-white/[0.06] text-gray-600 cursor-not-allowed'
-              : `px-2 py-1 rounded text-[11px] border transition ${source === 'upload' ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
-            {source === 'ai' ? '📤 我上传素材（AI 模式不用）' : (uploading ? '⏳ 上传中…' : '📤 我上传素材')}
+            onClick={() => { if (uploading) return; if (fileRef.current) fileRef.current.click() }}
+            className={`px-2 py-1 rounded text-[11px] border transition ${source === 'upload' ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
+            {uploading ? '⏳ 上传中…' : '📤 我上传素材'}
           </button>
         </div>
         <input ref={fileRef} type="file" accept="image/*,video/*" multiple className="hidden"
           onChange={(e: any) => { doUpload(e.target.files); e.target.value = '' }} />
-        {/* ★VF_AIVIDEO_V1：AI 模式下不显示这句 —— "画面只从这批里取"在那里是**假话**
-            （AI 模式的画面由 H3 生成，素材只当参考）。 */}
-        {uploaded.length > 0 && source !== 'ai' && (
+        {uploaded.length > 0 && (
           <div className="text-[10px] text-emerald-300/80 mt-1">
             ✅ 已上传 {uploaded.length} 个到个人仓库 —— 本次成片的画面只从这批里取
           </div>
@@ -572,11 +556,7 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">画幅</div>
         <div className="flex flex-wrap gap-1.5">
-          {/* ★VF_AIVIDEO_V1（2026-09-20）：「自动（按素材判断）」在 AI 模式下**无意义** ——
-              画面是由 AI 生成的，没有"用哪张素材"可判 → 置灰；
-              并配合下面的 useEffect 强制落到「竖屏」（用户原话："纯 AI 制作，它知道竖屏横屏"）。
-              注意：**素材合成模式下这两个按钮行为和以前一模一样**（不改既有逻辑）。 */}
-          {R(aspect, 'auto', `自动（按素材判断）${source === 'ai' ? ' · AI 模式不适用' : ''}`, setAspect, source === 'ai')}
+          {R(aspect, 'auto', '自动（按素材判断）', setAspect)}
           {R(aspect, 'portrait', '竖屏 9:16', setAspect)}
           {R(aspect, 'landscape', '横屏 16:9', setAspect)}
         </div>
@@ -2418,17 +2398,16 @@ function AgentPageInner() {
               <div className="flex flex-wrap gap-2">
                 <button onClick={() => sendMessage('素材合成')}
                   className="px-3 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">🎞 素材合成（用我仓库的素材）</button>
-                <button onClick={() => sendMessage('素材加AI混合')}
-                  className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">✨ 素材 + AI 混合（开发中）</button>
-                {/* ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」已接通 —— 去掉"开发中"，
-                    并把价格写进 title（悬停可见），避免用户不知道这条贵。 */}
-                <button onClick={() => sendMessage('全部AI生成')}
-                  title="画面全部由 AI 逐镜生成（MiniMax H3，约 50 点/秒）——比素材合成贵两个数量级，建议先用短时长试"
-                  className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">🎨 全部 AI 生成（约 50 点/秒）</button>
+                {/* ★VF_SRC_SPLIT_V1（2026-09-21，用户定案）：本卡只留素材线自己的两个来源 ——
+                    「✨ 素材 + AI 混合（开发中）」与「🎨 全部 AI 生成」已拆掉：
+                    它们各自是【独立的一条线】（入口词见 FEATURE_TIPS）：
+                    「素材+AI创作做一条视频」/「AI 制片帮我做一条视频」。
+                    （原来自相矛盾：这里发文字「素材加AI混合」会被混合线接走，而表单卡发
+                      VF_FORM:{source:'mix'} 却落到素材线回"还在开发中"。） */}
                 <button onClick={() => sendMessage('我上传素材')}
                   className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-200">📤 我上传</button>
               </div>
-              <div className="text-[10px] text-gray-500 mt-2">画面来源：<b className="text-gray-400">素材合成</b> = 用你仓库的图拼片（最省，30 秒约 7 点）；<b className="text-gray-400">全部 AI</b> = 每一镜都用 AI 生成画面（MiniMax H3，约 50 点/秒，30 秒约 1500 点）；<b className="text-gray-400">混合</b> = 两者结合（开发中）。</div>
+              <div className="text-[10px] text-gray-500 mt-2">画面来源：<b className="text-gray-400">素材合成</b> = 用你仓库的图拼片（最省，30 秒约 7 点）；<b className="text-gray-400">我上传</b> = 只用你这次上传的几张。全 AI / 混合是另外两条线，说「AI 制片帮我做一条视频」/「素材+AI创作做一条视频」。</div>
               {/* ★VF_ASPECT_V1：画幅——能让用户自己选就让他选；不选则按素材判断（素材多为横图就出横屏，不硬塞竖屏） */}
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 <span className="text-[10px] text-gray-500">画幅：</span>
