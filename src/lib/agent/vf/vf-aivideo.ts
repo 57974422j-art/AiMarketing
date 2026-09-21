@@ -150,6 +150,18 @@ export async function hasAiDraft(db: any, uid: number): Promise<boolean> {
 /** 本线是否该接管这一轮（有本线草稿 → 一定接管，否则草稿会永远卡住） */
 export async function shouldTakeOverAiLine(db: any, uid: number, userMessage: string): Promise<boolean> {
   const m = String(userMessage || '')
+  // ★VF_FORM_OWNER_V1（2026-09-21 用户实测第二轮：还是接错）：三条线【共用 `VF_FORM:` 前缀】，
+  //   所以【表单提交】必须按【字段】认领归属，不能只看前缀（我上一轮只加"入口词排除"，漏了这条）。
+  //   素材线的表单字段 = source/voice/theme/bgm（三线里只有它用这几个）；
+  //   AI 线的表单 = {topic,uploaded?}（卡1）或 {script,aspect,dur,style}（卡2）。
+  //   → 只要表单带素材线字段，本线【绝不接管】。
+  const _fm = m.trim().match(/^VF_FORM:(\{[\s\S]*\})/)
+  if (_fm) {
+    try {
+      const f = JSON.parse(_fm[1] || '{}')
+      if (('source' in f) || ('voice' in f) || ('theme' in f) || ('bgm' in f)) return false
+    } catch { /* 解析失败 → 交给后面的判断 */ }
+  }
   // ★VF_ENTRY_PRIORITY_V1（2026-09-21 用户实测指出）：【别线的明确入口词】优先于【本线残留草稿】。
   //   问题：原来第一句就是"有本线草稿 → 一定接管" → AI 线草稿一残留，就把【所有】消息吞掉：
   //        用户说「用本地成片帮我做一条视频」（明明是素材智能成片的词，素材线 vfIntent=true）

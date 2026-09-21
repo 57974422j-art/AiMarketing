@@ -118,6 +118,15 @@ export async function hasMixDraft(db: any, uid: number): Promise<boolean> {
 /** 本线是否该接管这一轮（有本线草稿 → 一定接管，否则草稿会永远卡住） */
 export async function shouldTakeOverMixLine(db: any, uid: number, userMessage: string): Promise<boolean> {
   const m = String(userMessage || '')
+  // ★VF_FORM_OWNER_V1（2026-09-21）：三线共用 `VF_FORM:` 前缀 → 表单必须按【字段】认领。
+  //   带 source/voice/theme/bgm 的表单 = 素材线的 → 本线绝不接管（与 AI 线同规则、各写各的）。
+  const _fm = m.trim().match(/^VF_FORM:(\{[\s\S]*\})/)
+  if (_fm) {
+    try {
+      const f = JSON.parse(_fm[1] || '{}')
+      if (('source' in f) || ('voice' in f) || ('theme' in f) || ('bgm' in f)) return false
+    } catch { /* 解析失败 → 交给后面的判断 */ }
+  }
   // ★VF_ENTRY_PRIORITY_V1（2026-09-21）：【别线的明确入口词】优先于本线残留草稿。
   //   与 AI 制片线同一条规则：本线有草稿时也不能吞掉【明确说了素材成片】的消息，
   //   否则素材智能成片永远进不去（用户实测："进入不了状态机了"）。
