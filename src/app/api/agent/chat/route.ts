@@ -540,12 +540,29 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       //     改用 auth?.userId || 0，**与成片块写草稿时用的 key（uidVF2 = auth?.userId || 0）完全一致**。
       const _vdCur: any = VIDEO_DRAFT.get(auth?.userId || 0) || {}
       const vfSrcAI = (String(args.source || args.mode || '') === 'ai') || (String(_vdCur.source || '') === 'ai')
-      // ★VF_AIVIDEO_V1：**计费口径分两种** ——
+      // ★VF_AIVIDEO_V1：**计费口径分三种** ——
       //   素材合成：按文案字数（ceil(字数/20)），30 秒片约 7 点；
-      //   全部 AI 生成：按【秒 × 50 点】（768P；2K 为 80），30 秒片约 1500 点 —— 差两个数量级。
-      //   （上次"多扣费数倍"的教训：报价与实扣必须同口径，这里就按生成秒数算。）
+      //   全部 AI 生成（AI 制片）：按【秒 × 50 点】（768P；2K 为 80），30 秒片约 1500 点；
+      //   ★素材+AI 创作（混合）：**只算"被 AI 生成的那些镜"的秒数**（+ 素材部分按字数），
+      //     不能按"全片时长 × 50" —— 否则只 2 镜 AI 却扣全片的钱（又是"多扣费"）。
+      //   （上次"多扣费数倍"的教训：报价与实扣必须同口径。）
+      const _mixIdx = String(args.mix || '').split(',').map((x) => parseInt(String(x).trim())).filter((n) => n > 0)
+      let _mixAiSec = 0
+      if (vfSrcAI && _mixIdx.length) {
+        try {
+          const _pp = JSON.parse(vfPlan || '{}')
+          const _sh = Array.isArray(_pp) ? _pp : (_pp && _pp.shots) || []
+          _sh.forEach((s: any, i: number) => { if (_mixIdx.includes(i + 1)) _mixAiSec += Number((s && s.dur) || 0) })
+          if (!_mixAiSec) {
+            const _full = Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30)
+            _mixAiSec = Math.round(_full * (_mixIdx.length / Math.max(1, _sh.length)))
+          }
+        } catch { _mixAiSec = 0 }
+      }
       const vfCost = vfSrcAI
-        ? Math.max(1, Math.ceil(Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30) * 50))
+        ? (_mixAiSec > 0
+          ? Math.max(1, Math.ceil(_mixAiSec * 50) + Math.ceil(vfBillChars / 20))
+          : Math.max(1, Math.ceil(Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30) * 50)))
         : Math.max(1, Math.ceil(vfBillChars / 20))
       if (!args.confirmed) {
         const what = vfSrcAI
@@ -584,6 +601,11 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」→ 让 make.py 在【配音之后、渲染之前】
       //   逐镜调 MiniMax H3 生成画面（768P=50点/秒）。单镜失败 make.py 会自动回退成素材图，不整片挂。
       if (vfSrcAI) argsVF.push('--source', 'ai', '--ai-resolution', '768P')
+      // ★VF_MIXLINE_V1（2026-09-21）：「素材+AI 创作」只对**指定镜号**调 AI —— 必须把镜号透给 make.py。
+      //   ⚠️ 漏了这行的后果：混合片会退化成"全片每一镜都调 H3"（用户以为只 2 镜 ≈600 点，
+      //   实际全片 ≈1500+ 点）→ 成本失控。所以这里**有就必传**。
+      const _mixShots = String(args.mix || '').trim()
+      if (_mixShots) argsVF.push('--mix', _mixShots)
       // ★VF_BGM_V1（2026-09-20）：BGM —— args.bgm==='auto' 时从【AI 音乐库】挑一首
       //   并下载到本地（render.py 要的是本地文件）。直接查库不调 HTTP（避开服务端鉴权）
       if (String(args.bgm || '') === 'auto') {
@@ -2731,31 +2753,56 @@ PUBLISH_DRAFT.delete(uidW)
         //   （这次事故的教训：两条线共用一段可执行代码 → 一条坏两条全坏。这里改为"各写各的"。）
         // ═══════════════════════════════════════════════════════════════════════
         let vfAiHandled = false
+        let vfMixHandled = false
+        const _parseVfForm = (msg: string) => {
+          const m = String(msg || '').trim().match(/^VF_FORM:(\{[\s\S]*\})/)
+          try { return m ? JSON.parse(m[1]) : null } catch { return null }
+        }
         try {
-          const { shouldTakeOverAiLine, handleAiLine } = await import('@/lib/agent/vf/vf-aivideo')
-          if (await shouldTakeOverAiLine(prisma, uidVF2, userMessage)) {
-            vfAiHandled = true
-            wfEarlyReply = await handleAiLine({
-              uid: uidVF2, userMessage, auth,
-              prisma,
-              executeToolCall, genVideoShots, generateText, vfScriptCard,
+          // ★VF_MIXLINE_V1（2026-09-21）【素材+AI 创作】第三条独立线 —— **放在 AI 制片之前**
+          //   （它的词更具体："素材+AI/混合创作"；而"素材+AI"里含"AI"，先说清归属更稳）
+          const { shouldTakeOverMixLine, handleMixLine } = await import('@/lib/agent/vf/vf-mix')
+          if (await shouldTakeOverMixLine(prisma, uidVF2, userMessage)) {
+            vfMixHandled = true
+            wfEarlyReply = await handleMixLine({
+              uid: uidVF2, userMessage, auth, prisma,
+              executeToolCall, generateText,
               log: (u: any, m: string) => vfLog(u, m),
               voiceList: VF_VOICE_BASE,
-              listRepoMaterials, summarizeMaterials, probeMaterialSizes,
+              listRepoMaterials, summarizeMaterials, probeMaterialSizes, downloadMaterials,
               splitScript: vfSplitScript,
-              parseForm: (msg: string) => {
-                const m = String(msg || '').trim().match(/^VF_FORM:(\{[\s\S]*\})/)
-                try { return m ? JSON.parse(m[1]) : null } catch { return null }
-              },
+              parseForm: _parseVfForm,
             })
             finalResult = wfEarlyReply
           }
-        } catch (eAI: any) {
-          // 分派本身出错也要"可见"，并且【不能】影响素材合成 → 放开这条路让它照常走
-          vfAiHandled = false
-          try { vfLog(uidVF2, '[VF-A] 分派异常: ' + String(eAI?.message || eAI).slice(0, 200)) } catch { /* ignore */ }
+        } catch (eMX: any) {
+          vfMixHandled = false
+          try { vfLog(uidVF2, '[VF-X] 分派异常: ' + String(eMX?.message || eMX).slice(0, 200)) } catch { /* ignore */ }
         }
-        if (!vfAiHandled && (vfIntent || VIDEO_DRAFT.has(uidVF2))) {
+        if (!vfMixHandled) {
+          try {
+            const { shouldTakeOverAiLine, handleAiLine } = await import('@/lib/agent/vf/vf-aivideo')
+            if (await shouldTakeOverAiLine(prisma, uidVF2, userMessage)) {
+              vfAiHandled = true
+              wfEarlyReply = await handleAiLine({
+                uid: uidVF2, userMessage, auth,
+                prisma,
+                executeToolCall, genVideoShots, generateText, vfScriptCard,
+                log: (u: any, m: string) => vfLog(u, m),
+                voiceList: VF_VOICE_BASE,
+                listRepoMaterials, summarizeMaterials, probeMaterialSizes,
+                splitScript: vfSplitScript,
+                parseForm: _parseVfForm,
+              })
+              finalResult = wfEarlyReply
+            }
+          } catch (eAI: any) {
+            // 分派本身出错也要"可见"，并且【不能】影响素材合成 → 放开这条路让它照常走
+            vfAiHandled = false
+            try { vfLog(uidVF2, '[VF-A] 分派异常: ' + String(eAI?.message || eAI).slice(0, 200)) } catch { /* ignore */ }
+          }
+        }
+        if (!vfMixHandled && !vfAiHandled && (vfIntent || VIDEO_DRAFT.has(uidVF2))) {
           try {
             let vd = VIDEO_DRAFT.get(uidVF2)
             // 内存没有 → 从 AgentMemory 恢复（仿发布：服务器重启/刷新不丢）

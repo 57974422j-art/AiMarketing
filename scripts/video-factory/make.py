@@ -240,14 +240,18 @@ def _h3_gen_one(prompt, want_sec, resolution, ratio):
     return (None, last_via, 0.0)
 
 
-def gen_ai_clips(sb_path, wd, resolution='768P'):
+def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
     """★VF_AIVIDEO_V1：把故事板里每一镜的画面换成 AI 生成的视频片段。
 
     **必须在配音之后调用**（要按每镜真实时长决定生成几秒）。
     落盘 <wd>/clips/shotNN.mp4，并回写 shot 的 type='aivideo' / src / src_dur。
     **任一镜失败 → 该镜保留原样**（继续用素材图/原卡型），**绝不整片失败**。
+
+    ★VF_MIXLINE_V1（2026-09-21）新增 `only_idx`：「素材 + AI 创作」这条线**只对 AI 标注过的镜**调 H3
+      （1-based 镜号集合）；为空 = 全部镜（「AI 制片」那条线）。**两种调用互不影响**。
     返回 (新的故事板路径, 成功镜数, 总秒数, 最后通道)
     """
+    _only = set(int(x) for x in (only_idx or []) if str(x).strip().isdigit())
     sb = json.load(open(sb_path, encoding='utf-8'))
     shots = sb.get('shots') or []
     clips = os.path.join(wd, 'clips')
@@ -255,7 +259,12 @@ def gen_ai_clips(sb_path, wd, resolution='768P'):
     W, H = sb.get('size', [1280, 720])
     ratio = '9:16' if H > W else ('16:9' if W > H else '1:1')
     total_sec, ok_n, via_last = 0.0, 0, ''
+    if _only:
+        print('[H3] ★混合模式：只对第 %s 镜用 AI（其余 %d 镜沿用素材/原卡型）'
+              % (','.join(str(x) for x in sorted(_only)), len(shots) - len(_only)))
     for i, shot in enumerate(shots):
+        if _only and (i + 1) not in _only:
+            continue          # ★混合：未被标注的镜**完全跳过**（画面保持素材/原卡型）
         want = float(shot.get('dur', 5) or 5)
         # 重跑时已生成过的直接复用（省钱）
         _s = str(shot.get('src') or '')
@@ -306,6 +315,9 @@ def main():
                     help='画面来源：留空=素材合成（默认）；ai=全部 AI 生成（MiniMax H3）；mix=素材+AI 混合（未实现）')
     ap.add_argument('--ai-resolution', default='768P', choices=['768P', '2K'],
                     help='AI 生成清晰度（768P=50点/秒，2K=80点/秒）')
+    # ★VF_MIXLINE_V1（2026-09-21）：「素材 + AI 创作」——只对指定镜号（1-based，逗号分隔）调 AI，
+    #   其余镜沿用素材/原卡型。留空 = 全部镜（即「AI 制片」）。**这是【边界铁律】允许的"通过参数影响脚本"**。
+    ap.add_argument('--mix', default='', help='★混合：只对这些镜号用 AI（1-based，如 1,5,9）。留空=全部镜')
     a = ap.parse_args()
 
     if not a.script and not a.storyboard and not a.plan:
@@ -364,12 +376,16 @@ def main():
 
     # ②.5 ★VF_AIVIDEO_V1（2026-09-20）：「AI 直接成片」——**必须在配音之后**（才能拿到每镜真实
     #   时长）、渲染之前，把每镜画面换成 AI 生成的视频片段。失败镜自动回退原画面，绝不整片失败。
-    if a.source == 'ai':
+    if a.source == 'ai' or str(a.mix or '').strip():
         _sb_in = use_sb if os.path.exists(use_sb) else sb_path
-        print('[MAKE] ★画面来源=全部 AI 生成 → 调用 MiniMax H3（清晰度 %s，%s 点/秒）'
-              % (a.ai_resolution, '50' if a.ai_resolution == '768P' else '80'))
+        _isMix = bool(str(a.mix or '').strip())
+        print('[MAKE] ★画面来源=%s → 调用 MiniMax H3（清晰度 %s，%s 点/秒）%s'
+              % ('素材+AI 创作（只对指定镜）' if _isMix else '全部 AI 生成（AI 制片）',
+                 a.ai_resolution, '50' if a.ai_resolution == '768P' else '80',
+                 (' 镜号=' + str(a.mix)) if _isMix else ''))
         try:
-            ai_sb, ai_n, ai_sec, ai_via = gen_ai_clips(_sb_in, wd, a.ai_resolution)
+            _mix_idx = [x.strip() for x in str(a.mix or '').split(',') if x.strip().isdigit()]
+            ai_sb, ai_n, ai_sec, ai_via = gen_ai_clips(_sb_in, wd, a.ai_resolution, _mix_idx)
         except Exception as e:
             print('[MAKE] ⚠️ AI 生成环节异常: %s → 回退成素材合成' % str(e)[:160])
             ai_sb, ai_n, ai_sec, ai_via = '', 0, 0.0, ''
@@ -379,8 +395,8 @@ def main():
                   % (ai_n, ai_sec, ai_via))
         else:
             print('[MAKE] ⚠️ 没有任何 AI 片段生成成功 → **自动回退成素材合成**（不整片失败）')
-    elif a.source == 'mix':
-        print('[MAKE] ⚠️ 「素材+AI 混合」尚未实现（方案第 2 步）—— 本次按【素材合成】出片')
+    elif a.source == 'mix' and not str(a.mix or '').strip():
+        print('[MAKE] ⚠️ --source mix 需配 --mix 镜号（如 --mix 1,5）才有意义；本次按【素材合成】出片')
 
     # ③ 渲染成片
     ok2 = run('"%s" "%s" --storyboard "%s" --workdir "%s" --audio "%s" --bgm "%s" --out "%s"'

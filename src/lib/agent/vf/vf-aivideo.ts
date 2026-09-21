@@ -108,10 +108,26 @@ export async function clearVfAiDraft(db: any, uid: number | string): Promise<voi
 
 /* ==================== ② 入口判定（本线自己的词表） ==================== */
 
-/** 是否"AI 制片"意图：用户点【🎨 全部 AI 生成】按钮发来的就是"全部AI生成" */
+/** 工具类意图（不是"出成片"）——三条线共用同一份判断（**纯规则，不是业务逻辑**） */
+const TOOL_INTENT = /(写|生成|做).{0,4}(文案|脚本|标题|话题)|海报|图片|插画|今日热点|热点|数字人|口播视频|背景音乐|配乐|BGM|搜一下|搜索|记录一件事|记一下|提醒/
+/** 若"工具词命中"且"完全没有出片词" → 这不是出片意图（避免"帮我写一个 AI 制片文案"被误当出片） */
+function isToolIntentOnly(m: string): boolean {
+  return TOOL_INTENT.test(m) && !/成片|制片|做视频|做个视频|做一条视频|剪辑|出片/.test(m)
+}
+
+/** 是否"AI 制片"意图（三条线之一：素材智能成片 / AI 制片 / 素材+AI 创作） */
 export function matchesAiLine(msg: string): boolean {
-  return /全部\s*AI|全\s*AI|纯\s*AI|AI\s*制作|AI\s*生成|整片\s*AI/.test(String(msg || ''))
-    && !/发布|发到|发抖音|发小红书|发微博|发视频号|平台:/.test(String(msg || ''))
+  const m = String(msg || '')
+  // 不抢发布状态机的活；也不抢"写文案/海报/热点…"这类工具的活
+  if (/发布|发到|发抖音|发小红书|发微博|发视频号|平台:/.test(m)) return false
+  if (isToolIntentOnly(m)) return false
+  // ① 明确说"AI 制片/AI 成片"；② "全部/纯/整片 AI"；③ "用 AI（帮我）做一条视频"
+  //   ★注意：本函数【优先于】素材合成的 vfIntent 判断（分派在成片入口之前），
+  //     所以"用 AI 帮我做一条视频"会归这里，而"用本地成片帮我做一条视频"不含 AI → 仍归素材智能成片。
+  if (/AI\s*制片|AI\s*成片|全部\s*AI|全\s*AI|纯\s*AI|整片\s*AI|AI\s*制作|AI\s*生成/.test(m)) return true
+  if (/(用|帮我用|通过|走)\s*AI\s*.{0,8}(做|生成|制作|拍|出).{0,6}视频/.test(m)) return true
+  if (/AI\s*.{0,6}(做|制作|生成|出).{0,6}视频/.test(m)) return true
+  return false
 }
 
 /** 本线是否有进行中的草稿（有则**必须继续本线**，绝不被素材合成接管） */
