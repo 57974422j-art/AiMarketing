@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 // 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
 import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRootDir, vfStorageRoot, probeMaterialSizes } from '@/lib/agent/video-material'
+// ★VF_LINES_V1（2026-09-21）：三条新线的【入口词】判断 —— 用于 skipModelStep1（把"AI 制片/混合创作"
+//   也当成"状态机入口信号"）。这两个函数是**纯正则、零依赖**（两个文件都是零 import），
+//   所以静态 import 不会引入循环依赖。
+import { matchesAiLine } from '@/lib/agent/vf/vf-aivideo'
+import { matchesMixLine } from '@/lib/agent/vf/vf-mix'
 
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
@@ -2056,7 +2061,12 @@ export async function POST(request: NextRequest) {
     //   于是 AI 若直接开口聊天（不调工具）→ normCalls=0 → 整块跳过 → 成片状态机一行不跑
     //   → 落到 AI 自由发挥（时好时坏）。这里把【成片草稿 + 成片入口词】补进去。
     const vfEntryWord = /帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|本地成片|做一条视频|做个视频|做成片|做个宣传片/.test(userMessage)
-    const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0) || vfEntryWord || stWordInput) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
+    // ★VF_LINES_V1（2026-09-21）：**三条新线的入口词也必须算"状态机入口信号"** ——
+    //   否则用户说「AI 制片」「素材+AI创作」时 skipModelStep1=false → 走 dashscopeFunctionCall
+    //   → **AI 自由发挥**（实测它会把「AI 制片」理解成"打开一键成片网页"）→ **状态机整块都没进**。
+    //   加上这两个判断后：这几句话会直接进状态机块 → 由下面的【三分派】接管。
+    const vfLineWord = matchesAiLine(userMessage) || matchesMixLine(userMessage)
+    const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0) || vfEntryWord || stWordInput || vfLineWord) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
     // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
     if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|平台:|确认|选|发布|发一个视频|发一条|帮我发|发/i.test(userMessage))) {
       try {
