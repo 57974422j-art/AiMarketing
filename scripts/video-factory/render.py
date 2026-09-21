@@ -451,6 +451,15 @@ def card_bgimage(shot, th, W, H, fps):
         上层 [fg0] 按 contain 缩放（完整图，不裁切）→ 居中 overlay
     """
     src = shot.get('src', '')
+    # ★VF_NOIMG_V1（2026-09-21 用户实测：AI 制片在"仓库 0 张图"时排到 bgimage 卡 → ffmpeg 拿到
+    #   **空文件名** → stderr `: No such file or directory` → 第 0 镜渲染失败 → **整片失败**，
+    #   界面上还堆一大堆"渲染错误"，把真正的病因埋掉）：
+    #   无图 / 图片文件不存在 → **降级为 title 卡**（纯文字卡，不需要素材）。
+    #   原则同 VF_UNKNOWNCARD_V1：宁可这一镜样式朴素，也不要整条视频挂掉。
+    if (not str(src).strip()) or (not os.path.exists(str(src))):
+        print('[VF] ⚠️ bgimage 没有可用图片（src=%s）→ 降级为 title 卡'
+              % (str(src)[:60] or '(空)'))
+        return card_title(shot, th, W, H, fps)
     dur = float(shot.get('dur', 4))
     font = esc_path(find_font(th.get('font', 'msyh')))
     fs = int(shot.get('fontsize', max(54, int(H * 0.10))))

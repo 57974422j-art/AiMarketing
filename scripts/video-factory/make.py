@@ -137,6 +137,14 @@ def _h3_targets():
     return out
 
 
+# ★H3_UA_V1（2026-09-21 实测定因）：中转站前置网关（Cloudflare）会拦 Python urllib 的默认 UA
+#   （`Python-urllib/x.y`）→ 直接 403、且响应体不是 JSON（实测 `error code: 1010`）。
+#   同一请求换正常 UA → 正常返回 JSON。**两处都必须用**：
+#     ① API 调用 `_h3_http` ② **产物下载 `_h3_download`** ——
+#   漏掉 ② 的症状是"生成成功但一镜都拿不回来"（2026-09-21 用户实测：第 4 镜下载失败 403 → 0/4 镜）。
+UA_H3 = 'curl/8.5.0'
+
+
 def _h3_http(method, url, key, body=None, timeout=30):
     """极简 HTTP（**只用标准库**，不给客户端环境加依赖）→ 返回 dict（失败返回带 error 的 dict）"""
     from urllib.request import Request, urlopen
@@ -170,8 +178,12 @@ def _h3_http(method, url, key, body=None, timeout=30):
 
 def _h3_download(url, dest, timeout=180):
     """下载片段到本地（成功且不是空壳才算 True）"""
-    from urllib.request import urlopen
-    with urlopen(url, timeout=timeout) as r, open(dest, 'wb') as f:
+    # ★H3_UA_V1（2026-09-21 实测第 2 处）：**下载这条路也必须带正常 UA** ——
+    #   之前只给 `_h3_http`（API 调用）补了 UA，产物下载走这里、漏了 →
+    #   同样被 Cloudflare 拦 → `HTTP Error 403: Forbidden` → 生成成功却一镜都拿不回来。
+    from urllib.request import Request, urlopen
+    req = Request(str(url), headers={'User-Agent': UA_H3})
+    with urlopen(req, timeout=timeout) as r, open(dest, 'wb') as f:
         f.write(r.read())
     return os.path.getsize(dest) > 1024
 
@@ -314,7 +326,10 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
             if not _h3_download(url, dest):
                 raise RuntimeError('下载内容过小（可能 0 字节）')
         except Exception as e:
-            print('[H3] ⚠️ 第 %d 镜下载失败: %s → 回退用原画面' % (i + 1, str(e)[:120]))
+            # ★H3_DLDIAG_V1（2026-09-21）：把**失败的 URL** 一起打出来 ——
+            #   原来只有 "HTTP Error 403: Forbidden"，看不出是哪个地址失败（换 key/换站时没法验证）。
+            print('[H3] ⚠️ 第 %d 镜下载失败: %s  url=%s → 回退用原画面'
+                  % (i + 1, str(e)[:120], str(url)[:110]))
             continue
         real = float(sec or 0) or _probe_sec(dest)
         shot['type'] = 'aivideo'
@@ -423,8 +438,21 @@ def main():
             use_sb = ai_sb
             print('[MAKE] AI 片段就绪：%d 镜 / %.1f 秒（通道 %s）→ 用 storyboard.ai.json 渲染'
                   % (ai_n, ai_sec, ai_via))
+        elif _isMix:
+            # 混合线本来就是"素材 + AI"：AI 镜全失败 → 回退纯素材合成是**合理的**（本线有素材画面）
+            print('[MAKE] ⚠️ 混合线的 AI 镜一镜都没成功 → 回退成素材合成（本线本来就有素材画面）')
         else:
-            print('[MAKE] ⚠️ 没有任何 AI 片段生成成功 → **自动回退成素材合成**（不整片失败）')
+            # ★VF_AIFAIL_V1（2026-09-21 用户实测 + 用户定案：**"AI 直接不就出了"**）：
+            #   「AI 制片」= 整片画面由 AI 生成 → **一镜都没成功时不该回退素材合成**：
+            #     ① 用户要的是 AI 画面，回退出来的是"素材拼片"，根本不是他要的东西；
+            #     ② 实测更糟：AI 制片通常【没有素材】（用户仓库 0 张图）→ 分镜里的 bgimage
+            #        没有图片路径 → render.py 抛 `No such file or directory` → **整片失败**，
+            #        界面上还堆一大堆"渲染错误"（把真正的病因"下载 403"埋在下面，极具误导性）。
+            #   → 直接失败，并把**真正的病因**说清楚，不再产生误导性的渲染报错。
+            print('[MAKE] ❌ AI 画面一镜都没生成成功 → **不回退素材合成，直接失败**')
+            print('[MAKE]    ↑ 病因看上面的 [H3] 行（多为"中转产物下载 403 / 超时 / key 失效"）——'
+                  '把这几行发出来即可定位；修好后回「重试」重跑（已生成的镜会复用，不重复扣费）。')
+            sys.exit(5)
     elif a.source == 'mix' and not str(a.mix or '').strip():
         print('[MAKE] ⚠️ --source mix 需配 --mix 镜号（如 --mix 1,5）才有意义；本次按【素材合成】出片')
 
