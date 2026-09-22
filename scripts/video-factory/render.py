@@ -86,6 +86,68 @@ FONT_CANDS = {
 _FONT_FALLBACK_ORDER = ['msyh', 'noto', 'wqy', 'simhei', 'simsun', 'dejavu', 'arial']
 _FONT_CACHE = {}
 
+# ★VF_RENDER_GUARD_V1（2026-09-22，用户实测「选了 180 秒，成片只有 30 秒」）：
+#   实测根因 —— 第 6 镜 shot05.mp4 只写了一半（缺 moov atom）→ 拼接时 ffmpeg 到它就
+#   `Impossible to open` 中断；而 render_shot / concat_shots **都只看"文件在不在"**，
+#   于是 190.4 秒的分镜被静默拼成 30.36 秒（只剩前 5 镜）并当成品交付。
+#   这里补一个 ffprobe 真实时长探针，供【逐镜校验 / 拼接校验】用（读不到 = 坏文件）。
+FFPROBE_CANDS = [
+    os.environ.get('FFPROBE_PATH', ''),
+    'C:/ffmpeg/bin/ffprobe.exe',
+    os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft/WinGet/Links/ffprobe.exe'),
+    'ffprobe',
+]
+_FFPROBE_CACHE = {'exe': ''}
+
+
+def find_ffprobe():
+    """定位 ffprobe：优先与 ffmpeg 同目录（服务器自带包可能不在 PATH），其次常见路径。"""
+    if _FFPROBE_CACHE['exe']:
+        return _FFPROBE_CACHE['exe']
+    cand = ''
+    try:
+        ff = find_ffmpeg()
+        d = os.path.dirname(ff)
+        if d:
+            exe = os.path.join(d, 'ffprobe.exe' if ff.lower().endswith('.exe') else 'ffprobe')
+            if os.path.exists(exe):
+                cand = exe
+    except Exception:
+        pass
+    if not cand:
+        for p in FFPROBE_CANDS:
+            if p and (p == 'ffprobe' or os.path.exists(p)):
+                cand = p
+                break
+    _FFPROBE_CACHE['exe'] = cand or 'ffprobe'
+    return _FFPROBE_CACHE['exe']
+
+
+def probe_sec(path):
+    """ffprobe 读文件真实时长（秒）；读不到（不存在 / 半截文件 / 坏容器）→ 0.0"""
+    if not path or not os.path.exists(path):
+        return 0.0
+    try:
+        r = subprocess.run([find_ffprobe(), '-v', 'error', '-show_entries', 'format=duration',
+                            '-of', 'default=noprint_wrappers=1:nokey=1', path],
+                           capture_output=True, text=True, encoding='utf-8',
+                           errors='replace', timeout=30)
+        return float((r.stdout or '').strip() or 0)
+    except Exception:
+        return 0.0
+
+
+def err_lines(txt, n=3):
+    """从 ffmpeg 的 stderr 里挑出【错误行】。
+
+    ffmpeg 就算成功也会往 stderr 打编码统计，直接取尾部（[-300:]）只会看到统计噪音、
+    真正的病因（如 `Impossible to open ...` / `Invalid data found`）被截掉 —— 这正是
+    "180 秒出 30 秒"当初查不出来的原因之一。
+    """
+    keys = ('rror', 'Impossible', 'Invalid', 'No such', 'failed', 'Failed')
+    ls = [l.strip() for l in str(txt or '').splitlines() if l.strip() and any(k in l for k in keys)]
+    return ' | '.join(ls[:n])
+
 
 def find_ffmpeg():
     for p in FFMPEG_CANDS:
@@ -546,15 +608,42 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
     _an = '-an ' if typ in ('video', 'aivideo') else ''
     cmd = (f'"{ffmpeg}" -y {inp} -vf "{vf2}" {_an}-c:v libx264 -preset fast '
            f'-pix_fmt yuv420p -r {fps} -t {dur} "{out}"')
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
-                       encoding='utf-8', errors='replace')
-    if not os.path.exists(out):
-        raise RuntimeError('第 %d 镜渲染失败(%s): %s' % (idx, typ, (r.stderr or '')[-400:]))
-    return out
+    # ★VF_SHOT_GUARD_V1（2026-09-22，用户实测「180 秒出 30 秒」）：原来**只看文件在不在**
+    #   → ffmpeg 中途挂掉留下的半截文件（缺 moov atom）也算"成功" → 拼接时整片断在那一镜。
+    #   现在：返回码 + ffprobe 真实时长双校验；异常自动重试一次；仍不行就明确报错
+    #   （宁可这一条不出片，也绝不交付一条"静默变短"的废片）。
+    _target = float(dur)
+    for _try in (1, 2):
+        if os.path.exists(out):
+            try:
+                os.remove(out)
+            except Exception:
+                pass
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
+        _got = probe_sec(out)
+        if r.returncode == 0 and _got >= _target * 0.9:
+            if _try > 1:
+                print('[VF] ⚠️ 第 %d 镜(%s) 首次异常、重试成功：实际 %.2fs / 目标 %.2fs'
+                      % (idx + 1, typ, _got, _target))
+            return out
+        print('[VF] ⚠️ 第 %d 镜(%s) 渲染异常（第 %d 次）：rc=%s 实际 %.2fs / 目标 %.2fs%s'
+              % (idx + 1, typ, _try, r.returncode, _got, _target,
+                 ('  病因=' + err_lines(r.stderr)) if err_lines(r.stderr) else ''))
+    raise RuntimeError('第 %d 镜渲染失败(%s)：实际 %.2fs / 目标 %.2fs（重试 2 次仍异常，文件可能是半截的）'
+                       % (idx, typ, probe_sec(out), _target))
 
 
-def concat_shots(files, workdir, ffmpeg, W, H, fps):
-    """拼接（复用 encodeClips 思路：先统一参数再 concat）"""
+def concat_shots(files, workdir, ffmpeg, W, H, fps, expect_sec=0.0):
+    """拼接（复用 encodeClips 思路：先统一参数再 concat）
+
+    ★VF_CONCAT_GUARD_V1（2026-09-22，用户实测「180 秒出 30 秒」）：
+      实测根因 = 某一镜文件写坏（缺 moov atom）→ concat 到它 `Impossible to open` 中断，
+      但这里原来**只看 out 是否存在、不看返回码、也不校验总时长** → 半截成片被当成品返回
+      （190.4 秒 → 30.36 秒，且日志照打"共 36 镜 190.4 秒"）。
+      现在：① 返回码/stderr 关键错误码检查 + 重试一次；
+            ② 拼完 ffprobe **真实总时长**与预期 Σ每镜比对（<95% 视为被截断 → 抛出明确错误）。
+    """
     lst = os.path.join(workdir, 'list.txt')
     with open(lst, 'w', encoding='utf-8') as f:
         for p in files:
@@ -562,11 +651,29 @@ def concat_shots(files, workdir, ffmpeg, W, H, fps):
     out = os.path.join(workdir, 'merged.mp4')
     cmd = (f'"{ffmpeg}" -y -f concat -safe 0 -i "{lst}" '
            f'-c:v libx264 -preset fast -pix_fmt yuv420p -r {fps} "{out}"')
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
-                       encoding='utf-8', errors='replace')
-    if not os.path.exists(out):
-        raise RuntimeError('拼接失败: ' + (r.stderr or '')[-400:])
-    return out
+    _exp = float(expect_sec or 0)
+    _keystr = ('Impossible to open', 'Invalid data found', 'Input/output error', 'No such file')
+    for _try in (1, 2):
+        if os.path.exists(out):
+            try:
+                os.remove(out)
+            except Exception:
+                pass
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
+        _err = r.stderr or ''
+        _got = probe_sec(out)
+        if (r.returncode == 0 and _got > 0 and not any(k in _err for k in _keystr)
+                and (_exp <= 0 or _got >= _exp * 0.95)):
+            if _try > 1:
+                print('[VF] ⚠️ 拼接首次异常、重试成功：实际 %.2fs / 预期 %.2fs' % (_got, _exp))
+            return out
+        print('[VF] ⚠️ 拼接异常（第 %d 次）：rc=%s 实际 %.2fs / 预期 %.2fs%s'
+              % (_try, r.returncode, _got, _exp,
+                 ('  病因=' + err_lines(_err)) if err_lines(_err) else ''))
+    raise RuntimeError('拼接失败：实际 %.2fs / 预期 %.2fs（重试 2 次仍异常；'
+                       '常见原因=某一镜文件写坏，请看上面的 [VF] ⚠️ 逐镜日志）'
+                       % (probe_sec(out), _exp))
 
 
 def _shot_text(s):
@@ -877,8 +984,11 @@ def main():
         files.append(p)
     if not files:
         print('[VF] 没有镜头'); sys.exit(3)
-    merged = concat_shots(files, wd, ffmpeg, W, H, fps)
-    print('[VF] 拼接完成 -> %s（共 %d 镜 %.1f 秒）' % (merged, len(files), _total_dur))
+    merged = concat_shots(files, wd, ffmpeg, W, H, fps, _total_dur)
+    # ★VF_CONCAT_GUARD_V1：日志同时打【目标】与【实际】—— 以前只打目标时长，
+    #   所以"190.4 秒的分镜拼成 30.36 秒"这件事在日志里完全看不出来（用户实测踩坑点）。
+    print('[VF] 拼接完成 -> %s（共 %d 镜 目标 %.1f 秒 / 实际 %.1f 秒）'
+          % (merged, len(files), _total_dur, probe_sec(merged)))
 
     # ★ 字幕（默认开）：由分镜时长累加生成 SRT —— 唯一真相源，不另算时间
     video_for_audio = merged

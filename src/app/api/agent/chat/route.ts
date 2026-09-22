@@ -311,19 +311,35 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
 }
 
 // ★VF_FLOW_V1：成片草稿持久化（仿发布 pub_draft —— 服务器重启 / 页面刷新不丢步骤）
+// ★VF_DRAFT_ISOLATE_V1（2026-09-22，用户实测「AI制片/混合线走到一半就跳回前面」）：
+//   原来读/写/清都用了 **子串匹配** `tags: { contains: 'vf_draft' }` ——
+//   而 `vf_draft_ai` / `vf_draft_mix` **里面也含着** `vf_draft` 这几个字，于是：
+//     ① 读：读到别线那一行（正文是"AI制片草稿:{...}"）→ 前缀对不上 → JSON 解析失败
+//          （就是日志里那句 [草稿读取失败] Unexpected token 'A', "AI制片草稿:{...）
+//     ② 写：可能把别线那一行**覆盖**掉（两条线互相踩）
+//     ③ 清：deleteMany(contains) → **一句话把三条线的草稿全删了** ← 最要命的：
+//          别线正在走的步骤被悄悄清空，用户感觉就是"这条线记不住、老跳回第一步"
+//   现在一律【精确匹配】：本线标签 'vf_draft_base'（历史旧数据 'vf_draft' 照样命中并被迁移）。
+const VF_TAGS_BASE: string[] = ['vf_draft_base', 'vf_draft']
+/** 草稿正文历史上出现过串线（"AI制片草稿:{...}" 等）—— 统一只取 JSON 部分，避免解析失败 */
+function vfJsonOf(raw: any): any {
+  const t = String(raw || '')
+  const i = t.indexOf('{')
+  return JSON.parse(i >= 0 ? t.slice(i) : t)
+}
 async function saveVfDraft(userId: number | string, draft: any): Promise<void> {
   const content = '成片草稿:' + JSON.stringify(draft)
   try {
-    const ex = await prisma.agentMemory.findFirst({ where: { userId: String(userId), tags: { contains: 'vf_draft' } } })
-    if (ex) await prisma.agentMemory.update({ where: { id: ex.id }, data: { content } })
-    else await prisma.agentMemory.create({ data: { userId: String(userId), content, tags: 'vf_draft', salience: 0.5 } })
+    const ex = await prisma.agentMemory.findFirst({ where: { userId: String(userId), tags: { in: VF_TAGS_BASE } }, orderBy: { updatedAt: 'desc' } })
+    if (ex) await prisma.agentMemory.update({ where: { id: ex.id }, data: { content, tags: 'vf_draft_base' } })
+    else await prisma.agentMemory.create({ data: { userId: String(userId), content, tags: 'vf_draft_base', salience: 0.5 } })
   } catch (e: any) { console.error('[成片状态机] 草稿保存失败:', e?.message || e); try { vfLog(userId, '[草稿保存失败] ' + String(e?.message || e).slice(0, 200)) } catch {} }
 }
 async function loadVfDraft(userId: number | string): Promise<any | null> {
   try {
-    const dm = await prisma.agentMemory.findFirst({ where: { userId: String(userId), tags: { contains: 'vf_draft' } }, orderBy: { updatedAt: 'desc' } })
+    const dm = await prisma.agentMemory.findFirst({ where: { userId: String(userId), tags: { in: VF_TAGS_BASE } }, orderBy: { updatedAt: 'desc' } })
     if (dm?.content) {
-      const _d = JSON.parse(String(dm.content).replace(/^成片草稿:/, ''))
+      const _d = vfJsonOf(dm.content)
       // ★VF_RUN_EXPIRE_V1（2026-09-21）：带上草稿最后更新时间 —— 供「running 超时自动作废」判断。
       //   草稿存在 DB 里跨会话/跨天都活着；不判超时的话，一次残留的 running 会让用户永远做不了第二条。
       if (_d && typeof _d === 'object') _d.__savedAt = dm.updatedAt ? new Date(dm.updatedAt).getTime() : 0
@@ -333,7 +349,8 @@ async function loadVfDraft(userId: number | string): Promise<any | null> {
   return null
 }
 async function clearVfDraft(userId: number | string): Promise<void> {
-  try { await prisma.agentMemory.deleteMany({ where: { userId: String(userId), tags: { contains: 'vf_draft' } } }) } catch {}
+  // ★VF_DRAFT_ISOLATE_V1：只清本线（精确匹配）—— 绝不再波及 AI 制片 / 混合线的草稿
+  try { await prisma.agentMemory.deleteMany({ where: { userId: String(userId), tags: { in: VF_TAGS_BASE } } }) } catch {}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

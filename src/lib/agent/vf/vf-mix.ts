@@ -70,10 +70,13 @@ export interface VfMixCtx {
 const VF_MIX_DRAFT = new Map<number, VfMixDraft>()
 const VF_MIX_TAG = 'vf_draft_mix'          // ★与 vf_draft / vf_draft_ai 都不同 → 绝不串线
 
+// ★VF_DRAFT_ISOLATE_V1（2026-09-22）：读写清一律【精确匹配】本线 tag。
+//   原来用 `contains` —— 素材线的 tag 'vf_draft' 是本线 tag 的**子串**，素材线清草稿时
+//   `deleteMany({tags:{contains:'vf_draft'}})` 会把本线草稿一起删掉（用户实测：本线走一半跳回第一步）。
 async function saveVfMixDraft(db: any, uid: number | string, d: VfMixDraft): Promise<void> {
   const content = '素材AI创作草稿:' + JSON.stringify(d)
   try {
-    const ex = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { contains: VF_MIX_TAG } } })
+    const ex = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { equals: VF_MIX_TAG } }, orderBy: { updatedAt: 'desc' } })
     if (ex) await db.agentMemory.update({ where: { id: ex.id }, data: { content } })
     else await db.agentMemory.create({ data: { userId: String(uid), content, tags: VF_MIX_TAG, salience: 0.5 } })
   } catch { /* 草稿存不上不影响本轮 */ }
@@ -81,15 +84,20 @@ async function saveVfMixDraft(db: any, uid: number | string, d: VfMixDraft): Pro
 
 async function loadVfMixDraft(db: any, uid: number | string): Promise<VfMixDraft | null> {
   try {
-    const dm = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { contains: VF_MIX_TAG } }, orderBy: { updatedAt: 'desc' } })
-    if (dm?.content) return JSON.parse(String(dm.content).replace(/^素材AI创作草稿:/, ''))
+    const dm = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { equals: VF_MIX_TAG } }, orderBy: { updatedAt: 'desc' } })
+    if (dm?.content) {
+      // 只取 JSON 部分（历史串线可能留下别线的中文前缀，直接 JSON.parse 会失败）
+      const _t = String(dm.content)
+      const _i = _t.indexOf('{')
+      return JSON.parse(_i >= 0 ? _t.slice(_i) : _t)
+    }
   } catch { /* ignore */ }
   return null
 }
 
 export async function clearVfMixDraft(db: any, uid: number | string): Promise<void> {
   VF_MIX_DRAFT.delete(Number(uid))
-  try { await db.agentMemory.deleteMany({ where: { userId: String(uid), tags: { contains: VF_MIX_TAG } } }) } catch { /* ignore */ }
+  try { await db.agentMemory.deleteMany({ where: { userId: String(uid), tags: { equals: VF_MIX_TAG } } }) } catch { /* ignore */ }
 }
 
 /* ==================== ② 入口判定（本线自己的词表） ==================== */
