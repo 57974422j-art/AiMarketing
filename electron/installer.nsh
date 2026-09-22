@@ -5,20 +5,24 @@
 ;   - 手动卸载：全删（含 data）——卸载就是不要这个软件了
 
 !macro customRemoveFiles
-  ${if} ${isUpdated}
-    ; ===== 更新模式：删 app 文件，保留持久数据目录 =====
-    ; 删根目录文件（exe/dll/pak/asar 等）
-    nsExec::Exec 'cmd /c del /q "$INSTDIR\*.*"'
-    ; 删所有子目录，跳过 data/python/storage
-    nsExec::Exec 'cmd /c for /d %i in ("$INSTDIR\*") do @if /i not "%i"=="$INSTDIR\data" if /i not "%i"=="$INSTDIR\python" if /i not "%i"=="$INSTDIR\storage" rd /s /q "%i"'
-  ${else}
-    ; ===== 手动卸载（KEEP_DATA_ON_UNINSTALL 2026-09-13 用户要求）=====
-    ;   ★ 原来 RMDir /r "$INSTDIR" 会把 data（登录态）/python（环境）/storage（本地仓库）一起删掉
-    ;   → 用户重装后必须【重新登录所有平台】——被明确否决
-    ;   改为：和"更新"完全一样——只删程序文件，保留三个数据目录
-    nsExec::Exec 'cmd /c del /q "$INSTDIR\*.*"'
-    nsExec::Exec 'cmd /c for /d %i in ("$INSTDIR\*") do @if /i not "%i"=="$INSTDIR\data" if /i not "%i"=="$INSTDIR\python" if /i not "%i"=="$INSTDIR\storage" rd /s /q "%i"'
-  ${endIf}
+  ; ★KEEP_USERDATA_V2（2026-09-22 用户定案「以后不动就行了」）：
+  ;   铁律：打包 / 更新 / 卸载【一律不得删除用户数据】——
+  ;     data/     = 【多账号】登录态（data/browser-profile/{账号Id}/Default/Network/Cookies）
+  ;                 + accounts.json（多账号列表）+ bu_login_cache.txt + 指纹 profile（data/browser-profiles/）
+  ;     storage/  = 用户本地仓库镜像（按账号分）
+  ;     python/   = 内置运行环境
+  ;   旧写法两个坑（就是它们把用户数据删了）：
+  ;     ① 用 `for /d %i` + `if "%i"=="$INSTDIR\data"` **字符串比较**来"排除"用户目录 ——
+  ;        路径展开只要有差异（尾斜杠 / 空格 / 短名），比较就失败 → data / python / storage 被一起 rd /s /q 删掉；
+  ;     ② 更新时执行的是【旧版本带过来的卸载器】，从很旧的版本升级上来照样全删。
+  ;   现在改成【白名单删除】：只删程序文件，永不遍历 / 比较用户目录 ——
+  ;     程序根目录只有文件（exe/dll/pak/…）+ 两个程序子目录（locales、resources），
+  ;     而用户数据只可能是目录 → `del /q "$INSTDIR\*.*"` 天然碰不到它们；
+  ;     再显式只删 locales / resources，就不需要任何"排除逻辑"，也就**不可能误删**。
+  ;   ⚠️ 以后若打包新增了别的【程序子目录】，要手动加到这个白名单里；**绝不要**改回"排除式"写法。
+  nsExec::Exec 'cmd /c del /q "$INSTDIR\*.*"'
+  RMDir /r "$INSTDIR\locales"
+  RMDir /r "$INSTDIR\resources"
 !macroend
 
 ; 安装前强制关闭正在运行的旧客户端 + 清理旧版本 resources 残留

@@ -34,6 +34,12 @@
    - 客户端 userData = 安装目录下 `data/`
    - 内置 `python-bu.zip` 必须含 playwright/driver（删了就废）
 
+7. **【数据安全铁律 · 2026-09-22 用户定案】任何打包 / 更新 / 卸载 / 清理，绝不允许删除用户数据**：
+   - 用户数据就在**安装目录内**（这是第 6 条的定案，不要改）：`data/`（登录态 = `data/browser-profile/{账号Id}/Default/Network/Cookies`、账号列表 `accounts.json`、登录缓存 `bu_login_cache.txt`、指纹 profile `data/browser-profiles/`）+ `storage/`（用户本地仓库镜像，按账号分）+ `python/`（内置运行环境）。
+   - **一台机器支持多账号**：`data/browser-profile/` 下会有**多个数字目录**，每个目录 = 一个账号的一整套登录态 → 任何"只保留一个账号 / 按当前账号收敛"的删除逻辑都是错的。
+   - 具体要求：① `scripts/build-local.mjs` 清 `dist-rel/win-unpacked` 时必须**跳过 `data` / `storage` / `python`**（用户可能正从该目录运行客户端）；② `electron/installer.nsh` 的**更新与卸载分支都必须保留**这三个目录（历史上出过 `RMDir /r $INSTDIR` 全删 → 用户重装后必须重新登录所有平台、本地仓库也被清空）；③ 一切"清理 / 迁移 / 收敛"只允许**移动 + 写日志，绝不删除**（参考 `cleanupProfileResidue` 的写法）。
+   - 推论（排查用）：`userData` 指向 exe 同级 `data/` → **同一个程序放在不同目录 = 两套完全独立的数据**。所以「换个目录跑就"登录态全丢"」绝大多数是**没丢，只是看的是另一个目录** —— 先按此排查，别急着下"被删了"的结论。
+
 ## 关键命令
 
 - 本地开发：`npm run dev`

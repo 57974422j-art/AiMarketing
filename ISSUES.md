@@ -25,6 +25,19 @@
 
 ---
 
+## ✅ 已解决（2026-09-22 · 客户端：多账号用户名回填 + 用户数据不被删）
+
+- ✅ **单机多账号时，第二个账号只显示"数字"而不是用户名**（用户原话：第一个识别成 mbb 这类账号名，另一个就是数字）。
+  - 根因（`electron/main.js:262-297`）：账号名来自 `usernameFromToken(accounts.json[i].token)` —— **只有"在本机登录过、且 `accounts.json` 里存了 token"的账号才解得出用户名**；其它账号是自检阶段**扫描 `data/browser-profile/<数字>/` 目录**补进列表的（`main.js:286` 写成 `{ userId: n, name: '账号 ' + n, token: '' }`）→ token 为空 → 永远只能退化成数字。而 `accounts.json` 原来**只在启动自检 ⑤ 里写一次** → 刚登录 / 刚切换过的账号要等**下次启动**才有名字。
+  - ✅ 已修 `ACCOUNT_NAME_BACKFILL_V1`（`electron/main.js`）：抽成 `recordCurrentAccount()`，在 **启动自检 ⑤ / 切换账号后 / 主窗口每次加载完（覆盖"刚登录完页面重载"）** 三处回填；token 只做 base64 解码不验签 → **过期 token 也照样能解出用户名**。确实拿不到凭据的账号，文案改为「账号 N（本机没存登录凭据——登录一次即可显示用户名）」。
+  - 遗留（可选，暂不做）：若要连"从未在本机登录过"的账号也显示用户名，只能由服务端加"按 userId 查用户名"接口 —— 有越权风险，未经用户同意不做。
+
+- ✅ **更新 / 打包会误删用户数据**（用户实测：更新 207 后登录态丢失；更早还发现过 `E:\ai-marketing\storage` 被删）
+  - 定位：**应用自身代码不删用户数据**（`storage/` 只写不删，`unlinkSync` 仅用于临时文件 / 标记）。会删的是**打包与安装侧**两处：① `scripts/build-local.mjs` 原来 `rmSync(整个 dist-rel/win-unpacked)` —— 客户端若正从该目录运行，其 exe 同级 `data/`（**多账号**登录态 + `accounts.json` + 指纹 profile）、`storage/`（本地仓库）、`python/` 会被一并删；② `electron/installer.nsh` 的 `customRemoveFiles` 用 `for /d %i … @if not "%i"=="$INSTDIR\data" … rd /s /q` **靠路径字符串比较来"排除"**用户目录 —— 一旦路径展开有差异（尾斜杠 / 空格 / 短名）就误删；且更新时执行的是**旧版本带过来的卸载器**，从更旧版本升级照样全删。
+  - ✅ 已修：两处都改成**白名单删除**（`installer.nsh` 只做 3 个动作：删根目录程序文件 + 删 `locales` + 删 `resources`；`build-local.mjs` 逐项删除并**跳过 `data` / `python` / `storage`**、打印「★保留用户数据」，单项被占用也不中断）。铁律写入 `AGENTS.md` 硬规则 7 + `PROJECT.md` 打包必查清单第 8 条。
+
+---
+
 ## ✅ 已解决（2026-09-21 · 素材成片两个真 bug + 中转站 403 真因 —— 均已定位并修复）
 
 > 共同点：**状态残留**（草稿跨会话存活但没人收尾）＋**协议串没有统一入口校验**，都不是算法问题。

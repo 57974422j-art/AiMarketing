@@ -263,20 +263,10 @@ async function runStartupChecks(win) {
     let list = []
     try { const j = JSON.parse(fs.readFileSync(accFile, 'utf-8')); if (Array.isArray(j)) list = j } catch (e) { list = [] }
     // 当前登录账号：记录 token（用于之后切换回它）
+    // ★ACCOUNT_NAME_BACKFILL_V1：这段抽成了 recordCurrentAccount()（切账号后 / 主窗口加载完 也会调）
     if (cur) {
-      let tk = ''
-      try { const ck = await getServerCookie(); tk = (String(ck).match(/token=([^;]+)/) || [])[1] || '' } catch (e) {}
-      const i = list.findIndex((a) => String(a.userId) === cur)
-      // ★ACCOUNT_NAME_AND_RESIDUE_V1：优先用 token 里的 username（admin / mbb…），不再只显示"账号 1"
-      const uname = usernameFromToken(tk) || usernameFromToken((i >= 0 && list[i].token) || '')
-      const rec = {
-        userId: cur,
-        name: uname || ((i >= 0 && list[i].name) ? list[i].name : ('账号 ' + cur)),
-        username: uname || ((i >= 0 && list[i].username) || ''),
-        token: tk || ((i >= 0 && list[i].token) || ''),
-        lastUsed: Date.now(),
-      }
-      if (i >= 0) list[i] = rec; else list.push(rec)
+      try { await recordCurrentAccount() } catch (e) {}
+      try { const j2 = JSON.parse(fs.readFileSync(accFile, 'utf-8')); if (Array.isArray(j2)) list = j2 } catch (e) {}
     }
     // 本机 browser-profile 下出现过的账号目录（有平台登录态，但可能没有产品 token）
     try {
@@ -294,7 +284,9 @@ async function runStartupChecks(win) {
       // ★SELFCHECK_RX_COUNTER_V1：没有用户名（token 为空 = 本机没登录过该账号）时标注清楚
       const nm = un || String(a.name || '') || ('账号 ' + a.userId)
       const named = un || (/^(?!账号 )/.test(String(a.name || '')) ? String(a.name) : '')
-      const nmFinal = named || (String(nm).startsWith('账号 ') ? String(nm) + '（未登录过，无用户名）' : String(nm))
+      // ★ACCOUNT_NAME_BACKFILL_V1：确实拿不到用户名（本机没存过该账号的 token）时，把话说清楚 +
+      //   给出可执行动作（在该账号上登录一次，名字就会补上），别再让用户看到一个孤零零的编号
+      const nmFinal = named || (String(nm).startsWith('账号 ') ? String(nm) + '（本机没存登录凭据——登录一次即可显示用户名）' : String(nm))
       return {
         userId: String(a.userId),
         name: nmFinal,
@@ -502,6 +494,8 @@ ipcMain.handle('startup-check:enter', async (_e, userId) => {
         try { await mainWindow.webContents.session.cookies.set({ url: serverUrl, name: 'token', value: a.token, path: '/' }) } catch (e) {}
         setClientUserId(uid)
         buLog('[startup] 已切换账号 → userId=' + uid + '（token 已写入 session）')
+        // ★ACCOUNT_NAME_BACKFILL_V1：切过来就把名字回填进 accounts.json（原来要等下次启动才有名字）
+        try { await recordCurrentAccount('切换账号后回填') } catch (e) {}
       } else {
         try { await mainWindow.webContents.session.clearStorageData({ storages: ['cookies'] }) } catch (e) {}
         setClientUserId(uid)
@@ -640,6 +634,39 @@ function usernameFromToken(tk) {
     const j = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'))
     return String((j && j.username) || '')
   } catch (e) { return '' }
+}
+
+// ★ACCOUNT_NAME_BACKFILL_V1（2026-09-22 用户实测：一台机登录多个账号时，第二个在自检页只显示数字、没有用户名）
+//   why：账号名来自 accounts.json 里存的 token（JWT payload 里的 username），
+//        而 accounts.json 原来【只在启动自检 ⑤ 里】写一次 → 刚登录的新账号 / 切换过的账号
+//        要等到【下次启动】才可能有名字，在那之前只能显示编号。
+//   what：把【当前 cookie 里的 token】解出的用户名，就近回填进 accounts.json（幂等）——
+//        调用点：自检 ⑤ / 切换账号后 / 主窗口每次加载完。
+//   ★token 只做 base64 解码、不验签 → **过期 token 照样能解出用户名**，所以"名字"不会因为登录过期而消失。
+async function recordCurrentAccount(why) {
+  try {
+    const cur = String(await ensureUserResolved(4000).catch(() => getClientUserId()) || '')
+    if (!cur) return null
+    let tk = ''
+    try { const ck = await getServerCookie(); tk = (String(ck).match(/token=([^;]+)/) || [])[1] || '' } catch (e) {}
+    const accFile = path.join(app.getPath('userData'), 'accounts.json')
+    let list = []
+    try { const j = JSON.parse(fs.readFileSync(accFile, 'utf-8')); if (Array.isArray(j)) list = j } catch (e) { list = [] }
+    const i = list.findIndex((a) => String(a.userId) === cur)
+    const prev = i >= 0 ? list[i] : {}
+    const uname = usernameFromToken(tk) || usernameFromToken(prev.token || '')
+    const rec = {
+      userId: cur,
+      name: uname || prev.name || ('账号 ' + cur),
+      username: uname || prev.username || '',
+      token: tk || prev.token || '',
+      lastUsed: Date.now(),
+    }
+    if (i >= 0) list[i] = rec; else list.push(rec)
+    try { fs.writeFileSync(accFile, JSON.stringify(list, null, 2)) } catch (e) {}
+    if (why) buLog('[account] ' + why + ' → userId=' + cur + ' | 名字=' + rec.name + ' | 有token=' + (rec.token ? '1' : '0'))
+    return rec
+  } catch (e) { try { buLog('[account] 回填失败: ' + String((e && e.message) || e)) } catch (e2) {} return null }
 }
 
 // ★ACCOUNT_NAME_AND_RESIDUE_V1：清理 browser-profile\ 根目录里的历史残留（非数字项）
@@ -2894,6 +2921,10 @@ app.whenReady().then(() => {
         // USER_READY_V1：改为幂等门（启动期已在 loadURL 前解析过 → 这里立即返回）
         const uid = await ensureUserResolved(2500)
         await ensureAccountProfile()   // ACCOUNT_PROFILE_V1：该账号目录就绪/补漏
+        // ★ACCOUNT_NAME_BACKFILL_V1：主窗口每次加载完再回填一次账号名 ——
+        //   专门覆盖"用户刚在这里登录了新账号（登录后页面会重新加载）"这个场景：
+        //   回填后自检页/账号列表就能显示用户名，而不是编号。
+        try { await recordCurrentAccount('页面加载后回填') } catch (e) {}
         // ★PY_RESOLVE_FIX_V1：显式解析可用的 Python（内置→系统→py）并填充 _buPy。
         //   185 删掉 ensureBuEnvOnStartup 后没人做这件事 → bu_check/bu_hot 全跑不起来（自检"检测未返回结果"）
         try { resolveBuPythonAsync().then((py) => buLog('[bu-python] 启动解析结果: ' + String(py))).catch(() => {}) } catch (e) {}

@@ -136,8 +136,25 @@ writeFileSync(resolve(ROOT, 'build.local.json'), JSON.stringify(build, null, 2))
 log(`ms-playwright 源: ${pw}`)
 
 // ── 5) 清理旧产物（此时无占用）────────────────────────
-log('6/7 清理 dist-rel/win-unpacked…')
-rmSync(resolve(OUT, 'win-unpacked'), { recursive: true, force: true })
+// ★KEEP_USERDATA_V1（2026-09-22 用户定案「以后不动就行了」）：清 win-unpacked 时【必须保留用户数据】——
+//   客户端 userData = exe 同级 data/（【多账号】登录态 data/browser-profile/{账号Id}/… + accounts.json
+//   + 指纹 profile data/browser-profiles/），同级的 storage/（用户本地仓库镜像）与 python/（内置环境）
+//   也都是用户数据（用户明确：这些一律不许删）。
+//   旧实现 rmSync(整个 win-unpacked) 会把它们一起删掉 —— 用户实测「更新后登录态丢 / storage 被删」。
+//   现在：逐项删除【程序文件】，只跳过这三个目录；单项被占用也不中断（让 electron-builder 覆盖即可）。
+const KEEP_USER_DIRS = ['data', 'python', 'storage']
+const WU = resolve(OUT, 'win-unpacked')
+if (existsSync(WU)) {
+  const kept = []
+  for (const ent of readdirSync(WU, { withFileTypes: true })) {
+    const nm = String(ent.name)
+    if (ent.isDirectory() && KEEP_USER_DIRS.includes(nm.toLowerCase())) { kept.push(nm); continue }
+    try { rmSync(resolve(WU, nm), { recursive: true, force: true }) } catch (e) { log('⚠️ 删除 ' + nm + ' 失败（占用中，交给打包覆盖）: ' + e.message) }
+  }
+  log('6/7 清理 dist-rel/win-unpacked（只删程序文件）' + (kept.length ? '；★保留用户数据: ' + kept.join(' / ') : ''))
+} else {
+  log('6/7 dist-rel/win-unpacked 不存在，跳过清理')
+}
 
 // ── 6) 执行打包（镜像加速）────────────────────────────
 log('7/7 执行 electron-builder…')

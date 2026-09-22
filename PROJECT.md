@@ -621,6 +621,10 @@ cd D:\AiMarketing && node scripts/build-local.mjs
 5. 本地 `npx tsc --noEmit` 或 `npm run build` 验证（createSourceFile 不查 const 重赋值/未定义引用——服务器 build 才暴露）
 6. 服务器部署需 **npm install**（新依赖 lunar-javascript 等）
 7. 打包前核对 PROJECT.md 本清单 + 更新计划
+8. **【数据安全铁律 · 2026-09-22】打包 / 更新 / 卸载一律不得删用户数据**：`data/`（**多账号**登录态 + `accounts.json` + 指纹 profile）/ `storage/`（用户本地仓库）/ `python/`（内置环境）都要保。
+   - `scripts/build-local.mjs` 清 `dist-rel/win-unpacked` 时要**跳过这三个目录**（用户可能正从该目录运行客户端）；
+   - `electron/installer.nsh` 更新分支与卸载分支都要**保留**这三目录（曾出过 `RMDir /r $INSTDIR` 全删事故）；里面的 `for /d + if 比较路径` 写法较脆（`%i` 与 `$INSTDIR/data` 字符串比较），改动时优先换成"白名单删除"而不是"黑名单保留"；
+   - 详见 `AGENTS.md` 硬规则 7。
 
 ### 更新计划（待办，2026-08-22）
 - **换号按账号加载（非清理）**：user 切换 → historyLoaded 重置 + 按 userId 加载该账号会话（换回恢复）——**不是清空丢弃**，防跨账号串记忆（"探店v2.mp4"事件）
