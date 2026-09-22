@@ -3767,7 +3767,17 @@ function AgentPageInner() {
                       ].map(pf => {
                         const hit = buAccounts.find(a => a.id === pf.id)
                         return (
-                          <button key={pf.id} onClick={() => { try { (window as any).electronAPI?.browserOpenUrl(pf.url) } catch {} }}
+                          <button key={pf.id} onClick={async () => {
+                            // ★2026-09-22（用户实测"点了没反应"）：原来返回值被直接丢弃（try{…}catch{}）——
+                            //   启动失败时**界面完全静默**，用户只能看到"点了没用"。
+                            //   现在：失败明确弹出原因；在浏览器里打开时提示要用客户端。
+                            try {
+                              const api = (window as any).electronAPI
+                              if (!api?.browserOpenUrl) { alert('打开登记浏览器需要用客户端（浏览器里不支持）'); return }
+                              const r = await api.browserOpenUrl(pf.url)
+                              if (!r || r.success !== true) alert('打开浏览器失败：' + ((r && r.error) || '未知原因') + '\n（可把 <安装目录>\\data\\bu_debug.log 发给开发）')
+                            } catch (e: any) { alert('打开浏览器失败：' + (e?.message || e)) }
+                          }}
                             className={`px-1.5 py-0.5 rounded border text-[9px] transition ${hit?.loggedIn ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-white/10 text-gray-400 hover:border-white/30 hover:text-gray-200'}`}
                             title={(hit?.loggedIn ? '已登录 ✓ ' : '未登录——点击打开登录') + (pf.note || '')}>
                             {pf.name}{hit?.loggedIn ? ' ✓' : ''}
@@ -3778,7 +3788,16 @@ function AgentPageInner() {
                     {true && (<div className="mt-1.5 flex gap-1">
                       <input id="custom-reg-url" placeholder="自定义地址（如 https://xxx.com）"
                         className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-white/10 bg-black/30 text-[9px] text-gray-300 outline-none focus:border-emerald-500/40" />
-                      <button onClick={() => { const u = (document.getElementById('custom-reg-url') as HTMLInputElement)?.value?.trim(); if (!u) return; try { (window as any).electronAPI?.browserOpenUrl(u) } catch {} }}
+                      <button onClick={async () => {
+                        const u = (document.getElementById('custom-reg-url') as HTMLInputElement)?.value?.trim()
+                        if (!u) return
+                        try {
+                          const api = (window as any).electronAPI
+                          if (!api?.browserOpenUrl) { alert('打开登记浏览器需要用客户端（浏览器里不支持）'); return }
+                          const r = await api.browserOpenUrl(u)
+                          if (!r || r.success !== true) alert('打开浏览器失败：' + ((r && r.error) || '未知原因'))
+                        } catch (e: any) { alert('打开浏览器失败：' + (e?.message || e)) }
+                      }}
                         className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-emerald-500/15 hover:border-emerald-500/30 transition">打开登记</button>
                     </div>)}
 

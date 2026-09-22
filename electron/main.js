@@ -2268,16 +2268,18 @@ const isTrustedSender = (event) => {
 ipcMain.handle('bu:open', async (event) => {
   if (!isTrustedSender(event)) return { success: false, error: 'untrusted sender' }
   try {
-    const { spawn } = require('child_process')
-    // 2026-08-29: spawn 系统 Chrome --user-data-dir（同浏览器同 profile——登录态一致）——弃 python -m playwright（无包）
-    const chromeCands = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe', process.env.LOCALAPPDATA + '/Google/Chrome/Application/chrome.exe']
-    const chrome = chromeCands.find(p => require('fs').existsSync(p))
-    if (!chrome) return { success: false, error: '未找到系统 Chrome' }
-    const prof = String(BU_PROFILE_DIR)
-    await ensureChromeForPublish('https://creator.xiaohongshu.com/publish/publish')   // 2026-09-12: 走统一启动（原来不带 9222 → 与发布实例抢 profile → 登录态丢）
-    ch.unref()
+    // ★CHROME_PATH_FIX_V1（2026-09-22）：同 browser:open-url —— 去掉未定义的 `ch.unref()`
+    //   （原来每次调用都抛 ReferenceError 且无日志），改为看统一启动函数的返回值。
+    const ok = await ensureChromeForPublish('https://creator.xiaohongshu.com/publish/publish')
+    if (!ok) {
+      try { buLog('[chrome] bu:open 启动失败 → 已返回失败给前端') } catch (e) {}
+      return { success: false, error: '本机没能启动浏览器（没找到 Chrome/Edge/内置 Chromium，或启动失败）——可把 <安装目录>\\data\\bu_debug.log 发给开发' }
+    }
     return { success: true, message: '已打开 Browser Use 浏览器（bu_profile）——请扫码登录目标平台，登录后点「刷新检测」' }
-  } catch (e) { return { success: false, error: String(e && e.message || e) } }
+  } catch (e) {
+    try { buLog('[chrome] bu:open 异常: ' + String(e && e.message || e)) } catch (e2) {}
+    return { success: false, error: String(e && e.message || e) }
+  }
 })
   ipcMain.handle('bu:check', async (event) => {
     if (!isTrustedSender(event)) return { success: false, error: 'untrusted sender' }
@@ -3200,16 +3202,23 @@ ipcMain.handle('browser:open-url', async (_e, url) => {
   await ensureUserResolved(2500).catch(() => {})   // USER_READY_V1：否则会开出 default 空 profile 浏览器
   // 2026-09-07: 改用系统 Chrome + browser-profile（统一一条线——登记/发布同一引擎同一登录态；删 Playwright CDP）
   try {
-    const { spawn } = require('child_process')
-    const chromeCands = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe', require('os').homedir() + '\AppData\Local\Google\Chrome\Application\chrome.exe']
-    const chrome = chromeCands.find(p2 => fs.existsSync(p2))
-    if (!chrome) return { success: false, error: '未找到系统 Chrome' }
-    const prof = String(BU_PROFILE_DIR)
-    // 2026-09-08: 带调试端口 9222——发布的 bu_exec 用 CDP 直接连接这个已登录浏览器（不杀不重开不导航）
-    await ensureChromeForPublish(String(url || 'https://www.google.com'))   // 2026-09-12: 统一启动
-    ch.unref()
+    // ★CHROME_PATH_FIX_V1（2026-09-22，诊断脚本实测"某机器点登记没反应"）：
+    //   ① 原来这里 `ch.unref()` 用的 `ch` **从未定义**（只有 ensureChromeForPublish 内部才有）
+    //      → 每次都抛 ReferenceError 被下面 catch 吞掉 → IPC 永远返回 success:false 且**无日志**。
+    //   ② 原来先自己 find 一次 Chrome（候选里有用户级路径）→ 找到了就往下走；可真正启动的
+    //      ensureChromeForPublish 只认 Program Files → 找不到就静默 return false → 窗口不开。
+    //   现在：只调 ensureChromeForPublish（它统一了 Chrome 三路径 + Edge + 内置 Chromium），
+    //        按它的返回值回话，并把失败写进 bu_debug.log。
+    const ok = await ensureChromeForPublish(String(url || 'https://www.google.com'))
+    if (!ok) {
+      try { buLog('[chrome] browser:open-url 启动失败 → 已返回失败给前端') } catch (e) {}
+      return { success: false, error: '本机没能启动浏览器（没找到 Chrome/Edge/内置 Chromium，或启动失败）——可把 <安装目录>\\data\\bu_debug.log 发给开发' }
+    }
     return { success: true, message: '已打开浏览器（系统 Chrome + browser-profile）' }
-  } catch (e) { return { success: false, error: String(e && e.message || e) } }
+  } catch (e) {
+    try { buLog('[chrome] browser:open-url 异常: ' + String(e && e.message || e)) } catch (e2) {}
+    return { success: false, error: String(e && e.message || e) }
+  }
 })
 
 ipcMain.handle('browser:accounts', async () => {
@@ -3879,6 +3888,14 @@ let _chromeStartedByUs = false
 const CHROME_CANDS = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+  // ★CHROME_PATH_FIX_V1（2026-09-22，客户端诊断脚本实测某台机器"点浏览器登记没反应"）：
+  //   那台机器（Win10）的 Chrome 是【仅为我安装】—— 只存在于 %LOCALAPPDATA%，Program Files 两个路径都没有；
+  //   而本数组原先只有上面两条 → find 找不到 → 本函数直接 return false（窗口不开）。
+  //   上一层 browser:open-url 的候选里**有**用户级路径，所以它不报错 → 全程静默（前端还丢弃返回值）
+  //   → 用户看到的就是"点了没反应"。那台机器客户端日志的铁证：
+  //     [chrome] 未找到 chrome.exe（登记浏览器无法启动）
+  process.env.LOCALAPPDATA + '/Google/Chrome/Application/chrome.exe',
+  require('os').homedir() + '/AppData/Local/Google/Chrome/Application/chrome.exe',
 ]
 async function probe9222(timeoutMs) {
   return await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(timeoutMs || 2000) })
@@ -3937,11 +3954,15 @@ async function ensureChromeForPublish(url) {
   }
   // ② ★2026-09-12 修：不再依赖 _chromeStartedByUs "已启过"标记
   //    （原逻辑：标记为 true 就只等不启 → 浏览器被关掉后永远不再启动 → 脚本等 30s 超时失败，任务#79 实测）
-  const ch = CHROME_CANDS.find((p2) => fs.existsSync(p2))
+  let ch = CHROME_CANDS.find((p2) => fs.existsSync(p2))
+  // ★CHROME_PATH_FIX_V1：再兜两层 —— ① Edge（Chromium 内核，同样支持 --remote-debugging-port）
+  //   ② 客户端自带的内置 Chromium。这样"只装了 Edge / Chrome 装在非标准位置"的机器也能登记。
+  if (!ch) { try { ch = findBrowserExe() } catch (e) {} }
   if (!ch) {
-    try { buLog('[chrome] 未找到 chrome.exe（登记浏览器无法启动）') } catch (e) {}
+    try { buLog('[chrome] 未找到 chrome.exe（登记浏览器无法启动）—— 已尝试 Program Files / 用户级安装 / Edge / 内置 Chromium') } catch (e) {}
     return false
   }
+  try { buLog('[chrome] 采用浏览器: ' + ch) } catch (e) {}
   try {
     // ★LAYOUT_V1：要新启动浏览器 → 先分栏（客户端缩左、浏览器靠右），并给它窗口位置
     const _rect = layoutSideBySide()
