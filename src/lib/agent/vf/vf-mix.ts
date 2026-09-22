@@ -36,6 +36,8 @@ export interface VfMixDraft {
   bgm: string
   script: string
   source: 'mix'
+  /** ★A3（2026-09-22）：前端传来的"本次刚上传的文件名"——有则**只用这些**（上传优先铁律） */
+  uploaded?: string[]
   shots?: any[]
   size?: number[]
   aspectResolved?: string
@@ -227,6 +229,10 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
       if (f.voice) vd.voice = String(f.voice)
       if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = f.topic.trim().slice(0, 300)
       if (f.script && String(f.script).trim()) vd.script = String(f.script).trim().slice(0, 4000)
+      // ★A3（2026-09-22，用户铁律「上传优先」）：把表单里的**上传名单**接住 ——
+      //   原来完全没解析它 → 用户明明在卡片上"上传了 5 张"，本线照样只看整个仓库
+      //   （用户实测：卡片写"已上传 5 张"，实际用的还是仓库那 30 张）。
+      if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x)).slice(0, 60)
       if (f.bgm !== undefined) vd.bgm = String(f.bgm) === 'auto' ? 'auto' : ''
       ctx.log(uid, `[VF-X] 表单 dur=${vd.dur} aspect=${vd.aspect} theme=${vd.theme} topic="${vd.topic.slice(0, 20)}"`)
       return await draftAndCard(ctx, vd)
@@ -246,10 +252,22 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
     if (vd.step === 'script' && MIX_FLOW_WORD.test(userMessage.trim())) {
       if (!vd.shots?.length) return '素材+AI 创作：分镜还没排好，先不出片。回「重试」我再排一次。'
       const aiN = Array.isArray(vd.aiShots) ? vd.aiShots.length : 0
-      // 报价 = "AI 镜的实际 dur 之和 × 50" + "素材部分按文案字数" —— 与确认卡、与 make_ai_video 三处同口径
-      const aiSec = Math.max(4, Math.round((vd.shots || []).reduce(
-        (a: number, s: any, i: number) => a + ((vd.aiShots || []).includes(i + 1) ? (Number(s.dur) || 0) : 0), 0)))
-      const cost = Math.max(1, Math.ceil(aiSec * 50) + Math.ceil(String(vd.script || '').length / 20))
+      // ★A1（2026-09-22，用户实测「卡片报 205 点、实扣 1500 点」）：
+      //   原来 `source:'ai'` + `mix:''`（AI 一镜都没标）→ make.py 判定"**全镜 AI**"，
+      //   服务端按【整片时长 × 50】扣费（30 秒 = 1500 点），而卡片只按 `Math.max(4, 0) = 4` 秒报 205 点。
+      //   对策：一镜都没标 → **直接不出片**（宁可重排，也绝不按整片扣钱）。
+      if (!aiN) {
+        ctx.log(uid, '[VF-X] ⚠️ 一镜 AI 都没标（aiShots 为空）→ 拒绝出片（避免退化成"全镜 AI + 按整片扣费"）')
+        return '素材+AI 创作：这次分镜里**没有任何一镜被标为"需要 AI 生成"**。'
+          + '\n直接出片会退化成「全镜 AI」，并按**整片时长**计费（和刚才的报价对不上）——所以我先不出。'
+          + '\n回「重试」我重新排一次分镜。'
+      }
+      // ★A2（2026-09-22）：报价 = "AI 镜的实际 dur 之和 × 50" + "素材部分按文案字数" ——
+      //   与确认卡、与服务端扣费**三处同口径**。**去掉原来的 `Math.max(4, …)`**：
+      //   它让"0 镜 AI"也恒收 4 秒 AI 费（≈200 点）；有 AI 镜时 Σ 本来就 >0，不需要兜底。
+      const aiSecExact = (vd.shots || []).reduce(
+        (a: number, s: any, i: number) => a + ((vd.aiShots || []).includes(i + 1) ? (Number(s.dur) || 0) : 0), 0)
+      const cost = Math.max(1, Math.ceil(aiSecExact * 50) + Math.ceil(String(vd.script || '').length / 20))
       // ★VF_MIX_RUNCLOSE_V1（2026-09-21）：入队即【作废本线草稿】（与素材线/AI制片线同款）——
       //   否则草稿永远停在 running，本线"有草稿必接管"会终身吞掉后续所有消息。
       VF_MIX_DRAFT.delete(uid)
@@ -261,7 +279,10 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
         theme: vd.theme,
         speaker: vd.voice,
         bgm: vd.bgm,
-        source: 'ai',                       // 让 make.py 走 AI 分支
+        // ★A1：必须传 'mix'（不是 'ai'）—— 两条线语义不同：
+        //   'ai' = AI 制片（**全部**镜由 H3 生成 + 按整片时长计费）；'mix' = 只对 mix 镜号调 H3。
+        //   原来传 'ai' 且 mix 为空时 → 被当成 AI 制片：全镜 AI + 整片计费（实扣 1500 的根因）。
+        source: 'mix',
         mix: (vd.aiShots || []).join(','),  // ★规则 B：只对这些镜号调 H3
         duration: vd.dur,
         confirmed: true,
@@ -308,7 +329,22 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
   let imgs: string[] = []
   let maxSide = 0
   try {
-    const mats = await ctx.listRepoMaterials(uid, Math.max(40, Math.round(dur / 30) * 5 + 20), 'spread')
+    // ★A3（2026-09-22，用户铁律）：**本轮带了上传 → 只认上传的那几张，绝不掺素材库**。
+    //   用户原话：「上传时上传的，素材库是素材库的……哪怕已经看过素材库了，看到上传的也以上传的为主。
+    //   用户要做什么主题我们不能搞错，误判。」（原实现从不读 vd.uploaded → 用户实测上传的 5 张毫无作用）
+    const _wanted: string[] = Array.isArray(vd.uploaded) ? vd.uploaded.map((x: any) => String(x)) : []
+    const matsAll = await ctx.listRepoMaterials(uid, Math.max(40, _wanted.length + 20, Math.round(dur / 30) * 5 + 20), _wanted.length ? 'recent' : 'spread')
+    let mats = matsAll || []
+    if (_wanted.length) {
+      const _byName = new Map((matsAll || []).map((m: any) => [String(m.name), m]))
+      const _picked = _wanted.map((n: string) => _byName.get(n)).filter(Boolean) as any[]
+      if (_picked.length) {
+        mats = _picked
+        ctx.log(uid, `[VF-X] ★上传优先：只看本次上传的 ${_picked.length}/${_wanted.length} 张（不掺仓库）`)
+      } else {
+        ctx.log(uid, `[VF-X] ⚠️ 上传名单 ${_wanted.length} 张在仓库里没找到 → 回退用仓库（若你确实上传过，请重发一次表单）`)
+      }
+    }
     brief = await ctx.summarizeMaterials(uid, mats || [], Math.max(8, Math.min(20, Math.round(dur / 30) * 5)))
     try { const sz = await ctx.probeMaterialSizes(uid, mats || []); maxSide = sz?.maxSide || 0 } catch { /* ignore */ }
     // ★真实签名：downloadMaterials(uid, mats) → 返回带 localPath 的数组
@@ -343,6 +379,18 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
     if (sum > subLen) { subLen = sum; cover = vd.script ? sum / vd.script.length : 0 }
     ctx.log(uid, `[VF-X] 字幕兜底 → 覆盖 ${Math.round(cover * 100)}%`)
   }
+  // ★A4（2026-09-22，用户实测「一句话反复在读」）：**超额覆盖也要修剪** ——
+  //   实测 6 镜的 subtitle **一模一样**（6 × 24 字 = 144 字 / 文案 97 字 = 覆盖 148%）
+  //   → 配音当然反复念同一句。原来只在覆盖 <80% 时兜底，**>100% 从来没人管**。
+  //   修法（确定性）：覆盖 >110% 时，按帧把文案重切成 N 段填回去（与不足时同一套 splitScript）。
+  if (shots.length >= 2 && cover > 1.1 && vd.script) {
+    const _beforeOver = Math.round(cover * 100)
+    const segs = ctx.splitScript(vd.script, shots.length)
+    let sum2 = 0
+    shots.forEach((s: any, i: number) => { const t = String(segs[i] || '').trim(); if (t) { s.subtitle = t; sum2 += t.length } })
+    if (sum2 > 0) { subLen = sum2; cover = vd.script ? sum2 / vd.script.length : 0 }
+    ctx.log(uid, `[VF-X] 字幕超额 ${_beforeOver}% → 按帧重切 ${shots.length} 段 → 覆盖 ${Math.round(cover * 100)}%`)
+  }
 
   // ⑥ 规则 B：把 need_ai 的镜号收集起来（1-based）
   const aiShots: number[] = []
@@ -366,9 +414,18 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
   // ⑦ 确认卡（自己拼 —— 成本与 make_ai_video 的实扣**完全同口径**：
   //    ★"AI 镜的【实际 dur 之和】× 50" + "素材部分按文案字数"，不是"全片时长 × 占比"，
   //      否则每镜时长不均时，卡片报价和实扣会对不上）
-  const aiSec = Math.max(4, Math.round(shots.reduce(
-    (a: number, s: any, i: number) => a + (aiShots.includes(i + 1) ? (Number(s.dur) || 0) : 0), 0)))
-  const cost = Math.max(1, Math.ceil(aiSec * 50) + Math.ceil(String(vd.script || '').length / 20))
+  // ★A2（2026-09-22）：**去掉 `Math.max(4, …)`** —— 它让"0 镜 AI"也恒收 4 秒 AI 费（≈200 点，
+  //   用户实测卡片报的 205 点里 200 点是假的）。现在按**实际 AI 镜秒数**算，与服务端扣费同口径。
+  const aiSecExact = shots.reduce(
+    (a: number, s: any, i: number) => a + (aiShots.includes(i + 1) ? (Number(s.dur) || 0) : 0), 0)
+  const aiSec = Math.round(aiSecExact)
+  const cost = Math.max(1, Math.ceil(aiSecExact * 50) + Math.ceil(String(vd.script || '').length / 20))
+  // ★A1（2026-09-22）：AI 一镜都没标时，不要再输出"第 **无** 镜"（用户实测看到的就是这句），
+  //   而要把后果说清楚（否则用户点确认 → 全镜 AI + 按整片扣费，与报价不符）。
+  const _aiHint = aiShots.length
+    ? `其中 **第 ${aiShots.join('、')} 镜由 AI 生成**，其余用你的素材。`
+    : '**这次没有任何镜被标为"需要 AI"**（直接出片会退化成「全镜 AI」并按整片时长计费）—— 回「重试」我重排一次。'
+  const _srcHint = (Array.isArray(vd.uploaded) && vd.uploaded.length) ? '（★只看你本次上传的图）' : ''
   return 'VF_JSON:' + JSON.stringify({
     step: 'script', mixLine: true, source: 'mix',
     topic: vd.topic, script: vd.script,
@@ -382,7 +439,7 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
     aspect, aspectName: aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16',
     coverage: cover, estSec,
     aiShots, aiShotCount: aiShots.length,
-    hint: `看完你仓库里 ${imgs.length} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}·风格 ${THEME_NAMES[vd.theme] || vd.theme}）—— 其中 **第 ${aiShots.join('、') || '无'} 镜由 AI 生成**，其余用你的素材。回复「确认」开始出片。`,
+    hint: `看完 ${imgs.length} 张图${_srcHint}，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}·风格 ${THEME_NAMES[vd.theme] || vd.theme}）—— ${_aiHint}回复「确认」开始出片。`,
   })
 }
 

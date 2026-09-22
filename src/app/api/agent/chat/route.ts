@@ -180,7 +180,15 @@ async function genVideoShots(o: {
         const sub = String(segs[i] || '')
         const sp = slotMap.get(i)
         if (sp) rebuilt.push({ ...sp, subtitle: sub.slice(0, 300) })
-        else rebuilt.push({ type: 'bgimage', src: imgs[i % Math.max(1, imgs.length)], text: '', subtitle: sub.slice(0, 300), dur: 5 })
+        else {
+          // ★A5（2026-09-22，用户要求「帧和图片素材要大致对上」）：
+          //   原来是 `imgs[i % imgs.length]` —— **纯轮询**，和这一镜在讲什么毫无关系，
+          //   一扩镜就必然"图文错位"（用户实测踩过）。改成复用上面的 nextIdx()：
+          //   它按"AI 的 pick 优先 → 用得最少优先 → 相邻不重复"取图，
+          //   在保序前提下让画面跟着文案顺序走，且不会相邻两镜撞同一张图。
+          const _ri = nextIdx(-1)
+          rebuilt.push({ type: 'bgimage', src: _ri >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, _ri))] : '', text: '', subtitle: sub.slice(0, 300), dur: 5 })
+        }
       }
       vfLog(o.uid, `[扩镜] AI 只排 ${beforeN} 镜（目标 ${o.shotN}）→ 按目标重排 ${rebuilt.length} 镜（每镜约 ${Math.round(charN / Math.max(1, rebuilt.length))} 字 ≈ ${Math.round(charN / Math.max(1, rebuilt.length) / 4.5)} 秒）`)
       return rebuilt
@@ -609,16 +617,24 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       //       （"发布流程未开始——请说「帮我发一个视频」开始任务。"）→ 出片直接中断。
       //     改用 auth?.userId || 0，**与成片块写草稿时用的 key（uidVF2 = auth?.userId || 0）完全一致**。
       const _vdCur: any = VIDEO_DRAFT.get(auth?.userId || 0) || {}
-      const vfSrcAI = (String(args.source || args.mode || '') === 'ai') || (String(_vdCur.source || '') === 'ai')
+      // ★A1（2026-09-22，用户实测「卡片报 205 点、实扣 1500 点」）：
+      //   混合线传的是 `source:'ai'` + `mix:'1,5'`；一旦 `mix` 为空（AI 一镜都没标），这里就把它
+      //   当成「AI 制片」→ 按【整片时长 × 50】扣费（30 秒 = 1500 点），而卡片是按"AI 镜秒数"报价的
+      //   （205 点）→ 报价与实扣差 1295 点。
+      //   修法：把 'mix' 当**独立口径** —— mix 镜号有 → 只算这些镜的秒数；mix 镜号为空 →
+      //         **只收素材部分，绝不按整片时长收 AI 费**。
+      const _srcRaw = String(args.source || args.mode || _vdCur.source || '')
+      const _mixIdx = String(args.mix || '').split(',').map((x) => parseInt(String(x).trim())).filter((n) => n > 0)
+      const _isMixLine = _srcRaw === 'mix' || _mixIdx.length > 0
+      const vfSrcAI = _srcRaw === 'ai' || _srcRaw === 'mix' || _mixIdx.length > 0
       // ★VF_AIVIDEO_V1：**计费口径分三种** ——
       //   素材合成：按文案字数（ceil(字数/20)），30 秒片约 7 点；
       //   全部 AI 生成（AI 制片）：按【秒 × 50 点】（768P；2K 为 80），30 秒片约 1500 点；
       //   ★素材+AI 创作（混合）：**只算"被 AI 生成的那些镜"的秒数**（+ 素材部分按字数），
       //     不能按"全片时长 × 50" —— 否则只 2 镜 AI 却扣全片的钱（又是"多扣费"）。
       //   （上次"多扣费数倍"的教训：报价与实扣必须同口径。）
-      const _mixIdx = String(args.mix || '').split(',').map((x) => parseInt(String(x).trim())).filter((n) => n > 0)
       let _mixAiSec = 0
-      if (vfSrcAI && _mixIdx.length) {
+      if (_isMixLine && _mixIdx.length) {
         try {
           const _pp = JSON.parse(vfPlan || '{}')
           const _sh = Array.isArray(_pp) ? _pp : (_pp && _pp.shots) || []
@@ -629,18 +645,26 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           }
         } catch { _mixAiSec = 0 }
       }
-      const vfCost = vfSrcAI
-        ? (_mixAiSec > 0
+      const vfCost = _isMixLine
+        ? (_mixIdx.length
           ? Math.max(1, Math.ceil(_mixAiSec * 50) + Math.ceil(vfBillChars / 20))
-          : Math.max(1, Math.ceil(Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30) * 50)))
-        : Math.max(1, Math.ceil(vfBillChars / 20))
+          : Math.max(1, Math.ceil(vfBillChars / 20)))   // ← 没有 AI 镜：只收素材部分（不再按整片 ×50）
+        : (vfSrcAI
+          ? Math.max(1, Math.ceil(Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30) * 50))
+          : Math.max(1, Math.ceil(vfBillChars / 20)))
       if (!args.confirmed) {
-        const what = vfSrcAI
-          ? `全部 AI 生成（MiniMax H3 逐镜生成画面，约 ${Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30)} 秒）`
-          : (vfPlan ? 'AI 分镜' : `文案 ${vfScript.length} 字`)
-        const _aiNote = vfSrcAI
-          ? ' ⚠️ 这条是【AI 逐镜生成画面】（约 50 点/秒），比素材合成贵两个数量级 —— 请务必先确认。'
-          : ''
+        const what = _isMixLine
+          ? `素材 + AI 创作（只对第 ${_mixIdx.join('、') || '（无）'} 镜调 AI 生成画面，共约 ${Math.round(_mixAiSec)} 秒）`
+          : (vfSrcAI
+            ? `全部 AI 生成（MiniMax H3 逐镜生成画面，约 ${Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30)} 秒）`
+            : (vfPlan ? 'AI 分镜' : `文案 ${vfScript.length} 字`))
+        const _aiNote = _isMixLine
+          ? (vfCost > 0 && _mixIdx.length
+            ? ' ⚠️ 只对上面这几镜按【秒 × 50 点】计费（其余镜用你的素材，不额外收费）—— 请确认。'
+            : ' ⚠️ 这次没有任何镜要 AI 生成 → 只收素材合成费。')
+          : (vfSrcAI
+            ? ' ⚠️ 这条是【AI 逐镜生成画面】（约 50 点/秒），比素材合成贵两个数量级 —— 请务必先确认。'
+            : '')
         return `MAKE_VIDEO_COST:${what} → 本地配音+成片约 ${vfCost} 点（约¥${(vfCost / 100).toFixed(1)}）。${_aiNote}请向用户报价并等确认（用户说"确认/生成吧/可以"即确认），确认后带 confirmed=true 开始生成。`
       }
       const uidVF = auth?.userId
@@ -670,7 +694,10 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         : [mkPy, '--script', vfScript, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir, '--speaker', vfSpeaker]
       // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」→ 让 make.py 在【配音之后、渲染之前】
       //   逐镜调 MiniMax H3 生成画面（768P=50点/秒）。单镜失败 make.py 会自动回退成素材图，不整片挂。
-      if (vfSrcAI) argsVF.push('--source', 'ai', '--ai-resolution', '768P')
+      // ★A1（2026-09-22）：混合线必须传 `--source mix`（不是 'ai'）—— make.py 里
+      //   `source==='ai'` 表示"**全部**镜由 H3 生成"，`source==='mix'` 才会按 `--mix 镜号` 只生成那几镜。
+      //   原来一律传 'ai' → 混合线被当成 AI 制片（全镜 AI + 整片计费）。
+      if (vfSrcAI) argsVF.push('--source', _isMixLine ? 'mix' : 'ai', '--ai-resolution', '768P')
       // ★VF_MIXLINE_V1（2026-09-21）：「素材+AI 创作」只对**指定镜号**调 AI —— 必须把镜号透给 make.py。
       //   ⚠️ 漏了这行的后果：混合片会退化成"全片每一镜都调 H3"（用户以为只 2 镜 ≈600 点，
       //   实际全片 ≈1500+ 点）→ 成本失控。所以这里**有就必传**。
@@ -1013,6 +1040,21 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     // ── 一键成片进度查询（AGENT 不主动发起一键成片，仅当用户从一键成片页带参数回来问进度时查询）──
     case 'query_video_task': {
       const taskId = args.taskId
+      // ★A6 / VF_PROGRESS_V1（2026-09-22，用户实测「问进度却回『发布流程处理中』」）：
+      //   本地成片的任务号形如 `vf<时间戳>`，它的进度只写在
+      //   `<storage>/<uid>/video-factory/vf<ts>.json`（含 tail 逐镜日志），
+      //   而本 case 下面查的是 **DB 的生成记录表** → 本地成片永远"查不到" → 空回复
+      //   → 命中块尾那句给【发布线】写的兜底文案 → 用户看到的"编了一句不相干的话"。
+      //   修法：`vf*` 任务号直接交给【本地任务读取器】（query_make_video，读同一个 JSON），
+      //   读到就给真实进度（第 N/M 镜 / 已用 Xs / 成片文件名）。
+      if (/^vf/i.test(String(taskId || ''))) {
+        try {
+          const _local = String(await executeToolCall('query_make_video', { taskId: String(taskId) }, auth))
+          if (!/没有找到本地成片任务/.test(_local)) {
+            return '🎬 ' + _local.replace(/^MAKE_VIDEO_PROGRESS:\s*/, '')
+          }
+        } catch (eL: any) { console.error('[query_video_task] 本地任务读取失败:', eL?.message || eL) }
+      }
       if (!taskId) {
         // 2026-08-23: 用户问"最近任务进度"无 ID——查最近 5 条生成任务返回状态
         try {
@@ -3276,25 +3318,16 @@ PUBLISH_DRAFT.delete(uidW)
                   vfCover = vfScript2 ? vfSubLen / vfScript2.length : 0
                   vfLog(uidVF2, `[字幕兜底] AI 只覆盖 ${before}% → 按顺序切成 ${vfShots.length} 段填入 → 覆盖 ${Math.round(vfCover * 100)}%（预计 ${Math.round(vfSubLen / 4.5)} 秒）`)
                 }
-                // ★VF_DURFIX_V1（2026-09-21，用户实测：选 60 秒却出成 180 秒）：
-                //   genVideoShots 的 prompt 里写了「各镜 dur 相加必须约等于目标秒数」，但**没有任何代码校验** ——
-                //   AI 不遵守时没人纠正（对比：字幕覆盖率有 VF_SUBFILL_V1 兜底，时长却没有 → 这就是缺口）。
-                //   这里做**确定性修正**：分镜合计时长偏离目标 >25% 就按比例缩放每镜 dur。
-                //   clamp 4~15 秒/镜：AI 制片线 H3 单镜只支持 4~15 整数秒；素材线 Ken Burns 同样适用。
+                // ★A8（2026-09-22）：原「[时长护栏] 分镜合计偏离目标 >25% 就缩放到目标秒数」**已删除**。
+                //   理由（也是原代码自己的注释）：素材成片的最终时长 = tts.py 逐镜配音真实时长之和
+                //   （tts.py 会 `s['dur'] = round(配音+0.35, 2)` 覆盖这里的 dur），
+                //   所以缩放 dur 对成片**毫无作用**，只会让日志/卡片给出"目标 180 秒"的假承诺
+                //   （用户实测：选 180 秒被这行误导成"护栏生效了"）。现在只**如实打一行对比**，不做任何改写。
                 {
                   const _dfTarget = Math.max(5, Math.min(900, Number(vfDur) || 30))
                   const _dfSum = vfShots.reduce((a: number, s: any) => a + (Number(s?.dur) || 0), 0)
-                  if (_dfSum > 0 && Math.abs(_dfSum - _dfTarget) / _dfTarget > 0.25) {
-                    const _dfScale = _dfTarget / _dfSum
-                    let _dfNew = 0
-                    for (const s of vfShots) {
-                      const d = Math.max(4, Math.min(15, Math.round((Number(s?.dur) || 5) * _dfScale)))
-                      s.dur = d; _dfNew += d
-                    }
-                    // ★VF_DURFIX_NOTE_V1（2026-09-21 核对结论）：素材成片的**最终时长由 tts.py 逐镜配音真实时长决定**
-                    //   （tts.py 会 `s['dur'] = round(dur+0.35, 2)` 覆盖这里缩放的 dur），
-                    //   所以本护栏只对【无配音的镜头】有意义，别指望它把 60 秒压回来。
-                    vfLog(uidVF2, `[时长护栏] 分镜合计 ${Math.round(_dfSum)} 秒 偏离目标 ${_dfTarget} 秒 >25% → 缩放到 ${_dfNew} 秒（每镜 clamp 4~15；有配音时最终时长由 TTS 决定）`)
+                  if (_dfSum > 0) {
+                    vfLog(uidVF2, `[时长] 分镜预估合计 ${Math.round(_dfSum)} 秒 / 目标 ${_dfTarget} 秒（仅供参考：最终时长由逐镜配音决定，不再按目标缩放）`)
                   }
                 }
                 const vfEstSec = Math.round(vfSubLen / 4.5)
@@ -3408,6 +3441,25 @@ PUBLISH_DRAFT.delete(uidW)
         //   （含"本地成片已在后台开始/视频做得怎么样了"）→ 命中下面的 `成片` → 被这条兜底抢走，
         //   回了「这条视频用什么素材？」（完全不相干的卡片）→ 看起来像"状态机又乱接"。
         const _isQueryMsg = /进度|做得怎么样|怎么样了|查询任务|query_video_task|最新进度/.test(userMessage)
+        // ★A6 / VF_PROGRESS_V1（2026-09-22，用户定案）：「查询进度」必须是【确定性】的 ——
+        //   用户要求原话：「查询进度应该是确定性地回真实进度，不许编（不能出卡片、不能出发布话术、
+        //   宁可"仍在渲染中·第 12/36 镜"原地待着）」。
+        //   以前只做到"不被兜底抢走"（STD_QUERY_V1），但**没有"给出对回复"** ——
+        //   模型没想起来调工具时 reply 为空 → 露出块尾那句给发布线写的兜底 → 看起来像乱接。
+        //   现在：识别到查询类消息 → 直接读本地任务 JSON（query_make_video）→ 回真实进度；
+        //   读不到就明说"还没查到"，绝不编。
+        if (!wfEarlyReply && _isQueryMsg) {
+          try {
+            const _p = String(await executeToolCall('query_make_video', {}, auth))
+              .replace(/^MAKE_VIDEO_PROGRESS:\s*/, '🎬 ')
+            wfEarlyReply = _p
+            vfLog(uidVF2, `[进度] 确定性回本地任务进度（读 vf*.json）: ${_p.slice(0, 60).replace(/\n/g, ' ')}`)
+          } catch (eP: any) {
+            wfEarlyReply = '查进度时出错了：' + String(eP?.message || eP).slice(0, 120)
+            vfLog(uidVF2, '[进度] 读取失败: ' + String(eP?.message || eP).slice(0, 120))
+          }
+          finalResult = wfEarlyReply
+        }
         if (!wfEarlyReply && !_isQueryMsg && /做.{0,4}视频|成片|做视频/.test(userMessage)) {
           vfLog(uidVF2, '[兜底-块外] 状态机未出回复，已强制出素材来源卡')
           wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'source', topic: '', hint: '这条视频用什么素材？（点一下就走，不用打字）' })
@@ -3468,7 +3520,10 @@ PUBLISH_DRAFT.delete(uidW)
           console.log('[防编造] AI 声称已创建任务但本轮未建——已拦下：', String(reply).slice(0, 60))
           reply = '⚠️ 纠正一下：我刚才说的「已创建任务」并不准确——本轮**没有真正创建发布任务**。' + String.fromCharCode(10) + '要发布请说「帮我发一个视频」走完整流程（选视频 → 标题 → 话题 → 封面 → 点平台按钮）。'
         }
-      if (!reply) reply = '发布流程处理中——请回复“重试”或继续操作。'  // 2026-09-01: 回复空兑底（不白屏' 已执行'）
+      // ★A6 / VF_PROGRESS_V1（2026-09-22）：这句原来是**给发布线写**的（"发布流程处理中——请回复重试"），
+      //   却被当成**通用**兜底 → 用户问"成片进度"时看到的正是它（看起来像乱接/编造）。
+      //   改成中性话术，并且查询类消息已在上面有了确定性分支（不会再落到这里）。
+      if (!reply) reply = '我没拿到这一轮的结果——请稍等再试一次；如果是在问成片进度，直接说「视频做得怎么样了」。'
       }
       // 2026-08-27: 发布话术强制校验——模型说“已创建”但工具未真返回 PUBLISH_QUEUED → 强制纠正（不信模型话术，信工具结果）
       try {
