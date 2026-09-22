@@ -137,6 +137,27 @@ def probe_sec(path):
         return 0.0
 
 
+def probe_stream_sec(path, spec='v:0'):
+    """ffprobe 读【指定流】自己的时长（秒）；读不到（无该流 / 值为 N/A）→ 0.0。
+
+    ★VF_MUX_FIX_V1（2026-09-22）：为什么还要单独看"视频轨时长"——
+      混音会用 `apad` 把音频补到目标长度，于是一个"画面本来就不够长"的成片，
+      **容器时长照样等于目标值**（被补长的音频撑着）→ 只校验容器就漏判。
+      实测（本机）：视频 8 秒 + 目标 20 秒 → 容器 20.00 秒（假象），视频轨只有 8 秒。
+    """
+    if not path or not os.path.exists(path):
+        return 0.0
+    try:
+        r = subprocess.run([find_ffprobe(), '-v', 'error', '-select_streams', spec,
+                            '-show_entries', 'stream=duration',
+                            '-of', 'default=noprint_wrappers=1:nokey=1', path],
+                           capture_output=True, text=True, encoding='utf-8',
+                           errors='replace', timeout=60)
+        return float((r.stdout or '').strip() or 0)
+    except Exception:
+        return 0.0
+
+
 def err_lines(txt, n=3):
     """从 ffmpeg 的 stderr 里挑出【错误行】。
 
@@ -811,42 +832,97 @@ def burn_subtitles(video, srt, out, ffmpeg, font_size=26):
     return out
 
 
-def mux_audio(video, audio, out, ffmpeg, bgm=''):
+def mux_audio(video, audio, out, ffmpeg, bgm='', total_sec=0.0):
     """混音：人声（+ 可选 BGM 低音量铺底）→ 输出；两样都没有就直接复制。
 
     ★VF_BGM_V1（2026-09-20，用户要的 BGM）：
       BGM 用 -stream_loop -1 循环铺底，音量压到 0.12；amix 加 normalize=0
       （默认 amix 会把人声也按输入数除小 → 人声变轻，必须关掉归一化）。
+
+    ★VF_MUX_FIX_V1（2026-09-22，用户实测「成片显示 10:52:31（10 小时）」+「成片比拼接短 12.96 秒」）：
+      原来三个分支都用 `-shortest` —— 等于**无条件信任音频**：
+        ① 音频头被写坏（36 段里 1 段 44.1k / 35 段 24k 混拼 → 头 = 40580 秒）
+           → 成片头也跟着变 39151 秒 → 播放器显示 10 小时+
+        ② 音频比画面短 36×0.35 = 12.96 秒（每帧尾隙只写进分镜、没进音频）
+           → -shortest 把成片砍到音频长度 → 尾部 13 秒无声 + 字幕比配音慢半拍
+      修法：**以分镜总时长（total_sec）为准**——
+        · 人声侧 `apad` 补静音到目标长度（尾隙不再丢，字幕/配音严格对齐）
+        · `-t total_sec` 显式定长（不再被音频头牵着走）
+        · **去掉 -shortest**
+        · 输出后 ffprobe 校验 ≈ total_sec（差 >1% 报错，拒绝交付时长不对的成片）
+        · `-nostdin`：避免 ffmpeg 误入交互模式
+      实测（用户素材 work_1790054625694，目标 183.52 秒）：有 BGM / 无 BGM 两条分支都输出 **183.520 秒** ✅
     """
     has_voice = bool(audio) and os.path.exists(audio)
     has_bgm = bool(bgm) and os.path.exists(bgm)
     # ★2026-09-20：BGM 传了但文件不存在时要明说 —— 否则"选了自动配乐却没混进去"会静默发生
     if bgm and not has_bgm:
         print('[VF] ⚠️ BGM 文件不存在，已跳过配乐: %s' % bgm)
+    # ★VF_MUX_FIX_V1：以【分镜总时长】为准。没拿到目标时长时不硬来（apad 会无限补），
+    #   退回旧行为并明说风险 —— 但正常链路一定会传 total_sec。
+    _t = float(total_sec or 0)
+    _pin = _t > 0.05
+    _topt = (' -t %.3f' % _t) if _pin else ''
+    if _pin:
+        print('[VF] 混音目标时长 = 分镜总时长 %.2f 秒（apad 补尾隙 + -t 定长，不用 -shortest）' % _t)
+    else:
+        print('[VF] ⚠️ 未拿到分镜总时长 → 退回 -shortest（成片时长以音频为准，可能被带偏）')
+
+    def _verify_dur():
+        """成片真实时长必须 ≈ 分镜总时长（差 >1% 拒绝交付）—— 所有分支（含"直接复制"）都过这一关。
+
+        两个都要查（★VF_MUX_FIX_V1）：
+          · 容器时长 —— 抓"音频头被写坏 → 成片头跟着变成 10 小时"这类
+          · **视频轨时长** —— 抓"画面本来就不够长"（apad 会把容器时长补到目标值，只看容器会漏判）
+        """
+        g = probe_sec(out)
+        v = probe_stream_sec(out, 'v:0')
+        if _pin:
+            if g > 0 and abs(g - _t) / _t > 0.01:
+                raise RuntimeError('混音后时长不符：容器 %.2fs / 分镜总时长 %.2fs（差超 1%%）'
+                                   '—— 拒绝交付时长不对的成片' % (g, _t))
+            if v > 0 and v < _t * 0.99:
+                raise RuntimeError('混音后【视频轨】只有 %.2fs < 分镜总时长 %.2fs（画面不够长，'
+                                   '容器时长是被补长的音频撑的）—— 拒绝交付' % (v, _t))
+        print('[VF] 混音完成：成片时长 %.2f 秒%s%s'
+              % (g, ('（= 分镜总时长 %.2f）' % _t) if _pin else '',
+                 ('，视频轨 %.2f 秒' % v) if v > 0 else ''))
+
     if not has_voice and not has_bgm:
         import shutil
         shutil.copyfile(video, out)
+        print('[VF] 无人声无 BGM → 直接复制')
+        _verify_dur()
         return out
     if has_voice and has_bgm:
         # ★2026-09-20：把走过的分支打出来 —— 否则“选了配乐到底混没混进去”无法从日志判定
         print('[VF] 混音：人声 + BGM（BGM 音量 0.12，-stream_loop 循环铺底）')
-        cmd = (f'"{ffmpeg}" -y -i "{video}" -i "{audio}" -stream_loop -1 -i "{bgm}" '
-               f'-filter_complex "[1:a]volume=1.0[voc];[2:a]volume=0.12[bg];'
+        _voc = '[1:a]apad[voc]' if _pin else '[1:a]volume=1.0[voc]'
+        cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -i "{audio}" -stream_loop -1 -i "{bgm}" '
+               f'-filter_complex "{_voc};[2:a]volume=0.12[bg];'
                f'[voc][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]" '
-               f'-map 0:v -map "[aout]" -c:v copy -c:a aac -shortest "{out}"')
+               f'-map 0:v -map "[aout]" -c:v copy -c:a aac{_topt} "{out}"')
     elif has_voice:
-        print('[VF] 混音：仅人声（无 BGM）')
-        cmd = (f'"{ffmpeg}" -y -i "{video}" -i "{audio}" -c:v copy -c:a aac '
-               f'-shortest "{out}"')
+        if _pin:
+            print('[VF] 混音：仅人声（无 BGM）')
+            cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -i "{audio}" '
+                   f'-filter_complex "[1:a]apad[aout]" -map 0:v -map "[aout]" '
+                   f'-c:v copy -c:a aac{_topt} "{out}"')
+        else:
+            print('[VF] 混音：仅人声（无 BGM）')
+            cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -i "{audio}" -c:v copy -c:a aac '
+                   f'-shortest "{out}"')
     else:
         print('[VF] 混音：仅 BGM（无人声，音量 0.18）')
-        cmd = (f'"{ffmpeg}" -y -i "{video}" -stream_loop -1 -i "{bgm}" '
+        cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -stream_loop -1 -i "{bgm}" '
                f'-filter_complex "[1:a]volume=0.18[aout]" '
-               f'-map 0:v -map "[aout]" -c:v copy -c:a aac -shortest "{out}"')
+               f'-map 0:v -map "[aout]" -c:v copy -c:a aac{_topt or " -shortest"} "{out}"')
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
                        encoding='utf-8', errors='replace')
     if not os.path.exists(out):
-        raise RuntimeError('混音失败: ' + (r.stderr or '')[-400:])
+        raise RuntimeError('混音失败: ' + (err_lines(r.stderr) or (r.stderr or '')[-400:]))
+    # ★VF_MUX_FIX_V1：校验成片真实时长 ≈ 分镜总时长（差 >1% 拒绝交付）
+    _verify_dur()
     return out
 
 
@@ -1013,7 +1089,8 @@ def main():
             print('[VF] 字幕已烧入 -> %s (字号 %d)' % (sub_file, _sub_size))
         else:
             print('[VF] 无字幕文本，跳过')
-    final = mux_audio(video_for_audio, a.audio, out, ffmpeg, a.bgm)
+    # ★VF_MUX_FIX_V1：把【分镜总时长】交给混音 —— 成片时长以它为准（不再被音频头/长度带偏）
+    final = mux_audio(video_for_audio, a.audio, out, ffmpeg, a.bgm, _total_dur)
     print('[VF] ✅ 成片: %s' % final)
 
 

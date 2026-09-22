@@ -531,19 +531,84 @@ def mp3_duration(path):
         return 0.0
 
 
+def real_dur_sec(path, sr=24000, ch=1):
+    """真实内容时长 = 把音频**解码成裸 PCM 后按字节数算**（秒）。
+
+    ★VF_AUDIOFIX_V1（2026-09-22，用户实测「成片时长显示 10 小时 52 分」）：
+      实测 voice.m4a 的头写着 40580 秒，真实内容只有 168.83 秒（**240 倍**）——
+      容器的 duration 会骗人，所以校验不能信头。
+      为什么不用"帧数 × 每帧采样数"：**每帧采样数随编码/版本变**（AAC=1024；
+      MP3 在 32/44.1/48kHz 是 1152，在 24kHz 这类 MPEG-2 只有 576）——
+      本机实测用 1152 去算 24kHz 的 mp3 会把时长算成 **2 倍**（测试脚本抓到）。
+      解码成 PCM 后按 `字节数 ÷ (2 × 声道 × 采样率)` 算，对容器头、时间戳、编码器**全都不敏感**。
+      读不到 → 返回 0.0（调用方视为"没法校验"，不阻塞）。
+    """
+    ff = find_exe(FFMPEG_CANDS, 'ffmpeg')
+    try:
+        r = subprocess.run([ff, '-nostdin', '-v', 'error', '-i', path,
+                            '-f', 's16le', '-ar', str(sr), '-ac', str(ch), '-'],
+                           capture_output=True, timeout=600)
+        return len(r.stdout or b'') / float(2 * ch * sr)
+    except Exception:
+        return 0.0
+
+
 def merge_audio(files, out_path):
-    """把多段 mp3 顺序拼成一条音轨"""
+    """把多段 mp3 顺序拼成一条**时长可信**的音轨
+
+    ★VF_AUDIOFIX_V1（2026-09-22，用户实测「成片显示 10:52:31 / 10 小时」）：
+      实测根因 —— TTS 返回的 36 段里 **1 段采样率 44100、其余 35 段 24000**，
+      而这里原来是 `-f concat -c:a aac` **直接拼、不重采样、也不校验** →
+      时间戳被搅乱，`voice.m4a` 的时长元数据炸成 **40580 秒（真实 168.83 秒的 240 倍）**，
+      混音后成片头也变成 39151 秒 → 播放器显示 "10:52:31"。
+
+      修法 = **两段式**（本机实测：即使给一次 concat 加 `asetpts`，混采样率时头**仍会写错**
+      —— 实测内容 6.02 秒、头只写 4.01 秒）：
+        ① 第一段 concat → **WAV**（`-ar 24000 -ac 1` 强制统一采样率/声道）。
+           WAV 的长度由"数据字节数"表达，**不依赖时间戳** → 天然免疫这类错乱。
+        ② 第二段 WAV → AAC。
+        ③ 拼完用 **real_dur_sec**（解码成 PCM 数字节）复核容器头，差 >2% 直接报错
+           —— 宁可这一条明确失败，也绝不交付"时长说谎"的音频（下游混音会跟着错）。
+      另加 `-nostdin`：避免 ffmpeg 误入交互模式；失败一律抛错（不再返回空串→无声片）。
+    """
     ff = find_exe(FFMPEG_CANDS, 'ffmpeg')
     lst = os.path.join(os.path.dirname(os.path.abspath(out_path)), 'audio-list.txt')
     with open(lst, 'w', encoding='utf-8') as f:
         for p in files:
             f.write("file '%s'\n" % p.replace('\\', '/'))
-    cmd = ('"%s" -y -f concat -safe 0 -i "%s" -c:a aac -b:a 128k "%s"' % (ff, lst, out_path))
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
-                       encoding='utf-8', errors='replace')
+    _wav = out_path + '.pcm.wav'
+    for _p in (out_path, _wav):
+        try:
+            if os.path.exists(_p):
+                os.remove(_p)
+        except Exception:
+            pass
+    r1 = subprocess.run('"%s" -nostdin -y -f concat -safe 0 -i "%s" -vn -f wav -ar 24000 -ac 1 "%s"'
+                        % (ff, lst, _wav), shell=True, capture_output=True, text=True,
+                        encoding='utf-8', errors='replace')
+    if (not os.path.exists(_wav)) or os.path.getsize(_wav) < 1024:
+        raise RuntimeError('合并配音失败（第一段 WAV 转换）：%s' % (r1.stderr or '')[-400:])
+    r2 = subprocess.run('"%s" -nostdin -y -i "%s" -c:a aac -b:a 128k "%s"' % (ff, _wav, out_path),
+                        shell=True, capture_output=True, text=True,
+                        encoding='utf-8', errors='replace')
+    try:
+        os.remove(_wav)
+    except Exception:
+        pass
     if not os.path.exists(out_path):
-        print('  [tts] 合并失败: %s' % (r.stderr or '')[-300:])
-        return ''
+        raise RuntimeError('合并配音失败（第二段 AAC 编码）：%s' % (r2.stderr or '')[-400:])
+    # ★VF_AUDIOFIX_V1③：头 vs 真实内容（PCM 字节数）。不一致 = 头在说谎 → 明确失败
+    _hdr, _real = mp3_duration(out_path), real_dur_sec(out_path)
+    if _real > 0.2 and (_hdr <= 0.2 or abs(_hdr - _real) / _real > 0.02):
+        try:
+            os.remove(out_path)
+        except Exception:
+            pass
+        raise RuntimeError('合并配音时长不一致：容器头 %.2fs / 真实内容 %.2fs'
+                           '（头不可信 → 混音会把成片时长也带坏；请把这一行发给开发）'
+                           % (_hdr, _real))
+    print('  [tts] 合并音频校验通过：%d 段 / 头 %.2fs / 真实 %.2fs'
+          % (len(files), _hdr, _real or _hdr))
     return out_path
 
 
@@ -603,6 +668,17 @@ def main():
         if not ok:
             print('[TTS] ❌ 第 %d 镜配音失败: %s' % (i + 1, txt[:30]))
             continue
+        # ★VF_AUDIOFIX_V1③（2026-09-22）：单镜时长也用"帧数法"复核一次 ——
+        #   容器头会骗人（实测拼完的头是真实值的 240 倍）。只有在头与真实差 >2% 时才改，
+        #   否则完全照旧（不打扰既有时长节奏）。
+        try:
+            _real = real_dur_sec(p)
+            if _real > 0.2 and abs(dur - _real) / _real > 0.02:
+                print('[TTS] ⚠️ 第 %d 镜音频头 %.2fs 与真实 %.2fs 不一致 → 用真实值'
+                      % (i + 1, dur, _real))
+                dur = _real
+        except Exception:
+            pass
         # ★ 回填真实时长（留 0.35s 尾隙，避免字幕/画面切太急）
         s['dur'] = round(dur + 0.35, 2)
         s['voiceFile'] = p
