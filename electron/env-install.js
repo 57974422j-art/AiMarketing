@@ -197,9 +197,14 @@ async function verifyPythonItem(item) {
   }
 }
 
-/** 文件清单（存在 + 不太小） */
+/** app.getAppPath()：打包后是 <resources>\app.asar —— asar 内文件要走这个基准（★ASR_PACK_V1） */
+function appPath() {
+  try { return require('electron').app.getAppPath() } catch (e) { return process.cwd() }
+}
+
+/** 文件清单（存在 + 不太小）。基准：默认 <安装目录>（extraResources 类）；item.base==='app' 则用 app.getAppPath() */
 function verifyFilesItem(item) {
-  const root = installRoot()
+  const root = item.base === 'app' ? appPath() : installRoot()
   const miss = [], tiny = []
   for (const f of item.files || []) {
     const p = path.join(root, f.replace(/\//g, path.sep))
@@ -479,11 +484,17 @@ async function repairZipItem(item, onProgress) {
 async function repairItem(item, onProgress) {
   if (item.kind === 'zip') return await repairZipItem(item, onProgress)
   if (item.kind === 'pybrowser') return await repairPyBrowsersItem(item, onProgress)   // ★BROWSER_ALIGN_V1
-  // 文件类缺件 = 安装包本身不完整。本地没法凭空造出来 → 明确告诉用户"这是安装包问题"，
-  // 而不是像以前那样"没有就跳过"（用户定稿③）。
+  // 文件类缺件本地没法凭空造出来 —— 但要分清两种情况（★OPTIONAL_COPY_FIX_V1）：
+  //   · blocking（登记/发布必需）→ 这是【安装包本身不完整】，让用户重装（唯一出路）
+  //   · 非 blocking（如本地语音识别）→ 别叫用户去重装！本版本就可能没内置它，重装一百次也没用。
+  //     （用户实测：截图里那条 asr-lib 提示写着"请重新下载安装包覆盖安装"→ 白下 679MB）
+  const _list = (item.files || item.exeAny || []).slice(0, 3).join(' / ')
+  if (!item.blocking) {
+    return { ok: false, detail: (item.note ? item.note + '\n' : '') + '（缺失：' + _list + '）' }
+  }
   return {
     ok: false,
-    detail: '安装包内缺少该组件（' + (item.files || item.exeAny || []).slice(0, 2).join(' / ') + '）——' +
+    detail: '安装包内缺少该组件（' + _list + '）——' +
       '这是【安装包本身不完整】，请重新下载安装包覆盖安装；' +
       '若反复如此，把 ' + 'data\\env-setup.log' + ' 发给开发',
   }
@@ -548,8 +559,14 @@ async function runEnvSelfCheck(onItem) {
   }
 
   const ok = blocked.length === 0
-  elog('环境自检结束：' + (ok ? '全部通过' : '被拦下 ' + blocked.length + ' 项 → ' + blocked.map((b) => b.id).join(', ')))
-  return { ok, blocked, results }
+  // ★OPTIONAL_COPY_FIX_V1：日志别再说"全部通过"却留着一条 ⚠（用户截图里就是"标题说全过、下面一条提示"，看着自相矛盾）
+  const warnIds = M.ITEMS.filter((it) => !it.blocking && !((results[it.id] || {}).ok)).map((it) => it.id)
+  elog('环境自检结束：' + (ok
+    ? ('必要项全部通过' + (warnIds.length
+      ? '（另有 ' + warnIds.length + ' 项提示未通过：' + warnIds.join(', ') + ' —— 不影响登记/发布）'
+      : '（' + M.ITEMS.length + ' 项）'))
+    : ('被拦下 ' + blocked.length + ' 项 → ' + blocked.map((b) => b.id).join(', '))))
+  return { ok, blocked, warnIds, results }
 }
 
 /** 给发布用的浏览器内核路径（Node 侧与 Python 侧共用包内那一份） */

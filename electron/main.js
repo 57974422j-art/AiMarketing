@@ -179,26 +179,36 @@ async function runStartupChecks(win) {
     const _r = await ENV_I.runEnvSelfCheck(_forward)
     // 汇总：一眼看到"哪些通过 / 哪些刚被自动补上 / 哪些没通过"，而不是一句笼统的"环境异常"
     const _lines = []
+    let _warnN = 0
     for (const _it of ENV_M.ITEMS) {
       const _g = _r.results[_it.id] || {}
+      if (!_g.ok && !_it.blocking) _warnN++
       const _mark = _g.ok ? (_g.repaired ? '✓（已自动补齐）' : '✓') : (_it.blocking ? '✗' : '⚠')
-      _lines.push(_mark + ' ' + _it.title + (_g.ok ? '' : '：' + String(_g.detail || '').slice(0, 160)))
+      _lines.push(_mark + ' ' + _it.title + (_g.ok ? '' : '：' + String(_g.detail || '').slice(0, 180)))
     }
     // 浏览器一行说清楚"到底用哪个"（用户很在意"没装 Chrome 能不能用"）
     let _bl = ''
     try {
       const _c = findBrowserExe()
-      _bl = '\n浏览器：' + (_c || '未找到（系统 Chrome/Edge 与包内 Chromium 都没有）')
+      _bl = '\n浏览器：' + (_c || '未找到（系统 Chrome/Edge 与包内 Chromium 都没有）') +
+        (process.env.VF_FORCE_BUNDLED_BROWSER === '1' ? '（★测试开关 VF_FORCE_BUNDLED_BROWSER=1：已强制只用包内内核）' : '')
     } catch (e) {}
     if (_r.ok) {
-      item('env', 'ok', '运行环境全部通过（' + ENV_M.ITEMS.length + ' 项，均"真跑过"，不是只看文件在不在）\n' +
-        _lines.join('\n') + _bl, true)
+      // ★OPTIONAL_COPY_FIX_V1：标题必须与内容一致 ——
+      //   有"提示项未通过"时不能再说"全部通过"（用户截图：标题说全过、下面一条 ⚠，自相矛盾）。
+      //   同时状态从 ok 改成 warn（黄色 !），让"有一项提示"一眼可见。
+      const _head = _warnN
+        ? '运行环境：必要项【全部通过】（共 ' + ENV_M.ITEMS.length + ' 项，其中 ' + _warnN +
+          ' 项为提示、不影响登记/发布；均"真跑过"）'
+        : '运行环境全部通过（' + ENV_M.ITEMS.length + ' 项，均"真跑过"，不是只看文件在不在）'
+      item('env', _warnN ? 'warn' : 'ok', _head + '\n' + _lines.join('\n') + _bl, true)
       __envBlockers = __envBlockers.filter((b) => b.id !== 'env')
       // 环境刚可能被重装过 → 把"发布要用的 Python"重新锁定，并把状态上报服务器（AGENT 侧自检要读）
       try { const _p = ENV_I.findBuiltinPy(); if (_p) { _buPy = _p; buLog('[env] 发布用 Python 已锁定: ' + _p) } } catch (e) {}
       try { if (buEnv) { const _i2 = await buEnv.getBuEnvInfo(); await buEnv.reportBuEnv(_i2) } } catch (e) {}
     } else {
-      item('env', 'bad', '运行环境未通过 → 【已拦住，不允许进入下一步】\n' + _lines.join('\n') + _bl +
+      item('env', 'bad', '运行环境未通过（' + _r.blocked.length + ' 项必要组件不合格）→ 【已拦住，不允许进入下一步】\n' +
+        _lines.join('\n') + _bl +
         '\n\n★先点下方「重试」或重启一次客户端（多数情况会自动补齐）；仍不行请把 data\\env-setup.log 发给开发。', true)
       if (!__envBlockers.some((b) => b.id === 'env')) {
         __envBlockers.push({ id: 'env', title: '运行环境', detail: _r.blocked.map((b) => b.title).join(' / ') })
@@ -3211,6 +3221,23 @@ const BROWSER_CANDIDATES = [
   process.env['PROGRAMFILES(X86)'] + '\Microsoft\Edge\Application\msedge.exe',
 ]
 function findBrowserExe() {
+  // ★BROWSER_TEST_SWITCH_V1（2026-09-22，用户定稿 B 项）：测试开关 —— 强制只用包内 Chromium。
+  //   为什么需要它：默认顺序是【系统 Chrome → Edge → 包内 Chromium】，所以"有装 Chrome 的机器"
+  //   永远验不到包内兜底那条路（用户实测那台机器就走的系统 Chrome）。加了它以后，
+  //   任一台机器设 VF_FORCE_BUNDLED_BROWSER=1 就能单独验证"没装 Chrome 也能登记/发布"。
+  //   仅用于测试：不设 = 原行为。
+  if (process.env.VF_FORCE_BUNDLED_BROWSER === '1') {
+    try {
+      const { chromium } = require('playwright')
+      const exe0 = chromium.executablePath()
+      const ok0 = !!exe0 && fs.existsSync(exe0)
+      try { buLog('[chrome] VF_FORCE_BUNDLED_BROWSER=1 → 强制用包内 Chromium: ' + (exe0 || '(拿不到路径)') + (ok0 ? '  ✅存在' : '  ❌不存在')) } catch (e) {}
+      return ok0 ? exe0 : null
+    } catch (e) {
+      try { buLog('[chrome] VF_FORCE_BUNDLED_BROWSER=1 但询问包内 Chromium 失败: ' + String((e && e.message) || e)) } catch (e2) {}
+      return null
+    }
+  }
   // 2026-08-24: ①标准路径 ②写死 Program Files（Electron env 不可靠+系统级装不在PATH）③注册表 App Paths
   for (const p2 of BROWSER_CANDIDATES) { if (p2 && fs.existsSync(p2)) return p2 }
   const hardPaths = ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe']

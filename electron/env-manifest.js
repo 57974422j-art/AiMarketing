@@ -163,10 +163,19 @@ const ITEMS = [
     id: 'asr-lib',
     title: '本地语音识别库（sherpa-onnx）',
     kind: 'files',
-    blocking: false, // 见 note：目前它在 package.json 的 files 白名单里被排除 → 先报"不可用"，别把人挡在门外
-    files: ['node_modules/sherpa-onnx-node/package.json'],
-    note: '⚠️ 目前 package.json 的 files 里被 "!node_modules/sherpa-onnx-node/**" 排除 → 打包后必然缺失。' +
-      '缺了只有"本地语音识别"不可用，不影响登记/发布（所以不 blocking）；要修就得动 files 白名单 —— 待定，见 ISSUES.md',
+    blocking: false,   // 缺了只是"语音输入"用不了，不该把人挡在门外（用户定稿：非必要项不拦人）
+    // ★ASR_PACK_V1（2026-09-22）：它在 app.asar 里（不是 extraResources）——
+    //   所以校验基准是 app.getAppPath()，不是 <安装目录>。原来按 <安装目录> 找 node_modules\…
+    //   在打包版里【永远找不到】→ 会一直误报"缺失"（用户截图里那条 ⚠ 就是这么来的）。
+    base: 'app',
+    files: [
+      'node_modules/sherpa-onnx-node/package.json',
+      'node_modules/sherpa-onnx-node/sherpa-onnx.js',
+      'node_modules/sherpa-onnx-win-x64/package.json',
+      'node_modules/sherpa-onnx-win-x64/sherpa-onnx.node',
+    ],
+    note: '本地语音识别（声纹球 / 语音输入）不可用。【不影响登记 / 发布】—— ' +
+      '本版本可能未内置该组件，重装也不会出现，无需处理（除非要用语音输入）。',
   },
 ]
 
