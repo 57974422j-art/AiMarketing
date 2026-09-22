@@ -173,13 +173,38 @@ let innerPythonManifest = null
     process.exit(1)
   }
 
+  // ★PW_DL_V1（2026-09-22 实测踩坑）：这步【不是卡住，是官方 CDN 在国内很慢】。
+  //   实测数据（本机）：
+  //     · 官方 cdn.playwright.dev 可达，但速度约 0.22 MB/s → 一个 chrome-win64.zip(~150MB) 要约 11 分钟
+  //     · npmmirror 的 playwright 镜像【只镜像了 linux-arm64】，Windows 的包一个都没有（实测 404）→ 用不了
+  //   所以：① 用 --no-shell 跳过 headless shell（再省 ~100MB；生产脚本 bu_exec.py 是 headless=False，用不到）
+  //        ② 允许用 PLAYWRIGHT_DOWNLOAD_HOST 指定镜像（有可用镜像时直接生效）
+  //        ③ 先把"要下什么"打出来（dry-run），免得看进度条以为卡死了
+  const PW_HOST = process.env.PLAYWRIGHT_DOWNLOAD_HOST || ''
+  const pwEnv = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: pw }
+  if (PW_HOST) { log('   PLAYWRIGHT_DOWNLOAD_HOST = ' + PW_HOST) } else {
+    log('   ⚠️ 未设 PLAYWRIGHT_DOWNLOAD_HOST → 走官方 CDN（国内实测约 0.22MB/s，一个包约 11 分钟，慢但在动）')
+    log('      没有可用国内镜像就别设（npmmirror 的 playwright 镜像实测只有 linux-arm64，Windows 用不了）')
+  }
+  const dryRun = (cmd, args) => {
+    try {
+      const out = execFileSync(cmd, args, { encoding: 'utf-8', shell: true, env: pwEnv, timeout: 60000 })
+      for (const l of String(out).split(/\r?\n/)) {
+        if (/Download url|Download fallback|Install location|^\S.*v\d+\)/.test(l.trim())) log('      ' + l.trim())
+      }
+    } catch (e) { log('      （dry-run 失败，忽略：' + String((e.message || e)).slice(0, 80) + '）') }
+  }
+
   // (1) Node 侧：用本仓库的 playwright 把内核装进该目录（幂等，已装则秒过）
+  log('   [Node] 要下载/校验的内容：')
+  dryRun('npx', ['playwright', 'install', 'chromium', '--no-shell', '--dry-run'])
   try {
-    log('   [Node] npx playwright install chromium（PLAYWRIGHT_BROWSERS_PATH=' + pw + '）…')
-    execFileSync('npx', ['playwright', 'install', 'chromium'], { stdio: 'inherit', shell: true, env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: pw } })
+    log('   [Node] npx playwright install chromium --no-shell（PLAYWRIGHT_BROWSERS_PATH=' + pw + '）…')
+    execFileSync('npx', ['playwright', 'install', 'chromium', '--no-shell'], { stdio: 'inherit', shell: true, env: pwEnv })
   } catch (e) {
     console.error('❌ Node 侧浏览器内核安装失败: ' + (e.message || e) +
-      '\n   请手动执行：PLAYWRIGHT_BROWSERS_PATH="' + pw + '" npx playwright install chromium')
+      '\n   若是因为网络太慢/超时，重跑一次即可（已下好的部分不会重下）。' +
+      '\n   也可手动：$env:PLAYWRIGHT_BROWSERS_PATH="' + pw + '"; npx playwright install chromium --no-shell')
     process.exit(1)
   }
 
@@ -216,11 +241,15 @@ let innerPythonManifest = null
         '   处理：pip install playwright==' + pyPwVer + '   （或用与环境包一致的机器打包）')
       process.exit(1)
     }
+    log('   [Python] 要下载/校验的内容：')
+    dryRun('python', ['-m', 'playwright', 'install', 'chromium', '--no-shell', '--dry-run'])
     try {
-      log('   [Python] playwright ' + sysPwVer + ' install chromium（同一目录）…')
-      execFileSync('python', ['-m', 'playwright', 'install', 'chromium'], { stdio: 'inherit', env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: pw } })
+      log('   [Python] playwright ' + sysPwVer + ' install chromium --no-shell（同一目录）…')
+      execFileSync('python', ['-m', 'playwright', 'install', 'chromium', '--no-shell'], { stdio: 'inherit', env: pwEnv })
     } catch (e) {
-      console.error('❌ Python 侧浏览器内核安装失败: ' + (e.message || e))
+      console.error('❌ Python 侧浏览器内核安装失败: ' + (e.message || e) +
+        '\n   若是因为网络太慢/超时，重跑一次即可（已下好的部分不会重下）。' +
+        '\n   也可手动：$env:PLAYWRIGHT_BROWSERS_PATH="' + pw + '"; python -m playwright install chromium --no-shell')
       process.exit(1)
     }
     const probe2 = 'from playwright.sync_api import sync_playwright\np=sync_playwright().start()\nprint(p.chromium.executable_path)\np.stop()'
