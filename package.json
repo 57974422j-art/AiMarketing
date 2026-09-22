@@ -68,6 +68,7 @@
     },
     "files": [
       "electron/**/*",
+      "!electron/models/**",
       "public/**/*",
       "!public/updates/**",
       "package.json",

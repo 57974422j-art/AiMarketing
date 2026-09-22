@@ -201,6 +201,10 @@ async function verifyPythonItem(item) {
 function appPath() {
   try { return require('electron').app.getAppPath() } catch (e) { return process.cwd() }
 }
+/** 是否安装版（决定 devSkip 项要不要跳过） */
+function isPackaged() {
+  try { return !!require('electron').app.isPackaged } catch (e) { return false }
+}
 
 /** 文件清单（存在 + 不太小）。基准：默认 <安装目录>（extraResources 类）；item.base==='app' 则用 app.getAppPath() */
 function verifyFilesItem(item) {
@@ -340,6 +344,10 @@ function verifyExeAnyItem(item) {
 /** 统一入口：按 kind 分派 */
 async function verifyItem(item) {
   try {
+    // ★ASR_PACK_V1：有些项只在【安装版】才有意义（例如 <resources>/models —— 开发环境读的是仓库目录）
+    if (item.devSkip && !isPackaged()) {
+      return { ok: true, detail: '开发环境跳过（该项只在安装版里有意义）' }
+    }
     if (item.kind === 'zip') return await verifyPythonItem(item)
     if (item.kind === 'files') return verifyFilesItem(item)
     if (item.kind === 'exeAny') return verifyExeAnyItem(item)

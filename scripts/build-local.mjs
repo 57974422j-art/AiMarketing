@@ -332,6 +332,12 @@ const build = {
     //   实测确实缺它（计划任务指向的脚本在用户机器上不存在 = 保活失效）。
     { from: 'scripts/keep-login-alive.mjs', to: 'scripts/keep-login-alive.mjs' },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
+    // ★ASR_PACK_V1（2026-09-22）：本地语音识别模型必须放【真实目录】，不能留在 asar 里。
+    //   原因：sherpa 的 C++ 层是用 fopen 直接读模型文件的，而 Electron 的 asar 只对 JS 层 fs 生效
+    //        → 路径写成 app.asar\electron\models\sherpa\... 时，existsSync 能过、new OnlineRecognizer 必失败。
+    //   放到 <resources>/models/sherpa 后，正好命中 main.js 里 getSherpaModelDir() 的【第一候选】。
+    //   体积上等价于"从 asar 挪出来"，不额外增加。
+    { from: 'electron/models', to: 'models', filter: ['**/*'] },
     // ★ENVPACK_SHIP_V1（2026-09-22 用户定案「客户端大小无所谓，保证用户一次安装好最重要」）：
     //   环境包【必须打进安装包】→ 落到 <resources>/python-bu.zip：
     //     用户机器上第一次安装就有完整环境，【运行时零下载】；OSS 只当"包内损坏"时的兜底。

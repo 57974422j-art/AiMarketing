@@ -177,6 +177,25 @@ const ITEMS = [
     note: '本地语音识别（声纹球 / 语音输入）不可用。【不影响登记 / 发布】—— ' +
       '本版本可能未内置该组件，重装也不会出现，无需处理（除非要用语音输入）。',
   },
+  {
+    id: 'asr-model',
+    title: '本地语音识别模型（sherpa 模型文件）',
+    kind: 'files',
+    blocking: false,
+    // ★ASR_PACK_V1：模型必须放在【真实目录】—— sherpa 的原生层用 fopen 读文件，
+    //   而 asar 内的文件只有 JS 层 fs 读得到 → 放在 asar 里会"existsSync 通过、new Recognizer 失败"。
+    //   所以它由 build-local 的 extraResources 落到 <resources>/models/sherpa
+    //   （正好命中 main.js 里 getSherpaModelDir() 的第一候选）。
+    files: [
+      'resources/models/sherpa/tokens.txt',
+      'resources/models/sherpa/encoder-epoch-99-avg-1.int8.onnx',
+      'resources/models/sherpa/decoder-epoch-99-avg-1.int8.onnx',
+      'resources/models/sherpa/joiner-epoch-99-avg-1.int8.onnx',
+    ],
+    minBytes: 1024,          // 模型都是 MB 级；只查"文件在不在"不够，太小的肯定是坏的
+    devSkip: true,           // 开发环境没有 <resources>/models（开发时读仓库 electron/models/sherpa）→ 不报警
+    note: '本地语音识别（声纹球 / 语音输入）不可用。【不影响登记 / 发布】—— 无需处理（除非要用语音输入）。',
+  },
 ]
 
 /** 安装根目录（exe 同级）—— 运行时有 process.execPath，打包校验时由调用方传 */
