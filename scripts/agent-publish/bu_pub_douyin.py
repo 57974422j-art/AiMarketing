@@ -77,6 +77,61 @@ def click_selector_prefix(page, prefix, exclude=None):
     except Exception: pass
     return False
 
+# ★COVER_GUIDE_MODAL_V1（2026-09-22 用户实测定位）：
+#   抖音【每天第一次发布】会在封面弹窗上面再浮一层运营引导层
+#   「设置横封面获更多流量」（按钮：暂不设置 / 设置横封面）——
+#   它正好盖住封面弹窗的「完成」按钮；旧脚本只在原地反复找「完成」（看起来像在来回拖动），
+#   也从不点「暂不设置」→ 卡在封面这一步（用户截图已确认）。
+#   处理铁律：
+#     · 只点【暂不设置】（或该层右上角 ✕）= 不设置、等于跳过
+#     · ★绝不点「设置横封面」——那会打开横封面编辑器，又反过来盖住页面
+#       （2026-09-14 ad23732 就是因为点了同名按钮才删掉"判断横竖"那段逻辑的）
+#   close_cover_guide() 是幂等的：没有这层引导 → 什么都不做（返回 False）。
+def close_cover_guide(page):
+    """关掉抖音「设置横封面获更多流量」引导层；没这层就不动任何东西。"""
+    box = None
+    for sel in ('.semi-portal', '.semi-modal', '[class*="modal"]', '[class*="dialog"]'):
+        try:
+            for e in page.query_selector_all(sel):
+                try:
+                    if not e.is_visible(): continue
+                    t = ' '.join((e.inner_text() or '').split())
+                    if ('获更多流量' in t) or ('暂不设置' in t):
+                        box = e
+                        break
+                except Exception: continue
+        except Exception: pass
+        if box is not None: break
+    if box is None: return False
+    txt = ' '.join((box.inner_text() or '').split())
+    # ① 正解：点「暂不设置」
+    for sel in ('button', '[role="button"]', '[class*="button"]'):
+        try:
+            for e in box.query_selector_all(sel):
+                try:
+                    if not e.is_visible(): continue
+                    if ' '.join((e.inner_text() or '').split()) == '暂不设置':
+                        e.click(timeout=1500)
+                        log('✅ 已关掉抖音封面引导层（点了「暂不设置」）')
+                        page.wait_for_timeout(700)
+                        return True
+                except Exception: continue
+        except Exception: continue
+    # ② 退路：✕ —— 只在【确实含「获更多流量」这个引导特征】时才用
+    #    （避免误点到封面弹窗自己的 ✕，那会把已上传的封面一起关掉）
+    if '获更多流量' in txt:
+        for sel in ('.semi-modal-close', 'button[aria-label="关闭"]', '[class*="modal-close"]'):
+            try:
+                e = box.query_selector(sel)
+                if e and e.is_visible():
+                    e.click(timeout=1500)
+                    log('✅ 已关掉抖音封面引导层（点了右上角 ✕）')
+                    page.wait_for_timeout(700)
+                    return True
+            except Exception: continue
+    log('⚠️ 检测到封面引导层，但「暂不设置」/✕ 都没点到（继续尝试）')
+    return False
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--video', required=True)
@@ -217,10 +272,12 @@ def main():
             #   的同名按钮撞车 → 点错 → 弹窗弹出挡住上传区 → 后续操作卡死（用户实测反复出现）。
             #   今天全部删除：只保留"打开封面设置 → 上传 → 点完成"。
             log('⑤ 封面上传（不判断横竖，抖音自动识别）')
+            close_cover_guide(page)      # ★COVER_GUIDE_MODAL_V1：先清掉可能已经浮着的引导层
             page.wait_for_timeout(800)
             opened = click_text(page, ['选择封面', '设置封面'])
             if opened:
                 page.wait_for_timeout(2500)
+                close_cover_guide(page)  # ★进封面弹窗后再清一次（它常在这时冒出、盖住「完成」）
                 # 上传：优先 semi-upload-drag-area（排除 custom=AI 参考图区）
                 up = False
                 for e in page.query_selector_all('.semi-upload-drag-area'):
@@ -264,12 +321,23 @@ def main():
                         return None, None
 
                     sel_ok, btn_ok = None, None
+                    _guide_hits = 0
                     for _i in range(40):          # 40 × 500ms = 20s
                         sel_ok, btn_ok = _cover_done_btn()
                         if btn_ok:
                             log('✅ 封面已就绪（等了 %.1fs，按钮=%s）' % ((_i + 1) * 0.5, sel_ok))
                             break
+                        # ★COVER_GUIDE_MODAL_V1：找「完成」找不着，八成是引导层盖住了 → 先关掉再找
+                        #   （每天第一次发布必现；关掉后「完成」立刻可点，不再死等 20 秒）
+                        if close_cover_guide(page):
+                            _guide_hits += 1
+                            sel_ok, btn_ok = _cover_done_btn()
+                            if btn_ok:
+                                log('✅ 关掉引导层后「完成」已可点（等了 %.1fs）' % ((_i + 1) * 0.5))
+                                break
                         page.wait_for_timeout(500)
+                    if _guide_hits:
+                        log('本次共关掉封面引导层 %d 次' % _guide_hits)
                     if not btn_ok:
                         log('⚠️ 封面 20s 仍未就绪（继续尝试点击）')
 
@@ -309,6 +377,7 @@ def main():
                                 log('⚠️ 检测到封面提示层：' + txt.replace('\n', ' ')[:40])
                                 for cs in ['.semi-portal .semi-modal-close',
                                            '.semi-portal button[aria-label="关闭"]',
+                                           'button:has-text("暂不设置")',   # ★COVER_GUIDE_MODAL_V1：每天首次发布那个引导层
                                            'button:has-text("知道了")',
                                            'button:has-text("我知道了")']:
                                     try:
