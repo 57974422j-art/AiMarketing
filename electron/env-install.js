@@ -130,20 +130,31 @@ async function probeNetwork(serverUrl, timeoutMs) {
 // 单镜校验
 // ─────────────────────────────────────────────────────────────
 
-const PY_PROBE = [
-  '-c',
-  'import sys,json\n' +
-  'd={"python":sys.version.split()[0]}\n' +
-  'try:\n' +
-  '  import importlib.metadata as m\n' +
-  '  for k in ("playwright","browser_use"):\n' +
-  '    try: d[k]=m.version(k)\n' +
-  '    except Exception: d[k]=""\n' +
-  'except Exception: pass\n' +
-  'print("VFENV"+json.dumps(d))',
-].join('\n')
+/**
+ * ★PY_PACKAGES_V1：一次问清"Python 版本 + 清单里每个包的真实版本 + 每个包是否真能 import"。
+ *   为什么不只查 playwright/browser_use：脚本还 import dotenv / PIL —— 缺了它们，
+ *   本机看不出问题，用户机器上发布就崩（这正是"检查有什么缺什么"要覆盖的范围）。
+ */
+function buildPyProbe() {
+  const pkgs = M.PY_PACKAGES.map((p) => p.pkg)
+  const imps = M.PY_PACKAGES.map((p) => p.imp)
+  return [
+    'import sys,json',
+    'd={"python":sys.version.split()[0],"imports":{}}',
+    'import importlib.metadata as m',
+    'for k in ' + JSON.stringify(pkgs) + ':',
+    '    try: d[k]=m.version(k)',
+    '    except Exception: d[k]=""',
+    'for mod in ' + JSON.stringify(imps) + ':',
+    '    try:',
+    '        __import__(mod.split(".")[0]); d["imports"][mod]="ok"',
+    '    except Exception as e: d["imports"][mod]="ERR "+str(e)[:60]',
+    'print("VFENV"+json.dumps(d))',
+  ].join('\n')
+}
+const PY_PROBE = buildPyProbe()
 
-/** 内置环境：真跑一次，拿真实版本 + 真启动 playwright（"文件在"不算通过） */
+/** 内置环境：真跑一次，拿真实版本 + 逐包 import + 真启动 playwright（"文件在"不算通过） */
 async function verifyPythonItem(item) {
   const py = findBuiltinPy()
   if (!py) return { ok: false, detail: '未安装（' + path.join(installRoot(), 'python') + ' 下没有 python.exe）', fixable: true }
@@ -156,10 +167,15 @@ async function verifyPythonItem(item) {
   try { got = JSON.parse(line.slice(5)) } catch (e) {}
   const bad = []
   if (!M.matchSpec(got.python, M.RUNTIME.python.spec)) bad.push('python=' + (got.python || '?') + '（要求 ' + M.RUNTIME.python.spec + '）')
-  if (!M.matchSpec(got.playwright, M.RUNTIME.playwright.spec)) bad.push('playwright=' + (got.playwright || '缺') + '（要求 ' + M.RUNTIME.playwright.spec + '）')
-  if (!M.matchSpec(got.browserUse, M.RUNTIME.browser_use.spec)) bad.push('browser_use=' + (got.browserUse || '缺') + '（要求 ' + M.RUNTIME.browser_use.spec + '）')
+  // ★PY_PACKAGES_V1：逐包"版本对 + 真能 import"
+  const imps = got.imports || {}
+  for (const p of (item.packages || M.PY_PACKAGES)) {
+    const v = String(got[p.pkg] || '')
+    if (p.spec && !M.matchSpec(v, p.spec)) bad.push(p.pkg + '=' + (v || '缺') + '（要求 ' + p.spec + '）')
+    if (imps[p.imp] !== 'ok') bad.push(p.imp + ' 无法 import（' + String(imps[p.imp] || '未测') + '）')
+  }
   if (bad.length) {
-    return { ok: false, got, detail: '版本不符：' + bad.join(' / '), fixable: true }
+    return { ok: false, got, detail: '版本/依赖不符：' + bad.join(' / '), fixable: true }
   }
   // ★真执行：import 通过 ≠ 能用（旧代码已经吃过这个亏）—— 再真启动一次，并顺便问出它期望的浏览器路径
   const r2 = await run(py, ['-c', 'from playwright.sync_api import sync_playwright\np=sync_playwright().start()\nprint("VFEXE"+str(p.chromium.executable_path))\np.stop()'], { timeout: 90000 })
@@ -169,9 +185,13 @@ async function verifyPythonItem(item) {
   }
   const wantExe = l2.slice(5).trim()
   const exeOk = wantExe && fs.existsSync(wantExe)
+  // 逐包列出实测版本（用户/开发一眼能看到"包里到底是什么版本"）
+  const verTxt = ['python ' + got.python]
+    .concat((item.packages || M.PY_PACKAGES).map((p) => p.pkg + ' ' + (got[p.pkg] || '?')))
+    .join(' / ')
   return {
     ok: true, got,
-    detail: 'python ' + got.python + ' / playwright ' + got.playwright + ' / browser_use ' + got.browserUse +
+    detail: verTxt +
       '\n浏览器内核：' + (exeOk ? '就绪（' + wantExe + '）' : '⚠️ 期望位置不存在：' + wantExe),
     pythonExe: py, browserExe: wantExe, browserOk: exeOk,
   }

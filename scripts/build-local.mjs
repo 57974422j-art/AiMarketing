@@ -118,8 +118,10 @@ let innerPythonManifest = null
   try { list = execFileSync(S7Z, ['l', '-ba', ENV_ZIP], { encoding: 'utf-8', maxBuffer: 128 * 1024 * 1024 }) } catch (e) {
     console.error('❌ 无法读取环境包内容: ' + String((e && e.message) || e)); process.exit(1)
   }
-  if (!/buvenv-test[\\/]Scripts[\\/]python\.exe/i.test(list)) {
-    console.error('❌ 环境包结构不对：里面没有 buvenv-test/Scripts/python.exe')
+  // 两种合法结构都接受：buvenv-test/python.exe（全量安装式，可整体搬走）
+  //                    buvenv-test/Scripts/python.exe（venv 式）
+  if (!/buvenv-test[\\/](Scripts[\\/])?python\.exe/i.test(list)) {
+    console.error('❌ 环境包结构不对：里面既没有 buvenv-test/python.exe，也没有 buvenv-test/Scripts/python.exe')
     process.exit(1)
   }
   try {
@@ -141,6 +143,10 @@ let innerPythonManifest = null
   }
   if (!M.matchSpec(String(rt.python || ''), M.RUNTIME.python.spec)) {
     problems.push('环境包 python=' + (rt.python || '(缺)') + ' 不在要求区间 ' + M.RUNTIME.python.spec)
+  }
+  // ★PY_PACKAGES_V1：清单里要求的每个包都必须【真的在包内清单里】
+  for (const p of M.PY_PACKAGES) {
+    if (!String(rt[p.pkg] || '')) problems.push('环境包缺少依赖 ' + p.pkg + '（脚本里会 import 它，缺了用户机器上发布就崩）')
   }
   if (problems.length) {
     console.error('❌ 环境包与客户端要求不一致（这就是"装完还是版本对不上"的根源）：\n   - ' + problems.join('\n   - ') +

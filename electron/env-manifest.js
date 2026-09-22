@@ -31,6 +31,20 @@ const RUNTIME = {
 }
 
 /**
+ * ★PY_PACKAGES_V1（2026-09-22）：环境包里【必须装】的 Python 包（唯一真源）。
+ *   依据 = 发布/采集脚本里真实出现的第三方 import（scripts/browser-use/*.py、scripts/agent-publish/*.py）：
+ *     browser_use / playwright / dotenv / PIL
+ *   make-python-pack.mjs 用这份清单造包；env-install 用这份清单逐项 import 校验（缺哪个说哪个）。
+ *   ⚠️ 以后脚本里新增第三方 import，必须同时加到这张表 —— 否则"本机能跑、用户机器缺库"。
+ */
+const PY_PACKAGES = [
+  { pkg: 'playwright', spec: '1.62.0', imp: 'playwright.sync_api', why: '开浏览器（发布/采集）' },
+  { pkg: 'browser_use', spec: '0.13.10', imp: 'browser_use', why: 'browser-use 执行器' },
+  { pkg: 'python-dotenv', spec: '', imp: 'dotenv', why: 'bu_pub_*.py 里 from dotenv' },
+  { pkg: 'pillow', spec: '', imp: 'PIL', why: '图片处理（封面/图文）' },
+]
+
+/**
  * 浏览器内核目录（Node 侧）：打包到 <resources>/ms-playwright。
  *
  * ★BROWSER_ALIGN_V1（2026-09-22 实测踩到，正是用户说的"又是版本对不上"）：
@@ -72,7 +86,11 @@ const ITEMS = [
     // 解压目标：<安装目录>\python（与旧版 ensureBuPython 一致，沿用不迁移）
     dest: 'python',
     // 解压后应出现的目录（用于"版本校验"与"旧目录改名保留"）
+    //   ★注意：python.exe 可能在 buvenv-test\ 根下（全量安装式，可整体搬走）
+    //     也可能在 buvenv-test\Scripts\ 下（venv 式）—— 两种都支持，别写死一层。
     expectDir: 'python/buvenv-test',
+    // 环境包里必须能 import 的包（缺哪个就说哪个，见 env-install 的 pyimport 校验）
+    packages: PY_PACKAGES,
     // 解压后应出现的清单文件（版本校验的唯一依据）
     innerManifest: 'env-manifest.json',
     verify: 'pyimport',
@@ -191,4 +209,4 @@ function matchSpec(actual, spec) {
   return true
 }
 
-module.exports = { ENV_PACK_VERSION, RUNTIME, BROWSERS_DIR, ITEMS, installRoot, matchSpec }
+module.exports = { ENV_PACK_VERSION, RUNTIME, PY_PACKAGES, BROWSERS_DIR, ITEMS, installRoot, matchSpec }
