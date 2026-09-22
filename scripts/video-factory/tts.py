@@ -554,40 +554,80 @@ def real_dur_sec(path, sr=24000, ch=1):
 
 
 def merge_audio(files, out_path):
-    """把多段 mp3 顺序拼成一条**时长可信**的音轨
+    """把逐镜音频拼成一条**与画面逐镜对齐、且时长可信**的音轨
 
     ★VF_AUDIOFIX_V1（2026-09-22，用户实测「成片显示 10:52:31 / 10 小时」）：
-      实测根因 —— TTS 返回的 36 段里 **1 段采样率 44100、其余 35 段 24000**，
-      而这里原来是 `-f concat -c:a aac` **直接拼、不重采样、也不校验** →
-      时间戳被搅乱，`voice.m4a` 的时长元数据炸成 **40580 秒（真实 168.83 秒的 240 倍）**，
-      混音后成片头也变成 39151 秒 → 播放器显示 "10:52:31"。
+      根因 1（时长元数据炸坏）—— TTS 返回的 36 段里 **1 段采样率 44100、其余 35 段 24000**，
+      原来 `-f concat -c:a aac` 直接拼、不重采样不校验 → 时间戳被搅乱，
+      `voice.m4a` 的头写成 **40580 秒（真实 168.83 秒的 240 倍）** → 成片头也变 39151 秒。
 
-      修法 = **两段式**（本机实测：即使给一次 concat 加 `asetpts`，混采样率时头**仍会写错**
-      —— 实测内容 6.02 秒、头只写 4.01 秒）：
-        ① 第一段 concat → **WAV**（`-ar 24000 -ac 1` 强制统一采样率/声道）。
-           WAV 的长度由"数据字节数"表达，**不依赖时间戳** → 天然免疫这类错乱。
-        ② 第二段 WAV → AAC。
-        ③ 拼完用 **real_dur_sec**（解码成 PCM 数字节）复核容器头，差 >2% 直接报错
-           —— 宁可这一条明确失败，也绝不交付"时长说谎"的音频（下游混音会跟着错）。
+    ★VF_AUDIOALIGN_V1（2026-09-22，用户实测「片尾没配音、字幕还在」）：
+      根因 2（逐镜没对齐）—— 分镜里每镜 `dur = 配音 + 0.35 秒尾隙`，但合并时**只把配音拼起来、
+      没补那 0.35 秒** → 音频比画面短 镜数×0.35（36 镜 = 12.96 秒），而且误差是**逐镜累积**的：
+      第 k 镜的配音比它的画面早 0.35k 秒 → 越往后字幕越超前、**片尾那段画面完全没声音**。
+      （上一版用 apad 把"总时长"补够了，但没解决"逐镜对齐" → 症状从"成片被砍短"变成"片尾静音"。）
+
+      修法（逐镜补齐 → 统一规格 → 再拼）：
+        ① 每镜先归一化成 WAV（24000Hz / 单声道 / 16bit）并**补齐到该镜时长**：
+           有配音 → 不足补静音、超出截到 dur；没配音 → 整段静音占位。
+        ② 所有 WAV 规格完全一致 → concat → 再编 AAC。
+           WAV 长度由"数据字节数"表达、且规格统一 → 既不怕混采样率，也不怕时间戳。
+        ③ 拼完复核两件事：容器头 vs **real_dur_sec**（解码成 PCM 数字节）；
+           真实总长 vs **分镜应得总长**（差 >2% 说明逐镜对齐失败）→ 不符就明确报错。
+
+      `files` 参数：`[(音频路径 or None, 该镜时长秒), ...]`（也兼容只传路径字符串）。
       另加 `-nostdin`：避免 ffmpeg 误入交互模式；失败一律抛错（不再返回空串→无声片）。
     """
     ff = find_exe(FFMPEG_CANDS, 'ffmpeg')
-    lst = os.path.join(os.path.dirname(os.path.abspath(out_path)), 'audio-list.txt')
+    outdir = os.path.dirname(os.path.abspath(out_path))
+    parts, _tmps, _want = [], [], 0.0
+    for i, item in enumerate(files):
+        p, want = (item if isinstance(item, (tuple, list)) else (item, 0.0))
+        p = p or ''
+        try:
+            want = float(want or 0)
+        except Exception:
+            want = 0.0
+        _want += max(0.0, want)
+        w = os.path.join(outdir, 'mix%03d.wav' % i)
+        if p and os.path.exists(p):
+            # apad=whole_dur=want 把配音补静音到该镜时长；-t want 防超长 → 恰好 == 该镜时长
+            c = ('"%s" -nostdin -y -i "%s" -af "apad=whole_dur=%.3f" -t %.3f '
+                 '-ar 24000 -ac 1 -c:a pcm_s16le "%s"' % (ff, p, want, want, w))
+        elif want > 0.02:
+            c = ('"%s" -nostdin -y -f lavfi -i "anullsrc=r=24000:cl=mono" -t %.3f '
+                 '-ar 24000 -ac 1 -c:a pcm_s16le "%s"' % (ff, want, w))
+        else:
+            continue
+        r = subprocess.run(c, shell=True, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
+        if (not os.path.exists(w)) or os.path.getsize(w) < 512:
+            raise RuntimeError('配音对齐失败（第 %d 段）：%s' % (i + 1, (r.stderr or '')[-300:]))
+        parts.append(w)
+        _tmps.append(w)
+    if not parts:
+        raise RuntimeError('没有可用的配音片段（逐镜对齐阶段全失败）')
+    lst = os.path.join(outdir, 'audio-list.txt')
     with open(lst, 'w', encoding='utf-8') as f:
-        for p in files:
+        for p in parts:
             f.write("file '%s'\n" % p.replace('\\', '/'))
-    _wav = out_path + '.pcm.wav'
+    _wav = out_path + '.all.wav'
     for _p in (out_path, _wav):
         try:
             if os.path.exists(_p):
                 os.remove(_p)
         except Exception:
             pass
-    r1 = subprocess.run('"%s" -nostdin -y -f concat -safe 0 -i "%s" -vn -f wav -ar 24000 -ac 1 "%s"'
+    r1 = subprocess.run('"%s" -nostdin -y -f concat -safe 0 -i "%s" -c:a pcm_s16le "%s"'
                         % (ff, lst, _wav), shell=True, capture_output=True, text=True,
                         encoding='utf-8', errors='replace')
+    for _p in _tmps:
+        try:
+            os.remove(_p)
+        except Exception:
+            pass
     if (not os.path.exists(_wav)) or os.path.getsize(_wav) < 1024:
-        raise RuntimeError('合并配音失败（第一段 WAV 转换）：%s' % (r1.stderr or '')[-400:])
+        raise RuntimeError('合并配音失败（拼接阶段）：%s' % ((r1.stderr or '')[-400:]))
     r2 = subprocess.run('"%s" -nostdin -y -i "%s" -c:a aac -b:a 128k "%s"' % (ff, _wav, out_path),
                         shell=True, capture_output=True, text=True,
                         encoding='utf-8', errors='replace')
@@ -596,8 +636,8 @@ def merge_audio(files, out_path):
     except Exception:
         pass
     if not os.path.exists(out_path):
-        raise RuntimeError('合并配音失败（第二段 AAC 编码）：%s' % (r2.stderr or '')[-400:])
-    # ★VF_AUDIOFIX_V1③：头 vs 真实内容（PCM 字节数）。不一致 = 头在说谎 → 明确失败
+        raise RuntimeError('合并配音失败（AAC 编码）：%s' % ((r2.stderr or '')[-400:]))
+    # ★VF_AUDIOFIX_V1③ + ★VF_AUDIOALIGN_V1③：两重校验，任一不符就明确失败（不静默交付）
     _hdr, _real = mp3_duration(out_path), real_dur_sec(out_path)
     if _real > 0.2 and (_hdr <= 0.2 or abs(_hdr - _real) / _real > 0.02):
         try:
@@ -607,8 +647,16 @@ def merge_audio(files, out_path):
         raise RuntimeError('合并配音时长不一致：容器头 %.2fs / 真实内容 %.2fs'
                            '（头不可信 → 混音会把成片时长也带坏；请把这一行发给开发）'
                            % (_hdr, _real))
-    print('  [tts] 合并音频校验通过：%d 段 / 头 %.2fs / 真实 %.2fs'
-          % (len(files), _hdr, _real or _hdr))
+    if _want > 0.2 and _real > 0.2 and abs(_real - _want) / _want > 0.02:
+        try:
+            os.remove(out_path)
+        except Exception:
+            pass
+        raise RuntimeError('合并配音与分镜总时长不一致：真实 %.2fs / 分镜应得 %.2fs'
+                           '（逐镜对齐失败 → 会出现片尾无声/字幕超前；请把这一行发给开发）'
+                           % (_real, _want))
+    print('  [tts] 合并音频校验通过：%d 段 / 头 %.2fs / 真实 %.2fs / 分镜应得 %.2fs（已逐镜对齐）'
+          % (len(parts), _hdr, _real or _hdr, _want))
     return out_path
 
 
@@ -636,7 +684,8 @@ def main():
     os.makedirs(wd, exist_ok=True)
 
     shots = sb.get('shots', [])
-    clips, total = [], 0.0
+    # ★VF_AUDIOALIGN_V1：[(音频路径 or None, 该镜时长)] —— None = 该镜留静音占位
+    clips = []
     print('[TTS] 共 %d 镜，逐镜配音（每镜时长 = 该镜配音真实时长）' % len(shots))
     for i, s in enumerate(shots):
         txt = (s.get('subtitle') or s.get('text') or '').strip()
@@ -661,14 +710,16 @@ def main():
                 _p.append(str(s['cta']).strip())
             txt = '，'.join([x for x in _p if x])[:80]
         if not txt:
-            print('[TTS] 第 %d 镜无文案，跳过配音' % (i + 1))
+            print('[TTS] 第 %d 镜无文案 → 该镜留静音占位（保持与画面同一时间轴）' % (i + 1))
+            clips.append((None, float(s.get('dur') or 0) or 5.0))
             continue
         p = os.path.join(wd, 'vo%02d.mp3' % i)
         ok, dur = tts_one(txt, p, a.speaker)
         if not ok:
-            print('[TTS] ❌ 第 %d 镜配音失败: %s' % (i + 1, txt[:30]))
+            print('[TTS] ❌ 第 %d 镜配音失败 → 该镜留静音占位: %s' % (i + 1, txt[:30]))
+            clips.append((None, float(s.get('dur') or 0) or 5.0))
             continue
-        # ★VF_AUDIOFIX_V1③（2026-09-22）：单镜时长也用"帧数法"复核一次 ——
+        # ★VF_AUDIOFIX_V1③（2026-09-22）：单镜时长用"解码成 PCM 数字节"复核一次 ——
         #   容器头会骗人（实测拼完的头是真实值的 240 倍）。只有在头与真实差 >2% 时才改，
         #   否则完全照旧（不打扰既有时长节奏）。
         try:
@@ -682,16 +733,18 @@ def main():
         # ★ 回填真实时长（留 0.35s 尾隙，避免字幕/画面切太急）
         s['dur'] = round(dur + 0.35, 2)
         s['voiceFile'] = p
-        clips.append(p)
-        total += s['dur']
+        # ★VF_AUDIOALIGN_V1：连"该镜时长"一起带上 —— 合并时按它逐镜补齐（补齐尾隙）
+        clips.append((p, s['dur']))
         print('[TTS] 第 %d 镜 %.2fs  %s' % (i + 1, s['dur'], txt[:26]))
 
-    if not clips:
+    if not any(x for x, _ in clips):
         print('[TTS] 没有成功配音'); sys.exit(3)
 
+    # ★VF_AUDIOALIGN_V1：分镜总时长 = 所有镜（含没配到音的静音占位）之和 —— 供合并校验
+    total = sum(float(s.get('dur') or 0) for s in shots)
     mrg = a.merge or os.path.join(wd, 'voice.m4a')
     merged = merge_audio(clips, mrg)
-    print('[TTS] 合并配音 -> %s（总时长约 %.1fs）' % (merged, total))
+    print('[TTS] 合并配音 -> %s（分镜总时长 %.1fs；已逐镜对齐）' % (merged, total))
 
     oj = a.out_json or a.storyboard.replace('.json', '.voiced.json')
     with open(oj, 'w', encoding='utf-8') as f:
