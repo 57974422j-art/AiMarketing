@@ -405,6 +405,11 @@ interface Message {
 
 interface Attachment { name: string; url: string; type: string }
 
+// ★2026-09-22（用户实测「播放 3~4 秒必卡一下」）：本地仓库镜像**去重** —— 同一文件只镜像一次。
+//   原因：成片完成卡原来在**渲染函数体内**直接调 electronAPI.storageMirror，
+//   每次重渲染都会再发一次 IPC；首次是"整文件下载"，会和正在播放的 <video> 抢带宽（放大卡顿）。
+const MIRRORED_ONCE = new Set<string>()
+
 const SUGGESTIONS = [
   '今天有什么热点可以蹭？给我 3 个选题',
   '帮我写一条小红书种草文案',
@@ -469,7 +474,9 @@ class AgentErrorBoundary extends React.Component<{ children: any }, { err: strin
 // ★VF_FORM_V1（2026-09-20，用户要求）：成片设置表单——一次选完、一次提交
 //   背景：老流程“点一个→返回→再点一个”要 3~4 轮（用户原话“感觉有点怪”）。
 //   现表单一次提交 VF_FORM:{aspect,dur,voice,source,topic,script}，服务端一次算完。
-function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void }) {
+// ★2026-09-22：加 `userId` 入参 —— 上传后要调 electronAPI.storageMirror（本地仓库镜像），
+//   而镜像地址 `/api/storage/file` 强制要 userId；本组件自身拿不到当前用户，由父组件透传。
+function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string) => void; userId?: number | string }) {
   const [source, setSource] = useState('repo')
   const [aspect, setAspect] = useState(vj.aspect || 'auto')
   const [dur, setDur] = useState(String(vj.dur || 30))
@@ -504,7 +511,15 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
           fd.append('file', f)
           const r = await fetch('/api/storage/files', { method: 'POST', body: fd })
           const j = await r.json().catch(() => null)
-          if (j && j.success) okNames.push(String((j.data && j.data.name) || f.name))
+          if (j && j.success) {
+            const _nm3 = String((j.data && j.data.name) || f.name)
+            okNames.push(_nm3)
+            // ★2026-09-22（用户要求：本页"生成/上传"的都要个人仓库 + 本地仓库双落地）
+            if (!MIRRORED_ONCE.has(_nm3)) {
+              MIRRORED_ONCE.add(_nm3)
+              try { (window as any).electronAPI?.storageMirror?.(`/api/storage/file?userId=${userId || ''}&name=${encodeURIComponent(_nm3)}`) } catch {}
+            }
+          }
         } catch {}
       }
     } finally {
@@ -639,7 +654,8 @@ function VideoFormCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
 //   ⚠️ 不再复用素材合成那张完整表单（用户实测："你搞 2 个一样的"）。
 
 /** 卡1：主题（可留空）+ 上传素材 */
-function VfAiSetupCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void }) {
+// ★2026-09-22：加 `userId` 入参（同上：上传后要在客户端镜像到本地仓库）
+function VfAiSetupCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string) => void; userId?: number | string }) {
   const [topic, setTopic] = useState<string>(String(vj.topic || ''))
   const [uploading, setUploading] = useState(false)
   const [uploaded, setUploaded] = useState<string[]>([])
@@ -656,7 +672,15 @@ function VfAiSetupCard({ vj, onStart }: { vj: any; onStart: (msg: string) => voi
           fd.append('file', f)
           const r = await fetch('/api/storage/files', { method: 'POST', body: fd })
           const j = await r.json().catch(() => null)
-          if (j && j.success) okNames.push(String((j.data && j.data.name) || f.name))
+          if (j && j.success) {
+            const _nm2 = String((j.data && j.data.name) || f.name)
+            okNames.push(_nm2)
+            // ★2026-09-22（用户要求：本页"生成/上传"的都要个人仓库 + 本地仓库双落地）
+            if (!MIRRORED_ONCE.has(_nm2)) {
+              MIRRORED_ONCE.add(_nm2)
+              try { (window as any).electronAPI?.storageMirror?.(`/api/storage/file?userId=${userId || ''}&name=${encodeURIComponent(_nm2)}`) } catch {}
+            }
+          }
         } catch { /* 单张失败继续 */ }
       }
     } finally {
@@ -2309,6 +2333,13 @@ function AgentPageInner() {
       try { d = await r.json() } catch { d = { success: false, message: '响应解析失败(' + r.status + ')' } }
       if (d.success && d.data?.name) {
         const url = `/api/storage/file?userId=${user?.id}&name=${encodeURIComponent(d.data.name)}`
+        // ★2026-09-22（用户要求："这个页面生成的上传的，全部要个人仓库落地 + 本地仓库落地"）：
+        //   上传已经进个人仓库（POST /api/storage/files → OSS），这里补**本地仓库镜像**（客户端有效）。
+        //   镜像端按 `?name=` 取文件名 → 正好落到本地仓库同名文件。
+        if (!MIRRORED_ONCE.has(String(d.data.name))) {
+          MIRRORED_ONCE.add(String(d.data.name))
+          try { (window as any).electronAPI?.storageMirror?.(url) } catch {}
+        }
         setAttachments(prev => [...prev, { name: file.name, url, type: isVideo ? 'video' : 'image', frames: d.data?.frames || [] }])
       } else {
         alert('上传失败：' + (d.message || d.error || ('HTTP ' + r.status)))
@@ -2367,26 +2398,48 @@ function AgentPageInner() {
       try {
         const _vj = JSON.parse(content.slice(8))
         // ★VF_LINES_V1（2026-09-21）：AI 制片走**专属卡**（卡1 主题+上传 / 卡2 横竖屏+时长+风格）
-        if (_vj && _vj.step === 'ai_setup') return <VfAiSetupCard vj={_vj} onStart={sendMessage} />
+        // ★2026-09-22：把当前用户 id 透传给卡片（上传后要在客户端镜像到本地仓库）
+        if (_vj && _vj.step === 'ai_setup') return <VfAiSetupCard vj={_vj} onStart={sendMessage} userId={user?.id} />
         if (_vj && _vj.step === 'ai_opts') return <VfAiOptsCard vj={_vj} onStart={sendMessage} />
-        if (_vj && _vj.step === 'form') return <VideoFormCard vj={_vj} onStart={sendMessage} />
+        if (_vj && _vj.step === 'form') return <VideoFormCard vj={_vj} onStart={sendMessage} userId={user?.id} />
       } catch {}
     }
     // ★2026-09-19：成片完成卡——内嵌播放（不显示 OSS 链接），并按项目规则自动镜像到本地仓库
     if (content.startsWith('MAKE_VIDEO_DONE:')) {
       try {
         const md = JSON.parse(content.slice(16))
-        const src = md.repoName ? ('/api/storage/file?userId=' + (user?.id || '') + '&name=' + encodeURIComponent(md.repoName) + '&persist=1') : ''
+        // ★2026-09-22（用户实测「播放 3~4 秒必卡一下」）：播放**优先用 OSS 直链**（md.url = 24h 签名直链），
+        //   绕开 /api/storage/file 的 302 中转 —— 那条接口每次请求都重新签一个 URL，且 302 响应
+        //   无缓存头、无 Accept-Ranges → 播放器每次 Range 续传都被打断 → 固定间隔卡顿。
+        //   没有 md.url（老消息/入库异常）时才回退到接口地址。
+        const _apiSrc = md.repoName ? ('/api/storage/file?userId=' + (user?.id || '') + '&name=' + encodeURIComponent(md.repoName) + '&persist=1') : ''
+        const src = md.url || _apiSrc
         // ★VF_MIRRORHONEST_V1（2026-09-20 端到端推演发现）：`storageMirror` 只在**客户端**存在
         //   （浏览器里没有 electronAPI，会静默失败），但卡片原来**无条件**写"（本地仓库自动同步）"
         //   → 浏览器里/镜像失败时这句是**假的**。这里按实际能力说。
         const _canMirror = typeof window !== 'undefined' && !!(window as any).electronAPI?.storageMirror
-        if (src && _canMirror) { try { (window as any).electronAPI.storageMirror(src) } catch {} }
+        const _mirrorKey = String(md.repoName || src || '')
+        if (src && _canMirror && _mirrorKey && !MIRRORED_ONCE.has(_mirrorKey)) {
+          MIRRORED_ONCE.add(_mirrorKey)   // ★2026-09-22：同一文件只镜像一次（原来每渲染一次就下一次）
+          try { (window as any).electronAPI.storageMirror(src) } catch {}
+        }
         return (
           <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
             <div className="text-xs text-emerald-300 mb-2">🎬 本地成片已完成（配音 + 字幕 + 画面）</div>
             {src ? (
-              <video src={src} controls playsInline preload="metadata" className="w-full max-h-[420px] rounded-lg bg-black" />
+              <video
+                src={src}
+                controls
+                playsInline
+                preload="metadata"
+                className="w-full max-h-[420px] rounded-lg bg-black"
+                // ★2026-09-22：优先走 OSS 直链（无 302 中转、原生 Range）；签名过期/失效时
+                //   自动回退到服务端接口地址（它每次都会重新签名，所以永远可用）。
+                onError={(e) => {
+                  const v = e.currentTarget as HTMLVideoElement
+                  if (_apiSrc && v.src !== _apiSrc) v.src = _apiSrc
+                }}
+              />
             ) : (
               <div className="text-xs text-amber-400">成片已生成，但仓库文件名缺失（{md.out || '未知'}）</div>
             )}

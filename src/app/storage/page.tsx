@@ -72,17 +72,22 @@ export default function StoragePage() {
   const toggleAll = () => {
     setSelected(allSelected ? new Set() : new Set(files.map(f => f.name)))
   }
-  const download = async (name: string) => {
+  // ★2026-09-22（用户实测「点下载弹窗非常慢」）：原来是 fetch → blob → createObjectURL → a.click()
+  //   —— 必须**等整个文件下载完**才会弹出"另存为"（大视频等于卡住不动）。
+  //   改为**浏览器原生下载**：直接把一个同源下载地址交给 <a>，浏览器立刻弹保存框、边下边写盘；
+  //   服务端同步改成流式转发（见 api/storage/file），不再把整文件读进内存。
+  const download = (name: string) => {
+    const url = `/api/storage/file?userId=${userId}&name=${encodeURIComponent(name)}&download=1`
     try {
-      const r = await fetch(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(name)}&download=1`, { credentials: 'include' })
-      if (!r.ok) { showToast('下载失败：未登录或无权限', 'error'); return }
-      const blob = await r.blob()
-      const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url; a.download = name
-      document.body.appendChild(a); a.click()
-      document.body.removeChild(a); URL.revokeObjectURL(url)
-    } catch { showToast('下载失败', 'error') }
+      a.href = url
+      a.download = name
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    } catch {
+      showToast('下载失败', 'error')
+    }
   }
 
   const doPush = async () => {

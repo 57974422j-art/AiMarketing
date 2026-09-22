@@ -5,6 +5,29 @@ import { saveToPersonalRepo, ensureThumb } from '@/lib/personal-storage'
 
 const MAX_QUOTA = 500 * 1024 * 1024 // 500MB
 
+// ★2026-09-22：缩略图补齐的**并发闸门**（同时最多 2 个，其余排队）。
+//   为什么：ensureThumb 每个任务都要"整段下载视频 → ffmpeg 抽帧 → 上传"，无限制并发会把
+//   带宽/CPU 打满，导致用户"打开列表后下载/播放都变慢"（用户实测反馈）。
+//   注意：这是**进程内**闸门（单实例部署足够；多实例只会各自限流，不会更差）。
+const THUMB_MAX_CONCURRENT = 2
+let thumbRunning = 0
+const thumbQueue: Array<() => void> = []
+function scheduleThumb(userId: number, name: string): void {
+  const run = () => {
+    thumbRunning++
+    Promise.resolve()
+      .then(() => ensureThumb(userId, name))
+      .catch(() => { /* 单张失败不影响列表 */ })
+      .finally(() => {
+        thumbRunning = Math.max(0, thumbRunning - 1)
+        const next = thumbQueue.shift()
+        if (next) next()
+      })
+  }
+  if (thumbRunning < THUMB_MAX_CONCURRENT) run()
+  else thumbQueue.push(run)
+}
+
 /** 获取用户在 OSS 上的已用空间 */
 async function usedQuota(userId: number): Promise<number> {
   try {
@@ -38,7 +61,11 @@ export async function GET(request: NextRequest) {
         const thumbName = name.replace(/\.(mp4|mov|avi|mkv|webm)$/i, '.jpg')
         const thumbExists = thumbSet.has(thumbName)
         // 存量视频缺缩略图时后台异步补齐
-        if (isVideo && !thumbExists) void ensureThumb(auth!.userId, name)
+        // ★2026-09-22（用户实测「打开个人仓库后，下载/播放都变慢」）：
+        //   原来对**每个**缺图的视频**无限制并发** ensureThumb —— 每个任务 = 从 OSS 整段下载视频
+        //   + 起一个 ffmpeg 抽帧 + 再上传，几十个视频同时跑就把带宽/CPU 打满，
+        //   于是"列表之后的下载/播放"全被拖慢。这里限制**同时最多 2 个**，其余排队。
+        if (isVideo && !thumbExists) scheduleThumb(auth!.userId, name)
         return {
           name,
           size: o.size,

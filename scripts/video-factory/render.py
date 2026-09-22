@@ -863,6 +863,11 @@ def mux_audio(video, audio, out, ffmpeg, bgm='', total_sec=0.0):
     _t = float(total_sec or 0)
     _pin = _t > 0.05
     _topt = (' -t %.3f' % _t) if _pin else ''
+    # ★VF_FASTSTART_V1（2026-09-22，用户实测「播放 3~4 秒必卡一下」）：
+    #   生成的 mp4 默认把 moov（索引）写在**文件尾部** → 浏览器边下边播时必须先 Range 取文件尾，
+    #   取不到就周期性停顿（"播几秒卡一下"）。`+faststart` 把 moov 挪到文件开头，
+    #   这是渐进式播放的标准做法；只搬索引、不重编码，2~3MB 的片子几乎零耗时。
+    _fast = ' -movflags +faststart'
     if _pin:
         print('[VF] 混音目标时长 = 分镜总时长 %.2f 秒（apad 补尾隙 + -t 定长，不用 -shortest）' % _t)
     else:
@@ -890,8 +895,19 @@ def mux_audio(video, audio, out, ffmpeg, bgm='', total_sec=0.0):
 
     if not has_voice and not has_bgm:
         import shutil
-        shutil.copyfile(video, out)
-        print('[VF] 无人声无 BGM → 直接复制')
+        # ★VF_FASTSTART_V1：原来是 shutil.copyfile —— 直接把 subbed.mp4 拷成成片，
+        #   既没把 moov 挪到文件头，也绕过了统一输出参数。改成一次 remux（-c copy + faststart），
+        #   只搬索引不重编码；万一 remux 失败再退回原样复制（保住出片）。
+        try:
+            _rc = subprocess.run(f'"{ffmpeg}" -nostdin -y -i "{video}" -c copy{_fast} "{out}"',
+                                 shell=True, capture_output=True, text=True,
+                                 encoding='utf-8', errors='replace')
+            if (not os.path.exists(out)) or os.path.getsize(out) < 1024:
+                raise RuntimeError(err_lines(_rc.stderr) or 'remux 失败')
+            print('[VF] 无人声无 BGM → remux（+faststart）')
+        except Exception as eF:
+            print('[VF] ⚠️ faststart remux 失败（%s）→ 退回直接复制' % str(eF)[:80])
+            shutil.copyfile(video, out)
         _verify_dur()
         return out
     if has_voice and has_bgm:
@@ -901,22 +917,22 @@ def mux_audio(video, audio, out, ffmpeg, bgm='', total_sec=0.0):
         cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -i "{audio}" -stream_loop -1 -i "{bgm}" '
                f'-filter_complex "{_voc};[2:a]volume=0.12[bg];'
                f'[voc][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]" '
-               f'-map 0:v -map "[aout]" -c:v copy -c:a aac{_topt} "{out}"')
+               f'-map 0:v -map "[aout]" -c:v copy -c:a aac{_topt}{_fast} "{out}"')
     elif has_voice:
         if _pin:
             print('[VF] 混音：仅人声（无 BGM）')
             cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -i "{audio}" '
                    f'-filter_complex "[1:a]apad[aout]" -map 0:v -map "[aout]" '
-                   f'-c:v copy -c:a aac{_topt} "{out}"')
+                   f'-c:v copy -c:a aac{_topt}{_fast} "{out}"')
         else:
             print('[VF] 混音：仅人声（无 BGM）')
             cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -i "{audio}" -c:v copy -c:a aac '
-                   f'-shortest "{out}"')
+                   f'-shortest{_fast} "{out}"')
     else:
         print('[VF] 混音：仅 BGM（无人声，音量 0.18）')
         cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -stream_loop -1 -i "{bgm}" '
                f'-filter_complex "[1:a]volume=0.18[aout]" '
-               f'-map 0:v -map "[aout]" -c:v copy -c:a aac{_topt or " -shortest"} "{out}"')
+               f'-map 0:v -map "[aout]" -c:v copy -c:a aac{_topt or " -shortest"}{_fast} "{out}"')
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
                        encoding='utf-8', errors='replace')
     if not os.path.exists(out):

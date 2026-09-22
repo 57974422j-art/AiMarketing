@@ -40,15 +40,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(url, 302)
     }
 
-    // 视频下载 / 图片等小文件：保持读回来的方式
+    // 视频下载
+    // ★2026-09-22（用户实测「点下载弹窗非常慢」）：
+    //   原来把整个视频从 OSS `fetch` 回 Node 内存（`Buffer.from(await resp.arrayBuffer())`）再吐出去
+    //   → 文件被搬两遍（OSS→服务器→浏览器）、服务器吃满内存；前端还要等**整段下完**才弹"另存为"。
+    //   现在：**流式转发**（不缓冲整文件）+ 保留 Content-Disposition（配合前端改回"原生 <a> 下载"，
+    //   浏览器会立刻弹保存框并边下边写盘）。Content-Length 用 OSS 给的长度，便于显示进度。
     if (isVideo) {
       const url = await signedUrl(key)
       const resp = await fetch(url)
       if (!resp.ok) throw new Error(`OSS读取失败: ${resp.status}`)
-      const buffer = Buffer.from(await resp.arrayBuffer())
-      return new NextResponse(buffer, {
-        headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=86400', 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(name) },
-      })
+      const len = resp.headers.get('content-length')
+      const headers: Record<string, string> = {
+        'Content-Type': mime,
+        'Cache-Control': 'public, max-age=86400',
+        'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(name),
+      }
+      if (len) headers['Content-Length'] = len
+      // resp.body 是 web ReadableStream → 直接交给 NextResponse，边收边发，不进内存
+      return new NextResponse(resp.body as any, { headers })
     }
 
     // 图片等小文件用 oss.get
