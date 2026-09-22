@@ -21,10 +21,11 @@
  *
  * 用法：node scripts/build-local.mjs   （或 npm run build:local，如需可自行加 script）
  */
-import { execSync, spawnSync } from 'node:child_process'
+import { execSync, execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, copyFileSync, writeFileSync, rmSync, readFileSync, mkdirSync, cpSync, readdirSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
+import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const S7Z = resolve(ROOT, 'node_modules/7zip-bin/win/x64/7za.exe')
@@ -80,6 +81,154 @@ log('4/7 纯壳模式：跳过 Next standalone 构建（页面/API 全在服务�
 
 // 纯壳：无 standalone 复制（客户端加载服务器页面）
 
+// ── 4b) ★ENVPACK_GATE_V1（2026-09-22 用户定案）：环境包一致性闸门 ────────
+// 为什么要有这一步（用户原话："你说又是版本对不上什么的"）：
+//   前后几次事故都是【包里的环境】和【客户端要的版本】互不知道对方要什么
+//   （zip 是旧的/坏的、缺 driver、Python 版本对不上、内核 build 不匹配…）。
+//   所以把"一致性"前移到【打包阶段】：不符合就【直接打包失败】——
+//   绝不产出一个"装完还得靠用户碰运气"的安装包。
+const MANIFEST_PATH = resolve(ROOT, 'electron/env-manifest.js')
+const ENV_ZIP = resolve(ROOT, 'public/python-bu.zip')
+// ms-playwright 源目录（★提到这里：下面的内核校验要用；原来在 5) 里定义）
+const pkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8'))
+const loc = String(process.env.LOCALAPPDATA || '').split(String.fromCharCode(92)).join('/')
+const candidates = ['C:/Users/Administrator/AppData/Local/ms-playwright', loc + '/ms-playwright']
+const pw = candidates.find((p) => existsSync(p)) || candidates[0]
+log('4b/7 校验环境包（安装包必须自带 + 版本必须与代码清单一致）…')
+// 环境包内的 env-manifest.json 内容（4c 校验 Python 侧内核时要用 → 声明在块外）
+let innerPythonManifest = null
+{
+  const M = createRequire(import.meta.url)(MANIFEST_PATH)
+  if (!existsSync(ENV_ZIP)) {
+    console.error(
+      '❌ 找不到环境包: public/python-bu.zip\n' +
+      '   用户定稿：环境包【必须打进安装包】（用户机器上零下载）。\n' +
+      '   生成方式（在一台"环境已跑通"的机器上）：\n' +
+      '     node scripts/make-python-pack.mjs --from "<安装目录>\\python\\buvenv-test"\n'
+    )
+    process.exit(1)
+  }
+  const zsize = readFileSync(ENV_ZIP).length
+  if (zsize < 20 * 1024 * 1024) {
+    console.error('❌ 环境包过小（' + (zsize / 1048576).toFixed(1) + 'MB）—— 大概率是坏包（历史上出现过 69MB 缺 driver 的坏包），请重新生成')
+    process.exit(1)
+  }
+  // 列内容 + 取出包内的 env-manifest.json（用 7za，避免引入 zip 依赖）
+  let list = ''
+  try { list = execFileSync(S7Z, ['l', '-ba', ENV_ZIP], { encoding: 'utf-8', maxBuffer: 128 * 1024 * 1024 }) } catch (e) {
+    console.error('❌ 无法读取环境包内容: ' + String((e && e.message) || e)); process.exit(1)
+  }
+  if (!/buvenv-test[\\/]Scripts[\\/]python\.exe/i.test(list)) {
+    console.error('❌ 环境包结构不对：里面没有 buvenv-test/Scripts/python.exe')
+    process.exit(1)
+  }
+  try {
+    const txt = execFileSync(S7Z, ['e', '-so', ENV_ZIP, 'env-manifest.json'], { encoding: 'utf-8', maxBuffer: 8 * 1024 * 1024 })
+    innerPythonManifest = JSON.parse(txt)
+  } catch (e) {
+    console.error('❌ 环境包里没有可读的 env-manifest.json（无法核对版本）—— 请用 scripts/make-python-pack.mjs 重新生成')
+    process.exit(1)
+  }
+  const inner = innerPythonManifest
+  const problems = []
+  if (String(inner.envPackVersion || '') !== String(M.ENV_PACK_VERSION)) {
+    problems.push('环境包版本 ' + (inner.envPackVersion || '?') + ' ≠ 代码要求的 ' + M.ENV_PACK_VERSION + '（改了依赖就必须重做包，并把 ENV_PACK_VERSION 一起递增）')
+  }
+  const rt = inner.runtime || {}
+  for (const [k, spec] of [['playwright', M.RUNTIME.playwright.spec], ['browser_use', M.RUNTIME.browser_use.spec]]) {
+    const a = String(rt[k] || '')
+    if (spec && !/^[<>=]/.test(spec) && a !== spec) problems.push('环境包 ' + k + '=' + (a || '(缺)') + ' ≠ 代码要求的 ' + spec)
+  }
+  if (!M.matchSpec(String(rt.python || ''), M.RUNTIME.python.spec)) {
+    problems.push('环境包 python=' + (rt.python || '(缺)') + ' 不在要求区间 ' + M.RUNTIME.python.spec)
+  }
+  if (problems.length) {
+    console.error('❌ 环境包与客户端要求不一致（这就是"装完还是版本对不上"的根源）：\n   - ' + problems.join('\n   - ') +
+      '\n   请重做环境包：node scripts/make-python-pack.mjs --from "<安装目录>\\python\\buvenv-test"')
+    process.exit(1)
+  }
+  log('   环境包 OK：' + (zsize / 1048576).toFixed(1) + 'MB / 版本 ' + inner.envPackVersion +
+    ' / python ' + (rt.python || '?') + ' / playwright ' + (rt.playwright || '?') + ' / browser_use ' + (rt.browser_use || '?'))
+}
+
+// ── 4c) ★BROWSER_ALIGN_V1：两侧内核都必须"按各自 playwright 要的 build"落在同一个目录 ──
+// 为什么必须在这里硬校验（本机实测到的真实事故）：
+//   · Node 侧 playwright 1.60.0 要 chromium-1223；Python 侧 playwright 1.62.0 要 chromium-1234；
+//     而当时 ms-playwright 里只有 **chromium-1228** —— 两边【都不对】。
+//   · 后果一：包内 Chromium 兜底（"用户没装 Chrome 也能用"）实际失效；
+//   · 后果二（更隐蔽）：运行时把 PLAYWRIGHT_BROWSERS_PATH 指向该目录，Python 子进程会继承 →
+//     Python 去那里找 1234 → 找不到 → 发布开不了浏览器 → "换台机器就不行"。
+// ⇒ 现在：先让两侧各自把【自己要的 build】装进同一个目录，再【逐个断言】文件真在。
+//    （build 号一律不写死：问各自 playwright 本人要 executable_path）
+{
+  log('4c/7 校验两侧浏览器内核（问各自 playwright 要哪个 build，缺就装）…')
+  if (!existsSync(pw)) {
+    console.error('❌ 找不到 ms-playwright 源目录: ' + pw)
+    process.exit(1)
+  }
+
+  // (1) Node 侧：用本仓库的 playwright 把内核装进该目录（幂等，已装则秒过）
+  try {
+    log('   [Node] npx playwright install chromium（PLAYWRIGHT_BROWSERS_PATH=' + pw + '）…')
+    execFileSync('npx', ['playwright', 'install', 'chromium'], { stdio: 'inherit', shell: true, env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: pw } })
+  } catch (e) {
+    console.error('❌ Node 侧浏览器内核安装失败: ' + (e.message || e) +
+      '\n   请手动执行：PLAYWRIGHT_BROWSERS_PATH="' + pw + '" npx playwright install chromium')
+    process.exit(1)
+  }
+
+  // (2) 断言：Node 的 playwright 说"内核在哪"，那个文件就必须真在
+  {
+    const probe = 'const{chromium}=require("playwright");process.stdout.write(chromium.executablePath())'
+    let exe = ''
+    try { exe = String(execFileSync(process.execPath, ['-e', probe], { encoding: 'utf-8', env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: pw } })).trim() } catch (e) { }
+    if (!exe || !existsSync(exe)) {
+      console.error('❌ Node 侧内核对不上：playwright 要 ' + (exe || '(问不出来)') + '，但该文件不存在。\n' +
+        '   目录里现有：' + readdirSync(pw).filter((d) => /^chromium/i.test(d)).join(', ') +
+        '\n   → 装上它：PLAYWRIGHT_BROWSERS_PATH="' + pw + '" npx playwright install chromium')
+      process.exit(1)
+    }
+    log('   [Node] ✅ 内核就绪：' + exe)
+  }
+
+  // (3) Python 侧：它要的 build 常常与 Node 不同 → 也必须补进同一个目录
+  //     用"打包机上的 python"来装：要求它的 playwright 版本与【环境包里实测的版本】一致，
+  //     否则装进来的 build 跟环境包对不上（那就是白装）。
+  {
+    const pyPwVer = (() => { try { return String((innerPythonManifest.runtime || {}).playwright || '') } catch (e) { return '' } })()
+    let sysPwVer = ''
+    try { sysPwVer = String(execFileSync('python', ['-c', 'import importlib.metadata as m;print(m.version("playwright"))'], { encoding: 'utf-8' })).trim() } catch (e) { sysPwVer = '' }
+    if (!sysPwVer) {
+      console.error('❌ 打包机上找不到可用的 python（或没装 playwright），无法保证 Python 侧内核正确。\n' +
+        '   Python 侧 playwright 版本（来自环境包清单）: ' + (pyPwVer || '未知') +
+        '\n   处理：在打包机安装 python + 执行 pip install playwright==' + (pyPwVer || '<与环境包一致>'))
+      process.exit(1)
+    }
+    if (pyPwVer && sysPwVer !== pyPwVer) {
+      console.error('❌ 打包机 python 的 playwright 版本（' + sysPwVer + '）≠ 环境包里的（' + pyPwVer + '）——' +
+        '\n   两边要的内核 build 不同，装进来也是错的。\n' +
+        '   处理：pip install playwright==' + pyPwVer + '   （或用与环境包一致的机器打包）')
+      process.exit(1)
+    }
+    try {
+      log('   [Python] playwright ' + sysPwVer + ' install chromium（同一目录）…')
+      execFileSync('python', ['-m', 'playwright', 'install', 'chromium'], { stdio: 'inherit', env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: pw } })
+    } catch (e) {
+      console.error('❌ Python 侧浏览器内核安装失败: ' + (e.message || e))
+      process.exit(1)
+    }
+    const probe2 = 'from playwright.sync_api import sync_playwright\np=sync_playwright().start()\nprint(p.chromium.executable_path)\np.stop()'
+    let exe2 = ''
+    try { exe2 = String(execFileSync('python', ['-c', probe2], { encoding: 'utf-8', env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: pw } })).trim().split(/\r?\n/).pop() } catch (e) { }
+    if (!exe2 || !existsSync(exe2)) {
+      console.error('❌ Python 侧内核对不上：playwright 要 ' + (exe2 || '(问不出来)') + '，但该文件不存在。')
+      process.exit(1)
+    }
+    log('   [Python] ✅ 内核就绪：' + exe2)
+  }
+  log('   两侧内核已对齐（同一个目录里可并存多个 build，各取各的）')
+}
+
 // ── 5) 生成临时打包配置（ms-playwright 指向本机）───────
 // 2026-09-13: 构建前从 src/lib/agent/platforms.ts 生成 electron/platforms.generated.js
 try {
@@ -88,10 +237,7 @@ try {
 } catch (e) { log('WARN gen-platforms-js 失败（不阻断）: ' + (e.message || e)) }
 
 log('5/7 生成 build.local.json…')
-const pkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8'))
-const loc = String(process.env.LOCALAPPDATA || '').split(String.fromCharCode(92)).join('/')
-const candidates = ['C:/Users/Administrator/AppData/Local/ms-playwright', loc + '/ms-playwright']
-const pw = candidates.find(p => existsSync(p)) || candidates[0]
+// pkg / pw 已在 4b 之前算好（见上）
 // 2026-08-12：打包前自动更新 version.json buildDate（避免版本日期滞后）
 try {
   const vj = resolve(ROOT, 'electron/version.json')
@@ -123,6 +269,11 @@ const build = {
     //   实测确实缺它（计划任务指向的脚本在用户机器上不存在 = 保活失效）。
     { from: 'scripts/keep-login-alive.mjs', to: 'scripts/keep-login-alive.mjs' },
     { from: 'scripts/scrcpy', to: 'scripts/scrcpy' },
+    // ★ENVPACK_SHIP_V1（2026-09-22 用户定案「客户端大小无所谓，保证用户一次安装好最重要」）：
+    //   环境包【必须打进安装包】→ 落到 <resources>/python-bu.zip：
+    //     用户机器上第一次安装就有完整环境，【运行时零下载】；OSS 只当"包内损坏"时的兜底。
+    //   缺这个 zip 会在下面 4b 步【直接打包失败】（宁可不产出，也不产出一个装完不能用的包）。
+    { from: 'public/python-bu.zip', to: 'python-bu.zip' },
     { from: pw, to: 'ms-playwright', filter: ['**/*'] },
     // 2026-08-19: 本地语音识别模型（sherpa-onnx）——随包分发
     // 2026-08-21: OpenCLI 浏览器扩展（打包分发——用户免商店/免代理，开发者模式加载即可）

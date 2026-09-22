@@ -76,6 +76,8 @@
   <div class="ft">
     <div class="hint" id="hint">正在自检，请稍候…</div>
     <div style="display:flex;gap:8px">
+      <!-- ★ENV_GATE_V1（2026-09-22 用户定稿）：有"必须通过"的项没过时，只给「重试」，不给"跳过" -->
+      <button class="cont" id="retry" style="display:none">重试</button>
       <button class="cont" id="skip" style="display:none">仍要继续</button>
       <button id="enter" disabled>确认进入</button>
     </div>
@@ -97,11 +99,15 @@
   const hint = document.getElementById('hint')
   const enter = document.getElementById('enter')
   const skip = document.getElementById('skip')
+  const retry = document.getElementById('retry')
   const verEl = document.getElementById('ver')
   const accWrap = document.createElement('div')
   accWrap.id = 'accWrap'
   const nodes = {}
   let anyBad = false, doneN = 0
+  // ★ENV_GATE_V1：主进程 verdict 判定为"有必须通过的项没过" → 锁死「确认进入」，
+  //   且【不许】30 秒超时自动放行（用户定稿："安装期间不进入下一步…只有版本号对上才进入下一步"）
+  let hardBlocked = false
 
   ITEMS.forEach((it, idx) => {   // ★ORDER_FIX_V1：显示 1. 2. 3.… 序号，顺序一眼可见
     const d = document.createElement('div')
@@ -145,13 +151,24 @@
     doneN++
     bar.style.width = Math.round((doneN / ITEMS.length) * 100) + '%'
     if (doneN >= ITEMS.length) {
-      enter.disabled = false
+      // ★ENV_GATE_V1：所有项走完后，是否放行【由主进程 verdict 决定】——
+      //   在 verdict 到达之前先不开门（原来这里是"立刻 enter.disabled=false"，等于默认放行）
+      enter.disabled = true
       skip.style.display = 'none'
-      hint.textContent = anyBad
-        ? '有项目未通过 —— 可直接点「确认进入」使用，或按提示修复后重启客户端'
-        : '自检全部通过 ✓'
-      hint.style.color = anyBad ? '#fcd34d' : '#6b8496'
+      if (!hardBlocked) { hint.textContent = '正在汇总结论…'; hint.style.color = '#6b8496' }
     }
+  }
+
+  // ★ENV_GATE_V1：重试 = 把界面恢复到"新一轮开始"，再让主进程重新跑一遍自检+补齐
+  function resetForRetry() {
+    doneN = 0; anyBad = false; hardBlocked = false
+    bar.style.width = '0%'
+    retry.style.display = 'none'
+    skip.style.display = 'none'
+    enter.disabled = true
+    Object.keys(nodes).forEach((k) => { try { setItem(k, '', '等待…', null) } catch (e) {} })
+    hint.textContent = '正在重新自检…'
+    hint.style.color = '#6b8496'
   }
 
   let accSelected = ''
@@ -197,7 +214,42 @@
         if (!d) return
         if (d.type === 'lock') { lockUI(d.version); return }   // ★UPDATE_GUARD_V1
         if (d.type === 'unlock') {   // ★UPDATE_EXCLUSIVE_V1：更新失败 → 解除锁定，继续自检
-          try { enter.disabled = false; hint.textContent = '更新失败 → 本次跳过更新，继续自检'; hint.style.color = '#fcd34d' } catch (e) {}
+          // ★ENV_GATE_V1：解除"更新锁定"≠放行 —— 如果还有必须通过的项没过，仍然不许进入
+          try {
+            if (!hardBlocked) { enter.disabled = false; hint.textContent = '更新失败 → 本次跳过更新，继续自检'; hint.style.color = '#fcd34d' }
+          } catch (e) {}
+          return
+        }
+        // ★ENV_GATE_V1（2026-09-22 用户定稿）：主进程的最终结论 ——
+        //   ok=false 且有 blocked 项 → 【锁死「确认进入」】，只留「重试」（不许跳过）
+        if (d.type === 'verdict') {
+          try {
+            if (d.running) { retry.style.display = 'none'; return }   // 新一轮刚开始
+            const blocked = Array.isArray(d.blocked) ? d.blocked : []
+            if (d.ok) {
+              hardBlocked = false
+              retry.style.display = 'none'
+              enter.disabled = false
+              skip.style.display = 'none'
+              hint.textContent = '自检全部通过 ✓'
+              hint.style.color = '#6b8496'
+            } else if (blocked.length) {
+              hardBlocked = true
+              enter.disabled = true
+              skip.style.display = 'none'
+              retry.style.display = ''
+              hint.textContent = '有「必须通过」的项未通过 → 暂不能进入：' + blocked.map((b) => b.title).join(' / ') +
+                '（修好后点「重试」，或重启客户端）'
+              hint.style.color = '#fca5a5'
+            } else {
+              // 没有 blocked 项（例如只有账号/登录态这类"不拦"的提示）→ 正常放行
+              hardBlocked = false
+              retry.style.display = 'none'
+              enter.disabled = false
+              hint.textContent = '自检完成 —— 可以进入' + (anyBad ? '（有提示项未通过，不影响登记/发布）' : ' ✓')
+              hint.style.color = anyBad ? '#fcd34d' : '#6b8496'
+            }
+          } catch (e) {}
           return
         }
         try { rxN++; if (rxEl) rxEl.textContent = String(rxN) } catch (e) {}   // ★SELFCHECK_RX_COUNTER_V1
@@ -211,12 +263,31 @@
       })
     }
     if (api.onStartupAccounts) api.onStartupAccounts(renderAccounts)
-    enter.onclick = () => { try { if (api.startupCheckEnter) api.startupCheckEnter(accSelected) } catch (e) {} }
-    skip.onclick = () => { try { if (api.startupCheckEnter) api.startupCheckEnter(accSelected) } catch (e) {} }
+    // ★ENV_GATE_V1：进入失败时（被拦 / 正在装更新）把原因显示出来，别"点了没反应"
+    const tryEnter = () => {
+      try {
+        const r = api.startupCheckEnter ? api.startupCheckEnter(accSelected) : null
+        if (r && typeof r.then === 'function') {
+          r.then((res) => {
+            if (res && res.success === false) {
+              hint.textContent = String(res.error || '暂时不能进入')
+              hint.style.color = '#fca5a5'
+            }
+          }).catch(() => {})
+        }
+      } catch (e) {}
+    }
+    enter.onclick = tryEnter
+    skip.onclick = tryEnter
+    retry.onclick = () => {
+      resetForRetry()
+      try { if (api.startupCheckRun) api.startupCheckRun() } catch (e) {}
+    }
     if (api.startupCheckRun) api.startupCheckRun()
     else { hint.textContent = '无法启动自检（桥接未就绪）'; enter.disabled = false }
     setTimeout(() => {
-      if (enter.disabled) {
+      // ★ENV_GATE_V1：被"必须通过的项"拦住时【不许】超时放行（用户定稿：安装期间不进入下一步）
+      if (enter.disabled && !hardBlocked) {
         enter.disabled = false
         hint.textContent = '自检等待超时 —— 可直接点「确认进入」使用（可重启客户端再自检一次）'
         hint.style.color = '#fcd34d'

@@ -2,6 +2,63 @@ const { app, BrowserWindow, ipcMain, dialog, session } = require('electron')
 // 2026-08-07：允许无手势自动播放（TTS 朗读回复不被浏览器策略拦截）
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 // 2026-08-06：授予麦克风/媒体权限（否则 getUserMedia 被拒，声纹球点击无响应）
+// ═══ ENV_MANIFEST_V1 / ENV_INSTALL_V1（2026-09-22 用户定案）═══
+//   用户定稿："自检要精准…没有什么立即启动安装什么""没网络客户端不启动"
+//            "版本不是最新的就不给用""和客户端一起安装扎实点，第一次安装就把需要的都补上"
+//   实现分三处（都在这两个模块里，主进程只做接线）：
+//     · electron/env-manifest.js —— 唯一依赖清单 + 版本表（打包与运行时共用同一份）
+//     · electron/env-install.js  —— 逐项校验 → 缺立刻补（包内自带为主）→ 补完复检 → 不合格不放行
+//     · 这里：① 网络闸门（没网弹窗、不进任何界面）② 把自检的"运行环境"换成清单驱动
+const ENV_M = require('./env-manifest')
+const ENV_I = require('./env-install')
+// ★共用一份浏览器内核：让 Python 侧的 playwright 也看包内那一份
+//   （包内没有 → 保持原行为，绝不制造新问题；详见 env-install.applyBundledBrowsersPath）
+try { ENV_I.applyBundledBrowsersPath() } catch (e) {}
+// ★ENV_GATE_V1：本次自检被"必须通过"的项拦住的清单（空 = 放行）。自检页与 startup-check:enter 都看它
+let __envBlockers = []
+
+// ═══ NET_GATE_V1（2026-09-22 用户定稿②）═══
+//   用户原话："没网络不管哦，没网络我们这个也玩不起来。没网络直接弹窗让联网。没网络客户端不启动。
+//             没网络我都验证不到你登陆没登陆。不可能给它用。"
+//   ⇒ 启动第一件事：探一下能不能到我们服务器。不通就【弹窗要求联网】，并【不进入任何界面】；
+//     用户点「重新检测」就再探一次，点「退出」就直接退出。
+//   ⇒ 为什么不给"离线模式"：账号校验、素材、发布、环境补齐全要连服务器 —— 没网进来也是废的，
+//     不如把话说清楚（宁可现在弹窗，也不要让用户进来后一片红）。
+//   调试用：DISABLE_NET_GATE=1 可跳过（仅开发机用，正式用户不会设这个变量）。
+let __netChecked = false
+async function ensureNetworkOrQuit() {
+  if (process.env.DISABLE_NET_GATE === '1') { buLog('[net] DISABLE_NET_GATE=1 → 跳过网络闸门'); return true }
+  if (__netChecked) return true
+  const url = process.env.SERVER_URL || 'https://ai-niuma.cc'
+  let round = 0
+  for (;;) {
+    round++
+    const r = await ENV_I.probeNetwork(url, 8000)
+    if (r.ok) {
+      __netChecked = true
+      buLog('[net] 网络可用（HTTP ' + r.status + ' → ' + url + '）')
+      return true
+    }
+    buLog('[net] 第 ' + round + ' 次探测失败：' + (r.err || 'HTTP ' + r.status) + ' → 弹窗要求联网')
+    const btn = dialog.showMessageBoxSync({
+      type: 'warning',
+      title: 'AI营销助手 · 需要网络',
+      noLink: true,
+      buttons: ['重新检测', '退出客户端'],
+      defaultId: 0,
+      cancelId: 1,
+      message: '未检测到网络连接，客户端无法启动',
+      detail: '本客户端必须联网才能使用（登录校验、素材、发布、运行环境安装都要连服务器），' +
+        '暂不支持离线使用。\n\n请检查：\n' +
+        '  1) 网线 / WiFi 是否正常（能打开浏览器访问网页）\n' +
+        '  2) 是否需要登录公司网络 / 认证页面\n' +
+        '  3) 防火墙、代理是否拦截了 ' + url + '\n\n' +
+        '修好后点「重新检测」即可继续。',
+    })
+    if (btn === 1) { buLog('[net] 用户选择退出'); app.exit(0); return false }
+  }
+}
+
 // ═══ HOT_COLLECT_MUTEX_V1（2026-09-15）：采集互斥开关 ═══
 //   避免"自检采集"与"启动后 collectHotspotsDaily"同时跑（互抢 9222 与 Cookies 锁 →
 //   表现成"检测说已登录、采集说全未登录"）。同一时刻只允许一个采集在跑。
@@ -31,6 +88,9 @@ async function runStartupChecks(win) {
   const __t0 = Date.now()
   const __cost = () => Math.round((Date.now() - __t0) / 100) / 10
   try { send({ type: 'meta', version: app.getVersion() }) } catch (e) {}
+  // ★ENV_GATE_V1：每轮自检都重置拦截清单（自检页会「重试」→ 这里必须从零开始，否则旧的拦截会粘住）
+  __envBlockers = []
+  try { send({ type: 'verdict', blocked: [], ok: false, running: true }) } catch (e) {}
   buLog('[startup] 自检开始 v' + app.getVersion())
 
   // ① 版本（★PRIORITY_FIX_V1：第一项就【主动检查更新】，不再等后台 autoUpdater）
@@ -90,82 +150,66 @@ async function runStartupChecks(win) {
     }
   } catch (e) { item('version', 'bad', String(e).slice(0, 160), true) }
 
-  // ② 运行环境（真的执行一次 Python + import 两个库）
+  // ② 运行环境（★ENV_MANIFEST_V1 清单驱动：逐项校验 → 缺【立刻补】→ 补完【复检】→ 不合格不放行）
+  //   用户定稿（2026-09-22）：
+  //     · "自检要精准不能像现在这样没有就跳过了，没有什么立即启动安装什么"
+  //     · "安装期间不进入下一步…只有版本号对上才进入下一步"
+  //     · "其它安装包也是检查有什么缺什么…缺什么补什么"
+  //   与旧实现的三点区别（每一条都对应一次真实事故）：
+  //     ① 旧：缺 Python/缺库 → 【后台装】+ 自检继续走 + 用户照样能"确认进入"
+  //            ⇒ "装没装好"没人知道，用户到发布那一刻才发现不能发布
+  //        新：缺 → 【当场补】→ 补完【复检】→ 没过就 bad，且【拦住不让进】（用户定稿）
+  //     ② 旧：只看"能不能 import"（版本对不对、浏览器内核在不在、driver 有没有，全不管）
+  //        新：按 electron/env-manifest.js 逐项校验 —— 真跑 playwright、核对【实测版本】、核对内核
+  //     ③ 旧：装不上就"提示一下、可先进入"（= 静默放行半成品）
+  //        新：明确失败 + 明确原因 + 可重试
   try {
-    item('env', 'run', '正在实际执行运行环境（内置 + 系统 Python 都试，需要几秒）…')
-    // ★ENV_CHECK_FIX_V1：依次尝试【内置 → 系统 python → py】，用"真执行"判定，
-    //   原实现直接用 getBuPython()（兜底返回内置路径）→ 没装内置的机器一律误报 ENOENT
-    let py = ''
-    let r1 = null
-    const tried = []
-    const cands = [BUILTIN_PY, 'python', 'py']
-    let _ei = 0
-    for (const cd of cands) {
-      _ei++
-      item('env', 'run', '正在检测候选 ' + _ei + '/' + cands.length + '：' + (cd === BUILTIN_PY ? '内置环境' : cd), false, Math.round((_ei / (cands.length + 1)) * 100))
-      if (cd === BUILTIN_PY && !fs.existsSync(BUILTIN_PY)) { tried.push('内置(未安装)'); continue }
-      const rr = await runAsync(cd, ['-c', 'import sys;print(sys.version.split()[0])'], { timeout: 15000 })
-      if (rr.code === 0 && String(rr.stdout || '').trim()) { py = cd; r1 = rr; break }
-      tried.push((cd === BUILTIN_PY ? '内置' : cd) + '(不可用)')
+    item('env', 'run', '正在按依赖清单逐项校验运行环境（缺什么就立刻补什么，可能要几分钟）…', false, 0)
+    let _envCur = ''
+    const _forward = (id, state, detail, done, progress) => {
+      // 清单里的子项（python-bu / node-browsers / publish-scripts…）统一汇总到自检页的「运行环境」一项，
+      // detail 里逐条列清楚 —— 自检页 UI 不必为每台机器的组件数量变化而改。
+      if (id !== _envCur) {
+        _envCur = id
+        const _it = ENV_M.ITEMS.find((x) => x.id === id)
+        buLog('[env] 子项 ' + id + '（' + ((_it && _it.title) || '') + '）')
+      }
+      item('env', state === 'ok' ? 'run' : state, detail, false, progress)
     }
-    if (!py) {
-      // ★AUTO_INSTALL_IN_CHECK_V1（1.0.180，用户要求）：
-      //   "自检知道没有就应该立刻下载安装，而不是只出个提示" —— 自检【当场装】
-      // ★PRIORITY_FIX_V1（1.0.184）：不再阻塞自检 —— 改为【后台安装】，自检继续往下走
-      item('env', 'run', '本机没有可用的 Python（' + tried.join(' / ') + '）→ 已在【后台】开始下载安装内置运行环境（约 85MB）' +
-        '\n★可点「确认进入」先使用；装好后重启客户端，本项即变绿（进度见日志）', false)
-      try {
-        if (!global.__buInstalling) {
-          global.__buInstalling = true
-          ensureBuPython()
-            .then((r) => { buLog('[bu-env] 后台安装结束: ' + JSON.stringify(r || {}).slice(0, 200)); global.__buInstalling = false })
-            .catch((e2) => { buLog('[bu-env] 后台安装异常: ' + String((e2 && e2.message) || e2).slice(0, 160)); global.__buInstalling = false })
-        }
-      } catch (e2) {}
+    const _r = await ENV_I.runEnvSelfCheck(_forward)
+    // 汇总：一眼看到"哪些通过 / 哪些刚被自动补上 / 哪些没通过"，而不是一句笼统的"环境异常"
+    const _lines = []
+    for (const _it of ENV_M.ITEMS) {
+      const _g = _r.results[_it.id] || {}
+      const _mark = _g.ok ? (_g.repaired ? '✓（已自动补齐）' : '✓') : (_it.blocking ? '✗' : '⚠')
+      _lines.push(_mark + ' ' + _it.title + (_g.ok ? '' : '：' + String(_g.detail || '').slice(0, 160)))
+    }
+    // 浏览器一行说清楚"到底用哪个"（用户很在意"没装 Chrome 能不能用"）
+    let _bl = ''
+    try {
+      const _c = findBrowserExe()
+      _bl = '\n浏览器：' + (_c || '未找到（系统 Chrome/Edge 与包内 Chromium 都没有）')
+    } catch (e) {}
+    if (_r.ok) {
+      item('env', 'ok', '运行环境全部通过（' + ENV_M.ITEMS.length + ' 项，均"真跑过"，不是只看文件在不在）\n' +
+        _lines.join('\n') + _bl, true)
+      __envBlockers = __envBlockers.filter((b) => b.id !== 'env')
+      // 环境刚可能被重装过 → 把"发布要用的 Python"重新锁定，并把状态上报服务器（AGENT 侧自检要读）
+      try { const _p = ENV_I.findBuiltinPy(); if (_p) { _buPy = _p; buLog('[env] 发布用 Python 已锁定: ' + _p) } } catch (e) {}
+      try { if (buEnv) { const _i2 = await buEnv.getBuEnvInfo(); await buEnv.reportBuEnv(_i2) } } catch (e) {}
     } else {
-      const which = (py === BUILTIN_PY) ? '内置' : ('系统 ' + py)
-      const r2 = await runAsync(py, ['-c', 'import playwright.sync_api, browser_use;print("ok")'], { timeout: 30000 })
-      if (r2.code !== 0) {
-        // ★ENV_ERR_FIX_V1（1.0.183）：① 不再截断错误（Traceback 的真正错误行在【末尾】）
-        const _rawErr = String((r2.stderr || '') + (r2.stdout || ''))
-        const _keyLine = (_rawErr.split('\n').filter((l) => /No module named|ModuleNotFoundError|ImportError|Error/.test(l)).pop() || '').trim()
-        const _tailErr = _keyLine || _rawErr.slice(-400).trim()
-        // ② 缺依赖 → 【当场补装】（用这个 python 自己的 pip）
-        // ★PRIORITY_FIX_V1B（1.0.184）：补装放【后台】——自检不再等它（pip 可能几分钟）
-        item('env', 'warn', which + ' Python ' + String(r1.stdout).trim() + ' 缺依赖（playwright / browser_use）' +
-          '\n→ 已在【后台】用它的 pip 补装（需要联网，可能几分钟）\n★可点「确认进入」先使用；装好后重启客户端即变绿' +
-          '\n原始错误：' + _tailErr.slice(0, 160), true)
-        try {
-          if (!global.__buPipInstalling) {
-            global.__buPipInstalling = true
-            ;(async () => {
-              try {
-                const _pi = await runAsync(py, ['-m', 'pip', 'install', '--no-warn-script-location', '--quiet',
-                  'playwright==1.62.0', 'browser_use==0.13.10'], { timeout: 900000 })
-                buLog('[bu-env] 后台补装 pip code=' + _pi.code + ' 输出尾部=' + String((_pi.stderr || '') + (_pi.stdout || '')).slice(-200))
-              } catch (ePip) { buLog('[bu-env] 后台补装异常: ' + String((ePip && ePip.message) || ePip).slice(0, 160)) }
-              try {
-                const _c2 = buEnv && buEnv.getCached()
-                if (buEnv) { const _i2 = await buEnv.getBuEnvInfo(); await buEnv.reportBuEnv(_i2) }
-                buLog('[bu-env] 后台补装后复检完成')
-              } catch (e3) {}
-              global.__buPipInstalling = false
-            })()
-          }
-        } catch (ePip2) {}
-      } else {
-        // ★STEP3_REALCHECK_V1：import 通过 ≠ 真能用 —— 再【真执行一步】playwright start/stop
-        item('env', 'run', which + ' Python ' + String(r1.stdout).trim() + '：正在真执行 playwright（start/stop）…', false, 90)
-        const r3 = await runAsync(py, ['-c', 'from playwright.sync_api import sync_playwright;p=sync_playwright().start();p.stop();print("start ok")'], { timeout: 40000 })
-        if (r3.code === 0 && String(r3.stdout).indexOf('start ok') >= 0) {
-          item('env', 'ok', which + ' Python ' + String(r1.stdout).trim() + ' + playwright + browser_use 均正常（已真执行 start/stop ✓）', true)
-        } else {
-          item('env', 'warn', which + ' Python ' + String(r1.stdout).trim() + ' 能 import，但【真执行 playwright 失败】——发布可能报错\n' +
-            String((r3.stderr || r3.stdout) || '').slice(0, 200), true)
-        }
+      item('env', 'bad', '运行环境未通过 → 【已拦住，不允许进入下一步】\n' + _lines.join('\n') + _bl +
+        '\n\n★先点下方「重试」或重启一次客户端（多数情况会自动补齐）；仍不行请把 data\\env-setup.log 发给开发。', true)
+      if (!__envBlockers.some((b) => b.id === 'env')) {
+        __envBlockers.push({ id: 'env', title: '运行环境', detail: _r.blocked.map((b) => b.title).join(' / ') })
       }
     }
-  } catch (e) { item('env', 'bad', String(e).slice(0, 160), true) }
+  } catch (e) {
+    item('env', 'bad', '运行环境自检异常：' + String((e && e.message) || e).slice(0, 200), true)
+    if (!__envBlockers.some((b) => b.id === 'env')) {
+      __envBlockers.push({ id: 'env', title: '运行环境', detail: String((e && e.message) || e) })
+    }
+  }
 
   // ③ 关键脚本 / 插件（6 平台脚本 + CDP 点击模块）
   try {
@@ -203,11 +247,23 @@ async function runStartupChecks(win) {
         : '\n与上次相比【全部未变化】（' + _same + ' 个）'
     } catch (e) { _diffTxt = '' }
     if (miss.length || empty.length) {
-      item('files', 'bad', (miss.length ? '缺失：' + miss.join(', ') : '') + (miss.length && empty.length ? '\n' : '') + (empty.length ? '内容异常（可能不完整）：' + empty.join(', ') : '') + _diffTxt, true)
-    } else item('files', 'ok', '6 个平台脚本 + _cdp_click.py 齐备可读' + _diffTxt, true)
-  } catch (e) { item('files', 'bad', String(e).slice(0, 160), true) }
+      item('files', 'bad', (miss.length ? '缺失：' + miss.join(', ') : '') + (miss.length && empty.length ? '\n' : '') + (empty.length ? '内容异常（可能不完整）：' + empty.join(', ') : '') + _diffTxt +
+        '\n\n★这是【安装包本身不完整】——本地无法凭空补出来，请重新下载安装包覆盖安装（这条会拦住进入）。', true)
+      if (!__envBlockers.some((b) => b.id === 'files')) {
+        __envBlockers.push({ id: 'files', title: '发布脚本', detail: miss.concat(empty).join(', ') })
+      }
+    } else {
+      item('files', 'ok', '6 个平台脚本 + _cdp_click.py 齐备可读' + _diffTxt, true)
+      __envBlockers = __envBlockers.filter((b) => b.id !== 'files')
+    }
+  } catch (e) {
+    item('files', 'bad', String(e).slice(0, 160), true)
+    if (!__envBlockers.some((b) => b.id === 'files')) __envBlockers.push({ id: 'files', title: '发布脚本', detail: String((e && e.message) || e) })
+  }
 
   // ④ 目录可写（实际写文件再删）
+  //   ★ENV_GATE_V1：这一项也归入"必须通过"——写不进去的话，素材落盘/日志/登录态全废，
+  //     属于"装完也不能用"，继续放行只会让用户白折腾（这正是用户要的"精准"）。
   try {
     item('dirs', 'run', '正在检查目录可写…')
     const bad = []
@@ -219,9 +275,18 @@ async function runStartupChecks(win) {
         fs.writeFileSync(t, '1'); fs.unlinkSync(t)
       } catch (e) { bad.push(pr[0] + '（' + String((e && e.message) || e).slice(0, 60) + '）') }
     }
-    if (bad.length) item('dirs', 'bad', '不可写：' + bad.join(' / '), true)
-    else item('dirs', 'ok', 'data\\ 与 storage\\ 均可写', true)
-  } catch (e) { item('dirs', 'bad', String(e).slice(0, 160), true) }
+    if (bad.length) {
+      item('dirs', 'bad', '不可写：' + bad.join(' / ') +
+        '\n\n★处理：把客户端安装到【有写权限】的目录（不要装在 C:\\Program Files 下），或以管理员身份重装一次。', true)
+      if (!__envBlockers.some((b) => b.id === 'dirs')) __envBlockers.push({ id: 'dirs', title: '目录可写', detail: bad.join(' / ') })
+    } else {
+      item('dirs', 'ok', 'data\\ 与 storage\\ 均可写', true)
+      __envBlockers = __envBlockers.filter((b) => b.id !== 'dirs')
+    }
+  } catch (e) {
+    item('dirs', 'bad', String(e).slice(0, 160), true)
+    if (!__envBlockers.some((b) => b.id === 'dirs')) __envBlockers.push({ id: 'dirs', title: '目录可写', detail: String((e && e.message) || e) })
+  }
 
   // ④b ★STEP3_REALCHECK_V1：发布前置预检（Chrome / 网络 / 9222 / profile Cookies）
   //   用户问"发布好像不只靠脚本，其它是否要检查" —— 这几项缺一个发布就失败
@@ -230,10 +295,18 @@ async function runStartupChecks(win) {
     const _p = []
     let _pi = 0
     const _step = (label, okv, extra) => { _pi++; item('preflight', 'run', label, false, Math.round((_pi / 4) * 100)); _p.push((okv ? '· ' : '· ✗ ') + extra) }
-    // a. 系统 Chrome（发布全靠它）
+    // a. 登记/发布要用的浏览器
+    //   ★BROWSER_PREFLIGHT_FIX_V1（2026-09-22）：原来只查 CHROME_CANDS（Program Files 两个死路径）
+    //     → "只装了用户级 Chrome / 只装了 Edge / 只有包内 Chromium" 的机器一律报 ✗，
+    //       而实际发布是能跑的（ensureChromeForPublish → findBrowserExe 有三级兜底）。
+    //     现在统一问 findBrowserExe()：系统 Chrome → Edge → 【包内 Chromium】——
+    //     用户定稿："哪怕用户没有 Chrome 给它装一个也行"（包内那份就是干这个的）。
     let _chrome = ''
-    try { _chrome = (CHROME_CANDS || []).find((p2) => fs.existsSync(p2)) || '' } catch (e) {}
-    _step('chrome', !!_chrome, _chrome ? ('系统 Chrome：' + _chrome) : '系统 Chrome：未找到（发布无法执行）')
+    try { _chrome = findBrowserExe() || '' } catch (e) {}
+    const _isBundled = !!_chrome && /ms-playwright/i.test(_chrome)
+    _step('chrome', !!_chrome, _chrome
+      ? ((_isBundled ? '浏览器：使用【包内自带 Chromium】' : '浏览器：系统已装（' + _chrome + '）'))
+      : '浏览器：未找到（系统 Chrome/Edge 与包内 Chromium 都没有）→ 登记/发布无法执行')
     // b. 网络（能否到服务器）
     let _net = 0
     try {
@@ -251,7 +324,18 @@ async function runStartupChecks(win) {
     try { _hasCk = fs.existsSync(path.join(getProfileDir(), 'Default', 'Network', 'Cookies')) } catch (e) {}
     _step('ck', true, _hasCk ? '账号登录文件：已就绪' : '账号登录文件：尚未就绪（可在「登记」里登录一次）')
     const _hardFail = (!_chrome) || (_net === 0)
-    item('preflight', _hardFail ? 'bad' : 'ok', _p.join('\n'), true)
+    if (_hardFail) {
+      item('preflight', 'bad', _p.join('\n') +
+        '\n\n★以上是发布/登记的硬前提，缺一个就不能发布 —— 这一项会拦住进入（用户定稿：不放行半成品）。' +
+        '\n· 浏览器缺失：说明安装包里缺 Chromium 内核（安装包不完整）→ 请重新下载安装包覆盖安装' +
+        '\n· 网络不通：先联网（本客户端不支持离线）', true)
+      if (!__envBlockers.some((b) => b.id === 'preflight')) {
+        __envBlockers.push({ id: 'preflight', title: '发布前置条件', detail: (!_chrome ? '浏览器缺失' : '') + ((!_chrome && _net === 0) ? ' / ' : '') + (_net === 0 ? '网络不通' : '') })
+      }
+    } else {
+      item('preflight', 'ok', _p.join('\n'), true)
+      __envBlockers = __envBlockers.filter((b) => b.id !== 'preflight')
+    }
   } catch (e) { item('preflight', 'warn', '预检异常（不影响进入）: ' + String(e).slice(0, 140), true) }
 
   // ⑤ 账号（ACCOUNT_PICK_V1）：列出本机【用过的账号】让用户选择
@@ -305,6 +389,17 @@ async function runStartupChecks(win) {
 
   // ⑥ 平台登录态（ACCOUNT_PICK_V1）：【等用户在自检页选定账号后】才执行
   //   （由 IPC startup-check:pick-account 调用 detectLoginState()）
+  //
+  // ★ENV_GATE_V1（2026-09-22 用户定稿）：把"必须通过的项"汇总成 verdict 发给自检页 ——
+  //   自检页据此【禁用「确认进入」】（安装/补齐期间不许进入下一步；只有全绿才放行）。
+  //   ★为什么"账号/登录态"不在拦截清单里：首次安装的用户【必然还没登录】，
+  //     那是正常的初始状态（去登录页登录即可），不是"缺件"，绝不能因此把人挡在门外。
+  try {
+    const blocked = __envBlockers.slice()
+    const okAll = blocked.length === 0
+    sendProgress({ type: 'verdict', ok: okAll, blocked, running: false }, w)
+    buLog('[startup] verdict 下发：' + (okAll ? '✓ 全部通过（放行）' : '✗ 拦住 ' + blocked.map((b) => b.id).join(', ')))
+  } catch (e) {}
   return
 }
 
@@ -481,7 +576,22 @@ ipcMain.handle('startup-check:enter', async (_e, userId) => {
   //   · 与当前账号相同 → 直接进
   //   · 不同 → ① 写该账号的 token 到 session cookie ② 切 profile（browser-profile\{userId}）
   //   · 该账号没有 token（本机没存过）→ 清登录态，让用户在主界面重新登录
+  //
+  // ★ENV_GATE_V1（2026-09-22 用户定稿）：服务端也要拦一道 —— 自检页按钮禁用了，但 IPC 也可能被
+  //   别的路径调用（或者前端状态没跟上）。这里做最后一道闸门：
+  //     · 有"必须通过的项"没过 → 直接拒绝，并回话说明缺什么
+  //     · 正在装新版本（update 下载完正在安装）→ 拒绝
+  //   （注意：账号/登录态【不在】拦截范围内 —— 首次安装必然没登录，那是正常初始状态）
   try {
+    if (__installing) {
+      return { success: false, blocked: true, error: '新版本正在安装中，请等它自动重启后再进入' }
+    }
+    if (__envBlockers.length) {
+      const txt = __envBlockers.map((b) => '· ' + b.title + '：' + String(b.detail || '').slice(0, 120)).join('\n')
+      buLog('[startup] 拒绝进入：仍有未通过的必要项 → ' + __envBlockers.map((b) => b.id).join(', '))
+      try { sendProgress({ type: 'verdict', ok: false, blocked: __envBlockers.slice(), running: false }) } catch (e) {}
+      return { success: false, blocked: true, error: '以下必要项未通过，暂不能进入：\n' + txt }
+    }
     const uid = String(userId || '')
     const cur = String(getClientUserId() || '')
     if (uid && uid !== cur) {
@@ -617,8 +727,12 @@ function startLocalServer() {
 }
 
 // ── 让 Playwright 从安装包内找浏览器 ──
+// ★ENV_MANIFEST_V1（2026-09-22）：这段原来在【两处】各写一遍（文件顶部的 applyBundledBrowsersPath
+//   与本处），容易改一处漏一处 → 现在统一委托给 env-install（同一份 BROWSERS_DIR 定义）。
+//   ★注意：文件顶部那次（模块加载时）比这里更早执行 —— 目的是让【Python 子进程】也能继承到
+//     同一个 PLAYWRIGHT_BROWSERS_PATH（"Node 与 Python 共用包内一份内核"）。
 if (app.isPackaged) {
-  const bundledBrowsers = path.join(process.resourcesPath, 'ms-playwright')
+  const bundledBrowsers = path.join(process.resourcesPath, ENV_M.BROWSERS_DIR)
   if (fs.existsSync(bundledBrowsers)) {
     process.env.PLAYWRIGHT_BROWSERS_PATH = bundledBrowsers
     console.log('[FP] 使用打包内浏览器:', bundledBrowsers)
@@ -2912,7 +3026,10 @@ async function collectHotspotsDaily() {
 }
 
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // ★NET_GATE_V1（用户定稿②）：第一件事 —— 没网络就弹窗要求联网，【不进入任何界面】。
+  //   放在 createWindow() 之前：连自检页都不会出现（用户看到的是"请联网"的弹窗，干净明确）。
+  if (!(await ensureNetworkOrQuit())) return
   createWindow()
   // ★ISO_SYNC_V1：等页面加载完（cookie 就绪）→ 解 userId → 一次性迁移旧 profile
   //   必须在任何用到 BU_PROFILE_DIR 的逻辑（发布/检测/采集）之前完成
