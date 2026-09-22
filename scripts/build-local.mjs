@@ -158,6 +158,9 @@ let innerPythonManifest = null
 }
 
 // ── 4c) ★BROWSER_ALIGN_V1：两侧内核都必须"按各自 playwright 要的 build"落在同一个目录 ──
+// ★PW_PRUNE_V1：这两个变量在 4c 里被填好，供下面 extraResources 的 filter 使用（只打包用到的内核）
+const NEED_BROWSER_DIRS = new Set()
+let PRUNE_FILTERS = null
 // 为什么必须在这里硬校验（本机实测到的真实事故）：
 //   · Node 侧 playwright 1.60.0 要 chromium-1223；Python 侧 playwright 1.62.0 要 chromium-1234；
 //     而当时 ms-playwright 里只有 **chromium-1228** —— 两边【都不对】。
@@ -213,6 +216,8 @@ let innerPythonManifest = null
     const probe = 'const{chromium}=require("playwright");process.stdout.write(chromium.executablePath())'
     let exe = ''
     try { exe = String(execFileSync(process.execPath, ['-e', probe], { encoding: 'utf-8', env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: pw } })).trim() } catch (e) { }
+    // ★PW_PRUNE_V1：记下"Node 侧真正用的那个内核目录名" —— 打包时只带它（见下方 extraResources 的 filter）
+    try { const seg = String(exe).slice(pw.length).split(/[\\/]/).filter(Boolean)[0]; if (seg) NEED_BROWSER_DIRS.add(seg) } catch (e) { }
     if (!exe || !existsSync(exe)) {
       console.error('❌ Node 侧内核对不上：playwright 要 ' + (exe || '(问不出来)') + '，但该文件不存在。\n' +
         '   目录里现有：' + readdirSync(pw).filter((d) => /^chromium/i.test(d)).join(', ') +
@@ -260,8 +265,31 @@ let innerPythonManifest = null
       process.exit(1)
     }
     log('   [Python] ✅ 内核就绪：' + exe2)
+    // ★PW_PRUNE_V1：同样记下 Python 侧用的内核目录名
+    try { const seg = String(exe2).slice(pw.length).split(/[\\/]/).filter(Boolean)[0]; if (seg) NEED_BROWSER_DIRS.add(seg) } catch (e) { }
   }
   log('   两侧内核已对齐（同一个目录里可并存多个 build，各取各的）')
+
+  // ★PW_PRUNE_V1（2026-09-22 实测）：只把【真正被用到】的内核打进包。
+  //   背景：1.0.209 首次打包把整个 ms-playwright 目录(1527MB)全拷进去了 —— 其中
+  //     chromium-1228(415MB) + chromium_headless_shell-1228(270MB)【没有任何代码会用它】
+  //     （Node 侧 playwright 要 1223、Python 侧 1.62 要 1234），凭空让安装包 892MB、
+  //      让每个老用户自动更新要多下 ~685MB。
+  //   现在：按上面"问出来的"目录名生成白名单，其余 chromium* 一律不带。
+  //   ⚠️ 判断依据永远是"问 playwright 本人"，不是写死版本号 —— 以后升级 playwright 自动跟随。
+  PRUNE_FILTERS = ['**/*']
+  try {
+    const dropped = []
+    for (const d of readdirSync(pw, { withFileTypes: true })) {
+      if (!d.isDirectory()) continue
+      if (!/^chromium/i.test(d.name)) continue                 // 只处理 chromium*（ffmpeg/winldd 很小且都要）
+      if (NEED_BROWSER_DIRS.has(d.name)) continue
+      PRUNE_FILTERS.push('!' + d.name + '/**', '!' + d.name)
+      dropped.push(d.name)
+    }
+    if (dropped.length) log('   ⛔ 不带进包（没有代码用它）：' + dropped.join(', '))
+    log('   实际打进包的 chromium 内核：' + (Array.from(NEED_BROWSER_DIRS).join(', ') || '(未识别到，将全量打包)'))
+  } catch (e) { log('   ⚠️ 计算内核白名单失败（将全量打包）: ' + (e.message || e)) }
 }
 
 // ── 5) 生成临时打包配置（ms-playwright 指向本机）───────
@@ -309,7 +337,9 @@ const build = {
     //     用户机器上第一次安装就有完整环境，【运行时零下载】；OSS 只当"包内损坏"时的兜底。
     //   缺这个 zip 会在下面 4b 步【直接打包失败】（宁可不产出，也不产出一个装完不能用的包）。
     { from: 'public/python-bu.zip', to: 'python-bu.zip' },
-    { from: pw, to: 'ms-playwright', filter: ['**/*'] },
+    // ★PW_PRUNE_V1：只带【真正被用到】的 chromium 内核（白名单由 4c 算好）；
+    //   没算出来（异常）就退回全量 —— 宁可大一点，也不能缺内核。
+    { from: pw, to: 'ms-playwright', filter: PRUNE_FILTERS || ['**/*'] },
     // 2026-08-19: 本地语音识别模型（sherpa-onnx）——随包分发
     // 2026-08-21: OpenCLI 浏览器扩展（打包分发——用户免商店/免代理，开发者模式加载即可）
     { from: 'electron/resources/opencli-extension', to: 'opencli-extension', filter: ['**/*'] },
