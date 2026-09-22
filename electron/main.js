@@ -225,7 +225,9 @@ async function runStartupChecks(win) {
   try {
     item('files', 'run', '正在校验发布脚本…')
     const dir = path.join(process.resourcesPath, 'scripts', 'agent-publish')
-    const need = ['bu_pub_douyin.py', 'bu_pub_xhs.py', 'bu_pub_weibo.py', 'bu_pub_shipinhao.py', 'bu_pub_kuaishou.py', 'bu_pub_bilibili.py', '_cdp_click.py']
+    // ★TITLE_LIMIT_V1：_title.py 是 6 个发布脚本共同 import 的（标题长度唯一真源）——
+    //   它要是漏了，每个脚本一启动就 ImportError（发布直接全废），所以必须一起校验。
+    const need = ['bu_pub_douyin.py', 'bu_pub_xhs.py', 'bu_pub_weibo.py', 'bu_pub_shipinhao.py', 'bu_pub_kuaishou.py', 'bu_pub_bilibili.py', '_cdp_click.py', '_title.py']
     const miss = []; const empty = []
     let _di = 0
     for (const f of need) {
@@ -577,6 +579,19 @@ ipcMain.handle('startup-check:pick-account', async (event, userId) => {
     // ★CDP_COOKIE_V1（用户要求）：去掉 100 秒硬超时 —— 采集是必要流程，该等就等；
     //   一个平台一个平台地走，成功/失败都会显示（失败带原因）。全失败也不影响进入。
     await collectHotspotsWithProgress(w)
+    // ★ENTER_STATE_FIX_V1（2026-09-23 用户实测事故）：这里【必须补发一次 verdict】。
+    //   原因：自检主流程的事件顺序是「⑤账号项 → 立刻发 verdict → 用户点账号 → ⑥登录态/⑦采集」，
+    //        也就是最终结论发生在"账号/登录态/采集"三项之前。自检页原本靠"所有项都完成"来
+    //        触发收尾判定，就会在"结论早到、项晚完"时把「确认进入」重新锁死（用户实测：等了
+    //        10 分钟按钮一直是灰的）。
+    //   现在两道保险：① 自检页的按钮判定改成单一出口 refreshEnter（顺序反了也不会错）；
+    //                ② 这里在"选完账号 + 登录态 + 采集"全部结束后【再发一次结论】，
+    //                   让顺序天然正确，也让"这一轮真的走完了"有个明确收尾。
+    try {
+      const blocked = __envBlockers.slice()
+      sendProgress({ type: 'verdict', ok: blocked.length === 0, blocked, running: false }, w)
+      buLog('[startup] 账号流程结束 → 补发 verdict：' + (blocked.length === 0 ? '✓ 放行' : '✗ 拦住 ' + blocked.map((b) => b.id).join(', ')))
+    } catch (e) {}
     return { success: true, profile: getProfileDir() }
   } catch (e) { return { success: false, error: String((e && e.message) || e) } }
 })
@@ -933,7 +948,10 @@ let splashWin = null
 function createSplashWindow() {
   if (splashWin && !splashWin.isDestroyed()) { splashWin.show(); splashWin.focus(); return splashWin }
   splashWin = new BrowserWindow({
-    width: 680, height: 780, resizable: false, maximizable: false, minimizable: false,
+    // ★LAYOUT_FIX_V1（2026-09-23）：780 → 880。用户实测：内容长到 1056px 时，
+    //   账号列表被顶到 751px（旧窗口可视区只有 ~740px）→ 用户看不见、以为"不能选账号"。
+    //   现在①窗口加高 ②长明细默认收起（splash.html）③body 改 flex-start 保证顶部不被裁。
+    width: 680, height: 880, resizable: false, maximizable: false, minimizable: false,
     title: 'AI营销助手 · 启动自检', autoHideMenuBar: true, backgroundColor: '#0a1620',
     // ★NO_WHITE_WINDOW_V1（1.0.179）：先不显示，等页面准备好（ready-to-show）再显示 ——
     //   避免窗口出现瞬间的白色闪烁；3 秒兜底，保证一定能出来
@@ -962,8 +980,50 @@ function createSplashWindow() {
     try { buLog('[winshow] splashWin 正在关闭') } catch (e) {}
     // ★WHITE_WINDOW_FIX_V2：用户直接关掉自检窗口（点 X）→ 自动进入主界面，
     //   避免"关了自检窗什么都没了 / 再点图标出现空白主窗口"
+    // ★ENV_GATE_V2（2026-09-23 用户定稿「不合格不放行」）：
+    //   上一版这里是【无条件 enterMainApp()】——用户实测确认：有拦截项时点 ✕ 也能进主界面，
+    //   等于把 verdict 拦截整个绕过去了（与"不合格不放行"直接冲突）。
+    //   现在：正在装更新 / 有"必须通过"的项没过 → 【不进入主界面】，而是弹窗把缺什么说清楚，
+    //        给「重新自检」和「退出客户端」两条出路 —— 不把人卡在"没有窗口"的状态里。
     try {
-      if (!__enteredMain) { buLog('[winshow] 自检窗被关闭 → 自动进入主界面'); enterMainApp() }
+      if (__enteredMain) return
+      if (__installing) {
+        const b = dialog.showMessageBoxSync({
+          type: 'info', title: 'AI营销助手 · 正在安装新版本', noLink: true,
+          buttons: ['继续等待（推荐）', '退出客户端'], defaultId: 0, cancelId: 1,
+          message: '新版本正在安装，请等它自动重启',
+          detail: '安装期间不能进入主界面（避免与安装器冲突、避免装到一半被中断）。\n' +
+            '如果安装窗口消失很久都没反应，可以退出客户端后重新打开。',
+        })
+        buLog('[winshow] 安装中关窗 → 用户选择 ' + (b === 1 ? '退出客户端' : '继续等待'))
+        if (b === 1) { app.exit(0); return }
+        setTimeout(() => { try { createSplashWindow() } catch (e) {} }, 400)
+        return
+      }
+      const _blockedNow = (__envBlockers || []).slice()
+      if (_blockedNow.length) {
+        const _txt = _blockedNow.map((b) => '· ' + b.title + '：' + String(b.detail || '').slice(0, 180)).join('\n')
+        const b = dialog.showMessageBoxSync({
+          type: 'warning', title: 'AI营销助手 · 暂不能进入', noLink: true,
+          buttons: ['重新自检（推荐）', '退出客户端'], defaultId: 0, cancelId: 1,
+          message: '还有「必须通过」的项没过，暂不能进入主界面',
+          detail: _txt + '\n\n点「重新自检」会重新逐项校验并自动补齐（绝大多数情况能自己修好）。\n' +
+            '若反复不行，请把安装目录下 data\\env-setup.log 发给开发。',
+        })
+        buLog('[winshow] 有拦截项时关窗 → 用户选择 ' + (b === 1 ? '退出客户端' : '重新自检') + '（拦截：' +
+          _blockedNow.map((x) => x.id).join(', ') + '）')
+        if (b === 1) { app.exit(0); return }
+        __envBlockers = []
+        setTimeout(() => {
+          try {
+            const w2 = createSplashWindow()
+            try { runStartupChecks(w2 || splashWin) } catch (e) {}
+          } catch (e) {}
+        }, 400)
+        return
+      }
+      buLog('[winshow] 自检窗被关闭 → 自动进入主界面')
+      enterMainApp()
     } catch (e2) {}
   })
   splashWin.webContents.on('did-finish-load', () => { console.log('[winshow] splashWin did-finish-load'); try { buLog('[winshow] splashWin 加载完成') } catch (e) {} })

@@ -8,6 +8,8 @@ B站（哔哩哔哩）发布（确定性脚本——参考 electron/fp-templates
 """
 import sys, os, re, time, argparse, json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ★TITLE_LIMIT_V1（2026-09-23 用户定稿）：标题统一 ≤15 字（视频号 ≤16）—— 唯一真源见 _title.py
+from _title import clamp_title          # noqa: E402
 from playwright.sync_api import sync_playwright
 try:
     from _cdp_click import cdp_click_text
@@ -199,7 +201,7 @@ def main():
                     page.keyboard.press('ControlOrMeta+A')
                     page.keyboard.press('Backspace')
                     page.wait_for_timeout(300)
-                    tv = (a.title or '').strip()[:16]   # TITLE16
+                    tv = clamp_title(a.title, 'bilibili')   # ★TITLE_LIMIT_V1：≤15 字（原 TITLE16）
                     ti.fill(tv)
                     page.keyboard.press('Tab')
                     log('标题已填: ' + tv[:40])

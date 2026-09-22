@@ -12,6 +12,10 @@ if hasattr(sys.stdout, 'reconfigure'):
     try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception: pass
 from playwright.sync_api import sync_playwright
+
+# ★TITLE_LIMIT_V1（2026-09-23 用户定稿）：标题统一 ≤15 字（视频号 ≤16）—— 唯一真源见 _title.py
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _title import clamp_title          # noqa: E402
 try:
     from _cdp_click import cdp_click_text
 except Exception:
@@ -226,12 +230,13 @@ def main():
                 if el:
                     try:
                         el.click(); human_pause(page, 0.35, 0.9)
-                        human_type(page, a.title)     # ★HUMANIZE_V1：逐字输入替代瞬间 fill
+                        _t = clamp_title(a.title, 'xiaohongshu')   # ★TITLE_LIMIT_V1：≤15 字（原来完全不截断）
+                        human_type(page, _t)     # ★HUMANIZE_V1：逐字输入替代瞬间 fill
                         try:
                             if not str(el.input_value() or '').strip():   # 拟人输入没进去 → 回退，保功能
-                                el.fill(a.title); log('  ⚠️ 拟人输入未生效 → 回退 fill')
+                                el.fill(_t); log('  ⚠️ 拟人输入未生效 → 回退 fill')
                         except Exception: pass
-                        log('✅ 标题已填: ' + a.title[:16])
+                        log('✅ 标题已填: ' + _t)
                         human_pause(page, 1.4, 3.2)   # ★拟人化：步间延时改为随机
                     except Exception as e: log('标题填失败: ' + str(e)[:60])
                 else: log('⚠️ 未找到标题框')

@@ -131,6 +131,7 @@ const ITEMS = [
       'resources/scripts/agent-publish/bu_pub_kuaishou.py',
       'resources/scripts/agent-publish/bu_pub_bilibili.py',
       'resources/scripts/agent-publish/_cdp_click.py',
+      'resources/scripts/agent-publish/_title.py',   // ★TITLE_LIMIT_V1：标题长度唯一真源（6 个脚本共同 import）
     ],
     minBytes: 50,
   },

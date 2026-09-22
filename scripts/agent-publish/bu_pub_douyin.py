@@ -11,6 +11,10 @@ if hasattr(sys.stdout, 'reconfigure'):
     try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception: pass
 from playwright.sync_api import sync_playwright
+
+# ★TITLE_LIMIT_V1（2026-09-23 用户定稿）：标题统一 ≤15 字（视频号 ≤16）—— 唯一真源见 _title.py
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _title import clamp_title          # noqa: E402
 try:
     from _cdp_click import cdp_click_text
 except Exception:
@@ -87,9 +91,8 @@ def click_selector_prefix(page, prefix, exclude=None):
 #     · ★绝不点「设置横封面」——那会打开横封面编辑器，又反过来盖住页面
 #       （2026-09-14 ad23732 就是因为点了同名按钮才删掉"判断横竖"那段逻辑的）
 #   close_cover_guide() 是幂等的：没有这层引导 → 什么都不做（返回 False）。
-def close_cover_guide(page):
-    """关掉抖音「设置横封面获更多流量」引导层；没这层就不动任何东西。"""
-    box = None
+def _guide_layer(page):
+    """找出「设置横封面获更多流量」引导层（没这层 → None）。"""
     for sel in ('.semi-portal', '.semi-modal', '[class*="modal"]', '[class*="dialog"]'):
         try:
             for e in page.query_selector_all(sel):
@@ -97,26 +100,75 @@ def close_cover_guide(page):
                     if not e.is_visible(): continue
                     t = ' '.join((e.inner_text() or '').split())
                     if ('获更多流量' in t) or ('暂不设置' in t):
-                        box = e
-                        break
+                        return e
                 except Exception: continue
         except Exception: pass
-        if box is not None: break
-    if box is None: return False
+    return None
+
+
+def _guide_gone(page):
+    """★复验：引导层是不是【真的】没了（旧代码点完不复验 → 日志说"关掉了"其实还在）。"""
+    return _guide_layer(page) is None
+
+
+def _noset_btn(page, scope=None):
+    """找「暂不设置」按钮：先在层内找，再【整页兜底】（该层按钮常与 box 同级 → 旧代码只找层内）。"""
+    roots = [scope, page] if scope is not None else [page]
+    for root in roots:
+        for sel in ('button', '[role="button"]', '[class*="button"]'):
+            try:
+                for e in root.query_selector_all(sel):
+                    try:
+                        if not e.is_visible(): continue
+                        t = ' '.join((e.inner_text() or '').split())
+                        # ★包含匹配（旧代码用 == '暂不设置' 严格相等 → 按钮文本/排版一变就点不中）
+                        # ★并且【排除】「设置横封面」——那个按钮绝对不能点（会打开编辑器又盖一层）
+                        if ('暂不设置' in t) and ('设置横封面' not in t):
+                            return e
+                    except Exception: continue
+            except Exception: continue
+    return None
+
+
+def close_cover_guide(page):
+    """关掉抖音「设置横封面获更多流量」引导层；没这层就不动任何东西。
+
+    ★COVER_GUIDE_HARDEN_V1（2026-09-23 用户实测：就卡在这一层"来回拖动"）——
+      旧实现的三个问题，这里全部补上：
+        ① 判定用【严格相等】(== '暂不设置') → 文本/排版一变就点不中
+        ② 只在 box 内找按钮 → 该层按钮常与 box 同级，层内找不到 → 加整页兜底
+        ③ 点完【不复验】直接 return True → 日志骗人（看着关掉了，实际还在）→ 点完必复验
+      另：该层是全屏遮罩时 Playwright 的 click 容易被拦 → 加 CDP 穿透点击兜底（_cdp_click）。
+    铁律不变：只点「暂不设置」/✕，绝不点「设置横封面」。
+    """
+    box = _guide_layer(page)
+    if box is None:
+        return False
     txt = ' '.join((box.inner_text() or '').split())
-    # ① 正解：点「暂不设置」
-    for sel in ('button', '[role="button"]', '[class*="button"]'):
+
+    # ① 正解：点「暂不设置」（层内 → 整页兜底 → CDP 穿透兜底）
+    btn = _noset_btn(page, box) or _noset_btn(page, None)
+    if btn is not None:
         try:
-            for e in box.query_selector_all(sel):
-                try:
-                    if not e.is_visible(): continue
-                    if ' '.join((e.inner_text() or '').split()) == '暂不设置':
-                        e.click(timeout=1500)
-                        log('✅ 已关掉抖音封面引导层（点了「暂不设置」）')
-                        page.wait_for_timeout(700)
-                        return True
-                except Exception: continue
-        except Exception: continue
+            btn.click(timeout=2000)
+            log('✅ 已点「暂不设置」关掉封面引导层')
+        except Exception as e1:
+            log('  点「暂不设置」异常（转 CDP 穿透）: ' + str(e1)[:60])
+            btn = None
+    if btn is None and cdp_click_text is not None:
+        try:
+            _r = cdp_click_text(page, '暂不设置', tag='button', log=log, exact=False)
+            _ok = bool(_r[0]) if isinstance(_r, tuple) else bool(_r)
+            if _ok:
+                log('✅ CDP 穿透点「暂不设置」成功')
+            else:
+                log('  CDP 穿透也没点中「暂不设置」')
+        except Exception as e2:
+            log('  CDP 点「暂不设置」异常: ' + str(e2)[:60])
+    page.wait_for_timeout(800)
+    if _guide_gone(page):
+        return True
+
     # ② 退路：✕ —— 只在【确实含「获更多流量」这个引导特征】时才用
     #    （避免误点到封面弹窗自己的 ✕，那会把已上传的封面一起关掉）
     if '获更多流量' in txt:
@@ -126,9 +178,11 @@ def close_cover_guide(page):
                 if e and e.is_visible():
                     e.click(timeout=1500)
                     log('✅ 已关掉抖音封面引导层（点了右上角 ✕）')
-                    page.wait_for_timeout(700)
-                    return True
+                    page.wait_for_timeout(800)
+                    if _guide_gone(page):
+                        return True
             except Exception: continue
+
     log('⚠️ 检测到封面引导层，但「暂不设置」/✕ 都没点到（继续尝试）')
     return False
 
@@ -233,7 +287,7 @@ def main():
                 el = visible(page, sel)
                 if el:
                     try:
-                        el.click(); el.fill(a.title); log('✅ 标题已填: ' + a.title[:16]); page.wait_for_timeout(2000)
+                        el.click(); _t = clamp_title(a.title, 'douyin'); el.fill(_t); log('✅ 标题已填: ' + _t); page.wait_for_timeout(2000)
                         # ★FILL_DONE_BREAK_V1（2026-09-17）：原来 break 被写进了注释（"; break"）→ 循环不中断 →
                         #   会依次试 3 个选择器、每个都填一遍标题（日志里"标题已填 ×3"就是这个），
                         #   而且 for...else 会在循环正常走完后误报"未找到标题框"。恢复 break：填中一个就停。
@@ -413,13 +467,45 @@ def main():
                 log('CDP 点击异常（回退文本）: ' + str(e_cdp)[:70])
         if not pub_ok:
             pub_ok = click_text(page, ['发布', '立即发布'], exclude=['离开', '定时'])
+        # ★PUB_VERIFY_V1（2026-09-23 用户定稿「不谎报」）：
+        #   旧代码点没点中、成没成都 print success=True → Agent 侧一律当"发布成功"（这就是
+        #   用户看到的"明明卡在封面却报成功"）。现在：点完【必须看结果】，并如实回报：
+        #     · 没点中            → success=False
+        #     · 页面出现失败提示  → success=False（把提示词带回去）
+        #     · 检测到成功迹象    → success=True（附 url）
+        #     · 点中了但看不出来  → success=False + 明确写"请人工确认"，绝不谎报
+        verified = False
+        fail_word = ''
         if pub_ok:
             log('✅ 已点发布')
-            page.wait_for_timeout(8000)
+            _succ = ['发布成功', '已发布', '审核中', '作品管理', '发布完成']
+            _failw = ['发布失败', '提交失败', '请重试', '上传失败', '违规']
+            for _i in range(8):            # 8 × 2s = 16s
+                page.wait_for_timeout(2000)
+                try:
+                    _bt = page.inner_text('body')[:9000]
+                except Exception:
+                    _bt = ''
+                for w in _failw:
+                    if w in _bt:
+                        fail_word = w
+                        break
+                if fail_word:
+                    break
+                if ('/manage' in page.url) or ('/content' in page.url) or any(w in _bt for w in _succ):
+                    verified = True
+                    break
             log('发布后 URL=' + page.url)
-        else:
+        if verified:
+            print(json.dumps({'success': True, 'result': '已点发布并检测到成功迹象', 'url': page.url}))
+        elif fail_word:
+            print(json.dumps({'success': False, 'result': '发布失败（页面提示：%s）—— 请人工处理后重试' % fail_word, 'url': page.url}))
+        elif not pub_ok:
             log('❌ 未找到发布按钮（CDP + 文本都失败）')
-        print(json.dumps({'success': True, 'url': page.url}))
+            print(json.dumps({'success': False, 'result': '未找到发布按钮（CDP + 文本都失败）—— 请人工确认', 'url': page.url}))
+        else:
+            log('⚠️ 已点发布但没检测到明确结果（请人工确认，确认没发出去再重试，避免重复发布）')
+            print(json.dumps({'success': False, 'result': '已点发布但未检测到成功结果，请人工确认后再重试（避免重复发布）', 'url': page.url}))
 
 if __name__ == '__main__':
     try:

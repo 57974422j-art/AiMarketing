@@ -20,6 +20,10 @@ if hasattr(sys.stdout, 'reconfigure'):
     except Exception: pass
 from playwright.sync_api import sync_playwright
 
+# ★TITLE_LIMIT_V1（2026-09-23 用户定稿）：标题统一 ≤15 字（视频号 ≤16）—— 唯一真源见 _title.py
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _title import clamp_title          # noqa: E402
+
 URL = 'https://weibo.com'   # HOME_CLICK_VIDEO_V7：入口就是首页（上传页必须由微博自己跳出来）
 HOME = 'https://weibo.com/'
 
@@ -279,7 +283,7 @@ def main():
                 page.wait_for_timeout(1000)
                 el = page.locator('input[type="text"]').first
                 el.click(timeout=4000)
-                el.fill(a.title[:16])
+                el.fill(clamp_title(a.title, 'weibo'))   # ★TITLE_LIMIT_V1：≤15 字
                 page.wait_for_timeout(600)
                 v = page.evaluate("""() => { const i = document.querySelector('input[type=text]'); return i ? i.value : null; }""")
                 log('⑤ 标题已填（value=%s）' % repr(v))

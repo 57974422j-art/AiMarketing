@@ -8,9 +8,12 @@
   body {
     font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
     background: radial-gradient(1200px 600px at 50% -10%, #0f2b3d 0%, #0a1620 45%, #070d13 100%);
-    color: #e6edf3; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    padding: 24px; -webkit-user-select: none; user-select: none;
+    color: #e6edf3; min-height: 100vh; display: flex; align-items: flex-start; justify-content: center;
+    padding: 18px 24px 24px; -webkit-user-select: none; user-select: none;
   }
+  /* ★LAYOUT_FIX_V1（2026-09-23）：原来是 align-items:center —— 内容比窗口高时，
+     顶部会被裁掉且【滚不回来】（flex 居中 + 溢出的经典坑）。改成 flex-start 后，
+     内容再长也只是"往下滚"，顶部与账号区都保证可达。 */
   .box { width: 100%; max-width: 600px; }
   .hd { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: #22d3ee; box-shadow: 0 0 12px #22d3ee; }
@@ -108,6 +111,18 @@
   // ★ENV_GATE_V1：主进程 verdict 判定为"有必须通过的项没过" → 锁死「确认进入」，
   //   且【不许】30 秒超时自动放行（用户定稿："安装期间不进入下一步…只有版本号对上才进入下一步"）
   let hardBlocked = false
+  // ═══ ★ENTER_STATE_FIX_V1（2026-09-23 用户实测事故）═══
+  //   事故：那台机器 22:38:54 就收到 verdict「✓ 全部通过（放行）」，但用户等了 10 分钟
+  //        按钮一直是灰的，最后只能点 ✕ 关窗进客户端。
+  //   根因：事件顺序是【⑤账号项 → 立刻发 verdict → 用户点账号 → ⑥登录态/⑦热点才算完】，
+  //        而原来的 bump() 在"所有项完成"时【无条件】把按钮重新禁用（本意是"等 verdict"）——
+  //        verdict 早就来过了，之后再也不会来 → 按钮永久锁死。
+  //   修法：放行与否【只由 refreshEnter() 一处判定】，三个触发点（项完成 / verdict / 超时）
+  //        都走它 —— 顺序反过来也不会再锁死。
+  let verdictDone = false          // 是否已收到主进程的最终结论
+  let updating = false             // 正在安装新版本（UPDATE_GUARD_V1）
+  let needPick = false             // 本机有账号记录 → 必须先手选一个（用户定稿：等选了账号再验登录态+采热点）
+  let accSelected = ''             // 当前已选账号
 
   ITEMS.forEach((it, idx) => {   // ★ORDER_FIX_V1：显示 1. 2. 3.… 序号，顺序一眼可见
     const d = document.createElement('div')
@@ -132,7 +147,33 @@
                   : state === 'ok'  ? '<span style="color:#34d399">✓</span>'
                   : state === 'warn'? '<span style="color:#fbbf24">!</span>'
                   : state === 'bad' ? '<span style="color:#f87171">✕</span>' : '·'
-    if (detail != null) n.dt.textContent = String(detail)
+    if (detail != null) {
+      // ★ENV_DETAIL_COLLAPSE_V1（2026-09-23 用户实测事故）：明细过长会把【账号选择】挤出首屏
+      //   （实测：页面 1056px vs 自检窗可视区 740px，账号列表落在 751px → 用户根本看不见，
+      //    于是"不能选账号、默认第一个就开跑"）。规则：通过 / 提示类项目，明细≥3 行【默认收起】，
+      //    只留第一行 + 「展开明细」；失败(bad)与进行中(run)照旧全显示（要让人一眼看到问题）。
+      const _s = String(detail)
+      const _lines = _s.split('\n')
+      if ((state === 'ok' || state === 'warn') && _lines.length >= 3) {
+        n.dt.textContent = _lines[0] + ' '
+        const _a = document.createElement('a')
+        _a.href = 'javascript:void(0)'
+        _a.textContent = '展开明细（' + (_lines.length - 1) + ' 行）'
+        _a.style.cssText = 'color:#22d3ee;font-size:11.5px;text-decoration:none'
+        const _rest = document.createElement('div')
+        _rest.textContent = _lines.slice(1).join('\n')
+        _rest.style.display = 'none'
+        _a.onclick = () => {
+          const open = _rest.style.display === 'none'
+          _rest.style.display = open ? 'block' : 'none'
+          _a.textContent = open ? '收起明细' : ('展开明细（' + (_lines.length - 1) + ' 行）')
+        }
+        n.dt.appendChild(_a)
+        n.dt.appendChild(_rest)
+      } else {
+        n.dt.textContent = _s
+      }
+    }
     if (state === 'run') {
       if (typeof progress === 'number' && progress > 0) {
         n.prog.classList.remove('indet')
@@ -147,21 +188,56 @@
     }
   }
 
+  // ★ENTER_STATE_FIX_V1：放行判定的【唯一出口】——任何地方都不许直接改 enter.disabled
+  let pickTipShown = false
+  function refreshEnter() {
+    // ① 正在装新版本 → 一律不给进（文案由 lockUI 负责）
+    if (updating) { enter.disabled = true; return }
+    // ② 有"必须通过"的项没过 → 锁死，只留「重试」
+    if (hardBlocked) { enter.disabled = true; return }
+    // ③ 还没收到主进程的最终结论 → 等（正常一两秒内就到）
+    if (!verdictDone) { enter.disabled = true; return }
+    // ④ 本机有账号但还没选 → 等用户选（用户定稿：等选了账号再验登录态 + 采热点）
+    if (needPick && !accSelected) {
+      enter.disabled = true
+      pickTipShown = true
+      hint.textContent = '请先在上方【选择要使用的账号】—— 选完会自动检测登录态并采集热点'
+      hint.style.color = '#fcd34d'
+      return
+    }
+    // ⑤ 其余（含"没账号"的机器、以及选完账号之后）→ 放行
+    //   ★选完账号后要把"请先选账号"那句提示换掉，否则按钮亮了、提示还在，
+    //     用户会以为"没生效"（上一轮就是这类前后不一致让人反复试）。
+    if (pickTipShown) {
+      pickTipShown = false
+      hint.textContent = '可以进入了 ✓（登录态检测 / 热点采集会在后台继续完成）'
+      hint.style.color = '#6b8496'
+    }
+    enter.disabled = false
+  }
+
   function bump() {
     doneN++
     bar.style.width = Math.round((doneN / ITEMS.length) * 100) + '%'
     if (doneN >= ITEMS.length) {
-      // ★ENV_GATE_V1：所有项走完后，是否放行【由主进程 verdict 决定】——
-      //   在 verdict 到达之前先不开门（原来这里是"立刻 enter.disabled=false"，等于默认放行）
-      enter.disabled = true
+      // ★ENTER_STATE_FIX_V1：所有项走完后【不再无条件禁用】——
+      //   交给 refreshEnter 按"是否已收到结论 / 是否还要选账号"统一判定。
       skip.style.display = 'none'
-      if (!hardBlocked) { hint.textContent = '正在汇总结论…'; hint.style.color = '#6b8496' }
+      if (!hardBlocked && !accSelected && needPick) {
+        hint.textContent = '请先在上方【选择要使用的账号】—— 选完会自动检测登录态并采集热点'
+        hint.style.color = '#fcd34d'
+      } else if (!hardBlocked) {
+        hint.textContent = '正在汇总结论…'
+        hint.style.color = '#6b8496'
+      }
+      refreshEnter()
     }
   }
 
   // ★ENV_GATE_V1：重试 = 把界面恢复到"新一轮开始"，再让主进程重新跑一遍自检+补齐
   function resetForRetry() {
     doneN = 0; anyBad = false; hardBlocked = false
+    verdictDone = false; needingPickReset()
     bar.style.width = '0%'
     retry.style.display = 'none'
     skip.style.display = 'none'
@@ -170,12 +246,28 @@
     hint.textContent = '正在重新自检…'
     hint.style.color = '#6b8496'
   }
+  // ★ACCOUNT_PICK_REQUIRED_V1：重试也算"重新走一遍" → 账号要重新确认
+  function needingPickReset() { accSelected = '' }
 
-  let accSelected = ''
+  // ★ACCOUNT_PICK_REQUIRED_V1（2026-09-23 用户实测事故）：
+  //   用户原话："以前有多账号等选了账号再找登录态和采集热点，现在是【不能选账号、默认第一个直接】
+  //             验账号登录态采集热点就开始了。"
+  //   根因（两条叠加）：① 这里原来会【自动点第一个可切换账号】→ 用户没机会选；
+  //                    ② 我上一版把「运行环境」明细写成 11 行，把账号列表挤到首屏外（751px/740px）→
+  //                       用户根本看不到列表，只能"被默认"。
+  //   现在：① 明细默认收起（见 setItem）；② 这里【不再自动点】，必须用户亲手选一次；
+  //        ③ 选完才放行「确认进入」（refreshEnter），否则提示"请先选账号"。
   function renderAccounts(d) {
     if (!d || !Array.isArray(d.list)) return
     accWrap.innerHTML = ''
-    if (!d.list.length) { accWrap.style.display = 'none'; return }
+    if (!d.list.length) {
+      // 本机没有任何账号记录（首次安装就是这种）→ 正常状态，不必选，直接放行
+      accWrap.style.display = 'none'
+      needPick = false
+      refreshEnter()
+      return
+    }
+    needPick = true
     for (let i = 0; i < d.list.length; i++) {
       const a = d.list[i]
       const b = document.createElement('button')
@@ -186,14 +278,21 @@
         accSelected = a.userId
         for (let k = 0; k < accWrap.children.length; k++) accWrap.children[k].classList.remove('sel')
         b.classList.add('sel')
+        refreshEnter()   // ★选完立刻重新判定（这时按钮才允许亮）
         try { if (window.electronAPI && window.electronAPI.pickAccount) window.electronAPI.pickAccount(a.userId) } catch (e) {}
       }
       accWrap.appendChild(b)
     }
     accWrap.style.display = 'flex'
-    let idx = d.list.findIndex((a) => a.current)
-    if (idx < 0) idx = d.list.findIndex((a) => a.canSwitch)
-    if (idx >= 0) { try { accWrap.children[idx].click() } catch (e) {} }
+    // 醒目提示：这是"必须做的一步"，不是可选项
+    const tip = document.createElement('div')
+    tip.id = 'accTip'
+    tip.style.cssText = 'font-size:11.5px;color:#fcd34d;margin:2px 0 4px 2px'
+    tip.textContent = '★ 请选择要使用的账号（共 ' + d.list.length + ' 个）—— 选完才会检测登录态并采集热点'
+    accWrap.insertBefore(tip, accWrap.firstChild)
+    // 不要把账号列表留在屏幕外：自动滚到可见处（上一版就是把这里挤出首屏的）
+    try { accWrap.scrollIntoView({ block: 'nearest' }) } catch (e) {}
+    refreshEnter()
   }
 
   try {
@@ -201,6 +300,7 @@
     const lockUI = (v) => {
       // ★UPDATE_GUARD_V1：新版本正在安装 → 禁用"确认进入/仍要继续"，避免用户在安装中途进入
       try {
+        updating = true
         enter.disabled = true
         skip.style.display = 'none'
         hint.textContent = '新版本 v' + (v || '') + ' 正在安装，窗口稍后会自动重新打开 —— 请勿关闭本窗口或手动启动客户端'
@@ -216,26 +316,31 @@
         if (d.type === 'unlock') {   // ★UPDATE_EXCLUSIVE_V1：更新失败 → 解除锁定，继续自检
           // ★ENV_GATE_V1：解除"更新锁定"≠放行 —— 如果还有必须通过的项没过，仍然不许进入
           try {
-            if (!hardBlocked) { enter.disabled = false; hint.textContent = '更新失败 → 本次跳过更新，继续自检'; hint.style.color = '#fcd34d' }
+            updating = false
+            if (!hardBlocked) { hint.textContent = '更新失败 → 本次跳过更新，继续自检'; hint.style.color = '#fcd34d' }
+            refreshEnter()
           } catch (e) {}
           return
         }
         // ★ENV_GATE_V1（2026-09-22 用户定稿）：主进程的最终结论 ——
         //   ok=false 且有 blocked 项 → 【锁死「确认进入」】，只留「重试」（不许跳过）
+        // ★ENTER_STATE_FIX_V1：这里【不再直接改 enter.disabled】，只更新状态与文案后交给
+        //   refreshEnter() 统一判定 —— 这样"结论先到、账号后选"也不会把按钮锁死。
         if (d.type === 'verdict') {
           try {
             if (d.running) { retry.style.display = 'none'; return }   // 新一轮刚开始
             const blocked = Array.isArray(d.blocked) ? d.blocked : []
+            verdictDone = true
             if (d.ok) {
               hardBlocked = false
               retry.style.display = 'none'
-              enter.disabled = false
               skip.style.display = 'none'
-              hint.textContent = '自检全部通过 ✓'
-              hint.style.color = '#6b8496'
+              hint.textContent = needPick && !accSelected
+                ? '环境自检全部通过 ✓ —— 还需选择账号'
+                : '自检全部通过 ✓'
+              hint.style.color = needPick && !accSelected ? '#fcd34d' : '#6b8496'
             } else if (blocked.length) {
               hardBlocked = true
-              enter.disabled = true
               skip.style.display = 'none'
               retry.style.display = ''
               hint.textContent = '有「必须通过」的项未通过 → 暂不能进入：' + blocked.map((b) => b.title).join(' / ') +
@@ -245,10 +350,10 @@
               // 没有 blocked 项（例如只有账号/登录态这类"不拦"的提示）→ 正常放行
               hardBlocked = false
               retry.style.display = 'none'
-              enter.disabled = false
               hint.textContent = '自检完成 —— 可以进入' + (anyBad ? '（有提示项未通过，不影响登记/发布）' : ' ✓')
               hint.style.color = anyBad ? '#fcd34d' : '#6b8496'
             }
+            refreshEnter()
           } catch (e) {}
           return
         }
@@ -287,12 +392,22 @@
     else { hint.textContent = '无法启动自检（桥接未就绪）'; enter.disabled = false }
     setTimeout(() => {
       // ★ENV_GATE_V1：被"必须通过的项"拦住时【不许】超时放行（用户定稿：安装期间不进入下一步）
-      if (enter.disabled && !hardBlocked) {
-        enter.disabled = false
-        hint.textContent = '自检等待超时 —— 可直接点「确认进入」使用（可重启客户端再自检一次）'
-        hint.style.color = '#fcd34d'
-      }
-    }, 30000)
+      if (hardBlocked) return
+      // ★ENTER_STATE_FIX_V1：这里只兜底"没收到结论 / 账号列表没渲染出来"这两种卡住的情况；
+      //   正常情况结论一两秒就到、账号列表也正常，不会走到这里。
+      //   （上一版的问题：这个超时只在页面加载后触发一次，如果用户是在 30 秒后才点账号，
+      //     兜底已经用掉、按钮又被 bump() 关掉 → 永久锁死。）
+      const stuckNoVerdict = !verdictDone
+      const stuckNoPickList = needPick && !accSelected
+      if (!stuckNoVerdict && !stuckNoPickList) return
+      verdictDone = true
+      if (stuckNoPickList) { needPick = false; accSelected = accSelected || '' }
+      hint.textContent = stuckNoPickList
+        ? '账号列表可能没加载出来 —— 可直接点「确认进入」（进入后仍可在账号页切换）'
+        : '自检等待超时（没收到结论）—— 可直接点「确认进入」使用（可重启客户端再自检一次）'
+      hint.style.color = '#fcd34d'
+      refreshEnter()
+    }, 45000)
   } catch (e) {
     hint.textContent = '自检初始化异常：' + (e && e.message)
     enter.disabled = false

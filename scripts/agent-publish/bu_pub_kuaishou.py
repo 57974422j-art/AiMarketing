@@ -8,6 +8,8 @@
 """
 import sys, os, re, time, argparse, json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ★TITLE_LIMIT_V1（2026-09-23 用户定稿）：标题统一 ≤15 字（视频号 ≤16）—— 唯一真源见 _title.py
+from _title import clamp_title          # noqa: E402
 from playwright.sync_api import sync_playwright
 try:
     from _cdp_click import cdp_click_text
@@ -226,7 +228,7 @@ def main():
                 except Exception:
                     pass
                 page.wait_for_timeout(400)
-                txt = (a.title or '').strip()[:16]   # TITLE16
+                txt = clamp_title(a.title, 'kuaishou')   # ★TITLE_LIMIT_V1：≤15 字（原 TITLE16）
                 is_ta = False
                 try:
                     is_ta = page.evaluate("(e) => e.tagName === 'TEXTAREA'", desc)
@@ -335,19 +337,59 @@ def main():
             pass
         page.wait_for_timeout(1200)
 
-        ok1 = click_text(page, ['发布'], '（发布按钮）')
+        # ═══ ★KS_PUB_VERIFY_V1（2026-09-23 用户定稿）═══
+        #   旧代码两个问题，用户实测直接踩到：
+        #     ① 【元组没解包】：cdp_click_text 返回的是 (ok, msg)，旧代码 `ok1 = cdp_click_text(...)`
+        #        把【元组】赋给了 ok1 —— 非空元组恒为真 → "if not ok1" 永远不成立 →
+        #        等于【完全没校验】点没点中。
+        #     ② 【不校验结果就报成功】：点了之后只等 8 秒看一眼，看不到成功迹象也照样
+        #        success=True（"已执行发布，请手动确认"）→ Agent 侧当成功。
+        #   现在：① 元组正确解包（兼容返回 bool 的老版本）；② 点完【轮询校验】，
+        #        区分"成功迹象 / 失败提示 / 看不出来"三种，如实回报，不再谎报。
+        ok1 = False
+        try:
+            ok1 = bool(click_text(page, ['发布'], '（发布按钮）'))
+        except Exception as e1:
+            log('文本点「发布」异常: ' + str(e1)[:60])
         if not ok1 and cdp_click_text:
-            ok1 = cdp_click_text(page, '发布', tag='', log=log, exact=True, prefer_bottom_right=True)
-        ok2 = ok1   # 该平台只有一次点击，无二次确认；保留变量兼容日志
-        page.wait_for_timeout(8000)
-        kill_joyride(page)
-        t = body(page)
-        if '/article/manage' in page.url or '发布成功' in t or '已发布' in t:
-            log('发布成功！')
-            print(json.dumps({'success': True, 'result': '已发布到快手'}))
+            try:
+                _r = cdp_click_text(page, '发布', tag='', log=log, exact=True, prefer_bottom_right=True)
+                if isinstance(_r, tuple):
+                    ok1 = bool(_r[0])
+                    log('CDP 穿透点「发布」→ ok=%s msg=%s' % (_r[0], str(_r[1])[:60] if len(_r) > 1 else ''))
+                else:
+                    ok1 = bool(_r)
+            except Exception as e2:
+                log('CDP 点「发布」异常: ' + str(e2)[:60])
+        log('发布点击结果: ok=%s（true=点中了，false=没点中）' % ok1)
+
+        # 点击后校验（最多 20 秒）：成功了没？还是弹了失败提示？
+        _succ = ['发布成功', '已发布', '审核中', '作品管理', '发布完成']
+        _failw = ['发布失败', '提交失败', '请重试', '上传失败', '违规', '封面异常']
+        verified = False
+        fail_word = ''
+        for _i in range(10):          # 10 × 2s = 20s
+            page.wait_for_timeout(2000)
+            kill_joyride(page)
+            t = body(page)
+            for w in _failw:
+                if w in t:
+                    fail_word = w
+                    break
+            if fail_word:
+                break
+            if '/article/manage' in page.url or any(w in t for w in _succ):
+                verified = True
+                break
+        if verified:
+            log('✅ 发布成功（已校验）URL=' + page.url)
+            print(json.dumps({'success': True, 'result': '已发布到快手', 'url': page.url}))
+        elif fail_word:
+            log('❌ 发布失败（页面提示：%s）' % fail_word)
+            print(json.dumps({'success': False, 'result': '发布失败（页面提示：%s）—— 请人工处理后重试' % fail_word, 'url': page.url}))
         else:
-            log('结果不确定 step1=%s step2=%s' % (ok1, ok2))
-            print(json.dumps({'success': True, 'result': '已执行发布，请手动确认'}))
+            log('❌ 未检测到发布成功（点了=%s）URL=%s' % (ok1, page.url))
+            print(json.dumps({'success': False, 'result': '未检测到发布成功（可能没点中或被弹层挡住），请人工确认后再重试（避免重复发布）', 'url': page.url}))
 
 
 if __name__ == '__main__':

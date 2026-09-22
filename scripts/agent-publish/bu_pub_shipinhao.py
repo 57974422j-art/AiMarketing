@@ -13,6 +13,8 @@
 """
 import sys, os, time, argparse, json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ★TITLE_LIMIT_V1（2026-09-23 用户定稿）：标题统一 ≤15 字，【视频号 ≤16】（平台短标题硬限 16）
+from _title import clamp_title          # noqa: E402
 if hasattr(sys.stdout, 'reconfigure'):
     try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception: pass
@@ -217,7 +219,7 @@ def main():
                     x2, y2 = [int(v) for v in xy2.split(',')]
                     page.mouse.click(ox2 + x2, oy2 + y2)
                     page.wait_for_timeout(400)
-                    page.keyboard.type(a.title[:16], delay=25)
+                    page.keyboard.type(clamp_title(a.title, 'shipinhao'), delay=25)   # ★TITLE_LIMIT_V1：视频号 ≤16 字
                     page.wait_for_timeout(600)
                     v2 = fr.evaluate("""() => { const i = document.querySelector('input[placeholder*="短标题"]'); return i ? i.value : null; }""")
                     log('⑤ 短标题已填（值=%s）' % repr(v2))
