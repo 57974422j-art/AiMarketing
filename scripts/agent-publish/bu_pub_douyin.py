@@ -92,23 +92,89 @@ def click_selector_prefix(page, prefix, exclude=None):
 #       （2026-09-14 ad23732 就是因为点了同名按钮才删掉"判断横竖"那段逻辑的）
 #   close_cover_guide() 是幂等的：没有这层引导 → 什么都不做（返回 False）。
 def _guide_layer(page):
-    """找出「设置横封面获更多流量」引导层（没这层 → None）。"""
-    for sel in ('.semi-portal', '.semi-modal', '[class*="modal"]', '[class*="dialog"]'):
+    """找出「设置横封面获更多流量」**第二层**引导层（没这层 → None）。
+
+    ★GUIDE_SELECTOR_V2（2026-09-23 用用户真实页面 dump 出来的结构，逐条都是实测）：
+      这个层【不是】Semi 的 .semi-portal / .semi-modal，而是抖音自家的：
+        DIV.dy-creator-content-portal             ← 外层 rect 高度 0 → is_visible() = False！
+          DIV.dy-creator-content-modal-confirm    ← 也是 rect 高度 0
+            DIV.dy-creator-content-modal-wrap(-center)   ← ★全屏罩（真正挡住一切的那个）
+              DIV.dy-creator-content-modal…-small        ← 那个粉框
+                DIV.dy-creator-content-modal-footer
+                  BUTTON.semi-button…(light)「暂不设置」
+                  BUTTON.semi-button…(primary)「设置横封面」
+      ⇒ 两个结论：
+        ① 选择器必须带上 dy-creator-content-modal（只靠 [class*="modal"] 是"碰巧"命中，
+           而那两个外层容器 rect 高 0、is_visible()=False，本来就该跳过）
+        ② 必须【取最内层的可见小框】，不能用那个全屏罩 —— 用罩来判断"层还在不在"会一直为真，
+           判断"层是否消失"就永远失败。
+    """
+    cands = []
+    for sel in ('[class*="dy-creator-content-modal"]', '.semi-portal', '.semi-modal',
+                '[class*="modal"]', '[class*="dialog"]'):
         try:
             for e in page.query_selector_all(sel):
                 try:
                     if not e.is_visible(): continue
                     t = ' '.join((e.inner_text() or '').split())
                     if ('获更多流量' in t) or ('暂不设置' in t):
-                        return e
+                        cands.append(e)
                 except Exception: continue
         except Exception: pass
-    return None
+        if cands:
+            break      # 精确选择器命中就不再往下试
+    if not cands:
+        return None
+    # 取最内层（不包含其它候选者的那个）→ 得到那个粉框，而不是全屏罩
+    for a in cands:
+        outer = False
+        for b in cands:
+            if a is b:
+                continue
+            try:
+                if a.evaluate('(el, o) => el.contains(o)', b):
+                    outer = True
+                    break
+            except Exception:
+                pass
+        if not outer:
+            return a
+    return cands[-1]
 
 
 def _guide_gone(page):
     """★复验：引导层是不是【真的】没了（旧代码点完不复验 → 日志说"关掉了"其实还在）。"""
     return _guide_layer(page) is None
+
+
+# ★COVER_OCCLUSION_V1（2026-09-23 用户实测 + 真实页面 elementFromPoint 验证）
+_JS_TOP_AT = """([x, y, me]) => {
+  const t = document.elementFromPoint(x, y);
+  if (!t) return { ok: false, what: '(该点没有任何元素)' };
+  const hit = (t === me) || me.contains(t) || t.contains(me);
+  return { ok: hit, what: t.tagName + '.' + String(t.className || '').slice(0, 70) + ' 【' + (t.innerText || '').replace(/\\s+/g, ' ').slice(0, 26) + '】' };
+}"""
+
+
+def _clickable_at(page, el):
+    """这个元素【真能点到吗】—— 该点最上层是不是它自己（或它的子孙）。
+
+    ★为什么必须有这个（实测数据）：引导层的全屏罩 dy-creator-content-modal-wrap 展开时：
+        · 「完成」  is_visible()=True、disabled=False，但点下去最上层是【罩】→ Playwright 点击必然超时
+        · 「发布」  同上 → 所以"发布其实没点中"，作品发不出去
+        · 底部「设置横封面」同上
+        · 「暂不设置」最上层就是它自己 → 能点中
+      ⇒ 只判 is_visible() 会把"被盖住的按钮"当成"就绪"（旧代码因此日志骗人、后面必然失败）。
+    判不出来时返回 True（不拦，保持原行为）。
+    """
+    try:
+        r = el.bounding_box()
+        if not r or not r.get('width') or not r.get('height'):
+            return False, ''
+        info = page.evaluate(_JS_TOP_AT, [r['x'] + r['width'] / 2, r['y'] + r['height'] / 2, el])
+        return bool(info.get('ok')), str(info.get('what') or '')
+    except Exception:
+        return True, ''
 
 
 def _noset_btn(page, scope=None):
@@ -331,7 +397,13 @@ def main():
             opened = click_text(page, ['选择封面', '设置封面'])
             if opened:
                 page.wait_for_timeout(2500)
-                close_cover_guide(page)  # ★进封面弹窗后再清一次（它常在这时冒出、盖住「完成」）
+                # ★COVER_GUIDE_TIMING_V1（2026-09-23 真实页面实测）：这里【故意不清引导层】。
+                #   实测：点「暂不设置」会把这层【连同封面弹窗本身】一起关掉（关完后页面上的
+                #   「完成」/「选择封面」都没了、只剩「发布」）。所以：
+                #     · 如果在上传封面【之前】清层 → 封面弹窗被关 → 上传区消失 → 封面传不上去
+                #     · 正确时机是【上传完、点完成之前】再清（见下面的 COVER_GUIDE_BEFORE_DONE_V1）
+                #   旧代码在这里"进弹窗后清一次"，只在上传前就冒出引导层时会误伤（每天首次可能）
+                pass
                 # 上传：优先 semi-upload-drag-area（排除 custom=AI 参考图区）
                 up = False
                 for e in page.query_selector_all('.semi-upload-drag-area'):
@@ -359,7 +431,10 @@ def main():
                     #   那个窗口里【既没有「完成」也没有可点的「发布」】→ 脚本一直卡着（#48 失败就是这么来的）。
                     #   同一份代码：等 5 秒点=正常，等 3.5 秒点=出第二窗口 → 纯时序问题。
                     #   改为：轮询等「完成」按钮【可点击】（最多 20 秒），再点。
-                    def _cover_done_btn():
+                    # ★COVER_OCCLUSION_V1（2026-09-23）：判断「完成」要【真能点到】才算就绪 ——
+                    #   被引导层全屏罩盖住时，它的 is_visible() 也是 True，旧逻辑会误判"已就绪"，
+                    #   接着点它必然超时，然后带着弹窗去点发布 → 发布也点不中（用户实测就是这条）。
+                    def _cover_done_btn(need_clickable=True):
                         for s in ['button:has-text("完成")', 'button:has-text("保存")', 'button:has-text("确定")']:
                             for e in page.query_selector_all(s):
                                 try:
@@ -369,6 +444,11 @@ def main():
                                     # semi-button-disabled 只是 CSS 类，不是 HTML disabled → 两个都要判
                                     if e.is_disabled() or 'disabled' in cls:
                                         continue
+                                    if need_clickable:
+                                        _okc, _what = _clickable_at(page, e)
+                                        if not _okc:
+                                            log('  「完成」可见但被挡住（该点最上层：%s）' % _what)
+                                            continue
                                     return s, e
                                 except Exception:
                                     continue
@@ -381,8 +461,9 @@ def main():
                         if btn_ok:
                             log('✅ 封面已就绪（等了 %.1fs，按钮=%s）' % ((_i + 1) * 0.5, sel_ok))
                             break
-                        # ★COVER_GUIDE_MODAL_V1：找「完成」找不着，八成是引导层盖住了 → 先关掉再找
-                        #   （每天第一次发布必现；关掉后「完成」立刻可点，不再死等 20 秒）
+                        # ★GUIDE_SELECTOR_V2：找不到"能点的完成"（含被引导层盖住）→ 先关层再找。
+                        #   这层是【第二层弹窗】、每天大致只出现一次（之后不再出现）→ 这里必须【幂等】：
+                        #   没有这层时它什么都不做，所以"无脑调用"是安全的。
                         if close_cover_guide(page):
                             _guide_hits += 1
                             sel_ok, btn_ok = _cover_done_btn()
@@ -401,19 +482,44 @@ def main():
                     except Exception: pass
                     page.wait_for_timeout(1000)
 
-                    # 点「完成」并【真校验】：弹窗里按钮消失 = 弹窗已关；否则重试
+                    # ★COVER_GUIDE_BEFORE_DONE_V1（2026-09-23 用户实测的关键修复）：
+                    #   点「完成」【之前】无条件先清一次引导层 —— 不再"等找不到完成才关"。
+                    #   今天的事故链：引导层（第二层、全屏罩）出现 → 但「完成」在 DOM 里【找得到】
+                    #   （可见、没 disabled）→ 旧循环第一轮就 break →【引导层从来没被碰过】→
+                    #   点完成被罩拦住（Playwright 必然超时）→ 重试 3 次全失败 → 带着弹窗去点发布
+                    #   → 发布也被拦住（所以"作品没发出去、弹窗还在"）。
+                    #   它每天只出现一次、很难复现，所以这里【无脑清一次】（没层 = no-op，绝对安全）。
+                    try:
+                        if close_cover_guide(page):
+                            page.wait_for_timeout(800)
+                    except Exception:
+                        pass
+
+                    # 点「完成」并【真校验】：弹窗里按钮消失 = 弹窗已关；否则先清层再重试
                     done_ok = False
                     for _try in range(3):
                         sel_ok, btn_ok = _cover_done_btn()
                         if not btn_ok:
-                            done_ok = True
-                            log('✅ 封面已确认（弹窗已关闭，第 %d 次确认）' % (_try + 1))
-                            break
+                            # ★必须区分"真没了（弹窗已关）"和"还在但被挡住" —— 不区分就会误报成功
+                            _s_raw, _b_raw = _cover_done_btn(need_clickable=False)
+                            if _b_raw is None:
+                                done_ok = True
+                                log('✅ 封面已确认（弹窗已关闭，第 %d 次确认）' % (_try + 1))
+                                break
+                            log('  「完成」仍在但点不到（被层挡住）→ 先清层再重试')
+                            close_cover_guide(page)
+                            page.wait_for_timeout(600)
+                            continue
                         try:
                             btn_ok.click(timeout=2500)
                             log('已点「%s」（第 %d 次）' % (sel_ok or '完成', _try + 1))
                         except Exception as e:
-                            log('  点完成异常: ' + str(e)[:60])
+                            log('  点完成异常（多半被挡）: ' + str(e)[:60])
+                            # ★点不动 → 先把引导层清掉再重试（旧代码只原地重点，必然一直失败）
+                            try:
+                                close_cover_guide(page)
+                            except Exception:
+                                pass
                         page.wait_for_timeout(3000)
                     if not done_ok:
                         log('⚠️ 封面确认后弹窗仍未关闭（已重试 3 次）')
@@ -457,6 +563,15 @@ def main():
         # 2026-09-12: 原来用 click_text 严格文本匹配 → 客户端实测"未找到发布按钮"
         #   （页面渲染差异/文本带图标/不在视口都会失败）→ 改【CDP 穿透点击】，文本点击作兜底
         page.wait_for_timeout(3000)   # ★2026-09-12 发布前统一等 3 秒
+        # ★PUBLISH_GUIDE_GUARD_V1（2026-09-23 用户实测）：发布前【兜底】再清一次封面引导层。
+        #   它每天只出现一次、而且常在"封面"那一步才浮现；只要它还在，点「发布」的坐标就会落到
+        #   那个全屏罩上（实测：发布按钮该点最上层 = dy-creator-content-modal-wrap）→ 发布没点中。
+        #   无脑清一次（没层 = no-op），保证"要点发布时，屏幕上没有第二层弹窗"。
+        try:
+            if close_cover_guide(page):
+                page.wait_for_timeout(800)
+        except Exception:
+            pass
         pub_ok = False
         if cdp_click_text is not None:
             try:
