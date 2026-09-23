@@ -282,7 +282,9 @@ async function repairPyBrowsersItem(item, onProgress) {
   try { fs.mkdirSync(dir, { recursive: true }) } catch (e) {
     return { ok: false, detail: '无法写入内核目录（安装目录没有写权限）：' + dir + ' → ' + String((e && e.message) || e) }
   }
-  report('正在用 Python 自带的 playwright 安装内核（约 130MB，需要联网）…', 10)
+  // ★WAIT_UX_V1（2026-09-23）：这类"几十分钟级"的等待【不能传固定百分比】——
+  //   以前传 10 → 界面停在 10% 十几分钟，看着像卡死。不传百分比时自检页走流动动效，能看出还在干活。
+  report('正在用 Python 自带的 playwright 安装内核（约 130MB；国内网速可能 5~15 分钟，请勿关闭窗口）…')
   const r = await run(py, ['-m', 'playwright', 'install', 'chromium'], { timeout: 1800000, env: { PLAYWRIGHT_BROWSERS_PATH: dir } })
   elog('python -m playwright install chromium → code=' + r.code + ' tail=' + String((r.stderr || r.stdout) || '').slice(-200))
   if (r.code !== 0) return { ok: false, detail: '安装内核失败：' + String((r.stderr || r.stdout) || '').slice(-240) }
@@ -421,7 +423,7 @@ async function repairZipItem(item, onProgress) {
     report('使用【安装包内自带】的环境包（无需下载）：' + path.basename(zipPath), 20)
   } else if (item.ossUrl) {
     // ★OSS 只作兜底：包内没有/被杀软删了才走这里
-    report('包内未找到环境包 → 从 OSS 下载（需要联网，约 100~250MB）…', 5)
+    report('包内未找到环境包 → 从 OSS 下载（需要联网，约 150MB；视网速可能十几分钟，请勿关闭窗口）…')
     fs.mkdirSync(destDir, { recursive: true })
     const dl = path.join(destDir, item.zipName)
     try {
@@ -456,7 +458,10 @@ async function repairZipItem(item, onProgress) {
     }
   } catch (e) { elog('旧目录处理异常（继续）：' + String((e && e.message) || e)) }
 
-  report('正在解压环境包（大文件，请稍候，勿关闭窗口）…', 45)
+  // ★UNZIP_MSG_V1（2026-09-23 实测）：Expand-Archive 解这个包（149MB / 19079 条目 / 17091 个文件）
+  //   要【约 1.8 分钟】。① 文案必须说清"约 2 分钟、别关窗口"，否则容易被当成卡死而杀掉进程；
+  //   ② 不传固定百分比（以前传 45 → 界面停在 45% 近两分钟，看着像死了）。
+  report('正在解压运行环境（约 2 分钟，请勿关闭窗口或断电）…')
   const ex = await unzipTo(zipPath, destDir)
   if (!ex.ok) return { ok: false, detail: '解压失败：' + ex.err }
 

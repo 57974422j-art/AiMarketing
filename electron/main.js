@@ -164,7 +164,7 @@ async function runStartupChecks(win) {
   //     ③ 旧：装不上就"提示一下、可先进入"（= 静默放行半成品）
   //        新：明确失败 + 明确原因 + 可重试
   try {
-    item('env', 'run', '正在按依赖清单逐项校验运行环境（缺什么就立刻补什么，可能要几分钟）…', false, 0)
+    item('env', 'run', '正在按依赖清单逐项校验运行环境（缺什么就立刻补什么）…\n★首次安装/首次补齐需要几分钟（其中解压运行环境约 2 分钟），期间请勿关闭窗口或断电', false, 0)
     let _envCur = ''
     const _forward = (id, state, detail, done, progress) => {
       // 清单里的子项（python-bu / node-browsers / publish-scripts…）统一汇总到自检页的「运行环境」一项，

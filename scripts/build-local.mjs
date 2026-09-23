@@ -305,7 +305,10 @@ log('5/7 生成 build.local.json…')
 try {
   const vj = resolve(ROOT, 'electron/version.json')
   const vd = JSON.parse(readFileSync(vj, 'utf-8'))
-  vd.buildDate = new Date().toISOString().slice(0, 10)
+  // ★LOCAL_DATE_FIX_V1（2026-09-23）：同 bump-version —— toISOString() 是 UTC，
+  //   凌晨打包会被写成"前一天"（实测 09-23 07:30 打包写成 09-22）。改为本地时区日期。
+  const _d = new Date(); const _p = (n) => String(n).padStart(2, '0')
+  vd.buildDate = _d.getFullYear() + '-' + _p(_d.getMonth() + 1) + '-' + _p(_d.getDate())
   writeFileSync(vj, JSON.stringify(vd, null, 2) + String.fromCharCode(10))
   log('version.json buildDate 更新为 ' + vd.buildDate)
 } catch (e) { log('⚠️ buildDate 更新失败: ' + e.message) }
