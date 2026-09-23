@@ -195,6 +195,13 @@ BROWSER_JOBS = [
     ('快手', 'https://www.kuaishou.com/', JS_KUAISHOU),
 ]
 
+# ★NO_LOGIN_NO_BROWSER_V1（2026-09-23）：判断"该平台在本机有没有登录 cookie"用的域名片段——
+#   没登录就不为它启动浏览器（未登录时 B 类采不到任何东西，只是白开一个 about:blank 窗口）。
+PF_COOKIE_HOSTS = {
+    '抖音': ('douyin',),
+    '快手': ('kuaishou',),
+}
+
 
 CHROME_CANDS = [
     r'C:\Program Files\Google\Chrome\Application\chrome.exe',
@@ -214,49 +221,127 @@ def cdp_alive(timeout=2):
 def start_chrome(profile):
     """AUTO_START_CHROME_V1（2026-09-13）：客户端启动时浏览器通常没开——
     原来只 connect 已开的 9222，连不上就跳过 → 永远不会自己开。
-    现在：找不到 chrome 就自己起一个（同 profile + 9222），采完由调用方关不关都行。"""
+    现在：找不到 chrome 就自己起一个（同 profile + 9222）。
+
+    ★SELF_CHROME_CLEANUP_V1（2026-09-23 用户实测）：返回值由 True/False 改为【pid】——
+      因为"采完由调用方关不关都行"这句注释当年埋了坑：调用方从来没关，于是每次采集都留下一个
+      about:blank 空浏览器；它占住 browser-profile（登录态目录）→ 用户删客户端目录删不掉
+      （报 journal.baj / MessageDB / LOCK 正被另一进程使用），还可能和发布抢同一个 profile。
+      现在返回 pid，由 collect_by_browser 在采集结束【关掉这个自己启的】。
+      0 = 没启成功（或没找到 Chrome）→ 调用方就什么都不用关。
+    """
     import subprocess as _sp
     ch = next((p for p in CHROME_CANDS if os.path.exists(p)), None)
     if not ch:
         print('  未找到 Chrome（无法自动启动）')
-        return False
+        return 0
+    p = None
     try:
-        _sp.Popen([ch, '--user-data-dir=' + str(profile), '--remote-debugging-port=9222',
-                   '--remote-allow-origins=*', '--no-first-run', 'about:blank'],
-                  stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+        p = _sp.Popen([ch, '--user-data-dir=' + str(profile), '--remote-debugging-port=9222',
+                       '--remote-allow-origins=*', '--no-first-run', 'about:blank'],
+                      stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
         print('  已启动浏览器（9222 + profile）等待就绪…')
     except Exception as e:
         print('  启动浏览器失败:', str(e)[:80])
-        return False
+        return 0
     for _ in range(15):
         time.sleep(1)
         if cdp_alive():
             print('  浏览器就绪')
-            return True
+            try:
+                return int(p.pid)
+            except Exception:
+                return 0
     print('  浏览器等待超时')
+    if p is not None:
+        try:   # 超时也别留孤儿
+            _sp.run(['taskkill', '/PID', str(p.pid), '/T', '/F'], capture_output=True)
+            print('  已结束超时的浏览器进程')
+        except Exception:
+            pass
+    return 0
+
+
+def pid_alive(pid):
+    """进程是否还活着（用来决定要不要 taskkill 兜底）。"""
+    try:
+        import subprocess as _sp
+        r = _sp.run(['tasklist', '/FI', 'PID eq ' + str(pid), '/NH'], capture_output=True, text=True)
+        return str(pid) in (r.stdout or '')
+    except Exception:
+        return False
+
+
+def close_own_browser(pid):
+    """★SELF_CHROME_CLEANUP_V1：结束【本次采集自己启动的】浏览器（只在 CDP 关不掉时用）。
+
+    铁律：只关【自己启的】—— 别人已经开着的 9222（用户自己开的 / 登记发布浏览器）绝不动。
+    """
+    if not pid:
+        return
+    try:
+        import subprocess as _sp
+        _sp.run(['taskkill', '/PID', str(pid), '/T', '/F'], capture_output=True)
+        print('  已结束本次采集启动的浏览器（pid=%d）' % pid)
+    except Exception as e:
+        print('  结束浏览器失败:', str(e)[:60])
+
+
+def _has_pf_cookie(rows, name):
+    """该平台在本机有没有 cookie（= 有没有登录）。没有就不值得为它启动浏览器。"""
+    frags = PF_COOKIE_HOSTS.get(name) or ()
+    for r in (rows or []):
+        try:
+            h = str(r[0]).lower()
+        except Exception:
+            continue
+        for f in frags:
+            if f in h:
+                return True
     return False
 
 
-def collect_by_browser(only=None, profile=None):
-    """开标签 → 页内 fetch → 关标签（只有浏览器可用时才做）"""
+def collect_by_browser(only=None, profile=None, rows=None):
+    """开标签 → 页内 fetch → 关标签（只有浏览器可用时才做）
+
+    ★两处 2026-09-23 的改动（用户实测反馈）：
+      ① NO_LOGIN_NO_BROWSER_V1：**该平台没登录就不为它启动浏览器** ——
+         用户实测：全新机器、还没登录，点「确认进入」后也会弹出一个 about:blank 空浏览器
+         （采不到任何东西，纯属多余）。
+      ② SELF_CHROME_CLEANUP_V1：**自己启动的浏览器，采集完必须自己关掉** ——
+         以前注释写"由调用方关不关都行"，结果调用方从来没关 → 每次留一个空窗口，
+         还占住 browser-profile（登录态目录）。复用别人开的 9222 时【绝不关】。
+    """
     try:
         from playwright.sync_api import sync_playwright
     except Exception as e:
         print('  浏览器采集跳过（无 playwright）:', str(e)[:60])
         return {}
-    # ★AUTO_START_CHROME_V1：没开就自己开
+    # ① 先按"有没有该平台 cookie"筛作业（rows 为 None（老调用）= 不筛，保持原行为）
+    jobs = []
+    for name, url, js in BROWSER_JOBS:
+        if only and name not in only:
+            continue
+        if rows is not None and not _has_pf_cookie(rows, name):
+            print('  [%s] 未登录（本机没有该平台 cookie）→ 跳过，不启动浏览器' % name)
+            continue
+        jobs.append((name, url, js))
+    if not jobs:
+        print('  没有已登录的平台可采 → 不启动浏览器')
+        return {}
+    # ② 没开就自己开（★记下 pid：这是"我启的"，采完要自己关）
+    own_pid = 0
     if not cdp_alive():
-        print('  CDP 9222 不通 → 自动启动浏览器')
-        if not start_chrome(profile):
+        print('  CDP 9222 不通 → 自动启动浏览器（采完会自动关掉）')
+        own_pid = start_chrome(profile)
+        if not own_pid:
             return {}
     out = {}
     try:
         with sync_playwright() as pw:
             b = pw.chromium.connect_over_cdp(CDP_URL)
             ctx = b.contexts[0]
-            for name, url, js in BROWSER_JOBS:
-                if only and name not in only:
-                    continue
+            for name, url, js in jobs:
                 pg = None
                 try:
                     pg = ctx.new_page()
@@ -277,8 +362,41 @@ def collect_by_browser(only=None, profile=None):
                             pg.close()
                     except Exception:
                         pass
+            # ★关掉"我启的那个"（必须在 playwright 还活着时做）：
+            #   ① 首选 CDP 的 Browser.close —— 让 Chrome【自己有序退出】，
+            #      这样下次打开不会弹"未正常关闭/恢复页面"（实测 b.close() 只断开连接，进程还活着）
+            #   ② 拿不到 CDP 会话 → 退回 b.close()（断开）
+            #   ③ 都失败/中途异常 → 交给 finally 的 taskkill 兜底
+            if own_pid:
+                closed = False
+                try:
+                    cdp = b.new_browser_cdp_session()
+                    cdp.send('Browser.close')
+                    closed = True
+                    print('  已通知本次采集启动的浏览器退出（Browser.close）')
+                except Exception as e:
+                    print('  Browser.close 不可用（退回断开连接）:', str(e)[:70])
+                if not closed:
+                    try:
+                        b.close()
+                        print('  已断开与本次采集浏览器的连接（等它自己退）')
+                    except Exception as e:
+                        print('  CDP 断开失败（稍后用 taskkill 兜底）:', str(e)[:60])
     except Exception as e:
         print('  浏览器不可用（跳过）:', str(e)[:90])
+    finally:
+        # 兜底（只针对"我启的"）：
+        #   ① 先给它最多 8 秒自己退 —— 干净退出，下次打开不会弹"恢复页面/未正常关闭"
+        #   ② 8 秒还没退（或中途异常）才强杀
+        if own_pid and pid_alive(own_pid):
+            for _ in range(16):
+                time.sleep(0.5)
+                if not pid_alive(own_pid):
+                    break
+            if pid_alive(own_pid):
+                close_own_browser(own_pid)
+            else:
+                print('  本次采集启动的浏览器已自行退出 ✅')
     return out
 
 
@@ -329,7 +447,8 @@ def main():
         print()
         print('浏览器采集（开标签→页内 fetch→关标签）…')
         try:
-            result.update(collect_by_browser(only, a.profile))
+            # ★NO_LOGIN_NO_BROWSER_V1：把已读到的 cookie 传进去，让它在"没登录"时不启动浏览器
+            result.update(collect_by_browser(only, a.profile, rows))
         except Exception as e:
             print('  浏览器采集异常:', str(e)[:90])
 

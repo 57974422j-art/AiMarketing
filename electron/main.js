@@ -63,6 +63,14 @@ async function ensureNetworkOrQuit() {
 //   避免"自检采集"与"启动后 collectHotspotsDaily"同时跑（互抢 9222 与 Cookies 锁 →
 //   表现成"检测说已登录、采集说全未登录"）。同一时刻只允许一个采集在跑。
 let __hotCollecting = false
+// ★NO_LOGIN_NO_BROWSER_V1（2026-09-23 用户实测）：登录态检测的结果留存下来，给"采集决策"用。
+//   用户原话："我还没登录因为我点了确认所以触发了开浏览器采热点工作，这不算 bug，但不完美"。
+//   ⇒ 规则：检测明确"各平台均未登录"时，采集【不跑 B 类】（B 类要开浏览器页内取数）——
+//     未登录时它采不到任何东西，却会留下一个 about:blank 空浏览器（还占住 browser-profile）。
+//   ⇒ __loginChecked 的意义：只有【真的跑过且拿到结果】才敢断言"未登录"；
+//     检测失败/没跑过（false）时【不跳过】，避免误杀本该有的采集。
+let __loginChecked = false
+let __loggedInPlatforms = []
 function __hotTodayMark() { try { return path.join(app.getPath('userData'), 'hotspot-last.json') } catch (e) { return '' } }
 function __hotCollectedToday() {
   try {
@@ -449,11 +457,21 @@ async function collectHotspotsWithProgress(win) {
       } catch (e) { resolve('') }
     })
     let out = ''
+    let _skipB = ''
     try {
       // ★CDP_COOKIE_V1：放宽子步骤时限（用户要求不限制时间；这里只作"防永久挂死"的兜底）
       const outA2 = await runHot(base, 300000)                                  // A 类：微博/B站（读 cookie）
-      const outB2 = await runHot(base.concat(['--browser']), 600000)            // B 类：抖音/快手（开浏览器页内取数）
-      out = String(outA2) + String.fromCharCode(10) + String(outB2)
+      // ★NO_LOGIN_NO_BROWSER_V1（2026-09-23 用户实测）：登录态检测明确"各平台均未登录"时，
+      //   【不跑 B 类】——B 类要开浏览器页内取数，未登录时采不到东西，却会留下一个 about:blank
+      //   空浏览器（还占住 browser-profile 登录态目录 → 删客户端目录会报"文件正由另一进程使用"）。
+      if (__loginChecked && __loggedInPlatforms.length === 0) {
+        _skipB = '本次未检测到已登录平台 → 已跳过浏览器采集（不启动浏览器，避免留下多余空窗口）'
+        buLog('[hot] ' + _skipB)
+        out = String(outA2)
+      } else {
+        const outB2 = await runHot(base.concat(['--browser']), 600000)          // B 类：抖音/快手（开浏览器页内取数）
+        out = String(outA2) + String.fromCharCode(10) + String(outB2)
+      }
     } catch (e) { out = '' }
     const lines = String(out).split(/[\r\n]+/)
     const names = ['抖音', '小红书', '微博', '视频号', 'B站', '快手']
@@ -476,6 +494,7 @@ async function collectHotspotsWithProgress(win) {
       else stat.push('· ' + nm + '：' + String(ln).replace(/^\s*\[[^\]]+\]\s*/, '').slice(0, 36))
     }
     const gotAny = /采集结果：\s*[^（]/.test(out) && !/采集结果：\s*（空）/.test(out)
+    if (_skipB) stat.push('· ' + _skipB)   // ★NO_LOGIN_NO_BROWSER_V1：把"为什么没开浏览器"如实写在自检页
     item('collect', gotAny ? 'ok' : 'warn',
       stat.join('\n') + (gotAny ? '' : '\n（本次没有采到数据：未登录、待实现的平台不会采集）'), true)
     buLog('[hot] 自检采集完成 gotAny=' + gotAny + ' | ' + stat.join(' / '))
@@ -510,6 +529,9 @@ async function detectLoginState(win) {
     })
     const m = out.match(/PLATS:([A-Za-z0-9_:,]+)/)
     if (!m) {
+      // ★NO_LOGIN_NO_BROWSER_V1：检测没拿到结果 →【不能】当成"未登录"（否则会误跳过本该做的采集）
+      __loginChecked = false
+      __loggedInPlatforms = []
       item('login', 'warn', '检测未返回结果（可先进入使用；若平台显示未登录，请在「登记」里登录）', true)
     } else {
       const names = PLATFORM_NAME
@@ -519,6 +541,10 @@ async function detectLoginState(win) {
         if (!names[seg[0]]) continue
         ;(seg[1] === '1' ? on : off).push(names[seg[0]])
       }
+      // ★NO_LOGIN_NO_BROWSER_V1：把结果记下来（供采集决策；空 = 各平台均未登录）
+      __loginChecked = true
+      __loggedInPlatforms = on.slice()
+      try { buLog('[login] 登录态：已登录 ' + (on.join(' / ') || '(无)') + ' | 未登录 ' + (off.join(' / ') || '(无)')) } catch (e) {}
       if (on.length) {
         item('login', 'ok', '已登录：' + on.join(' / ') + (off.length ? '\n未登录：' + off.join(' / ') + '（登录后重启客户端会再次自检）' : ''), true)
       } else {
@@ -3078,7 +3104,15 @@ async function collectHotspotsDaily() {
     })
 
     const outA = await runOnce(base.slice(), 'A类(微博/B站)')
-    const outB = await runOnce(base.concat(['--browser']), 'B类(抖音/快手)')
+    // ★NO_LOGIN_NO_BROWSER_V1（2026-09-23 用户实测）：登录态检测明确"各平台均未登录"时【不跑 B 类】。
+    //   用户实测路径：全新机器、还没登录 → 点「确认进入」→ 8 秒后这条兜底补采就会启动一个
+    //   about:blank 空浏览器（采不到数据，却留下空窗口 + 占住 browser-profile）。
+    let outB = ''
+    if (__loginChecked && __loggedInPlatforms.length === 0) {
+      buLog('[hot] 各平台均未登录 → 跳过 B 类采集（不启动浏览器）')
+    } else {
+      outB = await runOnce(base.concat(['--browser']), 'B类(抖音/快手)')
+    }
     // 2026-09-14: 【只有真的采到东西才写"今天已采"】——之前失败也写，
     //   导致当天不再重试（用户实测：08:52 那次 B 类只跑 2 秒失败，却把 09-14 标记成已采）
     const gotAny = /采集结果：\s*[^（]/.test(String(outA) + String(outB)) && !/采集结果：\s*（空）/.test(String(outA) + String(outB))
