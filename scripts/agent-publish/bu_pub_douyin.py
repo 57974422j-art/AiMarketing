@@ -573,6 +573,7 @@ def main():
         except Exception:
             pass
         pub_ok = False
+        _url_before_pub = page.url      # ★PUB_VERIFY_V1B：记下点击前的 URL（判断"跳转是不是我们点出来的"）
         if cdp_click_text is not None:
             try:
                 _ok, _msg = cdp_click_text(page, '发布', tag='button', log=log, exact=True, prefer_bottom_right=True)
@@ -607,7 +608,11 @@ def main():
                         break
                 if fail_word:
                     break
-                if ('/manage' in page.url) or ('/content' in page.url) or any(w in _bt for w in _succ):
+                # ★PUB_VERIFY_V1B（2026-09-23 快手那边实测到的同类隐患）：URL 判据必须要求
+                #   "页面【是这次点击之后】才跳过去的" —— 否则用户自己翻到管理页也会被算成发布成功
+                #   （快手今天就真出现了"没点中却报成功"）。
+                _moved = (page.url != _url_before_pub) and (('/manage' in page.url) or ('/content' in page.url))
+                if _moved or any(w in _bt for w in _succ):
                     verified = True
                     break
             log('发布后 URL=' + page.url)

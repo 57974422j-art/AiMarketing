@@ -255,6 +255,57 @@ def main():
                         log('话题已填(最多3): ' + ' '.join('#' + t for t in tps))
                     except Exception as e:
                         log('  话题填写失败: ' + str(e)[:60])
+                # ★KS_FILL_VERIFY_V1（2026-09-23 用户实测反馈"标题什么都没输入 就放草稿了"）：
+                #   快手在【视频上传完成前后会重渲染表单】—— 脚本填进去的内容可能被平台清掉，
+                #   而脚本当时确实打出了"标题已填"（它没撒谎，是之后被清了）。
+                #   现在【填完必须复验】：读回内容框，标题不在里面就重填（最多 3 次），
+                #   并把每次结果写进日志 —— 这样"到底填进去没有"有据可查，不再靠猜。
+                if txt:
+                    try:
+                        for _chk in range(3):
+                            page.wait_for_timeout(1200)
+                            _got = ''
+                            try:
+                                _got = str(page.evaluate("(e) => (e.innerText || e.value || '')", desc) or '')
+                            except Exception:
+                                _got = ''
+                            _g = _got.replace('\n', ' ').replace(' ', '')
+                            _w2 = txt.replace(' ', '')
+                            if _w2 and (_w2[:8] in _g):
+                                log('✅ 内容框复验通过：标题确实在里面（第 %d 次检查）' % (_chk + 1))
+                                break
+                            log('⚠️ 内容框里读不到标题（第 %d 次）→ 重新找框并重填' % (_chk + 1))
+                            # 重渲染后旧句柄可能失效 → 重新找一次内容框
+                            _d2 = None
+                            for _s in ['div[contenteditable="true"]', 'textarea[placeholder*="简介"]',
+                                       'textarea[placeholder*="描述"]', 'textarea[placeholder*="介绍"]']:
+                                _e2 = page.query_selector(_s)
+                                if _e2 and vis(page, _s):
+                                    _d2 = _e2
+                                    break
+                            if _d2 is None:
+                                log('  没找到内容框（页面可能正在跳转）→ 停止重填')
+                                break
+                            desc = _d2
+                            try:
+                                is_ta = bool(page.evaluate("(e) => e.tagName === 'TEXTAREA'", desc))
+                            except Exception:
+                                pass
+                            try:
+                                desc.click(timeout=3000)
+                                page.keyboard.press('Control+A')
+                                page.wait_for_timeout(150)
+                                if is_ta:
+                                    desc.fill(txt)
+                                else:
+                                    page.keyboard.type(txt, delay=30)
+                                log('  已重填标题')
+                            except Exception as _e4:
+                                log('  重填失败: ' + str(_e4)[:60])
+                        else:
+                            log('⚠️ 标题复验 3 次都没通过 —— 内容可能被平台重渲染清空（继续发布，发布后请在平台核对标题）')
+                    except Exception as _e5:
+                        log('  内容复验异常（忽略）: ' + str(_e5)[:60])
             page.wait_for_timeout(1500)
         if SK_COVER:
             log('封面——用户勾掉，跳过（用平台默认）')
@@ -346,21 +397,58 @@ def main():
         #        success=True（"已执行发布，请手动确认"）→ Agent 侧当成功。
         #   现在：① 元组正确解包（兼容返回 bool 的老版本）；② 点完【轮询校验】，
         #        区分"成功迹象 / 失败提示 / 看不出来"三种，如实回报，不再谎报。
+        # ═══ ★KS_PUBLISH_WAIT_V1（2026-09-23 用户实测"没点中却报发布成功"）═══
+        #   实测证据（日志 17:15:39→17:16:18）：
+        #     脚本填完标题后 7 秒就去找「发布」→「CDP 穿透找到 <*> "发布" → 0 个」——
+        #     那一刻页面上【根本还没有这个按钮】（视频还在上传／表单还没渲染完，甚至页面正在跳转）；
+        #     旧代码【只尝试一次】就放弃 → 没点中 → 之后页面自己跳到作品管理页（草稿），
+        #     而旧校验【只看 URL 里有没有 /article/manage】→ 于是报了"发布成功"（假成功）。
+        #   现在两处都改：
+        #     ① 【等按钮出现再点】：轮询最多 90 秒，确认页面上真出现了「发布」再点（连试 3 次）。
+        #        注意：快手真正的「发布」是个 DIV（class=_button_3a3lq_1 _button-primary_3a3lq_60），
+        #        不是 <button>，所以点击必须用 tag='' 的穿透点击（实测能定位到）。
+        #     ② 【只有真的点中了，才去校验成功】：ok=False → 直接如实报失败，不再看 URL 编成功。
+        _url_before = page.url
         ok1 = False
-        try:
-            ok1 = bool(click_text(page, ['发布'], '（发布按钮）'))
-        except Exception as e1:
-            log('文本点「发布」异常: ' + str(e1)[:60])
-        if not ok1 and cdp_click_text:
+        _t0 = time.time()
+        _JS_HAS_PUB = ("() => { const t = (e) => (e.innerText || '').replace(/\\s+/g, '').trim();"
+                       " return [...document.querySelectorAll('div,button,span,a')].some((e) => {"
+                       " const r = e.getBoundingClientRect();"
+                       " return r.width > 0 && r.height > 0 && t(e) === '发布'; }); }")
+        while time.time() - _t0 < 90:
             try:
-                _r = cdp_click_text(page, '发布', tag='', log=log, exact=True, prefer_bottom_right=True)
-                if isinstance(_r, tuple):
-                    ok1 = bool(_r[0])
-                    log('CDP 穿透点「发布」→ ok=%s msg=%s' % (_r[0], str(_r[1])[:60] if len(_r) > 1 else ''))
-                else:
-                    ok1 = bool(_r)
-            except Exception as e2:
-                log('CDP 点「发布」异常: ' + str(e2)[:60])
+                if page.evaluate(_JS_HAS_PUB):
+                    break
+            except Exception:
+                pass
+            _w = int(time.time() - _t0)
+            if _w and _w % 10 < 3:
+                log('  还在等「发布」按钮出现（已等 %ds）—— 视频可能还在上传；等它出来再点' % _w)
+            page.wait_for_timeout(2000)
+        _wait_s = int(time.time() - _t0)
+        if _wait_s >= 3:
+            log('  「发布」按钮已出现（等了 %ds）' % _wait_s)
+
+        for _try in range(3):
+            if cdp_click_text:
+                try:
+                    _r = cdp_click_text(page, '发布', tag='', log=log, exact=True, prefer_bottom_right=True)
+                    if isinstance(_r, tuple):
+                        ok1 = bool(_r[0])
+                        log('CDP 穿透点「发布」→ ok=%s msg=%s' % (_r[0], str(_r[1])[:70] if len(_r) > 1 else ''))
+                    else:
+                        ok1 = bool(_r)
+                except Exception as e2:
+                    log('CDP 点「发布」异常: ' + str(e2)[:60])
+            if not ok1:
+                try:
+                    ok1 = bool(click_text(page, ['发布'], '（发布按钮）'))
+                except Exception as e1:
+                    log('文本点「发布」异常: ' + str(e1)[:60])
+            if ok1:
+                break
+            log('  第 %d 次没点中 → 等 3 秒再试' % (_try + 1))
+            page.wait_for_timeout(3000)
         log('发布点击结果: ok=%s（true=点中了，false=没点中）' % ok1)
 
         # 点击后校验（最多 20 秒）：成功了没？还是弹了失败提示？
@@ -368,28 +456,39 @@ def main():
         _failw = ['发布失败', '提交失败', '请重试', '上传失败', '违规', '封面异常']
         verified = False
         fail_word = ''
-        for _i in range(10):          # 10 × 2s = 20s
-            page.wait_for_timeout(2000)
-            kill_joyride(page)
-            t = body(page)
-            for w in _failw:
-                if w in t:
-                    fail_word = w
+        draft_hint = ''
+        if ok1:      # ★只有点中了才校验（没点中 → 直接失败，绝不再看 URL 编成功）
+            for _i in range(10):          # 10 × 2s = 20s
+                page.wait_for_timeout(2000)
+                kill_joyride(page)
+                t = body(page)
+                for w in _failw:
+                    if w in t:
+                        fail_word = w
+                        break
+                if fail_word:
                     break
-            if fail_word:
-                break
-            if '/article/manage' in page.url or any(w in t for w in _succ):
-                verified = True
-                break
+                _url_now = page.url
+                # URL 判据收紧：必须是【点了之后才发生的跳转】（防止"用户自己翻到管理页"被当成成功）
+                _moved = (_url_now != _url_before) and (('/publish' in _url_before and '/publish' not in _url_now)
+                                                       or '/article/manage' in _url_now)
+                if _moved or any(w in t for w in _succ):
+                    verified = True
+                    break
+                if '草稿' in t:
+                    draft_hint = '页面出现「草稿」字样'
         if verified:
             log('✅ 发布成功（已校验）URL=' + page.url)
             print(json.dumps({'success': True, 'result': '已发布到快手', 'url': page.url}))
         elif fail_word:
             log('❌ 发布失败（页面提示：%s）' % fail_word)
             print(json.dumps({'success': False, 'result': '发布失败（页面提示：%s）—— 请人工处理后重试' % fail_word, 'url': page.url}))
+        elif not ok1:
+            log('❌ 没点中「发布」按钮（等了 %ds 之后仍未点中）URL=%s' % (_wait_s, page.url))
+            print(json.dumps({'success': False, 'result': '没点中「发布」按钮（等了 %d 秒仍未出现/点不动）—— 内容还在页面上，请人工确认后重试' % _wait_s, 'url': page.url}))
         else:
-            log('❌ 未检测到发布成功（点了=%s）URL=%s' % (ok1, page.url))
-            print(json.dumps({'success': False, 'result': '未检测到发布成功（可能没点中或被弹层挡住），请人工确认后再重试（避免重复发布）', 'url': page.url}))
+            log('❌ 已点发布但未检测到成功结果（%s）URL=%s' % (draft_hint or '未见成功提示', page.url))
+            print(json.dumps({'success': False, 'result': '已点发布但未检测到成功结果%s，请人工确认后再重试（避免重复发布）' % (('（' + draft_hint + '）' if draft_hint else '')), 'url': page.url}))
 
 
 if __name__ == '__main__':
