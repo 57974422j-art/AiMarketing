@@ -736,6 +736,33 @@ def _ass_esc(t):
     return t.replace('\\', '／').replace('{', '(').replace('}', ')')
 
 
+def _shot_window(s):
+    """这一镜的【字幕窗口】该多长（★VF_VOICE_WINDOW_V1，2026-09-24）。
+
+    用户实测症状：「配音比字幕快」（声音先说完、字幕还挂着）。
+    根因：`tts.py` 过去只回填一个 `dur = 配音 + 0.35`，而**字幕窗口和镜长共用它** →
+    单句层面字幕就比声音多停 0.35 秒（36 镜累计 ≈12.96 秒，即用户记得的"12 秒"）。
+
+    现在 `tts.py` 额外回填 `voice`（真实配音时长），于是两者分开：
+      · **字幕/逐字高亮窗口 = `voice`**（配音说完，字幕立刻消失）← 本函数返回值
+      · **时间游标推进    = `dur`**（镜长，含 0.35 秒呼吸间隔）← 调用方照旧 +dur
+
+    `voice` 缺失或过小（静音占位镜、配音失败的镜、旧工程文件）→ 退回 `dur`：
+    向后兼容，绝不因为缺字段把老片子/静音镜弄坏。
+    """
+    try:
+        v = float(s.get('voice') or 0)
+    except Exception:
+        v = 0.0
+    try:
+        d = float(s.get('dur', 3) or 3)
+    except Exception:
+        d = 3.0
+    if v <= 0.2:
+        return d
+    return min(v, d) if d > 0.05 else v
+
+
 def build_ass(shots, path, W, H, font_name='Noto Sans CJK SC', font_size=26, wrap=16):
     """★VF_KARAOKE_V1（2026-09-20，用户要的“词级字幕”）：ASS 逐字高亮（karaoke）
 
@@ -762,20 +789,21 @@ def build_ass(shots, path, W, H, font_name='Noto Sans CJK SC', font_size=26, wra
     t = 0.0
     for s in shots:
         dur = float(s.get('dur', 3))
+        vd = _shot_window(s)     # ★VF_VOICE_WINDOW_V1：字幕窗口 = 真实配音时长（不是镜长）
         txt = _shot_text(s)
         if txt:
             flat = ''.join(txt.split())
             if flat:
                 n = max(1, len(flat))
-                per = max(1, int(round(dur * 100.0 / n)))   # 每个字占多少厘秒
+                per = max(1, int(round(vd * 100.0 / n)))   # 每个字占多少厘秒（按配音时长分，逐字高亮才跟得上声音）
                 rows = [_ass_esc(flat[i:i + wrap]) for i in range(0, len(flat), wrap)]
                 segs = []
                 for ri, r in enumerate(rows):
                     if ri:
                         segs.append('\\N')
                     segs.extend(['{\\k%d}%s' % (per, c) for c in r])
-                lines.append('Dialogue: 0,%s,%s,Def,,0,0,0,,%s' % (_ass_ts(t), _ass_ts(t + dur), ''.join(segs)))
-        t += dur
+                lines.append('Dialogue: 0,%s,%s,Def,,0,0,0,,%s' % (_ass_ts(t), _ass_ts(t + vd), ''.join(segs)))
+        t += dur                  # 镜长推进（含 0.35 呼吸间隔，位置不变）
     if not lines:
         return ''
     with open(path, 'w', encoding='utf-8') as f:
@@ -784,7 +812,11 @@ def build_ass(shots, path, W, H, font_name='Noto Sans CJK SC', font_size=26, wra
 
 
 def build_srt(shots, path):
-    """从分镜生成 SRT（build_ass 失败时的兜底）。时间 = 各镜时长累加，不另算。"""
+    """从分镜生成 SRT（build_ass 失败时的兜底）。
+
+    时间基准（★VF_VOICE_WINDOW_V1）：每条字幕的**起始时刻**按各镜 `dur` 累加（位置不变），
+    但**显示时长**用该镜的真实配音时长 `voice` —— 声音说完字幕就消失（不再多挂 0.35 秒）。
+    """
     def fmt(t):
         h = int(t // 3600)
         m = int((t % 3600) // 60)
@@ -796,13 +828,14 @@ def build_srt(shots, path):
     n = 0
     for s in shots:
         dur = float(s.get('dur', 3))
+        vd = _shot_window(s)     # ★VF_VOICE_WINDOW_V1：显示时长 = 真实配音时长
         txt = _shot_text(s)
         if txt:
             n += 1
             # 长句自动折行（SRT 原生多行，subtitles 滤镜支持）
             if len(txt) > 18:
                 txt = '\n'.join([txt[i:i + 18] for i in range(0, len(txt), 18)])
-            out.append('%d\n%s --> %s\n%s\n' % (n, fmt(t), fmt(t + dur), txt))
+            out.append('%d\n%s --> %s\n%s\n' % (n, fmt(t), fmt(t + vd), txt))
         t += dur
     if out:
         with open(path, 'w', encoding='utf-8') as f:

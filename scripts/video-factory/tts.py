@@ -711,12 +711,14 @@ def main():
             txt = '，'.join([x for x in _p if x])[:80]
         if not txt:
             print('[TTS] 第 %d 镜无文案 → 该镜留静音占位（保持与画面同一时间轴）' % (i + 1))
+            s['voice'] = 0    # ★VF_VOICE_WINDOW_V1：没有配音 → 字幕窗口退回镜长（render 里有兜底）
             clips.append((None, float(s.get('dur') or 0) or 5.0))
             continue
         p = os.path.join(wd, 'vo%02d.mp3' % i)
         ok, dur = tts_one(txt, p, a.speaker)
         if not ok:
             print('[TTS] ❌ 第 %d 镜配音失败 → 该镜留静音占位: %s' % (i + 1, txt[:30]))
+            s['voice'] = 0    # ★VF_VOICE_WINDOW_V1：配音失败 → 字幕窗口退回镜长
             clips.append((None, float(s.get('dur') or 0) or 5.0))
             continue
         # ★VF_AUDIOFIX_V1③（2026-09-22）：单镜时长用"解码成 PCM 数字节"复核一次 ——
@@ -730,12 +732,19 @@ def main():
                 dur = _real
         except Exception:
             pass
-        # ★ 回填真实时长（留 0.35s 尾隙，避免字幕/画面切太急）
+        # ★VF_VOICE_WINDOW_V1（2026-09-24 用户实测「配音比字幕快」）：
+        #   以前这里只回填【一个】dur = 配音 + 0.35，而"字幕窗口"和"镜长"共用它 →
+        #   单句层面就变成：声音已经说完，字幕还多停 0.35 秒（体感 = 配音比字幕快；
+        #   36 镜累计 ≈ 12.96 秒，就是用户记得的那个"12 秒"）。
+        #   现在拆成两个值（这就是本次修法的核心）：
+        #     · voice = 【真实配音时长】→ 专给"字幕 / 逐字高亮"窗口用：配音说完，字幕立刻消失
+        #     · dur   = 【镜长】= 配音 + 0.35 → 画面/音频的呼吸间隔，保持不变（句子不会粘连）
+        s['voice'] = round(dur, 2)
         s['dur'] = round(dur + 0.35, 2)
         s['voiceFile'] = p
         # ★VF_AUDIOALIGN_V1：连"该镜时长"一起带上 —— 合并时按它逐镜补齐（补齐尾隙）
         clips.append((p, s['dur']))
-        print('[TTS] 第 %d 镜 %.2fs  %s' % (i + 1, s['dur'], txt[:26]))
+        print('[TTS] 第 %d 镜 配音 %.2fs / 镜长 %.2fs  %s' % (i + 1, s['voice'], s['dur'], txt[:26]))
 
     if not any(x for x, _ in clips):
         print('[TTS] 没有成功配音'); sys.exit(3)
