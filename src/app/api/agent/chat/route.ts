@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 // 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
-import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRootDir, vfStorageRoot, probeMaterialSizes } from '@/lib/agent/video-material'
+// ★VF_VIDEOLINE_V1（2026-09-24）：视频素材探测 + 抽帧理解（给「视频混剪」线用；素材线仍走"仅列名"）
+import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRootDir, vfStorageRoot, probeMaterialSizes, probeVideos, describeVideoClips } from '@/lib/agent/video-material'
 // ★VF_LINES_V1（2026-09-21）：三条新线的【入口词】判断 —— 用于 skipModelStep1（把"AI 制片/混合创作"
 //   也当成"状态机入口信号"）。这两个函数是**纯正则、零依赖**（两个文件都是零 import），
 //   所以静态 import 不会引入循环依赖。
 import { matchesAiLine, clearVfAiDraft, hasAiDraft } from '@/lib/agent/vf/vf-aivideo'
+// ★VF_VIDEOLINE_V1（2026-09-24）「视频混剪」线：入口词判断同样用于 skipModelStep1（纯正则、零依赖）
+import { matchesVideoLine } from '@/lib/agent/vf/vf-video'
 import { matchesMixLine, clearVfMixDraft, hasMixDraft } from '@/lib/agent/vf/vf-mix'
 // ★STD_MODE_V1（2026-09-21，用户定案）：标准模式 = 【命令白名单，锁死】——
 //   命令表唯一真相源在 `src/lib/agent/standard-commands.ts`（加/改命令只改那张表，别再往这里加正则）。
@@ -2357,7 +2360,7 @@ export async function POST(request: NextRequest) {
     //   否则用户说「AI 制片」「素材+AI创作」时 skipModelStep1=false → 走 dashscopeFunctionCall
     //   → **AI 自由发挥**（实测它会把「AI 制片」理解成"打开一键成片网页"）→ **状态机整块都没进**。
     //   加上这两个判断后：这几句话会直接进状态机块 → 由下面的【三分派】接管。
-    const vfLineWord = matchesAiLine(userMessage) || matchesMixLine(userMessage)
+    const vfLineWord = matchesAiLine(userMessage) || matchesMixLine(userMessage) || matchesVideoLine(userMessage)
     // ★VF_PROTO_V1（2026-09-21，用户实测：AI 制片走到「▶️ 下一步（排分镜）」时掉出状态机 →
     //   AI 自由发挥，自己**编了一张假卡**（`step:'ai_plan'` —— 这个卡型代码里根本不存在），
     //   还带上了「（模型：qwen3.8-flash）」尾巴（那个尾巴只加在 AI 自由发挥的回复上，是铁证））。
@@ -3068,9 +3071,37 @@ PUBLISH_DRAFT.delete(uidW)
         // ═══════════════════════════════════════════════════════════════════════
         let vfAiHandled = false
         let vfMixHandled = false
+        // ★VF_VIDEOLINE_V1（2026-09-24）【视频混剪】独立线
+        let vfVideoHandled = false
         const _parseVfForm = (msg: string) => {
           const m = String(msg || '').trim().match(/^VF_FORM:(\{[\s\S]*\})/)
           try { return m ? JSON.parse(m[1]) : null } catch { return null }
+        }
+        // ═══════════════════════════════════════════════════════════════════════════
+        // ★VF_VIDEOLINE_V1（2026-09-24 用户定案：「视频图片合成单独做，不要混在现在的素材合成中；
+        //   如果成熟了后期合并，免得把刚才做的弄乱了」「就叫 视频混剪」）
+        //   · 它复用【素材线那张设置卡】（表单字段与素材线相同）→ 所以只能靠"本线草稿停在 form"来认领表单，
+        //     因此必须放在**最前面**先认领；
+        //   · 没有本线草稿时它一定返回 false（入口词也排除了别线的词）→ 不影响其它三条线；
+        //   · 内部绝不 throw（异常转人话），所以不会连累素材合成。
+        // ═══════════════════════════════════════════════════════════════════════════
+        try {
+          const { shouldTakeOverVideoLine, handleVideoLine } = await import('@/lib/agent/vf/vf-video')
+          if (await shouldTakeOverVideoLine(prisma, uidVF2, userMessage)) {
+            vfVideoHandled = true
+            wfEarlyReply = await handleVideoLine({
+              uid: uidVF2, userMessage, auth, prisma,
+              executeToolCall, generateText, vfScriptCard,
+              log: (u: any, m: string) => vfLog(u, m),
+              voiceList: VF_VOICE_BASE,
+              listRepoMaterials, summarizeMaterials, probeVideos, describeVideoClips,
+              downloadMaterials, splitScript: vfSplitScript, parseForm: _parseVfForm,
+            })
+            finalResult = wfEarlyReply
+          }
+        } catch (eVD: any) {
+          vfVideoHandled = false
+          try { vfLog(uidVF2, '[VF-V] 分派异常: ' + String(eVD?.message || eVD).slice(0, 200)) } catch { /* ignore */ }
         }
         try {
           // ★VF_MIXLINE_V1（2026-09-21）【素材+AI 创作】第三条独立线 —— **放在 AI 制片之前**
@@ -3116,7 +3147,7 @@ PUBLISH_DRAFT.delete(uidW)
             try { vfLog(uidVF2, '[VF-A] 分派异常: ' + String(eAI?.message || eAI).slice(0, 200)) } catch { /* ignore */ }
           }
         }
-        if (!vfMixHandled && !vfAiHandled && (vfIntent || VIDEO_DRAFT.has(uidVF2))) {
+        if (!vfVideoHandled && !vfMixHandled && !vfAiHandled && (vfIntent || VIDEO_DRAFT.has(uidVF2))) {
           try {
             let vd = VIDEO_DRAFT.get(uidVF2)
             // 内存没有 → 从 AgentMemory 恢复（仿发布：服务器重启/刷新不丢）

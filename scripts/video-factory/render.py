@@ -448,19 +448,53 @@ def card_image(shot, th, W, H, fps):
 
 
 def card_video(shot, th, W, H, fps):
-    """视频片段：截取 + 缩放填充"""
+    """视频片段：截取 + 缩放（不裁切）+ 压暗/大字（与 bgimage/aivideo 观感统一）
+
+    ★VF_VIDEOLINE_V1（2026-09-24 用户定案「视频混剪」——把用户的视频**完整片段**插进成片）：
+      1) 起点字段兼容 `start` / `vstart`（视频混剪线写的是 vstart）。
+      2) **片段比镜短时的兜底**：原来只 `trim` 到 dur，片段不够长就会【黑尾/冻帧】——
+         现在与 card_aivideo 同款：先轻微放慢（≤1.35 倍，避免明显慢动作），再 `-stream_loop -1` 循环补足。
+         （理想情况：视频混剪线会在排分镜时把该镜文案写到与视频等长 → 这里只是兜底。）
+      3) 观感统一：全屏轻压 15% + 底部字幕区再压 30% + 画面大字逐字浮现（与 bgimage 同款），
+         避免"图片镜有压暗/大字、视频镜没有"的割裂感。
+    """
     src = shot.get('src', '')
     dur = float(shot.get('dur', 5))
-    start = float(shot.get('start', 0))
+    start = float(shot.get('vstart', shot.get('start', 0)) or 0)
+    src_dur = float(shot.get('src_dur', 0) or 0)      # 片段自身秒数（视频混剪线写入）
+    avail = max(0.0, src_dur - start) if src_dur > 0.2 else 0.0
+    k = 1.0
+    if avail > 0.2 and dur > avail:
+        k = min(1.35, dur / avail)
+    _slow = '' if k <= 1.001 else 'setpts=PTS*%.4f,' % k
+    font = esc_path(find_font(th.get('font', 'msyh')))
+    fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
+    txc = th.get('text', 'white')
+    _txtb = str(shot.get('text') or '').strip()
+    if _txtb:
+        # 与 bgimage 同款：按字数反算字号，避免大字被切边
+        fs = min(fs, max(int(H * 0.05), int(W * 0.86 / len(_txtb))))
+    _reveal = _reveal_seq(shot, font, fs, txc, dur, box='black@0.30')
+    _bar_y = int(H * 0.72)
+    _chain = [
+        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
+        f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
+    ] + _reveal
     vf = (
         f"split=2[bg0][fg0];"
         f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
         f"[fg0]scale={W}:{H}:force_original_aspect_ratio=decrease[fgs];"
         f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,"
         # ★2026-09-20：视频片段同样不再裁切（模糊铺底 + 完整画面居中）
+        f"{_slow}" + ','.join(_chain) + ','
         f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"
     )
-    return (f"-ss {start} -t {dur} -i \"{src}\"", vf, dur)
+    if k > 1.001:
+        print('[VF]   视频镜时长对齐：可用 %.1fs → 镜 %.1fs（放慢 %.2f 倍）' % (avail, dur, k))
+    elif avail > 0.2 and dur > avail:
+        print('[VF]   视频镜时长对齐：可用 %.1fs < 镜 %.1fs → 循环补足' % (avail, dur))
+    # -stream_loop -1：片段不够长时循环补足（配合上面的放慢，双保险不出现黑尾/冻帧）
+    return (f"-ss {start} -stream_loop -1 -t {dur} -i \"{src}\"", vf, dur)
 
 
 def card_aivideo(shot, th, W, H, fps):

@@ -246,6 +246,72 @@ export async function downloadMaterials(userId: string | number, items: RepoMate
  *   「最近素材：①拿铁特写(暖光木桌) ②店内全景(午后) ③开业海报(红金配色)…」
  * 说明：单图一张一次调用（复用 describeImageWithVL），每张约 0.2 点
  */
+/** 抽一帧（长边 ≤1200）交给视觉模型 —— **只用于"看懂视频在演什么"**，成片里放的仍是完整片段 */
+function grabVideoFrame(src: string, at: number): string {
+  try {
+    const out = src.replace(/(\.[a-zA-Z0-9]+)$/, `_f${Math.round(at)}.jpg`)
+    const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(Math.max(0, at)), '-i', src,
+      '-frames:v', '1', '-vf',
+      "scale='if(gt(iw,ih),min(1200,iw),-2)':'if(gt(iw,ih),-2,min(1200,ih))'", out], { timeout: 30000 })
+    if (r.status === 0 && fs.existsSync(out) && fs.statSync(out).size > 1024) return out
+  } catch (e) { /* ignore */ }
+  return ''
+}
+
+/** ═══ ★VF_VIDEOLINE_V1（2026-09-24 用户定案「视频混剪」独立线）═══
+ *  探测视频素材的元信息：**时长 / 宽高 / 有没有音轨** —— 排分镜要靠真实时长决定"这一镜多长"、
+ *  以及"这个片段能不能放下"。只给视频混剪线用；素材合成线仍走 summarizeMaterials 的"仅列名"。 */
+export async function probeVideos(userId: string | number, items: RepoMaterial[]): Promise<any[]> {
+  const vids = (items || []).filter((i) => i.kind === 'video').slice(0, 8)
+  if (!vids.length) return []
+  const local = await downloadMaterials(userId, vids)
+  const out: any[] = []
+  for (const m of local) {
+    if (!m.localPath) continue
+    let dur = 0
+    let w = 0
+    let h = 0
+    let hasAudio = false
+    try {
+      const r = spawnSync('ffprobe', ['-v', 'error', '-show_entries',
+        'format=duration:stream=codec_type,width,height', '-of', 'json', m.localPath],
+        { timeout: 20000, encoding: 'utf-8' })
+      const j: any = JSON.parse(String(r.stdout || '{}'))
+      dur = Number(j?.format?.duration || 0)
+      const streams: any[] = j?.streams || []
+      hasAudio = streams.some((s: any) => s.codec_type === 'audio')
+      const v0 = streams.find((s: any) => s.codec_type === 'video')
+      if (v0) { w = Number(v0.width || 0); h = Number(v0.height || 0) }
+    } catch (e) { /* 探测失败 → 时长按 0（后面会保守处理） */ }
+    out.push({ name: m.name, path: m.localPath, dur: Math.round(dur * 10) / 10, w, h, hasAudio })
+  }
+  return out
+}
+
+/** 让 AI"看懂"每个视频：抽 1 帧（取片长 45% 处）→ 通用问法（行业无关）。
+ *  产出的这段文字会喂给"排分镜"，用来决定**这个视频该放哪一镜**（成片里播的还是完整片段）。 */
+export async function describeVideoClips(clips: any[]): Promise<string> {
+  if (!clips?.length) return ''
+  const lines: string[] = []
+  for (let i = 0; i < clips.length; i++) {
+    const c = clips[i]
+    const at = c.dur > 6 ? Math.min(Math.max(0.5, c.dur - 0.5), c.dur * 0.45) : Math.max(0.2, c.dur * 0.3)
+    const f = grabVideoFrame(String(c.path || ''), at)
+    let desc = ''
+    if (f) {
+      try {
+        desc = (await describeImageWithVL(
+          'data:image/jpeg;base64,' + fs.readFileSync(f).toString('base64'), VL_PROMPT_GENERIC, 300,
+        )) || ''
+      } catch (e) { /* 单帧识别失败不影响整条线 */ }
+    }
+    lines.push(`视频${i + 1}（${c.name}）：${c.dur ? c.dur + ' 秒' : '时长未知'}` +
+      `${c.w && c.h ? ` ${c.w}x${c.h}` : ''}${c.hasAudio ? ' 带原声' : ' 无音轨'}；画面内容：` +
+      `${(desc || '（未识别）').replace(/\s*\n\s*/g, ' ')}`)
+  }
+  return lines.join('\n')
+}
+
 /** ★VF_VLM_PROMPT_V1（2026-09-24 用户实测 + 本地 A/B 验证后改写）：**行业无关**的"通用四问"。
  *  老问法的三个坑（用户实测踩到）：
  *    ① 只问"画面**主体**" → 用户的素材多是【工具界面截图，右半边预览框里嵌着一张海报】，
