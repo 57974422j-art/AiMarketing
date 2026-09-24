@@ -806,7 +806,9 @@ function VfShotEditList({ shots, onSend }: { shots: any[]; onSend: (msg: string)
   const FIELDS: Record<string, { key: string; label: string; w: string }[]> = {
     title: [{ key: 'text', label: '大字', w: 'w-[110px]' }],
     bgimage: [{ key: 'text', label: '大字', w: 'w-[110px]' }],
-    end: [{ key: 'text', label: '大字', w: 'w-[104px]' }, { key: 'cta', label: '按钮文字', w: 'w-[92px]' }],
+    // ★「按钮文字」= 结尾卡上那个"实心按钮"里显示的字（如"点击咨询/现在就试试"），
+    //   留空就不画按钮。字段名写清楚点，否则用户看不懂（用户实测反馈）。
+    end: [{ key: 'text', label: '结尾大字', w: 'w-[104px]' }, { key: 'cta', label: '按钮文字（留空=不画按钮）', w: 'w-[92px]' }],
     list: [{ key: 'title', label: '标题', w: 'w-[104px]' }, { key: 'items', label: '条目（用、分隔）', w: 'flex-1 min-w-0' }],
     number: [
       { key: 'value', label: '数值', w: 'w-[76px]' },
