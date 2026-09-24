@@ -20,6 +20,9 @@ export default function StoragePage() {
   const [devices, setDevices] = useState<any[]>([])
   const [pushDevice, setPushDevice] = useState<any>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  // ★VF_LOCAL_BACKUP_V1（2026-09-24 用户要求）：一键备份到本地仓库 —— 进度状态
+  const [backing, setBacking] = useState(false)
+  const [backed, setBacked] = useState(0)
 
   const load = async () => {
     setLoading(true)
@@ -107,6 +110,28 @@ export default function StoragePage() {
     finally { setShowPushDlg(false); setPushFile(null); setPushDevice(null); setPushLoading(false) }
   }
 
+  // ═══ ★VF_LOCAL_BACKUP_V1（2026-09-24 用户要求「各个仓库加一个一键备份到本地」）═══
+  //   背景：素材目前只存在 OSS 个人仓库 —— 误删就没了；而客户端本来就有"本地仓库"
+  //   （`electronAPI.storageMirror` → 落到本机 storage 目录）。
+  //   这里把"单文件镜像"扩成【一键批量备份】：逐个镜像 + 进度 + 结束给结论。
+  //   ⚠️ 只有【在客户端里打开】才有 electronAPI；浏览器里直接提示不可用（不假装成功）。
+  const backupAll = async () => {
+    const api = (window as any).electronAPI
+    if (!api?.storageMirror) { showToast('一键备份只在客户端里可用（浏览器没有本地仓库）', 'error'); return }
+    if (!files.length) { showToast('个人仓库里没有素材', 'error'); return }
+    setBacking(true); setBacked(0)
+    let n = 0
+    for (const f of files) {
+      try {
+        api.storageMirror(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}&persist=1`)
+        n++
+        setBacked(n)
+      } catch { /* 单个失败继续下一个，不整批中断 */ }
+    }
+    setBacking(false)
+    showToast(`已发起备份 ${n}/${files.length} 个到本地仓库（客户端 storage 目录）`, n === files.length ? 'success' : 'error')
+  }
+
   const pct = Math.round(quota.used / quota.total * 100)
   const fmt = (b: number) => (b / 1024 / 1024).toFixed(1) + 'MB'
 
@@ -126,7 +151,18 @@ export default function StoragePage() {
         {/* 操作栏 */}
         <div className="flex items-center justify-between mb-6">
           <input ref={fileRef} type="file" accept="image/*,video/*" className="hidden" onChange={upload} />
-          <button onClick={() => fileRef.current?.click()} className="btn-primary text-sm">+ 上传素材</button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => fileRef.current?.click()} className="btn-primary text-sm">+ 上传素材</button>
+            {/* ★VF_LOCAL_BACKUP_V1（P1③）：一键把个人仓库的素材镜像到本机本地仓库（防误删） */}
+            <button
+              onClick={backupAll}
+              disabled={backing || !files.length}
+              title="把素材仓库里的文件逐个备份到本机（仅客户端可用）"
+              className="text-sm px-3 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-gray-200 border border-white/[0.08] disabled:opacity-50"
+            >
+              {backing ? `⏳ 备份中 ${backed}/${files.length}` : '⬇️ 一键备份到本地'}
+            </button>
+          </div>
         </div>
 
         {/* Quota bar */}

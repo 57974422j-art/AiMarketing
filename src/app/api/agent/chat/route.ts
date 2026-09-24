@@ -2368,7 +2368,7 @@ export async function POST(request: NextRequest) {
     //   （这些前缀只有卡片/工具会产生，用户不会手打；若三条线都不认领，行为退回现状，不会更坏。）
     //   ★VF_EDIT_V1（2026-09-24）：把 `VF_EDIT` 也加进来 —— 客户端"分镜清单改完点重出片/保存"
     //   发的是协议串，若不算状态机入口信号就会掉进 AI 自由发挥（与 VF_FORM 那次同一类事故）。
-    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_JSON|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT)\s*[:{]/.test(userMessage.trim())
+    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_BRIEF|VF_JSON|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT)\s*[:{]/.test(userMessage.trim())
     // ★STD_MODE_V1：命中 machine 命令（发布 / 三条成片线）→ 强制进状态机（跳过 AI 那一步）
     const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0) || vfEntryWord || stWordInput || vfLineWord || vfProtoWord || stdEnterMachine) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
     // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
@@ -3307,7 +3307,14 @@ PUBLISH_DRAFT.delete(uidW)
                 //   30s→5 张、60s→10 张、90s→15 张、180s→30 张；仓库不够就有多少用多少。
                 //   视觉理解张数（喂 VL）单独限：8~20 张（成本控制，每张约 0.2 点）
                 const vfVisN = Math.max(8, Math.min(20, Math.round(_dur0 / 30) * 5))
-                const vfBrief = await summarizeMaterials(uidVF2, vfMats, vfVisN)
+                let vfBrief = await summarizeMaterials(uidVF2, vfMats, vfVisN)
+                // ═══ ★VF_BRIEF_EDIT_V1（2026-09-24 用户定案 P0②：识别结果可编辑）═══
+                //   识别错了（把"营销工具界面"说成"手表海报"）时，这段结论会同时喂给【写文案】与【排分镜】
+                //   → 整片主题跑偏。用户在"素材识别结果"里亲手改过的版本，必须**覆盖 AI 新扫出来的**。
+                if (String(vd.briefOverride || '').trim()) {
+                  vfLog(uidVF2, `[结论纠正] 用用户改过的看图结论（${String(vd.briefOverride).length} 字）覆盖 AI 新扫的 ${vfBrief.length} 字`)
+                  vfBrief = String(vd.briefOverride).slice(0, 1500)
+                }
                 // ★VF_ASPECT_V1：定画布——用户指定优先，否则按素材判断（素材多为横图 → 出横屏，绝不硬塞竖屏）
                 // ★VF_AIVIDEO_V1（2026-09-20，用户定案）：**AI 模式也照常看素材**——"看了素材让它自己决定"。
                 //   素材在这里的用途是【给 AI 依据】：AI 因此知道你在卖什么，写出的文案与画面描述才贴合。
@@ -3543,6 +3550,37 @@ PUBLISH_DRAFT.delete(uidW)
                 vfLog(uidVF2, `[起草] 图${vfImgs.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
                 vfLog(uidVF2, `[分镜构成] ${vfShots.map((x: any) => x.type).join(',')}`)
               }
+            } else if (vd.step === 'script' && /^VF_BRIEF:/.test(String(userMessage).trim())) {
+              // ═══ ★VF_BRIEF_EDIT_V1（P0②：素材识别结果可编辑）═══
+              //   客户端把"素材识别结果"做成可编辑 → 保存后发 `VF_BRIEF:{text, redraft?}`。
+              //   · 只保存 → 下次重新起草/重排分镜用它（vd.briefOverride）
+              //   · redraft=true → 把流程退回到"素材来源"这一步：用户点/说「素材合成」，
+              //     就会【用这份结论重写文案 + 重排分镜】（完全复用现有起草链路，不复制提示词）
+              let _brBrief = ''
+              let _brRedraft = false
+              try {
+                const mm = String(userMessage).trim().match(/^VF_BRIEF:(\{[\s\S]*\})/)
+                const jj: any = mm ? JSON.parse(mm[1]) : {}
+                _brBrief = String(jj?.text || '').slice(0, 1500).trim()
+                _brRedraft = !!jj?.redraft
+              } catch (e) { _brBrief = '' }
+              if (!_brBrief) {
+                wfEarlyReply = '没收到结论内容（在「素材识别结果」里改完，点「💾 保存结论」再发一次）。'
+              } else if (_brRedraft) {
+                vd.briefOverride = _brBrief
+                vd.step = 'source'                       // 退回"素材来源"这步 → 下一步会重跑起草（带这份结论）
+                VIDEO_DRAFT.set(uidVF2, vd)
+                await saveVfDraft(uidVF2, vd)
+                vfLog(uidVF2, `[结论纠正] 已保存（${_brBrief.length} 字）→ 退回素材来源，等用户点「素材合成」重写文案`)
+                wfEarlyReply = '已存下你纠正的结论 ✅\n回一句「**素材合成**」我就按这份结论**重写文案 + 重排分镜**（约十几秒）。'
+              } else {
+                vd.briefOverride = _brBrief
+                VIDEO_DRAFT.set(uidVF2, vd)
+                await saveVfDraft(uidVF2, vd)
+                vfLog(uidVF2, `[结论纠正] 已保存（${_brBrief.length} 字，仅保存不重写）`)
+                wfEarlyReply = '素材结论已更新 ✅（下次重新起草 / 重排分镜会用你这份）\n要立刻按它重写，点「🔄 保存并重写文案」。'
+              }
+              finalResult = wfEarlyReply
             } else if (vd.step === 'script' && /^VF_EDIT:/.test(String(userMessage).trim())) {
               // ═══ ★VF_EDIT_V1（2026-09-24 用户定案 B：出片前逐行改分镜清单）═══
               //   客户端把分镜清单做成可编辑，改完发 `VF_EDIT:{edits:[{index,text?,subtitle?,type?}]}`。

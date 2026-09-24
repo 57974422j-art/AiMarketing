@@ -2345,7 +2345,7 @@ export async function digitalHuman(text: string, _avatar = 'default'): Promise<{
 }
 
 // 2026-08-14: 百炼 qwen-vl 读图总结（crawl4ai 截图 → 视觉模型描述页面内容）
-export async function describeImageWithVL(imageUrlOrBase64: string, prompt?: string): Promise<string | null> {
+export async function describeImageWithVL(imageUrlOrBase64: string, prompt?: string, maxTokens = 1500): Promise<string | null> {
   const key = getDashScopeKey()
   if (!key) { console.log('[百炼VL] 跳过: 未配置DashScope Key'); return null }
   try {
@@ -2362,7 +2362,8 @@ export async function describeImageWithVL(imageUrlOrBase64: string, prompt?: str
           ],
         }],
         temperature: 0.3,
-        max_tokens: 1500,
+        // ★2026-09-24：可传 maxTokens —— 成片素材识别改成"两段式"（先分类，短输出即可，省 token）
+        max_tokens: maxTokens,
       }),
     })
     const text = data?.choices?.[0]?.message?.content

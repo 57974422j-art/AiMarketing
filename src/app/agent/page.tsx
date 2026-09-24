@@ -810,6 +810,49 @@ function VfAiOptsCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void
   )
 }
 
+/** ★VF_BRIEF_EDIT_V1（2026-09-24 用户定案 P0②）：把「素材识别结果」从**只读**改成**可编辑**。
+ *  为什么：这段结论是【直接喂给写文案 + 排分镜】的 —— 它把"营销工具界面"说成"手表海报"时，
+ *  文案就围着"手表"写、整片主题跑偏。用户改过的版本，服务端会用 `vd.briefOverride` **优先采用**
+ *  （覆盖 AI 新扫出来的那份）。
+ */
+function VfBriefEdit({ brief, onSend }: { brief: string; onSend: (msg: string) => void }) {
+  const [txt, setTxt] = useState(brief)
+  const changed = !!txt.trim() && txt.trim() !== brief.trim()
+  const save = (redraft: boolean) => onSend('VF_BRIEF:' + JSON.stringify({ text: txt.trim(), redraft }))
+  return (
+    <details className="mb-2">
+      <summary className="text-[10px] text-gray-500 cursor-pointer">
+        素材识别结果（点开可改 —— 它决定写文案/排分镜，识别错就改这里）
+      </summary>
+      <textarea
+        value={txt}
+        onChange={(e) => setTxt(e.target.value)}
+        rows={9}
+        className="w-full mt-1 px-2 py-1.5 rounded text-[10px] leading-relaxed bg-black/30 border border-white/[0.08] text-gray-300 outline-none resize-y"
+      />
+      <div className="flex items-center gap-2 flex-wrap mt-1">
+        <button
+          type="button"
+          disabled={!changed}
+          onClick={() => save(false)}
+          className={`px-3 py-1 rounded-md text-[11px] ${changed ? 'bg-white/[0.08] hover:bg-white/[0.16] text-gray-200' : 'bg-white/[0.03] text-gray-600'}`}
+        >
+          💾 保存结论
+        </button>
+        <button
+          type="button"
+          disabled={!changed}
+          onClick={() => save(true)}
+          className={`px-3 py-1 rounded-md text-[11px] ${changed ? 'bg-emerald-500/30 hover:bg-emerald-500/50 text-white' : 'bg-white/[0.03] text-gray-600'}`}
+        >
+          🔄 保存并重写文案
+        </button>
+        <span className="text-[10px] text-gray-500">「重写文案」= 按你这份结论重新写口播文案 + 重排分镜</span>
+      </div>
+    </details>
+  )
+}
+
 /** ★VF_EDIT_V1（2026-09-24 用户定案「B：可编辑分镜清单」）
  *  出片前把分镜清单做成【可逐镜编辑】：改「画面大字 / 字幕」，保存后发 `VF_EDIT:{edits:[…]}`。
  *  · 这一步只改草稿清单，**不渲染、不扣钱**；改完再点「确认出片」按新版出片。
@@ -2517,6 +2560,10 @@ function AgentPageInner() {
     if (content.startsWith('VF_EDIT:')) {
       return <span className="text-emerald-300/80">✏️ 已提交分镜修改（改的是出片前的清单，保存后点「确认出片」即按新版出片）</span>
     }
+    // ★VF_BRIEF_EDIT_V1（P0②）：提交"纠正过的素材结论"时，气泡里显示一句人话而不是 JSON
+    if (content.startsWith('VF_BRIEF:')) {
+      return <span className="text-emerald-300/80">🔍 已提交修改后的素材结论（写文案与排分镜会用它）</span>
+    }
     // 2026-09-09: AI 浏览器发布任务已建消息 → 卡片带「重发」按钮
     const buM = content.match(/已创建 AI 浏览器发布任务（#(\d+)）/); const buQ = content.includes('BROWSER_TASK_QUEUED') ? buM : null
     if (buQ) {
@@ -2677,12 +2724,9 @@ function AgentPageInner() {
               {Array.isArray(vj.shots) && vj.shots.length > 0 && (
                 <VfShotEditList shots={vj.shots} onSend={sendMessage} />
               )}
-              {vj.brief ? (
-                <details className="mb-2">
-                  <summary className="text-[10px] text-gray-500 cursor-pointer">素材识别结果</summary>
-                  <pre className="text-[10px] text-gray-400 whitespace-pre-wrap mt-1">{vj.brief}</pre>
-                </details>
-              ) : null}
+              {/* ★VF_BRIEF_EDIT_V1（P0②）：从只读 <pre> 升级成【可编辑】——识别错了直接改，
+                  改完点「保存并重写文案」就会用这份结论重写文案+重排分镜（见 VfBriefEdit） */}
+              {vj.brief ? <VfBriefEdit brief={String(vj.brief)} onSend={sendMessage} /> : null}
               <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap mb-3">{vj.script}</div>
               {Array.isArray(vj.voices) && vj.voices.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-3">

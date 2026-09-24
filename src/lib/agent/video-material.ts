@@ -6,6 +6,7 @@
 //   复用：抽帧已有（extract_video_frames 在 chat route）——这里不重复造，先只理解【图片】。
 import fs from 'fs'
 import path from 'path'
+import { spawnSync } from 'child_process'
 import { listObjects, getObject } from '@/lib/oss'
 import { describeImageWithVL } from '@/lib/ai-providers'
 
@@ -245,6 +246,75 @@ export async function downloadMaterials(userId: string | number, items: RepoMate
  *   「最近素材：①拿铁特写(暖光木桌) ②店内全景(午后) ③开业海报(红金配色)…」
  * 说明：单图一张一次调用（复用 describeImageWithVL），每张约 0.2 点
  */
+/** ★VF_VLM_PROMPT_V1（2026-09-24 用户实测 + 本地 A/B 验证后改写）：**行业无关**的"通用四问"。
+ *  老问法的三个坑（用户实测踩到）：
+ *    ① 只问"画面**主体**" → 用户的素材多是【工具界面截图，右半边预览框里嵌着一张海报】，
+ *       模型抓走最抢眼的那张海报 → 把整图说成"智能手表海报"
+ *       （实测 20260906_002.jpg / 20260922_015.jpg 两张都错，它们其实是 AI 营销工具界面）；
+ *    ② 用途例子只给"产品图/门店/海报" → 没有"软件界面/工具截图"这一档，模型不会往界面上靠；
+ *    ③ 限 40 字一句话 → 装不下"这是界面 + 界面里嵌了什么"这层信息。
+ *  ★危害不止标签难看：这段摘要是【直接喂给写文案/排分镜】的（见本文件 summarizeMaterials 注释）
+ *    → 摘要说"素材是智能手表海报"，文案就围着"智能手表新品首发"写，整片主题跑偏。
+ *  本地验证（6 张：营销工具界面 / 餐饮点餐界面 / 美食实拍 / 风景×2 / 合成海报）分类与嵌图判断全对。
+ */
+const VL_PROMPT_GENERIC =
+  '这是用户个人素材库里的一张图。请按顺序用中文回答：' +
+  '①先判断它属于哪一类（软件界面或工具截图 / 成品海报或宣传图 / 实拍人物或场景 / 数据图表）；' +
+  '②若画面里出现网页、软件窗口或手机界面，主体请描述【这个界面/系统本身是做什么的】，' +
+  '界面里嵌着的海报或图片用括号补充（如"界面右侧预览框里嵌着一张手表海报"）；' +
+  '③列出最关键的可读文字（标题/按钮/栏目，4~8 个）；' +
+  '④最后一句说它适合配哪类文案。只描述实际可见内容，不要猜测，不超过 100 字。'
+
+/** ★VF_VLM_2STAGE_V1（2026-09-24 用户定案的 P1）：两段式识别 —— 先分类，再按类别问对应的问题。
+ *  一段式的问题是"所有图都用同一个问法"：界面截图需要它读界面文字，海报需要它读卖点，实拍需要它描述氛围。
+ *  按类别分派后，各自问到点子上；分类失败则回退到通用四问（绝不因为分类失败而认不出图）。 */
+const VL_PROMPT_BY_CLASS: { kw: string; prompt: string }[] = [
+  {
+    kw: '软件界面',
+    prompt: '这是软件界面/工具截图。请用中文说明：①这个界面/系统是做什么的（产品定位）；' +
+      '②主要区域与栏目；③界面上最关键的可读文字（标题/按钮/栏目，6~10 个）；' +
+      '④界面里嵌着的海报或图片用括号补充（如"右侧预览框里嵌着一张手表海报"）。只描述可见内容，不超过 120 字。',
+  },
+  {
+    kw: '海报',
+    prompt: '这是宣传海报/成品图。请用中文说明：①主体物与核心卖点；②图上的标题/副标题文字；' +
+      '③色调与风格；④适合配哪类文案。只描述可见内容，不超过 80 字。',
+  },
+  {
+    kw: '实拍',
+    prompt: '这是实拍照片。请用中文说明：①画面主体与场景；②氛围/光线/色调；③图上若出现文字就读出来；' +
+      '④适合配哪类文案。只描述可见内容，不超过 80 字。',
+  },
+  {
+    kw: '图表',
+    prompt: '这是数据图表/表格。请用中文说明：①图表主题；②关键指标与数值；③结论；' +
+      '④适合配哪类文案。只描述可见内容，不超过 80 字。',
+  },
+]
+
+/** ★VF_VLM_COMPRESS_V1（P1）：喂给视觉模型前先把长边缩到 1500px（素材常是 1MB 级界面截图）。
+ *  缩图失败（例如环境里没有 ffmpeg）就原图返回 —— 绝不因为缩图把整个识别搞失败。 */
+function shrinkForVL(src: string): string {
+  try {
+    const out = src.replace(/(\.[a-zA-Z0-9]+)$/, '_vl.jpg')
+    const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', src, '-vf',
+      "scale='if(gt(iw,ih),min(1500,iw),-2)':'if(gt(iw,ih),-2,min(1500,ih))'", out], { timeout: 30000 })
+    if (r.status === 0 && fs.existsSync(out) && fs.statSync(out).size > 1024) return out
+  } catch (e) { /* 回退原图 */ }
+  return src
+}
+
+/** ★VF_VLM_2STAGE_V1：一张素材的完整识别 = 缩图 → ①分类 → ②按类别细看 */
+async function vlDescribeMaterial(localPath: string): Promise<string | null> {
+  const p = shrinkForVL(localPath)
+  const b64 = 'data:image/jpeg;base64,' + fs.readFileSync(p).toString('base64')
+  const cls = (await describeImageWithVL(b64,
+    '这张图属于哪一类？只回一个词：软件界面（软件/网页/手机界面截图、工具或后台界面）／海报（成品宣传图、带大字的图）／实拍（照片、人物、场景、产品实拍）／图表（数据图表、表格、看板）。',
+    24)) || ''
+  const hit = VL_PROMPT_BY_CLASS.find((c) => cls.indexOf(c.kw) >= 0)
+  return await describeImageWithVL(b64, hit ? hit.prompt : VL_PROMPT_GENERIC, 400)
+}
+
 export async function summarizeMaterials(
   userId: string | number,
   items: RepoMaterial[],
@@ -263,28 +333,8 @@ export async function summarizeMaterials(
     if (!m.localPath) continue
     i++
     try {
-      const b64 = 'data:image/jpeg;base64,' + fs.readFileSync(m.localPath).toString('base64')
-      const desc = await describeImageWithVL(
-        b64,
-        // ═══ ★VF_VLM_PROMPT_V1（2026-09-24 用户实测 + 本地 A/B 验证后改写）═══
-        // 老问法的三个坑（用户实测踩到）：
-        //   ① 只问"画面**主体**" → 用户的素材多是【营销工具界面截图，右半边预览框里嵌着一张海报】，
-        //      模型就抓走了最抢眼的那张海报 → 把整图说成"智能手表海报"
-        //      （实测 20260906_002.jpg / 20260922_015.jpg 两张都错，而它们其实是 AI 营销工具界面）；
-        //   ② 用途例子只给"产品图/门店/海报" → 没有"软件界面/工具截图"这一档，模型不会往界面上靠；
-        //   ③ 限 40 字一句话 → 装不下"这是界面 + 界面里嵌了什么"这层信息。
-        // ★危害不止标签难看：这段摘要是【直接喂给写文案/排分镜】的（见本函数注释"供写文案用"）
-        //   → 摘要说"素材是智能手表海报"，文案就围着"智能手表新品首发"写，整条片子主题跑偏。
-        // 新问法（**行业无关**：不提任何产品/行业，本地验过 6 张：营销工具界面 / 餐饮点餐界面 /
-        //   美食实拍 / 风景×2 / 合成海报，全部分类与嵌图判断正确）：
-        //   先分类 → 界面优先（主体=界面本身，嵌图只作括号补充）→ 关键可读文字 → 适合配哪类文案。
-        '这是用户个人素材库里的一张图。请按顺序用中文回答：' +
-          '①先判断它属于哪一类（软件界面或工具截图 / 成品海报或宣传图 / 实拍人物或场景 / 数据图表）；' +
-          '②若画面里出现网页、软件窗口或手机界面，主体请描述【这个界面/系统本身是做什么的】，' +
-          '界面里嵌着的海报或图片用括号补充（如"界面右侧预览框里嵌着一张手表海报"）；' +
-          '③列出最关键的可读文字（标题/按钮/栏目，4~8 个）；' +
-          '④最后一句说它适合配哪类文案。只描述实际可见内容，不要猜测，不超过 100 字。',
-      )
+      // ★VF_VLM_2STAGE_V1（P1）：缩图 → ①分类 → ②按类别细看（提示词见上方 VL_PROMPT_* 常量）
+      const desc = await vlDescribeMaterial(m.localPath)
       lines.push(`图${i}（${m.name}）：${desc || '（未识别）'}`)
     } catch (e: any) {
       lines.push(`图${i}（${m.name}）：（读图失败）`)
