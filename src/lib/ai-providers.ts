@@ -2374,6 +2374,43 @@ export async function describeImageWithVL(imageUrlOrBase64: string, prompt?: str
   }
 }
 
+/**
+ * ★VF_MULTIFRAME_V1（2026-09-24 用户定案「长视频要看懂时间轴」）：
+ *   一次送【多张图】—— 同一条视频在不同时间点抽的帧 —— 让模型按顺序描述，并指认
+ *   "哪一段最适合当素材"。为什么必须一次调用：逐帧调用会丢掉"这几帧是同一条片子、
+ *   先后关系如何"这层信息，模型就无法回答"哪一段最好"，而这正是长视频（3 分钟以上）
+ *   最需要的一句结论（原来只抽 1 帧 = 让 AI 瞎猜从第几秒切）。
+ *   与 describeImageWithVL 的关系：那个是单图版（别处在用，保持不动），这个是它的多图版。
+ */
+export async function describeImagesWithVL(images: string[], prompt?: string, maxTokens = 800): Promise<string | null> {
+  const key = getDashScopeKey()
+  if (!key || !images?.length) return null
+  try {
+    const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'qwen-vl-max',
+        messages: [{
+          role: 'user',
+          // 图在前、问题在后（模型对"紧接着的问题"注意力更好）
+          content: [
+            ...images.map((u) => ({ type: 'image_url', image_url: { url: u } })),
+            { type: 'text', text: prompt || '请用中文描述这些图片。' },
+          ],
+        }],
+        temperature: 0.2,
+        max_tokens: maxTokens,
+      }),
+    })
+    const text = data?.choices?.[0]?.message?.content
+    return typeof text === 'string' ? text.trim() : null
+  } catch (e: any) {
+    console.error('[百炼VL] 多图读图失败:', e?.message || e)
+    return null
+  }
+}
+
 export async function isAIConfigured(): Promise<boolean> {
   return !!(process.env.DASHSCOPE_API_KEY || process.env.VOLCANO_API_KEY || process.env.SILICONFLOW_API_KEY);
 }

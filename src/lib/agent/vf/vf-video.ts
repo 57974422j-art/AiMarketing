@@ -65,7 +65,8 @@ export interface VfVideoCtx {
   summarizeMaterials: (userId: number | string, mats: any[], visN: number) => Promise<string>
   /** ★视频探测（时长/宽高/有无音轨）+ 抽帧理解 —— 见 video-material.ts 的 probeVideos/describeVideoClips */
   probeVideos: (userId: number | string, mats: any[]) => Promise<any[]>
-  describeVideoClips: (clips: any[]) => Promise<string>
+  /** ★VF_MULTIFRAME_V1：多带一个 userId —— 抽帧的临时文件要落在该用户的目录下 */
+  describeVideoClips: (clips: any[], userId?: number | string) => Promise<string>
   downloadMaterials: (userId: number | string, mats: any[]) => Promise<any[]>
   splitScript: (script: string, n: number, maxLen?: number) => string[]
   parseForm: (userMessage: string) => Record<string, any> | null
@@ -197,14 +198,28 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   // ── 1) 素材：图片 + 视频（视频要探测元信息 + 抽帧看懂内容）──
   const mats = await ctx.listRepoMaterials(uid, 30)
   const imgs = (mats || []).filter((m: any) => m.kind === 'image')
-  const clips = await ctx.probeVideos(uid, mats || [])
-  const clipLines = await ctx.describeVideoClips(clips)
-  const imgBrief = (imgs.length && ctx.summarizeMaterials)
-    ? await ctx.summarizeMaterials(uid, mats || [], 8) : ''
+  // ★VF_VIDPROBE_V2：探测走 OSS 签名直链（**不下载整段**）—— 用户素材里可能有 3 分钟以上的长视频，
+  //   旧做法"先全下再探"会把聊天请求堵死。
+  // ★VF_VIDGUARD_V1：超保护线的（单文件 > 400MB / 单条 > 30 分钟）不拿出来当片段用（日志如实写）。
+  const clipsAll = (await ctx.probeVideos(uid, mats || [])) || []
+  const clips = clipsAll.filter((c: any) => !c.over).slice(0, 6)   // 与 VF_VIDEO_MAX_CLIPS 一致
+  const skipped = clipsAll.filter((c: any) => c.over)
+  if (skipped.length) {
+    ctx.log(uid, '[VF-V] 本次不用这些视频（过大/过长）：' +
+      skipped.map((c: any) => `${c.name}(${c.sizeMB}MB/${c.dur}s)`).join('、'))
+  }
+  // ★VF_MULTIFRAME_V1：每个视频抽 2~5 帧、一次多图识别 → 得到"时间轴"（哪一段有内容）
+  // ★三件事【并行】做（视频时间轴 / 图片识别 / 图片下载）—— 串行会让起草多等十几秒，
+  //   而它们彼此独立，并行后总耗时≈最慢的那一件。
+  const [clipLines, imgBrief, imgLocal] = await Promise.all([
+    ctx.describeVideoClips(clips, uid),
+    (imgs.length && ctx.summarizeMaterials)
+      ? ctx.summarizeMaterials(uid, mats || [], 8) : Promise.resolve(''),
+    imgs.length ? ctx.downloadMaterials(uid, imgs.slice(0, 20)) : Promise.resolve([] as any[]),
+  ])
   const brief = [imgBrief, clipLines].filter(Boolean).join('\n')
-  const imgLocal = imgs.length ? await ctx.downloadMaterials(uid, imgs.slice(0, 20)) : []
   const imgPaths = imgLocal.map((m: any) => m.localPath).filter(Boolean)
-  ctx.log(uid, `[VF-V] 素材：图 ${imgPaths.length} 张 / 视频 ${clips.length} 个`)
+  ctx.log(uid, `[VF-V] 素材：图 ${imgPaths.length} 张 / 视频 ${clips.length} 个（含${clips.filter((c: any) => c.sizeMB).length} 条已探到大小）`)
 
   if (!imgPaths.length && !clips.length) {
     vd.step = 'form'
@@ -244,16 +259,20 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     `【可用的视频】共 ${clips.length} 个（编号 1~${clips.length}）${clipLines ? '：\n' + clipLines : ''}\n` +
     (retryHint ? `⚠️上次你没排好：${retryHint}\n` : '') +
     `\n要求：\n` +
-    `①【用视频的镜】写成 {"type":"video","vclip":1,"vstart":0,"dur":5.5,"text":"画面大字","subtitle":"这一镜念的文案"}\n` +
-    `   · vclip=用第几个视频；vstart=从该视频第几秒开始（默认 0）；dur=这一镜大概几秒\n` +
-    `   · ★该镜 subtitle 必须【按 4.5 字/秒 写够】（dur 5.5 秒 → 约 25 字）——最终镜长按配音时长算，\n` +
-    `     文案长度对了，视频片段才能【完整播完】（否则画面会被截断或需要循环）\n` +
-    `   · vstart+dur 不能超过该视频的真实时长\n` +
+    `①【用视频的镜】写成 {"type":"video","vclip":1,"vstart":12,"dur":6,"text":"画面大字","subtitle":"这一镜念的文案"}\n` +
+    `   · vclip=用第几个视频；vstart=从该视频第几秒开始；dur=这一镜大概几秒（建议 4~10 秒）\n` +
+    `   · ★vstart 要落在上面视频清单里标出的【★推荐片段】区间内 —— 那是"看过画面之后"挑出的有内容的一段；\n` +
+    `     不要从视频最开头（常是片头/花字）或最结尾切；标了"无推荐 /（本次不用）"的视频不要用\n` +
+    `   · ★vstart+dur 之外还要再留 2 秒以上余量（别贴着片尾切）——配音可能比 dur 略长，留余量才不会"放慢/循环"\n` +
+    `   · ★该镜 subtitle 必须【按 4.5 字/秒 写够】（dur 6 秒 → 约 27 字）——最终镜长按配音真实时长算，\n` +
+    `     文案长度对了，视频片段才能【完整播完】（否则画面会被放慢或循环）\n` +
     `②【用图片的镜】写成 {"type":"bgimage","pick":2,"text":"画面大字","subtitle":"..."}\n` +
     `③【所有 subtitle 拼起来必须完整覆盖文案，且顺序一致】；不许扩写、不许重复、不许自己编句子\n` +
     `④相邻两镜不要用同一个视频；同一个视频切多段时，两段之间至少隔 2 镜\n` +
     `⑤text 是画面大字：4~8 字的完整短语，不要从文案截半句、不要标点\n` +
-    `⑥只输出严格 JSON 数组（不要 markdown、不要解释）\n\n编镜依据（文案）：\n${script}`
+    `⑥只输出严格 JSON 数组（不要 markdown、不要解释）\n` +
+    `⑦【视频要用够】有视频可用时，视频镜不少于总镜数的 1/3（你自己的实拍比图更有说服力）；\n` +
+    `   但也不要把画面全给视频（视频镜不超过 2/3，避免整片都是同一支片子）\n\n编镜依据（文案）：\n${script}`
   let raw = ''
   try { raw = (await ctx.generateText(prompt)) || '' } catch (e: any) { ctx.log(uid, '[VF-V] 分镜失败: ' + String(e?.message || e).slice(0, 120)) }
   let arr = parseJsonArray(raw)
@@ -275,17 +294,26 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     const sub = cleanText(s?.subtitle, 300)
     const big = cleanText(s?.text, 14)
     if (ty === 'video' && clips.length) {
-      const i = parseInt(s?.vclip) - 1
-      const c = clips[i >= 0 && i < clips.length ? i : 0]
+      const ci = parseInt(s?.vclip) - 1
+      const i0 = ci >= 0 && ci < clips.length ? ci : 0
+      const c = clips[i0]
       const real = Number(c?.dur || 0)
-      const start = clampNum(s?.vstart, 0, Math.max(0, real - 1), 0)
       const want = clampNum(s?.dur, 1.5, 60, 5)
-      // 片段不够长 → 用"这段能给的"为准（渲染层还有放慢/循环兜底）；太长就按 want 截
-      const maxLen = real > 1 ? Math.max(1.5, real - start) : want
-      const len = real > 1 ? Math.min(want, maxLen) : want
+      // ★VF_VIDFIT_V1（2026-09-24 用户实拍「有 3 分钟的视频」）：这一镜**最终**多长，取决于
+      //   【配音真实时长】（tts 回填）≈ 字幕字数 ÷ 4.5 —— 而不是 AI 写的 dur。
+      //   旧写法只看 dur：AI 把 vstart 定在片尾附近、字幕又写长了 → 片段不够用 →
+      //   渲染层只能放慢/循环（观感立刻变差，这正是"片段没法完整播完"的来源）。
+      //   现在按"预期配音时长"反推起点上限：需要多长就往前让多少，从源头避免贴尾切。
+      const expect = Math.round((sub.length / 4.5) * 10) / 10
+      const needLen = Math.min(60, Math.max(want, expect))
+      const start = clampNum(s?.vstart, 0, Math.max(0, real - needLen), 0)
+      // 片段不够长 → 用"这段能给的"为准（渲染层还有放慢/循环兜底）；太长就按 needLen 截
+      const maxLen = real > 1 ? Math.max(1.5, real - start) : needLen
+      const len = real > 1 ? Math.min(needLen, maxLen) : needLen
       // src_dur = 片段自身总长（渲染层用它判断"要不要放慢/循环兜底"）；vstart = 从第几秒开始
+      // _ci = 用的是第几个视频（下面按需下载/降级用，写完就删）
       shotsOut.push({
-        type: 'video', src: c?.path || '', src_dur: Math.round(real * 100) / 100,
+        type: 'video', src: c?.path || '', _ci: i0, src_dur: Math.round(real * 100) / 100,
         vstart: Math.round(start * 100) / 100, dur: Math.round(len * 100) / 100, text: big, subtitle: sub,
       })
     } else if (imgPaths.length) {
@@ -295,6 +323,47 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     } else {
       shotsOut.push({ type: 'title', text: big || sub.slice(0, 8), subtitle: sub, dur: 4 })
     }
+  }
+
+  // ── 5.5) ★VF_VIDONDEMAND_V1（2026-09-24）：只下载【真的排进分镜】的视频。
+  //   长视频动辄几百 MB，V1 是"用不用得着都先把 8 条全下下来"→ 起草卡在请求里（还可能超时）。
+  //   现在：探测/抽帧走 OSS 直链（零下载），等 AI 排完分镜，只下它真正用到的那几条。
+  const usedCi = [...new Set(shotsOut.filter((s: any) => s.type === 'video').map((s: any) => Number(s._ci)))]
+    .filter((n) => Number.isFinite(n) && n >= 0 && n < clips.length)
+  if (usedCi.length) {
+    const need = usedCi.map((n) => clips[n]).filter((c: any) => c?.key)
+    ctx.log(uid, `[VF-V] 按需下载视频 ${need.length} 个：` +
+      need.map((c: any) => `${c.name}(${c.sizeMB}MB)`).join('、'))
+    let local: any[] = []
+    try {
+      local = await ctx.downloadMaterials(uid, need.map((c: any) => ({
+        name: c.name, key: c.key, kind: 'video', size: c.size, updatedAt: 0,
+      })))
+    } catch (e: any) { ctx.log(uid, '[VF-V] 视频下载异常: ' + String(e?.message || e).slice(0, 120)) }
+    const byName = new Map<string, string>()
+    for (const m of local) if (m?.localPath) byName.set(String(m.name), String(m.localPath))
+    for (const s of shotsOut) {
+      if (s.type !== 'video') continue
+      const lp = byName.get(String(clips[Number(s._ci)]?.name || ''))
+      if (lp) s.src = lp
+    }
+  }
+  // 下载失败 / 素材已被删 → 这一镜降级成图片镜或大字卡：宁可换个画面，
+  // 也不要让渲染层拿到空 src（那会是"输入文件不存在"→ 整片失败）。
+  for (let k = 0; k < shotsOut.length; k++) {
+    const s: any = shotsOut[k]
+    if (s.type === 'video' && !s.src) {
+      ctx.log(uid, `[VF-V] 第 ${k + 1} 镜的视频没拿到本地文件 → 降级为${imgPaths.length ? '图片' : '大字'}镜`)
+      if (imgPaths.length) {
+        s.type = 'bgimage'
+        s.src = imgPaths[k % imgPaths.length]
+      } else {
+        s.type = 'title'
+      }
+      delete s.vstart
+      delete s.src_dur
+    }
+    delete s._ci
   }
 
   // ── 6) 覆盖检查（与素材线同口径）：不足就按文案顺序补上"空/过短"的镜 ──

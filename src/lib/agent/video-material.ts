@@ -6,9 +6,51 @@
 //   复用：抽帧已有（extract_video_frames 在 chat route）——这里不重复造，先只理解【图片】。
 import fs from 'fs'
 import path from 'path'
-import { spawnSync } from 'child_process'
-import { listObjects, getObject } from '@/lib/oss'
-import { describeImageWithVL } from '@/lib/ai-providers'
+import { spawnSync, execFile } from 'child_process'
+import { listObjects, getObject, signedUrl } from '@/lib/oss'
+import { describeImageWithVL, describeImagesWithVL } from '@/lib/ai-providers'
+
+/**
+ * ★VF_VIDGUARD_V1（2026-09-24 用户实测：「素材库里有 3 分钟多的视频」）：
+ *   保护线 —— 超过就不把这条视频当"画面片段"用，避免一个素材把服务器和请求拖死：
+ *     · 单文件 > 400MB：服务器下载 + ffmpeg 逐帧解码都要很久，成片里也就用几秒，不划算
+ *     · 单条 > 30 分钟：基本不是"短视频素材"，多半是整段录屏/直播回放
+ *   被挡下的视频会在日志里如实写出来（不静默丢弃）。
+ */
+export const VF_VIDEO_MAX_MB = 400
+export const VF_VIDEO_MAX_SEC = 1800
+/** 一次成片最多考察多少个视频（每个要多帧识别，太多既慢又贵） */
+export const VF_VIDEO_MAX_CLIPS = 6
+
+/**
+ * ★VF_VIDPROBE_V2（2026-09-24）：异步跑子进程（**不阻塞事件循环**）。
+ *   为什么必须异步：原来用 spawnSync，而"多帧采样"要给每个视频跑 2~5 次 ffmpeg ——
+ *   同步跑会把整个 Node 服务卡住十几秒（别的用户的请求全排队），
+ *   所以探测/抽帧统一改成 execFile + Promise。
+ */
+function runCmd(cmd: string, args: string[], timeoutMs: number): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, encoding: 'utf-8' },
+        (err, stdout) => resolve(err ? '' : String(stdout || '')))
+    } catch { resolve('') }
+  })
+}
+
+/** 并发受控的 map（保持结果顺序）—— 多个视频并行识别，但别一次打满百炼的 QPS */
+async function mapLimit<T, R>(arr: T[], limit: number, fn: (v: T, i: number) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(arr.length)
+  let next = 0
+  const n = Math.max(1, Math.min(limit, arr.length))
+  await Promise.all(new Array(n).fill(0).map(async () => {
+    for (;;) {
+      const i = next++
+      if (i >= arr.length) return
+      try { out[i] = await fn(arr[i], i) } catch { out[i] = undefined as any }
+    }
+  }))
+  return out
+}
 
 const IMG_RE = /\.(jpg|jpeg|png|webp|gif)$/i
 const VID_RE = /\.(mp4|mov|avi|mkv|webm)$/i
@@ -246,70 +288,179 @@ export async function downloadMaterials(userId: string | number, items: RepoMate
  *   「最近素材：①拿铁特写(暖光木桌) ②店内全景(午后) ③开业海报(红金配色)…」
  * 说明：单图一张一次调用（复用 describeImageWithVL），每张约 0.2 点
  */
-/** 抽一帧（长边 ≤1200）交给视觉模型 —— **只用于"看懂视频在演什么"**，成片里放的仍是完整片段 */
-function grabVideoFrame(src: string, at: number): string {
+/** 抽一帧（长边 ≤1200）交给视觉模型 —— **只用于"看懂视频在演什么"**，成片里放的仍是完整片段。
+ *  ★VF_MULTIFRAME_V1：改成异步（不卡住 Node）+ 输出到指定文件 —— 因为源可以是
+ *  【OSS 签名直链】，这样 3 分钟以上的长视频也能抽帧，不必先整段下载。 */
+async function grabVideoFrame(src: string, at: number, outPath: string): Promise<string> {
   try {
-    const out = src.replace(/(\.[a-zA-Z0-9]+)$/, `_f${Math.round(at)}.jpg`)
-    const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(Math.max(0, at)), '-i', src,
+    try { fs.mkdirSync(path.dirname(outPath), { recursive: true }) } catch {}
+    await runCmd('ffmpeg', ['-v', 'error', '-y', '-ss', String(Math.max(0, at)), '-i', src,
       '-frames:v', '1', '-vf',
-      "scale='if(gt(iw,ih),min(1200,iw),-2)':'if(gt(iw,ih),-2,min(1200,ih))'", out], { timeout: 30000 })
-    if (r.status === 0 && fs.existsSync(out) && fs.statSync(out).size > 1024) return out
-  } catch (e) { /* ignore */ }
+      "scale='if(gt(iw,ih),min(1200,iw),-2)':'if(gt(iw,ih),-2,min(1200,ih))'", outPath], 45000)
+    if (fs.existsSync(outPath) && fs.statSync(outPath).size > 1024) return outPath
+  } catch (e) { /* 单帧失败不影响整条线 */ }
   return ''
 }
 
 /** ═══ ★VF_VIDEOLINE_V1（2026-09-24 用户定案「视频混剪」独立线）═══
- *  探测视频素材的元信息：**时长 / 宽高 / 有没有音轨** —— 排分镜要靠真实时长决定"这一镜多长"、
- *  以及"这个片段能不能放下"。只给视频混剪线用；素材合成线仍走 summarizeMaterials 的"仅列名"。 */
+ *  探测视频素材的元信息：**时长 / 宽高 / 有没有音轨 / 文件大小** —— 排分镜要靠真实时长决定
+ *  "这一镜多长"以及"这个片段能不能放下"。只给视频混剪线用；素材合成线仍走"仅列名"。
+ *
+ *  ★VF_VIDPROBE_V2（2026-09-24 用户实测：「素材库里可能有 3 分钟多的视频」）：
+ *    V1 是"先把视频全下载到服务器再探测"—— 8 条长视频就是几百 MB 堵在聊天请求里（还可能超时）。
+ *    V2 改成三步，长视频不再拖垮起草：
+ *      ① 本地已有缓存（上次下载过、大小对得上）→ 直接探，零网络；
+ *      ② 否则把 **OSS 签名直链**交给 ffprobe —— 它只读文件头/索引，**不下载整段**；
+ *      ③ 真正被排进分镜的视频，等分镜排完再【按需下载】（见 vf-video.ts 的 VF_VIDONDEMAND_V1）。
+ *    返回值额外带：key/size/sizeMB（供按需下载与保护线判断）、path（仅缓存命中时非空）、over（超保护线）。
+ */
 export async function probeVideos(userId: string | number, items: RepoMaterial[]): Promise<any[]> {
   const vids = (items || []).filter((i) => i.kind === 'video').slice(0, 8)
   if (!vids.length) return []
-  const local = await downloadMaterials(userId, vids)
-  const out: any[] = []
-  for (const m of local) {
-    if (!m.localPath) continue
-    let dur = 0
-    let w = 0
-    let h = 0
-    let hasAudio = false
+  const dir = materialDir(userId)
+  try { fs.mkdirSync(dir, { recursive: true }) } catch {}
+  const probeOne = async (src: string): Promise<{ dur: number; w: number; h: number; hasAudio: boolean }> => {
+    const js = await runCmd('ffprobe', ['-v', 'error', '-show_entries',
+      'format=duration:stream=codec_type,width,height', '-of', 'json', src], 30000)
     try {
-      const r = spawnSync('ffprobe', ['-v', 'error', '-show_entries',
-        'format=duration:stream=codec_type,width,height', '-of', 'json', m.localPath],
-        { timeout: 20000, encoding: 'utf-8' })
-      const j: any = JSON.parse(String(r.stdout || '{}'))
-      dur = Number(j?.format?.duration || 0)
+      const j: any = JSON.parse(js || '{}')
       const streams: any[] = j?.streams || []
-      hasAudio = streams.some((s: any) => s.codec_type === 'audio')
       const v0 = streams.find((s: any) => s.codec_type === 'video')
-      if (v0) { w = Number(v0.width || 0); h = Number(v0.height || 0) }
-    } catch (e) { /* 探测失败 → 时长按 0（后面会保守处理） */ }
-    out.push({ name: m.name, path: m.localPath, dur: Math.round(dur * 10) / 10, w, h, hasAudio })
+      return {
+        dur: Number(j?.format?.duration || 0),
+        w: Number(v0?.width || 0), h: Number(v0?.height || 0),
+        hasAudio: streams.some((s: any) => s.codec_type === 'audio'),
+      }
+    } catch { return { dur: 0, w: 0, h: 0, hasAudio: false } }
+  }
+  const out: any[] = []
+  for (const v of vids) {
+    // ① 缓存命中 → 用本地文件（最快，也不用签名）
+    let lp = path.join(dir, v.name)
+    let cached = false
+    let url = ''
+    try { cached = fs.existsSync(lp) && (!v.size || Math.abs(fs.statSync(lp).size - v.size) < 1024) } catch { cached = false }
+    let meta = { dur: 0, w: 0, h: 0, hasAudio: false }
+    if (cached) meta = await probeOne(lp)
+    // ② 没缓存 → OSS 签名直链。实测（2026-09-24，本机）：23MB 的 https 直链 ffprobe 只花 0.61 秒
+    //    就读出时长 —— 因为 ffmpeg 只发 Range 请求读文件头/索引，**不会下整段**。
+    if (!(meta.dur > 0.5)) {
+      try { url = await signedUrl(v.key, 3600) } catch { url = '' }
+      if (url) {
+        const m2 = await probeOne(url)
+        if (m2.dur > 0.5) { meta = m2; cached = false }
+      }
+    }
+    // ③ 直链也探不出来（签名/编码/网络古怪）→ 退回【老行为】：下载这一条再探。
+    //    宁可慢一点，也绝不让用户的视频"用不了"（V1 本来就会下载，退路必须保住）。
+    if (!(meta.dur > 0.5)) {
+      const one = await downloadMaterials(userId, [v])
+      const lp2 = one?.[0]?.localPath
+      if (lp2) {
+        const m3 = await probeOne(lp2)
+        if (m3.dur > 0.5) { meta = m3; cached = true; lp = lp2 }
+      }
+    }
+    if (!(meta.dur > 0.5)) {
+      // 探不到时长 = 无法安全切片（不知道 vstart 会不会越界、也不知道能放几秒）→ 本次不用，并如实记一笔
+      console.error(`[成片素材] 视频探测失败（本次不用）：${v.name}`)
+      continue
+    }
+    const sizeMB = Math.round((Number(v.size || 0) / 1048576) * 10) / 10
+    const over = (Number(v.size) > VF_VIDEO_MAX_MB * 1048576) || (meta.dur > VF_VIDEO_MAX_SEC)
+    out.push({
+      name: v.name, key: v.key, size: Number(v.size || 0), sizeMB,
+      url: cached ? '' : url, path: cached ? lp : '',
+      dur: Math.round(meta.dur * 10) / 10, w: meta.w, h: meta.h, hasAudio: meta.hasAudio, over,
+    })
   }
   return out
 }
 
-/** 让 AI"看懂"每个视频：抽 1 帧（取片长 45% 处）→ 通用问法（行业无关）。
- *  产出的这段文字会喂给"排分镜"，用来决定**这个视频该放哪一镜**（成片里播的还是完整片段）。 */
-export async function describeVideoClips(clips: any[]): Promise<string> {
-  if (!clips?.length) return ''
-  const lines: string[] = []
-  for (let i = 0; i < clips.length; i++) {
-    const c = clips[i]
-    const at = c.dur > 6 ? Math.min(Math.max(0.5, c.dur - 0.5), c.dur * 0.45) : Math.max(0.2, c.dur * 0.3)
-    const f = grabVideoFrame(String(c.path || ''), at)
-    let desc = ''
-    if (f) {
-      try {
-        desc = (await describeImageWithVL(
-          'data:image/jpeg;base64,' + fs.readFileSync(f).toString('base64'), VL_PROMPT_GENERIC, 300,
-        )) || ''
-      } catch (e) { /* 单帧识别失败不影响整条线 */ }
+/** 每条视频按片长决定抽几帧 —— 片子越长，需要看的"时间点"越多（这就是"时间轴"的采样密度） */
+function frameRatios(dur: number): number[] {
+  if (dur <= 20) return [0.25, 0.65]                       // 短片：2 帧够（开头/结尾多是包装，避开）
+  if (dur <= 60) return [0.12, 0.42, 0.72]
+  if (dur <= 150) return [0.10, 0.32, 0.55, 0.78]
+  return [0.06, 0.25, 0.45, 0.65, 0.85]                    // 3 分钟以上：5 帧
+}
+
+/** 看懂【一条】视频：抽 N 帧 → 一次多图识别 → 逐帧说明 + 推荐片段 */
+async function describeOneClip(c: any, i: number, framesDir: string): Promise<string> {
+  const dur = Number(c?.dur || 0)
+  const head = `视频${i + 1}（${c?.name}）：总长 ${dur} 秒` +
+    `${c?.w && c?.h ? ` ${c.w}x${c.h}` : ''}${c?.hasAudio ? '，带原声' : '，无音轨'}` +
+    `${c?.sizeMB ? `，${c.sizeMB}MB` : ''}`
+  const src = String(c?.path || c?.url || '')
+  if (!src || !(dur > 0.5)) return head + '；画面内容：（探不到，本次不用）'
+  const times = frameRatios(dur).map((r) => Math.round(dur * r * 10) / 10)
+  const base = path.parse(String(c?.name || 'v')).name.replace(/[^\w.-]/g, '_')
+  const pairs = (await Promise.all(times.map(async (t, k) => {
+    const p = await grabVideoFrame(src, t, path.join(framesDir, `${base}_${k}_${Math.round(t)}.jpg`))
+    return [t, p] as [number, string]
+  }))).filter(([, p]) => p)
+  if (!pairs.length) return head + '；画面内容：（抽帧失败，本次不用）'
+  const ts = pairs.map(([t]) => t)
+  const frames = pairs.map(([, p]) => p)
+  const list = ts.map((t, k) => `第${k + 1}张 = 第 ${Math.round(t)} 秒`).join('、')
+  const prompt =
+    `这是【同一条用户素材视频】在 ${frames.length} 个时间点抽出的帧，已按时间先后排列（${list}）。\n` +
+    `请严格按下面的格式回答（中文，不要多余的话、不要 markdown）：\n` +
+    ts.map((t, k) => `${k + 1}. <第 ${Math.round(t)} 秒这一帧在演什么，25 字内；` +
+      `如果是纯文字页/黑场/转场/画面发糊，就直接写"文字页""黑场""转场""模糊">`).join('\n') + '\n' +
+    `推荐：<用"第A~B秒"给出最适合当短视频素材的一段（要有主体动作或画面清楚、别是文字页/转场/黑场），` +
+    `后面用 10 字以内说理由；若整条都不适合，就写"无">`
+  let ans = ''
+  try {
+    ans = (await describeImagesWithVL(
+      frames.map((f) => 'data:image/jpeg;base64,' + fs.readFileSync(f).toString('base64')), prompt, 700)) || ''
+  } catch { ans = '' }
+  const per: string[] = []
+  let rec = ''
+  for (const raw of String(ans).replace(/\r/g, '').split('\n')) {
+    // ★实测（2026-09-24）：模型偶尔会写成 "- **1)** 文字页：满屏花字""推荐片段：第20~34秒"
+    //   → 先清掉 markdown 装饰，否则整行都匹配不上（原来会丢掉一半描述）
+    const t = raw.trim().replace(/^[-*#>\s]+/, '').replace(/\*\*/g, '').replace(/^[`\s]+|[`\s]+$/g, '').trim()
+    if (!t) continue
+    const m = t.match(/^(\d+)\s*[.、)）]\s*(.+)$/)
+    if (m) {
+      const k = parseInt(m[1]) - 1
+      if (k >= 0 && k < frames.length) per[k] = m[2].trim()
+      continue
     }
-    lines.push(`视频${i + 1}（${c.name}）：${c.dur ? c.dur + ' 秒' : '时长未知'}` +
-      `${c.w && c.h ? ` ${c.w}x${c.h}` : ''}${c.hasAudio ? ' 带原声' : ' 无音轨'}；画面内容：` +
-      `${(desc || '（未识别）').replace(/\s*\n\s*/g, ' ')}`)
+    // "推荐：…" / "★推荐片段：…" / "推荐区间：…" 都认
+    const r = t.match(/^[★]?\s*推荐[^\s:：]{0,4}\s*[:：]\s*(.+)$/)
+    if (r) rec = r[1].trim()
   }
-  return lines.join('\n')
+  if (!per.some(Boolean) && !rec) {
+    // 整层没识别出来 → 如实说，并给出"谨慎使用"的指引（别让 AI 凭运气从 0 秒切，那多半是片头花字）
+    return head + '；画面内容：（没识别出来，不确定哪段好看 → 谨慎使用：若要用，从片子中间取，别从开头/结尾）'
+  }
+  const body = ts.map((t, k) => `  · 第 ${Math.round(t)} 秒：${per[k] || '（未描述）'}`).join('\n')
+  return head + '\n' + body + (rec ? `\n  ★推荐片段：${rec}` : '')
+}
+
+/** 让 AI"看懂"每个视频 —— ★VF_MULTIFRAME_V1（2026-09-24 用户定案：「素材库里有 3 分钟多的视频」）
+ *  老做法只抽 1 帧（片长 45% 处）→ 对 3 分钟的视频等于"让 AI 瞎猜该从第几秒切"，
+ *  很容易切到过渡段/黑场/无用镜头。
+ *  现在按片长抽 2~5 帧，**一次多图调用**问出"每个时间点在演什么 + 哪一段最适合当素材"，
+ *  这段文字直接进"排分镜"的提示词 → AI 定的 vstart 才会落在有内容的画面上。
+ *  成本：每条约 0.6~1.2 点（用户已定：「成本先不管，主要看成片效果」）。 */
+export async function describeVideoClips(clips: any[], userId?: string | number): Promise<string> {
+  if (!clips?.length) return ''
+  // 每次起草用【独立】的临时目录：同一用户连点两次时两轮抽帧互不打扰（否则会互相删帧）
+  const base = userId != null ? materialDir(userId) : vfStorageRoot()
+  const framesDir = path.join(base, 'vf_frames_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6))
+  try { fs.mkdirSync(framesDir, { recursive: true }) } catch {}
+  let parts: string[] = []
+  try {
+    // 3 个并发：既压住总耗时，也别把百炼 QPS 一次打满（结果顺序仍与 clips 一致）
+    parts = await mapLimit(clips, 3, (c, i) => describeOneClip(c, i, framesDir))
+  } finally {
+    // 抽帧只是中间产物（成片里播的是完整片段）→ 识别完整体删掉，不在服务器上堆垃圾
+    try { fs.rmSync(framesDir, { recursive: true, force: true }) } catch { /* 清理失败不影响结果 */ }
+  }
+  return parts.filter(Boolean).join('\n')
 }
 
 /** ★VF_VLM_PROMPT_V1（2026-09-24 用户实测 + 本地 A/B 验证后改写）：**行业无关**的"通用四问"。
