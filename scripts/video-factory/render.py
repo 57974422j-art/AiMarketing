@@ -227,26 +227,77 @@ def esc_path(p):
 
 
 def esc_text(t):
-    """drawtext 文本转义：冒号/单引号/百分号/反斜杠"""
+    """drawtext 文本转义：冒号/单引号/百分号/反斜杠
+
+    ★VF_PCT_ESCAPE_FIX_V1（2026-09-24 本地实测发现的老 bug）：
+      百分号原来只转义一层（`\\%`），但字符串要过【两层解析】（ffmpeg 滤镜参数 → drawtext 文本），
+      一层转义会被滤镜参数那层吃掉 → drawtext 看到裸 `%` 就当成展开语法起点 →
+      **整条 drawtext 什么都画不出来**。实测：`转化率90%` 的画面是纯空；number 卡的 `%` 后缀
+      会让整个大数字消失（`1700%` 递增卡片 = 空白卡）。写成 `\\\\%` 才正确。
+      注：`%{eif:...}` 这类**故意**的展开语法不走本函数，不受影响。
+    """
     return (str(t).replace('\\', '\\\\').replace(':', r'\:')
-            .replace("'", r"\'").replace('%', r'\%'))
+            .replace("'", r"\'").replace('%', r'\\%'))
+
+
+def _big_text(shot, limit=14):
+    """取这一镜的"画面大字"。★VF_BIGTEXT_FALLBACK_V1（2026-09-24 服务端实测事故）
+
+    事故：36 镜里有 6 镜【没有大字】，其中一镜是 title 卡 → 整屏只有底色 + 底部字幕，
+    连续空白 5 秒，看着像坏掉。根因：上游为治"每条成片画面大字都一样"，把照抄提示词示例
+    的词清成了空串（黑名单里就有 AI营销系统/三大能力/效率提升 这类主题词），清完【没有补上】。
+
+    这里做渲染侧的最后一道闸：text/title 都为空时，用【该镜字幕的首句前 10 字】顶上 ——
+    保证画面永远有主视觉。只给"没有图、靠大字撑画面"的卡用（title/end）；
+    bgimage 已有图，再把字幕前 10 字放大字会与底部字幕重复，故不做兜底。
+    """
+    t = str(shot.get('text') or shot.get('title') or '').strip()
+    if t:
+        return t[:limit]
+    s = ''.join(str(shot.get('subtitle') or '').split())
+    if not s:
+        return ''
+    for sep in ('。', '！', '？', '；', '，', '、', '!', '?', ';', ','):
+        if sep in s:
+            s = s.split(sep)[0]
+            break
+    return s[:10]
 
 
 # ══════════════════ 配方卡渲染 ══════════════════
 
 def card_title(shot, th, W, H, fps):
-    """标题卡：大字居中 + 淡入"""
+    """标题卡：大字居中 + 逐字浮现 + 主题色装饰
+
+    ★VF_BIGTEXT_FALLBACK_V1：大字为空时用【该镜字幕首句】兜底 —— 否则这卡就是"整屏空白"
+      （用户实测：36 镜里 6 镜没有大字，其中一镜空屏 5 秒）。
+    ★VF_CARDSTYLE_V1（2026-09-24 用户："成片的文字画面有点简陋"）：大字上方加一条主题色
+      短线 + 通栏细线 —— 纯色底只有一行字太素，靠这条装饰拉开层次，但不喧哗。
+    """
     font = esc_path(find_font(th.get('font', 'msyh')))
     dur = float(shot.get('dur', 3))
     fs = int(shot.get('fontsize', max(64, int(H * 0.13))))
+    txc = th.get('text', 'white')
+    acc = th.get('accent', '0xff6b35')
+    txt = _big_text(shot)
+    # ★VF_TEXTFIT_V1（2026-09-24 本地实测发现的老问题）：原来字号只按【画面高度】算（H*0.13≈166），
+    #   而一个 6 字标题就要 996px > 720px 宽 → 左右被切掉（10 字更夸张）。
+    #   现在按【最长一行文字】反算字号上限，保证整句放得下。
+    fs = min(fs, max(int(H * 0.055), int(W * 0.86 / max(1, len(txt)))))
     # ★VF_SYNC_V1（C3，2026-09-20）：标题卡也用【逐字浮现】（与 bgimage 一致，跟着配音卡点）
     #   拿不到 text 时回退到原来的“整句淡入”，行为不退化。
-    _rev = _reveal_seq(shot, font, fs, th.get('text', 'white'), dur)
-    vf = ','.join(_rev) if _rev else (
-        f"drawtext=fontfile='{font}':text='{esc_text(shot.get('text', ''))}':fontsize={fs}:"
-        f"fontcolor={th.get('text', 'white')}:"
-        f"x=(w-text_w)/2:y=(h-text_h)/2:"
+    _rev = _reveal_seq(shot, font, fs, txc, dur, text=txt)
+    body = ','.join(_rev) if _rev else (
+        f"drawtext=fontfile='{font}':text='{esc_text(txt)}':fontsize={fs}:"
+        f"fontcolor={txc}:x=(w-text_w)/2:y=(h-text_h)/2:"
         f"alpha='min(t/0.6,1)'")
+    _dy = max(int(H * 0.05), int(H * 0.5 - fs * 0.95))     # 装饰线放在大字正上方
+    _bar_h = max(6, int(fs * 0.09))
+    deco = ','.join([
+        f"drawbox=x={int(W * 0.10)}:y={_dy}:w={int(W * 0.10)}:h={_bar_h}:color={acc}@0.95:t=fill",
+        f"drawbox=x={int(W * 0.22)}:y={_dy + _bar_h // 2}:w={int(W * 0.68)}:h=2:color={txc}@0.16:t=fill",
+    ])
+    vf = (deco + ',' + body) if body else deco
     return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
             vf, dur)
 
@@ -291,8 +342,11 @@ def _fallback_big_text(shot, th, W, H, fs):
         return []
     font = esc_path(find_font(th.get('font', 'msyh')))
     acc = th.get('accent', '0xff6b35')
+    _t20 = txt[:20]
+    # ★VF_TEXTFIT_V1：同样按字数反算字号，避免长句被切边
+    _fs = min(int(fs * 1.2), max(int(H * 0.05), int(W * 0.86 / max(1, len(_t20)))))
     return [
-        f"drawtext=fontfile='{font}':text='{esc_text(txt[:20])}':fontsize={int(fs * 1.2)}:"
+        f"drawtext=fontfile='{font}':text='{esc_text(_t20)}':fontsize={_fs}:"
         f"fontcolor={acc}:x=(w-text_w)/2:y=(h-text_h)/2:alpha='min(t/0.5,1)'"
     ]
 
@@ -330,14 +384,34 @@ def card_list(shot, th, W, H, fps):
 
 
 def card_number(shot, th, W, H, fps):
-    """大数字递增"""
+    """大数字递增（★VF_NUMBERGUARD_V1：数字无意义时降级为标题卡）"""
+    # ★VF_NUMBERGUARD_V1（2026-09-24 用户实拍"0↑ 策略"那种画面）：
+    #   AI 偶尔给 `value: 0`（或写成非数字）→ 0 递增出来的还是 0，画面等于没信息；
+    #   非数字还会让 int() 抛错 → 整镜失败。这两种情况都当标题卡处理（用 label/text/字幕撑画面）。
+    try:
+        _v = float(str(shot.get('value', 100)).strip())
+    except Exception:
+        _v = -1.0
+    if _v < 2:
+        print('[VF] ⚠️ number 卡的数字无意义（value=%s）→ 降级为标题卡' % str(shot.get('value'))[:20])
+        _s2 = dict(shot)
+        _s2['text'] = str(shot.get('label') or shot.get('text') or '').strip()
+        return card_title(_s2, th, W, H, fps)
+
     font = esc_path(find_font(th.get('font', 'msyh')))
-    val = int(shot.get('value', 100))
+    val = int(_v)
     suf = esc_text(shot.get('suffix', ''))
     dur = float(shot.get('dur', 3))
     fs = int(shot.get('fontsize', max(90, int(H * 0.22))))
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
+    # ★VF_TEXTFIT_V1：数字+后缀一起按字数反算字号（实测 '1700%' 在 fs=281 时宽约 1000px
+    #   > 720px，两边都被切掉；`%` 修好之后这个溢出才暴露出来）
+    _ntxt = str(val) + str(shot.get('suffix', ''))
+    fs = min(fs, max(int(H * 0.06), int(W * 0.86 / max(1, len(_ntxt)))))
+    _cy = int(H * 0.5)
     parts = [
+        # ★VF_CARDSTYLE_V1：数字下方一条主题色短线 —— 别让一个数字孤零零悬在黑底上
+        f"drawbox=x={int(W * 0.38)}:y={_cy + int(fs * 0.30)}:w={int(W * 0.24)}:h={max(6, int(fs * 0.06))}:color={acc}@0.95:t=fill",
         f"drawtext=fontfile='{font}':text='%{{eif\\:min(t*{val / max(dur * 0.66, 0.1):.1f}\\,{val})\\:d}}{suf}':"
         f"fontsize={fs}:fontcolor={acc}:x=(w-text_w)/2:y=(h-text_h)/2-40"
     ]
@@ -556,21 +630,25 @@ def _blend_dark(base_hex, rgb, k=0.22):
         max(0, min(255, int(base[2] * (1 - k) + b * k))))
 
 
-def _reveal_seq(shot, font, fs, txc, dur):
+def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None):
     """★VF_SYNC_V1（2026-09-20，C3 配音卡点）：画面大字【逐字浮现】。
 
     镜头时长 = 该镜配音真实时长（tts.py 回填），所以在镜头前段逐字亮出 = 跟着配音走。
     做法：对每个前缀（第 1 字、前 2 字…）各画一次 drawtext，各自只在 [t_i, t_{i+1}) 窗口
     enable —— 因为前缀是嵌套的，看起来就是从左向右逐字浮现；且每个都用
     x=(w-text_w)/2 居中，不需测量字宽（这是不用 ASS 覆盖层的原因）。
+
+    `text`：显式指定要浮现的文字（不给就取 shot['text']）—— title 卡用它传兜底文字。
+    `box`：给文字加一圈半透明底衬（形如 'black@0.30'），压在照片上时更清楚、也更像"设计过"。
     """
-    chars = list(str(shot.get('text') or ''))
+    chars = list(str(text if text is not None else (shot.get('text') or '')))
     nch = len(chars)
     if nch <= 0:
         return []
     t0 = max(0.12, min(0.6, dur * 0.06))
     t1 = max(t0 + 0.5, dur * 0.55)
     step = (t1 - t0) / float(nch)
+    _bx = (f"box=1:boxcolor={box}:boxborderw={max(12, int(fs * 0.24))}:") if box else ''
     out = []
     for i in range(1, nch + 1):
         st = t0 + step * (i - 1)
@@ -580,7 +658,7 @@ def _reveal_seq(shot, font, fs, txc, dur):
         #   （加"浅色纸感"主题后才发现：light 主题字色近黑，压在深色照片上会糊）
         out.append(
             f"drawtext=fontfile='{font}':text='{esc_text(''.join(chars[:i]))}':fontsize={fs}:"
-            f"fontcolor={txc}:borderw=2:bordercolor=black@0.65:"
+            f"fontcolor={txc}:borderw=2:bordercolor=black@0.65:{_bx}"
             f"x=(w-text_w)/2:y=(h-text_h)/2:enable='between(t,{st:.2f},{en:.2f})'"
         )
     return out
@@ -609,10 +687,17 @@ def card_bgimage(shot, th, W, H, fps):
     dur = float(shot.get('dur', 4))
     font = esc_path(find_font(th.get('font', 'msyh')))
     fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
+    # ★VF_TEXTFIT_V1：压图大字同样按字数反算字号（bgimage 不走兜底 —— 它已经有图，
+    #   再把字幕前 10 字放大字会和底部字幕重复）
+    _txtb = str(shot.get('text') or '').strip()
+    if _txtb:
+        fs = min(fs, max(int(H * 0.05), int(W * 0.86 / len(_txtb))))
     txc = th.get('text', 'white')
     _frames = max(1, int(dur * fps))
     # ★VF_SYNC_V1（C3）：画面大字逐字浮现（跟配音卡点）；拿不到 text 就不加这些滤镜
-    _reveal = _reveal_seq(shot, font, fs, txc, dur)
+    #   ★VF_CARDSTYLE_V1：给压在照片上的大字加半透明底衬 —— 你的素材里有不少"本身就带大字的海报"，
+    #   我们的字压上去会和图上的字打架；加一层底衬能把两者在视觉上分开，也更清楚。
+    _reveal = _reveal_seq(shot, font, fs, txc, dur, box='black@0.30')
     # ★VF_LESSDARK_V1（2026-09-20 用户实测"整体黑白/发灰"）：黑遮罩 0.42 → 0.15
     #   原来整幅盖 42% 黑（为保字幕可读）→ 图片颜色全被压掉、观感"黑白"。
     #   现在改成：全屏只轻压 15%（保色彩）+【底部字幕区】单独再压 30%（保字幕对比度）。
@@ -635,18 +720,28 @@ def card_bgimage(shot, th, W, H, fps):
 
 
 def card_end(shot, th, W, H, fps):
-    """结尾卡：主标语 + 行动号召（CTA），带轻微上浮"""
+    """结尾卡：主标语 + 行动号召（CTA，做成"按钮"样式），带轻微上浮
+
+    ★VF_BIGTEXT_FALLBACK_V1：主标语为空时用字幕首句兜底（否则结尾卡也是空白屏）。
+    ★VF_CARDSTYLE_V1：CTA 从"一行橙字"改成【主题色实心按钮 + 深色字】，更像能点的入口。
+    """
     font = esc_path(find_font(th.get('font', 'msyh')))
     dur = float(shot.get('dur', 3.5))
     fs = int(shot.get('fontsize', max(56, int(H * 0.11))))
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
+    _main = _big_text(shot)
+    # ★VF_TEXTFIT_V1：结尾主标语按字数反算字号，避免被切边
+    if _main:
+        fs = min(fs, max(int(H * 0.05), int(W * 0.86 / len(_main))))
     parts = [
-        f"drawtext=fontfile='{font}':text='{esc_text(shot.get('text', ''))}':fontsize={fs}:"
+        f"drawbox=x={int(W * 0.10)}:y={int(H * 0.20)}:w={int(W * 0.10)}:h={max(6, int(H * 0.006))}:color={acc}@0.95:t=fill",
+        f"drawtext=fontfile='{font}':text='{esc_text(_big_text(shot))}':fontsize={fs}:"
         f"fontcolor={txc}:x=(w-text_w)/2:y=(h-text_h)/2-30:alpha='min(t/0.6,1)'",
     ]
     if shot.get('cta'):
         parts.append(f"drawtext=fontfile='{font}':text='{esc_text(shot['cta'])}':fontsize={int(fs * 0.5)}:"
-                     f"fontcolor={acc}:x=(w-text_w)/2:y=(h-text_h)/2+{int(fs * 0.9)}:alpha='min(max(t-0.6,0)/0.6,1)'")
+                     f"fontcolor=0x0a1620:box=1:boxcolor={acc}@0.95:boxborderw={max(10, int(fs * 0.26))}:"
+                     f"x=(w-text_w)/2:y=(h-text_h)/2+{int(fs * 0.9)}:alpha='min(max(t-0.6,0)/0.6,1)'")
     return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
             ','.join(parts), dur)
 

@@ -107,6 +107,23 @@ async function genVideoShots(o: {
     const t = String(v == null ? '' : v).trim()
     return t && !DEMO_WORDS.has(t) ? t : ''
   }
+  /**
+   * ★VF_BIGTEXT_FALLBACK_V1（2026-09-24 服务端实测：36 镜里 6 镜"没有大字"，其中一镜整屏空白 5 秒）
+   *   事故：上面 notDemo() 为治"每条成片画面大字都一样"，会把【照抄提示词示例】的词清成空串 ——
+   *        黑名单里正好有 `AI营销系统 / 三大能力 / 效率提升 / 效率翻10倍`，而那正是这条片子的主题词
+   *        → title/text 被清成 '' → `title` 卡（没有图）只剩底色 + 底部字幕，看着像坏掉。
+   *   修法：清空/缺失时【用该镜字幕的首句前 10 字顶上】，保证画面永远有主视觉。
+   *        只对 **title / end**（无图、靠大字撑画面）与"降级成 title"的路径兜底；
+   *        **bgimage 不做**这个兜底 —— 它已经有图了，再把字幕前 10 字放大字会与底部字幕重复。
+   */
+  const bigText = (raw: any, subtitle: any, limit = 14): string => {
+    const t = notDemo(raw)
+    if (t) return t.slice(0, limit)
+    const s = String(subtitle == null ? '' : subtitle).replace(/\s+/g, '')
+    if (!s) return ''
+    const head = s.split(/[。！？!?；;，,、]/)[0] || s
+    return head.slice(0, 10)
+  }
   const nextIdx = (want: number): number => {
     const n = imgs.length
     if (!n) return -1
@@ -134,7 +151,8 @@ async function genVideoShots(o: {
       //   `prompt`（英文画面描述）**丢掉**，导致 make.py 只能用中文 subtitle 兜底。
       //   只在真有 prompt 时附带该字段 → 素材合成的输出结构与原来完全一致。
       const _pp = s.prompt ? { prompt: String(s.prompt).slice(0, 900) } : {}
-      if (!lp || o.aiOnly) return { type: 'title', text: notDemo(s.text), subtitle: sub, dur: 3.5, ..._pp }
+      // ★VF_BIGTEXT_FALLBACK_V1：这里原来 text 可能是空串（照抄示例词被清）→ 现在兜底字幕首句
+      if (!lp || o.aiOnly) return { type: 'title', text: bigText(s.text, sub), subtitle: sub, dur: 3.5, ..._pp }
       // 注意：bgimage 的 text 是“画面大字”，**不能**当配音文案，所以这里只取 subtitle
       return { type: 'bgimage', src: lp, text: notDemo(s.text).slice(0, 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)), ..._pp }
     }
@@ -153,6 +171,9 @@ async function genVideoShots(o: {
           .map((x: any) => (x && typeof x === 'object' ? { ...x, label: notDemo(x.label) } : notDemo(x)))
           .filter((x: any) => (x && typeof x === 'object' ? true : !!x))
       }
+      // ★VF_BIGTEXT_FALLBACK_V1：title / end 是"没有图、靠大字撑画面"的卡 ——
+      //   大字被清空（照抄示例词）或 AI 压根没给时，用该镜字幕首句兜底，避免整屏空白。
+      if (ty === 'title' || ty === 'end') o.text = bigText(o.text, o.subtitle)
       // ★VF_EMPTYITEMS_V1（2026-09-24 服务端实测事故「第 7 镜 list 渲染失败」）：
       //   上面 VF_NOCLONE_V1 会把"照抄提示词示例"的条目清掉，而示例里的 list 条目
       //   （写文案/做视频/自动发布）**正好都在黑名单里** → AI 一照抄，items 全被清空 →
@@ -176,7 +197,7 @@ async function genVideoShots(o: {
     if (!sub2) return null
     const idx2 = nextIdx(-1)
     const lp2 = idx2 >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, idx2))] : ''
-    const head2 = notDemo(s?.title) || notDemo(s?.text) || sub2.slice(0, 8)
+    const head2 = bigText(s?.title || s?.text, sub2)   // ★VF_BIGTEXT_FALLBACK_V1：统一走兜底
     const dur2 = Math.min(8, Math.max(2, parseInt(s?.dur) || 5))
     if (!lp2 || o.aiOnly) return { type: 'title', text: String(head2).slice(0, 14), subtitle: sub2, dur: dur2 }
     return { type: 'bgimage', src: lp2, text: String(head2).slice(0, 14), subtitle: sub2, dur: dur2 }
@@ -207,7 +228,9 @@ async function genVideoShots(o: {
           //   它按"AI 的 pick 优先 → 用得最少优先 → 相邻不重复"取图，
           //   在保序前提下让画面跟着文案顺序走，且不会相邻两镜撞同一张图。
           const _ri = nextIdx(-1)
-          rebuilt.push({ type: 'bgimage', src: _ri >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, _ri))] : '', text: '', subtitle: sub.slice(0, 300), dur: 5 })
+          // ★VF_BIGTEXT_FALLBACK_V1：原来这里 text 写死为 ''（扩镜出来的每一镜【天生没有大字】，
+          //   是"整片看着简陋"的一大来源）→ 改成用该段字幕首句当大字。
+          rebuilt.push({ type: 'bgimage', src: _ri >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, _ri))] : '', text: bigText('', sub), subtitle: sub.slice(0, 300), dur: 5 })
         }
       }
       vfLog(o.uid, `[扩镜] AI 只排 ${beforeN} 镜（目标 ${o.shotN}）→ 按目标重排 ${rebuilt.length} 镜（每镜约 ${Math.round(charN / Math.max(1, rebuilt.length))} 字 ≈ ${Math.round(charN / Math.max(1, rebuilt.length) / 4.5)} 秒）`)
