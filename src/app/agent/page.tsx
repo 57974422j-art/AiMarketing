@@ -799,16 +799,55 @@ function VfAiOptsCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void
  */
 function VfShotEditList({ shots, onSend }: { shots: any[]; onSend: (msg: string) => void }) {
   const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState<Record<number, { text?: string; subtitle?: string }>>({})
-  const oneEdit = (i: number) => {
+  const [draft, setDraft] = useState<Record<number, Record<string, string>>>({})
+  // ★VF_EDIT_P0_V1（2026-09-24 用户实测：改「10000」那一镜的大字画面不会变）——
+  //   因为不同卡型画的字段根本不是同一个：number 画 value、list 画 title/items、chart 画 items、
+  //   compare 画 left/right。所以这里【按卡型】给出真正要改的字段，避免"改了没反应"。
+  const FIELDS: Record<string, { key: string; label: string; w: string }[]> = {
+    title: [{ key: 'text', label: '大字', w: 'w-[110px]' }],
+    bgimage: [{ key: 'text', label: '大字', w: 'w-[110px]' }],
+    end: [{ key: 'text', label: '大字', w: 'w-[104px]' }, { key: 'cta', label: '按钮文字', w: 'w-[92px]' }],
+    list: [{ key: 'title', label: '标题', w: 'w-[104px]' }, { key: 'items', label: '条目（用、分隔）', w: 'flex-1 min-w-0' }],
+    number: [
+      { key: 'value', label: '数值', w: 'w-[76px]' },
+      { key: 'suffix', label: '单位', w: 'w-[56px]' },
+      { key: 'label', label: '说明', w: 'w-[96px]' },
+    ],
+    chart: [{ key: 'title', label: '标题', w: 'w-[96px]' }, { key: 'items', label: '条目（标签:数值）', w: 'flex-1 min-w-0' }],
+    compare: [{ key: 'left', label: '左边', w: 'w-[96px]' }, { key: 'right', label: '右边', w: 'w-[96px]' }],
+  }
+  const fieldsFor = (t: any) => FIELDS[String(t || '')] || FIELDS.title
+  const itemText = (v: any) => (Array.isArray(v)
+    ? v.map((x: any) => (x && typeof x === 'object' ? `${x.label ?? x.text ?? ''}:${x.value ?? ''}` : String(x))).join('、')
+    : '')
+  const fieldVal = (s: any, k: string) => (k === 'items' ? itemText(s?.items) : String(s?.[k] ?? ''))
+  const parseItems = (str: string, type: string) => {
+    const parts = String(str || '').split(/[、,，|/\n]+/).map((x) => x.trim()).filter(Boolean)
+    if (type !== 'chart') return parts
+    return parts.map((p) => {
+      const seg = p.split(/[:：]/)
+      const n = Number(String(seg[1] ?? '').replace(/[^\d.\-]/g, ''))
+      return { label: String(seg[0] || '').trim(), value: Number.isFinite(n) ? n : 0 }
+    }).filter((x) => x.label)
+  }
+  const oneEdit = (i: number): any => {
     const s = shots[i] || {}
     const d = draft[i] || {}
     const e: any = { index: i + 1 }
-    if (d.text !== undefined && d.text !== String(s.text || '')) e.text = d.text
-    if (d.subtitle !== undefined && d.subtitle !== String(s.subtitle || '')) e.subtitle = d.subtitle
+    for (const f of fieldsFor(s.type)) {
+      if (d[f.key] === undefined || String(d[f.key]) === fieldVal(s, f.key)) continue
+      if (f.key === 'items') e.items = parseItems(String(d[f.key]), String(s.type || ''))
+      else if (f.key === 'value') {
+        const n = Number(String(d[f.key]).replace(/[^\d.\-]/g, ''))
+        e.value = Number.isFinite(n) ? n : String(d[f.key])
+      } else e[f.key] = String(d[f.key])
+    }
+    if (d.subtitle !== undefined && String(d.subtitle) !== String(s.subtitle || '')) e.subtitle = String(d.subtitle)
     return e
   }
   const changed = shots.map((_, i) => i).filter((i) => Object.keys(oneEdit(i)).length > 1)
+  const setOne = (i: number, k: string, v: string) =>
+    setDraft((p) => ({ ...p, [i]: { ...(p[i] || {}), [k]: v } }))
   const save = () => {
     const edits = changed.map(oneEdit)
     if (!edits.length) return
@@ -824,21 +863,33 @@ function VfShotEditList({ shots, onSend }: { shots: any[]; onSend: (msg: string)
       {open && (
         <div className="mt-1 rounded-lg border border-white/[0.08] bg-black/20 p-2 space-y-1 max-h-72 overflow-y-auto">
           {shots.map((s: any, i: number) => (
-            <div key={i} className="flex items-center gap-1.5">
-              <span className="w-4 text-[10px] text-gray-600 text-right">{i + 1}</span>
-              <span className="w-[54px] shrink-0 text-[10px] text-gray-500">{String(s.type || '')}</span>
-              <input
-                value={draft[i]?.text !== undefined ? String(draft[i].text) : String(s.text || '')}
-                onChange={(e) => setDraft({ ...draft, [i]: { ...(draft[i] || {}), text: e.target.value } })}
-                placeholder="画面大字"
-                className="w-[88px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-emerald-200 outline-none"
-              />
-              <input
-                value={draft[i]?.subtitle !== undefined ? String(draft[i].subtitle) : String(s.subtitle || '')}
-                onChange={(e) => setDraft({ ...draft, [i]: { ...(draft[i] || {}), subtitle: e.target.value } })}
-                placeholder="字幕 / 配音文案"
-                className="flex-1 min-w-0 px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-gray-300 outline-none"
-              />
+            <div key={i} className="rounded-md bg-white/[0.02] px-1.5 py-1">
+              {/* 第一行：卡型 + 该卡型【真正会被画出来】的字段 */}
+              <div className="flex items-center gap-1.5">
+                <span className="w-4 shrink-0 text-[10px] text-gray-600 text-right">{i + 1}</span>
+                <span className="w-[52px] shrink-0 text-[10px] text-gray-500">{String(s.type || '')}</span>
+                <span className="w-9 shrink-0 text-[10px] text-emerald-300/50">{s.dur ? `${s.dur}s` : ''}</span>
+                {fieldsFor(s.type).map((f) => (
+                  <input
+                    key={f.key}
+                    value={draft[i]?.[f.key] !== undefined ? String(draft[i][f.key]) : fieldVal(s, f.key)}
+                    onChange={(e) => setOne(i, f.key, e.target.value)}
+                    placeholder={f.label}
+                    title={f.label}
+                    className={`${f.w} px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-emerald-200 outline-none`}
+                  />
+                ))}
+              </div>
+              {/* 第二行：字幕（这句就是配音念的，成片底部字幕也用它） */}
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="w-4 shrink-0" />
+                <input
+                  value={draft[i]?.subtitle !== undefined ? String(draft[i].subtitle) : String(s.subtitle || '')}
+                  onChange={(e) => setOne(i, 'subtitle', e.target.value)}
+                  placeholder="字幕 / 配音文案（配音念的就是这句，成片底部字幕也用它）"
+                  className="flex-1 min-w-0 px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-gray-300 outline-none"
+                />
+              </div>
             </div>
           ))}
           <div className="flex items-center gap-2 flex-wrap pt-1">

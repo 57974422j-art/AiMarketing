@@ -62,7 +62,7 @@ async function genVideoShots(o: {
   const imgs = (o.imgPaths || []).filter(Boolean)
   const charN = String(o.script || '').length
   const avgN = Math.max(8, Math.round(charN / Math.max(1, o.shotN)))
-  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。${o.wantPrompt ? `\n★★【本片画面由 AI 逐镜生成】所以每个镜头还必须多给一个 prompt 字段：**英文**的画面生成提示词，含【主体 + 动作 + 场景 + 光影 + 镜头感（如推近/平移/航拍）】，60~80 词；只描述画面，**不要在画面里出现任何文字**（文字由字幕层负责）。prompt 必须与该镜的 subtitle 语义一致 —— 文案说什么，画面就演什么。\n  示例（注意 prompt 是英文）：{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案。","prompt":"A young marketer working late at a desk at night, laptop glow on his face, camera slowly pushes in, cinematic warm lighting, shallow depth of field","dur":7}` : ''}\n编镜依据（文案）：\n${o.script}`
+  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）。★但【绝对不许扩写、不许重复】：所有 subtitle 拼起来的**总字数要≈文案字数**（最多不超过它的 1.15 倍）——实测你写超到 233%，成片会又超时又重复念，用户会直接发现\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。${o.wantPrompt ? `\n★★【本片画面由 AI 逐镜生成】所以每个镜头还必须多给一个 prompt 字段：**英文**的画面生成提示词，含【主体 + 动作 + 场景 + 光影 + 镜头感（如推近/平移/航拍）】，60~80 词；只描述画面，**不要在画面里出现任何文字**（文字由字幕层负责）。prompt 必须与该镜的 subtitle 语义一致 —— 文案说什么，画面就演什么。\n  示例（注意 prompt 是英文）：{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案。","prompt":"A young marketer working late at a desk at night, laptop glow on his face, camera slowly pushes in, cinematic warm lighting, shallow depth of field","dur":7}` : ''}\n编镜依据（文案）：\n${o.script}`
   let raw = ''
   try { raw = (await generateText(prompt)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
   let arr = vfParseShots(raw)
@@ -348,6 +348,18 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
       // ★VF_SHOTDUR_V1（2026-09-20）：把【每镜时长】也传给卡片 ——
       //   用户在"分镜清单"里就能看出哪一镜偏长（如 14 秒），不必等成片、也不必跑脚本。
       dur: Math.round((Number(s.dur) || 0) * 10) / 10,
+      // ═══ ★VF_EDIT_P0_V1（2026-09-24 用户实测：卡片里"字幕/配音文案"整列是空的）═══
+      //   原来这里只映射 type/text/dur → **subtitle 被丢掉了**（分镜里其实每镜都有），
+      //   于是"可编辑清单"的字幕框只能是占位符（用户以为要自己手填）。
+      //   现在把【各卡型的真实可编辑字段】按原样带给前端（前端按卡型决定改哪个字段）。
+      subtitle: String(s.subtitle || ''),
+      title: String(s.title || ''),
+      cta: String(s.cta || ''),
+      left: String(s.left || ''), right: String(s.right || ''),
+      leftDesc: String(s.leftDesc || ''), rightDesc: String(s.rightDesc || ''),
+      label: String(s.label || ''), suffix: String(s.suffix || ''),
+      value: (s.value ?? ''),
+      items: Array.isArray(s.items) ? s.items : [],
     })),
     usedImages: imgN, brief: String(brief || '').slice(0, 400),
     voice: vd.voice, voiceName, theme: vd.theme, cost,
@@ -919,7 +931,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         for (const k of ['text', 'title', 'subtitle', 'type', 'items', 'value', 'label', 'suffix',
           'left', 'right', 'leftDesc', 'rightDesc', 'cta']) {
           const v = (args as any)[k]
-          if (v === undefined || v === null || v === '') continue
+          if (v === undefined || v === null) continue
+          // ★VF_EDIT_P0_V1：文本类字段允许清空；卡型/数值/条目 不允许清成空串
+          if (v === '' && (k === 'type' || k === 'value' || k === 'items')) continue
           _s[k] = v
         }
         _dft.shots = _dShots
@@ -3434,6 +3448,26 @@ PUBLISH_DRAFT.delete(uidW)
                   vfCover = vfScript2 ? vfSubLen / vfScript2.length : 0
                   vfLog(uidVF2, `[字幕兜底] AI 只覆盖 ${before}% → 按顺序切成 ${vfShots.length} 段填入 → 覆盖 ${Math.round(vfCover * 100)}%（预计 ${Math.round(vfSubLen / 4.5)} 秒）`)
                 }
+                // ═══ ★VF_COVER_MAX_V1（2026-09-24 用户实测「覆盖文案 233%·预计 97 秒」）═══
+                //   上面那套只治"覆盖不足"（<80%），**完全没有上限** —— AI 把 subtitle 扩写 2 倍多
+                //   也照样放行，结果成片把文案念两遍以上、时长远超目标（用户看到的就是 233%）。
+                //   这里补上限：>130% 直接按原文案重切（有增有减，把 AI 自己加的水词去掉）；
+                //   115%~130% 只如实告警（让人觉得可以接受时不折腾内容）。
+                if (vfShots.length >= 2 && vfCover > 1.3 && String(vfScript2 || '').length > 20) {
+                  const _covB4 = Math.round(vfCover * 100)
+                  const _segs2 = vfSplitScript(vfScript2, vfShots.length)
+                  let _sum2 = 0
+                  for (let i = 0; i < vfShots.length; i++) {
+                    const _seg = String(_segs2[i] || '').trim()
+                    if (_seg) vfShots[i] = { ...vfShots[i], subtitle: _seg.slice(0, 300) }
+                    _sum2 += String(vfShots[i]?.subtitle || '').length
+                  }
+                  vfSubLen = _sum2
+                  vfCover = vfScript2 ? vfSubLen / vfScript2.length : vfCover
+                  vfLog(uidVF2, `[字幕超写] AI 写了 ${_covB4}%（会超时+重复念）→ 已按文案重切 ${vfShots.length} 段 → 覆盖 ${Math.round(vfCover * 100)}%（预计 ${Math.round(vfSubLen / 4.5)} 秒）`)
+                } else if (vfCover > 1.15) {
+                  vfLog(uidVF2, `[字幕超写] 覆盖 ${Math.round(vfCover * 100)}%（>115%）：成片会比目标长一些、内容有重复，若不接受可回「重试」重排`)
+                }
                 // ★A8（2026-09-22）：原「[时长护栏] 分镜合计偏离目标 >25% 就缩放到目标秒数」**已删除**。
                 //   理由（也是原代码自己的注释）：素材成片的最终时长 = tts.py 逐镜配音真实时长之和
                 //   （tts.py 会 `s['dur'] = round(配音+0.35, 2)` 覆盖这里的 dur），
@@ -3491,7 +3525,10 @@ PUBLISH_DRAFT.delete(uidW)
                   for (const k of ['text', 'title', 'subtitle', 'type', 'items', 'value', 'label', 'suffix',
                     'left', 'right', 'leftDesc', 'rightDesc', 'cta']) {
                     const v = e?.[k]
-                    if (v === undefined || v === null || v === '') continue
+                    if (v === undefined || v === null) continue
+                    // ★VF_EDIT_P0_V1：文本类字段允许清空（清空大字 → 渲染侧用该镜字幕兜底）；
+                    //   结构性字段（卡型/数值/条目）不能清成空串
+                    if (v === '' && (k === 'type' || k === 'value' || k === 'items')) continue
                     s[k] = v
                   }
                   _applied.push(`第 ${i + 1} 镜：${before} → [${s.type || '?'}] 大字=${String(s.text || s.title || '') || '（无）'}`)

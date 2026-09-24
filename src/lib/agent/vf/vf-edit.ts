@@ -143,7 +143,10 @@ function applyEdits(work: string, edits: any[]): { applied: string[]; subtitleCh
       let changed = false
       for (const k of EDITABLE) {
         const v = (e as any)[k]
-        if (v === undefined || v === null || v === '') continue
+        if (v === undefined || v === null) continue
+        // ★VF_EDIT_P0_V1：文本类字段允许"清空"（清空大字后，渲染侧会用该镜字幕兜底）；
+        //   但结构性字段（卡型/数值/条目）不能清成空串，否则整卡没内容。
+        if (v === '' && (k === 'type' || k === 'value' || k === 'items')) continue
         if (k === 'subtitle' && String(v) !== String(s[k] ?? '')) subtitleChanged = true
         if (JSON.stringify(s[k]) !== JSON.stringify(v)) { (s as any)[k] = v; changed = true }
       }
