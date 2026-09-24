@@ -791,6 +791,75 @@ function VfAiOptsCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void
   )
 }
 
+/** ★VF_EDIT_V1（2026-09-24 用户定案「B：可编辑分镜清单」）
+ *  出片前把分镜清单做成【可逐镜编辑】：改「画面大字 / 字幕」，保存后发 `VF_EDIT:{edits:[…]}`。
+ *  · 这一步只改草稿清单，**不渲染、不扣钱**；改完再点「确认出片」按新版出片。
+ *  · 片已经出过的（不在出片前）用聊天说一句「第 3 镜大字改成 X」即可 —— 那条路会【只重渲染】
+ *    （复用已有配音，1~2 分钟、不扣点）。
+ */
+function VfShotEditList({ shots, onSend }: { shots: any[]; onSend: (msg: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<Record<number, { text?: string; subtitle?: string }>>({})
+  const oneEdit = (i: number) => {
+    const s = shots[i] || {}
+    const d = draft[i] || {}
+    const e: any = { index: i + 1 }
+    if (d.text !== undefined && d.text !== String(s.text || '')) e.text = d.text
+    if (d.subtitle !== undefined && d.subtitle !== String(s.subtitle || '')) e.subtitle = d.subtitle
+    return e
+  }
+  const changed = shots.map((_, i) => i).filter((i) => Object.keys(oneEdit(i)).length > 1)
+  const save = () => {
+    const edits = changed.map(oneEdit)
+    if (!edits.length) return
+    onSend('VF_EDIT:' + JSON.stringify({ edits }))
+    setDraft({})
+  }
+  const types = Array.from(new Set(shots.map((s: any) => String(s.type || '')))).join(' / ')
+  return (
+    <div className="mb-2">
+      <button type="button" onClick={() => setOpen(!open)} className="text-[10px] text-gray-400 hover:text-gray-200">
+        {open ? '▾' : '▸'} ✏️ 分镜清单（{shots.length} 镜 · {types}）—— 点开可逐镜改「大字 / 字幕」
+      </button>
+      {open && (
+        <div className="mt-1 rounded-lg border border-white/[0.08] bg-black/20 p-2 space-y-1 max-h-72 overflow-y-auto">
+          {shots.map((s: any, i: number) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <span className="w-4 text-[10px] text-gray-600 text-right">{i + 1}</span>
+              <span className="w-[54px] shrink-0 text-[10px] text-gray-500">{String(s.type || '')}</span>
+              <input
+                value={draft[i]?.text !== undefined ? String(draft[i].text) : String(s.text || '')}
+                onChange={(e) => setDraft({ ...draft, [i]: { ...(draft[i] || {}), text: e.target.value } })}
+                placeholder="画面大字"
+                className="w-[88px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-emerald-200 outline-none"
+              />
+              <input
+                value={draft[i]?.subtitle !== undefined ? String(draft[i].subtitle) : String(s.subtitle || '')}
+                onChange={(e) => setDraft({ ...draft, [i]: { ...(draft[i] || {}), subtitle: e.target.value } })}
+                placeholder="字幕 / 配音文案"
+                className="flex-1 min-w-0 px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-gray-300 outline-none"
+              />
+            </div>
+          ))}
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            <button
+              type="button"
+              onClick={save}
+              disabled={!changed.length}
+              className={`px-3 py-1 rounded-md text-[11px] ${changed.length ? 'bg-emerald-500/30 hover:bg-emerald-500/50 text-white' : 'bg-white/[0.04] text-gray-600'}`}
+            >
+              💾 保存修改{changed.length ? `（${changed.length} 镜）` : ''}
+            </button>
+            <span className="text-[10px] text-gray-500">
+              只改清单、还没渲染、不扣钱；保存后点「确认出片」即按新版出片
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AgentPageInner() {
   const { user, logout, loading: authLoading } = useAuth() || ({ user: undefined, logout: async () => {}, loading: true } as any)
   const router = useRouter()
@@ -2371,6 +2440,11 @@ function AgentPageInner() {
 
   const renderContent = (content: string) => {
     if (!content) return null
+    // ★VF_EDIT_V1（2026-09-24）：卡片提交的协议串别把原文（一大坨 JSON）显示在气泡里 ——
+    //   用户点「💾 保存修改」发的是 VF_EDIT:{edits:[…]}，这里给他看一句人话。
+    if (content.startsWith('VF_EDIT:')) {
+      return <span className="text-emerald-300/80">✏️ 已提交分镜修改（改的是出片前的清单，保存后点「确认出片」即按新版出片）</span>
+    }
     // 2026-09-09: AI 浏览器发布任务已建消息 → 卡片带「重发」按钮
     const buM = content.match(/已创建 AI 浏览器发布任务（#(\d+)）/); const buQ = content.includes('BROWSER_TASK_QUEUED') ? buM : null
     if (buQ) {
@@ -2525,25 +2599,11 @@ function AgentPageInner() {
                     : ((vj.shots || []).some((s: any) => s.type === 'bgimage') ? '（画面用你的素材）' : '')}
                 </div>
               ) : null}
-              {/* ★VF_SHOTLIST_V1（2026-09-20）：可展开的「分镜清单」——
-                  用户问过"只有这一种效果吗"，但卡片原来只显示"N 个镜头"，
-                  看不到【用了哪些卡型】【每镜讲什么】。现在展开就能看到。 */}
+              {/* ★VF_EDIT_V1（2026-09-24 用户定案 B）：清单从"只读"升级成【可逐镜编辑】——
+                  改的是【出片前的草稿清单】（不渲染、不扣钱），保存后点「确认出片」按新版出片。
+                  片已经出过的，用聊天说「第 N 镜大字改成 X」→ 那条路只重渲染（复用配音）。 */}
               {Array.isArray(vj.shots) && vj.shots.length > 0 && (
-                <details className="mb-2">
-                  <summary className="text-[10px] text-gray-500 cursor-pointer">
-                    分镜清单（{vj.shots.length} 镜 · {Array.from(new Set(vj.shots.map((s: any) => String(s.type || '')))).join(' / ')}）
-                  </summary>
-                  <div className="mt-1 space-y-0.5">
-                    {vj.shots.map((s: any, i: number) => (
-                      <div key={i} className="text-[10px] text-gray-400">
-                        <span className="text-gray-600">{i + 1}.</span>{' '}
-                        <span className="text-gray-500">{String(s.type || '')}</span>{' '}
-                        <span className="text-emerald-300/60">{s.dur ? s.dur + 's' : ''}</span>{' '}
-                        {String(s.text || '')}
-                      </div>
-                    ))}
-                  </div>
-                </details>
+                <VfShotEditList shots={vj.shots} onSend={sendMessage} />
               )}
               {vj.brief ? (
                 <details className="mb-2">

@@ -792,11 +792,22 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const vfTaskId = 'vf' + Date.now()
       const vfTaskFile = pathVF.join(outDir, vfTaskId + '.json')
       const vfStarted = new Date().toISOString()
+      // ★VF_EDIT_V1（2026-09-24）：改成【合并写】+ 记录 work / bgm / uid ——
+      //   原来每次覆盖写：后面那次（done/failed）会把 script/work 冲掉，
+      //   导致"出片后再想改某一镜"找不到工程目录 → 也就无法只重渲染（只能整条重做）。
       const writeVfTask = (o: Record<string, any>) => {
-        try { fsVF.writeFileSync(vfTaskFile, JSON.stringify(o, null, 2)) } catch (e) {}
+        try {
+          let prev: any = {}
+          try { prev = JSON.parse(fsVF.readFileSync(vfTaskFile, 'utf-8')) || {} } catch (e) { /* 首次写 */ }
+          fsVF.writeFileSync(vfTaskFile, JSON.stringify({ ...prev, ...o }, null, 2))
+        } catch (e) {}
       }
+      // BGM 也要记下来：重渲染（--render-only）得把同一首带上，否则"改个字就没配乐了"
+      const _bgmI = argsVF.indexOf('--bgm')
+      const vfBgm = _bgmI >= 0 ? String(argsVF[_bgmI + 1] || '') : ''
       writeVfTask({ id: vfTaskId, status: 'running', startedAt: vfStarted,
-                    out: vfOut, cost: vfCost, script: String(vfScript || '').slice(0, 200) })
+                    out: vfOut, cost: vfCost, script: String(vfScript || '').slice(0, 200),
+                    work: vfWorkDir, uid: String(uidVF), bgm: vfBgm })
       try {
         const ch = spawn(py, argsVF, { windowsHide: true })
         let so = ''
@@ -870,6 +881,56 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       } catch (e: any) {
         return 'MAKE_VIDEO_PROGRESS:查询失败 ' + String(e).slice(0, 120)
       }
+    }
+
+    // ── ★VF_EDIT_V1（2026-09-24 用户定案「A+B 都要」）：分镜画面文字可编辑 + 只重渲染 ──
+    //   用户说「看一下分镜」「第 3 镜大字改成 XXX」时走这里。
+    //   关键：改【画面大字/卡型】不需要重配音（配音念的是 subtitle）→ 复用 work 目录里已有的
+    //   分镜+配音，只重跑 render.py，1~2 分钟出片且不扣点（不用整条重做）。
+    case 'edit_video_shot': {
+      const uidE = auth?.userId
+      if (!uidE) return 'TOOL_REJECT:未登录'
+      const { listVfShots, editVfShots } = await import('@/lib/agent/vf/vf-edit')
+      const tid = String(args.taskId || '')
+      const idx = parseInt(args.index) || 0
+      const edits = Array.isArray(args.edits) ? args.edits : []
+      if (!idx && !edits.length) {
+        return listVfShots(String(uidE), tid).msg            // 只列清单
+      }
+      const one = edits.length ? edits : [{ index: idx, text: args.text, subtitle: args.subtitle, type: args.type }]
+      // ★VF_EDIT_V1：**还没出片**（草稿停在 step='script'）→ 直接改草稿清单（不渲染、不扣钱），
+      //   改完让用户点「确认出片」按新版出片；只有"片已经出过"的情况才走下面的只重渲染。
+      const _uidD = (auth?.userId || 0) as any
+      const _dft: any = VIDEO_DRAFT.get(_uidD)
+      const _dShots: any[] = Array.isArray(_dft?.shots) ? _dft.shots : []
+      if (_dShots.length && !idx && !edits.length) {
+        return `分镜清单（草稿 · 还没出片，共 ${_dShots.length} 镜）：\n` +
+          _dShots.map((s: any, i: number) =>
+            ` ${String(i + 1).padStart(2)}. [${s.type || '?'}] 大字=${String(s.text || s.title || '') || '（无）'}` +
+            `${s.dur ? ' ' + Number(s.dur).toFixed(1) + 's' : ''} 字幕=${String(s.subtitle || '').replace(/\s+/g, ' ').slice(0, 34)}`
+          ).join('\n') +
+          '\n—— 要改就说「第 N 镜大字改成 X/字幕改成 Y」；也可以点卡片上的「✏️ 分镜清单」逐行改。'
+      }
+      if (_dShots.length && idx) {
+        const _i = idx - 1
+        if (!(_i >= 0 && _i < _dShots.length)) return `镜号超出范围（这条片共 ${_dShots.length} 镜）。`
+        const _s = _dShots[_i]
+        const _before = `[${_s.type || '?'}] 大字=${String(_s.text || _s.title || '') || '（无）'}`
+        for (const k of ['text', 'title', 'subtitle', 'type', 'items', 'value', 'label', 'suffix',
+          'left', 'right', 'leftDesc', 'rightDesc', 'cta']) {
+          const v = (args as any)[k]
+          if (v === undefined || v === null || v === '') continue
+          _s[k] = v
+        }
+        _dft.shots = _dShots
+        VIDEO_DRAFT.set(_uidD, _dft)
+        await saveVfDraft(_uidD, _dft)
+        vfLog(String(uidE), `[分镜编辑] 出片前改第 ${idx} 镜：${_before} → [${_s.type || '?'}] 大字=${String(_s.text || _s.title || '') || '（无）'}`)
+        return `分镜已更新（还没出片，不扣钱）：第 ${idx} 镜 ${_before} → [${_s.type || '?'}] ` +
+          `大字=${String(_s.text || _s.title || '') || '（无）'}\n点「确认出片」就按这个版本出片。`
+      }
+      const r = await editVfShots(String(uidE), one, tid)
+      return r.msg
     }
 
     // ── 分镜协议（A3）──
@@ -2291,7 +2352,9 @@ export async function POST(request: NextRequest) {
     //     所以表现为"时好时坏"：卡1 侥幸进了、卡2 没进）。
     //   → 把【协议串本身】也算"状态机入口信号"：**卡片提交一定由状态机接管**，不再看模型脸色。
     //   （这些前缀只有卡片/工具会产生，用户不会手打；若三条线都不认领，行为退回现状，不会更坏。）
-    const vfProtoWord = /^(VF_FORM|VF_JSON|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT)\s*[:{]/.test(userMessage.trim())
+    //   ★VF_EDIT_V1（2026-09-24）：把 `VF_EDIT` 也加进来 —— 客户端"分镜清单改完点重出片/保存"
+    //   发的是协议串，若不算状态机入口信号就会掉进 AI 自由发挥（与 VF_FORM 那次同一类事故）。
+    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_JSON|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT)\s*[:{]/.test(userMessage.trim())
     // ★STD_MODE_V1：命中 machine 命令（发布 / 三条成片线）→ 强制进状态机（跳过 AI 那一步）
     const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0) || vfEntryWord || stWordInput || vfLineWord || vfProtoWord || stdEnterMachine) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
     // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
@@ -3402,6 +3465,54 @@ PUBLISH_DRAFT.delete(uidW)
                 vfLog(uidVF2, `[起草] 图${vfImgs.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
                 vfLog(uidVF2, `[分镜构成] ${vfShots.map((x: any) => x.type).join(',')}`)
               }
+            } else if (vd.step === 'script' && /^VF_EDIT:/.test(String(userMessage).trim())) {
+              // ═══ ★VF_EDIT_V1（2026-09-24 用户定案 B：出片前逐行改分镜清单）═══
+              //   客户端把分镜清单做成可编辑，改完发 `VF_EDIT:{edits:[{index,text?,subtitle?,type?}]}`。
+              //   · 出片前（草稿 step='script'）→ **直接改草稿里的 shots**：不用重渲染、不扣钱，
+              //     改完用户点「确认出片」就按新版出片。
+              //   · 草稿没了（片已经出过）→ 回落到"只重渲染"（复用已有配音，见 lib/agent/vf/vf-edit.ts）。
+              let _edits: any[] = []
+              let _tidE = ''
+              try {
+                const mm = String(userMessage).trim().match(/^VF_EDIT:(\{[\s\S]*\})/)
+                const jj: any = mm ? JSON.parse(mm[1]) : {}
+                _edits = Array.isArray(jj?.edits) ? jj.edits : (Array.isArray(jj) ? jj : [])
+                _tidE = String(jj?.taskId || '')
+              } catch (e) { _edits = [] }
+              const _shotsD: any[] = Array.isArray(vd.shots) ? vd.shots : []
+              if (_shotsD.length && _edits.length) {
+                const _applied: string[] = []
+                for (const e of _edits) {
+                  const i = parseInt(e?.index) - 1
+                  if (!(i >= 0 && i < _shotsD.length)) continue
+                  const s = _shotsD[i]
+                  const before = `[${s.type || '?'}] 大字=${String(s.text || s.title || '') || '（无）'}`
+                  // 白名单字段（绝不动 dur/voice —— 镜长与配音时长是对齐的）
+                  for (const k of ['text', 'title', 'subtitle', 'type', 'items', 'value', 'label', 'suffix',
+                    'left', 'right', 'leftDesc', 'rightDesc', 'cta']) {
+                    const v = e?.[k]
+                    if (v === undefined || v === null || v === '') continue
+                    s[k] = v
+                  }
+                  _applied.push(`第 ${i + 1} 镜：${before} → [${s.type || '?'}] 大字=${String(s.text || s.title || '') || '（无）'}`)
+                }
+                if (_applied.length) {
+                  vd.shots = _shotsD
+                  VIDEO_DRAFT.set(uidVF2, vd)
+                  await saveVfDraft(uidVF2, vd)
+                  vfLog(uidVF2, `[分镜编辑] 出片前改 ${_applied.length} 处：${_applied.join(' | ')}`)
+                  wfEarlyReply = `分镜已更新（${_applied.length} 处）：\n· ${_applied.join('\n· ')}\n` +
+                    `点「确认出片」就按这个版本出片（只是改了清单，还没渲染、不额外扣钱）。`
+                } else {
+                  wfEarlyReply = '这次没有实际改动（镜号要写对、内容要和原来不一样）。'
+                }
+              } else {
+                // 草稿里没有分镜（这条片已经出过了）→ 走"只重渲染"
+                const { editVfShots } = await import('@/lib/agent/vf/vf-edit')
+                const r = await editVfShots(String(uidVF2), _edits, _tidE)
+                wfEarlyReply = r.msg
+              }
+              finalResult = wfEarlyReply
             } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$|先出字幕版|强制出片/i.test(userMessage.trim())) {
               const vfForce = /先出字幕版|强制出片|就这样出/.test(userMessage)
               // ★VF_GATE_V1（2026-09-20，用户实测：0 镜也放行 → 成片没有素材画面）：

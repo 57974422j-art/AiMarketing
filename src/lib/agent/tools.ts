@@ -98,6 +98,23 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    // ★VF_EDIT_V1（2026-09-24 用户定案「分镜/画面文字可编辑」）：
+    //   出片后再改一个画面大字，不必整条重做（重写文案+重新配音要 3~4 分钟且再花钱）——
+    //   改画面文字不影响配音（配音念的是 subtitle），所以能复用已有配音【只重渲染】。
+    name: 'edit_video_shot',
+    description: '查看/修改【已生成成片】的分镜画面文字（不需要重做整条视频）。用户说"看一下分镜/分镜清单""第 3 镜大字改成 XXX""这镜字幕改成…"时调用本工具。不传 index = 列出该片的分镜清单（每镜卡型/画面大字/字幕/时长）；传 index（1-based）+ text/subtitle/type = 改这一镜并**只重渲染**（复用已有配音，约 1~2 分钟，不扣点）。注意：改 subtitle 只改字幕文字，**配音不会重录**；若要连配音一起变，得让用户同意重跑整条成片。禁止用 make_ai_video 重做整片来达到"改一个字"的目的。',
+    parameters: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: '可选：成片任务ID（如 vf1790227637003）；不传=最近一条' },
+        index: { type: 'number', description: '要改的镜号（1-based，从 1 开始）；不传=只列清单不改动' },
+        text: { type: 'string', description: '这一镜的【画面大字】（title/bgimage/end 卡用），一般 2~10 字' },
+        subtitle: { type: 'string', description: '这一镜的字幕文案（⚠️ 只改字幕文字，配音不会重录）' },
+        type: { type: 'string', description: '这一镜的卡型：title / list / number / compare / chart / bgimage / end' },
+      }, required: [],
+    },
+  },
+  {
     name: 'create_storyboard_task',
     description: '创建分镜成片任务（后台逐镜生成，可查进度）。在 generate_storyboard 出分镜且用户确认费用后调用。返回任务ID。**前缀区分：用户消息以"打开/去/进入"开头是跳转页面（open_page），不是生成——禁止调用本工具。**',
     parameters: {

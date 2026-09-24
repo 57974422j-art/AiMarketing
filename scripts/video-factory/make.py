@@ -367,13 +367,47 @@ def main():
     # ★VF_MIXLINE_V1（2026-09-21）：「素材 + AI 创作」——只对指定镜号（1-based，逗号分隔）调 AI，
     #   其余镜沿用素材/原卡型。留空 = 全部镜（即「AI 制片」）。**这是【边界铁律】允许的"通过参数影响脚本"**。
     ap.add_argument('--mix', default='', help='★混合：只对这些镜号用 AI（1-based，如 1,5,9）。留空=全部镜')
+    # ★VF_EDIT_V1（2026-09-24 用户定案「分镜/大字要可编辑」）：
+    #   只重渲染 —— 跳过 TTS，直接用 workdir 里已有的 storyboard.voiced.json + voice.m4a。
+    #   改一个画面大字没必要重新配音（配音要 2~4 分钟且花 TTS 钱）→ 这条路径只花渲染时间。
+    ap.add_argument('--render-only', action='store_true',
+                    help='★只重渲染：复用 workdir 里已有的分镜+配音，不重新 TTS（改大字/卡型后用）')
     a = ap.parse_args()
 
-    if not a.script and not a.storyboard and not a.plan:
+    if not a.script and not a.storyboard and not a.plan and not a.render_only:
         print('需要 --script / --storyboard / --plan 之一'); sys.exit(2)
 
     wd = a.workdir or os.path.join(os.path.dirname(os.path.abspath(a.out)), 'vf-work')
     os.makedirs(wd, exist_ok=True)
+
+    # ★VF_EDIT_V1：只重渲染分支 —— 在【分镜构建/配音/AI 片段】之前就返回
+    if a.render_only:
+        _voiced = os.path.join(wd, 'storyboard.voiced.json')
+        _ai = os.path.join(wd, 'storyboard.ai.json')
+        _plain = os.path.join(wd, 'storyboard.json')
+        # 优先 ai（AI 线/混合线出片时用的就是它），再 voiced（素材线，含每镜真实配音时长），再 plain
+        _use = _ai if os.path.exists(_ai) else (_voiced if os.path.exists(_voiced) else _plain)
+        if not os.path.exists(_use):
+            print('[MAKE] ❌ --render-only 但 work 目录里找不到分镜文件: %s' % wd); sys.exit(2)
+        _vpath = os.path.join(wd, 'voice.m4a')
+        _use_v = _vpath if os.path.exists(_vpath) else ''
+        try:
+            _sbj = json.load(open(_use, encoding='utf-8'))
+            _n = len(_sbj.get('shots', []) or [])
+        except Exception as e:
+            print('[MAKE] ❌ --render-only 读分镜失败: %s' % str(e)[:160]); sys.exit(2)
+        print('[MAKE] ★只重渲染（复用已有分镜与配音，不重新 TTS）：%s / %d 镜 / 音频 %s'
+              % (os.path.basename(_use), _n, 'voice.m4a' if _use_v else '（无）'))
+        ok2 = run('"%s" "%s" --storyboard "%s" --workdir "%s" --audio "%s" --bgm "%s" --out "%s"'
+                  % (sys.executable, os.path.join(HERE, 'render.py'), _use,
+                     os.path.join(wd, 'render'), _use_v, a.bgm, a.out), '渲染成片')
+        if ok2 and os.path.exists(a.out):
+            print('[MAKE] ✅ 成片（重渲染）: %s  (%.1f MB)'
+                  % (a.out, os.path.getsize(a.out) / 1048576.0))
+        else:
+            print('[MAKE] ❌ 渲染失败')
+            sys.exit(1)
+        return
 
     # ① 分镜（优先级：--plan > --storyboard > --script 自动切句）
     if a.plan:
