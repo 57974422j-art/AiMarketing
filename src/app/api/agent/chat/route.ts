@@ -92,6 +92,10 @@ async function genVideoShots(o: {
   // ★VF_NOCLONE_V1（2026-09-20 用户实测“画面大字一直没变过”）：
   //   AI 会**照抄 prompt 示例里的文字**（示例：效率翻10倍/AI营销系统/三大能力/评论区见…）
   //   → 命中示例词的一律清掉：宁可这一镜没有大字，也不要每条成片都一样。
+  // ★VF_EMPTYITEMS_V1：把 aiOnly 先取出来单独存一份 ——
+  //   下面 KNOWN_TYPES 分支里有一个同名的 `const o`（镜头对象）会【遮蔽】函数参数 o，
+  //   在那种作用域里写 `o.aiOnly` 会永远读到 undefined（会把 AI 制片线错误地配上素材图）。
+  const aiOnlyShot = !!o.aiOnly
   const usedCnt = new Array(Math.max(1, imgs.length)).fill(0)
   let lastIdx = -1
   // ★VF_NOCLONE_V1：示例词黑名单（照抄的"特征词"；太通用的（如 AI / 人工）故意不收，避免误伤）
@@ -148,6 +152,22 @@ async function genVideoShots(o: {
         o.items = o.items
           .map((x: any) => (x && typeof x === 'object' ? { ...x, label: notDemo(x.label) } : notDemo(x)))
           .filter((x: any) => (x && typeof x === 'object' ? true : !!x))
+      }
+      // ★VF_EMPTYITEMS_V1（2026-09-24 服务端实测事故「第 7 镜 list 渲染失败」）：
+      //   上面 VF_NOCLONE_V1 会把"照抄提示词示例"的条目清掉，而示例里的 list 条目
+      //   （写文案/做视频/自动发布）**正好都在黑名单里** → AI 一照抄，items 全被清空 →
+      //   渲染侧拿到空条目 → 产出空滤镜串 → ffmpeg 报 `No such filter: ''` →
+      //   整镜失败、整片出不来。这与 9/20 的 `timeline`/`image` 是同一类问题（放行了渲染侧处理不了的卡）。
+      //   治本：清空后没有条目的 list/chart【降级成 bgimage/title】（配图 + 字幕），不再交给渲染。
+      if ((ty === 'list' || ty === 'chart') && (!Array.isArray(o.items) || o.items.length === 0)) {
+        const sub3 = String(s.subtitle || s.text || '').trim().slice(0, 200)
+        const idx3 = nextIdx(-1)
+        const lp3 = idx3 >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, idx3))] : ''
+        const head3 = notDemo(s.text) || notDemo(s.title) || sub3.slice(0, 8)
+        const dur3 = Math.min(8, Math.max(2, parseInt(s.dur) || 5))
+        // ★注意：这里必须用 aiOnlyShot（上面单独存的），不能用 o.aiOnly（此处 o 已被遮蔽）
+        if (!lp3 || aiOnlyShot) return { type: 'title', text: String(head3).slice(0, 14), subtitle: sub3, dur: dur3 }
+        return { type: 'bgimage', src: lp3, text: String(head3).slice(0, 14), subtitle: sub3, dur: dur3 }
       }
       return o
     }

@@ -251,10 +251,56 @@ def card_title(shot, th, W, H, fps):
             vf, dur)
 
 
+def _norm_items(shot):
+    """取出"列表类"卡的条目，并做健壮化（★VF_EMPTYITEMS_V1，2026-09-24 服务端实测事故）。
+
+    事故：AI 排出的 list 卡，条目全是照抄提示词示例的词（写文案/做视频/自动发布…）→
+    服务端"示例词黑名单"(VF_NOCLONE_V1) 把它们全清掉 → `items` 变成**空数组** →
+    card_list 返回**空滤镜串** → ffmpeg 报 `No such filter: ''` → 整镜失败 → 整片出不来。
+
+    这里只做"把条目读出来并洗干净"，不含任何内容过滤（那是服务端的事）：
+      ① 兼容 dict 条目（取 text/label/title/value）
+      ② 兼容别名（points / lines / bullets / list / steps）
+      ③ 空条目、空白条目直接丢掉
+    """
+    for k in ('items', 'points', 'lines', 'bullets', 'list', 'steps'):
+        v = shot.get(k)
+        if not isinstance(v, list) or not v:
+            continue
+        out = []
+        for it in v:
+            if isinstance(it, dict):
+                t = it.get('text') or it.get('label') or it.get('title') or it.get('value')
+            else:
+                t = it
+            t = str(t or '').strip()
+            if t:
+                out.append(t)
+        if out:
+            return out
+    return []
+
+
+def _fallback_big_text(shot, th, W, H, fs):
+    """列表/图表卡【没有可用条目】时的兜底滤镜：把该镜的 text/title/subtitle 画成居中大字。
+
+    ★VF_EMPTYITEMS_V1：宁可这一镜样式朴素，也绝不能让滤镜串为空导致【整镜失败、整片不出片】。
+    """
+    txt = str(shot.get('text') or shot.get('title') or shot.get('subtitle') or '').strip()
+    if not txt:
+        return []
+    font = esc_path(find_font(th.get('font', 'msyh')))
+    acc = th.get('accent', '0xff6b35')
+    return [
+        f"drawtext=fontfile='{font}':text='{esc_text(txt[:20])}':fontsize={int(fs * 1.2)}:"
+        f"fontcolor={acc}:x=(w-text_w)/2:y=(h-text_h)/2:alpha='min(t/0.5,1)'"
+    ]
+
+
 def card_list(shot, th, W, H, fps):
     """列表逐项揭示：一项 = 一步（严禁一次全上）"""
     font = esc_path(find_font(th.get('font', 'msyh')))
-    items = shot.get('items', [])
+    items = _norm_items(shot)      # ★VF_EMPTYITEMS_V1：兼容 dict/别名/空，绝不再让 items 为空数组坑到滤镜
     dur = float(shot.get('dur', max(2.5, 1.4 * len(items) + 1)))
     fs = int(shot.get('fontsize', max(40, int(H * 0.075))))
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
@@ -274,6 +320,11 @@ def card_list(shot, th, W, H, fps):
             f"drawtext=fontfile='{font}':text='{esc_text(it)}':fontsize={fs}:"
             f"fontcolor={txc}:x={int(W * 0.12)}:y={y0 + i * int(fs * 1.7)}:alpha='{alpha}'")
     vf = ','.join(parts)
+    if not vf:
+        # ★VF_EMPTYITEMS_V1：没有标题也没有条目 → 绝不许返回空串（那会让整镜 ffmpeg 报
+        #   `No such filter: ''` → 整片不出）。降级成"把该镜文案画成大标题"。
+        print('[VF] ⚠️ list 卡没有可用条目 → 降级为居中大字（%s）' % str(shot.get('subtitle') or shot.get('text') or '')[:24])
+        vf = ','.join(_fallback_big_text(shot, th, W, H, fs))
     return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
             vf, dur)
 
@@ -438,6 +489,12 @@ def card_chart(shot, th, W, H, fps):
     """横条生长：每项一条，长度按 value 比例增长（适合"数据/排名"）"""
     font = esc_path(find_font(th.get('font', 'msyh')))
     items = shot.get('items', [])          # [{label, value}]
+    # ★VF_EMPTYITEMS_V1：健壮化 —— 非 list（AI 偶尔给对象/字符串）、或条目不是 dict 的情况都兜住，
+    #   空条目会让 parts 为空 → 滤镜串为空 → ffmpeg 报 `No such filter: ''` → 整片出不来。
+    if not isinstance(items, list):
+        items = []
+    items = [it if isinstance(it, dict) else {'label': str(it or ''), 'value': 0}
+             for it in items if str(it or '').strip() or isinstance(it, dict)]
     dur = float(shot.get('dur', max(3.0, 1.5 * len(items))))
     fs = int(shot.get('fontsize', max(32, int(H * 0.055))))
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
@@ -460,8 +517,14 @@ def card_chart(shot, th, W, H, fps):
         parts.append(f"drawtext=fontfile='{font}':text='{esc_text(str(it.get('value', '')))}':fontsize={int(fs * 0.9)}:"
                      f"fontcolor={txc}:x={int(W * 0.96)}:y={yb - int(fs * 0.1)}:alpha='min(max(t-%.2f,0)/0.5,1)'"
                      % (t_on + 0.3))
+    vf = ','.join(parts)
+    if not vf:
+        # ★VF_EMPTYITEMS_V1：chart 卡同样兜底（空条目 → 降级成居中大字，绝不返回空串）
+        print('[VF] ⚠️ chart 卡没有可用条目 → 降级为居中大字（%s）'
+              % str(shot.get('subtitle') or shot.get('text') or '')[:24])
+        vf = ','.join(_fallback_big_text(shot, th, W, H, fs))
     return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
-            ','.join(parts), dur)
+            vf, dur)
 
 
 def _avg_rgb(path, ffmpeg):
@@ -622,7 +685,19 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
     # ★VF_TRANS_V1（2026-09-20）：每镜首尾轻微淡入淡出（≤0.2s）——比硬切自然；
     #   不改时长（不碰音频时间轴），拼接后就是“柔和的镜间过渡”
     _fd = min(0.2, max(0.05, dur / 10.0))
-    vf2 = f"{vf},fade=t=in:st=0:d={_fd:.2f},fade=t=out:st={max(0.0, dur - _fd):.2f}:d={_fd:.2f}"
+    # ★VF_EMPTYVF_V1（2026-09-24 服务端实测「第 7 镜 list 渲染失败」）：
+    #   卡型返回空滤镜串时，旧代码直接 f"{vf},fade=..." 拼 → 链子变成【以逗号开头】→
+    #   ffmpeg 报 `No such filter: ''` → 整镜失败 → 重试 2 次仍失败 → 抛错 → 整片出不来。
+    #   实测触发链：list 卡的 items 被服务端"示例词黑名单"清空 → card_list 返回空串。
+    #   这里做【全卡型通用兜底】：只拼非空段；万一全空就用 null（无操作滤镜）保证链子合法。
+    vf2 = ','.join([str(p) for p in (
+        vf,
+        f"fade=t=in:st=0:d={_fd:.2f}",
+        f"fade=t=out:st={max(0.0, dur - _fd):.2f}:d={_fd:.2f}",
+    ) if p]) or 'null'
+    if not str(vf or '').strip():
+        print('[VF] ⚠️ 第 %d 镜(%s) 的配方没有产出任何滤镜 → 用 null 兜底（避免 No such filter: \'\'）'
+              % (idx + 1, typ))
     # ★VF_AIVIDEO_V1（2026-09-20）：video / aivideo 的输入**自带音轨**（AI 片段可能有环境音/人声）——
     #   单镜统一 `-an` 静音，音频由最后的 mux_audio 阶段铺【配音 + BGM】，
     #   否则 concat 时各镜音轨错乱。
