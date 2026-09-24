@@ -499,13 +499,20 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   const [uploaded, setUploaded] = useState<string[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // ★VF_VIDHINT_V1（2026-09-24 用户实测）：上传框的 accept 里带着 `video/*`（视频**能传**），
+  //   但成片画面只从【图片】里取（分镜的 pick 只索引图片），视频只会出现在"素材识别结果"里。
+  //   而传完却提示"本次成片的画面只从这批里取" → 用户以为视频会被用上 = **误导**。
+  //   现在把"这批里有几个视频"记下来，上传结果里**如实说清**（视频正式支持另开一条线）。
+  const [vidN, setVidN] = useState(0)
   const doUpload = async (files: FileList | null) => {
     if (!files || !files.length) return
     setSource('upload')
     setUploading(true)
     const okNames: string[] = []
+    let _vid = 0
     try {
       for (const f of Array.from(files).slice(0, 30)) {
+        if (/\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(f.name) || String(f.type || '').startsWith('video/')) _vid++
         try {
           const fd = new FormData()
           fd.append('file', f)
@@ -525,6 +532,7 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
     } finally {
       setUploading(false)
       setUploaded(okNames)
+      setVidN(_vid)
     }
   }
 
@@ -561,8 +569,19 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         <input ref={fileRef} type="file" accept="image/*,video/*" multiple className="hidden"
           onChange={(e: any) => { doUpload(e.target.files); e.target.value = '' }} />
         {uploaded.length > 0 && (
-          <div className="text-[10px] text-emerald-300/80 mt-1">
-            ✅ 已上传 {uploaded.length} 个到个人仓库 —— 本次成片的画面只从这批里取
+          <div className="text-[10px] mt-1">
+            <span className="text-emerald-300/80">✅ 已上传 {uploaded.length} 个到个人仓库</span>
+            {vidN > 0 ? (
+              <div className="text-amber-300/90 mt-0.5">
+                ⚠️ 其中 <b>{vidN} 个是视频</b>：成片画面**目前只用图片**，视频暂时不会被画出来（只会出现在"素材识别结果"里）。
+                {uploaded.length === vidN
+                  ? '你这次只传了视频 → 成片会是【纯文字卡】版（没有素材画面），建议再传几张图片。'
+                  : '建议主要用图片，或把视频里的关键画面截图一并上传。'}
+                <div className="text-gray-500 mt-0.5">（视频的正式支持在计划里：先做"用视频首帧当画面"，再支持整段插入。）</div>
+              </div>
+            ) : (
+              <span className="text-emerald-300/80"> —— 本次成片的画面只从这批里取</span>
+            )}
           </div>
         )}
         {source === 'upload' && !uploaded.length && !uploading && (

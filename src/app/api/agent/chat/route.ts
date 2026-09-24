@@ -3468,6 +3468,50 @@ PUBLISH_DRAFT.delete(uidW)
                 } else if (vfCover > 1.15) {
                   vfLog(uidVF2, `[字幕超写] 覆盖 ${Math.round(vfCover * 100)}%（>115%）：成片会比目标长一些、内容有重复，若不接受可回「重试」重排`)
                 }
+                // ═══ ★VF_SUBCHECK_V1（2026-09-24 用户实测：字幕顺序乱 + 编造 + 漏句）═══
+                //   实测案例（用户原文案 7 句）：AI 排成 1 → 4 → 2 → 3 → 【自己编的一句】→ 7+5，
+                //   还漏掉第 6 句；但**总字数≈原文案** → 覆盖率显示 ~100% 照样放行。
+                //   ⇒ 只校验字数是**不够**的：字数对 ≠ 念得对。
+                //   这里的"字幕体检"三条全过才放行：
+                //     ① 每镜必须是原文案里的片段（不许自己编）② 位置必须递增（顺序不能乱）
+                //     ③ 合起来覆盖全文 ≥90%（一句不漏）
+                //   任一不满足 → **按原文案顺序切段逐镜重填**（确定性校正，可接受"画面与句子没那么贴"，
+                //   但保证念的就是这份文案、顺序对、不漏句），并打印日志说明校正原因。
+                if (vfShots.length >= 2 && String(vfScript2 || '').length > 20) {
+                  const _normT = (s: any) => String(s == null ? '' : s)
+                    .replace(/[\s，。？！、；：""''（）()【】\[\]…—\-·,.?!;:"']/g, '')
+                  const _scr = _normT(vfScript2)
+                  let _pos = -1
+                  let _okOrder = true
+                  let _okVerbatim = true
+                  let _covered = 0
+                  for (const sh of vfShots) {
+                    const _sub = _normT(sh?.subtitle)
+                    if (!_sub) continue
+                    const _at = _scr.indexOf(_sub, _pos + 1)
+                    if (_at < 0) {
+                      const _any = _scr.indexOf(_sub)
+                      if (_any < 0) _okVerbatim = false      // 原文案里根本没有 → AI 编的
+                      else _okOrder = false                  // 有这句，但位置在上一镜之前 → 顺序乱
+                      continue
+                    }
+                    _covered += _sub.length
+                    _pos = _at + _sub.length - 1
+                  }
+                  const _covN = _scr.length ? _covered / _scr.length : 0
+                  if (!_okOrder || !_okVerbatim || _covN < 0.9) {
+                    const _segs3 = vfSplitScript(vfScript2, vfShots.length)
+                    for (let i = 0; i < vfShots.length; i++) {
+                      const _sg = String(_segs3[i] || '').trim()
+                      if (_sg) vfShots[i] = { ...vfShots[i], subtitle: _sg.slice(0, 300) }
+                    }
+                    vfSubLen = vfShots.reduce((a: number, s: any) => a + String(s?.subtitle || '').length, 0)
+                    vfCover = vfScript2 ? vfSubLen / vfScript2.length : vfCover
+                    vfLog(uidVF2, `[字幕体检] ❌ 未通过（顺序${_okOrder ? 'OK' : '乱了'} / 逐字${_okVerbatim ? 'OK' : '有编造'} / 覆盖 ${Math.round(_covN * 100)}%）→ 已按【原文案顺序】重切 ${vfShots.length} 段，保证不漏句、不跑题`)
+                  } else {
+                    vfLog(uidVF2, `[字幕体检] ✅ 通过（顺序 OK / 全部来自文案 / 覆盖 ${Math.round(_covN * 100)}%）`)
+                  }
+                }
                 // ★A8（2026-09-22）：原「[时长护栏] 分镜合计偏离目标 >25% 就缩放到目标秒数」**已删除**。
                 //   理由（也是原代码自己的注释）：素材成片的最终时长 = tts.py 逐镜配音真实时长之和
                 //   （tts.py 会 `s['dur'] = round(配音+0.35, 2)` 覆盖这里的 dur），
