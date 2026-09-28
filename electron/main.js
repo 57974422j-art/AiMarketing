@@ -878,13 +878,19 @@ function cleanupProfileResidue() {
 //        只有 9222（CDP）可用。所以检测/采集前先试着从 9222 导一份 cookie 给脚本用。
 //   成功 → 写 data\bu_cookies_cdp.json（脚本优先读）；失败/没开 → 什么都不做（脚本走原路）。
 async function dumpCookiesViaCDP(reason) {
+  // ★CDP_EXPORT_LOG_V1（2026-09-28 用户实测「抖音登录了，界面一直显示未登录」）：
+  //   原来失败是【静默 return false】—— 日志里从来没有 [cdp] 行，谁也不知道导出有没有成功，
+  //   于是"登记浏览器开着 → 读不到库 → 吃旧缓存 → 显示未登录"这个坑一直藏着。
+  //   现在每条失败路径都写日志（含具体原因），下次看 data\bu_debug.log 一眼定位。
+  const fail = (why) => { try { buLog('[cdp] 导出失败（' + (reason || '') + '）: ' + why) } catch (e) {} ; return false }
   try {
     const r = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(2500) })
-    if (!r.ok) return false
+    if (!r.ok) return fail('9222 应答 HTTP ' + r.status)
     const v = await r.json()
     const wsUrl = v && v.webSocketDebuggerUrl
-    if (!wsUrl) return false
+    if (!wsUrl) return fail('9222 没给 webSocketDebuggerUrl')
     const WS = require('ws')
+    let wsErr = ''
     const cookies = await new Promise((resolve) => {
       let done = false
       const fin = (x) => { if (!done) { done = true; resolve(x) } }
@@ -902,10 +908,10 @@ async function dumpCookiesViaCDP(reason) {
             }
           } catch (e) {}
         })
-        ws.on('error', () => { clearTimeout(t); fin(null) })
-      } catch (e) { fin(null) }
+        ws.on('error', (e) => { wsErr = String((e && e.message) || e); clearTimeout(t); fin(null) })
+      } catch (e) { wsErr = String((e && e.message) || e); fin(null) }
     })
-    if (!cookies || !cookies.length) return false
+    if (!cookies || !cookies.length) return fail('CDP 没拿到 cookie' + (wsErr ? '（WS: ' + wsErr + '）' : '（超时或返回空）'))
     // 转成脚本要的字段（host_key / name / value / expires_utc）
     const norm = cookies.map((k) => ({
       host_key: String(k.domain || ''),
@@ -916,10 +922,10 @@ async function dumpCookiesViaCDP(reason) {
     }))
     // ★LOGIN_UNIFY_V1：导出的 cookie 放进【本账号目录】（原来放共用层 → 多账号互相覆盖）
     const file = profileCdpPath()
-    try { fs.writeFileSync(file, JSON.stringify({ at: Date.now(), reason: reason || '', cookies: norm })) } catch (e) { return false }
+    try { fs.writeFileSync(file, JSON.stringify({ at: Date.now(), reason: reason || '', cookies: norm })) } catch (e) { return fail('写 ' + file + ' 失败: ' + ((e && e.message) || e)) }
     buLog('[cdp] 已通过 9222 导出 ' + norm.length + ' 条 cookie（' + (reason || '') + '）')
     return true
-  } catch (e) { return false }
+  } catch (e) { return fail(String((e && e.message) || e)) }
 }
 
 // ═══ ★SELFCHECK_PROGRESS_FIX_V1：自检进度事件的统一发送口 ═══
@@ -1943,20 +1949,33 @@ ipcMain.handle('storage:mirror', async (_event, url) => {
   // 2026-09-03: 本地仓库镜像（单向 OSS→本地）——上传/生成成功后下载素材到本地仓库
   try {
     if (!url || typeof url !== 'string') return { success: false, error: '无 URL' }
-    const u = new URL(url)
-    const name = u.searchParams.get('name') || decodeURIComponent(u.pathname.split('/').pop() || '')
+    // ★LOCAL_BACKUP_FIX_V1（2026-09-28 用户实测「点了一键下载，提示下载成功，去 storage 目录什么都没有」）：
+    //   前端传进来的是【相对路径】（/api/storage/file?userId=..&name=..&persist=1），
+    //   而这里原来直接 new URL(url) → 抛 "Invalid URL" → 被 catch 吞掉 → 返回 success:false，
+    //   前端又没看返回值（见 storage/page.tsx 的 backupAll）→ 照样提示"已发起备份 N/N" → 实际一个字节都没落盘。
+    //   修：相对路径一律按服务器地址补全（SERVER_URL，默认 ai-niuma.cc，与 main.js 顶部一致）。
+    const serverUrl = process.env.SERVER_URL || 'https://ai-niuma.cc'
+    let fullUrl = url
+    if (!/^https?:\/\//i.test(url)) {
+      try { fullUrl = new URL(url, serverUrl).href } catch (e) { return { success: false, error: 'URL 解析失败: ' + url } }
+    }
+    const u = new URL(fullUrl)
+    // 只取文件名（防 ../ 穿越）；查询串里的 name 优先（/api/storage/file?name=xxx.mp4）
+    const rawName = u.searchParams.get('name') || decodeURIComponent(u.pathname.split('/').pop() || '')
+    const name = path.basename(String(rawName))
     if (!name) return { success: false, error: '无文件名' }
     const dest = path.join(getLocalStorageDir(), name)   // ISO_GETTER_FIX_V1
     if (fs.existsSync(dest)) return { success: true, path: dest, cached: true }
     fs.mkdirSync(getLocalStorageDir(), { recursive: true })
     const cookie = await getServerCookie().catch(() => '')
-    const resp = await fetch(url, { headers: cookie ? { cookie } : {} })
+    const resp = await fetch(fullUrl, { headers: cookie ? { cookie } : {} })
     if (!resp.ok) return { success: false, error: 'HTTP ' + resp.status + '（未登录/鉴权失败）' }
     const buf = Buffer.from(await resp.arrayBuffer())
     fs.writeFileSync(dest, buf)
-    console.log('[storage:mirror] 已镜像到本地仓库:', name)
-    return { success: true, path: dest }
-  } catch (e) { return { success: false, error: e.message } }
+    // 如实写日志（含落盘路径与大小）—— 以后"到底下没下下来"有据可查，不靠猜
+    try { buLog('[storage:mirror] 已镜像到本地仓库: ' + dest + ' (' + (buf.length / 1048576).toFixed(1) + 'MB)') } catch (e) {}
+    return { success: true, path: dest, size: buf.length }
+  } catch (e) { return { success: false, error: String((e && e.message) || e) } }
 })
 
 ipcMain.handle('app:get-version', async () => {
@@ -2494,6 +2513,13 @@ ipcMain.handle('bu:open', async (event, arg) => {
   ipcMain.handle('bu:check', async (event) => {
     if (!isTrustedSender(event)) return { success: false, error: 'untrusted sender' }
     await ensureUserResolved(2500).catch(() => {})   // USER_READY_V1：等账号就绪（幂等；修"首次全显示未登录"）
+    // ★CDP_IN_CHECK_V1（2026-09-28 用户实测：「必须关掉刚登录的浏览器才显示已登录，不关就一直显示没有」）：
+    //   登记浏览器开着时，Chrome 会【独占锁住】Cookies 库 → python 直读/复制读全部 WinError 32 →
+    //   login_state 只能退回【缓存】（里面还是"登录之前"的结论）→ 界面就一直显示"未登录"。
+    //   设计上这种情况应该走 9222 CDP 导出（dumpCookiesViaCDP），但原来只有【启动自检】和【热点采集】
+    //   会先导出，用户手点"刷新检测"/定时轮询走的正是本 IPC —— 它没导出 → 必然吃旧缓存。
+    //   现在：检测前先导出一次（浏览器没开就自然失败，不影响直读文件那条路）。
+    try { await dumpCookiesViaCDP('前端检测前') } catch (e) {}
     try {
       const { spawn } = require('child_process')
       const out = await new Promise((resolve) => {
@@ -2524,6 +2550,8 @@ ipcMain.handle('bu:open', async (event, arg) => {
       //           ③ 两者都没有 → success:false（前端保留上次结果，不再误清）
       let accounts = parsePlats(out)
       let from = 'live'
+      // ★STALE_HONEST_V1：走缓存时不谎报"未登录" —— 前端/日志要知道"这是读不到实时库时的旧结论"
+      let cacheStale = false
       if (!accounts) {
         // ★LOGIN_UNIFY_V1：缓存改成【本账号目录】里的 bu_login_cache.json（原来是共用层的 txt，
         //   会被别的账号覆盖；且它写的是不带 PLATS: 前缀的裸串，本处解析一直失败 —— 顺带修掉）
@@ -2532,7 +2560,7 @@ ipcMain.handle('bu:open', async (event, arg) => {
           if (fs.existsSync(cacheFile)) {
             const j = JSON.parse(fs.readFileSync(cacheFile, 'utf8') || '{}')
             accounts = parsePlats('PLATS:' + String(j.plats || ''))
-            if (accounts) from = 'cache'
+            if (accounts) { from = 'cache'; cacheStale = true }
           }
         } catch (e) {}
       }
@@ -2560,9 +2588,10 @@ ipcMain.handle('bu:open', async (event, arg) => {
       }))
       try {
         buLog('[bucheck] 登录态来源=' + from + (_fromPy ? '/' + _fromPy : '') + ' | ' +
-          accounts.map((a) => a.id + ':' + (a.loggedIn ? 1 : 0) + (a.reason ? '(' + a.reason + ')' : '')).join(','))
+          accounts.map((a) => a.id + ':' + (a.loggedIn ? 1 : 0) + (a.reason ? '(' + a.reason + ')' : '')).join(',') +
+          (cacheStale ? '   ⚠️ 读不到实时 Cookies（多因登记浏览器正开着占用）→ 这是【上次】的结果，不是最新' : ''))
       } catch (e) {}
-      return { success: true, accounts, buDir: String(BU_PROFILE_DIR) }   // ISO_GETTER_FIX_V1
+      return { success: true, accounts, stale: cacheStale, buDir: String(BU_PROFILE_DIR) }   // ISO_GETTER_FIX_V1
     } catch (e) { return { success: false, error: String(e && e.message || e) } }
   })
 ipcMain.handle('fp:loginState', async (_event, { accountId }) => {

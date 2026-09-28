@@ -120,16 +120,24 @@ export default function StoragePage() {
     if (!api?.storageMirror) { showToast('一键备份只在客户端里可用（浏览器没有本地仓库）', 'error'); return }
     if (!files.length) { showToast('个人仓库里没有素材', 'error'); return }
     setBacking(true); setBacked(0)
-    let n = 0
+    // ★LOCAL_BACKUP_FIX_V1（2026-09-28 用户实测「提示下载了，去本地仓库看什么都没有」）：
+    //   旧实现【没 await、也没看返回值】，只要调用没当场抛错就 n++ →
+    //   于是后端失败（当时把相对路径当绝对路径解析，必然 Invalid URL）也照样提示"已发起备份 N/N"。
+    //   现在逐个 await + 如实统计，并把落盘目录/失败原因直接告诉用户。
+    let done = 0, failed = 0, lastErr = '', dir = ''
     for (const f of files) {
       try {
-        api.storageMirror(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}&persist=1`)
-        n++
-        setBacked(n)
-      } catch { /* 单个失败继续下一个，不整批中断 */ }
+        const r = await api.storageMirror(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}&persist=1`)
+        if (r && r.success) {
+          done++
+          if (r.path) dir = String(r.path).replace(/[\\/][^\\/]*$/, '')
+        } else { failed++; lastErr = (r && r.error) || '未知错误' }
+      } catch (e: any) { failed++; lastErr = String((e && e.message) || e) }
+      setBacked(done + failed)
     }
     setBacking(false)
-    showToast(`已发起备份 ${n}/${files.length} 个到本地仓库（客户端 storage 目录）`, n === files.length ? 'success' : 'error')
+    if (!failed) showToast(`已备份 ${done} 个到本地仓库${dir ? '：' + dir : ''}`, 'success')
+    else showToast(`备份完成 ${done} 个，失败 ${failed} 个${lastErr ? '（' + lastErr + '）' : ''}`, 'error')
   }
 
   const pct = Math.round(quota.used / quota.total * 100)
