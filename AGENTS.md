@@ -43,9 +43,19 @@
 ## 关键命令
 
 - 本地开发：`npm run dev`
-- 打包：`node scripts/bump-version.mjs X.Y.Z` → `node scripts/build-local.mjs`（~13-15 分钟，产出 `dist-rel/`）
+- 打包：`node scripts/bump-version.mjs X.Y.Z` → `npm run electron:build`（= `node scripts/build-local.mjs`，~13-15 分钟，产出 `dist-rel/`）
+  - ★PKG_SINGLE_PATH_V1（2026-09-28 用户定案「保留一种，确保新机器安装上就能用」）：**打包只有这一条路**。
+    禁止直接 `npx electron-builder`（会被 `build.beforePack` → `scripts/pack-guard.mjs` 直接拦下报错）。
+    原因（实测事故）：裸打包只读 package.json 旧配置 → 打出的包**少 4 样**（`resources/models/sherpa` 语音模型、
+    `resources/python-bu.zip` 内置环境包、`resources/opencli-extension`、`resources/scripts/keep-login-alive.mjs`），
+    并且**跳过**"把 `latest.yml` 改成 OSS 绝对地址"那一步 → 客户端能看到新版本但下载 **404**；而这些都在"打包成功"的表象下发生。
+  - 打完包会自动跑 **出厂完整性闸门** `scripts/verify-package.mjs`（对照 `electron/env-manifest.js` 逐项核对包内文件，
+    缺任何一件 → **打包失败**）；也可单独复查：`npm run verify:package`。
   - bump 后**必须补 `electron/changelog.json` 里那条的说明**（bump 只插"（待补充变更说明）"空占位）
   - ⚠️ 写中文说明时**不要用英文双引号**（会把 changelog.json 的 JSON 写坏 → bump 报错），用「」
+  - 一键发版（bump + commit + 打包 + 传 OSS）：`node scripts/release.mjs X.Y.Z "本次改了什么"`
+  - 新增运行时依赖时：**只改 `electron/env-manifest.js` 那张表**，并在 `scripts/build-local.mjs` 的 `extraResources` 里补一条
+    （同时 `package.json` 的 `extraResources` 也要对齐 —— 两处不一致就会出现"打出来少件"）
 - **提交推送**（★ 必须先有用户明文授权，否则禁止）：`git add <白名单路径>` → `git commit -m "…"` → `git push origin master`
 - 服务器部署（唯一命令）：`cd /root/AiMarketing && git fetch origin && git reset --hard origin/master && bash scripts/deploy-server.sh`
 - 发版上传 OSS：`node scripts/upload-update-oss.mjs dist-rel`

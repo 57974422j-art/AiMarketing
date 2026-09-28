@@ -1,6 +1,6 @@
 {
   "name": "ai-marketing",
-  "version": "1.0.214",
+  "version": "1.0.215",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,10 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:build": "next build && electron-builder",
-    "preelectron:build": "node scripts/prepare-playwright.mjs",
+    "electron:build": "node scripts/build-local.mjs",
     "electron:start": "electron .",
-    "release:electron": "node scripts/release-electron.mjs",
+    "release:electron": "node scripts/release.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
     "postinstall": "npx prisma generate && npx prisma db push; true"
   },
   "main": "electron/main.js",
@@ -64,6 +64,7 @@
     ],
     "appId": "com.aimarketing.app",
     "productName": "AI营销助手",
+    "beforePack": "scripts/pack-guard.mjs",
     "directories": {
       "output": "dist-rel"
     },
@@ -95,20 +96,41 @@
         "to": "scripts/platform-tools"
       },
       {
+        "from": "scripts/browser-use",
+        "to": "scripts/browser-use",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "scripts/agent-publish",
+        "to": "scripts/agent-publish",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "scripts/keep-login-alive.mjs",
+        "to": "scripts/keep-login-alive.mjs"
+      },
+      {
         "from": "scripts/scrcpy",
         "to": "scripts/scrcpy"
       },
       {
-        "from": "scripts/browser-use",
-        "to": "scripts/browser-use"
+        "from": "electron/models",
+        "to": "models",
+        "filter": [
+          "**/*"
+        ]
       },
       {
-        "from": "scripts/agent-publish",
-        "to": "scripts/agent-publish"
+        "from": "public/python-bu.zip",
+        "to": "python-bu.zip"
       },
       {
-        "from": "build/ms-playwright",
-        "to": "ms-playwright",
+        "from": "electron/resources/opencli-extension",
+        "to": "opencli-extension",
         "filter": [
           "**/*"
         ]

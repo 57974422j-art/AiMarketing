@@ -385,6 +385,10 @@ if (existsSync(WU)) {
 log('7/7 执行 electron-builder…')
 const env = {
   ...process.env,
+  // ★PKG_SINGLE_PATH_V1（2026-09-28）：给 scripts/pack-guard.mjs 的【放行标记】——
+  //   只有从本脚本发起的打包才允许跑 electron-builder；
+  //   直接 `npx electron-builder` 会被 beforePack 钩子拦下（它会打出缺件包 + 更新 404）。
+  VF_BUILD_LOCAL: '1',
   ELECTRON_MIRROR: 'https://npmmirror.com/mirrors/electron/',
   ELECTRON_BUILDER_BINARIES_MIRROR: 'https://npmmirror.com/mirrors/electron-builder-binaries/',
 }
@@ -400,16 +404,42 @@ for (const f of readdirSync(OUT).filter(f => f.endsWith('.exe'))) {
   const mb = (readFileSync(p).length / 1024 / 1024).toFixed(1)
   log(`✅ 产物: dist-rel/${f} (${mb} MB)`)
 }
-log('完成。本地启动测试: SERVER_URL=http://localhost:3000 "dist-rel/win-unpacked/AI营销助手.exe"')
 
-// 2026-09-03: 打包后自动把 latest.yml 的 url/path 改成 OSS（否则客户端下载走服务器 404/0%）
+// ── 8) 更新清单 OSS 化（★PKG_VERIFY_V1：失败=客户端更新会 404，必须硬失败）──
+//   2026-09-03 起：打包后把 latest.yml 的 url/path 改成【OSS 绝对地址】。
+//   原因：用户的域名 ai-niuma.cc/updates 下【只放清单】，exe 一直在 OSS ——
+//        清单里若只写相对文件名，客户端就会去域名下找 exe → 404（2026-09-28 实测炸过一次）。
+//   旧实现是 try/catch 只打日志（失败也继续）→ 于是"打包成功但更新 404"能溜出去；
+//   现在改成：没改成 OSS 就【中止】，不许出厂。
+let ymlOk = false
 try {
-  const ymlPath = resolve(process.cwd(), 'dist-rel', 'latest.yml')
-  const ver = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')).version
+  const ymlPath = resolve(OUT, 'latest.yml')
+  const ver = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).version
   const OSS_URL = 'https://aimarketing-1.oss-cn-hangzhou.aliyuncs.com/updates/AI-Marketing-Setup-' + ver + '.exe'
   let y = readFileSync(ymlPath, 'utf8')
-  y = y.replace('url: AI-Marketing-Setup-' + ver + '.exe', 'url: ' + OSS_URL).replace('path: AI-Marketing-Setup-' + ver + '.exe', 'path: ' + OSS_URL)
-  writeFileSync(ymlPath, y)
-  log('latest.yml url 已指 OSS（自动）')
-} catch (e) { log('latest.yml OSS 化失败: ' + e.message) }
+  const relUrl = 'url: AI-Marketing-Setup-' + ver + '.exe'
+  const relPath = 'path: AI-Marketing-Setup-' + ver + '.exe'
+  if (y.includes(relUrl) || y.includes(relPath)) {
+    y = y.split(relUrl).join('url: ' + OSS_URL).split(relPath).join('path: ' + OSS_URL)
+    writeFileSync(ymlPath, y)
+  }
+  ymlOk = !y.includes(relUrl) && !y.includes(relPath)
+  if (ymlOk) log('latest.yml url 已指 OSS（自动）')
+} catch (e) { console.error('❌ latest.yml OSS 化异常: ' + ((e && e.message) || e)) }
+if (!ymlOk) {
+  console.error('❌ latest.yml 没能改成 OSS 绝对地址 —— 这种包发出去，客户端"检查更新"能看到新版本但下载会 404。已中止。')
+  process.exit(1)
+}
+
+// ── 9) 出厂完整性闸门（★PKG_VERIFY_V1）──────────────────
+//   对照 electron/env-manifest.js（自检与打包共用的唯一真源）+ 两项必备：
+//   缺任何一件 → 直接失败。杜绝"装到用户机器才发现少东西"（2026-09-28 语音模型/环境包/扩展/保活脚本 就是这么漏的）。
+log('9/9 出厂完整性校验（对照 env-manifest + 必备项）…')
+const v = spawnSync(process.execPath, [resolve(ROOT, 'scripts/verify-package.mjs'), '--latest'], { cwd: ROOT, stdio: 'inherit' })
+if (v.status !== 0) {
+  console.error('❌ 出厂完整性校验不通过 —— 这个包不许出厂（缺什么见上面清单）。')
+  process.exit(1)
+}
+
+log('完成。本地启动测试: SERVER_URL=http://localhost:3000 "dist-rel/win-unpacked/AI营销助手.exe"')
 
