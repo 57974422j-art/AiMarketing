@@ -182,7 +182,8 @@ export async function shouldTakeOverAiLine(db: any, uid: number, userMessage: st
   //        却被 AI 线抢走，回一句"请点开始出片" —— 素材线永远进不去（用户实测"进入不了状态机"）。
   //   规则：消息明确带【素材线】的词 → 本线不接管（让素材线接手）。
   //   （MIX 线早就这么做了：vf-mix.ts 的 matchesMixLine 里先排除"素材合成/素材智能成片/用我的素材库"）
-  if (/本地成片|素材成片|素材合成|素材智能成片|用我的素材|用我上传的素材|用素材库/.test(m)) return false
+  // ★VF_RENAME_V1（2026-09-28）：素材线短名「图片成片」也算别线（否则会被本线草稿蹭走）
+  if (/本地成片|图片成片|素材成片|素材合成|素材智能成片|用我的素材|用我上传的素材|用素材库/.test(m)) return false
   // ★VF_AI_RUNCLOSE_V1（2026-09-21 用户实测：素材线的「确认」被本线抢走 → 回"AI 制片已在后台生成中"）：
   //   本线"有草稿必接管"本身没错，但**入队后草稿停在 running 且没人收尾**（僵尸）→
   //   它会【终身】吞掉所有消息（含别线的「确认」）。→ running 草稿一律视为僵尸：自清 + 不接管。
@@ -203,7 +204,7 @@ export async function shouldTakeOverAiLine(db: any, uid: number, userMessage: st
 const AI_FLOW_WORD = /确认|开始|生成吧|出片|就这个|^行$|^好$|^OK$|可以|下一步|强制出片/i
 /** ★剥"AI 制片"这类入口词 —— 之前只剥了「AI 制作」，导致「AI 制片」被当成主题（用户实测） */
 const AI_ENTRY_WORDS = /全部\s*AI|全\s*AI|纯\s*AI|整片\s*AI|AI\s*制片|AI\s*成片|AI\s*制作|AI\s*生成/g
-const VIDEO_WORDS = /本地成片|帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|做一条视频|做个视频|做成片|做个宣传片/g
+const VIDEO_WORDS = /本地成片|图片成片|帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|做一条视频|做个视频|做成片|做个宣传片/g
 
 /* ==================== ⑤ 主流程 ==================== */
 
@@ -219,7 +220,7 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
     if (vd && /^(重新开始|取消|退出|重来|不做了|算了|清空|重置|退出制片)$/.test(String(userMessage).trim())) {
       await clearVfAiDraft(ctx.prisma, uid)
       try { ctx.log(uid, '[VF-A] 用户取消 → 本线草稿已清（不影响素材线/混合线）') } catch { /* ignore */ }
-      return '已退出 AI 制片（本线草稿已清）。想重来就说「AI 制片」；想用素材成片说「用本地成片帮我做一条视频」。'
+      return '已退出 AI 制片（本线草稿已清）。想重来就说「AI 制片」；想用素材成片说「图片成片」，想用你自己的视频混剪说「图视混剪」。'
     }
 
     // ★VF_AILINE_RESTART_V1（2026-09-21 用户实测：说「AI 制片帮我做一条视频」被回

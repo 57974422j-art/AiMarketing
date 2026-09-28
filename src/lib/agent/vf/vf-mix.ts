@@ -143,7 +143,8 @@ export async function shouldTakeOverMixLine(db: any, uid: number, userMessage: s
   // ★VF_ENTRY_PRIORITY_V1（2026-09-21）：【别线的明确入口词】优先于本线残留草稿。
   //   与 AI 制片线同一条规则：本线有草稿时也不能吞掉【明确说了素材成片】的消息，
   //   否则素材智能成片永远进不去（用户实测："进入不了状态机了"）。
-  if (/本地成片|素材成片|素材合成|素材智能成片|用我的素材|用我上传的素材|用素材库/.test(m)) return false
+  // ★VF_RENAME_V1（2026-09-28）：素材线短名「图片成片」也算别线（否则会被本线草稿蹭走）
+  if (/本地成片|图片成片|素材成片|素材合成|素材智能成片|用我的素材|用我上传的素材|用素材库/.test(m)) return false
   // ★VF_ENTRY_PRIORITY_V1 补充（2026-09-21）：**AI 制片的入口词也要让出** ——
   //   本线分派在 AI 制片线【之前】，若本线有残留草稿，就会把「AI 制片帮我做一条视频」抢走
   //   （与"素材线的『确认』被 AI 线抢走"是同一类错，只是方向相反 —— 所以两边都要排）。
@@ -199,7 +200,7 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
     if (!vd) {
       const topic = String(userMessage)
         .replace(/素材\s*[+＋加和与]\s*AI|素材\s*AI\s*(创作|混合)|混合\s*创作|AI\s*混合|半\s*AI/g, '')
-        .replace(/本地成片|帮我做.{0,3}(一条|个|条)?视频|帮我成片|做一条视频|做个视频|做成片/g, '')
+        .replace(/本地成片|图片成片|帮我做.{0,3}(一条|个|条)?视频|帮我成片|做一条视频|做个视频|做成片/g, '')
         .replace(/^(用|请用|请|来|帮我|帮忙|给我|麻烦)\s*/, '')
         .replace(/^[\s:：,，,。、]+/, '').trim()
       vd = {

@@ -7,7 +7,7 @@ import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRoot
 //   所以静态 import 不会引入循环依赖。
 import { matchesAiLine, clearVfAiDraft, hasAiDraft } from '@/lib/agent/vf/vf-aivideo'
 // ★VF_VIDEOLINE_V1（2026-09-24）「视频混剪」线：入口词判断同样用于 skipModelStep1（纯正则、零依赖）
-import { matchesVideoLine } from '@/lib/agent/vf/vf-video'
+import { matchesVideoLine, clearVfVideoDraft, hasVfVideoDraft } from '@/lib/agent/vf/vf-video'
 import { matchesMixLine, clearVfMixDraft, hasMixDraft } from '@/lib/agent/vf/vf-mix'
 // ★STD_MODE_V1（2026-09-21，用户定案）：标准模式 = 【命令白名单，锁死】——
 //   命令表唯一真相源在 `src/lib/agent/standard-commands.ts`（加/改命令只改那张表，别再往这里加正则）。
@@ -433,6 +433,10 @@ async function stdClearAllDrafts(userId: number | string): Promise<void> {
   try { await clearVfDraft(uid) } catch { /* ignore */ }              // 素材线
   try { await clearVfAiDraft(prisma, uid) } catch { /* ignore */ }    // AI 制片线
   try { await clearVfMixDraft(prisma, uid) } catch { /* ignore */ }   // 混合线
+  // ★VF_VIDEOLINE_V1 补登记（2026-09-28）：视频混剪线原来【没算在内】—— 它是第四条成片线，
+  //   不在这里清掉的话：①点别的命令后它的草稿还活着 → 会去蹭后面的话（历史事故类型）；
+  //   ②它自己的旧草稿会让"命令=重来"失效（用户实测：上一轮的 form 草稿一直留在库里）。
+  try { await clearVfVideoDraft(prisma, uid) } catch { /* ignore */ }  // 视频混剪线
 }
 
 /**
@@ -450,6 +454,12 @@ async function stdHasAnyDraft(userId: number | string): Promise<boolean> {
   try { if (await hasAiDraft(prisma, uid)) return true } catch { /* ignore */ }
   try { if (await hasMixDraft(prisma, uid)) return true } catch { /* ignore */ }
   try { if ((await loadVfDraft(uid))?.step) return true } catch { /* ignore */ }
+  // ★VF_VIDEOLINE_V1 补登记（2026-09-28，用户实测「视频混剪」被锁死回复拦住）：
+  //   视频混剪线是本项目第四条成片线，原来【没算"进行中的流程"】—— 后果是它的流程走到第二步
+  //   （设置卡提交 VF_FORM:{…} / 「确认」/「重试」都不是命令）就被锁死回复拦住，流程根本走不完。
+  //   ⚠️ 反过来说明为什么"用户自己那台能进、别的机器进不去"：他自己账号上压着一条别线的旧草稿，
+  //      闸门被顶开了才轮得到视频混剪接管；别的账号没有草稿 → 同一句话被锁死（已用 DB 草稿表证实）。
+  try { if (await hasVfVideoDraft(prisma, uid)) return true } catch { /* ignore */ }
   return false
 }
 
@@ -2329,8 +2339,11 @@ export async function POST(request: NextRequest) {
     //   ⚠️ 命令判定放在"入口词/草稿"判断【之前】—— 所以"看到命令就重来"是天然成立的。
     // ═══════════════════════════════════════════════════════════════════════
     let stdEnterMachine = false
+    // ★VF_STDCMD_GUARD_V1（2026-09-28）：命令表是"唯一路由权威"——这里**无论哪个模式**都先算一遍：
+    //   标准模式拿它当闸门（下面是白名单锁死）；自由模式只拿它挡"旧草稿蹭命令"（见各线分派处的 otherStdCommand）。
+    const stdCmdHit = matchStdCommand(userMessage)
     if ((body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free') {
-      const stdHit = matchStdCommand(userMessage)
+      const stdHit = stdCmdHit
       if (stdHit) {
         console.log('[标准模式] 命中命令:', stdHit.id, '|', stdHit.text, '| kind=', stdHit.kind)
         try { vfLog(auth?.userId || 0, `[标准模式] 命中命令 ${stdHit.id}「${stdHit.text}」（kind=${stdHit.kind}）`) } catch { /* ignore */ }
@@ -2340,11 +2353,13 @@ export async function POST(request: NextRequest) {
             pointsSpent: 0,
           } })
         }
-        if (stdHit.kind === 'machine') {
-          // ★命令 = 重来：把发布线 + 三条成片线的草稿全部作废（旧流程一律不许存活）
-          await stdClearAllDrafts(auth?.userId || 0)
-          stdEnterMachine = true
-        }
+        // ★VF_STDCMD_CLEAR_V1（2026-09-28）：**任何命令**都算"重来"，不只 machine 类 ——
+        //   原来只有 machine 清草稿，tool 类（写小红书文案 / 生成海报 / 数字人口播）不清 →
+        //   只要某条线还有旧草稿活着，那三条命令就会被它【蹭走】（本文件上面自己写的原则就是
+        //   "命令一出现，不允许任何旧流程存活"，这里把实现对齐到那句话）。
+        //   实测背景：视频混剪线草稿留在库里时，点「帮我写一个小红书文案」会被混剪线接走。
+        await stdClearAllDrafts(auth?.userId || 0)
+        if (stdHit.kind === 'machine') stdEnterMachine = true
       } else if (!hasImage && !STD_QUERY_RE.test(userMessage) && !(await stdHasAnyDraft(auth?.userId || 0))) {
         // ★标准模式锁死：没有命令、也没有进行中的流程 → 不参与任何流程，也不让 AI 自由发挥
         console.log('[标准模式] 非命令且无进行中流程 → 固定回复')
@@ -2355,7 +2370,8 @@ export async function POST(request: NextRequest) {
         } })
       }
     }
-    const vfEntryWord = /帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|本地成片|做一条视频|做个视频|做成片|做个宣传片/.test(userMessage)
+    // ★VF_RENAME_V1（2026-09-28）：素材线的新短名「图片成片」也要算入口词（老写法继续有效）
+    const vfEntryWord = /帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|本地成片|图片成片|做一条视频|做个视频|做成片|做个宣传片/.test(userMessage)
     // ★VF_LINES_V1（2026-09-21）：**三条新线的入口词也必须算"状态机入口信号"** ——
     //   否则用户说「AI 制片」「素材+AI创作」时 skipModelStep1=false → 走 dashscopeFunctionCall
     //   → **AI 自由发挥**（实测它会把「AI 制片」理解成"打开一键成片网页"）→ **状态机整块都没进**。
@@ -3050,7 +3066,7 @@ PUBLISH_DRAFT.delete(uidW)
         //   ② 草稿恢复必须放在【块外】（仿发布状态机 L1773）——否则服务器重启后内存 Map 为空，
         //      hasDraft=false 会让这一轮走 AI 自由发挥（用户看到“✅ 配音已选定…”那种话术）
         const vfFlowWord = /确认|开始|生成吧|出片|就这个|^行$|^好$|^OK$/i.test(userMessage.trim())
-        const vfIntent = (/帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|本地成片|做一条视频|做个视频|做成片|做个宣传片/.test(userMessage)
+        const vfIntent = (/帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|本地成片|图片成片|做一条视频|做个视频|做成片|做个宣传片/.test(userMessage)
           && !/发布|发到|发抖音|发小红书|发微博|发视频号|平台:/.test(userMessage)) && !vfFlowWord // 不抢发布状态机的活；流程词不算新指令
         if (!VIDEO_DRAFT.has(uidVF2)) {
           try {
@@ -3087,7 +3103,11 @@ PUBLISH_DRAFT.delete(uidW)
         // ═══════════════════════════════════════════════════════════════════════════
         try {
           const { shouldTakeOverVideoLine, handleVideoLine } = await import('@/lib/agent/vf/vf-video')
-          if (await shouldTakeOverVideoLine(prisma, uidVF2, userMessage)) {
+          // ★VF_STDCMD_GUARD_V1：命中【别条】标准模式命令（含工具类）时，本线不许接管 ——
+          //   否则本线草稿活着就会把「帮我写一个小红书文案」这类命令蹭走（本地单测复现过）。
+          //   本文线自己的命令（图视混剪/视频混剪）不受影响，照常接管。
+          if (await shouldTakeOverVideoLine(prisma, uidVF2, userMessage,
+            { otherStdCommand: !!stdCmdHit && stdCmdHit.id !== 'vf_video' })) {
             vfVideoHandled = true
             wfEarlyReply = await handleVideoLine({
               uid: uidVF2, userMessage, auth, prisma,
@@ -3188,7 +3208,7 @@ PUBLISH_DRAFT.delete(uidW)
               //   只发指令不带主题时会把“用”当成主题（文案变成“用，才是最强的生产力！”）
               // ── 第 0 步 素材来源（★一键出发：不问文字，只给两个按钮；用户顺手写了主题就带过来）──
               const vfTopic0 = String(userMessage)
-                .replace(/本地成片|模板成片|帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|做一条视频|做个视频|做成片|做个宣传片|做视频/g, '')
+                .replace(/本地成片|图片成片|模板成片|帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|做一条视频|做个视频|做成片|做个宣传片|做视频/g, '')
                 .replace(/^(用|请用|请|来|帮我|帮忙|给我|麻烦)\s*/, '')
                 .replace(/^(用|请|来)\s*/, '')
                 .replace(/^[\s:：,，,。、]+/, '').trim()

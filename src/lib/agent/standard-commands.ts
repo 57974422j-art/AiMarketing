@@ -32,12 +32,26 @@ export type StdCommand = {
   text: string      // 命令原文（= 前端按钮文字）
   kind: StdCmdKind
   note: string      // 给后来人：这条归谁、走到哪、缺口在哪
+  /** ★VF_RENAME_V1（2026-09-28，用户定案）：**精确相等**的备选写法 ——
+   *  只为兼容"改名/拆分之前用户已经说惯的那句"（例如素材线从长句改成短名「图片成片」）。
+   *  ⚠️ 规则不变：去空白后必须与 `text` 或某个别名**完全相等**；依旧不做前缀/包含/模糊匹配。
+   *  ⚠️ 别名**不列进**锁死回复的清单（清单只列 text）—— 保证"按钮 = 命令"一一对应，界面不啰嗦。 */
+  alias?: string[]
 }
 
 export const STD_COMMANDS: StdCommand[] = [
   // ── 多步状态机（现成、可用）────────────────────────────────────────────
   { id: 'publish',  text: '帮我发一个视频',          kind: 'machine', note: '发布状态机（选视频→标题→话题→封面→平台→发布）' },
-  { id: 'vf_local', text: '用本地成片帮我做一条视频', kind: 'machine', note: '素材线状态机（成片设置卡→分镜确认卡→入队出片）' },
+  // ★VF_RENAME_V1（2026-09-28，用户定案）：「用本地成片帮我做一条视频」→ 短名「图片成片」，
+  //   和新加的「图视混剪」凑成一对（图片成片 = 只用你仓库的图；图视混剪 = 图片 + 视频片段混排）。
+  //   原来那句长话保留成【别名】—— 老用户照原样说照样能进（仍是严格相等，不放宽匹配）。
+  { id: 'vf_local', text: '图片成片',               kind: 'machine', alias: ['用本地成片帮我做一条视频', '素材成片'], note: '素材线状态机（成片设置卡→分镜确认卡→入队出片）' },
+  // ★VF_VIDEOLINE_V1 补登记命令表（2026-09-28，用户实测事故）：
+  //   这条线 09-24 建好时**只写了入口词、漏登记命令表** → 标准模式下说「视频混剪」会被
+  //   锁死回复（STD_UNSUPPORTED_REPLY）拦住，根本走不到它的分派（route.ts 的视频混剪分派在锁死之后）。
+  //   用户实测现象：他自己那台能进（因为账号上另有旧草稿把闸门顶开），别的机器/账号进不去。
+  //   ⚠️ 这条线自己的入口正则认「视频混剪/混剪」，故把两种说法都做成别名，避免"用户打旧词被锁死"。
+  { id: 'vf_video', text: '图视混剪',               kind: 'machine', alias: ['视频混剪', '混剪', '视频混剪做一条成片'], note: '视频混剪线状态机（设置卡→分镜确认卡→出片；仓库视频片段 + 图片混排，AI 决定哪几镜用视频）' },
   { id: 'vf_ai',    text: 'AI 制片帮我做一条视频',    kind: 'machine', note: 'AI 制片线状态机（主题卡→选项卡→分镜确认卡→逐镜出片）' },
   { id: 'vf_mix',   text: '素材+AI创作做一条视频',    kind: 'machine', note: '混合线状态机（主题卡→分镜确认卡→只对标注镜调 AI）' },
 
@@ -57,12 +71,16 @@ const stripWs = (s: string): string => String(s || '').replace(/[\s\u3000]+/g, '
 
 /**
  * 命中命令才返回条目，否则 null。
- * ★严格：去空白后必须**完全相等**（不做前缀/包含/模糊匹配）。
+ * ★严格：去空白后必须与 `text`（按钮文字）或它的某个 `alias` **完全相等**
+ *   —— 依旧不做前缀/包含/模糊匹配（别名是"另一个精确写法"，不是放宽规则）。
  */
 export function matchStdCommand(msg: string): StdCommand | null {
   const m = stripWs(msg)
   if (!m) return null
-  for (const c of STD_COMMANDS) if (stripWs(c.text) === m) return c
+  for (const c of STD_COMMANDS) {
+    if (stripWs(c.text) === m) return c
+    if (c.alias && c.alias.some((a) => stripWs(a) === m && stripWs(a))) return c
+  }
   return null
 }
 

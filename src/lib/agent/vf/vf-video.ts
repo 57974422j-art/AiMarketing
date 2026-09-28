@@ -116,8 +116,10 @@ export async function hasVfVideoDraft(db: any, uid: number): Promise<boolean> {
 
 /** 本线入口词：视频混剪 / 用我的视频 / 视频+图片 之类 */
 const VIDEO_LINE_ENTRY = /视频混剪|混剪|视频成片|用我的视频|我的视频(做|合成|剪|成片)|把.{0,6}视频.{0,6}(剪|混|合成)|视频.{0,3}(加|和|\+).{0,3}图片|图片.{0,3}(加|和|\+).{0,3}视频/
-/** 别线的明确入口词 —— 出现这些一律不认领（优先级规则，历史事故：残留草稿吞掉别线的消息） */
-const OTHER_LINE_ENTRY = /本地成片|素材成片|素材合成|素材智能成片|用我的素材|用我的素材库|用素材库|AI\s*制片|AI\s*成片|AI\s*制作|全部\s*AI|全\s*AI|素材\s*\+\s*AI|混合创作|发布|发到|发抖音|发小红书|发微博|发视频号|平台:/
+/** 别线的明确入口词 —— 出现这些一律不认领（优先级规则，历史事故：残留草稿吞掉别线的消息）
+ *  ★VF_RENAME_V1（2026-09-28）：素材线按钮改名成短名「图片成片」→ 这里必须认得它，
+ *    否则本线草稿活着时会把「图片成片」这条命令蹭走。 */
+const OTHER_LINE_ENTRY = /本地成片|图片成片|素材成片|素材合成|素材智能成片|用我的素材|用我的素材库|用素材库|AI\s*制片|AI\s*成片|AI\s*制作|全部\s*AI|全\s*AI|素材\s*\+\s*AI|混合创作|发布|发到|发抖音|发小红书|发微博|发视频号|平台:/
 
 export function matchesVideoLine(msg: string): boolean {
   const m = String(msg || '').trim()
@@ -128,9 +130,18 @@ export function matchesVideoLine(msg: string): boolean {
   return VIDEO_LINE_ENTRY.test(m)
 }
 
-/** 本线是否该接管这一轮（有本线草稿 → 一定接管，否则草稿永远卡住） */
-export async function shouldTakeOverVideoLine(db: any, uid: number, userMessage: string): Promise<boolean> {
+/** 本线是否该接管这一轮（有本线草稿 → 一定接管，否则草稿永远卡住）
+ *
+ *  `opts.otherStdCommand`（★VF_STDCMD_GUARD_V1，2026-09-28 实测）：这句话命中了【别条】标准模式命令
+ *  （含 tool 类：写小红书文案 / 产品海报 / 数字人口播）→ 本线**一律不认领**。
+ *  事故原型（本地单测已复现）：本线草稿停在 form/script 时，「帮我写一个小红书文案」会被本线接走。
+ *  命令表是唯一路由权威（在 route.ts 判定后传进来），这样本文件仍保持"零 import"、可独立测。
+ */
+export async function shouldTakeOverVideoLine(
+  db: any, uid: number, userMessage: string, opts?: { otherStdCommand?: boolean },
+): Promise<boolean> {
   const m = String(userMessage || '')
+  if (opts?.otherStdCommand) return false
   const d = await loadVfVideoDraft(db, uid)
   const _f = String(m).trim().match(/^VF_FORM:(\{[\s\S]*\})/)
   if (_f) {
@@ -152,7 +163,7 @@ export async function shouldTakeOverVideoLine(db: any, uid: number, userMessage:
 /* ==================== ③ 小工具（零依赖，自己一份） ==================== */
 
 const FLOW_WORD = /确认|开始|生成吧|出片|就这个|^行$|^好$|^OK$|可以|下一步/i
-const ENTRY_STRIP = /视频混剪|混剪|视频成片|用我的视频|我的视频|本地成片|素材合成|帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|做一条视频|做个视频|做成片|做个宣传片/g
+const ENTRY_STRIP = /图视混剪|视频混剪|混剪|视频成片|用我的视频|我的视频|本地成片|图片成片|素材合成|帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|做一条视频|做个视频|做成片|做个宣传片/g
 
 function cleanText(s: any, max = 4000): string {
   return String(s == null ? '' : s).replace(/[*#`]/g, '')
