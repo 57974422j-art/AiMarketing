@@ -556,7 +556,7 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
               （`src/lib/agent/vf/vf-mix.ts` / `vf-aivideo.ts`，各有自己的入口词与卡片）。
               用户原话：「把『用本地成片帮我做一条视频』中的 素材+AI混合、全部AI生成 帮我拆掉，
               免得你搞不清。」→ 一个概念只留一条路，杜绝"同一个按钮落在不同线"。
-              要那两种：直接说「素材+AI创作做一条视频」/「AI 制片帮我做一条视频」。 */}
+              要那两种：直接说「素材+AI」/「AI 制片」。 */}
           {/* ★VF_UPLOAD_FIX_V1：照抄“聊天那个能用的写法” —— 不加 disabled（否则可能永久点不动） */}
           {/* ★VF_SRC_SPLIT_V1（2026-09-21）：「全部 AI 生成」已从本卡拆掉 → `source==='ai'` 的
               置灰逻辑一并删除（本卡不再有 AI 模式这一档；AI 画面请走 AI 制片那条线）。 */}
@@ -2267,8 +2267,8 @@ function AgentPageInner() {
     //      （用户实测；能进的那台是因为账号上另有旧草稿把闸门顶开了）—— 09-28 已补上。
     '图片成片',                      // ① 素材智能成片（只用你仓库的图）
     '图视混剪',                      // ② 视频混剪（视频片段 + 图片混排）
-    'AI 制片帮我做一条视频',          // ③ AI 制片（画面全部 AI 生成）
-    '素材+AI创作做一条视频',          // ④ 素材+AI 创作（AI 挑该动的镜用 AI，其余用素材）
+    'AI 制片',                       // ③ AI 制片（画面全部 AI 生成）
+    '素材+AI',                       // ④ 素材+AI 创作（AI 挑该动的镜用 AI，其余用素材）
     // ★STD_MODE_V1（2026-09-21，用户定案）：「帮我搜一下小红书…」**删除**（不做）；
     //   剩下的「热点 / 配乐 / 记录待办」先留着 —— 点了由后端回「开发中」（standard-commands.ts 里 kind:'wip'）。
     //   ⚠️ 这里每一条都必须与 `src/lib/agent/standard-commands.ts` 的 STD_COMMANDS **一字不差**
@@ -2664,13 +2664,13 @@ function AgentPageInner() {
                 {/* ★VF_SRC_SPLIT_V1（2026-09-21，用户定案）：本卡只留素材线自己的两个来源 ——
                     「✨ 素材 + AI 混合（开发中）」与「🎨 全部 AI 生成」已拆掉：
                     它们各自是【独立的一条线】（入口词见 FEATURE_TIPS）：
-                    「素材+AI创作做一条视频」/「AI 制片帮我做一条视频」。
+                    「素材+AI」/「AI 制片」（2026-09-28 起统一短名，旧长句保留为别名）。
                     （原来自相矛盾：这里发文字「素材加AI混合」会被混合线接走，而表单卡发
                       VF_FORM:{source:'mix'} 却落到素材线回"还在开发中"。） */}
                 <button onClick={() => sendMessage('我上传素材')}
                   className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-200">📤 我上传</button>
               </div>
-              <div className="text-[10px] text-gray-500 mt-2">画面来源：<b className="text-gray-400">素材合成</b> = 用你仓库的图拼片（最省，30 秒约 7 点）；<b className="text-gray-400">我上传</b> = 只用你这次上传的几张。全 AI / 混合是另外两条线，说「AI 制片帮我做一条视频」/「素材+AI创作做一条视频」。</div>
+              <div className="text-[10px] text-gray-500 mt-2">画面来源：<b className="text-gray-400">素材合成</b> = 用你仓库的图拼片（最省，30 秒约 7 点）；<b className="text-gray-400">我上传</b> = 只用你这次上传的几张。全 AI / 混合是另外两条线，说「AI 制片」/「素材+AI」；用你自己的视频混剪说「图视混剪」。</div>
               {/* ★VF_ASPECT_V1：画幅——能让用户自己选就让他选；不选则按素材判断（素材多为横图就出横屏，不硬塞竖屏） */}
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 <span className="text-[10px] text-gray-500">画幅：</span>
@@ -2785,8 +2785,8 @@ function AgentPageInner() {
               请重新发一条命令（一字不差）：
               <br />· 图片成片
               <br />· 图视混剪
-              <br />· AI 制片帮我做一条视频
-              <br />· 素材+AI创作做一条视频
+              <br />· AI 制片
+              <br />· 素材+AI
             </div>
           </div>
         )

@@ -184,6 +184,10 @@ export async function shouldTakeOverAiLine(db: any, uid: number, userMessage: st
   //   （MIX 线早就这么做了：vf-mix.ts 的 matchesMixLine 里先排除"素材合成/素材智能成片/用我的素材库"）
   // ★VF_RENAME_V1（2026-09-28）：素材线短名「图片成片」也算别线（否则会被本线草稿蹭走）
   if (/本地成片|图片成片|素材成片|素材合成|素材智能成片|用我的素材|用我上传的素材|用素材库/.test(m)) return false
+  // ★VF_RENAME_V1：混合线的短名「素材+AI」也要让出 —— 与 vf-mix.ts:151「AI 制片入口词要让出」
+  //   是同一条规则的反方向（两边都要排，否则谁有残留草稿谁就把对方的命令抢走）。
+  //   ⚠️ 判据是"素材开头 + AI"，本线自己的「AI 制片」不含"素材"，不会误伤。
+  if (/^\s*素材\s*[+＋加和与]\s*AI/.test(m)) return false
   // ★VF_AI_RUNCLOSE_V1（2026-09-21 用户实测：素材线的「确认」被本线抢走 → 回"AI 制片已在后台生成中"）：
   //   本线"有草稿必接管"本身没错，但**入队后草稿停在 running 且没人收尾**（僵尸）→
   //   它会【终身】吞掉所有消息（含别线的「确认」）。→ running 草稿一律视为僵尸：自清 + 不接管。

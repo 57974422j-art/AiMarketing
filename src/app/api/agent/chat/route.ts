@@ -2342,6 +2342,10 @@ export async function POST(request: NextRequest) {
     // ★VF_STDCMD_GUARD_V1（2026-09-28）：命令表是"唯一路由权威"——这里**无论哪个模式**都先算一遍：
     //   标准模式拿它当闸门（下面是白名单锁死）；自由模式只拿它挡"旧草稿蹭命令"（见各线分派处的 otherStdCommand）。
     const stdCmdHit = matchStdCommand(userMessage)
+    /** ★VF_STDCMD_GUARD_V1：命中命令时，**只有这条命令自己的线**能接管（别条线一律让位）。
+     *  用途：放在三条成片线的分派处 —— 它们的 shouldTakeOverXxx 在"本线有残留草稿"时一律返回 true，
+     *  于是会把别条命令蹭走（本地单测复现过：本线草稿活着时「帮我写一个小红书文案」被接走）。 */
+    const stdCmdOwned = (ids: string[]) => !!stdCmdHit && ids.indexOf(stdCmdHit.id) >= 0
     if ((body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free') {
       const stdHit = stdCmdHit
       if (stdHit) {
@@ -3127,7 +3131,8 @@ PUBLISH_DRAFT.delete(uidW)
           // ★VF_MIXLINE_V1（2026-09-21）【素材+AI 创作】第三条独立线 —— **放在 AI 制片之前**
           //   （它的词更具体："素材+AI/混合创作"；而"素材+AI"里含"AI"，先说清归属更稳）
           const { shouldTakeOverMixLine, handleMixLine } = await import('@/lib/agent/vf/vf-mix')
-          if (await shouldTakeOverMixLine(prisma, uidVF2, userMessage)) {
+          // ★VF_STDCMD_GUARD_V1：命中别条命令时本线让位（例如「AI 制片」「图片成片」「图视混剪」）
+          if ((!stdCmdHit || stdCmdOwned(['vf_mix'])) && await shouldTakeOverMixLine(prisma, uidVF2, userMessage)) {
             vfMixHandled = true
             wfEarlyReply = await handleMixLine({
               uid: uidVF2, userMessage, auth, prisma,
@@ -3147,7 +3152,8 @@ PUBLISH_DRAFT.delete(uidW)
         if (!vfMixHandled) {
           try {
             const { shouldTakeOverAiLine, handleAiLine } = await import('@/lib/agent/vf/vf-aivideo')
-            if (await shouldTakeOverAiLine(prisma, uidVF2, userMessage)) {
+            // ★VF_STDCMD_GUARD_V1：命中别条命令时本线让位（例如「素材+AI」「图片成片」「图视混剪」）
+            if ((!stdCmdHit || stdCmdOwned(['vf_ai'])) && await shouldTakeOverAiLine(prisma, uidVF2, userMessage)) {
               vfAiHandled = true
               wfEarlyReply = await handleAiLine({
                 uid: uidVF2, userMessage, auth,
@@ -3167,7 +3173,9 @@ PUBLISH_DRAFT.delete(uidW)
             try { vfLog(uidVF2, '[VF-A] 分派异常: ' + String(eAI?.message || eAI).slice(0, 200)) } catch { /* ignore */ }
           }
         }
-        if (!vfVideoHandled && !vfMixHandled && !vfAiHandled && (vfIntent || VIDEO_DRAFT.has(uidVF2))) {
+        // ★VF_STDCMD_GUARD_V1：命中别条命令时素材线也让位（它自己的命令 = 图片成片 vf_local）
+        if (!vfVideoHandled && !vfMixHandled && !vfAiHandled && (!stdCmdHit || stdCmdOwned(['vf_local']))
+          && (vfIntent || VIDEO_DRAFT.has(uidVF2))) {
           try {
             let vd = VIDEO_DRAFT.get(uidVF2)
             // 内存没有 → 从 AgentMemory 恢复（仿发布：服务器重启/刷新不丢）
@@ -3293,7 +3301,7 @@ PUBLISH_DRAFT.delete(uidW)
                 //   这里只作为【老前端 / 历史消息】的兜底：不再说"开发中"（那是假话），改为指路，
                 //   并且**不改草稿**（原实现会写 vd.mode='mix' 存库，纯属污染）。
                 vfLog(uidVF2, '[画面来源] mix（老入口）→ 已指路到混合线')
-                wfEarlyReply = '「素材+AI 混合」现在是**独立的一条线**：直接说「素材+AI创作做一条视频」就行（AI 只挑该动的镜用 AI，其余用你的素材）。\n本卡只有两个来源：素材合成 / 我上传素材。'
+                wfEarlyReply = '「素材+AI 混合」现在是**独立的一条线**：直接说「素材+AI」就行（AI 只挑该动的镜用 AI，其余用你的素材）。\n本卡只有两个来源：素材合成 / 我上传素材。'
                 finalResult = wfEarlyReply
               } else {
                 // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」**已接通**（原来这里是"暂未实现"占位）。
