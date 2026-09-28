@@ -1,6 +1,6 @@
 {
   "include": ["scripts"],
-  "exclude": ["**/node_modules", ".next", "dist-electron", "dist-rel", "backup-hotspot-20260808", "**/__pycache__"],
+  "exclude": ["**/node_modules", ".next", "dist-electron", "dist-rel", "backup-hotspot-20260808", "**/__pycache__", "**/*.bak-*", "**/*.bak"],
   "typeCheckingMode": "basic",
 
   "reportMissingTypeStubs": false,

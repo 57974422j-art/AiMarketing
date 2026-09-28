@@ -1,6 +1,6 @@
 {
   "name": "ai-marketing",
-  "version": "1.0.213",
+  "version": "1.0.214",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,6 +9,7 @@
     "lint": "next lint",
     "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "next build && electron-builder",
+    "preelectron:build": "node scripts/prepare-playwright.mjs",
     "electron:start": "electron .",
     "release:electron": "node scripts/release-electron.mjs",
     "postinstall": "npx prisma generate && npx prisma db push; true"
@@ -106,7 +107,7 @@
         "to": "scripts/agent-publish"
       },
       {
-        "from": "C:/Users/Administrator/AppData/Local/ms-playwright",
+        "from": "build/ms-playwright",
         "to": "ms-playwright",
         "filter": [
           "**/*"
