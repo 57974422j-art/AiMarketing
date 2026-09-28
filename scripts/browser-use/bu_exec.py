@@ -63,35 +63,66 @@ def ensure_cdp_browser(url, profile, chrome, port=9222):
     print('CDP: 浏览器未就绪——回退 user_data_dir 新开', flush=True)
     return False
 
-def kill_chrome():
-    """2026-08-30: 发布前杀系统 Chrome（释放 Cookies 独占锁——否则 WinError 32 同步失败）"""
+def kill_chrome(profile=None):
+    """★LOGIN_UNIFY_V1（2026-09-28）：只关【用我们这个 profile 的】Chrome。
+
+    为什么要改：原来是 `taskkill /F /IM chrome.exe`（**杀掉机器上所有 Chrome**）——
+      · 会把用户正在用的浏览器一起关掉；
+      · 更严重：会连着杀掉**指纹浏览器**（正在跑的发布/采集任务被中断）。
+    现在按命令行里有没有"我们这个 profile 目录"来定位，只关自己的那一个；
+    profile 为空时退化为旧行为（仅为兼容老调用方，调用处都应传 profile）。
+    """
     try:
         if os.name == 'nt':
-            # 2026-08-31: 发布前杀所有 Chrome（释放所有 profile 锁——wmic 匹配不到 browser-profile 已废弃）
-            os.system('taskkill /F /IM chrome.exe >nul 2>&1')
-            import time; time.sleep(2)
-            print('KILL_CHROME: 系统 Chrome 已关闭（释放 Cookies 锁——发布完成后可重新打开）')
+            if profile:
+                target = os.path.abspath(str(profile)).replace('/', '\\').rstrip('\\').lower()
+                # 用 PowerShell 过滤命令行里含本 profile 的 chrome 进程，只杀这些 PID
+                ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+                      "Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains('" + target + "') } | "
+                      "ForEach-Object { taskkill /PID $_.ProcessId /T /F | Out-Null }")
+                os.system('powershell -NoProfile -ExecutionPolicy Bypass -Command "' + ps + '" >nul 2>&1')
+                import time; time.sleep(2)
+                print('KILL_CHROME: 只关闭了"用本账号 profile 的"Chrome（不影响用户日常浏览器/指纹浏览器）')
+            else:
+                os.system('taskkill /F /IM chrome.exe >nul 2>&1')
+                import time; time.sleep(2)
+                print('KILL_CHROME: 【注意】未传 profile，退化为关闭全部 Chrome')
         else:
-            os.system('pkill -f chrome 2>/dev/null; sleep 1')
+            if profile:
+                os.system("pkill -f '%s' 2>/dev/null; sleep 1" % str(profile))
+            else:
+                os.system('pkill -f chrome 2>/dev/null; sleep 1')
     except Exception as e:
         print('KILL_CHROME_FAIL:', str(e)[:80])
 
 def sync_system_login(profile):
-    """2026-08-30: 同步系统 Chrome 登录态 → bu_profile（每次执行前——先杀 Chrome 释放锁——用日常登录态）"""
-    kill_chrome()
+    """系统 Chrome 登录态 → 本账号 profile 目录。
+
+    ★★LOGIN_UNIFY_V1（2026-09-28，用户定案「不要再东一块西一块」）：改成【只增不覆盖】。
+    原来是无条件 `shutil.copy2` **覆盖** —— 而它在【每次发布前】都会跑，等于：
+      每次发布都把「你在客户端里登记的登录态」替换成「系统 Chrome 里的登录态」；
+      系统 Chrome 没登的平台 = 直接被抹掉（用户实测"登记全丢"的一大来源）。
+    现在：只有本账号目录【还没有】Cookies 时才从系统 Chrome 借一份（保留"复用日常登录"的好处），
+      已有则绝不动；杀 Chrome 也只杀"用本 profile 的"（不再误杀指纹浏览器）。
+    """
+    kill_chrome(profile)
     try:
+        mine = os.path.join(profile, 'Default', 'Network', 'Cookies')
+        if os.path.exists(mine) and os.path.getsize(mine) > 0:
+            print('SYNC: 本账号已有登录态 → 不从系统 Chrome 覆盖（只增不覆盖，保护已登记的登录态）')
+            return True
         sys_default = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data', 'Default')
         sys_ck = os.path.join(sys_default, 'Network', 'Cookies')
         if not os.path.exists(sys_ck):
             print('SYNC: 系统 Chrome Cookies 不存在（未装 Chrome？）'); return False
         dst = os.path.join(profile, 'Default')
         os.makedirs(os.path.join(dst, 'Network'), exist_ok=True)
-        shutil.copy2(sys_ck, os.path.join(dst, 'Network', 'Cookies'))  # 共享读——Chrome 运行中也常可读
+        shutil.copy2(sys_ck, mine)  # 只在"本账号还没登录过"时借一份
         ls = os.path.join(os.path.dirname(sys_default), 'Local State')
         if os.path.exists(ls):
             os.makedirs(profile, exist_ok=True)
             shutil.copy2(ls, os.path.join(profile, 'Local State'))
-        print('SYNC: 已同步系统 Chrome 登录态到 ' + profile)
+        print('SYNC: 已同步系统 Chrome 登录态到 ' + profile + '（本账号原本没有登录态——首次借入）')
         return True
     except Exception as e:
         print('SYNC_FAIL: ' + str(e)[:120]); return False

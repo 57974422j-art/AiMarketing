@@ -341,7 +341,7 @@ async function runStartupChecks(win) {
     _step('cdp', true, _cdpOk ? '调试端口 9222：已开启（正在被使用或可用）' : '调试端口 9222：当前未开启（发布/采集时会自动启动浏览器）')
     // d. 本账号 profile 的 Cookies
     let _hasCk = false
-    try { _hasCk = fs.existsSync(path.join(getProfileDir(), 'Default', 'Network', 'Cookies')) } catch (e) {}
+    try { _hasCk = fs.existsSync(profileCookiesPath()) } catch (e) {}
     _step('ck', true, _hasCk ? '账号登录文件：已就绪' : '账号登录文件：尚未就绪（可在「登记」里登录一次）')
     const _hardFail = (!_chrome) || (_net === 0)
     if (_hardFail) {
@@ -374,10 +374,18 @@ async function runStartupChecks(win) {
     }
     // 本机 browser-profile 下出现过的账号目录（有平台登录态，但可能没有产品 token）
     try {
-      const shared = path.join(app.getPath('userData'), 'browser-profile')
+      const shared = getProfileRoot()
       for (const nm of fs.readdirSync(shared)) {
-        if (!/^\d+$/.test(nm)) continue
-        if (!list.some((a) => String(a.userId) === nm)) list.push({ userId: nm, name: '账号 ' + nm, token: '', lastUsed: 0 })
+        // ★LOGIN_UNIFY_V1：原来只认纯数字目录 → 'default'（"还没登录客户端时登记的那批登录态"）
+        //   在界面上永远看不见，用户以为"登记丢了"。现在把它也列出来，并把名字说清楚。
+        if (!/^\d+$/.test(nm) && nm !== 'default') continue
+        if (!list.some((a) => String(a.userId) === nm)) {
+          list.push({
+            userId: nm,
+            name: nm === 'default' ? 'default（未登录客户端时登记的登录态）' : ('账号 ' + nm),
+            token: '', lastUsed: 0,
+          })
+        }
       }
     } catch (e) {}
     list.sort((a, b) => (Number(b.lastUsed) || 0) - (Number(a.lastUsed) || 0))
@@ -536,17 +544,39 @@ async function detectLoginState(win) {
     } else {
       const names = PLATFORM_NAME
       const on = []; const off = []
+      // ★LOGIN_UNIFY_V1：把 python 新给的"原因/到期时间"也用上 ——
+      //   自检页原来只说"未登录"，用户分不清是"从没登记过"还是"登录过期了"。
+      const _map = (key) => {
+        const mm = String(out || '').match(new RegExp(key + ':([A-Za-z0-9_:,]+)'))
+        const o = {}
+        if (mm) for (const kv of mm[1].split(',')) { const sg = kv.split(':'); o[sg[0]] = sg[1] }
+        return o
+      }
+      const _reasons = _map('REASON'); const _exps = _map('EXP')
+      const expired = []
       for (const kv of m[1].split(',')) {
         const seg = kv.split(':')
         if (!names[seg[0]]) continue
-        ;(seg[1] === '1' ? on : off).push(names[seg[0]])
+        if (seg[1] === '1') { on.push(names[seg[0]]); continue }
+        if (_reasons[seg[0]] === 'expired') {
+          const t = Number(_exps[seg[0]] || 0)
+          const d = t > 0 ? new Date(Math.round(t / 1000 - 11644473600000)).toLocaleDateString('zh-CN') : ''
+          expired.push(names[seg[0]] + (d ? '（' + d + ' 到期）' : ''))
+        } else {
+          off.push(names[seg[0]])
+        }
       }
       // ★NO_LOGIN_NO_BROWSER_V1：把结果记下来（供采集决策；空 = 各平台均未登录）
       __loginChecked = true
       __loggedInPlatforms = on.slice()
-      try { buLog('[login] 登录态：已登录 ' + (on.join(' / ') || '(无)') + ' | 未登录 ' + (off.join(' / ') || '(无)')) } catch (e) {}
+      try { buLog('[login] 登录态：已登录 ' + (on.join(' / ') || '(无)') + ' | 过期 ' + (expired.join(' / ') || '(无)') + ' | 从未登录 ' + (off.join(' / ') || '(无)')) } catch (e) {}
       if (on.length) {
-        item('login', 'ok', '已登录：' + on.join(' / ') + (off.length ? '\n未登录：' + off.join(' / ') + '（登录后重启客户端会再次自检）' : ''), true)
+        item('login', 'ok', '已登录：' + on.join(' / ') +
+          (expired.length ? '\n登录已过期（请重新登记）：' + expired.join(' / ') : '') +
+          (off.length ? '\n未登录：' + off.join(' / ') + '（登录后重启客户端会再次自检）' : ''), true)
+      } else if (expired.length) {
+        item('login', 'warn', '登录已过期（请重新登记）：' + expired.join(' / ') +
+          (off.length ? '\n未登录：' + off.join(' / ') : ''), true)
       } else {
         item('login', 'warn', '各平台均未登录 → 请在「登记」里登录（登录后重启客户端会自动再检）', true)
       }
@@ -834,70 +864,14 @@ async function recordCurrentAccount(why) {
   } catch (e) { try { buLog('[account] 回填失败: ' + String((e && e.message) || e)) } catch (e2) {} return null }
 }
 
-// ★ACCOUNT_NAME_AND_RESIDUE_V1：清理 browser-profile\ 根目录里的历史残留（非数字项）
-//   背景：早期是"共用 profile"（Chrome 的 user-data-dir 就是 browser-profile 本身），
-//        迁移到 browser-profile\{userId} 时只搬走了一部分，Default/ 等留在了根目录。
-//   安全前提：所有账号目录都已有 Cookies（数据就绪）才动手；否则只记日志。
+// ★ACCOUNT_NAME_AND_RESIDUE_V1 → ★LOGIN_UNIFY_V1（2026-09-28）：
+//   本函数（残留收敛 + 登录态分发）已【合并进唯一入口 ensureProfileOnce()】，这里只留别名，
+//   免得旧调用点（主窗口 did-finish-load）失联；实际逻辑不再在本地重复一份。
+//   ★为什么要合并：它与 ensureAccountProfile 的规则互相打架 —— 分发只认【大写 Default】，
+//     却把【小写 default】（"还没登录客户端时登记的那批登录态"）整个目录搬走 →
+//     一登录客户端（目录换成 {userId}）就再也读不到 → 用户看到"登记全丢了"。
 function cleanupProfileResidue() {
-  // ★PROFILE_UNIFY_V1（方案甲定稿，用户拍板）：登录态唯一位置 = browser-profile\{账号Id}\Default\Network\Cookies
-  //   本函数负责把历史遗留"收敛"过来：① 把根目录 Default 的登录态分发给缺登录态的账号
-  //   ② 把根目录的非数字项、账号目录里的【嵌套数字目录】（如 7\1\）移进垃圾夹
-  //   ★ 只"移动不删除"，全部写日志，方便回退
-  try {
-    const base = app.getPath('userData')
-    const root = path.join(base, 'browser-profile')
-    if (!fs.existsSync(root)) return
-    const size = (p) => { try { return fs.statSync(p).size } catch (e) { return -1 } }
-    const entries = fs.readdirSync(root)
-    const numeric = entries.filter((n) => /^\d+$/.test(n))
-
-    // ① 分发：根目录 Default 里的登录态，给"缺登录态或那份更小"的账号各复制一份
-    try {
-      const srcCk = path.join(root, 'Default', 'Network', 'Cookies')
-      if (fs.existsSync(srcCk)) {
-        const srcSize = size(srcCk)
-        let gave = 0
-        for (const n of numeric) {
-          const mine = path.join(root, n, 'Default', 'Network', 'Cookies')
-          if (size(mine) >= srcSize) continue
-          try {
-            fs.mkdirSync(path.join(root, n, 'Default', 'Network'), { recursive: true })
-            fs.cpSync(srcCk, mine)
-            gave++
-          } catch (e) {}
-        }
-        if (gave) buLog('[profile] 已把共用(Default)登录态分发给 ' + gave + ' 个账号')
-      }
-    } catch (e) {}
-
-    // 收集要移走的
-    const junk = []
-    // ② 根目录的非数字项（Default/、缓存目录…）——方案甲下都不该留在根目录
-    for (const n of entries) {
-      if (/^\d+$/.test(n)) continue
-      junk.push(n)
-    }
-    // ③ 账号目录里的【嵌套数字目录】（7\1\ 这种，由老的复制 bug 造成）
-    for (const n of numeric) {
-      try {
-        for (const sub of fs.readdirSync(path.join(root, n))) {
-          if (!/^\d+$/.test(sub)) continue
-          junk.push(path.join(n, sub))
-        }
-      } catch (e) {}
-    }
-    if (!junk.length) { buLog('[profile] 无历史遗留需要收敛（目录已干净）'); return }
-
-    const bak = path.join(base, 'browser-profile-junk-' + Date.now())
-    try { fs.mkdirSync(bak, { recursive: true }) } catch (e) {}
-    let moved = 0
-    for (const j of junk) {
-      const src = path.join(root, j)
-      const dst = path.join(bak, String(j).replace(/[\\/]/g, '__'))
-      try { fs.renameSync(src, dst); moved++ } catch (e) {}
-    }
-    buLog('[profile] 已收敛 ' + moved + '/' + junk.length + ' 项历史遗留 → ' + bak + '（只移动未删除，可回退）')
-  } catch (e) {}
+  try { ensureProfileOnce().catch(() => {}) } catch (e) {}
 }
 // ═══ ★CDP_COOKIE_V1（方案 A）：Chrome 开着时，通过 9222 向 Chrome 要 cookie ═══
 //   实测：Windows 下 Chrome 独占锁 Cookies 文件 → immutable 直读 / 普通读 / PowerShell 复制 全部失败；
@@ -940,7 +914,8 @@ async function dumpCookiesViaCDP(reason) {
       // Chrome 内部时间 = Unix 秒 * 1e6 + 11644473600000000（1601 基准）；会话 cookie（-1/0）记 0
       expires_utc: (k.expires && k.expires > 0) ? Math.round(k.expires * 1000000 + 11644473600000000) : 0,
     }))
-    const file = path.join(app.getPath('userData'), 'bu_cookies_cdp.json')
+    // ★LOGIN_UNIFY_V1：导出的 cookie 放进【本账号目录】（原来放共用层 → 多账号互相覆盖）
+    const file = profileCdpPath()
     try { fs.writeFileSync(file, JSON.stringify({ at: Date.now(), reason: reason || '', cookies: norm })) } catch (e) { return false }
     buLog('[cdp] 已通过 9222 导出 ' + norm.length + ' 条 cookie（' + (reason || '') + '）')
     return true
@@ -2197,7 +2172,8 @@ const activeBrowsers = new Map()
 
 /** 获取用户数据目录 */
 function getUserDataDir(port) {
-  return path.join(app.getPath('userData'), `browser-profiles`, String(port))
+  // ★LOGIN_UNIFY_V1：走唯一的"指纹根目录"常量（防与登记目录 browser-profile 混用）
+  return path.join(getFpProfileRoot(), String(port))
 }
 
 /** 反检测启动参数 */
@@ -2215,6 +2191,13 @@ const FP_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537
 // ── 启动指纹浏览器窗口 ──
 ipcMain.handle('fp:start', async (_event, { port, userId, accountId, platform, proxy }) => {
   try {
+    // ★LOGIN_UNIFY_V1 护栏（2026-09-28）：9222 是"登记/发布/采集"专用端口 ——
+    //   指纹浏览器【绝不许】用它。否则登记时会误把指纹浏览器当成"我们的登记浏览器"复用，
+    //   用户点的登录会写进**指纹 profile**，而检测读登记 profile → 永远显示"未登录"。
+    //   （两套登录态是独立的：登记=browser-profile/<账号>，指纹=browser-profiles/<账号>）
+    if (Number(port) === 9222) {
+      return { success: false, error: '9222 端口保留给「登记/发布」浏览器，指纹浏览器请改用其它端口（如 9223 起）' }
+    }
     if (activeBrowsers.has(port)) {
       const existing = activeBrowsers.get(port)
       if (existing.browserContext && !existing.browserContext._closed) {
@@ -2462,8 +2445,28 @@ function getClientUserId() { return __clientUserId }
 function getProfileDir() {
   if (process.env.BU_PROFILE) return process.env.BU_PROFILE
   const sub = __clientUserId || 'default'
-  return path.join(app.getPath('userData'), 'browser-profile', sub)
+  return path.join(getProfileRoot(), sub)
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ★LOGIN_UNIFY_V1（2026-09-28，用户定案「不要再东一块西一块」）：登录态的【唯一路径规则】
+//   事故背景：同一份登录态，全仓有 8 处各自 path.join 拼路径（另有 python 侧几处），
+//   一旦哪处拼错/漏改（历史上有过"发布拿旧共用路径、检测拿账号路径"），就表现为
+//   "登记了却显示未登录 / 登录态丢失"。从现在起：**任何地方要拿登录态文件都必须调下面这几个函数**。
+//   目录职责（★两套别混，只差一个 s）：
+//     browser-profile/<账号>/   ← 登记(Browser Use)登录态 + 发布 + 热点采集 用的是这套
+//     browser-profiles/<账号>/  ← 指纹浏览器（另一套独立系统，与登记登录态无关）
+// ═══════════════════════════════════════════════════════════════════════════
+function getProfileRoot() { return path.join(app.getPath('userData'), 'browser-profile') }
+function getFpProfileRoot() { return path.join(app.getPath('userData'), 'browser-profiles') }
+/** 该账号的登录态主文件（Chrome Cookies） */
+function profileCookiesPath(dir) { return path.join(dir || getProfileDir(), 'Default', 'Network', 'Cookies') }
+/** 该账号的检测缓存（login_state.py 写；读不到 Cookies 时兜底，绝不返回空） */
+function profileCachePath(dir) { return path.join(dir || getProfileDir(), 'bu_login_cache.json') }
+/** 该账号的 9222 导出 cookie（Chrome 锁库时的唯一通路） */
+function profileCdpPath(dir) { return path.join(dir || getProfileDir(), 'bu_cookies_cdp.json') }
+/** ★我们自己启动的登记浏览器"身份证"：用来判断 9222 上那个浏览器是不是本账号的 */
+function buChromeMarkerFile() { return path.join(app.getPath('userData'), 'bu_chrome.json') }
 const BU_PROFILE_DIR = {
   toString() { return getProfileDir() },
   valueOf() { return getProfileDir() },
@@ -2475,17 +2478,21 @@ const isTrustedSender = (event) => {
     return !u || u.startsWith('file://') || u.startsWith('http://127.0.0.1') || u.startsWith('http://localhost') || u.includes('ai-niuma.cc')
   } catch { return false }
 }
-ipcMain.handle('bu:open', async (event) => {
+ipcMain.handle('bu:open', async (event, arg) => {
   if (!isTrustedSender(event)) return { success: false, error: 'untrusted sender' }
   try {
-    // ★CHROME_PATH_FIX_V1（2026-09-22）：同 browser:open-url —— 去掉未定义的 `ch.unref()`
-    //   （原来每次调用都抛 ReferenceError 且无日志），改为看统一启动函数的返回值。
-    const ok = await ensureChromeForPublish('https://creator.xiaohongshu.com/publish/publish')
+    // ★LOGIN_UNIFY_V1（2026-09-28）：与 browser:open-url 【合并成同一个入口】——
+    //   两个都走 ensureChromeForPublish（都会"验明正身"再复用、都会打开目标页）。
+    //   原来这里把地址【写死成小红书】，前端点"抖音"也只会开小红书页 → 用户以为登记了其实没登。
+    const url = (typeof arg === 'string' && arg)
+      ? arg
+      : ((arg && arg.url) || 'https://creator.xiaohongshu.com/publish/publish')
+    const ok = await ensureChromeForPublish(url)
     if (!ok) {
       try { buLog('[chrome] bu:open 启动失败 → 已返回失败给前端') } catch (e) {}
-      return { success: false, error: '本机没能启动浏览器（没找到 Chrome/Edge/内置 Chromium，或启动失败）——可把 <安装目录>\\data\\bu_debug.log 发给开发' }
+      return { success: false, error: '本机没能启动登记浏览器：' + (__chromeErr || '未知原因') + '\n（可把 <安装目录>\\data\\bu_debug.log 发给开发）' }
     }
-    return { success: true, message: '已打开 Browser Use 浏览器（bu_profile）——请扫码登录目标平台，登录后点「刷新检测」' }
+    return { success: true, message: '已打开登记浏览器（本账号的登录态目录）——请扫码登录，登录后点「刷新检测」' }
   } catch (e) {
     try { buLog('[chrome] bu:open 异常: ' + String(e && e.message || e)) } catch (e2) {}
     return { success: false, error: String(e && e.message || e) }
@@ -2525,10 +2532,13 @@ ipcMain.handle('bu:open', async (event) => {
       let accounts = parsePlats(out)
       let from = 'live'
       if (!accounts) {
+        // ★LOGIN_UNIFY_V1：缓存改成【本账号目录】里的 bu_login_cache.json（原来是共用层的 txt，
+        //   会被别的账号覆盖；且它写的是不带 PLATS: 前缀的裸串，本处解析一直失败 —— 顺带修掉）
         try {
-          const cacheFile = path.join(app.getPath('userData'), 'browser-profile', 'bu_login_cache.txt')
+          const cacheFile = profileCachePath()
           if (fs.existsSync(cacheFile)) {
-            accounts = parsePlats(fs.readFileSync(cacheFile, 'utf8'))
+            const j = JSON.parse(fs.readFileSync(cacheFile, 'utf8') || '{}')
+            accounts = parsePlats('PLATS:' + String(j.plats || ''))
             if (accounts) from = 'cache'
           }
         } catch (e) {}
@@ -2537,7 +2547,28 @@ ipcMain.handle('bu:open', async (event) => {
         try { buLog('[bucheck] 检测无结果（python 无输出/超时）→ 返回 success:false（不再谎报空列表）') } catch (e) {}
         return { success: false, error: 'check-no-output', buDir: String(BU_PROFILE_DIR) }
       }
-      try { buLog('[bucheck] 登录态来源=' + from + ' | ' + accounts.map((a) => a.id + ':' + (a.loggedIn ? 1 : 0)).join(',')) } catch (e) {}
+      // ★LOGIN_UNIFY_V1：把 python 新给的"原因/到期时间/通路"也带回前端 ——
+      //   这样界面能直接说清"抖音登录 10-28 到期"或"小红书从没在这个账号下登记过"，
+      //   而不是只给一个没有信息量的"未登录"。
+      const parseMap = (key) => {
+        const mm = String(out || '').match(new RegExp(key + ':([A-Za-z0-9_:,]+)'))
+        const o = {}
+        if (mm) for (const kv of mm[1].split(',')) { const seg = kv.split(':'); o[seg[0]] = seg[1] }
+        return o
+      }
+      const _reasons = parseMap('REASON')
+      const _exps = parseMap('EXP')
+      const _fromPy = (String(out || '').match(/FROM:(\w+)/) || [])[1] || ''
+      accounts = accounts.map((a) => ({
+        ...a,
+        reason: _reasons[a.id] || '',
+        // Chrome 内部时间（1601 基准，微秒）→ 毫秒时间戳（前端能直接显示日期）
+        expireAt: (Number(_exps[a.id] || 0) > 0) ? Math.round(Number(_exps[a.id]) / 1000 - 11644473600000) : 0,
+      }))
+      try {
+        buLog('[bucheck] 登录态来源=' + from + (_fromPy ? '/' + _fromPy : '') + ' | ' +
+          accounts.map((a) => a.id + ':' + (a.loggedIn ? 1 : 0) + (a.reason ? '(' + a.reason + ')' : '')).join(','))
+      } catch (e) {}
       return { success: true, accounts, buDir: String(BU_PROFILE_DIR) }   // ISO_GETTER_FIX_V1
     } catch (e) { return { success: false, error: String(e && e.message || e) } }
   })
@@ -2949,60 +2980,89 @@ async function showChangelogOnStartup() {
 //     · 复制后【校验】\Default\Network\Cookies；不通过 → 不写标记 + 告警 → 下次重试
 //     · 逐项失败都写日志
 //     · 旧共用目录【保留不删】→ 永远是兜底数据源
-async function ensureAccountProfile() {
+// ═══════════════════════════════════════════════════════════════════════════
+// ★LOGIN_UNIFY_V1（2026-09-28，用户定案「不要再东一块西一块」）：
+//   登录态目录的【唯一幂等入口 ensureProfileOnce】—— 把原来两个【互相打架】的函数合并：
+//     · ensureAccountProfile()   把共用登录态【复制】进账号目录（只增不删）
+//     · cleanupProfileResidue()  把 browser-profile 根目录的非数字项【搬走】到垃圾夹
+//   ★冲突点（就是 2026-09-28「登记全丢」的根因）：
+//     后者把 `default/` 整个目录搬走了，而前者【只认大写的 `Default/`】→
+//     "还没登录客户端时登记的那批登录态"（在 default 里）既没被分发、又被搬离主目录 →
+//     一登录客户端（目录换成 {userId}）就再也读不到 → 界面上全变"未登录"。
+//   本版规则（**只增不搬**，动手前先抄一份，全程写日志，幂等、每次启动都能跑）：
+//     ① 账号未就绪 → 本次跳过（绝不猜账号）
+//     ② 分发：根目录 legacy `Default/`（大写，老共用层）与 `default/`（小写，"未登录时登记"）
+//        谁有登录态就【复制】给当前账号（当前账号缺、或对方更新时才复制）
+//        ★`Local State` 必须一起复制 —— cookie 用它里面的密钥加密，只复制 Cookies 文件解不开
+//     ③ 收敛：根目录【其它】非数字项 + 账号目录里的嵌套数字目录 → 搬进 `browser-profile-junk-<ts>`
+//        ★`default` 永不搬走（它可能是唯一的登录态来源）；两个缓存文件也不搬
+//     ④ Chrome 正在跑（9222 通）→ 本次只跳过"复制/搬运"（Cookies 被独占、目录在用）
+// ═══════════════════════════════════════════════════════════════════════════
+async function ensureProfileOnce() {
   try {
     const base = app.getPath('userData')
-    const shared = path.join(base, 'browser-profile')
+    const root = getProfileRoot()
     const uid = String(getClientUserId() || '')
-    if (!uid) { buLog('[iso] 账号未就绪 → 本次跳过登录态目录检查'); return false }
-    const mine = path.join(shared, uid)
-    const myCk = path.join(mine, 'Default', 'Network', 'Cookies')
-    // ① 已就绪（最常见）
-    if (fs.existsSync(myCk)) return true
-    // ② 共用目录也没有登录态 → 本机是新环境（第一次用），无需迁移
-    const sharedCk = path.join(shared, 'Default', 'Network', 'Cookies')
-    if (!fs.existsSync(sharedCk)) {
-      buLog('[iso] 账号目录暂无登录态、共用目录也没有（新环境）→ 请在「登记」里登录一次')
-      return true
-    }
-    // ③ Chrome 在运行 → Cookies 被独占，跳过迁移（原版就是在这里复制失败且被静默吞掉）
-    const cdpOk = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(2500) }).then((r) => r.ok).catch(() => false)
-    if (cdpOk) {
-      buLog('[iso] Chrome 正在运行 → 本次跳过登录态迁移（避免复制失败），下次启动再补')
-      return false
-    }
-    // ④ 复制（逐项记日志，不再静默）
-    fs.mkdirSync(mine, { recursive: true })
-    let okN = 0
-    const fails = []
-    for (const name of fs.readdirSync(shared)) {
-      if (name === uid) continue
-      // ★PROFILE_SAFETY_FIX_V1（用户实测：账号目录被弄乱/登录态丢失）：
-      //   ① 绝不复制【别的账号目录】（纯数字）—— 否则会嵌套进当前账号目录里
-      //   ② 绝不复制【备份夹】
-      if (/^\d+$/.test(name)) continue
-      if (name.indexOf('browser-profile-residue-') === 0) continue
+    if (!uid) { buLog('[profile] 账号未就绪 → 本次跳过登录态目录检查（避免登记写进 default 后读不到）'); return false }
+    const mine = getProfileDir()
+    const myCk = profileCookiesPath(mine)
+    const size = (p) => { try { return fs.statSync(p).size } catch (e) { return -1 } }
+    try { fs.mkdirSync(mine, { recursive: true }) } catch (e) {}
+
+    let chromeUp = false
+    try { chromeUp = await probe9222(1500) } catch (e) { chromeUp = false }
+
+    // ② 分发（只增不搬）
+    for (const src of ['Default', 'default']) {
       try {
-        fs.cpSync(path.join(shared, name), path.join(mine, name), { recursive: true })
-        okN++
-      } catch (e2) {
-        fails.push(name + '(' + String((e2 && e2.message) || e2).slice(0, 40) + ')')
-      }
+        const srcDir = path.join(root, src)
+        const srcCk = path.join(srcDir, 'Default', 'Network', 'Cookies')
+        if (!fs.existsSync(srcCk)) continue
+        if (size(myCk) >= size(srcCk)) continue     // 当前账号已有（不更旧）的登录态 → 不动
+        if (chromeUp) { buLog('[profile] Chrome 正在运行 → 本次跳过登录态分发，下次启动再补'); break }
+        fs.mkdirSync(path.dirname(myCk), { recursive: true })
+        fs.cpSync(srcCk, myCk)
+        try {
+          const ls = path.join(srcDir, 'Local State')
+          if (fs.existsSync(ls)) fs.cpSync(ls, path.join(mine, 'Local State'))
+        } catch (e) {}
+        buLog('[profile] ✅ 已把「' + src + '」里的登录态复制进当前账号（' +
+          (src === 'default' ? '未登录客户端时登记的那批' : '老共用层') + '）→ ' + mine)
+      } catch (e) { buLog('[profile] 分发 ' + src + ' 失败: ' + String(e).slice(0, 90)) }
     }
-    // ⑤ 校验：Cookies 真到位才写标记（否则下次启动重试）
-    if (fs.existsSync(myCk)) {
-      buLog('[iso] ✅ 登录态已就绪到账号目录（' + okN + ' 项' + (fails.length ? '，失败 ' + fails.length + ' 项' : '') + '）profile=' + mine)
-      if (fails.length) buLog('[iso]   （失败项示例：' + fails.slice(0, 5).join(', ') + '）')
-      try { fs.writeFileSync(path.join(base, '.profile-migrated-v1'), JSON.stringify({ at: Date.now(), to: mine, okN, fails: fails.length })) } catch (e) {}
-      return true
+
+    // ③ 收敛（搬走明确的残留；default 与缓存文件永不搬）
+    if (chromeUp) { buLog('[profile] Chrome 正在运行 → 本次不做残留收敛（避免动到正在用的目录）'); return true }
+    const KEEP = new Set(['default', 'bu_login_cache.txt', 'bu_cookies_cdp.json', 'bu_login_cache.json'])
+    let entries = []
+    try { entries = fs.readdirSync(root) } catch (e) { entries = [] }
+    const junk = []
+    for (const n of entries) {
+      if (/^\d+$/.test(n)) continue               // 账号目录（含当前账号）不动
+      if (KEEP.has(n)) continue                   // ★default / 缓存文件永不搬
+      junk.push(n)
     }
-    buLog('[iso] ⚠️ 复制完成但未找到 Cookies（失败 ' + fails.length + ' 项）→ 不记标记，下次启动重试')
-    return false
+    for (const n of entries) {                    // 账号目录里的嵌套数字目录（老的复制 bug 造成）
+      if (!/^\d+$/.test(n)) continue
+      try { for (const sub of fs.readdirSync(path.join(root, n))) if (/^\d+$/.test(sub)) junk.push(path.join(n, sub)) } catch (e) {}
+    }
+    if (!junk.length) { buLog('[profile] 目录已干净（无需收敛）'); return true }
+    const bak = path.join(base, 'browser-profile-junk-' + Date.now())
+    try { fs.mkdirSync(bak, { recursive: true }) } catch (e) {}
+    let moved = 0
+    for (const j of junk) {
+      try { fs.renameSync(path.join(root, j), path.join(bak, String(j).replace(/[\\/]/g, '__'))); moved++ } catch (e) {}
+    }
+    buLog('[profile] 已收敛 ' + moved + '/' + junk.length + ' 项历史残留 → ' + bak + '（只移动未删除，可回退；default 永不搬走）')
+    return true
   } catch (e) {
-    buLog('[iso] 登录态目录检查异常: ' + String(e).slice(0, 140))
+    buLog('[profile] ensureProfileOnce 异常: ' + String(e).slice(0, 140))
     return false
   }
 }
+
+/** 兼容旧调用点（切账号 / 自检 / 页面加载后 都会调）：现在只是"唯一入口"的别名 */
+async function ensureAccountProfile() { return await ensureProfileOnce() }
 
 async function syncClientUser() {
   try {
@@ -3450,9 +3510,9 @@ ipcMain.handle('browser:open-url', async (_e, url) => {
     const ok = await ensureChromeForPublish(String(url || 'https://www.google.com'))
     if (!ok) {
       try { buLog('[chrome] browser:open-url 启动失败 → 已返回失败给前端') } catch (e) {}
-      return { success: false, error: '本机没能启动浏览器（没找到 Chrome/Edge/内置 Chromium，或启动失败）——可把 <安装目录>\\data\\bu_debug.log 发给开发' }
+      return { success: false, error: '本机没能启动登记浏览器：' + (__chromeErr || '未知原因') + '\n（可把 <安装目录>\\data\\bu_debug.log 发给开发）' }
     }
-    return { success: true, message: '已打开浏览器（系统 Chrome + browser-profile）' }
+    return { success: true, message: '已打开登记浏览器（本账号的登录态目录）' }
   } catch (e) {
     try { buLog('[chrome] browser:open-url 异常: ' + String(e && e.message || e)) } catch (e2) {}
     return { success: false, error: String(e && e.message || e) }
@@ -4184,11 +4244,65 @@ function scheduleClientLayoutRestore(delayMs) {
 }
 
 
+// ═══ ★LOGIN_UNIFY_V1（2026-09-28）：登记浏览器的"身份证" + 只关自己启的 + 复用也要打开目标页 ═══
+//   背景（用户 2026-09-28 实测"登记全丢"）：
+//     · 旧逻辑【只要 9222 通就复用】—— 不校验"上面那个浏览器用的是哪个 profile"。
+//       切过账号、或指纹浏览器恰好占了 9222 时，用户点的"登记"会把登录态写进**别的 profile**，
+//       而检测读的是本账号目录 → 永远显示未登录。
+//     · 旧逻辑复用分支【直接 return true，url 被丢掉】→ 用户点了"抖音"什么都不会打开。
+//   现在：启动时写一份身份证（pid + profile）；复用时先验明正身，不一致就【只关我们自己启的那一个】
+//        再按正确 profile 启动；一致则复用并打开用户点的那个平台。
+let __chromeErr = ''   // 最近一次登记浏览器失败的原因（给前端提示用）
+function buChromeMarkerRead() {
+  try { const j = JSON.parse(fs.readFileSync(buChromeMarkerFile(), 'utf-8')); return (j && j.pid) ? j : null } catch (e) { return null }
+}
+function buChromeMarkerWrite(pid) {
+  try { fs.writeFileSync(buChromeMarkerFile(), JSON.stringify({ pid: Number(pid) || 0, profile: String(BU_PROFILE_DIR), at: Date.now() })) } catch (e) {}
+}
+function pidAlive(pid) {
+  try { process.kill(Number(pid), 0); return true } catch (e) { return false }
+}
+/** 只关【我们自己启过的那个】登记浏览器 —— 绝不动用户的普通 Chrome / 指纹浏览器 */
+function killOurChrome(marker) {
+  try {
+    if (marker && marker.pid && pidAlive(marker.pid) && String(marker.profile || '').indexOf('browser-profile') >= 0) {
+      spawn('taskkill', ['/PID', String(marker.pid), '/T', '/F'], { windowsHide: true })
+      buLog('[chrome] 只关闭"我们自己启的"登记浏览器 pid=' + marker.pid + '（profile=' + marker.profile + '）')
+    }
+  } catch (e) {}
+  try { fs.unlinkSync(buChromeMarkerFile()) } catch (e) {}
+}
+/** 复用时也要把用户点的那个平台打开（旧代码复用分支丢掉了 url → 点了没反应） */
+async function openUrlInOurChrome(url) {
+  const u = String(url || '').trim()
+  if (!u || u === 'about:blank') return
+  try { const r = await fetch('http://127.0.0.1:9222/json/new?' + encodeURIComponent(u), { method: 'PUT' }); if (r.ok) return } catch (e) {}
+  try { await fetch('http://127.0.0.1:9222/json/new?' + encodeURIComponent(u)) } catch (e) {}
+}
+
 async function ensureChromeForPublish(url) {
-  // ① 先探（通了就复用，绝不启新进程——避免同 profile 两实例抢写 Cookies）
+  __chromeErr = ''
+  const want = String(BU_PROFILE_DIR)
+  // ① 先探：9222 上有浏览器 → 必须【验明正身】才能复用（★这是"登录写进别的 profile"的根治）
   if (await probe9222(2000)) {
-    try { buLog('[chrome] 9222 已通——复用现有登记浏览器（不启新进程）') } catch (e) {}
-    return true
+    const mk = buChromeMarkerRead()
+    if (mk && mk.profile === want && pidAlive(mk.pid)) {
+      await openUrlInOurChrome(url)
+      try { buLog('[chrome] 9222 已通且是本账号浏览器 → 复用并打开 ' + String(url || '').slice(0, 70)) } catch (e) {}
+      return true
+    }
+    try {
+      buLog('[chrome] ⚠️ 9222 上的浏览器不是本账号（目标 profile=' + want +
+        (mk ? '；占用者 pid=' + mk.pid + ' profile=' + mk.profile : '；没有我们的身份证') +
+        '）→ 只关我们自己启过的那个，再按正确 profile 启动')
+    } catch (e) {}
+    killOurChrome(mk)
+    for (let i = 0; i < 6; i++) { await new Promise((r) => setTimeout(r, 1000)); if (!(await probe9222(800))) break }
+    if (await probe9222(800)) {
+      __chromeErr = '9222 端口被【另一个】浏览器占用（不是本客户端的登记浏览器，可能是你自己开的调试浏览器或指纹浏览器）——请先关掉它，再点登记'
+      try { buLog('[chrome] ' + __chromeErr) } catch (e) {}
+      return false
+    }
   }
   // ② ★2026-09-12 修：不再依赖 _chromeStartedByUs "已启过"标记
   //    （原逻辑：标记为 true 就只等不启 → 浏览器被关掉后永远不再启动 → 脚本等 30s 超时失败，任务#79 实测）
@@ -4197,6 +4311,7 @@ async function ensureChromeForPublish(url) {
   //   ② 客户端自带的内置 Chromium。这样"只装了 Edge / Chrome 装在非标准位置"的机器也能登记。
   if (!ch) { try { ch = findBrowserExe() } catch (e) {} }
   if (!ch) {
+    __chromeErr = '没找到浏览器（已试 Chrome 三处路径 / Edge / 内置 Chromium）'
     try { buLog('[chrome] 未找到 chrome.exe（登记浏览器无法启动）—— 已尝试 Program Files / 用户级安装 / Edge / 内置 Chromium') } catch (e) {}
     return false
   }
@@ -4205,10 +4320,13 @@ async function ensureChromeForPublish(url) {
     // ★LAYOUT_V1：要新启动浏览器 → 先分栏（客户端缩左、浏览器靠右），并给它窗口位置
     const _rect = layoutSideBySide()
     const _wp = _rect ? ['--window-position=' + _rect.x + ',' + _rect.y, '--window-size=' + _rect.width + ',' + _rect.height] : []
-    spawn(ch, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--remote-allow-origins=*', '--no-first-run'].concat(_wp).concat([String(url || 'https://www.google.com')]), { detached: true, stdio: 'ignore' }).unref()
+    const cp = spawn(ch, ['--user-data-dir=' + BU_PROFILE_DIR, '--remote-debugging-port=9222', '--remote-allow-origins=*', '--no-first-run'].concat(_wp).concat([String(url || 'https://www.google.com')]), { detached: true, stdio: 'ignore' })
+    cp.unref()
+    buChromeMarkerWrite(cp.pid)      // ★身份证：记下"这个 pid 用的是本账号 profile"
     _chromeStartedByUs = true
     buLog('[chrome] 已启动登记浏览器（9222 + profile=' + BU_PROFILE_DIR + '）')
   } catch (e) {
+    __chromeErr = '浏览器启动失败：' + String(e).slice(0, 60)
     try { buLog('[chrome] 启动失败: ' + String(e).slice(0, 80)) } catch (e2) {}
     return false
   }
@@ -4220,6 +4338,7 @@ async function ensureChromeForPublish(url) {
       return true
     }
   }
+  __chromeErr = '启动了浏览器但 15 秒内 9222 没就绪'
   try { buLog('[chrome] 等了 15s 仍未就绪（9222 不通）') } catch (e) {}
   return false
 }

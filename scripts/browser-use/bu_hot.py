@@ -25,68 +25,33 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
 
-# 只采这些平台（用户已登录才采；未登录直接跳过）
+# ★LOGIN_UNIFY_V1（2026-09-28）：平台表 / 关键 cookie 名【唯一来源 = login_state.py】
+#   原来本文件自己写了一份（且把小红书的 a1、快手的 passToken 当登录凭据 —— a1 其实只是**游客标识**，
+#   会导致"没登录也显示已登录"）。现在与 bu_check / 发布链路用同一张表，口径不再打架。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from login_state import PLATFORMS, profile_paths, read_rows as _read_rows   # noqa: E402
+
+# 只采这些平台（用户已登录才采；未登录直接跳过）—— 键仍是中文名（本文件下面按中文名索引）
 PLATFORM_COOKIES = {
-    '微博': ('weibo.com', ['SUB']),
-    'B站': ('bilibili.com', ['SESSDATA']),
-    '抖音': ('douyin.com', ['sessionid', 'sessionid_ss', 'sid_tt']),
-    '小红书': ('xiaohongshu.com', ['web_session', 'a1']),
-    '快手': ('kuaishou.com', ['passToken', 'bUserId']),
+    label: (domain, list(keys))
+    for _pid, domain, label, keys in PLATFORMS
+    if _pid in ('weibo', 'bilibili', 'douyin', 'xiaohongshu', 'kuaishou')
 }
 
 
 def read_cookies(profile):
-    """读 browser-profile 的 Cookies（带重试——Chrome 运行时锁文件）"""
-    ck = os.path.join(profile, 'Default', 'Network', 'Cookies')
-    if not os.path.exists(ck):
-        print('NO_COOKIES:' + ck)
+    """读 browser-profile 的 Cookies（带重试——Chrome 运行时锁文件）
+       ★LOGIN_UNIFY_V1：改走 login_state.read_rows —— 同一套三级回退（CDP 导出 → immutable 直读 → 复制），
+       同一套路径（cdp 文件/缓存都在【账号目录】里，不再放共用层以免多账号互相覆盖）。"""
+    rows4, src, err = _read_rows(profile, with_value=True)
+    if not rows4:
+        if err and err != 'NO_COOKIES_FILE':
+            print('READ_COOKIES_ERR:' + str(err)[:90])
+        else:
+            print('NO_COOKIES:' + profile_paths(profile)['cookies'])
         return []
-    # ★CDP_COOKIE_V1（方案 A）：优先用主进程通过 9222 导出的 cookie
-    #   （实测：Chrome 运行时独占锁 Cookies 文件，读文件/复制/immutable 全部失败，只能问 Chrome 要）
-    try:
-        import json as _json
-        _cdpfile = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(profile.rstrip('/')))), 'bu_cookies_cdp.json')
-        if os.path.exists(_cdpfile):
-            _cd = _json.load(open(_cdpfile, encoding='utf-8'))
-            if _cd and _cd.get('cookies') and (time.time() * 1000 - (_cd.get('at') or 0)) < 600000:
-                _rows = [(x.get('host_key', ''), x.get('name', ''), x.get('value', '')) for x in _cd['cookies']]
-                if _rows:
-                    print('（CDP 导出直读成功，%d 条 cookie）' % len(_rows))
-                    return _rows
-    except Exception as _e:
-        print('CDP_COOKIES_FAIL:' + str(_e)[:80])
-    # 2026-09-13: 【immutable 直读】——Chrome 运行时独占锁 Cookie 库，copy 会 WinError 32；
-    #   而用 sqlite 的 immutable=1 只读模式可以绕过锁（实测有效）。失败再退回拷贝。
-    uri = 'file:///' + ck.replace(os.sep, '/').lstrip('/') + '?immutable=1'
-    try:
-        con = sqlite3.connect(uri, uri=True)
-        rows = con.execute('SELECT host_key, name, value FROM cookies').fetchall()
-        con.close()
-        if rows:
-            print('（immutable 直读成功，%d 条 cookie）' % len(rows))
-            return rows
-    except Exception as e:
-        print('IMMUTABLE_FAIL:' + str(e)[:80])
-
-    tmp = os.path.join(tempfile.gettempdir(), 'bu_hot_cookies.db')
-    for i in range(4):
-        try:
-            shutil.copy2(ck, tmp)
-            break
-        except Exception as e:
-            if i < 3:
-                time.sleep(1.5)
-            else:
-                print('COPY_FAIL:' + str(e)[:90])
-                return []
-    try:
-        con = sqlite3.connect(tmp)
-        rows = con.execute('SELECT host_key, name, value FROM cookies').fetchall()
-        con.close()
-        return rows
-    except Exception as e:
-        print('READ_FAIL:' + str(e)[:90])
-        return []
+    print('（登录态来源=%s，%d 条 cookie）' % (src, len(rows4)))
+    return [(h, n, v) for (h, n, _e, v) in rows4]
 
 
 def pick(rows, domain, names):

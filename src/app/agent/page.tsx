@@ -2237,6 +2237,23 @@ function AgentPageInner() {
         const anyLoggedIn = accts.some((a: any) => a && a.loggedIn)
         if (br?.success && accts.length > 0) {
           setBuAccounts(accts)
+          // ★LOGIN_UNIFY_V1（2026-09-28）：把登录态【上报服务端】——
+          //   原来 /api/agent/browser-status 只有定义、**全仓 0 个调用方**，
+          //   于是 AI（chat/route.ts 的 publish_content）读到的是空数据 →
+          //   明明已经登录，AI 还会说"请先去登记/未登录平台"。
+          //   现在每次检测都上报一份（服务端是 5 分钟内存缓存，够一轮对话用）。
+          try {
+            fetch('/api/agent/browser-status', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                accounts: accts.map((a: any) => ({
+                  id: a.id, name: a.name, loggedIn: !!a.loggedIn,
+                  reason: a.reason || '', expireAt: a.expireAt || 0,
+                })),
+              }),
+            }).catch(() => {})
+          } catch {}
           if (!anyLoggedIn && !retriedOnce) { retriedOnce = true; setTimeout(detect, 1500) }
         } else if (!br?.success) {
           // 读失败 → 保留上次结果，不清空（避免误判"未登录"）
@@ -3942,14 +3959,44 @@ function AgentPageInner() {
                 <div className="mt-1.5 space-y-1">
                   <div className="mt-2 pt-2 border-t border-white/10">
                     <p className="text-[9px] text-gray-500 mb-1">登记平台（点击打开内置浏览器登录）</p>
+                    {/* ★LOGIN_UNIFY_V1（2026-09-28）：一句话说清"现在到底是什么状态" ——
+                        原来只有一句没有信息量的"未登录"，用户分不清是"从没登记过"还是"登录过期了"。 */}
+                    {buAccounts.length > 0 && (
+                      <p className="text-[9px] mb-1 leading-relaxed">
+                        {(() => {
+                          const CN: Record<string, string> = { douyin: '抖音', xiaohongshu: '小红书', weibo: '微博', bilibili: 'B站', shipinhao: '视频号', kuaishou: '快手', x: 'X', google: 'Google' }
+                          const nm = (a: any) => CN[a.id] || a.name || a.id
+                          const d = (t: number) => (t ? new Date(t).toLocaleDateString('zh-CN') : '')
+                          const on = buAccounts.filter((a: any) => a.loggedIn)
+                          const exp = buAccounts.filter((a: any) => !a.loggedIn && a.reason === 'expired')
+                          const miss = buAccounts.filter((a: any) => !a.loggedIn && a.reason !== 'expired')
+                          return (
+                            <>
+                              {on.length > 0 && <span className="text-emerald-400">已登录：{on.map((a: any) => nm(a) + (a.expireAt ? '（' + d(a.expireAt) + ' 到期）' : '')).join('、')}　</span>}
+                              {exp.length > 0 && <span className="text-amber-400">登录已过期，请重登：{exp.map((a: any) => nm(a) + (a.expireAt ? '（' + d(a.expireAt) + '）' : '')).join('、')}　</span>}
+                              {miss.length > 0 && <span className="text-gray-500">未登录：{miss.map((a: any) => nm(a)).join('、')}</span>}
+                            </>
+                          )
+                        })()}
+                      </p>
+                    )}
                     <div className="flex flex-wrap gap-1">
                       {[
                         { id: 'google', name: '🇬 Google', url: 'https://accounts.google.com', note: '连带YouTube' },
                         // 2026-09-13: 6 个发布平台取自 platforms.ts（图标 + 登录页 URL）
-                        ...PLATFORMS.map(p => ({ id: p.id, name: p.icon + p.name, url: p.loginUrl })),
-                        { id: 'twitter', name: '🐦X', url: 'https://x.com' },
+                        // ★LOGIN_UNIFY_V1：统一补 note: ''（否则数组是"有的有 note 有的没有"的联合类型，
+                        //   下面读 pf.note 会报 TS2339 —— 顺手把类型问题也消掉）
+                        ...PLATFORMS.map(p => ({ id: p.id, name: p.icon + p.name, url: p.loginUrl, note: '' })),
+                        { id: 'twitter', name: '🐦X', url: 'https://x.com', note: '' },
                       ].map(pf => {
-                        const hit = buAccounts.find(a => a.id === pf.id)
+                        const hit = buAccounts.find(a => a.id === pf.id || (pf.id === 'twitter' && a.id === 'x'))
+                        // ★LOGIN_UNIFY_V1：把"为什么显示未登录"写进悬停提示（含到期日）
+                        const _exp = hit?.expireAt ? new Date(hit.expireAt).toLocaleDateString('zh-CN') : ''
+                        const tip = hit?.loggedIn
+                          ? ('已登录 ✓' + (_exp ? `（${_exp} 到期）` : '') + (pf.note ? ' ' + pf.note : ''))
+                          : (hit?.reason === 'expired'
+                            ? (`登录已过期${_exp ? `（${_exp} 到期）` : ''}——点这里重新登录`)
+                            : '未登录——点这里打开登录页，登录后点「刷新检测」')
                         return (
                           <button key={pf.id} onClick={async () => {
                             // ★2026-09-22（用户实测"点了没反应"）：原来返回值被直接丢弃（try{…}catch{}）——
@@ -3959,12 +4006,16 @@ function AgentPageInner() {
                               const api = (window as any).electronAPI
                               if (!api?.browserOpenUrl) { alert('打开登记浏览器需要用客户端（浏览器里不支持）'); return }
                               const r = await api.browserOpenUrl(pf.url)
-                              if (!r || r.success !== true) alert('打开浏览器失败：' + ((r && r.error) || '未知原因') + '\n（可把 <安装目录>\\data\\bu_debug.log 发给开发）')
-                            } catch (e: any) { alert('打开浏览器失败：' + (e?.message || e)) }
+                              if (!r || r.success !== true) alert('打开登记浏览器失败：' + ((r && r.error) || '未知原因') + '\n（可把 <安装目录>\\data\\bu_debug.log 发给开发）')
+                            } catch (e: any) { alert('打开登记浏览器失败：' + (e?.message || e)) }
                           }}
-                            className={`px-1.5 py-0.5 rounded border text-[9px] transition ${hit?.loggedIn ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-white/10 text-gray-400 hover:border-white/30 hover:text-gray-200'}`}
-                            title={(hit?.loggedIn ? '已登录 ✓ ' : '未登录——点击打开登录') + (pf.note || '')}>
-                            {pf.name}{hit?.loggedIn ? ' ✓' : ''}
+                            className={`px-1.5 py-0.5 rounded border text-[9px] transition ${hit?.loggedIn
+                              ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'
+                              : (hit?.reason === 'expired'
+                                ? 'border-amber-500/40 text-amber-300 bg-amber-500/10'
+                                : 'border-white/10 text-gray-400 hover:border-white/30 hover:text-gray-200')}`}
+                            title={tip}>
+                            {pf.name}{hit?.loggedIn ? ' ✓' : (hit?.reason === 'expired' ? ' ⏰' : '')}
                           </button>
                         )
                       })}

@@ -1,110 +1,34 @@
 # -*- coding: utf-8 -*-
-# bu_profile 平台登录态检测——读 Chrome Cookies(SQLite) 查平台域名
-import sqlite3, os, sys, shutil, tempfile, datetime, time
-prof = sys.argv[1] if len(sys.argv) > 1 else 'D:/bu_profile'
-def sync_system_login(profile):
-    try:
-        sys_default = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data', 'Default')
-        sys_ck = os.path.join(sys_default, 'Network', 'Cookies')
-        if not os.path.exists(sys_ck): return
-        dst = os.path.join(profile, 'Default')
-        os.makedirs(os.path.join(dst, 'Network'), exist_ok=True)
-        shutil.copy2(sys_ck, os.path.join(dst, 'Network', 'Cookies'))
-        ls = os.path.join(os.path.dirname(sys_default), 'Local State')
-        if os.path.exists(ls):
-            os.makedirs(profile, exist_ok=True)
-            shutil.copy2(ls, os.path.join(profile, 'Local State'))
-        print('SYNC: OK')
-    except Exception as e:
-        print('SYNC_FAIL:', str(e)[:100])
+"""bu_check.py —— 平台登录态检测（CLI 薄壳）
 
-PLATS = [('douyin', 'douyin.com'), ('xiaohongshu', 'xiaohongshu.com'), ('weibo', 'weibo.com'), ('bilibili', 'bilibili.com'), ('shipinhao', 'weixin.qq.com'), ('kuaishou', 'kuaishou.com'), ('x', 'x.com')]
-# sync_system_login(prof)  # 2026-08-31: 预检不覆盖（防死循环——bu_profile 自己的登录态优先）
-ck = os.path.join(prof, 'Default', 'Network', 'Cookies')
-if not os.path.exists(ck):
-    print('NO_COOKIES_FILE:' + ck); sys.exit(0)
-# ★IMMUTABLE_READ_FIX_V1（2026-09-16）：与 bu_hot.py 统一 —— 用 sqlite 【immutable=1 只读直读】，
-#   绕过 Chrome 对 Cookies 的【独占锁】。
-#   背景：原来用 shutil.copy2 复制读 → Chrome 一开着就必然 WinError 32 →
-#         自检显示"平台登录态：检测未返回结果"（采集那边早就用 immutable 所以没事）。
-#   顺序：① immutable 直读（Chrome 开着也能读） ② 复制读（Chrome 没开时可用） ③ 缓存（绝不返回空）
-CACHE = os.path.join(os.path.dirname(os.path.abspath(prof.rstrip('/'))), 'bu_login_cache.txt')
-tmp = os.path.join(tempfile.gettempdir(), 'bu_cookies_copy.db')
-_last_err = ''
+★★ LOGIN_UNIFY_V1（2026-09-28，用户定案「不要再东一块西一块」）：
+   判定逻辑、平台表、关键 cookie 名、路径规则【全部搬到 login_state.py】（唯一读取器）。
+   本文件从此只做一件事：按命令行协议输出，供 electron/main.js 与其它脚本调用。
 
-def _query_cookies(conn):
-    _r = conn.execute("SELECT host_key, name, expires_utc FROM cookies").fetchall()
-    conn.close()
-    return _r
+   为什么要把"判断"搬走：原来同一份登录态被 6 个地方各自判断（bu_check 的 cookie 名、
+   bu_hot 只看 SUB/SESSDATA、agent-publish 看 URL、指纹模板另一套、服务端内存 Map、
+   前端自己一份）→ 口径不一致，用户看到的结论互相打架。现在只准 import login_state。
 
-rows = None
+   用法（与旧版完全相同，路径不变）：
+       python bu_check.py <账号profile目录>
 
-# ★CDP_COOKIE_V1（方案 A）：优先用主进程通过 9222 导出的 cookie。
-#   实测：Chrome 运行时独占锁 Cookies 文件 → immutable/普通读/PowerShell 复制【全部失败】，
-#        只有通过 9222 问 Chrome 才拿得到。主进程会在检测前先导出到 <userData>/bu_cookies_cdp.json。
-try:
-    _cdpfile = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(prof.rstrip('/')))), 'bu_cookies_cdp.json')
-    if os.path.exists(_cdpfile):
-        import json as _json
-        _cd = _json.load(open(_cdpfile, encoding='utf-8'))
-        if _cd and _cd.get('cookies') and (time.time() * 1000 - (_cd.get('at') or 0)) < 600000:
-            rows = [(x.get('host_key', ''), x.get('name', ''), x.get('expires_utc', 0)) for x in _cd['cookies']]
-except Exception:
-    rows = None
+   输出行（前三行与旧版兼容，后三行是新加的"说得清为什么"）：
+       PLATS:douyin:1,xiaohongshu:0,...      是否登录
+       REASON:douyin:ok,xiaohongshu:expired  原因 ok / expired（过期了）/ missing（从没登过）
+       EXP:douyin:1793...,xiaohongshu:0      最近到期时间（毫秒，0=会话型/未知）
+       FROM:cdp|file|copy|cache              结果来自哪条通路
+       CACHED:1                              本次结果来自缓存（读不到库时的兜底）
+       NO_COOKIES_FILE:<路径>                该账号目录还没登录过
+       CHECK_ERR:<原因>                      读不到库
+"""
+import os
+import sys
 
-try:   # ① immutable 直读（仅当 CDP 没拿到时）
-    if rows is None:
-        _uri = 'file:///' + ck.replace(os.sep, '/').lstrip('/') + '?immutable=1'
-        rows = _query_cookies(sqlite3.connect(_uri, uri=True))
-except Exception as _e:
-    if rows is None:
-        _last_err = 'immutable: ' + str(_e)[:90]
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from login_state import main as _login_state_main, read_state, profile_paths  # noqa: E402
 
-if rows is None:   # ② 复制读（回退）
-    for _try in range(4):
-        try:
-            shutil.copy2(ck, tmp)
-            rows = _query_cookies(sqlite3.connect(tmp))
-            break
-        except Exception as _e:
-            _last_err = str(_e)[:110]
-            if _try < 3:
-                time.sleep(1.5)
-            else:
-                rows = None
+__all__ = ['read_state', 'profile_paths']
 
-if rows is None:   # ③ 缓存（回退，绝不返回空）
-    try:
-        if os.path.exists(CACHE):
-            _cached = open(CACHE, 'r', encoding='utf-8').read().strip()
-            if _cached:
-                print('PLATS:' + _cached)
-                print('CACHED:1')
-                print('COPY_ERR:' + _last_err)
-                sys.exit(0)
-    except Exception:
-        pass
-    print('CHECK_ERR:' + _last_err)
-    sys.exit(0)
 
-try:
-    # 2026-08-30: 有效期判断——过期 cookie 不算登录（会话 cookie 24h 失效——之前只看存在误导）
-    # 关键会话 cookie（a1/webId 等游客标识不算登录——acw_tc/sessionid/SUB/uid 等会话才算）
-    KEY_NAMES = {'douyin': ['sessionid', 'sessionid_ss', 'uid_tt', 'sid_tt'], 'xiaohongshu': ['web_session', 'acw_tc', 'xsecappid'], 'weibo': ['SUB', 'SUB2', 'WBPSESS'], 'bilibili': ['SESSDATA', 'bili_jct'], 'shipinhao': ['wxuin', 'wxsid'], 'kuaishou': ['kuaishou.session.web', 'userId'], 'x': ['auth_token', 'ct0']}
-    now_ms = (datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000000) + 11644473600000000
-    out = []
-    for pid, dom in PLATS:
-        names = KEY_NAMES.get(pid, [])
-        hit = False
-        for h, n, exp in rows:
-            if h.endswith(dom) and n in names and (exp == 0 or (exp and exp > now_ms)):  # exp=0 会话 cookie 本会话有效
-                hit = True; break
-        out.append(pid + ':' + ('1' if hit else '0'))
-    _result = ','.join(out)
-    print('PLATS:' + _result)
-    try:
-        open(CACHE, 'w', encoding='utf-8').write(_result)
-    except Exception:
-        pass
-except Exception as e:
-    print('CHECK_ERR:' + str(e)[:120])
+if __name__ == '__main__':
+    _login_state_main()
