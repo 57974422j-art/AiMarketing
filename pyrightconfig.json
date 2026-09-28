@@ -1,0 +1,28 @@
+{
+  "include": ["scripts"],
+  "exclude": ["**/node_modules", ".next", "dist-electron", "dist-rel", "backup-hotspot-20260808", "**/__pycache__"],
+  "typeCheckingMode": "basic",
+
+  "reportMissingTypeStubs": false,
+  "reportMissingParameterType": false,
+  "reportUnknownParameterType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownLambdaType": false,
+  "reportAny": false,
+  "reportExplicitAny": false,
+  "reportUnusedCallResult": false,
+  "reportImplicitStringConcatenation": false,
+  "reportDeprecated": false,
+  "reportImplicitOverride": false,
+
+  "reportUndefinedVariable": "error",
+  "reportUnboundVariable": "error",
+  "reportSyntaxError": "error",
+  "reportCallIssue": "error",
+  "reportIndexIssue": "error",
+  "reportGeneralTypeIssues": "error",
+  "reportUnusedImport": "warning",
+  "reportUnusedVariable": "warning"
+}

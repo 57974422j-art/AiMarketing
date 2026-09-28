@@ -4,14 +4,16 @@
 2) executable_path 显式锁系统 Chrome（与扫码登录 profile 一致——防二进制混用 cookie 解密失败）
 3) SingletonLock 检查——防 browser-use 退避临时目录（登录态丢主因）
 """
-import asyncio, os, sys, json, io, argparse, tempfile, urllib.request, glob, time, shutil, subprocess, re
+import asyncio, os, sys, json, io, argparse, tempfile, urllib.request, time, shutil, subprocess, re
 # 2026-09-08: 强制 UTF-8 输出（Windows 默认 GBK → 日志/服务器中文乱码根因）
-if hasattr(sys.stdout, 'reconfigure'):
-    try: sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    except Exception: pass
-if hasattr(sys.stderr, 'reconfigure'):
-    try: sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    except Exception: pass
+# ★LOGIN_UNIFY_V1（2026-09-28）：改成 getattr 取方法再调 ——
+#   原来直接写 sys.stdout.reconfigure(...)，在类型检查里是"TextIO 上不存在该属性"
+#   （只有 TextIOWrapper 才有），会刷两条报错；getattr 取法既安全又不再被报。
+for _stream in (sys.stdout, sys.stderr):
+    _rc = getattr(_stream, 'reconfigure', None)
+    if _rc:
+        try: _rc(encoding='utf-8', errors='replace')
+        except Exception: pass
 
 def read_key():
     """key 来源：环境变量优先 → 项目 .env.local（开发）"""
@@ -77,9 +79,10 @@ def kill_chrome(profile=None):
             if profile:
                 target = os.path.abspath(str(profile)).replace('/', '\\').rstrip('\\').lower()
                 # 用 PowerShell 过滤命令行里含本 profile 的 chrome 进程，只杀这些 PID
-                ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
-                      "Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains('" + target + "') } | "
-                      "ForEach-Object { taskkill /PID $_.ProcessId /T /F | Out-Null }")
+                _q = '"'
+                ps = 'Get-CimInstance Win32_Process -Filter ' + _q + "Name='chrome.exe'" + _q + ' | '
+                ps += "Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains('" + target + "') } | "
+                ps += 'ForEach-Object { taskkill /PID $_.ProcessId /T /F | Out-Null }'
                 os.system('powershell -NoProfile -ExecutionPolicy Bypass -Command "' + ps + '" >nul 2>&1')
                 import time; time.sleep(2)
                 print('KILL_CHROME: 只关闭了"用本账号 profile 的"Chrome（不影响用户日常浏览器/指纹浏览器）')
@@ -150,7 +153,11 @@ def download_file(url, dest_dir):
     try:
         # 带登录 cookie（storage/file 需鉴权——不带 401）
         req = urllib.request.Request(url, headers={'cookie': os.environ.get('BU_COOKIE', '')})
-        urllib.request.urlretrieve(req, dest)
+        # ★LOGIN_UNIFY_V1（2026-09-28）：原来用 urlretrieve(req, dest) ——
+        #   urlretrieve 的类型签名只接受 str，传 Request 会被类型检查判错，且它对大文件不好控制。
+        #   改成 urlopen + 流式写盘（行为一致：仍然带 cookie 头；顺带支持超时，避免卡死）。
+        with urllib.request.urlopen(req, timeout=180) as _resp, open(dest, 'wb') as _out:
+            shutil.copyfileobj(_resp, _out)
         return dest
     except Exception:
         return None

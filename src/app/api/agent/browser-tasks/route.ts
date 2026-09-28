@@ -10,7 +10,33 @@ export async function GET(req: NextRequest) {
   const auth = getAuthFromHeaders(req)
   if (!auth?.userId) return NextResponse.json({ success: false, message: '未登录' }, { status: 401 })
   const status = req.nextUrl.searchParams.get('status') || 'pending'
+  // ★LOGIN_UNIFY_V1（2026-09-28）：孤儿任务回收【搬到服务端，并且只收"超时的"】——
+  //   原来这件事由客户端做：「启动 3 秒后把本账号【所有】executing 任务标 failed」。
+  //   同一账号在 2 台机器登录时，机器 B 一启动就会把机器 A **正在执行**的任务判成失败（误报失败）。
+  //   现在：只回收"超过 15 分钟没动静"的 executing —— 在跑的绝不被误杀，
+  //   真孤儿（客户端崩溃/关机留下的）也会被自动收掉；而且逻辑只有服务端这一处。
+  if (status === 'pending') {
+    try {
+      const staleBefore = new Date(Date.now() - 15 * 60 * 1000)
+      await prisma.agentBrowserTask.updateMany({
+        where: { userId: auth.userId, status: 'executing', updatedAt: { lt: staleBefore } },
+        data: { status: 'failed', error: '超时未回执（客户端可能已关闭）—— 自动回收' },
+      })
+    } catch { /* 回收失败不影响拉任务 */ }
+  }
   const tasks = await prisma.agentBrowserTask.findMany({ where: { userId: auth.userId, status }, orderBy: { id: 'asc' }, take: 5 })
+  // ★LOGIN_UNIFY_V1（2026-09-28）：pending 任务【领取即标记 executing】——
+  //   同一账号在 2 台机器登录时，两台都会轮询 pending，旧行为下**同一批任务会被两台同时拿到**
+  //   → 重复发布/重复操作。现在服务端一返回就标记，第二台机器再问就拿到了空列表。
+  //   兜底：万一领取后客户端崩了没回执 → 上面的"15 分钟超时回收"会把它收成 failed，不会永久卡住。
+  if (status === 'pending' && tasks.length) {
+    try {
+      await prisma.agentBrowserTask.updateMany({
+        where: { userId: auth.userId, id: { in: tasks.map((t) => t.id) } },
+        data: { status: 'executing' },
+      })
+    } catch { /* 标记失败不影响本次执行（宁可重复一次，也不能不执行） */ }
+  }
   return NextResponse.json({ success: true, data: tasks })
 }
 

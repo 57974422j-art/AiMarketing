@@ -1362,21 +1362,14 @@ const ctx2 = b2 ? b2.contexts()[0] : null
   // 2026-08-29: 工具箱 browser_use_execute——轮询 AgentBrowserTask pending → Python(browser-use) 执行 → 回结果
   setInterval(checkBrowserTasks, 8000)
   console.log('[browser_use] 执行器已启动（checkBrowserTasks 轮询 8s）——v1.0.82+ 有此日志=main.js 为最新版')
-  // 2026-09-07: 启动回收——上次客户端关闭遗留的 executing 孤儿任务 → failed（进程已没，不会再回写）
-  setTimeout(async () => {
-    try {
-      const sUrl = process.env.SERVER_URL || 'https://ai-niuma.cc'
-      const ck = await getServerCookie()
-      if (!ck) return
-      const r = await fetch(sUrl.replace(/\/$/, '') + '/api/agent/browser-tasks?status=executing', { headers: { cookie: ck } }).catch(() => null)
-      const j = r ? await r.json().catch(() => null) : null
-      const list = (j?.data) || []
-      for (const t of list) {
-        await fetch(sUrl.replace(/\/$/, '') + '/api/agent/browser-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json', cookie: ck }, body: JSON.stringify({ id: t.id, status: 'failed', error: '客户端关闭中断（启动回收孤儿任务）' }) }).catch(() => {})
-        buLog('启动回收孤儿任务 #' + t.id + ' → failed')
-      }
-    } catch (e) { /* 静默 */ }
-  }, 3000)
+  // ═══ ★LOGIN_UNIFY_V1（2026-09-28）：这里的"启动回收孤儿任务"已【删除】═══
+  //   原逻辑：客户端启动 3 秒后，把本账号【所有】executing 任务标 failed。
+  //   问题（多台机器同账号）：机器 B 一启动，就把机器 A **正在执行**的任务判成失败 ——
+  //        用户看到"任务失败"，其实 A 还在正常发布。
+  //   现在：孤儿回收【搬到服务端】，且只回收"超过 15 分钟没回执"的任务
+  //        （见 src/app/api/agent/browser-tasks/route.ts 的 GET）：
+  //        在跑的任务绝不会被误杀，客户端崩溃留下的真孤儿也会被自动收掉。
+  //   ★这里什么都不做是【有意的】—— 别再加回"启动就清理全部 executing"。
 }
 
 // browser-use 任务执行（Electron 调 Python——复用 D:u_profile 登录态）
