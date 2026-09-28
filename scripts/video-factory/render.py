@@ -251,7 +251,7 @@ def _big_text(shot, limit=14):
     保证画面永远有主视觉。只给"没有图、靠大字撑画面"的卡用（title/end）；
     bgimage 已有图，再把字幕前 10 字放大字会与底部字幕重复，故不做兜底。
     """
-    t = str(shot.get('text') or shot.get('title') or '').strip()
+    t = clean_big_text(shot.get('text') or shot.get('title') or '')
     if t:
         return t[:limit]
     s = ''.join(str(shot.get('subtitle') or '').split())
@@ -262,6 +262,140 @@ def _big_text(shot, limit=14):
             s = s.split(sep)[0]
             break
     return s[:10]
+
+
+# ══════════════════ ★VF_TEXTFIT_V2（2026-09-28 用户实测：「成片的文字看着怪怪的」）══════════════════
+# 三个"怪"的根因（都在本文件，已逐条定位）：
+#   ① 逐字浮现：每个前缀都 x=(w-text_w)/2 重新居中 → 字一边出现一边左右漂移（像在抖）；
+#   ② 长句不是折行，而是【一路缩字号】（旧的 VF_TEXTFIT_V1）→ 同一条片里大字忽大忽小；
+#   ③ 字幕按 18 字【硬切】换行 → 数字/英文/词被切断，断点看着怪。
+# 现在统一：按"估算字宽"量宽 → 折行（大字最多 2 行）→ 真放不下才缩字号（有下限）；
+#           逐字浮现用【固定起点】（不再漂移）；字幕优先在标点处断句。
+# 说明：drawtext 无法量宽，只能按字符类别估算（CJK/全角≈1 倍字号，半角≈0.55 倍）。
+
+
+def _char_w(ch, fs):
+    return fs * (1.0 if ord(ch) > 0x2E7F else 0.55)
+
+
+def est_text_w(s, fs):
+    return sum(_char_w(c, fs) for c in str(s or ''))
+
+
+def clean_big_text(s):
+    """画面大字清理：去空白 / 成对引号 / 句末标点（AI 偶尔带「，」「。」）"""
+    t = str(s or '').strip().strip('“”"\'「」『』【】')
+    return t.strip('，。！？；、,.!?;:：').strip()
+
+
+def wrap_by_width(s, fs, maxw, max_lines=2):
+    """按估算宽度折行：中文按字断、英文/数字成串不断；最多 max_lines 行。"""
+    s = str(s or '').strip()
+    if not s:
+        return []
+    lines, cur, i, n = [], '', 0, len(s)
+    while i < n:
+        w = s[i]
+        if ord(w) <= 0x2E7F and w.isalnum():
+            j = i
+            while j < n and ord(s[j]) <= 0x2E7F and s[j].isalnum():
+                j += 1
+            seg = s[i:j]
+        else:
+            seg, j = w, i + 1
+        if cur and est_text_w(cur + seg, fs) > maxw:
+            lines.append(cur)
+            cur = ''
+            if len(lines) >= max_lines:
+                lines.append(s[i:])
+                break
+            continue
+        cur += seg
+        i = j
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def fit_big_text(s, W, H, maxw_ratio=0.86, max_lines=2, fs_max=None, fs_min=None):
+    """画面大字的统一排版：返回 (lines, fs)。先按目标字号试 → 一行放不下就折两行 →
+       两行仍放不下才缩字号（不低于 fs_min）。这样同一条片里大字大小基本一致。"""
+    txt = clean_big_text(s)
+    fs_max = int(fs_max or max(44, int(H * 0.10)))
+    fs_min = int(fs_min or max(30, int(H * 0.052)))
+    if not txt:
+        return [], fs_max
+    maxw = W * maxw_ratio
+    fs = fs_max
+    for _ in range(24):
+        lines = wrap_by_width(txt, fs, maxw, max_lines)
+        if lines and len(lines) <= max_lines and all(est_text_w(l, fs) <= maxw for l in lines):
+            return lines, fs
+        if fs <= fs_min:
+            break
+        fs = max(fs_min, int(fs * 0.92))
+    return wrap_by_width(txt, fs_min, maxw, max_lines) or [txt], fs_min
+
+
+def center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=0, stroke=True, fade=True):
+    """多行文字各自居中（固定 y，行距 1.34×字号）—— 不用 ASS 覆盖层，也不必测宽。"""
+    lines = [l for l in (lines or []) if str(l).strip()]
+    if not lines:
+        return []
+    gap = int(fs * 1.34)
+    y0 = int(H * 0.5 - gap * len(lines) * 0.5 + y_off)
+    out = []
+    for li, ln in enumerate(lines):
+        st = (f":borderw={max(2, int(fs * 0.06))}:bordercolor=black@0.72" if stroke else '')
+        a = ":alpha='min(t/0.5,1)'" if fade else ''
+        out.append(
+            f"drawtext=fontfile='{font}':text='{esc_text(ln)}':fontsize={fs}:"
+            f"fontcolor={txc}{st}:x=(w-text_w)/2:y={y0 + li * gap}{a}"
+        )
+    return out
+
+
+def big_text_layer(shot, th, W, H, dur, fs_max=None, y_off=0, box=None, stroke=True):
+    """统一的【画面大字层】：短句逐字浮现（固定起点、不漂移），长句折两行淡入。"""
+    font = esc_path(find_font(th.get('font', 'msyh')))
+    txc = th.get('text', 'white')
+    txt = _big_text(shot)
+    if not txt:
+        return [], font, 0
+    lines, fs = fit_big_text(txt, W, H, fs_max=fs_max)
+    if len(lines) <= 1:
+        rev = _reveal_seq(shot, font, fs, txc, dur, text=lines[0], box=box)
+        if rev:
+            return rev, font, fs
+    return center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=y_off, stroke=stroke), font, fs
+
+
+def wrap_subtitle(txt, limit=16, max_lines=2):
+    """字幕折行：优先在标点处断（每行 ≤limit 字，最多 max_lines 行），避免把词/数字切断。"""
+    s = str(txt or '').strip()
+    if not s:
+        return ''
+    if len(s) <= limit:
+        return s
+    lines, cur = [], ''
+    for ch in s:
+        cur += ch
+        if ch in '。！？；，、,.!?;:：' and len(cur) >= limit * 0.5:
+            lines.append(cur)
+            cur = ''
+            if len(lines) >= max_lines:
+                break
+        elif len(cur) >= limit:
+            lines.append(cur)
+            cur = ''
+            if len(lines) >= max_lines:
+                break
+    if cur:
+        lines.append(cur)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = ''.join(lines[-1:]) + s[sum(len(x) for x in lines):]
+    return '\n'.join(lines[:max_lines])
 
 
 # ══════════════════ 配方卡渲染 ══════════════════
@@ -280,17 +414,13 @@ def card_title(shot, th, W, H, fps):
     txc = th.get('text', 'white')
     acc = th.get('accent', '0xff6b35')
     txt = _big_text(shot)
-    # ★VF_TEXTFIT_V1（2026-09-24 本地实测发现的老问题）：原来字号只按【画面高度】算（H*0.13≈166），
-    #   而一个 6 字标题就要 996px > 720px 宽 → 左右被切掉（10 字更夸张）。
-    #   现在按【最长一行文字】反算字号上限，保证整句放得下。
-    fs = min(fs, max(int(H * 0.055), int(W * 0.86 / max(1, len(txt)))))
-    # ★VF_SYNC_V1（C3，2026-09-20）：标题卡也用【逐字浮现】（与 bgimage 一致，跟着配音卡点）
-    #   拿不到 text 时回退到原来的“整句淡入”，行为不退化。
-    _rev = _reveal_seq(shot, font, fs, txc, dur, text=txt)
-    body = ','.join(_rev) if _rev else (
-        f"drawtext=fontfile='{font}':text='{esc_text(txt)}':fontsize={fs}:"
-        f"fontcolor={txc}:x=(w-text_w)/2:y=(h-text_h)/2:"
-        f"alpha='min(t/0.6,1)'")
+    # ★VF_TEXTFIT_V2（2026-09-28 用户实测「文字看着怪怪的」）：
+    #   旧写法是【一路缩字号】——长句字很小、短句字很大，同片里大字忽大忽小、版式不统一。
+    #   现在：先折行（最多 2 行，字号基本不变），真放不下才缩字号（有下限）。
+    _lines, fs = fit_big_text(txt, W, H, fs_max=fs, max_lines=2)
+    _rev = _reveal_seq(shot, font, fs, txc, dur, text=(_lines[0] if _lines else txt)) if len(_lines) <= 1 else []
+    body = ','.join(_rev) if _rev else ','.join(
+        center_lines_drawtext(font, _lines or [txt], fs, txc, W, H, dur))
     _dy = max(int(H * 0.05), int(H * 0.5 - fs * 0.95))     # 装饰线放在大字正上方
     _bar_h = max(6, int(fs * 0.09))
     deco = ','.join([
@@ -470,11 +600,11 @@ def card_video(shot, th, W, H, fps):
     font = esc_path(find_font(th.get('font', 'msyh')))
     fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
     txc = th.get('text', 'white')
-    _txtb = str(shot.get('text') or '').strip()
-    if _txtb:
-        # 与 bgimage 同款：按字数反算字号，避免大字被切边
-        fs = min(fs, max(int(H * 0.05), int(W * 0.86 / len(_txtb))))
-    _reveal = _reveal_seq(shot, font, fs, txc, dur, box='black@0.30')
+    # ★VF_TEXTFIT_V2（2026-09-28）：折行优先（最多 2 行），放不下才缩字号 ——
+    #   不再"长句一路缩成小字"（那是"同片里大字忽大忽小"的根因）。
+    _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
+    _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box='black@0.30') if len(_lines) <= 1 else []
+    _reveal = _rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)
     _bar_y = int(H * 0.72)
     _chain = [
         f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
@@ -679,6 +809,12 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None):
     nch = len(chars)
     if nch <= 0:
         return []
+    # ★VF_TEXTFIT_V2（2026-09-28）：原来每个前缀都 x=(w-text_w)/2 重新居中 →
+    #   字一边出现一边左右漂移（用户说的"文字看着怪怪的"）。
+    #   现在用【块不动、字在块内从左往右亮】：未出现的字用表意空格 U+3000 占位（等宽、不可见），
+    #   于是整块宽度恒定、始终居中；底衬（box）也不会从窄到宽地长出来。
+    _full = ''.join(chars)
+    _pad = '\u3000'
     t0 = max(0.12, min(0.6, dur * 0.06))
     t1 = max(t0 + 0.5, dur * 0.55)
     step = (t1 - t0) / float(nch)
@@ -687,11 +823,13 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None):
     for i in range(1, nch + 1):
         st = t0 + step * (i - 1)
         en = dur if i == nch else (t0 + step * i)
+        # 已亮的字 + 用表意空格补齐的"未亮的字"（占位保持整块宽度不变）
+        _shown = _full[:i] + _pad * (nch - i)
         # ★VF_TEXTSTROKE_V1（2026-09-20）：画面大字是压在【素材照片】上的，底色不可控 ——
         #   加一圈深色描边，浅色主题 / 亮底素材也能看清
         #   （加"浅色纸感"主题后才发现：light 主题字色近黑，压在深色照片上会糊）
         out.append(
-            f"drawtext=fontfile='{font}':text='{esc_text(''.join(chars[:i]))}':fontsize={fs}:"
+            f"drawtext=fontfile='{font}':text='{esc_text(_shown)}':fontsize={fs}:"
             f"fontcolor={txc}:borderw=2:bordercolor=black@0.65:{_bx}"
             f"x=(w-text_w)/2:y=(h-text_h)/2:enable='between(t,{st:.2f},{en:.2f})'"
         )
@@ -723,15 +861,15 @@ def card_bgimage(shot, th, W, H, fps):
     fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
     # ★VF_TEXTFIT_V1：压图大字同样按字数反算字号（bgimage 不走兜底 —— 它已经有图，
     #   再把字幕前 10 字放大字会和底部字幕重复）
-    _txtb = str(shot.get('text') or '').strip()
-    if _txtb:
-        fs = min(fs, max(int(H * 0.05), int(W * 0.86 / len(_txtb))))
+    # ★VF_TEXTFIT_V2（2026-09-28）：折行优先（最多 2 行），放不下才缩字号
+    _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
     txc = th.get('text', 'white')
     _frames = max(1, int(dur * fps))
     # ★VF_SYNC_V1（C3）：画面大字逐字浮现（跟配音卡点）；拿不到 text 就不加这些滤镜
     #   ★VF_CARDSTYLE_V1：给压在照片上的大字加半透明底衬 —— 你的素材里有不少"本身就带大字的海报"，
     #   我们的字压上去会和图上的字打架；加一层底衬能把两者在视觉上分开，也更清楚。
-    _reveal = _reveal_seq(shot, font, fs, txc, dur, box='black@0.30')
+    _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box='black@0.30') if len(_lines) <= 1 else []
+    _reveal = _rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)
     # ★VF_LESSDARK_V1（2026-09-20 用户实测"整体黑白/发灰"）：黑遮罩 0.42 → 0.15
     #   原来整幅盖 42% 黑（为保字幕可读）→ 图片颜色全被压掉、观感"黑白"。
     #   现在改成：全屏只轻压 15%（保色彩）+【底部字幕区】单独再压 30%（保字幕对比度）。
@@ -764,14 +902,11 @@ def card_end(shot, th, W, H, fps):
     fs = int(shot.get('fontsize', max(56, int(H * 0.11))))
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
     _main = _big_text(shot)
-    # ★VF_TEXTFIT_V1：结尾主标语按字数反算字号，避免被切边
-    if _main:
-        fs = min(fs, max(int(H * 0.05), int(W * 0.86 / len(_main))))
+    # ★VF_TEXTFIT_V2（2026-09-28）：折行优先（最多 2 行），放不下才缩字号
+    _lines, fs = fit_big_text(_main, W, H, fs_max=fs, max_lines=2)
     parts = [
         f"drawbox=x={int(W * 0.10)}:y={int(H * 0.20)}:w={int(W * 0.10)}:h={max(6, int(H * 0.006))}:color={acc}@0.95:t=fill",
-        f"drawtext=fontfile='{font}':text='{esc_text(_big_text(shot))}':fontsize={fs}:"
-        f"fontcolor={txc}:x=(w-text_w)/2:y=(h-text_h)/2-30:alpha='min(t/0.6,1)'",
-    ]
+    ] + center_lines_drawtext(font, _lines or [_main], fs, txc, W, H, dur, y_off=-30)
     if shot.get('cta'):
         parts.append(f"drawtext=fontfile='{font}':text='{esc_text(shot['cta'])}':fontsize={int(fs * 0.5)}:"
                      f"fontcolor=0x0a1620:box=1:boxcolor={acc}@0.95:boxborderw={max(10, int(fs * 0.26))}:"
@@ -1036,9 +1171,9 @@ def build_srt(shots, path):
         txt = _shot_text(s)
         if txt:
             n += 1
-            # 长句自动折行（SRT 原生多行，subtitles 滤镜支持）
-            if len(txt) > 18:
-                txt = '\n'.join([txt[i:i + 18] for i in range(0, len(txt), 18)])
+            # ★VF_SUBWRAP_V1（2026-09-28）：原来按 18 字【硬切】——数字/英文/词被切断，
+            #   看着"断得怪"。现在优先在标点处断，每行 ≤16 字、最多 2 行。
+            txt = wrap_subtitle(txt, 16, 2)
             out.append('%d\n%s --> %s\n%s\n' % (n, fmt(t), fmt(t + vd), txt))
         t += dur
     if out:

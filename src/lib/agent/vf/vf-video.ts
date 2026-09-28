@@ -299,6 +299,12 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   if (!arr || !arr.length) return '视频混剪：分镜没排出来（AI 输出不是合法 JSON，已重试一次）。回「重试」再排一次。'
 
   // ── 5) 归一化：视频镜 → 服务端本地路径 + start/dur（越界就夹回来）；图片镜 → pick → 本地路径 ──
+  // ★VF_SHOTCAP_V1（2026-09-28 用户定案「每镜视频硬上限」）：
+  //   提示词里已经写了"每镜 4~10 秒"，但那只是【软约束】—— AI 偶尔会排出一个 20 秒的镜。
+  //   这里做【服务端硬夹取】（渲染层仍有放慢/循环兜底），并把被夹取的镜数如实写进日志。
+  const VF_VIDEO_SHOT_MAX_SEC = 10
+  const VF_VIDEO_SHOT_MIN_SEC = 2
+  let _capHits = 0
   const shotsOut: any[] = []
   for (const s of arr) {
     const ty = String(s?.type || '')
@@ -309,14 +315,16 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
       const i0 = ci >= 0 && ci < clips.length ? ci : 0
       const c = clips[i0]
       const real = Number(c?.dur || 0)
-      const want = clampNum(s?.dur, 1.5, 60, 5)
+      const want = clampNum(s?.dur, VF_VIDEO_SHOT_MIN_SEC, VF_VIDEO_SHOT_MAX_SEC, 5)
       // ★VF_VIDFIT_V1（2026-09-24 用户实拍「有 3 分钟的视频」）：这一镜**最终**多长，取决于
       //   【配音真实时长】（tts 回填）≈ 字幕字数 ÷ 4.5 —— 而不是 AI 写的 dur。
       //   旧写法只看 dur：AI 把 vstart 定在片尾附近、字幕又写长了 → 片段不够用 →
       //   渲染层只能放慢/循环（观感立刻变差，这正是"片段没法完整播完"的来源）。
       //   现在按"预期配音时长"反推起点上限：需要多长就往前让多少，从源头避免贴尾切。
       const expect = Math.round((sub.length / 4.5) * 10) / 10
-      const needLen = Math.min(60, Math.max(want, expect))
+      const needLen = Math.min(VF_VIDEO_SHOT_MAX_SEC, Math.max(want, expect))
+      // ★VF_SHOTCAP_V1：这一镜的"想要长度"（AI 写的 dur 或文案应付的时长）超上限 → 记一笔
+      if (Math.max(Number(s?.dur || 0), expect) > VF_VIDEO_SHOT_MAX_SEC) _capHits++
       const start = clampNum(s?.vstart, 0, Math.max(0, real - needLen), 0)
       // 片段不够长 → 用"这段能给的"为准（渲染层还有放慢/循环兜底）；太长就按 needLen 截
       const maxLen = real > 1 ? Math.max(1.5, real - start) : needLen
@@ -339,6 +347,33 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   // ── 5.5) ★VF_VIDONDEMAND_V1（2026-09-24）：只下载【真的排进分镜】的视频。
   //   长视频动辄几百 MB，V1 是"用不用得着都先把 8 条全下下来"→ 起草卡在请求里（还可能超时）。
   //   现在：探测/抽帧走 OSS 直链（零下载），等 AI 排完分镜，只下它真正用到的那几条。
+  // ── 5.4) ★VF_ADJGUARD_V1（2026-09-28 与本轮"每镜硬上限"一起做）：
+  //   提示词里要求"相邻两镜不要用同一个视频"，但 AI 偶尔违反 → 连着两镜同一个片段，
+  //   观感就是"卡住了/重复了"。这里做硬护栏：违反就把第二镜换成【另一个视频】，
+  //   没有别的视频可用就降级为图片镜（有图时）。
+  let _adjFixed = 0
+  for (let k = 1; k < shotsOut.length; k++) {
+    const a: any = shotsOut[k - 1]
+    const b: any = shotsOut[k]
+    if (a?.type !== 'video' || b?.type !== 'video') continue
+    if (Number(a._ci) !== Number(b._ci)) continue
+    const alt = clips.findIndex((_c: any, i: number) => i !== Number(b._ci))
+    if (alt >= 0) {
+      b._ci = alt
+      b.src_dur = Math.round(Number(clips[alt]?.dur || 0) * 100) / 100
+      b.vstart = clampNum(b.vstart, 0, Math.max(0, Number(clips[alt]?.dur || 0) - Number(b.dur || 5)), 0)
+      _adjFixed++
+    } else if (imgPaths.length) {
+      b.type = 'bgimage'
+      b.src = imgPaths[k % imgPaths.length]
+      delete b.vstart
+      delete b.src_dur
+      _adjFixed++
+    }
+  }
+  if (_adjFixed) ctx.log(uid, `[VF-V] 相邻两镜撞同一个视频 → 已调整 ${_adjFixed} 处（换视频/降级为图）`)
+  if (_capHits) ctx.log(uid, `[VF-V] ${_capHits} 个视频镜超出每镜上限 ${VF_VIDEO_SHOT_MAX_SEC}s → 已夹到上限（渲染层可放慢/循环兜底）`)
+
   const usedCi = [...new Set(shotsOut.filter((s: any) => s.type === 'video').map((s: any) => Number(s._ci)))]
     .filter((n) => Number.isFinite(n) && n >= 0 && n < clips.length)
   if (usedCi.length) {
