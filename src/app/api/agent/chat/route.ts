@@ -501,6 +501,34 @@ async function saveGeneratedVideoToRepo(userId: number | string, srcUrl: string)
     return srcUrl
   }
 }
+
+/**
+ * ★VF_I2V_V1（2026-09-29）：把「用户仓库里的一张图」解析成**公网可访问的 URL**（喂给图生视频供应商）。
+ * 为什么必须转公网 URL：MiniMax H3 / 百炼 wan2.7-i2v 都要求 http(s) 可达的首帧地址，
+ * 本地路径一律不可用 → 统一走 OSS 私有桶签名直链（24h）。三种输入：
+ *   ① http(s) 原样返回（用户消息里带的图片 URL）；
+ *   ② 完整 `storage/...` 前缀 key；
+ *   ③ 纯文件名（补 `storage/<uid>/` 前缀）。
+ * **先 head 确认对象存在**再签名 —— 否则会把一个 404 地址喂给供应商，得到的是一句莫名其妙的
+ * "生成失败"，而用户真正需要听的是"仓库里没这张图"。
+ */
+async function resolveImageToPublicUrl(
+  userId: number | string,
+  image: string,
+): Promise<{ url?: string; err?: string }> {
+  const s = String(image || '').trim()
+  if (!s) return { err: '缺少图片' }
+  if (/^https?:\/\//i.test(s)) return { url: s }
+  const key = s.startsWith('storage/') ? s : `storage/${String(userId)}/${s.replace(/^\/+/, '')}`
+  try {
+    const { getOSSClient } = await import('@/lib/oss')
+    const oss = await getOSSClient()
+    await oss.head(key)                       // 不存在会抛 → 落到下面的 catch
+    return { url: await signedUrl(key, 86400) }
+  } catch {
+    return { err: `仓库里找不到这张图：${s}（图生视频的首帧必须是个人仓库里已有的图片，或一个 http(s) 图片 URL）` }
+  }
+}
 import {
   generateText, generateImage, generateVideo, generateLongVideo, generateImageToVideo, queryVideoTask,
   ToolDefinition,
@@ -676,6 +704,67 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       return '视频生成暂不可用'
     }
 
+    // ── ★VF_I2V_V1（2026-09-29 用户要求「今天刚提到的视频能力全部做」）：图生视频（让静态图动起来）──
+    //   与 generate_video 的 refImage 分支的区别：那条只走【百炼 wan2.7-i2v】；
+    //   本工具优先走 【MiniMax H3 图生视频】（中转优先→官方降级，与文生视频同一条通道、同一套 key，
+    //   见 src/lib/minimax-h3.ts 的 generateH3Video 第 5 参 refImageUrl），失败再降级百炼。
+    //   计费沿用 AI 制片口径：768P = 50 点/秒（与 vf-aivideo/make_ai_video 一致，避免"报价/实扣不同源"）。
+    //   降级原则（用户定案）：让图动起来失败**不能判死整片** → 两条通道都不通时返回结构化
+    //   `I2V_FALLBACK:`（带原图 URL），由调用方保留「静态图 + Ken Burns」呈现。
+    case 'animate_image': {
+      const uidI = auth?.userId
+      if (!uidI) return 'TOOL_REJECT:未登录'
+      const imgRaw = String(args.image || args.imageUrl || args.file || '').trim()
+      if (!imgRaw) return 'TOOL_REJECT:缺少 image（仓库文件名或图片 URL）'
+      // 用户要求 3~6 秒；H3 单段最小 4 秒 → 夹紧到 4~6（3 秒的诉求由 4 秒覆盖，仍属短片）
+      const i2vDur = Math.max(4, Math.min(6, parseInt(args.duration) || 5))
+      const i2vCost = Math.ceil(i2vDur * 50)   // 768P = 50 点/秒（与文生视频/AI 制片同口径）
+      const i2vEffect = String(args.effect) === 'none' ? 'none' : 'atmosphere'
+      const i2vRatio = String(args.ratio) === '9:16' ? '9:16' : '16:9'
+      // 先报价（沿用全项目"首次调用不带 confirmed 只报预估"的规矩）
+      if (!args.confirmed) {
+        return `ANIMATE_COST:图生视频 ${i2vDur} 秒 × 50 点/秒 = ${i2vCost}点（约¥${(i2vCost / 100).toFixed(1)}）。` +
+          `首帧=${imgRaw}，特效=${i2vEffect === 'atmosphere' ? '轻微推拉+光晕/景深氛围' : '仅自然轻微运动'}。` +
+          `请向用户报价并等确认（用户说"确认/可以/生成吧"即确认），确认后带 confirmed=true 开始生成。`
+      }
+      const i2vChk = await checkTokens(uidI, i2vCost)
+      if (!i2vChk.allowed) return `TOOL_REJECT:${i2vChk.message}`
+      const resolved = await resolveImageToPublicUrl(uidI, imgRaw)
+      if (!resolved.url) return `TOOL_REJECT:${resolved.err}`
+      // 画面提示词：i2v 的重点是"让首帧自然动起来"，不是重画 —— 默认只描述运动/氛围，避免主体漂移；
+      // 末尾统一要求"无文字"（文字由 render.py 字幕负责，避免画面里烧进乱码字）。
+      const i2vPrompt = (String(args.prompt || '').trim() || '让画面自然、轻微地动起来') +
+        (i2vEffect === 'atmosphere'
+          ? ', subtle parallax, gentle push-in, soft light bloom, shallow depth of field, cinematic atmosphere, smooth steady motion'
+          : ', subtle natural motion, steady camera') +
+        '。保持主体一致，画面里不要出现任何文字'
+      // ① H3 图生视频（中转优先 → 官方降级）——与文生视频共用同一条通道与 key
+      try {
+        const { generateH3Video } = await import('@/lib/minimax-h3')
+        const h3 = await generateH3Video(i2vPrompt, i2vDur, '768P', 'adaptive', resolved.url)
+        if (h3?.ok && h3.videoUrl) {
+          const repoUrl = await saveGeneratedVideoToRepo(uidI, h3.videoUrl)
+          await spendTokens(uidI, i2vCost, 'animate_image')
+          return `VIDEO_RESULT:${repoUrl}|SEC:${h3.seconds || i2vDur}|COST:${i2vCost}点|VIA:H3(${h3.via || '?'})`
+        }
+        console.log(`[animate_image] H3 首帧失败: ${h3?.error} → 降级百炼 wan2.7-i2v`)
+      } catch (eI: any) {
+        console.log('[animate_image] H3 异常:', eI?.message || eI)
+      }
+      // ② 百炼 wan2.7-i2v（异步）——复用 generate_video 的同一闭环（VIDEO_TASK + query_video_task 转存/扣费）
+      try {
+        const r2 = await generateImageToVideo(i2vPrompt, resolved.url, i2vDur, '720P', i2vRatio)
+        if (r2?.taskId && r2.status === 'running') {
+          try { await createRecord({ userId: uidI, type: 'image2video', provider: 'dashscope', prompt: i2vPrompt, costPoints: i2vCost, platformTaskId: String(r2.taskId) }) } catch { /* ignore */ }
+          return `VIDEO_TASK:${r2.taskId}|COST:${i2vCost}点（成片完成后扣费）`
+        }
+      } catch (eD: any) {
+        console.log('[animate_image] 百炼 i2v 异常:', eD?.message || eD)
+      }
+      // ③ 两条通道都不通 → 结构化降级：**保留原图**（静态图 + Ken Burns），不把整片判死
+      return `I2V_FALLBACK:${resolved.url}|DUR:${i2vDur}|COST:0点|REASON:图生视频通道暂不可用（H3 与百炼均失败，请查后台 H3/百炼 Key）`
+    }
+
     // ── 本地成片（★VF_AGENT_V1）：文案 → 分镜 → 配音 → FFmpeg 渲染（全本地）──
     //   与 create_ai_video 的区别：那个走 AI 逐镜生成画面（贵、慢）；
     //   这个走【本地渲染】（tts.py + render.py），快、便宜、画面是模板化卡片/图文。
@@ -698,6 +787,27 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             (a: number, s: any) => a + String((s && (s.subtitle || s.text)) || '').length, 0)
         } catch { vfBillChars = 0 }
       }
+      // ★VF_I2V_V1（2026-09-29）：**per-shot 图生视频注入** —— 把指定镜的首帧换成"用户仓库里的图"。
+      //   ⚠️ **只在 plan 里显式给了 `args.i2vShots` 时才生效**（默认不开：图生视频比素材合成贵，
+      //     未经用户确认不许擅自启用/计费）。
+      //   契约：args.i2vShots = [{ index: <1-based 镜号>, image: <仓库文件名 或 http(s) URL> }]
+      //     → 用 resolveImageToPublicUrl 签成 OSS 直链（Python 侧没有签名能力）写进 shot.ref_image，
+      //        make.py 用它当 H3 首帧；该镜生成失败会退回它自己的静态图（Ken Burns），不判死整片。
+      let vfPlanInj = vfPlan
+      if (vfPlan && Array.isArray(args.i2vShots) && args.i2vShots.length) {
+        try {
+          const _pI = JSON.parse(vfPlan)
+          const _shotsI: any[] = Array.isArray(_pI) ? _pI : (_pI && _pI.shots) || []
+          for (const it of args.i2vShots) {
+            const _ixI = parseInt(it && it.index) - 1
+            if (!(_ixI >= 0 && _ixI < _shotsI.length)) continue
+            const _rI = await resolveImageToPublicUrl(auth?.userId || 0, String((it && it.image) || ''))
+            if (_rI.url) { _shotsI[_ixI].ref_image = _rI.url; console.log(`[make_ai_video] 图生视频注入：第 ${_ixI + 1} 镜首帧=${String(it.image).slice(0, 60)}`) }
+            else console.log(`[make_ai_video] 图生视频注入失败（第 ${_ixI + 1} 镜）: ${_rI.err}`)
+          }
+          vfPlanInj = JSON.stringify(_pI)
+        } catch (eI: any) { console.log('[make_ai_video] i2vShots 注入异常:', eI?.message || eI) }
+      }
       // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」判定 —— 工具参数（AI 主动传）或表单草稿
       //   （用户在表单里选的）任一为 ai 即算。
       //   ★2026-09-21 修（用户在客户端实测「点确认出片 → 回『发布流程未开始』」）：
@@ -717,6 +827,12 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const _mixIdx = String(args.mix || '').split(',').map((x) => parseInt(String(x).trim())).filter((n) => n > 0)
       const _isMixLine = _srcRaw === 'mix' || _mixIdx.length > 0
       const vfSrcAI = _srcRaw === 'ai' || _srcRaw === 'mix' || _mixIdx.length > 0
+      // ★VF_I2V_V1（2026-09-29）：给了 i2vShots 却不声明来源 → **直接拒**。
+      //   为什么拒而不是"自动按 AI 计费"：图生视频比素材合成贵一个数量级，静默改口径就是"擅自计费"
+      //   （本项目的多扣费事故史）；拒绝能让调用方显式声明 source=ai / mix=镜号，报价与实扣才同源。
+      if (vfPlan && Array.isArray(args.i2vShots) && args.i2vShots.length && !vfSrcAI) {
+        return 'TOOL_REJECT:图生视频（i2vShots）必须同时指定 source=ai（整片 AI 生成）或 mix=镜号（混合），以便按秒计费；未声明来源时不允许生成。'
+      }
       // ★VF_AIVIDEO_V1：**计费口径分三种** ——
       //   素材合成：按文案字数（ceil(字数/20)），30 秒片约 7 点；
       //   全部 AI 生成（AI 制片）：按【秒 × 50 点】（768P；2K 为 80），30 秒片约 1500 点；
@@ -779,8 +895,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       //   也导致事后无法回溯"这次到底怎么排的镜"；独立后可直接读该任务的 storyboard.voiced.json）
       const vfWorkDir = pathVF.join(outDir, 'work_' + Date.now())
       const vfSpeaker = String(args.speaker || args.voice || '')
-      const argsVF = vfPlan
-        ? [mkPy, '--plan', vfPlan, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir, '--speaker', vfSpeaker]
+      // ★VF_I2V_V1：用 vfPlanInj（可能已注入各镜 ref_image 首帧），而不是原始 vfPlan
+      const argsVF = vfPlanInj
+        ? [mkPy, '--plan', vfPlanInj, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir, '--speaker', vfSpeaker]
         : [mkPy, '--script', vfScript, '--theme', vfTheme, '--out', vfOut, '--workdir', vfWorkDir, '--speaker', vfSpeaker]
       // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」→ 让 make.py 在【配音之后、渲染之前】
       //   逐镜调 MiniMax H3 生成画面（768P=50点/秒）。单镜失败 make.py 会自动回退成素材图，不整片挂。

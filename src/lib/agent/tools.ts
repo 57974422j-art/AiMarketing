@@ -388,6 +388,32 @@ export const AGENT_TOOLS: ToolDefinition[] = [
       }, required: ['videoName'],
     },
   },
+  {
+    // ★VF_I2V_V1（2026-09-29 用户要求「今天刚提到的视频能力全部做」）：图生视频 —— 让静态图动起来。
+    //   用途：把个人仓库里的一张静态图（或用户发来的图片 URL）当**首帧**，生成 3~6 秒短片，
+    //        画面自然轻微运动（轻微推拉 + 光晕/景深氛围），主体保持不变。
+    //   为什么单开一个工具：现有 generate_video 的 refImage 分支只走【百炼 wan2.7-i2v】；
+    //        而 AI 制片线主力通道是 MiniMax H3（中转优先→官方降级），TS 版 generateH3Video
+    //        早已支持 image_url/first_frame 首帧 —— 本工具把「仓库里的一张图」接进 H3 i2v，
+    //        **key 复用后台已配的 H3 通道，不新增任何硬编码**。
+    //   降级：H3 首帧失败 → 百炼 wan2.7-i2v（异步，走既有 VIDEO_TASK/query_video_task 闭环）；
+    //        两条都不通 → 返回 I2V_FALLBACK（**不抛**），由调用方保留「静态图 + Ken Burns」，
+    //        绝不因为"让图动起来"失败而把整条片子判死。
+    //   计费：768P = 50 点/秒（与文生视频 / AI 制片同口径），4~6 秒 ≈ 200~300 点。
+    name: 'animate_image',
+    description: '图生视频：把个人仓库里的一张静态图当首帧，生成 3~6 秒「让这张图动起来」的短片（轻微推拉 + 光晕/景深氛围，主体保持不变）。用户说"让这张图动起来 / 图片动起来 / 把这张图做成视频 / 用我的图做个视频"时用。首次调用不带 confirmed 只报预估，确认后带 confirmed=true 生成。',
+    parameters: {
+      type: 'object',
+      properties: {
+        image: { type: 'string', description: '首帧图片：个人仓库文件名（如 20260929_001.jpg）、完整 storage/ 路径，或 http(s) 图片 URL' },
+        prompt: { type: 'string', description: '画面运动描述（可选）；默认"自然轻微地动起来"' },
+        duration: { type: 'number', description: '时长秒数，3~6，默认 5（H3 单段最小 4 秒）' },
+        effect: { type: 'string', description: '特效档：atmosphere(默认，轻微推拉+光晕/景深氛围) / none(仅自然轻微运动)' },
+        ratio: { type: 'string', description: '比例（仅兜底通道用）：16:9 或 9:16' },
+        confirmed: { type: 'boolean', description: '用户是否已确认费用。false/缺省=只报预估；true=真正生成' },
+      }, required: ['image'],
+    },
+  },
   // [已移除]
 ]
 
@@ -396,6 +422,7 @@ export const TOOL_STEP_LABEL: Record<string, string> = {
   generate_copy: '撰写营销文案（必须严格基于提供的主题/画面内容——不得编造主题未提及的产品/功效/场景——画面分析为空时不得编）',
   generate_image: 'AI 生成配图',
   generate_video: 'AI 生成视频',
+  animate_image: '图生视频（让静态图动起来）',
   make_ai_video: '本地成片（配音+字幕+动态卡片，快且便宜）',
   query_make_video: '查询本地成片进度',
   search_web_images: '上网搜索参考图',

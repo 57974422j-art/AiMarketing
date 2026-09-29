@@ -29,7 +29,7 @@
 /* ==================== 类型（本线自己定义，不设共用类型文件） ==================== */
 
 export interface VfAiDraft {
-  step: 'ai_setup' | 'ai_opts' | 'script' | 'running'
+  step: 'ai_setup' | 'ai_opts' | 'script' | 'running' | 'ai_i2v'
   topic: string
   aspect: string          // portrait | landscape
   dur: number
@@ -49,6 +49,8 @@ export interface VfAiDraft {
   cover?: number
   subLen?: number
   styleResolved?: string
+  /** ★VF_I2V_V1（2026-09-29）：图生视频的待生成首帧（个人仓库文件名 / URL）—— 报价后等「确认」用 */
+  i2vImg?: string
 }
 
 /** 依赖注入：由 route.ts 提供（本文件不 import 项目内部路径，避免循环依赖/路径写错） */
@@ -134,6 +136,15 @@ export async function clearVfAiDraft(db: any, uid: number | string): Promise<voi
 /* ==================== ③ 入口判定（本线自己的词表） ==================== */
 
 /** 工具类意图（不是"出成片"）—— ★本文件自己一份（零 import 铁律） */
+/** ★VF_I2V_V1（2026-09-29 用户要求「视频能力全部做」）：图生视频入口词（并入 AI 制片线）。
+ *  说明：它不是「AI 制片」那种入口词，matchesAiLine 认不出 → 必须在 shouldTakeOverAiLine 里单独放行，
+ *  否则会被判成"非本线"而落到别处或被标准模式锁死。
+ *  ⚠️ 带「素材」二字的一律不算（如"把素材图做成视频"是素材线的活）——避免抢别线的词。 */
+const I2V_WORD = /用我的图|我的图动起来|这张图动起来|图片动起来|图动起来|让图动|静态图动起来|(把|用).{0,6}图(做|变)成视频|(把|用).{0,6}图(做|生成)视频/
+function isI2vIntent(m: string): boolean {
+  const s = String(m || '')
+  return I2V_WORD.test(s) && !/素材/.test(s)
+}
 const TOOL_INTENT = /(写|生成|做).{0,4}(文案|脚本|标题|话题)|海报|图片|插画|今日热点|热点|数字人|口播视频|背景音乐|配乐|BGM|搜一下|搜索|记录一件事|记一下|提醒/
 function isToolIntentOnly(m: string): boolean {
   // ★VF_PROTO_V1（2026-09-21）：**协议串（卡片提交）不是"工具意图"** —— 否则表单里带的【文案正文】
@@ -188,6 +199,10 @@ export async function shouldTakeOverAiLine(db: any, uid: number, userMessage: st
   //   是同一条规则的反方向（两边都要排，否则谁有残留草稿谁就把对方的命令抢走）。
   //   ⚠️ 判据是"素材开头 + AI"，本线自己的「AI 制片」不含"素材"，不会误伤。
   if (/^\s*素材\s*[+＋加和与]\s*AI/.test(m)) return false
+  // ★VF_I2V_V1（2026-09-29）：「用我的图动起来」是本线新增的图生视频入口（并入 AI 制片）——
+  //   它不是「AI 制片」入口词（matchesAiLine 认不出），必须在此单独放行，否则该命令落不到本线。
+  //   放在"别线词排除"之后，避免与素材线/混合线的词冲突（带「素材」二字的一律不算）。
+  if (isI2vIntent(m)) return true
   // ★VF_AI_RUNCLOSE_V1（2026-09-21 用户实测：素材线的「确认」被本线抢走 → 回"AI 制片已在后台生成中"）：
   //   本线"有草稿必接管"本身没错，但**入队后草稿停在 running 且没人收尾**（僵尸）→
   //   它会【终身】吞掉所有消息（含别线的「确认」）。→ running 草稿一律视为僵尸：自清 + 不接管。
@@ -225,6 +240,61 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
       await clearVfAiDraft(ctx.prisma, uid)
       try { ctx.log(uid, '[VF-A] 用户取消 → 本线草稿已清（不影响素材线/混合线）') } catch { /* ignore */ }
       return '已退出 AI 制片（本线草稿已清）。想重来就说「AI 制片」；想用素材成片说「图片成片」，想用你自己的视频混剪说「图视混剪」。'
+    }
+
+    /* ── ★VF_I2V_V1（2026-09-29 用户定案「今天刚提到的视频能力全部做」）：
+     *    「用我的图动起来」= 图生视频（让仓库里的一张静态图动起来，并入 AI 制片线）。
+     *    实现：调内部工具 `animate_image`（H3 图生视频 → 百炼 wan2.7-i2v 降级，key 复用后台已配通道）。
+     *    · 先报价（50 点/秒，与 AI 制片同口径）→ 用户「确认」才真正生成；
+     *    · 工具返回 I2V_FALLBACK（两条通道都不通）时**不判死** → 提示"已保留原图可做静态呈现"，
+     *      符合用户"失败降级、不整片失败"的定案。
+     *    · 首帧优先级：本次上传的图 > 仓库最新一张图。 */
+    if (isI2vIntent(userMessage) || (vd && vd.step === 'ai_i2v')) {
+      // a) 用户说"让图动起来" → 选首帧 + 报预估（不扣费）
+      if (isI2vIntent(userMessage)) {
+        let imgName = ''
+        if (vd?.uploaded?.length) imgName = String(vd.uploaded[0])
+        if (!imgName) {
+          try {
+            const mats = await ctx.listRepoMaterials(uid, 30, 'recent')
+            imgName = String((mats || []).find((m: any) => m.kind === 'image')?.name || '')
+          } catch { /* ignore */ }
+        }
+        if (!imgName) {
+          return '图生视频：我这边没找到可用的图。请先在「AI 制片」卡里**上传一张图**（或先往个人仓库传张图），再跟我说「用我的图动起来」。'
+        }
+        const nd: VfAiDraft = vd || {
+          step: 'ai_setup', topic: '', aspect: 'portrait', dur: 30, style: '', voice: 'longxiaochun',
+          theme: 'dark', bgm: 'auto', musicType: '', script: '', uploaded: [], source: 'ai',
+        }
+        nd.step = 'ai_i2v'
+        nd.i2vImg = imgName
+        VF_AI_DRAFT.set(uid, nd)
+        await saveVfAiDraft(ctx.prisma, uid, nd)
+        const est = String(await ctx.executeToolCall('animate_image', { image: imgName, confirmed: false }, ctx.auth))
+        ctx.log(uid, `[VF-A] 图生视频：首帧=${imgName} → ${est.slice(0, 80)}`)
+        // ★VF_I2V_V1（2026-09-29）：现在是**卡片**（前端 `step==='ai_i2v'` 分支渲染「🎬 用我的图动起来」按钮），
+        //  让用户不必记命令词。报价从工具回执里**解析**（而不是本地重算）→ 保证"卡片报价 = 实扣"同源。
+        if (!est.startsWith('ANIMATE_COST')) return est   // 未登录 / 点数不足 / 找不到图 → 原样回（别渲染一张假卡）
+        const _cm = est.match(/=\s*(\d+)\s*点/)
+        return 'VF_JSON:' + JSON.stringify({
+          step: 'ai_i2v', aiLine: true,
+          image: imgName, effect: 'atmosphere',
+          cost: _cm ? parseInt(_cm[1]) : 250,
+          hint: '让「你仓库里的这张图」动起来（3~6 秒）：轻微推拉 + 光晕/景深氛围，主体保持不变。',
+        })
+      }
+      // b) 已报价，用户「确认」→ 真正生成（成功后本线草稿作废，与出片同款）
+      if (vd && vd.step === 'ai_i2v' && vd.i2vImg && AI_FLOW_WORD.test(String(userMessage).trim())) {
+        const run = String(await ctx.executeToolCall('animate_image', { image: vd.i2vImg, confirmed: true }, ctx.auth))
+        VF_AI_DRAFT.delete(uid)
+        await clearVfAiDraft(ctx.prisma, uid)
+        ctx.log(uid, `[VF-A] 图生视频出片 → ${run.slice(0, 100)}`)
+        if (run.startsWith('I2V_FALLBACK')) {
+          return '这张图的动态生成没成功（图生视频通道暂不可用）→ **已保留原图**（可用「静态图 + 缓动」呈现，不耽误你出片）。要我再试一次就说「用我的图动起来」。'
+        }
+        return run
+      }
     }
 
     // ★VF_AILINE_RESTART_V1（2026-09-21 用户实测：说「AI 制片帮我做一条视频」被回
@@ -408,6 +478,10 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
 
     /* ── 兜底：给明确回应（不留白） ── */
     if (vd.step === 'running') return 'AI 制片已在后台生成中——完成后自动推结果（也可问「视频做得怎么样了」）。'
+    // ★VF_I2V_V1：图生视频待确认态（用户没说"确认"也说了别的）
+    if (vd.step === 'ai_i2v') {
+      return `图生视频：回「确认」我就让这张图（${vd.i2vImg || '刚才那张图'}）动起来；想换张图就说「重新开始」。`
+    }
     if (vd.step === 'ai_setup') return 'AI 制片：说个主题就行（或点「🚀 开始出片」）。'
     if (vd.step === 'ai_opts') return 'AI 制片：请在上面选好 横竖屏 / 时长 / 风格，点「下一步」。'
     return 'AI 制片：请点「🚀 开始出片」，或直接回「确认」。'
