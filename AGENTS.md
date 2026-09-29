@@ -54,6 +54,26 @@
   - bump 后**必须补 `electron/changelog.json` 里那条的说明**（bump 只插"（待补充变更说明）"空占位）
   - ⚠️ 写中文说明时**不要用英文双引号**（会把 changelog.json 的 JSON 写坏 → bump 报错），用「」
   - 一键发版（bump + commit + 打包 + 传 OSS）：`node scripts/release.mjs X.Y.Z "本次改了什么"`
+
+## 成片（视频工厂）开发约定 —— ★VF_THEMES_V1 / VF_TITLEFIT_V3（2026-09-29）
+
+- **主题 token 唯一真相源**：`scripts/video-factory/themes.py`（**8 套**：dark/blue/tech/mint/light/journal/vivid/mono）。
+  `make.py` 与 `render.py` 都 `from themes import ...`；**加主题只改这一个文件** + 客户端 `page.tsx::VideoFormCard` 加一个按钮。
+  主题名传到 `render.py` 时统一走 `theme_of()`（字符串/字典都收，不认识→默认主题，**绝不抛异常**）。
+- **画面大字字号规则**（`fit_big_text`，★VF_TITLEFIT_V3）：**≤8 字必须一行**（优先缩字号，不低于 fs_min），
+  9 字以上才折行且**各行等宽**（`wrap_balanced`）。⚠️ 别再改回"折行优先"——用户实测过"5 个字折成 4+1"。
+- **素材体检**（`_probe_material`，★VF_MATGUARD_V1）：`lum`(亮度) / `edge`(边缘密度) / `flat`(主色占比)。
+  判定：`lum<78` 深色 → 少压暗；`flat>0.42` 截图特征 → 大字缩小+实底衬；**又深又是截图 → 换主题质感底板**。
+- **纯文字卡**（title/list/number/compare/chart/end）：底色一律走 `stage_layer()`（渐变+强调色装饰），
+  **字幕颜色跟随主题**（`build_ass(..., th=th)`，浅色主题自动深字白边）——不许再写死白字黑边。
+- **反 AI 味是三层**：提示词（`src/lib/agent/vf/anti-ai.ts::ANTI_AI_PROMPT`）→ 服务端净化
+  （`sanitizeAntiAiShots`，两个分镜出口都要过）→ 渲染前自检（`render.py::anti_ai_check`）。别只改提示词。
+- **出片前的"先看样板镜"**（★VF_PREVIEW_V1）：服务端工具 `preview_video_shot`（只渲染开头约 8 秒、不配音不扣点）。
+- **开发机诊断工具**（★VF_LOCAL_DIAG_V1，本机需 ffmpeg）：
+  `npm run vf:local -- --check`（体检）/ `--filters 分镜.json`（看滤镜串，秒级）/ `--sb 分镜.json`（本机渲染）
+  / `--probe 成片.mp4`（逐帧体检：竖线/文字边缘/越界）/ `--frames 成片.mp4 --t 49`（抽帧看图）。
+  ⚠️ PowerShell 里**不要**把长跑进程接 `Select-Object -First`（会掐断管道、杀掉进程）。
+- 客户端**自动留档分镜**到 `<安装目录>\data\vf-storyboards\`（★VF_SBDUMP_V1）——排查优先看它，别再上服务器捞分镜。
   - 新增运行时依赖时：**只改 `electron/env-manifest.js` 那张表**，并在 `scripts/build-local.mjs` 的 `extraResources` 里补一条
     （同时 `package.json` 的 `extraResources` 也要对齐 —— 两处不一致就会出现"打出来少件"）
 - **提交推送**（★ 必须先有用户明文授权，否则禁止）：`git add <白名单路径>` → `git commit -m "…"` → `git push origin master`

@@ -26,12 +26,12 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# 主题预设（先给一套；对应 docs 里"主题 JSON"的最小实现）
-THEMES = {
-    'dark':   {'bg': '0x0a1620', 'text': 'white', 'accent': '0xff6b35', 'font': 'msyh'},
-    'light':  {'bg': '0xf5f2ea', 'text': '0x1a1a1a', 'accent': '0xc0392b', 'font': 'msyh'},
-    'tech':   {'bg': '0x0b1c2c', 'text': '0xe8f1f8', 'accent': '0x2ec4b6', 'font': 'msyh'},
-}
+# ★VF_THEMES_V1（2026-09-29）：主题 token 已迁到【唯一真相源】 scripts/video-factory/themes.py
+#   （原来只在这里写死 3 套，render.py 又从分镜里拿字典 —— 两处各写一份、必然漂移。
+#     现在 make.py 与 render.py 都 `from themes import ...`；加主题只改 themes.py 一个文件。）
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+from themes import THEMES, theme_of  # noqa: E402  （放在 sys.path 处理之后，故意不置顶）
 
 
 def split_sentences(text):
@@ -230,22 +230,34 @@ def _h3_prompt(shot, idx, style_en=''):
     return '%s %s %s' % (p[:600], style_en, _H3_CAM[idx % len(_H3_CAM)])
 
 
-def _h3_gen_one(prompt, want_sec, resolution, ratio):
-    """单镜生成（同步阻塞）。返回 (本地下载前的 url 或 None, 通道 label, 真实秒数)"""
+def _h3_gen_one(prompt, want_sec, resolution, ratio, ref_image=''):
+    """单镜生成（同步阻塞）。返回 (本地下载前的 url 或 None, 通道 label, 真实秒数)
+
+    ★VF_I2V_V1（2026-09-29 用户要求「视频能力全部做」）：新增 ref_image —— **图生视频首帧**。
+      · ref_image 必须是**公网 URL**：由 Node 侧签好 OSS 直链后写进分镜的 `ref_image` 字段透传过来；
+        Python 侧没有 OSS 签名能力，**绝不在本文件里签 URL**（那会把密钥带进内置运行时）。
+      · 与 src/lib/minimax-h3.ts 的 submitAndPoll **刻意保持同构**：
+        content 追加 {'type':'image_url','image_url':{'url':...},'role':'first_frame'}；
+        带首帧时 ratio 用 'adaptive'（画面跟着首帧构图走，避免拉伸变形）。
+    """
     import time
     targets = _h3_targets()
     if not targets:
         return (None, '未配置', 0.0)
     last_via = '未配置'
+    _ref = str(ref_image or '').strip()
     for t in targets:
         last_via = t['label']
+        _content = [{'type': 'text', 'text': prompt[:7000]}]
+        if _ref:
+            _content.append({'type': 'image_url', 'image_url': {'url': _ref}, 'role': 'first_frame'})
         body = {
             'model': t['model'],
-            'content': [{'type': 'text', 'text': prompt[:7000]}],
+            'content': _content,
             'resolution': resolution,
             # H3 单段只支持 4~15 秒整数 → 按配音时长四舍五入后在范围内夹紧
             'duration': max(4, min(15, int(round(want_sec)))),
-            'ratio': ratio,
+            'ratio': 'adaptive' if _ref else ratio,
         }
         if _h3_use_context_ir():
             body['use_context_ir'] = True
@@ -315,15 +327,30 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
             total_sec += float(shot.get('src_dur') or 0)
             continue
         prompt = _h3_prompt(shot, i, _style_en)
-        print('[H3] 第 %d/%d 镜 生成中…（目标 %.1fs）%s' % (i + 1, len(shots), want, prompt[:70]))
-        url, via, sec = _h3_gen_one(prompt, want, resolution, ratio)
+        # ★VF_I2V_V1（2026-09-29）：该镜是否用"它自己的图"当首帧（图生视频）。
+        #   ref_image 由 Node 侧签好 OSS 直链后写进分镜透传过来（本文件不签 URL）。
+        _ref = str(shot.get('ref_image') or '').strip()
+        if _ref:
+            print('[H3] 第 %d/%d 镜 图生视频中…（首帧=%s）%s'
+                  % (i + 1, len(shots), _ref[:60], prompt[:50]))
+        else:
+            print('[H3] 第 %d/%d 镜 生成中…（目标 %.1fs）%s' % (i + 1, len(shots), want, prompt[:70]))
+        url, via, sec = _h3_gen_one(prompt, want, resolution, ratio, _ref)
         via_last = via
         if not url:
             # ★VF_AIFAIL_V1（2026-09-21）：不再承诺"该镜回退用原画面" ——
             #   素材线/混合线本来就有素材图，退回素材是它们的正常行为；
             #   但 **AI 制片是"文生视频"、没有素材**，缺镜就是"AI 制作失败"（由 main() 统一判定）。
-            print('[H3] ⚠️ 第 %d 镜 AI 画面没拿到（%s）→ 素材线/混合线可回退素材；'
-                  'AI 制片线这一镜**算失败**（最后由 main 统一判定）' % (i + 1, via))
+            # ★VF_I2V_V1：**例外** —— 带首帧图的镜（图生视频）失败时可退回它自己的静态图
+            #   （render.py 的 bgimage/image 本来就做 Ken Burns 缓动）→ 打标记，由 main() 放行，
+            #   不让"让图动起来失败"把整片判死（用户的成片降级原则）。
+            if _ref:
+                shot['i2v_fallback'] = True
+                print('[H3] ⚠️ 第 %d 镜图生视频没拿到（%s）→ 退回它自己的静态图 + Ken Burns（不算整片失败）'
+                      % (i + 1, via))
+            else:
+                print('[H3] ⚠️ 第 %d 镜 AI 画面没拿到（%s）→ 素材线/混合线可回退素材；'
+                      'AI 制片线这一镜**算失败**（最后由 main 统一判定）' % (i + 1, via))
             continue
         dest = os.path.join(clips, 'shot%02d.mp4' % i)
         try:
@@ -334,6 +361,9 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
             #   原来只有 "HTTP Error 403: Forbidden"，看不出是哪个地址失败（换 key/换站时没法验证）。
             print('[H3] ⚠️ 第 %d 镜下载失败: %s  url=%s（AI 制片线这一镜**算失败**）'
                   % (i + 1, str(e)[:120], str(url)[:110]))
+            # ★VF_I2V_V1：带首帧图的镜退回静态图（Ken Burns），同样不判死整片
+            if _ref:
+                shot['i2v_fallback'] = True
             continue
         real = float(sec or 0) or _probe_sec(dest)
         shot['type'] = 'aivideo'
@@ -354,7 +384,9 @@ def main():
     ap.add_argument('--storyboard', default='', help='现成分镜 JSON 文件')
     ap.add_argument('--plan', default='', help='AI 给的分镜 JSON 字符串（或 @文件路径）——优先级最高')
     ap.add_argument('--preview', action='store_true', help='只输出分镜计划（JSON），不配音不渲染')
-    ap.add_argument('--theme', default='dark', choices=list(THEMES.keys()))
+    # ★VF_THEMES_V1（2026-09-29）：**故意不加 choices** —— 以前写死 3 个主题名，用户/前端传了新主题名
+    #   会被 argparse 直接拒绝（exit 2，整条出片失败）。现在任何名字都收下，theme_of() 查不到就用默认主题。
+    ap.add_argument('--theme', default='dark')
     ap.add_argument('--out', default='out.mp4')
     ap.add_argument('--workdir', default='')
     ap.add_argument('--speaker', default='', help='音色，留空用引擎默认（百炼 longxiaochun / 火山 zh_female_vv_uranus_bigtts）')
@@ -477,11 +509,23 @@ def main():
             #   失败了就是 AI 制作失败」「不要什么降级」）：
             #   **AI 制片必须每一镜都是 AI 画面** —— 缺任何一镜都不许用素材/文字卡顶替 → 直接判失败。
             _tot = len(sb.get('shots', []) or [])
-            if (not _isMix) and a.source == 'ai' and ai_n < _tot:
+            # ★VF_I2V_V1（2026-09-29）：带首帧图的镜（图生视频）失败时可退回它自己的静态图
+            #   （Ken Burns）→ 从"必须成功"的硬指标里剔除，**不让"让图动起来失败"判死整片**。
+            #   （纯文生视频的镜没有图可退 → 仍按 VF_AIFAIL_V1：缺镜即失败。）
+            _fb = 0
+            try:
+                _sbj2 = json.load(open(ai_sb, encoding='utf-8'))
+                _fb = len([s for s in (_sbj2.get('shots') or []) if s.get('i2v_fallback')])
+            except Exception:
+                _fb = 0
+            if (not _isMix) and a.source == 'ai' and (ai_n + _fb) < _tot:
                 print('[MAKE] ❌ AI 制片：只拿到 %d/%d 镜的 AI 画面 → **不用素材顶、不降级 = AI 制作失败**'
                       % (ai_n, _tot))
                 print('[MAKE]    ↑ 病因看上面的 [H3] 行；这是"文生视频"，缺镜不能拿素材凑。')
                 sys.exit(5)
+            if _fb:
+                print('[MAKE] ⚠️ %d 镜图生视频没拿到 → 退回各自的静态图 + Ken Burns（其余 %d 镜是 AI 画面）'
+                      % (_fb, ai_n))
             use_sb = ai_sb
             print('[MAKE] AI 片段就绪：%d 镜 / %.1f 秒（通道 %s）→ 用 storyboard.ai.json 渲染'
                   % (ai_n, ai_sec, ai_via))

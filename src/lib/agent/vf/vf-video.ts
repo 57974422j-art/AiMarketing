@@ -289,6 +289,15 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     `②【用图片的镜】写成 {"type":"bgimage","pick":2,"text":"画面大字","subtitle":"..."}\n` +
     `③【所有 subtitle 拼起来必须完整覆盖文案，且顺序一致】；不许扩写、不许重复、不许自己编句子\n` +
     `④相邻两镜不要用同一个视频；同一个视频切多段时，两段之间至少隔 2 镜\n` +
+    // ★VF_TEXTCARD_V1（2026-09-29 用户实测「没单独生成页面 都是图片加打字」）：
+    //   原来提示词只说"画面用用户的素材" → AI 从不排独立文字卡，整条片成了"图文轮播"（12/12 镜都是素材镜）。
+    //   现在明确要求：每 4~5 镜至少 1 镜用【不用素材】的文字卡，画面才有层次与节奏。
+    `⑧【必须有独立文字卡】每 4~5 镜里至少 1 镜用【不用素材】的文字卡（别整片都是"图/视频 + 白字"）：\n` +
+    `   · {"type":"title","text":"4~8 字短句","subtitle":"…"} —— 大字标题卡\n` +
+    `   · {"type":"list","title":"小标题","items":["要点1","要点2","要点3"],"subtitle":"…"} —— 逐条揭示\n` +
+    `   · {"type":"compare","left":"旧做法","right":"新做法","leftDesc":"≤14 字","rightDesc":"≤14 字","subtitle":"…"} —— 左右对比\n` +
+    `   · {"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"…"} —— 数字卡（**只在文案里真有这个数字时**才用）\n` +
+    `   这几类卡的画面由渲染层按【主题】自动排版（渐变底 + 强调色），比压在素材上更清楚\n` +
     `⑤text 是画面大字：4~8 字的完整短语，不要从文案截半句、不要标点\n` +
     `⑥只输出严格 JSON 数组（不要 markdown、不要解释）\n` +
     `⑦【视频要用够】有视频可用时，视频镜不少于总镜数的 1/3（你自己的实拍比图更有说服力）；\n` +
@@ -314,6 +323,8 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   // ★VF_SHOTCAP_V1（2026-09-28 用户定案「每镜视频硬上限」）：
   //   提示词里已经写了"每镜 4~10 秒"，但那只是【软约束】—— AI 偶尔会排出一个 20 秒的镜。
   //   这里做【服务端硬夹取】（渲染层仍有放慢/循环兜底），并把被夹取的镜数如实写进日志。
+  // ★VF_TEXTCARD_V1（2026-09-29）：AI 明确要的【独立文字卡】——归一化时照做，不再一律变成 bgimage
+  const TEXT_CARDS = new Set(['title', 'list', 'number', 'compare', 'chart', 'end'])
   const VF_VIDEO_SHOT_MAX_SEC = 10
   const VF_VIDEO_SHOT_MIN_SEC = 2
   let _capHits = 0
@@ -347,6 +358,16 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
         type: 'video', src: c?.path || '', _ci: i0, src_dur: Math.round(real * 100) / 100,
         vstart: Math.round(start * 100) / 100, dur: Math.round(len * 100) / 100, text: big, subtitle: sub,
       })
+    } else if (TEXT_CARDS.has(ty)) {
+      // ★VF_TEXTCARD_V1（2026-09-29 用户实测「没单独生成页面 都是图片加打字」）：
+      //   老逻辑：只要不是 video 就一律变成 bgimage（硬配一张图）→ AI 排的文字卡全被吃掉，
+      //   整条片永远是"图 + 白字"（实测 12/12 镜都是素材镜）。
+      //   现在：AI 明确要的文字卡就照做，各卡自己的字段（list 的 items、compare 的左右、number 的值）
+      //   原样带过去 —— 渲染层早就支持这些卡型，且 anti-ai 会兜住"文案里没数字的数字卡"。
+      const o: any = { ...s, type: ty, subtitle: sub, dur: clampNum(s?.dur, 2, 8, 4) }
+      if (ty === 'title') o.text = big
+      else delete o.text
+      shotsOut.push(o)
     } else if (imgPaths.length) {
       const i = parseInt(s?.pick) - 1
       const p = imgPaths[i >= 0 && i < imgPaths.length ? i : (shotsOut.length % imgPaths.length)]

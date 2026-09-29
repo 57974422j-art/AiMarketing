@@ -45,6 +45,14 @@ import subprocess
 import sys
 import tempfile
 
+# ★VF_THEMES_V1（2026-09-29）：主题 token 的【唯一真相源】是同目录 themes.py。
+#   本文件原来要求分镜里的 `theme` 必须是字典；而草稿/接口里存的其实是字符串（如 'dark'）——
+#   2026-09-29 本机诊断就把字符串喂进来过 → `th.get()` 直接 AttributeError。现在统一走 theme_of()。
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+from themes import THEMES, theme_of  # noqa: E402
+
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # ── FFmpeg / 字体定位（优先环境变量，其次常见路径）──
@@ -318,24 +326,66 @@ def wrap_by_width(s, fs, maxw, max_lines=2):
     return lines
 
 
-def fit_big_text(s, W, H, maxw_ratio=0.86, max_lines=2, fs_max=None, fs_min=None):
-    """画面大字的统一排版：返回 (lines, fs)。先按目标字号试 → 一行放不下就折两行 →
-       两行仍放不下才缩字号（不低于 fs_min）。这样同一条片里大字大小基本一致。"""
+def wrap_balanced(s, fs, maxw, max_lines=2):
+    """折行并尽量让各行【等宽】（★VF_TITLEFIT_V3）。
+    为什么：旧的"按宽度贪心折行"会产出 `创作不是` + `等`（4+1）这种"尾巴一个字"的难看结果
+    （2026-09-29 用户实测原话：「五个字都是下面拖一个字。不是一排」）。
+    策略：短句（≤ 每行 4 字）按【字符数均分】；长句才退回按宽度贪心（英文/数字要成串不断）。"""
+    s = str(s or '').strip()
+    if not s:
+        return []
+    if max_lines <= 1 or len(s) <= 1:
+        return [s]
+    if len(s) <= max_lines * 4:
+        n = len(s)
+        base, extra = divmod(n, max_lines)
+        out, i = [], 0
+        for k in range(max_lines):
+            ln = base + (1 if k < extra else 0)
+            if ln <= 0:
+                continue
+            out.append(s[i:i + ln])
+            i += ln
+        return [x for x in out if x]
+    return wrap_by_width(s, fs, maxw, max_lines)
+
+
+def fit_big_text(s, W, H, maxw_ratio=0.86, max_lines=2, fs_max=None, fs_min=None, one_line_max=8):
+    """画面大字的统一排版：返回 (lines, fs)。
+
+    ★VF_TITLEFIT_V3（2026-09-29 用户实测「不知道控制字大小。五个字都是下面拖一个字。不是一排」）：
+      旧逻辑是「先折行，两行都放不下才缩字号」→ 5 个字（128px×5 > 画布宽）必然折成 4+1。
+      新规则（按优先级）：
+        ① **≤ one_line_max(8) 个字：必须一行** —— 优先缩字号把整句塞进一行（不低于 fs_min）；
+        ② 一个字都放不下 / 字数更多 → 折 max_lines 行，且各行**尽量等宽**（wrap_balanced）；
+        ③ 仍然放不下才继续缩字号。
+      实测（720×1280 竖屏）：4 字→1 行 128px；**5 字→1 行 123px**；6 字→1 行 105px；
+      8 字→1 行 77px；10 字→2 行 5+5。"""
     txt = clean_big_text(s)
     fs_max = int(fs_max or max(44, int(H * 0.10)))
     fs_min = int(fs_min or max(30, int(H * 0.052)))
     if not txt:
         return [], fs_max
     maxw = W * maxw_ratio
+    # ① 优先一行（本次修的重点）
+    if len(txt) <= one_line_max:
+        fs = fs_max
+        while fs > fs_min:
+            if est_text_w(txt, fs) <= maxw:
+                return [txt], fs
+            fs = max(fs_min, int(fs * 0.96))
+        if est_text_w(txt, fs_min) <= maxw:
+            return [txt], fs_min
+    # ② 折行（尽量等宽）+ 必要时缩字号
     fs = fs_max
     for _ in range(24):
-        lines = wrap_by_width(txt, fs, maxw, max_lines)
+        lines = wrap_balanced(txt, fs, maxw, max_lines)
         if lines and len(lines) <= max_lines and all(est_text_w(l, fs) <= maxw for l in lines):
             return lines, fs
         if fs <= fs_min:
             break
         fs = max(fs_min, int(fs * 0.92))
-    return wrap_by_width(txt, fs_min, maxw, max_lines) or [txt], fs_min
+    return wrap_balanced(txt, fs_min, maxw, max_lines) or [txt], fs_min
 
 
 def center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=0, stroke=True, fade=True):
@@ -874,6 +924,135 @@ def _avg_rgb(path, ffmpeg):
     return None
 
 
+# ══════════════════ ★VF_MATGUARD_V1（2026-09-29）素材体检 ══════════════════
+# 用户实测原话：「都是图片加打字……字体很干，也没什么动效色彩啊渐变 什么都没 就几个白字」
+#   根因之一：素材本身是【深色界面截图 / 自带大字的拼贴海报】，我们却一律"模糊铺底+压暗+居中白字"，
+#   于是同一条片成了"黑底白字轮播"。这里给素材做一次体检，据此决定怎么用：
+#     ① 深色（平均亮度 < 78）→ 少压暗，让素材的色透出来（否则成片发黑）
+#     ② 满字（边缘密度 > 0.11）→ 我们的大字缩小 + 加实底衬（避免"字压字"打架）
+#    ③ 又深又满字（典型：深色 UI 截图）→ 【换主题质感底板】，不硬塞这张图（= 规划里"缺就承认缺"）
+_MAT_CACHE = {}
+
+
+def _probe_material(path):
+    """素材体检：返回 {'lum','edge','flat'} ——
+      · lum  平均亮度 0~255（深色素材 → 少压暗，否则成片发黑）
+      · edge 边缘密度 0~1（字/图案多不多）
+      · flat 【主色占比】0~1 —— 照片 vs 截图/海报的经典判别：截图/海报有大片纯色底（UI 背景、海报底色），
+             照片则颜色连续、主色占比很低。比 edge 稳得多（2026-09-29 用合成图实测 edge 会误判）。
+    注：卡片函数拿不到 render_shot 的 ffmpeg 参数 → 这里自己 find_ffmpeg()（只做路径检查，无子进程）。"""
+    try:
+        key = str(path)
+        hit = _MAT_CACHE.get(key)
+        if hit:
+            return hit
+    except Exception:
+        key = ''
+    lum, edge, flat = 160, 0.0, 0.0
+    try:
+        ff = find_ffmpeg()
+    except Exception:
+        return {'lum': lum, 'edge': edge, 'flat': flat}
+    try:
+        rgb = _avg_rgb(path, ff)
+        if rgb:
+            lum = int(0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2])
+    except Exception:
+        pass
+    try:
+        # 缩小到 240 宽再检测边缘：文件越小越快，够判断"有没有很多字/图案"。
+        r = subprocess.run([ff, '-v', 'error', '-i', path,
+                            '-vf', 'scale=240:-2,format=gray,edgedetect=low=0.08:high=0.25',
+                            '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray', '-'],
+                           capture_output=True, timeout=25)
+        b = r.stdout or b''
+        if b:
+            hits = sum(1 for x in b if x > 40)
+            edge = hits / float(len(b))
+    except Exception:
+        pass
+    try:
+        # 64×64 灰度直方图 → 主色占比（只需 4096 字节，极快）
+        r = subprocess.run([ff, '-v', 'error', '-i', path, '-vf', 'scale=64:64,format=gray',
+                            '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray', '-'],
+                           capture_output=True, timeout=20)
+        b = r.stdout or b''
+        if b:
+            hist = {}
+            for x in b:
+                hist[x] = hist.get(x, 0) + 1
+            flat = max(hist.values()) / float(len(b))
+    except Exception:
+        pass
+    out = {'lum': lum, 'edge': edge, 'flat': flat}
+    if key:
+        _MAT_CACHE[key] = out
+    return out
+
+
+def _shade(hex_color, k):
+    """把颜色变暗（k<1）或变亮（k>1）——用于"渐变第二色"没给时按底板色推一个（主题质感底板用）"""
+    try:
+        h = str(hex_color).replace('0x', '').replace('#', '')
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    except Exception:
+        r, g, b = 10, 22, 32
+    f = lambda v: max(0, min(255, int(v * k)))
+    return '0x%02x%02x%02x' % (f(r), f(g), f(b))
+
+
+_HAS_GRAD = None
+
+
+def _has_gradients(ffmpeg):
+    """探测本机 ffmpeg 是否支持 gradients 源滤镜（支持→用它做渐变底板；不支持→退回纯色+几何装饰）。
+    只探测一次并缓存；服务器 ffmpeg 版本不一，不能假设它一定有。"""
+    global _HAS_GRAD
+    if _HAS_GRAD is None:
+        try:
+            r = subprocess.run([ffmpeg, '-hide_banner', '-v', 'error',
+                                '-f', 'lavfi', '-i', 'gradients=s=8x8:c0=black:c1=white:d=0.1',
+                                '-frames:v', '1', '-f', 'null', '-'],
+                               capture_output=True, timeout=15)
+            _HAS_GRAD = (r.returncode == 0)
+        except Exception:
+            _HAS_GRAD = False
+        print('[VF] gradients 滤镜可用: %s' % ('是' if _HAS_GRAD else '否（退回纯色底板）'))
+    return _HAS_GRAD
+
+
+def stage_layer(th, W, H, dur, accent_bar=True):
+    """★VF_STAGE_V1（2026-09-29）**主题质感底板**：渐变底 + 几何装饰（替代"黑底白字"）。
+
+    用途：① 素材不适合当背景时（深色 UI 截图 / 满字海报）② 纯文字卡（title/list/compare…）
+    做法：
+      · 支持 gradients → 两色渐变（缓慢流动，speed 很小，避免"花哨"）；不支持 → 主题底色
+      · 装饰只用**极小的几何块**（顶部细色条 + 左上一小段强调色 + 底部分割线）——
+        这是反 AI 味清单里允许的"克制的设计"，不是渐变药丸/圆角彩边那一类。
+    返回 (input_args, filter_prefix)：调用方把 filter_prefix 拼到自己的文字层前面即可。
+    """
+    c0 = th.get('bg', '0x0a1620')
+    c1 = th.get('bg2') or _shade(c0, 1.55)
+    acc = th.get('accent', '0xff6b35')
+    try:
+        _ff = find_ffmpeg()
+    except Exception:
+        _ff = 'ffmpeg'
+    if _has_gradients(_ff):
+        inp = ['-f', 'lavfi', '-i',
+               'gradients=s=%dx%d:c0=%s:c1=%s:d=%s:speed=0.015' % (W, H, c0, c1, max(1.0, float(dur)))]
+    else:
+        inp = ['-f', 'lavfi', '-i', 'color=c=%s:s=%dx%d:d=%s' % (c0, W, H, max(1.0, float(dur)))]
+    deco = []
+    if accent_bar:
+        deco.append('drawbox=x=0:y=0:w=%d:h=%d:color=%s@0.95:t=fill' % (W, max(4, int(H * 0.008)), acc))
+        deco.append('drawbox=x=%d:y=%d:w=%d:h=%d:color=%s@0.85:t=fill'
+                    % (int(W * 0.08), int(H * 0.155), int(W * 0.12), max(3, int(H * 0.005)), acc))
+    deco.append('drawbox=x=%d:y=%d:w=%d:h=%d:color=white@0.10:t=fill'
+                % (int(W * 0.08), int(H * 0.925), int(W * 0.84), max(2, int(H * 0.0016))))
+    return inp, ','.join(deco)
+
+
 def _blend_dark(base_hex, rgb, k=0.22):
     """把素材平均色混进主题底板色（保留主题基调，只带一点素材色相）→ 整片色调统一"""
     try:
@@ -953,24 +1132,50 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     dur = float(shot.get('dur', 4))
     font = esc_path(find_font(th.get('font', 'msyh')))
     fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
-    # ★VF_TEXTFIT_V1：压图大字同样按字数反算字号（bgimage 不走兜底 —— 它已经有图，
-    #   再把字幕前 10 字放大字会和底部字幕重复）
-    # ★VF_TEXTFIT_V2（2026-09-28）：折行优先（最多 2 行），放不下才缩字号
-    _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
     txc = th.get('text', 'white')
     _frames = max(1, int(dur * fps))
+    _bar_y = int(H * 0.72)
+    # ★VF_MATGUARD_V1（2026-09-29 用户实测「图片加打字…没色彩，就几个白字」）：先体检素材。
+    _mat = _probe_material(src)
+    _lum = _mat.get('lum', 160)
+    _edge = _mat.get('edge', 0.0)
+    _flat = _mat.get('flat', 0.0)
+    _dark = _lum < 78                      # 深色素材（深色录屏/黑底图）
+    _graphic = _flat > 0.42                # 截图/海报（大片纯色底）—— 照片主色占比通常 < 0.25
+    _busy = _graphic or (_edge > 0.10)     # "素材自己已经有字/图案"
+    if _dark and _graphic:
+        # 又深又满字 = 典型"深色界面截图" → 【不硬塞这张图】，改用主题质感底板 + 大字
+        #（规划文档 P2「缺就承认缺」：宁可出一张设计过的文字卡，也不要一张看不清的截图）
+        print('[VF] 素材不适合当背景（亮度 %d / 主色 %.2f / 边缘 %.2f）→ 本镜改用主题质感底板：%s'
+              % (_lum, _flat, _edge, os.path.basename(str(src))[:24]))
+        _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
+        _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0]) if len(_lines) <= 1 else []
+        _reveal = (_rev if _rev else
+                   center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=-int(H * 0.06))
+                   ) if overlay_text_on() else []
+        _inp, _stage = stage_layer(th, W, H, dur)
+        _vf = _stage + ',' + ','.join([
+            f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.28:t=fill",
+        ] + _reveal + [f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"])
+        return (' '.join(_inp), _vf, dur)
+    if _busy:
+        # 素材自带大量文字（海报/截图）→ 我们的大字缩小让位，别"字压字"
+        fs = max(int(fs * 0.72), int(H * 0.045))
+    # ★VF_TITLEFIT_V3（2026-09-29）：≤8 字保一行（优先缩字号），超出才均衡折两行
+    _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
     # ★VF_SYNC_V1（C3）：画面大字逐字浮现（跟配音卡点）；拿不到 text 就不加这些滤镜
-    #   ★VF_CARDSTYLE_V1：给压在照片上的大字加半透明底衬 —— 你的素材里有不少"本身就带大字的海报"，
-    #   我们的字压上去会和图上的字打架；加一层底衬能把两者在视觉上分开，也更清楚。
-    _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box='black@0.30') if len(_lines) <= 1 else []
+    #   ★VF_CARDSTYLE_V1：压在照片上的大字加半透明底衬（与素材自带的字在视觉上分开）
+    #   ★VF_MATGUARD_V1：素材字多 → 底衬更实（0.30→0.48），否则仍会被素材的字吃掉
+    _boxc = 'black@0.48' if _busy else 'black@0.30'
+    _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc) if len(_lines) <= 1 else []
     # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
     _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)) if overlay_text_on() else []
     # ★VF_LESSDARK_V1（2026-09-20 用户实测"整体黑白/发灰"）：黑遮罩 0.42 → 0.15
-    #   原来整幅盖 42% 黑（为保字幕可读）→ 图片颜色全被压掉、观感"黑白"。
-    #   现在改成：全屏只轻压 15%（保色彩）+【底部字幕区】单独再压 30%（保字幕对比度）。
-    _bar_y = int(H * 0.72)
+    # ★VF_MATGUARD_V1（2026-09-29）：素材本身很暗（深色录屏/黑底图）时再降到 0.05 ——
+    #   深色素材上再压 15% 就是"一片黑"，那正是用户说的"很干、没色彩"。
+    _dim = 0.05 if _dark else 0.15
     _chain = [
-        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
+        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@{_dim}:t=fill",
         f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
     ] + _reveal + [
         f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"]
@@ -1092,6 +1297,16 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
         fn = card_title
         typ = 'title'
     inp, vf, dur = fn(shot, th, W, H, fps)
+    # ★VF_STAGE_V2（2026-09-29 用户实测「没色彩没渐变、就几个白字」）：**纯文字卡**（无素材）的底色
+    #   从"一块纯色"升级成【主题质感底】：两色渐变 + 顶部强调色细条 + 底部分割线。
+    #   做法刻意选在 render_shot 这一层做（而不是去改 6 个卡型）：只拦"卡片返回的是 lavfi 纯色底"这一种，
+    #   其余（有素材的 bgimage/video、以及卡片自己的文字/装饰层）一律不动 → 一处改动、风险最小。
+    if typ in ('title', 'list', 'number', 'compare', 'chart', 'end') \
+            and isinstance(inp, str) and inp.startswith('-f lavfi -i color='):
+        _inp2, _deco = stage_layer(th, W, H, dur)
+        inp = ' '.join(_inp2)
+        vf = _deco + ',' + vf
+        print('[VF] 文字卡 %s → 主题质感底（渐变 + 强调色装饰）' % typ)
     out = os.path.join(workdir, 'shot%02d.mp4' % idx)
     # ★VF_TRANS_V1（2026-09-20）：每镜首尾轻微淡入淡出（≤0.2s）——比硬切自然；
     #   不改时长（不碰音频时间轴），拼接后就是“柔和的镜间过渡”
@@ -1249,14 +1464,46 @@ def _shot_window(s):
     return min(v, d) if d > 0.05 else v
 
 
-def build_ass(shots, path, W, H, font_name='Noto Sans CJK SC', font_size=26, wrap=16):
+def _ass_color(c, default='&H00FFFFFF'):
+    """★VF_THEMES_V1（2026-09-29）：把主题色（0xRRGGBB / white / black / '0x1a1a1a@0.68'）转成 ASS 的 &HAABBGGRR。
+    为什么需要：字幕原来是**写死的"白字 + 黑描边"** —— 2026-09-29 实测在【浅色主题】下白字根本看不清
+    （米黄底上的白色字幕带黑边，糊成一片）。现在字幕跟随主题。"""
+    s = str(c or '').strip()
+    if '@' in s:
+        s = s.split('@')[0]
+    s = {'white': '0xffffff', 'black': '0x000000', 'red': '0xff0000'}.get(s, s)
+    try:
+        h = s.replace('0x', '').replace('#', '')
+        if len(h) == 3:
+            h = ''.join(ch * 2 for ch in h)
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return '&H00%02X%02X%02X' % (b, g, r)
+    except Exception:
+        return default
+
+
+def _lum_of(c, default=255):
+    """主题色亮度（决定字幕描边用黑还是白：深色字配白边、浅色字配黑边）"""
+    s = str(c or '').strip().split('@')[0]
+    s = {'white': '0xffffff', 'black': '0x000000'}.get(s, s)
+    try:
+        h = s.replace('0x', '').replace('#', '')
+        if len(h) == 3:
+            h = ''.join(ch * 2 for ch in h)
+        return int(0.299 * int(h[0:2], 16) + 0.587 * int(h[2:4], 16) + 0.114 * int(h[4:6], 16))
+    except Exception:
+        return default
+
+
+def build_ass(shots, path, W, H, font_name='Noto Sans CJK SC', font_size=26, wrap=16, th=None):
     """★VF_KARAOKE_V1（2026-09-20，用户要的“词级字幕”）：ASS 逐字高亮（karaoke）
 
     为什么不用 funasr 取字级时间戳：服务器未必装 funasr（那是客户端环境），
     而每镜的 subtitle 与**真实配音时长**（tts.py 回填的 dur）都已经有了 ——
     于是把该镜时长按字数均分给每个字，生成 \\k（厘秒）就能得到逐字扫过的效果：
     零依赖、零额外成本、不会因为没有 funasr 而挂。
-    样式：已唱=白（PrimaryColour），未唱=主题橙（SecondaryColour）。
+    样式（★VF_THEMES_V1 起跟随主题）：已唱=主题文字色（PrimaryColour），
+    未唱=主题强调色（SecondaryColour），描边=与文字反色（浅色主题上白字配黑边会糊）。
     """
     head = (
         '[Script Info]\nScriptType: v4.00+\nPlayResX: %d\nPlayResY: %d\n'
@@ -1265,11 +1512,15 @@ def build_ass(shots, path, W, H, font_name='Noto Sans CJK SC', font_size=26, wra
         'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, '
         'Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, '
         'Alignment, MarginL, MarginR, MarginV, Encoding\n'
-        'Style: Def,%s,%d,&H00FFFFFF,&H00356BFF,&H00000000,&H80000000,'
+        'Style: Def,%s,%d,%s,%s,%s,&H80000000,'
         '0,0,0,0,100,100,0,0,1,2.5,0,2,50,50,%d,1\n\n'
         '[Events]\n'
         'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'
-    ) % (W, H, font_name, font_size, max(28, int(H * 0.045)))
+    ) % (W, H, font_name, font_size,
+         _ass_color((th or {}).get('text'), '&H00FFFFFF'),                            # 已唱（主色）= 主题文字色
+         _ass_color((th or {}).get('accent'), '&H00356BFF'),                          # 未唱（次色）= 主题强调色
+         _ass_color('black' if _lum_of((th or {}).get('text'), 255) > 128 else 'white', '&H00000000'),
+         max(28, int(H * 0.045)))                                                     # 描边：深字配白边/浅字配黑边
 
     lines = []
     t = 0.0
@@ -1561,7 +1812,8 @@ def main():
     os.makedirs(wd, exist_ok=True)
     W, H = sb.get('size', [1280, 720])
     fps = int(sb.get('fps', 25))
-    th = sb.get('theme', {}) or {}
+    # ★VF_THEMES_V1（2026-09-29）：主题名/主题字典都接受（字符串走 themes.py 查表，不认识回默认主题）
+    th = theme_of(sb.get('theme'))
 
     # ★VF_TINT_V1（2026-09-20，C4 主色底板）：取前几张素材的平均色，混进“卡片底板色”
     #   → 纯色卡（title/list/number/end）跟着素材色相走，整片视觉统一。取色失败不影响出片。
@@ -1625,7 +1877,8 @@ def main():
         # ★VF_KARAOKE_V1（2026-09-20）：优先 ASS 逐字高亮；生成失败/无文本则回落 SRT（保证一定有字幕）
         if not a.no_karaoke:
             try:
-                sub_file = build_ass(shots, os.path.join(wd, 'subs.ass'), W, H, sub_font_name(), _sub_size)
+                sub_file = build_ass(shots, os.path.join(wd, 'subs.ass'), W, H,
+                                     sub_font_name(), _sub_size, th=th)
             except Exception as eSA:
                 print('[VF] ASS 生成失败，回落 SRT: %s' % str(eSA)[:140])
                 sub_file = ''

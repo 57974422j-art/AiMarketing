@@ -642,9 +642,17 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">画面风格 <span className="text-gray-600">（底色/文字/强调色）</span></div>
         <div className="flex flex-wrap gap-1.5">
-          {R(theme, 'dark', '🌌 深蓝科技', setTheme)}
+          {/* ★VF_THEMES_V1（2026-09-29 用户定案「挑一些模版给 AI 套」）：主题从 3 套扩到 8 套。
+              对应 scripts/video-factory/themes.py（唯一真相源）——每套含：渐变底/文字/强调色/底衬/字幕带。
+              新增主题只改那一个文件 + 这里加一行。 */}
+          {R(theme, 'dark', '🌌 深蓝墨', setTheme)}
+          {R(theme, 'blue', '🔷 深蓝科技', setTheme)}
           {R(theme, 'tech', '🧊 深青科技', setTheme)}
+          {R(theme, 'mint', '🌿 清新薄荷', setTheme)}
           {R(theme, 'light', '📄 浅色纸感', setTheme)}
+          {R(theme, 'journal', '📔 手账暖色', setTheme)}
+          {R(theme, 'vivid', '🔥 高饱和电商', setTheme)}
+          {R(theme, 'mono', '⬛ 杂志黑白', setTheme)}
         </div>
       </div>
 
