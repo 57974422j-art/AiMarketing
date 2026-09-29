@@ -896,6 +896,12 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     case 'preview_video_shot': {
       const uidP = auth?.userId
       if (!uidP) return 'TOOL_REJECT:未登录'
+      // ⚠️ 2026-09-29 用户实测「先看样板镜」报 `pathVF is not defined` —— 根因：
+      //   `spawn` / `pathVF` / `fsVF` 是 **make_ai_video 那个 case 块内**的动态 import（局部作用域），
+      //   新块里直接引用就是 ReferenceError。这里按同一套路自己 import 一份。
+      const { spawn } = await import('child_process')
+      const pathVF = await import('path')
+      const fsVF = await import('fs')
       let planP: any = null
       try { planP = args.plan ? (typeof args.plan === 'string' ? JSON.parse(args.plan) : args.plan) : null } catch { planP = null }
       const shotsP: any[] = Array.isArray(planP?.shots) ? planP.shots : []
