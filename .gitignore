@@ -72,3 +72,7 @@ tsconfig.tsbuildinfo
 scripts/video-factory/tts_before.py
 scripts/video-factory/sb_xfade.json
 scripts/video-factory/wd/
+scripts/video-factory/vo*.m4a
+scripts/video-factory/out_*.m4a
+scripts/video-factory/audio-list.txt
+scripts/video-factory/list.txt
