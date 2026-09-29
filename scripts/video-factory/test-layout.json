@@ -1,0 +1,29 @@
+{
+  "size": [720, 1280],
+  "fps": 25,
+  "theme": { "bg": "0x0a1620", "text": "white", "accent": "0xff6b35", "font": "msyh" },
+  "shots": [
+    {
+      "type": "compare",
+      "dur": 5,
+      "left": "人工配置参数、手动调试方案、反复返工",
+      "right": "自动生成、一键出片、效果稳定可控",
+      "leftDesc": "需要 3 个人 2 天",
+      "rightDesc": "一个人 10 分钟",
+      "subtitle": "左边是传统做法，右边是现在"
+    },
+    {
+      "type": "title",
+      "dur": 4,
+      "text": "它不是你想像里的概念其实完全不一样",
+      "subtitle": "它跟你想象的完全不一样"
+    },
+    {
+      "type": "bgimage",
+      "dur": 4,
+      "src": "G:/AiMarketing/public/icon.png",
+      "text": "画面大字示例",
+      "subtitle": "压在素材上的大字"
+    }
+  ]
+}

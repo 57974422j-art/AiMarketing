@@ -733,15 +733,23 @@ def card_compare(shot, th, W, H, fps):
     col_w = int(W * 0.42)
     lcx, rcx = int(W * 0.26), int(W * 0.74)
 
-    def _fit_lines(t, fs0, max_lines=3, fs_min=20):
-        """把一列文字塞进 col_w×max_lines：先折行，再逐步缩字号；到下限还放不下就截断（加 …）"""
+    def _wrap_hard(t, fs, max_lines):
+        """★硬上限折行：wrap_by_width 在"到上限后把剩余全塞进最后一行"（会多出一行），
+           这里传 max_lines-1 抵消，保证【最多 max_lines 行】。"""
+        return wrap_by_width(t, fs, col_w, max(1, max_lines - 1))
+
+    def _fit(text, fs0, max_lines, fs_min=22):
+        """折行 + 逐步缩字号 + 兜底截断 → (lines, fs, cut)，保证 ≤ max_lines 行且每行 ≤ col_w"""
+        t = str(text or '').strip().strip('“”"\'「」')
+        if not t:
+            return [], fs0, False
         fs = fs0
         while fs > fs_min:
-            lines = wrap_by_width(t, fs, col_w, max_lines)
-            if all(est_text_w(l, fs) <= col_w for l in lines):
+            lines = _wrap_hard(t, fs, max_lines)
+            if lines and all(est_text_w(l, fs) <= col_w for l in lines):
                 return lines, fs, False
             fs -= 2
-        lines = wrap_by_width(t, fs_min, col_w, max_lines)
+        lines = _wrap_hard(t, fs_min, max_lines)
         out = []
         for ln in lines:
             s = ''
@@ -753,35 +761,54 @@ def card_compare(shot, th, W, H, fps):
             out.append(s or ln[:1])
         return out, fs_min, True
 
-    def _col(text, cx, color, y, fs, alpha):
-        """输出一列：塞进本列宽度（折行 ≤3 行 / 自适应字号 / 兜底截断），每行在本列中心居中"""
-        t = str(text or '').strip().strip('“”"\'「」')
-        if not t:
+    # ★VF_COMPARE_FIT_V2（2026-09-29 本机就地渲染实测发现，工具见 scripts/vf-local.mjs）：
+    #   ① 两列【各自】缩字号 → 左 59 / 右 75，左右大小不一、看着不齐；
+    #   ② 说明小字写死 y=0.30H → 主文字块折到 4 行时会【被压住】。
+    #   现在：两列共用【同一个字号】（取各自能放下的较小值）重新折行；说明小字排在主块【下方】。
+    _l0, _f_l, _ = _fit(shot.get('left'), fs0, 3)
+    _r0, _f_r, _ = _fit(shot.get('right'), fs0, 3)
+    fs_main = min([x for x in (_f_l, _f_r) if x] or [fs0])
+    left_lines = _wrap_hard(str(shot.get('left') or '').strip().strip('“”"\'「」'), fs_main, 3)
+    right_lines = _wrap_hard(str(shot.get('right') or '').strip().strip('“”"\'「」'), fs_main, 3)
+    for _t, _ls in ((shot.get('left'), left_lines), (shot.get('right'), right_lines)):
+        if _ls and any(est_text_w(l, fs_main) > col_w for l in _ls):
+            print('[VF] ⚠️ 对比卡文字偏长 → 已按列宽尽量折行：%s' % str(_t)[:24])
+
+    def _col(lines, cx, color, y, fs, alpha, center_at=True):
+        """把若干行文字在本列中心居中输出（center_at=False 时 y 视为首行顶部）"""
+        if not lines:
             return []
-        lines, _fs, cut = _fit_lines(t, fs)
-        if cut:
-            print('[VF] ⚠️ 对比卡这一列文字过长 → 已截断显示：%s' % t[:24])
-        gap = int(_fs * 1.35)
-        y0 = y - (gap * (len(lines) - 1)) // 2
+        gap = int(fs * 1.35)
+        y0 = (y - (gap * (len(lines) - 1)) // 2) if center_at else y
         out = []
         for i, ln in enumerate(lines):
-            st = f":borderw={max(2, int(_fs * 0.06))}:bordercolor=black@0.72"
+            st = f":borderw={max(2, int(fs * 0.06))}:bordercolor=black@0.72"
             out.append(
-                f"drawtext=fontfile='{font}':text='{esc_text(ln)}':fontsize={_fs}:"
+                f"drawtext=fontfile='{font}':text='{esc_text(ln)}':fontsize={fs}:"
                 f"fontcolor={color}{st}:x={cx}-text_w/2:y={y0 + i * gap}{alpha}"
             )
         return out
 
     parts = []
-    parts += _col(shot.get('left'), lcx, txc, int(H * 0.16), fs0, ":alpha='min(t/0.5,1)'")
-    parts += _col(shot.get('right'), rcx, acc, int(H * 0.16), fs0, ":alpha='min(max(t-0.4,0)/0.5,1)'")
+    _y_main = int(H * 0.22)
+    parts += _col(left_lines, lcx, txc, _y_main, fs_main, ":alpha='min(t/0.5,1)'")
+    parts += _col(right_lines, rcx, acc, _y_main, fs_main, ":alpha='min(max(t-0.4,0)/0.5,1)'")
     # 中间竖线：高度随时间生长（drawbox 的 h 支持表达式）—— 限宽后不再有文字压过来
     parts.append(
         f"drawbox=x={mid - 2}:y={int(H * 0.14)}:w=4:h='{int(H * 0.72)}*min(max(t-0.2,0)/0.6,1)':"
         f"color={acc}@0.9:t=fill")
-    _fs2 = int(fs0 * 0.55)
-    parts += _col(shot.get('leftDesc'), lcx, txc + '@0.75', int(H * 0.30), _fs2, ":alpha='min(max(t-0.8,0)/0.5,1)'")
-    parts += _col(shot.get('rightDesc'), rcx, txc + '@0.75', int(H * 0.30), _fs2, ":alpha='min(max(t-1.2,0)/0.5,1)'")
+    # 说明小字：排在主文字块【下方】（实测踩过：写死 0.30H 会被折行后的主块压住）
+    _gap_main = int(fs_main * 1.35)
+    _rows = max(1, max(len(left_lines), len(right_lines)))
+    _y0_main = _y_main - (_gap_main * (_rows - 1)) // 2
+    _main_bottom = _y0_main + _gap_main * (_rows - 1) + int(fs_main * 1.05)
+    _y_desc = min(int(H * 0.74), _main_bottom + int(fs_main * 0.5))
+    _fs2 = max(20, int(fs0 * 0.55))
+    _ld, _f_ld, _ = _fit(shot.get('leftDesc'), _fs2, 2)
+    _rd, _f_rd, _ = _fit(shot.get('rightDesc'), _fs2, 2)
+    _fsd = min([x for x in (_f_ld, _f_rd) if x] or [_fs2])
+    parts += _col(_ld, lcx, txc + '@0.75', _y_desc, _fsd, ":alpha='min(max(t-0.8,0)/0.5,1)'", center_at=False)
+    parts += _col(_rd, rcx, txc + '@0.75', _y_desc, _fsd, ":alpha='min(max(t-1.2,0)/0.5,1)'", center_at=False)
     return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
             ','.join(parts), dur)
 

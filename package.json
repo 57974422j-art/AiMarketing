@@ -12,6 +12,7 @@
     "electron:start": "electron .",
     "release:electron": "node scripts/release.mjs",
     "verify:package": "node scripts/verify-package.mjs",
+    "vf:local": "node scripts/vf-local.mjs",
     "postinstall": "npx prisma generate && npx prisma db push; true"
   },
   "main": "electron/main.js",
