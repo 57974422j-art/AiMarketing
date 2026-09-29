@@ -437,7 +437,12 @@ def card_title(shot, th, W, H, fps):
     _rev = _reveal_seq(shot, font, fs, txc, dur, text=(_lines[0] if _lines else txt)) if len(_lines) <= 1 else []
     body = ','.join(_rev) if _rev else ','.join(
         center_lines_drawtext(font, _lines or [txt], fs, txc, W, H, dur))
-    _dy = max(int(H * 0.05), int(H * 0.5 - fs * 0.95))     # 装饰线放在大字正上方
+    # ★VF_CARDLINE_FIT_V1（2026-09-29 用户实测截图：两行大字时"第一行左端被橙色小块压住"）：
+    #   旧写法 y = 0.5H - 0.95fs 是按【单行居中】推的；折成两行后文字块上移，
+    #   装饰线就扎进第一行里。现在按【文字块顶边】算（支持 1~2 行），并留 0.66fs 间距。
+    _gap_line = int(fs * 1.34)
+    _block_top = int(H * 0.5 - _gap_line * len(_lines or [txt]) * 0.5)
+    _dy = max(int(H * 0.05), _block_top - int(fs * 0.66))   # 装饰线放在大字块正上方
     _bar_h = max(6, int(fs * 0.09))
     deco = ','.join([
         f"drawbox=x={int(W * 0.10)}:y={_dy}:w={int(W * 0.10)}:h={_bar_h}:color={acc}@0.95:t=fill",
@@ -716,26 +721,67 @@ def card_compare(shot, th, W, H, fps):
     """对比分屏：左右两栏 + 中间分隔线生长的动画"""
     font = esc_path(find_font(th.get('font', 'msyh')))
     dur = float(shot.get('dur', 5))
-    fs = int(shot.get('fontsize', max(40, int(H * 0.07))))
+    fs0 = int(shot.get('fontsize', max(40, int(H * 0.07))))
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
-    left = esc_text(shot.get('left', ''))
-    right = esc_text(shot.get('right', ''))
     mid = W // 2
-    parts = [
-        # 左右标题
-        f"drawtext=fontfile='{font}':text='{left}':fontsize={fs}:fontcolor={txc}:"
-        f"x={int(W * 0.06)}:y={int(H * 0.16)}:alpha='min(t/0.5,1)'",
-        f"drawtext=fontfile='{font}':text='{right}':fontsize={fs}:fontcolor={acc}:"
-        f"x={int(W * 0.56)}:y={int(H * 0.16)}:alpha='min(max(t-0.4,0)/0.5,1)'",
-        # 中间竖线：高度随时间生长（用 drawbox，h 支持表达式）
+    # ★VF_COMPARE_FIT_V1（2026-09-29 用户实测「排版有很多问题」；本机成片逐帧量到：
+    #   t≈49~53s 一根贯穿全屏的橙竖线、x=360（720 宽画布正中）、左右两列文字互相压着）：
+    #   老实现左右两列是【固定 x、完全不限宽】（左 x=0.06W、右 x=0.56W）——
+    #   文字一长，左列就【越过中线压到右列】上；再叠上中间那根"设计用竖线"，
+    #   观感就是"橙竖线穿过互相压着的白字/橙字"（与代码 mid=W//2 完全吻合）。
+    #   修法：左右各自限宽（≤42% 画布宽）→ 超宽先折行、再缩字号；两列各自在半个画面内居中。
+    col_w = int(W * 0.42)
+    lcx, rcx = int(W * 0.26), int(W * 0.74)
+
+    def _fit_lines(t, fs0, max_lines=3, fs_min=20):
+        """把一列文字塞进 col_w×max_lines：先折行，再逐步缩字号；到下限还放不下就截断（加 …）"""
+        fs = fs0
+        while fs > fs_min:
+            lines = wrap_by_width(t, fs, col_w, max_lines)
+            if all(est_text_w(l, fs) <= col_w for l in lines):
+                return lines, fs, False
+            fs -= 2
+        lines = wrap_by_width(t, fs_min, col_w, max_lines)
+        out = []
+        for ln in lines:
+            s = ''
+            for c in ln:
+                if est_text_w(s + c + '…', fs_min) > col_w:
+                    s = s.rstrip() + '…'
+                    break
+                s += c
+            out.append(s or ln[:1])
+        return out, fs_min, True
+
+    def _col(text, cx, color, y, fs, alpha):
+        """输出一列：塞进本列宽度（折行 ≤3 行 / 自适应字号 / 兜底截断），每行在本列中心居中"""
+        t = str(text or '').strip().strip('“”"\'「」')
+        if not t:
+            return []
+        lines, _fs, cut = _fit_lines(t, fs)
+        if cut:
+            print('[VF] ⚠️ 对比卡这一列文字过长 → 已截断显示：%s' % t[:24])
+        gap = int(_fs * 1.35)
+        y0 = y - (gap * (len(lines) - 1)) // 2
+        out = []
+        for i, ln in enumerate(lines):
+            st = f":borderw={max(2, int(_fs * 0.06))}:bordercolor=black@0.72"
+            out.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(ln)}':fontsize={_fs}:"
+                f"fontcolor={color}{st}:x={cx}-text_w/2:y={y0 + i * gap}{alpha}"
+            )
+        return out
+
+    parts = []
+    parts += _col(shot.get('left'), lcx, txc, int(H * 0.16), fs0, ":alpha='min(t/0.5,1)'")
+    parts += _col(shot.get('right'), rcx, acc, int(H * 0.16), fs0, ":alpha='min(max(t-0.4,0)/0.5,1)'")
+    # 中间竖线：高度随时间生长（drawbox 的 h 支持表达式）—— 限宽后不再有文字压过来
+    parts.append(
         f"drawbox=x={mid - 2}:y={int(H * 0.14)}:w=4:h='{int(H * 0.72)}*min(max(t-0.2,0)/0.6,1)':"
-        f"color={acc}@0.9:t=fill",
-        # 左右说明（小字）
-        f"drawtext=fontfile='{font}':text='{esc_text(shot.get('leftDesc', ''))}':fontsize={int(fs * 0.55)}:"
-        f"fontcolor={txc}@0.75:x={int(W * 0.06)}:y={int(H * 0.30)}:alpha='min(max(t-0.8,0)/0.5,1)'",
-        f"drawtext=fontfile='{font}':text='{esc_text(shot.get('rightDesc', ''))}':fontsize={int(fs * 0.55)}:"
-        f"fontcolor={txc}@0.75:x={int(W * 0.56)}:y={int(H * 0.30)}:alpha='min(max(t-1.2,0)/0.5,1)'",
-    ]
+        f"color={acc}@0.9:t=fill")
+    _fs2 = int(fs0 * 0.55)
+    parts += _col(shot.get('leftDesc'), lcx, txc + '@0.75', int(H * 0.30), _fs2, ":alpha='min(max(t-0.8,0)/0.5,1)'")
+    parts += _col(shot.get('rightDesc'), rcx, txc + '@0.75', int(H * 0.30), _fs2, ":alpha='min(max(t-1.2,0)/0.5,1)'")
     return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
             ','.join(parts), dur)
 
