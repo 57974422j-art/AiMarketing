@@ -759,10 +759,18 @@ function VfAiSetupCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         {vj.hintUpload ? <div className="text-[10px] text-gray-500 mt-1">{vj.hintUpload}</div> : null}
       </div>
 
-      <button onClick={go}
-        className="px-4 py-1.5 rounded-lg bg-violet-500/40 hover:bg-violet-500/70 text-sm text-white font-medium">
-        🚀 开始出片
-      </button>
+      {/* ★VF_I2V_V1（2026-09-29）：图生视频 UI 入口（用户不用记命令词）。
+          点了先走服务端报价、回「图生视频确认卡」，再点一下才真正扣费生成。 */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={go}
+          className="px-4 py-1.5 rounded-lg bg-violet-500/40 hover:bg-violet-500/70 text-sm text-white font-medium">
+          🚀 开始出片
+        </button>
+        <button onClick={() => onStart('用我的图动起来')}
+          className="px-4 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">
+          🎬 用我的图动起来
+        </button>
+      </div>
       <div className="text-[10px] text-gray-500 mt-2">
         画面 / 文案 / 分镜 / 配音 / 字幕 / 配乐 —— **全部自动**。费用按秒计（约 50 点/秒，30 秒 ≈ 1500 点）。
       </div>
@@ -830,6 +838,42 @@ function VfAiOptsCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void
       </button>
       <div className="text-[10px] text-gray-500 mt-2">
         配音音色 / 背景音乐 **自动**（不用选）；成片风格会决定画面质感、字幕配色与配乐类型。
+      </div>
+    </div>
+  )
+}
+
+/** ★VF_I2V_V1（2026-09-29 用户要求「视频能力全部做」）：【AI 制片】第 4 张卡 —— 图生视频确认。
+ *  由服务端 vf-aivideo.ts 在 `step==='ai_i2v'` 时产出（`VF_JSON:{step:'ai_i2v',image,cost,...}`）。
+ *  为什么单独一张卡：图生视频按 50 点/秒计费，必须**先报价、再确认**（与其它成片线同一规矩）；
+ *  且首帧可换（回「重新开始」即重新选图）。
+ *  ⚠️ 本卡只做展示与发消息，不在这里调接口 —— 计费/入库全在服务端 animate_image（报价=实扣同源）。 */
+function VfAiI2vCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void }) {
+  const img = String(vj.image || '')
+  const cost = Number(vj.cost) || 250
+  return (
+    <div className="mb-2 p-3 rounded-xl border border-violet-500/30 bg-violet-500/[0.06]">
+      <div className="text-xs text-violet-300 mb-2">{vj.hint || '图生视频（让静态图动起来）'}</div>
+      <div className="text-[11px] text-gray-300 mb-1">
+        首帧：<span className="text-emerald-300">{img || '（你仓库里最新的一张图）'}</span>
+      </div>
+      <div className="text-[10px] text-gray-500 mb-3">
+        输出 3~6 秒 · 轻微推拉 + 光晕/景深氛围 · 主体保持不变 · 约 <b className="text-amber-300">{cost} 点</b>（50 点/秒）
+        <div className="mt-0.5">生成失败会自动退回「静态图 + 缓动」，不会白扣点。</div>
+        {/* ★2026-09-29（team-lead 要求把"没确认会怎样"说清）：**不写"超时自动作废"** ——
+            现网没有任何超时作废机制（vf-aivideo.ts 里 0 个 setTimeout/过期逻辑），写上去就是假提示，
+            撞本项目「不许写假话/假同步」的规矩。改成如实说明：不点确认不扣费、想撤点下面那个按钮。 */}
+        <div className="mt-0.5 text-amber-300/80">不点「确认」就**不扣费**；不做了点「↺ 换一张 / 退出」即可（草稿会清掉，不会自动扣费）。</div>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={() => onStart('确认')}
+          className="px-4 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">
+          ✅ 确认，动起来（约 {cost} 点）
+        </button>
+        <button onClick={() => onStart('重新开始')}
+          className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-[11px] text-gray-300 border border-white/[0.08]">
+          ↺ 换一张 / 退出
+        </button>
       </div>
     </div>
   )
@@ -2643,6 +2687,8 @@ function AgentPageInner() {
         // ★2026-09-22：把当前用户 id 透传给卡片（上传后要在客户端镜像到本地仓库）
         if (_vj && _vj.step === 'ai_setup') return <VfAiSetupCard vj={_vj} onStart={sendMessage} userId={user?.id} />
         if (_vj && _vj.step === 'ai_opts') return <VfAiOptsCard vj={_vj} onStart={sendMessage} />
+        // ★VF_I2V_V1（2026-09-29）：图生视频确认卡（「🎬 用我的图动起来」按钮）
+        if (_vj && _vj.step === 'ai_i2v') return <VfAiI2vCard vj={_vj} onStart={sendMessage} />
         if (_vj && _vj.step === 'form') return <VideoFormCard vj={_vj} onStart={sendMessage} userId={user?.id} />
       } catch {}
     }
