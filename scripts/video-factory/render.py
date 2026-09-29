@@ -398,6 +398,22 @@ def wrap_subtitle(txt, limit=16, max_lines=2):
     return '\n'.join(lines[:max_lines])
 
 
+# ══════════════════ ★VF_OVERLAY_TEXT_SWITCH（2026-09-29 用户定案）══════════════════
+# 用户原话：「在视频图片上直接加大字，加一个开关……有的视频不一定要，特别是在视频上直接加大字主要关这个。
+#            单独加几帧都行。」
+# 语义（重要，别做偏）：
+#   · 只关【压在素材上的大字】（bgimage / video / aivideo 三类卡上的 text 叠加层）；
+#   · 【独立文字卡】（title / end / list / number / compare / chart / quote）照旧 —— 需要文字时
+#     就用这种"单独几帧的文字卡"，等于用户说的"单独加几帧都行"；
+#   · 字幕（底部）不受影响。
+# 控制方式（两处任选，JSON 优先）：storyboard JSON 的 "overlay_text": false ／ CLI 的 --no-bigtext
+SHOW_OVERLAY_TEXT = True
+
+
+def overlay_text_on():
+    return SHOW_OVERLAY_TEXT
+
+
 # ══════════════════ 配方卡渲染 ══════════════════
 
 def card_title(shot, th, W, H, fps):
@@ -604,7 +620,8 @@ def card_video(shot, th, W, H, fps):
     #   不再"长句一路缩成小字"（那是"同片里大字忽大忽小"的根因）。
     _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
     _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box='black@0.30') if len(_lines) <= 1 else []
-    _reveal = _rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)
+    # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
+    _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)) if overlay_text_on() else []
     _bar_y = int(H * 0.72)
     _chain = [
         f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
@@ -653,7 +670,7 @@ def card_aivideo(shot, th, W, H, fps):
     font = esc_path(find_font(th.get('font', 'msyh')))
     fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
     txc = th.get('text', 'white')
-    _reveal = _reveal_seq(shot, font, fs, txc, dur)
+    _reveal = _reveal_seq(shot, font, fs, txc, dur) if overlay_text_on() else []   # ★OVERLAY_TEXT_SWITCH_V1
     _bar_y = int(H * 0.72)
     _chain = [
         f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
@@ -836,7 +853,7 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None):
     return out
 
 
-def card_bgimage(shot, th, W, H, fps):
+def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     """图片背景 + 文字叠加 + 暗化（适合"实景底 + 标语"）
 
     ★2026-09-19 改（用户实测：横屏素材被收窄/切边）：
@@ -869,7 +886,8 @@ def card_bgimage(shot, th, W, H, fps):
     #   ★VF_CARDSTYLE_V1：给压在照片上的大字加半透明底衬 —— 你的素材里有不少"本身就带大字的海报"，
     #   我们的字压上去会和图上的字打架；加一层底衬能把两者在视觉上分开，也更清楚。
     _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box='black@0.30') if len(_lines) <= 1 else []
-    _reveal = _rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)
+    # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
+    _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)) if overlay_text_on() else []
     # ★VF_LESSDARK_V1（2026-09-20 用户实测"整体黑白/发灰"）：黑遮罩 0.42 → 0.15
     #   原来整幅盖 42% 黑（为保字幕可读）→ 图片颜色全被压掉、观感"黑白"。
     #   现在改成：全屏只轻压 15%（保色彩）+【底部字幕区】单独再压 30%（保字幕对比度）。
@@ -1323,6 +1341,8 @@ def main():
     ap.add_argument('--bgm', default='', help='背景音乐文件（会循环铺底并压低音量）')
     ap.add_argument('--no-subs', action='store_true', help='不烧字幕')
     ap.add_argument('--no-karaoke', action='store_true', help='不生成 ASS 逐字高亮（回落 SRT）')
+    ap.add_argument('--no-bigtext', action='store_true',
+                    help='★OVERLAY_TEXT_SWITCH_V1：不把画面大字压在素材/视频上（独立文字卡与字幕照旧）')
     ap.add_argument('--sub-size', default='0', help='字幕字号（0 = 按分辨率自适应）')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
@@ -1458,6 +1478,16 @@ def main():
     video_for_audio = merged
     # ★VF_SUBSIZE_V1（2026-09-20）：字幕字号原来写死 26 —— 在 1920x1080 下只有屏高 2.4%，太小。
     #   改为未指定时按分辨率自适应（约屏高 4.2%）；显式传 --sub-size 仍以传入值为准。
+    # ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案）：画面大字总开关 ——
+    #   storyboard JSON 的 "overlay_text": false，或 CLI 的 --no-bigtext（任一为关即关）。
+    #   只关【压在素材/视频上的大字】（bgimage/video/aivideo 三类卡）；
+    #   独立文字卡（title/end/list/number/compare/chart/quote）与底部字幕【不受影响】——
+    #   需要文字时就用这种"单独几帧的文字卡"，也就是用户说的"单独加几帧都行"。
+    global SHOW_OVERLAY_TEXT
+    if a.no_bigtext or (sb.get('overlay_text') is False):
+        SHOW_OVERLAY_TEXT = False
+        print('[VF] ★画面大字=关（本次不把大字压在素材/视频上；独立文字卡与字幕保留）')
+
     _sub_size = int(a.sub_size) if str(a.sub_size).isdigit() and int(a.sub_size) > 0 else max(26, int(H * 0.042))
     if not a.no_subs:
         shots = sb.get('shots', [])

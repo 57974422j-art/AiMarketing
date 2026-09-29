@@ -487,6 +487,11 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   // ★VF_THEME_UI_V1（2026-09-20）：画面风格 —— render.py 早就有 3 套主题预设（dark/tech/light），
   //   之前没在表单里暴露 → 用户永远只能拿到 dark。这里加一栏让用户选。
   const [theme, setTheme] = useState(vj.theme || 'dark')
+  // ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案「在视频图片上直接加大字，加一个开关」）：
+  //   只关【压在素材/视频上的大字】；独立文字卡（标题/结尾/列表…）与字幕照旧 ——
+  //   用户要的就是"有的视频不一定要，需要文字时用单独的文字卡（几帧）也行"。
+  //   选项名按要求"简单点"：加 / 不加。
+  const [big, setBig] = useState(vj.big || 'on')
   const [openAdv, setOpenAdv] = useState(false)
   // ★VF_UPLOAD_V1（2026-09-20）：「📤 我上传素材」真正可用 —— 选文件 → 传到个人仓库
   //   （POST /api/storage/files，与素材页同一个接口）→ 本次成片只从【最近上传】取画面。
@@ -640,6 +645,15 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         </div>
       </div>
 
+      {/* ★OVERLAY_TEXT_SWITCH_V1：压在素材/视频上的大字开关（用户：有的视频不一定要） */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">画面大字 <span className="text-gray-600">（压在素材/视频上的字；选"不加"就只留字幕）</span></div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(big, 'on', '🔤 加', setBig)}
+          {R(big, 'off', '🚫 不加', setBig)}
+        </div>
+      </div>
+
       <button onClick={() => setOpenAdv(!openAdv)} className="text-[10px] text-gray-500 hover:text-gray-300 mb-2">
         {openAdv ? '▲ 收起「我已有文案」' : '▼ 我已有文案（点这里贴）'}
       </button>
@@ -651,7 +665,7 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
 
       <button
         onClick={() => onStart('VF_FORM:' + JSON.stringify({
-          aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme,
+          aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme, big,
           // ★VF_UPLOAD_V2（2026-09-20）：把**刚上传的文件名**一起发给后端 → 成片精确只用这几张
           //   （不再靠后端"按时间猜最近"，也就不会再挑到旧素材）
           // ★VF_AIVIDEO_V1（2026-09-20）：AI 模式下**不提交 uploaded** —— 免得日志与后续判断里

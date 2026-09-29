@@ -36,6 +36,9 @@ export interface VfVideoDraft {
   voice: string
   theme: string
   bgm: string
+  /** ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案）：画面大字开关 'on'|'off'
+   *  只关【压在素材/视频上的大字】；独立文字卡（标题/结尾/列表…）与字幕不受影响。 */
+  big?: string
   uploaded: string[]        // 本次上传的文件名（可选；仓库里的素材也会用）
   script: string
   brief: string             // 图文素材 + 视频理解结论（喂写文案/排分镜）
@@ -196,6 +199,7 @@ function formCard(vd: VfVideoDraft): string {
     dur: vd.dur,
     theme: vd.theme,
     bgm: vd.bgm,
+    big: vd.big || 'on',      // ★OVERLAY_TEXT_SWITCH_V1：画面大字（加 / 不加），默认加
     source: 'repo',
   })
 }
@@ -479,6 +483,7 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         if (f.voice) vd.voice = String(f.voice)
         if (f.theme) vd.theme = String(f.theme)
         if (f.bgm) vd.bgm = String(f.bgm)
+      if (f.big) vd.big = String(f.big)   // ★OVERLAY_TEXT_SWITCH_V1：'on' | 'off'
         if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x))
         if (typeof f.script === 'string' && f.script.trim()) vd.script = cleanText(f.script)
         if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = String(f.topic).trim().slice(0, 300)
@@ -506,7 +511,9 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
       await clearVfVideoDraft(ctx.prisma, uid)
       ctx.log(uid, '[VF-V] 已入队 → 本线草稿作废')
       const run = await ctx.executeToolCall('make_ai_video', {
-        plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots }),
+        // ★OVERLAY_TEXT_SWITCH_V1（2026-09-29）：把"画面大字开关"写进分镜 plan ——
+      //   render.py 读到 overlay_text=false 就不再把这些大字压在素材/视频上（独立文字卡与字幕照旧）。
+      plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots, overlay_text: vd.big !== 'off' }),
         script: vd.script,
         theme: vd.theme,
         speaker: vd.voice,
