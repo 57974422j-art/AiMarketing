@@ -499,6 +499,9 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   //   「🎞 让图动起来」开关 —— 开=每张图片镜先拿首帧生成一段动图（4~8 秒 ≈ 200~400 点/张，
   //   同一张图只生成一次）；关=全部静态图 + Ken Burns（不额外花钱）。默认开。
   const [i2v, setI2v] = useState(vj.i2v || 'on')
+  // ★VF_BANNER_V1（2026-09-29 用户定案）：「📌 顶部固定标题」开关 —— 开=AI 自动拟两行（黄字黑边 +
+  //   半透明色块白字），全程钉在画面顶部不动；关=不画。默认「自动」（用户要"默认这样，方便后期集成自动化"）。
+  const [pin, setPin] = useState(vj.pin || 'on')
   const [openAdv, setOpenAdv] = useState(false)
   // ★VF_UPLOAD_V1（2026-09-20）：「📤 我上传素材」真正可用 —— 选文件 → 传到个人仓库
   //   （POST /api/storage/files，与素材页同一个接口）→ 本次成片只从【最近上传】取画面。
@@ -681,6 +684,15 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         <div className="text-[10px] text-gray-500 mt-1">（本轮只在「图视混剪」这条线生效；「图片成片」目前不会让图动）</div>
       </div>
 
+      {/* ★VF_BANNER_V1：顶部固定标题（AI 自动拟两行）—— 只做「自动 / 不要」两个按钮，默认自动 */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">📌 顶部固定标题 <span className="text-gray-600">（全程钉在画面顶部的两行；AI 自动拟，颜色随机）</span></div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(pin, 'on', '✨ 自动', setPin)}
+          {R(pin, 'off', '🚫 不要', setPin)}
+        </div>
+      </div>
+
       <button onClick={() => setOpenAdv(!openAdv)} className="text-[10px] text-gray-500 hover:text-gray-300 mb-2">
         {openAdv ? '▲ 收起「我已有文案」' : '▼ 我已有文案（点这里贴）'}
       </button>
@@ -695,6 +707,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme, big,
           // ★VF_VIDI2V_V1：让图动起来（'on'|'off'）—— 服务端 vf-video.ts 解析 f.i2v，关掉就完全不注入首帧
           i2v,
+          // ★VF_BANNER_V1：顶部固定标题（'on' 默认自动拟两行 | 'off' 不要）—— 服务端解析后决定 plan 是否带 banner
+          pin,
           // ★VF_UPLOAD_V2（2026-09-20）：把**刚上传的文件名**一起发给后端 → 成片精确只用这几张
           //   （不再靠后端"按时间猜最近"，也就不会再挑到旧素材）
           // ★VF_AIVIDEO_V1（2026-09-20）：AI 模式下**不提交 uploaded** —— 免得日志与后续判断里

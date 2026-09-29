@@ -38,6 +38,10 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields } from './anti-ai
 //   把那边的 shots + keyByPath 传进同一个函数即可（默认仍然只在图视混剪开启）。
 import { buildI2vShots, i2vKeyMap } from './i2v-plan'
 import type { I2vBuildResult, I2vPlan } from './i2v-plan'
+// ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：提炼两行 + 根级字段形状，两条线共用同一份
+//   （纯逻辑放 banner.ts，与 anti-ai.ts / i2v-plan.ts 同类，静态 import 不连累别的线）。
+import { buildBanner, fallbackBanner, bannerFieldOf, planWithBanner } from './banner'
+import type { VfBannerLines } from './banner'
 
 /* ==================== 类型（本线自己定义，不设共用类型文件） ==================== */
 
@@ -67,6 +71,10 @@ export interface VfVideoDraft {
    *  为什么要存进草稿：图生视频首帧只能喂**公网地址**，而分镜里的 src 是服务器本地路径；
    *  纯函数 buildI2vPlan() 需要这个映射把本地路径换回仓库 key（签名统一在 chat/route.ts 里做）。 */
   i2vKeys?: Record<string, string>
+  /** ★VF_BANNER_V1（2026-09-29 用户定案）：「📌 顶部固定标题」开关 'on'（默认，AI 自动拟两行）| 'off'（不要）。 */
+  pin?: string
+  /** ★VF_BANNER_V1：起草时提炼出来的两行标题（AI 或其规则兜底）；出片时挂到 plan 根级 `banner`。 */
+  banner?: VfBannerLines
   /** ★原声开关（用户定案"原声静音加个键"）：默认 false=静音（配音统一铺）。
    *  ⚠️ 置 true 需要渲染层支持"把视频原声压到 20~30% 并混进最后混音" → 放在第 3 步，先不假装生效。 */
   keepAudio?: boolean
@@ -249,6 +257,8 @@ function formCard(vd: VfVideoDraft): string {
     big: vd.big || 'on',      // ★OVERLAY_TEXT_SWITCH_V1：画面大字（加 / 不加），默认加
     // ★VF_VIDI2V_V1：让图动起来（逐镜图生视频）开关 —— 默认开；关掉 = 全静态图、不额外计费
     i2v: vd.i2v || 'on',
+    // ★VF_BANNER_V1：顶部固定标题（AI 自动拟两行）开关 —— 默认开（用户要"默认这样，方便后期集成自动化"）
+    pin: vd.pin || 'on',
     source: 'repo',
   })
 }
@@ -319,6 +329,22 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   }
   if (!script) return '视频混剪：文案没写出来（AI 调用失败）。回「重试」我再试一次。'
   ctx.log(uid, `[VF-V] 文案 ${script.length} 字（目标 ${need}）`)
+
+  // ── 3.5) ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：出片前用一次**便宜的文本调用**拟两行 ──
+  //   为什么在【起草】时就提炼、而不是出片那一刻：① 文案在这里才定稿（出片只读草稿）；② 出片那一刻再调
+  //   AI = 用户点「确认」后还要多等一次网络往返；③ 提炼失败/返回不合法一律走规则兜底（首句前 10 字 /
+  //   次句前 16 字）—— **绝不因为一个标题把整条片卡死**。开关关掉就不调、不带字段（渲染层不画）。
+  try {
+    const _banner = await buildBanner({
+      script, brief, topic: vd.topic, pin: vd.pin ?? 'on', generateText: ctx.generateText,
+    })
+    for (const _n of _banner.notes) ctx.log(uid, '[VF-V][固定标题] ' + _n)
+    vd.banner = _banner.lines || undefined
+  } catch (e: any) {
+    // buildBanner 内部已兜底，这里只是"最后一道"——任何意外都用规则兜底，绝不上抛
+    ctx.log(uid, '[VF-V][固定标题] 提炼异常 → 规则兜底：' + String(e?.message || e).slice(0, 100))
+    vd.banner = fallbackBanner(script)
+  }
 
   // ── 4) 排分镜：把图片 + 视频（含真实时长与内容）一起给 AI，由它决定哪几镜用视频 ──
   const shotN = Math.max(4, Math.min(40, Math.round(dur / 5)))
@@ -564,6 +590,7 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         voice: (ctx.voiceList && ctx.voiceList[0] && ctx.voiceList[0].id) || 'longxiaochun',
         theme: 'dark', bgm: '', uploaded: [], script: '', brief: '', keepAudio: false,
         i2v: 'on',   // ★VF_VIDI2V_V1：默认让图动起来（老板定案「开」；设置卡可关）
+        pin: 'on',   // ★VF_BANNER_V1：默认出「顶部固定标题」（老板定案「默认开，方便自动化」；设置卡可关）
       }
       VF_VIDEO_DRAFT.set(uid, vd)
       await saveVfVideoDraft(ctx.prisma, uid, vd)
@@ -583,6 +610,8 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
       if (f.big) vd.big = String(f.big)   // ★OVERLAY_TEXT_SWITCH_V1：'on' | 'off'
         // ★VF_VIDI2V_V1：'on'（默认，让图动起来）| 'off'（全静态图，不额外计费）
         if (f.i2v) vd.i2v = String(f.i2v) === 'off' ? 'off' : 'on'
+        // ★VF_BANNER_V1：'on'（默认，AI 自动拟两行固定标题）| 'off'（不要）
+        if (f.pin) vd.pin = String(f.pin) === 'off' ? 'off' : 'on'
         if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x))
         if (typeof f.script === 'string' && f.script.trim()) vd.script = cleanText(f.script)
         if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = String(f.topic).trim().slice(0, 300)
@@ -610,10 +639,11 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
       if (!vd.shots?.length) return '视频混剪：分镜还没排好，先不出预览。回「重试」我再排一次。'
       ctx.log(uid, `[VF-V] 样板镜预览：取开头约 8 秒（共 ${vd.shots.length} 镜）`)
       return String(await ctx.executeToolCall('preview_video_shot', {
-        plan: JSON.stringify({
+        // ★VF_BANNER_V1：样板镜也带上固定标题（用户就是要在预览里看到那两行长什么样）
+        plan: JSON.stringify(planWithBanner({
           size: vd.size || [720, 1280], fps: 25, shots: vd.shots,
           overlay_text: vd.big !== 'off',
-        }),
+        }, bannerFieldOf(vd))),
         seconds: 8,
       }, ctx.auth))
     }
@@ -631,13 +661,18 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
       // ★VF_I2V_REUSE_V1：入参全部由通用函数给（同图去重 / 上限 6 张 / 开关 / 计费 / 声明 source+mix）
       const _i2vB = i2vBuildOf(vd)
       logI2vNotes(ctx, _i2vB.notes)   // 动了几张 / 为什么没动 / 哪些拿不到公网地址（通用话术，原样写日志）
+      // ★VF_BANNER_V1：顶部固定标题 —— 开关开且草稿里有提炼结果才带上；**根级**字段（绝不在 shots 里）
+      const _bannerF = bannerFieldOf(vd)
+      if (_bannerF.banner) ctx.log(uid, `[VF-V] 固定标题：${_bannerF.banner.line1} / ${_bannerF.banner.line2}（钉全片）`)
       VF_VIDEO_DRAFT.delete(uid)
       await clearVfVideoDraft(ctx.prisma, uid)
       ctx.log(uid, '[VF-V] 已入队 → 本线草稿作废')
       const run = await ctx.executeToolCall('make_ai_video', {
         // ★OVERLAY_TEXT_SWITCH_V1（2026-09-29）：把"画面大字开关"写进分镜 plan ——
         //   render.py 读到 overlay_text=false 就不再把这些大字压在素材/视频上（独立文字卡与字幕照旧）。
-        plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots, overlay_text: vd.big !== 'off' }),
+        // ★VF_BANNER_V1：把固定标题挂到 plan 的**根级**（planWithBanner 保证不塞进 shots——
+        //   render.py 只读根级 sb.get('banner')，塞进 shots 每一镜就会每帧重画）。
+        plan: JSON.stringify(planWithBanner({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots, overlay_text: vd.big !== 'off' }, _bannerF)),
         script: vd.script,
         theme: vd.theme,
         speaker: vd.voice,

@@ -1,0 +1,180 @@
+/**
+ * ★VF_BANNER_V1（2026-09-29 用户定案）——「顶部固定标题」（全程钉在画面顶部的那两行）
+ *
+ * 用户原话（本文件的设计依据）：
+ *   「固定标题（你截图那种：黄字黑边 + 半透明色块白字，全程钉在顶部不动）……
+ *     第 1 行颜色：随机颜色可以吗？位置固定全片。可选文案提炼，一切都要都可以默认这样后期集成自动化比较方便。」
+ * 定案：**颜色随机（从主题色板里随机，不是任意随机）· 位置钉整片 · 文案默认由 AI 提炼（允许以后手动覆盖）· 默认开启**。
+ *
+ * 为什么要单独一个文件（照 i2v-plan.ts 的先例）：
+ *   ① 提炼两行 / 截断 / emoji 清理 / 开关 全是**纯逻辑**，必须能被自测脚本直接跑
+ *      （scripts/vf-banner-selftest.ts：ts-node 直接 import，不联网、不烧钱）；
+ *   ② 出片侧有两条线要用它（「图视混剪」vf-video.ts 与「图片成片」chat/route.ts）——
+ *      两处必须共用**同一份**截断长度 / 兜底规则 / 根级字段形状，否则迟早漂移。
+ *
+ * ⚠️ 契约（与渲染层 scripts/video-factory/render.py 的 ★VF_BANNER_V1 逐字对齐）：
+ *   渲染层只读**分镜根级** `banner`：{ line1, line2, from, to }。
+ *   · `from`/`to` 是 1-based 镜号；`to: 0`（或不给）= 钉到片尾 = 用户要的「钉全片」。
+ *   · `banner: false` 或**缺失** = 不画 —— 所以必须由调用方**显式**传（本文件负责给出该字段）。
+ *   · 颜色/底衬由渲染层从主题色板随机挑（`_banner_pick`），服务端**不发颜色**（那是渲染层的事）。
+ */
+import { stripEmoji } from './anti-ai'
+
+/** 第 1 行（钩子/主题）字数上限 —— 用户定案 ≤12 字 */
+export const VF_BANNER_LINE1_MAX = 12
+/** 第 2 行（核心承诺/关键点）字数上限 —— 用户定案 ≤18 字 */
+export const VF_BANNER_LINE2_MAX = 18
+/** 规则兜底时第 1 行取首句前几字（比 AI 档更保守：兜底宁短不长） */
+export const VF_BANNER_FALLBACK_LINE1 = 10
+/** 规则兜底时第 2 行取次句前几字 */
+export const VF_BANNER_FALLBACK_LINE2 = 16
+
+/** 渲染层要的根级 banner 字段（from/to 为 1-based 镜号；to=0 → 到片尾） */
+export interface VfBanner {
+  line1: string
+  line2: string
+  from: number
+  to: number
+}
+
+/** 两行纯文案（还没挂 from/to） */
+export interface VfBannerLines {
+  line1: string
+  line2: string
+}
+
+/**
+ * 单行净化：去 emoji/装饰符号 → 去 markdown 记号 → 去首尾引号/空白 → 去**结尾标点** → 截断到 max。
+ * 为什么去结尾标点：这是"钉在画面上的标题"，用户要求不出现句号/逗号这类收尾标点（视觉更干净）。
+ */
+export function normalizeBannerLine(v: any, max: number): string {
+  let s = stripEmoji(v)
+  s = s.replace(/[*#`]/g, '')
+  s = s.replace(/^[\s"'“”「」『』【】（）()]+|[\s"'“”「」『』【】（）()]+$/g, '')
+  s = s.replace(/[。！？!?，,、；;：:.…\s]+$/g, '')   // 结尾标点（用户要求 line1 不要标点结尾）
+  s = s.replace(/\s{2,}/g, ' ').trim()
+  return s.slice(0, Math.max(1, Number(max) || 1))
+}
+
+/** 把口播文案按句末标点/换行切成句子（规则兜底用） */
+export function splitBannerSentences(script: any): string[] {
+  return String(script == null ? '' : script)
+    .split(/[。！？!?\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/**
+ * 规则兜底：AI 失败/返回不合法时**绝不因此不出片** ——
+ *   line1 = 文案首句前 10 字，line2 = 次句前 16 字（没有次句就用首句）。
+ */
+export function fallbackBanner(script: any): VfBannerLines {
+  const ss = splitBannerSentences(script)
+  const line1 = normalizeBannerLine(ss[0] || String(script == null ? '' : script), VF_BANNER_FALLBACK_LINE1)
+  const line2 = normalizeBannerLine(ss[1] || ss[0] || String(script == null ? '' : script), VF_BANNER_FALLBACK_LINE2)
+  return { line1, line2 }
+}
+
+/** 从 AI 返回的文本里解析两行；任何一步不合法 → 返回 null（交给 fallbackBanner） */
+export function parseBanner(raw: any): VfBannerLines | null {
+  const t = String(raw == null ? '' : raw)
+  const m = t.match(/\{[\s\S]*\}/)
+  if (!m) return null
+  let o: any
+  try { o = JSON.parse(m[0]) } catch { return null }
+  if (!o || typeof o !== 'object') return null
+  // 容错：AI 偶尔用 line_1 / title / sub 之类别名
+  const line1 = normalizeBannerLine(o.line1 ?? o.line_1 ?? o.title, VF_BANNER_LINE1_MAX)
+  const line2 = normalizeBannerLine(o.line2 ?? o.line_2 ?? o.sub, VF_BANNER_LINE2_MAX)
+  if (!line1 || !line2) return null
+  return { line1, line2 }
+}
+
+/** 提炼提示词：**必须贴合这条片的文案**，不许编造文案里没有的数据/承诺 */
+export function buildBannerPrompt(o: { script: string; brief?: string; topic?: string }): string {
+  return `你是短视频标题编辑。给下面这条口播视频想两行【全程钉在画面顶部的固定标题】。\n` +
+    `要求：\n` +
+    `① 第 1 行：钩子/主题，**≤${VF_BANNER_LINE1_MAX} 字**，不要标点结尾，不要 emoji —— 观众扫一眼就知道"这条在讲什么"\n` +
+    `② 第 2 行：核心承诺或关键点，**≤${VF_BANNER_LINE2_MAX} 字**，不要标点结尾，不要 emoji\n` +
+    `③ 只能基于下面【文案】里**已有的信息**——**不许编造**文案里没有的数字、承诺、机构名、效果\n` +
+    `④ 只输出一个 JSON 对象：{"line1":"...","line2":"..."}（不要 markdown、不要解释、不要多余字段）\n` +
+    `【主题】${o?.topic || '（未指定，按文案概括）'}\n` +
+    (o?.brief ? `【素材/画面】${String(o.brief).slice(0, 400)}\n` : '') +
+    `【文案】${String(o?.script || '')}`
+}
+
+export interface BannerBuildOpts {
+  script: string
+  brief?: string
+  topic?: string
+  /** 设置卡开关：'off'/false = 不要（既不生成也不带字段）；其余（含缺省/'on'）= 自动 */
+  pin?: string | boolean
+  /** 项目现成的**文本**调用（便宜的），由调用方注入（vf-video.ts 与 route.ts 都用它） */
+  generateText: (prompt: string) => Promise<string | null>
+}
+
+export interface BannerBuildResult {
+  /** 直接 `planWithBanner(plan, r.field)` 用；开关关 / 提炼不出时是**空对象**（渲染层因此不画） */
+  field: { banner?: VfBanner }
+  /** 提炼出来的两行（开关关 / 文案为空时是 null）；调用方存进草稿 */
+  lines: VfBannerLines | null
+  /** 是否走了【规则兜底】（AI 拒绝/超时/返回不合法）—— 写日志用 */
+  fallback: boolean
+  /** 人类可读说明（调用方原样写日志） */
+  notes: string[]
+}
+
+/**
+ * 出片前的一次「固定标题」提炼（★默认自动）：
+ *   开关关（'off'）→ 不调用 AI、不返回字段（**一根标题都不画**）；
+ *   否则调一次**便宜的文本调用**产两行；失败/不合法 → 规则兜底；文案为空 → 不带字段。
+ *   **绝不 throw**：任何异常都降级成兜底（不能因为一个标题把整条片卡死）。
+ */
+export async function buildBanner(o: BannerBuildOpts): Promise<BannerBuildResult> {
+  const notes: string[] = []
+  const pinOff = o?.pin === false || String(o?.pin ?? 'on').trim().toLowerCase() === 'off'
+  if (pinOff) {
+    return { field: {}, lines: null, fallback: false, notes: ['设置卡选了「不要」→ 不生成、plan 里也不带 banner（渲染层因此不画）'] }
+  }
+  let lines: VfBannerLines | null = null
+  try {
+    const raw = await o.generateText(buildBannerPrompt({ script: o?.script || '', brief: o?.brief, topic: o?.topic }))
+    lines = parseBanner(raw)
+    if (!lines) notes.push('AI 返回空/不合法 → 走规则兜底（首句前 10 字 / 次句前 16 字）')
+  } catch (e: any) {
+    notes.push('AI 提炼失败 → 走规则兜底：' + String(e?.message || e).slice(0, 120))
+  }
+  const fallback = !lines
+  if (!lines) lines = fallbackBanner(o?.script)
+  const l1 = normalizeBannerLine(lines.line1, VF_BANNER_LINE1_MAX)
+  const l2 = normalizeBannerLine(lines.line2, VF_BANNER_LINE2_MAX)
+  if (!l1 && !l2) {
+    notes.push('文案为空 → 本次不带固定标题')
+    return { field: {}, lines: null, fallback, notes }
+  }
+  notes.push((fallback ? '规则兜底' : 'AI 提炼成功') + `：第1行「${l1}」/ 第2行「${l2}」`)
+  return { field: { banner: { line1: l1, line2: l2, from: 1, to: 0 } }, lines: { line1: l1, line2: l2 }, fallback, notes }
+}
+
+/**
+ * 草稿（{ pin, banner }）→ plan 要用的**根级** banner 字段。
+ * 开关关 / 草稿里没提炼出两行 → **空对象**（绝不硬塞、绝不画）。
+ * 出片那一刻不再调 AI（提炼在起草时已做），这里只做形状收敛 + 再净化一次（防御性）。
+ */
+export function bannerFieldOf(vd: { pin?: string | boolean; banner?: { line1?: string; line2?: string } } | null | undefined): { banner?: VfBanner } {
+  if (vd?.pin === false || String(vd?.pin ?? 'on').trim().toLowerCase() === 'off') return {}
+  const line1 = normalizeBannerLine(vd?.banner?.line1, VF_BANNER_LINE1_MAX)
+  const line2 = normalizeBannerLine(vd?.banner?.line2, VF_BANNER_LINE2_MAX)
+  if (!line1 && !line2) return {}
+  return { banner: { line1, line2, from: 1, to: 0 } }
+}
+
+/**
+ * 把 banner 字段挂到 plan 的**根级**（绝不塞进 shots）—— 渲染层 render.py 只读根级 `sb.get('banner')`。
+ * 单独一个纯函数是为了自测能直接断言"根级有、shots 里没有"。
+ */
+export function planWithBanner<T extends Record<string, any>>(plan: T, field: { banner?: VfBanner }): T & { banner?: VfBanner } {
+  const out: any = { ...(plan || {}) }
+  if (field && field.banner) out.banner = field.banner
+  return out
+}

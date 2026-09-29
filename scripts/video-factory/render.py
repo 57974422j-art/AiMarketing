@@ -868,6 +868,11 @@ def card_compare(shot, th, W, H, fps):
     #   修法：左右各自限宽（≤42% 画布宽）→ 超宽先折行、再缩字号；两列各自在半个画面内居中。
     col_w = int(W * 0.42)
     lcx, rcx = int(W * 0.26), int(W * 0.74)
+    # ★VF_VARIANT_V1（2026-09-29 P1）：对比卡两种版式 —— split（默认，左右分栏）/ bar（上下两条）
+    #   ⚠️ 诚实说明：上一批我先把 'bar' 写进了白名单却没实现渲染（会被静默忽略），这里补上。
+    #   为什么需要 bar：竖屏 720 宽时左右分栏每列只有 0.42 宽（≈302px），稍长的词就要缩字号；
+    #   上下堆叠每条能吃满宽度，字更大、更清楚。
+    _var = variant_of(shot, COMPARE_VARIANTS, 'split')
 
     def _wrap_hard(t, fs, max_lines):
         """★硬上限折行：wrap_by_width 在"到上限后把剩余全塞进最后一行"（会多出一行），
@@ -925,6 +930,40 @@ def card_compare(shot, th, W, H, fps):
             )
         return out
 
+    if _var == 'bar':
+        # 上下两条版式：上=左项（强调色），中间细分割线，下=右项（正文色）。
+        # ★2026-09-29 自测发现：一开始把说明小字写成固定 y → 它**压在主文字块上**（与上次对比卡折行
+        #   压字是同一类问题）。现在把 [主文字块 + 说明小字] 当成**一个整体**垂直居中，
+        #   小字永远贴在主块真实底部之下。
+        _fsd = max(20, int(fs0 * 0.55))
+        _ld2, _f3, _ = _fit(shot.get('leftDesc'), _fsd, 2)
+        _rd2, _f4, _ = _fit(shot.get('rightDesc'), _fsd, 2)
+        _fsd2 = min([x for x in (_f3, _f4) if x] or [_fsd])
+        _gapb = int(fs_main * 1.35)
+        _gapd = int(_fsd2 * 1.45)
+
+        def _bgroup(lines, desc, cy, color, alpha, delay):
+            """[主块 + 说明] 作为整体居中在 cy；返回该组滤镜"""
+            rows = max(1, len(lines))
+            dn = len([x for x in (desc or [])])
+            total = _gapb * rows + (_gapd * dn if dn else 0)
+            top = cy - total // 2
+            out = _col(lines, int(W * 0.5), color, top + (_gapb * (rows - 1)) // 2, fs_main, alpha)
+            if dn:
+                out += _col(desc, int(W * 0.5), txc + '@0.75',
+                            top + _gapb * rows + int(_gapd * 0.2), _fsd2,
+                            ":alpha='min(max(t-%s,0)/0.5,1)'" % delay, center_at=False)
+            return out
+
+        bparts = []
+        bparts += _bgroup(left_lines, _ld2, int(H * 0.27), acc, ":alpha='min(t/0.5,1)'", '0.50')
+        bparts.append(f"drawbox=x={int(W * 0.10)}:y={int(H * 0.50)}:w={int(W * 0.80)}:h=3:"
+                      f"color={acc}@0.55:t=fill")
+        bparts += _bgroup(right_lines, _rd2, int(H * 0.73), txc,
+                          ":alpha='min(max(t-0.35,0)/0.5,1)'", '0.70')
+        print('[VF] 对比卡版式 = bar（上下两条）')
+        return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
+                ','.join(bparts), dur)
     parts = []
     _y_main = int(H * 0.22)
     parts += _col(left_lines, lcx, txc, _y_main, fs_main, ":alpha='min(t/0.5,1)'")
@@ -1562,6 +1601,102 @@ def _shot_window(s):
     return min(v, d) if d > 0.05 else v
 
 
+# ══════════════════ ★VF_BANNER_V1（2026-09-29 用户定案）顶部固定标题 ══════════════════
+# 用户原话：「固定标题（你截图那种：黄字黑边 + 半透明色块白字，全程钉在顶部不动）……
+#           第 1 行颜色：随机颜色可以吗？位置固定全片。可选文案提炼，一切都要都可以默认这样，
+#           后期集成自动化比较方便。」
+# 实现口径：
+#   · 位置：**钉住整片**（分镜根级 banner.from/to 可限范围，默认整片），在顶部 16% 以内，
+#     压在画面之上、底部字幕之外 —— 所以它**不随镜头变化、不参与逐镜渲染**（逐镜渲染每镜都要画一遍，
+#     既慢又容易在交界处闪）；这里在【字幕之后、混音之前】一次性烧上去。
+#   · 颜色：用户要"随机" → 但**不是任意随机**：任意随机会撞出难看组合、也会和背景撞色。
+#     这里从【设计过的高对比候选色 + 主题 accent】里挑，并用**文案哈希**做种子 →
+#     同一条分镜反复渲染得到同一组颜色（逐镜重渲 / 重跑不会闪色）。
+#   · 文案：默认由服务端 AI 提炼两行（≤12 / ≤18 字），渲染层只负责画。
+
+def _banner_pick(th, seed_text):
+    """从主题色板里挑两行颜色（稳定哈希：同一分镜结果一致）"""
+    l1_pool = [th.get('accent'), th.get('accent2'), '0xffd400', '0xffe066', '0xff9f43',
+               '0x3ddc97', '0x00d1ff', '0xff5c8a', '0xffffff']
+    l2_pool = ['black@0.72', '0x111827@0.80', '0x1f2937@0.82',
+               (str(th.get('accent') or '0x111827') + '@0.78')]
+    l1_pool = [c for c in l1_pool if c]
+    seed = 0
+    for i, ch in enumerate(str(seed_text or '')):
+        seed = (seed * 131 + ord(ch) * (i + 1)) % 1000003      # 稳定哈希（不能用内置 hash：进程间随机）
+    return l1_pool[seed % len(l1_pool)], l2_pool[(seed // 7) % len(l2_pool)]
+
+
+def banner_layer(banner, th, W, H, dur, font):
+    """顶部固定两行标题的滤镜串（第 1 行大号+黑描边；第 2 行半透明色块+白字）。
+    返回 '' 表示不画。范围用 banner['_range']=(start秒, end秒)，不给=整片。"""
+    if not isinstance(banner, dict):
+        return ''
+    l1 = str(banner.get('line1') or '').strip()
+    l2 = str(banner.get('line2') or '').strip()
+    if not l1 and not l2:
+        return ''
+    c1, c2 = _banner_pick(th, l1 + '|' + l2)
+    fs1 = max(34, int(H * 0.055))
+    # ★2026-09-29 自测发现：第 1 行 11 个字在 720 宽上按 0.055H(≈70px) 会**左右被裁**。
+    #   这里用与其它大字同一套排版逻辑：**先缩字号保证一行放得下**（下限比正文更低，标题允许小一点）。
+    try:
+        _ls, _fs = fit_big_text(l1, W, H, maxw_ratio=0.92, max_lines=1, fs_max=fs1,
+                                fs_min=max(24, int(H * 0.030)), one_line_max=99)
+        if _ls:
+            l1, fs1 = _ls[0], _fs
+    except Exception:
+        pass
+    fs2 = max(24, int(fs1 * 0.62))
+    y1 = int(H * 0.035)
+    _pad = max(10, int(fs2 * 0.32))
+    _en = ''
+    _rng = banner.get('_range')
+    try:
+        if isinstance(_rng, (list, tuple)) and len(_rng) == 2 and float(_rng[1]) > float(_rng[0]):
+            _en = ":enable='between(t,%.2f,%.2f)'" % (float(_rng[0]), float(_rng[1]))
+    except Exception:
+        _en = ''
+    parts = []
+    if l1:
+        parts.append(
+            f"drawtext=fontfile='{font}':text='{esc_text(l1)}':fontsize={fs1}:fontcolor={c1}:"
+            f"borderw={max(4, int(fs1 * 0.10))}:bordercolor=black:x=(w-text_w)/2:y={y1}{_en}")
+    if l2:
+        _y2 = y1 + fs1 + int(fs1 * 0.30)
+        _bw = int(est_text_w(l2, fs2) + _pad * 2)
+        _bx = max(0, int((W - _bw) / 2))
+        parts.append(f"drawbox=x={_bx}:y={max(0, _y2 - _pad // 2)}:w={_bw}:h={fs2 + _pad}:"
+                     f"color={c2}:t=fill{_en}")
+        parts.append(
+            f"drawtext=fontfile='{font}':text='{esc_text(l2)}':fontsize={fs2}:fontcolor=white:"
+            f"borderw={max(2, int(fs2 * 0.06))}:bordercolor=black@0.6:x=(w-text_w)/2:y={_y2}{_en}")
+    print('[VF] 固定标题：第 1 行色=%s / 第 2 行底=%s（范围=%s）'
+          % (c1, c2, ('整片' if not _en else _en[16:-1])))
+    return ','.join(parts)
+
+
+def burn_banner(src, out, banner, th, W, H, dur, ffmpeg):
+    """把固定标题烧到成片上（失败不阻断出片）"""
+    font = esc_path(find_font(th.get('font', 'msyh')))
+    vf = banner_layer(banner, th, W, H, dur, font)
+    if not vf:
+        return src
+    cmd = (f'"{ffmpeg}" -y -i "{src}" -vf "{vf}" -c:v libx264 -preset fast '
+           f'-pix_fmt yuv420p -c:a copy "{out}"')
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
+    except Exception as e:
+        print('[VF] ⚠️ 固定标题异常 → 跳过（不影响出片）: %s' % str(e)[:100])
+        return src
+    if r.returncode == 0 and os.path.exists(out) and probe_sec(out) > 0:
+        return out
+    print('[VF] ⚠️ 固定标题烧入失败 → 跳过（不影响出片）: %s'
+          % (err_lines(r.stderr)[:120] if err_lines(r.stderr) else 'rc=%s' % r.returncode))
+    return src
+
+
 def _ass_color(c, default='&H00FFFFFF'):
     """★VF_THEMES_V1（2026-09-29）：把主题色（0xRRGGBB / white / black / '0x1a1a1a@0.68'）转成 ASS 的 &HAABBGGRR。
     为什么需要：字幕原来是**写死的"白字 + 黑描边"** —— 2026-09-29 实测在【浅色主题】下白字根本看不清
@@ -1823,6 +1958,8 @@ def main():
                     help='★OVERLAY_TEXT_SWITCH_V1：不把画面大字压在素材/视频上（独立文字卡与字幕照旧）')
     ap.add_argument('--sub-size', default='0', help='字幕字号（0 = 按分辨率自适应）')
     ap.add_argument('--selftest', action='store_true')
+    # ★VF_BANNER_V1：顶部固定标题总开关（storyboard 里的 banner 字段优先；CLI 关掉则一律不画）
+    ap.add_argument('--no-banner', action='store_true')
     a = ap.parse_args()
 
     ffmpeg = find_ffmpeg()
@@ -1994,6 +2131,27 @@ def main():
             print('[VF] 字幕已烧入 -> %s (字号 %d)' % (sub_file, _sub_size))
         else:
             print('[VF] 无字幕文本，跳过')
+    # ★VF_BANNER_V1（2026-09-29 用户定案）：顶部固定标题（钉住整片）。
+    #   放在【字幕之后、混音之前】：一次性烧上去，不参与逐镜渲染（每镜都画会慢、且交界处容易闪）。
+    #   范围：分镜根级 banner.from/to（1-based 镜号）→ 这里换算成秒（按每镜 dur 累加）。
+    _bn = sb.get('banner')
+    if _bn and not a.no_banner:
+        _rng = None
+        try:
+            _f = int((_bn or {}).get('from') or 1)
+            _t = int((_bn or {}).get('to') or 0)
+            _ds = [float(x.get('dur', 0) or 0) for x in (sb.get('shots') or [])]
+            _st = sum(_ds[:_f - 1]) if _f > 1 else 0.0
+            _en2 = sum(_ds[:_t]) if _t > 0 else sum(_ds)
+            if _en2 > _st:
+                _rng = (_st, _en2)
+        except Exception:
+            _rng = None
+        if isinstance(_bn, dict) and _rng:
+            _bn = dict(_bn)
+            _bn['_range'] = _rng
+        video_for_audio = burn_banner(video_for_audio, os.path.join(wd, 'banner.mp4'),
+                                      _bn, th, W, H, _total_dur, ffmpeg)
     # ★VF_MUX_FIX_V1：把【分镜总时长】交给混音 —— 成片时长以它为准（不再被音频头/长度带偏）
     final = mux_audio(video_for_audio, a.audio, out, ffmpeg, a.bgm, _total_dur)
     print('[VF] ✅ 成片: %s' % final)

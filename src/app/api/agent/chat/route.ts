@@ -20,6 +20,9 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields } from '@/lib/age
 // ★VF_VIDI2V_V1（2026-09-29）：「让图动起来」的计费口径（50 点/秒）与出片侧 vf-video.ts **共用同一份公式** ——
 //   卡片报价与实扣同源，免得又出现"卡片报 205 点、实扣 1500 点"。
 import { i2vCostPoints, vfTotalCostPoints } from '@/lib/agent/vf/i2v-plan'
+// ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：提炼两行 + 根级字段形状。
+//   纯逻辑在 banner.ts（与 anti-ai.ts 同类，零网络依赖），与「图视混剪」线**共用同一份**截断/兜底规则。
+import { buildBanner, bannerFieldOf, planWithBanner } from '@/lib/agent/vf/banner'
 
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
@@ -3585,6 +3588,8 @@ PUBLISH_DRAFT.delete(uidW)
                   if (f.script && String(f.script).trim()) vd.formScript = String(f.script).trim().slice(0, 4000) // 用户直接贴了文案
                   if (f.source) vd.formSource = String(f.source)   // ★表单选的画面来源（repo/upload/mix/ai）——下面分支要按它走
                   if (f.bgm !== undefined) vd.bgm = (String(f.bgm) === 'auto') ? 'auto' : ''
+                  // ★VF_BANNER_V1：顶部固定标题开关（'on' 默认自动拟两行 / 'off' 不要）—— 同上走白名单
+                  if (f.pin !== undefined) vd.pin = (String(f.pin) === 'off') ? 'off' : 'on'
                   // ★VF_UPLOAD_V2（2026-09-20，用户实测“上传 8 张却用了旧图”）：前端把**刚上传的文件名列表**
                   //   一起发过来 → 后端按名字精确取，不再靠“按时间猜最近”。确定性优先。
                   if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x)).slice(0, 60)
@@ -3806,6 +3811,21 @@ PUBLISH_DRAFT.delete(uidW)
                   const lastP = Math.max(cut.lastIndexOf('。'), cut.lastIndexOf('！'), cut.lastIndexOf('？'))
                   vfScript2 = lastP > vfNeed * 0.6 ? cut.slice(0, lastP + 1) : cut
                   vfLog(uidVF2, `[硬截] → ${vfScript2.length} 字（目标 ${vfNeed}）`)
+                }
+                // ①.5) ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：文案定稿后用一次**便宜的文本调用**
+                //   提炼两行（钩子 / 核心承诺）。开关关掉（pin='off'）→ 不调 AI、不带字段；
+                //   失败/返回不合法 → 规则兜底（首句前 10 字 / 次句前 16 字）—— **绝不因此不出片**。
+                //   存进草稿：出片（确认那一步）时挂到 plan 根级 `banner`（根级！渲染层只读根级）。
+                try {
+                  const _banner = await buildBanner({
+                    script: vfScript2, brief: String(vfBrief || ''), topic: vd.topic,
+                    pin: vd.pin ?? 'on', generateText,
+                  })
+                  for (const _n of _banner.notes) vfLog(uidVF2, '[固定标题] ' + _n)
+                  vd.banner = _banner.lines || undefined
+                } catch (eBN: any) {
+                  vfLog(uidVF2, '[固定标题] 提炼异常（已跳过，不影响出片）：' + String(eBN?.message || eBN).slice(0, 120))
+                  vd.banner = undefined
                 }
                 // ② 分镜（★VF_SHOTGEN_V1：prompt 给合法示例 + 解析正则容错 + **自动重试一次修 JSON**）
                 const vfImgs = vfLocal.map((m: any) => m.localPath).filter(Boolean)
@@ -4029,8 +4049,11 @@ PUBLISH_DRAFT.delete(uidW)
                 finalResult = wfEarlyReply
               } else {
                 // ── 确认 → 后台出片（确定性，走现有 make_ai_video）──
+                // ★VF_BANNER_V1：顶部固定标题 —— 开关开且草稿里有提炼结果才带上；挂到 plan **根级**（不在 shots 里）
+                const _pinF = bannerFieldOf(vd)
+                if (_pinF.banner) vfLog(uidVF2, `[固定标题] 出片带上：${_pinF.banner.line1} / ${_pinF.banner.line2}（钉全片）`)
                 const vfRun = await executeToolCall('make_ai_video', (vd.shots?.length && !vfForce)
-                  ? { plan: JSON.stringify({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }), script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }
+                  ? { plan: JSON.stringify(planWithBanner({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }, _pinF)), script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }
                   : { script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }, auth)
                 // ★VF_RUN_CLOSE_V1（2026-09-21，用户实测「做完一条第二条要点两次」＋「之后随便说句话都被回
                 //   『已在后台渲染中』」）：任务一旦入队就【立即作废草稿】——进度已由独立的
