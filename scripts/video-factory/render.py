@@ -388,8 +388,13 @@ def fit_big_text(s, W, H, maxw_ratio=0.86, max_lines=2, fs_max=None, fs_min=None
     return wrap_balanced(txt, fs_min, maxw, max_lines) or [txt], fs_min
 
 
-def center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=0, stroke=True, fade=True):
-    """多行文字各自居中（固定 y，行距 1.34×字号）—— 不用 ASS 覆盖层，也不必测宽。"""
+def center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=0, stroke=True, fade=True,
+                          motion='fade'):
+    """多行文字各自居中（固定 y，行距 1.34×字号）—— 不用 ASS 覆盖层，也不必测宽。
+
+    ★VF_MOTION_V3（2026-09-29 P1）：新增 motion —— 'fade'（默认，只淡入）/ 'slide'（从下方滑入同时淡入）。
+      slide 的 y 是**表达式且含逗号**，所以必须整体加引号写进滤镜串（否则逗号会被当成滤镜分隔符）。
+    """
     lines = [l for l in (lines or []) if str(l).strip()]
     if not lines:
         return []
@@ -399,9 +404,11 @@ def center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=0, stroke=True,
     for li, ln in enumerate(lines):
         st = (f":borderw={max(2, int(fs * 0.06))}:bordercolor=black@0.72" if stroke else '')
         a = ":alpha='min(t/0.5,1)'" if fade else ''
+        _y = y0 + li * gap
+        _ys = _slide_y(_y, fs, dur) if motion == 'slide' else str(_y)
         out.append(
             f"drawtext=fontfile='{font}':text='{esc_text(ln)}':fontsize={fs}:"
-            f"fontcolor={txc}{st}:x=(w-text_w)/2:y={y0 + li * gap}{a}"
+            f"fontcolor={txc}{st}:x=(w-text_w)/2:y='{_ys}'{a}"
         )
     return out
 
@@ -467,6 +474,38 @@ def overlay_text_on():
 
 # ══════════════════ 配方卡渲染 ══════════════════
 
+# ══════════════════ ★VF_VARIANT_V1 / VF_MOTION_V3（2026-09-29 用户定案 P1）══════════════════
+# 用户原话：「单独文字设计能不能挑一些模版去给 AI 去套动效文字排版这些。这个 PPT 风格模版中应该有很多。」
+#   上一批做了【主题】（色彩/渐变）；这一批做另外两层：
+#     · variant = 版式（同一个卡型的多种排法，如标题卡：居中 / 左对齐 / 色块）
+#     · motion  = 入场动效（淡入 / 上滑淡入 / 逐字浮现）
+#   AI 可以在分镜里写 theme / variant / motion 三个字段（服务端白名单已兜底，不认识就丢），
+#   渲染层这里再做一次白名单 —— AI 自造的值绝不允许把渲染搞挂。
+TITLE_VARIANTS = ('center', 'left', 'chip')
+LIST_VARIANTS = ('steps', 'stack')
+COMPARE_VARIANTS = ('split', 'bar')
+MOTIONS = ('fade', 'slide', 'typewriter')
+
+
+def variant_of(shot, allowed, default):
+    v = str((shot or {}).get('variant') or '').strip().lower()
+    return v if v in allowed else default
+
+
+def motion_of(shot):
+    """⚠️ 不能复用 variant_of —— 那个读的是 `variant` 字段；motion 要读 `motion`。
+    （2026-09-29 自测踩到：写成 variant_of(shot, MOTIONS, 'fade') → motion 永远是 fade。）"""
+    m = str((shot or {}).get('motion') or '').strip().lower()
+    return m if m in MOTIONS else 'fade'
+
+
+def _slide_y(base_y, fs, dur):
+    """slide 动效：文字从下方约 0.35×字号处滑到位（前 0.4~0.6 秒）。
+    drawtext 的 y 支持表达式（含 t），所以不用改别的层。"""
+    d = max(0.25, min(0.6, float(dur) * 0.12))
+    return f"{base_y}+{int(fs * 0.35)}*max(0,1-t/{d:.2f})"
+
+
 def card_title(shot, th, W, H, fps):
     """标题卡：大字居中 + 逐字浮现 + 主题色装饰
 
@@ -485,21 +524,52 @@ def card_title(shot, th, W, H, fps):
     #   旧写法是【一路缩字号】——长句字很小、短句字很大，同片里大字忽大忽小、版式不统一。
     #   现在：先折行（最多 2 行，字号基本不变），真放不下才缩字号（有下限）。
     _lines, fs = fit_big_text(txt, W, H, fs_max=fs, max_lines=2)
-    _rev = _reveal_seq(shot, font, fs, txc, dur, text=(_lines[0] if _lines else txt)) if len(_lines) <= 1 else []
-    body = ','.join(_rev) if _rev else ','.join(
-        center_lines_drawtext(font, _lines or [txt], fs, txc, W, H, dur))
-    # ★VF_CARDLINE_FIT_V1（2026-09-29 用户实测截图：两行大字时"第一行左端被橙色小块压住"）：
-    #   旧写法 y = 0.5H - 0.95fs 是按【单行居中】推的；折成两行后文字块上移，
-    #   装饰线就扎进第一行里。现在按【文字块顶边】算（支持 1~2 行），并留 0.66fs 间距。
+    # ★VF_VARIANT_V1（2026-09-29 P1「版式变体」）：标题卡三种排法（AI 可写 variant，白名单外的值回 center）
+    #   center = 居中大字 + 上方短线（老样式，默认）· left = 左对齐 + 左侧强调竖条（杂志感）
+    #   chip   = 强调色色块垫在大字后面（像标签条，适合短口号）
+    _var = variant_of(shot, TITLE_VARIANTS, 'center')
+    _motion = motion_of(shot)
     _gap_line = int(fs * 1.34)
     _block_top = int(H * 0.5 - _gap_line * len(_lines or [txt]) * 0.5)
-    _dy = max(int(H * 0.05), _block_top - int(fs * 0.66))   # 装饰线放在大字块正上方
     _bar_h = max(6, int(fs * 0.09))
-    deco = ','.join([
-        f"drawbox=x={int(W * 0.10)}:y={_dy}:w={int(W * 0.10)}:h={_bar_h}:color={acc}@0.95:t=fill",
-        f"drawbox=x={int(W * 0.22)}:y={_dy + _bar_h // 2}:w={int(W * 0.68)}:h=2:color={txc}@0.16:t=fill",
-    ])
-    vf = (deco + ',' + body) if body else deco
+    if _var == 'left':
+        # 左对齐：强调竖条 + 每行左端对齐（不再居中）——同一条片里"有对齐关系"看着更高级
+        _x0 = int(W * 0.12)
+        _bar_x = max(int(W * 0.06), _x0 - int(fs * 0.28))
+        parts = [f"drawbox=x={_bar_x}:y={_block_top}:w={max(6, int(fs * 0.10))}:"
+                 f"h={_gap_line * len(_lines or [txt]) + int(fs * 0.2)}:color={acc}@0.95:t=fill"]
+        for _i, _ln in enumerate(_lines or [txt]):
+            _y = _block_top + _i * _gap_line
+            _ys = _slide_y(_y, fs, dur) if _motion == 'slide' else str(_y)
+            parts.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(_ln)}':fontsize={fs}:"
+                f"fontcolor={txc}:borderw={max(2, int(fs * 0.05))}:bordercolor=black@0.6:"
+                f"x={_x0}:y='{_ys}':alpha='min(t/0.45,1)'")
+        body = ','.join(parts)
+        deco = ''
+    elif _var == 'chip':
+        # 色块版式：强调色半透明宽带垫在大字块后面（"标签条"观感）
+        _band_y = _block_top - int(fs * 0.22)
+        _band_h = _gap_line * len(_lines or [txt]) + int(fs * 0.30)
+        deco = (f"drawbox=x={int(W * 0.07)}:y={_band_y}:w={int(W * 0.86)}:h={_band_h}:"
+                f"color={acc}@0.82:t=fill")
+        body = ','.join(center_lines_drawtext(font, _lines or [txt], fs, 'white', W, H, dur,
+                                              motion=_motion))
+    else:
+        # center：老样式（短线 + 通栏细线，放在大字块正上方）
+        _dy = max(int(H * 0.05), _block_top - int(fs * 0.66))
+        deco = ','.join([
+            f"drawbox=x={int(W * 0.10)}:y={_dy}:w={int(W * 0.10)}:h={_bar_h}:color={acc}@0.95:t=fill",
+            f"drawbox=x={int(W * 0.22)}:y={_dy + _bar_h // 2}:w={int(W * 0.68)}:h=2:color={txc}@0.16:t=fill",
+        ])
+        _rev = []
+        if _motion == 'typewriter' and len(_lines) <= 1:
+            _rev = _reveal_seq(shot, font, fs, txc, dur, text=(_lines[0] if _lines else txt))
+        body = ','.join(_rev) if _rev else ','.join(
+            center_lines_drawtext(font, _lines or [txt], fs, txc, W, H, dur, motion=_motion))
+    if _var != 'center':
+        print('[VF] 标题卡版式 = %s（motion=%s）' % (_var, _motion))
+    vf = ','.join([p for p in (deco, body) if p])
     return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
             vf, dur)
 
@@ -568,13 +638,28 @@ def card_list(shot, th, W, H, fps):
         parts.append(
             f"drawtext=fontfile='{font}':text='{esc_text(shot['title'])}':fontsize={int(fs * 0.9)}:"
             f"fontcolor={acc}:x={int(W * 0.10)}:y={int(H * 0.16)}:alpha='min(t/0.5,1)'")
+    # ★VF_VARIANT_V1（2026-09-29 P1）：列表卡两种版式（AI 可写 variant，白名单外的值回 steps）
+    #   steps（默认，老样式）= 一项=一步、逐项揭示（讲解节奏）· stack = 整板同时出现 + 每项前强调色方块（"清单"观感）
+    _var = variant_of(shot, LIST_VARIANTS, 'steps')
     for i, it in enumerate(items):
         t_on = 0.5 + i * step
+        if _var == 'stack':
+            _iy = y0 + i * int(fs * 1.5)
+            alpha = "min(max(t-0.35,0)/0.45,1)"
+            parts.append(
+                f"drawbox=x={int(W * 0.10)}:y={_iy + int(fs * 0.40)}:w={int(fs * 0.34)}:h={int(fs * 0.34)}:"
+                f"color={acc}@0.95:t=fill")
+            parts.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(it)}':fontsize={fs}:"
+                f"fontcolor={txc}:x={int(W * 0.19)}:y={_iy}:alpha='{alpha}'")
+            continue
         # 渐入；后面项出现时前面的项【保留但变暗】= 灰化作上下文
         alpha = f"if(lt(t,{t_on:.2f}),0,min((t-{t_on:.2f})/0.4,1))"
         parts.append(
             f"drawtext=fontfile='{font}':text='{esc_text(it)}':fontsize={fs}:"
             f"fontcolor={txc}:x={int(W * 0.12)}:y={y0 + i * int(fs * 1.7)}:alpha='{alpha}'")
+    if _var == 'stack':
+        print('[VF] 列表卡版式 = stack（整板出现 + 强调色方块）')
     vf = ','.join(parts)
     if not vf:
         # ★VF_EMPTYITEMS_V1：没有标题也没有条目 → 绝不许返回空串（那会让整镜 ffmpeg 报
@@ -1310,7 +1395,20 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
     out = os.path.join(workdir, 'shot%02d.mp4' % idx)
     # ★VF_TRANS_V1（2026-09-20）：每镜首尾轻微淡入淡出（≤0.2s）——比硬切自然；
     #   不改时长（不碰音频时间轴），拼接后就是“柔和的镜间过渡”
-    _fd = min(0.2, max(0.05, dur / 10.0))
+    # ★VF_VARIANT_V1（2026-09-29 P1「转场」）：现在可显式选过渡方式（AI 可写 transition，白名单外=默认）：
+    #   · '' 或 'soft'（默认）= 各镜首尾轻微淡入淡出（老行为，最自然）
+    #   · 'cut'  = **真硬切**（完全不淡，适合快节奏/卡点）
+    #   · 'fade' = **加长的柔化过渡**（0.12~0.4s，观感接近"溶解"）
+    #   ⚠️ 为什么不做真·交叉溶解（xfade）：它会让每个交界"吃掉"一段时长 → 视频时间轴变短，
+    #      而配音是一条【连续轨】不会跟着变短 → **全片音画持续错位**。真溶解必须同时做
+    #      "音频逐镜切分 + 交叉淡化"，是独立的一摊活（已记进 docs 附录 E 未做项）。
+    _trans = str(shot.get('_trans') or '').strip().lower()
+    if _trans == 'cut':
+        _fd = 0.0
+    elif _trans == 'fade':
+        _fd = min(0.4, max(0.12, dur / 6.0))
+    else:
+        _fd = min(0.2, max(0.05, dur / 10.0))
     # ★VF_EMPTYVF_V1（2026-09-24 服务端实测「第 7 镜 list 渲染失败」）：
     #   卡型返回空滤镜串时，旧代码直接 f"{vf},fade=..." 拼 → 链子变成【以逗号开头】→
     #   ffmpeg 报 `No such filter: ''` → 整镜失败 → 重试 2 次仍失败 → 抛错 → 整片出不来。
@@ -1318,8 +1416,8 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
     #   这里做【全卡型通用兜底】：只拼非空段；万一全空就用 null（无操作滤镜）保证链子合法。
     vf2 = ','.join([str(p) for p in (
         vf,
-        f"fade=t=in:st=0:d={_fd:.2f}",
-        f"fade=t=out:st={max(0.0, dur - _fd):.2f}:d={_fd:.2f}",
+        (f"fade=t=in:st=0:d={_fd:.2f}" if _fd > 0.001 else ''),
+        (f"fade=t=out:st={max(0.0, dur - _fd):.2f}:d={_fd:.2f}" if _fd > 0.001 else ''),
     ) if p]) or 'null'
     if not str(vf or '').strip():
         print('[VF] ⚠️ 第 %d 镜(%s) 的配方没有产出任何滤镜 → 用 null 兜底（避免 No such filter: \'\'）'
@@ -1840,7 +1938,13 @@ def main():
     files = []
     _total_dur = 0.0
     anti_ai_check(sb.get('shots', []))   # ★VF_ANTIAI_V1：渲染前"反 AI 味"自检（只告警，不改画面）
+    # ★VF_VARIANT_V1（2026-09-29 P1「转场」）：把分镜级/镜头级的过渡方式注入每镜
+    #   （分镜根上的 "transition" 当默认值，单镜自己的 transition 覆盖它）
+    _sb_trans = str(sb.get('transition') or '').strip().lower()
+    if _sb_trans in ('cut', 'fade', 'soft'):
+        print('[VF] 过渡方式 = %s（分镜级）' % _sb_trans)
     for i, shot in enumerate(sb.get('shots', [])):
+        shot['_trans'] = str(shot.get('transition') or _sb_trans or '').strip().lower()
         p = render_shot(shot, th, wd, i, W, H, fps, ffmpeg)
         # ★VF_SHOTLOG_V1（2026-09-20）：日志带上【本镜时长】—— 不必再跑 Python 脚本查"每镜几秒"
         #   （对"一镜 14 秒太闷"这类问题，一眼就能从日志看出是否正常）

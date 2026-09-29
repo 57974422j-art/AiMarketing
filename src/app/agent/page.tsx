@@ -495,6 +495,10 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   //   用户要的就是"有的视频不一定要，需要文字时用单独的文字卡（几帧）也行"。
   //   选项名按要求"简单点"：加 / 不加。
   const [big, setBig] = useState(vj.big || 'on')
+  // ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪 → 逐镜图生视频，50 点/秒」）：
+  //   「🎞 让图动起来」开关 —— 开=每张图片镜先拿首帧生成一段动图（4~8 秒 ≈ 200~400 点/张，
+  //   同一张图只生成一次）；关=全部静态图 + Ken Burns（不额外花钱）。默认开。
+  const [i2v, setI2v] = useState(vj.i2v || 'on')
   const [openAdv, setOpenAdv] = useState(false)
   // ★VF_UPLOAD_V1（2026-09-20）：「📤 我上传素材」真正可用 —— 选文件 → 传到个人仓库
   //   （POST /api/storage/files，与素材页同一个接口）→ 本次成片只从【最近上传】取画面。
@@ -665,6 +669,18 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         </div>
       </div>
 
+      {/* ★VF_VIDI2V_V1：让图动起来（逐镜图生视频）——
+          只有【图片镜】会动（视频镜本来就动态、文字卡没有图）；同一张图只生成一次；
+          费用在分镜卡上如实写（"含让 N 张图动起来：约 M 点"），不藏。 */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">🎞 让图动起来 <span className="text-gray-600">（图片镜用首帧生成 4~8 秒动图 ≈ 200~400 点/张；同一张图只算一次）</span></div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(i2v, 'on', '🎞 动起来', setI2v)}
+          {R(i2v, 'off', '🚫 保持静态', setI2v)}
+        </div>
+        <div className="text-[10px] text-gray-500 mt-1">（本轮只在「图视混剪」这条线生效；「图片成片」目前不会让图动）</div>
+      </div>
+
       <button onClick={() => setOpenAdv(!openAdv)} className="text-[10px] text-gray-500 hover:text-gray-300 mb-2">
         {openAdv ? '▲ 收起「我已有文案」' : '▼ 我已有文案（点这里贴）'}
       </button>
@@ -677,6 +693,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
       <button
         onClick={() => onStart('VF_FORM:' + JSON.stringify({
           aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme, big,
+          // ★VF_VIDI2V_V1：让图动起来（'on'|'off'）—— 服务端 vf-video.ts 解析 f.i2v，关掉就完全不注入首帧
+          i2v,
           // ★VF_UPLOAD_V2（2026-09-20）：把**刚上传的文件名**一起发给后端 → 成片精确只用这几张
           //   （不再靠后端"按时间猜最近"，也就不会再挑到旧素材）
           // ★VF_AIVIDEO_V1（2026-09-20）：AI 模式下**不提交 uploaded** —— 免得日志与后续判断里

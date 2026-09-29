@@ -121,7 +121,11 @@ import render
 sb = json.load(open(r"${resolve(sb).replace(/\\/g, '\\\\')}", encoding='utf-8'))
 W, H = sb.get('size', [720, 1280])[:2]
 fps = int(sb.get('fps', 25))
-th = sb.get('theme') or {'bg': '0x0a1620', 'text': 'white', 'accent': '0xff6b35', 'font': 'msyh'}
+# ★2026-09-29：分镜里的 theme 可能是【字符串】（'blue'/'vivid'…）——本工具原来直接拿去当 dict 用，
+# 会 AttributeError。渲染器早就用 theme_of() 兜底了，这里也走同一条路（与真实渲染一致）。
+th = render.theme_of(sb.get('theme'))
+if not th:
+    th = {'bg': '0x0a1620', 'text': 'white', 'accent': '0xff6b35', 'font': 'msyh'}
 only = int(r"${shot}")
 if sb.get('overlay_text') is False:
     render.SHOW_OVERLAY_TEXT = False

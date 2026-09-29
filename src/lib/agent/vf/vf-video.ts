@@ -29,7 +29,15 @@
 // ★VF_ANTIAI_V1（2026-09-29 用户定案「按建议顺序执行」）：「反 AI 味清单」的提示词 + 服务端兜底。
 //   与 standard-commands.ts 同类：**纯函数、零依赖**（不碰 prisma、不碰别的线）——
 //   所以这里静态 import 不违反本文件"零 import 连累别的线"的设计约束。
-import { ANTI_AI_PROMPT, sanitizeAntiAiShots } from './anti-ai'
+import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields } from './anti-ai'
+// ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪 → 逐镜图生视频，50 点/秒」）：
+//   同图去重 / 每片张数上限 / 计费秒数 全是**纯函数**（同样零依赖）—— 且与报价侧
+//   （chat/route.ts 的 vfScriptCard 成本 + make_ai_video 实扣）共用同一份公式，避免报价与实扣漂移。
+// ★VF_I2V_REUSE_V1（2026-09-29 team-lead 要求）：构造 i2vShots 的通用入口在 i2v-plan.ts 的
+//   buildI2vShots() —— **本线只是第一个调用方**，别的线（图片成片 / 素材+AI）要开图生视频，
+//   把那边的 shots + keyByPath 传进同一个函数即可（默认仍然只在图视混剪开启）。
+import { buildI2vShots, i2vKeyMap } from './i2v-plan'
+import type { I2vBuildResult, I2vPlan } from './i2v-plan'
 
 /* ==================== 类型（本线自己定义，不设共用类型文件） ==================== */
 
@@ -52,6 +60,13 @@ export interface VfVideoDraft {
   aspectResolved?: string
   cover?: number
   subLen?: number
+  /** ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪逐镜图生视频」）：'on'（默认）| 'off'
+   *  设置卡上「🎞 让图动起来」两个按钮 → 关掉就**完全不注入首帧**（不做图生视频、不计费）。 */
+  i2v?: string
+  /** ★VF_VIDI2V_V1：图片本地路径 → 个人仓库 key（出片时现算 i2vShots 用）。
+   *  为什么要存进草稿：图生视频首帧只能喂**公网地址**，而分镜里的 src 是服务器本地路径；
+   *  纯函数 buildI2vPlan() 需要这个映射把本地路径换回仓库 key（签名统一在 chat/route.ts 里做）。 */
+  i2vKeys?: Record<string, string>
   /** ★原声开关（用户定案"原声静音加个键"）：默认 false=静音（配音统一铺）。
    *  ⚠️ 置 true 需要渲染层支持"把视频原声压到 20~30% 并混进最后混音" → 放在第 3 步，先不假装生效。 */
   keepAudio?: boolean
@@ -191,6 +206,33 @@ function parseJsonArray(raw: string): any[] | null {
   } catch { return null }
 }
 
+/* ── ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪 → 逐镜图生视频」）── */
+
+/**
+ * ★VF_I2V_REUSE_V1：本线草稿 → **通用构造**（出片 args / 计划 / 日志话术）。
+ * ⚠️ 本线只是"第一个调用方"：真正干活的是 i2v-plan.ts 的 buildI2vShots()。
+ *    别的成片线要开图生视频，把它那边的 shots + keyByPath 传进同一个函数即可
+ *    （本函数的角色 = "草稿字段 → 函数入参" 的适配层，一行）。
+ * 设置卡选了「保持静态」→ args 为空对象、计划为空：**一根首帧都不注入、也不计费**。
+ */
+export function i2vBuildOf(vd: VfVideoDraft): I2vBuildResult {
+  return buildI2vShots({
+    shots: vd?.shots || [],
+    keyByPath: vd?.i2vKeys || {},
+    enabled: vd?.i2v ?? 'on',
+  })
+}
+
+/** 只要"计划"（确认卡报价 / 自测脚本用） */
+export function i2vPlanOf(vd: VfVideoDraft): I2vPlan {
+  return i2vBuildOf(vd).plan
+}
+
+/** 把通用构造返回的说明原样写进日志（哪几张动 / 为什么没动 / 哪些拿不到公网地址 —— 排障全看这几行） */
+function logI2vNotes(ctx: VfVideoCtx, notes: string[]): void {
+  for (const n of notes) ctx.log(ctx.uid, '[VF-V][图生视频] ' + n)
+}
+
 /* ==================== ④ 卡片 ==================== */
 
 function formCard(vd: VfVideoDraft): string {
@@ -205,6 +247,8 @@ function formCard(vd: VfVideoDraft): string {
     theme: vd.theme,
     bgm: vd.bgm,
     big: vd.big || 'on',      // ★OVERLAY_TEXT_SWITCH_V1：画面大字（加 / 不加），默认加
+    // ★VF_VIDI2V_V1：让图动起来（逐镜图生视频）开关 —— 默认开；关掉 = 全静态图、不额外计费
+    i2v: vd.i2v || 'on',
     source: 'repo',
   })
 }
@@ -239,6 +283,11 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   ])
   const brief = [imgBrief, clipLines].filter(Boolean).join('\n')
   const imgPaths = imgLocal.map((m: any) => m.localPath).filter(Boolean)
+  // ★VF_VIDI2V_V1：图片本地路径 → 个人仓库 key 的映射（用通用小工具 i2vKeyMap 建）。
+  //   为什么需要它：分镜里 bgimage 的 src 是**服务器本地路径**（downloadMaterials 下的 material/），
+  //   而图生视频供应商要求首帧是**公网可拉取**的地址（拿不到 cookie、读不到服务器磁盘）
+  //   → 只能换回仓库 key，由 chat/route.ts 的 resolveImageToPublicUrl() 现签 OSS 直链（24h）。
+  const i2vKeyByPath = i2vKeyMap(imgLocal)
   ctx.log(uid, `[VF-V] 素材：图 ${imgPaths.length} 张 / 视频 ${clips.length} 个（含${clips.filter((c: any) => c.sizeMB).length} 条已探到大小）`)
 
   if (!imgPaths.length && !clips.length) {
@@ -355,6 +404,9 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
       // src_dur = 片段自身总长（渲染层用它判断"要不要放慢/循环兜底"）；vstart = 从第几秒开始
       // _ci = 用的是第几个视频（下面按需下载/降级用，写完就删）
       shotsOut.push({
+        // ★VF_AI_PICK_V1：AI 自选的 theme/variant/motion/transition **必须显式带上** ——
+        //   这里是"显式造对象"（不是 {...s}），漏了字段就等于把 AI 的选择悄悄丢掉了。
+        ...pickDesignFields(s),
         type: 'video', src: c?.path || '', _ci: i0, src_dur: Math.round(real * 100) / 100,
         vstart: Math.round(start * 100) / 100, dur: Math.round(len * 100) / 100, text: big, subtitle: sub,
       })
@@ -371,7 +423,7 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     } else if (imgPaths.length) {
       const i = parseInt(s?.pick) - 1
       const p = imgPaths[i >= 0 && i < imgPaths.length ? i : (shotsOut.length % imgPaths.length)]
-      shotsOut.push({ type: 'bgimage', src: p, text: big, subtitle: sub, dur: clampNum(s?.dur, 2, 8, 5) })
+      shotsOut.push({ ...pickDesignFields(s), type: 'bgimage', src: p, text: big, subtitle: sub, dur: clampNum(s?.dur, 2, 8, 5) })
     } else {
       shotsOut.push({ type: 'title', text: big || sub.slice(0, 8), subtitle: sub, dur: 4 })
     }
@@ -476,6 +528,8 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     if (_anti.notes.length) ctx.log(uid, '[VF-V][反AI味] ' + _anti.notes.join('；'))
   }
   vd.shots = shotsOut
+  // ★VF_VIDI2V_V1：把"本地路径 → 仓库 key"的映射存进草稿 —— 出片（确认那一步）时用它现算 i2vShots
+  vd.i2vKeys = i2vKeyByPath
   vd.size = size
   vd.aspectResolved = aspect
   vd.cover = cover
@@ -485,8 +539,12 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   await saveVfVideoDraft(ctx.prisma, uid, vd)
   const nV = shotsOut.filter((s) => s.type === 'video').length
   ctx.log(uid, `[VF-V] 分镜 ${shotsOut.length} 镜（视频 ${nV} 镜 / 图片 ${shotsOut.length - nV} 镜）覆盖 ${Math.round(cover * 100)}%`)
+  // ★VF_VIDI2V_V1：这次要让哪几张图动起来（开关关掉 → 空；费用如实报在确认卡上）
+  const _i2vB = i2vBuildOf(vd)
+  logI2vNotes(ctx, _i2vB.notes)
   return ctx.vfScriptCard(
-    { ...vd, voiceList: ctx.voiceList, source: '' },
+    // i2vSec / i2vImages 只给【本线】用：分镜卡据此把"让图动起来"的钱**如实显示**（不许藏成本）
+    { ...vd, voiceList: ctx.voiceList, source: '', i2vSec: _i2vB.plan.sec, i2vImages: _i2vB.plan.images },
     shotsOut, imgPaths.length, brief, aspect, cover, estSec,
   )
 }
@@ -505,6 +563,7 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         step: 'form', topic, aspect: 'auto', dur: 30,
         voice: (ctx.voiceList && ctx.voiceList[0] && ctx.voiceList[0].id) || 'longxiaochun',
         theme: 'dark', bgm: '', uploaded: [], script: '', brief: '', keepAudio: false,
+        i2v: 'on',   // ★VF_VIDI2V_V1：默认让图动起来（老板定案「开」；设置卡可关）
       }
       VF_VIDEO_DRAFT.set(uid, vd)
       await saveVfVideoDraft(ctx.prisma, uid, vd)
@@ -522,6 +581,8 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         if (f.theme) vd.theme = String(f.theme)
         if (f.bgm) vd.bgm = String(f.bgm)
       if (f.big) vd.big = String(f.big)   // ★OVERLAY_TEXT_SWITCH_V1：'on' | 'off'
+        // ★VF_VIDI2V_V1：'on'（默认，让图动起来）| 'off'（全静态图，不额外计费）
+        if (f.i2v) vd.i2v = String(f.i2v) === 'off' ? 'off' : 'on'
         if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x))
         if (typeof f.script === 'string' && f.script.trim()) vd.script = cleanText(f.script)
         if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = String(f.topic).trim().slice(0, 300)
@@ -560,19 +621,31 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
     // ── 卡2：确认 → 出片（入队即作废本线草稿，避免终身吞消息）──
     if (vd.step === 'script' && FLOW_WORD.test(String(userMessage).trim())) {
       if (!vd.shots?.length) return '视频混剪：分镜还没排好，先不出片。回「重试」我再排一次。'
+      // ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪 → 逐镜图生视频」）：
+      //   ① i2vShots 的 image 传的是【个人仓库 key】——由 chat/route.ts 的 resolveImageToPublicUrl()
+      //      现签 OSS 直链（供应商必须能从公网拉到第一帧；它拿不到 cookie、也读不到服务器本地路径）。
+      //   ② 必须**同时声明** source='mix' + mix=镜号：这是 chat/route.ts 的护栏要求（不声明直接
+      //      TOOL_REJECT —— 不许绕过），也顺带让计费走"只算这几镜的秒数"的混合口径，
+      //      与确认卡上那句"含让 N 张图动起来"同源（报价 = 实扣）。
+      //   ③ 关掉开关（i2v='off'）→ 一个字段都不传，走纯素材合成。
+      // ★VF_I2V_REUSE_V1：入参全部由通用函数给（同图去重 / 上限 6 张 / 开关 / 计费 / 声明 source+mix）
+      const _i2vB = i2vBuildOf(vd)
+      logI2vNotes(ctx, _i2vB.notes)   // 动了几张 / 为什么没动 / 哪些拿不到公网地址（通用话术，原样写日志）
       VF_VIDEO_DRAFT.delete(uid)
       await clearVfVideoDraft(ctx.prisma, uid)
       ctx.log(uid, '[VF-V] 已入队 → 本线草稿作废')
       const run = await ctx.executeToolCall('make_ai_video', {
         // ★OVERLAY_TEXT_SWITCH_V1（2026-09-29）：把"画面大字开关"写进分镜 plan ——
-      //   render.py 读到 overlay_text=false 就不再把这些大字压在素材/视频上（独立文字卡与字幕照旧）。
-      plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots, overlay_text: vd.big !== 'off' }),
+        //   render.py 读到 overlay_text=false 就不再把这些大字压在素材/视频上（独立文字卡与字幕照旧）。
+        plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots, overlay_text: vd.big !== 'off' }),
         script: vd.script,
         theme: vd.theme,
         speaker: vd.voice,
         bgm: vd.bgm,
         duration: vd.dur,
         confirmed: true,
+        // ★VF_VIDI2V_V1：{ i2vShots, source:'mix', mix } 由通用函数拼好（没有可动的图时是空对象）
+        ..._i2vB.args,
       }, ctx.auth)
       ctx.log(uid, `[VF-V] 出片入队 → ${String(run).slice(0, 100)}`)
       return String(run)

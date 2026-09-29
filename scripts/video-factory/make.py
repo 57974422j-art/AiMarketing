@@ -301,6 +301,12 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
       （1-based 镜号集合）；为空 = 全部镜（「AI 制片」那条线）。**两种调用互不影响**。
     返回 (新的故事板路径, 成功镜数, 总秒数, 最后通道)
     """
+    # ★VF_I2V_CACHE_V1（2026-09-29 用户定案「逐镜开图生视频」配套）：
+    #   同一张图在多个镜里出现时，H3 只调【一次】，后面几镜直接复用那段已生成的片段
+    #   （拷贝成本地文件）——不然"一张图用 3 镜"会花 3 倍的钱，而且观感会变成
+    #   "同一张图一会儿动一会儿不动"。计费在 Node 侧按【唯一图】算，所以复用镜不额外计费。
+    _i2v_cache = {}
+    _i2v_reuse = 0
     _only = set(int(x) for x in (only_idx or []) if str(x).strip().isdigit())
     sb = json.load(open(sb_path, encoding='utf-8'))
     shots = sb.get('shots') or []
@@ -330,6 +336,24 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
         # ★VF_I2V_V1（2026-09-29）：该镜是否用"它自己的图"当首帧（图生视频）。
         #   ref_image 由 Node 侧签好 OSS 直链后写进分镜透传过来（本文件不签 URL）。
         _ref = str(shot.get('ref_image') or '').strip()
+        # ★VF_I2V_CACHE_V1：这张图前面已经生成过 → 直接复用那段片段（不再调 H3、不额外计费）
+        if _ref and _ref in _i2v_cache:
+            _src0 = _i2v_cache[_ref]
+            dest = os.path.join(clips, 'shot%02d.mp4' % i)
+            try:
+                import shutil
+                shutil.copyfile(_src0, dest)
+            except Exception:
+                dest = _src0          # 拷贝失败就直接引用同一文件（渲染层只读它，不修改）
+            shot['type'] = 'aivideo'
+            shot['src'] = dest
+            shot['src_dur'] = round(float(_probe_sec(dest) or 0), 2)
+            _i2v_reuse += 1
+            ok_n += 1
+            total_sec += float(shot.get('src_dur') or 0)
+            print('[H3] ♻️ 第 %d/%d 镜 复用同一张图的动图（不再调用、不额外计费）-> %s'
+                  % (i + 1, len(shots), os.path.basename(dest)))
+            continue
         if _ref:
             print('[H3] 第 %d/%d 镜 图生视频中…（首帧=%s）%s'
                   % (i + 1, len(shots), _ref[:60], prompt[:50]))
@@ -371,9 +395,13 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
         shot['src_dur'] = round(float(real or 0), 2)
         ok_n += 1
         total_sec += float(real or 0)
+        if _ref:
+            _i2v_cache[_ref] = dest      # ★VF_I2V_CACHE_V1：登记，后面同图的镜直接复用
         print('[H3] ✅ 第 %d 镜 OK  %s  %.1fs -> %s' % (i + 1, via, float(real or 0), os.path.basename(dest)))
     out_path = os.path.join(wd, 'storyboard.ai.json')
     json.dump(sb, open(out_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    if _i2v_reuse:
+        print('[H3] ♻️ 其中 %d 镜复用同一张图的动图（不额外计费；计费按唯一图算）' % _i2v_reuse)
     print('[H3] 生成完成：**%d/%d 镜**，共 %.1f 秒，通道=%s' % (ok_n, len(shots), total_sec, via_last))
     return (out_path, ok_n, total_sec, via_last)
 

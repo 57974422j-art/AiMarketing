@@ -14,7 +14,12 @@ import { matchesMixLine, clearVfMixDraft, hasMixDraft } from '@/lib/agent/vf/vf-
 import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY } from '@/lib/agent/standard-commands'
 // ★VF_ANTIAI_V1（2026-09-29）：「反 AI 味清单」—— 提示词（ANTI_AI_PROMPT）+ 出片前净化（sanitizeAntiAiShots）。
 //   纯函数零依赖（同 standard-commands.ts），静态 import 安全。
-import { ANTI_AI_PROMPT, sanitizeAntiAiShots } from '@/lib/agent/vf/anti-ai'
+// ★VF_AI_PICK_V1（2026-09-29）：pickDesignFields —— AI 自选的 theme/variant/motion/transition
+//   在**显式造对象**的 bgimage 分支里必须带上（否则 AI 的选择被归一化静默丢掉）。
+import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields } from '@/lib/agent/vf/anti-ai'
+// ★VF_VIDI2V_V1（2026-09-29）：「让图动起来」的计费口径（50 点/秒）与出片侧 vf-video.ts **共用同一份公式** ——
+//   卡片报价与实扣同源，免得又出现"卡片报 205 点、实扣 1500 点"。
+import { i2vCostPoints, vfTotalCostPoints } from '@/lib/agent/vf/i2v-plan'
 
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
@@ -158,9 +163,12 @@ async function genVideoShotsRaw(o: {
       //   只在真有 prompt 时附带该字段 → 素材合成的输出结构与原来完全一致。
       const _pp = s.prompt ? { prompt: String(s.prompt).slice(0, 900) } : {}
       // ★VF_BIGTEXT_FALLBACK_V1：这里原来 text 可能是空串（照抄示例词被清）→ 现在兜底字幕首句
-      if (!lp || o.aiOnly) return { type: 'title', text: bigText(s.text, sub), subtitle: sub, dur: 3.5, ..._pp }
+      // ★VF_AI_PICK_V1（2026-09-29）：这里是**显式造对象**（不是 {...s}）—— AI 自选的
+      //   theme/variant/motion/transition 必须显式带上，否则"AI 挑了版式/动效"会被归一化静默丢掉
+      //   （白名单校验统一交给 genVideoShots 外层的 sanitizeAntiAiShots，别在这里判）。
+      if (!lp || o.aiOnly) return { ...pickDesignFields(s), type: 'title', text: bigText(s.text, sub), subtitle: sub, dur: 3.5, ..._pp }
       // 注意：bgimage 的 text 是“画面大字”，**不能**当配音文案，所以这里只取 subtitle
-      return { type: 'bgimage', src: lp, text: notDemo(s.text).slice(0, 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)), ..._pp }
+      return { ...pickDesignFields(s), type: 'bgimage', src: lp, text: notDemo(s.text).slice(0, 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)), ..._pp }
     }
     if (KNOWN_TYPES.includes(ty)) {
       // ★VF_NOCLONE_V1：清掉照抄的示例文字（text/title/label/cta/items）
@@ -332,9 +340,16 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
   //   （按【秒 × 50 点】，768P）——否则就是"卡片报 7 点、实扣 500 点"，
   //   与之前那次"多扣费"是同一类事故（只是方向相反）。报价与实扣同源，是硬要求。
   const _isAI = String(vd.source || vd.mode || '') === 'ai'
+  // ★VF_VIDI2V_V1（2026-09-29 用户定案）：让图动起来（逐镜图生视频）是**额外**的一笔钱（50 点/秒），
+  //   卡片上必须**如实显示**（用户明说"不许把成本藏起来"）。
+  //   口径与 make_ai_video 的【混合】分支逐字一致：素材费 ceil(字数/20) + ceil(i2v 秒 × 50)，
+  //   公式统一在 i2v-plan.ts（报价 = 实扣；出过"卡片报 205 点、实扣 1500 点"的事故，不敢再各写一份）。
+  const _i2vSec = Math.max(0, Number(vd.i2vSec) || 0)
+  const _i2vN = Math.max(0, Number(vd.i2vImages) || 0)
+  const _i2vPts = i2vCostPoints(_i2vSec)
   const cost = _isAI
     ? Math.max(1, Math.ceil(Math.max(4, targetSec || 30) * 50))
-    : Math.max(1, Math.ceil(charN / 20))
+    : vfTotalCostPoints(charN, _i2vSec)
   // ★覆盖不足也算“不给确认”（不然出来的片子只有 110 秒 / 只念 30%）
   if (!shots || shots.length < 2 || cover < 0.8) {
     const why = (!shots || shots.length < 2)
@@ -378,13 +393,19 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
     })),
     usedImages: imgN, brief: String(brief || '').slice(0, 400),
     voice: vd.voice, voiceName, theme: vd.theme, cost,
+    // ★VF_VIDI2V_V1：让图动起来那笔钱的**明细**（卡片 hint 已写"含让 N 张图动起来：约 M 点"，
+    //   这里再给结构化字段，前端要单独展示时可直接取用）
+    i2vImages: _i2vN, i2vSec: _i2vSec, i2vPts: _i2vPts,
     // ★VF_AIVIDEO_V1（2026-09-20）：把画面来源透给卡片 —— 前端可据此显示"这条是 AI 出片"
     source: _isAI ? 'ai' : '',
     aspect, aspectName,
     coverage: cover, estSec, targetSec,
     // ★VF_AIVIDEO_V1：AI 模式下措辞要变 —— 画幅不是"按素材定"（画面是 AI 生成的），
     //   并明确写出"画面由 AI 逐镜生成"，避免用户以为用的是自己的图。
-    hint: `看完了你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${_isAI ? `${aspectName}·**画面由 AI 逐镜生成**` : (aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏')}·风格 ${themeName}·配音 ${voiceName}）——回复「确认」开始出片；也可说要改什么`,
+    hint: `看完了你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${_isAI ? `${aspectName}·**画面由 AI 逐镜生成**` : (aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏')}·风格 ${themeName}·配音 ${voiceName}）` +
+      // ★VF_VIDI2V_V1：让图动起来的钱**明写在卡片上**（不藏着）；同一张图只生成一次
+      (_i2vN ? `；🎞 含让 ${_i2vN} 张图动起来：约 ${_i2vPts} 点（${Math.round(_i2vSec)} 秒 × 50 点/秒，同一张图只生成一次）` : '') +
+      `——回复「确认」开始出片；也可说要改什么`,
   })
 }
 
@@ -503,12 +524,59 @@ async function saveGeneratedVideoToRepo(userId: number | string, srcUrl: string)
 }
 
 /**
+ * ★VF_VIDI2V_V1（2026-09-29）：「服务器本地图片 → 公网 URL」的小工具（**图生视频首帧专用**）。
+ *
+ * 为什么需要它：混剪线/素材线的分镜里，`bgimage` 的 `src` 是**服务器本地路径**
+ * （downloadMaterials 落到 storage/<uid>/video-factory/material/ 下）—— 供应商（MiniMax H3 /
+ * 百炼 wan）必须能**从公网拉到第一帧**，它拿不到 cookie、也读不到我们服务器的磁盘。
+ * 于是这里把它补传到 OSS，再签 24h 直链。
+ *
+ * 成本（如实说明）：**只有"这张图不在个人仓库里"的兜底情形才会走这里** ——
+ *   一次小图上传（图片通常几十 KB ~ 1MB）+ 一次 head + 一次签名；OSS PUT 按次计费，可忽略，
+ *   且**不产生任何 AI 费用**。正常路径（图本来就在仓库 storage/<uid>/ 下）走 resolveImageToPublicUrl
+ *   直接签名，**零上传**。
+ * 存到 `i2v/<uid>/` 而不是 `storage/<uid>/`：后者是用户的个人仓库，listRepoMaterials 会扫它 ——
+ *   塞进去会污染用户的素材列表（还可能被当成素材再用一遍）。
+ *
+ * 安全：只允许上传【服务器素材目录内】的图片（绝对路径 + 扩展名白名单），
+ *   免得被喂一个 /etc/passwd 之类的路径 → 变成"任意文件上传 + 公网可读"。
+ */
+async function localImageToPublicUrl(
+  userId: number | string,
+  localPath: string,
+): Promise<{ url?: string; err?: string }> {
+  try {
+    const pathM = await import('path')
+    const fsM = await import('fs')
+    const abs = pathM.resolve(localPath)
+    const root = pathM.resolve(vfStorageRoot())
+    if (abs !== root && !abs.startsWith(root + pathM.sep)) {
+      return { err: `本地图片不在素材目录内，拒绝上传：${localPath.slice(0, 80)}` }
+    }
+    if (!/\.(jpe?g|png|webp|gif|bmp)$/i.test(abs)) {
+      return { err: `本地文件不是图片：${pathM.basename(abs)}` }
+    }
+    if (!fsM.existsSync(abs)) return { err: `本地图片不存在：${localPath.slice(0, 80)}` }
+    const key = `i2v/${String(userId)}/${pathM.basename(abs)}`
+    const { putObject, objectExists } = await import('@/lib/oss')
+    if (!(await objectExists(key))) {                    // 同一张图重跑不重复上传
+      await putObject(key, fsM.readFileSync(abs), /\.png$/i.test(abs) ? 'image/png' : 'image/jpeg')
+    }
+    return { url: await signedUrl(key, 86400) }
+  } catch (e: any) {
+    return { err: `本地图片转 OSS 失败：${String(e?.message || e).slice(0, 100)}` }
+  }
+}
+
+/**
  * ★VF_I2V_V1（2026-09-29）：把「用户仓库里的一张图」解析成**公网可访问的 URL**（喂给图生视频供应商）。
  * 为什么必须转公网 URL：MiniMax H3 / 百炼 wan2.7-i2v 都要求 http(s) 可达的首帧地址，
- * 本地路径一律不可用 → 统一走 OSS 私有桶签名直链（24h）。三种输入：
+ * 本地路径一律不可用 → 统一走 OSS 私有桶签名直链（24h）。四种输入：
  *   ① http(s) 原样返回（用户消息里带的图片 URL）；
  *   ② 完整 `storage/...` 前缀 key；
- *   ③ 纯文件名（补 `storage/<uid>/` 前缀）。
+ *   ③ 纯文件名（补 `storage/<uid>/` 前缀）；
+ *   ④ ★VF_VIDI2V_V1：**服务器本地图片路径**（混剪线的分镜 src 就是这种）→ 补传 OSS 再签，
+ *      见 localImageToPublicUrl() 的成本说明。
  * **先 head 确认对象存在**再签名 —— 否则会把一个 404 地址喂给供应商，得到的是一句莫名其妙的
  * "生成失败"，而用户真正需要听的是"仓库里没这张图"。
  */
@@ -519,6 +587,8 @@ async function resolveImageToPublicUrl(
   const s = String(image || '').trim()
   if (!s) return { err: '缺少图片' }
   if (/^https?:\/\//i.test(s)) return { url: s }
+  // ★VF_VIDI2V_V1：绝对路径（Windows `C:\…` 或 POSIX `/…`）→ 本地图片兜底通道（上传成本见上）
+  if (/^([a-zA-Z]:[\\/]|\/)/.test(s)) return await localImageToPublicUrl(userId, s)
   const key = s.startsWith('storage/') ? s : `storage/${String(userId)}/${s.replace(/^\/+/, '')}`
   try {
     const { getOSSClient } = await import('@/lib/oss')
@@ -794,19 +864,48 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       //     → 用 resolveImageToPublicUrl 签成 OSS 直链（Python 侧没有签名能力）写进 shot.ref_image，
       //        make.py 用它当 H3 首帧；该镜生成失败会退回它自己的静态图（Ken Burns），不判死整片。
       let vfPlanInj = vfPlan
+      // ★VF_VIDI2V_V1：**真的拿到首帧的镜才留在 --mix 名单里**（见下面 miss 的处理说明）。
+      //   null = 本次没有 i2vShots（混合线不受影响）。
+      let _i2vOkIdx: number[] | null = null
       if (vfPlan && Array.isArray(args.i2vShots) && args.i2vShots.length) {
         try {
           const _pI = JSON.parse(vfPlan)
           const _shotsI: any[] = Array.isArray(_pI) ? _pI : (_pI && _pI.shots) || []
+          const _miss: number[] = []
+          _i2vOkIdx = []
           for (const it of args.i2vShots) {
             const _ixI = parseInt(it && it.index) - 1
             if (!(_ixI >= 0 && _ixI < _shotsI.length)) continue
             const _rI = await resolveImageToPublicUrl(auth?.userId || 0, String((it && it.image) || ''))
-            if (_rI.url) { _shotsI[_ixI].ref_image = _rI.url; console.log(`[make_ai_video] 图生视频注入：第 ${_ixI + 1} 镜首帧=${String(it.image).slice(0, 60)}`) }
-            else console.log(`[make_ai_video] 图生视频注入失败（第 ${_ixI + 1} 镜）: ${_rI.err}`)
+            if (_rI.url) {
+              _shotsI[_ixI].ref_image = _rI.url
+              // ★VF_VIDI2V_V1：图生视频的提示词要**只描述"运动/氛围"**（与 animate_image 工具逐字同款）——
+              //   否则 H3 会按文案去"重画"画面、把原图主体带偏（图生视频的重点是"让首帧动起来"）。
+              //   只在该镜本来没有 prompt 时才补（AI 自己给的画面描述优先）。
+              if (!String(_shotsI[_ixI].prompt || '').trim()) {
+                _shotsI[_ixI].prompt = '让画面自然、轻微地动起来, subtle parallax, gentle push-in, soft light bloom, ' +
+                  'shallow depth of field, cinematic atmosphere, smooth steady motion。保持主体一致，画面里不要出现任何文字'
+              }
+              _i2vOkIdx.push(_ixI + 1)
+              console.log(`[make_ai_video] 图生视频注入：第 ${_ixI + 1} 镜首帧=${String(it.image).slice(0, 60)}`)
+            } else {
+              // 拿不到公网地址的那一镜**不注入首帧**（保持它自己的静态图 + Ken Burns），绝不因此让整片失败
+              _miss.push(_ixI + 1)
+              console.log(`[make_ai_video] 图生视频注入失败（第 ${_ixI + 1} 镜，该镜保持静态图）: ${_rI.err}`)
+            }
+          }
+          // ⚠️ 必须把拿不到首帧的镜【从 --mix 名单里剔除】：make.py 的 gen_ai_clips 对名单里的镜，
+          //   若**没有 ref_image** 会退化成**纯文生视频**（H3 按文案凭空生成一段画面）——
+          //   那就变成"用户要的是自己的图动起来，结果画面被整段换掉"，还照扣钱。
+          //   剔掉之后：该镜保持自己的静态图，且计费随之下调（**只会少收，绝不会多收**）。
+          if (_miss.length) {
+            console.log(`[make_ai_video] 图生视频：第 ${_miss.join('、')} 镜没拿到首帧 → 已从 --mix 名单剔除（保持静态图、不计这笔钱）`)
           }
           vfPlanInj = JSON.stringify(_pI)
-        } catch (eI: any) { console.log('[make_ai_video] i2vShots 注入异常:', eI?.message || eI) }
+        } catch (eI: any) {
+          _i2vOkIdx = null
+          console.log('[make_ai_video] i2vShots 注入异常:', eI?.message || eI)
+        }
       }
       // ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」判定 —— 工具参数（AI 主动传）或表单草稿
       //   （用户在表单里选的）任一为 ai 即算。
@@ -824,7 +923,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       //   修法：把 'mix' 当**独立口径** —— mix 镜号有 → 只算这些镜的秒数；mix 镜号为空 →
       //         **只收素材部分，绝不按整片时长收 AI 费**。
       const _srcRaw = String(args.source || args.mode || _vdCur.source || '')
-      const _mixIdx = String(args.mix || '').split(',').map((x) => parseInt(String(x).trim())).filter((n) => n > 0)
+      const _mixIdxAll = String(args.mix || '').split(',').map((x) => parseInt(String(x).trim())).filter((n) => n > 0)
+      // ★VF_VIDI2V_V1：有 i2vShots 时，只把**真的拿到首帧**的镜留在名单里（拿不到的剔除 → 保持静态图、不多收钱）
+      const _mixIdx = _i2vOkIdx ? _mixIdxAll.filter((n) => _i2vOkIdx!.includes(n)) : _mixIdxAll
       const _isMixLine = _srcRaw === 'mix' || _mixIdx.length > 0
       const vfSrcAI = _srcRaw === 'ai' || _srcRaw === 'mix' || _mixIdx.length > 0
       // ★VF_I2V_V1（2026-09-29）：给了 i2vShots 却不声明来源 → **直接拒**。
@@ -842,9 +943,24 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       let _mixAiSec = 0
       if (_isMixLine && _mixIdx.length) {
         try {
-          const _pp = JSON.parse(vfPlan || '{}')
+          // ★VF_VIDI2V_V1：用**注入后的** plan（vfPlanInj）—— ref_image 是上面注入进去的，
+          //   拿原始 vfPlan 看不到首帧，下面"同一张图只算一次"的去重就失效（会多扣钱）。
+          const _pp = JSON.parse(vfPlanInj || vfPlan || '{}')
           const _sh = Array.isArray(_pp) ? _pp : (_pp && _pp.shots) || []
-          _sh.forEach((s: any, i: number) => { if (_mixIdx.includes(i + 1)) _mixAiSec += Number((s && s.dur) || 0) })
+          // ★VF_I2V_CACHE_V1（2026-09-29，与 make.py 的 URL 缓存配套）：
+          //   同图的后续镜现在**也**在 --mix 名单里（由 make.py 复用那段动图，零额外成本），
+          //   所以计费必须**按唯一 ref_image 只算一次**：否则卡片按唯一图报价、实扣按镜数扣 → 报价≠实扣。
+          //   （没有 ref_image 的镜 = 混合线/纯文生视频的镜，照原样每镜都算。）
+          const _seenRef = new Set<string>()
+          _sh.forEach((s: any, i: number) => {
+            if (!_mixIdx.includes(i + 1)) return
+            const _ref = String((s && s.ref_image) || '')
+            if (_ref) {
+              if (_seenRef.has(_ref)) return
+              _seenRef.add(_ref)
+            }
+            _mixAiSec += Number((s && s.dur) || 0)
+          })
           if (!_mixAiSec) {
             const _full = Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30)
             _mixAiSec = Math.round(_full * (_mixIdx.length / Math.max(1, _sh.length)))
@@ -853,7 +969,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       }
       const vfCost = _isMixLine
         ? (_mixIdx.length
-          ? Math.max(1, Math.ceil(_mixAiSec * 50) + Math.ceil(vfBillChars / 20))
+          // ★VF_VIDI2V_V1（2026-09-29）：AI 镜秒数 × 50 的公式**统一走 i2v-plan.ts 的 i2vCostPoints()** ——
+          //   左边这张卡（vfScriptCard 的"含让 N 张图动起来：约 M 点"）与这里必须逐字同源。
+          ? Math.max(1, i2vCostPoints(_mixAiSec) + Math.ceil(vfBillChars / 20))
           : Math.max(1, Math.ceil(vfBillChars / 20)))   // ← 没有 AI 镜：只收素材部分（不再按整片 ×50）
         : (vfSrcAI
           ? Math.max(1, Math.ceil(Math.max(4, Number(args.duration || args.dur || _vdCur.dur || 30) || 30) * 50))
@@ -908,7 +1026,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       // ★VF_MIXLINE_V1（2026-09-21）：「素材+AI 创作」只对**指定镜号**调 AI —— 必须把镜号透给 make.py。
       //   ⚠️ 漏了这行的后果：混合片会退化成"全片每一镜都调 H3"（用户以为只 2 镜 ≈600 点，
       //   实际全片 ≈1500+ 点）→ 成本失控。所以这里**有就必传**。
-      const _mixShots = String(args.mix || '').trim()
+      // ★VF_VIDI2V_V1：有 i2vShots 时传**剔除失败镜之后**的名单（与上面的计费名单同源）；
+      //   混合线（没有 i2vShots）保持原样传参，行为一字不变。
+      const _mixShots = _i2vOkIdx ? _mixIdx.join(',') : String(args.mix || '').trim()
       if (_mixShots) argsVF.push('--mix', _mixShots)
       // ★VF_BGM_V1（2026-09-20）：BGM —— args.bgm==='auto' 时从【AI 音乐库】挑一首
       //   并下载到本地（render.py 要的是本地文件）。直接查库不调 HTTP（避开服务端鉴权）
@@ -3639,6 +3759,12 @@ PUBLISH_DRAFT.delete(uidW)
                 const vfImgList = (_hdImg.length >= 5 ? _hdImg : _allImg).slice(0, vfMatN)
                 if (_hdImg.length < _allImg.length) vfLog(uidVF2, `[清晰度] 低清图过滤：${_allImg.length} → ${_hdImg.length} 张（短边 < 640 的不进画面）`)
                 const vfLocal = await downloadMaterials(uidVF2, vfImgList)
+                // ★VF_I2V_REUSE_V1 预留（**本线默认不开图生视频**，用户定案先只在「图视混剪」开）：
+                //   要把「图片成片」也开起来：先 import { buildI2vShots, i2vKeyMap } from '@/lib/agent/vf/i2v-plan'，
+                //   在这里建 keyByPath = i2vKeyMap(vfLocal)，出片时把 buildI2vShots({ shots, keyByPath, enabled }).args
+                //   拼进 make_ai_video，并把返回的 .points 加进卡片报价（同图去重 / 上限 6 张 /
+                //   拿不到公网地址就保持静态 / 声明 source+mix —— 全在通用函数里，别在这里重写）。
+
                 vfLog(uidVF2, `[素材配比] 时长${vfDur}s → 取图上限 ${vfMatN} 张（仓库实际 ${vfMats.filter((m: any) => m.kind === 'image').length} 张，可用 ${vfLocal.length} 张）`)
                 const vfNeed = Math.round(vfDur * 4.5)
                 const vfCtx = `【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材】${vfBrief ? '\n' + vfBrief : '（仓库里没有可用图片）'}`
