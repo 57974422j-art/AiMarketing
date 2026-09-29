@@ -5,6 +5,12 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { PLATFORM_NAMES, PLATFORMS } from '@/lib/agent/platforms'
+// ★VF_LEAD_V1（2026-09-29 老板定案）：「智能获客」面板所需的常量与纯函数（无副作用，客户端可直接引）
+import {
+  LEAD_PLATFORMS, LEAD_SPEED_PRESETS, LEAD_DATA_SOURCES, LEAD_DEFAULT_TIER,
+  LEAD_SCRIPT_MAX, LEAD_CFG_PREFIX,
+  defaultCheckedPlatforms, cleanLeadText, resolveLeadSpeed,
+} from '@/lib/agent/lead'
 import { useAuth } from '@/app/providers'
 import TourGuide from '@/components/TourGuide'
 import { Solar } from 'lunar-javascript'
@@ -474,6 +480,47 @@ class AgentErrorBoundary extends React.Component<{ children: any }, { err: strin
   }
 }
 
+/** ★VF_RENDER_ONESHOT_V1（2026-09-29 team-lead 要求 ④）：「只重渲第 N 镜」客户端入口。
+ *  片出完后，改一个画面大字/字幕没必要重做整条（重写文案 + 重新配音要 3~4 分钟且再花钱）——
+ *  复用已有配音，只重跑渲染，约 1~2 分钟、**不扣点**（服务端走 vf-edit.ts 的 make.py --render-only）。
+ *  为什么需要这个按钮：分镜清单卡片只在【出片前】存在；片出完后草稿被作废，界面上就没有入口了。
+ *  发的就是 `VF_EDIT:{taskId, edits}`（与分镜清单同一个协议；服务端"无草稿 → 只重渲染"分支处理）。 */
+function VfReRenderShot({ taskId, onSend }: { taskId: string; onSend: (msg: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [n, setN] = useState('')
+  const [txt, setTxt] = useState('')
+  const [sub, setSub] = useState('')
+  const idx = parseInt(n) || 0
+  const ready = idx > 0 && (!!txt.trim() || !!sub.trim())
+  const go = () => {
+    if (!ready) return
+    const e: any = { index: idx }
+    if (txt.trim()) e.text = txt.trim()
+    if (sub.trim()) e.subtitle = sub.trim()
+    onSend('VF_EDIT:' + JSON.stringify({ taskId, edits: [e] }))
+    setOpen(false); setN(''); setTxt(''); setSub('')
+  }
+  return (
+    <div className="mt-2">
+      <button type="button" onClick={() => setOpen(!open)} className="text-[10px] text-gray-400 hover:text-gray-200">
+        {open ? '▾' : '▸'} 🔁 只重渲第 N 镜（复用配音，不扣点）
+      </button>
+      {open && (
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <input value={n} onChange={(e: any) => setN(e.target.value.replace(/[^\d]/g, '').slice(0, 3))}
+            placeholder="第几镜" className="w-[64px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+          <input value={txt} onChange={(e: any) => setTxt(e.target.value)} placeholder="新大字（可空）"
+            className="w-[130px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-emerald-200 placeholder-gray-600 outline-none" />
+          <input value={sub} onChange={(e: any) => setSub(e.target.value)} placeholder="新字幕（可空；只改字，不重配音）"
+            className="flex-1 min-w-[130px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-emerald-200 placeholder-gray-600 outline-none" />
+          <button type="button" disabled={!ready} onClick={go}
+            className={`px-2.5 py-0.5 rounded text-[10px] ${ready ? 'bg-emerald-500/30 hover:bg-emerald-500/50 text-white' : 'bg-white/[0.03] text-gray-600'}`}>重渲</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ★VF_FORM_V1（2026-09-20，用户要求）：成片设置表单——一次选完、一次提交
 //   背景：老流程“点一个→返回→再点一个”要 3~4 轮（用户原话“感觉有点怪”）。
 //   现表单一次提交 VF_FORM:{aspect,dur,voice,source,topic,script}，服务端一次算完。
@@ -502,6 +549,10 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   // ★VF_BANNER_V1（2026-09-29 用户定案）：「📌 顶部固定标题」开关 —— 开=AI 自动拟两行（黄字黑边 +
   //   半透明色块白字），全程钉在画面顶部不动；关=不画。默认「自动」（用户要"默认这样，方便后期集成自动化"）。
   const [pin, setPin] = useState(vj.pin || 'on')
+  // ★VF_BANNER_PIN2_V1（2026-09-29 用户定案）：手动覆盖固定标题的两行（留空 = AI 自动拟）。
+  //   为什么加：AI 拟的标题偶尔不合心意，得让用户能直接写死（两行都填 → 服务端完全不调 AI）。
+  const [pin1, setPin1] = useState(vj.pin1 || '')
+  const [pin2, setPin2] = useState(vj.pin2 || '')
   const [openAdv, setOpenAdv] = useState(false)
   // ★VF_UPLOAD_V1（2026-09-20）：「📤 我上传素材」真正可用 —— 选文件 → 传到个人仓库
   //   （POST /api/storage/files，与素材页同一个接口）→ 本次成片只从【最近上传】取画面。
@@ -681,7 +732,7 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           {R(i2v, 'on', '🎞 动起来', setI2v)}
           {R(i2v, 'off', '🚫 保持静态', setI2v)}
         </div>
-        <div className="text-[10px] text-gray-500 mt-1">（本轮只在「图视混剪」这条线生效；「图片成片」目前不会让图动）</div>
+        <div className="text-[10px] text-gray-500 mt-1">（「图片成片」与「图视混剪」两条线都生效；关掉=全静态图，不额外计费）</div>
       </div>
 
       {/* ★VF_BANNER_V1：顶部固定标题（AI 自动拟两行）—— 只做「自动 / 不要」两个按钮，默认自动 */}
@@ -691,6 +742,21 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           {R(pin, 'on', '✨ 自动', setPin)}
           {R(pin, 'off', '🚫 不要', setPin)}
         </div>
+        {/* ★VF_BANNER_PIN2_V1（2026-09-29 用户定案）：手动覆盖两行 —— 留空 = AI 自动拟；填了就优先用你写的
+            （服务端同样会去 emoji / 去 markdown / 截断到 12 / 18 字；两行都填 → 完全不走 AI）。 */}
+        {pin !== 'off' && (
+          <div className="mt-1.5">
+            <div className="text-[10px] text-gray-500 mb-1">想自己定这两行就填这里（留空 = AI 自动拟）</div>
+            <div className="flex flex-col gap-1.5">
+              <input value={pin1} onChange={(e: any) => setPin1(e.target.value.slice(0, 60))}
+                placeholder="顶部标题第 1 行（≤12 字）"
+                className="w-full px-2 py-1 rounded text-[11px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+              <input value={pin2} onChange={(e: any) => setPin2(e.target.value.slice(0, 80))}
+                placeholder="顶部标题第 2 行（≤18 字）"
+                className="w-full px-2 py-1 rounded text-[11px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+            </div>
+          </div>
+        )}
       </div>
 
       <button onClick={() => setOpenAdv(!openAdv)} className="text-[10px] text-gray-500 hover:text-gray-300 mb-2">
@@ -709,6 +775,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           i2v,
           // ★VF_BANNER_V1：顶部固定标题（'on' 默认自动拟两行 | 'off' 不要）—— 服务端解析后决定 plan 是否带 banner
           pin,
+          // ★VF_BANNER_PIN2_V1：手填的两行（留空 = AI 自动拟；两行都填 → 完全不调 AI，见 banner.ts 的 buildBanner）
+          pin1, pin2,
           // ★VF_UPLOAD_V2（2026-09-20）：把**刚上传的文件名**一起发给后端 → 成片精确只用这几张
           //   （不再靠后端"按时间猜最近"，也就不会再挑到旧素材）
           // ★VF_AIVIDEO_V1（2026-09-20）：AI 模式下**不提交 uploaded** —— 免得日志与后续判断里
@@ -906,6 +974,295 @@ function VfAiI2vCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void 
           className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-[11px] text-gray-300 border border-white/[0.08]">
           ↺ 换一张 / 退出
         </button>
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * ★VF_LEAD_V1（2026-09-29 老板定案）：【智能获客】设置面板
+ *
+ * 老板原话（逐条落实）：
+ *   · 「增加一个按键『智能获客』，前端弹**详细表格**，**可填写可推荐话术**」
+ *   · 「**选哪些平台可以勾**，首先要**确认有用户登录态**」→ 每平台显示登录态，未登录默认不勾、给「去登记」
+ *   · 「频控上限找个参考值 / **有输入框控制速度**」→ 4 档预设 + 数字输入框
+ *   · 「是否使用现有工具去获客，热点采集的模式相似」→ 数据来源复选（复用既有接口，不新写爬虫）
+ *   · 「**暂时不做自动获客**」→ 底部只有「💾 保存配置」「👀 预演」，并如实标注范围
+ *
+ * 提交协议：`LEAD_CFG:{action,platforms,scripts,keywords,speed,sources}`（独立前缀，不与成片线 VF_FORM 混）
+ * 登录态来源：父页面的 `buAccounts`（buCheck 的检测结果）——本卡只读，不自己再扫一遍。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+function LeadSetupCard({ vj, onStart, buAccounts }: { vj: any; onStart: (msg: string) => void; buAccounts?: any[] }) {
+  const platforms: any[] = (Array.isArray(vj.platforms) && vj.platforms.length) ? vj.platforms : LEAD_PLATFORMS
+  const presets: any[] = (Array.isArray(vj.speedPresets) && vj.speedPresets.length) ? vj.speedPresets : LEAD_SPEED_PRESETS
+  const sources: any[] = (Array.isArray(vj.sources) && vj.sources.length) ? vj.sources : LEAD_DATA_SOURCES
+  const scriptMax = Number(vj.scriptMax) || LEAD_SCRIPT_MAX
+  const accounts: any[] = Array.isArray(buAccounts) ? buAccounts : []
+  const accountsReady = accounts.length > 0
+  const isOn = (id: string) => !!accounts.find((a: any) => a && a.id === id && a.loggedIn)
+  const pfName = (id: string) => (platforms.find((p: any) => p.id === id)?.name) || id
+
+  // 勾选：草稿里有就按草稿，但【未登录的平台一律剔除】——老板定案「首先要确认有用户登录态」。
+  const [checked, setChecked] = useState<string[]>(() => {
+    const init: string[] = Array.isArray(vj.checked) ? vj.checked : []
+    if (accountsReady) return init.filter((id) => isOn(id))
+    return init.length ? init : defaultCheckedPlatforms(accounts)
+  })
+  const [checkedSources, setCheckedSources] = useState<string[]>(() => (Array.isArray(vj.checkedSources) ? vj.checkedSources : []))
+  const [scripts, setScripts] = useState<{ scene: string; text: string }[]>(
+    () => (Array.isArray(vj.scripts) ? vj.scripts.map((s: any) => ({ scene: String(s?.scene || ''), text: String(s?.text || '') })) : []),
+  )
+  const [keywords, setKeywords] = useState<string>(() => (Array.isArray(vj.keywords) ? vj.keywords.join('、') : ''))
+  const sp0 = resolveLeadSpeed(vj.speed?.tier || LEAD_DEFAULT_TIER, vj.speed)
+  const [tier, setTier] = useState<string>(sp0.tier)
+  const [cPerDay, setCPerDay] = useState<string>(String(sp0.commentPerDay))
+  const [dPerDay, setDPerDay] = useState<string>(String(sp0.dmPerDay))
+  const [gapMin, setGapMin] = useState<string>(String(sp0.gapMin))
+  const [gapMax, setGapMax] = useState<string>(String(sp0.gapMax))
+  const [recLoading, setRecLoading] = useState(false)
+
+  // 登录态晚到（客户端刚启动时 buAccounts 可能先是空）→ 到了就把未登录的平台从勾选里摘掉。
+  useEffect(() => {
+    if (!accountsReady) return
+    setChecked((prev) => prev.filter((id) => isOn(id)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buAccounts])
+
+  const toggle = (list: string[], id: string, setter: (v: string[]) => void) =>
+    setter(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
+
+  const applyPreset = (p: any) => {
+    setTier(p.id)
+    setCPerDay(String(p.commentPerDay))
+    setDPerDay(String(p.dmPerDay))
+    setGapMin(String(p.gapMin))
+    setGapMax(String(p.gapMax))
+  }
+
+  const numOr = (v: string, dflt: number) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : dflt }
+  const payload = (action: string) => ({
+    action,
+    platforms: checked,
+    sources: checkedSources,
+    scripts: scripts
+      .map((s) => ({ scene: cleanLeadText(s.scene, 20), text: cleanLeadText(s.text, scriptMax) }))
+      .filter((s) => s.text),
+    keywords: keywords.split(/[,，、|]/).map((s) => cleanLeadText(s, 20)).filter(Boolean).slice(0, 3),
+    speed: {
+      tier,
+      commentPerDay: numOr(cPerDay, 0),
+      dmPerDay: numOr(dPerDay, 0),
+      gapMin: numOr(gapMin, 90),
+      gapMax: numOr(gapMax, 180),
+    },
+  })
+  const send = (action: string) => onStart(LEAD_CFG_PREFIX + JSON.stringify(payload(action)))
+
+  // ✨ 让 AI 推荐话术（一次便宜文本调用；服务端会再清洗/限长一次）
+  const recommend = async () => {
+    if (recLoading) return
+    setRecLoading(true)
+    try {
+      const r = await fetch('/api/agent/lead-scripts', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          industry: keywords, target: keywords,
+          platform: checked.map(pfName).join('、'), count: 8,
+        }),
+      })
+      const j = await r.json().catch(() => null)
+      if (j?.success && Array.isArray(j.scripts) && j.scripts.length) {
+        setScripts((prev) => prev.concat(j.scripts.map((s: any) => ({ scene: String(s.scene || '通用'), text: String(s.text || '') }))))
+      } else {
+        alert('推荐失败：' + (j?.message || '未知原因'))
+      }
+    } catch (e: any) {
+      alert('推荐失败：' + (e?.message || e))
+    } finally {
+      setRecLoading(false)
+    }
+  }
+
+  const openRegister = async (loginUrl: string) => {
+    try {
+      const api = (window as any).electronAPI
+      if (!api?.browserOpenUrl) { alert('打开登记浏览器需要用客户端（浏览器里不支持）'); return }
+      const r = await api.browserOpenUrl(loginUrl)
+      if (!r || r.success !== true) alert('打开登记浏览器失败：' + ((r && r.error) || '未知原因') + '\n登录后回到本页（窗口聚焦会自动重新检测登录态）。')
+    } catch (e: any) { alert('打开登记浏览器失败：' + (e?.message || e)) }
+  }
+
+  const inputCls = 'px-2 py-1 rounded text-[11px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none'
+  const btnCls = 'px-2.5 py-1 rounded text-[11px] border transition'
+
+  return (
+    <div className="mb-2 p-3 rounded-xl border border-cyan-500/30 bg-cyan-500/[0.06]">
+      <div className="text-xs text-cyan-300 mb-1">{vj.hint || '智能获客 · 设置面板'}</div>
+      {/* 范围说明：老板明说「暂时不做自动获客」——必须写在面板上，免得用户以为点了就真的去评论 */}
+      <div className="text-[10px] text-amber-300/90 mb-3">{vj.scopeNote || '本轮只做配置与预演，不会自动执行。'}</div>
+
+      {/* ① 平台勾选（含登录态） */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">① 触达平台（多选；未登录的平台不能勾）</div>
+        <div className="flex flex-wrap gap-1.5">
+          {platforms.map((p: any) => {
+            const on = isOn(p.id)
+            const hit = accounts.find((a: any) => a && a.id === p.id)
+            const isChecked = checked.includes(p.id)
+            const tip = on ? '已登录 ✓' : (hit?.reason === 'expired' ? '登录已过期，点「去登记」重新登录' : '未登录——点「去登记」登录')
+            return (
+              <span key={p.id} className="inline-flex items-center gap-1">
+                <button type="button" disabled={!on} title={tip}
+                  onClick={() => toggle(checked, p.id, setChecked)}
+                  className={`${btnCls} ${isChecked ? 'bg-cyan-500/30 border-cyan-400/50 text-white' : (on ? 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]' : 'bg-white/[0.02] border-white/[0.05] text-gray-600 cursor-not-allowed')}`}>
+                  {p.icon ? p.icon + ' ' : ''}{p.name}{on ? ' ✓' : (hit?.reason === 'expired' ? ' ⏰' : '')}
+                </button>
+                {!on && (
+                  <button type="button" onClick={() => openRegister(p.loginUrl)}
+                    className="px-1.5 py-0.5 rounded border border-cyan-500/30 text-[9px] text-cyan-300 hover:bg-cyan-500/15">
+                    去登记
+                  </button>
+                )}
+              </span>
+            )
+          })}
+        </div>
+        {!accountsReady && <div className="text-[10px] text-gray-500 mt-1">（正在检测登录态…没检测到时默认不勾，请点「去登记」登录）</div>}
+      </div>
+
+      {/* ② 话术表（可填 + 可推荐） */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-[10px] text-gray-400">② 话术表（一行一条，评论/私信共用；≤{scriptMax} 字，自动去 emoji）</div>
+          <div className="flex gap-1.5">
+            <button type="button" onClick={recommend} disabled={recLoading}
+              className={`${btnCls} bg-fuchsia-500/25 border-fuchsia-400/40 text-fuchsia-100 hover:bg-fuchsia-500/40 ${recLoading ? 'opacity-60' : ''}`}>
+              {recLoading ? '⏳ 生成中…' : '✨ 让 AI 推荐话术'}
+            </button>
+            <button type="button" onClick={() => setScripts((p) => p.concat([{ scene: '', text: '' }]))}
+              className={`${btnCls} bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]`}>＋ 加一行</button>
+          </div>
+        </div>
+        {scripts.length === 0 ? (
+          <div className="text-[10px] text-gray-500 px-2 py-2 rounded border border-dashed border-white/[0.1]">
+            还没有话术——点「✨ 让 AI 推荐话术」按你的关键词生成，或「＋ 加一行」自己写。
+          </div>
+        ) : (
+          <div className="rounded border border-white/[0.07] overflow-hidden">
+            <div className="grid grid-cols-[92px_1fr_28px] gap-1 px-2 py-1 bg-white/[0.03] text-[9px] text-gray-500">
+              <span>场景/触发条件</span><span>话术正文</span><span />
+            </div>
+            {scripts.map((s, i) => (
+              <div key={i} className="grid grid-cols-[92px_1fr_28px] gap-1 px-2 py-1 border-t border-white/[0.05] items-start">
+                <input value={s.scene} placeholder="如：对方问价"
+                  onChange={(e: any) => setScripts((p) => p.map((x, j) => j === i ? { ...x, scene: e.target.value } : x))}
+                  className={`${inputCls} w-full`} />
+                <div>
+                  <textarea value={s.text} rows={2} placeholder={`话术正文（≤${scriptMax} 字）`}
+                    onChange={(e: any) => setScripts((p) => p.map((x, j) => j === i ? { ...x, text: e.target.value } : x))}
+                    className={`${inputCls} w-full resize-y leading-relaxed`} />
+                  <div className="text-[9px] text-gray-600">{(s.text || '').length}/{scriptMax}</div>
+                </div>
+                <button type="button" onClick={() => setScripts((p) => p.filter((_, j) => j !== i))}
+                  className="text-gray-500 hover:text-red-400 text-[12px] leading-5" title="删除这一行">✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ③ 目标人群 / 关键词 */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">③ 目标人群 / 关键词（1~3 个，逗号分隔）</div>
+        <input value={keywords} onChange={(e: any) => setKeywords(e.target.value)}
+          placeholder="如：装修、二手房、本地"
+          className={`${inputCls} w-full`} />
+      </div>
+
+      {/* ④ 频控速度（预设 + 自定义输入框） */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">④ 频控速度（单号/每日；默认「慢」最稳。⚠️ 这是极限能力参考值，不是合规值）</div>
+        <div className="flex flex-wrap gap-1.5 mb-1.5">
+          {presets.map((p: any) => (
+            <button key={p.id} type="button" onClick={() => applyPreset(p)}
+              className={`${btnCls} ${tier === p.id ? 'bg-cyan-500/30 border-cyan-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
+              {p.name}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[10px] text-gray-400">
+          <span>评论/日</span><input value={cPerDay} onChange={(e: any) => setCPerDay(e.target.value)} className={`${inputCls} w-[64px]`} />
+          <span>私信/日</span><input value={dPerDay} onChange={(e: any) => setDPerDay(e.target.value)} className={`${inputCls} w-[64px]`} />
+          <span>间隔(秒)</span><input value={gapMin} onChange={(e: any) => setGapMin(e.target.value)} className={`${inputCls} w-[56px]`} />
+          <span>~</span><input value={gapMax} onChange={(e: any) => setGapMax(e.target.value)} className={`${inputCls} w-[56px]`} />
+          <span className="text-gray-600">（0 = 不设上限）</span>
+        </div>
+        {tier === 'turbo' && <div className="text-[10px] text-red-400 mt-1">⚠️ 极速档不设上限，风险自担——平台反垃圾会限流甚至封号。</div>}
+      </div>
+
+      {/* ⑤ 数据来源（复用既有采集能力） */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">⑤ 数据来源（复用现有工具，不新写爬虫）</div>
+        <div className="flex flex-col gap-1">
+          {sources.map((s: any) => (
+            <label key={s.id} className="flex items-start gap-2 text-[10px] text-gray-300 cursor-pointer">
+              <input type="checkbox" checked={checkedSources.includes(s.id)}
+                onChange={() => toggle(checkedSources, s.id, setCheckedSources)} className="mt-[2px]" />
+              <span>
+                {s.name}
+                <span className="text-gray-600">（{s.api}）</span>
+                {s.note ? <span className="text-gray-500"> {s.note}</span> : null}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <button type="button" onClick={() => send('save')}
+          className="px-4 py-1.5 rounded-lg bg-cyan-500/40 hover:bg-cyan-500/70 text-sm text-white font-medium">
+          💾 保存配置
+        </button>
+        <button type="button" onClick={() => send('preview')}
+          className="px-4 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] text-sm text-gray-100 font-medium border border-white/[0.1]">
+          👀 预演（只预览，不发送）
+        </button>
+      </div>
+      <div className="text-[10px] text-gray-500 mt-2">
+        本轮**只保存配置 + 预演动作清单**，不会真的去评论/私信（老板定案：暂时不做自动获客）。
+      </div>
+    </div>
+  )
+}
+
+/** ★VF_LEAD_V1：预演卡 —— 只展示「将要执行的动作清单 + 频控节奏」，不执行任何动作。 */
+function LeadPreviewCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void }) {
+  const actions: string[] = Array.isArray(vj.actions) ? vj.actions : []
+  const back = () => onStart(LEAD_CFG_PREFIX + JSON.stringify({
+    action: 'edit',
+    platforms: Array.isArray(vj.checked) ? vj.checked : [],
+    scripts: Array.isArray(vj.scripts) ? vj.scripts : [],
+    keywords: Array.isArray(vj.keywords) ? vj.keywords : [],
+    speed: vj.speed || { tier: LEAD_DEFAULT_TIER },
+    sources: Array.isArray(vj.checkedSources) ? vj.checkedSources : [],
+  }))
+  return (
+    <div className="mb-2 p-3 rounded-xl border border-cyan-500/30 bg-cyan-500/[0.06]">
+      <div className="text-xs text-cyan-300 mb-2">👀 智能获客 · 预演（只预览，未执行）</div>
+      <div className="rounded border border-white/[0.07] divide-y divide-white/[0.05]">
+        {actions.map((a, i) => (
+          <div key={i} className="px-2 py-1.5 text-[11px] text-gray-200 leading-relaxed">{a}</div>
+        ))}
+      </div>
+      {vj.riskNote ? <div className="text-[10px] text-amber-300/90 mt-2">{vj.riskNote}</div> : null}
+      <div className="text-[10px] text-gray-500 mt-1">{vj.scopeNote || '本轮只预览清单，不会真的执行。'}</div>
+      <div className="flex items-center gap-2 flex-wrap mt-2">
+        <button type="button" onClick={back}
+          className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] text-[11px] text-gray-200 border border-white/[0.1]">
+          ↩ 返回面板修改
+        </button>
+        <span className="text-[10px] text-gray-500">执行器（真正去评论/私信）留给下一版，本版不做。</span>
       </div>
     </div>
   )
@@ -2387,6 +2744,9 @@ function AgentPageInner() {
     '图视混剪',                      // ② 视频混剪（视频片段 + 图片混排）
     'AI 制片',                       // ③ AI 制片（画面全部 AI 生成）
     '素材+AI',                       // ④ 素材+AI 创作（AI 挑该动的镜用 AI，其余用素材）
+    // ★VF_LEAD_V1（2026-09-29 老板定案）：第 5 条状态机线 ——「智能获客」设置面板。
+    //   ⚠️ 与 standard-commands.ts 的 STD_COMMANDS 必须一字不差（后端是"去空白后完全相等"）。
+    '智能获客',
     // ★STD_MODE_V1（2026-09-21，用户定案）：「帮我搜一下小红书…」**删除**（不做）；
     //   剩下的「热点 / 配乐 / 记录待办」先留着 —— 点了由后端回「开发中」（standard-commands.ts 里 kind:'wip'）。
     //   ⚠️ 这里每一条都必须与 `src/lib/agent/standard-commands.ts` 的 STD_COMMANDS **一字不差**
@@ -2721,6 +3081,10 @@ function AgentPageInner() {
         if (_vj && _vj.step === 'ai_opts') return <VfAiOptsCard vj={_vj} onStart={sendMessage} />
         // ★VF_I2V_V1（2026-09-29）：图生视频确认卡（「🎬 用我的图动起来」按钮）
         if (_vj && _vj.step === 'ai_i2v') return <VfAiI2vCard vj={_vj} onStart={sendMessage} />
+        // ★VF_LEAD_V1（2026-09-29 老板定案）：智能获客 —— 设置面板卡 / 预演卡（独立线）
+        //   buAccounts = 父页面已经检测过的登录态（本卡只读，不自己再扫一遍）
+        if (_vj && _vj.step === 'lead_setup') return <LeadSetupCard vj={_vj} onStart={sendMessage} buAccounts={buAccounts} />
+        if (_vj && _vj.step === 'lead_preview') return <LeadPreviewCard vj={_vj} onStart={sendMessage} />
         if (_vj && _vj.step === 'form') return <VideoFormCard vj={_vj} onStart={sendMessage} userId={user?.id} />
       } catch {}
     }
@@ -2765,6 +3129,8 @@ function AgentPageInner() {
             )}
             {md.repoName ? <div className="text-[10px] text-gray-500 mt-2">已入个人仓库：{md.repoName}{_canMirror ? '（已同步到本地仓库）' : '（在客户端里打开会自动同步到本地）'}</div> : null}
             {md.repoError ? <div className="text-[10px] text-amber-400 mt-1">入库提示：{md.repoError}</div> : null}
+            {/* ★VF_RENDER_ONESHOT_V1：片出完后改一镜 → 只重渲染（复用配音、不扣点）。入口就在这里。 */}
+            {md.taskId ? <VfReRenderShot taskId={String(md.taskId)} onSend={sendMessage} /> : null}
           </div>
         )
       } catch {}

@@ -11,8 +11,11 @@
 
 用法:
   python tts.py --storyboard sb.json --workdir temp/vf [--speaker zh_female_vv_uranus_bigtts]
-                [--out-json sb.with-voice.json] [--merge out.m4a]
+                [--out-json sb.with-voice.json] [--merge out.m4a] [--xfade 0.35]
   python tts.py --text "测试一句话" --out test.mp3     # 单句测试
+
+★VF_XFADE_V1（2026-09-29）：--xfade N = 真·交叉溶解的**音频侧**（与 render.py 的 xfade 配套）。
+  默认 0 = 关闭 = 老行为（一个字节都不变）；理由与实现见 merge_audio 上方那一段注释。
 
 ★VF_DASHSCOPE_V1（2026-09-18）：主用【百炼 CosyVoice】（与 src/lib/ai-providers.ts 的 dashscopeTTS 同协议），
 火山 openspeech v3 作为兜底 —— 项目 TTS 现已以百炼为主，服务器上只要有 DASHSCOPE_API_KEY 就能配音。
@@ -553,7 +556,105 @@ def real_dur_sec(path, sr=24000, ch=1):
         return 0.0
 
 
-def merge_audio(files, out_path):
+# ==================== ★VF_XFADE_V1（2026-09-29）：真·交叉溶解（音频侧） ====================
+# 背景（**为什么这条线长期不敢做真·交叉溶解**）：
+#   render.py 的 xfade 会让**每个镜头交界"吃掉" X 秒**（相邻两镜画面重叠）→
+#   视频总时长缩短 X×(镜数-1)；而配音是「逐镜 TTS → 按分镜 dur 累加合并成一条连续轨」，
+#   音轨长度**跟死分镜时长**。所以"只做视频侧 xfade"的结果是：**音轨比画面长 X×(n-1) 秒**
+#   → 从第一个交界开始，全片音画持续错位（越往后越偏）。这是唯一的原因，不是懒。
+# 音频侧的解法（本段实现）：
+#   · 相邻两段**交叉淡化 X 秒**：第 i 段（i≥2）的音频**提前 X 秒开始**，与前一段重叠淡化
+#     （ffmpeg `acrossfade`，等价的手工叠加也可，取 tri 线性曲线：加权和不会放大 → 不削波）；
+#   · 于是音轨总时长 = **Σ每镜时长 - X×(段数-1)**，与视频侧 xfade 后的时长**完全一致**；
+#   · 逐镜的"尾隙"（分镜 dur = 配音 + 0.35 秒，见下面 VF_AUDIOALIGN_V1）落在淡化区里：
+#     前一段的尾隙与后一段的开头重叠 → **尾隙不会把两段音频隔开**（这正是要的效果）。
+# 铁律（本项目一贯的降级原则）：acrossfade 不可用 / 段数与镜数对不上 / 任何异常
+#   → **回退到既有【硬拼 + 补尾隙】**，绝不因为转场让成片失败，并打好日志说明为什么回退。
+XFADE_MAX_SEC = 2.0     # 单个交界最多淡化 2 秒（再大就等于把整镜吃掉 → 按"关闭"处理）
+
+
+def xfade_sec(v):
+    """把 --xfade 原始值规整成可用秒数：非法 / ≤0 / 过大 → 0（= 完全的老行为）"""
+    try:
+        x = float(v or 0)
+    except Exception:
+        print('[TTS] ⚠️ ★VF_XFADE_V1 --xfade 无法解析（%r）→ 当作 0（不做交叉淡化）' % (v,))
+        return 0.0
+    if x <= 0:
+        return 0.0
+    if x > XFADE_MAX_SEC:
+        print('[TTS] ⚠️ ★VF_XFADE_V1 --xfade=%.2f 过大（上限 %.1fs）→ 当作 0（不做交叉淡化，'
+              '避免把整镜吃掉）' % (x, XFADE_MAX_SEC))
+        return 0.0
+    return x
+
+
+def xfade_block_reason(parts, files, wants, xd):
+    """能不能做交叉淡化？能 → ''；不能 → 返回一句**人话原因**（调用方据此回退 + 打日志）"""
+    if xd <= 0:
+        return '--xfade=0（未启用）'
+    if len(files) != len(parts):
+        return '音频段数 %d ≠ 镜数 %d（有镜没生成出音频占位）' % (len(parts), len(files))
+    if len(parts) < 2:
+        return '只有 %d 段，没有交界可交叉' % len(parts)
+    for i, w in enumerate(wants):
+        if w <= xd + 0.001:
+            return '第 %d 段只有 %.2fs，不够淡化 %.2fs' % (i + 1, w, xd)
+    return ''
+
+
+def xfade_merge(ff, parts, out_path, xd, target):
+    """★VF_XFADE_V1：把【已逐镜归一化】的 WAV 用 acrossfade 链交叉淡化 → AAC 到 out_path。
+
+    为什么必须用归一化后的 WAV（上游已做）：混采样率直接拼会把容器头写坏
+      （VF_AUDIOFIX_V1 实测头写成真实值的 240 倍）；规格统一后再叠才安全。
+    长度：n 段、每交界减 xd → 总长 = Σlen - xd×(n-1)（= 视频侧 xfade 后的时长）。
+    失败一律**抛异常**（调用方回退硬拼）；成功前做与既有 VF_AUDIOFIX_V1③/VF_AUDIOALIGN_V1③
+    同款的两重校验（容器头 vs 真实内容 vs 预期总长）。
+    """
+    n = len(parts)
+    ins = ' '.join('-i "%s"' % p for p in parts)
+    segs, prev = [], '[0]'
+    for i in range(1, n):
+        lbl = '[aout]' if i == n - 1 else '[x%d]' % i
+        # c1=c2=tri（线性）：两条曲线加起来恒为 1 → 淡化区是**加权和**，不会放大 → 峰值不超输入
+        segs.append('%s[%d]acrossfade=d=%.4f:c1=tri:c2=tri%s' % (prev, i, xd, lbl))
+        prev = lbl
+    _w = out_path + '.xfade.wav'
+    for _p in (out_path, _w):
+        try:
+            if os.path.exists(_p):
+                os.remove(_p)
+        except Exception:
+            pass
+    r = subprocess.run('"%s" -nostdin -y %s -filter_complex "%s" -map "[aout]" '
+                       '-ar 24000 -ac 1 -c:a pcm_s16le "%s"'
+                       % (ff, ins, ';'.join(segs), _w),
+                       shell=True, capture_output=True, text=True,
+                       encoding='utf-8', errors='replace')
+    if (not os.path.exists(_w)) or os.path.getsize(_w) < 1024:
+        raise RuntimeError('acrossfade 滤镜失败：%s' % ((r.stderr or '')[-300:]))
+    r2 = subprocess.run('"%s" -nostdin -y -i "%s" -c:a aac -b:a 128k "%s"' % (ff, _w, out_path),
+                        shell=True, capture_output=True, text=True,
+                        encoding='utf-8', errors='replace')
+    try:
+        os.remove(_w)
+    except Exception:
+        pass
+    if not os.path.exists(out_path):
+        raise RuntimeError('交叉淡化后再编 AAC 失败：%s' % ((r2.stderr or '')[-300:]))
+    _hdr, _real = mp3_duration(out_path), real_dur_sec(out_path)
+    if _real > 0.2 and (_hdr <= 0.2 or abs(_hdr - _real) / _real > 0.02):
+        raise RuntimeError('交叉淡化后时长不一致：容器头 %.2fs / 真实内容 %.2fs' % (_hdr, _real))
+    if target > 0.2 and _real > 0.2 and abs(_real - target) / target > 0.02:
+        raise RuntimeError('交叉淡化后总时长不符：真实 %.2fs / 预期 %.2fs'
+                           '（预期 = Σ每镜 %.2fs - %.2fs×%d）'
+                           % (_real, target, target + xd * (n - 1), xd, n - 1))
+    print('  [tts] 交叉淡化校验通过：%d 段 / 交界 %.2fs / 头 %.2fs / 真实 %.2fs / 预期 %.2fs'
+          % (n, xd, _hdr, _real, target))
+
+
+def merge_audio(files, out_path, xfade=0.0):
     """把逐镜音频拼成一条**与画面逐镜对齐、且时长可信**的音轨
 
     ★VF_AUDIOFIX_V1（2026-09-22，用户实测「成片显示 10:52:31 / 10 小时」）：
@@ -575,12 +676,20 @@ def merge_audio(files, out_path):
         ③ 拼完复核两件事：容器头 vs **real_dur_sec**（解码成 PCM 数字节）；
            真实总长 vs **分镜应得总长**（差 >2% 说明逐镜对齐失败）→ 不符就明确报错。
 
+    ★VF_XFADE_V1（2026-09-29·真·交叉溶解的音频侧）：`xfade=X`>0 时改成
+      「相邻两段**交叉淡化 X 秒**（第 i 段提前 X 秒开始，与上一段重叠）」→
+      总长 = **Σ每镜时长 - X×(段数-1)**，与 render.py 侧 xfade 后的画面长度**完全一致**；
+      交界处的"尾隙"被重叠进淡化区 → 两段音频不会被尾隙隔开。
+      任何条件不满足 / 任何异常 → 自动**回退下面的【硬拼 + 补尾隙】**（绝不因转场让成片失败），
+      并把"为什么回退"打清楚（回退后音轨会比画面长 X×(段数-1) 秒，用于定位）。
+      `xfade` 默认 `0.0` = **完全的老行为**（一个字节都不变，见参数说明）。
+
       `files` 参数：`[(音频路径 or None, 该镜时长秒), ...]`（也兼容只传路径字符串）。
       另加 `-nostdin`：避免 ffmpeg 误入交互模式；失败一律抛错（不再返回空串→无声片）。
     """
     ff = find_exe(FFMPEG_CANDS, 'ffmpeg')
     outdir = os.path.dirname(os.path.abspath(out_path))
-    parts, _tmps, _want = [], [], 0.0
+    parts, _tmps, _want, _wants = [], [], 0.0, []
     for i, item in enumerate(files):
         p, want = (item if isinstance(item, (tuple, list)) else (item, 0.0))
         p = p or ''
@@ -605,8 +714,45 @@ def merge_audio(files, out_path):
             raise RuntimeError('配音对齐失败（第 %d 段）：%s' % (i + 1, (r.stderr or '')[-300:]))
         parts.append(w)
         _tmps.append(w)
+        _wants.append(want)
     if not parts:
         raise RuntimeError('没有可用的配音片段（逐镜对齐阶段全失败）')
+
+    # ★VF_XFADE_V1（2026-09-29）：真·交叉溶解（音频侧）—— 先试；成功直接返回，
+    #   任何不满足 / 异常 → 打日志说清原因，继续往下走【原硬拼 + 补尾隙】路径（绝不因转场失败）。
+    _xd = xfade_sec(xfade)
+    if _xd > 0:
+        _why = xfade_block_reason(parts, files, _wants, _xd)
+        if _why:
+            print('[TTS] ⚠️ ★VF_XFADE_V1 跳过交叉淡化：%s → 回退【硬拼 + 补尾隙】' % _why)
+            print('[TTS]    ↑ 后果：音轨会比（xfade 后的）画面长 %.2f 秒（%d 个交界 × %.2fs）'
+                  '——请把这条日志发给开发'
+                  % (_xd * (len(parts) - 1), len(parts) - 1, _xd))
+        else:
+            _xtgt = _want - _xd * (len(parts) - 1)
+            try:
+                xfade_merge(ff, parts, out_path, _xd, _xtgt)
+                for _p in _tmps:
+                    try:
+                        os.remove(_p)
+                    except Exception:
+                        pass
+                print('[TTS] ✅ ★VF_XFADE_V1 交叉淡化合并：%d 段 / 交界 %.2fs / 总长 %.2fs'
+                      '（= Σ每镜 %.2fs - %.2fs×%d，与画面 xfade 后一致）'
+                      % (len(parts), _xd, _xtgt, _want, _xd, len(parts) - 1))
+                return out_path
+            except Exception as e:
+                print('[TTS] ⚠️ ★VF_XFADE_V1 交叉淡化失败（%s）→ 回退【硬拼 + 补尾隙】'
+                      % str(e)[:200])
+                print('[TTS]    ↑ 后果：音轨会比（xfade 后的）画面长 %.2f 秒，会出现音画错位；'
+                      '先保证出片，请把这条日志发给开发'
+                      % (_xd * (len(parts) - 1)))
+                try:
+                    if os.path.exists(out_path):
+                        os.remove(out_path)
+                except Exception:
+                    pass
+
     lst = os.path.join(outdir, 'audio-list.txt')
     with open(lst, 'w', encoding='utf-8') as f:
         for p in parts:
@@ -667,6 +813,9 @@ def main():
     ap.add_argument('--speaker', default=SPEAKER, help='音色，留空用引擎默认（百炼 longxiaochun / 火山 zh_female_vv_uranus_bigtts）')
     ap.add_argument('--out-json', default='', help='回填配音时长后的分镜 JSON')
     ap.add_argument('--merge', default='', help='合并后的整条配音文件')
+    ap.add_argument('--xfade', type=float, default=0.0,
+                    help='★VF_XFADE_V1 真·交叉溶解（音频侧）：相邻两镜音频交叉淡化 N 秒；'
+                         '0=关闭（默认，= 完全老行为）。需与 render.py 的 xfade 用同一数值')
     ap.add_argument('--text', default='', help='单句测试模式')
     ap.add_argument('--out', default='', help='单句测试输出 mp3')
     a = ap.parse_args()
@@ -752,7 +901,11 @@ def main():
     # ★VF_AUDIOALIGN_V1：分镜总时长 = 所有镜（含没配到音的静音占位）之和 —— 供合并校验
     total = sum(float(s.get('dur') or 0) for s in shots)
     mrg = a.merge or os.path.join(wd, 'voice.m4a')
-    merged = merge_audio(clips, mrg)
+    # ★VF_XFADE_V1（2026-09-29）：把 --xfade 交给合并阶段（>0 = 交叉淡化；0 = 老行为）
+    if xfade_sec(a.xfade) > 0:
+        print('[TTS] ★VF_XFADE_V1 交叉溶解已启用：%.2fs/交界（画面侧由 render.py 读分镜根级 xfade 同步）'
+              % a.xfade)
+    merged = merge_audio(clips, mrg, a.xfade)
     print('[TTS] 合并配音 -> %s（分镜总时长 %.1fs；已逐镜对齐）' % (merged, total))
 
     oj = a.out_json or a.storyboard.replace('.json', '.voiced.json')

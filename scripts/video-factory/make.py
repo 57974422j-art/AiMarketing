@@ -100,6 +100,36 @@ def run(cmd, label):
     return ok
 
 
+# ==================== ★VF_XFADE_V1（2026-09-29）：真·交叉溶解（xfade）的"同一数值"传递 ====================
+# 为什么必须由 make.py 在这里读、并同时喂给两边：
+#   · 画面侧：render.py 自己读分镜根级 `xfade` 做画面交叉溶解（我不传参，见其 VF_VARIANT_V1）；
+#   · 音频侧：本文件调 tts.py 时**必须把同一数值传给 --xfade**。
+#   原因：xfade 会让**每个镜头交界"吃掉" X 秒**（两镜画面重叠）→ 视频总时长缩短 X×(镜数-1)；
+#   而配音是「逐镜 TTS → 按分镜 dur 累加合并成一条连续轨」。只做视频侧 xfade →
+#   **音轨比画面长 X×(n-1) 秒 → 全片音画持续错位**（这正是这条线长期不做真溶解的唯一原因）。
+#   两边用同一个 X，各自缩掉同样的 X×(n-1)，音画才继续严格对齐。
+XFADE_MAX_SEC = 2.0     # 与 tts.py / render.py 的上限保持一致（超了按"不做转场"处理）
+
+
+def xfade_of(sb):
+    """从分镜**根级** `xfade`（秒）取交叉溶解时长：0 / 非法 / 过大 → 0（= 完全的老行为）"""
+    try:
+        x = float((sb or {}).get('xfade') or 0)
+    except Exception:
+        x = 0.0
+    if x <= 0:
+        return 0.0
+    if x > XFADE_MAX_SEC:
+        print('[MAKE] ⚠️ ★VF_XFADE_V1 分镜里的 xfade=%.2f 过大（上限 %.1fs）→ 本次不做转场'
+              '（音频侧同步不淡化，音画仍然对齐）' % (x, XFADE_MAX_SEC))
+        return 0.0
+    _n = len((sb or {}).get('shots') or [])
+    print('[MAKE] ★VF_XFADE_V1 真·交叉溶解 %.2f 秒/交界 → 音频侧同步交叉淡化'
+          '（画面侧由 render.py 读同一字段；全片音画各缩 %.2f×%d = %.2f 秒）'
+          % (x, x, max(0, _n - 1), x * max(0, _n - 1)))
+    return x
+
+
 # ==================== ★VF_AIVIDEO_V1（2026-09-20）：AI 生成片段（MiniMax H3） ====================
 # 「AI 直接成片」：把每镜的画面从"素材图 + Ken Burns"换成"AI 生成的视频片段"。
 #
@@ -516,9 +546,12 @@ def main():
     # ② 配音（回填真实时长）
     voiced = os.path.join(wd, 'storyboard.voiced.json')
     voice = os.path.join(wd, 'voice.m4a')
-    ok = run('"%s" "%s" --storyboard "%s" --workdir "%s" --speaker "%s" --out-json "%s" --merge "%s"'
+    # ★VF_XFADE_V1（2026-09-29）：分镜根级 `xfade`（真·交叉溶解）→ 必须把**同一数值**传给音频侧，
+    #   否则音轨比 xfade 后的画面长 X×(n-1) 秒 → 全片音画持续错位（详见 xfade_of 上方注释）。
+    _xf = xfade_of(sb)
+    ok = run('"%s" "%s" --storyboard "%s" --workdir "%s" --speaker "%s" --out-json "%s" --merge "%s"%s'
              % (sys.executable, os.path.join(HERE, 'tts.py'), sb_path, os.path.join(wd, 'tts'),
-                a.speaker, voiced, voice), '逐句配音')
+                a.speaker, voiced, voice, (' --xfade %.4f' % _xf) if _xf > 0 else ''), '逐句配音')
     use_sb = voiced if (ok and os.path.exists(voiced)) else sb_path
     # ★ 只要有配音文件就混进去（原来判断漏了 --plan 分支 → 用 plan 时出的是无声片）
     use_voice = voice if os.path.exists(voice) else ''

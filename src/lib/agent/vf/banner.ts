@@ -109,6 +109,11 @@ export interface BannerBuildOpts {
   topic?: string
   /** 设置卡开关：'off'/false = 不要（既不生成也不带字段）；其余（含缺省/'on'）= 自动 */
   pin?: string | boolean
+  /** ★VF_BANNER_PIN2_V1（2026-09-29 用户定案）：「顶部标题第 1 行」手填 —— 留空 = AI 自动拟。
+   *  填了就以用户为准（仍走 normalizeBannerLine 清洗/截断）；与 pin2 一起都填 → 完全不调 AI。 */
+  pin1?: string
+  /** ★VF_BANNER_PIN2_V1：「顶部标题第 2 行」手填（同上）。 */
+  pin2?: string
   /** 项目现成的**文本**调用（便宜的），由调用方注入（vf-video.ts 与 route.ts 都用它） */
   generateText: (prompt: string) => Promise<string | null>
 }
@@ -136,6 +141,15 @@ export async function buildBanner(o: BannerBuildOpts): Promise<BannerBuildResult
   if (pinOff) {
     return { field: {}, lines: null, fallback: false, notes: ['设置卡选了「不要」→ 不生成、plan 里也不带 banner（渲染层因此不画）'] }
   }
+  // ★VF_BANNER_PIN2_V1（2026-09-29 用户定案）：设置卡「顶部标题第 1/2 行」手填优先。
+  //   两行都手填 → **一次 AI 都不调**（用户说了算）；只填一行 → 另一行仍交给 AI 补，手填的永不被覆盖。
+  //   手填内容同样走 normalizeBannerLine（去 emoji / 去 markdown / 去结尾标点 / 截断到 12 / 18 字）。
+  const manual1 = normalizeBannerLine(o?.pin1, VF_BANNER_LINE1_MAX)
+  const manual2 = normalizeBannerLine(o?.pin2, VF_BANNER_LINE2_MAX)
+  if (manual1 && manual2) {
+    notes.push(`用你手填的两行（不调 AI）：第1行「${manual1}」/ 第2行「${manual2}」`)
+    return { field: { banner: { line1: manual1, line2: manual2, from: 1, to: 0 } }, lines: { line1: manual1, line2: manual2 }, fallback: false, notes }
+  }
   let lines: VfBannerLines | null = null
   try {
     const raw = await o.generateText(buildBannerPrompt({ script: o?.script || '', brief: o?.brief, topic: o?.topic }))
@@ -146,8 +160,12 @@ export async function buildBanner(o: BannerBuildOpts): Promise<BannerBuildResult
   }
   const fallback = !lines
   if (!lines) lines = fallbackBanner(o?.script)
-  const l1 = normalizeBannerLine(lines.line1, VF_BANNER_LINE1_MAX)
-  const l2 = normalizeBannerLine(lines.line2, VF_BANNER_LINE2_MAX)
+  // 手填的那一行**永远**覆盖 AI/兜底（另一行没手填才用 AI 结果）
+  const l1 = manual1 || normalizeBannerLine(lines.line1, VF_BANNER_LINE1_MAX)
+  const l2 = manual2 || normalizeBannerLine(lines.line2, VF_BANNER_LINE2_MAX)
+  if (manual1 || manual2) {
+    notes.push(`第 ${[manual1 ? '1' : '', manual2 ? '2' : ''].filter(Boolean).join('、')} 行用你手填的，另一行 AI 自动`)
+  }
   if (!l1 && !l2) {
     notes.push('文案为空 → 本次不带固定标题')
     return { field: {}, lines: null, fallback, notes }
@@ -161,12 +179,36 @@ export async function buildBanner(o: BannerBuildOpts): Promise<BannerBuildResult
  * 开关关 / 草稿里没提炼出两行 → **空对象**（绝不硬塞、绝不画）。
  * 出片那一刻不再调 AI（提炼在起草时已做），这里只做形状收敛 + 再净化一次（防御性）。
  */
-export function bannerFieldOf(vd: { pin?: string | boolean; banner?: { line1?: string; line2?: string } } | null | undefined): { banner?: VfBanner } {
+export function bannerFieldOf(vd: { pin?: string | boolean; pin1?: string; pin2?: string; banner?: { line1?: string; line2?: string } } | null | undefined): { banner?: VfBanner } {
   if (vd?.pin === false || String(vd?.pin ?? 'on').trim().toLowerCase() === 'off') return {}
-  const line1 = normalizeBannerLine(vd?.banner?.line1, VF_BANNER_LINE1_MAX)
-  const line2 = normalizeBannerLine(vd?.banner?.line2, VF_BANNER_LINE2_MAX)
+  // ★VF_BANNER_PIN2_V1：手填优先（与 buildBanner 同口径）——即便草稿里存着旧的 AI 两行，
+  //   只要用户在设置卡里手填了，出片也一定用手填的（防"手填了却出的是旧标题"）。
+  const line1 = normalizeBannerLine(vd?.pin1, VF_BANNER_LINE1_MAX) || normalizeBannerLine(vd?.banner?.line1, VF_BANNER_LINE1_MAX)
+  const line2 = normalizeBannerLine(vd?.pin2, VF_BANNER_LINE2_MAX) || normalizeBannerLine(vd?.banner?.line2, VF_BANNER_LINE2_MAX)
   if (!line1 && !line2) return {}
   return { banner: { line1, line2, from: 1, to: 0 } }
+}
+
+/* ══════════════════ ★VF_BANNER_RECOMPUTE_V1（2026-09-29 team-lead 要求）══════════════════
+ * 现象：banner 只在【起草】时生成一次；用户在出片前用「文案微调 / 保存并重写文案」改了文案，
+ *      标题还是旧的（跟新文案对不上）。→ 需要在【文案被修改的路径】上按新文案重算 banner。
+ * 什么时候【不】重算（纯函数，可自测）：
+ *   · 开关关（pin='off'）——本来就没有固定标题；
+ *   · 新文案为空；
+ *   · 用户两行都手填了 —— 手填的**永不覆盖**（用户说了算），重算也是白调 AI。
+ * ════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 用户是否两行都手填了（手填 = 永不覆盖） */
+export function hasManualBanner(pin1?: any, pin2?: any): boolean {
+  return !!(normalizeBannerLine(pin1, VF_BANNER_LINE1_MAX) && normalizeBannerLine(pin2, VF_BANNER_LINE2_MAX))
+}
+
+/** 文案改了 → 标题要不要重算？ */
+export function shouldRebuildBanner(vd: { pin?: string | boolean; pin1?: string; pin2?: string } | null | undefined, script: string): boolean {
+  if (!String(script || '').trim()) return false
+  if (vd?.pin === false || String(vd?.pin ?? 'on').trim().toLowerCase() === 'off') return false
+  if (hasManualBanner(vd?.pin1, vd?.pin2)) return false
+  return true
 }
 
 /**

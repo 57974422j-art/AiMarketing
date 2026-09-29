@@ -9,6 +9,9 @@ import { matchesAiLine, clearVfAiDraft, hasAiDraft } from '@/lib/agent/vf/vf-aiv
 // ★VF_VIDEOLINE_V1（2026-09-24）「视频混剪」线：入口词判断同样用于 skipModelStep1（纯正则、零依赖）
 import { matchesVideoLine, clearVfVideoDraft, hasVfVideoDraft } from '@/lib/agent/vf/vf-video'
 import { matchesMixLine, clearVfMixDraft, hasMixDraft } from '@/lib/agent/vf/vf-mix'
+// ★VF_LEAD_V1（2026-09-29 老板定案）：「智能获客」= 第 5 条状态机线。草稿 tag 独立（vf_draft_lead），
+//   纯函数 + prisma 注入（与成片线同一形态），静态 import 只为拿"清草稿/查草稿"两个函数。
+import { clearLeadDraft, hasLeadDraft, shouldTakeOverLeadLine, handleLeadLine } from '@/lib/agent/lead'
 // ★STD_MODE_V1（2026-09-21，用户定案）：标准模式 = 【命令白名单，锁死】——
 //   命令表唯一真相源在 `src/lib/agent/standard-commands.ts`（加/改命令只改那张表，别再往这里加正则）。
 import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY } from '@/lib/agent/standard-commands'
@@ -19,10 +22,10 @@ import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY } from '@/lib/age
 import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields } from '@/lib/agent/vf/anti-ai'
 // ★VF_VIDI2V_V1（2026-09-29）：「让图动起来」的计费口径（50 点/秒）与出片侧 vf-video.ts **共用同一份公式** ——
 //   卡片报价与实扣同源，免得又出现"卡片报 205 点、实扣 1500 点"。
-import { i2vCostPoints, vfTotalCostPoints } from '@/lib/agent/vf/i2v-plan'
+import { i2vCostPoints, vfTotalCostPoints, buildI2vShots, i2vKeyMap } from '@/lib/agent/vf/i2v-plan'
 // ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：提炼两行 + 根级字段形状。
 //   纯逻辑在 banner.ts（与 anti-ai.ts 同类，零网络依赖），与「图视混剪」线**共用同一份**截断/兜底规则。
-import { buildBanner, bannerFieldOf, planWithBanner } from '@/lib/agent/vf/banner'
+import { buildBanner, bannerFieldOf, planWithBanner, shouldRebuildBanner } from '@/lib/agent/vf/banner'
 
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
@@ -473,6 +476,8 @@ async function stdClearAllDrafts(userId: number | string): Promise<void> {
   //   不在这里清掉的话：①点别的命令后它的草稿还活着 → 会去蹭后面的话（历史事故类型）；
   //   ②它自己的旧草稿会让"命令=重来"失效（用户实测：上一轮的 form 草稿一直留在库里）。
   try { await clearVfVideoDraft(prisma, uid) } catch { /* ignore */ }  // 视频混剪线
+  // ★VF_LEAD_V1（2026-09-29）：获客线（第 5 条状态机线）—— 不在这里清的话，「命令=重来」对它不成立
+  try { await clearLeadDraft(prisma, uid) } catch { /* ignore */ }     // 智能获客线
 }
 
 /**
@@ -496,6 +501,9 @@ async function stdHasAnyDraft(userId: number | string): Promise<boolean> {
   //   ⚠️ 反过来说明为什么"用户自己那台能进、别的机器进不去"：他自己账号上压着一条别线的旧草稿，
   //      闸门被顶开了才轮得到视频混剪接管；别的账号没有草稿 → 同一句话被锁死（已用 DB 草稿表证实）。
   try { if (await hasVfVideoDraft(prisma, uid)) return true } catch { /* ignore */ }
+  // ★VF_LEAD_V1（2026-09-29）：获客线草稿也算"进行中的流程"——否则它的面板提交（LEAD_CFG:{…}，
+  //   不是标准命令）会被锁死回复拦住，面板上的「保存/预演」永远点不动（与 09-28 视频混剪同一个坑）。
+  try { if (await hasLeadDraft(prisma, uid)) return true } catch { /* ignore */ }
   return false
 }
 
@@ -2689,7 +2697,12 @@ export async function POST(request: NextRequest) {
         //   实测背景：视频混剪线草稿留在库里时，点「帮我写一个小红书文案」会被混剪线接走。
         await stdClearAllDrafts(auth?.userId || 0)
         if (stdHit.kind === 'machine') stdEnterMachine = true
-      } else if (!hasImage && !STD_QUERY_RE.test(userMessage) && !(await stdHasAnyDraft(auth?.userId || 0))) {
+      } else if (!hasImage && !STD_QUERY_RE.test(userMessage)
+        // ★VF_RENDER_ONESHOT_V1（2026-09-29）：片出完后草稿即被作废（VF_RUN_CLOSE_V1）→「非命令且无流程」
+        //   会把「只重渲」这条路也一并锁死。放行 VF_EDIT 协议串（只由我们自己的卡片产生，用户不会手打；
+        //   没有草稿时它只做"改画面文字 + 复用配音重渲染"，不烧 AI 点数）。
+        && !/^VF_EDIT\s*[:{]/.test(userMessage.trim())
+        && !(await stdHasAnyDraft(auth?.userId || 0))) {
         // ★标准模式锁死：没有命令、也没有进行中的流程 → 不参与任何流程，也不让 AI 自由发挥
         console.log('[标准模式] 非命令且无进行中流程 → 固定回复')
         try { vfLog(auth?.userId || 0, `[标准模式] 非命令「${String(userMessage).slice(0, 30)}」且无流程 → 锁死回复`) } catch { /* ignore */ }
@@ -2716,7 +2729,8 @@ export async function POST(request: NextRequest) {
     //   （这些前缀只有卡片/工具会产生，用户不会手打；若三条线都不认领，行为退回现状，不会更坏。）
     //   ★VF_EDIT_V1（2026-09-24）：把 `VF_EDIT` 也加进来 —— 客户端"分镜清单改完点重出片/保存"
     //   发的是协议串，若不算状态机入口信号就会掉进 AI 自由发挥（与 VF_FORM 那次同一类事故）。
-    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_BRIEF|VF_JSON|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT)\s*[:{]/.test(userMessage.trim())
+    //   ★VF_LEAD_V1（2026-09-29）再把 `LEAD_CFG` 加进来 —— 获客面板的提交串同理（不是命令 → 不加就掉出状态机）。
+    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_BRIEF|VF_JSON|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
     // ★STD_MODE_V1：命中 machine 命令（发布 / 三条成片线）→ 强制进状态机（跳过 AI 那一步）
     const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0) || vfEntryWord || stWordInput || vfLineWord || vfProtoWord || stdEnterMachine) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
     // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
@@ -3414,6 +3428,27 @@ PUBLISH_DRAFT.delete(uidW)
         //     只是多了一个 `!vfAiHandled` —— 没接管时该标记恒为 false，行为与之前完全一致。
         //   （这次事故的教训：两条线共用一段可执行代码 → 一条坏两条全坏。这里改为"各写各的"。）
         // ═══════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════
+        // ★VF_LEAD_V1（2026-09-29 老板定案）【智能获客】独立线（第 5 条状态机线）
+        //   · 放在成片四条线【之前】分派：它只认自己的命令（id=lead）与自己的草稿（vf_draft_lead），
+        //     命中别条命令一律让位（stdCmdOwned）；下面的四条线也用 !leadHandled 给它让位。
+        //   · 本轮范围 = 只配置 + 预演，**不自动执行**（老板原话「暂时不做自动获客」）。
+        //   · 内部绝不 throw（异常转人话），所以不会连累成片线。
+        // ═══════════════════════════════════════════════════════════════════════
+        let leadHandled = false
+        try {
+          if ((!stdCmdHit || stdCmdOwned(['lead'])) && await shouldTakeOverLeadLine(prisma, uidVF2, userMessage)) {
+            leadHandled = true
+            wfEarlyReply = await handleLeadLine({
+              uid: uidVF2, userMessage, auth, prisma,
+              log: (u: any, m: string) => vfLog(u, m),
+            })
+            finalResult = wfEarlyReply
+          }
+        } catch (eLD: any) {
+          leadHandled = false
+          try { vfLog(uidVF2, '[LEAD] 分派异常: ' + String(eLD?.message || eLD).slice(0, 200)) } catch { /* ignore */ }
+        }
         let vfAiHandled = false
         let vfMixHandled = false
         // ★VF_VIDEOLINE_V1（2026-09-24）【视频混剪】独立线
@@ -3435,7 +3470,7 @@ PUBLISH_DRAFT.delete(uidW)
           // ★VF_STDCMD_GUARD_V1：命中【别条】标准模式命令（含工具类）时，本线不许接管 ——
           //   否则本线草稿活着就会把「帮我写一个小红书文案」这类命令蹭走（本地单测复现过）。
           //   本文线自己的命令（图视混剪/视频混剪）不受影响，照常接管。
-          if (await shouldTakeOverVideoLine(prisma, uidVF2, userMessage,
+          if (!leadHandled && await shouldTakeOverVideoLine(prisma, uidVF2, userMessage,
             { otherStdCommand: !!stdCmdHit && stdCmdHit.id !== 'vf_video' })) {
             vfVideoHandled = true
             wfEarlyReply = await handleVideoLine({
@@ -3457,7 +3492,7 @@ PUBLISH_DRAFT.delete(uidW)
           //   （它的词更具体："素材+AI/混合创作"；而"素材+AI"里含"AI"，先说清归属更稳）
           const { shouldTakeOverMixLine, handleMixLine } = await import('@/lib/agent/vf/vf-mix')
           // ★VF_STDCMD_GUARD_V1：命中别条命令时本线让位（例如「AI 制片」「图片成片」「图视混剪」）
-          if ((!stdCmdHit || stdCmdOwned(['vf_mix'])) && await shouldTakeOverMixLine(prisma, uidVF2, userMessage)) {
+          if (!leadHandled && (!stdCmdHit || stdCmdOwned(['vf_mix'])) && await shouldTakeOverMixLine(prisma, uidVF2, userMessage)) {
             vfMixHandled = true
             wfEarlyReply = await handleMixLine({
               uid: uidVF2, userMessage, auth, prisma,
@@ -3474,7 +3509,7 @@ PUBLISH_DRAFT.delete(uidW)
           vfMixHandled = false
           try { vfLog(uidVF2, '[VF-X] 分派异常: ' + String(eMX?.message || eMX).slice(0, 200)) } catch { /* ignore */ }
         }
-        if (!vfMixHandled) {
+        if (!vfMixHandled && !leadHandled) {
           try {
             const { shouldTakeOverAiLine, handleAiLine } = await import('@/lib/agent/vf/vf-aivideo')
             // ★VF_STDCMD_GUARD_V1：命中别条命令时本线让位（例如「素材+AI」「图片成片」「图视混剪」）
@@ -3499,8 +3534,11 @@ PUBLISH_DRAFT.delete(uidW)
           }
         }
         // ★VF_STDCMD_GUARD_V1：命中别条命令时素材线也让位（它自己的命令 = 图片成片 vf_local）
-        if (!vfVideoHandled && !vfMixHandled && !vfAiHandled && (!stdCmdHit || stdCmdOwned(['vf_local']))
-          && (vfIntent || VIDEO_DRAFT.has(uidVF2))) {
+        if (!leadHandled && !vfVideoHandled && !vfMixHandled && !vfAiHandled && (!stdCmdHit || stdCmdOwned(['vf_local']))
+          // ★VF_RENDER_ONESHOT_V1（2026-09-29）：VF_EDIT 协议串也要能进本块 —— 片已出、草稿已作废时，
+          //   客户端「🔁 只重渲第 N 镜」发的是 VF_EDIT:{taskId,edits}（没有草稿可改），靠这条进块去走
+          //   【只重渲染】；否则会因"没草稿 + 不匹配 vfIntent"落到起稿分支，把只重渲请求变成一张空的设置卡。
+          && (vfIntent || VIDEO_DRAFT.has(uidVF2) || /^VF_EDIT\s*[:{]/.test(String(userMessage || '').trim()))) {
           try {
             let vd = VIDEO_DRAFT.get(uidVF2)
             // 内存没有 → 从 AgentMemory 恢复（仿发布：服务器重启/刷新不丢）
@@ -3526,6 +3564,25 @@ PUBLISH_DRAFT.delete(uidW)
             if (_vfOrphan) vfLog(uidVF2, `[草稿认领] 本次是表单提交，旧草稿 step=${vd?.step} → 作废，用本次表单重新起草`)
             if (vd && (vfIntent || _vfStale || _vfOrphan)) { VIDEO_DRAFT.delete(uidVF2); clearVfDraft(uidVF2); vd = undefined }
 
+            /** ★VF_BANNER_RECOMPUTE_V1（2026-09-29 team-lead 要求）：文案被改后按新文案重算标题。
+             *  手填两行 / 开关关 / 新文案空 → 不重算（shouldRebuildBanner 拦），手填的**永不覆盖**。
+             *  失败只记日志、保留原标题（绝不因为一个标题把出片卡死）。 */
+            const _maybeRebuildBanner = async (d: any, script: string) => {
+              try {
+                if (!shouldRebuildBanner(d, script)) return
+                const _rb = await buildBanner({
+                  script, brief: String(d?.brief || ''), topic: d?.topic,
+                  pin: d?.pin ?? 'on', pin1: d?.pin1, pin2: d?.pin2, generateText,
+                })
+                if (_rb.lines) {
+                  d.banner = _rb.lines
+                  vfLog(uidVF2, `[固定标题] 标题已随新文案重算：${_rb.lines.line1} / ${_rb.lines.line2}`)
+                }
+              } catch (eBN2: any) {
+                vfLog(uidVF2, '[固定标题] 重算失败（保留原标题）：' + String(eBN2?.message || eBN2).slice(0, 120))
+              }
+            }
+
             // ★VF_FORM_CLAIM_V1（第二段）：草稿刚被作废、而本次正是表单提交 → 直接起一条干净草稿，
             //   交给下面 `else if (vd.step === 'form' || 'source')` 去解析本次表单并一路起草到底。
             //   不这么做就会走「第 1 步 起稿」→ 只回一张空表单卡 → 用户得再点一次，且这次填的全丢。
@@ -3535,7 +3592,27 @@ PUBLISH_DRAFT.delete(uidW)
               vfLog(uidVF2, '[草稿认领] 已按本次表单参数重新起草（不再回表单卡）')
             }
 
-            if (!vd) {
+            // ★VF_RENDER_ONESHOT_V1（2026-09-29 team-lead 要求 ④）：片已出、草稿已作废后，
+            //   客户端「🔁 只重渲第 N 镜」/ 分镜清单 → VF_EDIT:{taskId, edits} —— 没有草稿可改，
+            //   直接走【只重渲染】（复用已有配音，不重新 TTS，约 1~2 分钟、不扣点），见 vf-edit.ts。
+            if (!vd && /^VF_EDIT\s*[:{]/.test(String(userMessage || '').trim())) {
+              let _editsR: any[] = []
+              let _tidR = ''
+              try {
+                const _mmR = String(userMessage).trim().match(/^VF_EDIT:(\{[\s\S]*\})/)
+                const _jjR: any = _mmR ? JSON.parse(_mmR[1]) : {}
+                _editsR = Array.isArray(_jjR?.edits) ? _jjR.edits : []
+                _tidR = String(_jjR?.taskId || '')
+              } catch { _editsR = [] }
+              if (_editsR.length) {
+                const { editVfShots } = await import('@/lib/agent/vf/vf-edit')
+                vfLog(uidVF2, `[只重渲染] 片已出、无草稿 → VF_EDIT 改 ${_editsR.length} 处，复用配音只重渲染（不扣点）`)
+                wfEarlyReply = (await editVfShots(String(uidVF2), _editsR, _tidR)).msg
+              } else {
+                wfEarlyReply = '没收到要改的内容（镜号 + 新大字/字幕）。'
+              }
+              finalResult = wfEarlyReply
+            } else if (!vd) {
               // ── 第 1 步 起稿（★AI 出场①：润色成口播文案，保留数字/术语，不改写）──
               // ★2026-09-19 修：先剥指令词，再剥开头的“用/请/帮我”等——原来漏剥开头“用”，
               //   只发指令不带主题时会把“用”当成主题（文案变成“用，才是最强的生产力！”）
@@ -3590,6 +3667,13 @@ PUBLISH_DRAFT.delete(uidW)
                   if (f.bgm !== undefined) vd.bgm = (String(f.bgm) === 'auto') ? 'auto' : ''
                   // ★VF_BANNER_V1：顶部固定标题开关（'on' 默认自动拟两行 / 'off' 不要）—— 同上走白名单
                   if (f.pin !== undefined) vd.pin = (String(f.pin) === 'off') ? 'off' : 'on'
+                  // ★VF_BANNER_PIN2_V1（2026-09-29 team-lead 要求）：手填的第 1/2 行（留空 = AI 自动拟）——
+                  //   原样存草稿，起草时交给 buildBanner 决定"用手填还是调 AI"（清洗/截断都在 buildBanner 里）。
+                  if (f.pin1 !== undefined) vd.pin1 = String(f.pin1 || '').slice(0, 60)
+                  if (f.pin2 !== undefined) vd.pin2 = String(f.pin2 || '').slice(0, 80)
+                  // ★VF_I2V_BASELINE_V1（2026-09-29 team-lead 要求）：「图片成片」线也复用设置卡的
+                  //   「🎞 让图动起来」开关（'on' 默认 / 'off' 不注入、不额外计费）。原来本线没解析这个字段。
+                  if (f.i2v !== undefined) vd.i2v = (String(f.i2v) === 'off') ? 'off' : 'on'
                   // ★VF_UPLOAD_V2（2026-09-20，用户实测“上传 8 张却用了旧图”）：前端把**刚上传的文件名列表**
                   //   一起发过来 → 后端按名字精确取，不再靠“按时间猜最近”。确定性优先。
                   if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x)).slice(0, 60)
@@ -3764,11 +3848,13 @@ PUBLISH_DRAFT.delete(uidW)
                 const vfImgList = (_hdImg.length >= 5 ? _hdImg : _allImg).slice(0, vfMatN)
                 if (_hdImg.length < _allImg.length) vfLog(uidVF2, `[清晰度] 低清图过滤：${_allImg.length} → ${_hdImg.length} 张（短边 < 640 的不进画面）`)
                 const vfLocal = await downloadMaterials(uidVF2, vfImgList)
-                // ★VF_I2V_REUSE_V1 预留（**本线默认不开图生视频**，用户定案先只在「图视混剪」开）：
-                //   要把「图片成片」也开起来：先 import { buildI2vShots, i2vKeyMap } from '@/lib/agent/vf/i2v-plan'，
-                //   在这里建 keyByPath = i2vKeyMap(vfLocal)，出片时把 buildI2vShots({ shots, keyByPath, enabled }).args
-                //   拼进 make_ai_video，并把返回的 .points 加进卡片报价（同图去重 / 上限 6 张 /
-                //   拿不到公网地址就保持静态 / 声明 source+mix —— 全在通用函数里，别在这里重写）。
+                // ★VF_I2V_REUSE_V1 / ★VF_I2V_BASELINE_V1（2026-09-29 team-lead 要求）：「图片成片」线也开逐镜图生视频。
+                //   复用【同一个通用函数】buildI2vShots（同图去重 / 上限 6 张 / 拿不到公网地址就保持静态 /
+                //   声明 source+mix / 报价与实扣同源）—— 这里只做两件事：
+                //     ① 建"图片本地路径 → 个人仓库 key"映射（出片那一刻才签名，避免提前签会过期）
+                //     ② 起草时算一次计划（sec/images）→ 交给确认卡如实报价；出片时再算一次拼进 args。
+                //   开关复用设置卡的 i2v（'on' 默认 / 'off' 不注入、不额外计费）；AI 模式（vd.source='ai'）不动。
+                vd.i2vKeys = i2vKeyMap(vfLocal)
 
                 vfLog(uidVF2, `[素材配比] 时长${vfDur}s → 取图上限 ${vfMatN} 张（仓库实际 ${vfMats.filter((m: any) => m.kind === 'image').length} 张，可用 ${vfLocal.length} 张）`)
                 const vfNeed = Math.round(vfDur * 4.5)
@@ -3819,7 +3905,7 @@ PUBLISH_DRAFT.delete(uidW)
                 try {
                   const _banner = await buildBanner({
                     script: vfScript2, brief: String(vfBrief || ''), topic: vd.topic,
-                    pin: vd.pin ?? 'on', generateText,
+                    pin: vd.pin ?? 'on', pin1: vd.pin1, pin2: vd.pin2, generateText,
                   })
                   for (const _n of _banner.notes) vfLog(uidVF2, '[固定标题] ' + _n)
                   vd.banner = _banner.lines || undefined
@@ -3947,9 +4033,17 @@ PUBLISH_DRAFT.delete(uidW)
                 vd.shotN = vfShotN
                 vd.dur = vfDur
                 vd.step = 'script'
+                // ★VF_I2V_BASELINE_V1：这次要让哪几张图动起来（开关关掉 → 空；费用如实报在确认卡上）
+                const _i2vB = buildI2vShots({
+                  shots: vfShots, keyByPath: vd.i2vKeys || {},
+                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'on'),
+                })
+                for (const _n of _i2vB.notes) vfLog(uidVF2, '[图生视频] ' + _n)
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
                 if (!vfHasPlan) vfLog(uidVF2, `[分镜门禁] ${vfShots.length} 镜 / 覆盖 ${Math.round(vfCover * 100)}% → **不给确认出片**`)
-                wfEarlyReply = vfScriptCard(vd, vfShots, vfImgs.length, String(vfBrief || ''), vfAspect, vfCover, vfEstSec)
+                // i2vSec/i2vImages 只给卡片报价用（与 make_ai_video 实扣同源：vfTotalCostPoints）
+                wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _i2vB.plan.sec, i2vImages: _i2vB.plan.images },
+                  vfShots, vfImgs.length, String(vfBrief || ''), vfAspect, vfCover, vfEstSec)
                 // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
                 // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
                 vfLog(uidVF2, `[概要] 图${vfImgs.length}张 镜${vfShots.length}个 风格=${vd.theme || 'dark'} 画幅=${vfAspect}(${vfSize[0]}x${vfSize[1]}) 配音=${vd.voice || '-'} 时长≈${Math.round(vfSubLen / 4.5)}秒${vfAI ? ' 画面来源=全部AI生成' : ''}`)
@@ -4052,8 +4146,16 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_BANNER_V1：顶部固定标题 —— 开关开且草稿里有提炼结果才带上；挂到 plan **根级**（不在 shots 里）
                 const _pinF = bannerFieldOf(vd)
                 if (_pinF.banner) vfLog(uidVF2, `[固定标题] 出片带上：${_pinF.banner.line1} / ${_pinF.banner.line2}（钉全片）`)
+                // ★VF_I2V_BASELINE_V1：出片这一刻再算一次（与卡片报价同一份公式）——
+                //   { i2vShots, source:'mix', mix } 拼进 make_ai_video；拿不到首帧的镜会被 make_ai_video
+                //   自动从 --mix 名单剔除并下调计费（只会少收，不会多收）。关掉开关 → args 为空对象。
+                const _i2vRun = buildI2vShots({
+                  shots: vd.shots || [], keyByPath: vd.i2vKeys || {},
+                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'on'),
+                })
+                for (const _n of _i2vRun.notes) vfLog(uidVF2, '[图生视频] ' + _n)
                 const vfRun = await executeToolCall('make_ai_video', (vd.shots?.length && !vfForce)
-                  ? { plan: JSON.stringify(planWithBanner({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }, _pinF)), script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }
+                  ? { plan: JSON.stringify(planWithBanner({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }, _pinF)), script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true, ..._i2vRun.args }
                   : { script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }, auth)
                 // ★VF_RUN_CLOSE_V1（2026-09-21，用户实测「做完一条第二条要点两次」＋「之后随便说句话都被回
                 //   『已在后台渲染中』」）：任务一旦入队就【立即作废草稿】——进度已由独立的
@@ -4087,9 +4189,16 @@ PUBLISH_DRAFT.delete(uidW)
               const vfAgainEst = Math.round(vfAgainSub / 4.5)
               vd.shots = (vfAgain.length >= 2 && vfAgainCover >= 0.8) ? vfAgain : undefined
               vd.cover = vfAgainCover; vd.subLen = vfAgainSub
+              // ★VF_I2V_BASELINE_V1：重排分镜后重新算"让哪几张图动起来"（与首次起草同口径，报价同源）
+              const _i2vB2 = buildI2vShots({
+                shots: vfAgain, keyByPath: vd.i2vKeys || {},
+                enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'on'),
+              })
+              for (const _n of _i2vB2.notes) vfLog(uidVF2, '[图生视频] ' + _n)
               VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
               vfLog(uidVF2, `[重试分镜] ${vfAgain.length} 镜，覆盖 ${Math.round(vfAgainCover * 100)}%（预计 ${vfAgainEst} 秒 / 目标 ${vd.dur} 秒）`)
-              wfEarlyReply = vfScriptCard(vd, vfAgain, (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait', vfAgainCover, vfAgainEst)
+              wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _i2vB2.plan.sec, i2vImages: _i2vB2.plan.images },
+                vfAgain, (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait', vfAgainCover, vfAgainEst)
               finalResult = wfEarlyReply
             } else if (vd.step === 'script') {
               // ── 文案微调 / 换音色 / 换主题（★AI 出场①）──
@@ -4110,8 +4219,11 @@ PUBLISH_DRAFT.delete(uidW)
                 const vfNew = await generateText(`按用户要求修改下面这段口播文案，保留数字与专业术语，仍用「。」「！」断句，只输出文案：\n原文：${vd.script}\n用户要求：${userMessage}`)
                 const vfNewScript = String(vfNew || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 600)
                 if (vfNewScript) vd.script = vfNewScript
+                // ★VF_BANNER_RECOMPUTE_V1（2026-09-29 team-lead 要求）：文案改了 → 标题必须跟着重算，
+                //   否则"标题还停在旧文案上"（出片前改文案的常见路径）。手填两行 → 永不覆盖（shouldRebuildBanner 拦）。
+                await _maybeRebuildBanner(vd, String(vd.script || ''))
                 VIDEO_DRAFT.set(uidVF2, vd)
-                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voiceName: vd.voice, theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: '文案已更新——回复「确认」出片' })
+                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voiceName: vd.voice, theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: '文案已更新——回复「确认」出片' + (vd.banner ? `（📌 顶部标题已随新文案重算：「${vd.banner.line1} / ${vd.banner.line2}」）` : '') })
               }
               finalResult = wfEarlyReply
               console.log('[成片状态机] 文案轮——', String(userMessage).slice(0, 20))

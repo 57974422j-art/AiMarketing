@@ -69,3 +69,6 @@ __pycache__/
 *.pyc
 
 tsconfig.tsbuildinfo
+scripts/video-factory/tts_before.py
+scripts/video-factory/sb_xfade.json
+scripts/video-factory/wd/

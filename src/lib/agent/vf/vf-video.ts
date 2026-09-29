@@ -73,6 +73,10 @@ export interface VfVideoDraft {
   i2vKeys?: Record<string, string>
   /** ★VF_BANNER_V1（2026-09-29 用户定案）：「📌 顶部固定标题」开关 'on'（默认，AI 自动拟两行）| 'off'（不要）。 */
   pin?: string
+  /** ★VF_BANNER_PIN2_V1（2026-09-29）：设置卡手填的「第 1 行」（留空 = AI 自动拟）；手填优先，永不覆盖。 */
+  pin1?: string
+  /** ★VF_BANNER_PIN2_V1：设置卡手填的「第 2 行」（留空 = AI 自动拟）。 */
+  pin2?: string
   /** ★VF_BANNER_V1：起草时提炼出来的两行标题（AI 或其规则兜底）；出片时挂到 plan 根级 `banner`。 */
   banner?: VfBannerLines
   /** ★原声开关（用户定案"原声静音加个键"）：默认 false=静音（配音统一铺）。
@@ -259,6 +263,9 @@ function formCard(vd: VfVideoDraft): string {
     i2v: vd.i2v || 'on',
     // ★VF_BANNER_V1：顶部固定标题（AI 自动拟两行）开关 —— 默认开（用户要"默认这样，方便后期集成自动化"）
     pin: vd.pin || 'on',
+    // ★VF_BANNER_PIN2_V1：手填的两行**回显**（用户从「设置」回来还能看到自己填过的；留空=AI 自动拟）
+    pin1: vd.pin1 || '',
+    pin2: vd.pin2 || '',
     source: 'repo',
   })
 }
@@ -336,7 +343,10 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   //   次句前 16 字）—— **绝不因为一个标题把整条片卡死**。开关关掉就不调、不带字段（渲染层不画）。
   try {
     const _banner = await buildBanner({
-      script, brief, topic: vd.topic, pin: vd.pin ?? 'on', generateText: ctx.generateText,
+      script, brief, topic: vd.topic, pin: vd.pin ?? 'on',
+      // ★VF_BANNER_PIN2_V1：手填优先（两行都填 → 本函数完全不调 AI）
+      pin1: vd.pin1, pin2: vd.pin2,
+      generateText: ctx.generateText,
     })
     for (const _n of _banner.notes) ctx.log(uid, '[VF-V][固定标题] ' + _n)
     vd.banner = _banner.lines || undefined
@@ -591,6 +601,7 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         theme: 'dark', bgm: '', uploaded: [], script: '', brief: '', keepAudio: false,
         i2v: 'on',   // ★VF_VIDI2V_V1：默认让图动起来（老板定案「开」；设置卡可关）
         pin: 'on',   // ★VF_BANNER_V1：默认出「顶部固定标题」（老板定案「默认开，方便自动化」；设置卡可关）
+        pin1: '', pin2: '',   // ★VF_BANNER_PIN2_V1：默认留空 = AI 自动拟两行（用户在设置卡手填则以他为准）
       }
       VF_VIDEO_DRAFT.set(uid, vd)
       await saveVfVideoDraft(ctx.prisma, uid, vd)
@@ -612,6 +623,10 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         if (f.i2v) vd.i2v = String(f.i2v) === 'off' ? 'off' : 'on'
         // ★VF_BANNER_V1：'on'（默认，AI 自动拟两行固定标题）| 'off'（不要）
         if (f.pin) vd.pin = String(f.pin) === 'off' ? 'off' : 'on'
+        // ★VF_BANNER_PIN2_V1（2026-09-29）：手填的第 1/2 行（留空 = AI 自动拟）——
+        //   原样存草稿，起草时交给 buildBanner 决定"用手填还是调 AI"（清洗/截断都在 buildBanner 里）。
+        if (f.pin1 !== undefined) vd.pin1 = String(f.pin1 || '').slice(0, 60)
+        if (f.pin2 !== undefined) vd.pin2 = String(f.pin2 || '').slice(0, 80)
         if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x))
         if (typeof f.script === 'string' && f.script.trim()) vd.script = cleanText(f.script)
         if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = String(f.topic).trim().slice(0, 300)

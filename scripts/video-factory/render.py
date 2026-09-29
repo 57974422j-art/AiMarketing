@@ -71,6 +71,18 @@ FONT_CANDS = {
         r'C:\Windows\Fonts\msyh.ttc', r'C:\Windows\Fonts\msyhbd.ttc',
         '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
     ],
+    # ★VF_FONTWEIGHT_V1（2026-09-29 用户定案 P1「字体字重体系」）：
+    #   原来所有字都是同一套常规字重 —— 大字/标题/数字看着"轻"，缺层级。
+    #   这里单独给【粗体】一个键：大字、标题、数字、固定标题第 1 行用粗体，正文/字幕仍用常规体。
+    #   为什么不用"字体缩放/描边"假装粗：那会糊边；直接用真粗体文件最干净。
+    #   Windows 自带 msyhbd.ttc；Linux 需要 Noto CJK Bold（apt 装 fonts-noto-cjk 就有）。
+    'msyhbd': [
+        r'C:\Windows\Fonts\msyhbd.ttc',
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
+        '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Bold.otf',
+        '/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc',
+        '/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc',
+    ],
     'simhei': [r'C:\Windows\Fonts\simhei.ttf', '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc'],
     'simsun': [r'C:\Windows\Fonts\simsun.ttc', '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc'],
     'arial': [r'C:\Windows\Fonts\arial.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'],
@@ -92,7 +104,7 @@ FONT_CANDS = {
 }
 
 # CJK 回退顺序（Windows 字体 → Linux 中文字体）
-_FONT_FALLBACK_ORDER = ['msyh', 'noto', 'wqy', 'simhei', 'simsun', 'dejavu', 'arial']
+_FONT_FALLBACK_ORDER = ['msyh', 'msyhbd', 'noto', 'wqy', 'simhei', 'simsun', 'dejavu', 'arial']
 _FONT_CACHE = {}
 
 # ★VF_RENDER_GUARD_V1（2026-09-22，用户实测「选了 180 秒，成片只有 30 秒」）：
@@ -186,6 +198,18 @@ def find_ffmpeg():
         if p == 'ffmpeg' or os.path.exists(p):
             return p
     raise RuntimeError('找不到 ffmpeg（设 FFMPEG_PATH 或装到 C:\\ffmpeg\\bin）')
+
+
+def font_bold(th):
+    """★VF_FONTWEIGHT_V1：取【粗体】字体路径（大字/标题/数字/固定标题第 1 行用）。
+    找不到粗体文件时**回退到普通字体**（绝不因为少一个字体文件就让整镜失败）。"""
+    try:
+        p = find_font('msyhbd')
+        if p:
+            return esc_path(p)
+    except Exception:
+        pass
+    return esc_path(find_font((th or {}).get('font', 'msyh')))
 
 
 def find_font(key='msyh'):
@@ -514,7 +538,7 @@ def card_title(shot, th, W, H, fps):
     ★VF_CARDSTYLE_V1（2026-09-24 用户："成片的文字画面有点简陋"）：大字上方加一条主题色
       短线 + 通栏细线 —— 纯色底只有一行字太素，靠这条装饰拉开层次，但不喧哗。
     """
-    font = esc_path(find_font(th.get('font', 'msyh')))
+    font = font_bold(th)          # ★VF_FONTWEIGHT_V1：标题用粗体（层级感）
     dur = float(shot.get('dur', 3))
     fs = int(shot.get('fontsize', max(64, int(H * 0.13))))
     txc = th.get('text', 'white')
@@ -685,7 +709,7 @@ def card_number(shot, th, W, H, fps):
         _s2['text'] = str(shot.get('label') or shot.get('text') or '').strip()
         return card_title(_s2, th, W, H, fps)
 
-    font = esc_path(find_font(th.get('font', 'msyh')))
+    font = font_bold(th)          # ★VF_FONTWEIGHT_V1：大数字用粗体（数字粗细最影响观感）
     val = int(_v)
     suf = esc_text(shot.get('suffix', ''))
     dur = float(shot.get('dur', 3))
@@ -695,6 +719,23 @@ def card_number(shot, th, W, H, fps):
     #   > 720px，两边都被切掉；`%` 修好之后这个溢出才暴露出来）
     _ntxt = str(val) + str(shot.get('suffix', ''))
     fs = min(fs, max(int(H * 0.06), int(W * 0.86 / max(1, len(_ntxt)))))
+    # ★VF_VARIANT_V1（2026-09-29 P1「number 卡版式变体」）：center（默认居中）/ left（左对齐）
+    _var = variant_of(shot, ('center', 'left'), 'center')
+    if _var == 'left':
+        _x0 = int(W * 0.10)
+        _lparts = [
+            f"drawtext=fontfile='{font}':text='%{{eif\\:min(t*{val / max(dur * 0.66, 0.1):.1f}\\,{val})\\:d}}{suf}':"
+            f"fontsize={fs}:fontcolor={acc}:x={_x0}:y=(h-text_h)/2-{int(H * 0.06)}",
+            f"drawbox=x={_x0}:y={int(H * 0.5) + int(fs * 0.42)}:w={int(W * 0.18)}:"
+            f"h={max(6, int(fs * 0.06))}:color={acc}@0.95:t=fill",
+        ]
+        if shot.get('label'):
+            _lparts.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(shot['label'])}':fontsize={int(fs * 0.28)}:"
+                f"fontcolor={txc}:x={_x0}:y={int(H * 0.5) + int(fs * 0.62)}:alpha='min(t/0.8,1)'")
+        print('[VF] 数字卡版式 = left（左对齐）')
+        return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
+                ','.join(_lparts), dur)
     _cy = int(H * 0.5)
     parts = [
         # ★VF_CARDSTYLE_V1：数字下方一条主题色短线 —— 别让一个数字孤零零悬在黑底上
@@ -1011,18 +1052,35 @@ def card_chart(shot, th, W, H, fps):
         parts.append(f"drawtext=fontfile='{font}':text='{esc_text(shot['title'])}':fontsize={int(fs * 1.15)}:"
                      f"fontcolor={acc}:x={int(W * 0.08)}:y={int(H * 0.12)}:alpha='min(t/0.5,1)'")
     y0 = int(H * 0.30)
+    # ★VF_VARIANT_V1（2026-09-29 P1「chart 卡版式变体」）：bars（默认，左起向右生长）/
+    #   rtl（从右往左生长；标签在右、数值在左 —— 排名类数据"从右往左"更符合阅读直觉）
+    _var = variant_of(shot, ('bars', 'rtl'), 'bars')
+    _fb = font_bold(th)
     for i, it in enumerate(items):
         v = float(it.get('value', 0))
         t_on = 0.4 + i * 0.5
-        w_expr = '%d*min(max(t-%.2f,0)/0.8,1)' % (int(bar_max * v / mx), t_on)
+        _bw = int(bar_max * v / mx)
+        w_expr = '%d*min(max(t-%.2f,0)/0.8,1)' % (_bw, t_on)
         yb = y0 + i * int(fs * 2.1)
+        if _var == 'rtl':
+            _x_r = int(W * 0.92)
+            parts.append(f"drawbox=x='{_x_r}-{w_expr}':y={yb}:w='{w_expr}':h={int(fs * 0.7)}:"
+                         f"color={acc}@0.85:t=fill")
+            parts.append(f"drawtext=fontfile='{_fb}':text='{esc_text(it.get('label', ''))}':fontsize={fs}:"
+                         f"fontcolor={txc}:x={int(W * 0.94)}-text_w:y={yb - int(fs * 0.05)}:alpha='min(max(t-%.2f,0)/0.5,1)'" % t_on)
+            parts.append(f"drawtext=fontfile='{_fb}':text='{esc_text(str(it.get('value', '')))}':fontsize={int(fs * 0.9)}:"
+                         f"fontcolor={txc}:x={int(W * 0.06)}:y={yb - int(fs * 0.1)}:alpha='min(max(t-%.2f,0)/0.5,1)'"
+                         % (t_on + 0.3))
+            continue
         parts.append(f"drawbox=x={int(W * 0.32)}:y={yb}:w='{w_expr}':h={int(fs * 0.7)}:"
                      f"color={acc}@0.85:t=fill")
-        parts.append(f"drawtext=fontfile='{font}':text='{esc_text(it.get('label', ''))}':fontsize={fs}:"
+        parts.append(f"drawtext=fontfile='{_fb}':text='{esc_text(it.get('label', ''))}':fontsize={fs}:"
                      f"fontcolor={txc}:x={int(W * 0.08)}:y={yb - int(fs * 0.05)}:alpha='min(max(t-%.2f,0)/0.5,1)'" % t_on)
-        parts.append(f"drawtext=fontfile='{font}':text='{esc_text(str(it.get('value', '')))}':fontsize={int(fs * 0.9)}:"
+        parts.append(f"drawtext=fontfile='{_fb}':text='{esc_text(str(it.get('value', '')))}':fontsize={int(fs * 0.9)}:"
                      f"fontcolor={txc}:x={int(W * 0.96)}:y={yb - int(fs * 0.1)}:alpha='min(max(t-%.2f,0)/0.5,1)'"
                      % (t_on + 0.3))
+    if _var == 'rtl':
+        print('[VF] 图表卡版式 = rtl（从右往左）')
     vf = ','.join(parts)
     if not vf:
         # ★VF_EMPTYITEMS_V1：chart 卡同样兜底（空条目 → 降级成居中大字，绝不返回空串）
@@ -1108,7 +1166,23 @@ def _probe_material(path):
             flat = max(hist.values()) / float(len(b))
     except Exception:
         pass
-    out = {'lum': lum, 'edge': edge, 'flat': flat}
+    # ★VF_MATGUARD_V2（2026-09-29 P1「更聪明的素材避让」）：把素材竖切成 3 条分别量"内容密度"，
+    #   挑【最空】的一条当大字落点 —— 一律居中压在大字海报正中间最容易"字压字"。
+    band = 1
+    try:
+        _dens = []
+        for _bi in range(3):
+            _rb = subprocess.run([ff, '-v', 'error', '-i', path,
+                                  '-vf', 'crop=iw:ih/3:0:ih*%d/3,scale=240:-2,format=gray,'
+                                         'edgedetect=low=0.08:high=0.25' % _bi,
+                                  '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray', '-'],
+                                 capture_output=True, timeout=20)
+            _bb = _rb.stdout or b''
+            _dens.append((sum(1 for x in _bb if x > 40) / float(len(_bb))) if _bb else 1.0)
+        band = int(min(range(3), key=lambda k: _dens[k]))
+    except Exception:
+        band = 1
+    out = {'lum': lum, 'edge': edge, 'flat': flat, 'band': band}
     if key:
         _MAT_CACHE[key] = out
     return out
@@ -1191,7 +1265,7 @@ def _blend_dark(base_hex, rgb, k=0.22):
         max(0, min(255, int(base[2] * (1 - k) + b * k))))
 
 
-def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None):
+def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0):
     """★VF_SYNC_V1（2026-09-20，C3 配音卡点）：画面大字【逐字浮现】。
 
     镜头时长 = 该镜配音真实时长（tts.py 回填），所以在镜头前段逐字亮出 = 跟着配音走。
@@ -1228,7 +1302,7 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None):
         out.append(
             f"drawtext=fontfile='{font}':text='{esc_text(_shown)}':fontsize={fs}:"
             f"fontcolor={txc}:borderw=2:bordercolor=black@0.65:{_bx}"
-            f"x=(w-text_w)/2:y=(h-text_h)/2:enable='between(t,{st:.2f},{en:.2f})'"
+            f"x=(w-text_w)/2:y=(h-text_h)/2+{int(y_off)}:enable='between(t,{st:.2f},{en:.2f})'"
         )
     return out
 
@@ -1291,15 +1365,36 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     #   ★VF_CARDSTYLE_V1：压在照片上的大字加半透明底衬（与素材自带的字在视觉上分开）
     #   ★VF_MATGUARD_V1：素材字多 → 底衬更实（0.30→0.48），否则仍会被素材的字吃掉
     _boxc = 'black@0.48' if _busy else 'black@0.30'
-    _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc) if len(_lines) <= 1 else []
+    # ★VF_MATGUARD_V2（2026-09-29 P1「更聪明的素材避让」）——**踩过一次，改成可靠方案**：
+    #   第一版做法：量素材上/中/下三条哪条最"空"，把大字挪过去。
+    #   实测失败（亮色满字海报）：band 是在**素材原图**上量的，而画布上是"模糊铺底 + 等比缩放居中"，
+    #   位置对不上 → 判成"上部最空"，偏偏海报的大字也在上部 → 还是压字。
+    #   第二版（现在）：**不挪位置，改"让我们的字一眼看得出是我们加的"**——
+    #   满字素材 → 大字固定放【下三分之一】（海报类素材文字多在中上），并加一条**全宽实底衬带**，
+    #   像电视字幕条一样把我们的字与素材的字在视觉上彻底分开（比"猜哪儿空"稳得多）。
+    _yoff = 0
+    _band_box = ''
+    if _busy:
+        _yoff = int(H * 0.13)
+        _gap_b = int(fs * 1.34)
+        _rows_b = max(1, len(_lines))
+        _btop = int(H * 0.5 + _yoff - _gap_b * _rows_b * 0.5) - int(fs * 0.30)
+        _bh = _gap_b * _rows_b + int(fs * 0.60)
+        _band_box = (f"drawbox=x=0:y={max(0, _btop)}:w={W}:h={int(_bh)}:"
+                     f"color=black@0.62:t=fill,")
+        print('[VF] 素材自带内容多 → 大字走【下三分之一 + 全宽底衬带】（避免与素材文字纠缠）')
+    _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, y_off=_yoff) if len(_lines) <= 1 else []
     # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
-    _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)) if overlay_text_on() else []
+    _reveal = (_rev if _rev else
+               center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=_yoff)
+               ) if overlay_text_on() else []
     # ★VF_LESSDARK_V1（2026-09-20 用户实测"整体黑白/发灰"）：黑遮罩 0.42 → 0.15
     # ★VF_MATGUARD_V1（2026-09-29）：素材本身很暗（深色录屏/黑底图）时再降到 0.05 ——
     #   深色素材上再压 15% 就是"一片黑"，那正是用户说的"很干、没色彩"。
     _dim = 0.05 if _dark else 0.15
     _chain = [
         f"drawbox=x=0:y=0:w={W}:h={H}:color=black@{_dim}:t=fill",
+        _band_box,
         f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
     ] + _reveal + [
         f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"]
@@ -1333,13 +1428,33 @@ def card_end(shot, th, W, H, fps):
     ★VF_BIGTEXT_FALLBACK_V1：主标语为空时用字幕首句兜底（否则结尾卡也是空白屏）。
     ★VF_CARDSTYLE_V1：CTA 从"一行橙字"改成【主题色实心按钮 + 深色字】，更像能点的入口。
     """
-    font = esc_path(find_font(th.get('font', 'msyh')))
+    font = font_bold(th)          # ★VF_FONTWEIGHT_V1：结尾主标语用粗体（收尾要有力）
     dur = float(shot.get('dur', 3.5))
     fs = int(shot.get('fontsize', max(56, int(H * 0.11))))
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
     _main = _big_text(shot)
     # ★VF_TEXTFIT_V2（2026-09-28）：折行优先（最多 2 行），放不下才缩字号
     _lines, fs = fit_big_text(_main, W, H, fs_max=fs, max_lines=2)
+    # ★VF_VARIANT_V1（2026-09-29 P1「end 卡版式变体」）：center（默认）/ card（票根卡）
+    _var = variant_of(shot, ('center', 'card'), 'center')
+    if _var == 'card':
+        _rows = max(1, len(_lines or [_main]))
+        _gap1 = int(fs * 1.34)
+        _card_h = _gap1 * _rows + int(fs * 1.5)
+        _card_y = int(H * 0.5 - _card_h * 0.58)
+        cparts = [
+            f"drawbox=x={int(W * 0.08)}:y={_card_y}:w={int(W * 0.84)}:h={_card_h}:color={acc}@0.14:t=fill",
+            f"drawbox=x={int(W * 0.08)}:y={_card_y}:w={int(W * 0.84)}:h=3:color={acc}@0.90:t=fill",
+            f"drawbox=x={int(W * 0.08)}:y={_card_y + _card_h - 3}:w={int(W * 0.84)}:h=3:color={acc}@0.90:t=fill",
+        ] + center_lines_drawtext(font, _lines or [_main], fs, txc, W, H, dur, y_off=-int(H * 0.02))
+        if shot.get('cta'):
+            cparts.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(shot['cta'])}':fontsize={int(fs * 0.5)}:"
+                f"fontcolor=0x0a1620:box=1:boxcolor={acc}@0.95:boxborderw={max(10, int(fs * 0.26))}:"
+                f"x=(w-text_w)/2:y={_card_y + _card_h + int(H * 0.035)}:alpha='min(max(t-0.6,0)/0.6,1)'")
+        print('[VF] 结尾卡版式 = card（票根卡）')
+        return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
+                ','.join(cparts), dur)
     parts = [
         f"drawbox=x={int(W * 0.10)}:y={int(H * 0.20)}:w={int(W * 0.10)}:h={max(6, int(H * 0.006))}:color={acc}@0.95:t=fill",
     ] + center_lines_drawtext(font, _lines or [_main], fs, txc, W, H, dur, y_off=-30)
@@ -1491,6 +1606,47 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
                  ('  病因=' + err_lines(r.stderr)) if err_lines(r.stderr) else ''))
     raise RuntimeError('第 %d 镜渲染失败(%s)：实际 %.2fs / 目标 %.2fs（重试 2 次仍异常，文件可能是半截的）'
                        % (idx, typ, probe_sec(out), _target))
+
+
+def concat_shots_xfade(files, workdir, ffmpeg, W, H, fps, durs, xd=0.35):
+    """★VF_XFADE_V1（2026-09-29 用户定案「真·交叉溶解」）—— **视频侧**。
+
+    ⚠️ 为什么这个功能拖到现在才做（必须写清，避免以后有人乱改）：
+      交叉溶解会让**每个交界"吃掉" xd 秒**（两镜重叠）→ 视频总时长 = Σdur - xd×(镜数-1)。
+      而配音是一条**连续音轨**（tts.py 逐镜合成后合并），它的长度按各镜 dur 累加 ——
+      只做视频侧 → 音轨比画面长 → **全片音画持续错位**。
+      所以：**音频侧必须做同样的交叉淡化**（`tts.py --xfade`，由 make.py 把分镜根级 `xfade` 透传过去），
+      两边数值必须一致。任何失败/时长对不上 → 返回 None，调用方回落硬切（绝不因为转场让片出不来）。
+    """
+    n = len(files)
+    if n < 2:
+        return None
+    out = os.path.join(workdir, 'merged_xfade.mp4')
+    ins = ' '.join('-i "%s"' % p.replace('\\', '/') for p in files)
+    parts, prev, acc = [], '0:v', float(durs[0])
+    for i in range(1, n):
+        off = max(0.0, acc - xd)
+        lab = 'x%d' % i
+        parts.append('[%s][%d:v]xfade=transition=fade:duration=%.2f:offset=%.2f[%s]'
+                     % (prev, i, xd, off, lab))
+        prev, acc = lab, off + float(durs[i])
+    fc = ';'.join(parts)
+    exp = acc
+    cmd = (f'"{ffmpeg}" -y {ins} -filter_complex "{fc}" -map "[{prev}]" '
+           f'-c:v libx264 -preset fast -pix_fmt yuv420p -r {fps} "{out}"')
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
+    except Exception as e:
+        print('[VF] ⚠️ 交叉溶解异常 → 回落硬切: %s' % str(e)[:100])
+        return None
+    got = probe_sec(out) if os.path.exists(out) else 0.0
+    if r.returncode != 0 or got <= 0 or got < exp * 0.90:
+        print('[VF] ⚠️ 交叉溶解失败（rc=%s 实际 %.2fs / 预期 %.2fs）→ 回落硬切'
+              % (r.returncode, got, exp))
+        return None
+    print('[VF] 交叉溶解拼接完成：%d 镜 共 %.2fs（每处重叠 %.2f 秒）' % (n, got, xd))
+    return out
 
 
 def concat_shots(files, workdir, ffmpeg, W, H, fps, expect_sec=0.0):
@@ -1659,8 +1815,10 @@ def banner_layer(banner, th, W, H, dur, font):
         _en = ''
     parts = []
     if l1:
+        # ★VF_FONTWEIGHT_V1：固定标题第 1 行用粗体（用户在参考图里要的就是这种"厚"的观感）
+        _fb = font_bold(th)
         parts.append(
-            f"drawtext=fontfile='{font}':text='{esc_text(l1)}':fontsize={fs1}:fontcolor={c1}:"
+            f"drawtext=fontfile='{_fb}':text='{esc_text(l1)}':fontsize={fs1}:fontcolor={c1}:"
             f"borderw={max(4, int(fs1 * 0.10))}:bordercolor=black:x=(w-text_w)/2:y={y1}{_en}")
     if l2:
         _y2 = y1 + fs1 + int(fs1 * 0.30)
@@ -1728,7 +1886,8 @@ def _lum_of(c, default=255):
         return default
 
 
-def build_ass(shots, path, W, H, font_name='Noto Sans CJK SC', font_size=26, wrap=16, th=None):
+def build_ass(shots, path, W, H, font_name='Noto Sans CJK SC', font_size=26, wrap=16, th=None,
+              overlap=0.0):
     """★VF_KARAOKE_V1（2026-09-20，用户要的“词级字幕”）：ASS 逐字高亮（karaoke）
 
     为什么不用 funasr 取字级时间戳：服务器未必装 funasr（那是客户端环境），
@@ -1757,22 +1916,28 @@ def build_ass(shots, path, W, H, font_name='Noto Sans CJK SC', font_size=26, wra
 
     lines = []
     t = 0.0
-    for s in shots:
+    _nsh = max(1, len(shots))
+    for _i, s in enumerate(shots):
         dur = float(s.get('dur', 3))
         vd = _shot_window(s)     # ★VF_VOICE_WINDOW_V1：字幕窗口 = 真实配音时长（不是镜长）
         txt = _shot_text(s)
+        # ★VF_XFADE_V1（2026-09-29）：真·交叉溶解时每个交界会"吃掉" overlap 秒 →
+        #   第 i 镜的实际起点 = 原始累加 - i×overlap；它的结尾也被下一镜吃掉 overlap
+        #   （不做这一步，字幕会随镜数越漂越多 —— 这正是逐镜拼接与交叉溶解最容易踩的坑）。
+        _st = max(0.0, t - _i * overlap)
+        _en = _st + max(0.10, vd - (overlap if _i < _nsh - 1 else 0.0))
         if txt:
             flat = ''.join(txt.split())
             if flat:
                 n = max(1, len(flat))
-                per = max(1, int(round(vd * 100.0 / n)))   # 每个字占多少厘秒（按配音时长分，逐字高亮才跟得上声音）
+                per = max(1, int(round(max(0.1, _en - _st) * 100.0 / n)))   # 每字厘秒（逐字高亮跟得上声音）
                 rows = [_ass_esc(flat[i:i + wrap]) for i in range(0, len(flat), wrap)]
                 segs = []
                 for ri, r in enumerate(rows):
                     if ri:
                         segs.append('\\N')
                     segs.extend(['{\\k%d}%s' % (per, c) for c in r])
-                lines.append('Dialogue: 0,%s,%s,Def,,0,0,0,,%s' % (_ass_ts(t), _ass_ts(t + vd), ''.join(segs)))
+                lines.append('Dialogue: 0,%s,%s,Def,,0,0,0,,%s' % (_ass_ts(_st), _ass_ts(_en), ''.join(segs)))
         t += dur                  # 镜长推进（含 0.35 呼吸间隔，位置不变）
     if not lines:
         return ''
@@ -2091,7 +2256,26 @@ def main():
         files.append(p)
     if not files:
         print('[VF] 没有镜头'); sys.exit(3)
-    merged = concat_shots(files, wd, ffmpeg, W, H, fps, _total_dur)
+    # ★VF_XFADE_V1：分镜根级 `xfade: 0.35` → 真·交叉溶解（视频侧；音频侧由 tts.py --xfade 同步）
+    _xd = 0.0
+    try:
+        _xd = float(sb.get('xfade') or 0)
+    except Exception:
+        _xd = 0.0
+    merged = None
+    if _xd > 0.05 and len(files) >= 2:
+        _durs = [float(x.get('dur', 0) or 0) for x in (sb.get('shots') or [])]
+        if len(_durs) == len(files) and min(_durs) > _xd + 0.25:
+            _xd = min(0.6, _xd)
+            merged = concat_shots_xfade(files, wd, ffmpeg, W, H, fps, _durs, _xd)
+            if merged:
+                _total_dur = sum(_durs) - _xd * (len(files) - 1)   # 字幕/混音按"缩短后"的新时长
+        else:
+            print('[VF] ⚠️ 分镜要求交叉溶解，但每镜时长不全或过短 → 回落硬切')
+            _xd = 0.0
+    if not merged:
+        _xd = 0.0
+        merged = concat_shots(files, wd, ffmpeg, W, H, fps, _total_dur)
     # ★VF_CONCAT_GUARD_V1：日志同时打【目标】与【实际】—— 以前只打目标时长，
     #   所以"190.4 秒的分镜拼成 30.36 秒"这件事在日志里完全看不出来（用户实测踩坑点）。
     print('[VF] 拼接完成 -> %s（共 %d 镜 目标 %.1f 秒 / 实际 %.1f 秒）'
@@ -2119,7 +2303,7 @@ def main():
         if not a.no_karaoke:
             try:
                 sub_file = build_ass(shots, os.path.join(wd, 'subs.ass'), W, H,
-                                     sub_font_name(), _sub_size, th=th)
+                                     sub_font_name(), _sub_size, th=th, overlap=_xd)
             except Exception as eSA:
                 print('[VF] ASS 生成失败，回落 SRT: %s' % str(eSA)[:140])
                 sub_file = ''

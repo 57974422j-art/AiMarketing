@@ -1,0 +1,2 @@
+file 'G:/AiMarketing/scripts/video-factory/mix000.wav'
+file 'G:/AiMarketing/scripts/video-factory/mix001.wav'
