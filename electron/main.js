@@ -1978,6 +1978,32 @@ ipcMain.handle('storage:mirror', async (_event, url) => {
   } catch (e) { return { success: false, error: String((e && e.message) || e) } }
 })
 
+// ★VF_SBDUMP_V1（2026-09-29 用户定案「客户端出片后本地留一份分镜 JSON」）：
+//   把「图视混剪」排好的分镜（每镜卡型 / 画面大字 / 字幕 / 时长 / 素材路径）留一份到本机
+//   <安装目录>\data\vf-storyboards\ —— 以后排查"排镜 / 排版"问题【不必再去服务器捞分镜】：
+//   开发机上的诊断工具 scripts/vf-local.mjs 可直接拿这份文件在本机复现渲染（--sb 该文件）。
+//   纯留档、不影响出片；写失败也只是少一份日志，不会打断流程。
+ipcMain.handle('vf:save-storyboard', async (_event, payload) => {
+  try {
+    const p = payload && typeof payload === 'object' ? payload : {}
+    const shots = Array.isArray(p.shots) ? p.shots : []
+    if (!shots.length) return { success: false, error: '没有分镜' }
+    const dir = path.join(app.getPath('userData'), 'vf-storyboards')
+    fs.mkdirSync(dir, { recursive: true })
+    const d = new Date()
+    const pad = (n) => String(n).padStart(2, '0')
+    const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+    const file = path.join(dir, `vf-${stamp}-u${String(p.uid || 'x')}.json`)
+    fs.writeFileSync(file, JSON.stringify({
+      savedAt: d.toISOString(), uid: p.uid, topic: p.topic, aspect: p.aspect, size: p.size,
+      theme: p.theme, big: p.big, brief: p.brief, script: p.script, shots,
+      note: '本文件由客户端自动留存（VF_SBDUMP_V1），用于排查画面/排版问题；开发机可用 scripts/vf-local.mjs --sb 本文件 复现渲染',
+    }, null, 1), 'utf8')
+    try { buLog('[vf:save-storyboard] 已留档: ' + file) } catch (e) {}
+    return { success: true, path: file }
+  } catch (e) { return { success: false, error: String((e && e.message) || e) } }
+})
+
 ipcMain.handle('app:get-version', async () => {
   try {
     const vPath = path.join(__dirname, 'version.json')

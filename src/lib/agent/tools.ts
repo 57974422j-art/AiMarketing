@@ -98,6 +98,22 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    // ★VF_PREVIEW_V1（2026-09-29 用户定案 P0①「样板镜先确认」，出自 video-talkcraft 的"首镜先做先确认"）：
+    //   在正式出整片【之前】，只渲染开头约 8 秒给用户看画面风格对不对 —— 治的是
+    //   「用户看到成品才发现风格不对」（规划文档 4.2 #5，成本最高的一条缺口）。
+    //   由「视频混剪」线在分镜卡上点「🎬 先看样板镜」时自动调用（用户不需要自己提这个工具）；
+    //   不配音、不扣点；返回 VF_PREVIEW_DONE:{url,sec,shots}。
+    name: 'preview_video_shot',
+    description: '（内部工具，一般不用用户主动提）渲染【样板镜】——把已排好的分镜只渲染开头约 8 秒，让用户先确认画面风格，再决定是否出整片。仅当用户明确说"先看样板镜/先出一小段看看/预览一下画面"时调用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        plan: { type: 'string', description: '分镜 JSON（与 make_ai_video 的 plan 同格式：{size,fps,theme,overlay_text,shots}）；通常直接沿用当前草稿的分镜' },
+        seconds: { type: 'number', description: '样板镜时长（秒），默认 8，最多 15' },
+      }, required: ['plan'],
+    },
+  },
+  {
     // ★VF_EDIT_V1（2026-09-24 用户定案「分镜/画面文字可编辑」）：
     //   出片后再改一个画面大字，不必整条重做（重写文案+重新配音要 3~4 分钟且再花钱）——
     //   改画面文字不影响配音（配音念的是 subtitle），所以能复用已有配音【只重渲染】。

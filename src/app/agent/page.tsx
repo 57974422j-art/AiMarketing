@@ -410,6 +410,9 @@ interface Attachment { name: string; url: string; type: string }
 //   每次重渲染都会再发一次 IPC；首次是"整文件下载"，会和正在播放的 <video> 抢带宽（放大卡顿）。
 const MIRRORED_ONCE = new Set<string>()
 
+// ★VF_SBDUMP_V1（2026-09-29 用户定案）：分镜留档去重（同一份分镜只写一次磁盘）
+const STORYBOARD_SAVED = new Set<string>()
+
 const SUGGESTIONS = [
   '今天有什么热点可以蹭？给我 3 个选题',
   '帮我写一条小红书种草文案',
@@ -2680,6 +2683,26 @@ function AgentPageInner() {
         )
       } catch {}
     }
+    // ★VF_PREVIEW_V1（2026-09-29 用户定案 P0①「样板镜先确认」，出自 video-talkcraft 的"首镜先做先确认"）：
+    //   先出 8 秒样板镜（不配音、不扣点）看画面风格，满意再出整片 —— 治「看到成品才发现风格不对」。
+    if (content.startsWith('VF_PREVIEW_DONE:')) {
+      try {
+        const pd = JSON.parse(content.slice(16))
+        return (
+          <div className="mb-2 p-3 rounded-xl border border-sky-500/30 bg-sky-500/[0.06]">
+            <div className="text-xs text-sky-300 mb-2">
+              🎬 样板镜（约 {pd.sec || 8} 秒 / {pd.shots || 1} 镜 · 无配音）—— 先看画面风格对不对
+            </div>
+            {pd.url ? (
+              <video src={pd.url} controls playsInline preload="metadata" className="w-full max-h-[420px] rounded-lg bg-black" />
+            ) : null}
+            <div className="text-[10px] text-gray-400 mt-2">
+              满意 → 点上面的「确认出片」出整片；不满意 → 回「重试」重排分镜，或直接说想怎么改（如「大字再少点」「第三镜换成对比」）。
+            </div>
+          </div>
+        )
+      } catch {}
+    }
     // ★VF_FLOW_V1（2026-09-18）：成片状态机结构化消息（VF_JSON —— 文案确认卡）
     if (content.startsWith('VF_JSON:')) {
       try {
@@ -2736,6 +2759,20 @@ function AgentPageInner() {
           )
         }
         if (vj.step === 'script') {
+          // ★VF_SBDUMP_V1（2026-09-29 用户定案）：把这份分镜留一份到本机
+          //   （<安装目录>\data\vf-storyboards\…json）。以后排查"排镜 / 排版"问题不必再去服务器捞分镜；
+          //   开发机可用 scripts/vf-local.mjs --sb 该文件 直接复现渲染。纯留档，不影响出片。
+          try {
+            const _sbKey = (vj.shots || []).map((s: any) => `${s.type}:${s.text || s.title || ''}:${s.dur || ''}`).join(',')
+            const _api: any = typeof window !== 'undefined' ? (window as any).electronAPI : null
+            if (_sbKey && !STORYBOARD_SAVED.has(_sbKey) && _api?.vfSaveStoryboard) {
+              STORYBOARD_SAVED.add(_sbKey)
+              _api.vfSaveStoryboard({
+                uid: user?.id, topic: vj.topic, script: vj.script, brief: vj.brief,
+                size: vj.size, aspect: vj.aspect, theme: vj.theme, big: vj.big, shots: vj.shots,
+              })
+            }
+          } catch {}
           return (
             <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
               <div className="text-xs text-fuchsia-300 mb-2">{vj.hint || '① 文案确认'}</div>
@@ -2786,13 +2823,18 @@ function AgentPageInner() {
                       className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">▶️ 先出字幕版（无素材画面）</button>
                   </>
                 ) : (
-                  <button onClick={() => sendMessage('确认')}
+                  <>
+                    <button onClick={() => sendMessage('先看样板镜')}
+                      title="只渲染开头约 8 秒（无配音、不扣点），先看画面风格对不对；满意再点右边「确认出片」"
+                      className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-200">🎬 先看样板镜（8 秒）</button>
+                    <button onClick={() => sendMessage('确认')}
                     title={vj.source === 'ai'
                       ? '画面将由 AI 逐镜生成（约 50 点/秒）；生成较慢，实测每 6 秒画面约需 100 秒'
                       : undefined}
-                    className="px-4 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">
-                    确认出片{vj.cost ? `（约 ${vj.cost} 点）` : ''}{vj.source === 'ai' ? ' · 🎨 AI 画面' : ''}
-                  </button>
+                      className="px-4 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">
+                      确认出片{vj.cost ? `（约 ${vj.cost} 点）` : ''}{vj.source === 'ai' ? ' · 🎨 AI 画面' : ''}
+                    </button>
+                  </>
                 )}
                 <span className="text-[10px] text-gray-500">也可直接说「改成…」调文案{vj.voiceName ? `（当前配音：${vj.voiceName}）` : ''}</span>
               </div>

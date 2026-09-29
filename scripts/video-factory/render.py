@@ -40,6 +40,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -793,10 +794,13 @@ def card_compare(shot, th, W, H, fps):
     _y_main = int(H * 0.22)
     parts += _col(left_lines, lcx, txc, _y_main, fs_main, ":alpha='min(t/0.5,1)'")
     parts += _col(right_lines, rcx, acc, _y_main, fs_main, ":alpha='min(max(t-0.4,0)/0.5,1)'")
-    # 中间竖线：高度随时间生长（drawbox 的 h 支持表达式）—— 限宽后不再有文字压过来
-    parts.append(
-        f"drawbox=x={mid - 2}:y={int(H * 0.14)}:w=4:h='{int(H * 0.72)}*min(max(t-0.2,0)/0.6,1)':"
-        f"color={acc}@0.9:t=fill")
+    # ★VF_COMPARE_NOLINE_V1（2026-09-29 用户定案）：**去掉中轴竖线**。
+    #   原设计是"高度随时间生长"的分隔线，但实测成片里它就是一条【贯穿大半个屏幕的橙线】，
+    #   观感像"画面被劈开 / 渲染坏了"（用户第一次截图报的就是它）。左右两列靠对齐本就分得清，
+    #   不需要这根线。哪天想恢复：把下面这段 drawbox 放回来即可（`mid` 变量仍在）。
+    # parts.append(
+    #     f"drawbox=x={mid - 2}:y={int(H * 0.14)}:w=4:h='{int(H * 0.72)}*min(max(t-0.2,0)/0.6,1)':"
+    #     f"color={acc}@0.9:t=fill")
     # 说明小字：排在主文字块【下方】（实测踩过：写死 0.30H 会被折行后的主块压住）
     _gap_main = int(fs_main * 1.35)
     _rows = max(1, max(len(left_lines), len(right_lines)))
@@ -970,13 +974,25 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
     ] + _reveal + [
         f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"]
+    # ★VF_MOTION_V2（2026-09-29 反 AI 味清单·「运动做减法」）：
+    #   原来【每一镜静图都匀速推近 1.0→1.06】——而反 AI 味清单里明确写着 ✗「每步都挂 ken burns」。
+    #   现在按【镜序】轮换三种运动：推近 / 拉远 / 完全静止（静止那镜让画面"稳"一下，节奏才有呼吸）。
+    #   注：`_idx` 由 render_shot() 注入（它本来就有镜序参数）。
+    _kbi = int(shot.get('_idx') or 0)
+    if _kbi % 3 == 0:
+        _z = f"zoom='min(1+0.06*on/{_frames},1.06)'"      # 缓慢推近
+    elif _kbi % 3 == 1:
+        _z = f"zoom='max(1.06-0.06*on/{_frames},1.0)'"    # 缓慢拉远
+    else:
+        _z = "zoom='1.0'"                                 # 静止（时长不变，只是不动）
     vf = (
         f"split=2[bg0][fg0];"
         f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
         f"[fg0]scale={W}:{H}:force_original_aspect_ratio=decrease[fgs];"
         f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[smooth];"
-        # ★VF_KENBURNS_V1（2026-09-20）：静图缓慢推近（1.0→1.06）——不改时长，只让画面“活”起来
-        f"[smooth]zoompan=zoom='min(1+0.06*on/{_frames},1.06)':d={_frames}:s={W}x{H}:fps={fps},"
+        # ★VF_KENBURNS_V1（2026-09-20）：静图缓慢推近——只让画面“活”起来，不改时长
+        # ★VF_MOTION_V2（2026-09-29）：改为按镜序轮换（推近 / 拉远 / 静止）
+        f"[smooth]zoompan={_z}:d={_frames}:s={W}x{H}:fps={fps},"
         + ','.join(_chain)
     )
     return (f"-loop 1 -t {dur} -i \"{src}\"", vf, dur)
@@ -1022,7 +1038,47 @@ CARDS = {
 }
 
 
+# ★VF_ANTIAI_V1（2026-09-29 反 AI 味清单·第三层：渲染前校验）
+#   分工：① 提示词层（src/lib/agent/vf/anti-ai.ts 的 ANTI_AI_PROMPT）
+#         ② 服务端归一化层（同文件的 sanitizeAntiAiShots：清 emoji / 对比卡限字数 / 假数据降级）
+#         ③ 这里（渲染前最后一道网）：只【告警】不改画面 —— 万一别的入口喂进脏分镜，日志里能看见。
+#   为什么只告警：渲染层改画面容易把"用户故意要的效果"一起改掉；治理放在前两层，这里负责留痕。
+_EMOJI_RE = re.compile('[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]')
+
+
+def anti_ai_check(shots):
+    """渲染前自检：emoji / 连续同一卡型过多。有问题就打日志（不影响出片）。"""
+    warns = []
+    try:
+        for i, s in enumerate(shots or []):
+            for k in ('text', 'title', 'left', 'right', 'leftDesc', 'rightDesc', 'label', 'cta'):
+                v = s.get(k)
+                if isinstance(v, str) and _EMOJI_RE.search(v):
+                    warns.append('第 %d 镜 %s 里有 emoji/符号（应为中文/数字）：%s' % (i + 1, k, v[:16]))
+        run = 1
+        for i in range(1, len(shots or [])):
+            if shots[i].get('type') == shots[i - 1].get('type'):
+                run += 1
+                if run == 4:
+                    warns.append('第 %d~%d 镜连续同一卡型「%s」（建议换着来）'
+                                 % (i - 2, i + 1, shots[i].get('type')))
+            else:
+                run = 1
+        for w in warns[:8]:
+            print('[VF][反AI味] ⚠️ ' + w)
+        if len(warns) > 8:
+            print('[VF][反AI味] ⚠️ …另有 %d 条同类提示' % (len(warns) - 8))
+        if warns:
+            print('[VF][反AI味] 共 %d 条提示（提示词层已约束，这里是渲染前的最后一道校验；不阻断出片）' % len(warns))
+    except Exception as e:
+        print('[VF][反AI味] 自检异常（忽略）: %s' % str(e)[:80])
+
+
 def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
+    # ★VF_MOTION_V2（2026-09-29）：把镜序注入 shot —— 各配方卡据此轮换运动（推近/拉远/静止），
+    #   不再"每一镜都挂 ken burns"（反 AI 味清单里的一条）。用副本，不改调用方的数据。
+    shot = dict(shot)
+    shot['_idx'] = idx
     typ = shot.get('type', 'title')
     fn = CARDS.get(typ)
     if not fn:
@@ -1531,6 +1587,7 @@ def main():
     print('[VF] ffmpeg=%s  字体=%s' % (ffmpeg, find_font(th.get('font', 'msyh')) or '(无)'))
     files = []
     _total_dur = 0.0
+    anti_ai_check(sb.get('shots', []))   # ★VF_ANTIAI_V1：渲染前"反 AI 味"自检（只告警，不改画面）
     for i, shot in enumerate(sb.get('shots', [])):
         p = render_shot(shot, th, wd, i, W, H, fps, ffmpeg)
         # ★VF_SHOTLOG_V1（2026-09-20）：日志带上【本镜时长】—— 不必再跑 Python 脚本查"每镜几秒"

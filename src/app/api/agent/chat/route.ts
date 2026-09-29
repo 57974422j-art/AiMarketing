@@ -12,6 +12,9 @@ import { matchesMixLine, clearVfMixDraft, hasMixDraft } from '@/lib/agent/vf/vf-
 // ★STD_MODE_V1（2026-09-21，用户定案）：标准模式 = 【命令白名单，锁死】——
 //   命令表唯一真相源在 `src/lib/agent/standard-commands.ts`（加/改命令只改那张表，别再往这里加正则）。
 import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY } from '@/lib/agent/standard-commands'
+// ★VF_ANTIAI_V1（2026-09-29）：「反 AI 味清单」—— 提示词（ANTI_AI_PROMPT）+ 出片前净化（sanitizeAntiAiShots）。
+//   纯函数零依赖（同 standard-commands.ts），静态 import 安全。
+import { ANTI_AI_PROMPT, sanitizeAntiAiShots } from '@/lib/agent/vf/anti-ai'
 
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
@@ -50,7 +53,7 @@ function vfParseShots(raw: string): any[] | null {
 /** ★VF_SHOTGEN_V1：生成分镜（prompt + 解析 + 正则容错 + **自动重试一次修正 JSON**）
  *  起草与“重试分镜”共用同一份逻辑，避免两处走偏；返回的镜头已把 pick 换成【真实本地路径】。
  */
-async function genVideoShots(o: {
+async function genVideoShotsRaw(o: {
   uid: number | string; aspect: string; dur: number; shotN: number
   imgPaths: string[]; brief: string; script: string; retryHint?: string
   /** ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」时，额外要求每镜给一个【英文画面描述】，
@@ -65,7 +68,7 @@ async function genVideoShots(o: {
   const imgs = (o.imgPaths || []).filter(Boolean)
   const charN = String(o.script || '').length
   const avgN = Math.max(8, Math.round(charN / Math.max(1, o.shotN)))
-  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）。★但【绝对不许扩写、不许重复】：所有 subtitle 拼起来的**总字数要≈文案字数**（最多不超过它的 1.15 倍）——实测你写超到 233%，成片会又超时又重复念，用户会直接发现\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。${o.wantPrompt ? `\n★★【本片画面由 AI 逐镜生成】所以每个镜头还必须多给一个 prompt 字段：**英文**的画面生成提示词，含【主体 + 动作 + 场景 + 光影 + 镜头感（如推近/平移/航拍）】，60~80 词；只描述画面，**不要在画面里出现任何文字**（文字由字幕层负责）。prompt 必须与该镜的 subtitle 语义一致 —— 文案说什么，画面就演什么。\n  示例（注意 prompt 是英文）：{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案。","prompt":"A young marketer working late at a desk at night, laptop glow on his face, camera slowly pushes in, cinematic warm lighting, shallow depth of field","dur":7}` : ''}\n编镜依据（文案）：\n${o.script}`
+  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）。★但【绝对不许扩写、不许重复】：所有 subtitle 拼起来的**总字数要≈文案字数**（最多不超过它的 1.15 倍）——实测你写超到 233%，成片会又超时又重复念，用户会直接发现\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。${o.wantPrompt ? `\n★★【本片画面由 AI 逐镜生成】所以每个镜头还必须多给一个 prompt 字段：**英文**的画面生成提示词，含【主体 + 动作 + 场景 + 光影 + 镜头感（如推近/平移/航拍）】，60~80 词；只描述画面，**不要在画面里出现任何文字**（文字由字幕层负责）。prompt 必须与该镜的 subtitle 语义一致 —— 文案说什么，画面就演什么。\n  示例（注意 prompt 是英文）：{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案。","prompt":"A young marketer working late at a desk at night, laptop glow on his face, camera slowly pushes in, cinematic warm lighting, shallow depth of field","dur":7}` : ''}\n` + ANTI_AI_PROMPT + `编镜依据（文案）：\n${o.script}`
   let raw = ''
   try { raw = (await generateText(prompt)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
   let arr = vfParseShots(raw)
@@ -242,6 +245,15 @@ async function genVideoShots(o: {
   }
   vfLog(o.uid, `[分镜] ${shots.length} 镜`)
   return shots
+}
+
+/** ★VF_ANTIAI_V1（2026-09-29）：所有分镜出口统一过一遍「反 AI 味」净化（清 emoji / 对比卡限字数 /
+ *  数字卡无据降级）—— 包一层是为了**不漏任何一个 return**（原函数有多处提前返回：扩镜、兜底等）。 */
+async function genVideoShots(o: Parameters<typeof genVideoShotsRaw>[0]): Promise<any[]> {
+  const shots = await genVideoShotsRaw(o)
+  const _anti = sanitizeAntiAiShots(shots)
+  if (_anti.notes.length) vfLog(o.uid, '[反AI味] ' + _anti.notes.join('；'))
+  return _anti.shots
 }
 
 /** ★VF_SUBFILL_V1 / ★VF_SPLIT2_V1：把口播文案**按顺序**切成 n 段。
@@ -875,6 +887,73 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         return 'MAKE_VIDEO_FAIL:后台启动失败 ' + String(e).slice(0, 120)
       }
       return `MAKE_VIDEO_TASK:${vfTaskId} 本地成片已在后台开始（配音 + 字幕 + 画面）。过程中可随时问我"视频做得怎么样了"查看进度。`
+    }
+
+    // ── ★VF_PREVIEW_V1（2026-09-29 用户定案 P0①「样板镜先确认」）──
+    //   「视频混剪」线在分镜卡上点「🎬 先看样板镜」时走这里：只渲染开头约 8 秒（**不配音**、不扣点），
+    //   让用户先确认画面风格，满意再点「确认出片」。直接复用 render.py（与出片同一条渲染链，
+    //   所以"样板镜看到的就是整片的样子"），只是不跑 tts.py。
+    case 'preview_video_shot': {
+      const uidP = auth?.userId
+      if (!uidP) return 'TOOL_REJECT:未登录'
+      let planP: any = null
+      try { planP = args.plan ? (typeof args.plan === 'string' ? JSON.parse(args.plan) : args.plan) : null } catch { planP = null }
+      const shotsP: any[] = Array.isArray(planP?.shots) ? planP.shots : []
+      if (!shotsP.length) return '样板镜：没有可预览的镜头（分镜为空）。'
+      // 取开头若干镜凑够目标秒数（最多 3 镜）——样板镜的意义是"看风格"，不是看全片
+      const wantP = Math.max(4, Math.min(15, Number(args.seconds) || 8))
+      const pickP: any[] = []
+      let accP = 0
+      for (const s of shotsP) {
+        if (pickP.length >= 3) break
+        pickP.push(s)
+        accP += Number(s?.dur || 0)
+        if (accP >= wantP) break
+      }
+      // 安全：只允许引用【存储根目录内】且确实存在的素材（防止被构造出任意路径）
+      const rootP = vfStorageRoot()
+      const baseP = pathVF.resolve(rootP)
+      for (const s of pickP) {
+        const srcP = String(s?.src || '')
+        if (!srcP) continue
+        const absP = pathVF.resolve(srcP)
+        if (!absP.startsWith(baseP) || !fsVF.existsSync(absP)) {
+          return `样板镜：素材不可用（不在存储目录内或已被删）→ ${pathVF.basename(srcP)}`
+        }
+      }
+      const renderP = pathVF.join(vfRootDir() || '', 'scripts', 'video-factory', 'render.py')
+      if (!fsVF.existsSync(renderP)) return '样板镜：服务端缺 render.py（视频工厂未部署）。'
+      const dirP = pathVF.join(rootP, String(uidP), 'video-factory')
+      fsVF.mkdirSync(dirP, { recursive: true })
+      const tsP = Date.now()
+      const sbP = pathVF.join(dirP, `preview_${tsP}.json`)
+      const outP = pathVF.join(dirP, `vf_preview_${tsP}.mp4`)
+      const wdP = pathVF.join(dirP, `preview_work_${tsP}`)
+      const sbObj: any = { size: Array.isArray(planP?.size) ? planP.size : [720, 1280], fps: 25, shots: pickP }
+      if (planP?.theme && typeof planP.theme === 'object') sbObj.theme = planP.theme
+      if (planP?.overlay_text === false) sbObj.overlay_text = false
+      fsVF.writeFileSync(sbP, JSON.stringify(sbObj), 'utf8')
+      const pyP = process.env.BU_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
+      const codeP: number | null = await new Promise((resolve) => {
+        try {
+          const chP = spawn(pyP, [renderP, '--storyboard', sbP, '--out', outP, '--workdir', wdP], { windowsHide: true })
+          const tP = setTimeout(() => { try { chP.kill() } catch { /* ignore */ } resolve(-2) }, 120000)
+          chP.on('close', (c: number | null) => { clearTimeout(tP); resolve(c) })
+          chP.on('error', () => { clearTimeout(tP); resolve(-1) })
+        } catch { resolve(-1) }
+      })
+      if (codeP !== 0 || !fsVF.existsSync(outP)) return `样板镜渲染失败（退出码 ${codeP}，服务端日志有原因）——可以直接点「确认出片」出整片。`
+      try {
+        const { readFile } = await import('fs/promises')
+        const { saveToPersonalRepo } = await import('@/lib/personal-storage')
+        const { signedUrl } = await import('@/lib/oss')
+        const bufP = await readFile(outP)
+        const { name } = await saveToPersonalRepo({ userId: String(uidP), buffer: bufP, ext: 'mp4', mime: 'video/mp4' })
+        const urlP = await signedUrl(`storage/${uidP}/${name}`, 86400)
+        return `VF_PREVIEW_DONE:${JSON.stringify({ url: urlP, sec: Math.round(accP * 10) / 10, shots: pickP.length })}`
+      } catch (e: any) {
+        return '样板镜入库失败: ' + String(e?.message || e).slice(0, 120)
+      }
     }
 
     // ── 查询本地成片任务进度（★VF_ASYNC_V1 配套）──

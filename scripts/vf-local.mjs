@@ -24,7 +24,8 @@
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync, statSync } from 'node:fs'
-import { resolve, join, basename, dirname } from 'node:path'
+import { resolve, join, basename } from 'node:path'
+import { tmpdir } from 'node:os'
 
 const ROOT = resolve(process.cwd())
 const VF = join(ROOT, 'scripts', 'video-factory')
@@ -98,7 +99,8 @@ if (has('check') || process.argv.length <= 2) {
 
 if (!PY) { console.error('❌ 没找到 python，无法继续'); process.exit(1) }
 const tmpPy = (code, tag = 'tmp') => {
-  const p = join(ROOT, `.tmp-vf-${tag}-${Date.now()}.py`)
+  // ★2026-09-29：放系统临时目录（原来放仓库根，失败时会留下 .tmp-vf-*.py 污染工作区）
+  const p = join(tmpdir(), `vf-${tag}-${Date.now()}.py`)
   writeFileSync(p, code, 'utf8')
   return p
 }

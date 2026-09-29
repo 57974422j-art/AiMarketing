@@ -26,6 +26,11 @@
 //   ③**用视频的那几镜，subtitle 按 4.5 字/秒 写够**（这是让"完整片段"能播完的关键：
 //     最终镜长 = 该镜配音真实时长（tts 回填），文案长度对了，配音时长就≈视频时长）。
 
+// ★VF_ANTIAI_V1（2026-09-29 用户定案「按建议顺序执行」）：「反 AI 味清单」的提示词 + 服务端兜底。
+//   与 standard-commands.ts 同类：**纯函数、零依赖**（不碰 prisma、不碰别的线）——
+//   所以这里静态 import 不违反本文件"零 import 连累别的线"的设计约束。
+import { ANTI_AI_PROMPT, sanitizeAntiAiShots } from './anti-ai'
+
 /* ==================== 类型（本线自己定义，不设共用类型文件） ==================== */
 
 export interface VfVideoDraft {
@@ -287,7 +292,10 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     `⑤text 是画面大字：4~8 字的完整短语，不要从文案截半句、不要标点\n` +
     `⑥只输出严格 JSON 数组（不要 markdown、不要解释）\n` +
     `⑦【视频要用够】有视频可用时，视频镜不少于总镜数的 1/3（你自己的实拍比图更有说服力）；\n` +
-    `   但也不要把画面全给视频（视频镜不超过 2/3，避免整片都是同一支片子）\n\n编镜依据（文案）：\n${script}`
+    `   但也不要把画面全给视频（视频镜不超过 2/3，避免整片都是同一支片子）\n` +
+    // ★VF_ANTIAI_V1：反 AI 味硬规矩（emoji 图标 / 假数据 / 每镜 ken burns / 角标 / 卡型重复 / 对比卡限字数）
+    ANTI_AI_PROMPT +
+    `\n编镜依据（文案）：\n${script}`
   let raw = ''
   try { raw = (await ctx.generateText(prompt)) || '' } catch (e: any) { ctx.log(uid, '[VF-V] 分镜失败: ' + String(e?.message || e).slice(0, 120)) }
   let arr = parseJsonArray(raw)
@@ -437,6 +445,15 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   // ── 7) 存草稿 + 出确认卡（复用素材线的分镜卡，客户端零改动）──
   vd.script = script
   vd.brief = brief
+  // ★VF_ANTIAI_V1（2026-09-29）：「反 AI 味」服务端兜底（提示词写了规矩，但 AI 不一定每次都遵守）：
+  //   ① 清 emoji/符号当图标 ② 对比卡限字数（左右 ≤8、说明 ≤14）③ 数字/图表卡若文案里没数字 → 降级
+  //   原则：只减不增 —— 宁可不花哨，也不要"一眼 AI"。处理明细写进日志，便于回溯 AI 到底写了什么。
+  {
+    const _anti = sanitizeAntiAiShots(shotsOut)
+    shotsOut.length = 0
+    shotsOut.push(..._anti.shots)
+    if (_anti.notes.length) ctx.log(uid, '[VF-V][反AI味] ' + _anti.notes.join('；'))
+  }
   vd.shots = shotsOut
   vd.size = size
   vd.aspectResolved = aspect
@@ -502,6 +519,21 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         return await draftAndCard(ctx, vd)
       }
       return '视频混剪：请在上面选好 时长/画幅/音色，点「🚀 开始出片」；或直接说个主题。'
+    }
+
+    // ── 卡2b：★VF_PREVIEW_V1（2026-09-29 用户定案 P0①「样板镜先确认」）──
+    //   用户点「🎬 先看样板镜」→ 只渲染开头约 8 秒（不配音、不扣点）看风格；
+    //   满意再点「确认出片」。治的是规划文档 4.2 #5「用户看到成品才发现风格不对」。
+    if (vd.step === 'script' && /样板镜|先看预览|先出预览|预览一下|看看样板/.test(String(userMessage).trim())) {
+      if (!vd.shots?.length) return '视频混剪：分镜还没排好，先不出预览。回「重试」我再排一次。'
+      ctx.log(uid, `[VF-V] 样板镜预览：取开头约 8 秒（共 ${vd.shots.length} 镜）`)
+      return String(await ctx.executeToolCall('preview_video_shot', {
+        plan: JSON.stringify({
+          size: vd.size || [720, 1280], fps: 25, shots: vd.shots,
+          overlay_text: vd.big !== 'off',
+        }),
+        seconds: 8,
+      }, ctx.auth))
     }
 
     // ── 卡2：确认 → 出片（入队即作废本线草稿，避免终身吞消息）──
