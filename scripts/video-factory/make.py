@@ -337,6 +337,13 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
         #   ref_image 由 Node 侧签好 OSS 直链后写进分镜透传过来（本文件不签 URL）。
         _ref = str(shot.get('ref_image') or '').strip()
         # ★VF_I2V_CACHE_V1：这张图前面已经生成过 → 直接复用那段片段（不再调 H3、不额外计费）
+        #   若缓存里是空串 = 前面【已经试过并且失败】→ 这一镜也保持静态图，不再重试
+        #   （否则同一张图会在 N 个镜上各失败一次、白等 N 次；计费在 Node 侧按唯一图算，不受影响）。
+        if _ref and _ref in _i2v_cache and not _i2v_cache[_ref]:
+            shot['i2v_fallback'] = True
+            print('[H3] ⚠️ 第 %d/%d 镜 同一张图前面已失败 → 这一镜保持静态图（不重复重试）'
+                  % (i + 1, len(shots)))
+            continue
         if _ref and _ref in _i2v_cache:
             _src0 = _i2v_cache[_ref]
             dest = os.path.join(clips, 'shot%02d.mp4' % i)
@@ -370,6 +377,7 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
             #   不让"让图动起来失败"把整片判死（用户的成片降级原则）。
             if _ref:
                 shot['i2v_fallback'] = True
+                _i2v_cache[_ref] = ''      # ★VF_I2V_CACHE_V1：记下"这张图试过且失败"，复用镜别再白试
                 print('[H3] ⚠️ 第 %d 镜图生视频没拿到（%s）→ 退回它自己的静态图 + Ken Burns（不算整片失败）'
                       % (i + 1, via))
             else:
