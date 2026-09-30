@@ -29,7 +29,7 @@
 // ★VF_ANTIAI_V1（2026-09-29 用户定案「按建议顺序执行」）：「反 AI 味清单」的提示词 + 服务端兜底。
 //   与 standard-commands.ts 同类：**纯函数、零依赖**（不碰 prisma、不碰别的线）——
 //   所以这里静态 import 不违反本文件"零 import 连累别的线"的设计约束。
-import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme } from './anti-ai'
+import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles } from './anti-ai'
 // ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪 → 逐镜图生视频，50 点/秒」）：
 //   同图去重 / 每片张数上限 / 计费秒数 全是**纯函数**（同样零依赖）—— 且与报价侧
 //   （chat/route.ts 的 vfScriptCard 成本 + make_ai_video 实扣）共用同一份公式，避免报价与实扣漂移。
@@ -665,6 +665,22 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     subLen = sum
     cover = script.length ? subLen / script.length : cover
     ctx.log(uid, `[VF-V] 字幕覆盖不足 → 按文案顺序补齐 → ${Math.round(cover * 100)}%`)
+  }
+  // ── 6.5) ★VF_SUBSPLIT_V1（2026-09-30）：单镜字幕上限 → 超长【按句拆镜】（不许截断/丢文案）
+  //   用户实测原话：「90 秒的样子 AI 把字幕都放在一起……90 秒的片子字幕好像溢出了。」
+  //   留档实测：10 镜 / 计划 49 秒 → 成片 121.68 秒，**第 10 镜 subtitle 257 字**（其余 25~42 字）。
+  //   上层闸门（覆盖 ≥80%）按总字数算 → 257 字都在 → 100% 通过、拦不住 → 这里做服务端硬兜底。
+  //   位置刻意放在【覆盖检查之后、算 vd.cover 之前】：拆完再算覆盖（拆镜不改总字数，覆盖不变，
+  //   但顺序上必须早于"≥80% 才给出片"的闸门，免得"拆了反而被拒"）。
+  {
+    const _sp = splitLongSubtitles(shotsOut)
+    if (_sp.notes.length) {
+      shotsOut.length = 0
+      shotsOut.push(..._sp.shots)
+      for (const _n of _sp.notes) ctx.log(uid, '[分镜] ' + _n)
+      subLen = shotsOut.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
+      cover = script.length ? subLen / script.length : cover
+    }
   }
   const estSec = Math.round(subLen / 4.5)
 

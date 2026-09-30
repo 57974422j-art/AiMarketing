@@ -23,7 +23,9 @@ import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY } from '@/lib/age
 //   纯函数零依赖（同 standard-commands.ts），静态 import 安全。
 // ★VF_AI_PICK_V1（2026-09-29）：pickDesignFields —— AI 自选的 theme/variant/motion/transition
 //   在**显式造对象**的 bgimage 分支里必须带上（否则 AI 的选择被归一化静默丢掉）。
-import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme } from '@/lib/agent/vf/anti-ai'
+// ★VF_SUBSPLIT_V1（2026-09-30）：splitLongSubtitles —— 单镜字幕上限 + 超长按句拆镜的服务端硬兜底
+//   （纯函数，与 anti-ai 同一套，两个分镜出口共用，免得两处走偏）。
+import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles } from '@/lib/agent/vf/anti-ai'
 // ★VF_VIDI2V_V1（2026-09-29）：「让图动起来」的计费口径（50 点/秒）与出片侧 vf-video.ts **共用同一份公式** ——
 //   卡片报价与实扣同源，免得又出现"卡片报 205 点、实扣 1500 点"。
 import { i2vCostPoints, vfTotalCostPoints, buildI2vShots, i2vKeyMap } from '@/lib/agent/vf/i2v-plan'
@@ -4137,6 +4139,20 @@ PUBLISH_DRAFT.delete(uidW)
                     vfLog(uidVF2, `[字幕体检] ✅ 通过（顺序 OK / 全部来自文案 / 覆盖 ${Math.round(_covN * 100)}%）`)
                   }
                 }
+                // ── ★VF_SUBSPLIT_V1（2026-09-30）：单镜字幕上限 → 超长【按句拆镜】（不许截断/丢文案）──
+                //   用户实测原话：「90 秒的样子 AI 把字幕都放在一起……90 秒的片子字幕好像溢出了。」
+                //   留档实测：10 镜 / 计划 49 秒 → 成片 121.68 秒、**第 10 镜 subtitle 257 字**（其余 25~42 字）。
+                //   放在【覆盖检查 / 字幕体检之后、vfHasPlan（覆盖 ≥80% 才给出片）闸门之前】：
+                //   拆镜不改总字数 → 覆盖不变；但顺序必须在闸门之前，免得"拆了反而被拒"。
+                {
+                  const _sp = splitLongSubtitles(vfShots)
+                  if (_sp.notes.length) {
+                    vfShots.splice(0, vfShots.length, ..._sp.shots)
+                    for (const _n of _sp.notes) vfLog(uidVF2, '[分镜] ' + _n)
+                    vfSubLen = vfShots.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
+                    vfCover = vfScript2 ? vfSubLen / vfScript2.length : vfCover
+                  }
+                }
                 // ★A8（2026-09-22）：原「[时长护栏] 分镜合计偏离目标 >25% 就缩放到目标秒数」**已删除**。
                 //   理由（也是原代码自己的注释）：素材成片的最终时长 = tts.py 逐镜配音真实时长之和
                 //   （tts.py 会 `s['dur'] = round(配音+0.35, 2)` 覆盖这里的 dur），
@@ -4320,6 +4336,15 @@ PUBLISH_DRAFT.delete(uidW)
               {
                 const _tl2 = lockUserTheme(vfAgain, vd.theme)
                 if (_tl2.notes.length) vfLog(uidVF2, '[主题] ' + _tl2.notes.join('；'))
+              }
+              // ★VF_SUBSPLIT_V1（2026-09-30）：重排分镜同样做「单镜字幕上限 → 超长按句拆镜」兜底
+              //   （与首次起草同口径；放在 vfAgainSub/vfAgainCover 之前，保证覆盖用拆后的口径算）。
+              {
+                const _sp2 = splitLongSubtitles(vfAgain)
+                if (_sp2.notes.length) {
+                  vfAgain.splice(0, vfAgain.length, ..._sp2.shots)
+                  for (const _n of _sp2.notes) vfLog(uidVF2, '[分镜] ' + _n)
+                }
               }
               const vfAgainSub = vfAgain.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
               const vfAgainCover = vd.script ? vfAgainSub / String(vd.script).length : 0

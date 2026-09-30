@@ -33,6 +33,13 @@ export const ANTI_AI_PROMPT =
   `✓ 【必须插信息卡】每 4~5 镜里至少插 1 张【独立信息卡】（list 列表 / number 大数字 / compare 对比 / chart 图表 / title 标题）\n` +
   `   ——不要整片都是"素材图 + 一行大字"（用户实测那样看着像图片轮播，很空洞）\n` +
   `✓ 对比卡文字要短：left 与 right 各 ≤8 字，leftDesc 与 rightDesc 各 ≤14 字（写长了画面不得不缩小字号）\n` +
+  // ★VF_SUBSPLIT_V1（2026-09-30 用户实测「90 秒的片子字幕好像溢出了」）：把"每镜字幕上限"写给 AI。
+  //   事故：留档 vf-20260930-140126-u1.json 的第 10 镜 subtitle 写了 **257 字** → 配音念了 60 秒，
+  //   字幕铺满整屏，整片从计划的 49 秒被拉到 121.68 秒。服务端已有硬兜底（超长按句拆镜），
+  //   但规矩要**同时**告诉 AI，免得它每次都把剩下的文案塞进最后一镜。
+  `✓ 【每镜字幕 ≤ 60 字】多出来的内容必须【另起一镜】，**不许把剩下的文案全塞进最后一镜**\n` +
+  `   ——塞进一镜会让那一镜念 1 分钟、字幕铺满整屏（实测：257 字塞进一镜 → 49 秒的片子被拉成 121.68 秒）。\n` +
+  `   多少字配多长：中文口播 ≈ 4.3 字/秒，所以长约 5 秒的镜 ≈ 20~22 字；文案长就【多排几镜】，别写爆最后一镜。\n` +
   // ★VF_AI_PICK_V1（2026-09-29 用户定案 P1「挑一些模版给 AI 套」）：让 AI 敢写、写对
   //   主题/版式/动效 —— 值必须落在白名单里（服务端与 render.py 都会再兜一层，写了非法值等于白写）。
   `\n【可选：主题 / 版式 / 动效】（想让画面更统一、更有设计感时才写；不写就用默认 —— **别堆砌**）\n` +
@@ -259,5 +266,121 @@ export function sanitizeAntiAiShots(shots: any[]): { shots: any[]; notes: string
   if (cmpShort) notes.push(`对比卡 ${cmpShort} 处文字超长已截短（左右 ≤8 字 / 说明 ≤14 字）`)
   if (numDrop) notes.push(`数字/图表卡 ${numDrop} 镜因【文案里没有数字】→ 已降级为标题卡（不编造数据）`)
   if (badDesign) notes.push(`主题/版式/动效 非法值已删 ${badDesign} 处（${badDesignSample.join('、')}…）→ 回默认渲染`)
+  return { shots: out, notes }
+}
+
+/* ══════════ ★VF_SUBSPLIT_V1（2026-09-30）：单镜字幕上限 + 超长自动「按句拆镜」 ══════════
+ * 用户实测原话：「看下错误，90 秒的样子 **AI 把字幕都放在一起**。为什么 30 秒的片子字幕不够用，
+ *              90 秒的片子字幕好像**溢出了**。」
+ * 事故数据（客户端留档 vf-20260930-140126-u1.json）：
+ *   10 镜 / 计划 49.0 秒，但成片 **121.68 秒**；其中 **第 10 镜 subtitle = 257 字**
+ *   （其余 9 镜只有 25~42 字）—— AI 把整段剩余文案全塞进了最后一镜。
+ *   机制：tts.py 会把每镜 dur 改成「该镜真实配音时长 + 0.35」→ 257 字念完 ≈ 60 秒
+ *        → 全片被拉长到 121.68 秒；字幕按整段烧进那一镜 → 257 字（每行 16 字 = 17 行）铺满整屏。
+ *   为什么现有闸门没拦住：分镜的「覆盖文案 ≥80%」是按【总字数】算的 —— 257 字都在 → 覆盖 100% 通过。
+ *
+ * 阈值来源（都是**实测**，不是拍脑袋）：
+ *   · 中文口播速度 ≈ **4.3 字/秒**（实测 21.1 秒念 90 字 = 4.27 字/秒，向上取 4.3）；
+ *   · 单镜上限 = `min(60, ceil(dur × 4.3))` —— dur 短就按 dur 卡；dur 再长也**不超过 60 字**
+ *     （60 字 ≈ 14 秒口播，比这还长就该拆镜了）。
+ *
+ * 三条铁律（本节的契约，自测 scripts/vf-subsplit-selftest.ts 逐条断言）：
+ *   ① **一字不少**：拆分只做「原始文字的连续子串切分」，所有段拼回来 === 原文（含标点）；
+ *   ② **标点优先**：先按 。！？；， 断句，再按「每段 ≤ 上限」贪心装箱；单句本身就超上限 → 按字数硬切；
+ *   ③ **不许动无辜的镜**：未超上限的镜**原样返回**（type/画面 src/text/主题/版式等字段全不动）。
+ */
+export const VF_SUB_CPS = 4.3            // 中文口播速度（字/秒，实测）
+export const VF_SUB_MAX = 60             // 单镜字幕硬上限（字）
+export const VF_SUB_SHOT_MIN_SEC = 2     // 拆出来的每一镜最短时长（秒）
+/** 中文断句标点（拆镜时的"句"边界；标点跟在前一段尾部，保证拼回来一字不差） */
+const VF_SUB_PUNC = '。！？；，'
+
+/** 单镜字幕上限 = min(60, ceil(dur × 4.3)) */
+export function subCapFor(dur: any): number {
+  const d = Math.max(1, Number(dur) || 1)
+  return Math.max(1, Math.min(VF_SUB_MAX, Math.ceil(d * VF_SUB_CPS)))
+}
+
+/** 把一段文字按「每段 ≤ cap 字」切分（标点优先，切不出来再按字数硬切）。
+ *  **返回值是原文的连续子串，`segs.join('') === 原文`**（一字不少，含标点）。 */
+export function splitTextByCap(text: any, cap: number): string[] {
+  const s = String(text == null ? '' : text)
+  const c = Math.max(1, Math.floor(Number(cap)) || 1)
+  if (!s) return []
+  if (s.length <= c) return [s]
+  // ① 按句切：标点跟在前一段尾部（这样拼回来与原文字节级一致）
+  const pieces: string[] = []
+  let cur = ''
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    cur += ch
+    if (VF_SUB_PUNC.includes(ch)) { pieces.push(cur); cur = '' }
+  }
+  if (cur) pieces.push(cur)
+  // ② 贪心装箱（每段 ≤ c）；单句本身就超限 → 按字数硬切（在标点优先之后）
+  const out: string[] = []
+  let buf = ''
+  for (const p of pieces) {
+    if (p.length > c) {
+      if (buf) { out.push(buf); buf = '' }
+      for (let i = 0; i < p.length; i += c) out.push(p.slice(i, i + c))
+      continue
+    }
+    if (buf.length + p.length <= c) buf += p
+    else { if (buf) out.push(buf); buf = p }
+  }
+  if (buf) out.push(buf)
+  return out
+}
+
+/** ★VF_SUBSPLIT_V1：把「字幕超长」的镜拆成多镜。
+ *  · 继承原镜的一切（卡型 / 画面 src / 大字 text / 主题 / 版式…），**只换 subtitle + dur**；
+ *  · dur 按各段字数比例分配，**每段 ≥ 2 秒**；若原 dur < 段数×2 → 该镜总时长抬到 段数×2
+ *    （此时"总和 = 原 dur"不可能同时满足"每段 ≥2 秒"——优先保证每段能念完，且在日志里说明）；
+ *    ⚠️ 上限一律按【原镜 dur】算：新镜的 dur 只是"tts 前的占位"（tts.py 会按真实配音回填 dur），
+ *    拿新 dur（可能是 2 秒下限）反推上限会自相矛盾；成片时长本就由配音决定，不靠这里省时间；
+ *  · 返回**新数组** + 处理说明（调用方写日志）。
+ *  为什么放在服务端而不是渲染层：渲染层只能"别糊屏"，真正的内容治理（拆镜让配音/时长自然）
+ *  必须在这里做。上限检查要放在「覆盖文案 ≥80%」闸门**之前**（拆完再算覆盖，避免"拆了反而被拒"）。
+ */
+export function splitLongSubtitles(shots: any[]): { shots: any[]; notes: string[] } {
+  const notes: string[] = []
+  const src = Array.isArray(shots) ? shots : []
+  const out: any[] = []
+  for (let i = 0; i < src.length; i++) {
+    const sh: any = src[i] || {}
+    const text = String(sh.subtitle == null ? '' : sh.subtitle)
+    const cap = subCapFor(sh.dur)
+    if (text.length <= cap) { out.push(sh); continue }
+    const segs = splitTextByCap(text, cap)
+    if (segs.length <= 1) { out.push(sh); continue }
+    const totalLen = segs.reduce((a, s) => a + s.length, 0) || 1
+    const origDur = Math.max(1, Number(sh.dur) || 3)
+    const minTotal = segs.length * VF_SUB_SHOT_MIN_SEC
+    const useTotal = Math.max(origDur, minTotal)
+    // 用「厘秒」整数分配，保证各段之和**精确等于** useTotal（浮点累加会漂）
+    const totalCs = Math.round(useTotal * 100)
+    const minCs = VF_SUB_SHOT_MIN_SEC * 100
+    const remainCs = Math.max(0, totalCs - segs.length * minCs)
+    let acc = 0
+    let prev = 0
+    const durs: number[] = []
+    for (const sg of segs) {
+      acc += remainCs * (sg.length / totalLen)
+      const add = Math.round(acc) - prev
+      prev = Math.round(acc)
+      durs.push((minCs + add) / 100)
+    }
+    for (let k = 0; k < segs.length; k++) {
+      out.push({ ...sh, subtitle: segs[k], dur: durs[k] })
+    }
+    notes.push(
+      `第 ${i + 1} 镜字幕 ${text.length} 字 → 按句拆成 ${segs.length} 镜（每镜 ≤ ${cap} 字，文案 0 丢失` +
+      (useTotal > origDur
+        ? `；每段 ≥${VF_SUB_SHOT_MIN_SEC} 秒 → 该镜总时长 ${origDur}s 抬到 ${Math.round(useTotal * 10) / 10}s`
+        : '') +
+      `）`
+    )
+  }
   return { shots: out, notes }
 }

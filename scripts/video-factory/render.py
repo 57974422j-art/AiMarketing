@@ -456,7 +456,11 @@ def big_text_layer(shot, th, W, H, dur, fs_max=None, y_off=0, box=None, stroke=T
 
 
 def wrap_subtitle(txt, limit=16, max_lines=2):
-    """字幕折行：优先在标点处断（每行 ≤limit 字，最多 max_lines 行），避免把词/数字切断。"""
+    """字幕折行：优先在标点处断（每行 ≤limit 字，最多 max_lines 行），避免把词/数字切断。
+
+    ★VF_SUBSPLIT_V1（2026-09-30）：**最多 max_lines 行**，超出的部分以「…」收尾 —— 绝不把剩余
+    文字全塞进末行（旧写法 `lines[-1] += 剩余` 会又变出一行超长字幕 = 白治）。这里只负责"别糊屏"，
+    真正的内容治理在服务端 A 层（超长字幕按句拆镜，见 anti-ai.ts 的 splitLongSubtitles）。"""
     s = str(txt or '').strip()
     if not s:
         return ''
@@ -477,10 +481,47 @@ def wrap_subtitle(txt, limit=16, max_lines=2):
                 break
     if cur:
         lines.append(cur)
-    if len(lines) > max_lines:
-        lines = lines[:max_lines]
-        lines[-1] = ''.join(lines[-1:]) + s[sum(len(x) for x in lines):]
-    return '\n'.join(lines[:max_lines])
+    rows = lines[:max_lines]
+    shown = sum(len(x) for x in rows)
+    if rows and shown < len(s):
+        tail = rows[-1]
+        rows[-1] = (tail[:-1] if len(tail) >= limit else tail) + '…'
+    return '\n'.join(rows)
+
+
+def _sub_rows(flat, W, base_fs, wrap=16, max_lines=2, min_ratio=0.6):
+    """★VF_SUBSPLIT_V1（2026-09-30）：字幕**最多 max_lines 行**（任何情况下不许铺满屏）。
+
+    用户实测原话：「90 秒的样子 AI 把字幕都放在一起……90 秒的片子字幕好像溢出了。」
+    事故：留档里有一镜 subtitle 257 字 → 旧逻辑按"每行 16 字"硬排 = 17 行 → 整屏被字幕糊住。
+    这里三道处理（依次）：
+      ① 先按"要塞进 max_lines 行"算每行需要的字数（need = ceil(总字/max_lines)），
+         每行容量 cpl 取 max(wrap, need) —— 短字幕行为不变（仍按 16 字/行、该一行就一行）；
+      ② 一行太长（cpl×字号 超出安全宽度）→ **自动降字号**（下限 min_ratio×基准字号，默认 0.6×）；
+      ③ 字号到下限还排不下 → **只显示前 max_lines 行、末行以「…」收尾**（只治糊屏，内容治理在服务端）。
+    返回 (rows, 实际字号)；rows 是**原文连续子串**（未转义，调用方负责 _ass_esc）。
+    """
+    s = str(flat or '')
+    if not s:
+        return [], int(base_fs)
+    if max_lines < 1:
+        max_lines = 1
+    need = -(-len(s) // max_lines)                     # ceil 除法（不 import math）
+    cpl = max(1, max(int(wrap), need))
+    safe = float(W) * 0.92                             # 左右各留 4% 安全边（与顶部 banner 同口径）
+    fs = int(base_fs)
+    if cpl * fs > safe:
+        fs = max(1, int(safe / cpl))
+        fs_min = max(1, int(int(base_fs) * float(min_ratio)))
+        if fs < fs_min:
+            fs = fs_min
+            cpl = max(1, int(safe / fs))               # 用下限字号的容量重排（此时行数会 > max_lines）
+    rows = [s[i:i + cpl] for i in range(0, len(s), cpl)]
+    if len(rows) > max_lines:
+        rows = rows[:max_lines]
+        tail = rows[-1]
+        rows[-1] = (tail[:-1] if len(tail) >= cpl else tail) + '…'
+    return rows, fs
 
 
 # ══════════════════ ★VF_OVERLAY_TEXT_SWITCH（2026-09-29 用户定案）══════════════════
@@ -2448,13 +2489,19 @@ def build_ass(shots, path, W, H, font_name='Noto Sans CJK SC', font_size=26, wra
             if flat:
                 n = max(1, len(flat))
                 per = max(1, int(round(max(0.1, _en - _st) * 100.0 / n)))   # 每字厘秒（逐字高亮跟得上声音）
-                rows = [_ass_esc(flat[i:i + wrap]) for i in range(0, len(flat), wrap)]
+                # ★VF_SUBSPLIT_V1（2026-09-30）：字幕**最多 2 行**（超长先降字号、还不行就截断+「…」）
+                #   旧逻辑 `flat[i:i+wrap]` 行数无上限 → 257 字 / 16 字一行 = 17 行 → 铺满整屏。
+                rows, _rf = _sub_rows(flat, W, font_size, wrap)
+                if len(flat) > max(1, int(wrap)) * 2:
+                    print('[VF] ⚠️ 第 %d 镜字幕过长（%d 字）→ 已按最多 2 行压缩显示' % (_i + 1, len(flat)))
                 segs = []
                 for ri, r in enumerate(rows):
                     if ri:
                         segs.append('\\N')
-                    segs.extend(['{\\k%d}%s' % (per, c) for c in r])
-                lines.append('Dialogue: 0,%s,%s,Def,,0,0,0,,%s' % (_ass_ts(_st), _ass_ts(_en), ''.join(segs)))
+                    segs.extend(['{\\k%d}%s' % (per, c) for c in _ass_esc(r)])
+                _fs_tag = ('{\\fs%d}' % int(_rf)) if int(_rf) != int(font_size) else ''
+                lines.append('Dialogue: 0,%s,%s,Def,,0,0,0,,%s%s'
+                             % (_ass_ts(_st), _ass_ts(_en), _fs_tag, ''.join(segs)))
         t += dur                  # 镜长推进（含 0.35 呼吸间隔，位置不变）
     if not lines:
         return ''
