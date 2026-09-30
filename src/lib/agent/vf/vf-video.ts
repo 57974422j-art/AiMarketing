@@ -42,6 +42,10 @@ import type { I2vBuildResult, I2vPlan } from './i2v-plan'
 //   （纯逻辑放 banner.ts，与 anti-ai.ts / i2v-plan.ts 同类，静态 import 不连累别的线）。
 import { buildBanner, fallbackBanner, bannerFieldOf, planWithBanner } from './banner'
 import type { VfBannerLines } from './banner'
+// ★VF_POOL_V1（2026-09-30 用户定案「重复选图」「每次都是同几张」）：「成片素材池治理」纯函数 ——
+//   与 anti-ai.ts / banner.ts / i2v-plan.ts 同类（零依赖、可单测），所以静态 import 不违反本文件
+//   「零 import 连累别的线」的约束。真正治的是：① 同一素材在一份分镜里被反复用 ② 老用同几张。
+import { dedupeMaterialUse, demoteRecent, recentNamesOf, mergeRecentRuns, shuffleDeterministic } from './material-pool'
 
 /* ==================== 类型（本线自己定义，不设共用类型文件） ==================== */
 
@@ -145,6 +149,47 @@ export async function hasVfVideoDraft(db: any, uid: number): Promise<boolean> {
   if (VF_VIDEO_DRAFT.has(uid)) return true
   const d = await loadVfVideoDraft(db, uid)
   return !!d?.step
+}
+
+/* ── ★VF_POOL_V1：「最近用过」记录（治"每次都是同几张"）────────────────────
+ * 用户原话：「第四条 3张动图我还是没懂」+ 反复看到同几张素材 → 选素材时要把最近 1~2 次用过的
+ * **排到后面**（不是排除，素材不够时仍可用）。
+ * 存储：**不新增表** —— 复用既有 agentMemory（只需 userId/content/tags 三个现成字段），
+ * 用本线自己的 tag（与 vf_draft_video 一样，一律 equals 精确匹配，绝不用 contains 误伤别线）。 */
+/** ★VF_POOL_V1（2026-09-30，team-lead 放开 route.ts 后定案）：这个 tag 是**两条成片线共用**的
+ *  ——「图片成片/素材线」也读同一份（见 chat/route.ts 的 vfRememberUsedImages）。
+ *  为什么共用而不是各线一个：两条线取的是**同一个个人仓库**，用户抱怨的"每次都是同几张"是池级现象；
+ *  若各线各记一份，A 线降权只躲开 A 线自己用过的，B 线用过的照样排在前面 → 问题只解决一半。
+ *  仍保持**本表 agentMemory 精确 equals 匹配**（历史事故：contains 会误伤别线草稿）。 */
+const VF_RECENT_TAG = 'vf_recent_used'
+const VF_RECENT_HEAD = '成片最近用过:'
+
+export async function loadRecentUsedRuns(db: any, uid: number | string): Promise<string[][]> {
+  try {
+    const dm = await db.agentMemory.findFirst({
+      where: { userId: String(uid), tags: { equals: VF_RECENT_TAG } },
+      orderBy: { updatedAt: 'desc' },
+    })
+    if (dm?.content) {
+      const t = String(dm.content)
+      const i = t.indexOf('[')
+      const j = JSON.parse(i >= 0 ? t.slice(i) : t)
+      return Array.isArray(j) ? j : []
+    }
+  } catch { /* 读不到 → 视为没有历史 */ }
+  return []
+}
+
+export async function saveRecentUsedRuns(db: any, uid: number | string, runs: string[][]): Promise<void> {
+  try {
+    const content = VF_RECENT_HEAD + JSON.stringify(runs)
+    const ex = await db.agentMemory.findFirst({
+      where: { userId: String(uid), tags: { equals: VF_RECENT_TAG } },
+      orderBy: { updatedAt: 'desc' },
+    })
+    if (ex) await db.agentMemory.update({ where: { id: ex.id }, data: { content } })
+    else await db.agentMemory.create({ data: { userId: String(uid), content, tags: VF_RECENT_TAG, salience: 0.4 } })
+  } catch { /* 记不上只影响"下次降权"，不影响本轮出片 */ }
 }
 
 /* ==================== ② 入口判定（本线自己的词表） ==================== */
@@ -277,7 +322,18 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   const dur = Math.max(5, Math.min(900, Number(vd.dur) || 30))
 
   // ── 1) 素材：图片 + 视频（视频要探测元信息 + 抽帧看懂内容）──
-  const mats = await ctx.listRepoMaterials(uid, 30)
+  const matsRaw = await ctx.listRepoMaterials(uid, 30)
+  // ★VF_POOL_V1（2026-09-30）素材池治理之二：**打乱 + 最近用过降权**
+  //   治用户实测「每次都选同几张」（原话：「第四条 3张动图我还是没懂」+ 反复同图）。
+  //   · 打乱用本轮 seed（Date.now()）→ 每轮顺序都不同，不再"永远从最前面几张挑"；
+  //   · 最近 1~2 次用过的素材稳定排到**后面**（不是排除，素材不够时仍可用）。
+  //   ⚠️ 必须在这里打乱：后面 summarizeMaterials 的「图1..图N」与 downloadMaterials 的 imgPaths
+  //      都从同一份 mats 顺序派生 —— 先打乱才能保证"摘要编号"与"pick 编号"严格对齐。
+  const recentRuns = await loadRecentUsedRuns(ctx.prisma, uid)
+  const _shuf = shuffleDeterministic((matsRaw || []) as any[], Date.now())
+  const _dem = demoteRecent(_shuf, recentNamesOf(recentRuns))
+  if (_dem.demoted) ctx.log(uid, `[VF-V][素材池] 最近用过 ${_dem.demoted} 条已排到后面（不是排除，素材不够时仍可用）`)
+  const mats = _dem.items
   const imgs = (mats || []).filter((m: any) => m.kind === 'image')
   // ★VF_VIDPROBE_V2：探测走 OSS 签名直链（**不下载整段**）—— 用户素材里可能有 3 分钟以上的长视频，
   //   旧做法"先全下再探"会把聊天请求堵死。
@@ -374,6 +430,10 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     `②【用图片的镜】写成 {"type":"bgimage","pick":2,"text":"画面大字","subtitle":"..."}\n` +
     `③【所有 subtitle 拼起来必须完整覆盖文案，且顺序一致】；不许扩写、不许重复、不许自己编句子\n` +
     `④相邻两镜不要用同一个视频；同一个视频切多段时，两段之间至少隔 2 镜\n` +
+    // ★VF_POOL_V1（2026-09-30 用户实测「AI 选择重复图一张」「连着两镜看着一样」）：
+    //   提示词里给出"每张最多用一次"的**硬规矩**（服务端在归一化阶段还有兜底去重，见下方 dedupeMaterialUse）。
+    `⑩【素材不许重复用】同一张图 / 同一个视频在一份分镜里【最多用一次】；` +
+    `只有在素材总数 < 镜头数时才允许重复，且同一素材的两镜之间【至少隔 2 镜】\n` +
     // ★VF_TEXTCARD_V1（2026-09-29 用户实测「没单独生成页面 都是图片加打字」）：
     //   原来提示词只说"画面用用户的素材" → AI 从不排独立文字卡，整条片成了"图文轮播"（12/12 镜都是素材镜）。
     //   现在明确要求：每 4~5 镜至少 1 镜用【不用素材】的文字卡，画面才有层次与节奏。
@@ -458,11 +518,42 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
       shotsOut.push(o)
     } else if (imgPaths.length) {
       const i = parseInt(s?.pick) - 1
-      const p = imgPaths[i >= 0 && i < imgPaths.length ? i : (shotsOut.length % imgPaths.length)]
-      shotsOut.push({ ...pickDesignFields(s), type: 'bgimage', src: p, text: big, subtitle: sub, dur: clampNum(s?.dur, 2, 8, 5) })
+      const pickIdx = i >= 0 && i < imgPaths.length ? i : (shotsOut.length % imgPaths.length)
+      // ★VF_POOL_V1：显式记下"用第几张图"（_pick），供下面"同一素材不重复"的兜底去重改写（写完就删）
+      shotsOut.push({ ...pickDesignFields(s), type: 'bgimage', _pick: pickIdx, src: imgPaths[pickIdx], text: big, subtitle: sub, dur: clampNum(s?.dur, 2, 8, 5) })
     } else {
       shotsOut.push({ type: 'title', text: big || sub.slice(0, 8), subtitle: sub, dur: 4 })
     }
+  }
+
+  // ── 5.45) ★VF_POOL_V1（2026-09-30）：同一素材不重复（归一化阶段的**服务端兜底**）
+  //   用户实测：「AI 选择重复图一张」「连着两镜看着一样」。提示词里已写硬规矩（⑩），
+  //   但 AI 不一定每次都听 → 这里再兜一层：重复的镜换成【还没用到的】素材；
+  //   素材不够（素材数 < 镜头数）才允许重复，但保证同一素材间隔 ≥ 2 镜；实在没得换就保留原样 + 日志。
+  //   图片、视频两条通道各自去重（图不跨到视频，反之亦然）。
+  {
+    const _imgIdx = shotsOut.map((s: any) => (s.type === 'bgimage' && typeof s._pick === 'number') ? s._pick : null)
+    const _d1 = dedupeMaterialUse(_imgIdx, imgPaths.length, 2)
+    for (let k = 0; k < shotsOut.length; k++) {
+      const s: any = shotsOut[k]
+      if (s.type !== 'bgimage' || typeof s._pick !== 'number') continue
+      const ni = _d1.ids[k]
+      if (ni >= 0 && ni !== s._pick && imgPaths[ni]) { s._pick = ni; s.src = imgPaths[ni] }
+    }
+    const _vidIdx = shotsOut.map((s: any) => (s.type === 'video' && typeof s._ci === 'number') ? s._ci : null)
+    const _d2 = dedupeMaterialUse(_vidIdx, clips.length, 2)
+    for (let k = 0; k < shotsOut.length; k++) {
+      const s: any = shotsOut[k]
+      if (s.type !== 'video' || typeof s._ci !== 'number') continue
+      const ni = _d2.ids[k]
+      if (ni >= 0 && ni !== s._ci && clips[ni]) {
+        s._ci = ni
+        s.src_dur = Math.round(Number(clips[ni]?.dur || 0) * 100) / 100
+        s.vstart = clampNum(s.vstart, 0, Math.max(0, Number(clips[ni]?.dur || 0) - Number(s.dur || 5)), 0)
+      }
+    }
+    for (const _n of _d1.notes) ctx.log(uid, '[VF-V]' + _n)
+    for (const _n of _d2.notes) ctx.log(uid, '[VF-V]' + _n)
   }
 
   // ── 5.5) ★VF_VIDONDEMAND_V1（2026-09-24）：只下载【真的排进分镜】的视频。
@@ -494,6 +585,14 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   }
   if (_adjFixed) ctx.log(uid, `[VF-V] 相邻两镜撞同一个视频 → 已调整 ${_adjFixed} 处（换视频/降级为图）`)
   if (_capHits) ctx.log(uid, `[VF-V] ${_capHits} 个视频镜超出每镜上限 ${VF_VIDEO_SHOT_MAX_SEC}s → 已夹到上限（渲染层可放慢/循环兜底）`)
+
+  // ★VF_POOL_V1（2026-09-30）：记下本份分镜**实际用到**的素材名 —— 供"最近用过降权"，
+  //   下次起草把它们排到后面（治「每次都是同几张」）。必须在下面删掉 _pick/_ci 之前统计。
+  const usedNames: string[] = []
+  for (const s of shotsOut as any[]) {
+    if (s.type === 'bgimage' && typeof s._pick === 'number' && imgLocal[s._pick]) usedNames.push(String(imgLocal[s._pick].name))
+    else if (s.type === 'video' && typeof s._ci === 'number' && clips[s._ci]) usedNames.push(String(clips[s._ci].name))
+  }
 
   const usedCi = [...new Set(shotsOut.filter((s: any) => s.type === 'video').map((s: any) => Number(s._ci)))]
     .filter((n) => Number.isFinite(n) && n >= 0 && n < clips.length)
@@ -531,6 +630,7 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
       delete s.src_dur
     }
     delete s._ci
+    delete s._pick   // ★VF_POOL_V1：临时字段（只在去重/统计时用），别带进草稿
   }
 
   // ── 6) 覆盖检查（与素材线同口径）：不足就按文案顺序补上"空/过短"的镜 ──
@@ -573,6 +673,11 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   vd.step = 'script'
   VF_VIDEO_DRAFT.set(uid, vd)
   await saveVfVideoDraft(ctx.prisma, uid, vd)
+  // ★VF_POOL_V1：把本份分镜用到的素材记进"最近用过"（最多留 2 轮）—— 下次起草降权（不排除）
+  if (usedNames.length) {
+    await saveRecentUsedRuns(ctx.prisma, uid, mergeRecentRuns(recentRuns, usedNames, 2))
+    ctx.log(uid, `[VF-V][素材池] 已记"最近用过" ${[...new Set(usedNames)].length} 条（下次起草排到后面）`)
+  }
   const nV = shotsOut.filter((s) => s.type === 'video').length
   ctx.log(uid, `[VF-V] 分镜 ${shotsOut.length} 镜（视频 ${nV} 镜 / 图片 ${shotsOut.length - nV} 镜）覆盖 ${Math.round(cover * 100)}%`)
   // ★VF_VIDI2V_V1：这次要让哪几张图动起来（开关关掉 → 空；费用如实报在确认卡上）

@@ -9,6 +9,9 @@ import path from 'path'
 import { spawnSync, execFile } from 'child_process'
 import { listObjects, getObject, signedUrl } from '@/lib/oss'
 import { describeImageWithVL, describeImagesWithVL } from '@/lib/ai-providers'
+// ★VF_POOL_V1（2026-09-30）：成片素材池治理的**纯函数**（判定"本系统出片产物" / 视觉摘要缓存键）。
+//   逻辑在 material-pool.ts（零依赖、可单测），本文件只负责 IO（读任务文件、读写缓存文件）。
+import { selectMaterialPool, cacheGet, cacheSet, cacheGetRaw, cacheSetRaw, vlClipCacheKey } from './vf/material-pool'
 
 /**
  * ★VF_VIDGUARD_V1（2026-09-24 用户实测：「素材库里有 3 分钟多的视频」）：
@@ -184,6 +187,90 @@ export function materialDir(userId: string | number): string {
   return path.join(vfStorageRoot(), String(userId), 'video-factory', 'material')
 }
 
+/* ══════════════════ ★VF_POOL_V1（2026-09-30）：成片素材池治理 ══════════════════ */
+
+/**
+ * 读"本系统出片记录"——从**仓库里已有的元数据**里拿，不新建任何爬取/表。
+ *
+ * 依据（用户原话「它选的都是视频……都是前面做的视频」= 用户把自己出的片又当素材喂回去，自我循环）：
+ *   video-factory 每次出片都写了任务文件 `<storage>/<uid>/video-factory/vf<ts>.json`，
+ *   成片入库后里面有 `repoName`（= 个人仓库里的文件名 `YYYYMMDD_NNN.mp4`，见 chat/route.ts 的 repoExtra）。
+ *   把这些 repoName 收集起来 → 强判据"这条素材是本系统出片产物"。
+ *
+ * 为什么只认任务文件（不查 GenerationRecord 表）：本函数在 listRepoMaterials 里调用，
+ *   而那里没有 prisma；任务文件是"仓库里已有的元数据"，零依赖、零新爬取，且**不会误伤**
+ *   用户自己导入的原片（导入的视频不在出片记录里）。
+ */
+export function readOutcomeNames(userId: string | number): Set<string> {
+  const names = new Set<string>()
+  try {
+    const dir = path.join(vfStorageRoot(), String(userId), 'video-factory')
+    if (!fs.existsSync(dir)) return names
+    for (const f of fs.readdirSync(dir)) {
+      if (!/^vf.*\.json$/i.test(f)) continue
+      try {
+        const j: any = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
+        const n = String(j?.repoName || '').trim()
+        if (n) names.add(n)
+      } catch { /* 单个任务文件坏了不影响其余 */ }
+    }
+  } catch { /* 目录不可读 → 视为无记录（宁可不排，别错排） */ }
+  return names
+}
+
+/** 视觉摘要缓存文件路径（落在该用户素材目录下，随用户隔离） */
+function vlCachePath(userId: string | number): string {
+  return path.join(materialDir(userId), '.vl_cache.json')
+}
+
+/** 读视觉摘要缓存（坏文件/不存在 → 空对象；绝不因为缓存问题影响识别） */
+function loadVlCache(userId: string | number): Record<string, string> {
+  try {
+    const p = vlCachePath(userId)
+    if (!fs.existsSync(p)) return {}
+    const j: any = JSON.parse(fs.readFileSync(p, 'utf8'))
+    return j && typeof j === 'object' && !Array.isArray(j) ? j as Record<string, string> : {}
+  } catch { return {} }
+}
+
+/** 写视觉摘要缓存（最多留 800 条，防文件无限膨胀；写失败不影响本次识别）
+ *  ★VF_POOL_V1：**先读盘再合并**—— 图片摘要（summarizeMaterials）与视频多帧理解（describeVideoClips）
+ *  在 vf-video.ts 里是**并行**跑的，各自 load 一份缓存；若不合并，后写的会把先写的新条目冲掉
+ *  （只影响"下次少省钱"，不影响正确性，但白丢缓存没意义）。 */
+function saveVlCache(userId: string | number, cache: Record<string, string>): void {
+  try {
+    const merged: Record<string, string> = { ...loadVlCache(userId), ...cache }
+    const keys = Object.keys(merged)
+    if (keys.length > 800) {
+      for (const k of keys.slice(0, keys.length - 800)) delete merged[k]
+    }
+    const p = vlCachePath(userId)
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, JSON.stringify(merged))
+  } catch { /* 缓存写失败忽略 */ }
+}
+
+/**
+ * ★VF_POOL_V1 扩展（2026-09-30，memory-frames 指出「用户能看到的垃圾」）：
+ *   清掉素材目录里历史遗留的 `*_vl.jpg`（= shrinkForVL 的缩图中间产物）。
+ *   现版本已改成"用完即删"（见 vlDescribeMaterial），这里只做**老残留 / 进程中断**的兜底：
+ *   超过 TTL（默认 6 小时）还没被删的，直接清掉。
+ */
+function cleanupVlThumbs(userId: string | number, ttlMs = 6 * 3600 * 1000): void {
+  try {
+    const dir = materialDir(userId)
+    if (!fs.existsSync(dir)) return
+    const now = Date.now()
+    for (const f of fs.readdirSync(dir)) {
+      if (!/_vl\.jpg$/i.test(f)) continue
+      try {
+        const p = path.join(dir, f)
+        if (now - fs.statSync(p).mtimeMs > ttlMs) fs.unlinkSync(p)
+      } catch { /* 单个删除失败忽略 */ }
+    }
+  } catch { /* 目录不可读忽略 */ }
+}
+
 /**
  * 列个人仓库素材（新的在前）
  * @param limit 最多返回多少条（默认 40；视觉理解另按 maxImages 控制）
@@ -251,9 +338,18 @@ export async function listRepoMaterials(userId: string | number, limit = 40, mod
     if (mode === 'recent') {
       return all.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit)
     }
+    // ★VF_POOL_V1（2026-09-30）：默认排除【本系统出片产物】—— 治"拿自己旧片当素材"的自我循环
+    //   （用户原话：「它选的都是视频……都是前面做的视频，本身那些视频就是素材库中的图片做的」）。
+    //   · 判据 = 出片记录（任务文件 repoName，强）+ 统一入库命名（弱）**两条同时成立** → 才排除；
+    //   · 没有出片记录 / 排除后素材太少 → 自动不排 / 放开（可解释、可回退，绝不把素材池排空）；
+    //   · 每次判定与原因都写进 vfLog（可核对到底排了谁、为什么排）。
+    //   ⚠️ mode='recent'（用户本次刚上传的）不排除 —— 那是用户明确要用的，不能替他决定。
+    const _pool = selectMaterialPool(all, { outcomeNames: readOutcomeNames(uid) })
+    for (const _n of _pool.notes) vfLog(uid, _n)
+    const base = _pool.kept
     // ★VF_MATSPREAD_V1：图片走"分批均匀抽样"，视频另留少量（画面以图为主）
-    const imgs = all.filter((o) => o.kind === 'image')
-    const vids = all.filter((o) => o.kind === 'video')
+    const imgs = base.filter((o) => o.kind === 'image')
+    const vids = base.filter((o) => o.kind === 'video')
     const vidKeep = Math.min(vids.length, 6)
     const picked = spreadMaterials(imgs, Math.max(1, limit - vidKeep))
     return [...picked, ...vids.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, vidKeep)].slice(0, limit)
@@ -452,14 +548,39 @@ export async function describeVideoClips(clips: any[], userId?: string | number)
   const base = userId != null ? materialDir(userId) : vfStorageRoot()
   const framesDir = path.join(base, 'vf_frames_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6))
   try { fs.mkdirSync(framesDir, { recursive: true }) } catch {}
+  // ★VF_POOL_V1 扩展（2026-09-30 team-lead 要求）：视频多帧理解并入**同一个缓存通道**（.vl_cache.json）——
+  //   用户抱怨的"看 2 次浪费钱"的另一半：同一条素材视频反复起草会重复抽 2~5 帧 + 1 次多图调用。
+  //   缓存的是 **describeOneClip 的文本结果**（不是帧文件 —— 帧继续"看完就删"，源视频大、留着没意义）。
+  //   键 = `仓库key@字节大小@起始秒@时长`（见 vlClipCacheKey）：整条理解恒定 起始秒=0、时长=片长
+  //   → 同一条视频被不同分镜取不同 vstart 时命中同一份（这份理解对任意 vstart 都成立，不会串味）；
+  //   而文件被替换/重新导出（size 或时长变）→ 键变 → 自动重算。
+  const cache = userId != null ? loadVlCache(userId) : {}
+  let hits = 0
+  let dirty = false
   let parts: string[] = []
   try {
     // 3 个并发：既压住总耗时，也别把百炼 QPS 一次打满（结果顺序仍与 clips 一致）
-    parts = await mapLimit(clips, 3, (c, i) => describeOneClip(c, i, framesDir))
+    parts = await mapLimit(clips, 3, async (c: any, i: number) => {
+      const ck = vlClipCacheKey(String(c?.key || c?.name || ''), Number(c?.size || 0), 0, Number(c?.dur || 0))
+      const hit = cacheGetRaw(cache, ck)
+      if (hit) {
+        hits++
+        // 缓存的文本里带着"视频N（name）"的序号 → 按当前位置改写编号（名与内容都不变），避免编号错位
+        return hit.replace(/^视频\d+/, '视频' + (i + 1))
+      }
+      const text = await describeOneClip(c, i, framesDir)
+      // 识别失败（抽帧失败 / 探不到 / 没识别出来）**不写缓存** → 下次仍会重试
+      if (text && !/（抽帧失败|（探不到|（没识别出来/.test(text)) {
+        if (cacheSetRaw(cache, ck, text)) dirty = true
+      }
+      return text
+    })
   } finally {
     // 抽帧只是中间产物（成片里播的是完整片段）→ 识别完整体删掉，不在服务器上堆垃圾
     try { fs.rmSync(framesDir, { recursive: true, force: true }) } catch { /* 清理失败不影响结果 */ }
   }
+  if (dirty && userId != null) saveVlCache(userId, cache)
+  if (hits && userId != null) vfLog(userId, `[素材池] 视频多帧理解命中缓存 ${hits} 条（省下 ${hits} 次多图调用）`)
   return parts.filter(Boolean).join('\n')
 }
 
@@ -524,12 +645,18 @@ function shrinkForVL(src: string): string {
 /** ★VF_VLM_2STAGE_V1：一张素材的完整识别 = 缩图 → ①分类 → ②按类别细看 */
 async function vlDescribeMaterial(localPath: string): Promise<string | null> {
   const p = shrinkForVL(localPath)
-  const b64 = 'data:image/jpeg;base64,' + fs.readFileSync(p).toString('base64')
-  const cls = (await describeImageWithVL(b64,
-    '这张图属于哪一类？只回一个词：软件界面（软件/网页/手机界面截图、工具或后台界面）／海报（成品宣传图、带大字的图）／实拍（照片、人物、场景、产品实拍）／图表（数据图表、表格、看板）。',
-    24)) || ''
-  const hit = VL_PROMPT_BY_CLASS.find((c) => cls.indexOf(c.kw) >= 0)
-  return await describeImageWithVL(b64, hit ? hit.prompt : VL_PROMPT_GENERIC, 400)
+  try {
+    const b64 = 'data:image/jpeg;base64,' + fs.readFileSync(p).toString('base64')
+    const cls = (await describeImageWithVL(b64,
+      '这张图属于哪一类？只回一个词：软件界面（软件/网页/手机界面截图、工具或后台界面）／海报（成品宣传图、带大字的图）／实拍（照片、人物、场景、产品实拍）／图表（数据图表、表格、看板）。',
+      24)) || ''
+    const hit = VL_PROMPT_BY_CLASS.find((c) => cls.indexOf(c.kw) >= 0)
+    return await describeImageWithVL(b64, hit ? hit.prompt : VL_PROMPT_GENERIC, 400)
+  } finally {
+    // ★VF_POOL_V1：`*_vl.jpg` 缩图只是中间产物（用完即删）—— 原来一直留在素材目录里，是用户能看到的垃圾。
+    //   缩图失败时 shrinkForVL 返回原图路径（p === localPath）→ 绝不能删原图。
+    if (p !== localPath) { try { fs.unlinkSync(p) } catch { /* 已被删/占用忽略 */ } }
+  }
 }
 
 export async function summarizeMaterials(
@@ -541,22 +668,44 @@ export async function summarizeMaterials(
   const vids = items.filter((i) => i.kind === 'video').slice(0, 5)
   if (!imgs.length && !vids.length) return ''
 
+  // ★VF_POOL_V1：顺手清掉素材目录里历史遗留的 `*_vl.jpg`（老版本残留 / 进程中断留下的中间图）。
+  //   现版本缩图已"用完即删"，这里只做兜底 TTL 清理，不影响本次识别。
+  cleanupVlThumbs(userId)
+
   const lines: string[] = []
   if (vids.length) lines.push('视频素材（仅列名，未看画面）：' + vids.map((v) => v.name).join('、'))
 
   const withLocal = await downloadMaterials(userId, imgs)
+  // ★VF_POOL_V1（2026-09-30）：素材识别【指纹缓存】—— 治用户抱怨的「看 2 次浪费钱」：
+  //   同一张图在多次起草里被反复识别（每次都要跑 2~3 次视觉调用）。
+  //   键 = `仓库key@字节大小`（见 material-pool.vlCacheKey）：文件大小一变就自动失效重算；
+  //   改名 → key 变 → 命中失败 → 重算（**只会多花钱，绝不串味**）。
+  //   识别失败（null/空）不写缓存 → 下次仍会重试，不会把"没识别出来"永久缓存。
+  const vlCache = loadVlCache(userId)
+  let vlDirty = false
+  let vlHits = 0
   let i = 0
   for (const m of withLocal) {
     if (!m.localPath) continue
     i++
     try {
-      // ★VF_VLM_2STAGE_V1（P1）：缩图 → ①分类 → ②按类别细看（提示词见上方 VL_PROMPT_* 常量）
+      // ① 先查缓存（命中就完全不调模型）
+      const hitDesc = cacheGet(vlCache, m.key || m.name, m.size)
+      if (hitDesc) {
+        vlHits++
+        lines.push(`图${i}（${m.name}）：${hitDesc}`)
+        continue
+      }
+      // ② 未命中 → ★VF_VLM_2STAGE_V1：缩图 → ①分类 → ②按类别细看（提示词见上方 VL_PROMPT_* 常量）
       const desc = await vlDescribeMaterial(m.localPath)
+      if (cacheSet(vlCache, m.key || m.name, m.size, desc)) vlDirty = true
       lines.push(`图${i}（${m.name}）：${desc || '（未识别）'}`)
     } catch (e: any) {
       lines.push(`图${i}（${m.name}）：（读图失败）`)
     }
   }
+  if (vlDirty) saveVlCache(userId, vlCache)
+  if (vlHits) vfLog(userId, `[成片素材] 视觉摘要命中缓存 ${vlHits} 张（省下 ${vlHits} 次/轮的看图调用）`)
   if (!i) return lines.join('\n')
   return (lines.length ? lines.join('\n') + '\n' : '') + `（以上共看了 ${i} 张图；如需看更多素材告诉我）`
 }

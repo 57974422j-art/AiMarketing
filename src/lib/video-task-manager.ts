@@ -466,6 +466,10 @@ async function runTask(
     task.status = 'failed'
     task.error = e.message
     console.error(`[合成] ❌ 失败 task=${task.id}`, e.message.slice(0, 300))
+    // ★VF_WDCLEAN_V1（2026-09-30 队友核查发现：失败分支不删工作目录 → 磁盘越积越多）：
+    //   工作目录里是逐镜片段/中间音轨（一条片几百 MB）。失败原因已经写进 task.error（可查），
+    //   所以这里把工作目录清掉 —— 不能"为了留证据"让磁盘无限涨（用户实测"切片/垃圾出现得比较多"）。
+    try { fs.rmSync(wd, { recursive: true, force: true }) } catch { /* 删不掉不影响结果 */ }
   }
 }
 
@@ -715,5 +719,7 @@ async function runSmartTask(
     task.status = 'failed'
     task.error = e.message
     console.error(`[智能成片] ❌ 失败 task=${task.id}`, e.message.slice(0, 300))
+    // ★VF_WDCLEAN_V1（2026-09-30）：同上 —— 失败也要清工作目录，避免磁盘无限增长
+    try { fs.rmSync(wd, { recursive: true, force: true }) } catch { /* 删不掉不影响结果 */ }
   }
 }

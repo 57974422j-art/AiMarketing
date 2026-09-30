@@ -441,6 +441,27 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
     if _i2v_reuse:
         print('[H3] ♻️ 其中 %d 镜复用同一张图的动图（不额外计费；计费按唯一图算）' % _i2v_reuse)
     print('[H3] 生成完成：**%d/%d 镜**，共 %.1f 秒，通道=%s' % (ok_n, len(shots), total_sec, via_last))
+    # ★I2V_BILL_V1（2026-09-30 用户实测质疑「3 张动图看不出动、这钱花的不值」后核查发现）：
+    #   **计费漏洞** —— 图生视频失败时我们【静默退回静态图】（见上面的 i2v_fallback，刻意的，
+    #   不让"让图动起来失败"判死整片）；但 Node 侧（route.ts）的扣费是按**计划秒数**算的
+    #   （整片成功就扣 vfCost）→ **没生成出来也照扣 = 多扣用户的钱**。
+    #   这里把【真实成功】的图数/秒数打成一行机器可读日志；Node 侧解析后【只少收、不多收】。
+    #   口径提示：sec 只统计**成功生成的那些唯一图**的片段秒数（复用镜不重复计）。
+    try:
+        _ok_n, _ok_sec, _fail_n = 0, 0.0, 0
+        for _v in _i2v_cache.values():
+            if _v:
+                _ok_n += 1
+                try:
+                    _ok_sec += float(_probe_sec(_v) or 0)
+                except Exception:
+                    pass
+            else:
+                _fail_n += 1
+        print('[VF] ★I2V_REAL:{"images":%d,"sec":%.2f,"reuse":%d,"fail":%d}'
+              % (_ok_n, _ok_sec, _i2v_reuse, _fail_n))
+    except Exception as _eI:
+        print('[VF] ★I2V_REAL 统计异常（忽略，按原价扣）: %s' % str(_eI)[:80])
     return (out_path, ok_n, total_sec, via_last)
 
 

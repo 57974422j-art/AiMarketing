@@ -1340,8 +1340,16 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     _flat = _mat.get('flat', 0.0)
     _dark = _lum < 78                      # 深色素材（深色录屏/黑底图）
     _graphic = _flat > 0.42                # 截图/海报（大片纯色底）—— 照片主色占比通常 < 0.25
-    _busy = _graphic or (_edge > 0.10)     # "素材自己已经有字/图案"
-    if _dark and _graphic:
+    # ★VF_MATGUARD_V3（2026-09-30 用户实测「只有第五条遮挡了」后，用他的素材实跑发现**漏判**）：
+    #   实测两张真素材：拼贴海报 lum=149/flat=0.021/edge=0.179 → 判得出（edge 命中）；
+    #   但**深色界面截图 lum=45/flat=0.319/edge=0.072** → 老门槛（flat>0.42 或 edge>0.10）**都够不到**
+    #   → 被判成"普通素材"→ 照旧居中压大字 → 就成了用户截图里那张"黑底上字压字"（第 5 镜）。
+    #   修法：**深色素材**单独放宽一条（深色 + 主色占比>0.22 或 边缘>0.055 就算"界面/截图"），
+    #   并且把"又深又满字 → 换质感底板"的门槛从 flat>0.42 降到 >0.28（深色实拍照片通常 flat<0.10，
+    #   不会被误判；只有"大片纯色底的界面/海报"才会过）。
+    _busy = _graphic or (_edge > 0.10) or (_dark and (_flat > 0.22 or _edge > 0.055))
+    _screen = _dark and _flat > 0.28       # 深色 + 大片纯色底 = 典型"深色界面截图/黑底海报"
+    if _screen:
         # 又深又满字 = 典型"深色界面截图" → 【不硬塞这张图】，改用主题质感底板 + 大字
         #（规划文档 P2「缺就承认缺」：宁可出一张设计过的文字卡，也不要一张看不清的截图）
         print('[VF] 素材不适合当背景（亮度 %d / 主色 %.2f / 边缘 %.2f）→ 本镜改用主题质感底板：%s'
@@ -2128,6 +2136,25 @@ def main():
     a = ap.parse_args()
 
     ffmpeg = find_ffmpeg()
+    # ★VF_ENVINFO_V1（2026-09-30 用户定案「出片改本地我们仔细讨论一下」的**第 1 步：可观测**）：
+    #   "能不能本地出片"不该靠猜 —— 每次渲染把【真正用到的执行环境】打进行日志（会进任务文件 tail）：
+    #   python / ffmpeg / ffprobe / 中文字体（常规 + 粗体）/ 操作系统。
+    #   为什么先做这个、而不是直接做"本地渲染"：本地化最大的坑是【两端字体不同 → 折行与字号都变】
+    #   与【脚本版本漂移】；先把这五条打成"可比较的字符串"，两端跑同一份分镜就能一眼看出差异。
+    #   注：只打印、不改行为（找不到的项如实写"未找到"，绝不抛错）。
+    try:
+        print('[VF][环境] python=%s  os=%s' % (sys.version.split()[0], sys.platform))
+        print('[VF][环境] ffmpeg=%s' % (ffmpeg or '未找到 ❌'))
+        _fdir = os.path.dirname(ffmpeg or '')
+        _fp = ''
+        if _fdir:
+            _cand = os.path.join(_fdir, 'ffprobe' + ('.exe' if os.name == 'nt' else ''))
+            _fp = _cand if os.path.exists(_cand) else ''
+        print('[VF][环境] ffprobe=%s' % (_fp or '（与 ffmpeg 同目录未找到 → 用 PATH）'))
+        for _fk in ('msyh', 'msyhbd'):
+            print('[VF][环境] 字体 %s=%s' % (_fk, find_font(_fk) or '未找到 ❌'))
+    except Exception as _eEnv:
+        print('[VF][环境] 打印失败（忽略）: %s' % str(_eEnv)[:80])
 
     if a.selftest:
         wd = a.workdir or os.path.join(tempfile.gettempdir(), 'vf-selftest')

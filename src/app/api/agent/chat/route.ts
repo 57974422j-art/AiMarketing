@@ -7,7 +7,11 @@ import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRoot
 //   所以静态 import 不会引入循环依赖。
 import { matchesAiLine, clearVfAiDraft, hasAiDraft } from '@/lib/agent/vf/vf-aivideo'
 // ★VF_VIDEOLINE_V1（2026-09-24）「视频混剪」线：入口词判断同样用于 skipModelStep1（纯正则、零依赖）
-import { matchesVideoLine, clearVfVideoDraft, hasVfVideoDraft } from '@/lib/agent/vf/vf-video'
+import { matchesVideoLine, clearVfVideoDraft, hasVfVideoDraft, loadRecentUsedRuns, saveRecentUsedRuns } from '@/lib/agent/vf/vf-video'
+// ★VF_POOL_V1（2026-09-30，team-lead 放开 route.ts 后接入）：「图片成片 / 素材线」也接上素材池治理 ——
+//   ① 同素材不重复（dedupeMaterialUse）② 最近用过降权（demoteRecent / recentNamesOf / mergeRecentRuns）
+//   ③ 起草前打乱（shuffleDeterministic）。纯函数、零依赖（与 anti-ai.ts 同类），静态 import 无副作用。
+import { dedupeMaterialUse, demoteRecent, recentNamesOf, mergeRecentRuns, shuffleDeterministic } from '@/lib/agent/vf/material-pool'
 import { matchesMixLine, clearVfMixDraft, hasMixDraft } from '@/lib/agent/vf/vf-mix'
 // ★VF_LEAD_V1（2026-09-29 老板定案）：「智能获客」= 第 5 条状态机线。草稿 tag 独立（vf_draft_lead），
 //   纯函数 + prisma 注入（与成片线同一形态），静态 import 只为拿"清草稿/查草稿"两个函数。
@@ -268,6 +272,56 @@ async function genVideoShots(o: Parameters<typeof genVideoShotsRaw>[0]): Promise
   const _anti = sanitizeAntiAiShots(shots)
   if (_anti.notes.length) vfLog(o.uid, '[反AI味] ' + _anti.notes.join('；'))
   return _anti.shots
+}
+
+/* ── ★VF_POOL_V1（2026-09-30，team-lead 放开 route.ts 后接入）：「图片成片 / 素材线」的素材池治理 ──
+ * 用户原话：「重复选图这个你可以看如何改。」「它选的都是视频……都是前面做的视频。」（自我循环）
+ *   ① `vfSpreadMats`    起草前把仓库素材【打乱 + 最近用过降权】（治"每次都是同几张"）
+ *   ② `vfDedupeImageShots` 归一化后【同一张图最多用一次 / 至少隔 2 镜】（治"AI 选择重复图一张"）
+ *   ③ `vfRememberUsedImages` 把本份用到的图记进"最近用过"（与视频混剪线共用同一份，池级降权） */
+
+/** 起草前：打乱（每轮顺序不同）+ 最近用过排到后面（**不是排除**）。 */
+async function vfSpreadMats(uid: number | string, mats: any[]): Promise<any[]> {
+  const list = Array.isArray(mats) ? mats : []
+  if (!list.length) return list
+  let recentRuns: string[][] = []
+  try { recentRuns = await loadRecentUsedRuns(prisma, uid) } catch { recentRuns = [] }
+  const shuf = shuffleDeterministic(list, Date.now())
+  const dem = demoteRecent(shuf, recentNamesOf(recentRuns))
+  if (dem.demoted) vfLog(uid, `[素材池] 最近用过 ${dem.demoted} 张已排到后面（不是排除，素材不够时仍可用）`)
+  return dem.items
+}
+
+/** 归一化后：同一张图在一份分镜里最多用一次（素材不足则至少隔 2 镜）；返回本份用到的文件名。 */
+function vfDedupeImageShots(uid: number | string, shots: any[], paths: string[]): string[] {
+  const imgs = (paths || []).filter(Boolean)
+  if (!Array.isArray(shots) || !imgs.length) return []
+  const idxOf = new Map<string, number>()
+  imgs.forEach((p, i) => idxOf.set(p, i))
+  const ids = shots.map((s: any) => (s && s.type === 'bgimage' && typeof s.src === 'string' && idxOf.has(s.src))
+    ? (idxOf.get(s.src) as number) : null)
+  const d = dedupeMaterialUse(ids, imgs.length, 2)
+  const used = new Set<number>()
+  for (let k = 0; k < shots.length; k++) {
+    const s: any = shots[k]
+    if (!s || s.type !== 'bgimage') continue
+    const ni = d.ids[k]
+    if (ni >= 0 && imgs[ni]) { if (s.src !== imgs[ni]) s.src = imgs[ni]; used.add(ni) }
+  }
+  for (const n of d.notes) vfLog(uid, '[VF-P]' + n)
+  // 降权用文件名：本地路径 → basename（与仓库素材的 name 同口径）
+  return [...used].map((i) => String(imgs[i]).split(/[\\/]/).pop() || '').filter(Boolean)
+}
+
+/** 记"最近用过"（最多留 2 轮；与视频混剪线共用同一份 tag → 池级降权）。 */
+async function vfRememberUsedImages(uid: number | string, names: string[]): Promise<void> {
+  const uniq = [...new Set((names || []).map((x) => String(x)).filter(Boolean))]
+  if (!uniq.length) return
+  try {
+    const prev = await loadRecentUsedRuns(prisma, uid)
+    await saveRecentUsedRuns(prisma, uid, mergeRecentRuns(prev, uniq, 2))
+    vfLog(uid, `[素材池] 已记"最近用过" ${uniq.length} 张（下次起草排到后面）`)
+  } catch { /* 记不上只影响下次降权，不影响本轮出片 */ }
 }
 
 /** ★VF_SUBFILL_V1 / ★VF_SPLIT2_V1：把口播文案**按顺序**切成 n 段。
@@ -1101,6 +1155,28 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         ch.stderr.on('data', push)
         ch.on('close', async (code: number | null) => {
           const okDone = code === 0 && fsVF.existsSync(vfOut)
+          // ★I2V_BILL_V1（2026-09-30 用户实测质疑「3 张动图看不出动、这钱花的不值」→ 核查后发现真实漏洞）：
+          //   图生视频失败时 make.py **刻意**退回静态图（i2v_fallback，不让"让图动起来失败"判死整片），
+          //   而原来的扣费是**无条件按计划秒数**扣（只要整片成功就扣 vfCost）→ **没生成出来也照扣 = 多扣用户的钱**。
+          //   现在读 make.py 打的机器可读行 ★I2V_REAL:{images,sec,reuse,fail}，按【真实成功】秒数重算：
+          //   · 只有"实际 < 计划"时才下调（**只少收、绝不多收**）；
+          //   · 解析不到 / 本来就没有图生视频 → 一切照旧（这条改动永远不会让钱变多）。
+          let vfCharge = vfCost
+          let vfI2vReal: any = null
+          try {
+            const _mReal = /★I2V_REAL:(\{[^}]*\})/.exec(so)
+            if (_mReal && _mixAiSec > 0) {
+              const _real = JSON.parse(_mReal[1])
+              const _realSec = Math.max(0, Number(_real?.sec) || 0)
+              vfI2vReal = { planSec: _mixAiSec, ...(_real || {}) }
+              if (_realSec + 0.05 < _mixAiSec) {
+                vfCharge = Math.max(1, i2vCostPoints(_realSec) + Math.ceil(vfBillChars / 20))
+                vfLog(String(uidVF), `[计费] 图生视频实际成功 ${_real?.images ?? 0} 张 / ${_realSec}s`
+                  + `（计划 ${_mixAiSec}s，失败 ${_real?.fail ?? 0} 张）→ 实扣 ${vfCharge} 点`
+                  + `（原计划 ${vfCost} 点；按下调，只少收不多收）`)
+              }
+            }
+          } catch (eB2: any) { console.error('[计费] I2V_REAL 解析失败（按原价扣）:', eB2?.message || eB2) }
           // ★VF_REPO_V1（2026-09-18）：成片转 OSS + 入个人仓库。
           //   原来只把服务器本地路径写进任务文件 → 用户在客户端根本拿不到文件。
           let repoExtra: Record<string, any> = {}
@@ -1120,10 +1196,14 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           }
           writeVfTask({ id: vfTaskId, status: okDone ? 'done' : 'failed',
                         startedAt: vfStarted, finishedAt: new Date().toISOString(),
-                        out: vfOut, cost: vfCost, code: code,
+                        out: vfOut, cost: vfCharge, planCost: vfCost, code: code,
+                        // ★I2V_BILL_V1：把"真实成功的张数/秒数"也落进任务文件 —— 用户问"这笔钱值不值"时，
+                        //   看一眼就知道当时到底生成了几张（不用再翻 40 行 tail）。
+                        i2vReal: vfI2vReal || undefined,
                         tail: so.split('\n').filter(Boolean).slice(-40),
                         ...repoExtra })
-          if (okDone) { spendTokens(uidVF, vfCost, 'make_ai_video').catch(() => {}) }
+          // ★I2V_BILL_V1：扣的是"真实生成出来的"那部分（没生成出来的不收）
+          if (okDone) { spendTokens(uidVF, vfCharge, 'make_ai_video').catch(() => {}) }
         })
         ch.on('error', (e: any) => {
           writeVfTask({ id: vfTaskId, status: 'failed', startedAt: vfStarted,
@@ -2117,13 +2197,28 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
             if (fs.existsSync(out)) frames.push(`/api/frames/${auth.userId}/${ts}/f${i}.jpg`)
           } catch {}
         }
+        // ★VF_TMPCLEAN_V1（2026-09-30 用户实测「发布时切 3-4 张视频切片……那个出现的也比较多」，
+        //   队友核查确认）：这个 tmp 目录里是**整段源视频的拷贝**（几十~几百 MB），
+        //   原来从下载到最后【没有任何一处删它】→ 每发布一次就在系统临时目录留一份垃圾，越积越多。
+        //   现在：帧已经抽完了（后面的视觉理解读的是抽出来的 jpg，不再需要 src.mp4）→ 立刻删干净。
+        //   注：放在"抽帧失败"分支之前，失败路径也不会留垃圾。
+        try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* 删不掉不影响抽帧结果 */ }
         if (!frames.length) return '抽帧失败，视频可能无法解码'
         frameStore.set(auth.userId, { frames: frames.map((u, idx) => ({ idx: idx + 1, url: u })), videoName, orientation })
+        // ★VF_TMPCLEAN_V1：顺手把"所有用户"的过期抽帧目录清掉（原来只清当前用户自己的，
+        //   而且只在"他再次抽帧"时才触发 → 不抽的人永远不清）；>1 小时即视为过期。
         try {
-          const base = path.join(pubRoot, 'frames', String(auth.userId))
-          if (fs.existsSync(base)) for (const d of fs.readdirSync(base)) {
-            const p = path.join(base, d)
-            if (Date.now() - fs.statSync(p).mtimeMs > 3600000) fs.rmSync(p, { recursive: true, force: true })
+          const baseAll = path.join(pubRoot, 'frames')
+          if (fs.existsSync(baseAll)) for (const u of fs.readdirSync(baseAll)) {
+            const ub = path.join(baseAll, u)
+            try {
+              if (!fs.statSync(ub).isDirectory()) continue
+              for (const d of fs.readdirSync(ub)) {
+                const p = path.join(ub, d)
+                if (Date.now() - fs.statSync(p).mtimeMs > 3600000) fs.rmSync(p, { recursive: true, force: true })
+              }
+              if (!fs.readdirSync(ub).length) fs.rmSync(ub, { recursive: true, force: true })
+            } catch { /* 单个用户目录失败不影响其它 */ }
           }
         } catch {}
         const grid = ''
@@ -3772,6 +3867,11 @@ PUBLISH_DRAFT.delete(uidW)
                     vfLog(uidVF2, `[上传] ⚠️ 名单里 ${_wanted.length} 个文件在仓库里没找到 → 回退“最近上传”`)
                   }
                 }
+                // ★VF_POOL_V1（2026-09-30）：**只有纯"仓库素材"路径**才"打乱 + 最近用过降权"——
+                //   上传意图（含"最近上传"回退）要保持用户选/最近上传的顺序 → 原样使用，不重排、不降权。
+                const _uploadMode = !!(vd.useRecent || _wanted.length)
+                if (!_uploadMode) vfMats = await vfSpreadMats(uidVF2, vfMats)
+                else vfLog(uidVF2, '[素材池] 上传模式（含回退"最近上传"）→ 保持原顺序，不打乱/不降权')
                 const _dur0 = Math.max(5, Math.min(900, parseInt(vd.dur) || 30))
                 // ★VF_MATN_V1（2026-09-20，用户要求）：素材张数跟时长走——【每 30 秒约 5 张】
                 //   30s→5 张、60s→10 张、90s→15 张、180s→30 张；仓库不够就有多少用多少。
@@ -3922,6 +4022,9 @@ PUBLISH_DRAFT.delete(uidW)
                   //   非 AI 模式不传 → 输出与原来完全一致（素材合成零影响）。
                   wantPrompt: vfAI,
                 })
+                // ★VF_POOL_V1（2026-09-30）：同一张图不重复（归一化后兜底 / 素材不足则至少隔 2 镜）
+                //   + 把本份用到的图记进"最近用过"（下次起草降权）。AI 模式无 bgimage → 自动 no-op。
+                await vfRememberUsedImages(uidVF2, vfDedupeImageShots(uidVF2, vfShots, vfImgs))
                 // 存进草稿：**「重试分镜」时不用重新取素材/看图**（直接复用）
                 vd.imgs = vfImgs
                 vd.brief = String(vfBrief || '').slice(0, 1500)
@@ -4184,6 +4287,9 @@ PUBLISH_DRAFT.delete(uidW)
                   ? `上次 subtitle 一共只写了 ${vd.subLen || 0} 字，文案共 ${String(vd.script || '').length} 字，只覆盖了 ${Math.round((vd.cover || 0) * 100)}%。这次**必须覆盖全文**（平均每镜约 ${Math.round(String(vd.script || '').length / vfShotN2)} 字），镜头数 ${vfShotN2} 个。`
                   : '上次没排出合规 JSON。这次只输出严格 JSON 数组，pick 用纯数字。',
               })
+              // ★VF_POOL_V1（2026-09-30）：重排分镜同样做"同一张图不重复"兜底（复用同一份纯函数）——
+              //   与首次起草同口径；并更新"最近用过"（重排后实际用到的图才算）。
+              await vfRememberUsedImages(uidVF2, vfDedupeImageShots(uidVF2, vfAgain, vd.imgs || []))
               const vfAgainSub = vfAgain.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
               const vfAgainCover = vd.script ? vfAgainSub / String(vd.script).length : 0
               const vfAgainEst = Math.round(vfAgainSub / 4.5)
