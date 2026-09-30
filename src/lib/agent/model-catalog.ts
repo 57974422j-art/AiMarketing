@@ -17,7 +17,7 @@
  */
 
 export type ModelSlot = 'brain' | 'writer'
-export type ModelPresetId = 'fast' | 'strong-deepseek' | 'strong-qwen' | 'custom'
+export type ModelPresetId = 'fast' | 'strong-deepseek' | 'strong-qwen' | 'strong-qwen-latest' | 'custom'
 
 export interface ModelInfo {
   /** 模型 id（直接传给各厂商 OpenAI 兼容接口的 model 字段） */
@@ -49,6 +49,13 @@ export const BRAIN_MODELS: ModelInfo[] = [
     fit: '阿里多模态·更强，能看图 + 调工具（现状"带图/自由模式"用它）',
   },
   {
+    // ★VF_MODELSWITCH_V1（2026-09-30 上线前实查百炼模型清单 261 个，确认本 id 存在）：
+    //   阿里新一代 Max（`qwen3.8-max`），比 qwen3-max 更新 —— 用户要"阿里更好的模型"就选它。
+    id: 'qwen3.8-max', name: '通义千问 3.8 Max（最新）', vendor: '阿里·百炼',
+    multimodal: true, fc: true, keyEnv: ['DASHSCOPE_API_KEY'],
+    fit: '阿里最新一代 Max·多模态·最强理解（比 qwen3-max 新）',
+  },
+  {
     id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', vendor: 'DeepSeek / 百炼',
     multimodal: false, fc: true, keyEnv: ['DASHSCOPE_API_KEY', 'DEEPSEEK_API_KEY'],
     fit: '兜底，两处都托管（现状兜底模型）',
@@ -76,6 +83,11 @@ export const WRITER_MODELS: ModelInfo[] = [
     id: 'qwen3-max', name: '通义千问 3 Max', vendor: '阿里·百炼',
     multimodal: true, fc: false, keyEnv: ['DASHSCOPE_API_KEY'],
     fit: '阿里多模态·更强（用户点名的"阿里模型"）',
+  },
+  {
+    id: 'qwen3.8-max', name: '通义千问 3.8 Max（最新）', vendor: '阿里·百炼',
+    multimodal: true, fc: false, keyEnv: ['DASHSCOPE_API_KEY'],
+    fit: '阿里最新一代 Max·多模态（比 qwen3-max 新，理解更强）',
   },
   {
     id: 'qwen3.8-flash', name: '通义千问 3.8 Flash', vendor: '阿里·百炼',
@@ -115,6 +127,13 @@ export const MODEL_PRESETS: Record<ModelPresetId, ModelPreset> = {
     desc: '大脑 + 书写都用 qwen3-max（阿里多模态）',
     brain: 'qwen3-max', writer: 'qwen3-max',
   },
+  'strong-qwen-latest': {
+    // ★VF_MODELSWITCH_V1（2026-09-30 上线前实查百炼模型清单 261 个，确认 qwen3.8-max 存在）：
+    //   与用户"阿里更好的模型"对齐 —— 新增"最新"档（**不改动 strong-qwen**，方便对比两代）。
+    id: 'strong-qwen-latest', name: '阿里·最新',
+    desc: '大脑 + 书写都用 qwen3.8-max（阿里最新一代 Max，比 qwen3-max 新）',
+    brain: 'qwen3.8-max', writer: 'qwen3.8-max',
+  },
   custom: {
     id: 'custom', name: '自定义',
     desc: '大脑 / 书写分别指定',
@@ -124,7 +143,8 @@ export const MODEL_PRESETS: Record<ModelPresetId, ModelPreset> = {
 
 /** 供界面按顺序渲染的档位列表（含 custom） */
 export const MODEL_PRESET_LIST: ModelPreset[] = [
-  MODEL_PRESETS.fast, MODEL_PRESETS['strong-deepseek'], MODEL_PRESETS['strong-qwen'], MODEL_PRESETS.custom,
+  MODEL_PRESETS.fast, MODEL_PRESETS['strong-deepseek'], MODEL_PRESETS['strong-qwen'],
+  MODEL_PRESETS['strong-qwen-latest'], MODEL_PRESETS.custom,
 ]
 
 export interface ModelChoice {

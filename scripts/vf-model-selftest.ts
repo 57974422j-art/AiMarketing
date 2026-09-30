@@ -91,9 +91,11 @@ console.log('\n② resolveModelChoice 非法值回落（绝不抛异常，一律
 
 console.log('\n③ 四个档位展开正确；fast 与现状逐字一致')
 {
-  ok(Object.keys(MODEL_PRESETS).length === 4, '档位共 4 个')
-  ok(MODEL_PRESET_LIST.length === 4 && MODEL_PRESET_LIST.map(p => p.id).join(',') === 'fast,strong-deepseek,strong-qwen,custom',
-    'MODEL_PRESET_LIST 顺序 = fast,strong-deepseek,strong-qwen,custom')
+  // ★2026-09-30 team-lead 追加：上线前实查百炼模型清单（261 个）确认 qwen3.8-max 存在 →
+  //   新增第 5 档 'strong-qwen-latest'（阿里最新一代 Max）。原来"共 4 个"的断言随之更新。
+  ok(Object.keys(MODEL_PRESETS).length === 5, '档位共 5 个')
+  ok(MODEL_PRESET_LIST.length === 5 && MODEL_PRESET_LIST.map(p => p.id).join(',') === 'fast,strong-deepseek,strong-qwen,strong-qwen-latest,custom',
+    'MODEL_PRESET_LIST 顺序 = fast,strong-deepseek,strong-qwen,strong-qwen-latest,custom')
 
   const f = resolveModelChoice('fast')
   ok(f.preset === 'fast' && f.brain === 'qwen3.8-flash' && f.writer === 'deepseek-v4-flash',
