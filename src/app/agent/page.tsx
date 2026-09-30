@@ -545,10 +545,11 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   // ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪 → 逐镜图生视频，50 点/秒」）：
   //   「🎞 让图动起来」开关 —— 开=每张图片镜先拿首帧生成一段动图（4~8 秒 ≈ 200~400 点/张，
   //   同一张图只生成一次）；关=全部静态图 + Ken Burns（不额外花钱）。默认开。
-  // ★VF_I2VDFLT_V1（2026-09-30 用户定案）：默认 = 'all'（全部动起来，和以前一样）。
-  //   用户原话：「前面 1500 的动效是可以的……后面这 280 和 25 的确实差很多」
-  //   → 上一版把"智能筛"设成默认、几乎全被跳过 → 金额骤降。现在智能筛改为用户主动选。
-  const [i2v, setI2v] = useState(vj.i2v || 'all')
+  // ★VF_MATUI_V1（2026-09-30 用户定案，覆盖 ★VF_I2VDFLT_V1 的"默认全部动"）：**默认 = 'off'（不动）**。
+  //   用户原话：「**能不加 AI 做视频就不加**……加了感觉冲突」；「全部动效 = 调 H3 逐镜生成视频也不是
+  //   完全没用，在**图片成片可选 1、2 个**，增加效果」。
+  //   四档：off（默认·不调 AI·0 点动图）/ picked（只动清单里打了勾 🎞 的）/ on（智能筛）/ all（全部）。
+  const [i2v, setI2v] = useState(vj.i2v || 'off')
   // ★VF_BANNER_V1（2026-09-29 用户定案）：「📌 顶部固定标题」开关 —— 开=AI 自动拟两行（黄字黑边 +
   //   半透明色块白字），全程钉在画面顶部不动；关=不画。默认「自动」（用户要"默认这样，方便后期集成自动化"）。
   const [pin, setPin] = useState(vj.pin || 'on')
@@ -739,20 +740,23 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">🎞 让图动起来 <span className="text-gray-600">（图片镜用首帧生成 4~8 秒动图 ≈ 250 点/张；同一张图只算一次）</span></div>
         <div className="flex flex-wrap gap-1.5">
-          {/* ★VF_I2VDFLT_V1（2026-09-30 用户定案）：默认回到「全部动起来」——
-              用户原话「前面 1500 的动效是可以的……后面这 280 和 25 的确实差很多」。
-              三档 ——
-                all = **全部动起来（默认，和以前一样）**：每张图片镜都做，钱按实际张数算
-                on  = **智能筛**（只动有主体可动的图，省钱）：海报、界面截图、图表这类**自动跳过**
-                off = **保持静态**（只花素材钱，不额外计费）
-              服务端契约：'off'→off / 'all'→all / 其余→on（见 i2v-plan.buildI2vShots 注释）。 */}
-          {R(i2v, 'all', '🎞 全部动起来（默认，和以前一样）', setI2v)}
+          {/* ★VF_MATUI_V1（2026-09-30 用户定案「能不加 AI 做视频就不加」）：**默认 = 不动**。
+              四档 ——
+                off    = **本次不动用 AI（默认，0 点动图）**：静态图 + 推拉，只花素材钱
+                picked = **只动我勾选的**：清单里打了 🎞 勾的素材才生成动图，报价按勾选张数算
+                on     = **智能筛**（只动有主体可动的图，省钱）：海报、界面截图、图表这类**自动跳过**
+                all    = **全部动起来**：每张图片镜都做，钱按实际张数算
+              服务端契约：'off'→off / 'picked'→只动勾选 / 'all'→all / 其余→on
+              （见 i2v-plan.buildI2vShots 注释）。 */}
+          {R(i2v, 'off', '🚫 本次不动用 AI（默认，0 点动图）', setI2v)}
+          {R(i2v, 'picked', '🎞 只动我勾选的（在素材清单里打勾）', setI2v)}
           {R(i2v, 'on', '🎞 智能筛（只动有主体可动的图，省钱）', setI2v)}
-          {R(i2v, 'off', '🚫 保持静态（只花素材钱）', setI2v)}
+          {R(i2v, 'all', '🎞 全部动起来（每张都做）', setI2v)}
         </div>
         <div className="text-[10px] text-gray-500 mt-1">
-          （「图片成片」与「图视混剪」两条线都生效；「智能筛」会**自动跳过**海报/界面截图这类"动了也看不出"的图、
-          报价按实际要动的张数算；「全部动起来」= 每张都做；「保持静态」= 不额外花钱）
+          （「图片成片」与「图视混剪」两条线都生效；**默认不动、不花 AI 的钱**。想加动效再选：
+          「只动我勾选的」= 到下面素材清单里勾 🎞；「智能筛」会**自动跳过**海报/界面截图这类"动了也看不出"的图；
+          「全部动起来」= 每张都做。报价一律按实际要动的张数算）
         </div>
       </div>
 
@@ -1332,51 +1336,120 @@ function VfBriefEdit({ brief, onSend }: { brief: string; onSend: (msg: string) =
   )
 }
 
-/** ★VF_MEMORY_V1（2026-09-30 用户定案「个人仓库怎么分配 AI 仓库主要看哪里的。这个比较关键」）：
- *  素材「提拔 / 禁用」——用户在"素材识别结果"这一段能逐条看到素材名，这里给每条两个小按钮：
- *    「✅ 当素材用」→ 发射 `VF_MAT_SET:{"name","action":"allow"}`（即使是成片/AI 资产也允许当素材）；
- *    「🚫 别用」     → 发射 `...{"action":"deny"}`（以后起草一律不取它）；
- *    再点一次同一个动作 = 取消（回默认规则，发 action:"auto"）。
- *  state：all=默认 / outcome=本系统出片产物（默认不进池）/ deny=别用 / allow=当素材用。
- *  ⚠️ 只新增，不动原有布局（挂在 VfBriefEdit 下面）。
+/**
+ * ★VF_MEMORY_V1（2026-09-30 用户定案「个人仓库怎么分配 AI 仓库主要看哪里的。这个比较关键」）：
+ *  素材「提拔 / 禁用」——「✅ 当素材用」→ `VF_MAT_SET:{"name","action":"allow"}`；
+ *  「🚫 别用」→ `...{"action":"deny"}`；再点一次同一个动作 = 取消（发 action:"auto"）。
+ *
+ * ★VF_MATUI_V1（2026-09-30 用户实测截图后定案）—— 上一版清单"看了没用"：
+ *   用户原话：「这个什么意思没明白。**这不是使用的素材 也不是 AI 看的素材，有什么用？是不是搞错了**。」
+ *   旧版把「出片产物（默认被排除）」排在最前、只显示 12 条 → 前 12 条全是"仅出片产物"，
+ *   真正能用的图片一张都没出现。本版四处调整：
+ *     ① **可用素材在前**（会被 AI 选中的那批），「已排除」收进下面一个折叠块（默认收起）；
+ *     ② 每条显示**缩略图**（图片用服务端 24h 签名 URL；视频给 🎬 占位）+ 文件名 + 类型 + 状态；
+ *     ③ 上限 40（服务端已按"可用优先"裁剪），标题里显示"共 N 条可用 / M 条已排除"；
+ *     ④ 每条加「🔄 换一张」（同类下一张，`VF_MAT_SWAP:{"out":"文件名"}`）与 🎞 勾选
+ *        （`VF_MAT_SET:{"name","action":"pick"|"unpick"}`，配合设置卡「只动我勾选的」档）。
+ *  ⚠️ 缩略图只用**短期签名 URL**，bucket 密钥绝不下发到客户端。
  */
-function VfMatsPicker({ mats, onSend }: { mats: any[]; onSend: (msg: string) => void }) {
+function VfMatsPicker({ mats, usableN, excludedN, onSend }: {
+  mats: any[]
+  usableN?: number
+  excludedN?: number
+  onSend: (msg: string) => void
+}) {
   const stateOf = (m: any) => String(m?.state || 'all')
-  const label: Record<string, string> = { all: '默认', outcome: '仅出片产物', deny: '别用', allow: '当素材用' }
-  const colorOf = (st: string) => st === 'deny' ? 'text-rose-300' : st === 'outcome' ? 'text-amber-300' : st === 'allow' ? 'text-emerald-300' : 'text-gray-500'
+  const isUsable = (st: string) => st === 'all' || st === 'allow'
+  // ★VF_MATUI_V1：状态文案按用户口径改（"可用 / 仅出片产物 / 你标了别用 / 你标了当素材用"）
+  const label: Record<string, string> = { all: '可用', allow: '你标了当素材用', outcome: '仅出片产物', deny: '你标了别用' }
+  const colorOf = (st: string) => st === 'deny' ? 'text-rose-300' : st === 'outcome' ? 'text-amber-300' : st === 'allow' ? 'text-emerald-300' : 'text-gray-400'
+  const all = Array.isArray(mats) ? mats : []
+  const usable = all.filter((m: any) => isUsable(stateOf(m)))
+  const excluded = all.filter((m: any) => !isUsable(stateOf(m)))
   const act = (name: string, cur: string, action: 'allow' | 'deny') => {
     if (!name) return
     const next = cur === action ? 'auto' : action   // 再点一次同一个动作 = 取消
     onSend('VF_MAT_SET:' + JSON.stringify({ name, action: next }))
   }
+  // ★VF_MATUI_V1：🎞 勾选（这一镜生成 AI 动图）—— 与 allow/deny 同一份名单，互不干扰
+  const pick = (name: string, on: boolean) => {
+    if (!name) return
+    onSend('VF_MAT_SET:' + JSON.stringify({ name, action: on ? 'unpick' : 'pick' }))
+  }
+  // ★VF_MATUI_V1：「🔄 换一张」——只回传"被换掉的是谁"，换成谁由服务端算（见 material-pool.parseMatSwapMessage 注释）
+  const swap = (name: string) => { if (name) onSend('VF_MAT_SWAP:' + JSON.stringify({ out: name })) }
+
+  const Row = ({ m }: { m: any }) => {
+    const st = stateOf(m)
+    const nm = String(m?.name || '')
+    const isVideo = String(m?.kind) === 'video'
+    return (
+      <div className="flex items-center gap-2 text-[10px]">
+        {/* 缩略图：图片用服务端签名 URL，视频给 🎬 占位图标 */}
+        <span className="w-8 h-8 shrink-0 rounded overflow-hidden bg-black/40 border border-white/[0.08] flex items-center justify-center">
+          {isVideo
+            ? <span className="text-[13px]" title="视频">🎬</span>
+            : (m?.url
+              ? <img src={String(m.url)} alt="" loading="lazy" className="w-full h-full object-cover" />
+              : <span className="text-[13px]" title="图片">🖼</span>)}
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block truncate text-gray-300" title={nm}>
+            {isVideo ? '🎬 ' : '🖼 '}{nm}
+          </span>
+          <span className={`block truncate ${colorOf(st)}`}>{label[st] || '可用'}</span>
+        </span>
+        {/* 🎞 = 这一镜生成 AI 动图（配合设置卡「只动我勾选的」） */}
+        <button type="button" onClick={() => pick(nm, !!m?.i2v)}
+          title="打勾 = 这张图生成 AI 动图（只有设置卡选「🎞 只动我勾选的」时才按勾选算钱）"
+          className={`shrink-0 px-1.5 py-0.5 rounded border transition ${m?.i2v ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-400 hover:bg-white/[0.12]'}`}>
+          🎞
+        </button>
+        {isUsable(st) && (
+          <button type="button" onClick={() => swap(nm)}
+            title="换成同类型的下一张（被换掉的这张会记成「别用」，换上的记成「当素材用」）"
+            className="shrink-0 px-2 py-0.5 rounded border bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.12]">
+            🔄 换一张
+          </button>
+        )}
+        <button type="button" onClick={() => act(nm, st, 'allow')}
+          className={`shrink-0 px-2 py-0.5 rounded border transition ${st === 'allow' ? 'bg-emerald-500/30 border-emerald-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.12]'}`}>
+          ✅ 当素材用
+        </button>
+        <button type="button" onClick={() => act(nm, st, 'deny')}
+          className={`shrink-0 px-2 py-0.5 rounded border transition ${st === 'deny' ? 'bg-rose-500/30 border-rose-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.12]'}`}>
+          🚫 别用
+        </button>
+      </div>
+    )
+  }
+
   return (
     <details className="mb-2">
       <summary className="text-[10px] text-gray-500 cursor-pointer">
-        素材清单（{mats.length} 条 · 点「当素材用 / 别用」决定 AI 用不用它）
+        素材清单（共 {Number(usableN ?? usable.length)} 条可用 / {Number(excludedN ?? excluded.length)} 条已排除
+        · 可用素材会被 AI 选中用来做画面）
       </summary>
+      {/* ① 可用素材（在前）—— 这就是"会被 AI 选中"的那批 */}
       <div className="mt-1 space-y-1">
-        {mats.map((m: any, i: number) => {
-          const st = stateOf(m)
-          return (
-            <div key={i} className="flex items-center gap-2 text-[10px]">
-              <span className="flex-1 min-w-0 truncate text-gray-300" title={String(m?.name || '')}>
-                {m?.kind === 'video' ? '🎬 ' : '🖼 '}{String(m?.name || '')}
-              </span>
-              <span className={`shrink-0 ${colorOf(st)}`}>{label[st] || '默认'}</span>
-              <button type="button" onClick={() => act(String(m?.name || ''), st, 'allow')}
-                className={`shrink-0 px-2 py-0.5 rounded border transition ${st === 'allow' ? 'bg-emerald-500/30 border-emerald-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.12]'}`}>
-                ✅ 当素材用
-              </button>
-              <button type="button" onClick={() => act(String(m?.name || ''), st, 'deny')}
-                className={`shrink-0 px-2 py-0.5 rounded border transition ${st === 'deny' ? 'bg-rose-500/30 border-rose-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.12]'}`}>
-                🚫 别用
-              </button>
-            </div>
-          )
-        })}
+        {usable.length ? usable.map((m: any, i: number) => <Row key={'u' + i} m={m} />) : (
+          <div className="text-[10px] text-amber-300/90">当前没有可用素材（都被标成「别用」或都是出片产物）—— 可在「已排除」里点「✅ 当素材用」提拔回来</div>
+        )}
       </div>
+      {/* ② 已排除（折叠在下面，默认收起）—— 出片产物 / 你标了别用 */}
+      {excluded.length > 0 && (
+        <details className="mt-2">
+          <summary className="text-[10px] text-gray-500 cursor-pointer">
+            ▸ 已排除 {Number(excludedN ?? excluded.length)} 条（出片产物 / 你标了别用）—— 点开可翻案
+          </summary>
+          <div className="mt-1 space-y-1">
+            {excluded.map((m: any, i: number) => <Row key={'x' + i} m={m} />)}
+          </div>
+        </details>
+      )}
       <div className="text-[10px] text-gray-500 mt-1">
         「别用」= 以后起草都不取它；「当素材用」= 即使是之前做的成片也允许当素材；再点一次可取消（回默认规则）。
+        🎞 = 这张图生成 AI 动图（设置卡选「🎞 只动我勾选的」时才按勾选算钱）；「🔄 换一张」= 换成同类型的下一张。
       </div>
     </details>
   )
@@ -3125,8 +3198,17 @@ function AgentPageInner() {
       return <span className="text-amber-200/90">🚫 已改成「保持静态」（不再生成动图）——正在重出确认卡</span>
     }
     // ★VF_MEMORY_V1（2026-09-30）：素材「✅ 当素材用 / 🚫 别用」的协议串同样只显示人话
+    // ★VF_MATUI_V1（2026-09-30）：🎞 勾选（pick/unpick）也走同一条串 —— 提示语按动作区分
     if (content.startsWith('VF_MAT_SET')) {
-      return <span className="text-emerald-300/80">🎛 已更新素材名单（正在重出确认卡）</span>
+      return <span className="text-emerald-300/80">
+        {content.includes('"pick"') ? '🎞 已更新动效勾选（正在重出确认卡）'
+          : content.includes('"unpick"') ? '🎞 已取消动效勾选（正在重出确认卡）'
+            : '🎛 已更新素材名单（正在重出确认卡）'}
+      </span>
+    }
+    // ★VF_MATUI_V1：清单「🔄 换一张」的协议串（同样只显示人话）
+    if (content.startsWith('VF_MAT_SWAP')) {
+      return <span className="text-emerald-300/80">🔄 已换一张素材（旧的记「别用」、新的记「当素材用」；正在重出确认卡）</span>
     }
     // 2026-09-09: AI 浏览器发布任务已建消息 → 卡片带「重发」按钮
     const buM = content.match(/已创建 AI 浏览器发布任务（#(\d+)）/); const buQ = content.includes('BROWSER_TASK_QUEUED') ? buM : null
@@ -3324,6 +3406,16 @@ function AgentPageInner() {
                     : ((vj.shots || []).some((s: any) => s.type === 'bgimage') ? '（画面用你的素材）' : '')}
                 </div>
               ) : null}
+              {/* ★VF_MATUI_V1（2026-09-30 用户定案）：本次**动不动 AI、动几张**必须在卡片上一眼看出 ——
+                  默认已改成"不动"（0 点动图），所以这里把两种情况都写清，别让用户猜钱花在哪。 */}
+              {vj.i2vMode ? (
+                <div className={`text-[10px] mb-1 ${Number(vj.i2vImages) > 0 ? 'text-fuchsia-300/90' : 'text-gray-400'}`}>
+                  {Number(vj.i2vImages) > 0
+                    ? `🎞 本次让 ${vj.i2vImages} 张图动起来（约 ${Number(vj.i2vPts) || 0} 点 · ${vj.i2vModeLabel || ''}）`
+                    : `🎞 本次不动用 AI（0 点动图 · ${vj.i2vModeLabel || '保持静态'}）`}
+                  <span className="text-gray-500"> —— 想加动效就在设置卡选「🎞 只动我勾选的」或「🎞 全部动起来」</span>
+                </div>
+              ) : null}
               {/* ★VF_I2VDFLT_V1（2026-09-30 用户定案）：智能筛跳过的图**明列出来** ——
                   用户看到金额变化能立刻知道"哪几张被跳过、为什么"，而不是只看到钱变了。
                   （结构化字段 i2vSkipped `[{name,reason}]` 由服务端卡片给出，前端直接取用。） */}
@@ -3337,6 +3429,18 @@ function AgentPageInner() {
                   <span className="text-gray-500"> —— 想全部动就在设置卡选「🎞 全部动起来」</span>
                 </div>
               )}
+              {/* ★VF_MATUI_V1：picked（只动我勾选的）模式下"哪几张没勾 🎞"也列出来
+                  —— 用户才知道"打勾才动"是真的，也知道该去勾哪几张。 */}
+              {Number(vj.i2vNotPickedN) > 0 && Array.isArray(vj.i2vNotPicked) && vj.i2vNotPicked.length > 0 && (
+                <div className="text-[10px] text-gray-400 mb-1">
+                  ⏭ 另有 {vj.i2vNotPickedN} 张没勾 🎞（保持静态）：
+                  {vj.i2vNotPicked.slice(0, 3).map((x: any, i: number) => (
+                    <span key={i}>{i > 0 ? '、' : ''}{String(x)}</span>
+                  ))}
+                  {Number(vj.i2vNotPickedN) > 3 ? ' 等' : ''}
+                  <span className="text-gray-500"> —— 在上面素材清单里点 🎞 就能让它也动</span>
+                </div>
+              )}
               {/* ★VF_EDIT_V1（2026-09-24 用户定案 B）：清单从"只读"升级成【可逐镜编辑】——
                   改的是【出片前的草稿清单】（不渲染、不扣钱），保存后点「确认出片」按新版出片。
                   片已经出过的，用聊天说「第 N 镜大字改成 X」→ 那条路只重渲染（复用配音）。 */}
@@ -3346,8 +3450,12 @@ function AgentPageInner() {
               {/* ★VF_BRIEF_EDIT_V1（P0②）：从只读 <pre> 升级成【可编辑】——识别错了直接改，
                   改完点「保存并重写文案」就会用这份结论重写文案+重排分镜（见 VfBriefEdit） */}
               {vj.brief ? <VfBriefEdit brief={String(vj.brief)} onSend={sendMessage} /> : null}
-              {/* ★VF_MEMORY_V1（2026-09-30）：素材「✅ 当素材用 / 🚫 别用」（只新增，挂在识别结果下面） */}
-              {Array.isArray(vj.mats) && vj.mats.length > 0 ? <VfMatsPicker mats={vj.mats} onSend={sendMessage} /> : null}
+              {/* ★VF_MEMORY_V1（2026-09-30）：素材「✅ 当素材用 / 🚫 别用」（只新增，挂在识别结果下面）
+                  ★VF_MATUI_V1：可用在前、已排除折叠；缩略图 + 🎞 勾选 + 🔄 换一张；
+                  标题显示"共 N 条可用 / M 条已排除"（N/M 是服务端给的总数，不是裁剪后条数） */}
+              {Array.isArray(vj.mats) && vj.mats.length > 0
+                ? <VfMatsPicker mats={vj.mats} usableN={vj.matUsableN} excludedN={vj.matExcludedN} onSend={sendMessage} />
+                : null}
               <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap mb-3">{vj.script}</div>
               {Array.isArray(vj.voices) && vj.voices.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-3">

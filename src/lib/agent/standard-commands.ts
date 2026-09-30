@@ -122,8 +122,9 @@ export function STD_WIP_REPLY(text: string): string {
  *  若把「视频做得怎么样了」也锁死，用户就没法查进度。这类**没有草稿也放行**。 */
 export const STD_QUERY_RE = /视频做得怎么样了|做到哪了|进度|做完了吗|好了没|好了吗/
 
-/** ★「改设置」的说法（i2v 动图相关）——宽松但**限词**；只有【有草稿】时才放行（见 stdGatePass）。 */
-export const STD_SETTING_RE = /关掉?图转视频|关掉?动图|不要动图|保持静态|全部动起来|让图动起来|智能筛/
+/** ★「改设置」的说法（i2v 动图相关）——宽松但**限词**；只有【有草稿】时才放行（见 stdGatePass）。
+ *  ★VF_MATUI_V1（2026-09-30）：补「只动我勾选的」这一档的说法（用户新加的档位，见 i2vIntentOf）。 */
+export const STD_SETTING_RE = /关掉?图转视频|关掉?动图|不要动图|保持静态|全部动起来|让图动起来|智能筛|只动我?勾选|只动勾选|勾选的才动/
 /** ★我们自己的卡片协议串：出片确认卡「🚫 关掉动图重出」产生（用户不会手打）。 */
 export const STD_I2V_OFF_RE = /^VF_I2V_OFF\s*[:{]/
 
@@ -174,17 +175,26 @@ export function stdGatePass(msg: string, hasDraft: boolean): boolean {
 
 /**
  * ★VF_I2VDFLT_V1：把「用户这句话想怎么动图」解析成 i2v 取值；不是这类话 → null。
- *   'off' = 关掉动图/保持静态；'all' = 全部动起来；'on' = 智能筛。
+ *   'off' = 关掉动图/保持静态；'picked' = 只动我勾选的（★VF_MATUI_V1 新增）；
+ *   'all' = 全部动起来；'on' = 智能筛。
  * 用途：两条成片线（图片成片 / 图视混剪）在 step='script' 收到这句话时，
  *   把草稿的 i2v 改掉并**重新出一份确认卡**（金额随之变小/变大，用户立刻看得到）。
- * ⚠️ 先判 off（"关掉图转视频"里含"图"、"让图动起来"里含"动起来"，顺序不能反）。
+ * ⚠️ 顺序不能反：先判 off（"关掉图转视频"里含"图"、"让图动起来"里含"动起来"），
+ *   ★VF_MATUI_V1 再把 picked 放在 all **之前**（"只动我勾选的"里也含"动"）。
  */
-export function i2vIntentOf(msg: string): 'off' | 'all' | 'on' | null {
+export function i2vIntentOf(msg: string): 'off' | 'picked' | 'all' | 'on' | null {
   const m = String(msg || '').trim()
   if (!m) return null
   if (STD_I2V_OFF_RE.test(m)) return 'off'
+  // ★VF_MATUI_V1（2026-09-30）修一个真会踩的坑：**别的协议串不算"改设置"的说法** ——
+  //   各线的分派是"先判 i2vIntentOf、后判素材名单"，而素材名单的协议串里带着**文件名**
+  //   （`VF_MAT_SET:{"name":"动起来.jpg",...}` / `VF_MAT_SWAP:{"out":"...动起来.jpg"}`）→
+  //   文件名里只要含「动起来」，就会被误判成"全部动起来"→ 走错分支（名单动作被吞）。
+  if (/^(VF_MAT_SET|VF_MAT_SWAP|VF_EDIT|VF_BRIEF|VF_JSON|VF_FORM|MAKE_VIDEO)/i.test(m)) return null
   if (/关掉?图转视频|关掉?动图|不要动图|保持静态/.test(m)) return 'off'
   if (/智能筛/.test(m)) return 'on'
+  // ★VF_MATUI_V1（2026-09-30 用户定案）：必须排在 all 之前 —— 否则"只动我勾选的"会被当成"全部动"
+  if (/只动我?勾选|只动勾选|勾选的才动/.test(m)) return 'picked'
   if (/全部动起来|全都动|全动|让图动起来|图动起来|动起来/.test(m)) return 'all'
   return null
 }

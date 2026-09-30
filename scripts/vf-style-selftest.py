@@ -314,6 +314,158 @@ def main():
     chk(_src.count('★VF_BANNER_EMPTY_V1') >= 1 and _src.count('★VF_BANNER_FIT_V1') >= 1,
         '防回退：★VF_BANNER_EMPTY_V1 / ★VF_BANNER_FIT_V1 仍在 render.py 里')
 
+    # ══ 11. ★VF_TPL_B1_V1（2026-09-30）B 组「图片处理」模版 ═══════════════════════
+    # 用户原话：「我给你拿 5 个图本身应该是不需要 AI 动视的。应该是在视频和图片上做动效 PPT 效果。」
+    #          「它们做几个图片加相框一些特效也是 AI 生图吗还是特效转场就可以实现？」
+    #          「只是利用 FFMPEG 加动态 PPT + AI 代码一些特效来实现，脚本增效。」
+    # 断言口径（沿用第 8 节那条做法）：① 每个新模版都"真的在变"（grep 到逐帧机制，
+    #   **禁止裸 w= 表达式** —— drawbox 的 w/h 只在初始化求值一次 = 假动画）；
+    #   ② 老主题**不启用**新模版（字段级 + 帧级各一条）；③ 防回退 grep。
+    _news2, _dark2 = theme_of('news'), theme_of('dark')
+    # ① 缺省矩阵：编辑风全开 / 老主题全关 / 可显式开关 / 自造值回缺省
+    _po_news = R.plate_opts({}, _news2)
+    chk(_po_news == {'frame': 'thin', 'shadow': 'soft', 'float': 'slow',
+                     'wipe': 'left', 'bgblur': 'soft'},
+        'B 组缺省（编辑风 news）：thin/soft/slow/left/soft 全开', str(_po_news))
+    chk(R.plate_opts({}, _dark2) is None, 'B 组缺省（老主题 dark）：不启用卡片版式')
+    chk(R.plate_opts({}, theme_of('mono')) is None, 'B 组缺省（老主题 mono）：不启用卡片版式')
+    chk(R.plate_opts({'frame': 'none'}, _news2) is None,
+        'B 组可显式关掉：frame=none → 整块卡片版式关闭（一条字段就够）')
+    chk(R.plate_opts({'frame': 'auto'}, _dark2) is None,
+        'B 组 frame=auto 老主题 → 仍不启用')
+    chk(R.plate_opts({'frame': 'thin'}, _dark2) is not None,
+        'B 组也可显式打开老主题（frame=thin）')
+    _po_pol = R.plate_opts({'frame': 'polaroid', 'shadow': 'strong', 'float': 'none',
+                            'wipe': 'center', 'bgblur': 'none'}, _news2)
+    chk(_po_pol == {'frame': 'polaroid', 'shadow': 'strong', 'float': 'none',
+                    'wipe': 'center', 'bgblur': 'none'},
+        'B 组字段白名单直通（polaroid/strong/none/center/none）', str(_po_pol))
+    chk(R.plate_opts({'frame': '不要脸', 'shadow': '！', 'wipe': '乱写', 'float': '?'}, _news2)
+        == _po_news, 'B 组自造值 → 回缺省（绝不把渲染搞挂）')
+    chk(R.plate_opts({'shadow': 'none', 'float': 'none', 'wipe': 'none', 'bgblur': 'none'}, _news2)
+        == {'frame': 'thin', 'shadow': 'none', 'float': 'none', 'wipe': 'none',
+            'bgblur': 'none'},
+        'B 组各字段可单独关掉（frame 仍在 = 卡片版式仍在）')
+
+    # ② 每个模版"真的在变" + 老主题不启用（字段级 / 帧级）
+    _wd2 = tempfile.mkdtemp(prefix='vf-tplB-')
+    _timg = os.path.join(_wd2, 'b_src.jpg')
+    # 帧级断言另用一张**渐变图**：纯色图会被 VF_MATGUARD 判成"深色界面截图" → 老 bgimage 会走
+    #   "换质感底板"那条路，就看不到老 Ken Burns 了（第一版自检正是栽在这）。
+    _timg2 = os.path.join(_wd2, 'b_src2.jpg')
+    try:
+        subprocess.run([ff, '-v', 'error', '-y', '-f', 'lavfi',
+                        '-i', 'gradients=s=1280x720:c0=0x2b4a5a:c1=0x9ab0c0',
+                        '-frames:v', '1', _timg2], capture_output=True, timeout=30)
+    except Exception:
+        _timg2 = ''
+    _timg2 = _timg2 if os.path.exists(_timg2) else ''
+    if not ff or not _mk_img(ff, _timg, 1280, 720, '0x2b4a5a'):
+        _BAD.append('B 组：造测试图失败，卡片链断言跳过')
+    else:
+        def _chain(opts, th=_news2, layout='top', shot_extra=None):
+            _s = {'type': 'bgimage', 'src': _timg, 'text': '库存 1700 万', 'kicker': '前线专栏',
+                  'en': 'stock crisis', 'dur': 4, '_idx': 0}
+            _s.update(shot_extra or {})
+            return R._plate_pre(_timg, 1280, 720, _s, th, opts, dur=4, layout=layout) or ''
+
+        _full = _chain(_po_news)
+        chk(_full.endswith('[smooth];'), 'B 组卡片链：末尾产出 [smooth]（与 _bg_filters 同契约）')
+        # 圆角 + 相框（thin）
+        chk('geq=lum=' in _full and 'alphamerge' in _full,
+            'B 组圆角：geq 几何 alpha 遮罩 + alphamerge（真圆角，不是贴图）')
+        chk('geq=lum=' in _full and "geq=a='" not in _full,
+            'B 组圆角：走 geq=lum 灰度遮罩（**不是**只写 a 那种写法 —— 实测会报'
+            ' "luminance or RGB expression is mandatory"）')
+        chk(_full.count('drawbox=') >= 2 and ':t=fill' in _full,
+            'B 组细边框：卡边上画了细描边 drawbox（另有一块左上强调色小块 t=fill）',
+            'drawbox=%d' % _full.count('drawbox='))
+        # 相框 polaroid = 白边 pad
+        _pol = _chain({'frame': 'polaroid', 'shadow': 'soft', 'float': 'none',
+                       'wipe': 'none', 'bgblur': 'soft'})
+        chk('pad=w=' in _pol and 'color=white' in _pol, 'B 组相框 polaroid：白边用 pad 落在卡片图层上')
+        chk('color=white' not in _full, 'B 组相框 thin：不铺白边（与 polaroid 区分开）')
+        # 阴影：变黑 + 透明画布 + 卡片压阴影（顺序敏感）
+        chk('colorchannelmixer=rr=0' in _full and 'aa=' in _full,
+            'B 组阴影：卡片形状复制 → colorchannelmixer 变黑 + alpha 降到半透明')
+        chk('color=black@0' in _full and '[shp][cnp]overlay=x=0:y=0[lyA]' in _full,
+            'B 组阴影：阴影/卡片各 pad 到同一张透明画布，且**卡片压在阴影上**（否则卡片被压暗）')
+        _nos = _chain({'frame': 'thin', 'shadow': 'none', 'float': 'none',
+                       'wipe': 'none', 'bgblur': 'soft'})
+        chk('colorchannelmixer' not in _nos, 'B 组阴影：shadow=none → 不生成阴影层')
+        # 背景分层（bgblur 可控强度）
+        chk('gblur=sigma=14' in _full, 'B 组背景分层：bgblur=soft → gblur=sigma=14（可控强度）')
+        chk('gblur=sigma=30' in _chain({'frame': 'thin', 'shadow': 'none', 'float': 'none',
+                                        'wipe': 'none', 'bgblur': 'strong'}),
+            'B 组背景分层：bgblur=strong → gblur=sigma=30')
+        chk('gblur' not in _chain({'frame': 'thin', 'shadow': 'none', 'float': 'none',
+                                   'wipe': 'none', 'bgblur': 'none'}).split('[bgb];')[0],
+            'B 组背景分层：bgblur=none → 背景不虚化')
+        # 浮动（overlay x/y 逐帧）
+        chk('sin(2*PI*t/' in _full, 'B 组浮动：overlay 的 y 用逐帧 t 表达式（真在漂，不是静态偏移）')
+        chk('sin(2*PI*t/' not in _chain({'frame': 'thin', 'shadow': 'none', 'float': 'none',
+                                         'wipe': 'none', 'bgblur': 'soft'}),
+            'B 组浮动：float=none → 不加逐帧表达式')
+        _flx = _chain({'frame': 'thin', 'shadow': 'none', 'float': 'slow',
+                       'wipe': 'none', 'bgblur': 'soft'}, shot_extra={'_idx': 1})
+        chk('overlay=x=' in _flx and 'sin(2*PI*t/' in _flx.split('overlay=x=')[1][:80]
+            and 'sin(2*PI*t/' not in _flx.split('overlay=x=')[1].split('y=')[1][:40],
+            'B 组浮动：按镜序轮换方向（偶数镜上下浮 / 奇数镜左右浮）')
+        # 擦入/展开（enable 分段；禁止裸 w= 假动画）
+        chk("enable='gte(t," in _full, 'B 组擦入：按时间点分段插入（真动画）')
+        chk("w='" not in _full, 'B 组擦入：没有裸 w= 表达式（那会退回假动画）', "w='...'")
+        chk(_full.count('crop=w=') == 12 and _full.count("enable='gte(t,") == 12,
+            'B 组擦入：卡片被切成 12 条、每条一个 enable（条数写死在这里防误改）',
+            'crop=%d enable=%d' % (_full.count('crop=w='), _full.count("enable='gte(t,")))
+
+        def _wtimes(chain):
+            return [float(x) for x in _re.findall(r"gte\(t,(\d+\.\d+)\)", chain)]
+
+        def _wo(wipe):
+            return _chain({'frame': 'thin', 'shadow': 'none', 'float': 'none',
+                           'wipe': wipe, 'bgblur': 'soft'})
+
+        _tl, _tr, _tc = _wtimes(_wo('left')), _wtimes(_wo('right')), _wtimes(_wo('center'))
+        chk(bool(_tl) and _tl == sorted(_tl),
+            'B 组擦入 left：从左往右的时间序列递增（左条先亮）', str(_tl[:4]))
+        chk(bool(_tr) and _tr == sorted(_tr, reverse=True),
+            'B 组擦入 right：时间序列递减（右条先亮）', str(_tr[:4]))
+        _ci = _tc.index(min(_tc)) if _tc else -1
+        chk(bool(_tc) and 4 <= _ci <= 7 and _tc[_ci - 1] < _tc[0],
+            'B 组擦入 center：中间条最先亮、再向两侧展开（argmin 落在中段）',
+            'argmin=%d %s' % (_ci, str(_tc[:6])))
+        chk("enable='gte(t," not in _wo('none'), 'B 组擦入：wipe=none → 不切条、不加 enable')
+        # ③ 帧级：老主题不启用 / 编辑风启用 + 旁路 zoompan
+        _bshot = {'type': 'bgimage', 'src': _timg2 or _timg, 'text': '标题', 'kicker': '标签',
+                  'dur': 3}
+        _vd = R.card_bgimage(dict(_bshot), _dark2, 1280, 720, 25)[1]
+        chk('alphamerge' not in _vd and 'geq=lum=' not in _vd,
+            '老主题 bgimage（帧级）：完全不启用 B 组卡片版式')
+        chk('zoompan' in _vd, '老主题 bgimage（帧级）：仍走老 Ken Burns（观感不变）')
+        _vn = R.card_bgimage(dict(_bshot), _news2, 1280, 720, 25)[1]
+        chk('alphamerge' in _vn and "enable='gte(t," in _vn and 'sin(2*PI*t/' in _vn,
+            '编辑风 bgimage（帧级）：圆角+擦入+浮动真的接进了渲染链')
+        chk('zoompan' not in _vn,
+            '编辑风 bgimage（帧级）：卡片版式旁路 zoompan（否则擦入会被冻在输入第 0 帧）')
+        _vid = R.card_image({'type': 'image', 'src': _timg, 'dur': 3}, _news2, 1280, 720, 25)[1]
+        chk('alphamerge' in _vid, '编辑风 image 卡（帧级）：启用 B 组卡片版式')
+        _vid2 = R.card_image({'type': 'image', 'src': _timg, 'dur': 3}, _dark2, 1280, 720, 25)[1]
+        chk('alphamerge' not in _vid2 and 'zoompan' in _vid2,
+            '老主题 image 卡（帧级）：仍是老 Ken Burns（不启用 B 组）')
+        _vid3 = R.card_image({'type': 'image', 'src': _timg, 'dur': 3, 'frame': 'none'},
+                             _news2, 1280, 720, 25)[1]
+        chk('alphamerge' not in _vid3 and 'zoompan' in _vid3,
+            'B 组可显式关掉（帧级）：编辑风 + frame=none → 回到老铺法')
+    # ③ 防回退：本轮点名的标记一个都不许丢
+    for _mk in ('★VF_TPL_B1_V1', '★VF_FILTERJOIN_V1', '★VF_MATGUARD_V2', '★VF_MATGUARD_V3',
+                '★VF_MOTION_V2', '★VF_TITLEFIT_V3', '★VF_STYLE_V1', '★VF_MOTIONPPT_V1',
+                '★VF_EDITBIGTEXT_V1', '★VF_BANNER_EMPTY_V1', '★VF_BANNER_FIT_V1',
+                '★VF_ENVINFO_V1'):
+        chk(_src.count(_mk) >= 1, '防回退：%s 仍在 render.py 里' % _mk, '一处都没有了')
+    chk('frameBg' in _src and 'frameBg' in open(os.path.join(_VF, 'themes.py'),
+                                                encoding='utf-8').read(),
+        'B 组主题 token：frameBg（拍立得白边色）在 themes.py 与 render.py 都在位')
+
     if a.render:
         _render_demo()
 

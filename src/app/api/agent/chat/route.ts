@@ -17,7 +17,10 @@ import {
   dedupeMaterialUse, demoteRecent, recentNamesOf, mergeRecentRuns, shuffleDeterministic,
   buildKnownUserBlock, parseMatPolicy, serializeMatPolicy, applyMatSet, parseMatSetMessage,
   materialStateOf, VF_MAT_POLICY_TAG, ensureListDuration, mergeAdjacentSameShots,
+  // ★VF_MATUI_V1（2026-09-30 用户定案）：清单改版（可用在前 / 上限 40 / 缩略图）+ 「🔄 换一张」
+  applyMatSwap, parseMatSwapMessage, buildMatUIList, pickSwapTarget, VF_MAT_UI_LIMIT,
 } from '@/lib/agent/vf/material-pool'
+import type { MatPolicy, MatSetAction, MatUIItem } from '@/lib/agent/vf/material-pool'
 // ★VF_THEMENAME_FIX_V1（2026-09-30）：主题 id → 中文名（唯一真相源，见 theme-labels.ts）
 import { themeLabel } from '@/lib/agent/vf/theme-labels'
 import { matchesMixLine, clearVfMixDraft, hasMixDraft } from '@/lib/agent/vf/vf-mix'
@@ -36,7 +39,7 @@ import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY, STD_QUERY_RE, is
 import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles } from '@/lib/agent/vf/anti-ai'
 // ★VF_VIDI2V_V1（2026-09-29）：「让图动起来」的计费口径（50 点/秒）与出片侧 vf-video.ts **共用同一份公式** ——
 //   卡片报价与实扣同源，免得又出现"卡片报 205 点、实扣 1500 点"。
-import { i2vCostPoints, vfTotalCostPoints, buildI2vShots, i2vKeyMap, i2vSkipHint, i2vSkippedList } from '@/lib/agent/vf/i2v-plan'
+import { i2vCostPoints, vfTotalCostPoints, buildI2vShots, i2vKeyMap, i2vSkipHint, i2vSkippedList, i2vNotPickedHint } from '@/lib/agent/vf/i2v-plan'
 // ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对『有主体可动』的素材开」）：
 //   把"图片本地路径 → 识别摘要"的映射建出来（纯函数），交给 buildI2vShots 逐图分类 ——
 //   界面/截图/海报/文字页这类"动起来也看不出"的直接跳过（省钱），且报价随之下调（同源）。
@@ -370,18 +373,19 @@ async function vfRememberUsedImages(uid: number | string, names: string[]): Prom
  * ════════════════════════════════════════════════════════════════════════════ */
 
 /** 读该用户的素材许可/禁用名单（agentMemory，**不新建表**；查不到 / 坏数据 → 空名单） */
-async function loadMatPolicy(uid: number | string): Promise<{ allow: string[]; deny: string[] }> {
+async function loadMatPolicy(uid: number | string): Promise<MatPolicy> {
   try {
     const m = await prisma.agentMemory.findFirst({
       where: { userId: String(uid), tags: { contains: VF_MAT_POLICY_TAG } },
       orderBy: { updatedAt: 'desc' },
     })
     return parseMatPolicy(m?.content)
-  } catch { return { allow: [], deny: [] } }
+  } catch { return { allow: [], deny: [], i2v: [] } }
 }
 
-/** 落一次「✅ 当素材用 / 🚫 别用」：写回名单 + 留一行日志（用户要看得出自己改了什么） */
-async function saveMatPolicyAndLog(uid: number | string, name: string, action: 'allow' | 'deny' | 'auto'): Promise<void> {
+/** 落一次「✅ 当素材用 / 🚫 别用 / 🎞 打勾」：写回名单 + 留一行日志（用户要看得出自己改了什么）
+ *  ★VF_MATUI_V1（2026-09-30）：动作扩到 pick/unpick（🎞 勾选/取消），名单正文本轮新增 `i2v` 字段。 */
+async function saveMatPolicyAndLog(uid: number | string, name: string, action: MatSetAction): Promise<void> {
   const after = applyMatSet(await loadMatPolicy(uid), name, action)
   const content = serializeMatPolicy(after)
   try {
@@ -389,45 +393,122 @@ async function saveMatPolicyAndLog(uid: number | string, name: string, action: '
     if (ex) await prisma.agentMemory.update({ where: { id: ex.id }, data: { content, tags: VF_MAT_POLICY_TAG } })
     else await prisma.agentMemory.create({ data: { userId: String(uid), content, tags: VF_MAT_POLICY_TAG, salience: 0.6 } })
     // ★VF_MEMORY_V1：用户点一次要**立刻生效**——内存草稿里的 mats 也同步（否则重出的卡片还是旧状态）
+    // ★VF_MATUI_V1：🎞 勾选同理（同步 i2v 字段）
     const _d = VIDEO_DRAFT.get(Number(uid))
     if (_d && Array.isArray((_d as any).mats)) {
       (_d as any).mats = (_d as any).mats.map((m: any) => String(m?.name) === name
-        ? { ...m, state: materialStateOf(name, { allow: after.allow, deny: after.deny }) } : m)
+        ? { ...m, state: materialStateOf(name, { allow: after.allow, deny: after.deny }), i2v: (after.i2v || []).includes(name) }
+        : m)
     }
   } catch (e: any) {
     vfLog(uid, '[素材池] 名单保存失败: ' + String(e?.message || e).slice(0, 120))
   }
-  const label = action === 'allow' ? '可用' : action === 'deny' ? '不用' : '自动'
+  const label = action === 'allow' ? '可用' : action === 'deny' ? '不用'
+    : action === 'pick' ? '动效' : action === 'unpick' ? '不动效' : '自动'
   vfLog(uid, `[素材池] 用户把 ${name} 设为「${label}」`)
 }
 
-/** 卡片「素材识别结果」的清单：**全仓库**（含被排除的出片产物）逐条给名字 + 状态。
- *  ⚠️ 轻量：只 listObjects（列目录）+ 出片记录文件名，**绝不触发 VL 识别**（不烧钱）。 */
-async function buildMatUI(uid: number | string, limit = 12): Promise<Array<{ name: string; kind: string; state: string }>> {
+/**
+ * ★VF_MATUI_V1（2026-09-30 用户定案）：「🔄 换一张」——把 out 换成**同类型的下一张**。
+ *   · 目标由**服务端**算（pickSwapTarget：仓库当前顺序 + 名单 + 上限裁剪只有服务端全知道）；
+ *   · 名单变更 applyMatSwap：out → deny、in → allow、🎞 勾选随替换转移；
+ *   · 落库后重出确认卡（不重排分镜、不扣钱）。
+ * 返回 null = 仓库里没有别的同类型素材可换（调用方如实回一句）。
+ */
+async function swapMatAndLog(uid: number | string, outName: string): Promise<{ inName: string } | null> {
   try {
     const [policy, objs] = await Promise.all([
       loadMatPolicy(uid),
       listObjects(`storage/${String(uid)}/`, 400).catch(() => [] as any[]),
     ])
     const outcomes = readOutcomeNames(uid)
-    const seen = new Set<string>()
-    const out: Array<{ name: string; kind: string; state: string }> = []
-    for (const o of (objs || [])) {
-      const full = String((o as any)?.name || '')
-      if (!full || full.includes('/.thumbs/') || full.endsWith('/')) continue
-      const name = full.split('/').pop() || ''
-      if (!name || seen.has(name)) continue
-      seen.add(name)
-      out.push({
-        name,
-        kind: /\.(mp4|mov|webm|mkv|avi)$/i.test(name) ? 'video' : 'image',
-        state: materialStateOf(name, { allow: policy.allow, deny: policy.deny, outcomeNames: outcomes }),
-      })
+    const built = buildMatUIList(flattenRepoObjects(objs), {
+      allow: policy.allow, deny: policy.deny, outcomeNames: outcomes,
+      i2v: policy.i2v, limit: VF_MAT_UI_LIMIT,
+    })
+    // 只在【可用素材】里换（"已排除"里的东西本来就不该用）；同类、跳过已被 deny 的、跳过它自己
+    const target = pickSwapTarget(built.usable, outName, { deny: policy.deny })
+    if (!target) {
+      vfLog(uid, `[素材池] 换一张：仓库里没有别的同类素材可换了（${outName}）`)
+      return null
     }
-    const rankOf = (s: string) => (s === 'outcome' ? 0 : s === 'deny' ? 1 : s === 'allow' ? 2 : 3)
-    out.sort((a, b) => rankOf(a.state) - rankOf(b.state))   // 出片产物 / 被禁用的排前面（用户最想处理这两类）
-    return out.slice(0, limit)
-  } catch { return [] }
+    const after = applyMatSwap(policy, outName, target.name)
+    await saveMatPolicyContent(uid, after)
+    vfLog(uid, `[素材池] 用户「换一张」：${outName} → ${target.name}（` +
+      `旧图记「别用」、新图记「当素材用」${(policy.i2v || []).includes(outName) ? '、🎞 勾选转移过去' : ''}）`)
+    return { inName: target.name }
+  } catch (e: any) {
+    vfLog(uid, '[素材池] 换一张失败: ' + String(e?.message || e).slice(0, 120))
+    return null
+  }
+}
+
+/** 把名单正文写回 agentMemory（与 saveMatPolicyAndLog 同一处存储；只做写，不做日志） */
+async function saveMatPolicyContent(uid: number | string, p: MatPolicy): Promise<void> {
+  const content = serializeMatPolicy(p)
+  const ex = await prisma.agentMemory.findFirst({ where: { userId: String(uid), tags: { contains: VF_MAT_POLICY_TAG } }, orderBy: { updatedAt: 'desc' } })
+  if (ex) await prisma.agentMemory.update({ where: { id: ex.id }, data: { content, tags: VF_MAT_POLICY_TAG } })
+  else await prisma.agentMemory.create({ data: { userId: String(uid), content, tags: VF_MAT_POLICY_TAG, salience: 0.6 } })
+}
+
+/** listObjects 的返回值 → `[{name}]`（剥掉目录/缩略图；重名只留一条） */
+function flattenRepoObjects(objs: any[]): Array<{ name: string }> {
+  const seen = new Set<string>()
+  const out: Array<{ name: string }> = []
+  for (const o of (objs || [])) {
+    const full = String((o as any)?.name || '')
+    if (!full || full.includes('/.thumbs/') || full.endsWith('/')) continue
+    const name = full.split('/').pop() || ''
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    out.push({ name })
+  }
+  return out
+}
+
+/**
+ * 卡片「素材识别结果」的清单。
+ *
+ * ★VF_MATUI_V1（2026-09-30 用户定案）—— 治"看了没用"：
+ *   用户实测原话：「这个什么意思没明白。**这不是使用的素材 也不是 AI 看的素材，有什么用？是不是搞错了**。」
+ *   旧版：全仓库取前 12 条、且把"出片产物（默认被排除的）"**排在最前** → 用户仓库里出片产物多 →
+ *   前 12 条全是「仅出片产物」，真正可用的图片一张都没出现。
+ *   现在：① **可用素材在前**、已排除折叠在后；② 每条带 `kind`（前端给缩略图 / 🎬 占位）
+ *   与 `i2v`（🎞 勾选）；③ 上限 **40**，可用素材**优先占额度**；④ 回传"共 N 条可用 / M 条已排除"。
+ *
+ * 缩略图 URL：复用服务端签名（signedUrl，24h 短期直链）—— 只给**图片**签，
+ * 视频照旧只给文件名（前端画 🎬 占位图标）。⚠️ 绝不把 bucket 密钥下发到客户端。
+ * ⚠️ 轻量：只 listObjects（列目录）+ 签名 + 出片记录文件名，**绝不触发 VL 识别**（不烧钱）。
+ */
+async function buildMatUI(uid: number | string, limit = VF_MAT_UI_LIMIT): Promise<{ items: Array<MatUIItem & { url?: string }>; usableN: number; excludedN: number }> {
+  try {
+    const [policy, objs] = await Promise.all([
+      loadMatPolicy(uid),
+      listObjects(`storage/${String(uid)}/`, 400).catch(() => [] as any[]),
+    ])
+    const outcomes = readOutcomeNames(uid)
+    const built = buildMatUIList(flattenRepoObjects(objs), {
+      allow: policy.allow, deny: policy.deny, outcomeNames: outcomes,
+      i2v: policy.i2v, limit,
+    })
+    // ★VF_MATUI_V1：给图片签 24h 短期直链（前端 `<img src>` 直接显示缩略图）；签不上就留空（不阻塞清单）
+    const items = await Promise.all(built.items.map(async (m) => {
+      if (m.kind !== 'image') return m
+      try {
+        const { signedUrl } = await import('@/lib/oss')
+        return { ...m, url: await signedUrl(`storage/${String(uid)}/${m.name}`, 86400) }
+      } catch { return m }
+    }))
+    return { items, usableN: built.usableN, excludedN: built.excludedN }
+  } catch { return { items: [], usableN: 0, excludedN: 0 } }
+}
+
+/** ★VF_MATUI_V1：把最新清单写回草稿（清单 + 两个总数一起存，卡片要显示"共 N 可用 / M 已排除"） */
+async function refreshMatUI(vd: any, uid: number | string): Promise<void> {
+  const r = await buildMatUI(uid)
+  vd.mats = r.items
+  vd.matUsableN = r.usableN
+  vd.matExcludedN = r.excludedN
 }
 
 /** ★VF_SUBFILL_V1 / ★VF_SPLIT2_V1：把口播文案**按顺序**切成 n 段。
@@ -492,6 +573,18 @@ function vfSplitScript(script: string, n: number, maxLen = 45): string[] {
   return out
 }
 
+/**
+ * ★VF_MATUI_V1（2026-09-30）：卡片要显示"共 N 条可用 / M 条已排除"——
+ * 数字**只算一次**（buildMatUI 给的**总数**，不是裁剪后条数），这里统一从草稿取。
+ */
+function matCountsOf(vd: any): { matUsableN: number; matExcludedN: number } {
+  const mats: any[] = Array.isArray(vd?.mats) ? vd.mats : []
+  return {
+    matUsableN: Math.max(0, Number(vd?.matUsableN) || 0) || mats.filter((m) => m?.state === 'all' || m?.state === 'allow').length,
+    matExcludedN: Math.max(0, Number(vd?.matExcludedN) || 0) || mats.filter((m) => m?.state === 'outcome' || m?.state === 'deny').length,
+  }
+}
+
 /** ★VF_GATE_V1：拼“确认卡”。shotsFailed=true 时【不给确认出片】（用户实测：0 镜也放行 → 成片没画面） */
 function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect: string, cover = 1, estSec = 0): string {
   const voiceName = (vd.voiceList || VF_VOICE_BASE).find((v: any) => v.id === vd.voice)?.name || vd.voice || ''
@@ -515,11 +608,20 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
   const _i2vSec = Math.max(0, Number(vd.i2vSec) || 0)
   const _i2vN = Math.max(0, Number(vd.i2vImages) || 0)
   const _i2vPts = i2vCostPoints(_i2vSec)
+  // ★VF_MATUI_V1（2026-09-30 用户定案）：本次「动不动 AI、动几张」必须**一眼看出**
+  //   —— 用户原话「能不加 AI 做视频就不加」；默认已改成不动，所以卡片要明说"0 点动图"。
+  const _i2vMode = String(vd.i2v || 'off')
+  const _i2vModeLabel = _i2vMode === 'off' ? '本次不动用 AI'
+    : _i2vMode === 'picked' ? '只动我勾选的' : _i2vMode === 'on' ? '智能筛' : '全部动起来'
   // ★VF_I2VDFLT_V1（2026-09-30 用户定案「跳过哪几张要能立刻看到」）：智能筛跳过的图 ——
   //   hint 里加一句（最多列 3 个 + "等"），同时给结构化字段 i2vSkipped（前端要单独展示时可直接取）。
   const _i2vSkip = i2vSkippedList(vd.i2vSkipped)
   const _i2vSkipN = Math.max(0, Number(vd.i2vSkippedN) || 0) || _i2vSkip.length
   const _i2vSkipHint = i2vSkipHint(_i2vSkip.map((x) => x.name), _i2vSkipN)
+  // ★VF_MATUI_V1（2026-09-30）：picked 模式下"哪几张没勾 🎞"也要能看出来（沿用 i2vSkipped 的做法）
+  const _i2vNotPicked = (Array.isArray(vd.i2vNotPicked) ? vd.i2vNotPicked : []).map((x: any) => String(x || '')).filter(Boolean)
+  const _i2vNotPickedN = Math.max(0, Number(vd.i2vNotPickedN) || 0) || _i2vNotPicked.length
+  const _i2vNotPickedHint = i2vNotPickedHint(_i2vNotPicked, _i2vNotPickedN)
   const cost = _isAI
     ? Math.max(1, Math.ceil(Math.max(4, targetSec || 30) * 50))
     : vfTotalCostPoints(charN, _i2vSec)
@@ -540,7 +642,9 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
       source: _isAI ? 'ai' : '',
       coverage: cover, estSec, targetSec, shotCount: (shots || []).length,
       // ★VF_MEMORY_V1：素材清单（含被排除的"出片产物"）——卡片上逐条给「✅ 当素材用 / 🚫 别用」
+      // ★VF_MATUI_V1：条目带 kind/state/i2v/url（缩略图 + 🎞 勾选），并回传"共 N 可用 / M 已排除"
       mats: Array.isArray(vd.mats) ? vd.mats : [],
+      ...matCountsOf(vd),
       hint: `文案好了（${charN} 字），但 ${why}。回「重试」我再排一次；若只想先要一条只有字幕配音、没有素材画面的版本，回「先出字幕版」`,
     })
   }
@@ -578,12 +682,20 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
     costNoI2v, themeName,
     // ★VF_MEMORY_V1（2026-09-30）：素材清单（用户能逐条看到名字的地方给「✅ 当素材用 / 🚫 别用」）。
     //   每项 `{name, kind, state}`，state ∈ all | outcome（仅出片产物） | deny | allow。
+    // ★VF_MATUI_V1（2026-09-30）：每项再加 `i2v`（🎞 打勾）+ `url`（图片 24h 签名缩略图）；
+    //   顺序 = 可用在前、已排除在后（前端把"已排除"折叠起来）；上限 40，可用素材优先占额度。
     mats: Array.isArray(vd.mats) ? vd.mats : [],
+    // ★VF_MATUI_V1：共 N 条可用 / M 条已排除（**总数**，不是裁剪后的条数）
+    ...matCountsOf(vd),
+    // ★VF_MATUI_V1：本次动不动 AI（off/picked/on/all）—— 卡片顶部据此显示"本次不动用 AI（0 点动图）"
+    i2vMode: _i2vMode, i2vModeLabel: _i2vModeLabel,
     // ★VF_VIDI2V_V1：让图动起来那笔钱的**明细**（卡片 hint 已写"含让 N 张图动起来：约 M 点"，
     //   这里再给结构化字段，前端要单独展示时可直接取用）
     i2vImages: _i2vN, i2vSec: _i2vSec, i2vPts: _i2vPts,
     // ★VF_I2VDFLT_V1：被智能筛跳过的图（结构化 `[{name, reason}]` + 张数）—— 前端可直接展示
     i2vSkipped: _i2vSkip, i2vSkippedN: _i2vSkipN,
+    // ★VF_MATUI_V1：picked 模式下"没勾 🎞 所以没动"的素材名 + 张数（结构化，前端直接展示）
+    i2vNotPicked: _i2vNotPicked, i2vNotPickedN: _i2vNotPickedN,
     // ★VF_AIVIDEO_V1（2026-09-20）：把画面来源透给卡片 —— 前端可据此显示"这条是 AI 出片"
     source: _isAI ? 'ai' : '',
     aspect, aspectName,
@@ -592,9 +704,15 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
     //   并明确写出"画面由 AI 逐镜生成"，避免用户以为用的是自己的图。
     hint: `看完了你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${_isAI ? `${aspectName}·**画面由 AI 逐镜生成**` : (aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏')}·风格 ${themeName}·配音 ${voiceName}）` +
       // ★VF_VIDI2V_V1：让图动起来的钱**明写在卡片上**（不藏着）；同一张图只生成一次
-      (_i2vN ? `；🎞 含让 ${_i2vN} 张图动起来：约 ${_i2vPts} 点（${Math.round(_i2vSec)} 秒 × 50 点/秒，同一张图只生成一次）` : '') +
+      // ★VF_MATUI_V1（2026-09-30 用户定案）：不动的时候也要**明说 0 点动图**（默认已改成不动，
+      //   用户要一眼看出"这次不花 AI 的钱"；动了则写清"让 N 张动起来 ≈ M 点"）。
+      (_i2vN
+        ? `；🎞 本次让 ${_i2vN} 张图动起来：约 ${_i2vPts} 点（${Math.round(_i2vSec)} 秒 × 50 点/秒，同一张图只生成一次）`
+        : `；🎞 本次不动用 AI（0 点动图，${_i2vModeLabel}）`) +
       // ★VF_I2VDFLT_V1：智能筛跳过 N 张（最多列 3 个 + "等"）—— 让金额变化**可解释**
       (_i2vSkipHint ? `；${_i2vSkipHint}` : '') +
+      // ★VF_MATUI_V1：picked 模式 → 没勾 🎞 的那几张也别藏着（用户才知道"打勾才动"是真的）
+      (_i2vNotPickedHint ? `；${_i2vNotPickedHint}` : '') +
       `——回复「确认」开始出片；也可说要改什么`,
   })
 }
@@ -2995,7 +3113,8 @@ export async function POST(request: NextRequest) {
     //   （发的是机器串，不是标准命令 → 不加就会被锁死/被 AI 接走）。
     //   ★VF_MEMORY_V1（2026-09-30）再把 `VF_MAT_SET` 加进来 —— 素材「✅ 当素材用 / 🚫 别用」的协议串同理
     //   （发的是机器串，不是标准命令 → 不加就会掉出状态机）。
-    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|VF_MAT_SET|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
+    // ★VF_MATUI_V1（2026-09-30）：再把 `VF_MAT_SWAP` 加进来（清单「🔄 换一张」的协议串同理）
+    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|VF_MAT_SET|VF_MAT_SWAP|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
     // ★STD_MODE_V1：命中 machine 命令（发布 / 三条成片线）→ 强制进状态机（跳过 AI 那一步）
     // ★VF_I2VDFLT_V1：再加 `stdSettingWord`（改设置的说法 / VF_I2V_OFF 协议串）→ 同样强制进状态机，
     //   由两条成片线在 step='script' 里改 i2v 并重出确认卡（不再落进 AI 自由发挥/锁死）。
@@ -3945,7 +4064,8 @@ PUBLISH_DRAFT.delete(uidW)
                   // ★VF_I2VSUIT_V1（2026-09-30）：额外支持 'all' = 手动全开（不按素材类型筛选，全部图都做）。
                   if (f.i2v !== undefined) {
                     const _i2vV = String(f.i2v)
-                    vd.i2v = _i2vV === 'off' ? 'off' : (_i2vV === 'all' ? 'all' : 'on')
+                    // ★VF_MATUI_V1（2026-09-30）：新增 'picked' = 只动我勾选的（四档全保留）
+                    vd.i2v = (_i2vV === 'off' || _i2vV === 'picked' || _i2vV === 'all') ? _i2vV : 'on'
                   }
                   // ★VF_UPLOAD_V2（2026-09-20，用户实测“上传 8 张却用了旧图”）：前端把**刚上传的文件名列表**
                   //   一起发过来 → 后端按名字精确取，不再靠“按时间猜最近”。确定性优先。
@@ -4038,7 +4158,8 @@ PUBLISH_DRAFT.delete(uidW)
                 const vfMatsAll = await listRepoMaterials(uidVF2, Math.max(40, _wanted.length + 20), vd.useRecent ? 'recent' : 'spread',
                   { allow: _matPolicy.allow, deny: _matPolicy.deny })
                 // ★VF_MEMORY_V1：卡片上"素材识别结果"那一段的逐条清单（全仓库 + 状态），随草稿存起来
-                vd.mats = await buildMatUI(uidVF2)
+                // ★VF_MATUI_V1：清单改版（可用在前 / 已排除在后 / 上限 40 / 图片带缩略图 / 🎞 勾选）
+                await refreshMatUI(vd, uidVF2)
                 let vfMats = vfMatsAll
                 if (vd.useRecent && _wanted.length) {
                   const _byName = new Map(vfMatsAll.map((m: any) => [String(m.name), m]))
@@ -4368,8 +4489,10 @@ PUBLISH_DRAFT.delete(uidW)
                   shots: vfShots, keyByPath: vd.i2vKeys || {},
                   // ★VF_I2VSUIT_V1：只对有主体可动的素材开（摘要为空/判不出 → 不做，省钱优先）
                   summaryByPath: vd.i2vSuit,
-                  // ★VF_I2VDFLT_V1：缺省 = 'all'（全部动起来，用户定案「默认回到以前那样」）
-                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'all'),
+                  // ★VF_I2VDFLT_V1：缺省值已由 ★VF_MATUI_V1 改为 'off'（不调 AI、0 点动图）
+                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'off'),
+                  // ★VF_MATUI_V1：'picked' 档只动清单里打了勾（🎞）的素材
+                  picked: _matPolicy.i2v,
                 })
                 for (const _n of _i2vB.notes) vfLog(uidVF2, '[图生视频] ' + _n)
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
@@ -4377,7 +4500,9 @@ PUBLISH_DRAFT.delete(uidW)
                 // i2vSec/i2vImages 只给卡片报价用（与 make_ai_video 实扣同源：vfTotalCostPoints）
                 wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _i2vB.plan.sec, i2vImages: _i2vB.plan.images,
                   // ★VF_I2VDFLT_V1：把"被智能筛跳过的图"透到卡片（hint 一句 + 结构化字段）
-                  i2vSkipped: _i2vB.plan.unfitSamples, i2vSkippedN: _i2vB.plan.skippedUnfit },
+                  i2vSkipped: _i2vB.plan.unfitSamples, i2vSkippedN: _i2vB.plan.skippedUnfit,
+                  // ★VF_MATUI_V1：picked 模式下"没勾 🎞 所以没动"的名单也透到卡片
+                  i2vNotPicked: _i2vB.plan.notPickedNames, i2vNotPickedN: _i2vB.plan.skippedNotPicked },
                   vfShots, vfImgs.length, String(vfBrief || ''), vfAspect, vfCover, vfEstSec)
                 // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
                 // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
@@ -4474,23 +4599,28 @@ PUBLISH_DRAFT.delete(uidW)
               //        ② 用户直接说「关掉动图 / 保持静态 / 全部动起来 / 智能筛」。
               //   只改草稿的 i2v，**不重排分镜、不扣钱**（金额随之变小/变大，用户立刻看得到）。
               //   背景：上一轮让用户手打「关掉图转视频，直接生成」被标准模式白名单拦掉了。
-              const _iv = i2vIntentOf(userMessage) as 'off' | 'all' | 'on'
+              const _iv = i2vIntentOf(userMessage) as 'off' | 'picked' | 'all' | 'on'
+              // ★VF_MATUI_V1：'picked' 要按用户的「🎞 打勾」名单过滤 → 现读一次名单（同一轮内刚保存的也读得到）
+              const _ivPol = await loadMatPolicy(uidVF2)
               const _mkI2v = (v: string) => buildI2vShots({
                 shots: vd.shots || [], keyByPath: vd.i2vKeys || {}, summaryByPath: vd.i2vSuit,
                 enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : v,
+                picked: _ivPol.i2v,
               })
-              const _before = _mkI2v(vd.i2v ?? 'all')
+              const _before = _mkI2v(vd.i2v ?? 'off')
               vd.i2v = _iv
               VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
               const _after = _mkI2v(_iv)
               for (const _n of _after.notes) vfLog(uidVF2, '[图生视频] ' + _n)
-              const _label = _iv === 'off' ? '保持静态' : (_iv === 'all' ? '全部动起来' : '智能筛')
+              const _label = _iv === 'off' ? '保持静态' : _iv === 'picked' ? '只动我勾选的'
+                : (_iv === 'all' ? '全部动起来' : '智能筛')
               const _delta = _before.points - _after.points
               vfLog(uidVF2, `[图生视频] 用户一键${_iv === 'off' ? '关掉' : '改设置'} → 「${_label}」` +
                 `${_iv === 'off' ? '，本片不再生成动图' : ''}（${_before.points} 点 → ${_after.points} 点` +
                 `${_delta > 0 ? `，省 ${_delta} 点` : _delta < 0 ? `，加 ${-_delta} 点` : ''}）`)
               wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _after.plan.sec, i2vImages: _after.plan.images,
-                i2vSkipped: _after.plan.unfitSamples, i2vSkippedN: _after.plan.skippedUnfit },
+                i2vSkipped: _after.plan.unfitSamples, i2vSkippedN: _after.plan.skippedUnfit,
+                i2vNotPicked: _after.plan.notPickedNames, i2vNotPickedN: _after.plan.skippedNotPicked },
                 vd.shots || [], (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait',
                 Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
               finalResult = wfEarlyReply
@@ -4499,19 +4629,48 @@ PUBLISH_DRAFT.delete(uidW)
               //   素材识别结果里每条素材的「✅ 当素材用 / 🚫 别用」发的协议串：
               //     VF_MAT_SET:{"name":"<文件名>","action":"allow"|"deny"|"auto"}
               //   只改【名单】+ 重出确认卡（**不重排分镜、不扣钱**；下次起草时名单即生效）。
-              const _ms = parseMatSetMessage(userMessage) as { name: string; action: 'allow' | 'deny' | 'auto' }
+              const _ms = parseMatSetMessage(userMessage) as { name: string; action: MatSetAction }
               await saveMatPolicyAndLog(uidVF2, _ms.name, _ms.action)
-              vd.mats = await buildMatUI(uidVF2)
+              // ★VF_MATUI_V1：清单 + 两个总数一起刷新（新增 🎞 勾选后，清单里的勾选态也要跟着变）
+              await refreshMatUI(vd, uidVF2)
               VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
               const _mkMat = buildI2vShots({
                 shots: vd.shots || [], keyByPath: vd.i2vKeys || {}, summaryByPath: vd.i2vSuit,
-                enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'all'),
+                enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'off'),
+                picked: (await loadMatPolicy(uidVF2)).i2v,
               })
               wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _mkMat.plan.sec, i2vImages: _mkMat.plan.images,
-                i2vSkipped: _mkMat.plan.unfitSamples, i2vSkippedN: _mkMat.plan.skippedUnfit },
+                i2vSkipped: _mkMat.plan.unfitSamples, i2vSkippedN: _mkMat.plan.skippedUnfit,
+                i2vNotPicked: _mkMat.plan.notPickedNames, i2vNotPickedN: _mkMat.plan.skippedNotPicked },
                 vd.shots || [], (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait',
                 Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
               finalResult = wfEarlyReply
+            } else if (vd.step === 'script' && !!parseMatSwapMessage(userMessage)) {
+              // ═══ ★VF_MATUI_V1（2026-09-30 用户定案「选中的图片是否可以做个小预览，点击可以替换一个」）═══
+              //   清单里每条右侧的「🔄 换一张」→ `VF_MAT_SWAP:{"out":"<被换掉的文件名>"}`。
+              //   服务端算"同类型的下一张"（pickSwapTarget），把 out 记 deny、in 记 allow（🎞 勾选转移），
+              //   然后重出确认卡（**不重排分镜、不扣钱**；名单下次起草/重排时生效，与本轮报价无关）。
+              const _sw = parseMatSwapMessage(userMessage) as { out: string }
+              const _swr = await swapMatAndLog(uidVF2, _sw.out)
+              if (!_swr) {
+                wfEarlyReply = `仓库里没有别的同类素材可以换「${_sw.out}」（同类只剩这一张）。\n` +
+                  `你可以先「📤 我上传素材」多传几张，或直接在清单里点「✅ 当素材用」把别的图提拔进来。`
+                finalResult = wfEarlyReply
+              } else {
+                await refreshMatUI(vd, uidVF2)
+                VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
+                const _mkSw = buildI2vShots({
+                  shots: vd.shots || [], keyByPath: vd.i2vKeys || {}, summaryByPath: vd.i2vSuit,
+                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'off'),
+                  picked: (await loadMatPolicy(uidVF2)).i2v,
+                })
+                wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _mkSw.plan.sec, i2vImages: _mkSw.plan.images,
+                  i2vSkipped: _mkSw.plan.unfitSamples, i2vSkippedN: _mkSw.plan.skippedUnfit,
+                  i2vNotPicked: _mkSw.plan.notPickedNames, i2vNotPickedN: _mkSw.plan.skippedNotPicked },
+                  vd.shots || [], (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait',
+                  Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
+                finalResult = wfEarlyReply
+              }
             } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$|先出字幕版|强制出片/i.test(userMessage.trim())) {
               const vfForce = /先出字幕版|强制出片|就这样出/.test(userMessage)
               // ★VF_GATE_V1（2026-09-20，用户实测：0 镜也放行 → 成片没有素材画面）：
@@ -4532,8 +4691,10 @@ PUBLISH_DRAFT.delete(uidW)
                   shots: vd.shots || [], keyByPath: vd.i2vKeys || {},
                   // ★VF_I2VSUIT_V1：出片实扣按**同一份摘要**再算一次（与卡片报价同源）
                   summaryByPath: vd.i2vSuit,
-                  // ★VF_I2VDFLT_V1：缺省 = 'all'（全部动起来）
-                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'all'),
+                  // ★VF_MATUI_V1：缺省 = 'off'（不调 AI、0 点动图）—— 实扣与卡片报价**同源**
+                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'off'),
+                  // ★VF_MATUI_V1：'picked' 档按同一份「🎞 打勾」名单再算一次（报价 = 实扣）
+                  picked: (await loadMatPolicy(uidVF2)).i2v,
                 })
                 for (const _n of _i2vRun.notes) vfLog(uidVF2, '[图生视频] ' + _n)
                 const vfRun = await executeToolCall('make_ai_video', (vd.shots?.length && !vfForce)
@@ -4593,15 +4754,17 @@ PUBLISH_DRAFT.delete(uidW)
                 shots: vfAgain, keyByPath: vd.i2vKeys || {},
                 // ★VF_I2VSUIT_V1：重排分镜后同样按摘要筛（与首次起草同口径）
                 summaryByPath: vd.i2vSuit,
-                // ★VF_I2VDFLT_V1：缺省 = 'all'（全部动起来）
-                enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'all'),
+                // ★VF_MATUI_V1：缺省 = 'off'（不调 AI、0 点动图）
+                enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'off'),
+                picked: (await loadMatPolicy(uidVF2)).i2v,
               })
               for (const _n of _i2vB2.notes) vfLog(uidVF2, '[图生视频] ' + _n)
               VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
               vfLog(uidVF2, `[重试分镜] ${vfAgain.length} 镜，覆盖 ${Math.round(vfAgainCover * 100)}%（预计 ${vfAgainEst} 秒 / 目标 ${vd.dur} 秒）`)
               wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _i2vB2.plan.sec, i2vImages: _i2vB2.plan.images,
                 // ★VF_I2VDFLT_V1：重排后同样把"跳过名单"透到卡片
-                i2vSkipped: _i2vB2.plan.unfitSamples, i2vSkippedN: _i2vB2.plan.skippedUnfit },
+                i2vSkipped: _i2vB2.plan.unfitSamples, i2vSkippedN: _i2vB2.plan.skippedUnfit,
+                i2vNotPicked: _i2vB2.plan.notPickedNames, i2vNotPickedN: _i2vB2.plan.skippedNotPicked },
                 vfAgain, (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait', vfAgainCover, vfAgainEst)
               finalResult = wfEarlyReply
             } else if (vd.step === 'script') {

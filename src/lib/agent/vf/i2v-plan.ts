@@ -49,6 +49,11 @@ export interface I2vPlan {
   skippedUnfit: number
   /** ★VF_I2VSUIT_V1：被跳过的样本（最多 8 条；调用方写日志用，让用户看到"为什么这几张不做"） */
   unfitSamples: Array<{ image: string; kind: string; reason: string }>
+  /** ★VF_MATUI_V1（2026-09-30 用户定案「🎞 打勾才动」）：因为**没打勾**而保持静态的图片数
+   *  （只在 picked 模式（i2v='picked'）下才可能 > 0）。 */
+  skippedNotPicked: number
+  /** ★VF_MATUI_V1：没打勾被静态处理的素材名（最多 6 条，供卡片如实列出"哪几张没动"）。 */
+  notPickedNames: string[]
 }
 
 /**
@@ -71,18 +76,31 @@ export interface I2vPlan {
  * @param max           每片最多几张**唯一图**（费用硬闸）
  * @param summaryByPath ★VF_I2VSUIT_V1：图片本地路径 → **识别摘要**。**传了对象（含空对象）才启用**
  *                      "只对有主体可动的素材开"的过滤；不传 / 传 null = 不过滤（向后兼容未接线的调用方）。
+ * @param picked        ★VF_MATUI_V1：**勾选的素材文件名集合**。**传了集合（含空集合）才启用**
+ *                      "只动我勾选的"；不传 / 传 null = 旧行为（不过滤）。空集合 = 一张都不动（正确语义）。
  */
 export function buildI2vPlan(
   shots: any[],
   keyByPath: Record<string, string> | Map<string, string>,
   max = VF_I2V_MAX_IMAGES,
   summaryByPath?: Record<string, string> | Map<string, string> | null,
+  picked?: Iterable<string> | null,
 ): I2vPlan {
   const get = (p: string): string =>
     keyByPath instanceof Map ? (keyByPath.get(p) || '') : ((keyByPath || {})[p] || '')
   const suitOn = summaryByPath != null             // ★VF_I2VSUIT_V1：传了 map 才过滤（undefined/null = 旧行为）
   const getSum = (p: string): string =>
     summaryByPath instanceof Map ? String(summaryByPath.get(p) || '') : String((summaryByPath || {})[p] || '')
+  // ★VF_MATUI_V1（2026-09-30 用户定案「在没帧那里增加一个动效开关可以吗？打勾的素材才动效」）：
+  //   传了 → 进入「只动我勾选的」口径：**只有勾了的素材**才注入首帧/计费，其余一律静态（0 点）。
+  //   传空集合 = 一张都没勾 → 全部静态（这正是用户要的"打勾才动"，不是"没勾就全动"）。
+  const pickedOn = picked != null
+  const pickedSet = (() => {
+    const s = new Set<string>()
+    if (picked == null) return s
+    try { for (const x of picked as any) if (x != null && String(x).trim()) s.add(String(x).trim()) } catch { /* ignore */ }
+    return s
+  })()
   const arr = Array.isArray(shots) ? shots : []
   const seen = new Set<string>()                   // 已经处理过的图片路径（去重）
   const chosen = new Map<string, number[]>()       // 被选中生成的那张图 → 用到它的所有镜号
@@ -92,6 +110,8 @@ export function buildI2vPlan(
   let skippedNoKey = 0
   let overCap = 0
   let skippedUnfit = 0
+  let skippedNotPicked = 0
+  const notPickedNames: string[] = []
   const unfitSamples: Array<{ image: string; kind: string; reason: string }> = []
 
   for (let k = 0; k < arr.length; k++) {
@@ -115,6 +135,17 @@ export function buildI2vPlan(
     seen.add(p)
     const key = get(p)
     if (!key) { skippedNoKey++; continue }         // ★拿不到公网地址 → 保持静态（不失败）
+    // ★VF_MATUI_V1：只动勾选的 —— 按【素材文件名】比对（清单里勾的是文件名；
+    //   这里从仓库 key 取 basename：`storage/<uid>/xxx.jpg` → `xxx.jpg`）。
+    //   放在"上限判定之前"（与 VF_I2VSUIT 同理）：没勾的不该占用那 6 张的额度。
+    if (pickedOn) {
+      const nm = String(key).split('/').pop() || ''
+      if (!pickedSet.has(nm)) {
+        skippedNotPicked++
+        if (notPickedNames.length < 6 && nm) notPickedNames.push(nm)
+        continue
+      }
+    }
     // ★VF_I2VSUIT_V1：**只对有主体可动的素材开**（放在"上限判定之前"——
     //   不适合的图不该占用那 6 张的额度，否则"前面的截图把额度吃光、后面能动的反而没做"）。
     if (suitOn) {
@@ -137,7 +168,7 @@ export function buildI2vPlan(
   const reuse = [...chosen.entries()]
     .filter(([, idx]) => idx.length > 1)
     .map(([image, indices]) => ({ image, indices }))
-  return { list, sec: Math.round(sec * 100) / 100, images: uniq, reuse, skippedNoKey, overCap, skippedUnfit, unfitSamples }
+  return { list, sec: Math.round(sec * 100) / 100, images: uniq, reuse, skippedNoKey, overCap, skippedUnfit, unfitSamples, skippedNotPicked, notPickedNames }
 }
 
 /* ══════════════════════ ★VF_I2V_REUSE_V1（2026-09-29 team-lead 要求）══════════════════════
@@ -179,17 +210,22 @@ export interface I2vBuildResult {
  * @param o.shots     归一化后的最终分镜
  * @param o.keyByPath 图片本地路径 → 个人仓库 key（用 i2vKeyMap() 从 downloadMaterials 结果建）
  * @param o.enabled   用户的「让图动起来」开关：
- *                    ★VF_I2VDFLT_V1（2026-09-30 用户定案）：**'all' = 全部动起来 = 【默认】**（未传/缺省也是它）；
- *                    'on' = 智能筛（只对有主体可动的素材开，省钱，用户主动选才用）；
- *                    'off'/false = 完全不开（一个首帧都不注入）。
- *                    ★VF_I2VSUIT_V1：'all' 会**不按素材类型筛选**（界面/海报类也照做）。
+ *                    ★VF_MATUI_V1（2026-09-30 用户定案「能不加 AI 做视频就不加」）：**'off' = 【默认】**
+ *                      （不调 AI、0 点动图）—— 用户原话：「能不加 AI 做视频就不加……加了感觉冲突」；
+ *                    'picked' = 只动我勾选的（清单里 🎞 打勾的素材，报价按勾选张数算）；
+ *                    'all' = 全部动起来（每张图片镜都做，旧默认）；
+ *                    'on' = 智能筛（只对有主体可动的素材开，省钱）；
+ *                    false = 完全不开（等同 'off'）。
+ *                    ★VF_I2VSUIT_V1：'all' / 'picked' 会**不按素材类型筛选**（用户手动点名了，就别替他筛）。
  * @param o.max       每片最多几张图（默认 6，费用硬闸）
  * @param o.declareMix 是否顺带声明 source='mix' + mix=镜号（默认 true）——
  *                    chat/route.ts 的护栏要求：给了 i2vShots 却不声明来源会直接 TOOL_REJECT。
  *                    （声明 mix 同时让计费走"只算这几镜的秒数"口径 → 报价 = 实扣。）
  * @param o.summaryByPath ★VF_I2VSUIT_V1：图片本地路径 → 识别摘要（用 i2vSummaryByPath() 从 brief 建）。
  *                    给了（含空对象）→ 启用"只对有主体可动的素材开"；不给 / null → 不过滤（兼容旧调用方）。
- *                    `enabled='all'` 时本参数被忽略（用户手动全开）。
+ *                    `enabled='all'` / `'picked'` 时本参数被忽略（用户手动选了，不再替他过滤）。
+ * @param o.picked    ★VF_MATUI_V1：🎞 勾选的素材名集合。**传了（含空集合）才启用"只动我勾选的"**；
+ *                    不给 / null = 不过滤。空集合 = 一张都不动（这就是"打勾才动"的正确语义）。
  */
 export function buildI2vShots(o: {
   shots: any[]
@@ -198,25 +234,33 @@ export function buildI2vShots(o: {
   max?: number
   declareMix?: boolean
   summaryByPath?: Record<string, string> | Map<string, string> | null
+  picked?: Iterable<string> | null
 }): I2vBuildResult {
-  // ★VF_I2VDFLT_V1（2026-09-30 用户实测定案）：**默认回到「全部动起来」** ——
-  //   用户原话：「前面 1500 的动效是可以的，质量不错。后面这 280 和 25 的确实差很多。」
-  //   上一版把「智能筛」设成默认 → 用户素材多是界面截图/海报 → 几乎全被跳过 → 卡片金额从 1500 点
-  //   掉到 280 点（只 1 张动）/ 25 点（0 张动）→ 观感明显变差。
-  //   所以：**未传 / 缺省 = 'all'（全部动）**；智能筛改为用户主动选（'on'）；'off' = 全静态。
-  const rawEnabled = String(o?.enabled ?? 'all')
-  const allOn = rawEnabled === 'all'               // ★VF_I2VSUIT_V1：全部动（不筛素材类型）；★VF_I2VDFLT_V1 起是默认
+  // ★VF_MATUI_V1（2026-09-30 用户定案）：**默认改为「不动」（'off'）** ——
+  //   用户原话：「**能不加 AI 做视频就不加**……加了感觉冲突」；「全部动效 = 调 H3 逐镜生成视频也不是
+  //   完全没用，在**图片成片可选 1、2 个**，增加效果」。
+  //   ⚠️ 这是**新的用户定案**，覆盖 ★VF_I2VDFLT_V1 的"默认全部动"（那一条是同一用户当天早些时候的
+  //      结论，已被这条取代）。四档全部保留：off（默认）/ picked（只动勾选）/ on（智能筛）/ all（全部）。
+  //      为什么默认改成 off 而不是 on：'on' 会"悄悄跳过一批图"（用户实测观感差异大）；
+  //      'off' 是**明明白白 0 点**，用户想动再一键切到 picked/all —— 不偷偷花钱。
+  const rawEnabled = String(o?.enabled ?? 'off')
+  const pickedOn = rawEnabled === 'picked'         // ★VF_MATUI_V1：只动勾选的
+  const allOn = rawEnabled === 'all' || pickedOn   // 都不筛素材类型（用户手动点名/全开）
   const enabled = o?.enabled !== false && rawEnabled !== 'off'
   const max = Number(o?.max) > 0 ? Number(o.max) : VF_I2V_MAX_IMAGES
   const plan: I2vPlan = enabled
-    // ★VF_I2VSUIT_V1：'all' → 不传 summaryByPath（= 不过滤）；否则原样透传（undefined/null 也不过滤）
-    ? buildI2vPlan(o?.shots || [], o?.keyByPath || {}, max, allOn ? null : (o?.summaryByPath ?? null))
-    : { list: [], sec: 0, images: 0, reuse: [], skippedNoKey: 0, overCap: 0, skippedUnfit: 0, unfitSamples: [] }
+    // ★VF_I2VSUIT_V1：'all'/'picked' → 不传 summaryByPath（= 不过滤）；否则原样透传（undefined/null 也不过滤）
+    ? buildI2vPlan(o?.shots || [], o?.keyByPath || {}, max, allOn ? null : (o?.summaryByPath ?? null),
+      // ★VF_MATUI_V1：只有 'picked' 才把勾选名单交给"只动勾选的"口径（其余档不传 = 不过滤）
+      pickedOn ? (o?.picked ?? new Set<string>()) : null)
+    : { list: [], sec: 0, images: 0, reuse: [], skippedNoKey: 0, overCap: 0, skippedUnfit: 0, unfitSamples: [], skippedNotPicked: 0, notPickedNames: [] }
   const notes: string[] = []
   if (!enabled) {
-    notes.push('设置卡选了「保持静态」→ 一个首帧都不注入（也不额外计费）')
+    notes.push('★本次不动用 AI（保持静态，0 点动图）→ 一个首帧都不注入')
+  } else if (pickedOn) {
+    notes.push('设置卡选了「🎞 只动我勾选的」→ 只有清单里打了勾（🎞）的素材会生成动图，其余保持静态（0 点）')
   } else if (allOn) {
-    notes.push('设置卡选了「全部动起来」（★默认）→ 跳过"有没有主体可动"的筛选（界面/海报类也照做）')
+    notes.push('设置卡选了「全部动起来」→ 跳过"有没有主体可动"的筛选（界面/海报类也照做）')
   }
   if (enabled && plan.images) {
     // 注意措辞：注入的镜数 ≥ 唯一图张数（同图的后续镜也在名单里，靠 make.py 缓存复用同一段动图）
@@ -224,6 +268,10 @@ export function buildI2vShots(o: {
       `计费按**唯一图** ${plan.images} 张 = ${plan.sec} 秒 ≈ ${i2vCostPoints(plan.sec)} 点，50 点/秒）`)
   } else if (enabled) {
     notes.push('本次没有要动的图（没有图片镜 / 图不在个人仓库里 / 素材都被判为"动起来看不出"）→ 全部静态图（0 点）')
+  }
+  // ★VF_MATUI_V1：哪些图因为**没打勾**而静着 —— 必须可解释（用户看得到"我勾的才动"是真的）
+  if (plan.skippedNotPicked) {
+    notes.push(`本次勾选的素材之外另有 ${plan.skippedNotPicked} 张图片镜保持静态（只动你打勾的）`)
   }
   // ★VF_I2VSUIT_V1：哪些图因为"动起来也看不出"被跳过 —— 必须**可解释**（用户要能看懂为什么这几张不做）
   if (plan.skippedUnfit) {
@@ -280,6 +328,18 @@ export function i2vSkipHint(names: string[], n: number): string {
   const total = Math.max(0, Number(n) || 0) || list.length
   if (!total || !list.length) return ''
   return `⏭ 智能筛跳过 ${total} 张（动了也看不出）：${list.slice(0, 3).join('、')}${total > 3 ? ' 等' : ''}`
+}
+
+/**
+ * ★VF_MATUI_V1（2026-09-30）：「只动我勾选的」档位下"哪几张**没**动"的一句话（最多列 3 个 + "等"）。
+ *   `⏭ 另有 4 张没勾 🎞（保持静态）：a.jpg、b.jpg、c.jpg 等`
+ * 没有（或一张都不缺）→ 空串（调用方直接拼上去，不必再判空）。
+ */
+export function i2vNotPickedHint(names: string[], n: number): string {
+  const list = (Array.isArray(names) ? names : []).map((x) => String(x || '')).filter(Boolean)
+  const total = Math.max(0, Number(n) || 0) || list.length
+  if (!total || !list.length) return ''
+  return `⏭ 另有 ${total} 张没勾 🎞（保持静态）：${list.slice(0, 3).join('、')}${total > 3 ? ' 等' : ''}`
 }
 
 /**

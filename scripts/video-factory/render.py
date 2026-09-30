@@ -1049,9 +1049,23 @@ def card_number(shot, th, W, H, fps):
 
 
 def card_image(shot, th, W, H, fps):
-    """图片 + Ken Burns 推拉"""
+    """图片 + Ken Burns 推拉
+
+    ★VF_TPL_B1_V1（2026-09-30 B 组「图片处理」）：编辑风（news/data）默认走【卡片版式】
+      （圆角 / 相框 / 阴影 / 浮动 / 擦入 / 背景分层虚化），图片从"糊满屏"变成"排版好的卡片"。
+      老 8 套主题缺省 frame=none → 一个像素都不动。见 _plate_pre 的文件头。
+    """
     src = shot.get('src', '')
     dur = float(shot.get('dur', 4))
+    # ★VF_TPL_B1_V1：卡片版式优先（有素材且文件存在时才走；否则老实回落 Ken Burns）
+    _po = plate_opts(shot, th)
+    if _po and str(src).strip() and os.path.exists(str(src)):
+        _pp = _plate_pre(src, W, H, shot, th, _po, dur=dur, layout='center')
+        if _pp:
+            # 卡片版式下**不再叠 Ken Burns**：整卡缓慢浮动已经提供了"活"，
+            # 再推近会和圆角/阴影的几何打架（卡边会漂到画框外）。
+            vf = _pp + f"[smooth]trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"
+            return (f"-loop 1 -t {dur} -i \"{src}\"", vf, dur)
     kb = shot.get('kb', 'zoomin')
     frames = max(1, int(dur * fps))
     if kb == 'zoomin':
@@ -1622,6 +1636,266 @@ def _bg_filters(src, W, H):
     return pre, mode
 
 
+# ══════════════════ ★VF_TPL_B1_V1（2026-09-30）B 组「图片处理」模版 ══════════════════
+# 用户原话（本轮定案「动效 PPT 翻身做主」）：
+#   「我给你拿 5 个图**本身应该是不需要 AI 动视的**。应该是在**视频和图片上做动效 PPT 效果**。」
+#   「它们做几个图片**加相框一些特效**也是 AI 生图吗还是**特效转场就可以实现**？」
+#   「只是利用 FFMPEG 加动态 PPT + AI 代码一些特效来实现，脚本增效。」
+#   「你要的（相框/圆角/阴影/浮动、分栏、信息卡、拼贴、编号、逐词高亮、元素弹入、转场）」
+# → 铁律：**合成线里绝不调 AI 生成视频**（AI 视频另有「AI 制片」「图生视频」两个独立功能）。
+#   本组 = **纯 FFmpeg**：让"压在画面里的素材图"看起来像**排版好的卡片**，而不是"糊满屏的图"。
+#
+# 字段（分镜级，AI 可写；服务端白名单见 src/lib/agent/vf/anti-ai.ts 的 PICK_DESIGN_KEYS）：
+#   frame   相框：'auto'(缺省) / 'none' / 'thin' / 'polaroid'   ← **本组主开关**
+#   shadow  投影：'none' / 'soft' / 'strong'
+#   float   浮动：'none' / 'slow'
+#   wipe    擦入：'none' / 'left' / 'right' / 'center'
+#   bgblur  背景虚化强度：'none' / 'soft' / 'strong'
+#   缺省矩阵：**编辑风（news/data）全开**（thin / soft / slow / left / soft）；
+#            **其余 8 套老主题全关**（一个像素都不动 —— 用户已习惯老观感）。
+#            显式关闭：`frame='none'` 一条即关掉**整块**卡片版式（图片回到老的全幅铺法）。
+#
+# ⚠️ 本机实测结论（写进代码防止以后有人"想当然"改回去）：
+#   1) `geq` **不允许只写 a 表达式**（报 `A luminance or RGB expression is mandatory`）
+#      → 必须 r/g/b/a 四个都写；rgba 下用 r(X,Y)/g(X,Y)/b(X,Y) 透传原像素。
+#      （首版探路时正因为只写了 a，5 条实测全崩。）
+#   2) `geq` 很贵（900x520 全分辨率 ≈ 16ms/帧；4s 镜 ≈ 1.6s）。→ **圆角遮罩降到 1/2 分辨率算、
+#      再 scale 回来**：本机实测 1.59s → 0.72s（4 倍提速），且灰片放大天然抗锯齿、圆角更柔。
+#   3) `overlay` 的 x/y **是逐帧求值的**（本机实测：卡顶 y 应随 60*sin(2πt/2) 变，
+#      t=0 是图片 / t=0.5 是背景 / t=1.5 又是图片，完全吻合）→ 浮动直接用 t 表达式。
+#   4) `drawbox` 的 w/h **只求值一次**（假动画，见 VF_STYLE_V1 图表卡那段踩坑记录）
+#      → 擦入/展开绝不能写 `w='…t…'`，只能 `enable='gte(t,..)'` 分段。
+PLATE_FRAMES = ('auto', 'none', 'thin', 'polaroid')
+PLATE_SHADOWS = ('none', 'soft', 'strong')
+PLATE_FLOATS = ('none', 'slow')
+PLATE_WIPES = ('none', 'left', 'right', 'center')
+PLATE_BLURS = ('none', 'soft', 'strong')
+_PLATE_BLUR_SIGMA = {'none': 0, 'soft': 14, 'strong': 30}
+_PLATE_LOG = set()          # 同一(主题,参数组合)只打一条日志，不刷屏
+
+
+def _plate_raw(shot, key):
+    return str((shot or {}).get(key) or '').strip().lower()
+
+
+def _even(n):
+    """yuv420p / 条带切开都要求偶数尺寸 → 统一取偶"""
+    return max(2, int(n) // 2 * 2)
+
+
+def plate_opts(shot, th):
+    """★VF_TPL_B1_V1：解析 B 组「图片处理」字段。返回 dict；**返回 None = 本镜不启用卡片版式**。
+
+    白名单外的自造值 → 按"缺省"走（绝不抛异常、绝不把渲染搞挂，口径同 variant_of/enter_of）。
+    """
+    ed = _is_editorial(th)
+    raw = _plate_raw(shot, 'frame')
+    if raw in ('none', 'off', 'false', '0'):
+        return None                        # 显式关闭：一条字段关掉整块卡片版式
+    if raw in ('thin', 'polaroid'):
+        fr = raw
+    else:
+        fr = 'thin' if ed else ''          # 缺省 / 'auto' / 自造值：编辑风 thin、老主题不启用
+    if not fr:
+        return None
+
+    def pick(key, allowed, default):
+        v = _plate_raw(shot, key)
+        if v in allowed:
+            return v
+        if v in ('off', 'false', '0'):
+            return 'none'
+        return default
+
+    return {
+        'frame': fr,
+        'shadow': pick('shadow', PLATE_SHADOWS, 'soft' if ed else 'none'),
+        'float': pick('float', PLATE_FLOATS, 'slow' if ed else 'none'),
+        'wipe': pick('wipe', PLATE_WIPES, 'left' if ed else 'none'),
+        'bgblur': pick('bgblur', PLATE_BLURS, 'soft'),
+    }
+
+
+def _plate_mask_expr(w, h, r):
+    """圆角矩形的 alpha 表达式：角外 → 0，其余 → 255（r=圆角半径）"""
+    dx = "max(max(%d-X,X-(%d-1)),0)" % (r, w)
+    dy = "max(max(%d-Y,Y-(%d-1)),0)" % (r, h)
+    return "if(lte(%s*%s+%s*%s,%d),255,0)" % (dx, dx, dy, dy, r * r)
+
+
+def _plate_round(w, h, r):
+    """圆角 alpha 遮罩（灰片）：1/2 分辨率算几何 → 放大回原尺寸（见文件头实测 ② ）。"""
+    hw, hh = _even(max(2, w // 2)), _even(max(2, h // 2))
+    r2 = max(2, int(r) // 2)
+    return ("scale=%d:%d,format=gray,geq=lum='%s',scale=%d:%d,format=gray"
+            % (hw, hh, _plate_mask_expr(hw, hh, r2), w, h))
+
+
+def _plate_pre(src, W, H, shot, th, opts, dur=0.0, layout='center'):
+    """★VF_TPL_B1_V1：B 组「卡片版式」铺法。
+
+    返回 filter 前缀（**末尾一定产出 [smooth]**，与 _bg_filters 同契约，调用方原样接
+    zoompan / 自己的文字层即可）；返回 None = 本镜放弃卡片版式（调用方回落 _bg_filters）。
+
+    画面结构（自上而下 = 后叠前）：
+      素材铺满 + 背景虚化(bgblur) + 压暗   ← "主体清晰、背景退后"的分层
+        └ 阴影层（卡片形状复制 → 变黑 → 模糊 → 偏移）
+             └ 卡片层（等比缩进画框 → 圆角 → 相框/白边）→ 浮动(t) / 擦入(enable 分段)
+
+    layout='center'：图片卡（整张居中，最大 84%W × 76%H）
+    layout='top'   ：素材卡（图片落上半，底部留给大字 + 字幕条）
+    """
+    sw, sh = _probe_size(src)
+    if sw <= 0 or sh <= 0:
+        return None
+    _fit = 'contain'
+    if layout == 'top':
+        # 素材卡（图上 + 文下，"大图压题"那种博主资讯版式）：卡落上半，底部留给我们的大字。
+        #   卡框取 **0.62W × 0.52H** 并居上（cy=0.29H）：横图得到一张"杂志主图"大小的卡，
+        #   竖图也不会被压成一条；底部约 0.44H 之后留给大字/字幕条，互不打架。
+        boxw, boxh = int(W * 0.62), int(H * 0.52)
+        cy = int(H * 0.29)
+        # 只有**超宽全景**（宽高比 ≥2.2）才裁切填满：那时等比装入会变成一条细缝。
+        if sw / float(sh) >= 2.2:
+            cw, ch, _fit = _even(boxw), _even(boxh), 'cover'
+        else:
+            k = min(boxw / float(sw), boxh / float(sh))
+            cw, ch = _even(max(2, sw * k)), _even(max(2, sh * k))
+    else:
+        # 图片卡：整张居中、等比装入（不裁内容）
+        boxw, boxh = int(W * 0.84), int(H * 0.76)
+        cy = int(H * 0.5)
+        k = min(boxw / float(sw), boxh / float(sh))
+        cw, ch = _even(max(2, sw * k)), _even(max(2, sh * k))
+    fr = opts['frame']
+    frame_bg = th.get('frameBg') or 'white'
+    line_c = str(th.get('line') or 'white@0.35')
+    acc = str(th.get('accent') or '0xff6b35')
+    b = 0
+    if fr == 'polaroid':
+        b = max(10, int(min(cw, ch) * 0.030))
+        bb = max(b, int(b * 2.4))
+        pw, ph = cw + 2 * b, ch + b + bb
+        rad = max(6, int(min(pw, ph) * 0.022))
+    else:
+        pw, ph = cw, ch
+        rad = max(8, int(min(cw, ch) * 0.055))
+    x0 = int((W - pw) / 2)
+    y0 = int(cy - ph / 2.0)
+    y0 = max(int(H * 0.03), min(y0, int(H * 0.97) - ph))
+
+    parts = []
+    # ① 输入拆两路：背景 / 卡片
+    parts.append("split=2[bg0][card0]")
+    # ② 背景：铺满 + 虚化（bgblur 控强度）+ 压暗 —— "主体清晰、背景退后"
+    _sig = _PLATE_BLUR_SIGMA.get(opts['bgblur'], 14)
+    _bgd = "scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d" % (W, H, W, H)
+    if _sig > 0:
+        _bgd += ",gblur=sigma=%d" % _sig
+    _bgd += ",eq=brightness=-0.16"
+    parts.append("[bg0]" + _bgd + "[bgb]")
+    # ③ 卡片：等比缩到画框内 →（拍立得）白边 /（thin）细边框+强调色小块 → 圆角 alpha 遮罩
+    #    ⚠️ 边框/装饰一律画在**卡片图层自己身上**（在圆角遮罩之前）——
+    #       这样它们跟着浮动/擦入一起动；若画到合成后的整帧上（drawbox 的 x/y 只求值一次），
+    #       卡片一浮动边框就会跟卡片脱开（"假动画"那类坑的变体）。
+    _cd = ("[card0]scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d"
+           % (cw, ch, cw, ch)) if _fit == 'cover' else ("[card0]scale=%d:%d" % (cw, ch))
+    if fr == 'polaroid':
+        # 拍立得：白边（底部更宽），像一张冲印出来的照片
+        _cd += ",pad=w=%d:h=%d:x=%d:y=%d:color=%s" % (pw, ph, b, b, frame_bg)
+    else:
+        # thin：细边框（主题 line 色）+ 左上强调色小块（编辑风签名）；圆角遮罩会把四角切开 = 四角小切角
+        _t = max(3, int(min(pw, ph) * 0.006))
+        _cd += ",drawbox=x=0:y=0:w=%d:h=%d:color=%s:t=%d" % (pw, ph, line_c, _t)
+        _ins = max(14, int(rad * 0.35))
+        _bw = max(28, int(pw * 0.10))
+        _bh = max(4, int(min(pw, ph) * 0.012))
+        _cd += ",drawbox=x=%d:y=%d:w=%d:h=%d:color=%s@0.95:t=fill" % (_ins, _ins, _bw, _bh, acc)
+        print('[VF] B 组细边框：%dpx（%s）+ 左上强调色小块 %dx%d' % (_t, line_c, _bw, _bh))
+    _cd += (",split=2[imgA][mk0];"
+            "[mk0]%s[mask];"
+            "[imgA]format=rgba[imgR];"
+            "[imgR][mask]alphamerge[cardA]" % _plate_round(pw, ph, rad))
+    parts.append(_cd)
+    # ④ 把「卡片 + 阴影」合成成**一个图层**（阴影在卡片下面）—— 这里踩过两个坑：
+    #    ① 阴影必须在卡片**之下**：做法是把"变黑模糊后的卡片"和"卡片本体"各自 pad 到同一张
+    #       **透明画布**（本机实测 pad 的 color=black@0 真的产出 alpha=0 的区域），再把卡片压在阴影上。
+    #       若图省事把阴影直接 overlay 到画布上 → 卡片被压暗（实测卡片中心 (1,0,107) → (94,0,0)）。
+    #    ② 阴影与卡片**必须同一个图层**：早期版本把阴影单独叠在背景上 → 擦入开始时阴影整块先亮出来，
+    #       画面左右各冒出一块"鬼影"（t=0.35 抽帧复现）。合成一个图层后，浮动/擦入两者永远同步。
+    n_sh = 1 if opts['shadow'] != 'none' else 0
+    offx, offy = 0, 0
+    if n_sh:
+        _soft = opts['shadow'] == 'soft'
+        _sa = 0.42 if _soft else 0.62
+        _ss = max(6, int(min(pw, ph) * 0.045)) if _soft else max(10, int(min(pw, ph) * 0.075))
+        offx = max(8, int(W * 0.014))
+        offy = max(8, int(H * 0.020))
+        _lw, _lh = _even(pw + offx), _even(ph + offy)
+        parts.append("[cardA]split=2[shA][caA]")
+        # 阴影 pad 到 (offx,offy)（= 往右下挪）；卡片 pad 到 (0,0)。两者同处一张画布 →
+        # 阴影只在卡片右下缘露出来（若把阴影 pad 到 (0,0)、卡片 pad 到 (offx,offy)，
+        # 阴影会跑到卡片左上方露出一条黑边 —— 本机抽帧就是这个症状）。
+        parts.append("[shA]format=rgba,colorchannelmixer=rr=0:gg=0:bb=0:aa=%.2f,gblur=sigma=%d,"
+                     "pad=w=%d:h=%d:x=%d:y=%d:color=black@0[shp]"
+                     % (_sa, _ss, _lw, _lh, offx, offy))
+        parts.append("[caA]pad=w=%d:h=%d:x=0:y=0:color=black@0[cnp]" % (_lw, _lh))
+        parts.append("[shp][cnp]overlay=x=0:y=0[lyA]")
+        print('[VF] B 组合成图层：阴影偏移 (%d,%d) 强度 %.2f 模糊 %d（图层 %dx%d）'
+              % (offx, offy, _sa, _ss, _lw, _lh))
+    else:
+        parts.append("[cardA]null[lyA]")
+    # 图层里卡片位于 (0,0) → 图层左上角就是卡片的位置 (x0,y0)
+    _lay_w, _lay_h = _even(pw + offx), _even(ph + offy)
+    _lay_x, _lay_y = x0, y0
+    # ⑤ 浮动：overlay 的 x/y 逐帧求值（本机实测）→ 极缓慢漂移，方向按镜序轮换
+    fx, fy = '0', '0'
+    if opts['float'] == 'slow':
+        amp = max(4, int(H * 0.014))
+        per = max(4.0, float(dur or 4.0) * 2.0)
+        if int(shot.get('_idx') or 0) % 2 == 0:
+            fy = "%d*sin(2*PI*t/%.2f)" % (amp, per)          # 上下浮
+        else:
+            fx = "%d*sin(2*PI*t/%.2f)" % (amp, per)          # 左右浮
+    # ⑥ 擦入/展开：drawbox 的 w 只算一次 → 只能把图层按条切开 + enable 分段（真动画）
+    _wipe = opts['wipe']
+    _n = 0
+    _cur = '[bgb]'
+    if _wipe != 'none':
+        _nseg = 12
+        _swid = _even(max(2, _lay_w // _nseg))
+        _order = list(range(_nseg))
+        _mid = (_nseg - 1) / 2.0
+        if _wipe == 'left':
+            _seq = _order
+        elif _wipe == 'right':
+            _seq = _order[::-1]
+        else:                                                # center：中间先亮、向两侧展开
+            _seq = sorted(_order, key=lambda kk: abs(kk - _mid))
+        _rank = {kk: i for i, kk in enumerate(_seq)}
+    if _wipe == 'none':
+        parts.append("%s[lyA]overlay=x=%d+(%s):y=%d+(%s),format=yuv420p[smooth]"
+                     % (_cur, _lay_x, fx, _lay_y, fy))
+    else:
+        parts.append("[lyA]split=%d%s" % (_nseg, ''.join('[w%d]' % kk for kk in range(_nseg))))
+        for kk in range(_nseg):
+            _sx = kk * _swid
+            _wid = min(_swid, _lay_w - _sx)
+            _tk = 0.12 + 0.62 * _rank[kk] / float(_nseg)
+            parts.append("[w%d]crop=w=%d:h=%d:x=%d:y=0[cs%d]" % (kk, _wid, _lay_h, _sx, kk))
+            parts.append("%s[cs%d]overlay=x=%d+(%s):y=%d+(%s):enable='gte(t,%.2f)'[m%d]"
+                         % (_cur, kk, _lay_x + _sx, fx, _lay_y, fy, _tk, _n))
+            _cur = '[m%d]' % _n
+            _n += 1
+        parts.append("%sformat=yuv420p[smooth]" % _cur)
+    _tag = (str(th.get('id') or ''), fr, opts['shadow'], opts['float'], _wipe, opts['bgblur'])
+    if _tag not in _PLATE_LOG:
+        _PLATE_LOG.add(_tag)
+        print('[VF] B 组图片模版：相框=%s 阴影=%s 浮动=%s 擦入=%s 背景虚化=%s（卡片 %dx%d @%d,%d，布局=%s）'
+              % (fr, opts['shadow'], opts['float'], _wipe, opts['bgblur'], pw, ph, x0, y0, layout))
+    return ';'.join(parts) + ';'
+
+
 def _mat_text_colors(th, mat, txc, box='black@0.30'):
     """★VF_STYLE_V1（2026-09-30，①【最高优先·治线上问题】文字对比度自适应）
 
@@ -2021,6 +2295,18 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     #   不会被误判；只有"大片纯色底的界面/海报"才会过）。
     _busy = _graphic or (_edge > 0.10) or (_dark and (_flat > 0.22 or _edge > 0.055))
     _screen = _dark and _flat > 0.28       # 深色 + 大片纯色底 = 典型"深色界面截图/黑底海报"
+    # ★VF_TPL_B1_V1（2026-09-30 B 组「图片处理」）：卡片版式一旦启用（编辑风缺省启用），
+    #   本镜的图**不再"糊满屏"**，上面两条老判定要让位：
+    #     · `_screen`（深色截图 → 干脆不用这张图、换质感底板）：**不再降级** ——
+    #       图已经缩进卡片里了，不再当满屏背景，"黑底上字压字"的前提本身就没了；
+    #       这正是用户要的"素材图也能当排版好的卡片"。
+    #     · `_busy`（满字素材）**强制为真**：卡片占住上半，我们的大字一律让到【下三分之一 + 全宽底衬带】，
+    #       与卡片互不纠缠（沿用 VF_MATGUARD_V2 那套已验证的让位写法）。
+    #   老 8 套主题缺省 frame=none → _plate 为 None → 上面两条判定原样保留（一个像素都不动）。
+    _plate = plate_opts(shot, th)
+    if _plate:
+        _screen = False
+        _busy = True
     if _screen:
         # 又深又满字 = 典型"深色界面截图" → 【不硬塞这张图】，改用主题质感底板 + 大字
         #（规划文档 P2「缺就承认缺」：宁可出一张设计过的文字卡，也不要一张看不清的截图）
@@ -2117,15 +2403,30 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     else:
         _z = "zoom='1.0'"                                 # 静止（时长不变，只是不动）
     # ★VF_STYLE_V1（③底图清晰度）：本镜素材该"直接裁切铺满"还是"轻模糊铺底"（日志里会写明）
-    _pre, _mode = _bg_filters(src, W, H)
+    # ★VF_TPL_B1_V1（2026-09-30 B 组）：卡片版式优先 —— 图缩进画框、背景虚化分层；
+    #   拿不到素材分辨率（_probe_size 失败）时 _plate_pre 返回 None，老实回落老铺法（绝不弄挂出片）。
+    _pre, _mode = None, None
+    if _plate:
+        _pre = _plate_pre(src, W, H, shot, th, _plate, dur=dur, layout='top')
+    if not _pre:
+        _pre, _mode = _bg_filters(src, W, H)
+    # ★VF_TPL_B1_V1（2026-09-30）卡片版式下【必须旁路 zoompan】—— 这是一条非常隐蔽的坑，写在这里：
+    #   zoompan 的 `d=N` 表示"输入的每个帧展开成 N 帧"，而后续 `trim=duration` 只保留最前面那一段
+    #   → 整镜画面实际被**冻在 [smooth] 的输入第 0 帧**上。
+    #   老链路里 [smooth] 之后没有任何"随时间变化"的东西（_chain 的文字动画在 zoompan **之后**），
+    #   所以一直没暴露；但 B 组的【擦入】是画在 [smooth] **之前**的 → 一上 zoompan 就永远停在
+    #   "一条都还没亮"（本机实测：bgimage 的卡片整镜不出现，只剩虚化底图）。
+    #   卡片版式本身已有"极缓慢浮动"提供运动 → 这里直接旁路 zoompan，行为才是对的。
+    if _plate:
+        _zoomstage = '[smooth]null,'
+    else:
+        # ★VF_KENBURNS_V1（2026-09-20）：静图缓慢推近——只让画面“活”起来，不改时长
+        # ★VF_MOTION_V2（2026-09-29）：改为按镜序轮换（推近 / 拉远 / 静止）
+        _zoomstage = f"[smooth]zoompan={_z}:d={_frames}:s={W}x{H}:fps={fps},"
     vf = (
         # ★VF_STYLE_V1（2026-09-30 ③底图清晰度）：老代码一律 sigma=32 高斯模糊铺底（"底图有点模糊"）。
         #   现在交给 _bg_filters 三选一：接近画幅→直接裁切铺满（清晰）/ 填不满→轻模糊(sigma=16) / 太小→不放大。
-        _pre +
-        # ★VF_KENBURNS_V1（2026-09-20）：静图缓慢推近——只让画面“活”起来，不改时长
-        # ★VF_MOTION_V2（2026-09-29）：改为按镜序轮换（推近 / 拉远 / 静止）
-        f"[smooth]zoompan={_z}:d={_frames}:s={W}x{H}:fps={fps},"
-        + ','.join(_chain)
+        _pre + _zoomstage + ','.join(_chain)
     )
     return (f"-loop 1 -t {dur} -i \"{src}\"", vf, dur)
 

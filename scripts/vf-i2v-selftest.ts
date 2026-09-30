@@ -87,17 +87,18 @@ console.log('\n② 设置卡关掉「让图动起来」⇒ 一根首帧都不注
   const shots = [img('a', 5), img('b', 6)]
   const on: any = { i2v: 'on', shots, i2vKeys: KEY_MAP }
   const off: any = { i2v: 'off', shots, i2vKeys: KEY_MAP }
-  const dflt: any = { shots, i2vKeys: KEY_MAP }        // 老草稿没有 i2v 字段 → 默认"开"（老板定案）
+  const dflt: any = { shots, i2vKeys: KEY_MAP }        // ★VF_MATUI_V1：老草稿没有 i2v 字段 → 默认"不动"（不偷偷花钱）
   eq(i2vPlanOf(on).list.map((x) => x.index), [1, 2], '开关开 → 正常注入两镜')
   eq(i2vPlanOf(off).list, [], '开关关 → i2vShots 为空（chat/route.ts 里就不会写 ref_image）')
   eq(i2vPlanOf(off).sec, 0, '开关关 → 计费秒数 0（不额外扣一分钱）')
-  eq(i2vPlanOf(dflt).list.map((x) => x.index), [1, 2], '老草稿（无 i2v 字段）按"开"处理')
+  eq(i2vPlanOf(dflt).list, [], '★老草稿（无 i2v 字段）按"不动"处理（★VF_MATUI_V1 新默认）')
 }
 
 console.log('\n②.5 通用入口 buildI2vShots（别的线要开图生视频就调它，不许写死在一条线里）')
 {
   const shots = [img('a', 5), img('b', 6)]
-  const r = buildI2vShots({ shots, keyByPath: KEY_MAP })
+  // ★VF_MATUI_V1：缺省已改为 'off' → 想开就得显式选档（这里用 'all'）
+  const r = buildI2vShots({ shots, keyByPath: KEY_MAP, enabled: 'all' })
   eq(r.args.i2vShots.map((x: any) => x.index), [1, 2], 'args.i2vShots 直接可拼进 make_ai_video')
   eq([r.args.source, r.args.mix], ['mix', '1,2'], '默认同时声明 source=mix + mix=镜号（过护栏）')
   eq(r.points, 550, '返回报价点数（与卡片/实扣同公式）')
@@ -106,15 +107,15 @@ console.log('\n②.5 通用入口 buildI2vShots（别的线要开图生视频就
   eq(off.args, {}, '开关关 → args 为空对象（一个首帧都不注入）')
   eq(off.points, 0, '开关关 → 0 点')
   ok(off.notes[0].includes('保持静态'), '开关关 → notes 写清原因')
-  const noMix = buildI2vShots({ shots, keyByPath: KEY_MAP, declareMix: false })
+  const noMix = buildI2vShots({ shots, keyByPath: KEY_MAP, declareMix: false, enabled: 'all' })
   ok(!('source' in noMix.args) && noMix.args.i2vShots.length === 2, 'declareMix:false 时不带 source/mix（给其它计费口径留口子）')
-  const cap = buildI2vShots({ shots: ['a', 'b', 'c', 'd'].map((n) => img(n, 5)), keyByPath: KEY_MAP, max: 2 })
+  const cap = buildI2vShots({ shots: ['a', 'b', 'c', 'd'].map((n) => img(n, 5)), keyByPath: KEY_MAP, max: 2, enabled: 'all' })
   eq([cap.plan.images, cap.plan.overCap], [2, 2], 'max 可覆盖（别的线想更省可以调小）')
   ok(cap.notes.some((n) => n.includes('上限 2 张')), 'notes 如实说明"为控制费用只动了 N 张"')
-  const noKey = buildI2vShots({ shots: [img('a', 5), { type: 'bgimage', src: '/x/no-such.jpg', dur: 5 }], keyByPath: KEY_MAP })
+  const noKey = buildI2vShots({ shots: [img('a', 5), { type: 'bgimage', src: '/x/no-such.jpg', dur: 5 }], keyByPath: KEY_MAP, enabled: 'all' })
   eq(noKey.args.mix, '1', '拿不到公网地址的那一镜**不进 mix 名单** → 它保持静态图')
   // ★VF_I2V_CACHE_V1：同图复用镜进名单，但**计费仍只按唯一图**（否则报价≠实扣）
-  const dup = buildI2vShots({ shots: [img('a', 5), img('b', 6), img('a', 5)], keyByPath: KEY_MAP })
+  const dup = buildI2vShots({ shots: [img('a', 5), img('b', 6), img('a', 5)], keyByPath: KEY_MAP, enabled: 'all' })
   eq(dup.args.mix, '1,2,3', '同图的后续镜也在注入名单里（make.py 按首帧 URL 复用那段动图）')
   eq(dup.points, 550, '但计费只按唯一图算（5+6=11 秒，第 3 镜复用不重复扣钱）')
   ok(noKey.notes.some((n) => n.includes('拿不到公网地址')), 'notes 写清原因（那一镜不注入首帧）')
@@ -135,7 +136,9 @@ console.log('\n③ 计费：i2v 秒数算进总价，且卡片报价 = 实扣')
   const routeSrc = readFileSync(join(__dirname, '..', 'src/app/api/agent/chat/route.ts'), 'utf-8')
   ok(/i2vCostPoints\(_mixAiSec\)/.test(routeSrc), 'make_ai_video 混合口径实扣用 i2vCostPoints(_mixAiSec)')
   ok(/vfTotalCostPoints\(charN, _i2vSec\)/.test(routeSrc), '确认卡成本用 vfTotalCostPoints(charN, _i2vSec)')
-  ok(/含让 \$\{_i2vN\} 张图动起来：约 \$\{_i2vPts\} 点/.test(routeSrc), '分镜卡 hint 如实写出"含让 N 张图动起来：约 M 点"')
+  // ★VF_MATUI_V1：hint 文案改为"本次让 N 张图动起来"；不动时明说"本次不动用 AI（0 点动图）"
+  ok(/本次让 \$\{_i2vN\} 张图动起来：约 \$\{_i2vPts\} 点/.test(routeSrc), '分镜卡 hint 如实写出"本次让 N 张图动起来：约 M 点"')
+  ok(/本次不动用 AI（0 点动图/.test(routeSrc), '分镜卡 hint 在不动时明说"本次不动用 AI（0 点动图）"')
   ok(/\.\.\._i2vB\.args/.test(
     readFileSync(join(__dirname, '..', 'src/lib/agent/vf/vf-video.ts'), 'utf-8')),
     'vf-video.ts 直接把通用函数给的 args 拼进 make_ai_video（不再自己拼 → 别的线可复用）')

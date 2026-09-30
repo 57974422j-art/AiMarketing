@@ -119,10 +119,10 @@ console.log('\n② 过滤后计划与报价逐字一致，且报价随之下调�
   eq(vfTotalCostPoints(charN, plan.sec), 315, '总价 = 15(素材费) + 300(i2v) = 315 点（过滤后）')
   eq(i2vCostPoints(plan.sec), 300, '卡片"含让 1 张图动起来：约 300 点"= 明细口径')
 
-  // 不过滤（旧行为 / 其它未接线的线）→ 报价明显更高，证明"过滤真的省钱"
+  // 不过滤（'all' 手动全开 / 直接调 buildI2vPlan）→ 报价明显更高，证明"过滤真的省钱"
   const raw = buildI2vPlan(shots, KEY_MAP, 6)
   eq([raw.images, raw.sec], [3, 15], '不过滤时 3 张 / 15 秒')
-  eq(buildI2vShots({ shots, keyByPath: KEY_MAP }).points, 750, '不过滤时 750 点')
+  eq(buildI2vShots({ shots, keyByPath: KEY_MAP, enabled: 'all' }).points, 750, "手动全开（enabled='all'）时 750 点")
   eq(vfTotalCostPoints(charN, raw.sec), 765, '不过滤时总价 765 点')
   ok(raw.sec > plan.sec && vfTotalCostPoints(charN, raw.sec) > vfTotalCostPoints(charN, plan.sec),
     '过滤让报价随之下调（750 → 300；总价 765 → 315）—— 不许报高价实扣低价或反过来')
@@ -164,15 +164,15 @@ console.log('\n④ i2v="all"（用户手动全开）时不过滤')
   // 'off' 仍然一个都不注入
   eq(buildI2vShots({ shots, keyByPath: KEY_MAP, enabled: 'off', summaryByPath: summary }).args, {},
     "'off' → 不注入首帧（与 all 区分开）")
-  // 未传 summaryByPath（旧调用方）→ 不过滤，保持旧行为（向后兼容）
-  eq(buildI2vShots({ shots, keyByPath: KEY_MAP }).plan.images, 3,
-    '未传 summaryByPath → 不过滤（向后兼容，未接线的调用方行为不变）')
-  // ★VF_I2VDFLT_V1（2026-09-30 用户定案）：**缺省 = 'all'（全部动起来）** ——
-  //   即使传了 summaryByPath，**不显式选 'on' 就不筛**（默认回到"每张都动"，与用户"和以前一样"的定案一致）。
+  // 未传 summaryByPath（旧调用方）+ 手动全开 → 不过滤，保持旧行为（向后兼容）
+  eq(buildI2vShots({ shots, keyByPath: KEY_MAP, enabled: 'all' }).plan.images, 3,
+    "未传 summaryByPath 且 enabled='all' → 不过滤（向后兼容，未接线的调用方行为不变）")
+  // ★VF_MATUI_V1（2026-09-30 用户定案「能不加 AI 做视频就不加」）：**缺省已改为 'off'（不动）** ——
+  //   即使传了 summaryByPath，不显式选档就不动（0 点）；想动请显式选 picked / on / all。
   const dflt = buildI2vShots({ shots, keyByPath: KEY_MAP, summaryByPath: summary })
-  eq([dflt.plan.images, dflt.plan.sec, dflt.points], [3, 15, 750],
-    "缺省（未传 enabled）= 'all' → 不过滤（3 张 / 15 秒 / 750 点）")
-  eq(dflt.plan.skippedUnfit, 0, "缺省 = 'all' → 跳过数 = 0（不再默认智能筛）")
+  eq([dflt.plan.images, dflt.plan.sec, dflt.points], [0, 0, 0],
+    "★缺省（未传 enabled）= 'off' → 不动（0 张 / 0 秒 / 0 点）")
+  eq(dflt.plan.skippedUnfit, 0, "缺省 = 'off' → 跳过数 = 0（根本没开筛）")
 }
 
 console.log('\n⑤ "图片本地路径 → 识别摘要"映射（brief → summaryByPath）')
@@ -234,7 +234,11 @@ console.log('\n⑦ 接线对账 + 防回退（改了忘接上 / 覆盖了线上�
   ok(routeSuitCalls >= 3, `图片成片线三条出口（起草/出片/重排）都传了摘要（实际 ${routeSuitCalls} 处）`)
   ok(/vd\.i2vSuit = i2vSummaryByPath\(_vfBriefAI, vfLocal\)/.test(routeSrc), '图片成片线：用 AI 原始看图结论建映射（不受用户手改影响）')
   ok(/【\$\{hit \? hit\.kw : '其他'\}】/.test(vmSrc), 'video-material：识别摘要带上分类前缀（分类器可靠判据）')
-  ok(/=== 'all' \? 'all' : 'on'/.test(vfSrc) && /=== 'all' \? 'all' : 'on'/.test(routeSrc), "两条线表单都支持 i2v='all'（手动全开）")
+  // ★VF_MATUI_V1：表单改成四档（off / picked / all / 其余→on）—— 两条线都要认全，别只认 'all'
+  ok(/'picked'/.test(vfSrc) && /'picked'/.test(routeSrc), "两条线表单都认 i2v='picked'（只动勾选的）")
+  ok(vfSrc.includes("_i2vV === 'off' || _i2vV === 'picked' || _i2vV === 'all'")
+    && routeSrc.includes("_i2vV === 'off' || _i2vV === 'picked' || _i2vV === 'all'"),
+    "两条线表单都支持 i2v='off' / 'picked' / 'all'（其余 → on）")
 
   // 防回退：team-lead 的三段"钱/垃圾"修复 + 素材池治理
   ok(routeSrc.includes('★I2V_BILL_V1'), '★I2V_BILL_V1 仍在 route.ts（按真实秒数计费）')

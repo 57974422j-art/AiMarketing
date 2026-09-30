@@ -7,8 +7,13 @@
  *   → 定案：i2v 默认回到「**全部动起来**」；智能筛（只动有主体可动的图）改为用户主动选；
  *     跳过名单要**可见**（进卡片 JSON）；分镜卡加「🚫 关掉动图重出」；标准模式放行"改设置"的说法 + 协议串。
  *
+ * ⚠️ 2026-09-30 后续：本条自测里的**默认值**已被 ★VF_MATUI_V1 覆盖（用户新定案「能不加 AI 做视频就不加」
+ *   → 缺省改为 'off'，0 点动图）。本文件里"默认"相关的断言已同步更新；机制类断言（跳过名单可见、
+ *   协议串放行、一键改设置的金额变化）**全部保留**。新增四档（含 'picked'）的完整对账见
+ *   scripts/vf-matui-selftest.ts。
+ *
  * 目标：**不联网、不烧钱、不碰数据库**地证明六件事 ——
- *   ① 缺省 = 全部动（未传 enabled 也做满），报价与显式 'all' **逐字一致**（给出前后两个数）；
+ *   ① 缺省 = **'off'（不动）**，报价与显式 'off' **逐字一致**；
  *   ② 智能筛（显式 enabled='on'）仍可选中并让报价**下调**；'off' = 0 点；
  *   ③ 跳过名单进入卡片（hint 最多列 3 个 + "等"；结构化 `[{name,reason}]`）；
  *   ④ 协议串 `VF_I2V_OFF:` 的放行**正反例**：有草稿放行、无草稿仍被拦；
@@ -51,17 +56,20 @@ const summary: Record<string, string> = {
 const SHOTS = [img('a', 5), img('b', 6), img('c', 4)]
 const CHAR_N = 300
 
-console.log('\n① 缺省 = 全部动（报价与显式 all 逐字一致）—— 给出前后两个数')
+console.log('\n① 缺省 = 不动（报价与显式 off 逐字一致）—— 给出前后两个数')
 {
   const dflt = buildI2vShots({ shots: SHOTS, keyByPath: KEY_MAP, summaryByPath: summary })   // 未传 enabled
+  const off = buildI2vShots({ shots: SHOTS, keyByPath: KEY_MAP, summaryByPath: summary, enabled: 'off' })
   const all = buildI2vShots({ shots: SHOTS, keyByPath: KEY_MAP, summaryByPath: summary, enabled: 'all' })
-  eq([dflt.plan.images, dflt.plan.sec], [3, 15], '缺省 = 全部动：3 张图 / 15 秒')
-  eq(dflt.points, 750, '缺省 → 让图动起来 750 点（= 15 秒 × 50）')
-  eq(dflt.points, all.points, '缺省报价 = 显式 all 报价（同一份结果）')
-  eq(dflt.plan.sec, all.plan.sec, '缺省 sec = 显式 all sec（同源）')
-  eq(vfTotalCostPoints(CHAR_N, dflt.plan.sec), 765, '缺省总价 = 15(素材费) + 750 = 765 点')
-  eq(dflt.plan.skippedUnfit, 0, '缺省 = 全部动 → 跳过数 = 0')
-  ok(dflt.notes.some((n) => n.includes('全部动起来')), 'notes 说明「全部动起来」（默认）')
+  eq([dflt.plan.images, dflt.plan.sec], [0, 0], '★缺省 = 不动：0 张图 / 0 秒（★VF_MATUI_V1 新默认）')
+  eq(dflt.points, 0, '★缺省 → 0 点动图')
+  eq(dflt.args, {}, '★缺省 → 不注入任何首帧（args 空对象）')
+  eq(dflt.points, off.points, '缺省报价 = 显式 off 报价（同一份结果）')
+  eq(dflt.plan.sec, off.plan.sec, '缺省 sec = 显式 off sec（同源）')
+  eq(vfTotalCostPoints(CHAR_N, dflt.plan.sec), 15, '缺省总价 = 只有文案费 15 点')
+  eq(all.points, 750, '显式 all 仍是 750 点（= 15 秒 × 50）—— 用户想动随时一键切')
+  eq(dflt.plan.skippedUnfit, 0, '缺省 = 不动 → 跳过数 = 0')
+  ok(dflt.notes.some((n) => n.includes('本次不动用 AI')), 'notes 说明「本次不动用 AI（0 点动图）」')
 }
 
 console.log('\n② 智能筛显式选中 → 报价下调；off = 0 点（前后对比）')
@@ -73,14 +81,12 @@ console.log('\n② 智能筛显式选中 → 报价下调；off = 0 点（前后
   const off = buildI2vShots({ shots: SHOTS, keyByPath: KEY_MAP, summaryByPath: summary, enabled: 'off' })
   eq([off.points, off.args], [0, {}], "'off' → 0 点且不注入首帧（args 为空对象）")
 
-  // 前后两个数（用户要能一眼看出差别）：以前默认 smart=0 点，现在默认 all=750 点
-  console.log(`     · 旧默认（智能筛）报价：${vfTotalCostPoints(CHAR_N, smart.plan.sec)} 点（动 ${smart.plan.images} 张）`)
-  console.log(`     · 新默认（全部动）报价：${vfTotalCostPoints(CHAR_N, dfltSec())} 点（动 3 张）`)
-  ok(vfTotalCostPoints(CHAR_N, dfltSec()) > vfTotalCostPoints(CHAR_N, smart.plan.sec),
-    '新默认报价 > 旧默认报价（回到"以前那种量级"—— 用户实测 1500 点的观感）')
-}
-function dfltSec(): number {
-  return buildI2vShots({ shots: SHOTS, keyByPath: KEY_MAP, summaryByPath: summary }).plan.sec
+  // 三档报价一览（用户要能一眼看出差别）：不动 15 点 / 智能筛 15 点 / 全部动 765 点
+  const all = buildI2vShots({ shots: SHOTS, keyByPath: KEY_MAP, summaryByPath: summary, enabled: 'all' })
+  console.log(`     · 智能筛（on）报价：${vfTotalCostPoints(CHAR_N, smart.plan.sec)} 点（动 ${smart.plan.images} 张）`)
+  console.log(`     · 全部动（all）报价：${vfTotalCostPoints(CHAR_N, all.plan.sec)} 点（动 ${all.plan.images} 张）`)
+  ok(vfTotalCostPoints(CHAR_N, all.plan.sec) > vfTotalCostPoints(CHAR_N, smart.plan.sec),
+    '显式 all 报价 > 智能筛报价（想加动效时金额确实变大 —— 用户实测 1500 点的观感）')
 }
 
 console.log('\n③ 跳过名单进入卡片：hint 一句（最多 3 个 + "等"）+ 结构化 [{name,reason}]')
@@ -146,10 +152,10 @@ console.log('\n⑤ "改设置"关键词放行正反例 + i2vIntentOf 取值映�
 
 console.log('\n⑥ VF_I2V_OFF 之后：草稿 i2v=off 且卡片金额变小（模拟两条线的处理）')
 {
-  // 草稿（缺省没有 i2v 字段 → 走 'all'）
-  const vd: any = { shots: SHOTS, i2vKeys: KEY_MAP, i2vSuit: summary }
+  // 草稿（★VF_MATUI_V1 起缺省没有 i2v 字段 → 走 'off'；这里显式给 'all'，验证"一键关掉"省了多少）
+  const vd: any = { shots: SHOTS, i2vKeys: KEY_MAP, i2vSuit: summary, i2v: 'all' }
   const mk = (v: string) => buildI2vShots({ shots: vd.shots, keyByPath: vd.i2vKeys, summaryByPath: vd.i2vSuit, enabled: v })
-  const before = mk(vd.i2v ?? 'all')                         // 用户点按钮之前
+  const before = mk(vd.i2v ?? 'off')                         // 用户点按钮之前
   const cardBefore = vfTotalCostPoints(CHAR_N, before.plan.sec)
   const intent = i2vIntentOf('VF_I2V_OFF:' + JSON.stringify({ taskId: '' }))
   eq(intent, 'off', '协议串解析为 off')
@@ -174,12 +180,12 @@ console.log('\n⑦ 接线对账 + 防回退（改了忘接上 / 覆盖了定案 
   const stdSrc = readFileSync(join(__dirname, '..', 'src/lib/agent/standard-commands.ts'), 'utf-8')
   const planSrc = readFileSync(join(__dirname, '..', 'src/lib/agent/vf/i2v-plan.ts'), 'utf-8')
 
-  // 默认值（缺省 = all）
-  ok(/enabled \?\? 'all'/.test(planSrc), "i2v-plan：缺省 enabled = 'all'")
-  ok(/vd\?\.i2v \?\? 'all'/.test(vfSrc), "vf-video：草稿缺省 i2v = 'all'")
-  ok(/i2v: 'all'/.test(vfSrc), "vf-video：新草稿 i2v='all'（默认全部动）")
-  ok((routeSrc.match(/vd\.i2v \?\? 'all'/g) || []).length >= 3, '图片成片线三条出口缺省都是 all')
-  ok(/vj\.i2v \|\| 'all'/.test(pageSrc), "前端设置卡缺省 i2v = 'all'")
+  // 默认值（★VF_MATUI_V1 起缺省 = off：不偷偷花钱）
+  ok(/enabled \?\? 'off'/.test(planSrc), "i2v-plan：缺省 enabled = 'off'")
+  ok(/vd\?\.i2v \?\? 'off'/.test(vfSrc), "vf-video：草稿缺省 i2v = 'off'")
+  ok(/i2v: 'off',/.test(vfSrc), "vf-video：新草稿 i2v='off'（默认不动）")
+  ok((routeSrc.match(/vd\.i2v \?\? 'off'/g) || []).length >= 3, '图片成片线三条出口缺省都是 off')
+  ok(/vj\.i2v \|\| 'off'/.test(pageSrc), "前端设置卡缺省 i2v = 'off'")
 
   // 跳过名单进卡片
   ok(planSrc.includes('i2vSkipHint') && planSrc.includes('i2vSkippedList'), 'i2v-plan：提供 i2vSkipHint / i2vSkippedList')

@@ -382,7 +382,19 @@ export const VF_MAT_POLICY_TAG = 'vf_material_allow'
 /** 名单正文前缀（与项目其它 agentMemory 记录同风格，解析时只取 `{` 起） */
 const MAT_POLICY_PREFIX = '素材名单:'
 
-export interface MatPolicy { allow: string[]; deny: string[] }
+export interface MatPolicy {
+  allow: string[]
+  deny: string[]
+  /**
+   * ★VF_MATUI_V1（2026-09-30 用户定案）：「🎞 打勾才动」的名单 —— 被勾上的素材名**才**生成 AI 动图。
+   *   · 与 allow/deny 同一份 content（`素材名单:{"allow":[],"deny":[],"i2v":[]}`）；
+   *   · ⚠️ **向后兼容**：旧 content 没有 `i2v` 字段 → 解析结果 = 空数组（= 一张都不勾）。
+   */
+  i2v?: string[]
+}
+
+/** 名单类动作（★VF_MATUI_V1 追加 pick/unpick = 🎞 勾选/取消） */
+export type MatSetAction = 'allow' | 'deny' | 'auto' | 'pick' | 'unpick'
 
 /** 名单里的名字规整（去空、去重、封顶 200 条） */
 function uniqNames(v: any): string[] {
@@ -394,35 +406,103 @@ function uniqNames(v: any): string[] {
 export function parseMatPolicy(raw: string | null | undefined): MatPolicy {
   try {
     const t = String(raw || '').trim()
-    if (!t) return { allow: [], deny: [] }
+    if (!t) return { allow: [], deny: [], i2v: [] }
     const i = t.indexOf('{')
     const j: any = JSON.parse(i >= 0 ? t.slice(i) : t)
-    return { allow: uniqNames(j?.allow), deny: uniqNames(j?.deny) }
-  } catch { return { allow: [], deny: [] } }
+    return { allow: uniqNames(j?.allow), deny: uniqNames(j?.deny), i2v: uniqNames(j?.i2v) }
+  } catch { return { allow: [], deny: [], i2v: [] } }
 }
 
-/** 序列化成 agentMemory 的正文 */
+/** 序列化成 agentMemory 的正文（★VF_MATUI_V1：多带一份 i2v 勾选名单） */
 export function serializeMatPolicy(p: MatPolicy | null | undefined): string {
-  return MAT_POLICY_PREFIX + JSON.stringify({ allow: uniqNames(p?.allow), deny: uniqNames(p?.deny) })
+  return MAT_POLICY_PREFIX + JSON.stringify({
+    allow: uniqNames(p?.allow), deny: uniqNames(p?.deny), i2v: uniqNames(p?.i2v),
+  })
 }
 
-/** 把一次「✅/🚫」动作落到名单上（allow/deny 互斥；action='auto' = 从两边都移除 → 回默认规则） */
-export function applyMatSet(p: MatPolicy | null | undefined, name: string, action: 'allow' | 'deny' | 'auto'): MatPolicy {
+/**
+ * 把一次「✅/🚫/🎞」动作落到名单上。
+ *   · allow / deny 互斥（互相把对方那份里的同名项删掉）；
+ *   · action='auto' = 从 allow/deny 两边都移除 → 回默认规则（⚠️ **不动 🎞 勾选**：
+ *     前端的「取消当素材用/取消别用」不该顺手把"这一镜要动"也取消掉）；
+ *   · action='pick' / 'unpick'（★VF_MATUI_V1）= 只增删 i2v 勾选，**不动** allow/deny。
+ */
+export function applyMatSet(p: MatPolicy | null | undefined, name: string, action: MatSetAction): MatPolicy {
   const n = String(name || '').trim()
-  const allow = uniqNames(p?.allow).filter((x) => x !== n)
-  const deny = uniqNames(p?.deny).filter((x) => x !== n)
-  if (n) {
-    if (action === 'allow') allow.push(n)
-    else if (action === 'deny') deny.push(n)
+  let allow = uniqNames(p?.allow)
+  let deny = uniqNames(p?.deny)
+  let i2v = uniqNames(p?.i2v)
+  if (!n) return { allow, deny, i2v }
+  if (action === 'allow') {
+    deny = deny.filter((x) => x !== n)                 // allow 与 deny 互斥
+    if (!allow.includes(n)) allow.push(n)
+  } else if (action === 'deny') {
+    allow = allow.filter((x) => x !== n)
+    if (!deny.includes(n)) deny.push(n)
+  } else if (action === 'pick') {
+    if (!i2v.includes(n)) i2v.push(n)                  // ★只碰 🎞，绝不动 allow/deny
+  } else if (action === 'unpick') {
+    i2v = i2v.filter((x) => x !== n)
+  } else {
+    // action === 'auto' → 从 allow/deny 两边移除（回默认规则）；⚠️ **不动 🎞**
+    allow = allow.filter((x) => x !== n)
+    deny = deny.filter((x) => x !== n)
   }
-  return { allow: uniqNames(allow), deny: uniqNames(deny) }
+  return { allow: uniqNames(allow), deny: uniqNames(deny), i2v: uniqNames(i2v) }
 }
 
-/** 卡片按钮发的协议串：`VF_MAT_SET:{"name":"xxx.jpg","action":"allow"|"deny"|"auto"}` */
+/**
+ * ★VF_MATUI_V1（2026-09-30 用户定案）：「🔄 换一张」把一张素材换成另一张时，名单怎么变 ——
+ *   · 被换掉的（out）→ **deny**（用户已经用这个按钮表达了"这张不要"）；
+ *   · 换上的（in）  → **allow**（明确要用它）；
+ *   · 🎞 勾选状态**随替换转移**（out 勾着 → in 接过来）：用户要的是"这一镜动起来"，
+ *     不是"必须这一张动"，所以换个图不该把动效一起弄丢。
+ * 入参非法（空名 / 同一张）→ 原样返回（不抛）。
+ */
+export function applyMatSwap(p: MatPolicy | null | undefined, outName: string, inName: string): MatPolicy {
+  const out = String(outName || '').trim()
+  const inn = String(inName || '').trim()
+  let cur: MatPolicy = { allow: uniqNames(p?.allow), deny: uniqNames(p?.deny), i2v: uniqNames(p?.i2v) }
+  if (!out || !inn || out === inn) return cur
+  const hadPick = uniqNames(cur.i2v).includes(out)
+  cur = applyMatSet(cur, out, 'deny')
+  cur = applyMatSet(cur, inn, 'allow')
+  if (hadPick) {
+    cur = applyMatSet(cur, out, 'unpick')
+    cur = applyMatSet(cur, inn, 'pick')
+  }
+  return cur
+}
+
+/** 卡片按钮发的协议串：`VF_MAT_SET:{"name":"xxx.jpg","action":"allow"|"deny"|"auto"|"pick"|"unpick"}` */
 export const STD_MAT_SET_RE = /^VF_MAT_SET\s*[:{]/
 
+/**
+ * ★VF_MATUI_V1（2026-09-30 用户定案）：「🔄 换一张」的协议串 —— `VF_MAT_SWAP:{"out":"<被换掉的文件名>"}`。
+ *
+ * 为什么**另开一条**串（而不是复用 VF_MAT_SET 两连发）：
+ *   · 换一张要「一读一写」两件事（把 out 记 deny + 把 in 记 allow），客户端并不知道"下一张同类型
+ *     素材是谁"（那是仓库当前状态 + 上限 40 条裁剪后的结果，只有服务端算得准）；
+ *   · 客户端只需要回传 **out 是谁**，服务端用 pickSwapTarget() 算出 in（同类型下一张）→ 名单变更
+ *     完全在服务端一处完成，避免"客户端选的 in 与 AI 实际用的池子不一致"。
+ *   · 两连发 VF_MAT_SET 会有中间态（只发了 deny 就断线 → 那张图被永久禁用、还没换上新的）。
+ */
+export const STD_MAT_SWAP_RE = /^VF_MAT_SWAP\s*[:{]/
+
+/** 解析「🔄 换一张」协议串；不是这条串 / out 缺失 → null */
+export function parseMatSwapMessage(msg: string): { out: string } | null {
+  const m = String(msg || '').trim()
+  if (!STD_MAT_SWAP_RE.test(m)) return null
+  try {
+    const i = m.indexOf('{')
+    const j: any = JSON.parse(i >= 0 ? m.slice(i) : m)
+    const out = String(j?.out || '').trim()
+    return out ? { out } : null
+  } catch { return null }
+}
+
 /** 解析协议串；不是这条串 / 名字缺失 → null（调用方据此判断"这句话是不是素材名单动作"） */
-export function parseMatSetMessage(msg: string): { name: string; action: 'allow' | 'deny' | 'auto' } | null {
+export function parseMatSetMessage(msg: string): { name: string; action: MatSetAction } | null {
   const m = String(msg || '').trim()
   if (!STD_MAT_SET_RE.test(m)) return null
   try {
@@ -431,7 +511,7 @@ export function parseMatSetMessage(msg: string): { name: string; action: 'allow'
     const name = String(j?.name || '').trim()
     if (!name) return null
     const a = String(j?.action || '').toLowerCase()
-    const action: 'allow' | 'deny' | 'auto' = (a === 'allow' || a === 'deny' || a === 'auto') ? a : 'auto'
+    const action: MatSetAction = (a === 'allow' || a === 'deny' || a === 'pick' || a === 'unpick') ? a as MatSetAction : 'auto'
     return { name, action }
   } catch { return null }
 }
@@ -454,6 +534,126 @@ export function materialStateOf(
   if (allow.has(n)) return 'allow'
   if (out.size && out.has(n) && isOutcomeName(n)) return 'outcome'
   return 'all'
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════
+ * ★VF_MATUI_V1（2026-09-30）—— 素材清单「可读版」：排序 / 缩略图条目 / 上限 40 / 点选替换
+ *
+ * 用户原话（本节的由来，实测截图）：
+ *   「这个什么意思没明白。**这不是使用的素材 也不是 AI 看的素材，有什么用？是不是搞错了**。」
+ *   → 上一版清单**取全仓库**、把「出片产物（默认被排除）」排在最前、只显示 12 条 →
+ *     用户仓库里出片产物多 → 前 12 条全是「仅出片产物」，真正能用的图片一张都没出现。
+ *
+ * 三处改法（都在这两个纯函数里，IO/签名留在 chat/route.ts）：
+ *   ① **可用素材在前**、「已排除」折叠在后（折叠是前端的事，这里保证顺序 + 分组正确）；
+ *   ② 条目带 kind（image/video，前端据此给缩略图或 🎬 占位图标）与 i2v（🎞 勾选状态）；
+ *   ③ 上限提到 40，且**可用素材优先占额度**（余额才轮到已排除）。
+ * ════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 清单总上限（★VF_MATUI_V1：12 → 40，治"真正能用的图根本没出现"） */
+export const VF_MAT_UI_LIMIT = 40
+
+export interface MatUIItem {
+  name: string
+  kind: 'image' | 'video'
+  /** allow/deny/outcome/all —— 与 materialStateOf 同口径 */
+  state: 'allow' | 'deny' | 'outcome' | 'all'
+  /** ★VF_MATUI_V1：🎞 打勾（这一镜生成 AI 动图） */
+  i2v: boolean
+}
+
+export interface MatUIBuild {
+  /** 已按"可用在前、已排除在后"排好、并裁到上限的清单（前端按 state 分组即可） */
+  items: MatUIItem[]
+  /** 可用素材（"会被 AI 选中"的那批）——已裁到上限 */
+  usable: MatUIItem[]
+  /** 已排除（出片产物 / 你标了别用）——已裁到上限 */
+  excluded: MatUIItem[]
+  /** **总数**（未裁剪）：可用 N 条 */
+  usableN: number
+  /** **总数**（未裁剪）：已排除 M 条 */
+  excludedN: number
+}
+
+/** 这条状态算不算"会被 AI 选中"的可用素材（allow = 用户点名要用；all = 走默认规则） */
+export function isUsableState(st: string): boolean {
+  return st === 'all' || st === 'allow'
+}
+
+/** 图片/视频判定（优先用调用方给的 kind，缺失时按扩展名） */
+function kindOfName(name: string, kind?: string): 'image' | 'video' {
+  if (String(kind || '') === 'video') return 'video'
+  return /\.(mp4|mov|webm|mkv|avi)$/i.test(String(name || '')) ? 'video' : 'image'
+}
+
+/**
+ * 建「素材清单」：分组 + 排序 + 上限。
+ *   · **可用素材（all / allow）在前**，「已排除（outcome / deny）」在后 —— 与旧版正好相反
+ *     （旧版 rankOf 把 outcome/deny 排到最前，正是用户看到的"前 12 条全是出片产物"）；
+ *   · 各自**保持传入顺序**（仓库顺序 / 服务端给的顺序），不做二次排序（稳定、可解释）；
+ *   · 上限 limit（默认 40）：可用先占满，余额才给已排除；
+ *   · 重名去重（同名文件只出现一次）。
+ */
+export function buildMatUIList(
+  items: Array<{ name: string; kind?: string }> | null | undefined,
+  o: {
+    allow?: Iterable<string> | null
+    deny?: Iterable<string> | null
+    outcomeNames?: Iterable<string> | null
+    i2v?: Iterable<string> | null
+    limit?: number
+  } = {},
+): MatUIBuild {
+  const limit = Math.max(1, Math.floor(Number(o.limit ?? VF_MAT_UI_LIMIT)) || VF_MAT_UI_LIMIT)
+  const i2vSet = toNameSet(o.i2v)
+  const seen = new Set<string>()
+  const usable: MatUIItem[] = []
+  const excluded: MatUIItem[] = []
+  for (const it of Array.isArray(items) ? items : []) {
+    const name = String((it as any)?.name || '')
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    const state = materialStateOf(name, { allow: o.allow, deny: o.deny, outcomeNames: o.outcomeNames })
+    const item: MatUIItem = { name, kind: kindOfName(name, (it as any)?.kind), state, i2v: i2vSet.has(name) }
+    if (isUsableState(state)) usable.push(item)
+    else excluded.push(item)
+  }
+  const head = usable.slice(0, limit)
+  const rooms = Math.max(0, limit - head.length)
+  return {
+    items: [...head, ...excluded.slice(0, rooms)],
+    usable: head, excluded: excluded.slice(0, rooms),
+    usableN: usable.length, excludedN: excluded.length,
+  }
+}
+
+/**
+ * ★VF_MATUI_V1：「🔄 换一张」要换成哪一张 —— 在**可用素材**里，找**同一类型的下一张**
+ * （从当前这张往后循环扫一圈，跳过被 deny 的与调用方点名要跳过的）。
+ * 找不到（同类只剩它一张）→ null（调用方如实回一句"仓库里没有别的同类型素材可换"）。
+ */
+export function pickSwapTarget<T extends { name: string; kind?: string }>(
+  items: T[] | null | undefined,
+  outName: string,
+  o: { kind?: string; deny?: Iterable<string> | null; skip?: Iterable<string> | null } = {},
+): T | null {
+  const list = (Array.isArray(items) ? items : []).filter((x) => x && String((x as any).name || ''))
+  if (!list.length) return null
+  const out = String(outName || '')
+  const idx = list.findIndex((x) => String((x as any).name || '') === out)
+  if (idx < 0) return null
+  const deny = toNameSet(o.deny)
+  const skip = toNameSet(o.skip)
+  const want = kindOfName(out, o.kind || String((list[idx] as any)?.kind || ''))
+  for (let i = 1; i <= list.length; i++) {
+    const c: any = list[(idx + i) % list.length]
+    const cn = String(c?.name || '')
+    if (!cn || cn === out) continue
+    if (kindOfName(cn, String(c?.kind || '')) !== want) continue
+    if (deny.has(cn) || skip.has(cn)) continue
+    return c as T
+  }
+  return null
 }
 
 /** 「已知用户」注入段的输入（全部来自 route.ts 的 IO 层） */
