@@ -127,6 +127,15 @@ export const STD_SETTING_RE = /关掉?图转视频|关掉?动图|不要动图|�
 /** ★我们自己的卡片协议串：出片确认卡「🚫 关掉动图重出」产生（用户不会手打）。 */
 export const STD_I2V_OFF_RE = /^VF_I2V_OFF\s*[:{]/
 
+/* ★VF_MEMORY_V1（2026-09-30 用户定案）：素材「✅ 当素材用 / 🚫 别用」发的协议串 `VF_MAT_SET:`。
+ * 闸门口径与 `VF_I2V_OFF` **完全一致**：
+ *   · **有进行中的成片草稿** → 放行（`stdGatePass` 在 hasDraft=true 时一律 true）→ 由成片线在
+ *     step='script' 里改名单并重出确认卡；
+ *   · **没有草稿** → 依旧锁死（回 STD_UNSUPPORTED_REPLY）—— 协议串只服务"卡上那一下"，
+ *     不参与流程时不该开口子（否则用户随手粘一串 JSON 就会掉进状态机）。
+ * 正则本体放 material-pool.ts（`STD_MAT_SET_RE`）—— 那里同时有解析函数（纯函数、可单测）。
+ */
+
 /** 这句话是不是「改设置的动图说法」或我们自己的 `VF_I2V_OFF` 协议串。 */
 export function isStdSettingMessage(msg: string): boolean {
   const m = String(msg || '').trim()

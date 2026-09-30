@@ -1100,17 +1100,24 @@ def card_video(shot, th, W, H, fps):
     txc, _boxc, _ = _mat_text_colors(th, _mat, txc, 'black@0.30')
     # ★VF_TEXTFIT_V2（2026-09-28）：折行优先（最多 2 行），放不下才缩字号 ——
     #   不再"长句一路缩成小字"（那是"同片里大字忽大忽小"的根因）。
-    _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
-    _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc) if len(_lines) <= 1 else []
-    # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
-    _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)) if overlay_text_on() else []
+    _band_v = ''
+    if _is_editorial(th):
+        # ★VF_EDITBIGTEXT_V1（2026-09-30）：编辑风视频镜同样走"编辑风大字"（与 bgimage 观感统一）
+        _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc)
+        _reveal = _ed_rev if (_ed_fs and overlay_text_on()) else []
+        _band_v = _ed_band if (_ed_fs and overlay_text_on()) else ''
+    else:
+        _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
+        _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc) if len(_lines) <= 1 else []
+        # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
+        _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)) if overlay_text_on() else []
     _bar_y = int(H * 0.72)
     # ★VF_MATGUARD_V1 同款口径：素材本来就暗（深色录屏）就别再压 15%（否则"一片黑"）
     _dim = 0.06 if int(_mat.get('lum', 160) or 160) < 78 else 0.15
     _chain = [
         f"drawbox=x=0:y=0:w={W}:h={H}:color=black@{_dim}:t=fill",
         f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
-    ] + _reveal
+    ] + ([_band_v] if _band_v else []) + _reveal
     # ★VF_FILTERJOIN_V1（2026-09-30 线上事故防御）：拼滤镜前丢掉空串/纯逗号 ——
     #   事故现场：第 8 镜 bgimage 崩「No such filter: ''」（空滤镜）；根因是某处拼进了空串或尾逗号。
     #   这里统一清洗，以后任何一处忘了判空都不会再让整条片崩掉。
@@ -1160,14 +1167,21 @@ def card_aivideo(shot, th, W, H, fps):
     # ★VF_STYLE_V1（2026-09-30 ①）：AI 片段的亮度完全不可控 → 同样按素材体检自动改字色/底衬
     _mat = _probe_material(src)
     txc, _boxc, _ = _mat_text_colors(th, _mat, txc, 'black@0.30')
-    _rev = _reveal_seq(shot, font, fs, txc, dur, box=_boxc) if overlay_text_on() else []   # ★OVERLAY_TEXT_SWITCH_V1
-    _reveal = _rev
+    _band_v = ''
+    if _is_editorial(th):
+        # ★VF_EDITBIGTEXT_V1（2026-09-30）：AI 片段镜同样走"编辑风大字"（与 bgimage/video 观感统一）
+        _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc)
+        _reveal = _ed_rev if (_ed_fs and overlay_text_on()) else []
+        _band_v = _ed_band if (_ed_fs and overlay_text_on()) else ''
+    else:
+        _rev = _reveal_seq(shot, font, fs, txc, dur, box=_boxc) if overlay_text_on() else []   # ★OVERLAY_TEXT_SWITCH_V1
+        _reveal = _rev
     _bar_y = int(H * 0.72)
     _dim = 0.06 if int(_mat.get('lum', 160) or 160) < 78 else 0.15
     _chain = [
         f"drawbox=x=0:y=0:w={W}:h={H}:color=black@{_dim}:t=fill",
         f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
-    ] + _reveal
+    ] + ([_band_v] if _band_v else []) + _reveal
     # ★VF_FILTERJOIN_V1（2026-09-30 线上事故防御）：拼滤镜前丢掉空串/纯逗号 ——
     #   事故现场：第 8 镜 bgimage 崩「No such filter: ''」（空滤镜）；根因是某处拼进了空串或尾逗号。
     #   这里统一清洗，以后任何一处忘了判空都不会再让整条片崩掉。
@@ -1784,6 +1798,187 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0):
     return out
 
 
+# ══════════════════ ★VF_EDITBIGTEXT_V1（2026-09-30）编辑风「压在素材上的大字」 ══════════════════
+# 用户原话（多次强调）：「我发的 5 张博主截图……【文字配色】和【每个都有渐进效果 分段插入】」
+#   「我就是单独做的文字页都很空洞配色单一 不灵活」
+#   「把「压在图片上的大字」也做成你给的那 5 张图那种（kicker 小标签 + 多色层级 + 数值排版）」
+# 设计语言（照 5 张参考图）：① kicker 小标签条（强调色底 + ≤8 字）
+#   ② 多色层级（kicker 底 / 主大字 / 数字 / 细分线 ≥3 层）③ 数值排版（大字含数字 → 数字更大 + 强调色，
+#   单位小一号）④ 大字下方细分割线 ⑤ 入场仍"渐进/分段插入"（alpha 渐入 + enable 分段，不动 MOTIONS）。
+# 只对编辑风主题（news/data）生效；老 8 套主题一个像素都不动（用户已习惯老观感）。
+# kicker 缺省策略（★用户让我定，理由）：**绝不硬编** —— 把 title 再当 kicker 写一遍 = 同一句话上下两次、
+#   观感廉价；编辑风的 kicker 语义是"栏目标签/来源/分类"，与标题不是一回事，硬编会误导。
+#   → 缺 kicker 时改画一条【短强调条】顶上，保住编辑风签名又不造假。
+_NUM_RE = re.compile(r'\d[\d,\.]*')
+
+
+def _split_num_line(t):
+    """把一行拆成 (前缀, 数字, 后缀)；没有数字返回 None。★VF_EDITBIGTEXT_V1
+    例：'涨幅 1700%' → ('涨幅 ', '1700', '%')；'1700' → ('', '1700', '')。"""
+    s = str(t or '')
+    m = _NUM_RE.search(s)
+    if not m:
+        return None
+    return s[:m.start()], m.group(0), s[m.end():]
+
+
+def _editorial_bigtext(shot, th, W, H, dur, fs_max, txc, busy=False):
+    """★VF_EDITBIGTEXT_V1：编辑风【压在素材上的大字】层。
+
+    返回 (filters, band, fs)：
+      · filters = 文字层（kicker 标签 + 主大字/数值排版 + 细分线 + 英文副标，各自错开入场）；
+      · band    = busy（满字素材）时另铺的【全宽底衬带】滤镜串（不需要则 ''）；
+      · fs      = 实际主字号；0 表示没画出（调用方回退老样式）。
+    busy=True → 整块落【下三分之一】（与 VF_MATGUARD_V2 口径一致），远离素材自身文字，避免"字压字"。
+    """
+    txt = clean_big_text(shot.get('text'))
+    if not txt:
+        return [], '', 0
+    font = font_bold(th)                       # 编辑风大标题用粗体（参考图那种"厚"的层级感）
+    acc = th.get('accent', '0xff6b35')
+    _kbg = th.get('kickerBg', acc)
+    _kfg = th.get('kickerText', 'white')
+    _linec = th.get('line', 'white@0.30')
+    _subc = th.get('cardSub', txc)
+    _enfont = esc_path(find_font(th.get('enFont', 'arial')))
+    _kick = str(shot.get('kicker') or shot.get('tag') or shot.get('eyebrow') or '').strip()[:8]
+    _en = str(shot.get('en') or shot.get('enTitle') or shot.get('enSub')
+              or shot.get('sub_en') or '').strip()[:48]
+    _lm = int(W * 0.07)                        # 编辑风左对齐：左留 7% 安全边（与 title 卡同口径）
+    _lines, fs = fit_big_text(txt, W, H, fs_max=fs_max, max_lines=2, maxw_ratio=0.86)
+    if not _lines:
+        return [], '', 0
+    # 数值排版：仅【单行且含数字】时启用（多行时各段对不齐，反而不美）
+    _num = _split_num_line(_lines[0]) if len(_lines) == 1 else None
+    if _num:
+        _pre, _dn, _suf = _num
+        _fs_p, _fs_n = fs, int(fs * 1.30)
+        _fs_s = max(18, int(fs * 0.60))
+        # 数字放大后仍不许溢出安全宽（放不下就整体缩，宁可小一点也不出画）
+        for _ in range(14):
+            _tot = (est_text_w(_pre, _fs_p) + est_text_w(_dn, _fs_n) + est_text_w(_suf, _fs_s))
+            if _tot <= W * 0.86 or _fs_n <= 20:
+                break
+            _fs_n, _fs_p = int(_fs_n * 0.93), int(_fs_p * 0.93)
+            _fs_s = max(16, int(_fs_s * 0.93))
+        _main_h = int(_fs_n * 1.34)
+    else:
+        _main_h = int(fs * 1.34) * len(_lines)
+    # ── 组件度量（自上而下：kicker/强调条 → 主行 → 细分线 → 英文副标）──
+    _gapk = int(fs * 0.34)
+    _kfs = max(20, int(fs * 0.30))
+    _kpad = max(8, int(_kfs * 0.40))
+    _kbar_h = _kfs + 2 * _kpad
+    _abar_h = max(5, int(fs * 0.06))
+    _top_h = (_kbar_h + _gapk) if _kick else (_abar_h + _gapk)
+    _div_h = max(3, int(fs * 0.035))
+    _div_gap = int(fs * 0.30)
+    _efs = max(18, int(fs * 0.30)) if _en else 0
+    _en_h = int(_efs * 1.9) if _en else 0
+    _blk_h = _top_h + _main_h + _div_gap + _div_h + _en_h
+    # ── 整块位置：busy(满字素材) 落到下三分之一；底部不许顶进底部字幕区（H*0.72）──
+    _cy = int(H * (0.5 + (0.13 if busy else 0.0)))
+    _blk_top = _cy - _blk_h // 2
+    _blk_top = min(_blk_top, int(H * 0.70) - _blk_h)
+    _blk_top = max(int(H * 0.06), _blk_top)
+    # ★VF_EDITBIGTEXT_V1 补丁（2026-09-30 本机满字素材抽帧发现）：busy 会铺一条【深色底衬带】，
+    #   而 _mat_text_colors 在"亮素材"上会把大字自动改成近黑 → 深色带 + 深色字 = 又看不见。
+    #   修法：busy 分支若有自动改暗，统一改回主题【亮字/亮副标】（band 本身就是对比保证）。
+    if busy and _lum_of(txc, 255) < 128:
+        _bt = th.get('text') or 'white'
+        txc = _bt if _lum_of(_bt, 255) >= 128 else 'white'
+        _bs = th.get('sub') or ''
+        if _bs and _lum_of(_bs, 255) >= 128:
+            _subc = _bs
+    out = []
+    _y = _blk_top
+    # ① kicker 小标签条（强调色底 + 文字，≤8 字）；缺 kicker → 短强调条顶上（见文件头策略）
+    if _kick:
+        _kbw = int(est_text_w(_kick, _kfs) + _kpad * 2)
+        out.append(f"drawbox=x={_lm}:y={_y}:w={_kbw}:h={_kbar_h}:color={_kbg}@0.95:t=fill:"
+                   f"enable='gte(t,0.10)'")
+        out.append(
+            f"drawtext=fontfile='{font}':text='{esc_text(_kick)}':fontsize={_kfs}:"
+            f"fontcolor={_kfg}:x={_lm + _kpad}:y={_y + _kpad}:"
+            f"alpha='min(max(t-0.10,0)/0.40,1)'")
+    else:
+        out.append(f"drawbox=x={_lm}:y={_y + max(0, (_top_h - _abar_h) // 2)}:w={int(W * 0.12)}:"
+                   f"h={_abar_h}:color={acc}@0.95:t=fill:enable='gte(t,0.10)'")
+    _y += _top_h
+    # ② 主大字 / 数值排版（数字更大 + 强调色，单位小一号；各段错开入场 = 分段插入）
+    if _num:
+        _x = _lm
+        _base = _y
+        if _pre:
+            out.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(_pre)}':fontsize={_fs_p}:"
+                f"fontcolor={txc}:borderw={max(2, int(fs * 0.05))}:bordercolor=black@0.55:"
+                f"x={_x}:y={_base + (_fs_n - _fs_p)}:alpha='min(max(t-0.35,0)/0.5,1)'")
+            _x += est_text_w(_pre, _fs_p)
+        out.append(
+            f"drawtext=fontfile='{font}':text='{esc_text(_dn)}':fontsize={_fs_n}:"
+            f"fontcolor={acc}:borderw={max(3, int(fs * 0.06))}:bordercolor=black@0.55:"
+            f"x={_x}:y={_base}:alpha='min(max(t-0.55,0)/0.5,1)'")
+        _x += est_text_w(_dn, _fs_n)
+        if _suf:
+            out.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(_suf)}':fontsize={_fs_s}:"
+                f"fontcolor={acc}:borderw={max(2, int(fs * 0.05))}:bordercolor=black@0.55:"
+                f"x={_x}:y={_base + (_fs_n - _fs_s)}:alpha='min(max(t-0.75,0)/0.5,1)'")
+    else:
+        # 折行后的多行：逐行画；行内**含数字仍拆出来用强调色**（保住"数值换色"这条，
+        #   不至于因为折行就把数字的强调色丢掉）。左对齐 → 各段 x 依次右推，不用测整行宽。
+        _gl = int(fs * 1.34)
+        _stroke = f"borderw={max(2, int(fs * 0.05))}:bordercolor=black@0.55"
+        for _i, _ln in enumerate(_lines):
+            _a = f"alpha='min(max(t-{0.35 + 0.18 * _i:.2f},0)/0.5,1)'"
+            _yy = _y + _i * _gl
+            _sp = _split_num_line(_ln)
+            if _sp and (str(_sp[0]).strip() or str(_sp[2]).strip()):
+                _px, _dx, _sx = _sp
+                _x = _lm
+                if _px:
+                    out.append(f"drawtext=fontfile='{font}':text='{esc_text(_px)}':fontsize={fs}:"
+                               f"fontcolor={txc}:{_stroke}:x={_x}:y={_yy}:{_a}")
+                    _x += est_text_w(_px, fs)
+                out.append(f"drawtext=fontfile='{font}':text='{esc_text(_dx)}':fontsize={fs}:"
+                           f"fontcolor={acc}:{_stroke}:x={_x}:y={_yy}:{_a}")
+                _x += est_text_w(_dx, fs)
+                if _sx:
+                    out.append(f"drawtext=fontfile='{font}':text='{esc_text(_sx)}':fontsize={fs}:"
+                               f"fontcolor={txc}:{_stroke}:x={_x}:y={_yy}:{_a}")
+            else:
+                out.append(
+                    f"drawtext=fontfile='{font}':text='{esc_text(_ln)}':fontsize={fs}:"
+                    f"fontcolor={txc}:{_stroke}:x={_lm}:y={_yy}:{_a}")
+    _y += _main_h
+    # ③ 大字下方细分割线（克制；分段插入）
+    _y += _div_gap
+    out.append(f"drawbox=x={_lm}:y={_y}:w={int(W * 0.20)}:h={_div_h}:color={_linec}:t=fill:"
+               f"enable='gte(t,1.05)'")
+    _y += _div_h
+    # ④ 英文副标（无衬线 + 超宽字距；★用户明确「英文用无衬线，别拿中文字体排英文」）
+    if _en:
+        _etrack = _track(_en)
+        while _efs > 12 and est_text_w(_etrack, _efs) > W * 0.86:
+            _efs = int(_efs * 0.94)
+        while _etrack and est_text_w(_etrack, _efs) > W * 0.86:
+            _etrack = _etrack[:-2]
+        out.append(
+            f"drawtext=fontfile='{_enfont}':text='{esc_text(_etrack)}':fontsize={_efs}:"
+            f"fontcolor={_subc}:x={_lm}:y={_y + int(_efs * 0.55)}:"
+            f"alpha='min(max(t-1.20,0)/0.5,1)'")
+    # busy：全宽底衬带（把我们的字与素材自带文字在视觉上分开，同 VF_MATGUARD_V2）
+    band = ''
+    if busy:
+        band = (f"drawbox=x=0:y={max(0, _blk_top - int(fs * 0.24))}:w={W}:"
+                f"h={int(_blk_h + int(fs * 0.48))}:color=black@0.62:t=fill")
+    print('[VF] 编辑风图上大字（%s）：kicker%s + 多色层级%s + 细分线（入场=分段渐入）'
+          % (th.get('id'), '有' if _kick else '缺(用强调条)',
+             ' + 数值排版' if _num else ''))
+    return out, band, fs
+
+
 def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     """图片背景 + 文字叠加 + 暗化（适合"实景底 + 标语"）
 
@@ -1831,11 +2026,16 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         #（规划文档 P2「缺就承认缺」：宁可出一张设计过的文字卡，也不要一张看不清的截图）
         print('[VF] 素材不适合当背景（亮度 %d / 主色 %.2f / 边缘 %.2f）→ 本镜改用主题质感底板：%s'
               % (_lum, _flat, _edge, os.path.basename(str(src))[:24]))
-        _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
-        _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0]) if len(_lines) <= 1 else []
-        _reveal = (_rev if _rev else
-                   center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=-int(H * 0.06))
-                   ) if overlay_text_on() else []
+        # ★VF_EDITBIGTEXT_V1（2026-09-30）：编辑风主题 → 质感底板上同样走"编辑风大字"（kicker/数值/细分线）
+        if _is_editorial(th):
+            _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc)
+            _reveal = _ed_rev if (_ed_fs and overlay_text_on()) else []
+        else:
+            _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
+            _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0]) if len(_lines) <= 1 else []
+            _reveal = (_rev if _rev else
+                       center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=-int(H * 0.06))
+                       ) if overlay_text_on() else []
         _inp, _stage = stage_layer(th, W, H, dur)
         _vf = _stage + ',' + ','.join([
             f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.28:t=fill",
@@ -1863,24 +2063,34 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     #   像电视字幕条一样把我们的字与素材的字在视觉上彻底分开（比"猜哪儿空"稳得多）。
     _yoff = 0
     _band_box = ''
-    if _busy:
-        _yoff = int(H * 0.13)
-        _gap_b = int(fs * 1.34)
-        _rows_b = max(1, len(_lines))
-        _btop = int(H * 0.5 + _yoff - _gap_b * _rows_b * 0.5) - int(fs * 0.30)
-        _bh = _gap_b * _rows_b + int(fs * 0.60)
-        # ⚠️ 2026-09-30 线上事故（用户第 8 镜 bgimage 崩：「No such filter: ''」）：
-        #   这里原来结尾多了一个逗号（`...,t=fill,`），而 _chain 又是 `','.join(...)` 拼的
-        #   → 拼出来是 `...,drawbox=...:t=fill,,drawbox=...` → ffmpeg 把中间那个空串当成滤镜名
-        #   → 「No such filter: ''」整镜失败。**逗号必须在 join 时统一加，元素自己不许带尾逗号。**
-        _band_box = (f"drawbox=x=0:y={max(0, _btop)}:w={W}:h={int(_bh)}:"
-                     f"color=black@0.62:t=fill")
-        print('[VF] 素材自带内容多 → 大字走【下三分之一 + 全宽底衬带】（避免与素材文字纠缠）')
-    _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, y_off=_yoff) if len(_lines) <= 1 else []
-    # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
-    _reveal = (_rev if _rev else
-               center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=_yoff)
-               ) if overlay_text_on() else []
+    _reveal = []
+    if _is_editorial(th):
+        # ★VF_EDITBIGTEXT_V1（2026-09-30）：编辑风图上大字 = kicker 小标签 + 多色层级 + 数值排版 + 细分线，
+        #   入场仍是"渐进/分段插入"。只对 news/data 生效，老主题走下面的老分支（一个像素都不动）。
+        _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc, busy=_busy)
+        if _ed_fs and overlay_text_on():
+            _reveal, _band_box = _ed_rev, _ed_band
+            if _busy:
+                print('[VF] 编辑风 + 满字素材 → 大字块落【下三分之一 + 全宽底衬带】')
+    else:
+        if _busy:
+            _yoff = int(H * 0.13)
+            _gap_b = int(fs * 1.34)
+            _rows_b = max(1, len(_lines))
+            _btop = int(H * 0.5 + _yoff - _gap_b * _rows_b * 0.5) - int(fs * 0.30)
+            _bh = _gap_b * _rows_b + int(fs * 0.60)
+            # ⚠️ 2026-09-30 线上事故（用户第 8 镜 bgimage 崩：「No such filter: ''」）：
+            #   这里原来结尾多了一个逗号（`...,t=fill,`），而 _chain 又是 `','.join(...)` 拼的
+            #   → 拼出来是 `...,drawbox=...:t=fill,,drawbox=...` → ffmpeg 把中间那个空串当成滤镜名
+            #   → 「No such filter: ''」整镜失败。**逗号必须在 join 时统一加，元素自己不许带尾逗号。**
+            _band_box = (f"drawbox=x=0:y={max(0, _btop)}:w={W}:h={int(_bh)}:"
+                         f"color=black@0.62:t=fill")
+            print('[VF] 素材自带内容多 → 大字走【下三分之一 + 全宽底衬带】（避免与素材文字纠缠）')
+        _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, y_off=_yoff) if len(_lines) <= 1 else []
+        # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
+        _reveal = (_rev if _rev else
+                   center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=_yoff)
+                   ) if overlay_text_on() else []
     # ★VF_LESSDARK_V1（2026-09-20 用户实测"整体黑白/发灰"）：黑遮罩 0.42 → 0.15
     # ★VF_MATGUARD_V1（2026-09-29）：素材本身很暗（深色录屏/黑底图）时再降到 0.05 ——
     #   深色素材上再压 15% 就是"一片黑"，那正是用户说的"很干、没色彩"。
@@ -2341,13 +2551,35 @@ def _banner_pick(th, seed_text):
     return l1_pool[seed % len(l1_pool)], l2_pool[(seed // 7) % len(l2_pool)]
 
 
+# ★VF_BANNER_EMPTY_V1（2026-09-30）：不可见字符集合（零宽/BOM/变体选择符/软连字符）——
+#   Python 的 str.strip() **不认**它们（'\u200b'.strip() == '\u200b'），这正是"空色块"的根因。
+_BANNER_INVIS = '\u200b\u200c\u200d\u200e\u200f\u2060\ufeff\ufe0e\ufe0f\u00ad'
+
+
+def _banner_clean(s):
+    """顶部固定标题的"可见内容"判空：剥掉零宽/BOM/变体选择符 + 普通空白。
+    返回剥完的字符串；为空 = 这行没有"看得见的内容"→ 调用方整块不画。★VF_BANNER_EMPTY_V1"""
+    t = str(s or '')
+    for _ch in _BANNER_INVIS:
+        t = t.replace(_ch, '')
+    return t.strip()
+
+
 def banner_layer(banner, th, W, H, dur, font):
     """顶部固定两行标题的滤镜串（第 1 行大号+黑描边；第 2 行半透明色块+白字）。
     返回 '' 表示不画。范围用 banner['_range']=(start秒, end秒)，不给=整片。"""
     if not isinstance(banner, dict):
         return ''
-    l1 = str(banner.get('line1') or '').strip()
-    l2 = str(banner.get('line2') or '').strip()
+    # ★VF_BANNER_EMPTY_V1（2026-09-30 修用户实测 bug：第 2 行只剩一个【空色块】、字没了）：
+    #   根因：判空只做了 .strip()；而 AI/上游可能给出【零宽/不可见字符】（U+200B / U+FEFF 等）——
+    #   str.strip() 不认它们 → l2 非空 → 走"画色块 + 画白字"：色块画出来了，白字是零宽字符 = 看不见
+    #   → 用户看到的就是一个挂在第 1 行下面的空色块。修法：先 _banner_clean 剥掉所有不可见字符再判空；
+    #   剥完为空 → 色块与文字【整块都不画】。
+    l1 = _banner_clean(banner.get('line1'))
+    l2 = _banner_clean(banner.get('line2'))
+    if not l2 and str(banner.get('line2') or ''):
+        print('[VF] 固定标题第 2 行只有空白/不可见字符 → 不画色块（原值=%r）'
+              % str(banner.get('line2'))[:24])
     if not l1 and not l2:
         return ''
     c1, c2 = _banner_pick(th, l1 + '|' + l2)
@@ -2380,9 +2612,17 @@ def banner_layer(banner, th, W, H, dur, font):
             f"borderw={max(4, int(fs1 * 0.10))}:bordercolor=black:x=(w-text_w)/2:y={y1}{_en}")
     if l2:
         _y2 = y1 + fs1 + int(fs1 * 0.30)
-        _bw = int(est_text_w(l2, fs2) + _pad * 2)
+        # ★VF_BANNER_FIT_V1（2026-09-30）：超长第 2 行**先缩字号、再截断**，绝不让色块/文字溢出画幅。
+        #   旧写法宽度直接按 est_text_w 算 → 长文案时色块宽过画布被裁、白字跑到画外（用户要的"折行或缩字号"）。
+        _pad2 = _pad
+        while fs2 > 16 and est_text_w(l2, fs2) + 2 * _pad2 > W * 0.94:
+            fs2 = int(fs2 * 0.94)
+            _pad2 = max(8, int(fs2 * 0.32))
+        while l2 and est_text_w(l2, fs2) + 2 * _pad2 > W * 0.94:
+            l2 = l2[:-1]
+        _bw = int(est_text_w(l2, fs2) + _pad2 * 2)
         _bx = max(0, int((W - _bw) / 2))
-        parts.append(f"drawbox=x={_bx}:y={max(0, _y2 - _pad // 2)}:w={_bw}:h={fs2 + _pad}:"
+        parts.append(f"drawbox=x={_bx}:y={max(0, _y2 - _pad2 // 2)}:w={_bw}:h={fs2 + _pad2}:"
                      f"color={c2}:t=fill{_en}")
         parts.append(
             f"drawtext=fontfile='{font}':text='{esc_text(l2)}':fontsize={fs2}:fontcolor=white:"

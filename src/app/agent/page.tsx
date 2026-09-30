@@ -1332,6 +1332,56 @@ function VfBriefEdit({ brief, onSend }: { brief: string; onSend: (msg: string) =
   )
 }
 
+/** ★VF_MEMORY_V1（2026-09-30 用户定案「个人仓库怎么分配 AI 仓库主要看哪里的。这个比较关键」）：
+ *  素材「提拔 / 禁用」——用户在"素材识别结果"这一段能逐条看到素材名，这里给每条两个小按钮：
+ *    「✅ 当素材用」→ 发射 `VF_MAT_SET:{"name","action":"allow"}`（即使是成片/AI 资产也允许当素材）；
+ *    「🚫 别用」     → 发射 `...{"action":"deny"}`（以后起草一律不取它）；
+ *    再点一次同一个动作 = 取消（回默认规则，发 action:"auto"）。
+ *  state：all=默认 / outcome=本系统出片产物（默认不进池）/ deny=别用 / allow=当素材用。
+ *  ⚠️ 只新增，不动原有布局（挂在 VfBriefEdit 下面）。
+ */
+function VfMatsPicker({ mats, onSend }: { mats: any[]; onSend: (msg: string) => void }) {
+  const stateOf = (m: any) => String(m?.state || 'all')
+  const label: Record<string, string> = { all: '默认', outcome: '仅出片产物', deny: '别用', allow: '当素材用' }
+  const colorOf = (st: string) => st === 'deny' ? 'text-rose-300' : st === 'outcome' ? 'text-amber-300' : st === 'allow' ? 'text-emerald-300' : 'text-gray-500'
+  const act = (name: string, cur: string, action: 'allow' | 'deny') => {
+    if (!name) return
+    const next = cur === action ? 'auto' : action   // 再点一次同一个动作 = 取消
+    onSend('VF_MAT_SET:' + JSON.stringify({ name, action: next }))
+  }
+  return (
+    <details className="mb-2">
+      <summary className="text-[10px] text-gray-500 cursor-pointer">
+        素材清单（{mats.length} 条 · 点「当素材用 / 别用」决定 AI 用不用它）
+      </summary>
+      <div className="mt-1 space-y-1">
+        {mats.map((m: any, i: number) => {
+          const st = stateOf(m)
+          return (
+            <div key={i} className="flex items-center gap-2 text-[10px]">
+              <span className="flex-1 min-w-0 truncate text-gray-300" title={String(m?.name || '')}>
+                {m?.kind === 'video' ? '🎬 ' : '🖼 '}{String(m?.name || '')}
+              </span>
+              <span className={`shrink-0 ${colorOf(st)}`}>{label[st] || '默认'}</span>
+              <button type="button" onClick={() => act(String(m?.name || ''), st, 'allow')}
+                className={`shrink-0 px-2 py-0.5 rounded border transition ${st === 'allow' ? 'bg-emerald-500/30 border-emerald-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.12]'}`}>
+                ✅ 当素材用
+              </button>
+              <button type="button" onClick={() => act(String(m?.name || ''), st, 'deny')}
+                className={`shrink-0 px-2 py-0.5 rounded border transition ${st === 'deny' ? 'bg-rose-500/30 border-rose-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.12]'}`}>
+                🚫 别用
+              </button>
+            </div>
+          )
+        })}
+      </div>
+      <div className="text-[10px] text-gray-500 mt-1">
+        「别用」= 以后起草都不取它；「当素材用」= 即使是之前做的成片也允许当素材；再点一次可取消（回默认规则）。
+      </div>
+    </details>
+  )
+}
+
 /** ★VF_EDIT_V1（2026-09-24 用户定案「B：可编辑分镜清单」）
  *  出片前把分镜清单做成【可逐镜编辑】：改「画面大字 / 字幕」，保存后发 `VF_EDIT:{edits:[…]}`。
  *  · 这一步只改草稿清单，**不渲染、不扣钱**；改完再点「确认出片」按新版出片。
@@ -3074,6 +3124,10 @@ function AgentPageInner() {
     if (content.startsWith('VF_I2V_OFF')) {
       return <span className="text-amber-200/90">🚫 已改成「保持静态」（不再生成动图）——正在重出确认卡</span>
     }
+    // ★VF_MEMORY_V1（2026-09-30）：素材「✅ 当素材用 / 🚫 别用」的协议串同样只显示人话
+    if (content.startsWith('VF_MAT_SET')) {
+      return <span className="text-emerald-300/80">🎛 已更新素材名单（正在重出确认卡）</span>
+    }
     // 2026-09-09: AI 浏览器发布任务已建消息 → 卡片带「重发」按钮
     const buM = content.match(/已创建 AI 浏览器发布任务（#(\d+)）/); const buQ = content.includes('BROWSER_TASK_QUEUED') ? buM : null
     if (buQ) {
@@ -3292,6 +3346,8 @@ function AgentPageInner() {
               {/* ★VF_BRIEF_EDIT_V1（P0②）：从只读 <pre> 升级成【可编辑】——识别错了直接改，
                   改完点「保存并重写文案」就会用这份结论重写文案+重排分镜（见 VfBriefEdit） */}
               {vj.brief ? <VfBriefEdit brief={String(vj.brief)} onSend={sendMessage} /> : null}
+              {/* ★VF_MEMORY_V1（2026-09-30）：素材「✅ 当素材用 / 🚫 别用」（只新增，挂在识别结果下面） */}
+              {Array.isArray(vj.mats) && vj.mats.length > 0 ? <VfMatsPicker mats={vj.mats} onSend={sendMessage} /> : null}
               <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap mb-3">{vj.script}</div>
               {Array.isArray(vj.voices) && vj.voices.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-3">
@@ -3324,7 +3380,10 @@ function AgentPageInner() {
                       <button onClick={() => sendMessage('VF_I2V_OFF:' + JSON.stringify({ taskId: vj.taskId || '' }))}
                         title="这一版不生成动图，改用静态图 + 推拉（不额外花动图的点）；会重出一张金额更小的确认卡"
                         className="px-4 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/40 text-sm text-amber-100">
-                        🚫 关掉动图重出（省 {vj.i2vPts} 点）
+                        {/* ★VF_PRICE_CLARITY_V1（2026-09-30 用户实测「价格怎么 2 个差不多」）：
+                            原来写"省 754 点"，而右边"约 761 点"是总价 → 用户读成"省了 754 还剩 761"。
+                            改成「总价降到约 X 点」：X = 只算文案费（不含动图）的那部分。 */}
+                        🚫 关掉动图（总价降到约 {Number(vj.costNoI2v) > 0 ? vj.costNoI2v : Math.max(1, (Number(vj.cost) || 0) - (Number(vj.i2vPts) || 0))} 点）
                       </button>
                     )}
                     <button onClick={() => sendMessage('确认')}
@@ -3332,7 +3391,11 @@ function AgentPageInner() {
                       ? '画面将由 AI 逐镜生成（约 50 点/秒）；生成较慢，实测每 6 秒画面约需 100 秒'
                       : undefined}
                       className="px-4 py-1.5 rounded-lg bg-fuchsia-500/40 hover:bg-fuchsia-500/70 text-sm text-white font-medium">
-                      确认出片{vj.cost ? `（约 ${vj.cost} 点）` : ''}{vj.source === 'ai' ? ' · 🎨 AI 画面' : ''}
+                      {/* ★VF_PRICE_CLARITY_V1：把总价拆开写（动图 A + 文案 B），两个数各自有名字，不再歧义 */}
+                      {Number(vj.i2vPts) > 0
+                        ? `确认出片（约 ${vj.cost} 点 = 动图 ${vj.i2vPts} + 文案 ${Number(vj.costNoI2v) > 0 ? vj.costNoI2v : Math.max(1, (Number(vj.cost) || 0) - (Number(vj.i2vPts) || 0))}）`
+                        : `确认出片${vj.cost ? `（约 ${vj.cost} 点）` : ''}`}
+                      {vj.source === 'ai' ? ' · 🎨 AI 画面' : ''}
                     </button>
                   </>
                 )}

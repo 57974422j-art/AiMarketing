@@ -54,6 +54,10 @@ import type { VfBannerLines } from './banner'
 //   与 anti-ai.ts / banner.ts / i2v-plan.ts 同类（零依赖、可单测），所以静态 import 不违反本文件
 //   「零 import 连累别的线」的约束。真正治的是：① 同一素材在一份分镜里被反复用 ② 老用同几张。
 import { dedupeMaterialUse, demoteRecent, recentNamesOf, mergeRecentRuns, shuffleDeterministic } from './material-pool'
+// ★VF_MEMORY_V1（2026-09-30）：素材「提拔/禁用」名单（纯函数；名单本体存 agentMemory，IO 在本文件内用 ctx.prisma）
+import { parseMatPolicy, serializeMatPolicy, applyMatSet, parseMatSetMessage, materialStateOf, VF_MAT_POLICY_TAG } from './material-pool'
+// ★VF_SHOTFIX_V1（2026-09-30）：分镜质量兜底（list 时长下限 + 相邻同内容合并）
+import { ensureListDuration, mergeAdjacentSameShots } from './material-pool'
 
 /* ==================== 类型（本线自己定义，不设共用类型文件） ==================== */
 
@@ -102,6 +106,9 @@ export interface VfVideoDraft {
   /** ★原声开关（用户定案"原声静音加个键"）：默认 false=静音（配音统一铺）。
    *  ⚠️ 置 true 需要渲染层支持"把视频原声压到 20~30% 并混进最后混音" → 放在第 3 步，先不假装生效。 */
   keepAudio?: boolean
+  /** ★VF_MEMORY_V1（2026-09-30）：素材清单（`[{name,kind,state}]`，state ∈ all|outcome|deny|allow）——
+   *  卡片「素材识别结果」逐条给「✅ 当素材用 / 🚫 别用」。由 ctx.matUI() 生成后存进草稿。 */
+  mats?: Array<{ name: string; kind: string; state: string }>
 }
 
 /** 依赖注入：由 route.ts 提供（本文件不 import 项目内部路径，避免循环依赖/路径写错） */
@@ -116,7 +123,12 @@ export interface VfVideoCtx {
   vfScriptCard: (vd: any, shots: any[], imgN: number, brief: string, aspect: string, cover?: number, estSec?: number) => string
   log: (uid: number | string, msg: string) => void
   voiceList: any[]
-  listRepoMaterials: (userId: number | string, limit?: number, mode?: 'spread' | 'recent') => Promise<any[]>
+  /** ★VF_MEMORY_V1：第 4 参为用户显式「提拔/禁用」名单（deny 一律排除、allow 一律保留） */
+  listRepoMaterials: (userId: number | string, limit?: number, mode?: 'spread' | 'recent',
+    opts?: { allow?: string[] | null; deny?: string[] | null }) => Promise<any[]>
+  /** ★VF_MEMORY_V1：卡片「素材识别结果」的逐条清单（全仓库 + 状态；只列目录，**不触发 VL**）。
+   *  可选 —— 未提供时卡片不显示素材按钮（向后兼容）。 */
+  matUI?: (userId: number | string) => Promise<Array<{ name: string; kind: string; state: string }>>
   summarizeMaterials: (userId: number | string, mats: any[], visN: number) => Promise<string>
   /** ★视频探测（时长/宽高/有无音轨）+ 抽帧理解 —— 见 video-material.ts 的 probeVideos/describeVideoClips */
   probeVideos: (userId: number | string, mats: any[]) => Promise<any[]>
@@ -338,12 +350,37 @@ function formCard(vd: VfVideoDraft): string {
 
 /* ==================== ⑤ 起草（写文案 → 排分镜 → 确认卡） ==================== */
 
+/* ── ★VF_MEMORY_V1（2026-09-30）：素材「提拔/禁用」名单（本线用 ctx.prisma 读写 agentMemory）──
+ * 纯逻辑（解析/合并/状态判定）在 material-pool.ts；这里只做本线的库 IO。 */
+async function loadVideoMatPolicy(db: any, uid: number | string): Promise<{ allow: string[]; deny: string[] }> {
+  try {
+    const m = await db.agentMemory.findFirst({
+      where: { userId: String(uid), tags: { contains: VF_MAT_POLICY_TAG } },
+      orderBy: { updatedAt: 'desc' },
+    })
+    return parseMatPolicy(m?.content)
+  } catch { return { allow: [], deny: [] } }
+}
+async function saveVideoMatPolicy(db: any, uid: number | string, name: string, action: 'allow' | 'deny' | 'auto'): Promise<void> {
+  const after = applyMatSet(await loadVideoMatPolicy(db, uid), name, action)
+  const content = serializeMatPolicy(after)
+  try {
+    const ex = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { contains: VF_MAT_POLICY_TAG } }, orderBy: { updatedAt: 'desc' } })
+    if (ex) await db.agentMemory.update({ where: { id: ex.id }, data: { content, tags: VF_MAT_POLICY_TAG } })
+    else await db.agentMemory.create({ data: { userId: String(uid), content, tags: VF_MAT_POLICY_TAG, salience: 0.6 } })
+  } catch { /* 存不上只影响下次起草，不影响本轮 */ }
+}
+
 async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): Promise<string> {
   const { uid } = ctx
   const dur = Math.max(5, Math.min(900, Number(vd.dur) || 30))
 
   // ── 1) 素材：图片 + 视频（视频要探测元信息 + 抽帧看懂内容）──
-  const matsRaw = await ctx.listRepoMaterials(uid, 30)
+  // ★VF_MEMORY_V1（2026-09-30）：先读用户「提拔/禁用」名单 → 起草时即生效（deny 一律排除、allow 一律保留）
+  const _matPolicy = await loadVideoMatPolicy(ctx.prisma, uid)
+  const matsRaw = await ctx.listRepoMaterials(uid, 30, 'spread', { allow: _matPolicy.allow, deny: _matPolicy.deny })
+  // ★VF_MEMORY_V1：卡片上"素材识别结果"那一段的逐条清单（全仓库 + 状态），随草稿存起来
+  if (ctx.matUI) { try { vd.mats = await ctx.matUI(uid) } catch { /* 拿不到就不显示按钮 */ } }
   // ★VF_POOL_V1（2026-09-30）素材池治理之二：**打乱 + 最近用过降权**
   //   治用户实测「每次都选同几张」（原话：「第四条 3张动图我还是没懂」+ 反复同图）。
   //   · 打乱用本轮 seed（Date.now()）→ 每轮顺序都不同，不再"永远从最前面几张挑"；
@@ -690,6 +727,24 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
       cover = script.length ? subLen / script.length : cover
     }
   }
+  // ── ★VF_SHOTFIX_V1（2026-09-30 用户实测「最后一个画面表现有点不对」）──
+  //   ① 相邻两镜同卡型同内容（list items 完全相同 / bgimage 同 text 同 src / title 同 text）→ 合并成一镜；
+  //   ② list 卡时长下限 = 条数 × 0.5 + 1 秒（不够自动加时，并尽量从同片最长的镜扣回）。
+  //   位置：紧跟 ★VF_SUBSPLIT_V1 之后（拆镜完再合并/加时，不改字幕总字数 → 覆盖不变）。
+  {
+    const _mg = mergeAdjacentSameShots(shotsOut)
+    if (_mg.notes.length) {
+      shotsOut.length = 0
+      shotsOut.push(..._mg.shots)
+      for (const _n of _mg.notes) ctx.log(uid, _n)
+    }
+    const _lf = ensureListDuration(shotsOut)
+    if (_lf.notes.length) {
+      shotsOut.length = 0
+      shotsOut.push(..._lf.shots)
+      for (const _n of _lf.notes) ctx.log(uid, _n)
+    }
+  }
   const estSec = Math.round(subLen / 4.5)
 
   // ── 7) 存草稿 + 出确认卡（复用素材线的分镜卡，客户端零改动）──
@@ -834,6 +889,26 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
       return ctx.vfScriptCard(
         { ...vd, voiceList: ctx.voiceList, source: '', i2vSec: _after.plan.sec, i2vImages: _after.plan.images,
           i2vSkipped: _after.plan.unfitSamples, i2vSkippedN: _after.plan.skippedUnfit },
+        vd.shots || [], Number(vd.imgN) || 0, String(vd.brief || ''), vd.aspectResolved || 'portrait',
+        Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
+    }
+
+    // ── ★VF_MEMORY_V1（2026-09-30 用户定案「个人仓库怎么分配 AI 仓库主要看哪里的」）──
+    //   素材识别结果里每条素材的「✅ 当素材用 / 🚫 别用」发的协议串：
+    //     VF_MAT_SET:{"name":"<文件名>","action":"allow"|"deny"|"auto"}
+    //   只改【名单】+ 重出确认卡（**不重排分镜、不扣钱**；下次起草时名单即生效）。
+    const _ms = parseMatSetMessage(String(userMessage))
+    if (vd.step === 'script' && _ms) {
+      await saveVideoMatPolicy(ctx.prisma, uid, _ms.name, _ms.action)
+      if (ctx.matUI) { try { vd.mats = await ctx.matUI(uid) } catch { /* ignore */ } }
+      VF_VIDEO_DRAFT.set(uid, vd)
+      await saveVfVideoDraft(ctx.prisma, uid, vd)
+      const _label = _ms.action === 'allow' ? '可用' : _ms.action === 'deny' ? '不用' : '自动'
+      ctx.log(uid, `[素材池] 用户把 ${_ms.name} 设为「${_label}」`)
+      const _afterMat = i2vBuildOf(vd)
+      return ctx.vfScriptCard(
+        { ...vd, voiceList: ctx.voiceList, source: '', i2vSec: _afterMat.plan.sec, i2vImages: _afterMat.plan.images,
+          i2vSkipped: _afterMat.plan.unfitSamples, i2vSkippedN: _afterMat.plan.skippedUnfit },
         vd.shots || [], Number(vd.imgN) || 0, String(vd.brief || ''), vd.aspectResolved || 'portrait',
         Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
     }

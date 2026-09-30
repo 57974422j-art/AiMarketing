@@ -317,7 +317,14 @@ function spreadMaterials(imgItems: RepoMaterial[], limit: number): RepoMaterial[
   return out.slice(0, limit)
 }
 
-export async function listRepoMaterials(userId: string | number, limit = 40, mode: 'spread' | 'recent' = 'spread'): Promise<RepoMaterial[]> {
+export async function listRepoMaterials(
+  userId: string | number,
+  limit = 40,
+  mode: 'spread' | 'recent' = 'spread',
+  /** ★VF_MEMORY_V1（2026-09-30）：用户显式名单 —— deny 一律排除、allow 一律保留（即使它是出片产物）。
+   *  名单本体存在 agentMemory（tag=v_material_allow），由 chat/route.ts 读出来后透传到这里。 */
+  opts: { allow?: string[] | null; deny?: string[] | null } = {},
+): Promise<RepoMaterial[]> {
   const uid = String(userId)
   try {
     const objs = await listObjects(`storage/${uid}/`, 1000)
@@ -344,7 +351,7 @@ export async function listRepoMaterials(userId: string | number, limit = 40, mod
     //   · 没有出片记录 / 排除后素材太少 → 自动不排 / 放开（可解释、可回退，绝不把素材池排空）；
     //   · 每次判定与原因都写进 vfLog（可核对到底排了谁、为什么排）。
     //   ⚠️ mode='recent'（用户本次刚上传的）不排除 —— 那是用户明确要用的，不能替他决定。
-    const _pool = selectMaterialPool(all, { outcomeNames: readOutcomeNames(uid) })
+    const _pool = selectMaterialPool(all, { outcomeNames: readOutcomeNames(uid), allow: opts?.allow, deny: opts?.deny })
     for (const _n of _pool.notes) vfLog(uid, _n)
     const base = _pool.kept
     // ★VF_MATSPREAD_V1：图片走"分批均匀抽样"，视频另留少量（画面以图为主）

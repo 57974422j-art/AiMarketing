@@ -45,19 +45,40 @@ export interface SelectPoolOptions {
   outcomeNames?: Iterable<string> | null
   /** 排除后少于这个数就整体放开（默认 VF_POOL_MIN_KEEP = 3） */
   minKeep?: number
+  /** ★VF_MEMORY_V1（2026-09-30 用户定案「个人仓库怎么分配 AI 仓库」）：用户显式【提拔】的素材名
+   *  —— 一律保留（即使它是"本系统出片产物"）。卡片上的「✅ 当素材用」写这条名单。 */
+  allow?: Iterable<string> | null
+  /** ★VF_MEMORY_V1：用户显式【禁用】的素材名 —— 一律排除（优先级最高，连"安全阀"也不放开）。 */
+  deny?: Iterable<string> | null
 }
 
 export interface SelectPoolResult<T extends PoolItem> {
-  /** 本轮真正可用的素材（放开排除时 = 全部） */
+  /** 本轮真正可用的素材（放开排除时 = 全部 - 被禁用的） */
   kept: T[]
-  /** 被排除的"出片产物"（放开时为空） */
+  /** 被排除的素材（deny 名单 + 出片产物；安全阀放开时只剩 deny 名单） */
   excluded: T[]
   /** 命中几条出片记录（不论最终排没排） */
   candidates: number
-  /** 是否因为池子过少而放开了排除 */
+  /** 是否因为池子过少而放开了"出片产物"排除 */
   released: boolean
+  /** ★VF_MEMORY_V1：被「别用」名单硬排除的条数（安全阀也不会放开这些） */
+  denied: number
   /** 日志（调用方原样写进 vfLog / ctx.log，保证"可解释、可回退"） */
   notes: string[]
+}
+
+/** 把任意字符串集合规整成 `Set<string>`（null/空 → 空集合，绝不抛） */
+function toNameSet(v?: Iterable<string> | null): Set<string> {
+  const s = new Set<string>()
+  if (v == null) return s
+  try { for (const x of v as any) if (x != null && String(x)) s.add(String(x)) } catch { /* ignore */ }
+  return s
+}
+
+/** 前 8 个名字 + "…"（日志用） */
+function nameSample<T extends PoolItem>(arr: T[]): string {
+  const s = arr.slice(0, 8).map((x) => String((x as any)?.name || '')).join('、')
+  return s + (arr.length > 8 ? '…' : '')
 }
 
 /**
@@ -78,40 +99,55 @@ export function selectMaterialPool<T extends PoolItem>(
   const list = Array.isArray(items) ? items : []
   const minKeep = Math.max(1, Math.floor(Number(opts.minKeep ?? VF_POOL_MIN_KEEP)) || VF_POOL_MIN_KEEP)
   const notes: string[] = []
+  const names = toNameSet(opts.outcomeNames)
+  // ★VF_MEMORY_V1：用户的显式名单（卡片上的「✅ 当素材用 / 🚫 别用」写这两份）
+  const allow = toNameSet(opts.allow)
+  const deny = toNameSet(opts.deny)
 
-  const names = opts.outcomeNames == null ? null : new Set<string>([...(opts.outcomeNames as any)].map((x) => String(x)))
-  if (!names || names.size === 0) {
-    notes.push('[素材池] 没有可用的"出片记录"元数据 → 本轮不排除任何素材（宁可不排，别错排）')
-    return { kept: list, excluded: [], candidates: 0, released: false, notes }
-  }
-
-  const excluded: T[] = []
+  const hardExcluded: T[] = []   // deny 名单：一律排除（安全阀也不放开）
+  const softExcluded: T[] = []   // "本系统出片产物"：池子太小时可放开
   const kept: T[] = []
   for (const it of list) {
     const n = String((it as any)?.name || '')
-    if (names.has(n) && isOutcomeName(n)) excluded.push(it)
-    else kept.push(it)
+    if (deny.has(n)) { hardExcluded.push(it); continue }
+    if (allow.has(n)) { kept.push(it); continue }              // ★提拔：即使它是出片产物也保留
+    if (names.size && names.has(n) && isOutcomeName(n)) { softExcluded.push(it); continue }
+    kept.push(it)
+  }
+  if (hardExcluded.length) {
+    notes.push(`[素材池] 按你的「别用」名单排除 ${hardExcluded.length} 条：${nameSample(hardExcluded)}`)
   }
 
-  if (!excluded.length) {
-    notes.push(`[素材池] 未发现"本系统出片产物"（已核对 ${names.size} 条出片记录）`)
-    return { kept, excluded: [], candidates: 0, released: false, notes }
+  if (!softExcluded.length) {
+    notes.push(names.size
+      ? `[素材池] 未发现"本系统出片产物"（已核对 ${names.size} 条出片记录）`
+      : '[素材池] 没有可用的"出片记录"元数据 → 本轮不排除任何素材（宁可不排，别错排）')
+    return { kept, excluded: hardExcluded, candidates: 0, released: false, denied: hardExcluded.length, notes }
   }
 
-  const head = `[素材池] 排除 ${excluded.length} 条"本系统出片产物"（它们是用户自己的成片，不是原始素材）`
+  const head = `[素材池] 排除 ${softExcluded.length} 条"本系统出片产物"（它们是用户自己的成片，不是原始素材）`
   if (kept.length >= minKeep) {
-    const sample = excluded.slice(0, 8).map((x) => String((x as any)?.name || '')).join('、')
-    notes.push(head + `：${sample}${excluded.length > 8 ? '…' : ''}`)
-    return { kept, excluded, candidates: excluded.length, released: false, notes }
+    notes.push(head + `：${nameSample(softExcluded)}`)
+    return {
+      kept, excluded: [...hardExcluded, ...softExcluded],
+      candidates: softExcluded.length, released: false, denied: hardExcluded.length, notes,
+    }
   }
 
-  // 安全阀：排完就快空了 → 整体放开（宁可多一条出片，也不能让用户"没素材可用"）
+  // 安全阀：排完就快空了 → 放开"出片产物"排除（**不动 deny 名单** —— 那是用户显式说的"别用"）
+  // ★VF_MEMORY_V1 修（2026-09-30，team-lead 复跑发现回归）：**必须保留"已放开排除"这句原话**
+  //   （★VF_POOL_V1 的日志契约：池子 < minKeep 自动放开的动作要在日志里看得到；
+  //     `scripts/vf-pool-selftest.ts` 断言的就是 `notes.some(n => n.includes('放开排除'))`）。
+  //   所以这里把新信息（含出片产物 / 不动 deny 名单）挂在这句话之后，而不是改写它。
   notes.push(head)
   notes.push(
-    `[素材池] 排除后仅剩 ${kept.length} 条（< ${minKeep}）→ 已放开排除，` +
-    `本轮改用全部 ${list.length} 条素材（避免素材池被排空）`,
+    `[素材池] 排除后仅剩 ${kept.length} 条（< ${minKeep}）→ 已放开排除（含"出片产物"：可用素材只剩 ${kept.length} 条），` +
+    `本轮加入这 ${softExcluded.length} 条（避免素材池被排空；你的「别用」名单不受影响，deny 仍一律排除）`,
   )
-  return { kept: list, excluded: [], candidates: excluded.length, released: true, notes }
+  return {
+    kept: [...kept, ...softExcluded], excluded: hardExcluded,
+    candidates: softExcluded.length, released: true, denied: hardExcluded.length, notes,
+  }
 }
 
 /* ══════════════════ ② 同一次分镜内不重复用同一素材 ══════════════════ */
@@ -327,4 +363,247 @@ export function cacheSet(
   val: string | null | undefined,
 ): boolean {
   return cacheSetRaw(cache, vlCacheKey(key, size), val)
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════
+ * ★VF_MEMORY_V1（2026-09-30）——「已知用户」注入段 + 素材「提拔 / 禁用」名单（纯函数）
+ *
+ * 用户原话（本节的由来）：
+ *   「我们 AGENT 上下文记忆如何处理的，后期经常用了，是否很多不用去看了，从记忆中就已经明确
+ *     用户是做什么的了。仓库有什么也都知道。除非新的上传可以需要看下。」
+ *   「仓库我截图了一个 codex 的仓库图……我们个人仓库怎么分配 AI 仓库主要看哪里的。这个比较关键」
+ *
+ * 本节的函数全部**纯函数、零依赖**（不读库、不读盘、不联网）—— 库/OSS 的 IO 留给 chat/route.ts，
+ * 这样自测脚本（scripts/vf-memory-shotfix-selftest.ts）可以脱网直接跑。
+ * ════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 素材许可/禁用名单的 tag（存进 agentMemory，**不新建表**） */
+export const VF_MAT_POLICY_TAG = 'vf_material_allow'
+/** 名单正文前缀（与项目其它 agentMemory 记录同风格，解析时只取 `{` 起） */
+const MAT_POLICY_PREFIX = '素材名单:'
+
+export interface MatPolicy { allow: string[]; deny: string[] }
+
+/** 名单里的名字规整（去空、去重、封顶 200 条） */
+function uniqNames(v: any): string[] {
+  const arr = Array.isArray(v) ? v : []
+  return [...new Set(arr.map((x: any) => String(x || '').trim()).filter(Boolean))].slice(0, 200)
+}
+
+/** 解析 agentMemory 里的名单正文（坏数据/空 → 空名单，绝不抛） */
+export function parseMatPolicy(raw: string | null | undefined): MatPolicy {
+  try {
+    const t = String(raw || '').trim()
+    if (!t) return { allow: [], deny: [] }
+    const i = t.indexOf('{')
+    const j: any = JSON.parse(i >= 0 ? t.slice(i) : t)
+    return { allow: uniqNames(j?.allow), deny: uniqNames(j?.deny) }
+  } catch { return { allow: [], deny: [] } }
+}
+
+/** 序列化成 agentMemory 的正文 */
+export function serializeMatPolicy(p: MatPolicy | null | undefined): string {
+  return MAT_POLICY_PREFIX + JSON.stringify({ allow: uniqNames(p?.allow), deny: uniqNames(p?.deny) })
+}
+
+/** 把一次「✅/🚫」动作落到名单上（allow/deny 互斥；action='auto' = 从两边都移除 → 回默认规则） */
+export function applyMatSet(p: MatPolicy | null | undefined, name: string, action: 'allow' | 'deny' | 'auto'): MatPolicy {
+  const n = String(name || '').trim()
+  const allow = uniqNames(p?.allow).filter((x) => x !== n)
+  const deny = uniqNames(p?.deny).filter((x) => x !== n)
+  if (n) {
+    if (action === 'allow') allow.push(n)
+    else if (action === 'deny') deny.push(n)
+  }
+  return { allow: uniqNames(allow), deny: uniqNames(deny) }
+}
+
+/** 卡片按钮发的协议串：`VF_MAT_SET:{"name":"xxx.jpg","action":"allow"|"deny"|"auto"}` */
+export const STD_MAT_SET_RE = /^VF_MAT_SET\s*[:{]/
+
+/** 解析协议串；不是这条串 / 名字缺失 → null（调用方据此判断"这句话是不是素材名单动作"） */
+export function parseMatSetMessage(msg: string): { name: string; action: 'allow' | 'deny' | 'auto' } | null {
+  const m = String(msg || '').trim()
+  if (!STD_MAT_SET_RE.test(m)) return null
+  try {
+    const i = m.indexOf('{')
+    const j: any = JSON.parse(i >= 0 ? m.slice(i) : m)
+    const name = String(j?.name || '').trim()
+    if (!name) return null
+    const a = String(j?.action || '').toLowerCase()
+    const action: 'allow' | 'deny' | 'auto' = (a === 'allow' || a === 'deny' || a === 'auto') ? a : 'auto'
+    return { name, action }
+  } catch { return null }
+}
+
+/**
+ * 一条素材在界面上的状态（卡片按钮显示用）：
+ *   'deny'    = 在「别用」名单里；
+ *   'allow'   = 在「当素材用」名单里（即使它是出片产物也会被用）；
+ *   'outcome' = 本系统出片产物（默认不进池，需点「✅ 当素材用」才用）；
+ *   'all'     = 走默认规则。
+ */
+export function materialStateOf(
+  name: string,
+  o: { allow?: Iterable<string> | null; deny?: Iterable<string> | null; outcomeNames?: Iterable<string> | null },
+): 'allow' | 'deny' | 'outcome' | 'all' {
+  const n = String(name || '')
+  if (!n) return 'all'
+  const allow = toNameSet(o?.allow), deny = toNameSet(o?.deny), out = toNameSet(o?.outcomeNames)
+  if (deny.has(n)) return 'deny'
+  if (allow.has(n)) return 'allow'
+  if (out.size && out.has(n) && isOutcomeName(n)) return 'outcome'
+  return 'all'
+}
+
+/** 「已知用户」注入段的输入（全部来自 route.ts 的 IO 层） */
+export interface KnownUserInput {
+  /** 画像类记忆原文（已按 updatedAt 从新到旧排序；如 "行业/业务：餐饮"、"名字：小美"…） */
+  profileLines?: string[]
+  imgN?: number
+  vidN?: number
+  recentNames?: string[]
+}
+
+/** 段尾那句固定指令（用户原话：「是否很多不用去看了……除非新的上传可以需要看下」） */
+export const KNOWN_USER_TAIL = '（以上信息已确认过，除非用户新上传/明确要求，不要重复询问或重复识别。）'
+
+/**
+ * 拼「已知用户」注入段（≤300 字，短、可失效）。
+ * 无画像且仓库为空 → 返回 null（调用方据此"不注入"，绝不影响对话）。
+ * 返回 profileChars / repoChars 供日志打 `[记忆] 已注入已知用户（画像 X 字 / 仓库摘要 Y 字）`。
+ */
+export function buildKnownUserBlock(inp: KnownUserInput | null | undefined): { text: string; profileChars: number; repoChars: number } | null {
+  const lines = (inp?.profileLines || []).map((s) => String(s || '').trim()).filter(Boolean)
+  const imgN = Math.max(0, Math.floor(Number(inp?.imgN) || 0))
+  const vidN = Math.max(0, Math.floor(Number(inp?.vidN) || 0))
+  const recent = (inp?.recentNames || []).map((s) => String(s || '').trim()).filter(Boolean).slice(0, 3)
+  const hasRepo = !!(imgN || vidN)
+  if (!lines.length && !hasRepo) return null
+
+  // 画像段封顶 160 字（避免提示词膨胀；超出只截断画像，不动仓库段）
+  let profile = lines.join('；')
+  if (profile.length > 160) profile = profile.slice(0, 160) + '…'
+  const parts: string[] = []
+  if (profile) parts.push(`用户画像：${profile}`)
+  const repoLine = hasRepo
+    ? `仓库：图片 ${imgN} 张、视频 ${vidN} 条${recent.length ? `，最近上传 ${recent.join('、')}` : ''}`
+    : ''
+  if (repoLine) parts.push(repoLine)
+  if (!parts.length) return null
+
+  return {
+    text: `【已知用户（长期记忆）】${parts.join('；')}。\n${KNOWN_USER_TAIL}`,
+    profileChars: profile.length,
+    repoChars: repoLine.length,
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════
+ * ★VF_SHOTFIX_V1（2026-09-30）—— 分镜质量兜底（纯函数）
+ *
+ * 用户原话（本节的由来）：
+ *   「最后一个画面表现有点不对」—— 抽帧确认：**第 9 镜是 list 卡（4 条）但只排了 2 秒**，
+ *   只显示出前 2 条就切走了；而且**第 8、9 镜是同一个 list（items 完全相同）连着出现**。
+ *
+ * 两条兜底：① list 卡时长下限 = 条数 × 0.5 + 1 秒（不够自动加时，并尽量从"最长的镜"扣回）；
+ *          ② 相邻两镜"同卡型 + 同内容" → 合并成一镜（时长相加、字幕接续）。
+ * ⚠️ 只做"**只增不减**"的修正：不裁内容、不删镜（合并 = 两镜内容合二为一）。
+ * ════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 每条 item 至少要几秒才来得及出现（用户口径：条数 × 0.5 + 1） */
+export const LIST_SEC_PER_ITEM = 0.5
+/** 给别的镜"扣时间"时不低于这个秒数（分镜的 dur 下限本来就是 2s） */
+export const SHOT_DUR_FLOOR = 2
+
+const round1 = (v: any): number => Math.round((Number(v) || 0) * 10) / 10
+
+/** list 卡时长下限（4 条 → 3.0s；0 条 → 1.0s） */
+export function listMinDuration(itemCount: number): number {
+  const n = Math.max(0, Math.floor(Number(itemCount) || 0))
+  return round1(n * LIST_SEC_PER_ITEM + 1)
+}
+
+/**
+ * ① list 卡时长下限：不够 → 自动加时到下限，并按"从同片里最长的镜扣回"尽量保持总时长不变。
+ *   - 只从**非 list 镜**里扣（别再动别的 list 的下限）；每镜扣到 SHOT_DUR_FLOOR(2s) 为止；
+ *   - 扣不满就**只加时**（总时长略增），绝不裁内容、绝不删镜。
+ * 返回新数组（不改入参）+ 日志（调用方原样写进 vfLog，例如：
+ *   `[分镜] 第 9 镜 list 4 条 → 时长 2s 提到 3s（否则末条来不及出现）`）。
+ */
+export function ensureListDuration(shots: any[]): { shots: any[]; notes: string[] } {
+  const src = (Array.isArray(shots) ? shots : []).map((s) => ({ ...(s || {}) }))
+  const notes: string[] = []
+  let extra = 0
+  for (let i = 0; i < src.length; i++) {
+    const s: any = src[i]
+    if (String(s?.type) !== 'list') continue
+    const n = Array.isArray(s?.items) ? s.items.length : 0
+    if (n <= 0) continue
+    const min = listMinDuration(n)
+    const dur = Number(s.dur) || 0
+    if (dur + 1e-6 < min) {
+      extra += (min - dur)
+      notes.push(`[分镜] 第 ${i + 1} 镜 list ${n} 条 → 时长 ${round1(dur)}s 提到 ${round1(min)}s（否则末条来不及出现）`)
+      s.dur = min
+    }
+  }
+  if (extra <= 1e-6) return { shots: src, notes }
+
+  let need = extra
+  const donors = src
+    .map((s: any, i: number) => ({ i, dur: Number(s?.dur) || 0 }))
+    .filter((x) => String(src[x.i]?.type) !== 'list')
+    .sort((a, b) => b.dur - a.dur)
+  for (const d of donors) {
+    if (need <= 1e-6) break
+    const can = d.dur - SHOT_DUR_FLOOR
+    if (can <= 1e-6) continue
+    const cut = Math.min(can, need)
+    src[d.i].dur = round1(d.dur - cut)
+    need -= cut
+  }
+  if (need > 1e-6) {
+    notes.push(`[分镜] list 加时 ${round1(extra)}s，其中 ${round1(need)}s 扣不回（其余镜已到 ${SHOT_DUR_FLOOR}s 下限）→ 总时长略增，内容不动`)
+  } else {
+    notes.push(`[分镜] list 加时 ${round1(extra)}s 已从同片较长的镜扣回 → 总时长基本不变`)
+  }
+  return { shots: src, notes }
+}
+
+/** 相邻两镜"同内容"的判据（返回 '' = 不参与合并） */
+function shotContentKey(s: any): string {
+  const t = String(s?.type || '')
+  if (t === 'list') {
+    const items = Array.isArray(s?.items) ? s.items.map((x: any) => (x && typeof x === 'object' ? JSON.stringify(x) : String(x))) : []
+    return `list:${String(s?.title || '')}:${items.join('|')}`
+  }
+  // ⚠️ bgimage 除了"同 text"还要求**同 src** —— 否则两张不同的图会因大字相同被并成一镜（丢画面）
+  if (t === 'bgimage') return `bgimage:${String(s?.text || '')}:${String(s?.src || '')}`
+  if (t === 'title') return `title:${String(s?.text || '')}`
+  return ''
+}
+
+/**
+ * ② 相邻镜"同卡型 + 同内容" → 合并成一镜（时长相加、字幕按原顺序拼起来）。
+ *   只处理 list（items 完全相同 + 同标题）/ bgimage（同 text 且同 src）/ title（同 text）。
+ *   中间隔了一镜的（非相邻）**只打日志不合并**（保持画面节奏，不越权改动）。
+ */
+export function mergeAdjacentSameShots(shots: any[]): { shots: any[]; notes: string[] } {
+  const src = Array.isArray(shots) ? shots : []
+  const out: any[] = []
+  const notes: string[] = []
+  for (const s of src) {
+    const prev: any = out[out.length - 1]
+    const k1 = prev ? shotContentKey(prev) : ''
+    const k2 = shotContentKey(s)
+    if (prev && k1 && k1 === k2) {
+      prev.dur = round1((Number(prev.dur) || 0) + (Number(s.dur) || 0))
+      prev.subtitle = (String(prev.subtitle || '') + String(s.subtitle || '')).slice(0, 600)
+      notes.push(`[分镜] 第 ${out.length} 与 ${out.length + 1} 镜同卡型同内容 → 已合并（时长相加、字幕接续）`)
+      continue
+    }
+    out.push({ ...(s || {}) })
+  }
+  return { shots: out, notes }
 }

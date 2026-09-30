@@ -19,6 +19,7 @@
 """
 import argparse
 import os
+import re as _re
 import subprocess
 import sys
 import tempfile
@@ -228,6 +229,90 @@ def main():
     _lst = _seg(_code, 'card_list', 'card_number')
     chk('_avail' in _lst, 'list 卡：逐条插入节奏按镜长参数化（末条留 1s）')
     chk(_src.count('★VF_MOTIONPPT_V1') >= 1, '防回退：★VF_MOTIONPPT_V1 仍在 render.py 里')
+
+    # ══ 9. ★VF_EDITBIGTEXT_V1（2026-09-30）编辑风「压在素材上的大字」═══════════════
+    # 用户原话：「把「压在图片上的大字」也做成你给的那 5 张图那种（kicker 小标签 + 多色层级 + 数值排版）」
+    #          「文字配色和还有每个都有渐进效果 分段插入」
+    _th_news = theme_of('news')
+    _th_data = theme_of('data')
+    _eb_shot = {'type': 'bgimage', 'src': 'x.jpg', 'text': '库存 1700 万',
+                'kicker': '前线专栏', 'en': 'stock crisis report', 'dur': 4}
+    _eb_fl, _eb_band, _eb_fs = R._editorial_bigtext(
+        _eb_shot, _th_news, 1280, 720, 4, R.big_fs(1280, 720, 0.10, 44), _th_news['text'])
+    _eb_join = ','.join(_eb_fl)
+    chk(_eb_fs > 0 and len(_eb_fl) >= 6, '编辑风图上大字：产出 kicker+正文+数值+细线等 ≥6 条滤镜',
+        'fs=%s n=%d' % (_eb_fs, len(_eb_fl)))
+    # ① kicker 小标签（≤8 字）+ 多色层级（≥3 种颜色：kicker 底 / 主字色 / 细分线）
+    chk("'前线专栏'" in _eb_join, '编辑风图上大字：画了 kicker 小标签')
+    _fb = [x for x in _eb_fl if x.startswith('drawtext')]
+    _bx = [x for x in _eb_fl if x.startswith('drawbox')]
+    chk(len(_bx) >= 2 and len(_fb) >= 3, '编辑风图上大字：kicker 底 + 主字 + 细分线（多层次）',
+        'box=%d text=%d' % (len(_bx), len(_fb)))
+    _kbg = str(_th_news.get('kickerBg'))
+    _linec = str(_th_news.get('line'))
+    chk(_kbg in _eb_join, '编辑风图上大字：kicker 用主题 kickerBg（强调色底）', _kbg)
+    chk(_linec.split('@')[0] in _eb_join, '编辑风图上大字：细分割线用主题 line 色', _linec)
+    chk(('fontcolor=' + str(_th_news['text'])) in _eb_join and 'fontcolor=0x2f7cf6' in _eb_join,
+        '编辑风图上大字：主字色与强调色并存（≥2 种字色 = 多色层级）')
+    # ③ 数值排版：数字比周围字更大 + 用强调色；单位小一号
+    _num_dt = [x for x in _fb if "text='1700'" in x]
+    _suf_dt = [x for x in _fb if '万' in x and 'text=' in x]
+    _fs_of = lambda s: int(_re.search(r'fontsize=(\d+)', s).group(1))
+    chk(_num_dt and _fs_of(_num_dt[0]) > _eb_fs, '编辑风图上大字：数字比正文更大（数值排版）',
+        '%s vs %d' % ((_fs_of(_num_dt[0]) if _num_dt else -1), _eb_fs))
+    chk(_num_dt and ('fontcolor=0x2f7cf6' in _num_dt[0]), '编辑风图上大字：数字用强调色')
+    chk(_suf_dt and _fs_of(_suf_dt[0]) < _eb_fs, '编辑风图上大字：单位小一号')
+    # ⑤ 入场仍是"渐进/分段插入"：文字 alpha 渐入 + 色块/细线 enable 分段
+    chk(all("alpha='min(max(t-" in x for x in _fb), '编辑风图上大字：每段文字都渐入（渐进）')
+    chk(any("enable='gte(t," in x for x in _bx), '编辑风图上大字：色块/细线按时间点插入（分段）')
+    # 英文副标：无衬线 + 宽字距
+    chk(any("fontfile='" in x and 'arial' in x for x in _fb) and 'S T O C K' in _eb_join,
+        '编辑风图上大字：英文副标走无衬线 + 宽字距')
+    # 缺 kicker 时改画短强调条（不硬编 title）
+    _eb2 = R._editorial_bigtext({'text': '没有标签'}, _th_data, 1280, 720, 4,
+                                R.big_fs(1280, 720, 0.10, 44), _th_data['text'])[0]
+    chk(any(x.startswith('drawbox') for x in _eb2) and 'kicker' not in ''.join(_eb2).lower(),
+        '编辑风图上大字：缺 kicker → 用强调条兜底（不硬编 title）')
+    # ② 老主题不启用新样式：三处带素材的卡都被 _is_editorial(th) 门控
+    for _fn, _nxt in (('card_bgimage', 'card_end'), ('card_video', 'card_aivideo'),
+                      ('card_aivideo', 'card_quote')):
+        _sg = _seg(_code, _fn, _nxt)
+        _pre = _sg.split('_editorial_bigtext(')[0] if '_editorial_bigtext(' in _sg else ''
+        chk('_editorial_bigtext(' in _sg and '_is_editorial(th)' in _pre,
+            '老主题不启用：%s 的编辑风大字受 _is_editorial(th) 门控' % _fn)
+    chk(not R._is_editorial(theme_of('dark')) and not R._is_editorial(theme_of('mono')),
+        '老主题（dark/mono）判定为非编辑风 → 走老样式')
+    # 源码级：新 token 用法 / 数值拆分 / 分段机制都在位
+    _ebsrc = _seg(_code, '_editorial_bigtext', 'card_bgimage')
+    chk('kickerBg' in _ebsrc and 'kickerText' in _ebsrc, '编辑风图上大字源码：用了 kickerBg/kickerText token')
+    chk('_split_num_line(' in _ebsrc and 'fontcolor={acc}' in _ebsrc,
+        '编辑风图上大字源码：数值排版（拆数字 + 数字用 accent）')
+    chk("enable='gte(t," in _ebsrc, '编辑风图上大字源码：分段插入走 enable（不用裸 w= 假动画）')
+    _snsrc = _seg(_code, '_split_num_line', '_editorial_bigtext')
+    chk('_NUM_RE' in _snsrc, '数值拆分行源码：正则 _NUM_RE 在位')
+    chk(_src.count('★VF_EDITBIGTEXT_V1') >= 1, '防回退：★VF_EDITBIGTEXT_V1 仍在 render.py 里')
+
+    # ══ 10. ★VF_BANNER_EMPTY_V1 / FIT_V1（2026-09-30）顶部固定标题：空第 2 行不许画空色块 ══
+    _bfont = R.esc_path(R.find_font('msyh'))
+    chk(str('\u200b').strip() == '\u200b',
+        '复现：Python str.strip() **不剥**零宽字符（正是"空色块"的根因）')
+    _b1 = R.banner_layer({'line1': '3分钟生成爆款方案'}, _th_news, 1280, 720, 10, _bfont)
+    chk('drawbox' not in _b1 and 'drawtext' in _b1, 'banner：只有第 1 行 → 不画色块')
+    _b2 = R.banner_layer({'line1': '标题', 'line2': ''}, _th_news, 1280, 720, 10, _bfont)
+    chk('drawbox' not in _b2, 'banner：第 2 行为空串 → 不画色块')
+    _b3 = R.banner_layer({'line1': '标题', 'line2': '   '}, _th_news, 1280, 720, 10, _bfont)
+    chk('drawbox' not in _b3, 'banner：第 2 行纯空白 → 不画色块')
+    _b4 = R.banner_layer({'line1': '标题', 'line2': '\u200b\ufeff  '}, _th_news, 1280, 720, 10, _bfont)
+    chk('drawbox' not in _b4, 'banner：第 2 行零宽/BOM 不可见字符 → 不画色块（bug 修复）')
+    _b5 = R.banner_layer({'line1': '标题', 'line2': '第二行真文字'}, _th_news, 1280, 720, 10, _bfont)
+    chk('drawbox' in _b5 and '第二行真文字' in _b5, 'banner：第 2 行真有字 → 正常画色块 + 文字')
+    _b6 = R.banner_layer({'line1': '标题', 'line2': '超长第二行文案' * 12}, _th_news, 1280, 720, 10, _bfont)
+    _m6 = _re.search(r'drawbox=x=\d+:y=\d+:w=(\d+):h=\d+', _b6)
+    chk(_m6 is not None and int(_m6.group(1)) <= int(1280 * 0.94),
+        'banner：超长第 2 行 → 色块宽度被压进安全边距（不溢出画幅）',
+        ('w=%s' % (_m6.group(1) if _m6 else '?')))
+    chk(_src.count('★VF_BANNER_EMPTY_V1') >= 1 and _src.count('★VF_BANNER_FIT_V1') >= 1,
+        '防回退：★VF_BANNER_EMPTY_V1 / ★VF_BANNER_FIT_V1 仍在 render.py 里')
 
     if a.render:
         _render_demo()

@@ -166,7 +166,14 @@ export async function shouldTakeOverMixLine(db: any, uid: number, userMessage: s
 /* ==================== ③ 常量 ==================== */
 
 const MIX_FLOW_WORD = /确认|开始|生成吧|出片|就这个|^行$|^好$|^OK$|可以|强制出片/i
-const THEME_NAMES: Record<string, string> = { dark: '深蓝科技', tech: '深青科技', light: '浅色纸感' }
+// ★VF_THEMENAME_FIX_V1（2026-09-30 用户实测「我选的是深蓝墨，卡片却显示深蓝科技」）：
+//   原表把 `dark` 错标成「深蓝科技」（那是 `blue`），且主题扩到 10 套后没跟着更新。
+//   唯一真相源是 theme-labels.ts（route.ts 的确认卡 + 自测脚本都用它）；本文件的设计约束是
+//   **零 import**（见文件头），所以这里内联一份**同样的** 10 条（改主题时两处一起改）。
+const THEME_NAMES: Record<string, string> = {
+  dark: '深蓝墨', blue: '深蓝科技', tech: '深青科技', mint: '清新薄荷', light: '浅色纸感',
+  journal: '手账暖色', vivid: '高饱和电商', mono: '杂志黑白', news: '新闻资讯', data: '科技数据',
+}
 const KNOWN_TYPES = ['bgimage', 'title', 'list', 'number', 'compare', 'chart', 'end']
 const DEMO_WORDS = ['效率翻10倍', 'AI营销系统', '三大能力', '效率提升', '评论区见', '点击咨询', '新做法', '旧做法']
 

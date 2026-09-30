@@ -134,8 +134,15 @@ async function main() {
     ok(/buildBanner\(/.test(routeSrc) && /bannerFieldOf\(/.test(routeSrc) && /planWithBanner\(/.test(routeSrc),
       '图片成片：提炼 / 取字段 / 挂根级 三处都接上')
     ok(/sb\.get\('banner'\)/.test(renderSrc), 'render.py 只从分镜【根级】读 banner（与 planWithBanner 契约对齐）')
-    ok(/_bn\.get\('line1'\)[\s\S]*_bn\.get\('line2'\)/.test(renderSrc)
-      || /l1 = str\(banner\.get\('line1'\)/.test(renderSrc), 'render.py 读 line1 / line2')
+    // ★VF_BANNER_EMPTY_V1（2026-09-30）：读取从 `str(...).strip()` 升级为 `_banner_clean(...)`
+    //   （剥掉零宽/BOM 等 str.strip() 认不出的不可见字符 —— 那正是"第 2 行只剩空色块"的根因）。
+    //   契约仍是"从 line1/line2 读"，只是读取路径【经过清洗】；并保证"第 2 行为空 → 不画色块"。
+    ok(/_banner_clean\(banner\.get\('line1'\)\)/.test(renderSrc)
+      && /_banner_clean\(banner\.get\('line2'\)\)/.test(renderSrc)
+      && /def _banner_clean\(/.test(renderSrc) && /_BANNER_INVIS/.test(renderSrc)
+      && /if not l1 and not l2:\s*\n\s*return ''/.test(renderSrc)
+      && /if l2:/.test(renderSrc),
+      'render.py 读 line1 / line2（经 _banner_clean 清洗）且第 2 行为空 → 不画色块')
     ok(/'from'/.test(renderSrc) && /'to'/.test(renderSrc), 'render.py 读 from / to（镜号范围 → 秒）')
   }
 
