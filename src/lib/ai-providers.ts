@@ -416,7 +416,9 @@ function getDashScopeKey(): string | null {
 
 const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
-async function dashscopeChat(prompt: string, maxTokens = 2000): Promise<string | null> {
+// ★VF_MODELSWITCH_V1（2026-09-30）：新增可选 model 参数 —— **不传 = 逐字保持现状**（旧调用方零回归）。
+//   为什么：用户要试不同模型的理解能力（「每个模型可能理解能力也不一样」）。
+async function dashscopeChat(prompt: string, maxTokens = 2000, model?: string): Promise<string | null> {
   const key = getDashScopeKey();
   if (!key) return null;
   try {
@@ -424,7 +426,7 @@ async function dashscopeChat(prompt: string, maxTokens = 2000): Promise<string |
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'deepseek-v4-flash', // 2026-08-30: 兜底用 V4（不再 qwen-plus）
+        model: model || 'deepseek-v4-flash', // 2026-08-30: 兜底用 V4（不再 qwen-plus）；★VF_MODELSWITCH_V1：显式指定则用它
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
         max_tokens: maxTokens,
@@ -1124,7 +1126,8 @@ function getDeepSeekKey(): string | null {
   return process.env.DEEPSEEK_API_KEY || readEnvFile('DEEPSEEK_API_KEY') || null;
 }
 
-export async function deepSeekChat(prompt: string, maxTokens = 1000): Promise<string | null> {
+// ★VF_MODELSWITCH_V1（2026-09-30）：新增可选 model 参数 —— **不传 = 逐字保持现状**（旧调用方零回归）。
+export async function deepSeekChat(prompt: string, maxTokens = 1000, model?: string): Promise<string | null> {
   const key = getDeepSeekKey();
   if (!key) return null;
   try {
@@ -1132,7 +1135,7 @@ export async function deepSeekChat(prompt: string, maxTokens = 1000): Promise<st
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: model || 'deepseek-chat',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
         max_tokens: maxTokens,
@@ -1222,7 +1225,11 @@ export async function dashscopeFunctionCall(
   tools: ToolDefinition[] = [],
   maxTokens = 2000,
   temperature = 0.3, // 2026-08-07：用户级 AI 设置可调
-  forceVL = false // 2026-09-05：自由模式/带图强制多模态（qwen3-max——看图 + 工具）
+  forceVL = false, // 2026-09-05：自由模式/带图强制多模态（qwen3-max——看图 + 工具）
+  // ★VF_MODELSWITCH_V1（2026-09-30）：新增可选 model 覆盖主模型 —— **不传 = 逐字保持现状**。
+  //   背景（用户原话）：「我试试 deepseek-v4.1_flash 和 阿里的多模态模型……每个模型可能理解能力也不一样」。
+  //   注意：只覆盖【主模型】；下面的兜底链（deepseek-v4-flash）**原样保留**，绝不因切模型把大脑搞挂。
+  model?: string
 ): Promise<FunctionCallResult> {
   const key = getDashScopeKey()
   if (!key) return { content: null }
@@ -1233,9 +1240,11 @@ export async function dashscopeFunctionCall(
   // 2026-09-05: 有图/自由模式 → qwen3-max（多模态看图 + 工具）；无图 → qwen3.8-flash（快）
   const hasImg = messages.some((m) => Array.isArray(m.content) && m.content.some((b: any) => b?.type === 'image_url'))
   const useVL = forceVL || hasImg
+  // ★VF_MODELSWITCH_V1：用户显式选了 brain 模型就用它；没选 = 现状（有图 qwen3-max / 无图 qwen3.8-flash）
+  const primaryModel = model || (useVL ? 'qwen3-max' : 'qwen3.8-flash')
   try {
     // ① 主模型（百炼 OpenAI 兼容——支持 function calling）
-    const qwBody: any = { model: useVL ? 'qwen3-max' : 'qwen3.8-flash', messages, max_tokens: maxTokens, temperature, stream: false }
+    const qwBody: any = { model: primaryModel, messages, max_tokens: maxTokens, temperature, stream: false }
     if (tools.length > 0) { qwBody.tools = tools.map((t: any) => ({ type: 'function', function: { name: t.name, description: t.description || '', parameters: t.parameters || {} } })); qwBody.tool_choice = 'auto' }
     const qwRes = await fetchJSON('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
       method: 'POST', body: JSON.stringify(qwBody),
@@ -1244,7 +1253,7 @@ export async function dashscopeFunctionCall(
     }).catch((eQw: any) => { console.error('[qwen3.8] 调用异常:', eQw?.message || eQw); return null })
     const qwChoice = qwRes?.choices?.[0]
     if (qwChoice?.message) {
-      return { content: qwChoice.message?.content || null, toolCalls: qwChoice.message?.tool_calls || undefined, model: useVL ? 'qwen3-max' : 'qwen3.8-flash' }
+      return { content: qwChoice.message?.content || null, toolCalls: qwChoice.message?.tool_calls || undefined, model: primaryModel }
     }
     console.error('[qwen3.8] 无有效响应，走 V4 兜底:', JSON.stringify(qwRes || {}).slice(0, 150))
   } catch (eQw2) { console.error('[qwen3.8] 异常走 V4 兜底:', eQw2?.message || eQw2) }
@@ -1658,8 +1667,33 @@ export async function locateElement(base64Image: string, elementDesc: string): P
 
 // ==================== 导出函数 — 双保险模式 ====================
 
+// ★VF_MODELSWITCH_V1（2026-09-30）：按模型 id 自动选通道（供「模型切换」用）。
+//   · qwen*     → 百炼（DashScope）
+//   · deepseek* → 先百炼（若 DASHSCOPE key 在）再 DeepSeek 官方
+//     （deepseek 系列在【百炼 与 DeepSeek 官方】两边都托管，两条都试最稳）
+//   · 未知 id / 两条都不通 → 返回 null，由调用方走【原有兜底链】
+//     —— 铁律：绝不因为切模型让功能挂掉。
+export async function callChatModel(modelId: string, prompt: string, maxTokens = 2000): Promise<string | null> {
+  const id = String(modelId || '').trim()
+  if (!id) return null
+  if (id.startsWith('qwen')) return await dashscopeChat(prompt, maxTokens, id)
+  if (id.startsWith('deepseek')) {
+    const viaDash = getDashScopeKey() ? await dashscopeChat(prompt, maxTokens, id) : null
+    if (viaDash) return viaDash
+    return await deepSeekChat(prompt, maxTokens, id)
+  }
+  return null
+}
+
 // 1. 文案生成 / 文本生成
-export async function generateText(prompt: string): Promise<string | null> {
+export async function generateText(prompt: string, model?: string): Promise<string | null> {
+  // ★VF_MODELSWITCH_V1（2026-09-30）：**只有显式指定 model 时才改变链路**；
+  //   未指定（所有旧调用方）= 逐字保持现有链路，零回归。
+  if (model) {
+    const picked = await callChatModel(model, prompt, 2000)
+    if (picked) return picked
+    // 选定的模型两条通道都没出结果 → 落回【原有】兜底链（绝不因切模型让功能挂掉）
+  }
   // 百炼(通义千问) → 火山(豆包) → 硅基(Qwen) → DeepSeek → Mock
   const result = await dashscopeChat(prompt, 2000)
     || await volcanoChat(prompt, 2000)

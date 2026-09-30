@@ -36,7 +36,11 @@ import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY, STD_QUERY_RE, is
 //   在**显式造对象**的 bgimage 分支里必须带上（否则 AI 的选择被归一化静默丢掉）。
 // ★VF_SUBSPLIT_V1（2026-09-30）：splitLongSubtitles —— 单镜字幕上限 + 超长按句拆镜的服务端硬兜底
 //   （纯函数，与 anti-ai 同一套，两个分镜出口共用，免得两处走偏）。
-import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles } from '@/lib/agent/vf/anti-ai'
+import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles,
+  VF_MOTION_PROMPT, ensurePersistentMotion } from '@/lib/agent/vf/anti-ai'
+// ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：把「长镜必须有动效」的档位接进【图片成片线】的分镜提示词
+//   （与「视频混剪」线共用 anti-ai.ts 里同一份常量，两条线的字段说明与硬规矩逐字一致），
+//   并在 genVideoShots 出口跑服务端兜底 ensurePersistentMotion（AI 忘写时给 title/end 长镜补 grow）。
 // ★VF_VIDI2V_V1（2026-09-29）：「让图动起来」的计费口径（50 点/秒）与出片侧 vf-video.ts **共用同一份公式** ——
 //   卡片报价与实扣同源，免得又出现"卡片报 205 点、实扣 1500 点"。
 import { i2vCostPoints, vfTotalCostPoints, buildI2vShots, i2vKeyMap, i2vSkipHint, i2vSkippedList, i2vNotPickedHint } from '@/lib/agent/vf/i2v-plan'
@@ -97,18 +101,24 @@ async function genVideoShotsRaw(o: {
    *  不传时行为与原来完全一致（素材线 / 混合线不受任何影响）。 */
   aiOnly?: boolean
 }): Promise<any[]> {
+  // ★VF_MODELSWITCH_V1（2026-09-30）：分镜书写走用户选定的「书写模型」（没选过 = fast = 现状，行为逐字不变）
+  const _mcWriter = (await getModelChoiceCached()).writer
   const imgs = (o.imgPaths || []).filter(Boolean)
   const charN = String(o.script || '').length
   const avgN = Math.max(8, Math.round(charN / Math.max(1, o.shotN)))
-  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）。★但【绝对不许扩写、不许重复】：所有 subtitle 拼起来的**总字数要≈文案字数**（最多不超过它的 1.15 倍）——实测你写超到 233%，成片会又超时又重复念，用户会直接发现\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。${o.wantPrompt ? `\n★★【本片画面由 AI 逐镜生成】所以每个镜头还必须多给一个 prompt 字段：**英文**的画面生成提示词，含【主体 + 动作 + 场景 + 光影 + 镜头感（如推近/平移/航拍）】，60~80 词；只描述画面，**不要在画面里出现任何文字**（文字由字幕层负责）。prompt 必须与该镜的 subtitle 语义一致 —— 文案说什么，画面就演什么。\n  示例（注意 prompt 是英文）：{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案。","prompt":"A young marketer working late at a desk at night, laptop glow on his face, camera slowly pushes in, cinematic warm lighting, shallow depth of field","dur":7}` : ''}\n` + ANTI_AI_PROMPT + `编镜依据（文案）：\n${o.script}`
+  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）。★但【绝对不许扩写、不许重复】：所有 subtitle 拼起来的**总字数要≈文案字数**（最多不超过它的 1.15 倍）——实测你写超到 233%，成片会又超时又重复念，用户会直接发现\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。${o.wantPrompt ? `\n★★【本片画面由 AI 逐镜生成】所以每个镜头还必须多给一个 prompt 字段：**英文**的画面生成提示词，含【主体 + 动作 + 场景 + 光影 + 镜头感（如推近/平移/航拍）】，60~80 词；只描述画面，**不要在画面里出现任何文字**（文字由字幕层负责）。prompt 必须与该镜的 subtitle 语义一致 —— 文案说什么，画面就演什么。\n  示例（注意 prompt 是英文）：{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案。","prompt":"A young marketer working late at a desk at night, laptop glow on his face, camera slowly pushes in, cinematic warm lighting, shallow depth of field","dur":7}` : ''}\n` +
+    // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：「长镜必须有动效」档位 + 硬规矩（与「视频混剪」线共用
+    //   同一份常量；本 prompt 就是任务里点名的 vfShotsPrompt —— 只在这里与紧邻的归一化逻辑上加，
+    //   文件后半段的模型读取/传参区域一律不碰）。
+    VF_MOTION_PROMPT + ANTI_AI_PROMPT + `编镜依据（文案）：\n${o.script}`
   let raw = ''
-  try { raw = (await generateText(prompt)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
+  try { raw = (await generateText(prompt, _mcWriter)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
   let arr = vfParseShots(raw)
   if (!arr) {
     // ★自动重试一次：把非法输出回喂给 AI，**只让它修 JSON 语法**（用户选定方案）
     try {
       vfLog(o.uid, '[分镜重试] 首次输出不合法 → 回喂修 JSON')
-      const fixed = (await generateText(`下面这段本应是 JSON 数组但语法有误（常见：数字被写成了“图1”这类带汉字的字符串、中文引号、尾随逗号）。请【只修正 JSON 语法、不改内容】，只输出修正后的 JSON 数组，不要任何解释：\n${String(raw).slice(0, 6000)}`)) || ''
+      const fixed = (await generateText(`下面这段本应是 JSON 数组但语法有误（常见：数字被写成了“图1”这类带汉字的字符串、中文引号、尾随逗号）。请【只修正 JSON 语法、不改内容】，只输出修正后的 JSON 数组，不要任何解释：\n${String(raw).slice(0, 6000)}`, _mcWriter)) || ''
       arr = vfParseShots(fixed)
       vfLog(o.uid, arr ? `[分镜重试] 成功 ${arr.length} 镜` : '[分镜重试] 仍失败')
     } catch (e: any) { vfLog(o.uid, '[分镜重试异常] ' + String(e?.message || e).slice(0, 120)) }
@@ -288,7 +298,11 @@ async function genVideoShots(o: Parameters<typeof genVideoShotsRaw>[0]): Promise
   const shots = await genVideoShotsRaw(o)
   const _anti = sanitizeAntiAiShots(shots)
   if (_anti.notes.length) vfLog(o.uid, '[反AI味] ' + _anti.notes.join('；'))
-  return _anti.shots
+  // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：长镜纯文字卡的"持续型动效"服务端兜底（与视频混剪线同款）。
+  //   刻意放在 sanitizeAntiAiShots 之后（number/chart 降级成 title 后的新 title 也要被兜到）。
+  const _mo = ensurePersistentMotion(_anti.shots)
+  if (_mo.notes.length) vfLog(o.uid, '[动效] ' + _mo.notes.join('；'))
+  return _mo.shots
 }
 
 /* ── ★VF_POOL_V1（2026-09-30，team-lead 放开 route.ts 后接入）：「图片成片 / 素材线」的素材池治理 ──
@@ -917,6 +931,8 @@ import {
   ToolDefinition,
   agnesChat, dashscopeFunctionCall, dashscopeGenerateImageAsync, type AgentChatMessage,
 } from '@/lib/ai-providers'
+// ★VF_MODELSWITCH_V1（2026-09-30）模型切换：清单 / 档位 / 解析（纯数据 + 纯函数）
+import { resolveModelChoice, describeModelChoice, AGENT_MODEL_CHOICE_KEY, type ModelChoice } from '@/lib/agent/model-catalog'
 import { searchTrendsReal } from '@/lib/gemini'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { spendTokens, checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
@@ -957,6 +973,23 @@ const UNMET_PLATFORM_ALIAS: Record<string, string> = {
 export const runtime = 'nodejs'
 const prisma = new PrismaClient()
 
+// ★VF_MODELSWITCH_V1（2026-09-30）：读取用户/全局选定的「模型档位」（SystemConfig.agent_model_choice）。
+//   · 供【模块级函数】（分镜生成 genVideoShotsRaw、工具 executeToolCall）用 —— 它们拿不到请求作用域变量；
+//   · 5 秒短缓存：一条消息里可能多次调用，避免重复查库；改档位后最多 5 秒生效。
+//   · 任何异常 / 脏值 → resolveModelChoice 一律回落 fast（= 现状），绝不抛异常。
+let _mcCache: { at: number; choice: ModelChoice } | null = null
+async function getModelChoiceCached(): Promise<ModelChoice> {
+  if (_mcCache && Date.now() - _mcCache.at < 5000) return _mcCache.choice
+  try {
+    const cfg = await prisma.systemConfig.findUnique({ where: { key: AGENT_MODEL_CHOICE_KEY } })
+    const choice = resolveModelChoice(cfg?.value)
+    _mcCache = { at: Date.now(), choice }
+    return choice
+  } catch {
+    return resolveModelChoice(null)
+  }
+}
+
 // 2026-09-09: 建浏览器任务——每账号独立编号 seq（该用户第 N 个从 1 起，跨账号不混）
 async function buCreate(uid: number, task: string, filesStr: string, status = 'pending') {
   const last = await prisma.agentBrowserTask.findFirst({ where: { userId: uid }, orderBy: { seq: 'desc' }, select: { seq: true } }).catch(() => null)
@@ -976,6 +1009,8 @@ const pendingImages: Map<number, { taskId: string; ts: number; url?: string; fil
 
 async function executeToolCall(name: string, args: Record<string, any>, auth: any): Promise<string> {
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || ''
+  // ★VF_MODELSWITCH_V1（2026-09-30）：工具里写分镜（generate_storyboard / create_ai_video）也走「书写模型」
+  const _mcWriter = (await getModelChoiceCached()).writer
 
   switch (name) {
     // ── 文案 ──
@@ -1628,7 +1663,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const sbShots = Math.max(2, Math.ceil(sbDuration / 5))
       const sbCost = Math.ceil(sbDuration * 100)
       const sbPrompt = `你是短视频分镜导演。根据主题「${args.topic || ''}」生成 ${sbShots} 个镜头的分镜脚本（总时长约${sbDuration}秒，每镜约5秒，${sbRatio}画面）。只输出 JSON 数组（不要任何其它文字或代码块标记），每镜对象：{shot:序号, desc:"中文画面描述", prompt:"英文视频生成提示词，含主体/动作/场景/光影/运镜，80词内", duration:5, camera:"镜头感（如推近/航拍/慢动作）"}。风格要求：${args.style || '通用写实'}。`
-      const sbRaw = await generateText(sbPrompt)
+      const sbRaw = await generateText(sbPrompt, _mcWriter)
       if (!sbRaw) return '分镜生成失败，请稍后重试'
       const m = sbRaw.match(/\[[\s\S]*\]/)
       if (!m) return '分镜格式异常，请重试'
@@ -1652,7 +1687,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       // 分镜：调 LLM 出分镜 JSON
       const avShots = Math.max(2, Math.ceil(avDuration / 5))
       const avPrompt = `你是短视频分镜导演。根据主题「${args.topic || ''}」生成 ${avShots} 个镜头的分镜脚本（总时长约${avDuration}秒，每镜约5秒，${avRatio}画面）。只输出 JSON 数组（不要任何其它文字或代码块标记），每镜对象：{shot:序号, desc:"中文画面描述", prompt:"英文视频生成提示词，含主体/动作/场景/光影/运镜，80词内", duration:5, camera:"镜头感"}。风格：${args.style || '通用写实'}。`
-      const avRaw = await generateText(avPrompt)
+      const avRaw = await generateText(avPrompt, _mcWriter)
       const avMatch = avRaw ? avRaw.match(/\[[\s\S]*\]/) : null
       if (!avMatch) return '自动分镜失败，请用 generate_storyboard 手动分镜或重试'
       let avShotsArr = []
@@ -2790,6 +2825,19 @@ export async function POST(request: NextRequest) {
       const u0 = await prisma.user.findUnique({ where: { id: auth?.userId || 0 }, select: { agentTemperature: true } })
       if (typeof u0?.agentTemperature === 'number') userTemperature = u0.agentTemperature
     } catch {}
+    // ★VF_MODELSWITCH_V1（2026-09-30）：在【与温度同一处】读取「模型档位」——
+    //   存 SystemConfig.agent_model_choice（**不新增数据库表/字段**），读写走 /api/agent/prefs（已扩展）。
+    //   用户原话：「我试试，deepseek-v4.1_flash 和 阿里的多模态模型 我切换这试试。每个模型可能理解能力也不一样。」
+    //   modelChoice.brain  → 传给下面的 dashscopeFunctionCall（Agent 大脑）
+    //   modelChoice.writer → 传给所有写【分镜/文案】的 generateText
+    const modelChoice: ModelChoice = await getModelChoiceCached()
+    const writerModel = modelChoice.writer
+    // 统一包装：凡"分镜/文案书写"注入点都用它（未选过档位时 writerModel = deepseek-v4-flash，与现状逐字一致）
+    const genTextW = (p: string) => generateText(p, writerModel)
+    try {
+      console.log(`[模型] 大脑=${modelChoice.brain} ｜ 书写=${modelChoice.writer}`)
+      vfLog(auth?.userId || 0, `[模型] ${describeModelChoice(modelChoice)}`)
+    } catch { /* ignore */ }
     let agentProfile: { name?: string; persona?: string } | undefined
     try {
       const profMem = await prisma.agentMemory.findFirst({
@@ -3141,7 +3189,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, data: { reply: '未找到可重发的发布任务' + (rePubN ? '（#' + rePubN[1] + '）' : '') + '——请先发一个视频。', toolUsed: false, sessionId: sid || null, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG } })
       } catch (eR) { console.error('[重发] 异常:', eR?.message || eR) }
     }
-    const fcResult = skipModelStep1 ? { toolCalls: [], content: '' } : await dashscopeFunctionCall(messages as any, toolsAll, 2000, userTemperature, (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free')
+    const fcResult = skipModelStep1 ? { toolCalls: [], content: '' } : await dashscopeFunctionCall(messages as any, toolsAll, 2000, userTemperature, (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free', modelChoice.brain)
     const toolCalls = (fcResult as any)?.toolCalls || []
     // 2026-08-05：兼容 OpenAI 格式 tool_calls（百炼 qwen：{function:{name,arguments}}）与扁平格式（{name,arguments}）
     const normTool = (tc: any) => ({
@@ -3211,7 +3259,7 @@ export async function POST(request: NextRequest) {
         try {
           finalResult = hasImage
             ? await agnesChat(messages, [])
-            : await dashscopeFunctionCall(messages as any, [], 2000, userTemperature)
+            : await dashscopeFunctionCall(messages as any, [], 2000, userTemperature, false, modelChoice.brain)
         } catch (eChat) {
           console.error('[chat] AI 汇总失败（状态机兜底）:', eChat?.message || eChat)
           finalResult = ''
@@ -3861,7 +3909,7 @@ PUBLISH_DRAFT.delete(uidW)
             vfVideoHandled = true
             wfEarlyReply = await handleVideoLine({
               uid: uidVF2, userMessage, auth, prisma,
-              executeToolCall, generateText, vfScriptCard,
+              executeToolCall, generateText: genTextW, vfScriptCard,
               log: (u: any, m: string) => vfLog(u, m),
               voiceList: VF_VOICE_BASE,
               listRepoMaterials, summarizeMaterials, probeVideos, describeVideoClips,
@@ -3884,7 +3932,7 @@ PUBLISH_DRAFT.delete(uidW)
             vfMixHandled = true
             wfEarlyReply = await handleMixLine({
               uid: uidVF2, userMessage, auth, prisma,
-              executeToolCall, generateText,
+              executeToolCall, generateText: genTextW,
               log: (u: any, m: string) => vfLog(u, m),
               voiceList: VF_VOICE_BASE,
               listRepoMaterials, summarizeMaterials, probeMaterialSizes, downloadMaterials,
@@ -3906,7 +3954,7 @@ PUBLISH_DRAFT.delete(uidW)
               wfEarlyReply = await handleAiLine({
                 uid: uidVF2, userMessage, auth,
                 prisma,
-                executeToolCall, genVideoShots, generateText, vfScriptCard,
+                executeToolCall, genVideoShots, generateText: genTextW, vfScriptCard,
                 log: (u: any, m: string) => vfLog(u, m),
                 voiceList: VF_VOICE_BASE,
                 listRepoMaterials, summarizeMaterials, probeMaterialSizes,
@@ -4277,7 +4325,7 @@ PUBLISH_DRAFT.delete(uidW)
                   vfLog(uidVF2, `[文案] 用用户贴的文案 ${vfScript2.length} 字（目标 ${vfNeed}）`)
                 } else {
                   try {
-                    const vfS1 = await generateText(`你是短视频口播文案写手。写一条约 ${vfDur} 秒的中文口播文案。\n${vfCtx}\n【主题】${vd.topic || '（自行决定，贴合素材与画像）'}\n要求：①【必须 ${vfNeed} 字左右，不得少于 ${Math.round(vfDur * 3)} 字】②开头 3 秒抓人 ③句子用「。」「！」断句 ④保留数字与专业术语 ⑤只输出文案本身，不要标题、不要解释、不要 markdown、不要引号。`) || ''
+                    const vfS1 = await generateText(`你是短视频口播文案写手。写一条约 ${vfDur} 秒的中文口播文案。\n${vfCtx}\n【主题】${vd.topic || '（自行决定，贴合素材与画像）'}\n要求：①【必须 ${vfNeed} 字左右，不得少于 ${Math.round(vfDur * 3)} 字】②开头 3 秒抓人 ③句子用「。」「！」断句 ④保留数字与专业术语 ⑤只输出文案本身，不要标题、不要解释、不要 markdown、不要引号。`, writerModel) || ''
                     vfScript2 = String(vfS1).replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 4000)
                     vfLog(uidVF2, `[文案] AI 写 ${vfScript2.length} 字（目标 ${vfNeed}）`)
                   } catch (e: any) { vfLog(uidVF2, '[文案失败] ' + String(e?.message || e).slice(0, 120)) }
@@ -4285,7 +4333,7 @@ PUBLISH_DRAFT.delete(uidW)
                 // 字数不足 → 补一次（用户自己贴的文案不擅自扩写）
                 if (!vd.formScript && vfScript2 && vfScript2.length < vfNeed * 0.75) {
                   try {
-                    const vfEx = await generateText(`把下面这段口播文案扩写到 ${vfNeed} 字左右（现在只有 ${vfScript2.length} 字）。要求：保留全部数字与专业术语、不改主题、不啰嗦重复、句子仍用「。」「！」断句、只输出文案本身。\n原文：${vfScript2}`)
+                    const vfEx = await generateText(`把下面这段口播文案扩写到 ${vfNeed} 字左右（现在只有 ${vfScript2.length} 字）。要求：保留全部数字与专业术语、不改主题、不啰嗦重复、句子仍用「。」「！」断句、只输出文案本身。\n原文：${vfScript2}`, writerModel)
                     const vfEx2 = String(vfEx || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 4000)
                     if (vfEx2.length > vfScript2.length) { vfLog(uidVF2, `[扩写] ${vfScript2.length} → ${vfEx2.length} 字（目标 ${vfNeed}）`); vfScript2 = vfEx2 }
                   } catch {}
@@ -4295,7 +4343,7 @@ PUBLISH_DRAFT.delete(uidW)
                 //   时长也只有 110 秒。所以**超额必须压回来**（用户自己贴的文案不动）。
                 if (!vd.formScript && vfScript2 && vfScript2.length > vfNeed * 1.15) {
                   try {
-                    const vfSh = await generateText(`把下面这段口播文案【压缩】到 ${vfNeed} 字（现在 ${vfScript2.length} 字，必须删掉约 ${vfScript2.length - vfNeed} 字）。要求：① 保留核心卖点、数字、术语 ② 删掉重复表达与铺垫 ③ 保持原顺序和「。」「！」断句 ④ 只输出压缩后的文案本身，不要解释。\n原文：${vfScript2}`)
+                    const vfSh = await generateText(`把下面这段口播文案【压缩】到 ${vfNeed} 字（现在 ${vfScript2.length} 字，必须删掉约 ${vfScript2.length - vfNeed} 字）。要求：① 保留核心卖点、数字、术语 ② 删掉重复表达与铺垫 ③ 保持原顺序和「。」「！」断句 ④ 只输出压缩后的文案本身，不要解释。\n原文：${vfScript2}`, writerModel)
                     const vfSh2 = String(vfSh || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 4000)
                     if (vfSh2.length >= vfNeed * 0.6 && vfSh2.length < vfScript2.length) {
                       vfLog(uidVF2, `[压缩] ${vfScript2.length} → ${vfSh2.length} 字（目标 ${vfNeed}）`)
@@ -4783,7 +4831,7 @@ PUBLISH_DRAFT.delete(uidW)
                 const _vn = (vd.voiceList || VF_VOICE_BASE).find((v: any) => v.id === vid)?.name || vid
                 wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voiceName: _vn, theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: `已换成「${_vn}」——回复「确认」出片` })
               } else {
-                const vfNew = await generateText(`按用户要求修改下面这段口播文案，保留数字与专业术语，仍用「。」「！」断句，只输出文案：\n原文：${vd.script}\n用户要求：${userMessage}`)
+                const vfNew = await generateText(`按用户要求修改下面这段口播文案，保留数字与专业术语，仍用「。」「！」断句，只输出文案：\n原文：${vd.script}\n用户要求：${userMessage}`, writerModel)
                 const vfNewScript = String(vfNew || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 600)
                 if (vfNewScript) vd.script = vfNewScript
                 // ★VF_BANNER_RECOMPUTE_V1（2026-09-29 team-lead 要求）：文案改了 → 标题必须跟着重算，

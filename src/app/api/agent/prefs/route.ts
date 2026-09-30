@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { getAuthFromHeaders } from '@/lib/api-auth'
+// ★VF_MODELSWITCH_V1（2026-09-30）模型档位：与温度同一入口（这里只做读写，逻辑在 model-catalog 纯函数里）
+import { resolveModelChoice, serializeModelChoice, AGENT_MODEL_CHOICE_KEY } from '@/lib/agent/model-catalog'
 
 const prisma = new PrismaClient()
 
@@ -32,6 +34,12 @@ export async function GET(request: NextRequest) {
       const vc = await prisma.agentMemory.findFirst({ where: { userId: String(auth.userId), tags: { contains: 'voice_clone' } }, orderBy: { updatedAt: 'desc' } })
       if (vc?.content) voiceClone = JSON.parse(String(vc.content).replace(/^声音克隆:/, ''))
     } catch {}
+    // ★VF_MODELSWITCH_V1（2026-09-30）：模型档位（存 SystemConfig，读取失败 → 回落默认档 fast）
+    let modelChoice = resolveModelChoice(null)
+    try {
+      const mc = await prisma.systemConfig.findUnique({ where: { key: AGENT_MODEL_CHOICE_KEY } })
+      modelChoice = resolveModelChoice(mc?.value)
+    } catch {}
     return NextResponse.json({
       success: true,
       data: {
@@ -42,6 +50,7 @@ export async function GET(request: NextRequest) {
         vadSilence: u?.agentVadSilence ?? 1800,
         voices: TTS_VOICES,
         voiceClone,
+        modelChoice,
       },
     })
   } catch (e: any) {
@@ -73,6 +82,24 @@ export async function PUT(request: NextRequest) {
         else await prisma.agentMemory.create({ data: { userId: String(auth.userId), content, tags: 'voice_clone', salience: 0.6 } })
       }
     } catch (eVC: any) { console.error('[prefs] 保存克隆音色失败:', eVC?.message || eVC) }
+    // ★VF_MODELSWITCH_V1（2026-09-30）：保存模型档位（body.modelChoice = 档位 id / {preset,brain,writer}）
+    //   存 SystemConfig.agent_model_choice（**不新增数据库表/字段**）；非法输入由 resolveModelChoice 回落 fast。
+    if (body.modelChoice !== undefined) {
+      try {
+        const value = serializeModelChoice(resolveModelChoice(body.modelChoice))
+        await prisma.systemConfig.upsert({
+          where: { key: AGENT_MODEL_CHOICE_KEY },
+          update: { value, updatedAt: new Date() },
+          create: { key: AGENT_MODEL_CHOICE_KEY, value, label: 'AI 模型档位', description: 'Agent 大脑/书写模型档位（JSON 字符串）' },
+        })
+      } catch (eMC: any) { console.error('[prefs] 保存模型档位失败:', eMC?.message || eMC) }
+    }
+    const modelChoice = await (async () => {
+      try {
+        const mc = await prisma.systemConfig.findUnique({ where: { key: AGENT_MODEL_CHOICE_KEY } })
+        return resolveModelChoice(mc?.value)
+      } catch { return resolveModelChoice(null) }
+    })()
     return NextResponse.json({
       success: true,
       data: {
@@ -81,6 +108,7 @@ export async function PUT(request: NextRequest) {
         temperature: u.agentTemperature ?? 0.7,
         vadThreshold: u.agentVadThreshold ?? 0.045,
         vadSilence: u.agentVadSilence ?? 1800,
+        modelChoice,
       },
     })
   } catch (e: any) {

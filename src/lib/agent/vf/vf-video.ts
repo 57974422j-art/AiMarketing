@@ -29,7 +29,11 @@
 // ★VF_ANTIAI_V1（2026-09-29 用户定案「按建议顺序执行」）：「反 AI 味清单」的提示词 + 服务端兜底。
 //   与 standard-commands.ts 同类：**纯函数、零依赖**（不碰 prisma、不碰别的线）——
 //   所以这里静态 import 不违反本文件"零 import 连累别的线"的设计约束。
-import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles } from './anti-ai'
+import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles,
+  VF_MOTION_PROMPT, ensurePersistentMotion } from './anti-ai'
+// ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：`VF_MOTION_PROMPT` = 「长镜必须有动效」的档位说明
+//   （与 ANTI_AI_PROMPT 同样**两个分镜 prompt 共用**一份，免得两条线走偏）；
+//   `ensurePersistentMotion` = 服务端兜底（AI 忘写时给 title/end 长镜自动补 `motion='grow'`）。
 // ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪 → 逐镜图生视频，50 点/秒」）：
 //   同图去重 / 每片张数上限 / 计费秒数 全是**纯函数**（同样零依赖）—— 且与报价侧
 //   （chat/route.ts 的 vfScriptCard 成本 + make_ai_video 实扣）共用同一份公式，避免报价与实扣漂移。
@@ -528,6 +532,11 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     //   提示词里给出"每张最多用一次"的**硬规矩**（服务端在归一化阶段还有兜底去重，见下方 dedupeMaterialUse）。
     `⑩【素材不许重复用】同一张图 / 同一个视频在一份分镜里【最多用一次】；` +
     `只有在素材总数 < 镜头数时才允许重复，且同一素材的两镜之间【至少隔 2 镜】\n` +
+    // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：「长镜必须有动效」档位接进提示词（放在 ⑩ 附近）。
+    //   用户实测原话：「第一个图片应该是个 PPT 没有动效或者是不明显，时间过长」；逐帧实测第 1 镜
+    //   "动 1 秒、静止 5.5 秒"。根因 = 渲染层动效字段（enter/motion/frame/wipe/bgblur）在 src/ 里
+    //   0 命中（提示词没接线）→ AI 永远不写。这段规矩与图片成片线**共用同一份常量**（anti-ai.ts）。
+    VF_MOTION_PROMPT +
     // ★VF_TEXTCARD_V1（2026-09-29 用户实测「没单独生成页面 都是图片加打字」）：
     //   原来提示词只说"画面用用户的素材" → AI 从不排独立文字卡，整条片成了"图文轮播"（12/12 镜都是素材镜）。
     //   现在明确要求：每 4~5 镜至少 1 镜用【不用素材】的文字卡，画面才有层次与节奏。
@@ -795,6 +804,13 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     //   现在：用户选了 → 删掉 AI 写的所有 theme（用户选的说了算）；用户没选 → 保持允许 AI 自选。
     const _tl = lockUserTheme(shotsOut, vd.theme)
     if (_tl.notes.length) ctx.log(uid, '[VF-V][主题] ' + _tl.notes.join('；'))
+    // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：长镜纯文字卡的"持续型动效"服务端兜底 ——
+    //   刻意放在 sanitizeAntiAiShots **之后**：number/chart 因无据被降级成 title 后，
+    //   那个"新 title"同样要能被兜到（否则它就是一个静态 6 秒的空屏卡）。
+    const _mo = ensurePersistentMotion(shotsOut)
+    if (_mo.notes.length) ctx.log(uid, '[VF-V][动效] ' + _mo.notes.join('；'))
+    shotsOut.length = 0
+    shotsOut.push(..._mo.shots)
   }
   vd.shots = shotsOut
   // ★VF_VIDI2V_V1：把"本地路径 → 仓库 key"的映射存进草稿 —— 出片（确认那一步）时用它现算 i2vShots

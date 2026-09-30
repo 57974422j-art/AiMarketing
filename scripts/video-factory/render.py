@@ -416,26 +416,31 @@ def fit_big_text(s, W, H, maxw_ratio=0.86, max_lines=2, fs_max=None, fs_min=None
 
 
 def center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=0, stroke=True, fade=True,
-                          motion='fade'):
+                          motion='fade', x_off=0):
     """多行文字各自居中（固定 y，行距 1.34×字号）—— 不用 ASS 覆盖层，也不必测宽。
 
     ★VF_MOTION_V3（2026-09-29 P1）：新增 motion —— 'fade'（默认，只淡入）/ 'slide'（从下方滑入同时淡入）。
       slide 的 y 是**表达式且含逗号**，所以必须整体加引号写进滤镜串（否则逗号会被当成滤镜分隔符）。
+    ★VF_TPL_LAND_V1（2026-09-30）：新增 x_off —— 把"居中"改为在【右侧大字区】居中。
+      数学上等价于在原居中式上 +x_off/2（因为 w == W）：块心从 W/2 挪到 (W+x_off)/2。
+      **x_off=0（缺省）时表达式逐字不变** —— 老调用方一个像素都不动。
     """
     lines = [l for l in (lines or []) if str(l).strip()]
     if not lines:
         return []
     gap = int(fs * 1.34)
     y0 = int(H * 0.5 - gap * len(lines) * 0.5 + y_off)
+    _dx = int(x_off) // 2
     out = []
     for li, ln in enumerate(lines):
         st = (f":borderw={max(2, int(fs * 0.06))}:bordercolor=black@0.72" if stroke else '')
         a = ":alpha='min(t/0.5,1)'" if fade else ''
         _y = y0 + li * gap
         _ys = _slide_y(_y, fs, dur) if motion == 'slide' else str(_y)
+        _x = 'x=(w-text_w)/2' if not _dx else f'x=(w-text_w)/2+{_dx}'
         out.append(
             f"drawtext=fontfile='{font}':text='{esc_text(ln)}':fontsize={fs}:"
-            f"fontcolor={txc}{st}:x=(w-text_w)/2:y='{_ys}'{a}"
+            f"fontcolor={txc}{st}:{_x}:y='{_ys}'{a}"
         )
     return out
 
@@ -1716,6 +1721,44 @@ def plate_opts(shot, th):
     }
 
 
+# ══════════════════ ★VF_TPL_LAND_V1（2026-09-30）横屏「左图右字」 ══════════════════
+# 用户实测（1280×720 横屏 / news / 竖素材 768×1344）：走老 layout='top' 时卡片只有 212×374
+#   （占 16.5%W × 52%H）→ 左右大片虚化/死黑，版面很空；用户原话「第一个图片应该是个 PPT
+#   没有动效或者是不明显，时间过长」。
+# 触发条件（三条**同时**满足才走 side，任何一条不满足 → 一行都不改，走老逻辑 = 零回归）：
+#   ① 画幅是横屏（W > H）② 素材宽高比 ≤ PLATE_SIDE_MAX_AR(1.15)（竖图/方图）
+#   ③ 本镜要在图上叠大字（shot['text'] 非空 且 画面大字开关为开）
+# 老调用方兼容承诺：plate_text_x() 对非 side 一律返回 **0** → 所有 drawtext 的 x 表达式与改动前逐字相同。
+PLATE_SIDE_MAX_AR = 1.15
+
+
+def plate_side_layout(src, W, H, over_text):
+    """★VF_TPL_LAND_V1：这一镜要不要走【左图右字】。返回 'side' 或 ''（'' = 一行都不改）。
+
+    刻意做成**纯判定函数**（只 probe 一下素材尺寸）：① 自检脚本可单测；
+    ② 调用方拿到 '' 就走老逻辑 → 老分镜 / 老主题的行为**逐字不变**（零回归）。"""
+    if not over_text:
+        return ''
+    if not (W > H):                                   # 竖屏 / 方形画幅：不动（竖屏塞竖图本来就顺）
+        return ''
+    sw, sh = _probe_size(src)
+    if sw <= 0 or sh <= 0:
+        return ''
+    if sw / float(sh) > PLATE_SIDE_MAX_AR:            # 横素材 / 超宽素材：不动（走老 top 更合适）
+        return ''
+    return 'side'
+
+
+def plate_text_x(W, H, layout):
+    """★VF_TPL_LAND_V1：这个 layout 下"压在素材上的大字"该从哪个 x 开始（**0 = 沿用老居中逻辑**）。
+
+    side = 素材站左边，大字只能在**右侧**排版 → 返回 0.52W 作为大字块左边界；
+    其余 layout（top / center）→ 返回 0。向后兼容承诺：老调用方拿到的行为逐字不变。"""
+    if layout == 'side':
+        return int(W * 0.52)
+    return 0
+
+
 def _plate_mask_expr(w, h, r):
     """圆角矩形的 alpha 表达式：角外 → 0，其余 → 255（r=圆角半径）"""
     dx = "max(max(%d-X,X-(%d-1)),0)" % (r, w)
@@ -1744,12 +1787,22 @@ def _plate_pre(src, W, H, shot, th, opts, dur=0.0, layout='center'):
 
     layout='center'：图片卡（整张居中，最大 84%W × 76%H）
     layout='top'   ：素材卡（图片落上半，底部留给大字 + 字幕条）
+    layout='side'  ：★VF_TPL_LAND_V1（2026-09-30）【左图右字】—— 横屏 + 竖/方素材 + 本镜要叠大字时，
+                     卡片站左半区（垂直居中、高约 0.64H），右侧整块留给大字（起始 x 见 plate_text_x）。
+                     调用方仍按老契约收字符串（末尾 [smooth]），**接口零变化**。
     """
     sw, sh = _probe_size(src)
     if sw <= 0 or sh <= 0:
         return None
     _fit = 'contain'
-    if layout == 'top':
+    if layout == 'side':
+        # ★VF_TPL_LAND_V1：竖/方素材塞进横屏时不再"缩成中间一小张、左右大片虚化"——
+        #   靠左站住，右侧给大字排版（用户实测横屏成片"版面很空"）。
+        boxw, boxh = int(W * 0.44), int(H * 0.64)
+        cy = int(H * 0.5)
+        k = min(boxw / float(sw), boxh / float(sh))
+        cw, ch = _even(max(2, sw * k)), _even(max(2, sh * k))
+    elif layout == 'top':
         # 素材卡（图上 + 文下，"大图压题"那种博主资讯版式）：卡落上半，底部留给我们的大字。
         #   卡框取 **0.62W × 0.52H** 并居上（cy=0.29H）：横图得到一张"杂志主图"大小的卡，
         #   竖图也不会被压成一条；底部约 0.44H 之后留给大字/字幕条，互不打架。
@@ -1780,7 +1833,12 @@ def _plate_pre(src, W, H, shot, th, opts, dur=0.0, layout='center'):
     else:
         pw, ph = cw, ch
         rad = max(8, int(min(cw, ch) * 0.055))
-    x0 = int((W - pw) / 2)
+    if layout == 'side':
+        # ★VF_TPL_LAND_V1：卡片在【左半区】居中（留 3%W 安全边）→ 右侧 0.5W 之后全是背景 + 大字
+        x0 = int((int(W * 0.5) - pw) / 2.0)
+        x0 = max(int(W * 0.03), x0)
+    else:
+        x0 = int((W - pw) / 2)
     y0 = int(cy - ph / 2.0)
     y0 = max(int(H * 0.03), min(y0, int(H * 0.97) - ph))
 
@@ -2030,7 +2088,7 @@ def _blend_dark(base_hex, rgb, k=0.22):
         max(0, min(255, int(base[2] * (1 - k) + b * k))))
 
 
-def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0):
+def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0, x_off=0):
     """★VF_SYNC_V1（2026-09-20，C3 配音卡点）：画面大字【逐字浮现】。
 
     镜头时长 = 该镜配音真实时长（tts.py 回填），所以在镜头前段逐字亮出 = 跟着配音走。
@@ -2040,6 +2098,8 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0):
 
     `text`：显式指定要浮现的文字（不给就取 shot['text']）—— title 卡用它传兜底文字。
     `box`：给文字加一圈半透明底衬（形如 'black@0.30'），压在照片上时更清楚、也更像"设计过"。
+    ★VF_TPL_LAND_V1（2026-09-30）：`x_off` = 把整块文字挪到【右侧大字区】（同 center_lines_drawtext
+      的做法：块心 +x_off/2）。缺省 0 → 表达式逐字不变（老调用方零回归）。
     """
     chars = list(str(text if text is not None else (shot.get('text') or '')))
     nch = len(chars)
@@ -2055,6 +2115,9 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0):
     t1 = max(t0 + 0.5, dur * 0.55)
     step = (t1 - t0) / float(nch)
     _bx = (f"box=1:boxcolor={box}:boxborderw={max(12, int(fs * 0.24))}:") if box else ''
+    # ★VF_TPL_LAND_V1：x_off>0 → 整块文字移到右侧大字区（w == W，故 +x_off/2 即块心右移）
+    _dx = int(x_off) // 2
+    _x = 'x=(w-text_w)/2' if not _dx else f'x=(w-text_w)/2+{_dx}'
     out = []
     for i in range(1, nch + 1):
         st = t0 + step * (i - 1)
@@ -2067,7 +2130,7 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0):
         out.append(
             f"drawtext=fontfile='{font}':text='{esc_text(_shown)}':fontsize={fs}:"
             f"fontcolor={txc}:borderw=2:bordercolor=black@0.65:{_bx}"
-            f"x=(w-text_w)/2:y=(h-text_h)/2+{int(y_off)}:enable='between(t,{st:.2f},{en:.2f})'"
+            f"{_x}:y=(h-text_h)/2+{int(y_off)}:enable='between(t,{st:.2f},{en:.2f})'"
         )
     return out
 
@@ -2096,7 +2159,7 @@ def _split_num_line(t):
     return s[:m.start()], m.group(0), s[m.end():]
 
 
-def _editorial_bigtext(shot, th, W, H, dur, fs_max, txc, busy=False):
+def _editorial_bigtext(shot, th, W, H, dur, fs_max, txc, busy=False, x_off=0):
     """★VF_EDITBIGTEXT_V1：编辑风【压在素材上的大字】层。
 
     返回 (filters, band, fs)：
@@ -2104,6 +2167,8 @@ def _editorial_bigtext(shot, th, W, H, dur, fs_max, txc, busy=False):
       · band    = busy（满字素材）时另铺的【全宽底衬带】滤镜串（不需要则 ''）；
       · fs      = 实际主字号；0 表示没画出（调用方回退老样式）。
     busy=True → 整块落【下三分之一】（与 VF_MATGUARD_V2 口径一致），远离素材自身文字，避免"字压字"。
+    ★VF_TPL_LAND_V1（2026-09-30）：x_off>0 = 【左图右字】的右侧大字区 —— 大字块左边界右移、
+      可用宽度按右侧剩余宽度重算（否则大字会横穿到左边的素材卡片上）。x_off=0 → 逐字不变。
     """
     txt = clean_big_text(shot.get('text'))
     if not txt:
@@ -2119,7 +2184,12 @@ def _editorial_bigtext(shot, th, W, H, dur, fs_max, txc, busy=False):
     _en = str(shot.get('en') or shot.get('enTitle') or shot.get('enSub')
               or shot.get('sub_en') or '').strip()[:48]
     _lm = int(W * 0.07)                        # 编辑风左对齐：左留 7% 安全边（与 title 卡同口径）
-    _lines, fs = fit_big_text(txt, W, H, fs_max=fs_max, max_lines=2, maxw_ratio=0.86)
+    # ★VF_TPL_LAND_V1（2026-09-30）：左图右字 → 大字块左边界右移到 x_off、宽度按右侧剩余重算
+    _mwr = 0.86
+    if x_off:
+        _lm += int(x_off)
+        _mwr = max(0.30, (W - int(x_off) - int(W * 0.06)) / float(W))
+    _lines, fs = fit_big_text(txt, W, H, fs_max=fs_max, max_lines=2, maxw_ratio=_mwr)
     if not _lines:
         return [], '', 0
     # 数值排版：仅【单行且含数字】时启用（多行时各段对不齐，反而不美）
@@ -2129,9 +2199,11 @@ def _editorial_bigtext(shot, th, W, H, dur, fs_max, txc, busy=False):
         _fs_p, _fs_n = fs, int(fs * 1.30)
         _fs_s = max(18, int(fs * 0.60))
         # 数字放大后仍不许溢出安全宽（放不下就整体缩，宁可小一点也不出画）
+        # ★VF_TPL_LAND_V1：数值排版的安全宽同样按"右侧大字区"算（x_off=0 时等价于老的 W*0.86）
+        _wlim = int(W * 0.86) if not x_off else max(int(W * 0.30), _mwr * W)
         for _ in range(14):
             _tot = (est_text_w(_pre, _fs_p) + est_text_w(_dn, _fs_n) + est_text_w(_suf, _fs_s))
-            if _tot <= W * 0.86 or _fs_n <= 20:
+            if _tot <= _wlim or _fs_n <= 20:
                 break
             _fs_n, _fs_p = int(_fs_n * 0.93), int(_fs_p * 0.93)
             _fs_s = max(16, int(_fs_s * 0.93))
@@ -2234,9 +2306,10 @@ def _editorial_bigtext(shot, th, W, H, dur, fs_max, txc, busy=False):
     # ④ 英文副标（无衬线 + 超宽字距；★用户明确「英文用无衬线，别拿中文字体排英文」）
     if _en:
         _etrack = _track(_en)
-        while _efs > 12 and est_text_w(_etrack, _efs) > W * 0.86:
+        _elim = int(W * 0.86) if not x_off else max(int(W * 0.30), _mwr * W)   # ★VF_TPL_LAND_V1
+        while _efs > 12 and est_text_w(_etrack, _efs) > _elim:
             _efs = int(_efs * 0.94)
-        while _etrack and est_text_w(_etrack, _efs) > W * 0.86:
+        while _etrack and est_text_w(_etrack, _efs) > _elim:
             _etrack = _etrack[:-2]
         out.append(
             f"drawtext=fontfile='{_enfont}':text='{esc_text(_etrack)}':fontsize={_efs}:"
@@ -2245,7 +2318,12 @@ def _editorial_bigtext(shot, th, W, H, dur, fs_max, txc, busy=False):
     # busy：全宽底衬带（把我们的字与素材自带文字在视觉上分开，同 VF_MATGUARD_V2）
     band = ''
     if busy:
-        band = (f"drawbox=x=0:y={max(0, _blk_top - int(fs * 0.24))}:w={W}:"
+        # ★VF_TPL_LAND_V1：左图右字时底衬带只铺【右侧大字区】（别把左边的素材卡片糊掉）
+        _bx0, _bw = 0, W
+        if x_off:
+            _bx0 = max(0, int(x_off) - int(W * 0.03))
+            _bw = min(W - _bx0, W - int(x_off) + int(W * 0.03))
+        band = (f"drawbox=x={_bx0}:y={max(0, _blk_top - int(fs * 0.24))}:w={_bw}:"
                 f"h={int(_blk_h + int(fs * 0.48))}:color=black@0.62:t=fill")
     print('[VF] 编辑风图上大字（%s）：kicker%s + 多色层级%s + 细分线（入场=分段渐入）'
           % (th.get('id'), '有' if _kick else '缺(用强调条)',
@@ -2304,9 +2382,18 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     #       与卡片互不纠缠（沿用 VF_MATGUARD_V2 那套已验证的让位写法）。
     #   老 8 套主题缺省 frame=none → _plate 为 None → 上面两条判定原样保留（一个像素都不动）。
     _plate = plate_opts(shot, th)
+    # ★VF_TPL_LAND_V1（2026-09-30）：横屏 + 竖/方素材 + 本镜要叠大字 → 走【左图右字】。
+    #   三条不同时满足 → _land=False → 后面一律走老的 layout='top'（一个像素都不动 = 零回归）。
+    _land = False
     if _plate:
         _screen = False
-        _busy = True
+        _land = bool(plate_side_layout(
+            src, W, H, bool(str(shot.get('text') or '').strip()) and overlay_text_on()))
+        # 左图右字时素材与大字**互不重叠** → 不套"满字素材"的让位/全宽底衬带（大字能吃满右侧）
+        _busy = (not _land)
+        if _land:
+            print('[VF] ★VF_TPL_LAND_V1 横屏 + 竖/方素材 → 左图右字：%s'
+                  % os.path.basename(str(src))[:24])
     if _screen:
         # 又深又满字 = 典型"深色界面截图" → 【不硬塞这张图】，改用主题质感底板 + 大字
         #（规划文档 P2「缺就承认缺」：宁可出一张设计过的文字卡，也不要一张看不清的截图）
@@ -2331,7 +2418,11 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         # 素材自带大量文字（海报/截图）→ 我们的大字缩小让位，别"字压字"
         fs = max(int(fs * 0.72), int(H * 0.045))
     # ★VF_TITLEFIT_V3（2026-09-29）：≤8 字保一行（优先缩字号），超出才均衡折两行
-    _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
+    # ★VF_TPL_LAND_V1：左图右字时大字只能吃【右侧那半幅】→ 可用宽度按右侧重算（x_off=0 时逐字不变）
+    _tx = plate_text_x(W, H, 'side' if _land else 'top')
+    _mwr = 0.86 if not _tx else max(0.30, (W - _tx - int(W * 0.06)) / float(W))
+    _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2,
+                              maxw_ratio=_mwr)
     # ★VF_SYNC_V1（C3）：画面大字逐字浮现（跟配音卡点）；拿不到 text 就不加这些滤镜
     #   ★VF_CARDSTYLE_V1：压在照片上的大字加半透明底衬（与素材自带的字在视觉上分开）
     #   ★VF_MATGUARD_V1：素材字多 → 底衬更实（0.30→0.48），否则仍会被素材的字吃掉
@@ -2353,11 +2444,15 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     if _is_editorial(th):
         # ★VF_EDITBIGTEXT_V1（2026-09-30）：编辑风图上大字 = kicker 小标签 + 多色层级 + 数值排版 + 细分线，
         #   入场仍是"渐进/分段插入"。只对 news/data 生效，老主题走下面的老分支（一个像素都不动）。
-        _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc, busy=_busy)
+        # ★VF_TPL_LAND_V1：x_off=_tx（左图右字时大字块右移到右侧；_tx=0 时逐字不变）
+        _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc,
+                                                       busy=_busy, x_off=_tx)
         if _ed_fs and overlay_text_on():
             _reveal, _band_box = _ed_rev, _ed_band
             if _busy:
                 print('[VF] 编辑风 + 满字素材 → 大字块落【下三分之一 + 全宽底衬带】')
+            elif _land:
+                print('[VF] ★VF_TPL_LAND_V1 编辑风大字 → 落【右侧大字区】（左图右字）')
     else:
         if _busy:
             _yoff = int(H * 0.13)
@@ -2372,10 +2467,11 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
             _band_box = (f"drawbox=x=0:y={max(0, _btop)}:w={W}:h={int(_bh)}:"
                          f"color=black@0.62:t=fill")
             print('[VF] 素材自带内容多 → 大字走【下三分之一 + 全宽底衬带】（避免与素材文字纠缠）')
-        _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, y_off=_yoff) if len(_lines) <= 1 else []
+        _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, y_off=_yoff,
+                           x_off=_tx) if len(_lines) <= 1 else []      # ★VF_TPL_LAND_V1：右侧大字区
         # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
         _reveal = (_rev if _rev else
-                   center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=_yoff)
+                   center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=_yoff, x_off=_tx)
                    ) if overlay_text_on() else []
     # ★VF_LESSDARK_V1（2026-09-20 用户实测"整体黑白/发灰"）：黑遮罩 0.42 → 0.15
     # ★VF_MATGUARD_V1（2026-09-29）：素材本身很暗（深色录屏/黑底图）时再降到 0.05 ——
@@ -2407,7 +2503,10 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     #   拿不到素材分辨率（_probe_size 失败）时 _plate_pre 返回 None，老实回落老铺法（绝不弄挂出片）。
     _pre, _mode = None, None
     if _plate:
-        _pre = _plate_pre(src, W, H, shot, th, _plate, dur=dur, layout='top')
+        # ★VF_TPL_LAND_V1（2026-09-30）：_land（横屏 + 竖/方素材 + 叠大字）→ layout='side'（左图右字）；
+        #   否则沿用老的 layout='top'（一个像素都不动）。
+        _pre = _plate_pre(src, W, H, shot, th, _plate, dur=dur,
+                          layout=('side' if _land else 'top'))
     if not _pre:
         _pre, _mode = _bg_filters(src, W, H)
     # ★VF_TPL_B1_V1（2026-09-30）卡片版式下【必须旁路 zoompan】—— 这是一条非常隐蔽的坑，写在这里：

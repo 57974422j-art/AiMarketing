@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/app/providers'
 import ApiKeyPanel from './components/ApiKeyPanel'
 import EnginePanel from './components/EnginePanel'
+// ★VF_MODELSWITCH_V1（2026-09-30）模型档位：纯数据 + 纯函数（客户端可安全 import）
+import { MODEL_PRESET_LIST, BRAIN_MODELS, WRITER_MODELS, resolveModelChoice, serializeModelChoice } from '@/lib/agent/model-catalog'
 import type {
   StatusMap, TestResult, SaveMessage,
   QueryEngine, ActionEngine, MCHealthStatus,
@@ -149,6 +151,13 @@ export default function SettingsPage() {
   const [serviceSaving, setServiceSaving] = useState(false)
   const [serviceMsg, setServiceMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
+  // ====== ★VF_MODELSWITCH_V1（2026-09-30）：AI 模型档位（Agent 大脑 / 分镜文案书写） ======
+  const [modelPreset, setModelPreset] = useState('fast')
+  const [modelBrain, setModelBrain] = useState('qwen3.8-flash')
+  const [modelWriter, setModelWriter] = useState('deepseek-v4-flash')
+  const [modelSaving, setModelSaving] = useState(false)
+  const [modelMsg, setModelMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
   // ====== 全局消息 ======
   const [saveMessage, setSaveMessage] = useState<SaveMessage | null>(null)
   const [saving, setSaving] = useState(false)
@@ -217,10 +226,17 @@ export default function SettingsPage() {
 
       // 客服设置
       try {
-        const scRes = await fetch('/api/admin/system-config?keys=service_qrcode', { credentials: 'include' })
+        const scRes = await fetch('/api/admin/system-config?keys=service_qrcode,agent_model_choice', { credentials: 'include' })
         const scResult = await scRes.json()
         if (scResult.success && scResult.data?.service_qrcode) {
           setServiceQrcode(scResult.data.service_qrcode.value || '')
+        }
+        // ★VF_MODELSWITCH_V1：模型档位（脏值/缺失 → resolveModelChoice 回落默认档）
+        if (scResult.success && scResult.data?.agent_model_choice) {
+          const mc = resolveModelChoice(scResult.data.agent_model_choice.value)
+          setModelPreset(mc.preset)
+          setModelBrain(mc.brain)
+          setModelWriter(mc.writer)
         }
       } catch {} // 忽略，非关键功能
 
@@ -417,6 +433,32 @@ export default function SettingsPage() {
     }
     setServiceSaving(false)
     setTimeout(() => setServiceMsg(null), 4000)
+  }
+
+  // ====== ★VF_MODELSWITCH_V1（2026-09-30）：保存模型档位（写 SystemConfig.agent_model_choice） ======
+  //   非法/未知值由 serializeModelChoice → resolveModelChoice 自动回落默认档（绝不写脏值）。
+  const saveModelChoice = async () => {
+    setModelSaving(true)
+    setModelMsg(null)
+    try {
+      const value = serializeModelChoice({ preset: modelPreset as any, brain: modelBrain, writer: modelWriter })
+      const res = await fetch('/api/admin/system-config', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configs: [{ key: 'agent_model_choice', value, label: 'AI 模型档位' }] }),
+      })
+      const result = await res.json()
+      if (result.success) {
+        setModelMsg({ type: 'success', text: '✅ 模型档位已保存（Agent 端约 5 秒内生效）' })
+      } else {
+        setModelMsg({ type: 'error', text: `❌ ${result.message}` })
+      }
+    } catch {
+      setModelMsg({ type: 'error', text: '❌ 网络错误' })
+    }
+    setModelSaving(false)
+    setTimeout(() => setModelMsg(null), 4000)
   }
 
   // ====== 鉴权守卫 ======
@@ -905,6 +947,83 @@ export default function SettingsPage() {
                   : 'bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30'
               }`}>
               {serviceSaving ? '保存中...' : '保存客服设置'}
+            </button>
+          </div>
+        </div>
+
+        {/* ====== ★VF_MODELSWITCH_V1（2026-09-30）：AI 模型档位 ====== */}
+        <div className="mt-10 border border-gray-800/50 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-xl">🧠</span>
+            <h2 className="text-white font-semibold">AI 模型档位（Agent 大脑 / 分镜文案）</h2>
+          </div>
+          <p className="text-gray-400 text-sm mb-4 font-mono">
+            切换后用于「Agent 对话的大脑（意图/工具调用）」与「分镜 / 文案书写」。默认档 = 现状，零影响；方便逐个对比不同模型的理解能力。
+          </p>
+          {modelMsg && (
+            <div className={`mb-4 px-4 py-2 rounded-lg text-sm font-mono ${
+              modelMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+            }`}>{modelMsg.text}</div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+            <div>
+              <label className="block text-gray-300 text-sm font-mono mb-2">档位</label>
+              <select
+                value={modelPreset}
+                onChange={e => {
+                  const v = e.target.value
+                  setModelPreset(v)
+                  if (v !== 'custom') {
+                    const next = resolveModelChoice(v)
+                    setModelBrain(next.brain)
+                    setModelWriter(next.writer)
+                  }
+                }}
+                className="w-full bg-black/40 border border-gray-700/50 rounded-lg px-4 py-2.5 text-sm text-white focus:border-blue-500/50 focus:outline-none font-mono"
+              >
+                {MODEL_PRESET_LIST.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} —— {p.desc}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-mono mb-2">大脑模型（Agent 意图/工具）</label>
+              <select
+                value={modelBrain}
+                disabled={modelPreset !== 'custom'}
+                onChange={e => { setModelBrain(e.target.value); setModelPreset('custom') }}
+                className="w-full bg-black/40 border border-gray-700/50 rounded-lg px-4 py-2.5 text-sm text-white focus:border-blue-500/50 focus:outline-none font-mono disabled:opacity-50"
+              >
+                {BRAIN_MODELS.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}（{m.id}）{m.multimodal ? ' · 多模态' : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-mono mb-2">书写模型（分镜/文案）</label>
+              <select
+                value={modelWriter}
+                disabled={modelPreset !== 'custom'}
+                onChange={e => { setModelWriter(e.target.value); setModelPreset('custom') }}
+                className="w-full bg-black/40 border border-gray-700/50 rounded-lg px-4 py-2.5 text-sm text-white focus:border-blue-500/50 focus:outline-none font-mono disabled:opacity-50"
+              >
+                {WRITER_MODELS.map(m => (
+                  <option key={m.id} value={m.id}>{m.name}（{m.id}）{m.multimodal ? ' · 多模态' : ''}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-3 font-mono">
+            说明：DeepSeek 系列在百炼 / DeepSeek 官方两处都有托管，服务端两条通道都会试；某模型不可用时自动落回原兜底链，不会让功能挂掉。
+          </p>
+          <div className="flex justify-end mt-5">
+            <button onClick={saveModelChoice} disabled={modelSaving}
+              className={`px-5 py-2.5 rounded-lg text-sm font-mono transition-colors ${
+                modelSaving
+                  ? 'bg-gray-700 text-gray-400 cursor-wait'
+                  : 'bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30'
+              }`}>
+              {modelSaving ? '保存中...' : '保存模型档位'}
             </button>
           </div>
         </div>

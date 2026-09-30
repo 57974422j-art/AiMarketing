@@ -78,6 +78,35 @@ export const ANTI_AI_PROMPT =
   `· transition（转场，一般人不用写）：soft 柔和淡入淡出(默认) / cut 硬切 / fade 柔化溶解\n` +
   `· ⚠️ 只写上面列出的词 —— 白名单外的值服务端会**直接删掉**（回默认渲染），写了等于没写。\n`
 
+/* ══════════ ★VF_MOTIONPPT_WIRE_V1（2026-09-30）「动态 PPT」动效档位【接进提示词】══════════
+ * 用户实测原话（本段的设计依据）：
+ *   「第一个图片应该是个 PPT **没有动效或者是不明显**，时间过长，而且**字幕好像都没读完一样**，
+ *     字幕演示没到底就先卡住了没换帧了」
+ * 逐帧运动量实测（1280×720 / news / 6 镜 / 32.40s）：第 1 镜 0~6.84s【只有前 1 秒在动，
+ *   之后 5.5 秒完全静止】；第 6 镜又静止 2 秒+。→ "动一下就不动"是必然。
+ *
+ * 根因：渲染层早已实现「动态 PPT」动效（render.py 的 ★VF_MOTIONPPT_V1 / ★VF_TPL_B1_V1），
+ *   但 `enter` / `motion` / `frame` / `wipe` / `bgblur` 这些字段**在 src/ 里 0 命中**
+ *   （提示词从来没告诉 AI 可以写）→ AI 永远不会写 → 纯文字长镜只能"淡入后就静止"。
+ *
+ * 本段 = 把档位**写给 AI**（与 ANTI_AI_PROMPT 一样，两个分镜 prompt 共用同一份，免得两处走偏）；
+ *   服务端另有硬兜底 ensurePersistentMotion()（AI 忘写时自动补一个**渲染层认识**的值）。
+ * ⚠️ 这里列出的值必须与 render.py 的白名单逐项一致（vf-i2v-selftest.ts 有对账）。
+ */
+export const VF_MOTION_PROMPT =
+  `\n【长镜必须有动效】（用户实测「第一个图片应该是个 PPT 没有动效或者是不明显，时间过长」）\n` +
+  `✗ 不许"动一下就静止"：纯文字卡（title/list/compare/number/end）在【镜长 ≥ 6 秒】时，\n` +
+  `   必须至少给一个【持续型动效】——typewriter / grow / list 逐条插入（number 数字滚动、chart 横条生长天然就有）\n` +
+  `· enter（整块版式滑入；所有卡都可写）：up 从下往上(缺省) / left 从左往右 / none 这一镜不滑入\n` +
+  `· motion（title 卡的强调层）：fade 淡入(缺省) / slide 上滑淡入 / typewriter 逐字浮现 / grow 强调条从左往右生长\n` +
+  `   ⚠️ motion='typewriter' 【只给 ≤1 行、≤10 字】的短大字用（长句逐字浮现会很难看）；grow 对 title / end 卡有效\n` +
+  `· frame（图片镜的相框 —— 也是整块"卡片版式"的总开关）：thin 细框(编辑风缺省) / polaroid 拍立得白边 / none 整块关掉\n` +
+  `· shadow 投影：soft(缺省) / strong / none　·　float 缓慢浮动：slow(缺省) / none\n` +
+  `· wipe 擦入（卡片从左往右/中间向两侧"亮"出来）：left(缺省) / right / center / none\n` +
+  `· bgblur 背景虚化强度：soft(缺省) / strong(更虚，主体更突出) / none\n` +
+  `   （frame/shadow/float/wipe/bgblur 只对【图片镜】有意义；编辑风 news/data **缺省已全开**，\n` +
+  `     一般不用写 —— 想加强/减弱强度时才写；白名单外的值会被删掉，等于没写）\n`
+
 /* ══════════ ★VF_AI_PICK_V1（2026-09-29 用户定案 P1）：AI 自选「主题 / 版式 / 动效」的白名单 ══════════
  * 唯一真相源是渲染层 scripts/video-factory/render.py（TITLE_VARIANTS / LIST_VARIANTS /
  * COMPARE_VARIANTS / MOTIONS / transition 白名单），本文件保持一致；
@@ -101,13 +130,26 @@ export const VF_MOTIONS = ['fade', 'slide', 'typewriter', 'grow']
  *  注：渲染层用 `pad`+`crop` 实现，crop 窗口不能为负 → **做不到"从右滑入"**，所以只有 up/left/none 三种。 */
 export const VF_ENTERS = ['up', 'left', 'none']
 export const VF_TRANSITIONS = ['soft', 'cut', 'fade']
+// ★VF_TPL_B1_WIRE_V1（2026-09-30）：「图片处理」（B 组卡片版式）字段的**白名单**。
+//   ⚠️ 与 render.py 的 PLATE_FRAMES / PLATE_SHADOWS / PLATE_FLOATS / PLATE_WIPES / PLATE_BLURS
+//      必须**逐项一致**（scripts/vf-style-selftest.py 会读本文件做对账，不一致直接红）。
+export const VF_PLATE_FRAMES = ['auto', 'none', 'thin', 'polaroid']
+export const VF_PLATE_SHADOWS = ['none', 'soft', 'strong']
+export const VF_PLATE_FLOATS = ['none', 'slow']
+export const VF_PLATE_WIPES = ['none', 'left', 'right', 'center']
+export const VF_PLATE_BGBLURS = ['none', 'soft', 'strong']
 
 /** ★VF_AI_PICK_V1：AI 自选的"设计字段"——归一化时必须**原样透传**，否则白名单无从校验 */
 // ★VF_STYLE_V1（2026-09-30）：「编辑风」（news/data）的两个**专属字段**也必须原样透传 ——
 //   kicker = 栏目/出处小标签条（≤8 字）；en = 英文副标（全大写、无衬线、字距加宽）。
 //   为什么必须加在这里：两条线的归一化都是"显式造对象 + ...pickDesignFields(s)"，
 //   不列进这张表 → AI 写的 kicker/en 会被**静默丢掉**（theme/variant 当初就是这么踩的坑）。
-export const PICK_DESIGN_KEYS = ['theme', 'variant', 'motion', 'transition', 'kicker', 'en', 'enter'] as const
+// ★VF_TPL_B1_WIRE_V1（2026-09-30）：「图片处理」字段也必须**原样透传** ——
+//   两条线的 bgimage 分支都是"显式造对象 + pickDesignFields(s)"；不列进这张表，AI 写的
+//   相框/投影/浮动/擦入/背景虚化 会在归一化时被**静默丢掉** → "提示词里告诉 AI 可调强度"成了空话
+//   （与 theme/variant 当初踩的是同一个坑）。值是否合法统一交给 sanitizeAntiAiShots 白名单判。
+export const PICK_DESIGN_KEYS = ['theme', 'variant', 'motion', 'transition', 'kicker', 'en', 'enter',
+  'frame', 'shadow', 'float', 'wipe', 'bgblur'] as const
 
 /** 从 AI 给的镜里挑出设计字段（只收非空字符串；值是否合法交给 sanitizeAntiAiShots 白名单判）
  *  为什么单独一个小函数：分镜出口有两处（vf-video.ts 与 chat/route.ts 的 genVideoShots），
@@ -268,6 +310,18 @@ export function sanitizeAntiAiShots(shots: any[]): { shots: any[]; notes: string
       if (VF_ENTERS.includes(en2)) s.enter = en2
       else { delete s.enter; _bad('enter', s0?.enter) }
     }
+    // ★VF_TPL_B1_WIRE_V1（2026-09-30）：「图片处理」（B 组卡片版式）字段同样走白名单 ——
+    //   非法/自造值**直接删掉**（渲染层回"缺省矩阵"：编辑风全开、老主题全关，绝不把渲染搞挂）。
+    for (const [_k, _allow] of [
+      ['frame', VF_PLATE_FRAMES], ['shadow', VF_PLATE_SHADOWS], ['float', VF_PLATE_FLOATS],
+      ['wipe', VF_PLATE_WIPES], ['bgblur', VF_PLATE_BGBLURS],
+    ] as Array<[string, string[]]>) {
+      if (s[_k] !== undefined) {
+        const _v = String(s[_k] || '').trim().toLowerCase()
+        if (_allow.includes(_v)) s[_k] = _v
+        else { delete s[_k]; _bad(_k, s0?.[_k]) }
+      }
+    }
     return s
   })
   if (emojiHits) notes.push(`清掉 emoji/符号 ${emojiHits} 处（画面文字只留中文/数字）`)
@@ -389,6 +443,66 @@ export function splitLongSubtitles(shots: any[]): { shots: any[]; notes: string[
         : '') +
       `）`
     )
+  }
+  return { shots: out, notes }
+}
+
+/* ══════════ ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：服务端兜底 —— AI 忘写动效时自动补 ══════════
+ * 与 sanitizeAntiAiShots 同一思路：提示词只能"请求"，服务端负责"兜住"。
+ * 用户实测现场（1280×720 横屏 / news / 6 镜）：第 1 镜"动 1 秒、静止 5.5 秒"——
+ *   AI 根本没写任何动效字段（src/ 里 0 命中），纯文字长镜只能淡入后就静止。
+ *
+ * 补的规则（**只补渲染层认识的值，绝不脑补**）：
+ *   · 纯文字卡 && 镜长 ≥ VF_LONG_SHOT_SEC(6s) && 没有任何持续型动效 → title / end 补 `motion='grow'`
+ *     （grow 是**真动画**：render.py 用 `enable='gte(t,..)'` 分段画"从左往右生长"的强调条，已实测）
+ *   · list（逐条插入）/ number（数字 eif 逐帧滚动）/ chart（横条 enable 分段生长）**天生一直在动**
+ *     → 一律不动它们（不塞多余字段）
+ *   · compare 渲染层暂无"持续型"动效 → 只如实记一条说明，**不硬塞**一个渲染层不认的字段
+ *   · 已经写了 motion='typewriter' / 'grow' → 不动
+ *   ⚠️ fade / slide **不算**持续型（它们只是 0.3~0.5s 的入场，正是"动一下就不动"的元凶）。
+ * 返回新数组 + notes（调用方写日志："已补动效（AI 未写）"）。
+ */
+export const VF_LONG_SHOT_SEC = 6
+const VF_TEXT_CARD_TYPES = new Set(['title', 'list', 'number', 'compare', 'chart', 'end'])
+/** 天然就有"持续型"动效的卡型（渲染层实现：list 逐条插入 / number 数字滚动 / chart 横条生长） */
+const VF_INHERENT_MOTION = new Set(['list', 'number', 'chart'])
+/** 渲染层支持 motion='grow' 的卡型（render.py 的 card_title / card_end） */
+const VF_GROW_CARDS = new Set(['title', 'end'])
+
+/** ★VF_MOTIONPPT_WIRE_V1：这一镜是否已有【持续型】动效（fade/slide 只是入场，不算） */
+export function hasPersistentMotion(s: any): boolean {
+  const m = String(s?.motion == null ? '' : s.motion).trim().toLowerCase()
+  return m === 'typewriter' || m === 'grow'
+}
+
+/** ★VF_MOTIONPPT_WIRE_V1：长镜纯文字卡"必须有东西一直动"的服务端兜底（只给 title/end 补 grow） */
+export function ensurePersistentMotion(shots: any[]): { shots: any[]; notes: string[] } {
+  const notes: string[] = []
+  const fixedTypes: string[] = []
+  let fixed = 0
+  let unsupported = 0
+  const src = Array.isArray(shots) ? shots : []
+  const out = src.map((s0: any) => {
+    const s: any = s0 || {}
+    const ty = String(s.type || '')
+    if (!VF_TEXT_CARD_TYPES.has(ty)) return s          // 素材镜（bgimage/video…）不归这里管
+    if (!(Number(s.dur) >= VF_LONG_SHOT_SEC)) return s // 短镜本来就该"动一下就好"
+    if (VF_INHERENT_MOTION.has(ty)) return s           // 天生一直在动
+    if (hasPersistentMotion(s)) return s               // AI 已经写了持续型动效
+    if (VF_GROW_CARDS.has(ty)) {
+      fixed++
+      if (!fixedTypes.includes(ty)) fixedTypes.push(ty)
+      return { ...s, motion: 'grow' }                  // 渲染层认识的值（MOTIONS 白名单内）
+    }
+    unsupported++
+    return s
+  })
+  if (fixed) {
+    notes.push(`${fixed} 个长镜（≥${VF_LONG_SHOT_SEC}s，${fixedTypes.join('/')}）AI 未写动效 → ` +
+      `已补 motion='grow'（已补动效（AI 未写））`)
+  }
+  if (unsupported) {
+    notes.push(`${unsupported} 个长镜（compare 卡）渲染层暂无持续型动效 → 未改动（如实记录，不硬塞字段）`)
   }
   return { shots: out, notes }
 }

@@ -460,11 +460,137 @@ def main():
     for _mk in ('★VF_TPL_B1_V1', '★VF_FILTERJOIN_V1', '★VF_MATGUARD_V2', '★VF_MATGUARD_V3',
                 '★VF_MOTION_V2', '★VF_TITLEFIT_V3', '★VF_STYLE_V1', '★VF_MOTIONPPT_V1',
                 '★VF_EDITBIGTEXT_V1', '★VF_BANNER_EMPTY_V1', '★VF_BANNER_FIT_V1',
-                '★VF_ENVINFO_V1'):
+                '★VF_ENVINFO_V1', '★VF_TPL_LAND_V1'):
         chk(_src.count(_mk) >= 1, '防回退：%s 仍在 render.py 里' % _mk, '一处都没有了')
     chk('frameBg' in _src and 'frameBg' in open(os.path.join(_VF, 'themes.py'),
                                                 encoding='utf-8').read(),
         'B 组主题 token：frameBg（拍立得白边色）在 themes.py 与 render.py 都在位')
+
+    # ══ 12. ★VF_TPL_LAND_V1（2026-09-30）横屏「左图右字」 ═════════════════════════
+    # 用户实测：1280×720 横屏 + 竖素材 768×1344，走老 layout='top' 时卡片只有 212×374
+    #   （占 16.5%W × 52%H）→ 左右大片虚化/死黑、版面很空。
+    # 新 layout='side' = 素材站左边、右侧整块留给大字。断言口径：
+    #   ① 三条触发条件缺一不可（不满足 = 一行都不改 → 零回归）；② 老调用方拿到的 x 表达式逐字不变；
+    #   ③ 与 TS 服务端白名单对账（防两边漂移 —— 与 vf-i2v-selftest 同思路）。
+    _ROOT = os.path.dirname(_HERE)
+    _wd3 = tempfile.mkdtemp(prefix='vf-land-')
+    _pimg = os.path.join(_wd3, 'p_768x1344.jpg')     # 竖素材
+    _wimg = os.path.join(_wd3, 'w_1920x1080.jpg')    # 横素材
+    _simg = os.path.join(_wd3, 's_800x800.jpg')      # 方素材
+    if not ff:
+        _BAD.append('★VF_TPL_LAND_V1：找不到 ffmpeg（无法造测试图）')
+    else:
+        for _p, _w, _h in ((_pimg, 768, 1344), (_wimg, 1920, 1080), (_simg, 800, 800)):
+            if not _mk_img(ff, _p, _w, _h):
+                _BAD.append('★VF_TPL_LAND_V1：造图失败 %s' % os.path.basename(_p))
+        # ① 触发条件（横屏 + 竖/方素材 + 该镜要叠大字）——缺一不可
+        chk(R.plate_side_layout(_pimg, 1280, 720, True) == 'side',
+            'land：横屏 + 竖素材(768x1344) + 有大字 → side')
+        chk(R.plate_side_layout(_simg, 1280, 720, True) == 'side',
+            'land：横屏 + 方素材(800x800，比 1.0 ≤1.15) → side')
+        chk(R.plate_side_layout(_pimg, 720, 1280, True) == '',
+            'land：竖屏画幅(720x1280) → 不动（零回归）')
+        chk(R.plate_side_layout(_wimg, 1280, 720, True) == '',
+            'land：横素材(1920x1080，比 1.78>1.15) → 不动（走老 top）')
+        chk(R.plate_side_layout(_pimg, 1280, 720, False) == '',
+            'land：本镜不叠大字 → 不动')
+        chk(R.plate_side_layout(os.path.join(_wd3, 'not-exist.jpg'), 1280, 720, True) == '',
+            'land：素材读不出尺寸 → 不动（绝不弄挂出片）')
+        # ② 大字区接口：side 右移；其余 layout 一律 0（老调用方逐字不变）
+        chk(R.plate_text_x(1280, 720, 'side') == int(1280 * 0.52),
+            'land：side → 大字起始 x = 0.52W', str(R.plate_text_x(1280, 720, 'side')))
+        chk(R.plate_text_x(1280, 720, 'top') == 0 and R.plate_text_x(1280, 720, 'center') == 0,
+            'land：top/center → 大字起始 x = 0（老逻辑逐字不变）')
+        # ③ 卡片链：side 下卡片落在左半区、末尾仍产出 [smooth]（与 _bg_filters 同契约）
+        _sb_land = {'type': 'bgimage', 'src': _pimg, 'text': '库存 1700 万', 'kicker': '前线专栏',
+                    'dur': 4, '_idx': 0}
+        _side_chain = R._plate_pre(_pimg, 1280, 720, _sb_land, _news2, _po_news, dur=4,
+                                   layout='side') or ''
+        chk(_side_chain.endswith('[smooth];'), 'land：side 卡片链末尾产出 [smooth]')
+        #   注：卡片图层最靠右的那条 overlay（擦入是 12 条 + 浮动偏移）→ 取 max 才是"卡片右缘"
+        _mx_side = max([int(x) for x in _re.findall(r'overlay=x=(\d+)', _side_chain)] or [-1])
+        chk(0 < _mx_side < 1280 * 0.5,
+            'land：side 的卡片落在左半区', 'max overlay x=%d' % _mx_side)
+        _top_chain = R._plate_pre(_pimg, 1280, 720, _sb_land, _news2, _po_news, dur=4,
+                                  layout='top') or ''
+        _mx_top = max([int(x) for x in _re.findall(r'overlay=x=(\d+)', _top_chain)] or [-1])
+        chk(_mx_side > 0 and _mx_top > 0 and _mx_side < _mx_top,
+            'land：同一素材下 side 的卡片比 top 更靠左（左图右字）', '%d vs %d' % (_mx_side, _mx_top))
+        # ④ 帧级：编辑风 + 竖素材 → 大字层真的被推到右侧；老主题 → 一个像素都不动
+        _lm_l = int(1280 * 0.07)                       # 老的左侧 7% 安全边
+        _lm_r = _lm_l + R.plate_text_x(1280, 720, 'side')   # side：右移到 0.52W
+        _ed_side, _, _fs_side = R._editorial_bigtext(
+            dict(_sb_land), _news2, 1280, 720, 4, R.big_fs(1280, 720, 0.10, 44),
+            _news2['text'], x_off=R.plate_text_x(1280, 720, 'side'))
+        _ed_top, _, _ = R._editorial_bigtext(
+            dict(_sb_land), _news2, 1280, 720, 4, R.big_fs(1280, 720, 0.10, 44), _news2['text'])
+        _js = ','.join(_ed_side)
+        _jt = ','.join(_ed_top)
+        chk(_fs_side > 0 and ('x=%d' % _lm_r) in _js,
+            'land：_editorial_bigtext(x_off) 把大字块右移到 0.52W+7%', 'x=%d' % _lm_r)
+        chk(('x=%d' % _lm_l) in _jt and ('x=%d' % _lm_r) not in _jt,
+            'land：x_off 缺省(0) → 大字块仍在老的 7% 左边距（逐字不变）')
+
+        def _dt_xs(chain):
+            """只从 drawtext 段里取 x=（逗号分割后每段的首片仍带 :x=NNN）"""
+            out = []
+            for _seg in str(chain).split(','):
+                if _seg.startswith('drawtext='):
+                    _m = _re.search(r':x=(\d+)', _seg)
+                    if _m:
+                        out.append(int(_m.group(1)))
+            return out
+
+        _vn = R.card_bgimage(dict(_sb_land), _news2, 1280, 720, 25)[1]
+        _xs = _dt_xs(_vn)
+        chk(bool(_xs) and min(_xs) >= 640,
+            'land：编辑风图镜（帧级）的大字全部落在右半幅（x ≥ 640）', str(_xs[:6]))
+        # ⚠️ 这条是"接线闸门"：光有大字右移还不够 —— 必须证明 card_bgimage 真的把 layout='side'
+        #   传给了 _plate_pre（第一版就漏了这一处：大字右移了、卡片还留在中间，靠这条才发现）。
+        _ovn = max([int(x) for x in _re.findall(r'overlay=x=(\d+)', _vn)] or [-1])
+        chk(0 < _ovn < 640,
+            'land：编辑风图镜（帧级）的卡片真的落在左半区（layout 真的传给了 _plate_pre）',
+            'max overlay x=%d' % _ovn)
+        _vb = R.card_bgimage({'type': 'bgimage', 'src': _wimg, 'text': '库存 1700 万',
+                              'kicker': '前线专栏', 'dur': 4}, _news2, 1280, 720, 25)[1]
+        _xb = _dt_xs(_vb)
+        chk(bool(_xb) and min(_xb) < 640,
+            'land：横素材（不满足条件，帧级）→ 大字仍走老的左侧 7% 边距（零回归）', str(_xb[:6]))
+        _vd3 = R.card_bgimage(dict(_sb_land), _dark2, 1280, 720, 25)[1]
+        chk('x=(w-text_w)/2+' not in _vd3 and 'x=(w-text_w)/2' in _vd3,
+            'land：老主题(dark) → 大字仍是老居中表达式（x 一个字符都没改）')
+    # ⑤ 与 TS 服务端白名单对账（防 render.py / anti-ai.ts 两边漂移）
+    _ts_src = ''
+    try:
+        _ts_src = open(os.path.join(_ROOT, 'src/lib/agent/vf/anti-ai.ts'), encoding='utf-8').read()
+    except Exception as e:
+        _BAD.append('读 anti-ai.ts 失败：%s' % str(e)[:80])
+
+    def _ts_arr(name):
+        m = _re.search(r"%s\s*=\s*\[([^\]]*)\]" % name, _ts_src)
+        return [x.strip().strip("'\"") for x in m.group(1).split(',') if x.strip()] if m else None
+
+    for _py, _ts in (('PLATE_FRAMES', 'VF_PLATE_FRAMES'), ('PLATE_SHADOWS', 'VF_PLATE_SHADOWS'),
+                     ('PLATE_FLOATS', 'VF_PLATE_FLOATS'), ('PLATE_WIPES', 'VF_PLATE_WIPES'),
+                     ('PLATE_BLURS', 'VF_PLATE_BGBLURS')):
+        chk(_ts_arr(_ts) == list(getattr(R, _py)),
+            'land 对账：render.py %s = anti-ai.ts %s' % (_py, _ts),
+            '%s vs %s' % (list(getattr(R, _py)), _ts_arr(_ts)))
+    # PICK_DESIGN_KEYS 必须收下这 5 个 B 组字段（否则 AI 写的值会在归一化时被静默丢掉）
+    _pdk = _ts_src.split('PICK_DESIGN_KEYS', 1)[1].split(']')[0] if 'PICK_DESIGN_KEYS' in _ts_src else ''
+    for _k in ('frame', 'shadow', 'float', 'wipe', 'bgblur'):
+        chk("'%s'" % _k in _pdk, 'land：PICK_DESIGN_KEYS 收了 %s（AI 写的值不会被丢）' % _k)
+    # ⑥ 动效接线（★VF_MOTIONPPT_WIRE_V1）：常量 + 兜底函数两条线都真的接上了
+    chk('★VF_MOTIONPPT_WIRE_V1' in _ts_src and 'VF_MOTION_PROMPT' in _ts_src
+        and 'ensurePersistentMotion' in _ts_src,
+        '动效接线：anti-ai.ts 有 ★VF_MOTIONPPT_WIRE_V1（VF_MOTION_PROMPT + ensurePersistentMotion）')
+    for _f in ('src/lib/agent/vf/vf-video.ts', 'src/app/api/agent/chat/route.ts'):
+        try:
+            _s2 = open(os.path.join(_ROOT, _f), encoding='utf-8').read()
+        except Exception:
+            _s2 = ''
+        chk('VF_MOTION_PROMPT' in _s2, '动效接线：%s 的提示词已接 VF_MOTION_PROMPT' % _f)
+        chk('ensurePersistentMotion' in _s2, '动效接线：%s 已接 ensurePersistentMotion 兜底' % _f)
 
     if a.render:
         _render_demo()

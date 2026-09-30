@@ -12,6 +12,15 @@ import {
   defaultCheckedPlatforms, cleanLeadText, resolveLeadSpeed,
 } from '@/lib/agent/lead'
 import { useAuth } from '@/app/providers'
+// ★VF_MODELSWITCH_V1（2026-09-30 用户原话「不行加一个模型切换，我试试，deepseek-v4.1_flash 和
+//   阿里的多模态模型 我切换这试试。每个模型可能理解能力也不一样」）：
+//   模型档位选择器挂在【AI 设置】弹窗里（就在「回复温度」下面）—— 用户调温度的地方就能切模型。
+//   本文件只引【纯数据 + 纯函数】（model-catalog.ts 零副作用、不 import prisma），客户端直接可用。
+//   读写走后端已有的 /api/agent/prefs（它已支持 modelChoice，存 SystemConfig，不新增表）。
+import {
+  MODEL_PRESET_LIST, BRAIN_MODELS, WRITER_MODELS, resolveModelChoice,
+  type ModelPresetId,
+} from '@/lib/agent/model-catalog'
 import TourGuide from '@/components/TourGuide'
 import { Solar } from 'lunar-javascript'
 import { createPortal } from 'react-dom'
@@ -1904,6 +1913,10 @@ function AgentPageInner() {
   const [showLogout, setShowLogout] = useState(false) // 2026-08-11：退出用自定义弹窗（不用浏览器 confirm）
   const [ttsVoice, setTtsVoice] = useState('longxiaochun')
   const [temperature, setTemperature] = useState(0.7)
+  // ★VF_MODELSWITCH_V1：模型档位（默认 fast = 现状，逐字一致，零回归）
+  const [modelPreset, setModelPreset] = useState<ModelPresetId>('fast')
+  const [modelBrain, setModelBrain] = useState('qwen3.8-flash')
+  const [modelWriter, setModelWriter] = useState('deepseek-v4-flash')
   const [vadThreshold, setVadThreshold] = useState(0.045)
   const [vadSilence, setVadSilence] = useState(1800)
   const [ttsVoices, setTtsVoices] = useState<{ id: string; label: string }[]>([])
@@ -1981,6 +1994,11 @@ function AgentPageInner() {
           setTtsVoice(d.data.ttsVoice || 'longxiaochun')
           if (d.data.industry) setIndustry(d.data.industry)
           setTemperature(d.data.temperature ?? 0.7)
+          // ★VF_MODELSWITCH_V1：回填模型档位（服务端已 resolve 过，非法值一定回落 fast）
+          if (d.data.modelChoice) {
+            const _mc = resolveModelChoice(d.data.modelChoice)
+            setModelPreset(_mc.preset); setModelBrain(_mc.brain); setModelWriter(_mc.writer)
+          }
           setVadThreshold(d.data.vadThreshold ?? 0.045)
           setVadSilence(d.data.vadSilence ?? 1800)
           if (d.data.voices?.length) setTtsVoices(d.data.voices)
@@ -2000,7 +2018,8 @@ function AgentPageInner() {
   const savePrefs = async () => {
     setSavingPrefs(true)
     try {
-      await fetch('/api/agent/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ttsVoice, temperature, vadThreshold, vadSilence, industry }), credentials: 'include' })
+      // ★VF_MODELSWITCH_V1：模型档位一并保存（custom 时把两个槽位都带上；服务端会再校验一次）
+      await fetch('/api/agent/prefs', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ttsVoice, temperature, vadThreshold, vadSilence, industry, modelChoice: { preset: modelPreset, brain: modelBrain, writer: modelWriter } }), credentials: 'include' })
       // ★PROFILE_FIX_V1 第2批：主题一并写入画像（同时把行业同步进画像；没填的字段不会被动到）
       try {
         await fetch('/api/agent/memories', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3920,6 +3939,48 @@ function AgentPageInner() {
             <input type="range" min="0" max="1.5" step="0.1" value={temperature} onChange={e => setTemperature(parseFloat(e.target.value))}
               className="w-full mb-1 accent-emerald-400" />
             <p className="text-[9px] text-gray-600 mb-3">低=严谨稳定，高=创意发散（默认 0.7）</p>
+
+            {/* ★VF_MODELSWITCH_V1（2026-09-30 用户原话「不行加一个模型切换，我试试，deepseek-v4.1_flash 和
+                阿里的多模态模型 我切换这试试。每个模型可能理解能力也不一样」）：
+                档位按钮 = 一键切换；选「自定义」才出现两个槽位下拉。
+                保存后服务端每轮会打一行 `[模型] 大脑=X ｜ 书写=Y`，可据此核对实际生效的模型。 */}
+            <p className="text-[11px] text-gray-400 mb-1.5">🧠 AI 模型档位：
+              <span className="text-emerald-300">{(MODEL_PRESET_LIST.find(p => p.id === modelPreset) || MODEL_PRESET_LIST[0]).name}</span>
+            </p>
+            <div className="flex flex-wrap gap-1.5 mb-1">
+              {MODEL_PRESET_LIST.map(p => (
+                <button key={p.id} type="button" title={p.desc}
+                  onClick={() => {
+                    setModelPreset(p.id)
+                    // 选预设时同步展开两个槽位（custom 保留当前选择，让用户接着改）
+                    if (p.id !== 'custom') { setModelBrain(p.brain); setModelWriter(p.writer) }
+                  }}
+                  className={`rounded-lg border px-2 py-1 text-[10px] transition ${modelPreset === p.id
+                    ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200'
+                    : 'border-white/10 bg-white/[0.03] text-gray-400 hover:bg-white/[0.08]'}`}>{p.name}</button>
+              ))}
+            </div>
+            {modelPreset === 'custom' ? (
+              <div className="mb-1 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-[52px] shrink-0 text-[10px] text-gray-500">大脑</span>
+                  <select value={modelBrain} onChange={e => setModelBrain(e.target.value)}
+                    className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white outline-none focus:border-emerald-400/50">
+                    {BRAIN_MODELS.map(m => <option key={m.id} value={m.id} className="bg-[#0d0d14]">{m.name}（{m.id}）</option>)}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-[52px] shrink-0 text-[10px] text-gray-500">书写</span>
+                  <select value={modelWriter} onChange={e => setModelWriter(e.target.value)}
+                    className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white outline-none focus:border-emerald-400/50">
+                    {WRITER_MODELS.map(m => <option key={m.id} value={m.id} className="bg-[#0d0d14]">{m.name}（{m.id}）</option>)}
+                  </select>
+                </div>
+              </div>
+            ) : null}
+            <p className="text-[9px] text-gray-600 mb-3">
+              现在：大脑 {modelBrain} ｜ 书写 {modelWriter}（换模型后会打一行 [模型] 日志可核对；失败会自动回退，不会把功能搞挂）
+            </p>
 
             <p className="text-[11px] text-gray-400 mb-1.5">🎤 语音灵敏度：<span className="text-emerald-300">{vadThreshold.toFixed(3)}</span></p>
             <input type="range" min="0.02" max="0.12" step="0.005" value={vadThreshold} onChange={e => setVadThreshold(parseFloat(e.target.value))}
