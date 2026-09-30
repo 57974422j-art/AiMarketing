@@ -1,6 +1,6 @@
 // ⚠️ 本文件由 scripts/gen-platforms-js.mjs 自动生成 —— 请勿手改
 // 源：src/lib/agent/platforms.ts（唯一真源）
-// 生成时间：2026-09-29T11:12:13.619Z
+// 生成时间：2026-09-30T00:20:09.076Z
 'use strict'
 
 const PLATFORMS = [
