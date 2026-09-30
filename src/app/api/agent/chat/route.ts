@@ -18,7 +18,7 @@ import { matchesMixLine, clearVfMixDraft, hasMixDraft } from '@/lib/agent/vf/vf-
 import { clearLeadDraft, hasLeadDraft, shouldTakeOverLeadLine, handleLeadLine } from '@/lib/agent/lead'
 // ★STD_MODE_V1（2026-09-21，用户定案）：标准模式 = 【命令白名单，锁死】——
 //   命令表唯一真相源在 `src/lib/agent/standard-commands.ts`（加/改命令只改那张表，别再往这里加正则）。
-import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY } from '@/lib/agent/standard-commands'
+import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY, STD_QUERY_RE, isStdSettingMessage, stdGatePass, i2vIntentOf } from '@/lib/agent/standard-commands'
 // ★VF_ANTIAI_V1（2026-09-29）：「反 AI 味清单」—— 提示词（ANTI_AI_PROMPT）+ 出片前净化（sanitizeAntiAiShots）。
 //   纯函数零依赖（同 standard-commands.ts），静态 import 安全。
 // ★VF_AI_PICK_V1（2026-09-29）：pickDesignFields —— AI 自选的 theme/variant/motion/transition
@@ -28,7 +28,7 @@ import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY } from '@/lib/age
 import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles } from '@/lib/agent/vf/anti-ai'
 // ★VF_VIDI2V_V1（2026-09-29）：「让图动起来」的计费口径（50 点/秒）与出片侧 vf-video.ts **共用同一份公式** ——
 //   卡片报价与实扣同源，免得又出现"卡片报 205 点、实扣 1500 点"。
-import { i2vCostPoints, vfTotalCostPoints, buildI2vShots, i2vKeyMap } from '@/lib/agent/vf/i2v-plan'
+import { i2vCostPoints, vfTotalCostPoints, buildI2vShots, i2vKeyMap, i2vSkipHint, i2vSkippedList } from '@/lib/agent/vf/i2v-plan'
 // ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对『有主体可动』的素材开」）：
 //   把"图片本地路径 → 识别摘要"的映射建出来（纯函数），交给 buildI2vShots 逐图分类 ——
 //   界面/截图/海报/文字页这类"动起来也看不出"的直接跳过（省钱），且报价随之下调（同源）。
@@ -413,6 +413,11 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
   const _i2vSec = Math.max(0, Number(vd.i2vSec) || 0)
   const _i2vN = Math.max(0, Number(vd.i2vImages) || 0)
   const _i2vPts = i2vCostPoints(_i2vSec)
+  // ★VF_I2VDFLT_V1（2026-09-30 用户定案「跳过哪几张要能立刻看到」）：智能筛跳过的图 ——
+  //   hint 里加一句（最多列 3 个 + "等"），同时给结构化字段 i2vSkipped（前端要单独展示时可直接取）。
+  const _i2vSkip = i2vSkippedList(vd.i2vSkipped)
+  const _i2vSkipN = Math.max(0, Number(vd.i2vSkippedN) || 0) || _i2vSkip.length
+  const _i2vSkipHint = i2vSkipHint(_i2vSkip.map((x) => x.name), _i2vSkipN)
   const cost = _isAI
     ? Math.max(1, Math.ceil(Math.max(4, targetSec || 30) * 50))
     : vfTotalCostPoints(charN, _i2vSec)
@@ -462,6 +467,8 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
     // ★VF_VIDI2V_V1：让图动起来那笔钱的**明细**（卡片 hint 已写"含让 N 张图动起来：约 M 点"，
     //   这里再给结构化字段，前端要单独展示时可直接取用）
     i2vImages: _i2vN, i2vSec: _i2vSec, i2vPts: _i2vPts,
+    // ★VF_I2VDFLT_V1：被智能筛跳过的图（结构化 `[{name, reason}]` + 张数）—— 前端可直接展示
+    i2vSkipped: _i2vSkip, i2vSkippedN: _i2vSkipN,
     // ★VF_AIVIDEO_V1（2026-09-20）：把画面来源透给卡片 —— 前端可据此显示"这条是 AI 出片"
     source: _isAI ? 'ai' : '',
     aspect, aspectName,
@@ -471,6 +478,8 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
     hint: `看完了你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${_isAI ? `${aspectName}·**画面由 AI 逐镜生成**` : (aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏')}·风格 ${themeName}·配音 ${voiceName}）` +
       // ★VF_VIDI2V_V1：让图动起来的钱**明写在卡片上**（不藏着）；同一张图只生成一次
       (_i2vN ? `；🎞 含让 ${_i2vN} 张图动起来：约 ${_i2vPts} 点（${Math.round(_i2vSec)} 秒 × 50 点/秒，同一张图只生成一次）` : '') +
+      // ★VF_I2VDFLT_V1：智能筛跳过 N 张（最多列 3 个 + "等"）—— 让金额变化**可解释**
+      (_i2vSkipHint ? `；${_i2vSkipHint}` : '') +
       `——回复「确认」开始出片；也可说要改什么`,
   })
 }
@@ -544,9 +553,9 @@ async function stdClearAllDrafts(userId: number | string): Promise<void> {
  * ★只读【查询类】例外（不参与流程，所以不违反"锁死"）：
  *   出片入队时草稿就被作废了（VF_RUN_CLOSE_V1），所以"任务在跑"这件事在草稿里看不出来 ——
  *   若把"视频做得怎么样了"也锁死，用户就没法查进度了。这里放行【查询进度】这一类只读问句。
- *   ⚠️ 这一条是**我主动加的**（用户原话是"发什么文字都回没有这个功能"）；要严格锁死就把这个正则清空。
+ *   ★VF_I2VDFLT_V1（2026-09-30）：正则与"改设置放行规则"统一挪到 standard-commands.ts（可单测）——
+ *     见 STD_QUERY_RE / isStdNoDraftAllowed / stdGatePass；本文件只 import，不再自带正则副本。
  */
-const STD_QUERY_RE = /视频做得怎么样了|做到哪了|进度|做完了吗|好了没|好了吗/
 
 /** 有没有"进行中的流程"（发布 / 三条成片线任一有草稿）—— 决定"非命令"要不要锁死 */
 async function stdHasAnyDraft(userId: number | string): Promise<boolean> {
@@ -2780,6 +2789,10 @@ export async function POST(request: NextRequest) {
      *  用途：放在三条成片线的分派处 —— 它们的 shouldTakeOverXxx 在"本线有残留草稿"时一律返回 true，
      *  于是会把别条命令蹭走（本地单测复现过：本线草稿活着时「帮我写一个小红书文案」被接走）。 */
     const stdCmdOwned = (ids: string[]) => !!stdCmdHit && ids.indexOf(stdCmdHit.id) >= 0
+    // ★VF_I2VDFLT_V1（2026-09-30 用户定案）：这句是不是「改设置的动图说法 / VF_I2V_OFF 协议串」——
+    //   命中它 → 算"状态机入口信号"（skipModelStep1），让消息**确定性地**进状态机，
+    //   而不是掉进 AI 自由发挥（用户实测过：「关掉图转视频，直接生成」被白名单拦/被 AI 接走）。
+    const stdSettingWord = isStdSettingMessage(userMessage)
     if ((body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free') {
       const stdHit = stdCmdHit
       if (stdHit) {
@@ -2798,12 +2811,13 @@ export async function POST(request: NextRequest) {
         //   实测背景：视频混剪线草稿留在库里时，点「帮我写一个小红书文案」会被混剪线接走。
         await stdClearAllDrafts(auth?.userId || 0)
         if (stdHit.kind === 'machine') stdEnterMachine = true
-      } else if (!hasImage && !STD_QUERY_RE.test(userMessage)
-        // ★VF_RENDER_ONESHOT_V1（2026-09-29）：片出完后草稿即被作废（VF_RUN_CLOSE_V1）→「非命令且无流程」
-        //   会把「只重渲」这条路也一并锁死。放行 VF_EDIT 协议串（只由我们自己的卡片产生，用户不会手打；
-        //   没有草稿时它只做"改画面文字 + 复用配音重渲染"，不烧 AI 点数）。
-        && !/^VF_EDIT\s*[:{]/.test(userMessage.trim())
-        && !(await stdHasAnyDraft(auth?.userId || 0))) {
+      } else if (!hasImage
+        // ★VF_I2VDFLT_V1（2026-09-30 用户定案）：闸门判定统一走 stdGatePass()（纯函数、可单测）——
+        //   · 有进行中的草稿 → **一律放行**（含「关掉动图 / 保持静态 / 全部动起来 / 智能筛」这类改设置的话，
+        //     以及我们自己的 `VF_I2V_OFF:` 协议串 —— 否则用户没法一键改设置）；
+        //   · 没草稿 → 只有【只读查询】(STD_QUERY_RE) 与 `VF_EDIT` 只重渲（★VF_RENDER_ONESHOT_V1）放行，
+        //     其余（含"改设置"）**一律锁死** —— 保持"命令白名单锁死"的原设计。
+        && !stdGatePass(userMessage, await stdHasAnyDraft(auth?.userId || 0))) {
         // ★标准模式锁死：没有命令、也没有进行中的流程 → 不参与任何流程，也不让 AI 自由发挥
         console.log('[标准模式] 非命令且无进行中流程 → 固定回复')
         try { vfLog(auth?.userId || 0, `[标准模式] 非命令「${String(userMessage).slice(0, 30)}」且无流程 → 锁死回复`) } catch { /* ignore */ }
@@ -2831,9 +2845,13 @@ export async function POST(request: NextRequest) {
     //   ★VF_EDIT_V1（2026-09-24）：把 `VF_EDIT` 也加进来 —— 客户端"分镜清单改完点重出片/保存"
     //   发的是协议串，若不算状态机入口信号就会掉进 AI 自由发挥（与 VF_FORM 那次同一类事故）。
     //   ★VF_LEAD_V1（2026-09-29）再把 `LEAD_CFG` 加进来 —— 获客面板的提交串同理（不是命令 → 不加就掉出状态机）。
-    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_BRIEF|VF_JSON|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
+    //   ★VF_I2VDFLT_V1（2026-09-30）再把 `VF_I2V_OFF` 加进来 —— 分镜确认卡「🚫 关掉动图重出」的协议串同理
+    //   （发的是机器串，不是标准命令 → 不加就会被锁死/被 AI 接走）。
+    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
     // ★STD_MODE_V1：命中 machine 命令（发布 / 三条成片线）→ 强制进状态机（跳过 AI 那一步）
-    const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0) || vfEntryWord || stWordInput || vfLineWord || vfProtoWord || stdEnterMachine) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
+    // ★VF_I2VDFLT_V1：再加 `stdSettingWord`（改设置的说法 / VF_I2V_OFF 协议串）→ 同样强制进状态机，
+    //   由两条成片线在 step='script' 里改 i2v 并重出确认卡（不再落进 AI 自由发挥/锁死）。
+    const skipModelStep1 = (PUBLISH_DRAFT.has(auth?.userId || 0) || VIDEO_DRAFT.has(auth?.userId || 0) || vfEntryWord || stWordInput || vfLineWord || vfProtoWord || stdSettingWord || stdEnterMachine) && (body as any)?.mode !== 'free' && (body as any)?.agentMode !== 'free'
     // 2026-09-01: 草稿恢复提前到 Step1 前（原在状态机块内——Step1 模型先跑（hasDraft false→模型自由失败"繁忙"）——恢复太晚）
     if (!PUBLISH_DRAFT.has(auth?.userId || 0) && (/\d/.test(userMessage) || /[abc]/i.test(userMessage.trim()) || /换一批|重抽|重试|重来|用推荐|平台:|确认|选|发布|发一个视频|发一条|帮我发|发/i.test(userMessage))) {
       try {
@@ -4179,13 +4197,16 @@ PUBLISH_DRAFT.delete(uidW)
                   shots: vfShots, keyByPath: vd.i2vKeys || {},
                   // ★VF_I2VSUIT_V1：只对有主体可动的素材开（摘要为空/判不出 → 不做，省钱优先）
                   summaryByPath: vd.i2vSuit,
-                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'on'),
+                  // ★VF_I2VDFLT_V1：缺省 = 'all'（全部动起来，用户定案「默认回到以前那样」）
+                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'all'),
                 })
                 for (const _n of _i2vB.notes) vfLog(uidVF2, '[图生视频] ' + _n)
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
                 if (!vfHasPlan) vfLog(uidVF2, `[分镜门禁] ${vfShots.length} 镜 / 覆盖 ${Math.round(vfCover * 100)}% → **不给确认出片**`)
                 // i2vSec/i2vImages 只给卡片报价用（与 make_ai_video 实扣同源：vfTotalCostPoints）
-                wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _i2vB.plan.sec, i2vImages: _i2vB.plan.images },
+                wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _i2vB.plan.sec, i2vImages: _i2vB.plan.images,
+                  // ★VF_I2VDFLT_V1：把"被智能筛跳过的图"透到卡片（hint 一句 + 结构化字段）
+                  i2vSkipped: _i2vB.plan.unfitSamples, i2vSkippedN: _i2vB.plan.skippedUnfit },
                   vfShots, vfImgs.length, String(vfBrief || ''), vfAspect, vfCover, vfEstSec)
                 // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
                 // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
@@ -4276,6 +4297,32 @@ PUBLISH_DRAFT.delete(uidW)
                 wfEarlyReply = r.msg
               }
               finalResult = wfEarlyReply
+            } else if (vd.step === 'script' && !!i2vIntentOf(userMessage) && !!vd.shots?.length) {
+              // ═══ ★VF_I2VDFLT_V1（2026-09-30 用户定案）：一键改「动图」设置 → 重出确认卡 ═══
+              //   来源：① 分镜确认卡「🚫 关掉动图重出」发的协议串 `VF_I2V_OFF:`；
+              //        ② 用户直接说「关掉动图 / 保持静态 / 全部动起来 / 智能筛」。
+              //   只改草稿的 i2v，**不重排分镜、不扣钱**（金额随之变小/变大，用户立刻看得到）。
+              //   背景：上一轮让用户手打「关掉图转视频，直接生成」被标准模式白名单拦掉了。
+              const _iv = i2vIntentOf(userMessage) as 'off' | 'all' | 'on'
+              const _mkI2v = (v: string) => buildI2vShots({
+                shots: vd.shots || [], keyByPath: vd.i2vKeys || {}, summaryByPath: vd.i2vSuit,
+                enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : v,
+              })
+              const _before = _mkI2v(vd.i2v ?? 'all')
+              vd.i2v = _iv
+              VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
+              const _after = _mkI2v(_iv)
+              for (const _n of _after.notes) vfLog(uidVF2, '[图生视频] ' + _n)
+              const _label = _iv === 'off' ? '保持静态' : (_iv === 'all' ? '全部动起来' : '智能筛')
+              const _delta = _before.points - _after.points
+              vfLog(uidVF2, `[图生视频] 用户一键${_iv === 'off' ? '关掉' : '改设置'} → 「${_label}」` +
+                `${_iv === 'off' ? '，本片不再生成动图' : ''}（${_before.points} 点 → ${_after.points} 点` +
+                `${_delta > 0 ? `，省 ${_delta} 点` : _delta < 0 ? `，加 ${-_delta} 点` : ''}）`)
+              wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _after.plan.sec, i2vImages: _after.plan.images,
+                i2vSkipped: _after.plan.unfitSamples, i2vSkippedN: _after.plan.skippedUnfit },
+                vd.shots || [], (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait',
+                Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
+              finalResult = wfEarlyReply
             } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$|先出字幕版|强制出片/i.test(userMessage.trim())) {
               const vfForce = /先出字幕版|强制出片|就这样出/.test(userMessage)
               // ★VF_GATE_V1（2026-09-20，用户实测：0 镜也放行 → 成片没有素材画面）：
@@ -4296,7 +4343,8 @@ PUBLISH_DRAFT.delete(uidW)
                   shots: vd.shots || [], keyByPath: vd.i2vKeys || {},
                   // ★VF_I2VSUIT_V1：出片实扣按**同一份摘要**再算一次（与卡片报价同源）
                   summaryByPath: vd.i2vSuit,
-                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'on'),
+                  // ★VF_I2VDFLT_V1：缺省 = 'all'（全部动起来）
+                  enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'all'),
                 })
                 for (const _n of _i2vRun.notes) vfLog(uidVF2, '[图生视频] ' + _n)
                 const vfRun = await executeToolCall('make_ai_video', (vd.shots?.length && !vfForce)
@@ -4356,12 +4404,15 @@ PUBLISH_DRAFT.delete(uidW)
                 shots: vfAgain, keyByPath: vd.i2vKeys || {},
                 // ★VF_I2VSUIT_V1：重排分镜后同样按摘要筛（与首次起草同口径）
                 summaryByPath: vd.i2vSuit,
-                enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'on'),
+                // ★VF_I2VDFLT_V1：缺省 = 'all'（全部动起来）
+                enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'all'),
               })
               for (const _n of _i2vB2.notes) vfLog(uidVF2, '[图生视频] ' + _n)
               VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
               vfLog(uidVF2, `[重试分镜] ${vfAgain.length} 镜，覆盖 ${Math.round(vfAgainCover * 100)}%（预计 ${vfAgainEst} 秒 / 目标 ${vd.dur} 秒）`)
-              wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _i2vB2.plan.sec, i2vImages: _i2vB2.plan.images },
+              wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _i2vB2.plan.sec, i2vImages: _i2vB2.plan.images,
+                // ★VF_I2VDFLT_V1：重排后同样把"跳过名单"透到卡片
+                i2vSkipped: _i2vB2.plan.unfitSamples, i2vSkippedN: _i2vB2.plan.skippedUnfit },
                 vfAgain, (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait', vfAgainCover, vfAgainEst)
               finalResult = wfEarlyReply
             } else if (vd.step === 'script') {

@@ -110,8 +110,9 @@ console.log('\n② 过滤后计划与报价逐字一致，且报价随之下调�
   eq(plan.images, 1, '唯一图 = 1 张（界面/海报两张被跳过）')
   eq(plan.sec, 6, '计费秒数 = 6（只算第 2 镜；界面 5 秒 + 海报 4 秒不再计费）')
   eq(plan.skippedUnfit, 2, '如实记下"跳过 2 张"')
-  eq(buildI2vShots({ shots, keyByPath: KEY_MAP, summaryByPath: summary }).points, 300,
-    '让图动起来的点数 = 6 × 50 = 300（过滤后）')
+  // ★VF_I2VDFLT_V1（2026-09-30）：智能筛现在是**用户显式选**（enabled='on'）；缺省已改成 'all'（全部动）
+  eq(buildI2vShots({ shots, keyByPath: KEY_MAP, summaryByPath: summary, enabled: 'on' }).points, 300,
+    '显式选「智能筛」(enabled=on) 的让图动起来点数 = 6 × 50 = 300（过滤后）')
 
   // ★报价 = 实扣：卡片用 vfTotalCostPoints(字数, plan.sec)；i2v 明细用 i2vCostPoints(plan.sec)
   const charN = 300
@@ -127,7 +128,7 @@ console.log('\n② 过滤后计划与报价逐字一致，且报价随之下调�
     '过滤让报价随之下调（750 → 300；总价 765 → 315）—— 不许报高价实扣低价或反过来')
 
   // 同源铁证：报价与实扣都只用 plan.sec（没有第二份公式）
-  eq(buildI2vShots({ shots, keyByPath: KEY_MAP, summaryByPath: summary }).plan.sec, plan.sec,
+  eq(buildI2vShots({ shots, keyByPath: KEY_MAP, summaryByPath: summary, enabled: 'on' }).plan.sec, plan.sec,
     '报价用的 plan.sec 与出片再算一次得到的 plan.sec 完全一致（同一份摘要 → 同源）')
 }
 
@@ -139,7 +140,8 @@ console.log('\n③ 被剔除的图在 notes 里写清原因')
     [`${MU}/b.jpg`]: '【实拍】员工给顾客介绍产品',
     [`${MU}/c.jpg`]: '【海报】智能手表新品首发',
   }
-  const r = buildI2vShots({ shots, keyByPath: KEY_MAP, summaryByPath: summary })
+  // ★VF_I2VDFLT_V1：智能筛要**显式**选（enabled='on'）才会跳过；缺省是 'all'
+  const r = buildI2vShots({ shots, keyByPath: KEY_MAP, summaryByPath: summary, enabled: 'on' })
   ok(r.notes.some((n) => n.includes('跳过 2 张')), 'notes 含"跳过 2 张"')
   ok(r.notes.some((n) => n.includes('界面/截图类')), 'notes 写清"界面/截图类"原因')
   ok(r.notes.some((n) => n.includes('海报/封面/文字页类')), 'notes 写清"海报/封面/文字页类"原因')
@@ -165,6 +167,12 @@ console.log('\n④ i2v="all"（用户手动全开）时不过滤')
   // 未传 summaryByPath（旧调用方）→ 不过滤，保持旧行为（向后兼容）
   eq(buildI2vShots({ shots, keyByPath: KEY_MAP }).plan.images, 3,
     '未传 summaryByPath → 不过滤（向后兼容，未接线的调用方行为不变）')
+  // ★VF_I2VDFLT_V1（2026-09-30 用户定案）：**缺省 = 'all'（全部动起来）** ——
+  //   即使传了 summaryByPath，**不显式选 'on' 就不筛**（默认回到"每张都动"，与用户"和以前一样"的定案一致）。
+  const dflt = buildI2vShots({ shots, keyByPath: KEY_MAP, summaryByPath: summary })
+  eq([dflt.plan.images, dflt.plan.sec, dflt.points], [3, 15, 750],
+    "缺省（未传 enabled）= 'all' → 不过滤（3 张 / 15 秒 / 750 点）")
+  eq(dflt.plan.skippedUnfit, 0, "缺省 = 'all' → 跳过数 = 0（不再默认智能筛）")
 }
 
 console.log('\n⑤ "图片本地路径 → 识别摘要"映射（brief → summaryByPath）')

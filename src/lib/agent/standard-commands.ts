@@ -106,3 +106,76 @@ export const STD_UNSUPPORTED_REPLY: string =
 export function STD_WIP_REPLY(text: string): string {
   return `「${text}」还在开发中 —— 请先用手上已经通的这几条命令。`
 }
+
+/* ══════════════════ ★VF_I2VDFLT_V1（2026-09-30）—— 标准模式闸门「放行规则」的纯函数 ══════════════════
+ * 用户原话（本节的由来）：
+ *   「关掉图转视频，直接生成」被标准模式命令白名单拦掉（回了"请切自由模式"）→ 这是上一轮的错，要修。
+ * 规则：
+ *   · 出片确认卡上的「🚫 关掉动图重出」发的是**我们自己的协议串**（`VF_I2V_OFF:`，用户不会手打）；
+ *   · 用户也可能直接说「关掉动图 / 保持静态 / 全部动起来 / 智能筛」这类**改设置**的话；
+ *   · 上面这些**只有在【该会话有进行中的成片草稿】时才放行** —— 没草稿时保持"命令白名单锁死"的原设计
+ *     （否则用户随便说话都会掉进状态机）。
+ * 这些规则放在这里（而不是散在 route.ts 的正则里），是因为本文件是"命令/闸门"的唯一权威，且**可单测**。
+ * ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** ★只读【查询类】例外：出片入队后草稿即作废（VF_RUN_CLOSE_V1），"任务在跑"在草稿里看不出来 ——
+ *  若把「视频做得怎么样了」也锁死，用户就没法查进度。这类**没有草稿也放行**。 */
+export const STD_QUERY_RE = /视频做得怎么样了|做到哪了|进度|做完了吗|好了没|好了吗/
+
+/** ★「改设置」的说法（i2v 动图相关）——宽松但**限词**；只有【有草稿】时才放行（见 stdGatePass）。 */
+export const STD_SETTING_RE = /关掉?图转视频|关掉?动图|不要动图|保持静态|全部动起来|让图动起来|智能筛/
+/** ★我们自己的卡片协议串：出片确认卡「🚫 关掉动图重出」产生（用户不会手打）。 */
+export const STD_I2V_OFF_RE = /^VF_I2V_OFF\s*[:{]/
+
+/** 这句话是不是「改设置的动图说法」或我们自己的 `VF_I2V_OFF` 协议串。 */
+export function isStdSettingMessage(msg: string): boolean {
+  const m = String(msg || '').trim()
+  if (!m) return false
+  if (STD_I2V_OFF_RE.test(m)) return true
+  return STD_SETTING_RE.test(m)
+}
+
+/**
+ * 没有进行中的草稿时，这一句能不能放行？
+ *   true  = 放行（只读查询 / 只重渲协议 —— 不参与流程、不烧 AI）；
+ *   false = 锁死（回 STD_UNSUPPORTED_REPLY）。
+ * ⚠️ 「改设置」的说法（`STD_SETTING_RE`）与 `VF_I2V_OFF` 协议串**不在**这里 —— 它们没草稿时也要拦。
+ */
+export function isStdNoDraftAllowed(msg: string): boolean {
+  const m = String(msg || '').trim()
+  if (!m) return false
+  if (STD_QUERY_RE.test(m)) return true
+  // ★VF_RENDER_ONESHOT_V1：片已出、草稿作废后，「只重渲第 N 镜」发的 VF_EDIT 协议串仍要能进（不烧 AI）
+  if (/^VF_EDIT\s*[:{]/.test(m)) return true
+  return false
+}
+
+/**
+ * ★标准模式闸门的最终判定（纯函数，可单测）——「非命令」的一句话该不该放行。
+ * @param msg      用户原文
+ * @param hasDraft 该会话有没有进行中的流程（发布 / 任一条成片线草稿）
+ * 返回 true = 继续走流程；false = 回 STD_UNSUPPORTED_REPLY（锁死）。
+ *   · 有草稿 → **一律放行**（含"改设置"的说法、`VF_I2V_OFF` 协议串、以及各线的「确认/重试」等）；
+ *   · 没草稿 → 只有只读查询 / `VF_EDIT` 只重渲放行，其余（含"改设置"）**一律锁死**。
+ */
+export function stdGatePass(msg: string, hasDraft: boolean): boolean {
+  if (hasDraft) return true
+  return isStdNoDraftAllowed(msg)
+}
+
+/**
+ * ★VF_I2VDFLT_V1：把「用户这句话想怎么动图」解析成 i2v 取值；不是这类话 → null。
+ *   'off' = 关掉动图/保持静态；'all' = 全部动起来；'on' = 智能筛。
+ * 用途：两条成片线（图片成片 / 图视混剪）在 step='script' 收到这句话时，
+ *   把草稿的 i2v 改掉并**重新出一份确认卡**（金额随之变小/变大，用户立刻看得到）。
+ * ⚠️ 先判 off（"关掉图转视频"里含"图"、"让图动起来"里含"动起来"，顺序不能反）。
+ */
+export function i2vIntentOf(msg: string): 'off' | 'all' | 'on' | null {
+  const m = String(msg || '').trim()
+  if (!m) return null
+  if (STD_I2V_OFF_RE.test(m)) return 'off'
+  if (/关掉?图转视频|关掉?动图|不要动图|保持静态/.test(m)) return 'off'
+  if (/智能筛/.test(m)) return 'on'
+  if (/全部动起来|全都动|全动|让图动起来|图动起来|动起来/.test(m)) return 'all'
+  return null
+}

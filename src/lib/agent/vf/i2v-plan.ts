@@ -178,8 +178,11 @@ export interface I2vBuildResult {
  *
  * @param o.shots     归一化后的最终分镜
  * @param o.keyByPath 图片本地路径 → 个人仓库 key（用 i2vKeyMap() 从 downloadMaterials 结果建）
- * @param o.enabled   用户的「让图动起来」开关：'off'/false = 完全不开（**默认 'on'**）；
- *                    ★VF_I2VSUIT_V1：额外支持 **'all'** = 用户手动全开（**不按素材类型筛选**，全部图片镜都做）
+ * @param o.enabled   用户的「让图动起来」开关：
+ *                    ★VF_I2VDFLT_V1（2026-09-30 用户定案）：**'all' = 全部动起来 = 【默认】**（未传/缺省也是它）；
+ *                    'on' = 智能筛（只对有主体可动的素材开，省钱，用户主动选才用）；
+ *                    'off'/false = 完全不开（一个首帧都不注入）。
+ *                    ★VF_I2VSUIT_V1：'all' 会**不按素材类型筛选**（界面/海报类也照做）。
  * @param o.max       每片最多几张图（默认 6，费用硬闸）
  * @param o.declareMix 是否顺带声明 source='mix' + mix=镜号（默认 true）——
  *                    chat/route.ts 的护栏要求：给了 i2vShots 却不声明来源会直接 TOOL_REJECT。
@@ -196,8 +199,13 @@ export function buildI2vShots(o: {
   declareMix?: boolean
   summaryByPath?: Record<string, string> | Map<string, string> | null
 }): I2vBuildResult {
-  const rawEnabled = String(o?.enabled ?? 'on')
-  const allOn = rawEnabled === 'all'               // ★VF_I2VSUIT_V1：用户手动全开（不筛素材类型）
+  // ★VF_I2VDFLT_V1（2026-09-30 用户实测定案）：**默认回到「全部动起来」** ——
+  //   用户原话：「前面 1500 的动效是可以的，质量不错。后面这 280 和 25 的确实差很多。」
+  //   上一版把「智能筛」设成默认 → 用户素材多是界面截图/海报 → 几乎全被跳过 → 卡片金额从 1500 点
+  //   掉到 280 点（只 1 张动）/ 25 点（0 张动）→ 观感明显变差。
+  //   所以：**未传 / 缺省 = 'all'（全部动）**；智能筛改为用户主动选（'on'）；'off' = 全静态。
+  const rawEnabled = String(o?.enabled ?? 'all')
+  const allOn = rawEnabled === 'all'               // ★VF_I2VSUIT_V1：全部动（不筛素材类型）；★VF_I2VDFLT_V1 起是默认
   const enabled = o?.enabled !== false && rawEnabled !== 'off'
   const max = Number(o?.max) > 0 ? Number(o.max) : VF_I2V_MAX_IMAGES
   const plan: I2vPlan = enabled
@@ -208,7 +216,7 @@ export function buildI2vShots(o: {
   if (!enabled) {
     notes.push('设置卡选了「保持静态」→ 一个首帧都不注入（也不额外计费）')
   } else if (allOn) {
-    notes.push('设置卡选了「全部动起来」→ 跳过"有没有主体可动"的筛选（界面/海报类也照做）')
+    notes.push('设置卡选了「全部动起来」（★默认）→ 跳过"有没有主体可动"的筛选（界面/海报类也照做）')
   }
   if (enabled && plan.images) {
     // 注意措辞：注入的镜数 ≥ 唯一图张数（同图的后续镜也在名单里，靠 make.py 缓存复用同一段动图）
@@ -246,6 +254,32 @@ export function buildI2vShots(o: {
 /** 让图动起来的点数（与 make_ai_video 的混合口径**逐字一致**：ceil(秒 × 50)） */
 export function i2vCostPoints(sec: number): number {
   return Math.ceil(Math.max(0, Number(sec) || 0) * VF_I2V_POINTS_PER_SEC)
+}
+
+/* ══════════════════ ★VF_I2VDFLT_V1（2026-09-30）—— 卡片「可见性」辅助 ══════════════════
+ * 用户原话：「还有前面我给你的 5 张图片 增加的效果为什么我看不出来。」
+ *   → 智能筛是**省钱但会让金额变小**的功能：用户看到价格变化必须能立刻知道"哪几张被跳过、为什么"，
+ *     而不是只看到钱变了。所以把 plan 里已有的跳过名单**透到分镜卡**（hint 一句 + 结构化字段）。
+ * 纯函数、零依赖 —— 与 i2v-plan 的其它函数一样可被自测脚本直接跑（不联网、不烧钱）。
+ * ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 被智能筛跳过的图 → 卡片用的结构化清单 `[{name, reason}]`（前端要展示时直接取）。 */
+export function i2vSkippedList(plan: I2vPlan | null | undefined): Array<{ name: string; reason: string }> {
+  return (plan?.unfitSamples || [])
+    .map((x) => ({ name: String(x?.image || ''), reason: String(x?.reason || '') }))
+    .filter((x) => x.name)
+}
+
+/**
+ * 卡片 hint 里的"跳过 N 张"一句话（最多列 3 个 + "等"）—— 例如：
+ *   `⏭ 智能筛跳过 4 张（动了也看不出）：a.jpg、b.jpg、c.jpg 等`
+ * 没有跳过（或没名单）→ 空串（调用方直接拼上去，不必再判空）。
+ */
+export function i2vSkipHint(names: string[], n: number): string {
+  const list = (Array.isArray(names) ? names : []).map((x) => String(x || '')).filter(Boolean)
+  const total = Math.max(0, Number(n) || 0) || list.length
+  if (!total || !list.length) return ''
+  return `⏭ 智能筛跳过 ${total} 张（动了也看不出）：${list.slice(0, 3).join('、')}${total > 3 ? ' 等' : ''}`
 }
 
 /**

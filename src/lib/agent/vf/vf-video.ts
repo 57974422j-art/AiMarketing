@@ -38,6 +38,10 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
 //   把那边的 shots + keyByPath 传进同一个函数即可（默认仍然只在图视混剪开启）。
 import { buildI2vShots, i2vKeyMap } from './i2v-plan'
 import type { I2vBuildResult, I2vPlan } from './i2v-plan'
+// ★VF_I2VDFLT_V1（2026-09-30 用户定案）：把「关掉动图 / 保持静态 / 全部动起来 / 智能筛」这句话
+//   解析成 i2v 取值（协议串 VF_I2V_OFF: 也认）—— 与闸门（standard-commands.ts）共用同一份规则，
+//   保证"放行的那句话"和"真的能改设置的那句话"完全一致。standard-commands.ts 零依赖，不违反本文件约束。
+import { i2vIntentOf } from '../standard-commands'
 // ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对『有主体可动』的素材开」）：
 //   把"图片本地路径 → 识别摘要"的映射建出来（纯函数），交给 buildI2vShots 逐图分类 ——
 //   界面/截图/海报/文字页这类"动起来也看不出"的直接跳过（省钱），并在日志里说明为什么。
@@ -72,9 +76,12 @@ export interface VfVideoDraft {
   aspectResolved?: string
   cover?: number
   subLen?: number
-  /** ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪逐镜图生视频」）：'on'（默认）| 'off'
-   *  ★VF_I2VSUIT_V1（2026-09-30）：额外支持 'all' = 手动全开（不按素材类型筛选，全部图片镜都做）。
-   *  设置卡上「🎞 让图动起来」开关 → 关掉就**完全不注入首帧**（不做图生视频、不计费）。 */
+  /** ★VF_I2VDFLT_V1（2026-09-30）：本次分镜用到的图片张数（分镜卡重出时显示"看完 N 张图"用） */
+  imgN?: number
+  /** ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪逐镜图生视频」）：'all' | 'on' | 'off'
+   *  ★VF_I2VDFLT_V1（2026-09-30 用户定案）：**'all' = 全部动起来 = 默认**（未传/缺省也按 'all'）；
+   *   'on' = 智能筛（只对有主体可动的素材开，省钱，用户主动选）；'off' = 全部静态（不注入、不计费）。
+   *  ★VF_I2VSUIT_V1：'all' 不按素材类型筛选（界面/海报类也照做）。 */
   i2v?: string
   /** ★VF_I2VSUIT_V1（2026-09-30 用户定案）：图片本地路径 → 识别摘要（判断"有没有主体可动"）。
    *  为什么存进草稿：起草时算过一次 i2v 计划（报价），出片时还要**用同一份摘要**再算一次（实扣）——
@@ -285,7 +292,8 @@ export function i2vBuildOf(vd: VfVideoDraft): I2vBuildResult {
   return buildI2vShots({
     shots: vd?.shots || [],
     keyByPath: vd?.i2vKeys || {},
-    enabled: vd?.i2v ?? 'on',
+    // ★VF_I2VDFLT_V1：缺省 = 'all'（全部动起来）—— 旧草稿没这个字段时也回到"全部动"
+    enabled: vd?.i2v ?? 'all',
     // ★VF_I2VSUIT_V1：把"图片本地路径 → 识别摘要"透给通用函数 → 只对有主体可动的素材开。
     //   旧草稿没有这个字段（undefined）→ 不过滤（保持旧行为；用户重排一次分镜即可拿到筛选）。
     //   'all' 时 buildI2vShots 内部会忽略本参数（用户手动全开）。
@@ -711,6 +719,8 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   vd.aspectResolved = aspect
   vd.cover = cover
   vd.subLen = subLen
+  // ★VF_I2VDFLT_V1：把"本次用了几张图"也存草稿 —— 分镜卡「🚫 关掉动图重出」重出卡时要用它显示"看完 N 张图"
+  vd.imgN = imgPaths.length
   vd.step = 'script'
   VF_VIDEO_DRAFT.set(uid, vd)
   await saveVfVideoDraft(ctx.prisma, uid, vd)
@@ -726,7 +736,9 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   logI2vNotes(ctx, _i2vB.notes)
   return ctx.vfScriptCard(
     // i2vSec / i2vImages 只给【本线】用：分镜卡据此把"让图动起来"的钱**如实显示**（不许藏成本）
-    { ...vd, voiceList: ctx.voiceList, source: '', i2vSec: _i2vB.plan.sec, i2vImages: _i2vB.plan.images },
+    // ★VF_I2VDFLT_V1：把"被智能筛跳过的图"一起透到卡片（hint 一句 + 结构化 i2vSkipped）
+    { ...vd, voiceList: ctx.voiceList, source: '', i2vSec: _i2vB.plan.sec, i2vImages: _i2vB.plan.images,
+      i2vSkipped: _i2vB.plan.unfitSamples, i2vSkippedN: _i2vB.plan.skippedUnfit },
     shotsOut, imgPaths.length, brief, aspect, cover, estSec,
   )
 }
@@ -745,7 +757,10 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         step: 'form', topic, aspect: 'auto', dur: 30,
         voice: (ctx.voiceList && ctx.voiceList[0] && ctx.voiceList[0].id) || 'longxiaochun',
         theme: 'dark', bgm: '', uploaded: [], script: '', brief: '', keepAudio: false,
-        i2v: 'on',   // ★VF_VIDI2V_V1：默认让图动起来（老板定案「开」；设置卡可关）
+        // ★VF_I2VDFLT_V1（2026-09-30 用户定案）：默认 = 'all'（全部动起来，和以前一样）——
+        //   用户原话：「前面 1500 的动效是可以的……后面这 280 和 25 的确实差很多」。
+        //   'on'（智能筛）改为用户主动选；'off' = 保持静态。
+        i2v: 'all',
         pin: 'on',   // ★VF_BANNER_V1：默认出「顶部固定标题」（老板定案「默认开，方便自动化」；设置卡可关）
         pin1: '', pin2: '',   // ★VF_BANNER_PIN2_V1：默认留空 = AI 自动拟两行（用户在设置卡手填则以他为准）
       }
@@ -765,8 +780,9 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         if (f.theme) vd.theme = String(f.theme)
         if (f.bgm) vd.bgm = String(f.bgm)
       if (f.big) vd.big = String(f.big)   // ★OVERLAY_TEXT_SWITCH_V1：'on' | 'off'
-        // ★VF_VIDI2V_V1：'on'（默认，让图动起来）| 'off'（全静态图，不额外计费）
-        // ★VF_I2VSUIT_V1（2026-09-30）：额外支持 'all' = 手动全开（不按素材类型筛选，全部图片镜都做）
+        // ★VF_VIDI2V_V1：'off'（全静态图，不额外计费）| 'on'（智能筛，只动有主体可动的图）
+        // ★VF_I2VDFLT_V1（2026-09-30 用户定案）：'all'（全部动起来）= **默认**（缺省即它）
+        // ★VF_I2VSUIT_V1（2026-09-30）：'all' = 不按素材类型筛选（界面/海报类也照做）
         if (f.i2v) {
           const _i2vV = String(f.i2v)
           vd.i2v = _i2vV === 'off' ? 'off' : (_i2vV === 'all' ? 'all' : 'on')
@@ -795,6 +811,31 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         return await draftAndCard(ctx, vd)
       }
       return '视频混剪：请在上面选好 时长/画幅/音色，点「🚀 开始出片」；或直接说个主题。'
+    }
+
+    // ── ★VF_I2VDFLT_V1（2026-09-30 用户定案）：一键改「动图」设置 → 重出确认卡 ──
+    //   来源：① 分镜卡「🚫 关掉动图重出」发的协议串 `VF_I2V_OFF:`；
+    //        ② 用户直接说「关掉动图 / 保持静态 / 全部动起来 / 智能筛」。
+    //   只改草稿 i2v，**不重排分镜、不扣钱**；金额随之变小/变大（用户立刻看得到）。
+    //   为什么走协议串：标准模式是命令白名单锁死，中文人话会被拦（见 standard-commands.ts 的规则）。
+    if (vd.step === 'script' && !!i2vIntentOf(String(userMessage)) && !!vd.shots?.length) {
+      const _iv = i2vIntentOf(String(userMessage)) as 'off' | 'all' | 'on'
+      const _before = i2vBuildOf(vd)
+      vd.i2v = _iv
+      VF_VIDEO_DRAFT.set(uid, vd)
+      await saveVfVideoDraft(ctx.prisma, uid, vd)
+      const _after = i2vBuildOf(vd)
+      logI2vNotes(ctx, _after.notes)   // 改后重新报一遍"动几张 / 为什么没动"
+      const _label = _iv === 'off' ? '保持静态' : (_iv === 'all' ? '全部动起来' : '智能筛')
+      const _delta = _before.points - _after.points
+      ctx.log(uid, `[图生视频] 用户一键${_iv === 'off' ? '关掉' : '改设置'} → 「${_label}」` +
+        `${_iv === 'off' ? '，本片不再生成动图' : ''}（${_before.points} 点 → ${_after.points} 点` +
+        `${_delta > 0 ? `，省 ${_delta} 点` : _delta < 0 ? `，加 ${-_delta} 点` : ''}）`)
+      return ctx.vfScriptCard(
+        { ...vd, voiceList: ctx.voiceList, source: '', i2vSec: _after.plan.sec, i2vImages: _after.plan.images,
+          i2vSkipped: _after.plan.unfitSamples, i2vSkippedN: _after.plan.skippedUnfit },
+        vd.shots || [], Number(vd.imgN) || 0, String(vd.brief || ''), vd.aspectResolved || 'portrait',
+        Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
     }
 
     // ── 卡2b：★VF_PREVIEW_V1（2026-09-29 用户定案 P0①「样板镜先确认」）──

@@ -545,7 +545,10 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   // ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪 → 逐镜图生视频，50 点/秒」）：
   //   「🎞 让图动起来」开关 —— 开=每张图片镜先拿首帧生成一段动图（4~8 秒 ≈ 200~400 点/张，
   //   同一张图只生成一次）；关=全部静态图 + Ken Burns（不额外花钱）。默认开。
-  const [i2v, setI2v] = useState(vj.i2v || 'on')
+  // ★VF_I2VDFLT_V1（2026-09-30 用户定案）：默认 = 'all'（全部动起来，和以前一样）。
+  //   用户原话：「前面 1500 的动效是可以的……后面这 280 和 25 的确实差很多」
+  //   → 上一版把"智能筛"设成默认、几乎全被跳过 → 金额骤降。现在智能筛改为用户主动选。
+  const [i2v, setI2v] = useState(vj.i2v || 'all')
   // ★VF_BANNER_V1（2026-09-29 用户定案）：「📌 顶部固定标题」开关 —— 开=AI 自动拟两行（黄字黑边 +
   //   半透明色块白字），全程钉在画面顶部不动；关=不画。默认「自动」（用户要"默认这样，方便后期集成自动化"）。
   const [pin, setPin] = useState(vj.pin || 'on')
@@ -736,20 +739,20 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">🎞 让图动起来 <span className="text-gray-600">（图片镜用首帧生成 4~8 秒动图 ≈ 250 点/张；同一张图只算一次）</span></div>
         <div className="flex flex-wrap gap-1.5">
-          {/* ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对『有主体可动』的素材开」）：
+          {/* ★VF_I2VDFLT_V1（2026-09-30 用户定案）：默认回到「全部动起来」——
+              用户原话「前面 1500 的动效是可以的……后面这 280 和 25 的确实差很多」。
               三档 ——
-                on  = 只给**适合动**的图做（人物/产品/实拍/风景）；海报、界面截图、图表这类**自动跳过**
-                      （用户实测原话：「3 张动图……没看出它动，只有一个光影闪过，这钱花的不值」）
-                all = **全部动起来**（忽略筛选，海报/截图也做）—— 想全动就选这个，钱按实际张数算
-                off = 全静态（只花素材钱，不额外计费）
+                all = **全部动起来（默认，和以前一样）**：每张图片镜都做，钱按实际张数算
+                on  = **智能筛**（只动有主体可动的图，省钱）：海报、界面截图、图表这类**自动跳过**
+                off = **保持静态**（只花素材钱，不额外计费）
               服务端契约：'off'→off / 'all'→all / 其余→on（见 i2v-plan.buildI2vShots 注释）。 */}
-          {R(i2v, 'on', '🎞 动起来（推荐）', setI2v)}
-          {R(i2v, 'all', '🎞 全部都动', setI2v)}
-          {R(i2v, 'off', '🚫 保持静态', setI2v)}
+          {R(i2v, 'all', '🎞 全部动起来（默认，和以前一样）', setI2v)}
+          {R(i2v, 'on', '🎞 智能筛（只动有主体可动的图，省钱）', setI2v)}
+          {R(i2v, 'off', '🚫 保持静态（只花素材钱）', setI2v)}
         </div>
         <div className="text-[10px] text-gray-500 mt-1">
-          （「图片成片」与「图视混剪」两条线都生效；「动起来」会**自动跳过**海报/界面截图这类"动了也看不出"的图，
-          报价按实际要动的张数算；想全部动就选「全部都动」；「保持静态」= 不额外花钱）
+          （「图片成片」与「图视混剪」两条线都生效；「智能筛」会**自动跳过**海报/界面截图这类"动了也看不出"的图、
+          报价按实际要动的张数算；「全部动起来」= 每张都做；「保持静态」= 不额外花钱）
         </div>
       </div>
 
@@ -3067,6 +3070,10 @@ function AgentPageInner() {
     if (content.startsWith('VF_BRIEF:')) {
       return <span className="text-emerald-300/80">🔍 已提交修改后的素材结论（写文案与排分镜会用它）</span>
     }
+    // ★VF_I2VDFLT_V1（2026-09-30）：分镜卡「🚫 关掉动图重出」的协议串别把 JSON 显示在气泡里
+    if (content.startsWith('VF_I2V_OFF')) {
+      return <span className="text-amber-200/90">🚫 已改成「保持静态」（不再生成动图）——正在重出确认卡</span>
+    }
     // 2026-09-09: AI 浏览器发布任务已建消息 → 卡片带「重发」按钮
     const buM = content.match(/已创建 AI 浏览器发布任务（#(\d+)）/); const buQ = content.includes('BROWSER_TASK_QUEUED') ? buM : null
     if (buQ) {
@@ -3263,6 +3270,19 @@ function AgentPageInner() {
                     : ((vj.shots || []).some((s: any) => s.type === 'bgimage') ? '（画面用你的素材）' : '')}
                 </div>
               ) : null}
+              {/* ★VF_I2VDFLT_V1（2026-09-30 用户定案）：智能筛跳过的图**明列出来** ——
+                  用户看到金额变化能立刻知道"哪几张被跳过、为什么"，而不是只看到钱变了。
+                  （结构化字段 i2vSkipped `[{name,reason}]` 由服务端卡片给出，前端直接取用。） */}
+              {Number(vj.i2vSkippedN) > 0 && Array.isArray(vj.i2vSkipped) && vj.i2vSkipped.length > 0 && (
+                <div className="text-[10px] text-amber-300/90 mb-1">
+                  ⏭ 智能筛跳过 {vj.i2vSkippedN} 张（动了也看不出）：
+                  {vj.i2vSkipped.slice(0, 3).map((x: any, i: number) => (
+                    <span key={i}>{i > 0 ? '、' : ''}{x?.name}{x?.reason ? `（${x.reason}）` : ''}</span>
+                  ))}
+                  {Number(vj.i2vSkippedN) > 3 ? ' 等' : ''}
+                  <span className="text-gray-500"> —— 想全部动就在设置卡选「🎞 全部动起来」</span>
+                </div>
+              )}
               {/* ★VF_EDIT_V1（2026-09-24 用户定案 B）：清单从"只读"升级成【可逐镜编辑】——
                   改的是【出片前的草稿清单】（不渲染、不扣钱），保存后点「确认出片」按新版出片。
                   片已经出过的，用聊天说「第 N 镜大字改成 X」→ 那条路只重渲染（复用配音）。 */}
@@ -3297,6 +3317,16 @@ function AgentPageInner() {
                     <button onClick={() => sendMessage('先看样板镜')}
                       title="只渲染开头约 8 秒（无配音、不扣点），先看画面风格对不对；满意再点右边「确认出片」"
                       className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-200">🎬 先看样板镜（8 秒）</button>
+                    {/* ★VF_I2VDFLT_V1（2026-09-30 用户定案）：一键关掉动图重出（省 N 点）——
+                        替代让用户手打「关掉图转视频，直接生成」（那句会被标准模式白名单拦）。
+                        发的是**机器协议串**（不是中文人话）：服务端收到后把草稿 i2v 置 'off' 并重出确认卡。 */}
+                    {Number(vj.i2vImages) > 0 && Number(vj.i2vPts) > 0 && (
+                      <button onClick={() => sendMessage('VF_I2V_OFF:' + JSON.stringify({ taskId: vj.taskId || '' }))}
+                        title="这一版不生成动图，改用静态图 + 推拉（不额外花动图的点）；会重出一张金额更小的确认卡"
+                        className="px-4 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/40 text-sm text-amber-100">
+                        🚫 关掉动图重出（省 {vj.i2vPts} 点）
+                      </button>
+                    )}
                     <button onClick={() => sendMessage('确认')}
                     title={vj.source === 'ai'
                       ? '画面将由 AI 逐镜生成（约 50 点/秒）；生成较慢，实测每 6 秒画面约需 100 秒'
