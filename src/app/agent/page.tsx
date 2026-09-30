@@ -711,6 +711,13 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           {R(theme, 'journal', '📔 手账暖色', setTheme)}
           {R(theme, 'vivid', '🔥 高饱和电商', setTheme)}
           {R(theme, 'mono', '⬛ 杂志黑白', setTheme)}
+          {/* ★VF_STYLE_V1（2026-09-30 用户定案「先固定新闻资讯和科技数据」）：
+              两套"编辑风"——用户看了 5 张博主视频截图后要的：
+                news = 深蓝底 + 蓝底白字小标签条 + 白色信息卡 + 黑色横条 + 英文副标（报纸/电视台观感）
+                data = 近黑青底 + 青色强调 + 深色数据卡 + 超大数字与细线
+              ⚠️ 用户定案：**主题由用户定死、AI 不许改**（服务端 lockUserTheme 会把 AI 写的 theme 删掉）。 */}
+          {R(theme, 'news', '📰 新闻资讯', setTheme)}
+          {R(theme, 'data', '📊 科技数据', setTheme)}
         </div>
       </div>
 

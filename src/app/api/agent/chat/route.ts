@@ -23,7 +23,7 @@ import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY } from '@/lib/age
 //   纯函数零依赖（同 standard-commands.ts），静态 import 安全。
 // ★VF_AI_PICK_V1（2026-09-29）：pickDesignFields —— AI 自选的 theme/variant/motion/transition
 //   在**显式造对象**的 bgimage 分支里必须带上（否则 AI 的选择被归一化静默丢掉）。
-import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields } from '@/lib/agent/vf/anti-ai'
+import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme } from '@/lib/agent/vf/anti-ai'
 // ★VF_VIDI2V_V1（2026-09-29）：「让图动起来」的计费口径（50 点/秒）与出片侧 vf-video.ts **共用同一份公式** ——
 //   卡片报价与实扣同源，免得又出现"卡片报 205 点、实扣 1500 点"。
 import { i2vCostPoints, vfTotalCostPoints, buildI2vShots, i2vKeyMap } from '@/lib/agent/vf/i2v-plan'
@@ -4025,6 +4025,12 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_POOL_V1（2026-09-30）：同一张图不重复（归一化后兜底 / 素材不足则至少隔 2 镜）
                 //   + 把本份用到的图记进"最近用过"（下次起草降权）。AI 模式无 bgimage → 自动 no-op。
                 await vfRememberUsedImages(uidVF2, vfDedupeImageShots(uidVF2, vfShots, vfImgs))
+                // ★VF_THEMELOCK_V1（2026-09-30 用户定案「1 确定同意」）：**主题由用户定死，AI 不许改**。
+                //   事故：浅色主题（文字近黑）压在深色素材上"基本看不见"（用户实测）；AI 还能在镜里写 theme。
+                {
+                  const _tl = lockUserTheme(vfShots, vd.theme)
+                  if (_tl.notes.length) vfLog(uidVF2, '[主题] ' + _tl.notes.join('；'))
+                }
                 // 存进草稿：**「重试分镜」时不用重新取素材/看图**（直接复用）
                 vd.imgs = vfImgs
                 vd.brief = String(vfBrief || '').slice(0, 1500)
@@ -4290,6 +4296,11 @@ PUBLISH_DRAFT.delete(uidW)
               // ★VF_POOL_V1（2026-09-30）：重排分镜同样做"同一张图不重复"兜底（复用同一份纯函数）——
               //   与首次起草同口径；并更新"最近用过"（重排后实际用到的图才算）。
               await vfRememberUsedImages(uidVF2, vfDedupeImageShots(uidVF2, vfAgain, vd.imgs || []))
+              // ★VF_THEMELOCK_V1：重排分镜同样锁定主题（与首次起草同口径）
+              {
+                const _tl2 = lockUserTheme(vfAgain, vd.theme)
+                if (_tl2.notes.length) vfLog(uidVF2, '[主题] ' + _tl2.notes.join('；'))
+              }
               const vfAgainSub = vfAgain.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
               const vfAgainCover = vd.script ? vfAgainSub / String(vd.script).length : 0
               const vfAgainEst = Math.round(vfAgainSub / 4.5)

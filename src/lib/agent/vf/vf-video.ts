@@ -29,7 +29,7 @@
 // ★VF_ANTIAI_V1（2026-09-29 用户定案「按建议顺序执行」）：「反 AI 味清单」的提示词 + 服务端兜底。
 //   与 standard-commands.ts 同类：**纯函数、零依赖**（不碰 prisma、不碰别的线）——
 //   所以这里静态 import 不违反本文件"零 import 连累别的线"的设计约束。
-import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields } from './anti-ai'
+import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme } from './anti-ai'
 // ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪 → 逐镜图生视频，50 点/秒」）：
 //   同图去重 / 每片张数上限 / 计费秒数 全是**纯函数**（同样零依赖）—— 且与报价侧
 //   （chat/route.ts 的 vfScriptCard 成本 + make_ai_video 实扣）共用同一份公式，避免报价与实扣漂移。
@@ -662,6 +662,11 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     shotsOut.length = 0
     shotsOut.push(..._anti.shots)
     if (_anti.notes.length) ctx.log(uid, '[VF-V][反AI味] ' + _anti.notes.join('；'))
+    // ★VF_THEMELOCK_V1（2026-09-30 用户定案「1 确定同意」）：**主题由用户定死，AI 不许改**。
+    //   事故：用户选了浅色主题（文字近黑）→ 压在深色素材上"基本看不见"；而 AI 还能在镜里写 theme。
+    //   现在：用户选了 → 删掉 AI 写的所有 theme（用户选的说了算）；用户没选 → 保持允许 AI 自选。
+    const _tl = lockUserTheme(shotsOut, vd.theme)
+    if (_tl.notes.length) ctx.log(uid, '[VF-V][主题] ' + _tl.notes.join('；'))
   }
   vd.shots = shotsOut
   // ★VF_VIDI2V_V1：把"本地路径 → 仓库 key"的映射存进草稿 —— 出片（确认那一步）时用它现算 i2vShots

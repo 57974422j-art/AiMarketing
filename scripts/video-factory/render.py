@@ -13,6 +13,7 @@
 用法:
   python render.py --storyboard sb.json --out out.mp4 [--workdir temp/vf] [--audio voice.m4a]
   python render.py --selftest        # 跑一遍内置样例，验证 9 种卡型（含 compare/chart/quote/aivideo）
+                                     # ★VF_STYLE_V1：末尾另加 2 镜冒烟 news（title）/ data（number）两套编辑风
 
 支持的配方卡（先 5 张）:
   title    标题卡（大字 + 淡入）
@@ -386,8 +387,10 @@ def fit_big_text(s, W, H, maxw_ratio=0.86, max_lines=2, fs_max=None, fs_min=None
       实测（720×1280 竖屏）：4 字→1 行 128px；**5 字→1 行 123px**；6 字→1 行 105px；
       8 字→1 行 77px；10 字→2 行 5+5。"""
     txt = clean_big_text(s)
-    fs_max = int(fs_max or max(44, int(H * 0.10)))
-    fs_min = int(fs_min or max(30, int(H * 0.052)))
+    # ★VF_STYLE_V1（2026-09-30）：默认字号改为**按画幅取向**取（横屏 ×1.40）——
+    #   用户实测「统一按竖屏分辨率配的字」；横屏 1280×720 下 0.10H=72 太小。
+    fs_max = int(fs_max or big_fs(W, H, 0.10, 44))
+    fs_min = int(fs_min or big_fs(W, H, 0.052, 30))
     if not txt:
         return [], fs_max
     maxw = W * maxw_ratio
@@ -540,7 +543,7 @@ def card_title(shot, th, W, H, fps):
     """
     font = font_bold(th)          # ★VF_FONTWEIGHT_V1：标题用粗体（层级感）
     dur = float(shot.get('dur', 3))
-    fs = int(shot.get('fontsize', max(64, int(H * 0.13))))
+    fs = int(shot.get('fontsize', big_fs(W, H, 0.13, 64)))   # ★VF_STYLE_V1：按画幅取向取字号
     txc = th.get('text', 'white')
     acc = th.get('accent', '0xff6b35')
     txt = _big_text(shot)
@@ -553,6 +556,77 @@ def card_title(shot, th, W, H, fps):
     #   chip   = 强调色色块垫在大字后面（像标签条，适合短口号）
     _var = variant_of(shot, TITLE_VARIANTS, 'center')
     _motion = motion_of(shot)
+    # ══════════════ ★VF_STYLE_V1（2026-09-30 ②「先固定新闻资讯和科技数据」）══════════════
+    # 用户原话：「我就是单独做的文字页都很空洞配色单一 不灵活」
+    #          「我发了几个博主的视频截图…它这里的【文字配色】和还有【每个都有渐进效果 分段插入】」
+    # 参考图的设计语言 → 本分支（只对 news/data 两套编辑风主题生效）：
+    #   ① 小标签条 kicker（蓝底白字，如「BBC News·前线专栏」）
+    #   ② 信息卡：顶部强调色条 + 大标题 + 细分割线 + 灰字副标（"每块字都有壳"）
+    #   ③ 中文标题 + 英文全大写小字（★用户明确：英文用无衬线 + 超宽字距，别拿中文字体排英文）
+    #   ④ 分段渐次出现：kicker → 标题逐行 → 分割线 → 英文副标，各自错开入场
+    #   注：FFmpeg 的 drawbox 不支持 alpha 表达式（只能 enable 硬切），所以"壳"静态、文字分段渐入。
+    if _is_editorial(th) and _var == 'center' and txt:
+        _card_bg = th.get('cardBg', 'black@0.46')
+        _card_fg = th.get('cardText', txc)
+        _card_sub = th.get('cardSub', txc)
+        _kbg, _kfg = th.get('kickerBg', acc), th.get('kickerText', 'white')
+        _linec = th.get('line', 'white@0.30')
+        _enfont = esc_path(find_font(th.get('enFont', 'arial')))
+        _kick = str(shot.get('kicker') or shot.get('tag') or shot.get('eyebrow') or '').strip()[:18]
+        _en = str(shot.get('en') or shot.get('enTitle') or shot.get('enSub')
+                  or shot.get('sub_en') or '').strip()[:48]
+        _pad = max(18, int(fs * 0.44))
+        _ratio = max(0.40, (int(W * 0.86) - 2 * _pad) / float(W))
+        _lines, fs = fit_big_text(txt, W, H, fs_max=fs, max_lines=2, maxw_ratio=_ratio)
+        _rows = max(1, len(_lines))
+        _gl = int(fs * 1.34)
+        _kfs = max(20, int(fs * 0.30))
+        _kpad = max(8, int(_kfs * 0.40))
+        _kbar_h = _kfs + 2 * _kpad
+        _efs = max(18, int(fs * 0.32))
+        # ★英文副标必须放得进信息卡（实测 'NORTH KOREA DEPLOYMENT CRISIS' 会顶出卡的右边）：
+        #   先逐档缩字号，实在还长就截断 —— 宁可短一点，也不许溢出卡面。
+        _etrack = _track(_en)
+        _ew = max(80, int(W * 0.86) - 2 * _pad)
+        while _efs > 12 and est_text_w(_etrack, _efs) > _ew:
+            _efs = int(_efs * 0.94)
+        while _etrack and est_text_w(_etrack, _efs) > _ew:
+            _etrack = _etrack[:-2]
+        _kick_h = (_kbar_h + int(fs * 0.30)) if _kick else 0
+        _en_h = int(_efs * 1.9) if _en else 0
+        _cx, _cw = int(W * 0.07), int(W * 0.86)
+        _ch = _pad * 2 + _gl * _rows + _kick_h + _en_h
+        _cy = int(H * 0.5 - _ch * 0.5)
+        em = [
+            f"drawbox=x={_cx}:y={_cy}:w={_cw}:h={_ch}:color={_card_bg}:t=fill",
+            f"drawbox=x={_cx}:y={_cy}:w={_cw}:h={max(6, int(fs * 0.10))}:color={acc}@0.95:t=fill",
+        ]
+        _y = _cy + _pad
+        if _kick:
+            _kbw = int(est_text_w(_kick, _kfs) + _kpad * 2)
+            em.append(f"drawbox=x={_cx + _pad}:y={_y}:w={_kbw}:h={_kbar_h}:color={_kbg}@0.95:t=fill")
+            em.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(_kick)}':fontsize={_kfs}:"
+                f"fontcolor={_kfg}:x={_cx + _pad + _kpad}:y={_y + _kpad}:"
+                f"alpha='min(max(t-0.15,0)/0.4,1)'")
+            _y += _kbar_h + int(fs * 0.30)
+        for _i, _ln in enumerate(_lines):
+            em.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(_ln)}':fontsize={fs}:"
+                f"fontcolor={_card_fg}:x={_cx + _pad}:y={_y + _i * _gl}:"
+                f"alpha='min(max(t-{0.35 + 0.22 * _i:.2f},0)/0.5,1)'")
+        _y += _gl * _rows
+        if _en:
+            em.append(f"drawbox=x={_cx + _pad}:y={_y + int(_efs * 0.35)}:w={int(_cw * 0.26)}:"
+                      f"h={max(2, int(fs * 0.03))}:color={_linec}:t=fill")
+            em.append(
+                f"drawtext=fontfile='{_enfont}':text='{esc_text(_etrack)}':fontsize={_efs}:"
+                f"fontcolor={_card_sub}:x={_cx + _pad}:y={_y + int(_efs * 0.95)}:"
+                f"alpha='min(max(t-0.75,0)/0.5,1)'")
+        print('[VF] 编辑风标题卡（%s）：信息卡 + 顶部强调条%s%s'
+              % (th.get('id'), ' + 小标签条' if _kick else '', ' + 英文副标（无衬线/宽字距）' if _en else ''))
+        return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
+                ','.join([p for p in em if str(p).strip()]), dur)
     _gap_line = int(fs * 1.34)
     _block_top = int(H * 0.5 - _gap_line * len(_lines or [txt]) * 0.5)
     _bar_h = max(6, int(fs * 0.09))
@@ -652,7 +726,7 @@ def card_list(shot, th, W, H, fps):
     font = esc_path(find_font(th.get('font', 'msyh')))
     items = _norm_items(shot)      # ★VF_EMPTYITEMS_V1：兼容 dict/别名/空，绝不再让 items 为空数组坑到滤镜
     dur = float(shot.get('dur', max(2.5, 1.4 * len(items) + 1)))
-    fs = int(shot.get('fontsize', max(40, int(H * 0.075))))
+    fs = int(shot.get('fontsize', big_fs(W, H, 0.075, 40)))   # ★VF_STYLE_V1：按画幅取向取字号
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
     parts = []
     y0 = int(H * 0.30)
@@ -665,6 +739,60 @@ def card_list(shot, th, W, H, fps):
     # ★VF_VARIANT_V1（2026-09-29 P1）：列表卡两种版式（AI 可写 variant，白名单外的值回 steps）
     #   steps（默认，老样式）= 一项=一步、逐项揭示（讲解节奏）· stack = 整板同时出现 + 每项前强调色方块（"清单"观感）
     _var = variant_of(shot, LIST_VARIANTS, 'steps')
+    # ══════════════ ★VF_STYLE_V1（2026-09-30 ②编辑风列表：超大编号 + 黑色横条 + 逐条插入）══════════════
+    # 参考图设计：左侧【超大编号】(1/2/3…) + 右侧【黑色半透明横条】里放白字标题，逐条出现。
+    # 用户明确「每个都有渐进效果 分段插入」→ 新风格里**默认就是逐条**（不依赖 AI 写 variant）。
+    # 实现说明（★2026-09-30 现场实测修正，别改回去）：
+    #   **drawbox 的 w/h 表达式只在初始化时求值一次，不逐帧** —— 本机用
+    #   `drawbox=w='100*min(t,1)'` 实测：t=0.3s 时就已经是满宽（不是"生长"）。
+    #   所以横条改用 `enable='gte(t,起点)'` **按时间点插入**（drawbox 支持 enable，已实测有效），
+    #   文字用 alpha 表达式错后 0.22s 淡入 —— 合起来就是"编号/横条先插进来，字随后跟上"。
+    if _is_editorial(th) and items:
+        _bar_bg = th.get('barBg', 'black@0.70')
+        _bar_fg = th.get('barText', 'white')
+        _kbg, _kfg = th.get('kickerBg', acc), th.get('kickerText', 'white')
+        _bar_x = int(W * 0.19)
+        _bar_maxw = int(W * 0.86) - _bar_x
+        _padb = max(14, int(fs * 0.42))
+        _maxw = max(int(W * 0.20), _bar_maxw - 2 * _padb)
+        _lw = max([est_text_w(it, fs) for it in items] or [0])
+        if _lw > _maxw:
+            fs = max(18, int(fs * _maxw / float(_lw)))          # 最长那条也放得下（不溢出色条）
+        _nfs = max(30, int(fs * 1.15))
+        _num_x = int(W * 0.07)
+        _y0 = int(H * 0.30)
+        _avail = max(int(H * 0.40), int(H * 0.92) - _y0)
+        _rowh = max(int(fs * 1.25), _avail // max(1, len(items)))
+        _rowoff = max(0, (_avail - _rowh * len(items)) // 2)
+        _bh = min(int(fs * 1.30), max(24, _rowh - max(4, int(_rowh * 0.10))))
+        ep = []
+        if shot.get('title'):
+            _tfs = max(20, int(fs * 0.44))
+            _tpad = max(8, int(_tfs * 0.40))
+            _tw = int(est_text_w(str(shot['title'])[:16], _tfs) + _tpad * 2)
+            ep.append(f"drawbox=x={_num_x}:y={int(H * 0.15)}:w={_tw}:h={_tfs + 2 * _tpad}:"
+                      f"color={_kbg}@0.95:t=fill")
+            ep.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(str(shot['title'])[:16])}':fontsize={_tfs}:"
+                f"fontcolor={_kfg}:x={_num_x + _tpad}:y={int(H * 0.15) + _tpad}:alpha='min(t/0.5,1)'")
+        for _i, _it in enumerate(items):
+            _ry = _y0 + _rowoff + _i * _rowh
+            _t_on = 0.35 + _i * step
+            _bw = max(int(W * 0.26), min(int(est_text_w(_it, fs) + _padb * 2), _bar_maxw))
+            ep.append(
+                f"drawtext=fontfile='{font_bold(th)}':text='{_i + 1}':fontsize={_nfs}:"
+                f"fontcolor={acc}:x={_num_x}:y={_ry - int(fs * 0.16)}:"
+                f"alpha='min(max(t-{_t_on:.2f},0)/0.4,1)'")
+            ep.append(
+                f"drawbox=x={_bar_x}:y={_ry}:w={_bw}:h={_bh}:color={_bar_bg}:t=fill"
+                f":enable='gte(t,{_t_on:.2f})'")
+            ep.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(_it)}':fontsize={fs}:"
+                f"fontcolor={_bar_fg}:x={_bar_x + _padb}:y={_ry + (_bh - fs) // 2}:"
+                f"alpha='min(max(t-{_t_on + 0.22:.2f},0)/0.4,1)'")
+        print('[VF] 编辑风列表卡（%s）：超大编号 + 横条 + 逐条插入（%d 条）' % (th.get('id'), len(items)))
+        return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
+                ','.join([p for p in ep if str(p).strip()]), dur)
     for i, it in enumerate(items):
         t_on = 0.5 + i * step
         if _var == 'stack':
@@ -713,7 +841,7 @@ def card_number(shot, th, W, H, fps):
     val = int(_v)
     suf = esc_text(shot.get('suffix', ''))
     dur = float(shot.get('dur', 3))
-    fs = int(shot.get('fontsize', max(90, int(H * 0.22))))
+    fs = int(shot.get('fontsize', big_fs(W, H, 0.22, 90)))   # ★VF_STYLE_V1：按画幅取向取字号
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
     # ★VF_TEXTFIT_V1：数字+后缀一起按字数反算字号（实测 '1700%' 在 fs=281 时宽约 1000px
     #   > 720px，两边都被切掉；`%` 修好之后这个溢出才暴露出来）
@@ -721,6 +849,40 @@ def card_number(shot, th, W, H, fps):
     fs = min(fs, max(int(H * 0.06), int(W * 0.86 / max(1, len(_ntxt)))))
     # ★VF_VARIANT_V1（2026-09-29 P1「number 卡版式变体」）：center（默认居中）/ left（左对齐）
     _var = variant_of(shot, ('center', 'left'), 'center')
+    # ══════════════ ★VF_STYLE_V1（2026-09-30 ②编辑风数字卡）══════════════
+    # 参考图设计：数字当主角 —— 【超大数字】+【小字单位（同色系）】+【细分隔线】+ 说明小字。
+    # 老实现把单位直接拼在数字后面、同样大小（"300+" 一串），层级全平；这里把单位降为小字。
+    if _is_editorial(th) and _var == 'center':
+        _bfont = font_bold(th)
+        _suf_txt = str(shot.get('suffix') or '').strip()
+        _ufs = max(18, int(fs * 0.30))
+        _numw = int(est_text_w(str(val), fs))
+        _sufw = int(est_text_w(_suf_txt, _ufs)) if _suf_txt else 0
+        _gap = int(fs * 0.12) if _suf_txt else 0
+        _x0 = max(int(W * 0.06), int((W - (_numw + _gap + _sufw)) / 2))
+        _ny = int(H * 0.5) - int(fs * 0.62)
+        _rate = val / max(dur * 0.66, 0.1)
+        dp = [
+            f"drawtext=fontfile='{_bfont}':text='%{{eif\\:min(t*{_rate:.1f}\\,{val})\\:d}}':"
+            f"fontsize={fs}:fontcolor={acc}:x={_x0}:y={_ny}",
+        ]
+        if _suf_txt:
+            dp.append(
+                f"drawtext=fontfile='{_bfont}':text='{esc_text(_suf_txt)}':fontsize={_ufs}:"
+                f"fontcolor={acc}@0.85:x={_x0 + _numw + _gap}:"
+                f"y={_ny + int(fs * 0.72) - int(_ufs * 0.72)}")
+        _dvy = _ny + int(fs * 1.06)
+        _dvw = int(W * 0.26)
+        dp.append(f"drawbox=x={(W - _dvw) // 2}:y={_dvy}:w={_dvw}:h={max(2, int(fs * 0.030))}:"
+                  f"color={th.get('line', 'white@0.30')}:t=fill")
+        if shot.get('label'):
+            dp.append(
+                f"drawtext=fontfile='{_bfont}':text='{esc_text(shot['label'])}':"
+                f"fontsize={max(20, int(fs * 0.26))}:fontcolor={txc}:x=(w-text_w)/2:"
+                f"y={_dvy + int(H * 0.045)}:alpha='min(max(t-0.35,0)/0.6,1)'")
+        print('[VF] 编辑风数字卡（%s）：超大数字 + 小字单位 + 细分隔线' % th.get('id'))
+        return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
+                ','.join([p for p in dp if str(p).strip()]), dur)
     if _var == 'left':
         _x0 = int(W * 0.10)
         _lparts = [
@@ -763,12 +925,12 @@ def card_image(shot, th, W, H, fps):
         z = f"zoom='max(1.15-0.15*on/{frames},1.0)'"
     else:  # panright 等先归一到轻微放大
         z = f"zoom='min(1+0.10*on/{frames},1.10)'"
+    # ★VF_STYLE_V1（2026-09-30 ③底图清晰度）：老代码一律 sigma=32 高斯模糊铺底（"底图有点模糊"）。
+    #   现在交给 _bg_filters 三选一：接近画幅→直接裁切（清晰）/ 填不满→轻模糊(sigma=16) / 太小→不放大。
+    _pre, _mode = _bg_filters(src, W, H)
     vf = (
-        f"split=2[bg0][fg0];"
-        f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
-        f"[fg0]scale={W}:{H}:force_original_aspect_ratio=decrease[fgs];"
-        f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[smooth];"
-        # ★2026-09-20：与 card_bgimage 一致 —— 不再 increase+crop 裁切，改用模糊铺底 + 完整图居中
+        _pre +
+        # ★2026-09-20：与 card_bgimage 一致 —— 不再 increase+crop 裁切，改用铺底 + 完整图居中
         f"[smooth]zoompan={z}:d={frames}:s={W}x{H}:fps={fps},"
         f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"
     )
@@ -796,30 +958,34 @@ def card_video(shot, th, W, H, fps):
         k = min(1.35, dur / avail)
     _slow = '' if k <= 1.001 else 'setpts=PTS*%.4f,' % k
     font = esc_path(find_font(th.get('font', 'msyh')))
-    fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
+    fs = int(shot.get('fontsize', big_fs(W, H, 0.10, 54)))   # ★VF_STYLE_V1（④）：按画幅取向取字号
     txc = th.get('text', 'white')
+    # ★VF_STYLE_V1（2026-09-30 ①治"字在图片上看不见"）：素材亮度 × 主题字色 → 自动改亮/改暗 + 换底衬
+    _mat = _probe_material(src)
+    txc, _boxc, _ = _mat_text_colors(th, _mat, txc, 'black@0.30')
     # ★VF_TEXTFIT_V2（2026-09-28）：折行优先（最多 2 行），放不下才缩字号 ——
     #   不再"长句一路缩成小字"（那是"同片里大字忽大忽小"的根因）。
     _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
-    _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box='black@0.30') if len(_lines) <= 1 else []
+    _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc) if len(_lines) <= 1 else []
     # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
     _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)) if overlay_text_on() else []
     _bar_y = int(H * 0.72)
+    # ★VF_MATGUARD_V1 同款口径：素材本来就暗（深色录屏）就别再压 15%（否则"一片黑"）
+    _dim = 0.06 if int(_mat.get('lum', 160) or 160) < 78 else 0.15
     _chain = [
-        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
+        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@{_dim}:t=fill",
         f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
     ] + _reveal
     # ★VF_FILTERJOIN_V1（2026-09-30 线上事故防御）：拼滤镜前丢掉空串/纯逗号 ——
     #   事故现场：第 8 镜 bgimage 崩「No such filter: ''」（空滤镜）；根因是某处拼进了空串或尾逗号。
     #   这里统一清洗，以后任何一处忘了判空都不会再让整条片崩掉。
     _chain = [x for x in _chain if str(x).strip().strip(',')]
+    # ★VF_STYLE_V1（③底图清晰度）：视频片段同样不再一律 sigma=32 模糊（用户实测"底图有点模糊"）
+    _pre, _mode = _bg_filters(src, W, H)
     vf = (
-        f"split=2[bg0][fg0];"
-        f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
-        f"[fg0]scale={W}:{H}:force_original_aspect_ratio=decrease[fgs];"
-        f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,"
-        # ★2026-09-20：视频片段同样不再裁切（模糊铺底 + 完整画面居中）
-        f"{_slow}" + ','.join(_chain) + ','
+        _pre +
+        # ★2026-09-20：视频片段同样不再裁切（铺底 + 完整画面居中）
+        f"[smooth]{_slow}" + ','.join(_chain) + ','
         f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"
     )
     if k > 1.001:
@@ -854,24 +1020,28 @@ def card_aivideo(shot, th, W, H, fps):
     #   现复用 card_bgimage 的同款处理：全屏压 15% + 底部字幕区压 30% + 画面大字逐字浮现。
     #   大字取 shot['text']（gen_ai_clips 只改 type/src/src_dur，text 本就保留）。
     font = esc_path(find_font(th.get('font', 'msyh')))
-    fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
+    fs = int(shot.get('fontsize', big_fs(W, H, 0.10, 54)))   # ★VF_STYLE_V1（④）：按画幅取向取字号
     txc = th.get('text', 'white')
-    _reveal = _reveal_seq(shot, font, fs, txc, dur) if overlay_text_on() else []   # ★OVERLAY_TEXT_SWITCH_V1
+    # ★VF_STYLE_V1（2026-09-30 ①）：AI 片段的亮度完全不可控 → 同样按素材体检自动改字色/底衬
+    _mat = _probe_material(src)
+    txc, _boxc, _ = _mat_text_colors(th, _mat, txc, 'black@0.30')
+    _rev = _reveal_seq(shot, font, fs, txc, dur, box=_boxc) if overlay_text_on() else []   # ★OVERLAY_TEXT_SWITCH_V1
+    _reveal = _rev
     _bar_y = int(H * 0.72)
+    _dim = 0.06 if int(_mat.get('lum', 160) or 160) < 78 else 0.15
     _chain = [
-        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
+        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@{_dim}:t=fill",
         f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
     ] + _reveal
     # ★VF_FILTERJOIN_V1（2026-09-30 线上事故防御）：拼滤镜前丢掉空串/纯逗号 ——
     #   事故现场：第 8 镜 bgimage 崩「No such filter: ''」（空滤镜）；根因是某处拼进了空串或尾逗号。
     #   这里统一清洗，以后任何一处忘了判空都不会再让整条片崩掉。
     _chain = [x for x in _chain if str(x).strip().strip(',')]
+    # ★VF_STYLE_V1（③底图清晰度）：AI 片段同样按素材与画幅的关系选铺法（不再一律糊）
+    _pre, _mode = _bg_filters(src, W, H)
     vf = (
-        f"split=2[bg0][fg0];"
-        f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
-        f"[fg0]scale={W}:{H}:force_original_aspect_ratio=decrease[fgs];"
-        f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,"
-        f"{_slow}" + ','.join(_chain) + ','
+        _pre +
+        f"[smooth]{_slow}" + ','.join(_chain) + ','
         f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"
     )
     if k > 1.001:
@@ -884,7 +1054,7 @@ def card_quote(shot, th, W, H, fps):
     """引用卡：大引号 + 引文 + 出处（适合"客户说/专家说"）"""
     font = esc_path(find_font(th.get('font', 'msyh')))
     dur = float(shot.get('dur', 4))
-    fs = int(shot.get('fontsize', max(46, int(H * 0.085))))
+    fs = int(shot.get('fontsize', big_fs(W, H, 0.085, 46)))   # ★VF_STYLE_V1：按画幅取向取字号
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
     parts = [
         # 大引号（用中文引号字符放大当装饰）
@@ -906,7 +1076,7 @@ def card_compare(shot, th, W, H, fps):
     """对比分屏：左右两栏 + 中间分隔线生长的动画"""
     font = esc_path(find_font(th.get('font', 'msyh')))
     dur = float(shot.get('dur', 5))
-    fs0 = int(shot.get('fontsize', max(40, int(H * 0.07))))
+    fs0 = int(shot.get('fontsize', big_fs(W, H, 0.07, 40)))   # ★VF_STYLE_V1：按画幅取向取字号
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
     mid = W // 2
     # ★VF_COMPARE_FIT_V1（2026-09-29 用户实测「排版有很多问题」；本机成片逐帧量到：
@@ -1014,6 +1184,10 @@ def card_compare(shot, th, W, H, fps):
         return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
                 ','.join(bparts), dur)
     parts = []
+    # ★VF_STYLE_V1（2026-09-30 ②）：编辑风这里**只加"细线 + 强调色"，不重排版式**（用户要求别大改）
+    if _is_editorial(th):
+        parts.append(f"drawbox=x={int(W * 0.12)}:y={int(H * 0.13)}:w={int(W * 0.76)}:"
+                     f"h={max(2, int(H * 0.0035))}:color={th.get('line', 'white@0.30')}:t=fill")
     _y_main = int(H * 0.22)
     parts += _col(left_lines, lcx, txc, _y_main, fs_main, ":alpha='min(t/0.5,1)'")
     parts += _col(right_lines, rcx, acc, _y_main, fs_main, ":alpha='min(max(t-0.4,0)/0.5,1)'")
@@ -1051,7 +1225,7 @@ def card_chart(shot, th, W, H, fps):
     items = [it if isinstance(it, dict) else {'label': str(it or ''), 'value': 0}
              for it in items if str(it or '').strip() or isinstance(it, dict)]
     dur = float(shot.get('dur', max(3.0, 1.5 * len(items))))
-    fs = int(shot.get('fontsize', max(32, int(H * 0.055))))
+    fs = int(shot.get('fontsize', big_fs(W, H, 0.055, 32)))   # ★VF_STYLE_V1：按画幅取向取字号
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
     mx = max([float(i.get('value', 0)) for i in items] or [1]) or 1
     bar_max = int(W * 0.62)
@@ -1060,28 +1234,50 @@ def card_chart(shot, th, W, H, fps):
         parts.append(f"drawtext=fontfile='{font}':text='{esc_text(shot['title'])}':fontsize={int(fs * 1.15)}:"
                      f"fontcolor={acc}:x={int(W * 0.08)}:y={int(H * 0.12)}:alpha='min(t/0.5,1)'")
     y0 = int(H * 0.30)
+    # ★VF_STYLE_V1（2026-09-30 ②）：编辑风图表只补一条"底部细线"（强调色细线，别大改版式）
+    if _is_editorial(th):
+        parts.append(f"drawbox=x={int(W * 0.08)}:y={int(H * 0.885)}:w={int(W * 0.84)}:"
+                     f"h={max(2, int(H * 0.003))}:color={th.get('line', 'white@0.30')}:t=fill")
     # ★VF_VARIANT_V1（2026-09-29 P1「chart 卡版式变体」）：bars（默认，左起向右生长）/
     #   rtl（从右往左生长；标签在右、数值在左 —— 排名类数据"从右往左"更符合阅读直觉）
     _var = variant_of(shot, ('bars', 'rtl'), 'bars')
     _fb = font_bold(th)
+    # ★VF_STYLE_V1（2026-09-30 收尾①：修掉图表卡的【假生长动画】）
+    #   老代码写 `w='{bw}*min(max(t-起点,0)/0.8,1)'`，但本机实测：**drawbox 的 w/h 表达式只在
+    #   初始化时求值一次、不逐帧**（`drawbox=w='100*min(t,1)'` 在 t=0.3s 就已经满宽）→ 所谓"生长"
+    #   一直是假的（横条从第 0 帧就满宽）。现在改成 **分段递进 + `enable` 按时间点插入**
+    #   （drawbox 的 `enable` 是逐帧生效的，已实测）：一条横条拆成 _NSEG 段，
+    #   第 k 段宽 = bw*(k+1)/_NSEG，且只在 `t >= 起点 + k*步长` 才出现 → 屏幕上真的在长。
+    #   ⚠️ 别改回"裸 w= 表达式"：那样又变回假动画（vf-style-selftest.py 里已加断言拦它）。
+    _NSEG = 6
+    _GROW = 0.5                                   # 一条横条长满所需秒数
+    _bh_bar = int(fs * 0.7)
+
+    def _bar_filters(x_left, bw, y, rtl=False):
+        """分段递进的一条横条（rtl=True 时从右往左长）"""
+        out = []
+        for _k in range(_NSEG):
+            _wk = max(1, int(bw * (_k + 1) / float(_NSEG)))
+            _tk = t_on + _GROW * _k / float(_NSEG)
+            _x = (x_left - _wk) if rtl else x_left
+            out.append(f"drawbox=x={_x}:y={y}:w={_wk}:h={_bh_bar}:"
+                       f"color={acc}@0.85:t=fill:enable='gte(t,{_tk:.2f})'")
+        return out
+
     for i, it in enumerate(items):
         v = float(it.get('value', 0))
-        t_on = 0.4 + i * 0.5
-        _bw = int(bar_max * v / mx)
-        w_expr = '%d*min(max(t-%.2f,0)/0.8,1)' % (_bw, t_on)
+        t_on = 0.2 + i * 0.5
+        _bw = max(2, int(bar_max * v / mx))
         yb = y0 + i * int(fs * 2.1)
         if _var == 'rtl':
-            _x_r = int(W * 0.92)
-            parts.append(f"drawbox=x='{_x_r}-{w_expr}':y={yb}:w='{w_expr}':h={int(fs * 0.7)}:"
-                         f"color={acc}@0.85:t=fill")
+            parts += _bar_filters(int(W * 0.92), _bw, yb, rtl=True)
             parts.append(f"drawtext=fontfile='{_fb}':text='{esc_text(it.get('label', ''))}':fontsize={fs}:"
                          f"fontcolor={txc}:x={int(W * 0.94)}-text_w:y={yb - int(fs * 0.05)}:alpha='min(max(t-%.2f,0)/0.5,1)'" % t_on)
             parts.append(f"drawtext=fontfile='{_fb}':text='{esc_text(str(it.get('value', '')))}':fontsize={int(fs * 0.9)}:"
                          f"fontcolor={txc}:x={int(W * 0.06)}:y={yb - int(fs * 0.1)}:alpha='min(max(t-%.2f,0)/0.5,1)'"
                          % (t_on + 0.3))
             continue
-        parts.append(f"drawbox=x={int(W * 0.32)}:y={yb}:w='{w_expr}':h={int(fs * 0.7)}:"
-                     f"color={acc}@0.85:t=fill")
+        parts += _bar_filters(int(W * 0.32), _bw, yb)
         parts.append(f"drawtext=fontfile='{_fb}':text='{esc_text(it.get('label', ''))}':fontsize={fs}:"
                      f"fontcolor={txc}:x={int(W * 0.08)}:y={yb - int(fs * 0.05)}:alpha='min(max(t-%.2f,0)/0.5,1)'" % t_on)
         parts.append(f"drawtext=fontfile='{_fb}':text='{esc_text(str(it.get('value', '')))}':fontsize={int(fs * 0.9)}:"
@@ -1122,6 +1318,11 @@ def _avg_rgb(path, ffmpeg):
 #     ② 满字（边缘密度 > 0.11）→ 我们的大字缩小 + 加实底衬（避免"字压字"打架）
 #    ③ 又深又满字（典型：深色 UI 截图）→ 【换主题质感底板】，不硬塞这张图（= 规划里"缺就承认缺"）
 _MAT_CACHE = {}
+# ★VF_STYLE_V1（2026-09-30）：底图清晰度 / 文字对比度自适应用的小缓存与常量
+_SIZE_CACHE = {}          # 素材原始分辨率缓存（ffprobe 只跑一次）
+_BG_LOG_CACHE = set()     # 底图铺法日志去重（同一素材同一铺法只打一条，不刷屏）
+_MAT_TEXT_LOG = set()     # 对比度自适应日志去重（同一主题同一方向只打一条）
+EDITORIAL_THEMES = ('news', 'data')   # 编辑风主题 id（见 themes.py）
 
 
 def _probe_material(path):
@@ -1194,6 +1395,139 @@ def _probe_material(path):
     if key:
         _MAT_CACHE[key] = out
     return out
+
+
+def _probe_size(path):
+    """素材原始分辨率 (w, h)；读不到 → (0, 0)。★VF_STYLE_V1（③底图清晰度：判断"能不能填满画幅"）"""
+    key = str(path)
+    hit = _SIZE_CACHE.get(key)
+    if hit:
+        return hit
+    w = h = 0
+    try:
+        r = subprocess.run([find_ffprobe(), '-v', 'error', '-select_streams', 'v:0',
+                            '-show_entries', 'stream=width,height',
+                            '-of', 'default=noprint_wrappers=1:nokey=1', key],
+                           capture_output=True, text=True, encoding='utf-8',
+                           errors='replace', timeout=30)
+        _v = [x.strip() for x in (r.stdout or '').replace('\r', '').split('\n') if x.strip()]
+        if len(_v) >= 2:
+            w, h = int(float(_v[0])), int(float(_v[1]))
+    except Exception:
+        w = h = 0
+    _SIZE_CACHE[key] = (w, h)
+    return (w, h)
+
+
+def _bg_filters(src, W, H):
+    """★VF_STYLE_V1（2026-09-30，③底图清晰度）
+
+    用户原话：「它这个生动效还行，就是底图有点模糊。底图能清晰一点吗，因为这次做的是大分辨率」
+
+    老做法（本函数覆盖前，4 个带素材的卡型都这么写）：不管素材多大、比例多接近画幅，
+    一律 `scale=increase,crop,gblur=sigma=32,eq=brightness=-0.18` 当底纹 —— 糊得厉害。
+    现在按素材与画幅的关系三选一（返回 (prefix, mode)，prefix 末尾一定产出 [smooth]）：
+      · cover  素材宽高比≈画幅（差 <15%）且尺寸够大 → **直接裁切铺满**（清晰，全程不模糊）
+      · soft   素材填不满画幅（如竖图进横屏）→ **轻模糊**铺底（sigma 32→16、压暗 0.18→0.10）
+      · native 素材比画幅还小（放大一定糊）→ **不放大**：原尺寸居中 + 底面用素材平均色填充
+    """
+    sw, sh = _probe_size(src)
+    if sw <= 0 or sh <= 0:
+        mode, desc = 'soft', '素材尺寸未知 → 轻模糊铺底（sigma=16）'
+    else:
+        _close = abs((sw / float(sh)) - (W / float(H))) / (W / float(H)) < 0.15
+        _small = (sw < W) or (sh < H)              # 想铺满就得放大
+        _tiny = (sw < W * 0.6) or (sh < H * 0.6)   # 小到放大一定糊（>1.6 倍）
+        if _close and not _small:
+            mode, desc = 'cover', '素材接近画幅 → 直接裁切铺满（不模糊）'
+        elif _close and _small:
+            # 比例对得上、就是分辨率不够 → 放大必糊，宁可"原尺寸居中 + 底色填充"
+            mode, desc = 'native', '素材分辨率低于画幅 → 不放大（保清晰）：原尺寸居中 + 底色填充'
+        elif _tiny:
+            # 又小又不合比例 → 同样不放大
+            mode, desc = 'native', '素材太小 → 不放大（保清晰）：原尺寸居中 + 底色填充'
+        else:
+            # 比例差很远（竖图进横屏那种）→ 当底纹用，轻模糊（不再 32 那么糊）
+            mode, desc = 'soft', '素材填不满 → 轻模糊铺底（sigma=16）'
+    if mode == 'cover':
+        pre = (f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}[smooth];")
+    elif mode == 'native':
+        # 不放大：按 min(1, 画幅/素材) 缩到不超画幅（yuv420p 要偶数宽高）
+        _k = min(1.0, W / float(sw), H / float(sh))
+        nw = max(2, int(sw * _k) // 2 * 2)
+        nh = max(2, int(sh * _k) // 2 * 2)
+        pre = (f"split=2[bg0][fg0];"
+               f"[bg0]scale=2:2,scale={W}:{H},eq=brightness=-0.06[bgb];"
+               f"[fg0]scale={nw}:{nh}[fgs];"
+               f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[smooth];")
+    else:
+        pre = (f"split=2[bg0][fg0];"
+               f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+               f"gblur=sigma=16,eq=brightness=-0.10[bgb];"
+               f"[fg0]scale={W}:{H}:force_original_aspect_ratio=decrease[fgs];"
+               f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[smooth];")
+    _tag = (str(src), mode)
+    if _tag not in _BG_LOG_CACHE:
+        _BG_LOG_CACHE.add(_tag)
+        print('[VF] %s（%s）' % (desc, os.path.basename(str(src))[:28] or '(空)'))
+    return pre, mode
+
+
+def _mat_text_colors(th, mat, txc, box='black@0.30'):
+    """★VF_STYLE_V1（2026-09-30，①【最高优先·治线上问题】文字对比度自适应）
+
+    用户原话：「我们本次输入可能是因为我选模版的问题字是黑灰色的，在图片上基本看不见」
+    根因：主题 token 的 text/box 是**固定值** —— 用户选了 light 浅色纸感（字近黑 + 白底衬），
+    压在深色素材上 → 黑字在暗画面上基本看不见。**主题不该决定看不看得见** → 渲染层兜底。
+
+    判定（用已有的素材体检 lum，不做任何新依赖）：
+      · 素材偏暗（lum < 110）且主题字色也偏暗（亮度 < 120）→ 大字改【近白】+ 底衬改【深色】
+      · 素材偏亮（lum ≥ 110）且主题字色偏亮（亮度 ≥ 190）→ 大字改【近黑】+ 底衬改【浅色】
+      · 其余（本来就有反差）→ 原样返回，一个字都不动
+    只改"压在素材上的大字与其底衬"；纯文字卡的底板/字号一律不碰。
+    返回 (文字色, 底衬色, 是否改过)。
+    """
+    lum = int((mat or {}).get('lum', 160) or 160)
+    tl = _lum_of(txc, 255)
+    if lum < 110 and tl < 120:
+        _tag = (str((th or {}).get('id') or ''), 'dark')
+        if _tag not in _MAT_TEXT_LOG:
+            _MAT_TEXT_LOG.add(_tag)
+            print('[VF] 素材偏暗 + 主题文字偏暗 → 本镜大字自动改亮色（避免看不见）')
+        return 'white', 'black@0.45', True
+    if lum >= 110 and tl >= 190:
+        _tag = (str((th or {}).get('id') or ''), 'bright')
+        if _tag not in _MAT_TEXT_LOG:
+            _MAT_TEXT_LOG.add(_tag)
+            print('[VF] 素材偏亮 + 主题文字偏亮 → 本镜大字自动改暗色（避免看不见）')
+        return '0x101418', 'white@0.66', True
+    return txc, box, False
+
+
+def big_fs(W, H, ratio=0.10, floor=44):
+    """★VF_STYLE_V1（2026-09-30，④文字按实际画幅算）
+
+    用户原话：「就是有一点它可能不知道分辨率多少，统一按竖屏分辨率配的字。这个也值得注意。」
+
+    老做法：所有卡型都是 `int(H * ratio)` —— 竖屏 720×1280 出来 128px 很合适，
+    但横屏 1280×720 同样系数只给 72px，字在宽画幅里"缩在中间"，观感就是"按竖屏配的字"。
+    现在按取向分档：横屏（宽高比 ≥1.2）系数 ×1.40，竖屏/方形沿用原系数
+    （8 套老主题在竖屏上的观感**完全不变**，只把横屏补回来）。"""
+    _k = 1.40 if (W / float(H or 1)) >= 1.2 else 1.0
+    return max(int(floor), int(H * float(ratio) * _k))
+
+
+def _is_editorial(th):
+    """这套主题是不是【编辑风】（news / data）—— 决定 title/list/number/end 走不走新卡面设计"""
+    return str((th or {}).get('id') or '').strip().lower() in EDITORIAL_THEMES
+
+
+def _track(s):
+    """英文副标：全大写 + 超宽字距。
+    FFmpeg 的 drawtext 没有 letter-spacing，用"逐字插空格"实现（用户要的就是
+    `NORTH KOREA DEPLOYMENT CRISIS` 那种全大写、拉开字距的观感）。"""
+    t = str(s or '').strip().upper()
+    return ' '.join(t) if t else ''
 
 
 def _shade(hex_color, k):
@@ -1337,7 +1671,7 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         return card_title(shot, th, W, H, fps)
     dur = float(shot.get('dur', 4))
     font = esc_path(find_font(th.get('font', 'msyh')))
-    fs = int(shot.get('fontsize', max(54, int(H * 0.10))))
+    fs = int(shot.get('fontsize', big_fs(W, H, 0.10, 54)))   # ★VF_STYLE_V1（④）：按画幅取向取字号
     txc = th.get('text', 'white')
     _frames = max(1, int(dur * fps))
     _bar_y = int(H * 0.72)
@@ -1381,6 +1715,10 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     #   ★VF_CARDSTYLE_V1：压在照片上的大字加半透明底衬（与素材自带的字在视觉上分开）
     #   ★VF_MATGUARD_V1：素材字多 → 底衬更实（0.30→0.48），否则仍会被素材的字吃掉
     _boxc = 'black@0.48' if _busy else 'black@0.30'
+    # ★VF_STYLE_V1（2026-09-30 ①【最高优先·治线上问题】文字对比度自适应）
+    #   用户原话：「我选模版的问题字是黑灰色的，在图片上基本看不见」——主题的 text/box 是固定值，
+    #   浅色主题（近黑字）压深色素材 = 看不见。这里用素材体检的亮度做兜底（只动大字与底衬）。
+    txc, _boxc, _ = _mat_text_colors(th, _mat, txc, _boxc)
     # ★VF_MATGUARD_V2（2026-09-29 P1「更聪明的素材避让」）——**踩过一次，改成可靠方案**：
     #   第一版做法：量素材上/中/下三条哪条最"空"，把大字挪过去。
     #   实测失败（亮色满字海报）：band 是在**素材原图**上量的，而画布上是"模糊铺底 + 等比缩放居中"，
@@ -1433,11 +1771,12 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         _z = f"zoom='max(1.06-0.06*on/{_frames},1.0)'"    # 缓慢拉远
     else:
         _z = "zoom='1.0'"                                 # 静止（时长不变，只是不动）
+    # ★VF_STYLE_V1（③底图清晰度）：本镜素材该"直接裁切铺满"还是"轻模糊铺底"（日志里会写明）
+    _pre, _mode = _bg_filters(src, W, H)
     vf = (
-        f"split=2[bg0][fg0];"
-        f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
-        f"[fg0]scale={W}:{H}:force_original_aspect_ratio=decrease[fgs];"
-        f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2[smooth];"
+        # ★VF_STYLE_V1（2026-09-30 ③底图清晰度）：老代码一律 sigma=32 高斯模糊铺底（"底图有点模糊"）。
+        #   现在交给 _bg_filters 三选一：接近画幅→直接裁切铺满（清晰）/ 填不满→轻模糊(sigma=16) / 太小→不放大。
+        _pre +
         # ★VF_KENBURNS_V1（2026-09-20）：静图缓慢推近——只让画面“活”起来，不改时长
         # ★VF_MOTION_V2（2026-09-29）：改为按镜序轮换（推近 / 拉远 / 静止）
         f"[smooth]zoompan={_z}:d={_frames}:s={W}x{H}:fps={fps},"
@@ -1454,13 +1793,53 @@ def card_end(shot, th, W, H, fps):
     """
     font = font_bold(th)          # ★VF_FONTWEIGHT_V1：结尾主标语用粗体（收尾要有力）
     dur = float(shot.get('dur', 3.5))
-    fs = int(shot.get('fontsize', max(56, int(H * 0.11))))
+    fs = int(shot.get('fontsize', big_fs(W, H, 0.11, 56)))   # ★VF_STYLE_V1：按画幅取向取字号
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
     _main = _big_text(shot)
     # ★VF_TEXTFIT_V2（2026-09-28）：折行优先（最多 2 行），放不下才缩字号
     _lines, fs = fit_big_text(_main, W, H, fs_max=fs, max_lines=2)
     # ★VF_VARIANT_V1（2026-09-29 P1「end 卡版式变体」）：center（默认）/ card（票根卡）
     _var = variant_of(shot, ('center', 'card'), 'center')
+    # ══════════════ ★VF_STYLE_V1（2026-09-30 ②编辑风结尾卡：CTA 按钮 + 英文副标）══════════════
+    if _is_editorial(th) and _var == 'center' and (_lines or _main):
+        _efont = esc_path(find_font(th.get('enFont', 'arial')))
+        _en = str(shot.get('en') or shot.get('enCta') or shot.get('enTitle') or '').strip()[:48]
+        _cta = str(shot.get('cta') or '').strip()[:18]
+        _cfs = max(22, int(fs * 0.44))
+        _cpx = max(24, int(_cfs * 1.10))
+        _cpy = max(12, int(_cfs * 0.50))
+        _bh2 = _cfs + 2 * _cpy
+        _cy2 = int(H * 0.5) + int(fs * 0.72)
+        fp = [
+            f"drawbox=x={int(W * 0.10)}:y={int(H * 0.18)}:w={int(W * 0.10)}:"
+            f"h={max(6, int(H * 0.006))}:color={acc}@0.95:t=fill",
+        ] + center_lines_drawtext(font, _lines or [_main], fs, txc, W, H, dur, y_off=-int(H * 0.08))
+        if _cta:
+            _cw2 = int(est_text_w(_cta, _cfs) + 2 * _cpx)
+            _cx2 = max(int(W * 0.04), (W - _cw2) // 2)
+            # "圆角做不了就用方角 + 细边线"：先垫一圈淡色 3px 边，再压实心按钮（零新依赖）
+            fp.append(f"drawbox=x={_cx2 - 3}:y={_cy2 - 3}:w={_cw2 + 6}:h={_bh2 + 6}:"
+                      f"color={acc}@0.35:t=fill")
+            fp.append(f"drawbox=x={_cx2}:y={_cy2}:w={_cw2}:h={_bh2}:color={acc}@0.95:t=fill")
+            fp.append(
+                f"drawtext=fontfile='{font}':text='{esc_text(_cta)}':fontsize={_cfs}:"
+                f"fontcolor=0x0a1620:x={_cx2 + _cpx}:y={_cy2 + _cpy}:"
+                f"alpha='min(max(t-0.45,0)/0.5,1)'")
+        if _en:
+            _efs2 = max(18, int(fs * 0.30))
+            _etrack2 = _track(_en)
+            while _efs2 > 12 and est_text_w(_etrack2, _efs2) > W * 0.88:
+                _efs2 = int(_efs2 * 0.94)     # 英文副标不许超出安全边距（与标题卡同口径）
+            while _etrack2 and est_text_w(_etrack2, _efs2) > W * 0.88:
+                _etrack2 = _etrack2[:-2]
+            _ey = (_cy2 + _bh2 + int(H * 0.035)) if _cta else int(H * 0.72)
+            fp.append(
+                f"drawtext=fontfile='{_efont}':text='{esc_text(_etrack2)}':fontsize={_efs2}:"
+                f"fontcolor={th.get('cardSub', txc)}:x=(w-text_w)/2:y={_ey}:"
+                f"alpha='min(max(t-0.75,0)/0.5,1)'")
+        print('[VF] 编辑风结尾卡（%s）：CTA 按钮%s' % (th.get('id'), ' + 英文副标' if _en else ''))
+        return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
+                ','.join([p for p in fp if str(p).strip()]), dur)
     if _var == 'card':
         _rows = max(1, len(_lines or [_main]))
         _gap1 = int(fs * 1.34)
@@ -1547,6 +1926,14 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
     #   不再"每一镜都挂 ken burns"（反 AI 味清单里的一条）。用副本，不改调用方的数据。
     shot = dict(shot)
     shot['_idx'] = idx
+    # ★VF_STYLE_V1（2026-09-30 收尾②）：允许**单镜覆盖主题**（shot['theme'] 写主题名/主题字典）。
+    #   为什么要：自检要在一支片里同时冒烟 news / data 两套编辑风（不同主题的卡面 token 不一样）；
+    #   正常链路（make.py / 服务端分镜）不写这个字段 → 行为与以前完全一致。
+    #   查不到的名字走 theme_of 的兜底（绝不抛异常、绝不把整镜弄挂）。
+    if shot.get('theme'):
+        _th2 = theme_of(shot.get('theme'))
+        if str(_th2.get('id') or '') or _th2.get('bg'):
+            th = _th2
     typ = shot.get('type', 'title')
     fn = CARDS.get(typ)
     if not fn:
@@ -2264,8 +2651,18 @@ def main():
                 {"type": "quote", "text": "省下来的时间就是钱",
                  "from": "某位内测用户", "subtitle": "有位内测用户这么说", "dur": 4},
                 {"type": "end", "text": "开始出片", "cta": "点击咨询", "subtitle": "现在就试试", "dur": 2.5},
+                # ★VF_STYLE_V1（2026-09-30 收尾②）：news / data 两套编辑风的**最小冒烟**。
+                #   目的不是审美，而是"这两套风格进了自检，以后谁改坏了（kicker/信息卡/大数字/英文副标）立刻红"。
+                #   ⚠️ 故意**加在最后 2 镜** → 前面 10 镜的镜序不变、第 3 镜"非满字素材"回归完全不受影响。
+                #   单镜主题靠 shot['theme'] 覆盖（render_shot 已支持 theme_of 兜底）。
+                {"type": "title", "theme": "news", "text": "编辑风自检", "kicker": "自检",
+                 "en": "style smoke test", "dur": 2.5, "subtitle": "新闻资讯风格冒烟自检"},
+                {"type": "number", "theme": "data", "value": 128, "suffix": "%", "label": "自检覆盖",
+                 "dur": 2.5, "subtitle": "科技数据风格冒烟自检"},
             ],
         }
+        print('[VF] 自检分镜 = %d 镜（第 2/3 镜=素材链路回归；末 2 镜=news/data 编辑风冒烟）'
+              % len(sb.get('shots', [])))
         if not _testimg:
             print('[VF] ⚠️ selftest 造图失败，bgimage 链路不会被覆盖（已降级 title 卡）')
         out = a.out or os.path.join(wd, 'selftest.mp4')
@@ -2281,6 +2678,9 @@ def main():
     fps = int(sb.get('fps', 25))
     # ★VF_THEMES_V1（2026-09-29）：主题名/主题字典都接受（字符串走 themes.py 查表，不认识回默认主题）
     th = theme_of(sb.get('theme'))
+    # ★VF_STYLE_V1（2026-09-30 ②）：打一行主题日志 —— 一眼看出这次到底走了哪套风格（news/data = 编辑风版式）
+    print('[VF] 主题 = %s（%s）%s' % (th.get('id') or '?', th.get('desc') or '',
+                                     ' · 编辑风版式（kicker/横条/大编号/细线）' if _is_editorial(th) else ''))
 
     # ★VF_TINT_V1（2026-09-20，C4 主色底板）：取前几张素材的平均色，混进“卡片底板色”
     #   → 纯色卡（title/list/number/end）跟着素材色相走，整片视觉统一。取色失败不影响出片。
@@ -2304,6 +2704,22 @@ def main():
         print('[VF] 底板取色跳过: %s' % str(eT)[:100])
 
     print('[VF] ffmpeg=%s  字体=%s' % (ffmpeg, find_font(th.get('font', 'msyh')) or '(无)'))
+    # ★VF_STYLE_V1（2026-09-30 ④文字按实际画幅算）：把【画幅 + 素材原始分辨率 + 最终字号】打一条日志
+    #   （只打一条，不刷屏）—— 用户实测"统一按竖屏分辨率配的字"，这条日志能直接对比横竖屏的字号差。
+    try:
+        _or = '横屏' if (W / float(H or 1)) >= 1.2 else ('竖屏' if W < H else '方形')
+        _sw, _sh = (0, 0)
+        for _s in sb.get('shots', []):
+            _p = _s.get('src')
+            if _p and os.path.exists(str(_p)):
+                _sw, _sh = _probe_size(_p)
+                if _sw:
+                    break
+        print('[VF][字号] 画幅=%dx%d（%s）· 素材原始分辨率=%s · 默认大字=%dpx%s'
+              % (W, H, _or, ('%dx%d' % (_sw, _sh)) if _sw else '无素材',
+                 big_fs(W, H, 0.10, 44), '（横屏系数 ×1.40）' if _or == '横屏' else ''))
+    except Exception as _eFs:
+        print('[VF][字号] 打印失败（忽略）: %s' % str(_eFs)[:80])
     files = []
     _total_dur = 0.0
     anti_ai_check(sb.get('shots', []))   # ★VF_ANTIAI_V1：渲染前"反 AI 味"自检（只告警，不改画面）

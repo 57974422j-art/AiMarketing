@@ -27,11 +27,36 @@ export const ANTI_AI_PROMPT =
   `✗ 不要每镜都用同一种运动（不要每镜都推近）——镜与镜之间要有静有动\n` +
   `✗ 不要在画面角落挂角标、水印、英文小字\n` +
   `✓ 卡型换着来：同一个卡型【不要连续超过 3 镜】（图 / 标题 / 列表 / 对比 交替出现）\n` +
+  // ★VF_INFOCARD_V1（2026-09-30 用户实测「我就是单独做的文字页都很空洞配色单一」）：
+  //   实测留档：19 镜里 17 张素材图 + 2 张标题卡 —— list/number/compare/chart 一张都没出，
+  //   于是整片就是"图片 + 一行字"的轮播，用户的原话是"很空洞"。这条把它变成硬规矩。
+  `✓ 【必须插信息卡】每 4~5 镜里至少插 1 张【独立信息卡】（list 列表 / number 大数字 / compare 对比 / chart 图表 / title 标题）\n` +
+  `   ——不要整片都是"素材图 + 一行大字"（用户实测那样看着像图片轮播，很空洞）\n` +
   `✓ 对比卡文字要短：left 与 right 各 ≤8 字，leftDesc 与 rightDesc 各 ≤14 字（写长了画面不得不缩小字号）\n` +
   // ★VF_AI_PICK_V1（2026-09-29 用户定案 P1「挑一些模版给 AI 套」）：让 AI 敢写、写对
   //   主题/版式/动效 —— 值必须落在白名单里（服务端与 render.py 都会再兜一层，写了非法值等于白写）。
   `\n【可选：主题 / 版式 / 动效】（想让画面更统一、更有设计感时才写；不写就用默认 —— **别堆砌**）\n` +
-  `· theme（**整片统一**：要么每镜都写同一个值、要么一镜都别写 —— 混着写会让整片花掉；不写就用用户在设置卡选的主题）：dark 深蓝墨(默认) / blue 深蓝科技 / tech 深青科技 / mint 清新薄荷 / light 浅色纸感 / journal 手账暖色 / vivid 高饱和电商 / mono 杂志黑白\n` +
+  // ★VF_THEMELOCK_V1（2026-09-30 用户定案「1 确定同意」= 主题由用户定死、AI 不许改）：
+  //   用户实测事故：选了浅色主题（文字近黑）→ 压在深色素材上"基本看不见"。用户原话：
+  //   「可能是**我选模版**的问题字是黑灰色的，在图片上基本看不见」+「1 确定同意。用户不选就默认，
+  //     后期我们根据用户习惯和通过上下文和信息收集 让 AI 自己调整。」
+  //   → 现在阶段：**用户选的说了算**，AI 写 theme 一律忽略（服务端 lockUserTheme 会删掉）。
+  `· theme（**不要写**：整片主题由用户在设置卡里决定，AI 写了也会被忽略 —— 除非用户完全没选，那时才允许你自选；改配色会让用户"选的和出的不一样"）\n` +
+  // ★VF_STYLE_V1（2026-09-30 用户定案「先固定新闻资讯和科技数据」+「告诉 AI 怎么做」）：
+  //   用户给了 5 张博主视频截图当学习样本，要求"风格固定 + 但要让 AI 知道每套怎么做"。
+  //   规则与渲染层实现一一对应（themes.py 的 news/data + render.py 的编辑风分支）：
+  `\n【成片风格规则 · 用户已定两套编辑风】（用 news 或 data 时才遵守；用户没选主题就不必管）\n` +
+  `1. 资讯/报道/时事/观点/事件/人物 → theme="news"（深蓝底 + 蓝底白字小标签条 + 白色信息卡 + 黑色横条）\n` +
+  `2. 数据/榜单/效率/对比/参数/技术/增长 → theme="data"（近黑青底 + 青色强调 + 超大数字与细线）\n` +
+  `3. 同一条片只准用一套，不许混用；一套片里的卡型要换着来（别连续 3 镜同一种卡）。\n` +
+  `4. title 卡：text 主标题 ≤8 字；有栏目/出处就填 kicker（≤8 字，会渲染成蓝底小标签条）；英文副标填 en。\n` +
+  `5. en 字段只写英文名词短语（≤5 个词、全大写、不带标点、不写中文），例：SUPPLY CHAIN CRISIS。\n` +
+  `6. list 卡：items 每条 ≤10 字（渲染成超大编号 + 黑色横条，默认逐条插入）；title 当这组的小标签 ≤6 字。\n` +
+  `7. number 卡：value 填数字、suffix 填单位/百分号（单位会渲染成同色系小字）、label ≤8 字。\n` +
+  `8. end 卡：text 主标语 + cta（≤6 字）+ en 英文副标。\n` +
+  `9. **一层信息只用一个"壳"**：标题给 title、清单给 list、数据给 number/chart —— 不要把全部文字塞进一张卡。\n` +
+  `10. 不要为了"看得清"去改主题配色：字压在深色素材上时，渲染层会自动换成亮字 + 深底衬。\n` +
+  `11. 中文字体排中文、英文字体排英文（渲染层已内置，你不用管字体）。\n` +
   `· variant（版式；**只对这三类卡有效**，写在别的卡上会被丢掉）：title → center 居中(默认) / left 左对齐 / chip 色块标签；list → steps 逐条揭示(默认) / stack 整板清单；compare → split 左右分栏(默认) / bar 条形对比\n` +
   `· motion（入场动效；**只挑 2~3 个重点镜写**，不要整片都动）：fade 淡入(默认) / slide 上滑淡入 / typewriter 逐字浮现（只对 title 卡有效）\n` +
   `· transition（转场，一般人不用写）：soft 柔和淡入淡出(默认) / cut 硬切 / fade 柔化溶解\n` +
@@ -41,7 +66,11 @@ export const ANTI_AI_PROMPT =
  * 唯一真相源是渲染层 scripts/video-factory/render.py（TITLE_VARIANTS / LIST_VARIANTS /
  * COMPARE_VARIANTS / MOTIONS / transition 白名单），本文件保持一致；
  * scripts/vf-i2v-selftest.ts 会**逐项对账**（两边不一致直接报错）—— 改渲染层请同步改这里。 */
-export const VF_THEMES = ['dark', 'blue', 'tech', 'mint', 'light', 'journal', 'vivid', 'mono']
+// ★VF_STYLE_V1（2026-09-30 用户定案「先固定新闻资讯和科技数据」）：新增两套**编辑风**。
+//   用户原话：「我发了几个博主的视频截图……文字配色和每个都有渐进效果 分段插入」「2 是学还是告诉 AI
+//   每次去发挥……先固定新闻资讯和科技数据」「3 那种更高级你用那种」（= 英文小字用无衬线）。
+//   ⚠️ 与渲染层 scripts/video-factory/themes.py 必须**逐项一致**（vf-i2v-selftest 有对账断言）→ 改一边必须改另一边。
+export const VF_THEMES = ['dark', 'blue', 'tech', 'mint', 'light', 'journal', 'vivid', 'mono', 'news', 'data']
 /** 版式：只有这三类卡有 variant，键=卡型、值=合法版式（渲染层不认识的值会回默认） */
 export const VF_VARIANTS: Record<string, string[]> = {
   title: ['center', 'left', 'chip'],
@@ -52,7 +81,11 @@ export const VF_MOTIONS = ['fade', 'slide', 'typewriter']
 export const VF_TRANSITIONS = ['soft', 'cut', 'fade']
 
 /** ★VF_AI_PICK_V1：AI 自选的"设计字段"——归一化时必须**原样透传**，否则白名单无从校验 */
-export const PICK_DESIGN_KEYS = ['theme', 'variant', 'motion', 'transition'] as const
+// ★VF_STYLE_V1（2026-09-30）：「编辑风」（news/data）的两个**专属字段**也必须原样透传 ——
+//   kicker = 栏目/出处小标签条（≤8 字）；en = 英文副标（全大写、无衬线、字距加宽）。
+//   为什么必须加在这里：两条线的归一化都是"显式造对象 + ...pickDesignFields(s)"，
+//   不列进这张表 → AI 写的 kicker/en 会被**静默丢掉**（theme/variant 当初就是这么踩的坑）。
+export const PICK_DESIGN_KEYS = ['theme', 'variant', 'motion', 'transition', 'kicker', 'en'] as const
 
 /** 从 AI 给的镜里挑出设计字段（只收非空字符串；值是否合法交给 sanitizeAntiAiShots 白名单判）
  *  为什么单独一个小函数：分镜出口有两处（vf-video.ts 与 chat/route.ts 的 genVideoShots），
@@ -61,7 +94,9 @@ export function pickDesignFields(s: any): Record<string, string> {
   const o: Record<string, string> = {}
   for (const k of PICK_DESIGN_KEYS) {
     const v = s?.[k]
-    if (typeof v === 'string' && v.trim()) o[k] = v.trim().slice(0, 20)
+    // ⚠️ 2026-09-30：上限从 20 提到 48 —— `en`（英文副标）常有 25~40 字符
+    //   （如 "NORTH KOREA DEPLOYMENT CRISIS" = 29），20 会在中间截断成半句话。
+    if (typeof v === 'string' && v.trim()) o[k] = v.trim().slice(0, 48)
   }
   return o
 }
@@ -79,6 +114,38 @@ export function stripEmoji(v: any): string {
 /** 文案里有没有"数字证据"（阿拉伯数字或百分号 —— 中文数词太常见，故意不算，避免误判成"有数据"） */
 export function hasNum(v: any): boolean {
   return /[0-9０-９%％]/.test(String(v == null ? '' : v))
+}
+
+/* ══════════ ★VF_THEMELOCK_V1（2026-09-30 用户定案「1 确定同意」）══════════
+ * 一句话：**主题由用户在设置卡里定死，AI 不许改。**
+ *
+ * 为什么（真实事故，用户原话）：
+ *   「我们本次输入可能是因为**我选模版**的问题字是黑灰色的，在图片上基本看不见」
+ *   → 留档核实：那条片用的是 `light` 浅色纸感（文字 `0x1a1a1a` 近黑 + 底衬 `white@0.55` 白），
+ *     压在深色素材上必然看不清。而 AI 还能在镜里写 theme（白名单允许）→ 整片配色被它带跑。
+ * 用户定案：「1 确定同意。用户不选就默认，后期我们根据用户习惯和通过上下文和一些信息收集
+ *           让 AI 自己调整。」→ 所以**现在**只做"用户说了算"；"AI 自适应"留给后期（那时改这里）。
+ *
+ * 做法：用户选了主题 → 删掉 AI 写的所有 theme 字段（含镜级）；用户没选 → 保持现状（允许 AI 自选）。
+ * 返回处理说明，调用方写日志（便于回溯"AI 到底写了什么"）。
+ */
+export function lockUserTheme(shots: any[], userTheme?: string): { shots: any[]; notes: string[] } {
+  const notes: string[] = []
+  const u = String(userTheme || '').trim().toLowerCase()
+  if (u && VF_THEMES.includes(u)) {
+    let removed = 0
+    for (const s of (Array.isArray(shots) ? shots : [])) {
+      if (s && typeof s === 'object' && s.theme !== undefined) { delete s.theme; removed++ }
+    }
+    notes.push(removed
+      ? `主题锁定：用户在设置卡选了「${u}」→ 已忽略 AI 在 ${removed} 个镜里写的主题（用户选的说了算）`
+      : `主题锁定：用户在设置卡选了「${u}」（AI 未改写，一致）`)
+  } else if (u) {
+    notes.push(`主题：用户给的值「${u}」不在白名单 → 回默认主题；允许 AI 自选`)
+  } else {
+    notes.push('主题：用户未指定 → 允许 AI 自选（后期将按用户习惯/数据自适应）')
+  }
+  return { shots: Array.isArray(shots) ? shots : [], notes }
 }
 
 const TEXT_KEYS = ['text', 'title', 'left', 'right', 'leftDesc', 'rightDesc', 'label', 'cta', 'subtitle']
