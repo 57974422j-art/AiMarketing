@@ -809,6 +809,10 @@ def card_video(shot, th, W, H, fps):
         f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
         f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
     ] + _reveal
+    # ★VF_FILTERJOIN_V1（2026-09-30 线上事故防御）：拼滤镜前丢掉空串/纯逗号 ——
+    #   事故现场：第 8 镜 bgimage 崩「No such filter: ''」（空滤镜）；根因是某处拼进了空串或尾逗号。
+    #   这里统一清洗，以后任何一处忘了判空都不会再让整条片崩掉。
+    _chain = [x for x in _chain if str(x).strip().strip(',')]
     vf = (
         f"split=2[bg0][fg0];"
         f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
@@ -858,6 +862,10 @@ def card_aivideo(shot, th, W, H, fps):
         f"drawbox=x=0:y=0:w={W}:h={H}:color=black@0.15:t=fill",
         f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
     ] + _reveal
+    # ★VF_FILTERJOIN_V1（2026-09-30 线上事故防御）：拼滤镜前丢掉空串/纯逗号 ——
+    #   事故现场：第 8 镜 bgimage 崩「No such filter: ''」（空滤镜）；根因是某处拼进了空串或尾逗号。
+    #   这里统一清洗，以后任何一处忘了判空都不会再让整条片崩掉。
+    _chain = [x for x in _chain if str(x).strip().strip(',')]
     vf = (
         f"split=2[bg0][fg0];"
         f"[bg0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},gblur=sigma=32,eq=brightness=-0.18[bgb];"
@@ -1388,8 +1396,12 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         _rows_b = max(1, len(_lines))
         _btop = int(H * 0.5 + _yoff - _gap_b * _rows_b * 0.5) - int(fs * 0.30)
         _bh = _gap_b * _rows_b + int(fs * 0.60)
+        # ⚠️ 2026-09-30 线上事故（用户第 8 镜 bgimage 崩：「No such filter: ''」）：
+        #   这里原来结尾多了一个逗号（`...,t=fill,`），而 _chain 又是 `','.join(...)` 拼的
+        #   → 拼出来是 `...,drawbox=...:t=fill,,drawbox=...` → ffmpeg 把中间那个空串当成滤镜名
+        #   → 「No such filter: ''」整镜失败。**逗号必须在 join 时统一加，元素自己不许带尾逗号。**
         _band_box = (f"drawbox=x=0:y={max(0, _btop)}:w={W}:h={int(_bh)}:"
-                     f"color=black@0.62:t=fill,")
+                     f"color=black@0.62:t=fill")
         print('[VF] 素材自带内容多 → 大字走【下三分之一 + 全宽底衬带】（避免与素材文字纠缠）')
     _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, y_off=_yoff) if len(_lines) <= 1 else []
     # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
@@ -1406,6 +1418,10 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
     ] + _reveal + [
         f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"]
+    # ★VF_FILTERJOIN_V1（2026-09-30 线上事故防御）：拼滤镜前**统一丢掉空串与纯逗号**。
+    #   事故根因见上面 _band_box 的注释（非满字素材时它是空串 + 曾经带尾逗号 → `,,` → 空滤镜）。
+    #   加这一层"值不值得丢"的清洗，以后任何一处忘了判空都不会再让整条片崩掉。
+    _chain = [x for x in _chain if str(x).strip().strip(',')]
     # ★VF_MOTION_V2（2026-09-29 反 AI 味清单·「运动做减法」）：
     #   原来【每一镜静图都匀速推近 1.0→1.06】——而反 AI 味清单里明确写着 ✗「每步都挂 ken burns」。
     #   现在按【镜序】轮换三种运动：推近 / 拉远 / 完全静止（静止那镜让画面"稳"一下，节奏才有呼吸）。
@@ -2172,6 +2188,21 @@ def main():
                 _testimg = _tp
         except Exception:
             _testimg = ''
+        # ★VF_FILTERJOIN_V1（2026-09-30 线上事故后补的自检盲区）：
+        #   事故：用户第 8 镜 bgimage 崩「No such filter: ''」。查下来**自检从来抓不到**，原因很讽刺 ——
+        #   自检用的测试图是 ffmpeg 画的**纯色**（flat≈1.0）→ 被判「素材自带内容多」→ 永远走"底衬带"那条路；
+        #   而崩的是**普通照片（非满字）**那条路（`_band_box` 为空串 + 当时带尾逗号 → 拼出空滤镜）。
+        #   现在再造一张**渐变图**（非满字 → 走另外半条路），两条路都纳进自检 —— 以后任一条断了自检就红。
+        _testimg2 = ''
+        try:
+            _tp2 = os.path.join(wd, 'selftest-src2.jpg')
+            subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi',
+                            '-i', 'gradients=s=640x360:c0=0x2b4a5a:c1=0x9ab0c0', '-frames:v', '1', _tp2],
+                           capture_output=True, timeout=30)
+            if os.path.exists(_tp2):
+                _testimg2 = _tp2
+        except Exception:
+            _testimg2 = ''
         # ★VF_AIVIDEO_V1（2026-09-20）：「AI 直接成片」用的 aivideo 卡型必须纳入自检 ——
         #   否则要等真实 H3 生成才能验证（贵且慢，一条 600 点起）。
         #   这里造一段 **2 秒**测试视频，故意让它**短于**镜时长（3.5s），
@@ -2200,12 +2231,21 @@ def main():
                    if _testimg else
                    {"type": "title", "text": "素材合成（造图失败，已跳过 bgimage）",
                     "subtitle": "这一镜用来验证素材合成链路是否正常", "dur": 3.0})
+        # ★VF_FILTERJOIN_V1：第二张素材图 = **渐变图**（非满字）→ 走"没有全宽底衬带"的那条滤镜链，
+        #   也就是 2026-09-30 线上崩「No such filter: ''」的那条。造图失败就降级成 title，不能把自检弄崩。
+        _bgshot2 = ({"type": "bgimage", "src": _testimg2, "text": "普通照片",
+                     "subtitle": "这一镜验证非满字素材（无底衬带）的滤镜链", "dur": 3.0}
+                    if _testimg2 else
+                    {"type": "title", "text": "普通照片（造图失败，已跳过）",
+                     "subtitle": "这一镜验证非满字素材（无底衬带）的滤镜链", "dur": 3.0})
         sb = {
             "size": [1280, 720], "fps": 25,
             "theme": {"bg": "0x0a1620", "text": "white", "accent": "0xff6b35", "font": "msyh"},
             "shots": [
                 {"type": "title", "text": "AI Marketing 自检", "subtitle": "这是一条自检视频", "dur": 2.5},
                 _bgshot,
+                # ★VF_FILTERJOIN_V1：非满字素材镜（渐变图）—— 覆盖"无底衬带"的滤镜链（线上崩过那条）
+                _bgshot2,
                 # ★VF_AIVIDEO_V1（2026-09-20）：第 3 镜 = AI 生成片段（素材合成 / AI 生成 两条链路都在自检里）
                 _aishot,
                 {"type": "list", "title": "三步走", "subtitle": "做内容，发视频，看数据",
