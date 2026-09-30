@@ -734,12 +734,23 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           只有【图片镜】会动（视频镜本来就动态、文字卡没有图）；同一张图只生成一次；
           费用在分镜卡上如实写（"含让 N 张图动起来：约 M 点"），不藏。 */}
       <div className="mb-3">
-        <div className="text-[10px] text-gray-400 mb-1">🎞 让图动起来 <span className="text-gray-600">（图片镜用首帧生成 4~8 秒动图 ≈ 200~400 点/张；同一张图只算一次）</span></div>
+        <div className="text-[10px] text-gray-400 mb-1">🎞 让图动起来 <span className="text-gray-600">（图片镜用首帧生成 4~8 秒动图 ≈ 250 点/张；同一张图只算一次）</span></div>
         <div className="flex flex-wrap gap-1.5">
-          {R(i2v, 'on', '🎞 动起来', setI2v)}
+          {/* ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对『有主体可动』的素材开」）：
+              三档 ——
+                on  = 只给**适合动**的图做（人物/产品/实拍/风景）；海报、界面截图、图表这类**自动跳过**
+                      （用户实测原话：「3 张动图……没看出它动，只有一个光影闪过，这钱花的不值」）
+                all = **全部动起来**（忽略筛选，海报/截图也做）—— 想全动就选这个，钱按实际张数算
+                off = 全静态（只花素材钱，不额外计费）
+              服务端契约：'off'→off / 'all'→all / 其余→on（见 i2v-plan.buildI2vShots 注释）。 */}
+          {R(i2v, 'on', '🎞 动起来（推荐）', setI2v)}
+          {R(i2v, 'all', '🎞 全部都动', setI2v)}
           {R(i2v, 'off', '🚫 保持静态', setI2v)}
         </div>
-        <div className="text-[10px] text-gray-500 mt-1">（「图片成片」与「图视混剪」两条线都生效；关掉=全静态图，不额外计费）</div>
+        <div className="text-[10px] text-gray-500 mt-1">
+          （「图片成片」与「图视混剪」两条线都生效；「动起来」会**自动跳过**海报/界面截图这类"动了也看不出"的图，
+          报价按实际要动的张数算；想全部动就选「全部都动」；「保持静态」= 不额外花钱）
+        </div>
       </div>
 
       {/* ★VF_BANNER_V1：顶部固定标题（AI 自动拟两行）—— 只做「自动 / 不要」两个按钮，默认自动 */}

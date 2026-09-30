@@ -16,7 +16,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { buildI2vPlan, buildI2vShots, i2vCostPoints, i2vKeyMap, vfTotalCostPoints, VF_I2V_MAX_IMAGES } from '../src/lib/agent/vf/i2v-plan'
-import { sanitizeAntiAiShots, pickDesignFields, VF_THEMES, VF_VARIANTS, VF_MOTIONS } from '../src/lib/agent/vf/anti-ai'
+import { sanitizeAntiAiShots, pickDesignFields, VF_THEMES, VF_VARIANTS, VF_MOTIONS, VF_ENTERS } from '../src/lib/agent/vf/anti-ai'
 import { i2vPlanOf } from '../src/lib/agent/vf/vf-video'
 
 let pass = 0
@@ -198,6 +198,11 @@ console.log('\n⑤ 与渲染层对账（防两边白名单漂移）')
   eq(pyTuple('LIST_VARIANTS'), VF_VARIANTS.list, 'render.py LIST_VARIANTS = 服务端 list 白名单')
   eq(pyTuple('COMPARE_VARIANTS'), VF_VARIANTS.compare, 'render.py COMPARE_VARIANTS = 服务端 compare 白名单')
   eq(pyTuple('MOTIONS'), VF_MOTIONS, 'render.py MOTIONS = 服务端 motion 白名单')
+  // ★VF_MOTIONPPT_V1（2026-09-30 motion-ppt 要求补的对账）：`enter`（整块版式滑入方向）现在是
+  //   AI 可写字段（PICK_DESIGN_KEYS 已收）→ 两边白名单必须一致，否则 AI 写的值会被静默删掉。
+  //   ⚠️ 顺序无关（render.py PPT_ENTERS=('none','up','left')、服务端 VF_ENTERS=['up','left','none']）。
+  eq(pyTuple('PPT_ENTERS')?.slice().sort(), VF_ENTERS.slice().sort(),
+    'render.py PPT_ENTERS = 服务端 enter 白名单（集合一致，顺序无关）')
   ok(/in \('cut', 'fade', 'soft'\)/.test(renderSrc), 'render.py 的 transition 白名单 = soft/cut/fade')
   const themesSrc = readFileSync(join(__dirname, '..', 'scripts/video-factory/themes.py'), 'utf-8')
   ok(VF_THEMES.every((t) => new RegExp(`['"]${t}['"]\\s*:`).test(themesSrc)),

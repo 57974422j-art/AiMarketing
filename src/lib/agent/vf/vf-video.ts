@@ -38,6 +38,10 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme } 
 //   把那边的 shots + keyByPath 传进同一个函数即可（默认仍然只在图视混剪开启）。
 import { buildI2vShots, i2vKeyMap } from './i2v-plan'
 import type { I2vBuildResult, I2vPlan } from './i2v-plan'
+// ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对『有主体可动』的素材开」）：
+//   把"图片本地路径 → 识别摘要"的映射建出来（纯函数），交给 buildI2vShots 逐图分类 ——
+//   界面/截图/海报/文字页这类"动起来也看不出"的直接跳过（省钱），并在日志里说明为什么。
+import { i2vSummaryByPath } from './i2v-suit'
 // ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：提炼两行 + 根级字段形状，两条线共用同一份
 //   （纯逻辑放 banner.ts，与 anti-ai.ts / i2v-plan.ts 同类，静态 import 不连累别的线）。
 import { buildBanner, fallbackBanner, bannerFieldOf, planWithBanner } from './banner'
@@ -69,8 +73,13 @@ export interface VfVideoDraft {
   cover?: number
   subLen?: number
   /** ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪逐镜图生视频」）：'on'（默认）| 'off'
-   *  设置卡上「🎞 让图动起来」两个按钮 → 关掉就**完全不注入首帧**（不做图生视频、不计费）。 */
+   *  ★VF_I2VSUIT_V1（2026-09-30）：额外支持 'all' = 手动全开（不按素材类型筛选，全部图片镜都做）。
+   *  设置卡上「🎞 让图动起来」开关 → 关掉就**完全不注入首帧**（不做图生视频、不计费）。 */
   i2v?: string
+  /** ★VF_I2VSUIT_V1（2026-09-30 用户定案）：图片本地路径 → 识别摘要（判断"有没有主体可动"）。
+   *  为什么存进草稿：起草时算过一次 i2v 计划（报价），出片时还要**用同一份摘要**再算一次（实扣）——
+   *  报价与实扣必须同源（否则又会出现"卡片报 A、实扣 B"）。 */
+  i2vSuit?: Record<string, string>
   /** ★VF_VIDI2V_V1：图片本地路径 → 个人仓库 key（出片时现算 i2vShots 用）。
    *  为什么要存进草稿：图生视频首帧只能喂**公网地址**，而分镜里的 src 是服务器本地路径；
    *  纯函数 buildI2vPlan() 需要这个映射把本地路径换回仓库 key（签名统一在 chat/route.ts 里做）。 */
@@ -277,6 +286,10 @@ export function i2vBuildOf(vd: VfVideoDraft): I2vBuildResult {
     shots: vd?.shots || [],
     keyByPath: vd?.i2vKeys || {},
     enabled: vd?.i2v ?? 'on',
+    // ★VF_I2VSUIT_V1：把"图片本地路径 → 识别摘要"透给通用函数 → 只对有主体可动的素材开。
+    //   旧草稿没有这个字段（undefined）→ 不过滤（保持旧行为；用户重排一次分镜即可拿到筛选）。
+    //   'all' 时 buildI2vShots 内部会忽略本参数（用户手动全开）。
+    summaryByPath: vd?.i2vSuit,
   })
 }
 
@@ -361,6 +374,10 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   //   而图生视频供应商要求首帧是**公网可拉取**的地址（拿不到 cookie、读不到服务器磁盘）
   //   → 只能换回仓库 key，由 chat/route.ts 的 resolveImageToPublicUrl() 现签 OSS 直链（24h）。
   const i2vKeyByPath = i2vKeyMap(imgLocal)
+  // ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对有主体可动的素材开」）：
+  //   用**本次的看图结论**（imgBrief：图N（name）：摘要）建"本地路径 → 摘要"映射 —— 只给
+  //   `imgBrief`（不含视频行），因为 i2v 只作用在图片镜上。出片时复用同一份（存进草稿 vd.i2vSuit）。
+  const i2vSuitByPath = i2vSummaryByPath(imgBrief, imgLocal)
   ctx.log(uid, `[VF-V] 素材：图 ${imgPaths.length} 张 / 视频 ${clips.length} 个（含${clips.filter((c: any) => c.sizeMB).length} 条已探到大小）`)
 
   if (!imgPaths.length && !clips.length) {
@@ -671,6 +688,9 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   vd.shots = shotsOut
   // ★VF_VIDI2V_V1：把"本地路径 → 仓库 key"的映射存进草稿 —— 出片（确认那一步）时用它现算 i2vShots
   vd.i2vKeys = i2vKeyByPath
+  // ★VF_I2VSUIT_V1：把"本地路径 → 识别摘要"也存进草稿 —— 出片时按**同一份摘要**再算一次计划，
+  //   保证确认卡上的"含让 N 张图动起来：约 M 点"与实扣**逐字一致**（报价 = 实扣）。
+  vd.i2vSuit = i2vSuitByPath
   vd.size = size
   vd.aspectResolved = aspect
   vd.cover = cover
@@ -730,7 +750,11 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         if (f.bgm) vd.bgm = String(f.bgm)
       if (f.big) vd.big = String(f.big)   // ★OVERLAY_TEXT_SWITCH_V1：'on' | 'off'
         // ★VF_VIDI2V_V1：'on'（默认，让图动起来）| 'off'（全静态图，不额外计费）
-        if (f.i2v) vd.i2v = String(f.i2v) === 'off' ? 'off' : 'on'
+        // ★VF_I2VSUIT_V1（2026-09-30）：额外支持 'all' = 手动全开（不按素材类型筛选，全部图片镜都做）
+        if (f.i2v) {
+          const _i2vV = String(f.i2v)
+          vd.i2v = _i2vV === 'off' ? 'off' : (_i2vV === 'all' ? 'all' : 'on')
+        }
         // ★VF_BANNER_V1：'on'（默认，AI 自动拟两行固定标题）| 'off'（不要）
         if (f.pin) vd.pin = String(f.pin) === 'off' ? 'off' : 'on'
         // ★VF_BANNER_PIN2_V1（2026-09-29）：手填的第 1/2 行（留空 = AI 自动拟）——

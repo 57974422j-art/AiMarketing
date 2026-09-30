@@ -651,7 +651,14 @@ async function vlDescribeMaterial(localPath: string): Promise<string | null> {
       '这张图属于哪一类？只回一个词：软件界面（软件/网页/手机界面截图、工具或后台界面）／海报（成品宣传图、带大字的图）／实拍（照片、人物、场景、产品实拍）／图表（数据图表、表格、看板）。',
       24)) || ''
     const hit = VL_PROMPT_BY_CLASS.find((c) => cls.indexOf(c.kw) >= 0)
-    return await describeImageWithVL(b64, hit ? hit.prompt : VL_PROMPT_GENERIC, 400)
+    const desc = await describeImageWithVL(b64, hit ? hit.prompt : VL_PROMPT_GENERIC, 400)
+    // ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对有主体可动的素材开」）：
+    //   把第一段的**分类结果**（软件界面 / 海报 / 实拍 / 图表）作为前缀钉进摘要 ——
+    //   ① 让 i2v 分类器（i2v-suit.ts）有一个**可靠**判据（靠自然语言关键词猜分类不够稳：
+    //      "海报"类的细看描述里未必再出现"海报"两个字，会把海报误判成有主体可动 → 白花钱）；
+    //   ② 对喂给【写文案 / 排分镜】的 brief 也只是多一个类别标签，不改变原意。
+    //   注意：分类失败（cls 不含任何类别词）时给【其他】—— 分类器遇到"其他"会退回关键词兜底。
+    return (desc ? `【${hit ? hit.kw : '其他'}】${desc}` : desc)
   } finally {
     // ★VF_POOL_V1：`*_vl.jpg` 缩图只是中间产物（用完即删）—— 原来一直留在素材目录里，是用户能看到的垃圾。
     //   缩图失败时 shrinkForVL 返回原图路径（p === localPath）→ 绝不能删原图。

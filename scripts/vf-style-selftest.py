@@ -190,6 +190,45 @@ def main():
     for _mk in ('VF_UNKNOWNCARD_V1', 'VF_AIVIDEO_V1', 'VF_LESSDARK_V1', 'VF_SELFTEST_V2'):
         chk(_src.count(_mk) >= 1, '防回退：%s 仍在 render.py 里' % _mk)
 
+    # ══ 8. ★VF_MOTIONPPT_V1（2026-09-30）「动态 PPT」第一批动效 ═══════════════
+    # 为什么断这些：这批动效全是 ffmpeg 表达式 / enable 分段，一旦有人改回"裸 w=/x= 表达式"
+    #   就退回**假动画**（drawbox 的 w/h 只在初始化求值一次）。所以每个动效都要：
+    #   ① 能 grep 到逐帧机制（enable= / crop+t / %{eif}）；② 不许出现裸 w= 表达式。
+    _th_d = theme_of('dark')
+    _ent_up = R.ppt_enter_filters({'enter': 'up'}, _th_d, 1280, 720, 5)
+    chk(len(_ent_up) == 2 and _ent_up[0].startswith('pad='), '整块入场(up)：pad 垫出偏移',
+        str(_ent_up)[:70])
+    chk(any('crop=' in x and 'min(t/' in x for x in _ent_up),
+        '整块入场(up)：crop 的 y 用 t 表达式（逐帧 → 真在滑）')
+    _ent_lf = R.ppt_enter_filters({'enter': 'left'}, _th_d, 1280, 720, 5)
+    chk(any('crop=' in x and '1-min(t/' in x for x in _ent_lf),
+        '整块入场(left)：crop 的 x 用 t 表达式')
+    chk(R.ppt_enter_filters({'enter': 'none'}, _th_d, 1280, 720, 5) == [],
+        '整块入场可单镜关闭（enter=none → 不加任何滤镜）')
+    chk(R.enter_of({'enter': '乱写的值'}) == 'up',
+        '入场白名单外的值 → 回默认 up（AI 自造值绝不把渲染搞挂）')
+
+    _grow = R.grow_filters(100, 200, 300, 10, '0xff6b35@0.95', 3.0)
+    chk(len(_grow) >= 2 and all("enable='gte(t," in x for x in _grow),
+        '强调条生长：分段 enable 按时间点插入（真的在长）')
+    chk("w='" not in ' '.join(_grow), '强调条生长：不用裸 w= 表达式（那会退化成假动画）',
+        '仍有 w=\'...\'')
+
+    # 源码级：确认三个新函数都走逐帧机制、且真的接进了渲染链路
+    _gf = _seg(_code, 'grow_filters', 'card_title')
+    chk("enable='gte(t," in _gf, 'grow_filters 源码：走 enable 分段')
+    _ef = _seg(_code, 'ppt_enter_filters', 'grow_filters')
+    chk('crop=' in _ef and 'min(t/' in _ef, 'ppt_enter_filters 源码：crop 用 t 表达式')
+    _rs2 = _seg(_code, 'render_shot', 'concat_shots_xfade')
+    chk('ppt_enter_filters(' in _rs2, 'render_shot：纯文字卡真的接入了整块入场滑入')
+    _num = _seg(_code, 'card_number', 'card_image')
+    # 源码里是 f-string，字面写的是 `%{{eif\:...`（双花括号转义）→ 只断关键词 eif 与 min(t
+    chk('eif' in _num and 'min(t' in _num,
+        'number 卡：数字用 eif 展开式逐帧递增（真滚动，不是静态贴图）')
+    _lst = _seg(_code, 'card_list', 'card_number')
+    chk('_avail' in _lst, 'list 卡：逐条插入节奏按镜长参数化（末条留 1s）')
+    chk(_src.count('★VF_MOTIONPPT_V1') >= 1, '防回退：★VF_MOTIONPPT_V1 仍在 render.py 里')
+
     if a.render:
         _render_demo()
 

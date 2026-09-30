@@ -15,6 +15,10 @@
  * ⚠️ 首帧必须是**公网可达**的地址：供应商（MiniMax H3 / 百炼 wan）拿不到 cookie，
  *    也不能读服务器本地路径 → 所以只认「个人仓库 key」或「http(s) URL」。
  */
+// ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对『有主体可动』的素材开」）：
+//   分类器在独立纯函数文件 i2v-suit.ts（零依赖、可单测）—— 本文件与两条成片线共用同一份关键词表，
+//   保证"哪几张不做"在计划侧（报价）与出片侧（实扣）**完全一致**（只多不少）。
+import { classifyI2vMaterial } from './i2v-suit'
 
 /** 每片默认最多让几张图动起来 —— 费用硬闸（一张图 4~8 秒 ≈ 200~400 点） */
 export const VF_I2V_MAX_IMAGES = 6
@@ -41,6 +45,10 @@ export interface I2vPlan {
   skippedNoKey: number
   /** 超上限（默认 6 张）→ 保持静态的**图**数 */
   overCap: number
+  /** ★VF_I2VSUIT_V1：因「界面/截图/海报/文字页这类动起来也看不出」而保持静态的**图**数（省钱） */
+  skippedUnfit: number
+  /** ★VF_I2VSUIT_V1：被跳过的样本（最多 8 条；调用方写日志用，让用户看到"为什么这几张不做"） */
+  unfitSamples: Array<{ image: string; kind: string; reason: string }>
 }
 
 /**
@@ -53,18 +61,28 @@ export interface I2vPlan {
  *      （零额外调用、零额外计费），所以观感上不会"同一张图一会儿动一会儿不动"；
  *   ③ **计费口径 = 唯一图**（`sec` 只累加每张图首次出现的 dur，复用镜不重复扣钱）；
  *   ④ 每片最多 `max`（默认 6）张**唯一图**，超出部分保持静态（日志如实说明"为控制费用只动了 N 张"）；
- *   ⑤ 拿不到公网地址的图（不在个人仓库里）→ 那一镜不注入首帧、保持静态，**绝不因此让整片失败**。
+ *   ⑤ 拿不到公网地址的图（不在个人仓库里）→ 那一镜不注入首帧、保持静态，**绝不因此让整片失败**；
+ *   ⑥ ★VF_I2VSUIT_V1（2026-09-30 用户定案）：**只对有主体可动的素材开** —— 给了 `summaryByPath`
+ *      就按 classifyI2vMaterial() 逐图分类，界面/截图/海报/文字页这类"动起来也看不出"的**直接跳过**
+ *      （= 这一镜保持静态图 + 推拉，不进 list、不计费）。判不出（摘要为空）也**跳过**（省钱优先）。
  *
- * @param shots      归一化后的最终分镜（每镜有 type / src / dur）
- * @param keyByPath  图片本地路径 → 个人仓库 key 的映射（由 downloadMaterials 的返回值建立）
+ * @param shots         归一化后的最终分镜（每镜有 type / src / dur）
+ * @param keyByPath     图片本地路径 → 个人仓库 key 的映射（由 downloadMaterials 的返回值建立）
+ * @param max           每片最多几张**唯一图**（费用硬闸）
+ * @param summaryByPath ★VF_I2VSUIT_V1：图片本地路径 → **识别摘要**。**传了对象（含空对象）才启用**
+ *                      "只对有主体可动的素材开"的过滤；不传 / 传 null = 不过滤（向后兼容未接线的调用方）。
  */
 export function buildI2vPlan(
   shots: any[],
   keyByPath: Record<string, string> | Map<string, string>,
   max = VF_I2V_MAX_IMAGES,
+  summaryByPath?: Record<string, string> | Map<string, string> | null,
 ): I2vPlan {
   const get = (p: string): string =>
     keyByPath instanceof Map ? (keyByPath.get(p) || '') : ((keyByPath || {})[p] || '')
+  const suitOn = summaryByPath != null             // ★VF_I2VSUIT_V1：传了 map 才过滤（undefined/null = 旧行为）
+  const getSum = (p: string): string =>
+    summaryByPath instanceof Map ? String(summaryByPath.get(p) || '') : String((summaryByPath || {})[p] || '')
   const arr = Array.isArray(shots) ? shots : []
   const seen = new Set<string>()                   // 已经处理过的图片路径（去重）
   const chosen = new Map<string, number[]>()       // 被选中生成的那张图 → 用到它的所有镜号
@@ -73,6 +91,8 @@ export function buildI2vPlan(
   let uniq = 0                                     // 真正要调用 H3 的【唯一图】张数（计费按它）
   let skippedNoKey = 0
   let overCap = 0
+  let skippedUnfit = 0
+  const unfitSamples: Array<{ image: string; kind: string; reason: string }> = []
 
   for (let k = 0; k < arr.length; k++) {
     const s: any = arr[k]
@@ -88,11 +108,25 @@ export function buildI2vPlan(
         //   以前这里是"跳过"→ 同一张图一会儿动一会儿不动，观感很突兀。
         list.push({ index: k + 1, image: String(get(p) || '') })
       }
+      // ★判断注意：若这张图"首次出现"就被 VF_I2VSUIT 判为不适合（没进 chosen），
+      //   这里 g 为空 → 本镜同样保持静态（同一张图不会"一会儿动一会儿不动"）。
       continue
     }
     seen.add(p)
     const key = get(p)
     if (!key) { skippedNoKey++; continue }         // ★拿不到公网地址 → 保持静态（不失败）
+    // ★VF_I2VSUIT_V1：**只对有主体可动的素材开**（放在"上限判定之前"——
+    //   不适合的图不该占用那 6 张的额度，否则"前面的截图把额度吃光、后面能动的反而没做"）。
+    if (suitOn) {
+      const c = classifyI2vMaterial(getSum(p))
+      if (!c.ok) {
+        skippedUnfit++
+        if (unfitSamples.length < 8) {
+          unfitSamples.push({ image: String(p).split(/[\\/]/).pop() || String(p), kind: c.kind, reason: c.reason })
+        }
+        continue
+      }
+    }
     if (uniq >= max) { overCap++; continue }       // ★上限保护（按【唯一图】算张数，费用可控）
     uniq++
     list.push({ index: k + 1, image: key })
@@ -103,7 +137,7 @@ export function buildI2vPlan(
   const reuse = [...chosen.entries()]
     .filter(([, idx]) => idx.length > 1)
     .map(([image, indices]) => ({ image, indices }))
-  return { list, sec: Math.round(sec * 100) / 100, images: uniq, reuse, skippedNoKey, overCap }
+  return { list, sec: Math.round(sec * 100) / 100, images: uniq, reuse, skippedNoKey, overCap, skippedUnfit, unfitSamples }
 }
 
 /* ══════════════════════ ★VF_I2V_REUSE_V1（2026-09-29 team-lead 要求）══════════════════════
@@ -144,11 +178,15 @@ export interface I2vBuildResult {
  *
  * @param o.shots     归一化后的最终分镜
  * @param o.keyByPath 图片本地路径 → 个人仓库 key（用 i2vKeyMap() 从 downloadMaterials 结果建）
- * @param o.enabled   用户的「让图动起来」开关：'off'/false = 完全不开（**默认 'on'**）
+ * @param o.enabled   用户的「让图动起来」开关：'off'/false = 完全不开（**默认 'on'**）；
+ *                    ★VF_I2VSUIT_V1：额外支持 **'all'** = 用户手动全开（**不按素材类型筛选**，全部图片镜都做）
  * @param o.max       每片最多几张图（默认 6，费用硬闸）
  * @param o.declareMix 是否顺带声明 source='mix' + mix=镜号（默认 true）——
  *                    chat/route.ts 的护栏要求：给了 i2vShots 却不声明来源会直接 TOOL_REJECT。
  *                    （声明 mix 同时让计费走"只算这几镜的秒数"口径 → 报价 = 实扣。）
+ * @param o.summaryByPath ★VF_I2VSUIT_V1：图片本地路径 → 识别摘要（用 i2vSummaryByPath() 从 brief 建）。
+ *                    给了（含空对象）→ 启用"只对有主体可动的素材开"；不给 / null → 不过滤（兼容旧调用方）。
+ *                    `enabled='all'` 时本参数被忽略（用户手动全开）。
  */
 export function buildI2vShots(o: {
   shots: any[]
@@ -156,21 +194,34 @@ export function buildI2vShots(o: {
   enabled?: string | boolean
   max?: number
   declareMix?: boolean
+  summaryByPath?: Record<string, string> | Map<string, string> | null
 }): I2vBuildResult {
-  const enabled = o?.enabled !== false && String(o?.enabled ?? 'on') !== 'off'
+  const rawEnabled = String(o?.enabled ?? 'on')
+  const allOn = rawEnabled === 'all'               // ★VF_I2VSUIT_V1：用户手动全开（不筛素材类型）
+  const enabled = o?.enabled !== false && rawEnabled !== 'off'
   const max = Number(o?.max) > 0 ? Number(o.max) : VF_I2V_MAX_IMAGES
   const plan: I2vPlan = enabled
-    ? buildI2vPlan(o?.shots || [], o?.keyByPath || {}, max)
-    : { list: [], sec: 0, images: 0, reuse: [], skippedNoKey: 0, overCap: 0 }
+    // ★VF_I2VSUIT_V1：'all' → 不传 summaryByPath（= 不过滤）；否则原样透传（undefined/null 也不过滤）
+    ? buildI2vPlan(o?.shots || [], o?.keyByPath || {}, max, allOn ? null : (o?.summaryByPath ?? null))
+    : { list: [], sec: 0, images: 0, reuse: [], skippedNoKey: 0, overCap: 0, skippedUnfit: 0, unfitSamples: [] }
   const notes: string[] = []
   if (!enabled) {
     notes.push('设置卡选了「保持静态」→ 一个首帧都不注入（也不额外计费）')
-  } else if (plan.images) {
+  } else if (allOn) {
+    notes.push('设置卡选了「全部动起来」→ 跳过"有没有主体可动"的筛选（界面/海报类也照做）')
+  }
+  if (enabled && plan.images) {
     // 注意措辞：注入的镜数 ≥ 唯一图张数（同图的后续镜也在名单里，靠 make.py 缓存复用同一段动图）
     notes.push(`让 ${plan.images} 张图动起来（注入第 ${plan.list.map((x) => x.index).join('、')} 镜；` +
       `计费按**唯一图** ${plan.images} 张 = ${plan.sec} 秒 ≈ ${i2vCostPoints(plan.sec)} 点，50 点/秒）`)
-  } else {
-    notes.push('本次没有要动的图（没有图片镜 / 图都不在个人仓库里）→ 全部静态图（0 点）')
+  } else if (enabled) {
+    notes.push('本次没有要动的图（没有图片镜 / 图不在个人仓库里 / 素材都被判为"动起来看不出"）→ 全部静态图（0 点）')
+  }
+  // ★VF_I2VSUIT_V1：哪些图因为"动起来也看不出"被跳过 —— 必须**可解释**（用户要能看懂为什么这几张不做）
+  if (plan.skippedUnfit) {
+    const reasons = [...new Set(plan.unfitSamples.map((x) => x.reason))].join('、')
+    const names = plan.unfitSamples.map((x) => x.image).join('、')
+    notes.push(`跳过 ${plan.skippedUnfit} 张（${reasons}）：${names}${plan.skippedUnfit > plan.unfitSamples.length ? '…' : ''}`)
   }
   // ★VF_I2V_CACHE_V1：第 2 处起是**复用同一段动图**（make.py 按 URL 缓存），不额外计费。
   if (plan.reuse.length) {

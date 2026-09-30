@@ -511,7 +511,7 @@ def overlay_text_on():
 TITLE_VARIANTS = ('center', 'left', 'chip')
 LIST_VARIANTS = ('steps', 'stack')
 COMPARE_VARIANTS = ('split', 'bar')
-MOTIONS = ('fade', 'slide', 'typewriter')
+MOTIONS = ('fade', 'slide', 'typewriter', 'grow')
 
 
 def variant_of(shot, allowed, default):
@@ -531,6 +531,85 @@ def _slide_y(base_y, fs, dur):
     drawtext 的 y 支持表达式（含 t），所以不用改别的层。"""
     d = max(0.25, min(0.6, float(dur) * 0.12))
     return f"{base_y}+{int(fs * 0.35)}*max(0,1-t/{d:.2f})"
+
+
+# ══════════════════ ★VF_MOTIONPPT_V1（2026-09-30）「动态 PPT」渲染层动效 ══════════════════
+# 用户本轮定案原话：「「动态 PPT」（版式/文字动效，渲染层、不花钱）」「每个都有渐进效果 分段插入」。
+# 定位：**只做 FFmpeg 能确定做到的动作**（不追求 Remotion 那种任意 MG），全部成本为 0
+#       —— 只用 ffmpeg 滤镜，不联网、不调 AI、不烧点。
+#
+# 三层动效模型（每层都有的已实现 / 新增）：
+#   ① 入场：文字淡入（fade）/ 上滑淡入（slide）/ 逐字浮现（typewriter=_reveal_seq）
+#           + 【新】整块版式滑入（enter = up / left，见 ppt_enter_filters）
+#   ② 强调：数字滚动（number 卡，drawtext 的 %{eif} 逐帧递增，已实测）
+#           + 逐条插入（list 卡，节奏本轮参数化）
+#           + 【新】强调条从左往右生长（motion='grow'，见 grow_filters）
+#   ③ 离场与转场：镜尾淡出（fade out）/ soft·cut·fade 转场 / 真交叉溶解（xfade，video+audio 两侧）
+#
+# ⚠️ 两条【必须记住】的 ffmpeg 实测结论（第一批就是踩它们才稳）：
+#   1) `drawbox` 的 `w/h` 表达式**只在初始化求值一次、不逐帧** → 想做"生长"只能用
+#      `enable='gte(t,起点)'` 分段（本机实测宽度 0→300→600，真在长）。
+#   2) `pad/crop` 的 `x/y` 是**逐帧**求值的（本机实测白块 y 230→178→120，真在滑），
+#      且 `drawtext` 的 `%{eif:...}` 也是逐帧的（数字真的从 0 往上跳）。
+#   所以：尺寸/位置类"生长"用 enable 分段；整块位移用 pad+crop；数字滚动用 eif。
+PPT_ENTERS = ('none', 'up', 'left')     # 整块版式入场方式白名单
+PPT_ENTER_ON = True                     # 总开关（默认开，但极度克制；shot['enter']='none' 可单镜关）
+
+
+def enter_of(shot):
+    """★VF_MOTIONPPT_V1：纯文字卡【整块版式】入场方式。
+    'up'  = 从下往上滑入（默认，最克制，像 PPT 版式轻轻推上来）
+    'left'= 从左侧滑入（内容自左边归位）
+    'none'/off 显式关闭；白名单外的自造值 → 回默认 'up'（绝不让 AI 自造值把渲染搞挂）。"""
+    e = str((shot or {}).get('enter') or '').strip().lower()
+    if e in ('none', 'off', 'false', '0'):
+        return 'none'
+    return e if e in PPT_ENTERS else 'up'
+
+
+def ppt_enter_filters(shot, th, W, H, dur):
+    """★VF_MOTIONPPT_V1：纯文字卡【整块版式】入场滑入（pad 垫出偏移 + crop 用 t 表达式逐帧归位）。
+
+    ⚠️ 为什么不用 overlay 的 x/y 表达式：overlay 是**双输入**滤镜，必须走 filter_complex →
+       会动到【所有卡型】的 `-vf` 单链渲染架构，改动面大、回归风险高。pad/crop 是**纯线性**滤镜，
+       接在卡链尾部即可，一处接线、风险最小。
+    ⚠️ 为什么这个位移是"真动画"：`drawbox` 的 w/h 只初始化求值一次（线上踩过的假动画），
+       但 pad/crop 的 x/y 是**逐帧**求值的 —— 本机实测白块 y 230→178→120（真的在滑）。
+    返回 filter 片段 list（空 list = 本镜不动）。"""
+    e = enter_of(shot)
+    if not PPT_ENTER_ON or e == 'none':
+        return []
+    _d = max(0.25, min(0.5, float(dur) * 0.12))      # 0.25~0.5s，克制
+    _bg = th.get('bg', '0x0a1620')
+    if e == 'left':
+        _dl = max(8, int(W * 0.045))
+        _dl += _dl % 2                                # yuv420p 要求偶数尺寸
+        return [
+            f"pad=w={W + _dl}:h={H}:x=0:y=0:color={_bg}",
+            f"crop=w={W}:h={H}:x='{_dl}*(1-min(t/{_d:.2f},1))':y=0",
+        ]
+    _dl = max(6, int(H * 0.035))
+    _dl += _dl % 2
+    return [
+        f"pad=w={W}:h={H + _dl}:x=0:y={_dl}:color={_bg}",
+        f"crop=w={W}:h={H}:x=0:y='{_dl}*min(t/{_d:.2f},1)'",
+    ]
+
+
+def grow_filters(x, y, w, h, color, dur, delay=0.15, grow=0.45, seg=6):
+    """★VF_MOTIONPPT_V1：一条"从左往右生长"的强调条（关键词下划线 / 色块）。
+    用线上已验证的写法：**分段 drawbox + enable='gte(t,起点)'**。
+    ⚠️ 绝不能给 drawbox 写"带 t 的宽度表达式"（那会让宽度只在初始化求值一次＝假动画，
+       vf-style-selftest.py 已加断言拦它）；只有 enable 是逐帧的（本机实测宽度 0→300→600）。"""
+    out = []
+    _seg = max(2, int(seg))
+    for _k in range(_seg):
+        _wk = max(1, int(w * (_k + 1) / float(_seg)))
+        _tk = float(delay) + float(grow) * _k / float(_seg)
+        if _tk >= float(dur):
+            break
+        out.append(f"drawbox=x={x}:y={y}:w={_wk}:h={h}:color={color}:t=fill:enable='gte(t,{_tk:.2f})'")
+    return out
 
 
 def card_title(shot, th, W, H, fps):
@@ -656,9 +735,14 @@ def card_title(shot, th, W, H, fps):
     else:
         # center：老样式（短线 + 通栏细线，放在大字块正上方）
         _dy = max(int(H * 0.05), _block_top - int(fs * 0.66))
-        deco = ','.join([
+        # ★VF_MOTIONPPT_V1（2026-09-30）：motion='grow' → 强调色短线【从左往右生长】
+        #   （用户要的"渐进/分段插入"里的"强调"层；opt-in，默认不动，避免成片变闹）。
+        _grow_deco = grow_filters(int(W * 0.10), _dy, int(W * 0.10), _bar_h, acc + '@0.95',
+                                  dur, delay=0.12, grow=0.45) if _motion == 'grow' else []
+        _line_deco = f"drawbox=x={int(W * 0.22)}:y={_dy + _bar_h // 2}:w={int(W * 0.68)}:h=2:color={txc}@0.16:t=fill"
+        deco = ','.join(_grow_deco + [_line_deco]) if _grow_deco else ','.join([
             f"drawbox=x={int(W * 0.10)}:y={_dy}:w={int(W * 0.10)}:h={_bar_h}:color={acc}@0.95:t=fill",
-            f"drawbox=x={int(W * 0.22)}:y={_dy + _bar_h // 2}:w={int(W * 0.68)}:h=2:color={txc}@0.16:t=fill",
+            _line_deco,
         ])
         _rev = []
         if _motion == 'typewriter' and len(_lines) <= 1:
@@ -730,7 +814,17 @@ def card_list(shot, th, W, H, fps):
     acc, txc = th.get('accent', '0xff6b35'), th.get('text', 'white')
     parts = []
     y0 = int(H * 0.30)
-    step = float(shot.get('step', 1.3))
+    # ★VF_MOTIONPPT_V1（2026-09-30）：逐条插入的【节奏参数化】——不再写死 1.3s。
+    #   用户原话：「每个都有渐进效果 分段插入」；节奏要跟镜长走，而不是固定值。
+    #   规则（本轮定案）：每条间隔 = (本镜时长 − 起手 0.35s − 尾留 1.0s) / (条数−1)，
+    #   且**最后一条必须留够 1 秒**展示（短镜不会被"闪一下就没"）。区间夹在 0.5~2.5s。
+    #   AI/分镜显式写了 shot['step'] 时优先用它（向后兼容老分镜）。
+    if shot.get('step') not in (None, '', 0):
+        step = float(shot['step'])
+    else:
+        _n = len(items)
+        _avail = max(0.4, float(dur) - 0.35 - 1.0)          # 尾留 1.0s 给最后一条
+        step = max(0.5, min(2.5, _avail / max(1, _n - 1))) if _n > 1 else max(0.5, _avail)
     # 标题（可选）
     if shot.get('title'):
         parts.append(
@@ -1858,9 +1952,13 @@ def card_end(shot, th, W, H, fps):
         print('[VF] 结尾卡版式 = card（票根卡）')
         return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
                 ','.join(cparts), dur)
-    parts = [
+    # ★VF_MOTIONPPT_V1（2026-09-30）：motion='grow' → 结尾卡顶部强调条从左往右生长（opt-in）
+    _end_grow = grow_filters(int(W * 0.10), int(H * 0.20), int(W * 0.10),
+                             max(6, int(H * 0.006)), acc + '@0.95', dur,
+                             delay=0.12, grow=0.45) if motion_of(shot) == 'grow' else []
+    parts = (_end_grow or [
         f"drawbox=x={int(W * 0.10)}:y={int(H * 0.20)}:w={int(W * 0.10)}:h={max(6, int(H * 0.006))}:color={acc}@0.95:t=fill",
-    ] + center_lines_drawtext(font, _lines or [_main], fs, txc, W, H, dur, y_off=-30)
+    ]) + center_lines_drawtext(font, _lines or [_main], fs, txc, W, H, dur, y_off=-30)
     if shot.get('cta'):
         parts.append(f"drawtext=fontfile='{font}':text='{esc_text(shot['cta'])}':fontsize={int(fs * 0.5)}:"
                      f"fontcolor=0x0a1620:box=1:boxcolor={acc}@0.95:boxborderw={max(10, int(fs * 0.26))}:"
@@ -1957,6 +2055,14 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
         inp = ' '.join(_inp2)
         vf = _deco + ',' + vf
         print('[VF] 文字卡 %s → 主题质感底（渐变 + 强调色装饰）' % typ)
+        # ★VF_MOTIONPPT_V1（2026-09-30）：纯文字卡的【整块版式】入场滑入（pad+crop，逐帧）。
+        #   只加在纯文字卡（有素材的镜已有 Ken Burns 轮换，再整体位移会打架）；默认开但极克制
+        #   （0.25~0.5s / 位移 3.5%H），shot['enter']='none' 可单镜关。拼在【卡链尾部】：
+        #   这样连同 stage 装饰一起滑入 = "整块版式推上来"，再往后才是 render_shot 的 fade in/out。
+        _ef = ppt_enter_filters(shot, th, W, H, dur)
+        if _ef:
+            vf = vf + ',' + ','.join(_ef)
+            print('[VF] 文字卡 %s → 整块版式入场滑入（enter=%s）' % (typ, enter_of(shot)))
     out = os.path.join(workdir, 'shot%02d.mp4' % idx)
     # ★VF_TRANS_V1（2026-09-20）：每镜首尾轻微淡入淡出（≤0.2s）——比硬切自然；
     #   不改时长（不碰音频时间轴），拼接后就是“柔和的镜间过渡”

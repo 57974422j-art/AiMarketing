@@ -27,6 +27,10 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme } 
 // ★VF_VIDI2V_V1（2026-09-29）：「让图动起来」的计费口径（50 点/秒）与出片侧 vf-video.ts **共用同一份公式** ——
 //   卡片报价与实扣同源，免得又出现"卡片报 205 点、实扣 1500 点"。
 import { i2vCostPoints, vfTotalCostPoints, buildI2vShots, i2vKeyMap } from '@/lib/agent/vf/i2v-plan'
+// ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对『有主体可动』的素材开」）：
+//   把"图片本地路径 → 识别摘要"的映射建出来（纯函数），交给 buildI2vShots 逐图分类 ——
+//   界面/截图/海报/文字页这类"动起来也看不出"的直接跳过（省钱），且报价随之下调（同源）。
+import { i2vSummaryByPath } from '@/lib/agent/vf/i2v-suit'
 // ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：提炼两行 + 根级字段形状。
 //   纯逻辑在 banner.ts（与 anti-ai.ts 同类，零网络依赖），与「图视混剪」线**共用同一份**截断/兜底规则。
 import { buildBanner, bannerFieldOf, planWithBanner, shouldRebuildBanner } from '@/lib/agent/vf/banner'
@@ -3768,7 +3772,11 @@ PUBLISH_DRAFT.delete(uidW)
                   if (f.pin2 !== undefined) vd.pin2 = String(f.pin2 || '').slice(0, 80)
                   // ★VF_I2V_BASELINE_V1（2026-09-29 team-lead 要求）：「图片成片」线也复用设置卡的
                   //   「🎞 让图动起来」开关（'on' 默认 / 'off' 不注入、不额外计费）。原来本线没解析这个字段。
-                  if (f.i2v !== undefined) vd.i2v = (String(f.i2v) === 'off') ? 'off' : 'on'
+                  // ★VF_I2VSUIT_V1（2026-09-30）：额外支持 'all' = 手动全开（不按素材类型筛选，全部图都做）。
+                  if (f.i2v !== undefined) {
+                    const _i2vV = String(f.i2v)
+                    vd.i2v = _i2vV === 'off' ? 'off' : (_i2vV === 'all' ? 'all' : 'on')
+                  }
                   // ★VF_UPLOAD_V2（2026-09-20，用户实测“上传 8 张却用了旧图”）：前端把**刚上传的文件名列表**
                   //   一起发过来 → 后端按名字精确取，不再靠“按时间猜最近”。确定性优先。
                   if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x)).slice(0, 60)
@@ -3878,6 +3886,11 @@ PUBLISH_DRAFT.delete(uidW)
                 //   视觉理解张数（喂 VL）单独限：8~20 张（成本控制，每张约 0.2 点）
                 const vfVisN = Math.max(8, Math.min(20, Math.round(_dur0 / 30) * 5))
                 let vfBrief = await summarizeMaterials(uidVF2, vfMats, vfVisN)
+                // ★VF_I2VSUIT_V1（2026-09-30）：单独留一份 **AI 原始看图结论** ——
+                //   用户可以在"素材识别结果"里手改（briefOverride 覆盖 vfBrief），但"这张图有没有主体可动"
+                //   要按 **AI 的原始判断**来（用户手改的往往是文案措辞，不保证还带 `图N（name）：` 这种结构，
+                //   用它去解析会得到空映射 → 所有图都被判为"判不出"→ i2v 全不做）。见下面 vd.i2vSuit。
+                const _vfBriefAI = vfBrief
                 // ═══ ★VF_BRIEF_EDIT_V1（2026-09-24 用户定案 P0②：识别结果可编辑）═══
                 //   识别错了（把"营销工具界面"说成"手表海报"）时，这段结论会同时喂给【写文案】与【排分镜】
                 //   → 整片主题跑偏。用户在"素材识别结果"里亲手改过的版本，必须**覆盖 AI 新扫出来的**。
@@ -3955,6 +3968,9 @@ PUBLISH_DRAFT.delete(uidW)
                 //     ② 起草时算一次计划（sec/images）→ 交给确认卡如实报价；出片时再算一次拼进 args。
                 //   开关复用设置卡的 i2v（'on' 默认 / 'off' 不注入、不额外计费）；AI 模式（vd.source='ai'）不动。
                 vd.i2vKeys = i2vKeyMap(vfLocal)
+                // ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对有主体可动的素材开」）：
+                //   用 AI 原始看图结论建"本地路径 → 摘要"映射（存进草稿，出片时复用同一份 → 报价=实扣）。
+                vd.i2vSuit = i2vSummaryByPath(_vfBriefAI, vfLocal)
 
                 vfLog(uidVF2, `[素材配比] 时长${vfDur}s → 取图上限 ${vfMatN} 张（仓库实际 ${vfMats.filter((m: any) => m.kind === 'image').length} 张，可用 ${vfLocal.length} 张）`)
                 const vfNeed = Math.round(vfDur * 4.5)
@@ -4145,6 +4161,8 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_I2V_BASELINE_V1：这次要让哪几张图动起来（开关关掉 → 空；费用如实报在确认卡上）
                 const _i2vB = buildI2vShots({
                   shots: vfShots, keyByPath: vd.i2vKeys || {},
+                  // ★VF_I2VSUIT_V1：只对有主体可动的素材开（摘要为空/判不出 → 不做，省钱优先）
+                  summaryByPath: vd.i2vSuit,
                   enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'on'),
                 })
                 for (const _n of _i2vB.notes) vfLog(uidVF2, '[图生视频] ' + _n)
@@ -4260,6 +4278,8 @@ PUBLISH_DRAFT.delete(uidW)
                 //   自动从 --mix 名单剔除并下调计费（只会少收，不会多收）。关掉开关 → args 为空对象。
                 const _i2vRun = buildI2vShots({
                   shots: vd.shots || [], keyByPath: vd.i2vKeys || {},
+                  // ★VF_I2VSUIT_V1：出片实扣按**同一份摘要**再算一次（与卡片报价同源）
+                  summaryByPath: vd.i2vSuit,
                   enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'on'),
                 })
                 for (const _n of _i2vRun.notes) vfLog(uidVF2, '[图生视频] ' + _n)
@@ -4309,6 +4329,8 @@ PUBLISH_DRAFT.delete(uidW)
               // ★VF_I2V_BASELINE_V1：重排分镜后重新算"让哪几张图动起来"（与首次起草同口径，报价同源）
               const _i2vB2 = buildI2vShots({
                 shots: vfAgain, keyByPath: vd.i2vKeys || {},
+                // ★VF_I2VSUIT_V1：重排分镜后同样按摘要筛（与首次起草同口径）
+                summaryByPath: vd.i2vSuit,
                 enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'on'),
               })
               for (const _n of _i2vB2.notes) vfLog(uidVF2, '[图生视频] ' + _n)

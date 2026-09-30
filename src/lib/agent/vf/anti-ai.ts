@@ -58,7 +58,8 @@ export const ANTI_AI_PROMPT =
   `10. 不要为了"看得清"去改主题配色：字压在深色素材上时，渲染层会自动换成亮字 + 深底衬。\n` +
   `11. 中文字体排中文、英文字体排英文（渲染层已内置，你不用管字体）。\n` +
   `· variant（版式；**只对这三类卡有效**，写在别的卡上会被丢掉）：title → center 居中(默认) / left 左对齐 / chip 色块标签；list → steps 逐条揭示(默认) / stack 整板清单；compare → split 左右分栏(默认) / bar 条形对比\n` +
-  `· motion（入场动效；**只挑 2~3 个重点镜写**，不要整片都动）：fade 淡入(默认) / slide 上滑淡入 / typewriter 逐字浮现（只对 title 卡有效）\n` +
+  `· motion（入场动效；**只挑 2~3 个重点镜写**，不要整片都动）：fade 淡入(默认) / slide 上滑淡入 / typewriter 逐字浮现（只对 title 卡有效） / grow 强调条从左往右生长（只对 title/end 卡有效，默认关，写了才开）\n` +
+  `· enter（整块版式的滑入方向；**默认已经有一点点从下往上归位**，一般不用写）：up 从下往上(默认) / left 从左往右 / none 这一镜不滑入\n` +
   `· transition（转场，一般人不用写）：soft 柔和淡入淡出(默认) / cut 硬切 / fade 柔化溶解\n` +
   `· ⚠️ 只写上面列出的词 —— 白名单外的值服务端会**直接删掉**（回默认渲染），写了等于没写。\n`
 
@@ -77,7 +78,13 @@ export const VF_VARIANTS: Record<string, string[]> = {
   list: ['steps', 'stack'],
   compare: ['split', 'bar'],
 }
-export const VF_MOTIONS = ['fade', 'slide', 'typewriter']
+// ★VF_MOTIONPPT_V1（2026-09-30 用户定案「动态 PPT 立项」）：motion 新增 `grow`（强调条从左往右生长）。
+//   ⚠️ 与 render.py 的 MOTIONS 必须逐项一致（vf-i2v-selftest 会**对账**，不一致直接红）——
+//   这一条今天真的红了（渲染层先加、TS 没同步），说明那道闸门有用。
+export const VF_MOTIONS = ['fade', 'slide', 'typewriter', 'grow']
+/** ★VF_MOTIONPPT_V1：整块版式滑入方向（render.py 的 enter）—— up=从下往上归位(默认) / left=从左往右归位 / none=本镜不滑入
+ *  注：渲染层用 `pad`+`crop` 实现，crop 窗口不能为负 → **做不到"从右滑入"**，所以只有 up/left/none 三种。 */
+export const VF_ENTERS = ['up', 'left', 'none']
 export const VF_TRANSITIONS = ['soft', 'cut', 'fade']
 
 /** ★VF_AI_PICK_V1：AI 自选的"设计字段"——归一化时必须**原样透传**，否则白名单无从校验 */
@@ -85,7 +92,7 @@ export const VF_TRANSITIONS = ['soft', 'cut', 'fade']
 //   kicker = 栏目/出处小标签条（≤8 字）；en = 英文副标（全大写、无衬线、字距加宽）。
 //   为什么必须加在这里：两条线的归一化都是"显式造对象 + ...pickDesignFields(s)"，
 //   不列进这张表 → AI 写的 kicker/en 会被**静默丢掉**（theme/variant 当初就是这么踩的坑）。
-export const PICK_DESIGN_KEYS = ['theme', 'variant', 'motion', 'transition', 'kicker', 'en'] as const
+export const PICK_DESIGN_KEYS = ['theme', 'variant', 'motion', 'transition', 'kicker', 'en', 'enter'] as const
 
 /** 从 AI 给的镜里挑出设计字段（只收非空字符串；值是否合法交给 sanitizeAntiAiShots 白名单判）
  *  为什么单独一个小函数：分镜出口有两处（vf-video.ts 与 chat/route.ts 的 genVideoShots），
@@ -239,6 +246,12 @@ export function sanitizeAntiAiShots(shots: any[]): { shots: any[]; notes: string
       const tr = String(s.transition || '').trim().toLowerCase()
       if (VF_TRANSITIONS.includes(tr)) s.transition = tr
       else { delete s.transition; _bad('transition', s0?.transition) }
+    }
+    // ★VF_MOTIONPPT_V1（2026-09-30）：整块版式的滑入方向（render.py 的 enter）—— 同样走白名单
+    if (s.enter !== undefined) {
+      const en2 = String(s.enter || '').trim().toLowerCase()
+      if (VF_ENTERS.includes(en2)) s.enter = en2
+      else { delete s.enter; _bad('enter', s0?.enter) }
     }
     return s
   })

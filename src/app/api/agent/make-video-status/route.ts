@@ -10,6 +10,14 @@ import { vfStorageRoot } from '@/lib/agent/video-material'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+  // ★VF_CLEANUP_V2（2026-09-30）：**双保险**懒触发定时清理 ——
+  //   万一某些部署形态没跑到 `src/instrumentation.ts` 的启动钩子，只要有请求进来就仍会启动
+  //   （`startCleanupScheduler()` 幂等，只会启动一次）。这个路由恰好是渲染期间每 6 秒轮询的，
+  //   所以它几乎一定会被碰到。异常一律吞掉，绝不影响查进度。
+  try {
+    const { startCleanupScheduler } = await import('@/lib/cleanup')
+    startCleanupScheduler()
+  } catch { /* 静默 */ }
   try {
     const userId = request.nextUrl.searchParams.get('userId') || ''
     const taskId = request.nextUrl.searchParams.get('taskId') || ''
