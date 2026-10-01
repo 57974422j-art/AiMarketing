@@ -546,6 +546,11 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   // ★VF_THEME_UI_V1（2026-09-20）：画面风格 —— render.py 早就有 3 套主题预设（dark/tech/light），
   //   之前没在表单里暴露 → 用户永远只能拿到 dark。这里加一栏让用户选。
   const [theme, setTheme] = useState(vj.theme || 'dark')
+  // ★VF_DECK_STYLES_V1（2026-10-01 用户原话「我本次选的是新闻资讯，因为我没看到新模版」）：
+  //   「🎨 画面模版」= **富编排 PPT 页（deck）的风格**，之前界面根本没有这个选项、只有 AI 自动选。
+  //   值一路带：设置卡 → 草稿 → 出片 plan 根级 `deck_style`（渲染层读它）。
+  //   'auto'（默认）= AI 按题材自选（与旧行为一致）；其余 6 个 = 用户指定，AI 必须用用户选的。
+  const [deckStyle, setDeckStyle] = useState(vj.deckStyle || 'auto')
   // ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案「在视频图片上直接加大字，加一个开关」）：
   //   只关【压在素材/视频上的大字】；独立文字卡（标题/结尾/列表…）与字幕照旧 ——
   //   用户要的就是"有的视频不一定要，需要文字时用单独的文字卡（几帧）也行"。
@@ -734,6 +739,25 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         </div>
       </div>
 
+      {/* ★VF_DECK_STYLES_V1（2026-10-01 用户定案「我没看到新模版」）：🎨 画面模版 = 富编排 PPT 页（deck）风格。
+          "自动" = AI 按题材自选（旧行为）；选了具体一套 → 所有 deck 页强制用它（值经服务端归一化后
+          写进分镜 plan 的根级 `deck_style`，渲染层读取）。 */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">
+          🎨 画面模版 <span className="text-gray-600">（「富编排 PPT 页」整页排版风格：标签条/要点/数据卡/页码）</span>
+        </div>
+        <select value={deckStyle} onChange={(e: any) => setDeckStyle(e.target.value)}
+          className="w-full px-2 py-1.5 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 outline-none">
+          <option value="auto">自动（AI 按题材选）</option>
+          <option value="deck">经典（通用默认）</option>
+          <option value="deck-grad">渐变（氛围/开场）</option>
+          <option value="deck-mono">极简（数据/参数）</option>
+          <option value="deck-mag">杂志（资讯/观点）</option>
+          <option value="deck-glass">玻璃（产品/科技）</option>
+          <option value="deck-soft">柔和（生活/品牌）</option>
+        </select>
+      </div>
+
       {/* ★OVERLAY_TEXT_SWITCH_V1：压在素材/视频上的大字开关（用户：有的视频不一定要） */}
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">画面大字 <span className="text-gray-600">（压在素材/视频上的字；选"不加"就只留字幕）</span></div>
@@ -805,6 +829,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
       <button
         onClick={() => onStart('VF_FORM:' + JSON.stringify({
           aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme, big,
+          // ★VF_DECK_STYLES_V1：🎨 画面模版（'auto' | 6 个 deck 风格）—— 服务端写进 plan 根级 deck_style
+          deckStyle,
           // ★VF_VIDI2V_V1：让图动起来（'on'|'off'）—— 服务端 vf-video.ts 解析 f.i2v，关掉就完全不注入首帧
           i2v,
           // ★VF_BANNER_V1：顶部固定标题（'on' 默认自动拟两行 | 'off' 不要）—— 服务端解析后决定 plan 是否带 banner
@@ -3402,6 +3428,10 @@ function AgentPageInner() {
               _api.vfSaveStoryboard({
                 uid: user?.id, topic: vj.topic, script: vj.script, brief: vj.brief,
                 size: vj.size, aspect: vj.aspect, theme: vj.theme, big: vj.big, shots: vj.shots,
+                // ★VF_SBDUMP_V2（2026-10-01）：服务端随卡片给的**出片真正读的那一份 plan**
+                //   （与 make_ai_video 同一个 buildVideoPlan）+ 渲染读的根级参数 + 每镜稳定字段集。
+                //   客户端【原样落盘】即可（见 electron/main.js 的 vf:save-storyboard）。
+                sb: (vj as any).sb,
               })
             }
           } catch {}

@@ -1994,10 +1994,23 @@ ipcMain.handle('vf:save-storyboard', async (_event, payload) => {
     const pad = (n) => String(n).padStart(2, '0')
     const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
     const file = path.join(dir, `vf-${stamp}-u${String(p.uid || 'x')}.json`)
+    // ★VF_SBDUMP_V2（2026-10-01 team-lead 定案）：留档必须写上**渲染真正读的那一份 plan**。
+    //   事故：vf-20261001-125750-u1.json 里**没有 banner、13 镜全没有 variant**（那是卡片里的"精简 shots"），
+    //   开发机拿留档复现不出成片 —— team-lead 因此白跑两轮。
+    //   现在服务端随卡片给 `sb`（{version,plan,root,shots}；plan 与 make_ai_video 同一个 buildVideoPlan），
+    //   这里**原样落盘、一个字段都不动**；缺 sb（旧客户端/旧服务端）仍按 V1 写，老的读法不变。
+    const sb = (p.sb && typeof p.sb === 'object') ? p.sb : null
     fs.writeFileSync(file, JSON.stringify({
+      version: sb ? 2 : 1,
       savedAt: d.toISOString(), uid: p.uid, topic: p.topic, aspect: p.aspect, size: p.size,
       theme: p.theme, big: p.big, brief: p.brief, script: p.script, shots,
-      note: '本文件由客户端自动留存（VF_SBDUMP_V1），用于排查画面/排版问题；开发机可用 scripts/vf-local.mjs --sb 本文件 复现渲染',
+      // ── ★VF_SBDUMP_V2：渲染真正读的那一份 plan（根级 + 每镜全字段）；没有就是 null（键不省略）──
+      plan: sb ? sb.plan : null,
+      planRoot: sb ? sb.root : null,
+      shotsNorm: sb ? sb.shots : null,
+      note: sb
+        ? '本文件由客户端自动留存（VF_SBDUMP_V2）：plan = 渲染真正读的那一份分镜（与出片同一个 buildVideoPlan）；planRoot = 渲染读的根级/CLI 参数；shotsNorm = 每镜稳定字段集（缺=null，可 diff）。开发机可用 scripts/vf-local.mjs --sb 本文件 复现渲染'
+        : '本文件由客户端自动留存（VF_SBDUMP_V1，未含 plan —— 客户端版本较旧）；开发机可用 scripts/vf-local.mjs --sb 本文件 复现渲染',
     }, null, 1), 'utf8')
     try { buLog('[vf:save-storyboard] 已留档: ' + file) } catch (e) {}
     return { success: true, path: file }

@@ -50,6 +50,17 @@ token 说明（都在 render.py 里被读取，缺省有兜底 → 老分镜不�
             兜底刻意取**主题自己那对底色**（bg2→bg）——不新造高饱和色，配色永远与主题同源，
             这就是"去 AI 味"的做法：只用低饱和的一档做层次，其余走中性。
             同样有 _with_tokens 兜底 → 老主题不写也不会坏。
+
+★VF_DECK_STYLES2_V1（2026-10-01 用户定案「配色真的不能太 AI 味」「最好有渐变色」「还有就是透明度」）
+  ——新增 3 个 token（6 套富编排风格共用；deck-glass / deck-soft 依赖最重）：
+  cardBg2   玻璃拟态 / 柔和拟物**两张新卡面的底色**（→ glass 卡"染色玻璃"的 tint、soft 卡"凸起面"的亮面）
+            注意与已有的 cardBg 区分：cardBg 是【编辑风的不透明信息卡】，cardBg2 是【半透明/同色系新卡面】。
+  shadowC   投影色（→ soft 的"右下暗面"、glass 的边缘暗侧；一律在 render.py 里强制低 alpha）
+  lineC     hairline 色（发丝线 / 玻璃细白边 / 柔和亮边；比 line 更细更淡，只做"边界暗示"）
+            兜底策略：cardBg2 = 主题自己的 bg2（同源）；shadowC = 近黑；
+            lineC = 按 text 亮度自动取"白"或"黑"（浅字配白发丝、深字配黑发丝）——
+            依旧是"只用主题自己的色阶"，绝不新造高饱和色（这就是"去 AI 味"的硬规矩）。
+            同样有 _with_tokens 兜底 → 老主题不写也不会坏。
 """
 
 THEMES = {
@@ -131,6 +142,10 @@ THEMES = {
         'dot': '0xd7263d',            # ★VF_DECK_V1：deck 页要点小方点（用次强调红，与蓝底形成层级）
         # ★VF_DECK_STYLES_V1：渐变风的两端色（比 bg/bg2 略提亮一档，让"真渐变"看得出来但不刺眼）
         'gradA': '0x1b3a5e', 'gradB': '0x0a1420',
+        # ★VF_DECK_STYLES2_V1（2026-10-01）：玻璃/柔和两张新卡面 —— 全部**与主题同源**，不引入新色相
+        'cardBg2': '0x1b3a5e',        # = gradA（比 bg2 亮一档的蓝灰）→ glass 染色玻璃 / soft 凸起面
+        'shadowC': '0x04090f',        # 近黑偏蓝（右下暗面 / 玻璃边缘暗侧）
+        'lineC': '0xffffff',          # 玻璃细白边 / 柔和亮边（render 里只给 0.14~0.24 的 alpha）
         'desc': '新闻资讯（编辑风）',
     },
     'data': {
@@ -145,11 +160,31 @@ THEMES = {
         'dot': '0x34d399',            # ★VF_DECK_V1：deck 页要点小方点（青底 + 薄荷绿点）
         # ★VF_DECK_STYLES_V1：渐变风的两端色（近黑青 → 深青，低饱和、不"科技蓝"）
         'gradA': '0x123540', 'gradB': '0x06121a',
+        # ★VF_DECK_STYLES2_V1：同 news —— 同源色阶，低饱和，绝不"科技蓝发光"
+        'cardBg2': '0x123540',        # = gradA
+        'shadowC': '0x030a0d',
+        'lineC': '0xeaf6ff',          # 近白的青灰（与 data 的 text 同族）
         'desc': '科技数据（编辑风）',
     },
 }
 
 DEFAULT_THEME = 'dark'
+
+
+def _lum_hex(c, default=255):
+    """颜色串（'white' / '0xRRGGBB' / '0xRRGGBB@0.5'）的感知亮度；解析失败回 default。
+
+    ★VF_DECK_STYLES2_V1 用它决定 hairline（lineC）兜底取白还是取黑 ——
+    浅色字主题配白发丝、深色字主题配黑发丝，**只取黑白两端**，不新造色相。"""
+    s = str(c or '').strip().split('@')[0].lower()
+    s = {'white': '0xffffff', 'black': '0x000000'}.get(s, s)
+    try:
+        h = s.replace('0x', '').replace('#', '')
+        if len(h) == 3:
+            h = ''.join(ch * 2 for ch in h)
+        return int(0.299 * int(h[0:2], 16) + 0.587 * int(h[2:4], 16) + 0.114 * int(h[4:6], 16))
+    except Exception:
+        return default
 
 
 def _with_tokens(d):
@@ -176,6 +211,12 @@ def _with_tokens(d):
     #   兜底 = 主题自己的 bg2（亮端）→ bg（暗端）：同源、低饱和，绝不引入"高饱和紫蓝"那套 AI 味。
     d.setdefault('gradA', d.get('bg2') or d.get('bg') or '0x123043')
     d.setdefault('gradB', d.get('bg') or '0x0a1620')
+    # ★VF_DECK_STYLES2_V1（2026-10-01）：玻璃拟态 / 柔和拟物 的两张新卡面 token（老主题走这套兜底）。
+    #   cardBg2 = 主题自己的 bg2（同源、低饱和；没 bg2 就退 bg）—— 与 gradA 同族，绝不新造色。
+    d.setdefault('cardBg2', d.get('bg2') or d.get('bg') or '0x123043')
+    d.setdefault('shadowC', '0x000000')
+    #   hairline：浅色字 → 白发丝；深色字 → 黑发丝（只取黑白两端，不引入色相）
+    d.setdefault('lineC', 'white' if _lum_hex(d.get('text')) >= 128 else 'black')
     # ★VF_TPL_B1_V1（2026-09-30）：拍立得相框的"白边"底色。
     #   必须是**不带 alpha 的纯色**：ffmpeg `pad` 滤镜的 color 不给 rgb 之外的东西，
     #   写成 'white@0.96' 会被 pad 拒掉（这里刻意保守，保证任何本机/服务器版本都能跑）。

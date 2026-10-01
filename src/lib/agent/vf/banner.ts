@@ -18,10 +18,13 @@
  *   · `banner: false` 或**缺失** = 不画 —— 所以必须由调用方**显式**传（本文件负责给出该字段）。
  *   · 颜色/底衬由渲染层从主题色板随机挑（`_banner_pick`），服务端**不发颜色**（那是渲染层的事）。
  */
-import { stripEmoji } from './anti-ai'
+import { stripEmoji, normalizeDeckStyle } from './anti-ai'
 
 /** 第 1 行（钩子/主题）字数上限 —— 用户定案 ≤12 字 */
 export const VF_BANNER_LINE1_MAX = 12
+/** ★VF_BANNER_EMPTYLINE_V1（2026-10-01）：不可见字符表 —— 与渲染层 render.py 的 `_BANNER_INVIS`
+ *  **逐字一致**（零宽 / BOM / 变体选择符 / 软连字符）。服务端漏了这一步 → 空行照进 plan。 */
+export const VF_BANNER_INVIS = '\u200b\u200c\u200d\u200e\u200f\u2060\ufeff\ufe0e\ufe0f\u00ad'
 /** 第 2 行（核心承诺/关键点）字数上限 —— 用户定案 ≤18 字 */
 export const VF_BANNER_LINE2_MAX = 18
 /** 规则兜底时第 1 行取首句前几字（比 AI 档更保守：兜底宁短不长） */
@@ -29,12 +32,40 @@ export const VF_BANNER_FALLBACK_LINE1 = 10
 /** 规则兜底时第 2 行取次句前几字 */
 export const VF_BANNER_FALLBACK_LINE2 = 16
 
-/** 渲染层要的根级 banner 字段（from/to 为 1-based 镜号；to=0 → 到片尾） */
+/** 渲染层要的根级 banner 字段（from/to 为 1-based 镜号；to=0 → 到片尾）
+ *  ★VF_BANNER_EMPTYLINE_V1（2026-10-01 用户实测「空色块」）：`line2` 改为**可选** ——
+ *  只写非空行；两行都空时**根本不生成 banner**（根级没有 banner 字段）。 */
 export interface VfBanner {
   line1: string
-  line2: string
+  line2?: string
   from: number
   to: number
+}
+
+/* ══════════ ★VF_BANNER_EMPTYLINE_V1（2026-10-01 用户实测：成片顶部出现"空色块"）══════════
+ * 现象（用户报过两次；team-lead 抽帧放大定案）：
+ *   `dist-rel/fixbase/top_t0020.png`：顶部白字「AI营销系统30秒生成」**正下方紧贴一个黑色实心矩形、
+ *   块内无文字、位置恒定、水平居中**；而同片其它镜（背景本来就黑）同位置干净 → "时有时无"。
+ *
+ * 根因（服务端这一侧）：**banner 的某一行是空字符串，但它照样被写进了 plan** ——
+ *   · `bannerFieldOf()` 原来只在【两行都空】时才返回空对象（`if (!line1 && !line2) return {}`），
+ *     所以「line1 有值 + line2 = ''」会原样写进 plan → 渲染层照画两行底衬 → 第 2 行只剩一个空框。
+ *   · `buildBanner()` 在「只手填了 1 行 + 另一行净化后为空（全是 emoji/标点/markdown）」时同样会产出空行。
+ * 影响：不只是难看 —— 排查"留档 ≠ 出片"时也会被这行空串误导（本次就白跑了两轮）。
+ *
+ * 规矩（本文件统一收口，两个卖点都走它）：
+ *   ① 两行都空 → **不生成 banner**（根级没有这个字段，渲染层一根都不画）；
+ *   ② 只有一行非空 → **只写那一行**（非空行提到 line1；绝不给渲染层留一个空槽/空框）；
+ *   ③ 正常两行 → 原样（行为与以前逐字一致）。
+ * 渲染层另有"空行不画框"的第二道兜底（team-lead 安排），服务端这里**不许再留空行**。
+ */
+export function bannerFieldLines(line1: any, line2: any): { line1: string; line2?: string } | null {
+  const l1 = normalizeBannerLine(line1, VF_BANNER_LINE1_MAX)
+  const l2 = normalizeBannerLine(line2, VF_BANNER_LINE2_MAX)
+  if (!l1 && !l2) return null
+  if (!l1) return { line1: l2 }
+  if (!l2) return { line1: l1 }
+  return { line1: l1, line2: l2 }
 }
 
 /** 两行纯文案（还没挂 from/to） */
@@ -44,11 +75,15 @@ export interface VfBannerLines {
 }
 
 /**
- * 单行净化：去 emoji/装饰符号 → 去 markdown 记号 → 去首尾引号/空白 → 去**结尾标点** → 截断到 max。
+ * 单行净化：去 emoji/装饰符号 → 去**不可见字符** → 去 markdown 记号 → 去首尾引号/空白 → 去**结尾标点** → 截断到 max。
  * 为什么去结尾标点：这是"钉在画面上的标题"，用户要求不出现句号/逗号这类收尾标点（视觉更干净）。
  */
 export function normalizeBannerLine(v: any, max: number): string {
   let s = stripEmoji(v)
+  // ★VF_BANNER_EMPTYLINE_V1（2026-10-01）：剥掉"看不见的字符"——**这一条就是老板报的"空色块"的根因**。
+  //   `\u200b` 这类零宽/BOM/变体选择符既不是空白也不是 emoji → `trim()` 认不出 → 一行"只有零宽字符"
+  //   的标题会被服务端当成**非空**写进 plan，渲染层于是给它画一个底衬框，可框里一个字都看不见。
+  for (const _ch of VF_BANNER_INVIS) s = s.split(_ch).join('')
   s = s.replace(/[*#`]/g, '')
   s = s.replace(/^[\s"'“”「」『』【】（）()]+|[\s"'“”「」『』【】（）()]+$/g, '')
   s = s.replace(/[。！？!?，,、；;：:.…\s]+$/g, '')   // 结尾标点（用户要求 line1 不要标点结尾）
@@ -166,12 +201,19 @@ export async function buildBanner(o: BannerBuildOpts): Promise<BannerBuildResult
   if (manual1 || manual2) {
     notes.push(`第 ${[manual1 ? '1' : '', manual2 ? '2' : ''].filter(Boolean).join('、')} 行用你手填的，另一行 AI 自动`)
   }
-  if (!l1 && !l2) {
-    notes.push('文案为空 → 本次不带固定标题')
+  // ★VF_BANNER_EMPTYLINE_V1（2026-10-01）：空行一律不写进 plan —— 两行都空 → 不生成 banner；
+  //   只剩一行 → 只写那一行（非空行提到 line1）。绝不给渲染层留一个空槽（那就会画成"空色块"）。
+  const shaped = bannerFieldLines(l1, l2)
+  if (!shaped) {
+    notes.push('两行都为空 → 本次不带固定标题（绝不给渲染层留空行）')
     return { field: {}, lines: null, fallback, notes }
   }
-  notes.push((fallback ? '规则兜底' : 'AI 提炼成功') + `：第1行「${l1}」/ 第2行「${l2}」`)
-  return { field: { banner: { line1: l1, line2: l2, from: 1, to: 0 } }, lines: { line1: l1, line2: l2 }, fallback, notes }
+  if (!l1 || !l2) {
+    notes.push(`★空行已滤掉（原 第1行「${l1}」/ 第2行「${l2}」）→ plan 里只写非空行` +
+      `（否则渲染层会给空行画一个空底衬框 = 用户报的"空色块"）`)
+  }
+  notes.push((fallback ? '规则兜底' : 'AI 提炼成功') + `：第1行「${shaped.line1}」/ 第2行「${shaped.line2 || '(无)'}」`)
+  return { field: { banner: { ...shaped, from: 1, to: 0 } }, lines: { line1: shaped.line1, line2: shaped.line2 || '' }, fallback, notes }
 }
 
 /**
@@ -185,8 +227,11 @@ export function bannerFieldOf(vd: { pin?: string | boolean; pin1?: string; pin2?
   //   只要用户在设置卡里手填了，出片也一定用手填的（防"手填了却出的是旧标题"）。
   const line1 = normalizeBannerLine(vd?.pin1, VF_BANNER_LINE1_MAX) || normalizeBannerLine(vd?.banner?.line1, VF_BANNER_LINE1_MAX)
   const line2 = normalizeBannerLine(vd?.pin2, VF_BANNER_LINE2_MAX) || normalizeBannerLine(vd?.banner?.line2, VF_BANNER_LINE2_MAX)
-  if (!line1 && !line2) return {}
-  return { banner: { line1, line2, from: 1, to: 0 } }
+  // ★VF_BANNER_EMPTYLINE_V1（2026-10-01）：**单行空也要滤掉** —— 这一处就是老板那颗"空色块"的根因：
+  //   原来只在"两行都空"时才不生成；「line1 有值 + line2 = ''」会把空串写进 plan → 渲染层照画第 2 行的空底衬框。
+  const shaped = bannerFieldLines(line1, line2)
+  if (!shaped) return {}
+  return { banner: { ...shaped, from: 1, to: 0 } }
 }
 
 /* ══════════════════ ★VF_BANNER_RECOMPUTE_V1（2026-09-29 team-lead 要求）══════════════════
@@ -219,4 +264,28 @@ export function planWithBanner<T extends Record<string, any>>(plan: T, field: { 
   const out: any = { ...(plan || {}) }
   if (field && field.banner) out.banner = field.banner
   return out
+}
+
+/* ══════════════════ ★VF_SBDUMP_V2（2026-10-01 team-lead 定案）══════════════════
+ * 事故：老板那条真片（20261001_004）的**本地留档与出片 plan 不是同一份** ——
+ *   留档 `E:\ai-marketing\data\vf-storyboards\vf-20261001-125750-u1.json` 里
+ *   **没有 `banner`**（可成片里明明有固定标题）、**13 镜全没有 `variant`**
+ *   （可第 1 镜成片是 deck 版式）→ **开发机拿着留档复现不出成片**，team-lead 因此白跑两轮。
+ * 为什么：留档走的是一张「精简卡片」的 shots（只映射 type/text/dur/subtitle… 见 route.ts 的 vfScriptCard），
+ *   banner/deck_style/variant/frame… 全在卡片映射那一步被丢掉；plan 又是出片那一刻**另拼一份**。
+ * 修法（本节）：把 plan 的**组装**收口成一个纯函数 `buildVideoPlan()`，
+ *   **出片 / 样板镜 / 本地留档 三处共用同一份**（同一个函数、同一份字段、同一份默认值）——
+ *   于是"留档里的 plan"与"渲染真正读的 plan"逐字一致，`scripts/vf-local.mjs --sb <留档>` 复现得出来。
+ * ⚠️ overlay_text 缺省 = 开（render.py 只在显式 `false` 时才关）→ 显式写上不改变任何现有行为。
+ */
+export const VF_PLAN_FPS = 25
+export function buildVideoPlan(shots: any[], vd: any, opts?: { sizeDefault?: number[] }): Record<string, any> {
+  const size = (Array.isArray(vd?.size) && vd.size.length === 2 ? vd.size : null) || opts?.sizeDefault || [1080, 1920]
+  return planWithBanner({
+    size,
+    fps: VF_PLAN_FPS,
+    shots: Array.isArray(shots) ? shots : [],
+    overlay_text: vd?.big !== 'off',                 // 'off' 才关；缺省 = 开（与 render.py 缺省一致）
+    deck_style: normalizeDeckStyle(vd?.deckStyle),   // ★VF_DECK_STYLES_V1：画面模版（非法/缺省 = 'auto'）
+  }, bannerFieldOf(vd))
 }

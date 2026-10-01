@@ -96,6 +96,49 @@ def main():
         '%s / %s' % (_c4, _b4))
     chk(R._lum_of('0x1a1a1a') < 120 and R._lum_of('white') > 250, '亮度判定：近黑 <120 / 白 >250')
 
+    # ── 2b. ★VF_TEXTCONTRAST_V1（2026-10-01）用【大字落点区】亮度判对比（老板帧 full_t0260/0502/0110）──
+    _th_lightT = theme_of('light')
+    # 关键：整帧平均会骗人 —— 同一素材 lum=200(亮) 但落点 region_lum=60(暗) + 浅色主题近黑字。
+    _c_lie, _b_lie, _chg_lie = R._mat_text_colors(_th_lightT, {'lum': 200}, _th_lightT['text'],
+                                                  'black@0.30', region_lum=60)
+    chk(_chg_lie and _c_lie == 'white' and _b_lie == 'black@0.45',
+        'TEXTCONTRAST：整帧亮(200)但落点暗(60) → 仍改亮字（治"整帧平均骗人"）', '%s/%s' % (_c_lie, _b_lie))
+    _c_nolie, _b_nolie, _chg_nolie = R._mat_text_colors(_th_lightT, {'lum': 200}, _th_lightT['text'],
+                                                        'black@0.30', region_lum=None)
+    chk((not _chg_nolie) and _c_nolie == _th_lightT['text'],
+        'TEXTCONTRAST：不给 region_lum 时按整帧(200)判定 → 保持原样（证明"整帧会漏判"这条真实存在）')
+    # 灰字压暗底（看着有字却读不清）→ 也算低对比
+    _c_gray, _b_gray, _chg_gray = R._mat_text_colors(_th_dark, {'lum': 60}, '0x707070',
+                                                     'black@0.30', region_lum=60)
+    chk(_chg_gray and _c_gray == 'white', 'TEXTCONTRAST：灰字(112)压暗底(60) → 判低对比 → 改亮字',
+        '%s' % _c_gray)
+    # 浅灰大字压浅灰卡片（full_t0502）→ 改暗字 + 浅底衬
+    _c_pale, _b_pale, _chg_pale = R._mat_text_colors(_th_lightT, {'lum': 170}, '0x9aa0a6',
+                                                     'black@0.30', region_lum=170)
+    chk(_chg_pale and _c_pale == '0x101418' and _b_pale == 'white@0.66',
+        'TEXTCONTRAST：浅灰字(≈159)压浅底(170) → 改暗字 + 浅底衬', '%s/%s' % (_c_pale, _b_pale))
+    # 本来就达标 → 一个字都不动
+    chk(not R._mat_text_colors(_th_dark, {'lum': 40}, 'white', 'black@0.30', region_lum=40)[2]
+        and not R._mat_text_colors(_th_lightT, {'lum': 210}, '0x101418', 'white@0.66', region_lum=210)[2],
+        'TEXTCONTRAST：暗底白字 / 亮底深字 本就达标 → 原样返回（零回归）')
+    # 底色材质区域量测接口存在（真渲里会用到）
+    chk(hasattr(R, '_avg_rgb_region') and hasattr(R, '_probe_material'),
+        'TEXTCONTRAST：区域亮度量测接口 _avg_rgb_region / _probe_material 在位')
+    # ★最小侧边距（治 full_t0260「大字右端几乎贴右缘」）
+    _ml, _mfs = R.fit_big_text('智能营销方案', 1280, 720)
+    _mok, _mw, _mm = R.big_text_margins_ok(_ml, _mfs, 1280)
+    chk(_mok and _mm >= 1280 * 0.06,
+        'TEXTCONTRAST：单行大字两侧最小边距 ≥6%W（居中 → 左右相等）',
+        'widest=%d margin=%.1f' % (_mw, _mm))
+    chk(R.big_text_margins_ok(['x' * 200], 40, 1280)[0] is False,
+        'TEXTCONTRAST：越界样本被断言拦下（边距守卫有效）')
+    _rendsrc = ''
+    try:
+        _rendsrc = open(os.path.join(_VF, 'render.py'), encoding='utf-8').read()
+    except Exception:
+        pass
+    chk(_rendsrc.count('★VF_TEXTCONTRAST_V1') >= 1, '防回退：★VF_TEXTCONTRAST_V1 仍在 render.py 里')
+
     # ── 3. 底图清晰度判定（③"底图有点模糊"）─────────────────────────────────
     ff = ''
     try:
@@ -313,6 +356,31 @@ def main():
         ('w=%s' % (_m6.group(1) if _m6 else '?')))
     chk(_src.count('★VF_BANNER_EMPTY_V1') >= 1 and _src.count('★VF_BANNER_FIT_V1') >= 1,
         '防回退：★VF_BANNER_EMPTY_V1 / ★VF_BANNER_FIT_V1 仍在 render.py 里')
+
+    # ══ 10b. ★VF_BANNER_EMPTYLINE_V1（2026-10-01）逐行判空：空行不画框、也不占行高 ══
+    # 老板实测帧 dist-rel/fixbase/top_t0020.png：顶部白字下面紧贴一个"黑色实心空矩形"（第 2 行空却画了框）。
+    # 口径：① 空行 → 该行 box/text 一个都不加；② 只有第 2 行 → 顶到 y1（不留空第 1 行的行距）；
+    #       ③ 两行都空 → 整块返回 ''；④ 两行都真有字 → 几何与改前逐字一致（零回归）。
+    _y1 = int(720 * 0.035)                                     # banner 第 1 行基准 y（= 25）
+    _be1 = R.banner_layer({'line1': '\u200b', 'line2': '第二行真文字'}, _th_news, 1280, 720, 10, 'C:/f.ttf')
+    _be1_y = _re.search(r"text='第二行真文字':fontsize=\d+:fontcolor=white:borderw=\d+:"
+                        r"bordercolor=black@0\.6:x=\(w-text_w\)/2:y=(\d+)", _be1)
+    chk(_be1_y is not None and int(_be1_y.group(1)) == _y1,
+        'banner(EMPTYLINE)：只有第 2 行 → 顶到 y1，不留"空第 1 行"的档',
+        ('y=%s 期望=%d' % (_be1_y.group(1) if _be1_y else '?', _y1)))
+    _be2 = R.banner_layer({'line1': '\u200b\u200b', 'line2': '\ufeff   '}, _th_news, 1280, 720, 10, 'C:/f.ttf')
+    chk(_be2 == '', 'banner(EMPTYLINE)：两行都是不可见字符 → 整块返回空串（不生成）', repr(_be2)[:40])
+    _be3 = R.banner_layer({'line1': 'AI营销系统30秒生成', 'line2': '一键出片'}, _th_news, 1280, 720, 10, 'C:/f.ttf')
+    _fs1m = _re.search(r"fontsize=(\d+):fontcolor=\S+:borderw=\d+:bordercolor=black:", _be3)
+    _y2m = _re.search(r"bordercolor=black@0\.6:x=\(w-text_w\)/2:y=(\d+)", _be3)
+    _fs1v = int(_fs1m.group(1)) if _fs1m else -1
+    chk(_y2m is not None and int(_y2m.group(1)) == _y1 + _fs1v + int(_fs1v * 0.30),
+        'banner(EMPTYLINE)：两行都有字 → 第 2 行 y 公式与改前逐字一致（零回归）',
+        ('y=%s fs=%s' % (_y2m.group(1) if _y2m else '?', _fs1v)))
+    chk(_be3.count('drawtext') == 2 and _be3.count('drawbox') == 1,
+        'banner(EMPTYLINE)：两行都有字 → 正好 1 色块 + 2 文字',
+        'dt=%d db=%d' % (_be3.count('drawtext'), _be3.count('drawbox')))
+    chk(_src.count('★VF_BANNER_EMPTYLINE_V1') >= 1, '防回退：★VF_BANNER_EMPTYLINE_V1 仍在 render.py 里')
 
     # ══ 11. ★VF_TPL_B1_V1（2026-09-30）B 组「图片处理」模版 ═══════════════════════
     # 用户原话：「我给你拿 5 个图本身应该是不需要 AI 动视的。应该是在视频和图片上做动效 PPT 效果。」
@@ -641,6 +709,117 @@ def main():
                 str(_amps))
     chk('★VF_SUSTAIN_V1' in _src, '防回退：★VF_SUSTAIN_V1 仍在 render.py 里')
 
+    # ══ 13b. ★VF_LINEBREAK_V2 / ★VF_SUBTITLE_NOELLIPSIS_V1（2026-10-01）字幕断行 ══════
+    # ① 规则表与 src/lib/agent/vf/anti-ai.ts **逐字对账**（硬断言，防两边漂移）。
+    _m_tail = _re.search(r"VF_KINSOKU_TAIL\s*=\s*'([^']*)'", _ts_src)
+    _m_head = _re.search(r"VF_KINSOKU_HEAD\s*=\s*'([^']*)'", _ts_src)
+    _m_back = _re.search(r"VF_KINSOKU_BACK\s*=\s*(\d+)", _ts_src)
+    chk(_m_tail and _m_tail.group(1) == R.VF_KINSOKU_TAIL,
+        'LINEBREAK 对账：VF_KINSOKU_TAIL 与 anti-ai.ts 逐字一致',
+        'ts=%s py=%s' % (_m_tail.group(1) if _m_tail else '?', R.VF_KINSOKU_TAIL))
+    chk(_m_head and _m_head.group(1) == R.VF_KINSOKU_HEAD,
+        'LINEBREAK 对账：VF_KINSOKU_HEAD 与 anti-ai.ts 逐字一致',
+        'ts=%s py=%s' % (_m_head.group(1) if _m_head else '?', R.VF_KINSOKU_HEAD))
+    chk(_ts_arr('VF_KINSOKU_NOPAIR') == list(R.VF_KINSOKU_NOPAIR),
+        'LINEBREAK 对账：VF_KINSOKU_NOPAIR 与 anti-ai.ts 逐字一致',
+        'ts=%s py=%s' % (_ts_arr('VF_KINSOKU_NOPAIR'), list(R.VF_KINSOKU_NOPAIR)))
+    chk(_m_back and int(_m_back.group(1)) == R.VF_KINSOKU_BACK,
+        'LINEBREAK 对账：VF_KINSOKU_BACK 与 anti-ai.ts 一致',
+        'ts=%s py=%s' % (_m_back.group(1) if _m_back else '?', R.VF_KINSOKU_BACK))
+    # ② 四类非法切口（行尾虚词 / 行首收尾标点 / 数字+单位·字母数字 / 成对词）
+    chk(not R.kinsoku_cut_ok('这是重点的句子', 5), 'LINEBREAK：行尾落虚词「的」→ 非法')
+    chk(not R.kinsoku_cut_ok('句子，后面', 2), 'LINEBREAK：行首落收尾标点「，」→ 非法')
+    chk(not R.kinsoku_cut_ok('价格150万起', 5), 'LINEBREAK：切进「150万」（数字+中文单位）→ 非法')
+    chk(not R.kinsoku_cut_ok('涨了8.5%哦', 4) and not R.kinsoku_cut_ok('涨了8.5%哦', 5),
+        'LINEBREAK：切进「8.5%」（字母数字串）→ 非法')
+    chk(not R.kinsoku_cut_ok('abcdefghij', 4), 'LINEBREAK：切进英文单词 → 非法')
+    chk(not R.kinsoku_cut_ok('AI一键生成', 5) and not R.kinsoku_cut_ok('生成', 1)
+        and R.kinsoku_cut_ok('AI一键生成', 3),
+        'LINEBREAK：拆开成对词「生成」→ 非法（未拆开的切口放行）')
+    chk(R.kinsoku_cut_ok('这是重点的句子', 4) and R.kinsoku_cut_ok('句子，后面', 3),
+        'LINEBREAK：合法切口 → 放行')
+    # ③ 只往回退：窗口内找不到合法点 → 保持原切口（不硬造）
+    chk(R.kinsoku_cut('abcdefghij', 0, 4) == 4,
+        'LINEBREAK：窗口内找不到合法点 → 保持原切口', str(R.kinsoku_cut('abcdefghij', 0, 4)))
+    chk(R.kinsoku_cut('图里这款手表海报，就是AI一键生成，点击率预测高达8.5%，', 0, 16) == 15,
+        'LINEBREAK：真句切口与 anti-ai.ts::pickKinsokuCut 同解（回退到 15，保住「生成」）',
+        str(R.kinsoku_cut('图里这款手表海报，就是AI一键生成，点击率预测高达8.5%，', 0, 16)))
+    # ④ 一字不丢 / 任何输入都不产生「…」
+    _SUB_CASES = [
+        '图里这款手表海报，就是AI一键生成，点击率预测高达8.5%，',
+        '营销方案都能自动输出，', '转化率达到150万，30秒搞定',
+        '这是一个非常长的句子需要折行处理否则会显示不全测试',
+        '结尾是虚词就', 'x' * 257,
+    ]
+    _loss = []
+    for _cs in _SUB_CASES:
+        _flat = ''.join(_cs.split())
+        _rows, _rfs = R._sub_rows(_flat, 1280, 26, 16)
+        if '…' in ''.join(_rows) or ''.join(_rows) != _flat:
+            _loss.append('rows:' + _flat[:12])
+        _wt = R.wrap_subtitle(_cs, 16, 2)
+        if '…' in _wt or ''.join(_wt.split('\n')) != _flat:
+            _loss.append('wrap:' + _flat[:12])
+    chk(not _loss, 'NOELLIPSIS：字幕折行一字不丢、任何输入都不产生「…」', str(_loss))
+    _s0 = R.wrap_subtitle('图里这款手表海报，就是AI一键生成，点击率预测高达8.5%，', 16, 2)
+    chk(_s0 == '图里这款手表海报，就是AI一键\n生成，点击率预测高达8.5%，',
+        'NOELLIPSIS：基线真句 30 字完整显示（旧实现只显示 18 字 + 「…」）', repr(_s0))
+    # ⑤ 零回归：短字幕 / 已达标字幕的 _sub_rows 输出必须与改前逐字一致
+    chk(R._sub_rows('营销方案都能自动输出，', 1280, 26, 16) == (['营销方案都能自动输出，'], 26),
+        'NOELLIPSIS 零回归：短字幕 _sub_rows 逐字不变')
+    _r0, _f0 = R._sub_rows('图里这款手表海报，就是AI一键生成，点击率预测高达8.5%，', 1280, 26, 16)
+    chk(_r0 == ['图里这款手表海报，就是AI一键', '生成，点击率预测高达8.5%，'] and _f0 == 26,
+        'LINEBREAK：基线句 ASS 路径断口回退到 15（保住「生成」，不再切成"一键生/成"，旧版=16 硬切）',
+        str(_r0))
+    chk(''.join(_r0) == '图里这款手表海报，就是AI一键生成，点击率预测高达8.5%，',
+        'NOELLIPSIS：ASS 路径 rows 拼回 === 原文（一字不丢）')
+    chk("'…'" not in _seg(_code, 'wrap_subtitle', 'overlay_text_on')
+        and _seg(_code, '_sub_rows', 'overlay_text_on'),
+        'NOELLIPSIS：源码里 _sub_rows / wrap_subtitle 已无「…」截断分支（docstring 里的「…」不算）')
+    chk(_src.count('★VF_LINEBREAK_V2') >= 1 and _src.count('★VF_SUBTITLE_NOELLIPSIS_V1') >= 1,
+        '防回退：★VF_LINEBREAK_V2 / ★VF_SUBTITLE_NOELLIPSIS_V1 仍在 render.py 里')
+
+    # ══ 13c. ★VF_BITRATE_V1（2026-10-01）出片码率：按分辨率定量、绝不写死低码率 ══════════
+    # 老板真片 1280×720/25fps/56.64s = **353kbps**（2.39MB）→ 720p 给 353kbps，画面本身就糊。
+    _a720 = R.venc_args(1280, 720)
+    _a1080 = R.venc_args(1920, 1080)
+    _a1440 = R.venc_args(2560, 1440)
+    chk('-crf 20' in _a720 and '-preset veryfast' in _a720 and '-pix_fmt yuv420p' in _a720,
+        'BITRATE：720p → CRF 20 + preset veryfast + yuv420p（不再用 -preset fast）', _a720)
+    chk('-crf 19' in _a1080 and '-crf 18' in _a1440,
+        'BITRATE：1080p→CRF19 / ≥1440p→CRF18（分辨率越高越给质量）',
+        '%s | %s' % (_a1080, _a1440))
+    chk('-preset fast' not in _a720 and 'veryfast' in _a720,
+        'BITRATE：preset 换成 veryfast（比 fast 更快，不给老板加等待）')
+    chk(R.venc_argv(1280, 720) == _a720.split(' ') and '-crf' in R.venc_argv(1280, 720),
+        'BITRATE：参数数组版 venc_argv 与字符串版一致（★VF_LONGCMD_V1 超长链也吃到新参数）')
+    # 源码级：6 处编码点全部改口（逐镜 / 交叉溶解 / 拼接 / 烧标题 / 烧字幕×2）
+    chk('{_an}{venc_args(W, H)}' in _code,
+        'BITRATE：逐镜编码走 venc_args（第 1 处）')
+    chk(_code.count('{venc_args(W, H)} -r {fps} "{out}"') == 2,
+        'BITRATE：交叉溶解 + 拼接 两处走 venc_args（第 2/3 处）',
+        str(_code.count('{venc_args(W, H)} -r {fps} "{out}"')))
+    chk(_code.count('{venc_args(W, H)} -c:a copy') == 3,
+        'BITRATE：烧标题 + 烧字幕(ASS/SRT) 三处走 venc_args（第 4/5/6 处）',
+        str(_code.count('{venc_args(W, H)} -c:a copy')))
+    chk("venc_argv(W, H) + ['-r', str(fps), '-t', str(dur), out]" in _code,
+        'BITRATE：超长滤镜链的参数数组路径也走 venc_argv')
+    chk("'-preset', 'fast'" not in _code and '-preset fast -pix_fmt' not in _code,
+        'BITRATE：源码里已无 `-preset fast` 编码点（零残留）')
+    chk('-b:v' not in _src and '-maxrate' not in _src,
+        'BITRATE：不用固定码率 / 不用 -maxrate（CRF 内容自适应；固定码率正是"复杂帧糊"的根因）')
+    chk(_src.count('★VF_BITRATE_V1') >= 1, '防回退：★VF_BITRATE_V1 仍在 render.py 里')
+
+    # ══ 13d. ★VF_DECK_PIXEL_V2（2026-10-01）渐变速度"测试钩子"：生产默认必须仍是 0.015 ══
+    # 背景：lavfi `gradients` 的动画相位**随进程**变化（同 t 两次独立 ffmpeg 的帧 MD5 不同）→
+    # 只要渐变在动，任何"跨渲染像素相等"的断言都必然时红时绿（team-lead 复跑撞到）。
+    # 测试用 `VF_GRAD_SPEED=0` 冻结它；**生产不设 → 必须逐字仍是 0.015**（否则就是悄悄改了画面）。
+    chk(R._grad_speed() == '0.015',
+        '★VF_DECK_PIXEL_V2：渐变速度默认 0.015（未设 VF_GRAD_SPEED 时与改前逐字一致）',
+        str(R._grad_speed()))
+    chk(not os.environ.get('VF_GRAD_SPEED'),
+        '★VF_DECK_PIXEL_V2：自测进程不设 VF_GRAD_SPEED（验的就是生产默认路径）')
+
     # ══ 14. ★VF_DECK_V1（2026-10-01）「富编排 PPT 页」 ══════════════════════════
     # 用户原话：「最好不要就几个大字，内容编排丰富一点可以吗？……你能单独根据我的素材 编辑
     #            1、2 个动效 PPT 给我看下嘛，这样我能知道最顶能到什么效果」
@@ -665,6 +844,112 @@ def main():
     chk(":alpha='min(max(t-" in _dkj, 'deck：每段文字错开渐入（分段插入）')
     chk('sin(2*PI*t/' in _dkj and "enable='gte(t," in _dkj,
         'deck：持续动效在位（呼吸 sin + 慢生长 enable）')
+    # ★VF_DECK_SPAN_V2（2026-10-01 team-lead 验收口径）：入场必须**铺满整段** ——
+    #   原来 01/02/03+数据卡全挤在 0.85~1.8s，8s 的页从 2s 起只剩呼吸（逐帧 YAVG≈0.15~0.2）
+    #   → 体检②时间轴 `#+.#...........#`、老板抱怨"看不出在动"。
+    #   验收：8s 页里 0–2 / 2–4 / 4–6 / 6–8 **每个 2s 窗都至少一个元素入场**。
+    _ons8 = sorted({round(float(x), 2) for x in _re.findall(r"gte\(t,([0-9.]+)\)", ','.join(_dk))})
+    _q8 = [0, 0, 0, 0]
+    for _t in _ons8:
+        _q8[min(3, int(_t // 2))] += 1
+    chk(all(_q >= 1 for _q in _q8),
+        '★VF_DECK_SPAN_V2：8s deck 页入场铺满整段（每个 2s 窗都有元素入场）',
+        'ons=%s quarters=%s' % (_ons8, _q8))
+    chk(bool(_ons8) and max(_ons8) >= 6.0 and max(_ons8) <= 7.0,
+        '★VF_DECK_SPAN_V2：数据卡落在 6.0~7.0s（覆盖 6–8s 窗，且留出滚动时间）',
+        str(max(_ons8) if _ons8 else None))
+    chk(sum(1 for _x in _dk if ('color=' + str(_thD.get('cardBg'))) in _x) >= 4,
+        '★VF_DECK_SPAN_V2：3 条要点各有卡面 + 数据卡卡面（同 cardBg，共 ≥4 块）',
+        str(sum(1 for _x in _dk if ('color=' + str(_thD.get('cardBg'))) in _x)))
+    _short = R.deck_page_filters(dict(_dshot, dur=5), _thD, 1280, 720, 5)
+    _ons5 = sorted({round(float(x), 2) for x in _re.findall(r"gte\(t,([0-9.]+)\)", ','.join(_short))})
+    chk(bool(_ons5) and max(_ons5) <= 5.0,
+        '★VF_DECK_SPAN_V2：短镜（5s）错峰按比例压缩，不越界',
+        str(_ons5[-4:]))
+    chk(_src.count('★VF_DECK_SPAN_V2') >= 3, '防回退：★VF_DECK_SPAN_V2 仍在 render.py 里')
+    # ★VF_DECK_SPAN_V3（2026-10-01 team-lead 决定 1）：5 套风格页**各自给"卡面级"材质**，
+    #   并把入场铺满整段（同基础版验收：8s 内每 2s 窗至少一个元素入场）。
+    for _sty5 in R.DECK_STYLE_VARIANTS:
+        _sk = R.deck_page_filters(dict(_dshot, variant=_sty5, dur=8), _thD, 1280, 720, 8)
+        _skj = ','.join(_sk)
+        _on5 = sorted({round(float(x), 2) for x in _re.findall(r"gte\(t,([0-9.]+)\)", _skj)})
+        _q5 = [0, 0, 0, 0]
+        for _t in _on5:
+            _q5[min(3, int(_t // 2))] += 1
+        chk(all(_q >= 1 for _q in _q5),
+            '★VF_DECK_SPAN_V3：%s 的 8s 页入场铺满整段（0-2/2-4/4-6/6-8 各 ≥1）' % _sty5,
+            'ons=%s q=%s' % (_on5, _q5))
+        chk(len([_x for _x in _sk if _x.startswith('drawbox') and 'color=' in _x]) >= 4,
+            '★VF_DECK_SPAN_V3：%s 有"面"（要点材质块×2 + 数据卡 + 页内元素 ≥4 块）' % _sty5,
+            'n=%d' % len([_x for _x in _sk if _x.startswith('drawbox') and 'color=' in _x]))
+    chk(hasattr(R, '_deck_item_material') and _src.count('★VF_DECK_SPAN_V3') >= 1,
+        '防回退：★VF_DECK_SPAN_V3 / _deck_item_material 在位')
+
+    # ══ 13e. ★VF_DECK_CONTRAST_V1（2026-10-01 team-lead 实测「浅灰面上要点字发灰、读不出」）═══
+    # 口径**照用 ② 的 70**（`_mat_text_colors` 用的就是它）；判据用**帧内亮度差 / 取色逻辑**这种
+    # **确定**的东西 —— 不碰跨渲染像素比对的比值型门槛（那种会抖，已经吃过一次亏）。
+    _lows = [R._deck_on_face(_x)[2] for _x in range(0, 256, 2)]
+    chk(min(_lows) >= 70, 'DECK-CONTRAST：面上字色与面亮度的 |Δ| 恒 ≥70（面亮度 0..255 全扫）',
+        'min=%.0f' % min(_lows))
+    chk(abs(R._deck_eff_lum('0xffffff@0.74', 22) - 194) <= 3,
+        'DECK-CONTRAST：面亮度合成公式（white@0.74 压在暗底 22 上 → ≈194）',
+        '%.1f' % R._deck_eff_lum('0xffffff@0.74', 22))
+    _bgT = float(R._lum_of((_thD.get('bg') or '0x0a1620'), 160))
+    for _sty6 in R.DECK_STYLE_VARIANTS:
+        _mt6, _g6 = R._deck_item_material(_sty6, _thD)
+        _face6 = R._deck_eff_lum(_mt6, _bgT)
+        _want6, _, _dd6 = R._deck_on_face(_face6)
+        _j6 = ','.join(R.deck_page_filters(dict(_dshot, variant=_sty6, dur=8), _thD, 1280, 720, 8))
+        chk(('fontcolor=%s' % _want6) in _j6 and _dd6 >= 70,
+            '★VF_DECK_CONTRAST_V1：%s 要点字色=%s（面亮度 %.0f → |Δ|=%.0f ≥70）'
+            % (_sty6, _want6, _face6, _dd6), '')
+    chk(_src.count('★VF_DECK_CONTRAST_V1') >= 1,
+        '防回退：★VF_DECK_CONTRAST_V1 仍在 render.py 里')
+
+    # ══ 13f. ★VF_BIGTEXT_KINSOKU_V1（2026-10-01 team-lead）大字折行也走避头尾 + 不留孤字 ══
+    # 证据：styles2/frames/deck-glass_t7_5.png 大标题折成「AI 营销内容生成系 / 统」= 第二行孤字。
+    # 判据全部是**字符串级**（确定，不用像素比）。
+    chk(R._big_fix_rows('AI营销内容生成系统', ['AI营销内容生成系', '统']) == ['AI营销内容生成', '系统'],
+        'BIGTEXT_KINSOKU：末行孤字 → 从上一行挪 1 字下来（不再出现"第二行只剩一个字"）',
+        str(R._big_fix_rows('AI营销内容生成系统', ['AI营销内容生成系', '统'])))
+    chk(R._big_fix_rows('一键生成', ['一键生', '成']) == ['一键', '生成'],
+        'BIGTEXT_KINSOKU：既拆了成对词「生成」又留孤字 → 同时收口', str(R._big_fix_rows('一键生成', ['一键生', '成'])))
+    chk(R._big_fix_rows('ABCD四字', ['ABCD', '四字']) == ['ABCD', '四字']
+        and R._big_fix_rows('智能营销方案', ['智能营销方案']) == ['智能营销方案'],
+        'BIGTEXT_KINSOKU 零回归：断点本就合法 + 非孤字 → 逐字不变')
+    _bt_rows, _bt_fs = R.fit_big_text('AI 营销内容生成系统', 620, 720)
+    chk(all(len(_r) >= 2 for _r in _bt_rows) and _bt_rows == ['AI 营销内容', '生成系统'],
+        'BIGTEXT_KINSOKU：老板帧的标题在侧栏宽度下不再出「系统」被拆', str(_bt_rows))
+    _bt_ok = True
+    for _w in (560, 620, 700, 1100, 1280):
+        for _s in ('AI 营销内容生成系统', '智能营销方案', 'AI营销系统30秒生成', '转化率提升8.5%', '这是150万的方案'):
+            _rr, _rf = R.fit_big_text(_s, _w, 720)
+            if any(len(_r) < 2 for _r in _rr) \
+                    or ''.join(_rr).replace(' ', '') != _s.replace(' ', ''):
+                _bt_ok = False
+    chk(_bt_ok, 'BIGTEXT_KINSOKU：全宽度扫描下既不孤字、也不丢字（拼回=原文）')
+    chk(not R.kinsoku_cut_ok('转化率提升8.5%', 6) and not R.kinsoku_cut_ok('价格150万起', 5),
+        'BIGTEXT_KINSOKU：复用 kinsoku —— 8.5% / 150万 不拆（与字幕同一套规则，不另写）')
+    chk(_src.count('★VF_BIGTEXT_KINSOKU_V1') >= 1, '防回退：★VF_BIGTEXT_KINSOKU_V1 仍在 render.py 里')
+
+    # ══ 13g. ★VF_PAGENUM_CONTRAST_V1（2026-10-01 team-lead）页码压在浅面板上要读得清 ══
+    # 判据（帧内/取色逻辑，确定）：页码字色 == `_deck_on_face(面亮度)`（浅面近黑 / 深面白，|Δ|≥70），
+    # 且**满 alpha 0.85 + 1px 投影**（原来 0.60 被面一衬就发灰）。
+    _THN = _thD
+    _bgN = float(R._lum_of((_THN.get('bg') or '0x0a1620'), 160))
+    _pn_bad = []
+    for _styN in [x for x in R.DECK_STYLE_VARIANTS if x != 'deck']:   # 基础 deck 走 linec，不在此列
+        _mtN, _gN = R._deck_item_material(_styN, _THN)
+        _faceN = R._deck_eff_lum(_mtN, _bgN)
+        _wantN, _, _ddN = R._deck_on_face(_faceN)
+        _jN = ','.join(R.deck_page_filters(dict(_dshot, variant=_styN, dur=8), _THN, 1280, 720, 8))
+        _pfN = R._force_alpha(_wantN, 0.85)
+        if ('fontcolor=%s' % _pfN) not in _jN or 'shadowx=1:shadowy=1' not in _jN or _ddN < 70:
+            _pn_bad.append('%s(%s/%s)' % (_styN, _pfN, _jN.count('fontcolor=%s' % _pfN)))
+    chk(not _pn_bad,
+        '★VF_PAGENUM_CONTRAST_V1：5 套风格页码都按"面"取色（|Δ|≥70）+ 满 alpha 0.85 + 1px 投影',
+        str(_pn_bad))
+    chk(_src.count('★VF_PAGENUM_CONTRAST_V1') >= 1, '防回退：★VF_PAGENUM_CONTRAST_V1 仍在 render.py 里')
     # 零回归：非 deck 一律 []（一个像素都不动）
     for _bad in ({'text': '老标题'}, {'variant': 'center'}, {'variant': 'rainbow'},
                  {'variant': 'deck-like'}, {'variant': 'cards'}):
@@ -676,9 +961,10 @@ def main():
     #   4 套风格**现在必须进 TITLE_VARIANTS**（AI 可以在分镜里写 variant=deck-grad 等），
     #   由 vf-i2v-selftest.ts 与 src 的 VF_VARIANTS.title 逐项对账 —— 那边同步前会红，属**预期**。
     chk(all(v in R.TITLE_VARIANTS for v in R.DECK_STYLE_VARIANTS)
-        and list(R.DECK_VARIANTS) == ['deck', 'deck-grad', 'deck-mono', 'deck-mag']
+        and list(R.DECK_VARIANTS) == ['deck', 'deck-grad', 'deck-mono', 'deck-mag',
+                                      'deck-glass', 'deck-soft']
         and list(R.DECK_STYLE_VARIANTS) == list(R.DECK_VARIANTS),
-        'deck 4 套风格都在 TITLE_VARIANTS 里（与 anti-ai.ts 白名单对账）')
+        'deck 6 套风格都在 TITLE_VARIANTS 里（与 anti-ai.ts 白名单对账）')
     # 素材页：横屏左图右文（内容落右半幅）/ 竖屏上图下文（内容落下半幅）
     if ff:
         _wdD = tempfile.mkdtemp(prefix='vf-deck-')
@@ -724,8 +1010,9 @@ def main():
     # 断言口径：① 4 套风格各自产出元素、白名单外**零回归**；②「真渐变」用**像素级单调性**证明
     #   （grad_box_filters 每段颜色单调过渡，不是两块纯色叠）；③ 透明度写死（底衬 ≤0.10、卡面 0.30~0.60、
     #   只有 kicker 标签条可到 0.95）；④ `box=1:boxcolor=…`（实心黑框）在非对照模式下必须消失。
-    chk(list(R.DECK_STYLE_VARIANTS) == ['deck', 'deck-grad', 'deck-mono', 'deck-mag'],
-        '4 套风格白名单值逐字正确（deck / deck-grad / deck-mono / deck-mag）',
+    chk(list(R.DECK_STYLE_VARIANTS) == ['deck', 'deck-grad', 'deck-mono', 'deck-mag',
+                                        'deck-glass', 'deck-soft'],
+        '6 套风格白名单值逐字正确（4 套 + 追加 deck-glass / deck-soft）',
         str(list(R.DECK_STYLE_VARIANTS)))
     _dshot2 = {'type': 'title', 'kicker': 'AI 营销', 'text': 'AI 营销内容生成系统',
                'sub': '从选题到成片，一条流水线', 'items': ['智能选题', '一键成片', '自动分发'],
@@ -745,6 +1032,10 @@ def main():
         chk("alpha='min(max(t-" in _fj, '%s：每段文字错开渐入' % _style)
         chk('sin(2*PI*t/' in _fj, '%s：持续动效（呼吸 sin）在位' % _style)
         chk('box=1:boxcolor' not in _fj, '%s：画面里没有实心黑框' % _style)
+        # 本机实测坑（★VF_DECK_STYLES2_V1）：f-string 漏花括号 → 滤镜串里留下 Python 原文
+        #   （`h=max(2, int(H * 0.004))`）→ ffmpeg 报 "Error parsing a filter description" 整镜失败。
+        chk(not _re.search(r'[:=](?:max|int)\(', _fj),
+            '%s：滤镜串里没有"漏花括号"的 Python 代码原文（会让 ffmpeg 解析失败）' % _style)
     # 零回归：白名单外的值（含前缀伪装 / 大小写）→ 一个滤镜都不加
     for _bad in ('deckx', 'deck-grad2', 'deck_grad', 'cards', 'deck-monoo'):
         chk(R.deck_page_filters({'variant': _bad, 'text': 'x'}, _thD, 1280, 720, 5) == [],
@@ -823,6 +1114,143 @@ def main():
     chk('★VF_DECK_STYLES_V1' in _src and '★VF_NOBLACKBOX_V1' in _src
         and 'gradA' in open(os.path.join(_VF, 'themes.py'), encoding='utf-8').read(),
         '防回退：★VF_DECK_STYLES_V1 / ★VF_NOBLACKBOX_V1 / gradA token 都在位')
+
+    # ══ 16. ★VF_DECK_STYLES2_V1（2026-10-01）新建 2 套风格（玻璃拟态 / 柔和拟物）+ 根级 deck_style ══
+    # 用户原话：「配色版式 就这1种吗？」「我做过一些网页UI风格效果，是否能按传统的5个网页UI风格设计。
+    #            配色更讲究一些」「注意配合 配色真的不能太 AI 味。最好有渐变色。还有就是透明度」
+    #            「我本次选的是新闻资讯，因为我没看到新模版」
+    # 口径：① 白名单追加 2 个值（顺序在 4 套之后）；② 玻璃卡=低 alpha 染色底+细 hairline+柔光 wash，
+    #   柔和卡=同色系左上亮/右下暗双投影+bevel（**全部低 alpha**，不许变成实心板）；
+    #   ③ 根级 deck_style 能强制覆盖（'auto'/缺失/非法 → 逐字不改）。
+    _thS2 = theme_of('news')
+    chk(list(R.DECK_STYLE_VARIANTS) == ['deck', 'deck-grad', 'deck-mono', 'deck-mag',
+                                        'deck-glass', 'deck-soft'],
+        '6 套白名单：deck-glass / deck-soft 追加在 4 套之后（顺序逐字）',
+        str(list(R.DECK_STYLE_VARIANTS)))
+    _dshotS = {'type': 'title', 'kicker': 'AI 营销', 'text': 'AI 营销内容生成系统',
+               'sub': '从选题到成片，一条流水线', 'items': ['智能选题', '一键成片', '自动分发'],
+               'stats': [{'value': '8.5%', 'label': '点击率'},
+                         {'value': '150', 'suffix': '万', 'label': '曝光'}],
+               'page': '01 / 02', 'dur': 8}
+    for _style in ('deck-glass', 'deck-soft'):
+        _fj2 = ','.join(R.deck_page_filters(dict(_dshotS, variant=_style), _thS2, 1280, 720, 8))
+        chk(len(_fj2) > 0 and 'AI 营销' in _fj2 and "text='01'" in _fj2
+            and '8.5' in _fj2 and 'eif' in _fj2 and '01 / 02' in _fj2
+            and "enable='gte(t," in _fj2 and "alpha='min(max(t-" in _fj2
+            and 'sin(2*PI*t/' in _fj2 and 'box=1:boxcolor' not in _fj2,
+            '%s：元素齐全（kicker/编号/数据 eif/页码/分段入场/呼吸）且无实心黑框' % _style)
+    for _bad in ('deck-glass2', 'deck_glass', 'deck-softt', 'glass', 'soft'):
+        chk(R.deck_page_filters({'variant': _bad, 'text': 'x'}, _thS2, 1280, 720, 5) == [],
+            '6 套零回归：%s → 一个滤镜都不加' % _bad)
+    chk(R.deck_style_of({'variant': ' DECK-GLASS '}) == 'deck-glass'
+        and R.deck_style_of({'variant': 'deck-soft'}) == 'deck-soft',
+        '新风格值：去空白 + 大小写不敏感')
+    # 玻璃卡 / 柔和卡：透明度写死（低 alpha）+ hairline
+    _gp = R._glass_panel(100, 100, 420, 130, _thS2)
+    _ga = [float(x) for x in _re.findall(r'@([01]\.\d+):', ','.join(_gp))]
+    chk(len(_gp) >= 9 and bool(_ga) and max(_ga) <= 0.36 and min(_ga) <= 0.10,
+        '玻璃卡：≥9 层，最大 alpha ≤0.36（不变成实心板）、且有 ≤0.10 的极淡层',
+        str((len(_gp), min(_ga) if _ga else None, max(_ga) if _ga else None)))
+    chk(any(_re.search(r'h=[12]:', x) for x in _gp if ':t=fill' in x)
+        and '0x1b3a5e' in ','.join(_gp),
+        '玻璃卡：有 1~2px hairline（玻璃棱）+ 染色底取主题 cardBg2（同源不新造色）')
+    _gpge = [float(x) for x in _re.findall(
+        r'@([01]\.\d+):', ','.join(R.deck_page_filters(dict(_dshotS, variant='deck-glass'),
+                                                       _thS2, 1280, 720, 8)))]
+    chk(bool(_gpge) and min(_gpge) <= 0.10 and any(0.20 <= x <= 0.36 for x in _gpge),
+        '玻璃页：有"柔光渐变 wash"(≤0.10) + 卡片/标签条走 0.20~0.36 半透明',
+        str(sorted(_gpge)[:3]))
+    _sp = R._soft_panel(100, 100, 420, 130, _thS2)
+    _sa = [float(x) for x in _re.findall(r'@([01]\.\d+):', ','.join(_sp))]
+    _sys = [int(x) for x in _re.findall(r'drawbox=x=\d+:y=(\d+):', ','.join(_sp))]
+    chk(len(_sp) >= 9 and bool(_sa) and max(_sa) <= 0.36,
+        '柔和卡：≥9 层，最大 alpha ≤0.36（始终是同色系表面，不是色板）',
+        str((len(_sp), max(_sa) if _sa else None)))
+    chk(bool(_sys) and min(_sys) < 100 < max(_sys) and '0x04090f' in ','.join(_sp),
+        '柔和卡：左上亮 / 右下暗**双投影**（凹凸感）+ 暗投影取主题 shadowC')
+    # 主题兜底：老主题也要能拿到 3 个新 token（老主题不写不许坏）
+    _thsrc2 = open(os.path.join(_VF, 'themes.py'), encoding='utf-8').read()
+    chk(all(k in _thsrc2 for k in ('cardBg2', 'shadowC', 'lineC')), 'themes.py：3 个新 token 在位')
+    for _nm in theme_names():
+        _t = theme_of(_nm)
+        chk(all(str(_t.get(k, '')).strip() for k in ('cardBg2', 'lineC', 'shadowC')),
+            'token 兜底：%s 有 cardBg2/lineC/shadowC' % _nm,
+            str([k for k in ('cardBg2', 'lineC', 'shadowC') if not str(_t.get(k, '')).strip()]))
+    chk(str(theme_of('light').get('lineC')) == 'black',
+        'lineC 兜底按字色亮度取黑白（light 深字 → 黑发丝）', str(theme_of('light').get('lineC')))
+    # 根级 deck_style（用户手动指定画面模版）
+    chk(R.deck_root_style({'deck_style': 'deck-glass'}) == 'deck-glass'
+        and R.deck_root_style({'deck_style': ' DECK-SOFT '}) == 'deck-soft',
+        'deck_style：合法值被接受（去空白 + 大小写不敏感）')
+    chk(R.deck_root_style({'deck_style': 'auto'}) == '' and R.deck_root_style({}) == ''
+        and R.deck_root_style(None) == '' and R.deck_root_style({'deck_style': 'deck-pink'}) == '',
+        'deck_style：auto / 缺失 / 非法 → 一律不干预（零回归）')
+    _sbS = {'deck_style': 'deck-glass',
+            'shots': [{'variant': 'deck-mag'}, {'variant': 'center'}, {'type': 'list'},
+                      {'variant': 'deck'}]}
+    chk(R.apply_deck_style(_sbS) == 'deck-glass'
+        and [s.get('variant') for s in _sbS['shots']] == ['deck-glass', 'center', None, 'deck-glass'],
+        'deck_style 强制覆盖：3 个 deck 页被统一成 glass，普通卡一个字不动',
+        str([s.get('variant') for s in _sbS['shots']]))
+    _sbS2 = {'deck_style': 'auto', 'shots': [{'variant': 'deck-mag'}]}
+    chk(R.apply_deck_style(_sbS2) == '' and _sbS2['shots'][0]['variant'] == 'deck-mag',
+        "deck_style='auto' → 镜内 variant 逐字保持（零回归）")
+    _sbS3 = {'deck_style': 'deck-soft', 'shots': [{'variant': 'center'}, {'type': 'title'}]}
+    R.apply_deck_style(_sbS3)
+    chk([s.get('variant') for s in _sbS3['shots']] == ['center', None],
+        'deck_style 不凭空把普通卡变成 deck 页（只统一"已经是 deck 页"的）')
+    # 底板：glass 也走真渐变（"背景一层柔光渐变"）；soft 仍是 color=（零回归）
+    _hasS = bool(ff)
+    try:
+        _hasS = R._has_gradients(ff) if ff else False
+    except Exception:
+        _hasS = False
+    _wantS = '-f lavfi -i gradients=' if _hasS else '-f lavfi -i color='
+    chk(R.deck_base_input(dict(_dshotS, variant='deck-glass'), _thS2, 1280, 720, 8).startswith(_wantS),
+        'deck-glass 底板 = 真渐变（无 gradients 则回落底色）',
+        R.deck_base_input(dict(_dshotS, variant='deck-glass'), _thS2, 1280, 720, 8)[:44])
+    chk(R.deck_base_input(dict(_dshotS, variant='deck-soft'), _thS2, 1280, 720, 8)
+        .startswith('-f lavfi -i color='),
+        'deck-soft 底板仍是 color=（零回归）')
+    chk('★VF_DECK_STYLES2_V1' in _src and '★VF_DECK_STYLE_V1' in _src,
+        '防回退：★VF_DECK_STYLES2_V1 / ★VF_DECK_STYLE_V1 仍在 render.py 里')
+
+    # ══ 17. ★VF_QUOTE_ESC_V1（2026-10-01）渲染层第二道「引号闸」（服务端 ★VF_QUOTE_FIX_V1 是第一道）══
+    # 背景：滤镜串被包在 ASCII 双引号里进 shell（render_shot 的 `-vf "..."`、burn_banner 的
+    #   `-filter_complex "..."`，最终 subprocess.run(cmd, shell=True)）→ 文案里一个裸 ASCII `"`
+    #   就会让 shell 引号**提前闭合** → 那一镜整镜失败。服务端已归一化，渲染层再兜一道。
+    _q1 = R.esc_text('他说"效率"了')
+    chk('"' not in _q1, 'QUOTE_ESC：ASCII 双引号不再原样泄漏（否则 shell 引号提前闭合）', _q1)
+    chk('“' in _q1 and '”' in _q1, 'QUOTE_ESC：双引号 → 成对中文引号', _q1)
+    _q2 = R.esc_text('他说"效率了')                       # 奇数个（未闭合）也必须不留裸 "
+    chk('"' not in _q2 and '“' in _q2, 'QUOTE_ESC：**奇数个**双引号也不漏出裸 "', _q2)
+    chk('`' not in R.esc_text('a`rm -rf`b'), 'QUOTE_ESC：反引号（shell 命令替换符）被删除')
+    chk(R.esc_text("it's") == "it\\'s",
+        "QUOTE_ESC：单引号**仍是** \\' 转义（未动老行为）", R.esc_text("it's"))
+    chk(R.esc_text('90%') == '90\\\\%',
+        'QUOTE_ESC：百分号**仍是** \\\\%（未动老行为）', R.esc_text('90%'))
+    chk(R.esc_text('a:b') == r'a\:b',
+        'QUOTE_ESC：冒号**仍是** \\: 转义（未动老行为）', R.esc_text('a:b'))
+    _qm = R.esc_text('说"好"`x`\\c%d')
+    chk('"' not in _qm and '`' not in _qm and '\\\\%' in _qm and '\\\\c' in _qm,
+        'QUOTE_ESC：引号/反引号/反斜杠/% 混合输入一次处理干净', _qm)
+    chk(R.esc_text('') == '' and isinstance(R.esc_text(None), str),
+        'QUOTE_ESC：空串原样、None 不抛异常（沿用改前的 str() 行为）')
+    # 源码级：防回退（引号归一 + 反引号删除真的在 esc_text 函数体内）
+    _esrc = _seg(_code, 'esc_text', '_big_text')
+    chk("replace('`', '')" in _esrc, 'esc_text 源码：反引号删除在位（防被改回去）')
+    chk('“' in _esrc and '”' in _esrc, 'esc_text 源码：中文引号归一在位（防被改回去）')
+    chk(_src.count('★VF_QUOTE_ESC_V1') >= 1, '防回退：★VF_QUOTE_ESC_V1 仍在 render.py 里')
+    # 覆盖面审计（源码级）：**所有**插进 drawtext 的文本都必须走 esc_text；
+    #   白名单只有两种"本来安全"的：① `%{eif:...}` 故意表达式（数字滚动）；② 纯数字序号 `{_i + 1}` / `{_num}`。
+    #   其余任何 `text='{变量}'` 一律视为绕过 → 直接红（例如 banner_layer / deck 元素 / list / compare）。
+    _dt_all = _re.findall(r"text='\{([^}]*)\}", _code)
+    _dt_bad = [x for x in _dt_all
+               if 'esc_text' not in x and 'eif' not in x
+               and x.strip() not in ('_i + 1', '_num')]
+    chk(not _dt_bad,
+        'QUOTE_ESC 覆盖面：没有绕过 esc_text 的 drawtext 文本（白名单仅 eif 表达式与纯数字序号）',
+        str(_dt_bad))
 
     if a.render:
         _render_demo()

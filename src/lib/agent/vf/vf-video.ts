@@ -33,7 +33,11 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   VF_MOTION_PROMPT, ensurePersistentMotion,
   // ★VF_DECK_WIRE_V1（2026-10-01）：「富编排 PPT 页」的提示词（什么时候用 deck / 4 套风格怎么选 /
   //   字段怎么填）—— 与「图片成片」线（chat/route.ts 的 vfShotsPrompt）**共用同一份常量**。
-  VF_DECK_PROMPT } from './anti-ai'
+  VF_DECK_PROMPT,
+  // ★VF_NEIGHBOR_DEDUP_V1（2026-10-01）：「相邻两镜同大字」的服务端硬兜底（用户实测 3 组连续同大字）。
+  // ★VF_DECK_STYLES_V1（2026-10-01）：用户选了画面模版时给提示词补一句「优先用用户选的」+ 值归一化
+  //   （非法/缺省 → 'auto'，渲染层读 plan 根级 deck_style 的逐字契约）。
+  dedupeAdjacentSameText, deckStylePromptNote, normalizeDeckStyle } from './anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：`VF_MOTION_PROMPT` = 「长镜必须有动效」的档位说明
 //   （与 ANTI_AI_PROMPT 同样**两个分镜 prompt 共用**一份，免得两条线走偏）；
 //   `ensurePersistentMotion` = 服务端兜底（AI 忘写时给 title/end 长镜自动补 `motion='grow'`）。
@@ -55,7 +59,10 @@ import { i2vIntentOf } from '../standard-commands'
 import { i2vSummaryByPath } from './i2v-suit'
 // ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：提炼两行 + 根级字段形状，两条线共用同一份
 //   （纯逻辑放 banner.ts，与 anti-ai.ts / i2v-plan.ts 同类，静态 import 不连累别的线）。
-import { buildBanner, fallbackBanner, bannerFieldOf, planWithBanner } from './banner'
+import { buildBanner, fallbackBanner, bannerFieldOf,
+  // ★VF_SBDUMP_V2（2026-10-01）：出片/样板镜/本地留档**共用同一个 plan 组装函数**（唯一来源；
+  //   函数内部仍走 planWithBanner —— "banner 只挂根级、绝不进 shots"的契约没有变）
+  buildVideoPlan } from './banner'
 import type { VfBannerLines } from './banner'
 // ★VF_POOL_V1（2026-09-30 用户定案「重复选图」「每次都是同几张」）：「成片素材池治理」纯函数 ——
 //   与 anti-ai.ts / banner.ts / i2v-plan.ts 同类（零依赖、可单测），所以静态 import 不违反本文件
@@ -82,6 +89,11 @@ export interface VfVideoDraft {
   voice: string
   theme: string
   bgm: string
+  /** ★VF_DECK_STYLES_V1（2026-10-01 用户定案「我没看到新模版」）：画面模版（deck 系列风格）。
+   *  取值 = 'auto'（AI 按题材自选）| 'deck' | 'deck-grad' | 'deck-mono' | 'deck-mag'
+   *       | 'deck-glass' | 'deck-soft'；非法/缺省 → 'auto'（归一化在 anti-ai.ts 的 normalizeDeckStyle）。
+   *  链路：设置卡 → 草稿 → 出片时写进 plan 根级 `deck_style`（渲染层读它）。 */
+  deckStyle?: string
   /** ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案）：画面大字开关 'on'|'off'
    *  只关【压在素材/视频上的大字】；独立文字卡（标题/结尾/列表…）与字幕不受影响。 */
   big?: string
@@ -363,6 +375,8 @@ function formCard(vd: VfVideoDraft): string {
     dur: vd.dur,
     theme: vd.theme,
     bgm: vd.bgm,
+    // ★VF_DECK_STYLES_V1（2026-10-01）：画面模版**回显**（用户从设置卡再进来还能看到自己选的）
+    deckStyle: vd.deckStyle || 'auto',
     big: vd.big || 'on',      // ★OVERLAY_TEXT_SWITCH_V1：画面大字（加 / 不加），默认加
     // ★VF_VIDI2V_V1：让图动起来（逐镜图生视频）开关；★VF_MATUI_V1 起**默认不动**（'off'，0 点动图）
     i2v: vd.i2v || 'off',
@@ -543,6 +557,9 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     // ★VF_DECK_WIRE_V1（2026-10-01）：把「富编排 PPT 页」（variant=deck / 4 套风格）接进本线提示词
     //   —— 何时用/何时不用/字段怎么填；与「图片成片」线共用同一份常量（anti-ai.ts）。
     VF_DECK_PROMPT +
+    // ★VF_DECK_STYLES_V1（2026-10-01）：用户在设置卡选了画面模版 → 告诉 AI「必须用用户选的」
+    //   （用户没选 = 'auto' → 这里加了个空串，等于没加，保持"AI 自选"的现状不变）。
+    deckStylePromptNote(vd.deckStyle) +
     // ★VF_TEXTCARD_V1（2026-09-29 用户实测「没单独生成页面 都是图片加打字」）：
     //   原来提示词只说"画面用用户的素材" → AI 从不排独立文字卡，整条片成了"图文轮播"（12/12 镜都是素材镜）。
     //   现在明确要求：每 4~5 镜至少 1 镜用【不用素材】的文字卡，画面才有层次与节奏。
@@ -817,6 +834,14 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     if (_mo.notes.length) ctx.log(uid, '[VF-V][动效] ' + _mo.notes.join('；'))
     shotsOut.length = 0
     shotsOut.push(..._mo.shots)
+    // ★VF_NEIGHBOR_DEDUP_V1（2026-10-01 用户实测「智能营销封面×2 / 智能营销方案×2 / 效率提升×2」）：
+    //   相邻两镜画面大字完全相同 → 只改**后一镜**（换 kicker/label 或 subtitle 首句；改不出就保留）。
+    //   刻意放在这一批的**最后**（前面的净化/降级/动效都改完了，这里看到的是最终文案）——
+    //   纯函数、不联网、不改字幕一个字。
+    const _dd = dedupeAdjacentSameText(shotsOut)
+    if (_dd.notes.length) ctx.log(uid, '[VF-V][大字] ' + _dd.notes.join('；'))
+    shotsOut.length = 0
+    shotsOut.push(..._dd.shots)
   }
   vd.shots = shotsOut
   // ★VF_VIDI2V_V1：把"本地路径 → 仓库 key"的映射存进草稿 —— 出片（确认那一步）时用它现算 i2vShots
@@ -871,6 +896,8 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         i2v: 'off',
         pin: 'on',   // ★VF_BANNER_V1：默认出「顶部固定标题」（老板定案「默认开，方便自动化」；设置卡可关）
         pin1: '', pin2: '',   // ★VF_BANNER_PIN2_V1：默认留空 = AI 自动拟两行（用户在设置卡手填则以他为准）
+        // ★VF_DECK_STYLES_V1（2026-10-01）：「🎨 画面模版」默认 'auto' = AI 按题材自选（用户不选就与现状一致）
+        deckStyle: 'auto',
       }
       VF_VIDEO_DRAFT.set(uid, vd)
       await saveVfVideoDraft(ctx.prisma, uid, vd)
@@ -887,6 +914,8 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         if (f.voice) vd.voice = String(f.voice)
         if (f.theme) vd.theme = String(f.theme)
         if (f.bgm) vd.bgm = String(f.bgm)
+        // ★VF_DECK_STYLES_V1（2026-10-01）：画面模版（'auto' | 6 个 deck 风格）—— 走白名单归一化（非法 → 'auto'）
+        if (f.deckStyle !== undefined) vd.deckStyle = normalizeDeckStyle(f.deckStyle)
       if (f.big) vd.big = String(f.big)   // ★OVERLAY_TEXT_SWITCH_V1：'on' | 'off'
         // ★VF_VIDI2V_V1：'off'（全静态图，不额外计费）| 'on'（智能筛，只动有主体可动的图）
         // ★VF_MATUI_V1（2026-09-30 用户定案）：新增 'picked'（只动我勾选的🎞）；缺省 = 'off'
@@ -1028,10 +1057,8 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
       ctx.log(uid, `[VF-V] 样板镜预览：取开头约 8 秒（共 ${vd.shots.length} 镜）`)
       return String(await ctx.executeToolCall('preview_video_shot', {
         // ★VF_BANNER_V1：样板镜也带上固定标题（用户就是要在预览里看到那两行长什么样）
-        plan: JSON.stringify(planWithBanner({
-          size: vd.size || [720, 1280], fps: 25, shots: vd.shots,
-          overlay_text: vd.big !== 'off',
-        }, bannerFieldOf(vd))),
+        // ★VF_SBDUMP_V2：与出片/留档共用 buildVideoPlan（同一份字段，别再三处各拼一份）
+        plan: JSON.stringify(buildVideoPlan(vd.shots, vd, { sizeDefault: [720, 1280] })),
         seconds: 8,
       }, ctx.auth))
     }
@@ -1060,7 +1087,9 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         //   render.py 读到 overlay_text=false 就不再把这些大字压在素材/视频上（独立文字卡与字幕照旧）。
         // ★VF_BANNER_V1：把固定标题挂到 plan 的**根级**（planWithBanner 保证不塞进 shots——
         //   render.py 只读根级 sb.get('banner')，塞进 shots 每一镜就会每帧重画）。
-        plan: JSON.stringify(planWithBanner({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots, overlay_text: vd.big !== 'off' }, _bannerF)),
+        // ★VF_SBDUMP_V2（2026-10-01）：出片 plan 与"本地留档的 plan"、样板镜 preview **共用同一个函数**
+        //   （buildVideoPlan：size/fps/shots/overlay_text/deck_style + banner），杜绝"留档 ≠ 出片"。
+        plan: JSON.stringify(buildVideoPlan(vd.shots, vd, { sizeDefault: [720, 1280] })),
         script: vd.script,
         theme: vd.theme,
         speaker: vd.voice,

@@ -129,13 +129,20 @@ export const VF_DECK_PROMPT =
   `→ 数据卡 → 右下角页码 + 页内进度线；带分段入场 + 持续动效，**不额外花点数**。\n` +
   `· 【什么时候用】这一页是 ① 总结页 ② 数据页 ③ 要点页 ④ 流程页，或该镜**字幕较多（信息量大）**时。\n` +
   `  一页 deck 顶原先 2~3 个"只有几个大字"的页 —— 信息多的镜别硬拆成三张空洞的大字页。\n` +
-  `· 【什么时候不用】✗ 不要每镜都用（整片节奏会闷）—— 建议【每 4~6 镜里最多 1~2 镜】用 deck；\n` +
-  `  开场第 1 镜与结尾镜优先用普通卡（center / left），保持冲击力。\n` +
-  `· 【4 套风格怎么选】（值写在 variant 字段里，别乱挑）：\n` +
+  // ★VF_DECK_STYLES_V1（2026-10-01 用户实测）：**口径放宽** —— 原来的"每 4~6 镜里最多 1~2 镜用 deck"
+  //   太保守，用户实测那条片（20261001_004）AI 只敢第 1 镜用 deck、后面 12 镜全给了普通卡；
+  //   用户原话：「就是做PPT也不可能一页就几个大字」。现在只留一条"不要连续 3 镜"的节奏约束。
+  `· 【用多少】信息量大的页就该用 deck（总结页 / 数据页 / 要点页 / 流程页 / 字幕较多的页）；其余没有上限。\n` +
+  `· 【什么时候不用】✗ 不要连续 3 镜都用 deck（整片节奏会闷）：\n` +
+  `  开场第 1 镜与结尾镜仍优先普通卡（center / left），保持冲击力。\n` +
+  // ★VF_DECK_STYLES_V1（2026-10-01 用户定案「1-2 都要：既要接进 AI，也要多做模版」）：风格从 4 套扩到 6 套。
+  `· 【6 套风格怎么选】（值写在 variant 字段里，别乱挑）：\n` +
   `  · deck       = 通用 / 不确定时 → **默认**（经典通用）\n` +
   `  · deck-grad  = 需要"氛围 / 情绪 / 开场感"时 → 渐变风\n` +
   `  · deck-mono  = **数据 / 参数 / 效率** 类、要"高级克制"时 → 极简留白\n` +
   `  · deck-mag   = **资讯 / 报道 / 观点** 类，且主题是 news / data 时 → 杂志编辑风\n` +
+  `  · deck-glass = 玻璃拟态 · 现代柔和 → **产品 / 科技 / 界面** 类\n` +
+  `  · deck-soft  = 柔和拟物 · 低饱和大圆角 → **生活 / 品牌 / 情感** 类\n` +
   `· 【字段怎么填】{"type":"title","variant":"deck","text":"主标题≤12字","subtitle":"副标题一句话",` +
   `"kicker":"≤8字标签","en":"英文副标(可选)","items":["要点1","要点2","要点3"],` +
   `"value":150,"suffix":"万","label":"累计曝光"}\n` +
@@ -143,6 +150,37 @@ export const VF_DECK_PROMPT =
   `     只给 text 会渲染成"**空壳 deck 页**"（只有一行大字，比普通页更难看）。\n` +
   `· 【硬规矩】items 2~4 条、每条 ≤14 字；kicker ≤8 字；text ≤12 字（超了渲染层只能缩字号）。\n` +
   `  value 必须是【文案里本来就有的数字】（反 AI 味硬规矩：不许编数据）；没有要点/数据就别硬填那几个字段。\n`
+
+/* ══════════ ★VF_DECK_STYLES_V1（2026-10-01 用户定案「1-2 都要：既要接进 AI，也要多做模版」）══════════
+ * 为什么：用户实测一条真片后说「我本次选的是新闻资讯，因为我没看到新模版」——
+ *   ① 界面上根本没有「画面模版」这一个选项（只有 theme 主题），用户无从选起；
+ *   ② AI 也无从"按用户选的"来排版。
+ * 所以：界面加一栏「🎨 画面模版」→ 值一路带到 plan 根级 `deck_style`（渲染层读它）→ 同时写进提示词
+ *   告诉 AI「用户指定了就优先用用户选的」。
+ * ⚠️ 取值 = 'auto'（AI 按题材自选）或 6 个 deck 风格；**非法/缺省一律回 'auto'**（逐字契约，渲染层同口径）。
+ *   deck      = 经典通用（默认）
+ *   deck-grad = 渐变风
+ *   deck-mono = 极简留白
+ *   deck-mag  = 杂志编辑风
+ *   deck-glass= 玻璃拟态（现代柔和）
+ *   deck-soft = 柔和拟物（低饱和大圆角）
+ *   这 6 个值必须与渲染层 render.py 的 TITLE_VARIANTS / DECK_VARIANTS 逐字一致。
+ */
+export const VF_DECK_STYLES = ['auto', 'deck', 'deck-grad', 'deck-mono', 'deck-mag', 'deck-glass', 'deck-soft']
+/** ★VF_DECK_STYLES_V1：把用户/前端给的值归一成契约值；非法/缺省 → 'auto'（渲染层因此永远收到合法值） */
+export function normalizeDeckStyle(v: any): string {
+  const s = String(v == null ? '' : v).trim().toLowerCase()
+  return VF_DECK_STYLES.includes(s) ? s : 'auto'
+}
+
+/** ★VF_DECK_STYLES_V1：用户指定了画面模版时，在提示词里加一句「优先用用户选的」。
+ *  返回空串（用户没选 / = 'auto'）→ 调用方拼上去等于没加，不影响"AI 自选"的现状。 */
+export function deckStylePromptNote(v?: any): string {
+  const s = normalizeDeckStyle(v)
+  if (s === 'auto') return ''
+  return `\n★用户在设置卡指定了画面模版「${s}」→ 本片所有 deck 页【必须用 variant="${s}"】` +
+    `（优先于上面的风格推荐；用户选的说了算）。\n`
+}
 
 /* ══════════ ★VF_AI_PICK_V1（2026-09-29 用户定案 P1）：AI 自选「主题 / 版式 / 动效」的白名单 ══════════
  * 唯一真相源是渲染层 scripts/video-factory/render.py（TITLE_VARIANTS / LIST_VARIANTS /
@@ -158,8 +196,12 @@ export const VF_THEMES = ['dark', 'blue', 'tech', 'mint', 'light', 'journal', 'v
 //   deck-mono / deck-mag）—— 渲染层 ★VF_DECK_V1 早已实现（deck_page_filters），但白名单里没有
 //   → `sanitizeAntiAiShots` 会把 AI 写的 variant 直接删掉（回默认版式），整层能力等于没接线。
 //   ⚠️ 这 4 个值与渲染层 render.py 的 DECK_VARIANTS 必须**逐字一致**（vf-i2v-selftest.ts 有对账断言）。
+// ★VF_DECK_STYLES_V1（2026-10-01 用户定案「多做模版」）：deck 系列从 4 套扩到 **6 套** ——
+//   追加 'deck-glass'（玻璃拟态·现代柔和）/ 'deck-soft'（柔和拟物·低饱和大圆角）。
+//   ⚠️ 与渲染层 render.py 的 TITLE_VARIANTS **逐字一致**（vf-i2v-selftest.ts 有一行硬对账）——
+//   渲染层由另一名队友同步；对方未跟上时那 1 条会红，属预期（不改断言）。
 export const VF_VARIANTS: Record<string, string[]> = {
-  title: ['center', 'left', 'chip', 'deck', 'deck-grad', 'deck-mono', 'deck-mag'],
+  title: ['center', 'left', 'chip', 'deck', 'deck-grad', 'deck-mono', 'deck-mag', 'deck-glass', 'deck-soft'],
   list: ['steps', 'stack'],
   compare: ['split', 'bar'],
   // ★VF_DECK_FRAME_DEFAULT_V1（2026-10-01 team-lead 自查发现）：**素材镜也要放行 deck 系列**。
@@ -168,15 +210,17 @@ export const VF_VARIANTS: Record<string, string[]> = {
   //   `sanitizeAntiAiShots` 会把 AI 写的 `variant:'deck'` **当非法值删掉** → 素材页 deck 永远用不上
   //   （用户会看到"AI 说用了 deck、出片还是老样子"）。
   //   ⚠️ 只放行 deck 系列；别的值（center/left/steps…）在素材镜上仍按非法删掉（它们是纯文字卡的版式）。
-  bgimage: ['deck', 'deck-grad', 'deck-mono', 'deck-mag'],
-  video: ['deck', 'deck-grad', 'deck-mono', 'deck-mag'],
+  bgimage: ['deck', 'deck-grad', 'deck-mono', 'deck-mag', 'deck-glass', 'deck-soft'],
+  video: ['deck', 'deck-grad', 'deck-mono', 'deck-mag', 'deck-glass', 'deck-soft'],
 }
 // ★VF_DECK_FRAME_DEFAULT_V1（2026-10-01 渲染层同学实测反馈，服务端补默认）：
 //   「富编排 PPT 页」(deck 系列) 用在**素材镜**（bgimage/video）上时，渲染层要**显式拿到 `frame`**
 //   才会走卡片版式（★VF_TPL_B1_V1）；非编辑风主题（tech/light/…）缺省 frame 为空 → 回落老链路。
 //   后果：AI 写了 variant=deck、出片却是"老样子"，用户会以为没生效。
 //   这里在净化阶段**只补不覆盖**：deck 系列 + 素材镜 + 没写 frame → 自动补 'thin'（细边框卡片）。
-export const VF_DECK_VARIANTS = ['deck', 'deck-grad', 'deck-mono', 'deck-mag']
+// ★VF_DECK_STYLES_V1（2026-10-01）：与 VF_VARIANTS 的三处 deck 值保持同步（6 套）——
+//   本表只用于「deck 素材镜没写 frame → 自动补 'thin'」这一条兜底（见 sanitizeAntiAiShots）。
+export const VF_DECK_VARIANTS = ['deck', 'deck-grad', 'deck-mono', 'deck-mag', 'deck-glass', 'deck-soft']
 // ★VF_MOTIONPPT_V1（2026-09-30 用户定案「动态 PPT 立项」）：motion 新增 `grow`（强调条从左往右生长）。
 //   ⚠️ 与 render.py 的 MOTIONS 必须逐项一致（vf-i2v-selftest 会**对账**，不一致直接红）——
 //   这一条今天真的红了（渲染层先加、TS 没同步），说明那道闸门有用。
@@ -267,7 +311,38 @@ export function lockUserTheme(shots: any[], userTheme?: string): { shots: any[];
   return { shots: Array.isArray(shots) ? shots : [], notes }
 }
 
+/* ══════════ ★VF_QUOTE_FIX_V1（2026-10-01 用户实测：英文引号会让整镜渲染失败）══════════
+ * 为什么：渲染层用 `-vf "…"` 拼滤镜串（ffmpeg drawtext 的 text=…）。**文案里出现 ASCII 双引号 `"`
+ *   会让 shell/ffmpeg 的命令行提前闭合** → 那一镜的 filter graph 直接解析失败 → **整镜渲染失败**
+ *   （渲染层同学实测撞到过，只好手工把文案里的 `"` 换成中文引号绕开）。
+ * 做法（只在**画面文字类字段**上做，纯文本替换，只改引号、不动其它标点，**幂等**）：
+ *   · `"` → 中文引号：成对就「“」「”」交替；个数是奇数就全换成 `“`（不猜哪边是收尾）
+ *   · `'` → `‘`（英文撇号同样会截断命令行）
+ *   · `` ` `` → 直接删掉（反引号会触发命令替换，最危险）
+ *   · 覆盖：TEXT_KEYS（text/title/left/right/leftDesc/rightDesc/label/cta/subtitle）
+ *           + items（数组，逐条处理）+ kicker / en（deck 与编辑风的小标签、英文副标）
+ * 幂等性：替换后串里已无 ASCII 引号/反引号 → 再跑一次 0 改动（自测 vf-quotefix-selftest.ts 断言）。
+ */
+export function normalizeQuotes(v: any): { s: string; n: number } {
+  const s0 = String(v == null ? '' : v)
+  if (!/["'`]/.test(s0)) return { s: s0, n: 0 }
+  const dqN = (s0.match(/"/g) || []).length
+  const paired = dqN % 2 === 0          // 成对 → 交替；奇数 → 全用前引号
+  let i = 0
+  let n = 0
+  let out = ''
+  for (const ch of s0) {
+    if (ch === '"') { out += paired && i % 2 === 1 ? '”' : '“'; i++; n++ }
+    else if (ch === "'") { out += '‘'; n++ }
+    else if (ch === '`') { n++ }        // 删除（不写入）
+    else out += ch
+  }
+  return { s: out, n }
+}
+
 const TEXT_KEYS = ['text', 'title', 'left', 'right', 'leftDesc', 'rightDesc', 'label', 'cta', 'subtitle']
+/** ★VF_QUOTE_FIX_V1：不在 TEXT_KEYS 里、但同样进画面的文字字段（deck / 编辑风专属） */
+const QUOTE_EXTRA_KEYS = ['kicker', 'en']
 
 /**
  * 出片前的「反 AI 味」净化（**只减不增**）：
@@ -287,24 +362,43 @@ export function sanitizeAntiAiShots(shots: any[]): { shots: any[]; notes: string
   const badDesignSample: string[] = []
   // ★VF_DECK_FRAME_DEFAULT_V1：deck 素材镜自动补 frame 的计数（写进 notes，便于回溯）
   let deckFrameDefault = 0
+  // ★VF_QUOTE_FIX_V1：画面文字里的英文引号归一化计数（写进 notes —— 否则 ffmpeg 滤镜串被引号截断）
+  let quoteFix = 0
   const out = (Array.isArray(shots) ? shots : []).map((s0: any) => {
     const s: any = { ...(s0 || {}) }
-    // ① emoji / 符号
+    // ① emoji / 符号 + ★VF_QUOTE_FIX_V1 引号归一化（画面文字类字段）
     for (const k of TEXT_KEYS) {
       if (typeof s[k] === 'string') {
-        const nv = stripEmoji(s[k]).replace(/\s{2,}/g, ' ').trim()
-        if (nv !== s[k]) { s[k] = nv; emojiHits++ }
+        const orig = s[k]
+        let nv = stripEmoji(orig).replace(/\s{2,}/g, ' ').trim()
+        if (nv !== orig) emojiHits++
+        const q = normalizeQuotes(nv)
+        if (q.n) { nv = q.s; quoteFix += q.n }
+        if (nv !== orig) s[k] = nv
+      }
+    }
+    // ★VF_QUOTE_FIX_V1：kicker / en（deck 与编辑风专属小字，同样进画面）
+    for (const k of QUOTE_EXTRA_KEYS) {
+      if (typeof s[k] === 'string') {
+        const q = normalizeQuotes(s[k])
+        if (q.n) { s[k] = q.s; quoteFix += q.n }
       }
     }
     if (Array.isArray(s.items)) {
       s.items = s.items.map((it: any) => {
         if (it && typeof it === 'object') {
-          const nv = typeof it.label === 'string' ? stripEmoji(it.label).trim() : it.label
+          let nv = typeof it.label === 'string' ? stripEmoji(it.label).trim() : it.label
           if (nv !== it.label) emojiHits++
+          if (typeof nv === 'string') {
+            const q = normalizeQuotes(nv)
+            if (q.n) { nv = q.s; quoteFix += q.n }
+          }
           return { ...it, label: nv }
         }
-        const nv = stripEmoji(it).trim()
+        let nv = stripEmoji(it).trim()
         if (nv !== it) emojiHits++
+        const q = normalizeQuotes(nv)
+        if (q.n) { nv = q.s; quoteFix += q.n }
         return nv
       })
     }
@@ -394,6 +488,8 @@ export function sanitizeAntiAiShots(shots: any[]): { shots: any[]; notes: string
   if (numDrop) notes.push(`数字/图表卡 ${numDrop} 镜因【文案里没有数字】→ 已降级为标题卡（不编造数据）`)
   if (badDesign) notes.push(`主题/版式/动效 非法值已删 ${badDesign} 处（${badDesignSample.join('、')}…）→ 回默认渲染`)
   if (deckFrameDefault) notes.push(`富编排 PPT 页(deck) 的素材镜 ${deckFrameDefault} 处 AI 未写 frame → 已补 frame='thin'（否则会回落老版式、deck 看不出效果）`)
+  // ★VF_QUOTE_FIX_V1（2026-10-01）：文案里的英文引号会让 ffmpeg 滤镜串被截断、那一镜整镜失败 —— 归一化后写日志
+  if (quoteFix) notes.push(`画面文字里的英文引号已归一化 ${quoteFix} 处（否则 ffmpeg 滤镜串会被引号截断、那一镜整镜失败）`)
   return { shots: out, notes }
 }
 
@@ -423,6 +519,77 @@ export const VF_SUB_SHOT_MIN_SEC = 2     // 拆出来的每一镜最短时长（
 /** 中文断句标点（拆镜时的"句"边界；标点跟在前一段尾部，保证拼回来一字不差） */
 const VF_SUB_PUNC = '。！？；，'
 
+/* ══════════════ ★VF_LINEBREAK_V2（2026-10-01 用户实测「字幕断行难看」）══════════════
+ * 现象（同事量的基线，帧 `dist-rel/fixbase/full_t0170.png`）：
+ *   字幕「图里这款手表海报，就是AI一键生 / 成的，点击率预测高达8.5%，」
+ *   —— 数字 `8.5%` 没被拆（那条已修 ✅），但**「生成」被切在中间**，读起来别扭。
+ *
+ * 这一节 = **中文避头尾（kinsoku）**：断口不许落在这三/四类位置 ——
+ *   ① 行尾不许停在"连接性/虚词"之后（否则下一行开头就是虚词，读起来断气）：
+ *      的 了 是 和 与 就 都 也 在 把 被 而 或 及 等 这 那 有 无 为 之 其 你 我 他
+ *   ② 行首不许是"收尾性标点/括号"：。 ， 、 ！ ？ ； ： ） 」 』 》
+ *   ③ **数字+单位（150万 / 30秒）、英文/百分号（8.5%）绝不拆**（切口两侧都是字母数字，或数字后紧跟中文单位 → 不许切）
+ *   ④ 成对词不许拆开（**只放明确点过名的**，见 VF_KINSOKU_NOPAIR —— 宁缺勿假，不猜词）
+ * 做法：目标切口不动，**只在 [目标-1 .. 目标-4] 里往回找最近的合法切口**（最多回退 4 字）；
+ *   找不到就保持原切口 —— 宁可难看，也**不许把行撑爆、更不许丢字**。
+ * ⚠️ 本节只管**服务端的断行**（超长字幕按句硬切 → 拆镜）。
+ *   屏幕上那两行的折行在渲染层 `render.py::wrap_subtitle()`（**不在服务端**）—— 规则表与本文件**逐字一致**，
+ *   由渲染层同学照它实现；本文件把表导出，供两边对账（scripts/vf-subsplit-selftest.ts）。
+ */
+/** 行尾禁则：不许把行尾停在这些字之后 */
+export const VF_KINSOKU_TAIL = '的了是和与就都也在把被而或及等这那有无为之其你我他'
+/** 行首禁则：这些字不许出现在行首 */
+export const VF_KINSOKU_HEAD = '。，、！？；：）」』》'
+/** 成对词：不许拆开（用户实测点名「生成」；以后遇到别的词加一行即可 —— 不猜词） */
+export const VF_KINSOKU_NOPAIR = ['生成']
+/** 最多回退几个字去找合法断点（用户定案 3~4 字） */
+export const VF_KINSOKU_BACK = 4
+const VF_KIN_ALNUM = /[0-9A-Za-z.%]/
+const VF_KIN_CN = /[\u4e00-\u9fa5]/
+
+/** ★VF_LINEBREAK_V2：切口（s[e-1] | s[e] 之间）合法吗 */
+export function isKinsokuCutOk(s: string, e: number): boolean {
+  if (e <= 0 || e >= s.length) return true
+  const a = s[e - 1]
+  const b = s[e]
+  if (VF_KINSOKU_TAIL.includes(a)) return false                     // ① 行尾不许是虚词
+  if (VF_KINSOKU_HEAD.includes(b)) return false                     // ② 行首不许是收尾标点
+  if (VF_KIN_ALNUM.test(a) && VF_KIN_ALNUM.test(b)) return false    // ③ 不许切在 8.5% / 150 里
+  if (VF_KIN_ALNUM.test(a) && VF_KIN_CN.test(b)) return false       // ③ 数字 + 中文单位（150万 / 30秒）
+  for (const p of VF_KINSOKU_NOPAIR) {                              // ④ 成对词不许拆
+    const L = p.length
+    if (L >= 2 && e - L + 1 >= 0 && s.slice(e - L + 1, e + 1) === p) return false
+  }
+  return true
+}
+
+/** ★VF_LINEBREAK_V2：在 [start+1 .. start+cap] 里挑一个"避头尾"的切口（**只回退**；找不到就返回原切口） */
+export function pickKinsokuCut(s: string, start: number, cap: number): number {
+  const c = Math.max(1, Math.floor(Number(cap)) || 1)
+  const target = Math.min(String(s || '').length, start + c)
+  for (let e = target - 1; e >= Math.max(start + 1, target - VF_KINSOKU_BACK); e--) {
+    if (isKinsokuCutOk(s, e)) return e
+  }
+  return target
+}
+
+/** ★VF_LINEBREAK_V2：把一段话折成 ≤limit 字的若干行（**只断行、一字不减**，不插「…」——
+ *  截断是渲染层自己的策略）。渲染层 Python（render.py::wrap_subtitle）照这套规则实现，两边表逐字一致。 */
+export function wrapWithKinsoku(text: any, limit = 16, maxLines = 2): string[] {
+  const s = String(text == null ? '' : text).replace(/\s+/g, '')
+  if (!s) return []
+  if (s.length <= limit) return [s]
+  const rows: string[] = []
+  let i = 0
+  while (i < s.length && rows.length < maxLines) {
+    const target = Math.min(s.length, i + limit)
+    const end = target >= s.length ? target : pickKinsokuCut(s, i, limit)
+    rows.push(s.slice(i, end))
+    i = end
+  }
+  return rows
+}
+
 /** 单镜字幕上限 = min(60, ceil(dur × 4.3)) */
 export function subCapFor(dur: any): number {
   const d = Math.max(1, Number(dur) || 1)
@@ -451,7 +618,15 @@ export function splitTextByCap(text: any, cap: number): string[] {
   for (const p of pieces) {
     if (p.length > c) {
       if (buf) { out.push(buf); buf = '' }
-      for (let i = 0; i < p.length; i += c) out.push(p.slice(i, i + c))
+      // ★VF_LINEBREAK_V2（2026-10-01）：单句超上限要按字数硬切时，切口**避开虚词/标点/数字单位/成对词**
+      //   （只往回挪 ≤ VF_KINSOKU_BACK 字，仍保证每段 ≤ c、且 `join('') === 原文` 一字不丢）。
+      let i = 0
+      while (i < p.length) {
+        const target = Math.min(p.length, i + c)
+        const end = target >= p.length ? target : pickKinsokuCut(p, i, c)
+        out.push(p.slice(i, end))
+        i = end
+      }
       continue
     }
     if (buf.length + p.length <= c) buf += p
@@ -569,6 +744,71 @@ export function ensurePersistentMotion(shots: any[]): { shots: any[]; notes: str
   }
   if (unsupported) {
     notes.push(`${unsupported} 个长镜（compare 卡）渲染层暂无持续型动效 → 未改动（如实记录，不硬塞字段）`)
+  }
+  return { shots: out, notes }
+}
+
+/* ══════════ ★VF_NEIGHBOR_DEDUP_V1（2026-10-01 用户实测「3 组连续同大字」）══════════
+ * 用户实测原话（本节的由来）：那条真片里有 **3 组相邻两镜的"画面大字"完全一样**——
+ *   `智能营销封面`×2（第 3/4 镜）、`智能营销方案`×2（第 6/7 镜）、`效率提升`×2（第 11/12 镜）。
+ *   连着的两屏顶着同一句大字，观感就是"卡住了没换页"。
+ * 提示词只能"请求"，这里负责**兜住**（与 sanitizeAntiAiShots 同一思路，服务端硬兜底）。
+ *
+ * 规则（**只改后一镜，绝不动前一镜**；**一字不能丢** —— subtitle 一个字都不碰）：
+ *   相邻两镜的"画面大字"完全相同（取 `text`，其次 `title`；都为空 → 跳过）→ 给**后一镜**换一个不重复的：
+ *     ① 优先用该镜自己的 `kicker` / `label`（本来就是"这一屏属于什么栏目"的短标签）
+ *     ② 没有就用该镜 subtitle 的**首句前 10 字**
+ *     ③ 再没有就用 subtitle 前 10 字
+ *     ④ 都取不出来（为空 / 仍与前一镜相同）→ **保留原样、不硬造**（宁缺勿假）
+ *
+ * 两个细节（自测逐条断言）：
+ *   · **比较对象是"输入数组里的前一镜"**（不是"改完之后的前一镜"）→ 所以 A/A/A 三连排时，
+ *     第 2、3 镜**都会**被改（否则第 3 镜相比已被改过的第 2 镜"看起来不同"、会被漏掉）。
+ *   · 因为替换值保证 ≠ 前一镜大字 → **幂等**（改完再跑一次 0 改动）。
+ * 返回 `{shots, notes}`，notes 写清改了哪几镜（如 `第 6/7 镜大字重复（智能营销方案）→ 第 7 镜改为 …`）。
+ */
+export function dedupeAdjacentSameText(shots: any[]): { shots: any[]; notes: string[] } {
+  const notes: string[] = []
+  const src = Array.isArray(shots) ? shots : []
+  // 画面大字：取 text，其次 title（空 → ''）
+  const bigKeyOf = (s: any): 'text' | 'title' | '' => {
+    const t = String(s?.text == null ? '' : s.text).trim()
+    if (t) return 'text'
+    const ti = String(s?.title == null ? '' : s.title).trim()
+    return ti ? 'title' : ''
+  }
+  const bigValOf = (s: any): string => {
+    const k = bigKeyOf(s)
+    return k ? String(s[k]).trim() : ''
+  }
+  const out: any[] = []
+  for (let i = 0; i < src.length; i++) {
+    let cur: any = src[i] || {}
+    // 比较对象 = **原始数组的**前一镜（见上面"两个细节"）
+    if (i > 0) {
+      const k = bigKeyOf(cur)
+      const curBig = bigValOf(cur)
+      const prevBig = bigValOf(src[i - 1])
+      if (k && curBig && prevBig && curBig === prevBig) {
+        const cands: string[] = []
+        const kick = String(cur.kicker == null ? '' : cur.kicker).trim()
+          || String(cur.label == null ? '' : cur.label).trim()
+        if (kick) cands.push(kick)
+        const sub = String(cur.subtitle == null ? '' : cur.subtitle).trim()
+        if (sub) {
+          const first = (sub.split(/[。！？；，,.!?;]/)[0] || sub).trim()
+          if (first) cands.push(first.slice(0, 10))
+          cands.push(sub.slice(0, 10))
+        }
+        const nv = cands.map((x) => x.trim()).find((x) => x && x !== prevBig)
+        if (nv) {
+          cur = { ...cur, [k]: nv.slice(0, 16) }
+          notes.push(`第 ${i}/${i + 1} 镜大字重复（${prevBig}）→ 第 ${i + 1} 镜改为「${nv.slice(0, 16)}」`)
+        }
+        // 取不出不重复的值 → 保留原样（宁缺勿假，不硬造）
+      }
+    }
+    out.push(cur)
   }
   return { shots: out, notes }
 }

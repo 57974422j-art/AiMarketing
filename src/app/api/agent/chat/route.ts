@@ -40,7 +40,11 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   VF_MOTION_PROMPT, ensurePersistentMotion,
   // ★VF_DECK_WIRE_V1（2026-10-01）：「富编排 PPT 页」（variant=deck）的提示词 ——
   //   与「视频混剪」线（vf-video.ts）**共用 anti-ai.ts 里同一份常量**，两条线不一致的问题不会再出现。
-  VF_DECK_PROMPT } from '@/lib/agent/vf/anti-ai'
+  VF_DECK_PROMPT,
+  // ★VF_NEIGHBOR_DEDUP_V1（2026-10-01）：「相邻两镜同大字」的服务端硬兜底（用户实测 3 组连续同大字）。
+  // ★VF_DECK_STYLES_V1（2026-10-01）：用户选了画面模版 → 提示词补一句「优先用用户选的」+ 值归一化
+  //   （非法/缺省 → 'auto'；渲染层读 plan 根级 deck_style 的逐字契约）。
+  dedupeAdjacentSameText, deckStylePromptNote, normalizeDeckStyle } from '@/lib/agent/vf/anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：把「长镜必须有动效」的档位接进【图片成片线】的分镜提示词
 //   （与「视频混剪」线共用 anti-ai.ts 里同一份常量，两条线的字段说明与硬规矩逐字一致），
 //   并在 genVideoShots 出口跑服务端兜底 ensurePersistentMotion（AI 忘写时给 title/end 长镜补 grow）。
@@ -53,7 +57,9 @@ import { i2vCostPoints, vfTotalCostPoints, buildI2vShots, i2vKeyMap, i2vSkipHint
 import { i2vSummaryByPath } from '@/lib/agent/vf/i2v-suit'
 // ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：提炼两行 + 根级字段形状。
 //   纯逻辑在 banner.ts（与 anti-ai.ts 同类，零网络依赖），与「图视混剪」线**共用同一份**截断/兜底规则。
-import { buildBanner, bannerFieldOf, planWithBanner, shouldRebuildBanner } from '@/lib/agent/vf/banner'
+import { buildBanner, bannerFieldOf, shouldRebuildBanner,
+  // ★VF_SBDUMP_V2（2026-10-01）：出片 plan 与"本地留档的 plan"共用同一个组装函数（唯一来源）
+  buildVideoPlan } from '@/lib/agent/vf/banner'
 
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
@@ -103,6 +109,10 @@ async function genVideoShotsRaw(o: {
    *  （title / list / number / compare / chart / end）：`bgimage` / `image` 一律降级成 `title`（不配图）。
    *  不传时行为与原来完全一致（素材线 / 混合线不受任何影响）。 */
   aiOnly?: boolean
+  /** ★VF_DECK_STYLES_V1（2026-10-01 用户定案「我没看到新模版」）：设置卡「🎨 画面模版」的选择。
+   *  'auto'（缺省）= AI 按题材自选；指定了就在提示词里加一句「必须用用户选的 deck 风格」。
+   *  不传 = 与原来完全一致（提示词不多一个字）。 */
+  deckStyle?: string
 }): Promise<any[]> {
   // ★VF_MODELSWITCH_V1（2026-09-30）：分镜书写走用户选定的「书写模型」（没选过 = fast = 现状，行为逐字不变）
   const _mcWriter = (await getModelChoiceCached()).writer
@@ -116,7 +126,10 @@ async function genVideoShotsRaw(o: {
     VF_MOTION_PROMPT +
     // ★VF_DECK_WIRE_V1（2026-10-01）：把「富编排 PPT 页」（variant=deck / 4 套风格）接进本线提示词
     //   —— 何时用/何时不用/4 套风格怎么挑/字段怎么填；与「视频混剪」线共用同一份常量（anti-ai.ts）。
-    VF_DECK_PROMPT + ANTI_AI_PROMPT + `编镜依据（文案）：\n${o.script}`
+    VF_DECK_PROMPT +
+    // ★VF_DECK_STYLES_V1（2026-10-01）：用户在设置卡选了「🎨 画面模版」→ 告诉 AI「必须用用户选的」
+    //   （没选 = 'auto' → 这里是空串，与原来完全一致）。
+    deckStylePromptNote(o.deckStyle) + ANTI_AI_PROMPT + `编镜依据（文案）：\n${o.script}`
   let raw = ''
   try { raw = (await generateText(prompt, _mcWriter)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
   let arr = vfParseShots(raw)
@@ -606,6 +619,54 @@ function matCountsOf(vd: any): { matUsableN: number; matExcludedN: number } {
 }
 
 /** ★VF_GATE_V1：拼“确认卡”。shotsFailed=true 时【不给确认出片】（用户实测：0 镜也放行 → 成片没画面） */
+/* ══════════ ★VF_SBDUMP_V2（2026-10-01 team-lead 定案）：本地留档 = 渲染真正读的那一份 plan ══════════
+ * 事故：留档 `vf-20261001-125750-u1.json` 里**没有 banner、13 镜全没有 variant** ——
+ *   因为它走的是本卡片下面那张「精简 shots」（只映射 type/text/dur/subtitle…），
+ *   banner/deck_style/variant/frame… 全在映射那一步被丢掉；plan 又是出片时另拼一份
+ *   → 开发机拿留档复现不出成片（team-lead 因此白跑两轮）。
+ * 现在：卡片额外带一个 `sb`（客户端只负责原样落盘），里面
+ *   · `plan`  = **出片那一刻真正读的 plan**（同一个 buildVideoPlan 产出，不是另拼一份）
+ *   · `root`  = 渲染读的根级 / CLI 参数（theme/aspect/size/fps/overlay_text/deck_style/banner/bgm/speaker/duration）
+ *   · `shots` = 每镜**稳定字段集**（缺就是 null、键永不省略 —— 两份留档可直接 diff）
+ */
+const SB_SHOT_KEYS = ['type', 'variant', 'frame', 'shadow', 'float', 'wipe', 'bgblur', 'motion', 'enter',
+  'sustain', 'motionSec', 'src', 'srcName', 'pick', 'vclip', 'vstart', 'dur', 'text', 'title', 'subtitle',
+  'kicker', 'en', 'label', 'suffix', 'value', 'items', 'left', 'right', 'leftDesc', 'rightDesc', 'cta',
+  'chart', 'prompt', 'theme', 'transition'] as const
+/** ★VF_SBDUMP_V2：一条分镜 → 稳定字段集（缺 = null；src 另给 srcName = 素材文件名） */
+function sbShotNorm(s: any): Record<string, any> {
+  const o: Record<string, any> = {}
+  for (const k of SB_SHOT_KEYS) {
+    const v = s?.[k]
+    o[k] = v === undefined ? null : v
+  }
+  const src = String(s?.src == null ? '' : s.src)
+  o.srcName = src ? (src.split(/[\\/]/).filter(Boolean).pop() || null) : null
+  return o
+}
+/** ★VF_SBDUMP_V2：留档载荷（`plan` 与出片 / 样板镜**同一个 buildVideoPlan**） */
+function sbPayload(vd: any, shots: any[], aspect: string): Record<string, any> {
+  const plan: any = buildVideoPlan(shots, vd, { sizeDefault: aspect === 'landscape' ? [1280, 720] : [720, 1280] })
+  return {
+    version: 2,
+    plan,
+    root: {
+      theme: vd?.theme ?? null,
+      aspect: aspect ?? null,
+      size: plan?.size ?? null,
+      fps: plan?.fps ?? null,
+      overlay_text: plan?.overlay_text ?? null,
+      deck_style: plan?.deck_style ?? null,
+      banner: plan?.banner ?? null,
+      bgm: vd?.bgm ?? null,
+      speaker: vd?.voice ?? null,
+      duration: vd?.dur ?? null,
+      // 转场是**镜级**字段（每镜 transition），plan 根级本来就没有这一项 → 如实 null（键不省略）
+      transition: null,
+    },
+    shots: (Array.isArray(shots) ? shots : []).map(sbShotNorm),
+  }
+}
 function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect: string, cover = 1, estSec = 0): string {
   const voiceName = (vd.voiceList || VF_VOICE_BASE).find((v: any) => v.id === vd.voice)?.name || vd.voice || ''
   // ★VF_THEMENAME_V1（2026-09-20）：风格 id → 用户看得懂的名字（卡片上显示“当前风格”，
@@ -670,6 +731,9 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
   }
   return 'VF_JSON:' + JSON.stringify({
     step: 'script', topic: vd.topic, script: vd.script,
+    // ★VF_SBDUMP_V2（2026-10-01）：本地留档载荷 —— plan 与出片/样板镜**同一个 buildVideoPlan**；
+    //   客户端只负责原样落盘（electron main.js 的 vf:save-storyboard）。缺字段一律 null、键不省略。
+    sb: sbPayload(vd, shots, aspect),
     shots: shots.map((s: any) => ({
       type: s.type,
       // ★2026-09-20：原来只取 text/title/value → compare（左右对比）与 chart（数据条）
@@ -4029,7 +4093,7 @@ PUBLISH_DRAFT.delete(uidW)
             //   交给下面 `else if (vd.step === 'form' || 'source')` 去解析本次表单并一路起草到底。
             //   不这么做就会走「第 1 步 起稿」→ 只回一张空表单卡 → 用户得再点一次，且这次填的全丢。
             if (!vd && _vfIsForm) {
-              vd = { step: 'form', topic: '', voice: 'longxiaochun', theme: 'dark', aspect: 'auto', dur: 30, voiceList: VF_VOICE_BASE.slice() }
+              vd = { step: 'form', topic: '', voice: 'longxiaochun', theme: 'dark', aspect: 'auto', dur: 30, voiceList: VF_VOICE_BASE.slice(), deckStyle: 'auto' }
               VIDEO_DRAFT.set(uidVF2, vd)
               vfLog(uidVF2, '[草稿认领] 已按本次表单参数重新起草（不再回表单卡）')
             }
@@ -4113,6 +4177,9 @@ PUBLISH_DRAFT.delete(uidW)
                   //   原样存草稿，起草时交给 buildBanner 决定"用手填还是调 AI"（清洗/截断都在 buildBanner 里）。
                   if (f.pin1 !== undefined) vd.pin1 = String(f.pin1 || '').slice(0, 60)
                   if (f.pin2 !== undefined) vd.pin2 = String(f.pin2 || '').slice(0, 80)
+                  // ★VF_DECK_STYLES_V1（2026-10-01 用户定案「我没看到新模版」）：设置卡「🎨 画面模版」——
+                  //   走 normalizeDeckStyle 白名单归一（非法/缺省 → 'auto'）；出片时写进 plan 根级 `deck_style`。
+                  if (f.deckStyle !== undefined) vd.deckStyle = normalizeDeckStyle(f.deckStyle)
                   // ★VF_I2V_BASELINE_V1（2026-09-29 team-lead 要求）：「图片成片」线也复用设置卡的
                   //   「🎞 让图动起来」开关（'on' 默认 / 'off' 不注入、不额外计费）。原来本线没解析这个字段。
                   // ★VF_I2VSUIT_V1（2026-09-30）：额外支持 'all' = 手动全开（不按素材类型筛选，全部图都做）。
@@ -4387,6 +4454,9 @@ PUBLISH_DRAFT.delete(uidW)
                   // ★VF_AIVIDEO_V1（2026-09-20）：AI 模式额外要一镜一个英文画面描述（喂 H3）。
                   //   非 AI 模式不传 → 输出与原来完全一致（素材合成零影响）。
                   wantPrompt: vfAI,
+                  // ★VF_DECK_STYLES_V1（2026-10-01）：设置卡「🎨 画面模版」→ 提示词里「优先用用户选的」
+                  //   （'auto'/缺省 = 空串，与原来完全一致）。
+                  deckStyle: vd.deckStyle,
                 })
                 // ★VF_POOL_V1（2026-09-30）：同一张图不重复（归一化后兜底 / 素材不足则至少隔 2 镜）
                 //   + 把本份用到的图记进"最近用过"（下次起草降权）。AI 模式无 bgimage → 自动 no-op。
@@ -4515,6 +4585,17 @@ PUBLISH_DRAFT.delete(uidW)
                   if (_lf.notes.length) {
                     vfShots.splice(0, vfShots.length, ..._lf.shots)
                     for (const _n of _lf.notes) vfLog(uidVF2, _n)
+                  }
+                }
+                // ── ★VF_NEIGHBOR_DEDUP_V1（2026-10-01 用户实测「3 组连续同大字」）──
+                //   用户实测：智能营销封面×2（3/4 镜）、智能营销方案×2（6/7 镜）、效率提升×2（11/12 镜）。
+                //   相邻两镜画面大字完全相同 → 只改**后一镜**（换 kicker/label 或 subtitle 首句；改不出就保留）。
+                //   位置：与 sanitize/split/merge 同一批（都在覆盖闸门之前）；纯函数、不联网、subtitle 一个字不动。
+                {
+                  const _ddN = dedupeAdjacentSameText(vfShots)
+                  if (_ddN.notes.length) {
+                    vfShots.splice(0, vfShots.length, ..._ddN.shots)
+                    for (const _n of _ddN.notes) vfLog(uidVF2, '[大字] ' + _n)
                   }
                 }
                 // ★A8（2026-09-22）：原「[时长护栏] 分镜合计偏离目标 >25% 就缩放到目标秒数」**已删除**。
@@ -4752,7 +4833,11 @@ PUBLISH_DRAFT.delete(uidW)
                 })
                 for (const _n of _i2vRun.notes) vfLog(uidVF2, '[图生视频] ' + _n)
                 const vfRun = await executeToolCall('make_ai_video', (vd.shots?.length && !vfForce)
-                  ? { plan: JSON.stringify(planWithBanner({ size: vd.size || [1080, 1920], fps: 25, shots: vd.shots }, _pinF)), script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true, ..._i2vRun.args }
+                  // ★VF_DECK_STYLES_V1（2026-10-01）：画面模版 → plan **根级** `deck_style`（渲染层读它；
+                  //   取值 'auto' | 'deck'|'deck-grad'|'deck-mono'|'deck-mag'|'deck-glass'|'deck-soft'，缺省/非法 = 'auto'）。
+                  // ★VF_SBDUMP_V2（2026-10-01）：这里与「本地留档的 plan」用**同一个 buildVideoPlan**
+                  //   （留档 = 出片真正读的那一份，杜绝"留档里没有 banner / 没有 variant"的老问题）。
+                  ? { plan: JSON.stringify(buildVideoPlan(vd.shots, vd, { sizeDefault: [1080, 1920] })), script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true, ..._i2vRun.args }
                   : { script: vd.script, theme: vd.theme || 'dark', speaker: vd.voice || '', bgm: vd.bgm || '', confirmed: true }, auth)
                 // ★VF_RUN_CLOSE_V1（2026-09-21，用户实测「做完一条第二条要点两次」＋「之后随便说句话都被回
                 //   『已在后台渲染中』」）：任务一旦入队就【立即作废草稿】——进度已由独立的
@@ -4776,6 +4861,8 @@ PUBLISH_DRAFT.delete(uidW)
                 imgPaths: (vd.imgs || []), brief: String(vd.brief || ''), script: String(vd.script || ''),
                 // ★VF_AIVIDEO_V1（2026-09-20）：重试时也要（重试分支不在 vfAI 的作用域，用草稿上的 source）
                 wantPrompt: vd.source === 'ai',
+                // ★VF_DECK_STYLES_V1（2026-10-01）：重排分镜同样带上用户选的画面模版（与首次起草同口径）
+                deckStyle: vd.deckStyle,
                 // ★把上次失败原因带上：AI 这次才知道“要覆盖全文、要排够镜数”
                 retryHint: vd.cover != null
                   ? `上次 subtitle 一共只写了 ${vd.subLen || 0} 字，文案共 ${String(vd.script || '').length} 字，只覆盖了 ${Math.round((vd.cover || 0) * 100)}%。这次**必须覆盖全文**（平均每镜约 ${Math.round(String(vd.script || '').length / vfShotN2)} 字），镜头数 ${vfShotN2} 个。`
@@ -4791,6 +4878,14 @@ PUBLISH_DRAFT.delete(uidW)
               }
               // ★VF_SUBSPLIT_V1（2026-09-30）：重排分镜同样做「单镜字幕上限 → 超长按句拆镜」兜底
               //   （与首次起草同口径；放在 vfAgainSub/vfAgainCover 之前，保证覆盖用拆后的口径算）。
+              // ── ★VF_NEIGHBOR_DEDUP_V1（2026-10-01）：「相邻两镜同大字」重排分镜同样兜底（与首次起草同口径）──
+              {
+                const _dd2 = dedupeAdjacentSameText(vfAgain)
+                if (_dd2.notes.length) {
+                  vfAgain.splice(0, vfAgain.length, ..._dd2.shots)
+                  for (const _n of _dd2.notes) vfLog(uidVF2, '[大字] ' + _n)
+                }
+              }
               {
                 const _sp2 = splitLongSubtitles(vfAgain)
                 if (_sp2.notes.length) {

@@ -18,6 +18,10 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import {
   buildBanner, bannerFieldOf, planWithBanner, fallbackBanner, parseBanner, normalizeBannerLine, splitBannerSentences,
+  // ★VF_BANNER_EMPTYLINE_V1（2026-10-01）：空行收口（用户报的"空色块"根因）
+  bannerFieldLines, VF_BANNER_INVIS,
+  // ★VF_SBDUMP_V2（2026-10-01）：出片/样板镜/留档共用的 plan 组装（唯一来源）
+  buildVideoPlan, VF_PLAN_FPS,
   VF_BANNER_LINE1_MAX, VF_BANNER_LINE2_MAX, VF_BANNER_FALLBACK_LINE1, VF_BANNER_FALLBACK_LINE2,
 } from '../src/lib/agent/vf/banner'
 
@@ -30,6 +34,21 @@ function ok(cond: any, name: string, extra = '') {
 function eq(a: any, b: any, name: string) {
   ok(JSON.stringify(a) === JSON.stringify(b), name,
     `期望 ${JSON.stringify(b)}，实际 ${JSON.stringify(a)}`)
+}
+
+/** ★VF_BANNER_EMPTYLINE_V1：取出 Python 里某个顶层函数**到下一个顶层定义为止**的函数体。
+ *  为什么需要它：渲染层会持续改 `banner_layer` 的排版细节 —— 断言必须**只针对这段函数体**做
+ *  语义判断，不能"贴死某一行的文本"，也不能牵到整文件（改别处就误红）。 */
+function pyFunc(src: string, name: string): string {
+  const i = src.indexOf('def ' + name + '(')
+  if (i < 0) return ''
+  const lines = src.slice(i).split(/\r?\n/)
+  const out = [lines[0]]
+  for (let k = 1; k < lines.length; k++) {
+    if (/^(def |class |@)/.test(lines[k])) break
+    out.push(lines[k])
+  }
+  return out.join('\n')
 }
 
 // 注意：这里**不带 g 标志** —— 带 g 的 RegExp.test 会在多次调用间保留 lastIndex，产生假阳/假阴
@@ -128,22 +147,150 @@ async function main() {
     const routeSrc = readFileSync(join(__dirname, '..', 'src/app/api/agent/chat/route.ts'), 'utf-8')
     const renderSrc = readFileSync(join(__dirname, '..', 'scripts/video-factory/render.py'), 'utf-8')
     ok(/from '\.\/banner'/.test(vfSrc), '图视混剪 vf-video.ts 引入 banner 模块')
-    ok(/buildBanner\(/.test(vfSrc) && /bannerFieldOf\(/.test(vfSrc) && /planWithBanner\(/.test(vfSrc),
-      '图视混剪：提炼 / 取字段 / 挂根级 三处都接上')
+    // ★VF_SBDUMP_V2（2026-10-01）：第三处从"直接 planWithBanner"收口成 buildVideoPlan
+    //   （其内部仍是 planWithBanner；覆盖面不减，反而多了"出片/留档同源"这层保证）
+    ok(/buildBanner\(/.test(vfSrc) && /bannerFieldOf\(/.test(vfSrc) && /buildVideoPlan\(/.test(vfSrc),
+      '图视混剪：提炼 / 取字段 / 挂根级(buildVideoPlan) 三处都接上')
     ok(/from '@\/lib\/agent\/vf\/banner'/.test(routeSrc), '图片成片 chat/route.ts 引入 banner 模块')
-    ok(/buildBanner\(/.test(routeSrc) && /bannerFieldOf\(/.test(routeSrc) && /planWithBanner\(/.test(routeSrc),
-      '图片成片：提炼 / 取字段 / 挂根级 三处都接上')
+    ok(/buildBanner\(/.test(routeSrc) && /bannerFieldOf\(/.test(routeSrc) && /buildVideoPlan\(/.test(routeSrc),
+      '图片成片：提炼 / 取字段 / 挂根级(buildVideoPlan) 三处都接上')
     ok(/sb\.get\('banner'\)/.test(renderSrc), 'render.py 只从分镜【根级】读 banner（与 planWithBanner 契约对齐）')
-    // ★VF_BANNER_EMPTY_V1（2026-09-30）：读取从 `str(...).strip()` 升级为 `_banner_clean(...)`
-    //   （剥掉零宽/BOM 等 str.strip() 认不出的不可见字符 —— 那正是"第 2 行只剩空色块"的根因）。
-    //   契约仍是"从 line1/line2 读"，只是读取路径【经过清洗】；并保证"第 2 行为空 → 不画色块"。
-    ok(/_banner_clean\(banner\.get\('line1'\)\)/.test(renderSrc)
-      && /_banner_clean\(banner\.get\('line2'\)\)/.test(renderSrc)
-      && /def _banner_clean\(/.test(renderSrc) && /_BANNER_INVIS/.test(renderSrc)
-      && /if not l1 and not l2:\s*\n\s*return ''/.test(renderSrc)
-      && /if l2:/.test(renderSrc),
-      'render.py 读 line1 / line2（经 _banner_clean 清洗）且第 2 行为空 → 不画色块')
+    // ★VF_BANNER_EMPTYLINE_V1（2026-10-01）：这条**从"贴死一行文本"改成"语义级"**
+    //   （渲染层会持续改 banner_layer 的排版细节，贴死必红；旧正则就是因为这个红的 —— 功能没坏）。
+    //   只断言我们商定的三条语义，并且**只在 banner_layer / _banner_clean 的函数体内**判：
+    //     ① 逐行判空：line1 / line2 各自走 _banner_clean（剥不可见字符 + strip）；不可见字符不算"有字"
+    //     ② 空行不产出任何滤镜：画第 1 行被 `if l1:` 包住、画第 2 行（box+text）被 `if l2:` 包住
+    //     ③ 两行都无可见内容 → 返回空串（整块不生成 banner）
+    {
+      const body = pyFunc(renderSrc, 'banner_layer')
+      const cleanFn = pyFunc(renderSrc, '_banner_clean')
+      ok(body.length > 200, '取到 banner_layer 函数体（语义断言的作用域）', String(body.length))
+      ok(/l1\s*=\s*_banner_clean\(\s*banner\.get\('line1'\)\s*\)/.test(body)
+        && /l2\s*=\s*_banner_clean\(\s*banner\.get\('line2'\)\s*\)/.test(body),
+        '① 逐行清洗判空：line1 / line2 各自过 _banner_clean')
+      ok(/for\s+_ch\s+in\s+_BANNER_INVIS\s*:/.test(cleanFn) && /return\s+t\.strip\(\)/.test(cleanFn),
+        '① _banner_clean = 剥 _BANNER_INVIS + strip()（零宽/BOM 不算"有字"）')
+      ok(/if\s+l1\s*:/.test(body) && /if\s+l2\s*:/.test(body),
+        '② 两行各自非空才产出滤镜（if l1: / if l2:）→ 空行不画框也不画字')
+      // ⚠️ 这里**故意不用跨行正则**：`(?:[ \t]+[^\n]*\r?\n)*` 这种嵌套量词在长函数体上会指数级回溯
+      //   （本机实测直接把自测卡死过一次）→ 改成"先定位这个 if，再看它后面 400 字里有没有 return ''"，
+      //   线性、与 CRLF/LF 无关、也更不容易被渲染层的排版改动误伤。
+      const iEmpty = body.indexOf('if not l1 and not l2:')
+      const afterEmpty = iEmpty >= 0 ? body.slice(iEmpty, iEmpty + 400) : ''
+      ok(iEmpty >= 0 && /return\s+''/.test(afterEmpty),
+        '③ 两行都无可见内容 → 返回空串（整块不生成）')
+      ok(/if\s+l1\s+else\s+y1/.test(body),
+        '③ 只剩第 2 行时顶到 y1（不给"空第 1 行"留行距 —— 否则看着像漏了个框）')
+    }
     ok(/'from'/.test(renderSrc) && /'to'/.test(renderSrc), 'render.py 读 from / to（镜号范围 → 秒）')
+  }
+
+  console.log('\n⑦ ★VF_BANNER_EMPTYLINE_V1：空行绝不许写进 plan（用户报的"空色块"根因）')
+  {
+    // ① 单行空（line2=''）→ plan 里**连 line2 键都没有**（渲染层无从画空框）
+    {
+      const f = bannerFieldOf({ pin: 'on', banner: { line1: 'AI营销系统30秒生成', line2: '' } })
+      eq(f.banner, { line1: 'AI营销系统30秒生成', from: 1, to: 0 }, 'line2 为空 → plan 只写 line1')
+      ok(!('line2' in (f.banner as any)), 'line2 键不存在（不是空串）')
+    }
+    // ② line1 空、line2 有值 → 非空行提到 line1（绝不留空槽）
+    eq(bannerFieldOf({ pin: 'on', banner: { line1: '', line2: '30秒生成' } }).banner,
+      { line1: '30秒生成', from: 1, to: 0 }, 'line1 为空 → 非空行提到 line1')
+    // ③ 两行都空 → 不生成 banner
+    eq(bannerFieldOf({ pin: 'on', banner: { line1: '', line2: '' } }), {}, '两行都空 → 不生成 banner')
+    eq(bannerFieldOf({ pin: 'on', banner: { line1: '   ', line2: '  ' } }), {}, '全空白字符也算空 → 不生成')
+    // ④ 手填单行 + 草稿另一行为空 → 仍然只写一行
+    eq(bannerFieldOf({ pin: 'on', pin1: '手填第一行', banner: { line1: '旧标题', line2: '' } }).banner,
+      { line1: '手填第一行', from: 1, to: 0 }, '手填一行 + 另一行为空 → 只写手填那行')
+    // ⑤ 正常两行不受影响（与以前逐字一致）
+    eq(bannerFieldOf({ pin: 'on', banner: { line1: '甲', line2: '乙' } }),
+      { banner: { line1: '甲', line2: '乙', from: 1, to: 0 } }, '正常两行原样保留')
+    // ⑥ buildBanner 侧同样不留空行：规则兜底时第 2 句只剩 emoji → 净化后为空
+    {
+      const { fn } = fakeGen(null)   // AI 不可用 → 走规则兜底
+      const r = await buildBanner({ script: '真正的第一句。🚀', pin: 'on', generateText: fn })
+      eq(r.field.banner, { line1: '真正的第一句', from: 1, to: 0 }, '兜底第 2 行净化后为空 → 只写第 1 行')
+      ok(!!r.field.banner && !('line2' in (r.field.banner as any)), 'buildBanner 的 field 里没有空 line2')
+      ok(r.notes.some((n) => n.includes('空行已滤掉')), '日志如实写明"空行已滤掉"：' + JSON.stringify(r.notes))
+    }
+    // ⑦ 序列化进 plan 后 line2 键消失 → 渲染层读不到 → 不画框
+    {
+      const plan = planWithBanner({ size: [1280, 720], shots: [] },
+        bannerFieldOf({ pin: 'on', banner: { line1: '只有一行', line2: '' } }))
+      const json = JSON.stringify(plan)
+      ok(/"line1":"只有一行"/.test(json) && !/"line2"/.test(json), 'plan JSON 里没有 line2 键（空行不进渲染）')
+    }
+    // ⑧ 纯函数边界
+    eq(bannerFieldLines('', ''), null, 'bannerFieldLines("","") = null')
+    eq(bannerFieldLines('  ', '\u200b'), null, '零宽/空白也算空 → null')
+    eq(bannerFieldLines('甲', ''), { line1: '甲' }, 'bannerFieldLines("甲","") = {line1:"甲"}')
+    eq(bannerFieldLines('甲', '乙'), { line1: '甲', line2: '乙' }, 'bannerFieldLines 正常两行原样')
+    // ⑨ 与渲染层对账：不可见字符表**逐字一致**（服务端原来漏了这一步 → 空行进 plan = 空色块）
+    {
+      const renderSrc = readFileSync(join(__dirname, '..', 'scripts/video-factory/render.py'), 'utf-8')
+      const m = renderSrc.match(/_BANNER_INVIS\s*=\s*'([^']*)'/)
+      const py = m ? m[1] : null
+      // ⚠️ 不能用 JSON.stringify：U+200B 这类字符 JSON 不转义 → 自己拼 \uXXXX（小写十六进制，与 render.py 同形）
+      const tsEsc = [...VF_BANNER_INVIS]
+        .map((c) => '\\u' + (c.codePointAt(0) || 0).toString(16).padStart(4, '0')).join('')
+      ok(!!py && py === tsEsc, 'render.py 的 _BANNER_INVIS 与服务端 VF_BANNER_INVIS 逐字一致',
+        `py=${JSON.stringify(py)} / ts=${JSON.stringify(tsEsc)}`)
+    }
+  }
+
+  console.log('\n⑧ ★VF_SBDUMP_V2：留档 = 渲染真正读的那一份 plan（唯一来源 + 三个落点都在）')
+  {
+    const vd = {
+      size: [1280, 720], big: 'on', deckStyle: 'deck-soft',
+      banner: { line1: 'AI营销系统30秒生成', line2: '30秒出片' }, theme: 'news', bgm: 'auto', voice: 'longxiaochun', dur: 60,
+    }
+    const shots = [{ type: 'title', text: '甲', dur: 3 }]
+    const plan = buildVideoPlan(shots, vd, { sizeDefault: [1080, 1920] })
+    eq(plan.size, [1280, 720], 'plan 根级 size = vd.size（有就用，不套默认）')
+    eq(plan.fps, VF_PLAN_FPS, `plan 根级 fps = ${VF_PLAN_FPS}`)
+    eq(plan.overlay_text, true, "big !== 'off' → overlay_text: true")
+    eq(plan.deck_style, 'deck-soft', 'plan 根级 deck_style = 用户选的画面模版')
+    eq(plan.banner, { line1: 'AI营销系统30秒生成', line2: '30秒出片', from: 1, to: 0 }, 'plan 根级 banner（钉全片）')
+    ok(Array.isArray(plan.shots) && plan.shots.length === 1, 'plan.shots = 传入的分镜（同一对象，不是另拼一份）')
+    ok(plan.shots[0] === shots[0], 'shots 是**同一个对象引用**（不是拷贝/重映射）')
+    // 空行的 banner 不进 plan（与 ⑦ 同一条规矩，走的是同一个 bannerFieldOf）
+    const p2 = buildVideoPlan([], { size: [720, 1280], banner: { line1: '只有一行', line2: '' } })
+    ok(!("line2" in (p2.banner as any)) && p2.banner?.line1 === '只有一行', '空行的 banner 同样不进 plan')
+    // 非法 deck_style → 'auto'（渲染层永远收到合法值）
+    eq(buildVideoPlan([], { deckStyle: 'deck-xxx' }).deck_style, 'auto', '非法 deck_style → auto')
+    eq(buildVideoPlan([], {}).size, [1080, 1920], '没给 size → 用 sizeDefault/兜底（不写 undefined）')
+    // ── 三个落点（grep 断言：防"函数写了但没人用"）──
+    const vfSrc = readFileSync(join(__dirname, '..', 'src/lib/agent/vf/vf-video.ts'), 'utf-8')
+    const routeSrc2 = readFileSync(join(__dirname, '..', 'src/app/api/agent/chat/route.ts'), 'utf-8')
+    const pageSrc = readFileSync(join(__dirname, '..', 'src/app/agent/page.tsx'), 'utf-8')
+    const mainSrc = readFileSync(join(__dirname, '..', 'electron/main.js'), 'utf-8')
+    const n = (s: string) => (s.match(/buildVideoPlan\(/g) || []).length
+    ok(n(vfSrc) >= 2, `vf-video.ts：样板镜 + 出片都走 buildVideoPlan（${n(vfSrc) - 1} 处调用）`)
+    ok(n(routeSrc2) >= 2, `route.ts：出片 + 留档载荷都走 buildVideoPlan（${n(routeSrc2) - 1} 处调用）`)
+    ok(/sb:\s*sbPayload\(vd,\s*shots,\s*aspect\)/.test(routeSrc2), 'route.ts 确认卡带上 sb（VF_SBDUMP_V2 载荷）')
+    ok(/sb:\s*\(vj as any\)\.sb/.test(pageSrc), 'page.tsx 把 sb 原样交给 vfSaveStoryboard')
+    ok(/plan:\s*sb\s*\?\s*sb\.plan\s*:\s*null/.test(mainSrc), 'main.js 把 sb.plan 原样落盘（不是另拼一份）')
+    ok(/version:\s*sb\s*\?\s*2\s*:\s*1/.test(mainSrc), 'main.js 写 version 2 / 缺 sb 回落 1（兼容 V1 读法）')
+    // ★VF_SBDUMP_V2 载荷体积/兼容性核查（2026-10-01 team-lead 要求）
+    // ① sb **只在视频确认卡**上挂（route.ts 里 `sb: sbPayload(` 只准出现 1 次 —— 别的卡片不挂）
+    ok((routeSrc2.match(/sb:\s*sbPayload\(/g) || []).length === 1,
+      'route.ts 里 sb 只挂 1 处（= 视频确认卡成功分支；表单/素材/文案卡都不挂）')
+    // ② 旧客户端（main.js 没升级/不认 sb）→ sb 缺省为 null，写出来的仍是 V1 结构（逐字不变）
+    ok(/const sb = \(p\.sb && typeof p\.sb === 'object'\) \? p\.sb : null/.test(mainSrc),
+      'main.js：sb 非法/缺失 → null（旧行为，不抛错）')
+    ok(/plan:\s*sb\s*\?\s*sb\.plan\s*:\s*null/.test(mainSrc)
+      && /planRoot:\s*sb\s*\?\s*sb\.root\s*:\s*null/.test(mainSrc)
+      && /shotsNorm:\s*sb\s*\?\s*sb\.shots\s*:\s*null/.test(mainSrc),
+      'main.js：V1 结构里三个新键恒存在（缺 = null，键不省略）→ 老读法 JSON.parse 不受影响')
+    ok(/Array\.isArray\(p\.shots\)/.test(mainSrc) && /if \(!shots\.length\) return \{ success: false/.test(mainSrc),
+      'main.js：V1 的"没有分镜就不写盘"判据原样保留（旧行为逐字一致）')
+    // ③ V1 留档仍能读：体检脚本必须带 V1 回退（j?.shots）—— 已用真 V1 留档实跑验证
+    {
+      const healthSrc = readFileSync(join(__dirname, 'vf-film-health.mjs'), 'utf-8')
+      ok(/j\?\.shotsNorm/.test(healthSrc) && /Array\.isArray\(j\?\.shots\)/.test(healthSrc),
+        'vf-film-health.mjs：读留档时 V2(plan/shotsNorm) 与 **V1(顶层 shots)** 两条路都在')
+    }
+    ok(/VF_SBDUMP_V2/.test(mainSrc) && /VF_SBDUMP_V2/.test(routeSrc2), '两边都标了 ★VF_SBDUMP_V2')
   }
 
   console.log(`\n===== 自测结果：${pass} 项通过，${fail} 项失败 =====\n`)
