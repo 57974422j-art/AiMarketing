@@ -107,6 +107,43 @@ export const VF_MOTION_PROMPT =
   `   （frame/shadow/float/wipe/bgblur 只对【图片镜】有意义；编辑风 news/data **缺省已全开**，\n` +
   `     一般不用写 —— 想加强/减弱强度时才写；白名单外的值会被删掉，等于没写）\n`
 
+/* ══════════ ★VF_DECK_WIRE_V1（2026-10-01）「富编排 PPT 页」接进分镜链路【提示词】══════════
+ * 为什么做这件事：渲染层 ★VF_DECK_V1 早就把 `variant='deck'` 渲染成"**一整页 PPT**"——
+ *   kicker 小标签条 / 主标题 / 副标 / 细分割线 / 2~4 条编号要点 / 数据卡 / 页码 / 页内进度线，
+ *   分段入场 + 持续动效，且 **0 点成本**（不调 AI、不烧点）。用户看过样片后原话：
+ *     「能做到这个效果啊」；上手要求也是：「就是做PPT也不可能一页就几个大字。你能单独根据我的
+ *      素材 编辑 1、2 个动效 PPT 给我看下嘛，这样我能知道最顶能到什么效果」。
+ *   ⚠️ 但 `variant` 白名单（VF_VARIANTS.title）里一直没有 deck 值 → `sanitizeAntiAiShots` 会把
+ *     AI 写的 variant 当非法值**直接删掉** → 这层能力对 AI 等于不存在。本段负责把它"接上线"。
+ *
+ * 本段 = 告诉 AI【什么时候用 / 什么时候不用 / 4 套风格怎么选 / 字段怎么填 + 硬规矩】，
+ *   做成**一个导出常量**让两条分镜线共用同一份（与 VF_MOTION_PROMPT / ANTI_AI_PROMPT 同款做法）：
+ *     ① 图视混剪：src/lib/agent/vf/vf-video.ts
+ *     ② 图片成片：src/app/api/agent/chat/route.ts 的 vfShotsPrompt
+ *   免得两条线各写一份、日后走偏（服务端白名单仍在 VF_VARIANTS 兜底）。
+ * ⚠️ 这里列的 4 个风格名必须与渲染层 render.py 的 DECK_VARIANTS 逐字一致（vf-i2v-selftest 有对账）。
+ */
+export const VF_DECK_PROMPT =
+  `\n【富编排 PPT 页 · variant="deck"】（用户评价「能做到这个效果啊」；一页别只有几个大字）\n` +
+  `渲染层会把这一页排成**整页 PPT**：kicker 小标签条 → 主标题 → 副标 → 细分割线 → 2~4 条编号要点\n` +
+  `→ 数据卡 → 右下角页码 + 页内进度线；带分段入场 + 持续动效，**不额外花点数**。\n` +
+  `· 【什么时候用】这一页是 ① 总结页 ② 数据页 ③ 要点页 ④ 流程页，或该镜**字幕较多（信息量大）**时。\n` +
+  `  一页 deck 顶原先 2~3 个"只有几个大字"的页 —— 信息多的镜别硬拆成三张空洞的大字页。\n` +
+  `· 【什么时候不用】✗ 不要每镜都用（整片节奏会闷）—— 建议【每 4~6 镜里最多 1~2 镜】用 deck；\n` +
+  `  开场第 1 镜与结尾镜优先用普通卡（center / left），保持冲击力。\n` +
+  `· 【4 套风格怎么选】（值写在 variant 字段里，别乱挑）：\n` +
+  `  · deck       = 通用 / 不确定时 → **默认**（经典通用）\n` +
+  `  · deck-grad  = 需要"氛围 / 情绪 / 开场感"时 → 渐变风\n` +
+  `  · deck-mono  = **数据 / 参数 / 效率** 类、要"高级克制"时 → 极简留白\n` +
+  `  · deck-mag   = **资讯 / 报道 / 观点** 类，且主题是 news / data 时 → 杂志编辑风\n` +
+  `· 【字段怎么填】{"type":"title","variant":"deck","text":"主标题≤12字","subtitle":"副标题一句话",` +
+  `"kicker":"≤8字标签","en":"英文副标(可选)","items":["要点1","要点2","要点3"],` +
+  `"value":150,"suffix":"万","label":"累计曝光"}\n` +
+  `  ⚠️ deck 页的 kicker / items / 数据块（value + suffix + label）要**一起给** ——\n` +
+  `     只给 text 会渲染成"**空壳 deck 页**"（只有一行大字，比普通页更难看）。\n` +
+  `· 【硬规矩】items 2~4 条、每条 ≤14 字；kicker ≤8 字；text ≤12 字（超了渲染层只能缩字号）。\n` +
+  `  value 必须是【文案里本来就有的数字】（反 AI 味硬规矩：不许编数据）；没有要点/数据就别硬填那几个字段。\n`
+
 /* ══════════ ★VF_AI_PICK_V1（2026-09-29 用户定案 P1）：AI 自选「主题 / 版式 / 动效」的白名单 ══════════
  * 唯一真相源是渲染层 scripts/video-factory/render.py（TITLE_VARIANTS / LIST_VARIANTS /
  * COMPARE_VARIANTS / MOTIONS / transition 白名单），本文件保持一致；
@@ -117,8 +154,12 @@ export const VF_MOTION_PROMPT =
 //   ⚠️ 与渲染层 scripts/video-factory/themes.py 必须**逐项一致**（vf-i2v-selftest 有对账断言）→ 改一边必须改另一边。
 export const VF_THEMES = ['dark', 'blue', 'tech', 'mint', 'light', 'journal', 'vivid', 'mono', 'news', 'data']
 /** 版式：只有这三类卡有 variant，键=卡型、值=合法版式（渲染层不认识的值会回默认） */
+// ★VF_DECK_WIRE_V1（2026-10-01）：title 新增 **4 个「富编排 PPT 页」值**（deck / deck-grad /
+//   deck-mono / deck-mag）—— 渲染层 ★VF_DECK_V1 早已实现（deck_page_filters），但白名单里没有
+//   → `sanitizeAntiAiShots` 会把 AI 写的 variant 直接删掉（回默认版式），整层能力等于没接线。
+//   ⚠️ 这 4 个值与渲染层 render.py 的 DECK_VARIANTS 必须**逐字一致**（vf-i2v-selftest.ts 有对账断言）。
 export const VF_VARIANTS: Record<string, string[]> = {
-  title: ['center', 'left', 'chip'],
+  title: ['center', 'left', 'chip', 'deck', 'deck-grad', 'deck-mono', 'deck-mag'],
   list: ['steps', 'stack'],
   compare: ['split', 'bar'],
 }

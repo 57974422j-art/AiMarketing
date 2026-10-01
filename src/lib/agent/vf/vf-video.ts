@@ -30,7 +30,10 @@
 //   与 standard-commands.ts 同类：**纯函数、零依赖**（不碰 prisma、不碰别的线）——
 //   所以这里静态 import 不违反本文件"零 import 连累别的线"的设计约束。
 import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles,
-  VF_MOTION_PROMPT, ensurePersistentMotion } from './anti-ai'
+  VF_MOTION_PROMPT, ensurePersistentMotion,
+  // ★VF_DECK_WIRE_V1（2026-10-01）：「富编排 PPT 页」的提示词（什么时候用 deck / 4 套风格怎么选 /
+  //   字段怎么填）—— 与「图片成片」线（chat/route.ts 的 vfShotsPrompt）**共用同一份常量**。
+  VF_DECK_PROMPT } from './anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：`VF_MOTION_PROMPT` = 「长镜必须有动效」的档位说明
 //   （与 ANTI_AI_PROMPT 同样**两个分镜 prompt 共用**一份，免得两条线走偏）；
 //   `ensurePersistentMotion` = 服务端兜底（AI 忘写时给 title/end 长镜自动补 `motion='grow'`）。
@@ -537,6 +540,9 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     //   "动 1 秒、静止 5.5 秒"。根因 = 渲染层动效字段（enter/motion/frame/wipe/bgblur）在 src/ 里
     //   0 命中（提示词没接线）→ AI 永远不写。这段规矩与图片成片线**共用同一份常量**（anti-ai.ts）。
     VF_MOTION_PROMPT +
+    // ★VF_DECK_WIRE_V1（2026-10-01）：把「富编排 PPT 页」（variant=deck / 4 套风格）接进本线提示词
+    //   —— 何时用/何时不用/字段怎么填；与「图片成片」线共用同一份常量（anti-ai.ts）。
+    VF_DECK_PROMPT +
     // ★VF_TEXTCARD_V1（2026-09-29 用户实测「没单独生成页面 都是图片加打字」）：
     //   原来提示词只说"画面用用户的素材" → AI 从不排独立文字卡，整条片成了"图文轮播"（12/12 镜都是素材镜）。
     //   现在明确要求：每 4~5 镜至少 1 镜用【不用素材】的文字卡，画面才有层次与节奏。

@@ -562,7 +562,11 @@ def overlay_text_on():
 #     · motion  = 入场动效（淡入 / 上滑淡入 / 逐字浮现）
 #   AI 可以在分镜里写 theme / variant / motion 三个字段（服务端白名单已兜底，不认识就丢），
 #   渲染层这里再做一次白名单 —— AI 自造的值绝不允许把渲染搞挂。
-TITLE_VARIANTS = ('center', 'left', 'chip')
+# ★VF_DECK_STYLES_V1（2026-10-01 用户定案「1-2 都要：既要接进 AI，也要多做模版」）：
+#   4 套「富编排 PPT 页」风格**现在也进 AI 白名单**（AI 可以在分镜里写 variant=deck-grad 等）——
+#   所以它们必须出现在 TITLE_VARIANTS 里，与 src/lib/agent/vf/anti-ai.ts 的 VF_VARIANTS.title 逐项对账。
+#   渲染侧的分派见 deck_style_of()/deck_page_filters()：4 套各自一套元素层，其余 variant 一个像素都不动。
+TITLE_VARIANTS = ('center', 'left', 'chip', 'deck', 'deck-grad', 'deck-mono', 'deck-mag')
 LIST_VARIANTS = ('steps', 'stack')
 COMPARE_VARIANTS = ('split', 'bar')
 MOTIONS = ('fade', 'slide', 'typewriter', 'grow')
@@ -782,8 +786,7 @@ def card_title(shot, th, W, H, fps):
         if _dk:
             print('[VF] ★VF_DECK_V1 富编排 PPT 页（%s）：%d 个元素层（分段入场 + 持续动效）'
                   % (th.get('id'), len(_dk)))
-            return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
-                    ','.join(_dk), dur)
+            return (deck_base_input(shot, th, W, H, dur), ','.join(_dk), dur)
     # ══════════════ ★VF_STYLE_V1（2026-09-30 ②「先固定新闻资讯和科技数据」）══════════════
     # 用户原话：「我就是单独做的文字页都很空洞配色单一 不灵活」
     #          「我发了几个博主的视频截图…它这里的【文字配色】和还有【每个都有渐进效果 分段插入】」
@@ -1254,7 +1257,7 @@ def card_video(shot, th, W, H, fps):
         _band_v = _ed_band if (_ed_fs and overlay_text_on()) else ''
     else:
         _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
-        _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc) if len(_lines) <= 1 else []
+        _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, W=W, H=H) if len(_lines) <= 1 else []
         # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
         _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)) if overlay_text_on() else []
     _bar_y = int(H * 0.72)
@@ -2221,7 +2224,7 @@ def _blend_dark(base_hex, rgb, k=0.22):
         max(0, min(255, int(base[2] * (1 - k) + b * k))))
 
 
-def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0, x_off=0):
+def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0, x_off=0, W=0, H=0):
     """★VF_SYNC_V1（2026-09-20，C3 配音卡点）：画面大字【逐字浮现】。
 
     镜头时长 = 该镜配音真实时长（tts.py 回填），所以在镜头前段逐字亮出 = 跟着配音走。
@@ -2247,11 +2250,34 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0, x_off=0)
     t0 = max(0.12, min(0.6, dur * 0.06))
     t1 = max(t0 + 0.5, dur * 0.55)
     step = (t1 - t0) / float(nch)
-    _bx = (f"box=1:boxcolor={box}:boxborderw={max(12, int(fs * 0.24))}:") if box else ''
     # ★VF_TPL_LAND_V1：x_off>0 → 整块文字移到右侧大字区（w == W，故 +x_off/2 即块心右移）
     _dx = int(x_off) // 2
     _x = 'x=(w-text_w)/2' if not _dx else f'x=(w-text_w)/2+{_dx}'
-    out = []
+    # ★VF_NOBLACKBOX_V1（2026-10-01 用户点名「前面很多大字下面都有一个透明黑框」）：
+    #   老做法 = drawtext 的 `box=1:boxcolor=black@0.30:boxborderw=…` → 一个**四周等 alpha 的实心
+    #   半透明黑框**（用户最反感的那条）。新做法 = **底部渐隐蒙版**（_text_scrim_filters）+
+    #   加粗描边 + 阴影；字照样清楚，但画面上再没有"方框"。
+    #   `VF_TEXTBOX_LEGACY=1` 只为**对照帧**保留老写法（生产链路不设这个环境变量 → 老行为不回流）。
+    _legacy_box = bool(os.environ.get('VF_TEXTBOX_LEGACY'))
+    _bx = ''
+    _scrim = []
+    if box:
+        if _legacy_box:
+            _bx = f"box=1:boxcolor={box}:boxborderw={max(12, int(fs * 0.24))}:"
+        elif W and H:
+            # drawbox 的 x/y/w/h **不支持表达式**（只 enable 逐帧）→ 蒙版位置必须在 Python 里算成像素：
+            #   块心 = W/2 + x_off/2（与 drawtext 的 x=(w-text_w)/2+dx 同一几何）。
+            _spad = max(14, int(fs * 0.26))
+            _fw = int(est_text_w(_full, fs))
+            _scrim = _text_scrim_filters(
+                int(W) / 2.0 + _dx - _fw / 2.0 - _spad,
+                int(H) / 2.0 + int(y_off) - int(fs * 0.78),
+                _fw + 2 * _spad, int(fs * 1.56),
+                box, steps=7, amax=_rgb_alpha(box)[1])
+            print('[VF] ★VF_NOBLACKBOX_V1 大字底衬：实心黑框 → 底部渐隐蒙版（%d 段 alpha 渐增）'
+                  % len(_scrim))
+    _stroke = f"borderw={max(2, int(fs * 0.07))}:bordercolor=black@0.72:"
+    out = list(_scrim)
     for i in range(1, nch + 1):
         st = t0 + step * (i - 1)
         en = dur if i == nch else (t0 + step * i)
@@ -2260,9 +2286,10 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0, x_off=0)
         # ★VF_TEXTSTROKE_V1（2026-09-20）：画面大字是压在【素材照片】上的，底色不可控 ——
         #   加一圈深色描边，浅色主题 / 亮底素材也能看清
         #   （加"浅色纸感"主题后才发现：light 主题字色近黑，压在深色照片上会糊）
+        # ★VF_NOBLACKBOX_V1：描边加粗一档 + 加右下阴影 —— 这是"去掉黑框后仍然看得清"的保证。
         out.append(
             f"drawtext=fontfile='{font}':text='{esc_text(_shown)}':fontsize={fs}:"
-            f"fontcolor={txc}:borderw=2:bordercolor=black@0.65:{_bx}"
+            f"fontcolor={txc}:{_stroke}shadowx=2:shadowy=3:shadowcolor=black@0.55:{_bx}"
             f"{_x}:y=(h-text_h)/2+{int(y_off)}:enable='between(t,{st:.2f},{en:.2f})'"
         )
     return out
@@ -2456,8 +2483,12 @@ def _editorial_bigtext(shot, th, W, H, dur, fs_max, txc, busy=False, x_off=0):
         if x_off:
             _bx0 = max(0, int(x_off) - int(W * 0.03))
             _bw = min(W - _bx0, W - int(x_off) + int(W * 0.03))
-        band = (f"drawbox=x={_bx0}:y={max(0, _blk_top - int(fs * 0.24))}:w={_bw}:"
-                f"h={int(_blk_h + int(fs * 0.48))}:color=black@0.62:t=fill")
+        # ★VF_NOBLACKBOX_V1（2026-10-01 用户点名「很多大字下面都有一个透明黑框」）：
+        #   老做法 = 一条 `black@0.62` 的**实心通栏黑带**（"膏药"感）→ 换成【上下渐隐的蒙版带】
+        #   （'center' 模式：两边淡、中间实，alpha 峰值仍 0.62 保证"满字素材上字压不花"）。
+        band = ','.join(_text_scrim_filters(
+            _bx0, max(0, _blk_top - int(fs * 0.24)), _bw,
+            int(_blk_h + int(fs * 0.48)), 'black@0.62', steps=9, amax=0.62, fade='center'))
     print('[VF] 编辑风图上大字（%s）：kicker%s + 多色层级%s + 细分线（入场=分段渐入）'
           % (th.get('id'), '有' if _kick else '缺(用强调条)',
              ' + 数值排版' if _num else ''))
@@ -2504,7 +2535,33 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
                     # 上图下文：素材卡落上半（_plate_pre 的 top 口径），内容排在下半
                     _drx, _dry = int(W * 0.07), int(H * 0.60)
                     _drw, _drh = int(W * 0.86), int(H * 0.34)
-                _dk = deck_page_filters(shot, th, W, H, dur, region=(_drx, _dry, _drw, _drh))
+                # ★VF_DECK_STYLES_V1（2026-10-01 本机抽帧实测「deck-mono + light 主题整页看不见字」）：
+                #   素材页的富编排内容直接读主题的 text/sub/line 色 —— 浅色主题（字近黑）压在深色素材上
+                #   会**整页看不见字**（老链路的"压在素材上的大字"早有 _mat_text_colors 兜底，这里没有）。
+                #   修法：复用同款兜底 —— 素材与主题字色"反了"就整页翻转（字改亮/改暗），
+                #   并让**同色系渐变两端一起压暗/提亮**（否则会出现"亮字压在亮卡片上"的二次问题）。
+                _ph2 = th
+                _chg = False
+                try:
+                    _matd = _probe_material(src)
+                    _tc2, _bx2, _chg = _mat_text_colors(th, _matd, str(th.get('text') or 'white'),
+                                                        'black@0.30')
+                except Exception:
+                    _tc2, _chg = str(th.get('text') or 'white'), False
+                if _chg:
+                    _ph2 = dict(th)
+                    _light = _lum_of(_tc2, 255) >= 128
+                    _gk = (0.22, 0.16) if _light else (1.60, 1.90)
+                    _ph2['text'] = _tc2
+                    _ph2['sub'] = _tc2
+                    _ph2['cardText'] = _tc2
+                    _ph2['cardSub'] = _tc2
+                    _ph2['line'] = _tc2
+                    _ph2['gradA'] = _shade(str(th.get('gradA') or th.get('bg2') or th.get('bg')), _gk[0])
+                    _ph2['gradB'] = _shade(str(th.get('gradB') or th.get('bg')), _gk[1])
+                    print('[VF] ★VF_DECK_STYLES_V1 素材页对比度兜底：主题字色与素材反差不足 → 整页翻转'
+                          '（字=%s）' % _tc2)
+                _dk = deck_page_filters(shot, _ph2, W, H, dur, region=(_drx, _dry, _drw, _drh))
                 if _dk:
                     print('[VF] ★VF_DECK_V1 素材页：layout=%s → 内容区 %dx%d@%d,%d'
                           % (_dlay, _drw, _drh, _drx, _dry))
@@ -2625,11 +2682,12 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
             #   这里原来结尾多了一个逗号（`...,t=fill,`），而 _chain 又是 `','.join(...)` 拼的
             #   → 拼出来是 `...,drawbox=...:t=fill,,drawbox=...` → ffmpeg 把中间那个空串当成滤镜名
             #   → 「No such filter: ''」整镜失败。**逗号必须在 join 时统一加，元素自己不许带尾逗号。**
-            _band_box = (f"drawbox=x=0:y={max(0, _btop)}:w={W}:h={int(_bh)}:"
-                         f"color=black@0.62:t=fill")
+            # ★VF_NOBLACKBOX_V1：同 _editorial_bigtext —— 实心通栏黑带 → 上下渐隐的蒙版带
+            _band_box = ','.join(_text_scrim_filters(0, max(0, _btop), W, int(_bh),
+                                                    'black@0.62', steps=9, amax=0.62, fade='center'))
             print('[VF] 素材自带内容多 → 大字走【下三分之一 + 全宽底衬带】（避免与素材文字纠缠）')
         _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, y_off=_yoff,
-                           x_off=_tx) if len(_lines) <= 1 else []      # ★VF_TPL_LAND_V1：右侧大字区
+                           x_off=_tx, W=W, H=H) if len(_lines) <= 1 else []   # ★VF_TPL_LAND_V1：右侧大字区
         # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
         _reveal = (_rev if _rev else
                    center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=_yoff, x_off=_tx)
@@ -2791,7 +2849,7 @@ def card_end(shot, th, W, H, fps):
 #            就是做PPT也不可能一页就几个大字。你能单独根据我的素材 编辑 1、2 个动效 PPT
 #            给我看下嘛，这样我能知道最顶能到什么效果」
 # 旧观感：纯文字卡只有"大字 + 底线 + 字幕" → 一页就几个大字，"空"。
-# 本版式（shot['variant'] == 'deck'）一页里同时编排：
+# 本版式（shot['variant'].startswith('deck')，共 4 套风格）一页里同时编排：
 #   ① kicker 小标签条（强调色实底 + 文字）        ② 主标题（大字粗体 ≤2 行）+ 副标题（一行小字）
 #   ③ 2~4 条要点：编号 01/02/03 + 小色块 + 文字    ④ 数据块：大数字 + 单位 + 说明（半透明卡面）
 #   ⑤ 细分割线 + 装饰几何（小方块 / 数据块左侧强调条）  ⑥ 右下角页码 + 页内进度细线
@@ -2800,15 +2858,32 @@ def card_end(shot, th, W, H, fps):
 #     → 数据块 → 页码），像 PPT 逐元素出现；
 #   · 持续动效：kicker 下强调条**慢生长**（A1）/ 主标题与数据块**轻微呼吸**（A2）/
 #     页内进度线**走完整页**（A4）。
-# 零回归（硬约束）：只有 variant=='deck' 才生效，非 deck 一律返回 [] → 老分镜/老主题一个像素都不动；
-#   且 `deck` **不放进 TITLE_VARIANTS** —— 那会破坏 render.py ↔ src/lib/agent/vf/anti-ai.ts 的
-#   白名单对账（vf-i2v-selftest.ts 会红）。白名单外的自造 variant 一律回落老版式。
-DECK_VARIANTS = ('deck',)
+# 零回归（硬约束）：只有 variant ∈ DECK_VARIANTS 才生效，其余（含白名单外自造值）一律返回 []
+#   → 老分镜/老主题一个像素都不动。
+# ⚠️ 2026-10-01 口径变更（★VF_DECK_STYLES_V1，用户「1-2 都要：既要接进 AI，也要多做模版」）：
+#   这 4 个值**现在必须进 TITLE_VARIANTS**（AI 才写得出来），并且 src 侧同步进 VF_VARIANTS.title
+#   —— 两边由 vf-i2v-selftest.ts / vf-deckwire-selftest.ts 逐项对账。原文"不放进 TITLE_VARIANTS"作废。
+# ★VF_DECK_STYLES_V1（2026-10-01）：4 套富编排风格（用户原话「默认一套经典通用，然后先加几个不同风格」）。
+#   deck      默认·经典通用（= 上一版 ★VF_DECK_V1，留白与层级打磨过）
+#   deck-grad 渐变风（页面底板走真·逐像素渐变；卡片/标签条/装饰条用多段渐变色带）
+#   deck-mono 极简留白（无卡片、无框；细线 + 大留白，靠排版与字号层级）
+#   deck-mag  杂志/编辑风（左对齐、压边大标题、栏线/细分割/双线；配 news/data 主题最好看）
+#   ⚠️ 这 4 个值 = **AI 白名单口径**，与 src/lib/agent/vf/anti-ai.ts 的 VF_VARIANTS.title
+#      （以及本文件的 TITLE_VARIANTS）逐字一致 —— vf-i2v-selftest.ts / vf-deckwire-selftest.ts 都会对账。
+DECK_VARIANTS = ('deck', 'deck-grad', 'deck-mono', 'deck-mag')
+# 渲染层内部沿用 `DECK_STYLE_VARIANTS` 这个名字（= 同一个元组，别名，不是第二份数据）
+DECK_STYLE_VARIANTS = DECK_VARIANTS
+
+
+def deck_style_of(shot):
+    """这一镜属于哪套富编排风格；返回 '' = 不是（老分镜 / 白名单外的自造值 → 回老版式，零回归）。"""
+    v = str((shot or {}).get('variant') or '').strip().lower()
+    return v if v in DECK_STYLE_VARIANTS else ''
 
 
 def deck_of(shot):
-    """这一镜是不是「富编排 PPT 页」（variant='deck'）。白名单外的值一律 False（回老版式）。"""
-    return variant_of(shot, DECK_VARIANTS, '') == 'deck'
+    """这一镜是不是「富编排 PPT 页」（4 套风格之一）。白名单外的值一律 False（回老版式）。"""
+    return bool(deck_style_of(shot))
 
 
 def _deck_stats(shot):
@@ -2837,8 +2912,12 @@ def deck_page_filters(shot, th, W, H, dur, font=None, region=None):
     region=(x, y, w, h)：素材镜（横屏左图右文 / 竖屏上图下文）时**只在这块区域里排版**；
     不给 = 整幅排版（纯文字 deck 页）。
     返回 filter 片段 list；**非 deck 镜一律返回 []**（调用方据此保证"一个像素都不动"）。"""
-    if not deck_of(shot):
+    _style = deck_style_of(shot)
+    if not _style:
         return []
+    if _style != 'deck':
+        # ★VF_DECK_STYLES_V1：另外三套风格走各自的元素层（同一套元素清单，换配色/透明度/留白/对齐）。
+        return _deck_styled_filters(shot, th, W, H, dur, _style, font=font, region=region)
     _bold = font or font_bold(th)
     _reg = esc_path(find_font(th.get('font', 'msyh')))
     acc = str(th.get('accent') or '0xff6b35')
@@ -3056,6 +3135,463 @@ def deck_page_filters(shot, th, W, H, dur, font=None, region=None):
     return [p for p in out if str(p).strip()]
 
 
+# ══════════════════ ★VF_DECK_STYLES_V1（2026-10-01）4 套富编排风格：共用工具 + 另三套实现 ══════
+# 用户原话：「1-2 都要（既要接进 AI，也要多做模版）。默认一套经典通用，然后先加几个不同风格。
+#            注意配合配色真的不能太 AI 味。最好有渐变色。还有就是透明度。
+#            前面很多大字下面都有一个透明黑框（=不喜欢那个实心半透明黑框）。」
+# 三条硬约束（改本段前先读）：
+#   ① 颜色**一律从主题 token 取**（accent / text / sub / cardBg / line / dot / gradA / gradB）——
+#      绝不新造高饱和色，也就不可能再出现"高饱和紫蓝渐变 + 科技蓝"那套 AI 味；
+#   ② **面积克制**：强调色只出现在 kicker / 数字 / 色点 / 细线；面板与底衬一律走"同色系 + 低 alpha"；
+#   ③ **透明度写死并注明理由**（每个元素旁都有注释）——"用透明度做设计"而不是"用颜色刷面积"。
+
+
+def _rgb_alpha(c, default=((0, 0, 0), 1.0)):
+    """把 'white' / 'black@0.3' / '0xRRGGBB' / '0xRRGGBB@0.42' 解析成 ((r,g,b), alpha)。
+    解析不出来就回 default —— 颜色写错绝不许把出片弄挂（口径同 variant_of / enter_of）。"""
+    try:
+        s = str(c or '').strip()
+        a = 1.0
+        if '@' in s:
+            s, _a = s.split('@', 1)
+            a = max(0.0, min(1.0, float(_a)))
+        s = s.strip().lower()
+        s = {'white': '0xffffff', 'black': '0x000000'}.get(s, s)
+        h = s.replace('0x', '').replace('#', '')
+        if len(h) == 3:
+            h = ''.join(ch * 2 for ch in h)
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)), a
+    except Exception:
+        return default[0], default[1]
+
+
+def _css(c, a):
+    """把 ((r,g,b), alpha) 写成 ffmpeg 颜色串 '0xRRGGBB@0.NNN'。"""
+    return '0x%02x%02x%02x@%.3f' % (c[0], c[1], c[2], max(0.0, min(1.0, float(a))))
+
+
+def _force_alpha(c, a):
+    """★透明度唯一入口：**丢掉原色自带的 alpha**，换成我们要的 a（理由写在各调用点）。
+
+    为什么要强制：主题 line token 可能是 '0x2f7cf6@0.55'，直接拿它画分割线会太实（>0.4），
+    而本轮的规矩是"分割线 0.14~0.20 只做暗示" —— 所以这里统一改 alpha，不靠主题自觉。"""
+    return _css(_rgb_alpha(c)[0], a)
+
+
+def grad_box_filters(x, y, w, h, c0, c1, steps=24, a0=None, a1=None, vertical=True, enable=None):
+    """★VF_DECK_STYLES_V1「真渐变色带」：用 N 段 drawbox 拼出**单调过渡**的渐变块。
+
+    为什么不直接用 lavfi `gradients`：它是**独立输入源**，只能铺"整幅底板"，铺不了"卡片/标签条"；
+    为什么不用 geq 逐像素：全帧 geq 在 720p/1080p 上明显变慢，且本项目踩过 `geq=a=` 的写法坑。
+    N=24 段时每段约 h/24 像素 —— 同一帧上下两点的颜色值不同且单调（自测里有断言），肉眼即连续渐变。
+    a0/a1：渐变两端的透明度（不给 = 用 c0/c1 自带的 alpha）。enable：整块按时间点插入（分段入场）。
+    返回 filter 片段 list。"""
+    steps = max(3, int(steps))
+    (r0, g0, b0), da0 = _rgb_alpha(c0)
+    (r1, g1, b1), da1 = _rgb_alpha(c1)
+    A0 = da0 if a0 is None else float(a0)
+    A1 = da1 if a1 is None else float(a1)
+    _en = (":enable='gte(t,%.2f)'" % float(enable)) if enable is not None else ''
+    out = []
+    for i in range(steps):
+        k0 = i / float(steps)
+        k1 = (i + 1) / float(steps)
+        mid = (k0 + k1) / 2.0
+        _c = (int(r0 + (r1 - r0) * mid), int(g0 + (g1 - g0) * mid), int(b0 + (b1 - b0) * mid))
+        _a = A0 + (A1 - A0) * mid
+        if vertical:
+            _x, _y = int(x), int(y) + int(h * k0)
+            _w, _hh = int(w), max(2, int(h * k1) - int(h * k0) + 1)
+        else:
+            _x, _y = int(x) + int(w * k0), int(y)
+            _w, _hh = max(2, int(w * k1) - int(w * k0) + 1), int(h)
+        out.append('drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=fill%s'
+                   % (_x, _y, _w, _hh, _css(_c, _a), _en))
+    return out
+
+
+def _text_scrim_filters(x, y, w, h, color, steps=7, amax=None, fade='down'):
+    """★VF_NOBLACKBOX_V1（2026-10-01 用户点名）「前面很多大字下面都有一个透明黑框」的替代方案。
+
+    老做法：`drawtext` 的 `box=1:boxcolor=black@0.30:boxborderw=...` → 一个**四周等 alpha 的实心
+      半透明黑框**（观感 = 贴了块膏药，正是用户最反感的那条）。
+    新做法（本函数）：**底部渐隐蒙版** —— N 段 drawbox 做"上透明 → 下压暗"的连续淡出，只覆盖文字块
+      那一带（不是通栏）；下端把字托住、上端几乎全透（不遮素材）。配合 drawtext 自身的描边
+      （borderw）与阴影（shadowx/y）→ 字在任何素材上都清楚，但画面上再也看不到一个"方框"。
+    透明度（写死 + 理由）：
+      · amax 默认 = 传入底衬色自带的 alpha（主题给的 0.30 / 0.48）；夹在 0.10~0.72：
+        低于 0.10 托不住白字，高于 0.72 就是"黑条"（用户不要的那条）。
+      · 逐段 alpha 走平方曲线（k²）→ 上端更淡、下端更实，像"渐隐"而不是"渐变块"。
+      · 每段最低留 0.015，避免整段被 ffmpeg 当成透明而出现"断带"。
+    返回 filter 片段 list（**必须排在文字之前** —— 蒙版在字下层）。"""
+    (r, g, b), da = _rgb_alpha(color)
+    if amax is None:
+        amax = da
+    amax = max(0.10, min(0.72, float(amax)))
+    steps = max(3, int(steps))
+    _h = max(steps, int(h))
+    bh = max(2, int(_h / steps))
+    out = []
+    for i in range(steps):
+        k = (i + 1) / float(steps)
+        if fade == 'down':
+            _a = amax * k * k
+            _yy = int(y) + i * bh
+        elif fade == 'up':
+            _a = amax * (1.0 - k) * (1.0 - k)
+            _yy = int(y) + (_h - (i + 1) * bh)
+        else:
+            # 'center'：两边淡、中间实 —— 给"底衬带"用（托住大字，又不出现上下两条硬边）
+            _a = amax * (1.0 - abs(2.0 * (i + 0.5) / steps - 1.0))
+            _yy = int(y) + i * bh
+        out.append('drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=fill'
+                   % (int(x), max(0, _yy), int(w), bh + 1, _css((r, g, b), max(0.015, _a))))
+    return out
+
+
+def deck_base_input(shot, th, W, H, dur):
+    """★VF_DECK_STYLES_V1：deck 页的**底板输入**（card_title 用）。
+
+    · deck-grad → 真·逐像素渐变（lavfi `gradients`；不可用则退回主题底色）
+      —— 所以"渐变风"的渐变是真的逐像素，不是两块纯色叠。
+    · 其余 3 套 → 与老版**逐字相同**的 color= 输入（之后交给 render_shot 的 stage_layer 铺主题质感底，
+      零回归：老分镜/老主题一个像素都不动）。
+    """
+    _style = deck_style_of(shot)
+    _c0 = str(th.get('gradA') or th.get('bg2') or th.get('bg') or '0x0a1620')
+    _c1 = str(th.get('gradB') or th.get('bg') or '0x0a1620')
+    if _style == 'deck-grad':
+        try:
+            _ff = find_ffmpeg()
+        except Exception:
+            _ff = ''
+        if _ff and _has_gradients(_ff):
+            # ★显式给渐变方向（x0,y0 → x1,y1 = 画面正上方 → 正下方）：
+            #   ① 观感上是"上亮下暗"的竖向渐变（比滤镜默认的斜向更稳、更像设计稿）；
+            #   ② 也让本机的像素级验证可复现（同一帧沿一条线采样必单调 —— 见 test-deck-styles.py）。
+            # ★speed=0（刻意不旋转）：滤镜默认 speed=0.01 会让整幅渐变**持续转动**——长镜里表现为
+            #   "背景色慢慢跑色"（不是设计感），而且像素级验证不可复现。渐变风的"持续动效"由
+            #   大字呼吸 + 页内进度线 + 分段入场承担，底板保持静止。
+            return ('-f lavfi -i gradients=s=%dx%d:c0=%s:c1=%s:x0=0:y0=0:x1=0:y1=%d:d=%s:speed=0'
+                    % (W, H, _c0, _c1, int(H), max(1.0, float(dur))))
+    return '-f lavfi -i color=c=%s:s=%dx%d:d=%s' % (th.get('bg', '0x0a1620'), W, H, dur)
+
+
+def _deck_styled_filters(shot, th, W, H, dur, style, font=None, region=None):
+    """★VF_DECK_STYLES_V1：deck-grad / deck-mono / deck-mag 三套风格的**元素层**。
+
+    与经典 deck 是同一套"元素清单"（kicker 标签 / 主标题 / 副标 / 细线 / 2~4 条编号要点 /
+    数据卡 / 页码 / 页内进度线），只把【配色 · 透明度 · 留白 · 对齐 · 装饰】换一套解法 ——
+    所以四套能在同一条片里轮换而不违和（用户要的"多做几个模版"）。
+    动效与经典一致（不许退化）：所有元素**分段入场**（错开 alpha + enable）+ 持续动效
+    （呼吸 sin / 强调条慢生长 / 页内进度线走完整页）。
+    region=(x,y,w,h)：素材页（左图右文 / 上图下文）时只在这块区域里排版；不给 = 整幅排版。
+    返回 filter 片段 list；白名单外的 variant 由 deck_page_filters 提前拦掉（绝不走到这里）。
+    """
+    _bold = font or font_bold(th)
+    _reg = esc_path(find_font(th.get('font', 'msyh')))
+    acc = str(th.get('accent') or '0xff6b35')
+    dotc = str(th.get('dot') or th.get('accent2') or acc)
+    txc = str(th.get('text') or 'white')
+    subc = str(th.get('sub') or txc)
+    linec = str(th.get('line') or 'white@0.30')
+    gA = str(th.get('gradA') or th.get('bg2') or th.get('bg') or '0x0a1620')
+    gB = str(th.get('gradB') or th.get('bg') or '0x0a1620')
+    kfg = str(th.get('kickerText') or 'white')
+    _sus = sustain_of(shot)
+    grad = (style == 'deck-grad')
+    mono = (style == 'deck-mono')
+    mag = (style == 'deck-mag')
+    _plh = max(2, int(H * 0.0042))
+
+    if region:
+        rx, ry, rw, rh = [int(v) for v in region]
+    else:
+        # 留白比经典 deck 更足（用户点名"经典通用"要打磨留白与层级）
+        rx, ry = int(W * 0.085), int(H * 0.105)
+        rw, rh = int(W * 0.83), int(H * 0.79)
+    rx = max(0, min(rx, max(0, W - 60)))
+    rw = max(60, min(rw, W - rx - max(6, int(W * 0.02))))
+    ry = max(0, min(ry, max(0, H - 60)))
+    rh = max(60, min(rh, H - ry - max(6, int(H * 0.02))))
+
+    main = _big_text(shot, limit=18) or clean_big_text(shot.get('title'))[:18] or 'PPT 内容页'
+    kicker = str(shot.get('kicker') or shot.get('tag') or shot.get('eyebrow') or '').strip()[:14]
+    subtitle = str(shot.get('sub') or shot.get('desc') or shot.get('subtitle_en') or '').strip()[:28]
+    items = _norm_items(shot)[:4]
+    stats = _deck_stats(shot)
+    page = str(shot.get('page') or shot.get('pageno') or shot.get('pageNo') or '').strip()[:12]
+
+    # ── 自适应字号（与经典 deck 同口径；mag 行距更紧 = "压边大标题"的编辑感）──
+    _tgap_k = 1.16 if mag else 1.30
+    _M = {}
+    _tfs = max(22, int(min(rw * 0.105, rh * 0.185)))
+    for _ in range(10):
+        _lines, _t2 = fit_big_text(main, W, H, fs_max=_tfs, max_lines=2,
+                                   maxw_ratio=max(0.30, rw / float(W)),
+                                   fs_min=max(18, int(_tfs * 0.62)), one_line_max=9)
+        _tfs = _t2
+        _M = {
+            'lines': _lines,
+            'kfs': max(15, int(_tfs * 0.36)),
+            'sfs': max(13, int(_tfs * 0.32)),
+            'ifz': max(14, int(_tfs * 0.40)),
+            'nfz': max(16, int(_tfs * 0.48)),
+            'vfz': max(24, int(_tfs * 0.86)),
+            'lfz': max(12, int(_tfs * 0.28)),
+            'pfs': max(12, int(_tfs * 0.26)),
+        }
+        _M['kpad'] = max(6, int(_M['kfs'] * 0.42))
+        _M['kbar'] = (_M['kfs'] + 2 * _M['kpad']) if kicker else 0
+        _M['g1'] = int(_tfs * (0.42 if mag else 0.34)) if kicker else int(_tfs * 0.12)
+        _M['tg'] = int(_tfs * _tgap_k)
+        _M['th'] = _M['tg'] * max(1, len(_lines))
+        _M['sh'] = int(_M['sfs'] * 1.9) if subtitle else 0
+        _M['dvh'] = max(2, int(_tfs * 0.032))
+        _M['dvg'] = int(_tfs * (0.42 if mono else 0.34))
+        _M['rhit'] = max(int(_M['ifz'] * (1.95 if mono else 1.62)), int(_M['nfz'] * 1.30))
+        _M['ih'] = _M['rhit'] * len(items)
+        _M['sh2'] = (int(_M['vfz'] * 1.30) + int(_M['lfz'] * 1.9)) if stats else 0
+        _M['g2'] = int(_tfs * 0.38) if stats else 0
+        _M['ph'] = (max(12, int(_tfs * 0.28)) + _plh) if page else 0
+        _M['tot'] = (_M['kbar'] + _M['g1'] + _M['th'] + _M['sh'] + 2 * _M['dvg'] + _M['dvh']
+                     + _M['ih'] + _M['g2'] + _M['sh2'] + _M['ph'])
+        if _M['tot'] <= rh or _tfs <= 20:
+            break
+        _tfs = max(18, int(_tfs * 0.92))
+    _kfs, _sfs, _ifz, _nfz = _M['kfs'], _M['sfs'], _M['ifz'], _M['nfz']
+    _vfz, _lfz, _pfs = _M['vfz'], _M['lfz'], _M['pfs']
+    _kbar, _kpad, _g1, _tg = _M['kbar'], _M['kpad'], _M['g1'], _M['tg']
+    _sh, _dvh, _dvg, _rhit, _ih = _M['sh'], _M['dvh'], _M['dvg'], _M['rhit'], _M['ih']
+    _sh2, _g2, _ph, _tot, _lines = _M['sh2'], _M['g2'], _M['ph'], _M['tot'], _M['lines']
+
+    out = []
+    _y = ry + max(0, int((rh - _tot) * 0.5))
+    _x = rx
+    _br = ('*' + breath_alpha(dur)) if _sus else ''
+
+    # ① kicker 标签条（三套风格三种做法：渐变条 / 无底色细线 / 强调色 + 下划线）
+    if kicker:
+        _kw = int(est_text_w(kicker, _kfs) + 2 * _kpad)
+        if mono:
+            # 极简留白：不给底色，只在文字左下压一条 2px 强调短线（alpha 0.90 = 唯一一处强调色）
+            out.append(f"drawbox=x={_x}:y={_y + _kbar - max(2, int(_kfs * 0.16))}:"
+                       f"w={max(20, int(_kw * 0.46))}:h={max(2, int(_kfs * 0.13))}:"
+                       f"color={_force_alpha(acc, 0.90)}:t=fill:enable='gte(t,0.10)'")
+            out.append(f"drawtext=fontfile='{_bold}':text='{esc_text(kicker)}':fontsize={_kfs}:"
+                       f"fontcolor={acc}:x={_x}:y={_y}:alpha='min(max(t-0.10,0)/0.35,1)'")
+        elif mag:
+            # 杂志/编辑风：栏目名用强调色 + 下面一条 2px 实线（masthead 观感），无底色块
+            out.append(f"drawtext=fontfile='{_bold}':text='{esc_text(kicker)}':fontsize={_kfs}:"
+                       f"fontcolor={acc}:x={_x}:y={_y}:alpha='min(max(t-0.10,0)/0.35,1)'")
+            out.append(f"drawbox=x={_x}:y={_y + int(_kfs * 1.25)}:w={max(24, int(_kw * 0.72))}:"
+                       f"h={max(2, int(_kfs * 0.10))}:color={_force_alpha(acc, 0.88)}:t=fill:"
+                       f"enable='gte(t,0.20)'")
+        else:
+            # 渐变风：标签条本身就是"真渐变"（acc 亮端 → 压暗 30% 的暗端），alpha 0.95→0.88
+            #   （面积很小，所以可以稍实；这是"面积克制"下的唯一实底元素）
+            out += grad_box_filters(_x, _y, _kw, _kbar, acc, _shade(acc, 0.70), steps=6,
+                                    a0=0.95, a1=0.88)
+            out.append(f"drawtext=fontfile='{_bold}':text='{esc_text(kicker)}':fontsize={_kfs}:"
+                       f"fontcolor={kfg}:x={_x + _kpad}:y={_y + _kpad}:"
+                       f"alpha='min(max(t-0.10,0)/0.35,1)'")
+        _y += _kbar + _g1
+    else:
+        # 没有 kicker 也不硬编标题：改为一条"强调记号"（与经典 deck 同策略）
+        _bhh = max(4, int(_tg * 0.045))
+        _bw = max(36, int(rw * 0.14))
+        if _sus:
+            _gs = grow_secs(dur)
+            out += grow_filters(_x, _y, _bw, _bhh, _force_alpha(acc, 0.92), dur,
+                                delay=0.10, grow=_gs, seg=max(6, int(_gs * 6)))
+        else:
+            out.append(f"drawbox=x={_x}:y={_y}:w={_bw}:h={_bhh}:"
+                       f"color={_force_alpha(acc, 0.92)}:t=fill")
+        _y += _bhh + _g1
+
+    # ② 主标题（逐行错开 + 描边 + 阴影 + 呼吸；mag 左边界"压边"）
+    _lx = _x - (int(rw * 0.035) if mag else 0)
+    for _i, _ln in enumerate(_lines):
+        _t_on = 0.30 + 0.18 * _i
+        out.append(
+            f"drawtext=fontfile='{_bold}':text='{esc_text(_ln)}':fontsize={_tfs}:"
+            f"fontcolor={txc}:borderw={max(2, int(_tfs * 0.045))}:bordercolor={_force_alpha('black', 0.45)}:"
+            f"shadowx=2:shadowy=2:shadowcolor={_force_alpha('black', 0.38)}:"
+            f"x={_lx}:y={_y + _i * _tg}:alpha='min(max(t-{_t_on:.2f},0)/0.45,1){_br}'")
+    _y += _M['th']
+
+    # ③ 副标题（一行小字）
+    if subtitle:
+        out.append(
+            f"drawtext=fontfile='{_reg}':text='{esc_text(subtitle)}':fontsize={_sfs}:"
+            f"fontcolor={subc}:x={_x}:y={_y + int(_sfs * 0.35)}:"
+            f"alpha='min(max(t-0.55,0)/0.45,1)'")
+        _y += _sh
+
+    # ④ 细分割线（三套的"透明度分量"完全不同 —— 这是各风格气质的主要差别）
+    _y += _dvg
+    if mono:
+        # 极简：一条通栏 hairline，alpha 0.14 —— 只做"分割暗示"，绝不参与强调
+        out.append(f"drawbox=x={_x}:y={_y}:w={rw}:h={max(1, int(_dvh * 0.5))}:"
+                   f"color={_force_alpha(txc, 0.14)}:t=fill:enable='gte(t,0.75)'")
+    elif mag:
+        # 杂志：双线（2px 主 + 1px 次，中间留 3px）+ 右端强调色短横（"栏目分栏"的编辑味）
+        out.append(f"drawbox=x={_x}:y={_y}:w={int(rw * 0.52)}:h={max(2, _dvh)}:"
+                   f"color={_force_alpha(txc, 0.30)}:t=fill:enable='gte(t,0.75)'")
+        out.append(f"drawbox=x={_x}:y={_y + _dvh + 3}:w={int(rw * 0.30)}:h={max(1, int(_dvh * 0.5))}:"
+                   f"color={_force_alpha(txc, 0.18)}:t=fill:enable='gte(t,0.85)'")
+        out.append(f"drawbox=x={_x + int(rw * 0.52) + max(8, int(rw * 0.014))}:y={_y}:"
+                   f"w={int(rw * 0.10)}:h={max(2, _dvh)}:color={_force_alpha(acc, 0.85)}:t=fill:"
+                   f"enable='gte(t,0.85)'")
+    else:
+        # 渐变风：一条 accent 细线（alpha 0.20 只做暗示）+ 尾端一个小色点
+        out.append(f"drawbox=x={_x}:y={_y}:w={int(rw * 0.34)}:h={max(2, int(_dvh * 0.8))}:"
+                   f"color={_force_alpha(acc, 0.20)}:t=fill:enable='gte(t,0.75)'")
+        _sq = max(6, int(_dvh * 2.0))
+        out.append(f"drawbox=x={_x + int(rw * 0.34) + max(8, int(rw * 0.014))}:"
+                   f"y={_y - max(0, (_sq - _dvh) // 2)}:w={_sq}:h={_sq}:"
+                   f"color={_force_alpha(dotc, 0.92)}:t=fill:enable='gte(t,0.85)'")
+    _y += _dvh + _dvg
+
+    # ⑤ 编号要点（逐条错开 0.28s；mono 用中性编号 + 大行距，mag 用竖栏线，grad 用小色点）
+    for _i, _it in enumerate(items):
+        _t_on = 0.85 + _i * 0.28
+        _iy = _y + _i * _rhit
+        _num = '%02d' % (_i + 1)
+        _nc = _force_alpha(txc, 0.55) if mono else acc
+        out.append(f"drawtext=fontfile='{_bold}':text='{_num}':fontsize={_nfz}:fontcolor={_nc}:"
+                   f"x={_x}:y={_iy + max(0, (_rhit - _nfz) // 2)}:"
+                   f"alpha='min(max(t-{_t_on:.2f},0)/0.35,1)'")
+        _dx = _x + int(est_text_w(_num, _nfz)) + max(8, int(_nfz * 0.30))
+        if mono:
+            _tx = _dx + max(10, int(_ifz * 0.50))
+        elif mag:
+            out.append(f"drawbox=x={_dx}:y={_iy + max(0, (_rhit - int(_ifz * 1.1)) // 2)}:w=2:"
+                       f"h={int(_ifz * 1.1)}:color={_force_alpha(acc, 0.85)}:t=fill:"
+                       f"enable='gte(t,{_t_on + 0.08:.2f})'")
+            _tx = _dx + max(10, int(_ifz * 0.42))
+        else:
+            _sqb = max(5, int(_ifz * 0.30))
+            out.append(f"drawbox=x={_dx}:y={_iy + max(0, (_rhit - _sqb) // 2)}:w={_sqb}:h={_sqb}:"
+                       f"color={_force_alpha(dotc, 0.92)}:t=fill:enable='gte(t,{_t_on + 0.08:.2f})'")
+            _tx = _dx + _sqb + max(8, int(_ifz * 0.34))
+        out.append(f"drawtext=fontfile='{_reg}':text='{esc_text(_it)}':fontsize={_ifz}:"
+                   f"fontcolor={txc}:x={_tx}:y={_iy + max(0, (_rhit - _ifz) // 2)}:"
+                   f"alpha='min(max(t-{_t_on + 0.14:.2f},0)/0.40,1){_br}'")
+    _y += _ih
+
+    # ⑥ 数据块（整数走 eif 滚动，与经典 deck 同款"真动效"）
+    if stats:
+        _y += _g2
+        _st_on = 0.95 + 0.28 * len(items)
+        if mono:
+            # 极简：无卡面 —— 上下两条 hairline 框住数据行（0.16 / 0.10 只做框定，不加任何色块）
+            out.append(f"drawbox=x={_x}:y={_y}:w={rw}:h={max(2, int(_dvh * 0.6))}:"
+                       f"color={_force_alpha(txc, 0.16)}:t=fill:enable='gte(t,{_st_on:.2f})'")
+            out.append(f"drawbox=x={_x}:y={_y + _sh2}:w={rw}:h={max(2, int(_dvh * 0.4))}:"
+                       f"color={_force_alpha(txc, 0.10)}:t=fill:enable='gte(t,{_st_on + 0.20:.2f})'")
+        elif mag:
+            # 杂志：一块"同色系平色面板"（gradB@0.50，低对比、不发光的纸块感）+ 左侧 3px 强调栏线
+            out.append(f"drawbox=x={_x}:y={_y}:w={rw}:h={_sh2}:color={_force_alpha(gB, 0.50)}:t=fill:"
+                       f"enable='gte(t,{_st_on:.2f})'")
+            out.append(f"drawbox=x={_x}:y={_y}:w={max(3, int(rw * 0.008))}:h={_sh2}:"
+                       f"color={_force_alpha(acc, 0.92)}:t=fill:enable='gte(t,{_st_on:.2f})'")
+        else:
+            # 渐变风：真渐变卡面（gA@0.34 → gB@0.58，上浅下深，与页面同色系）
+            #   —— 卡片边界靠"上下两条 hairline + 左侧 accent 栏线"定义，不做高对比发光面板（避开 AI 味）
+            #   steps=8：卡面高 ~120px → 每段 15px、色差仅几个 RGB 值，肉眼连续；段数刻意压小，
+            #   因为每一段都是一个 drawbox（段数直接决定滤镜串长度，见 render_shot 的 ★VF_LONGCMD_V1）。
+            out += grad_box_filters(_x, _y, rw, _sh2, _force_alpha(gA, 0.34),
+                                    _force_alpha(gB, 0.58), steps=8, enable=_st_on)
+            out.append(f"drawbox=x={_x}:y={_y}:w={rw}:h=2:color={_force_alpha(acc, 0.80)}:t=fill:"
+                       f"enable='gte(t,{_st_on:.2f})'")
+            out.append(f"drawbox=x={_x}:y={_y}:w={max(3, int(rw * 0.007))}:h={_sh2}:"
+                       f"color={_force_alpha(acc, 0.92)}:t=fill:enable='gte(t,{_st_on:.2f})'")
+        _colw = rw / float(max(1, len(stats)))
+        _ufs = max(13, int(_vfz * 0.44))
+        _ncol = txc if mono else acc
+        for _j, (_jv, _js, _jl) in enumerate(stats):
+            _cx = _x + int(_colw * _j)
+            _jv = str(_jv)
+            _plain = _jv + str(_js)
+            _vw = int(est_text_w(_plain, _vfz))
+            _vx = _cx + max(6, int((_colw - _vw) / 2))
+            _vy = _y + int(_sh2 * 0.16)
+            _int_ok = bool(re.fullmatch(r'\d+', _jv or '')) and int(_jv or 0) >= 3
+            if _int_ok:
+                _iv = int(_jv)
+                _rate2 = _iv / max(dur * 0.6, 0.1)
+                # ⚠️ 计数起点必须是数据块入场那一刻（t-{_st_on}），不能从 t=0 起算
+                out.append(
+                    f"drawtext=fontfile='{_bold}':"
+                    f"text='%{{eif\\:min(max(t-{_st_on:.2f}\\,0)*{_rate2:.1f}\\,{_iv})\\:d}}':"
+                    f"fontsize={_vfz}:fontcolor={_ncol}:x={_vx}:y={_vy}:"
+                    f"alpha='min(max(t-{_st_on + 0.10:.2f},0)/0.4,1){_br}'")
+            else:
+                out.append(f"drawtext=fontfile='{_bold}':text='{esc_text(_jv)}':fontsize={_vfz}:"
+                           f"fontcolor={_ncol}:x={_vx}:y={_vy}:"
+                           f"alpha='min(max(t-{_st_on + 0.10:.2f},0)/0.4,1){_br}'")
+            if _js:
+                out.append(f"drawtext=fontfile='{_bold}':text='{esc_text(_js)}':fontsize={_ufs}:"
+                           f"fontcolor={_force_alpha(_ncol, 0.85)}:"
+                           f"x={_vx + int(est_text_w(_jv, _vfz)) + max(2, int(_vfz * 0.08))}:"
+                           f"y={_vy + int(_vfz * 0.72) - int(_ufs * 0.72)}:"
+                           f"alpha='min(max(t-{_st_on + 0.22:.2f},0)/0.4,1)'")
+            if _jl:
+                out.append(f"drawtext=fontfile='{_reg}':text='{esc_text(_jl)}':fontsize={_lfz}:"
+                           f"fontcolor={subc}:"
+                           f"x={_cx + max(6, int((_colw - int(est_text_w(_jl, _lfz))) / 2))}:"
+                           f"y={_y + int(_sh2 * 0.60)}:"
+                           f"alpha='min(max(t-{_st_on + 0.30:.2f},0)/0.4,1)'")
+        _y += _sh2
+
+    # ⑦ 右下角页码 + 页内进度细线
+    if page:
+        _pwy = ry + rh - _plh - int(_pfs * 1.5)
+        _pcol = _force_alpha(txc, 0.45 if mono else 0.55)
+        out.append(f"drawtext=fontfile='{_reg}':text='{esc_text(page)}':fontsize={_pfs}:"
+                   f"fontcolor={_pcol}:x={rx + rw - int(est_text_w(page, _pfs))}:y={_pwy}:"
+                   f"alpha='min(max(t-0.90,0)/0.45,1)'")
+    # 纯文字页里，render_shot 只会给"color= 底板"的卡补 A4 进度线；渐变风的底板不是 color=（走
+    #   gradients 源），所以这里自己补一条，保证 4 套都有"页内进度线走完整页"这条持续动效。
+    if region or grad:
+        out += progress_filters(W, H, dur, _force_alpha(acc, 0.78),
+                                seg=max(6, int(min(14, dur * 3))),
+                                y=ry + rh - _plh, h=_plh, x0=rx, w=rw)
+
+    # ⑧ 版面"签名"装饰（三套各一个记号；全部低 alpha / 小面积）
+    if grad:
+        # 渐变风：底部一条极淡的强调色光晕（5 段 alpha 0.015→0.075）——
+        #   面积虽大但几乎不可见，只在暗底上给一点暖色倾向：这就是"用透明度做设计"。
+        _ah = max(6, int(H * 0.30 / 5))
+        for _k in range(5):
+            out.append(f"drawbox=x=0:y={max(0, H - (_k + 1) * _ah)}:w={W}:h={_ah + 1}:"
+                       f"color={_force_alpha(acc, 0.015 * (_k + 1))}:t=fill")
+        # 左上两条细发丝（一条 accent / 一条中性）：极克制的版面锚点
+        out.append(f"drawbox=x={rx}:y={max(0, ry - int(H * 0.03))}:"
+                   f"w={max(30, int(rw * 0.08))}:h={max(3, int(H * 0.006))}:"
+                   f"color={_force_alpha(acc, 0.90)}:t=fill")
+        out.append(f"drawbox=x={rx}:y={max(0, ry - int(H * 0.03) + max(6, int(H * 0.010)))}:"
+                   f"w={max(18, int(rw * 0.05))}:h=2:color={_force_alpha(txc, 0.20)}:t=fill")
+        out.append(f"drawbox=x={rx}:y={ry}:w={max(2, int(rw * 0.004))}:h={max(10, int(rh * 0.14))}:"
+                   f"color={_force_alpha(acc, 0.50)}:t=fill")
+    elif mono:
+        # 极简：整版只有这一个 6px 强调色小方块（唯一一处颜色，面积最小 —— 留白才是主角）
+        _sq = max(6, int(H * 0.010))
+        out.append(f"drawbox=x={rx}:y={ry}:w={_sq}:h={_sq}:"
+                   f"color={_force_alpha(acc, 0.95)}:t=fill")
+    else:
+        # 杂志：左侧一条通高细栏线（alpha 0.35）+ 顶部一条短粗线（栏目"标尺"）
+        out.append(f"drawbox=x={max(0, rx - int(rw * 0.03))}:y={ry}:w=2:h={rh}:"
+                   f"color={_force_alpha(acc, 0.35)}:t=fill")
+        out.append(f"drawbox=x={rx}:y={max(0, ry - int(H * 0.025))}:w={max(30, int(rw * 0.10))}:"
+                   f"h={max(3, int(H * 0.006))}:color={_force_alpha(txc, 0.55)}:t=fill")
+    print('[VF] ★VF_DECK_STYLES_V1 风格=%s：kicker=%s 标题%d行 要点%d条 数据%d块 页码=%s（区域 %dx%d@%d,%d）'
+          % (style, '有' if kicker else '无', len(_lines), len(items), len(stats), page or '无',
+             rw, rh, rx, ry))
+    return [p for p in out if str(p).strip()]
+
+
 CARDS = {
     'title': card_title,
     'list': card_list,
@@ -3106,6 +3642,28 @@ def anti_ai_check(shots):
             print('[VF][反AI味] 共 %d 条提示（提示词层已约束，这里是渲染前的最后一道校验；不阻断出片）' % len(warns))
     except Exception as e:
         print('[VF][反AI味] 自检异常（忽略）: %s' % str(e)[:80])
+
+
+def _argv_of(inp):
+    """★VF_LONGCMD_V1（2026-10-01）：「卡片给的输入参数字符串」→ argv 列表。
+
+    为什么不用 shlex.split：posix 模式下反斜杠被当转义吃掉（`"C:\\Users\\a.jpg"` → `C:Usersa.jpg`），
+    Windows 素材路径会直接找不到文件。这里只做"空格分词 + 剥掉成对双引号"，反斜杠原样保留；
+    对本项目现有的三种 inp（lavfi / `-loop 1 -t N -i "图片"` / `-ss N -i "视频"`）都成立。"""
+    out, cur, q = [], '', False
+    for ch in str(inp or ''):
+        if ch == '"':
+            q = not q
+            continue
+        if ch == ' ' and not q:
+            if cur:
+                out.append(cur)
+                cur = ''
+            continue
+        cur += ch
+    if cur:
+        out.append(cur)
+    return out
 
 
 def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
@@ -3202,14 +3760,31 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
     #   现在：返回码 + ffprobe 真实时长双校验；异常自动重试一次；仍不行就明确报错
     #   （宁可这一条不出片，也绝不交付一条"静默变短"的废片）。
     _target = float(dur)
+    # ★VF_LONGCMD_V1（2026-10-01 本机实测「deck-grad 素材页整镜渲染失败」）：
+    #   Windows 的 cmd.exe 命令行上限是 8191 字符 —— deck-grad 这类"渐变带"元素多（每段一个 drawbox），
+    #   滤镜链会超限 → ffmpeg 只回一句 `The command line is too long.`（stderr 里没有别的线索，
+    #   表现为"重试 2 次都失败、整片出不来"）。超长时改走**参数数组**（CreateProcess 上限 32767），
+    #   不经 shell；**短命令仍走原来的 shell 字符串路径** → 老片子/老卡型零回归（一个字节都不变）。
+    _argv = None
+    if len(cmd) > 7000:
+        _argv = ([ffmpeg] + _argv_of(inp) + ['-vf', vf2]
+                 + (['-an'] if _an else [])
+                 + ['-c:v', 'libx264', '-preset', 'fast', '-pix_fmt', 'yuv420p',
+                    '-r', str(fps), '-t', str(dur), out])
+        print('[VF] ★VF_LONGCMD_V1 滤镜链 %d 字符（>7000）→ 改走参数数组（避开 cmd.exe 8191 上限）'
+              % len(cmd))
     for _try in (1, 2):
         if os.path.exists(out):
             try:
                 os.remove(out)
             except Exception:
                 pass
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
-                           encoding='utf-8', errors='replace')
+        if _argv:
+            r = subprocess.run(_argv, capture_output=True, text=True,
+                               encoding='utf-8', errors='replace')
+        else:
+            r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                               encoding='utf-8', errors='replace')
         _got = probe_sec(out)
         if r.returncode == 0 and _got >= _target * 0.9:
             if _try > 1:

@@ -37,7 +37,10 @@ import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY, STD_QUERY_RE, is
 // ★VF_SUBSPLIT_V1（2026-09-30）：splitLongSubtitles —— 单镜字幕上限 + 超长按句拆镜的服务端硬兜底
 //   （纯函数，与 anti-ai 同一套，两个分镜出口共用，免得两处走偏）。
 import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles,
-  VF_MOTION_PROMPT, ensurePersistentMotion } from '@/lib/agent/vf/anti-ai'
+  VF_MOTION_PROMPT, ensurePersistentMotion,
+  // ★VF_DECK_WIRE_V1（2026-10-01）：「富编排 PPT 页」（variant=deck）的提示词 ——
+  //   与「视频混剪」线（vf-video.ts）**共用 anti-ai.ts 里同一份常量**，两条线不一致的问题不会再出现。
+  VF_DECK_PROMPT } from '@/lib/agent/vf/anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：把「长镜必须有动效」的档位接进【图片成片线】的分镜提示词
 //   （与「视频混剪」线共用 anti-ai.ts 里同一份常量，两条线的字段说明与硬规矩逐字一致），
 //   并在 genVideoShots 出口跑服务端兜底 ensurePersistentMotion（AI 忘写时给 title/end 长镜补 grow）。
@@ -110,7 +113,10 @@ async function genVideoShotsRaw(o: {
     // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：「长镜必须有动效」档位 + 硬规矩（与「视频混剪」线共用
     //   同一份常量；本 prompt 就是任务里点名的 vfShotsPrompt —— 只在这里与紧邻的归一化逻辑上加，
     //   文件后半段的模型读取/传参区域一律不碰）。
-    VF_MOTION_PROMPT + ANTI_AI_PROMPT + `编镜依据（文案）：\n${o.script}`
+    VF_MOTION_PROMPT +
+    // ★VF_DECK_WIRE_V1（2026-10-01）：把「富编排 PPT 页」（variant=deck / 4 套风格）接进本线提示词
+    //   —— 何时用/何时不用/4 套风格怎么挑/字段怎么填；与「视频混剪」线共用同一份常量（anti-ai.ts）。
+    VF_DECK_PROMPT + ANTI_AI_PROMPT + `编镜依据（文案）：\n${o.script}`
   let raw = ''
   try { raw = (await generateText(prompt, _mcWriter)) || '' } catch (e: any) { vfLog(o.uid, '[分镜生成失败] ' + String(e?.message || e).slice(0, 120)) }
   let arr = vfParseShots(raw)

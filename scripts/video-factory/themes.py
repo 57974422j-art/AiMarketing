@@ -42,6 +42,14 @@ token 说明（都在 render.py 里被读取，缺省有兜底 → 老分镜不�
   dot       「富编排 PPT 页」（variant='deck'）里**小色块/圆点/装饰方块**的颜色
             （要点条目前的方点、分割线尾端的小方块）。默认 = accent2（没写 accent2 就是 accent）。
             同样有 _with_tokens 兜底 → 老主题不写也不会坏（渲染层 `th.get('dot') or accent2 or accent`）。
+
+★VF_DECK_STYLES_V1（2026-10-01 用户定案「最好有渐变色」「配色不能太 AI 味」「多弄几个模版」）
+  ——新增 2 个 token（4 套富编排风格：deck / deck-grad / deck-mono / deck-mag 共用）：
+  gradA     渐变风（variant='deck-grad'）的**渐变亮端**（页面底板 + 卡片色带的起点）
+  gradB     渐变风的**渐变暗端**（终点）
+            兜底刻意取**主题自己那对底色**（bg2→bg）——不新造高饱和色，配色永远与主题同源，
+            这就是"去 AI 味"的做法：只用低饱和的一档做层次，其余走中性。
+            同样有 _with_tokens 兜底 → 老主题不写也不会坏。
 """
 
 THEMES = {
@@ -121,6 +129,8 @@ THEMES = {
         'line': '0x2f7cf6@0.55', 'enFont': 'arial',
         'frameBg': 'white',
         'dot': '0xd7263d',            # ★VF_DECK_V1：deck 页要点小方点（用次强调红，与蓝底形成层级）
+        # ★VF_DECK_STYLES_V1：渐变风的两端色（比 bg/bg2 略提亮一档，让"真渐变"看得出来但不刺眼）
+        'gradA': '0x1b3a5e', 'gradB': '0x0a1420',
         'desc': '新闻资讯（编辑风）',
     },
     'data': {
@@ -133,6 +143,8 @@ THEMES = {
         'kickerBg': '0x22d3ee', 'kickerText': '0x04222b',
         'line': '0x22d3ee@0.50', 'enFont': 'arial',
         'dot': '0x34d399',            # ★VF_DECK_V1：deck 页要点小方点（青底 + 薄荷绿点）
+        # ★VF_DECK_STYLES_V1：渐变风的两端色（近黑青 → 深青，低饱和、不"科技蓝"）
+        'gradA': '0x123540', 'gradB': '0x06121a',
         'desc': '科技数据（编辑风）',
     },
 }
@@ -160,6 +172,10 @@ def _with_tokens(d):
     d.setdefault('enFont', 'arial')      # 英文副标：无衬线（用户明确「不要用中文字体去排英文」）
     # ★VF_DECK_V1（2026-10-01）：deck 页的小色块/圆点/装饰方块色（没写就用次强调色）。
     d.setdefault('dot', d.get('accent2') or d.get('accent') or '0xff6b35')
+    # ★VF_DECK_STYLES_V1（2026-10-01）：「渐变风」（deck-grad）的渐变两端色。
+    #   兜底 = 主题自己的 bg2（亮端）→ bg（暗端）：同源、低饱和，绝不引入"高饱和紫蓝"那套 AI 味。
+    d.setdefault('gradA', d.get('bg2') or d.get('bg') or '0x123043')
+    d.setdefault('gradB', d.get('bg') or '0x0a1620')
     # ★VF_TPL_B1_V1（2026-09-30）：拍立得相框的"白边"底色。
     #   必须是**不带 alpha 的纯色**：ffmpeg `pad` 滤镜的 color 不给 rgb 之外的东西，
     #   写成 'white@0.96' 会被 pad 拒掉（这里刻意保守，保证任何本机/服务器版本都能跑）。

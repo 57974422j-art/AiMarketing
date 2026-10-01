@@ -672,8 +672,13 @@ def main():
             'deck 零回归：%s → 一个滤镜都不加' % (str(_bad)[:34]))
     _d_ok = R.deck_page_filters({'variant': 'deck'}, _thD, 1280, 720, 5)
     chk(bool(_d_ok), 'deck：即使没有标题/要点也产出兜底版面（绝不空页）', 'n=%d' % len(_d_ok))
-    chk('deck' not in R.TITLE_VARIANTS and list(R.DECK_VARIANTS) == ['deck'],
-        'deck 不塞进 TITLE_VARIANTS（保住与 anti-ai.ts 的对账：vf-i2v-selftest 70 项）')
+    # ★VF_DECK_STYLES_V1（2026-10-01）口径变更（用户拍板「1-2 都要：既要接进 AI，也要多做模版」）：
+    #   4 套风格**现在必须进 TITLE_VARIANTS**（AI 可以在分镜里写 variant=deck-grad 等），
+    #   由 vf-i2v-selftest.ts 与 src 的 VF_VARIANTS.title 逐项对账 —— 那边同步前会红，属**预期**。
+    chk(all(v in R.TITLE_VARIANTS for v in R.DECK_STYLE_VARIANTS)
+        and list(R.DECK_VARIANTS) == ['deck', 'deck-grad', 'deck-mono', 'deck-mag']
+        and list(R.DECK_STYLE_VARIANTS) == list(R.DECK_VARIANTS),
+        'deck 4 套风格都在 TITLE_VARIANTS 里（与 anti-ai.ts 白名单对账）')
     # 素材页：横屏左图右文（内容落右半幅）/ 竖屏上图下文（内容落下半幅）
     if ff:
         _wdD = tempfile.mkdtemp(prefix='vf-deck-')
@@ -712,6 +717,112 @@ def main():
     chk('★VF_DECK_V1' in _src and 'dot' in open(os.path.join(_VF, 'themes.py'),
                                                 encoding='utf-8').read(),
         '防回退：★VF_DECK_V1 标记 + themes.py 的 dot token 都在位')
+
+    # ══ 15. ★VF_DECK_STYLES_V1（2026-10-01）4 套富编排风格 + 去黑框 ═════════════════════════
+    # 用户原话：「1-2 都要。默认一套经典通用，然后先加几个不同风格。注意配合配色真的不能太 AI 味。
+    #            最好有渐变色。还有就是透明度。前面很多大字下面都有一个透明黑框。」
+    # 断言口径：① 4 套风格各自产出元素、白名单外**零回归**；②「真渐变」用**像素级单调性**证明
+    #   （grad_box_filters 每段颜色单调过渡，不是两块纯色叠）；③ 透明度写死（底衬 ≤0.10、卡面 0.30~0.60、
+    #   只有 kicker 标签条可到 0.95）；④ `box=1:boxcolor=…`（实心黑框）在非对照模式下必须消失。
+    chk(list(R.DECK_STYLE_VARIANTS) == ['deck', 'deck-grad', 'deck-mono', 'deck-mag'],
+        '4 套风格白名单值逐字正确（deck / deck-grad / deck-mono / deck-mag）',
+        str(list(R.DECK_STYLE_VARIANTS)))
+    _dshot2 = {'type': 'title', 'kicker': 'AI 营销', 'text': 'AI 营销内容生成系统',
+               'sub': '从选题到成片，一条流水线', 'items': ['智能选题', '一键成片', '自动分发'],
+               'stats': [{'value': '8.5%', 'label': '点击率'},
+                         {'value': '150', 'suffix': '万', 'label': '曝光'}],
+               'page': '01 / 02', 'dur': 8}
+    for _style in R.DECK_STYLE_VARIANTS:
+        _fl = R.deck_page_filters(dict(_dshot2, variant=_style), _thD, 1280, 720, 8)
+        _fj = ','.join(_fl)
+        chk(len(_fl) >= 18, '%s：一页 ≥18 个元素层' % _style, 'n=%d' % len(_fl))
+        chk('AI 营销' in _fj, '%s：① kicker 在位' % _style)
+        chk("text='01'" in _fj and "text='02'" in _fj and "text='03'" in _fj,
+            '%s：③ 编号要点 01/02/03' % _style)
+        chk('8.5' in _fj and '150' in _fj and 'eif' in _fj, '%s：④ 数据块（含 eif 滚动）' % _style)
+        chk('01 / 02' in _fj, '%s：⑥ 页码在位' % _style)
+        chk("enable='gte(t," in _fj, '%s：元素分段入场（enable）' % _style)
+        chk("alpha='min(max(t-" in _fj, '%s：每段文字错开渐入' % _style)
+        chk('sin(2*PI*t/' in _fj, '%s：持续动效（呼吸 sin）在位' % _style)
+        chk('box=1:boxcolor' not in _fj, '%s：画面里没有实心黑框' % _style)
+    # 零回归：白名单外的值（含前缀伪装 / 大小写）→ 一个滤镜都不加
+    for _bad in ('deckx', 'deck-grad2', 'deck_grad', 'cards', 'deck-monoo'):
+        chk(R.deck_page_filters({'variant': _bad, 'text': 'x'}, _thD, 1280, 720, 5) == [],
+            'deck 零回归：%s → 一个滤镜都不加' % _bad)
+    chk(R.deck_style_of({'variant': ' deck-mono '}) == 'deck-mono', '风格值去空白 + 小写归一')
+    chk(R.deck_style_of({'variant': 'DECK-GRAD'}) == 'deck-grad',
+        '风格值大小写不敏感（与 variant_of 同口径：AI 写大写也能认）')
+    chk(R.deck_style_of({'variant': 'deck-pink'}) == '', '自造风格 → 空（回老版式）')
+
+    # ① 真渐变（不是两块纯色叠）：每段颜色必须单调过渡
+    _gb = R.grad_box_filters(100, 200, 300, 120, '0x000000', '0xffffff', steps=12)
+    _lum = [R._lum_of(_re.search(r'color=([^:]+):t=fill', x).group(1)) for x in _gb]
+    chk(len(_gb) == 12, '渐变带：按 steps 产出段数', 'n=%d' % len(_gb))
+    chk(_lum == sorted(_lum) and _lum[0] <= 12 and _lum[-1] >= 240 and _lum[0] != _lum[-1],
+        '渐变带：颜色**单调过渡**（首段近黑 → 末段近白 = 真渐变，不是两块纯色叠）', str(_lum[:4]))
+    chk(all(x.startswith('drawbox=x=') for x in _gb),
+        '渐变带：全部是 drawbox 段（不动"单输入 -vf 链"的架构）')
+    _gb2 = R.grad_box_filters(0, 0, 100, 40, '0x112233@0.30', '0x112233@0.70', steps=6)
+    _al = [float(_re.search(r'@([\d.]+):t=fill', x).group(1)) for x in _gb2]
+    chk(_al == sorted(_al) and _al[-1] > _al[0],
+        '渐变带：透明度同样单调（同色也能做"由淡到实"的渐变）', str(_al))
+    chk(len(R.grad_box_filters(0, 0, 10, 10, 'bad-color', '0x000000', steps=4)) == 4,
+        '渐变带：颜色解析失败也不抛异常（回默认黑）')
+    # ② 渐变风的底板 = 真·逐像素渐变（只有 grad 走这条路；其余 3 套逐字不变）
+    _gok = bool(ff)
+    if _gok:
+        try:
+            _gok = R._has_gradients(ff)
+        except Exception:
+            _gok = False
+    _bi = R.deck_base_input(dict(_dshot2, variant='deck-grad'), _thD, 1280, 720, 8)
+    chk((_bi.startswith('-f lavfi -i gradients=') if _gok else _bi.startswith('-f lavfi -i color=')),
+        'deck-grad 底板 = lavfi gradients（真逐像素渐变；无 gradients 则回落底色）', _bi[:44])
+    chk(R.deck_base_input(dict(_dshot2, variant='deck'), _thD, 1280, 720, 8)
+        == '-f lavfi -i color=c=0x0b1622:s=1280x720:d=8',
+        '其余 3 套底板与老版**逐字相同**（color= → 走 stage_layer，零回归）')
+    # ③ 透明度写死（面积克制）：底衬几乎全透、卡面中等、只有 kicker 标签条可到 0.95
+    _alph = [float(m) for m in _re.findall(r'@(0\.\d+):t=fill',
+                                           ','.join(R.deck_page_filters(
+                                               dict(_dshot2, variant='deck-grad'), _thD, 1280, 720, 8)))]
+    chk(bool(_alph) and max(_alph) <= 0.95 and min(_alph) <= 0.10,
+        '渐变风：既有"几乎全透"的底衬（≤0.10 光晕）也有唯一实底标签条（≤0.95）',
+        str(sorted(_alph)[:3] + sorted(_alph)[-3:]))
+    chk(any(0.30 <= x <= 0.60 for x in _alph),
+        '渐变风：卡片/色带走 0.30~0.60 的中等透明度（不挡字）')
+    _mono_f = R.deck_page_filters(dict(_dshot2, variant='deck-mono'), _thD, 1280, 720, 8)
+    _mono_a = [float(m) for m in _re.findall(r'@(0\.\d+):t=fill', ','.join(_mono_f))]
+    chk(bool(_mono_a) and max(_mono_a) <= 0.95,
+        '极简风：全部元素都是低 alpha（无实底卡面）', str(sorted(_mono_a)[-4:]))
+    chk(any(_re.search(r'h=[12]:', x) for x in _mono_f if ':t=fill' in x),
+        '极简风：有 1~2px 的细线（发丝线）')
+    _mag_f = ','.join(R.deck_page_filters(dict(_dshot2, variant='deck-mag'), _thD, 1280, 720, 8))
+    chk(_mag_f.count('h=2') >= 1 and 'drawbox' in _mag_f,
+        '杂志风：双线/栏线（细分割）在位')
+
+    # ④ 去黑框：默认模式下 `box=1:boxcolor=…` 必须消失，改成【渐隐蒙版 + 描边 + 阴影】
+    _sc = R._text_scrim_filters(100, 200, 400, 90, 'black@0.30', steps=7)
+    _sa = [float(_re.search(r'@([\d.]+):t=fill', x).group(1)) for x in _sc]
+    chk(len(_sc) == 7 and _sa == sorted(_sa) and _sa[-1] > _sa[0],
+        '渐隐蒙版：7 段 alpha 自上而下单调递增（上透明 → 下压暗）', str(_sa))
+    _rs = R._reveal_seq({'text': '库存告急'}, 'f', 60, 'white', 5, box='black@0.30', W=1280, H=720)
+    _rsj = ','.join(_rs)
+    chk('box=1:boxcolor' not in _rsj and 'shadowx=2' in _rsj and 'borderw=' in _rsj,
+        '大字底衬：不再是实心黑框（改"描边 + 阴影 + 渐隐蒙版"）')
+    chk(any(x.startswith('drawbox=x=') for x in _rs),
+        '大字底衬：渐隐蒙版真的产出了（且排在文字之前 = 在字下层）')
+    os.environ['VF_TEXTBOX_LEGACY'] = '1'
+    _rs2 = ','.join(R._reveal_seq({'text': '库存告急'}, 'f', 60, 'white', 5,
+                                  box='black@0.30', W=1280, H=720))
+    os.environ.pop('VF_TEXTBOX_LEGACY', None)
+    chk('box=1:boxcolor=black@0.30' in _rs2,
+        '对照帧开关（VF_TEXTBOX_LEGACY=1）可还原老黑框（只用于 before/after 对照）')
+    _rs3 = R._reveal_seq({'text': '没有底衬'}, 'f', 60, 'white', 5)
+    chk(bool(_rs3) and not any('drawbox' in x for x in _rs3),
+        '无 box 的调用方：一个 drawbox 都不加（零回归）')
+    chk('★VF_DECK_STYLES_V1' in _src and '★VF_NOBLACKBOX_V1' in _src
+        and 'gradA' in open(os.path.join(_VF, 'themes.py'), encoding='utf-8').read(),
+        '防回退：★VF_DECK_STYLES_V1 / ★VF_NOBLACKBOX_V1 / gradA token 都在位')
 
     if a.render:
         _render_demo()
