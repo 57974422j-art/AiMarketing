@@ -416,7 +416,7 @@ def fit_big_text(s, W, H, maxw_ratio=0.86, max_lines=2, fs_max=None, fs_min=None
 
 
 def center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=0, stroke=True, fade=True,
-                          motion='fade', x_off=0):
+                          motion='fade', x_off=0, breath=False):
     """多行文字各自居中（固定 y，行距 1.34×字号）—— 不用 ASS 覆盖层，也不必测宽。
 
     ★VF_MOTION_V3（2026-09-29 P1）：新增 motion —— 'fade'（默认，只淡入）/ 'slide'（从下方滑入同时淡入）。
@@ -424,6 +424,8 @@ def center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=0, stroke=True,
     ★VF_TPL_LAND_V1（2026-09-30）：新增 x_off —— 把"居中"改为在【右侧大字区】居中。
       数学上等价于在原居中式上 +x_off/2（因为 w == W）：块心从 W/2 挪到 (W+x_off)/2。
       **x_off=0（缺省）时表达式逐字不变** —— 老调用方一个像素都不动。
+    ★VF_SUSTAIN_V1 A2（2026-10-01）：新增 breath —— 入场渐入**再乘一个极小的周期起伏**（"呼吸"）。
+      breath=False（缺省）时 alpha 表达式与改动前**逐字相同** → 没传的调用方零回归。
     """
     lines = [l for l in (lines or []) if str(l).strip()]
     if not lines:
@@ -434,7 +436,13 @@ def center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=0, stroke=True,
     out = []
     for li, ln in enumerate(lines):
         st = (f":borderw={max(2, int(fs * 0.06))}:bordercolor=black@0.72" if stroke else '')
-        a = ":alpha='min(t/0.5,1)'" if fade else ''
+        if not fade:
+            a = ''
+        elif breath:
+            # breath_alpha 自带括号（见它的 docstring：漏括号会漏出 0.06 的底噪 alpha）
+            a = ":alpha='min(t/0.5,1)*%s'" % breath_alpha(dur)
+        else:
+            a = ":alpha='min(t/0.5,1)'"
         _y = y0 + li * gap
         _ys = _slide_y(_y, fs, dur) if motion == 'slide' else str(_y)
         _x = 'x=(w-text_w)/2' if not _dx else f'x=(w-text_w)/2+{_dx}'
@@ -658,6 +666,88 @@ def grow_filters(x, y, w, h, color, dur, delay=0.15, grow=0.45, seg=6):
     return out
 
 
+# ══════════════════ ★VF_SUSTAIN_V1（2026-10-01）【持续型动效】上量 ══════════════════
+# 用户原话：「PPT动效还是不显著，你看是不是只能如此了。到顶了。」
+# 渲染层自查根因：到上一版为止，每一镜的动效**全是入场型**（0.25~0.5 秒做完就静止）——
+#   入场再干净，长镜里也是"动一下就不动"，所以用户看到的就是"不显著"。
+# 本批补的是【持续型】动效（整镜都在微微变化），四条（全部只用 ffmpeg 滤镜，零成本、不联网）：
+#   A1 强调条慢生长   ：0.45s → 随镜长 0.45~2.8s（长镜才有持续感）—— grow_secs()
+#   A2 大字轻微"呼吸" ：alpha 做 2~3 秒一轮的极小起伏（drawtext 的 alpha 是逐帧表达式）—— breath_alpha()
+#   A3 卡片浮动加强   ：B 组卡片版式的浮动振幅 ×2（原 0.014H≈10px，实测"看不出动"）
+#   A4 底部进度细线   ：整镜从左往右走完（drawbox 的 w 只初始化求值一次 → 只能 enable 分段）—— progress_filters()
+# 总开关：shot['sustain']='none' / 'off' 可单镜关掉（默认开）；老主题同样受益（这是全局观感诉求）。
+SUSTAIN_ON = True
+
+
+def sustain_of(shot):
+    """★VF_SUSTAIN_V1：本镜要不要持续动效。白名单外的自造值 → 按"开"处理（绝不把渲染搞挂）。"""
+    s = str((shot or {}).get('sustain') or '').strip().lower()
+    if s in ('none', 'off', 'false', '0'):
+        return False
+    return bool(SUSTAIN_ON)
+
+
+def grow_secs(dur, lo=0.45, hi=2.8, k=0.55):
+    """★VF_SUSTAIN_V1 A1：强调条"长满"所需秒数。
+
+    短镜（≤0.8s）仍是 0.45s 的克制值；长镜（≥5s）拉到 2~3 秒 —— 这是用户说的"持续感"。
+    0.55 系数是"差不多在镜长一半处长满"（后半段留给别的元素）。"""
+    return max(float(lo), min(float(hi), float(dur or 0) * float(k)))
+
+
+def breath_alpha(dur, amp=0.06, per=None):
+    """★VF_SUSTAIN_V1 A2：整块文字的"呼吸"——返回 alpha 的**乘数**表达式。
+
+    drawtext 的 alpha 是逐帧求值的（与本文件其它 t 表达式同机制），所以能做出真正连续的起伏。
+    amp=0.06 → 亮度在 0.94~1.00 之间周期波动；周期默认 clamp(2.0, dur/2, 3.0)（"2~3 秒一轮"）。
+    用法：`:alpha='min(t/0.5,1)*(0.940+0.060*sin(2*PI*t/2.60))'` —— 入场渐入乘上呼吸。
+
+    ⚠️【本机抽帧实测踩过的坑，别把括号去掉】返回值**必须自带外层括号**：
+      ffmpeg 表达式里 `A*0.94+0.06*sin(...)` 的乘法优先级高 → 展开成 `A*0.94 + 0.06*sin(...)`，
+      于是"入场渐入 A=0"的元素仍然拿到 **0.06 的底噪 alpha** → 在入场前**隐约可见**
+      （deck 页实测：t=0.6 本应只有 kicker+标题，却能看到淡淡的副标/要点/数字"0"）。
+      带括号后才是真正的"入场渐入 × 呼吸"。"""
+    _amp = abs(float(amp))
+    _p = float(per or max(2.0, min(3.0, float(dur or 3) / 2.0)))
+    return '(%.3f+%.3f*sin(2*PI*t/%.2f))' % (1.0 - _amp, _amp, _p)
+
+
+def grow_v_filters(x, y_top, w, h, color, dur, delay=0.12, grow=0.45, seg=8):
+    """★VF_SUSTAIN_V1 A1：**竖直**强调条"从上往下缓慢长高"（同样走 enable 分段）。
+
+    为什么要单独一个：`grow_filters` 长的是**宽度**（横向条用），拿它去长一根竖条会变成
+    "一个方块横向撑开"，观感是错的。竖条必须长高度。"""
+    out = []
+    _seg = max(2, int(seg))
+    for _k in range(_seg):
+        _hk = max(1, int(h * (_k + 1) / float(_seg)))
+        _tk = float(delay) + float(grow) * _k / float(_seg)
+        if _tk >= float(dur):
+            break
+        out.append(f"drawbox=x={x}:y={y_top}:w={w}:h={_hk}:color={color}:t=fill:enable='gte(t,{_tk:.2f})'")
+    return out
+
+
+def progress_filters(W, H, dur, color, seg=16, y=None, h=None, x0=0, w=None):
+    """★VF_SUSTAIN_V1 A4：一条【走完整镜】的进度细线（常驻动效）。
+
+    ⚠️ 与 grow_filters 同一类坑：drawbox 的 `w/h` 表达式只在初始化求值一次（假动画），
+       所以"从左到右走完"只能把线**分段**（每段一个更宽的 drawbox）+ `enable='gte(t,起点)'`。
+    seg=16 → 长镜里约每 0.3~0.4 秒进一格，看着是"线在走"，不是"闪一下"。
+    x0/w：★VF_DECK_V1 的页内进度线用 —— 只在【版面区域】里走（不给 = 整幅从 x=0 到 W）。"""
+    _h = max(2, int(h if h is not None else max(2, int(H * 0.0055))))
+    _y = int(y if y is not None else (H - _h - max(1, int(H * 0.004))))
+    _w = max(2, int(w if w is not None else W))
+    _x = max(0, int(x0))
+    _seg = max(4, int(seg))
+    out = []
+    for _k in range(_seg):
+        _wk = max(1, int(_w * (_k + 1) / float(_seg)))
+        _tk = float(dur or 0) * _k / float(_seg)
+        out.append(f"drawbox=x={_x}:y={_y}:w={_wk}:h={_h}:color={color}:t=fill:enable='gte(t,{_tk:.2f})'")
+    return out
+
+
 def card_title(shot, th, W, H, fps):
     """标题卡：大字居中 + 逐字浮现 + 主题色装饰
 
@@ -681,6 +771,19 @@ def card_title(shot, th, W, H, fps):
     #   chip   = 强调色色块垫在大字后面（像标签条，适合短口号）
     _var = variant_of(shot, TITLE_VARIANTS, 'center')
     _motion = motion_of(shot)
+    # ══════════════ ★VF_DECK_V1（2026-10-01）「富编排 PPT 页」══════════════
+    # 用户原话：「单独设计的PPT动效页 最好不要就几个大字，内容编排丰富一点可以吗？」
+    #   「就是做PPT也不可能一页就几个大字。你能单独根据我的素材 编辑 1、2 个动效 PPT 给我看下嘛」
+    # 只有 shot['variant']=='deck' 才走这里；**不进 TITLE_VARIANTS**（那会破坏 render.py↔anti-ai.ts
+    #   的白名单对账），白名单外的自造值一律回落老版式（零回归）。背景仍交给 render_shot 的
+    #   stage_layer（渐变质感底），所以这里只返回"元素层"。
+    if deck_of(shot):
+        _dk = deck_page_filters(shot, th, W, H, dur, font=font)
+        if _dk:
+            print('[VF] ★VF_DECK_V1 富编排 PPT 页（%s）：%d 个元素层（分段入场 + 持续动效）'
+                  % (th.get('id'), len(_dk)))
+            return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
+                    ','.join(_dk), dur)
     # ══════════════ ★VF_STYLE_V1（2026-09-30 ②「先固定新闻资讯和科技数据」）══════════════
     # 用户原话：「我就是单独做的文字页都很空洞配色单一 不灵活」
     #          「我发了几个博主的视频截图…它这里的【文字配色】和还有【每个都有渐进效果 分段插入】」
@@ -759,15 +862,26 @@ def card_title(shot, th, W, H, fps):
         # 左对齐：强调竖条 + 每行左端对齐（不再居中）——同一条片里"有对齐关系"看着更高级
         _x0 = int(W * 0.12)
         _bar_x = max(int(W * 0.06), _x0 - int(fs * 0.28))
-        parts = [f"drawbox=x={_bar_x}:y={_block_top}:w={max(6, int(fs * 0.10))}:"
-                 f"h={_gap_line * len(_lines or [txt]) + int(fs * 0.2)}:color={acc}@0.95:t=fill"]
+        # ★VF_SUSTAIN_V1 A1：左侧强调竖条改为"缓慢长高"（长镜里一直在长，不再一入场就定格）
+        if sustain_of(shot):
+            _gs = grow_secs(dur)
+            _bvbar = grow_v_filters(_bar_x, _block_top, max(6, int(fs * 0.10)),
+                                    _gap_line * len(_lines or [txt]) + int(fs * 0.2),
+                                    acc + '@0.95', dur, delay=0.12, grow=_gs,
+                                    seg=max(6, int(_gs * 5)))
+        else:
+            _bvbar = [f"drawbox=x={_bar_x}:y={_block_top}:w={max(6, int(fs * 0.10))}:"
+                      f"h={_gap_line * len(_lines or [txt]) + int(fs * 0.2)}:color={acc}@0.95:t=fill"]
+        parts = list(_bvbar)
+        # ★VF_SUSTAIN_V1 A2：大字"呼吸"（alpha 乘一个小幅周期起伏）
+        _bren = '*' + breath_alpha(dur) if sustain_of(shot) else ''
         for _i, _ln in enumerate(_lines or [txt]):
             _y = _block_top + _i * _gap_line
             _ys = _slide_y(_y, fs, dur) if _motion == 'slide' else str(_y)
             parts.append(
                 f"drawtext=fontfile='{font}':text='{esc_text(_ln)}':fontsize={fs}:"
                 f"fontcolor={txc}:borderw={max(2, int(fs * 0.05))}:bordercolor=black@0.6:"
-                f"x={_x0}:y='{_ys}':alpha='min(t/0.45,1)'")
+                f"x={_x0}:y='{_ys}':alpha='min(t/0.45,1){_bren}'")
         body = ','.join(parts)
         deco = ''
     elif _var == 'chip':
@@ -777,14 +891,21 @@ def card_title(shot, th, W, H, fps):
         deco = (f"drawbox=x={int(W * 0.07)}:y={_band_y}:w={int(W * 0.86)}:h={_band_h}:"
                 f"color={acc}@0.82:t=fill")
         body = ','.join(center_lines_drawtext(font, _lines or [txt], fs, 'white', W, H, dur,
-                                              motion=_motion))
+                                              motion=_motion, breath=sustain_of(shot)))
     else:
         # center：老样式（短线 + 通栏细线，放在大字块正上方）
         _dy = max(int(H * 0.05), _block_top - int(fs * 0.66))
         # ★VF_MOTIONPPT_V1（2026-09-30）：motion='grow' → 强调色短线【从左往右生长】
         #   （用户要的"渐进/分段插入"里的"强调"层；opt-in，默认不动，避免成片变闹）。
-        _grow_deco = grow_filters(int(W * 0.10), _dy, int(W * 0.10), _bar_h, acc + '@0.95',
-                                  dur, delay=0.12, grow=0.45) if _motion == 'grow' else []
+        # ★VF_SUSTAIN_V1 A1（2026-10-01）：**默认也走"慢生长"**（不再只有 motion='grow' 才长）——
+        #   用户实测反馈「动效还是不显著」，根因是"0.45 秒长完就静止"；现在长镜拉到 2~3 秒
+        #   （grow_secs），短镜仍是 0.45 秒的克制值。
+        if _motion == 'grow' or sustain_of(shot):
+            _gs = grow_secs(dur)
+            _grow_deco = grow_filters(int(W * 0.10), _dy, int(W * 0.10), _bar_h, acc + '@0.95',
+                                      dur, delay=0.12, grow=_gs, seg=max(6, int(_gs * 6)))
+        else:
+            _grow_deco = []
         _line_deco = f"drawbox=x={int(W * 0.22)}:y={_dy + _bar_h // 2}:w={int(W * 0.68)}:h=2:color={txc}@0.16:t=fill"
         deco = ','.join(_grow_deco + [_line_deco]) if _grow_deco else ','.join([
             f"drawbox=x={int(W * 0.10)}:y={_dy}:w={int(W * 0.10)}:h={_bar_h}:color={acc}@0.95:t=fill",
@@ -794,7 +915,8 @@ def card_title(shot, th, W, H, fps):
         if _motion == 'typewriter' and len(_lines) <= 1:
             _rev = _reveal_seq(shot, font, fs, txc, dur, text=(_lines[0] if _lines else txt))
         body = ','.join(_rev) if _rev else ','.join(
-            center_lines_drawtext(font, _lines or [txt], fs, txc, W, H, dur, motion=_motion))
+            center_lines_drawtext(font, _lines or [txt], fs, txc, W, H, dur, motion=_motion,
+                                  breath=sustain_of(shot)))
     if _var != 'center':
         print('[VF] 标题卡版式 = %s（motion=%s）' % (_var, _motion))
     vf = ','.join([p for p in (deco, body) if p])
@@ -879,6 +1001,8 @@ def card_list(shot, th, W, H, fps):
     # ★VF_VARIANT_V1（2026-09-29 P1）：列表卡两种版式（AI 可写 variant，白名单外的值回 steps）
     #   steps（默认，老样式）= 一项=一步、逐项揭示（讲解节奏）· stack = 整板同时出现 + 每项前强调色方块（"清单"观感）
     _var = variant_of(shot, LIST_VARIANTS, 'steps')
+    # ★VF_SUSTAIN_V1 A2（2026-10-01）：条目文字在"逐条插入"之后继续轻微呼吸（长镜里有持续感）
+    _lst_br = '*' + breath_alpha(dur) if sustain_of(shot) else ''
     # ══════════════ ★VF_STYLE_V1（2026-09-30 ②编辑风列表：超大编号 + 黑色横条 + 逐条插入）══════════════
     # 参考图设计：左侧【超大编号】(1/2/3…) + 右侧【黑色半透明横条】里放白字标题，逐条出现。
     # 用户明确「每个都有渐进效果 分段插入」→ 新风格里**默认就是逐条**（不依赖 AI 写 variant）。
@@ -929,7 +1053,7 @@ def card_list(shot, th, W, H, fps):
             ep.append(
                 f"drawtext=fontfile='{font}':text='{esc_text(_it)}':fontsize={fs}:"
                 f"fontcolor={_bar_fg}:x={_bar_x + _padb}:y={_ry + (_bh - fs) // 2}:"
-                f"alpha='min(max(t-{_t_on + 0.22:.2f},0)/0.4,1)'")
+                f"alpha='min(max(t-{_t_on + 0.22:.2f},0)/0.4,1){_lst_br}'")
         print('[VF] 编辑风列表卡（%s）：超大编号 + 横条 + 逐条插入（%d 条）' % (th.get('id'), len(items)))
         return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
                 ','.join([p for p in ep if str(p).strip()]), dur)
@@ -937,7 +1061,7 @@ def card_list(shot, th, W, H, fps):
         t_on = 0.5 + i * step
         if _var == 'stack':
             _iy = y0 + i * int(fs * 1.5)
-            alpha = "min(max(t-0.35,0)/0.45,1)"
+            alpha = "min(max(t-0.35,0)/0.45,1)" + _lst_br
             parts.append(
                 f"drawbox=x={int(W * 0.10)}:y={_iy + int(fs * 0.40)}:w={int(fs * 0.34)}:h={int(fs * 0.34)}:"
                 f"color={acc}@0.95:t=fill")
@@ -946,7 +1070,7 @@ def card_list(shot, th, W, H, fps):
                 f"fontcolor={txc}:x={int(W * 0.19)}:y={_iy}:alpha='{alpha}'")
             continue
         # 渐入；后面项出现时前面的项【保留但变暗】= 灰化作上下文
-        alpha = f"if(lt(t,{t_on:.2f}),0,min((t-{t_on:.2f})/0.4,1))"
+        alpha = f"if(lt(t,{t_on:.2f}),0,min((t-{t_on:.2f})/0.4,1)){_lst_br}"
         parts.append(
             f"drawtext=fontfile='{font}':text='{esc_text(it)}':fontsize={fs}:"
             f"fontcolor={txc}:x={int(W * 0.12)}:y={y0 + i * int(fs * 1.7)}:alpha='{alpha}'")
@@ -989,6 +1113,9 @@ def card_number(shot, th, W, H, fps):
     fs = min(fs, max(int(H * 0.06), int(W * 0.86 / max(1, len(_ntxt)))))
     # ★VF_VARIANT_V1（2026-09-29 P1「number 卡版式变体」）：center（默认居中）/ left（左对齐）
     _var = variant_of(shot, ('center', 'left'), 'center')
+    # ★VF_SUSTAIN_V1 A2（2026-10-01）：数字滚动（eif）在 dur*0.66 就停 → 之后补"轻微呼吸"，
+    #   让大数字在长镜里一直是"活的"（alpha 是逐帧表达式，零成本）。
+    _num_br = (":alpha='%s'" % breath_alpha(dur)) if sustain_of(shot) else ''
     # ══════════════ ★VF_STYLE_V1（2026-09-30 ②编辑风数字卡）══════════════
     # 参考图设计：数字当主角 —— 【超大数字】+【小字单位（同色系）】+【细分隔线】+ 说明小字。
     # 老实现把单位直接拼在数字后面、同样大小（"300+" 一串），层级全平；这里把单位降为小字。
@@ -1004,7 +1131,7 @@ def card_number(shot, th, W, H, fps):
         _rate = val / max(dur * 0.66, 0.1)
         dp = [
             f"drawtext=fontfile='{_bfont}':text='%{{eif\\:min(t*{_rate:.1f}\\,{val})\\:d}}':"
-            f"fontsize={fs}:fontcolor={acc}:x={_x0}:y={_ny}",
+            f"fontsize={fs}:fontcolor={acc}:x={_x0}:y={_ny}{_num_br}",
         ]
         if _suf_txt:
             dp.append(
@@ -1027,7 +1154,7 @@ def card_number(shot, th, W, H, fps):
         _x0 = int(W * 0.10)
         _lparts = [
             f"drawtext=fontfile='{font}':text='%{{eif\\:min(t*{val / max(dur * 0.66, 0.1):.1f}\\,{val})\\:d}}{suf}':"
-            f"fontsize={fs}:fontcolor={acc}:x={_x0}:y=(h-text_h)/2-{int(H * 0.06)}",
+            f"fontsize={fs}:fontcolor={acc}:x={_x0}:y=(h-text_h)/2-{int(H * 0.06)}{_num_br}",
             f"drawbox=x={_x0}:y={int(H * 0.5) + int(fs * 0.42)}:w={int(W * 0.18)}:"
             f"h={max(6, int(fs * 0.06))}:color={acc}@0.95:t=fill",
         ]
@@ -1043,7 +1170,7 @@ def card_number(shot, th, W, H, fps):
         # ★VF_CARDSTYLE_V1：数字下方一条主题色短线 —— 别让一个数字孤零零悬在黑底上
         f"drawbox=x={int(W * 0.38)}:y={_cy + int(fs * 0.30)}:w={int(W * 0.24)}:h={max(6, int(fs * 0.06))}:color={acc}@0.95:t=fill",
         f"drawtext=fontfile='{font}':text='%{{eif\\:min(t*{val / max(dur * 0.66, 0.1):.1f}\\,{val})\\:d}}{suf}':"
-        f"fontsize={fs}:fontcolor={acc}:x=(w-text_w)/2:y=(h-text_h)/2-40"
+        f"fontsize={fs}:fontcolor={acc}:x=(w-text_w)/2:y=(h-text_h)/2-40{_num_br}"
     ]
     if shot.get('label'):
         parts.append(
@@ -1417,8 +1544,10 @@ def card_chart(shot, th, W, H, fps):
     #   （drawbox 的 `enable` 是逐帧生效的，已实测）：一条横条拆成 _NSEG 段，
     #   第 k 段宽 = bw*(k+1)/_NSEG，且只在 `t >= 起点 + k*步长` 才出现 → 屏幕上真的在长。
     #   ⚠️ 别改回"裸 w= 表达式"：那样又变回假动画（vf-style-selftest.py 里已加断言拦它）。
-    _NSEG = 6
-    _GROW = 0.5                                   # 一条横条长满所需秒数
+    # ★VF_SUSTAIN_V1 A1（2026-10-01）：横条"长满"的秒数从写死 0.5s 改为**随镜长**（长镜 2.4s）——
+    #   用户实测「动效不显著」的根因就是"长一下就不动"；段数同步加密（6→8）让生长更连续。
+    _NSEG = 8
+    _GROW = grow_secs(dur, 0.5, 2.4) if sustain_of(shot) else 0.5
     _bh_bar = int(fs * 0.7)
 
     def _bar_filters(x_left, bw, y, rtl=False):
@@ -1907,10 +2036,14 @@ def _plate_pre(src, W, H, shot, th, opts, dur=0.0, layout='center'):
     _lay_w, _lay_h = _even(pw + offx), _even(ph + offy)
     _lay_x, _lay_y = x0, y0
     # ⑤ 浮动：overlay 的 x/y 逐帧求值（本机实测）→ 极缓慢漂移，方向按镜序轮换
+    #   ★VF_SUSTAIN_V1 A3（2026-10-01）：振幅 0.014H(≈10px) → 0.028H(≈20px)，周期也从 2×镜长
+    #   缩到 1.5×镜长。原因（用户实测"动效不显著"）：B 组卡片版式当初刻意取消了 Ken Burns、
+    #   只留这点浮动，而这点幅度在 1280×720 上**基本看不出来**。二选一里选了"加强浮动"
+    #   （另一条路是恢复极缓推拉，但那会和圆角/阴影几何打架，且自检明确禁止卡片链上 zoompan）。
     fx, fy = '0', '0'
     if opts['float'] == 'slow':
-        amp = max(4, int(H * 0.014))
-        per = max(4.0, float(dur or 4.0) * 2.0)
+        amp = max(8, int(H * 0.028))
+        per = max(3.0, float(dur or 4.0) * 1.5)
         if int(shot.get('_idx') or 0) % 2 == 0:
             fy = "%d*sin(2*PI*t/%.2f)" % (amp, per)          # 上下浮
         else:
@@ -2352,6 +2485,34 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
               % (str(src)[:60] or '(空)'))
         return card_title(shot, th, W, H, fps)
     dur = float(shot.get('dur', 4))
+    # ★VF_DECK_V1（2026-10-01）「富编排 PPT 页」的**素材页**：
+    #   横屏 + 竖/方素材 → 左图右文（复用 ★VF_TPL_LAND_V1 的 side）；其余（竖屏 / 横素材）→ 上图下文。
+    #   素材交给 B 组卡片版式排成"排版好的卡片"，另一侧整块交给 deck_page_filters 编排。
+    #   条件不足（老主题 plate_opts=None / 素材尺寸读不出）→ 老实回落下面老链路（绝不弄挂出片）。
+    if deck_of(shot):
+        _dpo = plate_opts(shot, th)
+        _dsrc_ok = bool(str(src).strip()) and os.path.exists(str(src))
+        if _dpo and _dsrc_ok:
+            _dlay = 'side' if plate_side_layout(src, W, H, True) else 'top'
+            _dpre = _plate_pre(src, W, H, shot, th, _dpo, dur=dur, layout=_dlay)
+            if _dpre:
+                if _dlay == 'side':
+                    # 素材卡在左半区 → 右侧整块留给富编排内容（与 plate_text_x 同口径：0.52W 起）
+                    _drx, _dry = int(W * 0.52), int(H * 0.10)
+                    _drw, _drh = int(W * 0.42), int(H * 0.80)
+                else:
+                    # 上图下文：素材卡落上半（_plate_pre 的 top 口径），内容排在下半
+                    _drx, _dry = int(W * 0.07), int(H * 0.60)
+                    _drw, _drh = int(W * 0.86), int(H * 0.34)
+                _dk = deck_page_filters(shot, th, W, H, dur, region=(_drx, _dry, _drw, _drh))
+                if _dk:
+                    print('[VF] ★VF_DECK_V1 素材页：layout=%s → 内容区 %dx%d@%d,%d'
+                          % (_dlay, _drw, _drh, _drx, _dry))
+                    _dvf = _dpre + '[smooth]null,' + ','.join(
+                        _dk + [f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"])
+                    return (f"-loop 1 -t {dur} -i \"{src}\"", _dvf, dur)
+        print('[VF] ★VF_DECK_V1 素材页条件不足（卡片版式=%s / 素材可用=%s）→ 回落老链路'
+              % ('有' if _dpo else '无', '是' if _dsrc_ok else '否'))
     font = esc_path(find_font(th.get('font', 'msyh')))
     fs = int(shot.get('fontsize', big_fs(W, H, 0.10, 54)))   # ★VF_STYLE_V1（④）：按画幅取向取字号
     txc = th.get('text', 'white')
@@ -2558,7 +2719,8 @@ def card_end(shot, th, W, H, fps):
         fp = [
             f"drawbox=x={int(W * 0.10)}:y={int(H * 0.18)}:w={int(W * 0.10)}:"
             f"h={max(6, int(H * 0.006))}:color={acc}@0.95:t=fill",
-        ] + center_lines_drawtext(font, _lines or [_main], fs, txc, W, H, dur, y_off=-int(H * 0.08))
+        ] + center_lines_drawtext(font, _lines or [_main], fs, txc, W, H, dur, y_off=-int(H * 0.08),
+                                  breath=sustain_of(shot))
         if _cta:
             _cw2 = int(est_text_w(_cta, _cfs) + 2 * _cpx)
             _cx2 = max(int(W * 0.04), (W - _cw2) // 2)
@@ -2604,18 +2766,294 @@ def card_end(shot, th, W, H, fps):
         return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
                 ','.join(cparts), dur)
     # ★VF_MOTIONPPT_V1（2026-09-30）：motion='grow' → 结尾卡顶部强调条从左往右生长（opt-in）
-    _end_grow = grow_filters(int(W * 0.10), int(H * 0.20), int(W * 0.10),
-                             max(6, int(H * 0.006)), acc + '@0.95', dur,
-                             delay=0.12, grow=0.45) if motion_of(shot) == 'grow' else []
+    # ★VF_SUSTAIN_V1 A1（2026-10-01）：默认也长（慢生长，长镜 2~3 秒），不再只在 motion='grow' 时。
+    if motion_of(shot) == 'grow' or sustain_of(shot):
+        _egs = grow_secs(dur)
+        _end_grow = grow_filters(int(W * 0.10), int(H * 0.20), int(W * 0.10),
+                                 max(6, int(H * 0.006)), acc + '@0.95', dur,
+                                 delay=0.12, grow=_egs, seg=max(6, int(_egs * 6)))
+    else:
+        _end_grow = []
     parts = (_end_grow or [
         f"drawbox=x={int(W * 0.10)}:y={int(H * 0.20)}:w={int(W * 0.10)}:h={max(6, int(H * 0.006))}:color={acc}@0.95:t=fill",
-    ]) + center_lines_drawtext(font, _lines or [_main], fs, txc, W, H, dur, y_off=-30)
+    ]) + center_lines_drawtext(font, _lines or [_main], fs, txc, W, H, dur, y_off=-30,
+                               breath=sustain_of(shot))
     if shot.get('cta'):
         parts.append(f"drawtext=fontfile='{font}':text='{esc_text(shot['cta'])}':fontsize={int(fs * 0.5)}:"
                      f"fontcolor=0x0a1620:box=1:boxcolor={acc}@0.95:boxborderw={max(10, int(fs * 0.26))}:"
                      f"x=(w-text_w)/2:y=(h-text_h)/2+{int(fs * 0.9)}:alpha='min(max(t-0.6,0)/0.6,1)'")
     return (f"-f lavfi -i color=c={th.get('bg', '0x0a1620')}:s={W}x{H}:d={dur}",
             ','.join(parts), dur)
+
+
+# ══════════════════ ★VF_DECK_V1（2026-10-01）「富编排 PPT 页」══════════════════
+# 用户原话：「单独设计的PPT动效页 最好不要就几个大字，内容编排丰富一点可以吗？
+#            就是做PPT也不可能一页就几个大字。你能单独根据我的素材 编辑 1、2 个动效 PPT
+#            给我看下嘛，这样我能知道最顶能到什么效果」
+# 旧观感：纯文字卡只有"大字 + 底线 + 字幕" → 一页就几个大字，"空"。
+# 本版式（shot['variant'] == 'deck'）一页里同时编排：
+#   ① kicker 小标签条（强调色实底 + 文字）        ② 主标题（大字粗体 ≤2 行）+ 副标题（一行小字）
+#   ③ 2~4 条要点：编号 01/02/03 + 小色块 + 文字    ④ 数据块：大数字 + 单位 + 说明（半透明卡面）
+#   ⑤ 细分割线 + 装饰几何（小方块 / 数据块左侧强调条）  ⑥ 右下角页码 + 页内进度细线
+# 动效（呼应 ★VF_SUSTAIN_V1）：
+#   · 所有元素**分段入场**（kicker 0.10s → 标题 0.30s 起逐行 0.18s → 副标 → 分割线 → 要点每条 0.28s
+#     → 数据块 → 页码），像 PPT 逐元素出现；
+#   · 持续动效：kicker 下强调条**慢生长**（A1）/ 主标题与数据块**轻微呼吸**（A2）/
+#     页内进度线**走完整页**（A4）。
+# 零回归（硬约束）：只有 variant=='deck' 才生效，非 deck 一律返回 [] → 老分镜/老主题一个像素都不动；
+#   且 `deck` **不放进 TITLE_VARIANTS** —— 那会破坏 render.py ↔ src/lib/agent/vf/anti-ai.ts 的
+#   白名单对账（vf-i2v-selftest.ts 会红）。白名单外的自造 variant 一律回落老版式。
+DECK_VARIANTS = ('deck',)
+
+
+def deck_of(shot):
+    """这一镜是不是「富编排 PPT 页」（variant='deck'）。白名单外的值一律 False（回老版式）。"""
+    return variant_of(shot, DECK_VARIANTS, '') == 'deck'
+
+
+def _deck_stats(shot):
+    """★VF_DECK_V1：数据块条目 —— 兼容 stats=[{value,suffix,label}] / dict / number 卡的 value+suffix+label。"""
+    out = []
+    v = shot.get('stats') or shot.get('stat') or shot.get('data')
+    if isinstance(v, (list, tuple)):
+        for it in list(v)[:3]:
+            if isinstance(it, dict):
+                out.append((str(it.get('value', '')), str(it.get('suffix') or it.get('unit') or ''),
+                            str(it.get('label') or it.get('desc') or it.get('title') or '')))
+            else:
+                out.append((str(it or ''), '', ''))
+    elif isinstance(v, dict):
+        out.append((str(v.get('value', '')), str(v.get('suffix') or v.get('unit') or ''),
+                    str(v.get('label') or v.get('desc') or '')))
+    if not out and shot.get('value') is not None:
+        out.append((str(shot.get('value')), str(shot.get('suffix') or ''), str(shot.get('label') or '')))
+    return [(a.strip()[:12], b.strip()[:4], c.strip()[:14])
+            for a, b, c in out if str(a).strip() or str(c).strip()]
+
+
+def deck_page_filters(shot, th, W, H, dur, font=None, region=None):
+    """★VF_DECK_V1：富编排 PPT 页的**元素层**（不含底板 —— 底板仍由 render_shot 的 stage_layer 铺）。
+
+    region=(x, y, w, h)：素材镜（横屏左图右文 / 竖屏上图下文）时**只在这块区域里排版**；
+    不给 = 整幅排版（纯文字 deck 页）。
+    返回 filter 片段 list；**非 deck 镜一律返回 []**（调用方据此保证"一个像素都不动"）。"""
+    if not deck_of(shot):
+        return []
+    _bold = font or font_bold(th)
+    _reg = esc_path(find_font(th.get('font', 'msyh')))
+    acc = str(th.get('accent') or '0xff6b35')
+    dot = str(th.get('dot') or th.get('accent2') or acc)
+    txc = str(th.get('text') or 'white')
+    subc = str(th.get('sub') or txc)
+    panel = str(th.get('cardBg') or 'black@0.46')
+    pfg = str(th.get('cardText') or txc)
+    psb = str(th.get('cardSub') or subc)
+    kbg = str(th.get('kickerBg') or acc)
+    kfg = str(th.get('kickerText') or 'white')
+    linec = str(th.get('line') or 'white@0.30')
+    _sus = sustain_of(shot)
+
+    if region:
+        rx, ry, rw, rh = [int(v) for v in region]
+    else:
+        rx, ry = int(W * 0.07), int(H * 0.075)
+        rw, rh = int(W * 0.86), int(H * 0.845)
+    rx = max(0, min(rx, max(0, W - 60)))
+    rw = max(60, min(rw, W - rx - max(6, int(W * 0.02))))
+    ry = max(0, min(ry, max(0, H - 60)))
+    rh = max(60, min(rh, H - ry - max(6, int(H * 0.02))))
+
+    main = _big_text(shot, limit=18) or clean_big_text(shot.get('title'))[:18] or 'PPT 内容页'
+    kicker = str(shot.get('kicker') or shot.get('tag') or shot.get('eyebrow') or '').strip()[:14]
+    subtitle = str(shot.get('sub') or shot.get('desc') or shot.get('subtitle_en') or '').strip()[:28]
+    items = _norm_items(shot)[:4]
+    stats = _deck_stats(shot)
+    page = str(shot.get('page') or shot.get('pageno') or shot.get('pageNo') or '').strip()[:12]
+    _plh = max(2, int(H * 0.0042))            # 页内进度线高度
+
+    # ── 自适应排版：先按区域大小取基准字号，一档档往下缩，直到总高装得进区域 ──
+    _M = {}
+    _tfs = max(22, int(min(rw * 0.105, rh * 0.185)))
+    for _ in range(10):
+        _lines, _t2 = fit_big_text(main, W, H, fs_max=_tfs, max_lines=2,
+                                   maxw_ratio=max(0.30, rw / float(W)),
+                                   fs_min=max(18, int(_tfs * 0.62)), one_line_max=9)
+        _tfs = _t2
+        _M = {
+            'lines': _lines,
+            'kfs': max(15, int(_tfs * 0.38)),
+            'sfs': max(13, int(_tfs * 0.34)),
+            'ifz': max(14, int(_tfs * 0.42)),
+            'nfz': max(16, int(_tfs * 0.50)),
+            'vfz': max(24, int(_tfs * 0.86)),
+            'lfz': max(12, int(_tfs * 0.30)),
+            'pfs': max(12, int(_tfs * 0.28)),
+        }
+        _M['kpad'] = max(6, int(_M['kfs'] * 0.42))
+        _M['kbar'] = (_M['kfs'] + 2 * _M['kpad']) if kicker else 0
+        _M['g1'] = int(_tfs * 0.32) if kicker else 0
+        _M['tg'] = int(_tfs * 1.30)
+        _M['th'] = _M['tg'] * max(1, len(_lines))
+        _M['sh'] = int(_M['sfs'] * 1.9) if subtitle else 0
+        _M['dvh'] = max(2, int(_tfs * 0.035))
+        _M['dvg'] = int(_tfs * 0.32)
+        _M['rhit'] = max(int(_M['ifz'] * 1.55), int(_M['nfz'] * 1.28))
+        _M['ih'] = _M['rhit'] * len(items)
+        _M['sh2'] = (int(_M['vfz'] * 1.24) + int(_M['lfz'] * 1.9)) if stats else 0
+        _M['g2'] = int(_tfs * 0.30) if stats else 0
+        _M['ph'] = (max(12, int(_tfs * 0.30)) + _plh) if page else 0
+        _M['tot'] = (_M['kbar'] + _M['g1'] + _M['th'] + _M['sh'] + 2 * _M['dvg'] + _M['dvh']
+                     + _M['ih'] + _M['g2'] + _M['sh2'] + _M['ph'])
+        if _M['tot'] <= rh or _tfs <= 20:
+            break
+        _tfs = max(18, int(_tfs * 0.92))
+
+    _kfs, _sfs, _ifz, _nfz = _M['kfs'], _M['sfs'], _M['ifz'], _M['nfz']
+    _vfz, _lfz, _pfs = _M['vfz'], _M['lfz'], _M['pfs']
+    _kbar, _kpad, _g1, _tg, _th = _M['kbar'], _M['kpad'], _M['g1'], _M['tg'], _M['th']
+    _sh, _dvh, _dvg, _rhit, _ih = _M['sh'], _M['dvh'], _M['dvg'], _M['rhit'], _M['ih']
+    _sh2, _g2, _ph, _tot, _lines = _M['sh2'], _M['g2'], _M['ph'], _M['tot'], _M['lines']
+
+    out = []
+    _y = ry + max(0, int((rh - _tot) * 0.5))          # 有富余就整块在区域里居中
+    _x = rx
+    _br = ('*' + breath_alpha(dur)) if _sus else ''   # A2 呼吸（乘在 alpha 上）
+
+    # ① kicker 小标签条（缺 kicker → 用一条慢生长的强调条顶上，**不硬编 title**）
+    if kicker:
+        _kw = int(est_text_w(kicker, _kfs) + 2 * _kpad)
+        out.append(f"drawbox=x={_x}:y={_y}:w={_kw}:h={_kbar}:color={kbg}@0.95:t=fill"
+                   f":enable='gte(t,0.10)'")
+        out.append(
+            f"drawtext=fontfile='{_bold}':text='{esc_text(kicker)}':fontsize={_kfs}:"
+            f"fontcolor={kfg}:x={_x + _kpad}:y={_y + _kpad}:"
+            f"alpha='min(max(t-0.10,0)/0.35,1)'")
+        _y += _kbar + _g1
+    else:
+        _bhh = max(5, int(_M['tg'] * 0.045))
+        if _sus:
+            _gs = grow_secs(dur)
+            out += grow_filters(_x, _y, max(40, int(rw * 0.16)), _bhh, acc + '@0.95', dur,
+                                delay=0.10, grow=_gs, seg=max(6, int(_gs * 6)))
+        else:
+            out.append(f"drawbox=x={_x}:y={_y}:w={max(40, int(rw * 0.16))}:h={_bhh}:"
+                       f"color={acc}@0.95:t=fill")
+        _y += _bhh + _g1
+
+    # ② 主标题（逐行错开 + 呼吸）
+    for _i, _ln in enumerate(_lines):
+        _t_on = 0.30 + 0.18 * _i
+        out.append(
+            f"drawtext=fontfile='{_bold}':text='{esc_text(_ln)}':fontsize={_tfs}:"
+            f"fontcolor={txc}:borderw={max(2, int(_tfs * 0.045))}:bordercolor=black@0.55:"
+            f"x={_x}:y={_y + _i * _tg}:alpha='min(max(t-{_t_on:.2f},0)/0.45,1){_br}'")
+    _y += _th
+
+    # ③ 副标题（一行小字）
+    if subtitle:
+        out.append(
+            f"drawtext=fontfile='{_reg}':text='{esc_text(subtitle)}':fontsize={_sfs}:"
+            f"fontcolor={subc}:x={_x}:y={_y + int(_sfs * 0.35)}:"
+            f"alpha='min(max(t-0.55,0)/0.45,1)'")
+        _y += _sh
+
+    # ④ 细分割线 + 装饰小方块（克制几何）
+    _y += _dvg
+    _divw = int(rw * 0.30)
+    out.append(f"drawbox=x={_x}:y={_y}:w={_divw}:h={_dvh}:color={linec}:t=fill"
+               f":enable='gte(t,0.75)'")
+    _sq = max(6, int(_dvh * 2.2))
+    out.append(f"drawbox=x={_x + _divw + max(6, int(rw * 0.012))}:y={_y - max(0, (_sq - _dvh) // 2)}:"
+               f"w={_sq}:h={_sq}:color={dot}@0.95:t=fill:enable='gte(t,0.85)'")
+    _y += _dvh + _dvg
+
+    # ⑤ 要点：编号 01/02 + 小色块 + 文字（逐条错开 0.28s）
+    for _i, _it in enumerate(items):
+        _t_on = 0.85 + _i * 0.28
+        _iy = _y + _i * _rhit
+        _num = '%02d' % (_i + 1)
+        out.append(
+            f"drawtext=fontfile='{_bold}':text='{_num}':fontsize={_nfz}:fontcolor={acc}:"
+            f"x={_x}:y={_iy + max(0, (_rhit - _nfz) // 2)}:"
+            f"alpha='min(max(t-{_t_on:.2f},0)/0.35,1)'")
+        _dx = _x + int(est_text_w(_num, _nfz)) + max(8, int(_nfz * 0.30))
+        _sqb = max(6, int(_ifz * 0.32))
+        out.append(f"drawbox=x={_dx}:y={_iy + max(0, (_rhit - _sqb) // 2)}:w={_sqb}:h={_sqb}:"
+                   f"color={dot}@0.95:t=fill:enable='gte(t,{_t_on + 0.08:.2f})'")
+        _tx = _dx + _sqb + max(8, int(_ifz * 0.34))
+        out.append(
+            f"drawtext=fontfile='{_reg}':text='{esc_text(_it)}':fontsize={_ifz}:"
+            f"fontcolor={txc}:x={_tx}:y={_iy + max(0, (_rhit - _ifz) // 2)}:"
+            f"alpha='min(max(t-{_t_on + 0.14:.2f},0)/0.40,1){_br}'")
+    _y += _ih
+
+    # ⑥ 数据块：半透明卡面 + 左侧强调条 +（整数走 eif 滚动）大数字 + 单位 + 说明
+    if stats:
+        _y += _g2
+        _st_on = 0.95 + 0.28 * len(items)
+        out.append(f"drawbox=x={_x}:y={_y}:w={rw}:h={_sh2}:color={panel}:t=fill"
+                   f":enable='gte(t,{_st_on:.2f})'")
+        out.append(f"drawbox=x={_x}:y={_y}:w={max(3, int(rw * 0.007))}:h={_sh2}:"
+                   f"color={acc}@0.95:t=fill:enable='gte(t,{_st_on:.2f})'")
+        _colw = rw / float(max(1, len(stats)))
+        _ufs = max(13, int(_vfz * 0.46))
+        for _j, (_jv, _js, _jl) in enumerate(stats):
+            _cx = _x + int(_colw * _j)
+            _jv = str(_jv)
+            _plain = str(_jv) + str(_js)
+            _vw = int(est_text_w(_plain, _vfz))
+            _vx = _cx + max(6, int((_colw - _vw) / 2))
+            _vy = _y + int(_sh2 * 0.16)
+            _int_ok = bool(re.fullmatch(r'\d+', _jv or '')) and int(_jv or 0) >= 3
+            if _int_ok:
+                _iv = int(_jv)
+                _rate2 = _iv / max(dur * 0.6, 0.1)
+                # ⚠️ 计数起点必须是**数据块入场那一刻**（t-_st_on），不能从 t=0 起算：
+                #   否则卡面刚出现时数字已经跳到一半（本机抽帧实测 t=3.2 时本应 2 却显示 1）。
+                out.append(
+                    f"drawtext=fontfile='{_bold}':"
+                    f"text='%{{eif\\:min(max(t-{_st_on:.2f}\\,0)*{_rate2:.1f}\\,{_iv})\\:d}}':"
+                    f"fontsize={_vfz}:fontcolor={acc}:x={_vx}:y={_vy}:"
+                    f"alpha='min(max(t-{_st_on + 0.10:.2f},0)/0.4,1){_br}'")
+            else:
+                out.append(
+                    f"drawtext=fontfile='{_bold}':text='{esc_text(_jv)}':fontsize={_vfz}:"
+                    f"fontcolor={acc}:x={_vx}:y={_vy}:"
+                    f"alpha='min(max(t-{_st_on + 0.10:.2f},0)/0.4,1){_br}'")
+            if _js:
+                out.append(
+                    f"drawtext=fontfile='{_bold}':text='{esc_text(_js)}':fontsize={_ufs}:"
+                    f"fontcolor={acc}@0.85:"
+                    f"x={_vx + int(est_text_w(_jv, _vfz)) + max(2, int(_vfz * 0.08))}:"
+                    f"y={_vy + int(_vfz * 0.72) - int(_ufs * 0.72)}:"
+                    f"alpha='min(max(t-{_st_on + 0.22:.2f},0)/0.4,1)'")
+            if _jl:
+                out.append(
+                    f"drawtext=fontfile='{_reg}':text='{esc_text(_jl)}':fontsize={_lfz}:"
+                    f"fontcolor={psb}:x={_cx + max(6, int((_colw - int(est_text_w(_jl, _lfz))) / 2))}:"
+                    f"y={_y + int(_sh2 * 0.60)}:alpha='min(max(t-{_st_on + 0.30:.2f},0)/0.4,1)'")
+        _y += _sh2
+
+    # ⑦ 右下角页码 + 页内进度细线（常驻动效：线走完这一页）
+    if page:
+        _pwy = ry + rh - _plh - int(_pfs * 1.5)
+        out.append(
+            f"drawtext=fontfile='{_reg}':text='{esc_text(page)}':fontsize={_pfs}:"
+            f"fontcolor={linec if '@' in linec else linec + '@0.85'}:"
+            f"x={rx + rw - int(est_text_w(page, _pfs))}:y={_pwy}:"
+            f"alpha='min(max(t-0.90,0)/0.45,1)'")
+    # 纯文字 deck 页（region 未给）**不重复**画页内进度线 —— render_shot 已经给全部纯文字卡
+    #   加了一条走完整镜的 A4 进度线；只有"素材 deck 页"（走 bgimage 通道，拿不到那条）才在这里补。
+    if region:
+        out += progress_filters(W, H, dur, acc + '@0.80', seg=max(6, int(min(20, dur * 3))),
+                                y=ry + rh - _plh, h=_plh, x0=rx, w=rw)
+    # 装饰几何（克制）：版面左上角一根极短强调竖发丝，收住整块排版的边界
+    out.append(f"drawbox=x={rx}:y={ry}:w={max(2, int(rw * 0.004))}:h={max(10, int(rh * 0.16))}:"
+               f"color={acc}@0.55:t=fill")
+    print('[VF] ★VF_DECK_V1 版面：kicker=%s 标题%d行 要点%d条 数据%d块 页码=%s（区域 %dx%d@%d,%d）'
+          % ('有' if kicker else '无', len(_lines), len(items), len(stats), page or '无',
+             rw, rh, rx, ry))
+    return [p for p in out if str(p).strip()]
 
 
 CARDS = {
@@ -2714,6 +3152,15 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
         if _ef:
             vf = vf + ',' + ','.join(_ef)
             print('[VF] 文字卡 %s → 整块版式入场滑入（enter=%s）' % (typ, enter_of(shot)))
+        # ★VF_SUSTAIN_V1 A4（2026-10-01）：纯文字卡底部一条**走完整镜**的进度细线（常驻动效）。
+        #   为什么放在 render_shot 这一层：一处接线就覆盖全部纯文字卡（title/list/number/compare/
+        #   chart/end 以及 deck 页），不必去改 6 个卡型；有素材的镜不加（那边靠浮动/Ken Burns）。
+        if sustain_of(shot):
+            _pfs = progress_filters(W, H, dur, str(th.get('accent') or '0xff6b35') + '@0.80',
+                                    seg=max(6, int(min(20, float(dur or 3) * 3))))
+            if _pfs:
+                vf = vf + ',' + ','.join(_pfs)
+                print('[VF] 文字卡 %s → 底部进度细线（持续动效 A4，%d 段走完整镜）' % (typ, len(_pfs)))
     out = os.path.join(workdir, 'shot%02d.mp4' % idx)
     # ★VF_TRANS_V1（2026-09-20）：每镜首尾轻微淡入淡出（≤0.2s）——比硬切自然；
     #   不改时长（不碰音频时间轴），拼接后就是“柔和的镜间过渡”

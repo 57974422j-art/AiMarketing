@@ -592,6 +592,127 @@ def main():
         chk('VF_MOTION_PROMPT' in _s2, '动效接线：%s 的提示词已接 VF_MOTION_PROMPT' % _f)
         chk('ensurePersistentMotion' in _s2, '动效接线：%s 已接 ensurePersistentMotion 兜底' % _f)
 
+    # ══ 13. ★VF_SUSTAIN_V1（2026-10-01）【持续型动效】上量 ═══════════════════════
+    # 用户原话：「PPT动效还是不显著，你看是不是只能如此了。到顶了。」
+    # 根因（渲染层自查）：到上一版为止每一镜的动效**全是入场型**（0.25~0.5 秒做完就静止）→
+    #   长镜里就是"动一下就不动"。本批补 A1 强调条慢生长 / A2 大字呼吸 / A3 卡片浮动加强 /
+    #   A4 底部进度细线。断言口径沿用第 8/11 节：每条都要 grep 到**逐帧机制**
+    #   （enable 分段 / sin(t)——drawbox 的 w/h 只在初始化求值一次，那是假动画），且不许出现裸 w=。
+    _dark6 = theme_of('dark')
+    _t6 = R.card_title({'type': 'title', 'text': '库存告急', 'dur': 6}, _dark6, 1280, 720, 25)[1]
+    chk(abs(R.grow_secs(0.6) - 0.45) < 1e-6, 'A1：短镜强调条仍是 0.45s 的克制值', str(R.grow_secs(0.6)))
+    chk(R.grow_secs(6.0) >= 2.0, 'A1：长镜强调条生长拉到 ≥2s（治"动一下就不动"）', str(R.grow_secs(6.0)))
+    chk(_t6.count("enable='gte(t,") >= 6,
+        'A1：标题卡**默认**就走慢生长（≥6 段 enable，不再只在 motion=grow 时）',
+        'enable=%d' % _t6.count("enable='gte(t,"))
+    _gv = R.grow_v_filters(40, 100, 8, 300, 'white@0.95', 6.0, grow=R.grow_secs(6.0), seg=12)
+    chk(len(_gv) >= 8 and all("enable='gte(t," in x for x in _gv)
+        and all(':h=' in x for x in _gv) and "w='" not in ' '.join(_gv),
+        'A1：竖直强调条走 enable 分段长**高度**（不是横向撑宽）', 'n=%d' % len(_gv))
+    chk('sin(2*PI*t/' in R.breath_alpha(6), 'A2：呼吸表达式用逐帧 sin')
+    chk("alpha='min(t/0.5,1)*(" in _t6 and 'sin(2*PI*t/' in _t6,
+        'A2：标题卡大字 alpha = 入场渐入 × 呼吸项（持续起伏）')
+    chk(R.center_lines_drawtext('f', ['字'], 40, 'white', 1280, 720, 5)[0].count('sin(') == 0,
+        'A2：breath 缺省(False) → alpha 与改动前逐字相同（老调用方零回归）')
+    _pr = R.progress_filters(1280, 720, 6.0, 'white@0.5', seg=12)
+    chk(len(_pr) == 12 and all("enable='gte(t," in x for x in _pr)
+        and "w='" not in ' '.join(_pr),
+        'A4：底部进度细线走 enable 分段（真逐帧，不是假动画）', 'n=%d' % len(_pr))
+    _prx = R.progress_filters(1280, 720, 6.0, 'white@0.5', seg=6, x0=100, w=400)
+    chk(bool(_prx) and all(x.startswith('drawbox=x=100:') for x in _prx),
+        'A4：x0/w 支持"只在版面区域内走"（deck 素材页用）', str(_prx[:1])[:60])
+    chk('progress_filters(' in _rs and 'sustain_of(shot)' in _rs,
+        'A4：render_shot 已把进度细线接进纯文字卡（一处接线覆盖全部文字卡型）')
+    chk(R.sustain_of({'sustain': 'none'}) is False and R.sustain_of({}) is True,
+        '总开关：shot[sustain]=none 可单镜关掉持续动效；缺省开')
+    if ff:
+        _wdS = tempfile.mkdtemp(prefix='vf-sustain-')
+        _imgS = os.path.join(_wdS, 's.jpg')
+        # 素材镜（B 组卡片版式）的浮动：增强后的振幅必须明显大于老的 0.014H
+        if _mk_img(ff, _imgS, 1280, 720, '0x2b4a5a'):
+            _poS = R.plate_opts({'float': 'slow', 'wipe': 'none'}, theme_of('news'))
+            _chS = R._plate_pre(_imgS, 1280, 720,
+                                {'type': 'bgimage', 'src': _imgS, 'text': '标题', 'dur': 6, '_idx': 0},
+                                theme_of('news'), _poS, dur=6, layout='top') or ''
+            _amps = [int(x) for x in _re.findall(r'(\d+)\*sin\(2\*PI\*t/', _chS)]
+            _old = max(4, int(720 * 0.014))
+            chk(bool(_amps) and max(_amps) >= 2 * _old - 2,
+                'A3：B 组卡片浮动振幅 ≈×2（旧 %dpx → 新 ≥%dpx，治"看不出动"）' % (_old, 2 * _old - 2),
+                str(_amps))
+    chk('★VF_SUSTAIN_V1' in _src, '防回退：★VF_SUSTAIN_V1 仍在 render.py 里')
+
+    # ══ 14. ★VF_DECK_V1（2026-10-01）「富编排 PPT 页」 ══════════════════════════
+    # 用户原话：「最好不要就几个大字，内容编排丰富一点可以吗？……你能单独根据我的素材 编辑
+    #            1、2 个动效 PPT 给我看下嘛，这样我能知道最顶能到什么效果」
+    # 断言口径：① 一页里元素齐全（kicker/标题/编号要点/数据块/分割线/页码）且**分段入场 + 持续动效**；
+    #   ② **零回归**：非 deck（含白名单外的自造 variant）必须返回 []（一个像素都不动）；
+    #   ③ `deck` 不许塞进 TITLE_VARIANTS（那会红 vf-i2v-selftest.ts 的白名单对账）。
+    _thD = theme_of('news')
+    _dshot = {'type': 'title', 'variant': 'deck', 'kicker': 'AI 营销', 'text': 'AI 营销内容生成系统',
+              'sub': '从选题到成片，一条流水线', 'items': ['智能选题', '一键成片', '自动分发'],
+              'stats': [{'value': '8.5%', 'label': '点击率'}, {'value': '150', 'suffix': '万', 'label': '曝光'}],
+              'page': '01 / 02', 'dur': 8}
+    _dk = R.deck_page_filters(dict(_dshot), _thD, 1280, 720, 8)
+    _dkj = ','.join(_dk)
+    chk(len(_dk) >= 20, 'deck：一页 ≥20 个元素层（不再是"就几个大字"）', 'n=%d' % len(_dk))
+    chk('AI 营销' in _dkj, 'deck：① kicker 小标签条在位')
+    chk("text='01'" in _dkj and "text='02'" in _dkj and "text='03'" in _dkj,
+        'deck：③ 要点带编号 01/02/03')
+    chk('8.5' in _dkj and '150' in _dkj and 'eif' in _dkj,
+        'deck：④ 数据块（8.5% 静态强调色 / 150 走 eif 滚动）')
+    chk('01 / 02' in _dkj, 'deck：⑥ 页码在位')
+    chk("enable='gte(t," in _dkj, 'deck：元素分段入场（drawbox 走 enable 按时间点插入）')
+    chk(":alpha='min(max(t-" in _dkj, 'deck：每段文字错开渐入（分段插入）')
+    chk('sin(2*PI*t/' in _dkj and "enable='gte(t," in _dkj,
+        'deck：持续动效在位（呼吸 sin + 慢生长 enable）')
+    # 零回归：非 deck 一律 []（一个像素都不动）
+    for _bad in ({'text': '老标题'}, {'variant': 'center'}, {'variant': 'rainbow'},
+                 {'variant': 'deck-like'}, {'variant': 'cards'}):
+        chk(R.deck_page_filters(dict(_bad), _thD, 1280, 720, 5) == [],
+            'deck 零回归：%s → 一个滤镜都不加' % (str(_bad)[:34]))
+    _d_ok = R.deck_page_filters({'variant': 'deck'}, _thD, 1280, 720, 5)
+    chk(bool(_d_ok), 'deck：即使没有标题/要点也产出兜底版面（绝不空页）', 'n=%d' % len(_d_ok))
+    chk('deck' not in R.TITLE_VARIANTS and list(R.DECK_VARIANTS) == ['deck'],
+        'deck 不塞进 TITLE_VARIANTS（保住与 anti-ai.ts 的对账：vf-i2v-selftest 70 项）')
+    # 素材页：横屏左图右文（内容落右半幅）/ 竖屏上图下文（内容落下半幅）
+    if ff:
+        _wdD = tempfile.mkdtemp(prefix='vf-deck-')
+        _imgP = os.path.join(_wdD, 'p_768x1344.jpg')
+        # 用**渐变图**而不是纯色图：纯色会被 VF_MATGUARD 判成"深色界面截图"→ 老主题那条
+        #   零回归断言会走到"换质感底板"分支（自己先踩过一次，记在这里）。
+        try:
+            subprocess.run([ff, '-v', 'error', '-y', '-f', 'lavfi',
+                            '-i', 'gradients=s=768x1344:c0=0x2b4a5a:c1=0x9ab0c0',
+                            '-frames:v', '1', _imgP], capture_output=True, timeout=30)
+        except Exception:
+            pass
+        if not os.path.exists(_imgP):
+            _mk_img(ff, _imgP, 768, 1344, '0x2b4a5a')
+        if os.path.exists(_imgP):
+            def _dtxy(chain, key):
+                out = []
+                for _sg in str(chain).split(','):
+                    if _sg.startswith('drawtext='):
+                        _m = _re.search(r':%s=(\d+)' % key, _sg)
+                        if _m:
+                            out.append(int(_m.group(1)))
+                return out
+
+            _vdl = R.card_bgimage(dict(_dshot, src=_imgP, dur=8), _thD, 1280, 720, 25)[1]
+            _xsl = _dtxy(_vdl, 'x')
+            chk('alphamerge' in _vdl and bool(_xsl) and min(_xsl) >= 640,
+                'deck 素材页：横屏 + 竖素材 → 左图右文（内容全在右半幅）', str(_xsl[:6]))
+            _vdp = R.card_bgimage(dict(_dshot, src=_imgP, dur=8), _thD, 720, 1280, 25)[1]
+            _ysp = _dtxy(_vdp, 'y')
+            chk('alphamerge' in _vdp and bool(_ysp) and min(_ysp) >= int(1280 * 0.5),
+                'deck 素材页：竖屏 → 上图下文（内容全在下半幅）', str(_ysp[:6]))
+            _vdd = R.card_bgimage(dict(_dshot, src=_imgP, dur=8), _dark6, 1280, 720, 25)[1]
+            chk('alphamerge' not in _vdd and 'zoompan' in _vdd,
+                'deck 素材页：老主题（无卡片版式）→ 老实回落老链路（绝不弄挂出片）')
+    chk('★VF_DECK_V1' in _src and 'dot' in open(os.path.join(_VF, 'themes.py'),
+                                                encoding='utf-8').read(),
+        '防回退：★VF_DECK_V1 标记 + themes.py 的 dot token 都在位')
+
     if a.render:
         _render_demo()
 

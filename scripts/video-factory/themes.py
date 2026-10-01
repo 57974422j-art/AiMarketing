@@ -37,6 +37,11 @@ token 说明（都在 render.py 里被读取，缺省有兜底 → 老分镜不�
   说明：圆角/相框/阴影/浮动/擦入/背景虚化这些是【分镜级字段】（frame/shadow/float/wipe/bgblur），
   不是主题 token —— 主题只决定"这一套风格看起来是什么颜色"。这里的 frameBg 只负责"拍立得白边"的颜色。
   同样有 _with_tokens 兜底 → 老主题不写也不会坏。
+
+★VF_DECK_V1（2026-10-01 用户定案「PPT 页内容编排丰富一点」）——新增 1 个 token：
+  dot       「富编排 PPT 页」（variant='deck'）里**小色块/圆点/装饰方块**的颜色
+            （要点条目前的方点、分割线尾端的小方块）。默认 = accent2（没写 accent2 就是 accent）。
+            同样有 _with_tokens 兜底 → 老主题不写也不会坏（渲染层 `th.get('dot') or accent2 or accent`）。
 """
 
 THEMES = {
@@ -115,6 +120,7 @@ THEMES = {
         'kickerBg': '0x2f7cf6', 'kickerText': '0xffffff',
         'line': '0x2f7cf6@0.55', 'enFont': 'arial',
         'frameBg': 'white',
+        'dot': '0xd7263d',            # ★VF_DECK_V1：deck 页要点小方点（用次强调红，与蓝底形成层级）
         'desc': '新闻资讯（编辑风）',
     },
     'data': {
@@ -126,6 +132,7 @@ THEMES = {
         'barBg': 'black@0.66', 'barText': '0xeaf6ff',
         'kickerBg': '0x22d3ee', 'kickerText': '0x04222b',
         'line': '0x22d3ee@0.50', 'enFont': 'arial',
+        'dot': '0x34d399',            # ★VF_DECK_V1：deck 页要点小方点（青底 + 薄荷绿点）
         'desc': '科技数据（编辑风）',
     },
 }
@@ -151,6 +158,8 @@ def _with_tokens(d):
     d.setdefault('kickerText', 'white')
     d.setdefault('line', 'white@0.30')
     d.setdefault('enFont', 'arial')      # 英文副标：无衬线（用户明确「不要用中文字体去排英文」）
+    # ★VF_DECK_V1（2026-10-01）：deck 页的小色块/圆点/装饰方块色（没写就用次强调色）。
+    d.setdefault('dot', d.get('accent2') or d.get('accent') or '0xff6b35')
     # ★VF_TPL_B1_V1（2026-09-30）：拍立得相框的"白边"底色。
     #   必须是**不带 alpha 的纯色**：ffmpeg `pad` 滤镜的 color 不给 rgb 之外的东西，
     #   写成 'white@0.96' 会被 pad 拒掉（这里刻意保守，保证任何本机/服务器版本都能跑）。
