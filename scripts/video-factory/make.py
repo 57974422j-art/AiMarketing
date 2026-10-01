@@ -465,6 +465,133 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
     return (out_path, ok_n, total_sec, via_last)
 
 
+# ══════════════════ ★VF_SHOTLIMIT_V1（2026-10-01）单镜硬闸门（出片前最后一道）══════════════════
+# 用户实测事故（2026-10-01，成片 20261001_003，242 秒）：
+#   `storyboard.voiced.json` 里 **第 30 镜：subtitle 276 字 / 配音 51.84s / 镜长 52.19s**（title 卡）→
+#   ① 全片计划 198 秒被拉到 242 秒；② 那一镜是纯文字卡 → 52 秒画面几乎完全不动（用户："最后缺帧、
+#   配音字幕都没完就定格了"）；③ 我逐帧实测"最后 37 秒连续静止"完全吻合。
+#
+# 为什么还要在 make.py 再做一道（TS 侧已经有 splitLongSubtitles 了）：
+#   事故当时 TS 侧的拆镜**没有生效**（服务端任务文件里还是 30 镜、第 30 镜 276 字）——
+#   不论根因是"版本没部署到"还是"某条路径没走到"，**出片链路都不该依赖单一环节**。
+#   这里做成**与 TS 侧版本无关的独立兜底**，口径与 src/lib/agent/vf/anti-ai.ts 严格同源：
+#     · 上限 = min(60, ceil(dur × 4.3))（4.3 字/秒是实测中文口播速度）
+#     · 标点优先断句 → 再按字数硬切；**segs 拼回来必须 === 原文（一字不丢）**
+#     · 各段 dur 按字数比例分、每段 ≥2 秒；不足则整镜总时长抬到 段数×2（时长本就由配音决定）
+#
+# ⚠️ 位置铁律：**必须在调 tts.py 之前**。因为音频是"逐镜 TTS 后按各镜 dur 拼成一条轨"——
+#   若放到 render.py（音频已合并完）再拆，字幕/配音就会与画面错位。
+SUB_CPS = 4.3        # 中文口播速度（字/秒，实测）—— 与 anti-ai.ts 的 VF_SUB_CPS 同源
+SUB_MAX = 60         # 单镜字幕硬上限（字）—— 60 字 ≈ 14 秒口播
+SHOT_MIN_SEC = 2.0   # 拆出来的每一镜最短时长（秒）
+SUB_PUNC = '。！？；，'   # 中文断句标点（标点跟在前一段尾部，保证拼回来一字不差）
+
+
+def sub_cap(dur):
+    """单镜字幕上限 = min(60, ceil(dur × 4.3))；dur 非法 → 按 3 秒算（= 上限 13 字）"""
+    try:
+        d = float(dur)
+    except Exception:
+        d = 3.0
+    if d < 1:
+        d = 1.0
+    return max(1, min(SUB_MAX, int(d * SUB_CPS + 0.9999)))
+
+
+def split_text_by_cap(text, cap):
+    """把一段文字按「每段 ≤ cap 字」切分（标点优先，切不出来再按字数硬切）。
+    **返回值是原文的连续子串，''.join(segs) === 原文**（一字不少，含标点）。"""
+    s = '' if text is None else str(text)
+    c = max(1, int(cap or 1))
+    if not s:
+        return []
+    if len(s) <= c:
+        return [s]
+    pieces, cur = [], ''
+    for ch in s:
+        cur += ch
+        if ch in SUB_PUNC:
+            pieces.append(cur)
+            cur = ''
+    if cur:
+        pieces.append(cur)
+    out, buf = [], ''
+    for p in pieces:
+        if len(p) > c:
+            if buf:
+                out.append(buf)
+                buf = ''
+            for i in range(0, len(p), c):
+                out.append(p[i:i + c])
+            continue
+        if len(buf) + len(p) <= c:
+            buf += p
+        else:
+            if buf:
+                out.append(buf)
+            buf = p
+    if buf:
+        out.append(buf)
+    return out
+
+
+def enforce_shot_limits(sb):
+    """★VF_SHOTLIMIT_V1：把字幕超长的镜【按句拆成多镜】（就地改 sb['shots']）。
+    返回 (是否有改动, 说明 list, "读不完但未超上限"的镜数)。**绝不上抛**：异常由调用方兜住，不影响出片。
+    只换 subtitle + dur，其余字段（type/src/text/主题/版式…）原样继承 → 画面风格不变。
+
+    ⚠️ 用【固定 60 字】硬上限，而不是"按镜长算"的上限 —— 后者**不幂等**：
+      TS 侧已经按 `min(60, dur×4.3)` 拆过一次后，拆出来的段 dur 也变小了 →
+      这里按新 dur 再算会算出一个更小的上限 → **把已经拆好的段再拆一遍**（越拆越碎）。
+      固定 60 字则：拆一次之后每段都 ≤60 → 第二次跑必然 0 改动（幂等），
+      而 003 那种 276 字的灾难镜照样被拆开。"""
+    shots = (sb or {}).get('shots') or []
+    out, notes, soft = [], [], 0
+    for i, sh in enumerate(shots):
+        s = sh if isinstance(sh, dict) else {}
+        sub = '' if s.get('subtitle') is None else str(s.get('subtitle'))
+        if len(sub) <= SUB_MAX:
+            # 没超硬上限：只统计"按这镜的时长明显读不完"的（≥2 字差距）→ 提示，绝不改
+            if len(sub) > sub_cap(s.get('dur')) + 2:
+                soft += 1
+            out.append(s)
+            continue
+        segs = split_text_by_cap(sub, SUB_MAX)
+        if len(segs) <= 1:
+            out.append(s)
+            continue
+        # 各段时长：按字数比例分（用"厘秒"整数分配，保证各段之和精确等于总时长）
+        try:
+            orig = float(s.get('dur') or 3)
+        except Exception:
+            orig = 3.0
+        orig = max(1.0, orig)
+        min_total = len(segs) * SHOT_MIN_SEC
+        use_total = max(orig, min_total)
+        total_len = sum(len(x) for x in segs) or 1
+        total_cs = int(round(use_total * 100))
+        min_cs = int(SHOT_MIN_SEC * 100)
+        remain_cs = max(0, total_cs - len(segs) * min_cs)
+        acc, prev, durs = 0.0, 0, []
+        for sg in segs:
+            acc += remain_cs * (len(sg) / float(total_len))
+            cur = int(round(acc))
+            durs.append((min_cs + (cur - prev)) / 100.0)
+            prev = cur
+        for k, sg in enumerate(segs):
+            item = dict(s)
+            item['subtitle'] = sg
+            item['dur'] = durs[k]
+            out.append(item)
+        notes.append('第 %d 镜字幕 %d 字 / %.1fs → 拆成 %d 镜（每段 ≤%d 字、≥%.0fs%s）'
+                     % (i + 1, len(sub), orig, len(segs), SUB_MAX, SHOT_MIN_SEC,
+                        ('' if use_total <= orig + 0.01 else '；总时长 %.1fs→%.1fs' % (orig, use_total))))
+    if notes:
+        sb['shots'] = out
+        return True, notes, soft
+    return False, [], soft
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--script', default='', help='一段文案（自动切句成卡）')
@@ -563,6 +690,38 @@ def main():
         return
     print('[MAKE] 分镜 %d 镜: %s' % (len(sb.get('shots', [])),
                                     ', '.join(s.get('type', '?') for s in sb.get('shots', []))))
+
+    # ★VF_SHOTLIMIT_V1（2026-10-01）单镜硬闸门 —— **必须在 tts.py 之前**：
+    #   用户实测事故：第 30 镜 276 字 / 52 秒（纯文字卡）→ 全片超 44 秒、末段 37 秒画面静止。
+    #   TS 侧的 splitLongSubtitles 当时没生效（不论原因是版本还是路径），所以这里做**独立兜底**。
+    #   拆完把分镜写进 work 目录（不动调用方传进来的文件），后续 tts/render 都用这一份。
+    try:
+        _changed, _notes, _soft = enforce_shot_limits(sb)
+        if _changed:
+            _split_path = os.path.join(wd, 'storyboard.split.json')
+            json.dump(sb, open(_split_path, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+            sb_path = _split_path
+            print('[MAKE] ★单镜硬闸门（★VF_SHOTLIMIT_V1）：%d 镜超限 → 拆后共 %d 镜'
+                  % (len(_notes), len(sb.get('shots', []))))
+            for _n in _notes[:8]:
+                print('   ' + _n)
+            if len(_notes) > 8:
+                print('   …（还有 %d 镜超限，已同样拆分）' % (len(_notes) - 8))
+            print('[MAKE] 拆后分镜 → %s' % _split_path)
+        if _soft:
+            print('[MAKE] ℹ️ 另有 %d 镜字幕按"该镜时长"读不完（但未超 %d 字硬上限）→ 未改动；'
+                  '真实镜长会由配音回填（片长随之变长）' % (_soft, SUB_MAX))
+    except Exception as _eL:
+        print('[MAKE] ⚠️ 单镜硬闸门异常（忽略，按原分镜出片）: %s' % str(_eL)[:140])
+    # 顺带如实提示"没字幕但很长的镜"（那种镜配音为空 → 画面会长时间不动；只提示不修改）
+    try:
+        for _j, _s in enumerate(sb.get('shots') or []):
+            _d = float(_s.get('dur') or 0)
+            if _d > 15 and not str(_s.get('subtitle') or '').strip():
+                print('[MAKE] ⚠️ 第 %d 镜 dur=%.1fs 且没有字幕 → 画面会长时间不动（建议分镜侧拆开）'
+                      % (_j + 1, _d))
+    except Exception:
+        pass
 
     # ② 配音（回填真实时长）
     voiced = os.path.join(wd, 'storyboard.voiced.json')
