@@ -22,11 +22,17 @@
 凭据定位（跨平台）：进程环境变量优先 → VF_ENV_FILE → 从脚本位置逐级向上找 .env.local → cwd。
   百炼：DASHSCOPE_API_KEY（音色可用 DASHSCOPE_TTS_VOICE 覆盖，默认 longxiaochun）
   火山：VOLCANO_TTS_APP_ID / VOLCANO_TTS_ACCESS_KEY / VOLCANO_TTS_RESOURCE_ID（兜底）
+
+★VF_TTSLANG_V1（2026-10-01）：qwen3-tts 是**多语言模型**，裸调用走默认 language_type=Auto 时会
+  "按文本自己猜语种" → 中英夹混的句子偶发被读成别的语言（用户实测「最后一句像日语（偶发）」）。
+  现含中文的句子**显式传 language_type=Chinese** 把语种锁死；该参数若被接口拒绝会自动去参重试
+  （见 dash_post_with_lang_fallback，保证"绝不因新参数没声音"）。可用 VF_TTS_LANG=off 一键关闭本特性。
 """
 import argparse
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -137,6 +143,8 @@ ENV = load_env()
 _CRED_WARNED = [False]
 # ★VF_TTSERR_V1：百炼失败一次后，本次运行不再重试（否则每一镜都白跑一遍、还刷一堆日志）
 _DASH_DEAD = [False]
+# ★VF_TTSLANG_V1：记录"本句最终用哪个音色"，供 tts_one 打「引擎+音色+语言」一行汇总
+_LAST_VOICE = ['']
 
 
 def env_get(key, default=''):
@@ -199,6 +207,38 @@ def qwen3_voice(sp):
     return 'Cherry'
 
 
+# ★VF_TTSLANG_V1（2026-10-01，用户实测「最后一句配音像日语（偶发）」）：
+#   根因 —— 默认音色映射 longxiaochun → **Cherry**，而 Cherry/Serena/Ethan/Chelsie 属于
+#   **qwen3-tts（多语言模型）**：请求体不带 language_type 时走模型默认 `Auto`，
+#   由模型"按文本自己猜语种"；中英夹混的句子（如「AI」）偶发被判成别的语言 → 念出来像日语。
+#   修法 —— 合成前判断文本是否含中文（CJK 正则），含中文的句子**显式传 `language_type='Chinese'`**，
+#   把语种锁死，不再交给模型猜。
+#   参数名/取值/位置（阿里云百炼《Qwen-TTS API》官方文档核对）：HTTP 请求体里放在 **input 内**，
+#   与 text / voice 同级；取值 = Auto(默认)/Chinese/English/German/Italian/Portuguese/Spanish/
+#   Japanese/Korean/French/Russian。→ 中文文本传 'Chinese'。
+#   ④ 结论：**不需要**给这些多语言音色另配"纯中文音色"——同一音色指定 Chinese 即为纯中文发音。
+_CJK_RE = re.compile(r'[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]')
+
+
+def has_cjk(text):
+    """★VF_TTSLANG_V1：文本里是否含中文汉字（纯函数；None / 空 / 纯符号 → False，绝不抛异常）"""
+    return bool(_CJK_RE.search(text or ''))
+
+
+def lang_type_for(text):
+    """★VF_TTSLANG_V1：qwen3-tts 的 input.language_type 该填什么（纯函数，可单测）。
+    含中文 → 'Chinese'（**显式锁中文**）；不含中文 / 空 → ''（不传该字段，保持模型默认 Auto）。
+    ★VF_TTS_LANG=off 可整体关掉本特性（万一线上要立刻回退的老开关）。"""
+    if (env_get('VF_TTS_LANG') or '').strip().lower() in ('off', '0', 'false', 'no'):
+        return ''
+    return 'Chinese' if has_cjk(text) else ''
+
+
+def lang_label(text):
+    """日志用：'zh' = 含中文（已锁中文）/ '-' = 未锁"""
+    return 'zh' if has_cjk(text) else '-'
+
+
 def _dig_audio_url(obj, depth=0):
     """在返回 JSON 里“挖”出音频 url（兼容“同步直出”与各种嵌套）"""
     if depth > 6:
@@ -230,6 +270,50 @@ def _write_audio(buf, out_path):
     return mp3_duration(out_path)
 
 
+def _dash_post(url, payload, key, async_hdr=False, timeout=30):
+    """★VF_TTSLANG_V1：百炼 POST 一次。
+    返回 (data, err, killed)：成功 = (dict, '', False)；失败 = (None, '一句人话原因', killed)，
+    killed=True 表示 HTTP 层确定性失败（400/403 这类，值得让该引擎本轮整体停手），
+    网络/超时类异常为 False（不永久停手，与既有 _DASH_DEAD 语义一致）。"""
+    body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+    hdrs = {'Content-Type': 'application/json', 'Authorization': 'Bearer %s' % key}
+    if async_hdr:
+        # ★实测：新端点（multimodal-generation）带上这个头会 403
+        #   "current user api does not support asynchronous calls" → 同步接口不能带
+        hdrs['X-DashScope-Async'] = 'enable'
+    req = urllib.request.Request(url, data=body, method='POST', headers=hdrs)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read() or b'{}'), '', False
+    except urllib.error.HTTPError as e:
+        # ★VF_TTSERR_V1：原来只打“HTTP Error 400: Bad Request”，根本看不到百炼在报什么
+        try:
+            _b = e.read().decode('utf-8', 'replace')[:300]
+        except Exception:
+            _b = ''
+        return None, 'HTTP %s %s | %s' % (e.code, e.reason, _b), True
+    except Exception as e:
+        return None, str(e)[:140], False
+
+
+def dash_post_with_lang_fallback(post_fn, url, payload, key, async_hdr=False):
+    """★VF_TTSLANG_V1②（防呆，纯函数；post_fn 可注入 → 不联网即可单测）：
+    先按【带 language_type 的 payload】提交；**一旦接口报错、且该字段是我们新加的 → 立即去掉它重试一次**。
+    目的：新增语言参数这条改动**绝不会**把整条配音搞挂（最坏退化成改动前的行为，仍有声）。
+    返回 (data, err, killed)：data is None = 两次都失败。"""
+    data, err, killed = post_fn(url, payload, key, async_hdr)
+    _inp = payload.get('input')
+    if data is None and isinstance(_inp, dict) and _inp.get('language_type'):
+        print('[TTS] ⚠️ ★VF_TTSLANG_V1 百炼拒绝 language_type（%s）→ 去掉该参数重试一次'
+              '（确保配音不因新参数失败）' % err)
+        _p2 = dict(payload)
+        _p2['input'] = {k: v for k, v in _inp.items() if k != 'language_type'}
+        data, err, killed = post_fn(url, _p2, key, async_hdr)
+        if data is not None:
+            print('[TTS] ✅ ★VF_TTSLANG_V1 去掉 language_type 后成功（本句未锁语言，但出声了）')
+    return data, err, killed
+
+
 def _tts_dashscope(text, out_path, voice):
     """百炼（异步提交 + 轮询 + 下载 mp3）。未配 key / 失败 时返回 0.0（交给下一引擎兜底）。
 
@@ -253,35 +337,26 @@ def _tts_dashscope(text, out_path, voice):
     if v3:
         # ★v3 = 新协议（同步）：音色必须是 qwen3 的 Cherry/Serena/Ethan/Chelsie
         v = env_get('DASHSCOPE_TTS_VOICE') or qwen3_voice(voice)
-        payload = {'model': model, 'input': {'text': text, 'voice': v}}
+        _inp = {'text': text, 'voice': v}
+        # ★VF_TTSLANG_V1：含中文 → 显式锁 language_type=Chinese（不让多语言模型自己猜语种）
+        _lg = lang_type_for(text)
+        if _lg:
+            _inp['language_type'] = _lg
+            print('[TTS] 语言判定=%s（文本含中文 → 强制 language_type=%s，音色=%s）'
+                  % (lang_label(text), _lg, v))
+        payload = {'model': model, 'input': _inp}
     else:
         v = voice or env_get('DASHSCOPE_TTS_VOICE') or DASHSCOPE_VOICE
         payload = {'model': model, 'input': {'text': text},
                    'parameters': {'voice': v, 'format': 'mp3'}, 'action': 'run'}
-    body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-    hdrs = {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer %s' % key,
-    }
-    if not v3:
-        # ★实测：新端点（multimodal-generation）带上这个头会 403
-        #   "current user api does not support asynchronous calls" → 同步接口不能带
-        hdrs['X-DashScope-Async'] = 'enable'
-    req = urllib.request.Request(url, data=body, method='POST', headers=hdrs)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            data = json.loads(r.read() or b'{}')
-    except urllib.error.HTTPError as e:
-        # ★VF_TTSERR_V1：原来只打“HTTP Error 400: Bad Request”，根本看不到百炼在报什么
-        try:
-            _b = e.read().decode('utf-8', 'replace')[:300]
-        except Exception:
-            _b = ''
-        print('  [tts] 百炼创建任务失败: HTTP %s %s | %s' % (e.code, e.reason, _b))
-        _DASH_DEAD[0] = True
-        return 0.0
-    except Exception as e:
-        print('  [tts] 百炼创建任务失败: %s' % str(e)[:140])
+    _LAST_VOICE[0] = v
+    # ★VF_TTSLANG_V1②：带 language_type 提交；若被拒 → 自动去参重试一次（详见该函数注释）
+    data, _err, _killed = dash_post_with_lang_fallback(_dash_post, url, payload, key,
+                                                       async_hdr=(not v3))
+    if data is None:
+        print('  [tts] 百炼创建任务失败: %s' % _err)
+        if _killed:
+            _DASH_DEAD[0] = True
         return 0.0
     task_id = (data.get('output') or {}).get('task_id')
     if not task_id:
@@ -350,13 +425,15 @@ def tts_one(text, out_path, speaker=''):
         if not fn:
             print('  [tts] 未知引擎「%s」（可选：%s）' % (name, '/'.join(engines.keys())))
             continue
+        _LAST_VOICE[0] = ''
         try:
             dur = fn()
         except Exception as e:
             print('  [tts] %s 异常: %s' % (name, str(e)[:120]))
             dur = 0.0
         if dur:
-            print('[TTS] 引擎=%s' % name)
+            # ★VF_TTSLANG_V1：一行看清 引擎 + 音色 + 语言判定（以后排查一眼可查）
+            print('[TTS] 引擎=%s 音色=%s 语言=%s' % (name, _LAST_VOICE[0] or '-', lang_label(txt)))
             return True, dur
     if not _CRED_WARNED[0]:
         _CRED_WARNED[0] = True
@@ -386,6 +463,7 @@ def _volcano_once(text, out_path, spk):
     rid = env_get('VOLCANO_TTS_RESOURCE_ID')
     if not (app_id and ak and rid):
         return 0.0
+    _LAST_VOICE[0] = spk       # ★VF_TTSLANG_V1：记录实际音色（供一行日志）
     txt = (text or '').strip()
     if not txt:
         return 0.0
@@ -445,6 +523,7 @@ def _tts_minimax(text, out_path, voice):
     url = env_get('MINIMAX_TTS_URL') or 'https://api.minimaxi.com/v1/t2a_v2'
     model = env_get('MINIMAX_TTS_MODEL') or 'speech-02-hd'
     v = voice if (voice or '').startswith('female-') or (voice or '').startswith('male-') else minimax_voice(voice)
+    _LAST_VOICE[0] = v          # ★VF_TTSLANG_V1：记录实际音色（供一行日志）
     body = json.dumps({
         'model': model,
         'text': text,
@@ -501,6 +580,7 @@ def _tts_silicon(text, out_path, voice):
     url = env_get('SILICON_TTS_URL') or 'https://api.siliconflow.cn/v1/audio/speech'
     model = env_get('SILICON_TTS_MODEL') or 'FunAudioLLM/CosyVoice2-0.5B'
     v = voice if (voice or '').startswith('FunAudioLLM/') else (env_get('SILICON_TTS_VOICE') or 'FunAudioLLM/CosyVoice2-0.5B:alex')
+    _LAST_VOICE[0] = v          # ★VF_TTSLANG_V1：记录实际音色（供一行日志）
     body = json.dumps({'model': model, 'input': text, 'voice': v,
                        'response_format': 'mp3', 'sample_rate': 44100}, ensure_ascii=False).encode('utf-8')
     req = urllib.request.Request(url, data=body, method='POST', headers={
@@ -864,6 +944,10 @@ def main():
             clips.append((None, float(s.get('dur') or 0) or 5.0))
             continue
         p = os.path.join(wd, 'vo%02d.mp3' % i)
+        # ★VF_TTSLANG_V1：逐镜写明语言判定（配合 tts_one 的 引擎/音色/语言 汇总，一眼可查）
+        print('[TTS] 第 %d 镜 语言=%s（%s）'
+              % (i + 1, lang_label(txt),
+                 '文本含中文，强制中文引擎/音色' if has_cjk(txt) else '无中文，按引擎默认'))
         ok, dur = tts_one(txt, p, a.speaker)
         if not ok:
             print('[TTS] ❌ 第 %d 镜配音失败 → 该镜留静音占位: %s' % (i + 1, txt[:30]))
