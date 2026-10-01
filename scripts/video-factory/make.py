@@ -245,6 +245,18 @@ H3_STYLE_EN = {
 }
 
 
+def _ai_style_en(sb):
+    """★VF_AI_STYLE_KEY_V1（2026-10-01）：AI 制片线的"画面风格"key（cinematic/commercial/…）→ H3 英文关键词。
+
+    为什么要单独一个函数：服务端已把这个 key 从 plan 根级 **`style`** 改名成 **`ai_style`**
+    （避免与渲染层"成品风格" `style` 同名撞车：`render.py::apply_style` 只认 5 个成品风格 id，
+     AI 制片线的 `cinematic` 会被它**忽略**；反过来 make.py 若还只读 `style`，就会**丢 H3 风格关键词**
+     → 画面风格提示词失效）。
+    这里**必须带旧值兜底**：老分镜 / 旧客户端产出的 plan 里这个字段还叫 `style`。
+    ⚠️ 这个 `style` 与 `render.py` 的"成品风格"是**两码事**，别把两者并到一处读。"""
+    return H3_STYLE_EN.get(str(sb.get('ai_style') or sb.get('style') or ''), '')
+
+
 def _h3_prompt(shot, idx, style_en=''):
     """分镜 → H3 画面提示词。优先 AI 写的 prompt 字段；否则用中文文案拼一个兜底描述。
     末尾追加运镜指令（按镜轮换）。明确要求"不要出现文字"——文字由 render.py 的字幕负责。"""
@@ -341,9 +353,11 @@ def gen_ai_clips(sb_path, wd, resolution='768P', only_idx=None):
     sb = json.load(open(sb_path, encoding='utf-8'))
     shots = sb.get('shots') or []
     # ★VF_STYLE_V1：成片风格（顶层字段，由 vf-aivideo.ts 写进 plan）→ 每镜 prompt 都会带上
-    _style_en = H3_STYLE_EN.get(str(sb.get('style') or ''), '')
+    # ★VF_AI_STYLE_KEY_V1：字段现在是 `ai_style`（旧 plan 里仍叫 `style`）→ 统一走 `_ai_style_en()`
+    _style_en = _ai_style_en(sb)
     if _style_en:
-        print('[H3] 成片风格=%s → %s' % (sb.get('style'), _style_en[:50]))
+        print('[H3] 成片风格=%s → %s'
+              % (sb.get('ai_style') or sb.get('style'), _style_en[:50]))
     clips = os.path.join(wd, 'clips')
     os.makedirs(clips, exist_ok=True)
     W, H = sb.get('size', [1280, 720])

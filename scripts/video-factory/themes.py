@@ -171,6 +171,97 @@ THEMES = {
 DEFAULT_THEME = 'dark'
 
 
+# ══════════════ ★VF_STYLES_V1（2026-10-01）「成品风格」= theme + deck 版式 + 动效节奏 ══════════════
+# 老板原话：「目前模版有2套我是不是有点乱。能统一一下吗？或者删减不成熟的」
+#          「你写的那个什么玻璃什么分类有点抽象」
+#          「我做的几个目前配色都是蓝色，和你直接给我做的几个视频效果配色不太一样」
+#
+# 病根：老板要选的是【2 个下拉 × 10 主题 × 6 版式 = 60 种组合】——"玻璃/柔和/渐变"这种**实现词**
+#   被当成产品名摆在他面前，他当然觉得抽象；而且他的观感基准（news 蓝）藏在一堆主题里。
+# 治法（本表就是这个唯一真相源）：把「10 主题 × 6 版式」在**渲染侧**收敛成 **5 套成品风格**，
+#   每套 = 一个 theme + 一个 deck 版式 + 一套动效节奏（enter + 浮动周期）。老板只需要从 5 个
+#   人话名字里挑一个。`deck-glass` / `deck-soft` 不再单独摆出来（收进 ⑤ / ③ 内部）。
+#
+# ⚠️ 硬约束：`deck` 一律取自 render.py 的 TITLE_VARIANTS / DECK_VARIANTS（与 src/lib/agent/vf/anti-ai.ts
+#   逐字一致）。本表**不新增任何 variant 名**，只做"挑一个已有的"。
+#
+# 配色口径（老板：「更讲究」= 低饱和 / 色块面积小 / 有中性灰阶 / 不要实心黑框）：
+#   · 默认必须 = 他现在看到的蓝（news）→ ① 蓝白科技 = news + deck（经典），**零视觉变化**。
+#   · 深色渐变 = data（近黑青，低饱和）——不是"科技蓝发光"，渐变端色同源（gradA/gradB）。
+#   · 清爽浅色 = light（米白纸感）+ deck-soft（拟物靠留白与极淡阴影分层，没有实心黑框）。
+#   · 杂志编辑 = journal（暖米）+ deck-mag（大留白 + 编号 + 细线）。
+#   · 柔和高级 = mono（**纯中性灰阶**，只有极小面积的玫瑰点缀）+ deck-glass（深灰玻璃 + 白细边）。
+STYLES = {
+    # ① 默认：与老板现有观感**逐像素一致**（news + 经典 deck 编排）
+    'bluewhite': {
+        'id': 'bluewhite', 'name': '蓝白科技', 'theme': 'news', 'deck': 'deck',
+        'period': 4.0, 'enter': 'up', 'default': True,
+        'desc': '深蓝底 + 蓝标签条 + 极淡信息行（1px 细边分层）—— 老板在用/基准，低饱和、色块小而克制',
+    },
+    # ② 深色渐变：近黑青底 + 真·逐像素渐变带（不用"高饱和紫蓝"那套 AI 味）
+    'darkgrad': {
+        'id': 'darkgrad', 'name': '深色渐变', 'theme': 'data', 'deck': 'deck-grad',
+        'period': 4.4, 'enter': 'up',
+        'desc': '近黑青 + 同源渐变带（低饱和），适合科技/数据内容，光感强但不刺眼',
+    },
+    # ③ 清爽浅色：米白纸感 + 柔和拟物（deck-soft 收进这里，不再单列）
+    'cleanlight': {
+        'id': 'cleanlight', 'name': '清爽浅色', 'theme': 'light', 'deck': 'deck-soft',
+        'period': 3.6, 'enter': 'up',
+        'desc': '米白纸感 + 柔和拟物卡（靠留白与极淡阴影分层，无实心黑框），适合干货/教程',
+    },
+    # ④ 杂志编辑：暖米底 + 大留白 + 编辑编号/细线
+    'magazine': {
+        'id': 'magazine', 'name': '杂志编辑', 'theme': 'journal', 'deck': 'deck-mag',
+        'period': 4.0, 'enter': 'left',
+        'desc': '暖米 + 大留白 + 编号/发丝线，像杂志跨页；文字层级最清楚',
+    },
+    # ⑤ 柔和高级：纯中性灰阶 + 深灰玻璃（deck-glass 收进这里，不再单列）
+    #   tokens 覆盖的理由（team-lead 2026-10-01）：「别再是黑底 + **亮红字** + 白杠」——
+    #   mono 主题自带的 accent 是 0xe11d48（高饱和玫红），在"柔和高级"这套里显得扎眼 →
+    #   换成**低饱和灰玫瑰 0xb0808a**（饱和度 27%，亮度 143，压在中性灰阶上是一点点暖调）。
+    #   只覆盖这一套风格（不动 themes.py 的 mono 本体 → 其它用到 mono 的片子零变化）。
+    'softlux': {
+        'id': 'softlux', 'name': '柔和高级', 'theme': 'mono', 'deck': 'deck-glass',
+        'period': 4.4, 'enter': 'up',
+        'tokens': {'accent': '0xb0808a'},
+        'desc': '中性灰阶 + 深灰玻璃卡 + 白色 1px 细边，只留极小面积的低饱和灰玫瑰点缀；最"高级"的一套',
+    },
+}
+
+DEFAULT_STYLE = 'bluewhite'
+
+
+def style_of(name):
+    """★VF_STYLES_V1 / ★VF_STYLES_STRICT_V1：成品风格名 → 风格字典；**未命中就返回 None**。
+
+    ⚠️ 为什么必须是"严格匹配 + None"而不是"回落默认"（style-wire 2026-10-01 抓到的事故）：
+      `src/lib/agent/vf/vf-aivideo.ts` 早就把 **AI 制片线的风格标签**（`AI_STYLES`：
+      `cinematic / commercial / vlog / …`）写进 plan 根级 `style`。如果这里对不认识的字符串
+      "回落默认风格"，那条线一出片就会被**静默改成 news 蓝 + deck 版式**（老板会看到"我选的风格被换了"）。
+      所以口径是：**认不出 = 不干预**（`apply_style` 直接 return ''，theme/deck_style 一个字段都不碰）。
+    接受：英文 id（'bluewhite'）/ 中文名（'蓝白科技'）/ 带空格或大小写差异的写法。
+    """
+    key = str(name or '').strip()
+    if not key:
+        return None
+    k = key.lower().replace(' ', '').replace('-', '').replace('_', '')
+    for sid, st in STYLES.items():
+        if k in (sid.lower(), str(st.get('name') or '').strip().lower().replace(' ', '')):
+            return dict(st)
+    return None
+
+
+def style_default():
+    """★VF_STYLES_STRICT_V1：默认成品风格（= 老板现在看到的 news 蓝）。
+    只在"我们**主动**要一个默认值"时用（例如 UI 下拉框预选），**不要**拿它兜"认不出的输入"。"""
+    return dict(STYLES[DEFAULT_STYLE])
+
+
+def style_names():
+    return [(sid, STYLES[sid].get('name'), STYLES[sid].get('desc')) for sid in STYLES]
+
+
 def _lum_hex(c, default=255):
     """颜色串（'white' / '0xRRGGBB' / '0xRRGGBB@0.5'）的感知亮度；解析失败回 default。
 

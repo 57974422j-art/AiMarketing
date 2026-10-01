@@ -43,9 +43,28 @@ export async function GET(request: NextRequest) {
       accountsByUser[a.userId].push({ platform: a.platform, status: a.status })
     }
 
+    // ★VF_BILLING_PERIOD_V1: 真实生效订阅的套餐名（User.plan 是历史遗留、不可信）。
+    // 同一用户可能残留多条 active → 取 endDate 最大者。
+    const activeSubs = await prisma.userSubscription.findMany({
+      where: { userId: { in: userIds }, status: 'active', endDate: { gte: new Date() } },
+      select: { userId: true, planId: true, endDate: true },
+      orderBy: { endDate: 'desc' },
+    })
+    const planIds = [...new Set(activeSubs.map(s => s.planId))]
+    const plans = planIds.length
+      ? await prisma.subscriptionPlan.findMany({ where: { id: { in: planIds } }, select: { id: true, name: true } })
+      : []
+    const planNameById: Record<number, string> = {}
+    for (const p of plans) planNameById[p.id] = p.name
+    const subPlanNameByUser: Record<number, string> = {}
+    for (const s of activeSubs) {
+      if (!subPlanNameByUser[s.userId]) subPlanNameByUser[s.userId] = planNameById[s.planId] || ''
+    }
+
     const data = users.map((e) => ({
       id: e.id, username: e.username, name: e.name, email: e.email,
       createdAt: e.createdAt, role: e.role, plan: e.plan || 'free',
+      planName: subPlanNameByUser[e.id] || null,
       parentId: e.parentId,
       parent: e.parent ? { id: e.parent.id, username: e.parent.username, name: e.parent.name } : null,
       childrenCount: e._count.children,

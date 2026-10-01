@@ -18,6 +18,7 @@
   python scripts/vf-style-selftest.py --render   # 额外真渲一次 news/data（慢，要 ffmpeg）
 """
 import argparse
+import json as _json
 import os
 import re as _re
 import subprocess
@@ -793,17 +794,23 @@ def main():
         'BITRATE：preset 换成 veryfast（比 fast 更快，不给老板加等待）')
     chk(R.venc_argv(1280, 720) == _a720.split(' ') and '-crf' in R.venc_argv(1280, 720),
         'BITRATE：参数数组版 venc_argv 与字符串版一致（★VF_LONGCMD_V1 超长链也吃到新参数）')
-    # 源码级：6 处编码点全部改口（逐镜 / 交叉溶解 / 拼接 / 烧标题 / 烧字幕×2）
-    chk('{_an}{venc_args(W, H)}' in _code,
-        'BITRATE：逐镜编码走 venc_args（第 1 处）')
-    chk(_code.count('{venc_args(W, H)} -r {fps} "{out}"') == 2,
-        'BITRATE：交叉溶解 + 拼接 两处走 venc_args（第 2/3 处）',
-        str(_code.count('{venc_args(W, H)} -r {fps} "{out}"')))
-    chk(_code.count('{venc_args(W, H)} -c:a copy') == 3,
-        'BITRATE：烧标题 + 烧字幕(ASS/SRT) 三处走 venc_args（第 4/5/6 处）',
-        str(_code.count('{venc_args(W, H)} -c:a copy')))
+    # 源码级：6 处编码点全部改口，且**一律走 argv 数组**（★VF_ARGV_V1 2026-10-01 治本后，
+    # 不再有"把编码参数拼进 shell 字符串"的写法；口径随之从 venc_args 改成 venc_argv）。
     chk("venc_argv(W, H) + ['-r', str(fps), '-t', str(dur), out]" in _code,
-        'BITRATE：超长滤镜链的参数数组路径也走 venc_argv')
+        'BITRATE/ARGV：逐镜编码走 venc_argv（第 1 处，参数数组）')
+    chk(_code.count("venc_argv(W, H) + ['-r', str(fps), out]") == 2,
+        'BITRATE/ARGV：交叉溶解 + 拼接 两处走 venc_argv（第 2/3 处）',
+        str(_code.count("venc_argv(W, H) + ['-r', str(fps), out]")))
+    chk(_code.count("venc_argv(W, H) + ['-c:a', 'copy', out]") == 2,
+        'BITRATE/ARGV：烧标题 + 烧字幕 两处走 venc_argv（第 4/5 处；ASS/SRT 已合成一处 argv）',
+        str(_code.count("venc_argv(W, H) + ['-c:a', 'copy', out]")))
+    chk('{venc_args(W, H)}' not in _code,
+        'ARGV：源码里已无"把编码参数拼进 shell 字符串"的写法（★VF_ARGV_V1 治本）')
+    # ★VF_ARGV_V1 防回退：代码里不得再出现 shell=True / os.system / os.popen（注释行已在 _code 里剔除）
+    chk('shell=True' not in _code,
+        'ARGV 防回退：render.py 代码里 0 处 shell=True')
+    chk('os.system(' not in _code and 'os.popen(' not in _code,
+        'ARGV 防回退：render.py 代码里 0 处 os.system / os.popen')
     chk("'-preset', 'fast'" not in _code and '-preset fast -pix_fmt' not in _code,
         'BITRATE：源码里已无 `-preset fast` 编码点（零残留）')
     chk('-b:v' not in _src and '-maxrate' not in _src,
@@ -819,6 +826,154 @@ def main():
         str(R._grad_speed()))
     chk(not os.environ.get('VF_GRAD_SPEED'),
         '★VF_DECK_PIXEL_V2：自测进程不设 VF_GRAD_SPEED（验的就是生产默认路径）')
+
+    # ══ 13e. ★VF_STYLES_V1（2026-10-01）成品风格：10 主题 × 6 版式 → 5 套人话名字 ══════════
+    # 老板原话：「目前模版有2套我是不是有点乱。能统一一下吗？」「你写的那个什么玻璃什么分类有点抽象」
+    #          「我做的几个目前配色都是蓝色」（→ 默认必须 = news/蓝，逐像素不变）。
+    _styles = getattr(R, 'STYLES', {})
+    chk(len(_styles) == 5, '★VF_STYLES_V1：正好 5 套成品风格（不再摆 10×6=60 种组合）', len(_styles))
+    _def = _styles.get(getattr(R, 'DEFAULT_STYLE', ''), {})
+    chk(getattr(R, 'DEFAULT_STYLE', '') == 'bluewhite' and _def.get('theme') == 'news'
+        and _def.get('deck') == 'deck',
+        '★VF_STYLES_V1：默认风格 = bluewhite = news + deck（= 老板现在看到的蓝，零视觉变化）', _def)
+    chk(all(s.get('deck') in R.DECK_STYLE_VARIANTS for s in _styles.values()),
+        '★VF_STYLES_V1：5 套的 deck 版式**全部取自白名单**（不新增 variant 名 → anti-ai.ts 对账不受影响）',
+        [s.get('deck') for s in _styles.values()])
+    chk(all(s.get('theme') in R.THEMES for s in _styles.values()),
+        '★VF_STYLES_V1：5 套的 theme 全部是 themes.py 里已有的主题（不新造主题）',
+        [s.get('theme') for s in _styles.values()])
+    chk(all(s.get('enter') in R.PPT_ENTERS and float(s.get('period') or 0) >= 2.0
+            for s in _styles.values()),
+        '★VF_STYLES_V1：每套都带一套动效节奏（enter ∈ PPT_ENTERS + 浮动周期 ≥2s）')
+    chk([s[0] for s in R.style_names() if _styles[s[0]].get('default')] == ['bluewhite'],
+        '★VF_STYLES_V1：有且只有一套标了 default')
+    chk((R.style_of('蓝白科技') or {}).get('id') == 'bluewhite'
+        and (R.style_of('BLUEWHITE') or {}).get('id') == 'bluewhite',
+        '★VF_STYLES_V1：风格名查找接受中文名/大小写（老板只说人话名字也能命中）')
+    # ★VF_STYLES_STRICT_V1（2026-10-01 style-wire 抓到的静默事故，本机已复现）：
+    #   `vf-aivideo.ts` 把 AI 制片线的风格标签（AI_STYLES = cinematic/commercial/vlog/…）写进 plan 根级
+    #   `style`。若 style_of 对"认不出"回落默认 → 那条线一出片就被**静默改成 news 蓝 + deck**。
+    #   口径：认不出 = None = apply_style 不干预（theme/deck_style/variant 一个字段都不碰）。
+    chk(R.style_of('并不存在') is None and R.style_of('') is None and R.style_of('cinematic') is None,
+        '★VF_STYLES_STRICT_V1：未知/空风格名 → None（不再回落默认）',
+        repr(R.style_of('cinematic')))
+    chk(R.style_default()['id'] == R.DEFAULT_STYLE,
+        '★VF_STYLES_STRICT_V1：要默认值必须显式走 style_default()（不许拿它兜未知输入）')
+    # ★VF_DECK_LIGHTFACE_V1：柔和高级的"低饱和"必须真落在 token 上（不能只是文案里写"低饱和"）
+    _slx = _styles.get('softlux') or {}
+    _accS = str((_slx.get('tokens') or {}).get('accent') or '')
+    _rgbS = R._rgb_alpha(_accS)[0] if _accS else (0, 0, 0)
+    _satS = (max(_rgbS) - min(_rgbS)) / float(max(1, max(_rgbS)))
+    chk(_accS and _satS <= 0.40,
+        '★VF_DECK_LIGHTFACE_V1：柔和高级 accent=%s 是**低饱和**（%.0f%% ≤40%%，不再是 0xe11d48 亮玫红）'
+        % (_accS or '?', _satS * 100))
+    _sbT = {'shots': [{'type': 'title', 'text': 'A', 'dur': 5}]}
+    R.apply_style(_sbT, 'softlux')
+    chk(isinstance(_sbT.get('theme'), dict) and (_sbT['theme'].get('theme') == 'mono')
+        and (_sbT['theme'].get('accent') == _accS),
+        '★VF_DECK_LIGHTFACE_V1：apply_style 把 token 覆盖传下去（theme 字典带 theme=mono 基线）',
+        _sbT.get('theme') if isinstance(_sbT.get('theme'), dict) else str(_sbT.get('theme')))
+    # ★VF_STYLES_V1 ③（team-lead 2026-10-01）：「apply_style 把纯文字 title 卡升级成 deck 版式后，
+    #   还会不会再另外叠一层'大字'？如果会 → 必须去掉」（老板原话「还是很多大字」）。
+    #   结论：**不会**——`card_title` 遇到 deck 页**提前 return**（只返回 deck 元素层），
+    #   经典"居中大字"那段代码根本走不到。这里用两条断言把它钉住（防止以后有人加回来）：
+    #     ① 源码：deck 分支是先 `return (deck_base_input(...)`（提前返回）；
+    #     ② 行为：deck 页里**最大字号只出现 1 次**（= 只有一处主标题）。
+    _ctSrc = _seg(_code, 'card_title', 'card_list')
+    chk('if deck_of(shot):' in _ctSrc and 'return (deck_base_input(' in _ctSrc,
+        '③：card_title 的 deck 分支**提前 return**（不叠第二层大字）')
+    _sbP = {'shots': [{'type': 'title', 'text': '三步走完一条片', 'kicker': '本地出片',
+                       'items': ['A', 'B', 'C'],
+                       'stats': [{'value': '128', 'suffix': '%', 'label': '转化率提升'}], 'dur': 8}]}
+    R.apply_style(_sbP, 'bluewhite')
+    chk(R.deck_of(_sbP['shots'][0]), '③：apply_style 后该 title 卡确实升级成 deck 页',
+        _sbP['shots'][0].get('variant'))
+    _inpP, _vfP, _durP = R.card_title(_sbP['shots'][0], R.theme_of(R.THEMES['news']), 1280, 720, 25)
+    _fsP = [int(x) for x in _re.findall(r'fontsize=(\d+)', _vfP)]
+    chk(bool(_fsP) and _fsP.count(max(_fsP)) == 1,
+        '③：deck 页只有**一处主标题**（最大字号 %d 只出现 1 次 → 没有叠第二层大字）'
+        % (max(_fsP) if _fsP else -1), str(sorted(set(_fsP), reverse=True)[:6]))
+    # ★VF_STYLES_STRICT_V1 验收（team-lead 2026-10-01 明确点名的 5 种非法输入）：
+    #   非 5 套成品风格的值 → **plan 零改动**（深比较）+ 日志写明"忽略未知 style"。
+    import contextlib as _ctx
+    import io as _io
+    _bad_keys = ('cinematic', 'ai', '', None, 123, 'commercial', 'BLUE', {'a': 1}, ['x'])
+    _zero_bad = []
+    _log_bad = []
+    for _k in _bad_keys:
+        _sbX = {'theme': 'light', 'deck_style': 'deck-mag', 'banner': {'line1': 'x'},
+                'shots': [{'type': 'title', 'text': 'A', 'dur': 5},
+                          {'type': 'bgimage', 'src': 'a.jpg', 'dur': 4}]}
+        _before = _json.dumps(_sbX, sort_keys=True, default=str)
+        _buf = _io.StringIO()
+        with _ctx.redirect_stdout(_buf):
+            _ret = R.apply_style(_sbX, _k)
+        _log = _buf.getvalue()
+        if _ret != '' or _json.dumps(_sbX, sort_keys=True, default=str) != _before:
+            _zero_bad.append('%r(ret=%r)' % (_k, _ret))
+        # 空字符串/None = "没传"（不走 apply_style 的日志分支）；其余未知值必须留下"忽略"日志
+        if _k not in ('', None) and '忽略未知 style' not in _log:
+            _log_bad.append(repr(_k))
+    chk(not _zero_bad,
+        '★VF_STYLES_STRICT_V1：cinematic/ai/\"\"/None/数字/字典… **plan 零改动**（深比较逐字节相同）',
+        str(_zero_bad))
+    chk(not _log_bad, '★VF_STYLES_STRICT_V1：未知值都留下"忽略未知 style"日志（不静默）', str(_log_bad))
+    # 反向：5 个**合法** key 必须正常生效（别把严格的守卫改成"一律不动"）
+    _ok_keys = []
+    for _k2 in list(_styles.keys()) + [v.get('name') for v in _styles.values()]:
+        _sbY = {'shots': [{'type': 'title', 'text': 'A', 'dur': 5}]}
+        _buf2 = _io.StringIO()
+        with _ctx.redirect_stdout(_buf2):
+            _r2 = R.apply_style(_sbY, _k2)
+        if _r2 and _sbY['shots'][0].get('variant') in R.DECK_STYLE_VARIANTS:
+            _ok_keys.append(_k2)
+    chk(len(_ok_keys) == 10,
+        '★VF_STYLES_STRICT_V1：5 个 id + 5 个中文名**全部正常生效**（10/10）', str(_ok_keys))
+    # ⚠️ 反向护栏：render.py **绝不许**读 `ai_style`（那是 AI 制片线给 make.py 用的标签；
+    #    读进来就会重演"AI 制片被静默改成 news+deck"）
+    #   口径：**只允许"收下但不用"**（`--ai-style` 无操作登记 + getattr 打一条日志）；
+    #   任何**取值**写法（plan 字典取值 / args 属性）都不许出现 → 那是抢字段、就是事故。
+    _grabA = [x for x in ("get('ai_style')", "['ai_style']", '.ai_style') if x in _code]
+    chk(not _grabA and "add_argument('--ai-style'" in _code,
+        '★VF_STYLES_STRICT_V1：render.py 0 处**取值** ai_style（只收下 --ai-style 不消费）', str(_grabA))
+    chk(_code.count("sb.get('style')") <= 1,
+        '★VF_STYLES_STRICT_V1：render.py 只有 1 处读 plan 根级 style（且走严格守卫）',
+        str(_code.count("sb.get('style')")))
+    # --list-styles 的真实 CLI 输出（服务端界面要跟它对齐）——逐字断言 id + 中文名
+    try:
+        _ls = subprocess.run([sys.executable, os.path.join(_VF, 'render.py'), '--list-styles'],
+                             capture_output=True, text=True, encoding='utf-8', errors='replace')
+        _lso = _ls.stdout or ''
+    except Exception as _eLS:
+        _lso = ''
+        _BAD.append('--list-styles 跑不起来：%s' % str(_eLS)[:60])
+    chk(all(k in _lso for k in _styles.keys())
+        and all(str(v.get('name')) in _lso for v in _styles.values()),
+        '★VF_STYLES_V1：`--list-styles` 输出含全部 5 个 id + 5 个中文名（服务端界面据此对齐）',
+        _lso.replace('\n', ' | ')[:120])
+    # apply_style 的功能断言：只动纯文字卡，素材镜一个字段都不碰
+    _sb = {'shots': [
+        {'type': 'title', 'text': 'A', 'dur': 5},
+        {'type': 'list', 'title': 'B', 'dur': 5},
+        {'type': 'bgimage', 'src': 'none.jpg', 'text': 'C', 'dur': 5},
+    ]}
+    _rid = R.apply_style(_sb, 'magazine')
+    _s0, _s1, _s2 = _sb['shots']
+    chk(_rid == 'magazine' and _sb.get('theme') == 'journal' and _sb.get('deck_style') == 'deck-mag',
+        'apply_style：theme/deck_style 落到分镜根上', (_sb.get('theme'), _sb.get('deck_style')))
+    chk(_s0.get('variant') == 'deck-mag' and _s0.get('enter') == 'left'
+        and abs(float(_s0.get('_float_per')) - 4.0) < 1e-6,
+        'apply_style：纯文字 title 卡被**提升**为该风格的 deck 版式 + 节奏（修"选了模版没生效"）', _s0)
+    chk('variant' not in _s2 and 'enter' not in _s2 and '_float_per' not in _s2,
+        'apply_style：**素材镜（bgimage）一个字段都不动**（零回归）', _s2)
+    _sb2 = {'shots': [{'type': 'title', 'text': 'A', 'dur': 5}]}
+    chk(R.apply_style(_sb2, '') == '' and 'theme' not in _sb2 and 'variant' not in _sb2['shots'][0],
+        'apply_style：不传风格 → 一个字都不改（老链路零回归）')
+    chk(_src.count('★VF_STYLES_V1') >= 1 and _src.count('★VF_SUSTAIN_V2') >= 1,
+        '防回退：★VF_STYLES_V1 / ★VF_SUSTAIN_V2 仍在 render.py 里')
+    _thsrc = open(os.path.join(_VF, 'themes.py'), encoding='utf-8').read()
+    chk(_thsrc.count('★VF_STYLES_V1') >= 1 and "'bluewhite'" in _thsrc and 'DEFAULT_STYLE' in _thsrc,
+        'themes.py：STYLES 表 / DEFAULT_STYLE 在位（唯一真相源）')
 
     # ══ 14. ★VF_DECK_V1（2026-10-01）「富编排 PPT 页」 ══════════════════════════
     # 用户原话：「最好不要就几个大字，内容编排丰富一点可以吗？……你能单独根据我的素材 编辑
@@ -858,9 +1013,17 @@ def main():
     chk(bool(_ons8) and max(_ons8) >= 6.0 and max(_ons8) <= 7.0,
         '★VF_DECK_SPAN_V2：数据卡落在 6.0~7.0s（覆盖 6–8s 窗，且留出滚动时间）',
         str(max(_ons8) if _ons8 else None))
-    chk(sum(1 for _x in _dk if ('color=' + str(_thD.get('cardBg'))) in _x) >= 4,
-        '★VF_DECK_SPAN_V2：3 条要点各有卡面 + 数据卡卡面（同 cardBg，共 ≥4 块）',
-        str(sum(1 for _x in _dk if ('color=' + str(_thD.get('cardBg'))) in _x)))
+    # ★VF_DECK_LIGHTFACE_V1（2026-10-01 老板/team-lead「要点行的面不要是实心白杠」）：
+    #   要点行的面**不再**是 `cardBg`（white@0.93），而是【极淡主题染色面 + 1px 细边】；
+    #   数据卡仍保留 `cardBg`（那是一张真"信息卡"，不是要点行）。所以断言拆成两条：
+    _rowF, _rowG = R._deck_item_material('deck', _thD)
+    chk(sum(1 for _x in _dk if ('color=' + str(_rowF)) in _x) >= 3,
+        '★VF_DECK_LIGHTFACE_V1：3 条要点行各有一块**极淡染色面**（不是 cardBg 白杠）',
+        str(sum(1 for _x in _dk if ('color=' + str(_rowF)) in _x)))
+    _dkj2 = ','.join(_dk)
+    chk(_dkj2.count('color=' + str(_thD.get('cardBg'))) <= 1,
+        '★VF_DECK_LIGHTFACE_V1：经典 deck 里"白杠"已清零（cardBg 的面只允许剩数据卡那 1 处）',
+        'n=%d' % _dkj2.count('color=' + str(_thD.get('cardBg'))))
     _short = R.deck_page_filters(dict(_dshot, dur=5), _thD, 1280, 720, 5)
     _ons5 = sorted({round(float(x), 2) for x in _re.findall(r"gte\(t,([0-9.]+)\)", ','.join(_short))})
     chk(bool(_ons5) and max(_ons5) <= 5.0,

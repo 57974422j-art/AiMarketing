@@ -52,7 +52,8 @@ import tempfile
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
-from themes import THEMES, theme_of  # noqa: E402
+from themes import (THEMES, theme_of, STYLES, DEFAULT_STYLE,  # noqa: E402
+                    style_of, style_default, style_names)
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
@@ -316,35 +317,38 @@ def venc_args(W, H, kind='final'):
 
 
 def venc_argv(W, H):
-    """`venc_args` 的**参数数组**版（★VF_LONGCMD_V1 的超长滤镜链走这条、不经 shell）。"""
+    """`venc_args` 的**参数数组**版（★VF_ARGV_V1 起，所有 ffmpeg 调用都走 argv、不经 shell）。"""
     return venc_args(W, H).split(' ')
 
 
 def esc_text(t):
     """drawtext 文本转义：冒号/单引号/百分号/反斜杠 + ★VF_QUOTE_ESC_V1 引号归一
 
-    ★VF_PCT_ESCAPE_FIX_V1（2026-09-24 本地实测发现的老 bug）：
-      百分号原来只转义一层（`\\%`），但字符串要过【两层解析】（ffmpeg 滤镜参数 → drawtext 文本），
-      一层转义会被滤镜参数那层吃掉 → drawtext 看到裸 `%` 就当成展开语法起点 →
-      **整条 drawtext 什么都画不出来**。实测：`转化率90%` 的画面是纯空；number 卡的 `%` 后缀
-      会让整个大数字消失（`1700%` 递增卡片 = 空白卡）。写成 `\\\\%` 才正确。
+    ★VF_PCT_ESCAPE_FIX_V1（2026-09-24 发现；★VF_ARGV_V1 2026-10-01 后定稿）：
+      `%` 是 ffmpeg drawtext 的**展开语法起点**（如 `%{eif:...}`）→ 必须转义成字面百分号。
+      **转义层数取决于调用方是否经过 shell**：
+        · ★VF_ARGV_V1（2026-10-01 起，当前唯一路径）：调用方是 **argv 数组、不过 shell** →
+          正好需要 **2 层**（ffmpeg 滤镜图解析 1 层 + drawtext 文本 1 层）→ 本函数输出的 `\\%` 正确。
+        · 旧版是"拼 shell 字符串 + 打开 subprocess 的 shell 开关"：shell 先吃掉一层（双引号里两个反斜杠被吃成一个）→
+          ffmpeg 收到**裸 `%`** → 报 `Stray %` → **该 drawtext 一个字都不画**（同串 drawbox 照画
+          = "有框无字"的"空色块"，老板报过三次；Windows cmd 不吃反斜杠所以本机永远测不出来）。
+          ⚠️ 那条路已在 ★VF_ARGV_V1 里**彻底删除**——**谁把 shell 加回来，`%` 就会再次丢字**。
       注：`%{eif:...}` 这类**故意**的展开语法不走本函数，不受影响。
 
     ★VF_QUOTE_ESC_V1（2026-10-01）——**渲染层第二道引号闸**（服务端 ★VF_QUOTE_FIX_V1 是第一道）：
-      为什么必须在这里干掉 ASCII 双引号：渲染层是**拼 shell 字符串**调 ffmpeg 的
-      （render_shot 的 `-vf "..."` / burn_banner 的 `-filter_complex "..."`，最终
-      `subprocess.run(cmd, shell=True)`）—— 整条滤镜串被包在一对 ASCII 双引号里。文案里只要出现
-      一个**裸的 ASCII `"`**，shell 的引号就会**提前闭合** → 命令被拆坏 → **那一镜整镜失败**
+      为什么必须干掉 ASCII 双引号：整条滤镜串要过 **ffmpeg 自己的滤镜解析器**
+      （`-vf <串>` 现在作为**一个 argv 元素**整体传入，不再经 shell）。文案里只要出现一个
+      **裸的 ASCII `"`**，滤镜解析器的引号就会**提前闭合** → 命令被拆坏 → **那一镜整镜失败**
       （本机实测撞到过：当时只能手工把文案里的 `"` 换成「」）。
       服务端已归一化，但分镜可能来自别的入口 / 用户手改 → 这里是兜底。
       做法：
         · `"` → **成对交替** `“` / `”`（奇数个时最后一个也换成 `”` —— **绝不允许漏出一个裸 `"`**）；
-        · `` ` ``（反引号）→ 直接删除（它是 shell 的**命令替换**符，比双引号更危险，中文文案用不到）。
+        · `` ` ``（反引号）→ 直接删除（历史上是 shell 命令替换符；即便不过 shell，它也只会坏解析，删掉最稳）。
       ⚠️ 不动 `'` 的 `\\'` 转义（drawtext 需要它）、不动 `\\ : %` 的既有行为。
     """
     s = str(t)
-    s = s.replace('`', '')                                  # ① 反引号：shell 命令替换符 → 删
-    if '"' in s:                                            # ② 裸 " 会让 shell 引号提前闭合 → 归一
+    s = s.replace('`', '')                                  # ① 反引号：命令替换符 → 删
+    if '"' in s:                                            # ② 裸 " 会让滤镜解析器引号提前闭合 → 归一
         _buf, _open = [], True
         for _ch in s:
             if _ch == '"':
@@ -961,6 +965,70 @@ def progress_filters(W, H, dur, color, seg=16, y=None, h=None, x0=0, w=None):
         _tk = float(dur or 0) * _k / float(_seg)
         out.append(f"drawbox=x={_x}:y={_y}:w={_wk}:h={_h}:color={color}:t=fill:enable='gte(t,{_tk:.2f})'")
     return out
+
+
+# ══════════════════ ★VF_SUSTAIN_V2（2026-10-01）纯文字卡"绝不长时间静止" ══════════════════
+# 老板原话：「（整页只有几个大字）后面 5~6.5 秒完全静止」。
+# 实测（team-lead 给的硬数字）：007 静止 45.1% / 006 48.1%（基线 004 只有 24.7%）。
+# 渲染层自查根因：A1/A2/A4 全是**小面积**动效（一条 2~4px 细线 / 大字 alpha 6% 呼吸），
+#   帧间差分（`tblend=all_mode=difference` 的 YAVG）只有 0.0x~0.2 →
+#   在官方 scripts/vf-film-health.mjs 里仍被算成「静止」（阈值 <0.30）。
+#   ★ 关键认知：YAVG 量的是【相邻两帧】的差 → 只有"整幅在动"才能把它抬到 ≥1.0；
+#     "一小块在动"无论怎么加都抬不动（本机用静帧底板实测过：移动光带 = 依旧 100% 静止）。
+# 本版补一个**整块版式**的持续运动 —— 极慢的**横向**浮动（整幅一起动）：
+#   · 幅度/周期（★ 全部本机对 8s title 卡真渲 + vf-film-health 量化过的，不是拍脑袋）：
+#       26px(=2.03%W) / 周期 4s → 时间轴 `#++##++##++##++#`（6 个 #，0-2/2-4/4-6/6-8 四窗全覆盖，静止 0s）
+#       18px                       → `#++#+++##++#+++#`（6 个 #，也过）
+#       12px                       → `++++++.++++++++.+`（**无 #，不达标**）→ 下限定在 ~1.4%W
+#     取 26px 留余量（内容更稀的卡一般帧间差更小）。
+#   · 只用【横向】：scale 横向放大 2×amp 再 crop 平移 —— **上下内容一个像素都不丢**
+#     （顶部强调条 / 底部分部线 / 底部装饰都在原位）。试过"纵向浮动/整体 zoompan"：
+#     会把顶部强调细条裁掉，观感反而变差。
+#   · 周期按镜序轮换（4.0 / 3.6 / 4.4s）→ 整片不会"每一镜同一个节奏"（反 AI 味清单的一条）。
+#   ⚠️ 拼接位置：必须**接在进度线之前**（progress_filters 之后再接 → 进度线会被一起缩放平移并裁出画面）。
+FLOAT_ON = True
+# ★VF_SUSTAIN_V3（2026-10-01 晚，配合 ★VF_DECK_LIGHTFACE_V1 "淡染面"）：幅度 26px → **40px(3.13%W)**。
+#   为什么要加：白杠改成"极淡染色面"后，整页**纹理/对比**都变低 → 同样的横向位移产生的帧间差更小。
+#   本机复测 6 套 deck 页 8s 时间轴：26px 下 `deck-glass` `#+.+++.+#+++#++#`（2–4s 窗不达标）、
+#   `deck-grad` 也不稳；**40px 下 6/6 全达标**（见报告里的时间轴表）。
+#   40px@4s 周期 = 逐帧约 2.5px 的缓慢漂移（team-lead 看过 26px 的 t=1/t=3 两帧，判定"不抖"；
+#   40px 是同一种运动、只是幅度大一点）；
+#   裁切量仍只有 3.1%（关键元素安全边距 ≥7%：大字 maxw_ratio 0.86、deck 区域右沿 1170 < 1240）。
+#   12px(0.94%W) 实测完全无 `#` → 硬下限；18/26px 在"白杠"时代够用，淡染面时代不够。
+FLOAT_AMP_RATIO = 0.0313
+FLOAT_PERIODS = (4.0, 3.6, 4.4)
+# A6 背景渐变"流动"加速（只给纯文字卡；`_grad_speed()` 的生产默认 0.015 一个字都不动）。
+#   为什么还需要它：横向浮动吃的是**画面纹理**，纹理少的卡（compare / chart / end：大色块 + 少量字）
+#   帧间差偏小 → 26px 浮动只把时间轴抬到 `#++++++++++++++#`（2 个 #，不达标）。
+#   本机实测（compare 卡 8s，只改这一个变量）：speed 0.015(现状) → 2 个 #；0.05 → 8 个 #；
+#   0.15 → 10 个 #（四窗全覆盖）。取 **0.12**（≈现状 8 倍，肉眼仍是"氛围光在缓慢流动"，
+#   见 dist-rel/_t2/f_gc04_t1.png / t3.png 的观感对照）。
+FLOAT_GRAD_SPEED = '0.12'
+
+
+def float_motion_filters(shot, th, W, H, dur):
+    """★VF_SUSTAIN_V2：纯文字卡的**整块横向浮动**（整镜持续、极慢、极克制）。
+    返回 filter 片段 list（空 list = 本镜不动）；shot['sustain']='none' 可单镜关。"""
+    if not FLOAT_ON or not sustain_of(shot):
+        return []
+    d = float(dur or 0)
+    if d < 1.2:                                   # 太短的镜不值得（会显得"抖"）
+        return []
+    amp = max(4, int(round(W * FLOAT_AMP_RATIO)))
+    amp += amp % 2                                # yuv420p 要偶数
+    # ★VF_STYLES_V1：成品风格可以指定这一套的节奏周期（`_float_per`）；没选风格 → 按镜序轮换
+    try:
+        per = float(shot.get('_float_per') or 0) or FLOAT_PERIODS[int(shot.get('_idx') or 0)
+                                                                 % len(FLOAT_PERIODS)]
+    except Exception:
+        per = FLOAT_PERIODS[int(shot.get('_idx') or 0) % len(FLOAT_PERIODS)]
+    sw = W + amp * 2
+    sw += sw % 2
+    # t=0 时 sin=0 → crop x=amp = 缩放后画面正中，与"完全不浮动"的版式逐像素对齐（入场那 0.5s 不跳）
+    return [
+        'scale=%d:%d' % (sw, H),
+        "crop=%d:%d:x='%d+%d*sin(2*PI*t/%.2f)':y=0" % (W, H, amp, amp, per),
+    ]
 
 
 def card_title(shot, th, W, H, fps):
@@ -2426,7 +2494,7 @@ def _has_gradients(ffmpeg):
     return _HAS_GRAD
 
 
-def stage_layer(th, W, H, dur, accent_bar=True):
+def stage_layer(th, W, H, dur, accent_bar=True, grad_speed=None):
     """★VF_STAGE_V1（2026-09-29）**主题质感底板**：渐变底 + 几何装饰（替代"黑底白字"）。
 
     用途：① 素材不适合当背景时（深色 UI 截图 / 满字海报）② 纯文字卡（title/list/compare…）
@@ -2443,10 +2511,15 @@ def stage_layer(th, W, H, dur, accent_bar=True):
         _ff = find_ffmpeg()
     except Exception:
         _ff = 'ffmpeg'
+    # ★VF_SUSTAIN_V2（2026-10-01）：允许调用方指定渐变**流动速度**（纯文字卡要更快：见 FLOAT_GRAD_SPEED）。
+    #   不给（None）→ 仍走 `_grad_speed()` 的生产默认 0.015 → 其它调用方（素材卡）**一个字节都不变**。
+    # ⚠️ 测试钩子 `VF_GRAD_SPEED` 必须**优先于**调用方的加速值：否则纯文字卡（会传 FLOAT_GRAD_SPEED）
+    #   就冻不住了 → 跨渲染的像素断言会时红时绿（test-deck-styles2 / test-ppt-preview 都靠它）。
+    _spd = (os.environ.get('VF_GRAD_SPEED') or '').strip() or (grad_speed or '') or _grad_speed()
     if _has_gradients(_ff):
         inp = ['-f', 'lavfi', '-i',
                'gradients=s=%dx%d:c0=%s:c1=%s:d=%s:speed=%s'
-               % (W, H, c0, c1, max(1.0, float(dur)), _grad_speed())]
+               % (W, H, c0, c1, max(1.0, float(dur)), _spd)]
     else:
         inp = ['-f', 'lavfi', '-i', 'color=c=%s:s=%dx%d:d=%s' % (c0, W, H, max(1.0, float(dur)))]
     deco = []
@@ -3191,6 +3264,93 @@ def apply_deck_style(sb):
     return st
 
 
+# ══════════════ ★VF_STYLES_V1（2026-10-01）「成品风格」：把 10 主题 × 6 版式收成 5 套 ══════════════
+# 老板原话：「目前模版有2套我是不是有点乱。能统一一下吗？」「你写的那个什么玻璃什么分类有点抽象」
+#          「我做的几个目前配色都是蓝色，和你直接给我做的几个视频效果配色不太一样」。
+# 定义表在 themes.py 的 STYLES（唯一真相源）。这里只负责**把选中的风格落到分镜上**：
+#   ① `theme`      → 整片主题色（默认 bluewhite = news = 老板现在的蓝，逐像素不变）
+#   ② `deck_style` → 画面模版（deck 版式）
+#   ③ 动效节奏     → 纯文字卡的入场方式 enter + 横向浮动周期 _float_per
+# 并且**顺手修掉老板实测的"选了画面模版却一条片都没生效"**：
+#   根因是渲染侧旧规则"只覆盖**已经是 deck 的镜**"，可服务端送来的分镜里那些镜的 variant 是 null
+#   → 没有任何镜可覆盖 → 模版白选。所以这里在**明确选了成品风格**时，把该片的纯文字卡
+#   **提升**成这套风格的 deck 版式（仍在白名单内，不新增 variant 名）。
+#   ⚠️ 只在传了 style 时才这么做；老的 `deck_style` 路径（apply_deck_style）**保持原样** → 老片子零回归。
+def apply_style(sb, name=''):
+    """把成品风格落到分镜上（就地修改 sb）。返回生效的 style id（'' = **未干预**）。
+
+    ★VF_STYLES_STRICT_V1（2026-10-01 style-wire 抓到的静默事故）：
+      `style_of` 现在对**认不出**的名字返回 `None` → 这里**直接不干预**（theme/deck_style/variant 一个字段都不碰），
+      并且**打一条明确日志**（绝不静默）。
+      为什么必须这样：`vf-aivideo.ts` 把 AI 制片线的风格标签（`cinematic/commercial/vlog/…`）写进
+      plan 根级 `style`；如果这里"认不出就回落默认"，那条线会被悄悄改成 news 蓝 + deck。
+      换句话说：**只有真的命中 5 套成品风格（英文 id 或中文名）才动手。**
+    """
+    key = str(name or '').strip()
+    if not key:
+        return ''
+    st = style_of(key)
+    if not st:
+        print('[VF] ★VF_STYLES_STRICT_V1 **忽略未知 style**=%r（不在 5 套成品风格里）→ 一个字段都不动'
+              '（保留 theme=%r / deck_style=%r 原样；AI 制片线的风格标签 cinematic/commercial 走 '
+              'make.py 的 ai_style，与本字段无关）'
+              % (key, sb.get('theme'), sb.get('deck_style')))
+        return ''
+    sb['style'] = st['id']
+    # ★VF_STYLES_V1：风格可以带**少量主题 token 覆盖**（例：柔和高级把 mono 的高饱和玫红换成低饱和灰玫瑰）。
+    #   传字典时**必须带上 'theme' 键**：`theme_of()` 是拿它当基线再叠加覆盖的（见 themes.theme_of）。
+    _tok = st.get('tokens') or {}
+    sb['theme'] = dict(_tok, theme=st['theme']) if _tok else st['theme']
+    sb['deck_style'] = st['deck']
+    _per = float(st.get('period') or 4.0)
+    _ent = str(st.get('enter') or 'up')
+    _n = 0
+    _mat_n = 0
+    _mat_noop = 0
+    for s in (sb.get('shots') or []):
+        if not isinstance(s, dict):
+            continue
+        t = str(s.get('type') or 'title').strip().lower()
+        # ★VF_DECK_FRAME_DEFAULT_V1（2026-10-01 team-lead）：**显式选了成品风格时**给"素材镜"补卡片版式缺省。
+        #   为什么必须做：`plate_opts()` 的既有口径是"**只有编辑风主题（news/data）默认开卡片版式**"，
+        #   light/journal/mono 缺省 → 素材镜回落老链路（整幅虚化素材 + 居中大字）→ 老板选了
+        #   「清爽浅色/杂志编辑/柔和高级」后会看到"**纯文字页是新风格，但图片镜/视频镜还是老样子**"
+        #   （素材镜通常占全片大多数）。
+        #   为什么在这里补、而不是让上游手写：真实出片**没人会手写 frame**（样例是对照图才手写的）。
+        #   三条边界（与 apply_style 的严格守卫一致）：
+        #     ① 只有 apply_style 真生效（显式选了合法风格）才走这里 → 不选风格 = 零改动；
+        #     ② 只补**缺失**的：显式写过 frame（含 `frame:'none'` 想关掉卡片版式）→ **一律不覆盖**；
+        #     ③ 只补 frame（不顺手改 shadow/float/wipe）→ 其余按 `plate_opts()` 各主题自己的缺省走。
+        #   ⚠️ 已知边界（本轮**如实上报**，不在这轮改）：`card_video` / `card_aivideo` 目前**不读**
+        #   `frame`（它们走 `_bg_filters` 的"整幅素材 + 大字"链路，没有卡片版式）→ 这两个卡型上补
+        #   该字段**暂不生效**（等把卡片版式接进视频卡型再说）。字段照写 = 前向兼容，并把条数单独打出来。
+        if t in ('bgimage', 'image', 'video', 'aivideo'):
+            if not str(s.get('frame') or '').strip():
+                s['frame'] = 'thin'
+                _mat_n += 1
+                if t in ('video', 'aivideo'):
+                    _mat_noop += 1
+            continue
+        if t not in ('title', 'list', 'number', 'compare', 'chart', 'end'):
+            continue
+        # 单镜显式写的 enter 优先（AI/用户有想法就听他的）
+        if not str(s.get('enter') or '').strip():
+            s['enter'] = _ent
+        s['_float_per'] = _per          # 风格节奏优先（它就是"这一套看起来什么节奏"）
+        # 纯文字卡提升成这套风格的 deck 版式（白名单内的值）——修"选了模版没生效"
+        if t == 'title' and str(s.get('variant') or '').strip().lower() not in DECK_STYLE_VARIANTS:
+            s['variant'] = st['deck']
+            _n += 1
+    print('[VF] ★VF_STYLES_V1 成品风格=%s（%s）：theme=%s / 画面模版=%s / 节奏(enter=%s,浮动%.1fs)'
+          ' / 提升为 deck 版式的镜=%d'
+          % (st['id'], st.get('name'), st['theme'], st['deck'], _ent, _per, _n))
+    if _mat_n:
+        print('[VF] ★VF_DECK_FRAME_DEFAULT_V1 素材镜补 frame=thin：%d 镜（其中 video/aivideo %d 镜'
+              '——该卡型暂未接入卡片版式，字段先写上=前向兼容）' % (_mat_n, _mat_noop))
+    print('[VF] ★VF_STYLES_V1 说明：%s' % (st.get('desc') or ''))
+    return st['id']
+
+
 def _deck_stats(shot):
     """★VF_DECK_V1：数据块条目 —— 兼容 stats=[{value,suffix,label}] / dict / number 卡的 value+suffix+label。"""
     out = []
@@ -3377,15 +3537,28 @@ def deck_page_filters(shot, th, W, H, dur, font=None, region=None):
     _y += _dvh + _dvg
 
     # ⑤ 要点：编号 01/02 + 小色块 + 文字（★VF_DECK_SPAN_V2：按镜长**整段错峰**）
+    # ★VF_DECK_LIGHTFACE_V1（2026-10-01 老板/team-lead）：「蓝白科技 那套尤其明显」的就是这里 ——
+    #   原来每条要点直接铺 `panel`（= `cardBg` = white@0.93）→ 整页最亮的东西变成三条白杠，
+    #   主标题反被压下去。现在改成【极淡主题染色面 + 1px 细边】，并且**字色按"面"重算**（过 |Δ|≥70，
+    #   口径同 VF_DECK_CONTRAST_V1）—— 面变暗了以后 `cardText`（深色）就不能再直接用。
+    _rowMat, _rowGloss = _deck_item_material('deck', th)
+    _rowEdge = _deck_face_edge('deck', th)
+    _rowBgL = float(_lum_of(str(th.get('bg') or '0x0a1620'), 160))
+    _rowTx, _rowFL, _rowDD = _deck_on_face(_deck_eff_lum(_rowMat, _rowBgL))
     for _i, _it in enumerate(items):
         _t_on = _it_on(_i)
         _iy = _y + _i * _rhit
-        # ★VF_DECK_SPAN_V2：每条要点带一块**与数据卡同主题的卡面**（同 cardBg）。
-        #   它既是"编排更丰富"（老板原话要"不要就几个大字"），也是把这 2 秒窗的"在动"量级
-        #   抬到 ≥1.0 的那一记（文字入场的面积太小、数学上到不了阈值）。
+        #   这层"面"除了"编排更丰富"（老板原话要"不要就几个大字"），也负责把该 2s 窗的
+        #   运动量抬到量级线 —— 面积/出现时刻**一个都没动**，只换了色（宽度不足时由
+        #   ★VF_SUSTAIN_V2 的整块浮动 + 背景渐变流动补足，见 float_motion_filters / FLOAT_GRAD_SPEED）。
         if not region:
-            out.append(f"drawbox=x={_x}:y={_iy + 2}:w={rw}:h={max(_rhit - 6, int(H * 0.078))}:"
-                       f"color={panel}:t=fill:enable='gte(t,{_t_on:.2f})'")
+            _rh1 = max(_rhit - 6, int(H * 0.078))
+            out.append(f"drawbox=x={_x}:y={_iy + 2}:w={rw}:h={_rh1}:"
+                       f"color={_rowMat}:t=fill:enable='gte(t,{_t_on:.2f})'")
+            out.append(f"drawbox=x={_x}:y={_iy + 2}:w={rw}:h=1:"
+                       f"color={_rowEdge}:t=fill:enable='gte(t,{_t_on:.2f})'")
+            out.append(f"drawbox=x={_x}:y={_iy + 2 + _rh1 - 1}:w={rw}:h=1:"
+                       f"color={_rowEdge}:t=fill:enable='gte(t,{_t_on:.2f})'")
         _num = '%02d' % (_i + 1)
         out.append(
             f"drawtext=fontfile='{_bold}':text='{_num}':fontsize={_nfz}:fontcolor={acc}:"
@@ -3398,7 +3571,7 @@ def deck_page_filters(shot, th, W, H, dur, font=None, region=None):
         _tx = _dx + _sqb + max(8, int(_ifz * 0.34))
         out.append(
             f"drawtext=fontfile='{_reg}':text='{esc_text(_it)}':fontsize={_ifz}:"
-            f"fontcolor={pfg}:x={_tx}:y={_iy + max(0, (_rhit - _ifz) // 2)}:"
+            f"fontcolor={_rowTx}:x={_tx}:y={_iy + max(0, (_rhit - _ifz) // 2)}:"
             f"alpha='min(max(t-{_t_on + 0.14:.2f},0)/0.40,1){_br}'")
     _y += _ih
     if region and items:
@@ -3408,7 +3581,8 @@ def deck_page_filters(shot, th, W, H, dur, font=None, region=None):
         _segHB = max(_rhit - 6, int(1.15e7 / max(1, rw) / 150))
         _segY0 = _y - _ih - 4
         for _i2 in range(min(3, len(items))):
-            out.append(f"drawbox=x={_x}:y={_segY0 + _i2 * _segHB}:w={rw}:h={_segHB}:color={panel}:t=fill"
+            # ★VF_DECK_LIGHTFACE_V1：素材页的步进面板同样换成**极淡染色面**（不再是白杠）
+            out.append(f"drawbox=x={_x}:y={_segY0 + _i2 * _segHB}:w={rw}:h={_segHB}:color={_rowMat}:t=fill"
                        f":enable='gte(t,{_it_on(_i2):.2f})'")
 
     # ⑥ 数据块：半透明卡面 + 左侧强调条 +（整数走 eif 滚动）大数字 + 单位 + 说明
@@ -3748,38 +3922,58 @@ def _deck_on_face(face_lum):
 
 
 def _deck_item_material(style, th):
-    """★VF_DECK_SPAN_V3（2026-10-01 team-lead 决定 1）：5 套风格页**各自的**"卡面级"材质色。
+    """★VF_DECK_LIGHTFACE_V1（2026-10-01 老板 + team-lead 观感意见）：5 套风格页**各自的**"面"。
 
-    为什么必须每套有个"面"：入场若只有文字，逐帧 YAVG 只有 0.1~0.3；而体检②的 0.5s 分箱是
-    **均值**（一次性出现会被 12.5 帧摊薄）→ 需要一块 A×ΔL ≥ 921600×12.5 ≈ 1.15e7（px·luma）的面。
-    为什么不能照抄基础 deck 的 `cardBg`（白卡）：team-lead 明确"按每套自己的材质来，不要无脑白卡"。
-    所以这里按风格给**同源但不同质感**的材质（并配 alpha 保证量级）：
-      · deck-glass → 半透明玻璃（白 0.50 + 顶部高光，最像"悬浮玻璃片"）
-      · deck-mono  → 大留白块（白 0.50，无任何装饰 = 极简）
-      · deck-mag   → 纸块（主题 `cardBg`，纸色）+ 上下细线
-      · deck-soft  → 同色系凸起块（`cardBg` 0.70，无描边、只留柔和边）
-      · deck-grad  → 渐变卡面（白 0.58 + 左侧 accent 渐变细条）
-    返回 (材质色, 是否加"玻璃高光")。
+    老板/team-lead 原话：「要点行的『面』不要是实心白杠」→ 换成
+    **【极淡染色面（同主题色、alpha 更低）】+【1px 细边】**，强度不够**靠面更高/更长补，不靠刷白**。
+    为什么原来的白杠会"刺眼"：`white@0.72~0.93` 铺在暗底上 → 面亮度 195~238，
+    整页最亮的东西变成三条横杠（尤其 `蓝白科技`/`柔和高级`），主标题反而被压下去。
+    为什么现在敢把 alpha 降到 0.09~0.42：
+      · 运动量（体检②的 1.15e7 = 面积×ΔL）**已经由 ★VF_SUSTAIN_V2 的整块浮动 + 背景渐变流动承担**
+        （见 float_motion_filters / FLOAT_GRAD_SPEED），不再需要靠"面刷白"去抬帧间差；
+      · 结构上的"面"仍然在（每套仍有 A 块盖要点 1-2、B 块盖要点 3，见 _deck_styled_filters），
+        只是改成"淡染 + 细边"的克制作法 —— 6 套 8s 页的时间轴本机复测仍达标（报告里有）。
+    设计口径（低饱和 / 色块面积小 / 有中性灰阶 / 不要实心黑框）：
+      · deck-glass → 同色系**柔和拟物**（`cardBg2` 淡染 + 面内纵向渐变 + 上高光 / 下暗棱）
+      · deck-soft  → 同色系最淡的一块（`cardBg2` 0.38，无描边，只留柔和边）
+      · deck-mono  → **中性灰阶**（白 0.09 = 近黑底上的一层灰），不再"黑底 + 亮红字 + 白杠"
+      · deck-mag   → 纸色淡淡一层（`cardBg` 0.14）+ 细线
+      · deck-grad  → 主题色极淡一层（accent 0.15）
+    返回 (面色, 是否加"玻璃/拟物"装饰) —— **保持 2 元组**（自测里有解包调用）。
     """
     _cb = str(th.get('cardBg') or 'white@0.93')
-    # ★VF_DECK_SPAN_V3：**浅底主题要反过来**（本机实测：light 主题底色近白，白色面 ΔL≈6 → 等于没动）。
-    #   浅底上用"同源深墨半透明"（纸上的一块墨/阴影块）—— ΔL≈0.4×(24−247)≈89 → 到量级线。
-    if _lum_of(str(th.get('bg') or '0x0a1620'), 160) >= 128:
-        _ink = str(th.get('cardText') or '0x101418')
-        _a5 = {'deck-glass': 0.62, 'deck-mono': 0.58, 'deck-mag': 0.54,
-               'deck-soft': 0.60, 'deck-grad': 0.64}.get(style, 0.60)
-        return _force_alpha(_ink, _a5), (style == 'deck-glass')
-    if style == 'deck-glass':
-        return _force_alpha('white', 0.74), True
-    if style == 'deck-mono':
-        return _force_alpha('white', 0.72), False
-    if style == 'deck-mag':
-        return _cb, False
-    if style == 'deck-soft':
-        return _force_alpha(_cb, 0.78), False
-    if style == 'deck-grad':
-        return _force_alpha('white', 0.76), False
-    return _cb, False
+    _cb2 = str(th.get('cardBg2') or th.get('bg2') or th.get('accent') or _cb)
+    _acc = str(th.get('accent') or '0x2f7cf6')
+    _ink = str(th.get('cardText') or '0x101418')
+    _dark = _lum_of(str(th.get('bg') or '0x0a1620'), 160) < 128
+    if _dark:
+        _tab = {'deck-glass': (_force_alpha(_cb2, 0.42), True),
+                'deck-soft': (_force_alpha(_cb2, 0.38), True),
+                'deck-mono': (_force_alpha('white', 0.09), True),
+                'deck-mag': (_force_alpha(_cb, 0.14), False),
+                'deck-grad': (_force_alpha(_acc, 0.15), False),
+                # ★VF_DECK_LIGHTFACE_V1：**经典 deck（= 蓝白科技）的要点行**也走这一套
+                #   （老板在这套上看得最明显：原来是三条白杠 → 现在极淡主题染色 + 1px 细边）
+                'deck': (_force_alpha(_acc, 0.16), False)}
+    else:
+        # 浅底：用"同源深墨的极淡一层"（纸上的一块淡影），不再用重墨 0.54~0.64
+        _tab = {'deck-glass': (_force_alpha(_ink, 0.12), True),
+                'deck-soft': (_force_alpha(_ink, 0.10), True),
+                'deck-mono': (_force_alpha(_ink, 0.10), True),
+                'deck-mag': (_force_alpha(_ink, 0.09), False),
+                'deck-grad': (_force_alpha(_acc, 0.13), False),
+                'deck': (_force_alpha(_ink, 0.10), False)}
+    _c, _g = _tab.get(style, (_force_alpha(_cb, 0.16), False))
+    return _c, bool(_g)
+
+
+def _deck_face_edge(style, th):
+    """★VF_DECK_LIGHTFACE_V1：面的 **1px 细边** —— 面的"存在感"靠边线，不靠把它刷白。
+    同主题色（accent）/ 中性（mono、glass 走白·黑），alpha 0.16~0.45，肉眼是"一条细线"而不是框。"""
+    _dark = _lum_of(str(th.get('bg') or '0x0a1620'), 160) < 128
+    if style in ('deck-mono', 'deck-glass'):
+        return _force_alpha('white' if _dark else 'black', 0.20 if style == 'deck-mono' else 0.16)
+    return _force_alpha(str(th.get('accent') or '0x2f7cf6'), 0.45 if _dark else 0.38)
 
 
 def _deck_styled_filters(shot, th, W, H, dur, style, font=None, region=None):
@@ -4045,29 +4239,31 @@ def _deck_styled_filters(shot, th, W, H, dur, style, font=None, region=None):
     _hB = max(_rhit + 44, int(_hTot) - _hA)
     _gcv = _rgb_alpha(_matC)[0]
     _ghex = '0x%02x%02x%02x' % (_gcv[0], _gcv[1], _gcv[2])   # 材质色去掉 alpha 的纯色串
-    if style == 'deck-glass':
-        # ★VF_DECK_CONTRAST_V1（team-lead 顺带要求）：**面内**做成"玻璃片"而不是一块平灰板 ——
-        #   面内轻微纵向渐变（0.82→0.68，均值≈0.75 ≈ 原来的 0.74 → 时间轴量级不变）
-        #   + 底沿一条柔和暗棱（3px / 0.14）。都是"面内"效果，不改面积与出现时刻。
-        out += grad_box_filters(_x, _y - 4, rw, _hA, _force_alpha(_ghex, 0.82),
-                                _force_alpha(_ghex, 0.68), steps=4, enable=_bAS)
-        out += grad_box_filters(_x, _y - 4 + _hA, rw, _hB, _force_alpha(_ghex, 0.80),
-                                _force_alpha(_ghex, 0.66), steps=4, enable=_bBS)
-        out.append(f"drawbox=x={_x}:y={_y - 4 + _hA + _hB - 3}:w={rw}:h=3:"
-                   f"color={_force_alpha(scC, 0.14)}:t=fill:enable='gte(t,{_bBS:.2f})'")
+    _matA = _rgb_alpha(_matC)[1]                              # 面的 alpha（现在很淡：0.09~0.42）
+    _edgeC = _deck_face_edge(style, th)
+    if _gloss:
+        # ★VF_DECK_LIGHTFACE_V1：同色系**柔和拟物**（玻璃/软面）—— 面内亮→暗的极淡渐变（凸起感）
+        #   + 上沿高光 + 下沿暗棱。全部是"面内/贴边"效果（1~3px），不刷面积、不改出现时刻。
+        out += grad_box_filters(_x, _y - 4, rw, _hA, _force_alpha(_ghex, min(0.95, _matA * 1.30)),
+                                _force_alpha(_ghex, _matA * 0.80), steps=4, enable=_bAS)
+        out += grad_box_filters(_x, _y - 4 + _hA, rw, _hB, _force_alpha(_ghex, min(0.95, _matA * 1.30)),
+                                _force_alpha(_ghex, _matA * 0.80), steps=4, enable=_bBS)
+        out.append(f"drawbox=x={_x}:y={_y - 4 + _hA + _hB - 1}:w={rw}:h=1:"
+                   f"color={_force_alpha(scC, 0.30)}:t=fill:enable='gte(t,{_bBS:.2f})'")
     else:
         out.append(f"drawbox=x={_x}:y={_y - 4}:w={rw}:h={_hA}:color={_matC}:t=fill"
                    f":enable='gte(t,{_bAS:.2f})'")
         out.append(f"drawbox=x={_x}:y={_y - 4 + _hA}:w={rw}:h={_hB}:color={_matC}:t=fill"
                    f":enable='gte(t,{_bBS:.2f})'")
-    if _gloss:
-        # 玻璃拟态：两块面的上沿各一条极淡高光（0.20），像"悬浮玻璃片"的反光，不刷面积
-        out.append(f"drawbox=x={_x}:y={_y - 4}:w={rw}:h=2:"
-                   f"color={_force_alpha('white', 0.20)}:t=fill:enable='gte(t,{_bAS:.2f})'")
-        out.append(f"drawbox=x={_x}:y={_y - 4 + _hA}:w={rw}:h=2:"
-                   f"color={_force_alpha('white', 0.20)}:t=fill:enable='gte(t,{_bBS:.2f})'")
-    print('[VF] ★VF_DECK_SPAN_V3 风格=%s 材质面 2 块 @%.2f/%.2f（%s）'
-          % (style, _bAS, _bBS, _matC))
+    # ★VF_DECK_LIGHTFACE_V1：**1px 细边** —— 上面两块"淡染面"靠边线立住（A 上沿 / B 上沿 / B 下沿）
+    out.append(f"drawbox=x={_x}:y={_y - 4}:w={rw}:h=1:color={_edgeC}:t=fill"
+               f":enable='gte(t,{_bAS:.2f})'")
+    out.append(f"drawbox=x={_x}:y={_y - 4 + _hA}:w={rw}:h=1:color={_edgeC}:t=fill"
+               f":enable='gte(t,{_bBS:.2f})'")
+    out.append(f"drawbox=x={_x}:y={_y - 4 + _hA + _hB - 1}:w={rw}:h=1:color={_edgeC}:t=fill"
+               f":enable='gte(t,{_bBS:.2f})'")
+    print('[VF] ★VF_DECK_LIGHTFACE_V1 风格=%s 淡染面 2 块 @%.2f/%.2f（%s，alpha=%.2f）+ 1px 细边（%s）'
+          % (style, _bAS, _bBS, _matC, _matA, _edgeC))
 
     # ⑤ 编号要点（mono 用中性编号 + 大行距，mag 用竖栏线，grad 用小色点）
     for _i, _it in enumerate(items):
@@ -4077,7 +4273,10 @@ def _deck_styled_filters(shot, th, W, H, dur, style, font=None, region=None):
         #   ★VF_DECK_STYLES2_V1：编号色 —— mono/soft 走中性（拟物/极简都"不刷亮色"），其余用 accent
         # ★VF_DECK_CONTRAST_V1：编号色也过对比判据 —— accent 在"面"上不达标就退回面上字色
         #   （原来 mono/soft 用 _onMat@0.55，合成后 |Δ| 只有 ~55 < 70 → 一律换成满 alpha）
-        _nc = acc if abs(_lum_of(acc, 255) - _faceL2) >= 70 else _onMat
+        # ★VF_DECK_LIGHTFACE_V1：mono（柔和高级）的**编号**强制走中性（面上字色）——
+        #   这一套的定位是"纯中性灰阶"，编号刷色会把它拉回"科技感"（team-lead「别再是黑底+亮红字」）。
+        _nc = _onMat if style == 'deck-mono' \
+            else (acc if abs(_lum_of(acc, 255) - _faceL2) >= 70 else _onMat)
         out.append(f"drawtext=fontfile='{_bold}':text='{_num}':fontsize={_nfz}:fontcolor={_nc}:"
                    f"x={_x}:y={_iy + max(0, (_rhit - _nfz) // 2)}:"
                    f"alpha='min(max(t-{_t_on:.2f},0)/0.35,1)'")
@@ -4380,7 +4579,7 @@ def _argv_of(inp):
     return out
 
 
-def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
+def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg, still=None):
     # ★VF_MOTION_V2（2026-09-29）：把镜序注入 shot —— 各配方卡据此轮换运动（推近/拉远/静止），
     #   不再"每一镜都挂 ken burns"（反 AI 味清单里的一条）。用副本，不改调用方的数据。
     shot = dict(shot)
@@ -4410,12 +4609,24 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
     #   从"一块纯色"升级成【主题质感底】：两色渐变 + 顶部强调色细条 + 底部分割线。
     #   做法刻意选在 render_shot 这一层做（而不是去改 6 个卡型）：只拦"卡片返回的是 lavfi 纯色底"这一种，
     #   其余（有素材的 bgimage/video、以及卡片自己的文字/装饰层）一律不动 → 一处改动、风险最小。
-    if typ in ('title', 'list', 'number', 'compare', 'chart', 'end') \
-            and isinstance(inp, str) and inp.startswith('-f lavfi -i color='):
-        _inp2, _deco = stage_layer(th, W, H, dur)
-        inp = ' '.join(_inp2)
-        vf = _deco + ',' + vf
-        print('[VF] 文字卡 %s → 主题质感底（渐变 + 强调色装饰）' % typ)
+    # ★VF_SUSTAIN_V3（2026-10-01）：**纯文字卡**的定义要含"卡片自带的渐变底"。
+    #   为什么：`deck-grad` / `deck-glass` 的底板是**卡片自己**给的
+    #   （`-f lavfi -i gradients=...`，见 `_deck_board_inp`），原来只认 `color=` → 这两套 deck 页
+    #   整段 ★VF_SUSTAIN_V2（入场/浮动/进度线）**全被跳过**；白杠一改成"极淡染色面"，
+    #   它们的 8s 时间轴立刻掉到 `#..............#`（只剩首尾淡入淡出）。实测就是这条。
+    #   现在的口径：`color=` 底 → 换 stage 质感底；`gradients=` 底 → **保留卡片自己的底板**
+    #   （deck-grad 的"真渐变"是设计，不许被换掉），但入场/浮动/进度线**照加**。
+    _pure_color = (isinstance(inp, str) and inp.startswith('-f lavfi -i color='))
+    _pure_grad = (isinstance(inp, str) and inp.startswith('-f lavfi -i gradients='))
+    if typ in ('title', 'list', 'number', 'compare', 'chart', 'end') and (_pure_color or _pure_grad):
+        if _pure_color:
+            _inp2, _deco = stage_layer(th, W, H, dur, grad_speed=FLOAT_GRAD_SPEED)
+            inp = ' '.join(_inp2)
+            vf = _deco + ',' + vf
+            print('[VF] 文字卡 %s → 主题质感底（渐变 + 强调色装饰；★A6 渐变流速=%s）'
+                  % (typ, FLOAT_GRAD_SPEED))
+        else:
+            print('[VF] 文字卡 %s → 保留卡片自带渐变底（deck 版式底板），照加入场/浮动/进度线' % typ)
         # ★VF_MOTIONPPT_V1（2026-09-30）：纯文字卡的【整块版式】入场滑入（pad+crop，逐帧）。
         #   只加在纯文字卡（有素材的镜已有 Ken Burns 轮换，再整体位移会打架）；默认开但极克制
         #   （0.25~0.5s / 位移 3.5%H），shot['enter']='none' 可单镜关。拼在【卡链尾部】：
@@ -4424,6 +4635,15 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
         if _ef:
             vf = vf + ',' + ','.join(_ef)
             print('[VF] 文字卡 %s → 整块版式入场滑入（enter=%s）' % (typ, enter_of(shot)))
+        # ★VF_SUSTAIN_V2（2026-10-01）A5：整块版式**横向浮动**（整镜持续）——治"整页几个大字、后面 5 秒不动"。
+        #   位置刻意选在【进度线之前】：进度线是"钉在画面底部"的，先浮动再画线，线就不会被裁出画面。
+        _fm = float_motion_filters(shot, th, W, H, dur)
+        if _fm:
+            _per = float(_fm[1].split('/')[-1].split(')')[0])
+            print('[VF] 文字卡 %s → 整块横向浮动（持续动效 A5，幅度 %dpx / 周期 %.1fs %s）'
+                  % (typ, int(round(W * FLOAT_AMP_RATIO)), _per,
+                     '· 成品风格指定' if shot.get('_float_per') else '· 按镜序轮换'))
+            vf = vf + ',' + ','.join(_fm)
         # ★VF_SUSTAIN_V1 A4（2026-10-01）：纯文字卡底部一条**走完整镜**的进度细线（常驻动效）。
         #   为什么放在 render_shot 这一层：一处接线就覆盖全部纯文字卡（title/list/number/compare/
         #   chart/end 以及 deck 页），不必去改 6 个卡型；有素材的镜不加（那边靠浮动/Ken Burns）。
@@ -4466,38 +4686,47 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg):
     # ★VF_AIVIDEO_V1（2026-09-20）：video / aivideo 的输入**自带音轨**（AI 片段可能有环境音/人声）——
     #   单镜统一 `-an` 静音，音频由最后的 mux_audio 阶段铺【配音 + BGM】，
     #   否则 concat 时各镜音轨错乱。
-    _an = '-an ' if typ in ('video', 'aivideo') else ''
-    cmd = (f'"{ffmpeg}" -y {inp} -vf "{vf2}" {_an}{venc_args(W, H)} '
-           f'-r {fps} -t {dur} "{out}"')
-    # ★VF_SHOT_GUARD_V1（2026-09-22，用户实测「180 秒出 30 秒」）：原来**只看文件在不在**
-    #   → ffmpeg 中途挂掉留下的半截文件（缺 moov atom）也算"成功" → 拼接时整片断在那一镜。
-    #   现在：返回码 + ffprobe 真实时长双校验；异常自动重试一次；仍不行就明确报错
-    #   （宁可这一条不出片，也绝不交付一条"静默变短"的废片）。
+    # ★VF_ARGV_V1（2026-10-01 team-lead 定案「治本」）：ffmpeg 调用一律走**参数数组、不经过 shell**。
+    #   为什么必须治本（线上实测，老板报过三次"空色块"）：原来把整条滤镜串拼成 shell 字符串 + `shell=True`
+    #   走 /bin/sh，双引号里 `\\%` 被 shell 吃成 `\%` → ffmpeg 收到**裸 `%`** → 报 `Stray %` →
+    #   该 drawtext 一个字都不画（**同串的 drawbox 照画 = 有框无字**，正是"空色块"）。
+    #   ⚠️ Windows 的 cmd.exe **不处理反斜杠** → 本机怎么测都正常，这是它长期没被查出的根因。
+    #   esc_text 的 `%` 仍是**两层** `\\%`（不改）——argv 下没有 shell 那一层，两层正好是
+    #   ffmpeg 滤镜解析（第 1 层）+ drawtext 展开语法（第 2 层）所需要的转义层数。
+    # ★VF_LONGCMD_V1（2026-10-01「deck-grad 素材页整镜渲染失败」的 cmd.exe 8191 上限问题）
+    #   也一并被这次改动**根治**：argv 走 CreateProcess（上限 32767），所以"超长才切数组"的分支删掉了。
+    # ★VF_SHOT_GUARD_V1（2026-09-22，用户实测「180 秒出 30 秒」）保持不变：
+    #   返回码 + ffprobe 真实时长双校验；异常自动重试一次；仍不行就明确报错。
+    _argv = ([ffmpeg, '-y'] + _argv_of(inp) + ['-vf', vf2]
+             + (['-an'] if typ in ('video', 'aivideo') else [])
+             + venc_argv(W, H) + ['-r', str(fps), '-t', str(dur), out])
+    # ★VF_PPTPREVIEW_V1（2026-10-01 老板：「完全成片之前能把PPT抽出来审核一下效果吗？」）：
+    #   `still=(秒, png路径)` → 不渲整段视频，只在"内容全就位"那一帧求值、落一张 PNG。
+    #   关键：**复用上面那条一模一样的滤镜链**（同一个函数、同一份 deck_*/stage/enter/float/进度线逻辑），
+    #   只在**链尾**加 `trim=start=T`（trim 之前的所有 t 表达式都还在**原始时间轴**上求值 →
+    #   浮动相位 / enable 分段 / 入场位移 / 数字滚动 都是 T 时刻的真实状态），再出 1 帧。
+    #   ⚠️ 不能用 `-ss T -i`（输入端 seek）：那会把帧时间戳重置到 0 → sin(t/4) 之类的相位全错。
+    if still:
+        _st = float(still[0])
+        _png = still[1]
+        _vfs = vf2 + ',trim=start=%.3f,setpts=PTS-STARTPTS' % _st
+        _sargv = ([ffmpeg, '-y'] + _argv_of(inp) + ['-vf', _vfs]
+                  + ['-frames:v', '1', _png])
+        _sr = subprocess.run(_sargv, capture_output=True, text=True,
+                             encoding='utf-8', errors='replace')
+        if _sr.returncode != 0 or not os.path.exists(_png):
+            print('[VF] ⚠️ PPT 抽帧失败（第 %d 镜 / t=%.2fs）：%s'
+                  % (idx + 1, _st, err_lines(_sr.stderr) or ('rc=%s' % _sr.returncode)))
+        return _png
     _target = float(dur)
-    # ★VF_LONGCMD_V1（2026-10-01 本机实测「deck-grad 素材页整镜渲染失败」）：
-    #   Windows 的 cmd.exe 命令行上限是 8191 字符 —— deck-grad 这类"渐变带"元素多（每段一个 drawbox），
-    #   滤镜链会超限 → ffmpeg 只回一句 `The command line is too long.`（stderr 里没有别的线索，
-    #   表现为"重试 2 次都失败、整片出不来"）。超长时改走**参数数组**（CreateProcess 上限 32767），
-    #   不经 shell；**短命令仍走原来的 shell 字符串路径** → 老片子/老卡型零回归（一个字节都不变）。
-    _argv = None
-    if len(cmd) > 7000:
-        _argv = ([ffmpeg] + _argv_of(inp) + ['-vf', vf2]
-                 + (['-an'] if _an else [])
-                 + venc_argv(W, H) + ['-r', str(fps), '-t', str(dur), out])
-        print('[VF] ★VF_LONGCMD_V1 滤镜链 %d 字符（>7000）→ 改走参数数组（避开 cmd.exe 8191 上限）'
-              % len(cmd))
     for _try in (1, 2):
         if os.path.exists(out):
             try:
                 os.remove(out)
             except Exception:
                 pass
-        if _argv:
-            r = subprocess.run(_argv, capture_output=True, text=True,
-                               encoding='utf-8', errors='replace')
-        else:
-            r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
-                               encoding='utf-8', errors='replace')
+        r = subprocess.run(_argv, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
         _got = probe_sec(out)
         if r.returncode == 0 and _got >= _target * 0.9:
             if _try > 1:
@@ -4525,7 +4754,10 @@ def concat_shots_xfade(files, workdir, ffmpeg, W, H, fps, durs, xd=0.35):
     if n < 2:
         return None
     out = os.path.join(workdir, 'merged_xfade.mp4')
-    ins = ' '.join('-i "%s"' % p.replace('\\', '/') for p in files)
+    # ★VF_ARGV_V1：输入也用参数数组（不走 shell）—— 见 render_shot 的 ★VF_ARGV_V1 说明
+    _ins = []
+    for p in files:
+        _ins += ['-i', os.path.abspath(p).replace('\\', '/')]
     parts, prev, acc = [], '0:v', float(durs[0])
     for i in range(1, n):
         off = max(0.0, acc - xd)
@@ -4535,10 +4767,11 @@ def concat_shots_xfade(files, workdir, ffmpeg, W, H, fps, durs, xd=0.35):
         prev, acc = lab, off + float(durs[i])
     fc = ';'.join(parts)
     exp = acc
-    cmd = (f'"{ffmpeg}" -y {ins} -filter_complex "{fc}" -map "[{prev}]" '
-           f'{venc_args(W, H)} -r {fps} "{out}"')
+    # ★VF_ARGV_V1：参数数组（不过 shell）
+    _argv = ([ffmpeg, '-y'] + _ins + ['-filter_complex', fc, '-map', '[%s]' % prev]
+             + venc_argv(W, H) + ['-r', str(fps), out])
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+        r = subprocess.run(_argv, capture_output=True, text=True,
                            encoding='utf-8', errors='replace')
     except Exception as e:
         print('[VF] ⚠️ 交叉溶解异常 → 回落硬切: %s' % str(e)[:100])
@@ -4563,12 +4796,16 @@ def concat_shots(files, workdir, ffmpeg, W, H, fps, expect_sec=0.0):
             ② 拼完 ffprobe **真实总时长**与预期 Σ每镜比对（<95% 视为被截断 → 抛出明确错误）。
     """
     lst = os.path.join(workdir, 'list.txt')
+    # ★VF_ARGV_V1：写 **绝对路径**。concat 解复用器把 list 里的相对路径按【list 文件所在目录】
+    #   解析（不是按 cwd）→ workdir 一旦是相对路径就会被拼两遍 → `Impossible to open`。
+    #   （本机实测：--workdir dist-rel/_x 时 list 里出现 dist-rel/_x\dist-rel/_x\shot00.mp4）
     with open(lst, 'w', encoding='utf-8') as f:
         for p in files:
-            f.write("file '%s'\n" % p.replace('\\', '/'))
+            f.write("file '%s'\n" % os.path.abspath(p).replace('\\', '/'))
     out = os.path.join(workdir, 'merged.mp4')
-    cmd = (f'"{ffmpeg}" -y -f concat -safe 0 -i "{lst}" '
-           f'{venc_args(W, H)} -r {fps} "{out}"')
+    # ★VF_ARGV_V1：参数数组（不过 shell）
+    _argv = ([ffmpeg, '-y', '-f', 'concat', '-safe', '0', '-i', lst]
+             + venc_argv(W, H) + ['-r', str(fps), out])
     _exp = float(expect_sec or 0)
     _keystr = ('Impossible to open', 'Invalid data found', 'Input/output error', 'No such file')
     for _try in (1, 2):
@@ -4577,7 +4814,7 @@ def concat_shots(files, workdir, ffmpeg, W, H, fps, expect_sec=0.0):
                 os.remove(out)
             except Exception:
                 pass
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+        r = subprocess.run(_argv, capture_output=True, text=True,
                            encoding='utf-8', errors='replace')
         _err = r.stderr or ''
         _got = probe_sec(out)
@@ -4787,9 +5024,11 @@ def burn_banner(src, out, banner, th, W, H, dur, ffmpeg):
     vf = banner_layer(banner, th, W, H, dur, font)
     if not vf:
         return src
-    cmd = (f'"{ffmpeg}" -y -i "{src}" -vf "{vf}" {venc_args(W, H)} -c:a copy "{out}"')
+    # ★VF_ARGV_V1：参数数组（不过 shell）
+    _argv = ([ffmpeg, '-y', '-i', src, '-vf', vf]
+             + venc_argv(W, H) + ['-c:a', 'copy', out])
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+        r = subprocess.run(_argv, capture_output=True, text=True,
                            encoding='utf-8', errors='replace')
     except Exception as e:
         print('[VF] ⚠️ 固定标题异常 → 跳过（不影响出片）: %s' % str(e)[:100])
@@ -4938,18 +5177,20 @@ def burn_subtitles(video, srt, out, ffmpeg, font_size=26, W=0, H=0):
     ★VF_BITRATE_V1：这里也是**最后一道视频重编码**（烧字幕），所以同样走 `venc_args(W,H)`
       —— 否则前面给足了质量、最后一道又压回 353kbps，等于白改。W/H 缺省 0 → CRF 20。"""
     sp = esc_path(os.path.abspath(srt))
+    # ★VF_ARGV_V1：参数数组（不过 shell）—— 整条 -vf 作为**一个 argv 元素**传给 ffmpeg，
+    #   不再被 shell 二次解析（这正是 `%` 会丢字的根因，见 render_shot 的 ★VF_ARGV_V1 说明）。
     if str(srt).lower().endswith('.ass'):
         # ★VF_KARAOKE_V1：ASS 自带样式（含 \\k 逐字高亮与字体名），不能再 force_style 覆盖
-        cmd = (f'"{ffmpeg}" -y -i "{video}" -vf "subtitles=\'{sp}\'" '
-               f'{venc_args(W, H)} -c:a copy "{out}"')
+        _vf = "subtitles='%s'" % sp
     else:
         # ★VF_LINUX_V1：字幕字体名按平台选（Linux 上没有 Microsoft YaHei → 中文会变方块）
         style = ("FontName=%s,FontSize=%d,PrimaryColour=&H00FFFFFF,"
                  "OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,"
                  "Alignment=2,MarginV=40") % (sub_font_name(), font_size)
-        cmd = (f'"{ffmpeg}" -y -i "{video}" -vf "subtitles=\'{sp}\':force_style=\'{style}\'" '
-               f'{venc_args(W, H)} -c:a copy "{out}"')
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+        _vf = "subtitles='%s':force_style='%s'" % (sp, style)
+    _argv = ([ffmpeg, '-y', '-i', video, '-vf', _vf]
+             + venc_argv(W, H) + ['-c:a', 'copy', out])
+    r = subprocess.run(_argv, capture_output=True, text=True,
                        encoding='utf-8', errors='replace')
     if not os.path.exists(out):
         raise RuntimeError('烧字幕失败: ' + (r.stderr or '')[-400:])
@@ -4986,12 +5227,13 @@ def mux_audio(video, audio, out, ffmpeg, bgm='', total_sec=0.0):
     #   退回旧行为并明说风险 —— 但正常链路一定会传 total_sec。
     _t = float(total_sec or 0)
     _pin = _t > 0.05
-    _topt = (' -t %.3f' % _t) if _pin else ''
+    # ★VF_ARGV_V1：-t / -movflags 都改成**参数数组片段**（不过 shell）
+    _targv = (['-t', '%.3f' % _t]) if _pin else []
     # ★VF_FASTSTART_V1（2026-09-22，用户实测「播放 3~4 秒必卡一下」）：
     #   生成的 mp4 默认把 moov（索引）写在**文件尾部** → 浏览器边下边播时必须先 Range 取文件尾，
     #   取不到就周期性停顿（"播几秒卡一下"）。`+faststart` 把 moov 挪到文件开头，
     #   这是渐进式播放的标准做法；只搬索引、不重编码，2~3MB 的片子几乎零耗时。
-    _fast = ' -movflags +faststart'
+    _fargv = ['-movflags', '+faststart']
     if _pin:
         print('[VF] 混音目标时长 = 分镜总时长 %.2f 秒（apad 补尾隙 + -t 定长，不用 -shortest）' % _t)
     else:
@@ -5023,8 +5265,10 @@ def mux_audio(video, audio, out, ffmpeg, bgm='', total_sec=0.0):
         #   既没把 moov 挪到文件头，也绕过了统一输出参数。改成一次 remux（-c copy + faststart），
         #   只搬索引不重编码；万一 remux 失败再退回原样复制（保住出片）。
         try:
-            _rc = subprocess.run(f'"{ffmpeg}" -nostdin -y -i "{video}" -c copy{_fast} "{out}"',
-                                 shell=True, capture_output=True, text=True,
+            # ★VF_ARGV_V1：参数数组（不过 shell）
+            _rc = subprocess.run([ffmpeg, '-nostdin', '-y', '-i', video, '-c', 'copy']
+                                 + _fargv + [out],
+                                 capture_output=True, text=True,
                                  encoding='utf-8', errors='replace')
             if (not os.path.exists(out)) or os.path.getsize(out) < 1024:
                 raise RuntimeError(err_lines(_rc.stderr) or 'remux 失败')
@@ -5034,30 +5278,38 @@ def mux_audio(video, audio, out, ffmpeg, bgm='', total_sec=0.0):
             shutil.copyfile(video, out)
         _verify_dur()
         return out
+    # ★VF_ARGV_V1：全部改成**参数数组**（不过 shell），语义与旧 shell 字符串逐项等价。
+    _vg = [ffmpeg, '-nostdin', '-y', '-i', video]
     if has_voice and has_bgm:
         # ★2026-09-20：把走过的分支打出来 —— 否则“选了配乐到底混没混进去”无法从日志判定
         print('[VF] 混音：人声 + BGM（BGM 音量 0.12，-stream_loop 循环铺底）')
         _voc = '[1:a]apad[voc]' if _pin else '[1:a]volume=1.0[voc]'
-        cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -i "{audio}" -stream_loop -1 -i "{bgm}" '
-               f'-filter_complex "{_voc};[2:a]volume=0.12[bg];'
-               f'[voc][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]" '
-               f'-map 0:v -map "[aout]" -c:v copy -c:a aac{_topt}{_fast} "{out}"')
+        _argv = (_vg + ['-i', audio, '-stream_loop', '-1', '-i', bgm,
+                        '-filter_complex',
+                        _voc + ';[2:a]volume=0.12[bg];'
+                               '[voc][bg]amix=inputs=2:duration=first:'
+                               'dropout_transition=0:normalize=0[aout]',
+                        '-map', '0:v', '-map', '[aout]', '-c:v', 'copy', '-c:a', 'aac']
+                 + _targv + _fargv + [out])
     elif has_voice:
         if _pin:
             print('[VF] 混音：仅人声（无 BGM）')
-            cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -i "{audio}" '
-                   f'-filter_complex "[1:a]apad[aout]" -map 0:v -map "[aout]" '
-                   f'-c:v copy -c:a aac{_topt}{_fast} "{out}"')
+            _argv = (_vg + ['-i', audio,
+                            '-filter_complex', '[1:a]apad[aout]',
+                            '-map', '0:v', '-map', '[aout]',
+                            '-c:v', 'copy', '-c:a', 'aac']
+                     + _targv + _fargv + [out])
         else:
             print('[VF] 混音：仅人声（无 BGM）')
-            cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -i "{audio}" -c:v copy -c:a aac '
-                   f'-shortest{_fast} "{out}"')
+            _argv = (_vg + ['-i', audio, '-c:v', 'copy', '-c:a', 'aac', '-shortest']
+                     + _fargv + [out])
     else:
         print('[VF] 混音：仅 BGM（无人声，音量 0.18）')
-        cmd = (f'"{ffmpeg}" -nostdin -y -i "{video}" -stream_loop -1 -i "{bgm}" '
-               f'-filter_complex "[1:a]volume=0.18[aout]" '
-               f'-map 0:v -map "[aout]" -c:v copy -c:a aac{_topt or " -shortest"}{_fast} "{out}"')
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+        _argv = (_vg + ['-stream_loop', '-1', '-i', bgm,
+                        '-filter_complex', '[1:a]volume=0.18[aout]',
+                        '-map', '0:v', '-map', '[aout]', '-c:v', 'copy', '-c:a', 'aac']
+                 + (_targv if _pin else ['-shortest']) + _fargv + [out])
+    r = subprocess.run(_argv, capture_output=True, text=True,
                        encoding='utf-8', errors='replace')
     if not os.path.exists(out):
         raise RuntimeError('混音失败: ' + (err_lines(r.stderr) or (r.stderr or '')[-400:]))
@@ -5066,11 +5318,113 @@ def mux_audio(video, audio, out, ffmpeg, bgm='', total_sec=0.0):
     return out
 
 
+# ══════════════ ★VF_PPTPREVIEW_V1（2026-10-01）「完全成片之前能把PPT抽出来审核一下效果吗？」══════════════
+# 老板原话就是这一句。落法：`--ppt-preview` → 每镜出一张 **PNG**（编号 = 镜序，p01/p02…）+ 一份 index.json。
+# 三条硬口径：
+#   ① **复用出片用的同一套渲染代码**（直接调 `render_shot(..., still=(t, png))`，同函数、同 deck_*/stage/
+#      enter/float/进度线逻辑）—— 绝不另写一份"预览专用渲染"，否则预览与成片必然漂移。
+#   ② 只渲 **1 帧**（链尾 trim 到"内容全就位时刻"求值），不渲整段视频 → 快。
+#   ③ 不烧字幕、不烧顶部固定标题（那两者是出片后另加的覆盖层；审的是画面/PPT 版式本身）。
+SETTLE_RATIO = 0.62          # "内容全就位"≈ 镜长的 62%（入场 0.5s + 逐条插入 + 数字滚动 0.66×dur 都已完成）
+SETTLE_MIN = 1.2
+SETTLE_TAIL = 0.45           # 留出镜尾淡出的余量（不要取到 fade out 里）
+
+
+def ppt_burn_banner_still(png, banner, th, W, H, dur, ffmpeg, t_global):
+    """★VF_PPTPREVIEW_BANNER_V1（2026-10-01 team-lead，可选）：把**顶部固定标题**烧到抽帧 PNG 上。
+
+    为什么要：老板要审"整体观感"时 banner 也在画面里（他那个"空色块"事故就是 banner 的）；
+    但 `--ppt-preview` 默认**不含** banner（口径：审的是 PPT 版式本身）→ 所以做成 `--with-banner` 开关，
+    **默认不加、不破坏现有行为**。
+    实现要点：**复用同一个 `banner_layer()`**（绝不另写一份 banner 绘制），只是把"时间区间"
+    换成"这一帧落在区间里就按整段可见求值"（单帧不需要 between 表达式）。
+    就地覆盖 png（先写临时文件再 replace，避免半截文件）。
+    """
+    if not isinstance(banner, dict):
+        return png
+    _rng = banner.get('_range')
+    try:
+        if isinstance(_rng, (list, tuple)) and len(_rng) == 2 \
+                and not (float(_rng[0]) <= float(t_global) <= float(_rng[1])):
+            return png                       # 这一镜不在固定标题的显示区间 → 这一帧也不该有
+    except Exception:
+        pass
+    _b2 = {k: v for k, v in banner.items() if k != '_range'}
+    _vf = banner_layer(_b2, th, W, H, dur, esc_path(find_font(th.get('font', 'msyh'))))
+    if not _vf:
+        return png
+    _tmp = png + '.bn.png'
+    try:
+        r = subprocess.run([ffmpeg, '-y', '-i', png, '-vf', _vf, '-frames:v', '1', _tmp],
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if r.returncode == 0 and os.path.exists(_tmp):
+            os.replace(_tmp, png)
+        else:
+            print('[VF] ⚠️ 预览抽帧烧固定标题失败（第 %s 帧）：%s'
+                  % (os.path.basename(png), err_lines(r.stderr) or ('rc=%s' % r.returncode)))
+    except Exception as _e:
+        print('[VF] ⚠️ 预览抽帧烧固定标题异常（忽略）：%s' % str(_e)[:90])
+    return png
+
+
+def _ppt_settle_t(dur):
+    """★VF_PPTPREVIEW_V1：「内容全就位」时刻（秒）。
+    口径：入场位移（≤0.5s）、要点逐条插入、数字滚动（≈0.66×镜长）都已完成，但还没进镜尾淡出。
+    短镜兜底 ≥1.2s、且必须早于 `dur-0.45`（否则会取到淡出/黑帧）。"""
+    d = max(0.6, float(dur or 3))
+    return round(min(max(SETTLE_MIN, d * SETTLE_RATIO), d - SETTLE_TAIL), 2)
+
+
+def _preview_text(shot, typ):
+    """★VF_PPTPREVIEW_V1：index.json 里的 `text` = 这一页**真正的主视觉文字**。
+    为什么要单独判：number 卡的主视觉是【大数字】，list/chart 的主视觉是【标题】——
+    直接套 `_big_text()` 会给出"字幕兜底文字"，老板审图时会以为画面画错了。"""
+    if typ == 'number':
+        return (str(shot.get('value')) + str(shot.get('suffix') or '')).strip()
+    if typ in ('list', 'chart'):
+        return str(shot.get('title') or _big_text(shot))
+    return _big_text(shot)
+
+
+def _preview_variant(shot, typ):
+    """★VF_PPTPREVIEW_V1：index.json 里报**渲染层实际生效**的 variant。
+    为什么不直接照抄 shot['variant']：老板就是被"留档里 variant 全为 null"误导过
+    （他选了画面模版却看不到，因为那些镜根本不是 deck 页）→ 预览必须告诉他"这一镜实际按哪套画"。"""
+    if typ == 'title':
+        return variant_of(shot, TITLE_VARIANTS, 'center')
+    if typ == 'list':
+        return variant_of(shot, LIST_VARIANTS, 'steps')
+    if typ == 'compare':
+        return variant_of(shot, COMPARE_VARIANTS, 'split')
+    return str(shot.get('variant') or '').strip().lower()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--storyboard', default='')
     ap.add_argument('--out', default='')
     ap.add_argument('--workdir', default='')
+    # ★VF_PPTPREVIEW_V1：出片前抽帧审图（每镜 1 张 PNG + index.json；不渲整段视频）
+    ap.add_argument('--ppt-preview', action='store_true',
+                    help='出片前把每一镜抽成 p01.png/p02.png… + index.json（复用出片同一套渲染代码）')
+    ap.add_argument('--outdir', default='', help='--ppt-preview 的输出目录（默认 <工作目录>/ppt-preview）')
+    # ★VF_PPTPREVIEW_BANNER_V1：预览是否连"顶部固定标题"一起出（**默认关** → 老行为零变化）
+    ap.add_argument('--with-banner', action='store_true',
+                    help='--ppt-preview 时把顶部固定标题也烧进抽帧（默认不烧；老板审"整体观感"时用）')
+    # ★VF_AI_STYLE_KEY_V1（2026-10-01 防御纵深）：AI 制片线的"画面风格"标签（cinematic/commercial/…）。
+    #   ⚠️ 渲染层**不消费**它（它只影响 make.py 的 H3 画面风格提示词，见 make.py::_ai_style_en）。
+    #   这里唯一目的 = **别让 argparse 把它当 unknown argument 直接 exit 2**：上游（服务端/脚本）若顺手
+    #   透传下来，整片渲染会当场失败。所以"收下但不用"：不改 theme、不改 deck_style
+    #   （成品风格只认 apply_style 的 5 套 key）。
+    ap.add_argument('--ai-style', default='',
+                    help='（收下但忽略）AI 制片线画面风格标签；渲染层不消费，仅供 make.py 的 H3 用')
+    # ★VF_STYLES_V1（2026-10-01）：成品风格（10 主题 × 6 版式 → 5 套人话名字）。
+    #   不给则看分镜根级 `style`；都没有 → 老行为（只认 theme / deck_style 两个字段）。
+    ap.add_argument('--style', default='',
+                    help='成品风格（5 套）：%s；可用中文名。**不传 / 认不出 = 不干预**'
+                         '（保留分镜自己的 theme/deck_style，绝不回落默认）'
+                         % '/'.join([s[0] for s in style_names()]))
+    ap.add_argument('--list-styles', action='store_true', help='列出 5 套成品风格后退出')
     ap.add_argument('--audio', default='')
     ap.add_argument('--bgm', default='', help='背景音乐文件（会循环铺底并压低音量）')
     ap.add_argument('--no-subs', action='store_true', help='不烧字幕')
@@ -5082,6 +5436,17 @@ def main():
     # ★VF_BANNER_V1：顶部固定标题总开关（storyboard 里的 banner 字段优先；CLI 关掉则一律不画）
     ap.add_argument('--no-banner', action='store_true')
     a = ap.parse_args()
+
+    # ★VF_STYLES_V1：`--list-styles` 只打印、不渲染（不需要 ffmpeg/字体，方便服务端与老板直接看）
+    if a.list_styles:
+        print('★VF_STYLES_V1 成品风格（theme × deck 版式 × 动效节奏）：')
+        for _sid, _nm, _ds in style_names():
+            _st = STYLES[_sid]
+            print('  %-11s %-6s theme=%-8s deck=%-10s period=%.1fs enter=%-4s%s'
+                  % (_sid, _nm, _st['theme'], _st['deck'], _st['period'], _st['enter'],
+                     '  ← 默认' if _st.get('default') else ''))
+            print('              %s' % _ds)
+        return
 
     ffmpeg = find_ffmpeg()
     # ★VF_ENVINFO_V1（2026-09-30 用户定案「出片改本地我们仔细讨论一下」的**第 1 步：可观测**）：
@@ -5221,6 +5586,22 @@ def main():
     os.makedirs(wd, exist_ok=True)
     W, H = sb.get('size', [1280, 720])
     fps = int(sb.get('fps', 25))
+    # ★VF_STYLES_V1（2026-10-01）：成品风格（--style 或分镜根级 `style`）——
+    #   **必须在 theme_of / apply_deck_style 之前**：它要先把 theme + deck_style + 动效节奏落到分镜上。
+    #   不传 → 一个字都不动（老链路零回归）。
+    # ⚠️ ★VF_STYLES_STRICT_V1：这里**只**读"成品风格"（`--style` CLI 或 plan 根级 `style`），
+    #   而且 `apply_style` 只认 5 个 id/中文名 —— 认不出就一个字段都不动。
+    #   **绝对不要**在这里读 `ai_style`：那是 AI 制片线（make.py / vf-aivideo.ts）的"画面风格"标签
+    #   （cinematic/commercial/…），与本层的 5 套成品风格是两码事。加进来就会把 AI 制片线
+    #   静默改成 news 蓝 + deck（2026-10-01 撞车事故就是这条，别再犯）。
+    _style = str(a.style or sb.get('style') or '').strip()
+    if _style and not a.selftest:
+        apply_style(sb, _style)
+    # ★VF_AI_STYLE_KEY_V1：给了 --ai-style 只打一条"我不消费"的日志（绝不落进 theme/deck_style）
+    if str(getattr(a, 'ai_style', '') or '').strip():
+        print('[VF] ★VF_AI_STYLE_KEY_V1 收到 --ai-style=%r → **渲染层不消费**'
+              '（它只影响 make.py 的 H3 画面风格提示词；成品风格只认 --style/根级 style 的 5 套 key）'
+              % str(getattr(a, 'ai_style')).strip())
     # ★VF_THEMES_V1（2026-09-29）：主题名/主题字典都接受（字符串走 themes.py 查表，不认识回默认主题）
     th = theme_of(sb.get('theme'))
     # ★VF_STYLE_V1（2026-09-30 ②）：打一行主题日志 —— 一眼看出这次到底走了哪套风格（news/data = 编辑风版式）
@@ -5276,6 +5657,62 @@ def main():
     # ★VF_DECK_STYLE_V1（2026-10-01）：用户手动指定的画面模版（plan 根级 `deck_style`）——
     #   在逐镜渲染**之前**统一覆盖 deck 页的 variant；'auto'/缺失/非法 → 一个字段都不动（零回归）。
     apply_deck_style(sb)
+    # ★VF_PPTPREVIEW_V1（2026-10-01）：--ppt-preview —— 出片前把 PPT 抽成图给老板审。
+    #   位置刻意选在 `apply_deck_style(sb)` **之后**：这样"用户选的画面模版有没有生效"在预览里一眼可见
+    #   （老板实测的坑就是"选了模版但一条片都没生效"）。
+    if a.ppt_preview:
+        _od = a.outdir or os.path.join(wd, 'ppt-preview')
+        os.makedirs(_od, exist_ok=True)
+        _shots = sb.get('shots', [])
+        print('[VF] ★VF_PPTPREVIEW_V1 抽帧审图：%d 镜 → %s' % (len(_shots), _od))
+        print('[VF] ★VF_PPTPREVIEW_V1 口径：每镜只出 1 张【内容全就位】PNG（不渲整段视频）；'
+              '默认不带底部字幕、不带顶部固定标题（那两者是出片后另烧的覆盖层）%s'
+              % ('；**--with-banner 已开** → 固定标题照出片口径烧进这一帧' if a.with_banner else ''))
+        # ★VF_PPTPREVIEW_BANNER_V1：--with-banner 时算出固定标题的全局区间（口径与出片那段逐字一致）
+        _bnPrev = sb.get('banner')
+        _bnRng = None
+        if a.with_banner and isinstance(_bnPrev, dict):
+            try:
+                _f = int((_bnPrev or {}).get('from') or 1)
+                _t2 = int((_bnPrev or {}).get('to') or 0)
+                _ds = [float(x.get('dur', 0) or 0) for x in _shots]
+                _st2 = sum(_ds[:_f - 1]) if _f > 1 else 0.0
+                _en3 = sum(_ds[:_t2]) if _t2 > 0 else sum(_ds)
+                if _en3 > _st2:
+                    _bnRng = (_st2, _en3)
+            except Exception:
+                _bnRng = None
+        _idx = []
+        _off = 0.0
+        for i, shot in enumerate(_shots):
+            shot['_trans'] = str(shot.get('transition') or _sb_trans or '').strip().lower()
+            _typ = str(shot.get('type') or 'title')
+            _t = _ppt_settle_t(shot.get('dur', 3))
+            _png = os.path.join(_od, 'p%02d.png' % (i + 1))
+            render_shot(shot, th, wd, i, W, H, fps, ffmpeg, still=(_t, _png))
+            if a.with_banner and isinstance(_bnPrev, dict):
+                _b3 = dict(_bnPrev)
+                if _bnRng:
+                    _b3['_range'] = _bnRng
+                ppt_burn_banner_still(_png, _b3, th, W, H, float(shot.get('dur', 3) or 3),
+                                      ffmpeg, _off + _t)
+            _off += float(shot.get('dur', 3) or 3)
+            _idx.append({
+                'i': i + 1,
+                'file': 'p%02d.png' % (i + 1),
+                'type': _typ,
+                'variant': _preview_variant(shot, _typ),
+                't': _t,
+                'text': _preview_text(shot, _typ),
+                'subtitle': str(shot.get('subtitle') or ''),
+            })
+            print('[VF] PPT 抽帧 %d/%d  %-8s t=%.2fs  ->  %s'
+                  % (i + 1, len(_shots), _typ, _t, os.path.basename(_png)))
+        _ip = os.path.join(_od, 'index.json')
+        with open(_ip, 'w', encoding='utf-8') as _f:
+            json.dump(_idx, _f, ensure_ascii=False, indent=2)
+        print('[VF] ★VF_PPTPREVIEW_V1 完成：%d 张 PNG + index.json → %s' % (len(_idx), _ip))
+        return
     for i, shot in enumerate(sb.get('shots', [])):
         shot['_trans'] = str(shot.get('transition') or _sb_trans or '').strip().lower()
         p = render_shot(shot, th, wd, i, W, H, fps, ffmpeg)

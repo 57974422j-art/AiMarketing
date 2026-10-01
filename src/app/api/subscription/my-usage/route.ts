@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { getUserMonthlyStats } from '@/lib/quota-checker'
-import { getTokenWallet } from '@/lib/token-wallet'
+import { getTokenWallet, ALLOWANCE_PERIOD_MODE, allowancePeriodStart } from '@/lib/token-wallet'
 import { getAuthFromCookie } from '@/lib/api-auth'
 
 const prisma = new PrismaClient()
@@ -58,7 +58,14 @@ export async function GET(req: NextRequest) {
     }
 
     const wallet = await getTokenWallet(userId)
-    return NextResponse.json({ success: true, data: { usage, subscription: sub, wallet } })
+    // ★VF_BILLING_PERIOD_V1: 把当前口径与"本期起止"回给前端，让文案随 ALLOWANCE_PERIOD_MODE 走（不写死"本期/本月"）
+    const period = {
+      mode: ALLOWANCE_PERIOD_MODE,
+      noun: ALLOWANCE_PERIOD_MODE === 'month' ? '本月' : '本期',
+      start: sub ? allowancePeriodStart(sub, ALLOWANCE_PERIOD_MODE).toISOString() : null,
+      end: sub ? new Date(sub.endDate).toISOString() : null,
+    }
+    return NextResponse.json({ success: true, data: { usage, subscription: sub, wallet, period } })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message }, { status: 500 })
   }

@@ -57,7 +57,9 @@ export async function checkQuota(userId: number, apiType: ApiType, consume: numb
 
   } catch (e: any) {
     console.error('[配额检查] 异常:', e.message)
-    return { allowed: true, remaining: -1, message: '检查跳过(error)' } // 容灾：断联就放行
+    // ★VF_BILLING_PERIOD_V1: 与 token-wallet.checkTokens 策略统一——异常即拒。
+    // 原「容灾：断联就放行」是计费旁路（查库失败可白嫖），已废弃。
+    return { allowed: false, remaining: 0, message: '配额检查暂时不可用，请稍后重试' }
   }
 }
 

@@ -149,7 +149,23 @@ export const VF_DECK_PROMPT =
   `  ⚠️ deck 页的 kicker / items / 数据块（value + suffix + label）要**一起给** ——\n` +
   `     只给 text 会渲染成"**空壳 deck 页**"（只有一行大字，比普通页更难看）。\n` +
   `· 【硬规矩】items 2~4 条、每条 ≤14 字；kicker ≤8 字；text ≤12 字（超了渲染层只能缩字号）。\n` +
-  `  value 必须是【文案里本来就有的数字】（反 AI 味硬规矩：不许编数据）；没有要点/数据就别硬填那几个字段。\n`
+  `  value 必须是【文案里本来就有的数字】（反 AI 味硬规矩：不许编数据）；没有要点/数据就别硬填那几个字段。\n` +
+  // ★VF_STYLES_WIRE_V1（2026-10-01 用户定案「目前模版有2套我是不是有点乱。能统一一下吗？」）：
+  //   界面已把「10 主题 × 6 版式」收敛成【一个「🎨 画面风格」控件】（5 套成品风格，唯一真相源 =
+  //   渲染层 scripts/video-factory/themes.py 的 STYLES）。**用户选了风格时**，渲染层会把纯文字页
+  //   **自动提升**成该风格的整页 PPT（render.py 的 apply_style）—— 所以 AI 不必再自己挑 deck 版式，
+  //   只要把**内容写足**（否则提升出来是"空壳 PPT 页"）。这段是本任务点名的口径调整。
+  `\n【用户选了「画面风格」时 · 版式由系统统一负责】\n` +
+  `用户若在设置卡里选了一套画面风格，渲染层会把纯文字页**自动提升**为该风格的整页 PPT。\n` +
+  `→ 你**不必**再去挑 variant="deck*"；但必须**把内容写足**：kicker（≤8 字）/ items（2~4 条，每条 ≤14 字）/\n` +
+  `  数据块（value + suffix + label，数字必须来自文案）—— **只给 text 会渲染成"空壳 PPT 页"，比普通页更难看**。\n` +
+  `系统内置 5 套画面风格（由用户在设置卡选；键名 = 渲染层 themes.py 的 STYLES，逐字一致）：\n` +
+  `  · bluewhite  蓝白科技  深蓝底 + 蓝标签条 + 白色信息卡（默认基准）\n` +
+  `  · darkgrad   深色渐变  近黑青 + 同源渐变带（科技 / 数据）\n` +
+  `  · cleanlight 清爽浅色  米白纸感 + 柔和拟物卡（干货 / 教程）\n` +
+  `  · magazine   杂志编辑  暖米 + 大留白 + 编号 / 细线（资讯 / 观点）\n` +
+  `  · softlux    柔和高级  中性灰阶 + 深灰玻璃卡（最"高级"的一套）\n` +
+  `⚠️ 用户在设置卡选定的 theme（主题）与 deck_style（画面模版）由系统统一负责，你不要去改它们。\n`
 
 /* ══════════ ★VF_DECK_STYLES_V1（2026-10-01 用户定案「1-2 都要：既要接进 AI，也要多做模版」）══════════
  * 为什么：用户实测一条真片后说「我本次选的是新闻资讯，因为我没看到新模版」——
@@ -180,6 +196,55 @@ export function deckStylePromptNote(v?: any): string {
   if (s === 'auto') return ''
   return `\n★用户在设置卡指定了画面模版「${s}」→ 本片所有 deck 页【必须用 variant="${s}"】` +
     `（优先于上面的风格推荐；用户选的说了算）。\n`
+}
+
+/* ══════════ ★VF_STYLES_WIRE_V1（2026-10-01）「成品风格」= 一套人话名字 ══════════
+ * 老板原话：「目前模版有2套我是不是有点乱。能统一一下吗？或者删减不成熟的」
+ *          「我本次选的是新闻资讯，因为我没看到新模版」「还是很多大字」
+ *
+ * 病根：界面上并列摆着「主题（10 个）」（= theme）+「🎨 画面模版（6 个）」（= deck_style）
+ *   两套下拉 → 老板要自己做 60 种组合，还都是"玻璃/柔和"这种**实现词**，当然觉得乱。
+ * 治法：界面收敛成**一个「🎨 画面风格」控件**（5 套成品风格 + 一个「跟随 AI / 不指定」）。
+ *   ⚠️ **唯一真相源 = 渲染层 scripts/video-factory/themes.py 的 STYLES**（逐字一致，别自己起名）：
+ *      bluewhite 蓝白科技 / darkgrad 深色渐变 / cleanlight 清爽浅色 / magazine 杂志编辑 / softlux 柔和高级。
+ *   选中某套 → `vf-video.ts` 草稿 → 出片时写进分镜 **plan 根级 `style`**（render.py 的 apply_style 读它，
+ *   把纯文字页提升为该风格的整页 PPT）→ 这才是"老板选了模版真的生效"的那一刀。
+ */
+export const VF_STYLES: Array<{ id: string; name: string }> = [
+  { id: 'bluewhite', name: '蓝白科技' },
+  { id: 'darkgrad', name: '深色渐变' },
+  { id: 'cleanlight', name: '清爽浅色' },
+  { id: 'magazine', name: '杂志编辑' },
+  { id: 'softlux', name: '柔和高级' },
+]
+/** ★VF_STYLES_WIRE_V1：契约值 = 5 个成品风格 id（与 themes.py 的 STYLES 键逐字一致） */
+export const VF_STYLE_IDS = VF_STYLES.map((s) => s.id)
+
+/** ★VF_STYLES_WIRE_V1：把用户/前端给的值归一成契约值。
+ *  **未指定 / 非法 → 返回 ''（空串）** —— 调用方据此"不写 plan 根级 style"，走老链路（theme + deck_style）。
+ *  为什么要返回 '' 而不是某个默认风格：老板的观感基准（news 蓝）藏在老链路的 theme 里，
+ *  一旦擅自写默认风格就等于把所有老草稿的配色改了 —— 必须"不选 = 一个字都不动"（零回归）。 */
+export function normalizeStyle(v: any): string {
+  const raw = String(v == null ? '' : v).trim()
+  if (!raw) return ''
+  const k = raw.toLowerCase().replace(/[\s\-_]/g, '')
+  if (k === 'auto' || k === 'default' || k === '跟随ai' || k === '不指定' || k === 'none') return ''
+  for (const st of VF_STYLES) {
+    if (k === st.id.toLowerCase()) return st.id
+    if (raw === st.name || k === st.name.toLowerCase()) return st.id
+  }
+  return ''
+}
+
+/** ★VF_STYLES_WIRE_V1：用户选了成品风格时，给提示词补一句「版式由系统统一负责，你只要把内容写足」。
+ *  返回空串（用户没选 / 非法）→ 调用方拼上去等于没加，**不影响"AI 自选版式"的现状**。 */
+export function stylePromptNote(v?: any): string {
+  const id = normalizeStyle(v)
+  if (!id) return ''
+  const nm = VF_STYLES.find((x) => x.id === id)?.name || id
+  return `\n★用户在设置卡选了「画面风格：${nm}」（${id}）→ 版式/配色由系统统一负责：` +
+    `你**不必**再挑 deck 版式，但必须把这一页的**内容写足**（kicker / items / 数据块），` +
+    `否则会渲染成"空壳 PPT 页"。\n`
 }
 
 /* ══════════ ★VF_AI_PICK_V1（2026-09-29 用户定案 P1）：AI 自选「主题 / 版式 / 动效」的白名单 ══════════

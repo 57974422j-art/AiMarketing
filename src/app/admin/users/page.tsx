@@ -4,7 +4,10 @@ import { useAuth } from '@/app/providers'
 import { showToast } from '@/components/Toast'
 
 interface UserInfo {
-  id: number; username: string; name: string | null; email: string; role: string; plan: string
+  id: number; username: string; name: string | null; email: string; role: string
+  /** ⚠️ User.plan 历史遗留、不可信；显示套餐请用 planName（真实生效订阅的套餐名） */
+  plan: string
+  planName: string | null
   createdAt: string; parentId: number | null
   parent: { id: number; username: string; name: string | null } | null
   childrenCount: number; totalWindows: number; usedWindows: number
@@ -143,7 +146,8 @@ export default function AccountInfoPage() {
                     <span className="text-sm font-bold text-white">{u.name || u.username}</span>
                     <span className="text-[10px] text-gray-500 ml-2">#{u.id}</span>
                     <span className={`ml-2 px-2 py-0.5 text-[10px] rounded ${u.role==='editor'?'bg-blue-500/20 text-blue-400':'bg-gray-500/20 text-gray-400'}`}>{u.role==='editor'?'代理商':'终端客户'}</span>
-                    <span className={`ml-2 px-2 py-0.5 text-[10px] rounded ${u.plan==='pro'?'bg-purple-500/20 text-purple-400':'bg-white/5 text-gray-400'}`}>{u.plan === 'pro' ? '专业版' : u.plan === 'enterprise' ? '企业版' : '免费版'}</span>
+                    {/* ★VF_BILLING_PERIOD_V1: 显示真实生效订阅的套餐名（User.plan 是历史遗留、不可信） */}
+                    <span className={`ml-2 px-2 py-0.5 text-[10px] rounded ${u.planName ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-gray-400'}`}>{u.planName || '未订阅'}</span>
                   </div>
                   {u.role === 'editor' && (
                     <button onClick={() => {

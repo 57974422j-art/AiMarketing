@@ -21,6 +21,10 @@ import {
   MODEL_PRESET_LIST, BRAIN_MODELS, WRITER_MODELS, resolveModelChoice,
   type ModelPresetId,
 } from '@/lib/agent/model-catalog'
+// ★VF_STYLES_WIRE_V1（2026-10-01 用户定案「目前模版有2套我是不是有点乱。能统一一下吗？」）：
+//   「🎨 画面风格」的 5 套成品风格（唯一真相源 = 渲染层 scripts/video-factory/themes.py 的 STYLES；
+//   TS 侧在 anti-ai.ts 的 VF_STYLES，纯数据零副作用 → 客户端可直接引，界面不会与归一化规则漂移）。
+import { VF_STYLES } from '@/lib/agent/vf/anti-ai'
 import TourGuide from '@/components/TourGuide'
 import { Solar } from 'lunar-javascript'
 import { createPortal } from 'react-dom'
@@ -551,6 +555,11 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   //   值一路带：设置卡 → 草稿 → 出片 plan 根级 `deck_style`（渲染层读它）。
   //   'auto'（默认）= AI 按题材自选（与旧行为一致）；其余 6 个 = 用户指定，AI 必须用用户选的。
   const [deckStyle, setDeckStyle] = useState(vj.deckStyle || 'auto')
+  // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」= 5 套成品风格的**主入口**；'' = 跟随 AI / 不指定
+  //   （= 不写 plan 根级 style，走老链路 theme + deck_style，行为与今天逐字一致）。
+  //   原来的「主题 / PPT 版式」收进下面默认收起的「高级」。
+  const [style, setStyle] = useState(vj.style || '')
+  const [openStyleAdv, setOpenStyleAdv] = useState(false)
   // ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案「在视频图片上直接加大字，加一个开关」）：
   //   只关【压在素材/视频上的大字】；独立文字卡（标题/结尾/列表…）与字幕照旧 ——
   //   用户要的就是"有的视频不一定要，需要文字时用单独的文字卡（几帧）也行"。
@@ -715,48 +724,75 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         </div>
       </div>
 
+      {/* ★VF_STYLES_WIRE_V1（2026-10-01 用户定案「目前模版有2套我是不是有点乱。能统一一下吗？或者删减不成熟的」）：
+          把原来并列的【主题（10 个）】+【🎨 画面模版（6 个）】两套下拉，收敛成**一个「🎨 画面风格」主入口**
+          （5 套成品风格 + 一个「跟随 AI / 不指定」）。选项键名/中文名逐字来自渲染层 themes.py 的 STYLES。
+          「跟随 AI / 不指定」= ''（不写 plan 根级 style）→ 老链路 theme + deck_style，行为与今天逐字一致。
+          旧能力（主题 / PPT 版式）没删，收进下面默认收起的「高级」。 */}
       <div className="mb-3">
-        <div className="text-[10px] text-gray-400 mb-1">画面风格 <span className="text-gray-600">（底色/文字/强调色）</span></div>
+        <div className="text-[10px] text-gray-400 mb-1">
+          🎨 画面风格 <span className="text-gray-600">（一套搞定配色 + 整页 PPT 版式；只选一个）</span>
+        </div>
         <div className="flex flex-wrap gap-1.5">
-          {/* ★VF_THEMES_V1（2026-09-29 用户定案「挑一些模版给 AI 套」）：主题从 3 套扩到 8 套。
-              对应 scripts/video-factory/themes.py（唯一真相源）——每套含：渐变底/文字/强调色/底衬/字幕带。
-              新增主题只改那一个文件 + 这里加一行。 */}
-          {R(theme, 'dark', '🌌 深蓝墨', setTheme)}
-          {R(theme, 'blue', '🔷 深蓝科技', setTheme)}
-          {R(theme, 'tech', '🧊 深青科技', setTheme)}
-          {R(theme, 'mint', '🌿 清新薄荷', setTheme)}
-          {R(theme, 'light', '📄 浅色纸感', setTheme)}
-          {R(theme, 'journal', '📔 手账暖色', setTheme)}
-          {R(theme, 'vivid', '🔥 高饱和电商', setTheme)}
-          {R(theme, 'mono', '⬛ 杂志黑白', setTheme)}
-          {/* ★VF_STYLE_V1（2026-09-30 用户定案「先固定新闻资讯和科技数据」）：
-              两套"编辑风"——用户看了 5 张博主视频截图后要的：
-                news = 深蓝底 + 蓝底白字小标签条 + 白色信息卡 + 黑色横条 + 英文副标（报纸/电视台观感）
-                data = 近黑青底 + 青色强调 + 深色数据卡 + 超大数字与细线
-              ⚠️ 用户定案：**主题由用户定死、AI 不许改**（服务端 lockUserTheme 会把 AI 写的 theme 删掉）。 */}
-          {R(theme, 'news', '📰 新闻资讯', setTheme)}
-          {R(theme, 'data', '📊 科技数据', setTheme)}
+          {R(style, '', '🤖 跟随 AI / 不指定', setStyle)}
+          {VF_STYLES.map((s) => R(style, s.id, '🎨 ' + s.name, setStyle))}
+        </div>
+        <div className="text-[10px] text-gray-500 mt-1">
+          选一套 → 纯文字页会自动排成该风格的整页 PPT（标签条/要点/数据卡/页码）；不选则由 AI 按题材决定。
         </div>
       </div>
 
-      {/* ★VF_DECK_STYLES_V1（2026-10-01 用户定案「我没看到新模版」）：🎨 画面模版 = 富编排 PPT 页（deck）风格。
-          "自动" = AI 按题材自选（旧行为）；选了具体一套 → 所有 deck 页强制用它（值经服务端归一化后
-          写进分镜 plan 的根级 `deck_style`，渲染层读取）。 */}
-      <div className="mb-3">
-        <div className="text-[10px] text-gray-400 mb-1">
-          🎨 画面模版 <span className="text-gray-600">（「富编排 PPT 页」整页排版风格：标签条/要点/数据卡/页码）</span>
-        </div>
-        <select value={deckStyle} onChange={(e: any) => setDeckStyle(e.target.value)}
-          className="w-full px-2 py-1.5 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 outline-none">
-          <option value="auto">自动（AI 按题材选）</option>
-          <option value="deck">经典（通用默认）</option>
-          <option value="deck-grad">渐变（氛围/开场）</option>
-          <option value="deck-mono">极简（数据/参数）</option>
-          <option value="deck-mag">杂志（资讯/观点）</option>
-          <option value="deck-glass">玻璃（产品/科技）</option>
-          <option value="deck-soft">柔和（生活/品牌）</option>
-        </select>
-      </div>
+      {/* ★VF_STYLES_WIRE_V1：默认收起的「高级」——原来的「主题(theme)」与「PPT 版式(deck_style)」原样保留，
+          但不再是主入口（老板不展开就永远不会被"两套"搞混）。 */}
+      <button onClick={() => setOpenStyleAdv(!openStyleAdv)} className="text-[10px] text-gray-500 hover:text-gray-300 mb-2">
+        {openStyleAdv ? '▲ 收起「高级：主题 / PPT 版式」' : '▼ 高级：主题 / PPT 版式（一般不用动）'}
+      </button>
+      {openStyleAdv ? (
+        <>
+          <div className="mb-3">
+            <div className="text-[10px] text-gray-400 mb-1">主题 <span className="text-gray-600">（底色/文字/强调色；留空由 AI 决定）</span></div>
+            <div className="flex flex-wrap gap-1.5">
+              {/* ★VF_THEMES_V1（2026-09-29 用户定案「挑一些模版给 AI 套」）：主题从 3 套扩到 8 套。
+                  对应 scripts/video-factory/themes.py（唯一真相源）——每套含：渐变底/文字/强调色/底衬/字幕带。
+                  新增主题只改那一个文件 + 这里加一行。 */}
+              {R(theme, 'dark', '🌌 深蓝墨', setTheme)}
+              {R(theme, 'blue', '🔷 深蓝科技', setTheme)}
+              {R(theme, 'tech', '🧊 深青科技', setTheme)}
+              {R(theme, 'mint', '🌿 清新薄荷', setTheme)}
+              {R(theme, 'light', '📄 浅色纸感', setTheme)}
+              {R(theme, 'journal', '📔 手账暖色', setTheme)}
+              {R(theme, 'vivid', '🔥 高饱和电商', setTheme)}
+              {R(theme, 'mono', '⬛ 杂志黑白', setTheme)}
+              {/* ★VF_STYLE_V1（2026-09-30 用户定案「先固定新闻资讯和科技数据」）：
+                  两套"编辑风"——用户看了 5 张博主视频截图后要的：
+                    news = 深蓝底 + 蓝底白字小标签条 + 白色信息卡 + 黑色横条 + 英文副标（报纸/电视台观感）
+                    data = 近黑青底 + 青色强调 + 深色数据卡 + 超大数字与细线
+                  ⚠️ 用户定案：**主题由用户定死、AI 不许改**（服务端 lockUserTheme 会把 AI 写的 theme 删掉）。 */}
+              {R(theme, 'news', '📰 新闻资讯', setTheme)}
+              {R(theme, 'data', '📊 科技数据', setTheme)}
+            </div>
+          </div>
+
+          {/* ★VF_DECK_STYLES_V1（2026-10-01 用户定案「我没看到新模版」）：PPT 版式 = 富编排 PPT 页（deck）风格。
+              "自动" = AI 按题材自选（旧行为）；选了具体一套 → 所有 deck 页强制用它（值经服务端归一化后
+              写进分镜 plan 的根级 `deck_style`，渲染层读取）。 */}
+          <div className="mb-3">
+            <div className="text-[10px] text-gray-400 mb-1">
+              PPT 版式 <span className="text-gray-600">（「富编排 PPT 页」整页排版风格：标签条/要点/数据卡/页码）</span>
+            </div>
+            <select value={deckStyle} onChange={(e: any) => setDeckStyle(e.target.value)}
+              className="w-full px-2 py-1.5 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 outline-none">
+              <option value="auto">自动（AI 按题材选）</option>
+              <option value="deck">经典（通用默认）</option>
+              <option value="deck-grad">渐变（氛围/开场）</option>
+              <option value="deck-mono">极简（数据/参数）</option>
+              <option value="deck-mag">杂志（资讯/观点）</option>
+              <option value="deck-glass">玻璃（产品/科技）</option>
+              <option value="deck-soft">柔和（生活/品牌）</option>
+            </select>
+          </div>
+        </>
+      ) : null}
 
       {/* ★OVERLAY_TEXT_SWITCH_V1：压在素材/视频上的大字开关（用户：有的视频不一定要） */}
       <div className="mb-3">
@@ -831,6 +867,9 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme, big,
           // ★VF_DECK_STYLES_V1：🎨 画面模版（'auto' | 6 个 deck 风格）—— 服务端写进 plan 根级 deck_style
           deckStyle,
+          // ★VF_STYLES_WIRE_V1：🎨 画面风格（'' = 跟随 AI / 不指定 | 5 套成品风格）——
+          //   服务端 normalizeStyle 归一后，出片时写进 plan 根级 `style`（渲染层 apply_style 读它）。
+          style,
           // ★VF_VIDI2V_V1：让图动起来（'on'|'off'）—— 服务端 vf-video.ts 解析 f.i2v，关掉就完全不注入首帧
           i2v,
           // ★VF_BANNER_V1：顶部固定标题（'on' 默认自动拟两行 | 'off' 不要）—— 服务端解析后决定 plan 是否带 banner
@@ -1496,6 +1535,72 @@ function VfMatsPicker({ mats, usableN, excludedN, onSend }: {
  *  · 片已经出过的（不在出片前）用聊天说一句「第 3 镜大字改成 X」即可 —— 那条路会【只重渲染】
  *    （复用已有配音，1~2 分钟、不扣点）。
  */
+/** ★VF_PPTPREVIEW_WIRE_V1（2026-10-01 用户定案「完全成片之前能把 PPT 抽出来审核一下效果吗？」）：
+ *  出片确认卡上的「👀 先看 PPT 页」—— 把**即将出片的同一份 plan**（卡片里的 `sb.plan`）发给
+ *  服务端 /api/agent/vf/ppt-preview；服务端原样落盘 → 用出片同一条渲染链 `render.py --ppt-preview`
+ *  每镜抽一张"内容全就位"的 PNG → 入库 + 签名 URL → 这里以缩略图网格展示（可点开大图）。
+ *  ⚠️ 不扣点（审核用）；出片不依赖它；失败**如实显示原因**（服务端回的人话 error 原样贴出来）。 */
+function VfPptPreview({ plan }: { plan: any }) {
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState('')
+  const [imgs, setImgs] = useState<any[]>([])
+  const [zoom, setZoom] = useState('')
+  const hasPlan = !!(plan && Array.isArray(plan.shots) && plan.shots.length)
+  const run = async () => {
+    if (loading || !hasPlan) return
+    setLoading(true); setErr(''); setImgs([])
+    try {
+      const r = await fetch('/api/agent/vf/ppt-preview', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan }),
+      })
+      const j = await r.json().catch(() => null)
+      if (j && j.success && Array.isArray(j.images) && j.images.length) setImgs(j.images)
+      else setErr(String((j && j.error) || '预览生成失败：服务端没有返回结果'))
+    } catch (e: any) {
+      setErr('预览生成失败：' + String(e?.message || e).slice(0, 120))
+    } finally { setLoading(false) }
+  }
+  return (
+    <div className="w-full mt-2">
+      <button onClick={run} disabled={loading || !hasPlan}
+        title={hasPlan
+          ? '按即将出片的这份分镜，每镜抽一张「内容全就位」的图给你先审（不配音、不烧字幕、不扣点）'
+          : '当前卡片没有可预览的分镜（老卡片或分镜未生成）'}
+        className={`px-4 py-1.5 rounded-lg text-sm ${loading || !hasPlan
+          ? 'bg-white/[0.04] text-gray-500 cursor-not-allowed'
+          : 'bg-sky-500/25 hover:bg-sky-500/40 border border-sky-400/40 text-sky-100'}`}>
+        {loading ? '⏳ 正在抽图…' : '👀 先看 PPT 页（不扣点）'}
+      </button>
+      {err ? <div className="text-[10px] text-amber-300/90 mt-1">{err}</div> : null}
+      {imgs.length > 0 ? (
+        <div className="mt-1.5">
+          <div className="text-[10px] text-sky-300 mb-1">
+            共 {imgs.length} 页（每页 = 一镜的「内容全就位」画面，不含字幕/顶部标题）。确认满意再点「确认出片」。
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {imgs.map((it: any) => (
+              <button key={it.i} onClick={() => setZoom(String(it.url || ''))}
+                className="rounded overflow-hidden border border-white/[0.08] hover:border-sky-400/60 transition text-left">
+                <img src={it.url} alt={'第' + it.i + '页'} className="w-full h-20 object-cover bg-black" />
+                <span className="block text-[8px] text-gray-400 px-1 py-0.5 truncate">
+                  {it.i}. {String(it.type || '')}{it.variant ? '·' + String(it.variant) : ''} {String(it.text || '').slice(0, 8)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {zoom ? (
+        <div onClick={() => setZoom('')} className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4">
+          <img src={zoom} alt="PPT 页大图" className="max-w-full max-h-full rounded-lg" />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function VfShotEditList({ shots, onSend }: { shots: any[]; onSend: (msg: string) => void }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<Record<number, Record<string, string>>>({})
@@ -3558,6 +3663,11 @@ function AgentPageInner() {
                 )}
                 <span className="text-[10px] text-gray-500">也可直接说「改成…」调文案{vj.voiceName ? `（当前配音：${vj.voiceName}）` : ''}</span>
               </div>
+              {/* ★VF_PPTPREVIEW_WIRE_V1（2026-10-01 用户定案「完全成片之前能把 PPT 抽出来审核一下效果吗？」）：
+                  出片确认卡上的「👀 先看 PPT 页」—— 用的是**即将出片的同一份 plan**（卡片里的 sb.plan），
+                  不是另拼一份（否则预览与成片会漂移）。不扣点、不阻塞出片、失败如实显示原因。
+                  ⚠️ 分镜失败（shotsFailed）时没有可审的画面，不显示这个按钮。 */}
+              {!vj.shotsFailed ? <VfPptPreview plan={(vj as any).sb?.plan} /> : null}
             </div>
           )
         }

@@ -14,15 +14,27 @@ interface Plan {
 }
 interface MyUsage { month: string; llmTokens: number; text2img: number; text2video: number }
 interface Wallet { hasSubscription: boolean; planName: string | null; allowance: number; spent: number; subRemaining: number; pointBalance: number; remaining: number }
+/** ★VF_BILLING_PERIOD_V1: 服务端下发的额度口径（noun 随 ALLOWANCE_PERIOD_MODE 变：本期/本月），文案不写死 */
+interface PeriodInfo { mode: string; noun: string; start: string | null; end: string | null }
 
 const fmtYuan = (f: number) => '¥' + (f / 100).toFixed(0)
+const fmtDay = (s: string | null) => (s ? new Date(s).toLocaleDateString('zh-CN') : '?')
 const FREE_TRIAL_POINTS = 500
-/** 套餐月度点数额度（手填 monthlyTokens 优先；否则按原价/月数自动，与后端 planMonthlyTokens 一致；0元套餐=固定试用额度） */
+/** 套餐点数额度（手填 monthlyTokens 优先；否则按原价/月数自动）——与后端 src/lib/token-wallet.planMonthlyTokens 保持一致 */
 const planTokens = (p: Plan) => {
   if (p.monthlyTokens !== null && p.monthlyTokens !== undefined) return p.monthlyTokens
   const effective = p.price // 取原价
   if (effective <= 0) return FREE_TRIAL_POINTS
   return Math.round(effective / Math.max(1, p.durationMonths || 1))
+}
+/** 套餐额度的时间口径（按有效期，避免把年卡 29999 写成"每月额度"） */
+const planPeriodNoun = (p: Plan) => {
+  if ((p.discountPrice ?? p.price) <= 0) return '体验额度'
+  const dm = p.durationMonths || 0
+  if (dm >= 12) return '年度额度'
+  if (dm >= 3) return '季度额度'
+  if (dm >= 1) return '月度额度'
+  return '体验额度'
 }
 const isFreePlan = (p: Plan) => (p.discountPrice ?? p.price) <= 0
 
@@ -32,6 +44,7 @@ export default function MySubscriptionPage() {
   const [usage, setUsage] = useState<MyUsage | null>(null)
   const [myPlan, setMyPlan] = useState<any>(null)
   const [wallet, setWallet] = useState<Wallet | null>(null)
+  const [period, setPeriod] = useState<PeriodInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [buying, setBuying] = useState(false)
   const [buyingId, setBuyingId] = useState<number | null>(null)
@@ -55,7 +68,7 @@ export default function MySubscriptionPage() {
         fetch('/api/point-cards').then(r => r.json()),
       ])
       if (pr.success) setPlans(pr.data)
-      if (ur.success) { setUsage(ur.data.usage); setMyPlan(ur.data.subscription); setWallet(ur.data.wallet || null) }
+      if (ur.success) { setUsage(ur.data.usage); setMyPlan(ur.data.subscription); setWallet(ur.data.wallet || null); setPeriod(ur.data.period || null) }
       if (cr.success) setCards(cr.data || [])
     } catch {}
     setLoading(false)
@@ -173,7 +186,7 @@ export default function MySubscriptionPage() {
           )}
         </div>
 
-        {/* 点数钱包（月额度 + 点卡永久余额） */}
+        {/* 点数钱包（套餐额度 + 点卡永久余额） */}
         {wallet && (
           <div className="card-glass p-4 mb-6">
             <div className="flex items-center justify-between mb-2">
@@ -182,8 +195,8 @@ export default function MySubscriptionPage() {
             </div>
             <div className="grid grid-cols-3 gap-3 mb-2">
               {[
-                { label: '套餐剩余', value: wallet.subRemaining.toLocaleString(), color: 'text-white' },
-                { label: '已消耗', value: wallet.spent.toLocaleString(), color: 'text-amber-400' },
+                { label: `${period?.noun || '本期'}剩余`, value: wallet.subRemaining.toLocaleString(), color: 'text-white' },
+                { label: `${period?.noun || '本期'}已消耗`, value: wallet.spent.toLocaleString(), color: 'text-amber-400' },
                 { label: '点卡余额', value: wallet.pointBalance.toLocaleString(), color: 'text-emerald-400' },
               ].map(i => (
                 <div key={i.label} className="bg-white/5 rounded-lg p-2.5 text-center">
@@ -192,13 +205,18 @@ export default function MySubscriptionPage() {
                 </div>
               ))}
             </div>
+            {period?.start && (
+              <p className="text-[10px] text-gray-500 mb-2">
+                {period.noun}额度 {wallet.allowance.toLocaleString()} 点 · 统计区间 {fmtDay(period.start)} ~ {fmtDay(period.end)}
+              </p>
+            )}
             {wallet.allowance > 0 && (
               <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-emerald-500 to-blue-500 rounded-full transition-all"
                   style={{ width: `${Math.min(100, (wallet.subRemaining / wallet.allowance) * 100)}%` }} />
               </div>
             )}
-            <p className="text-[10px] text-gray-600 mt-2">扣费顺序：先扣当月套餐额度，额度用完再扣点卡余额（永不过期）。</p>
+            <p className="text-[10px] text-gray-600 mt-2">扣费顺序：先扣套餐额度，额度用完再扣点卡余额（永不过期）。</p>
           </div>
         )}
 
@@ -236,11 +254,11 @@ export default function MySubscriptionPage() {
         {/* 用量 */}
         {usage && (
           <div className="card-glass p-4 mb-6">
-            <h3 className="text-xs text-gray-400 mb-3">📊 本月用量 ({usage.month})</h3>
+            <h3 className="text-xs text-gray-400 mb-3">📊 用量（LLM Token 为本月 {usage.month}）</h3>
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: 'LLM Token', value: usage.llmTokens.toLocaleString() },
-                { label: '已用点数', value: (wallet?.spent ?? 0).toLocaleString() },
+                { label: 'LLM Token（本月）', value: usage.llmTokens.toLocaleString() },
+                { label: `${period?.noun || '本期'}已用点数`, value: (wallet?.spent ?? 0).toLocaleString() },
               ].map(i => (
                 <div key={i.label} className="bg-white/5 rounded-lg p-2.5 text-center">
                   <p className="text-[10px] text-gray-500">{i.label}</p>
@@ -271,7 +289,7 @@ export default function MySubscriptionPage() {
                 )}
               </div>
               <div className="text-[10px] text-gray-500 space-y-1 mb-4">
-                <p>🪙 {isFreePlan(p) ? '体验额度' : '每月额度'} <span className="text-emerald-400 font-mono">{planTokens(p).toLocaleString()}</span> 点</p>
+                <p>🪙 {planPeriodNoun(p)} <span className="text-emerald-400 font-mono">{planTokens(p).toLocaleString()}</span> 点</p>
                 <p className="text-gray-600">1 点 ≈ ¥0.01 · 生图/生视频/对话/看片通用</p>
                 <p>💾 存储 {p.storageMb >= 1024 ? (p.storageMb/1024).toFixed(1)+'GB' : p.storageMb+'MB'}</p>
               </div>

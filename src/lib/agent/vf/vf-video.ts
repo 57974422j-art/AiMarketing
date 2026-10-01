@@ -37,7 +37,10 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   // ★VF_NEIGHBOR_DEDUP_V1（2026-10-01）：「相邻两镜同大字」的服务端硬兜底（用户实测 3 组连续同大字）。
   // ★VF_DECK_STYLES_V1（2026-10-01）：用户选了画面模版时给提示词补一句「优先用用户选的」+ 值归一化
   //   （非法/缺省 → 'auto'，渲染层读 plan 根级 deck_style 的逐字契约）。
-  dedupeAdjacentSameText, deckStylePromptNote, normalizeDeckStyle } from './anti-ai'
+  dedupeAdjacentSameText, deckStylePromptNote, normalizeDeckStyle,
+  // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」（5 套成品风格）→ 草稿 → plan 根级 `style`；
+  //   用户选了就给提示词补一句「版式由系统统一负责，你只要把内容写足」。
+  normalizeStyle, stylePromptNote } from './anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：`VF_MOTION_PROMPT` = 「长镜必须有动效」的档位说明
 //   （与 ANTI_AI_PROMPT 同样**两个分镜 prompt 共用**一份，免得两条线走偏）；
 //   `ensurePersistentMotion` = 服务端兜底（AI 忘写时给 title/end 长镜自动补 `motion='grow'`）。
@@ -94,6 +97,11 @@ export interface VfVideoDraft {
    *       | 'deck-glass' | 'deck-soft'；非法/缺省 → 'auto'（归一化在 anti-ai.ts 的 normalizeDeckStyle）。
    *  链路：设置卡 → 草稿 → 出片时写进 plan 根级 `deck_style`（渲染层读它）。 */
   deckStyle?: string
+  /** ★VF_STYLES_WIRE_V1（2026-10-01 用户定案「目前模版有2套我是不是有点乱。能统一一下吗？」）：
+   *  「🎨 画面风格」= 5 套成品风格之一（键名逐字见渲染层 themes.py 的 STYLES）：
+   *   'bluewhite' | 'darkgrad' | 'cleanlight' | 'magazine' | 'softlux'。
+   *  **缺省 / '' / 非法 = 不指定**（normalizeStyle 返回 ''）→ 出片时不写 plan 根级 `style`，走老链路（零回归）。 */
+  style?: string
   /** ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案）：画面大字开关 'on'|'off'
    *  只关【压在素材/视频上的大字】；独立文字卡（标题/结尾/列表…）与字幕不受影响。 */
   big?: string
@@ -377,6 +385,8 @@ function formCard(vd: VfVideoDraft): string {
     bgm: vd.bgm,
     // ★VF_DECK_STYLES_V1（2026-10-01）：画面模版**回显**（用户从设置卡再进来还能看到自己选的）
     deckStyle: vd.deckStyle || 'auto',
+    // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」**回显**（未选 = '' → 卡片显示"跟随 AI / 不指定"）
+    style: vd.style || '',
     big: vd.big || 'on',      // ★OVERLAY_TEXT_SWITCH_V1：画面大字（加 / 不加），默认加
     // ★VF_VIDI2V_V1：让图动起来（逐镜图生视频）开关；★VF_MATUI_V1 起**默认不动**（'off'，0 点动图）
     i2v: vd.i2v || 'off',
@@ -560,6 +570,9 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     // ★VF_DECK_STYLES_V1（2026-10-01）：用户在设置卡选了画面模版 → 告诉 AI「必须用用户选的」
     //   （用户没选 = 'auto' → 这里加了个空串，等于没加，保持"AI 自选"的现状不变）。
     deckStylePromptNote(vd.deckStyle) +
+    // ★VF_STYLES_WIRE_V1（2026-10-01）：用户选了「画面风格」→ 告诉 AI「版式由系统统一负责、内容写足」
+    //   （未选 / 非法 → 空串，等于没加，AI 自选版式的现状一字不变）。
+    stylePromptNote(vd.style) +
     // ★VF_TEXTCARD_V1（2026-09-29 用户实测「没单独生成页面 都是图片加打字」）：
     //   原来提示词只说"画面用用户的素材" → AI 从不排独立文字卡，整条片成了"图文轮播"（12/12 镜都是素材镜）。
     //   现在明确要求：每 4~5 镜至少 1 镜用【不用素材】的文字卡，画面才有层次与节奏。
@@ -898,6 +911,8 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         pin1: '', pin2: '',   // ★VF_BANNER_PIN2_V1：默认留空 = AI 自动拟两行（用户在设置卡手填则以他为准）
         // ★VF_DECK_STYLES_V1（2026-10-01）：「🎨 画面模版」默认 'auto' = AI 按题材自选（用户不选就与现状一致）
         deckStyle: 'auto',
+        // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」默认 ''（不指定）→ 不写 plan 根级 style
+        style: '',
       }
       VF_VIDEO_DRAFT.set(uid, vd)
       await saveVfVideoDraft(ctx.prisma, uid, vd)
@@ -916,6 +931,9 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         if (f.bgm) vd.bgm = String(f.bgm)
         // ★VF_DECK_STYLES_V1（2026-10-01）：画面模版（'auto' | 6 个 deck 风格）—— 走白名单归一化（非法 → 'auto'）
         if (f.deckStyle !== undefined) vd.deckStyle = normalizeDeckStyle(f.deckStyle)
+        // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」（5 套成品风格）—— 走白名单归一化
+        //   （非法 / 未选 → '' = 不指定；出片时据此决定是否写 plan 根级 `style`）。
+        if (f.style !== undefined) vd.style = normalizeStyle(f.style)
       if (f.big) vd.big = String(f.big)   // ★OVERLAY_TEXT_SWITCH_V1：'on' | 'off'
         // ★VF_VIDI2V_V1：'off'（全静态图，不额外计费）| 'on'（智能筛，只动有主体可动的图）
         // ★VF_MATUI_V1（2026-09-30 用户定案）：新增 'picked'（只动我勾选的🎞）；缺省 = 'off'

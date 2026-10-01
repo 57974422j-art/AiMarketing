@@ -18,7 +18,10 @@
  *   · `banner: false` 或**缺失** = 不画 —— 所以必须由调用方**显式**传（本文件负责给出该字段）。
  *   · 颜色/底衬由渲染层从主题色板随机挑（`_banner_pick`），服务端**不发颜色**（那是渲染层的事）。
  */
-import { stripEmoji, normalizeDeckStyle } from './anti-ai'
+import { stripEmoji, normalizeDeckStyle,
+  // ★VF_STYLES_WIRE_V1（2026-10-01）：成品风格（5 套，人话名字）→ plan 根级 `style`。
+  //   未指定/非法 → '' → **不写 style 键**（老链路 theme + deck_style 零回归）。
+  normalizeStyle } from './anti-ai'
 
 /** 第 1 行（钩子/主题）字数上限 —— 用户定案 ≤12 字 */
 export const VF_BANNER_LINE1_MAX = 12
@@ -281,11 +284,15 @@ export function planWithBanner<T extends Record<string, any>>(plan: T, field: { 
 export const VF_PLAN_FPS = 25
 export function buildVideoPlan(shots: any[], vd: any, opts?: { sizeDefault?: number[] }): Record<string, any> {
   const size = (Array.isArray(vd?.size) && vd.size.length === 2 ? vd.size : null) || opts?.sizeDefault || [1080, 1920]
+  // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」= 5 套成品风格之一；未选 / 非法 → normalizeStyle 返回 ''
+  //   → 下面**不写 style 键**（render.py 的 apply_style 不触发）→ 老链路（theme + deck_style）逐字不变。
+  const _style = normalizeStyle(vd?.style)
   return planWithBanner({
     size,
     fps: VF_PLAN_FPS,
     shots: Array.isArray(shots) ? shots : [],
     overlay_text: vd?.big !== 'off',                 // 'off' 才关；缺省 = 开（与 render.py 缺省一致）
     deck_style: normalizeDeckStyle(vd?.deckStyle),   // ★VF_DECK_STYLES_V1：画面模版（非法/缺省 = 'auto'）
+    ...(_style ? { style: _style } : {}),            // ★VF_STYLES_WIRE_V1：成品风格（选了才写；不选 = 不写）
   }, bannerFieldOf(vd))
 }

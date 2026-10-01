@@ -25,16 +25,25 @@ export async function GET(request: NextRequest) {
     if (!user) return NextResponse.json({ success: true, data: { checks } })
 
     // 2) 订阅有效期 + 点数
+    // ★VF_BILLING_PERIOD_V1: 取值来源＝真实订阅（planId→SubscriptionPlan），不再读 User.plan
+    //   （User.plan 曾与实际订阅不符：uid1 写"基础月卡"、实际是旗舰年卡）。
     let subInfo = '无订阅'
     let subOk = false
+    let subStart: Date | null = null
+    let subEnd: Date | null = null
     try {
-      const sub = await prisma.userSubscription.findFirst({ where: { userId: user.id }, orderBy: { endDate: 'desc' } })
-      if (sub?.endDate) {
-        const end = new Date(sub.endDate)
-        const expired = end.getTime() < Date.now()
-        subOk = !expired
-        subInfo = expired ? `已于 ${end.toLocaleString('zh-CN')} 过期` : `订阅至 ${end.toLocaleString('zh-CN')}`
-      } else { subInfo = '无订阅' }
+      const subs = await prisma.userSubscription.findMany({
+        where: { userId: user.id, status: 'active', endDate: { gte: new Date() } },
+        orderBy: { endDate: 'desc' },
+      })
+      const sub = subs[0]
+      if (sub) {
+        const p = await prisma.subscriptionPlan.findUnique({ where: { id: sub.planId } })
+        subStart = new Date(sub.startDate)
+        subEnd = new Date(sub.endDate)
+        subOk = true
+        subInfo = `${p?.name || '套餐'} · 订阅至 ${subEnd.toLocaleString('zh-CN')}`
+      }
     } catch {}
     const points = user.pointBalance ?? 0
     checks.push({ key: 'subscription', label: '订阅有效期', ok: subOk, detail: subInfo })
@@ -45,15 +54,11 @@ export async function GET(request: NextRequest) {
       const { getTokenWallet } = await import('@/lib/token-wallet')
       const wallet = await getTokenWallet(user.id)
       if (wallet.hasSubscription) {
-        // 2026-09-07: 周期改读订阅套餐 durationMonths（12=年/3=季/1=月/0=周）——不再猜 user.plan 字符串（年卡显示月卡的根因）
-        let periodTxt = '月'
-        try {
-          const subP = await prisma.userSubscription.findFirst({ where: { userId: user.id, status: 'active', endDate: { gte: new Date() } }, orderBy: { endDate: 'desc' } })
-          const p = subP ? await prisma.subscriptionPlan.findUnique({ where: { id: subP.planId } }) : null
-          const dm = p?.durationMonths ?? 1
-          periodTxt = dm >= 12 ? '年' : (dm >= 3 ? '季' : (dm <= 0 ? '周' : '月'))
-        } catch {}
-        const subTxt = wallet.subRemaining < 0 ? '无限额度' : `${wallet.subRemaining} 点（${periodTxt}套餐额度，${periodTxt}${wallet.allowance < 0 ? '?' : wallet.allowance}）`
+        // ★VF_BILLING_PERIOD_V1: 文案改为「本期额度(start ~ end)」——不再写"年套餐额度，年29999"
+        //   （口径已由 ALLOWANCE_PERIOD_MODE 决定：默认按订阅周期累计，不按月重置）
+        const fmt = (d: Date | null) => (d ? d.toLocaleDateString('zh-CN') : '?')
+        const periodLabel = subStart && subEnd ? `本期额度 ${fmt(subStart)} ~ ${fmt(subEnd)}` : '本期额度'
+        const subTxt = `${wallet.subRemaining} 点（${periodLabel} ${wallet.allowance}）`
         pointsDetail = `${subTxt} + 点卡 ${wallet.pointBalance} 点`
         pointsOk = wallet.remaining > 0
       }

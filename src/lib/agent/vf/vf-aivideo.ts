@@ -453,15 +453,22 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
       VF_AI_DRAFT.delete(uid)
       await clearVfAiDraft(ctx.prisma, uid)
       try { ctx.log(uid, '[VF-A] 已入队 → 本线草稿作废（不再吞掉后续消息）') } catch { /* ignore */ }
-      // ★显式传 source:'ai' + style（不读草稿去猜 —— 上次事故的根因就是"读错草稿"）
+      // ★VF_AISTYLE_KEY_V1（2026-10-01 team-lead 定案）：本线的「成片风格」标签（cinematic/commercial/…
+      //   见 AI_STYLES）**与渲染层新引入的"成品风格"（蓝白科技…）语义不同、不该同名**。
+      //   历史撞车：两者都叫 `style` → plan 根级 `style` 会被 render.py 的 apply_style 误当成品风格
+      //   （未知值回落默认 bluewhite）→ 整片被静默改成新闻蓝 + deck（已实测复现）。
+      //   → 本线一律改名 `ai_style`（plan 根级 + 工具参数）；语义与取值**一字未变**。
+      //   · plan 根级消费方 = scripts/video-factory/make.py:344（H3 英文关键词查表）→ 已请渲染层同步改读 `ai_style`。
+      //   · 工具参数 `ai_style`：make_ai_video 目前**不读**它（只读 args.musicType）→ 改名零行为影响。
+      // ★显式传 source:'ai' + ai_style（不读草稿去猜 —— 上次事故的根因就是"读错草稿"）
       const run = await ctx.executeToolCall('make_ai_video', {
-        plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots, style: vd.styleResolved || '', musicType: vd.musicType || '' }),
+        plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots, ai_style: vd.styleResolved || '', musicType: vd.musicType || '' }),
         script: vd.script,
         theme: vd.theme,
         speaker: vd.voice,
         bgm: vd.bgm,
         source: 'ai',
-        style: vd.styleResolved || '',
+        ai_style: vd.styleResolved || '',
         musicType: vd.musicType || '',
         duration: vd.dur,
         confirmed: true,

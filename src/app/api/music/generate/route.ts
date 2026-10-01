@@ -19,9 +19,11 @@ export async function POST(request: NextRequest) {
     const musicModel = process.env.MINIMAX_MUSIC_MODEL || 'music-3.0-free'
     const cost = musicModel === 'music-3.0' ? 100 : 0
     if (cost > 0) {
+      // ★VF_BILLING_PERIOD_V1: TokenCheck 的真实字段是 `allowed`（不是 .ok）。
+      // 原来写 `!tk.ok`（undefined）恒为真 → music-3.0 永远 402、功能不可用。
       const tk = await checkTokens(auth.userId, cost)
-      if (!tk.ok) {
-        return NextResponse.json({ success: false, message: `点数不足（需 ${cost} 点，music-3.0 按 1 元/首计费）——请充值或切换免费模型`, needsPayment: true }, { status: 402 })
+      if (!tk.allowed) {
+        return NextResponse.json({ success: false, message: tk.message || `点数不足（需 ${cost} 点，music-3.0 按 1 元/首计费）——请充值或切换免费模型`, wallet: tk.wallet, needsPayment: true }, { status: 402 })
       }
     }
     const result = await generateMusic(prompt)
@@ -52,8 +54,8 @@ export async function POST(request: NextRequest) {
         ownerId: auth.userId,
       },
     })
-    // 生成成功才扣费（失败不扣）
-    if (cost > 0) await spendTokens(auth.userId, cost, `AI 音乐生成(${musicModel})`).catch(() => {})
+    // 生成成功才扣费（失败不扣）；★VF_BILLING_PERIOD_V1: 不再用空 .catch 吞掉记账失败（记日志，可感知）
+    if (cost > 0) await spendTokens(auth.userId, cost, `AI 音乐生成(${musicModel})`).catch((e: any) => console.error('[music/generate] 扣费失败:', e?.message || e))
     return NextResponse.json({ success: true, url: ossUrl, id: asset.id, title: fileName, poweredBy: `Minimax ${musicModel}`, cost })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e?.message || '生成失败' }, { status: 500 })

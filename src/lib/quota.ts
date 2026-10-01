@@ -30,6 +30,33 @@ const PLAN_QUOTAS: Record<string, number> = {
 
 const SYSTEM_DEFAULT_DAILY_QUOTA = 100
 
+/**
+ * ★VF_BILLING_PERIOD_V1: 解析用户的"套餐键"（用于 PLAN_QUOTAS 查表）。
+ * ⚠️ `User.plan` 是历史遗留字段，**不可信**（曾与实际订阅不符：uid1 写"基础月卡"、实际是旗舰年卡）。
+ * 取值优先级：**真实生效订阅（SubscriptionPlan）** → 中文套餐名精确匹配 PLAN_QUOTAS →
+ * 按订 durationMonths 粗分类（12+→vip / 3+→pro / 1+→basic / 0→free）→ 最后才回落 User.plan。
+ */
+async function resolvePlanKey(userId: number): Promise<string> {
+  try {
+    const sub = await prisma.userSubscription.findFirst({
+      where: { userId, status: 'active', endDate: { gte: new Date() } },
+      orderBy: { endDate: 'desc' },
+    })
+    if (sub) {
+      const plan = await prisma.subscriptionPlan.findUnique({ where: { id: sub.planId } })
+      const name = plan?.name || ''
+      if (PLAN_QUOTAS[name] !== undefined) return name
+      const dm = plan?.durationMonths ?? 1
+      if (dm >= 12) return 'vip'
+      if (dm >= 3) return 'pro'
+      if (dm >= 1) return 'basic'
+      return 'free'
+    }
+  } catch { /* 查订阅失败 → 回落字段 */ }
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { plan: true } })
+  return u?.plan || 'free'
+}
+
 // ========== AI 文案：按天 5 次免费配额 ==========
 
 interface CopyQuotaResult {
@@ -234,18 +261,19 @@ export async function checkQuota(userId: number | null, action: UsageAction): Pr
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 
-    const [user, usageThisMonth] = await Promise.all([
+    const [user, usageThisMonth, planKey] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId } }),
       prisma.usageLog.aggregate({
         where: { userId, createdAt: { gte: startOfMonth } },
         _sum: { count: true }
-      })
+      }),
+      resolvePlanKey(userId), // ★优先真实订阅，不再直接信 User.plan
     ])
 
     if (!user) return { allowed: false, message: '用户不存在' }
 
     const used = usageThisMonth._sum.count || 0
-    const quota = PLAN_QUOTAS[user.plan] || PLAN_QUOTAS.free
+    const quota = PLAN_QUOTAS[planKey] || PLAN_QUOTAS.free
     const remaining = quota - used
 
     if (remaining <= 0) {
@@ -278,18 +306,19 @@ export async function getRemainingQuota(userId: number): Promise<number> {
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 
-    const [user, usageThisMonth] = await Promise.all([
+    const [user, usageThisMonth, planKey] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId } }),
       prisma.usageLog.aggregate({
         where: { userId, createdAt: { gte: startOfMonth } },
         _sum: { count: true }
-      })
+      }),
+      resolvePlanKey(userId), // ★优先真实订阅，不再直接信 User.plan
     ])
 
     if (!user) return 0
 
     const used = usageThisMonth._sum.count || 0
-    const quota = PLAN_QUOTAS[user.plan] || PLAN_QUOTAS.free
+    const quota = PLAN_QUOTAS[planKey] || PLAN_QUOTAS.free
 
     return quota - used
   } catch (error) {
@@ -303,19 +332,20 @@ export async function getQuotaInfo(userId: number): Promise<QuotaInfo | null> {
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 
-    const [user, usageByAction] = await Promise.all([
+    const [user, usageByAction, planKey] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId } }),
       prisma.usageLog.groupBy({
         by: ['action'],
         where: { userId, createdAt: { gte: startOfMonth } },
         _sum: { count: true }
-      })
+      }),
+      resolvePlanKey(userId), // ★优先真实订阅，不再直接信 User.plan
     ])
 
     if (!user) return null
 
     const totalUsed = usageByAction.reduce((sum, item) => sum + (item._sum.count || 0), 0)
-    const quota = PLAN_QUOTAS[user.plan] || PLAN_QUOTAS.free
+    const quota = PLAN_QUOTAS[planKey] || PLAN_QUOTAS.free
 
     const usageByActionMap: Record<string, number> = {}
     usageByAction.forEach(item => {
@@ -323,7 +353,7 @@ export async function getQuotaInfo(userId: number): Promise<QuotaInfo | null> {
     })
 
     return {
-      plan: user.plan,
+      plan: planKey,
       monthlyQuota: quota,
       usedThisMonth: totalUsed,
       remainingQuota: quota - totalUsed,
