@@ -162,7 +162,21 @@ export const VF_VARIANTS: Record<string, string[]> = {
   title: ['center', 'left', 'chip', 'deck', 'deck-grad', 'deck-mono', 'deck-mag'],
   list: ['steps', 'stack'],
   compare: ['split', 'bar'],
+  // ★VF_DECK_FRAME_DEFAULT_V1（2026-10-01 team-lead 自查发现）：**素材镜也要放行 deck 系列**。
+  //   渲染层 `card_bgimage` / `card_video` **本来就有 deck 素材页实现**（横屏左图右文 / 竖屏上图下文），
+  //   但本白名单原先只定义了 title/list/compare → `VF_VARIANTS['bgimage']` 为空 →
+  //   `sanitizeAntiAiShots` 会把 AI 写的 `variant:'deck'` **当非法值删掉** → 素材页 deck 永远用不上
+  //   （用户会看到"AI 说用了 deck、出片还是老样子"）。
+  //   ⚠️ 只放行 deck 系列；别的值（center/left/steps…）在素材镜上仍按非法删掉（它们是纯文字卡的版式）。
+  bgimage: ['deck', 'deck-grad', 'deck-mono', 'deck-mag'],
+  video: ['deck', 'deck-grad', 'deck-mono', 'deck-mag'],
 }
+// ★VF_DECK_FRAME_DEFAULT_V1（2026-10-01 渲染层同学实测反馈，服务端补默认）：
+//   「富编排 PPT 页」(deck 系列) 用在**素材镜**（bgimage/video）上时，渲染层要**显式拿到 `frame`**
+//   才会走卡片版式（★VF_TPL_B1_V1）；非编辑风主题（tech/light/…）缺省 frame 为空 → 回落老链路。
+//   后果：AI 写了 variant=deck、出片却是"老样子"，用户会以为没生效。
+//   这里在净化阶段**只补不覆盖**：deck 系列 + 素材镜 + 没写 frame → 自动补 'thin'（细边框卡片）。
+export const VF_DECK_VARIANTS = ['deck', 'deck-grad', 'deck-mono', 'deck-mag']
 // ★VF_MOTIONPPT_V1（2026-09-30 用户定案「动态 PPT 立项」）：motion 新增 `grow`（强调条从左往右生长）。
 //   ⚠️ 与 render.py 的 MOTIONS 必须逐项一致（vf-i2v-selftest 会**对账**，不一致直接红）——
 //   这一条今天真的红了（渲染层先加、TS 没同步），说明那道闸门有用。
@@ -271,6 +285,8 @@ export function sanitizeAntiAiShots(shots: any[]): { shots: any[]; notes: string
   // ★VF_AI_PICK_V1：AI 自选的 主题/版式/动效 非法值计数（写进 notes，便于回溯"AI 到底写了什么"）
   let badDesign = 0
   const badDesignSample: string[] = []
+  // ★VF_DECK_FRAME_DEFAULT_V1：deck 素材镜自动补 frame 的计数（写进 notes，便于回溯）
+  let deckFrameDefault = 0
   const out = (Array.isArray(shots) ? shots : []).map((s0: any) => {
     const s: any = { ...(s0 || {}) }
     // ① emoji / 符号
@@ -335,6 +351,14 @@ export function sanitizeAntiAiShots(shots: any[]): { shots: any[]; notes: string
       if (allow.includes(v)) s.variant = v
       else { delete s.variant; _bad('variant', s0?.variant) }
     }
+    // ★VF_DECK_FRAME_DEFAULT_V1：deck 系列的**素材镜**没写 frame → 自动补 'thin'（只补不覆盖）
+    if (s.variant && VF_DECK_VARIANTS.indexOf(String(s.variant)) >= 0) {
+      const _tyD = String(s.type || '')
+      if ((_tyD === 'bgimage' || _tyD === 'video') && !String(s.frame == null ? '' : s.frame).trim()) {
+        s.frame = 'thin'
+        deckFrameDefault++
+      }
+    }
     if (s.motion !== undefined) {
       const m = String(s.motion || '').trim().toLowerCase()
       if (VF_MOTIONS.includes(m)) s.motion = m
@@ -369,6 +393,7 @@ export function sanitizeAntiAiShots(shots: any[]): { shots: any[]; notes: string
   if (cmpShort) notes.push(`对比卡 ${cmpShort} 处文字超长已截短（左右 ≤8 字 / 说明 ≤14 字）`)
   if (numDrop) notes.push(`数字/图表卡 ${numDrop} 镜因【文案里没有数字】→ 已降级为标题卡（不编造数据）`)
   if (badDesign) notes.push(`主题/版式/动效 非法值已删 ${badDesign} 处（${badDesignSample.join('、')}…）→ 回默认渲染`)
+  if (deckFrameDefault) notes.push(`富编排 PPT 页(deck) 的素材镜 ${deckFrameDefault} 处 AI 未写 frame → 已补 frame='thin'（否则会回落老版式、deck 看不出效果）`)
   return { shots: out, notes }
 }
 

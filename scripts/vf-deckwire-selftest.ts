@@ -102,11 +102,33 @@ console.log('\n④ 白名单放行没有把校验放宽（非法值/错卡型仍
   // 大小写：服务端会 toLowerCase 归一 → 'DECK' 归一后是 'deck'，属**合法**（与其它白名单字段一致）
   const up = run({ type: 'title', text: '标题', variant: 'DECK' })
   ok(up.variant === 'deck', 'variant="DECK" → 归一化成 "deck"（与 theme/motion 同款 toLowerCase 行为）')
-  // variant 按【这一镜最终的卡型】判：deck 只对 title 有效
+  // variant 按【这一镜最终的卡型】判。
+  // ★2026-10-01 team-lead 修正（my own spec change，不是放宽）：
+  //   **素材镜（bgimage / video）现在也放行 deck 系列** —— 渲染层 card_bgimage / card_video
+  //   本来就有"deck 素材页"实现（横屏左图右文 / 竖屏上图下文）；原先白名单只定义 title/list/compare
+  //   → AI 写的素材页 deck 被当非法删掉 → 素材页 deck 永远用不上（用户会以为"AI 说用了、出片却没变"）。
+  //   规则：
+  //     · deck 系列 + title        → 保留（纯文字页）
+  //     · deck 系列 + bgimage/video → 保留 + **自动补 frame='thin'**（不补的话非编辑风主题会回落老版式）
+  //     · deck 系列 + list/compare/end/number → 仍删（渲染层没有对应实现，宁缺勿假）
+  //     · **非 deck 的值**（center/left/chip/steps/split…）+ 素材镜 → 仍删（它们是纯文字卡的版式）
   //   ⚠️ subtitle 里带数字，免得 number/chart 卡先被"假数据兜底"降级成 title（那是另一条规则）
-  for (const t of ['list', 'compare', 'bgimage', 'end', 'number']) {
+  for (const t of ['list', 'compare', 'end', 'number']) {
     const r = run({ type: t, variant: 'deck', items: ['a', 'b'], text: 'x', subtitle: '增长 10%' })
-    ok(r.variant === undefined, `variant="deck" 写在 ${t} 卡上仍被删（variant 按卡型判）`, JSON.stringify(r))
+    ok(r.variant === undefined, `variant="deck" 写在 ${t} 卡上仍被删（渲染层无对应实现）`, JSON.stringify(r))
+  }
+  // 素材镜：deck 保留 + 自动补 frame
+  for (const t of ['bgimage', 'video']) {
+    const r = run({ type: t, variant: 'deck', items: ['a', 'b'], text: 'x', subtitle: '增长 10%' })
+    ok(r.variant === 'deck', `variant="deck" 写在 ${t} 卡上【保留】（deck 素材页）`, JSON.stringify(r))
+    ok(r.frame === 'thin', `${t} + deck 未写 frame → 自动补 'thin'（否则非编辑风主题回落老版式）`, JSON.stringify(r))
+    const r2 = run({ type: t, variant: 'deck-mag', frame: 'none', items: ['a', 'b'], text: 'x', subtitle: '增长 10%' })
+    ok(r2.frame === 'none', `${t} + deck 已显式写 frame='none' → 【不覆盖】`, JSON.stringify(r2))
+  }
+  // 非 deck 的版式值写在素材镜上 → 仍删（没有放宽）
+  for (const t of ['bgimage', 'video']) {
+    const r = run({ type: t, variant: 'center', text: 'x', subtitle: '增长 10%' })
+    ok(r.variant === undefined, `variant="center" 写在 ${t} 卡上仍被删（它只是纯文字卡的版式）`, JSON.stringify(r))
   }
   // 4 个合法值全部原样保留（不被改写）
   for (const v of DECK4) {
