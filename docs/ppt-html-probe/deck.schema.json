@@ -274,7 +274,7 @@
         "type": { "const": "image" },
         "title": { "type": "string", "minLength": 4, "maxLength": 24, "description": "标题（硬性 ≥4 字）" },
         "asset": { "type": "string", "minLength": 3, "maxLength": 120, "pattern": "^[^:]*$", "description": "**相对 deck 文件**的素材路径（不许绝对路径 / file:// / ..）。存在性与可播性由 validator 的素材闸门检查" },
-        "layout": { "enum": ["left", "right", "full"], "description": "图文关系：左图右文 / 左文右图 / 全幅压字（全幅走渐隐底衬，不用实心黑框）" },
+        "layout": { "enum": ["left", "right", "full"], "description": "图文关系：左图右文 / 左文右图 / 全幅压字（全幅走渐隐底衬，不用实心黑框）。★ **随几何变（跨字段依赖，JSON Schema 表达不了）**：`16:9` 三种都可用；**`9:16` 只允许 `full`** —— 竖屏下 left/right 是同一条整宽媒体带、侧向语义不成立（D15）。真正的几何校验由 validate-deck.mjs 执行：竖屏写 left/right 会报错并建议改 full。" },
         "caption": { "type": "string", "minLength": 8, "maxLength": 48, "description": "图注（可选；给了就要 ≥8 字）" },
         "kicker": { "type": "string", "maxLength": 32, "description": "角标小字（可选）" }
       }

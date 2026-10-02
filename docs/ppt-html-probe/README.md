@@ -407,6 +407,27 @@ deck.bad-summary.json    = exit1 / 1err / 0warn
 
 ---
 
+## 18. D15：竖屏图片页只保留 `full`（第十一批）
+
+竖屏下 `left`/`right` 是**同一条整宽媒体带**（720×538，实测逐像素同带）⇒ "侧向"语义不成立
+⇒ **契约层直接禁掉**（宁可不给选项，也不给"看起来分左右、其实一样"的版式）。横屏保留三版式。
+
+- `validate-deck.mjs`：`9:16` 时 `image.layout` 只允许 `full`，否则报错并建议改 `full`；
+- `deck.schema.json`：`pageImage.layout` 描述写明跨字段依赖（真正校验在 validator）；
+- 新反例 `deck.bad-image-portrait-left.json` → `exit1/1err/0warn`；
+  **契约样例新基线 = 22 个全 PASS，原有 21 个一字未动**；
+- `check-master-manifest.mjs`：清单新增 `image.<几何>._allowed`，并断言
+  "**产物里的图片版式必须在 `_allowed` 内**"（竖屏出现 left/right 即失败）—— **断言总数 338**；
+- 派生样例同步：`deck.img3-9x16(-v2)` 把原 left/right 两页改成 `full` 的两种分支
+  （`derive-decks.mjs` 新增 `pagePatch`，仍机器断言"只改声明字段"）；
+- `AI-PROMPT.md` + 两套 `PARAMS.md` 写明口径。
+
+**顺带**：清单加 `_allowed` 后重渲 `deck.all12` 仍 `FC467E01…`（不影响画面）。
+**彩蛋**：我第一次重渲误传 `--outdir .`，产物落到错目录、`out/` 里还是旧产物（含 left/right）——**新断言立刻判红**（L1 2 条）：
+它同时能防"产物陈旧"。
+
+---
+
 ## 9'. 已知限制（v1）
 1. `density` 目前只改 `--pad`/`--gap`，**字阶不随密度变** —— 因为改字号需要把 3~5 条要点 × 三种密度的组合逐一目视验证，未做前不放开（宁可不做也不放任溢出）。
 2. 大数字：**整数位滚筒、小数/负号静态**（如 `12.5` 的"."是静态字符）。

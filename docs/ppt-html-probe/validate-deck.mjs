@@ -328,9 +328,16 @@ function mediaGate(assetPath, at) {
   add('error', at, `不支持的素材扩展名 .${ext || '(无)'}`, '静态图片只支持 jpg / jpeg / png / webp')
 }
 
-function checkImage(p, path) {
+function checkImage(p, path, style) {
   checkString(p.title, `${path}.title`, 4, 24, '图片页标题')
   checkEnum(p.layout, `${path}.layout`, ['left', 'right', 'full'], 'image.layout', '只允许 left / right / full')
+  // ★ D15：**竖屏图片页只有 full**。
+  //   竖屏下 left/right 是同一条整宽媒体带（清单里 image.9:16.left 与 .right 的矩形相同，实测也证明同一条带），
+  //   "侧向"语义不成立 ⇒ 宁可在契约层禁掉一个没意义的选项，也不让 AI/用户选到"看起来分左右、其实一样"的版式。
+  if (style && style.orientation === '9:16' && p.layout && p.layout !== 'full') {
+    add('error', `${path}.layout`, `竖屏（9:16）不允许 layout="${p.layout}"`,
+      '竖屏图片页只有 full —— 把 layout 改成 "full"；竖屏下 left/right 与 full 无从区分（已在契约层禁用）。确实要左右分栏版式请改用 16:9')
+  }
   if (p.caption != null) checkString(p.caption, `${path}.caption`, 8, 48, '图片页图注')
   if (p.kicker != null && cp(p.kicker) > 32) add('error', `${path}.kicker`, `角标 ${cp(p.kicker)} 字，上限 32`, '精简角标')
   if (typeof p.asset !== 'string' || !p.asset.trim()) {
@@ -472,7 +479,7 @@ function main() {
       if (p.type === 'quote') checkQuote(p, path)
       if (p.type === 'toc') checkToc(p, path)
       if (p.type === 'summary') checkSummary(p, path)
-      if (p.type === 'image') checkImage(p, path)
+      if (p.type === 'image') checkImage(p, path, deck.style)
       if (p.type === 'steps') checkSteps(p, path)
     })
   }

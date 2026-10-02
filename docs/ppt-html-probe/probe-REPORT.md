@@ -1041,6 +1041,47 @@ body.p     .p9-media { left: 0; right: 0; width: 100%; … }      /* 竖屏整�
 
 ---
 
+## 21. D15：竖屏图片页只保留 `full`（第十一批）
+
+### 21.1 决定与理由
+竖屏下 `image.left` 与 `image.right` 是**同一条整宽媒体带**（720×538，实测逐像素同带）⇒ "侧向"语义不成立。
+**宁可在契约层禁掉一个没意义的选项，也不让 AI/用户选到"看起来分左右、其实一样"的版式**。横屏保留三版式。
+
+### 21.2 落地的五处（契约 · 校验器 · 反例 · 提示升失败 · 文档）
+| # | 位置 | 改动 |
+|---|---|---|
+| 1 | `validate-deck.mjs` | `checkImage(p, path, style)`：`orientation === '9:16'` 时 `layout` 只允许 `full`，否则报错**并建议改 `full`**（并提示"确实要左右分栏请改用 16:9"） |
+| 2 | `deck.schema.json` | `pageImage.layout` 描述写明跨字段依赖（`9:16` 只允许 `full`）—— JSON Schema 表达不了跨字段，真正的校验在 validator |
+| 3 | `examples/deck.bad-image-portrait-left.json` | **新反例**（竖屏给 `left`）→ `exit1 / 1err / 0warn` |
+| 4 | `check-master-manifest.mjs` | 清单新增 `image.<几何>._allowed` 声明；断言"**产物里出现的图片版式必须在 `_allowed` 内**"（竖屏出现 left/right = 失败）；原来那条"侧向语义不成立"的**提示降级为解释性信息**（不再是缺口） |
+| 5 | `AI-PROMPT.md` / 两套 `PARAMS.md` | 口径写明"**竖屏图片页只有 `full`**"（与"按几何选版式"并列） |
+
+### 21.3 派生样例必须同步（否则契约一改，样例自己就不合法）
+`deck.img3-9x16(-master-v2)` 原是把 16:9 的三版式直接搬到竖屏 ⇒ **D15 后自身不合法**。
+改法：`derive-decks.mjs` 新增 **`pagePatch`**（逐页 `set`/`del`），把原 `left`/`right` 两页改成 `full` 的**两种分支**
+（有角标无图注 / 有图注），页数仍 5、且顺带覆盖 `image` 页的 `kicker` 与 `caption` 分支。
+派生器仍**机器断言"只改了声明字段"**（把 style/meta/页改动逐条还原 → 与母 deck 语义必须完全一致）。
+
+### 21.4 实测
+- **契约样例新基线：22 个全 PASS**，新增 `deck.bad-image-portrait-left.json = exit1/1err/0warn`（**原有 21 个一字未动**）；
+- 竖屏图片页片重渲：`out/deck.img3-9x16` = `93D6046D8D95B7871F847D36C4D228EE`、
+  `out-master-v2/deck.img3-9x16-master-v2` = `05885C4480D9A295D361074EDB1CBBE4`
+  （5 页 / 15s / 720×1280 / 对账 0/0/0/0）；三个 `full` 页像素验证 **12/12**（中位差 4），
+  全幅压字对比度 **9.14 / 7.91 : 1**（v1）、**10.55 / 10.52 : 1**（v2）；
+- 清单断言器：**338 条全成立**（L1 140 / L2 12 / L3 130 / L4 56）；
+- **清单加 `_allowed` 不影响画面**：`deck.all12`（deck 未变）重渲仍 `FC467E0114D84810F1EDF84564B37137` ✓。
+
+### 21.5 一个"抓到自己"的插曲
+第一次重渲 v1 竖屏片时我误传了 `--outdir .` ⇒ 工作目录落到 `deck-contract/deck.img3-9x16/`，
+而 `out/deck.img3-9x16/` 仍是 D15 之前的旧产物（含 left/right）。**新加的 `_allowed` 断言立刻把它判红**（L1 2 条）
+—— 这条断言不仅能防"实现脱节"，还能防"产物陈旧"。清掉误落目录、按默认 `outdir` 重渲后全绿。
+
+### 21.6 未做 / 不确定
+1. 竖屏 `left`/`right` 的 CSS 规则**保留**（跨几何一致性 + 清单仍要比对），但本母版下**已无 deck 能用到** —— 属"死规则"，若确认不需要可删（删了要同步 `_allowed` 与断言）。
+2. 竖屏 `image` 页只验证了 `full` 的三种内容分支（有/无 kicker、有/无 caption），**未覆盖"长文案溢出"边界**。
+
+---
+
 ## 17. 服务端调用契约 `ENGINE-CONTRACT.md`（第七批）
 
 ### 17.1 交付

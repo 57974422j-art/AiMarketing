@@ -197,6 +197,9 @@ hyperframes render . -c master-16x9.html -o master-v1.mp4 --fps 25 --quality loo
 1. 竖屏是"同版式复用"（同一套 CSS 变量 + `body.p` 覆盖），部分页面留白偏多（P2/P4 下半部空）—— 属可接受留白，若要更满可调 `--pad`/字阶。
 2. 数据页数字滚筒是**按位滚筒**（odometer），不是"从 0 连续长到 82"的数值插值；纯 transform、逐帧可 seek、无 JS 依赖。
 3. 本母版**未含**旁白/BGM/字幕（按现有链路在拼接后统一加）。
+4. **图片页（P9）在竖屏只有 `full`**（D15，契约层已禁 left/right）：竖屏下 left/right 是同一条整宽媒体带（720×538），
+   "侧向"语义不成立 ⇒ 写 left/right 会被闸门拦下并建议改 `full`。横屏保留 `left`/`right`/`full` 三版式。
+   竖屏的 `.p9--left` / `.p9--right` 规则**保留**（跨几何 CSS 一致性 + 清单仍声明以便断言比对），但已无 deck 能用到。
 4. **默认多 worker 会走 `screenshot` 捕获 + 分块并行编码** → 比单 worker 慢（约 1.5×），且两次渲染只到"帧内容一致"（MD5 不同）。要"又快又字节可复现"就用 `--workers 1`（见 §9.1）。
 5. **`density` 枚举只改版心/节奏，字阶不随密度变**（如实声明，避免"契约比实际能力强"）：
    - 现状：`airy` → `--pad:96px/--gap:24px`；`normal` → 母版默认；`dense` → `--pad:72px/--gap:16px`。

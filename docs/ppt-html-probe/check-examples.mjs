@@ -134,6 +134,12 @@ const BASELINE = [
     desc: '步骤页：某一步只有 1 字',
     exit: 1, errors: 1, warns: 0,
   },
+  // ---- D15：竖屏图片页只有 full ----
+  {
+    file: 'examples/deck.bad-image-portrait-left.json',
+    desc: '竖屏图片页给了 left（D15 禁；报错并建议改 full）',
+    exit: 1, errors: 1, warns: 0,
+  },
 ]
 
 function run(file) {

@@ -154,6 +154,19 @@ for (const m of MATRIX) {
   const img = (man.image || {})[o] || {}
   /** 清单声明的 left/right 是否为同一条媒体带（竖屏常见；决定"侧向语义"是否存在） */
   const sameRectLR = !!(img.left && img.right && eq(img.left, img.right))
+  /** 本几何**允许**的图片版式（D15：竖屏只有 full）—— 声明性内容，必须在清单里明写 */
+  const allowed = img._allowed
+  if (chk('L3', `image.${o}._allowed 必须声明`, Array.isArray(allowed) && allowed.length > 0,
+    JSON.stringify(allowed), '清单必须声明本几何允许哪些图片版式（D15：竖屏只有 full）')) {
+    const decl = Object.keys(img).filter((k) => !k.startsWith('_'))
+    chk('L3', `image.${o}._allowed ⊆ 已声明的版式`, allowed.every((k) => decl.includes(k)),
+      `_allowed=[${allowed.join(',')}] 已声明=[${decl.join(',')}]`, '_allowed 里不能出现没声明矩形的版式')
+    chk('L3', `image.${o}._allowed 必须含 full`, allowed.includes('full'), `[${allowed.join(',')}]`,
+      'full 是唯一在所有几何下都成立的图片版式')
+    for (const k of decl) {
+      if (!allowed.includes(k)) note(`image.${o}.${k}：规则保留但**不在 _allowed**（${allowed.join('/')} 之外）—— 仅横屏使用（D15）`)
+    }
+  }
   for (const L of ['full', 'left', 'right']) {
     const r = img[L]
     if (!chk3(r, `image.${o}.${L} 必须声明`)) continue
@@ -179,7 +192,8 @@ for (const m of MATRIX) {
       chk('L3', `image.${o} left/right 矩形相同 ⇒ 必须如实声明`, true,
         `${JSON.stringify(img.left)} = ${JSON.stringify(img.right)}`,
         '本几何下两个版式共用同一条媒体带时，清单必须写成相同矩形（不许声称为分栏）')
-      note(`image.${o}: left 与 right 的媒体矩形**相同**（${img.left.w}×${img.left.h}）⇒ 本几何下"侧向"语义不成立（左/右两条只有文案侧向或无差别）`)
+      // D15 之后这条不再是"缺口"，只是解释"为什么规则保留却不可用"
+      note(`image.${o}: left 与 right 的媒体矩形相同（${img.left.w}×${img.left.h}）⇒ 侧向语义不成立；本几何的 _allowed=[${(allowed || []).join(', ')}]`)
     } else if (img.left.w === cv.w && img.right.w === cv.w) {
       // 上下分列（整宽带）：必须一上一下、各贴一端、互不压盖
       const oneTop = img.left.y === 0 || img.right.y === 0
@@ -269,6 +283,12 @@ for (const m of MATRIX) {
         chk('L1', `图片页 ${p.index}(${p.layout}) 的 region = 清单 image.${o}.${p.layout}`,
           !!decl && eq(p.region, decl), `${JSON.stringify(p.region)} vs ${JSON.stringify(decl)}`,
           '★ 专抓"媒体区矩形又被写死在生成器里"（竖屏 full 退化成顶带图就是这类）')
+        // ★ D15：产物里出现的图片版式必须在清单允许集内（竖屏出现 left/right 即错）
+        if (Array.isArray(allowed)) {
+          chk('L1', `图片页 ${p.index} 的版式 "${p.layout}" 在清单 _allowed 内`, allowed.includes(p.layout),
+            `_allowed=[${allowed.join(',')}]，实际用 "${p.layout}"`,
+            o === '9:16' ? '竖屏图片页只有 full（D15）—— 换版式或改用 16:9' : '该版式未在清单声明')
+        }
         // 声明 = 满幅 ⇒ 元数据里也必须是满幅，且右下角必须落在画布内
         if (p.layout === 'full') {
           chk('L3', `图片页 ${p.index} full 的 region 覆盖整页`, p.region.w === cv.w && p.region.h === cv.h,
