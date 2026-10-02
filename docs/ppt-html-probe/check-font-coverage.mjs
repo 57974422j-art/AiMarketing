@@ -1,121 +1,141 @@
 #!/usr/bin/env node
 /**
- * check-font-coverage.mjs —— **字体覆盖闸门**（"核 hyperframes-localize-fonts" 的落地）
+ * check-font-coverage.mjs —— **字体覆盖闸门**（坑 28 / 第六条纪律）
  *
- * 背景：引擎（hyperframes v0.8.111）**没有** `localize-fonts` 命令、包内也 0 命中
- *   （两条独立证据：CLI 命令表 + 源码 grep）⇒ "字体本地化"必须由我们自己在管道里保证。
+ * 纪律：**自带内容的资产必须验证"内容覆盖"**。内嵌字体是子集，缺字的字形缺失时浏览器会
+ *   **静默回退系统字体** —— 开发机（装了 CJK 字体）永远看不出来，服务器上直接渲成豆腐块。
+ *   所以：**渲染前必须过这道闸门**（`render-deck.mjs` 已内联调用它）。
  *
- * 为什么必须查：内嵌字体是**子集**（woff2）。若某字的字形不在子集里，
- *   浏览器会**回退到系统字体** —— 本机有 CJK 字体时看不出来（静默通过），
- *   **服务器上没有就会渲成豆腐块（tofu）**：典型的"平台默认值"地雷 + 静默降级。
- *   本脚本把这件事变成**可量化**的：逐字查 cmap。
+ * 字体来源：**两套母版共用的唯一一份** `fonts/`（由母版清单 `fonts.src` 声明，见 masters/<id>/master.json）。
  *
- * 判据：
- *   - 某字**两套字体都没有** → 必然 tofu ⇒ **拦**（error）
- *   - 某字只被其中一套覆盖 → 取决于该字的文本用的是哪套族（serif/sans）⇒ **警告**（warn）
  * 用法：
- *   node check-font-coverage.mjs                 # 扫母版源码 + 全部 examples/*.json
- *   node check-font-coverage.mjs --extra "龘🙂"  # 额外注入字符（做敏感性自证用）
+ *   node check-font-coverage.mjs                     # 全量体检：chars-cmn.txt + 母版源码 + 全部 examples/*.json
+ *   node check-font-coverage.mjs --deck <deck.json>  # 渲染前闸门：只查这一个 deck（缺字 → 报错 + 可执行建议）
+ *   node check-font-coverage.mjs --extra "龘🙂"      # 敏感性自证：注入必然缺字的字符
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
-// fontkit 是 CJS（无 default 导出）⇒ 用 createRequire 取，别跟打包器较劲
+
+// fontkit 是 CJS（无 default 导出）⇒ 用 createRequire 取
 const fontkit = createRequire(import.meta.url)('fontkit')
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
 const args = process.argv.slice(2)
-const extraIdx = args.indexOf('--extra')
-const EXTRA = extraIdx >= 0 ? (args[extraIdx + 1] || '') : ''
+const valOf = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null }
+const EXTRA = valOf('--extra') || ''
+const DECK = valOf('--deck') ? resolve(valOf('--deck')) : null
 
-/** 与 subset-fonts.py 的安全集保持一致（ASCII 可见 + 常用中文标点/符号） */
-const SAFE = (() => {
-  let s = ''
-  for (let c = 0x20; c < 0x7f; c++) s += String.fromCharCode(c)
-  return s + '　、。，；：？！…—～·《》〈〉「」『』（）【】〔〕“”‘’％＋－×÷≈≤≥→←↑↓°￥$€¥'
-})()
+const MASTERS = ['master-v1', 'master-v2'].map((id) => ({ id, dir: join(ROOT, 'masters', id) }))
 
-const MASTERS = [
-  { id: 'master-v1', dir: join(ROOT, 'masters', 'master-v1') },
-  { id: 'master-v2', dir: join(ROOT, 'masters', 'master-v2') },
-]
-const FONT_FILES = ['NotoSerifSC-sub.woff2', 'NotoSansSC-sub.woff2']
+/** 从母版清单解出"共用字体放在哪、有哪些文件"（清单是唯一真源） */
+function masterFonts(dir) {
+  const man = JSON.parse(readFileSync(join(dir, 'master.json'), 'utf8'))
+  const f = man.fonts
+  if (!f || !f.src || !Array.isArray(f.files) || !f.files.length) {
+    return { man, err: `母版 ${man.id} 的 master.json 没声明 fonts{src,files}` }
+  }
+  return { man, srcDir: resolve(dir, f.src), files: f.files }
+}
 
 function loadCoverage(p) {
   if (!existsSync(p)) return null
   const font = fontkit.openSync(p)
-  const set = new Set()
-  // fontkit: characterSet 是码点数组；Woff2 走 brotli 解压（本仓库已装 brotli）
-  for (const cp of font.characterSet || []) set.add(cp)
-  return { font, set, has: (cp) => set.has(cp) || (font.hasGlyphForCodePoint ? font.hasGlyphForCodePoint(cp) : false) }
+  const set = new Set(font.characterSet || [])
+  return { set, kb: readFileSync(p).length / 1024, has: (cp) => set.has(cp) || (font.hasGlyphForCodePoint ? font.hasGlyphForCodePoint(cp) : false) }
 }
 
-/** 收集"必须被覆盖"的字符：母版源码（生成期的模板文本）+ 全部 deck（AI 实际会写的文本）+ 安全集 */
-function collectChars(mdir) {
-  const out = new Map()   // char → 来源标签集合
-  const add = (text, from) => {
-    for (const ch of String(text)) {
-      if (ch === '\n' || ch === '\r' || ch === '\t') continue
-      if (!out.has(ch)) out.set(ch, new Set())
-      out.get(ch).add(from)
-    }
+/** 收集文本里的字符（跳过换行/制表） */
+function charsOf(text, into) {
+  for (const ch of String(text)) {
+    if (ch === '\n' || ch === '\r' || ch === '\t') continue
+    if (!into.has(ch)) into.set(ch, new Set())
+    into.get(ch).add('')
   }
-  for (const f of ['master-16x9.html', 'master-9x16.html',
-    join('assets', 'master.css'), join('assets', 'master.js')]) {
-    const p = join(mdir, f)
-    if (existsSync(p)) add(readFileSync(p, 'utf8'), `母版源码:${f}`)
-  }
-  return { chars: out, add }
+  return into
 }
 
-const deckDir = join(HERE, 'examples')
-const decks = existsSync(deckDir) ? readdirSync(deckDir).filter((f) => f.endsWith('.json')) : []
-const deckText = decks.map((f) => ({ f, text: readFileSync(join(deckDir, f), 'utf8') }))
-
-let errors = 0, warns = 0
-console.log('=== 字体覆盖闸门（cmap 逐字查）===')
-for (const m of MASTERS) {
-  const fonts = {}
-  for (const fn of FONT_FILES) {
-    const p = join(m.dir, 'assets', fn)
-    const cov = loadCoverage(p)
-    fonts[fn] = cov
-    const kb = cov ? (readFileSync(p).length / 1024).toFixed(1) + 'KB' : '(缺失)'
-    console.log(`\n${m.id} · ${fn}  ${kb}  覆盖码点 ${cov ? cov.set.size : 0}`)
-  }
-  const { chars, add } = collectChars(m.dir)
-  add(SAFE, '安全集(与 subset-fonts.py 一致)')
-  for (const { f, text } of deckText) add(text, `deck:${f}`)
-  if (EXTRA) add(EXTRA, '--extra 注入')
-
-  const noneOf = [], oneOf = []
-  for (const [ch, from] of chars) {
+/** 判定并打印；返回缺失字符数组 */
+function report(fonts, need, label) {
+  const none = [], one = []
+  for (const [ch, from] of need) {
     const cp = ch.codePointAt(0)
-    const covered = FONT_FILES.filter((fn) => fonts[fn] && fonts[fn].has(cp))
-    if (covered.length === 0) noneOf.push([ch, cp, from])
-    else if (covered.length === 1) oneOf.push([ch, cp, covered[0], from])
+    const covered = Object.keys(fonts).filter((f) => fonts[f] && fonts[f].has(cp))
+    if (covered.length === 0) none.push([ch, cp, [...from].filter(Boolean)])
+    else if (covered.length === 1) one.push([ch, cp, covered[0]])
   }
-  console.log(`  待覆盖字符 ${chars.size} 个（母版源码 + ${decks.length} 个 deck + 安全集${EXTRA ? ' + --extra' : ''}）`)
-  console.log(`  ★ 两套字体都没有（**必然 tofu**）：${noneOf.length} 个`)
-  if (noneOf.length) {
-    errors++
-    const show = noneOf.slice(0, 40).map(([ch, cp]) => `${JSON.stringify(ch)}(U+${cp.toString(16).toUpperCase()})`)
-    console.log(`     ${show.join(' ')}${noneOf.length > 40 ? ` … 共 ${noneOf.length} 个` : ''}`)
-    console.log(`     来源举例: ${[...noneOf[0][2]].slice(0, 3).join(' / ')}`)
-  }
-  console.log(`  只被一套覆盖（取决于文本用 serif/sans，**条件性 tofu**）：${oneOf.length} 个`)
-  if (oneOf.length) {
-    warns++
-    const byFont = {}
-    for (const [, , f] of oneOf) byFont[f] = (byFont[f] || 0) + 1
-    console.log(`     分布: ${Object.entries(byFont).map(([k, v]) => `${k}=${v}`).join(' · ')}`)
-    const show = oneOf.slice(0, 20).map(([ch, cp]) => `${JSON.stringify(ch)}(U+${cp.toString(16).toUpperCase()})`)
-    console.log(`     举例: ${show.join(' ')}${oneOf.length > 20 ? ` …` : ''}`)
-  }
+  const fmt = (arr, n) => arr.slice(0, n).map(([ch, cp]) => `${JSON.stringify(ch)}(U+${cp.toString(16).toUpperCase()})`).join(' ')
+  console.log(`  ${label}：待覆盖字符 ${need.size} 个 · **两套都没有 ${none.length} 个** · 只被一套覆盖 ${one.length} 个`)
+  if (none.length) console.log(`     缺字: ${fmt(none, 40)}${none.length > 40 ? ` … 共 ${none.length} 个` : ''}`)
+  if (one.length) console.log(`     单套: ${fmt(one, 20)}`)
+  return none
 }
-console.log(`\n结论: ${errors === 0
-  ? `PASS（无"必然 tofu"字符${warns ? `；但有 ${warns} 个母版存在"条件性 tofu"字符，见上` : ''}）`
-  : `FAIL（${errors} 个母版存在"两套字体都没有"的字符 ⇒ 本机可能靠系统字体蒙过，服务器上会渲成豆腐块）`}`)
-process.exit(errors ? 1 : 0)
+
+let bad = 0
+
+/* ---------------- 渲染前闸门模式：只查一个 deck ---------------- */
+if (DECK) {
+  const deck = JSON.parse(readFileSync(DECK, 'utf8'))
+  const mid = deck.style?.masterId
+  const dir = join(ROOT, 'masters', mid || '')
+  if (!existsSync(join(dir, 'master.json'))) {
+    console.error(`✗ --deck 给了未知母版 "${mid}"（列不出字体）`)
+    process.exit(2)
+  }
+  const { man, srcDir, files, err } = masterFonts(dir)
+  if (err) { console.error(`✗ ${err}`); process.exit(2) }
+  const fonts = {}
+  for (const f of files) fonts[f] = loadCoverage(join(srcDir, f))
+  console.log(`=== 字体覆盖闸门（渲染前）=== deck=${DECK.split(/[\\/]/).pop()}  母版=${man.id}  字体=${srcDir}`)
+  const need = new Map()
+  charsOf(JSON.stringify(deck), need)          // 整份 deck 的文本（含 meta/style 的值，宁可从严）
+  if (EXTRA) charsOf(EXTRA, need)
+  const none = report(fonts, need, 'deck 文本')
+  if (none.length) {
+    bad++
+    console.error(`\n✗ 字体覆盖闸门：deck 里有 ${none.length} 个字符**两套内嵌字体都没有** → 服务器上会渲成豆腐块（本机有 CJK 字体所以看不出来）`)
+    console.error(`  可执行建议：① 改写这一处（换近义字/去掉 emoji）；② 去掉 emoji 与生僻符号；③ 若确需保留，把该字加进 fonts/chars-cmn.txt 后重跑 python fonts/make-fonts.py`)
+    console.error(`  缺字清单: ${none.slice(0, 60).map(([ch, cp]) => `${JSON.stringify(ch)}(U+${cp.toString(16).toUpperCase()})`).join(' ')}`)
+    process.exit(1)
+  }
+  console.log('结论: PASS（deck 文本 ⊆ 内嵌字体覆盖）')
+  process.exit(0)
+}
+
+/* ---------------- 全量体检模式 ---------------- */
+console.log('=== 字体覆盖闸门（全量体检 · cmap 逐字查）===')
+for (const m of MASTERS) {
+  const { man, srcDir, files, err } = masterFonts(m.dir)
+  if (err) { console.error(`✗ ${err}`); bad++; continue }
+  const fonts = {}
+  console.log(`\n${man.id}  共用字体目录: ${srcDir.replace(ROOT + '\\', '')}`)
+  for (const f of files) {
+    const cov = loadCoverage(join(srcDir, f))
+    fonts[f] = cov
+    console.log(`  ${f.padEnd(26)} ${cov ? cov.kb.toFixed(1) + 'KB  覆盖码点 ' + cov.set.size : '(缺失)'}`)
+    if (!cov) bad++
+  }
+  const need = new Map()
+  const charsFile = join(srcDir, 'chars-cmn.txt')
+  if (existsSync(charsFile)) {
+    charsOf(readFileSync(charsFile, 'utf8'), need)
+    console.log(`  chars-cmn.txt             ${(readFileSync(charsFile).length / 1024).toFixed(1)}KB`)
+  } else { console.log('  !! 缺 chars-cmn.txt（字表必须入库）'); bad++ }
+  for (const f of ['master-16x9.html', 'master-9x16.html', join('assets', 'master.css'), join('assets', 'master.js')]) {
+    const p = join(m.dir, f)
+    if (existsSync(p)) charsOf(readFileSync(p, 'utf8'), need)
+  }
+  const ex = join(HERE, 'examples')
+  const decks = existsSync(ex) ? readdirSync(ex).filter((f) => f.endsWith('.json')) : []
+  for (const f of decks) charsOf(readFileSync(join(ex, f), 'utf8'), need)
+  if (EXTRA) charsOf(EXTRA, need)
+  const none = report(fonts, need, `chars-cmn + 母版源码 + ${decks.length} 个 deck${EXTRA ? ' + --extra' : ''}`)
+  if (none.length) bad++
+}
+
+console.log(`\n结论: ${bad === 0
+  ? 'PASS（chars-cmn.txt / 母版源码 / 全部 deck 的文本都在内嵌字体覆盖内）'
+  : `FAIL（${bad} 项不达标 ⇒ 缺字会在服务器上静默渲成豆腐块）`}`)
+process.exit(bad ? 1 : 0)

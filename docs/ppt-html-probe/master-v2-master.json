@@ -6,6 +6,8 @@
   "cover": "cover.jpg",
   "files": { "css": "master.css", "gsap": "gsap.min.js", "js": "master.js" },
   "hyperframes": "hyperframes.json",
+  "_fontsNote": "★ 与 master-v1 **共用同一份**内嵌字体（../../fonts）：不许各存一份。字符集 = GB2312 一级字表 3755 字 + ASCII + 中英标点（../../fonts/chars-cmn.txt）。",
+  "fonts": { "src": "../../fonts", "files": ["NotoSerifSC-sub.woff2", "NotoSansSC-sub.woff2"] },
   "page": 3,
   "canvas": {
     "16:9": { "w": 1280, "h": 720, "portrait": false },

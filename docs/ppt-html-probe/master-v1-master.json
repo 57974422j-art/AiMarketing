@@ -6,6 +6,8 @@
   "cover": "cover.jpg",
   "files": { "css": "master.css", "gsap": "gsap.min.js", "js": "master.js" },
   "hyperframes": "hyperframes.json",
+  "_fontsNote": "★ 内嵌字体是**两套母版共用的唯一一份**（放在 ../../fonts，不许各存一份）：字符集 = GB2312 一级字表 3755 字 + ASCII + 中英标点（见 ../../fonts/chars-cmn.txt，字表入库）。渲染时由 render-deck.mjs 拷进产物 assets；check-font-coverage.mjs 当**渲染前闸门**验 deck 文本 ⊆ 覆盖。",
+  "fonts": { "src": "../../fonts", "files": ["NotoSerifSC-sub.woff2", "NotoSansSC-sub.woff2"] },
   "page": 3,
   "canvas": {
     "16:9": { "w": 1280, "h": 720, "portrait": false },

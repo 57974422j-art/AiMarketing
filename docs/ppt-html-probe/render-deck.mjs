@@ -24,7 +24,7 @@ import { spawnSync } from 'node:child_process'
      所以下面所有 `|| 默认值` 形式的兜底一律改成"抛错"（strictPick），
      并给每个失败阶段一个**独立退出码**，让服务端不用猜。
    ------------------------------------------------------------------ */
-const EXIT = { OK: 0, USAGE: 2, VALIDATE: 3, RECONCILE: 4, RENDER: 5, INTERNAL: 6, MEDIA: 7 }
+const EXIT = { OK: 0, USAGE: 2, VALIDATE: 3, RECONCILE: 4, RENDER: 5, INTERNAL: 6, MEDIA: 7, FONT: 8 }
 /** 机器可读总结行：服务端应解析这一行，不要用正则去猜人话日志 */
 function emitResult(obj) { console.log('RESULT ' + JSON.stringify(obj)) }
 function fail(code, stage, msg, extra = {}) {
@@ -754,12 +754,41 @@ function main() {
   }
   console.log(`✓ 校验通过（不达标 0 / 建议 ${vr.warnCount}）`)
 
+  // ---- ①' 字体覆盖闸门（坑 28 / 第六条纪律：自带内容的资产必须验证内容覆盖）----
+  //   deck 里有内嵌字体覆盖不到的字 → 浏览器会**静默回退系统字体**：开发机（有 CJK 字体）看不出来，
+  //   服务器上直接渲成豆腐块。所以**渲染前**就拦，并给出可执行建议。
+  {
+    const fc = spawnSync(process.execPath, [join(HERE, 'check-font-coverage.mjs'), '--deck', deckAbs],
+      { cwd: HERE, encoding: 'utf8' })
+    if (fc.status !== 0) {
+      process.stdout.write(fc.stdout || '')
+      process.stderr.write(fc.stderr || '')
+      emitResult({ ok: false, code: EXIT.FONT, stage: 'fonts', ...ctx, font_gate: 'fail' })
+      fail(EXIT.FONT, 'fonts', '字体覆盖闸门不通过：deck 里有内嵌字体覆盖不到的字（服务器上会渲成豆腐块，本机看不出）', ctx)
+    }
+  }
+
   // ---- ② 生成 HTML + 复制母版资产 ----
   mkdirSync(workdir, { recursive: true })
   for (const d of ['frames']) mkdirSync(join(workdir, d), { recursive: true })
   const assetsDir = join(workdir, MF.assets)
   if (existsSync(assetsDir)) rmSync(assetsDir, { recursive: true, force: true })
   cpSync(MF.assetsRoot, assetsDir, { recursive: true })
+  // ★ 内嵌字体：两套母版**共用唯一一份**（清单 fonts.src 声明）⇒ 渲染时拷进产物 assets。
+  //   母版目录里**不再各存一份**（3MB×2 的重复）；缺文件就大声失败（否则会静默回退系统字体 → 服务器豆腐块）
+  if (MF.fonts && MF.fonts.src && Array.isArray(MF.fonts.files)) {
+    const fontSrc = resolve(MF.dir, MF.fonts.src)
+    for (const f of MF.fonts.files) {
+      const from = join(fontSrc, f)
+      if (!existsSync(from)) {
+        fail(EXIT.MEDIA, 'fonts', `共用字体缺失: ${from}（清单 fonts.src=${MF.fonts.src}）—— 缺字体时浏览器会静默回退系统字体，服务器上直接渲成豆腐块`,
+          { ...ctx, font_src: fontSrc, font_file: f })
+      }
+      cpSync(from, join(assetsDir, f), { force: true })
+    }
+  } else {
+    fail(EXIT.MEDIA, 'fonts', `母版 ${MF.id} 的 master.json 未声明 fonts{src,files}`, ctx)
+  }
   const hfName = MF.hyperframes || 'hyperframes.json'
   cpSync(join(MF.dir, hfName), join(workdir, hfName), { force: true })
   // 图片页素材：从 deck 目录拷进产物目录（自包含）。素材缺失**在生成期就炸**，绝不渲成黑屏。
