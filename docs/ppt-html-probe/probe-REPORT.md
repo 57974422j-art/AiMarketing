@@ -1082,6 +1082,51 @@ body.p     .p9-media { left: 0; right: 0; width: 100%; … }      /* 竖屏整�
 
 ---
 
+## 22. 平台默认值 & 抽帧静默失败：`resolveBin` + 逐张点名的锚点（第十二批）
+
+### 22.1 不依赖平台默认 PATH
+`render-deck.mjs` 与 `check-master-manifest.mjs` 一律改用 `resolveBin('ffmpeg' | 'ffprobe')`：
+`HYPERFRAMES_FFMPEG_PATH` 存在 → **同目录**找同名工具（引擎自带/指定者优先）；否则回退 PATH。
+**拿不到就大声失败**（`EXIT.MEDIA = 7`），不再"装作成功"：
+- ffprobe 拿不到 → `exit 7 · stage probe`（产物规格 / 色彩标签校验是硬要求，不许静默跳过）；
+- 抽帧不完整 → `exit 7 · stage frames`。
+
+### 22.2 抽帧静默失败：把"目录里有几个 PNG"换成**逐张点名**
+旧代码 `spawnSync('ffmpeg', …)` **完全不看返回值** —— ffmpeg 不在、参数错、磁盘满，都只表现为"帧少了几张"，
+而帧正是**给人看的证据**（结论只从产物取）。现在：
+1. 每张帧都检查 `status`；
+2. **独立锚点**：逐张点名 `p<i>-enter|full.png` 是否存在且**非空**（不是"目录里 PNG 个数" —— 人做的 contact sheet 也在同目录，按个数会假阳性）；
+3. 不达标 → `exit 7`，并把"缺哪几张 / ffmpeg 失败几次 / 试过哪个 bin"写进机器可读 `RESULT` 行。
+
+**故障注入实测**（两种都把失败逼出来）：
+| 注入 | 结果 |
+|---|---|
+| `HYPERFRAMES_FFMPEG_PATH` 指向"一跑就退 1"的假 ffmpeg | **退出码 5 · stage render**（hyperframes 自己先撞上，`stderr_tail` 直指 `FFmpeg cannot start / Failed to run …fakebin\ffmpeg.cmd`） |
+| 预建 `frames/p0-enter.png` 为**目录**（只让抽帧失败，不动渲染） | **退出码 7 · stage frames**：`抽帧不完整：期望 10 张，缺/空 [p0-enter.png]，ffmpeg 失败 1 次（试过：ffmpeg）` |
+
+**注入又抓出我一个 bug**：第一版"缺帧检查"直接 `readFileSync(png)`，遇到**目录**抛 `EISDIR` ⇒ 报成 `exit 6 internal` + 裸栈
+（**大声但看不懂**）。改成 `statSync().isFile() && size > 0` 后，同一注入变成上面那条**说人话**的 `exit 7`。
+
+### 22.3 L5 全产物扫描：防"死规则"悄悄复活（team-lead 的护栏要求）
+`check-master-manifest.mjs` 新增 **L5**：扫描 `out/` 与 `out-master-v2/` 下**所有**带 `image-meta.json` 的产物目录，
+按各自 `masterId × orientation` 取该母版清单 `image.<几何>._allowed`，断言**每个图片页的版式都在允许集内**。
+- 竖屏 left/right 规则**刻意保留**（想复活不用重写）⇒ 更需要这条护栏：`_allowed` 之外**一律不得出现在任何产物里**；
+- 扫描的是**产物目录本身**（不是脚本里的表）⇒ 新渲的片自动被覆盖；
+- 顺带防"产物陈旧"（本轮 `--outdir .` 事故就是它先判红）。
+
+**实测：扫 8 个产物目录 · 16 个图片页 · 24 条断言全过**；断言总数 **338 → 362**。
+
+### 22.4 回归
+- `deck.all12` 重渲仍 `FC467E0114D84810F1EDF84564B37137` ✓（改 resolveBin / 抽帧校验不影响画面）；
+- 新校验打印：`抽帧: 24 张（= 12 页 × 2，逐张点名校验通过）`。
+
+### 22.5 未做 / 不确定
+1. 故障注入残留目录 `deck-contract/out-faulttest/`：安全删除拒绝了回收站操作、未能清理（**它不在 L5 扫描的 `out`/`out-master-v2` 之下，不会干扰断言**）；如需清理请人工删。
+2. `EXIT.MEDIA` 的**服务端语义**（是否单独重试策略）属"可入库引擎清单"范围，未定。
+3. `resolveBin` 只按"同目录同名"找 ffprobe；若某平台把 ffprobe 放在别处，需再补一条环境变量（已在清单里记为待定）。
+
+---
+
 ## 17. 服务端调用契约 `ENGINE-CONTRACT.md`（第七批）
 
 ### 17.1 交付

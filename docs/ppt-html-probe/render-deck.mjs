@@ -14,7 +14,7 @@
  *   node render-deck.mjs examples/deck.full6.json --no-render     # 只生成 HTML + 对账，不渲染（秒级）
  *   node render-deck.mjs <deck.json> --outdir out
  */
-import { readFileSync, writeFileSync, mkdirSync, cpSync, existsSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, cpSync, existsSync, rmSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 
@@ -24,13 +24,28 @@ import { spawnSync } from 'node:child_process'
      所以下面所有 `|| 默认值` 形式的兜底一律改成"抛错"（strictPick），
      并给每个失败阶段一个**独立退出码**，让服务端不用猜。
    ------------------------------------------------------------------ */
-const EXIT = { OK: 0, USAGE: 2, VALIDATE: 3, RECONCILE: 4, RENDER: 5, INTERNAL: 6 }
+const EXIT = { OK: 0, USAGE: 2, VALIDATE: 3, RECONCILE: 4, RENDER: 5, INTERNAL: 6, MEDIA: 7 }
 /** 机器可读总结行：服务端应解析这一行，不要用正则去猜人话日志 */
 function emitResult(obj) { console.log('RESULT ' + JSON.stringify(obj)) }
 function fail(code, stage, msg, extra = {}) {
   console.error(`\n✗ [exit ${code} · ${stage}] ${msg}`)
   emitResult({ ok: false, code, stage, error: msg, ...extra })
   process.exit(code)
+}
+/* ------------------------------------------------------------------
+   外部媒体工具（ffmpeg / ffprobe）的解析 —— ★ **不依赖平台默认 PATH**
+   引擎（hyperframes）自己会带/指定 ffmpeg：`HYPERFRAMES_FFMPEG_PATH`。
+   我们的做法：它存在时**同目录**找同名工具（ffprobe 与 ffmpeg 一般同目录），否则回退 PATH。
+   两种都拿不到时**大声失败**（EXIT.MEDIA），绝不静默跳过产物校验或抽帧。
+   ------------------------------------------------------------------ */
+function resolveBin(name) {
+  const env = process.env.HYPERFRAMES_FFMPEG_PATH
+  if (env) {
+    const m = env.match(/\.(exe|cmd|bat)$/i)
+    const cand = join(dirname(env), name + (m ? m[1] : ''))
+    if (existsSync(cand)) return cand
+  }
+  return name
 }
 /** 契约枚举取值：**不许有默认值兜底**（静默降级正是要禁止的事） */
 function strictPick(map, key, what) {
@@ -898,12 +913,20 @@ function main() {
   console.log(report.trim())
 
   // ---- ⑤ 产物校验（含 D9 色彩标签）----
-  const p = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
+  const ffprobeBin = resolveBin('ffprobe')
+  const p = spawnSync(ffprobeBin, ['-v', 'error', '-select_streams', 'v:0',
     '-show_entries', 'stream=codec_name,width,height,pix_fmt,r_frame_rate,nb_frames,color_range,color_space',
     '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1', mp4], { encoding: 'utf8' })
+  if (p.status !== 0 || !String(p.stdout || '').trim()) {
+    // ★ 不许静默跳过：产物校验（规格/色彩标签）依赖 ffprobe，拿不到就不许继续装作成功
+    fail(EXIT.MEDIA, 'probe', `ffprobe 不可用或产物不可读（试过：${ffprobeBin}）${p.stderr ? ' · ' + String(p.stderr).trim().split('\n').slice(-2).join(' ') : ''}`,
+      { ...ctx, mp4, hyperframes_ffmpeg_path: process.env.HYPERFRAMES_FFMPEG_PATH || null })
+  }
   console.log('ffprobe:\n' + (p.stdout || '').trim().split('\n').map((l) => '  ' + l).join('\n'))
 
-  // ---- ⑥ 每页 2 帧 ----
+  // ---- ⑥ 每页 2 帧（★ 抽帧静默失败是"证据链断掉却看不出来"的典型，故逐张点名校验）----
+  const ffmpegBin = resolveBin('ffmpeg')
+  let shotFail = 0
   for (let i = 0; i < n; i++) {
     const S = i * MF.page
     // ★ `full` 帧的取样时刻：页窗口是 [S-0.25, S+3.25]，而**下一页从 S+2.75 就开始淡入**
@@ -913,10 +936,29 @@ function main() {
     //   （被 verify-image 的逐点比色抓出来：源图黄色 (221,190,30) 渲成 (119,99,15)）。
     const shots = [['enter', S + 0.75], ['full', S + 2.70]]
     for (const [kind, t] of shots) {
-      spawnSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(t), '-i', mp4, '-frames:v', '1', join(workdir, 'frames', `p${i}-${kind}.png`)])
+      const outPng = join(workdir, 'frames', `p${i}-${kind}.png`)
+      const s = spawnSync(ffmpegBin, ['-v', 'error', '-y', '-ss', String(t), '-i', mp4, '-frames:v', '1', outPng], { encoding: 'utf8' })
+      if (s.status !== 0) shotFail++
     }
   }
-  console.log(`抽帧: ${n * 2} 张 → ${join(workdir, 'frames')}`)
+  // ★ 独立锚点：**逐张点名**（不是"目录里有几个 PNG" —— 人做的 contact sheet 也躺在同目录）
+  const expected = n * 2
+  const missing = []
+  // ★ 判"这张帧是否真的落盘且非空"：必须用 stat 判 isFile —— 目标若是**目录**（故障注入时常见），
+  //   readFileSync 会抛 EISDIR，把"抽帧失败"报成内部错误（曾实测被注入抓到，exit 6 + 裸栈，看不懂）
+  const okFile = (f) => { try { const st = statSync(f); return st.isFile() && st.size > 0 } catch { return false } }
+  for (let i = 0; i < n; i++) {
+    for (const k of ['enter', 'full']) {
+      if (!okFile(join(workdir, 'frames', `p${i}-${k}.png`))) missing.push(`p${i}-${k}.png`)
+    }
+  }
+  if (shotFail || missing.length) {
+    fail(EXIT.MEDIA, 'frames',
+      `抽帧不完整：期望 ${expected} 张，缺/空 [${missing.join(', ') || '(无)'}]，ffmpeg 失败 ${shotFail} 次（试过：${ffmpegBin}）`
+      + ' —— 静默失败的抽帧会让"给人看的审阅帧"变成缺失/旧文件，等于证据链断掉',
+      { ...ctx, mp4, frames_expected: expected, frames_missing: missing, ffmpeg_bin: ffmpegBin })
+  }
+  console.log(`抽帧: ${expected} 张（= ${n} 页 × 2，逐张点名校验通过）→ ${join(workdir, 'frames')}`)
 
   // ---- ⑦ 产物指纹 + 机器可读总结行 ----
   const kv = {}

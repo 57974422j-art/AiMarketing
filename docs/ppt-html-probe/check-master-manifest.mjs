@@ -51,7 +51,7 @@ const FILM_KIND = (dir) => (existsSync(join(ROOT, 'deck-contract', dir, 'chart-m
 /* ---------------- 断言记账 ---------------- */
 const issues = []
 const notes = []
-const layerCount = { L1: 0, L2: 0, L3: 0, L4: 0 }
+const layerCount = { L1: 0, L2: 0, L3: 0, L4: 0, L5: 0 }
 let curCtx = '?'
 function chk(layer, what, ok, detail, hint) {
   layerCount[layer]++
@@ -351,11 +351,46 @@ for (const m of MATRIX) {
   rows.push({ ...m, canv: `${cv.w}×${cv.h}` })
 }
 
+/* ==================================================================
+   L5 全产物扫描 —— 防"死规则"悄悄复活
+   《D15》：竖屏图片页只有 full。母版层的 left/right 规则是**刻意保留**的（想复活不用重写），
+   所以更要一条护栏：**任何已渲染产物**都不得使用 `_allowed` 之外的图片版式。
+   这条同时能防"产物陈旧"（本轮实测过：误传 --outdir 留下旧产物含 left/right，被立刻判红）。
+   ★ 扫描范围是产物目录本身，而不是脚本里的表 ⇒ 新渲的片自动被覆盖。
+   ================================================================== */
+console.log('\n==================== L5 全产物扫描（图片版式必须在该母版/几何的 _allowed 内）====================')
+const manCache = new Map()
+let scanned = 0, pagesSeen = 0
+for (const root of ['out', 'out-master-v2'].map((d) => join(ROOT, 'deck-contract', d))) {
+  if (!existsSync(root)) continue
+  for (const name of readdirSync(root)) {
+    const im = join(root, name, 'image-meta.json')
+    if (!existsSync(im)) continue
+    let meta = null
+    try { meta = JSON.parse(readFileSync(im, 'utf8')) } catch { continue }
+    const mid = meta.masterId, oo = meta.orientation
+    if (!mid || !oo) continue
+    scanned++
+    curCtx = `L5 · ${name}（${mid} × ${oo}）`
+    if (!manCache.has(mid)) manCache.set(mid, loadManifest(mid))
+    const al = manCache.get(mid).image?.[oo]?._allowed
+    if (!chk('L5', `产物 ${name} 所在母版/几何 有 _allowed 声明`, Array.isArray(al), `${mid}/${oo}`,
+      '母版清单必须声明该几何允许的图片版式')) continue
+    for (const p of meta.pages || []) {
+      pagesSeen++
+      chk('L5', `${name} 图片页 ${p.index} 的版式 "${p.layout}" 在 _allowed 内`, al.includes(p.layout),
+        `_allowed=[${al.join(',')}]，实际用 "${p.layout}"`,
+        `D15：${oo === '9:16' ? '竖屏图片页只有 full' : '该版式未在清单声明'}；_allowed 之外一律不得出现`)
+    }
+  }
+}
+console.log(`  扫描 ${scanned} 个产物目录 · ${pagesSeen} 个图片页  ${pagesSeen ? '' : '（无可扫描产物）'}`)
+
 /* ---------------- 汇总 ---------------- */
 console.log('\n==================== 汇总 ====================')
 const byLayer = {}
 for (const it of issues) (byLayer[it.layer] = byLayer[it.layer] || []).push(it)
-for (const L of ['L1', 'L2', 'L3', 'L4']) {
+for (const L of ['L1', 'L2', 'L3', 'L4', 'L5']) {
   const n = layerCount[L], bad = (byLayer[L] || []).length
   console.log(`  ${L}: 断言 ${n} 条 · 失败 ${bad} 条  ${bad === 0 ? '✓' : '✗'}`)
 }
@@ -371,7 +406,7 @@ if (notes.length) {
   for (const n of [...new Set(notes)]) console.log(`  • ${n}`)
 }
 console.log(`\n结论: ${issues.length === 0
-  ? `PASS（${rows.length} 个"母版 × 几何"组合、${layerCount.L1 + layerCount.L2 + layerCount.L3 + layerCount.L4} 条声明断言全部成立）`
+  ? `PASS（${rows.length} 个"母版 × 几何"组合、${layerCount.L1 + layerCount.L2 + layerCount.L3 + layerCount.L4 + layerCount.L5} 条声明断言全部成立）`
   : `FAIL（${issues.length} 条声明与实现不符）`}`)
 process.exit(issues.length ? 1 : 0)
 

@@ -428,6 +428,30 @@ deck.bad-summary.json    = exit1 / 1err / 0warn
 
 ---
 
+## 19. 平台默认值 & 抽帧静默失败（第十二批）
+
+**不依赖平台默认 PATH**：`render-deck.mjs` / `check-master-manifest.mjs` 一律用
+`resolveBin('ffmpeg'|'ffprobe')` —— `HYPERFRAMES_FFMPEG_PATH` 存在就**同目录**找同名工具，否则回退 PATH；
+**拿不到就大声失败**（新增 `EXIT.MEDIA = 7`），不静默跳过产物校验 / 抽帧。
+
+**抽帧静默失败**：旧代码不看 `spawnSync('ffmpeg')` 的返回值 ⇒ 帧少了也当成功（帧正是"给人看的证据"）。现在：
+①每张检查 status；②**独立锚点**——逐张点名 `p<i>-enter|full.png` 存在且非空（不是数目录 PNG 个数：
+contact sheet 也在同目录）；③不达标 `exit 7` + 机器可读 `RESULT` 写明缺哪几张。
+
+**故障注入实测**：假 ffmpeg → `exit 5 · render`（hyperframes 先撞上，stderr 直指 "FFmpeg cannot start"）；
+预建 `frames/p0-enter.png` 为目录（只坏抽帧）→ **`exit 7 · frames`**：
+`抽帧不完整：期望 10 张，缺/空 [p0-enter.png]，ffmpeg 失败 1 次`。
+> 注入还抓出我一个 bug：第一版缺帧检查直接 `readFileSync(png)`，遇到**目录**抛 `EISDIR` ⇒ `exit 6` + 裸栈（大声但看不懂）；
+> 改 `statSync().isFile() && size>0` 后变成说人话的 exit 7。
+
+**L5 全产物扫描（防"死规则"复活）**：扫描 `out/` 与 `out-master-v2/` 下所有带 `image-meta.json` 的产物目录，
+断言每个图片页版式都在其母版/几何的 `_allowed` 内（新渲的片自动被覆盖；顺带防"产物陈旧"）。
+**实测 8 个目录 · 16 个图片页 · 24 条断言全过 ⇒ 断言总数 362 条全 PASS**。
+
+**回归**：`deck.all12` 重渲仍 `FC467E0114D84810F1EDF84564B37137` ✓。
+
+---
+
 ## 9'. 已知限制（v1）
 1. `density` 目前只改 `--pad`/`--gap`，**字阶不随密度变** —— 因为改字号需要把 3~5 条要点 × 三种密度的组合逐一目视验证，未做前不放开（宁可不做也不放任溢出）。
 2. 大数字：**整数位滚筒、小数/负号静态**（如 `12.5` 的"."是静态字符）。
