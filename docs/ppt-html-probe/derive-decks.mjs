@@ -22,6 +22,14 @@ const VARIANTS = [
   { src: 'deck.types8.json', dst: 'deck.types8-9x16.json', patch: { orientation: '9:16' } },
   { src: 'deck.types8.json', dst: 'deck.types8-9x16-master-v2.json', patch: { orientation: '9:16', masterId: 'master-v2', palette: 'azure' } },
   { src: 'deck.charttypes.json', dst: 'deck.charttypes-master-v2.json', patch: { masterId: 'master-v2', palette: 'azure' } },
+  // 竖屏的 line/donut 像素反推（浅色+竖屏+占比环是最容易暴露"阈值/几何写死"的组合）
+  { src: 'deck.charttypes.json', dst: 'deck.charttypes-9x16.json', patch: { orientation: '9:16' } },
+  { src: 'deck.charttypes.json', dst: 'deck.charttypes-9x16-master-v2.json', patch: { orientation: '9:16', masterId: 'master-v2', palette: 'azure' } },
+  // density 的像素级验证（要断言页边距差在横竖屏都成立）
+  { src: 'deck.types8.json', dst: 'deck.types8-airy.json', patch: { density: 'airy' } },
+  { src: 'deck.types8.json', dst: 'deck.types8-dense.json', patch: { density: 'dense' } },
+  { src: 'deck.types8.json', dst: 'deck.types8-airy-9x16.json', patch: { density: 'airy', orientation: '9:16' } },
+  { src: 'deck.types8.json', dst: 'deck.types8-dense-9x16.json', patch: { density: 'dense', orientation: '9:16' } },
 ]
 
 let bad = 0
