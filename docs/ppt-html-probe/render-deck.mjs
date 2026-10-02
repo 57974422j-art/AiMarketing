@@ -43,8 +43,8 @@ function loadMaster(id) {
   if (m.id !== id) throw new Error(`master.json 的 id(${m.id}) 与目录名(${id}) 不一致`)
   m.dir = dir
   m.assetsRoot = join(dir, m.assets || 'assets')
-  // 契约里的 palette 名是枚举（不许新增）；母版可覆盖它们的实际色值（母版=皮肤）
-  m.paletteResolved = { ...PALETTE, ...(m.palette || {}) }
+  // palette 名清单与实际色值都由母版定义（= 母版负责皮肤）；生成器只按名取色
+  m.paletteResolved = m.palette || {}
   return m
 }
 
@@ -55,22 +55,20 @@ function loadMaster(id) {
    ★ tempo 会改 --xover，而页窗口是用 xover 算出来的 → 生成器必须用同一个值算窗口，
      否则 clip 窗口与 master.js 的时间轴会错位。所以 TIMING 是唯一真相源。
    ------------------------------------------------------------------ */
-const PALETTE = {
-  'warm-gold': { accent: '#c8a06a', rgb: '200,160,106' },   // 母版默认
-  'olive': { accent: '#a8b0a0', rgb: '168,176,160' },
-  'clay': { accent: '#b98c7a', rgb: '185,140,122' },
-  'mist-blue': { accent: '#8fa3b8', rgb: '143,163,184' },
-}
+// ★ palette 的**名清单与实际色值**现在都由所选母版提供（masters/<id>/master.json 的 palette）——
+//   不同母版命名不同，所以生成器不再自带任何 palette 表（否则又变成"跨母版同名同色"的隐含契约）。
+/* ★ density 只调**增量** --pad-dense，由母版 CSS 用 calc(基准 + 增量) 消费 ——
+   若直接写绝对值（如 96px），竖屏的 `body.p{--pad-base:...}` 会因优先级把横屏值盖掉，
+   变成"density 只在横屏生效"。这是踩过的坑（竖屏像素反推恒定少 30px 暴露出来的）。 */
 const DENSITY = {
-  'airy': { 'pad-base': '96px', gap: '24px' },
-  'normal': {},                                             // 母版默认，不覆盖
-  'dense': { 'pad-base': '72px', gap: '16px' },
+  'airy': { 'pad-dense': '12px', gap: '24px' },     // 横 84+12=96 / 竖 54+12=66
+  'normal': {},                                     // 母版默认，不覆盖
+  'dense': { 'pad-dense': '-12px', gap: '16px' },   // 横 84-12=72 / 竖 54-12=42
 }
-/** 按 CSS 实际生效规则解出页边距（density 覆盖的是 --pad-base，横竖屏都生效） */
+const PAD_DELTA = { airy: 12, normal: 0, dense: -12 }
+/** 与母版 CSS 的 calc(基准 + 增量) 同一算法 */
 function effectivePad(deck) {
-  const o = deck.style.orientation
-  const d = DENSITY[deck.style.density] || {}
-  return d['pad-base'] ? parseInt(d['pad-base'], 10) : MF.padBase[o]
+  return MF.padBase[deck.style.orientation] + (PAD_DELTA[deck.style.density] || 0)
 }
 const TEMPO = {
   'calm': { enter: 0.85, gap: 0.65, xover: 0.6 },
@@ -81,7 +79,7 @@ const TEMPO = {
 /** 生成 <style> 里的 :root 覆盖块（几何 + 配色 + 节奏） */
 function styleVars(deck) {
   const g = MF.canvas[deck.style.orientation]
-  const p = MF.paletteResolved[deck.style.palette] || MF.paletteResolved['warm-gold']
+  const p = MF.paletteResolved[deck.style.palette] || Object.values(MF.paletteResolved)[0]
   const t = TEMPO[deck.style.tempo] || TEMPO['normal']
   const d = DENSITY[deck.style.density] || {}
   const decls = [`--W:${g.w}px`, `--H:${g.h}px`, `--accent:${p.accent}`, `--accent-rgb:${p.rgb}`,
@@ -156,7 +154,9 @@ function chartSVG(deck, p) {
     s.forEach((v, i) => {
       const len = C * (v / total)
       const rot = -90 + (acc / total) * 360
-      g.push(`<circle class="ch-donut-arc" cx="${CX}" cy="${CY}" r="${RR.toFixed(2)}" `
+      // ch-s{0,1,2}：相邻扇片三档明度循环（母版 CSS 定义）。既提升可读性，
+      // 也让**扇区角可以从像素上验证** —— 同色相邻时边界无法分辨。
+      g.push(`<circle class="ch-donut-arc ch-s${i % 3}" cx="${CX}" cy="${CY}" r="${RR.toFixed(2)}" `
         + `transform="rotate(${rot.toFixed(2)} ${CX} ${CY})" data-anim="dash" `
         + `data-dash="${len.toFixed(2)} ${(C - len).toFixed(2)}" data-off="${len.toFixed(2)}" `
         + `data-at="${(0.62 + i * 0.12).toFixed(2)}" />`)
@@ -169,6 +169,9 @@ function chartSVG(deck, p) {
     })
     meta.C = +C.toFixed(2)
     meta.total = total
+    meta.rr = +RR.toFixed(2)
+    meta.cx = CX
+    meta.cy = CY
     g.push(`<g data-anim="fade" data-at="1.78">${lab.join('')}</g>`)
     return { svg: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g.join('')}</svg>`, meta }
   }
@@ -234,7 +237,7 @@ function chartCheck(p, slice, deck) {
       })
     }
   } else {
-    const m = [...slice.matchAll(/class="ch-donut-arc"[^>]*?data-dash="([\d.]+) [\d.]+"/g)]
+    const m = [...slice.matchAll(/class="ch-donut-arc[^"]*"[^>]*?data-dash="([\d.]+) [\d.]+"/g)]
     if (m.length !== s.length) bad.push(`图上扇片数 ${m.length} ≠ series ${s.length}`)
     const total = s.reduce((a, b) => a + b, 0) || 1
     const C = 2 * Math.PI * (Math.min(W, H) / 2 - 30)
@@ -632,6 +635,10 @@ function main() {
     process.exit(2)
   }
   MF = loadMaster(deck.style.masterId)
+  if (!MF.paletteResolved[deck.style.palette]) {
+    console.error(`✗ 母版 ${MF.id} 没有配色 "${deck.style.palette}"（可用: ${Object.keys(MF.paletteResolved).join(', ')}）`)
+    process.exit(2)
+  }
   const name = basename(deckAbs).replace(/\.json$/i, '')
   const workdir = join(outRoot, name)
 
@@ -727,8 +734,9 @@ function main() {
       deck, masterId: MF.id, orientation: o, pad,
       plotTop: pad + MF.plotTopOffset[o],           // 与母版 CSS 的 .p6-plot top 一致
       plot: MF.plot[o], padBox: MF.plotPad,
-      // 像素反推需要的颜色信息由母版给出，避免验证器写死"深底亮柱"
-      bg: MF.bg, barColor: accent.rgb, barAlpha: MF.chart.barAlpha,
+      // 像素反推需要的颜色信息由母版给出，避免验证器写死"深底亮柱"（跨皮肤会全错）
+      bg: MF.bg, ink: MF.ink, rule: MF.rule, barColor: accent.rgb, barAlpha: MF.chart.barAlpha,
+      donutShades: MF.donutShades,
       pages: chartPages.map((x) => ({
         index: x.i, kind: x.pg.chart.type, series: x.pg.chart.series,
         meta: chartSVG(deck, x.pg).meta,

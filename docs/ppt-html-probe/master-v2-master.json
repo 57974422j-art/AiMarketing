@@ -19,12 +19,15 @@
   "plotPad": { "l": 64, "r": 20, "t": 34, "b": 40 },
   "plotTopOffset": { "16:9": 128, "9:16": 168 },
   "chart": { "barAlpha": 1 },
+  "donutShades": [1, 0.78, 0.58],
   "bg": "#f5f6f8",
+  "ink": "#1b2430",
+  "rule": "rgba(27,36,48,.14)",
+  "_paletteNote": "本母版是蓝白商务风，故用自己的命名（azure/steel/indigo/violet）—— 契约里 palette 的名清单由母版提供，跨母版同名同色不再是问题（team-lead 定案）。",
   "palette": {
-    "warm-gold": { "accent": "#2f5fa8", "rgb": "47,95,168" },
-    "olive": { "accent": "#2f7a6b", "rgb": "47,122,107" },
-    "clay": { "accent": "#7a4fa8", "rgb": "122,79,168" },
-    "mist-blue": { "accent": "#4a86c8", "rgb": "74,134,200" }
-  },
-  "_paletteNote": "★ 已知张力（需 team-lead 定夺）：契约里 4 个 palette 名是**枚举**（不许新增），母版可以覆盖它们的实际色值。v2 是蓝白商务风，故把 4 个名都映成蓝/青/紫族。若将来要求『同一 palette 名在两套母版上色相一致』，那需要改契约（palette 名→色值由母版负责，本就是母版=皮肤的分工）。"
+    "azure": { "accent": "#2f5fa8", "rgb": "47,95,168" },
+    "steel": { "accent": "#4a86c8", "rgb": "74,134,200" },
+    "indigo": { "accent": "#4b4fa8", "rgb": "75,79,168" },
+    "violet": { "accent": "#7a4fa8", "rgb": "122,79,168" }
+  }
 }

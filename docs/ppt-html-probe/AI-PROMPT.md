@@ -48,7 +48,7 @@
 ```json
 "style": {
   "masterId":    "master-v1",
-  "palette":     "warm-gold | olive | clay | mist-blue",
+  "palette":     "<该母版清单里的一个名字>",
   "density":     "airy | normal | dense",
   "tempo":       "calm | normal | brisk",
   "orientation": "16:9 | 9:16"
@@ -57,10 +57,19 @@
 
 | 参数 | 可选值 | 含义（你据此选，不要自己给颜色值） |
 |---|---|---|
-| `masterId` | `master-v1` | 母版 ID，决定版式与动效语言。v1 只有这一个 |
-| `palette` | `warm-gold` 暖金 / `olive` 橄榄灰绿 / `clay` 陶土 / `mist-blue` 雾蓝 | **低饱和**配色，一次只用 1 个强调色（禁高饱和紫蓝） |
+| `masterId` | `master-v1` / `master-v2` | 母版 ID（枚举）。决定版式 / 皮肤 / 几何 / 动效语言；资产在 `masters/<id>/`。 |
+| `palette` | **见所选母版的清单** | ★ **palette 名清单由母版提供**（不同母版命名不同）。**必须先选 `masterId`，再在它的清单里挑**；选错会被闸门拦下并列出该母版的可用名。 |
 | `density` | `airy` 疏 / `normal` 常规 / `dense` 密 | 信息密度：字阶与行距。**内容多选 dense，内容少选 airy**，不要用 padding 撑 |
 | `tempo` | `calm` 慢 / `normal` 常规 / `brisk` 快 | 节奏：入场时长与错峰间隔。**数据多、认知重选 calm** |
+
+**各母版可用的 `palette` 名**（权威来源是 `masters/<id>/master.json`，校验器按它查）
+
+| masterId | 可选 palette |
+|---|---|
+| `master-v1`（暗色暖金） | `warm-gold` 暖金 / `olive` 橄榄灰绿 / `clay` 陶土 / `mist-blue` 雾蓝 |
+| `master-v2`（浅色商务） | `azure` 商务蓝 / `steel` 钢青 / `indigo` 靛蓝 / `violet` 紫罗兰 |
+
+→ **不存在"跨母版同名同色"**：`warm-gold` 只属于 v1，`azure` 只属于 v2。换母版时 palette 名通常要跟着换。
 | `orientation` | `16:9` / `9:16` | 横屏还是竖屏（竖屏文案更短，要点建议 ≤4 条、每条 ≤14 字） |
 
 **风格一致性**：整篇只能有一组 `style`，不要逐页变化。
@@ -155,5 +164,6 @@
 ## 8. 与母版参数的关系（供你理解，不要输出这些）
 
 你在 `style` 里选的枚举，母版会映射到 CSS 令牌（详见母版目录的 `PARAMS.md`）：
+**`masterId` → 整套资产根 + 版式/几何/皮肤**（`masters/<id>/master.json`）；
 `density` → `--pad/--gap/字阶`；`tempo` → `--enter/--enter-gap/--xover`；`palette` → `--accent` 等色令牌。
 **所以你不要、也不能给具体 px/色值。**

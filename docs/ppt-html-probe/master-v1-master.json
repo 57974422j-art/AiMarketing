@@ -19,6 +19,15 @@
   "plotPad": { "l": 54, "r": 14, "t": 30, "b": 36 },
   "plotTopOffset": { "16:9": 110, "9:16": 146 },
   "chart": { "barAlpha": 0.5 },
+  "donutShades": [1, 0.78, 0.58],
   "bg": "#14161a",
-  "palette": {}
+  "ink": "#e9e7e2",
+  "rule": "rgba(233,231,226,.13)",
+  "_paletteNote": "palette 名清单**由母版提供**（每套母版自己的命名）。deck 里写 palette 前必须先选 masterId —— validate-deck.mjs 按所选母版的清单校验。v1 保持原 4 名不动（零回归）。",
+  "palette": {
+    "warm-gold": { "accent": "#c8a06a", "rgb": "200,160,106" },
+    "olive": { "accent": "#a8b0a0", "rgb": "168,176,160" },
+    "clay": { "accent": "#b98c7a", "rgb": "185,140,122" },
+    "mist-blue": { "accent": "#8fa3b8", "rgb": "143,163,184" }
+  }
 }

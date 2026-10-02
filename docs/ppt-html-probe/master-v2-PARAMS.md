@@ -35,13 +35,19 @@
 > ★ #7 是**故意改的**：它证明绘图区几何确实来自 `master.json` 而不是写死在生成器里。
 > ★ 竖屏（`body.p`）覆盖块里凡是与上表冲突的，本文件都在**最后**重写了一遍（CSS 优先级：`body.p .x` > `.x`）。
 
-## 3. `palette` 的已知张力（需 team-lead 定夺）
+## 3. `palette`：名清单由母版定义（team-lead 已定案）
 
-契约里 `palette` 是**枚举**（`warm-gold` / `olive` / `clay` / `mist-blue`，不许新增）。v2 是蓝白商务风，
-故在 `master.json` 的 `palette` 里把这 4 个名**都映成蓝/青/紫族**（母版负责皮肤）。
+原先的"跨母版同名同色"张力**已解决**：契约里 `palette` 不再有全局枚举，
+**名清单与实际色值都由各母版的 `master.json` 提供**：
 
-→ 若将来要求"同一个 palette 名在两套母版上色相一致"，那是**契约变更**（要么 palette 只表达"强调色槽位"、
-要么母版不支持 palette 覆盖）。当前选择：**母版=皮肤，palette 名由母版解释**。
+| masterId | 可选 palette |
+|---|---|
+| `master-v1`（暗色暖金） | `warm-gold` 暖金 / `olive` 橄榄灰绿 / `clay` 陶土 / `mist-blue` 雾蓝（**原 4 名一字未动**） |
+| `master-v2`（浅色商务） | `azure` 商务蓝 / `steel` 钢青 / `indigo` 靛蓝 / `violet` 紫罗兰 |
+
+- `validate-deck.mjs` **按所选母版的清单校验**：选了枚举外或"别的母版的"名字 → 报错并列出该母版可用名。
+- `deck.schema.json` 的 `palette` 只校验形状（`string`），**权威在校验器**（清单是每母版数据，抄进 schema 会漂移）。
+- 用法纪律：**先选 `masterId`，再在该母版的 palette 清单里选**。换母版时 palette 名通常要跟着换。
 
 ## 4. 已知差异（未做）
 - 字阶（`--t-*`）两套母版完全一致 —— `density→字阶` 仍未做（见主报告 §11/§12 的已知限制）。

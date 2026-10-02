@@ -77,6 +77,22 @@ const BASELINE = [
     desc: '非法 masterId（master-v9 不在枚举内）',
     exit: 1, errors: 1, warns: 0,
   },
+  {
+    file: 'examples/deck.bad-palette.json',
+    desc: 'palette 不属于所选母版（master-v1 没有 azure）',
+    exit: 1, errors: 1, warns: 0,
+  },
+  // ---- 三种图表类型的验证用 deck（应全达标；它不进反例，只保证契约能过）----
+  {
+    file: 'examples/deck.charttypes.json',
+    desc: '图表页 line / donut / bar 三连（三种真画）',
+    exit: 0, errors: 0, warns: 0,
+  },
+  {
+    file: 'examples/deck.charttypes-master-v2.json',
+    desc: '同上 · master-v2 + azure',
+    exit: 0, errors: 0, warns: 0,
+  },
 ]
 
 function run(file) {

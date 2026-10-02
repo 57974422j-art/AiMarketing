@@ -8,11 +8,11 @@
     "lang": "zh-CN"
   },
   "style": {
-    "masterId": "master-v2",
-    "palette": "azure",
+    "masterId": "master-v1",
+    "palette": "warm-gold",
     "density": "normal",
     "tempo": "normal",
-    "orientation": "16:9"
+    "orientation": "9:16"
   },
   "pages": [
     {

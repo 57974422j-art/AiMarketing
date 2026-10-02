@@ -24,7 +24,7 @@ const MASTERS_DIR = join(HERE_V, '..', 'masters')      // 与 render-deck.mjs �
 
 const STYLE_ENUMS = {
   masterId: ['master-v1', 'master-v2'],
-  palette: ['warm-gold', 'olive', 'clay', 'mist-blue'],
+  // palette 不在本表：它的取值清单**由所选母版的 master.json 提供**（见下面的专用校验）
   density: ['airy', 'normal', 'dense'],
   tempo: ['calm', 'normal', 'brisk'],
   orientation: ['16:9', '9:16'],
@@ -332,6 +332,18 @@ function main() {
       if (!existsSync(mp)) {
         add('error', 'style.masterId', `枚举里有 ${style.masterId}，但 ${mp} 不存在`,
           '母版资产要真存在（masters/<id>/master.json + assets/）；在磁盘上补齐，不要改枚举')
+      } else {
+        // palette 的取值清单由**所选母版**提供（不同母版命名不同）→ 必须按母版校验，不能用全局枚举
+        let names = []
+        try { names = Object.keys(JSON.parse(readFileSync(mp, 'utf8')).palette || {}) } catch { names = [] }
+        if (!names.length) {
+          add('error', 'style.masterId', `母版 ${style.masterId} 的 master.json 没有 palette 清单`, '母版必须声明自己的 palette 名清单')
+        } else if (style.palette == null) {
+          add('error', 'style.palette', 'style.palette 缺失', `从母版 ${style.masterId} 的清单里选一个: [${names.join(', ')}]`)
+        } else if (!names.includes(style.palette)) {
+          add('error', 'style.palette', `母版 ${style.masterId} 没有配色 "${style.palette}"`,
+            `该母版可用: [${names.join(', ')}] —— ★ 先选 masterId，再在该母版的 palette 清单里选（不同母版命名不同）`)
+        }
       }
     }
     for (const [k, allowed] of Object.entries(STYLE_ENUMS)) {

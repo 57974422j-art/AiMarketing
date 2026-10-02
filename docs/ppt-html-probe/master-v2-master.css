@@ -16,9 +16,14 @@
   --rule: rgba(27, 36, 48, .14);
   --photo-dim: saturate(.98) contrast(1.03);   /* 浅色母版：素材正常呈现，不做去色压暗 */
 
-  /* ---- 版心 ---- */
-  --pad-base: 84px;       /* 页边距基准值（契约里的 density 覆盖的是它） */
-  --pad: var(--pad-base); /* 实际使用值由基准值派生 —— 这样 density 在横屏/竖屏都生效 */
+  /* ---- 版心 ----
+     ★ 坑：自定义属性在**声明它的元素**上就求值完毕。所以 `--pad: var(--pad-base)` 写在 :root 上，
+       会立刻算成 84px 并向下继承 —— 子孙再改 --pad-base 也不会重算 --pad。
+       ⇒ 必须「谁设 --pad-base，谁就在同一块里再派生一次 --pad」。
+     ★ density 只调增量 --pad-dense，基准由横/竖屏各自提供 ⇒ 横竖屏都能生效。 */
+  --pad-dense: 0px;
+  --pad-base: calc(84px + var(--pad-dense));   /* 横屏基准 */
+  --pad: var(--pad-base);
   --gap: 20px;            /* 竖向节奏 */
   --photoW: 404px;        /* 封面素材宽度 */
 
@@ -140,7 +145,9 @@ body.p .page { inset: 0; }
    竖屏 9:16 —— 只覆盖几何/字阶令牌 + 两处版式差异（body.p）
    ============================================================ */
 body.p {
-  --pad-base: 54px; --gap: 18px; --photoW: 720px;
+  --pad-base: calc(54px + var(--pad-dense));   /* 竖屏基准（必须与 --pad 在同一块里再派生一次，见 :root 的坑说明） */
+  --pad: var(--pad-base);
+  --gap: 18px; --photoW: 720px;
   --t-title: 62px; --t-h2: 40px; --t-lead: 23px; --t-body: 25px;
   --t-small: 19px; --t-tiny: 16px; --t-num: 132px; --t-unit: 30px;
   --enter-gap: .5s;
@@ -191,6 +198,10 @@ body.p .issuer { left: var(--pad); right: auto; bottom: auto; top: calc(var(--pa
 .ch-dot { fill: var(--ink); }
 .ch-donut-track { fill: none; stroke: var(--rule); stroke-width: 26; }
 .ch-donut-arc { fill: none; stroke: var(--accent); stroke-width: 26; stroke-linecap: butt; }
+/* 相邻扇片三档明度循环：既提升可读性，也让扇区角**能从像素上验证**（同色相邻则边界不可分辨） */
+.ch-donut-arc.ch-s0 { opacity: 1; }
+.ch-donut-arc.ch-s1 { opacity: .78; }
+.ch-donut-arc.ch-s2 { opacity: .58; }
 .ch-tick { fill: var(--ink-faint); font-size: 15px; font-family: var(--sans); }
 .ch-val { fill: var(--ink-dim); font-size: 15px; font-family: var(--sans); }
 .p6-explain { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 26px);

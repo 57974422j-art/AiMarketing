@@ -252,6 +252,44 @@ deck.bad-summary.json    = exit1 / 1err / 0warn
 
 ---
 
+## 12. palette 由母版定义 + 竖屏整片 + line/donut 像素反推（第五批）
+
+### 12.1 `palette` 语义：由母版清单定义（不再有"跨母版同名同色"）
+- **名清单 + 色值都在 `masters/<id>/master.json`**：v1 = `warm-gold/olive/clay/mist-blue`（原 4 名不动，零回归）；v2 = `azure/steel/indigo/violet`。
+- `validate-deck.mjs` **按所选母版的清单校验**；`deck.schema.json` 的 `palette` 降为 `string + pattern`（取值清单是每母版数据，写进 schema 会漂移；权威在校验器）。
+- `AI-PROMPT.md`：**先选 masterId，再在该母版的 palette 清单里选**。
+- 新反例 `deck.bad-palette.json = exit1/1err/0warn`。
+
+### 12.2 4 条 8 页 24 秒片（两套母版 × 横竖屏）
+`derive-decks.mjs` 派生变体并**机器断言只改了声明字段**（orientation/masterId/palette）。
+
+| 片 | 尺寸 | 帧/时长 |
+|---|---|---|
+| `out/deck.types8/` | 1280×720 | 600 / 24.000s |
+| `out-master-v2/deck.types8-master-v2/` | 1280×720 | 600 / 24.000s |
+| `out/deck.types8-9x16/` | 720×1280 | 600 / 24.000s |
+| `out-master-v2/deck.types8-9x16-master-v2/` | 720×1280 | 600 / 24.000s |
+
+### 12.3 ★ 竖屏反推暴露的真回归（`--pad` 求值时机）
+竖屏 bar 像素反推**恒定少 30px**（30 = 84−54）⇒ 竖屏 `--pad` 是 84 而非 54。
+根因：**自定义属性在声明它的元素上就求值完毕** —— `:root{--pad: var(--pad-base)}` 会立刻算成 84px 并继承，`body.p{--pad-base:54px}` 改不动它。
+修法：**谁设 `--pad-base` 谁在同一块里再派生 `--pad`**；`density` 只调增量 `--pad-dense`（`calc(基准+增量)`）⇒ 横竖屏都生效。
+
+**修后双向字节回归**：手写 16:9 `7F1B528D…` ✓ · 手写 9:16 `B563588C…` ✓ · 生成器 4 页 `F1D608EF…` ✓ · 生成器 8 页 `6DB98661…` ✓。
+（上一批我只做了横屏回归 → 这个 bug 漏了。**横竖屏必须各验一次**。）
+
+### 12.4 `line`/`donut` 像素级反推（三种类型全测）
+`verify-chart.mjs`：`bar` 量柱高 · `line` 量顶点 y · `donut` 量扇区角（母版给相邻扇片三档明度循环 `.ch-s0/1/2`，让边界可分辨）。
+实测（实测/期望，两套母版各自几何）：`line` **≤±2px** · `donut` **≤±0.6°** · `bar` **≤±1px**。
+
+修掉 3 个验证器缺陷：① 按"某档色最长段"找扇片 → 改按**类变化点测边界夹角**；② 边界混合像素≈第三档 → 加**短段合并**；③ **合成链算错**：扇片是叠在 `.ch-donut-track` 上而非底色上 ⇒ 让母版申报 `rule` 色，按 `shade×accent over (rule over bg)` 算。
+**通用教训**：跨皮肤的颜色判据必须**沿真实渲染合成链**推导，并让母版申报参与合成的颜色。
+
+### 12.5 新基线（13 个样例）
+见 REPORT §14.5；新增 `deck.bad-palette.json`、`deck.charttypes.json`、`deck.charttypes-master-v2.json`。
+
+---
+
 ## 9'. 已知限制（v1）
 1. `density` 目前只改 `--pad`/`--gap`，**字阶不随密度变** —— 因为改字号需要把 3~5 条要点 × 三种密度的组合逐一目视验证，未做前不放开（宁可不做也不放任溢出）。
 2. 大数字：**整数位滚筒、小数/负号静态**（如 `12.5` 的"."是静态字符）。
