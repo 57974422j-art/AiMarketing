@@ -360,6 +360,11 @@ body.p .p6-plot { top: calc(var(--pad) + 168px); height: 372px; }
 body.p .p9-media { left: 0; right: 0; top: 0; width: 100%; height: 42%; }
 /* ★ 竖屏 full 必须仍是**满幅**（同上：不给 full 单开一条就会退化成"顶带图 + 文字压在空底上"） */
 body.p .p9--full .p9-media { height: 100%; }
+/* ★ 竖屏下 left/right 共用同一条整宽媒体带（清单就是这么声明的）⇒ 必须**真的**是同一条带：
+   横屏的"发丝描边"分别挂在 border-right（左页）/ border-left（右页），竖屏整宽带时它落在页边、无视觉意义，
+   却各占 1px 内容盒 ⇒ 同一张图两页被画偏 1px（实测差分在源图内部边界处出现一条竖线，最大通道差 160）。
+   check-master-manifest.mjs 会断言"声明同带 ⇒ 实测同带（只允许编解码噪声 ≤24）"，这条就是为了让它成立。 */
+body.p .p9--left .p9-media, body.p .p9--right .p9-media { border-left: none; border-right: none; }
 body.p .p9-copy { left: var(--pad); right: var(--pad); top: 48%; }
 body.p .p9-title { font-size: var(--t-h2); }
 body.p .p9--full .p9-copy { top: auto; bottom: calc(var(--pad) + 30px); }

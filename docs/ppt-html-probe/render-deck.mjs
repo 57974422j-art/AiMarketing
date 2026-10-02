@@ -828,7 +828,7 @@ function main() {
     const pad = effectivePad(deck)
     const accent = MF.paletteResolved[deck.style.palette] || MF.paletteResolved['warm-gold']
     writeFileSync(join(workdir, 'chart-meta.json'), JSON.stringify({
-      deck, masterId: MF.id, orientation: o, density: deck.style.density, pad,
+      deck, masterId: MF.id, orientation: o, canvas: MF.canvas[o], density: deck.style.density, pad,
       plotTop: pad + MF.plotTopOffset[o],           // 与母版 CSS 的 .p6-plot top 一致
       plot: MF.plot[o], padBox: MF.plotPad,
       // 像素反推需要的颜色信息由母版给出，避免验证器写死"深底亮柱"（跨皮肤会全错）
