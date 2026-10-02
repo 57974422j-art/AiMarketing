@@ -326,6 +326,38 @@ def esc_path(p):
     return p.replace('\\', '/').replace(':', r'\:')
 
 
+# ══════════════ ★VF_GRAD_SPEED_RANGE_V1（2026-10-02）**生产事故复盘后立的死规矩** ══════════════
+# 事故：用户真片 `vf1790919558592`（成品风格 softlux + 画面模版 deck-glass）**第 1 镜整镜失败 → 整片挂**，
+#       服务器 ffmpeg 报：`[gradients] Error setting option speed to value 0`。
+# 根因：`gradients` 的 `speed` **取值域随 ffmpeg 版本变**：
+#       · 本机（较新 ffmpeg）`(from 0 to 1)`    → 写 `speed=0` 能跑（所以本地自测全绿、复现不出来）；
+#       · 服务器（较老 ffmpeg）`(from 0.00001 to 1)` → 写 `speed=0` **直接拒绝**（滤镜串整条失效）。
+# 死规矩：
+#   ① **任何路径都不许把 0（或越界值）送给 ffmpeg** —— "静止渐变"用 `GRAD_STATIC_SPEED = 0.00001`
+#      （= 老版本的下限；新版本也合法；视觉上与 0 无差）；
+#   ② 所有速度**只能经 `clamp_grad_speed()` 出口**（含测试钩子 `VF_GRAD_SPEED` 与调用方传入值）；
+#   ③ `_has_gradients()` 必须用**本片实际的那套参数**去探测（老 ffmpeg 上探测不过 → 自动退回纯色底板，
+#      宁可少一层渐变，也绝不让整镜渲染失败）。
+GRAD_STATIC_SPEED = '0.00001'
+GRAD_SPEED_MIN = 0.00001
+GRAD_SPEED_MAX = 1.0
+
+
+def clamp_grad_speed(v, default='0.015'):
+    """把任意来源的渐变速度夹进 ffmpeg 认的区间（**保证永不输出 0 / 越界值 / 科学计数法**）。
+
+    为什么单开一个出口：合法下限**随 ffmpeg 版本变**（老 0.00001 / 新 0），
+    只要有一处忘了夹，在服务器的老 ffmpeg 上就是"那一镜整镜失败 → 整片失败"（已真实发生一次）。
+    生产默认值经本函数**逐字不变**（'0.015' → '0.015'，自测有断言）。
+    """
+    try:
+        f = float(str(v).strip())
+    except (TypeError, ValueError):
+        f = float(default)
+    f = min(GRAD_SPEED_MAX, max(GRAD_SPEED_MIN, f))
+    return ('%.5f' % f).rstrip('0').rstrip('.') or default
+
+
 def _grad_speed():
     """★VF_DECK_PIXEL_V2（2026-10-01）：`stage_layer` 渐变源的动画速度（**测试钩子**）。
 
@@ -334,12 +366,15 @@ def _grad_speed():
     lavfi `gradients` 的动画相位**随进程**变化（本机实测：同一 t、两次独立 ffmpeg 取到的帧 MD5 都不同；
     `color=` 则逐字节相同）→ 只要渐变在动，**任何"跨渲染像素相等 / 亮度差"的断言都必然时红时绿**。
     冻结后像素层才是确定性的；生产不设该变量 → 行为零变化。
+
+    ★VF_GRAD_SPEED_RANGE_V1：返回值**一律过 `clamp_grad_speed()`** ——
+    钩子写 `0` 时在本机（新 ffmpeg）能跑、在服务器（老 ffmpeg）会炸；夹成 0.00001 后两端都安全，视觉同样冻结。
     """
     _v = (os.environ.get('VF_GRAD_SPEED') or '').strip()
     if _v:
         try:
             float(_v)
-            return _v
+            return clamp_grad_speed(_v)
         except ValueError:
             pass
     return '0.015'
@@ -2868,18 +2903,26 @@ _HAS_GRAD = None
 
 def _has_gradients(ffmpeg):
     """探测本机 ffmpeg 是否支持 gradients 源滤镜（支持→用它做渐变底板；不支持→退回纯色+几何装饰）。
-    只探测一次并缓存；服务器 ffmpeg 版本不一，不能假设它一定有。"""
+    只探测一次并缓存；服务器 ffmpeg 版本不一，不能假设它一定有。
+
+    ★VF_GRAD_SPEED_RANGE_V1（2026-10-02）：**必须用本片实际那套参数探测**（x0/y0/x1/y1 + speed）。
+    教训：老版 ffmpeg 认 `gradients` 这个名字，但**拒绝我们用的 speed 值** →
+    只探测"滤镜是否存在"会误判为可用，然后在渲染时才炸、整镜失败（用户真片就是这么挂的）。
+    用实际参数探测 → 参数不兼容时这里就返回 False，自动退回纯色底板（少一层渐变 > 整片失败）。"""
     global _HAS_GRAD
     if _HAS_GRAD is None:
         try:
             r = subprocess.run([ffmpeg, '-hide_banner', '-v', 'error',
-                                '-f', 'lavfi', '-i', 'gradients=s=8x8:c0=black:c1=white:d=0.1',
+                                '-f', 'lavfi', '-i',
+                                'gradients=s=8x8:c0=black:c1=white:x0=0:y0=0:x1=0:y1=8:d=0.1:speed=%s'
+                                % GRAD_STATIC_SPEED,
                                 '-frames:v', '1', '-f', 'null', '-'],
                                capture_output=True, timeout=15)
             _HAS_GRAD = (r.returncode == 0)
         except Exception:
             _HAS_GRAD = False
-        print('[VF] gradients 滤镜可用: %s' % ('是' if _HAS_GRAD else '否（退回纯色底板）'))
+        print('[VF] gradients 滤镜（按本片实际参数 speed=%s 探测）可用: %s'
+              % (GRAD_STATIC_SPEED, '是' if _HAS_GRAD else '否（退回纯色底板）'))
     return _HAS_GRAD
 
 
@@ -2904,7 +2947,10 @@ def stage_layer(th, W, H, dur, accent_bar=True, grad_speed=None):
     #   不给（None）→ 仍走 `_grad_speed()` 的生产默认 0.015 → 其它调用方（素材卡）**一个字节都不变**。
     # ⚠️ 测试钩子 `VF_GRAD_SPEED` 必须**优先于**调用方的加速值：否则纯文字卡（会传 FLOAT_GRAD_SPEED）
     #   就冻不住了 → 跨渲染的像素断言会时红时绿（test-deck-styles2 / test-ppt-preview 都靠它）。
-    _spd = (os.environ.get('VF_GRAD_SPEED') or '').strip() or (grad_speed or '') or _grad_speed()
+    #   ★VF_GRAD_SPEED_RANGE_V1：出口必须夹值 —— 这里三条来源（环境钩子 / 调用方加速值 / 生产默认）
+    #   都可能带 0（钩子测试就写 0），直接拼进滤镜串在老 ffmpeg 上会让**整镜失败**。
+    _spd = clamp_grad_speed((os.environ.get('VF_GRAD_SPEED') or '').strip()
+                           or (grad_speed or '') or _grad_speed())
     if _has_gradients(_ff):
         inp = ['-f', 'lavfi', '-i',
                'gradients=s=%dx%d:c0=%s:c1=%s:d=%s:speed=%s'
@@ -4317,11 +4363,18 @@ def deck_base_input(shot, th, W, H, dur):
             # ★显式给渐变方向（x0,y0 → x1,y1 = 画面正上方 → 正下方）：
             #   ① 观感上是"上亮下暗"的竖向渐变（比滤镜默认的斜向更稳、更像设计稿）；
             #   ② 也让本机的像素级验证可复现（同一帧沿一条线采样必单调 —— 见 test-deck-styles.py）。
-            # ★speed=0（刻意不旋转）：滤镜默认 speed=0.01 会让整幅渐变**持续转动**——长镜里表现为
-            #   "背景色慢慢跑色"（不是设计感），而且像素级验证不可复现。渐变风的"持续动效"由
-            #   大字呼吸 + 页内进度线 + 分段入场承担，底板保持静止。
-            return ('-f lavfi -i gradients=s=%dx%d:c0=%s:c1=%s:x0=0:y0=0:x1=0:y1=%d:d=%s:speed=0'
-                    % (W, H, _c0, _c1, int(H), max(1.0, float(dur))))
+            # "刻意不旋转"（滤镜默认 speed=0.01 会让整幅渐变**持续转动**——长镜里表现为"背景色慢慢
+            #   跑色"，不是设计感，而且像素级验证不可复现）。渐变风的"持续动效"由大字呼吸 + 页内进度线
+            #   + 分段入场承担，底板保持静止。
+            # ⚠️ ★VF_GRAD_SPEED_RANGE_V1（2026-10-02 **事故复盘**）：这里原来是 `speed=0`，
+            #   本机（新 ffmpeg，域 0~1）能跑，**服务器（老 ffmpeg，域 0.00001~1）直接报
+            #   `Error setting option speed to value 0` → 该镜整镜失败 → 整片挂**（真片 vf1790919558592）。
+            #   → 静止改用 GRAD_STATIC_SPEED（0.00001 = 老版本下限，视觉与 0 无差）。
+            _spd_static = clamp_grad_speed(GRAD_STATIC_SPEED, default=GRAD_STATIC_SPEED)
+            print('[VF] deck 渐变底板 %s：真逐像素渐变 c0=%s c1=%s（竖向）speed=%s'
+                  % (_style, _c0, _c1, _spd_static))
+            return ('-f lavfi -i gradients=s=%dx%d:c0=%s:c1=%s:x0=0:y0=0:x1=0:y1=%d:d=%s:speed=%s'
+                    % (W, H, _c0, _c1, int(H), max(1.0, float(dur)), _spd_static))
     return '-f lavfi -i color=c=%s:s=%dx%d:d=%s' % (th.get('bg', '0x0a1620'), W, H, dur)
 
 

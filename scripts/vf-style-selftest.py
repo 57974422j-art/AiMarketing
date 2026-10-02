@@ -1487,6 +1487,46 @@ def main():
         'QUOTE_ESC 覆盖面：没有绕过 esc_text 的 drawtext 文本（白名单仅 eif 表达式与纯数字序号）',
         str(_dt_bad))
 
+    # ══════════════ ★VF_GRAD_SPEED_RANGE_V1（2026-10-02 生产事故复盘护栏）══════════════
+    # 事故：真片 vf1790919558592（成品风格 softlux + 画面模版 deck-glass）**第 1 镜整镜失败 → 整片挂**，
+    #   服务器（较老 ffmpeg）报 `Error setting option speed to value 0`（speed 域 0.00001~1，**不接受 0**）；
+    #   本机（较新 ffmpeg，域 0~1）写 0 能跑 → 本地全绿、线上炸。以下断言就是为了**永不再犯**。
+    chk(R.clamp_grad_speed('0') == '0.00001' and R.clamp_grad_speed('-1') == '0.00001'
+        and R.clamp_grad_speed('2') == '1' and R.clamp_grad_speed('abc') == '0.015'
+        and R.clamp_grad_speed('') == '0.015',
+        'GRAD_SPEED 夹值出口：0/负数→0.00001（老 ffmpeg 下限）、>1→1、非法/空→默认',
+        ' / '.join(R.clamp_grad_speed(x) for x in ('0', '-1', '2', 'abc', '')))
+    chk(R.clamp_grad_speed('0.015') == '0.015' and R.clamp_grad_speed('0.12') == '0.12',
+        'GRAD_SPEED：生产默认 0.015 与加速值 0.12 **逐字不变**（零回归）')
+    chk(R._grad_speed() == '0.015', 'GRAD_SPEED：未设 VF_GRAD_SPEED 时仍是 0.015（逐字）')
+    try:
+        os.environ['VF_GRAD_SPEED'] = '0'
+        _hook = R._grad_speed()
+    finally:
+        os.environ.pop('VF_GRAD_SPEED', None)
+    chk(_hook == '0.00001',
+        'GRAD_SPEED：测试钩子写 0 也被夹成 0.00001（本机能跑、服务器不再炸）', _hook)
+    _th_g = theme_of('news')
+    _gb = R.deck_base_input({'type': 'title', 'variant': 'deck-glass'}, _th_g, 1280, 720, 6.0)
+    _gd = R.deck_base_input({'type': 'title', 'variant': 'deck-grad'}, _th_g, 1280, 720, 6.0)
+    if _gb.startswith('-f lavfi -i gradients'):
+        chk('speed=0.00001' in _gb and 'speed=0.00001' in _gd,
+            'GRAD_SPEED：deck-glass / deck-grad 底板用 speed=0.00001（不是 0）', _gb[-46:])
+    chk(not _re.search(r'speed=0(?![.\d])', _gb + ' ' + _gd),
+        'GRAD_SPEED：底板滤镜串里没有裸 speed=0（防回退）', _gb[-46:])
+    _st = R.stage_layer(_th_g, 1280, 720, 6.0)
+    _stage_s = ' '.join(_st[0]) if isinstance(_st, (tuple, list)) and _st else str(_st)
+    chk(not _re.search(r'speed=0(?![.\d])', _stage_s),
+        'GRAD_SPEED：stage_layer 出口同样没有裸 speed=0', _stage_s[-60:])
+    chk(not _re.search(r'speed=0(?![.\d])', _code),
+        'GRAD_SPEED 防回退：render.py **代码**里 0 处 speed=0（注释里的复盘说明不算）')
+    _keep_grad = R._HAS_GRAD
+    R._HAS_GRAD = False
+    _fb = R.deck_base_input({'type': 'title', 'variant': 'deck-glass'}, _th_g, 1280, 720, 6.0)
+    R._HAS_GRAD = _keep_grad
+    chk(_fb.startswith('-f lavfi -i color='),
+        'GRAD_SPEED 兜底：gradients 不可用/参数不兼容 → 自动退回纯色底板（**绝不整镜失败**）', _fb[:56])
+
     if a.render:
         _render_demo()
 
