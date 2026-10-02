@@ -40,7 +40,8 @@ _BAD = []
 
 
 def chk(cond, name, extra=''):
-    ((_OK if cond else _BAD)).append(name + (('  ← ' + extra) if (extra and not cond) else ''))
+    # extra 允许传元组/字典等（调试信息）—— 以前直接 `+ extra`，传非 str 会 TypeError 把整个自测打断
+    ((_OK if cond else _BAD)).append(name + (('  ← ' + str(extra)) if (extra and not cond) else ''))
 
 
 def _mk_img(ff, path, w, h, color='0x2b4a5a'):
@@ -890,9 +891,14 @@ def main():
         _sbP['shots'][0].get('variant'))
     _inpP, _vfP, _durP = R.card_title(_sbP['shots'][0], R.theme_of(R.THEMES['news']), 1280, 720, 25)
     _fsP = [int(x) for x in _re.findall(r'fontsize=(\d+)', _vfP)]
-    chk(bool(_fsP) and _fsP.count(max(_fsP)) == 1,
-        '③：deck 页只有**一处主标题**（最大字号 %d 只出现 1 次 → 没有叠第二层大字）'
-        % (max(_fsP) if _fsP else -1), str(sorted(set(_fsP), reverse=True)[:6]))
+    # ★VF_TEXTGRAD_V1 之后：主标题按**上浅下深两层**画（同字号、同文本），所以最大字号会出现 1~2 次。
+    #   "没有叠第二层大字"的判据因此改成：**最大字号那几条必须是同一个文本**（= 同一标题的两层），
+    #   而不是两段不同的标题文字。
+    _mx = max(_fsP) if _fsP else -1
+    _titles = _re.findall(r"fontsize=%d:text='([^']*)'" % _mx, _vfP) if _mx > 0 else []
+    chk(bool(_fsP) and 1 <= _fsP.count(_mx) <= 2 and len(set(_titles)) <= 1,
+        '③：deck 页只有**一处主标题**（最大字号 %d 出现 %d 次、且同一文本 → 没有叠第二层大字）'
+        % (_mx, _fsP.count(_mx)), 'titles=%s' % (_titles[:3],))
     # ★VF_STYLES_STRICT_V1 验收（team-lead 2026-10-01 明确点名的 5 种非法输入）：
     #   非 5 套成品风格的值 → **plan 零改动**（深比较）+ 日志写明"忽略未知 style"。
     import contextlib as _ctx
@@ -959,13 +965,18 @@ def main():
     ]}
     _rid = R.apply_style(_sb, 'magazine')
     _s0, _s1, _s2 = _sb['shots']
-    chk(_rid == 'magazine' and _sb.get('theme') == 'journal' and _sb.get('deck_style') == 'deck-mag',
-        'apply_style：theme/deck_style 落到分镜根上', (_sb.get('theme'), _sb.get('deck_style')))
+    _thm = _sb.get('theme')
+    # ★VF_FONTHIER_V1 之后：带 tokens 的风格（magazine/softlux）会把 theme 写成**字典**（含 fontTitle 等覆盖）
+    _thv = _thm.get('theme') if isinstance(_thm, dict) else _thm
+    chk(_rid == 'magazine' and _thv == 'journal' and _sb.get('deck_style') == 'deck-mag',
+        'apply_style：theme/deck_style 落到分镜根上', (_thm, _sb.get('deck_style')))
     chk(_s0.get('variant') == 'deck-mag' and _s0.get('enter') == 'left'
         and abs(float(_s0.get('_float_per')) - 4.0) < 1e-6,
         'apply_style：纯文字 title 卡被**提升**为该风格的 deck 版式 + 节奏（修"选了模版没生效"）', _s0)
-    chk('variant' not in _s2 and 'enter' not in _s2 and '_float_per' not in _s2,
-        'apply_style：**素材镜（bgimage）一个字段都不动**（零回归）', _s2)
+    # 素材镜：**不碰** variant/enter/节奏，只按 ★VF_DECK_FRAME_DEFAULT_V1 补一个 frame 缺省
+    chk('variant' not in _s2 and 'enter' not in _s2 and '_float_per' not in _s2
+        and _s2.get('frame') == 'thin',
+        'apply_style：素材镜只补 frame=thin，不碰 variant/enter/节奏', _s2)
     _sb2 = {'shots': [{'type': 'title', 'text': 'A', 'dur': 5}]}
     chk(R.apply_style(_sb2, '') == '' and 'theme' not in _sb2 and 'variant' not in _sb2['shots'][0],
         'apply_style：不传风格 → 一个字都不改（老链路零回归）')
@@ -974,6 +985,67 @@ def main():
     _thsrc = open(os.path.join(_VF, 'themes.py'), encoding='utf-8').read()
     chk(_thsrc.count('★VF_STYLES_V1') >= 1 and "'bluewhite'" in _thsrc and 'DEFAULT_STYLE' in _thsrc,
         'themes.py：STYLES 表 / DEFAULT_STYLE 在位（唯一真相源）')
+
+    # ══ 13h. ★VF_FONTHIER_V1 / ★VF_TEXTGRAD_V1（2026-10-02 老板「字体太单调了 就一种而且没渐变」）═
+    # A 层：标题拉字距（drawtext 无 letter-spacing → 逐字插 U+2009）+ 数字粗体大号 + 英文宽字距（原有）
+    _tk = R._track_cjk('三步走完')
+    chk('\u2009' in _tk and _tk.replace('\u2009', '') == '三步走完',
+        'A 层：中文短标题插 U+2009 细空格（去掉后仍是原文，不会丢字）', repr(_tk))
+    chk(R._track_cjk('这是一句很长很长的标题超过十二个字了') == '这是一句很长很长的标题超过十二个字了',
+        'A 层：长标题**不插**字距（避免为插空格再缩字号）')
+    chk(R._track('abc') == 'A B C', 'A 层：英文仍走全大写 + 超宽字距（原有 _track 未被改坏）')
+    # ★VF_FONTHIER_V2（2026-10-02 team-lead「竖屏下字距越界检查」）——把"字距口径 + 判据"钉死：
+    #   ① 细空格的**宽度口径**：`_char_w` 必须按 **0.20em** 估（本机实测 12.8px@fs64；
+    #      旧口径 0.55em 会把标题高估 2.74 倍 → 字号被过度缩水，竖屏尤其明显）；
+    #   ② 判据：宽敞 → 采纳字距（字号不掉）；窄幅 1 行长标题 → **退回不插**（字号 = 不插那版）。
+    chk(abs(R._char_w('\u2009', 64) - 12.8) < 0.01,
+        '★VF_FONTHIER_V2：细空格按 0.20em 估宽（实测 12.8px@fs64，不是 0.55em）',
+        R._char_w('\u2009', 64))
+    chk(abs(R.est_text_w(R._track_cjk('本地出片三步走'), 64) - 523) <= 3,
+        '★VF_FONTHIER_V2：7 字标题（含 6 个细空格）估宽 ≈523px（与实测亮跨 523px 对齐）',
+        R.est_text_w(R._track_cjk('本地出片三步走'), 64))
+    _kA = dict(fs_max=64, max_lines=1, maxw_ratio=0.86, fs_min=18, one_line_max=9)
+    _lA, _fA, _tA = R.track_fit('本地出片三步走', 1280, 720, **_kA)
+    _fA0 = R.fit_big_text('本地出片三步走', 1280, 720, **_kA)[1]
+    chk(_tA and _fA == _fA0, '★VF_FONTHIER_V2 判据①：横屏宽敞 → 采纳字距且**字号不掉**', _fA)
+    _kB = dict(fs_max=64, max_lines=1, maxw_ratio=0.60, fs_min=18, one_line_max=12)
+    _lB, _fB, _tB = R.track_fit('本地出片三步走全流程拆解', 720, 1280, **_kB)
+    _fB0 = R.fit_big_text('本地出片三步走全流程拆解', 720, 1280, **_kB)[1]
+    _fB1 = R.fit_big_text(R._track_cjk('本地出片三步走全流程拆解'), 720, 1280, **_kB)[1]
+    chk((not _tB) and _fB == _fB0,
+        '★VF_FONTHIER_V2 判据②：窄幅 1 行长标题 → 退回"不插"（字号 %d；硬插会掉到 %d）'
+        % (_fB, _fB1))
+    # B 层：字体家族键 + 容错
+    chk(all(k in R.FONT_CANDS for k in ('serif', 'serifbd', 'num', 'numbd')),
+        'B 层：FONT_CANDS 新增 serif/serifbd/num/numbd 四键（衬线 + 数字专用）')
+    chk(all(_styles[k].get('tokens', {}).get('fontTitle') == 'serif' for k in ('magazine', 'softlux')),
+        'B 层：杂志编辑 / 柔和高级两套的标题走**衬线**（tokens.fontTitle=serif）')
+    _Tser = dict(R.theme_of(R.THEMES['journal']), fontTitle='serif')
+    _p1 = R.font_title(_Tser)
+    chk(bool(_p1) and str(_p1).lower().endswith(('.ttc', '.otf', '.ttf')),
+        'B 层：font_title(衬线) 返回一个真实字体路径', _p1)
+    _Tbad = dict(R.theme_of(R.THEMES['journal']), fontTitle='no-such-family-xyz')
+    _p2 = R.font_title(_Tbad)      # 不许抛异常；静默回落
+    chk(bool(_p2) and _p2 == R.font_bold(R.theme_of(R.THEMES['journal'])),
+        'B 层：家族不存在时**静默回落**粗体 CJK（绝不报错、出片不受影响）', _p2)
+    _fwo = R.font_title(dict(R.theme_of(R.THEMES['journal'])), bold=True)
+    chk(_fwo == R.font_bold(R.theme_of(R.THEMES['journal'])),
+        'B 层：主题没写 fontTitle → 逐字走原来的 font_bold（零回归）')
+    # C 层：文字"上浅下深"两层（廉价近似）
+    _gp = R.text_grad_pair('三步走', "C:/x/MSYH.TTC", 64, 100, 200, 'white')
+    chk(len(_gp) == 2 and _gp[0] != _gp[1] and 'y=200+2' in _gp[1] and "text='三步走'" in _gp[0],
+        'C 层：text_grad_pair 返回两层（同字、下层下移 2px）', [x[:58] for x in _gp])
+    chk('fontcolor=0xdbdbdb' in _gp[1] and 'fontcolor=0xffffff' in _gp[0],
+        'C 层：下层是同色**压暗 14%**（white→0xffffff 上 / 0xdbdbdb 下）= "上浅下深"', _gp[1][:70])
+    chk(_src.count('★VF_TEXTGRAD_V1') >= 1 and _src.count('★VF_FONTHIER_V1') >= 1,
+        '防回退：★VF_FONTHIER_V1 / ★VF_TEXTGRAD_V1 仍在 render.py 里')
+    _bench = os.path.join(_VF, 'bench-text-gradient.py')
+    chk(os.path.exists(_bench), 'C 层：耗时实测脚本在位（bench-text-gradient.py）')
+    if os.path.exists(_bench):
+        _bs = open(_bench, encoding='utf-8').read()
+        chk(('52.0' in _bs or '+20ms' in _bs or 'alphamerge' in _bs) and 'drawtext' in _bs,
+            'C 层：脚本里同时有"真渐变(alphaextract+alphamerge)"与"廉价近似"两种配方',
+            '（实测数字写在汇报里：B +2.1ms/帧 / C +20.1ms/帧）')
 
     # ══ 14. ★VF_DECK_V1（2026-10-01）「富编排 PPT 页」 ══════════════════════════
     # 用户原话：「最好不要就几个大字，内容编排丰富一点可以吗？……你能单独根据我的素材 编辑

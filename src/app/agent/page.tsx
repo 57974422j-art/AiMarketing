@@ -560,6 +560,10 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   //   原来的「主题 / PPT 版式」收进下面默认收起的「高级」。
   const [style, setStyle] = useState(vj.style || '')
   const [openStyleAdv, setOpenStyleAdv] = useState(false)
+  // ★VF_STYLELOCK_ADV_V1（2026-10-02 用户原话「选了画面风格时，把高级里的主题/版式置灰并写一句"当前由画面风格统一决定"」）：
+  //   选了具体风格（style !== ''）→ 高级里的 theme / deck_style 由画面风格统一决定，**置灰不可点**；
+  //   选「跟随 AI / 不指定」→ 恢复可点。⚠️ 只影响可点性，**不改提交逻辑**（该发什么还是发什么，零回归）。
+  const styleOn = style !== ''
   // ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案「在视频图片上直接加大字，加一个开关」）：
   //   只关【压在素材/视频上的大字】；独立文字卡（标题/结尾/列表…）与字幕照旧 ——
   //   用户要的就是"有的视频不一定要，需要文字时用单独的文字卡（几帧）也行"。
@@ -737,6 +741,10 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           {R(style, '', '🤖 跟随 AI / 不指定', setStyle)}
           {VF_STYLES.map((s) => R(style, s.id, '🎨 ' + s.name, setStyle))}
         </div>
+        {/* ★VF_STYLEPREVIEW_WIRE_V1（2026-10-02 用户原话「当前5个风格最好能加个模版样式。点了能看到…
+            这看不到效果盲猜」）：每套风格下方嵌渲染层样张缩略图（/style-preview/<key>-thumb.png），
+            点开看大图（<key>.png 要点页 + <key>-data.png 数据页）。缺图时隐藏并显示"样张生成中"，绝不显示破图。 */}
+        <VfStyleSamples onPick={setStyle} cur={style} />
         <div className="text-[10px] text-gray-500 mt-1">
           选一套 → 纯文字页会自动排成该风格的整页 PPT（标签条/要点/数据卡/页码）；不选则由 AI 按题材决定。
         </div>
@@ -751,25 +759,29 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         <>
           <div className="mb-3">
             <div className="text-[10px] text-gray-400 mb-1">主题 <span className="text-gray-600">（底色/文字/强调色；留空由 AI 决定）</span></div>
+            {/* ★VF_STYLELOCK_ADV_V1：选了画面风格时，主题由画面风格统一决定 → 置灰 + 明示原因 */}
+            {styleOn ? (
+              <div className="text-[10px] text-amber-300/90 mb-1">当前由画面风格统一决定（选「跟随 AI」才可单独指定）</div>
+            ) : null}
             <div className="flex flex-wrap gap-1.5">
               {/* ★VF_THEMES_V1（2026-09-29 用户定案「挑一些模版给 AI 套」）：主题从 3 套扩到 8 套。
                   对应 scripts/video-factory/themes.py（唯一真相源）——每套含：渐变底/文字/强调色/底衬/字幕带。
                   新增主题只改那一个文件 + 这里加一行。 */}
-              {R(theme, 'dark', '🌌 深蓝墨', setTheme)}
-              {R(theme, 'blue', '🔷 深蓝科技', setTheme)}
-              {R(theme, 'tech', '🧊 深青科技', setTheme)}
-              {R(theme, 'mint', '🌿 清新薄荷', setTheme)}
-              {R(theme, 'light', '📄 浅色纸感', setTheme)}
-              {R(theme, 'journal', '📔 手账暖色', setTheme)}
-              {R(theme, 'vivid', '🔥 高饱和电商', setTheme)}
-              {R(theme, 'mono', '⬛ 杂志黑白', setTheme)}
+              {R(theme, 'dark', '🌌 深蓝墨', setTheme, styleOn)}
+              {R(theme, 'blue', '🔷 深蓝科技', setTheme, styleOn)}
+              {R(theme, 'tech', '🧊 深青科技', setTheme, styleOn)}
+              {R(theme, 'mint', '🌿 清新薄荷', setTheme, styleOn)}
+              {R(theme, 'light', '📄 浅色纸感', setTheme, styleOn)}
+              {R(theme, 'journal', '📔 手账暖色', setTheme, styleOn)}
+              {R(theme, 'vivid', '🔥 高饱和电商', setTheme, styleOn)}
+              {R(theme, 'mono', '⬛ 杂志黑白', setTheme, styleOn)}
               {/* ★VF_STYLE_V1（2026-09-30 用户定案「先固定新闻资讯和科技数据」）：
                   两套"编辑风"——用户看了 5 张博主视频截图后要的：
                     news = 深蓝底 + 蓝底白字小标签条 + 白色信息卡 + 黑色横条 + 英文副标（报纸/电视台观感）
                     data = 近黑青底 + 青色强调 + 深色数据卡 + 超大数字与细线
                   ⚠️ 用户定案：**主题由用户定死、AI 不许改**（服务端 lockUserTheme 会把 AI 写的 theme 删掉）。 */}
-              {R(theme, 'news', '📰 新闻资讯', setTheme)}
-              {R(theme, 'data', '📊 科技数据', setTheme)}
+              {R(theme, 'news', '📰 新闻资讯', setTheme, styleOn)}
+              {R(theme, 'data', '📊 科技数据', setTheme, styleOn)}
             </div>
           </div>
 
@@ -780,8 +792,12 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
             <div className="text-[10px] text-gray-400 mb-1">
               PPT 版式 <span className="text-gray-600">（「富编排 PPT 页」整页排版风格：标签条/要点/数据卡/页码）</span>
             </div>
-            <select value={deckStyle} onChange={(e: any) => setDeckStyle(e.target.value)}
-              className="w-full px-2 py-1.5 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 outline-none">
+            {/* ★VF_STYLELOCK_ADV_V1：选了画面风格时，PPT 版式由画面风格统一决定 → 置灰 + 明示原因 */}
+            {styleOn ? (
+              <div className="text-[10px] text-amber-300/90 mb-1">当前由画面风格统一决定（选「跟随 AI」才可单独指定）</div>
+            ) : null}
+            <select value={deckStyle} disabled={styleOn} onChange={(e: any) => setDeckStyle(e.target.value)}
+              className={`w-full px-2 py-1.5 rounded text-[12px] border outline-none ${styleOn ? 'bg-white/[0.02] border-white/[0.06] text-gray-600 cursor-not-allowed' : 'bg-white/[0.05] border-white/[0.08] text-gray-200'}`}>
               <option value="auto">自动（AI 按题材选）</option>
               <option value="deck">经典（通用默认）</option>
               <option value="deck-grad">渐变（氛围/开场）</option>
@@ -1535,6 +1551,75 @@ function VfMatsPicker({ mats, usableN, excludedN, onSend }: {
  *  · 片已经出过的（不在出片前）用聊天说一句「第 3 镜大字改成 X」即可 —— 那条路会【只重渲染】
  *    （复用已有配音，1~2 分钟、不扣点）。
  */
+/** ★VF_STYLEPREVIEW_WIRE_V1（2026-10-02 用户原话「当前5个风格最好能加个模版样式。点了能看到…
+ *  这看不到效果盲猜」）样张网格：每套「画面风格」一张缩略图（<key>-thumb.png），点开看大图
+ *  （<key>.png 要点页 + <key>-data.png 数据页）。选中状态由外部 cur 驱动（点样张=选风格）。
+ *  ⚠️ <key> 必须与渲染层 scripts/video-factory/themes.py 的 STYLES id **逐字一致**（绝不拼中文名）；
+ *     图是渲染层分批交付的 → **缺图时 onError 隐藏 + 兜底文案"样张生成中"**，绝不显示破图/不报错。 */
+function VfStyleThumb({ k, onOpen, selected }: { k: string; onOpen?: () => void; selected?: boolean }) {
+  const [bad, setBad] = useState(false)
+  return (
+    <div onClick={onOpen} title="点开看这套风格的样张大图"
+      className={`relative w-[160px] h-[90px] rounded-lg overflow-hidden border bg-black/40 transition-transform duration-150 ${onOpen ? 'cursor-pointer hover:scale-[1.03]' : ''} ${selected ? 'border-fuchsia-400/70 ring-1 ring-fuchsia-400/40' : 'border-white/[0.08] hover:border-fuchsia-400/60'}`}>
+      {bad ? (
+        <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-500">样张生成中</div>
+      ) : (
+        <img src={`/style-preview/${k}-thumb.png`} alt={`${k} 样张`} onError={() => setBad(true)}
+          className="w-full h-full object-cover" />
+      )}
+    </div>
+  )
+}
+
+/** 大图（缺图时显示"样张生成中"占位，不留破图） */
+function VfStyleBigImg({ src, label }: { src: string; label: string }) {
+  const [bad, setBad] = useState(false)
+  return (
+    <div className="flex flex-col items-center gap-1">
+      {bad ? (
+        <div className="w-[320px] max-w-[80vw] h-[180px] flex items-center justify-center rounded-lg border border-white/10 bg-black/40 text-[11px] text-gray-500">{label}样张生成中</div>
+      ) : (
+        <img src={src} alt={label} onError={() => setBad(true)}
+          className="max-h-[70vh] max-w-[80vw] rounded-lg border border-white/10 bg-black" />
+      )}
+      <span className="text-[10px] text-gray-400">{label}</span>
+    </div>
+  )
+}
+
+function VfStyleSamples({ cur, onPick }: { cur: string; onPick: (v: string) => void }) {
+  const [big, setBig] = useState<{ id: string; name: string } | null>(null)
+  return (
+    <>
+      <div className="flex flex-wrap gap-2 mt-2">
+        {VF_STYLES.map((s) => (
+          <div key={s.id} className="flex flex-col gap-1 w-[160px]">
+            <VfStyleThumb k={s.id} selected={cur === s.id} onOpen={() => setBig(s)} />
+            <button onClick={() => onPick(s.id)}
+              className={`w-full px-1 py-0.5 rounded text-[10px] border transition truncate ${cur === s.id
+                ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white'
+                : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
+              {s.name}
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="text-[9px] text-gray-500 mt-1">点缩略图看这套风格的样张大图（要点页 / 数据页）</div>
+      {big ? (
+        <div onClick={() => setBig(null)}
+          className="fixed inset-0 z-[9999] bg-black/85 flex flex-col items-center justify-center p-4 gap-2">
+          <div className="text-sky-200 text-sm">🎨 {big.name}（{big.id}）样张</div>
+          <div className="flex flex-wrap gap-3 items-start justify-center max-h-[78vh] overflow-auto">
+            <VfStyleBigImg src={`/style-preview/${big.id}.png`} label="要点页" />
+            <VfStyleBigImg src={`/style-preview/${big.id}-data.png`} label="数据页" />
+          </div>
+          <div className="text-[10px] text-gray-400">点任意处关闭</div>
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 /** ★VF_PPTPREVIEW_WIRE_V1（2026-10-01 用户定案「完全成片之前能把 PPT 抽出来审核一下效果吗？」）：
  *  出片确认卡上的「👀 先看 PPT 页」—— 把**即将出片的同一份 plan**（卡片里的 `sb.plan`）发给
  *  服务端 /api/agent/vf/ppt-preview；服务端原样落盘 → 用出片同一条渲染链 `render.py --ppt-preview`

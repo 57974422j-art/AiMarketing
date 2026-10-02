@@ -105,7 +105,11 @@ export const VF_MOTION_PROMPT =
   `· wipe 擦入（卡片从左往右/中间向两侧"亮"出来）：left(缺省) / right / center / none\n` +
   `· bgblur 背景虚化强度：soft(缺省) / strong(更虚，主体更突出) / none\n` +
   `   （frame/shadow/float/wipe/bgblur 只对【图片镜】有意义；编辑风 news/data **缺省已全开**，\n` +
-  `     一般不用写 —— 想加强/减弱强度时才写；白名单外的值会被删掉，等于没写）\n`
+  `     一般不用写 —— 想加强/减弱强度时才写；白名单外的值会被删掉，等于没写）\n` +
+  // ★VF_OVERLAY_PPT_WIRE_V1（2026-10-02 渲染层 ①「叠加版式」落地）：可选提一句，**不写成硬要求**。
+  `· overlay_ppt 素材镜（图片/视频）的「PPT 面板」（**可选，别到处开**）：on 本镜强制压一层 PPT 面板 /\n` +
+  `  off 本镜强制不压 / auto 或**不写**= 系统按节奏自动决定（推荐，别为每镜都写）。\n` +
+  `  · overlay_side：left / right 指定面板落哪侧（不写 = 自动：有大字则面板靠左、大字让到右半幅）。\n`
 
 /* ══════════ ★VF_DECK_WIRE_V1（2026-10-01）「富编排 PPT 页」接进分镜链路【提示词】══════════
  * 为什么做这件事：渲染层 ★VF_DECK_V1 早就把 `variant='deck'` 渲染成"**一整页 PPT**"——
@@ -302,6 +306,13 @@ export const VF_PLATE_SHADOWS = ['none', 'soft', 'strong']
 export const VF_PLATE_FLOATS = ['none', 'slow']
 export const VF_PLATE_WIPES = ['none', 'left', 'right', 'center']
 export const VF_PLATE_BGBLURS = ['none', 'soft', 'strong']
+// ★VF_OVERLAY_PPT_WIRE_V1（2026-10-02 渲染层 ①「叠加版式」落地）：素材镜（图片/视频）可**压一层 PPT 面板**。
+//   overlay_ppt：true/'on'/'ppt' = 本镜**强制开**；false/'off'/'none' = 本镜**强制关**；'auto'/缺省 = 走内部自动规则。
+//   ⚠️ 这里只做「白名单放行 + 值域校验」——**自动启用归渲染层**（选了画面风格后由 apply_style 落到各素材镜），
+//      界面不为它加开关。不写 = plan 里不出现该键（零回归）。
+export const VF_OVERLAY_PPT = ['true', 'false', 'on', 'off', 'auto', 'ppt', 'none']
+// ★VF_OVERLAY_PPT_WIRE_V1：面板落哪侧（不给 = 按"有大字→面板靠左、大字让到右半幅；没大字→素材最空的一侧"自动定）
+export const VF_OVERLAY_SIDES = ['left', 'right']
 
 /** ★VF_AI_PICK_V1：AI 自选的"设计字段"——归一化时必须**原样透传**，否则白名单无从校验 */
 // ★VF_STYLE_V1（2026-09-30）：「编辑风」（news/data）的两个**专属字段**也必须原样透传 ——
@@ -313,15 +324,21 @@ export const VF_PLATE_BGBLURS = ['none', 'soft', 'strong']
 //   相框/投影/浮动/擦入/背景虚化 会在归一化时被**静默丢掉** → "提示词里告诉 AI 可调强度"成了空话
 //   （与 theme/variant 当初踩的是同一个坑）。值是否合法统一交给 sanitizeAntiAiShots 白名单判。
 export const PICK_DESIGN_KEYS = ['theme', 'variant', 'motion', 'transition', 'kicker', 'en', 'enter',
-  'frame', 'shadow', 'float', 'wipe', 'bgblur'] as const
+  'frame', 'shadow', 'float', 'wipe', 'bgblur',
+  // ★VF_OVERLAY_PPT_WIRE_V1（2026-10-02）：素材镜「PPT 面板」字段同样必须**原样透传**，
+  //   否则两条线的"显式造对象 + pickDesignFields(s)"会在归一化时把它静默丢掉（deck variant 同款坑）。
+  'overlay_ppt', 'overlay_side'] as const
 
 /** 从 AI 给的镜里挑出设计字段（只收非空字符串；值是否合法交给 sanitizeAntiAiShots 白名单判）
  *  为什么单独一个小函数：分镜出口有两处（vf-video.ts 与 chat/route.ts 的 genVideoShots），
  *  两边的 `bgimage` 分支都是**显式造对象**（不是 {...s}）→ 不显式带上就会把 theme/variant/motion 丢掉。 */
-export function pickDesignFields(s: any): Record<string, string> {
-  const o: Record<string, string> = {}
+export function pickDesignFields(s: any): Record<string, any> {
+  const o: Record<string, any> = {}
   for (const k of PICK_DESIGN_KEYS) {
     const v = s?.[k]
+    // ★VF_OVERLAY_PPT_WIRE_V1：overlay_ppt 允许**布尔**（渲染层认 true/false）——布尔原样透传；
+    //   其余字段仍只收非空字符串（值是否合法统一交给 sanitizeAntiAiShots 白名单判）。
+    if (k === 'overlay_ppt' && typeof v === 'boolean') { o[k] = v; continue }
     // ⚠️ 2026-09-30：上限从 20 提到 48 —— `en`（英文副标）常有 25~40 字符
     //   （如 "NORTH KOREA DEPLOYMENT CRISIS" = 29），20 会在中间截断成半句话。
     if (typeof v === 'string' && v.trim()) o[k] = v.trim().slice(0, 48)
@@ -545,6 +562,22 @@ export function sanitizeAntiAiShots(shots: any[]): { shots: any[]; notes: string
         if (_allow.includes(_v)) s[_k] = _v
         else { delete s[_k]; _bad(_k, s0?.[_k]) }
       }
+    }
+    // ★VF_OVERLAY_PPT_WIRE_V1（2026-10-02 渲染层 ①「叠加版式」落地）：素材镜的「PPT 面板」开关白名单。
+    //   （deck variant 那个坑的同款：不在这里放行，AI 主动写的 overlay_ppt/overlay_side 会被当脏字段静默删掉。）
+    //   overlay_ppt：布尔 true/false 或 'on'/'off'/'ppt'/'none'/'auto'；规范化为 'on'/'off'（渲染层两者都认）。
+    if (s.overlay_ppt !== undefined) {
+      const _raw = s.overlay_ppt
+      const _v = _raw === true ? 'on' : _raw === false ? 'off'
+        : String(_raw == null ? '' : _raw).trim().toLowerCase()
+      if (VF_OVERLAY_PPT.includes(_v)) s.overlay_ppt = (_v === 'true' ? 'on' : _v === 'false' ? 'off' : _v)
+      else { delete s.overlay_ppt; _bad('overlay_ppt', s0?.overlay_ppt) }
+    }
+    // overlay_side：'left'/'right'；非法/缺省 → 删掉 = 回落自动（按大字/素材最空侧自动定）
+    if (s.overlay_side !== undefined) {
+      const _v = String(s.overlay_side == null ? '' : s.overlay_side).trim().toLowerCase()
+      if (VF_OVERLAY_SIDES.includes(_v)) s.overlay_side = _v
+      else { delete s.overlay_side; _bad('overlay_side', s0?.overlay_side) }
     }
     return s
   })

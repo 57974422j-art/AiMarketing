@@ -214,7 +214,10 @@ STYLES = {
     'magazine': {
         'id': 'magazine', 'name': '杂志编辑', 'theme': 'journal', 'deck': 'deck-mag',
         'period': 4.0, 'enter': 'left',
-        'desc': '暖米 + 大留白 + 编号/发丝线，像杂志跨页；文字层级最清楚',
+        # ★VF_FONTHIER_V1（2026-10-02 老板「字体太单调了」）：杂志风的主标题走**衬线**族
+        #   （Windows simsun/STSONG；Linux NotoSerifCJK）。找不到 → 静默回落粗体 CJK（见 font_title）。
+        'tokens': {'fontTitle': 'serif'},
+        'desc': '暖米 + 大留白 + 编号/发丝线 + 衬线大标题，像杂志跨页；文字层级最清楚',
     },
     # ⑤ 柔和高级：纯中性灰阶 + 深灰玻璃（deck-glass 收进这里，不再单列）
     #   tokens 覆盖的理由（team-lead 2026-10-01）：「别再是黑底 + **亮红字** + 白杠」——
@@ -224,8 +227,9 @@ STYLES = {
     'softlux': {
         'id': 'softlux', 'name': '柔和高级', 'theme': 'mono', 'deck': 'deck-glass',
         'period': 4.4, 'enter': 'up',
-        'tokens': {'accent': '0xb0808a'},
-        'desc': '中性灰阶 + 深灰玻璃卡 + 白色 1px 细边，只留极小面积的低饱和灰玫瑰点缀；最"高级"的一套',
+        # ★VF_FONTHIER_V1：高级感同样靠**衬线主标题**（与无衬线的数字/要点拉开层级）
+        'tokens': {'accent': '0xb0808a', 'fontTitle': 'serif'},
+        'desc': '中性灰阶 + 深灰玻璃卡 + 白细边 + 衬线大标题，低饱和灰玫瑰点缀；最"高级"的一套',
     },
 }
 

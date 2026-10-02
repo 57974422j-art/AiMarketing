@@ -103,6 +103,42 @@ FONT_CANDS = {
         '/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc',
     ],
     'dejavu': ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'],
+    # ══════════════ ★VF_FONTHIER_V1（2026-10-02 老板「字体太单调了 就一种而且没渐变」）══════════════
+    # 老板要的是**层级**（不只是"多一种字体"）：标题/副标/要点/数字各自不同的族与字重。
+    # 这里补两类候选（**找不到就静默回落现有 CJK 粗体/常规，绝不报错**，见 font_title）：
+    #   · serif / serifbd —— 衬线标题：杂志编辑、柔和高级两套用它，观感立刻"像杂志"。
+    #     Windows 自带 simsun.ttc/STSONG.TTF；Linux 装 fonts-noto-cjk 就有 NotoSerifCJK。
+    #   · num / numbd —— 数字专用（几何无衬线）：数据卡大数字用；Windows arialbd/segoeuib；
+    #     Linux 常见 DejaVuSans-Bold / Inter / Montserrat（服务器没装 → 回落，不影响出片）。
+    'serif': [
+        r'C:\Windows\Fonts\simsun.ttc', r'C:\Windows\Fonts\STSONG.TTF',
+        r'C:\Windows\Fonts\simfang.ttf',
+        '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc',
+        '/usr/share/fonts/opentype/noto/NotoSerifCJKsc-Regular.otf',
+        '/usr/share/fonts/truetype/noto/NotoSerifCJK-Regular.ttc',
+        '/usr/share/fonts/noto-cjk/NotoSerifCJK-Regular.ttc',
+        '/usr/share/fonts/opentype/source-han-serif/SourceHanSerifSC-Regular.otf',
+    ],
+    'serifbd': [
+        r'C:\Windows\Fonts\STSONG.TTF', r'C:\Windows\Fonts\simsun.ttc',
+        '/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc',
+        '/usr/share/fonts/opentype/noto/NotoSerifCJKsc-Bold.otf',
+        '/usr/share/fonts/truetype/noto/NotoSerifCJK-Bold.ttc',
+        '/usr/share/fonts/noto-cjk/NotoSerifCJK-Bold.ttc',
+        '/usr/share/fonts/opentype/source-han-serif/SourceHanSerifSC-Bold.otf',
+    ],
+    'num': [
+        r'C:\Windows\Fonts\segoeui.ttf', r'C:\Windows\Fonts\arial.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/truetype/inter/Inter-Regular.otf',
+        '/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf',
+    ],
+    'numbd': [
+        r'C:\Windows\Fonts\segoeuib.ttf', r'C:\Windows\Fonts\arialbd.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/truetype/inter/Inter-Bold.otf',
+        '/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf',
+    ],
 }
 
 # CJK 回退顺序（Windows 字体 → Linux 中文字体）
@@ -212,6 +248,35 @@ def font_bold(th):
     except Exception:
         pass
     return esc_path(find_font((th or {}).get('font', 'msyh')))
+
+
+def _font_avail(key):
+    """★VF_FONTHIER_V1：这个候选键在**本机**真的有文件吗（决定"家族可用"还是"要回落"）。"""
+    return any(os.path.exists(p) for p in FONT_CANDS.get(str(key or ''), []))
+
+
+def font_title(th, bold=True):
+    """★VF_FONTHIER_V1（2026-10-02 老板「字体太单调了」）：**标题专用字体族**。
+
+    主题/成品风格可以给 `fontTitle`（例：`'serif'` = 衬线）→ 该套的**主标题**用它，
+    与正文/字幕/数字形成层级；没给 → 走原来的粗体 CJK（零回归）。
+    **容错铁律**：家族在本机没有文件（服务器没装字体）→ **静默回落** 粗体 CJK，
+    并打一条日志说明"用了哪个族/文件"，绝不因为少一个字体就把出片弄挂。
+    返回 esc 过的路径。"""
+    key = str((th or {}).get('fontTitle') or '').strip().lower()
+    if key:
+        for k in ([key + 'bd', key] if bold else [key]):
+            if k in FONT_CANDS and _font_avail(k):
+                p = find_font(k)
+                if p:
+                    print('[VF] ★VF_FONTHIER_V1 标题字体族=%s → %s' % (k, os.path.basename(p)))
+                    return esc_path(p)
+        print('[VF] ★VF_FONTHIER_V1 ⚠️ 标题字体族 %r 本机不可用（未装）→ 静默回落粗体 CJK，'
+              '出片不受影响' % key)
+    try:
+        return font_bold(th) if bold else esc_path(find_font((th or {}).get('font', 'msyh')))
+    except Exception:
+        return esc_path(find_font('msyh'))
 
 
 def find_font(key='msyh'):
@@ -396,6 +461,15 @@ def _big_text(shot, limit=14):
 
 
 def _char_w(ch, fs):
+    # ★VF_FONTHIER_V2（2026-10-02 team-lead「竖屏下字距越界检查」）：
+    #   U+2009 THIN SPACE 是 `_track_cjk` 用来做**中文字距**的字符，旧口径按 0.55em 估 →
+    #   **本机实测只占 0.20em**（1280 画布 / fs=64，`dist-rel/_p/probe_portrait.py`：
+    #   7 字标题「本地出片三步走」不插亮跨 446px、插 6 个细空格 523px → (523-446)/6 = 12.8px = 0.20em；
+    #   按 0.20em 修正后估算 523px，与实测**逐像素相等**）。
+    #   不改会怎样：估算把标题宽度高估 **2.74 倍** → `fit_big_text` 为了"塞进一行"把字号缩得远比需要的小
+    #   （竖屏 720 宽尤其明显）→ 老板要的"字距拉开"反而变成"字变小"。只影响含细空格的串（= 标题），别处不变。
+    if ch == '\u2009':
+        return fs * 0.20
     return fs * (1.0 if ord(ch) > 0x2E7F else 0.55)
 
 
@@ -1528,17 +1602,25 @@ def card_video(shot, th, W, H, fps):
     txc, _boxc, _ = _mat_text_colors(th, _mat, txc, 'black@0.30', region_lum=_mat.get('lum_mid'))
     # ★VF_TEXTFIT_V2（2026-09-28）：折行优先（最多 2 行），放不下才缩字号 ——
     #   不再"长句一路缩成小字"（那是"同片里大字忽大忽小"的根因）。
+    # ★VF_PPT_OVERLAY_V1：叠加面板在左 → 大字让到【右侧半幅】（复用既有的"右侧大字区"几何，
+    #   避免"字压面板"）；没有大字就不需要让位。`_ov_tx=0` 时所有表达式逐字不变（零回归）。
+    _ov_tx = _overlay_text_x(shot, th, W, H, src)
     _band_v = ''
     if _is_editorial(th):
         # ★VF_EDITBIGTEXT_V1（2026-09-30）：编辑风视频镜同样走"编辑风大字"（与 bgimage 观感统一）
-        _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc)
+        _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc, x_off=_ov_tx)
         _reveal = _ed_rev if (_ed_fs and overlay_text_on()) else []
         _band_v = _ed_band if (_ed_fs and overlay_text_on()) else ''
     else:
-        _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
-        _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, W=W, H=H) if len(_lines) <= 1 else []
+        _mwr = 0.86 if not _ov_tx else max(0.30, (W - _ov_tx - int(W * 0.06)) / float(W))
+        _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2,
+                                  maxw_ratio=_mwr)
+        # ★VF_NOBIGTEXT_FIX_V1：无 text → 空列表，`<=1` 会 IndexError（本机真渲抓到过）→ 改成 `==1`
+        _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, y_off=0,
+                           x_off=_ov_tx, W=W, H=H) if len(_lines) == 1 else []
         # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
-        _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur)) if overlay_text_on() else []
+        _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur,
+                                                           x_off=_ov_tx)) if overlay_text_on() else []
     _bar_y = int(H * 0.72)
     # ★VF_MATGUARD_V1 同款口径：素材本来就暗（深色录屏）就别再压 15%（否则"一片黑"）
     _dim = 0.06 if int(_mat.get('lum', 160) or 160) < 78 else 0.15
@@ -1550,6 +1632,9 @@ def card_video(shot, th, W, H, fps):
     #   事故现场：第 8 镜 bgimage 崩「No such filter: ''」（空滤镜）；根因是某处拼进了空串或尾逗号。
     #   这里统一清洗，以后任何一处忘了判空都不会再让整条片崩掉。
     _chain = [x for x in _chain if str(x).strip().strip(',')]
+    # ★VF_PPT_OVERLAY_V1（2026-10-02 老板「PPT 压在视频上」）：**视频镜第一次有"版式"** ——
+    #   面板压在素材最空的一侧，元素按镜长错峰出现（此前 video 卡型只有"整幅素材 + 居中大字"）。
+    _chain += ppt_overlay_filters(shot, th, W, H, dur, src=src, font=font)
     # ★VF_STYLE_V1（③底图清晰度）：视频片段同样不再一律 sigma=32 模糊（用户实测"底图有点模糊"）
     _pre, _mode = _bg_filters(src, W, H)
     vf = (
@@ -1595,14 +1680,17 @@ def card_aivideo(shot, th, W, H, fps):
     # ★VF_STYLE_V1（2026-09-30 ①）：AI 片段的亮度完全不可控 → 同样按素材体检自动改字色/底衬
     _mat = _probe_material(src)
     txc, _boxc, _ = _mat_text_colors(th, _mat, txc, 'black@0.30', region_lum=_mat.get('lum_mid'))
+    # ★VF_PPT_OVERLAY_V1：叠加面板在左 → 大字让到右侧半幅（同 card_video 口径）
+    _ov_tx = _overlay_text_x(shot, th, W, H, src)
     _band_v = ''
     if _is_editorial(th):
         # ★VF_EDITBIGTEXT_V1（2026-09-30）：AI 片段镜同样走"编辑风大字"（与 bgimage/video 观感统一）
-        _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc)
+        _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc, x_off=_ov_tx)
         _reveal = _ed_rev if (_ed_fs and overlay_text_on()) else []
         _band_v = _ed_band if (_ed_fs and overlay_text_on()) else ''
     else:
-        _rev = _reveal_seq(shot, font, fs, txc, dur, box=_boxc) if overlay_text_on() else []   # ★OVERLAY_TEXT_SWITCH_V1
+        _rev = _reveal_seq(shot, font, fs, txc, dur, box=_boxc, x_off=_ov_tx, W=W, H=H) \
+            if overlay_text_on() else []   # ★OVERLAY_TEXT_SWITCH_V1
         _reveal = _rev
     _bar_y = int(H * 0.72)
     _dim = 0.06 if int(_mat.get('lum', 160) or 160) < 78 else 0.15
@@ -1614,6 +1702,8 @@ def card_aivideo(shot, th, W, H, fps):
     #   事故现场：第 8 镜 bgimage 崩「No such filter: ''」（空滤镜）；根因是某处拼进了空串或尾逗号。
     #   这里统一清洗，以后任何一处忘了判空都不会再让整条片崩掉。
     _chain = [x for x in _chain if str(x).strip().strip(',')]
+    # ★VF_PPT_OVERLAY_V1：AI 生成片段（AI 制片线的主镜型）同样压 PPT 面板
+    _chain += ppt_overlay_filters(shot, th, W, H, dur, src=src, font=font)
     # ★VF_STYLE_V1（③底图清晰度）：AI 片段同样按素材与画幅的关系选铺法（不再一律糊）
     _pre, _mode = _bg_filters(src, W, H)
     vf = (
@@ -2455,12 +2545,311 @@ def _is_editorial(th):
     return str((th or {}).get('id') or '').strip().lower() in EDITORIAL_THEMES
 
 
+def _track_cjk(s, max_chars=12):
+    """★VF_FONTHIER_V1 A 层（2026-10-02 老板「字体太单调了」）：中文标题**拉开字距**。
+
+    drawtext 没有 letter-spacing（唯一可用的手段就是"逐字插细空格"）——这里插 **U+2009 THIN SPACE**
+    （比普通空格窄、不会像"字被拆开"）。只对**短标题**（≤`max_chars` 字）加，长标题不加：
+    长句本来就占满一行，再插空格只能靠缩字号换空间，反而更糟。
+    调用点：deck 页主标题在 `fit_big_text()` **之前**过这一层 → 折行/字号估算把额外宽度算进去，
+    不会溢出安全边。副标/要点/正文**不加**（这样"标题松、正文紧"的层级才成立）。"""
+    t = str(s or '')
+    if not t or len(t) > max_chars:
+        return t
+    _out = []
+    for _i, _ch in enumerate(t):
+        _out.append(_ch)
+        if _i < len(t) - 1 and not _ch.isspace():
+            _out.append('\u2009')
+    return ''.join(_out)
+
+
+# ★VF_FONTHIER_V2（2026-10-02 team-lead「标题字距/渐变在竖屏下的越界检查」）：
+#   判据（可量、与横竖屏无关）：**插字距后 `fit_big_text` 给出的字号损失 ≤10% 才插**。
+#   为什么用"字号损失"而不是"宽度增幅"当判据：老板看到的观感是**字号**（字距是加分项，字变小是减分项），
+#   而 `_track_cjk` 每插一个细空格就 +0.20em；标题越长/画布越窄（= 竖屏 720），为了"一行塞下"
+#   字号就掉得越多 → 竖屏下自动退回"不插"，横屏下（1280 宽，损失通常 <10%）照常插。
+#   本机实测（`dist-rel/_p/probe_portrait.py`）：1280 横屏 7 字标题损失 0% → 插；
+#   720 竖屏长标题损失超阈值 → 自动不插（日志会写明理由）。
+TRACK_MIN_RATIO = 0.90
+
+
+def track_fit(text, W, H, **kw):
+    """★VF_FONTHIER_V2：**带判据**的字距排版 —— 返回 `(lines, fs, tracked)`。
+
+    先用/不用字距各排一次，只有当字距那版**字号损失 ≤10%**（TRACK_MIN_RATIO）时才采用它；
+    否则回落"不插字距"那版。`fs_*` / `max_lines` / `maxw_ratio` 等参数原样透传给 `fit_big_text`。
+    """
+    l0, fs0 = fit_big_text(text, W, H, **kw)
+    _t = _track_cjk(text)
+    if _t == text:
+        return l0, fs0, False
+    l1, fs1 = fit_big_text(_t, W, H, **kw)
+    if fs1 >= int(fs0 * TRACK_MIN_RATIO):
+        return l1, fs1, True
+    return l0, fs0, False
+
+
 def _track(s):
     """英文副标：全大写 + 超宽字距。
     FFmpeg 的 drawtext 没有 letter-spacing，用"逐字插空格"实现（用户要的就是
     `NORTH KOREA DEPLOYMENT CRISIS` 那种全大写、拉开字距的观感）。"""
     t = str(s or '').strip().upper()
     return ' '.join(t) if t else ''
+
+
+def text_grad_pair(text, font, fs, x, y, color, tail='', dy=2):
+    """★VF_TEXTGRAD_V1（2026-10-02 老板「字体太单调了 就一种而且**没渐变**」）：文字**上浅下深**。
+
+    做法（廉价近似）：同字画两层 —— 上层用**本色**，下层用**同色压暗 14%** 并**下移 `dy` 像素** →
+    字形顶部露出 2px 亮边、下部偏深，整体有"上浅下深"的立体渐变感。
+    为什么不用真渐变：`drawtext` 不支持渐变填充；真渐变要 `alphaextract` 取字形遮罩 +
+    `alphamerge` + `overlay`（多一路 `gradients` 源）。**本机实测**（`scripts/video-factory/bench-text-gradient.py`，
+    1280×720 单帧 / 8 次取中位）：
+      · 基线 1 条 drawtext = 36.7ms；**本方案 2 条 drawtext = 38.8ms → +2.1ms/帧（≈0 成本）**
+      · 真渐变（alphaextract+alphamerge+overlay）= 56.8ms → **+20.1ms/帧（+55%）**，一镜 8s/25fps 要多 ~4 秒
+    → 所以**默认铺本方案**（标题这类少量元素），真渐变只留配方与数字，等老板点名再铺。
+    返回 [上层, 下层] 两段 drawtext（顺序 = 绘制顺序）。`tail` 追加共同参数（描边/阴影/alpha，注意自带冒号）。"""
+    _rgb, _a = _rgb_alpha(str(color))
+    # ⚠️ alpha==1 时**不要**写成 `@1.000`：那会让"玻璃页最大 alpha ≤0.95"这类自测扫到 1.0
+    #   （`white` 原本就是不透明，写成 `0xffffff` 语义完全相同、却不污染 alpha 扫描）
+    _hi = ('0x%02x%02x%02x' % _rgb) if _a >= 0.999 else _css(_rgb, _a)
+    _lo = _shade('0x%02x%02x%02x' % _rgb, 0.86)
+    # ⚠️ `esc_text(...)` 必须**内联**写进 f-string：自测的 QUOTE_ESC 覆盖面会扫源码，
+    #   用中间变量会被判成"绕过 esc_text 的 drawtext 文本"（`%`/引号的转义就白做了）。
+    return [f"drawtext=fontfile='{font}':text='{esc_text(text)}':fontsize={fs}:"
+            f"fontcolor={_hi}:x={x}:y={y}{tail}",
+            f"drawtext=fontfile='{font}':text='{esc_text(text)}':fontsize={fs}:"
+            f"fontcolor={_lo}:x={x}:y={y}+{dy}{tail}"]
+
+
+# ══════════════ ★VF_PPT_OVERLAY_V1（2026-10-02 老板）「PPT 元素压在素材上（视频也要能压）」══════════════
+# 老板原话：「PPT设计不要单帧，你前面本地设计是PPT压在视频或者图片上。可以设计单帧。但视频上也可以压。
+#   特别是长视频合成模式。譬如180秒视频时有20-30秒视频合成，肯定需要在视频上压些东西，不让它太单调」
+#   「图片按 1-3 张一个。视频按时长 10-15 秒一个」
+# 做法：素材**照旧铺满全屏**（保留视频动感 / 静图 Ken Burns，不收成卡片）；在**素材最空的一侧**
+#   压一块**半透明 PPT 面板**（kicker + 1~3 条要点 + 可选数据卡），元素按镜长**整段错峰出现**。
+# 为什么必须覆盖 `video` / `aivideo`：这两个卡型此前**完全没有版式链**（只有"整幅素材 + 居中大字"）
+#   —— 这条做完，视频镜才第一次有"版式"。
+#
+# 开关字段（**服务端/界面按这个名字接线**）：`overlay_ppt`
+#   · `true` / `'on'` / `'ppt'`      → 本镜**强制开**
+#   · `false` / `'off'` / `'none'`   → 本镜**强制关**
+#   · 缺省 / `'auto'`                → 看内部标记 `_ppt_overlay_auto`（由 apply_style 的自动规则打，见 ②）
+#   分镜**根级**也可以写同名字段（整片素材镜的默认）→ apply_style 落到各镜（`true/false` 都支持）。
+_PPT_SIDE_CACHE = {}
+
+
+def _probe_sides(path):
+    """★VF_PPT_OVERLAY_V1：素材**四侧的内容密度**（一次 64×64 灰度读，极快 + 带缓存）。
+    返回 {'left','right','top','bot'} = 每侧"内容密度"0~1（越大越挤）。
+    为什么：老板要"压在素材**最空**的一侧"——半透明面板压在人脸/主体上很丑，压在空背景上才像设计。
+    判据用**梯度密度**（相邻像素差 > 阈值的比例）而不是亮度：亮天空也算"空"，但有云纹理就"挤"。"""
+    key = str(path or '')
+    if key in _PPT_SIDE_CACHE:
+        return _PPT_SIDE_CACHE[key]
+    _default = {'left': 0.5, 'right': 0.5, 'top': 0.5, 'bot': 0.5}
+    try:
+        ff = find_ffmpeg()
+    except Exception:
+        return _default
+    b = b''
+    try:
+        r = subprocess.run([ff, '-v', 'error', '-i', key, '-vf', 'scale=64:64,format=gray',
+                            '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray', '-'],
+                           capture_output=True, timeout=20)
+        b = r.stdout or b''
+    except Exception:
+        b = b''
+    if len(b) < 64 * 64:
+        return _default
+    g = list(b[:4096])
+
+    def edge(x0, x1, y0, y1):
+        n = c = 0
+        for y in range(y0, y1):
+            row = y * 64
+            for x in range(x0, x1):
+                i = row + x
+                d = 0
+                if x < 63:
+                    d += abs(g[i] - g[i + 1])
+                if y < 63:
+                    d += abs(g[i] - g[i + 64])
+                n += 1
+                if d > 24:
+                    c += 1
+        return c / float(max(1, n))
+
+    out = {'left': edge(0, 32, 0, 64), 'right': edge(32, 63, 0, 64),
+           'top': edge(0, 64, 0, 32), 'bot': edge(0, 64, 32, 64)}
+    _PPT_SIDE_CACHE[key] = out
+    return out
+
+
+def ppt_overlay_side(shot, th, src):
+    """★VF_PPT_OVERLAY_V1：面板落哪一侧。
+    优先级：① 显式 `overlay_side` > ② **本镜有画面大字 → 固定左侧**（把右侧让给大字，复用既有的
+    "右侧大字区"几何 → 绝不会"字压面板"）> ③ 没大字 → 落在**素材最空的一侧**（观感最优，
+    左侧明显更空时 <右×0.75 才翻到左边，避免"素材稍空就翻面"）。"""
+    if str(shot.get('overlay_side') or '').strip().lower() in ('left', 'right'):
+        return str(shot.get('overlay_side')).strip().lower()
+    if overlay_text_on() and str(shot.get('text') or '').strip():
+        return 'left'
+    if not (src and os.path.exists(str(src))):
+        return 'right'
+    _s = _probe_sides(src)
+    return 'left' if float(_s.get('left', 0.5)) < float(_s.get('right', 0.5)) * 0.75 else 'right'
+
+
+def _overlay_text_x(shot, th, W, H, src=''):
+    """★VF_PPT_OVERLAY_V1：叠加面板在**左**且本镜有画面大字 → 大字吃【右侧半幅】，返回其左边界 x；
+    其余情况返回 **0**（= 老的居中逻辑，所有表达式逐字不变 → 零回归）。"""
+    if not ppt_overlay_on(shot):
+        return 0
+    # ★VF_PPT_OVERLAY_V2：竖屏面板是**通栏靠上**（不占某一侧）→ 大字不需要让位（也让不了）
+    if H > W:
+        return 0
+    if ppt_overlay_side(shot, th, src) != 'left':
+        return 0
+    if not (overlay_text_on() and str(shot.get('text') or '').strip()):
+        return 0
+    return int(W * 0.55)
+
+
+def ppt_overlay_on(shot):
+    """★VF_PPT_OVERLAY_V1：本镜压不压面板（显式优先；缺省看自动规则打的 `_ppt_overlay_auto`）。"""
+    v = shot.get('overlay_ppt')
+    if isinstance(v, bool):
+        return v
+    s = str(v or '').strip().lower()
+    if s in ('off', 'none', 'false', '0', 'no'):
+        return False
+    if s in ('on', 'ppt', 'true', '1', 'yes'):
+        return True
+    return bool(shot.get('_ppt_overlay_auto'))
+
+
+def ppt_overlay_filters(shot, th, W, H, dur, src='', font=None):
+    """★VF_PPT_OVERLAY_V1：半透明 PPT 面板（kicker + 1~3 要点 + 可选数据卡）+ 底部进度线。
+    返回 filter 片段 list（空 = 本镜不压）。调用方把它并进自己的 `_chain`。
+
+    节奏（对应老板「视频按 10-15 秒一个，每段至少 2~3 个叠加元素错峰出现」）：
+      kicker @0.30 → 要点 i @0.30+(i+1)×gap → 数据卡 @max(末条+1.2, 0.62×dur)
+      gap = max(0.9, (dur-1.2)/(条数+1.2))  → 12s 镜 3 条要点 ≈ 2.9/5.4/8.0s（整段都有事发生）。
+    """
+    if not ppt_overlay_on(shot):
+        return []
+    _items = [str(x)[:14] for x in (shot.get('items') or []) if str(x).strip()][:3]
+    _kick = str(shot.get('kicker') or shot.get('title') or '').strip()[:12]
+    _stats = _deck_stats(shot)
+    if not (_items or _stats or _kick):
+        return []                      # 没东西可压 → 不压（免得画一块空面板）
+    d = float(dur or 6)
+    side = ppt_overlay_side(shot, th, src)
+    # ★VF_PPT_OVERLAY_V2（2026-10-02 team-lead）：**竖屏几何**（老板的片子横竖屏都出，早期那几条就是 720×1280）。
+    #   竖屏的难点：三种内容抢同一根竖轴 —— 素材/面板（要露脸）、**画面大字**（居中）、**底部字幕带**（≥72%H）。
+    #   方案（三带互不相交，判据写进 test-ppt-overlay.py）：
+    #     · 面板做成**通栏靠上**：pw = 86%W（左右各 7%W ≥ 安全边 5.5%W）、py = 7%H、ph ≤ 30%H（按内容算）
+    #       → 面板底边 ≤ 37%H；
+    #     · 大字仍居中（本机实测块顶 ≈44%H）→ 与面板之间留 ≥7%H 的空隙（≈90px @1280）；
+    #     · 字幕带从 72%H 起 → 相距 35%H。
+    #   ⚠️ 字号不能再只按 H 取：竖屏 H=1280 → `0.034H = 43px` 会撑爆 86%W=619px 的面板 →
+    #     一律取 `min(H 系数, 面板宽系数)`。**横屏分支取到的是 H 那一支 → 与改动前逐字相同（零回归）**。
+    if H > W:
+        pw = int(W * 0.86)
+        pw -= pw % 2
+        px = (W - pw) // 2
+        py = int(H * 0.07)
+        _pad = max(10, int(W * 0.030))
+        _ifs = max(16, int(min(H * 0.034, pw * 0.052)))
+        _kfs = max(14, int(min(H * 0.028, pw * 0.040)))
+        _dfz = max(30, int(min(H * 0.105, pw * 0.185)))
+        _sfz = max(16, int(_dfz * 0.42))
+        ph = _pad * 2 + (int(_kfs * 1.70) + int(_pad * 0.8) if _kick else 0) \
+            + len(_items) * int(_ifs * 1.55) + (int(_dfz * 1.25) if _stats else 0)
+        ph = min(max(ph, int(H * 0.16)), int(H * 0.30))
+    else:
+        _pad = int(W * 0.030)
+        pw = int(W * 0.40)
+        pw -= pw % 2
+        ph = int(H * 0.60)
+        px = (W - pw - int(W * 0.055)) if side == 'right' else int(W * 0.055)
+        py = int(H * 0.20)
+        _ifs = max(16, int(H * 0.034))
+        _kfs = max(14, int(H * 0.028))
+        _dfz = max(30, int(H * 0.105))
+        _sfz = max(16, int(_dfz * 0.42))
+    # 面：**主题底色的半透明实底**（压在素材上要读得出字）+ 1px 主题色细边；
+    #   字色按"面压在**素材**上的实际亮度"算（口径同 VF_DECK_CONTRAST_V1，|Δ|≥70）。
+    face = _force_alpha(str(th.get('bg') or '0x0a1620'), 0.62)
+    edge = _deck_face_edge('deck', th)
+    _matL = 160.0
+    try:
+        if src and os.path.exists(str(src)):
+            _matL = float(_probe_material(src).get('lum', 160) or 160)
+    except Exception:
+        pass
+    _faceL = _deck_eff_lum(face, _matL)
+    _onF, _faceL2, _dd = _deck_on_face(_faceL)
+    _acc = str(th.get('accent') or '0x2f7cf6')
+    _numc = _acc if abs(_lum_of(_acc, 255) - _faceL2) >= 70 else _onF
+    _bold = font or font_bold(th)
+    _reg = esc_path(find_font(th.get('font', 'msyh')))
+    _fs = max(20, int(H * 0.048))
+    gap = max(0.9, (d - 1.2) / float(len(_items) + 1.2))
+    out = [
+        # 面板（半透明实底 + 上沿 1px 细边）
+        f"drawbox=x={px}:y={py}:w={pw}:h={ph}:color={face}:t=fill:enable='gte(t,0.12)'",
+        f"drawbox=x={px}:y={py}:w={pw}:h=1:color={edge}:t=fill:enable='gte(t,0.12)'",
+    ]
+    _y = py + _pad
+    if _kick:
+        _kw = min(pw - _pad * 2, int(est_text_w(_kick, _kfs)) + _pad)
+        out.append(f"drawbox=x={px + _pad}:y={_y}:w={_kw}:h={_kfs + int(_kfs * 0.7)}:"
+                   f"color={_acc}@0.92:t=fill:enable='gte(t,0.30)'")
+        out.append(f"drawtext=fontfile='{_bold}':text='{esc_text(_kick)}':fontsize={_kfs}:"
+                   f"fontcolor=white:x={px + _pad + int(_pad * 0.5)}:"
+                   f"y={_y + int(_kfs * 0.35)}:alpha='min(max(t-0.30,0)/0.30,1)'")
+        _y += _kfs + int(_kfs * 0.7) + int(_pad * 0.8)
+    for _i, _it in enumerate(_items):
+        _t_on = 0.30 + (_i + 1) * gap
+        _num = '%02d' % (_i + 1)
+        out.append(f"drawtext=fontfile='{_bold}':text='{_num}':fontsize={_kfs}:fontcolor={_numc}:"
+                   f"x={px + _pad}:y={_y + max(0, (_ifs - _kfs) // 2)}:"
+                   f"alpha='min(max(t-{_t_on:.2f},0)/0.35,1)'")
+        _tx = px + _pad + int(est_text_w(_num, _kfs)) + int(_pad * 0.6)
+        out.append(f"drawtext=fontfile='{_reg}':text='{esc_text(_it)}':fontsize={_ifs}:"
+                   f"fontcolor={_onF}:x={_tx}:y={_y}:"
+                   f"alpha='min(max(t-{_t_on + 0.12:.2f},0)/0.40,1)'")
+        _y += int(_ifs * 1.55)
+    if _stats:
+        # 可选数据卡（面板底部）：大数字 + 单位 + 标签
+        _sv, _ss, _sl = _stats[0]
+        _t_on = max(0.30 + (len(_items) + 0.6) * gap, d * 0.62)
+        _ly = py + ph - _pad - _ifs - int(H * 0.012)
+        _vx = px + _pad
+        out.append(f"drawtext=fontfile='{_bold}':text='{esc_text(_sv)}':fontsize={_dfz}:"
+                   f"fontcolor={_numc}:x={_vx}:y={_ly - _dfz}:"
+                   f"alpha='min(max(t-{_t_on:.2f},0)/0.40,1)'")
+        if _ss:
+            out.append(f"drawtext=fontfile='{_reg}':text='{esc_text(_ss)}':fontsize={_sfz}:"
+                       f"fontcolor={_onF}:x={_vx + int(est_text_w(_sv, _dfz)) + 6}:"
+                       f"y={_ly - _sfz - int(_dfz * 0.10)}:"
+                       f"alpha='min(max(t-{_t_on + 0.10:.2f},0)/0.40,1)'")
+        if _sl:
+            out.append(f"drawtext=fontfile='{_reg}':text='{esc_text(_sl)}':fontsize={_kfs}:"
+                       f"fontcolor={_onF}:x={_vx}:y={_ly - int(_kfs * 1.15)}:"
+                       f"alpha='min(max(t-{_t_on + 0.18:.2f},0)/0.40,1)'")
+    # 面板底部一条**走完整镜**的进度线（素材镜也"持续在动"，与纯文字卡同一套口径）
+    _pfs = progress_filters(W, H, d, _force_alpha(_acc, 0.80),
+                            seg=max(6, int(min(20, d * 3))))
+    out += _pfs
+    print('[VF] ★VF_PPT_OVERLAY_V1 叠加面板：%s / 要点 %d 条 / 数据卡 %s / 面板 %dx%d@%d,%d'
+          '（%dx%d；面=%s → 字=%s，|Δ|=%.0f）'
+          % ('**通栏靠上（竖屏）**' if H > W else ('%s 侧（横屏）' % side),
+             len(_items), '有' if _stats else '无', pw, ph, px, py, W, H, face, _onF, _dd))
+    return out
 
 
 def _shade(hex_color, k):
@@ -2940,26 +3329,40 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         print('[VF] 素材不适合当背景（亮度 %d / 主色 %.2f / 边缘 %.2f）→ 本镜改用主题质感底板：%s'
               % (_lum, _flat, _edge, os.path.basename(str(src))[:24]))
         # ★VF_EDITBIGTEXT_V1（2026-09-30）：编辑风主题 → 质感底板上同样走"编辑风大字"（kicker/数值/细分线）
+        _ov_tx2 = _overlay_text_x(shot, th, W, H, src)
         if _is_editorial(th):
-            _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc)
+            _ed_rev, _ed_band, _ed_fs = _editorial_bigtext(shot, th, W, H, dur, fs, txc, x_off=_ov_tx2)
             _reveal = _ed_rev if (_ed_fs and overlay_text_on()) else []
         else:
-            _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2)
-            _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0]) if len(_lines) <= 1 else []
+            _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2,
+                                      maxw_ratio=(0.86 if not _ov_tx2
+                                                  else max(0.30, (W - _ov_tx2 - int(W * 0.06)) / float(W))))
+            # ★VF_NOBIGTEXT_FIX_V1（2026-10-02 本机真渲抓到的**真崩溃**）：
+            #   原来写的是 `if len(_lines) <= 1`，而"本镜没有 text（只给了 subtitle）"时
+            #   `fit_big_text('')` 返回**空列表** → `_lines[0]` → IndexError → **整镜渲染失败**
+            #   （AI 排分镜时完全可能排出一个"只有素材 + 一行副标"的镜）。
+            #   改成 `== 1`：空列表走 else 分支（center_lines_drawtext 对空列表本就安全）。
+            _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], x_off=_ov_tx2,
+                               W=W, H=H) if len(_lines) == 1 else []
             _reveal = (_rev if _rev else
-                       center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=-int(H * 0.06))
+                       center_lines_drawtext(font, _lines, fs, txc, W, H, dur,
+                                             y_off=-int(H * 0.06), x_off=_ov_tx2)
                        ) if overlay_text_on() else []
         _inp, _stage = stage_layer(th, W, H, dur)
         _vf = _stage + ',' + ','.join([
             f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.28:t=fill",
-        ] + _reveal + [f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"])
+        ] + _reveal
+            # ★VF_PPT_OVERLAY_V1：素材不可用（改用主题质感底板）这条路径**也要压面板** ——
+            #   否则"素材被判不可用"的镜会突然没有版式（同一片里观感断裂）。
+            + ppt_overlay_filters(shot, th, W, H, dur, src=src, font=font)
+            + [f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"])
         return (' '.join(_inp), _vf, dur)
     if _busy:
         # 素材自带大量文字（海报/截图）→ 我们的大字缩小让位，别"字压字"
         fs = max(int(fs * 0.72), int(H * 0.045))
     # ★VF_TITLEFIT_V3（2026-09-29）：≤8 字保一行（优先缩字号），超出才均衡折两行
     # ★VF_TPL_LAND_V1：左图右字时大字只能吃【右侧那半幅】→ 可用宽度按右侧重算（x_off=0 时逐字不变）
-    _tx = plate_text_x(W, H, 'side' if _land else 'top')
+    _tx = _overlay_text_x(shot, th, W, H, src) or plate_text_x(W, H, 'side' if _land else 'top')
     _mwr = 0.86 if not _tx else max(0.30, (W - _tx - int(W * 0.06)) / float(W))
     _lines, fs = fit_big_text(str(shot.get('text') or ''), W, H, fs_max=fs, max_lines=2,
                               maxw_ratio=_mwr)
@@ -3024,8 +3427,10 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
             _band_box = ','.join(_text_scrim_filters(0, max(0, _btop), W, int(_bh),
                                                      _sc, steps=9, amax=0.45, fade='center'))
             print('[VF] ★VF_TEXTCONTRAST_V1 落点低对比 → 大字加【渐隐底衬带】(%s)，绝不实心黑框' % _sc)
+        # ★VF_NOBIGTEXT_FIX_V1（2026-10-02 真渲抓到的**真崩溃**）：`len(_lines) <= 1` 时 `_lines[0]`
+        #   在"本镜没有 text（只有副标）"下会 IndexError → 整镜渲染失败。改成 `== 1`（空列表走 else）。
         _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, y_off=_yoff,
-                           x_off=_tx, W=W, H=H) if len(_lines) <= 1 else []   # ★VF_TPL_LAND_V1：右侧大字区
+                           x_off=_tx, W=W, H=H) if len(_lines) == 1 else []   # ★VF_TPL_LAND_V1：右侧大字区
         # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
         _reveal = (_rev if _rev else
                    center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=_yoff, x_off=_tx)
@@ -3044,6 +3449,8 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     #   事故根因见上面 _band_box 的注释（非满字素材时它是空串 + 曾经带尾逗号 → `,,` → 空滤镜）。
     #   加这一层"值不值得丢"的清洗，以后任何一处忘了判空都不会再让整条片崩掉。
     _chain = [x for x in _chain if str(x).strip().strip(',')]
+    # ★VF_PPT_OVERLAY_V1：图片镜也可以压 PPT 面板（显式 `overlay_ppt` 或自动规则命中时）
+    _chain += ppt_overlay_filters(shot, th, W, H, dur, src=src, font=font)
     # ★VF_MOTION_V2（2026-09-29 反 AI 味清单·「运动做减法」）：
     #   原来【每一镜静图都匀速推近 1.0→1.06】——而反 AI 味清单里明确写着 ✗「每步都挂 ken burns」。
     #   现在按【镜序】轮换三种运动：推近 / 拉远 / 完全静止（静止那镜让画面"稳"一下，节奏才有呼吸）。
@@ -3276,6 +3683,79 @@ def apply_deck_style(sb):
 #   → 没有任何镜可覆盖 → 模版白选。所以这里在**明确选了成品风格**时，把该片的纯文字卡
 #   **提升**成这套风格的 deck 版式（仍在白名单内，不新增 variant 名）。
 #   ⚠️ 只在传了 style 时才这么做；老的 `deck_style` 路径（apply_deck_style）**保持原样** → 老片子零回归。
+def plan_ppt_pages(sb, st):
+    """★VF_PPT_BALANCE_V1（2026-10-02 老板）：「PPT 页兜底」—— 每 2~3 镜至少一页 PPT。
+
+    老板原话（team-lead 转述）：「现在 apply_style 只把 title 卡升成 deck → 7 镜片只有 1~2 页 PPT，
+    观感'还是大字多'」→ 要从**素材镜**里挑"信息量最大"的补成 PPT 页：
+      · 图片镜（bgimage/image）→ **deck 素材页（左图右文）**；素材不可用 → 退成**叠加页**；
+      · 视频镜（video/aivideo）→ **叠加页**（它此前没有卡片链，见 ★VF_PPT_OVERLAY_V1）。
+
+    硬约束（team-lead 明确）：
+      ① 每 2~3 镜至少一页（下面用"距上一页 ≥3 就必须补"实现，补完从新位置重新计数）；
+      ② **不连续 3 镜都是 PPT**（候选要过"左右邻不会连成 3"的检查）；
+      ③ **开场第 1 镜与结尾镜保持普通卡**（有冲击力）—— 只在 ≥3 镜的片子里成立；
+      ④ 只在显式选了风格时才调用（apply_style 内部，不选风格 = 一个字段都不动）。
+
+    就地改 sb，返回被提升的镜下标（0-based）列表。
+    """
+    shots = sb.get('shots') or []
+    n = len([s for s in shots if isinstance(s, dict)])
+    if n < 3:
+        return []
+
+    def _is_ppt(i):
+        s = shots[i]
+        return isinstance(s, dict) and (bool(deck_style_of(s)) or bool(ppt_overlay_on(s)))
+
+    def _score(i):
+        s = shots[i]
+        if not isinstance(s, dict):
+            return -1
+        if str(s.get('type') or '').lower() not in ('bgimage', 'image', 'video', 'aivideo'):
+            return -1
+        sc = 3 * len([x for x in (s.get('items') or []) if str(x).strip()][:3])
+        sc += 2 if _deck_stats(s) else 0
+        sc += 1 if str(s.get('kicker') or s.get('title') or '').strip() else 0
+        sc += 1 if str(s.get('text') or '').strip() else 0
+        sc += 1 if str(s.get('subtitle') or '').strip() else 0
+        return sc
+
+    promoted, last = [], 0
+    for i in range(1, n - 1):
+        if _is_ppt(i):
+            last = i
+            continue
+        if i - last < 3:
+            continue
+        best, bs = -1, -1
+        for j in range(last + 1, i + 1):
+            if j <= 0 or j >= n - 1 or _is_ppt(j):
+                continue
+            # 不连续 3 镜：候选左右邻已经各有一页 → 补进去就是 3 连，跳过
+            if (j - 1 >= 0 and _is_ppt(j - 1)) and (j + 1 < n and _is_ppt(j + 1)):
+                continue
+            if (j - 2 >= 0 and _is_ppt(j - 1) and _is_ppt(j - 2)) \
+                    or (j + 2 < n and _is_ppt(j + 1) and _is_ppt(j + 2)):
+                continue
+            sc = _score(j)
+            if sc > bs:
+                best, bs = j, sc
+        if best < 0:
+            continue
+        s = shots[best]
+        _t = str(s.get('type') or '').lower()
+        _src = str(s.get('src') or '').strip()
+        if _t in ('video', 'aivideo') or not _src or not os.path.exists(_src):
+            s['overlay_ppt'] = True        # 视频镜 / 素材不可用 → 叠加页
+            s['_ppt_overlay_auto'] = True
+        else:
+            s['variant'] = st['deck']      # 图片镜 → deck 素材页（左图右文）
+        promoted.append(best)
+        last = best
+    return promoted
+
+
 def apply_style(sb, name=''):
     """把成品风格落到分镜上（就地修改 sb）。返回生效的 style id（'' = **未干预**）。
 
@@ -3307,7 +3787,12 @@ def apply_style(sb, name=''):
     _n = 0
     _mat_n = 0
     _mat_noop = 0
-    for s in (sb.get('shots') or []):
+    # ★VF_PPT_BALANCE_V1（2026-10-02 老板）：「开场第 1 镜与结尾镜保持普通卡（各有冲击力）」——
+    #   这个约束只在片子里**真有"开场/结尾"概念**时成立，所以限定 ≥4 镜；≤3 镜（含单镜样张）
+    #   照旧全部按风格走（否则一页式样张/预览会突然没有版式）。
+    _n_sh = len([x for x in (sb.get('shots') or []) if isinstance(x, dict)])
+    _edge = _n_sh >= 4
+    for _i, s in enumerate(sb.get('shots') or []):
         if not isinstance(s, dict):
             continue
         t = str(s.get('type') or 'title').strip().lower()
@@ -3338,7 +3823,9 @@ def apply_style(sb, name=''):
             s['enter'] = _ent
         s['_float_per'] = _per          # 风格节奏优先（它就是"这一套看起来什么节奏"）
         # 纯文字卡提升成这套风格的 deck 版式（白名单内的值）——修"选了模版没生效"
-        if t == 'title' and str(s.get('variant') or '').strip().lower() not in DECK_STYLE_VARIANTS:
+        # ★VF_PPT_BALANCE_V1：≥4 镜时开场第 1 镜 / 结尾镜**不升级**（保持普通卡，有冲击力）
+        if t == 'title' and str(s.get('variant') or '').strip().lower() not in DECK_STYLE_VARIANTS \
+                and not (_edge and (_i == 0 or _i == _n_sh - 1)):
             s['variant'] = st['deck']
             _n += 1
     print('[VF] ★VF_STYLES_V1 成品风格=%s（%s）：theme=%s / 画面模版=%s / 节奏(enter=%s,浮动%.1fs)'
@@ -3346,7 +3833,18 @@ def apply_style(sb, name=''):
           % (st['id'], st.get('name'), st['theme'], st['deck'], _ent, _per, _n))
     if _mat_n:
         print('[VF] ★VF_DECK_FRAME_DEFAULT_V1 素材镜补 frame=thin：%d 镜（其中 video/aivideo %d 镜'
-              '——该卡型暂未接入卡片版式，字段先写上=前向兼容）' % (_mat_n, _mat_noop))
+              '——该卡型改走 ★VF_PPT_OVERLAY_V1 叠加面板，frame 字段保留=前向兼容）'
+              % (_mat_n, _mat_noop))
+    # ★VF_PPT_BALANCE_V1：素材镜里挑"信息量最大"的补 PPT 页（每 2~3 镜至少一页、不连续 3 镜）
+    _ppt_idx = plan_ppt_pages(sb, st)
+    if _ppt_idx:
+        print('[VF] ★VF_PPT_BALANCE_V1 PPT 页兜底：提升为 PPT 的镜=第 %s 镜（1-based；每 2~3 镜至少一页、'
+              '不连续 3 镜、开场/结尾保持普通卡）'
+              % '/'.join(str(x + 1) for x in _ppt_idx))
+    _all_ppt = [i + 1 for i, x in enumerate(sb.get('shots') or [])
+                if isinstance(x, dict) and (bool(deck_style_of(x)) or bool(ppt_overlay_on(x)))]
+    print('[VF] ★VF_PPT_BALANCE_V1 本片 PPT 页共 %d 片（含 AI 自己写的 deck 页）：第 %s 镜'
+          % (len(_all_ppt), '/'.join(str(x) for x in _all_ppt) or '无'))
     print('[VF] ★VF_STYLES_V1 说明：%s' % (st.get('desc') or ''))
     return st['id']
 
@@ -3384,6 +3882,9 @@ def deck_page_filters(shot, th, W, H, dur, font=None, region=None):
         # ★VF_DECK_STYLES_V1：另外三套风格走各自的元素层（同一套元素清单，换配色/透明度/留白/对齐）。
         return _deck_styled_filters(shot, th, W, H, dur, _style, font=font, region=region)
     _bold = font or font_bold(th)
+    # ★VF_FONTHIER_V1：**主标题**用主题的标题字体族（`fontTitle`，例：杂志/高级两套 = 衬线）；
+    #   找不到就静默回落粗体 CJK；数字/要点仍走 `_bold`（几何无衬线）→ 层级更分明。
+    _tfont = font or font_title(th)
     _reg = esc_path(find_font(th.get('font', 'msyh')))
     acc = str(th.get('accent') or '0xff6b35')
     dot = str(th.get('dot') or th.get('accent2') or acc)
@@ -3419,12 +3920,14 @@ def deck_page_filters(shot, th, W, H, dur, font=None, region=None):
     _M = {}
     _tfs = max(22, int(min(rw * 0.105, rh * 0.185)))
     for _ in range(10):
-        _lines, _t2 = fit_big_text(main, W, H, fs_max=_tfs, max_lines=2,
-                                   maxw_ratio=max(0.30, rw / float(W)),
-                                   fs_min=max(18, int(_tfs * 0.62)), one_line_max=9)
+        # ★VF_FONTHIER_V2：字距走**带判据**的 track_fit（字号损失 >10% 就不插 → 竖屏窄幅自动退回）
+        _lines, _t2, _trk = track_fit(main, W, H, fs_max=_tfs, max_lines=2,
+                                      maxw_ratio=max(0.30, rw / float(W)),
+                                      fs_min=max(18, int(_tfs * 0.62)), one_line_max=9)
         _tfs = _t2
         _M = {
             'lines': _lines,
+            'tracked': _trk,
             'kfs': max(15, int(_tfs * 0.38)),
             'sfs': max(13, int(_tfs * 0.34)),
             'ifz': max(14, int(_tfs * 0.42)),
@@ -3511,11 +4014,12 @@ def deck_page_filters(shot, th, W, H, dur, font=None, region=None):
     #   并补一道极淡投影（字在亮/花素材上更稳，但不出现硬黑框）。
     for _i, _ln in enumerate(_lines):
         _t_on = 0.30 + 0.18 * _i
-        out.append(
-            f"drawtext=fontfile='{_bold}':text='{esc_text(_ln)}':fontsize={_tfs}:"
-            f"fontcolor={txc}:borderw={max(2, int(_tfs * 0.038))}:bordercolor=black@0.42:"
-            f"shadowx=1:shadowy=1:shadowcolor=black@0.30:"
-            f"x={_x}:y={_y + _i * _tg}:alpha='min(max(t-{_t_on:.2f},0)/0.45,1){_br}'")
+        # ★VF_TEXTGRAD_V1：主标题走"上浅下深"两层（成本 ≈ +2ms/帧，见 text_grad_pair）
+        out += text_grad_pair(
+            _ln, _tfont, _tfs, _x, _y + _i * _tg, txc,
+            tail=(f":borderw={max(2, int(_tfs * 0.038))}:bordercolor=black@0.42:"
+                  f"shadowx=1:shadowy=1:shadowcolor=black@0.30:"
+                  f"alpha='min(max(t-{_t_on:.2f},0)/0.45,1){_br}'"))
     _y += _th
 
     # ③ 副标题（一行小字）
@@ -3662,8 +4166,11 @@ def deck_page_filters(shot, th, W, H, dur, font=None, region=None):
     out.append(f"drawbox=x={rx}:y={ry}:w={max(2, int(rw * 0.004))}:h={max(10, int(rh * 0.16))}:"
                f"color={acc}@0.55:t=fill")
     print('[VF] ★VF_DECK_V1 版面：kicker=%s 标题%d行 要点%d条 数据%d块 页码=%s（区域 %dx%d@%d,%d）'
+          ' 字距=%s'
           % ('有' if kicker else '无', len(_lines), len(items), len(stats), page or '无',
-             rw, rh, rx, ry))
+             rw, rh, rx, ry,
+             ('插细空格（%dx%d）' % (_tfs, W)) if _M.get('tracked') else
+             ('不插（插了字号损失 >%.0f%%；%dx%d）' % ((1 - TRACK_MIN_RATIO) * 100, _tfs, W))))
     return [p for p in out if str(p).strip()]
 
 
@@ -3988,6 +4495,8 @@ def _deck_styled_filters(shot, th, W, H, dur, style, font=None, region=None):
     返回 filter 片段 list；白名单外的 variant 由 deck_page_filters 提前拦掉（绝不走到这里）。
     """
     _bold = font or font_bold(th)
+    # ★VF_FONTHIER_V1：主标题走标题字体族（衬线套餐）——找不到静默回落（见 font_title）
+    _tfont = font or font_title(th)
     _reg = esc_path(find_font(th.get('font', 'msyh')))
     acc = str(th.get('accent') or '0xff6b35')
     dotc = str(th.get('dot') or th.get('accent2') or acc)
@@ -4032,12 +4541,14 @@ def _deck_styled_filters(shot, th, W, H, dur, style, font=None, region=None):
     _M = {}
     _tfs = max(22, int(min(rw * 0.105, rh * 0.185)))
     for _ in range(10):
-        _lines, _t2 = fit_big_text(main, W, H, fs_max=_tfs, max_lines=2,
-                                   maxw_ratio=max(0.30, rw / float(W)),
-                                   fs_min=max(18, int(_tfs * 0.62)), one_line_max=9)
+        # ★VF_FONTHIER_V2：字距走**带判据**的 track_fit（字号损失 >10% 就不插 → 竖屏窄幅自动退回）
+        _lines, _t2, _trk = track_fit(main, W, H, fs_max=_tfs, max_lines=2,
+                                      maxw_ratio=max(0.30, rw / float(W)),
+                                      fs_min=max(18, int(_tfs * 0.62)), one_line_max=9)
         _tfs = _t2
         _M = {
             'lines': _lines,
+            'tracked': _trk,
             'kfs': max(15, int(_tfs * 0.36)),
             'sfs': max(13, int(_tfs * 0.32)),
             'ifz': max(14, int(_tfs * 0.40)),
@@ -4133,13 +4644,18 @@ def _deck_styled_filters(shot, th, W, H, dur, style, font=None, region=None):
         f"borderw={max(2, int(_tfs * 0.045))}:bordercolor={_force_alpha('black', 0.40)}:")
     _tsh = (f"shadowx=1:shadowy=1:shadowcolor={_force_alpha('black', 0.30)}:" if (glass or soft)
             else f"shadowx=2:shadowy=2:shadowcolor={_force_alpha('black', 0.38)}:")
-    _lx = _x - (int(rw * 0.035) if mag else 0)
+    # ★VF_SUSTAIN_V3 配套（2026-10-02 本机样张抓到）：mag 的"压边大标题"原来会把标题移到
+    #   内容区左侧 35px（`_x - 3.5%rw`）→ 而 ★VF_SUSTAIN_V2 的 **40px 整块浮动**在极值相位会把
+    #   左侧 ≤75px 的内容裁出画外（本机实测：magazine 样张标题第一个字被切）。
+    #   这里把压边**夹进安全边**（≥7.5%W=96px）：既保住杂志感的压边，又不会被浮动裁掉。
+    _lx = max(int(W * 0.075), _x - (int(rw * 0.035) if mag else 0))
     for _i, _ln in enumerate(_lines):
         _t_on = 0.30 + 0.18 * _i
-        out.append(
-            f"drawtext=fontfile='{_bold}':text='{esc_text(_ln)}':fontsize={_tfs}:"
-            f"fontcolor={txc}:{_tbd}{_tsh}"
-            f"x={_lx}:y={_y + _i * _tg}:alpha='min(max(t-{_t_on:.2f},0)/0.45,1){_br}'")
+        # ★VF_TEXTGRAD_V1：主标题"上浅下深"两层（与经典 deck 同口径）
+        out += text_grad_pair(
+            _ln, _tfont, _tfs, _lx, _y + _i * _tg, txc,
+            tail=(f":{_tbd}{_tsh}"
+                  f"alpha='min(max(t-{_t_on:.2f},0)/0.45,1){_br}'"))
     _y += _M['th']
 
     # ③ 副标题（一行小字）
@@ -4500,8 +5016,11 @@ def _deck_styled_filters(shot, th, W, H, dur, style, font=None, region=None):
         out.append(f"drawbox=x={rx}:y={max(0, ry - int(H * 0.025))}:w={max(30, int(rw * 0.10))}:"
                    f"h={max(3, int(H * 0.006))}:color={_force_alpha(txc, 0.55)}:t=fill")
     print('[VF] ★VF_DECK_STYLES_V1 风格=%s：kicker=%s 标题%d行 要点%d条 数据%d块 页码=%s（区域 %dx%d@%d,%d）'
+          ' 字距=%s'
           % (style, '有' if kicker else '无', len(_lines), len(items), len(stats), page or '无',
-             rw, rh, rx, ry))
+             rw, rh, rx, ry,
+             ('插细空格（%dx%d）' % (_tfs, W)) if _M.get('tracked') else
+             ('不插（插了字号损失 >%.0f%%；%dx%d）' % ((1 - TRACK_MIN_RATIO) * 100, _tfs, W))))
     return [p for p in out if str(p).strip()]
 
 
