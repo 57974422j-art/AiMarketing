@@ -15,14 +15,38 @@
  *   node render-deck.mjs <deck.json> --outdir out
  */
 import { readFileSync, writeFileSync, mkdirSync, cpSync, existsSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
+
+/* ------------------------------------------------------------------
+   退出码与机器可读总结行（ENGINE-CONTRACT.md 的"唯一真相源"在这里）
+   ★ 纪律第一条：**不许静默降级**。任何"跳页 / 缩时长 / 换母版 / 改参数"都必须报错退出。
+     所以下面所有 `|| 默认值` 形式的兜底一律改成"抛错"（strictPick），
+     并给每个失败阶段一个**独立退出码**，让服务端不用猜。
+   ------------------------------------------------------------------ */
+const EXIT = { OK: 0, USAGE: 2, VALIDATE: 3, RECONCILE: 4, RENDER: 5, INTERNAL: 6 }
+/** 机器可读总结行：服务端应解析这一行，不要用正则去猜人话日志 */
+function emitResult(obj) { console.log('RESULT ' + JSON.stringify(obj)) }
+function fail(code, stage, msg, extra = {}) {
+  console.error(`\n✗ [exit ${code} · ${stage}] ${msg}`)
+  emitResult({ ok: false, code, stage, error: msg, ...extra })
+  process.exit(code)
+}
+/** 契约枚举取值：**不许有默认值兜底**（静默降级正是要禁止的事） */
+function strictPick(map, key, what) {
+  if (!map || !Object.prototype.hasOwnProperty.call(map, key)) {
+    throw new Error(`${what} 取值非法：${JSON.stringify(key)}（可用：${map ? Object.keys(map).join(' / ') : '(空)'}）`)
+  }
+  return map[key]
+}
 import { fileURLToPath } from 'node:url'
 import { dirname, join, basename, resolve } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')                       // dist-rel/probe-hf/
 const MASTERS_DIR = join(ROOT, 'masters')              // 母版资产根：masters/<masterId>/
-const HF = join(ROOT, 'node_modules', '.bin', 'hyperframes.cmd')
+// 渲染器可执行文件：默认项目内 hyperframes；`ENGINE_HF_BIN` 可覆盖（服务端钉版本 / 故障演练用）
+const HF = process.env.ENGINE_HF_BIN || join(ROOT, 'node_modules', '.bin', 'hyperframes.cmd')
 const VALIDATOR = join(HERE, 'validate-deck.mjs')
 const FPS = 25
 
@@ -68,7 +92,7 @@ const DENSITY = {
 const PAD_DELTA = { airy: 12, normal: 0, dense: -12 }
 /** 与母版 CSS 的 calc(基准 + 增量) 同一算法 */
 function effectivePad(deck) {
-  return MF.padBase[deck.style.orientation] + (PAD_DELTA[deck.style.density] || 0)
+  return MF.padBase[deck.style.orientation] + strictPick(PAD_DELTA, deck.style.density, 'style.density')
 }
 const TEMPO = {
   'calm': { enter: 0.85, gap: 0.65, xover: 0.6 },
@@ -79,9 +103,9 @@ const TEMPO = {
 /** 生成 <style> 里的 :root 覆盖块（几何 + 配色 + 节奏） */
 function styleVars(deck) {
   const g = MF.canvas[deck.style.orientation]
-  const p = MF.paletteResolved[deck.style.palette] || Object.values(MF.paletteResolved)[0]
-  const t = TEMPO[deck.style.tempo] || TEMPO['normal']
-  const d = DENSITY[deck.style.density] || {}
+  const p = strictPick(MF.paletteResolved, deck.style.palette, `母版 ${MF.id} 的 palette`)
+  const t = strictPick(TEMPO, deck.style.tempo, 'style.tempo')
+  const d = strictPick(DENSITY, deck.style.density, 'style.density')
   const decls = [`--W:${g.w}px`, `--H:${g.h}px`, `--accent:${p.accent}`, `--accent-rgb:${p.rgb}`,
     `--enter:${t.enter}s`, `--enter-gap:${t.gap}s`, `--xover:${t.xover}s`]
   for (const [k, v] of Object.entries(d)) decls.push(`--${k}:${v}`)
@@ -275,7 +299,7 @@ function bulletsSchedule(nItems, enter, xover) {
 
 // ---------------------------------------------------------------- 页型 → HTML
 function pageHTML(p, i, n, deck) {
-  const T = TEMPO[deck.style.tempo] || TEMPO['normal']
+  const T = strictPick(TEMPO, deck.style.tempo, 'style.tempo')
   const w = pageWindow(i, n, T.xover)
   const head = `  <!-- PAGE ${i}:${p.type} -->\n  <section class="page clip" data-start="${w.start}" data-duration="${w.dur}" data-track-index="1">`
   const tail = `    <div class="progress"><i></i></div>\n  </section>\n  <!-- /PAGE ${i} -->`
@@ -624,22 +648,32 @@ function main() {
   const deckPath = args.find((a) => !a.startsWith('--'))
   const oi = args.indexOf('--outdir')
   const outRoot = oi >= 0 ? resolve(args[oi + 1]) : join(HERE, 'out')
-  if (!deckPath) { console.error('用法: node render-deck.mjs <deck.json> [--outdir out] [--no-render]'); process.exit(2) }
+  if (!deckPath) fail(EXIT.USAGE, 'usage', '缺 deck.json 路径。用法: node render-deck.mjs <deck.json> [--outdir out] [--no-render]')
 
   const deckAbs = resolve(deckPath)
-  if (!existsSync(deckAbs)) { console.error(`✗ deck 不存在: ${deckAbs}`); process.exit(2) }
-  const deck = JSON.parse(readFileSync(deckAbs, 'utf8'))
+  if (!existsSync(deckAbs)) fail(EXIT.USAGE, 'usage', `deck 不存在: ${deckAbs}`)
+  let deck
+  try { deck = JSON.parse(readFileSync(deckAbs, 'utf8')) } catch (e) { fail(EXIT.USAGE, 'usage', `deck.json 不是合法 JSON: ${e.message}`) }
+  const deckName = basename(deckAbs).replace(/\.json$/i, '')
+  const ctx = { deck: deckName, deck_path: deckAbs }
   // ---- ⓪ 母版解析：masterId 是枚举 → masters/<id>/master.json（本文件不自带母版数值）----
-  if (!MASTER_IDS.includes(deck.style.masterId)) {
-    console.error(`✗ 未知 masterId: ${deck.style.masterId}（可用: ${MASTER_IDS.join(', ')}）`)
-    process.exit(2)
+  if (!deck.style || !MASTER_IDS.includes(deck.style.masterId)) {
+    fail(EXIT.USAGE, 'master', `未知或缺失 masterId: ${JSON.stringify(deck.style && deck.style.masterId)}（可用: ${MASTER_IDS.join(', ')}）`, ctx)
   }
   MF = loadMaster(deck.style.masterId)
   if (!MF.paletteResolved[deck.style.palette]) {
-    console.error(`✗ 母版 ${MF.id} 没有配色 "${deck.style.palette}"（可用: ${Object.keys(MF.paletteResolved).join(', ')}）`)
-    process.exit(2)
+    fail(EXIT.USAGE, 'palette', `母版 ${MF.id} 没有配色 ${JSON.stringify(deck.style.palette)}（可用: ${Object.keys(MF.paletteResolved).join(', ')}）`, ctx)
   }
-  const name = basename(deckAbs).replace(/\.json$/i, '')
+  // 封面素材：**目前只支持母版自带封面**。deck 若指定了别的素材，必须报错而不是静默忽略
+  //（"能过校验但不生效"正是契约第一条禁止的事）
+  const coverPage = Array.isArray(deck.pages) ? deck.pages.find((x) => x && x.type === 'cover') : null
+  const effectiveCover = `${MF.assets}/${MF.cover}`
+  if (coverPage && coverPage.asset && coverPage.asset !== effectiveCover) {
+    fail(EXIT.USAGE, 'asset',
+      `deck 指定封面素材 ${JSON.stringify(coverPage.asset)}，但当前只支持母版自带封面 ${JSON.stringify(effectiveCover)}`
+      + `（自定义封面尚未实现 —— 明确报错，不做静默忽略）`, ctx)
+  }
+  const name = deckName
   const workdir = join(outRoot, name)
 
   // ---- ① 闸门：校验不通过 → 大声失败、绝不渲染 ----
@@ -649,7 +683,13 @@ function main() {
   if (!vr || !vr.pass) {
     console.error(`\n✗✗ 校验不通过 → 拒绝渲染（这是有意的硬闸门）\n`)
     console.error(v.stdout || v.stderr || '(校验器无输出)')
-    process.exit(1)
+    emitResult({
+      ok: false, code: EXIT.VALIDATE, stage: 'validate', ...ctx,
+      errors: vr ? vr.errorCount : null, warns: vr ? vr.warnCount : null,
+      validator_ran: !!vr,
+      detail: vr ? (vr.issues || []).filter((x) => x.level === 'error').map((x) => `${x.path}: ${x.msg}`) : ['校验器无法产出可解析结果'],
+    })
+    process.exit(EXIT.VALIDATE)
   }
   console.log(`✓ 校验通过（不达标 0 / 建议 ${vr.warnCount}）`)
 
@@ -745,15 +785,43 @@ function main() {
     console.log(`图表几何: chart-meta.json（${chartPages.length} 页 · ${chartPages[0].pg.chart.type}）`)
   }
   if (recon.missing > 0 || recon.leaks > 0 || recon.numBad > 0 || recon.chartBad > 0) {
-    console.error('✗ 对账不通过，拒绝继续'); process.exit(1)
+    console.error('✗ 对账不通过，拒绝继续')
+    emitResult({
+      ok: false, code: EXIT.RECONCILE, stage: 'reconcile', ...ctx,
+      master_id: MF.id, orientation: deck.style.orientation,
+      missing: recon.missing, num_bad: recon.numBad, chart_bad: recon.chartBad, leaks: recon.leaks,
+      detail: recon.rows.filter((r) => r.miss.length || r.foreign.length || (r.num && !r.num.ok) || (r.chart && !r.chart.ok))
+        .map((r) => `p${r.i}:${r.type}`),
+      note: '对账不通过 = 生成器缺陷信号（内容丢失/串页/图表几何与数据不符），不是 deck 内容问题',
+    })
+    process.exit(EXIT.RECONCILE)
   }
 
-  if (noRender) { console.log('(--no-render：已停在生成+对账，未渲染)'); return }
+  if (noRender) {
+    console.log('(--no-render：已停在生成+对账，未渲染)')
+    emitResult({
+      ok: true, code: EXIT.OK, stage: 'no-render', rendered: false, ...ctx,
+      master_id: MF.id, orientation: deck.style.orientation, density: deck.style.density,
+      palette: deck.style.palette, pages: n, page_s: MF.page, frames_expected: n * MF.page * FPS,
+      duration_s: total, html: htmlPath, reconcile: join(workdir, 'reconcile.md'),
+      reconcile_counts: { missing: recon.missing, num_bad: recon.numBad, chart_bad: recon.chartBad, leaks: recon.leaks },
+    })
+    return
+  }
 
   // ---- ④ 渲染（D10: --workers 1）----
+  const t0 = Date.now()
   const r = spawnSync(HF, ['render', '.', '-c', 'deck-page.html', '-o', `"${mp4}"`, '--fps', String(FPS), '--quality', 'looks', '--workers', '1'],
     { cwd: workdir, shell: true, encoding: 'utf8' })
-  if (r.status !== 0) { console.error(`✗ 渲染失败(${r.status})\n${r.stdout || ''}\n${r.stderr || ''}`); process.exit(1) }
+  const renderMs = Date.now() - t0
+  if (r.status !== 0) {
+    emitResult({
+      ok: false, code: EXIT.RENDER, stage: 'render', ...ctx,
+      master_id: MF.id, render_ms: renderMs, hyperframes_exit: r.status,
+      stderr_tail: String(r.stderr || '').trim().split('\n').slice(-6),
+    })
+    fail(EXIT.RENDER, 'render', `渲染失败（hyperframes 退出码 ${r.status}）`, ctx)
+  }
   const report = (r.stdout || '').split('\n').filter((l) => /rendered in|\.mp4/.test(l)).slice(-2).join('\n')
   console.log(report.trim())
 
@@ -772,7 +840,39 @@ function main() {
     }
   }
   console.log(`抽帧: ${n * 2} 张 → ${join(workdir, 'frames')}`)
+
+  // ---- ⑦ 产物指纹 + 机器可读总结行 ----
+  const kv = {}
+  for (const line of (p.stdout || '').trim().split('\n')) { const s = line.split('='); if (s.length === 2) kv[s[0].trim()] = s[1].trim() }
+  const frames = parseInt(kv.nb_frames || '0', 10) || n * MF.page * FPS
+  const md5 = createHash('md5').update(readFileSync(mp4)).digest('hex')
+  console.log(`RENDER total_s=${(renderMs / 1000).toFixed(2)} per_frame_ms=${(renderMs / frames).toFixed(1)} frames=${frames}`)
+  console.log(`OUTPUT md5=${md5} bytes=${readFileSync(mp4).length}`)
   console.log(`\n产物: ${mp4}`)
+  emitResult({
+    ok: true, code: EXIT.OK, stage: 'done', rendered: true, ...ctx,
+    master_id: MF.id, orientation: deck.style.orientation, density: deck.style.density,
+    palette: deck.style.palette, pages: n, page_s: MF.page, fps: FPS,
+    frames, duration_s: +kv.duration || total,
+    width: +(kv.width || 0), height: +(kv.height || 0),
+    codec: kv.codec_name || null, pix_fmt: kv.pix_fmt || null,
+    color_range: kv.color_range || null, color_space: kv.color_space || null,
+    mp4, frames_dir: join(workdir, 'frames'),
+    reconcile: join(workdir, 'reconcile.md'),
+    reconcile_counts: { missing: recon.missing, num_bad: recon.numBad, chart_bad: recon.chartBad, leaks: recon.leaks },
+    md5, render_ms: renderMs,
+  })
 }
 
-main()
+try {
+  main()
+} catch (e) {
+  // 任何未预期异常都必须给出**独立退出码 6**，不能让它以 Node 默认的 1 混进"校验不通过"
+  emitResult({
+    ok: false, code: EXIT.INTERNAL, stage: 'internal',
+    error: String((e && e.message) || e),
+    stack: String((e && e.stack) || '').split('\n').slice(0, 5).map((s) => s.trim()),
+  })
+  console.error(`\n✗ [exit 6 · internal] ${String((e && e.message) || e)}`)
+  process.exit(EXIT.INTERNAL)
+}
