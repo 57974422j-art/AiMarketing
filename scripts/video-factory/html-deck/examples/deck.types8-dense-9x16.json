@@ -1,0 +1,119 @@
+{
+  "version": "1.0",
+  "meta": {
+    "title": "HTML 动态 PPT · 能力清单",
+    "subtitle": "八种页型 · 实测数字 · 可机器校验",
+    "issuer": "AiMarketing 视频工厂",
+    "date": "2026-10",
+    "lang": "zh-CN"
+  },
+  "style": {
+    "masterId": "master-v1",
+    "palette": "warm-gold",
+    "density": "dense",
+    "tempo": "normal",
+    "orientation": "9:16"
+  },
+  "pages": [
+    {
+      "type": "cover",
+      "kicker": "CAPABILITY · 2026-10",
+      "asset": "assets/cover.jpg"
+    },
+    {
+      "type": "section",
+      "number": "01",
+      "title": "渲染层换线",
+      "subtitle": "从 ffmpeg 滤镜手画，换成 HTML 逐帧渲染"
+    },
+    {
+      "type": "bullets",
+      "title": "为什么值得换",
+      "items": [
+        "真圆角真图表真模糊都能画",
+        "同一输入同一输出可复现",
+        "与现有成片线直接拼接",
+        "改版式不改成片链路"
+      ],
+      "summary": "换的是渲染层，旁白字幕与拼接都不动"
+    },
+    {
+      "type": "chart",
+      "title": "单帧耗时对照（实测）",
+      "chart": {
+        "type": "bar",
+        "series": [
+          62.5,
+          70.5,
+          92.3,
+          29,
+          24.9
+        ],
+        "labels": [
+          "720p",
+          "720p截图",
+          "1080p",
+          "母版12s",
+          "六页18s"
+        ]
+      },
+      "unit": "ms / 帧",
+      "explain": "同一台机器上不同捕获模式与组合复杂度的单帧耗时",
+      "source": "本机 i7-12700F · chrome-headless-shell 152"
+    },
+    {
+      "type": "compare",
+      "title": "换线前后的取舍",
+      "left": {
+        "label": "现状 · 滤镜手画",
+        "points": [
+          "版式高度稳定可控",
+          "真圆角模糊画不出",
+          "改一版要素要改代码"
+        ]
+      },
+      "right": {
+        "label": "HTML 逐帧",
+        "points": [
+          "真圆角图表模糊都有",
+          "同输入同输出可复现",
+          "改版式不动成片链路",
+          "需要无头 Chrome 环境"
+        ]
+      },
+      "conclusion": "版式能力换实现复杂度，成片链路基本不动"
+    },
+    {
+      "type": "data",
+      "title": "确定性实测",
+      "metric": {
+        "number": 0,
+        "unit": "帧差异",
+        "explain": "同一份 HTML 两次渲染，逐帧比对差异为 0"
+      },
+      "secondary": [
+        {
+          "label": "MD5 完全相同",
+          "note": "字节级一致，非仅像素一致"
+        },
+        {
+          "label": "PSNR 全为 inf",
+          "note": "200 帧逐帧 mse = 0.00"
+        }
+      ]
+    },
+    {
+      "type": "quote",
+      "quote": "同一输入产出同一字节，是回归测试能被信任的前提。",
+      "author": "本机探针结论",
+      "context": "2026-10-02 · 200 帧逐帧比对"
+    },
+    {
+      "type": "end",
+      "line1": "八种页型已经能真画出来",
+      "line2": "契约与校验器同步到位",
+      "cta": "下一步：把母版从 1 套扩到 6 套",
+      "en": "EIGHT PAGE TYPES · MEASURED · MACHINE-CHECKED"
+    }
+  ]
+}

@@ -572,6 +572,14 @@ settledAt = min( max(本页入场收尾 = data-start + max(data-at) + 0.6, 页�
 ⇒ 因此：**溢出**用引擎 `check --at <各页 settledAt>` 取回稳定帧几何做判定（原采样时刻的 findings 只当**线索**）；
 **对比度**用元素自身 `rect` 在**闸门当场自产**的稳定帧上实测。两套判据同口径，**一处维护**（`timingTable` / `transitionAt` / `settledAtForImpl`）。
 
+### 24.2 闸门归属（谁跑什么，**别混**）
+| 闸门 | 内容 | 预算 | 何时跑 |
+|---|---|---|---|
+| **部署闸门** `--deploy` | 两档（v1/v2 `deck.all12`）check | **≈51s**（实测 50.7~51.5s） | 每次部署 |
+| **全矩阵 / 发版闸门** | `check-coverage-matrix.mjs`（≈171s，**独立**）＋ 17 档判据（≈348s） | **≈8.6 分钟** | **发版前必跑**（写进发版清单） |
+> 覆盖矩阵**不进部署闸门**（171s ≫ 60s 预算）⇒ 现为**独立闸门**；3 个配色缺口清完后，由**发版路径**调用（不并入部署路径）。
+> 排除清单 = `exclude-coverage.json`（**逐条写"目录 + 为什么"**；矩阵强制"被排除的档必须有条目" ⇒ **不许静默排除**）。
+
 ### 24.2 部署闸门：**两档** + **唯一入口**
 `--at` 稳定帧让**全矩阵**闸门到 **348.2s（17 档）≈ 5.8 分钟** ⇒ **不适合每次部署**。
 
@@ -669,6 +677,28 @@ scripts/video-factory/html-deck/
 
 ---
 
+## 25a. **报告/日志禁止过滤失败输出**（K15 家族第三次后的硬规矩）
+
+**规矩**：报告与日志里**不许把失败信息过滤掉** —— 命令的 `stderr`/失败原因必须**原样保留**；
+确需截断时要**明确标注"已截断"**（并给出可复现命令）。
+**理由（三次踩坑）**：① 我用 PowerShell 写坏命令 ⇒ "命令坏了"被读成"零命中"；② 我把 `stderr_tail` 用 `✗|对账` 过滤掉 ⇒ 真正的引擎报错（`'hyperframes' is not recognized`）看不见，白查一轮；③ 反向：只看"看起来的零命中"下结论。
+**配套**：任何扫描/闸门的结论必须写**两件事** —— `命令 exit=0` **且** `命中数 = N`（见 K15）。
+> 落地：本仓库所有命令输出**保留失败行**；报告贴"关键行 + exit 码"，不贴"筛过的漂亮行"。
+
+---
+
+## 25b. **K18：依赖运行态文件的判据 = 不稳定判据**（team-lead 拍板入坑表）
+
+**事故**：根目录白名单断言把 `.gate-transient-state.json`（**闸门自己每次运行写出的状态文件**）判为"多出的杂项"⇒
+**同一份代码，判据随"跑了没跑闸门"而红/绿** ✗。我一度报 `exit=0`、team-lead 复跑得 `exit=1` —— 差别只在**时间窗**
+（我先移走文件、之后某次运行又写回；我的那次恰在两个事件之间）✗。
+**规矩**：
+1. **判据只依赖"源 + 产物"，不依赖"上一动留下的运行态"**；运行态文件必须写在**仓库之外**（本项目 = 系统临时目录 `<tmp>/html-deck-gate/`）；
+2. **"上次为什么绿"必须答到时间窗级别**（"当时它恰好不在场"= 时间窗巧合，不是稳定绿）；
+3. 新增任何"扫目录/看文件"的断言，**必须先在真源上连跑多次（含"中间跑一次别的闸门"）都绿**才算成立。
+
+---
+
 ## 25. 两条恢复/同步纪律（K13 事故的直接产物）
 
 1. **`docs/` 同步副本的时序 = "验证通过之后才同步"**：同步副本就是**备份**（K13 里正是它救回了 4 个脚本）；
@@ -678,6 +708,61 @@ scripts/video-factory/html-deck/
    （例：`check-engine-lint` 应有 `GATE-RESULT`/`pixel_skipped`/`settledAt`；`check-master-manifest` 真跑应仍 **PASS 362 条断言**）。
 
 > 关联：**K13**（shell 批量文本手术改坏脚本）· **K14**（闸门输入范围过宽 ⇒ 注释里的符号假红；判据必须建在**产物**上，源码侧只预警）。
+
+---
+
+## 22b. 证据目录登记（`tmp-k17/` · `tmp-rendercheck/`）
+
+### 22b.0 总表（team-lead 要求收敛成一张表 —— 以后**只查这里**）
+
+> 📁 **路径已更新（2026-10-03，遵循"根目录白名单"硬要求）**：下表所有测试/证据目录**已移入 `evidence/`** ——
+> `evidence/tmp-k17/` · `evidence/tmp-rendercheck/` · `evidence/tmp-flat/` · `evidence/tmp-bright/` · `evidence/tmp-env/`；
+> 证据图 `frames-compare-v1-v2.png` 与 3 个瞬时失败留证（`transient-deck.*.txt` · `.gate-transient-state.json`）在 **`evidence/` 与 `evidence/transient-failures/`**。
+> 复跑命令里的 `./tmp-*` 请相应改为 `./evidence/tmp-*`；断言：`node gate-release.mjs --whitelist-only`（根目录只许白名单 ⇒ 多一个即红）。
+
+| 目录名 | 是什么 | 何时生成 | 为什么保留 | 复跑命令 |
+|---|---|---|---|---|
+| `tmp-k17/a/` | K17 断言负向自证：**含标记**的定义副本 | 2026-10-03（断言补强后） | 证明"定义只许一处"**能失败**（期望 exit 2 · 标记 2 · 实质 2） | `node -e "import('./tmp-k17/a/engine-bin.mjs')"` |
+| `tmp-k17/b/` | 同上，但**只复制候选数组代码、不带标记** | 同上 | **关键**：期望 exit 2 而**标记=1 · 实质=2** ⇒ 证明断言测**代码实质**、不是"数注释" | `node -e "import('./tmp-k17/b/engine-bin.mjs')"` |
+| `tmp-rendercheck/` | "真渲染路径"验证产物（`deck.master-v1`：成片 1948.6KB + `frames/` 8 张 + `reconcile.md`） | 2026-10-03（改过 `engine-bin.mjs` 之后） | K17 教训：部署闸门走 `--no-render` ⇒ 渲染路径**从没被测过**；这是唯一一次真渲染证据 | `node render-deck.mjs examples/deck.master-v1.json --outdir tmp-rendercheck` |
+| `tmp-flat/` | `flat` 布局分支工程内模拟（`paths.mjs` 副本 + `masters/` + `fonts/` + `examples/` + `deck.schema.json`） | 2026-10-03（迁移前"不许盲搬"） | `flat` 分支**唯一可跑证据**（搬迁后才发现 bug 的回滚成本高）；且它自带副本 ⇒ 真源仍 `bridge-dev`（隔离性同时成立） | `node -e "import('./tmp-flat/paths.mjs').then(m=>m.selfCheck())"` ⇒ `布局 = flat` · exit 0 |
+| `tmp-bright/` | "最亮素材"最坏情况验收（均匀近白 `#F2F0EB` + `deck.bright.json` / `deck.bright-v1.json`） | 2026-10-03（小字令牌整改期间） | v1/v2 最坏情况**双 PASS** 的证据；待转正为常驻闸门资产（独立基线，不动 `check-examples`） | `node render-deck.mjs tmp-bright/deck.bright.json --outdir tmp-bright` + `node check-engine-lint.mjs tmp-bright/deck.bright --assert-contrast` |
+| `tmp-env/` | `check-examples` 的 env 冒泡自证桩（`validator-exit2.mjs`，故意 exit 2） | 2026-10-03（K16/K15 家族修法） | 证明 **子进程 exit 2 ⇒ 本脚本 exit 2 + "不是基线回归"**（不许伪装成基线偏离） | `set DECK_VALIDATOR=…\tmp-env\validator-exit2.mjs && node check-examples.mjs` ⇒ 期望 exit 2 |
+| `out/_diag-lr/` | 竖屏 `left/right` 媒体带左右差分（见 §22） | 第十批（修 v2 描边**之前**） | 坑 26 现场图；安全删除守卫拒过一次 ⇒ 不删只登记 | 见 §22 |
+
+> ⚠️ 全部**只读保留、不许删**（`Remove-Item -Recurse` 会被审批守卫拦下）；以下各节是**详述**（总表为准）。
+
+**`tmp-k17/`（K17 断言"**能失败**"的负向自证）**
+- **是什么**：`a/`（含标记的定义副本 `dup.mjs` + 刷新的 `engine-bin.mjs`）· `b/`（`engine-bin.mjs` + **只复制候选数组代码、不带标记**的 `naked.mjs`）
+- **何时生成**：2026-10-03（team-lead 指出"只数注释可绕过"⇒ 补强断言后）
+- **为什么保留**：**"能失败"的证据**；`b` 是关键 —— **标记=1 · 实质=2 ⇒ exit 2**，证明断言测的是**代码实质**而不是注释
+- **注意**：断言扫描**只读顶层文件（不递归）** ⇒ `tmp-k17/` 不进真源检测（真源恒为 标记 1 / 实质 1 ⇒ exit 0）
+- 复跑：`node -e "import('./tmp-k17/b/engine-bin.mjs')"` ⇒ 期望 **exit 2**
+
+**`tmp-rendercheck/`（"真渲染路径"验证产物）**
+- **是什么**：`deck.master-v1/`（成片 `output-deck.master-v1.mp4` **1948.6KB** + `frames/` 8 张 + `reconcile.md`）
+- **何时生成**：2026-10-03（改过 `engine-bin.mjs` 之后；K17 的教训正是"部署闸门走 `--no-render` ⇒ 渲染路径从没被测过"）
+- **为什么保留**：它是**真渲染（非 `--no-render`）** 唯一一次证据 —— **不许删**
+- **实测不被计入渲染目标**（不靠推断）：`node check-coverage-matrix.mjs` ⇒ exit=0 · 输出里 `tmp-rendercheck` 命中 **0**、`deck.master-v1` 命中 **0**；代码事实 = 目标枚举 `readdirSync(join(HERE,'examples')).filter(*.json)`
+
+**`tmp-flat/`（`flat` 布局分支的工程内模拟 —— 迁移前必须先证它可跑）**
+- **是什么**：`paths.mjs` 副本 + `masters/` + `fonts/` + `examples/` + `deck.schema.json`（后四者只需存在）
+- **何时生成**：2026-10-03（team-lead 要求"**不许盲搬**：flat 从没被真实执行过"）
+- **为什么保留**：**flat 分支唯一的可跑证据**（搬迁失败会在"已搬完"之后才发现，回滚成本高）
+- **实测**：`node -e "import('./tmp-flat/paths.mjs').then(m=>m.selfCheck())"` ⇒ `布局 = flat` · `ENGINE_ROOT/DECK_DIR/MASTERS_DIR/FONTS_DIR/EXAMPLES_DIR/SCHEMA` **全部落在 `tmp-flat` 下** · **exit=0** ✓
+- **隔离性**：`tmp-flat/` 自带一份 `paths.mjs` **副本**（`DECK_DIR` = 它自己）⇒ 真源 `selfCheck` 仍打印 **`布局 = bridge-dev`** · exit=0 ✓（**在 tmp-flat 存在的前提下**同时成立 ⇒ 比"删掉再验"更强的证据）
+- ⚠️ **未删**：`Remove-Item -Recurse` 被审批守卫拦下（超时取消）⇒ 按"**不许删、只登记**"处理；**它是子目录 + 自带副本，不影响真源**（复跑已证）
+
+## 22c. 有意变更清单（v2 CSS 三处，**不是静默像素漂移**）
+
+| 变更 | 为什么 | 证据 |
+|---|---|---|
+| `.p8-mark` → `font-size: 34px; line-height: 62px` | 引用页装饰引号是 62×62 块，70px 字形度量盒 70×101 **溢出** | **A/B**：70px ⇒ FAIL（`rect 70×101`）· 34px ⇒ PASS（20/20 全白名单） |
+| `--ink-faint` → `--ink-dim` ×3（`.p6-explain`/`.p6-src`/`.p8-context`/两条 `--t-tiny`） | 信息性小字必须 ≥4.5:1；实测 `--ink-faint` = v1 **3.75** / v2 **2.8** ⇒ 真缺陷 | 令牌对账 + 全矩阵复测 17/17 PASS |
+| `.ch-tick` → `fill: var(--ink-dim)`（**两套母版**） | 图表刻度是**信息性**小字，原 `--ink-faint` 不够 | 同上；`out/deck.all12` 装饰豁免 1 + 待修 0 ⇒ PASS |
+
+**受影响档（因果）**：两套母版的 CSS 都改过 ⇒ **受影响面 = 含"图表刻度 / 解释来源 / 上下文行 / 数据页次指标 / 引用页装饰引号"页型的档**（`types8` / `all12` / `charttypes` 三族 × 横竖屏 × 两母版）。
+**已实测的具体影响**：`deck.all12-master-v2` `73CD8776…` → **`936428BA…`**（产物里 `steel` 出现 **0** 次、`53,104,143` 出现 **0** 次 ⇒ **与 steel 改色无关**，是本清单所致）· `deck.all12-palette-indigo` `9B3838BC…` / `-violet` `1AFC3121…` **未变** · `deck.all12-palette-steel` `178AFD53…` → **`998EA2E6…`**（steel 修色，新值 `#35688f`/`53,104,143` 已注入产物 `index.html` L8 ✓）
 
 ---
 

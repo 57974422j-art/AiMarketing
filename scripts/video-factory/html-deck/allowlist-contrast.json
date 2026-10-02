@@ -1,0 +1,45 @@
+{
+  "_note": "对比度白名单：**只收纯装饰**（`kind: \"decorative\"`）。判据口径 = `contrast findings − 装饰豁免 = 0`，其中**每条非装饰 finding 一律并列双测**：报「引擎采样时刻 ratio」＋「该元素在**稳定帧**上的 rect 实测 ratio」，**判定以稳定帧为准**（见 check-engine-lint.mjs）。★『引擎采样假阳性』**不做逐条豁免**：采样与页边界结构性不对齐是引擎特性，故改为**系统性修法**（稳定帧 + 元素 rect + 程序化过渡判定），`sampling-artifact` 段必须恒为 **0**；硬规矩：该段 ≥2 条即说明系统性修法失效，必须回头改判据而不是加条目。",
+  "kindRule": {
+    "decorative": "设计上就是装饰（不承载任何信息）：必须给 ① 文本摘录证明无信息 ② ariaHiddenGrep，闸门真的去产物 HTML 里 grep，找不到即红。",
+    "sampling-artifact": "**已废弃路径**（恒为空）：判据已改为『稳定帧为准 + 程序化过渡窗口判定』；条目出现在这里即为回归信号。"
+  },
+  "settledFrameContract": {
+    "settledAt": "min( max(本页入场收尾 = start + max(data-at) + 0.6, 页长 × 60%), 下一页淡入前 − 0.15s )",
+    "assertions": [
+      "settledAt 必须落在本页 [start, start+duration) 内",
+      "settledAt 距下一页淡入（下一页 data-start）必须 ≥ 0.15s",
+      "违反任一条 ⇒ **红**（不许静默回退到别的时刻）"
+    ],
+    "why": "取 mid-page 会踩坑：晚入场元素此刻还没出现（实测 t=16.5 时该行区域为空白 ⇒ 1.01:1）。"
+  },
+  "allow": [
+    {
+      "kind": "decorative",
+      "code": "contrast_aa_failure",
+      "selector": "section:nth-of-type(9) > div:nth-of-type(2)",
+      "className": "p8-mark",
+      "reason": "引用页的**装饰性大引号字形**（纯图形）。设计上就是 rgba(var(--accent-rgb), .17) 的极淡字形（v1 实测 1.36:1）；提高不透明度会破坏设计，且它不承载任何信息。",
+      "noInformation": "产物 HTML 里该元素的**全部文本**就是一个引号字符「“」（装饰标点）；正文引语在 .p8-quote（--ink，高对比）里。",
+      "ariaHidden": true,
+      "ariaHiddenGrep": "<div class=\"p8-mark\" aria-hidden=\"true\"",
+      "evidence": "v1：out/deck.all12 t=26 ratio=1.36 · out/deck.all12-9x16 t=26 ratio=1.37；v2 的同一元素是**强调色实底方块 + --bg 字形**（≈8:1）故本就不失败 ⇒ 本条目实际只对 v1 生效。"
+    }
+  ],
+  "samplingArtifact": [],
+  "_rejected": [
+    {
+      "className": "p5-num",
+      "selector": "section:nth-of-type(6) > div:nth-of-type(4)",
+      "why": "**错误归因（已撤回）**：我曾判定红点是 `.p5-num` 并把 v2 `opacity: .2 → .45`，但（a）该档 MD5 一字未变、（b）点名修好后显示红点是 `.p7-concl`、（c）`.p5-num` 的 L308 本就是生效值。⇒ opacity 已**回滚为 .2**（无谓的视觉改动不做），CSS 里留了诚实记录。"
+    },
+    {
+      "className": "p7-concl",
+      "why": "**成因更正 ①：是「页尾交叉淡入」，不是「入场淡入」**。我先前说『第 6 页 17.5s 才开始』是错的：第 6 页是 14.75–18.25，而**下一页 17.75 就开始淡入**，t=18 落在**页边界混合帧**里（坑 23 那条 S+2.75 规则，这次发生在**引擎自己的采样器**中）。引擎自带 `bg=rgb(97,97,98)`（≠ 母版底 `#f5f6f8`）即为佐证。⇒ 不豁免，改为**系统性修法**（稳定帧为准 + 程序化过渡判定）；工具输出文案也同步改为『过渡帧 / 页尾交叉淡入』。"
+    },
+    {
+      "className": "p7-concl",
+      "why": "**成因更正 ②：我的第一版 rect 实测得 1.01:1 是抽帧时刻取错**（取在**页中点 t=16.5**，而该行是**晚入场元素**，此刻还没出现 ⇒ 测到空白带）。改为程序化 settledAt（= max(入场收尾, 页长×60%)，夹在下一页淡入前 0.15s）⇒ t=16.900 ⇒ **元素 rect 实测 7.26:1**（比原手工带的 15.58 更严）。此错误作为『取帧时刻』类坑的实例留档。"
+    }
+  ]
+}

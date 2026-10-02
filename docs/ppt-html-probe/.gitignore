@@ -1,0 +1,17 @@
+# HTML deck 引擎目录级 .gitignore（提交前前置；防"跑一次渲染/闸门就弄脏仓库"）
+
+# ① materialize 出来的母版字体副本（**构建产物**；真源永远是 fonts/ —— 那 2 个必须进库）
+masters/*/assets/*.woff2
+
+# ② 渲染产物（可重生成；闸门/判据的操作对象）
+out*/
+out-master-v2/
+
+# ③ 本机证据（测试/证据目录，不入库）
+evidence/
+
+# ④ 运行态（闸门状态/瞬时留证；当前实现写在系统临时目录，这里是兜底声明）
+.state/
+
+# ⑤ 依赖（入库后 `npm i`）
+node_modules/

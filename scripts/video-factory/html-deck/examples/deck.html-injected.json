@@ -1,0 +1,51 @@
+{
+  "version": "1.0",
+  "meta": {
+    "title": "动态 PPT 母版 v1",
+    "subtitle": "HTML 驱动 · 逐帧可 seek · 与现有成片无缝拼接",
+    "issuer": "AiMarketing 视频工厂",
+    "date": "2026-10",
+    "lang": "zh-CN"
+  },
+  "style": {
+    "masterId": "master-v1",
+    "palette": "warm-gold",
+    "density": "normal",
+    "tempo": "normal",
+    "orientation": "16:9"
+  },
+  "pages": [
+    { "type": "cover", "kicker": "AIMARKETING · 视频工厂", "asset": "assets/cover.jpg" },
+    {
+      "type": "bullets",
+      "title": "这套母版解决什么",
+      "items": [
+        "<div class=\"row\">一页一套时间轴，按帧精确定位</div>",
+        "母版参数化，AI 只在参数里取值",
+        "同一输入同一输出，字节级可复现",
+        "与现有 ffmpeg 成片直接拼接成条"
+      ],
+      "summary": "四页型覆盖封面、要点、数据与收尾，一套动效贯穿全片"
+    },
+    {
+      "type": "data",
+      "title": "实测性能 · 本机 12 核 未用服务器",
+      "metric": {
+        "number": 82,
+        "unit": "ms / 帧",
+        "explain": "<span style=\"opacity: 0.8\">单帧平均渲染耗时</span>"
+      },
+      "secondary": [
+        { "label": "34 镜 ≈ 7 分钟", "note": "720p 单进程估算，含每镜启动开销" },
+        { "label": "两次渲染 MD5 相同", "note": "200 帧 PSNR 全为 inf，字节级可复现" }
+      ]
+    },
+    {
+      "type": "end",
+      "line1": "四页型母版已经跑通",
+      "line2": "可直接接入出片链路",
+      "cta": "color: #ffffff; 下一步：把母版参数接进分镜契约",
+      "en": "HTML-DRIVEN SLIDES · FRAME-ACCURATE · DETERMINISTIC"
+    }
+  ]
+}
