@@ -260,3 +260,60 @@ body.p .p7-points li { padding: 7px 0 7px 18px; }
 body.p .p7-concl { bottom: calc(var(--pad) + 22px); font-size: var(--t-small); }
 body.p .p8-quote { font-size: 31px; top: calc(var(--pad) + 142px); }
 body.p .p8-mark { font-size: 120px; }
+
+/* ============================================================
+   新增页型 11~12（本轮 10 → 12）：图片 / 步骤
+   ★ 所有选择器都带 .p9 / .p10 前缀 —— 绝不能出现能匹配到已有页型的裸选择器，
+     否则会改动已批准产物的字节（母版改动必须做字节回归）。
+   ============================================================ */
+
+/* ---------- P9 图片页 ---------- */
+.p9-media { position: absolute; overflow: hidden; background: var(--bg2); }
+.p9-media > img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.p9-copy { position: absolute; }
+.p9-kicker { font-size: var(--t-tiny); letter-spacing: .22em; color: var(--accent); text-transform: uppercase; }
+.p9-title { margin-top: 20px; font-family: var(--serif); font-weight: 800; font-size: var(--t-h2); line-height: 1.26; color: var(--ink); }
+.p9-caption { margin-top: 20px; font-size: var(--t-small); line-height: 1.6; color: var(--ink-dim); }
+.p9-head .rule { margin-bottom: 0; }
+
+/* left / right：出血面板 + 对侧文案 */
+.p9--left .p9-media { left: 0; top: 0; width: 46%; height: 100%; }
+.p9--left .p9-copy { left: calc(46% + 56px); right: var(--pad); top: calc(var(--pad) + 48px); }
+.p9--right .p9-media { right: 0; top: 0; width: 46%; height: 100%; }
+.p9--right .p9-copy { left: var(--pad); right: calc(46% + 56px); top: calc(var(--pad) + 48px); }
+
+/* full：满幅压字 + **渐隐底衬**（我们的规矩：不用实心黑框） */
+.p9--full .p9-media { left: 0; top: 0; width: 100%; height: 100%; }
+.p9-full-scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 64%; pointer-events: none;
+  background: linear-gradient(to top, rgba(0,0,0,.80) 0%, rgba(0,0,0,.55) 32%, rgba(0,0,0,.20) 66%, rgba(0,0,0,0) 100%); }
+.p9--full .p9-copy { left: var(--pad); right: var(--pad); top: auto; bottom: calc(var(--pad) + 30px); }
+/* ★ 压字时文字颜色**强制浅色**、不跟随母版 --ink —— 浅色母版若用深字会直接读不出。
+   这是"全幅图文"的对比度规矩：靠渐隐底衬保证对比度，不靠实心底框。 */
+.p9--full .p9-title, .p9--full .p9-caption { color: #f4f2ef; }
+.p9--full .p9-kicker { color: #ecdfc8; }
+.p9--full .p9-head .rule { background: #f4f2ef; }
+
+/* ---------- P10 步骤页 ---------- */
+.p10-head { position: absolute; left: var(--pad); top: var(--pad); }
+.p10-head .rule { margin-bottom: 22px; }
+.p10-list { position: absolute; left: var(--pad); top: calc(var(--pad) + 118px);
+  width: calc(100% - var(--pad) * 2 - 24px); list-style: none; }
+.p10-list li { position: relative; display: flex; align-items: baseline; gap: 22px; padding: 16px 0; }
+.p10-list .n { font-family: var(--serif); font-weight: 800; font-size: 34px; line-height: 1; color: var(--accent); min-width: 54px; }
+.p10-list .t { font-size: var(--t-body); line-height: 1.5; color: var(--ink); }
+/* 步骤之间的竖向连接线（第 1 条不画） */
+.p10-list li + li::before { content: ""; position: absolute; left: 23px; top: -16px; width: 1px; height: 24px; background: var(--rule); }
+/* index=dot：序号改成强调色圆点 */
+.p10-list--dot .n { font-size: 0; min-width: 24px; }
+.p10-list--dot .n::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: var(--accent); }
+.p10-list--dot li + li::before { left: 5px; }
+
+/* ---------- 竖屏 9:16 覆盖（新页型） ---------- */
+body.p .p9-media { left: 0; right: 0; top: 0; width: 100%; height: 42%; }
+body.p .p9-copy { left: var(--pad); right: var(--pad); top: 48%; }
+body.p .p9-title { font-size: var(--t-h2); }
+body.p .p9--full .p9-copy { top: auto; bottom: calc(var(--pad) + 30px); }
+body.p .p9--full .p9-full-scrim { height: 58%; }
+body.p .p10-list { top: calc(var(--pad) + 138px); }
+body.p .p10-list li { padding: 15px 0; gap: 18px; }
+body.p .p10-list .t { font-size: var(--t-small); }

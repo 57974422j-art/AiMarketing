@@ -93,6 +93,47 @@ const BASELINE = [
     desc: '同上 · master-v2 + azure',
     exit: 0, errors: 0, warns: 0,
   },
+  // ---- 页型 11~12：图片 / 步骤（12/12 收口）----
+  {
+    file: 'examples/deck.all12.json',
+    desc: '12 页整片：12 种页型全用上（应全达标）',
+    exit: 0, errors: 0, warns: 0,
+  },
+  {
+    file: 'examples/deck.img3.json',
+    desc: '图片页三种版式 left/right/full（应全达标）',
+    exit: 0, errors: 0, warns: 0,
+  },
+  {
+    file: 'examples/deck.bad-image-missing.json',
+    desc: '图片页：素材文件不存在',
+    exit: 1, errors: 1, warns: 0,
+  },
+  {
+    file: 'examples/deck.bad-image-video.json',
+    desc: '图片页：给了视频素材（须暴露"入口统一转码"接口）',
+    exit: 1, errors: 1, warns: 0,
+  },
+  {
+    file: 'examples/deck.bad-image-short.json',
+    desc: '图片页：标题 <4 字 + 图注 <8 字',
+    exit: 1, errors: 2, warns: 0,
+  },
+  {
+    file: 'examples/deck.bad-steps-2.json',
+    desc: '步骤页：只有 2 条',
+    exit: 1, errors: 1, warns: 0,
+  },
+  {
+    file: 'examples/deck.bad-steps-7.json',
+    desc: '步骤页：有 7 条',
+    exit: 1, errors: 1, warns: 0,
+  },
+  {
+    file: 'examples/deck.bad-steps-short.json',
+    desc: '步骤页：某一步只有 1 字',
+    exit: 1, errors: 1, warns: 0,
+  },
 ]
 
 function run(file) {

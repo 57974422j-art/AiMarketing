@@ -1,0 +1,74 @@
+{
+  "version": "1.0",
+  "meta": {
+    "title": "HTML 动态 PPT 探针结论",
+    "subtitle": "从 HTML 到成片，每一步都有实测数字支撑",
+    "issuer": "AiMarketing 视频工厂",
+    "date": "2026-10",
+    "lang": "zh-CN"
+  },
+  "style": {
+    "masterId": "master-v1",
+    "palette": "clay",
+    "density": "normal",
+    "tempo": "normal",
+    "orientation": "16:9"
+  },
+  "pages": [
+    { "type": "cover", "kicker": "PROBE REPORT · 2026-10", "asset": "assets/cover.jpg" },
+    {
+      "type": "bullets",
+      "title": "为什么换成 HTML 动态页",
+      "items": [
+        "滤镜手画已到观感天花板",
+        "HTML 能画真圆角真图表真模糊",
+        "同一输入同一输出，逐帧可复现",
+        "与现有成片线能直接拼接成条"
+      ],
+      "summary": "换的是渲染层，成片链路与旁白字幕都不动"
+    },
+    {
+      "type": "data",
+      "title": "渲染耗时 · 本机 12 核",
+      "metric": {
+        "number": 12.5,
+        "unit": "秒",
+        "explain": "1280×720 八秒片单进程渲染墙钟耗时"
+      },
+      "secondary": [
+        { "label": "82 ms / 帧", "note": "1920×1080 单帧平均（引擎自报）" },
+        { "label": "34 镜 ≈ 7 分钟", "note": "720p 单进程估算，含每镜启动开销" }
+      ]
+    },
+    {
+      "type": "bullets",
+      "title": "已经踩实的三条底线",
+      "items": [
+        "两次渲染 MD5 完全一致",
+        "无头浏览器 seek 帧级正确",
+        "concat 直接拼进现有成片"
+      ],
+      "summary": "三条都有抽帧与数字证据，可查可复现"
+    },
+    {
+      "type": "data",
+      "title": "素材与色彩的硬约束",
+      "metric": {
+        "number": 4,
+        "unit": "类格式",
+        "explain": "无头浏览器不支持的素材：mov / avi / ts / HEVC"
+      },
+      "secondary": [
+        { "label": "饱和色偏 17%", "note": "无标签素材经 HTML 线渲染后" },
+        { "label": "bt709 + tv 写死", "note": "入口转码时显式转换并声明" }
+      ]
+    },
+    {
+      "type": "end",
+      "line1": "HTML 动态 PPT 链路已经跑通",
+      "line2": "只差接进分镜契约",
+      "cta": "下一步：把生成器接进成片流程",
+      "en": "MEASURED · DETERMINISTIC · STITCHABLE"
+    }
+  ]
+}

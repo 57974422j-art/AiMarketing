@@ -301,7 +301,9 @@ function bulletsSchedule(nItems, enter, xover) {
 function pageHTML(p, i, n, deck) {
   const T = strictPick(TEMPO, deck.style.tempo, 'style.tempo')
   const w = pageWindow(i, n, T.xover)
-  const head = `  <!-- PAGE ${i}:${p.type} -->\n  <section class="page clip" data-start="${w.start}" data-duration="${w.dur}" data-track-index="1">`
+  // 只有"图片页"需要把版式类挂到 section 上（其余页型 extraCls 为空 ⇒ 输出字节不变）
+  const extraCls = p.type === 'image' ? ` p9--${p.layout}` : ''
+  const head = `  <!-- PAGE ${i}:${p.type} -->\n  <section class="page clip${extraCls}" data-start="${w.start}" data-duration="${w.dur}" data-track-index="1">`
   const tail = `    <div class="progress"><i></i></div>\n  </section>\n  <!-- /PAGE ${i} -->`
 
   if (p.type === 'cover') {
@@ -486,6 +488,43 @@ function pageHTML(p, i, n, deck) {
     ].filter((x) => x !== '').join('\n')
   }
 
+  // ---------- 新增页型 11~12：图片 / 步骤 ----------
+  if (p.type === 'image') {
+    // 素材已被拷进产物的 assets/（见 main），引用它的 basename
+    const src = `${MF.assets}/${basename(p.asset)}`
+    return [
+      head,
+      `    <div class="p9-media" data-anim="push" data-at="0.12"><img src="${src}" alt="" /></div>`,
+      p.layout === 'full' ? `    <div class="p9-full-scrim"></div>` : '',
+      `    <div class="p9-copy">`,
+      p.kicker ? `      <div class="p9-kicker" data-anim="rise" data-at="0.34">${esc(p.kicker)}</div>` : '',
+      `      <div class="p9-head"><div class="rule" data-anim="rule" data-at="0.40"></div></div>`,
+      `      <h2 class="p9-title" data-anim="rise" data-at="0.50">${esc(p.title)}</h2>`,
+      p.caption ? `      <p class="p9-caption" data-anim="rise" data-at="0.98">${esc(p.caption)}</p>` : '',
+      `    </div>`,
+      tail,
+    ].filter((x) => x !== '').join('\n')
+  }
+
+  if (p.type === 'steps') {
+    const dot = p.index === 'dot'
+    const gap = Math.min(0.40, 1.37 / Math.max(1, p.steps.length - 1))
+    const lis = p.steps.map((t, k) => `      <li data-anim="rise" data-at="${(0.58 + k * gap).toFixed(3)}">`
+      + `<span class="n">${k + 1}</span><span class="t">${esc(t)}</span></li>`).join('\n')
+    return [
+      head,
+      `    <div class="tex"></div>`,
+      `    <div class="p10-head">`,
+      `      <div class="rule" data-anim="rule" data-at="0.30"></div>`,
+      `      <h2 class="h2" data-anim="rise" data-at="0.38">${esc(p.title)}</h2>`,
+      `    </div>`,
+      `    <ul class="p10-list${dot ? ' p10-list--dot' : ''}">`,
+      lis,
+      `    </ul>`,
+      tail,
+    ].join('\n')
+  }
+
   throw new Error(`render-deck: 未支持的页型 "${p.type}"（schema 与生成器不同步）`)
 }
 
@@ -560,6 +599,13 @@ function pageStrings(p, deck) {
   } else if (p.type === 'summary') {
     push('summary.title', p.title); p.items.forEach((t, k) => push(`summary.items[${k}]`, t))
     push('summary.closing', p.closing)
+  } else if (p.type === 'image') {
+    push('image.title', p.title); push('image.kicker', p.kicker); push('image.caption', p.caption)
+    // ★ image.asset 不列入本表：它是 `<img src>` 的**属性值**（不是文本节点），
+    //   列入只会得到"命中属性字符串"这种弱证据。它由 verify-image.mjs **从像素证明"素材真上屏"**。
+  } else if (p.type === 'steps') {
+    push('steps.title', p.title)
+    p.steps.forEach((t, k) => push(`steps.steps[${k}]`, t))
   }
   return out
 }
@@ -701,6 +747,17 @@ function main() {
   cpSync(MF.assetsRoot, assetsDir, { recursive: true })
   const hfName = MF.hyperframes || 'hyperframes.json'
   cpSync(join(MF.dir, hfName), join(workdir, hfName), { force: true })
+  // 图片页素材：从 deck 目录拷进产物目录（自包含）。素材缺失**在生成期就炸**，绝不渲成黑屏。
+  const deckDirAbs = dirname(deckAbs)
+  const imgPages = deck.pages.map((pg, i) => ({ pg, i })).filter((x) => x.pg && x.pg.type === 'image')
+  for (const { pg } of imgPages) {
+    const abs = resolve(deckDirAbs, pg.asset)
+    if (!existsSync(abs)) {
+      throw new Error(`图片页素材不存在：${abs}（deck 里写的是 ${JSON.stringify(pg.asset)}，相对 deck 文件解析）`)
+    }
+    cpSync(abs, join(assetsDir, basename(abs)), { force: true })
+  }
+
   const htmlPath = join(workdir, 'deck-page.html')
   writeFileSync(htmlPath, buildHTML(deck), 'utf8')
 
@@ -784,6 +841,21 @@ function main() {
     }, null, 2), 'utf8')
     console.log(`图表几何: chart-meta.json（${chartPages.length} 页 · ${chartPages[0].pg.chart.type}）`)
   }
+  // 图片页几何元数据 → 供 verify-image.mjs 做"素材真上屏 + 全幅压字对比度"的独立校验
+  if (imgPages.length) {
+    const o = deck.style.orientation
+    writeFileSync(join(workdir, 'image-meta.json'), JSON.stringify({
+      deck, masterId: MF.id, orientation: o, pad: effectivePad(deck), canvas: MF.canvas[o], bg: MF.bg,
+      pages: imgPages.map((x) => ({
+        index: x.i, layout: x.pg.layout, asset: x.pg.asset,
+        srcPath: resolve(deckDirAbs, x.pg.asset), onScreen: `${MF.assets}/${basename(x.pg.asset)}`,
+        region: MF.image[o][x.pg.layout], objectFit: 'cover',
+        title: x.pg.title, caption: x.pg.caption || null,
+      })),
+    }, null, 2), 'utf8')
+    console.log(`图片页几何: image-meta.json（${imgPages.length} 页 · ${imgPages.map((x) => x.pg.layout).join('/')}）`)
+  }
+
   if (recon.missing > 0 || recon.leaks > 0 || recon.numBad > 0 || recon.chartBad > 0) {
     console.error('✗ 对账不通过，拒绝继续')
     emitResult({
@@ -834,7 +906,12 @@ function main() {
   // ---- ⑥ 每页 2 帧 ----
   for (let i = 0; i < n; i++) {
     const S = i * MF.page
-    const shots = [['enter', S + 0.75], ['full', S + 2.85]]
+    // ★ `full` 帧的取样时刻：页窗口是 [S-0.25, S+3.25]，而**下一页从 S+2.75 就开始淡入**
+    //   ⇒ 必须取 S+2.75 之前；同时入场动画最晚到 S+2.70（图表的 source、小结的 closing）
+    //   ⇒ 取 S+2.70：既"已落定"又"本页独显"。
+    //   坑：曾取 S+2.85 ⇒ 采到下一页 0.1s 的淡入，实测把图下半压暗到 0.62 倍
+    //   （被 verify-image 的逐点比色抓出来：源图黄色 (221,190,30) 渲成 (119,99,15)）。
+    const shots = [['enter', S + 0.75], ['full', S + 2.70]]
     for (const [kind, t] of shots) {
       spawnSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(t), '-i', mp4, '-frames:v', '1', join(workdir, 'frames', `p${i}-${kind}.png`)])
     }

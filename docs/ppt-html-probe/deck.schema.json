@@ -64,7 +64,9 @@
         { "$ref": "#/$defs/pageCompare" },
         { "$ref": "#/$defs/pageQuote" },
         { "$ref": "#/$defs/pageToc" },
-        { "$ref": "#/$defs/pageSummary" }
+        { "$ref": "#/$defs/pageSummary" },
+        { "$ref": "#/$defs/pageImage" },
+        { "$ref": "#/$defs/pageSteps" }
       ]
     },
     "pageCover": {
@@ -261,6 +263,38 @@
           "description": "恰好 3 条，每条 ≥8 字"
         },
         "closing": { "type": "string", "maxLength": 40, "description": "底部一句收束（可选）" }
+      }
+    },
+    "pageImage": {
+      "type": "object",
+      "required": ["type", "title", "asset", "layout"],
+      "additionalProperties": false,
+      "description": "图片页：asset 必须是**项目内的静态图片**（jpg/jpeg/png/webp）。视频素材需在入口统一转码 —— 本页型暂不支持视频，会明确报错（不许静默黑屏）",
+      "properties": {
+        "type": { "const": "image" },
+        "title": { "type": "string", "minLength": 4, "maxLength": 24, "description": "标题（硬性 ≥4 字）" },
+        "asset": { "type": "string", "minLength": 3, "maxLength": 120, "pattern": "^[^:]*$", "description": "**相对 deck 文件**的素材路径（不许绝对路径 / file:// / ..）。存在性与可播性由 validator 的素材闸门检查" },
+        "layout": { "enum": ["left", "right", "full"], "description": "图文关系：左图右文 / 左文右图 / 全幅压字（全幅走渐隐底衬，不用实心黑框）" },
+        "caption": { "type": "string", "minLength": 8, "maxLength": 48, "description": "图注（可选；给了就要 ≥8 字）" },
+        "kicker": { "type": "string", "maxLength": 32, "description": "角标小字（可选）" }
+      }
+    },
+    "pageSteps": {
+      "type": "object",
+      "required": ["type", "title", "steps"],
+      "additionalProperties": false,
+      "description": "步骤页：steps 恰好 3~6 条，每条 ≥6 字",
+      "properties": {
+        "type": { "const": "steps" },
+        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "steps": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 6,
+          "items": { "type": "string", "minLength": 6, "maxLength": 28 },
+          "description": "恰好 3~6 条，每条 ≥6 字"
+        },
+        "index": { "enum": ["number", "dot"], "description": "序号样式：number 大号衬线数字 / dot 强调色圆点（默认 number）" }
       }
     }
   }

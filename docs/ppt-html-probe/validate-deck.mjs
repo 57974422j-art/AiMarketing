@@ -16,11 +16,12 @@
  *   ③ 每个不达标项都给"替换页型建议"
  */
 import { readFileSync, existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE_V = dirname(fileURLToPath(import.meta.url))
 const MASTERS_DIR = join(HERE_V, '..', 'masters')      // 与 render-deck.mjs 同一约定
+let DECK_DIR = null                                    // 由 main() 设为 deck 文件所在目录（素材相对它解析）
 
 const STYLE_ENUMS = {
   masterId: ['master-v1', 'master-v2'],
@@ -29,7 +30,7 @@ const STYLE_ENUMS = {
   tempo: ['calm', 'normal', 'brisk'],
   orientation: ['16:9', '9:16'],
 }
-const PAGE_TYPES = ['cover', 'bullets', 'data', 'end', 'section', 'chart', 'compare', 'quote', 'toc', 'summary']
+const PAGE_TYPES = ['cover', 'bullets', 'data', 'end', 'section', 'chart', 'compare', 'quote', 'toc', 'summary', 'image', 'steps']
 // 只匹配"真的是 HTML/CSS"的形态，避免误伤正常文案里的冒号分号
 //   ① 完整标签 <div ...> / </span>
 //   ② CSS 声明式：已知属性名 + 冒号 + 值 + 分号（如 color: #fff;）
@@ -289,6 +290,78 @@ function checkSummary(p, path) {
   if (p.closing != null && cp(p.closing) > 40) add('error', `${path}.closing`, `收束 ${cp(p.closing)} 字，上限 40`, '精简')
 }
 
+// ---------------------------------------------------------------- 新页型 11~12：图片 / 步骤
+/**
+ * 素材闸门 —— 把"**入口统一转码**"这条接口先在这里暴露出来。
+ * 现实约束：生产上素材是用户自己的（iPhone 的 hvc1/HEVC、相机 .mov 都会进来），
+ * 而 headless-shell 实测**不可播** .mov / .avi / HEVC ⇒ 绝不能静默黑屏，必须**大声拒绝**并指明出路。
+ */
+function mediaGate(assetPath, at) {
+  const a = String(assetPath).trim()
+  if (/^[a-zA-Z]:[\\/]/.test(a) || isAbsolute(a) || a.startsWith('\\\\') || /file:\/\//i.test(a)) {
+    add('error', at, `asset 是绝对路径或 file://：${JSON.stringify(a)}`,
+      '必须是**相对 deck 文件**的项目内路径（file:// 会被浏览器安全策略拦掉，实测如此）')
+    return
+  }
+  if (a.split(/[\\/]/).includes('..')) {
+    add('error', at, `asset 用 .. 越出 deck 目录：${JSON.stringify(a)}`, '素材必须落在项目目录内')
+    return
+  }
+  const ext = ((a.match(/\.([A-Za-z0-9]+)$/) || [null, ''])[1] || '').toLowerCase()
+  const STILL = ['jpg', 'jpeg', 'png', 'webp']
+  const VIDEO_UNPLAYABLE = ['mov', 'avi', 'mkv', 'ts', 'hevc', 'h265', 'wmv', 'flv']
+  const VIDEO_MAYBE = ['mp4', 'webm']
+  if (STILL.includes(ext)) {
+    const abs = DECK_DIR ? join(DECK_DIR, a) : null
+    if (abs && !existsSync(abs)) {
+      add('error', at, `素材文件不存在：${abs}`,
+        '把素材放进项目目录（路径相对 deck 文件解析）；**素材缺失必须报错，绝不静默黑屏**')
+    }
+    return
+  }
+  if (VIDEO_MAYBE.includes(ext) || VIDEO_UNPLAYABLE.includes(ext)) {
+    add('error', at, `素材是视频（.${ext}），本页型暂不支持`,
+      `★ 视频素材必须走「**入口统一转码**」：转成 H.264 mp4 后改用 bullets/steps 页，或先抽静帧再走 image 页。`
+      + `（实测 headless-shell 不可播 .mov/.avi/HEVC；本页型只收静态图片，明确报错而不是渲成黑屏）`)
+    return
+  }
+  add('error', at, `不支持的素材扩展名 .${ext || '(无)'}`, '静态图片只支持 jpg / jpeg / png / webp')
+}
+
+function checkImage(p, path) {
+  checkString(p.title, `${path}.title`, 4, 24, '图片页标题')
+  checkEnum(p.layout, `${path}.layout`, ['left', 'right', 'full'], 'image.layout', '只允许 left / right / full')
+  if (p.caption != null) checkString(p.caption, `${path}.caption`, 8, 48, '图片页图注')
+  if (p.kicker != null && cp(p.kicker) > 32) add('error', `${path}.kicker`, `角标 ${cp(p.kicker)} 字，上限 32`, '精简角标')
+  if (typeof p.asset !== 'string' || !p.asset.trim()) {
+    add('error', `${path}.asset`, 'asset 缺失或不是字符串', '给一个项目内的相对路径（静态图片 jpg/jpeg/png/webp）')
+    return
+  }
+  mediaGate(p.asset, `${path}.asset`)
+}
+
+function checkSteps(p, path) {
+  checkString(p.title, `${path}.title`, 4, 24, '步骤页标题')
+  if (p.index != null) checkEnum(p.index, `${path}.index`, ['number', 'dot'], 'steps.index', '只允许 number / dot')
+  if (!Array.isArray(p.steps)) {
+    add('error', `${path}.steps`, 'steps 缺失或不是数组', '补恰好 3~6 条，每条 ≥6 字')
+    return
+  }
+  if (p.steps.length < 3) {
+    add('error', `${path}.steps`, `只有 ${p.steps.length} 条，硬性要求 3~6 条`,
+      p.steps.length === 2 ? '若确实是"两件事"，改用 compare 页（左右对照）或 bullets 页（≥3 条）' : '补到 ≥3 条')
+  }
+  if (p.steps.length > 6) {
+    add('error', `${path}.steps`, `${p.steps.length} 条，上限 6 条`,
+      '步骤超过 6 条观众记不住：拆成两页 steps，或改用 bullets 页（最多 5 条）')
+  }
+  p.steps.forEach((t, i) => {
+    if (typeof t !== 'string') { add('error', `${path}.steps[${i}]`, '不是字符串', '改成字符串'); return }
+    if (cp(t) < 6) add('error', `${path}.steps[${i}]`, `该步只有 ${cp(t)} 字，要求 ≥6 字：${JSON.stringify(t)}`, '补足信息量；写不清说明这步不该在这里')
+    else if (cp(t) > 28) add('error', `${path}.steps[${i}]`, `该步 ${cp(t)} 字，上限 28`, '精简到一句动作')
+  })
+}
+
 // ---------------------------------------------------------------- 主流程
 function main() {
   const args = process.argv.slice(2)
@@ -299,6 +372,7 @@ function main() {
     console.error('用法: node validate-deck.mjs <deck.json> [--json] [--quiet]')
     process.exit(2)
   }
+  DECK_DIR = dirname(resolve(file))      // 素材路径相对 deck 文件解析（与 render-deck.mjs 同约定）
 
   let deck
   try {
@@ -382,7 +456,9 @@ function main() {
                             compare: ['type', 'title', 'left', 'right', 'conclusion'],
                             quote: ['type', 'quote', 'author', 'context'],
                             toc: ['type', 'title', 'items'],
-                            summary: ['type', 'title', 'items', 'closing'] }[p.type]
+                            summary: ['type', 'title', 'items', 'closing'],
+                            image: ['type', 'title', 'asset', 'layout', 'caption', 'kicker'],
+                            steps: ['type', 'title', 'steps', 'index'] }[p.type]
       for (const k of Object.keys(p)) {
         if (!allowedKeys.includes(k)) add('error', `${path}.${k}`, `页面多出未定义字段 "${k}"`, `本页型只允许 [${allowedKeys.join(', ')}]`)
       }
@@ -396,6 +472,8 @@ function main() {
       if (p.type === 'quote') checkQuote(p, path)
       if (p.type === 'toc') checkToc(p, path)
       if (p.type === 'summary') checkSummary(p, path)
+      if (p.type === 'image') checkImage(p, path)
+      if (p.type === 'steps') checkSteps(p, path)
     })
   }
 
