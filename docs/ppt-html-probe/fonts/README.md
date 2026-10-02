@@ -42,8 +42,8 @@ python make-fonts.py
 - **woff2 只进一份，放引擎的 `fonts/`，随引擎走**；`masters/<id>/assets/*.woff2` 是**构建产物**
   （由 `sync-master-fonts.mjs` materialize，**不入 git**）；`render-deck.mjs` 渲染时自动从 `fonts/` 拷进产物 assets。
 - ⚠️ 注意：仓库里 `dist-rel/` **整体被 .gitignore**（`.gitignore:63`）⇒ 本目录（`dist-rel/probe-hf/fonts/`）的内容
-  **进不了 git**；入库要拷到可入库路径（引擎清单里约定的 `scripts/vf-deck/fonts/`，或其它非 ignore 位置）。
-  已核实：`docs/ppt-html-probe/fonts/*.woff2` 与 `scripts/vf-deck/fonts/*.woff2` **可入库**（`git check-ignore` 判定）。
+  **进不了 git**；入库要拷到可入库路径（引擎清单里约定的 `scripts/video-factory/html-deck/fonts/`，或其它非 ignore 位置）。
+  已核实：`docs/ppt-html-probe/fonts/*.woff2` 与 `scripts/video-factory/html-deck/fonts/*.woff2` **可入库**（`git check-ignore` 判定）。
 
 ## 5. 退出码映射（**必须写清**，否则直接调脚本的人会误判）
 | 调用 | 退出码 | 含义 |

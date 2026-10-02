@@ -103,7 +103,11 @@ node render-deck.mjs <deck.json> --no-render           # 只生成 HTML + 对账
 
 流程 —— **任一步失败即中止，绝不渲染**：
 1. **闸门**：先跑 `validate-deck.mjs`；不通过 → 打印报告并 exit 1，**拒绝渲染**；
-2. **生成**：deck → `deck-page.html`（复用母版的 `master.css` / `master.js` / 内嵌字体 / GSAP）；
+2. **生成**：deck → **`index.html`**（复用母版的 `master.css` / `master.js` / 内嵌字体 / GSAP）。
+   ★ **产物目录内只许一个 composition 文件，名字必须是 `index.html`**：引擎 CLI 的 `check`/`validate`/`inspect`
+   **只接受目录**，默认入口是 `resolve(dir, "index.html")`（`lintProject(dir, entryFile)`）；
+   若同时存在两个根级 composition（如 `index.html` + `deck-page.html`），lint 报
+   `multiple_root_compositions` ⇒ **不许写同名副本**（team-lead 实测拍板，v0.8.111）；
 3. **对账**：逐页逐字段可执行断言（§6.1）；任一非 0 → exit 1；
 4. **渲染**：`--workers 1`（D10）；
 5. **产物**：`output-<deck名>.mp4` + `frames/p<i>-enter|full.png` + `reconcile.md`；
@@ -512,10 +516,168 @@ contact sheet 也在同目录）；③不达标 `exit 7` + 机器可读 `RESULT`
   （`fonts/sync-master-fonts.mjs` materialize，不入 git）。
 - **服务器零字体依赖**：只需要我们带的两个 woff2，**不装 Noto 源文件、不装 CJK 系统字体**；
   **禁止**在服务器现场跑 `make-fonts.py`（否则绑上"服务器源 TTF 版本"，与坑 28 同类）。
-- ⚠️ `dist-rel/` 整体被 `.gitignore` ⇒ `probe-hf/fonts/` 进不了 git，入库要拷到非 ignore 路径（如引擎 `scripts/vf-deck/fonts/`）。
-  已用 `git check-ignore` 核实 `docs/ppt-html-probe/fonts/**` 与 `scripts/vf-deck/fonts/**` **可入库**。
+- ⚠️ `dist-rel/` 整体被 `.gitignore` ⇒ `probe-hf/fonts/` 进不了 git，入库要拷到非 ignore 路径（如引擎 `scripts/video-factory/html-deck/fonts/`）。
+  已用 `git check-ignore` 核实 `docs/ppt-html-probe/fonts/**` 与 `scripts/video-factory/html-deck/fonts/**` **可入库**。
 - 源字体指纹（换机器复现同一份二进制用）：`NotoSerifSC-VF.ttf` 23.97MB `82F7AB38…` ·
   `NotoSansSC-VF.ttf` 16.95MB `504ABDDA…` · Python 3.14.4 · fontTools 4.62.1。详见 `fonts/README.md`。
+
+---
+
+## 22. 证据目录登记（`out/_diag-lr/`）
+
+**是什么**：竖屏 `left`/`right` 媒体带的**左右差分证据**（坑 26 那次"声明同一条带、实测差 1px"的现场图）。
+**何时生成**：第十批，修 v2 竖屏发丝描边**之前**（`body.p .p9--left/--right .p9-media` 各占 1px 内容盒把图挪了 1px）。
+**内容**：`lrv1-side.png` / `lrv2-side.png`（两页媒体带并排）· `lrv1-diff.png` / `lrv2-diff.png`（`blend=difference` + 提对比度）·
+`lrv2-fulldiff.png`（整帧差分）· `lrv2-strip.png`（x=320..400 放大 4 倍，定位那条竖线）· `both-diff.png`（两套母版竖排对照）。
+**为什么留着**：安全删除守卫拒过一次 —— **不用删除解决混乱**。要更清楚可挪到 `deck-contract/evidence/`，但挪了也要在此登记。
+**看完能得到什么**：`lrv2-diff.png` 上那条竖线 = "整幅图被平移 1px"；修后（见 `check-master-manifest.mjs` 的 L2 断言）最大通道差 **160 → 9**。
+
+---
+
+## 23. **稳定帧契约**（对比度/几何判据的统一基准）
+
+判据不建立在"引擎的任意采样时刻"，而建立在**稳定帧**上。取法（**必须程序化，不许人肉**）：
+
+```
+settledAt = min( max(本页入场收尾 = data-start + max(data-at) + 0.6, 页长 × 60%),
+                 下一页淡入前 − 0.15s )
+```
+
+**断言（违反任一条 ⇒ 红，不许静默回退到别的时刻）**：
+1. `settledAt` 必须落在本页 `[start, start+duration)` 内；
+2. `settledAt` 距**下一页淡入**（下一页 `data-start`）必须 **≥ 0.15s**。
+
+**为什么不能用 mid-page**：晚入场元素（`data-at` 大的那条）此刻还没出现 —— 实测 `t=16.5` 时结语行区域为空白 ⇒ 误测成 `1.01:1`（真值 `7.26:1`）。
+
+**证据帧必须由闸门当场抽**（从产物 mp4 抽到系统临时目录），并打印**源 mp4 + 抽取时刻 + 帧指纹**；**产物里历史的 `frames/*.png` 不参与判据**（防"拿旧帧当证据"）。
+
+**两条判据同口径**：对比度与溢出都以稳定帧为准 —— 对比度用**元素自身 rect** 在稳定帧上实测；溢出的几何若采样落在**过渡帧**，则须在稳定帧复测（像素无法反推容器几何 ⇒ 闸门明确判红并写出缺口，不静默放过）。
+
+**过渡帧判定**（程序化，全部从产物 HTML 算）：
+① 本页入场：`t < start + max(data-at) + 0.6`；② **页尾交叉淡入**：`t ≥ 下一页 data-start`（渲染器 S+2.75 规则；与坑 23 同源 —— 该坑这次出现在**引擎自己的采样器**里）。
+
+---
+
+## 24. 为什么**几何与对比度都以稳定帧为准**（+ 部署闸门档 + 引擎已知风险）
+
+### 24.1 依据（实测数字）
+引擎的采样点与**页边界结构性不对齐**（它会在入场淡入 / 页尾交叉淡入的混合帧上取样）。同一套产物的两组数字：
+
+| 档 | 引擎原采样时刻的溢出 findings | **稳定帧**上的溢出 findings |
+|---|---|---|
+| `out/deck.all12` | 20 | **18** |
+| `out-master-v2/deck.all12-9x16-master-v2` | 20 | **14** |
+
+⇒ 原先各有 **2~6 条是过渡帧几何假象**（同一现象在对比度上就是 `p7-concl` 那条 2.53:1 —— 稳定帧实测 7.26:1）。
+⇒ 因此：**溢出**用引擎 `check --at <各页 settledAt>` 取回稳定帧几何做判定（原采样时刻的 findings 只当**线索**）；
+**对比度**用元素自身 `rect` 在**闸门当场自产**的稳定帧上实测。两套判据同口径，**一处维护**（`timingTable` / `transitionAt` / `settledAtForImpl`）。
+
+### 24.2 部署闸门：**两档** + **唯一入口**
+`--at` 稳定帧让**全矩阵**闸门到 **348.2s（17 档）≈ 5.8 分钟** ⇒ **不适合每次部署**。
+
+**唯一入口命令**（`deploy-server.sh` 只调这一条；**别在部署脚本里内联拼参数** —— 改口径会分叉）：
+```
+node scripts/video-factory/html-deck/check-engine-lint.mjs --deploy
+```
+内部固定跑**两档**（`--deploy` 里写死，见脚本顶部 `DEPLOY_DECKS`）：
+
+| | 档 | 为什么必跑 |
+|---|---|---|
+| v1 | `out/deck.all12` | **唯一同时含「图表页 + 引用页 + 图片页」**（12 页 = cover/section/bullets/steps/**chart**/compare/**image**/data/**quote**/toc/summary/end），且**同时命中两条白名单**（`p8-mark` 装饰豁免 · odometer 设计性裁剪）⇒ 覆盖两类判据 + 两类豁免的全部代码路径 |
+| v2 | `out-master-v2/deck.all12-master-v2` | **两套母版的 CSS 与判据路径不同**：v2 才走 `p7-concl` 那条"过渡帧→稳定帧复测"、v2 的对比度令牌取值也不同 ⇒ 只跑 v1 会**漏掉整套 v2 代码路径** |
+
+**实测总耗时 = 49.9s**（两档 × `--at` 各 ≈12.7s + 基础 check；**＜60s 预算** ✓；超预算按契约上报 team-lead）。
+
+**分期上线（服务器现状 = 还没有 node/chromium，段 E 推迟）**：
+- **第一期（引擎入库即可用，当前状态）**：部署闸门 = `python3 scripts/video-factory/render.py --selftest`（老链路）；
+- **第二期（服务器装好 node + chromium + hyperframes 之后）**：**再加**上面的 HTML 两档 check。
+> ⚠️ **第二期未就绪** —— 别以为服务器已经在跑 HTML 闸门。
+
+**口径边界（决策 B-3，硬规矩）**：
+- **部署闸门 = DOM 层口径**（`--no-render` 生成 HTML ⇒ **没有 mp4** ⇒ 像素复测不做）；
+- **完整像素口径 = 本机全矩阵**（17 档，`--at` 稳定帧 + 像素复测）；
+- ⇒ **发版前必须跑一次本机全矩阵**（写进发版清单；否则"服务器 PASS"会被人当成完整验证）。
+- 部署档的 **`pixel_skipped` 必须 = 0，否则判红**（B-2：降级必须显式且有界，不许长期靠跳过顶包；真出现请上报 team-lead）。
+
+**机器可读前缀表（唯一）**：
+| 打印者 | 前缀 | 例 |
+|---|---|---|
+| `render-deck.mjs`（生成器） | `RESULT ` | `RESULT {"ok":true,"code":0,"stage":"no-render",…}` |
+| `check-engine-lint.mjs`（闸门） | `GATE-RESULT ` | `GATE-RESULT {"ok":true,"deploy_no_pixel":true,"pixel_skipped":0,…}` |
+> **部署脚本的解析方在找不到期望前缀时必须大声失败**（不许静默回退到别的行、不许"没找到就算过"）。
+> ⚠️ **前缀有包含关系**（`GATE-RESULT ` **含** `RESULT ` 子串）⇒ 双保险：
+> ① **机器可读行一律从行首匹配**：`^GATE-RESULT ` / `^RESULT `（给解析方的正则就这样写）；
+> ② **闸门转发内层（生成器/内层 check）输出时一律加缩进 `  | `** ⇒ 保证「**未被缩进的机器可读行只有一条**（外层 `GATE-RESULT`）」，即使解析方写成"搜 `RESULT `"也不会误配。
+
+**`--deploy` 聚合行 = 稳定契约（解析方长期依赖）**：
+```
+^GATE-RESULT {"ok":<bool>,"mode":"deploy","decks":<int>,"failed":<int>,"total_ms":<int>,"over_budget":<bool>}
+```
+**字段名与语义冻结**：`ok`=整体判定 · `mode`=`"deploy"` · `decks`=档数 · `failed`=失败档数 · `total_ms`=总墙钟毫秒 · `over_budget`=`total_ms>60000`。
+⚠️ **不许随意改这些字段名/语义** —— 改必须**同步改 `deploy-server.sh` 的解析方并报 team-lead**。
+内层（缩进转发）另有两条硬约束（外层回解析内层 `GATE-RESULT`）：**内层 `pixel_skipped > 0` ⇒ 判红**；**内层无 `GATE-RESULT` ⇒ 判红**（"口径漂移"不许静默）。
+
+**入库清单必查项（桥接必死）**：`paths.mjs` 的**开发树桥接分支**（`HERE/../masters`）① 注释标「**搬迁完成后删除**」② **每次运行都打印走了哪一支** ③ 入库清单里列一条「**删除桥接 + 重跑全部闸门**」的检查项 —— 否则它会变成**永久的双路径逻辑**（正是我们一路在防的"两份真源"）。
+
+**引擎侧路径（服务器怎么指）**：
+- `ENGINE_HF_BIN=/opt/ppt-render/node_modules/.bin/hyperframes`（**必须显式设**：服务器上没有 `<引擎>/node_modules`，且 `.cmd` 是 Windows 专用）；
+- `HYPERFRAMES_FFMPEG_PATH=/usr/local/bin/ffmpeg`（我们已升级的 ffmpeg）；
+- 闸门的 hyperframes 解析顺序：`ENGINE_HF_BIN` → `PATH` → 开发回退 `<引擎>/node_modules/.bin/hyperframes[.cmd]`；**全找不到 ⇒ 红 + 打印尝试过的所有候选**（含 platform/cwd）。
+
+**机器可读 RESULT 行（B-1）**：每次运行末行打印
+`RESULT {"ok":true,"deploy_no_pixel":false,"pixel_skipped":0,"contrast_findings":1,"overflow_all":18,"overflow_bad":0,"transient_json_failures":0}`
+（部署脚本/以后的人据此判断"全口径 or 降级口径"）
+
+### 24.2b 入库布局 = **扁平**（决策 A，覆盖 D14 的旧写法）
+```
+scripts/video-factory/html-deck/
+  README.md  ENGINE-CONTRACT.md  AI-PROMPT.md  deck.schema.json
+  *.mjs（check-engine-lint.mjs · render-deck.mjs · validate-deck.mjs · check-*.mjs · verify-*.mjs · derive-decks.mjs）
+  masters/{master-v1,master-v2}/
+  examples/*.json
+  fonts/{*.woff2, chars-cmn.txt, make-fonts.py, sync-master-fonts.mjs, README.md}
+```
+**即把 `deck-contract/` 这一层去掉** ⇒ 入口字符串 `…/html-deck/check-engine-lint.mjs --deploy` **原样成立**（不带 `deck-contract` 层）。
+> 原因：`probe-hf/` 多出的那一层是**开发环境的临时层**，不该带进仓库。
+> ⚠️ **搬迁风险**：扁平化后 `masters/`、`fonts/` 的相对引用由 `../../` 改为 `../`（这类改动**容易漏**）
+> ⇒ **搬迁后必须在引擎新路径内重跑全部闸门 + `--deploy`**（见发版清单）。
+> ⚠️⚠️ **代码级必改点（否则"起不来"）**：`render-deck.mjs` 用 `ROOT = resolve(HERE, '..')` + `MASTERS_DIR = <ROOT>/masters`
+> （`check-master-manifest.mjs` 同构）—— 扁平化后 `HERE = html-deck/`，则 `MASTERS_DIR` 会算成 **`scripts/video-factory/masters`**（不存在）⇒ 直接失败。
+> **必须同步改成 `HERE/masters`**（以及 `fonts/`、`examples/` 的同类引用）。这类改动**编译器查不出来**，只能靠"搬迁后在新路径内跑全闸门"发现。
+
+### 24.3 引擎 CLI 的**已知风险**：JSON 偶发不可解析
+实测 17 档批次里出现 **1 次**（`out-master-v2/deck.img3-9x16-master-v2`，同一档单跑 3/3 通过）。
+**处置（五道约束，已在闸门实现）**：① 只重试 **1** 次；② 打印 `⚠ 首次调用 JSON 不可解析，已重试`（**不许静默**）；
+③ **留证**：不可解析的原始输出（前 400 字）**落盘**并打印路径（`deck-contract/transient-failures/`）；
+④ **计数进报告**：每次运行打印 `瞬时解析失败计数`；⑤ **连续两次运行同一档都瞬时失败 ⇒ 红**（防"引擎/环境真有问题"被一次重试掩盖；状态存在 `.gate-transient-state.json`）。
+> 服务器上若出现异常，**先看瞬时失败计数**再怀疑产物。
+
+---
+
+## 25b. **退出码分档（所有闸门统一）**：判据失败 vs 输入/环境错误（K16）
+
+| 码 | 含义 | 说明 |
+|---|---|---|
+| `0` | **通过** | 判据全部成立 |
+| `1` | **判据不达标**（红） | 产物/断言本身不满足（真缺陷） |
+| `2` | **输入/环境不完整 · 工具/用法错误** | 缺文件/目录、清单解析失败、未知母版、参数错 |
+
+**硬规矩**：闸门**不允许**把"输入/环境错误"表现为 `1`，也不允许抛 **ENOENT 栈**（"崩"和"红"混在一起会同时产生**假红**与**假绿**）。
+不完整输入一律 **`exit 2` + 点名缺哪个路径**（例：`✗ 输入/环境不完整（exit 2，非判据失败）：缺母版目录：…`）。
+**部署侧解析方**：`2` 视为**基础设施/输入错误**（不是产物缺陷），必须与 `1` 分开处置与告警。
+> 教训（K16）：team-lead 复现负向自证时，`--masters-root` 指向**只放了 master-v1 的临时树** ⇒ 脚本 ENOENT 崩溃，读到的 `exit=1` **不是断言触发的** ⇒ **"崩"被读成"红"**。
+
+---
+
+## 25. 两条恢复/同步纪律（K13 事故的直接产物）
+
+1. **`docs/` 同步副本的时序 = "验证通过之后才同步"**：同步副本就是**备份**（K13 里正是它救回了 4 个脚本）；
+   若在验证通过前同步，**副本会跟着一起坏** ⇒ 备份失效。契约口径：**同步 = 备份，只在验证通过后做**。
+2. **恢复文件后不能只看 `node --check`**：语法通过 ≠ 版本正确（**旧版本也能过语法检查**）。
+   必须**逐文件核对"语义版本特征"** —— 该文件应具备的**新逻辑/新字段/新输出行**是否在
+   （例：`check-engine-lint` 应有 `GATE-RESULT`/`pixel_skipped`/`settledAt`；`check-master-manifest` 真跑应仍 **PASS 362 条断言**）。
+
+> 关联：**K13**（shell 批量文本手术改坏脚本）· **K14**（闸门输入范围过宽 ⇒ 注释里的符号假红；判据必须建在**产物**上，源码侧只预警）。
 
 ---
 

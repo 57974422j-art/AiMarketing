@@ -146,30 +146,121 @@
 
 ## 4. 坑清单（按重要性）
 
-1. **★ `.clip` 元素会被引擎移出正常文档流**（本文档最大坑）。
-   凡是带 `class="clip"` 的元素，`margin/flow` 布局全部失效 —— 我第一次按"正常流式排版"写，渲出来标题和要点**全部重叠在左上角**、数据卡消失（见 `frames/` 修正前现象）。
-   **对策**：每个 clip 元素自己写死 `position:absolute; left/top/width`；列表要整体做动画，就把 `.clip` 放在 `<ul>` 上、只对子 `<li>` 做 GSAP stagger（不要给每个 `li` 加 clip）。
-2. **★ 中文字体完全依赖本机系统字体，换台机器就会变**。
-   实测（`frames/font-t1.5.png`）：请求 `"Microsoft YaHei"`（本机**未装**）与请求 `"NoSuchFont-QQQ"`（不存在）**渲染结果一模一样**，即**缺失字体被静默回退**到浏览器默认无衬线；只有请求本机真装了的 `"Noto Serif SC"` 才生效（衬线明显不同）。
-   → 内网/服务器上"字体名写了但没装"= 静默变成别的字体（**不是报错**），缺 CJK 字体时直接豆腐块。
-   **对策**：母版里用 `@font-face` 内嵌项目内字体文件（woff2/ttf），不要依赖 `font-family` 取名；或至少在服务器 `apt install fonts-noto-cjk` 并**用同一套字体名**（两端输出要逐帧比对）。
-3. **★ 素材不能用 `file://` 绝对值**。
-   实测（`frames/asset-t1.5.png`）：`./assets/test.jpg`（项目内相对路径）= **加载成功**；
-   `file:///E:/ai-marketing/storage/1/20260906_001.jpg` = **失败**，渲染日志报 `[media_load_failed] image media failed to load before capture`。
-   原因：页面是被 HyperFrames 的本地静态服务以 http 提供的，Chrome 禁止 http 页面加载 `file://` 资源。
-   **对策**：把素材复制/硬链进项目目录（或起本地静态服务、用 http URL）；`E:/ai-marketing/storage/*.jpg` 必须先"登记进项目"。
-4. **GSAP 默认走 CDN**（脚手架里是 `https://cdn.jsdelivr.net/...`）→ 渲染期依赖外网、且不同版本会改像素。
-   本探针已改为**本地内嵌 `assets/gsap.min.js`（72KB）**，建议沿用。
-5. **无 GPU 服务器会用截图模式，慢 ~1.34×**。
-   本机默认走 `drawElement capture · hardware gpu`（更快，日志可见）；强制 `PRODUCER_EXPERIMENTAL_FAST_CAPTURE=false` 后 8 秒片从 10.5s → **14.1s**。
-   4 核无 GPU 服务器上按 **~1.35×** 折算即可，**不构成硬伤**。
-6. **每帧截图的形式**：HyperFrames 默认**流式编码**（日志 `useStreamingEncode: true`、`encode (during capture)`），帧**不落盘**，直接在进程内 pipe 给 FFmpeg。
-   → 比"PNG 序列 + 事后编码"**更快也更省盘**（本次峰值内存 0.55–1.1GB 即为代价）。需要中间帧时才用 `--format png-sequence`（给 AE/Nuke 用）。
-7. **渲染前置固定开销 ~2s（CLI 引导）+ ~4–7s（浏览器启动/校准）**；且**校准偶发失败**会自动把 worker 从 6 降到 1（首次 720p 就命中，13.5s vs 后来的 10.5s）。
-   → 别按"帧数线性"外推小片；**逐镜起进程很亏**（每镜都付一次 setup）。
-8. **浏览器会复用 / 需要能启动 Chrome**：服务器要装 Chrome/Chromium（Puppeteer 可代下）；容器里通常要 `--no-sandbox`（本探针未验 Linux）。
-9. **`<video>` 素材在无头浏览器里 seek 的可靠性 —— 未验证**（本轮只验了图片）。风险点：视频 seek 精度与解码状态依赖浏览器实现；HyperFrames 有 `media.autoProxy`、`--video-frame-format auto|jpg|png` 与帧缓存目录。**建议下一轮单独验**。
-10. 次要：`hyperframes render` 输出**无音轨**；`--output` 目录必须已存在；首次运行会有匿名 telemetry 提示（可 `hyperframes telemetry disable`）。
+### 坑表 `K01…K12`（**唯一**编号；每条必须有 症状/根因/修法/规矩）
+
+**旧号 → K-ID 映射**（历史文档/先前引用按此查）：`坑 A → K01` · `坑 B → K02` · `旧 1 → K03` · `旧 2 → K04` · `旧 3 → K05` · `旧 4 → K06` · `旧 5 → K07` · `旧 6 → K08` · `旧 7 → K09` · `旧 8 → K10` · `旧 9 → K11` · `旧 10 → K12`（旧号已废弃，**不再使用**）
+
+**K01 源/副本分离 ⇒ 漏改**（本轮新增）
+- **症状**：改路径时改了 `docs/ppt-html-probe/fonts/README.md`（副本），漏了 `dist-rel/probe-hf/fonts/README.md`（源）⇒ team-lead 用显式枚举实测出 L45/L46 仍是旧路径。
+- **根因**：同一份内容存在"源 + docs 副本"两份，改完只查了一处。
+- **修法**：修源 + 重同步副本。
+- **规矩**：① 结论只从**显式枚举**来（`Get-ChildItem -Recurse -Include … | Select-String`）；**不要在 `dist-rel/**` 用 rg**（被 `.gitignore` 吞 ⇒ "假零残留"）；② **改完必须对「源」与「副本」各查一次**。
+
+**K02 `.cmd` / `node_modules` 平台地雷**（本轮新增）
+- **症状**：`ENGINE_HF_BIN || <引擎>/node_modules/.bin/hyperframes.cmd` —— 本地能跑，服务器必炸。
+- **根因**：服务器上**没有** `<引擎>/node_modules`（hyperframes 在 `/opt/ppt-render`）；且 **`.cmd` 是 Windows 专用**（Linux 无此文件名）。
+- **修法**：明确顺序 `ENGINE_HF_BIN` → `PATH` → 开发回退 `<引擎>/node_modules/.bin/hyperframes[.cmd]`；全找不到 ⇒ **红 + 打印尝试过的所有候选**（含 platform/cwd）。`render-deck.mjs` / `check-engine-lint.mjs` 同步。
+- **规矩**：部署必须显式设 `ENGINE_HF_BIN`；解析结果每次打印"来源"。
+
+**K03 `.clip` 元素会被引擎移出正常文档流**（旧 1；本文档最大坑）
+- **症状**：按"正常流式排版"写的 clip 元素，渲出来标题/要点**全部重叠在左上角**、数据卡消失。
+- **根因**：`class="clip"` 的元素 `margin/flow` 布局失效（引擎按绝对定位处理）。
+- **修法**：每个 clip 元素写死 `position:absolute; left/top/width`；整列表做动画时把 `.clip` 放 `<ul>` 上、只对子 `<li>` 做 GSAP stagger（不要给每个 `li` 加 clip）。
+- **规矩**：新增页型先渲一帧肉眼确认"没有重叠在左上角"。
+
+**K04 中文字体静默回退**（旧 2）
+- **症状**：请求 `"Microsoft YaHei"`（未装）与 `"NoSuchFont-QQQ"`（不存在）**渲染结果一模一样** ⇒ 缺失字体被静默回退；缺 CJK 时豆腐块。
+- **根因**：`font-family` 只写名字、不内嵌字体文件 ⇒ 缺失**不报错**。
+- **修法**：母版 `@font-face` 内嵌项目内 woff2；或服务器 `apt install fonts-noto-cjk` 且两端逐帧比对。
+- **规矩**：字体只走"**内嵌 + 渲染前闸门**"（§24/§25），禁止裸 `font-family` 取名。
+
+**K05 素材不能用 `file://` 绝对值**（旧 3）
+- **症状**：`./assets/test.jpg` 成功；`file:///E:/…/xxx.jpg` 失败（`[media_load_failed] image media failed to load before capture`）。
+- **根因**：页面由本地静态服务以 **http** 提供 ⇒ Chrome 禁止 http 页面加载 `file://`。
+- **修法**：素材复制/硬链进项目目录（或起本地静态服务用 http URL）；外部素材必须先"登记进项目"。
+- **规矩**：`mediaGate` 只收**项目内静态图**，路径必须相对。
+
+**K06 GSAP 默认走 CDN**（旧 4）
+- **症状**：脚手架默认 `https://cdn.jsdelivr.net/...` ⇒ 渲染期依赖外网、版本漂移会改像素。
+- **根因**：默认脚手架引用 CDN。
+- **修法**：本地内嵌 `assets/gsap.min.js`（72KB）。
+- **规矩**：入库资产含 `gsap.min.js`（两套母版各一份，**不合并**）；渲染**零外网**。
+
+**K07 无 GPU 服务器慢 ~1.34×**（旧 5）
+- **症状**：强制 `PRODUCER_EXPERIMENTAL_FAST_CAPTURE=false` 后 8 秒片 10.5s → **14.1s**。
+- **根因**：无 GPU 走截图模式（本机默认 `drawElement capture · hardware gpu`）。
+- **修法**：按 **~1.35×** 折算。
+- **规矩**：部署/发版预算按 1.35× 折算（不构成硬伤）。
+
+**K08 默认流式编码 / 帧不落盘**（旧 6）
+- **症状**：日志 `useStreamingEncode: true`、`encode (during capture)`，帧不落盘。
+- **根因**：进程内 pipe 给 FFmpeg（更快更省盘，峰值内存 0.55–1.1GB 是代价）。
+- **修法**：需要中间帧才用 `--format png-sequence`。
+- **规矩**：抽帧自检用**"PNG 数 = 页数 × 2"**独立锚点（否则"静默失败"看不出来）。
+
+**K09 渲染前置固定开销 + 校准偶发降 worker**（旧 7）
+- **症状**：CLI 引导 ~2s + 浏览器启动/校准 ~4–7s；校准偶发失败会自动把 worker 6 → 1（首次 720p 命中：13.5s vs 10.5s）。
+- **根因**：每进程固定 setup 成本 + 校准不稳定。
+- **修法**：**不要按帧数线性外推小片**；避免逐镜起进程。
+- **规矩**：闸门按"**档**"跑（`--deploy` 两档），不按"镜"跑。
+
+**K10 需要能启动 Chrome**（旧 8）
+- **症状**：服务器要装 Chrome/Chromium（Puppeteer 可代下）；容器里通常要 `--no-sandbox`（本探针**未验 Linux**）。
+- **根因**：渲染依赖无头浏览器。
+- **修法**：装 chromium + `--no-sandbox`。
+- **规矩**：**第二期上线的先决条件**（契约分期已写"第二期未就绪"）。
+
+**K11 `<video>` 素材 seek 可靠性 —— 未验证**（旧 9）
+- **症状**：本轮只验了图片，视频未验。
+- **根因**：seek 精度与解码状态依赖浏览器实现。
+- **修法**：引擎有 `media.autoProxy`、`--video-frame-format auto|jpg|png` 与帧缓存目录，可下轮单独验。
+- **规矩**：`mediaGate` **一律拒 `.mp4`**（本页型只收静态图，**有意从严**）。
+
+**K12 运行细节三则**（旧 10）
+- **症状**：`hyperframes render` 输出**无音轨**；`--output` 目录**必须已存在**；首次运行有匿名 telemetry 提示。
+- **根因**：CLI 行为约定。
+- **修法**：先建目录；`hyperframes telemetry disable`。
+- **规矩**：入库清单逐条记录。
+
+**K13 用 shell「哈希表 + 批量替换」做多文件文本手术 ⇒ 把脚本改坏**（本轮新增，**我犯的**）
+- **症状**：一条 PowerShell 里用哈希表存"旧串→新串"做批量替换，结果 **5 个脚本被逐字符改坏**（如 `const`→`oonst`、`dist-rel`→`dmst-rel`）；`measure-limits.mjs` **无任何副本可恢复**。
+- **根因**：PowerShell 的 `@(@(a,b))` **把单元素数组展平成 `(a,b)`** ⇒ `foreach($pair in …)` 里 `$pair` 变成**字符串**，`$pair[0]`/`$pair[1]` 取到了**首字符**（`c`/`o`、`i`/`m`）⇒ 实际执行的是 `Replace('c','o')`、`Replace('i','m')`（**等长替换** ⇒ 文件字节数不变，更隐蔽）。
+- **修法**：从 `docs/ppt-html-probe/` 的副本恢复 4 个（**副本恰好是同步过的当前版本**：`check-master-manifest` 恢复后真跑 **PASS 362 条断言**、`--deploy` **51.0s exit=0** ✓）；`measure-limits.mjs` **无副本** ⇒ 记为**丢失**，随第 ⑤ 项「递增测临界」重写。
+- **规矩**：① **禁止**用 shell 做多文件文本手术；一律用**内置编辑工具、一次一个文件**；② 任何脚本改完**立刻 `node --check` + 真跑一次闸门**（不是只看 diff）；③ **保持 `docs/` 侧同步副本**——这次正是它救回了 4 个文件（同步副本 = 备份，不是冗余）；④ 批量替换前先**小样验证**（先在一个文件上跑、看 diff 再看全量）。
+
+**K14 闸门输入范围过宽 ⇒ 文档/注释里一个符号就触发假红**（本轮新增）
+- **症状**：字体闸门 FAIL —— `master-v2 待覆盖 3927 · 缺 1`，缺字 `≠`(U+2260)；它只出现在 `masters/master-v2/assets/master.css` 的**注释**里（L135/L138）⇒ **永远不会渲染**。
+- **根因**：判据输入是"**母版源码全文（含注释）**"而不是"**真会画出来的字**" ⇒ 源码里一个符号就假红，而修法昂贵（加字 ⇒ 重生成字体 + 全量重立基线）。
+- **修法**：判据改建立在**产物侧**（产物 `index.html` 的文本节点/属性 + 该档 meta 里嵌的 deck 文本）；源码侧只作**预警**（点名到 `文件:行号`）；`*.md` 不进判据；保留 `--legacy` 复现旧口径。
+  **实测**：新口径 **产物侧缺失 = 0 / 17 个产物 ⇒ PASS(exit=0)** · 旧口径 `--legacy` **FAIL(exit=1)**，唯一差异就是那 1 个注释里的 `≠` ✓
+- **规矩**：闸门输入必须是"**真产出的东西**"；源码/注释/文档只走**预警**通道。**改判据必须同时给新旧两口径对照**（证明只消除了假红、被推翻的结论为零）。
+
+**K15 「检查命令本身失败」≠「检查通过」**（本轮新增）
+- **症状**：本会话我把检查命令写坏了**三次**（PowerShell 哈希表展平 · 正则里带引号字符 · 路径少一级）。**报错的命令没有输出** —— 只看"没命中"就会把"**命令坏了**"读成"**零命中**"（典型**假阴性**）。
+- **根因**：把"扫描结果"当成唯一证据，没有把"**扫描命令自身的成功**"纳入结论。
+- **修法**：任何 grep/扫描类检查**必须同时断言两件事**：① 命令 `exit=0` / 无解析错误；② **命中数 = N**。报告里**两件事都要写**（例：`命令 exit=0 且命中数 = 0`）。
+- **规矩**：**"结论无效"优先于"结论为真"** —— 命令失败时，任何"看起来的零命中"一律**作废并重跑**。
+
+**K16 「判据失败」与「输入/环境错误」必须能区分（退出码分档）**（本轮新增）
+- **症状**：`--masters-root` 指向**不完整树**（只放 `master-v1`）时，脚本抛 **ENOENT 栈**；读到的 `exit=1` **不是断言触发的**，而是**崩溃** ⇒ team-lead 把"崩"读成了"红"（K15 打在他自己身上）。
+- **根因**：闸门把"输入/环境不完整"与"判据不达标"混用同一个退出码，且未做**输入完整性预检**。
+- **修法**：① **预检**（母版目录/`master.json`/`assets/master.js`/字体文件/`chars-cmn.txt`/产物根）⇒ 缺任何一项 **`exit 2` + 点名缺哪个路径**，**绝不留栈**；② 契约写明分档：**`0`=通过 · `1`=判据不达标 · `2`=输入/环境不完整或工具/用法错误**；部署解析方把 `2` 当**基础设施错误**（≠产物缺陷）分开处置。
+- **规矩**：**"红"和"崩"不许混** —— 会同时产生**假红**与**假绿**（部署/发版时最危险）。
+
+**（K14 补充）产物侧判据的「覆盖 / 已知缺口」—— 不许把"没扫"当"没缺"**
+- **覆盖**：① HTML **文本节点**（含 SVG `<text>`）；② 会渲染的**属性值**（`title`/`alt`/`aria-label`/`placeholder`）；
+  ③ inline `<style>` 与产物 `assets/master.css` 的 **`content:` 值**；④ 该档 meta 里嵌的 **deck 文本**；⑤ HTML/CSS **注释已剥离**（不渲染 ⇒ 不进判据）。
+- **缺口逐条状态（"没扫 ≠ 没缺"）**：
+  ① **`content: counter()/attr()` 与 CSS 变量拼接文本** ⇒ **已验：无**（17 个产物 CSS：`content…var(` 命中 **0** · `counter(`/`attr(` 命中 **0**）✓
+  ② **运行期 JS 写入文本** ⇒ **已验：仅一处** —— `assets/master.js:26` 的**数字滚筒**（`html += '<span>' + (i % 10) + '</span>'`，写入内容 = **纯数字 0–9**；注释即"生成数字滚筒内容"）；**gsap.min.js 命中 0**（库本身不写我们的文本）；且**数字已在产物侧覆盖内**（闸门绿）⇒ **不构成缺口** ✓
+  ③ 画在 `<canvas>` 里的字 ⇒ **未扫**（当前 17 产物无 canvas 文本；若将来引入必须补扫）
+  ④ **外部图片**内的字 ⇒ **不适用**（`mediaGate` 一律拒 `.mp4`，本页型只收静态图）
+  ⑤ `::marker` / 浏览器默认列表符号 ⇒ **不适用**（列表符号全部由 `::before { content: "" }` 的**图形或空串**绘制，不是文本）
+- **负向自证（要求"能失败"）**：把 `龘`(U+9F98) 注入**产物副本** `index.html` 的可渲染文本 ⇒ 闸门**必须红**并**精确报出该字 + 所在文件**（命令与 exit 码见探针报告）。
+
+### 旧号明细（**编号已废弃**，正文已折叠进上表 K01–K12；仅作历史存档）
+
+_（旧号明细已**全部折叠进上表 K03–K12**，此处的旧编号（1–10）**已废弃、不再使用**。）_
 
 ---
 
@@ -1246,8 +1337,8 @@ body.p     .p9-media { left: 0; right: 0; width: 100%; … }      /* 竖屏整�
 - **服务器零字体依赖**（硬理由）：只需要我们带的这两个 woff2；**不装 Noto 源文件、不装 CJK 系统字体**。
   **禁止**在服务器现场跑 `make-fonts.py` —— 那等于绑上"服务器上源 TTF 的版本"，与坑 28 同类（本机一套、服务器一套）。
 - ⚠️ **实测到的 git 陷阱**：`.gitignore:63` 是 `dist-rel/` ⇒ `probe-hf/fonts/` 里的 woff2 **进不了 git**。
-  用 `git check-ignore` 核实：`docs/ppt-html-probe/fonts/**` 与 `scripts/vf-deck/fonts/**` **可入库** ⇒
-  入库时必须把这两个 woff2 拷到非 ignore 路径（引擎清单约定 `scripts/vf-deck/fonts/`）。
+  用 `git check-ignore` 核实：`docs/ppt-html-probe/fonts/**` 与 `scripts/video-factory/html-deck/fonts/**` **可入库** ⇒
+  入库时必须把这两个 woff2 拷到非 ignore 路径（引擎清单约定 `scripts/video-factory/html-deck/fonts/`）。
 - **可复现生成**（换机也得同一份二进制）：`fonts/README.md §3` 记了源字体**绝对路径 + 大小 + MD5** 与工具链版本 ——
   `NotoSerifSC-VF.ttf` 23.97MB `82F7AB38C892B1140BAAE7BAF857D364` ·
   `NotoSansSC-VF.ttf` 16.95MB `504ABDDA545478632820C606A577B4A3` · Python 3.14.4 · fontTools 4.62.1；
@@ -1255,7 +1346,7 @@ body.p     .p9-media { left: 0; right: 0; width: 100%; … }      /* 竖屏整�
   `NotoSansSC-sub.woff2` 1046.6KB `8D644BF273054D44F5C9CCCC413D0F96`。**换源字体 = 换二进制**，必须核对指纹。
 
 ### 25.3 未做 / 不确定
-1. 两个 woff2 **尚未**拷到可入库路径（`scripts/vf-deck/fonts/`）—— 该目录属"可入库引擎清单"范围（下一项），
+1. 两个 woff2 **尚未**拷到可入库路径（`scripts/video-factory/html-deck/fonts/`）—— 该目录属"可入库引擎清单"范围（下一项），
    且我按纪律不写 `scripts/**`；等你确认清单路径后由清单动作带过去（或授权我拷）。
 2. `sync-master-fonts.mjs` 属"按需 materialize"：谁能直接渲手写母版，谁就必须先跑它（已写入两套 PARAMS）。
 

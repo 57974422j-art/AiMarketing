@@ -1,0 +1,11 @@
+{
+  "_note": "溢出判据的**允许清单**：把『故意裁切』的元素逐条列出 selector + 理由（team-lead 口径：绝不许静默忽略）。check-engine-lint.mjs 判定 = (text_box_overflow | container_overflow | canvas_overflow) − 本清单 = 0。",
+  "_rule": "`selector` 按**子串**匹配引擎 findings 的 selector；`code` 省略即表示该 selector 的**所有**溢出码都允许（但理由必须写清『为什么三种都不算问题』）。",
+  "allow": [
+    {
+      "selector": "span.strip",
+      "reason": "数据页大数字的**按位滚筒（odometer）**：竖排数字带靠 `span.digit{overflow:hidden}` 只露一位，整条带必然超出画布/容器（rect 常见 top=-896 / height=3010）—— 设计使然，不是内容溢出。证据：全部 75 条落在此 selector 及其子节点，时间集中在 t=7.3/8.0/8.7（数据页数字滚动期间）。",
+      "_evidence": "68 canvas_overflow + 3 text_box_overflow + 4 container_overflow，selector 均为 `span.strip` / `span.strip > span:nth-of-type(n)`"
+    }
+  ]
+}

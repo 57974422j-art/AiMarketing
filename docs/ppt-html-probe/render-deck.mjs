@@ -14,7 +14,7 @@
  *   node render-deck.mjs examples/deck.full6.json --no-render     # 只生成 HTML + 对账，不渲染（秒级）
  *   node render-deck.mjs <deck.json> --outdir out
  */
-import { readFileSync, writeFileSync, mkdirSync, cpSync, existsSync, rmSync, statSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, cpSync, existsSync, rmSync, statSync, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 
@@ -60,8 +60,23 @@ import { dirname, join, basename, resolve } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')                       // dist-rel/probe-hf/
 const MASTERS_DIR = join(ROOT, 'masters')              // 母版资产根：masters/<masterId>/
-// 渲染器可执行文件：默认项目内 hyperframes；`ENGINE_HF_BIN` 可覆盖（服务端钉版本 / 故障演练用）
-const HF = process.env.ENGINE_HF_BIN || join(ROOT, 'node_modules', '.bin', 'hyperframes.cmd')
+// 渲染器可执行文件：**明确顺序 + 失败列出候选**（`ENGINE_HF_BIN` 可覆盖，服务端钉版本 / 故障演练用）
+// ★ 服务器上没有 `<引擎>/node_modules`（hyperframes 在 /opt/ppt-render），且 **`.cmd` 是 Windows 专用** ⇒
+//   顺序：`ENGINE_HF_BIN` → `PATH` → 开发回退 `<引擎>/node_modules/.bin/hyperframes[.cmd]`；全找不到 ⇒ 红并打印候选。
+const HF_CANDIDATES = [
+  process.env.ENGINE_HF_BIN ? { p: process.env.ENGINE_HF_BIN, why: 'ENGINE_HF_BIN' } : null,
+  { p: 'hyperframes', why: 'PATH（交给 shell 解析）' },
+  { p: join(ROOT, 'node_modules', '.bin', 'hyperframes' + (process.platform === 'win32' ? '.cmd' : '')), why: '开发回退 <引擎>/node_modules/.bin' },
+].filter(Boolean)
+const HF_PICK = HF_CANDIDATES.find((c) => c.why.startsWith('PATH') || existsSync(c.p)) || HF_CANDIDATES[HF_CANDIDATES.length - 1]
+const HF = HF_PICK.p
+if (!HF_PICK.why.startsWith('PATH') && !existsSync(HF)) {
+  console.error('✗ 找不到 hyperframes —— 尝试过的候选：')
+  for (const c of HF_CANDIDATES) console.error(`    · ${c.why} → ${c.p}${existsSync(c.p) ? ' ✓' : ' ✗'}`)
+  console.error(`    （platform=${process.platform} · cwd=${process.cwd()}）`)
+  console.error('    服务器上请显式设：ENGINE_HF_BIN=/opt/ppt-render/node_modules/.bin/hyperframes')
+  process.exit(2)
+}
 const VALIDATOR = join(HERE, 'validate-deck.mjs')
 const FPS = 25
 
@@ -459,7 +474,7 @@ function pageHTML(p, i, n, deck) {
     return [
       head,
       `    <div class="tex"></div>`,
-      `    <div class="p8-mark" data-anim="fade" data-at="0.24">“</div>`,
+      `    <div class="p8-mark" aria-hidden="true" data-anim="fade" data-at="0.24">“</div>`,
       `    <div class="p8-quote" data-anim="rise" data-at="0.42">${esc(p.quote)}</div>`,
       p.author ? `    <div class="p8-author" data-anim="rise" data-at="1.25">${esc(p.author)}</div>` : '',
       p.context ? `    <div class="p8-context" data-anim="fade" data-at="1.45">${esc(p.context)}</div>` : '',
@@ -543,6 +558,18 @@ function pageHTML(p, i, n, deck) {
   throw new Error(`render-deck: 未支持的页型 "${p.type}"（schema 与生成器不同步）`)
 }
 
+/** 给"时间线元素"（带 data-track-index 的）补**稳定 id** —— 引擎 lint 的 `studio_missing_editable_id`：
+ *  没有 id，Studio/agent 无法定位它的时间线与画布控件。只动**缺 id**的元素，已有 id 一字不改。 */
+function ensureStableIds(html) {
+  let n = 0
+  return html.replace(/<(div|section|main)((?:\s+[a-zA-Z-]+(?:="[^"]*")?)*\s+data-track-index="[^"]*"[^>]*)>/g,
+    (m, tag, attrs) => {
+      if (/\sid="/.test(attrs)) return m
+      n++
+      return `<${tag} id="${/class="glow"/.test(attrs) ? 'stage-glow' : 'tl-' + n}"${attrs}>`
+    })
+}
+
 function buildHTML(deck) {
   const g = MF.canvas[deck.style.orientation]
   const n = deck.pages.length
@@ -566,7 +593,13 @@ function buildHTML(deck) {
 ${body}
 </div>
 
-<script src="${MF.assets}/${MF.files.gsap}"></script>
+<!-- ★ 内联同步注册（必须内联）：引擎 lint 只在 composition HTML 内部看到 window.__timelines 的注册；
+         写在外部 assets/master.js 里它看不见 —— 实测：不内联 ⇒ lint error missing_timeline_registry，
+         check 在本产物上永远 exit=1。这里先放占位 timeline，母版 JS 随后用真 gsap.timeline 覆盖同一键。
+         键名必须 = data-composition-id（这里是 "main"）。
+         ⚠ 本段在**模板字面量内部**：注释里**绝对不许出现反引号**（否则嵌套模板 ⇒ SyntaxError，整个生成器起不来）。 -->
+    <script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return ${total}; }, pause: function () {}, play: function () {} };</script>
+    <script src="${MF.assets}/${MF.files.gsap}"></script>
 <script src="${MF.assets}/${MF.files.js}"></script>
 </body>
 </html>
@@ -771,6 +804,12 @@ function main() {
   // ---- ② 生成 HTML + 复制母版资产 ----
   mkdirSync(workdir, { recursive: true })
   for (const d of ['frames']) mkdirSync(join(workdir, d), { recursive: true })
+  // ★ 产物目录里**只许一个 composition 文件**（必须叫 index.html）：先清掉历史遗留的 HTML。
+  //   否则同时存在 index.html + deck-page.html ⇒ lint 报 `multiple_root_compositions`（error），
+  //   会让引擎的 `check` 永远 exit=1（team-lead 实测：删掉多余那份后 err 2→1）。
+  for (const f of readdirSync(workdir)) {
+    if (f.endsWith('.html')) rmSync(join(workdir, f), { force: true })
+  }
   const assetsDir = join(workdir, MF.assets)
   if (existsSync(assetsDir)) rmSync(assetsDir, { recursive: true, force: true })
   cpSync(MF.assetsRoot, assetsDir, { recursive: true })
@@ -802,8 +841,12 @@ function main() {
     cpSync(abs, join(assetsDir, basename(abs)), { force: true })
   }
 
-  const htmlPath = join(workdir, 'deck-page.html')
-  writeFileSync(htmlPath, buildHTML(deck), 'utf8')
+  // ★ 产物必须是**单文件、且就叫 `index.html`**（team-lead 实测拍板）：
+  //   引擎 CLI 的 `check`/`validate`/`inspect` **只吃目录**，默认入口写死 `resolve(dir,"index.html")`；
+  //   若同时存在两个根级 composition（如 index.html + deck-page.html），lint 直接报
+  //   `multiple_root_compositions` ⇒ **不许写同名副本**，就这一个文件。
+  const htmlPath = join(workdir, 'index.html')
+  writeFileSync(htmlPath, ensureStableIds(buildHTML(deck)), 'utf8')
 
   const n = deck.pages.length
   const total = +(n * MF.page).toFixed(4)
@@ -927,7 +970,7 @@ function main() {
 
   // ---- ④ 渲染（D10: --workers 1）----
   const t0 = Date.now()
-  const r = spawnSync(HF, ['render', '.', '-c', 'deck-page.html', '-o', `"${mp4}"`, '--fps', String(FPS), '--quality', 'looks', '--workers', '1'],
+  const r = spawnSync(HF, ['render', '.', '-c', 'index.html', '-o', `"${mp4}"`, '--fps', String(FPS), '--quality', 'looks', '--workers', '1'],
     { cwd: workdir, shell: true, encoding: 'utf8' })
   const renderMs = Date.now() - t0
   if (r.status !== 0) {
