@@ -602,3 +602,92 @@ deck.bad-summary.json    = exit1 / 1err / 0warn     （4 条，要求恰好 3 �
 ```
 **敏感性复验**：要点下限 3→1（指向改松副本）→ **2/9 个样例立刻变红**（`deck.bad.json` 13→12、`deck.bad-toc` 1→0）；换回正式版 → PASS。
 **未做/不确定**：`chart` 的 `line`/`donut` 只做了 HTML 层几何反推 + 目视，**没做像素级反推**（像素反推脚本只实现了柱状）；`density→字阶` 按 team-lead 指示仍未做（已写进 `PARAMS.md` 已知限制）。
+
+---
+
+## 13. 母版枚举化 + 第二套母版（第四批）
+
+### 13.1 `masterId` 由单值变枚举，母版资产迁到 `masters/<id>/`
+```
+dist-rel/probe-hf/
+├── masters/
+│   ├── master-v1/   master.json · assets/{master.css,master.js,gsap.min.js,cover.jpg,字体}
+│   │                master-16x9.html · master-9x16.html · hyperframes.json · package.json
+│   └── master-v2/   同上结构（浅色商务风）
+└── master-v1/       ← 只留产出与评审件：master-v1.mp4 / master-v1-9x16.mp4 / frames / PARAMS.md …
+```
+**搬迁没有动老板要看的两条母版 mp4 与 frames**（仍在 `master-v1/`）。
+
+### 13.2 最关键的发现：真正的"写死"不在 CSS，在生成器
+- `master.css` 逐条核查：**100% 令牌驱动** —— 全文只有 `:root` 有字面色，另两处是纯 alpha 蒙版（`#000`）。
+  → **CSS 侧没有任何硬编码深色**（这也是浅色母版能低成本落地的原因）。
+- 写死的全在 `render-deck.mjs`：`MASTER`（资产根）、`PAGE`（单页时长）、`GEO`（画布尺寸）、
+  `PLOT` / `PLOT_PAD`（绘图区几何）、绘图区上移量 `110/146`、素材名 `assets/cover.jpg`、配色表。
+  → **不修这些，"换母版"在结构上不可能**（正是 team-lead 要验的那件事）。
+- 修法：新增 **`masters/<id>/master.json`**（母版清单），把这 7 类值全部搬进去；
+  生成器只消费清单、**不再自带任何母版数值**（静态扫描确认只剩注释与 `MASTER_IDS` 枚举）。
+
+### 13.3 1→1 字节级回归（三次，全 PASS）
+| 回归对象 | 基线 MD5 | 结果 |
+|---|---|---|
+| 生成器 · `deck.master-v1.json`（4 页） | `F1D608EFA5A6DF7027AE67D6C6B1EDB3` | **一致** |
+| 生成器 · `deck.types8.json`（8 页） | `6DB9866126E19789F1C2A8ABAE889715` | **一致** |
+| 手写母版 4 页片（**资产搬迁后**） | `7F1B528DD953316644A621054861EA03` | **一致** |
+
+### 13.4 第二套母版 `master-v2`（浅色商务）
+`--bg #f5f6f8` / `--ink #1b2430` / `--accent #2f5fa8`；**10 页型全做**。
+**不是换色** —— 做了 9 处结构级差异：纹理（竖条纹→点阵）、强调条（短粗→长细）、要点页分隔（底部横线→左侧竖线）、
+数据页小指标（左竖线→上横线）、封面素材（右缘出血+柔化蒙版→内缩硬边相框）、图表（半透明→实心柱 + **绘图区 300→344px、上移 110→128px**）、
+章节号（描边空心→浅色实心）、引用装饰（大引号→蓝底方块）、进度线。详见 `masters/master-v2/PARAMS.md`。
+> **图表几何刻意改掉**，用来证明这些值确实来自母版：若还写死 300/110，v2 的像素反推必然全线失败。
+
+### 13.5 两套母版各出一条 8 页 24 秒片（同一个 deck，只改 masterId）
+派生 `examples/deck.types8-master-v2.json`，脚本断言"除 `style.masterId` 外与源文件**语义完全一致**"。
+| | master-v1 | master-v2 |
+|---|---|---|
+| 产物 | `out/deck.types8/output-deck.types8.mp4` | `out-master-v2/deck.types8-master-v2/output-deck.types8-master-v2.mp4` |
+| 规格 | 600 帧 / 24.000s / 1280×720 / 25fps / h264 yuv420p / tv+bt709 | 同 |
+| 对账 | 未命中 0 / 大数字 0 / 图表 0 / 跨页 0 | 未命中 0 / 大数字 0 / 图表 0 / 跨页 0 |
+| MD5 | `6DB9866126E19789F1C2A8ABAE889715` | `D4A9B0F4EC8C2F78E1A65C4E841E89B7` |
+
+**图表像素反推：两套各自几何、都 ≤±1px**
+| | 绘图区 | 数据区高 | 离底阈值（自适应） | 5 根柱 实测 vs 期望 |
+|---|---|---|---|---|
+| master-v1 | 1112×300 | 234px | 60.1（亮柱叠深底） | 159/158.5 · 179/178.7 · 235/234 · 74/73.5 · 63/63.1 |
+| master-v2 | 1112×**344** | 270px | 130.8（亮底实心蓝柱） | 183/182.8 · 207/206.2 · 270/270 · 85/84.8 · 73/72.8 |
+
+→ 验证器的颜色判定改为**自适应**：阈值 = 0.5 × 柱色离底距离，柱色/底色/不透明度由母版给出。
+  否则写死的 `R>70` 在浅色母版上会**把所有像素判成柱**（阈值失效）。
+
+**"两套确实不同"的像素证明**（`verify-masters.mjs`，同时间戳 8 帧）
+| | 亮度 V | 饱和 S | 主色相 H（归一化） |
+|---|---|---|---|
+| master-v1 | 0.117 | 0.221 | 28.3°（0.079） |
+| master-v2 | 0.922 | 0.058 | 221.2°（0.614） |
+
+`|ΔV| = 0.805`、`|ΔH| = 192.9°`、**同帧逐像素平均差 = 209.19 / 255** → PASS（不是"同一份渲两遍"）。
+视觉证据：`frames-compare-v1-v2.png`（左 v1 / 右 v2；cover / chart / quote 三行）。
+
+### 13.6 新基线（`check-examples.mjs`，10 个样例，逐字）
+```
+deck.master-v1.json           = exit0 / 0err / 0warn
+deck.bad.json                 = exit1 / 13err / 3warn
+deck.html-injected.json       = exit1 / 3err / 0warn
+deck.bad-section.json         = exit1 / 2err / 1warn
+deck.bad-chart.json           = exit1 / 3err / 0warn
+deck.bad-compare.json         = exit1 / 3err / 0warn
+deck.bad-quote.json           = exit1 / 2err / 0warn
+deck.bad-toc.json             = exit1 / 1err / 0warn
+deck.bad-summary.json         = exit1 / 1err / 0warn
+deck.bad-master.json          = exit1 / 1err / 0warn   ← 新增：非法 masterId（枚举外）
+```
+validator 另加一条：**枚举里有、磁盘上没有**的母版资产 → 报错（防"能过校验、渲染时才炸"）。
+
+### 13.7 未做 / 不确定（如实）
+1. **`palette` 语义张力（需定夺）**：契约里 4 个 palette 名是枚举，v2 把 4 个名都映成蓝/青/紫族（母版=皮肤）。
+   若要求"同一 palette 名在两套母版上色相一致"，属**契约变更**，需 team-lead 决定（已写进 `master.json` 的 `_paletteNote`）。
+2. 只做了 **16:9** 的两套母版出片；**竖屏 9:16 两套母版未出整片**（几何与覆盖规则已按 manifest 写全，未渲染验证）。
+3. `line`/`donut` 仍只到 HTML 层几何反推 + 目视，**无像素级反推**。
+4. `density→字阶` 仍未做。
+5. `assets/master.js` 两套**共用**（动效语言相同）。若将来要求"母版各带动效语言"，manifest 需再加一层。
+6. 字阶（`--t-*`）两套母版完全一致 —— 未做母版差异化。

@@ -1,0 +1,24 @@
+{
+  "id": "master-v1",
+  "name": "暗色暖金（v1）",
+  "_note": "★ 本文件就是重构前生成器里那些写死的母版常量（MASTER/PAGE/GEO/PLOT/PLOT_PAD/绘图区偏移/配色/素材名）。数值一字未改 ⇒ 生成器改为读本文件后，master-v1 的产物必须字节级不变。",
+  "assets": "assets",
+  "cover": "cover.jpg",
+  "files": { "css": "master.css", "gsap": "gsap.min.js", "js": "master.js" },
+  "hyperframes": "hyperframes.json",
+  "page": 3,
+  "canvas": {
+    "16:9": { "w": 1280, "h": 720, "portrait": false },
+    "9:16": { "w": 720, "h": 1280, "portrait": true }
+  },
+  "padBase": { "16:9": 84, "9:16": 54 },
+  "plot": {
+    "16:9": { "w": 1112, "h": 300 },
+    "9:16": { "w": 612, "h": 400 }
+  },
+  "plotPad": { "l": 54, "r": 14, "t": 30, "b": 36 },
+  "plotTopOffset": { "16:9": 110, "9:16": 146 },
+  "chart": { "barAlpha": 0.5 },
+  "bg": "#14161a",
+  "palette": {}
+}

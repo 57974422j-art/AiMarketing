@@ -71,6 +71,12 @@ const BASELINE = [
     desc: '小结页：4 条（要求恰好 3 条）',
     exit: 1, errors: 1, warns: 0,
   },
+  // ---- 母版枚举化（masterId 枚举 + 资产必须真存在）----
+  {
+    file: 'examples/deck.bad-master.json',
+    desc: '非法 masterId（master-v9 不在枚举内）',
+    exit: 1, errors: 1, warns: 0,
+  },
 ]
 
 function run(file) {

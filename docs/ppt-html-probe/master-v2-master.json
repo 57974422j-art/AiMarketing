@@ -1,0 +1,30 @@
+{
+  "id": "master-v2",
+  "name": "浅色商务（v2）",
+  "_note": "刻意与 v1 在**几何**上不同（绘图区 344px / 内边距不同 / 绘图区上移量不同），用来证明这些值确实来自母版、而不是写死在生成器里。",
+  "assets": "assets",
+  "cover": "cover.jpg",
+  "files": { "css": "master.css", "gsap": "gsap.min.js", "js": "master.js" },
+  "hyperframes": "hyperframes.json",
+  "page": 3,
+  "canvas": {
+    "16:9": { "w": 1280, "h": 720, "portrait": false },
+    "9:16": { "w": 720, "h": 1280, "portrait": true }
+  },
+  "padBase": { "16:9": 84, "9:16": 54 },
+  "plot": {
+    "16:9": { "w": 1112, "h": 344 },
+    "9:16": { "w": 612, "h": 372 }
+  },
+  "plotPad": { "l": 64, "r": 20, "t": 34, "b": 40 },
+  "plotTopOffset": { "16:9": 128, "9:16": 168 },
+  "chart": { "barAlpha": 1 },
+  "bg": "#f5f6f8",
+  "palette": {
+    "warm-gold": { "accent": "#2f5fa8", "rgb": "47,95,168" },
+    "olive": { "accent": "#2f7a6b", "rgb": "47,122,107" },
+    "clay": { "accent": "#7a4fa8", "rgb": "122,79,168" },
+    "mist-blue": { "accent": "#4a86c8", "rgb": "74,134,200" }
+  },
+  "_paletteNote": "★ 已知张力（需 team-lead 定夺）：契约里 4 个 palette 名是**枚举**（不许新增），母版可以覆盖它们的实际色值。v2 是蓝白商务风，故把 4 个名都映成蓝/青/紫族。若将来要求『同一 palette 名在两套母版上色相一致』，那需要改契约（palette 名→色值由母版负责，本就是母版=皮肤的分工）。"
+}

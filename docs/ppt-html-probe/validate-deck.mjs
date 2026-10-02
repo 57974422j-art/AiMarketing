@@ -15,10 +15,15 @@
  *   ② 字符串里出现 HTML/CSS 标记 → 判定"AI 写了 HTML"
  *   ③ 每个不达标项都给"替换页型建议"
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const HERE_V = dirname(fileURLToPath(import.meta.url))
+const MASTERS_DIR = join(HERE_V, '..', 'masters')      // 与 render-deck.mjs 同一约定
 
 const STYLE_ENUMS = {
-  masterId: ['master-v1'],
+  masterId: ['master-v1', 'master-v2'],
   palette: ['warm-gold', 'olive', 'clay', 'mist-blue'],
   density: ['airy', 'normal', 'dense'],
   tempo: ['calm', 'normal', 'brisk'],
@@ -321,6 +326,14 @@ function main() {
   if (!style || typeof style !== 'object') {
     add('error', 'style', 'style 缺失', '补 style{masterId, palette, density, tempo, orientation}')
   } else {
+    // 母版必须在磁盘上真存在 —— 否则"枚举里有、资产不在"要到渲染时才炸（且报错看不懂）
+    if (style.masterId && STYLE_ENUMS.masterId.includes(style.masterId)) {
+      const mp = join(MASTERS_DIR, style.masterId, 'master.json')
+      if (!existsSync(mp)) {
+        add('error', 'style.masterId', `枚举里有 ${style.masterId}，但 ${mp} 不存在`,
+          '母版资产要真存在（masters/<id>/master.json + assets/）；在磁盘上补齐，不要改枚举')
+      }
+    }
     for (const [k, allowed] of Object.entries(STYLE_ENUMS)) {
       if (style[k] == null) add('error', `style.${k}`, `style.${k} 缺失`, `从 [${allowed.join(', ')}] 里选一个`)
       else checkEnum(style[k], `style.${k}`, allowed, `style.${k}`,

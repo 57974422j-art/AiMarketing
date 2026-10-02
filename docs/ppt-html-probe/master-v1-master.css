@@ -1,0 +1,251 @@
+/* ============================================================
+   master-v1 · 动态 PPT 母版 样式与设计令牌
+   两套画布共用本文件：16:9 (1280x720) / 9:16 (720x1280, body.p)
+   所有可调项集中在本 :root 块 —— 见 PARAMS.md
+   ★ 坑：带 .clip 的元素会被引擎移出文档流 → 本文件全部用绝对定位/自身定位
+   ============================================================ */
+:root {
+  /* ---- 配色（暗色低饱和；禁：高饱和紫蓝 / 纯黑底 / 纯白字 / 实心黑框） ---- */
+  --bg: #14161a;          /* 深冷灰（非纯黑） */
+  --bg2: #1d2127;         /* 渐变第二色 */
+  --ink: #e9e7e2;         /* 主文字：暖白（非纯白） */
+  --ink-dim: #9aa1a9;     /* 次要 */
+  --ink-faint: #6b7280;   /* 最弱 */
+  --accent: #c8a06a;      /* 唯一强调色：低饱和暖金，只小面积用 */
+  --accent-rgb: 200,160,106; /* 与 --accent 同源的 RGB 分量（供 rgba() 用；换主题时两个一起改） */
+  --rule: rgba(233, 231, 226, .13);
+  --photo-dim: grayscale(.82) brightness(.40) contrast(1.05) saturate(.55);
+
+  /* ---- 版心 ---- */
+  --pad-base: 84px;       /* 页边距基准值（契约里的 density 覆盖的是它） */
+  --pad: var(--pad-base); /* 实际使用值由基准值派生 —— 这样 density 在横屏/竖屏都生效 */
+  --gap: 20px;            /* 竖向节奏 */
+  --photoW: 404px;        /* 封面素材宽度 */
+
+  /* ---- 字阶 ---- */
+  --t-title: 74px;        /* 封面主标题 */
+  --t-h2: 42px;           /* 内页标题 */
+  --t-lead: 25px;         /* 副标 */
+  --t-body: 25px;         /* 正文/要点 */
+  --t-small: 19px;        /* 小字 */
+  --t-tiny: 16px;         /* 最小 */
+  --t-num: 128px;         /* 数据页大数字 */
+  --t-unit: 30px;         /* 单位 */
+
+  /* ---- 动效语言（四页共用同一组动作） ---- */
+  --enter: .72s;          /* 单元素入场时长 */
+  --enter-gap: .55s;      /* 错峰间隔 */
+  --xover: .5s;           /* 页间转场时长 */
+  --page: 3s;             /* 单页时长 */
+  --roll: 1.6s;           /* 数字滚动时长 */
+  --push: 1.4s;           /* 素材缓推时长 */
+  --drift: 12px;          /* 页内持续微动幅度 */
+
+  /* ---- 字体（内嵌开源，禁外部 CDN） ---- */
+  --serif: "Noto Serif SC", "Noto Serif CJK SC", serif;
+  --sans: "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+}
+
+@font-face { font-family: "Noto Serif SC"; src: url("NotoSerifSC-sub.woff2") format("woff2"); font-weight: 100 900; font-display: block; }
+@font-face { font-family: "Noto Sans SC";  src: url("NotoSansSC-sub.woff2")  format("woff2"); font-weight: 100 900; font-display: block; }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: var(--W); height: var(--H); overflow: hidden; background: var(--bg);
+  font-family: var(--sans); color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+#stage { position: relative; width: var(--W); height: var(--H); overflow: hidden;
+  background: radial-gradient(120% 90% at 14% -8%, var(--bg2) 0%, var(--bg) 58%), var(--bg); }
+
+/* ---------- 全局层 ---------- */
+.glow { position: absolute; left: -14%; top: -22%; width: 78%; height: 96%;
+  background: radial-gradient(closest-side, rgba(var(--accent-rgb),.085), rgba(var(--accent-rgb),0) 70%);
+  pointer-events: none; }
+
+.page { position: absolute; inset: 0; opacity: 0; }
+body.p .page { inset: 0; }
+
+/* 页内极轻纹理层（持续微动：整页缓慢上移 drift px） */
+.tex { position: absolute; left: 0; right: 0; top: 0; height: calc(var(--H) + var(--drift) * 2);
+  background-image: repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 132px);
+  opacity: .16; pointer-events: none; }
+
+/* 底部细进度线：每页走完自己那 3 秒 */
+.progress { position: absolute; left: var(--pad); right: var(--pad); bottom: var(--pad);
+  height: 2px; background: var(--rule); }
+.progress > i { display: block; height: 100%; width: 100%; background: var(--accent);
+  transform: scaleX(0); transform-origin: left center; }
+
+/* 通用文字元素 */
+.rule { width: 68px; height: 3px; background: var(--accent); transform-origin: left center; }
+.kicker { font-size: var(--t-tiny); letter-spacing: .22em; color: var(--accent); text-transform: uppercase; }
+/* 出品方放左下（左侧是深色底；放右下会压在封面素材的高亮区上，读不清） */
+.issuer { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 26px);
+  font-size: var(--t-tiny); color: var(--ink-faint); letter-spacing: .06em; }
+
+/* ---------- P1 封面 ---------- */
+.cover-copy { position: absolute; left: var(--pad); top: calc(var(--pad) + 34px); width: 56%; }
+.cover-title { margin-top: 26px; font-family: var(--serif); font-weight: 800;
+  font-size: var(--t-title); line-height: 1.14; letter-spacing: .01em; color: var(--ink); }
+.cover-sub { margin-top: 24px; font-size: var(--t-lead); line-height: 1.55; color: var(--ink-dim); }
+
+.photo { position: absolute; right: 0; top: 0; width: var(--photoW); height: 100%; overflow: hidden; }
+.photo > img { width: 100%; height: 100%; object-fit: cover; display: block;
+  filter: var(--photo-dim); }
+/* 素材左缘柔化，融入深色底 */
+.photo { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22%); mask-image: linear-gradient(90deg, transparent 0, #000 22%); }
+
+/* ---------- P2 要点页 ---------- */
+.h2 { font-family: var(--serif); font-weight: 700; font-size: var(--t-h2); line-height: 1.3; color: var(--ink); }
+.p2-head { position: absolute; left: var(--pad); top: var(--pad); }
+.p2-head .rule { margin-bottom: 22px; }
+.p2-list { position: absolute; left: var(--pad); top: calc(var(--pad) + 118px); width: calc(100% - var(--pad) * 2 - 24px); list-style: none; }
+.p2-list li { display: flex; align-items: baseline; gap: 18px; padding: 15px 0; border-bottom: 1px solid var(--rule); }
+.p2-list .n { font-family: var(--serif); font-weight: 700; font-size: var(--t-small); color: var(--accent);
+  min-width: 34px; letter-spacing: .04em; }
+.p2-list .t { font-size: var(--t-body); line-height: 1.45; color: var(--ink); }
+.p2-sum { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 24px);
+  font-size: var(--t-small); color: var(--ink-dim); }
+
+/* ---------- P3 数据页 ---------- */
+.p3-head { position: absolute; left: var(--pad); top: var(--pad); }
+.p3-head .rule { margin-bottom: 22px; }
+.p3-body { position: absolute; left: var(--pad); top: calc(var(--pad) + 108px); display: flex; align-items: flex-end; gap: 16px; }
+.bignum { display: flex; align-items: flex-end; font-family: var(--serif); font-weight: 800;
+  font-size: var(--t-num); line-height: 1.12; color: var(--ink); }
+.digit { display: inline-block; height: 1.12em; overflow: hidden; }
+/* 大数字里的静态字符（小数点 / 负号）——由生成器用于非整数数字 */
+.digitstatic { display: inline-block; height: 1.12em; line-height: 1.12em; }
+.strip { display: flex; flex-direction: column; }
+.strip > span { display: block; height: 1.12em; line-height: 1.12em; }
+.unit { font-size: var(--t-unit); color: var(--accent); padding-bottom: 14px; letter-spacing: .02em; }
+.p3-explain { position: absolute; left: var(--pad); top: calc(var(--pad) + 296px);
+  font-size: var(--t-body); color: var(--ink-dim); }
+.p3-metrics { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 30px); display: flex; gap: 40px; }
+.p3-metrics > div { border-left: 1px solid var(--rule); padding-left: 16px; }
+.p3-metrics .k { font-family: var(--serif); font-size: var(--t-small); color: var(--ink); }
+.p3-metrics .v { margin-top: 7px; font-size: var(--t-tiny); color: var(--ink-faint); }
+
+/* ---------- P4 尾页 ---------- */
+.p4-wrap { position: absolute; left: var(--pad); top: 50%; transform: translateY(-50%); width: calc(100% - var(--pad) * 2 - var(--photoW) - 40px); }
+.p4-line { font-family: var(--serif); font-weight: 800; font-size: var(--t-h2); line-height: 1.35; color: var(--ink); }
+.p4-line + .p4-line { margin-top: 4px; }
+.p4-cta { margin-top: 30px; font-size: var(--t-body); color: var(--accent); }
+.p4-en { position: absolute; right: var(--pad); bottom: calc(var(--pad) + 26px);
+  font-size: var(--t-tiny); color: var(--ink-faint); letter-spacing: .12em; }
+
+/* ============================================================
+   竖屏 9:16 —— 只覆盖几何/字阶令牌 + 两处版式差异（body.p）
+   ============================================================ */
+body.p {
+  --pad-base: 54px; --gap: 18px; --photoW: 720px;
+  --t-title: 62px; --t-h2: 40px; --t-lead: 23px; --t-body: 25px;
+  --t-small: 19px; --t-tiny: 16px; --t-num: 132px; --t-unit: 30px;
+  --enter-gap: .5s;
+}
+body.p .cover-copy { width: calc(100% - var(--pad) * 2); top: calc(var(--pad) + 26px); }
+body.p .cover-title { font-size: var(--t-title); }
+/* 竖屏：素材改成底部横带，顶缘由透明柔化 */
+body.p .photo { right: 0; left: 0; top: auto; bottom: 0; width: 100%; height: 44%;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 26%); mask-image: linear-gradient(180deg, transparent 0, #000 26%); }
+body.p .p2-list { top: calc(var(--pad) + 132px); }
+body.p .p2-list li { padding: 13px 0; }
+body.p .p3-body { top: calc(var(--pad) + 118px); }
+body.p .p3-explain { top: calc(var(--pad) + 316px); }
+body.p .p3-metrics { flex-direction: column; gap: 18px; bottom: auto; top: calc(var(--pad) + 404px); }
+body.p .p4-wrap { top: 26%; width: calc(100% - var(--pad) * 2); }
+body.p .p4-en { right: auto; left: var(--pad); bottom: 48%; }
+body.p .issuer { left: var(--pad); right: auto; bottom: auto; top: calc(var(--pad) + 348px); }
+
+/* ============================================================
+   新增页型 5~8（本轮 4 → 8）：章节 / 图表 / 对比 / 引用
+   ★ 约定沿用母版：**容器可用 CSS transform 定位，只有叶子元素挂 data-anim**
+     （若对带 CSS transform 的元素 tween transform 属性，GSAP 会覆盖它）
+   ============================================================ */
+
+/* ---------- P5 章节页 ---------- */
+.p5-num { position: absolute; left: var(--pad); top: calc(var(--pad) + 40px);
+  font-family: var(--serif); font-weight: 800; font-size: 186px; line-height: .92; letter-spacing: .01em;
+  color: rgba(var(--accent-rgb), .15); -webkit-text-stroke: 2px var(--accent); }
+.p5-copy { position: absolute; left: calc(var(--pad) + 262px); top: calc(var(--pad) + 74px);
+  width: calc(100% - var(--pad) * 2 - 262px); }
+.p5-copy .rule { margin-bottom: 22px; }
+.p5-title { font-family: var(--serif); font-weight: 800; font-size: 52px; line-height: 1.24; color: var(--ink); }
+.p5-sub { margin-top: 22px; font-size: var(--t-lead); line-height: 1.55; color: var(--ink-dim); }
+
+/* ---------- P6 图表页 ---------- */
+.p6-head { position: absolute; left: var(--pad); top: var(--pad); }
+.p6-head .rule { margin-bottom: 22px; }
+.p6-unit { position: absolute; right: var(--pad); top: calc(var(--pad) + 58px);
+  font-size: var(--t-small); color: var(--accent); letter-spacing: .04em; }
+.p6-plot { position: absolute; left: var(--pad); top: calc(var(--pad) + 110px);
+  width: calc(100% - var(--pad) * 2); height: 300px; }
+.p6-plot svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.ch-axis { stroke: var(--rule); stroke-width: 1; }
+.ch-grid { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 7; }
+.ch-bar { fill: rgba(var(--accent-rgb), .5); transform-box: fill-box; transform-origin: bottom center; }
+.ch-bar--peak { fill: var(--accent); }
+.ch-line { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.ch-dot { fill: var(--ink); }
+.ch-donut-track { fill: none; stroke: var(--rule); stroke-width: 26; }
+.ch-donut-arc { fill: none; stroke: var(--accent); stroke-width: 26; stroke-linecap: butt; }
+.ch-tick { fill: var(--ink-faint); font-size: 15px; font-family: var(--sans); }
+.ch-val { fill: var(--ink-dim); font-size: 15px; font-family: var(--sans); }
+.p6-explain { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 26px);
+  font-size: var(--t-small); color: var(--ink-dim); }
+.p6-src { position: absolute; right: var(--pad); bottom: calc(var(--pad) + 26px);
+  font-size: var(--t-tiny); color: var(--ink-faint); }
+
+/* ---------- P7 对比页 ---------- */
+.p7-head { position: absolute; left: var(--pad); top: var(--pad); }
+.p7-head .rule { margin-bottom: 22px; }
+.p7-grid { position: absolute; left: var(--pad); right: var(--pad); top: calc(var(--pad) + 116px);
+  display: flex; gap: 52px; }
+.p7-col { flex: 1 1 0; min-width: 0; }
+.p7-label { font-family: var(--serif); font-weight: 700; font-size: var(--t-body); color: var(--accent);
+  padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+.p7-col--b .p7-label { color: var(--ink-dim); }
+.p7-points { list-style: none; }
+.p7-points li { position: relative; padding: 9px 0 9px 20px; font-size: var(--t-small); line-height: 1.5; color: var(--ink); }
+.p7-points li::before { content: ""; position: absolute; left: 0; top: 16px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--accent); }
+.p7-col--b .p7-points li::before { background: transparent; border: 1px solid var(--ink-faint); }
+.p7-concl { position: absolute; left: var(--pad); right: var(--pad); bottom: calc(var(--pad) + 26px);
+  font-size: var(--t-body); color: var(--ink); }
+.p7-concl::before { content: ""; display: block; width: 68px; height: 3px; background: var(--accent); margin-bottom: 15px; }
+
+/* ---------- P8 引用页 ---------- */
+.p8-mark { position: absolute; left: calc(var(--pad) - 8px); top: calc(var(--pad) + 20px);
+  font-family: var(--serif); font-weight: 800; font-size: 150px; line-height: .8;
+  color: rgba(var(--accent-rgb), .17); }
+.p8-quote { position: absolute; left: var(--pad); right: var(--pad); top: calc(var(--pad) + 122px);
+  font-family: var(--serif); font-weight: 700; font-size: 38px; line-height: 1.56; color: var(--ink); }
+.p8-author { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 88px);
+  font-size: var(--t-body); color: var(--accent); }
+.p8-context { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 58px);
+  font-size: var(--t-tiny); color: var(--ink-faint); }
+
+/* ---------- 目录页 / 小结页（复用要点页版式，只换装饰） ---------- */
+.p2-list--toc li { border-bottom: none; padding: 11px 0; }
+.p2-list--toc .n { font-family: var(--sans); font-weight: 400; font-size: var(--t-tiny);
+  color: var(--ink-faint); min-width: 26px; }
+.p2-list--toc .t { font-size: var(--t-body); }
+
+/* ============================================================
+   竖屏 9:16 覆盖（新页型）
+   ============================================================ */
+body.p .p5-num { font-size: 142px; top: calc(var(--pad) + 26px); }
+body.p .p5-copy { left: var(--pad); top: calc(var(--pad) + 216px); width: calc(100% - var(--pad) * 2); }
+body.p .p5-title { font-size: 42px; }
+body.p .p5-sub { font-size: var(--t-small); }
+body.p .p6-unit { top: calc(var(--pad) + 96px); }
+body.p .p6-plot { top: calc(var(--pad) + 146px); height: 400px; }
+body.p .p6-explain { bottom: calc(var(--pad) + 58px); }
+body.p .p6-src { bottom: calc(var(--pad) + 28px); }
+body.p .p7-grid { flex-direction: column; gap: 24px; }
+body.p .p7-points li { padding: 7px 0 7px 18px; }
+body.p .p7-concl { bottom: calc(var(--pad) + 22px); font-size: var(--t-small); }
+body.p .p8-quote { font-size: 31px; top: calc(var(--pad) + 142px); }
+body.p .p8-mark { font-size: 120px; }

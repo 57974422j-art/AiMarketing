@@ -46,7 +46,7 @@
       "additionalProperties": false,
       "description": "风格参数只允许在这四组枚举里选，不许自由发挥",
       "properties": {
-        "masterId": { "enum": ["master-v1"], "description": "母版 ID（决定版式与动效语言）" },
+        "masterId": { "enum": ["master-v1", "master-v2"], "description": "母版 ID（枚举；决定版式/皮肤/几何/动效语言，资产在 masters/<id>/）" },
         "palette": { "enum": ["warm-gold", "olive", "clay", "mist-blue"], "description": "配色方案（低饱和，一次只用 1 个强调色）" },
         "density": { "enum": ["airy", "normal", "dense"], "description": "信息密度（影响版心与行距）" },
         "tempo": { "enum": ["calm", "normal", "brisk"], "description": "节奏（映射 --enter/--enter-gap/--xover）" },

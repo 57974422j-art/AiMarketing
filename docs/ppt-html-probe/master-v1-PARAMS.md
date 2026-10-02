@@ -202,3 +202,12 @@ hyperframes render . -c master-16x9.html -o master-v1.mp4 --fps 25 --quality loo
    - 现状：`airy` → `--pad:96px/--gap:24px`；`normal` → 母版默认；`dense` → `--pad:72px/--gap:16px`。
    - **不接字阶的原因**：改字阶要覆盖「3~5 条要点 × 三种密度」的全部组合并逐一目视防溢出，属"需要渲图验证"的改动；在拿到老板的观感判词前做，有大概率白做（team-lead 2026-10-02 定：先不做）。
    - 影响面：`--pad` 同时被 `.progress`、`.issuer`、各页标题起点使用，所以改密度会让**整页版心**一起变，是"整体松紧"而不是"字号大小"。
+
+---
+
+## ⚠ 目录变更（第四批）
+
+本母版的**资产**（assets/ · hyperframes.json · package.json · master-16x9.html · master-9x16.html）
+已迁到 `masters/master-v1/`（生成器按 deck 的 `style.masterId` 取 `masters/<id>/`）。
+本目录现在只保留**产出与评审件**：master-v1.mp4 · master-v1-9x16.mp4 · frames/ · chars.txt · subset-fonts.py · psnr-*.log
+（老板要看的两条片与抽帧**原样未动**）。重渲手写母版请用：`hyperframes render masters/master-v1 -c master-16x9.html`。

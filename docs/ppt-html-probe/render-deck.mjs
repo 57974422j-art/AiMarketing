@@ -21,14 +21,32 @@ import { dirname, join, basename, resolve } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')                       // dist-rel/probe-hf/
-const MASTER = join(ROOT, 'master-v1')                 // v1 母版（CSS/JS/字体/GSAP 都从这里取）
+const MASTERS_DIR = join(ROOT, 'masters')              // 母版资产根：masters/<masterId>/
 const HF = join(ROOT, 'node_modules', '.bin', 'hyperframes.cmd')
 const VALIDATOR = join(HERE, 'validate-deck.mjs')
-
-const PAGE = 3        // 单页时长（秒）——与 master.css 的 --page 一致
-const XOVER = 0.5     // 页间转场（秒）——与 --xover 一致
 const FPS = 25
-const GEO = { '16:9': { w: 1280, h: 720, portrait: false }, '9:16': { w: 720, h: 1280, portrait: true } }
+
+/* ------------------------------------------------------------------
+   母版解析（masterId 由"单值"变"枚举"，见 deck.schema.json）
+   ★ 重构前 MASTER / PAGE / GEO / PLOT / PLOT_PAD / 绘图区上移量 / 素材名 全写死在本文件里
+     → 那等于"换母版"根本做不到（这些本就属于母版）。现在一律来自 `masters/<id>/master.json`；
+     本文件**不再自带任何母版数值**。
+   ★ master-v1 的 manifest 装的就是上面那些原值 ⇒ 1→1 字节级回归必须完全一致。
+   ------------------------------------------------------------------ */
+const MASTER_IDS = ['master-v1', 'master-v2']   // 与 deck.schema.json 的 masterId 枚举保持同步
+let MF = null                                   // 当前母版：由 main() 在生成前载入，渲染期间只读
+function loadMaster(id) {
+  const dir = join(MASTERS_DIR, id)
+  const man = join(dir, 'master.json')
+  if (!existsSync(man)) throw new Error(`母版不存在: ${man}（约定 masters/<masterId>/master.json）`)
+  const m = JSON.parse(readFileSync(man, 'utf8'))
+  if (m.id !== id) throw new Error(`master.json 的 id(${m.id}) 与目录名(${id}) 不一致`)
+  m.dir = dir
+  m.assetsRoot = join(dir, m.assets || 'assets')
+  // 契约里的 palette 名是枚举（不许新增）；母版可覆盖它们的实际色值（母版=皮肤）
+  m.paletteResolved = { ...PALETTE, ...(m.palette || {}) }
+  return m
+}
 
 /* ------------------------------------------------------------------
    style 三个枚举 → CSS 令牌 的实际映射。
@@ -50,10 +68,9 @@ const DENSITY = {
 }
 /** 按 CSS 实际生效规则解出页边距（density 覆盖的是 --pad-base，横竖屏都生效） */
 function effectivePad(deck) {
-  const g = GEO[deck.style.orientation]
+  const o = deck.style.orientation
   const d = DENSITY[deck.style.density] || {}
-  const base = g.portrait ? 54 : 84
-  return d['pad-base'] ? parseInt(d['pad-base'], 10) : base
+  return d['pad-base'] ? parseInt(d['pad-base'], 10) : MF.padBase[o]
 }
 const TEMPO = {
   'calm': { enter: 0.85, gap: 0.65, xover: 0.6 },
@@ -63,8 +80,8 @@ const TEMPO = {
 
 /** 生成 <style> 里的 :root 覆盖块（几何 + 配色 + 节奏） */
 function styleVars(deck) {
-  const g = GEO[deck.style.orientation]
-  const p = PALETTE[deck.style.palette] || PALETTE['warm-gold']
+  const g = MF.canvas[deck.style.orientation]
+  const p = MF.paletteResolved[deck.style.palette] || MF.paletteResolved['warm-gold']
   const t = TEMPO[deck.style.tempo] || TEMPO['normal']
   const d = DENSITY[deck.style.density] || {}
   const decls = [`--W:${g.w}px`, `--H:${g.h}px`, `--accent:${p.accent}`, `--accent-rgb:${p.rgb}`,
@@ -80,9 +97,9 @@ const cp = (s) => Array.from(String(s ?? '').trim()).length
 // ---------------------------------------------------------------- 版式计算
 /** 第 i 页的 clip 窗口（与母版手写值逐一吻合：i=0 → 0/3.25；末页 → S-0.25/3.25；中间 → S-0.25/3.5） */
 function pageWindow(i, n, xover) {
-  const S = i * PAGE
+  const S = i * MF.page
   const start = i === 0 ? 0 : S - xover / 2
-  const end = i === n - 1 ? S + PAGE : S + PAGE + xover / 2
+  const end = i === n - 1 ? S + MF.page : S + MF.page + xover / 2
   return { start: +start.toFixed(4), dur: +(end - start).toFixed(4) }
 }
 
@@ -104,9 +121,8 @@ function bignumHTML(num) {
 }
 
 /* ---------------- 图表：真画（SVG），line / bar / donut 三种 ---------------- */
-/** 绘图区逻辑尺寸（与 master.css 的 .p6-plot 宽高一致，故 preserveAspectRatio="none" 不失真） */
-const PLOT = { '16:9': { w: 1112, h: 300 }, '9:16': { w: 612, h: 400 } }
-const PLOT_PAD = { l: 54, r: 14, t: 30, b: 36 }
+/** 绘图区逻辑尺寸/内边距一律来自母版 manifest（MF.plot / MF.plotPad）—— 见 masters/<id>/master.json
+    （与母版 CSS 的 .p6-plot 宽高一致，故 preserveAspectRatio="none" 不失真） */
 
 /**
  * 生成图表 SVG。三种类型都"真画"，且**图上几何严格编码输入数值**：
@@ -116,8 +132,8 @@ const PLOT_PAD = { l: 54, r: 14, t: 30, b: 36 }
  * 返回 meta（每点的坐标/柱高/弧长），供对账表**从生成的 HTML 反推数值**做交叉验证。
  */
 function chartSVG(deck, p) {
-  const { w: W, h: H } = PLOT[deck.style.orientation]
-  const { l: PL, r: PR, t: PT, b: PB } = PLOT_PAD
+  const { w: W, h: H } = MF.plot[deck.style.orientation]
+  const { l: PL, r: PR, t: PT, b: PB } = MF.plotPad
   const x0 = PL, x1 = W - PR, y0 = PT, y1 = H - PB
   const s = p.chart.series
   const n = s.length
@@ -189,8 +205,8 @@ function chartSVG(deck, p) {
 /** 对账用：**从生成的 HTML 反推图上数值**，与输入 series 逐点比 —— 证明"图上几何 = 输入数据" */
 function chartCheck(p, slice, deck) {
   const t = p.chart.type, s = p.chart.series
-  const { w: W, h: H } = PLOT[deck.style.orientation]
-  const { l: PL, r: PR, t: PT, b: PB } = PLOT_PAD
+  const { w: W, h: H } = MF.plot[deck.style.orientation]
+  const { l: PL, r: PR, t: PT, b: PB } = MF.plotPad
   const x0 = PL, x1 = W - PR, y0 = PT, y1 = H - PB
   const maxV = Math.max(...s), minV = Math.min(0, ...s)
   const span = (maxV - minV) || 1
@@ -246,7 +262,7 @@ function chartCheck(p, slice, deck) {
 function bulletsSchedule(nItems, enter, xover) {
   const FIRST = 0.58
   // 小结必须在淡出前落定：SUM ≤ PAGE - xover/2 - enter - 0.05(安全余量)
-  const SUM = +(PAGE - xover / 2 - enter - 0.05).toFixed(2)
+  const SUM = +(MF.page - xover / 2 - enter - 0.05).toFixed(2)
   const LAST_MAX = +(SUM - 0.38).toFixed(2)
   const gap = nItems <= 1 ? 0 : Math.min(0.5, (LAST_MAX - FIRST) / (nItems - 1))
   const items = []
@@ -267,7 +283,7 @@ function pageHTML(p, i, n, deck) {
     return [
       head,
       `    <div class="tex"></div>`,
-      `    <div class="photo" data-anim="push" data-at="0.15"><img src="assets/cover.jpg" alt="" /></div>`,
+      `    <div class="photo" data-anim="push" data-at="0.15"><img src="${MF.assets}/${MF.cover}" alt="" /></div>`,
       `    <div class="cover-copy">`,
       `      <div class="rule" data-anim="rule" data-at="0.10"></div>`,
       `      <div class="kicker" data-anim="rise" data-at="0.28">${esc(p.kicker || '')}</div>`,
@@ -447,9 +463,9 @@ function pageHTML(p, i, n, deck) {
 }
 
 function buildHTML(deck) {
-  const g = GEO[deck.style.orientation]
+  const g = MF.canvas[deck.style.orientation]
   const n = deck.pages.length
-  const total = +(n * PAGE).toFixed(4)
+  const total = +(n * MF.page).toFixed(4)
   const body = deck.pages.map((p, i) => pageHTML(p, i, n, deck)).join('\n\n')
   return `<!doctype html>
 <html lang="zh-CN">
@@ -457,7 +473,7 @@ function buildHTML(deck) {
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=${g.w}, height=${g.h}" />
 <title>${esc(deck.meta.title)}</title>
-<link rel="stylesheet" href="assets/master.css" />
+<link rel="stylesheet" href="${MF.assets}/${MF.files.css}" />
 <style>${styleVars(deck)}</style>
 </head>
 <body${g.portrait ? ' class="p"' : ''}>
@@ -469,8 +485,8 @@ function buildHTML(deck) {
 ${body}
 </div>
 
-<script src="assets/gsap.min.js"></script>
-<script src="assets/master.js"></script>
+<script src="${MF.assets}/${MF.files.gsap}"></script>
+<script src="${MF.assets}/${MF.files.js}"></script>
 </body>
 </html>
 `
@@ -610,6 +626,12 @@ function main() {
   const deckAbs = resolve(deckPath)
   if (!existsSync(deckAbs)) { console.error(`✗ deck 不存在: ${deckAbs}`); process.exit(2) }
   const deck = JSON.parse(readFileSync(deckAbs, 'utf8'))
+  // ---- ⓪ 母版解析：masterId 是枚举 → masters/<id>/master.json（本文件不自带母版数值）----
+  if (!MASTER_IDS.includes(deck.style.masterId)) {
+    console.error(`✗ 未知 masterId: ${deck.style.masterId}（可用: ${MASTER_IDS.join(', ')}）`)
+    process.exit(2)
+  }
+  MF = loadMaster(deck.style.masterId)
   const name = basename(deckAbs).replace(/\.json$/i, '')
   const workdir = join(outRoot, name)
 
@@ -627,17 +649,19 @@ function main() {
   // ---- ② 生成 HTML + 复制母版资产 ----
   mkdirSync(workdir, { recursive: true })
   for (const d of ['frames']) mkdirSync(join(workdir, d), { recursive: true })
-  const assetsDir = join(workdir, 'assets')
+  const assetsDir = join(workdir, MF.assets)
   if (existsSync(assetsDir)) rmSync(assetsDir, { recursive: true, force: true })
-  cpSync(join(MASTER, 'assets'), assetsDir, { recursive: true })
-  cpSync(join(MASTER, 'hyperframes.json'), join(workdir, 'hyperframes.json'), { force: true })
+  cpSync(MF.assetsRoot, assetsDir, { recursive: true })
+  const hfName = MF.hyperframes || 'hyperframes.json'
+  cpSync(join(MF.dir, hfName), join(workdir, hfName), { force: true })
   const htmlPath = join(workdir, 'deck-page.html')
   writeFileSync(htmlPath, buildHTML(deck), 'utf8')
 
   const n = deck.pages.length
-  const total = +(n * PAGE).toFixed(4)
+  const total = +(n * MF.page).toFixed(4)
   const seq = deck.pages.map((p) => p.type).join(' → ')
-  console.log(`页型序列: ${seq}   （${n} 页 × ${PAGE}s = ${total}s，画布 ${GEO[deck.style.orientation].w}×${GEO[deck.style.orientation].h}，style=${deck.style.palette}/${deck.style.density}/${deck.style.tempo}）`)
+  console.log(`母版: ${MF.id}（${MF.name}）→ masters/${MF.id}/`)
+  console.log(`页型序列: ${seq}   （${n} 页 × ${MF.page}s = ${total}s，画布 ${MF.canvas[deck.style.orientation].w}×${MF.canvas[deck.style.orientation].h}，style=${deck.style.palette}/${deck.style.density}/${deck.style.tempo}）`)
   console.log(`生成: ${htmlPath}`)
 
   // ---- ③ 对账（HTML 级：逐页逐字段 verbatim 命中 + 跨页泄漏检查）----
@@ -648,7 +672,8 @@ function main() {
   lines.push('')
   lines.push(`- deck: \`${deckAbs}\``)
   lines.push(`- 页型序列: ${seq}`)
-  lines.push(`- 时长: ${n} × ${PAGE}s = **${total}s**（${FPS}fps → ${n * PAGE * FPS} 帧）`)
+  lines.push(`- 时长: ${n} × ${MF.page}s = **${total}s**（${FPS}fps → ${n * MF.page * FPS} 帧）`)
+  lines.push(`- 母版: masterId=\`${deck.style.masterId}\`（${MF.name}）· 资产根 \`masters/${deck.style.masterId}/\``)
   lines.push(`- style: masterId=${deck.style.masterId} palette=${deck.style.palette} density=${deck.style.density} tempo=${deck.style.tempo} orientation=${deck.style.orientation}`)
   lines.push('')
   lines.push('## 逐页字段 → HTML 命中（**按文本节点**比对）')
@@ -695,12 +720,15 @@ function main() {
   // 图表几何元数据 → 供 verify-chart.mjs 做"抽帧反推数值"的**独立**校验（不重复 PLOT 常量，避免两处漂移）
   const chartPages = deck.pages.map((pg, i) => ({ pg, i })).filter((x) => x.pg.type === 'chart')
   if (chartPages.length) {
-    const g = GEO[deck.style.orientation]
+    const o = deck.style.orientation
     const pad = effectivePad(deck)
+    const accent = MF.paletteResolved[deck.style.palette] || MF.paletteResolved['warm-gold']
     writeFileSync(join(workdir, 'chart-meta.json'), JSON.stringify({
-      deck, orientation: deck.style.orientation, pad,
-      plotTop: pad + (g.portrait ? 146 : 110),      // 与 master.css 的 .p6-plot top 一致
-      plot: PLOT[deck.style.orientation], padBox: PLOT_PAD,
+      deck, masterId: MF.id, orientation: o, pad,
+      plotTop: pad + MF.plotTopOffset[o],           // 与母版 CSS 的 .p6-plot top 一致
+      plot: MF.plot[o], padBox: MF.plotPad,
+      // 像素反推需要的颜色信息由母版给出，避免验证器写死"深底亮柱"
+      bg: MF.bg, barColor: accent.rgb, barAlpha: MF.chart.barAlpha,
       pages: chartPages.map((x) => ({
         index: x.i, kind: x.pg.chart.type, series: x.pg.chart.series,
         meta: chartSVG(deck, x.pg).meta,
@@ -729,7 +757,7 @@ function main() {
 
   // ---- ⑥ 每页 2 帧 ----
   for (let i = 0; i < n; i++) {
-    const S = i * PAGE
+    const S = i * MF.page
     const shots = [['enter', S + 0.75], ['full', S + 2.85]]
     for (const [kind, t] of shots) {
       spawnSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(t), '-i', mp4, '-frames:v', '1', join(workdir, 'frames', `p${i}-${kind}.png`)])
