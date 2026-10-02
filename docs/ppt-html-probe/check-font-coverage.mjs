@@ -12,6 +12,11 @@
  *   node check-font-coverage.mjs                     # 全量体检：chars-cmn.txt + 母版源码 + 全部 examples/*.json
  *   node check-font-coverage.mjs --deck <deck.json>  # 渲染前闸门：只查这一个 deck（缺字 → 报错 + 可执行建议）
  *   node check-font-coverage.mjs --extra "龘🙂"      # 敏感性自证：注入必然缺字的字符
+ *
+ * ★ 退出码映射（**别把脚本的码当成引擎的码**）：
+ *     本脚本：0=覆盖通过 · 1=有缺字 · 2=用法或读取错
+ *     渲染入口 render-deck.mjs：内部调用本脚本，把"缺字"统一映射为 **EXIT.FONT = 8（stage=fonts）**
+ *   ⇒ 契约（ENGINE-CONTRACT.md）承诺的是 8；服务端只应看渲染入口的码。详见 fonts/README.md §5。
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'

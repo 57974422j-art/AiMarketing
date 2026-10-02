@@ -29,6 +29,22 @@ const CASES = [
   { desc: '缺 deck 路径参数 → 用法错', file: null, extra: ['--no-render'], expect: 2, stage: 'usage' },
   // 渲染阶段失败：用 ENGINE_HF_BIN 指向不存在的渲染器（故障演练），必须给 5 而不是 1
   { desc: '渲染器不可用（ENGINE_HF_BIN 指向不存在）→ 渲染失败', file: ex('deck.master-v1.json'), extra: ['--outdir', join(HERE, 'out-exitcode')], expect: 5, stage: 'render', env: { ENGINE_HF_BIN: join(HERE, '__no_such_renderer__') } },
+  // ★ 字体覆盖闸门（坑 28）：deck 含缺字 → 渲染入口必须给 8。
+  //   deck 临时造（在合法 deck 的标题里塞一个必然缺字的 emoji），用完即删 —— **不污染 examples 基线**。
+  //   注意映射：脚本自身缺字退 1，渲染入口统一映射为 EXIT.FONT=8（见 fonts/README.md §5）。
+  {
+    desc: '字体覆盖闸门：deck 含缺字（emoji）→ exit 8 / stage fonts',
+    file: null,
+    mkDeck: () => {
+      const p = join(HERE, '__tmp_font_missing.json')
+      const d = JSON.parse(readFileSync(ex('deck.types8.json'), 'utf8'))
+      d.meta.title = d.meta.title + '🙂'
+      writeFileSync(p, JSON.stringify(d, null, 2), 'utf8')
+      return p
+    },
+    extra: ['--no-render', '--outdir', join(HERE, 'out-exitcode')],
+    expect: 8, stage: 'fonts',
+  },
 ]
 
 let bad = 0
@@ -62,8 +78,11 @@ function drillReconcile() {
   console.log(`      期望 exit=4/stage=reconcile  实际 exit=${code}/stage=${stage}`)
 }
 for (const c of CASES) {
-  const args = c.file ? [ENGINE, c.file, ...c.extra] : [ENGINE, ...c.extra]
+  // 有些用例需要"临时造一份 deck"（如故意含缺字）——用完即删，不污染 examples 基线
+  const file = c.mkDeck ? c.mkDeck() : c.file
+  const args = file ? [ENGINE, file, ...c.extra] : [ENGINE, ...c.extra]
   const r = spawnSync(process.execPath, args, { encoding: 'utf8', env: { ...process.env, ...(c.env || {}) } })
+  if (c.mkDeck && existsSync(file)) unlinkSync(file)
   const code = r.status
   const resLine = (r.stdout || '').split('\n').find((l) => l.startsWith('RESULT '))
   let parsed = null

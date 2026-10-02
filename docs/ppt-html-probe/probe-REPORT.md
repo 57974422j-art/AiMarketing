@@ -1223,6 +1223,44 @@ body.p     .p9-media { left: 0; right: 0; width: 100%; … }      /* 竖屏整�
 
 ---
 
+## 25. 字体口径补完：退出码映射 + 二进制入库（第十五批）
+
+### 25.1 退出码映射（两套码都对，但**必须写清**）
+| 调用 | 退出码 | 含义 |
+|---|---|---|
+| `check-font-coverage.mjs --deck <deck>`（脚本自身） | **0 / 1 / 2** | 0=覆盖通过 · **1=有缺字** · 2=用法或读取错 |
+| `render-deck.mjs <deck>`（内部调用它） | **8**（`stage: fonts`） | 渲染入口统一映射为 `EXIT.FONT = 8`，附可执行建议，RESULT 行可解析 |
+
+⇒ 契约（`ENGINE-CONTRACT.md`）承诺的是 **8**；服务端只看渲染入口的码。映射已写进 `fonts/README.md §5`、
+`check-font-coverage.mjs` 头注释、`README.md §21.1`、两套 `PARAMS.md`。
+
+**并已进退出码回归**：`check-exit-codes.mjs` 新增一格
+`字体覆盖闸门：deck 含缺字（emoji）→ exit 8 / stage fonts / RESULT 可解析`
+（deck **临时造、用完即删**，不污染 `examples` 基线；`CASES` 9 → **10**，连同 1 个对账故障演练共 **11 格**）。
+> 计数口径说明：脚本打印的行是 `CASES.length + 1`（含故障演练）。改动前打印"10 个场景"（=9 用例+1 演练），
+> 改动后为 **11 格**（=10 用例+1 演练）—— 若按"用例数"数，正是你要求的 **10**。
+
+### 25.2 字体二进制入库口径（team-lead 拍板，已落文档）
+- **只进一份**：放引擎的 `fonts/`，**随引擎走**；`masters/<id>/assets/*.woff2` 是**构建产物**
+  （`fonts/sync-master-fonts.mjs` 幂等 materialize，**不入 git**）。
+- **服务器零字体依赖**（硬理由）：只需要我们带的这两个 woff2；**不装 Noto 源文件、不装 CJK 系统字体**。
+  **禁止**在服务器现场跑 `make-fonts.py` —— 那等于绑上"服务器上源 TTF 的版本"，与坑 28 同类（本机一套、服务器一套）。
+- ⚠️ **实测到的 git 陷阱**：`.gitignore:63` 是 `dist-rel/` ⇒ `probe-hf/fonts/` 里的 woff2 **进不了 git**。
+  用 `git check-ignore` 核实：`docs/ppt-html-probe/fonts/**` 与 `scripts/vf-deck/fonts/**` **可入库** ⇒
+  入库时必须把这两个 woff2 拷到非 ignore 路径（引擎清单约定 `scripts/vf-deck/fonts/`）。
+- **可复现生成**（换机也得同一份二进制）：`fonts/README.md §3` 记了源字体**绝对路径 + 大小 + MD5** 与工具链版本 ——
+  `NotoSerifSC-VF.ttf` 23.97MB `82F7AB38C892B1140BAAE7BAF857D364` ·
+  `NotoSansSC-VF.ttf` 16.95MB `504ABDDA545478632820C606A577B4A3` · Python 3.14.4 · fontTools 4.62.1；
+  产物 `NotoSerifSC-sub.woff2` 1376.2KB `FA5CC24681624A6DF7BE7EC76ECC200F` ·
+  `NotoSansSC-sub.woff2` 1046.6KB `8D644BF273054D44F5C9CCCC413D0F96`。**换源字体 = 换二进制**，必须核对指纹。
+
+### 25.3 未做 / 不确定
+1. 两个 woff2 **尚未**拷到可入库路径（`scripts/vf-deck/fonts/`）—— 该目录属"可入库引擎清单"范围（下一项），
+   且我按纪律不写 `scripts/**`；等你确认清单路径后由清单动作带过去（或授权我拷）。
+2. `sync-master-fonts.mjs` 属"按需 materialize"：谁能直接渲手写母版，谁就必须先跑它（已写入两套 PARAMS）。
+
+---
+
 ## 17. 服务端调用契约 `ENGINE-CONTRACT.md`（第七批）
 
 ### 17.1 交付

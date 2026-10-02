@@ -498,6 +498,25 @@ contact sheet 也在同目录）；③不达标 `exit 7` + 机器可读 `RESULT`
 **新基线（旧值作废）**：all12 `31802910…` / all12-9x16 `AA9577DA…` / all12-v2 `A52ACF60…` / all12-9x16-v2 `71726FE0…`
 / types8 `4F12D535…`；**手写 16:9 `7F1B528D…` 与生成器 4 页 `F1D608EF…` 不变** ✓。
 
+### 21.1 退出码映射（**别把脚本的码当成引擎的码**）
+| 调用 | 退出码 | 含义 |
+|---|---|---|
+| `check-font-coverage.mjs --deck <deck>` | 0 / **1** / 2 | 0=通过 · **1=有缺字** · 2=用法或读取错 |
+| `render-deck.mjs <deck>`（内部调它） | **8**（`stage: fonts`） | 渲染入口统一映射为 `EXIT.FONT = 8` + 可执行建议 |
+
+契约承诺的是 **8**；服务端只应看渲染入口的码。**已进退出码回归**：`check-exit-codes.mjs` 新增一格
+"deck 含缺字（临时塞 emoji）→ exit 8 / stage fonts / RESULT 可解析"（deck 临时造、用完即删，不污染 examples 基线）。
+
+### 21.2 字体二进制入库口径（team-lead 拍板）
+- **woff2 只进一份**，放引擎的 `fonts/`，**随引擎走**；`masters/<id>/assets/*.woff2` 是**构建产物**
+  （`fonts/sync-master-fonts.mjs` materialize，不入 git）。
+- **服务器零字体依赖**：只需要我们带的两个 woff2，**不装 Noto 源文件、不装 CJK 系统字体**；
+  **禁止**在服务器现场跑 `make-fonts.py`（否则绑上"服务器源 TTF 版本"，与坑 28 同类）。
+- ⚠️ `dist-rel/` 整体被 `.gitignore` ⇒ `probe-hf/fonts/` 进不了 git，入库要拷到非 ignore 路径（如引擎 `scripts/vf-deck/fonts/`）。
+  已用 `git check-ignore` 核实 `docs/ppt-html-probe/fonts/**` 与 `scripts/vf-deck/fonts/**` **可入库**。
+- 源字体指纹（换机器复现同一份二进制用）：`NotoSerifSC-VF.ttf` 23.97MB `82F7AB38…` ·
+  `NotoSansSC-VF.ttf` 16.95MB `504ABDDA…` · Python 3.14.4 · fontTools 4.62.1。详见 `fonts/README.md`。
+
 ---
 
 ## 9'. 已知限制（v1）
