@@ -82,27 +82,43 @@ for (const pg of M.pages) {
   const off = { x: (R.w - SW * scale) / 2, y: (R.h - SH * scale) / 2 }
   const toScreen = (sx, sy) => ({ x: R.x + off.x + sx * scale, y: R.y + off.y + sy * scale })
 
-  // 探针网格（源图坐标）—— 覆盖多个色相象限，并**避开 0.5 等分界线**（压在源图内部硬色界上的点因压缩模糊天然不准）
-  const probes = []
-  for (const fx of [0.18, 0.34, 0.66, 0.82]) {
-    for (const fy of [0.08, 0.22, 0.30, 0.44, 0.58, 0.72, 0.86]) probes.push({ sx: fx * SW, sy: fy * SH })
+  // ① 素材真上屏：**在屏幕空间布探针**，再反查到源图坐标。
+  //    为什么不是按源图比例布点：竖屏 full 的 cover 裁切很重（源 1280×720 → 画面 720×1280，scale≈1.78），
+  //    按源图比例布的点会**几乎全部落在可视区之外**（实测：4 个 fx 全部越界 ⇒ 一个点都采不到）。
+  //    屏幕空间布点能自适应任意版式/朝向。
+  const toSrc = (px, py) => ({ x: (px - R.x - off.x) / scale, y: (py - R.y - off.y) / scale })
+  /** 源图该点局部是否平坦：压缩会在**硬边界**处模糊 ⇒ 边界附近的点不可比色（这条让判据对真实照片也成立） */
+  const srcFlat = (sx, sy) => {
+    const mn = [255, 255, 255], mx = [0, 0, 0]
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const c = srcPx(src, SW, sx + dx, sy + dy); if (!c) continue
+        for (let k = 0; k < 3; k++) { if (c[k] < mn[k]) mn[k] = c[k]; if (c[k] > mx[k]) mx[k] = c[k] }
+      }
+    }
+    return Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) <= 40
   }
 
   const deltas = []
-  let worst = null
-  for (const p of probes) {
-    const s = toScreen(p.sx, p.sy)
-    // 必须同时落在**媒体区矩形内**与帧内 —— 只判帧界会把"被 cover 裁掉、落到文字区"的点也采样进来
-    if (s.x < R.x + 1 || s.x > R.x + R.w - 2 || s.y < R.y + 1 || s.y > R.y + R.h - 2) continue
-    if (s.x < 1 || s.x > FW - 2 || s.y < 1 || s.y > FH - 2) continue
-    if (pg.layout === 'full' && s.y > FH * FULL_TOP) continue      // 全幅：下部有渐隐底衬遮挡，不参与素材比色
-    const a = framePx(frame, FW, s.x, s.y), b = srcPx(src, SW, p.sx, p.sy)
-    if (!a || !b) continue
-    const d = dist3(a, b)
-    deltas.push(d)
-    if (!worst || d > worst.d) worst = { d, a, b, s }
+  let worst = null, skipped = 0
+  const GX = 7, GY = 5
+  for (let gi = 0; gi < GX; gi++) {
+    for (let gj = 0; gj < GY; gj++) {
+      const px = R.x + R.w * (gi + 0.5) / GX
+      const py = R.y + R.h * (gj + 0.5) / GY
+      if (px < 1 || px > FW - 2 || py < 1 || py > FH - 2) continue
+      if (pg.layout === 'full' && py > FH * FULL_TOP) continue     // 全幅：下部有渐隐底衬遮挡，不参与素材比色
+      const s = toSrc(px, py)
+      if (s.x < 2 || s.x > SW - 3 || s.y < 2 || s.y > SH - 3) continue   // 被 cover 裁掉了
+      if (!srcFlat(s.x, s.y)) { skipped++; continue }
+      const a = framePx(frame, FW, px, py), b = srcPx(src, SW, s.x, s.y)
+      if (!a || !b) continue
+      const d = dist3(a, b)
+      deltas.push(d)
+      if (!worst || d > worst.d) worst = { d, a, b, px, py }
+    }
   }
-  // ★ 判据用**中位数 + 达标比例**，而不是"最大差"：单个落在色界上的点会因压缩模糊偏大，用最大值判会假阳性；
+  // ★ 判据用**中位数 + 达标比例**，而不是"最大差"：个别落在色界上的点会因压缩模糊偏大，用最大值判会假阳性；
   //   而"整张图被换掉 / 被加滤镜"会让**几乎所有点**都超标 ⇒ 比例判据依然很硬。
   const sorted = deltas.slice().sort((x, y) => x - y)
   const med = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 999
@@ -111,16 +127,20 @@ for (const pg of M.pages) {
   const n = deltas.length
   const ok1 = n >= 8 && ratio >= 0.8 && med <= TOL
   if (!ok1) fail++
-  console.log(`    ① 素材真上屏：${n} 个探针点（限媒体区内）· 中位差 ${med} · 达标 ${inTol}/${n} (${(ratio * 100).toFixed(0)}%) · 最大差 ${worst ? worst.d : '-'}${worst ? `（屏幕(${Math.round(worst.s.x)},${Math.round(worst.s.y)}) 实测[${worst.a}] vs 源[${worst.b}]）` : ''}  ${ok1 ? '✓' : '✗ 超标/点太少'}`)
+  console.log(`    ① 素材真上屏：${n} 个探针点（屏幕空间布点，已剔除源图边界点 ${skipped} 个）· 中位差 ${med} · 达标 ${inTol}/${n} (${(ratio * 100).toFixed(0)}%) · 最大差 ${worst ? worst.d : '-'}${worst ? `（屏幕(${Math.round(worst.px)},${Math.round(worst.py)}) 实测[${worst.a}] vs 源[${worst.b}]）` : ''}  ${ok1 ? '✓' : '✗ 超标/点太少'}`)
 
   // ④ 左/右版式：媒体区外侧必须是**母版底色**（★ 不能写"必须是暗的" —— 浅色母版的底是亮的）
+  //    横屏：媒体在左/右 → 判"旁侧"；竖屏：媒体是**整宽顶带** → 判"下侧"（旁侧已被媒体占满，取不到样）
   if (pg.layout === 'left' || pg.layout === 'right') {
-    const bx = pg.layout === 'left' ? R.x + R.w + 10 : R.x - 10
-    const samples = [0.25, 0.5, 0.75].map((fy) => framePx(frame, FW, bx, R.y + R.h * fy)).filter(Boolean)
+    const wide = R.w >= FW * 0.95
+    const probes = wide
+      ? [0.25, 0.5, 0.75].map((fx) => ({ x: R.x + R.w * fx, y: R.y + R.h + 10, at: `媒体区下 y=${Math.round(R.y + R.h + 10)}` }))
+      : [0.25, 0.5, 0.75].map((fy) => ({ x: pg.layout === 'left' ? R.x + R.w + 10 : R.x - 10, y: R.y + R.h * fy, at: `媒体区外 x=${Math.round(pg.layout === 'left' ? R.x + R.w + 10 : R.x - 10)}` }))
+    const samples = probes.map((q) => framePx(frame, FW, q.x, q.y)).filter(Boolean)
     const ds = samples.map((c) => dist3(c, BG))
     const okBg = samples.length > 0 && ds.every((d) => d <= 40)
     if (!okBg) fail++
-    console.log(`    ④ 版式矩形：媒体区外 x=${Math.round(bx)} 采样 [${samples.map((c) => c.join(',')).join(' | ')}] 与母版底色[${BG}] 距离 [${ds.join(',')}]  ${okBg ? '✓（是底色）' : '✗ 不是底色'}`)
+    console.log(`    ④ 版式矩形：${probes[0].at} 采样 [${samples.map((c) => c.join(',')).join(' | ')}] 与母版底色[${BG}] 距离 [${ds.join(',')}]  ${okBg ? '✓（是底色）' : '✗ 不是底色'}`)
   }
 
   // ③ 全幅压字对比度（WCAG 相对亮度）

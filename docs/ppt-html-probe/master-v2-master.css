@@ -358,6 +358,8 @@ body.p .p6-plot { top: calc(var(--pad) + 168px); height: 372px; }
 
 /* ---------- 竖屏 9:16 覆盖（新页型） ---------- */
 body.p .p9-media { left: 0; right: 0; top: 0; width: 100%; height: 42%; }
+/* ★ 竖屏 full 必须仍是**满幅**（同上：不给 full 单开一条就会退化成"顶带图 + 文字压在空底上"） */
+body.p .p9--full .p9-media { height: 100%; }
 body.p .p9-copy { left: var(--pad); right: var(--pad); top: 48%; }
 body.p .p9-title { font-size: var(--t-h2); }
 body.p .p9--full .p9-copy { top: auto; bottom: calc(var(--pad) + 30px); }

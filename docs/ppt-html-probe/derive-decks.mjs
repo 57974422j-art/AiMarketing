@@ -26,6 +26,11 @@ const VARIANTS = [
   { src: 'deck.charttypes.json', dst: 'deck.charttypes-9x16.json', patch: { orientation: '9:16' } },
   { src: 'deck.charttypes.json', dst: 'deck.charttypes-9x16-master-v2.json', patch: { orientation: '9:16', masterId: 'master-v2', palette: 'azure' } },
   // density 的像素级验证（要断言页边距差在横竖屏都成立）
+  // 竖屏图片页三版式 + 竖屏 12 页整片（补齐"母版 × 几何"矩阵）
+  { src: 'deck.img3.json', dst: 'deck.img3-9x16.json', patch: { orientation: '9:16' } },
+  { src: 'deck.img3.json', dst: 'deck.img3-9x16-master-v2.json', patch: { orientation: '9:16', masterId: 'master-v2', palette: 'azure' } },
+  { src: 'deck.all12.json', dst: 'deck.all12-9x16.json', patch: { orientation: '9:16' } },
+  { src: 'deck.all12.json', dst: 'deck.all12-9x16-master-v2.json', patch: { orientation: '9:16', masterId: 'master-v2', palette: 'azure' } },
   // 12 页整片 + 图片页三版式：也要在两套母版上各出一片
   { src: 'deck.all12.json', dst: 'deck.all12-master-v2.json', patch: { masterId: 'master-v2', palette: 'azure' } },
   { src: 'deck.img3.json', dst: 'deck.img3-master-v2.json', patch: { masterId: 'master-v2', palette: 'azure' } },
