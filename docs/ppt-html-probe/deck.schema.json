@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aimarketing.local/schema/deck.schema.json",
+  "title": "HTML 动态 PPT · 分页契约 v1 (deck.schema.json)",
+  "description": "AI 只输出本 schema 的 JSON，不写 HTML/CSS。内容量下限写死在约束里（要点 >=3 条且每条 >=8 字、数据页必须有 数字+单位+解释、封面必须有 主标题+副标）。字符数均指 Python/JS 意义下的字符个数（去首尾空白后按 码点 计）。",
+  "type": "object",
+  "required": ["version", "meta", "style", "pages"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "1.0",
+      "description": "契约版本；母版升级时同步升这里"
+    },
+    "meta": {
+      "$ref": "#/$defs/meta"
+    },
+    "style": {
+      "$ref": "#/$defs/style"
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 12,
+      "description": "第 1 页必须是 cover（用 meta 的标题/副标渲染）；建议最后 1 页是 end。",
+      "prefixItems": [{ "$ref": "#/$defs/pageCover" }],
+      "items": { "$ref": "#/$defs/pageAny" }
+    }
+  },
+  "$defs": {
+    "meta": {
+      "type": "object",
+      "required": ["title", "subtitle", "lang"],
+      "additionalProperties": false,
+      "description": "封面主标题 + 副标（硬性），出品方/日期可选",
+      "properties": {
+        "title": { "type": "string", "minLength": 4, "maxLength": 40, "description": "封面主标题（硬性 ≥4 字）" },
+        "subtitle": { "type": "string", "minLength": 6, "maxLength": 60, "description": "封面副标（硬性 ≥6 字）" },
+        "issuer": { "type": "string", "maxLength": 40, "description": "出品方（右下/左下小字，可选）" },
+        "date": { "type": "string", "maxLength": 24, "description": "日期/期号小字，可选" },
+        "lang": { "enum": ["zh-CN"], "description": "v1 只支持简体中文" }
+      }
+    },
+    "style": {
+      "type": "object",
+      "required": ["masterId", "palette", "density", "tempo", "orientation"],
+      "additionalProperties": false,
+      "description": "风格参数只允许在这四组枚举里选，不许自由发挥",
+      "properties": {
+        "masterId": { "enum": ["master-v1"], "description": "母版 ID（决定版式与动效语言）" },
+        "palette": { "enum": ["warm-gold", "olive", "clay", "mist-blue"], "description": "配色方案（低饱和，一次只用 1 个强调色）" },
+        "density": { "enum": ["airy", "normal", "dense"], "description": "信息密度（影响版心与行距）" },
+        "tempo": { "enum": ["calm", "normal", "brisk"], "description": "节奏（映射 --enter/--enter-gap/--xover）" },
+        "orientation": { "enum": ["16:9", "9:16"], "description": "画布比例" }
+      }
+    },
+    "pageAny": {
+      "oneOf": [
+        { "$ref": "#/$defs/pageCover" },
+        { "$ref": "#/$defs/pageBullets" },
+        { "$ref": "#/$defs/pageData" },
+        { "$ref": "#/$defs/pageEnd" }
+      ]
+    },
+    "pageCover": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "description": "封面：内容全部来自 meta.title / meta.subtitle（硬性），本页不重复写文案",
+      "properties": {
+        "type": { "const": "cover" },
+        "kicker": { "type": "string", "maxLength": 32, "description": "眉标小字，如 AIMARKETING · 视频工厂" },
+        "asset": { "type": "string", "description": "封面素材在项目内的相对路径（必须已拷进项目，禁 file://）" }
+      }
+    },
+    "pageBullets": {
+      "type": "object",
+      "required": ["type", "title", "items", "summary"],
+      "additionalProperties": false,
+      "description": "要点页：3~5 条编号要点，每条 >=8 字，底部一句小结",
+      "properties": {
+        "type": { "const": "bullets" },
+        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "items": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 5,
+          "items": { "type": "string", "minLength": 8, "maxLength": 40, "description": "每条要点 >=8 字" }
+        },
+        "summary": { "type": "string", "minLength": 6, "maxLength": 40, "description": "底部一句小结（硬性）" }
+      }
+    },
+    "pageData": {
+      "type": "object",
+      "required": ["type", "title", "metric", "secondary"],
+      "additionalProperties": false,
+      "description": "数据页：必须有 数字+单位+解释，外加 2 个次要指标",
+      "properties": {
+        "type": { "const": "data" },
+        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "metric": {
+          "type": "object",
+          "required": ["number", "unit", "explain"],
+          "additionalProperties": false,
+          "properties": {
+            "number": { "type": "number", "description": "大数字（硬性，必须是真实数字，不许编）" },
+            "unit": { "type": "string", "minLength": 1, "maxLength": 8, "description": "单位，如 ms / 帧、%、元" },
+            "explain": { "type": "string", "minLength": 8, "maxLength": 60, "description": "一句解释（硬性 >=8 字）" }
+          }
+        },
+        "secondary": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "恰好 2 个次要指标（小字）",
+          "items": {
+            "type": "object",
+            "required": ["label"],
+            "additionalProperties": false,
+            "properties": {
+              "label": { "type": "string", "minLength": 2, "maxLength": 20, "description": "次要指标键（小字加粗）" },
+              "note": { "type": "string", "maxLength": 30, "description": "次要指标补充说明（更小字，可选）" }
+            }
+          }
+        }
+      }
+    },
+    "pageEnd": {
+      "type": "object",
+      "required": ["type", "line1", "cta", "en"],
+      "additionalProperties": false,
+      "description": "尾页：主句（可 2 行）+ CTA + 一行英文",
+      "properties": {
+        "type": { "const": "end" },
+        "line1": { "type": "string", "minLength": 4, "maxLength": 30, "description": "主句第一行" },
+        "line2": { "type": "string", "maxLength": 30, "description": "主句第二行（可选）" },
+        "cta": { "type": "string", "minLength": 6, "maxLength": 40, "description": "行动号召（硬性）" },
+        "en": { "type": "string", "minLength": 6, "maxLength": 60, "description": "一行英文（小字，硬性）" }
+      }
+    }
+  }
+}
