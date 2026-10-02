@@ -58,7 +58,13 @@
         { "$ref": "#/$defs/pageCover" },
         { "$ref": "#/$defs/pageBullets" },
         { "$ref": "#/$defs/pageData" },
-        { "$ref": "#/$defs/pageEnd" }
+        { "$ref": "#/$defs/pageEnd" },
+        { "$ref": "#/$defs/pageSection" },
+        { "$ref": "#/$defs/pageChart" },
+        { "$ref": "#/$defs/pageCompare" },
+        { "$ref": "#/$defs/pageQuote" },
+        { "$ref": "#/$defs/pageToc" },
+        { "$ref": "#/$defs/pageSummary" }
       ]
     },
     "pageCover": {
@@ -135,6 +141,126 @@
         "line2": { "type": "string", "maxLength": 30, "description": "主句第二行（可选）" },
         "cta": { "type": "string", "minLength": 6, "maxLength": 40, "description": "行动号召（硬性）" },
         "en": { "type": "string", "minLength": 6, "maxLength": 60, "description": "一行英文（小字，硬性）" }
+      }
+    },
+    "pageSection": {
+      "type": "object",
+      "required": ["type", "title"],
+      "additionalProperties": false,
+      "description": "章节页：title 硬性（不许只有编号）",
+      "properties": {
+        "type": { "const": "section" },
+        "number": { "type": "string", "maxLength": 12, "description": "第几章（可选，如 01 / 第二章）" },
+        "title": { "type": "string", "minLength": 4, "maxLength": 24, "description": "章节标题（硬性 ≥4 字）" },
+        "subtitle": { "type": "string", "minLength": 6, "maxLength": 40, "description": "一句副题（可选；给了就要 ≥6 字）" }
+      }
+    },
+    "pageChart": {
+      "type": "object",
+      "required": ["type", "title", "chart", "unit", "explain"],
+      "additionalProperties": false,
+      "description": "图表页：真画图。series ≥4 个数据点且必须是 number（沿\"不许编数字\"闸门）",
+      "properties": {
+        "type": { "const": "chart" },
+        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "chart": {
+          "type": "object",
+          "required": ["type", "series"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "enum": ["line", "bar", "donut"], "description": "折线 / 柱 / 占比环" },
+            "series": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 12,
+              "items": { "type": "number", "description": "数据点必须是 number（硬性）" },
+              "description": "≥4 个数据点；图上画出的点数必须等于这里"
+            },
+            "labels": {
+              "type": "array",
+              "maxItems": 12,
+              "items": { "type": "string", "maxLength": 10 },
+              "description": "横轴标签（可选；若给，条数应与 series 一致）"
+            }
+          }
+        },
+        "unit": { "type": "string", "minLength": 1, "maxLength": 8, "description": "单位，如 % / 秒 / 万" },
+        "explain": { "type": "string", "minLength": 8, "maxLength": 60, "description": "一句解释（硬性 ≥8 字）" },
+        "source": { "type": "string", "maxLength": 40, "description": "数据来源（可选，右下小字）" }
+      }
+    },
+    "compareSide": {
+      "type": "object",
+      "required": ["label", "points"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 2, "maxLength": 12 },
+        "points": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": { "type": "string", "minLength": 6, "maxLength": 28 },
+          "description": "2~4 条，每条 ≥6 字"
+        }
+      }
+    },
+    "pageCompare": {
+      "type": "object",
+      "required": ["type", "title", "left", "right", "conclusion"],
+      "additionalProperties": false,
+      "description": "对比页：左右各 2~4 条（每条 ≥6 字）+ 一句结论（≥8 字）",
+      "properties": {
+        "type": { "const": "compare" },
+        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "left": { "$ref": "#/$defs/compareSide" },
+        "right": { "$ref": "#/$defs/compareSide" },
+        "conclusion": { "type": "string", "minLength": 8, "maxLength": 40, "description": "一句结论（硬性 ≥8 字）" }
+      }
+    },
+    "pageQuote": {
+      "type": "object",
+      "required": ["type", "quote"],
+      "additionalProperties": false,
+      "description": "引用页：quote ≥12 字且必须是一句完整的话（以 。！？… 收尾），不是名词短语",
+      "properties": {
+        "type": { "const": "quote" },
+        "quote": { "type": "string", "minLength": 12, "maxLength": 80 },
+        "author": { "type": "string", "minLength": 2, "maxLength": 20, "description": "出处/作者（可选）" },
+        "context": { "type": "string", "maxLength": 40, "description": "出处补充（可选，更小字）" }
+      }
+    },
+    "pageToc": {
+      "type": "object",
+      "required": ["type", "title", "items"],
+      "additionalProperties": false,
+      "description": "目录页（复用要点页版式）：3~6 条，每条 ≥4 字",
+      "properties": {
+        "type": { "const": "toc" },
+        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "items": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 6,
+          "items": { "type": "string", "minLength": 4, "maxLength": 24 }
+        }
+      }
+    },
+    "pageSummary": {
+      "type": "object",
+      "required": ["type", "title", "items"],
+      "additionalProperties": false,
+      "description": "小结页（复用要点页版式）：标题 + 恰好 3 条、每条 ≥8 字",
+      "properties": {
+        "type": { "const": "summary" },
+        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "items": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": "string", "minLength": 8, "maxLength": 28 },
+          "description": "恰好 3 条，每条 ≥8 字"
+        },
+        "closing": { "type": "string", "maxLength": 40, "description": "底部一句收束（可选）" }
       }
     }
   }

@@ -23,16 +23,23 @@
 
 ---
 
-## 2. 页型（就这 4 种，一整套 = 这 4 页的最小完备）
+## 2. 页型（共 10 种；一整套的最小完备 = cover + 1~2 内容页 + end）
 
 | type | 角色 | 必须包含 |
 |---|---|---|
 | `cover` | 封面 | 文案来自顶层 `meta.title` / `meta.subtitle`（**硬性**）；本页只写 `kicker`(可选) 与 `asset`(可选) |
+| `section` | 章节页 | `title`（**≥4 字，硬性 —— 不许只有编号**）+ `number`(可选) + `subtitle`(可选，给了要 ≥6 字) |
 | `bullets` | 要点页 | `title` + `items`（**3~5 条，每条 ≥8 字**）+ `summary`（底部一句小结，≥6 字） |
+| `chart` | 图表页 | `title` + `chart{type, series}`（**`series` ≥4 个点且必须是 number**）+ `unit` + `explain`(≥8 字) + `source`(可选) |
+| `compare` | 对比页 | `title` + `left{label,points}` + `right{label,points}`（**左右各 2~4 条、每条 ≥6 字**）+ `conclusion`(≥8 字) |
 | `data` | 数据页 | `title` + `metric{number, unit, explain}`（**数字+单位+解释，三者缺一不可**）+ `secondary`（**恰好 2 条**小字指标） |
+| `quote` | 引用页 | `quote`（**≥12 字且必须是一句完整的话、以 。！？… 收尾，不是名词短语**）+ `author`(可选) + `context`(可选) |
 | `end` | 尾页 | `line1`(+可选 `line2`) + `cta` + `en`（一行英文小字） |
+| `toc` | 目录页 | `title` + `items`（**3~6 条，每条 ≥4 字**） |
+| `summary` | 小结页 | `title` + `items`（**恰好 3 条，每条 ≥8 字**）+ `closing`(可选) |
 
 **页序**：第 1 页**必须**是 `cover`；**建议**最后一页是 `end`；整篇 4~12 页。
+**选型建议**：讲"是什么/为什么"用 `bullets`；有真实数字用 `data`；**有 ≥4 个真实数字的序列**才用 `chart`（点数不够就退回 `data`）；做取舍用 `compare`；要一句有分量的话用 `quote`；章节切换用 `section`。
 
 ---
 
@@ -74,6 +81,15 @@
 | `data.secondary` | **恰好 2 条** | 每条 `label` 2~20 字，`note` ≤30 字 |
 | `end.cta` | 6~40 字 | 行动号召 |
 | `end.en` | 6~60 字 | 一行英文小字（如 `FRAME-ACCURATE · DETERMINISTIC`） |
+| `section.title` | 4~24 字 | **硬性**；只给 `number` 不给 `title` 会被闸门拦下 |
+| `section.subtitle` | 6~40 字 | 给了就必须达下限 |
+| `chart.chart.series` | **≥4 个数字**（上限 12） | **必须是 number 类型**；非数字/点数不足直接被拦 |
+| `chart.explain` | 8~60 字 | 写清这张图在说明什么、口径是什么 |
+| `compare.left/right.points` | **各 2~4 条**，每条 6~28 字 | 少一条/多一条都会被拦（超过 4 条观众记不住） |
+| `compare.conclusion` | 8~40 字 | 对比完到底说明什么；说不出结论就不该用 `compare` |
+| `quote.quote` | **12~80 字** | **必须以 。！？… 收尾**（结构化拦掉"名词短语"） |
+| `toc.items` | 3~6 条，每条 4~24 字 | 目录超过 6 条记不住 |
+| `summary.items` | **恰好 3 条**，每条 8~28 字 | 小结超过 3 条就不是小结了 |
 
 **字数是"去首尾空白后的字符个数"**（中文一个字算一个）。
 

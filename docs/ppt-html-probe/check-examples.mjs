@@ -40,6 +40,37 @@ const BASELINE = [
     exit: 1, errors: 3, warns: 0,
     allErrorsMatch: /HTML\/CSS 标记/,
   },
+  // ---- 新页型 4→8 的反例（每种新页型各 1 个；每个都只让"目标页型"报错，其余页合法）----
+  {
+    file: 'examples/deck.bad-section.json',
+    desc: '章节页：只有编号、无标题、副题过短',
+    exit: 1, errors: 2, warns: 1,
+  },
+  {
+    file: 'examples/deck.bad-chart.json',
+    desc: '图表页：数据点 <4、含非数字、解释过短',
+    exit: 1, errors: 3, warns: 0,
+  },
+  {
+    file: 'examples/deck.bad-compare.json',
+    desc: '对比页：左栏 1 条、右栏 5 条、结论过短',
+    exit: 1, errors: 3, warns: 0,
+  },
+  {
+    file: 'examples/deck.bad-quote.json',
+    desc: '引用页：名词短语（缺句末标点）、作者过短',
+    exit: 1, errors: 2, warns: 0,
+  },
+  {
+    file: 'examples/deck.bad-toc.json',
+    desc: '目录页：只有 2 条（要求 3~6）',
+    exit: 1, errors: 1, warns: 0,
+  },
+  {
+    file: 'examples/deck.bad-summary.json',
+    desc: '小结页：4 条（要求恰好 3 条）',
+    exit: 1, errors: 1, warns: 0,
+  },
 ]
 
 function run(file) {
@@ -86,7 +117,7 @@ if (jsonMode) {
     if (!r.ok) for (const w of r.why) console.log(`      → 偏离: ${w}`)
   }
   console.log('')
-  console.log(`结论: ${failed === 0 ? 'PASS（三个样例全部符合基线）' : `FAIL（${failed} 个样例偏离基线）`}`)
+  console.log(`结论: ${failed === 0 ? `PASS（${BASELINE.length} 个样例全部符合基线）` : `FAIL（${failed}/${BASELINE.length} 个样例偏离基线）`}`)
   if (failed === 0) {
     console.log('基线数字（请登记进报告）：' +
       BASELINE.map((b) => `${b.file.split('/').pop()}=exit${b.exit}/${b.errors}err/${b.warns}warn`).join(' · '))

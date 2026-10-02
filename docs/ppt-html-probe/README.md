@@ -168,7 +168,54 @@ node render-deck.mjs examples/deck.full6.json
 
 ---
 
-## 9. 已知限制（v1）
+## 10. 页型 4 → 10（第三批）
+
+新增 6 种页型：`section` 章节 / `chart` 图表 / `compare` 对比 / `quote` 引用 / `toc` 目录 / `summary` 小结。字段与**内容量下限**见 `deck.schema.json`（AI 侧口径见 `AI-PROMPT.md` §2/§4）。
+
+**金样例**：`examples/deck.types8.json` = **8 页 × 3s = 24s**
+`cover → section → bullets → chart → compare → data → quote → end`
+产物：`out/deck.types8/output-deck.types8.mp4`（**600 帧 / 24.000s / h264 yuv420p / tv+bt709**）
+证据：`out/deck.types8/frames/`（每页 2 帧）+ `sheet-full.png`（8 页拼图）+ `chart-closeup.png`（图表特写）+ `reconcile.md`（**未命中 0 / 大数字错 0 / 图表错 0 / 跨页重复 0**）
+
+### 10.1 图表"真画"是**两层**证明（缺一不可）
+| 层 | 工具 | 证明什么 |
+|---|---|---|
+| HTML 层 | `render-deck.mjs` 的 `chartCheck` | 生成的 HTML 里，**图上几何反推的数值 == 输入 series**（柱高/顶点 y/弧长都反推一遍） |
+| 像素层 | `verify-chart.mjs`（抽帧） | 渲染出的**画面上真的这么高**，没被裁/没画错 |
+
+实测（`node verify-chart.mjs out/deck.types8`，容差 ±4px，绘图区高 234px）：
+| 输入值 | 期望柱高 | 实测柱高 | 差 |
+|---|---|---|---|
+| 62.5 | 158.5px | 159px | +0.5 |
+| 70.5 | 178.7px | 179px | +0.3 |
+| 92.3 | 234.0px | 235px | +1.0 |
+| 29.0 | 73.5px | 74px | +0.5 |
+| 24.9 | 63.1px | 63px | −0.1 |
+→ **5 根柱全部 ≤±1px**，即"图上柱高 = 输入数据"。三种图表类型（`bar`/`line`/`donut`）都实现了真画：柱用 `scaleY` 生长、折线用 `strokeDashoffset` 收线、占比环用 `dasharray/dashoffset` 逐片展开，**全部是 transform/描边属性动画 ⇒ 逐帧可 seek**。
+
+### 10.2 收窄了"跨页泄漏"判据（踩了假阳性）
+原判据"子串命中即泄漏"在 8 页 deck 上**误报 3 条**：
+`HTML 逐帧`（对比页标签）嵌在章节副题里、`2026-10`（封面日期）嵌在引用出处里、`01`（章节编号）撞上要点页编号 —— **全是正常内容**。
+→ 改为：**拦渲染**只认"别页字段在本页出现了**正好等于该值的独立节点**"（并跳过 <4 字的值）；纯粹子串命中降级为**"疑似重复（不拦）"**列，供人看。
+→ 收窄后复跑 4 页 / 6 页 / 配色三条老 deck，**仍全部 0/0/0/0**（证明没有放水）。
+
+### 10.3 `check-examples.mjs` **新基线**（9 个样例，逐字）
+```
+deck.master-v1.json      = exit0 / 0err / 0warn
+deck.bad.json            = exit1 / 13err / 3warn
+deck.html-injected.json  = exit1 / 3err / 0warn
+deck.bad-section.json    = exit1 / 2err / 1warn
+deck.bad-chart.json      = exit1 / 3err / 0warn
+deck.bad-compare.json    = exit1 / 3err / 0warn
+deck.bad-quote.json      = exit1 / 2err / 0warn
+deck.bad-toc.json        = exit1 / 1err / 0warn
+deck.bad-summary.json    = exit1 / 1err / 0warn
+```
+敏感性复验：把要点下限 3→1（指向改松副本）→ **2/9 个样例立刻变红**（`deck.bad.json` 13→12、`deck.bad-toc` 1→0）；换回正式版即 PASS。
+
+---
+
+## 9'. 已知限制（v1）
 1. `density` 目前只改 `--pad`/`--gap`，**字阶不随密度变** —— 因为改字号需要把 3~5 条要点 × 三种密度的组合逐一目视验证，未做前不放开（宁可不做也不放任溢出）。
 2. 大数字：**整数位滚筒、小数/负号静态**（如 `12.5` 的"."是静态字符）。
 3. 页数上限沿用契约的 4~12；`tempo=calm` 下单页仍 3s（时长不随 tempo 变，只变入场节奏）。

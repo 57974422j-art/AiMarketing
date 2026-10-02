@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "meta": {
+    "title": "反例：目录页条数不足",
+    "subtitle": "用于回归自检的最小反例，故意不达标",
+    "lang": "zh-CN"
+  },
+  "style": {
+    "masterId": "master-v1",
+    "palette": "warm-gold",
+    "density": "normal",
+    "tempo": "normal",
+    "orientation": "16:9"
+  },
+  "pages": [
+    { "type": "cover" },
+    {
+      "type": "bullets",
+      "title": "占位要点页",
+      "items": ["第一条占位要点内容", "第二条占位要点内容", "第三条占位要点内容"],
+      "summary": "这页只为满足最少 3 条要点与页数下限"
+    },
+    { "type": "toc", "title": "目录反例页", "items": ["目录条目一", "目录条目二"] },
+    {
+      "type": "end",
+      "line1": "反例结束占位",
+      "cta": "这页只是为了满足末页建议",
+      "en": "PLACEHOLDER FOR REGRESSION ONLY"
+    }
+  ]
+}

@@ -549,3 +549,56 @@ v1 素材帧上显示的是 **`T=220`** 而不是 `T1`（字号也塌了）。�
 6. **改已批准资产 → 必须做字节级回归**。本轮两次：母版暖光时长参数化后重渲 `master-v1.mp4` MD5 **不变**；`--accent-rgb`/`.digitstatic` 新增后同样 MD5 **不变** ⇒ 对已批准母版零行为变化。
 
 **已知会复用的自检组合**（team-lead 已确认下一批沿用）：**闸门在前 + 对账在侧 + 抽帧给人眼 + 字节级回归**（另有样例集回归 `check-examples.mjs` 的"基线数字断言"防闸门被改松）。
+
+---
+
+## 12. 页型 4 → 10（第三批）
+
+### 12.1 交付
+- **契约与校验器同步扩展**：`deck.schema.json` + `validate-deck.mjs` 新增 6 种页型（`section`/`chart`/`compare`/`quote`/`toc`/`summary`）的字段与**内容量下限**，并对每种都给了"不达标 → **建议替换页型**"的映射；`AI-PROMPT.md` 的页型表与下限表同步。
+- **金样例 = 8 页 / 24 秒整片**：`examples/deck.types8.json`
+  `cover → section → bullets → chart → compare → data → quote → end`
+  产物 `out/deck.types8/output-deck.types8.mp4` = **600 帧 / 24.000s / 1280×720 / 25fps / h264 yuv420p / tv+bt709**；
+  证据：每页 2 帧（16 张）+ `sheet-full.png`（8 页拼图）+ `chart-closeup.png` + `reconcile.md`（**未命中 0 / 大数字错 0 / 图表错 0 / 跨页重复 0**）。
+- **6 个新反例**（每种新页型各 1 个）+ `check-examples.mjs` 基线更新（见 §12.4）。
+
+### 12.2 图表"真画"做了**两层**证明（team-lead 要求"用抽帧证明图上数值=输入"）
+| 层 | 工具 | 证明 | 结果 |
+|---|---|---|---|
+| HTML 层 | `render-deck.mjs / chartCheck` | 生成的 HTML 里，从图上几何（柱高 / 折线顶点 y / 弧长）**反推数值**再与输入 series 逐点比 | **0 错** |
+| 像素层 | `verify-chart.mjs`（抽帧 → 逐柱量高度） | 画面上的柱**真的这么高**，没被裁/没画错 | **5 根柱全部 ≤±1px** |
+
+像素层明细（绘图区高 234px，容差 ±4px）：
+| 输入值 | 期望柱高 | 实测柱高 | 差 |
+|---|---|---|---|
+| 62.5 | 158.5px | 159px | +0.5 |
+| 70.5 | 178.7px | 179px | +0.3 |
+| 92.3 | 234.0px | 235px | +1.0 |
+| 29.0 | 73.5px | 74px | +0.5 |
+| 24.9 | 63.1px | 63px | −0.1 |
+
+三种类型都真画：`bar` 用 `scaleY` 生长、`line` 用 `strokeDashoffset` 收线、`donut` 用 `dasharray/dashoffset` 逐片展开 —— **全是 transform/描边属性动画 ⇒ 逐帧可 seek、无 JS 数值插值**。
+（生成器还给每个图表页写出 `chart-meta.json`（绘图区几何 + 每点坐标），验证器读它而不重复常量，避免"两处 PLOT 漂移"。）
+
+### 12.3 两个我被自己的闸门/回归拦下的问题（都属"判据太宽"）
+1. **"跨页泄漏"判据误报 3 条**：`HTML 逐帧`（对比页标签）嵌在章节副题里、`2026-10`（封面日期）嵌在引用出处里、`01`（章节编号）撞上要点页编号 —— 全是**正常内容**，原判据"子串命中即泄漏"太宽。
+   → 收窄为：**拦渲染**只认"别页字段在本页出现了**正好等于该值的独立节点**"（并跳过 <4 字的值）；纯子串命中降级为**"疑似重复（不拦）"**列。
+   → 收窄后复跑 4 页 / 6 页 / 配色三条老 deck **仍全 0/0/0/0**（证明是修判据、不是放水）。
+2. **`body.p` 直接覆盖 `--pad`** → 导致契约里的 `density` 在**竖屏下完全失效**（横屏才生效）。改为 `--pad-base` 基准 + `--pad: var(--pad-base)` 派生，`density` 横竖屏一致生效。
+   → 该 CSS 改动经**字节级回归**：重渲 `master-v1.mp4` MD5 **仍为 `7F1B528DD953316644A621054861EA03`**（与改动前完全相同）⇒ 对已批准母版零行为变化。
+   （本轮共做 3 次字节级回归：新增页型样式/动效、图表动效分支、`--pad-base` 重构 —— 三次均 PASS。）
+
+### 12.4 `check-examples.mjs` **新基线（9 个样例，逐字）**
+```
+deck.master-v1.json      = exit0 / 0err / 0warn
+deck.bad.json            = exit1 / 13err / 3warn
+deck.html-injected.json  = exit1 / 3err / 0warn
+deck.bad-section.json    = exit1 / 2err / 1warn     （只有编号无标题 + 副题过短）
+deck.bad-chart.json      = exit1 / 3err / 0warn     （点数<4 + 非数字 + 解释过短）
+deck.bad-compare.json    = exit1 / 3err / 0warn     （左栏 1 条 + 右栏 5 条 + 结论过短）
+deck.bad-quote.json      = exit1 / 2err / 0warn     （名词短语缺句末标点 + 作者过短）
+deck.bad-toc.json        = exit1 / 1err / 0warn     （仅 2 条）
+deck.bad-summary.json    = exit1 / 1err / 0warn     （4 条，要求恰好 3 条）
+```
+**敏感性复验**：要点下限 3→1（指向改松副本）→ **2/9 个样例立刻变红**（`deck.bad.json` 13→12、`deck.bad-toc` 1→0）；换回正式版 → PASS。
+**未做/不确定**：`chart` 的 `line`/`donut` 只做了 HTML 层几何反推 + 目视，**没做像素级反推**（像素反推脚本只实现了柱状）；`density→字阶` 按 team-lead 指示仍未做（已写进 `PARAMS.md` 已知限制）。

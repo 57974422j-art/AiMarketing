@@ -24,7 +24,7 @@ const STYLE_ENUMS = {
   tempo: ['calm', 'normal', 'brisk'],
   orientation: ['16:9', '9:16'],
 }
-const PAGE_TYPES = ['cover', 'bullets', 'data', 'end']
+const PAGE_TYPES = ['cover', 'bullets', 'data', 'end', 'section', 'chart', 'compare', 'quote', 'toc', 'summary']
 // 只匹配"真的是 HTML/CSS"的形态，避免误伤正常文案里的冒号分号
 //   ① 完整标签 <div ...> / </span>
 //   ② CSS 声明式：已知属性名 + 冒号 + 值 + 分号（如 color: #fff;）
@@ -152,6 +152,138 @@ function checkEnd(p, path) {
   }
 }
 
+// ---------------------------------------------------------------- 新页型 5~8
+function checkSection(p, path) {
+  if (cp(p.number) > 12) add('error', `${path}.number`, `编号 ${cp(p.number)} 字，上限 12`, '精简编号，如 "01" 或 "第二章"')
+  if (!checkString(p.title, `${path}.title`, 4, 24, '章节页标题')) {
+    add('warn', `${path}.title`, '章节页只有编号、没有标题 → 违反"不许只有编号"',
+      '补一个 ≥4 字的标题；若这一页想强调一个概念/一句话，改用 quote（一句完整的话）；若有一个真实数字，改用 data')
+  }
+  if (p.subtitle != null) checkString(p.subtitle, `${path}.subtitle`, 6, 40, '章节页副题')
+}
+
+function checkChart(p, path) {
+  checkString(p.title, `${path}.title`, 4, 24, '图表页标题')
+  const c = p.chart
+  if (!c || typeof c !== 'object') {
+    add('error', `${path}.chart`, 'chart 缺失', '补 chart{type, series}；series 至少 4 个真实数字')
+    return
+  }
+  checkEnum(c.type, `${path}.chart.type`, ['line', 'bar', 'donut'], 'chart.type', '只允许 line / bar / donut')
+  if (!Array.isArray(c.series)) {
+    add('error', `${path}.chart.series`, 'series 缺失或不是数组', '补 ≥4 个 number 数据点；拿不到真实数据 → 改用 bullets 页')
+  } else {
+    if (c.series.length < 4) {
+      add('error', `${path}.chart.series`, `只有 ${c.series.length} 个数据点，硬性要求 ≥4`,
+        '补到 ≥4 个点；若确实只有 2~3 个数，改用 data 页（大数字 + 单位 + 解释）或 bullets 页')
+    }
+    if (c.series.length > 12) add('error', `${path}.chart.series`, `${c.series.length} 个点，上限 12`, '拆成两页，或改用 line 只画趋势')
+    c.series.forEach((v, i) => {
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        add('error', `${path}.chart.series[${i}]`, `数据点不是合法 number：${JSON.stringify(v)}`,
+          '数据点必须是真实数字（不许字符串、不许编造）；拿不到 → 改用 bullets 页')
+      }
+    })
+  }
+  if (Array.isArray(c.labels) && Array.isArray(c.series) && c.labels.length !== c.series.length) {
+    add('warn', `${path}.chart.labels`, `labels ${c.labels.length} 个 ≠ series ${c.series.length} 个`,
+      '让标签数与数据点数一致，或直接删掉 labels')
+  }
+  if (cp(p.unit) < 1) add('error', `${path}.unit`, '单位为空', '补单位（% / 秒 / 万 …）')
+  else if (cp(p.unit) > 8) add('error', `${path}.unit`, `单位 ${cp(p.unit)} 字，上限 8`, '精简单位')
+  if (cp(p.explain) < 8) add('error', `${path}.explain`, `解释只有 ${cp(p.explain)} 字，要求 ≥8 字`,
+    '补一句解释：这张图在说明什么、口径是什么')
+  if (p.source != null && cp(p.source) > 40) add('error', `${path}.source`, `来源 ${cp(p.source)} 字，上限 40`, '精简来源')
+}
+
+function checkSide(side, path, sideName) {
+  if (!side || typeof side !== 'object') {
+    add('error', path, `${sideName}缺失`, `补 {label, points[]}（2~4 条，每条 ≥6 字）`)
+    return
+  }
+  if (cp(side.label) < 2) add('error', `${path}.label`, `${sideName}标签只有 ${cp(side.label)} 字，要求 ≥2 字`, '补 2~12 字的标签')
+  else if (cp(side.label) > 12) add('error', `${path}.label`, `${sideName}标签 ${cp(side.label)} 字，上限 12`, '精简标签')
+  if (!Array.isArray(side.points)) {
+    add('error', `${path}.points`, `${sideName}points 缺失或不是数组`, '补 2~4 条，每条 ≥6 字')
+    return
+  }
+  if (side.points.length < 2) {
+    add('error', `${path}.points`, `${sideName}只有 ${side.points.length} 条，硬性要求 2~4 条`,
+      '补到 ≥2 条；若确实只有 1 条，改用 bullets 页（每条 ≥8 字）或把这条并进 conclusion')
+  }
+  if (side.points.length > 4) {
+    add('error', `${path}.points`, `${sideName}有 ${side.points.length} 条，上限 4 条`,
+      '拆成两页 compare，或改用 bullets 页（最多 5 条）')
+  }
+  side.points.forEach((t, i) => {
+    if (typeof t !== 'string') { add('error', `${path}.points[${i}]`, '不是字符串', '改成字符串'); return }
+    const n = cp(t)
+    if (n < 6) add('error', `${path}.points[${i}]`, `该条只有 ${n} 字，要求 ≥6 字：${JSON.stringify(t)}`,
+      '补足信息量；若两边内容都撑不起来，改用 bullets 页')
+  })
+}
+
+function checkCompare(p, path) {
+  checkString(p.title, `${path}.title`, 4, 24, '对比页标题')
+  checkSide(p.left, `${path}.left`, '左栏')
+  checkSide(p.right, `${path}.right`, '右栏')
+  if (cp(p.conclusion) < 8) add('error', `${path}.conclusion`, `结论只有 ${cp(p.conclusion)} 字，要求 ≥8 字`,
+    '补一句结论：对比完到底说明什么；若说不出结论，说明这页不该用 compare')
+  else if (cp(p.conclusion) > 40) add('error', `${path}.conclusion`, `结论 ${cp(p.conclusion)} 字，上限 40`, '精简结论')
+}
+
+function checkQuote(p, path) {
+  const q = typeof p.quote === 'string' ? p.quote.trim() : ''
+  if (!q) { add('error', `${path}.quote`, 'quote 缺失或不是字符串', '补一句完整的话（≥12 字）'); return }
+  const n = cp(q)
+  if (n < 12) {
+    add('error', `${path}.quote`, `引用只有 ${n} 字，要求 ≥12 字：${JSON.stringify(q)}`,
+      n < 8 ? '太短了：若这是一句口号/名词短语，改用 section 页或 bullets 页' : '补足到 ≥12 字的一句完整的话')
+    return
+  }
+  if (n > 80) add('error', `${path}.quote`, `引用 ${n} 字，上限 80`, '截取其中最有力量的一句')
+  // "是不是一句完整的话" 的结构化判据：以句末标点收尾（名词短语通常不会）
+  if (!/[。！？…]["”』」]?$/.test(q)) {
+    add('error', `${path}.quote`, `引用不是一句完整的话（缺句末标点）：${JSON.stringify(q.slice(0, 40))}`,
+      '把它写成完整一句并以 。/！/？/… 收尾；若它本来就是名词短语，改用 section 页（标题）或 bullets 页')
+  } else if (!/[，、；：]/.test(q) && n < 20) {
+    add('warn', `${path}.quote`, `这句较短且无停顿，确认它是不是一句完整的话：${JSON.stringify(q)}`,
+      '可加一处停顿让语气完整，或换一句信息量更大的引用')
+  }
+  if (p.author != null) {
+    if (cp(p.author) < 2) add('error', `${path}.author`, '作者过短', '补 2~20 字的出处/作者')
+    else if (cp(p.author) > 20) add('error', `${path}.author`, `作者 ${cp(p.author)} 字，上限 20`, '精简')
+  }
+  if (p.context != null && cp(p.context) > 40) add('error', `${path}.context`, `补充 ${cp(p.context)} 字，上限 40`, '精简')
+}
+
+function checkToc(p, path) {
+  checkString(p.title, `${path}.title`, 4, 24, '目录页标题')
+  if (!Array.isArray(p.items)) { add('error', `${path}.items`, 'items 缺失或不是数组', '补 3~6 条，每条 ≥4 字'); return }
+  if (p.items.length < 3) add('error', `${path}.items`, `只有 ${p.items.length} 条，要求 3~6 条`, '补到 ≥3 条')
+  if (p.items.length > 6) add('error', `${path}.items`, `${p.items.length} 条，上限 6 条`, '精简到 6 条以内（目录超过 6 条观众记不住）')
+  p.items.forEach((t, i) => {
+    if (typeof t !== 'string') { add('error', `${path}.items[${i}]`, '不是字符串', '改成字符串'); return }
+    if (cp(t) < 4) add('error', `${path}.items[${i}]`, `该条只有 ${cp(t)} 字，要求 ≥4 字：${JSON.stringify(t)}`, '补足')
+    else if (cp(t) > 24) add('error', `${path}.items[${i}]`, `该条 ${cp(t)} 字，上限 24`, '精简')
+  })
+}
+
+function checkSummary(p, path) {
+  checkString(p.title, `${path}.title`, 4, 24, '小结页标题')
+  if (!Array.isArray(p.items)) { add('error', `${path}.items`, 'items 缺失或不是数组', '补恰好 3 条，每条 ≥8 字'); return }
+  if (p.items.length !== 3) {
+    add('error', `${path}.items`, `有 ${p.items.length} 条，硬性要求恰好 3 条`,
+      p.items.length < 3 ? '补到 3 条；若凑不出 3 条，改用 bullets 页（≥3 条即可）' : '删到 3 条（小结超过 3 条就不是小结了）')
+  }
+  p.items.forEach((t, i) => {
+    if (typeof t !== 'string') { add('error', `${path}.items[${i}]`, '不是字符串', '改成字符串'); return }
+    if (cp(t) < 8) add('error', `${path}.items[${i}]`, `该条只有 ${cp(t)} 字，要求 ≥8 字：${JSON.stringify(t)}`, '补足信息量')
+    else if (cp(t) > 28) add('error', `${path}.items[${i}]`, `该条 ${cp(t)} 字，上限 28`, '精简')
+  })
+  if (p.closing != null && cp(p.closing) > 40) add('error', `${path}.closing`, `收束 ${cp(p.closing)} 字，上限 40`, '精简')
+}
+
 // ---------------------------------------------------------------- 主流程
 function main() {
   const args = process.argv.slice(2)
@@ -219,7 +351,13 @@ function main() {
       const allowedKeys = { cover: ['type', 'kicker', 'asset'],
                             bullets: ['type', 'title', 'items', 'summary'],
                             data: ['type', 'title', 'metric', 'secondary'],
-                            end: ['type', 'line1', 'line2', 'cta', 'en'] }[p.type]
+                            end: ['type', 'line1', 'line2', 'cta', 'en'],
+                            section: ['type', 'number', 'title', 'subtitle'],
+                            chart: ['type', 'title', 'chart', 'unit', 'explain', 'source'],
+                            compare: ['type', 'title', 'left', 'right', 'conclusion'],
+                            quote: ['type', 'quote', 'author', 'context'],
+                            toc: ['type', 'title', 'items'],
+                            summary: ['type', 'title', 'items', 'closing'] }[p.type]
       for (const k of Object.keys(p)) {
         if (!allowedKeys.includes(k)) add('error', `${path}.${k}`, `页面多出未定义字段 "${k}"`, `本页型只允许 [${allowedKeys.join(', ')}]`)
       }
@@ -227,6 +365,12 @@ function main() {
       if (p.type === 'bullets') checkBullets(p, path)
       if (p.type === 'data') checkData(p, path)
       if (p.type === 'end') checkEnd(p, path)
+      if (p.type === 'section') checkSection(p, path)
+      if (p.type === 'chart') checkChart(p, path)
+      if (p.type === 'compare') checkCompare(p, path)
+      if (p.type === 'quote') checkQuote(p, path)
+      if (p.type === 'toc') checkToc(p, path)
+      if (p.type === 'summary') checkSummary(p, path)
     })
   }
 
