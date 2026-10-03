@@ -26,6 +26,7 @@ import { ENGINE_ROOT, DECK_DIR, selfCheck } from './paths.mjs'
 import { resolveHyperframes } from './engine-bin.mjs'
 /* ★ 时序**唯一实现**（team-lead ②）：本文件不再硬编码 `--at 1.0`，也不再自带时序公式 */
 import { settledAt, settledAtList, pageNoOfSelector, pageOfTime, timingTable } from './timing.mjs'
+import { domTarget } from './dom-target.mjs'
 /* ★ 装饰×内容碰撞判据（**唯一实现**，与闸门 `check-engine-lint.mjs` 同一模块 ⇒ 不会出现"上限比闸门严/松"） */
 import { classifyOcclusions, crossCheckNote } from './decor-collision.mjs'
 
@@ -90,7 +91,7 @@ if (!dirArg || !cls) {
   process.exit(2)
 }
 const SRC = join(ENGINE_ROOT, dirArg)
-const MAXK = Number(maxArg || 240)
+let MAXK = Number(maxArg || 240)      // ★ let：正控倍增可能放宽它（见下方"搜索上限必须包住正控触发点"）
 /* ★ 时刻**不硬编码**（team-lead ②）：默认由 `timing.mjs` 按"该字段所在页"算；`SWEEP_AT` 仅作**显式覆盖**（自证/对比用） */
 const AT_FORCE = process.env.SWEEP_AT || ''
 let SUBFAIL = 0   // ⊆ 断言失败标记（决定最终退出码）
@@ -132,10 +133,12 @@ function build(k, srcDir, clsHint) {
   const f = join(dir, 'index.html')
   let html = readFileSync(f, 'utf8')
   const useCls = clsHint || cls
-  const re = new RegExp(`(<([a-z0-9]+)\\b[^>]*class="[^"]*\\b${useCls}\\b[^"]*"[^>]*>)([\\s\\S]*?)(</\\2>)`, 'i')
-  const m = re.exec(html)
-  if (!m) return { dir: null, why: `产物 HTML 里找不到 .${useCls}（检测点失效）` }
-  html = html.slice(0, m.index) + m[1] + '汉'.repeat(k) + m[4] + html.slice(m.index + m[0].length)
+  /* ★ **唯一命中断言**（team-lead ③-1）：目标必须恰好命中 1 个元素，否则"注给谁"不明确 ⇒ 读数无意义 ⇒ exit 2。
+     用**唯一实现** `dom-target.mjs`（支持 `li:first-child .t` / `p2-head h2` 这类唯一形态）。 */
+  const tg = domTarget(html, useCls)
+  if (!tg.count) return { dir: null, why: `产物 HTML 里找不到目标「${useCls}」（检测点失效）` }
+  if (tg.count !== 1) return { dir: null, why: `**选择器不唯一**（命中 ${tg.count} 个）⇒ 目标不明确 ⇒ 读数无意义（改用唯一形态，如 li:first-child .t / p2-head h2）` }
+  html = html.slice(0, tg.openEnd) + '汉'.repeat(k) + html.slice(tg.closeStart)
   writeFileSync(f, html, 'utf8')
   return { dir, why: 'ok' }
 }
@@ -234,17 +237,29 @@ dieIfUnmeasurable(p1, '基准 k=1')
 console.log(`  基准（k=1）：findings=${p1.findings.length} · 判据内=${p1.hits.length} · 非白名单=${p1.bad.length} ⇒ ${p1.bad.length ? '✗ 连 1 字都不过（判据/白名单可疑）' : '✓ 过'}`)
 if (p1.bad.length) { console.error(`  ✗ 判据不成立：k=1 就红 ⇒ 先修判据再量（不要拿它当临界值）`); process.exit(1) }
 
-// ★ 正控（"量具必须先证明能失败"）：故意超长 ⇒ **必须报红**。若不报 ⇒ 判据/白名单/注入有配置错误 ⇒ exit 2
-const KPOS = Math.min(MAXK, 200)
-const cPos = build(KPOS)
-if (!cPos.dir) { console.error(`✗ ${cPos.why}（§25b ⇒ exit 2）`); process.exit(2) }
-const pPos = probe(cPos.dir)
-dieIfUnmeasurable(pPos, `正控 k=${KPOS}`)
-console.log(`  正控（k=${KPOS}）：判据内=${pPos.hits.length} · 非白名单=${pPos.bad.length} ⇒ ${pPos.bad.length ? '✓ 能失败（量具有效）' : '✗ 超长都不报 ⇒ **量具失效**（白名单/注入/判据配置错）'}`)
-if (pPos.bad.length === 0) {
-  console.error('  ✗ 正控失败：故意超长（k=' + KPOS + '）也读成"过" ⇒ 不许往下二分（先修判据/白名单/注入）')
+/* ★★ 正控 k **倍增上探**（team-lead ③-2）：列表项这类"盒子能撑开"的字段，120 可能**太小**
+   （既不溢出也不重叠 ⇒ 判据 0 条 ⇒ 看起来像"量具坏了"，其实只是**故意超长的量还不够**）。
+   ⇒ 120 → 240 → 480 … 直到触发判据；到 K_MAX 仍不触发 ⇒ **exit 2「该字段正控未证明」**并报"上限 > K_MAX"
+      （既不许当成"量具坏了"，也不许当成"这字段没问题"）。 */
+const K_MAX = Math.max(1920, MAXK * 4)
+let KPOS = 0, pPos = null
+const posPath = []
+for (let kk = 120; kk <= K_MAX; kk *= 2) {
+  const c = build(kk)
+  if (!c.dir) { console.error(`✗ ${c.why}（§25b ⇒ exit 2）`); process.exit(2) }
+  const p = probe(c.dir)
+  dieIfUnmeasurable(p, `正控 k=${kk}`)
+  posPath.push(`${kk}(非白名单 ${p.bad.length})`)
+  if (p.bad.length) { KPOS = kk; pPos = p; break }
+}
+if (!KPOS) {
+  console.error(`  ✗ **该字段正控未证明**：k 从 120 倍增到 ${K_MAX} 仍不触发判据 ⇒ **该字段上限 > ${K_MAX}**`)
+  console.error(`     （既不当"量具坏了"，也不当"这字段没问题"；该格按"无上限（k≤${K_MAX} 未触发判据）"记录）`)
   process.exit(2)
 }
+console.log(`  正控：倍增路径 ${posPath.join(' → ')} ⇒ 触发于 **k=${KPOS}** · 判据内=${pPos.hits.length} · 非白名单=${pPos.bad.length} ⇒ ✓ 能失败（量具有效）`)
+/* ★ 搜索上限必须**包住**正控触发点，否则临界会被截在搜索上限上（例：真上限 300、而上限写 120 ⇒ 报 120 ✗） */
+if (KPOS > MAXK) { console.log(`  · 搜索上限从 ${MAXK} **放宽到 ${KPOS}**（正控触发点必须落在搜索区间内）`); MAXK = KPOS }
 
 /* ★ 被阻塞档登记（team-lead ①/④）：**无法稳定测量 ≠ 不过**，也**不许当"过"** ⇒ 二分里按"不作为过"保守处理
    （避免**高估**上限），但**必须逐条记录并打印**，最终在 ±1 步骤里点名（含 code 与候选帧）。 */

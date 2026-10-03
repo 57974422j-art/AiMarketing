@@ -13,6 +13,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { domTarget } from './dom-target.mjs'
 
 /* ---------- 四个具名常数（含义各不相同；数值巧合不代表可合并） ---------- */
 /** A. 入场收尾（秒）：`start + max(data-at) + ENTER_TAIL_S` = 本页所有入场动画名义完成时刻 */
@@ -87,13 +88,8 @@ export function pageOfTime(table, t) {
 export function pageNoOfSelector(dirPath, selector) {
   const f = join(dirPath, 'index.html')
   if (!existsSync(f)) return null
-  const html = readFileSync(f, 'utf8')
-  const cls = String(selector || '').replace(/^[.#]/, '').split(/[\s>]/)[0]
-  if (!cls) return null
-  /* ⚠️ 我第一版写成 `class="[^"]*(?:^|\s)cls(?:\s|")` ⇒ **连首个 class 都不匹配**（`^` 在无 `m` 标志时只能匹配整串开头）
-     ⇒ 全部返回 null ⇒ 又等于"判不到页"。现用 lookahead：class 属性里 token 前是引号或空白。 */
-  const tokenRe = new RegExp('class="(?:[^"]*\\s)?' + cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[\\s"])')
-  const secs = html.split(/<section\b/).slice(1)
-  for (let i = 0; i < secs.length; i++) if (tokenRe.test(secs[i])) return i + 1
-  return null
+  /* ★ 委托 **DOM 目标定位的唯一实现**（`dom-target.mjs`）：支持唯一形态（如 `li:first-child .t`）并自带命中计数；
+     这里只取"所属页号"。**不许**再在本文件里写第二套匹配（那正是上一版裸子串撞 `tex` 的来源）。 */
+  const r = domTarget(readFileSync(f, 'utf8'), selector)
+  return r && r.pageNo ? r.pageNo : null
 }

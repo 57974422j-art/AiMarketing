@@ -41,14 +41,14 @@ const DECKS = {
       { id: 'cover.sub', pt: 'cover', field: 'meta.subtitle', cls: 'cover-sub' },
       { id: 'cover.kicker', pt: 'cover', field: 'pages.0.kicker', cls: 'kicker' },
       { id: 'cover.issuer', pt: 'cover', field: 'meta.issuer', cls: 'issuer' },
-      { id: 'bullets.title', pt: 'bullets', field: 'pages.1.title', cls: 'h2' },
-      { id: 'bullets.item0', pt: 'bullets', field: 'pages.1.items.0', cls: 't' },
+      { id: 'bullets.title', pt: 'bullets', field: 'pages.1.title', cls: 'p2-head h2' },
+      { id: 'bullets.item0', pt: 'bullets', field: 'pages.1.items.0', cls: 'li:first-child .t' },
       { id: 'bullets.summary', pt: 'bullets', field: 'pages.1.summary', cls: 'p2-sum' },
       { id: 'data.explain', pt: 'data', field: 'pages.2.metric.explain', cls: 'p3-body' },
       /* ⚠️ data 页还有两处**待确认 class↔字段映射**（本批不列，避免量错对象）：
          `metric.number`（大数字 → `.bignum`/`span.digit`）· `secondary[0].label`/`.note`（次要指标）。
          确认映射后补格（读回校验会自动挡住"量错对象"，但仍先确认再列）。 */
-      { id: 'end.line1', pt: 'end', field: 'pages.3.line1', cls: 'p4-line' },
+      { id: 'end.line1', pt: 'end', field: 'pages.3.line1', cls: 'p4-line:first-child' },
       { id: 'end.cta', pt: 'end', field: 'pages.3.cta', cls: 'p4-cta' },
       { id: 'end.en', pt: 'end', field: 'pages.3.en', cls: 'p4-en' },
     ],
@@ -80,6 +80,9 @@ for (const c of cells) {
   const atA = (/时刻 = ([\d.]+)s/.exec(A.out) || [])[1] || ''
   const rbA = (/读回 = (\d+)\//.exec(A.out) || [])[1] || ''
   const frameA = ((/帧是否换过 = (是|否)/.exec(A.out) || [])[1]) || ((/帧换过 = (是|否)/.exec(A.out) || [])[1]) || ''
+  /* ★ 记 **正控 k**（team-lead ③-3）：正控 k 与临界的量级关系本身就是"字段容量"的有用数据 */
+  const posK = (Number((/触发于 \*\*k=(\d+)\*\*/.exec(A.out) || [])[1]) || null)
+  const posPath = ((/正控：倍增路径 (.+?) ⇒/.exec(A.out) || [])[1] || '')
   // ---- 第二路：只确认 临界 / 临界+1 ----
   let B = { code: null, out: '(未跑：第一路没拿到临界)' }, bRows = []
   if (crit != null) {
@@ -115,7 +118,7 @@ for (const c of cells) {
 
   const fmt = (r) => r ? `k=${r.k} 读回 ${r.back}/${r.want} codes=[${r.codes}] ok=${r.ok}` : '—'
   console.log(`\n  ── [${c.pt}] ${c.id}（字段 ${c.field} · 检测点 .${c.cls}）`)
-  console.log(`     第一路：临界 = ${crit ?? '?'} · 依据 = ${basisA.trim() || '(无)'} · 页 ${pageA || '?'} · t=${atA || '?'}s · 读回 ${rbA || '?'} · 帧换过 = ${frameA || '?'} · exit=${A.code}`)
+  console.log(`     第一路：临界 = ${crit ?? '?'} · 依据 = ${basisA.trim() || '(无)'} · 页 ${pageA || '?'} · t=${atA || '?'}s · 读回 ${rbA || '?'} · 帧换过 = ${frameA || '?'} · 正控k=${posK ?? '?'}（路径 ${posPath || '?'}） · exit=${A.code}`)
   console.log(`     第二路：${fmt(bCrit)} ｜ ${fmt(bNext)} · 两路对拍 ${pairOk ? '✓' : '✗'} · 防篡改 ${tamperOk ? '✓' : '✗'} · exit=${B.code}`)
   if (bNext) console.log(`             ${bNext.gr}`)
   if (note) console.log(`     备注：${note}`)

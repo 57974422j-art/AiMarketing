@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 import { DECK_DIR } from './paths.mjs'
 import { resolveHyperframes } from './engine-bin.mjs'
 import { pageNoOfSelector, settledAt } from './timing.mjs'
+import { domTarget } from './dom-target.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const args = process.argv.slice(2)
@@ -107,11 +108,14 @@ for (const k of KS) {
     for (const l of tail) console.log(`      ${l.slice(0, 170)}`)
   }
   // ① 读回（注入是否生效）：产物 HTML 里目标元素文本长度
-  let back = -1
+  let back = -1, selCount = -1
   if (renderOk) {
+    /* ★ 读回也走 **唯一实现** `dom-target.mjs`（支持 `li:first-child .t` 这类唯一形态），并把**命中数**带回：
+       `count !== 1` ⇒ 目标不明确 ⇒ 读数无意义（与量表的"唯一命中断言"同一口径）。 */
     const html = readFileSync(join(prod, 'index.html'), 'utf8')
-    const m = new RegExp(`<([a-z0-9]+)\\b[^>]*class="[^"]*\\b${CLS}\\b[^"]*"[^>]*>([\\s\\S]*?)</\\1>`, 'i').exec(html)
-    back = m ? m[2].replace(/<[^>]+>/g, '').trim().length : -1
+    const tg = domTarget(html, CLS)
+    selCount = tg.count
+    back = tg.count ? html.slice(tg.openEnd, tg.closeStart).replace(/<[^>]+>/g, '').trim().length : -1
   }
   // ② 判据码：在"该字段所在页的稳定帧"上直接问引擎（`timing.mjs` 唯一实现）
   let codes = [], at = '', no = ''
