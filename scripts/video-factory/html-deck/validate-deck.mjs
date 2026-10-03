@@ -111,7 +111,12 @@ function checkBullets(p, path) {
     if (typeof it !== 'string') { add('error', `${path}.items[${i}]`, '不是字符串', '改成字符串'); return }
     const n = cp(it)
     if (n < 8) add('error', `${path}.items[${i}]`, `该条只有 ${n} 字，要求 ≥8 字：${JSON.stringify(it)}`, '补足信息量（"一句话讲清一件事"）；若实在补不动，把它降级成标题的一部分')
-    else if (n > 40) add('error', `${path}.items[${i}]`, `该条 ${n} 字，上限 40 字`, '精简该条')
+    /* ★ 2026-10-03 裁定（team-lead）：**无判据支撑的硬上限必须撤**——
+       40 字曾是这里的硬错误，但它**没有判据支撑**（实测该字段靠换行生长，判据临界 = 164 字，依据 content_overlap，
+       见 measured-limits.json）⇒ 40 远小于实际容量却**硬拒**，正是"AI 内容不足"的病根。
+       现降级为 **advisory（warn）**：仍然提醒，但**不拒绝渲染**（advisory 不参与判定；判定由闸门的判据码负责）。
+       ⚠️ 这条与 `deck.schema.json` 必须**同源**：schema 的 `recommendedMax: 40`；`check-schema-vs-limits.mjs` 的 I5 会盯住分叉。 */
+    else if (n > 40) add('warn', `${path}.items[${i}]`, `该条 ${n} 字，超过**建议** 40 字（advisory，不拒绝渲染）`, '建议精简该条；硬上限已按实测裁定删除（无判据支撑 ⇒ 见 measured-limits.json / §25c）')
   })
   if (!checkString(p.summary, `${path}.summary`, 6, 40, '底部小结')) {
     add('warn', `${path}.summary`, '要点页缺"底部小结"会显得没收口', '补一句 ≥6 字小结；或用 end 页承担收束')

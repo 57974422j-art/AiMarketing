@@ -41,7 +41,7 @@ const KS = String(arg('--ks', '37,38')).split(',').map((s) => Number(s.trim())).
 /* ★★ 并发安全一（team-lead ②-1）：**默认 outdir 唯一化** —— 不再默认共享 `out-xcheck`。
    事故（2026-10-03）：team-lead 与我**并发**跑同一默认 outdir ⇒ 他读到的是被并发改写的产物 ⇒
    得到一个"看起来正常但错"的数（k=37 闸门 exit 报 1，实际 0）——比报错危险得多。显式指定时才用指定值。 */
-const OUT = arg('--outdir', '') || `out-xcheck-${process.pid}-${Date.now().toString(36)}`
+const OUT = arg('--outdir', '') || `out-tmp-xcheck-${process.pid}-${Date.now().toString(36)}`
 const PATH_A = arg('--pathA', '')          // 第一路（HTML 注入）给出的临界，仅用于打印对照
 
 /** 深设 `a.b.c` 路径字段 */

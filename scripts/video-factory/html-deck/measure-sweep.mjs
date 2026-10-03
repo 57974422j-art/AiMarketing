@@ -104,7 +104,7 @@ function dieIfUnmeasurable(pv, what) {
 }
 // 工作目录：**仓库内** `out-sweep/`（已被 `.gitignore` 的 `out*/` 覆盖 ⇒ 不弄脏提交集 ✓；
 //  实测：放到系统临时目录时引擎会因"字体映射不可解析"给出空 findings 的假绿 ✗)
-const WORK = join(ENGINE_ROOT, 'out-sweep')
+const WORK = join(ENGINE_ROOT, 'out-tmp-sweep')
 function WORKROOT() { return process.env.TEMP || process.env.TMP || '/tmp' }
 
 if (!existsSync(join(SRC, 'index.html'))) {
@@ -125,9 +125,11 @@ const JUDGE = new Set(['text_box_overflow', 'container_overflow', 'canvas_overfl
 
 /** 造一个"注入 k 字"的临时产物目录 */
 function build(k, srcDir, clsHint) {
-  // ★ 目录层级敏感（实测）：`<引擎根>/out-sweep-kN`（**一层**）能被引擎正常检查；
-  //   放到 `<引擎根>/out-sweep/kN`（两层）时引擎给出**空 findings 的假绿** ✗ ⇒ 必须一层。
-  const dir = join(ENGINE_ROOT, `out-sweep-k${k}`)
+  // ★ 目录层级敏感（实测）：`<引擎根>/out-tmp-sweep-kN`（**一层**）能被引擎正常检查；
+  //   放到 `<引擎根>/out-tmp/sweep-kN`（两层）时引擎给出**空 findings 的假绿** ✗ ⇒ 必须一层。
+  //   ⚠️ 因此**不能**把临时目录收敛成嵌套的 `out-tmp/`（team-lead 建议的"单一临时根"与这条实测冲突）；
+  //   改用**统一前缀** `out-tmp-*`：仍然一层，但一次 glob 就能清完（清理只需一次审批）。
+  const dir = join(ENGINE_ROOT, `out-tmp-sweep-k${k}`)
   const base = srcDir || SRC
   cpSync(base, dir, { recursive: true, force: true })
   const f = join(dir, 'index.html')
