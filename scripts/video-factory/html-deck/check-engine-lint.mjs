@@ -47,6 +47,11 @@ if (args.includes('--deploy')) {
   for (const d of DEPLOY_DECKS) {
     const name = String(d.json).split('/').pop().replace(/\.json$/, '')
     const prod = join(tmpRoot, name)
+    /* ★ **服务器排障命门**（team-lead ⑤）：`--deploy` 必须打印"解析到的引擎路径 + node 版本 + chrome 路径"。
+       服务器上这一行就能区分"引擎拿错版本 / PATH 没配 / chrome 找不到"。 */
+    console.log(`  [部署口径] 引擎 = ${HF}（来源：${HF_INFO.why}）`)
+    console.log(`  [部署口径] node = ${process.version} · platform=${process.platform}-${process.arch} · cwd=${process.cwd()}`)
+    console.log(`  [部署口径] chrome = ${process.env.HYPERFRAMES_CHROME_PATH || process.env.CHROME_PATH || '(未显式设置 ⇒ 由渲染器自行解析)'} · ffmpeg = ${process.env.HYPERFRAMES_FFMPEG_PATH || '(未显式设置)'}`)
     const t1 = Date.now()
     const g = spawnSync(process.execPath, [join(HERE, 'render-deck.mjs'), join(HERE, d.json), '--no-render', '--outdir', tmpRoot], { encoding: 'utf8' })
     const genMs = Date.now() - t1
@@ -57,7 +62,9 @@ if (args.includes('--deploy')) {
     relay(g.stdout); relay(g.stderr, true)
     console.log(`  生成（HTML + 对账，**未渲染**）= ${(genMs / 1000).toFixed(1)}s · exit=${g.status} · 临时产物 ${prod}`)
     if (g.status !== 0 || !existsSync(join(prod, 'index.html'))) { badD++; console.error('  ✗ 生成失败 ⇒ 部署闸门判红'); continue }
-    const c = spawnSync(process.execPath, [fileURLToPath(import.meta.url), prod, '--assert-contrast', '--deploy-no-pixel'], { encoding: 'utf8' })
+    /* ★ `--assert-overlap` **必须带**（team-lead）：部署口径 = 判据口径 = (三码 ∪ content_overlap) − 白名单；
+       不带 ⇒ "过部署闸门却违反内容上限"（正是我们抓到的那处分叉）。 */
+    const c = spawnSync(process.execPath, [fileURLToPath(import.meta.url), prod, '--assert-contrast', '--assert-overlap', '--deploy-no-pixel'], { encoding: 'utf8' })
     relay(c.stdout); relay(c.stderr, true)
     // 解析内层 GATE-RESULT（缩进后的行也能抓到）：聚合 ok / pixel_skipped，并**再兜一道 B-2**
     const m = String(c.stdout || '').match(/^GATE-RESULT (\{.*\})$/m)

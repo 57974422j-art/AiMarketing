@@ -1,0 +1,24 @@
+{
+  "_note": "**反例（设计性失败）声明表**：`examples/deck.bad-*.json` / `deck.covercustom.json` / `deck.html-injected.json` 的**期望退出码**。由 `check-bad-examples.mjs` 在闸门里断言 —— 否则它们与『真 bug』在日志里同形（都是一行失败），会把真故障洗成『设计性失败』。",
+  "_rule": "每条必须写 `expectExit` + `stage` + `reason`（**不许只写退出码**：理由说明它为什么**应该**失败）。反例**不许进产物清单**（断言 = 退出码相等 **且** 无 mp4 产出）。",
+  "bad": [
+    { "deck": "deck.bad", "expectExit": 2, "stage": "palette", "reason": "母版没有配色 `neon-purple` ⇒ 取不到合法枚举值即抛错（§0 不许静默降级）" },
+    { "deck": "deck.bad-master", "expectExit": 2, "stage": "master", "reason": "未知母版 `master-v9` ⇒ 不许回退到默认母版" },
+    { "deck": "deck.bad-palette", "expectExit": 2, "stage": "palette", "reason": "母版 v1 没有 `azure`（那是 v2 的配色）⇒ 跨母版配色必须报错" },
+    { "deck": "deck.covercustom", "expectExit": 2, "stage": "asset", "reason": "自定义封面 `assets/my-own-cover.jpg` 尚未实现 ⇒ 明确报错而不静默忽略" },
+    { "deck": "deck.bad-chart", "expectExit": 3, "stage": "validate", "reason": "图表数据不合法 ⇒ 契约校验拒绝（拒渲）" },
+    { "deck": "deck.bad-compare", "expectExit": 3, "stage": "validate", "reason": "对比页字段不完整 ⇒ 契约校验拒绝" },
+    { "deck": "deck.bad-quote", "expectExit": 3, "stage": "validate", "reason": "引用页字段不合法 ⇒ 契约校验拒绝" },
+    { "deck": "deck.bad-section", "expectExit": 3, "stage": "validate", "reason": "章节字段不合法 ⇒ 契约校验拒绝" },
+    { "deck": "deck.bad-summary", "expectExit": 3, "stage": "validate", "reason": "小结页字段不合法 ⇒ 契约校验拒绝" },
+    { "deck": "deck.bad-toc", "expectExit": 3, "stage": "validate", "reason": "目录页字段不合法 ⇒ 契约校验拒绝" },
+    { "deck": "deck.bad-steps-2", "expectExit": 3, "stage": "validate", "reason": "步骤数 2 低于契约下限 ⇒ 拒绝" },
+    { "deck": "deck.bad-steps-7", "expectExit": 3, "stage": "validate", "reason": "步骤数 7 超出契约上限 ⇒ 拒绝" },
+    { "deck": "deck.bad-steps-short", "expectExit": 3, "stage": "validate", "reason": "步骤文本过短 ⇒ 拒绝" },
+    { "deck": "deck.bad-image-missing", "expectExit": 3, "stage": "validate", "reason": "引用的图片不存在 ⇒ 拒绝（不许渲染出空图）" },
+    { "deck": "deck.bad-image-short", "expectExit": 3, "stage": "validate", "reason": "图片尺寸/比例不符版式要求 ⇒ 拒绝" },
+    { "deck": "deck.bad-image-portrait-left", "expectExit": 3, "stage": "validate", "reason": "竖屏下 `left` 媒体位语义不成立 ⇒ 拒绝（D15 口径）" },
+    { "deck": "deck.bad-image-video", "expectExit": 3, "stage": "validate", "reason": "图片位给了视频 ⇒ 拒绝" },
+    { "deck": "deck.html-injected", "expectExit": 3, "stage": "validate", "reason": "注入 HTML 的样例（探测用）⇒ 契约校验应报 HTML 相关项" }
+  ]
+}

@@ -4,7 +4,7 @@
  *
  * 为什么要它：内嵌字体只有**唯一一份**（`probe-hf/fonts/`，由母版清单 fonts.src 声明），
  * 但**手写母版**（`masters/<id>/master-16x9.html` / `master-9x16.html`）里的 CSS 用的是相对路径
- * `assets/*.woff2` —— 直接 `hyperframes render masters/master-v1` 时需要那些文件在场。
+ * `assets/` 下的 `.woff2` —— 直接 `hyperframes render masters/master-v1` 时需要那些文件在场。
  * 生成器路径（`deck-contract/render-deck.mjs`）**不需要**本脚本：它渲染时自动从 fonts/ 拷进产物 assets。
  *
  * ★ 本脚本是**幂等的**：拷完会把"共用字体"与"母版内的副本"做字节比对，不一致才覆盖，并在最后复核。

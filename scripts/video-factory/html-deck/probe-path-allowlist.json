@@ -85,6 +85,12 @@
       "snippet": "tracked 文件里不许出现不可分发的 `dist-rel/…`",
       "category": "comment",
       "reason": "注释：⓪e 步骤自身的规矩说明（本文件必须描述该断言）。"
+    },
+    {
+      "file": "README.md",
+      "snippet": "是指向 `dist-rel/probe-hf/node_modules` 的 **junction**",
+      "category": "env-note",
+      "reason": "契约 §25f 的**环境注记**：说明本机 `node_modules` 是 junction（**本机便利、不是要求**），并给出服务器口径（`npm ci` 后为真实目录）。属『解释为什么』，**不是**让用户去那个路径执行。"
     }
   ]
 }

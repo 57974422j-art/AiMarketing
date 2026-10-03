@@ -703,6 +703,42 @@ scripts/video-factory/html-deck/
 
 ---
 
+## 25f. **交付到服务器（全新克隆）的口径** —— 一条命令 + 依赖解析顺序 + junction 只是本机便利
+
+**唯一命令**（全新克隆 / 服务器首次跑）：
+```
+npm ci --no-audit --no-fund                 # 用 lockfile 精确还原依赖（引擎依赖随库：package.json + package-lock.json）
+node gate-release.mjs --render              # ①先渲"缺产物 / 陈旧"的**声明档** ②再跑全套闸门（逐档打印 render exit）
+```
+**判据口径（退出码分档）**：`0` = 全绿 · `1` = **判据失败** · `2` = 环境/输入不完整 · **`4` = 需先渲染**（"还没渲染"与"真不合格"必须能区分）。
+
+**渲染器解析顺序**（`engine-bin.mjs` 唯一实现）：① `ENGINE_HF_BIN`（显式钉版本；**指向不存在 ⇒ exit 2，不许静默回退**）→ ② `PATH` 里的 `hyperframes` → ③ 开发回退 `<引擎根>/node_modules/.bin/hyperframes[.cmd]`；全找不到 ⇒ 列出候选并 **exit 2**。
+- 服务器推荐显式钉：`ENGINE_HF_BIN=/opt/ppt-render/node_modules/.bin/hyperframes`。
+- ⚠️ 本机 `scripts/video-factory/html-deck/node_modules` 是指向 `dist-rel/probe-hf/node_modules` 的 **junction** —— 那是**本机便利**，**不是要求**（探针树不可分发）；服务器上 `npm ci` 后即为真实目录。
+- `--deploy` **必须打印**：**解析到的引擎路径 + 来源** · **node 版本/platform** · **chrome / ffmpeg 路径（或"未显式设置"）** —— 服务器排障命门。
+
+---
+
+## 25e. **"同构"的定义（跨树 / 跨机）** —— 逐文件口径 + **列理由的例外**
+
+**定义**：同一档在两棵树（或两台机）渲出的产物 **"同构" ⇔**
+- `output-<deck>.mp4` —— **逐字节相同**；
+- `index.html` · `assets/**`（CSS/JS）· 内嵌字体 —— **逐字节相同**。
+
+**例外（打包器嵌**绝对路径**，必然不同；每条必须写理由 —— 否则"例外"会变成"什么都能解释"）：**
+
+| 文件 | 为什么允许不同（理由必填） |
+|---|---|
+| `reconcile.md` | 对账报告里写的是**产物绝对路径**与抽帧清单（路径随树/机而变） |
+| `image-meta.json` | 素材元数据里记录了**源文件绝对路径** |
+
+**已实测证据**：`deck.master-v1` 用当前代码在**两树**重渲均得 `B002C69BB0D2` · `deck.types8-airy` 均 `333A65AE2BBC` ·
+`deck.full6` 均 `C60716981550` · `deck.all12-master-v2` 两树既有产物均 `936428BA0ADB`。
+> ⚠️ **判"不一致"之前先看新鲜度**（`check-product-freshness.mjs`，闸门 ②b）：**旧产物不是证据**
+> （本次 `deck.master-v1` 的"跨树不一致"= 探针侧产物 mtime 22:44 < 输入改动 23:09，**非回归**）。
+
+---
+
 ## 25a. **报告/日志禁止过滤失败输出**（K15 家族第三次后的硬规矩）
 
 **规矩**：报告与日志里**不许把失败信息过滤掉** —— 命令的 `stderr`/失败原因必须**原样保留**；

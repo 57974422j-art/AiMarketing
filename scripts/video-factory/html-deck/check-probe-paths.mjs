@@ -16,7 +16,7 @@
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { join, dirname, relative, basename } from 'node:path'
-import { DECK_DIR, selfCheck } from './paths.mjs'
+import { DECK_DIR, ENGINE_ROOT, selfCheck } from './paths.mjs'
 
 selfCheck({ quiet: true })
 
@@ -33,7 +33,8 @@ if (existsSync(ALLOW_FILE)) {
     process.exit(2)
   }
 }
-const badEntry = allow.filter((a) => !a.file || !a.reason)
+/* 字段名统一：一律按 `x.reason || x.why` 读（两者都缺才算缺） */
+const badEntry = allow.filter((a) => !a.file || !(a.reason || a.why))
 if (badEntry.length) {
   console.error(`✗ 白名单有 ${badEntry.length} 条缺 file/reason ⇒ exit 2（不许静默豁免）`)
   process.exit(2)
@@ -53,7 +54,7 @@ const collect = (dir, depth = 0) => {
   }
 }
 collect(DECK_DIR)
-const fontsDir = join(dirname(DECK_DIR), 'fonts')     // flat：<入库根>/fonts · bridge：<probe>/fonts
+const fontsDir = join(ENGINE_ROOT, 'fonts')   // ★ 必须用 ENGINE_ROOT（flat 下 DECK_DIR===引擎根，`dirname` 会指错 ⇒ 扫不到真 fonts/）
 if (existsSync(fontsDir)) collect(fontsDir)
 
 const bad = []

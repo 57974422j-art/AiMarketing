@@ -1,33 +1,35 @@
 {
-  "_note": "覆盖矩阵的**排除清单**（与白名单同构：**逐条写『哪个目录/哪类目录 + 为什么排除』**；矩阵会强制要求**每一个被排除的目录都命中某条** ⇒ **不许静默排除**、不许只在代码里写一句注释）。",
+  "_note": "覆盖矩阵的**排除清单**（与白名单同构：逐条写『哪些目录 + 为什么排除 + 类别』；矩阵强制要求**每一个被排除的目录都命中某条** ⇒ **不许静默排除**）。",
+  "_rule": "① **只许写显式目录名**（`dirs` 数组）—— **不许 glob**（glob 会把将来新增的档**静默吸收**，例如以后加个 `deck.badass-*` 也被算进负例）；确有『整族』需要时也必须**展开成显式名单**，并每次运行打印展开集合。② 每条必须带 `reason`（或别名 `why`）+ `category` ∈ {`negative-sample`, `contract-sample`, `stale-product`}。",
+  "_fieldAlias": "检查器一律按 `x.reason || x.why` 读（两者都缺才报错）—— `why` 是本文件的旧字段名，保留兼容。",
   "exclude": [
     {
+      "dirs": ["deck.full6"],
+      "category": "stale-product",
+      "reason": "**过期产物**（旧引擎版 `deck-page.html` 时代、无内联注册，目录内已有 `STALE.md`）⇒ 结论已被新档取代；不纳入判据，也不计入覆盖。"
+    },
+    {
+      "dirs": ["deck.types8-airy", "deck.types8-airy-9x16", "deck.types8-dense", "deck.types8-dense-9x16"],
+      "category": "stale-product",
+      "reason": "**过期产物**（旧引擎版，`STALE.md`）⇒ 已被新档取代。（原为 `deck.types8-airy*` / `deck.types8-dense*` 两个 glob，按『禁 glob』要求**展开为显式名单**。）"
+    }
+  ],
+  "_removed": [
+    {
       "glob": "deck.bad*",
-      "why": "**负例档**（校验样例）：故意非法（bad-master / bad-palette / bad-steps-2 / bad-image-video …），用于 `check-examples.mjs` 与 `validate-deck.mjs` 的**反例基线** ⇒ **故意没有产物**，**不是**覆盖缺口。"
+      "why": "**已撤**：负例档现在由 `bad-expected.json` **逐档声明**（带 `expectExit` + `stage` + `reason`）⇒ 排除表里再写一条 glob 是**冗余**且违『禁 glob』。"
     },
     {
       "dir": "deck.covercustom",
-      "why": "校验样例（自定义封面字段），只用于契约校验 ⇒ 非渲染目标。"
+      "why": "**已撤**：同上，已在 `bad-expected.json` 声明（期望 exit 2 · stage=asset）。"
     },
     {
       "dir": "deck.html-injected",
-      "why": "校验样例（HTML 注入扰动），只用于闸门的负向自证 ⇒ 非渲染目标。"
-    },
-    {
-      "dir": "deck.full6",
-      "why": "**过期产物**（旧引擎版 `deck-page.html` 时代、无内联注册，目录内已有 `STALE.md`）⇒ 结论已被新档取代。"
-    },
-    {
-      "glob": "deck.types8-airy*",
-      "why": "**过期产物**（旧引擎版，`STALE.md`）⇒ 已被新档取代。"
-    },
-    {
-      "glob": "deck.types8-dense*",
-      "why": "**过期产物**（旧引擎版，`STALE.md`）⇒ 已被新档取代。"
+      "why": "**已撤**：同上，已在 `bad-expected.json` 声明（期望 exit 3 · stage=validate）。"
     },
     {
       "glob": "palette-*",
-      "why": "**过期产物**（旧引擎版，`STALE.md`）；对应的**当前**配色覆盖由 `deck.all12-palette-*` 承担（本轮新增 steel/indigo/violet）。"
+      "why": "**已撤**：原理由（旧产物 STALE）被误当成『整族排除』⇒ 导致 `master-v1 · olive/clay/mist-blue` **覆盖为 0**（假覆盖：那 3 项原先靠**旧产物**满足）。现 `palette-*.json` **纳入声明档**（真渲），覆盖由真产物承担。"
     }
   ]
 }

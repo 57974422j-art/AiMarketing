@@ -4,7 +4,7 @@
  *
  * 入库布局是**扁平**的（见 README §24.2b / 破题文档 D14 的"决策 A"）：
  *   scripts/video-factory/html-deck/{ *.mjs, masters/, fonts/, examples/, deck.schema.json }
- * 当前开发树则多一层：`probe-hf/{ deck-contract/*.mjs, masters/, fonts/ }`。
+ * 当前开发树则多一层：`probe-hf/{ deck-contract 下的 .mjs, masters/, fonts/ }`。
  * ⇒ 本模块做**双布局探测**，启动自检**打印解析后的绝对路径**，缺任何一个 ⇒ **红**。
  *
  * ★★ 桥接分支（`bridge-dev`）**搬迁完成后必须删除**：入库清单里有

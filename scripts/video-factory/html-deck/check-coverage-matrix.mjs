@@ -39,11 +39,16 @@ const ALL_TYPES = ['cover', 'section', 'bullets', 'steps', 'chart', 'compare', '
 function fatal(msg) { console.error(`✗ 输入/环境不完整（**exit 2**，非判据失败）：${msg}`); process.exit(2) }
 if (!existsSync(EX)) fatal(`缺 examples/：${EX}`)
 
-/* ---- 1) decks：页型 / 母版 / 几何 / 配色 ---- */
-const decks = readdirSync(EX).filter((f) => f.endsWith('.json')).map((f) => {
-  const d = JSON.parse(readFileSync(join(EX, f), 'utf8'))
+/* ---- 1) decks：**声明清单**（唯一实现 `deck-targets.mjs` —— team-lead ②.1：不许两处各写一套） ----
+   ⚠️ 旧版由**磁盘现状**（`readdirSync(out*)`）定义被测集 ⇒ 被 `out-sweep-k*` ×30 骗过（34 档 vs 实际 2 档）。 */
+import { declaredDecks, undeclaredProducts } from './deck-targets.mjs'
+const DECL = declaredDecks()
+if (DECL.issues.length) fatal(`声明清单有问题（禁静默跳过）：${DECL.issues.join(' | ')}`)
+const decks = DECL.decks.map((t) => {
+  const d = JSON.parse(readFileSync(t.example, 'utf8'))
   return {
-    name: f.replace(/\.json$/, ''),
+    name: t.deck,
+    outdir: t.outdir,
     master: d.style && d.style.masterId ? d.style.masterId : '(未声明)',
     orient: d.style ? d.style.orientation : '(未声明)',
     palette: d.style ? d.style.palette : '(未声明)',
@@ -51,17 +56,13 @@ const decks = readdirSync(EX).filter((f) => f.endsWith('.json')).map((f) => {
   }
 })
 
-/* ---- 2) 产物：out/ 与 out-master-v2/（非 STALE） ---- */
-const prods = []
-for (const r of ['out', 'out-master-v2'].map((d) => join(HERE, d))) {
-  if (!existsSync(r)) continue
-  for (const n of readdirSync(r)) {
-    const dir = join(r, n)
-    if (!existsSync(join(dir, 'index.html')) || existsSync(join(dir, 'STALE.md'))) continue
-    prods.push({ name: n, dir })
-  }
-}
-if (!prods.length) fatal('没有任何产物（out/ 与 out-master-v2/ 都空）')
+/* ---- 2) 产物：**声明档**里已有 `index.html` 的（不再 glob 磁盘） ---- */
+const prods = DECL.decks
+  .filter((d) => existsSync(join(HERE, d.outdir, d.deck, 'index.html')))
+  .map((d) => ({ name: d.deck, dir: join(HERE, d.outdir, d.deck) }))
+const undeclared = undeclaredProducts()
+if (undeclared.length) console.log(`  ℹ **未声明产物（忽略，不计入覆盖）**：${undeclared.length} 个 ⇒ ${undeclared.slice(0, 6).join(', ')}${undeclared.length > 6 ? ' …' : ''}`)
+if (!prods.length) fatal('没有任何**声明档**产物（先跑 `node gate-release.mjs --render`）')
 
 /* ---- 3) 稳定帧时刻（**第 2 处实现**：paths/timing 收口时并入唯一实现；已在契约记为待办） ---- */
 const ENTER_TAIL = 0.6

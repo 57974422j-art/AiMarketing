@@ -9,7 +9,7 @@
  * 字体来源：**两套母版共用的唯一一份** `fonts/`（由母版清单 `fonts.src` 声明，见 masters/<id>/master.json）。
  *
  * 用法：
- *   node check-font-coverage.mjs                     # 全量体检：chars-cmn.txt + 母版源码 + 全部 examples/*.json
+ *   node check-font-coverage.mjs                     # 全量体检：chars-cmn.txt + 母版源码 + 全部 examples 下的 .json
  *   node check-font-coverage.mjs --deck <deck.json>  # 渲染前闸门：只查这一个 deck（缺字 → 报错 + 可执行建议）
  *   node check-font-coverage.mjs --extra "龘🙂"      # 敏感性自证：注入必然缺字的字符
  *
