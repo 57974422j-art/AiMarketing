@@ -351,9 +351,11 @@ if (tmpResidueRow.exit) process.exit(1)
         for (const e of readdirSync(cur, { withFileTypes: true })) {
           const full = join(cur, e.name)
           if (e.isDirectory()) stack.push(full)
-          /* ⚠️ **不许静默归零**：第一版这里 `catch { /* ignore */ }` ⇒ 因为忘 import `statSync`，
-             每个文件都抛 ReferenceError 被吞掉 ⇒ 打印"298 个目录 / **0.0 MB**"（**假数据**，实测真值 2955.8 MB）。
-             ⇒ 现改为**计数失败**并显示（体量不可信时明说）。 */
+          /* ⚠️ **不许静默归零**：第一版这里的内层 catch 直接吞掉异常 ⇒ 因为**忘 import statSync**，
+             每个文件都抛 ReferenceError 被吞 ⇒ 打印「298 个目录 / 0.0 MB」（**假数据**，实测真值 2955.8 MB）。
+             ⇒ 现改为**计数失败**并显示（体量不可信时明说）。
+             ⚠️ **教训**：块注释里**不许再写块注释**（slash-star 加 star-slash）—— 会把外层注释**提前闭合**，
+             本次就是这样把 gate-release 弄成语法错误的（且已提交 ⇒ 立即修订，见下一提交）。 */
           else { try { bytes += statSync(full).size } catch { statFail++ } }
         }
       }
