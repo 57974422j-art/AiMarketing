@@ -287,6 +287,27 @@ rows.push(forkRow)
 /* ⓪e **陈旧路径断言**（team-lead ④-3）：tracked 文件里不许出现不可分发的 `dist-rel/…`（可执行指引必须指入库根；
    纯历史注记进 `probe-path-allowlist.json`，`file+snippet+reason` 必填）。 */
 rows.push(step('⓪e 陈旧路径', '陈旧路径引用（不可分发路径未登记即红）', 'check-probe-paths.mjs'))
+/* ---------- ⓪h **临时残留（被跟踪）**（team-lead ②：判红必须落在**发版路径**上）----------
+   事实：`check-probe-drift.mjs` 是**本地守卫、不进闸门** ⇒ 服务器/CI/任何下拉仓库的人**不会跑它**
+   ⇒ 临时变体误入库（本次 `examples/__tmp_xcheck-k432.json`）在发版路径上**完全不可见**。
+   ⇒ 闸门级检查：**被跟踪**文件里出现 `__tmp_*` / `zzz-*` / `out-tmp-*` ⇒ **判红 + 点名**；每次运行**打印计数**。
+   （`.gitignore`（`examples/.gitignore` 含 `__tmp_*`）是"提交前"那道保险，这里是"发版前"那道 —— 两道互补。） */
+{
+  const ls = spawnSync('git', ['ls-files'], { cwd: DECK_DIR, encoding: 'utf8' })
+  const isRepo = ls.status === 0
+  const residue = isRepo
+    ? String(ls.stdout || '').split('\n').map((s) => s.trim()).filter((f) => f && /(^|\/)(__tmp_|zzz-)|(^|\/)out-tmp-/.test(f))
+    : []
+  rows.push({
+    /* ⚠️ 编号：⓪h 已被"行尾口径"占用 ⇒ 本行用 **⓪j**（⓪i 是 DOM 目标自检）—— 撞号会让引用指到两处 */
+    group: '⓪j临时残留', label: '临时残留（**被跟踪**的 `__tmp_*`/`zzz-*`/`out-tmp-*` ⇒ 判红）',
+    script: '(内置 · git ls-files)', exit: residue.length ? 1 : 0, sec: 0,
+    verdict: !isRepo ? '· 跳过（此树不是 git 仓库 ⇒ 服务器/CI 无 ls-files 可用）'
+      : (residue.length ? `✗ 命中 **${residue.length}** ⇒ 临时产物不许留痕` : '✓ 计数 **0**'),
+    /* ⚠️ 模板串里**不许嵌反引号**（本项目老坑，我又踩一次）：用引号写路径/通配符 */
+    tail: residue.slice(0, 10).map((f) => `· ${f} ⇒ 删除，或加进 .gitignore（examples/.gitignore 已含 __tmp_*）`),
+  })
+}
 if (process.argv.includes('--fork-only')) {
   console.log(`\n⓪d docs 分叉不变量 ⇒ exit=${forkRow.exit}`)
   for (const l of forkRow.tail) console.log('  ' + l)
