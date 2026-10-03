@@ -14,7 +14,8 @@
  * 退出码：0 = 无违规 · 1 = 有违规（或 `--strict-coverage` 下覆盖不全）· 2 = 输入/配置错（§25b）
  * 用法：`node check-schema-vs-limits.mjs [--strict-coverage]`
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'   /* ★ --selftest-handchecks：逐叶子跑第二路 */
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DECK_DIR } from './paths.mjs'
@@ -369,6 +370,52 @@ if (SELFTEST) {
   const noRef = auditLiterals(false)
   const falseNeg = noRef.filter((s) => s.verdict.includes('假结论'))
   console.log(`     另：不解析时按"审计判定"口径的假"无约束"结论 = ${falseNeg.length} 处（**仅作观察**，不作判据 —— 上一版拿它当判据才发现它会被归属规则改进"消掉"）`)
+}
+const HANDCHECKS = process.argv.includes('--selftest-handchecks')
+/* ============ ★ **自证判据：`--selftest-handchecks`**（team-lead ②：三段对账，防"永远红 ⇒ 被放宽"） ============
+   目的：证"**没有手写判定在拦 override**" —— 对每个**已测**叶子跑 `--raise-max <leaf>=judge+2`，断言 **k=judge 能渲染**。
+   ⚠️ 若照"受检集合 == 全部 maxLength 叶子"实现 ⇒ 今天**不可能通过**（31 个叶子没有判据、根本跑不了）
+     ⇒ 迟早有人把断言放宽（静默降级）。故按**三段对账**：
+       (a) **已测**：N/N 全跑且全过（抬得起来）；
+       (b) **未测**：打印个数 + 清单，且必须与 `--strict-coverage` 的清单**逐项一致**（同一来源 ⇒ 显式债务）；
+       (c) **数量**：`已测 + 未测 == schema 里全部 maxLength 叶子数`（少一个即红 ⇒ 不能偷偷缩小受检面）。
+   归因：失败时点名 **字段 + 手写站点行号**（复用 `--audit` 的映射）。
+   档位：**独立全量检查**（与 `--strict-coverage` 同级、发版前必跑）· **不进** 12 分钟快速闸门 · 结果可写文件（机器通道）。 */
+if (HANDCHECKS) {
+  const argvOf = (n) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : '' }
+  const lim = Number(argvOf('--limit') || 0)
+  const outFile = argvOf('--out') || ''
+  const allLeaves = [...leaves.keys()].filter((p) => leaves.get(p).maxLength !== undefined)
+  const measured = (limits.limits || []).filter((e) => e.judgeLimit != null && e.detectPoint && e.field)
+  const auditByLeaf = new Map()
+  for (const s of auditLiterals(true)) if (s.leaf && s.verdict.includes('一致')) auditByLeaf.set(s.leaf, s.line)
+  const targets = lim ? measured.slice(0, lim) : measured
+  const res = []
+  for (const e of targets) {
+    const leaf = e.jsonPointer.split('/').pop()
+    const k = e.judgeLimit
+    const r = spawnSync(process.execPath, [join(DECK_DIR, 'crosscheck-deck-json.mjs'),
+      '--json', e.deck || 'examples/deck.master-v1.json', '--field', e.field, '--cls', e.detectPoint,
+      '--ks', `${k},${k + 1}`, '--raise-max', `${leaf}=${k + 2}`], { encoding: 'utf8', cwd: DECK_DIR })
+    const out = String(r.stdout || '') + String(r.stderr || '')
+    const okRender = new RegExp(`k= ?${k} · 渲染 ok`).test(out)
+    res.push({ ptr: e.jsonPointer, leaf, k, okRender, handLine: auditByLeaf.get(leaf) || null })
+  }
+  const pass = res.filter((x) => x.okRender).length
+  const bad = res.filter((x) => !x.okRender)
+  console.log(`\n  ★ 自证（handchecks）：受检 **${res.length}**${lim ? `（--limit ${lim}）` : ''} · 通过 **${pass}** · 失败 **${bad.length}**`)
+  for (const x of bad) console.error(`     ✗ ${x.ptr}：k=${x.k} **渲染不出来** ⇒ **还有手写判定在拦**${x.handLine ? `（疑似 L${x.handLine}）` : ''}`)
+  /* (b) 未测清单（与 --strict-coverage 同源 ⇒ 逐项一致） */
+  const unmeasured = allLeaves.filter((p) => !measured.some((e) => e.jsonPointer === p))
+  const strictList = uncovered   /* 同一个计算 ⇒ 断言它们相等（防"两处口径分叉"） */
+  const sameList = strictList.length === unmeasured.length && strictList.every((p) => unmeasured.includes(p))
+  console.log(`     (a) 已测 **${res.length === 0 ? 0 : pass}/${res.length}**${bad.length ? ' ✗' : ' ✓'}（抬得起来 ⇒ 无手写判定在拦）`)
+  console.log(`     (b) 未测 **${unmeasured.length}**（与 --strict-coverage 清单**逐项一致 = ${sameList ? '✓' : '✗'}**）`)
+  console.log(`     (c) 数量对账：已测 ${measured.length} + 未测 ${unmeasured.length} = **${measured.length + unmeasured.length}** ↔ schema 叶子 **${allLeaves.length}** ⇒ ${measured.length + unmeasured.length === allLeaves.length ? '✓' : '✗ 少受检'}`)
+  if (outFile) { try { writeFileSync(outFile, JSON.stringify({ checked: res.length, pass, bad, unmeasured: unmeasured.length, total: allLeaves.length }, null, 2), 'utf8'); console.log(`     （机器通道已写文件：${outFile}）`) } catch (e) { console.error(`✗ 写文件失败：${e.message} ⇒ exit 2`); process.exit(2) } }
+  if (bad.length) viol.push(...bad.map((x) => `自证：${x.ptr} 的 k=${x.k} 渲不出来（还有手写判定${x.handLine ? ` 疑似 L${x.handLine}` : ''}）`))
+  if (!sameList) viol.push('自证：未测清单与 --strict-coverage 清单**不一致**（两处口径分叉）')
+  if (measured.length + unmeasured.length !== allLeaves.length) viol.push(`自证：数量对账失败（已测 ${measured.length} + 未测 ${unmeasured.length} ≠ schema 叶子 ${allLeaves.length}）`)
 }
 console.log(`\n  覆盖：**未被实测的硬上限 ${uncovered.length} 个**${uncovered.length ? '（发版前必须开 --strict-coverage 清空）' : ''}`)
 for (const p of uncovered.slice(0, 20)) console.log(`     · ${p} = ${leaves.get(p).maxLength}`)
