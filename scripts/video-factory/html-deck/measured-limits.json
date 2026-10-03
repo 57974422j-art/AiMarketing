@@ -1,0 +1,67 @@
+{
+  "_doc": "**内容上限实测表（判据口径）** —— `measure-table.mjs` / `measure-sweep.mjs` 的产出，`check-schema-vs-limits.mjs` 的**唯一输入**。规矩：① 每个 `maxLength` 必须在此有对应条目（否则红线不可复核）；② 条目 `judgeLimit=null` 表示\"到 K_MAX 仍不触发判据\"⇒ 该字段**不许**有硬上限（只许 advisory）；③ 硬上限必须 ≤ ⌊0.9 × judgeLimit⌋（余量规则）。",
+  "_invariant": "I1 `maxLength` 必须存在或显式声明无硬上限 · I2 `maxLength ≤ ⌊0.9×judgeLimit⌋` · I3 无判据支撑 ⇒ 不许有 `maxLength` · I4 `recommendedMax ≤ maxLength`（两者都有时）",
+  "K_MAX": 1920,
+  "limits": [
+    {
+      "jsonPointer": "#/$defs/meta/properties/title",
+      "field": "meta.title",
+      "pageType": "cover",
+      "detectPoint": "cover-title",
+      "judgeLimit": 37,
+      "basis": ["content_overlap"],
+      "posK": 120,
+      "posPath": "120(非白名单 4)",
+      "page": 1,
+      "at": "2.600",
+      "readback": "37/37",
+      "frameResampled": false,
+      "twoPath": "一致（第二路 k=37 ok:true / k=38 ok:false，GATE-RESULT 已存）",
+      "source": "node measure-sweep.mjs out/deck.master-v1 cover-title 120"
+    },
+    {
+      "jsonPointer": "#/$defs/meta/properties/subtitle",
+      "field": "meta.subtitle",
+      "pageType": "cover",
+      "detectPoint": "cover-sub",
+      "judgeLimit": 226,
+      "basis": ["content_overlap"],
+      "posK": 240,
+      "posPath": "120(非白名单 0) → 240(非白名单 1)",
+      "page": 1,
+      "at": "2.600",
+      "readback": "226/226",
+      "frameResampled": false,
+      "twoPath": "**受阻于 schema**（原先 k>60 渲不出来：k=61 ⇒ render exit=3）⇒ 放宽到 203 后**须重跑第二路确认**",
+      "source": "node measure-sweep.mjs out/deck.master-v1 cover-sub 120"
+    },
+    {
+      "jsonPointer": "#/$defs/pageCover/properties/kicker",
+      "field": "pages.0.kicker",
+      "pageType": "cover",
+      "detectPoint": "kicker",
+      "judgeLimit": 432,
+      "basis": ["content_overlap"],
+      "posK": 480,
+      "posPath": "120(0) → 240(0) → 480(1)",
+      "page": 1,
+      "at": "2.600",
+      "readback": "432/432",
+      "frameResampled": false,
+      "twoPath": "**受阻于 schema**（原先 k>32）⇒ 放宽到 388 后**须重跑第二路确认**",
+      "source": "node measure-sweep.mjs out/deck.master-v1 kicker 120"
+    },
+    {
+      "jsonPointer": "#/$defs/pageBullets/properties/items/items",
+      "field": "pages.1.items.0",
+      "pageType": "bullets",
+      "detectPoint": "li:first-child .t",
+      "judgeLimit": null,
+      "status": "待上探",
+      "basis": [],
+      "posK": null,
+      "note": "**尚无判据上限的证据**：修好\"裸子串找页\"后正控 k=120 仍未触发（早期 k≤120 的\"无触发\"结论**已作废**——那是看错帧造成的）。旁证：`out-chk-t300` 对照（首个 `.t` 注入 300 汉）⇒ 闸门 FAIL(1) 且 `content_overlap ×2` ⇒ **真触发点在 ≤300**，待用修好的量表倍增上探（240 → 480 …）定出精确值。",
+      "source": "node measure-sweep.mjs out/deck.master-v1 li:first-child .t 120（正控倍增：120 未触发 ⇒ 待 240/480）"
+    }
+  ]
+}

@@ -33,9 +33,13 @@
       "additionalProperties": false,
       "description": "封面主标题 + 副标（硬性），出品方/日期可选",
       "properties": {
-        "title": { "type": "string", "minLength": 4, "maxLength": 40, "description": "封面主标题（硬性 ≥4 字）" },
-        "subtitle": { "type": "string", "minLength": 6, "maxLength": 60, "description": "封面副标（硬性 ≥6 字）" },
-        "issuer": { "type": "string", "maxLength": 40, "description": "出品方（右下/左下小字，可选）" },
+        "title": { "type": "string", "minLength": 4, "maxLength": 33, "description": "封面主标题（硬性 ≥4 字）。**硬上限 33 = ⌊0.9 × 判据临界 37⌋**（实测：measured-limits.json · 依据 content_overlap）——余量 10% 防换机/换引擎版本波动" },
+        "subtitle": {
+          "type": "string", "minLength": 6, "maxLength": 203,
+          "recommendedMax": 60,
+          "description": "封面副标（硬性 ≥6 字）。**硬上限 203 = ⌊0.9 × 判据临界 226⌋**（实测 · content_overlap）；`recommendedMax: 60` 是**版式建议**（母版初版按\"副标一行\"的观感定的建议值——保持简短更稳），**不参与闸门判定**（两类上限不许混用，见 §25c 与 check-schema-vs-limits）"
+        },
+        "issuer": { "type": "string", "maxLength": 40, "description": "出品方（右下/左下小字，可选）。⚠️ 40 目前**无判据支撑**（未测）⇒ 待批 A/B 测后按 0.9×判据 复核（check-schema-vs-limits 的覆盖清单会盯住）" },
         "date": { "type": "string", "maxLength": 24, "description": "日期/期号小字，可选" },
         "lang": { "enum": ["zh-CN"], "description": "v1 只支持简体中文" }
       }
@@ -76,7 +80,11 @@
       "description": "封面：内容全部来自 meta.title / meta.subtitle（硬性），本页不重复写文案",
       "properties": {
         "type": { "const": "cover" },
-        "kicker": { "type": "string", "maxLength": 32, "description": "眉标小字，如 AIMARKETING · 视频工厂" },
+        "kicker": {
+        "type": "string", "maxLength": 388,
+        "recommendedMax": 32,
+        "description": "眉标小字，如 AIMARKETING · 视频工厂。**硬上限 388 = ⌊0.9 × 判据临界 432⌋**（实测 · content_overlap）；`recommendedMax: 32` 是**版式建议**（母版初版按\"眉标一行、字距拉开\"的观感定的建议值），不参与闸门判定"
+      },
         "asset": { "type": "string", "description": "封面素材在项目内的相对路径（必须已拷进项目，禁 file://）" }
       }
     },
@@ -92,7 +100,11 @@
           "type": "array",
           "minItems": 3,
           "maxItems": 5,
-          "items": { "type": "string", "minLength": 8, "maxLength": 40, "description": "每条要点 >=8 字" }
+          "items": {
+          "type": "string", "minLength": 8,
+          "recommendedMax": 40,
+          "description": "每条要点 >=8 字。**无硬上限**：原 `maxLength: 40` **没有任何判据支撑**（实测该字段靠换行生长；早期\"k≤120 无触发\"的结论**已作废**——那是\"裸子串找页\"看错帧造成的），而 40 远小于实测容量 ⇒ 会无端限制 AI 写作（\"内容不足\"的病根之一）⇒ 删硬上限，40 降为 `recommendedMax`（版式/信息密度建议：要点用短句）。**待上探出真实触发点后**再补 `maxLength = ⌊0.9 × 判据⌋`（见 measured-limits.json status=待上探；旁证 out-chk-t300 ⇒ 触发点 ≤300）"
+        }
         },
         "summary": { "type": "string", "minLength": 6, "maxLength": 40, "description": "底部一句小结（硬性）" }
       }

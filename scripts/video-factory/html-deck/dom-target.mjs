@@ -94,17 +94,60 @@ export function countBySelector(html, sel) {
 }
 
 /* ---------- 自带 CLI **自证**（避免 shell 引号地狱、也不必写临时脚本）----------
-   用法：`node dom-target.mjs <产物目录> <selector>` ⇒ 打印 count / pageNo / tag / why / 内文前 60 字 */
+   用法：`node dom-target.mjs <产物目录> <selector>` ⇒ 打印 count / pageNo / tag / why / 内文前 60 字
+        `node dom-target.mjs --selftest` ⇒ **常驻负控**：断言 token 匹配与裸子串匹配给出**不同页**（见下） */
+const FIXTURE = [
+  '<body>',
+  '<section id="s1"><div class="tex">纹理</div><div class="progress"><i></i></div></section>',
+  '<section id="s2"><ul><li><span class="t">首条</span></li><li><span class="t">次条</span></li></ul><div class="p2-sum">小结</div></section>',
+  '<section id="s3"><div class="p3-body">解释</div></section>',
+  '<section id="s4"><div class="p4-cta">CTA</div></section>',
+  '</body>',
+].join('\n')
+
+/** 常驻负控：把"两个实战缺陷"钉成断言（team-lead ①）。
+ *  缺陷 A：裸子串找页（`.t` 撞 `tex`）⇒ 必须与 token 匹配给出**不同页**；
+ *  缺陷 B（我首版修法）：token 正则用 `^|\s` 做前边界（无 `m` 标志 ⇒ `^` 只匹配整串开头）⇒ **首个 class 都不匹配** ⇒ 全 null。 */
+export function selfTest() {
+  const bad = []
+  const t = domTarget(FIXTURE, 't')
+  const tex = domTarget(FIXTURE, 'tex')
+  const sub = domTarget(FIXTURE, 'p2-sum')
+  const li = domTarget(FIXTURE, 'li:first-child .t')
+  const body = domTarget(FIXTURE, 'p3-body')
+  // ① token 匹配：`.t` ⇒ 页 2（不是页 1）；`.tex` ⇒ 页 1 —— **两者不同页**（裸子串会都把 `.t` 判成页 1）
+  if (t.pageNo !== 2) bad.push(`.t 应判为页 2，实际 ${t.pageNo}（裸子串/坏正则的典型症状）`)
+  if (tex.pageNo !== 1) bad.push(`.tex 应判为页 1，实际 ${tex.pageNo}`)
+  const bareSub = FIXTURE.split(/<section\b/).slice(1).findIndex((s) => s.includes('t')) + 1   // 旧实现（裸子串）
+  console.log(`  对照：裸子串实现会把 .t 判成页 ${bareSub}；token 实现判成页 ${t.pageNo} ⇒ ${bareSub !== t.pageNo ? '**两者不同 ✓（缺陷 A 被钉住）**' : '✗ 未区分（断言无效）'}`)
+  if (bareSub === t.pageNo) bad.push('裸子串与 token 匹配给出同一页 ⇒ 负控无效（说明 fixture 没覆盖该缺陷）')
+  // ② 命中数：`.t` 在 fixture 里 2 个 ⇒ 唯一命中断言应能拒绝（调用方 exit 2）
+  if (t.count !== 2) bad.push(`fixture 里 .t 应有 2 个，实际 ${t.count}`)
+  if (sub.count !== 1 || body.count !== 1) bad.push('唯一形态的 count 应为 1')
+  // ③ 首版修法（`^|\s` 前边界）会把**首个 class** 判成"找不到" ⇒ 这里钉住"首个 class 必须能命中"
+  if (!li.count || li.pageNo !== 2) bad.push(`「li:first-child .t」应命中页 2，实际 ${li.pageNo}/${li.count}`)
+  // ④ 反控：把 token 正则换成坏形状（模拟首版）⇒ 必须失败（证明负控能失败）
+  const badRe = new RegExp('class="[^"]*(?:^|\\s)tex(?:\\s|")')
+  if (badRe.test(FIXTURE)) bad.push('坏形状正则（无 m 标志用 ^ 前边界）竟然命中了 ⇒ 负控失效')
+  return bad
+}
+
 if (process.argv[1] && process.argv[1].endsWith('dom-target.mjs')) {
   const { readFileSync } = await import('node:fs')
   const { join } = await import('node:path')
-  const [dirArg, selArg] = process.argv.slice(2)
+  const argv = process.argv.slice(2)
+  if (argv[0] === '--selftest') {
+    const bad = selfTest()
+    console.log(bad.length ? `✗ dom-target 自检失败（${bad.length} 条）：\n  · ${bad.join('\n  · ')}` : '✓ dom-target 自检通过（缺陷 A：裸子串 vs token 不同页 · 缺陷 B：首个 class 可命中 · 唯一命中计数正确）')
+    process.exit(bad.length ? 1 : 0)
+  }
+  const [dirArg, selArg] = argv
   if (dirArg && selArg) {
     const html = readFileSync(join(dirArg, 'index.html'), 'utf8')
     const r = domTarget(html, selArg)
     console.log(JSON.stringify({ selector: selArg, count: r.count, pageNo: r.pageNo ?? null, tag: r.tag ?? null, why: r.why || null }))
     if (r.openEnd) console.log('  内文前 60 字 =', html.slice(r.openEnd, r.openEnd + 60).replace(/<[^>]+>/g, '').replace(/\s+/g, ' '))
   } else {
-    console.log('用法: node dom-target.mjs <产物目录> <selector>')
+    console.log('用法: node dom-target.mjs <产物目录> <selector>  |  node dom-target.mjs --selftest')
   }
 }

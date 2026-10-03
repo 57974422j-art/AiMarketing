@@ -67,7 +67,9 @@ const GRAY_DIR = [
 ]
 
 function rootWhitelist() {
-  const okFile = (n) => /\.mjs$/.test(n) || /\.md$/.test(n) || n === '.gitignore' || n === 'package.json' || n === 'package-lock.json' || n === 'deck.schema.json' || /^(allowlist-.*|docs-fork-.*|probe-path-.*|bad-.*|deck-targets|comment-killer-allowlist)\.json$/.test(n) || n === 'exclude-coverage.json'
+  /* ★ `measured-limits.json`：**实测上限表**（`check-schema-vs-limits.mjs` 的唯一输入 · team-lead ③ 不变量的数据源）
+     —— 放引擎根是**有意**的（与 `deck.schema.json` 同级 = 同属契约数据）⇒ 在此**登记**（不是绕过） */
+  const okFile = (n) => /\.mjs$/.test(n) || /\.md$/.test(n) || n === '.gitignore' || n === 'package.json' || n === 'package-lock.json' || n === 'deck.schema.json' || n === 'measured-limits.json' || /^(allowlist-.*|docs-fork-.*|probe-path-.*|bad-.*|deck-targets|comment-killer-allowlist)\.json$/.test(n) || n === 'exclude-coverage.json'
   /* `cs-test/` `seek-test/` = **引擎自测资产**（随引擎走；原本只在不可分发树，2026-10-03 补入库） */
   const okDir = ['masters', 'examples', 'fonts', 'evidence', 'cs-test', 'seek-test']
   // 灰名单 = **运行时生成物 / 已声明不入库**：`out*/`（渲染产物，闸门的操作对象）· `node_modules/` · 点目录
@@ -202,6 +204,18 @@ rows.push({
   verdict: smp.length ? `✗ ${smp.length} 处自造路径：${smp.join(', ')}` : '✓ 无自造路径（全部 import paths.mjs）',
   tail: smp.map((x) => `· ${x} ⇒ 改为 import { ENGINE_ROOT | DECK_DIR | MASTERS_DIR | FONTS_DIR } from './paths.mjs'`),
 })
+/* ★ ⓪i：**DOM 目标定位常驻负控**（team-lead ①）——
+   两个实战缺陷钉成断言：A 裸子串找页（`.t` 撞 `tex` ⇒ 看错帧）；B 我首版修法（`^|\s` 前边界无 `m` ⇒ 首个 class 都找不到）。
+   负控必须**能失败**：fixture 里同时放 `.tex`（页 1）与 `.t`（页 2）⇒ 两种实现必须给出**不同页**。 */
+{
+  const r = spawnSync(NODE, [join(DECK_DIR, 'dom-target.mjs'), '--selftest'], { cwd: HERE, encoding: 'utf8' })
+  const tail = ((r.stdout || '') + (r.stderr || '')).split('\n').map((s) => s.trim()).filter(Boolean)
+  rows.push({
+    group: '⓪i目标自检', label: 'DOM 目标定位常驻负控（裸子串撞车 / 首个 class 不可命中）', script: 'dom-target.mjs --selftest', exit: r.status ?? 2, sec: 0,
+    verdict: r.status === 0 ? '✓ 自检通过（裸子串 vs token 给出不同页）' : `✗ exit=${r.status}`,
+    tail: tail.slice(-3),
+  })
+}
 /* ★ ⓪h：行尾口径一致（仓库存储 = LF；不许把本机 CRLF 当口径） */
 {
   const eolB = eolPolicyIssues()
@@ -299,8 +313,10 @@ if (process.argv.includes('--whitelist-only')) {
   console.log(`⓪g 小节编号唯一：${dupOnly.length ? `✗ ${dupOnly.length} 处重复：${dupOnly.join(' · ')}` : '✓ 编号唯一（README / ENGINE-CONTRACT / AI-PROMPT）'}`)
   const eolOnly = eolPolicyIssues()
   console.log(`⓪h 行尾口径一致：${eolOnly.length ? `✗ ${eolOnly.length} 处：${eolOnly.join(' · ')}` : '✓ 一致（根 .gitattributes 声明 eol=lf）'} · 自身排除：${EOL_SELFEXCLUDE}`)
+  const dst = spawnSync(NODE, [join(DECK_DIR, 'dom-target.mjs'), '--selftest'], { cwd: HERE, encoding: 'utf8' })
+  console.log(`⓪i DOM 目标自检：${dst.status === 0 ? '✓ 通过（裸子串 vs token 不同页）' : `✗ exit=${dst.status}`}`)
   // 退出码分档：白名单/自造路径/注释/语法/编号/行尾红 ⇒ 1；分叉红 ⇒ 1；分叉**配置错**（2）⇒ 2（§25b）
-  process.exit(extra.length || smpOnly.length || ckBad.length || fk.status || dupOnly.length || eolOnly.length ? 1 : (fkOnly.status === 2 ? 2 : (fkOnly.status ? 1 : 0)))
+  process.exit(extra.length || smpOnly.length || ckBad.length || fk.status || dupOnly.length || eolOnly.length || dst.status ? 1 : (fkOnly.status === 2 ? 2 : (fkOnly.status ? 1 : 0)))
 }
 /* ①b **`--render`**：渲"缺产物 ∪ 陈旧"的声明档再判（跳过以新鲜度为前提）；逐档打印 exit */
 if (RENDER) {
@@ -322,6 +338,7 @@ rows.push(step('②b 产物新鲜度', '产物新鲜度（产物 mtime ≥ 输�
 /* ②c **反例退出码断言**（team-lead）：`deck.bad-*` 等**本来就应该失败** ⇒ 断言"失败退出码 == 声明值"
    （否则真故障会被洗成"设计性失败"）；同时断言它们**不产出 mp4**。 */
 rows.push(step('②c 反例退出码', '反例退出码与声明一致（且不产出产物）', 'check-bad-examples.mjs'))
+rows.push(step('①b上限不变式', 'schema↔实测上限（I1–I4：每个硬上限有判据支撑且留 10% 余量）', 'check-schema-vs-limits.mjs'))
 rows.push(step('②覆盖矩阵', 'check-coverage-matrix', 'check-coverage-matrix.mjs'))
 const targets = FAST
   ? ['out/deck.all12', 'out/deck.all12-9x16', 'out-master-v2/deck.all12-master-v2', 'out-master-v2/deck.all12-9x16-master-v2']
