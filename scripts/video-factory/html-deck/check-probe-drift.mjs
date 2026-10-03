@@ -55,6 +55,11 @@ if (resolve(PROBE_DIR) === resolve(LANDING_DIR)) {
 /* 例外表：**每条必须写 reason**（不许无声豁免） */
 const DRIFT_OK = {
   // 'README.md': '两份 README 面向不同读者（引擎总说明 vs 探针侧索引），内容按需各自演进',
+  /* ⚠️ **误配**（2026-10-04）：`examples/.gitignore`（入库树：临时变体保险）被**按 basename 兜底**
+     配到了探针树的 `deck-contract/.gitignore`（另一份、角色不同）⇒ 报"MD5 不等"的**假漂移**。
+     深层修法（下一步）：**dotfile 不走 basename 兜底**（点文件通常按角色各自存在）；此处先按例外登记（带 reason）。
+     —— 这也再次说明"兜底匹配"要按最小粒度（与"宽允许项 = 静默掩盖"同族，只是反过来是**假红**）。 */
+  'examples/.gitignore': '探针树没有同角色的这份文件（deck-contract/.gitignore 是另一份）；basename 兜底是误配 ⇒ 登记例外',
 }
 
 const isFile = (p) => { try { return statSync(p).isFile() } catch { return false } }
