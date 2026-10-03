@@ -130,22 +130,13 @@ const tamper = []                       // ★ 测量期产物被改写的行（
 for (const k of KS) {
   const variant = JSON.parse(JSON.stringify(base))
   setPath(variant, FIELD, '汉'.repeat(k))
-  const vj = join(outRoot, `deck-k${k}.json`)
-  /* ★ team-lead ⑤（真因）：变体被写到 `out-tmp-xcheck-*`，而 deck 里的 `asset` 是**相对路径** ⇒
-     校验器会报"素材文件不存在：<临时目录>/assets/…" ⇒ **渲染被拒 ⇒ 假红**（我这处的 `pageChart.explain` 就是它）。
-     ⇒ 把相对素材路径**解析成绝对**（相对**源 deck 所在目录**），变体就能在任意目录渲染。 */
-  {
-    const srcDir = dirname(resolve(DECK_DIR, JSONF))   /* ★ 变量名是 `JSONF`（我第一版写成 JSON_BASE ⇒ ReferenceError） */
-    let n = 0
-    for (const p of (variant.pages || [])) {
-      /* ⚠️ **不能碰 cover 页的 asset**：它的 `assets/cover.jpg` 是相对**母版目录**的（render-deck 会与母版自带封面
-         逐字比），改成绝对 ⇒ 报"只支持母版自带封面"（我第一版就是这么把自己弄红的）。 */
-      if (p && p.type !== 'cover' && typeof p.asset === 'string' && p.asset && !/^(?:[a-zA-Z]:[\\/]|\/|https?:|data:)/.test(p.asset)) {
-        p.asset = resolve(srcDir, p.asset); n++
-      }
-    }
-    if (n) console.log(`  （变体已将 ${n} 处相对素材路径解析为**绝对** —— 否则临时目录里会"素材不存在"假红）`)
-  }
+  /* ★ team-lead ③（更省事、假设更少）：变体**写在源档同目录**（前缀 `__tmp_`、**不匹配 `deck*.json` 声明档 glob**）
+     ⇒ **天然免疫相对素材语义**：`cover.asset`（相对**母版**目录）与 `image.asset`（相对**源档**目录）都按原语义解析。
+     事故回顾：写在 `out-tmp-xcheck-*` 时，image 页报"素材文件不存在：<临时目录>/assets/test-media.png" ⇒ **整档被拒渲染
+     ⇒ 我的自证出现假红**（团队 lead 把同一变体放到源档同目录 ⇒ render exit=0 定死了这一点）。跑完即删（`exit` 钩子兜底）。 */
+  const srcAbs = resolve(DECK_DIR, JSONF)
+  const vj = join(dirname(srcAbs), `__tmp_xcheck-k${k}.json`)
+  process.on('exit', () => { try { rmSync(vj, { force: true }) } catch { /* ignore */ } })
   writeFileSync(vj, JSON.stringify(variant, null, 2), 'utf8')
   const deckName = basename(vj).replace(/\.json$/, '')
   /* ⚠️ **不许** `shell: true`：Windows 下 `process.execPath` 含空格（`C:\Program Files\nodejs\…`）
@@ -155,6 +146,9 @@ for (const k of KS) {
     /* ★ ④-2：只在 **--raise-max** 时把覆盖 schema 传给子进程（validate-deck 会打印告示） */
     env: OVERRIDE_ENV ? { ...process.env, DECK_SCHEMA_OVERRIDE: OVERRIDE_ENV } : process.env,
   })
+  /* ★ 渲染是变体的**唯一消费者** ⇒ 渲染一结束就删（`exit` 钩子只作兜底）。
+     实测：只靠 exit 钩子会残留 `__tmp_xcheck-k37/k38.json` 在 `examples/`（会污染声明档/锚点扫描）。 */
+  try { rmSync(vj, { force: true }) } catch { /* ignore */ }
   const prod = join(DECK_DIR, OUT, deckName)
   const renderOk = r.status === 0 && existsSync(join(prod, 'index.html'))
   const fpRender = renderOk ? fp(join(prod, 'index.html')) : 'n/a'   // ★ 渲染完成即取指纹（防篡改基线）
