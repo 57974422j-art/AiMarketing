@@ -40,7 +40,10 @@ const DECKS = {
       { id: 'cover.title', pt: 'cover', field: 'meta.title', cls: 'cover-title' },
       { id: 'cover.sub', pt: 'cover', field: 'meta.subtitle', cls: 'cover-sub' },
       { id: 'cover.kicker', pt: 'cover', field: 'pages.0.kicker', cls: 'kicker' },
-      { id: 'cover.issuer', pt: 'cover', field: 'meta.issuer', cls: 'issuer' },
+      /* ⚠️ 该字段**元素口径 ≠ 输入口径**：渲染时元素 = `出品：`+issuer+` · `+date（render-deck.mjs L331）
+         ⇒ **常量偏移 13**（模板常量、与内容无关）⇒ 读回与判据都要换算到**输入口径**（不是"硬凑"；
+         证据见 measured-limits.json 的 offsetEvidence）。 */
+      { id: 'cover.issuer', pt: 'cover', field: 'meta.issuer', cls: 'issuer', offset: 13 },
       { id: 'bullets.title', pt: 'bullets', field: 'pages.1.title', cls: 'p2-head h2' },
       { id: 'bullets.item0', pt: 'bullets', field: 'pages.1.items.0', cls: 'li:first-child .t' },
       { id: 'bullets.summary', pt: 'bullets', field: 'pages.1.summary', cls: 'p2-sum' },
@@ -96,7 +99,9 @@ for (const c of cells) {
      （这是**设计**，不是"受阻"）。
      ⇒ 第二路职责改为：确认**承诺给 AI 的 enforced 值**能真渲染、能过闸（`ok:true`）；
        判据 k 与**依据码**由**第一路**给出（它在已渲染产物上做注入，绕过 JSON 校验）。 */
-  const kenf = crit == null ? null : Math.floor(0.9 * crit)
+  /* ★ 判据换算到**输入口径**（`crit` 是元素口径；offset 为模板常量偏移，见 cell 定义）⇒ enforced 也算在输入口径上 */
+  const effCrit = crit == null ? null : crit - (c.offset || 0)
+  const kenf = effCrit == null ? null : Math.floor(0.9 * effCrit)
   let B = { code: null, out: '(未跑：第一路没拿到临界)' }, bRows = []
   if (kenf != null) {
     /* ⚠️ `--ks` 必须是**一个** argv（`"37,38"`）：第一版拆成两个 ⇒ 工具只读到 37 ⇒ 临界+1 恒缺（解析没错，参数错） */
@@ -125,18 +130,28 @@ for (const c of cells) {
      那才是"硬上限真的在生效"的证据 —— 被自己的实跑当场抓出）：
        ① **承诺可交付**：enforced（= 硬上限）能渲染、读回一致、过闸；
        ② **硬上限生效**：enforced+1 **渲不出来**（被 schema/validate-deck 拒）。 */
-  const promiseOk = !!(bEnf && bEnf.ok === true && bEnf.back === kenf)
-  const capHolds = !bNext
+  const promiseOk = !!(bEnf && bEnf.ok === true && bEnf.back - (c.offset || 0) === kenf)
+  /* ★ team-lead ④-1：**拒绝原因必须归属正确** —— k=enforced+1 被拒时要断言它来自 **schema 上限**，
+     而不是"版式挂了"（否则会把 `content_overlap`/`text_box_overflow` 误当"上限生效"）。 */
+  /* ⚠️ 文案覆盖面（第一版只认"超出上限 N 字"⇒ 漏判 validate-deck 的"出品方过长（757 字，硬上限 744）"）：
+     现在同时认 **schema 上限类**（超出上限 / 超过硬上限 / 硬上限 N / maxLength）与 **版式/判据类**。 */
+  const rejIsCap = /超出上限|超过硬上限|硬上限\s*\d+|maxLength/.test(B.out)
+  const rejIsLayout = /content_overlap|text_box_overflow|container_overflow|canvas_overflow/.test(B.out)
+  const capHolds = !bNext && rejIsCap && !rejIsLayout
   let note = ''
   if (crit == null) note = '**第一路没给出临界**（看原始输出）'
   else if (!bRows.length) note = '第二路未取到读数'
   else if (!pairOk) note = '**对拍不一致 ⇒ 该格读数不可信**'
   else if (!tamperOk) note = '**测量期产物被改写 ⇒ 读数作废**'
   else if (!promiseOk) note = `**enforced k=${kenf} 未过闸 ⇒ 承诺值不可交付**（硬问题：AI 按 ${kenf} 写会被拒）`
-  else if (!capHolds) note = `⚠️ **硬上限未生效**：k=${kenf + 1} 仍然过闸（schema maxLength=${kenf} 没拦住）`
+  else if (!capHolds) {
+    note = bNext
+      ? `⚠️ **硬上限未生效**：k=${kenf + 1} 仍然过闸（schema maxLength=${kenf} 没拦住）`
+      : `⚠️ **拒绝原因归属不对**：k=${kenf + 1} 确实失败，但原因**不是 schema 上限**（${rejIsLayout ? '看到判据码/版式码' : '未看到上限文案'}）⇒ 不许当"上限生效"（team-lead ④-1）`
+  }
   else if (!basisB.length) note = '⚠️ 第一路的失败里**无判据码**（= 非判据码意见 ⇒ 不入表，见 §25c）'
   else note = `承诺 k=${kenf} 过闸 ✓ · k=${kenf + 1} 被硬上限拒 ✓（判据 ${crit} 由第一路给出：enforced<判据 是设计）`
-  rows.push({ c, crit, kenf, basisA: basisA.trim(), pageA, atA, rbA, frameA, exitA: A.code, bEnf, bNext, basisB, pairOk, tamperOk, promiseOk, note })
+  rows.push({ c, crit, effCrit, kenf, basisA: basisA.trim(), pageA, atA, rbA, frameA, exitA: A.code, bEnf, bNext, basisB, pairOk, tamperOk, promiseOk, capHolds, note })
 
   const fmt = (r) => r ? `k=${r.k} 读回 ${r.back}/${r.want} codes=[${r.codes}] ok=${r.ok}` : '—'
   console.log(`\n  ── [${c.pt}] ${c.id}（字段 ${c.field} · 检测点 .${c.cls}）`)
@@ -155,6 +170,7 @@ for (const r of rows) {
 }
 console.log('\n' + md.join('\n'))
 if (OUTMD) { writeFileSync(resolve(DECK_DIR, OUTMD), md.join('\n') + '\n', 'utf8'); console.log(`\n  表已写入 ${OUTMD}`) }
-const bad = rows.filter((r) => r.crit == null || !r.basisB.length || !r.pairOk || !r.tamperOk || !r.promiseOk)
+/* ★ `capHolds` 必须进 bad（第一版漏了 ⇒ 备注已报"拒绝原因归属不对"，汇总却仍算"可入表" ⇒ 自相矛盾） */
+const bad = rows.filter((r) => r.crit == null || !r.basisB.length || !r.pairOk || !r.tamperOk || !r.promiseOk || !r.capHolds)
 console.log(`\n  ⇒ ${rows.length} 格中 ${rows.length - bad.length} 格可入表（判据码依据来自第一路 · **enforced 承诺成立**（k=enforced 与 enforced+1 均过闸）· 对拍通过 · 未遭篡改）`)
 process.exit(0)

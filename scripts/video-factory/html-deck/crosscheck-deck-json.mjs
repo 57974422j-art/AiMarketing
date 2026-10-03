@@ -115,9 +115,19 @@ for (const k of KS) {
   const renderOk = r.status === 0 && existsSync(join(prod, 'index.html'))
   const fpRender = renderOk ? fp(join(prod, 'index.html')) : 'n/a'   // ★ 渲染完成即取指纹（防篡改基线）
   if (!renderOk) {
-    const tail = ((r.stdout || '') + (r.stderr || '')).split('\n').map((s) => s.trim()).filter(Boolean).slice(-4)
+    const raw = (r.stdout || '') + (r.stderr || '')
+    const tail = raw.split('\n').map((s) => s.trim()).filter(Boolean).slice(-4)
     console.log(`  k=${k} 渲染失败 exit=${r.status} ⇒ 原样末 4 行：`)
     for (const l of tail) console.log(`      ${l.slice(0, 170)}`)
+    /* ★ team-lead ④-1：**拒绝原因必须归属正确** —— 末 4 行常常是 JSON 回显（无用），
+       这里把校验器的**错误消息**单独抽出来（`"msg": "…"` / `"path": "…"`）⇒ 让"是不是 schema 上限拦的"可判。 */
+    const msgs = [...raw.matchAll(/"path"\s*:\s*"([^"]+)"[\s\S]{0,200}?"msg"\s*:\s*"([^"]+)"/g)].slice(0, 6)
+    if (msgs.length) {
+      console.log(`      拒绝原因（校验器 error/msg，共 ${msgs.length} 条，最多列 6）：`)
+      for (const mm of msgs) console.log(`        · ${mm[1]} ⇒ ${mm[2].slice(0, 150)}`)
+    } else {
+      console.log('      拒绝原因：**未解析到 path/msg**（若是 schema 上限，应看到"超出上限 N 字"）')
+    }
   }
   // ① 读回（注入是否生效）：产物 HTML 里目标元素文本长度
   let back = -1, selCount = -1

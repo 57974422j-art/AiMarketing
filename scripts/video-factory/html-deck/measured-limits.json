@@ -10,7 +10,7 @@
   "_history": {
     "_doc": "**上限变更史（机器可读）**：`schemaBefore` = 本轮前的 enforced 值（可能是 schema 的 maxLength，也可能是 validate-deck 的手抄值 —— 后者曾与 schema 分叉，见 K22）。体检据此算两张清单：① **不安全清单**（`schemaBefore > judgeLimit`：契约曾允许超过版式能承载的量 ⇒ 潜在用户可见缺陷）；② **曾被偏紧压过**（`schemaBefore < ⌊0.9×judgeLimit⌋`：无端限制写作 ⇒ \"AI 内容不足\"的元凶清单）。",
     "items": [
-      { "jsonPointer": "#/$defs/meta/properties/issuer", "schemaBefore": 40, "schemaAfter": 756, "judgeLimit": 840, "where": "schema" },
+      { "jsonPointer": "#/$defs/meta/properties/issuer", "schemaBefore": 40, "schemaAfter": 744, "judgeLimit": 827, "judgeElement": 840, "offset": 13, "where": "schema（判据换算到输入口径 = 元素 840 − 常量偏移 13）" },
       { "jsonPointer": "#/$defs/pageBullets/properties/title", "schemaBefore": 24, "schemaAfter": 50, "judgeLimit": 56, "where": "schema" },
       { "jsonPointer": "#/$defs/pageBullets/properties/items/items", "schemaBefore": 40, "schemaAfter": 147, "judgeLimit": 164, "where": "validate-deck(手抄 n>40) → 现单源" },
       { "jsonPointer": "#/$defs/pageBullets/properties/summary", "schemaBefore": 40, "schemaAfter": 334, "judgeLimit": 372, "where": "schema" },
@@ -64,16 +64,20 @@
       "field": "meta.issuer",
       "pageType": "cover",
       "detectPoint": "issuer",
-      "judgeLimit": 840,
+      "judgeLimit": 827,
+      "judgeElement": 840,
+      "offset": 13,
+      "offsetKind": "模板常量（与内容无关）",
+      "offsetEvidence": "render-deck.mjs L331：const iss = [meta.issuer ? `出品：${meta.issuer}` : '', meta.date].filter(Boolean).join(' · ') ⇒ 偏移 = 3(出品：) + 3( · ) + len(meta.date=2026-10 → 7) = **13**；产物实测 .issuer 文本 29 字 = 出品：(3)+AiMarketing 视频工厂(19)+ · (3)+2026-10(7) ⇒ 去掉前后缀得输入 16 字 ✓ 与注入一致（原先的『读回 769/756』即 756+13 的误报）",
       "basis": ["content_overlap"],
       "posK": 960,
       "posPath": "120(非白名单 0) → 240(非白名单 0) → 480(非白名单 0) → 960(非白名单 1)",
       "page": 1,
       "at": "2.600",
-      "readback": "840/840",
+      "readback": "840/840（**元素口径**）· 输入口径 = 840 − 13 = **827**",
       "frameResampled": false,
       "twoPath": "**受阻于 schema**（旧上限 40 ⇒ k=840 render exit=3）⇒ 放宽到 **756** 后须重跑第二路确认",
-      "schemaNow": "maxLength 756 = ⌊0.9×840⌋ · recommendedMax 40（版式建议）",
+      "schemaNow": "maxLength **744** = ⌊0.9×827⌋（**×0.9 作用于输入口径**）· recommendedMax 40（版式建议）",
       "source": "node measure-table.mjs --deck master-v1 --cells cover.issuer"
     },
     {
