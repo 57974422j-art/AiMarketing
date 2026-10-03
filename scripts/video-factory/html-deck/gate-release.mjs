@@ -332,6 +332,13 @@ if (process.argv.includes('--whitelist-only')) {
 /* ★ ⓪j 也进快验输出（否则它的负控要跑 340s 的 --fast；fixture 模式下这里只花毫秒） */
 console.log(`\n⓪j 临时残留（被跟踪 · fixture=${process.env.GATE_LSFILES_FIXTURE ? 'on' : 'off'}）：${tmpResidueRow.exit ? `✗ 命中 ${tmpResidueRow.n} —— ${tmpResidue.join(' | ')}` : '✓ 计数 0'}`)
 if (tmpResidueRow.exit) process.exit(1)
+/* ②d 也进快验（秒级：validate-only 不需要产物）—— 否则它的复验要跑 340s 的 --fast */
+{
+  const dv = deckValidateSweep()
+  console.log(`②d 全档 validate-only：${dv.exit ? '✗' : '✓'} ${dv.verdict}`)
+  for (const l of (dv.tail || [])) console.log(`     ${l}`)
+  if (dv.exit) process.exit(1)
+}
 console.log(`\n⓪ 根目录白名单：${extra.length ? `✗ 多出 ${extra.length} 项：${extra.join(', ')}` : '✓ 全部命中白名单（' + readdirSync(DECK_DIR).length + ' 项）'}`)
   const smpOnly = selfMadePaths()
   console.log(`⓪b 自造路径断言：${smpOnly.length ? `✗ ${smpOnly.length} 处：${smpOnly.join(', ')}` : '✓ 无自造路径（除 paths.mjs 外全部 import）'}`)
@@ -377,6 +384,48 @@ rows.push(step('②b 产物新鲜度', '产物新鲜度（产物 mtime ≥ 输�
 /* ②c **反例退出码断言**（team-lead）：`deck.bad-*` 等**本来就应该失败** ⇒ 断言"失败退出码 == 声明值"
    （否则真故障会被洗成"设计性失败"）；同时断言它们**不产出 mp4**。 */
 rows.push(step('②c 反例退出码', '反例退出码与声明一致（且不产出产物）', 'check-bad-examples.mjs'))
+/* ---------- ②d **全档 validate-only**（team-lead ②：校验器回归不能藏）----------
+   事故（2026-10-04）：**727s 全绿、却 16 档根本渲不出来** —— 因为 ②b 的"产物新鲜度"看不见**工具自身退化**：
+   产物 mtime 没变 ⇒ 渲染被跳过 ⇒ **校验根本没跑**。⇒ 对**每个声明档**跑一次 `validate-deck`（**秒级、无需产物**）。
+   判定（**禁静默**）：通过 ⇒ ✓；失败 ⇒ **除非**在 `bad-expected.json` 里**已声明期望失败（带 reason）**；否则 ⇒ 红。
+   另含**常驻断言**："指针解析不到"是 $ref/JSON 指针回归的专用哨兵 ⇒ 出现即红（无论该档是否声明性失败）。 */
+/* ⚠️ 写成**函数声明**（提升）：`--whitelist-only` 块在本行**之前**，需要调用它跑快验；否则 TDZ 报错。 */
+function deckValidateSweep() {
+  const badDecl = new Map()
+  try {
+    const bp = JSON.parse(readFileSync(join(DECK_DIR, 'bad-expected.json'), 'utf8'))
+    for (const b of (bp.bad || [])) badDecl.set(`${b.deck}.json`, b)
+  } catch { /* 无声明表 ⇒ 视为"无声明"（失败即红） */ }
+  const dir = join(DECK_DIR, 'examples')
+  const files = (existsSync(dir) ? readdirSync(dir) : []).filter((f) => /^deck.*\.json$/.test(f) && !f.startsWith('__tmp_'))
+  const bad = [], ptr = []
+  let pass = 0, declared = 0, skipped = 0
+  for (const f of files) {
+    const r = spawnSync(NODE, [join(HERE, 'validate-deck.mjs'), join(dir, f)], { cwd: HERE, encoding: 'utf8' })
+    const out = String(r.stdout || '') + String(r.stderr || '')
+    const d = badDecl.get(f)
+    /* ⚠️ **只有 `stage: validate` 的负样例才该在"校验"这一步失败** —— 其余（palette/master/asset）是**渲染早期阶段**
+       的声明性失败，`validate-deck` 本来就该**通过**它们。
+       （我第一版对所有声明都期望"校验失败"⇒ 把 `deck.covercustom`（stage=asset）误判成"声明过期" —— 被首跑当场抓到。） */
+    const declaredValidateFail = !!(d && d.expectExit && d.expectExit !== 0 && /validate/i.test(String(d.stage || '')))
+    /* 非 `validate` 级的声明性负样例 ⇒ **不断言**（只计数）。理由（实测）：`deck.bad`/`bad-master`/`bad-palette` 在
+       master/palette 级失败，而 validate-deck **也会**在契约级拒它们（同一个档可以在两个层次都失败）⇒
+       拿"validate 通过/失败"去判它们必然误报（我第一版就是这么误报 3 条的）。 */
+    if (d && !declaredValidateFail) { skipped++; continue }
+    if (r.status === 0 && !declaredValidateFail) pass++
+    else if (r.status !== 0 && declaredValidateFail) declared++
+    else if (r.status !== 0) bad.push(`${f}（exit=${r.status} ⇒ **未声明的校验失败**：既有样例渲不出来却没人声明）`)
+    else bad.push(`${f}（声明"期望失败"**却通过了** ⇒ 声明过期，删掉它的 bad-expected 条目）`)
+    if (/指针解析不到/.test(out)) ptr.push(f)
+  }
+  return {
+    group: '②d全档校验', label: '全档 validate-only（每声明档跑一次校验 · 声明的负样例除外 · 指针回归哨兵）',
+    script: '(内置 · validate-deck 逐档)', exit: (bad.length || ptr.length) ? 1 : 0, sec: 0,
+    verdict: `已校验 **${files.length}** 档 · 通过 **${pass}** · 声明性失败（stage=validate）**${declared}** · 非 validate 级负样例（不计入）**${skipped}** · 异常 **${bad.length}** · 指针哨兵命中 **${ptr.length}**`,
+    tail: [...bad, ...ptr.map((f) => `${f} ⇒ **出现"指针解析不到"**（$ref/指针回归哨兵）`)].slice(0, 10),
+  }
+}
+rows.push(deckValidateSweep())
 rows.push(step('①b上限不变式', 'schema↔实测上限（I1–I4：每个硬上限有判据支撑且留 10% 余量）', 'check-schema-vs-limits.mjs'))
 rows.push(step('②覆盖矩阵', 'check-coverage-matrix', 'check-coverage-matrix.mjs'))
 const targets = FAST
