@@ -64,6 +64,12 @@ function lim(ptr, dMin = 0, dMax = Infinity) {
   const n = schemaNode(ptr) || {}
   return [n.minLength ?? dMin, n.maxLength ?? dMax]
 }
+/** `[minItems, maxItems]`（**条数版**；缺省 0 / Infinity ⇒ 无上限）
+ *  ★ 与 `lim()` **同一真源、同一指针取法** —— 条数上限也必须从 schema 取（K22 同族第二例，见下）。 */
+function limItems(ptr, dMin = 0, dMax = Infinity) {
+  const n = schemaNode(ptr) || {}
+  return [n.minItems ?? dMin, n.maxItems ?? dMax]
+}
 /** `recommendedMax`（advisory；缺省 Infinity = 无建议值） */
 function adv(ptr, dflt = Infinity) {
   const n = schemaNode(ptr) || {}
@@ -189,13 +195,17 @@ function checkBullets(p, path) {
     add('error', `${path}.items`, 'items 缺失或不是数组', '补 3~5 条要点')
     return
   }
-  if (p.items.length < 3) {
-    const n = p.items.length
-    add('error', `${path}.items`, `只有 ${n} 条要点，硬性要求 ≥3 条`,
-      n === 0 ? '这一页没有内容：请补 ≥3 条要点；若这一页只有一句收束语，改用 end 页'
-              : '补到 ≥3 条；若确实只有 1~2 条要点，改用 data 页（有真实数字时）或把它们并进相邻 bullets 页')
+  /* ★ **K22 同族复发**（2026-10-04，被**条数构造器实跑**揪出）：这两行曾**手写** `3` 与 `5` ⇒ **无视 schema** ——
+     我把 `maxItems` 覆盖到 8 后，渲染仍被这里的 `> 5` 拒死 ⇒ **条数测量根本做不了**（上限吃掉测量，与 K22 一字不差）。
+     ⇒ 现改为**读 schema**（`limItems`，与 `lim()` 同一真源、同一指针）。 */
+  const [iMinC, iMaxC] = limItems('#/$defs/pageBullets/properties/items')
+  const nItems = p.items.length
+  if (nItems < iMinC) {
+    add('error', `${path}.items`, `只有 ${nItems} 条要点，硬性要求 ≥${iMinC} 条（schema）`,
+      nItems === 0 ? `这一页没有内容：请补 ≥${iMinC} 条要点；若这一页只有一句收束语，改用 end 页`
+                   : `补到 ≥${iMinC} 条；若确实只有 1~2 条要点，改用 data 页（有真实数字时）或把它们并进相邻 bullets 页`)
   }
-  if (p.items.length > 5) add('error', `${path}.items`, `有 ${p.items.length} 条，上限 5 条`, '拆成两页 bullets')
+  if (nItems > iMaxC) add('error', `${path}.items`, `有 ${nItems} 条，超过硬上限 ${iMaxC} 条（schema · 条数）`, `精简到 ≤${iMaxC} 条，或拆成两页 bullets`)
   p.items.forEach((it, i) => {
     if (typeof it !== 'string') { add('error', `${path}.items[${i}]`, '不是字符串', '改成字符串'); return }
     const n = cp(it)

@@ -81,6 +81,7 @@ for (const it of (limits.limits || [])) {
    加 `n > 40`），注释还写"规则严格对齐 schema"，但**从不读 deck.schema.json** ⇒ 我改 schema 后渲染器仍按旧表拒收
    （实测：`items[0]` 的 schema 上限已删，而 render 仍 `exit=3` 拒绝 k=164）。
    判据：validate-deck 的硬编码 (min,max) 必须与 schema 同名叶子一致；schema 没有而它有（或反之）⇒ **红**。 */
+let COUNT_DEBT = []          /* I5 条数版的债务清单（模块级：函数内算、函数外打印） */
 function i5Violations() {
   const out = []
   const p = join(DECK_DIR, 'validate-deck.mjs')
@@ -101,6 +102,33 @@ function i5Violations() {
       out.push(`**两处不一致**：validate-deck ${leaf} ∈ [${min}, ${max}]（${label}）↔ schema ${hits.map(([q, n]) => `${q}=[${n.minLength ?? '-'}, ${n.maxLength}]`).join(' / ')}`)
     }
   }
+  /* ★★ **条数版**（K22 同族第二例，2026-10-04）：`.length > 5` 这类**手写条数**同样会**无视 schema** ⇒
+     被我覆盖 `maxItems` 到 8 后，渲染仍被 `> 5` 拒死（条数测量做不了）⇒ 必须改用 `limItems(指针)` 读 schema。
+     ⚠️ 尚未转换的两处**显式计债**（不是静默放行 —— 按 I10「分母不许为零」的口径：宁可红名单上挂着）。 */
+  const COUNT_DEBT_OK = new Map([
+    ['p.secondary.length', 'pageData.secondary（恰 2 条）尚未转换 ⇒ 计债；与 count 构造器第二批一起改'],
+    ['c.series.length', 'pageChart.series（4~12）尚未转换 ⇒ 计债；同上'],
+  ])
+  /* ★ **棘轮（ratchet）口径**（team-lead 的"显式计债" + I10「一侧为空不许算通过」）：
+     条数单源债务**只许减、不许增** —— 首跑实测 **9 处**手写条数 ⇒ 记 `COUNT_DEBT_MAX = 9`：
+       · 数量 **≤ 9** ⇒ 不判红，但**显著打印**（不是静默；每处都点名）
+       · 数量 **> 9**（又新增手写条数）⇒ **红**
+       · 数量下降 ⇒ 提示"可把 ratchet 调小"（不让债务悄悄回来） */
+  /* ⚠️ **棘轮先量后设**：我第一版凭 grep 的截断输出设 9 ⇒ 实际 **12** ⇒ 首跑就"涨了"报警。
+     正确顺序：**先测出真值，再把它钉成上限**（否则棘轮自己制造假红）。 */
+  const COUNT_DEBT_MAX = 12
+  const countDebt = []
+  for (const m of vd.matchAll(/([A-Za-z_$][\w.$]*)\.length\s*(<=|>=|<|>)\s*(\d+)/g)) {
+    const [, obj, op, num] = m
+    const line = vd.slice(0, m.index).split('\n').length
+    countDebt.push(`L${line}：${obj}.length ${op} ${num}${COUNT_DEBT_OK.has(`${obj}.length`) ? `（计债：${COUNT_DEBT_OK.get(`${obj}.length`)}）` : ''}`)
+  }
+  if (countDebt.length > COUNT_DEBT_MAX) {
+    out.push(`**条数单源债务**从 ${COUNT_DEBT_MAX} 涨到 **${countDebt.length}** ⇒ **红了**（ratchet 只许减不许增）：${countDebt.join(' · ')}`)
+  } else if (countDebt.length < COUNT_DEBT_MAX) {
+    out.push(`ℹ 条数单源债务已降到 **${countDebt.length}**（原 ${COUNT_DEBT_MAX}）⇒ 请把 \`COUNT_DEBT_MAX\` 同步调小（不许债务悄悄回来）`)
+  }
+  COUNT_DEBT = countDebt
   /* 数组元素那种"n > N"的硬编码（如 items：`if (n > 40)`）
      ⚠️ 必须**按指针**判定：第一版用"叶名含 items"⇒ 被 `pageChart…labels/items` 撞车 ⇒ 漏报（实测）。
      ⇒ 只认 `#/$defs/pageBullets/properties/items/items`（要点数组元素）。 */
@@ -235,6 +263,11 @@ for (const s of noted) console.log(`  · ${s}`)
 if (i5.length) {
   console.log(`\n  ⚠ **I5（enforced 上限只许一处真源）违规 ${i5.length} 条**：`)
   for (const s of i5) console.log(`     · ${s}`)
+}
+/* I5 **条数版**的债务清单：显著打印（不静默；棘轮上限见上） */
+if (COUNT_DEBT.length) {
+  console.log(`\n  ℹ **I5 条数版**：validate-deck 尚有 **${COUNT_DEBT.length}** 处**手写条数**（棘轮上限 9 ⇒ 只许减不许增）：`)
+  for (const s of COUNT_DEBT) console.log(`     · ${s}`)
 }
 if (i5doc.length) {
   console.log(`\n  ⚠ **I5-文档（AI-PROMPT 数字同源）违规 ${i5doc.length} 条**：`)
