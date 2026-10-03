@@ -34,7 +34,13 @@ const DECK = arg('--deck', 'master-v1')
 const PAGE = Number(arg('--page', '2'))
 const JSONPATH = arg('--jsonpath', 'pages.1.items')
 const CLS = arg('--cls', 'li:first-child .t')
-const SEL = arg('--sel', 'li')
+/* ★ team-lead ①：**默认值必须安全** —— 旧默认 `li` = **全篇计数**（正是"读回 23"那个坑）⇒
+   缺 `--sel` ⇒ **红**（不许静默退化成全篇）。与"无输出即失败"同族。 */
+const SEL = arg('--sel', '')
+if (!SEL && !process.argv.includes('--self-test-extract')) {
+  console.error('✗ 缺 `--sel`（检测点标签，如 li）⇒ **不许用危险默认**（旧默认 li 会全篇计数 ⇒ 读数错）⇒ exit 2')
+  process.exit(2)
+}
 const MIN = Number(arg('--min', '3'))
 const MAX = Number(arg('--max', '5'))
 const KEEP = argv.includes('--keep')
@@ -66,6 +72,29 @@ const before = node0.maxItems
 node0.maxItems = Math.max(before, N_MAX)
 const ovr = join(tmpdir(), `deck.schema.count.${process.pid}.json`)
 writeFileSync(ovr, JSON.stringify(sch, null, 2), 'utf8')
+
+/* ★★ team-lead ②：**提取器的 I11 漏洞** —— 旧写法 `…match || 0` ⇒ 「**行没打印**」与「**真 0 条**」**不可区分**，
+   而前者会被读成"无判据码"（我的**承重结论**就可能只是解析失效）。
+   ⇒ 三态区分：**行存在且 >0**（触发）｜**行存在且 =0**（真无）｜**行缺失** ⇒ **红 `EXTRACT-INPUT-MISSING`**；
+   并回显**扫描统计**（`扫 N 行`，N=0 ⇒ 红 —— I11 直接适用）。 */
+function parseEngineOut(gout) {
+  const lines = String(gout || '').split('\n').length
+  const ovlLine = /重叠判据[^\n]*共\s*(\d+)\s*条/.exec(gout)
+  const codesLine = (/各 code 计数:\s*([^\n]*)/.exec(gout) || [])[1] || ''
+  const codes = codesLine.split('·').map((s) => s.trim().split('×')[0].trim()).filter(Boolean)
+  return { lines, codes, ovl: ovlLine ? Number(ovlLine[1]) : null }
+}
+/* ★ 提取器**自己的正控/负控**（合成输入，不需要渲染）：`--self-test-extract` */
+if (process.argv.includes('--self-test-extract')) {
+  const A = '  各 code 计数: content_overlap×2 · canvas_overflow×1\n  重叠判据（content_overlap）[--assert-overlap]：共 2 条（白名单命中 0 条）'
+  const B = '  各 code 计数: text_box_overflow×1\n  重叠判据（content_overlap）[--assert-overlap]：共 0 条（白名单命中 0 条）'
+  const C = '  各 code 计数: text_box_overflow×1'
+  const a = parseEngineOut(A), b = parseEngineOut(B), c = parseEngineOut(C)
+  const ok = a.ovl === 2 && a.codes.includes('content_overlap') && b.ovl === 0 && c.ovl === null
+  console.log(`  提取器自测：A(触发) ovl=${a.ovl} ✓=${a.ovl === 2} · B(真无) ovl=${b.ovl} ✓=${b.ovl === 0} · C(缺行) ovl=${c.ovl === null ? 'null(判红)' : c.ovl} ✓=${c.ovl === null}`)
+  console.log(`  扫行数：A=${a.lines} B=${b.lines} C=${c.lines}（0 ⇒ 红）`)
+  process.exit(ok ? 0 : 1)
+}
 
 const created = []
 const cleanup = () => { if (!KEEP) for (const p of created) { try { rmSync(p, { recursive: true, force: true }) } catch { /* ignore */ } } }
@@ -122,10 +151,15 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   /* ⚠️ **实测输出形态**：`各 code 计数: timeline_track_too_dense×1 · nested_structure_needs_subcomposition×12`
      （**不是** JSON 的 `"code":` 形态）—— 我第一版按 JSON 提取 ⇒ **永远拿空集** ✗（同族：提取式与真实形态不符）。
      JUDGE 判据另看**专用断言行**：`重叠判据（content_overlap）[--assert-overlap]：共 N 条` ⇒ **N>0 才算判据触发**。 */
-  const codesLine = (/各 code 计数:\s*([^\n]*)/.exec(gout) || [])[1] || ''
-  const uniq = codesLine.split('·').map((s) => s.trim().split('×')[0].trim()).filter(Boolean)
-  const ovl = Number(((/重叠判据[^\n]*共\s*(\d+)\s*条/.exec(gout) || [])[1]) || 0)
-  const judgeHit = ovl > 0 ? ['content_overlap'] : []
+  const ex = parseEngineOut(gout)
+  const uniq = ex.codes
+  /* **行缺失 ⇒ 红**（I11）：不许把"没打印"读成"真 0 条" */
+  if (ex.ovl === null || ex.lines === 0) {
+    console.error(`✗ **EXTRACT-INPUT-MISSING**：引擎输出里${ex.lines === 0 ? '**没有任何行**' : '**没有**「重叠判据…共 N 条」行'} ⇒ 提取器输入缺失 ⇒ 本次"无判据码"结论**不可采信** ⇒ exit 2`)
+    process.exit(2)
+  }
+  const judgeHit = ex.ovl > 0 ? ['content_overlap'] : []
+  console.log(`      提取器：扫 ${ex.lines} 行 · 提出 ${uniq.length} 码（其中判据 ${judgeHit.length}）· 重叠行=共 ${ex.ovl} 条`)
   const outsider = uniq.filter((x) => !JUDGE.includes(x))
   const gateOk = /结论:\s*PASS/.test(gout) || (g.status === 0 && !judgeHit.length)
 
@@ -169,5 +203,8 @@ else console.log(`  ✓ 作用域负控：至少有 ${rows.filter((r) => r.globa
 if (newOutsiders.length) console.log(`  ✗ **有"随 N 新增的非判据码"**：${newOutsiders.join(', ')} ⇒ 不许当"无触发" ⇒ exit 2`)
 if (constantOutsiders.length) console.log(`  ℹ 恒定非判据码（各 N 都有 ⇒ 与容量无关，**记录不判红**）：${constantOutsiders.join(', ')}`)
 if (first) console.log(`  ✅ 判据（首个触发判据码的 N）= **${first.N}** · 决定性码 = [${first.judgeHit.join(', ')}] · 闸门=${first.gate}`)
-else console.log(`  ⏳ 到 N_MAX=${N_MAX} 未触发 ⇒ 按 (b) 记 **judgeLimitAtLeast: ${N_MAX}**（**不是 null**：已测且容量 ≥ ${N_MAX}）⇒ editorial 格的「cap ≤ ${N_MAX}」仍要断言`)
+/* ★ team-lead ③ **字段改名**：`judgeLimitAtLeast` 会被读成"**判据 ≥ N_MAX**"，而事实**相反**（N_MAX 内**未触发任何判据**）⇒
+   改为 **`capacityAtLeast`**（**容量**：能装多少 ≠ **约束**：该写多少）。文档里必须区分二者 ——
+   条数既然无几何失败模式 ⇒ 其上限**只能由编辑意图定** ⇒ 这正是 `kind: editorial` 的含义。 */
+else console.log(`  ⏳ 到 N_MAX=${N_MAX} **未触发任何判据** ⇒ 记 **capacityAtLeast: ${N_MAX}**（**容量** ≥ ${N_MAX}；**不是**"判据 ≥ ${N_MAX}"，也不是 null）⇒ 诚实归 editorial：唯一断言「cap ≤ 容量」`)
 process.exit(badReadback.length || newOutsiders.length || !scopeOk ? 2 : 0)
