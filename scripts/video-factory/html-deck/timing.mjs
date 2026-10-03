@@ -79,14 +79,21 @@ export function pageOfTime(table, t) {
   return table.find((p) => Number(t) >= p.start - 1e-6 && Number(t) < p.start + p.dur + 1e-6) || null
 }
 
-/** 元素所属页号（从产物 HTML 找该 selector 所在的第几个 `<section>`；找不到 ⇒ null） */
+/** 元素所属页号（从产物 HTML 找该 selector 所在的第几个 `<section>`；找不到 ⇒ null）
+ *  ⚠️ **必须按 class token 匹配，不许裸子串**（2026-10-03 实战抓出的缺陷）：
+ *  原先写 `secs[i].includes(cls)` ⇒ 单字母 class（如 `.t`）会**撞上 `tex`/`text` 等** ⇒ 判成**封面页**
+ *  ⇒ 稳定帧取错页 ⇒ 注入的溢出在那一帧不可见 ⇒ **正控失败（超长都不报）**，看起来像"量具失效"。
+ */
 export function pageNoOfSelector(dirPath, selector) {
   const f = join(dirPath, 'index.html')
   if (!existsSync(f)) return null
   const html = readFileSync(f, 'utf8')
   const cls = String(selector || '').replace(/^[.#]/, '').split(/[\s>]/)[0]
   if (!cls) return null
+  /* ⚠️ 我第一版写成 `class="[^"]*(?:^|\s)cls(?:\s|")` ⇒ **连首个 class 都不匹配**（`^` 在无 `m` 标志时只能匹配整串开头）
+     ⇒ 全部返回 null ⇒ 又等于"判不到页"。现用 lookahead：class 属性里 token 前是引号或空白。 */
+  const tokenRe = new RegExp('class="(?:[^"]*\\s)?' + cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[\\s"])')
   const secs = html.split(/<section\b/).slice(1)
-  for (let i = 0; i < secs.length; i++) if (secs[i].includes(cls)) return i + 1
+  for (let i = 0; i < secs.length; i++) if (tokenRe.test(secs[i])) return i + 1
   return null
 }
