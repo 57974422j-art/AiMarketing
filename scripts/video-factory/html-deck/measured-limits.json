@@ -7,6 +7,22 @@
     "frameDepth": "**临时产物必须一层**：`<引擎根>/out-tmp-sweep-kN`（一层）能被引擎正常检查；`<引擎根>/out-tmp/sweep-kN`（**两层**）会让引擎给**空 findings 的假绿** ⇒ 清理只能靠**统一前缀**（`out-tmp-*`），**不能**做嵌套的\"单一临时根\"。",
     "selectorPositional": "**类前缀是位置式**：`.p6-explain` 解析出的页号是 **5**（chart 在 all12 里是第 5 页）⇒ `p6-` 与 deck 内页序绑定、**不是页型固定** ⇒ 选择器必须**从目标 deck 的产物解析**，禁止用 `p6-*` 套\"第 6 页\"。"
   },
+  "_decks": {
+    "_doc": "**每格源档（必填 · 禁默认）**：team-lead ③(a) —— 原先 checker 用 `e.deck || 'examples/deck.master-v1.json'` **静默兜底**，且**不打印用了哪一档** ⇒ 将来任何「叶子不在 master-v1」的格子会**静默测错档**（`setPath` 还会凭空造页 ⇒ **平凡通过**）。现：缺登记 ⇒ **红**；自证每格**打印** 档/页/cls/读回。",
+    "#/$defs/meta/properties/title": "examples/deck.master-v1.json",
+    "#/$defs/meta/properties/subtitle": "examples/deck.master-v1.json",
+    "#/$defs/meta/properties/issuer": "examples/deck.master-v1.json",
+    "#/$defs/pageCover/properties/kicker": "examples/deck.master-v1.json",
+    "#/$defs/pageBullets/properties/title": "examples/deck.master-v1.json",
+    "#/$defs/pageBullets/properties/items/items": "examples/deck.master-v1.json",
+    "#/$defs/pageBullets/properties/summary": "examples/deck.master-v1.json",
+    "#/$defs/pageEnd/properties/line1": "examples/deck.master-v1.json",
+    "#/$defs/pageEnd/properties/cta": "examples/deck.master-v1.json",
+    "#/$defs/pageEnd/properties/en": "examples/deck.master-v1.json",
+    "#/$defs/pageData/properties/metric/properties/explain": "examples/deck.master-v1.json",
+    "#/$defs/pageData/properties/metric/properties/unit": "examples/deck.master-v1.json",
+    "#/$defs/pageChart/properties/explain": "examples/deck.all12.json"
+  },
   "_history": {
     "_doc": "**上限变更史（机器可读）**：`schemaBefore` = 本轮前的 enforced 值（可能是 schema 的 maxLength，也可能是 validate-deck 的手抄值 —— 后者曾与 schema 分叉，见 K22）。体检据此算两张清单：① **不安全清单**（`schemaBefore > judgeLimit`：契约曾允许超过版式能承载的量 ⇒ 潜在用户可见缺陷）；② **曾被偏紧压过**（`schemaBefore < ⌊0.9×judgeLimit⌋`：无端限制写作 ⇒ \"AI 内容不足\"的元凶清单）。",
     "items": [

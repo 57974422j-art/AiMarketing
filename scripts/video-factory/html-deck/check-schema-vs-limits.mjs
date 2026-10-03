@@ -409,15 +409,24 @@ if (HANDCHECKS) {
   for (const e of targets) {
     const leaf = e.jsonPointer.split('/').pop()
     const k = e.judgeLimit
+    /* ★ team-lead ③(a)：**禁静默兜底** —— 档必须显式登记（`e.deck` 或 `_decks[指针]`）；缺失 ⇒ **红**，绝不用默认值替换。
+       （原先 `e.deck || 'examples/deck.master-v1.json'`：叶子不在该档时会**静默测错档**；`setPath` 还会凭空造页 ⇒ **平凡通过**。） */
+    const deck = e.deck || (limits._decks && limits._decks[e.jsonPointer]) || ''
+    if (!deck) { res.push({ ptr: e.jsonPointer, leaf, k, okRender: false, noDeck: true, handLine: auditByLeaf.get(leaf) || null }); continue }
     const r = spawnSync(process.execPath, [join(DECK_DIR, 'crosscheck-deck-json.mjs'),
-      '--json', e.deck || 'examples/deck.master-v1.json', '--field', e.field, '--cls', e.detectPoint,
+      '--json', deck, '--field', e.field, '--cls', e.detectPoint,
       '--ks', `${k},${k + 1}`, '--raise-max', `${leaf}=${k + 2}`], { encoding: 'utf8', cwd: DECK_DIR })
     const out = String(r.stdout || '') + String(r.stderr || '')
     const okRender = new RegExp(`k= ?${k} · 渲染 ok`).test(out)
-    res.push({ ptr: e.jsonPointer, leaf, k, okRender, handLine: auditByLeaf.get(leaf) || null })
+    /* ★ ③(b)：**每格打印** 档/页/cls/**读回**（原先完全不打印档 ⇒ 出问题看不见） */
+    const rb = /k=\s*\d+ · 渲染 ok · 读回 (\d+)\/(\d+)[^\n]*?页 (\d+)/.exec(out)
+    console.log(`     · ${e.jsonPointer.split('/').slice(-1)[0]} ← **${deck}** · 页 ${rb ? rb[3] : '?'} · cls=${e.detectPoint} · 读回 ${rb ? rb[1] + '/' + rb[2] : '—'}`)
+    res.push({ ptr: e.jsonPointer, leaf, k, okRender, deck, handLine: auditByLeaf.get(leaf) || null })
   }
   const pass = res.filter((x) => x.okRender).length
   const bad = res.filter((x) => !x.okRender)
+  const noDeck = res.filter((x) => x.noDeck)   /* ★ ③(a)：档没登记 ⇒ 红（禁静默默认） */
+  if (noDeck.length) viol.push(...noDeck.map((x) => `自证：${x.ptr} **未登记源档**（禁静默默认 ⇒ 必须显式给 deck/_decks）`))
   console.log(`\n  ★ 自证（handchecks）：受检 **${res.length}**${lim ? `（--limit ${lim}）` : ''} · 通过 **${pass}** · 失败 **${bad.length}**`)
   for (const x of bad) console.error(`     ✗ ${x.ptr}：k=${x.k} **渲染不出来** ⇒ **还有手写判定在拦**${x.handLine ? `（疑似 L${x.handLine}）` : ''}`)
   /* (b) 未测清单（与 --strict-coverage 同源 ⇒ 逐项一致） */
