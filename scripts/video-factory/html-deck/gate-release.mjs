@@ -63,8 +63,9 @@ const GRAY_DIR = [
 ]
 
 function rootWhitelist() {
-  const okFile = (n) => /\.mjs$/.test(n) || /\.md$/.test(n) || n === '.gitignore' || n === 'package.json' || n === 'package-lock.json' || n === 'deck.schema.json' || /^allowlist-.*\.json$/.test(n) || n === 'exclude-coverage.json'
-  const okDir = ['masters', 'examples', 'fonts', 'evidence']
+  const okFile = (n) => /\.mjs$/.test(n) || /\.md$/.test(n) || n === '.gitignore' || n === 'package.json' || n === 'package-lock.json' || n === 'deck.schema.json' || /^(allowlist-.*|docs-fork-.*|probe-path-.*)\.json$/.test(n) || n === 'exclude-coverage.json'
+  /* `cs-test/` `seek-test/` = **引擎自测资产**（随引擎走；原本只在不可分发树，2026-10-03 补入库） */
+  const okDir = ['masters', 'examples', 'fonts', 'evidence', 'cs-test', 'seek-test']
   // 灰名单 = **运行时生成物 / 已声明不入库**：`out*/`（渲染产物，闸门的操作对象）· `node_modules/` · 点目录
   //   ⇒ 允许在树里存在，但**明示不入库**（否则闸门根本没法跑；入库清单里它们属"排除项"）。
   const grayDir = GRAY_DIR.map((g) => g.re)
@@ -166,6 +167,17 @@ rows.push({
   verdict: extra.length ? `✗ 多出 ${extra.length} 项：${extra.join(', ')}` : '✓ 全部命中白名单',
   tail: extra.map((x) => `· 非白名单项：${x} ⇒ **移到 \`evidence/\` 并登记（§22b）**，别放根目录`),
 })
+/* ---------- ⓪d **docs 分叉不变量**（内容级：docs 只许保留"引擎里从来没有过的东西"）---------- */
+const forkRow = step('⓪d docs分叉', 'docs 分叉不变量（内容级扫描，不看名字）', 'check-docs-fork.mjs')
+rows.push(forkRow)
+/* ⓪e **陈旧路径断言**（team-lead ④-3）：tracked 文件里不许出现不可分发的 `dist-rel/…`（可执行指引必须指入库根；
+   纯历史注记进 `probe-path-allowlist.json`，`file+snippet+reason` 必填）。 */
+rows.push(step('⓪e 陈旧路径', '陈旧路径引用（不可分发路径未登记即红）', 'check-probe-paths.mjs'))
+if (process.argv.includes('--fork-only')) {
+  console.log(`\n⓪d docs 分叉不变量 ⇒ exit=${forkRow.exit}`)
+  for (const l of forkRow.tail) console.log('  ' + l)
+  process.exit(forkRow.exit ?? 2)
+}
 if (process.argv.includes('--whitelist-only')) {
   console.log(`\n⓪ 根目录白名单：${extra.length ? `✗ 多出 ${extra.length} 项：${extra.join(', ')}` : '✓ 全部命中白名单（' + readdirSync(DECK_DIR).length + ' 项）'}`)
   const smpOnly = selfMadePaths()
@@ -176,14 +188,20 @@ if (process.argv.includes('--whitelist-only')) {
   const present = GRAY_DIR.filter((g) => readdirSync(DECK_DIR).some((n) => g.re.test(n)))
   console.log(`   灰名单在场 ${present.length} 类（允许在场、**不入库**；每条理由如下）：`)
   for (const g of present) console.log(`     · ${g.name} —— 为什么允许：${g.why} ｜ 不入库依据：${g.basis}`)
-  process.exit(extra.length ? 1 : 0)
+  const fkOnly = spawnSync(NODE, [join(HERE, 'check-docs-fork.mjs')], { cwd: HERE, encoding: 'utf8' })
+  console.log(`⓪d docs 分叉不变量（内容级）：${fkOnly.status === 0 ? '✓ 成立' : `✗ exit=${fkOnly.status}`}`)
+  for (const l of ((fkOnly.stdout || '') + (fkOnly.stderr || '')).split('\n').map((s) => s.trim()).filter(Boolean).slice(-4)) console.log('     ' + l)
+  // 退出码分档：白名单/自造路径红 ⇒ 1；分叉红 ⇒ 1；分叉**配置错**（2）⇒ 2（§25b）
+  process.exit(extra.length || smpOnly.length ? 1 : (fkOnly.status === 2 ? 2 : (fkOnly.status ? 1 : 0)))
 }
 if (!FAST) rows.push(step('①主清单闸门', 'check-master-manifest', 'check-master-manifest.mjs'))
 rows.push(step('②覆盖矩阵', 'check-coverage-matrix', 'check-coverage-matrix.mjs'))
 const targets = FAST
   ? ['out/deck.all12', 'out/deck.all12-9x16', 'out-master-v2/deck.all12-master-v2', 'out-master-v2/deck.all12-9x16-master-v2']
   : deckTargets()
-for (const t of targets) rows.push(step(FAST ? '③代表档判据(fast)' : '③全档判据', t, 'check-engine-lint.mjs', [t, '--assert-contrast']))
+/* ★ `--assert-overlap` **恒带**：发版口径 = `measure-sweep` 口径 = (三码 ∪ `content_overlap`) − (溢出 ∪ 重叠白名单) = 0。
+   否则"内容上限"用了比闸门更严的判据 ⇒ 出现"过闸门却违反上限"（team-lead ③ 抓到的分叉）。 */
+for (const t of targets) rows.push(step(FAST ? '③代表档判据(fast)' : '③全档判据', t, 'check-engine-lint.mjs', [t, '--assert-contrast', '--assert-overlap']))
 const total = (Date.now() - t0) / 1000
 
 const failedRows = rows.filter((r) => r.exit !== 0)

@@ -1,0 +1,90 @@
+{
+  "_note": "⓪e 白名单：文本文件里对**不可分发**路径 `dist-rel/…` 的引用。**只许放「非可执行指引」**（注释 / 布局探测 / 历史注记）；每条必须写 `file` + `snippet` + `reason` + `category`，`snippet` 用来**收窄到那一行**（不许整文件放行）。**任何命中都必须登记**——不许靠缩小扫描面看不见。",
+  "_why": "`dist-rel/` 整体被 `.gitignore:63` 吞掉 ⇒ 不可分发；tracked 文件里写它 = 用户/服务器照做就炸（本会话真实踩过：docs 误删 + v1 PARAMS 真源判错 + 报告版本判错）。",
+  "allow": [
+    {
+      "file": "README.md",
+      "snippet": "入库要拷到非 ignore 路径",
+      "category": "historical",
+      "reason": "历史注记：解释「当年 `probe-hf/fonts/` 为什么进不了 git、后来怎样拷进入库根」——记录事故成因，不含可执行指引。"
+    },
+    {
+      "file": "README.md",
+      "snippet": "本目录（`dist-rel/probe-hf/fonts/`）的内容",
+      "category": "historical",
+      "reason": "同上（`fonts/README.md` 版本的历史注记）：说明该目录当年在探针树里被 gitignore 挡住的背景。"
+    },
+    {
+      "file": "make-fonts.py",
+      "snippet": "dist-rel",
+      "category": "comment",
+      "reason": "注释：记录字体子集脚本当年的运行位置（`os.path.dirname(BASE)`）；不是给用户的执行指引（脚本已随引擎入库，按入库根运行）。"
+    },
+    {
+      "file": "check-docs-fork.mjs",
+      "snippet": "bridge-dev：引擎根 = `<repo>/dist-rel/probe-hf`",
+      "category": "comment",
+      "reason": "注释：两套布局映射表里对 **bridge-dev 布局**的说明（本守卫必须知道两树在哪）。"
+    },
+    {
+      "file": "check-docs-fork.mjs",
+      "snippet": "我曾拿 `dist-rel/probe-hf/`",
+      "category": "comment",
+      "reason": "注释：记录本次事故根因（我把不可分发树当基线）。"
+    },
+    {
+      "file": "check-docs-fork.mjs",
+      "snippet": "bridge-dev（探针树）",
+      "category": "comment",
+      "reason": "注释：PROBE_DIR 推导说明。"
+    },
+    {
+      "file": "check-docs-fork.mjs",
+      "snippet": "resolve(ENGINE_ROOT, '..', '..', '..', 'dist-rel', 'probe-hf')",
+      "category": "layout-detection",
+      "reason": "**真代码**：布局探测（flat 时探针树在 `<repo>/dist-rel/probe-hf`）。工具必须知道它的位置；且此值**只用于检测**，不作为「要用户照做」的指引。"
+    },
+    {
+      "file": "check-engine-lint.mjs",
+      "snippet": "Not a directory",
+      "category": "comment",
+      "reason": "注释：引用引擎报错原文（`..` 被多解析一层时的实际路径），属排障记录。"
+    },
+    {
+      "file": "check-probe-drift.mjs",
+      "snippet": "探针树 = `<repo>/dist-rel/probe-hf`",
+      "category": "comment",
+      "reason": "注释：flat 布局下探针树路径的推导说明。"
+    },
+    {
+      "file": "check-probe-drift.mjs",
+      "snippet": "上溯**三层**",
+      "category": "comment",
+      "reason": "注释：记录第一版路径推导少上一层的 bug。"
+    },
+    {
+      "file": "check-probe-drift.mjs",
+      "snippet": "resolve(ENGINE_ROOT, '..', '..', '..', 'dist-rel', 'probe-hf')",
+      "category": "layout-detection",
+      "reason": "**真代码**：布局探测（本机守卫定位探针工作副本）。"
+    },
+    {
+      "file": "check-docs-fork.mjs",
+      "snippet": "服务器/全新克隆根本没有探针树",
+      "category": "comment",
+      "reason": "注释：解释「探针树缺失时必须跳过而不是判红」的理由（team-lead ④），提到该路径仅为说明场景。"
+    },
+    {
+      "file": "check-probe-drift.mjs",
+      "snippet": "服务器/全新克隆没有探针树",
+      "category": "comment",
+      "reason": "同上：漂移守卫里「探针树缺失 ⇒ 跳过 + exit 0」的理由说明。"
+    },
+    {
+      "file": "gate-release.mjs",
+      "snippet": "tracked 文件里不许出现不可分发的 `dist-rel/…`",
+      "category": "comment",
+      "reason": "注释：⓪e 步骤自身的规矩说明（本文件必须描述该断言）。"
+    }
+  ]
+}

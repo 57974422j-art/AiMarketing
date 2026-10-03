@@ -1,0 +1,6 @@
+{
+  "_note": "**重叠判据**（`content_overlap`）的允许清单 —— 与 `allowlist-overflow.json` **同构**。`check-engine-lint.mjs --assert-overlap`（`gate-release` 恒带）判定 = (三码 ∪ content_overlap) − (溢出白名单 ∪ **本清单**) = 0。",
+  "_rule": "**只收设计性重叠**；`selector` 按子串匹配；每条**必须**写 `reason` + `_evidence.nonDesign`（**非设计性证据**：为什么它不是把内容上限撑破的那种重叠，例如『两层元素本就设计为叠放，且不随内容长度变化（实测 k=1 与 k=200 的 rect 完全相同）』）。**无证据不许登记**。",
+  "_why": "team-lead ③ 抓到的口径分叉：闸门原先不判 `content_overlap`，而 `measure-sweep` 判 ⇒ 内容上限用了比闸门更严的判据 ⇒ 会出现『过闸门却违反上限』。⇒ 并列 + 同构白名单，让上限**可复核**。",
+  "allow": []
+}

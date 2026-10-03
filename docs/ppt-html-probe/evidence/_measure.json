@@ -1,0 +1,70 @@
+{
+  "at": "1.0",
+  "canvasH": 720,
+  "baseline": {
+    "exit": 0,
+    "count": 0,
+    "shape": "findings=0 · errorCount=0 · layout 键=[ok, errorCount, warningCount, infoCount, findings, duration, samples, transitionSamples, transitionSamplesDropped, tolerance, totalIssueCount, truncated]",
+    "fields": [
+      "$.layout.truncated = false"
+    ]
+  },
+  "injected": {
+    "exit": 1,
+    "count": 3,
+    "shape": "findings=3 · errorCount=1 · layout 键=[ok, errorCount, warningCount, infoCount, findings, duration, samples, transitionSamples, transitionSamplesDropped, tolerance, totalIssueCount, truncated]",
+    "byCode": {
+      "text_box_overflow": 1,
+      "content_overlap": 1,
+      "canvas_overflow": 1
+    },
+    "targetOverflowPx": 41.58,
+    "canvasOverflowPx": 305.48,
+    "layoutFindings": [
+      "text_box_overflow · Text is 673px x 591px inside 1280px x 720px and overflows by up to 42px; increase the container height to at least ~762p",
+      "canvas_overflow · Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow."
+    ],
+    "fields": [
+      "$.layout.findings[0].code = text_box_overflow",
+      "$.layout.findings[0].fixHint = Text is 673px x 591px inside 1280px x 720px and overflows by up to 42px; increase the container height to at least ~762px, or allow wrapping with max-width/fitTextFontSize.",
+      "$.layout.findings[0].overflow = {\"bottom\":41.58}",
+      "$.layout.findings[2].code = canvas_overflow",
+      "$.layout.findings[2].fixHint = Move the text inward, reduce its size, or mark intentional off-canvas animation with data-layout-allow-overflow.",
+      "$.layout.findings[2].overflow = {\"bottom\":305.48}",
+      "$.layout.truncated = false"
+    ],
+    "pixelLayer": {
+      "renderExit": 0,
+      "injectedFrame": "G:\\AiMarketing\\dist-rel\\probe-hf\\out-limits-demo\\_injected-p1.png",
+      "frameDiff": {
+        "max": 235,
+        "bright": 184509,
+        "pixels": 921600
+      },
+      "bottom4_baseline": {
+        "rows": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "y": 716,
+        "n": 4
+      },
+      "bottom4_injected": {
+        "rows": [
+          332,
+          337,
+          374,
+          394
+        ],
+        "y": 716,
+        "n": 4
+      }
+    }
+  },
+  "raw": {
+    "baseline": "{\n  \"ok\": true,\n  \"strict\": false,\n  \"lint\": {\n    \"ok\": true,\n    \"errorCount\": 0,\n    \"warningCount\": 5,\n    \"infoCount\": 0,\n    \"findings\": [\n      {\n        \"code\": \"timeline_track_too_dense\",\n        \"severity\": \"warning\",\n        \"message\": \"Track 1 has 4 timed elements in this HTML file. Smaller sub-compositions keep timelines easier to read, iterate on, and diff.\",\n        \"selector\": \"[data-composition-id]\",\n        \"dataAttributes\": {},\n        \"sourceFile\": \"G:\\\\AiMarketing\\\\dist-rel\\\\probe-hf\\\\out-limits-demo\\\\index.html\",\n        \"bbox\": {\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 0,\n          \"height\": 0\n        },\n        \"time\": 0,\n        \"fixHint\": \"Move coherent scene groups into separate .html files under compositions/ and mount them from the parent with data-composition-src so the timeline stays easier to inspect, revise, and validate.\"\n      },\n      {\n        \"code\": \"nested_structure_needs_subcomposition\",\n        \"severity\": \"warning\",\n        \"message\": \"<section id=\\\"tl-2\\\"> is a timeline element that contains nested <div>. The timeline shows one row per top-level element, and the root composition is built only from sub-compositions.\",\n        \"selector\": \"#tl-2\",\n        \"dataAttributes\": {},\n        \"sourceFile\": \"G:\\\\AiMarketing\\\\dist-rel\\\\probe-hf\\\\out-limits-demo\\\\index.html\",\n        \"bbox\": {\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 0,\n          \"height\": 0\n        },\n        \"time\": 0,\n        \"fixHint\": \"Move <section id=\\\"tl-2\\\"> and its contents into a sub-composition file and mount it with data-composition-src.\"\n      },\n      {\n        \"code\": \"nested_structure_needs_subcomposition\",\n        \"severity\": \"warning\",\n        \"message\": \"<section id=\\\"tl-3\\\"> is a timeline element that contains nested <div>. The timeline shows one row per top-level element, and the root composition is built only from sub-compositions.\",\n        \"selector\": \"#tl-3\",\n        \"dataAttributes\": {},\n        \"sourceFile\": \"G:\\\\AiMarketing\\\\dist-rel\\\\probe-hf\\\\out-limits-demo\\\\index.html\",\n        \"bbox\": {\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 0,\n          \"height\": 0\n        },\n        \"time\": 0,\n        \"fixHint\": \"Move <section id=\\\"tl-3\\\"> and its contents into a sub-composition file and mount it with data-composition-src.\"\n      },\n      {\n        \"code\": \"nested_structure_needs_subcomposition\",\n        \"severity\": \"warning\",\n        \"message\": \"<section id=\\\"tl-4\\\"> is a timeline element that contains nested <div>. The timeline shows one row per top-level element, and the root composition is built only from sub-compositions.\",\n        \"selector\": \"#tl-4\",\n        \"dataAttributes\": {},\n        \"sourceFile\": \"G:\\\\AiMarketing\\\\dist-rel\\\\probe-hf\\\\out-limits-demo\\\\index.html\",\n        \"bbox\": {\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 0,\n          \"height\": 0\n        },\n        \"time\": 0,\n        \"fixHint\": \"Move <section id=\\\"tl-4\\\"> and its contents into a sub-composition file and mount it with data-composition-src.\"\n      },\n      {\n        \"code\": \"nested_structure_needs_subcomposition\",\n        \"severity\": \"warning\",\n        \"message\": \"<section id=\\\"tl-5\\\"> is a timeline element that contains nested <div>. The timeline shows one row per top-level element, and the root composition is built only from sub-compositions.\",\n        \"selector\": \"#tl-5\",\n        \"dataAttributes\": {},\n        \"sourceFile\": \"G:\\\\AiMarketing\\\\dist-rel\\\\probe-hf\\\\out-limits-demo\\\\index.html\",\n        \"bbox\": {\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 0,\n          \"height\": 0\n        },\n        \"time\": 0,\n        \"fixHint\": \"Move <section id=\\\"tl-5\\\"> and its contents into a sub-composition file and mount it with data-composition-src.\"\n      }\n    ],\n    \"filesScanned\": 1\n  },\n  \"runtime\": {\n    \"ok\": true,\n    \"errorCount\": 0,\n    \"warningCount\": 0,\n    \"infoCount\": 0,\n    \"findings\": []\n  },\n  \"layout\": {\n    \"ok\": true,\n    \"errorCount\": 0,\n    \"warningCount\": 0",
+    "injected": "{\n  \"ok\": false,\n  \"strict\": false,\n  \"lint\": {\n    \"ok\": true,\n    \"errorCount\": 0,\n    \"warningCount\": 5,\n    \"infoCount\": 0,\n    \"findings\": [\n      {\n        \"code\": \"timeline_track_too_dense\",\n        \"severity\": \"warning\",\n        \"message\": \"Track 1 has 4 timed elements in this HTML file. Smaller sub-compositions keep timelines easier to read, iterate on, and diff.\",\n        \"selector\": \"[data-composition-id]\",\n        \"dataAttributes\": {},\n        \"sourceFile\": \"G:\\\\AiMarketing\\\\dist-rel\\\\probe-hf\\\\out-limits-demo\\\\index.html\",\n        \"bbox\": {\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 0,\n          \"height\": 0\n        },\n        \"time\": 0,\n        \"fixHint\": \"Move coherent scene groups into separate .html files under compositions/ and mount them from the parent with data-composition-src so the timeline stays easier to inspect, revise, and validate.\"\n      },\n      {\n        \"code\": \"nested_structure_needs_subcomposition\",\n        \"severity\": \"warning\",\n        \"message\": \"<section id=\\\"tl-2\\\"> is a timeline element that contains nested <div>. The timeline shows one row per top-level element, and the root composition is built only from sub-compositions.\",\n        \"selector\": \"#tl-2\",\n        \"dataAttributes\": {},\n        \"sourceFile\": \"G:\\\\AiMarketing\\\\dist-rel\\\\probe-hf\\\\out-limits-demo\\\\index.html\",\n        \"bbox\": {\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 0,\n          \"height\": 0\n        },\n        \"time\": 0,\n        \"fixHint\": \"Move <section id=\\\"tl-2\\\"> and its contents into a sub-composition file and mount it with data-composition-src.\"\n      },\n      {\n        \"code\": \"nested_structure_needs_subcomposition\",\n        \"severity\": \"warning\",\n        \"message\": \"<section id=\\\"tl-3\\\"> is a timeline element that contains nested <div>. The timeline shows one row per top-level element, and the root composition is built only from sub-compositions.\",\n        \"selector\": \"#tl-3\",\n        \"dataAttributes\": {},\n        \"sourceFile\": \"G:\\\\AiMarketing\\\\dist-rel\\\\probe-hf\\\\out-limits-demo\\\\index.html\",\n        \"bbox\": {\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 0,\n          \"height\": 0\n        },\n        \"time\": 0,\n        \"fixHint\": \"Move <section id=\\\"tl-3\\\"> and its contents into a sub-composition file and mount it with data-composition-src.\"\n      },\n      {\n        \"code\": \"nested_structure_needs_subcomposition\",\n        \"severity\": \"warning\",\n        \"message\": \"<section id=\\\"tl-4\\\"> is a timeline element that contains nested <div>. The timeline shows one row per top-level element, and the root composition is built only from sub-compositions.\",\n        \"selector\": \"#tl-4\",\n        \"dataAttributes\": {},\n        \"sourceFile\": \"G:\\\\AiMarketing\\\\dist-rel\\\\probe-hf\\\\out-limits-demo\\\\index.html\",\n        \"bbox\": {\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 0,\n          \"height\": 0\n        },\n        \"time\": 0,\n        \"fixHint\": \"Move <section id=\\\"tl-4\\\"> and its contents into a sub-composition file and mount it with data-composition-src.\"\n      },\n      {\n        \"code\": \"nested_structure_needs_subcomposition\",\n        \"severity\": \"warning\",\n        \"message\": \"<section id=\\\"tl-5\\\"> is a timeline element that contains nested <div>. The timeline shows one row per top-level element, and the root composition is built only from sub-compositions.\",\n        \"selector\": \"#tl-5\",\n        \"dataAttributes\": {},\n        \"sourceFile\": \"G:\\\\AiMarketing\\\\dist-rel\\\\probe-hf\\\\out-limits-demo\\\\index.html\",\n        \"bbox\": {\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 0,\n          \"height\": 0\n        },\n        \"time\": 0,\n        \"fixHint\": \"Move <section id=\\\"tl-5\\\"> and its contents into a sub-composition file and mount it with data-composition-src.\"\n      }\n    ],\n    \"filesScanned\": 1\n  },\n  \"runtime\": {\n    \"ok\": true,\n    \"errorCount\": 0,\n    \"warningCount\": 0,\n    \"infoCount\": 0,\n    \"findings\": []\n  },\n  \"layout\": {\n    \"ok\": false,\n    \"errorCount\": 1,\n    \"warningCount\":"
+  }
+}

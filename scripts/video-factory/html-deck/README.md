@@ -40,7 +40,7 @@ node validate-deck.mjs deck.json --json   # 机器可读（给流水线用）
 ## 3. 自检结果（本目录可复现）
 
 ```bash
-cd dist-rel/probe-hf/deck-contract
+cd scripts/video-factory/html-deck
 node validate-deck.mjs examples/deck.master-v1.json        # 期望 PASS
 node validate-deck.mjs examples/deck.bad.json              # 期望 FAIL 且逐条给出建议
 node validate-deck.mjs examples/deck.html-injected.json    # 期望只报 HTML 相关 3 项
@@ -133,7 +133,7 @@ node render-deck.mjs <deck.json> --no-render           # 只生成 HTML + 对账
 ## 7. 复跑命令汇总（可直接复制）
 
 ```bash
-cd dist-rel/probe-hf/deck-contract
+cd scripts/video-factory/html-deck
 
 # 契约
 node validate-deck.mjs examples/deck.master-v1.json      # 期望 exit 0
@@ -677,6 +677,32 @@ scripts/video-factory/html-deck/
 
 ---
 
+## 25c. **"内容上限"的判据 = 闸门判据（同一套；否则上限不可复核）**
+
+**规矩**：`deck.schema.json` 里任何"内容上限"（如字段 `maxLength`）**必须**用**闸门同一判据**定义 ——
+**稳定帧上的 `(text_box_overflow ∪ container_overflow ∪ canvas_overflow ∪ content_overlap)` − (`allowlist-overflow` ∪ `allowlist-overlap`) = 0**，
+以 `check-engine-lint.mjs --assert-overlap`（`gate-release` **恒带**此旗）为准；量表的 `measure-sweep.mjs` 用**同一集合**。
+**理由（team-lead ③ 抓到的真实分叉）**：闸门原先只判三码，而量表判 `∪ content_overlap` ⇒ **上限用了比闸门更严的判据**
+⇒ 会出现"**deck 过闸门、却违反写进 schema 的上限**"，上限就变成一纸声明。
+> 设计性重叠 ⇒ 进 `allowlist-overlap.json`（**同构白名单**：`selector` + `reason` + `_evidence.nonDesign`；**无证据不许登记**）。
+> **残留差异（明示，不许含糊）**：**采样时刻**不同 —— 闸门在**多个 settle 时刻**聚合，量表按"该字段所在页的稳定帧"单点采样；
+> **码集与白名单必须一字一致**，采样时刻的差异属"按页测量"的必要性，须在表里写明该格用的是哪个时刻。
+
+---
+
+## 25d. **"内容上限"的判据 = 闸门判据（同一套；否则上限不可复核）**
+
+**规矩**：`deck.schema.json` 里任何"内容上限"（如字段 `maxLength`）**必须**用**闸门同一判据**定义 ——
+**稳定帧上的 `(text_box_overflow ∪ container_overflow ∪ canvas_overflow ∪ content_overlap)` − (`allowlist-overflow` ∪ `allowlist-overlap`) = 0**，
+以 `check-engine-lint.mjs --assert-overlap`（`gate-release` **恒带**此旗）为准；量表 `measure-sweep.mjs` 用**同一集合**。
+**理由（team-lead 抓到的真实分叉）**：闸门原先只判三码，而量表判 `∪ content_overlap` ⇒ **上限用了比闸门更严的判据**
+⇒ 会出现"**deck 过闸门、却违反写进 schema 的上限**"，上限就变成一纸声明。
+> 设计性重叠 ⇒ 进 `allowlist-overlap.json`（**同构白名单**：`selector` + `reason` + `_evidence.nonDesign`；**无证据不许登记**）。
+> **残留差异（明示，不许含糊）**：**采样时刻**不同 —— 闸门在**多个 settle 时刻**聚合，量表按"该字段所在页的稳定帧"单点采样；
+> **码集与白名单必须一字一致**，采样时刻的差异属"按页测量"的必要性，须在表里写明该格用的是哪个时刻。
+
+---
+
 ## 25a. **报告/日志禁止过滤失败输出**（K15 家族第三次后的硬规矩）
 
 **规矩**：报告与日志里**不许把失败信息过滤掉** —— 命令的 `stderr`/失败原因必须**原样保留**；
@@ -684,6 +710,31 @@ scripts/video-factory/html-deck/
 **理由（三次踩坑）**：① 我用 PowerShell 写坏命令 ⇒ "命令坏了"被读成"零命中"；② 我把 `stderr_tail` 用 `✗|对账` 过滤掉 ⇒ 真正的引擎报错（`'hyperframes' is not recognized`）看不见，白查一轮；③ 反向：只看"看起来的零命中"下结论。
 **配套**：任何扫描/闸门的结论必须写**两件事** —— `命令 exit=0` **且** `命中数 = N`（见 K15）。
 > 落地：本仓库所有命令输出**保留失败行**；报告贴"关键行 + exit 码"，不贴"筛过的漂亮行"。
+
+---
+
+## 25b. **K18：依赖运行态文件的判据 = 不稳定判据**（team-lead 拍板入坑表）
+
+**事故**：根目录白名单断言把 `.gate-transient-state.json`（**闸门自己每次运行写出的状态文件**）判为"多出的杂项"⇒
+**同一份代码，判据随"跑了没跑闸门"而红/绿** ✗。我一度报 `exit=0`、team-lead 复跑得 `exit=1` —— 差别只在**时间窗**
+（我先移走文件、之后某次运行又写回；我的那次恰在两个事件之间）✗。
+**规矩**：
+1. **判据只依赖"源 + 产物"，不依赖"上一动留下的运行态"**；运行态文件必须写在**仓库之外**（本项目 = 系统临时目录 `<tmp>/html-deck-gate/`）；
+2. **"上次为什么绿"必须答到时间窗级别**（"当时它恰好不在场"= 时间窗巧合，不是稳定绿）；
+3. 新增任何"扫目录/看文件"的断言，**必须先在真源上连跑多次（含"中间跑一次别的闸门"）都绿**才算成立。
+
+---
+
+## 25c. 入库/上线**前置**：依赖必须锁版本（`npm ci`）
+
+- **随库**：`package.json`（显式 `hyperframes` + 依赖 `fontkit`）· **`package-lock.json`**（锁版本；`npm install --package-lock-only` 已跑通 ⇒ 声明的版本范围**可解析**）
+- **上线/净环境第一步必须**（否则"本机一套、服务器一套"）：
+  ```
+  npm ci --no-audit --no-fund                    # 用 lockfile 精确还原依赖
+  node check-engine-lint.mjs --deploy            # ⇒ 期望 exit=0
+  node gate-release.mjs --whitelist-only         # ⇒ 期望 exit=0
+  ```
+- ⚠️ **本机这条"干净安装"尚未实跑**（`node_modules` 是 junction ⇒ 只证明"代码路径对"，不证明"依赖齐"；`fontkit` 缺失就是这么暴露的）⇒ 记为**二期净环境必做项**（清单 §3② 有同一份判据）✓
 
 ---
 

@@ -84,7 +84,7 @@ let deploySkipped = 0
 //   （实测：传 `..\deck-contract\out\x` 时引擎报 `Not a directory: …\dist-rel\deck-contract\out\x` —— `..` 被多解析一层）
 const dirArg = args.find((a) => !a.startsWith('--'))
 if (!dirArg) {
-  console.error('用法: node check-engine-lint.mjs <产物目录> [--dump] [--assert-contrast] [--verbose]')
+  console.error('用法: node check-engine-lint.mjs <产物目录> [--dump] [--assert-contrast] [--assert-overlap] [--verbose]')
   console.error('  例: node check-engine-lint.mjs out/deck.master-v1')
   process.exit(2)
 }
@@ -92,11 +92,20 @@ const dir = resolve(dirArg)
 const verbose = args.includes('--verbose')
 const dump = args.includes('--dump')
 const assertContrast = args.includes('--assert-contrast')
+/* ★ **重叠判据开关**（team-lead ③ 抓到的口径分叉）：闸门原先只判三码溢出，而 `measure-sweep` 判
+   (三码 ∪ `content_overlap`) ⇒ **"内容上限"用了比闸门更严的判据** ⇒ 会出现"deck 过闸门、却违反写进 schema 的上限"。
+   ⇒ 现在并列；`gate-release` **恒带**此旗（发版口径 = sweep 口径，一字一致）。 */
+const assertOverlap = args.includes('--assert-overlap')
 
 /** 溢出类判据（team-lead 定）：`text_box_overflow` 被容器裁 / `container_overflow` 溢出裁切容器 / `canvas_overflow` 出画布 */
 const OVERFLOW_CODES = ['text_box_overflow', 'container_overflow', 'canvas_overflow']
+/** ★ 重叠码：**与三码并列**进"内容上限"判据（集合与 `measure-sweep.mjs` 的 `JUDGE` 完全一致） */
+const OVERLAP_CODES = ['content_overlap']
 /** 允许清单：**故意裁切**的元素必须逐条列出 selector + 理由（绝不许静默忽略） */
 const ALLOWLIST_FILE = join(HERE, 'allowlist-overflow.json')
+/** ★ 重叠的**同构白名单**：只收"设计性重叠"，每条必须写 `selector` + `reason` + `_evidence.nonDesign`
+ *  （"**非设计性证据**"：为什么它不是把内容上限撑破的那种重叠）—— 没有证据不许登记。 */
+const ALLOWLIST_OVERLAP_FILE = join(HERE, 'allowlist-overlap.json')
 
 const HARD_CODES = ['missing_timeline_registry', 'multiple_root_compositions']
 const strip = (s) => String(s || '').replace(/\u001b\[[0-9;]*m/g, '')
@@ -276,6 +285,26 @@ const lfSettled = settledFindings.filter((f) => OVERFLOW_CODES.includes(f.code |
 const overflowAll = lfSettled
 const overflowBad = lfSettled.filter((f) => !isAllowed(f))
 if (!j2) overflowBad.push({ code: '(稳定帧附加运行失败)', selector: '-', time: '-', message: '引擎 check --at 未返回稳定帧 layout ⇒ 溢出判据不成立（不许用原采样时刻的结论顶替）', rect: null })
+
+/* ---------- ★ 重叠判据（`content_overlap`）—— 与三码**并列**（team-lead ③）----------
+   口径 = **稳定帧上的 (三码 ∪ content_overlap) − (溢出白名单 ∪ 重叠白名单) = 0**，与 `measure-sweep` 一字一致。
+   为什么必须并列：**内容上限**若用比闸门更严的判据量，就会出现"过闸门但违反上限"⇒ 上限变成一纸声明。 */
+const overlapAllow = existsSync(ALLOWLIST_OVERLAP_FILE) ? (JSON.parse(readFileSync(ALLOWLIST_OVERLAP_FILE, 'utf8')).allow || []) : []
+const isOverlapAllowed = (f) => overlapAllow.some((a) => (!a.selector || String(f.selector || '').includes(a.selector)))
+const overlapAll = settledFindings.filter((f) => OVERLAP_CODES.includes(f.code || f.rule))
+const overlapBad = overlapAll.filter((f) => !isOverlapAllowed(f))
+if (!j2) overlapBad.push({ code: '(稳定帧附加运行失败)', selector: '-', time: '-', message: '引擎 check --at 未返回稳定帧 layout ⇒ 重叠判据同样不成立', rect: null })
+if (assertOverlap) {
+  console.log(`\n  重叠判据（${OVERLAP_CODES.join(' / ')}）[--assert-overlap]：共 ${overlapAll.length} 条（白名单命中 ${overlapAll.length - overlapBad.length} 条，另 ${j2 ? 0 : 1} 条环境失败）`)
+  if (overlapBad.length) {
+    bad++
+    console.error(`  ✗ 不在白名单内的重叠 ${overlapBad.length} 条 ⇒ **与 sweep 同一口径**（设计性重叠请进 allowlist-overlap.json，必须写"非设计性证据"）：`)
+    for (const f of overlapBad.slice(0, 10)) {
+      console.error(`      · [${f.code}] sel=${f.selector} t=${f.time} rect=${JSON.stringify(f.rect || f.bbox || null)} container=${String(f.containerSelector || '-')}`)
+      console.error(`        fixHint=${String(f.fixHint || f.message || '').slice(0, 150)}`)
+    }
+  } else console.log('    ✓ 白名单外重叠 = 0')
+}
 
 if (dump) {
   console.log('\n  --- --dump：layout 全部 findings（按 code+selector 归并）---')

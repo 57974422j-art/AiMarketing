@@ -1,7 +1,7 @@
 # ENGINE-CONTRACT.md —— `render-deck.mjs` 服务端调用契约
 
 - 版本：v1 · 2026-10-02
-- 适用对象：`<REPO>/dist-rel/probe-hf/deck-contract/render-deck.mjs`
+- 适用对象：`<REPO>/scripts/video-factory/html-deck/render-deck.mjs`（**入库根 = 唯一可分发真源**；探针工作树里同文件在 `deck-contract/` 下，**不可分发**）
 - 读者：要调用它出片的服务端 / 接入方（`src/**` 的界面接入不在本契约范围内）
 - **真相源**：退出码、`RESULT` 行、闸门顺序，一律以本文件为准；实现漂移由 §8 的回归脚本负责抓
 
@@ -24,7 +24,7 @@
 
 ### 1.1 命令
 ```
-node <REPO>/dist-rel/probe-hf/deck-contract/render-deck.mjs <deck.json> [--outdir <dir>] [--no-render]
+node <REPO>/scripts/video-factory/html-deck/render-deck.mjs <deck.json> [--outdir <dir>] [--no-render]
 ```
 脚本以**自身位置**定位母版与渲染器，**与调用时的 cwd 无关**。
 
@@ -38,24 +38,24 @@ node <REPO>/dist-rel/probe-hf/deck-contract/render-deck.mjs <deck.json> [--outdi
 环境变量：
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `ENGINE_HF_BIN` | `<probe-hf>/node_modules/.bin/hyperframes.cmd` | 渲染器可执行文件（服务端钉版本 / 故障演练）。⚠️ 换成**非 headless-shell** 的浏览器会掉进慢路径，见 §2.3 |
+| `ENGINE_HF_BIN` | `<引擎根>/node_modules/.bin/hyperframes.cmd` | 渲染器可执行文件（服务端钉版本 / 故障演练）。⚠️ 换成**非 headless-shell** 的浏览器会掉进慢路径，见 §2.3 |
 | `HYPERFRAMES_FFMPEG_PATH` · `HYPERFRAMES_FFPROBE_PATH` | 渲染器自行解析 | **强烈建议显式钉到与现有 PPT 线同一个二进制**，见 §2.2 |
 
 ### 1.3 输入约定
 ```
-<REPO>/dist-rel/probe-hf/
-├── deck-contract/            ← 引擎与契约（本目录）
-│   ├── render-deck.mjs       引擎入口
-│   ├── validate-deck.mjs     契约校验器（被引擎以子进程调用；不过即拒渲）
-│   ├── deck.schema.json      字段契约
-│   ├── ENGINE-CONTRACT.md    本文件
-│   └── examples/*.json       金样例 + 反例（也是回归基线）
-├── masters/<masterId>/       ← **母版资产根**，由 deck 的 `style.masterId` 决定
-│   ├── master.json           母版清单：画布/页边距/绘图区/配色表/时长/素材名
-│   │                         （**引擎不自带任何母版数值**，全部来自这里）
-│   ├── assets/               master.css · master.js · gsap.min.js · cover.jpg · 内嵌字体 woff2
-│   └── hyperframes.json      渲染器配置
-└── node_modules/             渲染器（hyperframes）
+<REPO>/scripts/video-factory/html-deck/     ← **入库根**（flat：脚本与母版**同级**；探针工作树里脚本在 deck-contract/ 子目录下）
+├── render-deck.mjs       引擎入口
+├── validate-deck.mjs     契约校验器（被引擎以子进程调用；不过即拒渲）
+├── deck.schema.json      字段契约
+├── ENGINE-CONTRACT.md    本文件
+├── examples/*.json       金样例 + 反例（也是回归基线）
+├── masters/<masterId>/   ← **母版资产根**，由 deck 的 `style.masterId` 决定
+│   ├── master.json       母版清单：画布/页边距/绘图区/配色表/时长/素材名
+│   │                     （**引擎不自带任何母版数值**，全部来自这里）
+│   ├── assets/           master.css · master.js · gsap.min.js · cover.jpg · 内嵌字体 woff2
+│   └── hyperframes.json  渲染器配置
+├── fonts/                共用字体真源（`sync-master-fonts.mjs` materialize 到各母版 assets/）
+└── node_modules/         渲染器（hyperframes）
 ```
 - `style` 的五个字段都是**枚举**：`masterId` 决定读哪个 `masters/<id>/`；
   **`palette` 的可选名清单由该母版提供**（`master.json` 的 `palette`）

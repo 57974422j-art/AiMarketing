@@ -1,0 +1,17 @@
+{
+  "_note": "⓪d docs 分叉白名单（`check-docs-fork.mjs` 读）。**只许收「引擎里从来没有过的东西」**；引擎里某个在库文件的旧版本/改名旧快照**一律只能删**（硬边界，命中即 exit 2）。",
+  "_rule": "条目必须带 `category` ∈ {`docs-only`（引擎里从未有过的文档/证据）· `experiment`（探针期一次性脚本）}；`path` 支持 `dir/*` 前缀匹配。",
+  "allow": [
+    {
+      "path": "tools/*",
+      "category": "experiment",
+      "reason": "探针期一次性脚本（7 ps1 + 1 sh + 1 cjs + 1 py：bench / build-seek-test / codec-check / colorspace-test / cs-extra-test / measure-render / subset-fonts / tagtest / verify-seek）—— 引擎里**从未有过**对应物；保留作取证工具。"
+    }
+  ],
+  "_removed": [
+    {
+      "path": "seek-test-expected.txt",
+      "why": "**被本检查器的 ⛔ 硬边界否掉**（与引擎 `seek-test/expected.txt` 逐字节相同）⇒ 按规则**只能删**，不许登记。"
+    }
+  ]
+}
