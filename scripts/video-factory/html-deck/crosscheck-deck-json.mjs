@@ -74,7 +74,14 @@ if (RAISE_MAX) {
     if (!node || typeof node !== 'object') return
     if (node.maxLength !== undefined && (ptr === leafSpec || ptr.endsWith('/' + leafSpec))) {
       if (!(val > node.maxLength)) {
-        console.error(`✗ --raise-max **只许抬、不许降**：${ptr} 现 maxLength=${node.maxLength}，而 val=${val} ≤ 它 ⇒ **抬没生效**（测量仍会被旧上限拒）⇒ exit 2`)
+        /* ★ team-lead ③-2 文案**分两支**（「抬不动」有两种完全不同的处置，别让人猜）：
+           ① val < 现上限 ⇒ **只许抬**（降值 = 抬了个寂寞，测量仍会被旧上限拒）；
+           ② val == 现上限 ⇒ **无需抬**：现上限已足够跑到判据+1 ⇒ **去掉 --raise-max** 直接跑。 */
+        if (val === node.maxLength) {
+          console.error(`✗ --raise-max **无需抬**：${ptr} 现 maxLength=${node.maxLength}，与 val 相等 ⇒ 这次抬没意义 ⇒ 请**去掉 --raise-max** 直接跑（现上限已足够）⇒ exit 2`)
+        } else {
+          console.error(`✗ --raise-max **只许抬、不许降**：${ptr} 现 maxLength=${node.maxLength}，而 val=${val} < 它 ⇒ **抬没生效**（测量仍会被旧上限拒）⇒ exit 2`)
+        }
         process.exit(2)
       }
       node.maxLength = val; hit.push(ptr)
