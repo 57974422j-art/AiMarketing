@@ -25,7 +25,14 @@ import { domTarget } from './dom-target.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const args = process.argv.slice(2)
-const arg = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d }
+/* ★ 记录每个 flag 消费掉的下标 ⇒ 事后检查**未识别参数**（这正是 `--ks 37 38` 被拆成两个 argv 时暴露的信号：
+   `38` 成了没人认领的位置参数 ⇒ 必须 exit 2，而不是静默只用 37、"临界+1 恒缺"） */
+const _consumed = new Set()
+const arg = (k, d) => {
+  const i = args.indexOf(k)
+  if (i >= 0) { _consumed.add(i); _consumed.add(i + 1); return args[i + 1] }
+  return d
+}
 const NODE = process.execPath
 const JSONF = arg('--json', 'examples/deck.master-v1.json')
 const FIELD = arg('--field', 'meta.title')
@@ -50,6 +57,11 @@ function setPath(obj, path, val) {
   cur[last] = val
 }
 
+const leftovers = args.filter((a, i) => !_consumed.has(i))
+if (leftovers.length) {
+  console.error(`✗ 未识别的参数：${leftovers.join(' ')}（提示：\`--ks\` 必须写成 **一个** 参数，如 \`--ks "37,38"\`；拆成两个位置参数会被静默忽略 ⇒ "临界+1 恒缺"那类错。§25b ⇒ exit 2）`)
+  process.exit(2)
+}
 const src = resolve(DECK_DIR, JSONF)
 if (!existsSync(src)) { console.error(`✗ 找不到 deck JSON：${src}（§25b ⇒ exit 2）`); process.exit(2) }
 const base = JSON.parse(readFileSync(src, 'utf8'))
@@ -164,6 +176,12 @@ for (const k of KS) {
   if (pairViol) console.error(`       ✗ 对拍不一致：${pairViol}`)
 }
 /* 双路对照（只对"临界 / 临界+1"两个点做定论；多 k 只是旁证） */
+/* ★ **参数自检**（team-lead ③）：要求"打印出的行数 == 期望点数" —— 防 `--ks 37 38` 被拆成两个 argv 那类
+   "参数错导致恒定缺行"（我踩过一次：临界+1 恒缺、而报表面上看不出）。 */
+if (rows.length !== KS.length) {
+  console.error(`✗ 参数自检：期望 ${KS.length} 个 k（[${KS.join(', ')}]），实际取到 ${rows.length} 行 ⇒ 参数/解析不符（§25b ⇒ exit 2）`)
+  process.exit(2)
+}
 const bad = rows.filter((r) => !r.renderOk || r.back !== r.k)
 if (bad.length) { console.error(`✗ 有 ${bad.length} 行渲染失败或读回不符 ⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`); process.exit(2) }
 const pair = rows.filter((r) => r.pairViol)
