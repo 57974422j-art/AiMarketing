@@ -128,7 +128,11 @@ function build(k, srcDir, clsHint) {
 function probe(dir) {
   const no = pageNoOfSelector(dir, cls) || 1
   const st = settledAt(dir, no)
-  const at = AT_FORCE || (st ? st.at.toFixed(3) : '1.0')
+  if (!st) {                                   // ★ 算不出时刻 ⇒ **不许退回硬编码**（§25b：环境/输入不完整 ⇒ exit 2）
+    console.error(`✗ 无法从产物解析时序（${dir}）⇒ 时刻不可确定 ⇒ **不许硬编码**（exit 2）`)
+    process.exit(2)
+  }
+  const at = AT_FORCE || st.at.toFixed(3)
   const r = spawnSync(HF, ['check', dir, '--json', '--at', at, '--no-contrast'], { encoding: 'utf8', shell: true })
   const out = strip(r.stdout)
   const i = out.indexOf('{')
@@ -249,15 +253,26 @@ if (best + 1 <= MAXK) {
     let aj = null
     if (ai >= 0) { try { aj = JSON.parse(ao.slice(ai)) } catch { aj = null } }
     const afs = (aj && aj.layout && Array.isArray(aj.layout.findings)) ? aj.layout.findings : []
-    const pg = tbl[(pFail.no || 1) - 1]
-    /* ★ 口径必须与判据一致：只比 **JUDGE 码**（第一版比了全部 findings ⇒ 把非判据码 `text_occluded` 也算进来 ⇒ 假报） */
+    /* ★ 口径与判据一致：只比 **JUDGE 码**（第一版比了全部 findings ⇒ 被非判据码 `text_occluded` 假报过）。
+       ★ team-lead ②：闸门聚合是**多时刻×全档**、量表是**单页单点** ⇒ 必须先把闸门 findings **按"属于哪一页"归属**：
+         ① 优先 **selector → 页号**（`pageNoOfSelector`）；② 退化为 **time → 页号**；
+         ③ **归属不出来 ⇒ 打印 + 不计入**（不许默默丢掉，也不许当成通过）。 */
     const onlyJudge = (fs) => fs.filter((f) => f && JUDGE.has(String(f.code || '')))
-    const inPage = pg ? onlyJudge(afs).filter((f) => { const p = pageOfTime(tbl, f.time); return p && p.i === pg.i }) : []
+    const pageOfFinding = (f) => {
+      const bySel = pageNoOfSelector(cPass.dir, String(f.selector || '').split('>')[0].trim())
+      if (bySel) return { no: bySel, how: 'selector→页' }
+      const p = pageOfTime(tbl, f.time)
+      return p ? { no: p.i, how: 'time→页' } : null
+    }
+    const attr = onlyJudge(afs).map((f) => ({ f, a: pageOfFinding(f) }))
+    const unattributed = attr.filter((x) => !x.a)
+    const inPage = attr.filter((x) => x.a && x.a.no === (pFail.no || 1)).map((x) => x.f)
     const key = (f) => `${f.code}|${f.selector}`
     const aggKeys = new Set(inPage.map(key))
-    /* ★ 用**临界+1**那一格来验 ⊆：单点读到的判据内 findings，闸门在该页的聚合里必须也有 */
+    /* ★ 用**临界+1**那一格来验 ⊆：单点读到的判据内 findings，闸门**在该页**的聚合里必须也有 */
     const extra = onlyJudge(pFail.findings).filter((f) => !aggKeys.has(key(f)))
-    console.log(`     ⊆ 断言（量表单点 ⊆ 闸门该页聚合）：单点 ${pFail.findings.length} 条（k=${best + 1}）· 该页聚合 ${inPage.length} 条 · 多出 **${extra.length}** 条 · 聚合时刻 = [${aggList.join(',')}]`)
+    console.log(`     ⊆ 断言（量表单点 ⊆ 闸门该页聚合）：单点 ${onlyJudge(pFail.findings).length} 条（k=${best + 1}，页 ${pFail.no}）· 该页聚合 ${inPage.length} 条 · 多出 **${extra.length}** 条 · **归属不出 ${unattributed.length} 条**（不计入）· 聚合时刻 = [${aggList.join(',')}]`)
+    for (const x of unattributed.slice(0, 6)) console.log(`        ? 归属不出（不计入）：${key(x.f)} t=${x.f.time}（selector 与 time 都映射不到页）`)
     for (const f of extra.slice(0, 6)) console.log(`        · 多出：${key(f)} t=${f.time} rect=${JSON.stringify(f.rect || f.bbox || null)}`)
     if (extra.length) {
       console.error('  ✗ 单点读到"该页聚合里没有"的 finding ⇒ **可能是过渡帧假象或口径漂移**（逐条见上；已计入退出码）')

@@ -62,6 +62,11 @@ if (args.includes('--deploy')) {
     relay(g.stdout); relay(g.stderr, true)
     console.log(`  生成（HTML + 对账，**未渲染**）= ${(genMs / 1000).toFixed(1)}s · exit=${g.status} · 临时产物 ${prod}`)
     if (g.status !== 0 || !existsSync(join(prod, 'index.html'))) { badD++; console.error('  ✗ 生成失败 ⇒ 部署闸门判红'); continue }
+    /* ★ team-lead ③：`--deploy` 也必须打印它用的 **settled 时刻**（服务器那行输出里要能看见时刻，不只看引擎路径） */
+    {
+      const at = settledAtList(prod)
+      console.log(`  [部署口径] settled 时刻 = [${at.join(', ')}]（${at.length} 页 · 按 timing.mjs 唯一实现）`)
+    }
     /* ★ `--assert-overlap` **必须带**（team-lead）：部署口径 = 判据口径 = (三码 ∪ content_overlap) − 白名单；
        不带 ⇒ "过部署闸门却违反内容上限"（正是我们抓到的那处分叉）。 */
     const c = spawnSync(process.execPath, [fileURLToPath(import.meta.url), prod, '--assert-contrast', '--assert-overlap', '--deploy-no-pixel'], { encoding: 'utf8' })
@@ -181,7 +186,7 @@ console.log(`  瞬时解析失败计数（本次运行）= ${transientCount}`)
 /* ---------- ★ 稳定帧契约的**唯一实现**：`timing.mjs`（team-lead ②：时刻不许硬编码、不许两处各写一套）
    本文件**不再自带副本**（此前：覆盖矩阵是它自述的"第 2 处实现"、measure-sweep 硬编码 `--at 1.0`
    ⇒ 三处口径可漂移）。这里只做 thin alias，保持既有调用点不变；下方"封装一致性自检"仍保留。 ---------- */
-import { ENTER_TAIL_S, timingTable, settledAt as _settledAt, transitionAt as _transitionAt } from './timing.mjs'
+import { ENTER_TAIL_S, timingTable, settledAt as _settledAt, settledAtList, transitionAt as _transitionAt } from './timing.mjs'
 const settledAtForImpl = (dirPath, no, table) => _settledAt(dirPath, no, table)
 const transitionAt = (dirPath, time, table) => _transitionAt(dirPath, time, table)
 
@@ -305,16 +310,9 @@ if (overflowBad.length) {
   bad++
   console.error(`  ✗ 不在允许清单内的溢出 ${overflowBad.length} 条 ⇒ 违反内容上限口径（与对比度**同一口径**：以**稳定帧**为准）：`)
   for (const f of overflowBad.slice(0, 10)) {
-    // 过渡帧判定：本块位置在时序块**之前**，直接调 transitionOf 会踩 TDZ ⇒ 用 hoisted 的 pageTimes() 就地自算
-    // （口径与下方 transitionOf 完全一致；后续可把时序块上移做"一处维护"）
-    const _pgs = pageTimes()
-    const _p = _pgs.find((q) => Number(f.time) >= q.start - 1e-6 && Number(f.time) < q.start + q.dur + 1e-6) || null
-    const _nx = _p ? (_pgs[_pgs.indexOf(_p) + 1] || null) : null
-    const tr = _p
-      ? (Number(f.time) < _p.start + _p.maxAt + 0.6
-        ? { how: `本页入场：t < start(${_p.start}) + max(data-at)(${_p.maxAt}) + 0.6 = ${(_p.start + _p.maxAt + 0.6).toFixed(2)}` }
-        : (_nx && Number(f.time) >= _nx.start - 1e-6 ? { how: `页尾交叉淡入：下一页 data-start=${_nx.start}s 起淡入` } : null))
-      : null
+    /* ★ 过渡帧判定**只走唯一实现**（team-lead ①）：此前这里内联了一份 `+ 0.6` 的算术副本
+       （"抽了模块、留了副本"）—— 现直接调 `timing.mjs` 的 `transitionAt`（别名定义在本块之前 ⇒ 无 TDZ）。 */
+    const tr = transitionAt(dir, f.time, TABLE)
     console.error(`      · [${f.code}] sel=${f.selector} t=${f.time} rect=${JSON.stringify(f.rect || f.bbox || null)} ${String(f.message || '').slice(0, 90)}`)
     // 过渡帧里的几何 finding 不能直接下结论：必须在"入场结束、下一页淡入前"那一帧上复测几何。
     // 像素无法反推容器几何 ⇒ 本闸门**明确判红**并把缺口写出来（不许静默放过，也不许假装测过）。

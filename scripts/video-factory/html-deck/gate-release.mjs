@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DECK_DIR, ENGINE_ROOT, selfCheck } from './paths.mjs'
 import { declaredDecks } from './deck-targets.mjs'
+/* ★ 本断言**自带豁免**：`timing.mjs` = 时序唯一实现（公式与四个常数只许在这里出现） */
 import { evaluate } from './check-product-freshness.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -92,6 +93,7 @@ function selfMadePaths() {
   const EXEMPT = {
     // ⚠️ 理由文字**不能**出现被断言的写法本身（否则断言自匹配 ⇒ 又红一次；这里踩过两次，故用自然语言描述）
     'sync-master-fonts.mjs': '本文件在 fonts/ 下，而 paths.mjs 在脚本目录下 ⇒ 用模块相对引用时，该相对路径在 flat 恰好成立、在 dev 会指向不存在的文件；而"从本文件目录上一级"在 dev=probe-hf / flat=html-deck **两布局都等于引擎根**（已实测，且脚本输出结论 PASS）',
+    'timing.mjs': '**时序唯一实现**：稳定帧公式与四个具名常数（入场收尾 / 页长沉降比例 / 下一页淡入余量 / 末页页尾余量）只许出现在这里；其它文件一律 import',
   }
   // ★ 两部分**都**要防自匹配/误报（上一版踩了两次）：
   //   ① 先剥掉**块注释**（保留换行 ⇒ 行号不乱）与行注释（注释里提到旧写法不算数）
@@ -106,6 +108,15 @@ function selfMadePaths() {
    *   注释已在上方剥离 ⇒ 注释里提到这些写法不会误报。 */
   const RE4 = new RegExp('dirname' + '\\(\\s*(DECK_DIR|ENGINE_ROOT|HERE|HERE_V|SCRIPT_DIR|__dirname)\\s*\\)')
   const RE5 = new RegExp('join' + '\\(\\s*(DECK_DIR|HERE|HERE_V|SCRIPT_DIR)\\s*,\\s*' + "'\\.\\.'")
+  /* ★ ⑥ **"时序唯一实现"断言**（team-lead ①/③）：消费方不许再写时序算术或硬编码时刻 ——
+   *   活证据：`measure-sweep --at 1.0`（漂移）、`check-engine-lint` L314 内联 `+ 0.6`（抽了模块留了副本）。
+   *   只在"**提到时序概念**且含常数"时判红（避免误伤无关的 0.6/0.1）： */
+  const TIMED = /(maxAt|data-at|settledAt|SETTLED)/
+  const TIMING_LIT = /(\+\s*0\.6\b)|(\*\s*0\.6\b)|(-\s*0\.15\b)|(-\s*0\.1\b)/
+  /* `--at 1.0` / `--at=1.0` / `['--at','1.0']`（spawnSync 实参写法）—— 引号与逗号都容错：
+     第一版写成 `--at\s*[=,]?\s*['"]?\d` ⇒ **打不中** `['--at','1.0']`（中间夹了 `'` 与 `,`）⇒ 负控当场抓出。 */
+  const AT_LITERAL = /--at['"]*[\s=,]*['"]*\s*\d/
+  const timingHard = (l) => AT_LITERAL.test(l) || (TIMED.test(l) && TIMING_LIT.test(l))
   // ★ ④ 扫描范围**含子目录**（`fonts/*.mjs` 也曾自造根 —— 只扫 DECK_DIR 顶层会漏，team-lead 指出的正是这个）
   const dirs = [DECK_DIR, join(ENGINE_ROOT, 'fonts')].filter((d) => existsSync(d))
   for (const d of dirs) {
@@ -119,7 +130,7 @@ function selfMadePaths() {
         .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n')
       txt.split('\n').forEach((l, i) => {
         if (/^\s*import\b/.test(l)) return                                 // import 语句豁免
-        if ((RE1.test(l) || RE2.test(l) || RE3.test(l) || RE4.test(l) || RE5.test(l)) && !EXEMPT[f]) bad.push(`${f}:${i + 1}`)
+        if ((RE1.test(l) || RE2.test(l) || RE3.test(l) || RE4.test(l) || RE5.test(l) || timingHard(l)) && !EXEMPT[f]) bad.push(`${f}:${i + 1}`)
       })
     }
   }

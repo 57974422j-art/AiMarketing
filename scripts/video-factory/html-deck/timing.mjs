@@ -4,14 +4,25 @@
  *   （它自己注释就写着「第 2 处实现 …待办」），`measure-sweep.mjs` 更是**硬编码 `--at 1.0`**。
  *   ⇒ 三处口径可能漂移 ⇒ 抽到本模块，三处**只 import**。
  *
- * 契约公式（**稳定帧**）：`min( max(入场收尾, 页长 × 60%), 下一页淡入前 − 0.15s )`，
- *   其中"入场收尾" = `start + 该页内最大 data-at + ENTER_TAIL_S`；末页 cap = `start + dur − 0.1`。
+ * 契约公式（**稳定帧**）：`min( max(入场收尾, 页长 × PAGE_SETTLE_FRACTION), 下一页淡入前 − NEXT_FADE_MARGIN_S )`，
+ *   其中"入场收尾" = `start + 该页内最大 data-at + ENTER_TAIL_S`；末页 cap = `start + dur − TAIL_MARGIN_S`。
  *   违约（落在页外 / 距下一页淡入过近）⇒ 返回 `violation` 说明（调用方判红或打印）。
+ *
+ * ★ 四个常数**必须具名分开**（team-lead ①）：`ENTER_TAIL_S` 与 `PAGE_SETTLE_FRACTION` 数值相同**纯属巧合** ——
+ *   合用一个 `0.6` 会让"下一个人调 A 顺手改掉 B"。改任何一个都必须**显式**改对应的具名常数。
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const ENTER_TAIL_S = 0.6 // 入场动画名义收尾（渲染器 data-anim 时长档）
+/* ---------- 四个具名常数（含义各不相同；数值巧合不代表可合并） ---------- */
+/** A. 入场收尾（秒）：`start + max(data-at) + ENTER_TAIL_S` = 本页所有入场动画名义完成时刻 */
+export const ENTER_TAIL_S = 0.6
+/** B. 页长沉降比例：`start + dur × PAGE_SETTLE_FRACTION` = 不依赖 data-at 的兜底沉降点 */
+export const PAGE_SETTLE_FRACTION = 0.6
+/** C. 下一页淡入的安全余量（秒）：cap = `next.start − NEXT_FADE_MARGIN_S` */
+export const NEXT_FADE_MARGIN_S = 0.15
+/** D. 末页页尾余量（秒）：cap = `start + dur − TAIL_MARGIN_S`（末页没有下一页） */
+export const TAIL_MARGIN_S = 0.1
 
 /** 从产物 HTML 解析每页时序：`start` / `dur` / 该页内最大 `data-at` */
 export function timingTable(dirPath) {
@@ -34,12 +45,13 @@ export function settledAt(dirPath, no, table) {
   const p = t[no - 1]
   if (!p) return null
   const next = t[no] || null
-  const want = Math.max(p.start + p.maxAt + ENTER_TAIL_S, p.start + p.dur * 0.6)
-  const cap = next ? next.start - 0.15 : p.start + p.dur - 0.1
+  const enterEnd = p.start + p.maxAt + ENTER_TAIL_S
+  const want = Math.max(enterEnd, p.start + p.dur * PAGE_SETTLE_FRACTION)
+  const cap = next ? next.start - NEXT_FADE_MARGIN_S : p.start + p.dur - TAIL_MARGIN_S
   const at = Math.min(want, cap)
   const violation = !(at > p.start + 1e-6 && at < p.start + p.dur - 1e-6)
     ? `settledAt=${at.toFixed(3)}s 不在本页 [${p.start}, ${(p.start + p.dur).toFixed(2)}) 内`
-    : (next && at > next.start - 0.15 + 1e-6) ? `settledAt=${at.toFixed(3)}s 距下一页淡入(${next.start}s) < 0.15s` : null
+    : (next && at > next.start - NEXT_FADE_MARGIN_S + 1e-6) ? `settledAt=${at.toFixed(3)}s 距下一页淡入(${next.start}s) < ${NEXT_FADE_MARGIN_S}s` : null
   return { p, next, at, violation }
 }
 
