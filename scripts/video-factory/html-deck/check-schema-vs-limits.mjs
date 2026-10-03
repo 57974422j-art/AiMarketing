@@ -187,6 +187,155 @@ if (i5doc.length) {
   /* 若**当前**仍有 > 判据 的硬上限 ⇒ 真红（I2 已覆盖，这里再点名一次便于体检） */
   for (const h of hist) { const n = get(h.jsonPointer); if (n && n.maxLength !== undefined && h.judgeLimit != null && n.maxLength > h.judgeLimit) viol.push(`体检：${h.jsonPointer} 现 maxLength=${n.maxLength} > 判据 ${h.judgeLimit} ⇒ **仍不安全**`) }
 }
+/* ---------- ★ **I5-表**：表内散文不许过期（team-lead ③：表自己也不许"人能读到的旧数字"） ----------
+   事故：`meta.issuer.twoPath` 曾写"放宽到 **756**"（旧口径 ⌊0.9×840⌋），而现行承诺是 **744**（⌊0.9×827⌋）
+   —— 权威判定没错（从 judgeLimit 现算），错的是散文 ⇒ 现在散文由 `measure-table --update-limits` **程序生成**。
+   断言：**已生成**的条目（有 `kEnforced`）里，散文出现的 3~4 位数字必须是**可派生值**
+   （判据 / 判据+1 / 承诺 / 承诺+1 / 元素口径 / 偏移 / 历史旧值 / 年份）；否则 ⇒ 红（防手改过期）。 */
+{
+  const hist = (limits._history && Array.isArray(limits._history.items)) ? limits._history.items : []
+  const before = new Map(hist.map((h) => [h.jsonPointer, h.schemaBefore]))
+  let done = 0, pending = 0, nullJ = 0
+  const susp = []
+  for (const e of (limits.limits || [])) {
+    const J = e.judgeLimit
+    if (J == null) { nullJ++; continue }
+    if (e.kEnforced == null) pending++; else done++
+    const allowed = new Set([J, J + 1, Math.floor(0.9 * J), Math.floor(0.9 * J) + 1, e.judgeElement, e.offset, before.get(e.jsonPointer)].filter((x) => x != null).map(Number))
+    const prose = [e.twoPath, e.schemaNow, e.readback, e.note].filter(Boolean).join(' ')
+    for (const m of prose.matchAll(/(?<![\d.])(\d{3,4})(?![\d.])/g)) {
+      if (/^(19|20)\d\d$/.test(m[1])) continue
+      if (!allowed.has(Number(m[1]))) susp.push({ ptr: e.jsonPointer, v: m[1], generated: e.kEnforced != null, sentence: prose.slice(Math.max(0, m.index - 40), m.index + 20).trim() })
+    }
+  }
+  console.log(`\n  体检·表散文：**已程序生成 ${done} 条** · 待补第二路 ${pending} 条 · 判据 null（未测）${nullJ} 条`)
+  const hard = susp.filter((s) => s.generated)
+  if (hard.length) {
+    console.log(`    ⚠ **已生成条目仍含非派生数字 ${hard.length} 个**（疑似手改过期）⇒ 判红：`)
+    for (const s of hard.slice(0, 8)) console.log(`       · ${s.ptr}：…${s.sentence}…（数字 ${s.v}）`)
+    viol.push(...hard.map((s) => `I5-表：${s.ptr} 已程序生成却含非派生数字 ${s.v}`))
+  } else console.log(`    ✓ 已生成条目的散文数字全部可派生（未生成条目待补第二路后由 --update-limits 自动重写）`)
+}
+const AUDIT = process.argv.includes('--audit')
+const SELFTEST = process.argv.includes('--self-test-walker')
+/* ---------- ★ (A) **手写字面量审计 + $ref 解析 + 负控**（team-lead ★）------------------------------------
+   要求：① 遍历器**必须解析 `$ref`**（`pages` 用 `prefixItems`/`items` 指向各页型；`compareSide` 也是 `$ref`）；
+        ② 报"某叶子无约束"时**必须区分"真无约束"与"$ref 未解析"**（未解析 ⇒ 红并打印指针）；
+        ③ 负控 = **故意不解析 `$ref`** ⇒ 必须出现 ≥1 条假结论（否则说明负控没造对）。
+   team-lead 实测：不解析 ref 会报 3 处假"无约束"（pageChart.series / compareSide.label / .points）。 */
+function schemaLeafIndex(useRef) {
+  const idx = new Map()
+  const seen = new Set()
+  const rec = (node, ptr, depth) => {
+    if (!node || typeof node !== 'object' || depth > 30) return
+    if (node.$ref) {
+      if (!useRef) { idx.set('__UNRESOLVED__', (idx.get('__UNRESOLVED__') || 0) + 1); return }   // 负控：不解析 ⇒ 直接停
+      const t = get(node.$ref)
+      if (!t) { idx.set('__UNRESOLVED__', (idx.get('__UNRESOLVED__') || 0) + 1); return }
+      rec(t, node.$ref, depth + 1)
+      return
+    }
+    const leaf = ptr.split('/').pop()
+    const keys = ['maxLength', 'minLength', 'maxItems', 'minItems', 'recommendedMax'].filter((k) => node[k] !== undefined)
+    if (keys.length) {
+      if (!idx.has(leaf)) idx.set(leaf, [])
+      idx.get(leaf).push({ ptr, node })
+      /* ★ 数组**元素**节点再挂一个"两段键"（`<field>/items`）—— 字面量常写在数组字段上（如 `cp(t)` 在
+         `steps`/`items` 的 forEach 里），约束却在元素节点；只按单段叶名索引会**归属不到** ⇒ 被误当"无约束"。 */
+      const segs = ptr.split('/')
+      if (leaf === 'items' && segs.length >= 3) {
+        const two = `${segs[segs.length - 3]}/items`
+        if (!idx.has(two)) idx.set(two, [])
+        idx.get(two).push({ ptr, node })
+      }
+    }
+    /* ⚠️ 必须**递归进每个子对象**：第一版只对 `properties`/`items`/`$defs`/`prefixItems` 这几个**键名**递归
+       ⇒ 进到 `…/properties` 后，字段名（`title`/`items`…）不是那几个键 ⇒ **不再下钻** ⇒ 索引全空
+       ⇒ 审计报"50 处全无约束"（**假结论**，被本审计自己暴露）。改为"任何对象值都下钻"。 */
+    for (const k of Object.keys(node)) {
+      const v = node[k]
+      if (v && typeof v === 'object') rec(v, `${ptr}/${k}`, depth + 1)
+    }
+    void seen
+  }
+  rec(schema, '#', 0)
+  return idx
+}
+function auditLiterals(useRef) {
+  const vd = readFileSync(join(DECK_DIR, 'validate-deck.mjs'), 'utf8')
+  const idx = schemaLeafIndex(useRef)
+  const out = []
+  const lines = vd.split('\n')
+  /* ⚠️ 有些位点用**局部变量**（`if (n < 8)` / `cp(t) > 24`）⇒ 行内取不到叶名。
+     第一版直接给 `leaf=null` ⇒ 8 处被报"无约束"（**假异常**，审计自己暴露）。
+     ⇒ 用**所在函数的上下文映射**归属（checkToc→items · checkSteps→steps · checkQuote→quote · checkSummary→closing…）。 */
+  const FN_LEAF = { checkToc: 'items', checkSteps: 'steps', checkQuote: 'quote', checkSummary: 'items', checkBullets: 'items', checkChart: 'series', checkCompare: 'points' }
+  let curFn = ''
+  for (let i = 0; i < lines.length; i++) {
+    const L = lines[i]
+    const fm = /^function\s+(\w+)\s*\(/.exec(L)
+    if (fm) curFn = fm[1]
+    const leafOf = (s) => {
+      const m = /\.([\w]+)(?:\.length)?\b/.exec(s || '')
+      if (m) return m[1]
+      /* 裸标识符的数组长度写法（如 `pages.length > 12`）⇒ 取标识符本身（第一版只认"点前缀"⇒ 归不出叶名） */
+      const m2 = /([\w]+)\.length\b/.exec(s || '')
+      if (m2) return m2[1]
+      return FN_LEAF[curFn] || null
+    }
+    let m
+    if ((m = /checkString\([^,]+,\s*(?:`\$\{path\}\.([\w.]+)`|'([\w.]+)')\s*,\s*(\d+)\s*,\s*(\d+)/.exec(L))) {
+      out.push({ line: i + 1, kind: 'checkString', leaf: (m[1] || m[2]).split('.').pop(), min: Number(m[3]), max: Number(m[4]) })
+    } else if ((m = /cp\(([^)]*)\)\s*([<>])=?\s*(\d+)/.exec(L))) {
+      out.push({ line: i + 1, kind: 'cp', leaf: leafOf(m[1]), cmp: m[2], v: Number(m[3]) })
+    } else if ((m = /([\w.]+?)\.length\s*([<>])=?\s*(\d+)/.exec(L))) {
+      out.push({ line: i + 1, kind: 'length', leaf: leafOf(m[1]), cmp: m[2], v: Number(m[3]) })
+    }
+  }
+  for (const s of out) {
+    /* ⚠️ **数组元素兜底**：字面量若作用在"数组本身"上（如 `steps`/`items`），真实约束常在**元素节点**
+       （`<field>/items`）⇒ 先查 `leaf`，再查 `leaf + '/items'`；两处都没有才敢说"无约束"。
+       （否则会把"我归属不到"说成"schema 真无约束"—— 这正是把"工具缺陷"当"事实"的那类。） */
+    const cands = (idx.get(s.leaf) || []).concat(idx.get(s.leaf + '/items') || [])
+    const unresolved = (idx.get('__UNRESOLVED__') || 0)
+    if (!cands.length) {
+      s.verdict = useRef
+        ? (unresolved ? '⚠ **无约束（但 schema 有未解析 $ref ⇒ 可能假结论）**' : '⚠ 无约束（真）')
+        : '⚠ 无约束（**$ref 未解析 ⇒ 假结论**）'
+    } else {
+      /* ⚠️ **必须看比较方向**：`cp(x) < 8` 是 **min**（对 schema 的 minLength），`cp(x) > 20` 是 **max**（对 maxLength）；
+         数组的 `<`/`>` 同理对 `minItems`/`maxItems`。第一版一律拿字面量比 `maxLength` ⇒ 19 处**假异常**
+         （自己被审计暴露）⇒ 现按方向取对应字段。 */
+      const dir = (s.kind === 'checkString') ? 'both' : (s.cmp === '<' || s.cmp === '<=' ? 'min' : 'max')
+      const keyOf = (node, d) => d === 'min'
+        ? (s.kind === 'length' ? node.minItems : node.minLength)
+        : (s.kind === 'length' ? node.maxItems : node.maxLength)
+      const ok = s.kind === 'checkString'
+        ? cands.some((c) => Number(c.node.maxLength) === s.max && Number(c.node.minLength ?? s.min) === s.min)
+        : cands.some((c) => Number(keyOf(c.node, dir)) === s.v)
+      const cap = s.kind === 'checkString' ? `[${s.min},${s.max}]` : `${s.cmp}${s.v}`
+      s.verdict = ok ? `✓ 一致（${cap}）` : `✗ **不一致**（字面量 ${cap} ↔ schema ${cands.map((c) => `${c.ptr}=[${[
+        s.kind === 'length' ? (c.node.minItems ?? '-') : (c.node.minLength ?? '-'),
+        s.kind === 'length' ? (c.node.maxItems ?? '-') : (c.node.maxLength ?? '-'),
+      ].join('..')}]`).slice(0, 3).join(' / ')}）`
+    }
+  }
+  return out
+}
+if (AUDIT) {
+  const a = auditLiterals(true)
+  const bad = a.filter((s) => s.verdict.includes('✗') || s.verdict.includes('无约束'))
+  console.log(`\n  ★ 手写字面量审计（**$ref 已解析**）：共 **${a.length} 处** · 一致 ${a.length - bad.length} · 异常 ${bad.length}`)
+  for (const s of a) console.log(`     L${String(s.line).padStart(4)} ${s.kind.padEnd(11)} ${String(s.leaf).padEnd(14)} ${s.verdict}`)
+  if (bad.length) viol.push(...bad.map((s) => `审计：validate-deck L${s.line}（${s.leaf}）${s.verdict}`))
+}
+if (SELFTEST) {
+  const noRef = auditLiterals(false)
+  const falseNeg = noRef.filter((s) => s.verdict.includes('假结论'))
+  console.log(`\n  ★ 负控（**故意不解析 $ref**）：假"无约束"结论 = **${falseNeg.length} 处**${falseNeg.length ? ' ⇒ ✓ 负控成立（证明"必须解析 ref"）' : ' ⇒ ✗ 负控失败（说明审计对 ref 不敏感）'}`)
+  for (const s of falseNeg) console.log(`     L${String(s.line).padStart(4)} ${s.leaf} ⇒ ${s.verdict}`)
+  if (!falseNeg.length) viol.push('负控失败：不解析 $ref 时审计**没有**产生假结论 ⇒ 审计/负控不可信')
+}
 console.log(`\n  覆盖：**未被实测的硬上限 ${uncovered.length} 个**${uncovered.length ? '（发版前必须开 --strict-coverage 清空）' : ''}`)
 for (const p of uncovered.slice(0, 20)) console.log(`     · ${p} = ${leaves.get(p).maxLength}`)
 if (viol.length) {

@@ -14,7 +14,7 @@
  *   node measure-table.mjs --deck master-v1 [--cells cover.title,cover.sub,…] [--out <md 路径>]
  * 说明：本文件只声明"格子清单"（页型 + 字段路径 + 检测点 class）；**不许**在这里另写判据（判据的唯一实现在闸门/量表）。
  */
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -170,6 +170,32 @@ for (const r of rows) {
 }
 console.log('\n' + md.join('\n'))
 if (OUTMD) { writeFileSync(resolve(DECK_DIR, OUTMD), md.join('\n') + '\n', 'utf8'); console.log(`\n  表已写入 ${OUTMD}`) }
+
+/* ============ ★ **表内散文必须程序生成**（team-lead ②③：表自己不许过期） ============
+   事故：`meta.issuer.twoPath` 仍写"放宽到 **756**"——756 是**旧口径**（⌊0.9×元素口径 840⌋）的派生值，
+   而现行承诺是 **744**（⌊0.9×输入口径 827⌋）⇒ 权威判定没错（它从 judgeLimit 现算），错的是**人能读到的那句散文**。
+   ⇒ 根治：`--update-limits` 把第二路实测结果**回写**实测表（twoPath / kEnforced / readback / page / at / updatedAt），
+     散文里所有可派生数字（承诺值、承诺+1、判据、依据）**由代码产出**；手改散文会被 I5-表 断言拦住。 */
+if (args.includes('--update-limits')) {
+  const lp = resolve(DECK_DIR, 'measured-limits.json')
+  if (!existsSync(lp)) { console.error(`✗ 找不到 ${lp} ⇒ exit 2`); process.exit(2) }
+  const LIM = JSON.parse(readFileSync(lp, 'utf8'))
+  let n = 0
+  for (const r of rows) {
+    const e = (LIM.limits || []).find((x) => x.field === r.c.field)
+    if (!e) continue
+    e.twoPath = (r.promiseOk && r.capHolds)
+      ? `**两路一致**：承诺 k=${r.kenf} 过闸（读回 − offset = k）· k=${r.kenf + 1} **被硬上限拒**（原因经断言确认来自 schema 上限）· 判据 ${r.crit}（元素口径${r.c.offset ? `，输入口径 ${r.effCrit}` : ''}）由第一路给出 · 依据 ${r.basisA || '-'}`
+      : `**受阻/未过**：${r.note}`
+    e.kEnforced = r.kenf
+    e.page = Number(r.pageA) || e.page
+    e.at = r.atA || e.at
+    e.updatedAt = new Date().toISOString().slice(0, 10)
+    n++
+  }
+  writeFileSync(lp, JSON.stringify(LIM, null, 2) + '\n', 'utf8')
+  console.log(`\n  ★ 已回写实测表 **${n} 条**（twoPath / kEnforced / page / at / updatedAt **由程序生成**）`)
+}
 /* ★ `capHolds` 必须进 bad（第一版漏了 ⇒ 备注已报"拒绝原因归属不对"，汇总却仍算"可入表" ⇒ 自相矛盾） */
 const bad = rows.filter((r) => r.crit == null || !r.basisB.length || !r.pairOk || !r.tamperOk || !r.promiseOk || !r.capHolds)
 console.log(`\n  ⇒ ${rows.length} 格中 ${rows.length - bad.length} 格可入表（判据码依据来自第一路 · **enforced 承诺成立**（k=enforced 与 enforced+1 均过闸）· 对拍通过 · 未遭篡改）`)
