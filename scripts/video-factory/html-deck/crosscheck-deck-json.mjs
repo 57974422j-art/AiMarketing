@@ -48,6 +48,10 @@ const OUT = arg('--outdir', '') || `out-tmp-xcheck-${process.pid}-${Date.now().t
    实现：把覆盖后的 schema 写到 **仓库外**（os.tmpdir()），只给本次子进程设 `DECK_SCHEMA_OVERRIDE`；
    validate-deck 会**打印告示**。发版闸门不设该 env ⇒ 永远走真 schema。 */
 const RAISE_MAX = arg('--raise-max', '')       // 形如 "pages.1.title=57"（leaf=值）
+/* ★ team-lead ③-1：**读回口径换算** —— 有些字段的**元素文本 = 输入值 + 模板常量**（如 `meta.issuer` 的元素 =
+   `出品：` + issuer + ` · ` + date ⇒ 常量 **13**）⇒ 判据按**输入口径**给（827），而读回按**元素口径**（840）。
+   ⇒ `--readback-offset <n>`：断言 `读回 == k + n`。**offset 属该格元数据**（模板常量），不许靠"目测"绕过。 */
+const RB_OFFSET = Number(arg('--readback-offset', '0') || 0)
 let OVERRIDE_ENV = null
 if (RAISE_MAX) {
   const [leaf, valStr] = RAISE_MAX.split('=')
@@ -219,7 +223,7 @@ for (const k of KS) {
   const tampered = renderOk && fpAfter !== fpRender
   if (tampered) tamper.push(`k=${k}：测量期间产物被改写（${fpRender} → ${fpAfter}）`)
   rows.push({ k, renderOk, back, at, no, codes, gateExit, gateResult, gateRaw, gateVerdict, pairViol, fpBefore: fpRender, fpAfter })
-  console.log(`  k=${String(k).padStart(3)} · 渲染 ${renderOk ? 'ok' : '✗'} · 读回 ${back}/${k}${back === k ? ' ✓' : ' ✗'} · 页 ${no || '-'} · 稳定帧 t=${at || '-'} · 判据内 codes = [${codes.join(', ')}]`)
+  console.log(`  k=${String(k).padStart(3)} · 渲染 ${renderOk ? 'ok' : '✗'} · 读回 ${back}/${k}${back === k + RB_OFFSET ? ' ✓' : ' ✗'}${RB_OFFSET ? `（口径：元素 = k + offset ${RB_OFFSET}）` : ''} · 页 ${no || '-'} · 稳定帧 t=${at || '-'} · 判据内 codes = [${codes.join(', ')}]`)
   console.log(`       闸门真源：${gateRaw}${gateVerdict ? ' ⇒ ' + gateVerdict : ''}`)
   if (pairViol) console.error(`       ✗ 对拍不一致：${pairViol}`)
 }
@@ -230,7 +234,7 @@ if (rows.length !== KS.length) {
   console.error(`✗ 参数自检：期望 ${KS.length} 个 k（[${KS.join(', ')}]），实际取到 ${rows.length} 行 ⇒ 参数/解析不符（§25b ⇒ exit 2）`)
   process.exit(2)
 }
-const bad = rows.filter((r) => !r.renderOk || r.back !== r.k)
+const bad = rows.filter((r) => !r.renderOk || r.back !== r.k + RB_OFFSET)
 if (bad.length) { console.error(`✗ 有 ${bad.length} 行渲染失败或读回不符 ⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`); process.exit(2) }
 const pair = rows.filter((r) => r.pairViol)
 if (pair.length) { console.error(`✗ 有 ${pair.length} 行"工具 exit ↔ 闸门自报"对拍不一致 ⇒ 该列不可信 ⇒ **不许据此下结论**（exit 2）`); process.exit(2) }

@@ -448,6 +448,13 @@ if (HANDCHECKS) {
   if (!sameList) viol.push('自证：未测清单与 --strict-coverage 清单**不一致**（两处口径分叉）')
   if (measured.length + unmeasured.length !== allLeaves.length) viol.push(`自证：数量对账失败（已测 ${measured.length} + 未测 ${unmeasured.length} ≠ schema 叶子 ${allLeaves.length}）`)
 }
+/* ★ team-lead ①(ii)：`_decks` 登记表**双向**断言 —— 每个键必须对应**存在的**条目 jsonPointer（`_doc` 等 `_` 前缀豁免）
+   ⇒ 防"登记表自己长出没人用的条目"（与"负控归零""宽允许项"同族：**两边集合必须相等**）。 */
+{
+  const ptrs = new Set((limits.limits || []).map((e) => e.jsonPointer))
+  const orphans = Object.keys(limits._decks || {}).filter((k) => !k.startsWith('_') && !ptrs.has(k))
+  if (orphans.length) viol.push(...orphans.map((k) => `_decks 孤儿键：${k} ⇒ 没有对应的 limits 条目（两边集合必须相等）`))
+}
 console.log(`\n  覆盖：**未被实测的硬上限 ${uncovered.length} 个**${uncovered.length ? '（发版前必须开 --strict-coverage 清空）' : ''}`)
 for (const p of uncovered.slice(0, 20)) console.log(`     · ${p} = ${leaves.get(p).maxLength}`)
 if (viol.length) {
