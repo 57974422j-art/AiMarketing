@@ -69,7 +69,11 @@ const SELF_TEST = flag('--self-test-usage')
    "**有结论行** ＋ **退出码 ∈ {0,1,2}**"；退出码 2 必须带**原因文案**（非空 stderr）。
    并把"自测用例集合 ⊇ 本工具旗标集合"**断言化**（否则以后新加的旗标又绕过它）。 */
 function runSelfTestUsage() {
+  /* ★ team-lead ②：**必须至少一条真成功路径（exit=0）** —— 否则 10 例全 exit=2 ⇒ "**全红与全坏不可区分**"
+     （镜像版："全绿 = 全红不可区分"）：若某天解析器整体坏掉、每条用法都 exit 2，自测**照样全 ✓**。
+     成功路径须走通到**渲染/读数**（真底档 + 真 `--cls` + 合法 `auto=`）⇒ 断言 **exit=0** 且出现 `GATE-RESULT` 机器标记。 */
   const CASES = [
+    ['success', ['--json', 'examples/deck.master-v1.json', '--field', 'meta.title', '--cls', 'cover-title', '--ks', '37', '--raise-max', 'auto=100']],
     ['auto-hit', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=39']],
     ['auto-miss', ['--json', 'examples/__nope.json', '--field', 'nosuch.field', '--ks', '1', '--raise-max', 'auto=9']],
     ['lower-value', ['--json', 'examples/__nope.json', '--field', 'meta.issuer', '--ks', '1', '--raise-max', 'issuer=700']],
@@ -91,10 +95,23 @@ function runSelfTestUsage() {
     const codeOk = [0, 1, 2].includes(r.status)
     const reasonOk = r.status !== 2 || serr.trim().length > 0
     const ok = hasConcl && codeOk && reasonOk
-    if (!ok) bad++
-    console.log(`  ${ok ? '✓' : '✗'} 用例 ${name.padEnd(14)} exit=${r.status} · 有结论行=${hasConcl} · code∈{0,1,2}=${codeOk} · exit2 带原因=${reasonOk}`)
-    if (!ok) for (const l of (sout + serr).split('\n').filter(Boolean).slice(-3)) console.log(`        ↳ ${l.trim().slice(0, 160)}`)
+    /* ★ **成功路径**：必须 exit=0 且出现机器标记 `GATE-RESULT`（"走通到读数"） */
+    const okSuccess = name !== 'success' ? true : (r.status === 0 && /GATE-RESULT/.test(sout))
+    const okAll = ok && okSuccess
+    if (!okAll) bad++
+    if (name === 'success') {
+      console.log(`  ${okAll ? '✓' : '✗'} 用例 ${name.padEnd(14)} exit=${r.status}（**须 0**）· GATE-RESULT 机器标记=${/GATE-RESULT/.test(sout)}`)
+    } else {
+      console.log(`  ${okAll ? '✓' : '✗'} 用例 ${name.padEnd(14)} exit=${r.status} · 有结论行=${hasConcl} · code∈{0,1,2}=${codeOk} · exit2 带原因=${reasonOk}`)
+    }
+    if (!okAll) for (const l of (sout + serr).split('\n').filter(Boolean).slice(-3)) console.log(`        ↳ ${l.trim().slice(0, 160)}`)
   }
+  /* ★ team-lead ②：机读「成功路径 N / 失败路径 M」；**成功路径缺位 ⇒ 红**（I11 要守的是"无声失败"，而只有成功路径上
+     "无输出"才可能被误当"没触发"）。 */
+  const nOk = CASES.filter(([n]) => n === 'success').length
+  const nFailPath = CASES.length - nOk
+  if (nOk === 0) { console.error('✗ 自测**缺成功路径**（全 exit=2 ⇒ 全红与全坏不可区分）⇒ exit 2'); process.exit(2) }
+  console.log(`  路径覆盖：**成功路径 ${nOk} 条 / 失败路径 ${nFailPath} 条**（成功路径缺位 ⇒ 红）✓`)
   /* 覆盖断言：用例集合必须罩住**本工具旗标**（旗标自己的 case 名必须在用例名里） */
   const caseNames = new Set(CASES.map(([n]) => n))
   const uncovered = TOOL_FLAGS.filter((f) => !f.case.startsWith('(') && !caseNames.has(f.case))

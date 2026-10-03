@@ -133,7 +133,10 @@ function i5Violations() {
   const BASE_FILE = join(DECK_DIR, 'debt-baseline.json')
   let base = null
   try { base = JSON.parse(readFileSync(BASE_FILE, 'utf8')).countDebt } catch { /* 无基准 ⇒ 首建 */ }
-  const ovrB = process.env.DEBT_BASELINE_OVERRIDE
+  /* ★ team-lead ③：`--baseline <n>` **CLI 优先**（避免 `$env:` 触发审批 ⇒ 负控可随时跑，不必改仓库文件）。
+     `DEBT_BASELINE_OVERRIDE` 仍保留（CI/脚本可用）。 */
+  const _bi = process.argv.indexOf('--baseline')
+  const ovrB = _bi >= 0 && process.argv[_bi + 1] !== undefined ? process.argv[_bi + 1] : process.env.DEBT_BASELINE_OVERRIDE
   const want = ovrB !== undefined && ovrB !== '' ? Number(ovrB) : base
   if (process.argv.includes('--update-baseline')) {
     try {
@@ -147,7 +150,9 @@ function i5Violations() {
   } else if (want == null) {
     out.push(`**缺基准** \`debt-baseline.json\`（或 env 覆盖）⇒ 请先跑 \`--update-baseline\` 建立基准（不许用手写数当棘轮）`)
   } else if (countDebt.length !== want) {
-    out.push(`**条数债务棘轮**：实测 **${countDebt.length}** ↔ 基准 **${want}** ⇒ **不等即红**（涨=新增手写条数；降=请 --update-baseline 同步基准）：${countDebt.join(' · ')}`)
+    /* ★ team-lead ⑤(2)：**稳定机器标记**（退出码是多义的：语法错/参数错/棘轮红/判据红 都可能是 1 或 2）
+       ⇒ 控制必须断言 tag，而不是只看退出码。 */
+    out.push(`**[RATCHET_BASELINE_MISMATCH]** 条数债务棘轮：实测 **${countDebt.length}** ↔ 基准 **${want}** ⇒ **不等即红**（涨=新增手写条数；降=请 --update-baseline 同步基准）：${countDebt.join(' · ')}`)
   }
   COUNT_DEBT = countDebt
   /* 数组元素那种"n > N"的硬编码（如 items：`if (n > 40)`）
