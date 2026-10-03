@@ -39,6 +39,70 @@ const arg = (k, d) => {
 const flag = (k) => { const i = args.indexOf(k); if (i >= 0) { _consumed.add(i); return true } return false }
 const ALLOW_MULTI = flag('--allow-multi')
 const KEEP_OUT = flag('--keep')
+/* ★★ team-lead ②：**旗标注册表**（"**守卫自己也要被守卫**" —— 本会话第 4 例同族：
+   ① 负控失去判伪力 ② 棘轮是手写数 ③ 参数守卫拒自己的旗标 ④ **注册表只覆盖 2/11**）。
+   两张表**分开**：**本工具旗标** vs **下游引擎旗标**（把下游的算成自己的 ⇒ 会造出**假覆盖**）。
+   断言：文件里出现的每个「引号包起来的双横线旗标字面量」都必须登记（⚠️ 本行**故意不写那个形态** —— 写了就会被自己的断言扫到，实测踩过）；
+   `--self-test-usage` 的用例集合必须**覆盖全部本工具旗标**。 */
+const TOOL_FLAGS = [
+  { name: '--json', argv: true, case: 'auto-hit' }, { name: '--field', argv: true, case: 'auto-hit' },
+  { name: '--cls', argv: true, case: 'auto-hit' }, { name: '--ks', argv: true, case: 'auto-hit' },
+  { name: '--pathA', argv: true, case: '(对照打印)' }, { name: '--raise-max', argv: true, case: 'auto-hit' },
+  { name: '--judge-fixture', argv: true, case: 'judge-fixture' }, { name: '--at', argv: true, case: '(内部)' },
+  { name: '--readback-offset', argv: true, case: 'offset' },
+  { name: '--keep', argv: false, case: 'keep' }, { name: '--allow-multi', argv: false, case: 'multi-allow' },
+  { name: '--self-test-usage', argv: false, case: '(自身)' },
+]
+const DOWNSTREAM_FLAGS = ['--outdir', '--assert-overlap', '--assert-decor', '--no-contrast']
+{
+  const src = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+  const seen = [...new Set([...src.matchAll(/'(--[a-zA-Z][\w-]*)'/g)].map((m) => m[1]))]
+  const known = new Set([...TOOL_FLAGS.map((f) => f.name), ...DOWNSTREAM_FLAGS])
+  const unknown = seen.filter((s) => !known.has(s))
+  if (unknown.length) {
+    console.error(`✗ **旗标注册表不全**：${unknown.join(' ')} ⇒ 新增旗标必须登记进 TOOL_FLAGS（自己）或 DOWNSTREAM_FLAGS（下游）⇒ exit 2`)
+    process.exit(2)
+  }
+}
+const SELF_TEST = flag('--self-test-usage')
+/* ★ team-lead ②/③：`--self-test-usage` —— **每个用法分支各跑一次**，断言
+   "**有结论行** ＋ **退出码 ∈ {0,1,2}**"；退出码 2 必须带**原因文案**（非空 stderr）。
+   并把"自测用例集合 ⊇ 本工具旗标集合"**断言化**（否则以后新加的旗标又绕过它）。 */
+function runSelfTestUsage() {
+  const CASES = [
+    ['auto-hit', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=39']],
+    ['auto-miss', ['--json', 'examples/__nope.json', '--field', 'nosuch.field', '--ks', '1', '--raise-max', 'auto=9']],
+    ['lower-value', ['--json', 'examples/__nope.json', '--field', 'meta.issuer', '--ks', '1', '--raise-max', 'issuer=700']],
+    ['not-found', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'nosuchleaf=9']],
+    ['multi-hit', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'title=99']],
+    ['multi-allow', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'title=99', '--allow-multi']],
+    ['judge-fixture', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=40', '--judge-fixture', 'out-tmp-ctl/fx-judge33.json']],
+    ['offset', ['--json', 'examples/__nope.json', '--field', 'meta.issuer', '--ks', '1', '--raise-max', 'auto=800', '--readback-offset', '13']],
+    ['keep', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=39', '--keep']],
+    ['bad-pointer', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', '#//x=9']],
+  ]
+  let bad = 0
+  for (const [name, argv2] of CASES) {
+    const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), ...argv2], { cwd: HERE, encoding: 'utf8', maxBuffer: 1 << 24 })
+    const sout = String(r.stdout || ''), serr = String(r.stderr || '')
+    /* ⚠️ 判据**必须覆盖全部消息族**（第一版漏了"查不到 jsonPointer"与"形态不支持" ⇒ 把 2 例误报成失败 —— 自测自己也栽在"判据不全"）
+       ⇒ 用**消息族的特征词**而非完整句；失败时**打原样末 3 行**（§25a：不许丢失败输出）。 */
+    const hasConcl = /(仅量测|无需抬|只许抬|找不到|不许入表|尚无判据|auto ⇒|找不到 deck|查不到 jsonPointer|形态不支持|judge-fixture)/.test(sout + serr)
+    const codeOk = [0, 1, 2].includes(r.status)
+    const reasonOk = r.status !== 2 || serr.trim().length > 0
+    const ok = hasConcl && codeOk && reasonOk
+    if (!ok) bad++
+    console.log(`  ${ok ? '✓' : '✗'} 用例 ${name.padEnd(14)} exit=${r.status} · 有结论行=${hasConcl} · code∈{0,1,2}=${codeOk} · exit2 带原因=${reasonOk}`)
+    if (!ok) for (const l of (sout + serr).split('\n').filter(Boolean).slice(-3)) console.log(`        ↳ ${l.trim().slice(0, 160)}`)
+  }
+  /* 覆盖断言：用例集合必须罩住**本工具旗标**（旗标自己的 case 名必须在用例名里） */
+  const caseNames = new Set(CASES.map(([n]) => n))
+  const uncovered = TOOL_FLAGS.filter((f) => !f.case.startsWith('(') && !caseNames.has(f.case))
+  if (uncovered.length) { console.error(`✗ 旗标未被自测覆盖：${uncovered.map((f) => `${f.name}→${f.case}`).join(' ')} ⇒ exit 2`); process.exit(2) }
+  console.log(`\n  自测覆盖：本工具旗标 **${TOOL_FLAGS.length}** 个 ⇒ 未覆盖 **0** 个 ✓（用例 ${CASES.length} 条 · 失败 ${bad} 条）`)
+  process.exit(bad ? 1 : 0)
+}
+if (SELF_TEST) runSelfTestUsage()
 const NODE = process.execPath
 const JSONF = arg('--json', 'examples/deck.master-v1.json')
 const FIELD = arg('--field', 'meta.title')
@@ -117,7 +181,8 @@ if (RAISE_MAX) {
   if (leafSpecRaw === 'auto') {
     const c = TABLE.find((x) => x.field === FIELD)
     if (!c || !c.jsonPointer) {
-      console.error(`✗ --raise-max auto：按 --field=${FIELD} 在判据表里**查不到 jsonPointer** ⇒ 请显式指定（推荐**整指针 + 单引号**）⇒ exit 2`)
+      console.error(`✗ --raise-max auto：按 --field=${FIELD} 在判据表里**查不到 jsonPointer** ⇒ 请显式指定
+     （推荐**整指针 + 单引号** —— ⚠️ 整指针**含美元号** ⇒ 在 PowerShell **双引号**里会被吃成空 ⇒ **必须单引号**）⇒ exit 2`)
       process.exit(2)
     }
     leafSpec = c.jsonPointer
