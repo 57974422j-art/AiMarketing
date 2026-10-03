@@ -69,6 +69,21 @@ const SELF_TEST = flag('--self-test-usage')
    "**有结论行** ＋ **退出码 ∈ {0,1,2}**"；退出码 2 必须带**原因文案**（非空 stderr）。
    并把"自测用例集合 ⊇ 本工具旗标集合"**断言化**（否则以后新加的旗标又绕过它）。 */
 function runSelfTestUsage() {
+  /* ★★ team-lead ②：**把"前置绿"变成机制** —— 所有控制/负控/自测**先跑前置**并断言全绿，
+     否则打印 **CONTROL-INVALID** 且**不打印任何读数**。
+     理由（你给的根因）：`check-syntax-and-json` **已经**全量覆盖语法（37 .mjs / 67 .json · 1.9s），
+     但三个工具的前置里**命中 = 0**（没人接）⇒ "语法错的 exit=1" 与 "棘轮红的 exit=1" 分不开。
+     ⇒ 判据落在**前置**（"用后果做判据"），落点不是词法规则 ✓ */
+  const sx = spawnSync(process.execPath, [join(HERE, 'check-syntax-and-json.mjs')], { cwd: HERE, encoding: 'utf8' })
+  const ck = spawnSync(process.execPath, [join(HERE, 'check-schema-vs-limits.mjs')], { cwd: HERE, encoding: 'utf8' })
+  const synOk = sx.status === 0
+  const chkOk = ck.status === 0
+  const leafOk = existsSync(join(HERE, 'examples', 'deck.master-v1.json'))
+  console.log(`PRE: syntax=${synOk ? 0 : 1} json=${synOk ? 0 : 1} checker=${chkOk ? 0 : 1} leaf=${leafOk ? 'found' : 'missing'}`)
+  if (!synOk || !chkOk || !leafOk) {
+    console.error('✗ **CONTROL-INVALID**（前置未全绿）⇒ 本次控制**不打印任何读数**（读数作废）')
+    process.exit(2)
+  }
   /* ★ team-lead ②：**必须至少一条真成功路径（exit=0）** —— 否则 10 例全 exit=2 ⇒ "**全红与全坏不可区分**"
      （镜像版："全绿 = 全红不可区分"）：若某天解析器整体坏掉、每条用法都 exit 2，自测**照样全 ✓**。
      成功路径须走通到**渲染/读数**（真底档 + 真 `--cls` + 合法 `auto=`）⇒ 断言 **exit=0** 且出现 `GATE-RESULT` 机器标记。 */
@@ -77,6 +92,8 @@ function runSelfTestUsage() {
     ['auto-hit', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=39']],
     ['auto-miss', ['--json', 'examples/__nope.json', '--field', 'nosuch.field', '--ks', '1', '--raise-max', 'auto=9']],
     ['lower-value', ['--json', 'examples/__nope.json', '--field', 'meta.issuer', '--ks', '1', '--raise-max', 'issuer=700']],
+    /* ★ 消息族断言当场抓到的缺口：**「无需抬」族没有用例命中** ⇒ 补"等值"分支（cap=33 ⇒ `auto=33` 恰好相等） */
+    ['equal-value', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=33']],
     ['not-found', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'nosuchleaf=9']],
     ['multi-hit', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'title=99']],
     ['multi-allow', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'title=99', '--allow-multi']],
@@ -86,6 +103,7 @@ function runSelfTestUsage() {
     ['bad-pointer', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', '#//x=9']],
   ]
   let bad = 0
+  const outs = []
   for (const [name, argv2] of CASES) {
     const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), ...argv2], { cwd: HERE, encoding: 'utf8', maxBuffer: 1 << 24 })
     const sout = String(r.stdout || ''), serr = String(r.stderr || '')
@@ -105,7 +123,24 @@ function runSelfTestUsage() {
       console.log(`  ${okAll ? '✓' : '✗'} 用例 ${name.padEnd(14)} exit=${r.status} · 有结论行=${hasConcl} · code∈{0,1,2}=${codeOk} · exit2 带原因=${reasonOk}`)
     }
     if (!okAll) for (const l of (sout + serr).split('\n').filter(Boolean).slice(-3)) console.log(`        ↳ ${l.trim().slice(0, 160)}`)
+    outs.push([name, sout + serr])
   }
+  /* ★ team-lead ③：把"消息族"变成**可枚举表**，并断言 **双向一致**（与"旗标注册表 ⊇ 用例集合"同形）：
+     · 每个**用例**至少命中一个消息族（否则该用例是**空壳**）· 每个**消息族**至少被一个用例命中（否则该族**没被守**） */
+  const FAMILIES = {
+    '仅量测': /仅量测/, '不许入表': /不许入表/, '无需抬': /无需抬/, '只许抬': /只许抬/,
+    '找不到 leaf': /找不到 leaf/, '尚无判据': /尚无判据/, 'auto 反查': /auto ⇒/,
+    '查不到 jsonPointer': /查不到 jsonPointer/, '形态不支持': /形态不支持/, '成功读数': /GATE-RESULT/,
+  }
+  const hitFam = new Set()
+  for (const [name, txt] of outs) {
+    const hits = Object.entries(FAMILIES).filter(([, re]) => re.test(txt)).map(([k]) => k)
+    if (!hits.length) { console.error(`✗ 用例 **${name}** 未命中任何消息族 ⇒ **空壳用例** ⇒ exit 2`); process.exit(2) }
+    hits.forEach((h) => hitFam.add(h))
+  }
+  const orphan = Object.keys(FAMILIES).filter((k) => !hitFam.has(k))
+  if (orphan.length) { console.error(`✗ 消息族**未被任何用例命中**：${orphan.join(', ')} ⇒ 这些族的文案没被守 ⇒ exit 2`); process.exit(2) }
+  console.log(`  消息族 ↔ 用例：**双向一致 ✓**（族 ${Object.keys(FAMILIES).length} 个 · 全部被命中）`)
   /* ★ team-lead ②：机读「成功路径 N / 失败路径 M」；**成功路径缺位 ⇒ 红**（I11 要守的是"无声失败"，而只有成功路径上
      "无输出"才可能被误当"没触发"）。 */
   const nOk = CASES.filter(([n]) => n === 'success').length
