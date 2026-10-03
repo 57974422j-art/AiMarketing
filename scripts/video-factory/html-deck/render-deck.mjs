@@ -762,15 +762,39 @@ function main() {
 
   // ---- ① 闸门：校验不通过 → 大声失败、绝不渲染 ----
   const v = spawnSync(process.execPath, [VALIDATOR, deckAbs, '--json'], { cwd: HERE, encoding: 'utf8' })
+  const vout = String(v.stdout || '')
+  /* ★ **I6：同一次运行里两份结论必须同源** —— 子进程的 **JSON 汇总**是唯一判据。
+     事故（今天第三例）：我加的"覆盖 schema（仅量测）"告示曾用 `console.log` 打到 **stdout** ⇒ 这里 `JSON.parse(stdout)`
+     失败 ⇒ 父进程判"校验不通过"并 exit=3，而子进程自己那份 JSON 汇总 = `pass:true / errorCount:0`
+     ⇒ **父进程说拒、子进程说通过**（两份结论相反，且都"各自看起来正常"）。
+     ⇒ 修法：① 人读信息一律走 stderr（stdout 只许有 JSON）；② 解析**最后一行以 `{` 开头**的 JSON（容忍前缀噪声）；
+        ③ 断言子进程汇总**自洽**（`pass === (errorCount === 0)`），不自洽即红。 */
+  /* ⚠️ 解析必须**整体**来（`validate-deck --json` 输出的是**多行 pretty JSON**）——
+     我第一次 "逐行找 `{` 开头" 的写法**必然失败**（多行 JSON 没有哪一行单独可解析）⇒ 又把父进程逼成 vr=null。
+     现：① 整体 `JSON.parse(trim)`；② 失败再取 **首个 `{` 到末个 `}`** 的子串（容忍前缀噪声，如误打到 stdout 的告示）。 */
   let vr = null
-  try { vr = JSON.parse(v.stdout) } catch { /* fallthrough */ }
-  if (!vr || !vr.pass) {
-    console.error(`\n✗✗ 校验不通过 → 拒绝渲染（这是有意的硬闸门）\n`)
-    console.error(v.stdout || v.stderr || '(校验器无输出)')
+  try { vr = JSON.parse(vout.trim()) } catch {
+    const i = vout.indexOf('{'), j = vout.lastIndexOf('}')
+    if (i >= 0 && j > i) { try { vr = JSON.parse(vout.slice(i, j + 1)) } catch { /* 仍失败 ⇒ 视为无法解析 */ } }
+  }
+  const childConsistent = !vr || (vr.pass === (Number(vr.errorCount || 0) === 0))
+  if (vr && !childConsistent) {
+    console.error(`\n✗✗ **I6 违反**：子进程 JSON 汇总自相矛盾（pass=${vr.pass} / errorCount=${vr.errorCount}）⇒ 拒绝渲染`)
+  }
+  if (!vr || !vr.pass || !childConsistent) {
+    console.error(`\n✗✗ 校验不通过 → 拒绝渲染（这是有意的硬闸门）`)
+    console.error(`  子进程结论：${vr ? `pass=${vr.pass} · errorCount=${vr.errorCount} · warnCount=${vr.warnCount}` : '(JSON 无法解析 ⇒ 视为失败)'}`)
+    /* ★ 失败时打**有用行**（真实原因常在**第 1 行**，而"末 4 行"常是 deck JSON 回显） */
+    const lines = vout.split('\n')
+    const useful = lines.filter((l) => /RESULT |超出上限|超过硬上限|少于下限|未定义字段|不是字符串|✗/.test(l)).slice(0, 12)
+    if (useful.length) { console.error('\n  关键行（含 RESULT/上限/✗）：'); for (const l of useful) console.error('    ' + l.trim().slice(0, 200)) }
+    console.error('\n  末 4 行：'); for (const l of lines.slice(-4)) console.error('    ' + l.trim().slice(0, 200))
+    if (v.stderr) { console.error('  stderr 末 4 行：'); for (const l of String(v.stderr).split('\n').slice(-4)) console.error('    ' + l.trim().slice(0, 200)) }
     emitResult({
       ok: false, code: EXIT.VALIDATE, stage: 'validate', ...ctx,
       errors: vr ? vr.errorCount : null, warns: vr ? vr.warnCount : null,
       validator_ran: !!vr,
+      child_pass: vr ? vr.pass : null, child_errorCount: vr ? vr.errorCount : null,   /* ★ I6：父进程判定与子进程汇总量并列输出，便于对拍 */
       detail: vr ? (vr.issues || []).filter((x) => x.level === 'error').map((x) => `${x.path}: ${x.msg}`) : ['校验器无法产出可解析结果'],
     })
     process.exit(EXIT.VALIDATE)

@@ -42,7 +42,10 @@ function schemaNode(ptr) {
     const p = SCHEMA_OVERRIDE || join(HERE_V, 'deck.schema.json')
     try { SCHEMA = JSON.parse(readFileSync(p, 'utf8')) } catch { SCHEMA = {} }
     if (SCHEMA_OVERRIDE) {
-      console.log(`  ★★ **使用覆盖 schema（仅量测 · 绝不可用于发版）**：${SCHEMA_OVERRIDE}`)
+      /* ⚠️ **必须走 stderr**：`--json` 模式下 stdout **只许有 JSON**（父进程 render-deck 直接 `JSON.parse(stdout)`）。
+         事故（I6 的第三例）：这句曾用 `console.log` ⇒ 污染 stdout ⇒ 父进程解析失败 ⇒ 判"校验不通过"并 exit=3，
+         而同一子进程稍后打印的 JSON 汇总却是 `pass:true` ⇒ **同一次运行两份结论相反**。 */
+      console.error(`  ★★ **使用覆盖 schema（仅量测 · 绝不可用于发版）**：${SCHEMA_OVERRIDE}`)
     }
   }
   return ptr.split('/').slice(1).reduce((o, k) => (o == null ? undefined : o[k]), SCHEMA)
