@@ -18,6 +18,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statS
 import { spawnSync } from 'node:child_process'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tmpdir } from 'node:os'   /* ★ ④-2：覆盖 schema 只写**仓库外**（%TEMP%） */
 import { DECK_DIR } from './paths.mjs'
 import { resolveHyperframes } from './engine-bin.mjs'
 import { pageNoOfSelector, settledAt } from './timing.mjs'
@@ -42,6 +43,30 @@ const KS = String(arg('--ks', '37,38')).split(',').map((s) => Number(s.trim())).
    事故（2026-10-03）：team-lead 与我**并发**跑同一默认 outdir ⇒ 他读到的是被并发改写的产物 ⇒
    得到一个"看起来正常但错"的数（k=37 闸门 exit 报 1，实际 0）——比报错危险得多。显式指定时才用指定值。 */
 const OUT = arg('--outdir', '') || `out-tmp-xcheck-${process.pid}-${Date.now().toString(36)}`
+/* ★ team-lead ④-2：`--raise-max <字段>=<值>` ⇒ **仅量测**地把该字段的 schema `maxLength` 临时抬到 <值>，
+   让第二路**真能跑到 k=判据**（期望：k 过闸 · k+1 因**版式**（overlap/overflow）不过 ⇒ 与第一路真交叉）。
+   实现：把覆盖后的 schema 写到 **仓库外**（os.tmpdir()），只给本次子进程设 `DECK_SCHEMA_OVERRIDE`；
+   validate-deck 会**打印告示**。发版闸门不设该 env ⇒ 永远走真 schema。 */
+const RAISE_MAX = arg('--raise-max', '')       // 形如 "pages.1.title=57"（leaf=值）
+let OVERRIDE_ENV = null
+if (RAISE_MAX) {
+  const [leaf, valStr] = RAISE_MAX.split('=')
+  const val = Number(valStr)
+  const sp = join(DECK_DIR, 'deck.schema.json')
+  const sch = JSON.parse(readFileSync(sp, 'utf8'))
+  const hit = []
+  const walk = (node, ptr) => {
+    if (!node || typeof node !== 'object') return
+    if (node.maxLength !== undefined && ptr.endsWith('/' + leaf)) { node.maxLength = val; hit.push(ptr) }
+    for (const k of Object.keys(node)) walk(node[k], `${ptr}/${k}`)
+  }
+  walk(sch, '#')
+  if (!hit.length) { console.error(`✗ --raise-max：schema 里找不到 leaf=${leaf} 的 maxLength ⇒ exit 2`); process.exit(2) }
+  const tmp = join(tmpdir(), `deck.schema.override.${process.pid}.json`)
+  writeFileSync(tmp, JSON.stringify(sch, null, 2), 'utf8')
+  OVERRIDE_ENV = tmp
+  console.log(`  ★★ **仅量测**：把 ${hit.join(' / ')} 的 maxLength 抬到 ${val}（覆盖 schema 写于仓库外 ${tmp}）`)
+}
 const PATH_A = arg('--pathA', '')          // 第一路（HTML 注入）给出的临界，仅用于打印对照
 
 /** 深设 `a.b.c` 路径字段 */
@@ -110,7 +135,11 @@ for (const k of KS) {
   const deckName = basename(vj).replace(/\.json$/, '')
   /* ⚠️ **不许** `shell: true`：Windows 下 `process.execPath` 含空格（`C:\Program Files\nodejs\…`）
      ⇒ shell 拼接会把路径拆坏（实测：三行全"渲染 ✗"）。传数组、不用 shell 即可（§25a：失败原因要原样打印）。 */
-  const r = spawnSync(NODE, [join(HERE, 'render-deck.mjs'), vj, '--outdir', join(DECK_DIR, OUT)], { cwd: HERE, encoding: 'utf8' })
+  const r = spawnSync(NODE, [join(HERE, 'render-deck.mjs'), vj, '--outdir', join(DECK_DIR, OUT)], {
+    cwd: HERE, encoding: 'utf8',
+    /* ★ ④-2：只在 **--raise-max** 时把覆盖 schema 传给子进程（validate-deck 会打印告示） */
+    env: OVERRIDE_ENV ? { ...process.env, DECK_SCHEMA_OVERRIDE: OVERRIDE_ENV } : process.env,
+  })
   const prod = join(DECK_DIR, OUT, deckName)
   const renderOk = r.status === 0 && existsSync(join(prod, 'index.html'))
   const fpRender = renderOk ? fp(join(prod, 'index.html')) : 'n/a'   // ★ 渲染完成即取指纹（防篡改基线）

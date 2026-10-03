@@ -32,9 +32,18 @@ import { MASTERS_DIR } from './paths.mjs'
    （实测 `items[0]` 的 k=164 被 `n > 40` 拦死 ⇒ render exit=3 ⇒ 第二路"受阻"、测量能力被吃掉）。
    现规矩：**判据按 JSON 指针取**（`lim`/`adv`），不手抄、不按叶名（叶名会撞车 —— `labels/items` 曾让 I5 漏报）。 */
 let SCHEMA = null
+/* ★ team-lead ④-2：**仅量测**的 schema 覆盖 —— 让第二路能**真跑到 k=判据**（此时应 k 过闸、k+1 因**版式**不过，
+   从而与第一路**真交叉**）。安全约束（缺一不可）：
+   ① **默认关**（只有显式设 `DECK_SCHEMA_OVERRIDE` 才生效）；② 每次运行**打印告示**；
+   ③ **绝不进发版闸门**（闸门不设该 env）；④ 覆盖文件**在仓库外**（由调用方写到 %TEMP%）。 */
+const SCHEMA_OVERRIDE = process.env.DECK_SCHEMA_OVERRIDE || ''
 function schemaNode(ptr) {
   if (SCHEMA === null) {
-    try { SCHEMA = JSON.parse(readFileSync(join(HERE_V, 'deck.schema.json'), 'utf8')) } catch { SCHEMA = {} }
+    const p = SCHEMA_OVERRIDE || join(HERE_V, 'deck.schema.json')
+    try { SCHEMA = JSON.parse(readFileSync(p, 'utf8')) } catch { SCHEMA = {} }
+    if (SCHEMA_OVERRIDE) {
+      console.log(`  ★★ **使用覆盖 schema（仅量测 · 绝不可用于发版）**：${SCHEMA_OVERRIDE}`)
+    }
   }
   return ptr.split('/').slice(1).reduce((o, k) => (o == null ? undefined : o[k]), SCHEMA)
 }
@@ -48,6 +57,47 @@ function adv(ptr, dflt = Infinity) {
   const n = schemaNode(ptr) || {}
   return n.recommendedMax ?? dflt
 }
+
+/* ============ ★ (A) **通用 schema 驱动校验**（team-lead：去字面量 + 语义化校验） ============
+   目的：把散在 12 个 `checkXxx()` 里的**手写字面量**（本批前共 50 处）换成**一处**按 schema 走。
+   ★ `$ref` **必须解析**（`pages` 的 prefixItems/items 指向各页型、`compareSide` 也是 `$ref`）
+     —— team-lead 实测：不解析 ref 的遍历器会整片漏掉约束（3 处假结论），却看起来"跑过了"。
+   ★ 四类对照齐全：`minLength` / `maxLength` / `minItems` / `maxItems`；`recommendedMax` ⇒ **只出 warn**（绝不影响退出码）。 */
+const REF_HOPS = 8
+function resolveRef(node, depth = 0) {
+  if (node && typeof node === 'object' && node.$ref && depth < REF_HOPS) {
+    const t = schemaNode(node.$ref)
+    return t ? resolveRef(t, depth + 1) : null
+  }
+  return node
+}
+function checkAgainstSchema(value, ptr, path) {
+  const s = resolveRef(schemaNode(ptr))
+  if (!s) { add('error', path, `schema 指针解析不到：${ptr}`, '修 deck.schema.json 或校验器（$ref 必须解析）'); return }
+  if (typeof value === 'string') {
+    const n = cp(value)
+    const { minLength: mn, maxLength: mx, recommendedMax: rmax } = s
+    if (mn != null && n < mn) add('error', path, `${n} 字，少于下限 ${mn} 字（schema）`, `补到 ≥${mn} 字`)
+    else if (mx != null && n > mx) add('error', path, `${n} 字，超过硬上限 ${mx} 字（schema）`, `精简到 ≤${mx} 字`)
+    else if (rmax != null && n > rmax) add('warn', path, `${n} 字，超过建议 ${rmax} 字（advisory，不拒绝渲染）`, `建议精简到 ≤${rmax} 字`)
+    return
+  }
+  if (Array.isArray(value)) {
+    const { minItems: mn, maxItems: mx } = s
+    if (mn != null && value.length < mn) add('error', path, `只有 ${value.length} 条，少于下限 ${mn} 条（schema）`, `补到 ≥${mn} 条`)
+    if (mx != null && value.length > mx) add('error', path, `${value.length} 条，超过硬上限 ${mx} 条（schema）`, `精简到 ≤${mx} 条`)
+    if (s.items) value.forEach((v, i) => checkAgainstSchema(v, `${ptr}/items`, `${path}[${i}]`))
+    return
+  }
+  if (value && typeof value === 'object') {
+    const props = s.properties || {}
+    for (const [k, v] of Object.entries(value)) {
+      if (props[k]) checkAgainstSchema(v, `${ptr}/properties/${k}`, `${path}.${k}`)
+    }
+  }
+}
+/** 页型 → schema 定义指针（`cover` ⇒ `#/$defs/pageCover`） */
+function pageDefPtr(type) { return `#/$defs/page${type[0].toUpperCase()}${type.slice(1)}` }
 
 let DECK_DIR = null                                    // 由 main() 设为 deck 文件所在目录（素材相对它解析）
 
@@ -434,24 +484,13 @@ function main() {
   if (!meta || typeof meta !== 'object') {
     add('error', 'meta', 'meta 缺失', '补 meta{title, subtitle, lang}')
   } else {
-    /* ★ K22 漏网之二：这里曾硬编码 `4, 40` —— 比 schema 的硬上限 **33 更松** ⇒ 会**放行**契约禁止的输入
-     （40 字标题过校验、却被闸门/其它路径按 33 判不符）。现读 schema（I5 拓宽后当场抓到）。 */
-  checkString(meta.title, 'meta.title', ...lim('#/$defs/meta/properties/title'), '封面主标题')
-    /* ★ K22 漏网（2026-10-03，被第二路实测揪出）：这里曾硬编码 `6, 60` —— 60 只是 **advisory**，
-     而 schema 的硬上限是 **203** ⇒ **validate-deck 比 schema 严** ⇒ k=61..203 被无端拒收（render exit=3）
-     ⇒ 第二路"受阻"的真因。现改为读 schema（硬上限 203 / 建议 60）。 */
-  const [subMin, subMax] = lim('#/$defs/meta/properties/subtitle')
-  const subAdv = adv('#/$defs/meta/properties/subtitle')
-  if (!checkString(meta.subtitle, 'meta.subtitle', subMin, subMax, '封面副标')) {
+    /* ★ (A)：meta 的 title / subtitle / issuer / date 长度**全部交给通用 schema 校验**
+       （原先这里有两处手抄**分叉**：`4,40` 比 schema 33 松、`6,60` 比 schema 203 严 —— 均已在 K22 定性；
+       现在不再有 `lim/adv` 逐点调用，改由 `checkAgainstSchema` 一处驱动：maxLength ⇒ error、recommendedMax ⇒ warn）。 */
+    checkAgainstSchema(meta, '#/$defs/meta', 'meta')
+    if (!meta.subtitle || !cp(meta.subtitle)) {
       add('warn', 'meta.subtitle', '封面没有副标 → 违反"封面必须有主标题+副标"', '补一句 ≥6 字副标；若这层信息不适合放标题区，改用 bullets 页开篇')
-  } else if (cp(meta.subtitle) > subAdv) {
-    add('warn', 'meta.subtitle', `封面副标 ${cp(meta.subtitle)} 字，超过**建议** ${subAdv} 字（advisory，不拒绝渲染）`, '建议精简（副标一行观感）')
     }
-    /* ★ K22 单源：出品方的硬上限来自 schema（现在 = 756 = ⌊0.9×判据 840⌋）；40 已降为 advisory。 */
-  const [isMin, isMax] = lim('#/$defs/meta/properties/issuer')
-  if (meta.issuer != null && cp(meta.issuer) > isMax) add('error', 'meta.issuer', `出品方过长（${cp(meta.issuer)} 字，硬上限 ${isMax}）`, `≤${isMax} 字（硬上限 = ⌊0.9×判据 840⌋）`)
-  else if (meta.issuer != null && cp(meta.issuer) > adv('#/$defs/meta/properties/issuer')) add('warn', 'meta.issuer', `出品方 ${cp(meta.issuer)} 字，超过建议 ${adv('#/$defs/meta/properties/issuer')} 字（advisory）`, '建议精简（签发方一行观感）')
-  void isMin
     checkEnum(meta.lang, 'meta.lang', ['zh-CN'], 'meta.lang', 'v1 只支持 zh-CN')
   }
 
@@ -521,6 +560,9 @@ function main() {
       for (const k of Object.keys(p)) {
         if (!allowedKeys.includes(k)) add('error', `${path}.${k}`, `页面多出未定义字段 "${k}"`, `本页型只允许 [${allowedKeys.join(', ')}]`)
       }
+      /* ★ (A)：**先按 schema 通用校验**（唯一真源；`$ref` 已解析；四类对照 + advisory 只出 warn），
+         再做各页型的**结构性/语义性**检查（类型、条数上下界之外的建议、换页型建议、句末标点、素材扩展名…）。 */
+      checkAgainstSchema(p, pageDefPtr(p.type), path)
       if (p.type === 'cover') checkCover(p, path)
       if (p.type === 'bullets') checkBullets(p, path)
       if (p.type === 'data') checkData(p, path)
