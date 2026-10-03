@@ -48,7 +48,16 @@ function schemaNode(ptr) {
       console.error(`  ★★ **使用覆盖 schema（仅量测 · 绝不可用于发版）**：${SCHEMA_OVERRIDE}`)
     }
   }
-  return ptr.split('/').slice(1).reduce((o, k) => (o == null ? undefined : o[k]), SCHEMA)
+  /* ⛔ **回归修复（team-lead 定位到一行）**：原实现只按键走、**中途不跟随 `$ref`** ⇒
+     `#/$defs/pageCompare/properties/left/properties/label` 在 `left`（= `{$ref:'#/$defs/compareSide'}`）处就
+     变成 `undefined` ⇒ 通用校验误报"schema 指针解析不到" ⇒ **16 个既有样例被拒渲染**（而闸门因"产物新鲜 ⇒ 跳过渲染"全绿）。
+     ⇒ 修：**每走一段就解析一次 `$ref`**（`resolveRef` 函数声明提升 ⇒ 定义在后面也安全；`REF_HOPS` 防环）。 */
+  let o = SCHEMA
+  for (const k of ptr.split('/').slice(1)) {
+    o = (o == null ? undefined : o[k])
+    o = resolveRef(o)
+  }
+  return o
 }
 /** `[minLength, maxLength]`（缺省 0 / Infinity；maxLength 缺省 = **无硬上限** ⇒ 该字段只许 advisory） */
 function lim(ptr, dMin = 0, dMax = Infinity) {
