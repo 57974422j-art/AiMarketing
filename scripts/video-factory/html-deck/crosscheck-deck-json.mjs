@@ -52,7 +52,12 @@ const TOOL_FLAGS = [
   { name: '--readback-offset', argv: true, case: 'offset' },
   { name: '--keep', argv: false, case: 'keep' }, { name: '--allow-multi', argv: false, case: 'multi-allow' },
   { name: '--self-test-usage', argv: false, case: '(自身)' },
+  { name: '--self-test-page', argv: false, case: '(自身)' },
   { name: '--expect-page', argv: true, case: '(格子断言)' },
+  /* ★ team-lead ②(1)：`--page-unknown` = **显式豁免**（承认本轮不校验同页 ⇒ 读数待判、不得入表）。
+     注：登记在这里**也是"守卫自己被守卫"的实例** —— 我加这两个旗标时，本工具**自己的注册表断言**先判红
+     （`✗ 旗标注册表不全：--page-unknown --self-test-page`）⇒ 我照它补登。 */
+  { name: '--page-unknown', argv: false, case: '(格子断言)' },
 ]
 const DOWNSTREAM_FLAGS = ['--outdir', '--assert-overlap', '--assert-decor', '--no-contrast']
 {
@@ -195,6 +200,34 @@ const RAISE_MAX = arg('--raise-max', '')       // 形如 "pages.1.title=57"（le
 const RB_OFFSET = Number(arg('--readback-offset', '0') || 0)
 /* ★ team-lead ③：格子声明的页号（1-based）⇒ 断言"命中元素所在页 == 它"（把 `p2-` 前缀**约定**变成机器校验） */
 const EXPECT_PAGE = Number(arg('--expect-page', '0') || 0)
+/* ★ team-lead ②：两个洞一起补 ——
+   (1) **危险默认**（与 `--sel` 同类）：`--expect-page` 缺省 = 0 = **静默不做「命中页 == 该格 page」断言**，
+       而"同页"正是"靠 `p2-` 前缀约定"的机器校验 ⇒ **静默失守最危险** ⇒ **读数模式下缺它 ⇒ 红（exit 2）**。
+       唯一豁免：显式 `--page-unknown`（= 承认「本轮不校验同页 ⇒ 读数待判」，逐行打印警示，**不得用于入表读数**）。
+   (2) **专属 tag**：红的原因必须可区分 ⇒ `EXPECT_PAGE_MISMATCH`（另有 `RENDER_FAILED` / `READBACK_MISMATCH`），
+       并配**纯合成自测**（`--self-test-page`）断言「负控的红因 == 该 tag」。 */
+/* ⚠️ **必须用 `flag()`**（登记消费下标）—— 我第一版写 `process.argv.includes` ⇒ 被本工具"未识别参数 ⇒ exit 2"守卫拒掉
+   （实测 `--page-unknown` 那次 exit=2；本文件 L37-38 早就写过这个坑，我又踩一次 ⇒ 现在**照做**）。 */
+const PAGE_UNKNOWN = flag('--page-unknown')
+const TAG_PAGE = 'EXPECT_PAGE_MISMATCH'
+/* 判据唯一实现（循环里只做**可见提示**，判定在汇总处 ⇒ 不与"循环里 push 后面声明的数组"那种 TDZ 假红同形）。 */
+function badReason(r, exp) {
+  if (!r.renderOk) return 'RENDER_FAILED'
+  if (r.back !== r.k + RB_OFFSET) return 'READBACK_MISMATCH'
+  if (exp && Number(r.no) !== exp) return TAG_PAGE
+  return null
+}
+/* ★ **合成输入自测**（team-lead ④：读数解析类逻辑必须配合成自测 ⇒ 免渲染、秒级、可判伪）。
+   断言 ① 异页 ⇒ 红因恰为 `EXPECT_PAGE_MISMATCH` ② 同页 ⇒ 不红 ③ 渲染失败 ⇒ 红因是 `RENDER_FAILED`（**不是**页 tag）。 */
+if (process.argv.includes('--self-test-page')) {
+  const a = badReason({ k: 37, renderOk: true, back: 37, no: 1 }, 2)
+  const b = badReason({ k: 37, renderOk: true, back: 37, no: 2 }, 2)
+  const c = badReason({ k: 37, renderOk: false, back: -1, no: '-' }, 2)
+  const ok = a === TAG_PAGE && b === null && c === 'RENDER_FAILED'
+  console.log(`  合成自测(page)：异页(命中 1 / 期望 2) ⇒ 红因 = ${a}（须 ${TAG_PAGE}）${a === TAG_PAGE ? '✓' : '✗'} · 同页(2/2) ⇒ ${b === null ? '不红 ✓' : `✗ 误红（${b}）`} · 渲染失败 ⇒ 红因 = ${c}（须 RENDER_FAILED，**红因可区分**）${c === 'RENDER_FAILED' ? '✓' : '✗'}`)
+  console.log(`  顺带：缺 --expect-page ⇒ ${EXPECT_PAGE ? `已声明 ${EXPECT_PAGE}` : '**红**（危险默认；豁免须显式 --page-unknown）'}`)
+  process.exit(ok ? 0 : 1)
+}
 let OVERRIDE_ENV = null
 if (RAISE_MAX) {
   /* ★ team-lead ③-2：`--raise-max` 的两条**断言**（此前只判"有没有命中"，抬错/抬不动都会静默）：
@@ -480,7 +513,9 @@ for (const k of KS) {
   /* ⚠️ **不许在循环里 push 到 `bad`**：它声明在循环**之后**（`const bad = rows.filter(...)`）⇒ push 会抛
      `Cannot access 'bad' before initialization`（TDZ）⇒ 负控打出的 `exit=1` 是**异常**的 1、不是**断言**的 1 ✗
      （又一次"退出码多义"，与 I11/I12 同族）。⇒ 判据改在**汇总处**按 `r.no` 断言；循环里只做**可见提示**。 */
-  if (EXPECT_PAGE) console.log(`        ${Number(no) === EXPECT_PAGE ? '✓' : '✗'} 页断言：命中页 ${no} == 格子 page ${EXPECT_PAGE}（判定在汇总处 ⇒ 有牙）`)
+  if (EXPECT_PAGE) console.log(`        ${Number(no) === EXPECT_PAGE ? '✓' : `✗ [${TAG_PAGE}]`} 页断言：命中页 ${no} == 格子 page ${EXPECT_PAGE}（判定在汇总处 ⇒ 有牙）`)
+  else if (PAGE_UNKNOWN) console.log('        ⚠️ `--page-unknown`：**本轮不校验同页**（读数待判 · **不得用于入表**）')
+  else console.log('        ⚠️ **未声明 `--expect-page` ⇒ 未校验同页**（读数待判）—— 读数模式缺它会在汇总处**判红**')
   /* ★ team-lead ②：**打印差分，不打印全量** —— 全量列表会让人（包括他第一眼）把"通过的 k 上恒定的装饰性 findings"
      误读成"这格在失败"（实例：data 页在**通过的 k** 上就带约 36 个 canvas_overflow，而 GATE 仍 ok:true）。
      ⇒ 每行与**上一行**（通常是 k-1 或判据）做差集：
@@ -503,12 +538,23 @@ if (rows.length !== KS.length) {
   console.error(`✗ 参数自检：期望 ${KS.length} 个 k（[${KS.join(', ')}]），实际取到 ${rows.length} 行 ⇒ 参数/解析不符（§25b ⇒ exit 2）`)
   process.exit(2)
 }
+/* ★ team-lead ②(1)：**危险默认 ⇒ 红**（先保证行数对，再谈"该给的参数给了没"）。 */
+if (!EXPECT_PAGE && !PAGE_UNKNOWN) {
+  console.error('✗ **读数模式缺 `--expect-page <n>`**（危险默认：0 = 静默不做「命中元素所在页 == 该格 page」断言，与 `--sel` 同类）')
+  console.error('   ⇒ 该断言是「靠 `p2-` 前缀约定」的机器校验 ⇒ **静默失守最危险**。请补 `--expect-page <该格 page>`（13 格命令已按此重排）。')
+  console.error('   确知本轮不校验（**仅探索，不得入表**）⇒ 显式加 `--page-unknown`。')
+  process.exit(2)
+}
 /* ★ team-lead ③：**页断言在这里判**（`命中元素所在页 == 该格 page`）—— 与读回不符**同一批**红，
-   避免"循环里 push 到后面的数组"那种 TDZ 假红。 */
-const bad = rows.filter((r) => !r.renderOk || r.back !== r.k + RB_OFFSET || (EXPECT_PAGE && Number(r.no) !== EXPECT_PAGE))
+   避免"循环里 push 到后面的数组"那种 TDZ 假红。②(2)：红因**可区分**（专属 tag）。 */
+const bad = rows.filter((r) => badReason(r, EXPECT_PAGE))
 if (bad.length) {
-  console.error(`✗ 有 ${bad.length} 行**渲染失败 / 读回不符 / 命中页≠格子 page**（EXPECT_PAGE=${EXPECT_PAGE || '（未指定）'}）⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`)
-  for (const r of bad.slice(0, 4)) console.error(`   · k=${r.k}：渲染=${r.renderOk ? 'ok' : '✗'} · 读回=${r.back}/${r.k + RB_OFFSET} · 命中页=${r.no}${EXPECT_PAGE ? `（格子 page=${EXPECT_PAGE}）` : ''}`)
+  console.error(`✗ 有 ${bad.length} 行读数作废（EXPECT_PAGE=${EXPECT_PAGE || '（未指定）'}）⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`)
+  for (const r of bad.slice(0, 4)) {
+    const tag = badReason(r, EXPECT_PAGE)
+    const why = tag === 'RENDER_FAILED' ? '渲染失败' : tag === 'READBACK_MISMATCH' ? `读回 ${r.back} ≠ ${r.k + RB_OFFSET}` : `命中页 ${r.no} ≠ 格子 page ${EXPECT_PAGE}`
+    console.error(`   · k=${r.k}：[${tag}] ${why} · 渲染=${r.renderOk ? 'ok' : '✗'} · 读回=${r.back}/${r.k + RB_OFFSET} · 命中页=${r.no}`)
+  }
   process.exit(2)
 }
 const pair = rows.filter((r) => r.pairViol)
