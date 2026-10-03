@@ -19,7 +19,7 @@
  *   不传 `--files` ⇒ `git add -A scripts/video-factory/html-deck`（注意：别把 out-tmp 控件加进库）
  * ========================================================================== */
 import { spawnSync } from 'node:child_process'
-import { readdirSync, statSync, readFileSync, existsSync, copyFileSync } from 'node:fs'
+import { readdirSync, statSync, readFileSync, existsSync, copyFileSync, writeFileSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -40,7 +40,9 @@ if (fi >= 0) for (let i = fi + 1; i < argv.length && !argv[i].startsWith('-'); i
 /* ★ team-lead ②(a)：**未识别参数 ⇒ exit 2**（把纪律用在自己身上 —— crosscheck/measure-table 早就这么做；
    第一版把 `--check-only` **静默吞掉**、一路走到 commit 那步，只因缺 `-m` 才没提交 ⇒ 不许靠"恰好"兜底）。
    并新增**显式 `--dry`**：只跑前置、**绝不提交**，让"我只想跑闸门"与"我要提交"两条路彻底分开。 */
-const KNOWN = new Set(['--fast', '--no-sync', '--dry', '--dist-rel', '--files', '-m'])
+const KNOWN = new Set(['--fast', '--no-sync', '--dry', '--dist-rel', '--files', '-m',
+  /* ★ msg9 ②③：三个自测/基线模式 —— **登记才算数**（本工具的守卫当场拒了未登记的它们 ✓ 又一次"守卫自己被守卫"）。 */
+  '--self-test-catch-classifier', '--self-test-ratchet', '--write-silent-baseline'])
 const dry = argv.includes('--dry')
 for (let i = 2; i < argv.length; i++) {
   const a = argv[i]
@@ -93,6 +95,73 @@ const jsons = collect(HERE, '.json')
 let jsonBad = []
 for (const f of jsons) { try { JSON.parse(readFileSync(f, 'utf8')) } catch (e) { jsonBad.push(`${basename(f)}：${e.message}`) } }
 steps.push({ name: `JSON.parse ${jsons.length} 个 .json`, ok: jsonBad.length === 0, detail: jsonBad })
+/* ★★ team-lead msg9 ②③：**哑 catch 判据要"工具产出 + 有负控 + 有合成自测"** ——
+   我上一版把 `26` **手写**进代码/步名（正是 `COUNT_DEBT_MAX = 12` 的老病：**人读的数字守机读的事实**）⇒ 现改为：
+   ① 基线由工具产出的 `silent-catch-baseline.json`（per-file + 时间 + SHA）
+   ② 棘轮是**纯函数** `ratchetViolations(基线, 实测)` ⇒ 负控/自测调的就是它（单一实现）
+   ③ **分类器（启发式）必须有合成自测**：已知哑 catch ⇒ 计入；已知说话 catch ⇒ 不计入（否则"哑=0"可能只是**识别器不工作**）。 */
+function classifyCatchBlock(block) {
+  const loud = /(console\.|throw|return|writeSync|Atomics|\+\+|-=|\+=)/.test(block)
+  return loud ? 'loud' : 'dumb'
+}
+function catchCounts(text) {
+  const all = [...text.matchAll(/catch\s*(\([^)]*\))?\s*\{[^{}]*\}/g)].map((m) => m[0])
+  const dumb = all.filter((s) => classifyCatchBlock(s) === 'dumb')
+  return { all: all.length, loud: all.length - dumb.length, dumb: dumb.length, samples: dumb.slice(0, 3) }
+}
+function ratchetViolations(baselineFiles, actualFiles) {
+  const out = []
+  for (const [f, base] of Object.entries(baselineFiles || {})) {
+    const now = actualFiles[f] ?? 0
+    if (now > base) out.push(`${f}：哑 catch **${now}** > 基线 ${base} ⇒ 新增了静默 catch（要么接线、要么显式计债）`)
+  }
+  for (const f of Object.keys(actualFiles)) if (!(f in (baselineFiles || {}))) out.push(`${f}：**未登记基线**（新文件 ⇒ 请跑 --write-silent-baseline 登记）`)
+  return out
+}
+const SILENT_BASE = join(HERE, 'silent-catch-baseline.json')
+if (process.argv.includes('--self-test-catch-classifier')) {
+  const cases = [
+    ['catch { }', 'dumb'], ['catch (e) { /* 忽略 */ }', 'dumb'],
+    ['catch (e) { console.error(e.message) }', 'loud'], ['catch (e) { statFail++ }', 'loud'],
+    ['catch (e) { throw e }', 'loud'], ['catch { /* x */ }', 'dumb'],
+  ]
+  const bad = cases.filter(([t, want]) => classifyCatchBlock(t) !== want)
+  console.log(bad.length ? `✗ 分类器自测：${bad.map(([t, w]) => `${t}（须 ${w}）`).join(' · ')}` : `✓ 分类器自测：${cases.length} 例（哑 3 / 说话 3）全对`)
+  process.exit(bad.length ? 1 : 0)
+}
+if (process.argv.includes('--self-test-ratchet')) {
+  /* ★ msg9 ②(b)：**负控** —— 基线 −1 ⇒ 棘轮**必须咬**；同时断言"等值/下降不误报""未登记文件红"。
+     调的是**真实现**（`ratchetViolations` 纯函数）⇒ 不是另写一份判据。 */
+  const f = { 'a.mjs': 2 }
+  const less = ratchetViolations({ 'a.mjs': 1 }, f)
+  const same = ratchetViolations({ 'a.mjs': 2 }, f)
+  const down = ratchetViolations({ 'a.mjs': 3 }, f)
+  const unreg = ratchetViolations({}, { 'n.mjs': 1 })
+  const ok = less.length > 0 && same.length === 0 && down.length === 0 && unreg.length > 0
+  console.log(ok
+    ? '✓ 棘轮负控：基线−1 ⇒ 红 ✓ · 等值 ⇒ 不红 ✓ · 下降 ⇒ 不红 ✓ · 未登记文件 ⇒ 红 ✓'
+    : `✗ 棘轮负控失败：−1⇒${less.length} · 等值⇒${same.length} · 下降⇒${down.length} · 未登记⇒${unreg.length}`)
+  process.exit(ok ? 0 : 1)
+}
+if (process.argv.includes('--write-silent-baseline')) {
+  const FILES = ['crosscheck-deck-json.mjs', 'measure-count.mjs', 'check-schema-vs-limits.mjs', 'gate-release.mjs', 'commit-safe.mjs']
+  const files = {}
+  /* ★ 顺带打印**样本**（给"哑 catch N → 0"小批当工单：每处要写清"吞了什么"）。 */
+  for (const f of FILES) {
+    const c = catchCounts(readFileSync(join(HERE, f), 'utf8'))
+    files[f] = c.dumb
+    for (const s of c.samples) console.log(`   · ${f}：${s.replace(/\s+/g, ' ').slice(0, 90)}`)
+  }
+  const sha = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim() || 'n/a'
+  const total = Object.values(files).reduce((a, b) => a + b, 0)
+  writeFileSync(SILENT_BASE, JSON.stringify({
+    _doc: '哑 catch 基线（**工具产出**：node commit-safe.mjs --write-silent-baseline）—— 判据=「体内既无 console./throw 也无计数」的 catch 数',
+    _invariant: 'I8b：哑 catch **只许减**；新增即红；基线与实测**逐文件对账**（不许手写数字）',
+    at: new Date().toISOString(), sha, files, total,
+  }, null, 2) + '\n', 'utf8')
+  console.log(`✓ 已写 ${basename(SILENT_BASE)}：${FILES.map((f) => `${f}=${files[f]}`).join(' · ')} ⇒ 合计 ${total}（SHA=${sha}）`)
+  process.exit(0)
+}
 /* ★★ team-lead msg8 ③：**兜底位置断言** —— 兜底必须是"跳过 shebang/import 后的**第一句可执行**"
    （否则它**之前**的顶层逻辑（`arg()`/检查）一抛异常仍漏网；实测量具：measure-count 曾有 ~60 行在兜底之前）⇒ 源扫描断言。 */
 {
@@ -114,17 +183,29 @@ steps.push({ name: `JSON.parse ${jsons.length} 个 .json`, ok: jsonBad.length ==
    为何不"一律红"：26 处要逐个接线（多数属清理/收尾的可忽略路径）⇒ 先用仓库既有的**显式计债 + 棘轮**形态；
    新增一处即红（并打印清单）⇒ 与 I5/I10 的"显式计债"同形。 */
 {
-  const BASELINE = { 'crosscheck-deck-json.mjs': 11, 'measure-count.mjs': 4, 'check-schema-vs-limits.mjs': 5, 'gate-release.mjs': 5, 'commit-safe.mjs': 1 }
+  /* ★ msg9 ②：基线**读工具产出的 JSON**（不再手写数字）；并**逐文件打印 实测 vs 基线**。 */
+  let base = null
+  /* ⚠️ 这一处**不哑**：读基线失败必须**说出原因**（我上一版写成"空体 catch + 注释"⇒ 被自己的分类器算作哑 catch ✗）
+     ⚠️ 且**注释里不许出现块注释的闭合符号**（我本次又栽：它把本块注释提前闭合 ⇒ 语法错 —— I9 第二次） */
+  try { base = JSON.parse(readFileSync(SILENT_BASE, 'utf8')) } catch (e) { console.error(`   （读 silent-catch-baseline.json 失败 ⇒ ${e.message}；请跑 --write-silent-baseline）`) }
   const bad = []
-  for (const [f, base] of Object.entries(BASELINE)) {
-    const p = join(HERE, f)
-    if (!existsSync(p)) { bad.push(`${f}：缺文件`); continue }
-    const t = readFileSync(p, 'utf8')
-    const all = [...t.matchAll(/catch\s*(\([^)]*\))?\s*\{[^{}]*\}/g)].map((m) => m[0])
-    const dumb = all.filter((s) => !/(console\.|throw|return|writeSync|Atomics|\+\+|-=|\+=)/.test(s)).length
-    if (dumb > base) bad.push(`${f}：哑 catch **${dumb}** > 基线 ${base} ⇒ 新增了静默 catch（要么接线、要么显式计债）`)
+  if (!base || !base.files) bad.push('缺 `silent-catch-baseline.json`（跑 `node commit-safe.mjs --write-silent-baseline` 生成）⇒ 棘轮无基线')
+  else {
+    const FILES = Object.keys(base.files)
+    const actual = {}
+    const lines = []
+    for (const f of FILES) {
+      if (!existsSync(join(HERE, f))) { bad.push(`${f}：缺文件`); continue }
+      const c = catchCounts(readFileSync(join(HERE, f), 'utf8'))
+      actual[f] = c.dumb
+      lines.push(`${f} 实测 ${c.dumb} / 基线 ${base.files[f]}${c.dumb < base.files[f] ? ' ⬇' : c.dumb > base.files[f] ? ' ⬆' : ''}`)
+    }
+    bad.push(...ratchetViolations(base.files, actual))
+    steps.push({ name: `哑 catch 棘轮（基线=${
+      'silent-catch-baseline.json'} @ ${String(base.sha || '?')} · 合计 ${base.total}）`, ok: bad.length === 0, detail: bad })
+    for (const l of lines) console.log(`     · ${l}`)
   }
-  steps.push({ name: '哑 catch 棘轮（只许减 · 基线合计 26）', ok: bad.length === 0, detail: bad })
+  if (bad.length && !base) steps.push({ name: '哑 catch 棘轮', ok: false, detail: bad })
 }
 /* ★★ team-lead msg8 ③：**兜底正控** —— "装了兜底"本身要有证明（与"负控要能失败"同族）。 */
 {

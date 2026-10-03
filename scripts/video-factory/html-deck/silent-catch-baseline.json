@@ -1,0 +1,14 @@
+{
+  "_doc": "哑 catch 基线（**工具产出**：node commit-safe.mjs --write-silent-baseline）—— 判据=「体内既无 console./throw 也无计数」的 catch 数",
+  "_invariant": "I8b：哑 catch **只许减**；新增即红；基线与实测**逐文件对账**（不许手写数字）",
+  "at": "2026-10-03T23:14:42.502Z",
+  "sha": "a509f2c",
+  "files": {
+    "crosscheck-deck-json.mjs": 11,
+    "measure-count.mjs": 4,
+    "check-schema-vs-limits.mjs": 5,
+    "gate-release.mjs": 5,
+    "commit-safe.mjs": 4
+  },
+  "total": 29
+}
