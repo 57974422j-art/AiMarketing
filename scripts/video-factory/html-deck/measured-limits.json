@@ -1,6 +1,6 @@
 {
   "_doc": "**内容上限实测表（判据口径）** —— `measure-table.mjs` / `measure-sweep.mjs` 的产出，`check-schema-vs-limits.mjs` 的**唯一输入**。规矩：① 每个 `maxLength` 必须在此有对应条目（否则红线不可复核）；② 条目 `judgeLimit=null` 表示\"到 K_MAX 仍不触发判据\"⇒ 该字段**不许**有硬上限（只许 advisory）；③ 硬上限必须 ≤ ⌊0.9 × judgeLimit⌋（余量规则）。",
-  "_invariant": "I1 `maxLength` 必须存在或显式声明无硬上限 · I2 `maxLength ≤ ⌊0.9×judgeLimit⌋` · I3 无判据支撑 ⇒ 不许有 `maxLength` · I4 `recommendedMax ≤ maxLength`（两者都有时）",
+  "_invariant": "I1 `maxLength` 必须存在或显式声明无硬上限 · I2 `maxLength ≤ ⌊0.9×judgeLimit⌋` · I3 无判据支撑 ⇒ 不许有 `maxLength` · I4 `recommendedMax ≤ maxLength`（两者都有时） · **I6 `offset ≠ 0` 的格子：`judgeLimit` 必须由「输入值口径」测得**（元素口径只作校核 —— 上限作用于**输入值**，混口径会让 ×0.9 余量被**叠加两次** ⇒ 上限偏紧 ⇒ 又一个「内容不足」来源；实例：issuer 曾按『元素 840 − 13 = 827』换算 ⇒ 真判据其实是 **833**）",
   "_methodology": {
     "check1_crossDeck": "**临界值由版式决定（同母版 + 同几何 ⇒ 同值）**：`out/deck.all12` 的 `.cover-title` 实测临界 **37**，与 `out/deck.master-v1` 的 **37 逐项相同**（依据 content_overlap / 页1 / 2.600s / 帧未换）⇒ **一张表可外推到所有用该母版/几何的档**（这正是\"代表档清单\"能塌缩成本的前提，已有实测背书）。",
     "check2_perMaster": "**跨母版可差 1 字**：v2 母版（浅色）的 cover.title 实测 **36** ≠ v1 的 **37** ⇒ 该格**分母版记录**（表按母版分列）；\"两套母版字阶一致 ⇒ 不必逐母版测\"这条裁定**作废**，改为**逐母版抽验**。旁证：跨母版恰好差 1 字 ⇒ 印证\"硬上限留 10% 余量（⌊0.9×判据⌋）\"的必要性。",
@@ -29,11 +29,11 @@
       {
         "jsonPointer": "#/$defs/meta/properties/issuer",
         "schemaBefore": 40,
-        "schemaAfter": 744,
-        "judgeLimit": 827,
-        "judgeElement": 840,
+        "schemaAfter": 749,
+        "judgeLimit": 833,
+        "judgeElement": 846,
         "offset": 13,
-        "where": "schema（判据换算到输入口径 = 元素 840 − 常量偏移 13）"
+        "where": "**输入口径实测**（832 PASS / 833 FAIL）· 元素 846 = 833+13；⚠️ 更正：744 曾按『元素 840−13=827』换算（隐含『840 是锐边界』错假设 —— 实测 841…845 仍可过）⇒ 真判据 833 ⇒ 749"
       },
       {
         "jsonPointer": "#/$defs/pageBullets/properties/title",
@@ -154,8 +154,9 @@
       "field": "meta.issuer",
       "pageType": "cover",
       "detectPoint": "issuer",
-      "judgeLimit": 827,
-      "judgeElement": 840,
+      "judgeLimit": 833,
+      "judgeElement": 846,
+      "judgeLimitNote": "**输入口径实测（输入值锐边界）**：判据−1 PASS（codes=[]）/ **判据 FAIL**（content_overlap，±1 双侧）· 元素口径读回 = 判据 + offset ⇒ 两口径自洽。⚠️ 早先的 827 由『元素 840 − 13』换算而来，**隐含了 840 是锐边界**这个错假设 ⇒ 实测 841…845 仍可过（team-lead 亲测 840/845 均 ok:false），故 827 不是真判据",
       "offset": 13,
       "offsetKind": "模板常量（与内容无关）",
       "offsetEvidence": "render-deck.mjs L331：const iss = [meta.issuer ? `出品：${meta.issuer}` : '', meta.date].filter(Boolean).join(' · ') ⇒ 偏移 = 3(出品：) + 3( · ) + len(meta.date=2026-10 → 7) = **13**；产物实测 .issuer 文本 29 字 = 出品：(3)+AiMarketing 视频工厂(19)+ · (3)+2026-10(7) ⇒ 去掉前后缀得输入 16 字 ✓ 与注入一致（原先的『读回 769/756』即 756+13 的误报）",
@@ -166,12 +167,12 @@
       "posPath": "120(非白名单 0) → 240(非白名单 0) → 480(非白名单 0) → 960(非白名单 1)",
       "page": 1,
       "at": "2.600",
-      "readback": "840/840（**元素口径**）· 输入口径 = 840 − 13 = **827**",
+      "readback": "**输入口径判据**（判据−1 PASS / 判据 FAIL，±1 双侧）· 元素口径读回 = 判据 + offset（13）✓（该格判据按裁定只认输入口径）",
       "frameResampled": false,
-      "twoPath": "**两路一致**：承诺 k=744 过闸（读回 − offset = k）· k=745 **被硬上限拒**（原因经断言确认来自 schema 上限）· 判据 840（元素口径，输入口径 827）由第一路给出 · 依据 content_overlap",
-      "schemaNow": "maxLength **744** = ⌊0.9×827⌋（**×0.9 作用于输入口径**）· recommendedMax 40（版式建议）",
-      "source": "node measure-table.mjs --deck master-v1 --cells cover.issuer",
-      "kEnforced": 744,
+      "twoPath": "**判据已按输入口径重测**（裁定 (a)）：判据−1 PASS / **判据 FAIL**（content_overlap · 页1@at · 正控见 posK）· 元素口径 = 判据 + offset 自洽 · **第二路（承诺=现 maxLength）✅ 过闸**（k=749 PASS，读回 = k + offset）· ⏳ **上限生效待补证**（不带 `--raise-max` 的 k=750 应被拒）",
+      "schemaNow": "maxLength **749** = ⌊0.9×833⌋（**×0.9 作用于输入口径**）· recommendedMax 40（版式建议）",
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field meta.issuer --cls issuer --ks \"832,833\" --pathA 827 --raise-max issuer=847 --readback-offset 13",
+      "kEnforced": 749,
       "updatedAt": "2026-10-03"
     },
     {

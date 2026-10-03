@@ -39,7 +39,7 @@
           "recommendedMax": 60,
           "description": "封面副标（硬性 ≥6 字）。**硬上限 203 = ⌊0.9 × 判据临界 226⌋**（实测 · content_overlap）；`recommendedMax: 60` 是**版式建议**（母版初版按\"副标一行\"的观感定的建议值——保持简短更稳），**不参与闸门判定**（两类上限不许混用，见 §25c 与 check-schema-vs-limits）"
         },
-        "issuer": { "type": "string", "maxLength": 744, "recommendedMax": 40, "description": "出品方（右下/左下小字，可选）。**硬上限 744 = ⌊0.9 × 输入口径判据 827⌋**：元素口径判据实测 **840**（content_overlap · 页1@2.600s · 正控 k=960），而渲染时该元素 = `出品：` + issuer + ` · ` + date（render-deck.mjs L331）⇒ **常量偏移 13** ⇒ 判据换算到输入口径 840 − 13 = **827**（模板常量、与内容无关，故可直接换算；×0.9 作用于输入口径）；`recommendedMax: 40` 是**版式建议**（签发方一行观感），不参与闸门判定" },
+        "issuer": { "type": "string", "maxLength": 749, "recommendedMax": 40, "description": "出品方（右下/左下小字，可选）。**硬上限 749 = ⌊0.9 × 输入口径判据 833⌋**（**输入口径实测** 2026-10-04：k=**832 PASS**（codes=[]）/ k=**833 FAIL**（content_overlap）⇒ 锐边界 = 833；元素口径读回 846 = 833 + **常量偏移 13**（render-deck.mjs L331：`出品：`+issuer+` · `+date）；正控 k=960）。⚠️ **更正**：早先记的「元素 840 ⇒ 输入 840−13=827」**隐含了「840 是锐边界」这个错假设** —— 实测 841…845 **仍可过**，故 827 不是真判据（真判据 = 833）。教训：**offset ≠ 0 的格子，判据必须按输入值口径测**（上限作用于输入值；混用口径会让 ×0.9 余量被**叠加两次** ⇒ 上限偏紧 ⇒ 又一个「内容不足」来源）；`recommendedMax: 40` 是**版式建议**（签发方一行观感），不参与闸门判定" },
         "date": { "type": "string", "maxLength": 24, "description": "日期/期号小字，可选" },
         "lang": { "enum": ["zh-CN"], "description": "v1 只支持简体中文" }
       }
