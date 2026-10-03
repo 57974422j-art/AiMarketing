@@ -1,0 +1,81 @@
+{
+  "_doc": "**不变量总表（机器可读）**：本项目所有「断言」的登记处。**目的**：让「有两处真源」不可能藏住 —— 每条不变量必须写明 enforcedBy（谁在守它）与 incident（它是哪次事故的产物）。人读版在 README 的 §25 系列与 measured-limits 的 _invariant；**两者与这里必须一致**（一致性断言见 _todo）。",
+  "_rule": "新增断言**必须先登记在这里**（带 incident）；否则等于「没人守、也没人知道为什么有它」。",
+  "_note_quotes": "⚠️ 本文件所有说明性文字**只用「」/『』，不许用 ASCII 直引号** —— 我今晚两次因为描述里写裸直引号把 JSON 弄坏（deck.schema.json 一次、本文件一次）。这正是待做的 ④ lint（做成检查器断言）要抓的东西。",
+  "_todo": [
+    "一致性断言：measured-limits._invariant 的 I1–I4 与 README §25 系列的条目必须与本表一一对应（建议与 I5 同批做进 check-schema-vs-limits.mjs）",
+    "④ ASCII 引号 lint：扫 deck.schema.json 的 description 与 measured-limits 的说明字段，出现 ASCII 直引号 ⇒ 红（本条 _note_quotes 就是它的自证例）"
+  ],
+  "invariants": [
+    {
+      "id": "I1",
+      "name": "每个长度字段二选一",
+      "rule": "每个字段必须有 maxLength，或显式声明「无硬上限」（不许含糊）",
+      "enforcedBy": ["check-schema-vs-limits.mjs"],
+      "incident": "无判据支撑的硬上限曾无端限制写作（AI 内容不足的病根）"
+    },
+    {
+      "id": "I2",
+      "name": "硬上限留 10% 余量",
+      "rule": "maxLength ≤ ⌊0.9 × judgeLimit⌋（防换机/换引擎 ±1 波动偶发炸闸门）",
+      "enforcedBy": ["check-schema-vs-limits.mjs"],
+      "incident": "跨母版判据差 1 字（v1=37 / v2=36）实测 ⇒ 满打满算的硬上限会偶发拒收"
+    },
+    {
+      "id": "I3",
+      "name": "无判据 ⇒ 不许硬上限",
+      "rule": "没有判据支撑的字段只许 advisory；judgeLimit=null 分两种：①已测到 K_MAX 不触发 ⇒ 真无上限；②未测/量具缺陷 ⇒ 归覆盖清单，不判红",
+      "enforcedBy": ["check-schema-vs-limits.mjs"],
+      "incident": "items[0] 曾被 40 字硬拒（实测容量 164）"
+    },
+    {
+      "id": "I4",
+      "name": "advisory ≤ enforced",
+      "rule": "recommendedMax ≤ maxLength（两者都有时）；荒谬组合 ⇒ 红",
+      "enforcedBy": ["check-schema-vs-limits.mjs"],
+      "incident": "pageChart.explain 曾出现 recommendedMax 60 > maxLength 39（team-lead 裁定里带的那个反例，被 I4 当场抓到）"
+    },
+    {
+      "id": "I5",
+      "name": "enforced 上限只许一处真源",
+      "rule": "validate-deck.mjs 的判定必须读 schema（按 JSON 指针），不手抄、不按叶名；等级敏感（error↔maxLength，warn/info↔recommendedMax）；含指针守卫（lim 指针指错 ⇒ 静默无上限 ⇒ 红）",
+      "enforcedBy": ["check-schema-vs-limits.mjs", "I5-文档（AI-PROMPT 的 N 字必须同源）"],
+      "incident": "K22：三处真源（schema · validate-deck 手抄 14 处加 n>40 · AI-PROMPT 12 处）⇒ 改契约不改可执行 ⇒ 渲染器按旧表拒收（items.0 的 k=164 render exit=3），吃掉了测量能力"
+    },
+    {
+      "id": "I5-表",
+      "name": "程序生成的实测条目不许私带非派生数字",
+      "rule": "measured-limits.json 里由工具生成的条目，散文中的数字必须是派生写法（判据-1 / posK / 判据+offset），不许硬写具体值",
+      "enforcedBy": ["check-schema-vs-limits.mjs"],
+      "incident": "我在 issuer 的 twoPath 里硬写 832/960 ⇒ 被 I5-表 抓到（该断言有效）"
+    },
+    {
+      "id": "I6",
+      "name": "同一次运行里两份结论必须同源",
+      "rule": "父进程判定以子进程的 JSON 汇总为唯一判据；两份结论自相矛盾 ⇒ 拒绝渲染",
+      "enforcedBy": ["render-deck.mjs"],
+      "incident": "validate-deck 曾用 console.log 污染 stdout ⇒ 父进程解析失败 ⇒ 判「校验不通过」（I6 的第三例）"
+    },
+    {
+      "id": "I7",
+      "name": "offset ≠ 0 的格子：判据必须按输入值口径测",
+      "rule": "元素口径只作校核；judgeLimit 必须是输入值口径（上限作用于输入值）",
+      "enforcedBy": ["measured-limits.json（元数据与 kEnforced）", "check-schema-vs-limits.mjs（I2 用输入口径）"],
+      "incident": "meta.issuer：原记 827 = 元素 840 减 offset 13，隐含「840 是锐边界」的错假设 ⇒ 实测 841 到 845 仍可过，真判据 = 833（832 PASS / 833 FAIL）⇒ 混口径会让 ×0.9 余量被叠加两次"
+    },
+    {
+      "id": "I8",
+      "name": "禁止静默 catch",
+      "rule": "每个 catch 必须递增一个会被打印的计数器（如 statFail），并在打印处显式标注「该数字可能偏小/不可信」",
+      "enforcedBy": ["gate-release.mjs（statFail，首例）", "（待推广全仓）"],
+      "incident": "闸门信息行第一版打印 298 个目录 / 0.0 MB（假数据）：statSync 未 import ⇒ 每个文件抛 ReferenceError 被内层 catch 吞掉 ⇒ 静默归零；真值 2955.8 MB（clean-tmp 的 dry 实测）⇒ 靠「两份独立来源的数字对账」才暴露"
+    },
+    {
+      "id": "I9",
+      "name": "注释里不许出现块注释符号",
+      "rule": "块注释内不得再出现 star-slash（会提前闭合外层注释）；跨行的说明文字用「」引述，不要复述那个字符组合",
+      "enforcedBy": ["（待做：可做进 check-syntax-and-json 的文本扫描）"],
+      "incident": "我今晚**两次**栽在这：gate-release.mjs（已提交的坏提交 67db97a）与 commit-safe.mjs（首次运行即被自己的语法错误挡住，未提交）"
+    }
+  ]
+}

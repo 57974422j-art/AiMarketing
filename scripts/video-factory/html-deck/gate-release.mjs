@@ -69,7 +69,9 @@ const GRAY_DIR = [
 function rootWhitelist() {
   /* ★ `measured-limits.json`：**实测上限表**（`check-schema-vs-limits.mjs` 的唯一输入 · team-lead ③ 不变量的数据源）
      —— 放引擎根是**有意**的（与 `deck.schema.json` 同级 = 同属契约数据）⇒ 在此**登记**（不是绕过） */
-  const okFile = (n) => /\.mjs$/.test(n) || /\.md$/.test(n) || n === '.gitignore' || n === 'package.json' || n === 'package-lock.json' || n === 'deck.schema.json' || n === 'measured-limits.json' || /^(allowlist-.*|docs-fork-.*|probe-path-.*|bad-.*|deck-targets|comment-killer-allowlist)\.json$/.test(n) || n === 'exclude-coverage.json'
+  /* ★ 2026-10-04：`invariants.json`（**不变量总表** · team-lead ③：I1–I9 的登记处）同样**有意**放引擎根
+     （与 `deck.schema.json`/`measured-limits.json` 同级 = 同属契约数据）⇒ 在此**登记**（不是绕过）。 */
+  const okFile = (n) => /\.mjs$/.test(n) || /\.md$/.test(n) || n === '.gitignore' || n === 'package.json' || n === 'package-lock.json' || n === 'deck.schema.json' || n === 'invariants.json' || n === 'measured-limits.json' || /^(allowlist-.*|docs-fork-.*|probe-path-.*|bad-.*|deck-targets|comment-killer-allowlist)\.json$/.test(n) || n === 'exclude-coverage.json'
   /* `cs-test/` `seek-test/` = **引擎自测资产**（随引擎走；原本只在不可分发树，2026-10-03 补入库） */
   const okDir = ['masters', 'examples', 'fonts', 'evidence', 'cs-test', 'seek-test']
   // 灰名单 = **运行时生成物 / 已声明不入库**：`out*/`（渲染产物，闸门的操作对象）· `node_modules/` · 点目录
