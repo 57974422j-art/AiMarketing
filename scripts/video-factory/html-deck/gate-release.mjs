@@ -163,6 +163,33 @@ function dupSectionNumbers() {
   return bad
 }
 
+/* ---------- ⓪h **行尾口径一致**（team-lead ②：契约口径必须与现实一致）----------
+   现实（2026-10-03 核清）：根 `.gitattributes` 声明 `* text=auto eol=lf` ⇒ **仓库存储 = LF**；
+   工作区因本机 `core.autocrlf=true` 呈 CRLF，属**本机产物、非权威**（`git ls-files --eol` = `i/lf w/crlf`）。
+   断言：① 根 `.gitattributes` 必须仍在且声明文本行尾（否则"规范形式"变成随机器而定）；
+        ② 契约文档里**不许**出现"行尾 = CRLF / CRLF 是权威"这类把本机产物当口径的表述。 */
+function eolPolicyIssues() {
+  const bad = []
+  let repo = ''
+  try { repo = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: HERE, encoding: 'utf8' }).stdout.trim() } catch { repo = '' }
+  if (!repo) { bad.push('取不到 git 仓库根 ⇒ 无法核行尾口径'); return bad }
+  const ga = join(repo, '.gitattributes')
+  if (!existsSync(ga)) bad.push('根 .gitattributes 不存在（文本行尾会随机器而变 ⇒ 与本契约口径不符）')
+  else {
+    const t = readFileSync(ga, 'utf8')
+    if (!/eol=lf/.test(t)) bad.push('根 .gitattributes 未声明 eol=lf（仓库存储形式不确定）')
+    if (/eol=crlf/.test(t)) bad.push('根 .gitattributes 声明了 eol=crlf（与本契约"仓库存储 = LF"冲突）')
+  }
+  for (const f of ['README.md', 'ENGINE-CONTRACT.md']) {
+    const p = join(DECK_DIR, f)
+    if (!existsSync(p)) continue
+    readFileSync(p, 'utf8').split('\n').forEach((l, i) => {
+      if (/行尾\s*[=＝]\s*CRLF|CRLF\s*(是|为)\s*权威/.test(l)) bad.push(`${f}:${i + 1} 把本机 CRLF 当口径（仓库存储 = LF）`)
+    })
+  }
+  return bad
+}
+
 const rows = []
 const t0 = Date.now()
 const smp = selfMadePaths()
@@ -171,6 +198,15 @@ rows.push({
   verdict: smp.length ? `✗ ${smp.length} 处自造路径：${smp.join(', ')}` : '✓ 无自造路径（全部 import paths.mjs）',
   tail: smp.map((x) => `· ${x} ⇒ 改为 import { ENGINE_ROOT | DECK_DIR | MASTERS_DIR | FONTS_DIR } from './paths.mjs'`),
 })
+/* ★ ⓪h：行尾口径一致（仓库存储 = LF；不许把本机 CRLF 当口径） */
+{
+  const eolB = eolPolicyIssues()
+  rows.push({
+    group: '⓪h行尾口径', label: '行尾口径一致（仓库存储 = LF · .gitattributes 在位）', script: '(内置)', exit: eolB.length ? 1 : 0, sec: 0,
+    verdict: eolB.length ? `✗ ${eolB.length} 处：${eolB.join(' · ')}` : '✓ 一致（根 .gitattributes 声明 eol=lf；契约无"CRLF 为口径"表述）',
+    tail: eolB.map((x) => `· ${x}`),
+  })
+}
 /* ★ ⓪g：小节编号唯一（撞号 ⇒ "见 §25f" 指向两处；与"库内两份真源"同族） */
 {
   const dupSec = dupSectionNumbers()
@@ -257,8 +293,10 @@ if (process.argv.includes('--whitelist-only')) {
   /* ★ ⓪g 也在快验里打印（否则"撞号"这种廉价断言在快验里不可见） */
   const dupOnly = dupSectionNumbers()
   console.log(`⓪g 小节编号唯一：${dupOnly.length ? `✗ ${dupOnly.length} 处重复：${dupOnly.join(' · ')}` : '✓ 编号唯一（README / ENGINE-CONTRACT / AI-PROMPT）'}`)
-  // 退出码分档：白名单/自造路径/注释/语法/编号红 ⇒ 1；分叉红 ⇒ 1；分叉**配置错**（2）⇒ 2（§25b）
-  process.exit(extra.length || smpOnly.length || ckBad.length || fk.status || dupOnly.length ? 1 : (fkOnly.status === 2 ? 2 : (fkOnly.status ? 1 : 0)))
+  const eolOnly = eolPolicyIssues()
+  console.log(`⓪h 行尾口径一致：${eolOnly.length ? `✗ ${eolOnly.length} 处：${eolOnly.join(' · ')}` : '✓ 一致（根 .gitattributes 声明 eol=lf）'}`)
+  // 退出码分档：白名单/自造路径/注释/语法/编号/行尾红 ⇒ 1；分叉红 ⇒ 1；分叉**配置错**（2）⇒ 2（§25b）
+  process.exit(extra.length || smpOnly.length || ckBad.length || fk.status || dupOnly.length || eolOnly.length ? 1 : (fkOnly.status === 2 ? 2 : (fkOnly.status ? 1 : 0)))
 }
 /* ①b **`--render`**：渲"缺产物 ∪ 陈旧"的声明档再判（跳过以新鲜度为前提）；逐档打印 exit */
 if (RENDER) {
