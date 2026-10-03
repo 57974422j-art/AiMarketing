@@ -105,9 +105,13 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   const g = spawnSync(process.execPath, [join(HERE, 'check-engine-lint.mjs'), prodDir, '--assert-overlap', '--assert-decor', '--no-contrast'],
     { cwd: HERE, encoding: 'utf8', maxBuffer: 1 << 26 })
   const gout = String(g.stdout || '') + String(g.stderr || '')
-  const allCodes = [...gout.matchAll(/"code"\s*:\s*"([a-z_]+)"/g)].map((x) => x[1])
-  const uniq = [...new Set(allCodes)]
-  const judgeHit = uniq.filter((x) => JUDGE.includes(x))
+  /* ⚠️ **实测输出形态**：`各 code 计数: timeline_track_too_dense×1 · nested_structure_needs_subcomposition×12`
+     （**不是** JSON 的 `"code":` 形态）—— 我第一版按 JSON 提取 ⇒ **永远拿空集** ✗（同族：提取式与真实形态不符）。
+     JUDGE 判据另看**专用断言行**：`重叠判据（content_overlap）[--assert-overlap]：共 N 条` ⇒ **N>0 才算判据触发**。 */
+  const codesLine = (/各 code 计数:\s*([^\n]*)/.exec(gout) || [])[1] || ''
+  const uniq = codesLine.split('·').map((s) => s.trim().split('×')[0].trim()).filter(Boolean)
+  const ovl = Number(((/重叠判据[^\n]*共\s*(\d+)\s*条/.exec(gout) || [])[1]) || 0)
+  const judgeHit = ovl > 0 ? ['content_overlap'] : []
   const outsider = uniq.filter((x) => !JUDGE.includes(x))
   const gateOk = /结论:\s*PASS/.test(gout) || (g.status === 0 && !judgeHit.length)
 
@@ -118,16 +122,24 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
     console.log(`      渲染 ✗（exit=${r.status}）原样末 6 行：`)
     for (const l of rout.split('\n').filter(Boolean).slice(-6)) console.log(`        ${l.slice(0, 170)}`)
   }
-  if (outsider.length) console.log(`      ⚠️ **出现不在判据集合的码**：${outsider.join(', ')} ⇒ (c) 要求红（不得当作"无触发"）`)
+  /* ⚠️ **恒定 vs 新增**：行内只**记录**；是否判红由**跨 N 差分**决定（见结论段）—— 第一版行内直接写"要求红"⇒
+     与结论段"恒定码不判红"**自相矛盾**（实跑打到）。 */
+  if (outsider.length) console.log(`      ℹ 非判据集合的码（是否判红看**跨 N 差分**）：${outsider.join(', ')}`)
 }
 
 /* 判定 */
 const badReadback = rows.filter((r) => r.counted !== r.N)
-const outsiderRows = rows.filter((r) => r.outsider.length)
+/* ★ (c) **按 N 差分**（第一版"出现任何非判据码即红"太钝：`timeline_track_too_dense` 等**在 N=3 就有** ⇒
+   是**恒定装饰性 warning**（与"容量失败模式"无关）⇒ 只有**随 N 新增**的非判据码才是"候选码不在判据集合"）
+   ⇒ 红条件 = **新增的非判据码**（点名），恒定非判据码**记录但不红**。 */
+const baseCodes = new Set(rows.length ? rows[0].codes : [])
+const constantOutsiders = [...new Set(rows.flatMap((r) => r.outsider).filter((c) => baseCodes.has(c)))]
+const newOutsiders = [...new Set(rows.flatMap((r) => r.outsider).filter((c) => !baseCodes.has(c)))]
 const first = rows.find((r) => r.judgeHit.length)
 console.log('\n=== 结论 ===')
 if (badReadback.length) console.log(`  ✗ **读回条数不匹配** ${badReadback.length} 行（${badReadback.map((r) => `N=${r.N}:${r.counted}`).join(' ')}）⇒ 注入没生效 ⇒ 读数无意义 ⇒ exit 2`)
-if (outsiderRows.length) console.log(`  ✗ **有"非判据集合的码"**：${[...new Set(outsiderRows.flatMap((r) => r.outsider))].join(', ')} ⇒ 不许当"无触发" ⇒ exit 2`)
+if (newOutsiders.length) console.log(`  ✗ **有"随 N 新增的非判据码"**：${newOutsiders.join(', ')} ⇒ 不许当"无触发" ⇒ exit 2`)
+if (constantOutsiders.length) console.log(`  ℹ 恒定非判据码（各 N 都有 ⇒ 与容量无关，**记录不判红**）：${constantOutsiders.join(', ')}`)
 if (first) console.log(`  ✅ 判据（首个触发判据码的 N）= **${first.N}** · 决定性码 = [${first.judgeHit.join(', ')}] · 闸门=${first.gate}`)
 else console.log(`  ⏳ 到 N_MAX=${N_MAX} 未触发 ⇒ 按 (b) 记 **judgeLimitAtLeast: ${N_MAX}**（**不是 null**：已测且容量 ≥ ${N_MAX}）⇒ editorial 格的「cap ≤ ${N_MAX}」仍要断言`)
-process.exit(badReadback.length || outsiderRows.length ? 2 : 0)
+process.exit(badReadback.length || newOutsiders.length ? 2 : 0)

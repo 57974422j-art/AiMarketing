@@ -87,24 +87,30 @@ function runSelfTestUsage() {
   /* ★ team-lead ②：**必须至少一条真成功路径（exit=0）** —— 否则 10 例全 exit=2 ⇒ "**全红与全坏不可区分**"
      （镜像版："全绿 = 全红不可区分"）：若某天解析器整体坏掉、每条用法都 exit 2，自测**照样全 ✓**。
      成功路径须走通到**渲染/读数**（真底档 + 真 `--cls` + 合法 `auto=`）⇒ 断言 **exit=0** 且出现 `GATE-RESULT` 机器标记。 */
+  /* ★ team-lead ③：**每个用例显式声明"期望族"** ⇒ 断言 `实际族集合 == 期望族集合`（不只"≥1 族被命中"——
+     那只证明"**有话说**"，不证明"**说对了话**"）。与"每族 ≥1 用例"合起来才是完整双向。 */
   const CASES = [
-    ['success', ['--json', 'examples/deck.master-v1.json', '--field', 'meta.title', '--cls', 'cover-title', '--ks', '37', '--raise-max', 'auto=100']],
-    ['auto-hit', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=39']],
-    ['auto-miss', ['--json', 'examples/__nope.json', '--field', 'nosuch.field', '--ks', '1', '--raise-max', 'auto=9']],
-    ['lower-value', ['--json', 'examples/__nope.json', '--field', 'meta.issuer', '--ks', '1', '--raise-max', 'issuer=700']],
-    /* ★ 消息族断言当场抓到的缺口：**「无需抬」族没有用例命中** ⇒ 补"等值"分支（cap=33 ⇒ `auto=33` 恰好相等） */
-    ['equal-value', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=33']],
-    ['not-found', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'nosuchleaf=9']],
-    ['multi-hit', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'title=99']],
-    ['multi-allow', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'title=99', '--allow-multi']],
-    ['judge-fixture', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=40', '--judge-fixture', 'out-tmp-ctl/fx-judge33.json']],
-    ['offset', ['--json', 'examples/__nope.json', '--field', 'meta.issuer', '--ks', '1', '--raise-max', 'auto=800', '--readback-offset', '13']],
-    ['keep', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=39', '--keep']],
-    ['bad-pointer', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', '#//x=9']],
+    /* ⚠️ 期望族曾写漏 `auto 反查`（该用例用 `auto=100` ⇒ 会打 ℹ auto 反查行）⇒ **被期望族断言当场抓到** ✓ */
+    ['success', ['--json', 'examples/deck.master-v1.json', '--field', 'meta.title', '--cls', 'cover-title', '--ks', '37', '--raise-max', 'auto=100'], ['仅量测', 'auto 反查', '成功读数']],
+    ['auto-hit', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=39'], ['auto 反查', '仅量测']],
+    ['auto-miss', ['--json', 'examples/__nope.json', '--field', 'nosuch.field', '--ks', '1', '--raise-max', 'auto=9'], ['查不到 jsonPointer']],
+    ['lower-value', ['--json', 'examples/__nope.json', '--field', 'meta.issuer', '--ks', '1', '--raise-max', 'issuer=700'], ['只许抬']],
+    /* ★ 消息族断言当场抓到的缺口：**「无需抬」族没有用例命中** ⇒ 补"等值"分支（cap=33 ⇒ `auto=33` 恰好相等）
+       ⚠️ 该用例的 exit=2 来自**该分支本身**（无需抬），不是下游 bogus 参数 —— 由**期望族断言**保证 ✓ */
+    ['equal-value', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=33'], ['无需抬', 'auto 反查']],
+    ['not-found', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'nosuchleaf=9'], ['找不到 leaf']],
+    ['multi-hit', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'title=99'], ['仅量测', '不许入表']],
+    ['multi-allow', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'title=99', '--allow-multi'], ['仅量测', '尚无判据']],
+    /* ⚠️ 该用例曾实际命中「查不到 jsonPointer」—— 真因是 **fixture 的 cell 没声明 `field`**（`auto=` 按 `--field` 反查需要它）
+       ⇒ 已给 fixture 补 `field` ✓（**期望族断言当场抓到**，这正是"说对话"检查的价值） */
+    ['judge-fixture', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=40', '--judge-fixture', 'out-tmp-ctl/fx-judge33.json'], ['auto 反查', '仅量测']],
+    ['offset', ['--json', 'examples/__nope.json', '--field', 'meta.issuer', '--ks', '1', '--raise-max', 'auto=800', '--readback-offset', '13'], ['auto 反查', '仅量测']],
+    ['keep', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=39', '--keep'], ['仅量测', 'auto 反查']],
+    ['bad-pointer', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', '#//x=9'], ['形态不支持']],
   ]
   let bad = 0
   const outs = []
-  for (const [name, argv2] of CASES) {
+  for (const [name, argv2, expectFam] of CASES) {
     const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), ...argv2], { cwd: HERE, encoding: 'utf8', maxBuffer: 1 << 24 })
     const sout = String(r.stdout || ''), serr = String(r.stderr || '')
     /* ⚠️ 判据**必须覆盖全部消息族**（第一版漏了"查不到 jsonPointer"与"形态不支持" ⇒ 把 2 例误报成失败 —— 自测自己也栽在"判据不全"）
@@ -133,11 +139,18 @@ function runSelfTestUsage() {
     '查不到 jsonPointer': /查不到 jsonPointer/, '形态不支持': /形态不支持/, '成功读数': /GATE-RESULT/,
   }
   const hitFam = new Set()
+  const famBad = []
   for (const [name, txt] of outs) {
     const hits = Object.entries(FAMILIES).filter(([, re]) => re.test(txt)).map(([k]) => k)
-    if (!hits.length) { console.error(`✗ 用例 **${name}** 未命中任何消息族 ⇒ **空壳用例** ⇒ exit 2`); process.exit(2) }
+    if (!hits.length) { famBad.push(`用例 **${name}** 未命中任何消息族 ⇒ **空壳用例**`); continue }
+    /* ★ team-lead ③：断言 `实际族集合 == 期望族集合`（不只"≥1 族"——那只证明"有话说"，不证明"**说对了话**"）
+       ⚠️ **累计全部不符再报**（第一版逐例 `exit 2` ⇒ 一次只暴露一例，代价是每轮一次渲染） */
+    const exp = (CASES.find(([n]) => n === name) || [])[2] || []
+    const eq = hits.length === exp.length && exp.every((f) => hits.includes(f))
+    if (!eq) famBad.push(`用例 **${name}** 实际族 [${hits.join(', ')}] ≠ 期望族 [${exp.join(', ')}]`)
     hits.forEach((h) => hitFam.add(h))
   }
+  if (famBad.length) { console.error(`✗ **期望族不符 ${famBad.length} 例**：`); for (const s of famBad) console.error(`   · ${s}`); process.exit(2) }
   const orphan = Object.keys(FAMILIES).filter((k) => !hitFam.has(k))
   if (orphan.length) { console.error(`✗ 消息族**未被任何用例命中**：${orphan.join(', ')} ⇒ 这些族的文案没被守 ⇒ exit 2`); process.exit(2) }
   console.log(`  消息族 ↔ 用例：**双向一致 ✓**（族 ${Object.keys(FAMILIES).length} 个 · 全部被命中）`)
