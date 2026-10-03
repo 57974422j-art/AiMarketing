@@ -40,6 +40,7 @@ const MAX = Number(arg('--max', '5'))
 const KEEP = argv.includes('--keep')
 /* ★ (b) **修正版**（team-lead 2026-10-04：原式 `max(cap,min)+3` 太松 ⇒ cap=5 只扫到 8 ⇒ 断言 `cap ≤ 8` 近乎同义反复）：
    `N_MAX = min(20, max(cap+3, 2×cap))` ⇒ cap5→10 · cap6→12 · cap4→8 · cap12→20 · cap2→6（更强且仍便宜）。 */
+const STRIDE = Math.max(1, Number(arg('--stride', '1')))   /* ★ 大 N_MAX 时用**步长**（否则扫到 30 = 28 次渲染） */
 const NM = arg('--nmax', '')
 const N_MAX = NM ? Number(NM) : Math.min(20, Math.max(MAX + 3, 2 * MAX))
 if (NM) console.log(`  ℹ --nmax=${NM}（**显式放宽**：理由必须写进 commit/报告，否则不许放宽）`)
@@ -79,7 +80,7 @@ function fit(arr, n) {
 
 console.log(`=== 条数构造器：deck=${DECK} · ${JSONPATH} · N=${MIN}…${N_MAX}（现上限 ${MAX}·下限 ${MIN}）===`)
 const rows = []
-for (let N = MIN; N <= N_MAX; N++) {
+for (let N = MIN; N <= N_MAX; N += STRIDE) {
   const vj = join(HERE, 'examples', `__tmp_count-k${N}.json`)
   const outdir = `out-tmp-count-k${N}`
   const d = JSON.parse(JSON.stringify(base))

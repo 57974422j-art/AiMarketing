@@ -382,8 +382,10 @@ function checkQuote(p, path) {
 function checkToc(p, path) {
   checkString(p.title, `${path}.title`, 4, 24, '目录页标题')
   if (!Array.isArray(p.items)) { add('error', `${path}.items`, 'items 缺失或不是数组', '补 3~6 条，每条 ≥4 字'); return }
-  if (p.items.length < 3) add('error', `${path}.items`, `只有 ${p.items.length} 条，要求 3~6 条`, '补到 ≥3 条')
-  if (p.items.length > 6) add('error', `${path}.items`, `${p.items.length} 条，上限 6 条`, '精简到 6 条以内（目录超过 6 条观众记不住）')
+  /* ★ K22 同族：toc 条数改**读 schema**（`limItems`） */
+  const [tMin, tMax] = limItems('#/$defs/pageToc/properties/items')
+  if (p.items.length < tMin) add('error', `${path}.items`, `只有 ${p.items.length} 条，要求 ${tMin}~${tMax} 条（schema）`, `补到 ≥${tMin} 条`)
+  if (p.items.length > tMax) add('error', `${path}.items`, `${p.items.length} 条，超过硬上限 ${tMax} 条（schema · 条数）`, `精简到 ${tMax} 条以内（目录超过 ${tMax} 条观众记不住）`)
   p.items.forEach((t, i) => {
     if (typeof t !== 'string') { add('error', `${path}.items[${i}]`, '不是字符串', '改成字符串'); return }
     if (cp(t) < 4) add('error', `${path}.items[${i}]`, `该条只有 ${cp(t)} 字，要求 ≥4 字：${JSON.stringify(t)}`, '补足')
@@ -394,9 +396,11 @@ function checkToc(p, path) {
 function checkSummary(p, path) {
   checkString(p.title, `${path}.title`, 4, 24, '小结页标题')
   if (!Array.isArray(p.items)) { add('error', `${path}.items`, 'items 缺失或不是数组', '补恰好 3 条，每条 ≥8 字'); return }
-  if (p.items.length !== 3) {
-    add('error', `${path}.items`, `有 ${p.items.length} 条，硬性要求恰好 3 条`,
-      p.items.length < 3 ? '补到 3 条；若凑不出 3 条，改用 bullets 页（≥3 条即可）' : '删到 3 条（小结超过 3 条就不是小结了）')
+  /* ★ K22 同族：summary 的"恰好 3 条"（min == max == 3）也**读 schema** */
+  const [sMinC, sMaxC] = limItems('#/$defs/pageSummary/properties/items')
+  if (p.items.length < sMinC || p.items.length > sMaxC) {
+    add('error', `${path}.items`, `有 ${p.items.length} 条，硬性要求 ${sMinC}~${sMaxC} 条（schema）`,
+      p.items.length < sMinC ? `补到 ${sMinC} 条；若凑不出，改用 bullets 页（≥3 条即可）` : `删到 ${sMaxC} 条（小结超过 ${sMaxC} 条就不是小结了）`)
   }
   p.items.forEach((t, i) => {
     if (typeof t !== 'string') { add('error', `${path}.items[${i}]`, '不是字符串', '改成字符串'); return }
@@ -470,13 +474,16 @@ function checkSteps(p, path) {
     add('error', `${path}.steps`, 'steps 缺失或不是数组', '补恰好 3~6 条，每条 ≥6 字')
     return
   }
-  if (p.steps.length < 3) {
-    add('error', `${path}.steps`, `只有 ${p.steps.length} 条，硬性要求 3~6 条`,
-      p.steps.length === 2 ? '若确实是"两件事"，改用 compare 页（左右对照）或 bullets 页（≥3 条）' : '补到 ≥3 条')
+  /* ★ **K22 同族**（条数构造器的正控实测踩到）：这两条曾**手写** `3` 与 `6` ⇒ 覆盖 `maxItems` 后仍被拒死 ⇒
+     条数**测量做不了**。⇒ 改读 schema（`limItems`，与 `lim()` 同一真源/同一指针）。 */
+  const [sMin, sMax] = limItems('#/$defs/pageSteps/properties/steps')
+  if (p.steps.length < sMin) {
+    add('error', `${path}.steps`, `只有 ${p.steps.length} 条，硬性要求 ${sMin}~${sMax} 条（schema）`,
+      p.steps.length === 2 ? '若确实是「两件事」，改用 compare 页（左右对照）或 bullets 页（≥3 条）' : `补到 ≥${sMin} 条`)
   }
-  if (p.steps.length > 6) {
-    add('error', `${path}.steps`, `${p.steps.length} 条，上限 6 条`,
-      '步骤超过 6 条观众记不住：拆成两页 steps，或改用 bullets 页（最多 5 条）')
+  if (p.steps.length > sMax) {
+    add('error', `${path}.steps`, `${p.steps.length} 条，超过硬上限 ${sMax} 条（schema · 条数）`,
+      `步骤超过 ${sMax} 条观众记不住：拆成两页 steps，或改用 bullets 页（最多 5 条）`)
   }
   p.steps.forEach((t, i) => {
     if (typeof t !== 'string') { add('error', `${path}.steps[${i}]`, '不是字符串', '改成字符串'); return }

@@ -227,6 +227,15 @@ function seqViolations() {
   /* ⚠️ **按 id 原文**判重复，不按数字 —— `I5-表` 是 I5 的**变体**（同一编号的不同守卫），
      第一版按数字判 ⇒ 把它误报成"重复号"（被本断言自己的首跑抓到）。连续性仍按**数字去重后**判。 */
   if (new Set(ids.map(String)).size !== ids.length) out.push(`invariants.json 的 I 序号**有重复**：${ids.join(', ')}`)
+  /* ★ team-lead ④：**升序断言**（"连续 + 唯一" ≠ "升序"）—— 实测踩到 `… I9 I11 I12 I10`（I10 排末尾 ⇒
+     读者扫到 I12 就停、**漏读 I10**，且看起来像"被重编号"）。`I5-表` 视为 I5 的**变体**（紧邻 I5，不参与排序）。 */
+  const ordered = ids.map((i) => Number((String(i).match(/^I(\d+)/) || [])[1])).filter((n) => Number.isFinite(n))
+  for (let i = 1; i < ordered.length; i++) {
+    if (ordered[i] < ordered[i - 1]) {
+      out.push(`invariants.json 的 I 序号**不是升序**：第 ${i + 1} 条是 I${ordered[i]}，而前一条是 I${ordered[i - 1]}（读者会**漏读**）`)
+      break
+    }
+  }
   for (let i = 1; i < uniq.length; i++) {
     if (uniq[i] !== uniq[i - 1] + 1) out.push(`invariants.json 的 I 序号**跳号**：${uniq[i - 1]} → ${uniq[i]}（编号序列必须连续）`)
   }
