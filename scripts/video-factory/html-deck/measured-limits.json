@@ -308,6 +308,7 @@
       "at": "14.450",
       "readback": "44/44",
       "frameResampled": false,
+      "deck": "examples/deck.all12.json",
       "twoPath": "**受阻于 schema**（旧上限 60 **> 判据 44 = 不安全上限**）⇒ 收紧到 **39** 后须重跑第二路确认",
       "schemaNow": "maxLength 39 = ⌊0.9×44⌋ · recommendedMax 60（版式建议）",
       "source": "team-lead 实测：out/deck.all12 · .p6-explain · 稳定帧 14.450s · 页 5"
@@ -324,11 +325,23 @@
       "at": "8.100",
       "twoPath": "**判据级真两路一致**（team-lead 实测 · override 下）：k=190 渲染 ok 读回 190/190 GATE ok:true / k=191 读回 191/191 codes=[content_overlap] GATE ok:false",
       "evidence": "母版 `.p3-explain{position:absolute; left:var(--pad); top:calc(var(--pad)+296px)}` —— **无 max-height / 无行数钳制 / 无 nowrap** ⇒ 可换行块 ⇒ content；既有 23 处用量 21~42 字（最长 42 = deck.html-injected）",
-      "status": "**映射已修**（原 cls `.p3-body` 是数值/单位容器 ⇒ 读回 0/9 的假读数；真身 `.p3-explain`，dom-target 复核 count=1 页3）",
-      "basis": [],
-      "posK": null,
-      "note": "**field↔cls 不匹配**：第一路给出荒谬的 `临界 = 9` 且 **exit=1**（±1 验证失败）；第二路**读回 0/9**（注入了但目标文本没变）⇒ 注入的 `pages.2.metric.explain` 与被量的 `.p3-body` **不是同一个东西**。v2 档上同一格给出 750（落在**页 8**）也属同一缺陷 ⇒ 两处读数**都不可信**。修法：用 `dom-target.mjs` 在 `out/deck.all12` 上确认 explain 的真实承载元素（或该页没有 `.p3-body`）→ 改 `measure-table.mjs` 的 cls → 重测。",
-      "source": "node measure-table.mjs --deck master-v1 --cells data.explain（结果被自身 ±1 断言判为不可用）"
+      "status": "**映射已修**（原 cls `.p3-body` 是数值/单位容器 ⇒ 读回 0/9 的假读数；真身 `.p3-explain`，dom-target 复核 count=1 页3）"
+    },
+    {
+      "jsonPointer": "#/$defs/pageData/properties/metric/properties/unit",
+      "field": "pages.2.metric.unit",
+      "pageType": "data",
+      "detectPoint": "p3-body .unit",
+      "judgeLimit": 99,
+      "kind": "editorial",
+      "basis": ["content_overlap"],
+      "detectKind": "length",
+      "page": 3,
+      "at": "8.100",
+      "readback": "99/99（元素口径；无常量偏移）",
+      "twoPath": "**cap ≤ judge 安全性断言**（不是两路一致采样）：现行上限 **8 ≤ 判据 99** ✓ —— kind=editorial ⇒ **不套 ⌊0.9×判据⌋**（否则抬到 89 ⇒ 破坏「单位」语义）。判据级交叉实测（override 下）：k=99 渲染 ok 读回 99/99 GATE ok:true / k=100 读回 100/100 codes=[content_overlap] GATE ok:false",
+      "evidence": "既有 23 处用量最长 **6 字**（帧差异 / 秒 / 类格式）",
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.2.metric.unit --cls \"p3-body .unit\" --ks 99,100 --raise-max unit=101"
     }
   ]
 }

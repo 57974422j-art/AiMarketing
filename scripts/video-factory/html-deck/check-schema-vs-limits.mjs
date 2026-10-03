@@ -385,7 +385,22 @@ if (HANDCHECKS) {
   const argvOf = (n) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : '' }
   const lim = Number(argvOf('--limit') || 0)
   const outFile = argvOf('--out') || ''
-  const allLeaves = [...leaves.keys()].filter((p) => leaves.get(p).maxLength !== undefined)
+  /* ★ team-lead ②：叶子分**两类**，构造输入方式不同 ——
+     长度类（`maxLength`/`minLength`）⇒ 填字符串；**条数类（`maxItems`/`minItems`）⇒ 增删数组元素**。
+     若自证只处理字符串 ⇒ `p.items.length > 5` / `side.points.length > 4` 这类**整片漏检**（最容易被漏的一批）。
+     ⚠️ 现状：**条数类构造器尚未实现** ⇒ 不能静默跳过，必须**显式计入待办段**（否则就是"范围缩小 ⇒ 全绿"）。 */
+  /* ⚠️ **第一版枚举错了**：`leaves` 只收了**带 `maxLength`** 的节点 ⇒ `maxItems` 类的叶子**根本不出现**
+     ⇒ `cntLeaves = 0` ⇒ 条数类**静默漏检**，且 (c) 对账会 **假绿（0 == 0）**
+     （正是 team-lead 警告的"条数类整片漏检"）。⇒ 改用 `schemaLeafIndex`（`$ref` 已解析）的**指针枚举**，
+     按节点上实际存在的关键字分类：string 长度类 vs array 条数类。 */
+  const idxAll = schemaLeafIndex(true)
+  const ptrNodes = new Map()
+  for (const [k, arr] of idxAll) { if (k === '__UNRESOLVED__') continue; for (const c of arr) ptrNodes.set(c.ptr, c.node) }
+  const lenPtrs = [...ptrNodes].filter(([, n]) => n.maxLength !== undefined || n.minLength !== undefined).map(([p]) => p)
+  const cntPtrs = [...ptrNodes].filter(([, n]) => n.maxItems !== undefined || n.minItems !== undefined).map(([p]) => p)
+  const leafType = (p) => (ptrNodes.get(p) && (ptrNodes.get(p).maxItems !== undefined || ptrNodes.get(p).minItems !== undefined)) ? 'count' : 'length'
+  const allLeaves = lenPtrs
+  const cntLeaves = cntPtrs
   const measured = (limits.limits || []).filter((e) => e.judgeLimit != null && e.detectPoint && e.field)
   const auditByLeaf = new Map()
   for (const s of auditLiterals(true)) if (s.leaf && s.verdict.includes('一致')) auditByLeaf.set(s.leaf, s.line)
@@ -409,9 +424,16 @@ if (HANDCHECKS) {
   const unmeasured = allLeaves.filter((p) => !measured.some((e) => e.jsonPointer === p))
   const strictList = uncovered   /* 同一个计算 ⇒ 断言它们相等（防"两处口径分叉"） */
   const sameList = strictList.length === unmeasured.length && strictList.every((p) => unmeasured.includes(p))
-  console.log(`     (a) 已测 **${res.length === 0 ? 0 : pass}/${res.length}**${bad.length ? ' ✗' : ' ✓'}（抬得起来 ⇒ 无手写判定在拦）`)
-  console.log(`     (b) 未测 **${unmeasured.length}**（与 --strict-coverage 清单**逐项一致 = ${sameList ? '✓' : '✗'}**）`)
-  console.log(`     (c) 数量对账：已测 ${measured.length} + 未测 ${unmeasured.length} = **${measured.length + unmeasured.length}** ↔ schema 叶子 **${allLeaves.length}** ⇒ ${measured.length + unmeasured.length === allLeaves.length ? '✓' : '✗ 少受检'}`)
+  /* ★ 按**类型**分段（team-lead ②）：长度类与条数类分开计数、分开对账 */
+  const measLen = measured.filter((e) => leafType(e.jsonPointer) === 'length')
+  const measCnt = measured.filter((e) => leafType(e.jsonPointer) === 'count')
+  const unmCnt = cntLeaves.filter((p) => !measured.some((e) => e.jsonPointer === p))
+  console.log(`     (a) **长度类**已测 **${res.length === 0 ? 0 : pass}/${res.length}**${bad.length ? ' ✗' : ' ✓'}（填字抬得起 ⇒ 无手写判定在拦）`)
+  console.log(`     (a') **条数类**已测 **${measCnt.length}** ⇒ ⏳ **构造器（按数组增删元素）尚未实现 ⇒ 本段未跑，显式计入待办**（不许静默跳过）`)
+  console.log(`     (b) 未测：长度 **${unmeasured.length}**（与 --strict-coverage 清单**逐项一致 = ${sameList ? '✓' : '✗'}**）· 条数 **${unmCnt.length}**`)
+  console.log(`     (c) 分类对账：长度 已测 ${measLen.length} + 未测 ${unmeasured.length} = **${measLen.length + unmeasured.length}** ↔ schema 长度叶子 **${allLeaves.length}** ⇒ ${measLen.length + unmeasured.length === allLeaves.length ? '✓' : '✗'}`)
+  console.log(`        条数 已测 ${measCnt.length} + 未测 ${unmCnt.length} = **${measCnt.length + unmCnt.length}** ↔ schema 条数叶子 **${cntLeaves.length}** ⇒ ${measCnt.length + unmCnt.length === cntLeaves.length ? '✓' : '✗'}`)
+  if (measCnt.length) viol.push(`自证：**条数类**已测 ${measCnt.length} 个（${measCnt.map((e) => e.jsonPointer).join(', ')}）但**构造器未实现 ⇒ 它们未被检验**（不许当"通过"）`)
   if (outFile) { try { writeFileSync(outFile, JSON.stringify({ checked: res.length, pass, bad, unmeasured: unmeasured.length, total: allLeaves.length }, null, 2), 'utf8'); console.log(`     （机器通道已写文件：${outFile}）`) } catch (e) { console.error(`✗ 写文件失败：${e.message} ⇒ exit 2`); process.exit(2) } }
   if (bad.length) viol.push(...bad.map((x) => `自证：${x.ptr} 的 k=${x.k} 渲不出来（还有手写判定${x.handLine ? ` 疑似 L${x.handLine}` : ''}）`))
   if (!sameList) viol.push('自证：未测清单与 --strict-coverage 清单**不一致**（两处口径分叉）')
