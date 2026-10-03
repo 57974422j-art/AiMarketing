@@ -59,7 +59,12 @@ const DRIFT_OK = {
      配到了探针树的 `deck-contract/.gitignore`（另一份、角色不同）⇒ 报"MD5 不等"的**假漂移**。
      深层修法（下一步）：**dotfile 不走 basename 兜底**（点文件通常按角色各自存在）；此处先按例外登记（带 reason）。
      —— 这也再次说明"兜底匹配"要按最小粒度（与"宽允许项 = 静默掩盖"同族，只是反过来是**假红**）。 */
-  'examples/.gitignore': '探针树没有同角色的这份文件（deck-contract/.gitignore 是另一份）；basename 兜底是误配 ⇒ 登记例外',
+  'examples/.gitignore': {
+    reason: '探针树没有同角色的这份文件（deck-contract/.gitignore 是另一份）；本条是 basename 兜底的**误配**',
+    /* ★ team-lead ④：**例外必须自带死期** —— 机制落地后本例外应删除，且断言**例外条数随之归零**
+       （我们刚亲眼见过"永久白名单"的危害：`^examples/` 整目录放行掩盖了临时残留）。 */
+    expiresWhen: 'dotfile 不走 basename 兜底（精确路径配对）落地后 ⇒ 删除本例外；届时例外表条数应回到 0',
+  },
 }
 
 const isFile = (p) => { try { return statSync(p).isFile() } catch { return false } }

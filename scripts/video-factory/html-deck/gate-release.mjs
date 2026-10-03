@@ -292,21 +292,36 @@ rows.push(step('⓪e 陈旧路径', '陈旧路径引用（不可分发路径未�
    ⇒ 临时变体误入库（本次 `examples/__tmp_xcheck-k432.json`）在发版路径上**完全不可见**。
    ⇒ 闸门级检查：**被跟踪**文件里出现 `__tmp_*` / `zzz-*` / `out-tmp-*` ⇒ **判红 + 点名**；每次运行**打印计数**。
    （`.gitignore`（`examples/.gitignore` 含 `__tmp_*`）是"提交前"那道保险，这里是"发版前"那道 —— 两道互补。） */
+let tmpResidue = []
+let tmpResidueRow = { exit: 0, n: 0 }
 {
-  const ls = spawnSync('git', ['ls-files'], { cwd: DECK_DIR, encoding: 'utf8' })
-  const isRepo = ls.status === 0
-  const residue = isRepo
-    ? String(ls.stdout || '').split('\n').map((s) => s.trim()).filter((f) => f && /(^|\/)(__tmp_|zzz-)|(^|\/)out-tmp-/.test(f))
+  /* ★ team-lead ③（负控的省事做法）：**注入式 fixture** —— `GATE_LSFILES_FIXTURE=<file>` 时，
+     文件每行当作 `git ls-files` 的输出 ⇒ 负控**不动 index、不被审批拦、可重复、CI 可跑**。 */
+  const fx = process.env.GATE_LSFILES_FIXTURE || ''
+  let isRepo = false
+  let listRaw = ''
+  if (fx) {
+    isRepo = true
+    listRaw = existsSync(fx) ? readFileSync(fx, 'utf8') : ''
+    console.log(`    （⓪j 用 fixture 提供 ls-files 输出：${fx}）`)
+  } else {
+    const ls = spawnSync('git', ['ls-files'], { cwd: DECK_DIR, encoding: 'utf8' })
+    isRepo = ls.status === 0
+    listRaw = isRepo ? String(ls.stdout || '') : ''
+  }
+  tmpResidue = isRepo
+    ? listRaw.split('\n').map((s) => s.trim()).filter((f) => f && /(^|\/)(__tmp_|zzz-)|(^|\/)out-tmp-/.test(f))
     : []
-  rows.push({
+  tmpResidueRow = {
     /* ⚠️ 编号：⓪h 已被"行尾口径"占用 ⇒ 本行用 **⓪j**（⓪i 是 DOM 目标自检）—— 撞号会让引用指到两处 */
     group: '⓪j临时残留', label: '临时残留（**被跟踪**的 `__tmp_*`/`zzz-*`/`out-tmp-*` ⇒ 判红）',
-    script: '(内置 · git ls-files)', exit: residue.length ? 1 : 0, sec: 0,
+    script: '(内置 · git ls-files)', exit: tmpResidue.length ? 1 : 0, sec: 0, n: tmpResidue.length,
     verdict: !isRepo ? '· 跳过（此树不是 git 仓库 ⇒ 服务器/CI 无 ls-files 可用）'
-      : (residue.length ? `✗ 命中 **${residue.length}** ⇒ 临时产物不许留痕` : '✓ 计数 **0**'),
+      : (tmpResidue.length ? `✗ 命中 **${tmpResidue.length}** ⇒ 临时产物不许留痕` : '✓ 计数 **0**'),
     /* ⚠️ 模板串里**不许嵌反引号**（本项目老坑，我又踩一次）：用引号写路径/通配符 */
-    tail: residue.slice(0, 10).map((f) => `· ${f} ⇒ 删除，或加进 .gitignore（examples/.gitignore 已含 __tmp_*）`),
-  })
+    tail: tmpResidue.slice(0, 10).map((f) => `· ${f} ⇒ 删除，或加进 .gitignore（examples/.gitignore 已含 __tmp_*）`),
+  }
+  rows.push(tmpResidueRow)
 }
 if (process.argv.includes('--fork-only')) {
   console.log(`\n⓪d docs 分叉不变量 ⇒ exit=${forkRow.exit}`)
@@ -314,7 +329,10 @@ if (process.argv.includes('--fork-only')) {
   process.exit(forkRow.exit ?? 2)
 }
 if (process.argv.includes('--whitelist-only')) {
-  console.log(`\n⓪ 根目录白名单：${extra.length ? `✗ 多出 ${extra.length} 项：${extra.join(', ')}` : '✓ 全部命中白名单（' + readdirSync(DECK_DIR).length + ' 项）'}`)
+/* ★ ⓪j 也进快验输出（否则它的负控要跑 340s 的 --fast；fixture 模式下这里只花毫秒） */
+console.log(`\n⓪j 临时残留（被跟踪 · fixture=${process.env.GATE_LSFILES_FIXTURE ? 'on' : 'off'}）：${tmpResidueRow.exit ? `✗ 命中 ${tmpResidueRow.n} —— ${tmpResidue.join(' | ')}` : '✓ 计数 0'}`)
+if (tmpResidueRow.exit) process.exit(1)
+console.log(`\n⓪ 根目录白名单：${extra.length ? `✗ 多出 ${extra.length} 项：${extra.join(', ')}` : '✓ 全部命中白名单（' + readdirSync(DECK_DIR).length + ' 项）'}`)
   const smpOnly = selfMadePaths()
   console.log(`⓪b 自造路径断言：${smpOnly.length ? `✗ ${smpOnly.length} 处：${smpOnly.join(', ')}` : '✓ 无自造路径（除 paths.mjs 外全部 import）'}`)
   if (smpOnly.length) process.exit(1)
