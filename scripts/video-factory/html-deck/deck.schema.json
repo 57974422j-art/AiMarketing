@@ -123,8 +123,8 @@
           "additionalProperties": false,
           "properties": {
             "number": { "type": "number", "description": "大数字（硬性，必须是真实数字，不许编）" },
-            "unit": { "type": "string", "minLength": 1, "maxLength": 8, "description": "单位，如 ms / 帧、%、元" },
-            "explain": { "type": "string", "minLength": 8, "maxLength": 60, "description": "一句解释（硬性 >=8 字）" }
+            "unit": { "type": "string", "minLength": 1, "maxLength": 8, "recommendedMax": 8, "description": "单位，如 ms / 帧、%、元。**kind = editorial**：上限由**编辑意图**定（保留 8），几何判据 99（content_overlap）**只用来证 `8 ≤ 99` 安全**，**不套 ⌊0.9×判据⌋**（否则会抬到 89 ⇒ 破坏「单位」语义）。证据：既有 23 处用量最长 **6 字**（帧差异 / 秒 / 类格式）" },
+            "explain": { "type": "string", "minLength": 8, "maxLength": 171, "recommendedMax": 60, "description": "一句解释（硬性 >=8 字）。**kind = content**（上限 = ⌊0.9×判据⌋）：母版证据 `.p3-explain{position:absolute; left:var(--pad); top:calc(var(--pad)+296px); font-size:var(--t-body)}` —— **无 max-height / 无行数钳制 / 无 nowrap** ⇒ **可换行块** ⇒ 几何判据 190（container_overflow）作约束 ⇒ **硬上限 171 = ⌊0.9×190⌋**；`recommendedMax: 60` 是**观感建议**（「一句话解释」，既有 23 处用量 21~42 字），不参与判定。⚠️ 短字段（`unit`/`number`/`label`/…）属 **editorial**：**不套 0.9×判据**（几何容量远大于编辑意图）" }
           }
         },
         "secondary": {
