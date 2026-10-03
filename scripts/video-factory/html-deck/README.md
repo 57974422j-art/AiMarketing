@@ -646,6 +646,20 @@ scripts/video-factory/html-deck/
   fonts/{*.woff2, chars-cmn.txt, make-fonts.py, sync-master-fonts.mjs, README.md}
 ```
 **即把 `deck-contract/` 这一层去掉** ⇒ 入口字符串 `…/html-deck/check-engine-lint.mjs --deploy` **原样成立**（不带 `deck-contract` 层）。
+
+**两套布局的映射表（唯一权威 · 新增/同步文件时照此，别再猜）**：
+
+| 用途 | 布局 A：**入库树（flat）** | 布局 B：**探针工作树（bridge）** |
+|---|---|---|
+| 引擎根 | `scripts/video-factory/html-deck/` | `dist-rel/probe-hf/` |
+| 契约脚本 / 白名单 / README | **引擎根直属**：`<flat>/check-*.mjs` · `<flat>/allowlist-*.json` · `<flat>/README.md` | `<probe>/deck-contract/check-*.mjs` · `<probe>/deck-contract/allowlist-*.json` · … |
+| 母版 | `<flat>/masters/…` | `<probe>/masters/…` |
+| 产物 | `<flat>/out*/…`（gitignore） | `<probe>/out*/…` |
+
+⛔ **映射规则：`<probe>/deck-contract/X` ⇄ `<flat>/X`（去掉 `deck-contract/` 这层）**。
+> **真实事故（2026-10-03）**：把 `deck-contract/decor-collision.mjs` 写进了**入库树** ⇒ 引擎根里长出 `deck-contract/`
+> **冗余真源**（内含文件与根下同名文件 MD5 相同）；**是 ⓪ 根目录白名单守卫把它拦下的**（否则 `git add -A` 会一起入库）。
+> **坑清单**：**"布局映射多带一层 ⇒ 引擎根长出冗余真源"** —— 新增/同步文件必须照本表；若 ⓪ 报"多出 N 项"，先查是否多带了一层。
 > 原因：`probe-hf/` 多出的那一层是**开发环境的临时层**，不该带进仓库。
 > ⚠️ **搬迁风险**：扁平化后 `masters/`、`fonts/` 的相对引用由 `../../` 改为 `../`（这类改动**容易漏**）
 > ⇒ **搬迁后必须在引擎新路径内重跑全部闸门 + `--deploy`**（见发版清单）。

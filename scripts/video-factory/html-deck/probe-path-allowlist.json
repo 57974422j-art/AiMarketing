@@ -4,6 +4,12 @@
   "allow": [
     {
       "file": "README.md",
+      "snippet": "| 引擎根 | `scripts/video-factory/html-deck/` | `dist-rel/probe-hf/` |",
+      "category": "doc-layout",
+      "reason": "**两套布局映射表**（§24.2 表头行）：属「布局说明/探测」类，不是可执行指引；表内已写明 ⛔ 规则「`<probe>/deck-contract/X` ⇄ `<flat>/X`」，新增/同步文件照表做。"
+    },
+    {
+      "file": "README.md",
       "snippet": "入库要拷到非 ignore 路径",
       "category": "historical",
       "reason": "历史注记：解释「当年 `probe-hf/fonts/` 为什么进不了 git、后来怎样拷进入库根」——记录事故成因，不含可执行指引。"
