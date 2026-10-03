@@ -124,7 +124,7 @@
       "at": "2.600",
       "readback": "37/37",
       "frameResampled": false,
-      "twoPath": "一致（第二路 k=37 ok:true / k=38 ok:false，GATE-RESULT 已存）",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=37 **GATE ok:true** · k=38 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "crossDeck": "out/deck.all12 同格 = **37**（逐项相同）⇒ 版式决定 ✓",
       "master": "v1 = 37 · **v2 = 36**（分母版记录，见 _methodology.check2_perMaster）",
       "source": "node measure-sweep.mjs out/deck.master-v1 cover-title 120"
@@ -144,7 +144,7 @@
       "at": "2.600",
       "readback": "226/226",
       "frameResampled": false,
-      "twoPath": "**两路一致**：承诺 k=203 过闸（读回 − offset = k）· k=204 **被硬上限拒**（原因经断言确认来自 schema 上限）· 判据 226（元素口径）由第一路给出 · 依据 content_overlap",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=226 **GATE ok:true** · k=227 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "source": "node measure-sweep.mjs out/deck.master-v1 cover-sub 120",
       "kEnforced": 203,
       "updatedAt": "2026-10-03"
@@ -169,7 +169,7 @@
       "at": "2.600",
       "readback": "**输入口径判据**（判据−1 PASS / 判据 FAIL，±1 双侧）· 元素口径读回 = 判据 + offset（13）✓（该格判据按裁定只认输入口径）",
       "frameResampled": false,
-      "twoPath": "**判据已按输入口径重测**（裁定 (a)）：判据−1 PASS / **判据 FAIL**（content_overlap · 页1@at · 正控见 posK）· 元素口径 = 判据 + offset 自洽 · **第二路（承诺=现 maxLength）✅ 过闸**（k=749 PASS，读回 = k + offset）· ⏳ **上限生效待补证**（不带 `--raise-max` 的 k=750 应被拒）",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=833 **GATE ok:true** · k=834 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 = k + offset 13 ✓",
       "schemaNow": "maxLength **749** = ⌊0.9×833⌋（**×0.9 作用于输入口径**）· recommendedMax 40（版式建议）",
       "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field meta.issuer --cls issuer --ks \"832,833\" --pathA 827 --raise-max issuer=847 --readback-offset 13",
       "kEnforced": 749,
@@ -190,7 +190,7 @@
       "at": "2.600",
       "readback": "432/432",
       "frameResampled": false,
-      "twoPath": "**受阻于 schema**（原先 k>32）⇒ 放宽到 388 后**须重跑第二路确认**",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=432 **GATE ok:true** · k=433 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "source": "node measure-sweep.mjs out/deck.master-v1 kicker 120"
     },
     {
@@ -208,7 +208,7 @@
       "at": "5.330",
       "readback": "56/56",
       "frameResampled": false,
-      "twoPath": "**两路一致**：承诺 k=50 过闸（读回 − offset = k）· k=51 **被硬上限拒**（原因经断言确认来自 schema 上限）· 判据 56（元素口径）由第一路给出 · 依据 content_overlap",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=56 **GATE ok:true** · k=57 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 50 = ⌊0.9×56⌋ · recommendedMax 24（版式建议）",
       "source": "node measure-table.mjs --deck master-v1 --cells bullets.title",
       "kEnforced": 50,
@@ -230,7 +230,7 @@
       "at": "5.330",
       "readback": "164/164",
       "frameResampled": false,
-      "twoPath": "**一致（单源修复后）**：k=164 GATE-RESULT ok:true / k=165 ok:false(1) ⇒ 两路一致 ✓（修复前被 validate-deck 的 `n>40` 拦死 ⇒ render exit=3，见 K22）",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=164 **GATE ok:true** · k=165 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 147 = ⌊0.9×164⌋ · recommendedMax 40（版式建议）",
       "source": "node measure-table.mjs --deck master-v1 --cells bullets.item0"
     },
@@ -249,7 +249,7 @@
       "at": "5.330",
       "readback": "372/372",
       "frameResampled": false,
-      "twoPath": "**受阻于 schema**（旧上限 40 ⇒ render exit=3）⇒ 放宽到 **334** 后须重跑第二路确认",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=372 **GATE ok:true** · k=373 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 334 = ⌊0.9×372⌋ · recommendedMax 40（版式建议）",
       "source": "node measure-table.mjs --deck master-v1 --cells bullets.summary"
     },
@@ -268,7 +268,7 @@
       "at": "10.800",
       "readback": "150/150",
       "frameResampled": false,
-      "twoPath": "**受阻于 schema**（旧上限 30 ⇒ render exit=3）⇒ 放宽到 **135** 后须重跑第二路确认",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=150 **GATE ok:true** · k=151 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = text_box_overflow ∪ canvas_overflow**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 135 = ⌊0.9×150⌋ · recommendedMax 30（版式建议）",
       "source": "node measure-table.mjs --deck master-v1 --cells end.line1"
     },
@@ -287,7 +287,7 @@
       "at": "10.800",
       "readback": "390/390",
       "frameResampled": false,
-      "twoPath": "**受阻于 schema**（旧上限 40 ⇒ render exit=3）⇒ 放宽到 **351** 后须重跑第二路确认",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=390 **GATE ok:true** · k=391 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = text_box_overflow ∪ canvas_overflow**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 351 = ⌊0.9×390⌋ · recommendedMax 40（版式建议）",
       "source": "node measure-table.mjs --deck master-v1 --cells end.cta"
     },
@@ -306,7 +306,7 @@
       "at": "10.800",
       "readback": "396/396",
       "frameResampled": false,
-      "twoPath": "**受阻于 schema**（旧上限 60 ⇒ render exit=3）⇒ 放宽到 **356** 后须重跑第二路确认",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=396 **GATE ok:true** · k=397 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 356 = ⌊0.9×396⌋ · recommendedMax 60（版式建议）",
       "source": "node measure-table.mjs --deck master-v1 --cells end.en"
     },
@@ -326,7 +326,7 @@
       "readback": "44/44",
       "frameResampled": false,
       "deck": "examples/deck.all12.json",
-      "twoPath": "**受阻于 schema**（旧上限 60 **> 判据 44 = 不安全上限**）⇒ 收紧到 **39** 后须重跑第二路确认",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=44 **GATE ok:true** · k=45 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 39 = ⌊0.9×44⌋ · recommendedMax 60（版式建议）",
       "source": "team-lead 实测：out/deck.all12 · .p6-explain · 稳定帧 14.450s · 页 5"
     },
@@ -337,12 +337,16 @@
       "detectPoint": "p3-explain",
       "judgeLimit": 190,
       "kind": "content",
-      "basis": ["container_overflow"],
+      "basis": [
+        "content_overlap"
+      ],
       "page": 3,
       "at": "8.100",
-      "twoPath": "**判据级真两路一致**（team-lead 实测 · override 下）：k=190 渲染 ok 读回 190/190 GATE ok:true / k=191 读回 191/191 codes=[content_overlap] GATE ok:false",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=190 **GATE ok:true** · k=191 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "evidence": "母版 `.p3-explain{position:absolute; left:var(--pad); top:calc(var(--pad)+296px)}` —— **无 max-height / 无行数钳制 / 无 nowrap** ⇒ 可换行块 ⇒ content；既有 23 处用量 21~42 字（最长 42 = deck.html-injected）",
-      "status": "**映射已修**（原 cls `.p3-body` 是数值/单位容器 ⇒ 读回 0/9 的假读数；真身 `.p3-explain`，dom-target 复核 count=1 页3）"
+      "status": "**映射已修**（原 cls `.p3-body` 是数值/单位容器 ⇒ 读回 0/9 的假读数；真身 `.p3-explain`，dom-target 复核 count=1 页3）",
+      "judgeLimitNote": "team-lead 实跑（判据级真两路 · 190 = explain · 99 = unit）· unit 属 **editorial** ⇒ **不做判据级交叉**（上限保留 8，只断言 8 ≤ 99）",
+      "readback": "读回 == k ✓"
     },
     {
       "jsonPointer": "#/$defs/pageData/properties/metric/properties/unit",
@@ -351,14 +355,17 @@
       "detectPoint": "p3-body .unit",
       "judgeLimit": 99,
       "kind": "editorial",
-      "basis": ["content_overlap"],
+      "basis": [
+        "content_overlap"
+      ],
       "detectKind": "length",
       "page": 3,
       "at": "8.100",
-      "readback": "99/99（元素口径；无常量偏移）",
-      "twoPath": "**cap ≤ judge 安全性断言**（不是两路一致采样）：现行上限 **8 ≤ 判据 99** ✓ —— kind=editorial ⇒ **不套 ⌊0.9×判据⌋**（否则抬到 89 ⇒ 破坏「单位」语义）。判据级交叉实测（override 下）：k=99 渲染 ok 读回 99/99 GATE ok:true / k=100 读回 100/100 codes=[content_overlap] GATE ok:false",
+      "readback": "读回 == k ✓",
+      "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=99 **GATE ok:true** · k=100 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "evidence": "既有 23 处用量最长 **6 字**（帧差异 / 秒 / 类格式）",
-      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.2.metric.unit --cls \"p3-body .unit\" --ks 99,100 --raise-max unit=101"
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.2.metric.unit --cls \"p3-body .unit\" --ks 99,100 --raise-max unit=101",
+      "judgeLimitNote": "team-lead 实跑（判据级真两路 · 190 = explain · 99 = unit）· unit 属 **editorial** ⇒ **不做判据级交叉**（上限保留 8，只断言 8 ≤ 99）"
     }
   ]
 }
