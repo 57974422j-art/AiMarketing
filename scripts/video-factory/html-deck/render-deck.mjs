@@ -55,6 +55,7 @@ function strictPick(map, key, what) {
   return map[key]
 }
 import { fileURLToPath } from 'node:url'
+import { tmpdir } from 'node:os'   /* ★ team-lead ①(b)：机器通道走文件（校验结论写临时文件再读） */
 import { dirname, join, basename, resolve } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -761,7 +762,10 @@ function main() {
   const workdir = join(outRoot, name)
 
   // ---- ① 闸门：校验不通过 → 大声失败、绝不渲染 ----
-  const v = spawnSync(process.execPath, [VALIDATOR, deckAbs, '--json'], { cwd: HERE, encoding: 'utf8' })
+  /* ★ team-lead ①(b)：**机器通道走文件** —— `--json-out <tmp>`。这样 stdout/stderr 被任何人读信息污染都不影响判定
+     （人读信息一律走 stderr；stdout 仍打 JSON 只为向后兼容）。解析优先级：文件 → 整段 stdout → 首尾大括号切片。 */
+  const vjson = join(tmpdir(), `validate.${process.pid}.${Date.now().toString(36)}.json`)
+  const v = spawnSync(process.execPath, [VALIDATOR, deckAbs, '--json', '--json-out', vjson], { cwd: HERE, encoding: 'utf8' })
   const vout = String(v.stdout || '')
   /* ★ **I6：同一次运行里两份结论必须同源** —— 子进程的 **JSON 汇总**是唯一判据。
      事故（今天第三例）：我加的"覆盖 schema（仅量测）"告示曾用 `console.log` 打到 **stdout** ⇒ 这里 `JSON.parse(stdout)`
@@ -772,10 +776,16 @@ function main() {
   /* ⚠️ 解析必须**整体**来（`validate-deck --json` 输出的是**多行 pretty JSON**）——
      我第一次 "逐行找 `{` 开头" 的写法**必然失败**（多行 JSON 没有哪一行单独可解析）⇒ 又把父进程逼成 vr=null。
      现：① 整体 `JSON.parse(trim)`；② 失败再取 **首个 `{` 到末个 `}`** 的子串（容忍前缀噪声，如误打到 stdout 的告示）。 */
+  /* ★ 解析优先级：**文件 → 整段 stdout → 首尾大括号切片**。
+     踩坑记录：① 逐行找 `{` 开头 ⇒ 多行 pretty JSON 下**必然失败**（只有第 1 行是裸 `{`）；
+     ② 只有"整段"或"切片"成立 ⇒ 现在机器通道根本走文件（`--json-out`）。 */
   let vr = null
-  try { vr = JSON.parse(vout.trim()) } catch {
-    const i = vout.indexOf('{'), j = vout.lastIndexOf('}')
-    if (i >= 0 && j > i) { try { vr = JSON.parse(vout.slice(i, j + 1)) } catch { /* 仍失败 ⇒ 视为无法解析 */ } }
+  try { vr = JSON.parse(readFileSync(vjson, 'utf8')) } catch { /* 回退到 stdout */ }
+  if (!vr) {
+    try { vr = JSON.parse(vout.trim()) } catch {
+      const i = vout.indexOf('{'), j = vout.lastIndexOf('}')
+      if (i >= 0 && j > i) { try { vr = JSON.parse(vout.slice(i, j + 1)) } catch { /* 仍失败 ⇒ 视为无法解析 */ } }
+    }
   }
   const childConsistent = !vr || (vr.pass === (Number(vr.errorCount || 0) === 0))
   if (vr && !childConsistent) {
@@ -788,7 +798,9 @@ function main() {
     const lines = vout.split('\n')
     const useful = lines.filter((l) => /RESULT |超出上限|超过硬上限|少于下限|未定义字段|不是字符串|✗/.test(l)).slice(0, 12)
     if (useful.length) { console.error('\n  关键行（含 RESULT/上限/✗）：'); for (const l of useful) console.error('    ' + l.trim().slice(0, 200)) }
-    console.error('\n  末 4 行：'); for (const l of lines.slice(-4)) console.error('    ' + l.trim().slice(0, 200))
+    /* ★ team-lead ①：**必须打"首几行"** —— 末 4 行永远是 JSON 的 `}`/`]`，真实原因常在第 1~3 行 */
+    console.error('\n  前 8 行（真实原因常在这里）：'); for (const l of lines.slice(0, 8)) console.error('    ' + l.trim().slice(0, 200))
+    console.error('  末 2 行（通常只是 JSON 收尾）：'); for (const l of lines.slice(-2)) console.error('    ' + l.trim().slice(0, 200))
     if (v.stderr) { console.error('  stderr 末 4 行：'); for (const l of String(v.stderr).split('\n').slice(-4)) console.error('    ' + l.trim().slice(0, 200)) }
     emitResult({
       ok: false, code: EXIT.VALIDATE, stage: 'validate', ...ctx,

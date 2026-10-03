@@ -15,7 +15,7 @@
  *   ② 字符串里出现 HTML/CSS 标记 → 判定"AI 写了 HTML"
  *   ③ 每个不达标项都给"替换页型建议"
  */
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -593,12 +593,19 @@ function main() {
   }
 
   if (jsonMode) {
-    console.log(JSON.stringify({
+    const payload = JSON.stringify({
       file, pass: errors.length === 0,
       errorCount: errors.length, warnCount: warns.length,
       issues,
       pages: Array.isArray(pages) ? pages.map((p, i) => ({ index: i, type: p && p.type })) : [],
-    }, null, 2))
+    }, null, 2)
+    /* ★ team-lead ①(b)：**机器通道走文件**（`--json-out <file>`）⇒ stdout/stderr 被谁污染都无所谓；
+       与 sweep 那边"结论走文件"同口径。stdout 仍打印 JSON（向后兼容；调用方优先读文件）。 */
+    const jo = args.indexOf('--json-out')
+    if (jo >= 0 && args[jo + 1]) {
+      try { writeFileSync(args[jo + 1], payload, 'utf8') } catch (e) { console.error(`✗ --json-out 写失败：${e.message}`) }
+    }
+    console.log(payload)
     process.exit(errors.length ? 1 : 0)
   }
 
