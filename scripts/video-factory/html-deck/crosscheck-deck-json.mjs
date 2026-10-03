@@ -14,7 +14,7 @@
  *   k · 读回长度 · 门 exit · 判据内 codes（稳定帧原文）· 结论
  * 判读规则（team-lead）：**两路不一致 ⇒ 先查"注入方式是否引入偏差"**；不许取平均、不许以某一路为准。
  */
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,7 +38,34 @@ const arg = (k, d) => {
    （实测：`--allow-multi` 与 `--keep` 都因为只按 `process.argv.includes` 判、没登记而被拒 —— 又一次"把纪律用在自己身上"） */
 const flag = (k) => { const i = args.indexOf(k); if (i >= 0) { _consumed.add(i); return true } return false }
 const ALLOW_MULTI = flag('--allow-multi')
+/* ★ team-lead msg6 ⑥（通则）：**崩溃不是失败，崩溃是"未识别的失败"** ⇒ 兜底转成带 tag 的 stdout 红（exit 2）。 */
+for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandledRejection', 'UNCAUGHT_REJECTION']]) {
+  process.on(ev, (e) => {
+    console.log(`✗ **[${tag}] 未捕获的故障 ⇒ 已转为带 tag 的红（exit 2）：${(e && e.message) || e}`)
+    const st = String((e && e.stack) || '').split('\n').slice(1, 4).join(' | ')
+    if (st) console.error(`     ${st}`)
+    process.exit(2)
+  })
+}
 const KEEP_OUT = flag('--keep')
+/** ★ team-lead msg6 ④：**跨工具提示** —— 未识别旗标时查一遍本仓其它工具，直接告诉你该用哪个
+    （他两度用错工具、各白跑一次：`--verify-cell`/`--self-test-page` 都不在本工具里）。 */
+function siblingHint(flagName) {
+  /* ⚠️ **逐文件 try**（把整个循环包在一个 try 里 ⇒ 任何**单个**文件读取失败都会**吞掉整轮扫描**并返回 ''：
+     症状是"明明有别的工具在用这个旗标，却提示本工具不认识" ⇒ 正是我实测遇到的。单调 try 是"静默失败"家族。） */
+  let scanned = 0
+  try {
+    for (const f of readdirSync(HERE)) {
+      if (!f.endsWith('.mjs') || f === 'crosscheck-deck-json.mjs') continue
+      /* 两种引号都认（**单引号形式与双引号形式**）—— 第一版只认单引号 ⇒ 若目标文件写成双引号就**静默不命中**
+         ⚠️ 本注释**故意不写那两个带引号的旗标字面量** —— 写了就会被本工具的注册表断言扫到（实测：`✗ 旗标注册表不全：--x`）。 */
+      try { const t = readFileSync(join(HERE, f), 'utf8'); scanned++; if (t.includes("'" + flagName + "'") || t.includes('"' + flagName + '"')) return f } catch { /* 单个文件失败 ⇒ 跳过，不吞整轮 */ }
+    }
+    if (!scanned) console.error('   （跨工具提示：本目录没有可扫描的 .mjs）')
+    else console.error(`   （跨工具提示：已扫 ${scanned} 个 .mjs，未见到该旗标）`)
+  } catch (e) { console.error(`   （跨工具提示：扫描失败 ⇒ ${e.message}）`) }   /* ★ msg6 ⑥：catch 必须说话，不许静默 */
+  return ''
+}
 /* ★★ team-lead ②：**旗标注册表**（"**守卫自己也要被守卫**" —— 本会话第 4 例同族：
    ① 负控失去判伪力 ② 棘轮是手写数 ③ 参数守卫拒自己的旗标 ④ **注册表只覆盖 2/11**）。
    两张表**分开**：**本工具旗标** vs **下游引擎旗标**（把下游的算成自己的 ⇒ 会造出**假覆盖**）。
@@ -399,6 +426,12 @@ function setPath(obj, path, val) {
 const leftovers = args.filter((a, i) => !_consumed.has(i))
 if (leftovers.length) {
   console.error(`✗ 未识别的参数：${leftovers.join(' ')}（提示：\`--ks\` 必须写成 **一个** 参数，如 \`--ks "37,38"\`；拆成两个位置参数会被静默忽略 ⇒ "临界+1 恒缺"那类错。§25b ⇒ exit 2）`)
+  /* ★ msg6 ④：跨工具提示（`--verify-cell` 属检查器 ⇒ 直接点名，免得"用错工具白跑"）。 */
+  const badFlags = leftovers.filter((a) => /^--/.test(a))
+  if (badFlags.length) {
+    const hint = siblingHint(badFlags[0])
+    console.error(`   ★ 未登记/属其它工具：${badFlags.join(' ')}${hint ? ` ⇒ **\`${hint}\`** 里有这个旗标：请用 \`node ${hint} …\`` : '（本工具也不认识）'}`)
+  }
   process.exit(2)
 }
 const src = resolve(DECK_DIR, JSONF)
@@ -444,12 +477,15 @@ const TREE = (() => {
     const sha = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim() || 'n/a'
     /* ⚠️ 排除 `.codebuddy/`（**协作目录，不入库、不是代码改动**）—— 否则每轮都报"有未提交改动"（假警报）。
        另：`git status` 的 `--porcelain` 已含短格式 ⇒ 不必再传 `--short`（`--short` 只用于上面 `rev-parse`）。 */
-    const dirtyOut = String(spawnSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).stdout || '')
-      .split('\n').map((l) => l.trim()).filter((l) => l && !l.includes('.codebuddy/')).join('\n')
-    return { sha, dirty: dirtyOut.length > 0, n: dirtyOut ? dirtyOut.split('\n').length : 0 }
+    const paths = String(spawnSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).stdout || '')
+      .split('\n').map((l) => l.trim()).filter((l) => l && !l.includes('.codebuddy/'))
+    return { sha, dirty: paths.length > 0, n: paths.length, paths }
   } catch { return { sha: 'n/a', dirty: null, n: 0 } }
 })()
 console.log(`  ℹ 读数归属：**SHA=${TREE.sha}** · 工作树 ${TREE.dirty ? `**有 ${TREE.n} 处未提交改动 ⇒ 该读数不可用于复核**（先提交再取读数）` : '清洁 ✓'}`)
+/* ★ msg6 ③(b)：**打印那 N 处的路径（≤5）** —— 否则人只会看到"有 1 处"，无法一眼判断是不是真污染（狼来了）。 */
+if (TREE.dirty) for (const l of TREE.paths.slice(0, 5)) console.log(`       · ${l}`)
+if (TREE.dirty && TREE.n > 5) console.log(`       · …（其余 ${TREE.n - 5} 处）`)
 console.log(`  源 = ${JSONF} · 字段 = ${FIELD} · 检测点 = .${CLS} · 变体 k = [${KS.join(', ')}] · 出目录 = ${OUT}${PATH_A ? ` · 第一路(HTML 注入)临界 = ${PATH_A}` : ''}`)
 const rows = []
 const tamper = []                       // ★ 测量期产物被改写的行（⇒ 结论作废）

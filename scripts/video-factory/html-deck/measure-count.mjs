@@ -44,6 +44,17 @@ if (!SEL && !process.argv.includes('--self-test-extract') && !process.argv.inclu
 /* ★★ team-lead ②（msg1）：**同一套旗标三件套**（此前只有 crosscheck 有 ⇒ 本工具的新旗标"无人罩"）：
    ① **注册表** ② **未识别即红**（`source` 若写错一个旗标，照抄者**立刻得到点名红**，而不是哑的"未识别参数"）
    ③ **覆盖断言**：注册表 ⊇ 源码里出现的全部旗标字面量 · 且每个注册项**必须被真正消费**（防"登记了却没人读"）。 */
+/** ★ team-lead msg6 ④：**跨工具提示** —— 未识别旗标时查一遍**本仓其它工具**，直接告诉你该用哪个
+    （他两度用错工具、各白跑一次；`--ks`/`-short` 类提示已有，这里是"跨工具"那一半）。 */
+function siblingHint(flagName) {
+  try {
+    for (const f of readdirSync(HERE)) {
+      if (!f.endsWith('.mjs') || f === 'measure-count.mjs') continue
+      if (readFileSync(join(HERE, f), 'utf8').includes("'" + flagName + "'")) return f
+    }
+  } catch { /* ignore */ }
+  return ''
+}
 const MC_FLAGS = [
   { name: '--deck', argv: true }, { name: '--page', argv: true }, { name: '--jsonpath', argv: true },
   { name: '--cls', argv: true }, { name: '--sel', argv: true }, { name: '--min', argv: true },
@@ -65,7 +76,12 @@ const MC_EXTERNAL = ['--short', '--porcelain']
   if (missing.length) { console.error(`✗ **旗标注册表不全**：${missing.join(' ')} ⇒ 新增旗标必须登记进 MC_FLAGS（自己）或 MC_DOWNSTREAM（下游）⇒ exit 2`); process.exit(2) }
   const unknown = [...new Set(argv.filter((a) => /^--/.test(a)))].filter((a) => !known.has(a))
   /* ⚠️ 模板串里**不许出现反引号**（我第一次写「照抄 `source`」⇒ 把模板串提前闭合 ⇒ 语法错；与"块注释嵌套"同族）。 */
-  if (unknown.length) { console.error(`✗ **未识别的参数**：${unknown.join(' ')}\n   允许的旗标：${[...known].join(' ')}\n   （防"照抄 source 时写错一个旗标"变成**哑红** ⇒ 此处点名）⇒ exit 2`); process.exit(2) }
+  if (unknown.length) {
+    console.error(`✗ **未识别的参数**：${unknown.join(' ')}\n   允许的旗标：${[...known].join(' ')}\n   （防"照抄 source 时写错一个旗标"变成**哑红** ⇒ 此处点名）⇒ exit 2`)
+    const hint = siblingHint(unknown[0])
+    if (hint) console.error(`   ★ **该旗标属其它工具**：\`${hint}\` ⇒ 请用：node ${hint} ${unknown[0]} …（本次用错了工具 ⇒ 白跑）`)
+    process.exit(2)
+  }
   const dead = MC_FLAGS.filter((f) => !new RegExp(`(arg\\(|flag\\(|includes\\()'${f.name}'`).test(src)).map((f) => f.name)
   if (dead.length) { console.error(`✗ 注册了但**没人消费**的旗标：${dead.join(' ')} ⇒ 要么接线、要么删登记（防"登记即假装覆盖"）⇒ exit 2`); process.exit(2) }
   console.log(`  ✓ 旗标三件套：注册 **${MC_FLAGS.length}** · 未识别 **0** · 死旗标 **0** · 源码字面量 **${found.length}** 全部已登记`)
@@ -73,6 +89,15 @@ const MC_EXTERNAL = ['--short', '--porcelain']
 const MIN = Number(arg('--min', '3'))
 const MAX = Number(arg('--max', '5'))
 const KEEP = argv.includes('--keep')
+/* ★ team-lead msg6 ⑥（通则）：**崩溃不是失败，崩溃是"未识别的失败"** ⇒ 兜底转成带 tag 的 stdout 红（exit 2）。 */
+for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandledRejection', 'UNCAUGHT_REJECTION']]) {
+  process.on(ev, (e) => {
+    console.log(`✗ **[${tag}] 未捕获的故障 ⇒ 已转为带 tag 的红（exit 2）：${(e && e.message) || e}`)
+    const st = String((e && e.stack) || '').split('\n').slice(1, 4).join(' | ')
+    if (st) console.error(`     ${st}`)
+    process.exit(2)
+  })
+}
 /* ★ (b) **修正版**（team-lead 2026-10-04：原式 `max(cap,min)+3` 太松 ⇒ cap=5 只扫到 8 ⇒ 断言 `cap ≤ 8` 近乎同义反复）：
    `N_MAX = min(20, max(cap+3, 2×cap))` ⇒ cap5→10 · cap6→12 · cap4→8 · cap12→20 · cap2→6（更强且仍便宜）。 */
 const STRIDE = Math.max(1, Number(arg('--stride', '1')))   /* ★ 大 N_MAX 时用**步长**（否则扫到 30 = 28 次渲染） */
@@ -170,12 +195,15 @@ const TREE = (() => {
   try {
     const sha = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim() || 'n/a'
     /* ⚠️ 排除 `.codebuddy/`（协作目录，不入库）⇒ 否则每轮假报"有未提交改动"。 */
-    const dirtyOut = String(spawnSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).stdout || '')
-      .split('\n').map((l) => l.trim()).filter((l) => l && !l.includes('.codebuddy/')).join('\n')
-    return { sha, dirty: dirtyOut.length > 0, n: dirtyOut ? dirtyOut.split('\n').length : 0 }
+    const paths = String(spawnSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).stdout || '')
+      .split('\n').map((l) => l.trim()).filter((l) => l && !l.includes('.codebuddy/'))
+    return { sha, dirty: paths.length > 0, n: paths.length, paths }
   } catch { return { sha: 'n/a', dirty: null, n: 0 } }
 })()
 console.log(`  ℹ 读数归属：**SHA=${TREE.sha}** · 工作树 ${TREE.dirty ? `**有 ${TREE.n} 处未提交改动 ⇒ 该读数不可用于复核**（先提交再取读数）` : '清洁 ✓'}`)
+/* ★ msg6 ③(b)：打印那 N 处的路径（≤5）⇒ 人能一眼判断是不是真污染。 */
+if (TREE.dirty) for (const l of TREE.paths.slice(0, 5)) console.log(`       · ${l}`)
+if (TREE.dirty && TREE.n > 5) console.log(`       · …（其余 ${TREE.n - 5} 处）`)
 console.log(`=== 条数构造器：deck=${DECK} · ${JSONPATH} · N=${MIN}…${N_MAX}（现上限 ${MAX}·下限 ${MIN}）===`)
 const rows = []
 for (let N = MIN; N <= N_MAX; N += STRIDE) {

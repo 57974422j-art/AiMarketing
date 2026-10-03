@@ -22,6 +22,16 @@ import { DECK_DIR } from './paths.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const STRICT = process.argv.includes('--strict-coverage')
+/* ★ team-lead msg6 ⑥（升为通则）：**崩溃不是失败，崩溃是"未识别的失败"**（无 tag 的红 ⇒ 违反"红因可区分"）
+   ⇒ 任何 IO/解析失败**不许以未捕获异常收场**：兜底转成**带 tag 的 stdout 红** + exit 2。 */
+for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandledRejection', 'UNCAUGHT_REJECTION']]) {
+  process.on(ev, (e) => {
+    console.log(`✗ **[${tag}] 未捕获的故障 ⇒ 已转为带 tag 的红（exit 2）：${(e && e.message) || e}`)
+    const st = String((e && e.stack) || '').split('\n').slice(1, 4).join(' | ')
+    if (st) console.error(`     ${st}`)
+    process.exit(2)
+  })
+}
 const SCHEMA = join(DECK_DIR, 'deck.schema.json')
 const LIMITS = join(DECK_DIR, 'measured-limits.json')
 if (!existsSync(SCHEMA)) { console.error(`✗ 缺 ${SCHEMA}（§25b ⇒ exit 2）`); process.exit(2) }
@@ -646,9 +656,13 @@ if (ARG_VC || ROTATE) {
   const ROT_F = join(ROT_DIR, 'rotate.json')
   let st = { cursor: 0, covered: [], lastFullSweep: null }
   try { st = { ...st, ...JSON.parse(readFileSync(ROT_F, 'utf8')) } } catch { /* 首次运行 */ }
+  /* ★ msg6 ②：**轮转记账必须累积 field + 时间 + SHA**（旧格式是裸字符串 ⇒ 规范化）。
+     事故（team-lead 实测）：`covered` **恒空**，因为只有"轮转模式"才 push ⇒ 显式 `--verify-cell` 那次不记账
+     ⇒ "已覆盖 n/14" 永远 0、"覆盖满一轮"永不成立 ⇒ 只剩 cursor 在动 ⇒ **无法证明每格都被抽到**。 */
+  st.covered = (Array.isArray(st.covered) ? st.covered : []).map((x) => (typeof x === 'string' ? { field: x, at: '（旧格式）', sha: '?', ok: null } : x))
+  const VC_SHA = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim() || 'n/a'
   let cell = ARG_VC ? cells.find((x) => x.field === ARG_VC) : cells[st.cursor % cells.length]
   if (!cell) { console.error(`✗ --verify-cell：表里没有 \`field=${ARG_VC}\` ⇒ exit 2`); process.exit(2) }
-  if (!ARG_VC && !st.covered.includes(cell.field)) st.covered.push(cell.field)
   const tok = (s) => (s.match(/'[^']*'|"[^"]*"|\S+/g) || []).map((t) => t.replace(/^['"]|['"]$/g, ''))
   const src = String(cell.source || '')
   const mm = /^node\s+(\S+\.mjs)\s*([\s\S]*)$/.exec(src.trim())
@@ -693,12 +707,14 @@ if (ARG_VC || ROTATE) {
   /* ⚠️ **不许丢失败输出**（§25a）：失败时打印子进程原样末 6 行 —— 否则"为什么红"只能靠猜（我第一版就没打，白跑一轮）。 */
   if (why.length && typeof vcOut === 'string') for (const l of vcOut.split('\n').filter(Boolean).slice(-6)) console.log(`        ↳ ${l.trim().slice(0, 170)}`)
   if (why.length) viol.push(`--verify-cell ${cell.field}：${why.join(' / ')}（表与实测**不同源** ⇒ 要么改表、要么改实现）`)
-  if (ROTATE) {
-    st.cursor = (st.cursor + 1) % cells.length
-    if (st.covered.length >= cells.length) { st.lastFullSweep = '已完成一次全格覆盖'; st.covered = [] }
-    try { mkdirSync(ROT_DIR, { recursive: true }); writeFileSync(ROT_F, JSON.stringify(st, null, 2), 'utf8') } catch { /* ignore */ }
-    console.log(`     轮转：本轮抽中 **${cell.field}**（cursor=${st.cursor}/${cells.length} · 已覆盖 ${st.covered.length}）· 上次全格覆盖：**${st.lastFullSweep || '尚未（继续轮转直到每格都被抽到）'}**`)
-  }
+  /* ★ msg6 ②：**任何一次 verify 都记账**（显式或轮转）⇒ `已覆盖 n/14` 才有意义；覆盖满一轮即记 sha+时间并**保留明细**。 */
+  st.covered = st.covered.filter((x) => x.field !== cell.field)
+  st.covered.push({ field: cell.field, at: new Date().toISOString(), sha: VC_SHA, ok: why.length === 0, why: why.join(' / ') })
+  const allCovered = st.covered.length >= cells.length
+  if (allCovered) st.lastFullSweep = `${VC_SHA} @ ${new Date().toISOString()}`
+  if (ROTATE) st.cursor = (st.cursor + 1) % cells.length
+  try { mkdirSync(ROT_DIR, { recursive: true }); writeFileSync(ROT_F, JSON.stringify(st, null, 2), 'utf8') } catch { /* ignore */ }
+  console.log(`     轮转记账：**已覆盖 ${st.covered.length}/${cells.length}**${ROTATE ? `（cursor=${st.cursor}）` : ''} · 本次记入 ${cell.field}（SHA=${VC_SHA} · ${why.length ? '✗' : '✓'}）· 上次全格覆盖：**${st.lastFullSweep || '尚未（继续轮转直到每格都被抽到）'}**`)
 }
 console.log(`\n  覆盖：**未被实测的硬上限 ${uncovered.length} 个**${uncovered.length ? '（发版前必须开 --strict-coverage 清空）' : ''}`)
 for (const p of uncovered.slice(0, 20)) console.log(`     · ${p} = ${leaves.get(p).maxLength}`)
