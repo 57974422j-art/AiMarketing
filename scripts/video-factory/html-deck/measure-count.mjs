@@ -37,7 +37,7 @@ const CLS = arg('--cls', 'li:first-child .t')
 /* ★ team-lead ①：**默认值必须安全** —— 旧默认 `li` = **全篇计数**（正是"读回 23"那个坑）⇒
    缺 `--sel` ⇒ **红**（不许静默退化成全篇）。与"无输出即失败"同族。 */
 const SEL = arg('--sel', '')
-if (!SEL && !process.argv.includes('--self-test-extract')) {
+if (!SEL && !process.argv.includes('--self-test-extract') && !process.argv.includes('--self-test-scope')) {
   console.error('✗ 缺 `--sel`（检测点标签，如 li）⇒ **不许用危险默认**（旧默认 li 会全篇计数 ⇒ 读数错）⇒ exit 2')
   process.exit(2)
 }
@@ -96,6 +96,24 @@ if (process.argv.includes('--self-test-extract')) {
   process.exit(ok ? 0 : 1)
 }
 
+/* ★ team-lead ②/③/④：把**读数解析类逻辑**抽成**纯函数** ⇒ 可喂**合成输入自测**（秒级、免渲染、可判伪）。
+   这三条是"条数读数"的**承重判据**（决定"有没有几何失败模式"）⇒ 必须自证。 */
+function scopedCount(htmlText, tag) { return (String(htmlText).match(new RegExp(`<${tag}\\b`, 'gi')) || []).length }
+function containerCount(sliceHtml) { return (String(sliceHtml).match(/<(ul|ol)\b/gi) || []).length }
+function pageAssertOk(hitPage, cellPage) { return !cellPage || Number(hitPage) === Number(cellPage) }
+/* ★ `--self-test-scope`：**合成输入**正/负控（与 `--self-test-extract` 同款形态）——
+   ① 单容器切片 ⇒ 容器数 1（不红）② **双容器切片 ⇒ 容器数 2（必须红）** ③ 切条数正确 ④ 页断言：同页 true / 异页 false（必须红）。 */
+if (process.argv.includes('--self-test-scope')) {
+  const one = '<section><ul><li>a</li><li>b</li><li>c</li></ul></section>'
+  const two = '<section><ul><li>a</li></ul><ol><li>b</li></ol></section>'
+  const c1 = containerCount(one) === 1, c2 = containerCount(two) === 2, s3 = scopedCount(one, 'li') === 3
+  const p1 = pageAssertOk(4, 4) === true, p2 = pageAssertOk(3, 4) === false
+  const ok = c1 && c2 && s3 && p1 && p2
+  console.log(`  合成自测(scope)：单容器=${containerCount(one)}(须 1) ${c1 ? '✓' : '✗'} · **双容器=${containerCount(two)}(须 2 ⇒ 红)** ${c2 ? '✓' : '✗'} · 切条数=${scopedCount(one, 'li')}(须 3) ${s3 ? '✓' : '✗'}`)
+  console.log(`                    页断言：同页(4,4)=${pageAssertOk(4, 4)}(须 true) ${p1 ? '✓' : '✗'} · **异页(3,4)=${pageAssertOk(3, 4)}(须 false ⇒ 红)** ${p2 ? '✓' : '✗'}`)
+  process.exit(ok ? 0 : 1)
+}
+
 const created = []
 const cleanup = () => { if (!KEEP) for (const p of created) { try { rmSync(p, { recursive: true, force: true }) } catch { /* ignore */ } } }
 process.on('exit', cleanup)
@@ -135,11 +153,11 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   const secs = html.split(/<section\b/i).slice(1)                 /* 每页一切片 */
   const tag = SEL.replace(/[^a-z]/gi, '') || 'li'
   const slice = String(secs[Number(pIdx)] || '')
-  const scoped = (slice.match(new RegExp(`<${tag}\\b`, 'gi')) || []).length
-  const global = (html.match(new RegExp(`<${tag}\\b`, 'gi')) || []).length
+  const scoped = scopedCount(slice, tag)
+  const global = scopedCount(html, tag)
   /* ★ team-lead ⑤：**页内同类容器数必须 == 1** —— 否则"切片内所有 `<li`"会**合并高估**（两个 `<ul>` ⇒ 读回 > N）。
-     便宜且可判伪（比按 jsonpath 定位容器轻）。 */
-  const containers = (slice.match(/<(ul|ol)\b/gi) || []).length
+     便宜且可判伪（比按 jsonpath 定位容器轻）。★ ②：**真红**（计入 contOk，参与退出码）。 */
+  const containers = containerCount(slice)
   const dt = spawnSync(process.execPath, [join(HERE, 'dom-target.mjs'), prodDir, SEL], { cwd: HERE, encoding: 'utf8' })
   const dout = String(dt.stdout || '') + String(dt.stderr || '')
   const cm = dout.match(/count"?\s*:\s*(\d+)/i)
@@ -182,7 +200,9 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   } else if (dtPage !== null && dtPage !== injPage1b) {
     console.log(`      ℹ dom-target 选的是**别的页**（pageNo=${dtPage} ≠ 注入页 ${injPage1b}）⇒ twoPath=**未交叉（页切片单源）**`)
   }
-  if (containers > 1) console.log(`      ✗ **页内同类容器数 = ${containers} > 1** ⇒ 切片内计数会**合并高估** ⇒ 读数不可信`)
+  /* ⚠️ team-lead ②：这行原**只打 ✗**、看不出会不会红 ⇒ 现明写"已计入失败"，且它**确实**进 contOk ⇒ exit 2
+     （通则：**凡打印 ✗ 的行，必须有对应的失败标记/退出码** —— ✗ 与退出码同源）。 */
+  if (containers > 1) console.log(`      ✗ **页内同类容器数 = ${containers} > 1** ⇒ 切片内计数会**合并高估** ⇒ 读数不可信（**已计入失败 ⇒ exit 2**）`)
   /* ⚠️ 赋值放到 push **之后**（第一版把 `twoPath` 写进 push 的对象字面量、而声明在其后 ⇒ `Cannot access 'twoPath' before initialization`） */
   const lastRow = rows[rows.length - 1]
   lastRow.twoPath = twoPath

@@ -477,7 +477,10 @@ for (const k of KS) {
   console.log(`  k=${String(k).padStart(3)} · 渲染 ${renderOk ? 'ok' : '✗'} · 读回 ${back}/${k}${back === k + RB_OFFSET ? ' ✓' : ' ✗'}${RB_OFFSET ? `（口径：元素 = k + offset ${RB_OFFSET}）` : ''} · 页 ${no || '-'}${EXPECT_PAGE ? (Number(no) === EXPECT_PAGE ? ` ✓（= 格子 page ${EXPECT_PAGE}）` : ` ✗（≠ 格子 page ${EXPECT_PAGE}）`) : ''} · 稳定帧 t=${at || '-'} · 判据内 codes = [${codes.join(', ')}]`)
   /* ★ team-lead ③：**每格读回断言「命中元素所在页 == 该格 page 字段」**（一次写、13 格共用）——
      把"靠 `p2-` 前缀约定"变成机器校验（约定式风险 ⇒ 可判伪）。 */
-  if (EXPECT_PAGE && Number(no) !== EXPECT_PAGE) bad.push(`k=${k}：命中元素在第 ${no} 页 ≠ 格子 page=${EXPECT_PAGE} ⇒ **读了别的元素** ⇒ 读数无效`)
+  /* ⚠️ **不许在循环里 push 到 `bad`**：它声明在循环**之后**（`const bad = rows.filter(...)`）⇒ push 会抛
+     `Cannot access 'bad' before initialization`（TDZ）⇒ 负控打出的 `exit=1` 是**异常**的 1、不是**断言**的 1 ✗
+     （又一次"退出码多义"，与 I11/I12 同族）。⇒ 判据改在**汇总处**按 `r.no` 断言；循环里只做**可见提示**。 */
+  if (EXPECT_PAGE) console.log(`        ${Number(no) === EXPECT_PAGE ? '✓' : '✗'} 页断言：命中页 ${no} == 格子 page ${EXPECT_PAGE}（判定在汇总处 ⇒ 有牙）`)
   /* ★ team-lead ②：**打印差分，不打印全量** —— 全量列表会让人（包括他第一眼）把"通过的 k 上恒定的装饰性 findings"
      误读成"这格在失败"（实例：data 页在**通过的 k** 上就带约 36 个 canvas_overflow，而 GATE 仍 ok:true）。
      ⇒ 每行与**上一行**（通常是 k-1 或判据）做差集：
@@ -500,8 +503,14 @@ if (rows.length !== KS.length) {
   console.error(`✗ 参数自检：期望 ${KS.length} 个 k（[${KS.join(', ')}]），实际取到 ${rows.length} 行 ⇒ 参数/解析不符（§25b ⇒ exit 2）`)
   process.exit(2)
 }
-const bad = rows.filter((r) => !r.renderOk || r.back !== r.k + RB_OFFSET)
-if (bad.length) { console.error(`✗ 有 ${bad.length} 行渲染失败或读回不符 ⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`); process.exit(2) }
+/* ★ team-lead ③：**页断言在这里判**（`命中元素所在页 == 该格 page`）—— 与读回不符**同一批**红，
+   避免"循环里 push 到后面的数组"那种 TDZ 假红。 */
+const bad = rows.filter((r) => !r.renderOk || r.back !== r.k + RB_OFFSET || (EXPECT_PAGE && Number(r.no) !== EXPECT_PAGE))
+if (bad.length) {
+  console.error(`✗ 有 ${bad.length} 行**渲染失败 / 读回不符 / 命中页≠格子 page**（EXPECT_PAGE=${EXPECT_PAGE || '（未指定）'}）⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`)
+  for (const r of bad.slice(0, 4)) console.error(`   · k=${r.k}：渲染=${r.renderOk ? 'ok' : '✗'} · 读回=${r.back}/${r.k + RB_OFFSET} · 命中页=${r.no}${EXPECT_PAGE ? `（格子 page=${EXPECT_PAGE}）` : ''}`)
+  process.exit(2)
+}
 const pair = rows.filter((r) => r.pairViol)
 if (pair.length) { console.error(`✗ 有 ${pair.length} 行"工具 exit ↔ 闸门自报"对拍不一致 ⇒ 该列不可信 ⇒ **不许据此下结论**（exit 2）`); process.exit(2) }
 if (tamper.length) { console.error(`✗ 有 ${tamper.length} 行**测量期产物被改写**（并发写同一 outdir）⇒ 读数不可信 ⇒ exit 2：`); for (const t of tamper) console.error(`     · ${t}`); process.exit(2) }
