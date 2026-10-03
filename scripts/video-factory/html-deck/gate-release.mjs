@@ -13,7 +13,7 @@
  * 退出码: 0 = 全绿 · 1 = 有判据失败 · 2 = 环境/输入不完整（子步骤冒泡，§25b）
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DECK_DIR, ENGINE_ROOT, selfCheck } from './paths.mjs'
@@ -343,7 +343,7 @@ if (tmpResidueRow.exit) process.exit(1)
   try {
     const tmpDirs = readdirSync(HERE, { withFileTypes: true })
       .filter((e) => e.isDirectory() && /^out(-tmp|-sweep|-chk|-xcheck)/.test(e.name)).map((e) => e.name)
-    let bytes = 0
+    let bytes = 0, statFail = 0
     for (const d0 of tmpDirs) {
       const stack = [join(HERE, d0)]
       while (stack.length) {
@@ -351,12 +351,16 @@ if (tmpResidueRow.exit) process.exit(1)
         for (const e of readdirSync(cur, { withFileTypes: true })) {
           const full = join(cur, e.name)
           if (e.isDirectory()) stack.push(full)
-          else { try { bytes += statSync(full).size } catch { /* ignore */ } }
+          /* ⚠️ **不许静默归零**：第一版这里 `catch { /* ignore */ }` ⇒ 因为忘 import `statSync`，
+             每个文件都抛 ReferenceError 被吞掉 ⇒ 打印"298 个目录 / **0.0 MB**"（**假数据**，实测真值 2955.8 MB）。
+             ⇒ 现改为**计数失败**并显示（体量不可信时明说）。 */
+          else { try { bytes += statSync(full).size } catch { statFail++ } }
         }
       }
     }
     const mb = (bytes / 1048576).toFixed(1)
-    console.log(`ℹ 临时产物：**${tmpDirs.length}** 个目录 / **${mb} MB**${tmpDirs.length ? ' ⇒ 清理请跑 `node clean-tmp.mjs`（**需人工批准**）' : ' ✓'}（只报不判红）`)
+    const warn = statFail ? ` ⚠️ 其中 **${statFail}** 个文件 stat 失败 ⇒ **体量偏小、不可信**` : ''
+    console.log(`ℹ 临时产物：**${tmpDirs.length}** 个目录 / **${mb} MB**${warn}${tmpDirs.length ? ' ⇒ 清理请跑 `node clean-tmp.mjs`（**需人工批准**）' : ' ✓'}（只报不判红）`)
   } catch (e) { console.log(`ℹ 临时产物：统计失败（${e.message}）`) }
   for (const l of (dv.tail || [])) console.log(`     ${l}`)
   if (dv.exit) process.exit(1)
