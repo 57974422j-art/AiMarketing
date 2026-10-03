@@ -65,7 +65,16 @@ if (RAISE_MAX) {
      ② **目标叶必须在命中清单里**（不在 ⇒ 红 = 抬没生效）。
      ⚠️ 裸叶名会命中**多个**（`title`/`explain`/`items`）：只抬不降 ⇒ 无害，但**必须打印命中数**让量测者确认目标在其中；
      也支持**整指针**精确指定（`--raise-max "#/$defs/meta/properties/issuer=847"`）⇒ 只命中那一个。 */
-  const [leafSpec, valStr] = RAISE_MAX.split('=')
+  const [leafSpecRaw, valStr] = RAISE_MAX.split('=')
+  /* ★ team-lead ③：`--raise-max auto=<n>` —— **按 `--field` 反查该字段自己的指针**再去抬 ⇒ 一箭双雕：
+     ① 免掉**裸叶名的多命中误伤**（裸叶 `title` 会同时命中 meta.title（cap 33）与 pageBullets.title（cap 50），
+        而"只许抬 / 无需抬"是**逐命中叶**判的 ⇒ 会被 cap 更大的**兄弟字段**误伤 —— 实测踩到）；
+     ② 形态里**没有 `$`** ⇒ 免掉 PowerShell 双引号吃 `$defs` 的坑（`#/$defs/x` 变 `#//x`）。
+     反查来源 = `measured-limits.json` 的 `cell.field` → `cell.jsonPointer`（判据表的**同一真源**，不新增入口）。 */
+  let leafSpec = leafSpecRaw
+  /* ⚠️ `auto` 的**反查必须等 `TABLE` 建好之后**再做 —— 第一版把这段放在这里 ⇒ **ReferenceError: Cannot access 'TABLE' before initialization**
+     （`TABLE` 在下面才声明）⇒ 反查 + "查不到就报错"整段已挪到 `TABLE`/`judgeOf` 之后（见下面的 auto 块）。
+     这正是"**初始化顺序**"类错误（与"定界符嵌套"同族：**都是把代码放在它依赖的东西之前/之内**）。 */
   /* ★ team-lead ①(a)(b)：**畸形 spec 守卫**（别让"整指针必须单引号"靠人记住）——
      · 含 `//`：典型是 **PowerShell 双引号把 `$defs` 展开成空**（`#/$defs/x` ⇒ `#//x`）；
      · 不以 `#/` 开头却含 `/`：**多段部分路径**（如 `secondary/items/label`）—— 匹配规则是"以 /spec 结尾"⇒ 必然 0 命中。
@@ -98,6 +107,17 @@ if (RAISE_MAX) {
   })()
   if (JF) console.log(`  ℹ --judge-fixture=${JF}（**仅自证**：判据列来自该 fixture，不读真表）`)
   const judgeOf = (ptr) => { const c = TABLE.find((x) => x.jsonPointer === ptr); return c ? c.judgeLimit : undefined }
+  /* ★ `--raise-max auto` 的**反查**（放这里才安全：`TABLE` 已就绪）——
+     按 `--field` 找到该字段自己的指针 ⇒ 避开①裸叶名多命中误伤 ②整指针的 `$` 展开坑（形态里没有 `$`）。 */
+  if (leafSpecRaw === 'auto') {
+    const c = TABLE.find((x) => x.field === FIELD)
+    if (!c || !c.jsonPointer) {
+      console.error(`✗ --raise-max auto：按 --field=${FIELD} 在判据表里**查不到 jsonPointer** ⇒ 请显式指定（推荐**整指针 + 单引号**）⇒ exit 2`)
+      process.exit(2)
+    }
+    leafSpec = c.jsonPointer
+    console.log(`  ℹ --raise-max auto ⇒ 按 --field=${FIELD} 反查指针：${leafSpec}（**推荐形态**：无多命中误伤、无 $ 需转义）`)
+  }
   const noJudge = []
   const hit = []
   const hitKind = []   /* ★ 每个命中抬的是 `maxLength` 还是 `maxItems`（告示里要写明） */
@@ -118,7 +138,9 @@ if (RAISE_MAX) {
         if (val === cap0) {
           console.error(`✗ --raise-max **无需抬**：${ptr} 现 ${key}=${cap0}，与 val 相等 ⇒ 这次抬没意义 ⇒ 请**去掉 --raise-max** 直接跑（现上限已足够）⇒ exit 2`)
         } else {
-          console.error(`✗ --raise-max **只许抬、不许降**：${ptr} 现 ${key}=${cap0}，而 val=${val} < 它 ⇒ **抬没生效**（测量仍会被旧上限拒）⇒ exit 2`)
+          console.error(`✗ --raise-max **只许抬、不许降**：${ptr} 现 ${key}=${cap0}，而 val=${val} < 它 ⇒ **抬没生效**（测量仍会被旧上限拒）⇒ exit 2
+     （提示：**裸叶名会命中多个**（例 title 同时命中 meta.title 与 pageBullets.title）⇒ 兄弟字段 cap 更大时会**误伤**；
+      推荐用 **--raise-max auto=<n>**（按 --field 反查指针）或**整指针 + 单引号**）`)
         }
         process.exit(2)
       }
