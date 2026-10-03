@@ -58,10 +58,10 @@
     },
     {
       "id": "I7",
-      "name": "offset ≠ 0 的格子：判据必须按输入值口径测",
-      "rule": "元素口径只作校核；judgeLimit 必须是输入值口径（上限作用于输入值）",
-      "enforcedBy": ["measured-limits.json（元数据与 kEnforced）", "check-schema-vs-limits.mjs（I2 用输入口径）"],
-      "incident": "meta.issuer：原记 827 = 元素 840 减 offset 13，隐含「840 是锐边界」的错假设 ⇒ 实测 841 到 845 仍可过，真判据 = 833（832 PASS / 833 FAIL）⇒ 混口径会让 ×0.9 余量被叠加两次"
+      "name": "三口径一致：注入口径 ≡ 读回口径 ≡ 上限口径",
+      "rule": "校核口径（元素/全篇）只作对照；`judgeLimit` 与 `maxLength` 必须是**注入口径**（上限作用于注入值）。凡口径不一致的读数 ⇒ **一律不可比**，须先换算并留证据行，再入表",
+      "enforcedBy": ["measured-limits.json（元数据与 kEnforced）", "check-schema-vs-limits.mjs（I2 用输入口径）", "measure-count.mjs（页切片 + global 对照 + 页号交叉核对）"],
+      "incident": "两例同族：① `meta.issuer`：元素 840 vs 输入 827（原记 827 隐含「840 是锐边界」错假设 ⇒ 真判据 833）——混口径会让 ×0.9 余量被叠加两次；② **条数**：全篇 23 vs 页内 3（`--sel li` 跨页计数 ⇒ 若不复核就会把 23 当该页条数）"
     },
     {
       "id": "I8",

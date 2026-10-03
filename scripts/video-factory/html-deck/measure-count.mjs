@@ -95,11 +95,25 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   /* 产物落在 <outdir>/<变体名>/（render 用 deck 文件名做子目录） */
   const prodDir = join(HERE, outdir, `__tmp_count-k${N}`)
 
-  /* ③ (a) 读回条数（必须 == N）：`dom-target` 输出形态实测为 {"selector":"li","count":4,…} */
+  /* ★★ team-lead ③：**页作用域不靠"人手挑唯一类名"**（那是"量具版的 K22"：换母版即失效、且无人守）——
+     用**页切片**（与 `dom-target` 的 `pageNo` **同一机制、同一索引**）：第 i 页 = 第 (i+1) 个 `<section>` 切片内计数。
+     三条断言（缺一 ⇒ 读数不可信）：
+       (a) `scoped == N`（页内条数 = 注入条数）
+       (b) 与 `dom-target` 报的 `pageNo` **交叉核对**必须 == 注入页索引 + 1（防"数对了别的页"）
+       (c) 同时打印 `global`（全篇计数）；并要求**至少一行 `global > scoped`** —— 这是**作用域自己的负控**
+           （若作用域没生效、把整篇当一页，读数可能"恰好对" ⇒ 假绿） */
+  const html = readFileSync(join(prodDir, 'index.html'), 'utf8')
+  const secs = html.split(/<section\b/i).slice(1)                 /* 每页一切片 */
+  const tag = SEL.replace(/[^a-z]/gi, '') || 'li'
+  const scoped = (String(secs[Number(pIdx)] || '').match(new RegExp(`<${tag}\\b`, 'gi')) || []).length
+  const global = (html.match(new RegExp(`<${tag}\\b`, 'gi')) || []).length
   const dt = spawnSync(process.execPath, [join(HERE, 'dom-target.mjs'), prodDir, SEL], { cwd: HERE, encoding: 'utf8' })
   const dout = String(dt.stdout || '') + String(dt.stderr || '')
   const cm = dout.match(/count"?\s*:\s*(\d+)/i)
-  const counted = cm ? Number(cm[1]) : null
+  const pm = dout.match(/pageNo"?\s*:\s*(\d+)/i)
+  const counted = scoped
+  const dtPage = pm ? Number(pm[1]) : null
+  const dtCount = cm ? Number(cm[1]) : null
 
   /* ④ 引擎闸门（与 crosscheck 同一调用）⇒ 从原始输出里提取 `"code": "xxx"` 并分类 */
   const g = spawnSync(process.execPath, [join(HERE, 'check-engine-lint.mjs'), prodDir, '--assert-overlap', '--assert-decor', '--no-contrast'],
@@ -115,8 +129,18 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   const outsider = uniq.filter((x) => !JUDGE.includes(x))
   const gateOk = /结论:\s*PASS/.test(gout) || (g.status === 0 && !judgeHit.length)
 
-  rows.push({ N, codes: uniq, judgeHit, outsider, gate: gateOk ? 'PASS' : 'FAIL', counted, renderExit: r.status, engineExit: g.status })
-  console.log(`  N=${String(N).padStart(2)} · 渲染 exit=${r.status} · 引擎 exit=${g.status} · 读回条数=${counted === null ? '?' : counted}（需 ${N}${counted === N ? ' ✓' : ' ✗'}）· 判据码=[${judgeHit.join(', ')}]${outsider.length ? ' · 非判据码=[' + outsider.join(', ') + ']' : ''}`)
+  rows.push({ N, codes: uniq, judgeHit, outsider, gate: gateOk ? 'PASS' : 'FAIL', counted, global, dtPage, dtCount, renderExit: r.status, engineExit: g.status })
+  /* (b) **交叉核对**（修正语义）：`dom-target` 用**标签型**选择器时会选**它找到的第一个**含该标签的页 ——
+     那未必是注入页（实测：`li` ⇒ 它数的是更早的 bullets 页，pageNo=3）⇒ 那不是失败，而是"**它数了别的页**"。
+     ⇒ 正确判据：**只有当两者指向同一页时**才要求计数一致（真交叉核对）；否则打印 ℹ（本次读回**以页切片为准**）。 */
+  const injPage1b = Number(pIdx) + 1
+  if (dtPage !== null && dtPage === injPage1b && dtCount !== null && dtCount !== counted) {
+    console.log(`      ⚠️ **同页双机制不一致**：dom-target count=${dtCount} ≠ 页切片=${counted}（同为第 ${injPage1b} 页）⇒ 读数不可信`)
+  } else if (dtPage !== null && dtPage !== injPage1b) {
+    console.log(`      ℹ dom-target 选的是**别的页**（pageNo=${dtPage} ≠ 注入页 ${injPage1b}）⇒ 本次读回**以页切片为准**（(a) 已断言）`)
+  }
+  if (global < counted) console.log(`      ⚠️ **作用域异常**：页内 ${counted} > 全篇 ${global} ⇒ 切片逻辑有问题`)
+  console.log(`  N=${String(N).padStart(2)} · 渲染 exit=${r.status} · 引擎 exit=${g.status} · **页内=${counted}**（需 ${N}${counted === N ? ' ✓' : ' ✗'}）· 全篇=${global}${dtPage !== null ? ` · dt.pageNo=${dtPage}` : ''} · 判据码=[${judgeHit.join(', ')}]${outsider.length ? ' · 非判据码=[' + outsider.join(', ') + ']' : ''}`)
   /* ⚠️ **渲染失败必须打原样输出**（§25a：不许过滤失败输出）—— 我第一版把它 `void` 掉了 ⇒ 事后无从定位 */
   if (r.status !== 0) {
     console.log(`      渲染 ✗（exit=${r.status}）原样末 6 行：`)
@@ -137,9 +161,13 @@ const constantOutsiders = [...new Set(rows.flatMap((r) => r.outsider).filter((c)
 const newOutsiders = [...new Set(rows.flatMap((r) => r.outsider).filter((c) => !baseCodes.has(c)))]
 const first = rows.find((r) => r.judgeHit.length)
 console.log('\n=== 结论 ===')
-if (badReadback.length) console.log(`  ✗ **读回条数不匹配** ${badReadback.length} 行（${badReadback.map((r) => `N=${r.N}:${r.counted}`).join(' ')}）⇒ 注入没生效 ⇒ 读数无意义 ⇒ exit 2`)
+if (badReadback.length) console.log(`  ✗ **页内条数不匹配** ${badReadback.length} 行（${badReadback.map((r) => `N=${r.N}:${r.counted}`).join(' ')}）⇒ 注入或切片出错 ⇒ 读数无意义 ⇒ exit 2`)
+/* ★ (c) **作用域自己的负控**：若所有行的 `global == scoped` ⇒ 作用域**没生效**（把整篇当一页）⇒ 读数可能"恰好对" = 假绿 */
+const scopeOk = rows.some((r) => r.global > r.counted)
+if (!scopeOk) console.log(`  ✗ **作用域未生效**（所有行 全篇 == 页内）⇒ 切片逻辑没起作用 ⇒ 读数可能"恰好对" = **假绿** ⇒ exit 2`)
+else console.log(`  ✓ 作用域负控：至少有 ${rows.filter((r) => r.global > r.counted).length} 行出现 **全篇 > 页内** ⇒ 切片确实在起作用`)
 if (newOutsiders.length) console.log(`  ✗ **有"随 N 新增的非判据码"**：${newOutsiders.join(', ')} ⇒ 不许当"无触发" ⇒ exit 2`)
 if (constantOutsiders.length) console.log(`  ℹ 恒定非判据码（各 N 都有 ⇒ 与容量无关，**记录不判红**）：${constantOutsiders.join(', ')}`)
 if (first) console.log(`  ✅ 判据（首个触发判据码的 N）= **${first.N}** · 决定性码 = [${first.judgeHit.join(', ')}] · 闸门=${first.gate}`)
 else console.log(`  ⏳ 到 N_MAX=${N_MAX} 未触发 ⇒ 按 (b) 记 **judgeLimitAtLeast: ${N_MAX}**（**不是 null**：已测且容量 ≥ ${N_MAX}）⇒ editorial 格的「cap ≤ ${N_MAX}」仍要断言`)
-process.exit(badReadback.length || newOutsiders.length ? 2 : 0)
+process.exit(badReadback.length || newOutsiders.length || !scopeOk ? 2 : 0)
