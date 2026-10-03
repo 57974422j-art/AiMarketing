@@ -37,6 +37,20 @@ const fi = argv.indexOf('--files')
 /* ⚠️ 停在**任何**以 `-` 开头的旗标（第一版只判 `--` ⇒ `-m` 被当成文件路径塞给 `git add` ⇒ `unknown switch m`；
    前置检查已全过、却栽在最后一步 —— 所以这行也要"验证"，不能只看"检查绿了"） */
 if (fi >= 0) for (let i = fi + 1; i < argv.length && !argv[i].startsWith('-'); i++) files.push(argv[i])
+/* ★ team-lead ②(a)：**未识别参数 ⇒ exit 2**（把纪律用在自己身上 —— crosscheck/measure-table 早就这么做；
+   第一版把 `--check-only` **静默吞掉**、一路走到 commit 那步，只因缺 `-m` 才没提交 ⇒ 不许靠"恰好"兜底）。
+   并新增**显式 `--dry`**：只跑前置、**绝不提交**，让"我只想跑闸门"与"我要提交"两条路彻底分开。 */
+const KNOWN = new Set(['--fast', '--no-sync', '--dry', '--dist-rel', '--files', '-m'])
+const dry = argv.includes('--dry')
+for (let i = 2; i < argv.length; i++) {
+  const a = argv[i]
+  if (!a.startsWith('-')) continue                      /* 参数值（-m 的消息 / --files 的路径）跳过 */
+  if (!KNOWN.has(a)) {
+    console.error(`✗ 未识别参数：${a} ⇒ exit 2（**不许静默忽略**）`)
+    process.exit(2)
+  }
+  if (a === '--files' || a === '-m' || a === '--dist-rel') i++
+}
 /** dist-rel 契约目录：仓库根下 dist-rel 的任一子目录里的 deck-contract（存在即用；--dist-rel 可覆盖）
     ⚠️ 本注释**故意不写出那个 glob 字面量** —— 它含 star-slash，会把本块注释**提前闭合**（我今晚已栽两次：
     gate-release 与**本文件**。这也是 invariants.json 的 I8 之外该记的一条「注释卫生」）。 */
@@ -118,10 +132,24 @@ if (failed.length) {
   console.error(`\n✗ 前置检查失败 ${failed.length} 步 ⇒ **拒绝提交**（这就是"先验证后提交"的机械保证）`)
   process.exit(1)
 }
+if (dry) {
+  console.log('\n✓ 前置全过（**dry，未提交**）—— 这是"只跑闸门"的显式路径（不用再靠"恰好缺 -m"兜底）')
+  process.exit(0)
+}
 console.log('\n✓ 前置全过 ⇒ 执行 git add / git commit')
 const run = (args) => { const r = spawnSync('git', ['--no-pager', ...args], { cwd: ROOT, encoding: 'utf8' }); if (r.status !== 0) { console.error(String(r.stderr || r.stdout)); process.exit(1) } return String(r.stdout || '') }
+if (!msgParts.length) { console.error('✗ 没有 -m 提交信息 ⇒ 拒绝提交'); process.exit(1) }
 if (files.length) run(['add', ...files])
 else run(['add', '-A', 'scripts/video-factory/html-deck'])
-if (!msgParts.length) { console.error('✗ 没有 -m 提交信息 ⇒ 拒绝提交'); process.exit(1) }
 run(['commit', ...msgParts.flatMap((m) => ['-m', m])])
+/* ★ team-lead ②(b)：**"前置绿 ≠ 提交对"**（我那条 `--files` 把 `-m` 当路径就是"前置全过、栽在最后一步"）⇒
+   提交后**断言"实际提交的文件集 == 意图"**：用 `diff-tree --name-only` 取真文件集，与 `--files` 数量比对（不等 ⇒ 红）。 */
+const hash = run(['rev-parse', '--short', 'HEAD']).trim()
 console.log(run(['log', '-1', '--oneline']).trim())
+const changed = run(['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).split('\n').map((s) => s.trim()).filter(Boolean)
+console.log(`✓ 提交 ${hash} · **实际改动文件 ${changed.length} 个**：`)
+for (const n of changed.slice(0, 20)) console.log(`    · ${n}`)
+if (files.length && changed.length !== files.length) {
+  console.error(`✗ **提交文件集与意图不符**：意图 ${files.length} 个 · 实际 ${changed.length} 个 ⇒ 请核对（不许当成功）`)
+  process.exit(1)
+}

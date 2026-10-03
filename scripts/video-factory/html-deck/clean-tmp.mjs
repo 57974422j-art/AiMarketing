@@ -21,7 +21,7 @@
  *      out-tmp-xcheck-* · out-tmp-sweep-* · out-tmp-* · out-sweep-* · out-chk-* · out-xcheck-*
  * ⚠️ `out/`（交付产物 · 闸门操作对象）与 `out-master-v2/` 与 `masters/` `examples/` 等**绝不匹配**。
  */
-import { readdirSync, statSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { readdirSync, statSync, rmSync, existsSync, readFileSync, writeSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
@@ -108,7 +108,10 @@ for (let i = 0; i < cands.length; i++) {
   } catch (e) {
     failed.push(`${c.name}（${e.message}）`)   /* ★ 约束 4：打印并继续，不中断整批 */
   }
-  if ((i + 1) % BATCH === 0) { /* ★ 约束 2：小批（同步版本用 Atomics.wait 做个短歇） */
+  if ((i + 1) % BATCH === 0) {
+    /* ★ team-lead：**即时 flush（writeSync）删除进度** —— 若命令被取消/超时，也要留下"删了几个"的痕迹
+       （此前一次 batch 运行**输出为空** ⇒ 事后无从对账："298→278 的下降无法解释"就是这么来的）。 */
+    try { writeSync(1, `   … 进度：已删 ${deleted} 个 / 候选 ${cands.length} 个（失败 ${failed.length}）\n`) } catch { /* ignore */ }
     try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150) } catch { /* ignore */ } }
 }
 
