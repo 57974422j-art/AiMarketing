@@ -1,6 +1,6 @@
 {
   "_doc": "装饰白名单（**装饰×内容碰撞判据**的唯一输入）。规则：列出的 selector 是**我们自己的装饰/覆盖层**；当引擎报 `text_occluded` 且遮挡者命中本表 ⇒ 判 `decor_content_collision`（红）。非装饰遮挡者 ⇒ 只进观察清单 + 计数（交叉校验）。",
-  "_invariant": "装饰层只许出现在**内容安全区之外**（母版不变量：`--pad-deco < --pad`）。命中本表只说明\"遮挡者是我们自己的装饰\"，**不代表允许**——碰撞本身就是缺陷，必须修版式或移装饰。",
+  "_invariant": "装饰层只许出现在**内容安全区之外**（母版不变量：`--pad-deco < --pad`）。命中本表只说明「遮挡者是我们自己的装饰」，**不代表允许**——碰撞本身就是缺陷，必须修版式或移装饰。",
   "allow": [
     {
       "selector": ".progress",
@@ -15,7 +15,7 @@
     },
     {
       "selector": ".tex",
-      "reason": "页内极轻纹理层（`opacity:.16`、`pointer-events:none`）。若文字被判\"被它遮挡\"，说明层序/不透明度写错了 —— 它不是遮挡物而是**装饰层**（同样只许不压字）。",
+      "reason": "页内极轻纹理层（`opacity:.16`、`pointer-events:none`）。若文字被判「被它遮挡」，说明层序/不透明度写错了 —— 它不是遮挡物而是**装饰层**（同样只许不压字）。",
       "geometryUnresolvable": true,
       "reasonUnresolvable": "`top:0` + `height: calc(var(--H) + var(--drift)*2)`，**未声明 bottom** ⇒ 不是\"带\"形而是一整页；把它整块排除会误伤全部文字判据（故**故意**不解析）。",
       "compensatedBy": "minTextHeight"

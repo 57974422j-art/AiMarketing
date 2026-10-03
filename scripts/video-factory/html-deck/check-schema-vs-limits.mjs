@@ -14,7 +14,7 @@
  * 退出码：0 = 无违规 · 1 = 有违规（或 `--strict-coverage` 下覆盖不全）· 2 = 输入/配置错（§25b）
  * 用法：`node check-schema-vs-limits.mjs [--strict-coverage]`
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync , readdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'   /* ★ --selftest-handchecks：逐叶子跑第二路 */
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -129,6 +129,71 @@ function i5Violations() {
   }
   return out
 }
+/* ---------- ④ **ASCII 引号 lint**（team-lead 批准的口径）----------
+   只扫 **JSON 文件的散文字段**（`description` / 任何 `_` 开头键 / `reason` / `note`）：
+   出现 **ASCII 直引号** ⇒ 红（统一用「」/『』）。**`.md` 不在此列** —— 代码块里必须有 `"`，一刀切会制造假红。
+   理由（我的亲身事故，一晚**三次**）：在 JSON 字符串里手写裸 `"` ⇒ **文件直接不是合法 JSON**（deck.schema.json 一次、
+   invariants.json 一次、以及"已转义的 \\" 也别写"这条同样是为了可读与防手滑）。 */
+function asciiQuoteViolations() {
+  const out = []
+  const PROSE = /^(description|reason|note|_.*)$/
+  const FILES = readdirSync(DECK_DIR).filter((f) => /\.json$/.test(f) && (
+    f === 'deck.schema.json' || f === 'measured-limits.json' || f === 'bad-expected.json' ||
+    f === 'exclude-coverage.json' || f.startsWith('allowlist-') ||
+    f === 'comment-killer-allowlist.json' || f === 'probe-path-allowlist.json'))
+  for (const f of FILES) {
+    let obj
+    try { obj = JSON.parse(readFileSync(join(DECK_DIR, f), 'utf8')) } catch { continue }
+    const walk = (node, path) => {
+      if (Array.isArray(node)) { node.forEach((v, i) => walk(v, `${path}[${i}]`)); return }
+      if (!node || typeof node !== 'object') return
+      for (const [k, v] of Object.entries(node)) {
+        if (typeof v === 'string' && PROSE.test(k) && v.includes('"')) {
+          out.push(`${f} ${path}.${k} 含 ASCII 直引号 ⇒ 改「」/『』（含已转义的双引号也不许：JSON 里手写它=一次事故）`)
+        } else walk(v, `${path}.${k}`)
+      }
+    }
+    walk(obj, '$')
+  }
+  return out
+}
+const q11 = asciiQuoteViolations()
+
+/* ---------- ④b **编号序列断言**：`invariants.json` 的 I 序号必须**连续且唯一**（I1…In 不跳号、不重号）----------
+   并把**代码/文档里出现的** `I\d+`（必须已登记）/ `K\d+` / `⓪x`（先做**清单可见**）统计出来。 */
+function seqViolations() {
+  const out = [], info = []
+  let ids = []
+  try {
+    const inv = JSON.parse(readFileSync(join(DECK_DIR, 'invariants.json'), 'utf8'))
+    ids = (inv.invariants || []).map((x) => String(x.id))
+  } catch { return { out: ['invariants.json 读不到/不可解析'], info } }
+  const nums = ids.map((i) => Number((String(i).match(/^I(\d+)/) || [])[1])).filter((n) => Number.isFinite(n))
+  const uniq = [...new Set(nums)].sort((a, b) => a - b)
+  /* ⚠️ **按 id 原文**判重复，不按数字 —— `I5-表` 是 I5 的**变体**（同一编号的不同守卫），
+     第一版按数字判 ⇒ 把它误报成"重复号"（被本断言自己的首跑抓到）。连续性仍按**数字去重后**判。 */
+  if (new Set(ids.map(String)).size !== ids.length) out.push(`invariants.json 的 I 序号**有重复**：${ids.join(', ')}`)
+  for (let i = 1; i < uniq.length; i++) {
+    if (uniq[i] !== uniq[i - 1] + 1) out.push(`invariants.json 的 I 序号**跳号**：${uniq[i - 1]} → ${uniq[i]}（编号序列必须连续）`)
+  }
+  const known = new Set(nums)
+  const srcs = [...readdirSync(DECK_DIR).filter((f) => /\.mjs$/.test(f)), 'README.md', 'ENGINE-CONTRACT.md', 'AI-PROMPT.md']
+    .filter((f) => existsSync(join(DECK_DIR, f)))
+  const kSet = new Set(), zeroSet = new Set()
+  for (const f of srcs) {
+    const t = readFileSync(join(DECK_DIR, f), 'utf8')
+    for (const m of t.matchAll(/\bI(\d+)\b/g)) {
+      if (!known.has(Number(m[1]))) out.push(`${f} 引用了 **I${m[1]}**，但 invariants.json 里**没有登记它**（未登记 = 没人守、也没人知道为什么有它）`)
+    }
+    for (const m of t.matchAll(/\bK(\d+)\b/g)) kSet.add(Number(m[1]))
+    for (const m of t.matchAll(/⓪([a-z])/g)) zeroSet.add(m[1])
+  }
+  info.push(`K 编号出现 ${kSet.size} 个：K${[...kSet].sort((a, b) => a - b).join(' / K')}（**登记表待建** —— 本断言先让清单可见）`)
+  info.push(`⓪ 小节出现 ${zeroSet.size} 个：${[...zeroSet].sort().map((c) => '⓪' + c).join(' / ')}（同上）`)
+  return { out, info }
+}
+const seq = seqViolations()
+
 const i5 = i5Violations()
 
 /* ---------- ★ **I5-文档**（team-lead 裁定 (a)-①）：文档里的写作数字必须与 schema 同源 ----------
@@ -175,6 +240,13 @@ if (i5doc.length) {
   console.log(`\n  ⚠ **I5-文档（AI-PROMPT 数字同源）违规 ${i5doc.length} 条**：`)
   for (const s of i5doc.slice(0, 12)) console.log(`     · ${s}`)
 }
+if (q11.length) {
+  console.log(`\n  ⚠ **④ ASCII 引号 lint 违规 ${q11.length} 条**（JSON 散文字段不许有 ASCII 直引号）：`)
+  for (const s of q11.slice(0, 12)) console.log(`     · ${s}`)
+}
+console.log(`\n  ④b 编号序列：invariants.json I 序号 ${seq.out.length ? '✗ ' + seq.out.length + ' 条问题' : '✓ 连续且唯一'}`)
+for (const s of seq.info) console.log(`     ℹ ${s}`)
+for (const s of seq.out.slice(0, 12)) console.log(`     · ${s}`)
 /* ---------- ★ 体检：**旧上限的机械复核**（team-lead ②：不许靠人读散文） ---------- */
 {
   const hist = (limits._history && Array.isArray(limits._history.items)) ? limits._history.items : []
@@ -463,6 +535,8 @@ if (viol.length) {
 }
 if (i5.length) viol.push(...i5.map((s) => `I5 ${s}`))
 if (i5doc.length) viol.push(...i5doc.map((s) => `I5-文档 ${s}`))
+if (q11.length) viol.push(...q11.map((s) => `④ASCII引号 ${s}`))
+if (seq.out.length) viol.push(...seq.out.map((s) => `④b编号序列 ${s}`))
 if (!viol.length && !(STRICT && uncovered.length)) { console.log('\n✓ 一致（每个已测硬上限都有判据支撑且留有余量）'); process.exit(0) }
 if (!viol.length && STRICT && uncovered.length) { console.error(`\n✗ --strict-coverage：仍有 ${uncovered.length} 个硬上限**没有实测支撑**`); process.exit(1) }
 process.exit(1)
