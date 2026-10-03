@@ -14,7 +14,7 @@
  *   k · 读回长度 · 门 exit · 判据内 codes（稳定帧原文）· 结论
  * 判读规则（team-lead）：**两路不一致 ⇒ 先查"注入方式是否引入偏差"**；不许取平均、不许以某一路为准。
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -30,7 +30,10 @@ const JSONF = arg('--json', 'examples/deck.master-v1.json')
 const FIELD = arg('--field', 'meta.title')
 const CLS = arg('--cls', 'cover-title')
 const KS = String(arg('--ks', '37,38')).split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n))
-const OUT = arg('--outdir', 'out-xcheck')
+/* ★★ 并发安全一（team-lead ②-1）：**默认 outdir 唯一化** —— 不再默认共享 `out-xcheck`。
+   事故（2026-10-03）：team-lead 与我**并发**跑同一默认 outdir ⇒ 他读到的是被并发改写的产物 ⇒
+   得到一个"看起来正常但错"的数（k=37 闸门 exit 报 1，实际 0）——比报错危险得多。显式指定时才用指定值。 */
+const OUT = arg('--outdir', '') || `out-xcheck-${process.pid}-${Date.now().toString(36)}`
 const PATH_A = arg('--pathA', '')          // 第一路（HTML 注入）给出的临界，仅用于打印对照
 
 /** 深设 `a.b.c` 路径字段 */
@@ -51,11 +54,41 @@ if (!existsSync(src)) { console.error(`✗ 找不到 deck JSON：${src}（§25b 
 const base = JSON.parse(readFileSync(src, 'utf8'))
 const outRoot = resolve(DECK_DIR, OUT)
 mkdirSync(outRoot, { recursive: true })
+/* ★★ 并发安全二（team-lead ②-2）：**锁文件 + 存活检测** —— 发现另一进程在用同一 outdir ⇒ exit 2（明说）。 */
+const LOCK = join(outRoot, '.xcheck.lock')
+const alive = (pid) => { try { process.kill(pid, 0); return true } catch (e) { return !!e && e.code === 'EPERM' } }
+{
+  let got = false
+  for (let attempt = 0; attempt < 2 && !got; attempt++) {
+    try {
+      const fd = openSync(LOCK, 'wx')      // ★ 独占创建：已存在即抛 EEXIST（比"先查再写"无竞态）
+      writeFileSync(fd, JSON.stringify({ pid: process.pid, t: new Date().toISOString(), outdir: OUT }))
+      closeSync(fd); got = true
+    } catch (e) {
+      if (e.code !== 'EEXIST') { console.error(`✗ 无法创建锁文件 ${LOCK}：${e.message}（§25b ⇒ exit 2）`); process.exit(2) }
+      let info = null
+      try { info = JSON.parse(readFileSync(LOCK, 'utf8')) } catch { info = null }
+      const other = info && Number(info.pid)
+      if (other && other !== process.pid && alive(other)) {
+        console.error(`✗ **另一进程正在使用同一输出目录**（${OUT} · pid=${other} · 起于 ${info.t}）⇒ 读数是并发污染的 ⇒ **exit 2**（team-lead ②-2）`)
+        console.error(`   处置：换一个 outdir（本工具默认已唯一化），或等它结束。`)
+        process.exit(2)
+      }
+      console.log(`  ⚠ 发现**陈旧锁**（pid=${other || '?'} 已不在）⇒ 清除后重试（这是并发事故的残留，不是正常状态）`)
+      try { rmSync(LOCK, { force: true }) } catch { /* ignore */ }
+    }
+  }
+  if (!got) { console.error('✗ 取锁失败（重试后仍冲突）⇒ exit 2'); process.exit(2) }
+  process.on('exit', () => { try { rmSync(LOCK, { force: true }) } catch { /* ignore */ } })
+}
+/* ★★ 并发安全三（team-lead ②-3）：**测量期防篡改** —— 每行记产物指纹，测量期间被改写 ⇒ exit 2（不许照常出结论）。 */
+const fp = (p) => { try { const s = statSync(p); return `${s.size}:${Math.round(s.mtimeMs)}` } catch { return 'missing' } }
 const HF = resolveHyperframes().p        // ★ 返回 {p, why}（`resolveHyperframes().p` 才是可执行路径；与 measure-sweep 同口径）
 
 console.log(`=== deck JSON 真渲染路（第二路）===`)
 console.log(`  源 = ${JSONF} · 字段 = ${FIELD} · 检测点 = .${CLS} · 变体 k = [${KS.join(', ')}] · 出目录 = ${OUT}${PATH_A ? ` · 第一路(HTML 注入)临界 = ${PATH_A}` : ''}`)
 const rows = []
+const tamper = []                       // ★ 测量期产物被改写的行（⇒ 结论作废）
 for (const k of KS) {
   const variant = JSON.parse(JSON.stringify(base))
   setPath(variant, FIELD, '汉'.repeat(k))
@@ -67,6 +100,7 @@ for (const k of KS) {
   const r = spawnSync(NODE, [join(HERE, 'render-deck.mjs'), vj, '--outdir', join(DECK_DIR, OUT)], { cwd: HERE, encoding: 'utf8' })
   const prod = join(DECK_DIR, OUT, deckName)
   const renderOk = r.status === 0 && existsSync(join(prod, 'index.html'))
+  const fpRender = renderOk ? fp(join(prod, 'index.html')) : 'n/a'   // ★ 渲染完成即取指纹（防篡改基线）
   if (!renderOk) {
     const tail = ((r.stdout || '') + (r.stderr || '')).split('\n').map((s) => s.trim()).filter(Boolean).slice(-4)
     console.log(`  k=${k} 渲染失败 exit=${r.status} ⇒ 原样末 4 行：`)
@@ -116,7 +150,11 @@ for (const k of KS) {
     const expectStatus = gateResult.ok ? 0 : 1
     if (gateExit !== expectStatus) pairViol = `工具捕获 exit=${gateExit} ↔ 闸门自报 ok=${gateResult.ok}（应为 exit=${expectStatus}）`
   } else if (renderOk && !gateResult) pairViol = '闸门未打印 GATE-RESULT（拿不到机器可读真源）'
-  rows.push({ k, renderOk, back, at, no, codes, gateExit, gateResult, gateRaw, gateVerdict, pairViol })
+  /* ★ 指纹防篡改：**渲染完成即取**，读完（引擎 + 闸门）再取一次 —— 两次不一致 ⇒ 本轮读数作废（并发改写） */
+  const fpAfter = renderOk ? fp(join(prod, 'index.html')) : 'n/a'
+  const tampered = renderOk && fpAfter !== fpRender
+  if (tampered) tamper.push(`k=${k}：测量期间产物被改写（${fpRender} → ${fpAfter}）`)
+  rows.push({ k, renderOk, back, at, no, codes, gateExit, gateResult, gateRaw, gateVerdict, pairViol, fpBefore: fpRender, fpAfter })
   console.log(`  k=${String(k).padStart(3)} · 渲染 ${renderOk ? 'ok' : '✗'} · 读回 ${back}/${k}${back === k ? ' ✓' : ' ✗'} · 页 ${no || '-'} · 稳定帧 t=${at || '-'} · 判据内 codes = [${codes.join(', ')}]`)
   console.log(`       闸门真源：${gateRaw}${gateVerdict ? ' ⇒ ' + gateVerdict : ''}`)
   if (pairViol) console.error(`       ✗ 对拍不一致：${pairViol}`)
@@ -126,6 +164,8 @@ const bad = rows.filter((r) => !r.renderOk || r.back !== r.k)
 if (bad.length) { console.error(`✗ 有 ${bad.length} 行渲染失败或读回不符 ⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`); process.exit(2) }
 const pair = rows.filter((r) => r.pairViol)
 if (pair.length) { console.error(`✗ 有 ${pair.length} 行"工具 exit ↔ 闸门自报"对拍不一致 ⇒ 该列不可信 ⇒ **不许据此下结论**（exit 2）`); process.exit(2) }
+if (tamper.length) { console.error(`✗ 有 ${tamper.length} 行**测量期产物被改写**（并发写同一 outdir）⇒ 读数不可信 ⇒ exit 2：`); for (const t of tamper) console.error(`     · ${t}`); process.exit(2) }
+/* 结论行只在"三关都过"之后才允许输出（读回 / 对拍 / 防篡改）—— 这也是并发事故的教训：宁可不出结论。 */
 console.log(`\n  判读：每行都以 **闸门同一判据**（--assert-overlap --assert-decor）在**该字段所在页的稳定帧**上读结论；`)
 console.log(`        第一路（HTML 注入）临界 = ${PATH_A || '(未提供)'}；两路不一致 ⇒ **先查注入方式是否引入偏差**（不许取平均/不许以某一路为准）。`)
 /* 退出码：本工具只负责"把第二路的原始读数取回来"（读数可信 = 渲染成功且读回 == k，否则上面已 exit 2）；
