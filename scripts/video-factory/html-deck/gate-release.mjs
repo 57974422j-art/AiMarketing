@@ -116,7 +116,13 @@ function selfMadePaths() {
   /* `--at 1.0` / `--at=1.0` / `['--at','1.0']`（spawnSync 实参写法）—— 引号与逗号都容错：
      第一版写成 `--at\s*[=,]?\s*['"]?\d` ⇒ **打不中** `['--at','1.0']`（中间夹了 `'` 与 `,`）⇒ 负控当场抓出。 */
   const AT_LITERAL = /--at['"]*[\s=,]*['"]*\s*\d/
-  const timingHard = (l) => AT_LITERAL.test(l) || (TIMED.test(l) && TIMING_LIT.test(l))
+  /* ⚠️ 这两条**收窄过**：第一版写成 `\|\|\s*['"]?\d+\.\d` 与 `['"]--at['"][^\n]*\d` ⇒ **误报 9 处**
+     （`encoding:'utf8'` 里的 8、对比度阈值 `|| 4.5`、纯变量写法 `'--at', atList`）⇒ 现只认**数字兜底**的精确形状：
+       ① `SWEEP_AT || <数字>` / `|| '1.0'`（"看着像死代码，字面量在就还会被人复制"）
+       ② `'--at'` 与数字**紧邻**：`['--at','1.0']` / `['--at', 1.0]`（数字在别处的不算 —— 那种由 ① 兜） */
+  const TIMING_FALLBACK = /(SWEEP_AT\s*\|\|\s*['"]?\d)|(\|\|\s*['"]1\.\d)/
+  const AT_ARRAY_LITERAL = /['"]--at['"]\s*,\s*['"]?\d/
+  const timingHard = (l) => AT_LITERAL.test(l) || AT_ARRAY_LITERAL.test(l) || TIMING_FALLBACK.test(l) || (TIMED.test(l) && TIMING_LIT.test(l))
   // ★ ④ 扫描范围**含子目录**（`fonts/*.mjs` 也曾自造根 —— 只扫 DECK_DIR 顶层会漏，team-lead 指出的正是这个）
   const dirs = [DECK_DIR, join(ENGINE_ROOT, 'fonts')].filter((d) => existsSync(d))
   for (const d of dirs) {
