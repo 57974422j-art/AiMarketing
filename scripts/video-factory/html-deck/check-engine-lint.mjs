@@ -96,7 +96,7 @@ let deploySkipped = 0
 //   （实测：传 `..\deck-contract\out\x` 时引擎报 `Not a directory: …\dist-rel\deck-contract\out\x` —— `..` 被多解析一层）
 const dirArg = args.find((a) => !a.startsWith('--'))
 if (!dirArg) {
-  console.error('用法: node check-engine-lint.mjs <产物目录> [--dump] [--assert-contrast] [--assert-overlap] [--verbose]')
+  console.error('用法: node check-engine-lint.mjs <产物目录> [--dump] [--assert-contrast] [--assert-overlap] [--assert-decor] [--verbose]')
   console.error('  例: node check-engine-lint.mjs out/deck.master-v1')
   process.exit(2)
 }
@@ -108,6 +108,9 @@ const assertContrast = args.includes('--assert-contrast')
    (三码 ∪ `content_overlap`) ⇒ **"内容上限"用了比闸门更严的判据** ⇒ 会出现"deck 过闸门、却违反写进 schema 的上限"。
    ⇒ 现在并列；`gate-release` **恒带**此旗（发版口径 = sweep 口径，一字一致）。 */
 const assertOverlap = args.includes('--assert-overlap')
+/* ★ **装饰×内容碰撞**开关（team-lead 裁定 A 的配套判据）：判"遮挡者是不是我们自己的装饰" ⇒ 装饰压字即红。
+   与量表**同一实现**（`decor-collision.mjs`）⇒ 不会出现"上限比闸门严/松"的分叉。`gate-release` **恒带**。 */
+const assertDecor = args.includes('--assert-decor')
 
 /** 溢出类判据（team-lead 定）：`text_box_overflow` 被容器裁 / `container_overflow` 溢出裁切容器 / `canvas_overflow` 出画布 */
 const OVERFLOW_CODES = ['text_box_overflow', 'container_overflow', 'canvas_overflow']
@@ -187,6 +190,8 @@ console.log(`  瞬时解析失败计数（本次运行）= ${transientCount}`)
    本文件**不再自带副本**（此前：覆盖矩阵是它自述的"第 2 处实现"、measure-sweep 硬编码 `--at 1.0`
    ⇒ 三处口径可漂移）。这里只做 thin alias，保持既有调用点不变；下方"封装一致性自检"仍保留。 ---------- */
 import { ENTER_TAIL_S, timingTable, settledAt as _settledAt, settledAtList, transitionAt as _transitionAt } from './timing.mjs'
+/* ★ 装饰×内容碰撞判据（**唯一实现**，与量表 `measure-sweep.mjs` 同一模块；team-lead 裁定 A 的配套判据） */
+import { DECOR_CODE, classifyOcclusions, crossCheckNote } from './decor-collision.mjs'
 const settledAtForImpl = (dirPath, no, table) => _settledAt(dirPath, no, table)
 const transitionAt = (dirPath, time, table) => _transitionAt(dirPath, time, table)
 
@@ -280,6 +285,26 @@ if (assertOverlap) {
       console.error(`        fixHint=${String(f.fixHint || f.message || '').slice(0, 150)}`)
     }
   } else console.log('    ✓ 白名单外重叠 = 0')
+}
+
+/* ---------- ★ **装饰×内容碰撞**（team-lead 裁定 A 的配套判据；与量表同一实现） ----------
+   判据 = 装饰白名单 ∩ 内容盒 > 0 ⇒ 红（码名 `decor_content_collision`）。几何由引擎算 ——
+   `text_occluded.containerSelector` 即**遮挡者**（实测定案：隐藏 `.progress` 后该 finding 消失）；
+   我们只判"遮挡者是不是我们自己的装饰"。交叉校验（独立锚点）：我们判无碰撞而引擎仍报非装饰遮挡
+   ⇒ 打印 + 计数（说明**装饰白名单不全**）。 */
+if (assertDecor) {
+  const decorRes = classifyOcclusions(settledFindings)
+  console.log(`\n  装饰×内容碰撞判据（${DECOR_CODE}）[--assert-decor]：遮挡 ${decorRes.counts.occlusions} 条 = 装饰碰撞 ${decorRes.counts.collisions} + 非装饰 ${decorRes.counts.nonDecor}`)
+  if (decorRes.collisions.length) {
+    bad++
+    console.error(`  ✗ 装饰压字 ${decorRes.collisions.length} 条 ⇒ **装饰层越出内容安全区**（母版不变量 --pad-deco < --pad）：`)
+    for (const f of decorRes.collisions.slice(0, 10)) {
+      console.error(`      · [${f.code}] sel=${f.selector} t=${f.time} 遮挡者=${f.occluder}（命中白名单 ${f.decor}）rect=${JSON.stringify(f.rect || f.bbox || null)}`)
+    }
+  } else console.log('    ✓ 装饰压字 = 0')
+  const note = crossCheckNote(decorRes.counts)
+  if (note) console.log(`    ⚠ ${note}`)
+  else if (decorRes.counts.nonDecor) console.log(`    · 非装饰遮挡 ${decorRes.counts.nonDecor} 条 ⇒ 只记录（观察清单），不判红`)
 }
 
 if (dump) {

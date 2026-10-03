@@ -254,7 +254,9 @@ const targets = FAST
   : deckTargets()
 /* ★ `--assert-overlap` **恒带**：发版口径 = `measure-sweep` 口径 = (三码 ∪ `content_overlap`) − (溢出 ∪ 重叠白名单) = 0。
    否则"内容上限"用了比闸门更严的判据 ⇒ 出现"过闸门却违反上限"（team-lead ③ 抓到的分叉）。 */
-for (const t of targets) rows.push(step(FAST ? '③代表档判据(fast)' : '③全档判据', t, 'check-engine-lint.mjs', [t, '--assert-contrast', '--assert-overlap']))
+/* ★ `--assert-decor` 同样**恒带**：装饰压字（`decor_content_collision`）是"装饰层越出内容安全区"的判据，
+   与量表同一实现 ⇒ 发版口径 = 判据口径（team-lead 裁定 A 的配套：`.progress` 已改用 `--pad-deco`）。 */
+for (const t of targets) rows.push(step(FAST ? '③代表档判据(fast)' : '③全档判据', t, 'check-engine-lint.mjs', [t, '--assert-contrast', '--assert-overlap', '--assert-decor']))
 const total = (Date.now() - t0) / 1000
 
 const failedRows = rows.filter((r) => r.exit !== 0)

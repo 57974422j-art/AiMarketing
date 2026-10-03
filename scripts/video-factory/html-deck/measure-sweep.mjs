@@ -26,6 +26,8 @@ import { ENGINE_ROOT, DECK_DIR, selfCheck } from './paths.mjs'
 import { resolveHyperframes } from './engine-bin.mjs'
 /* ★ 时序**唯一实现**（team-lead ②）：本文件不再硬编码 `--at 1.0`，也不再自带时序公式 */
 import { settledAt, settledAtList, pageNoOfSelector, pageOfTime, timingTable } from './timing.mjs'
+/* ★ 装饰×内容碰撞判据（**唯一实现**，与闸门 `check-engine-lint.mjs` 同一模块 ⇒ 不会出现"上限比闸门严/松"） */
+import { classifyOcclusions, crossCheckNote } from './decor-collision.mjs'
 
 selfCheck({ quiet: true })
 const HF = resolveHyperframes().p
@@ -183,8 +185,15 @@ function probe(dir) {
     }
     const fs = (j && j.layout && Array.isArray(j.layout.findings)) ? j.layout.findings : []
     const layoutBad = (j.layout.ok === false) || (Number(j.layout.errorCount || 0) > 0)
-    const hits = fs.filter((x) => x && JUDGE.has(String(x.code || '')))
-    const nonJudge = fs.filter((x) => x && !JUDGE.has(String(x.code || '')))
+    /* ★ team-lead 裁定：**装饰×内容碰撞**进判据（与闸门**同一实现** `decor-collision.mjs`）。
+       ⇒ 引擎 `text_occluded` 若遮挡者命中装饰白名单，则以 `decor_content_collision` 计入 hits（判据码）；
+         未命中的仍留观察清单；我们用 crossCheckNote 做独立锚点交叉校验。 */
+    const decorRes = classifyOcclusions(fs)
+    if (decorRes.counts.occlusions) {
+      console.log(`     [装饰判据] 遮挡 ${decorRes.counts.occlusions} 条 = 装饰碰撞 ${decorRes.counts.collisions} + 非装饰 ${decorRes.counts.nonDecor}${crossCheckNote(decorRes.counts) ? ' ⇒ ' + crossCheckNote(decorRes.counts) : ''}`)
+    }
+    const hits = [...fs.filter((x) => x && JUDGE.has(String(x.code || ''))), ...decorRes.collisions]
+    const nonJudge = fs.filter((x) => x && !JUDGE.has(String(x.code || '')) && String(x.code) !== 'text_occluded')
     /* ★ 观察清单（team-lead ①-3）：非判据码在**稳定帧**上出现时逐条打印 + 计数（可见但**不判红**）；
        `text_occluded` 另加提示（真遮挡 = 用户可见缺陷 vs 边界帧瞬态，需人工判）。 */
     if (ci === 0 && nonJudge.length) {
@@ -380,5 +389,5 @@ if (best + 1 <= MAXK) {
   if (pPass.bad.length !== 0 || pFail.bad.length === 0) { console.error('  ✗ ±1 验证失败 ⇒ **不报临界值**（先修判据/单调性）'); process.exit(1) }
 }
 console.log(`     **上限建议（×0.9）= ${Math.floor(best * 0.9)} 字**`)
-console.log(`     方法：稳定帧(**按 timing.mjs 唯一实现、该字段所在页**) 引擎 lint · 判据 = (三码 ∪ content_overlap) − 白名单 = 0 · 填充字 = '汉'（等宽 CJK）· 日期 = ${new Date().toISOString().slice(0, 10)}`)
+console.log(`     方法：稳定帧(**按 timing.mjs 唯一实现、该字段所在页**) 引擎 lint · 判据 = (三码 ∪ content_overlap ∪ decor_content_collision) − (溢出 ∪ 重叠白名单) = 0 · 装饰判据与闸门**同一实现**(decor-collision.mjs) · 填充字 = '汉'（等宽 CJK）· 日期 = ${new Date().toISOString().slice(0, 10)}`)
 process.exit(SUBFAIL ? 1 : 0)
