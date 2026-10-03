@@ -42,7 +42,7 @@ if (fi >= 0) for (let i = fi + 1; i < argv.length && !argv[i].startsWith('-'); i
    并新增**显式 `--dry`**：只跑前置、**绝不提交**，让"我只想跑闸门"与"我要提交"两条路彻底分开。 */
 const KNOWN = new Set(['--fast', '--no-sync', '--dry', '--dist-rel', '--files', '-m',
   /* ★ msg9 ②③：三个自测/基线模式 —— **登记才算数**（本工具的守卫当场拒了未登记的它们 ✓ 又一次"守卫自己被守卫"）。 */
-  '--self-test-catch-classifier', '--self-test-ratchet', '--write-silent-baseline'])
+  '--self-test-catch-classifier', '--self-test-ratchet', '--write-silent-baseline', '--self-test-write-monotonic'])
 const dry = argv.includes('--dry')
 for (let i = 2; i < argv.length; i++) {
   const a = argv[i]
@@ -163,6 +163,25 @@ function ratchetViolations(baselineFiles, actualFiles) {
   return out
 }
 const SILENT_BASE = join(HERE, 'silent-catch-baseline.json')
+/* ★★ team-lead msg10 ②：**堵"自己拔牙"通道** —— 若 `--write-silent-baseline` **任何时刻都能写高**，
+   则"新增一处哑 catch ⇒ 红"可被"重写基线"一键绕过 ⇒ 棘轮不再是棘轮。
+   ⇒ **只许下调**（实测 > 旧基线 ⇒ 拒绝写 + 红）—— 与 `--raise-max`（**只许抬上限**）**同构**：两边都不许一键绕过。
+   单一实现：`writeBaselineDecision` 复用 `ratchetViolations`（同一判据）⇒ 并由 `--self-test-write-monotonic` 断言三种走向。 */
+function writeBaselineDecision(oldFiles, newFiles) {
+  const viols = oldFiles ? ratchetViolations(oldFiles, newFiles) : []
+  return { allow: viols.length === 0, viols }
+}
+if (process.argv.includes('--self-test-write-monotonic')) {
+  const a = writeBaselineDecision({ 'a.mjs': 2 }, { 'a.mjs': 3 })   /* 写高 ⇒ 必须拒 */
+  const b = writeBaselineDecision({ 'a.mjs': 2 }, { 'a.mjs': 2 })   /* 等值 ⇒ 允许 */
+  const c = writeBaselineDecision({ 'a.mjs': 2 }, { 'a.mjs': 1 })   /* 下调 ⇒ 允许 */
+  const d = writeBaselineDecision(null, { 'a.mjs': 5 })            /* 首次建立 ⇒ 允许 */
+  const ok = !a.allow && b.allow && c.allow && d.allow
+  console.log(ok
+    ? '✓ 基线单调性负控：写高 ⇒ 拒 ✓ · 等值 ⇒ 允许 ✓ · 下调 ⇒ 允许 ✓ · 首建 ⇒ 允许 ✓'
+    : `✗ 基线单调性失败：写高⇒allow=${a.allow} 等值⇒${b.allow} 下调⇒${c.allow} 首建⇒${d.allow}`)
+  process.exit(ok ? 0 : 1)
+}
 if (process.argv.includes('--self-test-catch-classifier')) {
   const cases = [
     ['catch { }', 'dumb'], ['catch (e) { /* 忽略 */ }', 'dumb'],
@@ -198,8 +217,17 @@ if (process.argv.includes('--write-silent-baseline')) {
   }
   const sha = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim() || 'n/a'
   const total = Object.values(files).reduce((a, b) => a + b, 0)
+  /* ★ msg10 ②：**只许下调**（实测 > 旧基线 ⇒ 拒绝写 + 红）—— 否则"重写基线"就能一键绕过棘轮。 */
+  let oldFiles = null
+  try { oldFiles = JSON.parse(readFileSync(SILENT_BASE, 'utf8')).files || null } catch (e) { console.error(`   （无旧基线 ⇒ 本次为首建：${e.message}）`) }
+  const dec = writeBaselineDecision(oldFiles, files)
+  if (!dec.allow) {
+    for (const v of dec.viols) console.error(`✗ ${v}`)
+    console.error('✗ **拒绝写基线**：新基线只能 ≤ 旧基线（只许下调）—— 防"重写即绕过棘轮"（与 `--raise-max` 只许抬同构）⇒ exit 1')
+    process.exit(1)
+  }
   writeFileSync(SILENT_BASE, JSON.stringify({
-    _doc: '哑 catch 基线（**工具产出**：node commit-safe.mjs --write-silent-baseline）—— 判据=「体内既无 console./throw 也无计数」的 catch 数',
+    _doc: '哑 catch 基线（**工具产出**：node commit-safe.mjs --write-silent-baseline）—— 判据=「体内既无 console./throw 也无计数」的 catch 数。★ **新基线只能 ≤ 旧基线**（只许下调；写高会被拒绝并红 —— 防"一键重写绕过棘轮"）',
     _invariant: 'I8b：哑 catch **只许减**；新增即红；基线与实测**逐文件对账**（不许手写数字）',
     at: new Date().toISOString(), sha, files, total,
   }, null, 2) + '\n', 'utf8')
@@ -248,6 +276,10 @@ if (process.argv.includes('--write-silent-baseline')) {
     steps.push({ name: `哑 catch 棘轮（基线=${
       'silent-catch-baseline.json'} @ ${String(base.sha || '?')} · 合计 ${base.total}）`, ok: bad.length === 0, detail: bad })
     for (const l of lines) console.log(`     · ${l}`)
+    /* ★ msg10 ②：**显著打印基线出处**；`基线 sha ≠ HEAD` ⇒ ⚠️ 提示重新对账（**不自动判红**）—— 让人看得见基线有多陈。 */
+    const headSha = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim()
+    const stale = headSha && base.sha && base.sha !== headSha
+    console.log(`     · 基线出处：**SHA=${base.sha || '?'} @ ${base.at || '?'}**${stale ? ` ⚠️ 与 HEAD（${headSha}）**不一致** ⇒ 基线可能陈旧，请重新对账（用 --write-silent-baseline，且只许下调）` : ' ✓ 与 HEAD 一致'}`)
   }
   if (bad.length && !base) steps.push({ name: '哑 catch 棘轮', ok: false, detail: bad })
 }

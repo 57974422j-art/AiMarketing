@@ -1,8 +1,8 @@
 {
-  "_doc": "哑 catch 基线（**工具产出**：node commit-safe.mjs --write-silent-baseline）—— 判据=「体内既无 console./throw 也无计数」的 catch 数",
+  "_doc": "哑 catch 基线（**工具产出**：node commit-safe.mjs --write-silent-baseline）—— 判据=「体内既无 console./throw 也无计数」的 catch 数。★ **新基线只能 ≤ 旧基线**（只许下调；写高会被拒绝并红 —— 防\"一键重写绕过棘轮\"）",
   "_invariant": "I8b：哑 catch **只许减**；新增即红；基线与实测**逐文件对账**（不许手写数字）",
-  "at": "2026-10-03T23:14:42.502Z",
-  "sha": "a509f2c",
+  "at": "2026-10-03T23:19:14.674Z",
+  "sha": "5c8419f",
   "files": {
     "crosscheck-deck-json.mjs": 11,
     "measure-count.mjs": 4,
