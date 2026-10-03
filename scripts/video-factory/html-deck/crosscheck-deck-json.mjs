@@ -96,18 +96,36 @@ for (const k of KS) {
     }
   }
   // ③ 闸门口径（与量表的判据**同一套**：--assert-overlap --assert-decor）
-  let gateExit = null, gateVerdict = ''
+  /* ⚠️ 两个坑都要躲（team-lead 实测抓到）：
+     ① **不许 `shell: true`** —— Windows 下 `process.execPath` 含空格（"Program Files"）⇒ shell 拼接把命令拆坏
+        ⇒ 进程以 1 退出 ⇒ **闸门 exit 列变成假红**（k=37 报 1，而直接跑闸门是 0）；
+     ② 机器可读真源 = **闸门自己打印的 `GATE-RESULT {...}`**（二手 `status` 只作对拍，不作结论）。 */
+  let gateExit = null, gateResult = null, gateRaw = '(未跑)', gateVerdict = ''
   if (renderOk) {
-    const g = spawnSync(NODE, [join(HERE, 'check-engine-lint.mjs'), prod, '--assert-overlap', '--assert-decor', '--no-contrast'], { cwd: HERE, encoding: 'utf8', shell: true })
+    const g = spawnSync(NODE, [join(HERE, 'check-engine-lint.mjs'), prod, '--assert-overlap', '--assert-decor', '--no-contrast'], { cwd: HERE, encoding: 'utf8' })
     gateExit = g.status
-    gateVerdict = String((g.stdout || '')).split('\n').map((s) => s.trim()).filter((s) => /^结论:/.test(s)).pop() || ''
+    const gout = String(g.stdout || '') + String(g.stderr || '')
+    gateVerdict = gout.split('\n').map((s) => s.trim()).filter((s) => /^结论:/.test(s)).pop() || ''
+    const m = /GATE-RESULT\s+(\{[^\n]*\})/.exec(gout)
+    if (m) { gateRaw = `GATE-RESULT ${m[1]}`; try { gateResult = JSON.parse(m[1]) } catch { gateResult = null } }
+    else gateRaw = '(无 GATE-RESULT 行) ⇒ 闸门末 3 行：' + gout.split('\n').map((s) => s.trim()).filter(Boolean).slice(-3).join(' ｜ ')
   }
-  rows.push({ k, renderOk, back, at, no, codes, gateExit, gateVerdict })
-  console.log(`  k=${String(k).padStart(3)} · 渲染 ${renderOk ? 'ok' : '✗'} · 读回 ${back}/${k}${back === k ? ' ✓' : ' ✗'} · 页 ${no || '-'} · 稳定帧 t=${at || '-'} · 判据内 codes = [${codes.join(', ')}] · 闸门 exit=${gateExit} · ${gateVerdict}`)
+  /* ★ 对拍断言（team-lead ③："两处不得各说各的"）：进程 status 与闸门自报 ok 必须互推（status==0 ⇔ ok） */
+  let pairViol = null
+  if (renderOk && gateResult) {
+    const expectStatus = gateResult.ok ? 0 : 1
+    if (gateExit !== expectStatus) pairViol = `工具捕获 exit=${gateExit} ↔ 闸门自报 ok=${gateResult.ok}（应为 exit=${expectStatus}）`
+  } else if (renderOk && !gateResult) pairViol = '闸门未打印 GATE-RESULT（拿不到机器可读真源）'
+  rows.push({ k, renderOk, back, at, no, codes, gateExit, gateResult, gateRaw, gateVerdict, pairViol })
+  console.log(`  k=${String(k).padStart(3)} · 渲染 ${renderOk ? 'ok' : '✗'} · 读回 ${back}/${k}${back === k ? ' ✓' : ' ✗'} · 页 ${no || '-'} · 稳定帧 t=${at || '-'} · 判据内 codes = [${codes.join(', ')}]`)
+  console.log(`       闸门真源：${gateRaw}${gateVerdict ? ' ⇒ ' + gateVerdict : ''}`)
+  if (pairViol) console.error(`       ✗ 对拍不一致：${pairViol}`)
 }
 /* 双路对照（只对"临界 / 临界+1"两个点做定论；多 k 只是旁证） */
 const bad = rows.filter((r) => !r.renderOk || r.back !== r.k)
 if (bad.length) { console.error(`✗ 有 ${bad.length} 行渲染失败或读回不符 ⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`); process.exit(2) }
+const pair = rows.filter((r) => r.pairViol)
+if (pair.length) { console.error(`✗ 有 ${pair.length} 行"工具 exit ↔ 闸门自报"对拍不一致 ⇒ 该列不可信 ⇒ **不许据此下结论**（exit 2）`); process.exit(2) }
 console.log(`\n  判读：每行都以 **闸门同一判据**（--assert-overlap --assert-decor）在**该字段所在页的稳定帧**上读结论；`)
 console.log(`        第一路（HTML 注入）临界 = ${PATH_A || '(未提供)'}；两路不一致 ⇒ **先查注入方式是否引入偏差**（不许取平均/不许以某一路为准）。`)
 /* 退出码：本工具只负责"把第二路的原始读数取回来"（读数可信 = 渲染成功且读回 == k，否则上面已 exit 2）；
