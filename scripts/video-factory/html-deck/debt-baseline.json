@@ -1,0 +1,6 @@
+{
+  "_doc": "**条数单源债务基准（机器产出，不许手写）**：`countDebt` = validate-deck 里\"同行有 add(error)\"的 `.length` 比较数；只许减不许增。",
+  "_rule": "工具 `check-schema-vs-limits.mjs --update-baseline` 重写；`DEBT_BASELINE_OVERRIDE=<n>` 仅供负控。",
+  "countDebt": 5,
+  "updatedAt": "2026-10-03"
+}

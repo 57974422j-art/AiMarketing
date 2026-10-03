@@ -14,7 +14,7 @@
  * 退出码：0 = 无违规 · 1 = 有违规（或 `--strict-coverage` 下覆盖不全）· 2 = 输入/配置错（§25b）
  * 用法：`node check-schema-vs-limits.mjs [--strict-coverage]`
  */
-import { existsSync, readFileSync, writeFileSync , readdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'   /* ★ --selftest-handchecks：逐叶子跑第二路 */
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -116,17 +116,38 @@ function i5Violations() {
        · 数量下降 ⇒ 提示"可把 ratchet 调小"（不让债务悄悄回来） */
   /* ⚠️ **棘轮先量后设**：我第一版凭 grep 的截断输出设 9 ⇒ 实际 **12** ⇒ 首跑就"涨了"报警。
      正确顺序：**先测出真值，再把它钉成上限**（否则棘轮自己制造假红）。 */
-  const COUNT_DEBT_MAX = 12
+  /* ⚠️ **口径固定**（team-lead ②）：棘轮只计**闸门判定类**（同行出现 `add('error'`）——
+     `L248/L399` 那类**建议文案**不算（否则口径一变，12 这个数字**跨版本不可比**，棘轮就会误报）。 */
   const countDebt = []
   for (const m of vd.matchAll(/([A-Za-z_$][\w.$]*)\.length\s*(<=|>=|<|>)\s*(\d+)/g)) {
     const [, obj, op, num] = m
+    const ls = vd.lastIndexOf('\n', m.index) + 1
+    const le = vd.indexOf('\n', m.index)
+    const lineTxt = vd.slice(ls, le < 0 ? undefined : le)
+    if (!/add\(\s*'error'/.test(lineTxt)) continue          /* 建议文案 ⇒ 不计入债务 */
     const line = vd.slice(0, m.index).split('\n').length
     countDebt.push(`L${line}：${obj}.length ${op} ${num}${COUNT_DEBT_OK.has(`${obj}.length`) ? `（计债：${COUNT_DEBT_OK.get(`${obj}.length`)}）` : ''}`)
   }
-  if (countDebt.length > COUNT_DEBT_MAX) {
-    out.push(`**条数单源债务**从 ${COUNT_DEBT_MAX} 涨到 **${countDebt.length}** ⇒ **红了**（ratchet 只许减不许增）：${countDebt.join(' · ')}`)
-  } else if (countDebt.length < COUNT_DEBT_MAX) {
-    out.push(`ℹ 条数单源债务已降到 **${countDebt.length}**（原 ${COUNT_DEBT_MAX}）⇒ 请把 \`COUNT_DEBT_MAX\` 同步调小（不许债务悄悄回来）`)
+  /* ★ **棘轮基准不许是手写数**（team-lead ⑤）：基准由**本工具产出**（`debt-baseline.json`），断言读它；
+     `--update-baseline` 显式重写；`DEBT_BASELINE_OVERRIDE=<n>` 供**负控**（必须能让它红）。 */
+  const BASE_FILE = join(DECK_DIR, 'debt-baseline.json')
+  let base = null
+  try { base = JSON.parse(readFileSync(BASE_FILE, 'utf8')).countDebt } catch { /* 无基准 ⇒ 首建 */ }
+  const ovrB = process.env.DEBT_BASELINE_OVERRIDE
+  const want = ovrB !== undefined && ovrB !== '' ? Number(ovrB) : base
+  if (process.argv.includes('--update-baseline')) {
+    try {
+      writeFileSync(BASE_FILE, JSON.stringify({
+        _doc: '**条数单源债务基准（机器产出，不许手写）**：`countDebt` = validate-deck 里"同行有 add(error)"的 `.length` 比较数；只许减不许增。',
+        _rule: '工具 `check-schema-vs-limits.mjs --update-baseline` 重写；`DEBT_BASELINE_OVERRIDE=<n>` 仅供负控。',
+        countDebt: countDebt.length, updatedAt: new Date().toISOString().slice(0, 10),
+      }, null, 2) + '\n', 'utf8')
+    } catch { /* ignore */ }
+    noted.push(`条数债务基准已重写为 **${countDebt.length}**（--update-baseline）`)
+  } else if (want == null) {
+    out.push(`**缺基准** \`debt-baseline.json\`（或 env 覆盖）⇒ 请先跑 \`--update-baseline\` 建立基准（不许用手写数当棘轮）`)
+  } else if (countDebt.length !== want) {
+    out.push(`**条数债务棘轮**：实测 **${countDebt.length}** ↔ 基准 **${want}** ⇒ **不等即红**（涨=新增手写条数；降=请 --update-baseline 同步基准）：${countDebt.join(' · ')}`)
   }
   COUNT_DEBT = countDebt
   /* 数组元素那种"n > N"的硬编码（如 items：`if (n > 40)`）
@@ -266,7 +287,7 @@ if (i5.length) {
 }
 /* I5 **条数版**的债务清单：显著打印（不静默；棘轮上限见上） */
 if (COUNT_DEBT.length) {
-  console.log(`\n  ℹ **I5 条数版**：validate-deck 尚有 **${COUNT_DEBT.length}** 处**手写条数**（棘轮上限 9 ⇒ 只许减不许增）：`)
+  console.log(`\n  ℹ **I5 条数版**：validate-deck 尚有 **${COUNT_DEBT.length}** 处**手写条数**（基准 = 「debt-baseline.json」，**只许减不许增**）：`)
   for (const s of COUNT_DEBT) console.log(`     · ${s}`)
 }
 if (i5doc.length) {
