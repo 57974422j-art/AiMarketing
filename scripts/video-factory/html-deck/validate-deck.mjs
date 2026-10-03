@@ -214,8 +214,11 @@ function checkData(p, path) {
     add('error', `${path}.metric.number`, `大数字不是合法 number：${JSON.stringify(m.number)}`,
       '大数字必须是真实数字（不许写成中文数字/字符串、不许编造）；拿不到真实数字 → 改用 bullets 页')
   }
-  if (cp(m.unit) < 1) add('error', `${path}.metric.unit`, '单位为空', '补单位（ms / 帧、%、元、分钟…）')
-  else if (cp(m.unit) > 8) add('error', `${path}.metric.unit`, `单位 ${cp(m.unit)} 字，上限 8`, '精简单位写法，如 "毫秒/帧" → "ms / 帧"')
+  /* ★ (A)：上限一律**读 schema**（`lim()`）—— 手写字面量会**否决量测 override**（实测：unit 的 `> 8` 让 `--raise-max` 白做）
+     另：`unit` 的 kind = **editorial**（上限由编辑意图定；几何判据 99 只用来证 `8 ≤ 99`）⇒ 不套 ⌊0.9×判据⌋。 */
+  const [uMin, uMax] = lim('#/$defs/pageData/properties/metric/properties/unit')
+  if (cp(m.unit) < uMin) add('error', `${path}.metric.unit`, `单位只有 ${cp(m.unit)} 字，要求 ≥${uMin} 字`, '补单位（ms / 帧、%、元、分钟…）')
+  else if (cp(m.unit) > uMax) add('error', `${path}.metric.unit`, `单位 ${cp(m.unit)} 字，上限 ${uMax}（schema）`, '精简单位写法，如 "毫秒/帧" → "ms / 帧"')
   if (cp(m.explain) < 8) add('error', `${path}.metric.explain`, `解释只有 ${cp(m.explain)} 字，要求 ≥8 字`,
     '补一句解释，写清这个数字的"口径/来源/时间点"；若讲不清口径，说明这个数字不该拿来做数据页')
   if (!Array.isArray(p.secondary)) {
@@ -287,8 +290,10 @@ function checkChart(p, path) {
     add('warn', `${path}.chart.labels`, `labels ${c.labels.length} 个 ≠ series ${c.series.length} 个`,
       '让标签数与数据点数一致，或直接删掉 labels')
   }
-  if (cp(p.unit) < 1) add('error', `${path}.unit`, '单位为空', '补单位（% / 秒 / 万 …）')
-  else if (cp(p.unit) > 8) add('error', `${path}.unit`, `单位 ${cp(p.unit)} 字，上限 8`, '精简单位')
+  /* ★ (A)：同 data 页 —— 读 schema（override 才生效）；kind = editorial（不套 0.9×判据） */
+  const [cuMin, cuMax] = lim('#/$defs/pageChart/properties/unit')
+  if (cp(p.unit) < cuMin) add('error', `${path}.unit`, `单位只有 ${cp(p.unit)} 字，要求 ≥${cuMin} 字`, '补单位（% / 秒 / 万 …）')
+  else if (cp(p.unit) > cuMax) add('error', `${path}.unit`, `单位 ${cp(p.unit)} 字，上限 ${cuMax}（schema）`, '精简单位')
   if (cp(p.explain) < 8) add('error', `${path}.explain`, `解释只有 ${cp(p.explain)} 字，要求 ≥8 字`,
     '补一句解释：这张图在说明什么、口径是什么')
   if (p.source != null && cp(p.source) > 40) add('error', `${path}.source`, `来源 ${cp(p.source)} 字，上限 40`, '精简来源')
