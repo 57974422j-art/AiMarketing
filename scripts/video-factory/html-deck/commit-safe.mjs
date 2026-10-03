@@ -93,6 +93,50 @@ const jsons = collect(HERE, '.json')
 let jsonBad = []
 for (const f of jsons) { try { JSON.parse(readFileSync(f, 'utf8')) } catch (e) { jsonBad.push(`${basename(f)}：${e.message}`) } }
 steps.push({ name: `JSON.parse ${jsons.length} 个 .json`, ok: jsonBad.length === 0, detail: jsonBad })
+/* ★★ team-lead msg8 ③：**兜底位置断言** —— 兜底必须是"跳过 shebang/import 后的**第一句可执行**"
+   （否则它**之前**的顶层逻辑（`arg()`/检查）一抛异常仍漏网；实测量具：measure-count 曾有 ~60 行在兜底之前）⇒ 源扫描断言。 */
+{
+  const TOOLS = ['crosscheck-deck-json.mjs', 'measure-count.mjs', 'check-schema-vs-limits.mjs']
+  const bad = []
+  for (const f of TOOLS) {
+    const p = join(HERE, f)
+    if (!existsSync(p)) { bad.push(`${f}：缺文件`); continue }
+    const lines = readFileSync(p, 'utf8').split('\n')
+    const hook = lines.findIndex((l) => l.includes('unhandledRejection'))
+    const firstDecl = lines.findIndex((l) => /^(const|let|var|function)\s/.test(l))
+    if (hook < 0) bad.push(`${f}：**没有兜底**`)
+    else if (firstDecl >= 0 && hook > firstDecl) bad.push(`${f}：兜底在首个顶层声明（L${firstDecl + 1}）**之后**（L${hook + 1}）⇒ 它前面那段仍会漏网`)
+  }
+  steps.push({ name: `兜底位置（${TOOLS.length} 个工具：兜底须在首个顶层声明之前）`, ok: bad.length === 0, detail: bad })
+}
+/* ★★ team-lead msg8 ④（I8 延伸）：**"会打印"必须真的能打印** —— 哑 catch（体内既无 console/throw 也无计数）**只许减**。
+   基线（2026-10-04 实测）：crosscheck 11 · measure-count 4 · checker 5 · gate 5 · commit-safe 1 = **26**。
+   为何不"一律红"：26 处要逐个接线（多数属清理/收尾的可忽略路径）⇒ 先用仓库既有的**显式计债 + 棘轮**形态；
+   新增一处即红（并打印清单）⇒ 与 I5/I10 的"显式计债"同形。 */
+{
+  const BASELINE = { 'crosscheck-deck-json.mjs': 11, 'measure-count.mjs': 4, 'check-schema-vs-limits.mjs': 5, 'gate-release.mjs': 5, 'commit-safe.mjs': 1 }
+  const bad = []
+  for (const [f, base] of Object.entries(BASELINE)) {
+    const p = join(HERE, f)
+    if (!existsSync(p)) { bad.push(`${f}：缺文件`); continue }
+    const t = readFileSync(p, 'utf8')
+    const all = [...t.matchAll(/catch\s*(\([^)]*\))?\s*\{[^{}]*\}/g)].map((m) => m[0])
+    const dumb = all.filter((s) => !/(console\.|throw|return|writeSync|Atomics|\+\+|-=|\+=)/.test(s)).length
+    if (dumb > base) bad.push(`${f}：哑 catch **${dumb}** > 基线 ${base} ⇒ 新增了静默 catch（要么接线、要么显式计债）`)
+  }
+  steps.push({ name: '哑 catch 棘轮（只许减 · 基线合计 26）', ok: bad.length === 0, detail: bad })
+}
+/* ★★ team-lead msg8 ③：**兜底正控** —— "装了兜底"本身要有证明（与"负控要能失败"同族）。 */
+{
+  const bad = []
+  for (const f of ['crosscheck-deck-json.mjs', 'measure-count.mjs', 'check-schema-vs-limits.mjs']) {
+    const r = spawnSync(process.execPath, [join(HERE, f), '--self-test-uncaught'], { cwd: HERE, encoding: 'utf8' })
+    const out = String(r.stdout || '')
+    const hasTag = out.includes('[UNCAUGHT_EXCEPTION]')
+    if (r.status !== 2 || !hasTag) bad.push(`${f}：exit=${r.status}（须 2）· stdout 带 tag=${hasTag}（须 true）`)
+  }
+  steps.push({ name: '兜底正控（--self-test-uncaught ⇒ exit 2 + [UNCAUGHT_EXCEPTION]）', ok: bad.length === 0, detail: bad })
+}
 /* 3) 同步 dist-rel */
 const distRel = findDistRel()
 if (!noSync && distRel) {

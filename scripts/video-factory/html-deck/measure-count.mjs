@@ -26,6 +26,17 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+/* ★★ team-lead msg8 ③：兜底 = **跳过 shebang/import 后的第一句可执行**（此前它在 ~60 行之后 ⇒ 那段里的异常仍漏网）。 */
+for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandledRejection', 'UNCAUGHT_REJECTION']]) {
+  process.on(ev, (e) => {
+    console.log(`✗ **[${tag}] 未捕获的故障 ⇒ 已转为带 tag 的红（exit 2）：${(e && e.message) || e}`)
+    const st = String((e && e.stack) || '').split('\n').slice(1, 4).join(' | ')
+    if (st) console.error(`     ${st}`)
+    process.exit(2)
+  })
+}
+/* ★ msg8 ③：兜底的正控（主动抛 ⇒ 断言转 tag + exit 2）。 */
+if (process.argv.includes('--self-test-uncaught')) throw new Error('自测：故意抛出（验证兜底转 tag）')
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv
@@ -61,6 +72,7 @@ const MC_FLAGS = [
   { name: '--max', argv: true }, { name: '--stride', argv: true }, { name: '--nmax', argv: true },
   { name: '--maxitems-ptr', argv: true }, { name: '--keep', argv: false },
   { name: '--self-test-extract', argv: false }, { name: '--self-test-scope', argv: false },
+  { name: '--self-test-uncaught', argv: false },   /* ★ msg8 ③：兜底正控（主动抛 ⇒ 断言转 tag） */
 ]
 /* ⚠️ 这四个是**下游引擎**旗标（透传给 crosscheck/render）—— 我第一版留空表 ⇒ **本工具自己的注册表断言当场点名**
    （`✗ 旗标注册表不全：--outdir --assert-overlap --assert-decor --no-contrast`）⇒ 照它补登（"守卫自己被守卫"又一例）。 */
@@ -89,15 +101,6 @@ const MC_EXTERNAL = ['--short', '--porcelain']
 const MIN = Number(arg('--min', '3'))
 const MAX = Number(arg('--max', '5'))
 const KEEP = argv.includes('--keep')
-/* ★ team-lead msg6 ⑥（通则）：**崩溃不是失败，崩溃是"未识别的失败"** ⇒ 兜底转成带 tag 的 stdout 红（exit 2）。 */
-for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandledRejection', 'UNCAUGHT_REJECTION']]) {
-  process.on(ev, (e) => {
-    console.log(`✗ **[${tag}] 未捕获的故障 ⇒ 已转为带 tag 的红（exit 2）：${(e && e.message) || e}`)
-    const st = String((e && e.stack) || '').split('\n').slice(1, 4).join(' | ')
-    if (st) console.error(`     ${st}`)
-    process.exit(2)
-  })
-}
 /* ★ (b) **修正版**（team-lead 2026-10-04：原式 `max(cap,min)+3` 太松 ⇒ cap=5 只扫到 8 ⇒ 断言 `cap ≤ 8` 近乎同义反复）：
    `N_MAX = min(20, max(cap+3, 2×cap))` ⇒ cap5→10 · cap6→12 · cap4→8 · cap12→20 · cap2→6（更强且仍便宜）。 */
 const STRIDE = Math.max(1, Number(arg('--stride', '1')))   /* ★ 大 N_MAX 时用**步长**（否则扫到 30 = 28 次渲染） */

@@ -23,6 +23,19 @@ import { DECK_DIR } from './paths.mjs'
 import { resolveHyperframes } from './engine-bin.mjs'
 import { pageNoOfSelector, settledAt } from './timing.mjs'
 import { domTarget } from './dom-target.mjs'
+/* ★★ team-lead msg8 ③：**兜底必须是"跳过 shebang/import 后的第一句可执行"** ——
+   否则它**之前**的顶层逻辑（`arg()`/各种检查）一抛异常**仍然漏网**（实测量具：measure-count 曾有 ~60 行在兜底之前）。
+   ⚠️ 该位置**不再靠记**：`commit-safe` 的语法门禁断言「每工具的**首个顶层声明**必须在兜底之后」（我做反面例证时被它抓过）。 */
+for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandledRejection', 'UNCAUGHT_REJECTION']]) {
+  process.on(ev, (e) => {
+    console.log(`✗ **[${tag}] 未捕获的故障 ⇒ 已转为带 tag 的红（exit 2）：${(e && e.message) || e}`)
+    const st = String((e && e.stack) || '').split('\n').slice(1, 4).join(' | ')
+    if (st) console.error(`     ${st}`)
+    process.exit(2)
+  })
+}
+/* ★ msg8 ③：**兜底本身要有正控** —— 该旗标主动抛，用来断言"兜底真的会转 tag + exit 2"（否则"装了兜底"未经证明）。 */
+if (process.argv.includes('--self-test-uncaught')) throw new Error('自测：故意抛出（验证兜底转 tag）')
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const args = process.argv.slice(2)
@@ -38,15 +51,6 @@ const arg = (k, d) => {
    （实测：`--allow-multi` 与 `--keep` 都因为只按 `process.argv.includes` 判、没登记而被拒 —— 又一次"把纪律用在自己身上"） */
 const flag = (k) => { const i = args.indexOf(k); if (i >= 0) { _consumed.add(i); return true } return false }
 const ALLOW_MULTI = flag('--allow-multi')
-/* ★ team-lead msg6 ⑥（通则）：**崩溃不是失败，崩溃是"未识别的失败"** ⇒ 兜底转成带 tag 的 stdout 红（exit 2）。 */
-for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandledRejection', 'UNCAUGHT_REJECTION']]) {
-  process.on(ev, (e) => {
-    console.log(`✗ **[${tag}] 未捕获的故障 ⇒ 已转为带 tag 的红（exit 2）：${(e && e.message) || e}`)
-    const st = String((e && e.stack) || '').split('\n').slice(1, 4).join(' | ')
-    if (st) console.error(`     ${st}`)
-    process.exit(2)
-  })
-}
 const KEEP_OUT = flag('--keep')
 /** ★ team-lead msg6 ④：**跨工具提示** —— 未识别旗标时查一遍本仓其它工具，直接告诉你该用哪个
     （他两度用错工具、各白跑一次：`--verify-cell`/`--self-test-page` 都不在本工具里）。 */
@@ -80,6 +84,7 @@ const TOOL_FLAGS = [
   { name: '--keep', argv: false, case: 'keep' }, { name: '--allow-multi', argv: false, case: 'multi-allow' },
   { name: '--self-test-usage', argv: false, case: '(自身)' },
   { name: '--self-test-page', argv: false, case: '(自身)' },
+  { name: '--self-test-uncaught', argv: false, case: '(自身)' },   /* ★ msg8 ③：兜底正控（主动抛 ⇒ 断言转 tag） */
   { name: '--expect-page', argv: true, case: '(格子断言)' },
   /* ★ team-lead ②(1)：`--page-unknown` = **显式豁免**（承认本轮不校验同页 ⇒ 读数待判、不得入表）。
      注：登记在这里**也是"守卫自己被守卫"的实例** —— 我加这两个旗标时，本工具**自己的注册表断言**先判红

@@ -19,11 +19,7 @@ import { spawnSync } from 'node:child_process'   /* ★ --selftest-handchecks：
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DECK_DIR } from './paths.mjs'
-
-const HERE = dirname(fileURLToPath(import.meta.url))
-const STRICT = process.argv.includes('--strict-coverage')
-/* ★ team-lead msg6 ⑥（升为通则）：**崩溃不是失败，崩溃是"未识别的失败"**（无 tag 的红 ⇒ 违反"红因可区分"）
-   ⇒ 任何 IO/解析失败**不许以未捕获异常收场**：兜底转成**带 tag 的 stdout 红** + exit 2。 */
+/* ★★ team-lead msg8 ③：兜底 = **跳过 shebang/import 后的第一句可执行**（否则 `const HERE` / `process.argv` 那几行里的异常仍漏网）。 */
 for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandledRejection', 'UNCAUGHT_REJECTION']]) {
   process.on(ev, (e) => {
     console.log(`✗ **[${tag}] 未捕获的故障 ⇒ 已转为带 tag 的红（exit 2）：${(e && e.message) || e}`)
@@ -32,6 +28,11 @@ for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandle
     process.exit(2)
   })
 }
+/* ★ msg8 ③：兜底的正控（主动抛 ⇒ 断言转 tag + exit 2）。 */
+if (process.argv.includes('--self-test-uncaught')) throw new Error('自测：故意抛出（验证兜底转 tag）')
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const STRICT = process.argv.includes('--strict-coverage')
 const SCHEMA = join(DECK_DIR, 'deck.schema.json')
 const LIMITS = join(DECK_DIR, 'measured-limits.json')
 if (!existsSync(SCHEMA)) { console.error(`✗ 缺 ${SCHEMA}（§25b ⇒ exit 2）`); process.exit(2) }
