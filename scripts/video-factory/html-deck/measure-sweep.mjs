@@ -237,6 +237,9 @@ if (pPos.bad.length === 0) {
   process.exit(2)
 }
 
+/* ★ 被阻塞档登记（team-lead ①/④）：**无法稳定测量 ≠ 不过**，也**不许当"过"** ⇒ 二分里按"不作为过"保守处理
+   （避免**高估**上限），但**必须逐条记录并打印**，最终在 ±1 步骤里点名（含 code 与候选帧）。 */
+const BLOCKED = []
 // 二分：找"仍过"的最大 k
 let lo = 1, hi = MAXK, best = 1, bestEvidence = null, firstFail = null
 while (lo < hi) {
@@ -244,7 +247,12 @@ while (lo < hi) {
   const c = build(mid)
   if (!c.dir) { console.error(`✗ ${c.why}`); process.exit(2) }
   const p = probe(c.dir)
-  dieIfUnmeasurable(p, `二分 k=${mid}`)
+  if (p.unmeasurable) {
+    BLOCKED.push({ k: mid, at: p.at, cands: p.cands })
+    console.log(`     ⚠ k=${mid} **无法稳定测量**（候选 ${p.cands} 帧全不可靠：${p.at}）⇒ 不作为"过"（记录，非结论）`)
+    hi = mid - 1
+    continue
+  }
   if (p.bad.length === 0) { lo = mid; best = mid }
   else { hi = mid - 1; if (!firstFail) firstFail = { k: mid, f: p.bad[0], all: p.bad.length } }
 }
@@ -256,7 +264,11 @@ while (kPass < MAXK) {
   const cc = build(kPass + 1)
   if (!cc.dir) { console.error(`✗ ${cc.why}`); process.exit(2) }
   const pp = probe(cc.dir)
-  dieIfUnmeasurable(pp, `线性上探 k=${kPass + 1}`)
+  if (pp.unmeasurable) {
+    BLOCKED.push({ k: kPass + 1, at: pp.at, cands: pp.cands })
+    console.log(`     ⚠ 线性上探 k=${kPass + 1} **无法稳定测量**（${pp.at}）⇒ 不作为"过"，停止上探（记录，非结论）`)
+    break
+  }
   if (pp.unknown) {
     console.error(`✗ 临界+1 探测时**引擎没有可解析 JSON** ⇒ exit 2（§25a：**原始输出原样贴出**）`)
     console.error(`  · 时刻 = ${pp.at}s（页 ${pp.no}）· exit=${pp.exit}`)
@@ -271,8 +283,25 @@ best = kPass
 console.log(`\n  ⇒ **临界字数 = ${best} 字**（±1 双向验证：k=${best} 过 · k=${best + 1} ${best + 1 > MAXK ? '未测（撞上限）' : '不过'}）`)
 if (best + 1 <= MAXK) {
   const cPass = build(best); const pPass = probe(cPass.dir)
-  const cFail = build(best + 1); const pFail = probe(cFail.dir)
-  dieIfUnmeasurable(pPass, `临界 k=${best}`); dieIfUnmeasurable(pFail, `临界+1 k=${best + 1}`)
+  let cFail = build(best + 1); let pFail = probe(cFail.dir)
+  let kFail = best + 1
+  dieIfUnmeasurable(pPass, `临界 k=${best}`)
+  if (pFail.unmeasurable) {
+    BLOCKED.push({ k: best + 1, at: pFail.at, cands: pFail.cands })
+    console.log(`     ② k=${best + 1}（临界+1）⇒ **无法稳定测量**（候选 ${pFail.cands} 帧全不可靠：${pFail.at}）—— 不作为"不过"（team-lead ①：显式阻塞，不许变成一个小上限）`)
+    console.log(`        ⇒ team-lead ④「依据必须是判据码」⇒ **向上探最近的判据码失败点**（k=${best + 2} … ${Math.min(MAXK, best + 12)}）`)
+    let found = false
+    for (let kk = best + 2; kk <= Math.min(MAXK, best + 12); kk++) {
+      const cf = build(kk); const pf = probe(cf.dir)
+      if (pf.unmeasurable) { BLOCKED.push({ k: kk, at: pf.at, cands: pf.cands }); console.log(`        · k=${kk} 同样无法稳定测量（记录，跳过）`); continue }
+      if (pf.bad.length) { pFail = pf; cFail = cf; kFail = kk; found = true; break }
+    }
+    if (!found) {
+      console.error(`  ✗ k=${best + 1} 被阻塞，且上探 ${Math.min(MAXK, best + 12)} 内找不到**判据码**失败点 ⇒ 本格**无 JUDGE 依据 ⇒ 不入表**（exit 2）`)
+      process.exit(2)
+    }
+    console.log(`        ⇒ **判据码失败点 = k=${kFail}**（被阻塞的是 k=${best + 1}；临界仍取 k=${best}，但"不过"的依据来自 k=${kFail}）`)
+  }
   /* ★ team-lead ① 固化三条：① 打印 `sourceFile` + **注入读回长度 == k**；② **禁止只打印单条被钳住的字段**
      当结论（就是它骗过我一次）⇒ 必须打印**随 k 变化的量**；③ 双路交叉校验（至少一格，用 deck JSON 复核）。 */
   const htmlOf = (dir) => join(dir, 'index.html')
@@ -295,9 +324,11 @@ if (best + 1 <= MAXK) {
   console.log(`     ② ${frame(pFail)}${pFail.violation ? '  ⚠ ' + pFail.violation : ''}`)
   /* ★ team-lead ② 护栏 3：**量表单点 findings ⊆ 闸门该页聚合**（多出的逐条打印 —— 那才是"过渡帧假象"的来源证据） */
   {
-    const tbl = timingTable(cPass.dir)
-    const aggList = settledAtList(cPass.dir)
-    const ar = spawnSync(HF, ['check', cPass.dir, '--json', '--at', aggList.join(','), '--no-contrast'], { encoding: 'utf8', shell: true })
+    /* ⚠️ **必须与"单点"同一产物**（`cFail`，即判据码失败点那一档）：第一版误用 `cPass`（k=36 产物）
+       ⇒ 拿 k=36 的聚合去比 k=38 的单点 ⇒ **苹果比橘子** ⇒ 报出假的"多出 1 条"（被本断言自己抓出）。 */
+    const tbl = timingTable(cFail.dir)
+    const aggList = settledAtList(cFail.dir)
+    const ar = spawnSync(HF, ['check', cFail.dir, '--json', '--at', aggList.join(','), '--no-contrast'], { encoding: 'utf8', shell: true })
     const ao = strip(ar.stdout); const ai = ao.indexOf('{')
     let aj = null
     if (ai >= 0) { try { aj = JSON.parse(ao.slice(ai)) } catch { aj = null } }
@@ -308,7 +339,7 @@ if (best + 1 <= MAXK) {
          ③ **归属不出来 ⇒ 打印 + 不计入**（不许默默丢掉，也不许当成通过）。 */
     const onlyJudge = (fs) => fs.filter((f) => f && JUDGE.has(String(f.code || '')))
     const pageOfFinding = (f) => {
-      const bySel = pageNoOfSelector(cPass.dir, String(f.selector || '').split('>')[0].trim())
+      const bySel = pageNoOfSelector(cFail.dir, String(f.selector || '').split('>')[0].trim())
       if (bySel) return { no: bySel, how: 'selector→页' }
       const p = pageOfTime(tbl, f.time)
       return p ? { no: p.i, how: 'time→页' } : null
@@ -320,7 +351,7 @@ if (best + 1 <= MAXK) {
     const aggKeys = new Set(inPage.map(key))
     /* ★ 用**临界+1**那一格来验 ⊆：单点读到的判据内 findings，闸门**在该页**的聚合里必须也有 */
     const extra = onlyJudge(pFail.findings).filter((f) => !aggKeys.has(key(f)))
-    console.log(`     ⊆ 断言（量表单点 ⊆ 闸门该页聚合）：单点 ${onlyJudge(pFail.findings).length} 条（k=${best + 1}，页 ${pFail.no}）· 该页聚合 ${inPage.length} 条 · 多出 **${extra.length}** 条 · **归属不出 ${unattributed.length} 条**（不计入）· 聚合时刻 = [${aggList.join(',')}]`)
+    console.log(`     ⊆ 断言（量表单点 ⊆ 闸门该页聚合）：单点 ${onlyJudge(pFail.findings).length} 条（k=${kFail}，页 ${pFail.no}）· 该页聚合 ${inPage.length} 条 · 多出 **${extra.length}** 条 · **归属不出 ${unattributed.length} 条**（不计入）· 聚合时刻 = [${aggList.join(',')}]`)
     for (const x of unattributed.slice(0, 6)) console.log(`        ? 归属不出（不计入）：${key(x.f)} t=${x.f.time}（selector 与 time 都映射不到页）`)
     for (const f of extra.slice(0, 6)) console.log(`        · 多出：${key(f)} t=${f.time} rect=${JSON.stringify(f.rect || f.bbox || null)}`)
     if (extra.length) {
@@ -328,17 +359,24 @@ if (best + 1 <= MAXK) {
       SUBFAIL = 1
     }
   }
-  if (rb1 !== best || rb2 !== best + 1) {
+  if (rb1 !== best || rb2 !== kFail) {
     console.error(`  ✗ 读回校验未过（注入未生效/量错对象）⇒ **不报临界值**（§25b：先过读回校验再谈读数；exit 2）`)
     process.exit(2)
   }
-  const f1 = pFail.bad[0]
-  console.log(`     临界+1 的逐条判据内 findings（${pFail.hits.length} 条）：`)
+  console.log(`     判据码失败点 k=${kFail} 的逐条判据内 findings（${pFail.hits.length} 条）：`)
   for (const f of pFail.hits) {
     console.log(`       · code=${f.code} · selector=${f.selector || '-'} · t=${f.time} · rect=${JSON.stringify(f.rect || f.bbox || null)} · overflow=${JSON.stringify(f.overflow || null)}`)
     console.log(`         fixHint=${String(f.fixHint || '').slice(0, 160)}`)
   }
-  console.log(`     稳定帧时刻 = ${pFail.at}s（页 ${pFail.no}）· 依据 = ${pFail.hits.map((f) => f.code).join(' ∪ ')} · 帧换过 = ${pFail.resampled ? '是' : '否'} · 观察清单打印次数 = ${OBS_COUNT}`)
+  console.log(`     稳定帧时刻 = ${pFail.at}s（页 ${pFail.no}）· **依据 = ${pFail.hits.map((f) => f.code).join(' ∪ ')}**（判据码）· 帧换过 = ${pFail.resampled ? '是' : '否'} · 观察清单打印次数 = ${OBS_COUNT}`)
+  if (BLOCKED.length) {
+    console.log(`     ⚠ **被阻塞（无法稳定测量）的档**：${BLOCKED.map((b) => `k=${b.k}（候选帧 ${b.at}）`).join(' · ')} ⇒ 既不是"过"也不是"不过"（已在上面逐条点名 code）`)
+  }
+  /* ★ team-lead ④：**只有依据是 JUDGE 码的格子，才允许进六字段表** ⇒ 硬断言（无依据 ⇒ 不入表 exit 2） */
+  if (pFail.hits.length === 0) {
+    console.error('  ✗ k=' + kFail + ' 的失败里**没有任何判据码**（只有引擎非判据意见）⇒ 本格**无 JUDGE 依据 ⇒ 不入表**（exit 2）')
+    process.exit(2)
+  }
   if (pPass.bad.length !== 0 || pFail.bad.length === 0) { console.error('  ✗ ±1 验证失败 ⇒ **不报临界值**（先修判据/单调性）'); process.exit(1) }
 }
 console.log(`     **上限建议（×0.9）= ${Math.floor(best * 0.9)} 字**`)
