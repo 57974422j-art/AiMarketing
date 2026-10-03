@@ -134,8 +134,12 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   const html = readFileSync(join(prodDir, 'index.html'), 'utf8')
   const secs = html.split(/<section\b/i).slice(1)                 /* 每页一切片 */
   const tag = SEL.replace(/[^a-z]/gi, '') || 'li'
-  const scoped = (String(secs[Number(pIdx)] || '').match(new RegExp(`<${tag}\\b`, 'gi')) || []).length
+  const slice = String(secs[Number(pIdx)] || '')
+  const scoped = (slice.match(new RegExp(`<${tag}\\b`, 'gi')) || []).length
   const global = (html.match(new RegExp(`<${tag}\\b`, 'gi')) || []).length
+  /* ★ team-lead ⑤：**页内同类容器数必须 == 1** —— 否则"切片内所有 `<li`"会**合并高估**（两个 `<ul>` ⇒ 读回 > N）。
+     便宜且可判伪（比按 jsonpath 定位容器轻）。 */
+  const containers = (slice.match(/<(ul|ol)\b/gi) || []).length
   const dt = spawnSync(process.execPath, [join(HERE, 'dom-target.mjs'), prodDir, SEL], { cwd: HERE, encoding: 'utf8' })
   const dout = String(dt.stdout || '') + String(dt.stderr || '')
   const cm = dout.match(/count"?\s*:\s*(\d+)/i)
@@ -168,11 +172,21 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
      那未必是注入页（实测：`li` ⇒ 它数的是更早的 bullets 页，pageNo=3）⇒ 那不是失败，而是"**它数了别的页**"。
      ⇒ 正确判据：**只有当两者指向同一页时**才要求计数一致（真交叉核对）；否则打印 ℹ（本次读回**以页切片为准**）。 */
   const injPage1b = Number(pIdx) + 1
-  if (dtPage !== null && dtPage === injPage1b && dtCount !== null && dtCount !== counted) {
+  /* ★ team-lead ②(1)：**异页 ⇒ 本格没有"第二路"** ⇒ 必须显式记 `twoPath: 未交叉（页切片单源）`，
+     **不许**记成"交叉通过"（否则又把**单源当双源**）。同页 ⇒ 记"双源一致"。 */
+  let twoPath = '未交叉（页切片单源）'
+  if (dtPage !== null && dtPage === injPage1b && dtCount !== null && dtCount === counted) {
+    twoPath = '双源一致（dom-target 同页同数）'
+  } else if (dtPage !== null && dtPage === injPage1b && dtCount !== null && dtCount !== counted) {
     console.log(`      ⚠️ **同页双机制不一致**：dom-target count=${dtCount} ≠ 页切片=${counted}（同为第 ${injPage1b} 页）⇒ 读数不可信`)
   } else if (dtPage !== null && dtPage !== injPage1b) {
-    console.log(`      ℹ dom-target 选的是**别的页**（pageNo=${dtPage} ≠ 注入页 ${injPage1b}）⇒ 本次读回**以页切片为准**（(a) 已断言）`)
+    console.log(`      ℹ dom-target 选的是**别的页**（pageNo=${dtPage} ≠ 注入页 ${injPage1b}）⇒ twoPath=**未交叉（页切片单源）**`)
   }
+  if (containers > 1) console.log(`      ✗ **页内同类容器数 = ${containers} > 1** ⇒ 切片内计数会**合并高估** ⇒ 读数不可信`)
+  /* ⚠️ 赋值放到 push **之后**（第一版把 `twoPath` 写进 push 的对象字面量、而声明在其后 ⇒ `Cannot access 'twoPath' before initialization`） */
+  const lastRow = rows[rows.length - 1]
+  lastRow.twoPath = twoPath
+  lastRow.containers = containers
   if (global < counted) console.log(`      ⚠️ **作用域异常**：页内 ${counted} > 全篇 ${global} ⇒ 切片逻辑有问题`)
   console.log(`  N=${String(N).padStart(2)} · 渲染 exit=${r.status} · 引擎 exit=${g.status} · **页内=${counted}**（需 ${N}${counted === N ? ' ✓' : ' ✗'}）· 全篇=${global}${dtPage !== null ? ` · dt.pageNo=${dtPage}` : ''} · 判据码=[${judgeHit.join(', ')}]${outsider.length ? ' · 非判据码=[' + outsider.join(', ') + ']' : ''}`)
   /* ⚠️ **渲染失败必须打原样输出**（§25a：不许过滤失败输出）—— 我第一版把它 `void` 掉了 ⇒ 事后无从定位 */
@@ -199,7 +213,10 @@ if (badReadback.length) console.log(`  ✗ **页内条数不匹配** ${badReadba
 /* ★ (c) **作用域自己的负控**：若所有行的 `global == scoped` ⇒ 作用域**没生效**（把整篇当一页）⇒ 读数可能"恰好对" = 假绿 */
 const scopeOk = rows.some((r) => r.global > r.counted)
 if (!scopeOk) console.log(`  ✗ **作用域未生效**（所有行 全篇 == 页内）⇒ 切片逻辑没起作用 ⇒ 读数可能"恰好对" = **假绿** ⇒ exit 2`)
-else console.log(`  ✓ 作用域负控：至少有 ${rows.filter((r) => r.global > r.counted).length} 行出现 **全篇 > 页内** ⇒ 切片确实在起作用`)
+const contOk = rows.every((r) => (r.containers || 0) <= 1)
+if (!contOk) console.log(`  ✗ **页内同类容器数 > 1**（某 N 的切片里不止一个列表容器）⇒ 计数会**合并高估** ⇒ 读数不可信 ⇒ exit 2`)
+console.log(`  twoPath 记录：${[...new Set(rows.map((r) => r.twoPath))].join(' / ')}`)
+if (scopeOk) console.log(`  ✓ 作用域负控：至少有 ${rows.filter((r) => r.global > r.counted).length} 行出现 **全篇 > 页内** ⇒ 切片确实在起作用`)
 if (newOutsiders.length) console.log(`  ✗ **有"随 N 新增的非判据码"**：${newOutsiders.join(', ')} ⇒ 不许当"无触发" ⇒ exit 2`)
 if (constantOutsiders.length) console.log(`  ℹ 恒定非判据码（各 N 都有 ⇒ 与容量无关，**记录不判红**）：${constantOutsiders.join(', ')}`)
 if (first) console.log(`  ✅ 判据（首个触发判据码的 N）= **${first.N}** · 决定性码 = [${first.judgeHit.join(', ')}] · 闸门=${first.gate}`)
@@ -207,4 +224,4 @@ if (first) console.log(`  ✅ 判据（首个触发判据码的 N）= **${first.
    改为 **`capacityAtLeast`**（**容量**：能装多少 ≠ **约束**：该写多少）。文档里必须区分二者 ——
    条数既然无几何失败模式 ⇒ 其上限**只能由编辑意图定** ⇒ 这正是 `kind: editorial` 的含义。 */
 else console.log(`  ⏳ 到 N_MAX=${N_MAX} **未触发任何判据** ⇒ 记 **capacityAtLeast: ${N_MAX}**（**容量** ≥ ${N_MAX}；**不是**"判据 ≥ ${N_MAX}"，也不是 null）⇒ 诚实归 editorial：唯一断言「cap ≤ 容量」`)
-process.exit(badReadback.length || newOutsiders.length || !scopeOk ? 2 : 0)
+process.exit(badReadback.length || newOutsiders.length || !scopeOk || !contOk ? 2 : 0)

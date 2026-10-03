@@ -52,6 +52,7 @@ const TOOL_FLAGS = [
   { name: '--readback-offset', argv: true, case: 'offset' },
   { name: '--keep', argv: false, case: 'keep' }, { name: '--allow-multi', argv: false, case: 'multi-allow' },
   { name: '--self-test-usage', argv: false, case: '(自身)' },
+  { name: '--expect-page', argv: true, case: '(格子断言)' },
 ]
 const DOWNSTREAM_FLAGS = ['--outdir', '--assert-overlap', '--assert-decor', '--no-contrast']
 {
@@ -192,6 +193,8 @@ const RAISE_MAX = arg('--raise-max', '')       // 形如 "pages.1.title=57"（le
    `出品：` + issuer + ` · ` + date ⇒ 常量 **13**）⇒ 判据按**输入口径**给（827），而读回按**元素口径**（840）。
    ⇒ `--readback-offset <n>`：断言 `读回 == k + n`。**offset 属该格元数据**（模板常量），不许靠"目测"绕过。 */
 const RB_OFFSET = Number(arg('--readback-offset', '0') || 0)
+/* ★ team-lead ③：格子声明的页号（1-based）⇒ 断言"命中元素所在页 == 它"（把 `p2-` 前缀**约定**变成机器校验） */
+const EXPECT_PAGE = Number(arg('--expect-page', '0') || 0)
 let OVERRIDE_ENV = null
 if (RAISE_MAX) {
   /* ★ team-lead ③-2：`--raise-max` 的两条**断言**（此前只判"有没有命中"，抬错/抬不动都会静默）：
@@ -471,7 +474,10 @@ for (const k of KS) {
   const tampered = renderOk && fpAfter !== fpRender
   if (tampered) tamper.push(`k=${k}：测量期间产物被改写（${fpRender} → ${fpAfter}）`)
   rows.push({ k, renderOk, back, at, no, codes, gateExit, gateResult, gateRaw, gateVerdict, pairViol, fpBefore: fpRender, fpAfter })
-  console.log(`  k=${String(k).padStart(3)} · 渲染 ${renderOk ? 'ok' : '✗'} · 读回 ${back}/${k}${back === k + RB_OFFSET ? ' ✓' : ' ✗'}${RB_OFFSET ? `（口径：元素 = k + offset ${RB_OFFSET}）` : ''} · 页 ${no || '-'} · 稳定帧 t=${at || '-'} · 判据内 codes = [${codes.join(', ')}]`)
+  console.log(`  k=${String(k).padStart(3)} · 渲染 ${renderOk ? 'ok' : '✗'} · 读回 ${back}/${k}${back === k + RB_OFFSET ? ' ✓' : ' ✗'}${RB_OFFSET ? `（口径：元素 = k + offset ${RB_OFFSET}）` : ''} · 页 ${no || '-'}${EXPECT_PAGE ? (Number(no) === EXPECT_PAGE ? ` ✓（= 格子 page ${EXPECT_PAGE}）` : ` ✗（≠ 格子 page ${EXPECT_PAGE}）`) : ''} · 稳定帧 t=${at || '-'} · 判据内 codes = [${codes.join(', ')}]`)
+  /* ★ team-lead ③：**每格读回断言「命中元素所在页 == 该格 page 字段」**（一次写、13 格共用）——
+     把"靠 `p2-` 前缀约定"变成机器校验（约定式风险 ⇒ 可判伪）。 */
+  if (EXPECT_PAGE && Number(no) !== EXPECT_PAGE) bad.push(`k=${k}：命中元素在第 ${no} 页 ≠ 格子 page=${EXPECT_PAGE} ⇒ **读了别的元素** ⇒ 读数无效`)
   /* ★ team-lead ②：**打印差分，不打印全量** —— 全量列表会让人（包括他第一眼）把"通过的 k 上恒定的装饰性 findings"
      误读成"这格在失败"（实例：data 页在**通过的 k** 上就带约 36 个 canvas_overflow，而 GATE 仍 ok:true）。
      ⇒ 每行与**上一行**（通常是 k-1 或判据）做差集：
