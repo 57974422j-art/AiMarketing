@@ -14,6 +14,9 @@
 import { readFileSync, readdirSync, existsSync, unlinkSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
+/* ★ 装饰排除：用**权威白名单模块**（与闸门/量表同一份 `allowlist-decor.json` + 同一 CSS 几何解析）
+   —— 免得"文字块判据"自己另写一套装饰知识（那就是第二处实现，必漂移）。 */
+import { decorAllowList, decorRects, inDecorBand, cssVarsOf, resolveCssLen } from './decor-collision.mjs'
 
 const args = process.argv.slice(2)
 const numArg = (k, d) => { const i = args.indexOf(k); return i >= 0 ? parseFloat(args[i + 1]) : d }
@@ -149,6 +152,26 @@ for (const pg of M.pages) {
   //   这种片的中值≈文字亮度，用"< 0.6×文字亮度"的条件排除掉）。最坏背景 = 这些瓦片中值里的最大值。
   if (pg.layout === 'full') {
     const y0 = Math.round(FH * (1 - FULL_TOP))                       // 只看下部（渐隐底衬区）
+    /* ★ 文字块检出的两处收紧（team-lead 裁定：**像素启发式把装饰当内容**）——
+       事故：`.progress` 的 2px 线 + 抗锯齿 ≈ 7 行亮像素 ⇒ 被当成"文字块"（阈值 >0.72 + 连续 ≥6 行），
+       再拿去算对比度 ⇒ 报 1.10:1 **假失败**，差点把 9:16 的设计用判据假象绑死（2026-10-03）。
+       ① **最小文字高度**：带高 < 母版最小字号令牌（`--t-tiny`）⇒ **不算文字块**（装饰线天然被排除）；
+       ② **装饰排除**：落在装饰白名单元素 rect 内的亮带不参与文字判据（rect 由权威模块 `decor-collision.mjs` 解析 CSS）。
+       ⚠️ 只减少**误判对象**；对比度阈值本身**不放松**。两类跳过都**计数并打印**（不静默）。 */
+    let minTextPx = 16
+    let DR = []
+    try {
+      const cssRel = ['assets/master.css', 'master.css'].map((p) => join(workdir, p)).find((p) => existsSync(p))
+      const cssText = cssRel ? readFileSync(cssRel, 'utf8') : ''
+      const htmlP = join(workdir, 'index.html')
+      const portrait = existsSync(htmlP) && /<body[^>]*class="[^"]*\bp\b/.test(readFileSync(htmlP, 'utf8'))
+      const vars = portrait
+        ? { ...cssVarsOf(cssText, ':root'), ...cssVarsOf(cssText, 'body.p') }
+        : cssVarsOf(cssText, ':root')
+      minTextPx = Math.round(resolveCssLen(vars['--t-tiny'], vars) || 16)
+      DR = decorRects(cssText, { w: FW, h: FH }, decorAllowList(), portrait)
+      console.log(`    ③ 文字块判据收紧：最小文字高度 = ${minTextPx}px（--t-tiny）· 装饰排除 rect ${DR.filter((r) => !r.unresolved).length} 条${DR.some((r) => r.unresolved) ? `（另有 ${DR.filter((r) => r.unresolved).length} 条 CSS 几何解析不出 ⇒ 仅靠最小高度规则）` : ''}`)
+    } catch (e) { console.log(`    ③ ⚠ 装饰/令牌解析失败（${String(e.message).slice(0, 80)}）⇒ 仅用最小高度规则（默认 ${minTextPx}px）`) }
     // 逐行最亮值 → 找"文字行"（强制浅色字 ⇒ 行内必有一批很亮的像素）
     const rowMax = []
     for (let y = y0; y < FH; y++) {
@@ -158,12 +181,21 @@ for (const pg of M.pages) {
     }
     const isT = rowMax.map((r) => r.m > 0.72)
     const bands = []
+    const skipped = { tooShort: 0, inDecor: 0 }
     let s = -1
     for (let i = 0; i <= isT.length; i++) {
       const cur = i < isT.length ? isT[i] : false
       if (cur && s < 0) s = i
-      else if (!cur && s >= 0) { if (i - s >= 6) bands.push({ y0: rowMax[s].y, y1: rowMax[i - 1].y, n: i - s }); s = -1 }
+      else if (!cur && s >= 0) {
+        const h = i - s
+        const yTop = rowMax[s].y
+        if (h >= 6 && h >= minTextPx && !inDecorBand(DR, yTop)) bands.push({ y0: yTop, y1: rowMax[i - 1].y, n: h })
+        else if (h >= 6 && h < minTextPx) skipped.tooShort++
+        else if (h >= 6 && inDecorBand(DR, yTop)) skipped.inDecor++
+        s = -1
+      }
     }
+    if (skipped.tooShort || skipped.inDecor) console.log(`       （跳过非文字亮带：高 < ${minTextPx}px ${skipped.tooShort} 条 · 落装饰 rect ${skipped.inDecor} 条）`)
     if (!bands.length) { console.log('    ③ 全幅压字对比度：✗ 找不到文字行（浅色文字没渲出来？）'); fail++ }
     for (const b of bands) {
       let Lt = 0, LtRGB = null

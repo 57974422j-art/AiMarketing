@@ -52,6 +52,73 @@ export function classifyOcclusions(findings, allow) {
   }
 }
 
+/* ---------- CSS 几何（供**像素类验证器**排除装饰带：team-lead 裁定「装饰 rect 内的亮带不参与文字判据」）----------
+   只解析我们实际用到的形状（`Npx` / `var(--x)` / `calc(var(--x) / 2)` / `calc(Npx + var(--x))`），
+   **解析不出就返回 null**（调用方打印并退回"只靠最小高度规则"，绝不静默放过）。 */
+const NUM = /^([\d.]+)px$/
+/** ★ 先剥 CSS 注释：否则注释里提到 `.progress` 会让规则正则**抢先匹配到注释文本**（实测踩过 ⇒ 几何解析全 null） */
+const stripCssComments = (s) => String(s || '').replace(/\/\*[\s\S]*?\*\//g, ' ')
+
+/** 取 CSS 里某个块（默认 `:root`；竖屏传 `body.p`）的变量表 */
+export function cssVarsOf(cssText, blockSel) {
+  const re = new RegExp((blockSel === 'body.p' ? 'body\\.p' : ':root') + '\\s*\\{([\\s\\S]*?)\\}')
+  cssText = stripCssComments(cssText)
+  const m = re.exec(String(cssText || ''))
+  const vars = {}
+  if (!m) return vars
+  for (const mm of m[1].matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) vars[mm[1]] = mm[2].trim()
+  return vars
+}
+
+/** 解析长度表达式（支持 var/calc 的四种形状；解析不出 ⇒ null） */
+export function resolveCssLen(expr, vars, depth = 0) {
+  if (depth > 8 || expr == null) return null
+  const e = String(expr).trim()
+  if (NUM.test(e)) return Number(e.match(NUM)[1])
+  const v = /^var\(\s*(--[\w-]+)\s*\)$/.exec(e)
+  if (v) return resolveCssLen(vars[v[1]], vars, depth + 1)
+  const c = /^calc\((.+)\)$/.exec(e)
+  if (c) {
+    const inner = c[1].trim()
+    const div = /^var\(\s*(--[\w-]+)\s*\)\s*\/\s*([\d.]+)$/.exec(inner)
+    if (div) { const base = resolveCssLen(vars[div[1]], vars, depth + 1); return base == null ? null : base / Number(div[2]) }
+    const mul = /^var\(\s*(--[\w-]+)\s*\)\s*\*\s*([\d.]+)$/.exec(inner)
+    if (mul) { const base = resolveCssLen(vars[mul[1]], vars, depth + 1); return base == null ? null : base * Number(mul[2]) }
+    const add = /^([\d.]+)px\s*\+\s*var\(\s*(--[\w-]+)\s*\)$/.exec(inner)
+    if (add) { const base = resolveCssLen(vars[add[2]], vars, depth + 1); return base == null ? null : Number(add[1]) + base }
+  }
+  return null
+}
+
+/** 装饰白名单元素的 rect（只算**我们能算的**：`.progress` 这类带明确的 left/right/bottom/height 声明者） */
+export function decorRects(cssText, canvas, allow, portrait) {
+  const vars = portrait ? { ...cssVarsOf(cssText, ':root'), ...cssVarsOf(cssText, 'body.p') } : cssVarsOf(cssText, ':root')
+  const css = stripCssComments(cssText)          // ★ 剥注释后再找规则（否则注释抢先匹配，见上）
+  const out = []
+  for (const a of (allow || [])) {
+    const sel = String(a.selector || '')
+    if (!sel) continue
+    const re = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*') + '\\s*\\{([^}]*)\\}')
+    const m = re.exec(css)
+    if (!m) continue
+    const decl = {}
+    for (const mm of m[1].matchAll(/([a-z-]+)\s*:\s*([^;]+);/g)) decl[mm[1]] = mm[2].trim()
+    const px = (k) => (decl[k] == null ? null : resolveCssLen(decl[k], vars))
+    const left = px('left'), right = px('right'), bottom = px('bottom'), height = px('height')
+    if (left == null || right == null || bottom == null || height == null) {
+      out.push({ selector: sel, unresolved: true })
+      continue
+    }
+    out.push({ selector: sel, x: left, y: canvas.h - bottom - height, w: Math.max(0, canvas.w - left - right), h: height })
+  }
+  return out
+}
+
+/** 某 y（含 ±pad 容差）是否落在装饰 rect 内；用于像素验证器排除装饰带 */
+export function inDecorBand(rects, y, pad = 1) {
+  return (rects || []).some((r) => !r.unresolved && y >= r.y - pad && y <= r.y + r.h + pad && r.w > 0)
+}
+
 /** 交叉校验提醒文本（无装饰碰撞但引擎仍报非装饰遮挡 ⇒ 白名单可能不全）；两条都不报 ⇒ null */
 export function crossCheckNote(counts) {
   if (!counts || counts.collisions > 0) return null
