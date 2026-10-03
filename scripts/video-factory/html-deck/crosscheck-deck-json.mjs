@@ -72,13 +72,20 @@ if (RAISE_MAX) {
   /* ★ team-lead ③ 第三支裁定：**判据从表按指针读**（`measured-limits.json` 是判据的唯一真源 ⇒
      不把判据当参数传 —— 那会多一条"能传错"的入口）。用于判：该格**是否根本不需要抬**。
      ⚠️ 表里查不到 = **未测格** ⇒ 只给信息级提示（抬上限可探边界，但**补判据前结果不入表**）。 */
+  /* ★ team-lead ③：**(iii) 今天 0 格满足 ⇒ 是"死代码"，必须能被证明（能失败）** ——
+     加 `--judge-fixture <file>`（**仅自证**：默认读真表 `measured-limits.json`，与生产行为一致；
+     fixture 只临时顶替"判据"这一列，不改任何生产参数）⇒ 可造合成格（例：真 cap=33 的指针 + fixture 判据 20
+     ⇒ `判据+1 = 21 ≤ 33` ⇒ **应当触发 (iii)**）。 */
+  const JF = arg('--judge-fixture', '')
   const TABLE = (() => {
     try {
-      const db = JSON.parse(readFileSync(join(DECK_DIR, 'measured-limits.json'), 'utf8'))
-      const arr = db.cells || db.entries || db.items || db.limits || []
+      const p = JF ? join(process.cwd(), JF) : join(DECK_DIR, 'measured-limits.json')
+      const db = JSON.parse(readFileSync(p, 'utf8'))
+      const arr = db.cells || db.entries || db.items || db.limits || db.judges || (Array.isArray(db) ? db : [])
       return Array.isArray(arr) ? arr : []
     } catch { return [] }
   })()
+  if (JF) console.log(`  ℹ --judge-fixture=${JF}（**仅自证**：判据列来自该 fixture，不读真表）`)
   const judgeOf = (ptr) => { const c = TABLE.find((x) => x.jsonPointer === ptr); return c ? c.judgeLimit : undefined }
   const noJudge = []
   const hit = []
