@@ -191,7 +191,7 @@ console.log(`  瞬时解析失败计数（本次运行）= ${transientCount}`)
    ⇒ 三处口径可漂移）。这里只做 thin alias，保持既有调用点不变；下方"封装一致性自检"仍保留。 ---------- */
 import { ENTER_TAIL_S, timingTable, settledAt as _settledAt, settledAtList, transitionAt as _transitionAt } from './timing.mjs'
 /* ★ 装饰×内容碰撞判据（**唯一实现**，与量表 `measure-sweep.mjs` 同一模块；team-lead 裁定 A 的配套判据） */
-import { DECOR_CODE, classifyOcclusions, crossCheckNote } from './decor-collision.mjs'
+import { DECOR_CODE, classifyOcclusions, crossCheckNote, decorAllowList, decorRects, unresolvedSelectors, geometryDeclViolations } from './decor-collision.mjs'
 const settledAtForImpl = (dirPath, no, table) => _settledAt(dirPath, no, table)
 const transitionAt = (dirPath, time, table) => _transitionAt(dirPath, time, table)
 
@@ -302,6 +302,27 @@ if (assertDecor) {
       console.error(`      · [${f.code}] sel=${f.selector} t=${f.time} 遮挡者=${f.occluder}（命中白名单 ${f.decor}）rect=${JSON.stringify(f.rect || f.bbox || null)}`)
     }
   } else console.log('    ✓ 装饰压字 = 0')
+  /* ★ team-lead ② 的断言：装饰白名单条目**几何解析不出却未声明** ⇒ 红（不许静默降级到"只靠最小高度"）；
+     并把解析不出的 selector **名字**打印出来（只打计数 = 盲区不知道是谁）。 */
+  {
+    const cssRel = ['assets/master.css', 'master.css'].map((p) => join(dir, p)).find((p) => existsSync(p))
+    if (!cssRel) { bad++; console.error('  ✗ 找不到产物 CSS ⇒ 装饰几何声明无法校验（配置错）') } else {
+      const cssText = readFileSync(cssRel, 'utf8')
+      const htmlP = join(dir, 'index.html')
+      const html = existsSync(htmlP) ? readFileSync(htmlP, 'utf8') : ''
+      const portrait = /<body[^>]*class="[^"]*\bp\b/.test(html)
+      const m = /data-width="(\d+)"[^>]*data-height="(\d+)"/.exec(html)
+      const canvas = m ? { w: Number(m[1]), h: Number(m[2]) } : null
+      if (!canvas) { bad++; console.error('  ✗ 取不到画布尺寸（#stage data-width/height）⇒ 装饰几何声明无法校验') } else {
+        const rects = decorRects(cssText, canvas, decorAllowList(), portrait)
+        const un = unresolvedSelectors(rects)
+        if (un.length) console.log(`    · 几何解析不出的装饰（**已声明**补偿 = 最小高度）：${un.join(' · ')}`)
+        const gv = geometryDeclViolations(decorAllowList(), rects)
+        for (const x of gv) { bad++; console.error(`  ✗ 装饰几何声明缺失/过期：${x.selector} —— ${x.why}`) }
+        if (!gv.length) console.log('    ✓ 装饰几何声明完整（解析不出的条目都已声明补偿规则）')
+      }
+    }
+  }
   const note = crossCheckNote(decorRes.counts)
   if (note) console.log(`    ⚠ ${note}`)
   else if (decorRes.counts.nonDecor) console.log(`    · 非装饰遮挡 ${decorRes.counts.nonDecor} 条 ⇒ 只记录（观察清单），不判红`)

@@ -8,11 +8,17 @@
     },
     {
       "selector": ".progress > i",
-      "reason": "进度线填充（`--accent` 金色）。引擎 `text_occluded.containerSelector` 实测指向它（隐藏 `.progress` 后该 finding 消失 ⇒ 定案证据）。"
+      "reason": "进度线填充（`--accent` 金色）。引擎 `text_occluded.containerSelector` 实测指向它（隐藏 `.progress` 后该 finding 消失 ⇒ 定案证据）。",
+      "geometryUnresolvable": true,
+      "reasonUnresolvable": "`height:100%`（相对父元素盒子）+ 未声明 left/right/bottom ⇒ 无法从 CSS 独立解出 rect；它**与父 `.progress` 同盒**（父已解析 ⇒ 实际已覆盖）。",
+      "compensatedBy": "minTextHeight"
     },
     {
       "selector": ".tex",
-      "reason": "页内极轻纹理层（`opacity:.16`、`pointer-events:none`）。若文字被判\"被它遮挡\"，说明层序/不透明度写错了 —— 它不是遮挡物而是**装饰层**（同样只许不压字）。"
+      "reason": "页内极轻纹理层（`opacity:.16`、`pointer-events:none`）。若文字被判\"被它遮挡\"，说明层序/不透明度写错了 —— 它不是遮挡物而是**装饰层**（同样只许不压字）。",
+      "geometryUnresolvable": true,
+      "reasonUnresolvable": "`top:0` + `height: calc(var(--H) + var(--drift)*2)`，**未声明 bottom** ⇒ 不是\"带\"形而是一整页；把它整块排除会误伤全部文字判据（故**故意**不解析）。",
+      "compensatedBy": "minTextHeight"
     }
   ]
 }

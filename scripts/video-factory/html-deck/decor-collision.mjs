@@ -114,6 +114,28 @@ export function decorRects(cssText, canvas, allow, portrait) {
   return out
 }
 
+/** ★ **几何解析不出的声明校验**（team-lead ②）：白名单条目解析不出 rect 时**必须在清单里显式声明**
+ *  （`geometryUnresolvable: true` + `reasonUnresolvable` + `compensatedBy`）—— 否则它会**静默降级**成
+ *  "只靠最小高度规则"，将来某个高度 ≥ 最小字号的装饰又会重演同一类事故（只是换了元素）。
+ *  返回违规列表（空 = 全部已声明）；调用方判红。 */
+export function geometryDeclViolations(allow, rects) {
+  const bySel = new Map((rects || []).map((r) => [r.selector, r]))
+  const out = []
+  for (const a of (allow || [])) {
+    const r = bySel.get(a.selector)
+    const unresolved = r ? !!r.unresolved : true
+    if (unresolved && !a.geometryUnresolvable) out.push({ selector: a.selector, why: '几何解析不出，但清单**未声明** geometryUnresolvable' })
+    else if (!unresolved && a.geometryUnresolvable) out.push({ selector: a.selector, why: '清单声明"解析不出"，但实际解析出了（声明过期）' })
+    else if (unresolved && !a.compensatedBy) out.push({ selector: a.selector, why: '声明了解析不出，但没有 compensatedBy（补偿规则）' })
+  }
+  return out
+}
+
+/** 解析不出的 selector 名（**名字可见**：调用方每次运行都要打印，别只打计数） */
+export function unresolvedSelectors(rects) {
+  return (rects || []).filter((r) => r.unresolved).map((r) => r.selector)
+}
+
 /** 某 y（含 ±pad 容差）是否落在装饰 rect 内；用于像素验证器排除装饰带 */
 export function inDecorBand(rects, y, pad = 1) {
   return (rects || []).some((r) => !r.unresolved && y >= r.y - pad && y <= r.y + r.h + pad && r.w > 0)

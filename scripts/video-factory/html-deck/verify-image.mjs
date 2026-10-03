@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
 /* ★ 装饰排除：用**权威白名单模块**（与闸门/量表同一份 `allowlist-decor.json` + 同一 CSS 几何解析）
    —— 免得"文字块判据"自己另写一套装饰知识（那就是第二处实现，必漂移）。 */
-import { decorAllowList, decorRects, inDecorBand, cssVarsOf, resolveCssLen } from './decor-collision.mjs'
+import { decorAllowList, decorRects, inDecorBand, cssVarsOf, resolveCssLen, unresolvedSelectors, geometryDeclViolations } from './decor-collision.mjs'
 
 const args = process.argv.slice(2)
 const numArg = (k, d) => { const i = args.indexOf(k); return i >= 0 ? parseFloat(args[i + 1]) : d }
@@ -170,7 +170,14 @@ for (const pg of M.pages) {
         : cssVarsOf(cssText, ':root')
       minTextPx = Math.round(resolveCssLen(vars['--t-tiny'], vars) || 16)
       DR = decorRects(cssText, { w: FW, h: FH }, decorAllowList(), portrait)
-      console.log(`    ③ 文字块判据收紧：最小文字高度 = ${minTextPx}px（--t-tiny）· 装饰排除 rect ${DR.filter((r) => !r.unresolved).length} 条${DR.some((r) => r.unresolved) ? `（另有 ${DR.filter((r) => r.unresolved).length} 条 CSS 几何解析不出 ⇒ 仅靠最小高度规则）` : ''}`)
+      /* ★ team-lead ②：解析不出的装饰要**名字可见** + 必须**显式声明**补偿规则（不许静默降级到"只靠最小高度"） */
+      const un = unresolvedSelectors(DR)
+      console.log(`    ③ 文字块判据收紧：最小文字高度 = ${minTextPx}px（--t-tiny）· 装饰排除 rect ${DR.filter((r) => !r.unresolved).length} 条${un.length ? ` · 几何解析不出 ${un.length} 条（已声明补偿 = 最小高度）：${un.join(' · ')}` : ''}`)
+      const gv = geometryDeclViolations(decorAllowList(), DR)
+      if (gv.length) {
+        fail++
+        for (const x of gv) console.error(`       ✗ 装饰几何声明缺失/过期：${x.selector} —— ${x.why}（清单须有 geometryUnresolvable + reasonUnresolvable + compensatedBy）`)
+      }
     } catch (e) { console.log(`    ③ ⚠ 装饰/令牌解析失败（${String(e.message).slice(0, 80)}）⇒ 仅用最小高度规则（默认 ${minTextPx}px）`) }
     // 逐行最亮值 → 找"文字行"（强制浅色字 ⇒ 行内必有一批很亮的像素）
     const rowMax = []
