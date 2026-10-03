@@ -397,32 +397,47 @@ function deckValidateSweep() {
     for (const b of (bp.bad || [])) badDecl.set(`${b.deck}.json`, b)
   } catch { /* 无声明表 ⇒ 视为"无声明"（失败即红） */ }
   const dir = join(DECK_DIR, 'examples')
-  const files = (existsSync(dir) ? readdirSync(dir) : []).filter((f) => /^deck.*\.json$/.test(f) && !f.startsWith('__tmp_'))
-  const bad = [], ptr = []
-  let pass = 0, declared = 0, skipped = 0
+  /* ★ **fixture 入口**（team-lead ②：②d 必须证明"能失败"，同 ⓪j 的注入式，**别动 index**）：
+     `GATE_DECKS_FIXTURE=<file>` = 每行一个 deck 路径（相对 `examples/` 或**绝对路径**），顶替"声明档清单"。 */
+  /* ⚠️ 除 env 外**自带 CLI 入口** `--decks-fixture <file>`：`$env:`/shell 写文件都会触发审批（实测），
+     而 CLI 参数不会 ⇒ 负控可**自证**（与 `dom-target.mjs` 自带 CLI 同款思路，避免 shell 引号/审批地狱）。 */
+  const fxArg = process.argv.indexOf('--decks-fixture')
+  const fx = process.env.GATE_DECKS_FIXTURE || (fxArg >= 0 ? process.argv[fxArg + 1] : '')
+  const files = fx
+    ? readFileSync(fx, 'utf8').split(/\r?\n/).map((s) => s.trim()).filter((s) => s && !s.startsWith('#'))
+    : (existsSync(dir) ? readdirSync(dir) : []).filter((f) => /^deck.*\.json$/.test(f) && !f.startsWith('__tmp_'))
+  const bad = [], ptr = [], info = []
+  let pass = 0, declared = 0, nonValidateStage = 0
   for (const f of files) {
-    const r = spawnSync(NODE, [join(HERE, 'validate-deck.mjs'), join(dir, f)], { cwd: HERE, encoding: 'utf8' })
+    const abs = /[:/\\]/.test(f) ? f : join(dir, f)
+    const key = f.split(/[\\/]/).pop()
+    const r = spawnSync(NODE, [join(HERE, 'validate-deck.mjs'), abs], { cwd: HERE, encoding: 'utf8' })
     const out = String(r.stdout || '') + String(r.stderr || '')
-    const d = badDecl.get(f)
-    /* ⚠️ **只有 `stage: validate` 的负样例才该在"校验"这一步失败** —— 其余（palette/master/asset）是**渲染早期阶段**
-       的声明性失败，`validate-deck` 本来就该**通过**它们。
-       （我第一版对所有声明都期望"校验失败"⇒ 把 `deck.covercustom`（stage=asset）误判成"声明过期" —— 被首跑当场抓到。） */
-    const declaredValidateFail = !!(d && d.expectExit && d.expectExit !== 0 && /validate/i.test(String(d.stage || '')))
-    /* 非 `validate` 级的声明性负样例 ⇒ **不断言**（只计数）。理由（实测）：`deck.bad`/`bad-master`/`bad-palette` 在
-       master/palette 级失败，而 validate-deck **也会**在契约级拒它们（同一个档可以在两个层次都失败）⇒
-       拿"validate 通过/失败"去判它们必然误报（我第一版就是这么误报 3 条的）。 */
-    if (d && !declaredValidateFail) { skipped++; continue }
-    if (r.status === 0 && !declaredValidateFail) pass++
-    else if (r.status !== 0 && declaredValidateFail) declared++
-    else if (r.status !== 0) bad.push(`${f}（exit=${r.status} ⇒ **未声明的校验失败**：既有样例渲不出来却没人声明）`)
-    else bad.push(`${f}（声明"期望失败"**却通过了** ⇒ 声明过期，删掉它的 bad-expected 条目）`)
-    if (/指针解析不到/.test(out)) ptr.push(f)
+    const d = badDecl.get(key)
+    const declaredNeg = !!(d && d.expectExit && d.expectExit !== 0)
+    /* ⚠️ **"必须失败"是断言，但"在哪一层失败"要看声明** ——
+       ① `stage: validate` 的负样例 ⇒ **必须在校验层失败**（通过 ⇒ 红：声明过期或该规则失效）；
+       ② 其余阶段（palette/master/asset）⇒ 校验层**通过属预期**（它们的失败发生在渲染的其它阶段），
+          其"必须失败"由 **②c（`check-bad-examples.mjs`，全管线 · 断言 exit === expectExit · 且不产出产物）** 负责。
+          ⚠️ 若某档**两个层都通过** ⇒ ②c 会红（不是静默）—— 这就是"不静默失去检查"的保证所在。
+       ③ **任何**未声明的校验失败 ⇒ 红。 */
+    const validateStageNeg = declaredNeg && /validate/i.test(String(d.stage || ''))
+    if (r.status === 0) {
+      if (validateStageNeg) bad.push(`${key}（声明 stage=validate 期望失败，**却通过了** ⇒ 声明过期，或该规则已失效）`)
+      else if (declaredNeg) { nonValidateStage++; info.push(`${key}（stage=${d.stage}）校验层通过属预期 ⇒ 失败由 ②c 全管线断言`) }
+      else pass++
+    } else {
+      if (declaredNeg) declared++  /* 声明的负样例**确实失败**（哪一层都行 ⇒ 只在 validate 层失败的也计入） */
+      else bad.push(`${key}（exit=${r.status} ⇒ **未声明的校验失败**：既有样例渲不出来却没人声明）`)
+      if (declaredNeg && !validateStageNeg) info.push(`${key}（stage=${d.stage}）在校验层亦失败 ⇒ 双层失败（实测常见，非异常）`)
+    }
+    if (/指针解析不到/.test(out)) ptr.push(key)
   }
   return {
     group: '②d全档校验', label: '全档 validate-only（每声明档跑一次校验 · 声明的负样例除外 · 指针回归哨兵）',
     script: '(内置 · validate-deck 逐档)', exit: (bad.length || ptr.length) ? 1 : 0, sec: 0,
-    verdict: `已校验 **${files.length}** 档 · 通过 **${pass}** · 声明性失败（stage=validate）**${declared}** · 非 validate 级负样例（不计入）**${skipped}** · 异常 **${bad.length}** · 指针哨兵命中 **${ptr.length}**`,
-    tail: [...bad, ...ptr.map((f) => `${f} ⇒ **出现"指针解析不到"**（$ref/指针回归哨兵）`)].slice(0, 10),
+    verdict: `已校验 **${files.length}** 档 · 通过 **${pass}** · 声明性失败 **${declared}**（含"校验层也拒"的非 validate 级档）· 其中**校验层通过、失败由 ②c 全管线断言**的 **${nonValidateStage}** 档 · 异常 **${bad.length}** · 指针哨兵命中 **${ptr.length}**${fx ? ` · **fixture=on**（${fx}）` : ''}`,
+    tail: [...bad, ...ptr.map((f) => `${f} ⇒ **出现"指针解析不到"**（$ref/指针回归哨兵）`), ...info.map((s) => `ℹ ${s}`)].slice(0, 10),
   }
 }
 rows.push(deckValidateSweep())
