@@ -155,7 +155,9 @@ if (RAISE_MAX) {
     for (const k of Object.keys(node)) walk(node[k], `${ptr}/${k}`)
   }
   walk(sch, '#')
-  if (!hit.length) { console.error(`✗ --raise-max：schema 里找不到 leaf=${leafSpec} 的 maxLength ⇒ exit 2（**抬没生效**）`); process.exit(2) }
+  /* ⚠️ team-lead ①：搜索已覆盖**两类**（`maxLength`/`maxItems`），报错却只说 `maxLength` ⇒ **文案与实现不一致**
+     （今天已咬过一次）⇒ 现明确写"两类"。 */
+  if (!hit.length) { console.error(`✗ --raise-max：schema 里找不到 leaf=${leafSpec} 的 **maxLength / maxItems** 任一 ⇒ exit 2（**抬没生效**）`); process.exit(2) }
   /* ② 目标叶在命中清单里（用整指针指定时必须**精确命中**该指针） */
   const exact = leafSpec.startsWith('#/')
   if (exact ? !hit.includes(leafSpec) : !hit.some((p) => p.endsWith('/' + leafSpec))) {
@@ -166,6 +168,17 @@ if (RAISE_MAX) {
   OVERRIDE_ENV = tmp
   const hitDesc = hit.map((p, i) => `${p}（${hitKind[i] || 'maxLength'}）`).join(' / ')
   console.log(`  ★★ **仅量测**：把 ${hitDesc} 抬到 ${val} —— 命中 **${hit.length}** 个${hit.length > 1 ? '（裸叶名会命中多个：只抬不降 ⇒ 无害，但**请确认量测目标是其中之一**；可用整指针精确指定）' : ''}（覆盖 schema 写于仓库外 ${tmp}）`)
+  /* ★ team-lead ②：**多命中 ⇒ 本次读数不许入表**（可判伪的归因纪律）——
+     "一格 = 一叶"；多命中时若判据码来自**另一个被抬的叶子**，读数就会被归到**错的格子**（今天已在别处栽过一次归因）。
+     ⇒ 默认 **红**（exit 2）；确需探索时才显式 `--allow-multi`，且**即便允许也打印"不作为入表依据"**。 */
+  if (hit.length > 1 && !process.argv.includes('--allow-multi')) {
+    console.error(`✗ --raise-max 命中 **${hit.length}** 个叶子 ⇒ **本次读数不许入表**（红）：一格 = 一叶，多命中会把读数归到错的格子
+     命中的是：${hitDesc}
+     ⇒ 请改用 **--raise-max auto=<n>**（按 --field 反查 ⇒ 单命中、可归因）或**整指针 + 单引号**；
+       确需探索时显式加 **--allow-multi**（此时读数**不作为入表依据**）`)
+    process.exit(2)
+  }
+  if (hit.length > 1) console.log(`  ⚠️ --allow-multi：命中 **${hit.length}** 个 ⇒ **本次读数不作为入表依据**（探索用；不许写进 measured-limits）`)
   /* ★ 情形 (iv)：**未测格** ⇒ 信息级（不拒绝）—— 抬上限可探边界，但**补判据前结果不入表** */
   for (const p of noJudge) {
     console.log(`  ℹ --raise-max：${p} **尚无判据（未测）** ⇒ 抬到 ${val} 可探边界；**补判据前该格结果不入表**（判据真源 = measured-limits.json）`)
