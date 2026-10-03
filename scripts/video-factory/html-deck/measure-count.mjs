@@ -162,6 +162,15 @@ if (!KEEP) {
   for (const f of stale) { try { rmSync(join(HERE, 'examples', f), { force: true }) } catch { /* ignore */ } }
   if (stale.length) console.log(`  ℹ 清扫本工具存量残留 ${stale.length} 个（examples/__tmp_count-k*.json ⇒ 变体档已改写到 out-tmp-count/）`)
 }
+/* ★ team-lead msg4 ②：读数必须能归属到一棵树（否则跨快照比对产出假"未修/已修"）。 */
+const TREE = (() => {
+  try {
+    const sha = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim() || 'n/a'
+    const dirtyOut = String(spawnSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim()
+    return { sha, dirty: dirtyOut.length > 0, n: dirtyOut ? dirtyOut.split('\n').length : 0 }
+  } catch { return { sha: 'n/a', dirty: null, n: 0 } }
+})()
+console.log(`  ℹ 读数归属：**SHA=${TREE.sha}** · 工作树 ${TREE.dirty ? `**有 ${TREE.n} 处未提交改动 ⇒ 该读数不可用于复核**（先提交再取读数）` : '清洁 ✓'}`)
 console.log(`=== 条数构造器：deck=${DECK} · ${JSONPATH} · N=${MIN}…${N_MAX}（现上限 ${MAX}·下限 ${MIN}）===`)
 const rows = []
 for (let N = MIN; N <= N_MAX; N += STRIDE) {

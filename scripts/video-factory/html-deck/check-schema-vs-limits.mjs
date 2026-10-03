@@ -85,6 +85,7 @@ for (const it of (limits.limits || [])) {
   }
   // I1
   if (!has && node.noHardLimit !== true) viol.push(`${label} ⇒ **I1**：有判据临界 ${C} 但既无 maxLength 也未声明 noHardLimit:true（二者必居其一）`)
+  else IT_ASSERTED.push(it.field || it.jsonPointer)   /* ★ I10：长度格也有**机器断言**（I1 的 noHardLimit 或 I2 的 maxLength） */
   // I2
   if (has) {
     const cap = Math.floor(0.9 * C)
@@ -612,6 +613,21 @@ if (HANDCHECKS) {
   const ptrs = new Set((limits.limits || []).map((e) => e.jsonPointer))
   const orphans = Object.keys(limits._decks || {}).filter((k) => !k.startsWith('_') && !ptrs.has(k))
   if (orphans.length) viol.push(...orphans.map((k) => `_decks 孤儿键：${k} ⇒ 没有对应的 limits 条目（两边集合必须相等）`))
+}
+/* ★★ team-lead msg4 ④：**I10 汇总行（机读 + 与"未实测硬上限"对账）** ——
+   目的：不许出现"两套统计"（今天已因"两套结论不同源"吃过一次）⇒ 两个数字必须**相加/互补**，且恒等式成立。 */
+{
+  const totalCells = (limits.limits || []).length
+  const asserted = IT_ASSERTED.length
+  const recordOnly = totalCells - asserted
+  const unmLen = uncovered.length
+  const identity = (asserted + recordOnly === totalCells)
+  const disjoint = new Set([...IT_ASSERTED]).size === asserted
+  console.log(`\n  **I10 汇总（机读）**：表条目 **${totalCells}** · **已测且已断言 ${asserted}** · **只记录未断言 ${recordOnly}**`)
+  console.log(`     对账：已断言 ${asserted} + 未实测硬上限 ${unmLen} = **${asserted + unmLen}**（互补 ⇒ 断言分母）· 恒等式(已断言+只记录==条目) = ${identity ? '✓' : '✗'} · 无重复计入 = ${disjoint ? '✓' : '✗'}`)
+  if (!identity) viol.push(`I10：已断言 ${asserted} + 只记录 ${recordOnly} ≠ 表条目 ${totalCells}（汇总与逐格**不同源**）`)
+  if (!disjoint) viol.push(`I10：同一格被**重复计入断言**（${asserted} vs 去重 ${new Set(IT_ASSERTED).size}）`)
+  if (recordOnly > 0) noted.push(`I10：**只记录未断言 ${recordOnly} 条**（列名见上；发版前应逐条给断言或标 status）⇒ ${(limits.limits || []).filter((e) => !IT_ASSERTED.includes(e.field || e.jsonPointer)).map((e) => e.field || e.jsonPointer).join(', ')}`)
 }
 console.log(`\n  覆盖：**未被实测的硬上限 ${uncovered.length} 个**${uncovered.length ? '（发版前必须开 --strict-coverage 清空）' : ''}`)
 for (const p of uncovered.slice(0, 20)) console.log(`     · ${p} = ${leaves.get(p).maxLength}`)

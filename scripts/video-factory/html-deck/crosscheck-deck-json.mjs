@@ -434,6 +434,15 @@ const fp = (p) => { try { const s = statSync(p); return `${s.size}:${Math.round(
 const HF = resolveHyperframes().p        // ★ 返回 {p, why}（`resolveHyperframes().p` 才是可执行路径；与 measure-sweep 同口径）
 
 console.log(`=== deck JSON 真渲染路（第二路）===`)
+/* ★ team-lead msg4 ②：**读数必须能归属到一棵树**（否则跨快照比对会产出假"未修 / 假"已修"；今天各发生过一次）。 */
+const TREE = (() => {
+  try {
+    const sha = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim() || 'n/a'
+    const dirtyOut = String(spawnSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim()
+    return { sha, dirty: dirtyOut.length > 0, n: dirtyOut ? dirtyOut.split('\n').length : 0 }
+  } catch { return { sha: 'n/a', dirty: null, n: 0 } }
+})()
+console.log(`  ℹ 读数归属：**SHA=${TREE.sha}** · 工作树 ${TREE.dirty ? `**有 ${TREE.n} 处未提交改动 ⇒ 该读数不可用于复核**（先提交再取读数）` : '清洁 ✓'}`)
 console.log(`  源 = ${JSONF} · 字段 = ${FIELD} · 检测点 = .${CLS} · 变体 k = [${KS.join(', ')}] · 出目录 = ${OUT}${PATH_A ? ` · 第一路(HTML 注入)临界 = ${PATH_A}` : ''}`)
 const rows = []
 const tamper = []                       // ★ 测量期产物被改写的行（⇒ 结论作废）
