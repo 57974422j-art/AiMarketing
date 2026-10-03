@@ -704,19 +704,6 @@ scripts/video-factory/html-deck/
 
 ---
 
-## 25d. **"内容上限"的判据 = 闸门判据（同一套；否则上限不可复核）**
-
-**规矩**：`deck.schema.json` 里任何"内容上限"（如字段 `maxLength`）**必须**用**闸门同一判据**定义 ——
-**稳定帧上的 `(text_box_overflow ∪ container_overflow ∪ canvas_overflow ∪ content_overlap)` − (`allowlist-overflow` ∪ `allowlist-overlap`) = 0**，
-以 `check-engine-lint.mjs --assert-overlap`（`gate-release` **恒带**此旗）为准；量表 `measure-sweep.mjs` 用**同一集合**。
-**理由（team-lead 抓到的真实分叉）**：闸门原先只判三码，而量表判 `∪ content_overlap` ⇒ **上限用了比闸门更严的判据**
-⇒ 会出现"**deck 过闸门、却违反写进 schema 的上限**"，上限就变成一纸声明。
-> 设计性重叠 ⇒ 进 `allowlist-overlap.json`（**同构白名单**：`selector` + `reason` + `_evidence.nonDesign`；**无证据不许登记**）。
-> **残留差异（明示，不许含糊）**：**采样时刻**不同 —— 闸门在**多个 settle 时刻**聚合，量表按"该字段所在页的稳定帧"单点采样；
-> **码集与白名单必须一字一致**，采样时刻的差异属"按页测量"的必要性，须在表里写明该格用的是哪个时刻。
-
----
-
 ## 25f. **交付到服务器（全新克隆）的口径** —— 一条命令 + 依赖解析顺序 + junction 只是本机便利
 
 **唯一命令**（全新克隆 / 服务器首次跑）：
@@ -733,7 +720,7 @@ node gate-release.mjs --render              # ①先渲"缺产物 / 陈旧"的**
 
 ---
 
-## 25e. **"同构"的定义（跨树 / 跨机）** —— 逐文件口径 + **列理由的例外**
+## 25h. **"同构"的定义（跨树 / 跨机）** —— 逐文件口径 + **列理由的例外**
 
 **定义**：同一档在两棵树（或两台机）渲出的产物 **"同构" ⇔**
 - `output-<deck>.mp4` —— **逐字节相同**；
@@ -773,7 +760,7 @@ node gate-release.mjs --render              # ①先渲"缺产物 / 陈旧"的**
 
 ---
 
-## 25f. **K19：像素启发式把装饰当内容**（会把自己的守卫假阳性固化成设计约束）
+## 25g. **K19：像素启发式把装饰当内容**（会把自己的守卫假阳性固化成设计约束）
 
 **实例（2026-10-03，7 行 / 2px 线）**：`verify-image.mjs` 找"文字行"的启发式 = 行内最亮 > 0.72 且**连续 ≥6 行**；
 `.progress` 的 **2px 装饰线 + 抗锯齿 ≈ 7 行亮像素** ⇒ 被当成"文字块"，再拿它算对比度 ⇒ 9:16 报 **1.10:1 假失败**
@@ -802,7 +789,7 @@ node gate-release.mjs --render              # ①先渲"缺产物 / 陈旧"的**
 
 ---
 
-## 25b. **K18：依赖运行态文件的判据 = 不稳定判据**（team-lead 拍板入坑表）
+## 25i. **K18：依赖运行态文件的判据 = 不稳定判据**（team-lead 拍板入坑表）
 
 **事故**：根目录白名单断言把 `.gate-transient-state.json`（**闸门自己每次运行写出的状态文件**）判为"多出的杂项"⇒
 **同一份代码，判据随"跑了没跑闸门"而红/绿** ✗。我一度报 `exit=0`、team-lead 复跑得 `exit=1` —— 差别只在**时间窗**
@@ -814,7 +801,7 @@ node gate-release.mjs --render              # ①先渲"缺产物 / 陈旧"的**
 
 ---
 
-## 25c. 入库/上线**前置**：依赖必须锁版本（`npm ci`）
+## 25j. 入库/上线**前置**：依赖必须锁版本（`npm ci`）
 
 - **随库**：`package.json`（显式 `hyperframes` + 依赖 `fontkit`）· **`package-lock.json`**（锁版本；`npm install --package-lock-only` 已跑通 ⇒ 声明的版本范围**可解析**）
 - **上线/净环境第一步必须**（否则"本机一套、服务器一套"）：

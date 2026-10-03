@@ -143,6 +143,26 @@ function selfMadePaths() {
   return bad
 }
 
+/* ---------- ⓪g **契约文档小节编号唯一**（team-lead ②）----------
+   编号（`## 25e.` 这类）是**服务器与 AI 照抄的锚点** ⇒ 撞号会让"见 §25f"指向两处（与"库内两份真源"同族）。
+   廉价断言：扫 `README.md` / `ENGINE-CONTRACT.md` / `AI-PROMPT.md` 的 `## Nx.` 标题，重复即红。 */
+function dupSectionNumbers() {
+  const bad = []
+  for (const f of ['README.md', 'ENGINE-CONTRACT.md', 'AI-PROMPT.md']) {
+    const p = join(DECK_DIR, f)
+    if (!existsSync(p)) continue
+    const seen = new Map()
+    readFileSync(p, 'utf8').split('\n').forEach((l, i) => {
+      const m = /^##\s+([0-9]+[a-z]?)\./.exec(l)
+      if (!m) return
+      const k = m[1]
+      if (seen.has(k)) bad.push(`${f}:${i + 1} §${k}（首次在 L${seen.get(k)}）`)
+      else seen.set(k, i + 1)
+    })
+  }
+  return bad
+}
+
 const rows = []
 const t0 = Date.now()
 const smp = selfMadePaths()
@@ -151,6 +171,15 @@ rows.push({
   verdict: smp.length ? `✗ ${smp.length} 处自造路径：${smp.join(', ')}` : '✓ 无自造路径（全部 import paths.mjs）',
   tail: smp.map((x) => `· ${x} ⇒ 改为 import { ENGINE_ROOT | DECK_DIR | MASTERS_DIR | FONTS_DIR } from './paths.mjs'`),
 })
+/* ★ ⓪g：小节编号唯一（撞号 ⇒ "见 §25f" 指向两处；与"库内两份真源"同族） */
+{
+  const dupSec = dupSectionNumbers()
+  rows.push({
+    group: '⓪g小节编号', label: '契约文档小节编号唯一（撞号 ⇒ 引用指向两处）', script: '(内置)', exit: dupSec.length ? 1 : 0, sec: 0,
+    verdict: dupSec.length ? `✗ ${dupSec.length} 处重复编号：${dupSec.join(' · ')}` : '✓ 编号唯一（README / ENGINE-CONTRACT / AI-PROMPT）',
+    tail: dupSec.map((x) => `· ${x} ⇒ 改号或并入同族小节`),
+  })
+}
 /* ---------- ⓪c **提示级**（不判红）：块注释里再出现"块注释起始符" ⇒ 可能**提前终止** ----------
    实战事故（render-deck）：注释里把 glob 路径**连写**（"星号 + 斜杠 + 文件名"）⇒ 其中的结束符把块注释提前切断 ⇒
    注释尾部当代码 ⇒ ReferenceError（且**只在特定分支触发**，极难发现）。
@@ -225,8 +254,11 @@ if (process.argv.includes('--whitelist-only')) {
   const fkOnly = spawnSync(NODE, [join(HERE, 'check-docs-fork.mjs')], { cwd: HERE, encoding: 'utf8' })
   console.log(`⓪d docs 分叉不变量（内容级）：${fkOnly.status === 0 ? '✓ 成立' : `✗ exit=${fkOnly.status}`}`)
   for (const l of ((fkOnly.stdout || '') + (fkOnly.stderr || '')).split('\n').map((s) => s.trim()).filter(Boolean).slice(-4)) console.log('     ' + l)
-  // 退出码分档：白名单/自造路径红 ⇒ 1；分叉红 ⇒ 1；分叉**配置错**（2）⇒ 2（§25b）
-  process.exit(extra.length || smpOnly.length || ckBad.length || fk.status ? 1 : (fkOnly.status === 2 ? 2 : (fkOnly.status ? 1 : 0)))
+  /* ★ ⓪g 也在快验里打印（否则"撞号"这种廉价断言在快验里不可见） */
+  const dupOnly = dupSectionNumbers()
+  console.log(`⓪g 小节编号唯一：${dupOnly.length ? `✗ ${dupOnly.length} 处重复：${dupOnly.join(' · ')}` : '✓ 编号唯一（README / ENGINE-CONTRACT / AI-PROMPT）'}`)
+  // 退出码分档：白名单/自造路径/注释/语法/编号红 ⇒ 1；分叉红 ⇒ 1；分叉**配置错**（2）⇒ 2（§25b）
+  process.exit(extra.length || smpOnly.length || ckBad.length || fk.status || dupOnly.length ? 1 : (fkOnly.status === 2 ? 2 : (fkOnly.status ? 1 : 0)))
 }
 /* ①b **`--render`**：渲"缺产物 ∪ 陈旧"的声明档再判（跳过以新鲜度为前提）；逐档打印 exit */
 if (RENDER) {
