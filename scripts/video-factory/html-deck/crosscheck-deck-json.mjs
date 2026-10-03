@@ -97,7 +97,9 @@ function runSelfTestUsage() {
      那只证明"**有话说**"，不证明"**说对了话**"）。与"每族 ≥1 用例"合起来才是完整双向。 */
   const CASES = [
     /* ⚠️ 期望族曾写漏 `auto 反查`（该用例用 `auto=100` ⇒ 会打 ℹ auto 反查行）⇒ **被期望族断言当场抓到** ✓ */
-    ['success', ['--json', 'examples/deck.master-v1.json', '--field', 'meta.title', '--cls', 'cover-title', '--ks', '37', '--raise-max', 'auto=100'], ['仅量测', 'auto 反查', '成功读数']],
+    /* ⚠️ `--expect-page 1` **必须加**：我自己新立的"读数模式缺它 ⇒ 红"规则**同样适用于本自测**
+       （第一版没加 ⇒ `success` 用例被自己的规则判红 —— "纪律用在自己身上" ✓）。title 在第 1 页。 */
+    ['success', ['--json', 'examples/deck.master-v1.json', '--field', 'meta.title', '--cls', 'cover-title', '--ks', '37', '--raise-max', 'auto=100', '--expect-page', '1'], ['仅量测', 'auto 反查', '成功读数']],
     ['auto-hit', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=39'], ['auto 反查', '仅量测']],
     ['auto-miss', ['--json', 'examples/__nope.json', '--field', 'nosuch.field', '--ks', '1', '--raise-max', 'auto=9'], ['查不到 jsonPointer']],
     ['lower-value', ['--json', 'examples/__nope.json', '--field', 'meta.issuer', '--ks', '1', '--raise-max', 'issuer=700'], ['只许抬']],
@@ -113,6 +115,9 @@ function runSelfTestUsage() {
     ['offset', ['--json', 'examples/__nope.json', '--field', 'meta.issuer', '--ks', '1', '--raise-max', 'auto=800', '--readback-offset', '13'], ['auto 反查', '仅量测']],
     ['keep', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', 'auto=39', '--keep'], ['仅量测', 'auto 反查']],
     ['bad-pointer', ['--json', 'examples/__nope.json', '--field', 'meta.title', '--ks', '1', '--raise-max', '#//x=9'], ['形态不支持']],
+    /* ★ team-lead msg1 ③：**`k > cap` 且无 `--raise-max` ⇒ 必须给补救提示**（他亲自踩的 K22 通式 ⇒ 正好是验收样例）。
+       用**真底档 + 合法 k**（不吃 __nope 的提前退出）⇒ 该检查在渲染前就红 ⇒ 秒级。 */
+    ['need-raise', ['--json', 'examples/deck.master-v1.json', '--field', 'meta.title', '--ks', '400'], ['需抬上限']],
   ]
   let bad = 0
   const outs = []
@@ -121,7 +126,9 @@ function runSelfTestUsage() {
     const sout = String(r.stdout || ''), serr = String(r.stderr || '')
     /* ⚠️ 判据**必须覆盖全部消息族**（第一版漏了"查不到 jsonPointer"与"形态不支持" ⇒ 把 2 例误报成失败 —— 自测自己也栽在"判据不全"）
        ⇒ 用**消息族的特征词**而非完整句；失败时**打原样末 3 行**（§25a：不许丢失败输出）。 */
-    const hasConcl = /(仅量测|无需抬|只许抬|找不到|不许入表|尚无判据|auto ⇒|找不到 deck|查不到 jsonPointer|形态不支持|judge-fixture)/.test(sout + serr)
+    /* ⚠️ **新消息族必须同时登记到这里**（我加 `需抬上限` 时只登记了 `FAMILIES` ⇒ 该用例 `hasConcl=false` 被判红 ——
+       正是本文件注释写的"判据必须覆盖全部消息族"同族 · **自测自己抓到的** ✓）。 */
+    const hasConcl = /(仅量测|无需抬|只许抬|找不到|不许入表|尚无判据|auto ⇒|找不到 deck|查不到 jsonPointer|形态不支持|judge-fixture|测量会被上限拒死)/.test(sout + serr)
     const codeOk = [0, 1, 2].includes(r.status)
     const reasonOk = r.status !== 2 || serr.trim().length > 0
     const ok = hasConcl && codeOk && reasonOk
@@ -143,6 +150,7 @@ function runSelfTestUsage() {
     '仅量测': /仅量测/, '不许入表': /不许入表/, '无需抬': /无需抬/, '只许抬': /只许抬/,
     '找不到 leaf': /找不到 leaf/, '尚无判据': /尚无判据/, 'auto 反查': /auto ⇒/,
     '查不到 jsonPointer': /查不到 jsonPointer/, '形态不支持': /形态不支持/, '成功读数': /GATE-RESULT/,
+    '需抬上限': /测量会被上限拒死/,
   }
   const hitFam = new Set()
   const famBad = []
@@ -277,6 +285,10 @@ if (RAISE_MAX) {
   })()
   if (JF) console.log(`  ℹ --judge-fixture=${JF}（**仅自证**：判据列来自该 fixture，不读真表）`)
   const judgeOf = (ptr) => { const c = TABLE.find((x) => x.jsonPointer === ptr); return c ? c.judgeLimit : undefined }
+/* ★★ team-lead msg1 ③：**K22 通式的前置拦截** —— `k > 当前 cap` 且**未给 `--raise-max`** 时，
+   使用者只会看到「渲染失败 exit=3」⇒ 第一反应是"渲染器坏了"（team-lead 亲自踩了一次）⇒
+   这里**直接点名并给可照抄的补救**（`auto=` 形态），exit 2。
+   ⚠️ **必须在 `if (RAISE_MAX)` 块之外**（块内 ⇒ `!RAISE_MAX` 永不成立 ⇒ 整段等于没写；实测踩到）。 */
   /* ★ `--raise-max auto` 的**反查**（放这里才安全：`TABLE` 已就绪）——
      按 `--field` 找到该字段自己的指针 ⇒ 避开①裸叶名多命中误伤 ②整指针的 `$` 展开坑（形态里没有 `$`）。 */
   if (leafSpecRaw === 'auto') {
@@ -415,6 +427,30 @@ console.log(`=== deck JSON 真渲染路（第二路）===`)
 console.log(`  源 = ${JSONF} · 字段 = ${FIELD} · 检测点 = .${CLS} · 变体 k = [${KS.join(', ')}] · 出目录 = ${OUT}${PATH_A ? ` · 第一路(HTML 注入)临界 = ${PATH_A}` : ''}`)
 const rows = []
 const tamper = []                       // ★ 测量期产物被改写的行（⇒ 结论作废）
+if (!RAISE_MAX) {
+  /* ⚠️ **自读表**（不依赖 `TABLE`：它声明在 `if (RAISE_MAX)` 块内 ⇒ 此处引用会 ReferenceError；实测踩到）。 */
+  let ptr
+  try {
+    const tbl = JSON.parse(readFileSync(join(DECK_DIR, 'measured-limits.json'), 'utf8'))
+    ptr = (tbl.limits || []).find((x) => x.field === FIELD)?.jsonPointer
+  } catch { /* 表读不到就不拦（不制造假红） */ }
+  if (ptr) {
+    let cap
+    try {
+      const s = JSON.parse(readFileSync(join(DECK_DIR, 'deck.schema.json'), 'utf8'))
+      cap = ptr.replace(/^#\//, '').split('/')
+        .map((k) => k.replace(/~1/g, '/').replace(/~0/g, '~'))
+        .reduce((o, k) => (o == null ? undefined : o[k]), s)?.maxLength
+    } catch { /* 拿不到 cap 就不拦（不制造假红） */ }
+    const kBig = (cap === undefined) ? [] : KS.filter((k) => k > cap)
+    if (kBig.length) {
+      console.error(`✗ **测量会被上限拒死**：k=${kBig.join(',')} > 当前 cap=${cap}（字段 ${FIELD} · ${ptr}）`)
+      console.error('   ⚠️ 未给 `--raise-max` ⇒ 渲染阶段就会被 schema 上限拒（你只会看到「渲染失败」⇒ 容易误判成渲染器故障 —— **K22 通式**）')
+      console.error(`   ⇒ 补救（照抄）：\`--raise-max auto=${Math.max(...kBig)}\`（按 --field 反查 ⇒ 单命中、无 $ 转义）；或整指针 + **单引号**`)
+      process.exit(2)
+    }
+  }
+}
 for (const k of KS) {
   const variant = JSON.parse(JSON.stringify(base))
   setPath(variant, FIELD, '汉'.repeat(k))

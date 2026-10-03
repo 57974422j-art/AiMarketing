@@ -45,9 +45,27 @@ const leaves = new Map()
 })(schema, '#')
 
 const viol = [], noted = []
+/* ★ team-lead msg2 ②：**「每格必有断言」的机器化** —— 用来区分「已测且已断言」与「只记录未断言」（I10 的分子/分母要用）。 */
+const IT_ASSERTED = [], IT_RECORD_ONLY = []
+/* ⚠️ `label` 在下面才声明（循环体后半段）⇒ 条数分派块在**之前** ⇒ 需一个同名口径的本地小助手（防 TDZ）。 */
+const labelC = (it) => `${it.jsonPointer}（${it.field || '?'}）`
 for (const it of (limits.limits || [])) {
   const node = get(it.jsonPointer)
   if (!node) { viol.push(`${it.jsonPointer} ⇒ 实测表指向的 schema 节点不存在（表/schema 不同源）`); continue }
+  /* ★★ **I1/I2-「条数版」按 `kind` 分派**（team-lead msg2 ②：此前 `capacityAtLeast` **0 命中** ⇒
+     该格的"唯一断言 `maxItems ≤ 容量`"**只是散文**（写在 `judgeLimitNote` 里）⇒ 与"汇总句 vs 逐格"同族。
+     分派：`kind:'editorial'`（条数）⇒ 断言 `maxItems ≤ capacityAtLeast`（容量是**下限**，不是判据）；
+           `kind:'content'`（长度）⇒ 走下面的 I2（`maxLength ≤ ⌊0.9×判据⌋`）。 */
+  if (it.unit === 'count' || it.capacityAtLeast !== undefined) {
+    const cap = node.maxItems, cal = it.capacityAtLeast
+    if (cal == null) viol.push(`${labelC(it)} ⇒ **I1-count**：条数格必须声明 \`capacityAtLeast\`（容量下限 = 已证能装多少）`)
+    else if (cap === undefined) viol.push(`${labelC(it)} ⇒ **I1-count**：schema 该指针**无 \`maxItems\`** ⇒ 条数上限**无处生效**（断言无法落地）`)
+    else if (cap > cal) viol.push(`${labelC(it)} ⇒ **I2-count**：maxItems=${cap} > capacityAtLeast=${cal} ⇒ **上限超出已证容量**（该断言落地就会拒掉自己证过的容量）`)
+    else noted.push(`${labelC(it)} ⇒ ✓ **I2-count**：maxItems=${cap} ≤ capacityAtLeast=${cal}（kind=${it.kind || '-'} · 容量是下限，上限由编辑意图定）`)
+    if (!Array.isArray(it.basis) || !it.basis.length) viol.push(`${labelC(it)} ⇒ **每格必有断言**：条数格缺 \`basis\`（"无几何失败模式"必须写明）`)
+    if (IT_ASSERTED) IT_ASSERTED.push(it.field || it.jsonPointer)
+    continue
+  }
   const has = node.maxLength !== undefined
   const adv = node.recommendedMax
   const C = it.judgeLimit

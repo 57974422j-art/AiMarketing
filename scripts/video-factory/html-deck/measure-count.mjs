@@ -41,6 +41,32 @@ if (!SEL && !process.argv.includes('--self-test-extract') && !process.argv.inclu
   console.error('✗ 缺 `--sel`（检测点标签，如 li）⇒ **不许用危险默认**（旧默认 li 会全篇计数 ⇒ 读数错）⇒ exit 2')
   process.exit(2)
 }
+/* ★★ team-lead ②（msg1）：**同一套旗标三件套**（此前只有 crosscheck 有 ⇒ 本工具的新旗标"无人罩"）：
+   ① **注册表** ② **未识别即红**（`source` 若写错一个旗标，照抄者**立刻得到点名红**，而不是哑的"未识别参数"）
+   ③ **覆盖断言**：注册表 ⊇ 源码里出现的全部旗标字面量 · 且每个注册项**必须被真正消费**（防"登记了却没人读"）。 */
+const MC_FLAGS = [
+  { name: '--deck', argv: true }, { name: '--page', argv: true }, { name: '--jsonpath', argv: true },
+  { name: '--cls', argv: true }, { name: '--sel', argv: true }, { name: '--min', argv: true },
+  { name: '--max', argv: true }, { name: '--stride', argv: true }, { name: '--nmax', argv: true },
+  { name: '--maxitems-ptr', argv: true }, { name: '--keep', argv: false },
+  { name: '--self-test-extract', argv: false }, { name: '--self-test-scope', argv: false },
+]
+/* ⚠️ 这四个是**下游引擎**旗标（透传给 crosscheck/render）—— 我第一版留空表 ⇒ **本工具自己的注册表断言当场点名**
+   （`✗ 旗标注册表不全：--outdir --assert-overlap --assert-decor --no-contrast`）⇒ 照它补登（"守卫自己被守卫"又一例）。 */
+const MC_DOWNSTREAM = ['--outdir', '--assert-overlap', '--assert-decor', '--no-contrast']
+{
+  const src = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+  const found = [...new Set([...src.matchAll(/'(--[a-zA-Z][\w-]*)'/g)].map((m) => m[1]))]
+  const known = new Set([...MC_FLAGS.map((f) => f.name), ...MC_DOWNSTREAM])
+  const missing = found.filter((f) => !known.has(f))
+  if (missing.length) { console.error(`✗ **旗标注册表不全**：${missing.join(' ')} ⇒ 新增旗标必须登记进 MC_FLAGS（自己）或 MC_DOWNSTREAM（下游）⇒ exit 2`); process.exit(2) }
+  const unknown = [...new Set(argv.filter((a) => /^--/.test(a)))].filter((a) => !known.has(a))
+  /* ⚠️ 模板串里**不许出现反引号**（我第一次写「照抄 `source`」⇒ 把模板串提前闭合 ⇒ 语法错；与"块注释嵌套"同族）。 */
+  if (unknown.length) { console.error(`✗ **未识别的参数**：${unknown.join(' ')}\n   允许的旗标：${[...known].join(' ')}\n   （防"照抄 source 时写错一个旗标"变成**哑红** ⇒ 此处点名）⇒ exit 2`); process.exit(2) }
+  const dead = MC_FLAGS.filter((f) => !new RegExp(`(arg\\(|flag\\(|includes\\()'${f.name}'`).test(src)).map((f) => f.name)
+  if (dead.length) { console.error(`✗ 注册了但**没人消费**的旗标：${dead.join(' ')} ⇒ 要么接线、要么删登记（防"登记即假装覆盖"）⇒ exit 2`); process.exit(2) }
+  console.log(`  ✓ 旗标三件套：注册 **${MC_FLAGS.length}** · 未识别 **0** · 死旗标 **0** · 源码字面量 **${found.length}** 全部已登记`)
+}
 const MIN = Number(arg('--min', '3'))
 const MAX = Number(arg('--max', '5'))
 const KEEP = argv.includes('--keep')
@@ -125,10 +151,22 @@ function fit(arr, n) {
   return out
 }
 
+/* ★★ **根治"临时档留痕"**（team-lead ①卫生 + 漂移守卫的**故意**判红「`examples/__tmp_*` 不许留痕」）：
+   ① 变体档改写到 `out-tmp-count/`（以 out 开头的目录被 .gitignore 覆盖 ⇒ 不进 git、也不是锚点）—— 此前写 `examples/` ⇒
+      一旦进程被管道截断（我看到的是 `Select-Object -First N` 把进程掐死）就**留痕** ⇒ 挡住整批提交（commit-safe 实测拒绝我）。
+   ② 顺带**清扫本工具自己命名空间**的存量（`examples/__tmp_count-k*.json`）—— 只删自己的前缀，不碰别人。 */
+const TMP_DIR = join(HERE, 'out-tmp-count')
+mkdirSync(TMP_DIR, { recursive: true })
+if (!KEEP) {
+  const stale = readdirSync(join(HERE, 'examples')).filter((f) => /^__tmp_count-k\d+\.json$/.test(f))
+  for (const f of stale) { try { rmSync(join(HERE, 'examples', f), { force: true }) } catch { /* ignore */ } }
+  if (stale.length) console.log(`  ℹ 清扫本工具存量残留 ${stale.length} 个（examples/__tmp_count-k*.json ⇒ 变体档已改写到 out-tmp-count/）`)
+}
 console.log(`=== 条数构造器：deck=${DECK} · ${JSONPATH} · N=${MIN}…${N_MAX}（现上限 ${MAX}·下限 ${MIN}）===`)
 const rows = []
 for (let N = MIN; N <= N_MAX; N += STRIDE) {
-  const vj = join(HERE, 'examples', `__tmp_count-k${N}.json`)
+  const vj = join(TMP_DIR, `count-k${N}.json`)          /* ★ 临时档只进 out-tmp-count（不入 examples ⇒ 不留痕） */
+  const vrel = `out-tmp-count/count-k${N}.json`
   const outdir = `out-tmp-count-k${N}`
   const d = JSON.parse(JSON.stringify(base))
   d.pages[Number(pIdx)][key] = fit(seed, N)
@@ -136,11 +174,11 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   created.push(vj, join(HERE, outdir))
 
   /* ② 自己渲染（**不用 crosscheck 的注入**：它的"零注入"会把首条文本变空 ⇒ 触发 minLength ⇒ 校验拒 —— 实测踩过） */
-  const r = spawnSync(process.execPath, [join(HERE, 'render-deck.mjs'), `examples/__tmp_count-k${N}.json`, '--outdir', outdir],
+  const r = spawnSync(process.execPath, [join(HERE, 'render-deck.mjs'), vrel, '--outdir', outdir],
     { cwd: HERE, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, DECK_SCHEMA_OVERRIDE: ovr } })
   const rout = String(r.stdout || '') + String(r.stderr || '')
   /* 产物落在 <outdir>/<变体名>/（render 用 deck 文件名做子目录） */
-  const prodDir = join(HERE, outdir, `__tmp_count-k${N}`)
+  const prodDir = join(HERE, outdir, `count-k${N}`)
 
   /* ★★ team-lead ③：**页作用域不靠"人手挑唯一类名"**（那是"量具版的 K22"：换母版即失效、且无人守）——
      用**页切片**（与 `dom-target` 的 `pageNo` **同一机制、同一索引**）：第 i 页 = 第 (i+1) 个 `<section>` 切片内计数。
