@@ -60,22 +60,38 @@ const RAISE_MAX = arg('--raise-max', '')       // 形如 "pages.1.title=57"（le
 const RB_OFFSET = Number(arg('--readback-offset', '0') || 0)
 let OVERRIDE_ENV = null
 if (RAISE_MAX) {
-  const [leaf, valStr] = RAISE_MAX.split('=')
+  /* ★ team-lead ③-2：`--raise-max` 的两条**断言**（此前只判"有没有命中"，抬错/抬不动都会静默）：
+     ① **只许抬不许降**：`val ≤ 现 maxLength` ⇒ 抬了个寂寞（测量仍被旧上限拒）⇒ **红**（exit 2）；
+     ② **目标叶必须在命中清单里**（不在 ⇒ 红 = 抬没生效）。
+     ⚠️ 裸叶名会命中**多个**（`title`/`explain`/`items`）：只抬不降 ⇒ 无害，但**必须打印命中数**让量测者确认目标在其中；
+     也支持**整指针**精确指定（`--raise-max "#/$defs/meta/properties/issuer=847"`）⇒ 只命中那一个。 */
+  const [leafSpec, valStr] = RAISE_MAX.split('=')
   const val = Number(valStr)
   const sp = join(DECK_DIR, 'deck.schema.json')
   const sch = JSON.parse(readFileSync(sp, 'utf8'))
   const hit = []
   const walk = (node, ptr) => {
     if (!node || typeof node !== 'object') return
-    if (node.maxLength !== undefined && ptr.endsWith('/' + leaf)) { node.maxLength = val; hit.push(ptr) }
+    if (node.maxLength !== undefined && (ptr === leafSpec || ptr.endsWith('/' + leafSpec))) {
+      if (!(val > node.maxLength)) {
+        console.error(`✗ --raise-max **只许抬、不许降**：${ptr} 现 maxLength=${node.maxLength}，而 val=${val} ≤ 它 ⇒ **抬没生效**（测量仍会被旧上限拒）⇒ exit 2`)
+        process.exit(2)
+      }
+      node.maxLength = val; hit.push(ptr)
+    }
     for (const k of Object.keys(node)) walk(node[k], `${ptr}/${k}`)
   }
   walk(sch, '#')
-  if (!hit.length) { console.error(`✗ --raise-max：schema 里找不到 leaf=${leaf} 的 maxLength ⇒ exit 2`); process.exit(2) }
+  if (!hit.length) { console.error(`✗ --raise-max：schema 里找不到 leaf=${leafSpec} 的 maxLength ⇒ exit 2（**抬没生效**）`); process.exit(2) }
+  /* ② 目标叶在命中清单里（用整指针指定时必须**精确命中**该指针） */
+  const exact = leafSpec.startsWith('#/')
+  if (exact ? !hit.includes(leafSpec) : !hit.some((p) => p.endsWith('/' + leafSpec))) {
+    console.error(`✗ --raise-max：目标 ${leafSpec} **不在命中清单**${'[' + hit.join(', ') + ']'} ⇒ 抬没生效 ⇒ exit 2`); process.exit(2)
+  }
   const tmp = join(tmpdir(), `deck.schema.override.${process.pid}.json`)
   writeFileSync(tmp, JSON.stringify(sch, null, 2), 'utf8')
   OVERRIDE_ENV = tmp
-  console.log(`  ★★ **仅量测**：把 ${hit.join(' / ')} 的 maxLength 抬到 ${val}（覆盖 schema 写于仓库外 ${tmp}）`)
+  console.log(`  ★★ **仅量测**：把 ${hit.join(' / ')} 的 maxLength 抬到 ${val} —— 命中 **${hit.length}** 个${hit.length > 1 ? '（裸叶名会命中多个：只抬不降 ⇒ 无害，但**请确认量测目标是其中之一**；可用整指针精确指定）' : ''}（覆盖 schema 写于仓库外 ${tmp}）`)
 }
 const PATH_A = arg('--pathA', '')          // 第一路（HTML 注入）给出的临界，仅用于打印对照
 
