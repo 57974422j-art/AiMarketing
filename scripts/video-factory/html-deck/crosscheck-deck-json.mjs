@@ -442,7 +442,10 @@ console.log(`=== deck JSON 真渲染路（第二路）===`)
 const TREE = (() => {
   try {
     const sha = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim() || 'n/a'
-    const dirtyOut = String(spawnSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim()
+    /* ⚠️ 排除 `.codebuddy/`（**协作目录，不入库、不是代码改动**）—— 否则每轮都报"有未提交改动"（假警报）。
+       另：`git status` 的 `--porcelain` 已含短格式 ⇒ 不必再传 `--short`（`--short` 只用于上面 `rev-parse`）。 */
+    const dirtyOut = String(spawnSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).stdout || '')
+      .split('\n').map((l) => l.trim()).filter((l) => l && !l.includes('.codebuddy/')).join('\n')
     return { sha, dirty: dirtyOut.length > 0, n: dirtyOut ? dirtyOut.split('\n').length : 0 }
   } catch { return { sha: 'n/a', dirty: null, n: 0 } }
 })()
@@ -602,10 +605,12 @@ if (rows.length !== KS.length) {
 const mt = modeTag(EXPECT_PAGE, PAGE_UNKNOWN)
 if (mt) {
   if (mt === TAG_PAGE_MISSING) {
-    console.error(`✗ **[${TAG_PAGE_MISSING}] 读数模式缺 \`--expect-page <n>\`**（危险默认：0 = 静默不做「命中元素所在页 == 该格 page」断言，与 \`--sel\` 同类）`)
+    /* ★★ team-lead msg5 ④：**通道契约** —— `tag` 与结论行**同在 stdout 的同一行**（人类提示/告示走 stderr）
+       ⇒ 上层脚本与 grep 才可靠（他捕获不到 tag，正是因为它们原来都在 stderr）。 */
+    console.log(`✗ **[${TAG_PAGE_MISSING}] 读数模式缺 \`--expect-page <n>\`**（危险默认：0 = 静默不做「命中元素所在页 == 该格 page」断言，与 \`--sel\` 同类）`)
     console.error('   ⇒ 该断言是「靠 `p2-` 前缀约定」的机器校验 ⇒ **静默失守最危险**。请补 `--expect-page <该格 page>`（13 格命令已按此重排）。')
   } else {
-    console.error(`✗ **[${TAG_PAGE_SKIP}] \`--page-unknown\`：本轮**未校验同页** ⇒ 读数**不得入表**`)
+    console.log(`✗ **[${TAG_PAGE_SKIP}] \`--page-unknown\`：本轮**未校验同页** ⇒ 读数**不得入表**`)
     console.error('   ⇒ **"未校验"不许伪装成"通过"**（上层脚本通常只看退出码）—— 与 I10「零分母不许算通过」同族。')
   }
   console.error('   （若只想人工排查：本命令仍会打印全部读数，但**退出码非 0**，不会被当成通过。）⇒ exit 2')
@@ -615,7 +620,8 @@ if (mt) {
    避免"循环里 push 到后面的数组"那种 TDZ 假红。②(2)：红因**可区分**（专属 tag）。 */
 const bad = rows.filter((r) => badReason(r, EXPECT_PAGE))
 if (bad.length) {
-  console.error(`✗ 有 ${bad.length} 行读数作废（EXPECT_PAGE=${EXPECT_PAGE || '（未指定）'}）⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`)
+  /* ★ msg5 ④ 通道契约：**结论行 + 全部 tag 同在 stdout 同一行**（grep/上层脚本可靠；人类细节仍在 stderr）。 */
+  console.log(`✗ 有 ${bad.length} 行读数作废 ⇒ tags=[${[...new Set(bad.map((r) => badReason(r, EXPECT_PAGE)))].join(', ')}]（EXPECT_PAGE=${EXPECT_PAGE || '（未指定）'}）⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`)
   for (const r of bad.slice(0, 4)) {
     const tag = badReason(r, EXPECT_PAGE)
     const why = tag === 'RENDER_FAILED' ? '渲染失败' : tag === 'READBACK_MISMATCH' ? `读回 ${r.back} ≠ ${r.k + RB_OFFSET}` : `命中页 ${r.no} ≠ 格子 page ${EXPECT_PAGE}`

@@ -338,6 +338,25 @@ if (tmpResidueRow.exit) process.exit(1)
 {
   const dv = deckValidateSweep()
   console.log(`②d 全档 validate-only：${dv.exit ? '✗' : '✓'} ${dv.verdict}`)
+  /* ★★ team-lead msg5 ③：**"工具可用性"本身要有秒级判据**。
+     事故：我在 crosscheck 里加 `git status --porcelain` 却漏登记 ⇒ 旗标守卫**过宽** ⇒ **工具自拒**（任何调用 exit 2），
+     而 `--self-test-usage` **本身也是这个工具** ⇒ 父进程在**加载期**就退了 ⇒ 该类故障**永远漏网**（最严重的一类）。
+     ⇒ 快验里跑三套**免渲染**自测：工具自拒 / 编译坏 / 自测退化 ⇒ 秒级红。
+     （`--self-test-usage` 要真渲染 ~30s ⇒ 只在全套跑，不进快验。） */
+  {
+    const tries = [
+      ['crosscheck --self-test-page', 'crosscheck-deck-json.mjs', ['--self-test-page']],
+      ['measure-count --self-test-scope', 'measure-count.mjs', ['--self-test-scope']],
+      ['measure-count --self-test-extract', 'measure-count.mjs', ['--self-test-extract']],
+    ]
+    const badSelf = []
+    for (const [label, file, a] of tries) {
+      const r = spawnSync(NODE, [join(HERE, file), ...a], { cwd: HERE, encoding: 'utf8' })
+      if (r.status !== 0) badSelf.push(`${label}（exit=${r.status}）`)
+    }
+    console.log(`✓ 工具可用性自测（免渲染）：${tries.length - badSelf.length}/${tries.length}${badSelf.length ? ` ✗ ${badSelf.join(' · ')}` : ' ✓'}`)
+    if (badSelf.length) process.exit(1)
+  }
   /* ℹ **临时产物信息行**（team-lead ②：**只报不判红**）——
      事实：删除类命令在本环境**拿不到审批**（你 2 次 + 我 3 次，最小范围试删也超时）⇒ **不做自动清理**；
      但"磁盘卫生"必须**可见**：长期 >0 时提示"跑 `node clean-tmp.mjs`（**需人工批准**，脚本内建基座 MD5 断言 + `--dry` 预览）"。

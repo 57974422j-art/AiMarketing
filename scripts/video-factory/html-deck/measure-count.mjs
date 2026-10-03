@@ -169,7 +169,9 @@ if (!KEEP) {
 const TREE = (() => {
   try {
     const sha = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim() || 'n/a'
-    const dirtyOut = String(spawnSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim()
+    /* ⚠️ 排除 `.codebuddy/`（协作目录，不入库）⇒ 否则每轮假报"有未提交改动"。 */
+    const dirtyOut = String(spawnSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).stdout || '')
+      .split('\n').map((l) => l.trim()).filter((l) => l && !l.includes('.codebuddy/')).join('\n')
     return { sha, dirty: dirtyOut.length > 0, n: dirtyOut ? dirtyOut.split('\n').length : 0 }
   } catch { return { sha: 'n/a', dirty: null, n: 0 } }
 })()

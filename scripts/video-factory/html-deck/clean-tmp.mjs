@@ -35,6 +35,9 @@ const DRY = argv.includes('--dry')
 
 /** 只删这些前缀（**窄**）：交付目录 `out/` 与 `out-master-v2/` 不会命中 */
 const PREFIX_RE = /^out-(tmp-xcheck|tmp-sweep|tmp|sweep|chk|xcheck)-/
+/* ★ 另加一类**文件**（不是目录）：`examples/__tmp_*`（量具的临时变体档）。它们被 .gitignore 覆盖但**不是锚点**，
+   而漂移守卫**故意**对 `examples/__tmp_*` 判红（"不许留痕"）⇒ 进程被强杀时会挡住提交 ⇒ 由本清理器兜底（**窄前缀**）。 */
+const TMP_FILES_RE = /^__tmp_.*\.json$/
 /** 基座：必须逐字节不变的目录 */
 const BASES = ['out', 'out-master-v2']
 
@@ -94,6 +97,17 @@ for (const c of cands) { c.size = dirSize(c.full); totalBytes += c.size }
 console.log(`\n候删目录 = **${cands.length}** 个（前缀命中且 mtime > ${HOURS}h）· 合计 ≈ ${(totalBytes / 1048576).toFixed(1)} MB`)
 for (const c of cands.slice(0, 8)) console.log(`  · ${c.name}  ${(c.size / 1048576).toFixed(1)} MB`)
 if (cands.length > 8) console.log(`  · …（其余 ${cands.length - 8} 个）`)
+/* ★ 文件类临时档：`examples/__tmp_*.json`（量具的临时变体档）—— 窄前缀 + mtime > HOURS ⇒ 同样删、同样计数。
+   （它们被 .gitignore 覆盖，但漂移守卫**故意**对 `examples/__tmp_*` 判红 ⇒ 进程被强杀时会挡提交 ⇒ 这里兜底。） */
+const EXDIR = join(HERE, 'examples')
+const candFiles = (existsSync(EXDIR) ? readdirSync(EXDIR) : [])
+  .filter((f) => TMP_FILES_RE.test(f))
+  .map((f) => ({ name: `examples/${f}`, full: join(EXDIR, f), size: statSync(join(EXDIR, f)).size, mtime: statSync(join(EXDIR, f)).mtimeMs }))
+  .filter((c) => c.mtime < cutoff)
+if (candFiles.length) {
+  console.log(`候删文件 = **${candFiles.length}** 个（examples/__tmp_*.json 且 mtime > ${HOURS}h）`)
+  for (const c of candFiles) console.log(`  · ${c.name}  ${(c.size / 1024).toFixed(0)} KB`)
+}
 
 if (DRY) { console.log('\n--dry：**未删除任何东西**'); process.exit(0) }
 
@@ -115,13 +129,26 @@ for (let i = 0; i < cands.length; i++) {
     try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150) } catch { /* ignore */ } }
 }
 
+/* ★ 文件类候选也删（同一约束：单个失败不中断） */
+let delFiles = 0
+for (const c of candFiles) {
+  try {
+    rmSync(c.full, { force: true })
+    if (existsSync(c.full)) throw new Error('删除后仍存在')
+    delFiles++; freed += c.size
+  } catch (e) {
+    failed.push(`${c.name}（${e.message}）`)
+  }
+}
+
 const remain = readdirSync(HERE, { withFileTypes: true })
   .filter((e) => e.isDirectory() && /^out-(tmp|sweep|xcheck|chk)/.test(e.name)).map((e) => e.name)
+const remainTmpFiles = (existsSync(EXDIR) ? readdirSync(EXDIR) : []).filter((f) => TMP_FILES_RE.test(f))
 
 console.log('\n=== 结果 ===')
 console.log(`  已删 = **${deleted}** 个 · 释放 ≈ **${(freed / 1048576).toFixed(1)} MB** · 删不掉 = **${failed.length}**`)
 for (const f of failed) console.log(`    · ${f}`)
-console.log(`  剩余（out-tmp*/out-sweep*/out-xcheck*/out-chk*）= **${remain.length}** 个`)
+console.log(`  剩余（out-tmp*/out-sweep*/out-xcheck*/out-chk*）= **${remain.length}** 个 · 另 examples/__tmp_*.json 剩余 **${remainTmpFiles.length}** 个（本次删文件 ${delFiles} 个）`)
 for (const r of remain.slice(0, 8)) console.log(`    · ${r}`)
 
 const after = snapshot()
