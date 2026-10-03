@@ -54,10 +54,13 @@ const MC_FLAGS = [
 /* ⚠️ 这四个是**下游引擎**旗标（透传给 crosscheck/render）—— 我第一版留空表 ⇒ **本工具自己的注册表断言当场点名**
    （`✗ 旗标注册表不全：--outdir --assert-overlap --assert-decor --no-contrast`）⇒ 照它补登（"守卫自己被守卫"又一例）。 */
 const MC_DOWNSTREAM = ['--outdir', '--assert-overlap', '--assert-decor', '--no-contrast']
+/* ★ **外部命令**（git）旗标：本工具不解析、只转交 ⇒ 单列一类（我加"读数打印 SHA"时写了 '--short'/'--porcelain'
+   ⇒ 被自己的注册表断言判红 ⇒ 这正是"守卫自己被守卫"），见 crosscheck 同名字段的说明。 */
+const MC_EXTERNAL = ['--short', '--porcelain']
 {
   const src = readFileSync(fileURLToPath(import.meta.url), 'utf8')
   const found = [...new Set([...src.matchAll(/'(--[a-zA-Z][\w-]*)'/g)].map((m) => m[1]))]
-  const known = new Set([...MC_FLAGS.map((f) => f.name), ...MC_DOWNSTREAM])
+  const known = new Set([...MC_FLAGS.map((f) => f.name), ...MC_DOWNSTREAM, ...MC_EXTERNAL])
   const missing = found.filter((f) => !known.has(f))
   if (missing.length) { console.error(`✗ **旗标注册表不全**：${missing.join(' ')} ⇒ 新增旗标必须登记进 MC_FLAGS（自己）或 MC_DOWNSTREAM（下游）⇒ exit 2`); process.exit(2) }
   const unknown = [...new Set(argv.filter((a) => /^--/.test(a)))].filter((a) => !known.has(a))
@@ -174,8 +177,11 @@ console.log(`  ℹ 读数归属：**SHA=${TREE.sha}** · 工作树 ${TREE.dirty 
 console.log(`=== 条数构造器：deck=${DECK} · ${JSONPATH} · N=${MIN}…${N_MAX}（现上限 ${MAX}·下限 ${MIN}）===`)
 const rows = []
 for (let N = MIN; N <= N_MAX; N += STRIDE) {
-  const vj = join(TMP_DIR, `count-k${N}.json`)          /* ★ 临时档只进 out-tmp-count（不入 examples ⇒ 不留痕） */
-  const vrel = `out-tmp-count/count-k${N}.json`
+  /* ★ 临时档只换**目录**（不入 examples ⇒ 不留痕），**档名保持 `__tmp_count-kN.json` 不变** ——
+     ⚠️ 我第一版连基名一起改成 `count-kN.json` ⇒ **下游按档名推导产物目录** ⇒ `out-tmp-count-k30/count-k30/index.html` ENOENT
+     （实测：`--verify-cell pages.3.steps` 报 `页内=0 ≠ capacityAtLeast=30`，尾行是那个 ENOENT）⇒ 命名是**接口**，不许顺手改。 */
+  const vj = join(TMP_DIR, `__tmp_count-k${N}.json`)
+  const vrel = `out-tmp-count/__tmp_count-k${N}.json`
   const outdir = `out-tmp-count-k${N}`
   const d = JSON.parse(JSON.stringify(base))
   d.pages[Number(pIdx)][key] = fit(seed, N)
@@ -187,7 +193,7 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
     { cwd: HERE, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, DECK_SCHEMA_OVERRIDE: ovr } })
   const rout = String(r.stdout || '') + String(r.stderr || '')
   /* 产物落在 <outdir>/<变体名>/（render 用 deck 文件名做子目录） */
-  const prodDir = join(HERE, outdir, `count-k${N}`)
+  const prodDir = join(HERE, outdir, `__tmp_count-k${N}`)
 
   /* ★★ team-lead ③：**页作用域不靠"人手挑唯一类名"**（那是"量具版的 K22"：换母版即失效、且无人守）——
      用**页切片**（与 `dom-target` 的 `pageNo` **同一机制、同一索引**）：第 i 页 = 第 (i+1) 个 `<section>` 切片内计数。

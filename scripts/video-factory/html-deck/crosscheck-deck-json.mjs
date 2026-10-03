@@ -60,10 +60,14 @@ const TOOL_FLAGS = [
   { name: '--page-unknown', argv: false, case: '(格子断言)' },
 ]
 const DOWNSTREAM_FLAGS = ['--outdir', '--assert-overlap', '--assert-decor', '--no-contrast']
+/* ★ **外部命令**（git 等）的旗标：本工具**不解析**、只是转交给外部程序 ⇒ 单列一类（不是"下游引擎"，
+   也不是本工具旗标）。加这一类的原因：我加"读数打印 SHA"时写了 `'--short'`/`'--porcelain'` 字面量
+   ⇒ **被本工具的注册表断言当场判红**（守卫自己被守卫 ✓，是**假阳性**但方向正确）⇒ 单列类别说清语义。 */
+const EXTERNAL_FLAGS = ['--short', '--porcelain']
 {
   const src = readFileSync(fileURLToPath(import.meta.url), 'utf8')
   const seen = [...new Set([...src.matchAll(/'(--[a-zA-Z][\w-]*)'/g)].map((m) => m[1]))]
-  const known = new Set([...TOOL_FLAGS.map((f) => f.name), ...DOWNSTREAM_FLAGS])
+  const known = new Set([...TOOL_FLAGS.map((f) => f.name), ...DOWNSTREAM_FLAGS, ...EXTERNAL_FLAGS])
   const unknown = seen.filter((s) => !known.has(s))
   if (unknown.length) {
     console.error(`✗ **旗标注册表不全**：${unknown.join(' ')} ⇒ 新增旗标必须登记进 TOOL_FLAGS（自己）或 DOWNSTREAM_FLAGS（下游）⇒ exit 2`)

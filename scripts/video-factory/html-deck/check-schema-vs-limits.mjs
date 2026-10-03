@@ -14,7 +14,7 @@
  * 退出码：0 = 无违规 · 1 = 有违规（或 `--strict-coverage` 下覆盖不全）· 2 = 输入/配置错（§25b）
  * 用法：`node check-schema-vs-limits.mjs [--strict-coverage]`
  */
-import { existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'   /* ★ --selftest-handchecks：逐叶子跑第二路 */
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -628,6 +628,68 @@ if (HANDCHECKS) {
   if (!identity) viol.push(`I10：已断言 ${asserted} + 只记录 ${recordOnly} ≠ 表条目 ${totalCells}（汇总与逐格**不同源**）`)
   if (!disjoint) viol.push(`I10：同一格被**重复计入断言**（${asserted} vs 去重 ${new Set(IT_ASSERTED).size}）`)
   if (recordOnly > 0) noted.push(`I10：**只记录未断言 ${recordOnly} 条**（列名见上；发版前应逐条给断言或标 status）⇒ ${(limits.limits || []).filter((e) => !IT_ASSERTED.includes(e.field || e.jsonPointer)).map((e) => e.field || e.jsonPointer).join(', ')}`)
+}
+/* ---------- ★★ team-lead msg4 ③：`--verify-cell` —— **表的自证**（照抄该格 `source` 跑一遍，断言读数与表内值一致）----------
+   五条细化逐条实现：
+   1) **原样跑 `source`**（只解析出「脚本 + argv」，**不叠加任何参数**）；
+   2) 断言 **exit=0 且 tag=（无）**（表声称的是"成功读数" ⇒ 非 0 或带 tag ⇒ 红）；
+   3) ★ **`sweepMax` 与 `capacityAtLeast` 分开**（一个字段一个语义）：比对 `source` 里的 `--nmax` ↔ `sweepMax`，
+      这样"N_MAX 变了但 `capacityAtLeast` 恰好没变"的漂移能被发现；
+   4) **轮转抽样**（按运行序号取模，N 次内每格都被抽到；状态存 `out-tmp-verify/` ⇒ 不入库）；
+   5) 只进 `--strict-coverage`（**常态闸门不跑**）；`--verify-cell <field>` 可显式指定单格。
+   成本：count 格 ~100s · 长度格 ~2×20s ⇒ 按抽样跑。 */
+const ARG_VC = (() => { const i = process.argv.indexOf('--verify-cell'); return i >= 0 ? process.argv[i + 1] : '' })()
+const ROTATE = process.argv.includes('--verify-rotate')
+if (ARG_VC || ROTATE) {
+  const cells = limits.limits || []
+  const ROT_DIR = join(HERE, 'out-tmp-verify')
+  const ROT_F = join(ROT_DIR, 'rotate.json')
+  let st = { cursor: 0, covered: [], lastFullSweep: null }
+  try { st = { ...st, ...JSON.parse(readFileSync(ROT_F, 'utf8')) } } catch { /* 首次运行 */ }
+  let cell = ARG_VC ? cells.find((x) => x.field === ARG_VC) : cells[st.cursor % cells.length]
+  if (!cell) { console.error(`✗ --verify-cell：表里没有 \`field=${ARG_VC}\` ⇒ exit 2`); process.exit(2) }
+  if (!ARG_VC && !st.covered.includes(cell.field)) st.covered.push(cell.field)
+  const tok = (s) => (s.match(/'[^']*'|"[^"]*"|\S+/g) || []).map((t) => t.replace(/^['"]|['"]$/g, ''))
+  const src = String(cell.source || '')
+  const mm = /^node\s+(\S+\.mjs)\s*([\s\S]*)$/.exec(src.trim())
+  let vcOut = ''
+  const why = []
+  if (!mm) why.push('`source` 不是可执行的 node 命令行形式')
+  else {
+    const r = spawnSync(process.execPath, [join(HERE, mm[1]), ...tok(mm[2] || '')], { cwd: HERE, encoding: 'utf8', maxBuffer: 1 << 26 })
+    const out = String(r.stdout || '') + String(r.stderr || '')
+    vcOut = out
+    const tags = [...new Set([...out.matchAll(/\[([A-Z][A-Z_]{2,})\]/g)].map((x) => x[1]))]
+    if (r.status !== 0) why.push(`exit=${r.status}（表声称**成功读数**；非 0 即矛盾）`)
+    if (tags.length) why.push(`带 tag [${tags.join(', ')}]（成功读数不该有）`)
+    const off = Number(cell.offset || 0)
+    if (cell.unit === 'count' || cell.capacityAtLeast !== undefined) {
+      const inPage = /页内=(\d+)/.exec(out), nm = /--nmax\s+(\d+)/.exec(src)
+      if (!inPage) why.push('输出里没有 `页内=`（条数读数缺失）')
+      else if (Number(inPage[1]) !== Number(cell.capacityAtLeast)) why.push(`页内=${inPage[1]} ≠ capacityAtLeast=${cell.capacityAtLeast}`)
+      if (nm && cell.sweepMax === undefined) why.push('`source` 带 `--nmax` 但表**缺 `sweepMax` 字段**（一个语义一个字段 ⇒ 请补）')
+      else if (nm && Number(nm[1]) !== Number(cell.sweepMax)) why.push(`source 的 --nmax=${nm[1]} ≠ sweepMax=${cell.sweepMax}`)
+    } else {
+      const rows = [...out.matchAll(/k=\s*(\d+) · 渲染 ok · 读回 (\d+)\/(\d+)/g)]
+      if (!rows.length) why.push('未解析到任何"渲染 ok"行 ⇒ 无法自证')
+      for (const rr of rows) {
+        if (Number(rr[2]) !== Number(rr[1]) + off) why.push(`k=${rr[1]} 读回=${rr[2]} ≠ k+offset=${Number(rr[1]) + off}`)
+        if (Number(rr[3]) !== Number(rr[1]) + off) why.push(`k=${rr[1]} 分母=${rr[3]} ≠ k+offset=${Number(rr[1]) + off}`)
+      }
+      const pages = [...new Set([...out.matchAll(/页 (\d+) ✓/g)].map((x) => Number(x[1])))]
+      if (cell.page !== undefined && pages.length && !pages.every((p) => p === Number(cell.page))) why.push(`命中页 [${pages.join(',')}] ≠ 表内 page=${cell.page}`)
+    }
+  }
+  console.log(`\n  ★ **--verify-cell ${cell.field}**：${why.length ? '✗' : '✓'} ${why.length ? why.join(' · ') : '读数与表内值**逐项一致**（exit=0 · 无 tag）'}`)
+  /* ⚠️ **不许丢失败输出**（§25a）：失败时打印子进程原样末 6 行 —— 否则"为什么红"只能靠猜（我第一版就没打，白跑一轮）。 */
+  if (why.length && typeof vcOut === 'string') for (const l of vcOut.split('\n').filter(Boolean).slice(-6)) console.log(`        ↳ ${l.trim().slice(0, 170)}`)
+  if (why.length) viol.push(`--verify-cell ${cell.field}：${why.join(' / ')}（表与实测**不同源** ⇒ 要么改表、要么改实现）`)
+  if (ROTATE) {
+    st.cursor = (st.cursor + 1) % cells.length
+    if (st.covered.length >= cells.length) { st.lastFullSweep = '已完成一次全格覆盖'; st.covered = [] }
+    try { mkdirSync(ROT_DIR, { recursive: true }); writeFileSync(ROT_F, JSON.stringify(st, null, 2), 'utf8') } catch { /* ignore */ }
+    console.log(`     轮转：本轮抽中 **${cell.field}**（cursor=${st.cursor}/${cells.length} · 已覆盖 ${st.covered.length}）· 上次全格覆盖：**${st.lastFullSweep || '尚未（继续轮转直到每格都被抽到）'}**`)
+  }
 }
 console.log(`\n  覆盖：**未被实测的硬上限 ${uncovered.length} 个**${uncovered.length ? '（发版前必须开 --strict-coverage 清空）' : ''}`)
 for (const p of uncovered.slice(0, 20)) console.log(`     · ${p} = ${leaves.get(p).maxLength}`)

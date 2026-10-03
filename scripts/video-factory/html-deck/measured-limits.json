@@ -377,6 +377,8 @@
       "kind": "editorial",
       "detectKind": "count",
       "capacityAtLeast": 30,
+      "sweepMax": 30,
+      "sweepMaxNote": "**扫描上限**（= `--nmax` 值）—— 与 `capacityAtLeast`（容量下限）**一个字段一个语义**（team-lead msg4 ③-3）：这样「N_MAX 变了但 capacityAtLeast 恰好没变」的漂移能被 `--verify-cell` 发现（它比对 source 里的 `--nmax` ↔ 本字段）",
       "basis": [
         "**无几何失败模式**（N_MAX=30 内**未触发任何判据码**：引擎原样 `重叠判据（content_overlap）[--assert-overlap]：共 0 条`）"
       ],
