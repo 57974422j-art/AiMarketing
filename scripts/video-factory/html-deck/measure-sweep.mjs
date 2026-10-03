@@ -105,6 +105,15 @@ function dieIfUnmeasurable(pv, what) {
 // 工作目录：**仓库内** `out-sweep/`（已被 `.gitignore` 的 `out*/` 覆盖 ⇒ 不弄脏提交集 ✓；
 //  实测：放到系统临时目录时引擎会因"字体映射不可解析"给出空 findings 的假绿 ✗)
 const WORK = join(ENGINE_ROOT, 'out-tmp-sweep')
+/* ★ **工具自洁**（team-lead ①卫生）：本进程**创建过**的临时目录，退出时删掉（`--keep` 保留以便调试）。
+   事故：`out-tmp-*` 一度累积 **287 个 / 2.8 GB**。规则：**工具自己造的自己收**（不靠人记得清）。
+   ⚠️ 只删**本次创建**的（`CREATED` 记录）—— 不 glob 删，避免打断并发运行的另一个测量进程。 */
+const CREATED = []
+const KEEP = process.argv.includes('--keep')
+process.on('exit', () => {
+  if (KEEP) return
+  for (const d of CREATED) { try { rmSync(d, { recursive: true, force: true }) } catch { /* ignore */ } }
+})
 function WORKROOT() { return process.env.TEMP || process.env.TMP || '/tmp' }
 
 if (!existsSync(join(SRC, 'index.html'))) {
@@ -130,6 +139,7 @@ function build(k, srcDir, clsHint) {
   //   ⚠️ 因此**不能**把临时目录收敛成嵌套的 `out-tmp/`（team-lead 建议的"单一临时根"与这条实测冲突）；
   //   改用**统一前缀** `out-tmp-*`：仍然一层，但一次 glob 就能清完（清理只需一次审批）。
   const dir = join(ENGINE_ROOT, `out-tmp-sweep-k${k}`)
+  CREATED.push(dir)   /* ★ 登记（退出时自洁；见顶部 CREATED/KEEP） */
   const base = srcDir || SRC
   cpSync(base, dir, { recursive: true, force: true })
   const f = join(dir, 'index.html')

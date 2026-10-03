@@ -43,6 +43,12 @@ const KS = String(arg('--ks', '37,38')).split(',').map((s) => Number(s.trim())).
    事故（2026-10-03）：team-lead 与我**并发**跑同一默认 outdir ⇒ 他读到的是被并发改写的产物 ⇒
    得到一个"看起来正常但错"的数（k=37 闸门 exit 报 1，实际 0）——比报错危险得多。显式指定时才用指定值。 */
 const OUT = arg('--outdir', '') || `out-tmp-xcheck-${process.pid}-${Date.now().toString(36)}`
+/* ★ **工具自洁**（team-lead ①卫生）：**未显式指定 `--outdir`** 时，退出即删本进程自建的临时目录
+   （显式指定 ⇒ 保留：那是调用方要的产物；`--keep` 亦可保留）。事故：`out-tmp-*` 一度 287 个 / 2.8 GB。 */
+const AUTO_OUT = !arg('--outdir', '')
+if (AUTO_OUT && !process.argv.includes('--keep')) {
+  process.on('exit', () => { try { rmSync(OUT, { recursive: true, force: true }) } catch { /* ignore */ } })
+}
 /* ★ team-lead ④-2：`--raise-max <字段>=<值>` ⇒ **仅量测**地把该字段的 schema `maxLength` 临时抬到 <值>，
    让第二路**真能跑到 k=判据**（期望：k 过闸 · k+1 因**版式**（overlap/overflow）不过 ⇒ 与第一路真交叉）。
    实现：把覆盖后的 schema 写到 **仓库外**（os.tmpdir()），只给本次子进程设 `DECK_SCHEMA_OVERRIDE`；
