@@ -25,6 +25,30 @@ const HERE_V = dirname(fileURLToPath(import.meta.url))
    ⇒ 校验器误报"母版资产不存在" ⇒ 渲染被硬闸门拒绝（exit=3）。
    教训：注释里那句"与 render-deck.mjs 同一约定"**就是复制了一份约定** ⇒ 一律 import，不许各自拼根。 */
 import { MASTERS_DIR } from './paths.mjs'
+
+/* ============ ★ K22：**长度上限的唯一真源 = deck.schema.json**（team-lead 裁定 (b)，2026-10-03） ============
+   背景：本文件曾**手抄一份长度表**（14 处 `checkString(..., 4, 24, ...)` 加多处 `cp(x) > N`），注释还写"规则严格
+   对齐 schema"，但**从不读 deck.schema.json** ⇒ **两份 enforced 互相否决**：改契约却不改这里 ⇒ 渲染器按旧表拒收
+   （实测 `items[0]` 的 k=164 被 `n > 40` 拦死 ⇒ render exit=3 ⇒ 第二路"受阻"、测量能力被吃掉）。
+   现规矩：**判据按 JSON 指针取**（`lim`/`adv`），不手抄、不按叶名（叶名会撞车 —— `labels/items` 曾让 I5 漏报）。 */
+let SCHEMA = null
+function schemaNode(ptr) {
+  if (SCHEMA === null) {
+    try { SCHEMA = JSON.parse(readFileSync(join(HERE_V, 'deck.schema.json'), 'utf8')) } catch { SCHEMA = {} }
+  }
+  return ptr.split('/').slice(1).reduce((o, k) => (o == null ? undefined : o[k]), SCHEMA)
+}
+/** `[minLength, maxLength]`（缺省 0 / Infinity；maxLength 缺省 = **无硬上限** ⇒ 该字段只许 advisory） */
+function lim(ptr, dMin = 0, dMax = Infinity) {
+  const n = schemaNode(ptr) || {}
+  return [n.minLength ?? dMin, n.maxLength ?? dMax]
+}
+/** `recommendedMax`（advisory；缺省 Infinity = 无建议值） */
+function adv(ptr, dflt = Infinity) {
+  const n = schemaNode(ptr) || {}
+  return n.recommendedMax ?? dflt
+}
+
 let DECK_DIR = null                                    // 由 main() 设为 deck 文件所在目录（素材相对它解析）
 
 const STYLE_ENUMS = {
@@ -87,7 +111,10 @@ function scanHtml(node, path) {
 
 // ---------------------------------------------------------------- 页型判定
 function checkCover(p, path) {
-  if (p.kicker != null && cp(p.kicker) > 32) add('error', `${path}.kicker`, `眉标 ${cp(p.kicker)} 字，上限 32`, '精简眉标')
+  /* ★ K22 单源改造：眉标 32 是**版式建议**（schema `recommendedMax`），不是硬上限（schema `maxLength` = 388）。
+     旧版把它写成 error ⇒ **validate-deck 比 schema 严** ⇒ 会无端拒绝 schema 允许的输入（与闸门口径分叉）。 */
+  const KB = adv('#/$defs/pageCover/properties/kicker')
+  if (p.kicker != null && cp(p.kicker) > KB) add('warn', `${path}.kicker`, `眉标 ${cp(p.kicker)} 字，超过**建议** ${KB} 字（advisory）`, '建议精简眉标（硬上限见 schema maxLength）')
   if (p.asset != null) {
     if (typeof p.asset !== 'string') add('error', `${path}.asset`, 'asset 必须是字符串路径', '给项目内相对路径')
     else if (/^[a-zA-Z]:[\\/]|^file:/i.test(p.asset)) add('error', `${path}.asset`, `asset 用了绝对路径/ file:// ：${p.asset}`, '素材必须拷进项目目录并用相对路径（浏览器会拦截 file://）')
@@ -95,7 +122,7 @@ function checkCover(p, path) {
 }
 
 function checkBullets(p, path) {
-  let ok = checkString(p.title, `${path}.title`, 4, 24, '要点页标题')
+  let ok = checkString(p.title, `${path}.title`, ...lim('#/$defs/pageBullets/properties/title'), '要点页标题')
   if (!Array.isArray(p.items)) {
     add('error', `${path}.items`, 'items 缺失或不是数组', '补 3~5 条要点')
     return
@@ -110,15 +137,14 @@ function checkBullets(p, path) {
   p.items.forEach((it, i) => {
     if (typeof it !== 'string') { add('error', `${path}.items[${i}]`, '不是字符串', '改成字符串'); return }
     const n = cp(it)
-    if (n < 8) add('error', `${path}.items[${i}]`, `该条只有 ${n} 字，要求 ≥8 字：${JSON.stringify(it)}`, '补足信息量（"一句话讲清一件事"）；若实在补不动，把它降级成标题的一部分')
-    /* ★ 2026-10-03 裁定（team-lead）：**无判据支撑的硬上限必须撤**——
-       40 字曾是这里的硬错误，但它**没有判据支撑**（实测该字段靠换行生长，判据临界 = 164 字，依据 content_overlap，
-       见 measured-limits.json）⇒ 40 远小于实际容量却**硬拒**，正是"AI 内容不足"的病根。
-       现降级为 **advisory（warn）**：仍然提醒，但**不拒绝渲染**（advisory 不参与判定；判定由闸门的判据码负责）。
-       ⚠️ 这条与 `deck.schema.json` 必须**同源**：schema 的 `recommendedMax: 40`；`check-schema-vs-limits.mjs` 的 I5 会盯住分叉。 */
-    else if (n > 40) add('warn', `${path}.items[${i}]`, `该条 ${n} 字，超过**建议** 40 字（advisory，不拒绝渲染）`, '建议精简该条；硬上限已按实测裁定删除（无判据支撑 ⇒ 见 measured-limits.json / §25c）')
+    const [iMin, iMax] = lim('#/$defs/pageBullets/properties/items/items')
+    if (n < iMin) add('error', `${path}.items[${i}]`, `该条只有 ${n} 字，要求 ≥${iMin} 字：${JSON.stringify(it)}`, '补足信息量（"一句话讲清一件事"）；若实在补不动，把它降级成标题的一部分')
+    /* ★ 2026-10-03：**上限一律从 schema 取**（K22 单源）—— `iMax` 现在是硬上限（= ⌊0.9×判据 164⌋ = 147）；
+       `recommendedMax 40` 才有资格做 advisory 提醒。 */
+    else if (n > iMax) add('error', `${path}.items[${i}]`, `该条 ${n} 字，超过硬上限 ${iMax} 字（schema · ⌊0.9×判据 164⌋）`, '精简该条（超硬上限会被渲染闸门拒收）')
+    else if (n > adv('#/$defs/pageBullets/properties/items/items')) add('warn', `${path}.items[${i}]`, `该条 ${n} 字，超过**建议** ${adv('#/$defs/pageBullets/properties/items/items')} 字（advisory，不拒绝渲染）`, '建议精简该条（要点用短句更稳）')
   })
-  if (!checkString(p.summary, `${path}.summary`, 6, 40, '底部小结')) {
+  if (!checkString(p.summary, `${path}.summary`, ...lim('#/$defs/pageBullets/properties/summary'), '底部小结')) {
     add('warn', `${path}.summary`, '要点页缺"底部小结"会显得没收口', '补一句 ≥6 字小结；或用 end 页承担收束')
   }
   return ok
@@ -157,14 +183,18 @@ function checkData(p, path) {
 }
 
 function checkEnd(p, path) {
-  checkString(p.line1, `${path}.line1`, 4, 30, '尾页主句第 1 行')
-  if (p.line2 != null && cp(p.line2) > 30) add('error', `${path}.line2`, `第 2 行 ${cp(p.line2)} 字，上限 30`, '精简')
-  if (!checkString(p.cta, `${path}.cta`, 6, 40, '尾页 CTA')) {
-    add('warn', `${path}.cta`, '尾页缺 CTA', '补一句 ≥6 字行动号召；若本片是纯知识型收束，可去掉 end 页')
+  checkString(p.line1, `${path}.line1`, ...lim('#/$defs/pageEnd/properties/line1'), '尾页主句第 1 行')
+  const [l2min, l2max] = lim('#/$defs/pageEnd/properties/line2')
+  if (p.line2 != null && cp(p.line2) > l2max) add('error', `${path}.line2`, `第 2 行 ${cp(p.line2)} 字，上限 ${l2max}`, '精简')
+  const [cMin, cMax] = lim('#/$defs/pageEnd/properties/cta')
+  if (!checkString(p.cta, `${path}.cta`, cMin, cMax, '尾页 CTA')) {
+    add('warn', `${path}.cta`, '尾页缺 CTA', `补一句 ≥${cMin} 字行动号召；若本片是纯知识型收束，可去掉 end 页`)
   }
-  if (!checkString(p.en, `${path}.en`, 6, 60, '尾页英文行')) {
-    add('warn', `${path}.en`, '尾页缺一行英文小字', '补一行 6~60 字英文（如 HTML-DRIVEN SLIDES · FRAME-ACCURATE）')
+  const [eMin, eMax] = lim('#/$defs/pageEnd/properties/en')
+  if (!checkString(p.en, `${path}.en`, eMin, eMax, '尾页英文行')) {
+    add('warn', `${path}.en`, '尾页缺一行英文小字', `补一行 ${eMin}~${eMax} 字英文（如 HTML-DRIVEN SLIDES · FRAME-ACCURATE）`)
   }
+  void l2min
 }
 
 // ---------------------------------------------------------------- 新页型 5~8
@@ -408,7 +438,11 @@ function main() {
     if (!checkString(meta.subtitle, 'meta.subtitle', 6, 60, '封面副标')) {
       add('warn', 'meta.subtitle', '封面没有副标 → 违反"封面必须有主标题+副标"', '补一句 ≥6 字副标；若这层信息不适合放标题区，改用 bullets 页开篇')
     }
-    if (meta.issuer != null && cp(meta.issuer) > 40) add('error', 'meta.issuer', '出品方过长', '≤40 字')
+    /* ★ K22 单源：出品方的硬上限来自 schema（现在 = 756 = ⌊0.9×判据 840⌋）；40 已降为 advisory。 */
+  const [isMin, isMax] = lim('#/$defs/meta/properties/issuer')
+  if (meta.issuer != null && cp(meta.issuer) > isMax) add('error', 'meta.issuer', `出品方过长（${cp(meta.issuer)} 字，硬上限 ${isMax}）`, `≤${isMax} 字（硬上限 = ⌊0.9×判据 840⌋）`)
+  else if (meta.issuer != null && cp(meta.issuer) > adv('#/$defs/meta/properties/issuer')) add('warn', 'meta.issuer', `出品方 ${cp(meta.issuer)} 字，超过建议 ${adv('#/$defs/meta/properties/issuer')} 字（advisory）`, '建议精简（签发方一行观感）')
+  void isMin
     checkEnum(meta.lang, 'meta.lang', ['zh-CN'], 'meta.lang', 'v1 只支持 zh-CN')
   }
 

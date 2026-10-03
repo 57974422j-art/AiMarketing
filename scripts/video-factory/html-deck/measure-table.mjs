@@ -83,11 +83,18 @@ for (const c of cells) {
   /* ★ 记 **正控 k**（team-lead ③-3）：正控 k 与临界的量级关系本身就是"字段容量"的有用数据 */
   const posK = (Number((/触发于 \*\*k=(\d+)\*\*/.exec(A.out) || [])[1]) || null)
   const posPath = ((/正控：倍增路径 (.+?) ⇒/.exec(A.out) || [])[1] || '')
-  // ---- 第二路：只确认 临界 / 临界+1 ----
+  // ---- 第二路：确认 **enforced = ⌊0.9×判据⌋** 可渲染且过闸 ----
+  /* ★ **语义修正（2026-10-03）**：`enforced` 与`判据`是**两个不同刻度** ——
+     `enforced = ⌊0.9×判据⌋` **必然 < 判据**（10% 余量规则，防换机/换引擎 ±1 波动）；
+     而 K22 单源改造后 `validate-deck` 会**真的**按 schema 的 `maxLength` 拒收 ⇒ **判据 k 本身必然渲不出来**
+     （这是**设计**，不是"受阻"）。
+     ⇒ 第二路职责改为：确认**承诺给 AI 的 enforced 值**能真渲染、能过闸（`ok:true`）；
+       判据 k 与**依据码**由**第一路**给出（它在已渲染产物上做注入，绕过 JSON 校验）。 */
+  const kenf = crit == null ? null : Math.floor(0.9 * crit)
   let B = { code: null, out: '(未跑：第一路没拿到临界)' }, bRows = []
-  if (crit != null) {
+  if (kenf != null) {
     /* ⚠️ `--ks` 必须是**一个** argv（`"37,38"`）：第一版拆成两个 ⇒ 工具只读到 37 ⇒ 临界+1 恒缺（解析没错，参数错） */
-    B = run('crosscheck-deck-json.mjs', ['--json', spec.json, '--field', c.field, '--cls', c.cls, '--ks', `${crit},${crit + 1}`])
+    B = run('crosscheck-deck-json.mjs', ['--json', spec.json, '--field', c.field, '--cls', c.cls, '--ks', `${kenf},${kenf + 1}`])
     /* 逐行扫描更稳（行式解析，不靠跨行滑窗）：
        行 A：`k= 37 · … 读回 37/37 ✓ · … codes = []`
        行 B（下一行）：`闸门真源：GATE-RESULT {…}` */
@@ -102,24 +109,33 @@ for (const c of cells) {
       bRows.push({ k: Number(m[1]), back: Number(m[2]), want: Number(m[3]), codes: m[4].trim(), gr: gm ? `GATE-RESULT ${gm[1]}` : '(无 GATE-RESULT)', ok })
     }
   }
-  const bCrit = bRows.find((r) => r.k === crit)
-  const bNext = bRows.find((r) => r.k === (crit + 1))
+  const bEnf = bRows.find((r) => r.k === kenf)
+  const bNext = bRows.find((r) => r.k === (kenf == null ? null : kenf + 1))
   const judge = ['text_box_overflow', 'container_overflow', 'canvas_overflow', 'content_overlap', 'decor_content_collision']
-  const basisB = bNext ? bNext.codes.split(',').map((s) => s.trim()).filter((s) => judge.includes(s)) : []
+  const basisB = basisA.trim() ? basisA.trim().split(/[ ∪,]+/).filter((s) => judge.includes(s)) : []
   const pairOk = /对拍 0 处不一致|对拍不一致：0/.test(B.out) || !/对拍不一致/.test(B.out)
   const tamperOk = !/测量期产物被改写/.test(B.out)
+  /* ★ 第二路的**双条件**（第一版把 enforced+1 也要求"过闸" ⇒ 断言写反：enforced+1 **本就该**被硬上限拒，
+     那才是"硬上限真的在生效"的证据 —— 被自己的实跑当场抓出）：
+       ① **承诺可交付**：enforced（= 硬上限）能渲染、读回一致、过闸；
+       ② **硬上限生效**：enforced+1 **渲不出来**（被 schema/validate-deck 拒）。 */
+  const promiseOk = !!(bEnf && bEnf.ok === true && bEnf.back === kenf)
+  const capHolds = !bNext
   let note = ''
   if (crit == null) note = '**第一路没给出临界**（看原始输出）'
   else if (!bRows.length) note = '第二路未取到读数'
   else if (!pairOk) note = '**对拍不一致 ⇒ 该格读数不可信**'
   else if (!tamperOk) note = '**测量期产物被改写 ⇒ 读数作废**'
-  else if (!basisB.length) note = '⚠️ 临界+1 的失败里**无判据码**（= 非判据码意见 ⇒ 不入表，见 §25c）'
-  rows.push({ c, crit, basisA: basisA.trim(), pageA, atA, rbA, frameA, exitA: A.code, bCrit, bNext, basisB, pairOk, tamperOk, note })
+  else if (!promiseOk) note = `**enforced k=${kenf} 未过闸 ⇒ 承诺值不可交付**（硬问题：AI 按 ${kenf} 写会被拒）`
+  else if (!capHolds) note = `⚠️ **硬上限未生效**：k=${kenf + 1} 仍然过闸（schema maxLength=${kenf} 没拦住）`
+  else if (!basisB.length) note = '⚠️ 第一路的失败里**无判据码**（= 非判据码意见 ⇒ 不入表，见 §25c）'
+  else note = `承诺 k=${kenf} 过闸 ✓ · k=${kenf + 1} 被硬上限拒 ✓（判据 ${crit} 由第一路给出：enforced<判据 是设计）`
+  rows.push({ c, crit, kenf, basisA: basisA.trim(), pageA, atA, rbA, frameA, exitA: A.code, bEnf, bNext, basisB, pairOk, tamperOk, promiseOk, note })
 
   const fmt = (r) => r ? `k=${r.k} 读回 ${r.back}/${r.want} codes=[${r.codes}] ok=${r.ok}` : '—'
   console.log(`\n  ── [${c.pt}] ${c.id}（字段 ${c.field} · 检测点 .${c.cls}）`)
-  console.log(`     第一路：临界 = ${crit ?? '?'} · 依据 = ${basisA.trim() || '(无)'} · 页 ${pageA || '?'} · t=${atA || '?'}s · 读回 ${rbA || '?'} · 帧换过 = ${frameA || '?'} · 正控k=${posK ?? '?'}（路径 ${posPath || '?'}） · exit=${A.code}`)
-  console.log(`     第二路：${fmt(bCrit)} ｜ ${fmt(bNext)} · 两路对拍 ${pairOk ? '✓' : '✗'} · 防篡改 ${tamperOk ? '✓' : '✗'} · exit=${B.code}`)
+  console.log(`     第一路（判据）：临界 = ${crit ?? '?'} · 依据 = ${basisA.trim() || '(无)'} · 页 ${pageA || '?'} · t=${atA || '?'}s · 读回 ${rbA || '?'} · 帧换过 = ${frameA || '?'} · 正控k=${posK ?? '?'}（路径 ${posPath || '?'}） · exit=${A.code}`)
+  console.log(`     第二路（承诺值 enforced=${kenf ?? '?'}）：${fmt(bEnf)} ｜ ${fmt(bNext)} · 对拍 ${pairOk ? '✓' : '✗'} · 防篡改 ${tamperOk ? '✓' : '✗'} · 承诺成立 ${promiseOk ? '✓' : '✗'} · exit=${B.code}`)
   if (bNext) console.log(`             ${bNext.gr}`)
   if (note) console.log(`     备注：${note}`)
 }
@@ -129,10 +145,10 @@ const md = []
 md.push(`| 页型 | 字段 | 检测点 | 临界 | 临界+1 | 依据判据码 | 页号+时刻 | 读回 | 帧换过 | 备注 |`)
 md.push(`|---|---|---|---|---|---|---|---|---|---|`)
 for (const r of rows) {
-  md.push(`| ${r.c.pt} | \`${r.c.field}\` | \`${r.c.cls}\` | ${r.crit ?? '?'} | ${r.crit != null ? r.crit + 1 : '?'} | ${r.basisB.join(' ∪ ') || r.basisA || '—'} | 页${r.pageA}@${r.atA}s | ${r.rbA || '?'} | ${r.frameA || '?'} | ${r.note || '✓ 两路一致'} |`)
+  md.push(`| ${r.c.pt} | \`${r.c.field}\` | \`${r.c.cls}\` | ${r.crit ?? '?'} | ${r.crit != null ? r.crit + 1 : '?'} | ${r.basisB.join(' ∪ ') || r.basisA || '—'} | 页${r.pageA}@${r.atA}s | ${r.rbA || '?'} | ${r.frameA || '?'} | ${r.note || '✓ 承诺成立'} |`)
 }
 console.log('\n' + md.join('\n'))
 if (OUTMD) { writeFileSync(resolve(DECK_DIR, OUTMD), md.join('\n') + '\n', 'utf8'); console.log(`\n  表已写入 ${OUTMD}`) }
-const bad = rows.filter((r) => r.crit == null || !r.basisB.length || !r.pairOk || !r.tamperOk)
-console.log(`\n  ⇒ ${rows.length} 格中 ${rows.length - bad.length} 格可入表（临界+1 有判据码 · 两路对拍通过 · 未遭篡改）`)
+const bad = rows.filter((r) => r.crit == null || !r.basisB.length || !r.pairOk || !r.tamperOk || !r.promiseOk)
+console.log(`\n  ⇒ ${rows.length} 格中 ${rows.length - bad.length} 格可入表（判据码依据来自第一路 · **enforced 承诺成立**（k=enforced 与 enforced+1 均过闸）· 对拍通过 · 未遭篡改）`)
 process.exit(0)

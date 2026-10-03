@@ -39,7 +39,7 @@
           "recommendedMax": 60,
           "description": "封面副标（硬性 ≥6 字）。**硬上限 203 = ⌊0.9 × 判据临界 226⌋**（实测 · content_overlap）；`recommendedMax: 60` 是**版式建议**（母版初版按\"副标一行\"的观感定的建议值——保持简短更稳），**不参与闸门判定**（两类上限不许混用，见 §25c 与 check-schema-vs-limits）"
         },
-        "issuer": { "type": "string", "maxLength": 40, "description": "出品方（右下/左下小字，可选）。⚠️ 40 目前**无判据支撑**（未测）⇒ 待批 A/B 测后按 0.9×判据 复核（check-schema-vs-limits 的覆盖清单会盯住）" },
+        "issuer": { "type": "string", "maxLength": 756, "recommendedMax": 40, "description": "出品方（右下/左下小字，可选）。**硬上限 756 = ⌊0.9 × 判据临界 840⌋**（实测 2026-10-03 · content_overlap · 页1@2.600s · 正控 k=960 触发）；`recommendedMax: 40` 是**版式建议**（签发方一行观感），不参与闸门判定" },
         "date": { "type": "string", "maxLength": 24, "description": "日期/期号小字，可选" },
         "lang": { "enum": ["zh-CN"], "description": "v1 只支持简体中文" }
       }
@@ -95,18 +95,18 @@
       "description": "要点页：3~5 条编号要点，每条 >=8 字，底部一句小结",
       "properties": {
         "type": { "const": "bullets" },
-        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "title": { "type": "string", "minLength": 4, "maxLength": 50, "recommendedMax": 24, "description": "要点页标题。**硬上限 50 = ⌊0.9 × 判据临界 56⌋**（实测 2026-10-03 · content_overlap · 页2@5.330s · 正控 k=120 触发）；`recommendedMax: 24` 是**版式建议**（标题一行观感），不参与闸门判定" },
         "items": {
           "type": "array",
           "minItems": 3,
           "maxItems": 5,
           "items": {
-          "type": "string", "minLength": 8,
+          "type": "string", "minLength": 8, "maxLength": 147,
           "recommendedMax": 40,
-          "description": "每条要点 >=8 字。**无硬上限**：原 `maxLength: 40` **没有任何判据支撑**（实测该字段靠换行生长；早期\"k≤120 无触发\"的结论**已作废**——那是\"裸子串找页\"看错帧造成的），而 40 远小于实测容量 ⇒ 会无端限制 AI 写作（\"内容不足\"的病根之一）⇒ 删硬上限，40 降为 `recommendedMax`（版式/信息密度建议：要点用短句）。**待上探出真实触发点后**再补 `maxLength = ⌊0.9 × 判据⌋`（见 measured-limits.json status=待上探；旁证 out-chk-t300 ⇒ 触发点 ≤300）"
+          "description": "每条要点 >=8 字。**无硬上限**：原 `maxLength: 40` **没有任何判据支撑**（实测该字段靠换行生长；早期\"k≤120 无触发\"的结论**已作废**——那是\"裸子串找页\"看错帧造成的），而 40 远小于实测容量 ⇒ 会无端限制 AI 写作（\"内容不足\"的病根之一）⇒ 删硬上限，40 降为 `recommendedMax`（版式/信息密度建议：要点用短句）。**已上探结案（2026-10-03）**：判据临界 = **164**（content_overlap · 页2@5.330s · 正控 k=240 触发）⇒ 补 `maxLength = ⌊0.9×164⌋ = 147`；第二路确认 k=164 PASS / k=165 FAIL ⇒ 两路一致"
         }
         },
-        "summary": { "type": "string", "minLength": 6, "maxLength": 40, "description": "底部一句小结（硬性）" }
+        "summary": { "type": "string", "minLength": 6, "maxLength": 334, "recommendedMax": 40, "description": "底部一句小结（硬性）。**硬上限 334 = ⌊0.9 × 判据临界 372⌋**（实测 2026-10-03 · content_overlap · 页2@5.330s · 正控 k=480 触发）；`recommendedMax: 40` 是版式建议（收束句一行观感）" }
       }
     },
     "pageData": {
@@ -151,10 +151,10 @@
       "description": "尾页：主句（可 2 行）+ CTA + 一行英文",
       "properties": {
         "type": { "const": "end" },
-        "line1": { "type": "string", "minLength": 4, "maxLength": 30, "description": "主句第一行" },
+        "line1": { "type": "string", "minLength": 4, "maxLength": 135, "recommendedMax": 30, "description": "主句第一行。**硬上限 135 = ⌊0.9 × 判据临界 150⌋**（实测 · text_box_overflow · 页4@10.800s · 正控 k=240 触发）；`recommendedMax: 30` 是版式建议（主句一行观感）" },
         "line2": { "type": "string", "maxLength": 30, "description": "主句第二行（可选）" },
-        "cta": { "type": "string", "minLength": 6, "maxLength": 40, "description": "行动号召（硬性）" },
-        "en": { "type": "string", "minLength": 6, "maxLength": 60, "description": "一行英文（小字，硬性）" }
+        "cta": { "type": "string", "minLength": 6, "maxLength": 351, "recommendedMax": 40, "description": "行动号召（硬性）。**硬上限 351 = ⌊0.9 × 判据临界 390⌋**（实测 · text_box_overflow · 页4@10.800s · 正控 k=480 触发）；`recommendedMax: 40` 是版式建议" },
+        "en": { "type": "string", "minLength": 6, "maxLength": 356, "recommendedMax": 60, "description": "一行英文（小字，硬性）。**硬上限 356 = ⌊0.9 × 判据临界 396⌋**（实测 · content_overlap · 页4@10.800s · 正控 k=480 触发）；`recommendedMax: 60` 是版式建议（一行英文小字）" }
       }
     },
     "pageSection": {
@@ -199,7 +199,7 @@
           }
         },
         "unit": { "type": "string", "minLength": 1, "maxLength": 8, "description": "单位，如 % / 秒 / 万" },
-        "explain": { "type": "string", "minLength": 8, "maxLength": 60, "description": "一句解释（硬性 ≥8 字）" },
+        "explain": { "type": "string", "minLength": 8, "maxLength": 39, "description": "一句解释（硬性 ≥8 字）。**硬上限 39 = ⌊0.9 × 判据临界 44⌋**（team-lead 实测 2026-10-03 · content_overlap · 页5@14.450s · `.p6-explain` · 正控 k=120 触发；原 60 > 判据 44 ⇒ **不安全上限** 已按规则收紧）。⚠️ **不设 recommendedMax**：原编编辑建议 60 比新硬上限 39 还大 ⇒ 荒谬组合（I4 会判红）—— 硬上限已是最紧约束，advisory 无处可放" },
         "source": { "type": "string", "maxLength": 40, "description": "数据来源（可选，右下小字）" }
       }
     },
