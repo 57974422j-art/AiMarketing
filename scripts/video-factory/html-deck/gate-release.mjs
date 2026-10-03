@@ -336,6 +336,28 @@ if (tmpResidueRow.exit) process.exit(1)
 {
   const dv = deckValidateSweep()
   console.log(`②d 全档 validate-only：${dv.exit ? '✗' : '✓'} ${dv.verdict}`)
+  /* ℹ **临时产物信息行**（team-lead ②：**只报不判红**）——
+     事实：删除类命令在本环境**拿不到审批**（你 2 次 + 我 3 次，最小范围试删也超时）⇒ **不做自动清理**；
+     但"磁盘卫生"必须**可见**：长期 >0 时提示"跑 `node clean-tmp.mjs`（**需人工批准**，脚本内建基座 MD5 断言 + `--dry` 预览）"。
+     ⚠️ 这里**只读不删**（`readdirSync`/`statSync`）⇒ 不需要任何审批；统计失败也只打印、不判红。 */
+  try {
+    const tmpDirs = readdirSync(HERE, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && /^out(-tmp|-sweep|-chk|-xcheck)/.test(e.name)).map((e) => e.name)
+    let bytes = 0
+    for (const d0 of tmpDirs) {
+      const stack = [join(HERE, d0)]
+      while (stack.length) {
+        const cur = stack.pop()
+        for (const e of readdirSync(cur, { withFileTypes: true })) {
+          const full = join(cur, e.name)
+          if (e.isDirectory()) stack.push(full)
+          else { try { bytes += statSync(full).size } catch { /* ignore */ } }
+        }
+      }
+    }
+    const mb = (bytes / 1048576).toFixed(1)
+    console.log(`ℹ 临时产物：**${tmpDirs.length}** 个目录 / **${mb} MB**${tmpDirs.length ? ' ⇒ 清理请跑 `node clean-tmp.mjs`（**需人工批准**）' : ' ✓'}（只报不判红）`)
+  } catch (e) { console.log(`ℹ 临时产物：统计失败（${e.message}）`) }
   for (const l of (dv.tail || [])) console.log(`     ${l}`)
   if (dv.exit) process.exit(1)
 }
