@@ -253,6 +253,18 @@ for (const k of KS) {
   if (tampered) tamper.push(`k=${k}：测量期间产物被改写（${fpRender} → ${fpAfter}）`)
   rows.push({ k, renderOk, back, at, no, codes, gateExit, gateResult, gateRaw, gateVerdict, pairViol, fpBefore: fpRender, fpAfter })
   console.log(`  k=${String(k).padStart(3)} · 渲染 ${renderOk ? 'ok' : '✗'} · 读回 ${back}/${k}${back === k + RB_OFFSET ? ' ✓' : ' ✗'}${RB_OFFSET ? `（口径：元素 = k + offset ${RB_OFFSET}）` : ''} · 页 ${no || '-'} · 稳定帧 t=${at || '-'} · 判据内 codes = [${codes.join(', ')}]`)
+  /* ★ team-lead ②：**打印差分，不打印全量** —— 全量列表会让人（包括他第一眼）把"通过的 k 上恒定的装饰性 findings"
+     误读成"这格在失败"（实例：data 页在**通过的 k** 上就带约 36 个 canvas_overflow，而 GATE 仍 ok:true）。
+     ⇒ 每行与**上一行**（通常是 k-1 或判据）做差集：
+        · **决定性判据码** = codes(k) 减 codes(上一 k)（这才是"依据"）
+        · **恒定装饰性 findings** = 两边都有的数量（打「N 个（已允许）」，不计入依据） */
+  const prev = rows.length >= 2 ? rows[rows.length - 2] : null
+  if (prev) {
+    const setP = new Set(prev.codes)
+    const decisive = [...new Set(codes)].filter((x) => !setP.has(x))
+    const constant = [...new Set(codes)].filter((x) => setP.has(x))
+    console.log(`        ↳ **差分**（相对 k=${prev.k}）：**决定性判据码 = [${decisive.join(', ') || '—'}]** · 恒定装饰性 findings **${constant.length}** 个（已允许，不计入依据）`)
+  }
   console.log(`       闸门真源：${gateRaw}${gateVerdict ? ' ⇒ ' + gateVerdict : ''}`)
   if (pairViol) console.error(`       ✗ 对拍不一致：${pairViol}`)
 }
