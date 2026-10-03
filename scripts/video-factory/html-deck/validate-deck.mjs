@@ -434,9 +434,18 @@ function main() {
   if (!meta || typeof meta !== 'object') {
     add('error', 'meta', 'meta 缺失', '补 meta{title, subtitle, lang}')
   } else {
-    checkString(meta.title, 'meta.title', 4, 40, '封面主标题')
-    if (!checkString(meta.subtitle, 'meta.subtitle', 6, 60, '封面副标')) {
+    /* ★ K22 漏网之二：这里曾硬编码 `4, 40` —— 比 schema 的硬上限 **33 更松** ⇒ 会**放行**契约禁止的输入
+     （40 字标题过校验、却被闸门/其它路径按 33 判不符）。现读 schema（I5 拓宽后当场抓到）。 */
+  checkString(meta.title, 'meta.title', ...lim('#/$defs/meta/properties/title'), '封面主标题')
+    /* ★ K22 漏网（2026-10-03，被第二路实测揪出）：这里曾硬编码 `6, 60` —— 60 只是 **advisory**，
+     而 schema 的硬上限是 **203** ⇒ **validate-deck 比 schema 严** ⇒ k=61..203 被无端拒收（render exit=3）
+     ⇒ 第二路"受阻"的真因。现改为读 schema（硬上限 203 / 建议 60）。 */
+  const [subMin, subMax] = lim('#/$defs/meta/properties/subtitle')
+  const subAdv = adv('#/$defs/meta/properties/subtitle')
+  if (!checkString(meta.subtitle, 'meta.subtitle', subMin, subMax, '封面副标')) {
       add('warn', 'meta.subtitle', '封面没有副标 → 违反"封面必须有主标题+副标"', '补一句 ≥6 字副标；若这层信息不适合放标题区，改用 bullets 页开篇')
+  } else if (cp(meta.subtitle) > subAdv) {
+    add('warn', 'meta.subtitle', `封面副标 ${cp(meta.subtitle)} 字，超过**建议** ${subAdv} 字（advisory，不拒绝渲染）`, '建议精简（副标一行观感）')
     }
     /* ★ K22 单源：出品方的硬上限来自 schema（现在 = 756 = ⌊0.9×判据 840⌋）；40 已降为 advisory。 */
   const [isMin, isMax] = lim('#/$defs/meta/properties/issuer')

@@ -86,8 +86,14 @@ function i5Violations() {
   if (!existsSync(p)) return out
   const vd = readFileSync(p, 'utf8')
   const leafHasMax = (leaf) => [...leaves.entries()].filter(([q, n]) => q.endsWith('/' + leaf) && n.maxLength !== undefined)
-  for (const m of vd.matchAll(/checkString\(\s*[^,]+,\s*`\$\{path\}\.([\w.]+)`\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([^']*)'/g)) {
-    const [, leaf, min, max, label] = m
+  /* ⚠️ **必须同时认两种写法**：`` `${path}.x` ``（模板串）**与** `'meta.subtitle'`（普通字面串）。
+     第一版**只认模板串** ⇒ 漏掉 `checkString(meta.subtitle, 'meta.subtitle', 6, 60, …)`（60 只是 advisory，
+     schema 硬上限是 203 ⇒ validate-deck 比 schema 严、k=61..203 被无端拒收 —— 由**第二路实测**揪出，
+     本断言本该抓到 ⇒ 拓宽后即可拦住这类）。 */
+  for (const m of vd.matchAll(/checkString\(\s*[^,]+,\s*(?:`\$\{path\}\.([\w.]+)`|'([\w.]+)')\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([^']*)'/g)) {
+    /* 普通字面串那种写法给的是**全路径**（如 'meta.title'）⇒ 取最后一段当叶名（`leafHasMax` 按 `/leaf` 后缀匹配） */
+    const leaf = String(m[1] || m[2]).split('.').pop()
+    const min = m[3], max = m[4], label = m[5]
     const hits = leafHasMax(leaf)
     if (!hits.length) { out.push(`**validate-deck 有硬编码** ${leaf} ∈ [${min}, ${max}]（${label}），而 schema 里该字段**无 maxLength** ⇒ 两处真源（渲染器会拒收 schema 允许的输入）`); continue }
     if (!hits.some(([, n]) => Number(n.minLength ?? min) === Number(min) && Number(n.maxLength) === Number(max))) {
@@ -167,6 +173,19 @@ if (i5.length) {
 if (i5doc.length) {
   console.log(`\n  ⚠ **I5-文档（AI-PROMPT 数字同源）违规 ${i5doc.length} 条**：`)
   for (const s of i5doc.slice(0, 12)) console.log(`     · ${s}`)
+}
+/* ---------- ★ 体检：**旧上限的机械复核**（team-lead ②：不许靠人读散文） ---------- */
+{
+  const hist = (limits._history && Array.isArray(limits._history.items)) ? limits._history.items : []
+  const unsafe = hist.filter((h) => h.judgeLimit != null && h.schemaBefore > h.judgeLimit)
+  const tight = hist.filter((h) => h.judgeLimit != null && h.schemaBefore < Math.floor(0.9 * h.judgeLimit))
+  console.log(`\n  体检（旧上限机械复核 · ${hist.length} 条变更史）：`)
+  console.log(`    ① **不安全清单**（过去契约允许 > 判据的字段）= **${unsafe.length}**${unsafe.length ? '' : ' ✓'}`)
+  for (const u of unsafe) console.log(`       · ${u.jsonPointer}：旧 ${u.schemaBefore} > 判据 ${u.judgeLimit}（现 ${u.schemaAfter}）`)
+  console.log(`    ② **曾被偏紧压过**（旧上限 < ⌊0.9×判据⌋ ⇒ 无端限制写作）= **${tight.length}**`)
+  for (const t of tight) console.log(`       · ${t.jsonPointer}：旧 ${t.schemaBefore} → 判据 ${t.judgeLimit}（现 ${t.schemaAfter}）`)
+  /* 若**当前**仍有 > 判据 的硬上限 ⇒ 真红（I2 已覆盖，这里再点名一次便于体检） */
+  for (const h of hist) { const n = get(h.jsonPointer); if (n && n.maxLength !== undefined && h.judgeLimit != null && n.maxLength > h.judgeLimit) viol.push(`体检：${h.jsonPointer} 现 maxLength=${n.maxLength} > 判据 ${h.judgeLimit} ⇒ **仍不安全**`) }
 }
 console.log(`\n  覆盖：**未被实测的硬上限 ${uncovered.length} 个**${uncovered.length ? '（发版前必须开 --strict-coverage 清空）' : ''}`)
 for (const p of uncovered.slice(0, 20)) console.log(`     · ${p} = ${leaves.get(p).maxLength}`)

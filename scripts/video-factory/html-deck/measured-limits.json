@@ -7,6 +7,22 @@
     "frameDepth": "**临时产物必须一层**：`<引擎根>/out-tmp-sweep-kN`（一层）能被引擎正常检查；`<引擎根>/out-tmp/sweep-kN`（**两层**）会让引擎给**空 findings 的假绿** ⇒ 清理只能靠**统一前缀**（`out-tmp-*`），**不能**做嵌套的\"单一临时根\"。",
     "selectorPositional": "**类前缀是位置式**：`.p6-explain` 解析出的页号是 **5**（chart 在 all12 里是第 5 页）⇒ `p6-` 与 deck 内页序绑定、**不是页型固定** ⇒ 选择器必须**从目标 deck 的产物解析**，禁止用 `p6-*` 套\"第 6 页\"。"
   },
+  "_history": {
+    "_doc": "**上限变更史（机器可读）**：`schemaBefore` = 本轮前的 enforced 值（可能是 schema 的 maxLength，也可能是 validate-deck 的手抄值 —— 后者曾与 schema 分叉，见 K22）。体检据此算两张清单：① **不安全清单**（`schemaBefore > judgeLimit`：契约曾允许超过版式能承载的量 ⇒ 潜在用户可见缺陷）；② **曾被偏紧压过**（`schemaBefore < ⌊0.9×judgeLimit⌋`：无端限制写作 ⇒ \"AI 内容不足\"的元凶清单）。",
+    "items": [
+      { "jsonPointer": "#/$defs/meta/properties/issuer", "schemaBefore": 40, "schemaAfter": 756, "judgeLimit": 840, "where": "schema" },
+      { "jsonPointer": "#/$defs/pageBullets/properties/title", "schemaBefore": 24, "schemaAfter": 50, "judgeLimit": 56, "where": "schema" },
+      { "jsonPointer": "#/$defs/pageBullets/properties/items/items", "schemaBefore": 40, "schemaAfter": 147, "judgeLimit": 164, "where": "validate-deck(手抄 n>40) → 现单源" },
+      { "jsonPointer": "#/$defs/pageBullets/properties/summary", "schemaBefore": 40, "schemaAfter": 334, "judgeLimit": 372, "where": "schema" },
+      { "jsonPointer": "#/$defs/pageCover/properties/kicker", "schemaBefore": 32, "schemaAfter": 388, "judgeLimit": 432, "where": "validate-deck(手抄 32, error) → 现 advisory" },
+      { "jsonPointer": "#/$defs/pageEnd/properties/line1", "schemaBefore": 30, "schemaAfter": 135, "judgeLimit": 150, "where": "schema" },
+      { "jsonPointer": "#/$defs/pageEnd/properties/cta", "schemaBefore": 40, "schemaAfter": 351, "judgeLimit": 390, "where": "schema" },
+      { "jsonPointer": "#/$defs/pageEnd/properties/en", "schemaBefore": 60, "schemaAfter": 356, "judgeLimit": 396, "where": "schema" },
+      { "jsonPointer": "#/$defs/pageChart/properties/explain", "schemaBefore": 60, "schemaAfter": 39, "judgeLimit": 44, "where": "schema（**唯一不安全上限**：60 > 判据 44）" },
+      { "jsonPointer": "#/$defs/meta/properties/subtitle", "schemaBefore": 40, "schemaAfter": 203, "judgeLimit": 226, "where": "**validate-deck 手抄 60**（比 schema 203 **更严** ⇒ 拦死第二路）→ 现单源" },
+      { "jsonPointer": "#/$defs/meta/properties/title", "schemaBefore": 40, "schemaAfter": 33, "judgeLimit": 37, "where": "**validate-deck 手抄 40**（比 schema 33 **更松** ⇒ 放行契约禁止的输入）→ 现单源" }
+    ]
+  },
   "K_MAX": 1920,
   "limits": [
     {

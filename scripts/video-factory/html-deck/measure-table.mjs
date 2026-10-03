@@ -44,10 +44,16 @@ const DECKS = {
       { id: 'bullets.title', pt: 'bullets', field: 'pages.1.title', cls: 'p2-head h2' },
       { id: 'bullets.item0', pt: 'bullets', field: 'pages.1.items.0', cls: 'li:first-child .t' },
       { id: 'bullets.summary', pt: 'bullets', field: 'pages.1.summary', cls: 'p2-sum' },
-      { id: 'data.explain', pt: 'data', field: 'pages.2.metric.explain', cls: 'p3-body' },
-      /* ⚠️ data 页还有两处**待确认 class↔字段映射**（本批不列，避免量错对象）：
-         `metric.number`（大数字 → `.bignum`/`span.digit`）· `secondary[0].label`/`.note`（次要指标）。
-         确认映射后补格（读回校验会自动挡住"量错对象"，但仍先确认再列）。 */
+      /* ⚠️ **映射修正（team-lead 从 render-deck.mjs 的 [data] 分支抽出）**：`.p3-body` 装的是
+         **metric 数值/单位**（bignum/unit），`explain` 的真身是 **`.p3-explain`** ⇒ 原映射注入了 explain
+         却去量 `.p3-body` ⇒ 目标文本不变 ⇒ **读回 0/9**（第一版把它当"工具坏"，实为**我们映射表用错类**）。
+         `dom-target` 复核：`.p3-explain` ⇒ count=1 · **页 3** · 内文 = explain 文本 ✓（`.p3-body` 内文为空）。 */
+      { id: 'data.explain', pt: 'data', field: 'pages.2.metric.explain', cls: 'p3-explain' },
+      /* ▲ 按同一映射补齐（内容承载型 ⇒ 必须实测）：`unit` → `.p3-body .unit` · `secondary[0].label` → `.p3-metrics .k`
+         （`metric.number` 是 **number** 类型，无字数上限 ⇒ 不入表；`note` 同理按需补测） */
+      { id: 'data.unit', pt: 'data', field: 'pages.2.metric.unit', cls: 'p3-body .unit' },
+      /* ⏳ `secondary[0].label` 暂不列：`.p3-metrics .k` 实测 **count=2**（两条次要指标）⇒ 读回校验必失败；
+         需更精确选择器（如 `li:first-child .k`）确认 count=1 后再列 —— 不许"先列了再量错对象"。 */
       { id: 'end.line1', pt: 'end', field: 'pages.3.line1', cls: 'p4-line:first-child' },
       { id: 'end.cta', pt: 'end', field: 'pages.3.cta', cls: 'p4-cta' },
       { id: 'end.en', pt: 'end', field: 'pages.3.en', cls: 'p4-en' },
