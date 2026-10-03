@@ -177,11 +177,11 @@ console.log(`  ℹ 读数归属：**SHA=${TREE.sha}** · 工作树 ${TREE.dirty 
 console.log(`=== 条数构造器：deck=${DECK} · ${JSONPATH} · N=${MIN}…${N_MAX}（现上限 ${MAX}·下限 ${MIN}）===`)
 const rows = []
 for (let N = MIN; N <= N_MAX; N += STRIDE) {
-  /* ★ 临时档只换**目录**（不入 examples ⇒ 不留痕），**档名保持 `__tmp_count-kN.json` 不变** ——
-     ⚠️ 我第一版连基名一起改成 `count-kN.json` ⇒ **下游按档名推导产物目录** ⇒ `out-tmp-count-k30/count-k30/index.html` ENOENT
-     （实测：`--verify-cell pages.3.steps` 报 `页内=0 ≠ capacityAtLeast=30`，尾行是那个 ENOENT）⇒ 命名是**接口**，不许顺手改。 */
-  const vj = join(TMP_DIR, `__tmp_count-k${N}.json`)
-  const vrel = `out-tmp-count/__tmp_count-k${N}.json`
+  /* ⚠️ **变体档必须与例档同目录（`examples/`）**：render 按**档所在目录**解析素材 ⇒ 我把档挪到 `out-tmp-count/` 后
+     render 直接失败（实测 ENOENT：`out-tmp-count-k3/__tmp_count-k3/index.html` 不存在）。⇒ 目录**不动**，
+     改用三重"不留痕"保证：**启动清扫存量 + 渲染后立即删 + exit 自洁**（把留痕窗口压到"一次渲染"的时长）。 */
+  const vj = join(HERE, 'examples', `__tmp_count-k${N}.json`)
+  const vrel = `examples/__tmp_count-k${N}.json`
   const outdir = `out-tmp-count-k${N}`
   const d = JSON.parse(JSON.stringify(base))
   d.pages[Number(pIdx)][key] = fit(seed, N)
@@ -202,7 +202,17 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
        (b) 与 `dom-target` 报的 `pageNo` **交叉核对**必须 == 注入页索引 + 1（防"数对了别的页"）
        (c) 同时打印 `global`（全篇计数）；并要求**至少一行 `global > scoped`** —— 这是**作用域自己的负控**
            （若作用域没生效、把整篇当一页，读数可能"恰好对" ⇒ 假绿） */
-  const html = readFileSync(join(prodDir, 'index.html'), 'utf8')
+  if (!KEEP) { try { rmSync(vj, { force: true }) } catch { /* ignore */ } }   /* ★ 渲染一完就删 ⇒ 留痕窗口 = 一次渲染时长 */
+  /* ⚠️ **产物缺失 ⇒ 判红（不崩栈）**：第一版直接 `readFileSync` ⇒ 我照抄 `source` 时得到的是**异常栈**
+     （`ENOENT … index.html`）而不是"渲染失败"的可读判据 ⇒ 违反"凡打印 ✗ 必须有失败标记"的反面（**连 ✗ 都没有**）。 */
+  const prodHtml = join(prodDir, 'index.html')
+  if (!existsSync(prodHtml)) {
+    console.log(`  N=${String(N).padStart(2)} · **渲染失败：产物缺失**（${prodHtml}）⇒ 计入失败`)
+    for (const l of rout.split('\n').filter(Boolean).slice(-6)) console.log(`        ↳ ${l.trim().slice(0, 170)}`)
+    rows.push({ N, codes: [], judgeHit: [], outsider: [], gate: 'FAIL', counted: -1, global: -1, dtPage: null, dtCount: null, renderExit: r.status, engineExit: -1, twoPath: '（未跑：产物缺失）', containers: -1 })
+    continue
+  }
+  const html = readFileSync(prodHtml, 'utf8')
   const secs = html.split(/<section\b/i).slice(1)                 /* 每页一切片 */
   const tag = SEL.replace(/[^a-z]/gi, '') || 'li'
   const slice = String(secs[Number(pIdx)] || '')

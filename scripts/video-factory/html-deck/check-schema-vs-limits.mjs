@@ -664,9 +664,18 @@ if (ARG_VC || ROTATE) {
     if (tags.length) why.push(`带 tag [${tags.join(', ')}]（成功读数不该有）`)
     const off = Number(cell.offset || 0)
     if (cell.unit === 'count' || cell.capacityAtLeast !== undefined) {
-      const inPage = /页内=(\d+)/.exec(out), nm = /--nmax\s+(\d+)/.exec(src)
-      if (!inPage) why.push('输出里没有 `页内=`（条数读数缺失）')
-      else if (Number(inPage[1]) !== Number(cell.capacityAtLeast)) why.push(`页内=${inPage[1]} ≠ capacityAtLeast=${cell.capacityAtLeast}`)
+      /* ⚠️ **条数格 source 会跑多个 N**（例：`--min 3 --max 6 --stride 27` ⇒ N=3 与 N=30 两行）⇒
+         取**第一个** `页内=` 会误报（我第一版就是这么写的，幸好在跑之前自查到）⇒ 改为**逐行**断言 `页内 == N`，
+         并对 `max(N)` / `max(页内)` 与表内 `sweepMax` / `capacityAtLeast` 对账。 */
+      const rowsC = [...out.matchAll(/N=\s*(\d+)\s*·[^\n]*?页内=(\d+)/g)].map((x) => ({ N: Number(x[1]), inPage: Number(x[2]) }))
+      const nm = /--nmax\s+(\d+)/.exec(src)
+      if (!rowsC.length) why.push('输出里没有 `N= … 页内=` 行（条数读数缺失）')
+      else {
+        for (const rc of rowsC) if (rc.inPage !== rc.N) why.push(`N=${rc.N} 但页内=${rc.inPage}（条数读回 ≠ N）`)
+        const maxN = Math.max(...rowsC.map((x) => x.N)), maxIn = Math.max(...rowsC.map((x) => x.inPage))
+        if (maxIn !== Number(cell.capacityAtLeast)) why.push(`max 页内=${maxIn} ≠ capacityAtLeast=${cell.capacityAtLeast}`)
+        if (cell.sweepMax !== undefined && maxN !== Number(cell.sweepMax)) why.push(`max N=${maxN} ≠ sweepMax=${cell.sweepMax}`)
+      }
       if (nm && cell.sweepMax === undefined) why.push('`source` 带 `--nmax` 但表**缺 `sweepMax` 字段**（一个语义一个字段 ⇒ 请补）')
       else if (nm && Number(nm[1]) !== Number(cell.sweepMax)) why.push(`source 的 --nmax=${nm[1]} ≠ sweepMax=${cell.sweepMax}`)
     } else {
