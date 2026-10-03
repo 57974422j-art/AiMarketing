@@ -218,6 +218,13 @@ const EXPECT_PAGE = Number(arg('--expect-page', '0') || 0)
    （实测 `--page-unknown` 那次 exit=2；本文件 L37-38 早就写过这个坑，我又踩一次 ⇒ 现在**照做**）。 */
 const PAGE_UNKNOWN = flag('--page-unknown')
 const TAG_PAGE = 'EXPECT_PAGE_MISMATCH'
+/* ★ team-lead msg3 ②(a)(b)：**"我没真正校验"必须能被退出码/tag 表达**（与 I10「零分母不许算通过」同族）——
+   ① 缺 `--expect-page` ⇒ tag **`EXPECT_PAGE_MISSING`**
+   ② 显式 `--page-unknown` ⇒ tag **`PAGE_CHECK_SKIPPED`**，且**非 0**（此前我设计成 exit 0 ⇒ 上层脚本会读成"通过" ✗
+      —— "未校验"不许伪装成"通过"）。⇒ 两者合一的**唯一实现** `modeTag()`，并由 `--self-test-page` 断言。 */
+const TAG_PAGE_MISSING = 'EXPECT_PAGE_MISSING'
+const TAG_PAGE_SKIP = 'PAGE_CHECK_SKIPPED'
+function modeTag(exp, unk) { if (exp) return null; return unk ? TAG_PAGE_SKIP : TAG_PAGE_MISSING }
 /* 判据唯一实现（循环里只做**可见提示**，判定在汇总处 ⇒ 不与"循环里 push 后面声明的数组"那种 TDZ 假红同形）。 */
 function badReason(r, exp) {
   if (!r.renderOk) return 'RENDER_FAILED'
@@ -231,9 +238,12 @@ if (process.argv.includes('--self-test-page')) {
   const a = badReason({ k: 37, renderOk: true, back: 37, no: 1 }, 2)
   const b = badReason({ k: 37, renderOk: true, back: 37, no: 2 }, 2)
   const c = badReason({ k: 37, renderOk: false, back: -1, no: '-' }, 2)
+  /* ★ msg3 ②：**"没真正校验"的两种红因也要有 tag**（team-lead 指出我唯独漏了这一种）。 */
+  const d = modeTag(0, false), e = modeTag(0, true), f = modeTag(1, false)
   const ok = a === TAG_PAGE && b === null && c === 'RENDER_FAILED'
-  console.log(`  合成自测(page)：异页(命中 1 / 期望 2) ⇒ 红因 = ${a}（须 ${TAG_PAGE}）${a === TAG_PAGE ? '✓' : '✗'} · 同页(2/2) ⇒ ${b === null ? '不红 ✓' : `✗ 误红（${b}）`} · 渲染失败 ⇒ 红因 = ${c}（须 RENDER_FAILED，**红因可区分**）${c === 'RENDER_FAILED' ? '✓' : '✗'}`)
-  console.log(`  顺带：缺 --expect-page ⇒ ${EXPECT_PAGE ? `已声明 ${EXPECT_PAGE}` : '**红**（危险默认；豁免须显式 --page-unknown）'}`)
+    && d === TAG_PAGE_MISSING && e === TAG_PAGE_SKIP && f === null
+  console.log(`  合成自测(page)：异页(1/2) ⇒ ${a}（须 ${TAG_PAGE}）${a === TAG_PAGE ? '✓' : '✗'} · 同页(2/2) ⇒ ${b === null ? '不红 ✓' : `✗ 误红（${b}）`} · 渲染失败 ⇒ ${c}（须 RENDER_FAILED）${c === 'RENDER_FAILED' ? '✓' : '✗'}`)
+  console.log(`                   **未校验类**：缺参数 ⇒ ${d}（须 ${TAG_PAGE_MISSING}）${d === TAG_PAGE_MISSING ? '✓' : '✗'} · 显式跳过 ⇒ ${e}（须 ${TAG_PAGE_SKIP}，**非 0**）${e === TAG_PAGE_SKIP ? '✓' : '✗'} · 已声明 ⇒ ${f === null ? '不红 ✓' : `✗ ${f}`}`)
   process.exit(ok ? 0 : 1)
 }
 let OVERRIDE_ENV = null
@@ -575,10 +585,17 @@ if (rows.length !== KS.length) {
   process.exit(2)
 }
 /* ★ team-lead ②(1)：**危险默认 ⇒ 红**（先保证行数对，再谈"该给的参数给了没"）。 */
-if (!EXPECT_PAGE && !PAGE_UNKNOWN) {
-  console.error('✗ **读数模式缺 `--expect-page <n>`**（危险默认：0 = 静默不做「命中元素所在页 == 该格 page」断言，与 `--sel` 同类）')
-  console.error('   ⇒ 该断言是「靠 `p2-` 前缀约定」的机器校验 ⇒ **静默失守最危险**。请补 `--expect-page <该格 page>`（13 格命令已按此重排）。')
-  console.error('   确知本轮不校验（**仅探索，不得入表**）⇒ 显式加 `--page-unknown`。')
+/* ★ msg3 ②：**两种"未真正校验"合一的唯一实现**（谁都没法只登记一半 —— 之前我正是漏了"缺参数"这种）。 */
+const mt = modeTag(EXPECT_PAGE, PAGE_UNKNOWN)
+if (mt) {
+  if (mt === TAG_PAGE_MISSING) {
+    console.error(`✗ **[${TAG_PAGE_MISSING}] 读数模式缺 \`--expect-page <n>\`**（危险默认：0 = 静默不做「命中元素所在页 == 该格 page」断言，与 \`--sel\` 同类）`)
+    console.error('   ⇒ 该断言是「靠 `p2-` 前缀约定」的机器校验 ⇒ **静默失守最危险**。请补 `--expect-page <该格 page>`（13 格命令已按此重排）。')
+  } else {
+    console.error(`✗ **[${TAG_PAGE_SKIP}] \`--page-unknown\`：本轮**未校验同页** ⇒ 读数**不得入表**`)
+    console.error('   ⇒ **"未校验"不许伪装成"通过"**（上层脚本通常只看退出码）—— 与 I10「零分母不许算通过」同族。')
+  }
+  console.error('   （若只想人工排查：本命令仍会打印全部读数，但**退出码非 0**，不会被当成通过。）⇒ exit 2')
   process.exit(2)
 }
 /* ★ team-lead ③：**页断言在这里判**（`命中元素所在页 == 该格 page`）—— 与读回不符**同一批**红，

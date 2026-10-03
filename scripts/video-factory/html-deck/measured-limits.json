@@ -385,7 +385,7 @@
       "twoPath": "**未交叉（页切片单源）** —— `dom-target` 用标签型选择器会选**更早的**含 `li` 的页（实测 pageNo=3 ≠ 注入页 4）⇒ 按裁定不许记成「交叉通过」",
       "evidence": "**恒定非判据码的证据行**：`timeline_track_too_dense` / `nested_structure_needs_subcomposition` **在 N=3 亦出现**（各 N 都有 ⇒ **与容量无关** ⇒ 按**跨 N 差分**排除；**不是** N=30 造成的）；引擎原样：`lint: ok=true · error=0 · warning=13`",
       "source": "node measure-count.mjs --deck all12 --page 4 --jsonpath pages.3.steps --sel li --min 3 --max 6 --nmax 30 --stride 27 --maxitems-ptr '#/$defs/pageSteps/properties/steps'",
-      "judgeLimitNote": "**容量 ≠ 约束**：`capacityAtLeast: 30` = **容量 ≥ 30**（能装多少），**不是**「判据 ≥ 30」（该写多少）。条数既无几何失败模式 ⇒ 其上限**只能由编辑意图定** ⇒ 这正是 `kind: editorial` 的含义；唯一断言 = `maxItems ≤ 容量`（现 cap=6 ⇒ 6 ≤ 30 ✓）。⚠️ 未证部分如实标注：**该上限的「正确值」不由几何决定**，故**不许**写「上限已验证」"
+      "judgeLimitNote": "**容量 ≠ 约束**：`capacityAtLeast: 30` = **容量 ≥ 30**（能装多少），**不是**「判据 ≥ 30」（该写多少）。条数既无几何失败模式 ⇒ 其上限**只能由编辑意图定** ⇒ 这正是 `kind: editorial` 的含义；唯一断言 = `maxItems ≤ 容量`（现 cap=6 ⇒ 6 ≤ 30 ✓）。⚠️ 未证部分如实标注：**该上限的「正确值」不由几何决定**，故**不许**写「上限已验证」。★ **页作用域说明**（team-lead msg3 ③，防复核者误以为漏了）：本格**无 `--expect-page`**，因为页作用域由 `measure-count` 的 **`--page 4` 切片**结构性承担（读回按**第 4 个 `<section>`** 内的 `<li>` 计数，而非全篇）—— 见 `readback`（页内 = N）与作用域负控（全篇 23/50 对照）"
     }
   ]
 }
