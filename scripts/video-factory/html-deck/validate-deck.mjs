@@ -470,6 +470,14 @@ function checkSteps(p, path) {
 function main() {
   const args = process.argv.slice(2)
   const jsonMode = args.includes('--json')
+/* ★ team-lead ③（"静默降级"族）：**参数组合无效不许静默** ——
+   `--json-out` 只在 `--json` 分支里写文件 ⇒ 单给 `--json-out` 会**什么都不做且无提示**（实测）。
+   ⇒ 二者必须同用；只给其一 ⇒ **exit 2**（与 §25b"输入/环境不完整 ⇒ exit 2"同族）。 */
+{
+  const i = args.indexOf('--json-out')
+  if (i >= 0 && !jsonMode) { console.error('✗ --json-out 必须与 --json 同用（否则静默无效 ⇒ 参数组合无效，exit 2）'); process.exit(2) }
+  if (i >= 0 && !args[i + 1]) { console.error('✗ --json-out 缺文件路径（exit 2）'); process.exit(2) }
+}
   const quiet = args.includes('--quiet')
   const file = args.find((a) => !a.startsWith('--'))
   if (!file) {
@@ -608,7 +616,12 @@ function main() {
        与 sweep 那边"结论走文件"同口径。stdout 仍打印 JSON（向后兼容；调用方优先读文件）。 */
     const jo = args.indexOf('--json-out')
     if (jo >= 0 && args[jo + 1]) {
-      try { writeFileSync(args[jo + 1], payload, 'utf8') } catch (e) { console.error(`✗ --json-out 写失败：${e.message}`) }
+      /* ★ team-lead ③-2：写失败**必须判红（exit 2）** —— 否则调用方会**静默回落到 stdout 解析**，
+         即把"文件通道"悄悄降级成"流通道"（正是花一轮才修掉的那类事故 ⇒ 通道降级必须显式可见）。 */
+      try { writeFileSync(args[jo + 1], payload, 'utf8') } catch (e) {
+        console.error(`✗ --json-out 写失败（${args[jo + 1]}）：${e.message} ⇒ exit 2（**不许静默降级到 stdout 通道**）`)
+        process.exit(2)
+      }
     }
     console.log(payload)
     process.exit(errors.length ? 1 : 0)
