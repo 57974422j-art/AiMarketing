@@ -244,7 +244,7 @@ function schemaLeafIndex(useRef) {
          `steps`/`items` 的 forEach 里），约束却在元素节点；只按单段叶名索引会**归属不到** ⇒ 被误当"无约束"。 */
       const segs = ptr.split('/')
       if (leaf === 'items' && segs.length >= 3) {
-        const two = `${segs[segs.length - 3]}/items`
+        const two = `${segs[segs.length - 2]}/items`   /* ⚠️ 是 len−2（数组字段名）：len−3 会取到 `properties` ⇒ 键错 ⇒ 仍归属不到 */
         if (!idx.has(two)) idx.set(two, [])
         idx.get(two).push({ ptr, node })
       }
@@ -269,27 +269,49 @@ function auditLiterals(useRef) {
   /* ⚠️ 有些位点用**局部变量**（`if (n < 8)` / `cp(t) > 24`）⇒ 行内取不到叶名。
      第一版直接给 `leaf=null` ⇒ 8 处被报"无约束"（**假异常**，审计自己暴露）。
      ⇒ 用**所在函数的上下文映射**归属（checkToc→items · checkSteps→steps · checkQuote→quote · checkSummary→closing…）。 */
-  const FN_LEAF = { checkToc: 'items', checkSteps: 'steps', checkQuote: 'quote', checkSummary: 'items', checkBullets: 'items', checkChart: 'series', checkCompare: 'points' }
+  const FN_LEAF = {
+    checkToc: 'items', checkSteps: 'steps', checkQuote: 'quote', checkSummary: 'items', checkBullets: 'items',
+    checkChart: 'series', checkCompare: 'points',
+    /* 数组**条数**判定常写成 `side.points.length` / `p.secondary.length`（局部变量、行内无 `${path}`）⇒ 用所在函数归属 */
+    checkSide: 'points', checkData: 'secondary',
+  }
   let curFn = ''
   for (let i = 0; i < lines.length; i++) {
     const L = lines[i]
     const fm = /^function\s+(\w+)\s*\(/.exec(L)
     if (fm) curFn = fm[1]
-    const leafOf = (s) => {
-      const m = /\.([\w]+)(?:\.length)?\b/.exec(s || '')
-      if (m) return m[1]
-      /* 裸标识符的数组长度写法（如 `pages.length > 12`）⇒ 取标识符本身（第一版只认"点前缀"⇒ 归不出叶名） */
-      const m2 = /([\w]+)\.length\b/.exec(s || '')
-      if (m2) return m2[1]
+    const leafOf = (s, line) => {
+      const t = String(s || '').trim()
+      /* ⚠️ 归属顺序（三次踩坑后定稿）：① 行内 **`${path}.field`** 最可靠 —— 如 `cp(t)` 那行的 add() 里就有
+         `${path}.items[${i}]` ⇒ 真叶名是 items（不是局部变量 t）；② `'meta.xxx'` 形态；③ 数组形态 `X.length` 取 X；
+         ④ 实在没有才用"所在函数"的上下文映射。
+         （第一版只认点前缀 ⇒ 裸 `pages.length` 归不出 ⇒ 假"无约束"；第二版把**任何裸标识符**当叶名
+          ⇒ 把局部变量 `t` 当字段名 ⇒ 6 处假异常。两次都是"归属规则过窄/过宽"。） */
+      /* 取 `${path}.` 之后的**整段**（含下标，如 `secondary[${i}].label`）再取**最后一段**：
+         第一版 `([\w.]+)` 会在 `[` 处停 ⇒ `${path}.secondary[${i}].label` 只拿到 `secondary`（10 处假异常）；
+         改 `([^\`',\n]+)` 贯通下标后再取最后一段 ⇒ 得到 `label` ✓。 */
+      /* 先**去掉 `${i}` 之类插值**，再剥 `[]`，最后取最后一段：
+         `secondary[${i}].label` ⇒ `secondary.label` ⇒ `label` ✓；`items[${i}]` ⇒ `items` ✓
+         （前两版直接对原文取段 ⇒ 得到 `itemsi`/`secondary` 之类的**假叶名** ⇒ 假异常）。 */
+      const pm = /\$\{path\}\.([^`',\n]+)/.exec(line || '')
+      if (pm) {
+        const segs = pm[1].replace(/\$\{[^}]*\}/g, '').split('.')
+          .map((x) => x.replace(/\[[^\]]*\]/g, '')).filter(Boolean)
+        if (segs.length) return segs[segs.length - 1]
+      }
+      const sm = /'(meta\.[\w]+|pages(?:\.\w+)*)'/.exec(line || '')
+      if (sm) return sm[1].split('.').pop()
+      const lm = /([\w]+)\.length\b/.exec(t) || (/^\w+$/.test(t) ? t.match(/^(\w+)$/) : null)
+      if (lm && !/^(t|n|it|s|v|c|i|k|j|x|y)$/.test(lm[1])) return lm[1]
       return FN_LEAF[curFn] || null
     }
     let m
     if ((m = /checkString\([^,]+,\s*(?:`\$\{path\}\.([\w.]+)`|'([\w.]+)')\s*,\s*(\d+)\s*,\s*(\d+)/.exec(L))) {
       out.push({ line: i + 1, kind: 'checkString', leaf: (m[1] || m[2]).split('.').pop(), min: Number(m[3]), max: Number(m[4]) })
     } else if ((m = /cp\(([^)]*)\)\s*([<>])=?\s*(\d+)/.exec(L))) {
-      out.push({ line: i + 1, kind: 'cp', leaf: leafOf(m[1]), cmp: m[2], v: Number(m[3]) })
+      out.push({ line: i + 1, kind: 'cp', leaf: leafOf(m[1], L), cmp: m[2], v: Number(m[3]) })
     } else if ((m = /([\w.]+?)\.length\s*([<>])=?\s*(\d+)/.exec(L))) {
-      out.push({ line: i + 1, kind: 'length', leaf: leafOf(m[1]), cmp: m[2], v: Number(m[3]) })
+      out.push({ line: i + 1, kind: 'length', leaf: leafOf(m[1], L), cmp: m[2], v: Number(m[3]) })
     }
   }
   for (const s of out) {
@@ -330,11 +352,23 @@ if (AUDIT) {
   if (bad.length) viol.push(...bad.map((s) => `审计：validate-deck L${s.line}（${s.leaf}）${s.verdict}`))
 }
 if (SELFTEST) {
+  /* ★ 负控**必须可判伪**：第一版用"不解析 ref ⇒ 出现假『无约束』结论"当判据，但归属规则改进后那些位点
+     不再需要 ref 就能解析 ⇒ 假结论归零 ⇒ **负控自己失效**（"负控要能失败"这条纪律反噬到负控本身）。
+     现改用**结构性对比**：解析 ref 后的**约束节点数必须严格多于**不解析 ⇒ 否则 ref 解析没起作用 ⇒ 判红。 */
+  const cnt = (idx) => [...idx.entries()].filter(([k]) => k !== '__UNRESOLVED__').reduce((n, [, v]) => n + v.length, 0)
+  const withRef = schemaLeafIndex(true)
+  const withoutRef = schemaLeafIndex(false)
+  const cw = cnt(withRef), cn = cnt(withoutRef)
+  const onlyRefPtrs = [...withRef.keys()].filter((k) => k !== '__UNRESOLVED__' && !withoutRef.has(k))
+  const unresolved = (withoutRef.get('__UNRESOLVED__') || 0)
+  /* ⚠️ 模板串里**不许嵌反引号**（本项目已多次因此报错）：用引号代替 */
+  console.log(`\n  ★ 负控（$ref 解析）：解析后约束节点 **${cw}** · 不解析 **${cn}**（差 ${cw - cn}）· 遇 $ref 未解析跳过的次数 **${unresolved}**`)
+  console.log(`     仅解析后可见的叶：${onlyRefPtrs.slice(0, 8).join(', ') || '(无)'}`)
+  console.log(`     ⇒ ${cw > cn ? '✓ 负控成立（**不解析 \$ref 会整片漏掉约束** —— 正是 team-lead 实测到的 3 处假结论的机制）' : '✗ **负控失败**（解析 ref 未增加任何约束 ⇒ 审计对 ref 不敏感）'}`)
+  if (!(cw > cn)) viol.push('负控失败：解析 $ref 后的约束节点数**没有严格多于**不解析的情况 ⇒ 审计对 ref 不敏感（负控不可信）')
   const noRef = auditLiterals(false)
   const falseNeg = noRef.filter((s) => s.verdict.includes('假结论'))
-  console.log(`\n  ★ 负控（**故意不解析 $ref**）：假"无约束"结论 = **${falseNeg.length} 处**${falseNeg.length ? ' ⇒ ✓ 负控成立（证明"必须解析 ref"）' : ' ⇒ ✗ 负控失败（说明审计对 ref 不敏感）'}`)
-  for (const s of falseNeg) console.log(`     L${String(s.line).padStart(4)} ${s.leaf} ⇒ ${s.verdict}`)
-  if (!falseNeg.length) viol.push('负控失败：不解析 $ref 时审计**没有**产生假结论 ⇒ 审计/负控不可信')
+  console.log(`     另：不解析时按"审计判定"口径的假"无约束"结论 = ${falseNeg.length} 处（**仅作观察**，不作判据 —— 上一版拿它当判据才发现它会被归属规则改进"消掉"）`)
 }
 console.log(`\n  覆盖：**未被实测的硬上限 ${uncovered.length} 个**${uncovered.length ? '（发版前必须开 --strict-coverage 清空）' : ''}`)
 for (const p of uncovered.slice(0, 20)) console.log(`     · ${p} = ${leaves.get(p).maxLength}`)
