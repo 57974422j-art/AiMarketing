@@ -189,6 +189,10 @@ function eolPolicyIssues() {
   }
   return bad
 }
+/* ★ **本检查器自身排除（显式）**：⓪h 只扫 `README.md` / `ENGINE-CONTRACT.md` —— **不扫 `gate-release.mjs`**，
+   否则本文件里的关键词正则/注释会**自匹配**（同 ⓪b/⓪c 对 gate-release.mjs 的豁免理由）。
+   输出里会打印该排除，免得后来人疑惑"它含关键词为什么不红"。 */
+const EOL_SELFEXCLUDE = 'gate-release.mjs（本检查器自身；含关键词正则与注释，不许自匹配）'
 
 const rows = []
 const t0 = Date.now()
@@ -204,7 +208,7 @@ rows.push({
   rows.push({
     group: '⓪h行尾口径', label: '行尾口径一致（仓库存储 = LF · .gitattributes 在位）', script: '(内置)', exit: eolB.length ? 1 : 0, sec: 0,
     verdict: eolB.length ? `✗ ${eolB.length} 处：${eolB.join(' · ')}` : '✓ 一致（根 .gitattributes 声明 eol=lf；契约无"CRLF 为口径"表述）',
-    tail: eolB.map((x) => `· ${x}`),
+    tail: [...eolB.map((x) => `· ${x}`), `· **自身排除（显式）**：${EOL_SELFEXCLUDE}`],
   })
 }
 /* ★ ⓪g：小节编号唯一（撞号 ⇒ "见 §25f" 指向两处；与"库内两份真源"同族） */
@@ -294,7 +298,7 @@ if (process.argv.includes('--whitelist-only')) {
   const dupOnly = dupSectionNumbers()
   console.log(`⓪g 小节编号唯一：${dupOnly.length ? `✗ ${dupOnly.length} 处重复：${dupOnly.join(' · ')}` : '✓ 编号唯一（README / ENGINE-CONTRACT / AI-PROMPT）'}`)
   const eolOnly = eolPolicyIssues()
-  console.log(`⓪h 行尾口径一致：${eolOnly.length ? `✗ ${eolOnly.length} 处：${eolOnly.join(' · ')}` : '✓ 一致（根 .gitattributes 声明 eol=lf）'}`)
+  console.log(`⓪h 行尾口径一致：${eolOnly.length ? `✗ ${eolOnly.length} 处：${eolOnly.join(' · ')}` : '✓ 一致（根 .gitattributes 声明 eol=lf）'} · 自身排除：${EOL_SELFEXCLUDE}`)
   // 退出码分档：白名单/自造路径/注释/语法/编号/行尾红 ⇒ 1；分叉红 ⇒ 1；分叉**配置错**（2）⇒ 2（§25b）
   process.exit(extra.length || smpOnly.length || ckBad.length || fk.status || dupOnly.length || eolOnly.length ? 1 : (fkOnly.status === 2 ? 2 : (fkOnly.status ? 1 : 0)))
 }
