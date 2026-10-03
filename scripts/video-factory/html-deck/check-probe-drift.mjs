@@ -99,9 +99,21 @@ const md5 = (p) => createHash('md5').update(readFileSync(p)).digest('hex')
 const landFiles = walk(LANDING_DIR)
 const drift = []
 const probeOnly = []
+const missingInProbe = []
+/* ★ team-lead ①（守卫的**文件集盲区**）：原先"入库树有、探针树无" ⇒ `continue`（**静默忽略**）。
+   而我保留双份的**唯一价值**就是"锚点完整性" ⇒ 文件集恰好是守卫唯一没覆盖的维度。
+   ⇒ 入库树的 `*.mjs`/`*.json` 没有对应物 ⇒ **红**（除允许表，**每条必须写 reason**）。 */
+const PROBE_MISSING_OK = (rel) => (
+  /^examples\//.test(rel) ? '例档（探针侧只用产物，不入库例档）' :
+  /^out/.test(rel) ? '出片产物（SKIP 已滤，防御性）' :
+  null
+)
 for (const rel of landFiles) {
   const cands = probeCandidates(rel)
-  if (!cands.length) continue
+  if (!cands.length) {
+    if (/\.(mjs|json)$/.test(rel) && !PROBE_MISSING_OK(rel)) missingInProbe.push(rel)
+    continue
+  }
   const lh = md5(join(LANDING_DIR, rel))
   const hits = cands.map((p) => ({ p, h: md5(p) }))
   const same = hits.find((x) => x.h === lh)
@@ -146,10 +158,16 @@ if (probeOnly.length) {
   console.log(`\n  提示级（探针树有、入库树无 ⇒ 确认是否该入库）：${probeOnly.length} 个`)
   for (const p of probeOnly.slice(0, 20)) console.log(`    ? ${p}`)
 }
+if (missingInProbe.length) {
+  console.error(`\n✗ **锚点不完整**：入库树有、探针树无的 \`*.mjs\`/\`*.json\` = **${missingInProbe.length}** 个（team-lead ①）`)
+  for (const p of missingInProbe.slice(0, 20)) console.error(`    · ${p}`)
+  console.error('  处置：同步到探针树；若确属"不必进探针树"，写进 `PROBE_MISSING_OK` 并附 reason。')
+}
 if (drift.length) {
   console.error(`\n✗ **漂移**：${drift.length} 个同名文件两侧 MD5 不等（§25a：原始清单，未过滤）`)
   for (const d of drift) console.error(`    · ${d}`)
   console.error('  处置：把**权威版**同步到入库树（并核 MD5/`node --check`）；若确属"两份不同文档"，写进 DRIFT_OK 并附 reason。')
   process.exit(1)
 }
+if (missingInProbe.length) process.exit(1)
 console.log(`\n✓ 无漂移：两树同名文件 MD5 全部相等（例外表 ${Object.keys(DRIFT_OK).length} 条）`)
