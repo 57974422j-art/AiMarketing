@@ -104,7 +104,10 @@ const missingInProbe = []
    而我保留双份的**唯一价值**就是"锚点完整性" ⇒ 文件集恰好是守卫唯一没覆盖的维度。
    ⇒ 入库树的 `*.mjs`/`*.json` 没有对应物 ⇒ **红**（除允许表，**每条必须写 reason**）。 */
 const PROBE_MISSING_OK = (rel) => (
-  /^examples\//.test(rel) ? '例档（探针侧只用产物，不入库例档）' :
+  /* ⚠️ **收紧（2026-10-04 事故）**：原写 `^examples/` 整目录 ⇒ **掩盖**了混进提交的临时变体
+     `examples/__tmp_xcheck-k432.json`（锚点检查没报它）。⇒ 只放行 **声明档**，`__tmp_*` 一律**判红**。 */
+  /^examples\//.test(rel) && !/^examples\/__tmp_/.test(rel) ? '例档（探针侧只用产物，不入库例档）' :
+  /^examples\/__tmp_/.test(rel) ? null :   /* 临时变体/自证残留 ⇒ 必须红（不许留痕） */
   /^out/.test(rel) ? '出片产物（SKIP 已滤，防御性）' :
   null
 )
