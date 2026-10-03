@@ -366,6 +366,23 @@
       "evidence": "既有 23 处用量最长 **6 字**（帧差异 / 秒 / 类格式）",
       "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.2.metric.unit --cls \"p3-body .unit\" --ks 99,100 --raise-max unit=101",
       "judgeLimitNote": "team-lead 实跑（判据级真两路 · 190 = explain · 99 = unit）· unit 属 **editorial** ⇒ **不做判据级交叉**（上限保留 8，只断言 8 ≤ 99）"
-    }
-  ]
+      },
+      {
+      "jsonPointer": "#/$defs/pageSteps/properties/steps",
+      "field": "pages.3.steps",
+      "pageType": "steps",
+      "detectPoint": "ul.p10-list 的 li（**页内唯一容器**；⚠️ 类前缀是位置式 ⇒ 从产物解析，不手抄）",
+      "unit": "count",
+      "kind": "editorial",
+      "detectKind": "count",
+      "capacityAtLeast": 30,
+      "basis": ["**无几何失败模式**（N_MAX=30 内**未触发任何判据码**：引擎原样 `重叠判据（content_overlap）[--assert-overlap]：共 0 条`）"],
+      "page": 4,
+      "readback": "**页内条数 == N** ✓（N=3 ⇒ 页内 3 · N=30 ⇒ 页内 30；**全篇 23 / 50 作对照** ⇒ 作用域负控成立）",
+      "twoPath": "**未交叉（页切片单源）** —— `dom-target` 用标签型选择器会选**更早的**含 `li` 的页（实测 pageNo=3 ≠ 注入页 4）⇒ 按裁定不许记成「交叉通过」",
+      "evidence": "**恒定非判据码的证据行**：`timeline_track_too_dense` / `nested_structure_needs_subcomposition` **在 N=3 亦出现**（各 N 都有 ⇒ **与容量无关** ⇒ 按**跨 N 差分**排除；**不是** N=30 造成的）；引擎原样：`lint: ok=true · error=0 · warning=13`",
+      "source": "node measure-count.mjs --deck all12 --page 4 --jsonpath pages.3.steps --sel li --min 3 --max 6 --nmax 30 --stride 27 --maxitems-ptr '#/$defs/pageSteps/properties/steps'",
+      "judgeLimitNote": "**容量 ≠ 约束**：`capacityAtLeast: 30` = **容量 ≥ 30**（能装多少），**不是**「判据 ≥ 30」（该写多少）。条数既无几何失败模式 ⇒ 其上限**只能由编辑意图定** ⇒ 这正是 `kind: editorial` 的含义；唯一断言 = `maxItems ≤ 容量`（现 cap=6 ⇒ 6 ≤ 30 ✓）。⚠️ 未证部分如实标注：**该上限的「正确值」不由几何决定**，故**不许**写「上限已验证」"
+      }
+      ]
 }
