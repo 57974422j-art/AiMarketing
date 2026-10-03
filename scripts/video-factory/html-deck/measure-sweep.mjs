@@ -24,6 +24,8 @@ import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { ENGINE_ROOT, DECK_DIR, selfCheck } from './paths.mjs'
 import { resolveHyperframes } from './engine-bin.mjs'
+/* ★ 时序**唯一实现**（team-lead ②）：本文件不再硬编码 `--at 1.0`，也不再自带时序公式 */
+import { settledAt, settledAtList, pageNoOfSelector, pageOfTime, timingTable } from './timing.mjs'
 
 selfCheck({ quiet: true })
 const HF = resolveHyperframes().p
@@ -79,7 +81,9 @@ if (!dirArg || !cls) {
 }
 const SRC = join(ENGINE_ROOT, dirArg)
 const MAXK = Number(maxArg || 240)
-const AT = process.env.SWEEP_AT || '1.0'        // 稳定帧时刻（封面页默认 1.0；其它页型可用 SWEEP_AT 覆盖）
+/* ★ 时刻**不硬编码**（team-lead ②）：默认由 `timing.mjs` 按"该字段所在页"算；`SWEEP_AT` 仅作**显式覆盖**（自证/对比用） */
+const AT_FORCE = process.env.SWEEP_AT || ''
+let SUBFAIL = 0   // ⊆ 断言失败标记（决定最终退出码）
 // 工作目录：**仓库内** `out-sweep/`（已被 `.gitignore` 的 `out*/` 覆盖 ⇒ 不弄脏提交集 ✓；
 //  实测：放到系统临时目录时引擎会因"字体映射不可解析"给出空 findings 的假绿 ✗)
 const WORK = join(ENGINE_ROOT, 'out-sweep')
@@ -119,9 +123,13 @@ function build(k, srcDir, clsHint) {
   return { dir, why: 'ok' }
 }
 
-/** 跑引擎 lint（稳定帧时刻），返回该时刻的 findings（判据口径） */
+/** 跑引擎 lint（**稳定帧时刻 = `timing.mjs` 唯一实现**：该字段**所在页**的稳定帧）
+ *  ★ team-lead ② 护栏 1/2：**时刻不许硬编码**（旧版写死 `--at 1.0`）⇒ 按"该字段所在页"算，并**打印页号+时刻**。 */
 function probe(dir) {
-  const r = spawnSync(HF, ['check', dir, '--json', '--at', AT, '--no-contrast'], { encoding: 'utf8', shell: true })
+  const no = pageNoOfSelector(dir, cls) || 1
+  const st = settledAt(dir, no)
+  const at = AT_FORCE || (st ? st.at.toFixed(3) : '1.0')
+  const r = spawnSync(HF, ['check', dir, '--json', '--at', at, '--no-contrast'], { encoding: 'utf8', shell: true })
   const out = strip(r.stdout)
   const i = out.indexOf('{')
   let j = null
@@ -129,7 +137,7 @@ function probe(dir) {
   // ★ 不许静默：引擎**没给可解析 JSON** 时不能当成"装得下"（第一版就踩了 ⇒ 报出假的 120 ✗）
   if (!j || !j.layout) {
     return {
-      exit: r.status, findings: [], hits: [], unknown: true,
+      exit: r.status, findings: [], hits: [], unknown: true, at, no, violation: st ? st.violation : null,
       bad: [{ code: '(未知：引擎没有可解析 JSON 输出)', fixHint: `${strip(stderrOf(r)).slice(0, 300)}`, overflow: null }],
       raw: strip(stderrOf(r)).slice(0, 400),
     }
@@ -140,9 +148,12 @@ function probe(dir) {
   const layoutBad = (j.layout.ok === false) || (Number(j.layout.errorCount || 0) > 0)
   const hits = fs.filter((x) => x && JUDGE.has(String(x.code || '')))
   if (layoutBad && hits.length === 0) {
+    /* ★ 保守：**引擎自报不通过** ⇒ 一律算"该格不过"（绝不当成装得下）。
+       ⚠️ 旧版这里返回 `unknown: true` ⇒ 二分里遇到就**中止**；实测在"页边界"稳定帧（cap = 下一页淡入 − 0.15s）
+       上这很常见 ⇒ 会让整个量表跑不动。现改为**保守失败 + 计数**（不中止），并在小结里打印 `engineNotOk` 格数。 */
     return {
-      exit: r.status, findings: fs, hits, unknown: true,
-      bad: [{ code: `(引擎自报不通过：ok=${j.layout.ok} errorCount=${j.layout.errorCount}，但无判据内 findings ⇒ 视为未通过，保守)`, fixHint: strip(stderrOf(r)).slice(0, 300), overflow: null }],
+      exit: r.status, findings: fs, hits, unknown: false, engineNotOk: true, at, no, violation: st ? st.violation : null,
+      bad: [{ code: `(引擎自报不通过：ok=${j.layout.ok} errorCount=${j.layout.errorCount}，但无判据内 findings ⇒ 保守算不过)`, fixHint: strip(stderrOf(r)).slice(0, 300), overflow: null }],
       raw: strip(stderrOf(r)).slice(0, 400),
     }
   }
@@ -152,11 +163,11 @@ function probe(dir) {
   //      判据恒空 ⇒ sweep 一路"过"到搜索上限（**假绿**，又被我自己的正控抓出来）。
   const allowHit = (x) => ALLOW.some((a) => (!a.code || a.code === String(x.code || '')) && (!a.selector || String(x.selector || '').includes(a.selector)))
   const bad = hits.filter((x) => !allowHit(x))
-  return { exit: r.status, findings: fs, hits, bad, raw: strip(r.stderr).slice(0, 400) }
+  return { exit: r.status, findings: fs, hits, bad, raw: strip(r.stderr).slice(0, 400), at, no, violation: st ? st.violation : null }
 }
 
 console.log(`=== 临界字数实测（二分）===`)
-console.log(`  产物 = ${dirArg} · 字段 = .${cls} · 稳定帧时刻 = ${AT}s · 上限搜索 k ≤ ${MAXK} · 工作目录 = ${WORK}`)
+console.log(`  产物 = ${dirArg} · 字段 = .${cls} · 稳定帧时刻 = **按 timing.mjs 唯一实现（该字段所在页）**${AT_FORCE ? `（显式覆盖 SWEEP_AT=${AT_FORCE}s）` : ''} · 上限搜索 k ≤ ${MAXK} · 工作目录 = ${WORK}`)
 mkdirSync(WORK, { recursive: true })
 
 // 先确认"最小字数也过"（否则判据不成立）
@@ -195,7 +206,13 @@ while (kPass < MAXK) {
   const cc = build(kPass + 1)
   if (!cc.dir) { console.error(`✗ ${cc.why}`); process.exit(2) }
   const pp = probe(cc.dir)
-  if (pp.unknown) { console.error(`✗ 临界+1 探测时判据不可用（引擎无 JSON）⇒ exit 2`); process.exit(2) }
+  if (pp.unknown) {
+    console.error(`✗ 临界+1 探测时**引擎没有可解析 JSON** ⇒ exit 2（§25a：**原始输出原样贴出**）`)
+    console.error(`  · 时刻 = ${pp.at}s（页 ${pp.no}）· exit=${pp.exit}`)
+    console.error(`  · bad[0] = ${JSON.stringify(pp.bad && pp.bad[0] || null)}`)
+    console.error(`  · raw = ${String(pp.raw || '').slice(0, 600)}`)
+    process.exit(2)
+  }
   if (pp.bad.length) break
   kPass++
 }
@@ -221,6 +238,32 @@ if (best + 1 <= MAXK) {
   console.log(`        读回 = ${rb1}/${best} · sourceFile = ${srcOf(pPass)} · ${varying(pPass)}`)
   console.log(`     ② k=${best + 1}（临界+1）：非白名单 = ${pFail.bad.length} ⇒ ${pFail.bad.length > 0 ? '✓ 不过（临界成立）' : '✗ 竟然过 ⇒ 单调性被破坏，结果不可信'}`)
   console.log(`        读回 = ${rb2}/${best + 1} · sourceFile = ${srcOf(pFail)} · ${varying(pFail)}`)
+  console.log(`        页号 = ${pPass.no}（.${cls} 所在页）· 稳定帧时刻 = ${pPass.at}s（timing.mjs 唯一实现）${pPass.violation ? '  ⚠ ' + pPass.violation : ''}`)
+  console.log(`     ② 页号 = ${pFail.no} · 稳定帧时刻 = ${pFail.at}s${pFail.violation ? '  ⚠ ' + pFail.violation : ''}`)
+  /* ★ team-lead ② 护栏 3：**量表单点 findings ⊆ 闸门该页聚合**（多出的逐条打印 —— 那才是"过渡帧假象"的来源证据） */
+  {
+    const tbl = timingTable(cPass.dir)
+    const aggList = settledAtList(cPass.dir)
+    const ar = spawnSync(HF, ['check', cPass.dir, '--json', '--at', aggList.join(','), '--no-contrast'], { encoding: 'utf8', shell: true })
+    const ao = strip(ar.stdout); const ai = ao.indexOf('{')
+    let aj = null
+    if (ai >= 0) { try { aj = JSON.parse(ao.slice(ai)) } catch { aj = null } }
+    const afs = (aj && aj.layout && Array.isArray(aj.layout.findings)) ? aj.layout.findings : []
+    const pg = tbl[(pFail.no || 1) - 1]
+    /* ★ 口径必须与判据一致：只比 **JUDGE 码**（第一版比了全部 findings ⇒ 把非判据码 `text_occluded` 也算进来 ⇒ 假报） */
+    const onlyJudge = (fs) => fs.filter((f) => f && JUDGE.has(String(f.code || '')))
+    const inPage = pg ? onlyJudge(afs).filter((f) => { const p = pageOfTime(tbl, f.time); return p && p.i === pg.i }) : []
+    const key = (f) => `${f.code}|${f.selector}`
+    const aggKeys = new Set(inPage.map(key))
+    /* ★ 用**临界+1**那一格来验 ⊆：单点读到的判据内 findings，闸门在该页的聚合里必须也有 */
+    const extra = onlyJudge(pFail.findings).filter((f) => !aggKeys.has(key(f)))
+    console.log(`     ⊆ 断言（量表单点 ⊆ 闸门该页聚合）：单点 ${pFail.findings.length} 条（k=${best + 1}）· 该页聚合 ${inPage.length} 条 · 多出 **${extra.length}** 条 · 聚合时刻 = [${aggList.join(',')}]`)
+    for (const f of extra.slice(0, 6)) console.log(`        · 多出：${key(f)} t=${f.time} rect=${JSON.stringify(f.rect || f.bbox || null)}`)
+    if (extra.length) {
+      console.error('  ✗ 单点读到"该页聚合里没有"的 finding ⇒ **可能是过渡帧假象或口径漂移**（逐条见上；已计入退出码）')
+      SUBFAIL = 1
+    }
+  }
   if (rb1 !== best || rb2 !== best + 1) {
     console.error(`  ✗ 读回校验未过（注入未生效/量错对象）⇒ **不报临界值**（§25b：先过读回校验再谈读数；exit 2）`)
     process.exit(2)
@@ -231,9 +274,9 @@ if (best + 1 <= MAXK) {
     console.log(`       · code=${f.code} · selector=${f.selector || '-'} · t=${f.time} · rect=${JSON.stringify(f.rect || f.bbox || null)} · overflow=${JSON.stringify(f.overflow || null)}`)
     console.log(`         fixHint=${String(f.fixHint || '').slice(0, 160)}`)
   }
-  console.log(`     稳定帧时刻 = ${AT}s · 依据 = ${pFail.hits.map((f) => f.code).join(' ∪ ')}`)
+  console.log(`     稳定帧时刻 = ${pFail.at}s（页 ${pFail.no}）· 依据 = ${pFail.hits.map((f) => f.code).join(' ∪ ')}`)
   if (pPass.bad.length !== 0 || pFail.bad.length === 0) { console.error('  ✗ ±1 验证失败 ⇒ **不报临界值**（先修判据/单调性）'); process.exit(1) }
 }
 console.log(`     **上限建议（×0.9）= ${Math.floor(best * 0.9)} 字**`)
-console.log(`     方法：稳定帧(${AT}s) 引擎 lint · 判据 = (三码 ∪ content_overlap) − 白名单 = 0 · 填充字 = '汉'（等宽 CJK）· 日期 = ${new Date().toISOString().slice(0, 10)}`)
-process.exit(0)
+console.log(`     方法：稳定帧(**按 timing.mjs 唯一实现、该字段所在页**) 引擎 lint · 判据 = (三码 ∪ content_overlap) − 白名单 = 0 · 填充字 = '汉'（等宽 CJK）· 日期 = ${new Date().toISOString().slice(0, 10)}`)
+process.exit(SUBFAIL ? 1 : 0)

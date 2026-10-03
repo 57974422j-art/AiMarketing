@@ -65,10 +65,10 @@ export const mp4Of = ({ outdir, deck }) => join(DECK_DIR, outdir, deck, `output-
 export const hasMp4 = (d) => existsSync(mp4Of(d))
 
 /** 磁盘现状：**全枚举** `out/` + `out-master-v2/` 的**全部子目录**（team-lead 抓到的真洞）。
- *  ⚠️ 曾有 `if (!n.startsWith('deck.')) continue` ⇒ **非 `deck.` 前缀的目录对我不可见**
+ *  ⚠️ 旧版按**目录名前缀**（以 `deck.` 开头）过滤子目录 ⇒ **不以该前缀命名的目录对我不可见**
  *  ⇒ `undeclaredProducts()` 是集合差 ⇒ 那些目录**既不进声明也不算未声明** ⇒ **"可见忽略"承诺失效**（静默消失）。
- *  活例子：`out/palette-*` 就是非 `deck.` 前缀；将来任何别的目录名都会静默消失。
- *  ⇒ **不做任何前缀/正则过滤**，只做**集合成员判定**（调用方按声明集合分类）。 */
+ *  活例子：`out/palette-clay` 等就是**没有该前缀**的档；将来任何别的目录名都会静默消失。
+ *  ⇒ 现在**不做任何前缀/正则/glob 过滤**，只做**集合成员判定**（调用方按声明集合分类），并导出 `scanSummary()` 供打印总数。 */
 export function diskProducts() {
   const out = []
   for (const r of OUT_ROOTS) {

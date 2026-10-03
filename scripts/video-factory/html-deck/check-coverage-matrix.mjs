@@ -64,31 +64,8 @@ const undeclared = undeclaredProducts()
 if (undeclared.length) console.log(`  ℹ **未声明产物（忽略，不计入覆盖）**：${undeclared.length} 个 ⇒ ${undeclared.slice(0, 6).join(', ')}${undeclared.length > 6 ? ' …' : ''}`)
 if (!prods.length) fatal('没有任何**声明档**产物（先跑 `node gate-release.mjs --render`）')
 
-/* ---- 3) 稳定帧时刻（**第 2 处实现**：paths/timing 收口时并入唯一实现；已在契约记为待办） ---- */
-const ENTER_TAIL = 0.6
-function timingTable(dir) {
-  const p = join(dir, 'index.html')
-  if (!existsSync(p)) return []
-  const html = readFileSync(p, 'utf8')
-  const out = []
-  html.split(/<section\b/).slice(1).forEach((s, i) => {
-    const head = s.slice(0, s.indexOf('>') + 1)
-    const start = Number((head.match(/data-start="([\d.]+)"/) || [])[1] || 0)
-    const dur = Number((head.match(/data-duration="([\d.]+)"/) || [])[1] || 0)
-    const ats = [...s.matchAll(/data-at="([\d.]+)"/g)].map((m) => Number(m[1]))
-    out.push({ i: i + 1, start, dur, maxAt: ats.length ? Math.max(...ats) : 0 })
-  })
-  return out
-}
-function settledAtList(dir) {
-  const t = timingTable(dir)
-  return t.map((p, idx) => {
-    const next = t[idx + 1] || null
-    const want = Math.max(p.start + p.maxAt + ENTER_TAIL, p.start + p.dur * 0.6)
-    const cap = next ? next.start - 0.15 : p.start + p.dur - 0.1
-    return Math.min(want, cap).toFixed(3)
-  })
-}
+/* ---- 3) 稳定帧时刻：**唯一实现**在 `timing.mjs`（本文件**不再自带副本** —— team-lead ②） ---- */
+import { timingTable, settledAtList } from './timing.mjs'
 
 /* ---- 4) 每个产物：稳定帧 layout + contrast，按页型汇总 ---- */
 const secIndex = (sel) => {

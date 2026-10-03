@@ -178,48 +178,12 @@ if (!j || !j.lint) {
 }
 console.log(`  瞬时解析失败计数（本次运行）= ${transientCount}`)
 
-/* ---------- ★ 稳定帧契约的**唯一实现**（时序只此一处；溢出与对比度两个消费者都调它） ---------- */
-const ENTER_TAIL_S = 0.6 // 入场动画名义收尾（渲染器 data-anim 时长档）
-/** 从产物 HTML 解析每页时序：start / duration / 该页内最大 data-at（自带读文件，避免 TDZ） */
-function timingTable(dirPath) {
-  const f = join(dirPath, 'index.html')
-  const html = existsSync(f) ? readFileSync(f, 'utf8') : ''
-  const t = []
-  html.split(/<section\b/).slice(1).forEach((s, idx) => {
-    const head = s.slice(0, s.indexOf('>') + 1)
-    const start = Number((head.match(/data-start="([\d.]+)"/) || [])[1] || 0)
-    const dur = Number((head.match(/data-duration="([\d.]+)"/) || [])[1] || 0)
-    const ats = [...s.matchAll(/data-at="([\d.]+)"/g)].map((m2) => Number(m2[1]))
-    t.push({ i: idx + 1, start, dur, maxAt: ats.length ? Math.max(...ats) : 0 })
-  })
-  return t
-}
-/** 稳定帧时刻（**契约公式**）：min( max(入场收尾, 页长×60%), 下一页淡入前 − 0.15s ) + 违约信息 */
-function settledAtForImpl(dirPath, no, table) {
-  const t = table || timingTable(dirPath)
-  const p = t[no - 1]
-  if (!p) return null
-  const next = t[no] || null
-  const want = Math.max(p.start + p.maxAt + ENTER_TAIL_S, p.start + p.dur * 0.6)
-  const cap = next ? next.start - 0.15 : p.start + p.dur - 0.1
-  const at = Math.min(want, cap)
-  const violation = !(at > p.start + 1e-6 && at < p.start + p.dur - 1e-6)
-    ? `settledAt=${at.toFixed(3)}s 不在本页 [${p.start}, ${(p.start + p.dur).toFixed(2)}) 内`
-    : (next && at > next.start - 0.15 + 1e-6) ? `settledAt=${at.toFixed(3)}s 距下一页淡入(${next.start}s) < 0.15s` : null
-  return { p, next, at, violation }
-}
-/** 采样时刻是否落在**过渡帧**内（程序化；唯一实现） */
-function transitionAt(dirPath, time, table) {
-  const t = table || timingTable(dirPath)
-  const tt = Number(time)
-  const p = t.find((q) => tt >= q.start - 1e-6 && tt < q.start + q.dur + 1e-6) || null
-  if (!p) return null
-  const next = t[t.indexOf(p) + 1] || null
-  const enterEnd = p.start + p.maxAt + ENTER_TAIL_S
-  if (tt < enterEnd) return { p, next, how: `本页入场：t < start(${p.start}) + max(data-at)(${p.maxAt}) + ${ENTER_TAIL_S} = ${enterEnd.toFixed(2)}` }
-  if (next && tt >= next.start - 1e-6) return { p, next, how: `页尾交叉淡入：下一页 data-start=${next.start}s 起淡入，而 t=${time} ≥ ${next.start}` }
-  return null
-}
+/* ---------- ★ 稳定帧契约的**唯一实现**：`timing.mjs`（team-lead ②：时刻不许硬编码、不许两处各写一套）
+   本文件**不再自带副本**（此前：覆盖矩阵是它自述的"第 2 处实现"、measure-sweep 硬编码 `--at 1.0`
+   ⇒ 三处口径可漂移）。这里只做 thin alias，保持既有调用点不变；下方"封装一致性自检"仍保留。 ---------- */
+import { ENTER_TAIL_S, timingTable, settledAt as _settledAt, transitionAt as _transitionAt } from './timing.mjs'
+const settledAtForImpl = (dirPath, no, table) => _settledAt(dirPath, no, table)
+const transitionAt = (dirPath, time, table) => _transitionAt(dirPath, time, table)
 
 /* ---------- ★ 引擎**按稳定帧时刻**再跑一次 layout（`check --at`）：溢出判据以此为准；
    引擎原采样时刻的 findings 只当**线索**打印。附带的耗时一并记录（进报告）。 ---------- */
