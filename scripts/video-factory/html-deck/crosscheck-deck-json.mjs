@@ -69,21 +69,42 @@ if (RAISE_MAX) {
   const val = Number(valStr)
   const sp = join(DECK_DIR, 'deck.schema.json')
   const sch = JSON.parse(readFileSync(sp, 'utf8'))
+  /* ★ team-lead ③ 第三支裁定：**判据从表按指针读**（`measured-limits.json` 是判据的唯一真源 ⇒
+     不把判据当参数传 —— 那会多一条"能传错"的入口）。用于判：该格**是否根本不需要抬**。
+     ⚠️ 表里查不到 = **未测格** ⇒ 只给信息级提示（抬上限可探边界，但**补判据前结果不入表**）。 */
+  const TABLE = (() => {
+    try {
+      const db = JSON.parse(readFileSync(join(DECK_DIR, 'measured-limits.json'), 'utf8'))
+      const arr = db.cells || db.entries || db.items || db.limits || []
+      return Array.isArray(arr) ? arr : []
+    } catch { return [] }
+  })()
+  const judgeOf = (ptr) => { const c = TABLE.find((x) => x.jsonPointer === ptr); return c ? c.judgeLimit : undefined }
+  const noJudge = []
   const hit = []
   const walk = (node, ptr) => {
     if (!node || typeof node !== 'object') return
     if (node.maxLength !== undefined && (ptr === leafSpec || ptr.endsWith('/' + leafSpec))) {
-      if (!(val > node.maxLength)) {
-        /* ★ team-lead ③-2 文案**分两支**（「抬不动」有两种完全不同的处置，别让人猜）：
-           ① val < 现上限 ⇒ **只许抬**（降值 = 抬了个寂寞，测量仍会被旧上限拒）；
-           ② val == 现上限 ⇒ **无需抬**：现上限已足够跑到判据+1 ⇒ **去掉 --raise-max** 直接跑。 */
-        if (val === node.maxLength) {
-          console.error(`✗ --raise-max **无需抬**：${ptr} 现 maxLength=${node.maxLength}，与 val 相等 ⇒ 这次抬没意义 ⇒ 请**去掉 --raise-max** 直接跑（现上限已足够）⇒ exit 2`)
+      /* ★ team-lead ③ 四情形（判据**从表按指针读**，不加参数）：
+         (i)   val < 现上限 ⇒ **只许抬、不许降**（抬没生效：测量仍会被旧上限拒）
+         (ii)  val == 现上限 ⇒ **无需抬**（这次抬没意义）
+         (iii) 表里有该指针且 **判据 + 1 ≤ 现上限** ⇒ **无需抬：请去掉 --raise-max 直接跑**（现上限已足够跑到判据+1）
+         (iv)  表里查不到该指针（**未测格**）⇒ **信息级**提示：抬到 val 可探边界，但**补判据前结果不入表**（不拒绝） */
+      const cap0 = node.maxLength
+      const judge0 = judgeOf(ptr)
+      if (!(val > cap0)) {
+        if (val === cap0) {
+          console.error(`✗ --raise-max **无需抬**：${ptr} 现 maxLength=${cap0}，与 val 相等 ⇒ 这次抬没意义 ⇒ 请**去掉 --raise-max** 直接跑（现上限已足够）⇒ exit 2`)
         } else {
-          console.error(`✗ --raise-max **只许抬、不许降**：${ptr} 现 maxLength=${node.maxLength}，而 val=${val} < 它 ⇒ **抬没生效**（测量仍会被旧上限拒）⇒ exit 2`)
+          console.error(`✗ --raise-max **只许抬、不许降**：${ptr} 现 maxLength=${cap0}，而 val=${val} < 它 ⇒ **抬没生效**（测量仍会被旧上限拒）⇒ exit 2`)
         }
         process.exit(2)
       }
+      if (judge0 !== undefined && judge0 + 1 <= cap0) {
+        console.error(`✗ --raise-max **无需抬**：${ptr} 现 maxLength=${cap0} **已经 ≥ 判据+1（${judge0 + 1}）** ⇒ 现上限已足够跑到判据+1 ⇒ **请去掉 --raise-max 直接跑** ⇒ exit 2（抬了反而把边界推远，测到的不是真判据）`)
+        process.exit(2)
+      }
+      if (judge0 === undefined) noJudge.push(ptr)
       node.maxLength = val; hit.push(ptr)
     }
     for (const k of Object.keys(node)) walk(node[k], `${ptr}/${k}`)
@@ -99,6 +120,10 @@ if (RAISE_MAX) {
   writeFileSync(tmp, JSON.stringify(sch, null, 2), 'utf8')
   OVERRIDE_ENV = tmp
   console.log(`  ★★ **仅量测**：把 ${hit.join(' / ')} 的 maxLength 抬到 ${val} —— 命中 **${hit.length}** 个${hit.length > 1 ? '（裸叶名会命中多个：只抬不降 ⇒ 无害，但**请确认量测目标是其中之一**；可用整指针精确指定）' : ''}（覆盖 schema 写于仓库外 ${tmp}）`)
+  /* ★ 情形 (iv)：**未测格** ⇒ 信息级（不拒绝）—— 抬上限可探边界，但**补判据前结果不入表** */
+  for (const p of noJudge) {
+    console.log(`  ℹ --raise-max：${p} **尚无判据（未测）** ⇒ 抬到 ${val} 可探边界；**补判据前该格结果不入表**（判据真源 = measured-limits.json）`)
+  }
 }
 const PATH_A = arg('--pathA', '')          // 第一路（HTML 注入）给出的临界，仅用于打印对照
 
