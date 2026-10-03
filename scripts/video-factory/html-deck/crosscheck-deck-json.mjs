@@ -34,6 +34,11 @@ const arg = (k, d) => {
   if (i >= 0) { _consumed.add(i); _consumed.add(i + 1); return args[i + 1] }
   return d
 }
+/* ★ 布尔旗标要**登记消费下标**，否则会被自己的"未识别参数 ⇒ exit 2"守卫拒掉
+   （实测：`--allow-multi` 与 `--keep` 都因为只按 `process.argv.includes` 判、没登记而被拒 —— 又一次"把纪律用在自己身上"） */
+const flag = (k) => { const i = args.indexOf(k); if (i >= 0) { _consumed.add(i); return true } return false }
+const ALLOW_MULTI = flag('--allow-multi')
+const KEEP_OUT = flag('--keep')
 const NODE = process.execPath
 const JSONF = arg('--json', 'examples/deck.master-v1.json')
 const FIELD = arg('--field', 'meta.title')
@@ -46,7 +51,7 @@ const OUT = arg('--outdir', '') || `out-tmp-xcheck-${process.pid}-${Date.now().t
 /* ★ **工具自洁**（team-lead ①卫生）：**未显式指定 `--outdir`** 时，退出即删本进程自建的临时目录
    （显式指定 ⇒ 保留：那是调用方要的产物；`--keep` 亦可保留）。事故：`out-tmp-*` 一度 287 个 / 2.8 GB。 */
 const AUTO_OUT = !arg('--outdir', '')
-if (AUTO_OUT && !process.argv.includes('--keep')) {
+if (AUTO_OUT && !KEEP_OUT) {
   process.on('exit', () => { try { rmSync(OUT, { recursive: true, force: true }) } catch { /* ignore */ } })
 }
 /* ★ team-lead ④-2：`--raise-max <字段>=<值>` ⇒ **仅量测**地把该字段的 schema `maxLength` 临时抬到 <值>，
@@ -171,7 +176,7 @@ if (RAISE_MAX) {
   /* ★ team-lead ②：**多命中 ⇒ 本次读数不许入表**（可判伪的归因纪律）——
      "一格 = 一叶"；多命中时若判据码来自**另一个被抬的叶子**，读数就会被归到**错的格子**（今天已在别处栽过一次归因）。
      ⇒ 默认 **红**（exit 2）；确需探索时才显式 `--allow-multi`，且**即便允许也打印"不作为入表依据"**。 */
-  if (hit.length > 1 && !process.argv.includes('--allow-multi')) {
+  if (hit.length > 1 && !ALLOW_MULTI) {
     console.error(`✗ --raise-max 命中 **${hit.length}** 个叶子 ⇒ **本次读数不许入表**（红）：一格 = 一叶，多命中会把读数归到错的格子
      命中的是：${hitDesc}
      ⇒ 请改用 **--raise-max auto=<n>**（按 --field 反查 ⇒ 单命中、可归因）或**整指针 + 单引号**；
