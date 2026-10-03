@@ -66,6 +66,17 @@ if (RAISE_MAX) {
      ⚠️ 裸叶名会命中**多个**（`title`/`explain`/`items`）：只抬不降 ⇒ 无害，但**必须打印命中数**让量测者确认目标在其中；
      也支持**整指针**精确指定（`--raise-max "#/$defs/meta/properties/issuer=847"`）⇒ 只命中那一个。 */
   const [leafSpec, valStr] = RAISE_MAX.split('=')
+  /* ★ team-lead ①(a)(b)：**畸形 spec 守卫**（别让"整指针必须单引号"靠人记住）——
+     · 含 `//`：典型是 **PowerShell 双引号把 `$defs` 展开成空**（`#/$defs/x` ⇒ `#//x`）；
+     · 不以 `#/` 开头却含 `/`：**多段部分路径**（如 `secondary/items/label`）—— 匹配规则是"以 /spec 结尾"⇒ 必然 0 命中。
+     ⇒ 两种都**报错并自解释**（列出支持的两形态 + 指出不支持多段部分路径）⇒ exit 2。 */
+  if (leafSpec.includes('//') || (!leafSpec.startsWith('#/') && leafSpec.includes('/'))) {
+    console.error(`✗ --raise-max 的 spec 形态不支持或被 shell 改坏：${leafSpec}
+     支持的只有**两种形态**：① **裸叶名**（例：issuer） ② **整指针**（例：#/$defs/meta/properties/issuer）
+     ⚠️ **多段部分路径不支持**（例：secondary/items/label —— 匹配规则是"以 /spec 结尾"，部分路径必然 0 命中）
+     ⚠️ 若出现双斜杠：通常是 **PowerShell 双引号把美元号变量展开成空**（$defs 变空）⇒ **整指针请用单引号**`)
+    process.exit(2)
+  }
   const val = Number(valStr)
   const sp = join(DECK_DIR, 'deck.schema.json')
   const sch = JSON.parse(readFileSync(sp, 'utf8'))
