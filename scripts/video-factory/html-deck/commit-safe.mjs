@@ -95,6 +95,41 @@ const jsons = collect(HERE, '.json')
 let jsonBad = []
 for (const f of jsons) { try { JSON.parse(readFileSync(f, 'utf8')) } catch (e) { jsonBad.push(`${basename(f)}：${e.message}`) } }
 steps.push({ name: `JSON.parse ${jsons.length} 个 .json`, ok: jsonBad.length === 0, detail: jsonBad })
+/* ★★ msg9（自查追加）：**I9 注释卫生**（我今天**两次**栽在"块注释里写块注释闭合符号" ⇒ 外层注释提前闭合 ⇒ 语法错）
+   ⇒ 窄判据：**以星号开头的注释续行**里出现"星号+斜杠"这个连续符号 ⇒ 必红（**纯闭合行不算** ✓ 负向断言已含）。
+   ⚠️ 本注释**故意不写出那个符号本身** —— 写了它就会把我这条注释**提前闭合**（我写这段时正是这么栽的第 4 次）。
+   为什么值得机械化：该错**只在运行时/检查时**才现形，而写的时候"看着像普通注释"。 */
+{
+  const bad = []
+  /* ★ **合成自测**（team-lead 三条通则之"读数解析类判据须配合成自测"）：三样本（真错 / 合法块尾 / glob）必须分类正确。
+     样本里那个符号**运行期拼接** ⇒ 不在源码里造出字面量（否则样本自己违规）。 */
+  const S = '*' + '/'
+  const samples = [
+    [' * 例如 `out' + S + '` 被忽略（有后文 ⇒ 真错）', true],
+    [' * ========' + S, false],
+    [' * 递归 glob 的写法（不含那个连续符号）', false],
+    [' * 说明：**' + S + '.mjs 形式（glob ⇒ 不算）', false],
+  ]
+  for (const [l, want] of samples) {
+    if (isI9Violation(l) !== want) bad.push(`分类器自测失败：${JSON.stringify(l)} ⇒ ${isI9Violation(l)}（须 ${want}）`)
+  }
+  for (const f of mjs) {
+    const lines = readFileSync(f, 'utf8').split('\n')
+    lines.forEach((l, i) => {
+      const t = l.trimStart()
+      /* 判据用**字符串判断**（不用正则字面量：正则里写转义的斜杠会把字面量**提前闭合** ⇒ 同类符号坑）。
+         ⚠️ **假阳性收窄**：递归 glob（双星号 加 斜杠 的形式）里也含那个连续符号 ⇒ 若它**前一字符是星号或斜杠**则**不算**
+            （首跑 31 条里绝大多数是这种 glob，不是真错）。注释里**故意不写那个 glob 字面量** —— 写了就把它提前闭合（第 5 次）。 */
+      const idx = l.indexOf('*' + '/')
+      const isGlob = idx > 0 && (l[idx - 1] === '*' || l[idx - 1] === '/')
+      const tailText = idx >= 0 && l.slice(idx + 2).trim() !== ''      /* 闭合符**后面还有文字**才算（纯闭合行是合法的块尾） */
+      if (t.startsWith('*') && !t.startsWith('*' + '/') && idx >= 0 && !isGlob && tailText) {
+        bad.push(`${basename(f)}:L${i + 1} ⇒ **注释续行内含块注释闭合符**（会让外层注释提前闭合 —— I9）`)
+      }
+    })
+  }
+  steps.push({ name: `I9 注释卫生（${mjs.length} 个 .mjs：注释续行不得含闭合符）`, ok: bad.length === 0, detail: bad })
+}
 /* ★★ team-lead msg9 ②③：**哑 catch 判据要"工具产出 + 有负控 + 有合成自测"** ——
    我上一版把 `26` **手写**进代码/步名（正是 `COUNT_DEBT_MAX = 12` 的老病：**人读的数字守机读的事实**）⇒ 现改为：
    ① 基线由工具产出的 `silent-catch-baseline.json`（per-file + 时间 + SHA）
@@ -108,6 +143,15 @@ function catchCounts(text) {
   const all = [...text.matchAll(/catch\s*(\([^)]*\))?\s*\{[^{}]*\}/g)].map((m) => m[0])
   const dumb = all.filter((s) => classifyCatchBlock(s) === 'dumb')
   return { all: all.length, loud: all.length - dumb.length, dumb: dumb.length, samples: dumb.slice(0, 3) }
+}
+/* ★ I9 谓词（**单一实现**）：注释续行里"闭合符后面还有文字"才算违规。
+   ⚠️ 样本**运行期拼接**那个符号（`'*' + '/'`），不在源码里写字面量 —— 否则样本自己就成了违规（自我指涉坑）。 */
+function isI9Violation(l) {
+  const t = l.trimStart()
+  const idx = l.indexOf('*' + '/')
+  const isGlob = idx > 0 && (l[idx - 1] === '*' || l[idx - 1] === '/')
+  const tailText = idx >= 0 && l.slice(idx + 2).trim() !== ''
+  return t.startsWith('*') && !t.startsWith('*' + '/') && idx >= 0 && !isGlob && tailText
 }
 function ratchetViolations(baselineFiles, actualFiles) {
   const out = []
