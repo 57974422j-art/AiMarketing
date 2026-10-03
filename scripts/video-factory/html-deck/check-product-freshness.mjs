@@ -19,7 +19,7 @@ import { readdirSync, existsSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { ENGINE_ROOT, EXAMPLES_DIR, selfCheck } from './paths.mjs'
-import { declaredDecks, hasMp4, mp4Of, undeclaredProducts, exclusions, exclusionsExpanded, mtime } from './deck-targets.mjs'
+import { declaredDecks, hasMp4, mp4Of, undeclaredProducts, exclusions, exclusionsExpanded, scanSummary, mtime } from './deck-targets.mjs'
 
 const ROOT = ENGINE_ROOT
 const FONTS_DIR = join(ROOT, 'fonts')
@@ -79,7 +79,11 @@ if (!decks.length) {
   console.error('✗ **检查 0 档** ⇒ exit 2（"无事可查" ≠ "查过且通过"；断言防"0 档假绿"）')
   process.exit(2)
 }
-console.log(`\n②b 产物新鲜度 + 缺产物分档：声明档 ${decks.length}（唯一来源 deck-targets.mjs）· 输入集 = masters/<id>/{master*.html,master.json,assets/**} ∪ examples/<deck>.json ∪ fonts/*.woff2`)
+/* ★ 扫描总数必须打印（任何过滤都无法再静默缩小集合） */
+const scan = scanSummary()
+console.log(`\n②b 产物新鲜度 + 缺产物分档：声明档 ${decks.length}（唯一来源 deck-targets.mjs）`)
+console.log(`  扫描 out|out-master-v2 子目录 **${scan.total}** 个 · 声明 ${scan.declared} · 未声明 ${scan.undeclared.length}（**全枚举，无前缀过滤**）`)
+console.log(`  输入集 = masters/<id>/ 下的 master.json + master-<几何>.html + assets/ 全子树 ∪ examples/<deck>.json ∪ fonts/ 下的 .woff2`)
 if (undeclared.length) {
   console.log(`  ℹ **未声明产物（忽略）**：${undeclared.length} 个 ⇒ ${undeclared.slice(0, 8).join(', ')}${undeclared.length > 8 ? ' …' : ''}`)
   console.log('      （磁盘上有但不在声明清单 ⇒ 不纳入判据；也不静默消失 —— 要判它就把它写进声明/排除表）')

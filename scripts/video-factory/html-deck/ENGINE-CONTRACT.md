@@ -212,6 +212,33 @@ exit 4 / 5 / 6 → **引擎或环境**问题 → 可重试一次；仍失败则�
 
 ---
 
+## 8b. 部署（全新克隆 / 服务器）—— **唯一命令** 与 **集合口径**
+
+**唯一命令**（全新克隆 / 服务器首次跑）：
+```
+npm ci --no-audit --no-fund      # 依赖随库：package.json + package-lock.json（精确还原）
+node gate-release.mjs --render   # ①先渲"缺产物 / 陈旧"的声明档（逐档打印 render exit）②再跑全套闸门
+```
+**退出码分档**：`0` 全绿 · `1` **判据失败** · `2` 环境/输入不完整 · **`4` 需先渲染**（"还没渲染"与"真不合格"必须能区分）。
+
+**渲染器解析顺序**（唯一实现在 `engine-bin.mjs`）：`ENGINE_HF_BIN`（显式钉版本；**指向不存在 ⇒ exit 2，不许静默回退**）→ `PATH` → 开发回退 `<引擎根>/node_modules/.bin/hyperframes[.cmd]`；全找不到 ⇒ 列出候选 + exit 2。
+服务器推荐：`ENGINE_HF_BIN=/opt/ppt-render/node_modules/.bin/hyperframes`。
+⚠️ 本机 `node_modules` 是指向探针树的 **junction** —— **本机便利，不是要求**（服务器 `npm ci` 后即真实目录）。
+
+**`--deploy` 必须打印**（排障命门）：**解析到的引擎路径 + 来源** · **node 版本/platform** · **chrome / ffmpeg 路径（或"未显式设置"）**；并**恒带 `--assert-overlap`**（部署口径 = 判据口径）。
+
+**★ 集合口径（硬规矩）**：
+- **档名不保证 `deck.` 前缀**（现存在库档名含 `palette-clay` / `palette-mist-blue` / `palette-olive`）；
+  ⇒ 一切"被测集合 / 磁盘产物集合"**必须由「全枚举 + 声明清单」派生**（`deck-targets.mjs` 唯一实现），
+  **禁止任何前缀 / 正则 / glob 过滤**（前缀过滤会让非 `deck.` 目录**静默消失**；glob 会把将来新增的档**静默吸收**）；
+  ⇒ **每次运行必须打印扫描总数**（`扫描子目录 N · 声明 M · 未声明 K`）——任何过滤都不可能再静默缩小集合。
+- **产物新鲜度的"输入集"** = **渲染时真正读到的字节**：`masters/<id>/master.json` + `master-<几何>.html` + `assets/` 全子树 ∪
+  `examples/<deck>.json` ∪ `fonts/` 下的 `.woff2`；**排除构建脚本**（`*.mjs`/`*.py`）与 `chars-cmn.txt`
+  （它们改了自己**不改变产物**，其影响经由**重新 materialize 的 woff2** 体现）—— 拿脚本 mtime 判"产物陈旧"是**语义错**，会造成假阳性。
+- **未声明产物**（磁盘有、声明清单无）⇒ **打印一行"未声明产物（忽略）"**（不静默纳入判据，也不静默消失）。
+
+---
+
 ## 9. 已知限制（服务端需知情）
 1. **自定义封面素材未实现**：`cover.asset` 只能等于母版自带值，其它值**明确报错**（不静默忽略）。
 2. **`meta.lang` 被校验但未消费**：HTML 的 `lang` 硬编码 `zh-CN`，而 schema 只允许 `zh-CN` ⇒ 当前无影响；若将来放宽需同步实现。

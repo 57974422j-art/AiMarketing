@@ -1,7 +1,7 @@
 {
   "_note": "覆盖矩阵的**排除清单**（与白名单同构：逐条写『哪些目录 + 为什么排除 + 类别』；矩阵强制要求**每一个被排除的目录都命中某条** ⇒ **不许静默排除**）。",
-  "_rule": "① **只许写显式目录名**（`dirs` 数组）—— **不许 glob**（glob 会把将来新增的档**静默吸收**，例如以后加个 `deck.badass-*` 也被算进负例）；确有『整族』需要时也必须**展开成显式名单**，并每次运行打印展开集合。② 每条必须带 `reason`（或别名 `why`）+ `category` ∈ {`negative-sample`, `contract-sample`, `stale-product`}。",
-  "_fieldAlias": "检查器一律按 `x.reason || x.why` 读（两者都缺才报错）—— `why` 是本文件的旧字段名，保留兼容。",
+  "_rule": "① **只许写显式目录名**（`dirs` 数组）—— **不许任何 glob/正则**（glob 会把将来新增的档**静默吸收**；活教训：`palette-` 前缀那条把 master-v1 olive/clay/mist-blue 的覆盖变成假覆盖）。确有『整族』需要 ⇒ **展开成显式名单**，并由检查器每次打印展开集合。② 每条必须带 `reason` + `category` ∈ {`negative-sample`, `contract-sample`, `stale-product`}。",
+  "_fieldAlias": "字段名统一为 **`reason`**（历史上用过 `why`）。检查器一律按 `x.reason || x.why` 读，**两者都缺才报** —— 只认一份会造成假报（team-lead 按 `reason` 抽验时曾 7/7 误报）。",
   "exclude": [
     {
       "dirs": ["deck.full6"],
@@ -11,25 +11,25 @@
     {
       "dirs": ["deck.types8-airy", "deck.types8-airy-9x16", "deck.types8-dense", "deck.types8-dense-9x16"],
       "category": "stale-product",
-      "reason": "**过期产物**（旧引擎版，`STALE.md`）⇒ 已被新档取代。（原为 `deck.types8-airy*` / `deck.types8-dense*` 两个 glob，按『禁 glob』要求**展开为显式名单**。）"
+      "reason": "**过期产物**（旧引擎版，`STALE.md`）⇒ 已被新档取代。（原为两条带星号的整族写法，按『禁 glob』展开为这 4 个显式目录名。）"
     }
   ],
-  "_removed": [
+  "_retired": [
     {
-      "glob": "deck.bad*",
-      "why": "**已撤**：负例档现在由 `bad-expected.json` **逐档声明**（带 `expectExit` + `stage` + `reason`）⇒ 排除表里再写一条 glob 是**冗余**且违『禁 glob』。"
+      "was": "整族排除：以 `deck.bad` 开头的目录",
+      "reason": "**已撤**：负例档现在由 `bad-expected.json` **逐档声明**（`expectExit` + `stage` + `reason`）⇒ 排除表再写整族是**冗余**且违『禁 glob』。"
     },
     {
-      "dir": "deck.covercustom",
-      "why": "**已撤**：同上，已在 `bad-expected.json` 声明（期望 exit 2 · stage=asset）。"
+      "was": "deck.covercustom",
+      "reason": "**已撤**：同上，已在 `bad-expected.json` 声明（期望 exit 2 · stage=asset）。"
     },
     {
-      "dir": "deck.html-injected",
-      "why": "**已撤**：同上，已在 `bad-expected.json` 声明（期望 exit 3 · stage=validate）。"
+      "was": "deck.html-injected",
+      "reason": "**已撤**：同上，已在 `bad-expected.json` 声明（期望 exit 3 · stage=validate）。"
     },
     {
-      "glob": "palette-*",
-      "why": "**已撤**：原理由（旧产物 STALE）被误当成『整族排除』⇒ 导致 `master-v1 · olive/clay/mist-blue` **覆盖为 0**（假覆盖：那 3 项原先靠**旧产物**满足）。现 `palette-*.json` **纳入声明档**（真渲），覆盖由真产物承担。"
+      "was": "整族排除：以 `palette-` 开头的目录",
+      "reason": "**已撤**：原以为『旧产物 STALE ⇒ 整族排除』⇒ 导致 `master-v1 · olive/clay/mist-blue` **覆盖为 0**（假覆盖：那 3 项原先靠**旧产物**满足）。现 `palette-*.json` **纳入声明档**（真渲），覆盖由真产物承担。"
     }
   ]
 }

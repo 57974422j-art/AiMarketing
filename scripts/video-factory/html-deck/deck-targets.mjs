@@ -64,18 +64,30 @@ export function declaredDecks() {
 export const mp4Of = ({ outdir, deck }) => join(DECK_DIR, outdir, deck, `output-${deck}.mp4`)
 export const hasMp4 = (d) => existsSync(mp4Of(d))
 
-/** 磁盘现状（只列 `deck.*` 目录；用于"未声明产物可见忽略"） */
+/** 磁盘现状：**全枚举** `out/` + `out-master-v2/` 的**全部子目录**（team-lead 抓到的真洞）。
+ *  ⚠️ 曾有 `if (!n.startsWith('deck.')) continue` ⇒ **非 `deck.` 前缀的目录对我不可见**
+ *  ⇒ `undeclaredProducts()` 是集合差 ⇒ 那些目录**既不进声明也不算未声明** ⇒ **"可见忽略"承诺失效**（静默消失）。
+ *  活例子：`out/palette-*` 就是非 `deck.` 前缀；将来任何别的目录名都会静默消失。
+ *  ⇒ **不做任何前缀/正则过滤**，只做**集合成员判定**（调用方按声明集合分类）。 */
 export function diskProducts() {
   const out = []
   for (const r of OUT_ROOTS) {
     const base = join(DECK_DIR, r)
     if (!existsSync(base)) continue
-    for (const n of readdirSync(base)) {
-      if (!n.startsWith('deck.')) continue
-      out.push({ outdir: r, deck: n, mp4: existsSync(join(base, n, `output-${n}.mp4`)), staleFlag: existsSync(join(base, n, 'STALE.md')) })
+    for (const e of readdirSync(base, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue
+      out.push({ outdir: r, deck: e.name, mp4: existsSync(join(base, e.name, `output-${e.name}.mp4`)), staleFlag: existsSync(join(base, e.name, 'STALE.md')) })
     }
   }
   return out
+}
+
+/** 扫描计数（**每次必须打印**：任何过滤都无法再静默缩小集合） */
+export function scanSummary() {
+  const all = diskProducts()
+  const decl = new Set(declaredDecks().decks.map((d) => `${d.outdir}/${d.deck}`))
+  const undecl = all.filter((p) => !decl.has(`${p.outdir}/${p.deck}`)).map((p) => `${p.outdir}/${p.deck}`)
+  return { total: all.length, declared: all.length - undecl.length, undeclared: undecl }
 }
 
 /** 磁盘有、但不在声明档里的产物 ⇒ 打印用（不静默纳入，也不静默消失） */
