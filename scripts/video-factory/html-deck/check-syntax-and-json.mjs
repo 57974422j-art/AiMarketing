@@ -16,6 +16,10 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join, relative } from 'node:path'
 import { DECK_DIR, ENGINE_ROOT, selfCheck } from './paths.mjs'
+/* ★★ **共享扫描免疫**（team-lead ③：唯一实现）：`maskSource()` 由 `engine-bin.mjs` 导出 ⇒
+   本文件的"裸媒体工具"扫描与 `engine-bin` 的 K17-ff 扫描**共用同一套"剥注释（保字符串）"逻辑** ✓
+   —— 本次血现场正是"朴素匹配**被文档误伤**"（`engine-bin` 断言被它**自己的说明注释**触发 ⇒ 凡 import 它的工具全 exit 2）✓ */
+import { maskSource } from './engine-bin.mjs'
 
 selfCheck({ quiet: true })
 
@@ -160,9 +164,11 @@ if (process.argv.includes('--self-test-i9')) {
   if (process.argv.includes('--self-test-bare-media')) {
     const cases = []
     const chk = (name, cond) => { cases.push(cond); console.log(`   ${cond ? '✓' : '✗'} ${name}`) }
-    chk('① 裸调用样本 ⇒ 命中（必红）', matcher('const r = ' + N1 + ", [ '-v' ]") === 1)
-    chk('② 裸 ffprobe 样本 ⇒ 命中（必红）', matcher('const r = ' + N2 + ", [ '-v' ]") === 1)
-    chk('③ 走唯一实现的写法 ⇒ 不命中（不许红）', matcher('const r = spawnSync(resolveFf' + "mpeg().p, [ '-v' ])") === 0)
+    chk('① 裸调用样本 ⇒ 命中（必红）', matcher(maskSource('const r = ' + N1 + ", [ '-v' ]", { maskStrings: false })) === 1)
+    chk('② 裸 ffprobe 样本 ⇒ 命中（必红）', matcher(maskSource('const r = ' + N2 + ", [ '-v' ]", { maskStrings: false })) === 1)
+    chk('③ 走唯一实现的写法 ⇒ 不命中（不许红）', matcher(maskSource('const r = spawnSync(resolveFf' + "mpeg().p, [ '-v' ])", { maskStrings: false })) === 0)
+    chk('④ ★**注释里**出现完整字面量 ⇒ 不许命中（与 engine-bin 同源的"剥注释"免疫 · 本次血现场的回归样本）',
+      matcher(maskSource('// 说明：' + N1 + ' 必须改走唯一实现', { maskStrings: false })) === 0)
     const fail = cases.filter((x) => !x).length
     console.log(`   ${fail === 0 ? '✓' : '✗'} [BARE-MEDIA-SELFTEST] 裸媒体工具断言 用例=${cases.length} · 失败=${fail}`)
     process.exit(fail === 0 ? 0 : 1)

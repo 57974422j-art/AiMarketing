@@ -124,6 +124,71 @@ function resolveMediaBin(name) {
   return { p: last.p, why: last.why, candidates: cands }
 }
 
+/** ★★ **`maskSource(src, {maskStrings})`** —— 给"**朴素文本匹配**"的扫描器**免疫注释（可选免疫字符串）**：
+ *  把注释（及可选：字符串）的**内容**换成**空格**，**等长替换 + 保留换行** ⇒ **行号不乱**，之后再 `match`/`indexOf`
+ *  就不会被**文档里的字样**误伤。
+ *  ★ 为什么必须有它（**血现场**）：K17-ff 的断言用朴素匹配扫源码 ⇒ 而**描述这条规矩的注释**里写了那个字面量
+ *    ⇒ **"规则的文档"触发了规则** ⇒ `engine-bin` 是"导入即自检" ⇒ **凡 import 它的工具全部在启动时 exit 2**
+ *    ⇒ **整条渲染链被堵死** ✗（`mux` / `batch` / `render-deck` 全中）。与哑 catch 扫描器把样本计入、⓪c 把样本字符串计入**同族**。
+ *  ★ 修法是**改扫描器**、不是把文档按扫描器口味改写 —— 那条注释是**有用的文档**（它解释"为什么必须走唯一实现"）；
+ *    判据反过来管死文档 = 因果倒置 ✓。
+ *  ⚠️ `maskStrings` 默认 **true**（全免疫）；但**侦测"裸调用"时必须传 false** —— 因为裸调用的实参本身就是字符串
+ *    （`spawnSync('<媒体工具>', …)`）⇒ 若把字符串也剥掉 ⇒ **真裸调用反而看不见**（**假阴性**，比假阳性更危险）✗。
+ *  ⚠️ 已知边界（如实）：不建模**模板 `${}` 内部**与**正则字符类**细节 ⇒ 只会**漏报**、不会误报。 */
+export function maskSource(src, { maskStrings = true } = {}) {
+  const s = String(src || '')
+  const out = s.split('')
+  let depth = 0, q = null
+  const blank = (a, b) => { for (let k = a; k < b && k < s.length; k++) if (out[k] !== '\n') out[k] = ' ' }
+  const prevSig = (i) => { let j = i - 1; while (j >= 0 && '\t \r\n'.includes(s[j])) j--; return j >= 0 ? s[j] : '' }
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i], n = s[i + 1]
+    if (depth > 0) { if (c === '*' && n === '/') { blank(i, i + 2); depth--; i++ } else out[i] = c === '\n' ? '\n' : ' '; continue }
+    if (q) {
+      if (c === '\\') { if (maskStrings) blank(i, i + 2); i++; continue }
+      if (c === q) { if (maskStrings) blank(i, i + 1); q = null; continue }
+      if (maskStrings) out[i] = c === '\n' ? '\n' : ' '
+      continue
+    }
+    if (c === '/' && n === '*') { blank(i, i + 2); depth++; i++; continue }
+    if (c === '/' && n === '/') { let j = i; while (j < s.length && s[j] !== '\n') j++; blank(i, j); i = j - 1; continue }
+    if (c === '/') {
+      if (!/[A-Za-z0-9_$)\]]/.test(prevSig(i))) {          /* 正则字面量：整段处理（尊重字符类；遇换行即停） */
+        let j = i + 1, cls = false
+        for (; j < s.length; j++) {
+          if (s[j] === '\\') { j++; continue }
+          if (s[j] === '[') cls = true
+          else if (s[j] === ']') cls = false
+          else if (s[j] === '/' && !cls) break
+          else if (s[j] === '\n') break
+        }
+        if (maskStrings) blank(i, Math.min(j + 1, s.length))
+        i = j; continue
+      }
+      continue
+    }
+    if (c === "'" || c === '"' || c === '`') { q = c; if (maskStrings) blank(i, i + 1); continue }
+  }
+  return out.join('')
+}
+
+/* ★★ **剥注释免疫的必红 / 不许红样本**（team-lead ③(2)）：`--self-test-mask`
+   · 必红：**真裸调用**（拼接构造，源码里不出现连续探针）⇒ 必须命中
+   · ★ 不许红：**注释里出现完整字面量**（**本次假红的形状**）⇒ 必须**不**命中 —— 这条正是本次事故的回归样本 ✓ */
+if (process.argv.includes('--self-test-mask')) {
+  const cases = []
+  const chk = (name, cond) => { cases.push(cond); console.log(`   ${cond ? '✓' : '✗'} ${name}`) }
+  const NEEDLE = new RegExp('spa' + "wnSync\\(('ff" + "mpeg'|'ff" + "probe')")
+  const CALL = 'spa' + "wnSync('ff" + "mpeg'"
+  chk('① 真裸调用 ⇒ 命中（必红）', NEEDLE.test(maskSource('const r = ' + CALL + ', [])', { maskStrings: false })))
+  chk('② ★注释里出现完整字面量 ⇒ **不许命中**（本次假红的形状）', !NEEDLE.test(maskSource('// 说明：' + CALL + ' 必须改走唯一实现', { maskStrings: false })))
+  chk('③ 块注释里出现完整字面量 ⇒ 不许命中', !NEEDLE.test(maskSource('/* 说明\n' + CALL + '\n*/\nconst z = 1', { maskStrings: false })))
+  chk('④ 行号不乱（等长替换 + 保留换行）', maskSource('a\n/* x\ny */\nb').split('\n').length === 4)
+  const fail = cases.filter((x) => !x).length
+  console.log(`   ${fail === 0 ? '✓' : '✗'} [MASK-SELFTEST] 剥注释免疫 用例=${cases.length} · 失败=${fail}`)
+  process.exit(fail === 0 ? 0 : 1)
+}
+
 /** 断言：**ffmpeg/ffprobe 的解析也只许一处** —— 与 `assertSingleHfDefinition` 同构的**双重检测**：
  *   ① 标记注释 `FF-DEF:ONLY-ONCE` 出现次数 == 1；
  *   ② **其它文件里**出现该环境变量字面量 / 候选实质指纹 ⇒ 红（"复制代码不复制注释"同样被抓住）。
@@ -142,7 +207,10 @@ export function assertSingleFfDefinition() {
   const occ = [], sub = [], envHit = [], bareHit = []
   /* ★ **第三条检测（team-lead ⑤ 的"清扫后加断言"）**：其它文件里**裸调用两个媒体工具**的次数必须为 **0**
      —— 断言若只数环境变量字面量，**裸用法**（无视渲染器钉住的那个 ffmpeg）就漏掉 ⇒ "有的工具尊重、有的不尊重" ✗。
-     ⚠️ 注释里**不写完整字面量**（写了会被任何一次朴素 grep 命中，我本人已第三次踩这条）
+     ★★ **本次血现场的修法（team-lead ③ 批准）**：匹配前先 `maskSource(t, { maskStrings: false })`
+       ⇒ **注释被剥**（文档里写字面量不再误伤 —— "规则被自己的文档触发"这类自指涉**结构性消失** ✓）；
+       而**字符串保留**（裸调用的实参本身就是字符串 ⇒ 剥了会**看不见真裸调用** = **假阴性**，比假阳性更危险 ✗）。
+     ⚠️ 旧约定"注释里不写完整字面量"**已废止**（约定不该承担这个责任）⇒ 现由**扫描器免疫**保证 ✓。
      ⚠️ **防自匹配**：模式**分片拼接**（源码里从不出现连续的裸调用字面量）—— 与上面 FINGER 同款。 */
   const B1 = 'spa' + 'wnSync\\('      /* ⚠️ `(` 必须转义（第一次漏了 ⇒ `new RegExp` 抛 Unterminated group） */
   const B2 = "'ff" + "mpeg'"
@@ -152,11 +220,13 @@ export function assertSingleFfDefinition() {
     try {
       const t = readFileSync(join(ENGINE_DIR, f), 'utf8')
       if (f === self) continue                      /* 本模块 = 唯一实现所在地 ⇒ 只看别人 */
-      const n = t.split(P1 + P2).length - 1
+      /* ★ 三条检测**都在剥注释后的文本上做**（保留字符串 ⇒ 真实用法的"字符串形态"仍能被抓到 ✓） */
+      const masked = maskSource(t, { maskStrings: false })
+      const n = masked.split(P1 + P2).length - 1
       if (n) envHit.push(`${f}×${n}`)
-      const m = t.match(FINGER)
+      const m = masked.match(FINGER)
       if (m) sub.push(`${f}×${m.length}`)
-      const b = t.match(BARE)
+      const b = masked.match(BARE)
       if (b) bareHit.push(`${f}×${b.length}`)
     } catch { readFail++ }
   }
