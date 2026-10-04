@@ -136,7 +136,9 @@ steps.push({ name: `JSON.parse ${jsons.length} 个 .json`, ok: jsonBad.length ==
    ② 棘轮是**纯函数** `ratchetViolations(基线, 实测)` ⇒ 负控/自测调的就是它（单一实现）
    ③ **分类器（启发式）必须有合成自测**：已知哑 catch ⇒ 计入；已知说话 catch ⇒ 不计入（否则"哑=0"可能只是**识别器不工作**）。 */
 function classifyCatchBlock(block) {
-  const loud = /(console\.|throw|return|writeSync|Atomics|\+\+|-=|\+=)/.test(block)
+  /* ⚠️ `push(` 也算"会说话"：把违规**记进违规清单**（该清单随后会被打印/判定）与 `console.` 等效。
+     这是**启发式扩展**（反例：push 进一个被丢弃的数组 ⇒ 仍算哑），但比"一律哑"更贴近实情 —— 记在此处备查。 */
+  const loud = /(console\.|throw|return|writeSync|Atomics|\+\+|-=|\+=|push\()/.test(block)
   return loud ? 'loud' : 'dumb'
 }
 function catchCounts(text) {
@@ -363,6 +365,21 @@ function lumaOf(hex) {
   const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
 }
+/** 颜色归一化：hex/rgb(a) **与 alpha 一起**比较（`#14161a` 与 `rgba(20,22,26,1)` 判等 ⇒ 记法不同不算不一致）。 */
+function sameColor(a, b) {
+  const norm = (s) => {
+    const t = String(s).trim().toLowerCase()
+    let m = /^#([0-9a-f]{6})$/.exec(t)
+    if (m) { const v = parseInt(m[1], 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255, 1].join(',') }
+    m = /^#([0-9a-f]{3})$/.exec(t)
+    if (m) return m[1].split('').map((c) => parseInt(c + c, 16)).concat([1]).join(',')
+    const m2 = /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)/.exec(t)
+    if (m2) return [Number(m2[1]), Number(m2[2]), Number(m2[3]), m2[4] === undefined ? 1 : Number(m2[4])].join(',')
+    return null
+  }
+  const na = norm(a), nb = norm(b)
+  return na !== null && na === nb
+}
 function tokenIssues(cssText) {
   const out = []
   for (const tok of ['--bg', '--ink', '--accent', '--rule']) {
@@ -400,6 +417,41 @@ function tokenIssues(cssText) {
     let txt = ''
     try { txt = readFileSync(css, 'utf8') } catch (e) { badSelf.push(m + '：读 css 失败 ⇒ ' + e.message); continue }
     for (const s of tokenIssues(txt)) badSelf.push(m + '：' + s)
+    /* ★★ team-lead msg15 ①：**值级一致性**（`master.json` ↔ `master.css`）—— 「同一事实的两处表述必须被断言」。
+       理由（team-lead 原话）：他那个 bug（令牌**只在内存改、没写回文件**）正是这一类：json 里已是新配色、css 里仍是 v1 ⇒
+       **值级比对一跑就红**（而"注释启发式"抓不到它，因为注释本身没错）。 */
+    const mjP = join(HERE, 'masters', m, 'master.json')
+    if (!existsSync(mjP)) { badSelf.push(m + '：缺 master.json（值级比对无对手）'); continue }
+    let mj = null
+    try { mj = JSON.parse(readFileSync(mjP, 'utf8')) } catch (e) { badSelf.push(m + '：读 master.json 失败 ⇒ ' + e.message); continue }
+    for (const [tok, key] of [['--bg', 'bg'], ['--ink', 'ink'], ['--rule', 'rule']]) {
+      const want = mj[key]
+      if (want === undefined) continue
+      const got = (new RegExp('(' + tok + ')\\s*:\\s*([^;]+);').exec(txt) || [])[2]
+      if (!got) { badSelf.push(m + '：css 缺 ' + tok + '（json 有 ' + key + '）'); continue }
+      if (!sameColor(got.trim(), String(want))) badSelf.push(m + '：**值级不一致** css ' + tok + '=' + got.trim() + ' ≠ master.json ' + key + '=' + want)
+    }
+    /* accent：**至少一项 palette 的 accent == css --accent**（默认配色）；且 `--accent-rgb` 必须 == 该项的 rgb ✓ */
+    const accTok = (new RegExp('(--accent)\\s*:\\s*([^;]+);').exec(txt) || [])[2]
+    const rgbTok = (new RegExp('(--accent-rgb)\\s*:\\s*([^;]+);').exec(txt) || [])[2]
+    const pals = mj.palette && typeof mj.palette === 'object' ? Object.entries(mj.palette) : []
+    if (accTok && pals.length) {
+      const hit = pals.find(([, v]) => sameColor(String(v.accent || ''), accTok.trim()))
+      if (!hit) badSelf.push(m + '：css --accent=' + accTok.trim() + ' **不在** master.json 的 palette 里（' + pals.map(([k, v]) => k + '=' + v.accent).join(' · ') + '）⇒ 两份真源不一致')
+      else if (rgbTok && String(hit[1].rgb || '').replace(/\s/g, '') !== rgbTok.trim().replace(/\s/g, '')) {
+        badSelf.push(m + '：--accent-rgb=' + rgbTok.trim() + ' ≠ palette[' + hit[0] + '].rgb=' + hit[1].rgb)
+      }
+    }
+  }
+  /* 归一化样本（hex 与 rgba 混写必须判等；不同色必须判不等）⇒ 防"比对器不工作" */
+  {
+    const S = [
+      ['#14161a', 'rgba(20,22,26,1)', true], ['#fff', '#ffffff', true],
+      ['rgba(233,231,226,.13)', 'rgba(233, 231, 226, .13)', true], ['#14161a', 'rgba(20,22,27,1)', false],
+    ]
+    for (const [a, b, want] of S) {
+      if (sameColor(a, b) !== want) badSelf.push('颜色归一化样本失败：' + a + ' vs ' + b + ' ⇒ ' + sameColor(a, b) + '（须 ' + want + '）')
+    }
   }
   steps.push({ name: `母版令牌一致性（${masterDirs.length} 套皮肤：4 关键令牌在位 + 注释-值一致）`, ok: badSelf.length === 0, detail: badSelf })
 }
