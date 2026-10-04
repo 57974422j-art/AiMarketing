@@ -101,7 +101,9 @@
             "master-festive",
             "master-mono",
             "master-ecom",
-            "master-formal"
+            "master-formal",
+            "master-health",
+            "master-edu"
           ],
           "description": "母版 ID（枚举；决定版式/皮肤/几何/动效语言，资产在 masters/<id>/）"
         },
