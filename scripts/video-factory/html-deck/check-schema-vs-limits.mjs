@@ -125,6 +125,14 @@ for (const it of (limits.limits || [])) {
   }
   if (it.unit === 'count' || it.capacityAtLeast !== undefined) {
     const cap = node.maxItems, cal = it.capacityAtLeast
+    /* ★★ team-lead msg33 ②（把顶层 `pages` 那条**推广**）：`minItems == maxItems` 的窗口**条数被契约固定** ⇒
+       **不许报容量** —— 因为"容量"是"能装多少"的经验事实，而固定窗口下你测到的永远是这个唯一值：
+         · summary（恰 3 条）与 secondary（恰 2 条）：`capacityAtLeast: 30` / `: 2` 都**不是在说容量**
+           （前者把**违约变体**（强注 30 条）的渲染成功当容量；后者只是把 schema 上限抄了一遍）
+       ⇒ 这类格走 `boundSource` 路线（不设 capacityAtLeast）＋ basis 写"契约固定为 N，非几何容量"。 */
+    if (cap !== undefined && node.minItems !== undefined && Number(node.minItems) === Number(cap) && it.capacityAtLeast !== undefined) {
+      viol.push(`${labelC(it)} ⇒ **固定窗口不许报容量**：minItems == maxItems == ${cap}（契约固定）却给了 capacityAtLeast=${it.capacityAtLeast} ⇒ 请改走 boundSource 路线（与"renderedMax 不许包装成容量"同族）`)
+    }
     if (cal == null) viol.push(`${labelC(it)} ⇒ **I1-count**：条数格必须声明 \`capacityAtLeast\`（容量下限 = 已证能装多少）`)
     else if (cap === undefined) viol.push(`${labelC(it)} ⇒ **I1-count**：schema 该指针**无 \`maxItems\`** ⇒ 条数上限**无处生效**（断言无法落地）`)
     else if (cap > cal) viol.push(`${labelC(it)} ⇒ **I2-count**：maxItems=${cap} > capacityAtLeast=${cal} ⇒ **上限超出已证容量**（该断言落地就会拒掉自己证过的容量）`)

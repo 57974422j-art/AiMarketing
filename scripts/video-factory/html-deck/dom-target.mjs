@@ -21,6 +21,19 @@
  *    该形态**仍是确定且唯一**的（工具约定），但语义与 CSS 有差别，故在此写明。
  *
  * 返回：`{ count, pageNo, openEnd, closeStart, tag, why }`
+ *
+ * ★★ **CSS 子集（`countCss`）的受支持构造集 —— 自 2026-10-04 起冻结**（team-lead msg33 ④："边界要显式化"）：
+ *   | 构造 | 例 | 说明 |
+ *   |---|---|---|
+ *   | `tag` / `.class` / `tag.class` | `div.p3-metrics` | 复合选择器（多 class 可） |
+ *   | 组合器 **后代**（空格） | `div.p3-metrics div` | compare 单侧选择器需要 |
+ *   | 组合器 **子代** `>` | `div.p3-metrics > div` | data 叶需要 |
+ *   | `:first-child` · `:nth-child(n)` | `div:first-child` · `li:nth-child(2)` | 严格按"父的第 n 个子元素" |
+ *   | `[attr]` · `[attr="v"]` | `[data-anim]` | 属性存在/等值 |
+ *   **其余一律不支持**（`+` `~` `*` `:not()` `::` `:nth-of-type` …）⇒ `countCss` 返回 `{ok:false}`
+ *   ⇒ **调用方必须判红**（`SELECTOR_UNSUPPORTED` / `[SEL_UNSUPPORTED]`），**绝不静默返回 0**。
+ *   ⚠️ **新增构造必须先问**（不许顺手加）—— 与 `domTarget` 的既有约定区隔：那套（`:first-child` = 首个匹配 ·
+ *   祖先 = 窗口搜索）是 crosscheck / measure-sweep 的**承重语义**，本函数**只增不改**地另开一套严格语义。
  */
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 

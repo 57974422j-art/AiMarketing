@@ -450,11 +450,13 @@
       "unit": "count",
       "kind": "editorial",
       "detectKind": "count",
-      "capacityAtLeast": 30,
+      "boundSource": "deck.schema.json#/$defs/pageSummary/properties/items",
+      "renderedMax": 3,
       "sweepMax": 30,
       "sweepMaxNote": "**扫描上限**（= `--nmax` 值）—— 与 `capacityAtLeast`（容量下限）**一个字段一个语义**：这样「N_MAX 变了但容量恰好没变」的漂移能被 `--verify-cell` 发现（它比对 source 里的 `--nmax` ↔ 本字段）",
       "basis": [
-        "**无几何失败模式**（N_MAX=30 内**未触发任何判据码**：N=3 与 N=30 两次读数**判据码=[]**）；本格 N=30 时**引擎 exit=0**（与 steps/bullets 的 exit=1 不同 ⇒ 如实记录差异，不统一化）"
+        "**契约固定为 3 条（minItems == maxItems）⇒ 非几何容量**（team-lead msg33 ②：固定窗口不许报容量）",
+        "**旁证（不作容量）**：强注到 N=30 仍能渲染且 判据码=[]（N=3 与 N=30 两次读数）；本格 N=30 时**引擎 exit=0**（与 steps/bullets 的 exit=1 不同 ⇒ 如实记录、不统一化）"
       ],
       "page": 11,
       "readback": "**页内条数 == N** ✓（N=3 ⇒ 页内 3 · N=30 ⇒ 页内 30；**全篇 25 / 52 作对照** ⇒ 作用域负控成立）",
@@ -490,12 +492,13 @@
       "unit": "count",
       "kind": "editorial",
       "detectKind": "count",
-      "capacityAtLeast": 2,
+      "boundSource": "deck.schema.json#/$defs/pageData/properties/secondary",
+      "renderedMax": 2,
       "sweepMax": 2,
       "sweepMaxNote": "**扫描上限 = 2**（与 schema 的 minItems/maxItems 一致）—— ⚠️ **不能再往上探**：`secondary` 是**对象数组**，而条数构造器只能**补字符串**（`N=29` 实测「渲染失败：产物缺失」）⇒ 容量**只证到 2**，如实记 2（不冒记 30）",
       "basis": [
-        "**无几何失败模式**（N=2 ⇒ **判据码=[]**）",
-        "⚠️ **容量只到 2**：对象数组无法被合成补足（构造器补的是字符串）⇒ 高于 2 的 N **不可测**（不是\"测了没问题\"，而是\"根本测不了\"）——如实标注"
+        "**契约固定为 2 条（minItems == maxItems）⇒ 非几何容量**（team-lead msg33 ②：固定窗口不许报容量）",
+        "**读数（不作容量）**：N=2 ⇒ 判据码=[]；⚠️ 且**对象数组无法被合成补足**（构造器补的是字符串，N=29 实测「渲染失败：产物缺失」）⇒ 高于 2 **不可测** ——如实标注"
       ],
       "page": 8,
       "readback": "**页内条数 == N** ✓（N=2 ⇒ 页内 2）",
