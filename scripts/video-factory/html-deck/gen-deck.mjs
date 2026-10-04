@@ -260,6 +260,11 @@ function build(text, opt) {
     else notes.push(`目录页需 ≥3 条 4~24 字的标题（现 ${items.length} 条）⇒ 已跳过目录`)
   }
   /* 尾页 */
+  /* 字幕取句策略（竖屏 QA 修）：
+   *   原策略是"标题｜多条要点/解释"拼接 ⇒ 竖屏折成 **2~3 行**，压住列表/卡片/CTA（九页 QA 实测多处碰撞）。
+   *   根因是**文案太长**（不是边距）。⇒ 每页只取"**一句主干**"并**限长**（默认 24 字，竖屏一行约 12~14 字 ⇒ 至多两行）。 */
+  const clip = (s, n = 24) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t }
+  const first = (arr) => (Array.isArray(arr) && arr.length ? String(arr[0]) : '')
   const lastSec = sections[sections.length - 1]
   const ctaLine = text.split(/\r?\n/).map((l, i) => ({ t: l.trim(), line: i + 1 })).find((l) => l.t && isCta(l.t))
   const line1 = pick([lastSec && lastSec.title, title, '谢谢观看'], win('pageEnd', 'line1')) || '谢谢观看'
@@ -295,18 +300,18 @@ function build(text, opt) {
       const d = Number(p.duration || 3.4)
       /* ⚠️ 这里第一版写成了**对象字面量**：所有分支都会**立即求值** ⇒ 非数据页也去读 `p.metric.number`
        *    ⇒ `TypeError: Cannot read properties of undefined`。字幕文案必须**惰性取**（switch）。 */
-      let txt = p.title || ''
+      let txt = clip(p.title || '')
       switch (p.type) {
-        case 'cover': txt = [meta.title, meta.subtitle].filter(Boolean).join('｜'); break
-        case 'toc': txt = `目录：${(p.items || []).join(' · ')}`; break
-        case 'bullets': txt = [p.title, (p.items || []).slice(0, 2).join('；')].join('｜'); break
-        case 'data': txt = `${p.title}：${p.metric.number}${p.metric.unit}（${p.metric.explain}）`; break
-        case 'steps': txt = [p.title, (p.steps || []).join(' → ')].join('｜'); break
-        case 'chart': txt = [p.title, p.explain].join('｜'); break
-        case 'compare': txt = [p.title, p.conclusion].join('｜'); break
-        case 'quote': txt = [p.quote, p.author].filter(Boolean).join(' —— '); break
-        case 'summary': txt = [p.title, (p.items || []).join('；')].join('｜'); break
-        case 'end': txt = [p.line1, p.cta].filter(Boolean).join('｜'); break
+        case 'cover': txt = clip(meta.title); break
+        case 'toc': txt = clip(`目录：共 ${(p.items || []).length} 节`); break
+        case 'bullets': txt = clip(`${p.title}：${first(p.items)}`); break
+        case 'data': txt = clip(`${p.title}：${p.metric.number}${p.metric.unit}`); break
+        case 'steps': txt = clip(`${p.title}：${first(p.steps)}`); break
+        case 'chart': txt = clip(p.title); break
+        case 'compare': txt = clip(`${p.title}：${p.conclusion}`); break
+        case 'quote': txt = clip(p.quote, 30); break
+        case 'summary': txt = clip(`${p.title}：${first(p.items)}`); break
+        case 'end': txt = clip(p.cta); break
         default: break
       }
       srt.push(`${i + 1}\n${fmt(t + 0.2)} --> ${fmt(t + d - 0.15)}\n${String(txt).replace(/\n/g, ' ')}\n`)
