@@ -4,48 +4,137 @@
   "_note": "★ 本文件就是重构前生成器里那些写死的母版常量（MASTER/PAGE/GEO/PLOT/PLOT_PAD/绘图区偏移/配色/素材名）。数值一字未改 ⇒ 生成器改为读本文件后，master-v1 的产物必须字节级不变。",
   "assets": "assets",
   "cover": "cover.jpg",
-  "files": { "css": "master.css", "gsap": "gsap.min.js", "js": "master.js" },
+  "files": {
+    "css": "master.css",
+    "gsap": "gsap.min.js",
+    "js": "master.js"
+  },
   "hyperframes": "hyperframes.json",
   "_fontsNote": "★ 内嵌字体是**两套母版共用的唯一一份**（放在 ../../fonts，不许各存一份）：字符集 = GB2312 一级字表 3755 字 + ASCII + 中英标点（见 ../../fonts/chars-cmn.txt，字表入库）。渲染时由 render-deck.mjs 拷进产物 assets；check-font-coverage.mjs 当**渲染前闸门**验 deck 文本 ⊆ 覆盖。",
-  "fonts": { "src": "../../fonts", "files": ["NotoSerifSC-sub.woff2", "NotoSansSC-sub.woff2"] },
+  "fonts": {
+    "src": "../../fonts",
+    "files": [
+      "NotoSerifSC-sub.woff2",
+      "NotoSansSC-sub.woff2"
+    ]
+  },
   "page": 3,
   "canvas": {
-    "16:9": { "w": 1280, "h": 720, "portrait": false },
-    "9:16": { "w": 720, "h": 1280, "portrait": true }
+    "16:9": {
+      "w": 1280,
+      "h": 720,
+      "portrait": false
+    },
+    "9:16": {
+      "w": 720,
+      "h": 1280,
+      "portrait": true
+    }
   },
-  "padBase": { "16:9": 84, "9:16": 54 },
+  "padBase": {
+    "16:9": 84,
+    "9:16": 54
+  },
   "plot": {
-    "16:9": { "w": 1112, "h": 300 },
-    "9:16": { "w": 612, "h": 400 }
+    "16:9": {
+      "w": 1112,
+      "h": 300
+    },
+    "9:16": {
+      "w": 612,
+      "h": 400
+    }
   },
-  "plotPad": { "l": 54, "r": 14, "t": 30, "b": 36 },
-  "plotTopOffset": { "16:9": 110, "9:16": 146 },
-  "chart": { "barAlpha": 0.5 },
+  "plotPad": {
+    "l": 54,
+    "r": 14,
+    "t": 30,
+    "b": 36
+  },
+  "plotTopOffset": {
+    "16:9": 110,
+    "9:16": 146
+  },
+  "chart": {
+    "barAlpha": 0.5
+  },
   "_imageNote": "图片页的媒体区像素矩形（与 master.css 的 .p9--* 规则一致）。放在清单里是为了让像素验证有独立真源 —— 同图表几何的待遇。",
   "image": {
     "16:9": {
-      "_allowed": ["left", "right", "full"],
-      "left": { "x": 0, "y": 0, "w": 589, "h": 720 },
-      "right": { "x": 691, "y": 0, "w": 589, "h": 720 },
-      "full": { "x": 0, "y": 0, "w": 1280, "h": 720 }
+      "_allowed": [
+        "left",
+        "right",
+        "full"
+      ],
+      "left": {
+        "x": 0,
+        "y": 0,
+        "w": 589,
+        "h": 720
+      },
+      "right": {
+        "x": 691,
+        "y": 0,
+        "w": 589,
+        "h": 720
+      },
+      "full": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 720
+      }
     },
     "9:16": {
-      "_allowed": ["full"],
+      "_allowed": [
+        "full"
+      ],
       "_note": "left/right 仅横屏使用（D15）：竖屏下二者是同一条整宽媒体带（720×538），'侧向'语义不成立，契约层已禁（validate-deck.mjs 对 9:16 只允许 full）。这里的规则保留仅为跨几何 CSS 一致性，且断言器要按声明比对。",
-      "left": { "x": 0, "y": 0, "w": 720, "h": 538 },
-      "right": { "x": 0, "y": 0, "w": 720, "h": 538 },
-      "full": { "x": 0, "y": 0, "w": 720, "h": 1280 }
+      "left": {
+        "x": 0,
+        "y": 0,
+        "w": 720,
+        "h": 538
+      },
+      "right": {
+        "x": 0,
+        "y": 0,
+        "w": 720,
+        "h": 538
+      },
+      "full": {
+        "x": 0,
+        "y": 0,
+        "w": 720,
+        "h": 1280
+      }
     }
   },
-  "donutShades": [1, 0.78, 0.58],
+  "donutShades": [
+    1,
+    0.78,
+    0.58
+  ],
   "bg": "#14161a",
   "ink": "#e9e7e2",
   "rule": "rgba(233,231,226,.13)",
   "_paletteNote": "palette 名清单**由母版提供**（每套母版自己的命名）。deck 里写 palette 前必须先选 masterId —— validate-deck.mjs 按所选母版的清单校验。v1 保持原 4 名不动（零回归）。",
   "palette": {
-    "warm-gold": { "accent": "#c8a06a", "rgb": "200,160,106" },
-    "olive": { "accent": "#a8b0a0", "rgb": "168,176,160" },
-    "clay": { "accent": "#b98c7a", "rgb": "185,140,122" },
-    "mist-blue": { "accent": "#8fa3b8", "rgb": "143,163,184" }
+    "warm-gold": {
+      "accent": "#c8a06a",
+      "rgb": "200,160,106"
+    },
+    "olive": {
+      "accent": "#4f5334",
+      "rgb": "79,83,52"
+    },
+    "clay": {
+      "accent": "#8f4a2e",
+      "rgb": "143,74,46"
+    },
+    "mist-blue": {
+      "accent": "#6b8fae",
+      "rgb": "107,143,174"
+    }
   }
 }
