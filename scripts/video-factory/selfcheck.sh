@@ -89,7 +89,7 @@ ck 'VF_TYPEFIX_V1'                  'src/app/api/agent/chat/route.ts' 1  # 未�
 ck 'VF_TAIL_V2'                     'src/app/api/agent/make-video-status/route.ts' 1  # 任务日志留 30 行
 ck 'VF_LESSDARK_V1'                 'scripts/video-factory/render.py' 1  # 黑遮罩 0.42→0.15
 ck 'dashscope,minimax,silicon'      'scripts/video-factory/tts.py' 1     # 默认配音引擎链
-ck 'borderw=2'                      'scripts/video-factory/render.py' 1  # 画面大字描边
+ck 'borderw='                       'scripts/video-factory/render.py' 1  # 画面大字/字幕描边（**值按字号计算** `max(2,int(fs*…))` ⇒ 只断言"存在描边参数"，不许钉字面量 `borderw=2`：钉了会让正确代码永远 FAIL，实测 0/17）
 
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
