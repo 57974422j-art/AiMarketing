@@ -1,9 +1,10 @@
 {
   "_doc": "哑 catch 基线（**工具产出**：node commit-safe.mjs --write-silent-baseline）—— 判据=「体内既无 console./throw 也无计数」的 catch 数。★ **新基线只能 ≤ 旧基线**（只许下调；写高会被拒绝并红 —— 防\"一键重写绕过棘轮\"）",
   "_invariant": "I8b：哑 catch **只许减**；新增即红；基线与实测**逐文件对账**（不许手写数字）",
-  "at": "2026-10-04T04:21:37.104Z",
-  "sha": "c65fd00",
+  "at": "2026-10-04T07:28:42.406Z",
+  "sha": "57c7929e",
   "files": {
+    "apply-master-layers.mjs": 0,
     "batch-video.mjs": 0,
     "check-bad-examples.mjs": 1,
     "check-coverage-matrix.mjs": 2,
@@ -19,7 +20,7 @@
     "check-schema-vs-limits.mjs": 5,
     "check-syntax-and-json.mjs": 0,
     "clean-tmp.mjs": 4,
-    "commit-safe.mjs": 2,
+    "commit-safe.mjs": 1,
     "crosscheck-deck-json.mjs": 11,
     "deck-targets.mjs": 0,
     "decor-collision.mjs": 0,
@@ -27,7 +28,9 @@
     "dom-target.mjs": 0,
     "engine-bin.mjs": 1,
     "gate-release.mjs": 5,
+    "gen-deck.mjs": 0,
     "inject-long-text.mjs": 0,
+    "make-video.mjs": 0,
     "measure-count.mjs": 4,
     "measure-limits.mjs": 1,
     "measure-sweep.mjs": 4,
@@ -42,5 +45,5 @@
     "verify-image.mjs": 0,
     "verify-masters.mjs": 0
   },
-  "total": 58
+  "total": 57
 }
