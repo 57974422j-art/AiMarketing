@@ -48,6 +48,11 @@ const PAGE = Number(arg('--page', '2'))
 /* ★★ team-lead msg29 ③(b)：容器唯一性守卫的**显式豁免**（`--containers-expect <n>` + **必带理由** `--containers-why`）。 */
 const CONT_EXPECT = arg('--containers-expect', '')
 const CONT_WHY = arg('--containers-why', '')
+/* ★★ 路径语义**唯一实现**在 `deck-jsonpath.mjs`（team-lead 裁定 (B)：新建模块，不塞进 `paths.mjs` ——
+   后者自述是"**引擎路径**（文件系统布局）的唯一来源"，两者是**不同语言**，同住一模块 = "名字与内容不符"）。
+   本文件此前自己切分路径（`JSONPATH.split('.')`）⇒ 只支持两层、且**读点与写点各写各的**（嵌套化时最易假绿）。 */
+import { parseDeckPath, pageIndexOf, describeDeckPath } from './deck-jsonpath.mjs'
+
 const JSONPATH = arg('--jsonpath', 'pages.1.items')
 const CLS = arg('--cls', 'li:first-child .t')
 /* ★ team-lead ①：**默认值必须安全** —— 旧默认 `li` = **全篇计数**（正是"读回 23"那个坑）⇒
@@ -119,11 +124,15 @@ const SRC = join(HERE, 'examples', `deck.${DECK}.json`)
 if (!existsSync(SRC)) { console.error(`✗ 找不到底档 ${SRC} ⇒ exit 2`); process.exit(2) }
 const base = JSON.parse(readFileSync(SRC, 'utf8'))
 
-/** 按 `pages.<i>.<key>` 取/写数组（只支持两层：pages.i.key） */
-const [pIdx, key] = JSONPATH.split('.').slice(1)
-const page = base.pages[Number(pIdx)]
-if (!page || !Array.isArray(page[key])) { console.error(`✗ 底档里 ${JSONPATH} 不是数组 ⇒ 停手（不许猜）`); process.exit(2) }
-const seed = page[key].slice()
+/* ★★ 路径语义**唯一实现**（`deck-jsonpath.mjs`）：本处不再自己切分、不再自己判"是不是数组"。
+   ① **嵌套** `pages.<i>.<a>.<b>` 与两层走**同一代码**；② **读点 = 写点**（同一个 `holder`/`leaf`）；
+   ③ 三类"停手"**错因分开报**（页不存在 / holder 某层不是对象 / **末段不是数组**）—— 不合并成一句"不是数组"。 */
+const PARSED = parseDeckPath(base, JSONPATH)
+if (!PARSED.ok) { console.error(`✗ 底档里 ${JSONPATH} 不可用 ⇒ 停手（不许猜）：${PARSED.why}`); process.exit(2) }
+const pIdx = String(PARSED.pageIndex)      /* 供后续打印/定位口径沿用（值来自唯一实现，不再自己正则） */
+const key = PARSED.leaf
+const seed = PARSED.holder[PARSED.leaf].slice()
+console.log(`  ${describeDeckPath(JSONPATH, PARSED)}`)
 
 /* ★ **必须抬 `maxItems` 才能探到条数真判据**（与 K22 同族：schema 上限会**拦死测量** —— 实测 N=6/7/8 全被 `maxItems:5` 拒）⇒
    造 override（`DECK_SCHEMA_OVERRIDE`，**仅渲染**用；引擎读的是 HTML，不受影响）。指针守卫：找不到 maxItems 就停手。 */
@@ -190,9 +199,10 @@ function pageAssertOk(hitPage, cellPage) { return !cellPage || Number(hitPage) =
    ★ 为什么必须接线：实测 `--page` 的数值**不决定**被量对象（`--page 3` 打 `pages.3.steps`（第 4 页）也通过）
      ⇒ 不接线它就是**纸面装饰**（后人写错无人知）；接线后 13/17 格命令里的 `--page` **立刻有牙**。 */
 function pageArgTag(jsonpath, page) {
-  const m = /^pages\.(\d+)\./.exec(String(jsonpath || ''))
-  if (!m) return null                      /* 非页内数组（如顶层 pages）⇒ 没有"应在页"可声明 */
-  return Number(page) === Number(m[1]) + 1 ? null : 'PAGE_ARG_MISMATCH'
+  /* ★ team-lead ②(8)：**页下标解析 3 份 ⇒ 1 份** —— 这里此前是第 2 份（`pageArgExpect` 是第 3 份）⇒ 都改走唯一实现。 */
+  const idx = pageIndexOf(jsonpath)
+  if (idx === null) return null            /* 非页内数组（如顶层 pages）⇒ 没有"应在页"可声明 */
+  return Number(page) === idx + 1 ? null : 'PAGE_ARG_MISMATCH'
 }
 /* ★★ team-lead msg29 ③(b)：**容器唯一性守卫的显式豁免**（守卫**不弱化**）——
    有些页**天然多容器**（如 compare 页左右各一个 `<ul>`）⇒ 合并计数会**高估** ⇒ 此时不该"关掉守卫"，
@@ -205,8 +215,9 @@ function containerExpectTag(containers, expect, why) {
   return Number(containers) === Number(expect) ? null : 'CONTAINERS_EXPECT_MISMATCH'
 }
 function pageArgExpect(jsonpath) {
-  const m = /^pages\.(\d+)\./.exec(String(jsonpath || ''))
-  return m ? Number(m[1]) + 1 : null
+  /* ★ team-lead ②(8)：页下标解析**第 3 份也归位**（唯一实现在 `deck-jsonpath.mjs`）—— 返回 **1-based 应在页**。 */
+  const idx = pageIndexOf(jsonpath)
+  return idx === null ? null : idx + 1
 }
 /* ★ `--self-test-scope`：**合成输入**正/负控（与 `--self-test-extract` 同款形态）——
    ① 单容器切片 ⇒ 容器数 1（不红）② **双容器切片 ⇒ 容器数 2（必须红）** ③ 切条数正确 ④ 页断言：同页 true / 异页 false（必须红）。 */
@@ -287,8 +298,28 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   const vrel = `examples/__tmp_count-k${N}.json`
   const outdir = `out-tmp-count-k${N}`
   const d = JSON.parse(JSON.stringify(base))
-  d.pages[Number(pIdx)][key] = fit(seed, N)
+  /* ★★ **写点 = 读点**（同一个 `parseDeckPath`、同一条路径）：此前写的是 `d.pages[i][key]`（**只认两层**）⇒
+     一旦路径是嵌套的（`pages.5.left.points`）就会**写错位置**（写回顶层）⇒ 变体档里那个数组**根本没变**，
+     而渲染照样成功 ⇒ **假绿**。现在对**副本**再解析一次（同代码）并用 `holder`/`leaf` 写 ⇒ 结构上不可能写错层。 */
+  const DP = parseDeckPath(d, JSONPATH)
+  if (!DP.ok) { console.error(`✗ 变体档解析失败（不该发生）：${DP.why} ⇒ 停手`); process.exit(2) }
+  DP.holder[DP.leaf] = fit(seed, N)
   writeFileSync(vj, JSON.stringify(d, null, 2), 'utf8')
+  /* ★★ team-lead ② 的**往返断言**：**重读被改的档**（不看我自己的变量）⇒ `holder[leaf].length === N`。
+     专防"读穿嵌套、写回顶层"（读点与写点不是同一个 ⇒ 变体落错位置 ⇒ 渲染照样成功 ⇒ **假绿**）。 */
+  {
+    let rt = null
+    try { rt = JSON.parse(readFileSync(vj, 'utf8')) } catch (e) { console.error(`✗ [JSONPATH-ROUNDTRIP] 变体档重读失败：${e.message}（哑 catch 不许 ⇒ 直接报）`) }
+    const RTP = rt ? parseDeckPath(rt, JSONPATH) : { ok: false, why: '重读失败' }
+    const got = RTP.ok ? RTP.holder[RTP.leaf].length : null
+    if (!RTP.ok || got !== N) {
+      console.error(`✗ [JSONPATH-ROUNDTRIP] 注入后重读 ${JSONPATH} 期望 ${N} 条 ⇒ 实际 ${got === null ? '无法解析：' + RTP.why : got}（**变体没落在被量的那一层**）`)
+      process.exit(2)
+    }
+    /* ★ team-lead ②(9)：**回读必须把"解释"打出来**（可肉眼审计"读点 = 写点"）——
+       不是只有程序知道写对了；**人也能看出它读/写的是哪一层**（我们反复栽在"看起来对"上）。 */
+    console.log(`   ${describeDeckPath(JSONPATH, RTP, got, N)}（往返已证）`)
+  }
   created.push(vj, join(HERE, outdir))
 
   /* ② 自己渲染（**不用 crosscheck 的注入**：它的"零注入"会把首条文本变空 ⇒ 触发 minLength ⇒ 校验拒 —— 实测踩过） */

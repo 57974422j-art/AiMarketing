@@ -19,6 +19,9 @@ import { spawnSync } from 'node:child_process'   /* ★ --selftest-handchecks：
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DECK_DIR } from './paths.mjs'
+/* ★ 路径语义**唯一实现**（team-lead 裁定 (B)：新建 `deck-jsonpath.mjs`）—— 本文件只用 `pageIndexOf()`，
+   **不再自己写 `pages.` 的解析正则**（有跨文件出现次数断言守着，见下方"路径唯一性"块）。 */
+import { pageIndexOf } from './deck-jsonpath.mjs'
 /* ★★ team-lead msg8 ③：兜底 = **跳过 shebang/import 后的第一句可执行**（否则 `const HERE` / `process.argv` 那几行里的异常仍漏网）。 */
 for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandledRejection', 'UNCAUGHT_REJECTION']]) {
   process.on(ev, (e) => {
@@ -171,6 +174,36 @@ if (process.argv.includes('--self-test-synth')) {
   process.exit(fail === 0 ? 0 : 1)
 }
 
+/* ★★ team-lead ②(8)：**`pages.` 的解析只许出现在 `deck-jsonpath.mjs`**（此前 **3 份**：`measure-count` L193/L208
+   + 本文件 L210）—— 与 msg37 ② 的"同判据只许一处"同族，但探针是**跨文件**的。
+   ⚠️ 探针**分段拼**（源码里不出现连续探针）⇒ 判定器不会把自己判红（HF / K17-ff / 本批同款自匹配坑）。
+   ⚠️ **分母不许为零**：唯一实现里**必须真的**含该探针（否则断言恒真 = 装饰）。 */
+{
+  const NEEDLE = '/' + '^pages' + '\\' + '.'
+  const off = []
+  let rdFail = 0, own = 0
+  try { own = readFileSync(new URL('deck-jsonpath.mjs', import.meta.url), 'utf8').split(NEEDLE).length - 1 } catch (e) { rdFail++; console.error(`   （路径唯一性断言：读唯一实现失败 ⇒ ${e.message}）`) }
+  try {
+    for (const f of readdirSync(new URL('.', import.meta.url))) {
+      if (!f.endsWith('.mjs') || f === 'deck-jsonpath.mjs') continue
+      let t = ''
+      try { t = readFileSync(new URL(f, import.meta.url), 'utf8') } catch { rdFail++; continue }
+      const n = t.split(NEEDLE).length - 1
+      if (n) off.push(`${f}×${n}`)
+    }
+  } catch (e) { rdFail++; console.error(`   （路径唯一性断言：目录读取失败 ⇒ ${e.message}）`) }
+  if (rdFail) console.error(`   （路径唯一性断言：有 ${rdFail} 处读取失败 ⇒ 计数可能不完整）`)
+  if (own < 1) {
+    console.error(`✗ **探针失效**：唯一实现 deck-jsonpath.mjs 里没找到 pages. 的解析 ⇒ 断言恒真（分母为零）`)
+    process.exit(2)
+  }
+  if (off.length) {
+    console.error('✗ **`pages.` 的解析只许出现在 `deck-jsonpath.mjs`**（team-lead ②(8)：页下标解析 3 份 ⇒ 1 份）')
+    console.error(`   违规：${off.join(' · ')} ⇒ 请改调 \`pageIndexOf()\` / \`parseDeckPath()\`（本文件已 import）`)
+    process.exit(2)
+  }
+}
+
 /* ★★ msg37 ②：**同判据只许一处**的结构性断言（每次跑都跑：普通运行 / `--self-test-synth` / `--verify-cell` 都过它）。 */
 {
   let src = ''
@@ -207,14 +240,20 @@ for (const it of (limits.limits || [])) {
     const one = (re) => { const m = re.exec(src); return m ? Number(m[1]) : null }
     const pPage = one(/--page\s+(\d+)/)
     const pExp = one(/--expect-page\s+(\d+)/)
-    const jpM = /--jsonpath\s+pages\.(\d+)\./.exec(src)
+    /* ★★ 路径语义**唯一实现**（team-lead ②(8)：**页下标解析 3 份 ⇒ 1 份**）：
+       本文件此前自己写 `/--jsonpath\s+pages\.(\d+)\./`（第 3 份）⇒ 现只从 `source` 串里**取参数值**，
+       解析交给 `deck-jsonpath.mjs` 的 `pageIndexOf()`（解析只许出现在那一处 ⇒ 有出现次数断言守着）。 */
+    const jpRaw = (/--jsonpath\s+(\S+)/.exec(src) || [])[1] || null
+    const jpIdx = pageIndexOf(jpRaw)
     const want = it.page
     if (want !== undefined) {
       if (it.unit === 'count' || it.capacityAtLeast !== undefined) {
         if (pPage === null) viol.push(`${labelC(it)} ⇒ **定位口径**：条数格 source 缺 --page（无法定位 ⇒ 读数可能量到了别的页）`)
         else if (pPage !== want) viol.push(`${labelC(it)} ⇒ **定位口径**：source 的 --page ${pPage} ≠ 表内 page ${want} ⇒ **读数被归到错的格子**`)
-        if (!jpM) viol.push(`${labelC(it)} ⇒ **定位口径**：条数格 source 缺 --jsonpath pages.<i>.<字段>（0-based 口径无法核）`)
-        else if (Number(jpM[1]) + 1 !== want) viol.push(`${labelC(it)} ⇒ **定位口径**：--jsonpath pages.${jpM[1]}（0-based ⇒ 第 ${Number(jpM[1]) + 1} 页）≠ 表内 page ${want}`)
+        /* ⚠️ 放宽到**任意层**（`pages.<i>.<a>.<b>` 合法）—— 但"页下标"仍由唯一实现给出（`pageIndexOf`）。
+           此前只接受两层 ⇒ 嵌套格会被误判"缺定位口径"（正是"文本级校验与语义实现脱节"的形状）。 */
+        if (jpRaw === null || jpIdx === null) viol.push(`${labelC(it)} ⇒ **定位口径**：条数格 source 缺 --jsonpath pages.<i>.<字段>…（**任意层**；0-based 口径无法核）`)
+        else if (jpIdx + 1 !== want) viol.push(`${labelC(it)} ⇒ **定位口径**：--jsonpath pages.${jpIdx}（0-based ⇒ 第 ${jpIdx + 1} 页）≠ 表内 page ${want}`)
       } else {
         if (pExp === null) viol.push(`${labelC(it)} ⇒ **定位口径**：长度格 source 缺 --expect-page（无法核「命中页 == 该格 page」）`)
         else if (pExp !== want) viol.push(`${labelC(it)} ⇒ **定位口径**：--expect-page ${pExp} ≠ 表内 page ${want}`)

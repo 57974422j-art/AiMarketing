@@ -506,6 +506,30 @@
       "evidence": "**判据码=[]**（N=2）· 恒定非判据码 `timeline_track_too_dense` / `nested_structure_needs_subcomposition`（各 N 都有 ⇒ 与容量无关）· 作用域负控走**页无关探针**（`li`：全篇 22 > 页内 0）⇒ 切片确实截断",
       "source": "node measure-count.mjs --deck all12 --page 8 --jsonpath pages.7.secondary --sel \"div.p3-metrics > div\" --min 2 --max 2 --nmax 2 --stride 27 --maxitems-ptr '#/$defs/pageData/properties/secondary'",
       "judgeLimitNote": "**容量 ≠ 约束**：`capacityAtLeast: 2` = **已证能装 ≥ 2**（= schema 上限 2）⇒ 唯一断言 `maxItems ≤ 容量`（2 ≤ 2 ✓）。★ 本格需要**组合器选择器** ⇒ 触发 `--sel` 的 **CSS 子集**扩展（`dom-target.countCss`，**不支持则判红而非静默 0**）。★ **页作用域说明**：无 `--expect-page`，页作用域由 `--page 8` 切片承担。⚠️ 未证部分如实标注：**该上限的正确值由编辑意图定**（恰 2 条），故不许写「上限已验证」"
+    },
+    {
+      "jsonPointer": "#/$defs/compareSide/properties/points",
+      "field": "pages.5.left.points",
+      "pageType": "compare",
+      "detectPoint": "compare 页左右两列 `ul.p7-points` 的**直接 li**；**按侧选择器**（`.p7-col--a li` / `.p7-col--b li`）—— 容器/类名**从产物解析**（禁 `p6-*` 套页号）",
+      "unit": "count",
+      "kind": "editorial",
+      "detectKind": "count",
+      "capacityAtLeast": 4,
+      "sweepMax": 4,
+      "sweepMaxNote": "扫描上限 = **4**（= schema `maxItems`）。⚠️ **更大 N 不可测**：N=10 与 N=29 实测「渲染失败：产物缺失」（单列 10 条即渲染不出产物）⇒ 容量**只证到 4**，如实记 4（**不冒记 30**）—— 与同类格（`pages.7.secondary`）同一诚实口径",
+      "basis": [
+        "**按侧计数**：左右**各自 == N**（N=2/4 实测 `页内=2` / `页内=4`）· **合并数一律不入表**（两列合起来 = 2N ⇒ 会**高估**满溢阈值）",
+        "**往返断言已证**：注入后**重读被改的档**，`holder[leaf].length === N` ⇒ 读点 = 写点（路径语义唯一实现 `deck-jsonpath.mjs`）",
+        "**容器豁免带理由**：`--containers-expect 2 --containers-why \"compare 左右各一 ul\"` ⇒ 实测「页内同类容器数 = 2 == 声明的 2（豁免理由：compare 左右各一 ul）」",
+        "**非固定窗口**（minItems=2 < maxItems=4）⇒ 走**容量**路线（capacityAtLeast）；**不设** boundSource / renderedMax（二者互斥，那条只给「契约固定」的格）"
+      ],
+      "page": 6,
+      "readback": "**左右各自 == N**（N=2 ⇒ 左 2 · 右 2；N=4 ⇒ 左 4 · 右 4）—— **合并数不入表**",
+      "twoPath": "**未交叉（页切片单源）** ⇒ 不记成「交叉通过」",
+      "evidence": "**判据码=[]**（N=2 与 N=4 皆空）· 恒定非判据码 `timeline_track_too_dense` / `nested_structure_needs_subcomposition`（各 N 都有 ⇒ 与容量无关）· 解释行（可肉眼审计读点=写点）：`pages.5.left.points ⇒ holder=pages[5].left · leaf=points · 量到 4（期望 4）（往返已证）`",
+      "source": "node measure-count.mjs --deck all12 --page 6 --jsonpath pages.5.left.points --sel \".p7-col--a li\" --min 2 --max 4 --nmax 4 --stride 2 --maxitems-ptr '#/$defs/compareSide/properties/points' --containers-expect 2 --containers-why \"compare 左右各一 ul\"",
+      "judgeLimitNote": "**容量 ≠ 约束**：`capacityAtLeast: 4` = **已证能装 ≥ 4**（= schema 上限 4）⇒ 唯一断言 `maxItems ≤ 容量`（4 ≤ 4 ✓）。★ 右侧同形（`pages.5.right.points` + `.p7-col--b li`，实测同样 exit=0 / `页内=4`）—— 两侧**各自跑**，**不合并**"
     }
   ]
 }
