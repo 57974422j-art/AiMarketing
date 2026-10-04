@@ -367,6 +367,7 @@ if (process.argv.includes('--write-silent-baseline')) {
     ['batch-video.mjs', ['--self-test-clean'], 'CLEAN-PLAN-SELFTEST', 0],   /* ★ --clean 的"清理 ⊆ 重建"（双向样本 · 零渲染） */
     ['color.mjs', ['--self-test-color'], 'COLOR-SELFTEST', 0],   /* ★ 颜色工具唯一实现（含一行复跑的导入即自检 · team-lead ③ 三条） */
     ['commit-safe.mjs', ['--self-test-baseline-surface'], 'BASELINE-SURFACE-SELFTEST', 0],   /* ★ 基线身份=扫描面指纹（提示只与真变化相关） */
+    ['check-font-coverage.mjs', ['--self-test-paint-chars'], 'FONT-PAINTCHARS-SELFTEST', 0],   /* ★ 取字口径唯一（配置值 vs 会被画出来的文本 · 成对样本） */
     ['gen-deck.mjs', ['--self-test'], 'GEN-SELFTEST', 0],
     ['mux-video.mjs', ['--self-test'], 'MUX-SELFTEST', 2],
   ]

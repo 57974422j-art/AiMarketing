@@ -112,6 +112,62 @@ function report(fonts, need, label) {
 
 let bad = 0
 
+/* ★★ **"会被画出来的字"的唯一取字口径**（team-lead msg39 抓到的**真地雷 · 可复现**）——
+ *  事故：`formal` 的配色 `绛红` 在派生档里**只出现 1 次**，位置是 `style.palette` —— **纯配置值、不会被画出来**
+ *  （渲染器只用它查颜色表），但**渲染前闸门**用的是"**整份 deck 的全文取字**"（`JSON.stringify(deck)`，
+ *  旧注释自承"含 meta/style 的值，宁可从严"）⇒ 判红 ⇒ **一条合法成片被拦死**（`formal-绛红-9x16` · render=8）。
+ *  ★ 而**同一文件的体检模式**（见下方 K14 段）写的是**正确口径**（产物侧：HTML 文本节点 + title/alt/aria-label/
+ *    placeholder + CSS `content:`）⇒ **同一需求两种口径**（K17 的形状）⇒ 本次是**假红**。
+ *  ★ 代价的传导：假红的代价不是"多看一眼"，而是**人去绕**（改名 / 绕闸门）⇒ **守卫的公信力被自己的假红消耗**
+ *    （与 K30"判据也会误伤真源"、K36"账开始撒谎"同族）。
+ *  ⇒ 取字口径**只此一处**：`meta` **保留**（title/subtitle/issuer/date 都是要画在封面上的字）、
+ *    `style` **排除**（masterId/palette/density/tempo/orientation = **标识符**，只用于查表/查母版）。
+ *  ⚠️ **能力边界（K23 如实）**：本函数只排除**顶层 `style`**；若将来**页级配置**里出现中文标识符
+ *     （如 `opts.<中文键>`）⇒ 仍会假红 ⇒ 届时按**同一口径**扩（不是各处各自打补丁）。
+ *  ⚠️ 本函数只管"**从 deck 取字**"；**产物侧**的真文本由全量体检模式从 `index.html` 取 ——
+ *     **输入不同、取字规则同源**（都只认"会被画出来的文本"）。 */
+function deckPaintChars(deck, into) {
+  charsOf(JSON.stringify({ meta: (deck && deck.meta) || {}, pages: (deck && deck.pages) || [] }), into)
+  return into
+}
+
+/* ★ 本口径**自己的成对样本**（team-lead 指定形态）：**同一字符、只改位置** ⇒ 位置是唯二变量（教科书式对照）。
+ *   ① **必红**：页面**正文**里放一个**未覆盖**的字 ⇒ 闸门**必须红**（原有保护力不许丢）
+ *   ② ★ **不许红**：`style.palette` 里放**同一个**未覆盖字（**本次形状**）⇒ **不许红**
+ *   且断言 **旧的内联"整份 deck 取字"形态已不存在**（否则同一需求又会分叉出两种口径 = K17 形状）。
+ *   ⚠️ 指纹**分段拼**（源码里不出现连续旧字面量 ⇒ 判定器**不自匹配**，HF/K17-ff 同款坑）。 */
+if (process.argv.includes('--self-test-paint-chars')) {
+  const req = createRequire(import.meta.url)
+  const { spawnSync } = req('node:child_process')
+  const { mkdirSync, writeFileSync: wfs } = req('node:fs')
+  const cases = []
+  const chk = (name, cond) => { cases.push(cond); console.log(`   ${cond ? '✓' : '✗'} ${name}`) }
+  const UNCOVERED = '\u7EDB'                                   /* 「绛」= 本次地雷里那个字（两套内嵌字体都没有） */
+  const NEEDLE = 'charsOf(JSON.stringify(' + 'deck)'           /* 旧的"全文取字"调用形态（分段拼 ⇒ 不自匹配） */
+  const self = fileURLToPath(import.meta.url)
+  const src = readFileSync(self, 'utf8')
+  chk('③ 结构：旧的内联"整份 deck 取字"形态**已不存在**（同一口径只许一处）', !src.includes(NEEDLE))
+  /* 纯函数层：同一未覆盖字，只改位置 */
+  chk('① 纯函数：页面**正文**里的字**进**待覆盖集（保护力在）', deckPaintChars({ meta: {}, pages: [{ title: 'x' + UNCOVERED }] }, new Map()).has(UNCOVERED))
+  chk('② 纯函数：`style` 里的字**不进**待覆盖集（本次形状）', !deckPaintChars({ style: { palette: 'x' + UNCOVERED }, pages: [] }, new Map()).has(UNCOVERED))
+  /* ★ 端到端：**真跑闸门**（不是只测纯函数）—— 同一字符、两个位置 ⇒ 一个必红、一个不许红 */
+  const dir = join(ROOT, 'out-tmp-fontgate-selftest')
+  try { mkdirSync(dir, { recursive: true }) } catch { console.error('   （临时目录已存在，直接复用）') }
+  const mk = (name, deck) => { const p = join(dir, name); wfs(p, JSON.stringify(deck), 'utf8'); return p }
+  const base = { version: 1, meta: { title: 't' }, style: { masterId: 'master-v1' }, pages: [{ title: 'x' }] }
+  const pBody = mk('body.json', { ...base, pages: [{ title: 'x' + UNCOVERED }] })
+  const pCfg = mk('cfg.json', { ...base, style: { masterId: 'master-v1', palette: 'p' + UNCOVERED } })
+  const run = (p) => spawnSync(process.execPath, [self, '--deck', p], { cwd: HERE, encoding: 'utf8' })
+  const rBody = run(pBody)
+  const rCfg = run(pCfg)
+  chk('① 端到端：**正文**含未覆盖字 ⇒ 闸门**必须红**（exit=1）', rBody.status === 1)
+  chk('② 端到端：**`style`** 含同一未覆盖字 ⇒ **不许红**（exit=0）', rCfg.status === 0)
+  const fail = cases.filter((x) => !x).length
+  console.log(`   ${fail === 0 ? '✓' : '✗'} [FONT-PAINTCHARS-SELFTEST] 取字口径 用例=${cases.length} · 失败=${fail}`)
+  if (fail) console.log(`   （端到端输出片段：正文 exit=${rBody.status} · 配置 exit=${rCfg.status}）`)
+  process.exit(fail === 0 ? 0 : 1)
+}
+
 /* ---------------- 渲染前闸门模式：只查一个 deck ---------------- */
 if (DECK) {
   const deck = JSON.parse(readFileSync(DECK, 'utf8'))
@@ -127,7 +183,7 @@ if (DECK) {
   for (const f of files) fonts[f] = loadCoverage(join(srcDir, f))
   console.log(`=== 字体覆盖闸门（渲染前）=== deck=${DECK.split(/[\\/]/).pop()}  母版=${man.id}  字体=${srcDir}`)
   const need = new Map()
-  charsOf(JSON.stringify(deck), need)          // 整份 deck 的文本（含 meta/style 的值，宁可从严）
+  deckPaintChars(deck, need)                   // ★ 唯一取字口径（`style` 等纯配置键**不进**判据 —— 见上方 K37 段）
   if (EXTRA) charsOf(EXTRA, need)
   const none = report(fonts, need, 'deck 文本')
   if (none.length) {
@@ -184,7 +240,8 @@ function productNeed(dir) {
   for (const f of ['image-meta.json', 'chart-meta.json']) {
     const p = join(dir, f)
     if (!existsSync(p)) continue
-    try { charsOf(JSON.stringify(JSON.parse(readFileSync(p, 'utf8')).deck || {}), need) } catch { /* ignore */ }
+    /* ★ 同一个"从 deck 取字"的需求 ⇒ **同一口径**（原先这里是**全文**取字 ⇒ 与闸门同款的假红风险 · K37） */
+  try { deckPaintChars(JSON.parse(readFileSync(p, 'utf8')).deck || {}, need) } catch { /* ignore */ }
   }
   return need
 }
