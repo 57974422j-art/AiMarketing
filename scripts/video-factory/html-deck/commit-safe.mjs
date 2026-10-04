@@ -114,6 +114,11 @@ steps.push({ name: `JSON.parse ${jsons.length} 个 .json`, ok: jsonBad.length ==
     if (isI9Violation(l) !== want) bad.push(`分类器自测失败：${JSON.stringify(l)} ⇒ ${isI9Violation(l)}（须 ${want}）`)
   }
   for (const f of mjs) {
+    /* ★★ **证据目录不进 I9 真源检测**（与 `check-syntax-and-json` 的扫描面**一致** · K17 先例：证据副本不进真源检测）——
+       否则 `evidence/tmp-i9/narrow-sample.mjs`（**有意的负控样本**）会把闸门**永久判红** ✗。
+       ⚠️ 本条属"**I9 有意的两层**"的一部分：本处 = **明细**（窄判据 · 能定格行号），
+          **结论来源** = `check-syntax-and-json` 的"块注释平衡"（见 README §25u + 该文件内注释）。 */
+    if (/[\\/]evidence[\\/]/.test(f)) continue
     const lines = readFileSync(f, 'utf8').split('\n')
     lines.forEach((l, i) => {
       const t = l.trimStart()
@@ -128,7 +133,7 @@ steps.push({ name: `JSON.parse ${jsons.length} 个 .json`, ok: jsonBad.length ==
       }
     })
   }
-  steps.push({ name: `I9 注释卫生（${mjs.length} 个 .mjs：注释续行不得含闭合符）`, ok: bad.length === 0, detail: bad })
+  steps.push({ name: `I9 **明细**（窄判据：续行引述闭合符 · 能定格行号；**结论来源**=check-syntax-and-json 的块注释平衡）（${mjs.length} 个 .mjs：注释续行不得含闭合符）`, ok: bad.length === 0, detail: bad })
 }
 /* ★★ team-lead msg9 ②③：**哑 catch 判据要"工具产出 + 有负控 + 有合成自测"** ——
    我上一版把 `26` **手写**进代码/步名（正是 `COUNT_DEBT_MAX = 12` 的老病：**人读的数字守机读的事实**）⇒ 现改为：

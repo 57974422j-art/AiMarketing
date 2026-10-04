@@ -1,8 +1,8 @@
 {
   "_doc": "哑 catch 基线（**工具产出**：node commit-safe.mjs --write-silent-baseline）—— 判据=「体内既无 console./throw 也无计数」的 catch 数。★ **新基线只能 ≤ 旧基线**（只许下调；写高会被拒绝并红 —— 防\"一键重写绕过棘轮\"）",
   "_invariant": "I8b：哑 catch **只许减**；新增即红；基线与实测**逐文件对账**（不许手写数字）",
-  "at": "2026-10-04T08:21:07.037Z",
-  "sha": "76ad7c37",
+  "at": "2026-10-04T09:17:10.327Z",
+  "sha": "c64a52e5",
   "files": {
     "apply-master-layers.mjs": 0,
     "batch-video.mjs": 0,
@@ -22,6 +22,7 @@
     "clean-tmp.mjs": 4,
     "commit-safe.mjs": 1,
     "crosscheck-deck-json.mjs": 11,
+    "deck-jsonpath.mjs": 0,
     "deck-targets.mjs": 0,
     "decor-collision.mjs": 0,
     "derive-decks.mjs": 0,
@@ -36,6 +37,7 @@
     "measure-sweep.mjs": 4,
     "measure-table.mjs": 1,
     "mux-video.mjs": 0,
+    "palette-distance.mjs": 0,
     "paths.mjs": 0,
     "render-deck.mjs": 2,
     "timing.mjs": 0,
