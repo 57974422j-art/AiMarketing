@@ -1748,11 +1748,46 @@ function VfDeckPreview({ plan }: { plan: any }) {
         <div className="mt-1.5">
           <div className="text-[10px] text-emerald-300 mb-1">
             新引擎成片 · {String(video.skin || '')} · {String(video.orientation || '')} · {video.pages || '?'} 页 · {video.sizeMB || '?'}MB
-            {video.truncated ? `（${String(video.truncated)}）` : ''}。满意可继续点「确认出片」（正式出片仍走当前链路）。
+            {video.truncated ? `（${String(video.truncated)}）` : ''}。满意可点下方「确认出片 · 新引擎」正式出片（老引擎按钮照旧，双轨自选）。
           </div>
           <video src={String(video.url)} controls className="rounded-lg border border-white/10 max-h-[420px]" />
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/** ★VF_DECKCONFIRM_V1（2026-10-04 用户定案「双轨并存：老的保留不退役，出片时自己选引擎」）：
+ *  确认卡上的「🎬 确认出片 · 新引擎」—— 与原「确认出片」（老引擎 · 默认 · 后端一行没改）并排。
+ *  点它 = 发机器协议串 `VF_DECK_CONFIRM:{skin,ori}`；服务端在四条成片线分派前接管，
+ *  把**同一份分镜**（草稿 vd.shots）交给 HTML 逐帧引擎正式出片（任务文件/进度轮询/入库/签名 URL
+ *  与老链同形状全复用，见 src/lib/agent/vf/vf-deck-render.ts）。
+ *  ⚠️ 诚实口径：新引擎成片 = 动态 PPT（与上面「新引擎成片预览」同画面），**无配音、无 BGM**；
+ *  收费 = 文案费（与老链同公式 ceil(字数/20)），不含动图/AI 画面那两笔（新引擎不调它们）。 */
+function VfDeckConfirm({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
+  const [skin, setSkin] = useState('v1')
+  const [ori, setOri] = useState(String(vj?.aspect || '') === 'landscape' ? '16:9' : '9:16')
+  // 报价与后端实扣同源（vf-deck-render.ts 的 ★VF_COSTFIX_V1 口径）：script 优先，无则分镜字幕总和
+  const chars = String(vj?.script || '').length
+    || (Array.isArray(vj?.shots) ? vj.shots.reduce((a: number, s: any) => a + String(s?.subtitle || s?.text || '').length, 0) : 0)
+  const cost = Math.max(1, Math.ceil(chars / 20))
+  return (
+    <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+      <select value={skin} onChange={(e) => setSkin(e.target.value)}
+        className="px-2 py-1.5 rounded-lg text-xs bg-white/[0.06] border border-emerald-400/30 text-emerald-100">
+        {DECK_SKINS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+      </select>
+      <select value={ori} onChange={(e) => setOri(e.target.value)}
+        className="px-2 py-1.5 rounded-lg text-xs bg-white/[0.06] border border-emerald-400/30 text-emerald-100">
+        <option value="9:16">竖屏 9:16</option>
+        <option value="16:9">横屏 16:9</option>
+      </select>
+      <button onClick={() => onSend('VF_DECK_CONFIRM:' + JSON.stringify({ skin, ori }))}
+        title={`用新引擎（HTML 逐帧）正式出片：动态 PPT，与上面预览同画面（无配音、无 BGM）。只收文案费约 ${cost} 点（与老链同公式；渲染本地不另收费）`}
+        className="px-4 py-1.5 rounded-lg text-sm bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 font-medium">
+        🎬 确认出片 · 新引擎（约 {cost} 点）
+      </button>
+      <span className="text-[10px] text-gray-500">上面「确认出片」= 老引擎（默认 · 带配音/字幕）；本按钮 = 新引擎（动态 PPT · 无配音）</span>
     </div>
   )
 }
@@ -3495,6 +3530,10 @@ function AgentPageInner() {
     if (content.startsWith('VF_EDIT:')) {
       return <span className="text-emerald-300/80">✏️ 已提交分镜修改（改的是出片前的清单，保存后点「确认出片」即按新版出片）</span>
     }
+    // ★VF_DECKCONFIRM_V1：新引擎出片确认的协议串同理，气泡里给一句人话（不显示 JSON 原文）
+    if (content.startsWith('VF_DECK_CONFIRM:')) {
+      return <span className="text-emerald-300/80">🎬 已确认用新引擎出片（HTML 逐帧 · 动态 PPT）——正在后台渲染，可随时问「视频做得怎么样了」</span>
+    }
     // ★VF_BRIEF_EDIT_V1（P0②）：提交"纠正过的素材结论"时，气泡里显示一句人话而不是 JSON
     if (content.startsWith('VF_BRIEF:')) {
       return <span className="text-emerald-300/80">🔍 已提交修改后的素材结论（写文案与排分镜会用它）</span>
@@ -3826,6 +3865,9 @@ function AgentPageInner() {
               {!vj.shotsFailed ? <VfPptPreview plan={(vj as any).sb?.plan} /> : null}
               {/* ★VF_DECKPREVIEW_WIRE_V1：新引擎成片预览（10 套皮肤 · 真出 MP4）—— 与上面的逐镜静帧并排，互不依赖 */}
               {!vj.shotsFailed ? <VfDeckPreview plan={(vj as any).sb?.plan} /> : null}
+              {/* ★VF_DECKCONFIRM_V1（2026-10-04 用户定案「双轨并存」）：确认出片 · 新引擎 ——
+                  与上面老引擎「确认出片」按钮并排，出哪个由用户按钮选择；老链一行没改。 */}
+              {!vj.shotsFailed ? <VfDeckConfirm vj={vj} onSend={sendMessage} /> : null}
             </div>
           )
         }

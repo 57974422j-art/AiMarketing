@@ -90,6 +90,12 @@ ck 'VF_TAIL_V2'                     'src/app/api/agent/make-video-status/route.t
 ck 'VF_LESSDARK_V1'                 'scripts/video-factory/render.py' 1  # 黑遮罩 0.42→0.15
 ck 'dashscope,minimax,silicon'      'scripts/video-factory/tts.py' 1     # 默认配音引擎链
 ck 'borderw='                       'scripts/video-factory/render.py' 1  # 画面大字/字幕描边（**值按字号计算** `max(2,int(fs*…))` ⇒ 只断言"存在描边参数"，不许钉字面量 `borderw=2`：钉了会让正确代码永远 FAIL，实测 0/17）
+# ★VF_DECKCONFIRM_V1（2026-10-04 用户定案「双轨并存：老的保留，出片时自己选引擎」）：
+#   确认卡「🎬 确认出片 · 新引擎」—— 三处接线缺一不可（协议串入口 / 前端按钮+挂载 / 执行体）。
+ck 'VF_DECKCONFIRM_V1'              'src/app/api/agent/chat/route.ts' 2  # 协议串：入口判定(vfProtoWord) + 四线分派前接管（≥2 处）
+ck 'VF_DECKCONFIRM_V1'              'src/app/agent/page.tsx' 2          # 前端：新按钮组件 + 确认卡挂载（≥2 处）
+ck 'VF_DECKCONFIRM_V1'              'src/lib/agent/vf/vf-deck-render.ts' 1  # 执行体：找草稿/计费/后台渲染/入库/扣费
+ck 'VF_DECK_CONFIRM'                'src/app/agent/page.tsx' 1          # 按钮发送的机器协议串本体（ASCII 锚点）
 
 line "结论"
 if [ "$FAIL" -eq 0 ]; then

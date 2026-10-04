@@ -3254,7 +3254,9 @@ export async function POST(request: NextRequest) {
     //   ★VF_MEMORY_V1（2026-09-30）再把 `VF_MAT_SET` 加进来 —— 素材「✅ 当素材用 / 🚫 别用」的协议串同理
     //   （发的是机器串，不是标准命令 → 不加就会掉出状态机）。
     // ★VF_MATUI_V1（2026-09-30）：再把 `VF_MAT_SWAP` 加进来（清单「🔄 换一张」的协议串同理）
-    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|VF_MAT_SET|VF_MAT_SWAP|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
+    // ★VF_DECKCONFIRM_V1（2026-10-04 用户定案「双轨并存」）：再把 `VF_DECK_CONFIRM` 加进来 ——
+    //   确认卡「🎬 确认出片 · 新引擎」发的机器串（HTML 逐帧引擎正式出片），同理必须强制进状态机。
+    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|VF_MAT_SET|VF_MAT_SWAP|VF_DECK_CONFIRM|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
     // ★STD_MODE_V1：命中 machine 命令（发布 / 三条成片线）→ 强制进状态机（跳过 AI 那一步）
     // ★VF_I2VDFLT_V1：再加 `stdSettingWord`（改设置的说法 / VF_I2V_OFF 协议串）→ 同样强制进状态机，
     //   由两条成片线在 step='script' 里改 i2v 并重出确认卡（不再落进 AI 自由发挥/锁死）。
@@ -3954,6 +3956,49 @@ PUBLISH_DRAFT.delete(uidW)
         //     只是多了一个 `!vfAiHandled` —— 没接管时该标记恒为 false，行为与之前完全一致。
         //   （这次事故的教训：两条线共用一段可执行代码 → 一条坏两条全坏。这里改为"各写各的"。）
         // ═══════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════
+        // ★VF_DECKCONFIRM_V1（2026-10-04 用户定案「双轨并存：出片时自己选引擎；老的保留不退役」）：
+        //   确认卡「🎬 确认出片 · 新引擎」发的协议串 `VF_DECK_CONFIRM:{"skin":…,"ori":…}`。
+        //   · **必须放在四条成片线分派之前**：线上有 step='script' 草稿时各线"有草稿必接管"，
+        //     晚于此这条协议串会被蹭走（与 VF_I2V_OFF 进状态机是同一类防线）。
+        //   · 语义：把**与老链同一份分镜**（草稿 vd.shots，不是另拼一份）交给 HTML 逐帧引擎
+        //     正式出片（收费 = 文案费，同老链公式；无配音/BGM/动图费——按钮与日志都如实写明）。
+        //     任务文件/进度轮询/入库/签名 URL 与老链同形状全复用（vf-deck-render.ts）。
+        //   · **老引擎一行没改，默认仍是它**；入队后照 stdClearAllDrafts 口径清草稿（入队即作废，
+        //     与老链"任务一旦入队就立即作废草稿"同规矩）。
+        // ═══════════════════════════════════════════════════════════════════════
+        if (/^VF_DECK_CONFIRM\s*:/.test(userMessage.trim())) {
+          try {
+            const { deckConfirmArgsOf, findDeckConfirmDraft, runDeckVideoTask } = await import('@/lib/agent/vf/vf-deck-render')
+            const _dc = deckConfirmArgsOf(userMessage)
+            const _df = await findDeckConfirmDraft(prisma, uidVF2)
+            if (!_df) {
+              wfEarlyReply = '新引擎出片：当前没有待出片的分镜草稿（可能已出片或草稿已过期）。重新排一次分镜后再点「确认出片 · 新引擎」，或直接用左边「确认出片」走老引擎。'
+            } else {
+              vfLog(uidVF2, `[新引擎出片] 确认卡按钮（草稿线 ${_df.tag} · skin=${_dc.skin} ${_dc.ori}）`)
+              const _dr = await runDeckVideoTask({ uid: uidVF2, draft: _df.draft, skin: _dc.skin, ori: _dc.ori, log: (u: any, m: string) => vfLog(u, m) })
+              if (_dr.ok) {
+                await stdClearAllDrafts(uidVF2)
+                vfLog(uidVF2, `[新引擎出片] 已入队 ${_dr.taskId} → 草稿作废（下一条不必再点两次）`)
+                wfEarlyReply = `MAKE_VIDEO_TASK:${_dr.taskId} 新引擎（HTML 逐帧 · 动态 PPT）成片已在后台开始。过程中可随时问我"视频做得怎么样了"查看进度。`
+              } else {
+                wfEarlyReply = '新引擎出片失败：' + String(_dr.msg || '未知原因')
+              }
+            }
+            finalResult = wfEarlyReply
+            return NextResponse.json({ success: true, data: {
+              reply: wfEarlyReply, intent: 'chat', toolUsed: false,
+              sessionId: sid || null, scene: null, scenes: [], pointsSpent: 0,
+            } })
+          } catch (eDC: any) {
+            const _msg = '新引擎出片异常：' + String(eDC?.message || eDC).slice(0, 160)
+            try { vfLog(uidVF2, '[新引擎出片] 异常: ' + _msg) } catch { /* ignore */ }
+            return NextResponse.json({ success: true, data: {
+              reply: _msg, intent: 'chat', toolUsed: false,
+              sessionId: sid || null, scene: null, scenes: [], pointsSpent: 0,
+            } })
+          }
+        }
         // ═══════════════════════════════════════════════════════════════════════
         // ★VF_LEAD_V1（2026-09-29 老板定案）【智能获客】独立线（第 5 条状态机线）
         //   · 放在成片四条线【之前】分派：它只认自己的命令（id=lead）与自己的草稿（vf_draft_lead），
