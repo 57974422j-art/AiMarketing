@@ -37,6 +37,10 @@ const FLAGS = {
   '--bgm': 'bgm', '--bgm-vol': 'bgmVol', '--self-test': 'selfTest', '--workdir': 'workdir',
   '--dry-run': 'dryRun', '--subs-size': 'subsSize', '--subs-margin-v': 'subsMarginV',
 }
+/* ★★ 旗标类型 ④（唯一真源）：**哪些选项键是 bool**（不带值）—— 解析器**从这里派生**，
+   并由下面的断言核"① ⊆ 注册表键 ② 解析器真的用它 ③ 非 bool 键必须走有值路径"。
+   ⚠️ 新增**布尔**旗标只许改这一行（改完断言会验它确实被用上；忘了改 ⇒ `--xxx` 会吃掉下一个参数 ⇒ 断言可拦）。 */
+const BOOL_KEYS = new Set(['selfTest', 'dryRun'])
 const A = {}
 for (let i = 2; i < process.argv.length; i++) {
   const a = process.argv[i]
@@ -46,10 +50,10 @@ for (let i = 2; i < process.argv.length; i++) {
     process.exit(EXIT.INPUT)
   }
   const key = FLAGS[a]
-  /* ⚠️ **布尔旗标必须列全**：`--dry-run` 此前不在名单 ⇒ 被当"有值旗标" ⇒ `A.dryRun = process.argv[++i]`
-     （吃掉**下一个参数**、且末尾时为 `undefined`）⇒ **它从来没生效过**（实测：`--dry-run` 时依旧真合成，exit=0）。
-     这类"旗标被静默当有值"与"退出码多义"同族：**看着在预览，实际在干活**。 */
-  if (key === 'selfTest' || key === 'dryRun') { A[key] = true; continue }
+  /* ★★ 旗标类型 ④（team-lead msg28 ④）：**解析器从已声明的类型派生**（`BOOL_KEYS`）——不再手写布尔名单。
+     背景：`--dry-run` 曾因**不在手写名单**里而被当作"有值旗标"（`A.dryRun = argv[++i]` 吃掉下一个参数，
+     末尾时是 `undefined`）⇒ **它从来没生效过**（实测：`--dry-run` 时依旧真合成）——**看着在预览，实际在干活**。 */
+  if (BOOL_KEYS.has(key)) { A[key] = true; continue }
   A[key] = process.argv[++i]
 }
 
@@ -66,6 +70,18 @@ for (let i = 2; i < process.argv.length; i++) {
      旗标报成"未消费"（实测首跑就这么红的 —— 宽了的代价是弱一点，但"报假死旗标"会让人去删真功能）。
      `\b` 同时防 `foo.logo` 这类误匹配。 */
   const dead = [...known].filter((n) => !new RegExp(`\\b(A|opt|o)\\.${FLAGS[n]}\\b|\\b(A|opt|o)\\['${FLAGS[n]}'\\]`).test(src))
+  /* ★★ ④ **旗标类型**（bool|value）：类型声明 = `BOOL_KEYS`，解析器**必须从它派生**（否则就是两份口径）——
+     这条能**结构性**堵住"bool 旗标被当有值旗标"（mux 踩过：`--dry-run` 吃掉下一个参数 ⇒ 看着在预览、实际在干活）。 */
+  const keys = Object.values(FLAGS)
+  const boolNotRegistered = [...BOOL_KEYS].filter((k) => !keys.includes(k))
+  const usesBool = /BOOL_KEYS\.has\(/.test(src)
+  const valuePath = /A\[key\]\s*=\s*process\.argv\[\+\+i\]/.test(src)
+  if (boolNotRegistered.length || !usesBool || !valuePath) {
+    console.error(`✗ 旗标三件套-④ 类型断言失败：BOOL_KEYS 里未注册的键 ${boolNotRegistered.join(' ') || '（无）'} · 解析器用 BOOL_KEYS=${usesBool} · 有值路径存在=${valuePath}`)
+    console.error('   规矩：bool 旗标**只许**声明在 BOOL_KEYS 且解析器从它派生（不许再手写一份名单）；非 bool 键走 argv[++i] ⇒ exit 2')
+    process.exit(EXIT.INPUT)
+  }
+  console.log(`  ✓ 旗标三件套-④ 类型：bool **${[...BOOL_KEYS].join('/')}** · 值旗标 **${keys.length - BOOL_KEYS.size}** · 解析器由声明派生 ✓`)
   if (missing.length || dead.length) {
     console.error(`✗ 旗标三件套断言失败：**注册表不全** ${missing.join(' ') || '（无）'} · **注册但未消费** ${dead.join(' ') || '（无）'}`)
     console.error('   规矩：新增旗标必须登记进 FLAGS **并被真正读取** ⇒ exit 2')

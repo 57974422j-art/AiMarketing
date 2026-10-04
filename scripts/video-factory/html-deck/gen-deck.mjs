@@ -30,6 +30,8 @@ const FLAGS = {
   '--toc': 'toc', '--plan': 'plan', '--self-test': 'selfTest', '--allow-truncate': 'allowTruncate',
   '--keep-invalid': 'keepInvalid', '--srt': 'srt',
 }
+/* ★★ 旗标类型 ④（唯一真源）：哪些选项键是 **bool**（不带值）—— 解析器从它派生。新增布尔旗标只许改这一行。 */
+const BOOL_KEYS = new Set(['toc', 'plan', 'selfTest', 'allowTruncate', 'keepInvalid'])
 const A = {}
 for (let i = 2; i < process.argv.length; i++) {
   const a = process.argv[i]
@@ -38,7 +40,8 @@ for (let i = 2; i < process.argv.length; i++) {
     process.exit(EXIT.INPUT)
   }
   const k = FLAGS[a]
-  if (k === 'toc' || k === 'plan' || k === 'selfTest' || k === 'allowTruncate' || k === 'keepInvalid') { A[k] = true; continue }
+  /* ★★ 旗标类型 ④：解析器从声明的类型派生（`BOOL_KEYS`），不再手写布尔名单。 */
+  if (BOOL_KEYS.has(k)) { A[k] = true; continue }
   A[k] = process.argv[++i]
 }
 /* ★★ 旗标三件套的**覆盖断言**（team-lead msg17 ④：与 `crosscheck` / `measure-count` 同款纳管）。
@@ -51,6 +54,17 @@ for (let i = 2; i < process.argv.length; i++) {
   const known = new Set(Object.keys(FLAGS))
   const missing = found.filter((f) => !known.has(f))
   const dead = [...known].filter((n) => !new RegExp(`\\b(A|opt)\\.${FLAGS[n]}\\b|\\b(A|opt)\\['${FLAGS[n]}'\\]`).test(src))
+  /* ★★ ④ **旗标类型**（bool|value）：类型声明 = `BOOL_KEYS`，解析器必须从它派生 ⇒ 结构性堵住"bool 被当有值"。 */
+  const keys = Object.values(FLAGS)
+  const boolNotRegistered = [...BOOL_KEYS].filter((k) => !keys.includes(k))
+  const usesBool = /BOOL_KEYS\.has\(/.test(src)
+  const valuePath = /A\[(?:key|k)\]\s*=\s*process\.argv\[\+\+i\]/.test(src)
+  if (boolNotRegistered.length || !usesBool || !valuePath) {
+    console.error(`✗ 旗标三件套-④ 类型断言失败：BOOL_KEYS 里未注册的键 ${boolNotRegistered.join(' ') || '（无）'} · 解析器用 BOOL_KEYS=${usesBool} · 有值路径存在=${valuePath}`)
+    console.error('   规矩：bool 旗标只许声明在 BOOL_KEYS 且解析器从它派生；非 bool 键走 argv[++i] ⇒ exit 2')
+    process.exit(EXIT.INPUT)
+  }
+  console.log(`  ✓ 旗标三件套-④ 类型：bool **${[...BOOL_KEYS].join('/')}** · 值旗标 **${keys.length - BOOL_KEYS.size}** · 解析器由声明派生 ✓`)
   if (missing.length || dead.length) {
     console.error(`✗ 旗标三件套断言失败：**注册表不全** ${missing.join(' ') || '（无）'} · **注册但未消费** ${dead.join(' ') || '（无）'}`)
     console.error('   规矩：新增旗标必须登记进 FLAGS **并被真正读取**（否则就是"登记即假装覆盖"）⇒ exit 2')
