@@ -114,11 +114,10 @@ steps.push({ name: `JSON.parse ${jsons.length} 个 .json`, ok: jsonBad.length ==
     if (isI9Violation(l) !== want) bad.push(`分类器自测失败：${JSON.stringify(l)} ⇒ ${isI9Violation(l)}（须 ${want}）`)
   }
   for (const f of mjs) {
-    /* ★★ **证据目录不进 I9 真源检测**（与 `check-syntax-and-json` 的扫描面**一致** · K17 先例：证据副本不进真源检测）——
-       否则 `evidence/tmp-i9/narrow-sample.mjs`（**有意的负控样本**）会把闸门**永久判红** ✗。
-       ⚠️ 本条属"**I9 有意的两层**"的一部分：本处 = **明细**（窄判据 · 能定格行号），
-          **结论来源** = `check-syntax-and-json` 的"块注释平衡"（见 README §25u + 该文件内注释）。 */
-    if (/[\\/]evidence[\\/]/.test(f)) continue
+    /* ⚠️ 本条属"**I9 有意的两层**"的一部分：本处 = **明细**（窄判据 · 能定格行号），
+       **结论来源** = `check-syntax-and-json` 的"块注释平衡"（见 README §25u + 该文件内注释）。
+       ★ team-lead ② 的**加强**已落地：边界样本改为**合成样本**（`--self-test` 里运行期拼串 ⇒ 不落文件）
+       ⇒ 此前那条"`evidence/` 豁免"**已整根撤掉**（扫描面天然一致、新克隆也能复跑、不再有 gitignore 两难）✓ */
     const lines = readFileSync(f, 'utf8').split('\n')
     lines.forEach((l, i) => {
       const t = l.trimStart()
@@ -331,6 +330,7 @@ if (process.argv.includes('--write-silent-baseline')) {
     ['measure-count.mjs', ['--self-test-scope'], null, 0],
     ['crosscheck-deck-json.mjs', ['--self-test-page'], null, 0],
     ['check-schema-vs-limits.mjs', ['--self-test-synth'], 'SYNTH-SELFTEST', 0],
+    ['check-syntax-and-json.mjs', ['--self-test-i9'], 'I9-SELFTEST', 0],   /* ★ I9 两层能力边界的**合成**证据（零文件依赖） */
     ['gen-deck.mjs', ['--self-test'], 'GEN-SELFTEST', 0],
     ['mux-video.mjs', ['--self-test'], 'MUX-SELFTEST', 2],
   ]

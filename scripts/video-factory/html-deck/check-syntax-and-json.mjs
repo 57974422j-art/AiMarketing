@@ -72,6 +72,18 @@ for (const f of mjs) {
     continue
   }
   if (readFail) commentDrift.push('（读取失败计数不应出现在这里）')
+  const bal = blockCommentBalance(s)
+  /* ⚠️ **两件事分开**（不许混）：`depth !== 0` = **判据**（真·块注释不平衡 ⇒ 红）；
+     `q` 残留 = **本扫描没建模**（如模板 `${}` 里再嵌模板 ⇒ 首版正因此把 7 个文件假红 ✗）⇒ 只**登记为可见债务**、
+     不判红（按 team-lead ④ 的分档：**1 格 + 修法专美（迷你词法器）⇒ 挂可见债务**，等第 2 例再建）。
+     ⚠️ 但它**必须**出现在输出里（`未建模 N`）⇒ 债务要么被还、要么被看见，不许静默略过。 */
+  if (bal.depth !== 0) commentDrift.push(`${relative(ENGINE_ROOT, f)} —— 块注释未平衡（残留 ${bal.depth} 个未闭合）`)
+  if (bal.unclosedString) notModeled.push(`${relative(ENGINE_ROOT, f)}（引号开于 L${bal.line}）`)
+}
+/* ★★ **扫描器抽成纯函数**（team-lead ② 的加强）：让"**边界样本**"进 `--self-test-i9`（**合成样本**）
+   ⇒ 不再需要"`evidence/` 文件 + 豁免 + gitignore"那套**两难**（扫描面天然一致、**新克隆也能复跑**）✓ */
+export function blockCommentBalance(src) {
+  const s = String(src || '')
   let depth = 0, q = null
   let qAt = 0                                /* 引号开启位置（诊断用：误报时要能一眼看出在哪） */
   const at = (i) => { let k = 0; for (let j = 0; j < i && j < s.length; j++) if (s[j] === '\n') k++; return 1 + k }
@@ -109,8 +121,28 @@ for (const f of mjs) {
      `q` 残留 = **本扫描没建模**（如模板 `${}` 里再嵌模板 ⇒ 首版正因此把 7 个文件假红 ✗）⇒ 只**登记为可见债务**、
      不判红（按 team-lead ④ 的分档：**1 格 + 修法专美（迷你词法器）⇒ 挂可见债务**，等第 2 例再建）。
      ⚠️ 但它**必须**出现在输出里（`未建模 N`）⇒ 债务要么被还、要么被看见，不许静默略过。 */
-  if (depth !== 0) commentDrift.push(`${relative(ENGINE_ROOT, f)} —— 块注释未平衡（残留 ${depth} 个未闭合）`)
-  if (q) notModeled.push(`${relative(ENGINE_ROOT, f)}（引号开于 L${at(qAt)}）`)
+  return { depth, unclosedString: q, line: q ? at(qAt) : null }
+}
+
+/* ★★ **I9 边界样本（合成 · team-lead ② 的加强）**：`--self-test-i9` ——
+   ① 平衡 ⇒ `depth 0`（不许红）· ② 未闭合 ⇒ `depth > 0`（必红）·
+   ③ ★**窄判据那种形状**（注释续行里引述闭合符 + 后面还有字 + **其余是合法 JS**）⇒ **`depth` 仍为 0**
+      ⇒ **宽判据在原理上抓不到**（一多一少**相抵**）—— 这就是"**两层能力不同**"的**可复跑证据**，
+      且**零文件依赖**（不再需要 evidence 目录 / 豁免 / gitignore）✓
+   ④ glob 写在**字符串**里 ⇒ 不算注释（`depth 0`，防假阳性）。
+   ⚠️ 样本**运行期拼**（源码里不出现连续探针）⇒ 判定器不自匹配（HF / K17-ff / 本批多次同款坑）。 */
+if (process.argv.includes('--self-test-i9')) {
+  const S = '*' + '/'
+  const O = '/' + '*'      /* ⚠️ 开符号也**分段拼**：⓪c 注释安全检查会抓"源码里出现注释符号连写"（实测 2 处假红）*/
+  const cases = []
+  const chk = (name, cond) => { cases.push(cond); console.log(`   ${cond ? '✓' : '✗'} ${name}`) }
+  chk('① 平衡块注释 ⇒ depth=0（不许红）', blockCommentBalance(O + ' a ' + S + ' const x = 1').depth === 0)
+  chk('② 未闭合块注释 ⇒ depth>0（必红）', blockCommentBalance(O + ' a\nconst x = 1').depth > 0)
+  chk('③ ★边界样本：续行引述闭合符 ⇒ **宽判据 depth 仍 0（抓不到）**', blockCommentBalance(O + ' 说明\n * 你要写 ' + S + ' const y = 2\n').depth === 0)
+  chk('④ glob 在字符串里 ⇒ 不算注释（depth 0）', blockCommentBalance("const g = '" + '**/*' + ".mjs'").depth === 0)
+  const fail = cases.filter((x) => !x).length
+  console.log(`   ${fail === 0 ? '✓' : '✗'} [I9-SELFTEST] 合成边界样本 用例=${cases.length} · 失败=${fail}`)
+  process.exit(fail === 0 ? 0 : 1)
 }
 
 console.log(`\n⓪f 全量语法/JSON 守卫：.mjs ${mjs.length} 个（node --check + 块注释平衡）· .json ${json.length} 个（JSON.parse）`)
