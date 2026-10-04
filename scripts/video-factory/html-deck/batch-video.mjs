@@ -95,14 +95,28 @@ const outRoot = resolve(HERE, A.outdir || 'out-tmp-batch')
  *   ① 第一版 `rmSync(outRoot)` 把调用者放进 `outdir` 的 `--srt/--logo` 一起删了（**工具删自己的输入**）⇒ 12 条全 `mux=2`；
  *   ② 第二版"每次启动清 raw/" ⇒ 与 `--reuse-raw` **直接矛盾**（清完再复用 ⇒ 清了个寂寞），
  *      且会把**上一批已出的成片**删掉（分批跑时前一批白做）。
- *   ⇒ 定稿：**默认增量**（不清任何东西，同名覆盖）；要全量重来请显式 `--clean`。 */
+ *   ⇒ 定稿：**默认增量**（不清任何东西，同名覆盖）；
+ *   ③ 第三版 `--clean` 是**全量**清 `decks/raw/final` ⇒ 在**共享 outdir** 上会把**本次不会重建的别的皮肤**删掉
+ *      （team-lead 实测：清 mono 四配色 ⇒ ecom 四条一起没了）⇒ 现 `--clean` **只清本次选中的皮肤**（见下方实现）。 */
 /* ⚠️ **建目录必须无条件**（不能放在 `if (!A.dryRun)` 里）：`--dry-run` 下紧随其后的"派生档落盘 + 校验"仍需要
    `outRoot/decks` 存在 —— 否则 `writeFileSync` 直接 ENOENT（实测：dry-run + 新 outdir ⇒ 未捕获异常 exit=1）。
    `--clean` 仍只在非 dry-run 生效（**dry-run 不许删东西** ✓）。 */
 mkdirSync(outRoot, { recursive: true })
 if (!A.dryRun && A.clean) {
-  for (const sub of ['decks', 'raw', 'final']) rmSync(join(outRoot, sub), { recursive: true, force: true })
-  for (const f of readdirSync(outRoot)) if (/^(sheet-|batch-sheet|batch-report|batch\.log)/.test(f)) rmSync(join(outRoot, f), { force: true })
+  /* ★★ 只清**本次选中的皮肤**（工具自己的现场事故 · team-lead 实测）：
+   *   我在**共享 outdir** 上用全量 `--clean` 重出 mono 的四配色 ⇒ **同目录 ecom 的四条成片一起被删**
+   *   （"清理范围" ≠ "本次会重新生成的范围" ⇒ 删掉了本次不会补回来的东西）。
+   *   ⇒ 判据：文件名/目录名里含 `<皮肤短名>-` 才归本次所有；**别的皮肤一律不碰**。 */
+  const shorts = skins.map((s) => s.replace('master-', '') + '-')
+  const owns = (n) => shorts.some((p) => n.includes(p))
+  let removed = 0
+  for (const sub of ['decks', 'raw', 'final']) {
+    const dir = join(outRoot, sub)
+    if (!existsSync(dir)) continue
+    for (const e of readdirSync(dir)) if (owns(e)) { rmSync(join(dir, e), { recursive: true, force: true }); removed++ }
+  }
+  for (const f of readdirSync(outRoot)) if (/^sheet-/.test(f) && owns(f)) { rmSync(join(outRoot, f), { force: true }); removed++ }
+  console.log(`   · --clean：只清本次皮肤（${shorts.map((p) => p.slice(0, -1)).join('/')}）的产物 · 已清 ${removed} 项 · **别的皮肤不受影响**`)
 }
 mkdirSync(join(outRoot, 'decks'), { recursive: true })
 const baseDeck = JSON.parse(readFileSync(resolve(HERE, base), 'utf8'))
