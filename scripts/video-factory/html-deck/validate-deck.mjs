@@ -119,8 +119,30 @@ function pageDefPtr(type) { return `#/$defs/page${type[0].toUpperCase()}${type.s
 
 let DECK_DIR = null                                    // 由 main() 设为 deck 文件所在目录（素材相对它解析）
 
+/** ★ 母版清单的**唯一真源 = deck.schema.json 的 masterId 枚举**（team-lead，2026-10-04）
+ *  背景：同一份清单曾同时硬编码在 **render-deck / validate-deck / deck.schema.json** 三处 ⇒
+ *  加一个新母版要改三处，漏一处就出现"schema 允许但校验器拒绝"的假分叉（本日实测）。
+ *  现改为**递归搜 schema 里名为 masterId 且带 enum 的节点**（不依赖具体路径），
+ *  拿不到时退回兜底清单（宁可拒绝也不静默放行）。 */
+function enumOf(schema, key) {
+  let found = null
+  const walk = (o) => {
+    if (!o || typeof o !== 'object' || found) return
+    if (o[key] && Array.isArray(o[key].enum)) { found = o[key].enum; return }
+    for (const k of Object.keys(o)) walk(o[k])
+  }
+  walk(schema)
+  return found
+}
+/** ★ 坑（本日实测）：`SCHEMA` 是**惰性加载**的（首个 `schemaNode()` 调用时才读文件）⇒
+ *  在顶层直接 `enumOf(SCHEMA, …)` 拿到的是 `null` ⇒ 静默退回兜底清单 ⇒ 新增母版仍被拒。
+ *  ⇒ 这里**强制先让 schema 就绪**（复用 `schemaNode` 的加载路径，不写第二份加载逻辑），再取值。 */
+function ensureSchemaLoaded() { schemaNode('/$defs'); return SCHEMA }
+const MASTER_IDS_FALLBACK = ['master-v1', 'master-v2']
+function masterIds() { return enumOf(ensureSchemaLoaded(), 'masterId') || MASTER_IDS_FALLBACK }
+
 const STYLE_ENUMS = {
-  masterId: ['master-v1', 'master-v2'],
+  get masterId() { return masterIds() },
   // palette 不在本表：它的取值清单**由所选母版的 master.json 提供**（见下面的专用校验）
   density: ['airy', 'normal', 'dense'],
   tempo: ['calm', 'normal', 'brisk'],

@@ -50,7 +50,7 @@
       "additionalProperties": false,
       "description": "风格参数只允许在这四组枚举里选，不许自由发挥",
       "properties": {
-        "masterId": { "enum": ["master-v1", "master-v2"], "description": "母版 ID（枚举；决定版式/皮肤/几何/动效语言，资产在 masters/<id>/）" },
+        "masterId": { "enum": ["master-v1", "master-v2", "master-editorial", "master-tech"], "description": "母版 ID（枚举；决定版式/皮肤/几何/动效语言，资产在 masters/<id>/）" },
         "palette": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,19}$", "description": "配色名 —— **取值清单由所选母版的 master.json 提供**（不同母版命名不同）。JSON Schema 表达不了这种跨字段依赖，故这里只校验形状；真正的枚举校验由 validate-deck.mjs 按母版清单执行。★ 先选 masterId，再在该母版的 palette 清单里选。" },
         "density": { "enum": ["airy", "normal", "dense"], "description": "信息密度（影响版心与行距）" },
         "tempo": { "enum": ["calm", "normal", "brisk"], "description": "节奏（映射 --enter/--enter-gap/--xover）" },

@@ -78,7 +78,22 @@ const FPS = 25
      本文件**不再自带任何母版数值**。
    ★ master-v1 的 manifest 装的就是上面那些原值 ⇒ 1→1 字节级回归必须完全一致。
    ------------------------------------------------------------------ */
-const MASTER_IDS = ['master-v1', 'master-v2']   // 与 deck.schema.json 的 masterId 枚举保持同步
+/* ★ 母版清单**唯一真源 = deck.schema.json 的 masterId 枚举**（team-lead，2026-10-04）
+   曾经同一份清单硬编码在 render-deck / validate-deck / schema 三处 ⇒ 加母版漏改一处即"schema 允许但工具拒绝"。
+   现递归搜 schema（不依赖具体路径）；拿不到 ⇒ 退回兜底清单（宁拒不放）。 */
+function enumOf(schema, key) {
+  let found = null
+  const walk = (o) => {
+    if (!o || typeof o !== 'object' || found) return
+    if (o[key] && Array.isArray(o[key].enum)) { found = o[key].enum; return }
+    for (const k of Object.keys(o)) walk(o[k])
+  }
+  walk(schema)
+  return found
+}
+let SCHEMA_FOR_ENUM = {}
+try { SCHEMA_FOR_ENUM = JSON.parse(readFileSync(join(HERE, 'deck.schema.json'), 'utf8')) } catch { SCHEMA_FOR_ENUM = {} }
+const MASTER_IDS = enumOf(SCHEMA_FOR_ENUM, 'masterId') || ['master-v1', 'master-v2']
 let MF = null                                   // 当前母版：由 main() 在生成前载入，渲染期间只读
 function loadMaster(id) {
   const dir = join(MASTERS_DIR, id)
