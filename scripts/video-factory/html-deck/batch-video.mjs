@@ -29,11 +29,11 @@ const FLAGS = {
   '--srt': 'srt', '--logo': 'logo', '--bgm': 'bgm', '--palette': 'palette', '--only': 'only',
   '--palettes': 'palettes', '--all-palettes': 'allPalettes', '--palette-index': 'paletteIndex',
   '--sheet': 'sheet', '--dry-run': 'dryRun', '--keep-raw': 'keepRaw', '--reuse-raw': 'reuseRaw',
-  '--clean': 'clean', '--sheet-only': 'sheetOnly',
+  '--clean': 'clean', '--sheet-only': 'sheetOnly', '--self-test-clean': 'selfTestClean',
 }
 /* ★★ 旗标类型 ④（唯一真源）：哪些选项键是 **bool**（不带值）—— 解析器从它派生，下面的断言核"⊆ 注册表 ∧ 真被用 ∧ 有值路径存在"。
    新增**布尔**旗标只许改这一行。 */
-const BOOL_KEYS = new Set(['sheet', 'dryRun', 'keepRaw', 'reuseRaw', 'clean', 'sheetOnly', 'allPalettes'])
+const BOOL_KEYS = new Set(['sheet', 'dryRun', 'keepRaw', 'reuseRaw', 'clean', 'sheetOnly', 'allPalettes', 'selfTestClean'])
 const A = {}
 for (let i = 2; i < process.argv.length; i++) {
   const a = process.argv[i]
@@ -98,25 +98,64 @@ const outRoot = resolve(HERE, A.outdir || 'out-tmp-batch')
  *   ⇒ 定稿：**默认增量**（不清任何东西，同名覆盖）；
  *   ③ 第三版 `--clean` 是**全量**清 `decks/raw/final` ⇒ 在**共享 outdir** 上会把**本次不会重建的别的皮肤**删掉
  *      （team-lead 实测：清 mono 四配色 ⇒ ecom 四条一起没了）⇒ 现 `--clean` **只清本次选中的皮肤**（见下方实现）。 */
+/** ★★ **纯函数：本次 `--clean` 该删哪些条目**（判据 = **清理的集合 ⊆ 本次会重建的集合** · team-lead ③ 建议落成断言）——
+ *  · 只有"条目名里含 `<本次皮肤短名>-`"的归本次所有；**别的皮肤一律不碰**。
+ *  · **双向**（team-lead 的复现口径）：**自己的必须删** ∧ **别人的必须不删** ——
+ *    只证后半句不够：那也可能是"**清理根本没生效**"，同样会过 ✓
+ *  · **不碰文件系统**（`listing` 由调用方读好传入）⇒ 可用**合成样本**证伪（零渲染 · 秒级）✓ */
+export function cleanPlan(listing, skins) {
+  const shorts = (skins || []).map((s) => String(s).replace('master-', ''))
+  /* ⚠️ 匹配**两种形态**：① 条目名**恰好等于**皮肤短名（如 `raw/mono/` ⇒ 条目名就是 `mono`）
+     ② 含 `<短名>-`（如 `deck.mono-black-9x16.json` / `mono-black-9x16` / `sheet-mono.png`）。
+     —— 首版只写 ② ⇒ `raw/mono/` 会被**漏清**（我的合成样本当场把这个缺口抓出来了 ✓ 这正是"样本要真"的价值）。 */
+  const isOwn = (n) => shorts.some((s) => String(n) === s || String(n).includes(s + '-'))
+  const own = [], others = []
+  for (const n of listing || []) (isOwn(n) ? own : others).push(String(n))
+  return { own, others }
+}
+
+/* ★★ **`--self-test-clean`**：把上面那条判据**双向**证伪（现场 = team-lead 的 `--clean` 事故 ✓）
+   ⚠️ 旗标**已登记**进 `FLAGS` + `BOOL_KEYS`，且**按 `A.selfTestClean` 消费** —— 否则旗标三件套断言会红（实测首跑就是 ✗）。 */
+if (A.selfTestClean) {
+  const cases = []
+  const chk = (name, cond) => { cases.push(cond); console.log(`   ${cond ? '✓' : '✗'} ${name}`) }
+  const M = ['final-mono-black-9x16.mp4', 'deck.mono-black-9x16.json', 'mono', 'mono-black-9x16', 'mono-graphite-9x16']
+  const E = ['final-ecom-alpha-9x16.mp4', 'deck.ecom-alpha-9x16.json', 'ecom', 'ecom-alpha-9x16', 'ecom-alpha-9x16-2']
+  const p = cleanPlan([...M, ...E], ['master-mono'])
+  chk('① **自己的必须删**（必红侧）：mono 的 5 项全在 own（含**恰好等于短名**的 `mono` = `raw/mono/` 那种）',
+    M.every((x) => p.own.includes(x)))
+  chk('② ★**别人的必须不删**（不许红侧）：ecom 的 5 项全在 others',
+    E.every((x) => p.others.includes(x)))
+  chk('③ 两套都选中 ⇒ 全归 own（不误留）', cleanPlan([...M, ...E], ['master-mono', 'master-ecom']).others.length === 0)
+  chk('④ 前缀不误伤（`monogram.mp4` ≠ `mono` 且不含 `mono-` ⇒ 归 others）', cleanPlan(['monogram.mp4'], ['master-mono']).others.length === 1)
+  chk('⑤ 边界：**不含**本次皮肤名的 `sheet-*.png`（如跨皮肤对照图）⇒ 归 others（不许误删共享产物）',
+    cleanPlan(['sheet-all12.png'], ['master-mono']).others.length === 1)
+  const fail = cases.filter((x) => !x).length
+  console.log(`   ${fail === 0 ? '✓' : '✗'} [CLEAN-PLAN-SELFTEST] 清理 ⊆ 重建 用例=${cases.length} · 失败=${fail}`)
+  process.exit(fail === 0 ? 0 : 1)
+}
+
 /* ⚠️ **建目录必须无条件**（不能放在 `if (!A.dryRun)` 里）：`--dry-run` 下紧随其后的"派生档落盘 + 校验"仍需要
    `outRoot/decks` 存在 —— 否则 `writeFileSync` 直接 ENOENT（实测：dry-run + 新 outdir ⇒ 未捕获异常 exit=1）。
    `--clean` 仍只在非 dry-run 生效（**dry-run 不许删东西** ✓）。 */
 mkdirSync(outRoot, { recursive: true })
 if (!A.dryRun && A.clean) {
-  /* ★★ 只清**本次选中的皮肤**（工具自己的现场事故 · team-lead 实测）：
-   *   我在**共享 outdir** 上用全量 `--clean` 重出 mono 的四配色 ⇒ **同目录 ecom 的四条成片一起被删**
-   *   （"清理范围" ≠ "本次会重新生成的范围" ⇒ 删掉了本次不会补回来的东西）。
-   *   ⇒ 判据：文件名/目录名里含 `<皮肤短名>-` 才归本次所有；**别的皮肤一律不碰**。 */
-  const shorts = skins.map((s) => s.replace('master-', '') + '-')
-  const owns = (n) => shorts.some((p) => n.includes(p))
-  let removed = 0
+  /* ★★ 判据（team-lead ③ + K29"清扫是一次性的、断言才常设"）：**清理的集合 ⊆ 本次会重建的集合** ——
+     抽成**纯函数** `cleanPlan()`（可**合成样本**证伪，见 `--self-test-clean`）。
+     现场（team-lead 实测）：全量 `--clean` 在**共享 outdir** 上把同目录 ecom 四条一起删了
+     （**清理范围 ≠ 重建范围** ⇒ 删掉本次不会补回来的东西）✗。 */
+  let removed = 0, keptOthers = 0
   for (const sub of ['decks', 'raw', 'final']) {
     const dir = join(outRoot, sub)
     if (!existsSync(dir)) continue
-    for (const e of readdirSync(dir)) if (owns(e)) { rmSync(join(dir, e), { recursive: true, force: true }); removed++ }
+    const plan = cleanPlan(readdirSync(dir), skins)
+    keptOthers += plan.others.length
+    for (const e of plan.own) { rmSync(join(dir, e), { recursive: true, force: true }); removed++ }
   }
-  for (const f of readdirSync(outRoot)) if (/^sheet-/.test(f) && owns(f)) { rmSync(join(outRoot, f), { force: true }); removed++ }
-  console.log(`   · --clean：只清本次皮肤（${shorts.map((p) => p.slice(0, -1)).join('/')}）的产物 · 已清 ${removed} 项 · **别的皮肤不受影响**`)
+  const rootPlan = cleanPlan(readdirSync(outRoot).filter((f) => /^sheet-/.test(f)), skins)
+  for (const f of rootPlan.own) { rmSync(join(outRoot, f), { force: true }); removed++ }
+  keptOthers += rootPlan.others.length
+  console.log(`   · --clean：只清本次皮肤（${skins.map((s) => s.replace('master-', '')).join('/')}）的产物 · 已清 ${removed} 项 · **保留别人的 ${keptOthers} 项**（清理 ⊆ 重建 ✓）`)
 }
 mkdirSync(join(outRoot, 'decks'), { recursive: true })
 const baseDeck = JSON.parse(readFileSync(resolve(HERE, base), 'utf8'))
