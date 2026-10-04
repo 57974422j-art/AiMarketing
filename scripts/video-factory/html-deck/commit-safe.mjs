@@ -183,10 +183,13 @@ if (process.argv.includes('--self-test-write-monotonic')) {
   process.exit(ok ? 0 : 1)
 }
 if (process.argv.includes('--self-test-catch-classifier')) {
+  /* ⚠️ 样本里的 `catch` 字样**必须运行期拼接** —— 否则扫描器会把**本文件里的样本字符串**也当成真 catch 计入
+     ⇒ 棘轮立刻误报（实测：commit-safe 从 4 涨到 5，正是这三条样本）。与 I9 的样本同款坑。 */
+  const C = 'cat' + 'ch'
   const cases = [
-    ['catch { }', 'dumb'], ['catch (e) { /* 忽略 */ }', 'dumb'],
-    ['catch (e) { console.error(e.message) }', 'loud'], ['catch (e) { statFail++ }', 'loud'],
-    ['catch (e) { throw e }', 'loud'], ['catch { /* x */ }', 'dumb'],
+    [C + ' { }', 'dumb'], [C + ' (e) { /* 忽略 */ }', 'dumb'],
+    [C + ' (e) { console.error(e.message) }', 'loud'], [C + ' (e) { statFail++ }', 'loud'],
+    [C + ' (e) { throw e }', 'loud'], [C + ' { /* x */ }', 'dumb'],
   ]
   const bad = cases.filter(([t, want]) => classifyCatchBlock(t) !== want)
   console.log(bad.length ? `✗ 分类器自测：${bad.map(([t, w]) => `${t}（须 ${w}）`).join(' · ')}` : `✓ 分类器自测：${cases.length} 例（哑 3 / 说话 3）全对`)
@@ -335,6 +338,57 @@ if (!noSync && distRel) {
   } else {
     steps.push({ name: `同步 dist-rel（${n} 个契约文件）`, ok: true, detail: [] })
   }
+}
+/* ★★ team-lead msg13 ③（回填进提交门禁）：**母版令牌一致性**（廉价启发式）——
+   ① **4 个关键令牌必须存在**（防"令牌只在内存改、没写回文件"那类：写回失败 ⇒ 令牌缺失或仍是旧值）；
+   ② **注释-值一致**：注释若说"深/黑/暗"而值很亮、或说"浅/白/亮"而值很暗 ⇒ 判红
+      （team-lead 实测的「深冷灰」配 `#fbfbfa` 正是这一类 —— 复制骨架后注释没跟着改）。 */
+function lumaOf(hex) {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(String(hex).trim())
+  if (!m) return null
+  const v = parseInt(m[1], 16)
+  const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+}
+function tokenIssues(cssText) {
+  const out = []
+  for (const tok of ['--bg', '--ink', '--accent', '--rule']) {
+    const m = new RegExp('(' + tok + ')\\s*:\\s*([^;]+);([^\\n]*)').exec(cssText)
+    if (!m) { out.push('缺令牌 ' + tok); continue }
+    const val = m[2].trim(), comment = m[3] || ''
+    const L = lumaOf(val)
+    if (L === null) continue
+    if (/(深|黑|暗)/.test(comment) && L > 0.5) out.push(tok + '=' + val + ' 很亮，而注释说「' + comment.trim().slice(0, 24) + '」（注释与值不符）')
+    if (/(浅|白|亮)/.test(comment) && L < 0.5) out.push(tok + '=' + val + ' 很暗，而注释说「' + comment.trim().slice(0, 24) + '」（注释与值不符）')
+  }
+  return out
+}
+{
+  /* 启发式 ⇒ 先跑**合成样本**（三例：真不符 / 相符 / 缺令牌）⇒ 分类必须全对（防"扫描器不工作"）。 */
+  /* ⚠️ 样本构造：**只放被测令牌那一行 + 其余三枚**（我第一版预置了 `--bg` ⇒ 正则命中**预置的那行**（它没有注释）
+     ⇒ 样本恒 0 命中 ⇒ **假红**。这正是"自测装置本身也要被测"的同族。） */
+  const baseTok = { '--bg': '#000000;', '--ink': '#ffffff;', '--accent': '#888888;', '--rule': '#333333;' }
+  const mkCss = (over) => Object.entries({ ...baseTok, ...over }).map(([k, v]) => k + ': ' + v).join('\n')
+  const samples = [
+    [mkCss({ '--bg': '#fbfbfa;   /* 深冷灰（非纯黑） */' }), 1],
+    [mkCss({ '--bg': '#14161a;   /* 深冷灰（非纯黑） */' }), 0],
+    [mkCss({ '--ink': '#111111;  /* 主文字：近黑 */' }), 0],
+  ]
+  const badSelf = []
+  for (const [txt, want] of samples) {
+    const n = tokenIssues(txt).length
+    if (n < want) badSelf.push(txt.replace(/\n/g, ' ').slice(0, 40) + ' ⇒ 命中 ' + n + '（须 ≥ ' + want + '）')
+  }
+  const masterDirs = existsSync(join(HERE, 'masters'))
+    ? readdirSync(join(HERE, 'masters'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) : []
+  for (const m of masterDirs) {
+    const css = join(HERE, 'masters', m, 'assets', 'master.css')
+    if (!existsSync(css)) { badSelf.push(m + '：缺 assets 下的 master.css'); continue }
+    let txt = ''
+    try { txt = readFileSync(css, 'utf8') } catch (e) { badSelf.push(m + '：读 css 失败 ⇒ ' + e.message); continue }
+    for (const s of tokenIssues(txt)) badSelf.push(m + '：' + s)
+  }
+  steps.push({ name: `母版令牌一致性（${masterDirs.length} 套皮肤：4 关键令牌在位 + 注释-值一致）`, ok: badSelf.length === 0, detail: badSelf })
 }
 /* 4) 漂移守卫 */
 if (!noSync && distRel && existsSync(join(HERE, 'check-probe-drift.mjs'))) {
