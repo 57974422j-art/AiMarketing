@@ -441,6 +441,27 @@
       "evidence": "**恒定非判据码的证据行**：`timeline_track_too_dense` / `nested_structure_needs_subcomposition` **在 N=3 亦出现**（各 N 都有 ⇒ 与容量无关 ⇒ 按**跨 N 差分**排除；**不是** N=30 造成的）；提取器扫 28/38 行 · 提出 2 码（其中判据 0）· 重叠 0 条 · 引擎 exit=1 而 **判据码=[]**",
       "source": "node measure-count.mjs --deck all12 --page 3 --jsonpath pages.2.items --sel li --min 3 --max 5 --nmax 30 --stride 27 --maxitems-ptr '#/$defs/pageBullets/properties/items'",
       "judgeLimitNote": "**容量 ≠ 约束**：`capacityAtLeast: 30` = **容量 ≥ 30**（能装多少），**不是**「判据 ≥ 30」（该写多少）。条数既无几何失败模式 ⇒ 上限**只能由编辑意图定** ⇒ 这正是 `kind: editorial` 的含义；唯一断言 = `maxItems ≤ 容量`（现 cap=5 ⇒ 5 ≤ 30 ✓）。★ **页作用域说明**：本格无 `--expect-page`，因为页作用域由 `measure-count` 的 **`--page 3` 切片**结构性承担（读回按**第 3 个 section** 内的 `li` 计数，实测 `dt.pageNo=3` ✓）——见 readback 与作用域负控。⚠️ 未证部分如实标注：**该上限的「正确值」不由几何决定**，故**不许**写「上限已验证」"
+    },
+    {
+      "jsonPointer": "#/$defs/pageSummary/properties/items",
+      "field": "pages.10.items",
+      "pageType": "summary",
+      "detectPoint": "summary 页的 li（**页内唯一容器**：该页 1 个 `<ul>` / 3 个 `<li>`，从产物解析确认；类前缀位置式 ⇒ 不手抄）",
+      "unit": "count",
+      "kind": "editorial",
+      "detectKind": "count",
+      "capacityAtLeast": 30,
+      "sweepMax": 30,
+      "sweepMaxNote": "**扫描上限**（= `--nmax` 值）—— 与 `capacityAtLeast`（容量下限）**一个字段一个语义**：这样「N_MAX 变了但容量恰好没变」的漂移能被 `--verify-cell` 发现（它比对 source 里的 `--nmax` ↔ 本字段）",
+      "basis": [
+        "**无几何失败模式**（N_MAX=30 内**未触发任何判据码**：N=3 与 N=30 两次读数**判据码=[]**）；本格 N=30 时**引擎 exit=0**（与 steps/bullets 的 exit=1 不同 ⇒ 如实记录差异，不统一化）"
+      ],
+      "page": 11,
+      "readback": "**页内条数 == N** ✓（N=3 ⇒ 页内 3 · N=30 ⇒ 页内 30；**全篇 25 / 52 作对照** ⇒ 作用域负控成立）",
+      "twoPath": "**未交叉（页切片单源）** —— `dom-target` 用标签型选择器会选**更早的**含 `li` 的页（实测 `pageNo=3 ≠ 注入页 11`）⇒ 按裁定不许记成「交叉通过」",
+      "evidence": "**恒定非判据码的证据行**：`timeline_track_too_dense` / `nested_structure_needs_subcomposition` **在 N=3 亦出现**（各 N 都有 ⇒ 与容量无关 ⇒ 按**跨 N 差分**排除；**不是** N=30 造成的）；提取器扫 28 行 · 提出 2 码（其中判据 0）· 重叠 0 条",
+      "source": "node measure-count.mjs --deck all12 --page 11 --jsonpath pages.10.items --sel li --min 3 --max 3 --nmax 30 --stride 27 --maxitems-ptr '#/$defs/pageSummary/properties/items'",
+      "judgeLimitNote": "**容量 ≠ 约束**：`capacityAtLeast: 30` = **容量 ≥ 30**（能装多少），**不是**「判据 ≥ 30」（该写多少）。条数既无几何失败模式 ⇒ 上限**只能由编辑意图定** ⇒ 这正是 `kind: editorial` 的含义；唯一断言 = `maxItems ≤ 容量`（现 cap=3 ⇒ 3 ≤ 30 ✓）。★ **页作用域说明**：本格无 `--expect-page`，因为页作用域由 `measure-count` 的 **`--page 11` 切片**结构性承担（读回按**第 11 个 section** 内的 `li` 计数）——见 readback 与作用域负控。⚠️ 未证部分如实标注：**该上限的「正确值」不由几何决定**，故**不许**写「上限已验证」"
     }
   ]
 }
