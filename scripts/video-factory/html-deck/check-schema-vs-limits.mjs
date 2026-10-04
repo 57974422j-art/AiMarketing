@@ -79,22 +79,52 @@ export function fixedWindowVerdict(cell, node, boundNode) {
   return out
 }
 
-/** ★★ team-lead msg37 ②：**同一判据只许一处实现**（K17 的教训：4 份解析只修了 1 份 ⇒ 分叉是**将来**的事，
- *  "此刻功能等价"不构成豁免）—— 判据：① `verifyCoverageVerdict(` 出现 **≥ 2** 次（定义 + `--verify-cell` 调用点）；
- *  ② **旧的内联形态必须不存在**（内联比较 / 内联文案 / 重复推送 ⇒ 命中即红）。
- *  ⚠️ 指纹**分段拼**（源码里不出现连续旧字面量）⇒ 判定器**不会自匹配**（HF / K17-ff 那两次同款坑）。 */
+/** ★★ team-lead msg37 ② + msg38 ①②：**同一判据只许一处实现** —— 结构性断言（≠"此刻消除了分叉"）。
+ *  · ① **调用点**：`verifyCoverageVerdict(` 出现 **≥ 2** 次（定义 + 真路径调用点）⇒ 防"删了调用却留着纯函数"；
+ *  · ② **禁止串表**：本轮那次回归的**三条内联原文**只许出现在判据**区间之内**（区间内 = 纯函数自己的合法文案 ✓），
+ *      出现在**区间之外** ⇒ 红（**按区间判**而不是"全文命中就红" —— 否则纯函数自己的输出会把自己判红 ✗）；
+ *  · ③ **区间抽样**：`capacityAtLeast` 的**比较**只许住在两个判据纯函数区间内（别处 ⇒ 内联重写）；
+ *      存在性检查（`!== undefined` / `=== null`）**不算比较**（它们是"有没有这个字段"，不是判据）。
+ *  ⚠️ **能力边界（如实 · team-lead msg38 ②）**：本断言防"**原样回写**"，**不防"等价改写"** ——
+ *     例如 `const cal = it.capacityAtLeast; if (cap > cal) …`（**别名**）或换一种措辞写回内联 ⇒ **抓不到**；
+ *     彻底堵死需**别名/数据流**分析（成本高，暂不做，已记 K 表）。**"能抓什么 / 不能抓什么"本身就是可判伪的知识。**
+ *  ⚠️ 所有指纹**分段拼**（源码里无连续旧字面量）⇒ 判定器**不自匹配**（HF / K17-ff 同款坑）；区间也**自动定位**
+ *     （列 0 函数头 + 大括号配平 ⇒ 不手写行号，挪动代码不会失效）。 */
 export function sameCriterionVerdicts(src) {
   const out = []
-  const s = String(src || '')
+  const lines = String(src || '').split('\n')
   const CALL = 'verifyCoverage' + 'Verdict('
-  const nCall = s.split(CALL).length - 1
-  if (nCall < 2) out.push(`${CALL} 只出现 **${nCall}** 次（须 ≥ 2：定义 + \`--verify-cell\` 调用点）⇒ 判据又分叉了`)
+  const nCall = lines.join('\n').split(CALL).length - 1
+  if (nCall < 2) out.push(`${CALL} 只出现 **${nCall}** 次（须 ≥ 2：定义 + 真路径调用点）⇒ 分叉 / 调用被删`)
+  /* 区间：两个判据纯函数的行范围（自动定位，不靠手写行号） */
+  const region = (name) => {
+    const i = lines.findIndex((l) => new RegExp('^(export )?function ' + name + '\\(').test(l))
+    if (i < 0) return null
+    let d = 0
+    for (let j = i; j < lines.length; j++) {
+      for (const ch of lines[j]) { if (ch === '{') d++; else if (ch === '}') { d--; if (d === 0) return [i + 1, j + 1] } }
+    }
+    return null
+  }
+  const R = [region('verifyCoverage' + 'Verdict'), region('fixedWindow' + 'Verdict')].filter(Boolean)
+  const inRegion = (ln) => R.some(([a, b]) => ln >= a && ln <= b)
+  /* ② 禁止串：本轮回归的三条原文（+ 早前两条内联形态）—— **只许在区间内** */
   const OLD = [
     ['旧内联比较', 'maxIn !== Number(' + 'cell.' + 'capacityAtLeast)'],
-    ['旧重复推送', 'if (fixed === ' + 'null) ' + 'why.push('],
+    ['旧回归·容量比较推送', 'cell.' + 'capacityAtLeast)) why.push('],
+    ['旧回归·固定值比较推送', 'else if (maxIn < ' + 'fixed) why.push('],
+    ['旧回归·口径不全文案', '既无 capacityAt' + 'Least 也非固定窗口'],
     ['旧内联文案（verify-cell 版）', '页内=' + '${inPage[1]} ≠ ' + 'capacityAtLeast='],
   ]
-  for (const [nm, pat] of OLD) if (s.includes(pat)) out.push(`**旧内联形态仍在**（${nm}）⇒ 同一判据两份实现（应改调纯函数）`)
+  for (const [nm, pat] of OLD) {
+    const at = lines.findIndex((l, k) => l.includes(pat) && !inRegion(k + 1))
+    if (at >= 0) out.push(`**旧内联形态出现在判据区间之外**（${nm} · L${at + 1}）⇒ 同一判据两份实现（应改调纯函数）`)
+  }
+  /* ③ 区间抽样：比较只许住在判据区间内（别名/换措辞抓不到 —— 见能力边界） */
+  const PRESENCE = new RegExp('capacityAt' + 'Least\\s*(!==|===)\\s*(undefined|null)')
+  const CMP = new RegExp('capacityAt' + 'Least\\s*(!==|===|<=|>=|<|>)|(!==|===|<=|>=|<|>)\\s*[A-Za-z_$][\\w$]*\\.capacityAt' + 'Least')
+  const bad = lines.map((l, k) => [k + 1, l]).filter(([ln, l]) => CMP.test(l) && !PRESENCE.test(l) && !inRegion(ln)).map(([ln]) => ln)
+  if (bad.length) out.push(`**判据区间外出现 \`capacityAtLeast\` 的比较**（L${bad.join(',L')}）⇒ 该判据只许住在纯函数里`)
   return out
 }
 
@@ -123,11 +153,19 @@ if (process.argv.includes('--self-test-synth')) {
   chk('正控：**越契约仍渲染**（max=30 · fixed=3）⇒ 不红', verifyCoverageVerdict({}, 30, 3) === null)
   chk('正控：有容量时 max==capacityAtLeast ⇒ 不红', verifyCoverageVerdict({ capacityAtLeast: 30 }, 30) === null)
   chk('正控：区间窗口的格（有容量）不被判"固定窗口"', fixedWindowVerdict({ capacityAtLeast: 30 }, { minItems: 3, maxItems: 6 }, null).length === 0)
-  /* ★ msg37 ② 那条**指纹断言**自己的必红/不许红样本（判据必须能被合成样本证伪 —— 否则它只是"看着在测"） */
-  const fpOld = sameCriterionVerdicts("x\nif (maxIn !== Number(" + "cell." + "capacityAtLeast)) why.push('x')")
-  const fpNew = sameCriterionVerdicts("export function verifyCoverage" + "Verdict(a,b,c){}\nconst v = verifyCoverage" + "Verdict(cell, maxIn, fixed)")
-  chk('指纹：**旧内联形态 ⇒ 必红**', fpOld.length > 0)
-  chk('指纹：**纯函数两处（定义+调用）⇒ 不许红**', fpNew.length === 0)
+  /* ★ msg37 ② / msg38 ② 那条**指纹断言**自己的必红/不许红样本（判据必须能被合成样本证伪、
+     **且必须成对**：负控防漏报 · 正控防误报 —— 防"过严 ⇒ 将来有人为让闸门绿而放宽判据"）。
+     ⚠️ 样本**运行期拼**（源码里不出现连续旧字面量 ⇒ 判定器不自匹配）。 */
+  const CAP = 'capacityAt' + 'Least'
+  const OLD_MSG = '既无 capacityAt' + 'Least 也非固定窗口'
+  const DEF = 'export function verifyCoverage' + 'Verdict() {\n  return `' + OLD_MSG + '`\n}\nconst v = verifyCoverage' + 'Verdict()'
+  chk('指纹：**旧内联比较 + 旧回归·容量比较推送 ⇒ 必红**', sameCriterionVerdicts("x\nif (maxIn !== Number(" + "cell." + CAP + ")) why.push('x')").length > 0)
+  chk('指纹：**旧回归·固定值比较推送 ⇒ 必红**', sameCriterionVerdicts("x\nelse if (maxIn < " + "fixed) why.push('x')").length > 0)
+  chk('指纹：**旧文案落在判据区间内**（纯函数自己的合法输出）⇒ 不许红', sameCriterionVerdicts(DEF).length === 0)
+  chk('指纹：**同一文案落在区间之外 ⇒ 必红**（区间规则咬得动）', sameCriterionVerdicts('// x\nconst s = "' + OLD_MSG + '"\n' + DEF).length > 0)
+  chk('指纹：**区间外 `capacityAtLeast` 的比较 ⇒ 必红**（区间抽样）', sameCriterionVerdicts(DEF + '\nconst bad = maxIn !== cell.' + CAP).length > 0)
+  chk('指纹：**`!== undefined` 是存在性检查、不是判据 ⇒ 不许红**', sameCriterionVerdicts(DEF + '\nif (cell.' + CAP + ' !== undefined) {}').length === 0)
+  chk('指纹：**纯函数两处（定义+调用）⇒ 不许红**', sameCriterionVerdicts("export function verifyCoverage" + "Verdict(a,b,c){}\nconst v = verifyCoverage" + "Verdict(cell, maxIn, fixed)").length === 0)
   const fail = cases.filter((x) => !x).length
   console.log(`   ${fail === 0 ? '✓' : '✗'} [SYNTH-SELFTEST] 合成负控/正控 用例=${cases.length} · 失败=${fail}`)
   process.exit(fail === 0 ? 0 : 1)
