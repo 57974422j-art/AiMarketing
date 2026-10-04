@@ -19,7 +19,7 @@
  *   不传 `--files` ⇒ `git add -A scripts/video-factory/html-deck`（注意：别把 out-tmp 控件加进库）
  * ========================================================================== */
 import { spawnSync } from 'node:child_process'
-import { readdirSync, statSync, readFileSync, existsSync, copyFileSync, writeFileSync } from 'node:fs'
+import { readdirSync, statSync, readFileSync, existsSync, copyFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -308,7 +308,33 @@ if (!noSync && distRel) {
     if (rel.includes('\\') || rel.includes('/')) continue   /* 只同步**顶层**文件（子目录各有归属） */
     try { copyFileSync(f, join(distRel, basename(f))); n++ } catch { /* ignore */ }
   }
-  steps.push({ name: `同步 dist-rel（${n} 个契约文件）`, ok: true, detail: [] })
+  /* ★★ team-lead msg11 ①：**`masters/` 也要同步**（皮肤是增长最快的部分 ⇒ "改皮肤靠人记手动镜像"必然漏）
+     ⇒ **结构保持**地递归拷（含 assets）；并按 team-lead ③ **打印字节数**（每套皮肤带 cover.jpg 等 ⇒ 别让仓库悄悄涨）。 */
+  const walkAll = (dir, out = []) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name)
+      if (e.isDirectory()) walkAll(full, out)
+      else out.push(full)
+    }
+    return out
+  }
+  const MDIR = join(HERE, 'masters')
+  let mn = 0, mBytes = 0, statFailN = 0
+  if (existsSync(MDIR)) {
+    for (const f of walkAll(MDIR)) {
+      const rel = f.slice(HERE.length + 1)
+      const dst = join(distRel, rel)
+      try { mkdirSync(dirname(dst), { recursive: true }) } catch (e) { console.error(`   （建目录失败：${dirname(dst)} ⇒ ${e.message}）`) }
+      let b = 0
+      /* ⚠️ **不许哑**：statSync 失败要**计数**（我的分类器把"无 console/throw/计数"的 catch 记为哑 ⇒ 会被棘轮咬 ✓
+         实测：本批新代码就因此让 commit-safe 的哑 catch 超基线 ⇒ 改成计数。） */
+      try { b = statSync(f).size } catch { statFailN++ }
+      try { copyFileSync(f, dst); mn++; mBytes += b } catch (e) { console.error(`   （同步失败：${rel} ⇒ ${e.message}）`) }
+    }
+    steps.push({ name: `同步 dist-rel（${n} 个契约文件 · masters/ **${mn}** 个文件 · **${(mBytes / 1048576).toFixed(2)} MB**）`, ok: true, detail: [] })
+  } else {
+    steps.push({ name: `同步 dist-rel（${n} 个契约文件）`, ok: true, detail: [] })
+  }
 }
 /* 4) 漂移守卫 */
 if (!noSync && distRel && existsSync(join(HERE, 'check-probe-drift.mjs'))) {

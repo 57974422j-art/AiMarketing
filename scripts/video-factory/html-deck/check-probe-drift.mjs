@@ -124,7 +124,11 @@ const PROBE_MISSING_OK = (rel) => (
 for (const rel of landFiles) {
   const cands = probeCandidates(rel)
   if (!cands.length) {
-    if (/\.(mjs|json)$/.test(rel) && !PROBE_MISSING_OK(rel)) missingInProbe.push(rel)
+    /* ★★ team-lead msg11 ①：锚点范围**纳入皮肤目录**（`masters` 下的一切）。皮肤是增长最快的部分；
+       只查 mjs 与 json 会漏掉样式表、母版 HTML、封面图片 ⇒ "改了皮肤没同步"不会被发现。
+       ⚠️ 本注释**不写斜杠连成的路径形式**（闸门 ⓪c「注释安全」会判红 —— 我第一版写了一个样式表相对路径就被抓）。 */
+    const isAnchor = /\.(mjs|json)$/.test(rel) || rel.startsWith('masters' + '/')
+    if (isAnchor && !PROBE_MISSING_OK(rel)) missingInProbe.push(rel)
     continue
   }
   const lh = md5(join(LANDING_DIR, rel))
