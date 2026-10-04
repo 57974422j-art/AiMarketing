@@ -1686,6 +1686,77 @@ function VfPptPreview({ plan }: { plan: any }) {
   )
 }
 
+/** ★VF_DECKPREVIEW_WIRE_V1（2026-10-04 用户定案「接」）——「新引擎成片预览」：
+ *  出片确认卡上与「👀 先看 PPT 页」并排：把**同一份 plan** 发给 /api/agent/vf/deck-preview，
+ *  服务端用 HTML 逐帧引擎（10 套皮肤）真出一条完整成片 MP4 → 入库 + 签名 URL → 这里直接播放。
+ *  与老按钮的关系：老按钮看的是「老渲染链的逐镜静帧」（快）；这个看的是「新引擎的动效成片」（慢一些，
+ *  含转场/动效，可直接对比投放效果）。不扣点；出片不依赖它；失败如实显示服务端的人话 error。 */
+const DECK_SKINS: { id: string; label: string }[] = [
+  { id: 'v1', label: '经典 V1' }, { id: 'v2', label: '经典 V2' },
+  { id: 'editorial', label: '杂志风' }, { id: 'tech', label: '科技风' },
+  { id: 'festive', label: '喜庆风' }, { id: 'mono', label: '极简黑白' },
+  { id: 'ecom', label: '电商高饱和' }, { id: 'formal', label: '商务正式' },
+  { id: 'health', label: '健康医疗' }, { id: 'edu', label: '教育知识' },
+]
+function VfDeckPreview({ plan }: { plan: any }) {
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState('')
+  const [skin, setSkin] = useState('v1')
+  const [ori, setOri] = useState('9:16')
+  const [video, setVideo] = useState<any>(null)
+  const hasPlan = !!(plan && Array.isArray(plan.shots) && plan.shots.length)
+  const run = async () => {
+    if (loading || !hasPlan) return
+    setLoading(true); setErr(''); setVideo(null)
+    try {
+      const r = await fetch('/api/agent/vf/deck-preview', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan, skin, orientation: ori }),
+      })
+      const j = await r.json().catch(() => null)
+      if (j && j.success && j.url) setVideo(j)
+      else setErr(String((j && j.error) || '预览生成失败：服务端没有返回结果'))
+    } catch (e: any) {
+      setErr('预览生成失败：' + String(e?.message || e).slice(0, 120))
+    } finally { setLoading(false) }
+  }
+  return (
+    <div className="w-full mt-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select value={skin} onChange={(e) => setSkin(e.target.value)} disabled={loading}
+          className="px-2 py-1.5 rounded-lg text-xs bg-white/[0.06] border border-emerald-400/30 text-emerald-100">
+          {DECK_SKINS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+        </select>
+        <select value={ori} onChange={(e) => setOri(e.target.value)} disabled={loading}
+          className="px-2 py-1.5 rounded-lg text-xs bg-white/[0.06] border border-emerald-400/30 text-emerald-100">
+          <option value="9:16">竖屏 9:16</option>
+          <option value="16:9">横屏 16:9</option>
+        </select>
+        <button onClick={run} disabled={loading || !hasPlan}
+          title={hasPlan
+            ? '把这份分镜交给新渲染引擎（10 套皮肤），真出一条带动效的完整成片给你先看（不扣点；渲染约 1~3 分钟）'
+            : '当前卡片没有可预览的分镜（老卡片或分镜未生成）'}
+          className={`px-4 py-1.5 rounded-lg text-sm ${loading || !hasPlan
+            ? 'bg-white/[0.04] text-gray-500 cursor-not-allowed'
+            : 'bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100'}`}>
+          {loading ? '⏳ 新引擎渲染中（约 1~3 分钟）…' : '🎬 新引擎成片预览（不扣点）'}
+        </button>
+      </div>
+      {err ? <div className="text-[10px] text-amber-300/90 mt-1">{err}</div> : null}
+      {video ? (
+        <div className="mt-1.5">
+          <div className="text-[10px] text-emerald-300 mb-1">
+            新引擎成片 · {String(video.skin || '')} · {String(video.orientation || '')} · {video.pages || '?'} 页 · {video.sizeMB || '?'}MB
+            {video.truncated ? `（${String(video.truncated)}）` : ''}。满意可继续点「确认出片」（正式出片仍走当前链路）。
+          </div>
+          <video src={String(video.url)} controls className="rounded-lg border border-white/10 max-h-[420px]" />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function VfShotEditList({ shots, onSend }: { shots: any[]; onSend: (msg: string) => void }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<Record<number, Record<string, string>>>({})
@@ -3753,6 +3824,8 @@ function AgentPageInner() {
                   不是另拼一份（否则预览与成片会漂移）。不扣点、不阻塞出片、失败如实显示原因。
                   ⚠️ 分镜失败（shotsFailed）时没有可审的画面，不显示这个按钮。 */}
               {!vj.shotsFailed ? <VfPptPreview plan={(vj as any).sb?.plan} /> : null}
+              {/* ★VF_DECKPREVIEW_WIRE_V1：新引擎成片预览（10 套皮肤 · 真出 MP4）—— 与上面的逐镜静帧并排，互不依赖 */}
+              {!vj.shotsFailed ? <VfDeckPreview plan={(vj as any).sb?.plan} /> : null}
             </div>
           )
         }
