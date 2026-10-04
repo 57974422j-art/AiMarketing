@@ -325,11 +325,14 @@ function checkChart(p, path) {
   if (!Array.isArray(c.series)) {
     add('error', `${path}.chart.series`, 'series 缺失或不是数组', '补 ≥4 个 number 数据点；拿不到真实数据 → 改用 bullets 页')
   } else {
-    if (c.series.length < 4) {
-      add('error', `${path}.chart.series`, `只有 ${c.series.length} 个数据点，硬性要求 ≥4`,
-        '补到 ≥4 个点；若确实只有 2~3 个数，改用 data 页（大数字 + 单位 + 解释）或 bullets 页')
+    /* ★★ **条数单源**（K22 同族第二例 · team-lead msg28 ③）：上下限都从 schema 读（`limItems`），
+       **不再手写 4 / 12** —— 否则我覆盖 `maxItems` 到 8 后，渲染仍被这里的 `> 5`（曾经的写法）拒死 ⇒ 条数测量做不了。 */
+    const [sMin, sMax] = limItems('#/$defs/pageChart/properties/series')
+    if (c.series.length < sMin) {
+      add('error', `${path}.chart.series`, `只有 ${c.series.length} 个数据点，硬性要求 ≥${sMin}`,
+        `补到 ≥${sMin} 个点；若确实只有 2~3 个数，改用 data 页（大数字 + 单位 + 解释）或 bullets 页`)
     }
-    if (c.series.length > 12) add('error', `${path}.chart.series`, `${c.series.length} 个点，上限 12`, '拆成两页，或改用 line 只画趋势')
+    if (c.series.length > sMax) add('error', `${path}.chart.series`, `${c.series.length} 个点，上限 ${sMax}`, '拆成两页，或改用 line 只画趋势')
     c.series.forEach((v, i) => {
       if (typeof v !== 'number' || !Number.isFinite(v)) {
         add('error', `${path}.chart.series[${i}]`, `数据点不是合法 number：${JSON.stringify(v)}`,
@@ -603,8 +606,11 @@ function main() {
   if (!Array.isArray(pages)) {
     add('error', 'pages', 'pages 缺失或不是数组', '补 pages 数组，第 1 页是 cover')
   } else {
-    if (pages.length < 4) add('error', 'pages', `只有 ${pages.length} 页，硬性要求 ≥4 页（封面/要点/数据/尾页）`, '补到 4~12 页')
-    if (pages.length > 12) add('error', 'pages', `${pages.length} 页，上限 12 页`, '拆成多支片子')
+    /* ★★ **条数单源**（team-lead msg28 ③）：页数上下界**只在 schema 里写一次**（`#/properties/pages`）⇒
+       本文件不许手写 4 / 12（手写数会被"条数债务棘轮"计数，且会与 schema 漂移）。 */
+    const [pMin, pMax] = limItems('#/properties/pages')
+    if (pages.length < pMin) add('error', 'pages', `只有 ${pages.length} 页，硬性要求 ≥${pMin} 页（封面/要点/数据/尾页）`, `补到 ${pMin}~${pMax} 页`)
+    if (pages.length > pMax) add('error', 'pages', `${pages.length} 页，上限 ${pMax} 页`, '拆成多支片子')
     if (!pages[0] || pages[0].type !== 'cover') {
       add('error', 'pages[0]', `第 1 页是 "${pages[0] && pages[0].type}"，硬性要求是 cover`,
         '把 cover 放到第 1 页（封面文案由 meta.title/subtitle 提供，cover 页本身不写文案）')

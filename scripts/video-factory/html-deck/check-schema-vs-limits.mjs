@@ -95,6 +95,30 @@ for (const it of (limits.limits || [])) {
      该格的"唯一断言 `maxItems ≤ 容量`"**只是散文**（写在 `judgeLimitNote` 里）⇒ 与"汇总句 vs 逐格"同族。
      分派：`kind:'editorial'`（条数）⇒ 断言 `maxItems ≤ capacityAtLeast`（容量是**下限**，不是判据）；
            `kind:'content'`（长度）⇒ 走下面的 I2（`maxLength ≤ ⌊0.9×判据⌋`）。 */
+  /* ★★ team-lead msg28 ③：**上界来源声明**（`boundSource`）—— 给"**页数**这类由编辑意图定的条数"用：
+     它们**没有几何容量**（硬测一个 N_MAX 只是**同义反复**）⇒ 表内**不设** `capacityAtLeast`，
+     改声明 `boundSource`（`<契约文件>#<指针>`）⇒ 断言：① 指针**必须存在**；② 若有 `renderedMax`（对照值）⇒
+     必须 == 该节点 `maxItems`（**不许把 schema 上限包装成"容量"**）；③ `basis` 必须写明"由编辑意图定、非几何容量"；
+     ④ 与 `capacityAtLeast` **互斥**（同时给 ⇒ 语义冲突 ⇒ 红）。 */
+  if (it.boundSource) {
+    const m = /^([\w.-]+)#(.+)$/.exec(String(it.boundSource))
+    if (!m) viol.push(`${labelC(it)} ⇒ **boundSource 形态**：应为 <契约文件>#<指针>（现 ${it.boundSource}）`)
+    else {
+      const st = m[1].endsWith('.json') ? join(DECK_DIR, m[1]) : join(DECK_DIR, `${m[1]}.json`)
+      let n2 = null
+      try { n2 = get(m[2]) } catch { n2 = null }
+      if (!n2) viol.push(`${labelC(it)} ⇒ **boundSource 不存在**：${it.boundSource}（上界来源声明不可解析 ⇒ 等于没声明）`)
+      else {
+        if (it.renderedMax !== undefined && Number(it.renderedMax) !== Number(n2.maxItems)) viol.push(`${labelC(it)} ⇒ **renderedMax ${it.renderedMax} ≠ schema maxItems ${n2.maxItems}** ⇒ 不许把 schema 上限包装成容量`)
+        if (n2.minItems === undefined && n2.maxItems === undefined) viol.push(`${labelC(it)} ⇒ **boundSource 指向的节点无 minItems/maxItems**（无处生效）`)
+        if (!Array.isArray(it.basis) || !it.basis.length) viol.push(`${labelC(it)} ⇒ **每格必有断言**：上界来源格缺 basis`)
+        if (it.capacityAtLeast !== undefined) viol.push(`${labelC(it)} ⇒ **语义冲突**：既声明 boundSource（编辑意图）又给 capacityAtLeast（几何容量）⇒ 二者互斥`)
+        else noted.push(`${labelC(it)} ⇒ ✓ **上界来源**：${it.boundSource}（min=${n2.minItems ?? '-'} / max=${n2.maxItems ?? '-'} · renderedMax=${it.renderedMax ?? '-'} 对照 · **无容量读数**）`)
+        IT_ASSERTED.push(it.field || it.jsonPointer)
+      }
+    }
+    continue
+  }
   if (it.unit === 'count' || it.capacityAtLeast !== undefined) {
     const cap = node.maxItems, cal = it.capacityAtLeast
     if (cal == null) viol.push(`${labelC(it)} ⇒ **I1-count**：条数格必须声明 \`capacityAtLeast\`（容量下限 = 已证能装多少）`)

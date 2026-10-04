@@ -26,6 +26,10 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const EXIT = { OK: 0, FAIL: 1, INPUT: 2 }
 const FLAGS = { '--layer': 'layer', '--masters': 'masters', '--dry-run': 'dryRun', '--list': 'list' }
+/* ★ 旗标**类型声明 = 唯一真源**（team-lead msg28 ④ / probe-html msg29 ①）：解析器**从它派生**。
+   背景坑：`--dry-run` 曾被当"有值旗标"读 ⇒ `A.dryRun = argv[++i]` **吃掉下一个参数**（看着在预览、实际在干活）。
+   ⇒ 声明 bool 者走"置真"分支；有值者才 `argv[++i]` ⇒ 这类坑**结构性无法发生**。 */
+const BOOL_KEYS = new Set(['dryRun', 'list'])
 const A = {}
 for (let i = 2; i < process.argv.length; i++) {
   const a = process.argv[i]
@@ -34,7 +38,7 @@ for (let i = 2; i < process.argv.length; i++) {
     process.exit(EXIT.INPUT)
   }
   const k = FLAGS[a]
-  if (k === 'dryRun' || k === 'list') { A[k] = true; continue }
+  if (BOOL_KEYS.has(k)) { A[k] = true; continue }      /* 派生自声明：bool ⇒ 不吃下一个参数 */
   A[k] = process.argv[++i]
 }
 const DOWNSTREAM_FLAGS = new Set([])   // 本工具不调用别的工具（两张表纪律：没有下游就空表）
@@ -49,6 +53,16 @@ const DOWNSTREAM_FLAGS = new Set([])   // 本工具不调用别的工具（两�
     console.error(`✗ 旗标三件套：注册表不全 ${missing.join(' ') || '（无）'} · 注册未消费 ${dead.join(' ') || '（无）'}`)
     process.exit(EXIT.INPUT)
   }
+  /* ★ 第 ④ 条（类型）：① BOOL_KEYS 每个键必须**已注册** ② 解析器**真的**用 `BOOL_KEYS.has(` ③ 有值路径必须存在 */
+  const unregisteredBool = [...BOOL_KEYS].filter((k) => !Object.values(FLAGS).includes(k))
+  const derivedParser = src.includes('BOOL_KEYS.has(')
+  const valuePath = /A\[k\] = process\.argv\[\+\+i\]/.test(src)
+  if (unregisteredBool.length || !derivedParser || !valuePath) {
+    console.error(`✗ 旗标三件套-④ 类型：未注册的 bool 键 ${unregisteredBool.join(' ') || '（无）'} · 解析器派生=${derivedParser} · 有值路径=${valuePath}`)
+    process.exit(EXIT.INPUT)
+  }
+  const boolName = [...BOOL_KEYS].map((k) => Object.keys(FLAGS).find((f) => FLAGS[f] === k)).join('/')
+  console.log(`  ✓ 旗标三件套-④ 类型：bool ${boolName} · 值旗标 ${known.size - BOOL_KEYS.size} · 解析器由声明派生 ✓`)
 }
 
 const layersDir = join(HERE, 'master-layers')
