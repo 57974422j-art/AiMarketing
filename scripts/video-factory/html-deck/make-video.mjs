@@ -145,8 +145,11 @@ function main(text, opt) {
     if (pal && pal.err) { console.log(`   ✗ [MAKE-ITEM-FAILED] ${skin} · ${pal.err}`); rows.push({ skin, ok: false, why: 'palette-index' }); continue }
     if (!pal) { console.log(`   ✗ [MAKE-ITEM-FAILED] ${skin} · master.json 未声明 palette`); rows.push({ skin, ok: false, why: 'no-palette' }); continue }
     /* ① 文案 ⇒ 该皮肤的 deck + 字幕（每皮肤一份：长度窗口按 schema 校核） */
-    const deckPath = join(outRoot, 'decks', `deck.${skin.replace('master-', '')}.json`)
-    const srtPath = join(outRoot, 'decks', `subs.${skin.replace('master-', '')}.srt`)
+    /* ⚠️ 派生档名**必须带配色**（team-lead 实测事故）：此前只带皮肤名 ⇒ 同一皮肤换 `--palette-index` 跑四次，
+     *   四次**共用同一个底档路径** ⇒ 互相覆盖、产物也落到同一路径（8 条只活 2 条，且都算"成功"）。 */
+    const palTag = String(pal).replace(/[^\w\u4e00-\u9fa5-]/g, '_')
+    const deckPath = join(outRoot, 'decks', `deck.${skin.replace('master-', '')}.${palTag}.json`)
+    const srtPath = join(outRoot, 'decks', `subs.${skin.replace('master-', '')}.${palTag}.srt`)
     const gArgs = ['--in', textFile, '--out', deckPath, '--srt', srtPath, '--master', skin, '--palette', pal]
     if (opt.toc) gArgs.push('--toc')
     if (opt.seconds) gArgs.push('--seconds', String(opt.seconds))
@@ -162,7 +165,11 @@ function main(text, opt) {
     /* ⚠️ `batch-video` 的 `--outdir` 内部用 `join(HERE, x)`（**不是 resolve**）⇒ 传**绝对路径会被拼坏**
      *   （`join(HERE, 'G:\\…')` ⇒ `HERE\\G:\\…`）。这里按**相对 HERE** 传；该不一致我已报给 probe-html。 */
     const relToHere = (p) => (p.startsWith(HERE + sep) ? p.slice(HERE.length + 1) : p)
-    const bArgs = ['--base', deckPath, '--skins', skin, '--orientations', oris.join(','),
+    /* ★★ 必须把配色**传下去**（实测事故的根因）：`batch-video` 会**再次派生**（`d.style = {…, palette, orientation}`），
+     *   其配色选择**只认自己的旗标** —— 不传 `--palette`，它就按母版**默认配色**重派生 ⇒
+     *   `--palette-index > 0` 在**成片内容上静默无效**，而本工具的报告仍写"我要的那个配色"= **报告撒谎**。
+     *   （现场证据：报告写 `palette=inkblue`，成片名 `final-mono-black-9x16.mp4`，抽帧强调色 = 近黑 = 默认配色 ⇒ 名对、报告错。） */
+    const bArgs = ['--base', deckPath, '--skins', skin, '--orientations', oris.join(','), '--palette', pal,
       '--srt', srtPath, '--outdir', relToHere(join(outRoot, 'skins', skin.replace('master-', '')))]
     if (opt.logo) bArgs.push('--logo', resolve(opt.logo))
     if (opt.bgm) bArgs.push('--bgm', resolve(opt.bgm))
@@ -175,9 +182,50 @@ function main(text, opt) {
       console.log(`   ✗ [MAKE-ITEM-FAILED] ${skin} · batch-video 失败：${tagOf(b.stdout)}`)
       rows.push({ skin, ok: false, why: 'batch-video:' + b.status }); continue
     }
-    for (const r of rep.rows) rows.push({ skin, ori: r.ori, palette: pal, ok: r.ok, final: r.final, dur: r.dur, sizeMB: r.sizeMB, why: r.why })
+    /* ★★ 成片级回读断言（口径：**改完了必须由"能读回来的证据"证明**，不看自己的变量）——
+     *   上面那个事故的形状正是"报告写我要的配色、产物却是别的配色" ⇒ 两条判据都从**产物侧**取：
+     *   ① 渲染真正消费的派生档（batch-video 写在自己 outdir 下）里 `style.palette` 必须 == 本次配色
+     *   ② 成片文件名里必须出现本次配色（否则"名不符实"⇒ 投放时拿错片）
+     *   只在 `r.ok` 为真时判（失败行另有原因，不叠加噪声）。 */
+    const decksDir = join(outRoot, 'skins', skin.replace('master-', ''), 'decks')
+    for (const r of rep.rows) {
+      const oriTag = String(r.ori).replace(':', 'x')
+      const allHere = existsSync(decksDir) ? readdirSync(decksDir).filter((f) => f.startsWith('deck.') && f.includes(oriTag)) : []
+      const cands = allHere.filter((f) => f.includes(palTag))
+      let palInArtifact = null
+      /* ⚠️ 哑 catch 棘轮：此处原先只在 catch 里赋 null ⇒ 判"哑"（该文件基线 0 ⇒ 新增即红，**会阻塞全体提交**）
+         ⇒ 改为**会说话**（计数 + 事后打印），与今晚其余各处修法一致（probe-html 代修 · 一行级 · 不动作业逻辑）。 */
+      let palReadFail = 0
+      try { palInArtifact = cands.length === 1 ? JSON.parse(readFileSync(join(decksDir, cands[0]), 'utf8')).style.palette : null } catch { palInArtifact = null; palReadFail++ }
+      if (palReadFail) console.log(`   ⚠ [MAKE-PAL-READ-FAIL] ${skin} ${r.ori}：派生档读取失败 ⇒ 配色核对**未完成**（不计入判据，但必须可见）`)
+      const nameOk = String(r.final || '').includes(String(pal))
+      if (r.ok && cands.length !== 1) {
+        console.log(`   ✗ [MAKE-DECK-AMBIGUOUS] ${skin} ${r.ori}：本配色「${pal}」的派生档命中 ${cands.length} 个（应恰好 1）⇒ 无法证明渲染用的是哪个配色`)
+        console.log(`      该方向现有派生档：${allHere.join(', ') || '(无)'}`)
+        rows.push({ skin, ori: r.ori, palette: pal, ok: false, final: r.final, why: 'derived-deck-ambiguous' }); continue
+      }
+      if (r.ok && palInArtifact !== pal) {
+        console.log(`   ✗ [MAKE-PALETTE-MISMATCH] ${skin} ${r.ori}：**渲染所用派生档的** palette=${palInArtifact} ≠ 要求的 ${pal}（配色没传到下游 ⇒ 静默回退默认配色）`)
+        rows.push({ skin, ori: r.ori, palette: pal, ok: false, final: r.final, why: 'palette-mismatch-in-artifact' }); continue
+      }
+      if (r.ok && !nameOk) {
+        console.log(`   ✗ [MAKE-NAME-MISMATCH] ${skin} ${r.ori}：成片名 ${basename(String(r.final || ''))} 不含配色「${pal}」⇒ 名不符实`)
+        rows.push({ skin, ori: r.ori, palette: pal, ok: false, final: r.final, why: 'name-mismatch' }); continue
+      }
+      rows.push({ skin, ori: r.ori, palette: pal, ok: r.ok, final: r.final, dur: r.dur, sizeMB: r.sizeMB, why: r.why })
+    }
     const pages = (() => { try { return JSON.parse(readFileSync(deckPath, 'utf8')).pages.length } catch { return '?' } })()
     console.log(`   ✓ [MAKE-ITEM-OK] ${skin} · 配色 ${pal} · ${pages} 页 · 方向 ${rep.rows.filter((r) => r.ok).length}/${rep.rows.length} 条成片`)
+  }
+  /* ★ 覆盖守卫（纯名字层、零成本）：同一批里**两条成片不许落到同一路径** ——
+   *   本工具曾因"派生档/产物名不带配色"让 4 次 `--palette-index` 运行**互相覆盖**（8 条只活 2 条，且都算"成功"）。 */
+  const seen = new Map()
+  for (const r of rows.filter((x) => x.ok)) seen.set(r.final, (seen.get(r.final) || 0) + 1)
+  for (const [p, n] of seen) {
+    if (n > 1) {
+      console.log(`   ✗ [MAKE-OUTPUT-COLLISION] ${p} 被 ${n} 条成片共用 ⇒ 后写覆盖前写（产物名必须含全部维度）`)
+      rows.filter((r) => r.final === p).forEach((r) => { r.ok = false; r.why = 'output-collision' })
+    }
   }
   const fail = rows.filter((r) => !r.ok).length
   const report = { at: new Date().toISOString(), input: opt.in || '(内联)', skins: skins.length, oris, rows, ok: fail === 0, fail }
